@@ -4,7 +4,7 @@
 // Flores, 200" sem cidade caía no Porto, em Portugal).
 import { env, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { exec, one } from "../src/db";
+import { one } from "../src/db";
 import { perform } from "../src/service";
 import { json, uid } from "../src/types";
 import { completeAddress, formatAddress, readAddress } from "../src/modules/entrega/address";
@@ -27,13 +27,8 @@ async function setup(establishment: Record<string, unknown> | null) {
   await perform(env, f.admin, f.profile, "module.set", { id: "entrega", enabled: true }, uid());
   await run(f, f.admin, "user.update", { id: f.member.id, access: ["*", "entrega:courier"] });
   (f.member as any).access = ["*", "entrega:courier"];
-  if (establishment)
-    await exec(
-      env,
-      "UPDATE profiles SET settings=json_set(coalesce(settings,'{}'),'$.establishment',json(?)) WHERE id=?",
-      JSON.stringify(establishment),
-      f.profile,
-    );
+  // Pela API de Gestão (PUT /settings), com a validação do núcleo.
+  if (establishment) await run(f, f.admin, "settings", { establishment });
   const menu = await seedMenu(f);
   return { f, menu };
 }
@@ -172,6 +167,68 @@ describe("entrega: endereço completo para o app do entregador", () => {
     expect(formatAddress(readAddress({ street: "Rua X", number: "1", district: "Centro", city: "Campinas", state: "SP", reference: "fundos" })!)).toBe(
       "Rua X, 1 - Centro, Campinas - SP (fundos)",
     );
+  });
+});
+
+describe("estabelecimento: endereço estruturado e posição da loja", () => {
+  it("valida, monta o endereço só para leitura, guarda o texto livre e expõe a posição", async () => {
+    const { f } = await setup({
+      name: "Lanchonete da Ana",
+      address: "Texto livre antigo",
+      street: "Av. Brasil",
+      number: "10",
+      district: "Centro",
+      city: "Campinas",
+      state: "sp",
+      postal_code: "13010-000",
+      municipality_code: "3509502",
+      latitude: STORE_POS.lat,
+      longitude: STORE_POS.lng,
+    });
+    const est = await api(f, "GET", "/establishment");
+    expect(est).toMatchObject({
+      address: "Av. Brasil, 10 - Centro, Campinas/SP, CEP 13010-000",
+      address_free: "Texto livre antigo",
+      state: "SP",
+      postal_code: "13010000",
+      municipality_code: "3509502",
+      position: STORE_POS,
+    });
+    // Limpou rua e cidade: volta o texto livre, sem perda.
+    await run(f, f.admin, "settings", { establishment: { name: "Lanchonete da Ana", address: "Texto livre antigo" } });
+    const back = await api(f, "GET", "/establishment");
+    expect([back.address, back.position, back.city]).toEqual(["Texto livre antigo", null, ""]);
+    for (const [bad, message] of [
+      [{ state: "XX" }, /UF/],
+      [{ postal_code: "123" }, /CEP/],
+      [{ state: "RJ", municipality_code: "3509502" }, /IBGE/],
+      [{ latitude: -22.9 }, /latitude/],
+      [{ latitude: 91, longitude: 0 }, /latitude/],
+    ] as const)
+      await expect(run(f, f.admin, "settings", { establishment: bad })).rejects.toThrow(message);
+  });
+
+  it("formulário do carrinho: cidade e UF da loja já preenchidas; o cliente troca; UF validada", async () => {
+    const { f, menu } = await setup({ city: "Campinas", state: "SP" });
+    const phone = "5511977" + String(Math.random()).slice(2, 8);
+    await say(f, "oi", phone);
+    const c = await say(f, "1", phone);
+    const code = codeIn((await outbox(c.id)).find((m) => codeIn(String(m.text)))!.text);
+    const html = await (await SELF.fetch(`https://test/api/w/${code}`)).text();
+    expect(html).toContain('name="city" maxlength="100" value="Campinas"');
+    expect(html).toContain('name="state" maxlength="2" value="SP"');
+    const fields = {
+      [`q_${menu.suco.id}`]: "1",
+      fulfillment: "delivery",
+      name: "Caio",
+      street: "Rua das Flores, 200",
+      district: "Centro",
+    };
+    const refused = await submitCart(code, { ...fields, city: "Valinhos", state: "XX", confirm: "1" });
+    expect(await refused.text()).toContain("UF: use a sigla do estado");
+    await submitCart(code, { ...fields, city: "Valinhos", state: "sp", confirm: "1" });
+    const order = await one(env, "SELECT address FROM pedido_orders WHERE conversation_id=? ORDER BY number DESC LIMIT 1", c.id);
+    expect(json(order.address)).toMatchObject({ city: "Valinhos", state: "SP" });
   });
 });
 

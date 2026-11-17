@@ -141,6 +141,7 @@ export async function sendCart(
   }
   const title = await storeName(ctx, cfg);
   const pickup = await pickupAddress(ctx, cfg);
+  const place = await storePlace(ctx);
   const methods = await offeredMethods(ctx, cfg);
   const intro = [
     store.closes_at ? `Aberto até ${clockOf(store.closes_at)}.` : "",
@@ -177,6 +178,10 @@ export async function sendCart(
           ...(etaText(cfg) ? { eta: etaText(cfg) } : {}),
           ...(cfg.pickup && pickup
             ? { pickup_address: pickup.slice(0, 200) }
+            : {}),
+          // Cidade e UF da loja já preenchidas no formulário de entrega.
+          ...(cfg.delivery && place.city
+            ? { default_city: place.city, ...(place.state ? { default_state: place.state } : {}) }
             : {}),
         },
         allow_note: true,
