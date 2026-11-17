@@ -249,6 +249,9 @@ struct IssuedTicketCard: View {
 /// A chamada atual em destaque e as anteriores ao lado (ou embaixo, em pé).
 struct CallBoard: View {
     let calls: [StationCall]
+    /// A senha sendo anunciada (`PanelCallQueue`): é ela a principal enquanto a fala durar, mesmo que o `snapshot` já
+    /// traga chamadas mais novas (essas aparecem nas anteriores). `nil`: a mais recente do `snapshot`.
+    var calling: StationCall? = nil
     @Environment(\.panelStyle) private var s
     @Environment(\.panelBase) private var base
 
@@ -256,8 +259,8 @@ struct CallBoard: View {
         let ordered = PanelCalls.onScreen(calls)
         GeometryReader { geo in
             let landscape = geo.size.width > geo.size.height
-            if let current = ordered.first {
-                let others = Array(ordered.dropFirst().prefix(PanelCalls.othersOnScreen))
+            if let current = calling ?? ordered.first {
+                let others = Array(ordered.filter { $0.ticketId != current.ticketId }.prefix(PanelCalls.othersOnScreen))
                 if landscape {
                     HStack(spacing: base * 0.8) {
                         CallHero(call: current).frame(width: geo.size.width * (others.isEmpty ? 1 : 0.62))

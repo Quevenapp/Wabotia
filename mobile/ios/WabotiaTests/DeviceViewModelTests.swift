@@ -7,8 +7,19 @@ final class RecordingAudio: PanelCallAudio {
     var chimes = 0
     var spoken: [String] = []
     func chime() { chimes += 1 }
-    func speak(_ text: String) { spoken.append(text) }
-    func stop() {}
+    /// `true`: a fala só termina em `finishSpeech()` (para ver a tela acompanhando a voz).
+    var holdSpeech = false
+    private var speaking: [() -> Void] = []
+    func speak(_ text: String, done: @escaping () -> Void) {
+        spoken.append(text)
+        if holdSpeech { speaking.append(done) } else { done() }
+    }
+    func finishSpeech() { if !speaking.isEmpty { speaking.removeFirst()() } }
+    func stop() {
+        let cut = speaking
+        speaking = []
+        cut.forEach { $0() }
+    }
     var volumes: [Float] = []
     func setVolume(_ level: Float) { volumes.append(level) }
 }
@@ -216,7 +227,7 @@ final class DeviceViewModelTests: XCTestCase {
         store = MemoryDeviceConfigStore(DeviceConfig(deviceId: "dev", baseUrl: "https://w.example", token: "wab_t", profileId: "p1", name: "Totem da entrada", role: role, scopes: scopes))
         let session = StubURLProtocol.session()
         let services = DeviceServices(store: store, pairing: QueuePairing(session: session), session: session, printer: printer, settings: settings,
-                                      audio: { [unowned self] in self.audio }, serverURL: "https://w.example", demo: false, pollInterval: 0.05, spotlightSeconds: 0.2,
+                                      audio: { [unowned self] in self.audio }, serverURL: "https://w.example", demo: false, pollInterval: 0.05, callTiming: PanelCallTiming(hold: 0.2, silent: 0.1),
                                       issueRetryPause: issueRetryPause)
         return DeviceViewModel(services: services)
     }
@@ -248,8 +259,9 @@ final class DeviceViewModelTests: XCTestCase {
         }
         vm.setSound(false)
         await waitUntil { vm.spotlight != nil }
-        vm.close()
         XCTAssertEqual(vm.spotlight?.publicNumber, "N009")
+        vm.close()
+        XCTAssertNil(vm.spotlight, "a tela fechada esquece o destaque")
         XCTAssertEqual(audio.chimes, 0)
         XCTAssertTrue(audio.spoken.isEmpty)
         XCTAssertFalse(settings.soundEnabled("dev"))

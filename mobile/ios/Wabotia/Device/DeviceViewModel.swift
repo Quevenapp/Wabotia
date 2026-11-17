@@ -14,8 +14,10 @@ struct DeviceServices {
     var demo: Bool
     /// Leitura sem WebSocket (3 s na demonstração, 5 s num servidor real).
     var pollInterval: TimeInterval
-    /// Quanto o destaque da chamada fica na tela.
-    var spotlightSeconds: TimeInterval = 8
+    /// O ritmo dos anúncios do painel (teto da espera, 30 s, 12 s de destaque final, 4 s sem som).
+    var callTiming: PanelCallTiming = .standard
+    /// O relógio dos anúncios (controlado nos testes).
+    var clock: PanelClock = SystemPanelClock()
     /// Espera antes da repetição automática da emissão (nanossegundos).
     var issueRetryPause: UInt64 = 1_500_000_000
 
@@ -71,6 +73,8 @@ final class DeviceViewModel: ObservableObject {
     @Published private(set) var issued: QueueTicket?
     @Published private(set) var couponPrint: TicketPrint?
     @Published var notice: String?
+    /// A senha em destaque: a que está sendo anunciada (e, no fim da fila, a última por mais 12 s). `nil`: o quadro
+    /// mostra a última chamada do `snapshot`.
     @Published private(set) var spotlight: StationCall?
     @Published private(set) var soundEnabled = true
     /// Por que o QR do WhatsApp não sai no cupom (`coupon.whatsapp_qr_notice`), para os ajustes do aparelho.
@@ -97,8 +101,11 @@ final class DeviceViewModel: ObservableObject {
     /// Papel escolhido agora há pouco sem PIN: a tela de ajustes oferece criar um.
     @Published var suggestPin = false
     private var pairingTask: Task<Void, Never>?
-    private var spotlightTask: Task<Void, Never>?
     private var issuedTask: Task<Void, Never>?
+    /// Os anúncios, um por vez: a tela acompanha a fala.
+    private lazy var callQueue = PanelCallQueue(timing: services.callTiming, clock: services.clock,
+                                                announce: { [weak self] call, hurry in await self?.announceCall(call, hurry: hurry) },
+                                                show: { [weak self] call in self?.showCall(call) })
 
     init(services: DeviceServices) {
         self.services = services
@@ -166,6 +173,7 @@ final class DeviceViewModel: ObservableObject {
         services.store.save(config)
         self.config = config
         notice = nil
+        callQueue.stop()
         audio.stop()
         audio = role.panel ? services.audio() : SilentPanelAudio()
         loadLocalSettings(config)
@@ -273,6 +281,7 @@ final class DeviceViewModel: ObservableObject {
         feed?.stop()
         feed = nil
         live = false
+        callQueue.stop()
         audio.stop()
     }
 
@@ -280,7 +289,6 @@ final class DeviceViewModel: ObservableObject {
     func close() {
         stopLive()
         pairingTask?.cancel()
-        spotlightTask?.cancel()
         issuedTask?.cancel()
     }
 
@@ -292,22 +300,50 @@ final class DeviceViewModel: ObservableObject {
             announcer.prime(calls)
             return
         }
-        let announcement = announcer.announce(calls)
-        guard let latest = announcement.latest else { return }
-        spotlight = latest
-        spotlightTask?.cancel()
-        let seconds = services.spotlightSeconds
-        spotlightTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            self?.spotlight = nil
+        // Cada chamada nova entra na fila de anúncios; o destaque só passa para ela quando o anúncio dela começa.
+        // A volta da rede com a fila inteira (rajada grande de uma vez) não é anunciada: o quadro já mostra tudo.
+        for call in announcer.announce(calls).calls { callQueue.push(call) }
+    }
+
+    /// O anúncio de uma chamada: gongo e a fala duas vezes, ou uma só se outras estiverem esperando ao fim da primeira.
+    /// Sem som, só o tempo do destaque.
+    private func announceCall(_ call: StationCall, hurry: @escaping () -> Bool) async {
+        #if DEBUG
+        print("[Wabotia] painel: anunciando \(call.publicNumber) (\(soundEnabled ? "com som" : "sem som")), esperando [\(callQueue.waiting.map(\.publicNumber).joined(separator: ","))]")
+        #endif
+        guard soundEnabled else {
+            await services.clock.sleep(services.callTiming.silent)
+            return
         }
-        if soundEnabled, announcement.chime {
-            audio.chime()
-            // Uma chamada sozinha é falada duas vezes, como no Senhapp; várias de uma vez, uma vez cada.
-            let times = announcement.spoken.count == 1 ? 2 : 1
-            for text in announcement.spoken { for _ in 0..<times { audio.speak(text) } }
+        let text = PanelCallAnnouncer.announcementText(call)
+        audio.chime()
+        await say(text)
+        guard soundEnabled, !hurry() else { return }
+        await say(text)
+    }
+
+    /// Uma fala inteira (com teto, para a fila nunca parar por uma voz que não responde).
+    private func say(_ text: String) async {
+        let audio = self.audio
+        let clock = services.clock
+        let timeout = services.callTiming.speechTimeout
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let once = PanelOnce { continuation.resume() }
+            let timer = clock.schedule(after: timeout) { once.fire() }
+            audio.speak(text) {
+                Task { @MainActor in
+                    timer.cancel()
+                    once.fire()
+                }
+            }
         }
+    }
+
+    private func showCall(_ call: StationCall?) {
+        #if DEBUG
+        print("[Wabotia] painel: destaque \(call?.publicNumber ?? "volta ao quadro")")
+        #endif
+        spotlight = call
     }
 
     // MARK: - Totem
@@ -407,6 +443,8 @@ final class DeviceViewModel: ObservableObject {
     func setSound(_ enabled: Bool) {
         guard let id = config?.deviceId else { return }
         services.settings.setSoundEnabled(id, enabled)
+        // A fala em curso é cortada; a fila segue no ritmo sem som.
+        soundEnabled = enabled
         if !enabled { audio.stop() }
         soundEnabled = enabled
     }

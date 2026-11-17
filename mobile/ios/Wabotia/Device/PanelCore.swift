@@ -76,8 +76,10 @@ enum PanelCalls {
 struct PanelAnnouncement: Equatable {
     var chime: Bool
     var spoken: [String]
-    /// A senha chamada ou rechamada por último neste anúncio: a que o destaque mostra.
+    /// A senha chamada ou rechamada por último neste anúncio.
     var latest: StationCall?
+    /// As chamadas novas a anunciar, na ordem da chamada: vão para a `PanelCallQueue`, uma por vez.
+    var calls: [StationCall] = []
 
     static let silent = PanelAnnouncement(chime: false, spoken: [], latest: nil)
 }
@@ -115,10 +117,12 @@ final class PanelCallAnnouncer {
         if pending.count >= Self.silentBurstThreshold {
             return PanelAnnouncement(chime: true, spoken: [], latest: chronological.last)
         }
+        let spoken = Array(chronological.suffix(Self.maxSpokenPerCycle))
         return PanelAnnouncement(
             chime: true,
-            spoken: chronological.suffix(Self.maxSpokenPerCycle).map(Self.announcementText),
-            latest: chronological.last
+            spoken: spoken.map(Self.announcementText),
+            latest: chronological.last,
+            calls: spoken
         )
     }
 

@@ -127,7 +127,9 @@ Só no build de depuração (`#if DEBUG`); o release não os tem. Passe como var
   (`transfer*`, `actions`, `window`, `tags`, `reply`, `claim`, `send`, `transferred`).
 - `WABOTIA_DEMO_ACTION=<ação>` faz uma ação ao abrir: `call` (guichê), `issue`, `choose`, `settings`, `printer`, `pin`,
   `unpair` (aparelho), `week` (agenda), `quote` (ordem), `list` (reservas e pedidos), `menu` (cardápio),
-  `subscriptions` e `delinquents` (mensalidade).
+  `subscriptions` e `delinquents` (mensalidade). No painel (`device-panel`), `burst` e `burst-silent` simulam uma
+  rajada de 6 chamadas e uma rechamada (quadros locais, nada vai a servidor); o console mostra o destaque e a fala de
+  cada uma, para conferir que a tela acompanha a voz (`PanelCallQueue`, docs/FILA-SENHAS.md).
 - `WABOTIA_DEMO_ANCHOR=<id>` rola até um ponto (ex.: `handoff`, `items`); `WABOTIA_DEMO_DARK=1` força o tema escuro.
 
 ### Servidor de verdade (teste em aparelho sem tocar na tela)

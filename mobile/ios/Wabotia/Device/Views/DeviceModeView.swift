@@ -109,6 +109,23 @@ struct DeviceModeView: View {
             settings = true
             printer = true
         case "unpair": vm.unpair()
+        case "burst", "burst-silent":
+            // Rajada simulada no painel da demonstração (quadros `call` locais, nada vai a servidor): 6 chamadas, uma por
+            // segundo, e a rechamada de uma que ainda espera. O console mostra destaque e fala, para conferir que andam juntos.
+            if action == "burst-silent" { vm.setSound(false) }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            for i in 1...6 {
+                let code = String(format: "N%03d", 40 + i)
+                print("[Wabotia] painel: chegou \(code)")
+                vm.handle(.call(CallFrame(ticketId: "burst-\(i)", code: code, preferential: false, queueId: "dq-geral", queueName: "Geral",
+                                          counterId: "c\(i % 3 + 1)", counterName: "Guichê \(i % 3 + 1)", callCount: 1, recall: false,
+                                          at: Int64(Date().timeIntervalSince1970 * 1000), speech: nil)))
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+            print("[Wabotia] painel: chegou N045 de novo (rechamada)")
+            vm.handle(.call(CallFrame(ticketId: "burst-5", code: "N045", preferential: false, queueId: "dq-geral", queueName: "Geral",
+                                      counterId: "c3", counterName: "Guichê 3", callCount: 2, recall: true,
+                                      at: Int64(Date().timeIntervalSince1970 * 1000), speech: nil)))
         default: break
         }
     }
@@ -596,18 +613,18 @@ private struct DevicePanelScreen: View {
                 if landscape {
                     HStack(spacing: 16) {
                         totem.frame(maxWidth: .infinity)
-                        CallBoard(calls: overview.stationCalls).frame(maxWidth: .infinity)
+                        CallBoard(calls: overview.stationCalls, calling: vm.spotlight).frame(maxWidth: .infinity)
                     }
                 } else {
                     VStack(spacing: 16) {
-                        CallBoard(calls: overview.stationCalls)
+                        CallBoard(calls: overview.stationCalls, calling: vm.spotlight)
                         totem
                     }
                 }
             } else if role == .totem {
                 TotemBoard(queues: overview.kioskQueues, blocked: blocked, onChoose: vm.chooseQueue)
             } else {
-                CallBoard(calls: overview.stationCalls)
+                CallBoard(calls: overview.stationCalls, calling: vm.spotlight)
             }
         } else {
             VStack(spacing: 12) {

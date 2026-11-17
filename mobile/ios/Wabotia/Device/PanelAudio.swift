@@ -5,18 +5,23 @@ import Foundation
 protocol PanelCallAudio: AnyObject {
     /// Gongo curto: sinaliza a chamada mesmo sem voz instalada.
     func chime()
-    /// Fala o texto já montado (fica na fila depois do que estiver sendo falado).
-    func speak(_ text: String)
+    /// Fala o texto já montado (fica na fila depois do que estiver sendo falado). `done` vem no fim da fala, também
+    /// quando ela é cortada: é por ele que a tela acompanha a voz (`PanelCallQueue`).
+    func speak(_ text: String, done: @escaping () -> Void)
     /// Corta a fala pendente (som desligado, tela fechada).
     func stop()
     /// Volume do painel, de 0 a 1, dentro do volume de mídia do aparelho (que o app não pode mudar sozinho).
     func setVolume(_ level: Float)
 }
 
+extension PanelCallAudio {
+    func speak(_ text: String) { speak(text, done: {}) }
+}
+
 /// Sem áudio: nos testes, no totem (que não anuncia) e onde o aparelho não tem som.
 final class SilentPanelAudio: PanelCallAudio {
     func chime() {}
-    func speak(_ text: String) {}
+    func speak(_ text: String, done: @escaping () -> Void) { done() }
     func stop() {}
     func setVolume(_ level: Float) {}
 }
@@ -93,15 +98,30 @@ final class SpeechPanelAudio: NSObject, PanelCallAudio, AVSpeechSynthesizerDeleg
         #endif
     }
 
+    /// O fim de cada fala, para quem espera por ela.
+    private var pending: [ObjectIdentifier: () -> Void] = [:]
+
+    private func finished(_ utterance: AVSpeechUtterance) {
+        let done = pending.removeValue(forKey: ObjectIdentifier(utterance))
+        DispatchQueue.main.async { done?() }
+    }
+
     #if DEBUG
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
         print("[Wabotia] fala iniciada (\(utterance.voice?.language ?? "?")): \(utterance.speechString)")
     }
+    #endif
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        #if DEBUG
         print("[Wabotia] fala concluída: \(utterance.speechString)")
+        #endif
+        finished(utterance)
     }
-    #endif
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        finished(utterance)
+    }
 
     deinit { stop() }
 
@@ -115,8 +135,9 @@ final class SpeechPanelAudio: NSObject, PanelCallAudio, AVSpeechSynthesizerDeleg
         #endif
     }
 
-    func speak(_ text: String) {
+    func speak(_ text: String, done: @escaping () -> Void) {
         let utterance = AVSpeechUtterance(string: text)
+        pending[ObjectIdentifier(utterance)] = done
         utterance.voice = voice
         utterance.volume = volume
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.92
@@ -129,6 +150,10 @@ final class SpeechPanelAudio: NSObject, PanelCallAudio, AVSpeechSynthesizerDeleg
     func stop() {
         synthesizer.stopSpeaking(at: .immediate)
         player?.stop()
+        // Quem esperava uma fala cortada não fica preso (o `didCancel` nem sempre vem para as que estavam na fila).
+        let waiting = pending.values
+        pending = [:]
+        DispatchQueue.main.async { waiting.forEach { $0() } }
     }
 
     func setVolume(_ level: Float) {
