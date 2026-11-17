@@ -24,6 +24,11 @@ import {
   setMotorReal,
 } from "../web/erp/motor";
 import { erpPeople } from "../web/erp/people";
+import {
+  STORED_PREFERENCE_PAGES,
+  preferencePageHref,
+} from "../packages/erp-domain/src/preferences/catalog.mjs";
+import { parsePreferencesPage } from "../packages/erp-domain/src/preferences/dto.mjs";
 import { createAccessController } from "../web/erp/app/lib/real-access";
 
 /** Tela do painel (caminho sem /app/erp) → primeira leitura que ela faz. */
@@ -273,6 +278,42 @@ describe("painel do ERP contra a rota real", () => {
             wrong.push(
               `${pattern}: nenhuma leitura sem motor confere; tire de MOTOR_PENDING_READS`,
             );
+      } finally {
+        setMotorReal(false);
+      }
+      expect(wrong, wrong.join("\n")).toEqual([]);
+    },
+  );
+
+  it(
+    "toda página de preferências de uma instalação nova passa no validador do painel",
+    { timeout: 300_000 },
+    async () => {
+      // O motor valida com a cópia dele (src/erp/fagoo/packages); a tela, com a do
+      // painel (packages/). Um padrão diferente na versão 0 só aparece aqui.
+      const { f, get } = await setup();
+      const token = await bearer(f.admin);
+      setMotorReal(true);
+      const wrong: string[] = [];
+      try {
+        for (const page of STORED_PREFERENCE_PAGES) {
+          if (pendingInMotor(preferencePageHref(page))) continue;
+          const response = await get(token, `/erp/v1/preferencias/${page.id}`);
+          const raw = await response.json<any>().catch(() => null);
+          if (response.status >= 300) {
+            wrong.push(
+              `${page.id}: ${response.status} ${raw?.error?.code ?? ""}`,
+            );
+            continue;
+          }
+          try {
+            parsePreferencesPage(raw, page.id);
+          } catch (error) {
+            wrong.push(
+              `${page.id}: o painel recusa a resposta (${String(error)})`,
+            );
+          }
+        }
       } finally {
         setMotorReal(false);
       }
