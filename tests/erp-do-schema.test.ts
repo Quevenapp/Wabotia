@@ -47,11 +47,12 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
       return out;
     });
     console.log("ERP_SCHEMA " + JSON.stringify(result));
-    // 984 = 982 do gerado (com os 9 gatilhos do override sqlTriggers, versão 8)
-    // + 2 tabelas só do motor (engine-tables.ts, versão 7); 432 tabelas.
-    expect(result.first).toMatchObject({ status: "applied", version: ERP_DDL_VERSION, statements: 984, seedRows: 7586 });
+    // 999 = 982 do gerado (com os 9 gatilhos do override sqlTriggers, versão 8)
+    // + 2 tabelas só do motor da versão 7 + 15 da versão 9 (as 5 tabelas do
+    // cofre, 8 índices e 2 gatilhos); 437 tabelas.
+    expect(result.first).toMatchObject({ status: "applied", version: ERP_DDL_VERSION, statements: 999, seedRows: 7586 });
     expect(result.again).toMatchObject({ status: "current" });
-    expect(result.tables).toBe(432);
+    expect(result.tables).toBe(437);
     expect(result.triggers).toBeGreaterThan(148);
     expect(result.municipalities).toBe(5571);
   });
@@ -93,6 +94,8 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
       const created = cnab();
       // Como uma instância criada na versão 7: sem esses gatilhos.
       for (const name of created) sql.exec(`DROP TRIGGER "${name}"`);
+      // A versão 7 ainda não tinha as tabelas do motor da 9 (o passo 8→9 as cria; filhas antes das mães).
+      for (const t of ERP_ENGINE_TABLES.filter((t) => t.since > 7).reverse()) sql.exec(`DROP TABLE "${t.table}"`);
       sql.exec("UPDATE erp_meta SET value='7' WHERE key='schema_version'");
       const step = migrate(state.storage);
       return { created, step, after: cnab(), again: migrate(state.storage) };
