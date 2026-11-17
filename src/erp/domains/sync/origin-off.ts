@@ -14,6 +14,15 @@
 // O que só existe com o Origin ligado (aplicação do espelho, vínculo com o
 // Bling) sai como 0A000 não portado, nunca com um valor inventado.
 // tests/erp/sync/origin-off.test.mjs confere contra o oráculo com o desvio.
+//
+// Regra (orquestração, 17/11/2026; ERP-PORTE.md, "Origin fora"):
+// - "Origin fora" vale só para o que precisa do Origin vivo: sincronização,
+//   papel do Postgres, chamada à API do Bling;
+// - leitura de linha espelhada ou de tabela do Origin (origin_sync.*,
+//   erp_catalog.origin*, authority='origin') se porta como leitura: sem dado,
+//   dá o mesmo que a constante daria; com dado, é comparada no diferencial;
+// - guarda sobre registro espelhado (authority='origin') se porta como guarda;
+// - 0A000 visível pode ficar; "sem efeito" silencioso, não.
 import { decText } from "../../engine/dec.ts";
 import { one } from "../../engine/driver.ts";
 import { notPorted, raise } from "../../engine/errors.ts";
