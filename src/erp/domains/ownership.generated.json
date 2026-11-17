@@ -3391,11 +3391,11 @@
    },
    "erp_stock.composition_apply_values": {
     "name": "compositionApplyValues",
-    "ported": false
+    "ported": true
    },
    "erp_stock.composition_dto": {
     "name": "compositionDto",
-    "ported": false
+    "ported": true
    },
    "erp_stock.composition_lines": {
     "name": "compositionLines",
@@ -3411,7 +3411,7 @@
    },
    "erp_stock.composition_totals": {
     "name": "compositionTotals",
-    "ported": false
+    "ported": true
    },
    "erp_stock.cost_visible": {
     "name": "costVisible",
@@ -3675,7 +3675,7 @@
    },
    "erp_stock.supply_part": {
     "name": "supplyPart",
-    "ported": false
+    "ported": true
    },
    "erp_stock.virtual_positions": {
     "name": "virtualPositions",
