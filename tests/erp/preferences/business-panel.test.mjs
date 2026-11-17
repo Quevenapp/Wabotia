@@ -1,7 +1,6 @@
 // Meu Negócio (erp_home_business_panel) na fixture dupla, pela rota do Worker (p_panel + p_args de businessArgs).
 // Adaptados de business-dashboards-sql.test.mjs do Fagoo (chamando o painel em vez das funções internas).
-// O custo da linha usa o productCostAt (Catálogo) e, sem histórico, o reportLastPurchaseUntil (Documentos, O), ainda stub:
-// o caso do Fagoo com o custo pela última compra fica todo; o histórico do cadastro já roda nos dois motores.
+// O custo da linha usa o custo congelado, o productCostAt (Catálogo) e o reportLastPurchaseUntil (Documentos), nos dois motores.
 // O caso "itens sem produto" cobre agora o resto: períodos, situações, canais, vendedores, estados, carteira, ABC e metas.
 // Fora, declarados: GRANT/has_function_privilege, gatilhos de imutabilidade por SQL direto e o bloco gerado de 150.
 import test from "node:test";
@@ -19,7 +18,6 @@ import {
 } from "../../../src/erp/fagoo/packages/erp-domain/src/business-dashboards.mjs";
 
 const fails = (fn, code) => assert.rejects(fn, (e) => e.code === code);
-const PENDING = "pendente de Documentos (O): erp_documents.report_last_purchase_until, o custo pela última compra";
 const S = "verified,in_progress,fulfilled";
 
 async function documentOf(f, kind, { contact, date, items, statuses = [], body = {} }) {
@@ -203,7 +201,7 @@ test("produtos com custo no histórico do cadastro: margens, ABC, previsão e o 
   }
 });
 
-test("150 Mensal com produtos: indicadores com o custo da última compra", { todo: PENDING }, async () => {
+test("150 Mensal com produtos: indicadores com o custo da última compra", async () => {
   const { f } = await company(true);
   try {
     const v = await panel(f, "mensal", { situacoes: S, de: "2026-10-01", ate: "2026-10-31", comparar_de: "2026-09-01", comparar_ate: "2026-09-30" });
