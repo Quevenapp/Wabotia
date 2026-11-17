@@ -232,13 +232,18 @@ export async function runRound(db: SqlDriver, options: RoundOptions = {}): Promi
   return report;
 }
 
-/** Há tarefa vencida de uma finalidade com executor? */
+/**
+ * Há tarefa vencida de uma finalidade com executor? Vencida no milissegundo
+ * (a resolução do alarme): o relógio do motor é monotônico em µs e o Date do
+ * workerd fica parado durante o código síncrono, então a tarefa criada nesta
+ * rodada nasce alguns µs depois de `at` e já conta.
+ */
 function dueTask(db: SqlDriver, purposes: string[], at: number) {
   return db.exec(
     `SELECT 1 x FROM "erp_platform__task" WHERE purpose IN (SELECT value FROM json_each(?))
-     AND ((status='queued' AND attempts<max_attempts AND next_attempt_at<=?) OR (status='running' AND lease_until<?)) LIMIT 1`,
+     AND ((status='queued' AND attempts<max_attempts AND next_attempt_at<?) OR (status='running' AND lease_until<?)) LIMIT 1`,
     JSON.stringify(purposes),
-    us(at),
+    us(at + 1),
     us(at),
   ).rows[0];
 }

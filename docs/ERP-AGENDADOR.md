@@ -61,7 +61,14 @@ disparavam**. No Wabotia elas passam a rodar no alarme do próprio objeto.
 - **Primeira rodada** de uma instância (ou depois de uma restauração): toda
   rotina está vencida e roda uma vez. Sem efeito repetido: as tarefas têm chave
   `(purpose, operation_id)`, e as notificações usam `ON CONFLICT DO NOTHING`
-  por `(user, type, day)`.
+  por `(user, type, day)`. O próximo horário parte de agora. Por isso uma
+  rotina diária vista pela primeira vez pouco antes do horário roda de novo
+  nele (a retenção às 03:05 e às 03:10). A segunda passada não acha nada novo,
+  e daí em diante é uma vez por dia.
+- **Vencida no milissegundo:** o relógio do motor é monotônico em µs, e o
+  `Date` do workerd fica parado durante o código síncrono. Uma tarefa criada
+  na rodada nasce alguns µs depois do "agora" e conta como vencida no mesmo
+  milissegundo, que é a resolução do alarme.
 - **Dias parado:** cada rotina roda uma vez e vai para o próximo horário depois
   de agora. Horas perdidas não são recuperadas (o digest das notificações é
   acumulativo, como no Fagoo).
@@ -176,6 +183,23 @@ ctx.waitUntil(wakeErpAreas(env, event.scheduledTime));
 - Área com o ERP desligado não acorda.
 
 Teste: `tests/erp-do-scheduler.test.ts`, "cron".
+
+## Testes: relógio injetado
+
+Teste que depende da hora em que a suíte roda é defeito do teste.
+
+- **Node** (`tests/erp/scheduler/dispatch.test.mjs`): `runRound` recebe `now`,
+  `elapsed` e `yieldTurn`, e o `Date.now` é trocado pelo relógio do teste.
+- **Workerd** (`tests/erp-do-scheduler.test.ts`):
+  - `at(ms)` fixa o `Date` com `vi.useFakeTimers({ toFake: ["Date"] })`. O
+    objeto roda no mesmo isolado, então o relógio vale para o alarme, as
+    funções da plataforma e o `Clock` do motor. O `setTimeout` das cessões de
+    vez continua real.
+  - Os instantes são o próximo "HH:MM" de São Paulo nas próximas 24 h do
+    relógio real. Assim nenhum alarme agendado fica no passado, e o
+    `erp_platform_schedule` aceita o `p_now`.
+  - Janelas cobertas: virada de hora (05:59:59 → 06:00:00), a retenção das
+    03:10 e a virada do dia em São Paulo (23:59:59 → 00:00:00).
 
 ## Fora deste corte
 
