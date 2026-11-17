@@ -196,6 +196,14 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
   - Objeto conferido dentro do RPC: declare as chaves em `registerRpc(nome, fn, { objects: (args) => ["erp-attachments/…"] })` e leia com `ctx.objects(chave)`. Ele devolve `{size, mimetype}` ou null; o objeto `erp:` lê do R2 antes da transação.
   - No teste, `f.putObject(bucket, nome, tamanho, tipo)` grava o objeto nos dois lados.
   - Exemplo: `company/rpc/files.ts`.
+  - **Do lado do Worker** (`src/erp-storage.ts`): a erp-api do Fagoo chama o `/storage/v1` do Supabase, e a costura responde do R2, no bucket MEDIA que a instalação já tem.
+    - Chave: `erp-storage/<área>/<bucket>/<caminho>`, a mesma do `erpObjectKey` que o objeto `erp:` consulta.
+    - Buckets aceitos (`ERP_BUCKETS`), com o tamanho e os tipos do Fagoo: `erp-attachments`, `brufap-cnab`, `brufap-exports` e `brufap-received-dfe` (só leitura). Outro bucket dá 404.
+    - Rotas: enviar (`POST`, `x-upsert`; chave repetida → 409, que os adaptadores do Fagoo já aceitam), substituir (`PUT`), baixar (`GET …/authenticated/…`), apagar (`DELETE`) e assinar (`POST …/sign/…`).
+    - Nada é público. A leitura é pela rota da erp-api, com o envelope da pessoa, ou por URL assinada.
+    - URL assinada: a costura troca o endereço local por `/api/public/erp-storage/<área>/<bucket>/<caminho>?token=…`, na origem em que a pessoa chamou. O token é um HMAC (MASTER_KEY) da área, do bucket, do caminho e da expiração, com até 1 h. Com o ERP desligado na área, o link para de valer.
+    - **Arquivo grande sem montar na memória** (exportação da empresa, até 50 MiB): `createErpUpload` grava em partes de 5 MiB e só dá o nome no fim, com o SHA-256 (`exports/<id>/<sha>.zip`); `createZipStream` (`src/erp-zip.ts`) escreve o ZIP direto nele, um conjunto de dados por vez, página por página. Os dois juntos substituem o `createZip` + `exportStorage.put` do `runExport` do Fagoo, que monta o pacote inteiro e o copia de novo no `finish` (mais de 100 MB num isolado de 128 MB).
+    - Testes: `tests/erp-storage.test.ts`, com os adaptadores do Fagoo sem alteração.
 - **Identidade** (`auth.*` do Supabase): use a porta `ctx.identity` (`src/erp/engine/identity.ts`), nunca uma tabela `auth`.
   - **Envelope.** O Worker o preenche e o manda no cabeçalho `x-erp-identity` (JSON em base64url). Traz:
     - `actor`: `user_id`, `name`, `email`, `erp_role` (`admin|consulta|vendas|financeiro|estoque|fiscal` ou null), `session_id`, `aal` (`aal1`/`aal2`), `verified_factor`, `is_agent`;
