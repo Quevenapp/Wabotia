@@ -1,0 +1,50 @@
+{
+  "date": "2026-11-17",
+  "environment": "https://wabotia.queven.app",
+  "version": "0.21.0",
+  "commit": "fca4bb2b6053c32bc80d3bdde87d1622fb4377c8",
+  "previous_version": "0.20.0",
+  "backup_complete": true,
+  "backup_folder": "backup-seguro/release-0.21.0-distribution-20261117 (fora do Git)",
+  "migrations": ["0043_pedido_desconto.sql", "0053_mensalidade_desconto_parcela.sql", "0070_mesas.sql", "0071_pedido_mesa.sql", "0075_entrega.sql", "0076_module_credentials.sql", "0077_entrega_chat.sql", "0078_entrega_confirm_code.sql", "0080_acessos_pessoa.sql", "0081_login_mfa.sql", "0082_email.sql", "0085_bot_acoes.sql", "0086_aprovacoes.sql", "0087_bot_propostas_texto.sql", "0088_entrega_endereco.sql", "0089_aplicacao_papel_erp.sql"],
+  "pending_migrations": 0,
+  "durable_object_migrations_changed": false,
+  "compatibility_flags_added": ["global_fetch_strictly_public"],
+  "server_code_changed": true,
+  "license": "AGPL-3.0 (servidor e painel); MIT em mobile/, connectors/ e push-gateway/",
+  "package_format": 1,
+  "package_verified": true,
+  "package_sha256": "f1b7a7935a63bd3d277c3c699cf7ecaa419f36dd9490c4d411652e8da9d26bfd",
+  "package_sha256_matches_catalog": true,
+  "package_size": 23655027,
+  "package_limit": 25165824,
+  "worker_minified": true,
+  "guide_pdfs_in_package": false,
+  "updater_checks": "scripts/erp/check-candidate.mjs: parsePackage e validateInstalledSettings do atualizador",
+  "previous_versions_intact": 39,
+  "tests": { "files": 188, "passed": 1428 },
+  "typescript_check": true,
+  "web_build": true,
+  "web_installer_enabled_on_distribution": true,
+  "staging_rehearsal": {
+    "commit": "e2f1805444d57bceccb4012867ccece9b3ea3828",
+    "note": "mesmo código sem a licença e sem o número da versão, implantado por wrangler na instalação de teste",
+    "smoke": "53 de 53",
+    "queue_d1_calls": 2,
+    "issue_ticket_p50_ms": 399,
+    "erp_schema_upgrade_first_request_ms": 1801
+  },
+  "not_verified": [
+    "atualização pelo painel de uma instalação 0.20.0 com este pacote",
+    "exportação da empresa do ERP de ponta a ponta na Cloudflare",
+    "provedores reais: WhatsApp, Mercado Pago, IA, e-mail"
+  ],
+  "operational_installation_updated": false,
+  "checks": [
+    { "route": "/api/health", "status": 200, "version": "0.21.0" },
+    { "route": "/releases/latest.json", "status": 200, "version": "0.21.0" },
+    { "route": "/releases/0.21.0/package.json", "status": 200, "sha256_match": true },
+    { "route": "/releases/0.20.0/release.json", "status": 200 },
+    { "route": "/guide/wabotia-instalacao.pdf", "status": 200 }
+  ]
+}
