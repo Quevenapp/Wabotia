@@ -116,6 +116,11 @@ export class Coordinator extends DurableObject<Env> {
       // Repetição de um comando cujo recibo ainda está fechando (depois da
       // resposta, abaixo): espera o fechamento aqui, fora do bloqueio, e
       // segue; lá dentro, o recibo já tem a resposta e ela volta igual.
+      // NUNCA espere o fechamento dentro do blockConcurrencyWhile: o bloqueio
+      // segura a entrega da resposta do D1 que o fechamento espera, e o
+      // objeto trava até o limite do runtime (30 s) e reinicia. Achado pelo
+      // teste "repetições durante a gravação da resposta" em
+      // tests/command-receipt-closing.test.ts.
       const pending = this.closing.get(
         `${(body.actor as Actor).id}:${this.profile}:${body.operation}\n${body.key}`,
       );
