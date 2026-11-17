@@ -9,7 +9,7 @@ import { PG_CNTRL, pgLeft } from "../../../engine/text.ts";
 import { jsonTimestamp, todaySaoPaulo, validDate } from "../../../engine/time.ts";
 import { formatScaled, fromColumn, toScaled } from "../../../engine/dec.ts";
 import { allowed as catalogAllowed } from "../../catalog/public.ts";
-import { allowed as documentsAllowed, reportCoverage, transitions } from "../../documents/public.ts";
+import { allowed as documentsAllowed, mirrorReportCoverage, transitions } from "../../documents/public.ts";
 import { ignoredWarehouse } from "../../stock/public.ts";
 import { text, uuid } from "../args.ts";
 import { compareText } from "../order.ts";
@@ -145,7 +145,7 @@ export function erpHomeSummary(ctx: RpcContext, a: RpcArgs) {
     documents,
     stock,
     finance,
-    ...reportCoverage(),
+    ...mirrorReportCoverage(ctx.db, user, null),
   };
 }
 
@@ -251,7 +251,7 @@ export function erpHomeOverview(ctx: RpcContext, a: RpcArgs) {
   return {
     ...base,
     period: { key: text(a, "p_period"), from, to, day_count: days, grain, points, sales, receivable, payable, invoices },
-    ...reportCoverage(),
+    ...mirrorReportCoverage(db, uuid(a, "p_user_id"), null),
   };
 }
 
@@ -292,7 +292,7 @@ export function erpHomeTopProducts(ctx: RpcContext, a: RpcArgs) {
       units: formatScaled(g.units, 6),
       total_cents: g.total.toString(),
     }));
-  return { scope: "home_top_products", data_mode: "erp_native", key: text(a, "p_period"), from, to, items, ...reportCoverage() };
+  return { scope: "home_top_products", data_mode: "erp_native", key: text(a, "p_period"), from, to, items, ...mirrorReportCoverage(ctx.db, user, null) };
 }
 
 registerRpc("erp_home_summary", erpHomeSummary);
