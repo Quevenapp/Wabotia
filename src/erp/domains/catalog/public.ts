@@ -218,3 +218,6 @@ export function documentProduct(
   );
   return id;
 }
+
+// Taxonomia (sessão B, base do taxonomy_list/save/delete da P).
+export { taxonomyItem, taxonomyTypeGuard } from "./taxonomy.ts";
