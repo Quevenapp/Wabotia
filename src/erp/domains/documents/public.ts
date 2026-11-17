@@ -60,7 +60,8 @@ export { autoProducts } from "./internal.ts";
 export { transitions } from "./preferences.ts";
 export { contactUsable, mirrorRequireVisible, mirrorVisible, osPermitted, reportCoverage, requireAccess, requireRole } from "./reads-g.ts";
 // Escrito pela N (recebimentos de compra do Estoque); dono: Documentos.
-export { preference, stockLaunchDate } from "./stock-n.ts";
+export { stockLaunchDate } from "./stock-n.ts";
+export { preference } from "./internal.ts";
 
 const KINDS =["sales_proposals", "sales_orders", "purchase_orders", "service_orders"];
 

@@ -1,13 +1,9 @@
 // Escrito pela N para os recebimentos de compra do Estoque; dono: Documentos
-// (sessão O), avisada. Portado de erp_documents.preference e
-// erp_documents.stock_launch_date (inteiros).
+// (sessão O), avisada. Portado de erp_documents.stock_launch_date (inteiro).
 import { one, type SqlDriver } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
 import { todaySaoPaulo, validDate } from "../../engine/time.ts";
-import * as preferences from "../preferences/public.ts";
-
-/** erp_documents.preference(p_key): a preferência da empresa (erp_preferences.get). */
-export const preference = (db: SqlDriver, key: string) => preferences.get(db, key);
+import { preference } from "./internal.ts";
 
 /** (texto)::date, com o erro do Postgres. */
 function dateCast(v: unknown): string | null {
