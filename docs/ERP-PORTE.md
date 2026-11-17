@@ -197,6 +197,11 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
    - O `test` precisa exercitar a recusa nos dois motores.
    - `tests/erp/schema-parity.test.mjs` recusa um item que não esteja pendente, sem `where` ou `test`, ou com arquivo de teste inexistente.
    - Os tetos (`LIMITS`, hoje CHECK 221 e gatilhos 237) contam só o que ninguém cobre: baixe-os no seu branch ao cobrir. Na junção eu concilio.
+   - Gatilho em PL/pgSQL que é só "se condição, recusa" sobre colunas da própria linha (imutabilidade, por exemplo, em tabela que o motor não muda) não precisa de TS: vira gatilho do SQLite por `sqlTriggers` no `scripts/erp/overrides/<domínio>.mjs` (chave `schema__tabela.gatilho`, `{ when, code, message, reason }`; o `when` é SQLite com `OLD.`/`NEW.`).
+     - O gerador confere `code` e `message` no corpo da função do oráculo.
+     - O DDL muda, então combine a versão comigo (passo `recreateTriggers` em `migrate.ts`).
+     - Teste no modelo `tests/erp/cnab-sql-triggers.test.mjs`: o mesmo UPDATE/DELETE direto nos dois motores.
+     - O SQLite dispara primeiro o gatilho criado por último; o gerador cria em ordem inversa do nome, para valer a ordem do Postgres.
 6. **Fechamento:** um domínio só fecha com o diferencial verde e os tetos baixados. Aviso curto à orquestração com as linhas de TS, os RPCs portados e os testes.
 
 ## Regras que valem para todos
