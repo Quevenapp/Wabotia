@@ -1,4 +1,12 @@
-import { all, one, exec, batch, cachedOne, withReadCache } from "./db";
+import {
+  all,
+  one,
+  exec,
+  batch,
+  cachedOne,
+  PROFILE_SETTINGS_SQL,
+  withReadCache,
+} from "./db";
 import {
   ApiError,
   type Env,
@@ -192,11 +200,7 @@ const text = (value: any, max = 3800) => {
   return value.trim();
 };
 async function profileWithModules(env: Env, profile: string) {
-  const row = await cachedOne(
-    env,
-    "SELECT p.*,(SELECT json_group_object(m.module_id,m.enabled) FROM profile_modules m WHERE m.profile_id=p.id) module_states FROM profiles p WHERE p.id=?",
-    profile,
-  );
+  const row = await cachedOne(env, PROFILE_SETTINGS_SQL, profile);
   if (!row)
     throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
   return { row, states: resolveStates(json(row.module_states)) };

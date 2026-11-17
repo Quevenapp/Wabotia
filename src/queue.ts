@@ -1,7 +1,20 @@
 // Fila de espera com senha. Contrato: docs/FILA-SENHAS.md.
 // Every write runs inside the area's Coordinator (commands and inbox), so reads
 // followed by a guarded UPDATE are not raced by another write of the same area.
-import { all, one, exec, batch } from "./db";
+import {
+  all,
+  one,
+  exec,
+  batch,
+  cached,
+  PROFILE_SETTINGS_SQL,
+  PUBLIC_ORIGIN_SQL,
+  reads,
+  readValues,
+  seedRead,
+  withReadCache,
+  type Read,
+} from "./db";
 import {
   ApiError,
   type Actor,
@@ -13,7 +26,7 @@ import {
   uid,
 } from "./types";
 import { admin, canProfile, random, sha } from "./security";
-import { event } from "./events";
+import { event, eventStatement, fanOut } from "./events";
 import { BRASILIA_OFFSET_MS } from "./business-time";
 import { conversation, enqueue, settings } from "./service";
 import { establishment } from "./establishment";
@@ -229,41 +242,23 @@ export async function ticketRow(env: Env, profile: string, id: unknown) {
   return row;
 }
 
-async function waitingCounts(env: Env, profile: string, queueId: string) {
-  const row = await one(
-    env,
-    "SELECT sum(preferential=0) normal,sum(preferential=1) preferential FROM queue_tickets WHERE profile_id=? AND queue_id=? AND service_day=? AND status='waiting'",
-    profile,
-    queueId,
-    serviceDay(),
-  );
-  return { normal: row?.normal || 0, preferential: row?.preferential || 0 };
-}
-async function openCounters(env: Env, profile: string, queueId: string) {
-  return (
-    (
-      await one(
-        env,
-        "SELECT count(*) n FROM counters c WHERE c.profile_id=? AND c.enabled=1 AND c.status='open' AND EXISTS(SELECT 1 FROM json_each(c.queue_ids) WHERE value=?)",
-        profile,
-        queueId,
-      )
-    )?.n || 0
-  );
-}
 /** The queue shows a waiting-time estimate (wait_mode is not "off"). */
 export const waitShown = (queue: any) => Number(queue?.show_wait ?? 1) !== 0;
 /** Minutes per service for the estimate, by the queue's mode. */
 export async function serviceMinutes(env: Env, queue: any) {
-  const fallback = Math.max(1, Number(queue.service_minutes) || 10);
-  if (queue.wait_mode === "fixed") return fallback;
-  const row = await one(
-    env,
-    "SELECT avg(finished_at-started_at) ms,count(*) n FROM (SELECT finished_at,started_at FROM queue_tickets WHERE queue_id=? AND service_day=? AND status='done' AND started_at IS NOT NULL AND finished_at>=started_at ORDER BY finished_at DESC LIMIT 20)",
-    queue.id,
-    serviceDay(),
-  );
-  return row?.n ? Math.max(1, row.ms / 60000) : fallback;
+  if (queue.wait_mode === "fixed") return minutesPerService(queue, null);
+  const row = await one(env, VIEW_SQL.service, queue.id, serviceDay());
+  return minutesPerService(queue, row);
+}
+/**
+ * Minutos por atendimento a partir da média já lida (`service`: ms e n dos
+ * últimos 20 atendimentos do dia), ou o fixo da fila.
+ */
+function minutesPerService(queue: any, service: any) {
+  const fallback = Math.max(1, Number(queue?.service_minutes) || 10);
+  return queue?.wait_mode === "fixed" || !service?.n
+    ? fallback
+    : Math.max(1, service.ms / 60000);
 }
 export function estimateMinutes(
   ahead: number,
@@ -297,31 +292,6 @@ export const aheadOfNew = (
     ? waiting.preferential + Math.min(owed, waiting.normal)
     : waiting.normal + waiting.preferential;
 
-/** People ahead of an existing waiting ticket. */
-async function aheadOf(env: Env, ticket: any) {
-  if (ticket.status !== "waiting") return 0;
-  if (ticket.preferential) {
-    const row = await one(
-      env,
-      "SELECT (SELECT count(*) FROM queue_tickets WHERE queue_id=?1 AND service_day=?2 AND status='waiting' AND preferential=1 AND (created_at<?3 OR (created_at=?3 AND seq<?4))) pref,(SELECT count(*) FROM queue_tickets WHERE queue_id=?1 AND service_day=?2 AND status='waiting' AND preferential=0) normal,(SELECT normals_per_preferential FROM queues WHERE id=?1) normals_per_preferential,(SELECT normals_since_preferential FROM queues WHERE id=?1) normals_since_preferential",
-      ticket.queue_id,
-      ticket.service_day,
-      ticket.created_at,
-      ticket.seq,
-    );
-    return (row?.pref || 0) + Math.min(normalsOwed(row), row?.normal || 0);
-  }
-  const row = await one(
-    env,
-    "SELECT (SELECT count(*) FROM queue_tickets WHERE queue_id=?1 AND service_day=?2 AND status='waiting' AND preferential=0 AND (created_at<?3 OR (created_at=?3 AND seq<?4)))+(SELECT count(*) FROM queue_tickets WHERE queue_id=?1 AND service_day=?2 AND status='waiting' AND preferential=1) n",
-    ticket.queue_id,
-    ticket.service_day,
-    ticket.created_at,
-    ticket.seq,
-  );
-  return row?.n || 0;
-}
-
 /** WhatsApp lines of the area and the first number usable in a wa.me link. */
 async function whatsappLine(env: Env, profile: string, queue: any) {
   const rows = await all(
@@ -330,12 +300,7 @@ async function whatsappLine(env: Env, profile: string, queue: any) {
     profile,
     queue?.whatsapp_line_id || "",
   );
-  for (const row of rows) {
-    const cfg = json(row.config);
-    const digits = normalizePhone(cfg.number || cfg.phone || "");
-    if (digits.length >= 10) return { lines: rows.length, number: digits };
-  }
-  return { lines: rows.length, number: null };
+  return { lines: rows.length, number: lineNumber(rows) };
 }
 
 /**
@@ -363,20 +328,6 @@ export function couponWhatsappText(
   ].join("\n");
 }
 
-export async function whatsappLink(
-  env: Env,
-  profile: string,
-  queue: any,
-  ticket: any,
-) {
-  if (!queueSettings(await settings(env, profile)).coupon.whatsapp_qr)
-    return null;
-  const { number } = await whatsappLine(env, profile, queue);
-  return number
-    ? `https://wa.me/${number}?text=${encodeURIComponent(couponWhatsappText(ticket, await publicOrigin(env)))}`
-    : null;
-}
-
 export type CouponQrIssue = "disabled" | "no_line" | "no_number";
 const COUPON_QR_NOTICE: Record<CouponQrIssue, string> = {
   disabled: "O QR do WhatsApp está desligado no cupom.",
@@ -400,11 +351,17 @@ export async function couponView(
   env: Env,
   profile: string,
   cfg: QueueSettings,
+  /** As linhas de WhatsApp da área, se já lidas (overviewData). */
+  lineRows?: any[],
 ) {
   const c = cfg.coupon;
   const est =
     c.establishment || c.footer ? await establishment(env, profile) : null;
-  const line = c.whatsapp_qr ? await whatsappLine(env, profile, null) : null;
+  const line = !c.whatsapp_qr
+    ? null
+    : lineRows
+      ? { lines: lineRows.length, number: lineNumber(lineRows) }
+      : await whatsappLine(env, profile, null);
   const issue: CouponQrIssue | null = !line
     ? "disabled"
     : !line.lines
@@ -436,19 +393,6 @@ export async function couponView(
   };
 }
 
-const userNames = async (env: Env, ids: string[]) => {
-  const map = new Map<string, string>();
-  const unique = [...new Set(ids.filter(Boolean))];
-  if (!unique.length) return map;
-  for (const row of await all(
-    env,
-    "SELECT id,name FROM users WHERE id IN (SELECT value FROM json_each(?))",
-    JSON.stringify(unique),
-  ))
-    map.set(row.id, row.name);
-  return map;
-};
-
 async function windowOpen(env: Env, conversationId: string | null) {
   if (!conversationId) return false;
   const c = await one(
@@ -462,34 +406,171 @@ async function windowOpen(env: Env, conversationId: string | null) {
   );
 }
 
+/** Leituras da vista de uma senha que vão juntas ao D1 (ticketView). */
+const VIEW_SQL = {
+  queue: "SELECT * FROM queues WHERE id=?",
+  counter: "SELECT id,name FROM counters WHERE id=?",
+  aheadPreferential:
+    "SELECT (SELECT count(*) FROM queue_tickets WHERE queue_id=?1 AND service_day=?2 AND status='waiting' AND preferential=1 AND (created_at<?3 OR (created_at=?3 AND seq<?4))) pref,(SELECT count(*) FROM queue_tickets WHERE queue_id=?1 AND service_day=?2 AND status='waiting' AND preferential=0) normal,(SELECT normals_per_preferential FROM queues WHERE id=?1) normals_per_preferential,(SELECT normals_since_preferential FROM queues WHERE id=?1) normals_since_preferential",
+  aheadNormal:
+    "SELECT (SELECT count(*) FROM queue_tickets WHERE queue_id=?1 AND service_day=?2 AND status='waiting' AND preferential=0 AND (created_at<?3 OR (created_at=?3 AND seq<?4)))+(SELECT count(*) FROM queue_tickets WHERE queue_id=?1 AND service_day=?2 AND status='waiting' AND preferential=1) n",
+  service:
+    "SELECT avg(finished_at-started_at) ms,count(*) n FROM (SELECT finished_at,started_at FROM queue_tickets WHERE queue_id=? AND service_day=? AND status='done' AND started_at IS NOT NULL AND finished_at>=started_at ORDER BY finished_at DESC LIMIT 20)",
+  open: "SELECT count(*) n FROM counters c WHERE c.profile_id=? AND c.enabled=1 AND c.status='open' AND EXISTS(SELECT 1 FROM json_each(c.queue_ids) WHERE value=?)",
+  window:
+    "SELECT c.last_customer,n.kind FROM conversations c LEFT JOIN connections n ON n.id=c.connection_id WHERE c.id=?",
+  // A linha da fila primeiro (whatsapp_line_id), como em whatsappLine.
+  lines:
+    "SELECT id,config FROM connections WHERE profile_id=? AND kind IN ('zernio','qr','hermes-whatsapp') ORDER BY (id=coalesce((SELECT whatsapp_line_id FROM queues WHERE id=?),'')) DESC,created",
+};
+
+/** Primeiro número de WhatsApp utilizável das linhas (whatsappLine). */
+function lineNumber(rows: any[]) {
+  for (const row of rows) {
+    const cfg = json(row.config);
+    const digits = normalizePhone(cfg.number || cfg.phone || "");
+    if (digits.length >= 10) return digits;
+  }
+  return null;
+}
+
+/**
+ * Vista de uma senha. As leituras que ela precisa (fila, guichê, quem está
+ * na frente, tempo médio, guichês abertos, conversa, linhas do WhatsApp e,
+ * se ainda não estiverem no cache da requisição, as configurações e o
+ * endereço público) vão numa ida só ao D1 (docs/LIMITES.md).
+ */
 export async function ticketView(
   env: Env,
   row: any,
-  options: { staff?: boolean; queue?: any; counter?: any; link?: boolean } = {},
+  options: ViewOptions = {},
 ) {
-  const queue =
-    options.queue ||
-    (await one(env, "SELECT * FROM queues WHERE id=?", row.queue_id));
-  const counter =
-    options.counter ||
-    (row.counter_id
-      ? await one(
-          env,
-          "SELECT id,name FROM counters WHERE id=?",
-          row.counter_id,
-        )
-      : null);
-  const ahead = await aheadOf(env, row);
+  const plan = viewReads(env, row, options);
+  return viewOf(env, row, options, plan, await reads(env, plan.items));
+}
+
+interface ViewOptions {
+  staff?: boolean;
+  queue?: any;
+  counter?: any;
+  link?: boolean;
+}
+type ViewPlan = ReturnType<typeof viewReads>;
+
+/**
+ * As leituras da vista de uma senha, para irem ao D1 sozinhas (ticketView)
+ * ou no lote de uma escrita (callNext). `row`: a senha como vai estar.
+ */
+function viewReads(env: Env, row: any, options: ViewOptions) {
+  const waiting = row.status === "waiting";
+  const link = options.link !== false;
+  const items: Read[] = [];
+  const index: Record<string, number> = {};
+  const add = (name: string, read: Read) => {
+    index[name] = items.length;
+    items.push(read);
+  };
+  if (!options.queue)
+    add("queue", { sql: VIEW_SQL.queue, args: [row.queue_id], first: true });
+  if (!options.counter && row.counter_id)
+    add("counter", {
+      sql: VIEW_SQL.counter,
+      args: [row.counter_id],
+      first: true,
+    });
+  if (waiting) {
+    const sql = row.preferential
+      ? VIEW_SQL.aheadPreferential
+      : VIEW_SQL.aheadNormal;
+    // Senha gravada no mesmo lote (issueTicket): o número ainda não é
+    // conhecido, então a ordem vem da própria linha, pelo id.
+    const byId = row.seq === undefined;
+    add("ahead", {
+      sql: byId
+        ? sql
+            .replaceAll(
+              "?3",
+              "(SELECT created_at FROM queue_tickets WHERE id=?3)",
+            )
+            .replaceAll("?4", "(SELECT seq FROM queue_tickets WHERE id=?3)")
+        : sql,
+      args: byId
+        ? [row.queue_id, row.service_day, row.id]
+        : [row.queue_id, row.service_day, row.created_at, row.seq],
+      first: true,
+    });
+    add("service", {
+      sql: VIEW_SQL.service,
+      args: [row.queue_id, serviceDay()],
+      first: true,
+    });
+    add("open", {
+      sql: VIEW_SQL.open,
+      args: [row.profile_id, row.queue_id],
+      first: true,
+    });
+  }
+  if (options.staff && row.conversation_id)
+    add("window", {
+      sql: VIEW_SQL.window,
+      args: [row.conversation_id],
+      first: true,
+    });
+  // Configurações e endereço público: do cache da requisição (o comando já
+  // os leu na abertura) ou neste mesmo lote.
+  const settingsRead: Read = {
+    sql: PROFILE_SETTINGS_SQL,
+    args: [row.profile_id],
+    first: true,
+  };
+  const originRead: Read = { sql: PUBLIC_ORIGIN_SQL, args: [], first: true };
+  if (link) {
+    add("lines", { sql: VIEW_SQL.lines, args: [row.profile_id, row.queue_id] });
+    if (!cached(env, settingsRead)) add("settings", settingsRead);
+    if (!cached(env, originRead)) add("origin", originRead);
+  }
+  return { items, index, settingsRead, originRead };
+}
+
+/** A vista de uma senha com as leituras de viewReads já feitas (`got`). */
+async function viewOf(
+  env: Env,
+  row: any,
+  options: ViewOptions,
+  plan: ViewPlan,
+  got: any[],
+) {
+  const { index, settingsRead, originRead } = plan;
+  const waiting = row.status === "waiting";
+  const link = options.link !== false;
+  const pick = (name: string): any => (name in index ? got[index[name]] : null);
+  if ("settings" in index) seedRead(env, settingsRead, [pick("settings")]);
+  if ("origin" in index) seedRead(env, originRead, [pick("origin")]);
+  const queue = options.queue || pick("queue");
+  const counter = options.counter || pick("counter");
+  const aheadRow = pick("ahead");
+  const ahead = !waiting
+    ? 0
+    : row.preferential
+      ? (aheadRow?.pref || 0) +
+        Math.min(normalsOwed(aheadRow), aheadRow?.normal || 0)
+      : aheadRow?.n || 0;
+  const perService = minutesPerService(queue, pick("service"));
   // null: the queue does not show a waiting time.
   const minutes = !waitShown(queue)
     ? null
-    : row.status === "waiting"
-      ? estimateMinutes(
-          ahead,
-          await serviceMinutes(env, queue),
-          await openCounters(env, row.profile_id, row.queue_id),
-        )
+    : waiting
+      ? estimateMinutes(ahead, perService, pick("open")?.n || 0)
       : 0;
+  const windowRow = pick("window");
+  let whatsapp_link: string | null = null;
+  if (link) {
+    const cfg = queueSettings(await settings(env, row.profile_id));
+    const number = cfg.coupon.whatsapp_qr ? lineNumber(pick("lines")) : null;
+    whatsapp_link = number
+      ? `https://wa.me/${number}?text=${encodeURIComponent(couponWhatsappText(row, await publicOrigin(env)))}`
+      : null;
+  }
   return {
     id: row.id,
     queue_id: row.queue_id,
@@ -508,7 +589,10 @@ export async function ticketView(
       ? {
           phone: row.phone || null,
           conversation_id: row.conversation_id || null,
-          window_open: await windowOpen(env, row.conversation_id),
+          window_open:
+            !!windowRow &&
+            (!["meta", "zernio"].includes(windowRow.kind) ||
+              now() - windowRow.last_customer < DAY_MS),
           cancel_reason: row.cancel_reason || null,
         }
       : {}),
@@ -518,10 +602,7 @@ export async function ticketView(
     finished_at: row.finished_at,
     service_day: row.service_day,
     public_token: row.public_token,
-    whatsapp_link:
-      options.link === false
-        ? null
-        : await whatsappLink(env, row.profile_id, queue, row),
+    whatsapp_link,
   };
 }
 
@@ -546,24 +627,101 @@ export function callFrame(
   };
 }
 
+/** Leituras do panorama da fila, todas da área inteira (overviewData). */
+const OVERVIEW_SQL = {
+  queues: "SELECT * FROM queues WHERE profile_id=? ORDER BY sort,name,id",
+  waiting:
+    "SELECT queue_id,sum(preferential=0) normal,sum(preferential=1) preferential FROM queue_tickets WHERE profile_id=? AND service_day=? AND status='waiting' GROUP BY queue_id",
+  open: "SELECT j.value queue_id,count(DISTINCT c.id) n FROM counters c,json_each(c.queue_ids) j WHERE c.profile_id=? AND c.enabled=1 AND c.status='open' GROUP BY j.value",
+  // Os últimos 20 atendimentos do dia de cada fila (VIEW_SQL.service).
+  service:
+    "SELECT queue_id,avg(finished_at-started_at) ms,count(*) n FROM (SELECT queue_id,finished_at,started_at,row_number() OVER (PARTITION BY queue_id ORDER BY finished_at DESC) rn FROM queue_tickets WHERE profile_id=? AND service_day=? AND status='done' AND started_at IS NOT NULL AND finished_at>=started_at) WHERE rn<=20 GROUP BY queue_id",
+  counters:
+    "SELECT c.*,u.name user_name FROM counters c LEFT JOIN users u ON u.id=c.user_id WHERE c.profile_id=? AND c.enabled=1 ORDER BY c.name,c.id",
+  // A senha chamada ou em atendimento mais recente de cada guichê.
+  current:
+    "SELECT * FROM (SELECT t.*,row_number() OVER (PARTITION BY t.counter_id ORDER BY t.called_at DESC) current_rank FROM queue_tickets t WHERE t.profile_id=? AND t.counter_id IS NOT NULL AND t.status IN ('called','serving')) WHERE current_rank=1",
+  recent:
+    "SELECT t.*,c.name counter_name FROM queue_tickets t LEFT JOIN counters c ON c.id=t.counter_id WHERE t.profile_id=? AND t.service_day=? AND t.called_at IS NOT NULL AND t.status IN ('called','serving','done') ORDER BY t.called_at DESC LIMIT 30",
+  lines:
+    "SELECT id,config FROM connections WHERE profile_id=? AND kind IN ('zernio','qr','hermes-whatsapp') ORDER BY created",
+};
+
+export type OverviewData = Awaited<ReturnType<typeof overviewData>>;
+
+/**
+ * Tudo o que o panorama da fila lê, numa ida só ao D1 (docs/LIMITES.md), da
+ * área inteira: o envio aos painéis monta o panorama de cada filtro com uma
+ * leitura só (overviewOf).
+ */
+export async function overviewData(env: Env, profile: string) {
+  env = withReadCache(env);
+  const day = serviceDay();
+  const settingsRead: Read = {
+    sql: PROFILE_SETTINGS_SQL,
+    args: [profile],
+    first: true,
+  };
+  const items: Read[] = [
+    { sql: OVERVIEW_SQL.queues, args: [profile] },
+    { sql: OVERVIEW_SQL.waiting, args: [profile, day] },
+    { sql: OVERVIEW_SQL.open, args: [profile] },
+    { sql: OVERVIEW_SQL.service, args: [profile, day] },
+    { sql: OVERVIEW_SQL.counters, args: [profile] },
+    { sql: OVERVIEW_SQL.current, args: [profile] },
+    { sql: OVERVIEW_SQL.recent, args: [profile, day] },
+    { sql: OVERVIEW_SQL.lines, args: [profile] },
+  ];
+  const withSettings = !cached(env, settingsRead);
+  const got = await reads(env, withSettings ? [...items, settingsRead] : items);
+  if (withSettings) seedRead(env, settingsRead, [got[items.length]]);
+  const [queues, waiting, open, service, counters, current, recent, lines] =
+    got as any[][];
+  const byQueueId = (rows: any[]) => new Map(rows.map((r) => [r.queue_id, r]));
+  const cfg = queueSettings(await settings(env, profile));
+  return {
+    env,
+    profile,
+    day,
+    cfg,
+    coupon: await couponView(env, profile, cfg, lines),
+    queues,
+    waiting: byQueueId(waiting),
+    open: byQueueId(open),
+    service: byQueueId(service),
+    counters,
+    current: new Map(current.map((t) => [t.counter_id, t])),
+    recent,
+  };
+}
+
+/** Panorama da fila (GET /queue, painéis e telas), só das filas do filtro. */
 export async function overview(
   env: Env,
   profile: string,
   filter: string[] | null = null,
 ) {
-  const cfg = queueSettings(await settings(env, profile));
-  const queues = (
-    await all(
-      env,
-      "SELECT * FROM queues WHERE profile_id=? ORDER BY sort,name,id",
-      profile,
-    )
-  ).filter((q) => !filter?.length || filter.includes(q.id));
+  return overviewOf(await overviewData(env, profile), filter);
+}
+
+/** Panorama de um filtro a partir do que overviewData leu. */
+export async function overviewOf(
+  data: OverviewData,
+  filter: string[] | null = null,
+) {
+  const { env, cfg } = data;
+  const queues = data.queues.filter(
+    (q) => !filter?.length || filter.includes(q.id),
+  );
   const out = [];
   for (const q of queues) {
-    const waiting = await waitingCounts(env, profile, q.id);
-    const counters = await openCounters(env, profile, q.id);
-    const minutes = await serviceMinutes(env, q);
+    const w = data.waiting.get(q.id);
+    const waiting = {
+      normal: w?.normal || 0,
+      preferential: w?.preferential || 0,
+    };
+    const counters = data.open.get(q.id)?.n || 0;
+    const minutes = minutesPerService(q, data.service.get(q.id));
     out.push({
       ...queuePublic(q),
       waiting,
@@ -584,36 +742,24 @@ export async function overview(
       open_counters: counters,
     });
   }
-  const counterRows = (
-    await all(
-      env,
-      "SELECT * FROM counters WHERE profile_id=? AND enabled=1 ORDER BY name,id",
-      profile,
-    )
-  ).filter(
+  const counterRows = data.counters.filter(
     (c) =>
       !filter?.length ||
       json(c.queue_ids, []).some((id: string) => filter.includes(id)),
   );
-  const names = await userNames(
-    env,
-    counterRows.map((c) => c.user_id),
-  );
-  const byQueue = new Map(queues.map((q) => [q.id, q]));
+  // Todas as filas da área: a senha atual de um guichê pode ser de uma fila
+  // fora do filtro (ticketView não volta ao banco para buscá-la).
+  const byQueue = new Map(data.queues.map((q) => [q.id, q]));
   const counters = [];
   for (const c of counterRows) {
-    const current = await one(
-      env,
-      "SELECT * FROM queue_tickets WHERE counter_id=? AND status IN ('called','serving') ORDER BY called_at DESC LIMIT 1",
-      c.id,
-    );
+    const current = data.current.get(c.id);
     counters.push({
       id: c.id,
       name: c.name,
       queue_ids: json(c.queue_ids, []),
       status: c.status,
       user_id: c.user_id || null,
-      user_name: c.user_id ? names.get(c.user_id) || null : null,
+      user_name: c.user_id ? c.user_name || null : null,
       current: current
         ? await ticketView(env, current, {
             queue: byQueue.get(current.queue_id),
@@ -623,19 +769,13 @@ export async function overview(
         : null,
     });
   }
-  const recent = await all(
-    env,
-    "SELECT t.*,c.name counter_name FROM queue_tickets t LEFT JOIN counters c ON c.id=t.counter_id WHERE t.profile_id=? AND t.service_day=? AND t.called_at IS NOT NULL AND t.status IN ('called','serving','done') ORDER BY t.called_at DESC LIMIT 30",
-    profile,
-    serviceDay(),
-  );
   return {
-    day: serviceDay(),
+    day: data.day,
     settings: { front_door: cfg.front_door, notify_ahead: cfg.notify_ahead },
-    coupon: await couponView(env, profile, cfg),
+    coupon: data.coupon,
     queues: out,
     counters,
-    recent_calls: recent
+    recent_calls: data.recent
       .filter((t) => !filter?.length || filter.includes(t.queue_id))
       .slice(0, 10)
       .map((t) =>
@@ -940,6 +1080,13 @@ export interface IssueInput {
   conversationId?: string | null;
   phone?: string | null;
   sourceKey?: string | null;
+  /** Totem (aplicação): o limite por minuto, conferido na mesma ida. */
+  kioskRate?: { key: string; expires: number; limit: number };
+  /**
+   * A vista da senha nova (ticketView), com as leituras no lote da gravação.
+   * Vem em `view` só quando a senha foi criada agora.
+   */
+  view?: Omit<ViewOptions, "queue">;
 }
 
 /**
@@ -951,15 +1098,43 @@ export async function issueTicket(
   profile: string,
   input: IssueInput,
 ) {
-  if (input.sourceKey) {
-    const old = await one(
-      env,
+  // Uma ida ao D1 para o começo (docs/LIMITES.md): a senha já emitida com
+  // esta chave, a fila e, no totem, o contador por minuto.
+  const items: [string, any[]][] = [];
+  if (input.sourceKey)
+    items.push([
       "SELECT * FROM queue_tickets WHERE source_key=?",
-      input.sourceKey,
-    );
-    if (old) return { ticket: old, created: false };
+      [input.sourceKey],
+    ]);
+  const hasQueueId = typeof input.queueId === "string";
+  if (hasQueueId)
+    items.push([
+      "SELECT * FROM queues WHERE id=? AND profile_id=?",
+      [input.queueId, profile],
+    ]);
+  if (input.kioskRate)
+    items.push([
+      "INSERT INTO rate_limits(key,count,expires) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET count=count+1 RETURNING count",
+      [input.kioskRate.key, input.kioskRate.expires],
+    ]);
+  // Repetir não faz mal: só leituras e o +1 do contador por minuto.
+  const first = items.length ? await batch(env, items, { retry: true }) : [];
+  let pos = 0;
+  const old: any = input.sourceKey ? first[pos++].results[0] : null;
+  const queueFound: any = hasQueueId ? first[pos++].results[0] : null;
+  if (input.kioskRate) {
+    const count = (first[pos].results[0] as any)?.count || 1;
+    if (count > input.kioskRate.limit)
+      throw new ApiError(
+        429,
+        "kiosk_rate",
+        "Muitas senhas em pouco tempo. Aguarde um instante.",
+      );
   }
-  const queue = await queueRow(env, profile, input.queueId);
+  if (old) return { ticket: old, created: false, queue: queueFound ?? null };
+  if (!queueFound)
+    throw new ApiError(404, "queue_not_found", "Fila não encontrada.");
+  const queue = queueFound;
   const channel = input.source === "whatsapp" ? "whatsapp" : "kiosk";
   if (
     !queue.enabled ||
@@ -981,7 +1156,7 @@ export async function issueTicket(
       phone,
       day,
     );
-    if (existing) return { ticket: existing, created: false };
+    if (existing) return { ticket: existing, created: false, queue };
     if (input.source === "whatsapp") {
       const block = await activeBlock(env, profile, phone);
       if (block)
@@ -1033,38 +1208,75 @@ export async function issueTicket(
     (v) => LINK_ALPHABET[v % LINK_ALPHABET.length],
   ).join("");
   // One statement: the number cannot be taken twice even if writes interleave.
-  const ticket = await one(
-    env,
-    "INSERT INTO queue_tickets(id,profile_id,queue_id,service_day,prefix,seq,code,preferential,source,source_key,issued_by,conversation_id,phone,public_token,link_code,created_at,updated) SELECT ?,?,?,?,?,coalesce(max(seq),0)+1,?||printf('%03d',coalesce(max(seq),0)+1),?,?,?,?,?,?,?,?,?,? FROM queue_tickets WHERE profile_id=? AND queue_id=? AND service_day=? AND prefix=? RETURNING *",
-    id,
-    profile,
-    queue.id,
-    day,
-    prefix,
-    prefix,
-    input.preferential ? 1 : 0,
-    input.source,
-    input.sourceKey || null,
-    input.actorId,
-    input.conversationId || null,
-    phone || null,
-    random().slice(0, 32),
-    link,
-    at,
-    at,
-    profile,
-    queue.id,
-    day,
-    prefix,
-  );
-  await event(env, profile, "queue.issued", id, {
-    id,
-    queue_id: queue.id,
-    code: ticket.code,
-    preferential: !!ticket.preferential,
-    source: input.source,
-  });
-  return { ticket, created: true };
+  // O evento queue.issued vai no mesmo lote (uma ida ao D1), com o código
+  // lido da senha recém-gravada, e as leituras da vista, se pedida.
+  const viewOptions = input.view ? { ...input.view, queue } : null;
+  const view = viewOptions
+    ? viewReads(
+        env,
+        {
+          id,
+          profile_id: profile,
+          queue_id: queue.id,
+          service_day: day,
+          status: "waiting",
+          preferential: input.preferential ? 1 : 0,
+          conversation_id: input.conversationId || null,
+          counter_id: null,
+        },
+        viewOptions,
+      )
+    : null;
+  const results = await batch(env, [
+    [
+      "INSERT INTO queue_tickets(id,profile_id,queue_id,service_day,prefix,seq,code,preferential,source,source_key,issued_by,conversation_id,phone,public_token,link_code,created_at,updated) SELECT ?,?,?,?,?,coalesce(max(seq),0)+1,?||printf('%03d',coalesce(max(seq),0)+1),?,?,?,?,?,?,?,?,?,? FROM queue_tickets WHERE profile_id=? AND queue_id=? AND service_day=? AND prefix=? RETURNING *",
+      [
+        id,
+        profile,
+        queue.id,
+        day,
+        prefix,
+        prefix,
+        input.preferential ? 1 : 0,
+        input.source,
+        input.sourceKey || null,
+        input.actorId,
+        input.conversationId || null,
+        phone || null,
+        random().slice(0, 32),
+        link,
+        at,
+        at,
+        profile,
+        queue.id,
+        day,
+        prefix,
+      ],
+    ],
+    [
+      "INSERT INTO events(profile_id,kind,resource_id,payload,created,source_key) SELECT ?,'queue.issued',id,json_object('id',id,'queue_id',queue_id,'code',code,'preferential',json(CASE WHEN preferential THEN 'true' ELSE 'false' END),'source',source),?,NULL FROM queue_tickets WHERE id=? RETURNING id",
+      [profile, at, id],
+    ],
+    ...(view?.items ?? []).map((r) => [r.sql, r.args] as [string, any[]]),
+  ]);
+  const [inserted, issued] = results;
+  const ticket = inserted.results[0] as any;
+  await fanOut(env, profile, "queue.issued", (issued.results[0] as any).id);
+  return {
+    ticket,
+    created: true,
+    queue,
+    view:
+      view && viewOptions
+        ? await viewOf(
+            env,
+            ticket,
+            viewOptions,
+            view,
+            readValues(view.items, results),
+          )
+        : undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1138,62 +1350,115 @@ export const nextCycle = (since: number | null, preferential: boolean) =>
 
 const system = "system";
 
-async function finishCurrent(env: Env, counterId: string, actor: string) {
-  const at = now();
-  const current = await all(
-    env,
-    "SELECT * FROM queue_tickets WHERE counter_id=? AND status IN ('called','serving')",
-    counterId,
-  );
+const CURRENT_SQL =
+  "SELECT * FROM queue_tickets WHERE counter_id=? AND status IN ('called','serving')";
+
+/**
+ * O encerramento das senhas em curso no guichê (`current`, já lidas com
+ * CURRENT_SQL): por senha, a atualização e o evento queue.finished, para irem
+ * num lote. `events`: os eventos, na ordem, para o fanOut depois do lote.
+ */
+function finishStatements(
+  current: any[],
+  counterId: string,
+  actor: string,
+  at: number,
+) {
+  const statements: [string, any[]][] = [];
+  const events: { profile: string; at: number }[] = [];
   for (const t of current) {
-    await exec(
-      env,
+    statements.push([
       "UPDATE queue_tickets SET status='done',started_at=coalesce(started_at,called_at),finished_at=?,served_by=coalesce(served_by,?),updated=? WHERE id=? AND status IN ('called','serving')",
-      at,
-      actor,
-      at,
-      t.id,
+      [at, actor, at, t.id],
+    ]);
+    events.push({ profile: t.profile_id, at: statements.length });
+    statements.push(
+      eventStatement(t.profile_id, "queue.finished", t.id, {
+        id: t.id,
+        code: t.code,
+        counter_id: counterId,
+      }),
     );
-    await event(env, t.profile_id, "queue.finished", t.id, {
-      id: t.id,
-      code: t.code,
-      counter_id: counterId,
-    });
+  }
+  return { statements, events };
+}
+/** fanOut dos eventos gravados num lote (`at`: posição da instrução). */
+async function fanOutBatch(
+  env: Env,
+  results: D1Result[],
+  events: { profile: string; kind: string; at: number }[],
+) {
+  for (const e of events) {
+    const row = results[e.at].results[0] as any;
+    if (row) await fanOut(env, e.profile, e.kind, row.id);
   }
 }
 
+async function finishCurrent(env: Env, counterId: string, actor: string) {
+  const current = await all(env, CURRENT_SQL, counterId);
+  if (!current.length) return;
+  const { statements, events } = finishStatements(
+    current,
+    counterId,
+    actor,
+    now(),
+  );
+  const results = await batch(env, statements);
+  await fanOutBatch(
+    env,
+    results,
+    events.map((e) => ({ ...e, kind: "queue.finished" })),
+  );
+}
+
+/** Leituras da chamada da próxima senha, todas numa ida (callNext). */
+const CALL_SQL = {
+  counter: "SELECT * FROM counters WHERE id=? AND profile_id=?",
+  // As filas do guichê e as das senhas transferidas para ele.
+  queues:
+    "SELECT * FROM queues WHERE profile_id=?1 AND (id IN (SELECT value FROM json_each((SELECT queue_ids FROM counters WHERE id=?2 AND profile_id=?1))) OR id IN (SELECT queue_id FROM queue_tickets WHERE profile_id=?1 AND service_day=?3 AND status='waiting' AND target_counter_id=?2))",
+  candidates:
+    "SELECT id,queue_id,preferential,created_at,seq,target_counter_id,code,conversation_id FROM queue_tickets WHERE profile_id=?1 AND service_day=?3 AND status='waiting' AND (target_counter_id=?2 OR (target_counter_id IS NULL AND queue_id IN (SELECT value FROM json_each((SELECT queue_ids FROM counters WHERE id=?2 AND profile_id=?1)))))",
+  // O evento queue.called com a senha como ficou (callFrame), só se a
+  // chamada pegou: a senha está chamada neste guichê, neste instante.
+  called:
+    "INSERT INTO events(profile_id,kind,resource_id,payload,created,source_key) SELECT t.profile_id,'queue.called',t.id,json_object('ticket_id',t.id,'code',t.code,'preferential',json(CASE WHEN t.preferential THEN 'true' ELSE 'false' END),'queue_id',t.queue_id,'queue_name',?,'counter_id',t.counter_id,'counter_name',?,'call_count',t.call_count,'recall',json('false'),'at',t.called_at,'speech',?),?,NULL FROM queue_tickets t WHERE t.id=? AND t.status='called' AND t.counter_id=? AND t.called_at=? RETURNING id",
+  cycle:
+    "UPDATE queues SET normals_since_preferential=?,updated=? WHERE id=? AND EXISTS(SELECT 1 FROM queue_tickets WHERE id=? AND status='called' AND counter_id=? AND called_at=?)",
+};
+
+/**
+ * Chama a próxima senha do guichê em duas idas ao D1 (docs/LIMITES.md): as
+ * leituras (guichê, filas, candidatas e senhas em curso) e, num lote, o
+ * encerramento das em curso, a chamada, o evento, o ciclo da fila, as senhas
+ * a avisar de "faltam N" e as leituras da vista.
+ */
 async function callNext(
   env: Env,
   actor: Actor,
   profile: string,
   counterId: string,
 ) {
-  const counter = await counterRow(env, profile, counterId);
-  if (!counter.enabled || counter.status !== "open")
-    throw new ApiError(409, "counter_closed", "Abra o guichê antes de chamar.");
-  const queueIds: string[] = json(counter.queue_ids, []);
-  const queues = new Map(
-    (
-      await all(
-        env,
-        "SELECT * FROM queues WHERE profile_id=? AND id IN (SELECT value FROM json_each(?))",
-        profile,
-        JSON.stringify(queueIds),
-      )
-    ).map((q) => [q.id, q]),
-  );
+  if (typeof counterId !== "string")
+    throw new ApiError(404, "counter_not_found", "Guichê não encontrado.");
+  const cfg = queueSettings(await settings(env, profile));
   for (let attempt = 0; attempt < 5; attempt++) {
-    const candidates = await all<Candidate>(
-      env,
-      "SELECT id,queue_id,preferential,created_at,seq,target_counter_id FROM queue_tickets WHERE profile_id=? AND service_day=? AND status='waiting' AND (target_counter_id=? OR (target_counter_id IS NULL AND queue_id IN (SELECT value FROM json_each(?))))",
-      profile,
-      serviceDay(),
-      counter.id,
-      JSON.stringify(queueIds),
-    );
-    for (const c of candidates)
-      if (!queues.has(c.queue_id))
-        queues.set(c.queue_id, await queueRow(env, profile, c.queue_id));
+    const day = serviceDay();
+    const [counter, queueRows, candidates, current] = await reads(env, [
+      { sql: CALL_SQL.counter, args: [counterId, profile], first: true },
+      { sql: CALL_SQL.queues, args: [profile, counterId, day] },
+      { sql: CALL_SQL.candidates, args: [profile, counterId, day] },
+      { sql: CURRENT_SQL, args: [counterId] },
+    ]);
+    if (!counter)
+      throw new ApiError(404, "counter_not_found", "Guichê não encontrado.");
+    if (!counter.enabled || counter.status !== "open")
+      throw new ApiError(
+        409,
+        "counter_closed",
+        "Abra o guichê antes de chamar.",
+      );
+    const queues = new Map<string, any>(queueRows.map((q: any) => [q.id, q]));
     const next = pickNext(candidates, queues, counter.id);
     if (!next)
       throw new ApiError(
@@ -1201,32 +1466,73 @@ async function callNext(
         "queue_empty",
         "Nenhuma senha aguardando para este guichê.",
       );
-    await finishCurrent(env, counter.id, actor.id);
-    const at = now();
-    const changed = await exec(
-      env,
-      "UPDATE queue_tickets SET status='called',counter_id=?,target_counter_id=NULL,called_at=?,call_count=call_count+1,served_by=?,updated=? WHERE id=? AND status='waiting'",
-      counter.id,
-      at,
-      actor.id,
-      at,
-      next.id,
-    );
-    if (!changed.meta.changes) continue;
     const q = queues.get(next.queue_id);
-    await exec(
+    if (!q) throw new ApiError(404, "queue_not_found", "Fila não encontrada.");
+    const at = now();
+    const finish = finishStatements(current, counter.id, actor.id, at);
+    const statements = [...finish.statements];
+    const callAt = statements.length;
+    statements.push([
+      "UPDATE queue_tickets SET status='called',counter_id=?,target_counter_id=NULL,called_at=?,call_count=call_count+1,served_by=?,updated=? WHERE id=? AND status='waiting' RETURNING *",
+      [counter.id, at, actor.id, at, next.id],
+    ]);
+    const calledAt = statements.length;
+    statements.push([
+      CALL_SQL.called,
+      [
+        q.name || "",
+        counter.name || null,
+        speech((next as any).code, counter.name),
+        at,
+        next.id,
+        counter.id,
+        at,
+      ],
+    ]);
+    statements.push([
+      CALL_SQL.cycle,
+      [
+        nextCycle(q.normals_since_preferential, !!next.preferential),
+        at,
+        q.id,
+        next.id,
+        counter.id,
+        at,
+      ],
+    ]);
+    // Depois da chamada, no mesmo lote: quem está na frente já conta com ela.
+    const tail: Read[] = cfg.notify_ahead ? [aheadRead(profile, q.id)] : [];
+    const view = viewReads(
       env,
-      "UPDATE queues SET normals_since_preferential=?,updated=? WHERE id=?",
-      nextCycle(q.normals_since_preferential, !!next.preferential),
-      at,
-      q.id,
+      {
+        ...next,
+        profile_id: profile,
+        status: "called",
+        counter_id: counter.id,
+      },
+      { staff: true, queue: q, counter },
     );
-    const ticket = await ticketRow(env, profile, next.id);
-    const frame = callFrame(ticket, q, counter);
-    await event(env, profile, "queue.called", ticket.id, frame);
+    tail.push(...view.items);
+    const results = await batch(env, [
+      ...statements,
+      ...tail.map((r) => [r.sql, r.args] as [string, any[]]),
+    ]);
+    await fanOutBatch(env, results, [
+      ...finish.events.map((e) => ({ ...e, kind: "queue.finished" })),
+      { profile, kind: "queue.called", at: calledAt },
+    ]);
+    const ticket = results[callAt].results[0] as any;
+    if (!ticket) continue;
+    const got = readValues(tail, results);
     await notify(env, ticket, "called", { counter: counter.name });
-    await notifyAhead(env, profile, ticket.queue_id);
-    return ticketView(env, ticket, { staff: true, queue: q, counter });
+    if (cfg.notify_ahead) await notifyAheadOf(env, got[0], cfg.notify_ahead);
+    return viewOf(
+      env,
+      ticket,
+      { staff: true, queue: q, counter },
+      view,
+      cfg.notify_ahead ? got.slice(1) : got,
+    );
   }
   throw new ApiError(
     409,
@@ -1448,27 +1754,36 @@ async function notify(
   }
 }
 
+/**
+ * Senhas ainda não avisadas de "faltam N" de uma fila, cada uma com quantas
+ * estão na frente (`ahead_count`, a conta de aheadOf feita no banco), para a
+ * leitura ir no lote da chamada (callNext).
+ */
+export const AHEAD_SQL = `SELECT t.*,CASE WHEN t.preferential THEN (SELECT count(*) FROM queue_tickets a WHERE a.queue_id=t.queue_id AND a.service_day=t.service_day AND a.status='waiting' AND a.preferential=1 AND (a.created_at<t.created_at OR (a.created_at=t.created_at AND a.seq<t.seq)))+min(coalesce((SELECT CASE WHEN coalesce(q.normals_per_preferential,0)=0 OR q.normals_since_preferential IS NULL THEN 0 ELSE max(0,q.normals_per_preferential-q.normals_since_preferential) END FROM queues q WHERE q.id=t.queue_id),0),(SELECT count(*) FROM queue_tickets a WHERE a.queue_id=t.queue_id AND a.service_day=t.service_day AND a.status='waiting' AND a.preferential=0)) ELSE (SELECT count(*) FROM queue_tickets a WHERE a.queue_id=t.queue_id AND a.service_day=t.service_day AND a.status='waiting' AND a.preferential=0 AND (a.created_at<t.created_at OR (a.created_at=t.created_at AND a.seq<t.seq)))+(SELECT count(*) FROM queue_tickets a WHERE a.queue_id=t.queue_id AND a.service_day=t.service_day AND a.status='waiting' AND a.preferential=1) END ahead_count FROM queue_tickets t WHERE t.profile_id=? AND t.queue_id=? AND t.service_day=? AND t.status='waiting' AND t.notified_ahead=0 AND t.conversation_id IS NOT NULL ORDER BY t.created_at,t.seq LIMIT 30`;
+
+const aheadRead = (profile: string, queueId: string): Read => ({
+  sql: AHEAD_SQL,
+  args: [profile, queueId, serviceDay()],
+});
+
 /** "Faltam N senhas" for tickets that reached the configured distance. */
 async function notifyAhead(env: Env, profile: string, queueId: string) {
   const cfg = queueSettings(await settings(env, profile));
   if (!cfg.notify_ahead) return;
-  const waiting = await all(
+  const [waiting] = await reads(env, [aheadRead(profile, queueId)]);
+  await notifyAheadOf(env, waiting, cfg.notify_ahead);
+}
+/** Os avisos de "faltam N" das senhas já lidas com AHEAD_SQL. */
+async function notifyAheadOf(env: Env, waiting: any[], distance: number) {
+  const due = waiting.filter((t) => t.ahead_count <= distance);
+  if (!due.length) return;
+  await exec(
     env,
-    "SELECT * FROM queue_tickets WHERE profile_id=? AND queue_id=? AND service_day=? AND status='waiting' AND notified_ahead=0 AND conversation_id IS NOT NULL ORDER BY created_at,seq LIMIT 30",
-    profile,
-    queueId,
-    serviceDay(),
+    "UPDATE queue_tickets SET notified_ahead=1 WHERE id IN (SELECT value FROM json_each(?))",
+    JSON.stringify(due.map((t) => t.id)),
   );
-  for (const t of waiting) {
-    const ahead = await aheadOf(env, t);
-    if (ahead > cfg.notify_ahead) continue;
-    await exec(
-      env,
-      "UPDATE queue_tickets SET notified_ahead=1 WHERE id=?",
-      t.id,
-    );
-    await notify(env, t, "ahead", { ahead });
-  }
+  for (const { ahead_count, ...t } of due)
+    await notify(env, t, "ahead", { ahead: ahead_count });
 }
 
 /** Closes tickets left open on previous days. Cheap; runs on every alarm. */
@@ -1846,31 +2161,29 @@ export async function queueCommand(
     );
     const source =
       data.source === "staff" && actor.kind === "user" ? "staff" : "kiosk";
-    if (actor.kind === "app") {
-      const cfg = queueSettings(await settings(env, profile));
-      const minute = Math.floor(now() / 60000);
-      if (
-        (await bump(
-          env,
-          `queue-kiosk:${actor.id}:${minute}`,
-          (minute + 1) * 60000,
-        )) > cfg.kiosk_per_minute
-      )
-        throw new ApiError(
-          429,
-          "kiosk_rate",
-          "Muitas senhas em pouco tempo. Aguarde um instante.",
-        );
-    }
-    const { ticket } = await issueTicket(env, profile, {
+    // Totem (aplicação): limite por minuto, conferido na mesma ida que a fila
+    // (issueTicket). As configurações já vieram na abertura do comando.
+    const minute = Math.floor(now() / 60000);
+    const kioskRate =
+      actor.kind === "app"
+        ? {
+            key: `queue-kiosk:${actor.id}:${minute}`,
+            expires: (minute + 1) * 60000,
+            limit: queueSettings(await settings(env, profile)).kiosk_per_minute,
+          }
+        : undefined;
+    const staff = actor.kind === "user";
+    const { ticket, queue, view } = await issueTicket(env, profile, {
       queueId: data.queue_id,
       preferential: data.preferential,
       source,
       actorId: actor.id,
-      phone: actor.kind === "user" ? data.phone : null,
+      phone: staff ? data.phone : null,
       sourceKey: `issue:${actor.id}:${requestId}`,
+      kioskRate,
+      view: { staff },
     });
-    return ticketView(env, ticket, { staff: actor.kind === "user" });
+    return view ?? ticketView(env, ticket, { staff, queue });
   }
   queueAccess(actor, profile, "queue:operate");
   if (op === "counter.state") return counterState(env, actor, profile, data);

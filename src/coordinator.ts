@@ -1,6 +1,19 @@
 import { DurableObject } from "cloudflare:workers";
 import { type Env, type Actor, type Run, ApiError, now, json } from "./types";
-import { one, all, exec, withReadCache } from "./db";
+import {
+  one,
+  all,
+  exec,
+  batch,
+  MODULE_STATES_SQL,
+  PROFILE_SETTINGS_SQL,
+  PUBLIC_ORIGIN_SQL,
+  seedRead,
+  WEBHOOK_SUBS_SQL,
+  withReadCache,
+  type Read,
+} from "./db";
+import { serverTiming, timedEnv } from "./d1-timing";
 import { sha, seal, unseal, canonical } from "./security";
 import { REVOKED_CLOSE } from "./sockets";
 import { perform, inbound } from "./service";
@@ -10,13 +23,18 @@ import { callWebhook, expireCalls } from "./calls";
 import { expireUploads } from "./media";
 import { transport } from "./transport";
 import { routerLink } from "./number-router";
-import { audit } from "./events";
+import { auditStatement } from "./events";
 import { processCloudflareJob } from "./cloudflare";
 import { processUpdate, updatePending, automaticUpdateTick } from "./updates";
 import { processPush } from "./push";
 import { HermesLinkHub } from "./hermes-link";
 import { ErpHub } from "./erp/hub";
-import { closeDay, overview as queueOverview } from "./queue";
+import {
+  closeDay,
+  overview as queueOverview,
+  overviewData,
+  overviewOf,
+} from "./queue";
 import { completeWebStep, expireWebSteps } from "./web-steps";
 import {
   expirePayments,
@@ -88,12 +106,37 @@ export class Coordinator extends DurableObject<Env> {
         const actor: Actor = body.actor,
           scope = `${actor.id}:${this.profile}:${body.operation}`,
           fingerprint = await sha(canonical(body.data));
-        const old = await one(
-          this.env,
-          "SELECT * FROM receipts WHERE scope=? AND key=?",
-          scope,
-          body.key,
+        // Idas ao D1 deste comando (Server-Timing) e o cache de leituras dele
+        // inteiro (perform reaproveita o escopo).
+        const { env: timed, timing } = timedEnv(this.env);
+        const env = withReadCache(timed);
+        // Abertura numa ida só (docs/LIMITES.md): o recibo anterior, a
+        // reserva do recibo (INSERT OR IGNORE: só a primeira grava) e as
+        // leituras de configuração que quase todo comando faz.
+        const warmReads: Read[] = [
+          { sql: MODULE_STATES_SQL, args: [this.profile] },
+          { sql: PROFILE_SETTINGS_SQL, args: [this.profile], first: true },
+          { sql: WEBHOOK_SUBS_SQL, args: [this.profile] },
+          { sql: PUBLIC_ORIGIN_SQL, args: [], first: true },
+        ];
+        const opening = await batch(
+          env,
+          [
+            [
+              "SELECT * FROM receipts WHERE scope=? AND key=?",
+              [scope, body.key],
+            ],
+            [
+              "INSERT OR IGNORE INTO receipts(scope,key,fingerprint,created) VALUES(?,?,?,?)",
+              [scope, body.key, fingerprint, now()],
+            ],
+            ...warmReads.map((r) => [r.sql, r.args] as [string, any[]]),
+          ],
+          // Repetir é seguro: a reserva só grava uma vez.
+          { retry: true },
         );
+        warmReads.forEach((r, i) => seedRead(env, r, opening[i + 2].results));
+        const old: any = opening[0].results[0];
         if (old) {
           if (old.fingerprint !== fingerprint)
             return Response.json(
@@ -129,16 +172,9 @@ export class Coordinator extends DurableObject<Env> {
             },
           );
         }
-        await exec(
-          this.env,
-          "INSERT INTO receipts(scope,key,fingerprint,created) VALUES(?,?,?,?)",
-          scope,
-          body.key,
-          fingerprint,
-          now(),
-        );
         let status = 200,
-          value: any;
+          value: any,
+          audited: [string, any[]] | null = null;
         // Identificador da operação para as chaves derivadas (sourceKey, ids
         // de registro): único por credencial, área, operação e
         // Idempotency-Key, estável nas repetições e só com hexadecimais. A
@@ -147,15 +183,15 @@ export class Coordinator extends DurableObject<Env> {
         const operationId = (await sha(`${scope}\n${body.key}`)).slice(0, 32);
         try {
           value = await perform(
-            this.env,
+            env,
             actor,
             this.profile,
             body.operation,
             body.data,
             operationId,
           );
-          await audit(
-            this.env,
+          // Auditoria no mesmo lote do fechamento do recibo (abaixo).
+          audited = auditStatement(
             actor,
             this.profile,
             body.operation,
@@ -175,19 +211,28 @@ export class Coordinator extends DurableObject<Env> {
             },
           };
         }
-        await exec(
-          this.env,
-          "UPDATE receipts SET response=?,status=? WHERE scope=? AND key=?",
-          "sealed:" + (await seal(this.env, value)),
-          status,
-          scope,
-          body.key,
-        );
+        // Fechamento numa ida: a auditoria e o recibo com a resposta.
+        await batch(env, [
+          ...(audited ? [audited] : []),
+          [
+            "UPDATE receipts SET response=?,status=? WHERE scope=? AND key=?",
+            [
+              "sealed:" + (await seal(this.env, value)),
+              status,
+              scope,
+              body.key,
+            ],
+          ],
+        ]);
         await this.schedule();
-        // "settings": o cupom da senha vai no snapshot dos aparelhos.
+        // "settings": o cupom da senha vai no snapshot dos aparelhos. Fora do
+        // caminho da resposta: o totem e o painel não esperam o snapshot.
         if (/^(queue\.|counter\.|settings$)/.test(body.operation))
-          await this.broadcastQueue();
-        return Response.json(value, { status });
+          this.ctx.waitUntil(this.broadcastQueueSoon());
+        return Response.json(value, {
+          status,
+          headers: { "Server-Timing": serverTiming(timing) },
+        });
       });
     // Passo web concluído pela página pública: a mensagem de retorno, o
     // protocolo e a nota entram na fila da área como o resto do atendimento.
@@ -339,6 +384,30 @@ export class Coordinator extends DurableObject<Env> {
       return false;
     });
   }
+  private broadcasting: Promise<void> | null = null;
+  private broadcastAgain = false;
+  /**
+   * O envio aos painéis fora do caminho da resposta do comando, um de cada
+   * vez: um pedido que chega durante um envio faz mais uma volta no fim, para
+   * o último snapshot ser sempre o mais novo (nunca um antigo depois).
+   */
+  private broadcastQueueSoon(): Promise<void> {
+    if (this.broadcasting) {
+      this.broadcastAgain = true;
+      return this.broadcasting;
+    }
+    this.broadcasting = (async () => {
+      try {
+        do {
+          this.broadcastAgain = false;
+          await this.broadcastQueue();
+        } while (this.broadcastAgain);
+      } finally {
+        this.broadcasting = null;
+      }
+    })();
+    return this.broadcasting;
+  }
   /** Sends new calls and a fresh snapshot to every connected panel. */
   private async broadcastQueue() {
     const sockets = this.closeExpiredSockets();
@@ -356,6 +425,8 @@ export class Coordinator extends DurableObject<Env> {
       .filter((r) => ["queue.called", "queue.recalled"].includes(r.kind))
       .map((r) => json(r.payload));
     const snapshots = new Map<string, string>();
+    // Uma leitura só do panorama para todos os filtros (overviewData).
+    const data = await overviewData(this.env, this.profile);
     for (const ws of sockets) {
       const filter: string[] = ws.deserializeAttachment()?.filter || [];
       const key = JSON.stringify(filter);
@@ -370,7 +441,7 @@ export class Coordinator extends DurableObject<Env> {
             key,
             JSON.stringify({
               type: "snapshot",
-              data: await queueOverview(this.env, this.profile, filter),
+              data: await overviewOf(data, filter),
             }),
           );
         ws.send(snapshots.get(key)!);
@@ -449,7 +520,7 @@ export class Coordinator extends DurableObject<Env> {
         await runModuleSchedules(env, this.profile, tick);
       }
       await processInbox(env, this.profile);
-      await this.broadcastQueue();
+      await this.broadcastQueueSoon();
       for (const run of await all<Run>(
         env,
         "SELECT * FROM bot_runs WHERE profile_id=? AND (status IN ('queued','starting','running','cancelling') OR (status='completed' AND completion_handled=0)) ORDER BY created LIMIT 5",

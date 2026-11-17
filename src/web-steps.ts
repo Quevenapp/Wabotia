@@ -5,7 +5,14 @@
 //
 // Escritas que tocam a conversa (conclusão, mensagem de retorno, protocolo)
 // rodam no Coordinator da área (POST /web-step), como o resto do atendimento.
-import { all, exec, one, cachedOne, withReadCache } from "./db";
+import {
+  all,
+  exec,
+  one,
+  cachedOne,
+  PUBLIC_ORIGIN_SQL,
+  withReadCache,
+} from "./db";
 import { moduleById, moduleEnabled } from "./modules/registry";
 import {
   ApiError,
@@ -357,14 +364,7 @@ export async function savePublicOrigin(env: Env, data: any) {
   return { public_origin: origin };
 }
 export async function publicOrigin(env: Env) {
-  return (
-    (
-      await cachedOne(
-        env,
-        "SELECT value FROM instance_settings WHERE key='public_origin'",
-      )
-    )?.value || null
-  );
+  return (await cachedOne(env, PUBLIC_ORIGIN_SQL))?.value || null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1271,13 +1271,16 @@ export function appInvitePage(
 ) {
   const links = options.links
     .map(
-      (l) => `<a class="button" href="${escape(l.href)}">${escape(l.label)}</a>`,
+      (l) =>
+        `<a class="button" href="${escape(l.href)}">${escape(l.label)}</a>`,
     )
     .join(" ");
   return page(
     `Abra no app ${options.app}`,
     `<div class="card state"><div class="icon" aria-hidden="true">📦</div><h1>${escape(
-      options.store ? `Entrega de ${options.store}` : `Abra no app ${options.app}`,
+      options.store
+        ? `Entrega de ${options.store}`
+        : `Abra no app ${options.app}`,
     )}</h1><p>${escape(
       `Abra o ${options.app} e toque em Escanear pedido para ler este QR. A câmera comum não conclui a leitura.`,
     )}</p>${links}</div>`,
