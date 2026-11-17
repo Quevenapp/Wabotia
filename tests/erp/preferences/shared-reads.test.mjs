@@ -1,4 +1,4 @@
-// Leituras do domínio 11 que outros domínios usam (preferences/public.ts), contra o oráculo:
+// Leituras do domínio 11 que outros domínios usam (preferences/shared.ts), contra o oráculo:
 // erp_preferences.situation_base_label/_color, situation_bases, situation_list, situation_of, transition_allowed,
 // transition_list e transition_rule; erp_home.biz_role, biz_cost_visible, biz_freight e biz_unit_cost.
 import test from "node:test";
@@ -19,7 +19,7 @@ import {
   transitionAllowed,
   transitionList,
   transitionRule,
-} from "../../../src/erp/domains/preferences/public.ts";
+} from "../../../src/erp/domains/preferences/shared.ts";
 
 const KINDS = ["sales_orders", "purchase_orders", "service_orders", "sales_proposals", "x"];
 const STATUSES = ["draft", "open", "verified", "in_progress", "agency_sale", "checkout_partial", "partially_fulfilled", "fulfilled", "cancelled", "quoted", "no_repair", "x_y", "a"];

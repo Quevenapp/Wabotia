@@ -17,7 +17,7 @@ import { requirePermission } from "../../access/public.ts";
 import { fold, productCostAt } from "../../catalog/public.ts";
 import { allowed as documentsAllowed, reportCoverage, reportLastPurchaseUntil } from "../../documents/public.ts";
 import * as preferences from "../public.ts";
-import { countPhysical, ignoredWarehouse, virtualQuantity } from "../../stock/public.ts";
+import { countPhysical, ignoredWarehouse, priceText, virtualQuantity } from "../../stock/public.ts";
 import { json, text, uuid } from "../args.ts";
 import { bizCostVisible, bizFreight, bizRole } from "../business-rules.ts";
 import { compareText } from "../order.ts";
@@ -260,7 +260,8 @@ class Panel {
           cost =
             ((i.applied as string | null) ?? null) ??
             productCostAt(this.db, product, o.day) ??
-            (reportLastPurchaseUntil(this.db, product, o.day, false) as unknown as string | null);
+            // reportLastPurchaseUntil devolve bigint na escala 10 (Documentos); o texto sai pelo priceText do Estoque.
+            priceText((reportLastPurchaseUntil(this.db, product, o.day, false) as unknown as bigint | null) ?? null);
         out.push({
           document_id: o.id,
           day: o.day,

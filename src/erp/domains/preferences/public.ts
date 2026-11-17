@@ -3,12 +3,10 @@
 import { one, type SqlDriver } from "../../engine/driver.ts";
 
 export * from "./stubs.generated.ts";
-// Situações e transições (Documentos: save, B2 e transition). Cada item da lista
-// de situação_list/transition_list traz as colunas da função SQL (ver framework.ts).
-export { situationBaseColor, situationBaseLabel, situationBases } from "./center.ts";
-export { situationList, situationOf, transitionAllowed, transitionList, transitionRule } from "./framework.ts";
-// Meu Negócio (Documentos: save, cópia, lixeira, conversões e frete pago).
-export { bizCostVisible, bizFreight, bizRole, bizUnitCost } from "./business-rules.ts";
+// As leituras de situações, transições e Meu Negócio que outros domínios usam
+// estão em ./shared.ts: este arquivo fica leve (sem importar outros domínios),
+// porque Catálogo, Estoque, Financeiro e Documentos o importam para o get() e um
+// import pesado aqui muda a ordem de carga deles (ciclo com o Catálogo).
 
 /**
  * erp_attachments.storage_ready(): no Fagoo confere o bucket em
