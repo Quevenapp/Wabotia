@@ -175,17 +175,31 @@ export class ErpHub {
    * nem o D1.
    */
   async alarm() {
-    const { engineClock, migrate, runRound, storageDriver } = await engine();
+    const { CONTINUE_AFTER_MS, FILE_PURPOSES, engineClock, migrate, runFileTasks, runRound, storageDriver } = await engine();
     const storage = this.ctx.storage;
     if (migrate(storage).status === "newer") return;
-    const saved = await storage.get<{ blocks: Record<string, boolean> }>(ERP_BLOCKS_KEY);
-    const report = await runRound(storageDriver(storage), { blocks: saved?.blocks ?? {}, clock: engineClock(this.ctx) });
+    const [saved, profile] = await Promise.all([
+      storage.get<{ blocks: Record<string, boolean> }>(ERP_BLOCKS_KEY),
+      storage.get<string>("erp_profile"),
+    ]);
+    const report = await runRound(storageDriver(storage), {
+      blocks: saved?.blocks ?? {},
+      clock: engineClock(this.ctx),
+      filePurposes: FILE_PURPOSES,
+    });
+    let next = report.nextWake ?? Date.now() + 3_600_000;
+    // Tarefa com arquivo (exportação, limpeza): não retoma em outra acordada,
+    // então vai sozinha, numa acordada em que a rodada não fez mais nada; se
+    // fez, a próxima acordada (1 s) é dela. Cede a vez a cada ida ao R2.
+    if (report.fileDue && !report.more && profile) {
+      if (!report.routines.length && !report.tasks.length) await runFileTasks(this.env, this.ctx, profile);
+      next = Date.now() + CONTINUE_AFTER_MS;
+    }
     storage.sql.exec(
       "INSERT INTO erp_meta(key,value) VALUES('last_alarm',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
       String(Date.now()),
     );
     // Um wake que chegou durante a rodada pode ter agendado mais cedo: fica o mais cedo.
-    const next = report.nextWake ?? Date.now() + 3_600_000;
     const current = await storage.getAlarm();
     if (current === null || current > next) await storage.setAlarm(next);
   }
