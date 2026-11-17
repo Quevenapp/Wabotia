@@ -14,6 +14,10 @@ export { countPhysical, ignoredWarehouse, lotQuantity, lotsExpiring } from "./ho
 export { virtualPositions, virtualQuantity } from "./read.ts";
 export { ledgerDocumentPrice, priceText } from "./ledger.ts";
 export { invoiceUnitPrice } from "./costs.ts";
+// Para o Documentos (sessão O, erp_document_sales_report: lucro por custo ou
+// última compra): fornecedor padrão, última compra e quem vê custo.
+export { defaultSupplier, lastPurchase } from "./ledger.ts";
+export { costVisible } from "./costs.ts";
 // Para o Documentos (sessão O): guardas e efeitos sobre documento e item.
 export {
   active, effectDocumentAllowed, effectEditAllowed, effectItemAllowed, effectTransitionAllowed, forgetItemComponents,
