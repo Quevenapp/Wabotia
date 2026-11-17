@@ -135,6 +135,9 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
      - UNIQUE e PK: 23505 `duplicate key value violates unique constraint "<restrição ou índice>"`.
 
      Os nomes vêm do DDL gerado e são conferidos contra o oráculo (`tests/erp/check-errors.test.mjs`). Exceção: `erp_finance.movement(settlement_id)` tem dois índices parciais nas mesmas colunas, e a mensagem do SQLite não diz qual. Ali sai o código 23505 com a mensagem do SQLite. Não traduza à mão no domínio.
+   - **Coluna identity (número que a pessoa vê): use `nextIdentity(ctx, "<schema>__<tabela>", "<coluna>")`** (`engine/sequence.ts`), nunca max+1 nem o rowid automático.
+     - O número não volta com a transação, como o `nextval`: um RPC que falha depois de pedir o número o consome nos dois motores.
+     - Peça o número **na posição do `nextval` no INSERT, na ordem das colunas** (achado da O no faturamento agrupado). Se uma coluna anterior recusa, o Postgres ainda não consumiu; se a recusa vem de uma coluna depois, já consumiu.
    - **Dois campos inválidos na mesma linha: a ordem das recusas no Postgres muda com o cache de planos** (achado da O na conciliação, `statement_import`).
      - Vale para comando SQL do PL/pgSQL: INSERT, UPDATE ou SELECT com subconsulta.
      - Nas 5 primeiras execuções na sessão, o plano é custom. As funções IMMUTABLE com argumentos de variável (`cents`, `txt`, `ofx_text`, `uuid_value`) são dobradas no planejamento e recusam antes das STABLE e VOLATILE, como a `day`.
