@@ -7,6 +7,7 @@ import { uid } from "../src/types";
 import { erpFetch, erpStub } from "../src/erp/hub";
 import { migrate } from "../src/erp/schema/migrate";
 import { ERP_DDL_VERSION } from "../src/erp/schema/ddl";
+import { ERP_ENGINE_TABLES } from "../src/erp/schema/engine-tables";
 
 describe("ERP fase 0: esquema gerado no objeto", () => {
   it("aplica DDL e semeadura numa instância nova; regras geradas valem", async () => {
@@ -45,9 +46,10 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
       return out;
     });
     console.log("ERP_SCHEMA " + JSON.stringify(result));
-    expect(result.first).toMatchObject({ status: "applied", version: ERP_DDL_VERSION, statements: 973, seedRows: 7586 });
+    // 975 = 973 do gerado + 2 tabelas só do motor (engine-tables.ts, versão 7); 432 tabelas.
+    expect(result.first).toMatchObject({ status: "applied", version: ERP_DDL_VERSION, statements: 975, seedRows: 7586 });
     expect(result.again).toMatchObject({ status: "current" });
-    expect(result.tables).toBe(430);
+    expect(result.tables).toBe(432);
     expect(result.triggers).toBeGreaterThan(148);
     expect(result.municipalities).toBe(5571);
   });
@@ -61,6 +63,8 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
       const filled = folds();
       // Como uma instância criada na versão 5: colunas normalizadas da semeadura NULL.
       sql.exec('UPDATE "erp_catalog__contact_type" SET label__fold = NULL');
+      // A versão 5 ainda não tinha as tabelas só do motor (o passo 6→7 as cria).
+      for (const t of ERP_ENGINE_TABLES) sql.exec(`DROP TABLE "${t.table}"`);
       sql.exec("UPDATE erp_meta SET value='5' WHERE key='schema_version'");
       const step = migrate(state.storage);
       return { filled, step, after: folds(), again: migrate(state.storage) };
@@ -71,7 +75,10 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
     expect(out.again).toMatchObject({ status: "current" });
   });
 
-  it("o ping do ERP aplica o esquema na primeira chamada (tempo Worker→objeto)", async () => {
+  // Tempo-limite próprio: a primeira chamada aplica o DDL inteiro e a
+  // semeadura num objeto novo, e o teste faz mais 20 idas; fica perto dos
+  // 5 s padrão mesmo sozinho (B, 17/11).
+  it("o ping do ERP aplica o esquema na primeira chamada (tempo Worker→objeto)", { timeout: 30_000 }, async () => {
     const profile = uid();
     const t0 = Date.now();
     const first = await erpFetch(env, profile, "/erp-ping");

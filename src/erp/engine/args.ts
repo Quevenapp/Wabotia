@@ -11,6 +11,7 @@
 import { ErpError } from "./errors.ts";
 import { dateArgError } from "./time.ts";
 import { SIGNATURES, type ArgSpec } from "./signatures.generated.ts";
+import { ENGINE_SIGNATURES } from "./signatures-engine.ts";
 import type { RpcArgs } from "./registry.ts";
 
 /** Texto com que o valor chega ao Postgres (o cliente serializa assim). */
@@ -212,11 +213,12 @@ const notFound = (name: string, keys: string[]): never => {
 };
 
 /**
- * Argumentos como o corpo do RPC os veria no Postgres. RPC sem assinatura no
- * oráculo (não deveria haver: tests/erp/signatures.test.mjs) passa como veio.
+ * Argumentos como o corpo do RPC os veria no Postgres. RPC só do motor usa a
+ * assinatura do signatures-engine.ts; RPC sem assinatura nenhuma (não deveria
+ * haver: tests/erp/signatures.test.mjs) passa como veio.
  */
 export function prepareArgs(name: string, args: RpcArgs): RpcArgs {
-  const signature = SIGNATURES[name];
+  const signature = SIGNATURES[name] ?? ENGINE_SIGNATURES[name];
   if (!signature) return args;
   const given = Object.keys(args).filter((k) => args[k] !== undefined);
   const specs = new Map(signature.map((s) => [s[0], s]));

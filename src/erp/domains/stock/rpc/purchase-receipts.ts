@@ -371,6 +371,9 @@ export function applyWarehouse(
   const id = crypto.randomUUID();
   // command_id → erp_purchase_receipts.command, gravado no fim (FK adiada no Postgres).
   deferForeignKeys(ctx, action === "receive" ? "erp_purchase_receipts__receipt" : "erp_purchase_receipts__reversal");
+  // aa_mirror_authority (guard_effect) no recebimento/estorno, e pelo mesmo
+  // documento na auditoria do Documentos e no recibo do comando, logo depois.
+  documents.mirrorGuardEffect(db, d.id);
   if (action === "receive")
     db.exec(
       'INSERT INTO "erp_purchase_receipts__receipt"(id, document_id, source_document_version, document_version, command_id, movement_id, actor, snapshot, preview_hash, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)',

@@ -8,6 +8,12 @@ import { ledgerDocumentPrice } from "../stock/public.ts";
 
 export * from "./stubs.generated.ts";
 export { costApply, costApplyCapture } from "./cost-apply.ts";
+// Para a ponte com o Financeiro (B5: erp_document_finance_*).
+export { decimalValue, documentDto, textValue } from "./internal.ts";
+export { updateDocument } from "./rows.ts";
+export { documentFinanceCategory, requireOsPermission } from "./save-checks.ts";
+// O documento espelhado do Origin: guard_effect das tabelas que apontam para documento.
+export { guardEffect as mirrorGuardEffect } from "./mirror.ts";
 
 /**
  * erp_documents.report_last_purchase_until(produto, até, saldos): o preço da
@@ -79,3 +85,5 @@ export function allowed(role: string | null, kind: string | null, write: boolean
   if (["estoque", "fiscal"].includes(role)) return ["sales_orders", "purchase_orders"].includes(kind);
   return false;
 }
+// Escrito pela P para o Catálogo (contact_page/contact_export); dona: O.
+export { salesInPeriodCondition } from "./catalog-p.ts";

@@ -57,6 +57,30 @@ export function registerDerivedId(spec) {
 /** Os formatos registrados (todos os domínios). */
 export const derivedIds = () => [...registry.values()];
 
+/**
+ * Hash opaco sobre id novo (pedido da O, 17/11): um sha256 em hex de conteúdo
+ * que inclui um uuid criado na própria chamada (ex.: o preview_hash da
+ * prévia do lançamento de contas de um pedido criado agora). Os motores dão
+ * hashes diferentes com o comportamento igual. Declarado como formato
+ * derivado: os 32 primeiros dígitos viram um uuid de mentira, e o comparador
+ * liga o hash do Postgres ao do SQLite como liga um id novo — o mesmo par em
+ * todas as colunas e chaves declaradas (igualdade interna de cada lado). Hash
+ * que já existia (semeado ou espelhado) só vale igual. Só onde declarado,
+ * com o motivo (o trecho do Fagoo que calcula o hash e o id novo que ele cobre).
+ */
+export function registerOpaqueHash({ id, columns = [], keys = [], reason = "" }) {
+  if (typeof reason !== "string" || reason.length < 40)
+    throw new Error(`Hash opaco ${id}: justifique (reason): o trecho do Fagoo que calcula o hash e o id novo que ele cobre.`);
+  return registerDerivedId({
+    id,
+    pattern: /^([0-9a-f]{64})$/,
+    toUuid: (m) => hex32ToUuid(m[1].slice(0, 32)),
+    fromUuid: (u) => u.replace(/-/g, "") + "0".repeat(32),
+    columns,
+    keys,
+  });
+}
+
 /** Formatos que valem numa coluna de tabela (texto inteiro ou json sob `key`). */
 export function derivedFor(specs, table, column, key) {
   const where = `${table}.${column}`;
@@ -161,4 +185,39 @@ registerNewIdOrder({
   reason:
     "settle_batch sem agrupamento: 'borderos' é jsonb_agg(erp_finance.bordero_dto(b,false) order by b) sobre unnest(v_borderos), " +
     "os ids dos borderôs criados na chamada com gen_random_uuid() (202610200110_finance_bordero.sql, 202610200249_finance_settle_history.sql).",
+});
+
+// Documentos/Financeiro (O): o lançamento de contas automático do pedido de
+// compra novo (compras.automacao_contas_pagar, erp_documents.auto_finance na
+// mesma chamada do erp_document_save). O preview_hash é sha256 do jsonb da
+// prévia (erp_documents.finance_preview), que traz o document_id novo; o
+// request_hash do recibo cobre os mesmos dados.
+registerOpaqueHash({
+  id: "finance.document_posting_hash",
+  columns: [
+    "erp_finance__document_posting.preview_hash",
+    "erp_finance__document_command.request_hash",
+    "erp_finance__document_command.result",
+  ],
+  keys: ["preview_hash", "request_hash"],
+  reason:
+    "erp_document_finance_post pelo auto_finance do erp_document_save: preview_hash = sha256 da prévia com o document_id criado na " +
+    "chamada (gen_random_uuid); o request_hash do erp_finance.document_command cobre o mesmo id.",
+});
+
+// Catálogo (P/B): erp_catalog.custom_field_item, migração
+// 202610200156_product_custom_fields.sql: 'category_ids' =
+// jsonb_agg(c.category_id::text order by c.category_id::text). Categoria
+// criada no mesmo comando (erp_catalog_taxonomy_save, gen_random_uuid) muda
+// de posição entre os motores; as antigas são iguais nos dois lados.
+registerNewIdOrder({
+  id: "catalog.custom_field_category_ids",
+  keys: ["category_ids"],
+  by: null,
+  dir: "asc",
+  columns: ["erp_catalog__custom_field_audit.before_data", "erp_catalog__custom_field_audit.after_data", "erp_catalog__command.result"],
+  rpcs: ["erp_catalog_custom_fields", "erp_catalog_custom_field_save", "erp_catalog_taxonomy_save"],
+  reason:
+    "erp_catalog.custom_field_item (202610200156_product_custom_fields.sql): 'category_ids' = jsonb_agg(c.category_id::text order by " +
+    "c.category_id::text); uma categoria criada no mesmo comando (erp_catalog_taxonomy_save, gen_random_uuid) muda de posição entre os motores.",
 });

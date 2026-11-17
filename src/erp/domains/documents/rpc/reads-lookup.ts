@@ -2,7 +2,8 @@
 // produto para a linha do documento, descrição do produto no fornecedor,
 // estrutura (composição) dos itens e casamento do XML de nota com contato e
 // produtos. Portado de public.erp_document_* com os mesmos nomes.
-// erp_document_mirror.require_visible sai (Origin fora: docs/ERP-FASE0.md).
+// erp_document_mirror.require_visible abre _supplier_descriptions e
+// _structures, como no oráculo (mirrorRequireVisible).
 import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { formatScaled, fromColumn, rescale } from "../../../engine/dec.ts";
 import { raise } from "../../../engine/errors.ts";
@@ -11,7 +12,7 @@ import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/regi
 import { PG_CNTRL, pgBtrim, pgCompareText, pgHasCntrl, pgLeft, pgLength, pgLower } from "../../../engine/text.ts";
 import * as catalog from "../../catalog/public.ts";
 import * as stock from "../../stock/public.ts";
-import { contactUsable, requireAccess } from "../public.ts";
+import { contactUsable, mirrorRequireVisible, requireAccess } from "../public.ts";
 import { bool, by, cmpUuid } from "./reads-common.ts";
 
 type Row = Record<string, unknown>;
@@ -128,6 +129,7 @@ export function erpDocumentSupplierDescriptions(ctx: RpcContext, a: RpcArgs) {
   const user = str(a.p_user_id),
     kind = str(a.p_kind),
     id = str(a.p_document_id);
+  mirrorRequireVisible(ctx.db, user, id, false);
   requireAccess(ctx.db, user, kind, false);
   const d = visibleDocument(ctx.db, user, kind, id);
   const clean = (s: unknown) => (s === null || s === undefined ? null : pgBtrim(String(s).replace(CNTRL_RUN, " ")));
@@ -159,6 +161,7 @@ export function erpDocumentStructures(ctx: RpcContext, a: RpcArgs) {
   const user = str(a.p_user_id),
     kind = str(a.p_kind),
     id = str(a.p_document_id);
+  mirrorRequireVisible(ctx.db, user, id, false);
   requireAccess(ctx.db, user, kind, false);
   visibleDocument(ctx.db, user, kind, id);
   const items = ctx.db

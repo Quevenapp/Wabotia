@@ -5,7 +5,7 @@
 import { createHash } from "node:crypto";
 import { one, type SqlDriver } from "../../engine/driver.ts";
 import { formatScaled, fromColumn, toParam } from "../../engine/dec.ts";
-import { raise } from "../../engine/errors.ts";
+import { notPorted, raise } from "../../engine/errors.ts";
 import type { RpcContext } from "../../engine/registry.ts";
 import { jsonTimestamp } from "../../engine/time.ts";
 import { activeRole, permitted } from "../access/public.ts";
@@ -60,21 +60,32 @@ function guardBalanceInsert(db: SqlDriver, quantity: bigint) {
     raise("22023", "erp_stock_insufficient_or_excess_quantity");
 }
 
+/**
+ * A exceção da importação do espelho nas guardas de saldo negativo: a linha
+ * de erp_sync.stock_import da própria transação só existe na aplicação do
+ * espelho (pull_stock). Fora dela, a guarda recusa como o Postgres; dentro,
+ * 0A000 até o espelho ser portado (nunca uma isenção silenciosa).
+ */
+function mirrorImportException(ctx: RpcContext) {
+  if (sync.applying(ctx)) notPorted("erp_sync.stock_import");
+}
+
 /** protect_reserved_balance (BEFORE UPDATE em balance) */
 function guardBalanceUpdate(
-  db: SqlDriver,
+  ctx: RpcContext,
   product: string,
   warehouse: string,
   oldQuantity: bigint,
   newQuantity: bigint,
 ) {
+  const db = ctx.db;
   const reserved = reservedQuantity(db, product, warehouse);
   if (reserved > 0n && newQuantity < reserved)
     raise("40001", "erp_stock_reserved_quantity_unavailable");
-  // A importação do espelho (erp_sync.stock_import) nunca vale aqui: o motor
-  // não importa saldos nesta fase.
-  if (newQuantity < 0n && newQuantity < oldQuantity && !negativeAllowed(db))
+  if (newQuantity < 0n && newQuantity < oldQuantity && !negativeAllowed(db)) {
+    mirrorImportException(ctx);
     raise("22023", "erp_stock_insufficient_or_excess_quantity");
+  }
 }
 
 /** Insere o saldo se não existir (on conflict do nothing), com a guarda. */
@@ -104,7 +115,7 @@ export function updateBalance(
   oldQuantity: bigint,
   delta: bigint,
 ) {
-  guardBalanceUpdate(ctx.db, product, warehouse, oldQuantity, oldQuantity + delta);
+  guardBalanceUpdate(ctx, product, warehouse, oldQuantity, oldQuantity + delta);
   ctx.db.exec(
     'UPDATE "erp_stock__balance" SET quantity=quantity+?, version=version+1, updated_at=? WHERE product_id=? AND warehouse_id=?',
     toParam(delta),
@@ -128,9 +139,11 @@ export function insertEntry(
     balanceVersion: number;
   },
 ) {
-  // guard_negative_entry_insert (sem importação do espelho nesta fase)
-  if (e.quantity < 0n && e.balanceAfter < 0n && !negativeAllowed(ctx.db))
+  // guard_negative_entry_insert (a exceção da importação do espelho: mirrorImportException)
+  if (e.quantity < 0n && e.balanceAfter < 0n && !negativeAllowed(ctx.db)) {
+    mirrorImportException(ctx);
     raise("22023", "erp_stock_insufficient_or_excess_quantity");
+  }
   ctx.db.exec(
     'INSERT INTO "erp_stock__entry"(movement_id, ordinal, product_id, warehouse_id, quantity, unit, balance_after, balance_version) VALUES(?,?,?,?,?,?,?,?)',
     e.movement,

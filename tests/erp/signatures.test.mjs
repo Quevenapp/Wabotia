@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { dualFixture } from "./harness/dual-fixture.mjs";
 import { readSignatures } from "../../scripts/erp/gen-signatures.mjs";
 import { SIGNATURES } from "../../src/erp/engine/signatures.generated.ts";
+import { ENGINE_SIGNATURES } from "../../src/erp/engine/signatures-engine.ts";
 import { arrayIn, boolIn, intIn, uuidIn } from "../../src/erp/engine/args.ts";
 import { portedRpcs } from "../../src/erp/engine/registry.ts";
 import "../../src/erp/domains/index.ts";
@@ -16,7 +17,14 @@ test.after(() => f.close());
 
 test("signatures.generated.ts é o do oráculo, e todo RPC registrado tem assinatura", async () => {
   assert.deepEqual(await readSignatures(f.db), SIGNATURES, "rode node --no-warnings scripts/erp/gen-signatures.mjs");
-  assert.deepEqual(portedRpcs().filter((name) => !SIGNATURES[name]), []);
+  assert.deepEqual(portedRpcs().filter((name) => !SIGNATURES[name] && !ENGINE_SIGNATURES[name]), []);
+});
+
+test("assinaturas só do motor (signatures-engine.ts): fora do oráculo e registradas", () => {
+  const ported = new Set(portedRpcs());
+  const names = Object.keys(ENGINE_SIGNATURES);
+  assert.deepEqual(names.filter((name) => SIGNATURES[name]), [], "RPC com função no oráculo usa a assinatura gerada");
+  assert.deepEqual(names.filter((name) => !ported.has(name)), [], "assinatura de RPC que não está registrado");
 });
 
 // Cada texto no tipo do Postgres (pg_input_is_valid/pg_input_error_info) e no motor.
