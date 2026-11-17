@@ -9,7 +9,7 @@
 // hora em que a suíte roda. Os instantes ficam nas próximas 24 h do relógio
 // real: alarme agendado nunca fica no passado (o runtime o rodaria sozinho)
 // e o erp_platform_schedule aceita o p_now.
-import { env, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
+import { env, runDurableObjectAlarm, runInDurableObject, SELF } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { erpFetch, erpStub } from "../src/erp/hub";
 import { storageDriver } from "../src/erp/engine/driver";
@@ -20,7 +20,8 @@ import { runRound } from "../src/erp/scheduler/dispatch";
 import { erpAreas, isErpCronSlot, wakeErpAreas } from "../src/erp/scheduler/cron";
 import { DAY_MS, nextHour, nextLocalTime } from "../src/erp/scheduler/routines";
 import { exec } from "../src/db";
-import { fixture } from "./service-center-fixture";
+import { bearer, fixture } from "./service-center-fixture";
+import { setModule } from "./erp-module-helper";
 
 /** O Date.now nativo, guardado antes de qualquer relógio fixo. */
 const realNow = Date.now.bind(Date);
@@ -289,6 +290,65 @@ describe("agendador do ERP no objeto", () => {
     // Nenhuma parte temporária sobrou.
     const temp = await env.MEDIA.list({ prefix: `erp-storage/${f.profile}/brufap-exports/.upload/` });
     expect(temp.objects).toEqual([]);
+    await clearAlarm(f.profile);
+  }, 120_000);
+
+  it("exportação pelo caminho do painel: o pedido acorda o agendador, o alarme roda sozinho e o link baixa o ZIP", async () => {
+    const t = at(upcoming("03:20"));
+    const f = await fixture();
+    const token = await bearer(f.admin);
+    await setModule(f.profile, "erp", true, f.admin.id);
+    await erpFetch(env, f.profile, "/erp-ping");
+    await clearAlarm(f.profile);
+    // Vínculo do administrador no ERP (como em tests/erp-do-api.test.ts).
+    await runInDurableObject(erpStub(env, f.profile), (_i: any, s: DurableObjectState) => {
+      const now = String(BigInt(Date.now()) * 1000n);
+      s.storage.sql.exec(
+        `INSERT INTO "erp_access__membership"(user_id, role, active, created_at, updated_at) VALUES(?, 'admin', 1, ?, ?)`,
+        f.admin.id,
+        now,
+        now,
+      );
+    });
+    const route = (path: string, body: unknown) =>
+      SELF.fetch(`https://test/api/v1/profiles/${f.profile}/erp/v1/plataforma${path}`, {
+        method: "POST",
+        headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    // 1. O pedido pela rota da erp-api (Backup e Exportação › Backup).
+    const requested = await route("/exportacoes", { command_id: crypto.randomUUID() });
+    expect(requested.status).toBe(200);
+    const exportId = (await requested.json<any>()).export.id as string;
+    // O pedido acordou o agendador: alarme em 1 s, sem esperar a próxima acordada.
+    expect(await alarmOf(f.profile)).toBe(t + 1_000);
+    // 2. Só os alarmes que o próprio objeto agenda, sem setAlarm do teste: a
+    // primeira acordada roda as rotinas (vistas pela primeira vez); a
+    // seguinte, a exportação, sozinha.
+    let ready = false;
+    for (let i = 0; i < 4 && !ready; i++) {
+      const next = await alarmOf(f.profile);
+      expect(next).not.toBeNull();
+      at(next!);
+      expect(await runDurableObjectAlarm(erpStub(env, f.profile))).toBe(true);
+      ready = await runInDurableObject(erpStub(env, f.profile), (_i: any, s: DurableObjectState) =>
+        Boolean(s.storage.sql.exec(`SELECT ready_at FROM "erp_platform__export" WHERE id=?`, exportId).toArray()[0]?.ready_at),
+      );
+    }
+    expect(ready).toBe(true);
+    // 3. O link pela rota: endereço público da instalação.
+    const linked = await route(`/exportacoes/${exportId}/link`, {});
+    expect(linked.status).toBe(200);
+    const link = await linked.json<any>();
+    expect(link.filename).toMatch(/^wabotia-exportacao-.+\.zip$/);
+    expect(link.url.startsWith(`https://test/api/public/erp-storage/${f.profile}/exportacoes/exports/${exportId}/`)).toBe(true);
+    // 4. O GET do link baixa o ZIP com o nome da exportação.
+    const download = await SELF.fetch(link.url);
+    expect(download.status).toBe(200);
+    expect(download.headers.get("Content-Disposition")).toBe(`attachment; filename="${link.filename}"`);
+    const bytes = new Uint8Array(await download.arrayBuffer());
+    expect([bytes[0], bytes[1]]).toEqual([0x50, 0x4b]); // "PK": ZIP
+    expect(bytes.length).toBe(link.size_bytes);
     await clearAlarm(f.profile);
   }, 120_000);
 

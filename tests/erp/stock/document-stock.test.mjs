@@ -155,7 +155,7 @@ test("estorno depois do balanço mantém o saldo com os ajustes de compensação
   assert.equal(reversed.movement.kind, "reversal");
 });
 
-test("pedido de venda: lançamento e estorno", { todo: "pendente da O: erp_finance.commission_operation_sync e erp_documents.cost_apply (gatilhos adiados do documento) são stubs; o pedido de venda e a OS saem 0A000 no motor" }, async () => {
+test("pedido de venda: lançamento e estorno", async () => {
   const p = await product("Produto da venda"),
     w = await warehouse("Depósito da venda");
   await f.rpc("erp_stock_post", { p_user_id: u.estoque, p_command_id: randomUUID(), p_kind: "receipt", p_occurred_on: "2026-10-14", p_reason: "Saldo inicial", p_reference: null, p_items: [{ product_id: p.id, warehouse_id: w.id, quantity: "10", expected_version: 0 }] });

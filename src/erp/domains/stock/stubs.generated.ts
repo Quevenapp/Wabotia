@@ -5,14 +5,8 @@ import { notPorted } from "../../engine/errors.ts";
 export const guardLegacy = (..._args: unknown[]): never => notPorted("erp_purchase_receipts.guard_legacy");
 /** erp_stock.command_taken(p_id uuid) → boolean */
 export const commandTaken = (..._args: unknown[]): never => notPorted("erp_stock.command_taken");
-/** erp_stock.composition_apply_values(p_user_id uuid, p_command_id uuid, p_product uuid, p_skip_base boolean) → jsonb */
-export const compositionApplyValues = (..._args: unknown[]): never => notPorted("erp_stock.composition_apply_values");
-/** erp_stock.composition_dto(p_product uuid) → jsonb */
-export const compositionDto = (..._args: unknown[]): never => notPorted("erp_stock.composition_dto");
 /** erp_stock.composition_own_stock(p_product uuid) → boolean */
 export const compositionOwnStock = (..._args: unknown[]): never => notPorted("erp_stock.composition_own_stock");
-/** erp_stock.composition_totals(p_product uuid, p_items jsonb) → jsonb */
-export const compositionTotals = (..._args: unknown[]): never => notPorted("erp_stock.composition_totals");
 /** erp_stock.cost_visible(p_actor uuid) → boolean */
 export const costVisible = (..._args: unknown[]): never => notPorted("erp_stock.cost_visible");
 /** erp_stock.default_supplier(p_product uuid) → TABLE(supplier_id uuid, supplier_name text, code text, purchase_price numeric, cost_price numeric) */
@@ -75,7 +69,5 @@ export const postPhysical025 = (..._args: unknown[]): never => notPorted("erp_st
 export const reverseLotEntries = (..._args: unknown[]): never => notPorted("erp_stock.reverse_lot_entries");
 /** erp_stock.sales_negative_allowed() → boolean */
 export const salesNegativeAllowed = (..._args: unknown[]): never => notPorted("erp_stock.sales_negative_allowed");
-/** erp_stock.supply_part(p_command uuid, p_part text) → uuid */
-export const supplyPart = (..._args: unknown[]): never => notPorted("erp_stock.supply_part");
 /** public.erp_stock_product_compose(p_user_id uuid, p_id uuid, p_expected_version integer, p_command_id uuid, p_data jsonb, p_acknowledged jsonb, p_composition jsonb) → jsonb */
 export const erpStockProductCompose = (..._args: unknown[]): never => notPorted("public.erp_stock_product_compose");

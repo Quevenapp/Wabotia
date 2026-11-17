@@ -35,10 +35,6 @@ export const commandReplay = (..._args: unknown[]): never => notPorted("erp_docu
 export const commercialData = (..._args: unknown[]): never => notPorted("erp_documents.commercial_data");
 /** erp_documents.commercial_reference(v jsonb) → jsonb */
 export const commercialReference = (..._args: unknown[]): never => notPorted("erp_documents.commercial_reference");
-/** erp_documents.cost_apply(p_document uuid) → integer */
-export const costApply = (..._args: unknown[]): never => notPorted("erp_documents.cost_apply");
-/** erp_documents.cost_apply_capture() → trigger */
-export const costApplyCapture = (..._args: unknown[]): never => notPorted("erp_documents.cost_apply_capture");
 /** erp_documents.current_version(p_id uuid) → integer */
 export const currentVersion = (..._args: unknown[]): never => notPorted("erp_documents.current_version");
 /** erp_documents.custom_field_value(f erp_documents.custom_field, p_value text) → text */
@@ -97,8 +93,6 @@ export const numberEditable = (..._args: unknown[]): never => notPorted("erp_doc
 export const optionalAmount = (..._args: unknown[]): never => notPorted("erp_documents.optional_amount");
 /** erp_documents.payment_types() → text[] */
 export const paymentTypes = (..._args: unknown[]): never => notPorted("erp_documents.payment_types");
-/** erp_documents.preference(p_key text) → jsonb */
-export const preference = (..._args: unknown[]): never => notPorted("erp_documents.preference");
 /** erp_documents.price_decimals(p_price text) → integer */
 export const priceDecimals = (..._args: unknown[]): never => notPorted("erp_documents.price_decimals");
 /** erp_documents.project_result_flags(p_result jsonb) → jsonb */
@@ -135,8 +129,6 @@ export const situationJson = (..._args: unknown[]): never => notPorted("erp_docu
 export const situationKeyValid = (..._args: unknown[]): never => notPorted("erp_documents.situation_key_valid");
 /** erp_documents.situation_snapshot(p jsonb) → jsonb */
 export const situationSnapshot = (..._args: unknown[]): never => notPorted("erp_documents.situation_snapshot");
-/** erp_documents.stock_launch_date(p_id uuid) → date */
-export const stockLaunchDate = (..._args: unknown[]): never => notPorted("erp_documents.stock_launch_date");
 /** erp_documents.text_value(p_value jsonb, p_max integer, p_required boolean, p_multiline boolean) → text */
 export const textValue = (..._args: unknown[]): never => notPorted("erp_documents.text_value");
 /** erp_documents.transition_action(p_user_id uuid, p_kind text, p_id uuid, p_command uuid, p_action text, p_label text) → jsonb */
