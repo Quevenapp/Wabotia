@@ -133,7 +133,7 @@ import {
   type AiUsage,
 } from "./ai-provider";
 import { signedPayload } from "./signature";
-import { secret, hmac, safeFetch } from "./security";
+import { engineActor, secret, hmac, safeFetch } from "./security";
 import { event } from "./events";
 import { finishDelivery } from "./delivery";
 import { zernioSend, zernioTemplatePayload, zernioTyping } from "./zernio";
@@ -155,17 +155,17 @@ import {
   normalizePhone,
   queueSettings,
 } from "./queue";
-const system: Actor = {
-  id: "bot:attendant",
-  kind: "user",
-  name: "Atendente",
-  role: "admin",
-  profiles: [],
-  scopes: [],
-  bots: [],
-  rate: 100,
-  runLimit: 100,
-};
+/**
+ * O motor cria a execução do bot e manda o menu com o ator do motor
+ * (src/security.ts, engineActor): aplicação sem privilégio, presa ao bot da
+ * execução. Até a 0.21.0 era um administrador (revisão A do PLANO-BOTS).
+ */
+const createRunAsEngine = (
+  env: Env,
+  profile: string,
+  data: { bot_id: string; [key: string]: any },
+  extra: any = {},
+) => createRun(env, engineActor(profile, data.bot_id), profile, data, extra);
 export async function processInbox(env: Env, profile: string) {
   // Uma mensagem por chamada; leituras de configuração lembradas nela.
   env = withReadCache(env);
@@ -372,7 +372,7 @@ export async function processInbox(env: Env, profile: string) {
       )
         await sendMenu(
           env,
-          system,
+          engineActor(c.profile_id, ""),
           c,
           null,
           `queue-menu:${row.id}`,
@@ -432,7 +432,14 @@ export async function processInbox(env: Env, profile: string) {
           ).length
         )
           return false;
-        await sendMenu(env, system, c, null, `front:${row.id}`, false);
+        await sendMenu(
+          env,
+          engineActor(c.profile_id, ""),
+          c,
+          null,
+          `front:${row.id}`,
+          false,
+        );
         return true;
       }))
     )
@@ -573,7 +580,14 @@ export async function processInbox(env: Env, profile: string) {
         c.chat_type,
       );
       if (menu.length) {
-        await sendMenu(env, system, c, null, `welcome:${row.id}`, false);
+        await sendMenu(
+          env,
+          engineActor(c.profile_id, ""),
+          c,
+          null,
+          `welcome:${row.id}`,
+          false,
+        );
         return;
       }
       await exec(
@@ -641,7 +655,7 @@ export async function processInbox(env: Env, profile: string) {
       if (options.length)
         await sendMenu(
           env,
-          system,
+          engineActor(c.profile_id, ""),
           c,
           parent,
           `menu:${row.id}`,
@@ -740,9 +754,8 @@ export async function processInbox(env: Env, profile: string) {
               ),
             ).slice(0, 24) as string[],
           );
-          await createRun(
+          await createRunAsEngine(
             env,
-            system,
             profile,
             {
               bot_id: choice.bot_id,
@@ -761,9 +774,8 @@ export async function processInbox(env: Env, profile: string) {
           await showTyping(env, c);
           return;
         }
-        await createRun(
+        await createRunAsEngine(
           env,
-          system,
           profile,
           {
             bot_id: choice.bot_id,
@@ -949,7 +961,7 @@ export async function processInbox(env: Env, profile: string) {
       if (choice.type === "submenu") {
         await sendMenu(
           env,
-          system,
+          engineActor(c.profile_id, ""),
           c,
           choice.id,
           `submenu:${row.id}`,
@@ -1009,7 +1021,14 @@ export async function processInbox(env: Env, profile: string) {
         )
       ).length
     ) {
-      await sendMenu(env, system, c, null, `front:${row.id}`, false);
+      await sendMenu(
+        env,
+        engineActor(c.profile_id, ""),
+        c,
+        null,
+        `front:${row.id}`,
+        false,
+      );
       return;
     }
     // Waiting for a person while nobody is present: the Bot Atendente keeps
@@ -1186,9 +1205,8 @@ export async function processInbox(env: Env, profile: string) {
         }
       }
     }
-    await createRun(
+    await createRunAsEngine(
       env,
-      system,
       profile,
       {
         bot_id: choice?.bot_id || cfg.attendant_bot,
@@ -2028,9 +2046,8 @@ export async function processRun(env: Env, run: Run) {
           // The customer answered the bot's own question and the bot reached
           // for the menu (seen with "Fagoo" after "qual aplicativo?"). Ask the
           // same turn again once, without the menu.
-          await createRun(
+          await createRunAsEngine(
             env,
-            system,
             c.profile_id,
             { bot_id: run.bot_id, input: run.input },
             {
@@ -2045,7 +2062,7 @@ export async function processRun(env: Env, run: Run) {
         } else if (parsed.action === "menu" && run.phase !== "specialist") {
           await sendMenu(
             env,
-            system,
+            engineActor(c.profile_id, ""),
             c,
             typeof parsed.menu_id === "string" ? parsed.menu_id : null,
             `bot-menu:${run.id}`,
@@ -2068,9 +2085,8 @@ export async function processRun(env: Env, run: Run) {
               text: parsed.text,
               url: "",
             };
-            await createRun(
+            await createRunAsEngine(
               env,
-              system,
               c.profile_id,
               {
                 bot_id: cfg.attendant_bot,
@@ -2107,9 +2123,8 @@ export async function processRun(env: Env, run: Run) {
               { source: "bot", rowId: run.id },
             );
           else
-            await createRun(
+            await createRunAsEngine(
               env,
-              system,
               c.profile_id,
               {
                 bot_id: action.bot_id,

@@ -402,14 +402,20 @@ export async function handleCustomerProposalTurn(
   );
   if (!claimed.meta.changes) return true;
   // O cliente confirmou na própria conversa: a ação roda como o bot, presa à
-  // mesma conversa (o caminho foi conferido ao propor).
+  // mesma conversa (o caminho foi conferido ao propor), com o mesmo
+  // conversations:bound de quando propôs; a chave presa aceita a conversa da
+  // proposta enquanto ela roda (src/visibility.ts, boundAllows).
   const actor: Actor = {
     id: `bot:${row.bot_id}`,
     kind: "app",
     name: "Bot",
     role: "service",
     profiles: [row.profile_id],
-    scopes: ["conversations:read", "conversations:write"],
+    scopes: [
+      "conversations:read",
+      "conversations:write",
+      "conversations:bound",
+    ],
     bots: [row.bot_id],
     rate: 120,
     runLimit: 3,
