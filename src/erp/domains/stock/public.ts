@@ -14,6 +14,10 @@ export { countPhysical, ignoredWarehouse, lotQuantity, lotsExpiring } from "./ho
 export { virtualPositions, virtualQuantity } from "./read.ts";
 export { ledgerDocumentPrice, priceText } from "./ledger.ts";
 export { invoiceUnitPrice } from "./costs.ts";
+// Para o Documentos (sessão O, erp_document_sales_report: lucro por custo ou
+// última compra): fornecedor padrão, última compra e quem vê custo.
+export { defaultSupplier, lastPurchase } from "./ledger.ts";
+export { costVisible } from "./costs.ts";
 // Para o Documentos (sessão O): guardas e efeitos sobre documento e item.
 export {
   active, effectDocumentAllowed, effectEditAllowed, effectItemAllowed, effectTransitionAllowed, forgetItemComponents,
@@ -34,6 +38,11 @@ export { invoicePostedForDocument, itemComponentRows } from "./read.ts";
 export { compositionApplyValues, compositionDto, compositionTotals } from "./composition.ts";
 export { supplyPart } from "./internal.ts";
 export { reserveStatuses, settingsDto } from "./read.ts";
+// Para o Fiscal (sessão G, F7: confronto da nota recebida com o pedido de
+// compra): erp_purchase_receipts.current(p_id), o pedido e, por item, o pedido,
+// o recebido, o restante e a elegibilidade. Só leitura e sem conferir acesso:
+// quem chama confere o dele. Pedido já lançado pelo documento: items vazio.
+export { current as purchaseReceiptCurrent } from "./rpc/purchase-receipts.ts";
 
 // ---------------------------------------------------------------------------
 // compositionSettings, protectProductUnit e protectDefaultWarehouse: escritas

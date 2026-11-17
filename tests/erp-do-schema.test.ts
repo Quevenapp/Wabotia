@@ -2,7 +2,7 @@
 // tabelas, índices, gatilhos e a semeadura) aplica numa instância erp: e as
 // regras geradas valem lá dentro. Mede tempo e linhas escritas.
 import { env, runInDurableObject } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { uid } from "../src/types";
 import { erpFetch, erpStub } from "../src/erp/hub";
 import { migrate } from "../src/erp/schema/migrate";
@@ -124,9 +124,16 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
     expect(out.ms).toBeLessThan(5_000);
   });
 
-  // Tempo-limite próprio: a primeira chamada aplica o DDL inteiro e a
-  // semeadura num objeto novo, e o teste faz mais 20 idas; fica perto dos
-  // 5 s padrão mesmo sozinho (B, 17/11).
+  // O hub carrega o motor por import dinâmico (hub.ts, prova 7). No vitest
+  // esse import passa pela transformação do Vite e leva ~28 s (medido em
+  // 17/11: import 28,5 s; primeira aplicação do esquema 1,7 s; pings 4 ms), o
+  // que estourava o tempo-limite do caso abaixo até na main pura. Custo do
+  // ambiente de teste, não do produto: no bundle do wrangler o motor já vem
+  // compilado. Carregado aqui, com tempo próprio, o caso mede só o objeto.
+  beforeAll(() => import("../src/erp/hub-engine.ts"), 180_000);
+
+  // Folga para máquina cheia: a primeira chamada aplica o DDL inteiro e a
+  // semeadura num objeto novo, e o teste faz mais 20 idas.
   it("o ping do ERP aplica o esquema na primeira chamada (tempo Worker→objeto)", { timeout: 30_000 }, async () => {
     const profile = uid();
     const t0 = Date.now();

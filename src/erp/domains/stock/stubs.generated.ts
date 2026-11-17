@@ -7,10 +7,6 @@ export const guardLegacy = (..._args: unknown[]): never => notPorted("erp_purcha
 export const commandTaken = (..._args: unknown[]): never => notPorted("erp_stock.command_taken");
 /** erp_stock.composition_own_stock(p_product uuid) → boolean */
 export const compositionOwnStock = (..._args: unknown[]): never => notPorted("erp_stock.composition_own_stock");
-/** erp_stock.cost_visible(p_actor uuid) → boolean */
-export const costVisible = (..._args: unknown[]): never => notPorted("erp_stock.cost_visible");
-/** erp_stock.default_supplier(p_product uuid) → TABLE(supplier_id uuid, supplier_name text, code text, purchase_price numeric, cost_price numeric) */
-export const defaultSupplier = (..._args: unknown[]): never => notPorted("erp_stock.default_supplier");
 /** erp_stock.document_access(p_actor uuid, p_kind text) → void */
 export const documentAccess = (..._args: unknown[]): never => notPorted("erp_stock.document_access");
 /** erp_stock.document_command_finish(p_actor uuid, p_id uuid, p_action text, p_data jsonb, p_result jsonb) → jsonb */
@@ -45,8 +41,6 @@ export const guardReservedBalance = (..._args: unknown[]): never => notPorted("e
 export const guardReservedPosting = (..._args: unknown[]): never => notPorted("erp_stock.guard_reserved_posting");
 /** erp_stock.invoice_screen(p_model text, p_direction text) → text */
 export const invoiceScreen = (..._args: unknown[]): never => notPorted("erp_stock.invoice_screen");
-/** erp_stock.last_purchase(p_product uuid, p_balances boolean) → TABLE(unit_price numeric, unit_cost numeric, occurred_on date, movement_id uuid, source text) */
-export const lastPurchase = (..._args: unknown[]): never => notPorted("erp_stock.last_purchase");
 /** erp_stock.ledger_origin(p_movement_id uuid) → jsonb */
 export const ledgerOrigin = (..._args: unknown[]): never => notPorted("erp_stock.ledger_origin");
 /** erp_stock.lot_check(p_code text, p_manufactured date, p_expires date, p_note text) → void */
