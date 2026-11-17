@@ -33,8 +33,6 @@ export const guardCompositionCommand = (..._args: unknown[]): never => notPorted
 export const guardCompositionItem = (..._args: unknown[]): never => notPorted("erp_stock.guard_composition_item");
 /** erp_stock.guard_document_posting() → trigger */
 export const guardDocumentPosting = (..._args: unknown[]): never => notPorted("erp_stock.guard_document_posting");
-/** erp_stock.guard_invoice_stock_delete() → trigger */
-export const guardInvoiceStockDelete = (..._args: unknown[]): never => notPorted("erp_stock.guard_invoice_stock_delete");
 /** erp_stock.guard_lot() → trigger */
 export const guardLot = (..._args: unknown[]): never => notPorted("erp_stock.guard_lot");
 /** erp_stock.guard_lot_entry() → trigger */

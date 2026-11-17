@@ -145,6 +145,62 @@ export function orderFor(key, { rpc = null, where = null } = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Valores do relógio em minuto ou dia (pedido da O, 17/11): o oráculo grava
+// to_char(clock_timestamp() at time zone 'America/Sao_Paulo', 'HH24:MI') (ou a
+// data), o motor lê o ctx.clock; cada motor lê o relógio real num instante
+// diferente da mesma chamada, e a chamada pode atravessar o minuto (ou a
+// meia-noite). DECLARADO, como os formatos acima:
+//   - id: "<domínio>.<o quê>";
+//   - columns: "tabela.coluna" (texto HH:MI ou data AAAA-MM-DD);
+//   - keys: chaves da resposta onde o valor aparece;
+//   - unit: "minute" | "day";
+//   - reason: obrigatório, o trecho do Fagoo.
+// Só onde declarado, e só se o valor de cada lado estiver dentro da janela da
+// chamada (do início do oráculo ao fim do motor, na hora de São Paulo), ele
+// vale como "<relógio>"; fora dela compara literal. Um fuso errado (UTC no
+// lugar de São Paulo) cai fora da janela e diverge.
+
+const clocks = new Map();
+
+export function registerClockColumn(spec) {
+  const { id, columns = [], keys = [], unit, reason = "" } = spec;
+  if (!/^[a-z_]+\.[a-z0-9_.]+$/.test(id ?? "")) throw new Error(`Relógio: id "${id}" fora do padrão <domínio>.<nome>.`);
+  if (clocks.has(id)) throw new Error(`Relógio ${id} já registrado.`);
+  if (!["minute", "day"].includes(unit)) throw new Error(`Relógio ${id}: unit é minute ou day.`);
+  if (!columns.length && !keys.length) throw new Error(`Relógio ${id}: diga onde (columns ou keys).`);
+  if (typeof reason !== "string" || reason.length < 40) throw new Error(`Relógio ${id}: justifique (reason) com o trecho do Fagoo.`);
+  for (const c of columns) {
+    const [table, column] = c.split(".");
+    const col = ERP_TABLES[table]?.columns[column];
+    if (!col) throw new Error(`Relógio ${id}: coluna ${c} não existe.`);
+    if (!["text", "date"].includes(col.codec)) throw new Error(`Relógio ${id}: ${c} não é texto nem data.`);
+  }
+  const frozen = Object.freeze({ id, columns: new Set(columns), keys: new Set(keys), unit, reason });
+  clocks.set(id, frozen);
+  return frozen;
+}
+
+/** A declaração de relógio da coluna `where` ("tabela.coluna") ou da chave `key` da resposta. */
+export function clockFor({ where = null, key = null } = {}) {
+  for (const c of clocks.values()) if ((where !== null && c.columns.has(where)) || (key !== null && c.keys.has(key))) return c;
+  return null;
+}
+
+const SP_MINUTE = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const SP_DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" });
+/** O valor está dentro da janela da chamada ({ from, to } em ms), na hora de São Paulo? */
+export function inClockWindow(value, unit, window) {
+  if (typeof value !== "string" || !window) return false;
+  const step = unit === "minute" ? 60_000 : 3_600_000;
+  const fmt = unit === "minute" ? SP_MINUTE : SP_DAY;
+  const from = Math.floor(window.from / step) * step;
+  const to = Math.max(window.to, from);
+  if ((to - from) / step > 2000) return false;
+  for (let t = from; t <= to + step; t += step) if (fmt.format(new Date(Math.min(t, to))) === value) return true;
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Declarações por domínio. Nova entrada: peça à N (pasta congelada), com o
 // trecho do Fagoo que grava o valor.
 
@@ -203,6 +259,26 @@ registerOpaqueHash({
   reason:
     "erp_document_finance_post pelo auto_finance do erp_document_save: preview_hash = sha256 da prévia com o document_id criado na " +
     "chamada (gen_random_uuid); o request_hash do erp_finance.document_command cobre o mesmo id.",
+});
+
+// Documentos (O): ocorrência gravada pelo transition (desde o 599a56d nos dois
+// motores) e pelo save: occurred_on e occurred_time vêm do relógio.
+registerClockColumn({
+  id: "documents.occurrence_time",
+  columns: ["erp_documents__occurrence.occurred_time"],
+  keys: ["occurred_time"],
+  unit: "minute",
+  reason:
+    "erp_documents.occurrence (202610200163_document_situations.sql): occurred_time = coalesce(setting erp_documents.occurrence_time, " +
+    "to_char(clock_timestamp() at time zone 'America/Sao_Paulo','HH24:MI')); sem o setting, cada motor lê o relógio num instante diferente da chamada.",
+});
+registerClockColumn({
+  id: "documents.occurrence_day",
+  columns: ["erp_documents__occurrence.occurred_on"],
+  unit: "day",
+  reason:
+    "erp_documents.occurrence (202610200163_document_situations.sql): occurred_on = coalesce(setting erp_documents.occurrence_on, " +
+    "(clock_timestamp() at time zone 'America/Sao_Paulo')::date); sem o setting, a chamada pode atravessar a meia-noite entre os dois motores.",
 });
 
 // Catálogo (P/B): erp_catalog.custom_field_item, migração

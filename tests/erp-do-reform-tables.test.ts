@@ -31,12 +31,13 @@ describe("ERP: tabelas da classificação da reforma", () => {
       const meta = Object.fromEntries(sql.exec("SELECT key, value FROM erp_meta WHERE key IN ('schema_version','schema_hash')").toArray().map((r: any) => [r.key, r.value]));
       return { fresh, dropped, step, after: exists(), meta, again: migrate(state.storage) };
     });
-    expect(ERP_DDL_VERSION).toBe(7);
+    // A partir da 7 (as versões seguintes passam pelo passo 6→7 também).
+    expect(ERP_DDL_VERSION).toBeGreaterThanOrEqual(7);
     expect(out.fresh).toEqual([1, 1]);
     expect(out.dropped).toEqual([0, 0]);
-    expect(out.step).toMatchObject({ status: "applied", version: 7 });
+    expect(out.step).toMatchObject({ status: "applied", version: ERP_DDL_VERSION });
     expect(out.after).toEqual([1, 1]);
-    expect(out.meta).toEqual({ schema_version: "7", schema_hash: ERP_DDL_HASH });
+    expect(out.meta).toEqual({ schema_version: String(ERP_DDL_VERSION), schema_hash: ERP_DDL_HASH });
     expect(out.again).toMatchObject({ status: "current" });
   });
 

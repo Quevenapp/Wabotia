@@ -409,12 +409,20 @@ for (const table of catalog.tables) {
   }
   ddl.push(...extra);
 
-  // Gatilhos
-  for (const g of table.triggers) {
+  // Gatilhos. O Postgres dispara os gatilhos da mesma tabela e momento na
+  // ordem do nome; o SQLite dispara primeiro o criado por último. Criados em
+  // ordem inversa do nome, o primeiro a recusar é o mesmo nos dois
+  // (tests/erp/cnab-sql-triggers.test.mjs, arquivo operacional com purpose mudado).
+  for (const g of [...table.triggers].sort((a, b) => (a.name < b.name ? 1 : a.name > b.name ? -1 : 0))) {
     const id = `${key}.${g.name}`;
     const decl = /CREATE (?:CONSTRAINT )?TRIGGER \S+ (BEFORE|AFTER) (.*?) ON \S+ (?:DEFERRABLE INITIALLY DEFERRED )?FOR EACH (ROW|STATEMENT)(?: WHEN \((.*)\))? EXECUTE FUNCTION/s.exec(g.def);
     const raise = /^\s*begin\s+raise\s+exception\s+'((?:[^']|'')*)'\s*(?:using\s+errcode\s*=\s*'([0-9A-Z]{5})')?\s*;\s*end;?\s*$/i.exec(g.function_source || "");
     const deferred = /DEFERRABLE INITIALLY DEFERRED/.test(g.def);
+    const manual = overrides.sqlTriggers[`${name}.${g.name}`];
+    if (manual) {
+      sqlTriggerFromOverride(id, name, table, g, decl, deferred, manual, cols, ddl, guards);
+      continue;
+    }
     if (!decl || !raise || deferred || decl[3] !== "ROW") {
       guards.push({
         table: name,
@@ -453,6 +461,44 @@ for (const table of catalog.tables) {
     guards.push({ table: name, trigger: g.name, function: `${g.function_schema}.${g.function_name}`, status: "sql", code, message });
     report.triggers.generated++;
   }
+}
+
+/**
+ * Gatilho em PL/pgSQL com a condição escrita à mão no override do domínio
+ * (overrides.sqlTriggers): vira gatilho do SQLite que levanta o mesmo erro
+ * quando a condição vale. Conferências: gatilho de linha, não adiado; code e
+ * message aparecem no `raise exception` da função do oráculo; a condição não
+ * lê NEW no DELETE nem OLD no INSERT. O WHEN da declaração, se houver, entra
+ * junto (AND).
+ */
+function sqlTriggerFromOverride(id, name, table, g, decl, deferred, manual, cols, ddl, guards) {
+  const fail = (why) => {
+    throw new Error(`overrides.sqlTriggers ${id}: ${why}`);
+  };
+  if (!decl || deferred || decl[3] !== "ROW") fail("só gatilho de linha, não adiado");
+  const { when, code, message, reason } = manual;
+  if (typeof when !== "string" || !when.trim()) fail("falta when");
+  if (!/^[0-9A-Z]{5}$/.test(code ?? "")) fail("code é o SQLSTATE de 5 caracteres");
+  if (typeof reason !== "string" || reason.length < 20) fail("falta reason");
+  const raised = [...(g.function_source || "").matchAll(/raise\s+exception\s*'((?:[^']|'')*)'\s*using\s+errcode\s*=\s*'([0-9A-Z]{5})'/gi)].map((m) => [
+    m[1].replace(/''/g, "'"),
+    m[2],
+  ]);
+  if (!raised.some(([m, c]) => m === message && c === code)) fail(`o oráculo não levanta ${code} ${message} (${JSON.stringify(raised)})`);
+  let declared = "";
+  if (decl[4]) declared = translate(decl[4].replace(/\bold\./g, "OLD.").replace(/\bnew\./g, "NEW."), cols, { prefix: "" });
+  decl[2].split(" OR ").forEach((event, n) => {
+    if (event === "TRUNCATE") return;
+    if (event === "DELETE" && /\bNEW\./.test(when)) fail("NEW no DELETE");
+    if (event === "INSERT" && /\bOLD\./.test(when)) fail("OLD no INSERT");
+    const cond = declared ? `(${declared}) AND (${when})` : when;
+    ddl.push(
+      `CREATE TRIGGER ${q(`${table.schema}__${g.name}__${n}`)} ${decl[1]} ${event.replace(/OF (.*)/, (_m, c) => "OF " + c.split(", ").map(q).join(", "))} ON ${q(name)} FOR EACH ROW WHEN ${cond} BEGIN SELECT RAISE(ABORT, ${lit(`${code}:${message}`)}); END`,
+    );
+  });
+  guards.push({ table: name, trigger: g.name, function: `${g.function_schema}.${g.function_name}`, status: "sql", code, message, source: "override" });
+  report.triggers.generated++;
+  (report.triggers.from_override ??= []).push(id);
 }
 
 /** Texto entre os parênteses de "USING btree (…)", respeitando aninhamento. */

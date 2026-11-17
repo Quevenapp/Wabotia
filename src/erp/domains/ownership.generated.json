@@ -3511,7 +3511,7 @@
    },
    "erp_stock.guard_invoice_stock_delete": {
     "name": "guardInvoiceStockDelete",
-    "ported": false
+    "ported": true
    },
    "erp_stock.guard_lot": {
     "name": "guardLot",
