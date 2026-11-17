@@ -78,13 +78,18 @@ export class IdMap {
 
 /**
  * O array está na ordem declarada (derived-ids.mjs, registerNewIdOrder)
- * pelos ids novos deste lado? Ordem do uuid no Postgres: bytes, a mesma do
- * texto em minúsculas.
+ * pelos ids deste lado? Ordem do uuid no Postgres: bytes, a mesma do texto
+ * em minúsculas. Ids que já existiam podem vir misturados aos novos
+ * (category_ids com uma categoria antiga e uma criada no comando): são os
+ * mesmos nos dois lados e só os novos mudam a posição. A comparação sem ordem
+ * que vem depois ainda exige o mesmo multiconjunto, e um id antigo só casa
+ * com ele mesmo; dois lados ordenados com o mesmo conteúdo só antigo têm a
+ * mesma ordem.
  */
-function inNewIdOrder(arr, order, isNew) {
+function inNewIdOrder(arr, order) {
   const obj = (x) => x && typeof x === "object" && !Array.isArray(x);
   const vals = arr.map((x) => (order.by === null ? x : obj(x) ? x[order.by] : undefined));
-  if (!vals.every((s) => typeof s === "string" && UUID.test(s) && isNew(s.toLowerCase()))) return false;
+  if (!vals.every((s) => typeof s === "string" && UUID.test(s))) return false;
   const lc = vals.map((s) => s.toLowerCase());
   return lc.every((s, i) => i === 0 || (order.dir === "asc" ? lc[i - 1] < s : lc[i - 1] > s));
 }
@@ -174,8 +179,7 @@ export function diffValues(pg, lite, ids, path = "$", out = [], specs = derivedI
       ids.assign(trial);
       return out;
     }
-    const isNew = (u) => !ids.known.has(u);
-    if (!inNewIdOrder(pg, order, isNew) || !inNewIdOrder(lite, order, isNew)) {
+    if (!inNewIdOrder(pg, order) || !inNewIdOrder(lite, order)) {
       out.push({ path, pg, lite, why: `array fora da ordem declarada (${order.id})` });
       return out;
     }
@@ -262,7 +266,7 @@ function encodeJson(v, table, column, key, specs, leaf) {
     // comparados pelo conteúdo, sem a ordem; fora dela, marcado à parte,
     // nunca igual ao ordenado (o motor que não ordena diverge sempre).
     const order = leaf.isNew && key !== undefined ? orderFor(key, { where: `${table}.${column}` }) : null;
-    if (order && inNewIdOrder(v, order, leaf.isNew)) return "\u0002[" + parts.join("\u0003") + "\u0002]";
+    if (order && inNewIdOrder(v, order)) return "\u0002[" + parts.join("\u0003") + "\u0002]";
     if (order) return "[!" + parts.join(",") + "]";
     return "[" + parts.join(",") + "]";
   }
