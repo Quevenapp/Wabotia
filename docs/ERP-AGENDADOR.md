@@ -85,12 +85,43 @@ disparavam**. No Wabotia elas passam a rodar no alarme do próprio objeto.
 
 | Finalidade | Executor | Situação |
 |---|---|---|
-| `notifications_generate` | `erp_platform_notifications_run`, depois `task_finish` na mesma transação | Ligada. |
-| `export_cleanup` | Apagar o pacote vencido do R2 (`export_expired`/`export_removed`) | **Stub.** Depende do `/storage/v1` (A). Sem executor, a tarefa espera na fila e não acorda o alarme. |
-| `company_export` | ZIP da empresa em fatias | **Stub**, pela mesma razão. Regra para quando entrar: nunca montar o ZIP inteiro na memória do objeto (limite de 128 MB). Usar fatias com `task_progress` (o estado sobrevive a uma nova tentativa) e envio multiparte para o R2. |
+| `notifications_generate` | `erp_platform_notifications_run`, depois `task_finish` na mesma transação | Ligada, na rodada síncrona. |
+| `export_cleanup` | `exportStorage.remove` de cada pacote vencido (`export_expired`/`export_removed`) | Ligada, pelo executor de arquivos. |
+| `company_export` | ZIP da empresa em fatias no R2 da área (`runExportStreamed`, A) | Ligada, pelo executor de arquivos. |
 
-Para ligar uma finalidade, basta acrescentar o executor em `TASK_HANDLERS`
-(`scheduler/dispatch.ts`). O claim só toma as finalidades que têm executor.
+**Rodada síncrona** (`TASK_HANDLERS`, `scheduler/dispatch.ts`): a unidade é
+uma transação, com `await` entre as unidades.
+
+**Executor de arquivos** (`scheduler/files.ts`), para `company_export` e
+`export_cleanup`:
+
+- Chama o `runErpPlatformTasks` da A (`src/erp-export.ts`, o laço do Fagoo
+  com a exportação em fatias), com três adaptadores locais. Não há ida ao
+  Worker nem volta ao objeto, e não é preciso ator.
+  - `rpc`: o `callRpc` no SQLite do objeto, com os objetos e a listagem do
+    R2 lidos antes (`rpcStorage`, a mesma leitura da rota `/erp-rpc`) e os
+    erros do `createServiceRpc` do Fagoo (`PG_<código>`).
+  - `exportStorage` e `attachments`: os do Fagoo, com um fetch que responde o
+    `/storage/v1` pelo `erpStorage` direto no R2. Os dois buckets são do bloco
+    `erp`, então o objeto continua sem ler o D1.
+- A rodada só sinaliza (`fileDue`) e conta essas finalidades para a próxima
+  acordada. O alarme roda uma tarefa com arquivo (`maxTasks 1`) só numa
+  acordada em que a rodada não fez rotina nem tarefa. Se a rodada fez, a
+  acordada seguinte, 1 s depois, é dela.
+
+**Limitação conhecida: a exportação não cabe nos 2 s por acordada.**
+
+- Ela não retoma em outra acordada: o estado do ZIP (diretório central,
+  CRCs, a parte em enchimento) fica na memória.
+- Por isso roda até o fim numa acordada só, sozinha. Cede a vez a cada
+  compressão e a cada ida ao R2: uma gravação por parte de 5 MiB, e no fim
+  as partes do envio multiparte.
+- O pior caso, 50 MiB, dá umas 10 partes, cerca de 30 operações no R2 e um
+  a dois segundos de CPU de compressão. Cabe nos 30 s de CPU do objeto.
+- Exportação interrompida: as partes temporárias (`.upload/`) são apagadas
+  pela exportação seguinte da área depois de um dia. A tarefa recomeça do
+  `export_plan` na próxima posse (regra do Fagoo: nova tentativa com
+  backoff).
 
 ## Retenção (rotina `retention`, diária, 03:10 de São Paulo)
 
@@ -105,8 +136,8 @@ Para ligar uma finalidade, basta acrescentar o executor em `TASK_HANDLERS`
   Fagoo, `task_guard` e `attempt_guard` recusam DELETE e nada limpa. No motor
   os gatilhos são cumpridos em código (`domains/preferences/platform.ts`), e o
   SQLite não tem gatilho contra o DELETE (há um teste para isso).
-- **Pacotes de exportação vencidos:** são a tarefa diária `export_cleanup`, que
-  espera o executor (stub acima).
+- **Pacotes de exportação vencidos:** são a tarefa diária `export_cleanup`,
+  rodada pelo executor de arquivos.
 
 ## Certificado A1
 

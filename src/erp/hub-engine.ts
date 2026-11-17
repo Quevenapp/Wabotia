@@ -5,5 +5,6 @@
 export { ERP_SCHEMA_VERSION, migrate } from "./schema/migrate.ts";
 export { engineClock, handleRpc } from "./engine/rpc-endpoint.ts";
 export { storageDriver } from "./engine/driver.ts";
-export { runRound } from "./scheduler/dispatch.ts";
+export { CONTINUE_AFTER_MS, runRound } from "./scheduler/dispatch.ts";
+export { FILE_PURPOSES, runFileTasks } from "./scheduler/files.ts";
 export { backupToR2, dumpAll, readBackup, restoreAll } from "./engine/dump.ts";
