@@ -244,8 +244,8 @@ export function titleDto(db: SqlDriver, id: string) {
 
 const nullableText = (v: number | null) => (v === null ? null : String(v));
 
-/** erp_finance.dto(entidade, id) */
-export function dto(db: SqlDriver, entity: string, id: string): Record<string, unknown> | null {
+/** erp_finance.dto(entidade, id); id nulo não acha a linha e devolve null, como no Postgres. */
+export function dto(db: SqlDriver, entity: string, id: string | null): Record<string, unknown> | null {
   if (entity === "accounts") {
     const a = one(db, 'SELECT id, name, kind, active, opening_recorded, version, created_at, updated_at FROM "erp_finance__account" WHERE id=?', id);
     if (!a) return null;
@@ -267,7 +267,7 @@ export function dto(db: SqlDriver, entity: string, id: string): Record<string, u
     const c = one(db, 'SELECT * FROM "erp_finance__category" WHERE id=?', id);
     return c ? toJsonb("erp_finance__category", c) : null;
   }
-  if (entity === "titles") return titleDto(db, id);
+  if (entity === "titles") return id === null ? null : titleDto(db, id);
   if (entity === "settlements") {
     const s = one(db, 'SELECT * FROM "erp_finance__settlement" WHERE id=?', id);
     if (!s) return null;

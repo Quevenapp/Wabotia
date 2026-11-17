@@ -1640,7 +1640,7 @@
    },
    "erp_finance.dto": {
     "name": "dto",
-    "ported": false
+    "ported": true
    },
    "erp_finance.entry_movement_immutable": {
     "name": "entryMovementImmutable",
@@ -1796,7 +1796,7 @@
    },
    "erp_finance.require_permission": {
     "name": "requirePermission",
-    "ported": false
+    "ported": true
    },
    "erp_finance.seller_for": {
     "name": "sellerFor",

@@ -83,8 +83,6 @@ export const documentSeller = (..._args: unknown[]): never => notPorted("erp_fin
 export const documentTitleNumber = (..._args: unknown[]): never => notPorted("erp_finance.document_title_number");
 /** erp_finance.document_title_rows(p_posting uuid) → jsonb */
 export const documentTitleRows = (..._args: unknown[]): never => notPorted("erp_finance.document_title_rows");
-/** erp_finance.dto(p_entity text, p_id uuid) → jsonb */
-export const dto = (..._args: unknown[]): never => notPorted("erp_finance.dto");
 /** erp_finance.entry_movement_immutable() → trigger */
 export const entryMovementImmutable = (..._args: unknown[]): never => notPorted("erp_finance.entry_movement_immutable");
 /** erp_finance.find_or_create_category(p_name text, p_kind text) → uuid */
@@ -153,8 +151,6 @@ export const projectResultLink = (..._args: unknown[]): never => notPorted("erp_
 export const reconciledEntryGuard = (..._args: unknown[]): never => notPorted("erp_finance.reconciled_entry_guard");
 /** erp_finance.reconciled_movement_guard() → trigger */
 export const reconciledMovementGuard = (..._args: unknown[]): never => notPorted("erp_finance.reconciled_movement_guard");
-/** erp_finance.require_permission(p_user uuid, p_key text) → void */
-export const requirePermission = (..._args: unknown[]): never => notPorted("erp_finance.require_permission");
 /** erp_finance.seller_for(p_seller uuid, p_kind text, p_current uuid) → uuid */
 export const sellerFor = (..._args: unknown[]): never => notPorted("erp_finance.seller_for");
 /** erp_finance.settlement_bordero() → trigger */
