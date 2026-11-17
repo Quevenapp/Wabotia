@@ -201,6 +201,11 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
 
 ## Regras que valem para todos
 
+- **Origin fora não é "sem efeito"** (orquestração, 17/11/2026; achado da O no `commission_seller`, que virou constante e só divergiu quando o `transition` passou a rodar nos dois motores).
+  - "Origin fora" (`sync/origin-off.ts`, desvio `origin-fora`) vale só para o que precisa do Origin vivo: sincronização, papel do Postgres, chamada à API do Bling.
+  - Leitura de linha espelhada ou de tabela do Origin se porta como leitura: `origin_sync.*`, `erp_catalog.origin*`, `authority='origin'`, `erp_document_mirror.visible`. Sem dado, ela devolve o mesmo que a constante devolveria; com dado, o harness compara.
+  - Guarda sobre registro espelhado (`authority='origin'`) se porta como guarda: `erp_document_mirror.guard_document`, `guard_item`, `guard_effect`, `require_visible`.
+  - O que precisa do Origin vivo pode sair 0A000 visível (`notPorted`). Valor inventado ou "nada acontece" silencioso, não.
 - **Dialeto:** as dez regras de `docs/ERP-FASE0.md`.
   - i64 lido por `CAST(… AS TEXT)`.
   - BigInt nunca como parâmetro.

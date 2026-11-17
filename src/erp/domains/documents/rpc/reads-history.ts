@@ -2,8 +2,9 @@
 // B0): public.erp_document_history, com o mesmo nome. Junta as linhas dos
 // documentos, das notas fiscais autorizadas (só para admin e fiscal) e das
 // entradas manuais de estoque (compras de um produto), e o resumo financeiro
-// do contato. O ramo do espelho do Origin (origin='origin', quantidade e
-// preço observados) não existe no Wabotia: docs/ERP-FASE0.md, "Origin fora".
+// do contato. A linha de documento espelhado (authority='origin') é lida como
+// no oráculo: origin='origin', com a quantidade e o preço observados do item
+// (ERP-PORTE.md, "Origin fora não é sem efeito").
 import { one } from "../../../engine/driver.ts";
 import { formatScaled, fromColumn, rescale } from "../../../engine/dec.ts";
 import { raise } from "../../../engine/errors.ts";
@@ -17,6 +18,11 @@ import { osPermitted, requireAccess } from "../public.ts";
 const str = (v: unknown) => (v === null || v === undefined ? null : String(v));
 type Line = {
   type: string;
+  /** d.authority das linhas de documento; 'brufap' nas notas e no estoque. */
+  origin: string;
+  /** i.data->>'quantity' e i.data->>'unit_price' (o que a linha espelhada mostra). */
+  observed_quantity: string | null;
+  observed_price: string | null;
   document_id: unknown;
   num: number | null;
   day: string | null;
@@ -25,7 +31,7 @@ type Line = {
   code: string | null;
   product_id: unknown;
   unit: string;
-  quantity: bigint; // escala 6
+  quantity: bigint | null; // escala 6
   unit_price: unknown; // texto numeric (dec_text) ou 0
 };
 const cents2 = (c: bigint) => formatScaled(c, 2);
@@ -59,7 +65,7 @@ export function erpDocumentHistory(ctx: RpcContext, a: RpcArgs) {
   const lines: Line[] = [];
   const docKind = purchase === true ? "purchase_orders" : "sales_orders";
   for (const r of db.exec(
-    `SELECT d.id, d.number, d.body, d.contact_id, i.position, i.data, i.product_id, CAST(i.quantity AS TEXT) quantity, i.unit_price
+    `SELECT d.id, d.number, d.body, d.contact_id, d.authority, i.position, i.data, i.product_id, CAST(i.quantity AS TEXT) quantity, i.unit_price
        FROM "erp_documents__document" d JOIN "erp_documents__item" i ON i.document_id=d.id
       WHERE d.kind=? AND d.status<>'cancelled'
         AND NOT EXISTS(SELECT 1 FROM "erp_documents__origin_mirror" bm WHERE bm.document_id=d.id AND bm.source_deleted=1)`,
@@ -72,6 +78,9 @@ export function erpDocumentHistory(ctx: RpcContext, a: RpcArgs) {
     const code = arrow(data, "code");
     lines.push({
       type: purchase === true ? "purchase" : "sale",
+      origin: String(r.authority),
+      observed_quantity: arrow(data, "quantity"),
+      observed_price: arrow(data, "unit_price"),
       document_id: r.id,
       num: r.number === null ? null : Number(r.number),
       day: arrow(JSON.parse(String(r.body)), "date"),
@@ -80,7 +89,7 @@ export function erpDocumentHistory(ctx: RpcContext, a: RpcArgs) {
       code: code === "" ? null : code,
       product_id: r.product_id,
       unit: arrow(data, "unit") ?? "",
-      quantity: r.quantity === null ? 0n : fromColumn(r.quantity),
+      quantity: r.quantity === null ? null : fromColumn(r.quantity),
       unit_price: r.unit_price,
     });
   }
@@ -100,6 +109,9 @@ export function erpDocumentHistory(ctx: RpcContext, a: RpcArgs) {
       const code = arrow(data, "code");
       lines.push({
         type: "invoice",
+        origin: "brufap",
+        observed_quantity: null,
+        observed_price: null,
         document_id: r.id,
         num: Number(r.number),
         day: str(r.issue_date),
@@ -125,6 +137,9 @@ export function erpDocumentHistory(ctx: RpcContext, a: RpcArgs) {
       const code = r.code === null ? null : String(r.code);
       lines.push({
         type: "stock",
+        origin: "brufap",
+        observed_quantity: null,
+        observed_price: null,
         document_id: r.id,
         num: null,
         day: str(r.occurred_on),
@@ -148,7 +163,7 @@ export function erpDocumentHistory(ctx: RpcContext, a: RpcArgs) {
   const page = found.slice(0, limit! + 1);
   const items = page.slice(0, limit!).map((l) => ({
     type: l.type,
-    origin: "brufap",
+    origin: l.origin,
     document_id: l.document_id,
     number: l.num === null ? null : String(l.num),
     date: l.day,
@@ -157,8 +172,8 @@ export function erpDocumentHistory(ctx: RpcContext, a: RpcArgs) {
     code: l.code === null ? null : pgLeft(l.code, 100),
     product_id: l.product_id,
     unit: pgLeft(l.unit, 16),
-    quantity: formatScaled(l.quantity, 6),
-    unit_price: unitPriceNumeric(l.unit_price, 14),
+    quantity: l.origin === "origin" ? l.observed_quantity : l.quantity === null ? null : formatScaled(l.quantity, 6),
+    unit_price: l.origin === "origin" ? l.observed_price : unitPriceNumeric(l.unit_price, 14),
   }));
   let finance: Record<string, unknown> | null = null;
   if (purchase === false && product === null && (kind !== "service_orders" || osPermitted(db, user!, "historico_financeiro"))) {
