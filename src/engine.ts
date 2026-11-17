@@ -119,6 +119,11 @@ import {
   aiCallTimeout,
   aiComplete,
   aiCompleteWithTools,
+  AI_PROVIDERS,
+  emptyUsage,
+  PDF_LIMITS,
+  pdfPages,
+  type AiUsage,
 } from "./ai-provider";
 import { signedPayload } from "./signature";
 import { secret, hmac, safeFetch } from "./security";
@@ -1084,6 +1089,7 @@ export async function processInbox(env: Env, profile: string) {
     );
     let input = value;
     const images: string[] = [];
+    const documents: string[] = [];
     if (data.attachments?.length) {
       const bot = await one(
         env,
@@ -1137,6 +1143,24 @@ export async function processInbox(env: Env, profile: string) {
             text: "Imagem fornecida pelo cliente nesta conversa.",
             url: "",
           });
+        } else if (
+          // PDF (nota fiscal, comprovante): com a opção "O modelo entende
+          // PDF" e dentro do teto (PDF_LIMITS, src/ai-provider.ts); o resto
+          // vai para a equipe, como qualquer anexo que o modelo não entende.
+          m?.type === "application/pdf" &&
+          ai?.pdf === true &&
+          AI_PROVIDERS[ai.provider as keyof typeof AI_PROVIDERS]?.pdf === true &&
+          documents.length < PDF_LIMITS.files &&
+          m.size <= PDF_LIMITS.bytes &&
+          (await pdfWithinPages(env, m.object_key))
+        ) {
+          documents.push(m.id);
+          sources.push({
+            id: "pdf:" + m.id,
+            document_id: m.id,
+            text: "Documento PDF enviado pelo cliente nesta conversa.",
+            url: "",
+          });
         } else if (followup) {
           // Already with the team: acknowledge instead of handing off again.
           await followupAck(env, c, followup.ticket, `followup:${row.id}`);
@@ -1182,6 +1206,7 @@ export async function processInbox(env: Env, profile: string) {
           sources,
           session: c.session,
           images,
+          ...(documents.length ? { documents } : {}),
           ...(followup ? { followup: true } : {}),
         },
         source_key: "inbox:" + row.id,
@@ -1227,8 +1252,24 @@ export function sessionKey(run: Run) {
   if (run.actor && run.actor !== "system") return `${base}:user:${run.actor}`;
   return `${base}:run:${run.id}`;
 }
-/** Instruções de uma execução, iguais para o Hermes e para o provedor de IA. */
+/**
+ * Instruções de uma execução, iguais para o Hermes e para o provedor de IA.
+ * `instructions` é o texto inteiro, na ordem de sempre (o que o Hermes
+ * recebe). Para o provedor de IA, `stable` é o que não muda entre execuções
+ * do mesmo tipo na mesma área (vai antes do ponto de cache) e `situation`,
+ * os acréscimos desta execução (não usar menu, conversa já com a equipe).
+ */
 async function runInstructions(env: Env, run: Run, ai: boolean) {
+  const parts = await instructionParts(env, run, ai);
+  return {
+    instructions: parts.list.map((p) => p.text).join(""),
+    stable: parts.list.filter((p) => !p.situation).map((p) => p.text).join(""),
+    situation: parts.list.filter((p) => p.situation).map((p) => p.text).join(""),
+    jev: parts.jev,
+  };
+}
+async function instructionParts(env: Env, run: Run, ai: boolean) {
+  const list: { text: string; situation?: boolean }[] = [];
   const cfg = await settings(env, run.profile_id);
   let instructions = ai
     ? "Retorne somente o resultado final. Não envie mensagens diretamente aos canais; o Wabotia entrega o resultado. Você não tem ferramentas e não gera arquivos; nunca retorne files."
@@ -1238,19 +1279,89 @@ async function runInstructions(env: Env, run: Run, ai: boolean) {
   if (cfg.jev_enabled && ["attendant", "answer"].includes(run.phase))
     instructions +=
       ' O JEV toma a decisão final. Primeiro interprete a necessidade e proponha uma ação. Acrescente ao JSON "interpretation":{"intent":"intenção do cliente","summary":"resumo factual curto da solicitação e do contexto relevante","missing_information":[]} e "clarification":"pergunta curta caso falte informação". Forneça somente esse resumo operacional, sem raciocínio privado. Não execute a ação proposta nem consulte especialistas por conta própria; o Wabotia chama o JEV depois de receber sua interpretação.';
+  list.push({ text: instructions });
   if (json(run.context).no_menu)
-    instructions +=
-      " Nesta resposta não use a ação menu: o cliente está respondendo à pergunta que você fez. Continue o atendimento com as fontes, pergunte o que falta, responda ou use human com o resumo.";
+    list.push({
+      situation: true,
+      text: " Nesta resposta não use a ação menu: o cliente está respondendo à pergunta que você fez. Continue o atendimento com as fontes, pergunte o que falta, responda ou use human com o resumo.",
+    });
   if (json(run.context).followup)
-    instructions +=
-      " Situação desta mensagem: a conversa já foi encaminhada à equipe humana, que está ausente, e o cliente continua escrevendo. A fonte atendimento descreve o que já foi informado a ele. Responda de forma breve e acolhedora com action answer citando essa fonte, ou clarify se precisar de um detalhe. Não transfira, não abra outro protocolo, não mostre menu e não prometa prazo ou solução além do que está nas fontes.";
+    list.push({
+      situation: true,
+      text: " Situação desta mensagem: a conversa já foi encaminhada à equipe humana, que está ausente, e o cliente continua escrevendo. A fonte atendimento descreve o que já foi informado a ele. Responda de forma breve e acolhedora com action answer citando essa fonte, ou clarify se precisar de um detalhe. Não transfira, não abra outro protocolo, não mostre menu e não prometa prazo ou solução além do que está nas fontes.",
+    });
   if (json(run.context).internal_chat_id && !json(run.context).direct)
-    instructions +=
-      " Esta é uma conversa interna privada com uma pessoa da equipe, fora do WhatsApp. Responda apenas em texto e não crie arquivos nem envie mensagens a terceiros.";
+    list.push({
+      text: " Esta é uma conversa interna privada com uma pessoa da equipe, fora do WhatsApp. Responda apenas em texto e não crie arquivos nem envie mensagens a terceiros.",
+    });
   if (run.phase === "specialist")
-    instructions +=
-      ' Solicitação interna. Respeite exclusivamente a ação e condição informadas. Não delegue e não envie mensagens a terceiros. Retorne JSON {"outcome":"resolved|unresolved|needs_clarification","text":"...","links":[],"files":[]}. Verifique a correspondência entre cliente e conta antes de consultar dados. Não invente resultados.';
-  return { instructions, jev: !!cfg.jev_enabled };
+    list.push({
+      text: ' Solicitação interna. Respeite exclusivamente a ação e condição informadas. Não delegue e não envie mensagens a terceiros. Retorne JSON {"outcome":"resolved|unresolved|needs_clarification","text":"...","links":[],"files":[]}. Verifique a correspondência entre cliente e conta antes de consultar dados. Não invente resultados.',
+    });
+  return { list, jev: !!cfg.jev_enabled };
+}
+
+/** Chaves do JSON do Atendente que são dados estáveis da área. */
+const AREA_KEYS = ["menus", "actions", "categories"] as const;
+
+/**
+ * Separa os dados estáveis da área (menus, ações, categorias) do JSON de
+ * entrada do Atendente: eles vão no bloco estável do sistema, e a mensagem
+ * fica com o pedido, o histórico e as fontes. O conteúdo é o mesmo; só muda
+ * o lugar. Entrada que não é esse JSON segue como veio.
+ */
+export function splitAreaInput(input: string): { input: string; area: Record<string, unknown> | null } {
+  let data: any;
+  try {
+    data = JSON.parse(input);
+  } catch {
+    return { input, area: null };
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data) || !AREA_KEYS.some((k) => k in data))
+    return { input, area: null };
+  const area: Record<string, unknown> = {};
+  const rest: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(data))
+    if ((AREA_KEYS as readonly string[]).includes(key)) area[key] = value;
+    else rest[key] = value;
+  return { input: JSON.stringify(rest), area };
+}
+/** O PDF cabe no teto de páginas? Sem como contar (objetos comprimidos), vale só o tamanho. */
+async function pdfWithinPages(env: Env, key: string) {
+  const obj = await env.MEDIA.get(key);
+  if (!obj) return false;
+  const pages = pdfPages(new Uint8Array(await obj.arrayBuffer()));
+  return pages === null || pages <= PDF_LIMITS.pages;
+}
+/**
+ * Soma o uso desta chamada ao da execução (bot_runs.usage, tokens): as
+ * tentativas de novo de uma mesma execução também custam.
+ */
+async function saveUsage(env: Env, run: Run, usage: AiUsage) {
+  if (!usage.input && !usage.output && !usage.cache_read && !usage.cache_write) return;
+  const row = await one(env, "SELECT usage FROM bot_runs WHERE id=?", run.id);
+  const before = json(row?.usage, null) as AiUsage | null;
+  const total = { ...usage };
+  if (before)
+    for (const key of Object.keys(total) as (keyof AiUsage)[]) total[key] += Number(before[key]) || 0;
+  await exec(env, "UPDATE bot_runs SET usage=? WHERE id=?", JSON.stringify(total), run.id);
+}
+/**
+ * PDFs do cliente anexados à execução, como data URLs, lidos do R2 só na
+ * hora da chamada (sem cópia). Só a mensagem em que chegaram os leva: nas
+ * seguintes o bot tem apenas o que ele mesmo escreveu sobre o arquivo.
+ */
+async function runDocuments(env: Env, run: Run) {
+  const documents: string[] = [];
+  for (const id of json(run.context).documents || []) {
+    const m = await one(env, "SELECT * FROM media WHERE id=? AND profile_id=?", id, run.profile_id);
+    if (m?.type === "application/pdf") {
+      const obj = await env.MEDIA.get(m.object_key);
+      if (obj)
+        documents.push(`data:application/pdf;base64,${Buffer.from(await obj.arrayBuffer()).toString("base64")}`);
+    }
+  }
+  return documents;
 }
 /** Imagens do cliente anexadas à execução, como data URLs. */
 async function runImages(env: Env, run: Run) {
@@ -1396,7 +1507,7 @@ async function aiRun(env: Env, run: Run, conn: any): Promise<string | null> {
     return null;
   }
   if (run.error && now() - run.updated < AI_RETRY_GAP) return null;
-  const { instructions: base, jev } = await runInstructions(env, run, true);
+  const { stable: base, situation, jev } = await runInstructions(env, run, true);
   if (current) await showTyping(env, current);
   // Ferramentas (src/bot-actions): decididas aqui, em código, nunca pelo
   // texto. Conversa interna de uma pessoa: as da pessoa (catálogo, proposta
@@ -1431,6 +1542,12 @@ async function aiRun(env: Env, run: Run, conn: any): Promise<string | null> {
         }
       : null;
   const state = newToolState();
+  // Ordem estável para o cache de prompt (docs/PROVEDOR-IA.md, "Cache"):
+  // instruções e dados da área antes do ponto de cache; a situação desta
+  // execução, o pedido, o histórico, as fontes e os anexos depois.
+  const split = splitAreaInput(run.input);
+  const documents = await runDocuments(env, run);
+  const usage = emptyUsage();
   const request = {
     instructions: tooling
       ? base.replace(
@@ -1438,8 +1555,12 @@ async function aiRun(env: Env, run: Run, conn: any): Promise<string | null> {
           "Você não gera arquivos",
         ) + tooling.extra
       : base,
-    input: run.input,
+    situation,
+    area: split.area,
+    input: split.input,
     images: await runImages(env, run),
+    documents,
+    usage,
     json: ["attendant", "answer"].includes(run.phase)
       ? jev
         ? ("attendant-jev" as const)
@@ -1487,11 +1608,16 @@ async function aiRun(env: Env, run: Run, conn: any): Promise<string | null> {
         } else throw error;
       }
   } catch (error) {
-    const message =
-      error instanceof ApiError
-        ? error.message
-        : "Falha ao chamar o provedor de IA.";
+    await saveUsage(env, run, usage);
     const transient = error instanceof AiError ? error.transient : true;
+    // PDF com senha, corrompido ou fora do limite do provedor: a recusa vem
+    // como HTTP 400; a conversa vai para a equipe com o motivo.
+    const message =
+      documents.length && !transient && error instanceof AiError && /HTTP 400/.test(error.message)
+        ? "O provedor de IA recusou o PDF enviado pelo cliente (protegido por senha, corrompido ou fora do limite do provedor)."
+        : error instanceof ApiError
+          ? error.message
+          : "Falha ao chamar o provedor de IA.";
     // The highest effort levels wait up to 3 minutes per call: allow a retry.
     const window = Math.max(
       AI_RETRY_WINDOW,
@@ -1510,6 +1636,7 @@ async function aiRun(env: Env, run: Run, conn: any): Promise<string | null> {
     await failRun(env, run, message);
     return null;
   }
+  await saveUsage(env, run, usage);
   // Uma pessoa pode ter cancelado a execução enquanto o provedor respondia.
   const claimed = await exec(
     env,

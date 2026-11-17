@@ -150,6 +150,16 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. Em **Conexões**, a janela aberta por **Gerar comando de instalação** ou **Parear novamente** traz, em **Meu Hermes roda em Docker**, os comandos para descobrir o nome do contêiner, instalar o plugin, reiniciar o contêiner e conferir a versão instalada, cada um com botão de copiar. Em uma conexão já pareada, a janela avisa que os bots ficam fora do ar entre a execução do comando e o reinício do gateway. O plugin continua na versão 1.1.0; quem já o atualizou não precisa repetir. O roteiro completo está em [Atualizar o plugin](HERMES-PLUGIN.md#21-atualizar-o-plugin). Depois de atualizar, clique em **Reabrir painel atualizado**.
 
+## Próxima versão: bots internos (rascunho)
+
+- **Cache de prompt e PDF no bot de provedor de IA** ([PROVEDOR-IA.md](PROVEDOR-IA.md)):
+  - migração aditiva `0090_bot_runs_uso.sql` (coluna `bot_runs.usage`, com os tokens de cada execução em **Registros**);
+  - a opção **O modelo entende PDF** na conexão, para Anthropic e OpenAI.
+- **Instruções personalizadas do bot: não precisa mexer.** O texto que você escreveu vai ao modelo igual.
+  - Muda só a ordem do que o Wabotia acrescenta: menus, ações e categorias de protocolo vão num bloco "dados da área" antes do ponto de cache.
+  - A situação da conversa (sem menu, retomada) vai depois do ponto de cache.
+  - As respostas devem ser as mesmas. Se uma instrução sua dizia "veja o menu acima", ela continua valendo, porque os menus seguem antes da conversa.
+
 ## Atualização 0.21.0: acesso por pessoa, segundo fator, ERP em implantação, fila mais rápida
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Faça backup antes: esta versão aplica as migrações `0059` a `0089` e acrescenta a flag de compatibilidade `global_fetch_strictly_public` ao Worker (o atualizador a aplica sozinho). Não há recurso novo na Cloudflare. Depois de atualizar, clique em **Reabrir painel atualizado**.

@@ -8,6 +8,7 @@ import type { Row } from "../lib/api";
 import { Button, Field, Notice, SkeletonBlock, Table, toast } from "../ui";
 import { WhatsAppGroups } from "../WhatsAppGroups";
 import { navigate } from "../lib/routes";
+import { usageText } from "../lib/usage";
 import { FormDialog, Pager, useList } from "./shared";
 
 const reportSections: [string, string][] = [
@@ -150,6 +151,16 @@ export function LogsPage({
                 page === "webhook-deliveries" ? "attempts" : "error",
                 page === "webhook-deliveries" ? "Tentativas" : "Detalhes",
               ],
+              // Tokens da execução (provedor de IA direto): para ver o custo
+              // e se o cache de prompt está pegando. Sem valor em dinheiro:
+              // o preço muda.
+              ...(page === "bot-runs"
+                ? ([["usage", "Tokens", (row: Row) => usageText(row.usage)]] as [
+                    string,
+                    string,
+                    (row: Row) => React.ReactNode,
+                  ][])
+                : []),
               ["created", "Data"],
             ]}
             action={(row) => (

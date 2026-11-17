@@ -6,7 +6,7 @@ Uma conexão **Provedor de IA** liga o Wabotia direto à API da Anthropic, da Op
 
 O bot de provedor de IA atende o cliente no WhatsApp e conversa com a equipe.
 - **No atendimento ao cliente:**
-  - A cada mensagem, o Wabotia envia ao modelo as instruções da área, as 12 últimas mensagens, as fontes do Conhecimento, os menus e as categorias de protocolo.
+  - A cada mensagem, o Wabotia envia ao modelo as instruções da área, as 12 últimas mensagens, as fontes do Conhecimento, os menus e as categorias de protocolo, na ordem que favorece o cache de prompt (abaixo).
   - Recebe de volta a decisão do Atendente: responder, perguntar, mostrar menu, consultar ou abrir protocolo, ou transferir. As regras são as mesmas do Atendente no Hermes, inclusive o JEV.
   - Usa as **ferramentas da conversa** que os módulos ligados declaram, como a situação da OS ou os horários da Agenda.
   - Só alcança os dados desse cliente. O que muda algo vira um botão que o próprio cliente confirma.
@@ -75,7 +75,48 @@ Para remover a conexão, pause-a e use **Excluir conexão** no cartão. O bot de
 - **Apenas mensagens ligada (padrão):** quem manda áudio ou vídeo recebe "No momento este atendimento recebe apenas mensagens de texto. Por favor, escreva sua mensagem." A conversa continua com o bot e a equipe não é chamada. Vários áudios seguidos geram um único aviso; um novo aviso só sai depois de outra mensagem enviada.
 - **Desligada:** áudio e vídeo vão para a equipe humana, como qualquer anexo que o bot não entende.
 - **Imagens** (até 2 por mensagem, até 5 MB cada) vão ao modelo quando ele as entende; caso contrário, a conversa vai para a equipe.
-- **Documentos** vão para a equipe, como antes.
+- **PDF** (nota fiscal, comprovante): veja a seção "PDF". Outros documentos vão para a equipe, como antes.
+
+## PDF
+
+Com a opção **O modelo entende PDF** da conexão, o PDF que o cliente manda vai ao modelo junto com a mensagem.
+
+- **Onde:**
+  - **Anthropic:** ligada de fábrica. O PDF vai como bloco `document`, antes do texto.
+  - **OpenAI:** desligada de fábrica, porque só modelos com visão leem PDF. Vai como parte `file` do Chat Completions.
+  - **DeepSeek e API compatível:** sem PDF, porque não há formato documentado; o PDF vai para a equipe.
+- **Teto do Wabotia** (`PDF_LIMITS` em `src/ai-provider.ts`, com o motivo no comentário): **1 PDF por mensagem, até 4 MB e 10 páginas**. Cada página custa de 1.500 a 3.000 tokens de texto, mais a página como imagem. Com 10 páginas e uma área cheia, o pedido fica abaixo de 100 mil tokens, acima dos quais o Claude Haiku 5.5 cobra o pedido inteiro mais caro. As páginas são contadas pelo arquivo; quando não dá para contar (objetos comprimidos), vale só o tamanho.
+- **Acima do teto, com a opção desligada ou em provedor sem PDF:** a conversa vai para a equipe ("Anexo necessita análise humana"), como qualquer anexo que o modelo não entende.
+- **PDF recusado pelo provedor** (com senha, corrompido): a conversa vai para a equipe, e o motivo aparece em **Execuções de bots** ("O provedor de IA recusou o PDF enviado pelo cliente…").
+- **Só na mensagem em que chega.** Nas mensagens seguintes o bot não tem mais o arquivo, só o que ele mesmo escreveu sobre ele na conversa, como já acontece com as imagens. Se o cliente perguntar de novo sobre um detalhe da nota que o bot não escreveu, ele precisa mandar o PDF outra vez. A equipe vê o arquivo na conversa, como sempre.
+- **Privacidade:** o PDF tem dado pessoal. Ele é lido do armazenamento (R2) só na hora da chamada, sem cópia, e nada do conteúdo vai para os registros do Wabotia.
+
+## Cache de prompt
+
+A cada mensagem o pedido ao modelo é montado do mais estável para o mais variável:
+
+1. as ferramentas, em ordem fixa;
+2. as instruções da área, com os menus, as ações e as categorias;
+3. os acréscimos desta execução ("não use menu", "a conversa já está com a equipe");
+4. a mensagem: pedido, as 12 últimas mensagens, as fontes do Conhecimento e os anexos.
+
+O conteúdo é o mesmo de antes. Os menus, as ações e as categorias mudaram de lugar: saíram do JSON da mensagem e foram para o fim das instruções, depois do texto "Dados desta área de atendimento (menus, actions e categories):", com o mesmo JSON. O Hermes recebe tudo como antes.
+
+- **Anthropic:**
+  - O ponto de cache (`cache_control`, validade de 5 minutos) fica no fim do bloco estável (itens 1 e 2).
+  - No laço de ferramentas, um segundo ponto, móvel, fica no fim da rodada, e a rodada seguinte lê dele. São no máximo 2 pontos.
+  - Cada modelo tem um tamanho mínimo de prefixo para cachear: 512 tokens no Claude Haiku 5.5, segundo a documentação de prompt caching da Anthropic. Abaixo dele não há cache, sem erro. O Wabotia não depende desse número: o ponto vai sempre.
+- **OpenAI e DeepSeek:** cache automático por prefixo, sem parâmetro. A mesma ordem estável ajuda.
+- **Validade de 1 hora:** não está ligada, porque a gravação custa mais. Só depois de medir.
+
+**Uso por execução:** cada execução grava os tokens em `bot_runs.usage` como `{input, cache_read, cache_write, output}`, somados entre as rodadas de ferramentas e as tentativas de novo. **Execuções de bots** mostra os tokens: "entrada · cache lido · cache gravado · saída". Não mostra valor em dinheiro, porque o preço muda. O cache está pegando quando "cache lido" cresce nas mensagens seguintes da mesma área.
+
+| Provedor | O que devolve | Como vira o uso |
+|---|---|---|
+| Anthropic | `input_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, `output_tokens` | input, cache_write, cache_read, output |
+| OpenAI | `prompt_tokens` (inclui o cache), `prompt_tokens_details.cached_tokens`, `completion_tokens` | input = prompt − cached; cache_read = cached; output |
+| DeepSeek | `prompt_cache_miss_tokens`, `prompt_cache_hit_tokens`, `completion_tokens` | input = miss; cache_read = hit; output |
+| API compatível | `prompt_tokens`, `completion_tokens`, quando vierem | input, output |
 
 ## Falhas
 
@@ -87,10 +128,10 @@ As respostas de uma área de atendimento são processadas em série. Com muitos 
 
 ## Detalhes técnicos
 
-- Conexão `kind: "ai"`; configuração `provider`, `model`, `base_url`, `vision`, `effort`, `text_only`; segredo `api_key` ([API](../src/openapi.ts)).
+- Conexão `kind: "ai"`; configuração `provider`, `model`, `base_url`, `vision`, `pdf`, `effort`, `text_only`; segredo `api_key` ([API](../src/openapi.ts)).
 - Modelos da conta: `POST /api/v1/profiles/{perfil}/ai-models` (administrador, 10 por minuto), com `{provider, base_url?, api_key?, connection_id?}`; responde `{data:[ids]}`. Fica fora dos comandos idempotentes para a chave não ir aos recibos.
 - Chamadas em [src/ai-provider.ts](../src/ai-provider.ts): formato OpenAI (`/chat/completions`, modo JSON na OpenAI e na DeepSeek, `reasoning_effort` quando escolhido) e SDK oficial da Anthropic (`@anthropic-ai/sdk`) com saída estruturada no formato do Atendente e `output_config.effort` (padrão `low`).
 - Execução em [src/engine.ts](../src/engine.ts) (`aiRun`): a resposta chega na mesma passada, sem consulta posterior. Sem efeito colateral no provedor, uma chamada interrompida é simplesmente repetida; o envio ao cliente não duplica, porque a mensagem é identificada pela execução.
-- Sem migração de banco, sem Durable Object novo, sem binding ou secret novo: chega pela atualização normal do painel.
+- Uma migração de banco (`0090_bot_runs_uso.sql`: coluna `bot_runs.usage`). Sem Durable Object novo, sem binding nem secret novo: chega pela atualização normal do painel.
 - Ferramentas: modo equipe e modo cliente em [src/bot-actions](../src/bot-actions); o especialista recebe só as ferramentas de cliente sem escrita (`write` falso e `customer` diferente de `"propose"`). Provedor que recusa ferramentas: `tools_unsupported_at` na configuração da conexão, limpo ao salvar.
 - Testes: `tests/ai-provider.test.ts`, `tests/bot-actions-ai.test.ts`.

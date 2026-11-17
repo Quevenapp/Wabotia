@@ -69,6 +69,10 @@ const compatibleEfforts: [string, string][] = [
 ];
 
 /** Esforço usado quando nada foi escolhido; vazio deixa o padrão do modelo. */
+/** "O modelo entende PDF": ligada de fábrica na Anthropic, escolhida na OpenAI (src/ai-provider.ts). */
+const pdfOn = (provider: string, value: unknown) =>
+  provider === "anthropic" ? value !== false : provider === "openai" ? value === true : false;
+
 const defaultEffort = (provider: string) =>
   provider === "anthropic" || provider === "deepseek" ? "low" : "";
 
@@ -254,6 +258,24 @@ function AiFields({
           </label>
         </>
       )}
+      {(provider === "anthropic" || provider === "openai") && (
+        <>
+          <label className="check-line">
+            <input
+              type="checkbox"
+              checked={pdfOn(provider, form.pdf)}
+              onChange={(event) => change("pdf")(event.target.checked)}
+            />
+            O modelo entende PDF
+          </label>
+          <p>
+            {pdfOn(provider, form.pdf)
+              ? "Nota fiscal ou comprovante em PDF (um por mensagem, até 4 MB e 10 páginas) vai ao modelo junto com a mensagem; PDF maior, com senha ou corrompido vai para a equipe. Nas mensagens seguintes o bot não tem mais o arquivo, só o que ele escreveu sobre ele."
+              : "PDF enviado pelo cliente vai para a equipe."}
+            {provider === "openai" && " Na OpenAI, só modelos com visão leem PDF."}
+          </p>
+        </>
+      )}
       <label className="check-line">
         <input
           type="checkbox"
@@ -320,6 +342,7 @@ export function ConnectionDialog({
               : ""),
           base_url: form.provider === "compatible" ? form.base_url : undefined,
           vision: form.provider === "compatible" ? !!form.vision : undefined,
+          pdf: pdfOn(form.provider || "anthropic", form.pdf),
           effort:
             form.effort ||
             defaultEffort(form.provider || "anthropic") ||

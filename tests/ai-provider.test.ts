@@ -4,9 +4,17 @@ import { all, exec, one } from "../src/db";
 import { defaults, json, now, uid, type Actor, type Run } from "../src/types";
 import { secret, setSecret } from "../src/security";
 import { inbound, perform } from "../src/service";
-import { processInbox, processRun } from "../src/engine";
+import { processInbox, processRun, splitAreaInput } from "../src/engine";
 import { teamDirectory } from "../src/team";
-import { aiListModels } from "../src/ai-provider";
+import {
+  AREA_LABEL,
+  aiListModels,
+  PDF_LIMITS,
+  PDF_TOKENS_PER_PAGE,
+  pdfPages,
+  stableSystem,
+} from "../src/ai-provider";
+import { usageText } from "../web/lib/usage";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -129,12 +137,13 @@ let counter = 0;
 async function receive(
   f: { profile: string; line: string },
   text: string,
-  attachments: { type: string }[] = [],
+  attachments: { type: string; bytes?: Uint8Array }[] = [],
 ) {
   const ids: string[] = [];
   for (const attachment of attachments) {
     const id = uid();
-    await env.MEDIA.put(`${f.profile}/${id}`, new Uint8Array([1, 2, 3]));
+    const bytes = attachment.bytes ?? new Uint8Array([1, 2, 3]);
+    await env.MEDIA.put(`${f.profile}/${id}`, bytes);
     await exec(
       env,
       "INSERT INTO media(id,profile_id,name,type,size,object_key,actor,created) VALUES(?,?,?,?,?,?,?,?)",
@@ -142,7 +151,7 @@ async function receive(
       f.profile,
       "anexo",
       attachment.type,
-      3,
+      bytes.length,
       `${f.profile}/${id}`,
       "system",
       now(),
@@ -337,6 +346,8 @@ describe("cadastro da conexão de provedor de IA", () => {
       provider: "anthropic",
       model: "claude-opus-5-5",
       vision: true,
+      // "O modelo entende PDF": ligada de fábrica na Anthropic.
+      pdf: true,
       effort: "low",
       text_only: true,
     });
@@ -894,7 +905,9 @@ describe("atendimento por provedor de IA", () => {
     );
     const body = calls[0].body;
     expect(body.model).toBe("claude-opus-5-5");
-    expect(body.system).toContain("Você é o Atendente");
+    // Sistema em blocos: o estável com o ponto de cache.
+    expect(body.system[0].text).toContain("Você é o Atendente");
+    expect(body.system[0].cache_control).toEqual({ type: "ephemeral" });
     expect(body.thinking).toBeUndefined();
     expect(body.output_config.effort).toBe("low");
     expect(body.output_config.format.type).toBe("json_schema");
@@ -1085,5 +1098,235 @@ describe("atendimento por provedor de IA", () => {
     const directory: any = await teamDirectory(env, admin, f.profile);
     const bot = directory.data.find((item: any) => item.bot_id === f.bot);
     expect(bot.online).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cache de prompt e PDF (docs/PROVEDOR-IA.md, "Cache de prompt" e "PDF").
+
+/** Provedor simulado da Anthropic que imita o cache por prefixo: lê o que já viu. */
+function cachingAnthropic(text: string) {
+  const seen = new Set<string>();
+  return mockFetch((call) => {
+    const prefix = JSON.stringify({ tools: call.body.tools ?? null, system: call.body.system[0] });
+    const hit = seen.has(prefix);
+    seen.add(prefix);
+    return Response.json({
+      id: "msg_test",
+      type: "message",
+      role: "assistant",
+      model: call.body.model,
+      content: [{ type: "text", text }],
+      stop_reason: "end_turn",
+      stop_sequence: null,
+      usage: {
+        input_tokens: 40,
+        cache_creation_input_tokens: hit ? 0 : 2000,
+        cache_read_input_tokens: hit ? 2000 : 0,
+        output_tokens: 20,
+      },
+    });
+  });
+}
+const usageOf = async (run: Run) => json((await fresh(run)).usage, null);
+/** PDF mínimo com `pages` objetos /Type /Page. */
+const pdf = (pages: number, extra = 0) =>
+  new TextEncoder().encode(
+    "%PDF-1.4\n" +
+      Array.from({ length: pages }, (_, i) => `${i + 3} 0 obj << /Type /Page /Parent 2 0 R >> endobj\n`).join("") +
+      "x".repeat(extra) +
+      "\n%%EOF",
+  );
+const state = async (conversation: string) =>
+  (await one(env, "SELECT state FROM conversations WHERE id=?", conversation)).state;
+
+describe("cache de prompt do provedor de IA", () => {
+  it("duas execuções seguidas da mesma área: a segunda lê do cache; o uso fica em Execuções de bots", async () => {
+    const f = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", vision: true });
+    const calls = cachingAnthropic(JSON.stringify(answer));
+    const first = await withSource((await runOf(await receive(f, "Qual o horário?")))!);
+    await processRun(env, first);
+    const second = await withSource((await runOf(await receive(f, "E no sábado?")))!);
+    await processRun(env, second);
+    expect(calls).toHaveLength(2);
+    expect(await usageOf(first)).toEqual({ input: 40, cache_read: 0, cache_write: 2000, output: 20 });
+    expect(await usageOf(second)).toEqual({ input: 40, cache_read: 2000, cache_write: 0, output: 20 });
+  });
+
+  it("o prefixo estável (ferramentas e bloco do sistema) tem os mesmos bytes entre montagens da mesma área", async () => {
+    const f = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", vision: true });
+    const calls = mockFetch(() => anthropicMessage(JSON.stringify(answer)));
+    // Outra conversa, outra mensagem, outra hora e um acréscimo da execução.
+    const a = await withSource((await runOf(await receive(f, "Qual o horário?")))!);
+    await processRun(env, a);
+    const other = { ...f };
+    const conv = await receive(other, "Outra pergunta, bem diferente, com mais texto.");
+    let b = await withSource((await runOf(conv))!);
+    await exec(env, "UPDATE bot_runs SET context=? WHERE id=?", JSON.stringify({ ...json(b.context), no_menu: true }), b.id);
+    b = await fresh(b);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 3_600_000);
+    await processRun(env, b);
+    vi.useRealTimers();
+    const prefix = (body: any) => JSON.stringify({ tools: body.tools ?? null, system: body.system[0] });
+    expect(prefix(calls[1].body)).toBe(prefix(calls[0].body));
+    // O acréscimo vai depois do ponto de cache, num segundo bloco sem ponto.
+    expect(calls[0].body.system).toHaveLength(1);
+    expect(calls[1].body.system[1].text).toContain("não use a ação menu");
+    expect(calls[1].body.system[1].cache_control).toBeUndefined();
+  });
+
+  it("montagem nova e antiga: o modelo recebe o mesmo conteúdo, com menus, ações e categorias no bloco estável", async () => {
+    const f = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", vision: true });
+    const calls = mockFetch(() => anthropicMessage(JSON.stringify(answer)));
+    // Casos: pergunta simples e a mesma com o acréscimo "não use menu". Cada
+    // um processado logo depois de chegar (a mensagem nova cancela a anterior).
+    for (const [text, noMenu] of [
+      ["Qual o horário?", false],
+      ["Sim, quero", true],
+    ] as const) {
+      let run = await withSource((await runOf(await receive(f, text)))!);
+      if (noMenu) {
+        await exec(env, "UPDATE bot_runs SET context=? WHERE id=?", JSON.stringify({ ...json(run.context), no_menu: true }), run.id);
+        run = await fresh(run);
+      }
+      await processRun(env, run);
+      const body = calls.at(-1)!.body;
+      const stable: string = body.system[0].text;
+      const situation: string = body.system[1]?.text ?? "";
+      const [instructions, areaJson] = stable.split(AREA_LABEL);
+      // Antes: um JSON só na mensagem. Agora: a mensagem sem os dados da área
+      // e os dados da área no sistema. Juntos, o mesmo JSON (mesmas chaves e valores).
+      const user = JSON.parse(body.messages[0].content.at(-1).text);
+      expect({ ...user, ...JSON.parse(areaJson) }).toEqual(JSON.parse(run.input));
+      expect(Object.keys(JSON.parse(areaJson)).sort()).toEqual(["actions", "categories", "menus"]);
+      // As instruções: o mesmo texto de antes, só com o acréscimo depois do ponto.
+      expect(instructions + situation).toContain("Você é o Atendente");
+      expect(situation === "" || (instructions + situation).endsWith(situation)).toBe(true);
+    }
+  });
+
+  it("OpenAI e DeepSeek: sistema estável primeiro e o uso normalizado de cada um", async () => {
+    const openai = await serviceFixture({ provider: "openai", model: "gpt-test" });
+    let calls = mockFetch(() =>
+      Response.json({
+        id: "x",
+        choices: [{ index: 0, message: { role: "assistant", content: JSON.stringify(answer) }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1200, completion_tokens: 30, prompt_tokens_details: { cached_tokens: 1024 } },
+      }),
+    );
+    const r1 = await withSource((await runOf(await receive(openai, "Qual o horário?")))!);
+    await processRun(env, r1);
+    expect(calls[0].body.messages[0].content).toContain(AREA_LABEL.trim());
+    expect(await usageOf(r1)).toEqual({ input: 176, cache_read: 1024, cache_write: 0, output: 30 });
+    const deepseek = await serviceFixture({ provider: "deepseek", model: "deepseek-chat" });
+    calls = mockFetch(() =>
+      Response.json({
+        id: "x",
+        choices: [{ index: 0, message: { role: "assistant", content: JSON.stringify(answer) }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 900, completion_tokens: 12, prompt_cache_hit_tokens: 640, prompt_cache_miss_tokens: 260 },
+      }),
+    );
+    const r2 = await withSource((await runOf(await receive(deepseek, "Qual o horário?")))!);
+    await processRun(env, r2);
+    expect(await usageOf(r2)).toEqual({ input: 260, cache_read: 640, cache_write: 0, output: 12 });
+  });
+
+  it("tela de Execuções de bots: tokens, sem valor em dinheiro", () => {
+    expect(usageText(JSON.stringify({ input: 40, cache_read: 2000, cache_write: 0, output: 20 }))).toBe(
+      "entrada 40 · cache lido 2.000 · cache gravado 0 · saída 20",
+    );
+    expect(usageText(null)).toBe("—");
+  });
+});
+
+describe("PDF do cliente no provedor de IA", () => {
+  it("Anthropic: o PDF vai como bloco document antes do texto, e só na mensagem em que chegou", async () => {
+    const f = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", vision: true, pdf: true });
+    const conversation = await receive(f, "Segue a nota", [{ type: "application/pdf", bytes: pdf(2) }]);
+    const run = (await runOf(conversation))!;
+    expect(json(run.context).documents).toHaveLength(1);
+    expect(json(run.context).sources.map((s: any) => s.text)).toContain("Documento PDF enviado pelo cliente nesta conversa.");
+    const calls = mockFetch(() => anthropicMessage(JSON.stringify({ ...answer, action: "clarify", citations: [] })));
+    await processRun(env, run);
+    const content = calls[0].body.messages[0].content;
+    expect(content[0]).toMatchObject({ type: "document", source: { type: "base64", media_type: "application/pdf" } });
+    expect(content.at(-1).type).toBe("text");
+    // Mensagem seguinte: o arquivo não vai de novo.
+    const next = (await runOf(await receive(f, "Recebeu?")))!;
+    expect(json(next.context).documents).toBeUndefined();
+    await processRun(env, next);
+    expect(calls[1].body.messages[0].content.some((b: any) => b.type === "document")).toBe(false);
+  });
+
+  it("acima do teto (11 páginas ou mais de 4 MB), mais de um PDF ou opção desligada: vai para a equipe", async () => {
+    const on = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", vision: true, pdf: true });
+    expect(PDF_LIMITS).toEqual({ files: 1, bytes: 4 * 1024 * 1024, pages: 10 });
+    expect(pdfPages(pdf(10))).toBe(10);
+    expect(pdfPages(new TextEncoder().encode("%PDF-1.5 comprimido"))).toBeNull();
+    const many = await receive(on, "Nota longa", [{ type: "application/pdf", bytes: pdf(11) }]);
+    expect(await runOf(many)).toBeNull();
+    expect(await state(many)).not.toBe("ai");
+    const big = await receive(on, "Nota grande", [{ type: "application/pdf", bytes: pdf(1, 4 * 1024 * 1024) }]);
+    expect(await runOf(big)).toBeNull();
+    const two = await receive(on, "Duas notas", [
+      { type: "application/pdf", bytes: pdf(1) },
+      { type: "application/pdf", bytes: pdf(1) },
+    ]);
+    expect(await runOf(two)).toBeNull();
+    const off = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", vision: true, pdf: false });
+    const refused = await receive(off, "Nota", [{ type: "application/pdf", bytes: pdf(1) }]);
+    expect(await runOf(refused)).toBeNull();
+    // DeepSeek e API compatível: sem formato documentado, sem PDF.
+    const ds = await serviceFixture({ provider: "deepseek", model: "deepseek-chat", pdf: true });
+    expect(await runOf(await receive(ds, "Nota", [{ type: "application/pdf", bytes: pdf(1) }]))).toBeNull();
+  });
+
+  it("PDF que o provedor recusa (senha, corrompido): a conversa vai para a equipe com o motivo na execução", async () => {
+    const f = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", vision: true, pdf: true });
+    const conversation = await receive(f, "Segue", [{ type: "application/pdf", bytes: pdf(1) }]);
+    const run = (await runOf(conversation))!;
+    mockFetch(() =>
+      Response.json({ type: "error", error: { type: "invalid_request_error", message: "pdf" } }, { status: 400 }),
+    );
+    await processRun(env, run);
+    const after = await fresh(run);
+    expect(after.status).toBe("failed");
+    expect(after.error).toContain("recusou o PDF enviado pelo cliente");
+    expect(await state(conversation)).not.toBe("ai");
+  });
+
+  it("OpenAI com a opção ligada: PDF como parte file do Chat Completions", async () => {
+    const f = await serviceFixture({ provider: "openai", model: "gpt-test", vision: true, pdf: true });
+    const run = (await runOf(await receive(f, "Segue", [{ type: "application/pdf", bytes: pdf(1) }])))!;
+    const calls = mockFetch(() => openaiMessage(JSON.stringify({ ...answer, action: "clarify", citations: [] })));
+    await processRun(env, run);
+    const parts = calls[0].body.messages[1].content;
+    expect(parts.find((p: any) => p.type === "file")).toMatchObject({
+      type: "file",
+      file: { filename: "documento-1.pdf", file_data: expect.stringMatching(/^data:application\/pdf;base64,/) },
+    });
+  });
+
+  it("estimativa: um PDF no teto mais o prompt de uma área cheia fica abaixo de 100 mil tokens", () => {
+    // Área cheia (premissas): instruções da área com 8.000 caracteres, 50
+    // categorias com nome de 100, 50 menus, 20 ações com 700 caracteres, 12
+    // mensagens de 4.096 caracteres e 5 fontes de 2.000. Tokens por 3
+    // caracteres (conservador para português) e PDF_TOKENS_PER_PAGE por página.
+    const area = {
+      menus: Array.from({ length: 50 }, (_, i) => ({ id: `m${i}`, label: "x".repeat(60), type: "submenu" })),
+      actions: Array.from({ length: 20 }, (_, i) => ({ id: `a${i}`, description: "x".repeat(650) })),
+      categories: Array.from({ length: 50 }, (_, i) => ({ id: `c${i}`, name: "x".repeat(100) })),
+    };
+    const input = JSON.stringify({
+      request: "x".repeat(4096),
+      history: Array.from({ length: 12 }, () => ({ direction: "in", text: "x".repeat(4096) })),
+      sources: Array.from({ length: 5 }, (_, i) => ({ id: `s${i}`, text: "x".repeat(2000) })),
+      ...area,
+    });
+    const split = splitAreaInput(input);
+    const chars = stableSystem({ instructions: "x".repeat(4000 + 8000), area: split.area }).length + split.input.length;
+    const estimate = Math.ceil(chars / 3) + PDF_LIMITS.pages * PDF_TOKENS_PER_PAGE;
+    expect(estimate).toBeLessThan(100_000);
   });
 });
