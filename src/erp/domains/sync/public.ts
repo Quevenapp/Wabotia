@@ -5,6 +5,11 @@ import { one } from "../../engine/driver.ts";
 import type { RpcContext } from "../../engine/registry.ts";
 
 export * from "./stubs.generated.ts";
+// Origin fora: o que os domínios alcançam de erp_sync.* (origin-off.ts).
+export {
+  captureCatalog, captureDocument, captureFinance, captureStock, guardOriginEffectsDocument, guardOriginEffectsItem, guardZeroTitle,
+  originEffects, originLocked, originNumber, stockImportAllowed,
+} from "./origin-off.ts";
 
 export const enabled =(ctx: RpcContext) =>
   !!one(ctx.db, 'SELECT enabled FROM "erp_sync__settings" WHERE singleton=1')?.enabled;
