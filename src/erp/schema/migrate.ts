@@ -2,6 +2,7 @@
 // chamada (não passa pelas migrações do D1). PRAGMA user_version não é
 // autorizado no objeto (prova 1), então a versão fica em erp_meta.
 import { ERP_DDL, ERP_DDL_HASH, ERP_DDL_VERSION } from "./ddl.ts";
+import { createEngineTables } from "./engine-tables.ts";
 import { ERP_SEED } from "./seed.generated.ts";
 
 export const ERP_SCHEMA_VERSION = ERP_DDL_VERSION;
@@ -67,6 +68,7 @@ export function fillSeedNormalized(sql: Sql): number {
 // mesma versão, se houver).
 const STEPS: Record<number, (sql: Sql) => number> = {
   5: fillSeedNormalized,
+  6: (sql) => createEngineTables(sql, 7),
 };
 
 /** Garante erp_meta e aplica o DDL e a semeadura quando a versão gravada é menor. */

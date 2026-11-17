@@ -1,6 +1,7 @@
-// public.erp_catalog_contact_set_seller: ação em lote que troca só o vendedor
-// do contato (contact_apply com {seller_id}); "Campos obrigatórios" não
-// bloqueia (lista vazia), para contatos antigos continuarem vinculáveis.
+// public.erp_catalog_contact_set_seller ("Vincular a vendedor", ação em lote):
+// troca só o vendedor do contato; "Campos obrigatórios" não bloqueia (contatos
+// antigos continuam vinculáveis).
+// Porte da sessão B (auxiliares do Catálogo); dona do domínio: sessão P.
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { requireAccess } from "../access.ts";
@@ -21,8 +22,12 @@ export function erpCatalogContactSetSeller(ctx: RpcContext, a: RpcArgs) {
   const hash = requestHash({ profile: "erp-contact-seller-v1", actor: user, id, version: expected, seller });
   const replayed = replayCommand(ctx, command, user!, hash);
   if (replayed) return replayed;
-  const record = contactApply(ctx, user!, id, expected, command, { seller_id: seller }, null, "update", []);
-  const result = { entity: "contacts", record, replayed: false, data_mode: "erp_native" };
+  const result = {
+    entity: "contacts",
+    record: contactApply(ctx, user!, id, expected, command, { seller_id: seller }, null, "update", []),
+    replayed: false,
+    data_mode: "erp_native",
+  };
   storeCommand(ctx, command, user!, hash, result);
   return result;
 }

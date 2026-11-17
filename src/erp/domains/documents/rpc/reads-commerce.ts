@@ -1,7 +1,8 @@
 // Acesso, pendências e comissão (sessão L, bloco B0): erp_document_access,
 // _pendencies, _commission_operation e _seller_commission, com os mesmos
-// nomes. erp_document_mirror.require_visible sai (Origin fora:
-// docs/ERP-FASE0.md); "mirror_available" continua true, como no Fagoo.
+// nomes. erp_document_mirror.require_visible abre _pendencies e
+// _commission_operation, como no oráculo (mirrorRequireVisible);
+// "mirror_available" é true, literal no próprio Fagoo.
 import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { compareDec, formatScaled, fromColumn, toScaled } from "../../../engine/dec.ts";
 import { intIn } from "../../../engine/args.ts";
@@ -13,7 +14,7 @@ import { validCnpj, validCpf } from "../../catalog/public.ts";
 import { commissionOperationView, commissionPolicy } from "../../finance/public.ts";
 import { municipalityKnown } from "../../reference/public.ts";
 import { approvalSituations, discountApprover, preference, quantityDecimals } from "../internal.ts";
-import { allowed, contactUsable, osPermitted, requireAccess, transitions } from "../public.ts";
+import { allowed, contactUsable, mirrorRequireVisible, osPermitted, requireAccess, transitions } from "../public.ts";
 import { bool } from "./reads-common.ts";
 
 type Row = Record<string, unknown>;
@@ -161,6 +162,7 @@ export function erpDocumentPendencies(ctx: RpcContext, a: RpcArgs) {
   const user = str(a.p_user_id),
     kind = str(a.p_kind),
     id = str(a.p_id);
+  mirrorRequireVisible(ctx.db, user, id, false);
   requireAccess(ctx.db, user, kind, false);
   if (kind !== null && kind !== "sales_orders") raise("22023", "erp_document_query_invalid");
   const v = id === null || kind === null ? null : one(ctx.db, 'SELECT id, kind, number, status, version, contact_id FROM "erp_documents__document" WHERE id=? AND kind=?', id, kind);
@@ -187,6 +189,7 @@ export function erpDocumentCommissionOperation(ctx: RpcContext, a: RpcArgs) {
   const user = str(a.p_user_id),
     kind = str(a.p_kind),
     id = str(a.p_document_id);
+  mirrorRequireVisible(ctx.db, user, id, false);
   if (kind === null || !["sales_orders", "service_orders"].includes(kind) || id === null) raise("22023", "erp_document_query_invalid");
   requireAccess(ctx.db, user, kind, false);
   if (!one(ctx.db, 'SELECT 1 x FROM "erp_documents__document" WHERE id=? AND kind=?', id, kind)) raise("P0002", "erp_document_not_found");

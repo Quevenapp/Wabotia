@@ -35,6 +35,21 @@ test("diferencial aleatório: etiquetas de contato, campos customizados e seleto
   const productTag = (await f.taxonomySave("tags", { name: "Produto", tag_type: "products" })).item.id;
   const contacts = [];
   for (let i = 0; i < 6; i++) contacts.push((await f.contact({ name: `${pick(names)} contato ${i}` })).id);
+  const SETTINGS = {
+    user_id: null, allow_unregistered_products: false, view_stock: false, access_hours_enabled: false, access_windows: [], modules: {},
+    commission_rule: "parcial", commission_mode: "fixa", commission_rate: null, commission_bands: [], discount_limit: "0", notes: null,
+  };
+  const sellers = [];
+  for (let i = 0; i < 5; i++)
+    sellers.push(
+      (
+        await f.rpc("erp_catalog_seller_save", {
+          p_user_id: f.users.admin, p_command_id: randomUUID(), p_acknowledged: null, p_id: null, p_expected_version: 0, p_contact_expected_version: 0,
+          p_contact: { name: `${pick(names)} vendedor ${i}`, ...(i % 2 ? { types: ["customer"] } : {}) },
+          p_settings: { ...SETTINGS, commission_rate: i % 2 ? "2.5" : null, discount_limit: String(i), user_id: i === 0 ? f.users.vendas : null },
+        })
+      ).seller.id,
+    );
   const categories = [];
   for (let i = 0; i < 4; i++) categories.push((await f.taxonomySave("categories", { name: `Categoria ${i}` })).item.id);
   const deleted = contacts[5];
@@ -104,8 +119,17 @@ test("diferencial aleatório: etiquetas de contato, campos customizados e seleto
         });
       } else if (op < 0.93) {
         await f.rpc(pick(["erp_catalog_custom_fields", "erp_catalog_custom_fields_screen"]), { p_user_id: user, p_module: pick(["products", "products", "contacts"]) });
-      } else {
+      } else if (op < 0.96) {
         await f.rpc("erp_catalog_seller_options", { p_user_id: user, p_query: pick([null, "", "ana", "a\u0001", "x".repeat(121), "contato 1"]) });
+      } else if (r() < 0.5) {
+        await f.rpc("erp_catalog_seller_get", { p_user_id: user, p_id: r() < 0.85 ? pick(sellers) : pick([randomUUID(), null]) });
+      } else {
+        await f.rpc("erp_catalog_seller_page", {
+          p_user_id: user, p_page: pick([1, 1, 2, 0]), p_size: pick([2, 10, 100, 101]),
+          p_sort: pick(["created_desc", "name_asc", "name_desc", "code_asc", "code_desc", "x"]),
+          p_query: pick([null, "vendedor", "ana", "a\u0001"]), p_situation: pick(["latest", "all", "A", "E", "x"]),
+          p_type: pick([null, null, "customer", "seller", "none", "nada"]),
+        });
       }
       ok++;
     } catch (e) {
@@ -113,10 +137,87 @@ test("diferencial aleatório: etiquetas de contato, campos customizados e seleto
     }
   }
   assert.ok(ok > 40 && calls - ok > 40, `sucessos ${ok} e recusas ${calls - ok} suficientes`);
+  // Vendedores: gravação sorteada (configurações válidas ou não), Tornar vendedor e Vincular a vendedor.
+  const setting = () => {
+    const s = { ...SETTINGS };
+    if (r() < 0.3) s.user_id = pick([f.users.vendas, f.users.vendedor, f.users.consulta, f.users.inactive, randomUUID(), "x", null]);
+    if (r() < 0.3) s.access_hours_enabled = r() < 0.7;
+    if (r() < 0.3)
+      s.access_windows = pick([
+        [{ start: "08:00", end: "18:00", days: [1, 2, 3] }], [{ start: "18:00", end: "08:00", days: [1] }], [{ start: "08:00", end: "12:00", days: [1, 1] }],
+        [{ start: "8:00", end: "12:00", days: [1] }], [], [{ start: "08:00", end: "12:00", days: [7] }],
+      ]);
+    if (r() < 0.3) s.modules = pick([{ clientes: true, propostas: false }, { multilojas: true }, { clientes: "sim" }, {}]);
+    if (r() < 0.2) s.commission_rule = pick(["faturamento", "outra"]);
+    if (r() < 0.3) s.commission_rate = pick(["2.5", "100", "101", "1.23456", "0", null, 3]);
+    if (r() < 0.3)
+      s.commission_bands = pick([
+        [{ discount_up_to: "5", rate: "3" }, { discount_up_to: "10", rate: "1.5" }], [{ discount_up_to: "10", rate: "2" }, { discount_up_to: "5", rate: "3" }],
+        [{ discount_up_to: "5", rate: "3", x: 1 }], [],
+      ]);
+    if (r() < 0.2) s.discount_limit = pick(["10", null, "abc"]);
+    if (r() < 0.2) s.notes = pick(["  nota  ", "a\u0001", "", null]);
+    if (r() < 0.05) s.extra = true;
+    if (r() < 0.05) delete s.notes;
+    return s;
+  };
+  const people = [];
+  for (let i = 0; i < 4; i++) people.push((await f.contact({ name: `${pick(names)} pessoa ${i}`, types: i % 2 ? ["customer"] : [] })).id);
+  for (let i = 0; i < 70; i++) {
+    const user = pick([f.users.admin, f.users.admin, f.users.admin, f.users.vendas, f.users.consulta]);
+    try {
+      const op = r();
+      if (op < 0.5) {
+        const known = sellers.length && r() < 0.6 ? pick(sellers) : null;
+        const s = known ? await f.db.query("select s.version v, r.version c from erp_catalog.seller s join erp_catalog.record r on r.id=s.contact_id where s.id=$1", [known]) : null;
+        const v = s?.rows[0];
+        const result = await f.rpc("erp_catalog_seller_save", {
+          p_user_id: user, p_command_id: randomUUID(), p_acknowledged: null, p_id: known,
+          p_expected_version: known ? pick([v.v, v.v, v.v + 1]) : 0, p_contact_expected_version: known ? pick([v.c, v.c, 0]) : 0,
+          p_contact: pick([{ name: `${pick(names)} v${i}` }, { name: `${pick(names)} v${i}`, types: ["customer"] }, { name: "" }, {}, { types: "seller" }]),
+          p_settings: setting(),
+        });
+        if (!known) sellers.push(result.seller.id);
+      } else if (op < 0.75) {
+        const contact = r() < 0.85 ? pick([...people, ...contacts]) : randomUUID();
+        const result = await f.rpc("erp_catalog_seller_from_contact", { p_user_id: user, p_command_id: randomUUID(), p_contact_id: r() < 0.05 ? null : contact });
+        sellers.push(result.seller.id);
+      } else {
+        const id = pick([...people, ...contacts]);
+        const version = await f.scalar("select version v from erp_catalog.record where id=$1", [id]);
+        await f.rpc("erp_catalog_contact_set_seller", {
+          p_user_id: user, p_id: id, p_expected_version: pick([version, version, version + 1]), p_command_id: randomUUID(),
+          p_seller_id: r() < 0.8 ? pick(sellers) : pick([null, randomUUID()]),
+        });
+      }
+    } catch (e) {
+      domainError(e);
+    }
+  }
+  // Vendedores: leitura e página, antes e depois de ligar a carteira do vendedor.
+  for (let round = 0; round < 2; round++) {
+    if (round === 1) await f.preference("cadastros-contatos", "contatos.acesso_vendedor", true);
+    for (let i = 0; i < 30; i++) {
+      const user = pick(users);
+      try {
+        if (r() < 0.4) await f.rpc("erp_catalog_seller_get", { p_user_id: user, p_id: r() < 0.9 ? pick(sellers) : randomUUID() });
+        else
+          await f.rpc("erp_catalog_seller_page", {
+            p_user_id: user, p_page: pick([1, 1, 2]), p_size: pick([2, 3, 100]),
+            p_sort: pick(["created_desc", "name_asc", "name_desc", "code_asc", "code_desc"]),
+            p_query: pick([null, null, "vendedor", "ana 1"]), p_situation: pick(["latest", "all", "A"]),
+            p_type: pick([null, null, "customer", "seller"]),
+          });
+      } catch (e) {
+        domainError(e);
+      }
+    }
+  }
   // Os RPCs do lote rodaram nos dois motores (não só no Postgres).
   for (const name of [
     "erp_catalog_contact_tags", "erp_catalog_contact_tags_save", "erp_catalog_custom_fields", "erp_catalog_custom_fields_screen",
-    "erp_catalog_custom_field_delete", "erp_catalog_custom_field_save", "erp_catalog_seller_options",
+    "erp_catalog_custom_field_delete", "erp_catalog_custom_field_save", "erp_catalog_seller_options", "erp_catalog_seller_get",
+    "erp_catalog_seller_page", "erp_catalog_seller_save", "erp_catalog_seller_from_contact", "erp_catalog_contact_set_seller",
   ])
     assert.equal(isPorted(name), true, name);
   assert.ok(f.stats.ported > 150, `chamadas comparadas: ${f.stats.ported}`);
