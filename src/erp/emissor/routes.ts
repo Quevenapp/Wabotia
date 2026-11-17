@@ -42,7 +42,12 @@ async function configurator(env: Env, actor: Actor, profile: string) {
     headers: { "Content-Type": "application/json", [IDENTITY_HEADER]: encodeIdentity(identity) },
     body: JSON.stringify({ p_user_id: actor.id, p_session_id: actor.sessionId ?? null }),
   });
-  if (!r.ok) throw new ApiError(503, "erp_unavailable", "O ERP não respondeu ao conferir o acesso. Tente de novo.");
+  if (!r.ok) {
+    // 42501: a pessoa não é membro ativo do ERP da área (o envelope não a trouxe).
+    const refused = (await r.json().catch(() => null)) as { code?: string } | null;
+    if (refused?.code === "42501") throw new ApiError(403, "erp_access_denied", "Seu acesso ao ERP desta área não está ativo.");
+    throw new ApiError(503, "erp_unavailable", "O ERP não respondeu ao conferir o acesso. Tente de novo.");
+  }
   const gate = (await r.json()) as { open?: boolean; mfa_required?: boolean; mfa_ok?: boolean };
   if (gate.open !== true) throw new ApiError(403, "ERP_ACCESS_OUTSIDE_SCHEDULE", "Fora do horário de acesso ao ERP.");
   if (gate.mfa_required && gate.mfa_ok !== true)
