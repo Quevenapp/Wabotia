@@ -100,6 +100,7 @@ export const covered = {
       "where": "src/erp/domains/catalog/payment-method.ts fit() em insertRow e updateRow (toda escrita da tabela)",
       "test": "tests/erp/fagoo/catalog-payment-methods.test.mjs"
     },
-    "erp_catalog__product_supplier.product_cost_capture": {"where":"src/erp/domains/catalog/product-detail.ts productCostCapture: toda inclusão (productDetailWrite) e alteração de custo (erp_catalog_product_prices_update) da linha padrão","test":"tests/erp/fagoo/catalog-product-registry.test.mjs"}
+    "erp_catalog__product_supplier.product_cost_capture": {"where":"src/erp/domains/catalog/product-detail.ts productCostCapture: toda inclusão (productDetailWrite) e alteração de custo (erp_catalog_product_prices_update) da linha padrão","test":"tests/erp/fagoo/catalog-product-registry.test.mjs"},
+    "erp_catalog__taxonomy.erp_catalog_taxonomy_type_guard": {"where":"src/erp/domains/catalog/taxonomy.ts taxonomyTypeGuard (tipo fixo; etiqueta com o tipo do grupo), chamado por erp_catalog_taxonomy_save antes de gravar; as outras escritas na taxonomia só sobem a versão (não mudam tag_type nem parent_id)","test":"tests/erp/catalog/taxonomy-diff.test.mjs"}
   }
 };
