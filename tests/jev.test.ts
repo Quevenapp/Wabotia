@@ -265,13 +265,19 @@ describe("interpretação do Atendente antes da decisão JEV", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
-  it("falha HTTP ou timeout nunca libera a resposta e não causa retry automático", async () => {
-    for (const failure of [
-      async () => new Response("falha", { status: 429 }),
-      async () => {
-        throw new Error("timeout");
-      },
-    ]) {
+  it("falha HTTP ou timeout nunca libera a resposta; só 429 e 529 são tentados de novo dentro da chamada, e a execução não repete a decisão", async () => {
+    // 429/529: a documentação manda repetir com espera (src/jev-client.ts):
+    // 3 chamadas (a primeira e duas repetições). Timeout: uma só. A segunda
+    // decisão da mesma execução reaproveita a gravada, sem nova chamada.
+    for (const [failure, expected] of [
+      [async () => new Response("falha", { status: 429 }), 3],
+      [
+        async () => {
+          throw new Error("timeout");
+        },
+        1,
+      ],
+    ] as const) {
       const run = await decisionFixture(),
         fetcher = vi.fn(failure);
       vi.stubGlobal("fetch", fetcher);
@@ -293,9 +299,9 @@ describe("interpretação do Atendente antes da decisão JEV", () => {
       );
       expect(first.action).toBe("human");
       expect(again.action).toBe("human");
-      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(fetcher).toHaveBeenCalledTimes(expected);
     }
-  });
+  }, 20_000);
 
   it("não oferece ação de especialista não autorizada ao JEV", async () => {
     const run = await decisionFixture();

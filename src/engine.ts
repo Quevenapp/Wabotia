@@ -21,6 +21,13 @@ const buttonLabel = (label: unknown, fallback: string) => {
 import { finishInternalRun } from "./team";
 import { decideInterpretation } from "./jev";
 import {
+  DECIDE_INSTRUCTIONS,
+  DECIDE_TOOL,
+  readableOf,
+  recordBotAction,
+  runDecide,
+} from "./bot-actions/decide";
+import {
   sendProtocolLookup,
   protocolNumber,
   isOnlyProtocolNumber,
@@ -1301,6 +1308,20 @@ async function instructionParts(env: Env, run: Run, ai: boolean) {
   return { list, jev: !!cfg.jev_enabled };
 }
 
+/** O JSON de entrada sem o telefone do cliente; texto que não é JSON segue como veio. */
+function withoutPhone(input: string) {
+  try {
+    const data = JSON.parse(input);
+    if (data && typeof data === "object" && !Array.isArray(data) && "phone" in data) {
+      delete data.phone;
+      return JSON.stringify(data);
+    }
+  } catch {
+    // não é JSON
+  }
+  return input;
+}
+
 /** Chaves do JSON do Atendente que são dados estáveis da área. */
 const AREA_KEYS = ["menus", "actions", "categories"] as const;
 
@@ -1514,8 +1535,10 @@ async function aiRun(env: Env, run: Run, conn: any): Promise<string | null> {
   // que ela confirma). Atendimento ao cliente: só as da conversa, declaradas
   // pelos módulos (proposta que o cliente confirma). Nunca as duas.
   const team = run.conversation_id ? null : await botActionContext(env, run);
-  // Especialista (pedido interno do Atendente): só as consultas da conversa,
-  // nunca escrita nem proposta, porque ele não fala com o cliente.
+  // Especialista interno (fase specialist, "consultar especialista" do
+  // Atendente e do JEV): só as consultas da conversa, nunca escrita nem
+  // proposta, porque ele não fala com o cliente. decidir (JEV) ele pode usar:
+  // só recomenda, não executa nada.
   const specialist = run.phase === "specialist";
   const customer =
     !team &&
@@ -1531,14 +1554,19 @@ async function aiRun(env: Env, run: Run, conn: any): Promise<string | null> {
       )
     : [];
   const allowed = new Set(customerList.map((tool) => tool.name));
+  // decidir (JEV) para quem tem ferramentas, com o JEV ligado na área.
+  const area = await settings(env, run.profile_id);
+  const decide = area.jev_enabled && (team || customer) ? [DECIDE_TOOL] : [];
+  const decideExtra = decide.length ? DECIDE_INSTRUCTIONS : "";
   const tooling = team
-    ? { tools: BOT_TOOLS, extra: TEAM_TOOL_INSTRUCTIONS }
-    : customer && customerList.length
+    ? { tools: [...BOT_TOOLS, ...decide], extra: TEAM_TOOL_INSTRUCTIONS + decideExtra }
+    : customer && (customerList.length || decide.length)
       ? {
-          tools: customerList,
-          extra: specialist
-            ? SPECIALIST_TOOL_INSTRUCTIONS
-            : CUSTOMER_TOOL_INSTRUCTIONS,
+          tools: [...customerList, ...decide],
+          extra:
+            (specialist
+              ? SPECIALIST_TOOL_INSTRUCTIONS
+              : CUSTOMER_TOOL_INSTRUCTIONS) + decideExtra,
         }
       : null;
   const state = newToolState();
@@ -1546,6 +1574,11 @@ async function aiRun(env: Env, run: Run, conn: any): Promise<string | null> {
   // instruções e dados da área antes do ponto de cache; a situação desta
   // execução, o pedido, o histórico, as fontes e os anexos depois.
   const split = splitAreaInput(run.input);
+  // Especialista interno: o telefone do cliente não vai ao provedor de IA (as
+  // ferramentas do cliente já ficam presas à conversa).
+  if (run.phase === "specialist") split.input = withoutPhone(split.input);
+  const readable = readableOf(split.input);
+  const masked = team ? !!team.actor.via?.masked : true;
   const documents = await runDocuments(env, run);
   const usage = emptyUsage();
   const request = {
@@ -1565,7 +1598,9 @@ async function aiRun(env: Env, run: Run, conn: any): Promise<string | null> {
       ? jev
         ? ("attendant-jev" as const)
         : ("attendant" as const)
-      : undefined,
+      : run.phase === "specialist"
+        ? ("specialist" as const)
+        : undefined,
   };
   let output: string;
   try {
@@ -1576,13 +1611,15 @@ async function aiRun(env: Env, run: Run, conn: any): Promise<string | null> {
           ...request,
           tools: tooling.tools,
           run: (call) =>
-            team
-              ? runBotTool(team, state, call.name, call.args)
-              : allowed.has(call.name)
-                ? runCustomerTool(customer!, state, call.name, call.args)
-                : Promise.resolve(
-                    JSON.stringify({ erro: "Ferramenta indisponível." }),
-                  ),
+            call.name === DECIDE_TOOL.name && decide.length
+              ? runDecide(env, run, area, call.args, masked, readable)
+              : team
+                ? runBotTool(team, state, call.name, call.args)
+                : allowed.has(call.name)
+                  ? runCustomerTool(customer!, state, call.name, call.args)
+                  : Promise.resolve(
+                      JSON.stringify({ erro: "Ferramenta indisponível." }),
+                    ),
         });
       } catch (error) {
         // API compatível que não aceita ferramentas: responde sem elas e
@@ -1637,6 +1674,8 @@ async function aiRun(env: Env, run: Run, conn: any): Promise<string | null> {
     return null;
   }
   await saveUsage(env, run, usage);
+  // O que o bot fez depois das perguntas ao JEV (jev_questions.bot_action).
+  if (decide.length) await recordBotAction(env, run.id, output);
   // Uma pessoa pode ter cancelado a execução enquanto o provedor respondia.
   const claimed = await exec(
     env,

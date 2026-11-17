@@ -222,6 +222,13 @@ export const defaults = {
   apps: [],
   surveys_enabled: false,
   jev_enabled: false,
+  // Modelo do JEV fixado (src/jev-client.ts): limiares ajustados contra uma
+  // versão não mudam sozinhos quando o alias jev-latest avança.
+  jev_model: "jev-1.14.0",
+  // Limiar de probabilidade e confiança do JEV (0,5 a 0,99); por bot em
+  // jev_bot_thresholds {bot_id: limiar}. Abaixo dele, a decisão vai para pessoa.
+  jev_threshold: 0.8,
+  jev_bot_thresholds: {},
   notifications: { enabled: false, template_name: "", language: "pt_BR" },
   // Fila de senhas (src/queue.ts → queueDefaults); merged field by field.
   queue: {},

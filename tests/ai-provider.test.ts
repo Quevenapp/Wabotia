@@ -596,8 +596,7 @@ describe("cadastro da conexão de provedor de IA", () => {
       "ferramentas de consulta da conversa",
     );
     // O resultado volta ao Atendente como fonte.
-    const back = (await runOf(conversation))!;
-    expect(back).toMatchObject({ bot_id: f.bot, phase: "answer" });
+    const back = (await runOf(conversation))!;    expect(back).toMatchObject({ bot_id: f.bot, phase: "answer" });
   });
 });
 
