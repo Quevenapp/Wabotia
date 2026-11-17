@@ -5,6 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { dualFixture } from "../harness/dual-fixture.mjs";
 import { executeCnabRoute, parseCnabRoute } from "../../../src/erp/fagoo/workers/erp-api/src/cnab.mjs";
+import { executeCnabOperationalRoute, parseCnabOperationalRoute } from "../../../src/erp/fagoo/workers/erp-api/src/cnab-operational.mjs";
 import { PROFILES, returnFile } from "./cnab-core-fixtures.mjs";
 import { registerDerivedId } from "../harness/derived-ids.mjs";
 
@@ -127,7 +128,7 @@ export async function cnabFixture() {
       p_command_id: randomUUID(),
       p_expected_approval: s.approval.approval_version,
       p_expected_profile: s.profile.version,
-      p_expected_identity: identity.version,
+      p_expected_identity: await f.scalar("select (select version from erp_company.identity where singleton) v"),
       p_enabled: allowed.length > 0,
       p_confirmed_on: today,
       p_reference: "SYNTHETIC HISTORICAL DECLARATION",
@@ -192,6 +193,11 @@ export async function cnabFixture() {
     const result = await executeCnabRoute(await parseCnabRoute(request), ports(user, extra));
     return raw ? result : result.body;
   }
+  /** Rota do app operacional v1 (cnab-operational.mjs). Devolve o resultado inteiro ({body} ou download). */
+  async function op(path, body, user = f.users.financeiro, extra = {}) {
+    const request = new Request("https://test.invalid/v1/cobranca-operacional" + path, body ? { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {});
+    return executeCnabOperationalRoute(await parseCnabOperationalRoute(request), ports(user, extra));
+  }
   /** Remessa de homologação gerada e finalizada pelo app (estado ready). */
   async function homologationRemittance(p, titles) {
     const current = (await f.rpc("erp_cnab_profiles", { p_user_id: f.users.admin })).items.find((x) => x.id === p.id);
@@ -200,7 +206,12 @@ export async function cnabFixture() {
       expected_version: current.version,
       command_id: randomUUID(),
       generated_on: today,
-      titles: titles.map((t) => ({ title_id: t.id, expected_version: t.version, document_number: "D" + String(++ordinal).padStart(8, "0") })),
+      titles: titles.map((t) => ({
+        title_id: t.id,
+        expected_version: t.version,
+        document_number: "D" + String(++ordinal).padStart(8, "0"),
+        ...(current.bank === "077" ? { payment_limit_days: 30 } : {}),
+      })),
     });
   }
   const ddmmyy = (d) => d.slice(8, 10) + d.slice(5, 7) + d.slice(2, 4);
@@ -215,7 +226,7 @@ export async function cnabFixture() {
     });
   }
   return {
-    ...f, today, ddmmyy, contact, identity, account, profile, profilesV2, approveV2, title, selection, reserveV2, app, homologationRemittance, homologationReturn,
+    ...f, today, ddmmyy, contact, identity, account, profile, profilesV2, approveV2, title, selection, reserveV2, app, op, homologationRemittance, homologationReturn,
     files, storeFile, getFile,
   };
 }

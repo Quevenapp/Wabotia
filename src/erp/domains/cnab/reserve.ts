@@ -9,7 +9,21 @@ import { todaySaoPaulo } from "../../engine/time.ts";
 import type { RpcContext } from "../../engine/registry.ts";
 import { expected, keys, txt as financeTxt, uuidValue } from "../finance/public.ts";
 import { finishCommand, operationalFinish, startCommand } from "./commands.ts";
-import { access, coreProfile, get, operationalConfigHash, profileRow, requireOperational, sha256, txt, type Json } from "./core.ts";
+import {
+  access,
+  coreProfile,
+  encodingAuthorization,
+  encodingSafety,
+  encodingTerms,
+  get,
+  operationalConfigHash,
+  profileRow,
+  requireOperational,
+  requireOperationalForEncoding,
+  sha256,
+  txt,
+  type Json,
+} from "./core.ts";
 
 const hasKey = (o: unknown, k: string) => jsonType(o) === "object" && Object.prototype.hasOwnProperty.call(o, k);
 const bytes = (v: unknown) => new TextEncoder().encode(jsonbText(v)).length;
@@ -32,6 +46,18 @@ export interface ReserveInput {
   purpose: string | null;
   expectedApproval: number | null;
   previewHash?: string | null;
+  /**
+   * Remessa operacional v2 (erp_cnab_operational_reserve_v2, migração 067):
+   * o perfil de codificação e os títulos com juros diários zero confirmados.
+   * Ausente na homologação e na v1.
+   */
+  encoding?: { profile: string; zeroIds: string[] };
+}
+
+/** erp_cnab.encoding_access(actor, admin): administrador ou financeiro ativo. */
+export function encodingAccess(ctx: RpcContext, actor: string | null, admin = false) {
+  const r = actor === null ? undefined : one(ctx.db, 'SELECT role, active FROM "erp_access__membership" WHERE user_id=?', actor);
+  if (!r || Number(r.active) !== 1 || !["admin", "financeiro"].includes(String(r.role)) || (admin && r.role !== "admin")) raise("42501", "erp_cnab_access_denied");
 }
 
 export function reserveForPurpose(ctx: RpcContext, i: ReserveInput) {
@@ -42,8 +68,10 @@ export function reserveForPurpose(ctx: RpcContext, i: ReserveInput) {
   if (i.preview === null) raise("22023", "erp_cnab_preview_required");
   const operational = i.purpose === "operational";
   let command: Json = { profile_id: i.profile, version: i.expectedVersion, generated_on: i.generatedOn, titles: i.titles };
+  const v2 = i.encoding ?? null;
   if (operational) command = { ...command, purpose: i.purpose, approval_version: i.expectedApproval, preview_hash: i.previewHash ?? null };
-  const action = operational ? "operational_reserve" : "reserve";
+  if (operational && v2) command = { ...command, encoding_profile: v2.profile, zero_daily_title_ids: v2.zeroIds };
+  const action = operational ? (v2 ? "operational_reserve_v2" : "operational_reserve") : "reserve";
   let replay: Json | null = null;
   if (!i.preview) {
     replay = startCommand(ctx, user, i.command, action, command);
@@ -66,17 +94,27 @@ export function reserveForPurpose(ctx: RpcContext, i: ReserveInput) {
   const p = profileRow(db, i.profile);
   if (!p) raise("P0002", "erp_cnab_not_found");
   let approval: Json | null = null;
+  let authorization: Json | null = null;
   if (operational) {
-    approval = requireOperational(db, p!.id, i.expectedApproval) as unknown as Json;
+    if (v2) {
+      encodingAccess(ctx, user);
+      approval = requireOperationalForEncoding(db, p!.id, i.expectedApproval, v2.profile) as unknown as Json;
+      authorization = encodingAuthorization(db, p!.id, i.expectedApproval) as unknown as Json;
+    } else approval = requireOperational(db, p!.id, i.expectedApproval) as unknown as Json;
     if (replay !== null) return replay;
     if (i.generatedOn !== today) raise("22023", "erp_cnab_operational_generation_date");
   }
-  if (p!.version !== i.expectedVersion) raise("40001", "erp_cnab_version_conflict");
   const bank = txt(p!.identity, "bank");
   const wallet = txt(p!.identity, "wallet");
+  if (v2) {
+    if (bank !== "341" || wallet !== "109") raise("22023", "erp_cnab_encoding_profile_unsupported");
+    // y->>'title_id' = x::text: o texto do pedido contra o uuid canônico.
+    if (v2.zeroIds.some((x) => !list.some((y) => txt(y, "title_id") === x))) raise("22023", "erp_cnab_zero_confirmation_invalid");
+  }
+  if (p!.version !== i.expectedVersion) raise("40001", "erp_cnab_version_conflict");
   if (
     get(p!.settings, "contractVerified") !== true ||
-    get(p!.settings, "simpleCollectionPolicyVerified") !== true ||
+    ((!v2 || v2.profile === "itau109-no-charges-v1") && get(p!.settings, "simpleCollectionPolicyVerified") !== true) ||
     (bank === "077" && wallet === "110" && get(p!.settings, "reservedRange", "verified") !== true)
   )
     raise("40001", "erp_cnab_profile_unconfirmed");
@@ -96,6 +134,8 @@ export function reserveForPurpose(ctx: RpcContext, i: ReserveInput) {
       now(),
     );
   if (!one(db, `SELECT 1 x FROM "erp_finance__account" WHERE id=? AND active=1 AND kind='bank'`, p!.account_id)) raise("40001", "erp_cnab_bank_account_required");
+  if (v2) encodingAccess(ctx, user);
+  const pending: Json[] = [];
   const row0 = one(db, 'SELECT next_our_number FROM "erp_cnab__profile" WHERE id=?', p!.id)!;
   let nextOurNumber: bigint | null = row0.next_our_number === null ? null : BigInt(String(row0.next_our_number));
   const results: Json[] = [];
@@ -160,6 +200,12 @@ export function reserveForPurpose(ctx: RpcContext, i: ReserveInput) {
       if (days > 60) raise("22023", "erp_cnab_payment_limit_invalid");
       input = { ...input, paymentLimitDays: days };
     } else if (hasKey(row, "payment_limit_days")) raise("22023", "erp_cnab_payment_limit_not_applicable");
+    if (v2?.profile === "itau109-origin-observed-v1") {
+      const zero = v2.zeroIds.includes(String(t!.id));
+      const terms = encodingTerms(amount, String(t!.due_on), zero);
+      input = { ...input, encodingTerms: terms };
+      if (terms.dailyInterestCents === "0" && !zero) pending.push({ code: "ZERO_DAILY_FIELD_UNCONFIRMED", title_id: t!.id });
+    }
     const snap = { title: input, finance_title_version: Number(t!.version), contact_version: Number(c!.version), finance_title_id: t!.id };
     const { id: _id, control: _control, ...proofTitle } = input;
     proofs.push({ ...snap, contact_id: t!.contact_id, title: proofTitle });
@@ -181,6 +227,7 @@ export function reserveForPurpose(ctx: RpcContext, i: ReserveInput) {
     results.push(input);
   }
   let snap: Json = { profile: coreProfile(db, p!.id), titles: results, generatedOn: i.generatedOn, remittanceSequence: sequence.toString(), purpose: i.purpose };
+  if (v2) snap = { ...snap, encoding_profile: v2.profile, encoding_authorization: authorization };
   let previewHash: string | null = null;
   if (operational) {
     snap = {
@@ -198,12 +245,17 @@ export function reserveForPurpose(ctx: RpcContext, i: ReserveInput) {
       sequence: sequence.toString(),
       generated_on: i.generatedOn,
       approval: snap.operational_authorization,
+      ...(v2 ? { encoding_profile: v2.profile, encoding_authorization: authorization } : {}),
       titles: proofs,
     });
     if (!i.preview && previewHash !== (i.previewHash ?? null)) raise("40001", "erp_cnab_operational_preview_changed");
     snap = { ...snap, preview_hash: previewHash };
   }
-  if (i.preview) return { snapshot: snap, profile_id: p!.id, profile_version: p!.version, preview: true, preview_hash: previewHash, preview_items: proofs };
+  if (v2 && !i.preview && pending.length > 0) raise("22023", "erp_cnab_zero_confirmation_required");
+  if (i.preview) {
+    const preview = { snapshot: snap, profile_id: p!.id, profile_version: p!.version, preview: true, preview_hash: previewHash, preview_items: proofs };
+    return v2 ? { ...encodingSafety(), ...preview, encoding_profile: v2.profile, can_reserve: pending.length === 0, pending } : preview;
+  }
   db.exec('UPDATE "erp_cnab__remittance" SET snapshot=? WHERE id=?', JSON.stringify(snap), rid);
   db.exec(
     'UPDATE "erp_cnab__profile" SET next_sequence=?, next_our_number=?, version=version+1, updated_at=? WHERE id=?',
@@ -212,6 +264,7 @@ export function reserveForPurpose(ctx: RpcContext, i: ReserveInput) {
     now(),
     p!.id,
   );
-  const result = { id: rid, profile_id: p!.id, sequence: sequence.toString(), state: "reserved" };
+  let result: Json = { id: rid, profile_id: p!.id, sequence: sequence.toString(), state: "reserved" };
+  if (v2) result = { ...encodingSafety(), ...result, encoding_profile: v2.profile, approval_version: i.expectedApproval };
   return operational ? operationalFinish(ctx, user, i.command!, action, command, rid, result) : finishCommand(ctx, user, i.command!, action, command, rid, result);
 }

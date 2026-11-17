@@ -12,6 +12,7 @@ import { keys, txt as financeTxt, uuidValue } from "../../finance/public.ts";
 import { bool, date, int, json, text, uuid } from "../args.ts";
 import { cnabObjectKey, finishCommand, recordCommand, startCommand, storageCheck } from "../commands.ts";
 import { access, get, lpad, parse, profileDto, profileRow, REMITTANCE_COLUMNS, toRemittance, txt, type Json } from "../core.ts";
+import { finalizeRemittance } from "../finalize.ts";
 import { reserveForPurpose } from "../reserve.ts";
 
 const hasKey = (o: unknown, k: string) => jsonType(o) === "object" && Object.prototype.hasOwnProperty.call(o, k);
@@ -197,64 +198,6 @@ export const erpCnabReserve = (ctx: RpcContext, a: RpcArgs) =>
     expectedApproval: null,
   });
 
-/** Confirmações do perfil exigidas para gerar o arquivo (mesmas da reserva). */
-function requireConfirmed(p: NonNullable<ReturnType<typeof profileRow>>) {
-  if (
-    get(p.settings, "contractVerified") !== true ||
-    get(p.settings, "simpleCollectionPolicyVerified") !== true ||
-    (txt(p.identity, "bank") === "077" && txt(p.identity, "wallet") === "110" && get(p.settings, "reservedRange", "verified") !== true)
-  )
-    raise("40001", "erp_cnab_profile_unconfirmed");
-}
-
-/** Títulos e contatos da remessa mudaram desde a reserva? (erp_cnab_snapshot_stale) */
-const snapshotStale = (db: SqlDriver, remittance: string) =>
-  !!one(
-    db,
-    `SELECT 1 x FROM "erp_cnab__billing_title" bt JOIN "erp_finance__title" t ON t.id=bt.title_id JOIN "erp_catalog__record" c ON c.id=t.contact_id
-     WHERE bt.remittance_id=? AND (t.version<>CAST(json_extract(bt.snapshot,'$.finance_title_version') AS INTEGER) OR t.cancelled=1 OR t.settled_cents<>0
-       OR c.version<>CAST(json_extract(bt.snapshot,'$.contact_version') AS INTEGER) OR c.active=0)`,
-    remittance,
-  );
-
-/**
- * O manifesto do arquivo gerado (cnab-core) contra os títulos da remessa:
- * grava o nosso número com o dígito. Comum ao finalize de homologação e ao
- * operacional v1 (C3).
- */
-export function applyManifest(ctx: RpcContext, remittance: string, manifest: unknown) {
-  const db = ctx.db;
-  const count = Number(one(db, 'SELECT count(*) n FROM "erp_cnab__billing_title" WHERE remittance_id=?', remittance)!.n);
-  if (jsonType(manifest) !== "array" || (manifest as unknown[]).length !== count) raise("22023", "erp_cnab_manifest_invalid");
-  const rows = manifest as unknown[];
-  const ids = rows.map((row) => txt(row, "titleId")).filter((x) => x !== null);
-  if (new Set(ids).size !== rows.length) raise("22023", "erp_cnab_manifest_duplicate");
-  for (const row of rows) {
-    keys(row, ["titleId", "control", "documentNumber", "amountCents", "dueDate", "ourNumber"]);
-    const b = one(
-      db,
-      'SELECT id, control, document_number, our_number_base, snapshot FROM "erp_cnab__billing_title" WHERE id=? AND remittance_id=?',
-      uuidValue(get(row, "titleId")),
-      remittance,
-    );
-    const snap = b ? parse(b.snapshot) : null;
-    if (
-      !b ||
-      txt(row, "control") !== b.control ||
-      txt(row, "documentNumber") !== b.document_number ||
-      txt(row, "amountCents") !== txt(snap, "title", "amountCents") ||
-      txt(row, "dueDate") !== txt(snap, "title", "dueOn")
-    )
-      raise("40001", "erp_cnab_manifest_mismatch");
-    const n = txt(row, "ourNumber");
-    const base = b!.our_number_base as string | null;
-    if (base === null) {
-      if (n !== null) raise("40001", "erp_cnab_manifest_number");
-    } else if (n === null || !/^[0-9]+$/.test(n) || n.length !== base.length + 1 || n.slice(0, base.length) !== base) raise("40001", "erp_cnab_manifest_number");
-    db.exec('UPDATE "erp_cnab__billing_title" SET our_number=? WHERE id=?', n, b!.id);
-  }
-}
-
 export function erpCnabFinalize(ctx: RpcContext, a: RpcArgs) {
   const db = ctx.db;
   const user = uuid(a, "p_user_id");
@@ -272,26 +215,7 @@ export function erpCnabFinalize(ctx: RpcContext, a: RpcArgs) {
   const r = toRemittance(row);
   const stored = row.manifest;
   storageCheck(ctx, r.profile_id, "remittances", hash, size, path);
-  if (r.state === "ready") {
-    // file_hash<>hash or byte_size<>size or manifest<>p_manifest: manifesto nulo não recusa.
-    const manifestDiffers = manifest === null || stored === null ? false : jsonbText(parse(stored)) !== jsonbText(manifest);
-    if (r.file_hash !== hash || r.byte_size !== size || manifestDiffers) raise("40001", "erp_cnab_finalized_conflict");
-  } else {
-    const p = profileRow(db, r.profile_id)!;
-    requireConfirmed(p);
-    if (!one(db, `SELECT 1 x FROM "erp_finance__account" WHERE id=? AND active=1 AND kind='bank'`, p.account_id)) raise("40001", "erp_cnab_bank_account_required");
-    if (snapshotStale(db, r.id)) raise("40001", "erp_cnab_snapshot_stale");
-    applyManifest(ctx, r.id, manifest);
-    db.exec(
-      `UPDATE "erp_cnab__remittance" SET state='ready', object_path=?, file_hash=?, byte_size=?, manifest=?, finalized_at=? WHERE id=?`,
-      path,
-      hash,
-      size,
-      JSON.stringify(manifest),
-      ctx.clock.next().toString(),
-      r.id,
-    );
-  }
+  finalizeRemittance(ctx, r, { hash, size, path, manifest, stored, simple: true, encoding: null });
   return finishCommand(ctx, user!, uuid(a, "p_command_id")!, "finalize", command, r.id, {
     id: r.id,
     profile_id: r.profile_id,
