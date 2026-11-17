@@ -1,10 +1,11 @@
 // Cópia de workers/erp-api/test/finance-invoice-postings-sql.test.mjs do Fagoo
 // (somente leitura) na fixture dupla: contas lançadas pelas notas fiscais
-// (247). PENDENTE DO FISCAL: os RPCs erp_finance_invoice_finance_* e
-// erp_finance_invoice_order_titles ficam atrás do bloco erp-fiscal (decisão
-// do orquestrador) e não estão registrados; cada teste é todo "pendente do
-// Fiscal" para não passar despercebido. Enquanto isso rodam só no Postgres e
-// o estado é espelhado.
+// (247). Os RPCs erp_finance_invoice_finance_* e erp_finance_invoice_order_titles
+// estão portados, atrás do bloco erp-fiscal (decisão do orquestrador). A nota
+// em si é do Fiscal, ainda não portado: erp_fiscal_* rodam só no Postgres e o
+// estado é espelhado. REVISITAR QUANDO O FISCAL FOR PORTADO: a criação da nota
+// (e o lançamento automático da nota de entrada, que nasce dentro dela) passa
+// a ser dupla e estes testes precisam ser conferidos de novo.
 // Adaptação, só nos auxiliares: a fixture dupla; o contato pela
 // erp_catalog_save (F.catalog), como o env.contact; SQL direto de escrita
 // seguido de F.sync().
@@ -18,7 +19,6 @@ import { dualFixture } from '../harness/dual-fixture.mjs';
 // Synthetic data only. 247: contas lançadas pelas notas fiscais do Brufap (saída e entrada), one effect per sale, the locks of
 // the note and of its contas, the automation of the entry note, the origin of the conta and the Faturamento agrupado with notes.
 let F; let db; let users; let contact; let supplier; let product; let saleNature; let buyNature; let seller; let receita; let boleto; let itau;
-const FISCAL = 'pendente do Fiscal (bloco erp-fiscal): erp_finance_invoice_* não registrados';
 const scalar = async (sql, args = []) => (await db.query(sql, args)).rows[0].value;
 const rpc = (name, args) => F.rpc(name, args);
 const sql = async (text, args = []) => { const r = await db.query(text, args); await F.sync(); return r; };
@@ -61,7 +61,7 @@ before(async () => {
 });
 after(async () => F?.close());
 
-test('247 Lançar contas of a NF-e de saída: prévia, parcelas, forma and conta, idempotent command, locks, flags and Estornar contas', { todo: FISCAL }, async () => {
+test('247 Lançar contas of a NF-e de saída: prévia, parcelas, forma and conta, idempotent command, locks, flags and Estornar contas', async () => {
   let invoice = await create(note({ seller_id: seller }));
   const before = await finance(invoice);
   assert.deepEqual([before.blocked_reason, before.active_posting, before.writable], [null, null, true]);
@@ -103,7 +103,7 @@ test('247 Lançar contas of a NF-e de saída: prévia, parcelas, forma and conta
   assert.equal(await scalar("SELECT count(*)::integer AS value FROM erp_finance.audit WHERE action IN ('invoice_post','invoice_reverse')"), 2);
 });
 
-test('247 one effect per sale: the pedido that lançou contas blocks its note, and the note that lançou blocks its pedido', { todo: FISCAL }, async () => {
+test('247 one effect per sale: the pedido that lançou contas blocks its note, and the note that lançou blocks its pedido', async () => {
   const body = { date: '2026-10-10', contact_id: contact.id, items: [{ product_id: product.id, description: 'Peça nota sintética', unit: 'UN', quantity: '2', unit_price: '50', discount_percent: '0' }], installments: [{ due_date: '2026-11-10', amount: '100.00' }] };
   const order = async () => { let d = (await rpc('erp_document_save', { p_user_id: users.admin, p_kind: 'sales_orders', p_id: null, p_expected_version: 0, p_command_id: randomUUID(), p_body: body })).document;
     for (const status of d.status === 'draft' ? ['open', 'verified'] : ['verified']) d = (await rpc('erp_document_transition', { p_user_id: users.admin, p_kind: 'sales_orders', p_id: d.id, p_expected_version: d.version, p_command_id: randomUUID(), p_status: status, p_reason: 'Teste sintético' })).document;
@@ -122,7 +122,7 @@ test('247 one effect per sale: the pedido that lançou contas blocks its note, a
   await assert.rejects(() => rpc('erp_document_finance_preview', { p_user_id: users.admin, p_kind: 'sales_orders', p_document_id: second.id, p_expected_version: fresh.version }), named('erp_document_finance_invoice_posted', '40001'));
 });
 
-test('247 NF de entrada: contas a pagar pelas duplicatas, and the automation of Preferências when a new entry note is created', { todo: FISCAL }, async () => {
+test('247 NF de entrada: contas a pagar pelas duplicatas, and the automation of Preferências when a new entry note is created', async () => {
   const entry = over => note({ direction: '0', nature_id: buyNature.id, presence: '9', recipient: { contact_id: supplier.id, name: 'Fornecedor nota sintético', person_type: 'J', document: '22333444000155', state: 'SP' },
     payment: { installments: [{ date: '2026-11-15', amount: '100.00', method: '15' }] }, ...over });
   const manual = await create(entry());
@@ -146,7 +146,7 @@ test('247 NF de entrada: contas a pagar pelas duplicatas, and the automation of 
   assert.equal((await finance(sale)).active_posting, null, 'the automation is only for entry notes');
 });
 
-test('247 cancelled or denied notes do not lançar contas; the extrato shows N and the Ficha financeira the note', { todo: FISCAL }, async () => {
+test('247 cancelled or denied notes do not lançar contas; the extrato shows N and the Ficha financeira the note', async () => {
   const invoice = await create(note({ payment: { installments: [{ date: '2026-10-20', amount: '100.00' }] } }));
   await db.query('ALTER TABLE erp_fiscal_invoices.invoice DISABLE TRIGGER guard_invoice');
   await sql('UPDATE erp_fiscal_invoices.invoice SET status=3 WHERE id=$1', [invoice.id]);
@@ -170,7 +170,7 @@ test('247 cancelled or denied notes do not lançar contas; the extrato shows N a
   assert.deepEqual(line.origin, { kind: 'fiscal_invoices', number: String(invoice.number) });
 });
 
-test('247 Faturamento agrupado with NF-e de saída: candidates, the selection, one sale never twice, GERAR CONTAS and Excluir', { todo: FISCAL }, async () => {
+test('247 Faturamento agrupado with NF-e de saída: candidates, the selection, one sale never twice, GERAR CONTAS and Excluir', async () => {
   // An own note not sent yet has no number ("(sem número)"); a note of terceiros has its number.
   const a = await create(note({ issue_type: 'N', number: undefined, issue_date: '2026-09-15', payment: { installments: [] } })), b = await create(note({ issue_date: '2026-09-15', payment: { installments: [] } }));
   assert.deepEqual([a.number, typeof b.number], [null, 'number']);
@@ -210,8 +210,8 @@ test('247 Faturamento agrupado with NF-e de saída: candidates, the selection, o
     'the pedido of a faturada note is no longer eligible');
 });
 
-test('247 Worker routes: strict parameters and bodies, the answers checked, and the grouped billing with notes', { todo: FISCAL }, async () => {
-  const { parseFinanceRoute, executeFinanceRoute } = await import('../src/finance.mjs');
+test('247 Worker routes: strict parameters and bodies, the answers checked, and the grouped billing with notes', async () => {
+  const { parseFinanceRoute, executeFinanceRoute } = await import('../../../src/erp/fagoo/workers/erp-api/src/finance.mjs');
   const call = async (path, init = {}, user = users.financeiro) => executeFinanceRoute(await parseFinanceRoute(new Request(`https://api.example.test${path}`, init.body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(init.body) } : {})), { userId: user, rpc: (name, args) => rpc(name, args) });
   const bad = async (path, init) => assert.rejects(async () => parseFinanceRoute(new Request(`https://api.example.test${path}`, init ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(init) } : {})), error => error.status === 400 || error.status === 404, path);
   const invoice = await create(note({ payment: { installments: [{ date: '2026-11-30', amount: '100.00' }] } }));
@@ -248,7 +248,7 @@ test('247 Worker routes: strict parameters and bodies, the answers checked, and 
   assert.ok(list.items.some(item => item.invoices.some(entry => entry.id === grouped.id)));
 });
 
-test('248 Comissões of the contas lançadas by a note: the Vendedor of the note, the base of Preferências and the estorno that anula it', { todo: FISCAL }, async () => {
+test('248 Comissões of the contas lançadas by a note: the Vendedor of the note, the base of Preferências and the estorno that anula it', async () => {
   const month = `${new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date()).slice(0, 7)}-01`;
   await sql("UPDATE erp_catalog.seller SET commission_rule='faturamento',commission_mode='fixa',commission_rate=10,commission_bands='[]' WHERE id=$1", [seller]);
   const invoice = await create(note({ seller_id: seller, freight: '20.00', payment: { installments: [{ date: '2026-11-10', amount: '48.00' }, { date: '2026-12-10', amount: '72.00' }] } }));
@@ -260,7 +260,7 @@ test('248 Comissões of the contas lançadas by a note: the Vendedor of the note
   const statement = await rpc('erp_finance_commission_statement', { p_user_id: users.consulta, p_seller: seller, p_month: month });
   const lines = statement.commissions.items.filter(item => item.document?.id === invoice.id);
   assert.deepEqual(lines.map(item => [item.origin, item.document.kind, item.document.number, item.commission_cents]), [['invoice', 'fiscal_invoices', String(invoice.number), '400'], ['invoice', 'fiscal_invoices', String(invoice.number), '600']]);
-  const { parseFinanceRoute, executeFinanceRoute } = await import('../src/finance.mjs');
+  const { parseFinanceRoute, executeFinanceRoute } = await import('../../../src/erp/fagoo/workers/erp-api/src/finance.mjs');
   const routed = await executeFinanceRoute(await parseFinanceRoute(new Request(`https://api.example.test/v1/financeiro/comissoes/${seller}?month=${month.slice(0, 7)}`)), { userId: users.consulta, rpc: (name, args) => rpc(name, args) });
   assert.ok(routed.commissions.items.some(item => item.origin === 'invoice' && item.document.kind === 'fiscal_invoices'), 'the Worker reads the commissions of the notes');
   // "Considerar total da nota como base de comissão": the base is the total of the note (120,00).
