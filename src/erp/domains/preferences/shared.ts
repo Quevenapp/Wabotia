@@ -4,5 +4,7 @@
 // situationList/transitionList traz as colunas da função SQL (ver framework.ts).
 export { situationBaseColor, situationBaseLabel, situationBases } from "./center.ts";
 export { situationList, situationOf, transitionAllowed, transitionList, transitionRule } from "./framework.ts";
+// Digest das notificações em unidades (agendador do ERP, sessão F).
+export { activeMembers, NOTIFICATION_TYPES, notificationDigestFor, notifyMember, type NotificationDigest } from "./notification-units.ts";
 // Meu Negócio (Documentos: save, cópia, lixeira, conversões e frete pago).
 export { bizCostVisible, bizFreight, bizRole, bizUnitCost } from "./business-rules.ts";
