@@ -14,7 +14,6 @@ import {
   day,
   expected,
   field,
-  flushDeferred,
   hasKey,
   insertAudit,
   insertMovement,
@@ -126,7 +125,6 @@ function post(ctx: RpcContext, a: RpcArgs) {
   const result = { ...flags(), ...transferView(db, tid), replayed: false };
   insertCommand(ctx, command, user, hash, { ...result, action: "internal_transfer" });
   insertAudit(ctx, user, command, "internal_transfer", { from_account: ca, to_account: cb }, result);
-  flushDeferred(ctx);
   return result;
 }
 

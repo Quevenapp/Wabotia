@@ -10,14 +10,15 @@
 // - o INSERT direto do perfil vai com f.sync().
 // Descartado, declarado: o teste "199 grants and the immutable audit" é só
 // has_function_privilege (papéis do Postgres, sem equivalente no motor).
+// Agora usa a documents-lanes-fixture.mjs (a documents-fixture.mjs foi juntada a ela).
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, test } from 'node:test';
-import { documentsFixture } from './documents-fixture.mjs';
+import { documentsLaneFixture } from './documents-lanes-fixture.mjs';
 
 let f;
 before(async () => {
-  f = await documentsFixture({ lane: 'D' });
+  f = await documentsLaneFixture('D');
   await f.write('delete from erp_access.profile where user_id=$1', [f.users.vendas]);
 });
 after(() => f?.close());

@@ -63,7 +63,7 @@ export function insertSettlement(ctx: RpcContext, s: SettlementInput) {
   // AFTER INSERT, na ordem do Postgres (nome do gatilho)
   settlementBordero(ctx, id, s);
   settlementCaptureCategories(ctx, id, s);
-  defer(ctx, `settlement:${id}`, () => assertSettlementPostings(db, id));
+  defer(ctx, () => assertSettlementPostings(db, id));
   captureFinance(ctx, "settlement", id);
   return id;
 }

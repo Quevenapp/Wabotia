@@ -249,3 +249,25 @@ export function saleBodyFromProposal(db: SqlDriver, body: Record<string, unknown
   }
   return out;
 }
+
+const OCC = (c: string) => ERP_TABLES.erp_documents__occurrence.columns[c];
+
+/** erp_documents.occurrence_json(o): uma ocorrência do documento (a linha lida com recorded_at em texto do SQLite). */
+export function occurrenceJson(o: Record<string, unknown>) {
+  return {
+    id: o.id,
+    sequence: Number(o.sequence),
+    occurred_on: o.occurred_on === null ? null : String(o.occurred_on),
+    occurred_time: o.occurred_time,
+    text: o.text,
+    status_before: o.status_before,
+    status_after: o.status_after,
+    next_contact: o.next_contact === null ? null : String(o.next_contact),
+    actor_id: o.actor_id,
+    actor_role: o.actor_role,
+    document_version: Number(o.document_version),
+    recorded_at: valueJson(OCC("recorded_at"), o.recorded_at),
+    situation_before: valueJson(OCC("situation_before"), o.situation_before),
+    situation_after: valueJson(OCC("situation_after"), o.situation_after),
+  };
+}
