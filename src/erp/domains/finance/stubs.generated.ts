@@ -59,12 +59,6 @@ export const commissionOperationCapture = (..._args: unknown[]): never => notPor
 export const commissionOperationFrozen = (..._args: unknown[]): never => notPorted("erp_finance.commission_operation_frozen");
 /** erp_finance.commission_operation_sync(p_document uuid) → uuid */
 export const commissionOperationSync = (..._args: unknown[]): never => notPorted("erp_finance.commission_operation_sync");
-/** erp_finance.commission_operation_titles(p_document uuid) → TABLE(title_id uuid, title_position integer, effect text) */
-export const commissionOperationTitles = (..._args: unknown[]): never => notPorted("erp_finance.commission_operation_titles");
-/** erp_finance.commission_operation_view(p_id uuid) → jsonb */
-export const commissionOperationView = (..._args: unknown[]): never => notPorted("erp_finance.commission_operation_view");
-/** erp_finance.commission_policy() → jsonb */
-export const commissionPolicy = (..._args: unknown[]): never => notPorted("erp_finance.commission_policy");
 /** erp_finance.commission_return_capture() → trigger */
 export const commissionReturnCapture = (..._args: unknown[]): never => notPorted("erp_finance.commission_return_capture");
 /** erp_finance.commission_seller(p_reference jsonb) → uuid */

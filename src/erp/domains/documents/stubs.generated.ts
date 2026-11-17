@@ -75,8 +75,6 @@ export const financeCategory = (..._args: unknown[]): never => notPorted("erp_do
 export const financePaymentPreview = (..._args: unknown[]): never => notPorted("erp_documents.finance_payment_preview");
 /** erp_documents.guard_trash() → trigger */
 export const guardTrash = (..._args: unknown[]): never => notPorted("erp_documents.guard_trash");
-/** erp_documents.guard_trash_child() → trigger */
-export const guardTrashChild = (..._args: unknown[]): never => notPorted("erp_documents.guard_trash_child");
 /** erp_documents.guard_variation_item() → trigger */
 export const guardVariationItem = (..._args: unknown[]): never => notPorted("erp_documents.guard_variation_item");
 /** erp_documents.has_commercial_data(v jsonb) → boolean */
@@ -117,8 +115,6 @@ export const recordOccurrence = (..._args: unknown[]): never => notPorted("erp_d
 export const recordSituationOccurrence = (..._args: unknown[]): never => notPorted("erp_documents.record_situation_occurrence");
 /** erp_documents.replace_items(p_document uuid, p_items jsonb) → void */
 export const replaceItems = (..._args: unknown[]): never => notPorted("erp_documents.replace_items");
-/** erp_documents.report_last_purchase_until(p_product uuid, p_until date, p_balances boolean) → numeric */
-export const reportLastPurchaseUntil = (..._args: unknown[]): never => notPorted("erp_documents.report_last_purchase_until");
 /** erp_documents.require_commercial_input(p_current jsonb, p_input jsonb) → void */
 export const requireCommercialInput = (..._args: unknown[]): never => notPorted("erp_documents.require_commercial_input");
 /** erp_documents.require_os_permission(p_user_id uuid, p_kind text, p_key text) → void */

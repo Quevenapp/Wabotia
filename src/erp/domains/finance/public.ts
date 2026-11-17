@@ -64,5 +64,5 @@ export function accountOptions(db: SqlDriver): { id: string; name: string; activ
 //   numeric(10,6)) e void pode ser null, como no Postgres;
 // - statementLines(db, conta | null, de | null, até | null, excluídas): as linhas de
 //   erp_finance.statement_lines (sem ordem; quem lê ordena).
-export { commissionRows, type CommissionRow } from "./commissions.ts";
+export { commissionPolicy, commissionRows, operationTitles as commissionOperationTitles, operationView as commissionOperationView, type CommissionRow } from "./commissions.ts";
 export { statementLines } from "./rpc/erp_finance_statement_page.ts";
