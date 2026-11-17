@@ -62,6 +62,9 @@ export function fillSeedNormalized(sql: Sql): number {
 }
 
 /** Passos N→N+1 para instância que já tem o esquema (mesmo DDL, dados a ajustar). */
+// Tabela só do motor nova (engine-tables.ts, since: N+1): suba ERP_DDL_VERSION
+// e ponha N: (sql) => createEngineTables(sql, N + 1) (somado a outro passo da
+// mesma versão, se houver).
 const STEPS: Record<number, (sql: Sql) => number> = {
   5: fillSeedNormalized,
 };

@@ -49,6 +49,7 @@ Antes de cada push no tronco a N roda `npm run test:trunk` (orquestração, 17/1
   - toca arquivo fora do motor, ou a costura e a montagem (`src/erp/api`, `src/index.ts`);
   - guarda: o último vitest inteiro foi há mais de 24 h ou há 2 rodadas (estado em `output/test-trunk-state.json`).
 - No fim, o script imprime qual vitest rodou e por quê, as contagens e os tempos. O relato da rodada copia esse bloco. `--plan` só mostra a decisão.
+- **Suíte completa só pelo `npm run test:trunk`** (orquestração, 17/11/2026), em qualquer sessão. Ele pega uma vaga da trava entre sessões (`scripts/erp/suite-lock.mjs`, diretório `D:\Code\wabotia\.suite-locks`): no máximo 2 suítes completas ao mesmo tempo na máquina, e a rodada do tronco tem vaga própria (`ERP_TRUNK_ROUND=1`, só a N). Sem vaga, espera e mostra, a cada minuto, quem está segurando (pid, worktree, branch, desde quando). Vaga de processo morto ou com mais de 90 min é liberada; a vaga sai na saída, também em erro. Teste de um arquivo ou de um domínio (`test:erp:domain`) não entra na fila.
 
 ### Codificação
 
@@ -173,6 +174,8 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
      - Da sexta em diante, o plano é genérico e segue a ordem das colunas.
      - O motor segue a ordem das colunas. Nos geradores do diferencial, estrague **um campo por linha**; teste de dois campos inválidos na mesma linha não é estável no oráculo.
    - Gatilhos viram funções da camada de tabela, chamadas por quem escreve (`stock/internal.ts`, `catalog/internal.ts`). Os que só lançam erro já estão em SQL gerado.
+   - **Tabela só do motor (dado que o Fagoo não tem): `src/erp/schema/engine-tables.ts`**, combinada com a N antes. DDL do SQLite à mão, com `since` (a versão em que nasce) e o id da entrada em `structural.ts`. Ela vai no fim do `ERP_DDL` e muda o `ERP_DDL_HASH`, entra no backup e é criada nos objetos já migrados pelo passo `createEngineTables` em `migrate.ts` (suba `ERP_DDL_VERSION`). Fica fora do diferencial (o oráculo não a tem): o RPC que só o motor tem é testado no SQLite, com o teste do workerd para a migração e o backup.
+   - **FK `DEFERRABLE` (a linha aponta para outra que nasce depois na mesma transação): `deferForeignKeys(ctx, "<schema>__<tabela>")`** (`engine/fk.ts`). Liga o `PRAGMA defer_foreign_keys` e confere as tabelas com `foreign_key_check` antes do COMMIT, pela fila de adiados: violação vira 23503 e desfaz. Nunca ligue o PRAGMA sem a conferência: violação adiada que chega ao COMMIT reinicia o objeto (`schema/migrate.ts`, prova 1). Exemplo: a baixa da reserva (`consumed_command_id` → o movimento do lançamento).
    - **Gatilho `DEFERRABLE INITIALLY DEFERRED`: `defer(ctx, fn)`** (`engine/registry.ts`). Roda no fim da transação, antes do COMMIT, na ordem em que foi enfileirado (os da mesma linha, na ordem do nome do gatilho), incluindo o que a própria fila enfileira. Não deduplique: o Postgres enfileira um evento por linha escrita. Um erro no adiado desfaz a transação inteira.
 3. **Testes originais:**
    - Copie para `tests/erp/fagoo/`, trocando só os auxiliares:

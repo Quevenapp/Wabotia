@@ -913,11 +913,11 @@
    },
    "erp_documents.cost_apply": {
     "name": "costApply",
-    "ported": false
+    "ported": true
    },
    "erp_documents.cost_apply_capture": {
     "name": "costApplyCapture",
-    "ported": false
+    "ported": true
    },
    "erp_documents.current_version": {
     "name": "currentVersion",
@@ -1045,7 +1045,7 @@
    },
    "erp_documents.preference": {
     "name": "preference",
-    "ported": false
+    "ported": true
    },
    "erp_documents.price_decimals": {
     "name": "priceDecimals",
@@ -1133,7 +1133,7 @@
    },
    "erp_documents.stock_launch_date": {
     "name": "stockLaunchDate",
-    "ported": false
+    "ported": true
    },
    "erp_documents.text_value": {
     "name": "textValue",
@@ -1548,7 +1548,7 @@
    },
    "erp_finance.commission_confirmed": {
     "name": "commissionConfirmed",
-    "ported": false
+    "ported": true
    },
    "erp_finance.commission_document": {
     "name": "commissionDocument",
@@ -1560,7 +1560,7 @@
    },
    "erp_finance.commission_operation_capture": {
     "name": "commissionOperationCapture",
-    "ported": false
+    "ported": true
    },
    "erp_finance.commission_operation_frozen": {
     "name": "commissionOperationFrozen",
@@ -1568,7 +1568,7 @@
    },
    "erp_finance.commission_operation_sync": {
     "name": "commissionOperationSync",
-    "ported": false
+    "ported": true
    },
    "erp_finance.commission_operation_titles": {
     "name": "commissionOperationTitles",
@@ -1684,11 +1684,11 @@
    },
    "erp_finance.guard_posted_document": {
     "name": "guardPostedDocument",
-    "ported": false
+    "ported": true
    },
    "erp_finance.guard_posted_item": {
     "name": "guardPostedItem",
-    "ported": false
+    "ported": true
    },
    "erp_finance.invoice_auto_finance": {
     "name": "invoiceAutoFinance",
@@ -1752,11 +1752,11 @@
    },
    "erp_finance.notes_edit_allowed": {
     "name": "notesEditAllowed",
-    "ported": false
+    "ported": true
    },
    "erp_finance.notes_item_allowed": {
     "name": "notesItemAllowed",
-    "ported": false
+    "ported": true
    },
    "erp_finance.owned_entry_guard": {
     "name": "ownedEntryGuard",
@@ -3391,11 +3391,11 @@
    },
    "erp_stock.composition_apply_values": {
     "name": "compositionApplyValues",
-    "ported": false
+    "ported": true
    },
    "erp_stock.composition_dto": {
     "name": "compositionDto",
-    "ported": false
+    "ported": true
    },
    "erp_stock.composition_lines": {
     "name": "compositionLines",
@@ -3411,7 +3411,7 @@
    },
    "erp_stock.composition_totals": {
     "name": "compositionTotals",
-    "ported": false
+    "ported": true
    },
    "erp_stock.cost_visible": {
     "name": "costVisible",
@@ -3675,7 +3675,7 @@
    },
    "erp_stock.supply_part": {
     "name": "supplyPart",
-    "ported": false
+    "ported": true
    },
    "erp_stock.virtual_positions": {
     "name": "virtualPositions",

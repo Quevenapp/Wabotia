@@ -8,6 +8,10 @@
 // fatias por alarme, com manutenção ligada (escritas 503) — fase 3.
 import { createHash } from "node:crypto";
 import { ERP_TABLES } from "../schema/columns.generated.ts";
+import { ERP_ENGINE_TABLES } from "../schema/engine-tables.ts";
+
+/** Tabelas do retrato: as do esquema gerado e as só do motor (schema/engine-tables.ts). */
+const DUMP_TABLES: readonly string[] = [...Object.keys(ERP_TABLES), ...ERP_ENGINE_TABLES.map((t) => t.table)];
 import { ERP_DDL_HASH, ERP_DDL_VERSION } from "../schema/ddl.ts";
 
 const q = (id: string) => `"${id.replace(/"/g, '""')}"`;
@@ -41,7 +45,7 @@ export function dumpAll(storage: DurableObjectStorage) {
     created_at: new Date().toISOString(),
     tables: [],
   };
-  for (const table of Object.keys(ERP_TABLES)) {
+  for (const table of DUMP_TABLES) {
     const cols = columns(sql, table);
     const select = cols
       .map((c) => (c.integer ? `CAST(${q(c.name)} AS TEXT)` : c.blob ? `hex(${q(c.name)})` : q(c.name)))
@@ -77,7 +81,7 @@ export function restoreAll(
       .toArray() as { name: string; sql: string }[];
     for (const g of triggers) sql.exec(`DROP TRIGGER ${q(g.name)}`);
     // Tabelas que já têm linhas (semeadura) e não estão no backup ficam vazias.
-    for (const table of Object.keys(ERP_TABLES)) sql.exec(`DELETE FROM ${q(table)}`);
+    for (const table of DUMP_TABLES) sql.exec(`DELETE FROM ${q(table)}`);
     for (const t of manifest.tables) {
       const body = files.get(t.table);
       if (body === undefined || sha(body) !== t.sha256) throw new Error(`Arquivo do backup corrompido: ${t.table}`);

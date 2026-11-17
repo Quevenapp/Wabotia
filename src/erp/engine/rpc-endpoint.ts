@@ -5,7 +5,7 @@
 import "../domains/index.ts";
 import { storageDriver, type SqlDriver } from "./driver.ts";
 import { ErpError } from "./errors.ts";
-import { ErpGateDenied, callRpc, rpcObjectKeys, rpcWantsListing, type StoredListing, type StoredObject } from "./registry.ts";
+import { ErpGateDenied, callRpc, rpcObjectKeys, rpcWakes, rpcWantsListing, type StoredListing, type StoredObject } from "./registry.ts";
 import { GATE_DENIED_HEADER, GATE_HEADER, IDENTITY_HEADER, decodeIdentity } from "./identity.ts";
 import { Clock } from "./time.ts";
 
@@ -59,6 +59,16 @@ export async function rpcStorage(
   return { objects: (k) => found.get(k) ?? null, listing };
 }
 
+/** Em quanto tempo o agendador acorda depois de um RPC com { wake: true }. */
+export const RPC_WAKE_MS = 1_000;
+
+/** Antecipa o alarme do objeto para daqui a RPC_WAKE_MS; nunca adia um alarme mais cedo. */
+export async function wakeSoon(ctx: DurableObjectState) {
+  const at = Date.now() + RPC_WAKE_MS;
+  const current = await ctx.storage.getAlarm();
+  if (current === null || current > at) await ctx.storage.setAlarm(at);
+}
+
 export async function handleRpc(
   ctx: DurableObjectState,
   profile: string,
@@ -83,6 +93,9 @@ export async function handleRpc(
       identity,
       gate: request.headers.get(GATE_HEADER) === "1",
     });
+    // RPC que cria tarefa da plataforma (exportação pedida no painel): o
+    // agendador acorda em 1 s, sem esperar a próxima acordada (até 1 h).
+    if (rpcWakes(name)) await wakeSoon(ctx);
     return Response.json(result);
   } catch (error) {
     // Portão fechado: o RPC não rodou; a costura devolve o erro do Fagoo.

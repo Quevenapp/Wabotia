@@ -329,7 +329,8 @@ export function erpPlatformExportChunk(ctx: RpcContext, a: RpcArgs) {
 }
 
 registerRpc("erp_platform_export_chunk", erpPlatformExportChunk);
-registerRpc("erp_platform_export_request", erpPlatformExportRequest);
+// Cria a tarefa company_export: o agendador acorda em 1 s (docs/ERP-AGENDADOR.md).
+registerRpc("erp_platform_export_request", erpPlatformExportRequest, { wake: true });
 registerRpc("erp_platform_exports", erpPlatformExports);
 registerRpc("erp_platform_export_link", erpPlatformExportLink);
 registerRpc("erp_platform_export_plan", erpPlatformExportPlan, { listing: true });
