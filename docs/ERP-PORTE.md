@@ -49,6 +49,7 @@ Antes de cada push no tronco a N roda `npm run test:trunk` (orquestração, 17/1
   - toca arquivo fora do motor, ou a costura e a montagem (`src/erp/api`, `src/index.ts`);
   - guarda: o último vitest inteiro foi há mais de 24 h ou há 2 rodadas (estado em `output/test-trunk-state.json`).
 - No fim, o script imprime qual vitest rodou e por quê, as contagens e os tempos. O relato da rodada copia esse bloco. `--plan` só mostra a decisão.
+- **Suíte completa só pelo `npm run test:trunk`** (orquestração, 17/11/2026), em qualquer sessão. Ele pega uma vaga da trava entre sessões (`scripts/erp/suite-lock.mjs`, diretório `D:\Code\wabotia\.suite-locks`): no máximo 2 suítes completas ao mesmo tempo na máquina, e a rodada do tronco tem vaga própria (`ERP_TRUNK_ROUND=1`, só a N). Sem vaga, espera e mostra, a cada minuto, quem está segurando (pid, worktree, branch, desde quando). Vaga de processo morto ou com mais de 90 min é liberada; a vaga sai na saída, também em erro. Teste de um arquivo ou de um domínio (`test:erp:domain`) não entra na fila.
 
 ### Codificação
 
