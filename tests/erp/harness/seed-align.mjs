@@ -14,7 +14,14 @@
 // semeadura desalinhada: a fixture para. As tabelas que só diferem nos ids
 // são copiadas do Postgres.
 import { ERP_TABLES } from "../../../src/erp/schema/columns.generated.ts";
-import { ERP_DEVIATIONS, liteValue } from "../../../src/erp/schema/deviations.ts";
+import {
+  ERP_DEVIATIONS,
+  FUNCTION_DEFINITION_SQL,
+  applyFunctionDeviation,
+  functionDeviationApplied,
+  isFunctionDeviation,
+  liteValue,
+} from "../../../src/erp/schema/deviations.ts";
 import { derivedIds } from "./derived-ids.mjs";
 import { IdMap, compareState, loadTables } from "./state-compare.mjs";
 
@@ -70,6 +77,18 @@ export async function applyDeviationsBoth(pg, lite, deviations = ERP_DEVIATIONS.
   await pg.exec("set session_replication_role = replica");
   try {
     for (const d of deviations) {
+      // Desvio de função: CREATE OR REPLACE com o trecho do Wabotia, só no
+      // oráculo desta fixture (o banco em cache não muda). pg_get_functiondef
+      // traz SECURITY DEFINER e search_path; o replace mantém dono e GRANTs.
+      if (isFunctionDeviation(d)) {
+        const [schema, name] = d.fn.split(".");
+        const rows = (await pg.query(FUNCTION_DEFINITION_SQL, [schema, name])).rows;
+        if (rows.length > 1) throw new Error(`Desvio ${d.id}: ${d.fn} tem ${rows.length} sobrecargas no Postgres.`);
+        // Mesmo banco de novo (o harness reaplica no mesmo oráculo): já aplicado, nada a fazer.
+        if (functionDeviationApplied(rows[0]?.def ?? null, d)) continue;
+        await pg.exec(applyFunctionDeviation(rows[0]?.def ?? null, d));
+        continue;
+      }
       const info = ERP_TABLES[d.table];
       const codec = info.columns[d.column].codec;
       const keys = Object.keys(d.key);

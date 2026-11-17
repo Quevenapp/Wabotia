@@ -180,7 +180,8 @@ export function erpPlatformExportLink(ctx: RpcContext, a: RpcArgs) {
     size_bytes: e.size_bytes,
     sha256: e.sha256,
     expires_in: 120,
-    filename: `brufap-exportacao-${stamp(e.ready_at)}.zip`,
+    // Desvio exportacao-wabotia (schema/deviations.ts): o Fagoo usa 'brufap-exportacao-'.
+    filename: `wabotia-exportacao-${stamp(e.ready_at)}.zip`,
   };
 }
 
