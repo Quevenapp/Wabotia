@@ -122,15 +122,90 @@ test("Fiscal (G): contato espelhado no formulário da nota", async () => {
   await same("erp_fiscal_invoice_contact_source", { p_user_id: u.admin, p_contact_id: contact.id, p_direction: "1" });
 });
 
-test(
-  "Catálogo (P): mudança local no produto espelhado marca a origem",
-  { todo: "pendente da P: o erp_catalog_product_save não grava erp_catalog.origin.state='local_modified' (o oráculo grava; o motor fica 'synced')" },
-  async () => {
-    const version = (await f.db.query("select version v from erp_catalog.record where id=$1", [product.id])).rows[0].v;
-    await same("erp_catalog_product_save", { p_user_id: u.admin, p_id: product.id, p_expected_version: version, p_command_id: randomUUID(), p_data: { name: "Produto espelhado (mudado)" }, p_acknowledged: null });
-    assert.equal((await f.db.query("select state v from erp_catalog.origin where record_id=$1", [product.id])).rows[0].v, "local_modified");
-  },
-);
+// Escritas locais sobre registro espelhado: o updateRecord (catalog/record.ts)
+// marca erp_catalog.origin 'local_modified' como o oráculo; o f.rpc compara a
+// tabela tocada. Cada caso volta a origem a 'synced' antes.
+const version = async (id) => (await f.db.query("select version v from erp_catalog.record where id=$1", [id])).rows[0].v;
+const synced = (id) => seed("update erp_catalog.origin set state='synced' where record_id=$1", [id]);
+async function marks(id, call) {
+  await synced(id);
+  await call();
+  assert.equal((await f.db.query("select state v from erp_catalog.origin where record_id=$1", [id])).rows[0].v, "local_modified");
+}
+
+test("Catálogo (P): mudança local no produto espelhado marca a origem", async () => {
+  await marks(product.id, async () =>
+    same("erp_catalog_product_save", { p_user_id: u.admin, p_id: product.id, p_expected_version: await version(product.id), p_command_id: randomUUID(), p_data: { name: "Produto espelhado (mudado)" }, p_acknowledged: null }),
+  );
+});
+test("Catálogo (P): preço do produto espelhado marca a origem", async () => {
+  await marks(product.id, async () =>
+    same("erp_catalog_product_prices_update", { p_user_id: u.admin, p_command_id: randomUUID(), p_supplier_id: null, p_items: [{ product_id: product.id, expected_version: await version(product.id), price: "12" }] }),
+  );
+});
+test("Catálogo (P): excluir e restaurar o produto espelhado marca a origem", async () => {
+  for (const deleted of [true, false])
+    await marks(product.id, async () =>
+      same("erp_catalog_product_set_deleted", { p_user_id: u.admin, p_id: product.id, p_expected_version: await version(product.id), p_command_id: randomUUID(), p_deleted: deleted }),
+    );
+});
+test("Catálogo (P): cadastro genérico do produto espelhado marca a origem", async () => {
+  await marks(product.id, async () =>
+    same("erp_catalog_save", { p_user_id: u.admin, p_entity: "products", p_id: product.id, p_expected_version: await version(product.id), p_command_id: randomUUID(), p_data: { name: "Produto espelhado (genérico)", unit: "UN", kind: "P", format: "S", price: "10" } }),
+  );
+});
+test("Catálogo (P): mudança local no contato espelhado marca a origem", async () => {
+  await marks(contact.id, async () =>
+    same("erp_catalog_contact_save", { p_user_id: u.admin, p_id: contact.id, p_expected_version: await version(contact.id), p_command_id: randomUUID(), p_data: { name: "Contato espelhado (mudado)", person_type: "J" }, p_acknowledged: null }),
+  );
+});
+test("Catálogo (P): situação do contato espelhado marca a origem", async () => {
+  for (const situation of ["I", "A"])
+    await marks(contact.id, async () =>
+      same("erp_catalog_contact_set_situation", { p_user_id: u.admin, p_id: contact.id, p_expected_version: await version(contact.id), p_command_id: randomUUID(), p_situation: situation }),
+    );
+});
+
+// Leituras do espelho: source nas listas, situação vinda do snapshot aplicado
+// (contact_source_situation), source_id da exportação e filtros origin_*.
+test("Catálogo (P): listas com registros espelhados", async () => {
+  for (const entity of ["contacts", "products"]) {
+    await same("erp_catalog_list", { p_user_id: u.admin, p_entity: entity, p_limit: 100 });
+    await same("erp_catalog_page", { p_user_id: u.admin, p_entity: entity, p_size: 100 });
+  }
+});
+test("Catálogo (P): situação do contato espelhado vem do snapshot", async () => {
+  const other = await f.catalog("contacts", { name: "Contato do snapshot", person_type: "F", roles: ["customer"] });
+  const hash = "b".repeat(64);
+  await seed(
+    `insert into erp_catalog.source_snapshot(entity,source_id,source_hash,source_version,payload,document_links,captured_at)
+     values('contacts','303',$1,1,'{"id":303,"nome":"Contato do snapshot","situacao":"E"}'::jsonb,'[]'::jsonb,now())`,
+    [hash],
+  );
+  await seed(`insert into erp_catalog.origin(entity,source_id,record_id,applied_hash,latest_hash,state) values('contacts','303',$1,$2,$2,'synced')`, [other.id, hash]);
+  await seed("update erp_catalog.record set active=false where id=$1", [other.id]);
+  await same("erp_catalog_contact_get", { p_user_id: u.admin, p_id: other.id });
+  for (const situation of ["all", "E", "I"]) await same("erp_catalog_contact_page", { p_user_id: u.admin, p_size: 100, p_situation: situation });
+  await same("erp_catalog_list", { p_user_id: u.admin, p_entity: "contacts", p_limit: 100 });
+});
+test("Catálogo (P): exportação e filtros origin_* dos produtos", async () => {
+  await same("erp_catalog_product_export_v2", { p_user_id: u.admin });
+  // Última compra só de pedido nativo (authority='brufap'): o espelhado não conta.
+  await same("erp_catalog_product_purchase_info", { p_user_id: u.admin, p_product_ids: [product.id], p_supplier_id: null });
+  // Uma posição observada do produto espelhado (erp_stock_mirror), físico 3.
+  await seed(
+    `with o as (insert into erp_stock_mirror.observation(product_source_id,warehouse_source_id,source_version,source_hash,physical,virtual,physical_state,virtual_state,observed_at)
+       values('202','',1,$1,3,3,'value','value',now()) returning id)
+     insert into erp_stock_mirror.position(product_source_id,warehouse_source_id,observation_id) select '202','',id from o`,
+    [HASH],
+  );
+  for (const stock of ["origin_unlinked", "origin_not_observed", "origin_zero", "origin_positive", "origin_negative"]) {
+    await same("erp_catalog_product_page_v2", { p_user_id: u.admin, p_page: 1, p_size: 100, p_stock: stock });
+    await same("erp_catalog_product_page_v2", { p_user_id: u.admin, p_page: 1, p_size: 100, p_stock: stock, p_warehouse_id: warehouse.id });
+  }
+  const positive = await same("erp_catalog_product_page_v2", { p_user_id: u.admin, p_page: 1, p_size: 100, p_stock: "origin_positive" });
+  assert.deepEqual(positive.items.map((i) => i.id), [product.id]);
+});
 
 // ---------------------------------------------------------------------------
 // Leituras do Documentos e PDV (L). Um segundo pedido espelhado, este com a

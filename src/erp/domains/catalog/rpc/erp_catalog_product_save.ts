@@ -1,7 +1,7 @@
 // public.erp_catalog_product_save: inclui ou altera um produto (cadastro
 // base, detalhe, listas e Ativado num comando só), com os avisos confirmados
 // (código e GTIN repetidos) e o código sequencial da preferência.
-// Fora (Origin desligado): o UPDATE de erp_catalog.origin (tabela vazia).
+// O UPDATE de erp_catalog.origin ('local_modified') vai no updateRecord (record.ts).
 import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { jsonbKeys, jsonbText, jsonType } from "../../../engine/json.ts";

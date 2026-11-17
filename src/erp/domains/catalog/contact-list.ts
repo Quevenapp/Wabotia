@@ -6,7 +6,7 @@
 import type { SqlDriver } from "../../engine/driver.ts";
 import { jsonTimestamp, saoPauloMidnight } from "../../engine/time.ts";
 import * as documents from "../documents/public.ts";
-import { contactSituation, contactSourceSituation } from "./contact.ts";
+import { SOURCE_SITUATION_SQL, contactSituation, contactSourceSituation } from "./contact.ts";
 import { contactTypeSlugs } from "./contact-core.ts";
 import { CNTRL, btrim, chars, lower, matches, upper } from "./fields.ts";
 import { fold } from "./internal.ts";
@@ -101,10 +101,10 @@ export interface ContactFilter {
   extra?: { sql: string; params: unknown[] } | null;
 }
 
-/** erp_catalog.contact_situation em SQL (contact_source_situation é sempre null sem o Origin). */
-const SITUATION_SQL = `CASE WHEN r.active=1 THEN (CASE WHEN cp.situation='S' THEN 'S' ELSE 'A' END)
-  ELSE (CASE WHEN cp.situation='E' THEN 'E' ELSE 'I' END) END`;
-
+/** erp_catalog.contact_situation(r.active, coalesce(cp.situation, contact_source_situation(r.id))) em SQL. */
+const SITUATION_SQL = `(CASE WHEN r.active=1
+  THEN (CASE WHEN coalesce(cp.situation, ${SOURCE_SITUATION_SQL("r.id")})='S' THEN 'S' ELSE 'A' END)
+  ELSE (CASE WHEN coalesce(cp.situation, ${SOURCE_SITUATION_SQL("r.id")})='E' THEN 'E' ELSE 'I' END) END)`;
 /** page_order em SQL: __fold e id em BINARY (a collation C do oráculo). */
 const ORDER_SQL: Record<string, string> = {
   created_desc: "r.created_at DESC, r.id DESC",

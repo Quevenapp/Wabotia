@@ -1,8 +1,9 @@
 // Núcleo do cadastro (erp_catalog.record e as linhas de contato, produto e
 // depósito): erp_catalog.mutate, write_fields e os gatilhos dessas tabelas na
 // ordem do Postgres (BEFORE por nome, depois AFTER por nome).
-// Fora (Origin desligado): o UPDATE de erp_catalog.origin (state
-// 'local_modified') no mutate; a tabela não tem linhas sem o Origin.
+// A marca 'local_modified' no espelho do Origin (erp_catalog.origin) vai no
+// updateRecord: markLocalModified (regra "Origin fora": guarda sobre registro
+// espelhado se porta como guarda).
 import { decText, toParam, toScaled } from "../../engine/dec.ts";
 import { one } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
@@ -79,6 +80,35 @@ export function updateRecord(
     set.name, set.code, set.active ? 1 : 0, user, ctx.clock.next().toString(), fold(set.name), fold(set.code), id,
   );
   capture(ctx, id, "upsert");
+  // Toda mudança local de cadastro marca o espelho do Origin (mutate,
+  // contact_apply, contact_set_situation, taxonomy_detach, product_save,
+  // product_set_deleted, product_price_adjust, product_prices_update).
+  markLocalModified(ctx, id);
+}
+
+/**
+ * update erp_catalog.origin set state=case when state in('source_changed',
+ * 'source_deleted') then state else 'local_modified' end where record_id=…,
+ * com o gatilho erp_catalog_origin_origin_mirror (origin_mirror_refresh): sem
+ * applied_hash ou com o espelho já em origin_mirror, só acerta o latest_hash;
+ * o ramo que monta o espelho do zero (origin_mirror_fields) é Origin vivo e
+ * sai 0A000 visível.
+ */
+export function markLocalModified(ctx: RpcContext, id: string) {
+  const rows = ctx.db.exec(
+    'SELECT entity, source_id, state, applied_hash, latest_hash FROM "erp_catalog__origin" WHERE record_id=?',
+    id,
+  ).rows;
+  for (const o of rows) {
+    const state = ["source_changed", "source_deleted"].includes(String(o.state)) ? String(o.state) : "local_modified";
+    ctx.db.exec('UPDATE "erp_catalog__origin" SET state=? WHERE entity=? AND source_id=?', state, o.entity, o.source_id);
+    const mirror = one(ctx.db, 'SELECT 1 x FROM "erp_catalog__origin_mirror" WHERE entity=? AND source_id=?', o.entity, o.source_id);
+    if (o.applied_hash !== null && !mirror) raise("0A000", "rpc_not_ported:erp_catalog.origin_mirror_fields");
+    ctx.db.exec(
+      'UPDATE "erp_catalog__origin_mirror" SET latest_hash=? WHERE entity=? AND source_id=? AND latest_hash IS NOT ?',
+      o.latest_hash, o.entity, o.source_id, o.latest_hash,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
