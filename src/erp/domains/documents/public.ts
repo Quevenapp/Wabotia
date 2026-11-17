@@ -12,6 +12,8 @@ export { costApply, costApplyCapture } from "./cost-apply.ts";
 export { decimalValue, documentDto, textValue } from "./internal.ts";
 export { updateDocument } from "./rows.ts";
 export { documentFinanceCategory, requireOsPermission } from "./save-checks.ts";
+// O documento espelhado do Origin: guard_effect das tabelas que apontam para documento.
+export { guardEffect as mirrorGuardEffect } from "./mirror.ts";
 
 /**
  * erp_documents.report_last_purchase_until(produto, até, saldos): o preço da

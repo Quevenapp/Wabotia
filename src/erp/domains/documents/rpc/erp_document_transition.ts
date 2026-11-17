@@ -2,7 +2,7 @@
 // Sem situações adotadas (proposta): a transição do status pelas transitions(). Com situações
 // (pedidos e OS): a regra da transição (Preferências, sessão G), as ações configuradas
 // (estornar e lançar estoque, pela sessão N; estornar e lançar contas, pelo Financeiro) e a ocorrência.
-// Linha de corte do Origin: erp_document_mirror.require_visible não tem efeito.
+// erp_document_mirror.require_visible: documents/mirror.ts (o documento espelhado do Origin).
 import { createHash } from "node:crypto";
 import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
@@ -16,6 +16,7 @@ import { erpDocumentStockPost, erpDocumentStockPreview, erpDocumentStockReverse,
 import { approvalSituations, discountApprover, documentDto, documentView, situationAdopted, situationJson, situationKeyValid, textValue } from "../internal.ts";
 import { transitions } from "../preferences.ts";
 import { stockLaunchDate } from "../public.ts";
+import { requireVisible } from "../mirror.ts";
 import { contactUsable, requireRole } from "../reads-g.ts";
 import { updateDocument } from "../rows.ts";
 import { commandReplay, currentVersion, documentFinanceCategory, editable, fieldText, recordOccurrence, requireOsPermission } from "../save-checks.ts";
@@ -118,6 +119,7 @@ export function erpDocumentTransition(ctx: RpcContext, a: RpcArgs) {
   const status = (a.p_status as string | null) ?? null;
   const reasonArg = (a.p_reason as string | null) ?? null;
   // 239: o perfil grava o tipo; a OS também pede "Gerenciar situações" (abaixo, com a regra de aprovação).
+  requireVisible(db, user, id, true);
   requireRole(db, user, kind, true);
   if (id === null || expected === null || expected < 1) raise("22023", "erp_document_version_invalid");
   const hash = sha256(jsonbText({ op: "transition", actor: user, kind, id, version: expected, status, reason: reasonArg }));

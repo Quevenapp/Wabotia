@@ -3,7 +3,7 @@
 // e de OS: a prévia (document_preview_data e a forma e conta de cada parcela), as contas com
 // o gatilho commission_capture (comissão de cada parcela) e document_title_number, o estorno e
 // as leituras. O documento é lido e versionado pelo documents/public.ts.
-// Linha de corte do Origin: erp_document_mirror.require_visible não tem efeito.
+// erp_document_mirror.require_visible: pelo documents/public.ts (o documento espelhado do Origin).
 import { createHash } from "node:crypto";
 import { toScaled } from "../../../engine/dec.ts";
 import { one, type Row, type SqlDriver } from "../../../engine/driver.ts";
@@ -276,6 +276,7 @@ export function erpDocumentFinancePreview(ctx: RpcContext, a: RpcArgs) {
   const user = a.p_user_id as string;
   const kind = (a.p_kind as string | null) ?? null;
   // 239: Ordem de Serviço "Lançar contas".
+  documents.mirrorRequireVisible(db, user, (a.p_document_id as string | null) ?? null, true);
   documents.requireOsPermission(db, user, kind!, "lancar_contas");
   const d = documentLock(db, user, kind, (a.p_document_id as string | null) ?? null, (a.p_expected_version as number | null) ?? null);
   const category = documents.documentFinanceCategory(db, d, (a.p_category_id as string | null) ?? null);
@@ -293,6 +294,7 @@ export function erpDocumentFinancePost(ctx: RpcContext, a: RpcArgs) {
   const categoryArg = (a.p_category_id as string | null) ?? null;
   const plan = jsonArg(a.p_plan);
   const group = crypto.randomUUID();
+  documents.mirrorRequireVisible(db, user, (a.p_document_id as string | null) ?? null, true);
   documents.requireOsPermission(db, user, kind!, "lancar_contas");
   // O comando guarda a categoria como pedida: a repetição de um comando antigo continua batendo.
   const data = { kind, document_id: documentId, version, preview_hash: hash, category_id: categoryArg, plan };
@@ -350,6 +352,7 @@ export function erpDocumentFinanceReversePreview(ctx: RpcContext, a: RpcArgs) {
   const db = ctx.db;
   const user = a.p_user_id as string;
   const kind = (a.p_kind as string | null) ?? null;
+  documents.mirrorRequireVisible(db, user, (a.p_document_id as string | null) ?? null, true);
   documents.requireOsPermission(db, user, kind!, "lancar_contas");
   const d = documentLock(db, user, kind, (a.p_document_id as string | null) ?? null, (a.p_expected_version as number | null) ?? null);
   return {
@@ -370,6 +373,7 @@ export function erpDocumentFinanceReverse(ctx: RpcContext, a: RpcArgs) {
   const hash = (a.p_preview_hash as string | null) ?? null;
   const titles = jsonArg(a.p_title_versions);
   const reason = (a.p_reason as string | null) ?? null;
+  documents.mirrorRequireVisible(db, user, (a.p_document_id as string | null) ?? null, true);
   documents.requireOsPermission(db, user, kind!, "lancar_contas");
   const data = { kind, document_id: documentId, version, posting_id: postingId, posting_version: postingVersion, preview_hash: hash, title_versions: titles, reason };
   const replay = documentCommandStart(db, user, command, "reverse", data);
@@ -411,6 +415,7 @@ export function erpDocumentFinanceGet(ctx: RpcContext, a: RpcArgs) {
   const user = a.p_user_id as string;
   const kind = (a.p_kind as string | null) ?? null;
   const posting = (a.p_posting_id as string | null) ?? null;
+  documents.mirrorRequireVisible(db, user, (a.p_document_id as string | null) ?? null, false);
   requireAccess(db, user, false);
   documents.requireAccess(db, user, kind, false);
   const d = one(db, 'SELECT id, version FROM "erp_documents__document" WHERE id=? AND kind=?', (a.p_document_id as string | null) ?? null, kind);
@@ -424,6 +429,7 @@ export function erpDocumentFinanceList(ctx: RpcContext, a: RpcArgs) {
   const kind = (a.p_kind as string | null) ?? null;
   const limit = (a.p_limit as number | null) ?? null;
   const after = (a.p_after as string | null) ?? null;
+  documents.mirrorRequireVisible(db, user, (a.p_document_id as string | null) ?? null, false);
   requireAccess(db, user, false);
   documents.requireAccess(db, user, kind, false);
   if (limit === null || limit < 1 || limit > 100) raise("22023", "erp_document_finance_invalid_query");

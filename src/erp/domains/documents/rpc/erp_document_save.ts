@@ -1,7 +1,7 @@
 // public.erp_document_save: criar e editar documento (proposta, pedido de venda e de compra, OS),
 // passo a passo como o original. As escritas passam pela camada de linha (documents/rows.ts),
 // com os gatilhos e os adiados (commission_operation_capture e cost_apply_capture).
-// Linha de corte do Origin: erp_document_mirror.require_visible não tem efeito.
+// erp_document_mirror.require_visible: documents/mirror.ts (o documento espelhado do Origin).
 // O auto_finance (lançamento automático das contas pelas Preferências) usa a ponte do B5.
 import { createHash } from "node:crypto";
 import { decText, toScaled } from "../../../engine/dec.ts";
@@ -15,6 +15,7 @@ import { dto as catalogDto } from "../../catalog/public.ts";
 import * as finance from "../../finance/public.ts";
 import { approvalSituations, autoProducts, documentDto, documentSituationJson, documentView, preference, uuidValue } from "../internal.ts";
 import { checkCustomFields, extensionKeys, hasCommercialData, normalize } from "../normalize.ts";
+import { requireVisible } from "../mirror.ts";
 import { contactUsable, requireAccess } from "../reads-g.ts";
 import { insertDocument, updateDocument, upsertItem, deleteItem } from "../rows.ts";
 import {
@@ -192,6 +193,7 @@ export function erpDocumentSave(ctx: RpcContext, a: RpcArgs) {
   const expected = (a.p_expected_version as number | null) ?? null;
   const command = (a.p_command_id as string | null) ?? null;
   const body0 = a.p_body === undefined ? null : jsonbArg(a.p_body);
+  requireVisible(db, user, id, true);
   requireAccess(db, user, kind, true);
   if (expected === null || (id === null && expected !== 0) || (id !== null && expected < 1)) raise("22023", "erp_document_version_invalid");
   const hash = sha256(jsonbText({ op: "save", actor: user, kind, id, version: expected, body: body0 }));
