@@ -208,8 +208,7 @@ test("Catálogo (P): exportação e filtros origin_* dos produtos", async () => 
 });
 
 // Auxiliares do Catálogo (B): etiquetas e vendedor sobre o contato espelhado.
-const CONTACT_LOCAL =
-  "pendente da P: o contact_apply não grava erp_catalog.origin.state='local_modified' no contato espelhado (o oráculo grava; o motor fica 'synced'); conserto em 24a7b40";
+// Os dois casos que marcam a origem esperavam o conserto da P no contact_apply (24a7b40, já no tronco).
 /** O vendedor do contato espelhado (criado pelo caso anterior, ou semeado aqui, para os casos não dependerem um do outro). */
 async function mirroredSeller() {
   const found = (await f.db.query("select id from erp_catalog.seller where contact_id=$1", [contact.id])).rows[0];
@@ -227,7 +226,7 @@ test("Catálogo (B): etiquetas do contato espelhado (gravar e ler)", async () =>
   });
   await same("erp_catalog_contact_tags", { p_user_id: u.admin, p_ids: [contact.id] });
 });
-test("Catálogo (B): Tornar vendedor o contato espelhado marca a origem", { todo: CONTACT_LOCAL }, async () => {
+test("Catálogo (B): Tornar vendedor o contato espelhado marca a origem", async () => {
   await same("erp_catalog_seller_from_contact", { p_user_id: u.admin, p_command_id: randomUUID(), p_contact_id: contact.id });
   assert.equal((await f.db.query("select state v from erp_catalog.origin where record_id=$1", [contact.id])).rows[0].v, "local_modified");
 });
@@ -238,13 +237,53 @@ test("Catálogo (B): leitura e página do vendedor do contato espelhado", async 
     p_user_id: u.admin, p_page: 1, p_size: 25, p_sort: "name_asc", p_query: "espelhado", p_situation: "all", p_type: null,
   });
 });
-test("Catálogo (B): Vincular a vendedor sobre o contato espelhado marca a origem", { todo: CONTACT_LOCAL }, async () => {
+test("Catálogo (B): Vincular a vendedor sobre o contato espelhado marca a origem", async () => {
   const seller = await mirroredSeller();
   // A origem volta a 'synced' para o caso conferir a marca desta escrita, não a do caso anterior.
   await seed("update erp_catalog.origin set state='synced' where record_id=$1", [contact.id]);
   const version = (await f.db.query("select version v from erp_catalog.record where id=$1", [contact.id])).rows[0].v;
   await same("erp_catalog_contact_set_seller", { p_user_id: u.admin, p_id: contact.id, p_expected_version: version, p_command_id: randomUUID(), p_seller_id: seller });
   assert.equal((await f.db.query("select state v from erp_catalog.origin where record_id=$1", [contact.id])).rows[0].v, "local_modified");
+});
+test("Catálogo (B): etiquetas da NF-e espelhada (raw_record): leitura, carteira e escrita recusada", async () => {
+  await seed(
+    `insert into origin_sync.raw_record(entity,last_resource,source_id,payload,version_hash) values('nfe','notas/nfe','8801',$1::jsonb,$2)`,
+    [JSON.stringify({ id: 8801, numero: "8801", contato: { id: 101 } }), HASH],
+  );
+  const tag = (await same("erp_catalog_taxonomy_save", {
+    p_user_id: u.admin, p_kind: "tags", p_id: null, p_expected_version: 0, p_command_id: randomUUID(), p_data: { name: "Nota espelhada", tag_type: "invoices" },
+  })).item;
+  await seed("insert into erp_catalog.invoice_tag(origin,model,invoice_id,tag_id) values('origin','55','8801',$1)", [tag.id]);
+  const read = await same("erp_catalog_invoice_tags", { p_user_id: u.consulta, p_origin: "origin", p_model: "55", p_ids: ["8801"] });
+  assert.deepEqual(read.items[0].tag_ids, [tag.id]);
+  // A guarda do espelho é guarda: 42501 nos dois motores, nada gravado.
+  const refused = await same("erp_catalog_invoice_tags_save", {
+    p_user_id: u.fiscal, p_origin: "origin", p_model: "55", p_id: "8801", p_expected_version: 0, p_command_id: randomUUID(), p_tag_ids: [], p_mode: "replace",
+  });
+  assert.equal(refused.error, "42501:erp_fiscal_mirror_readonly");
+  // Com a carteira, a nota do contato espelhado 101 é do vendedor dele; a de contato nenhum não.
+  const seller = await mirroredSeller();
+  await seed("update erp_catalog.seller set user_id=$2 where id=$1", [seller, u.consulta]);
+  await seed("update erp_catalog.contact_profile set seller_id=$1 where record_id=$2", [seller, contact.id]);
+  await seed(
+    `insert into origin_sync.raw_record(entity,last_resource,source_id,payload,version_hash) values('nfe','notas/nfe','8802','{"id":8802}'::jsonb,$1)`,
+    [HASH],
+  );
+  const portfolio = async (value) => {
+    const current = (await f.rpc("erp_preferences_page", { p_user_id: u.admin, p_page: "cadastros-contatos" })).items.find((i) => i.key === "contatos.acesso_vendedor");
+    await f.rpc("erp_preferences_save", {
+      p_user_id: u.admin, p_command_id: randomUUID(), p_page: "cadastros-contatos", p_changes: [{ key: "contatos.acesso_vendedor", expected_version: current.version, value }],
+    });
+  };
+  await portfolio(true);
+  try {
+    assert.equal((await same("erp_catalog_invoice_tags", { p_user_id: u.consulta, p_origin: "origin", p_model: "55", p_ids: ["8801"] })).items.length, 1);
+    const hidden = await same("erp_catalog_invoice_tags", { p_user_id: u.consulta, p_origin: "origin", p_model: "55", p_ids: ["8801", "8802"] });
+    assert.equal(hidden.error, "P0002:erp_catalog_not_found");
+  } finally {
+    await portfolio(false);
+    await seed("update erp_catalog.seller set user_id=null where id=$1", [seller]);
+  }
 });
 
 // ---------------------------------------------------------------------------

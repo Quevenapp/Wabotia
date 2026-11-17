@@ -64,3 +64,5 @@ import "./rpc/erp_catalog_seller_page.ts";
 import "./rpc/erp_catalog_seller_save.ts";
 import "./rpc/erp_catalog_seller_from_contact.ts";
 import "./rpc/erp_catalog_contact_set_seller.ts";
+import "./rpc/erp_catalog_invoice_tags.ts";
+import "./rpc/erp_catalog_invoice_tags_save.ts";

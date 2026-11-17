@@ -9,8 +9,22 @@
 import { one, type SqlDriver } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
 import type { RpcContext } from "../../engine/registry.ts";
+import { activeRole } from "../access/public.ts";
 import { compareText } from "./fields.ts";
 import { fold } from "./internal.ts";
+import { invoiceTagsAllowed } from "./taxonomy-access.ts";
+
+/**
+ * erp_catalog.require_invoice_tags(p_user_id, p_origin, p_write): o papel lê
+ * (admin, consulta, fiscal) ou escreve (admin, fiscal) etiquetas de nota; a
+ * nota nativa só para admin e fiscal.
+ */
+export function requireInvoiceTags(db: SqlDriver, user: string | null, origin: string | null, write: boolean): string {
+  const role = user === null ? null : activeRole(db, user);
+  if (!invoiceTagsAllowed(role, write) || (origin === "brufap" && !["admin", "fiscal"].includes(role!)))
+    raise("42501", "erp_catalog_access_denied");
+  return role!;
+}
 
 const MAX_VERSION = 2147483647;
 const LOWER_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
