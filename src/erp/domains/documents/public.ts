@@ -79,3 +79,5 @@ export function allowed(role: string | null, kind: string | null, write: boolean
   if (["estoque", "fiscal"].includes(role)) return ["sales_orders", "purchase_orders"].includes(kind);
   return false;
 }
+// Escrito pela P para o Catálogo (contact_page/contact_export); dona: O.
+export { salesInPeriodCondition } from "./catalog-p.ts";
