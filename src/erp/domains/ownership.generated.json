@@ -993,7 +993,7 @@
    },
    "erp_documents.guard_trash_child": {
     "name": "guardTrashChild",
-    "ported": false
+    "ported": true
    },
    "erp_documents.guard_variation_item": {
     "name": "guardVariationItem",
@@ -1081,7 +1081,7 @@
    },
    "erp_documents.report_last_purchase_until": {
     "name": "reportLastPurchaseUntil",
-    "ported": false
+    "ported": true
    },
    "erp_documents.require_access": {
     "name": "requireAccess",
@@ -1572,15 +1572,15 @@
    },
    "erp_finance.commission_operation_titles": {
     "name": "commissionOperationTitles",
-    "ported": false
+    "ported": true
    },
    "erp_finance.commission_operation_view": {
     "name": "commissionOperationView",
-    "ported": false
+    "ported": true
    },
    "erp_finance.commission_policy": {
     "name": "commissionPolicy",
-    "ported": false
+    "ported": true
    },
    "erp_finance.commission_return_capture": {
     "name": "commissionReturnCapture",
@@ -3355,15 +3355,15 @@
   "public_functions": {
    "erp_purchase_receipts.active": {
     "name": "active",
-    "ported": false
+    "ported": true
    },
    "erp_purchase_receipts.guard_document": {
     "name": "guardDocument",
-    "ported": false
+    "ported": true
    },
    "erp_purchase_receipts.guard_item": {
     "name": "guardItem",
-    "ported": false
+    "ported": true
    },
    "erp_purchase_receipts.guard_legacy": {
     "name": "guardLegacy",
@@ -3371,7 +3371,7 @@
    },
    "erp_stock.average_costs": {
     "name": "averageCosts",
-    "ported": false
+    "ported": true
    },
    "erp_stock.balance_kept": {
     "name": "balanceKept",
@@ -3475,23 +3475,23 @@
    },
    "erp_stock.effect_document_allowed": {
     "name": "effectDocumentAllowed",
-    "ported": false
+    "ported": true
    },
    "erp_stock.effect_edit_allowed": {
     "name": "effectEditAllowed",
-    "ported": false
+    "ported": true
    },
    "erp_stock.effect_item_allowed": {
     "name": "effectItemAllowed",
-    "ported": false
+    "ported": true
    },
    "erp_stock.effect_transition_allowed": {
     "name": "effectTransitionAllowed",
-    "ported": false
+    "ported": true
    },
    "erp_stock.forget_item_components": {
     "name": "forgetItemComponents",
-    "ported": false
+    "ported": true
    },
    "erp_stock.guard_composition": {
     "name": "guardComposition",
@@ -3527,11 +3527,11 @@
    },
    "erp_stock.guard_posted_document": {
     "name": "guardPostedDocument",
-    "ported": false
+    "ported": true
    },
    "erp_stock.guard_posted_item": {
     "name": "guardPostedItem",
-    "ported": false
+    "ported": true
    },
    "erp_stock.guard_reserved_balance": {
     "name": "guardReservedBalance",
@@ -3539,11 +3539,11 @@
    },
    "erp_stock.guard_reserved_document": {
     "name": "guardReservedDocument",
-    "ported": false
+    "ported": true
    },
    "erp_stock.guard_reserved_item": {
     "name": "guardReservedItem",
-    "ported": false
+    "ported": true
    },
    "erp_stock.guard_reserved_posting": {
     "name": "guardReservedPosting",
@@ -3655,7 +3655,7 @@
    },
    "erp_stock.reserve_statuses": {
     "name": "reserveStatuses",
-    "ported": false
+    "ported": true
    },
    "erp_stock.reserved_quantity": {
     "name": "reservedQuantity",
@@ -3671,7 +3671,7 @@
    },
    "erp_stock.settings_dto": {
     "name": "settingsDto",
-    "ported": false
+    "ported": true
    },
    "erp_stock.supply_part": {
     "name": "supplyPart",
@@ -3836,19 +3836,19 @@
    },
    "erp_sync.capture_catalog": {
     "name": "captureCatalog",
-    "ported": false
+    "ported": true
    },
    "erp_sync.capture_document": {
     "name": "captureDocument",
-    "ported": false
+    "ported": true
    },
    "erp_sync.capture_finance": {
     "name": "captureFinance",
-    "ported": false
+    "ported": true
    },
    "erp_sync.capture_stock": {
     "name": "captureStock",
-    "ported": false
+    "ported": true
    },
    "erp_sync.enabled": {
     "name": "enabled",
@@ -3860,31 +3860,31 @@
    },
    "erp_sync.guard_origin_effects_document": {
     "name": "guardOriginEffectsDocument",
-    "ported": false
+    "ported": true
    },
    "erp_sync.guard_origin_effects_item": {
     "name": "guardOriginEffectsItem",
-    "ported": false
+    "ported": true
    },
    "erp_sync.guard_zero_title": {
     "name": "guardZeroTitle",
-    "ported": false
+    "ported": true
    },
    "erp_sync.origin_effects": {
     "name": "originEffects",
-    "ported": false
+    "ported": true
    },
    "erp_sync.origin_locked": {
     "name": "originLocked",
-    "ported": false
+    "ported": true
    },
    "erp_sync.origin_number": {
     "name": "originNumber",
-    "ported": false
+    "ported": true
    },
    "erp_sync.stock_import_allowed": {
     "name": "stockImportAllowed",
-    "ported": false
+    "ported": true
    }
   },
   "uses": {}

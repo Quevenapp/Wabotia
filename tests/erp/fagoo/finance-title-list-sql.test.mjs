@@ -128,9 +128,7 @@ test('094 exposes only the origin document id, kind and number, in the page and 
   await assert.rejects(() => rpc('erp_finance_get', { p_user_id: users.vendas, p_entity: 'titles', p_id: titles.d1[0].id }), code('42501'));
 });
 
-// Pendente do motor (engine/args.ts, pedido à N): text[] chega como literal do Postgres em texto ('{open,NULL}', '{{open},{paid}}');
-// o Postgres converte e o RPC recusa com 22023, o motor recusa antes com 22P02 'malformed array literal'.
-test('094 rejects every out-of-contract parameter before reading', { todo: 'motor: literal de array do Postgres em texto (engine/args.ts)' }, async () => {
+test('094 rejects every out-of-contract parameter before reading', async () => {
   for (const args of [{ p_kind: 'both' }, { p_kind: null }, { p_page: 0 }, { p_page: 100001 }, { p_limit: 0 }, { p_limit: 101 }, { p_order: 'name' }, { p_order: null },
     { p_statuses: [] }, { p_statuses: ['open', 'open'] }, { p_statuses: ['outstanding'] }, { p_statuses: ['open', 'partial', 'paid', 'cancelled', 'overdue', 'open'] },
     { p_date_field: 'competence' }, { p_from: '2020-02-01', p_to: '2020-01-01' }, { p_from: '1899-12-31' }, { p_to: '2101-01-01' },
