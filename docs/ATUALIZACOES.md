@@ -150,11 +150,27 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. Em **Conexões**, a janela aberta por **Gerar comando de instalação** ou **Parear novamente** traz, em **Meu Hermes roda em Docker**, os comandos para descobrir o nome do contêiner, instalar o plugin, reiniciar o contêiner e conferir a versão instalada, cada um com botão de copiar. Em uma conexão já pareada, a janela avisa que os bots ficam fora do ar entre a execução do comando e o reinício do gateway. O plugin continua na versão 1.1.0; quem já o atualizou não precisa repetir. O roteiro completo está em [Atualizar o plugin](HERMES-PLUGIN.md#21-atualizar-o-plugin). Depois de atualizar, clique em **Reabrir painel atualizado**.
 
-## Próxima atualização (rascunho, número a definir): cupom da senha, botão com link e plano pago exigido
+## Atualização 0.21.0: acesso por pessoa, segundo fator, ERP em implantação, fila mais rápida
 
-Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco nem mudança na Cloudflare. Depois de atualizar, clique em **Reabrir painel atualizado**.
+Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Faça backup antes: esta versão aplica as migrações `0059` a `0089` e acrescenta a flag de compatibilidade `global_fetch_strictly_public` ao Worker (o atualizador a aplica sozinho). Não há recurso novo na Cloudflare. Depois de atualizar, clique em **Reabrir painel atualizado**.
 
-**O plano pago do Cloudflare (Workers Paid) passa a ser exigido.** Na 0.20.0 ele era recomendado para os verticais; agora é requisito para rodar o Wabotia. No plano gratuito, o alarme de cada área e a conclusão do carrinho passam de 50 consultas ao D1 por invocação e param no meio, com parte já gravada. Quem está no gratuito deve assinar o Workers Paid na [página de planos do Workers](https://dash.cloudflare.com/?to=/:account/workers/plans); a instalação não muda e nada precisa ser refeito. O instalador pelo navegador pede a confirmação do plano antes de criar qualquer recurso: ele não confere o plano pela API, porque isso exigiria dar ao token acesso aos dados de cobrança da conta. Detalhes em [Limites do Cloudflare](LIMITES.md).
+**Licença.** A partir da 0.21.0 o servidor e o painel são distribuídos sob AGPL-3.0; `mobile/`, `connectors/` e `push-gateway/` seguem MIT. As versões até a 0.20.0 continuam sob MIT. O painel mostra o link do código-fonte do commit em execução.
+
+**O pacote da instalação não traz mais os guias em PDF.** Eles continuam no site oficial, e as páginas apontam para lá. O Worker passou a ser publicado minificado. O pacote tem 23,7 MB, perto do teto de 24 MB do formato atual.
+
+**Acesso por pessoa**, em **Gestão → Pessoas e acessos**: cada pessoa vê só os módulos e papéis que recebeu (só caixa, só garçom, só técnico). Quem não tem acesso recebe `403 access_denied`.
+
+**Segundo fator (TOTP)** em **Minha conta**, com política opcional por instalação, e **e-mail** pelo Cloudflare Email Sending (convite, "esqueci minha senha" e alertas), configurado em **Gestão → Sistema → E-mail**.
+
+**Bot que age pelo sistema:** a equipe pede ao bot, na conversa interna, para consultar e executar ações em nome dela, com confirmação antes de gravar; o cliente pode pedir pelo WhatsApp o que os módulos liberarem, e pedidos de desconto vão à equipe para aprovação.
+
+**Módulos:** Mesas e Entrega em tempo real (o entregador entra pelo QR do pedido, sem login), endereço da entrega com cidade e UF, e o cadastro do **Estabelecimento** com endereço em campos e posição da loja.
+
+**Fila de senhas mais rápida:** emitir e chamar senha fazem 2 idas ao banco em vez de 16; o painel de TV mostra em destaque a senha que está sendo falada.
+
+**ERP (em implantação, desligado de fábrica).** O módulo **ERP** traz para dentro do Wabotia os cadastros, o estoque, o financeiro e os documentos do Fagoo, com os dados guardados na própria conta Cloudflare. Nesta versão já funcionam produtos e preços, lançamentos e conferência de estoque, contas a pagar e a receber, caixa, borderôs, dados da empresa, permissões, preferências, exportação da empresa e a gravação de propostas, pedidos de venda, pedidos de compra e ordens de serviço. Mudar a situação de um documento, lançar contas a partir dele, clientes e fornecedores, fiscal, cobrança bancária e frente de caixa ainda não estão nesta versão; as telas correspondentes ficam fora do menu ou avisam que a ação está em implantação. Ligue em **Gestão → Módulos** e dê um papel do ERP a cada pessoa em **Pessoas e acessos**. Aplicações podem receber os escopos `erp:read` e `erp:write`, com papel de consulta, vendas, estoque ou fiscal.
+
+**O plano pago do Cloudflare (Workers Paid) passa a ser exigido.** Na 0.20.0 ele era recomendado para os verticais; a partir da 0.21.0 é requisito para rodar o Wabotia. No plano gratuito, o alarme de cada área e a conclusão do carrinho passam de 50 consultas ao D1 por invocação e param no meio, com parte já gravada. Quem está no gratuito deve assinar o Workers Paid na [página de planos do Workers](https://dash.cloudflare.com/?to=/:account/workers/plans); a instalação não muda e nada precisa ser refeito. O instalador pelo navegador pede a confirmação do plano antes de criar qualquer recurso: ele não confere o plano pela API, porque isso exigiria dar ao token acesso aos dados de cobrança da conta. Detalhes em [Limites do Cloudflare](LIMITES.md).
 
 **Cupom da senha configurável**, em **Gestão → Filas e guichês → Cupom da senha**: cada área liga ou desliga os dados do estabelecimento, a posição na fila, uma mensagem de rodapé e o QR do WhatsApp. Quando o QR não pode sair, o cartão diz o motivo: área sem linha de WhatsApp ou linha sem número registrado. Os aparelhos pareados recebem a mudança na hora; os aplicativos precisam da versão que lê o cupom (contrato em [Fila de espera com senha](FILA-SENHAS.md#cupom-da-senha)). Os aplicativos atuais continuam imprimindo como antes, e o QR desligado já some neles.
 
