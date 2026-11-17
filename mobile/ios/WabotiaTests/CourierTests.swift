@@ -90,6 +90,22 @@ final class CourierPreviewHTTPTests: XCTestCase {
     }
 }
 
+@MainActor
+final class CourierClaimHTTPTests: XCTestCase {
+    func testTheStoreNextToTheDeliveryInTheClaimGoesIntoTheDelivery() async throws {
+        StubURLProtocol.reset { _ in
+            .json(200, #"{"token":"wabx_t","expires_at":1,"profile":"p1","module":"entrega","subject":"d1","data":{"delivery":{"id":"d1","label":"Pedido nº 7","address_text":"Rua A, 1 - Centro, Campinas - SP","address":{"street":"Rua A","number":"1","complement":"","district":"Centro","city":"Campinas","state":"SP","postal_code":"13010000","reference":""},"address_incomplete":false,"destination":null},"store":{"name":"Lanche Bom","city":"Campinas","state":"SP","position":{"lat":-22.9,"lng":-47.06}},"app":null}}"#)
+        }
+        let api = HTTPCourierAPI(session: StubURLProtocol.session())
+        let claim = try await api.claim(try CourierQR.read("https://lanche.example.com/api/public/c/\(Q.code("3"))").get(), name: "Carlos", device: "iPhone")
+        XCTAssertEqual(claim.delivery?.store?.position, CourierCoordinate(lat: -22.9, lng: -47.06))
+        XCTAssertEqual(claim.delivery?.address?.postalCode, "13010000")
+        XCTAssertEqual(claim.delivery?.address?.city, "Campinas")
+        XCTAssertEqual(claim.delivery?.addressIncomplete, false)
+        XCTAssertEqual(CourierDestinationPlan.of(claim.delivery!), .nearStore("Rua A, 1 - Centro, Campinas - SP", CourierCoordinate(lat: -22.9, lng: -47.06)))
+    }
+}
+
 final class CourierContractTests: XCTestCase {
     private let decoder: JSONDecoder = {
         let d = JSONDecoder()
@@ -208,6 +224,7 @@ final class FakeCourierAPI: CourierAPI {
         let id = "d\(count)"
         deliveries[id] = CourierDelivery(id: id, label: "Pedido nº \(count)", status: "assigned", customerName: "Cliente", addressText: "Rua \(count), 10",
                                          chat: CourierChatState(lastSeq: 0, customerOpen: true), app: CourierRhythm(uploadSeconds: 5, nearUploadSeconds: 5))
+        adjust?(&deliveries[id]!)
         let grant = CourierGrant(deliveryId: id, server: scan.server.absoluteString, token: "wabx_\(count)", profileId: "p1", label: "Pedido nº \(count)")
         return CourierClaim(grant: grant, delivery: deliveries[id])
     }
@@ -226,6 +243,8 @@ final class FakeCourierAPI: CourierAPI {
         return deliveries[g.deliveryId]!
     }
 
+    /// Muda a entrega criada pela troca (endereço, loja, destino do servidor).
+    var adjust: ((inout CourierDelivery) -> Void)?
     var destinations: [(String, CourierCoordinate)] = []
     func setDestination(_ g: CourierGrant, _ destination: CourierCoordinate) async throws { destinations.append((g.deliveryId, destination)) }
     /// Como o servidor: a troca e a saída respondem a entrega sem o pedido; só `…/courier` traz.
@@ -286,15 +305,19 @@ final class CourierViewModelTests: XCTestCase {
     private var store = MemoryCourierGrantStore()
     private var accepted = false
     private var geocoded: CourierCoordinate? = CourierCoordinate(lat: -23.56, lng: -46.65)
-    private var geocodedNear: [CourierCoordinate] = []
+    private var geocodedNear: [CourierCoordinate?] = []
+    private var geocodedText: [String] = []
+    private var geocodedRadius: [Double] = []
 
     private func model() -> CourierViewModel {
         api = FakeCourierAPI()
         location = FakeCourierLocation()
         store = MemoryCourierGrantStore()
         accepted = false
-        let services = CourierServices(api: api, store: store, location: location, demo: false, geocode: { [unowned self] _, near in
+        let services = CourierServices(api: api, store: store, location: location, demo: false, geocode: { [unowned self] text, near, radius in
                                            self.geocodedNear.append(near)
+                                           self.geocodedText.append(text)
+                                           self.geocodedRadius.append(radius)
                                            return self.geocoded
                                        },
                                        disclosureAccepted: { [unowned self] _ in self.accepted }, acceptDisclosure: { [unowned self] _ in self.accepted = true },
@@ -478,8 +501,113 @@ final class CourierViewModelTests: XCTestCase {
         let sp = CourierCoordinate(lat: -23.55, lng: -46.63)
         let porto = CourierCoordinate(lat: 41.1444, lng: -8.6126)
         let pinheiros = CourierCoordinate(lat: -23.566, lng: -46.69)
-        XCTAssertNil(CourierGeocode.pick([porto], near: sp), "\"Rua das Flores, 200\" no Porto, a 8 mil km: não serve")
-        XCTAssertEqual(CourierGeocode.pick([porto, pinheiros], near: sp), pinheiros)
+        XCTAssertNil(CourierGeocode.pick([porto], near: sp, radius: CourierGeocode.courierRadius), "\"Rua das Flores, 200\" no Porto, a 8 mil km: não serve")
+        XCTAssertEqual(CourierGeocode.pick([porto, pinheiros], near: sp, radius: CourierGeocode.courierRadius), pinheiros)
+    }
+
+    // MARK: Endereço (docs/ENTREGA.md, "Endereço")
+
+    private let campinas = CourierCoordinate(lat: -22.9056, lng: -47.0608)
+
+    func testWithTheServerDestinationTheRouteGoesStraightWithoutGeocoding() async {
+        let vm = model()
+        let sent = CourierCoordinate(lat: -22.91, lng: -47.06)
+        api.adjust = { $0.destination = sent; $0.address = CourierAddress(street: "Rua das Flores", city: "Campinas", state: "SP") }
+        await vm.scanAndConfirm(Q.a)
+        accepted = true
+        location.authorization = .allowed
+        vm.startRoute("d1")
+        await waitUntil { !api.started.isEmpty }
+        XCTAssertEqual(api.started.first?.1, sent, "coordenadas do cliente (WhatsApp) ou da loja: vai direto")
+        XCTAssertTrue(geocodedText.isEmpty, "nada de geocodificar")
+        vm.close()
+    }
+
+    func testWithoutDestinationTheAddressIsSearchedNearTheStore() async {
+        let vm = model()
+        api.adjust = {
+            $0.addressText = "Rua das Flores, 200 - Centro, Campinas - SP"
+            $0.address = CourierAddress(street: "Rua das Flores", number: "200", district: "Centro", city: "Campinas", state: "SP")
+            $0.addressIncomplete = false
+            $0.store = CourierStore(name: "Lanche Bom", city: "Campinas", state: "SP", position: self.campinas)
+        }
+        await vm.scanAndConfirm(Q.a)
+        accepted = true
+        location.authorization = .allowed
+        let elsewhere = CourierCoordinate(lat: -23.55, lng: -46.63)
+        location.onPoint?(CourierPoint(t: Int64(Date().timeIntervalSince1970 * 1000), lat: elsewhere.lat, lng: elsewhere.lng, accuracy: 10))
+        vm.startRoute("d1")
+        await waitUntil { !api.started.isEmpty }
+        XCTAssertEqual(geocodedNear, [campinas], "perto da loja, não do entregador")
+        XCTAssertEqual(geocodedRadius, [30_000])
+        XCTAssertEqual(geocodedText, ["Rua das Flores, 200 - Centro, Campinas - SP"])
+        XCTAssertEqual(api.started.first?.1, geocoded)
+        XCTAssertNil(vm.addressNotice("d1"))
+        vm.close()
+    }
+
+    func testWithoutTheStorePositionTheSearchUsesCityAndStateAndWarnsWhenNotFound() async {
+        let vm = model()
+        api.adjust = {
+            $0.addressText = "Rua das Flores, 200 - Centro"
+            $0.address = CourierAddress(street: "Rua das Flores", number: "200", district: "Centro", city: "Campinas", state: "SP")
+            $0.addressIncomplete = false
+            $0.store = CourierStore(name: "Lanche Bom", city: "Campinas", state: "SP", position: nil)
+        }
+        geocoded = nil
+        await vm.scanAndConfirm(Q.a)
+        accepted = true
+        location.authorization = .allowed
+        vm.startRoute("d1")
+        await waitUntil { !api.started.isEmpty }
+        XCTAssertEqual(geocodedNear, [nil], "sem a posição da loja, sem região")
+        XCTAssertEqual(geocodedText, ["Rua das Flores, 200 - Centro, Campinas - SP"], "a cidade e a UF vão no texto")
+        XCTAssertNil(api.started.first?.1 ?? nil)
+        XCTAssertEqual(vm.addressNotice("d1"), CourierAddressNotice.notFound, "não achou: avisa o entregador")
+        vm.close()
+    }
+
+    func testAnIncompleteAddressWarnsInsteadOfSearchingBlindly() async {
+        let vm = model()
+        api.adjust = {
+            $0.addressText = "Rua das Flores, 200 - Centro"
+            $0.address = CourierAddress(street: "Rua das Flores", number: "200", district: "Centro")
+            $0.addressIncomplete = true
+            $0.store = CourierStore(name: "Lanche Bom", position: nil)
+        }
+        await vm.scanAndConfirm(Q.a)
+        XCTAssertEqual(vm.addressNotice("d1"), CourierAddressNotice.incomplete, "o aviso aparece antes de sair")
+        accepted = true
+        location.authorization = .allowed
+        vm.startRoute("d1")
+        await waitUntil { !api.started.isEmpty }
+        location.onPoint?(CourierPoint(t: Int64(Date().timeIntervalSince1970 * 1000), lat: -23.55, lng: -46.63, accuracy: 10))
+        await settleCourier()
+        XCTAssertTrue(geocodedText.isEmpty, "sem cidade: nada de procurar às cegas (nem perto do entregador)")
+        XCTAssertNil(api.started.first?.1 ?? nil)
+        XCTAssertTrue(api.destinations.isEmpty)
+        vm.close()
+    }
+
+    private func settleCourier() async { for _ in 0..<20 { await Task.yield() } }
+
+    func testTheDestinationPlanFollowsTheContract() {
+        var d = CourierDelivery(id: "d", addressText: "Rua A, 1")
+        XCTAssertEqual(CourierDestinationPlan.of(d), .nearCourier("Rua A, 1"), "servidor antigo, sem os campos novos")
+        d.store = CourierStore(name: "Loja", city: "Campinas", state: "SP", position: nil)
+        XCTAssertEqual(CourierDestinationPlan.of(d), .inCity("Rua A, 1, Campinas - SP"), "sem address, a cidade da loja")
+        d.address = CourierAddress(street: "Rua A", number: "1", city: "Valinhos", state: "SP")
+        XCTAssertEqual(CourierDestinationPlan.of(d), .inCity("Rua A, 1, Valinhos - SP"))
+        d.addressText = "Rua A, 1, Valinhos - SP"
+        XCTAssertEqual(CourierDestinationPlan.of(d), .inCity("Rua A, 1, Valinhos - SP"), "texto que já tem a cidade fica como veio")
+        d.store?.position = campinas
+        XCTAssertEqual(CourierDestinationPlan.of(d), .nearStore("Rua A, 1, Valinhos - SP", campinas))
+        d.addressIncomplete = true
+        XCTAssertEqual(CourierDestinationPlan.of(d), .incomplete)
+        d.destination = campinas
+        XCTAssertEqual(CourierDestinationPlan.of(d), .known(campinas), "com destino, vai direto")
+        XCTAssertFalse(d.needsAddressCheck)
+        XCTAssertEqual(CourierDestinationPlan.of(CourierDelivery(id: "x", addressText: " ", store: CourierStore())), .nothing)
     }
 
     func testTheOrderComesRightAfterTheClaimAndSurvivesTheRouteStart() async {

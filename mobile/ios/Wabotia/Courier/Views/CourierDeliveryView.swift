@@ -62,6 +62,11 @@ struct CourierDeliveryView: View {
         SectionCard(title: "Destino") {
             CardRow(icon: "person.fill", iconColor: Theme.brand, title: d.customerName ?? "Cliente",
                     subtitle: d.addressText?.replacingOccurrences(of: "\n", with: " · "))
+            if let notice = vm.addressNotice(d.id) {
+                // Sem cidade (ou não achado no mapa): o entregador confirma antes de sair procurando.
+                CardRow(icon: "exclamationmark.triangle.fill", iconColor: Theme.warn, title: "Confira o endereço", subtitle: notice)
+                    .accessibilityIdentifier("courier.addressNotice")
+            }
             if let eta = d.etaText {
                 CardRow(icon: "clock.fill", iconColor: Theme.ok, title: "Previsão: \(eta)", subtitle: d.arriving == true ? "O cliente foi avisado de que você está chegando" : "Calculada pelo Wabotia em linha reta")
             }

@@ -9,9 +9,10 @@ struct CourierServices {
     var store: CourierGrantStore
     var location: CourierLocating
     var demo: Bool
-    /// Destino do endereço em texto, no próprio aparelho (CLGeocoder), uma vez por entrega, perto da posição do entregador
-    /// (o endereço da loja vem sem cidade nem país: sem essa referência, "Rua das Flores, 200" pode cair em outro país).
-    var geocode: (_ address: String, _ near: CourierCoordinate) async -> CourierCoordinate?
+    /// Destino do endereço em texto, no próprio aparelho (CLGeocoder), uma vez por entrega (`CourierDestinationPlan`):
+    /// perto da loja, ou na cidade e UF do endereço (`near` nulo), ou, com servidor antigo, perto do entregador. Com
+    /// `near`, resultado a mais de 3 raios dele é descartado (outro lugar com o mesmo nome de rua).
+    var geocode: (_ address: String, _ near: CourierCoordinate?, _ radius: Double) async -> CourierCoordinate?
     var now: () -> Int64 = { Int64(Date().timeIntervalSince1970 * 1000) }
     /// O aviso de compartilhamento já foi aceito neste aparelho (mostrado antes de pedir a permissão).
     /// O aviso de compartilhamento já foi aceito para esta loja (o servidor da entrega): o aviso diz de qual loja é.
@@ -33,13 +34,15 @@ struct CourierServices {
         if DemoMode.courierSimulated { location = SimulatedCourierLocation(step: 5, stride: 150) }
         #endif
         return CourierServices(api: HTTPCourierAPI(), store: KeychainCourierGrantStore(), location: location, demo: false,
-                        geocode: { address, near in
-                            let region = CLCircularRegion(center: CLLocationCoordinate2D(latitude: near.lat, longitude: near.lng),
-                                                          radius: CourierGeocode.searchRadius, identifier: "courier.destination")
+                        geocode: { address, near, radius in
+                            let region = near.map {
+                                CLCircularRegion(center: CLLocationCoordinate2D(latitude: $0.lat, longitude: $0.lng), radius: radius, identifier: "courier.destination")
+                            }
                             let marks = (try? await CLGeocoder().geocodeAddressString(address.replacingOccurrences(of: "\n", with: ", "),
-                                                                                       in: region, preferredLocale: nil)) ?? []
+                                                                                       in: region, preferredLocale: Locale(identifier: "pt_BR"))) ?? []
                             let found = marks.compactMap { $0.location.map { CourierCoordinate(lat: $0.coordinate.latitude, lng: $0.coordinate.longitude) } }
-                            return CourierGeocode.pick(found, near: near)
+                            guard let near else { return found.first }
+                            return CourierGeocode.pick(found, near: near, radius: radius)
                         },
                         disclosureAccepted: { (UserDefaults.standard.stringArray(forKey: "courier.disclosure.stores") ?? []).contains($0) },
                         acceptDisclosure: { store in
@@ -54,21 +57,27 @@ struct CourierServices {
         var name = "Carlos"
         return CourierServices(api: DemoCourierAPI(), store: MemoryCourierGrantStore(), location: SimulatedCourierLocation(), demo: true,
                                // A demonstração já traz o destino de cada entrega.
-                               geocode: { _, _ in nil }, disclosureAccepted: { accepted.contains($0) }, acceptDisclosure: { accepted.insert($0) }, refreshSeconds: 5,
+                               geocode: { _, _, _ in nil }, disclosureAccepted: { accepted.contains($0) }, acceptDisclosure: { accepted.insert($0) }, refreshSeconds: 5,
                                chatPollSeconds: 3, loadName: { name }, saveName: { name = $0 })
     }
 }
 
-/// Escolha do destino geocodificado: só um resultado perto do entregador vale (o resto é outro lugar com o mesmo nome).
+/// Escolha do destino geocodificado: só um resultado perto da referência (loja ou entregador) vale; o resto é outro
+/// lugar com o mesmo nome de rua.
 enum CourierGeocode {
-    /// Raio da busca em volta do entregador.
-    static let searchRadius: CLLocationDistance = 50_000
-    /// Mais longe que isso do entregador, o resultado é descartado (sem destino, a loja informa ou o app tenta de novo).
-    static let maxDistance: Double = 150_000
+    /// Raio da busca em volta do entregador (servidor antigo, sem a posição da loja).
+    static let courierRadius: CLLocationDistance = 50_000
 
-    nonisolated static func pick(_ found: [CourierCoordinate], near: CourierCoordinate) -> CourierCoordinate? {
-        found.first { $0.distance(to: near) <= maxDistance }
+    /// Até 3 raios da referência (150 km em volta do entregador, 90 km em volta da loja).
+    nonisolated static func pick(_ found: [CourierCoordinate], near: CourierCoordinate, radius: Double) -> CourierCoordinate? {
+        found.first { $0.distance(to: near) <= radius * 3 }
     }
+}
+
+/// Aviso ao entregador quando o endereço não dá para achar no mapa.
+enum CourierAddressNotice {
+    static let incomplete = "Endereço sem cidade: confirme com a loja ou peça a localização ao cliente."
+    static let notFound = "Não achei este endereço no mapa: confirme com a loja ou peça a localização ao cliente."
 }
 
 /// O entregador sem conta: as entregas lidas pelo QR (várias ao mesmo tempo), a rota com a posição em lotes, a conversa
@@ -185,6 +194,8 @@ final class CourierViewModel: ObservableObject {
         // leitura de `…/courier`.
         if d.order == nil { d.order = deliveries[d.id]?.order }
         if d.chat == nil { d.chat = deliveries[d.id]?.chat }
+        if d.store == nil { d.store = deliveries[d.id]?.store }
+        if d.destination != nil { unlocated.remove(d.id) }
         deliveries[d.id] = d
         if let app = d.app { rhythm = app }
         if let seq = d.chat?.lastSeq { chatMoved(d.id, to: seq) }
@@ -336,11 +347,7 @@ final class CourierViewModel: ObservableObject {
         guard let grant = grant(id) else { return }
         busy.insert(id)
         defer { busy.remove(id) }
-        var destination = deliveries[id]?.destination
-        if destination == nil, let address = deliveries[id]?.addressText, !address.isEmpty {
-            // Sem posição ainda (o GPS liga com a rota), o endereço é procurado no primeiro ponto.
-            if let near = lastPoint?.coordinate { destination = await services.geocode(address, near) } else { geocodeLater.insert(id) }
-        }
+        let destination = await locate(id)
         do {
             if var d = try await services.api.start(grant, destination: destination) {
                 if d.destination == nil { d.destination = destination }
@@ -396,12 +403,47 @@ final class CourierViewModel: ObservableObject {
 
     // MARK: - Posições
 
-    /// Entregas na rua sem destino, esperando a primeira posição para procurar o endereço perto dela.
+    /// Entregas na rua sem destino, esperando a primeira posição para procurar o endereço perto dela (servidor antigo).
     private var geocodeLater: Set<String> = []
+    /// Entregas cujo endereço não foi achado no mapa: a tela avisa o entregador.
+    @Published private(set) var unlocated: Set<String> = []
+
+    /// O aviso do endereço na tela da entrega, ou `nil`.
+    func addressNotice(_ id: String) -> String? {
+        guard let d = deliveries[id], d.destination == nil else { return nil }
+        if d.needsAddressCheck { return CourierAddressNotice.incomplete }
+        return unlocated.contains(id) ? CourierAddressNotice.notFound : nil
+    }
+
+    /// O destino ao sair para a rota (docs/ENTREGA.md, "Endereço"): as coordenadas do servidor; senão o endereço perto da
+    /// loja; senão na cidade e UF; sem cidade, nada (a tela avisa). Servidor antigo: perto do entregador.
+    private func locate(_ id: String) async -> CourierCoordinate? {
+        guard let d = deliveries[id] else { return nil }
+        switch CourierDestinationPlan.of(d) {
+        case .known(let target):
+            return target
+        case .nearStore(let text, let store):
+            return located(id, await services.geocode(text, store, CourierDestinationPlan.storeRadius))
+        case .inCity(let text):
+            return located(id, await services.geocode(text, nil, 0))
+        case .nearCourier(let text):
+            // Sem posição ainda (o GPS liga com a rota), o endereço é procurado no primeiro ponto.
+            if let near = lastPoint?.coordinate { return await services.geocode(text, near, CourierGeocode.courierRadius) }
+            geocodeLater.insert(id)
+            return nil
+        case .incomplete, .nothing:
+            return nil
+        }
+    }
+
+    private func located(_ id: String, _ target: CourierCoordinate?) -> CourierCoordinate? {
+        if target == nil { unlocated.insert(id) } else { unlocated.remove(id) }
+        return target
+    }
 
     private func locateDestination(_ id: String, near: CourierCoordinate) async {
         guard let grant = grant(id), deliveries[id]?.destination == nil, let address = deliveries[id]?.addressText, !address.isEmpty,
-              let target = await services.geocode(address, near), deliveries[id]?.destination == nil else { return }
+              let target = await services.geocode(address, near, CourierGeocode.courierRadius), deliveries[id]?.destination == nil else { return }
         deliveries[id]?.destination = target
         do { try await services.api.setDestination(grant, target) } catch let error as CourierError { handle(error, id) } catch {}
     }
