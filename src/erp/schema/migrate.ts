@@ -2,6 +2,7 @@
 // chamada (não passa pelas migrações do D1). PRAGMA user_version não é
 // autorizado no objeto (prova 1), então a versão fica em erp_meta.
 import { ERP_DDL, ERP_DDL_HASH, ERP_DDL_VERSION } from "./ddl.ts";
+import { ERP_DDL_GENERATED } from "./ddl.generated.ts";
 import { createEngineTables } from "./engine-tables.ts";
 import { ERP_SEED } from "./seed.generated.ts";
 
@@ -68,9 +69,12 @@ export function fillSeedNormalized(sql: Sql): number {
  * sqlTriggers) e a ordem de criação, que no SQLite decide qual gatilho dispara
  * primeiro (gen-sqlite.mjs cria em ordem inversa do nome, para valer a ordem do
  * Postgres). Gatilho não muda dados; devolve 0 linhas.
+ * Só os do DDL gerado: gatilho de tabela do motor (engine-tables.ts) nasce com
+ * a tabela, no passo do `since` dela. Recriá-lo aqui quebraria a subida de
+ * uma instância antiga (6→9: o passo 7→8 roda antes de a tabela existir).
  */
 export function recreateTriggers(sql: Sql): number {
-  const triggers = ERP_DDL.flatMap((statement) => {
+  const triggers = ERP_DDL_GENERATED.flatMap((statement) => {
     const m = /^CREATE TRIGGER "((?:[^"]|"")+)"/.exec(statement);
     return m ? [{ name: m[1].replace(/""/g, '"'), statement }] : [];
   });
