@@ -909,7 +909,7 @@
    },
    "erp_documents.contact_usable": {
     "name": "contactUsable",
-    "ported": false
+    "ported": true
    },
    "erp_documents.cost_apply": {
     "name": "costApply",
@@ -993,7 +993,7 @@
    },
    "erp_documents.guard_trash_child": {
     "name": "guardTrashChild",
-    "ported": false
+    "ported": true
    },
    "erp_documents.guard_variation_item": {
     "name": "guardVariationItem",
@@ -1037,7 +1037,7 @@
    },
    "erp_documents.os_permitted": {
     "name": "osPermitted",
-    "ported": false
+    "ported": true
    },
    "erp_documents.payment_types": {
     "name": "paymentTypes",
@@ -1081,11 +1081,11 @@
    },
    "erp_documents.report_last_purchase_until": {
     "name": "reportLastPurchaseUntil",
-    "ported": false
+    "ported": true
    },
    "erp_documents.require_access": {
     "name": "requireAccess",
-    "ported": false
+    "ported": true
    },
    "erp_documents.require_commercial_input": {
     "name": "requireCommercialInput",
@@ -1097,7 +1097,7 @@
    },
    "erp_documents.require_role": {
     "name": "requireRole",
-    "ported": false
+    "ported": true
    },
    "erp_documents.require_seller": {
     "name": "requireSeller",
@@ -1572,15 +1572,15 @@
    },
    "erp_finance.commission_operation_titles": {
     "name": "commissionOperationTitles",
-    "ported": false
+    "ported": true
    },
    "erp_finance.commission_operation_view": {
     "name": "commissionOperationView",
-    "ported": false
+    "ported": true
    },
    "erp_finance.commission_policy": {
     "name": "commissionPolicy",
-    "ported": false
+    "ported": true
    },
    "erp_finance.commission_return_capture": {
     "name": "commissionReturnCapture",
@@ -1588,7 +1588,7 @@
    },
    "erp_finance.commission_rows": {
     "name": "commissionRows",
-    "ported": false
+    "ported": true
    },
    "erp_finance.commission_seller": {
     "name": "commissionSeller",
@@ -1816,7 +1816,7 @@
    },
    "erp_finance.statement_lines": {
     "name": "statementLines",
-    "ported": false
+    "ported": true
    },
    "erp_finance.title_defaults": {
     "name": "titleDefaults",
@@ -2806,11 +2806,11 @@
    },
    "erp_preferences.situation_base_color": {
     "name": "situationBaseColor",
-    "ported": false
+    "ported": true
    },
    "erp_preferences.situation_base_label": {
     "name": "situationBaseLabel",
-    "ported": false
+    "ported": true
    },
    "erp_preferences.situation_bases": {
     "name": "situationBases",
@@ -3355,15 +3355,15 @@
   "public_functions": {
    "erp_purchase_receipts.active": {
     "name": "active",
-    "ported": false
+    "ported": true
    },
    "erp_purchase_receipts.guard_document": {
     "name": "guardDocument",
-    "ported": false
+    "ported": true
    },
    "erp_purchase_receipts.guard_item": {
     "name": "guardItem",
-    "ported": false
+    "ported": true
    },
    "erp_purchase_receipts.guard_legacy": {
     "name": "guardLegacy",
@@ -3371,11 +3371,11 @@
    },
    "erp_stock.average_costs": {
     "name": "averageCosts",
-    "ported": false
+    "ported": true
    },
    "erp_stock.balance_kept": {
     "name": "balanceKept",
-    "ported": false
+    "ported": true
    },
    "erp_stock.command_taken": {
     "name": "commandTaken",
@@ -3383,11 +3383,11 @@
    },
    "erp_stock.component_problem": {
     "name": "componentProblem",
-    "ported": false
+    "ported": true
    },
    "erp_stock.component_quantity": {
     "name": "componentQuantity",
-    "ported": false
+    "ported": true
    },
    "erp_stock.composition_apply_values": {
     "name": "compositionApplyValues",
@@ -3399,7 +3399,7 @@
    },
    "erp_stock.composition_lines": {
     "name": "compositionLines",
-    "ported": false
+    "ported": true
    },
    "erp_stock.composition_own_stock": {
     "name": "compositionOwnStock",
@@ -3427,7 +3427,7 @@
    },
    "erp_stock.derived_command": {
     "name": "derivedCommand",
-    "ported": false
+    "ported": true
    },
    "erp_stock.document_access": {
     "name": "documentAccess",
@@ -3443,11 +3443,11 @@
    },
    "erp_stock.document_eligible": {
     "name": "documentEligible",
-    "ported": false
+    "ported": true
    },
    "erp_stock.document_item_lots": {
     "name": "documentItemLots",
-    "ported": false
+    "ported": true
    },
    "erp_stock.document_lock": {
     "name": "documentLock",
@@ -3459,7 +3459,7 @@
    },
    "erp_stock.document_posting_summary": {
     "name": "documentPostingSummary",
-    "ported": false
+    "ported": true
    },
    "erp_stock.document_preview_data": {
     "name": "documentPreviewData",
@@ -3471,27 +3471,27 @@
    },
    "erp_stock.document_summary": {
     "name": "documentSummary",
-    "ported": false
+    "ported": true
    },
    "erp_stock.effect_document_allowed": {
     "name": "effectDocumentAllowed",
-    "ported": false
+    "ported": true
    },
    "erp_stock.effect_edit_allowed": {
     "name": "effectEditAllowed",
-    "ported": false
+    "ported": true
    },
    "erp_stock.effect_item_allowed": {
     "name": "effectItemAllowed",
-    "ported": false
+    "ported": true
    },
    "erp_stock.effect_transition_allowed": {
     "name": "effectTransitionAllowed",
-    "ported": false
+    "ported": true
    },
    "erp_stock.forget_item_components": {
     "name": "forgetItemComponents",
-    "ported": false
+    "ported": true
    },
    "erp_stock.guard_composition": {
     "name": "guardComposition",
@@ -3527,11 +3527,11 @@
    },
    "erp_stock.guard_posted_document": {
     "name": "guardPostedDocument",
-    "ported": false
+    "ported": true
    },
    "erp_stock.guard_posted_item": {
     "name": "guardPostedItem",
-    "ported": false
+    "ported": true
    },
    "erp_stock.guard_reserved_balance": {
     "name": "guardReservedBalance",
@@ -3539,11 +3539,11 @@
    },
    "erp_stock.guard_reserved_document": {
     "name": "guardReservedDocument",
-    "ported": false
+    "ported": true
    },
    "erp_stock.guard_reserved_item": {
     "name": "guardReservedItem",
-    "ported": false
+    "ported": true
    },
    "erp_stock.guard_reserved_posting": {
     "name": "guardReservedPosting",
@@ -3555,7 +3555,7 @@
    },
    "erp_stock.invoice_posted_for_document": {
     "name": "invoicePostedForDocument",
-    "ported": false
+    "ported": true
    },
    "erp_stock.invoice_screen": {
     "name": "invoiceScreen",
@@ -3563,15 +3563,15 @@
    },
    "erp_stock.invoice_unit_price": {
     "name": "invoiceUnitPrice",
-    "ported": false
+    "ported": true
    },
    "erp_stock.item_component_rows": {
     "name": "itemComponentRows",
-    "ported": false
+    "ported": true
    },
    "erp_stock.item_composition_lines": {
     "name": "itemCompositionLines",
-    "ported": false
+    "ported": true
    },
    "erp_stock.last_purchase": {
     "name": "lastPurchase",
@@ -3579,7 +3579,7 @@
    },
    "erp_stock.ledger_document_price": {
     "name": "ledgerDocumentPrice",
-    "ported": false
+    "ported": true
    },
    "erp_stock.ledger_origin": {
     "name": "ledgerOrigin",
@@ -3587,7 +3587,7 @@
    },
    "erp_stock.lot_apply": {
     "name": "lotApply",
-    "ported": false
+    "ported": true
    },
    "erp_stock.lot_check": {
     "name": "lotCheck",
@@ -3603,7 +3603,7 @@
    },
    "erp_stock.lot_product_problem": {
     "name": "lotProductProblem",
-    "ported": false
+    "ported": true
    },
    "erp_stock.lot_quantity": {
     "name": "lotQuantity",
@@ -3627,7 +3627,7 @@
    },
    "erp_stock.post": {
     "name": "post",
-    "ported": false
+    "ported": true
    },
    "erp_stock.post_document_lots": {
     "name": "postDocumentLots",
@@ -3651,11 +3651,11 @@
    },
    "erp_stock.reservation_write_access": {
     "name": "reservationWriteAccess",
-    "ported": false
+    "ported": true
    },
    "erp_stock.reserve_statuses": {
     "name": "reserveStatuses",
-    "ported": false
+    "ported": true
    },
    "erp_stock.reserved_quantity": {
     "name": "reservedQuantity",
@@ -3671,7 +3671,7 @@
    },
    "erp_stock.settings_dto": {
     "name": "settingsDto",
-    "ported": false
+    "ported": true
    },
    "erp_stock.supply_part": {
     "name": "supplyPart",
@@ -3679,27 +3679,27 @@
    },
    "erp_stock.virtual_positions": {
     "name": "virtualPositions",
-    "ported": false
+    "ported": true
    },
    "erp_stock.virtual_quantity": {
     "name": "virtualQuantity",
-    "ported": false
+    "ported": true
    },
    "public.erp_document_stock_post": {
     "name": "erpDocumentStockPost",
-    "ported": false
+    "ported": true
    },
    "public.erp_document_stock_preview": {
     "name": "erpDocumentStockPreview",
-    "ported": false
+    "ported": true
    },
    "public.erp_document_stock_reverse": {
     "name": "erpDocumentStockReverse",
-    "ported": false
+    "ported": true
    },
    "public.erp_document_stock_reverse_preview": {
     "name": "erpDocumentStockReversePreview",
-    "ported": false
+    "ported": true
    },
    "public.erp_stock_post": {
     "name": "erpStockPost",
@@ -3836,19 +3836,19 @@
    },
    "erp_sync.capture_catalog": {
     "name": "captureCatalog",
-    "ported": false
+    "ported": true
    },
    "erp_sync.capture_document": {
     "name": "captureDocument",
-    "ported": false
+    "ported": true
    },
    "erp_sync.capture_finance": {
     "name": "captureFinance",
-    "ported": false
+    "ported": true
    },
    "erp_sync.capture_stock": {
     "name": "captureStock",
-    "ported": false
+    "ported": true
    },
    "erp_sync.enabled": {
     "name": "enabled",
@@ -3860,31 +3860,31 @@
    },
    "erp_sync.guard_origin_effects_document": {
     "name": "guardOriginEffectsDocument",
-    "ported": false
+    "ported": true
    },
    "erp_sync.guard_origin_effects_item": {
     "name": "guardOriginEffectsItem",
-    "ported": false
+    "ported": true
    },
    "erp_sync.guard_zero_title": {
     "name": "guardZeroTitle",
-    "ported": false
+    "ported": true
    },
    "erp_sync.origin_effects": {
     "name": "originEffects",
-    "ported": false
+    "ported": true
    },
    "erp_sync.origin_locked": {
     "name": "originLocked",
-    "ported": false
+    "ported": true
    },
    "erp_sync.origin_number": {
     "name": "originNumber",
-    "ported": false
+    "ported": true
    },
    "erp_sync.stock_import_allowed": {
     "name": "stockImportAllowed",
-    "ported": false
+    "ported": true
    }
   },
   "uses": {}

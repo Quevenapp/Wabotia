@@ -135,12 +135,16 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
      - UNIQUE e PK: 23505 `duplicate key value violates unique constraint "<restrição ou índice>"`.
 
      Os nomes vêm do DDL gerado e são conferidos contra o oráculo (`tests/erp/check-errors.test.mjs`). Exceção: `erp_finance.movement(settlement_id)` tem dois índices parciais nas mesmas colunas, e a mensagem do SQLite não diz qual. Ali sai o código 23505 com a mensagem do SQLite. Não traduza à mão no domínio.
+   - **Coluna identity (número que a pessoa vê): use `nextIdentity(ctx, "<schema>__<tabela>", "<coluna>")`** (`engine/sequence.ts`), nunca max+1 nem o rowid automático.
+     - O número não volta com a transação, como o `nextval`: um RPC que falha depois de pedir o número o consome nos dois motores.
+     - Peça o número **na posição do `nextval` no INSERT, na ordem das colunas** (achado da O no faturamento agrupado). Se uma coluna anterior recusa, o Postgres ainda não consumiu; se a recusa vem de uma coluna depois, já consumiu.
    - **Dois campos inválidos na mesma linha: a ordem das recusas no Postgres muda com o cache de planos** (achado da O na conciliação, `statement_import`).
      - Vale para comando SQL do PL/pgSQL: INSERT, UPDATE ou SELECT com subconsulta.
      - Nas 5 primeiras execuções na sessão, o plano é custom. As funções IMMUTABLE com argumentos de variável (`cents`, `txt`, `ofx_text`, `uuid_value`) são dobradas no planejamento e recusam antes das STABLE e VOLATILE, como a `day`.
      - Da sexta em diante, o plano é genérico e segue a ordem das colunas.
      - O motor segue a ordem das colunas. Nos geradores do diferencial, estrague **um campo por linha**; teste de dois campos inválidos na mesma linha não é estável no oráculo.
    - Gatilhos viram funções da camada de tabela, chamadas por quem escreve (`stock/internal.ts`, `catalog/internal.ts`). Os que só lançam erro já estão em SQL gerado.
+   - **Gatilho `DEFERRABLE INITIALLY DEFERRED`: `defer(ctx, fn)`** (`engine/registry.ts`). Roda no fim da transação, antes do COMMIT, na ordem em que foi enfileirado (os da mesma linha, na ordem do nome do gatilho), incluindo o que a própria fila enfileira. Não deduplique: o Postgres enfileira um evento por linha escrita. Um erro no adiado desfaz a transação inteira.
 3. **Testes originais:**
    - Copie para `tests/erp/fagoo/`, trocando só os auxiliares:
      - criar o banco → `dualFixture()`;
@@ -192,6 +196,14 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
   - Objeto conferido dentro do RPC: declare as chaves em `registerRpc(nome, fn, { objects: (args) => ["erp-attachments/…"] })` e leia com `ctx.objects(chave)`. Ele devolve `{size, mimetype}` ou null; o objeto `erp:` lê do R2 antes da transação.
   - No teste, `f.putObject(bucket, nome, tamanho, tipo)` grava o objeto nos dois lados.
   - Exemplo: `company/rpc/files.ts`.
+  - **Do lado do Worker** (`src/erp-storage.ts`): a erp-api do Fagoo chama o `/storage/v1` do Supabase, e a costura responde do R2, no bucket MEDIA que a instalação já tem.
+    - Chave: `erp-storage/<área>/<bucket>/<caminho>`, a mesma do `erpObjectKey` que o objeto `erp:` consulta.
+    - Buckets aceitos (`ERP_BUCKETS`), com o tamanho e os tipos do Fagoo: `erp-attachments`, `brufap-cnab`, `brufap-exports` e `brufap-received-dfe` (só leitura). Outro bucket dá 404.
+    - Rotas: enviar (`POST`, `x-upsert`; chave repetida → 409, que os adaptadores do Fagoo já aceitam), substituir (`PUT`), baixar (`GET …/authenticated/…`), apagar (`DELETE`) e assinar (`POST …/sign/…`).
+    - Nada é público. A leitura é pela rota da erp-api, com o envelope da pessoa, ou por URL assinada.
+    - URL assinada: a costura troca o endereço local por `/api/public/erp-storage/<área>/<bucket>/<caminho>?token=…`, na origem em que a pessoa chamou. O token é um HMAC (MASTER_KEY) da área, do bucket, do caminho e da expiração, com até 1 h. Com o ERP desligado na área, o link para de valer.
+    - **Arquivo grande sem montar na memória** (exportação da empresa, até 50 MiB): `createErpUpload` grava em partes de 5 MiB e só dá o nome no fim, com o SHA-256 (`exports/<id>/<sha>.zip`); `createZipStream` (`src/erp-zip.ts`) escreve o ZIP direto nele, um conjunto de dados por vez, página por página. Os dois juntos substituem o `createZip` + `exportStorage.put` do `runExport` do Fagoo, que monta o pacote inteiro e o copia de novo no `finish` (mais de 100 MB num isolado de 128 MB).
+    - Testes: `tests/erp-storage.test.ts`, com os adaptadores do Fagoo sem alteração.
 - **Identidade** (`auth.*` do Supabase): use a porta `ctx.identity` (`src/erp/engine/identity.ts`), nunca uma tabela `auth`.
   - **Envelope.** O Worker o preenche e o manda no cabeçalho `x-erp-identity` (JSON em base64url). Traz:
     - `actor`: `user_id`, `name`, `email`, `erp_role` (`admin|consulta|vendas|financeiro|estoque|fiscal` ou null), `session_id`, `aal` (`aal1`/`aal2`), `verified_factor`, `is_agent`;

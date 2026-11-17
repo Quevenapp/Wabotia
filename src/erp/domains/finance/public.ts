@@ -57,3 +57,12 @@ export function accountOptions(db: SqlDriver): { id: string; name: string; activ
     .slice(0, 500)
     .map((a) => ({ id: a.id, name: left(a.name, 200), active: a.active }));
 }
+
+// Para o domínio 11 (erp_preferences.report_source, bases "comissoes" e "caixa"):
+// - commissionRows(db, vendedor | null): as linhas de erp_finance.commission_rows,
+//   com os nomes das colunas do oráculo; rate vem como bigint escalado (6 casas,
+//   numeric(10,6)) e void pode ser null, como no Postgres;
+// - statementLines(db, conta | null, de | null, até | null, excluídas): as linhas de
+//   erp_finance.statement_lines (sem ordem; quem lê ordena).
+export { commissionPolicy, commissionRows, operationTitles as commissionOperationTitles, operationView as commissionOperationView, type CommissionRow } from "./commissions.ts";
+export { statementLines } from "./rpc/erp_finance_statement_page.ts";

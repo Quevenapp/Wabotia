@@ -9,6 +9,28 @@ export * from "./stubs.generated.ts";
 export { movementDto, requireAccess, reservedQuantity } from "./internal.ts";
 export { erpStockPost } from "./rpc/erp_stock_post.ts";
 export { countPhysical, ignoredWarehouse, lotQuantity, lotsExpiring } from "./home.ts";
+// Para o domínio 11 (painel Meu Negócio, sessão G) e Documentos: escalas em
+// read.ts (quantidade de kits inteira), ledger.ts e costs.ts (preço escala 10).
+export { virtualPositions, virtualQuantity } from "./read.ts";
+export { ledgerDocumentPrice, priceText } from "./ledger.ts";
+export { invoiceUnitPrice } from "./costs.ts";
+// Para o Documentos (sessão O): guardas e efeitos sobre documento e item.
+export {
+  active, effectDocumentAllowed, effectEditAllowed, effectItemAllowed, effectTransitionAllowed, forgetItemComponents,
+  guardDocument, guardItem, guardPostedDocument, guardPostedItem, guardReservedDocument, guardReservedItem,
+} from "./document-guards.ts";
+export { averageCosts } from "./costs.ts";
+// Bloco 2 (efeito de documento): o transition_action do Documentos chama os
+// públicos; as internas ficam visíveis para quem precisar delas.
+export {
+  componentProblem, componentQuantity, compositionLines, documentEligible, documentItemLots, documentPostingSummary, documentSummary,
+  erpDocumentStockPost, erpDocumentStockPreview, erpDocumentStockReverse, erpDocumentStockReversePreview, itemCompositionLines,
+  lotProductProblem,
+} from "./rpc/document-stock.ts";
+export { post } from "./rpc/erp_stock_post.ts";
+export { balanceKept, derivedCommand, lotApply, reservationWriteAccess } from "./internal.ts";
+export { invoicePostedForDocument, itemComponentRows } from "./read.ts";
+export { reserveStatuses, settingsDto } from "./read.ts";
 
 // ---------------------------------------------------------------------------
 // compositionSettings, protectProductUnit e protectDefaultWarehouse: escritas

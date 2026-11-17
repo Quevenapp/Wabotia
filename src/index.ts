@@ -163,6 +163,7 @@ import { capabilities as serverCapabilities } from "./modules/capabilities";
 import { establishment } from "./establishment";
 import { erpApi, erpProbe } from "./erp/api/local-fetch";
 import { ERP_PEOPLE_SQL, erpIdentity, isErpPath } from "./modules/erp/identity";
+import { erpSignedDownload } from "./erp-storage";
 import {
   appProfiles,
   closeSockets,
@@ -1171,6 +1172,12 @@ const erpEmissor = async (c: any) => {
 };
 app.all("/api/v1/profiles/:profile/erp-emissor", erpEmissor);
 app.all("/api/v1/profiles/:profile/erp-emissor/*", erpEmissor);
+// Arquivo do ERP por URL assinada de curta duração (a exportação da empresa):
+// sem sessão, o token (HMAC) vale para um objeto de uma área até vencer
+// (src/erp-storage.ts). Os buckets do ERP nunca são públicos.
+app.get("/api/public/erp-storage/*", (c) =>
+  erpSignedDownload(c.env, c.req.raw),
+);
 // Sondas do ERP para a instalação de teste (só com ERP_PROBES=1 no deploy).
 app.post("/api/v1/profiles/:profile/erp-probe/:name", async (c) => {
   const profile = c.req.param("profile");

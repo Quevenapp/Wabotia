@@ -1,8 +1,7 @@
 // Etiquetas customizadas (migrações 149 e 230) na fixture dupla. Adaptados do Fagoo:
 // - reports-labels-sql.test.mjs: "149 etiquetas…" (a parte das etiquetas; a exclusão passa por
 //   erp_preferences_framework_delete, ainda só no oráculo e espelhada);
-// - preferences-d-sql.test.mjs: "230 NFE-052…" (a parte de label_invoice_products).
-// erp_preferences_label_records lê a visibilidade de contatos e documentos (stubs dos donos): roda só no oráculo.
+// - preferences-d-sql.test.mjs: "230 NFE-052…" (label_invoice_products e label_records).
 // Fora, declarados: GRANT/has_function_privilege.
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -131,7 +130,7 @@ test("149 etiquetas: five fixed Padrões, Clonar into Customizadas, the model ru
     await fails(assert, () => remove(f, "labels", { command_id: randomUUID(), items: [{ id, expected_version: 1 }] }), "40001");
     await remove(f, "labels", { command_id: randomUUID(), items: [{ id, expected_version: 2 }] });
     assert.equal(parseLabels(await f.rpc("erp_preferences_labels", { p_user_id: f.users.admin })).items.length, 6);
-    // Records to print, by search and by the module rule of the role (só no oráculo).
+    // Records to print, by search and by the module rule of the role.
     const q = captureLabelRecordsQuery({ tipo: "produto", busca: "can" }),
       records = parseLabelRecords(await f.rpc("erp_preferences_label_records", { p_user_id: f.users.estoque, p_type: q.type, p_query: q.q }), q);
     assert.deepEqual(records.items.map((i) => [i.id, i.values.codigo, i.values.gtin]), [[p.id, "CAN-1", "7891234567895"]]);
@@ -213,6 +212,35 @@ test("230 NFE-052 Etiquetas customizadas print the products of a note with their
     await fails(assert, () => f.rpc("erp_preferences_label_invoice_products", { p_user_id: f.users.estoque, p_invoice_id: invoice.id }), "42501");
     await fails(assert, () => f.rpc("erp_preferences_label_invoice_products", { p_user_id: f.users.admin, p_invoice_id: randomUUID() }), "P0002");
     await fails(assert, () => f.rpc("erp_preferences_label_invoice_products", { p_user_id: f.users.admin, p_invoice_id: null }), "22023");
+    // label_records (230): notas por número ou destinatário; a busca de cada tipo; curingas literais.
+    const records = parseLabelRecords(
+      await f.rpc("erp_preferences_label_records", { p_user_id: f.users.admin, p_type: "nota_fiscal", p_query: "sintético" }),
+      captureLabelRecordsQuery({ tipo: "nota_fiscal", busca: "sintético" }),
+    );
+    assert.deepEqual(
+      records.items.map((i) => [i.id, i.values.cliente, i.values.serie, i.values.endereco_cliente, i.values.cidade_uf]),
+      [[invoice.id, "Cliente Sintético", "1", "Rua Sintética, 10", "Campinas/SP"]],
+    );
+    await fails(assert, () => f.rpc("erp_preferences_label_records", { p_user_id: f.users.vendas, p_type: "nota_fiscal", p_query: null }), "42501");
+    const order = (
+      await f.rpc("erp_document_save", {
+        p_user_id: f.users.admin, p_kind: "sales_orders", p_id: null, p_expected_version: 0, p_command_id: randomUUID(),
+        p_body: { date: "2026-10-20", contact_id: (await f.catalog("contacts", { name: "Ana Sintética", city: "Campinas", state: "SP" })).id,
+          items: [{ unit: "UN", product_id: product.id, description: "Peça sintética", quantity: "1", unit_price: "5" }] },
+      })
+    ).document;
+    for (const [type, query] of [["produto", "peça"], ["produto", null], ["contato", "sintético"], ["contato", null], ["pedido_venda", null], ["pedido_venda", "ana"], ["pedido_venda", String(order.number)], ["ordem_servico", null], ["nota_fiscal", null]])
+      assert.ok(Array.isArray((await f.rpc("erp_preferences_label_records", { p_user_id: f.users.admin, p_type: type, p_query: query })).items), `${type} ${query}`);
+    const sales = await f.rpc("erp_preferences_label_records", { p_user_id: f.users.fiscal, p_type: "pedido_venda", p_query: null });
+    assert.deepEqual(sales.items.map((i) => [i.values.numero, i.values.cliente, i.values.cidade_uf]), [[String(order.number), "Ana Sintética", "Campinas/SP"]]);
+    assert.equal((await f.rpc("erp_preferences_label_records", { p_user_id: f.users.admin, p_type: "produto", p_query: "peça" })).items[0].values.codigo, "P-1");
+    for (const bad of [" x", "x".repeat(61), "a\u0001"])
+      await fails(assert, () => f.rpc("erp_preferences_label_records", { p_user_id: f.users.admin, p_type: "produto", p_query: bad }), "22023");
+    await fails(assert, () => f.rpc("erp_preferences_label_records", { p_user_id: f.users.admin, p_type: "outro", p_query: null }), "22023");
+    await fails(assert, () => f.rpc("erp_preferences_label_records", { p_user_id: f.users.estoque, p_type: "ordem_servico", p_query: null }), "42501");
+    await fails(assert, () => f.rpc("erp_preferences_label_records", { p_user_id: f.users.inactive, p_type: "produto", p_query: null }), "42501");
+    for (const literal of ["%", "_"])
+      assert.equal((await f.rpc("erp_preferences_label_records", { p_user_id: f.users.admin, p_type: "produto", p_query: literal })).items.length, 0, "LIKE wildcards are literal");
     assert.equal((await f.rpc("erp_preferences_label_invoice_products", { p_user_id: f.users.consulta, p_invoice_id: invoice.id })).items.length, 2);
   } finally {
     await f.close();
