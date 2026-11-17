@@ -240,3 +240,6 @@ export function documentProduct(
 
 // Taxonomia (sessão B, base do taxonomy_list/save/delete da P).
 export { taxonomyItem, taxonomyTypeGuard } from "./taxonomy.ts";
+
+// Etiquetas de nota (sessão B, bloco C): também usadas pelo taxonomy_delete da P.
+export { invoiceTagBump, invoiceTagIds, invoiceTagKeyValid, invoiceTagTarget, invoiceTagsData } from "./invoice-tags.ts";
