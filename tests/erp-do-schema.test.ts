@@ -104,6 +104,26 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
     expect(out.again).toMatchObject({ status: "current" });
   });
 
+  // Tempo da subida 6→atual no objeto (a primeira requisição depois da
+  // implantação). Os passos só mexem em DDL (2 tabelas, os gatilhos recriados),
+  // sem trabalho proporcional aos dados; a fidelidade da subida (esquema da v6
+  // de verdade, dados do motor) está em tests/erp/schema-upgrade.test.mjs.
+  it("passo 6→atual no objeto: tempo da subida", async () => {
+    const stub = env.COORDINATOR.get(env.COORDINATOR.idFromName("erp:schema-" + uid()));
+    const out = await runInDurableObject(stub, (_i: any, state: DurableObjectState) => {
+      const sql = state.storage.sql;
+      migrate(state.storage);
+      for (const t of ERP_ENGINE_TABLES) sql.exec(`DROP TABLE "${t.table}"`);
+      sql.exec("UPDATE erp_meta SET value='6' WHERE key='schema_version'");
+      const t0 = performance.now();
+      const step = migrate(state.storage);
+      return { step, ms: performance.now() - t0 };
+    });
+    console.log("ERP_SCHEMA_UPGRADE " + JSON.stringify({ from: 6, to: ERP_DDL_VERSION, ms: Math.round(out.ms) }));
+    expect(out.step).toMatchObject({ status: "applied", version: ERP_DDL_VERSION });
+    expect(out.ms).toBeLessThan(5_000);
+  });
+
   // Tempo-limite próprio: a primeira chamada aplica o DDL inteiro e a
   // semeadura num objeto novo, e o teste faz mais 20 idas; fica perto dos
   // 5 s padrão mesmo sozinho (B, 17/11).
