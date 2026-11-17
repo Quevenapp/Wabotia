@@ -78,6 +78,13 @@ export const IDENTITY_HEADER = "x-erp-identity";
 export const GATE_HEADER = "x-erp-gate";
 /** Resposta de RPC recusado pelo portão: "outside_schedule" ou "mfa_required". */
 export const GATE_DENIED_HEADER = "x-erp-gate-denied";
+/**
+ * Marca de chamada interna na rota /erp-rpc: só a costura da erp-api
+ * (api/local-fetch.ts) a põe. As RPCs do agendador (rpc-endpoint.ts,
+ * SYSTEM_RPCS) sem ela são recusadas; o agendador do objeto chama callRpc
+ * direto e nem passa pela rota.
+ */
+export const SYSTEM_HEADER = "x-erp-system";
 export const encodeIdentity = (port: IdentityPort) => b64url(JSON.stringify(port));
 export function decodeIdentity(header: string | null): IdentityPort {
   if (!header || header.length > 200_000) return NO_IDENTITY;

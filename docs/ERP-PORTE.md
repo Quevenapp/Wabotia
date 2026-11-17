@@ -219,6 +219,10 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
   - `LIKE` do usuário vira `instr()`.
   - `lower`/`NOCASE` só valem para ASCII: compare em TS ou use a coluna `__fold`.
   - A ordem das chaves do jsonb vem de `jsonbKeys`; o texto canônico, de `jsonbText`.
+  - **Ordem dos gatilhos** (achado de 17/11, `tests/erp/cnab-sql-triggers.test.mjs`): o Postgres dispara os gatilhos da mesma tabela e momento em ordem alfabética do nome; o SQLite dispara primeiro o criado por último.
+    - Com dois gatilhos que recusam a mesma linha, o erro muda de um motor para o outro.
+    - O gerador (`gen-sqlite.mjs`) cria os gatilhos de cada tabela em ordem inversa do nome, e o passo `recreateTriggers` (`migrate.ts`) refaz essa ordem nas instâncias que já existem.
+    - Guarda escrita em TS no ponto de um gatilho segue a ordem do nome, junto com as outras guardas da mesma tabela e do mesmo momento.
 - **Decimais:**
   - A escala de cada coluna está em `columns.generated.ts`.
   - `dec`/`dec_i64` são escalados (`toScaled`, `formatScaled`).

@@ -16,6 +16,7 @@ import { storageDriver } from "../src/erp/engine/driver";
 import "../src/erp/domains/index";
 import { callRpc } from "../src/erp/engine/registry";
 import { saoPauloParts } from "../src/erp/engine/time";
+import { SYSTEM_HEADER } from "../src/erp/engine/identity";
 import { runRound } from "../src/erp/scheduler/dispatch";
 import { erpAreas, isErpCronSlot, wakeErpAreas } from "../src/erp/scheduler/cron";
 import { DAY_MS, nextHour, nextLocalTime } from "../src/erp/scheduler/routines";
@@ -84,9 +85,12 @@ async function roundWithReads(yieldTurn?: () => Promise<void>) {
   while (!log.length) await new Promise((r) => setTimeout(r, 1));
   const ping = await erpFetch(env, f.profile, "/erp-ping");
   log.push("leitura " + ping.status);
-  // O RPC mais barato que responde 200 sem identidade: nada a tomar para company_export.
+  // O RPC mais barato que responde 200 sem identidade: nada a tomar para
+  // company_export. É RPC do agendador: na rota, só com a marca de chamada
+  // interna (rpc-endpoint.ts, SYSTEM_RPCS), como a costura põe.
   const rpc = await erpFetch(env, f.profile, "/erp-rpc/erp_platform_task_claim", {
     method: "POST",
+    headers: { [SYSTEM_HEADER]: "1" },
     body: JSON.stringify({ p_lease: crypto.randomUUID(), p_purposes: ["company_export"] }),
   });
   log.push("rpc " + rpc.status);

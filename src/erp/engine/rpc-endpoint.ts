@@ -5,8 +5,32 @@
 import "../domains/index.ts";
 import { storageDriver, type SqlDriver } from "./driver.ts";
 import { ErpError } from "./errors.ts";
-import { ErpGateDenied, callRpc, rpcObjectKeys, rpcWakes, rpcWantsListing, type StoredListing, type StoredObject } from "./registry.ts";
-import { GATE_DENIED_HEADER, GATE_HEADER, IDENTITY_HEADER, decodeIdentity } from "./identity.ts";
+import { ErpGateDenied, callRpc, isPorted, rpcObjectKeys, rpcWakes, rpcWantsListing, type StoredListing, type StoredObject } from "./registry.ts";
+import { GATE_DENIED_HEADER, GATE_HEADER, IDENTITY_HEADER, SYSTEM_HEADER, decodeIdentity } from "./identity.ts";
+import { SIGNATURES } from "./signatures.generated.ts";
+import { ENGINE_SIGNATURES } from "./signatures-engine.ts";
+
+/**
+ * RPCs do agendador e da plataforma, sem checagem de quem chama (no Fagoo só
+ * têm GRANT para o service_role): na rota /erp-rpc, só com a marca de
+ * chamada interna (SYSTEM_HEADER). Defesa em profundidade: o cliente nunca
+ * escolhe nome de RPC nem p_user_id (as rotas da erp-api escolhem), mas um
+ * caminho novo que repasse nome vindo de fora não alcança estas
+ * (N-consulta-leituras.md; tests/erp-do-rpc-system.test.ts).
+ */
+export const SYSTEM_RPCS: ReadonlySet<string> = new Set([
+  "erp_platform_schedule",
+  "erp_platform_task_claim",
+  "erp_platform_task_progress",
+  "erp_platform_task_finish",
+  "erp_platform_notifications_run",
+  "erp_platform_export_plan",
+  "erp_platform_export_chunk",
+  "erp_platform_export_complete",
+  "erp_platform_export_expired",
+  "erp_platform_export_removed",
+  "erp_wabotia_state",
+]);
 import { Clock } from "./time.ts";
 
 const clocks = new WeakMap<DurableObjectState, Clock>();
@@ -76,6 +100,13 @@ export async function handleRpc(
   request: Request,
   media?: R2Bucket,
 ): Promise<Response> {
+  // Nome fora do registro e fora do oráculo: erro claro, como o PGRST202 do
+  // PostgREST (função que o oráculo tem e o motor ainda não portou continua
+  // 0A000 visível, pelo callRpc).
+  if (!isPorted(name) && !(name in SIGNATURES) && !(name in ENGINE_SIGNATURES))
+    return Response.json({ code: "PGRST202", message: `erp_rpc_unknown:${name}`, details: null, hint: null }, { status: 404 });
+  if (SYSTEM_RPCS.has(name) && request.headers.get(SYSTEM_HEADER) !== "1")
+    return Response.json({ code: "42501", message: "erp_rpc_system_only", details: null, hint: null }, { status: 403 });
   let args: unknown;
   try {
     args = await request.json();
