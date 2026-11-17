@@ -1,4 +1,4 @@
-﻿// Exportação da empresa (migração 331) na fixture dupla. Adaptado de
+// Exportação da empresa (migração 331) na fixture dupla. Adaptado de
 // workers/erp-api/test/plataforma-h-sql.test.mjs, "PRF-029: the administrador asks for one export at a time…":
 // o pedido, a repetição, a recusa enquanto há outra, o plano (tabelas e arquivos do armazenamento, pela listagem),
 // a confirmação, a lista, o link curto e a limpeza depois da retenção, pelos RPCs que o runPlatformTasks chama.

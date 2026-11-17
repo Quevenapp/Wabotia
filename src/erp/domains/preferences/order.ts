@@ -1,4 +1,4 @@
-﻿// Ordem do texto em collation C (bytes UTF-8), como o oráculo.
+// Ordem do texto em collation C (bytes UTF-8), como o oráculo.
 const encoder = new TextEncoder();
 export function compareText(a: string, b: string) {
   const x = encoder.encode(a),
