@@ -14,6 +14,13 @@ export { countPhysical, ignoredWarehouse, lotQuantity, lotsExpiring } from "./ho
 export { virtualPositions, virtualQuantity } from "./read.ts";
 export { ledgerDocumentPrice, priceText } from "./ledger.ts";
 export { invoiceUnitPrice } from "./costs.ts";
+// Para o Documentos (sessão O): guardas e efeitos sobre documento e item.
+export {
+  active, effectDocumentAllowed, effectEditAllowed, effectItemAllowed, effectTransitionAllowed, forgetItemComponents,
+  guardDocument, guardItem, guardPostedDocument, guardPostedItem, guardReservedDocument, guardReservedItem,
+} from "./document-guards.ts";
+export { averageCosts } from "./costs.ts";
+export { reserveStatuses, settingsDto } from "./read.ts";
 
 // ---------------------------------------------------------------------------
 // compositionSettings, protectProductUnit e protectDefaultWarehouse: escritas
