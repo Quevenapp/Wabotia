@@ -4,8 +4,10 @@
 //   preferências (uma linha da semeadura);
 // - "function": um trecho literal no corpo de uma função do oráculo, para o
 //   que a pessoa vê e não pode levar o nome do Fagoo (ex.: o nome do arquivo
-//   baixado). Só texto de saída: regra, conversão, permissão e precisão do
-//   banco e do motor nunca entram aqui.
+//   baixado, um rótulo). Regra (orquestração, 17/11): só texto que a pessoa
+//   vê; nunca para mudar regra de negócio. Condição, cálculo, conversão,
+//   permissão, validação e precisão do banco e do motor nunca entram aqui:
+//   mudança de regra é porte com teste próprio, não desvio.
 // Esquema nunca entra aqui.
 //
 // Como vale:
