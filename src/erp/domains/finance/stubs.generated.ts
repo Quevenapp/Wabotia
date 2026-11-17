@@ -47,18 +47,12 @@ export const commissionCaptureInvoice = (..._args: unknown[]): never => notPorte
 export const commissionCaptureInvoiceTitle = (..._args: unknown[]): never => notPorted("erp_finance.commission_capture_invoice_title");
 /** erp_finance.commission_capture_title(p_title uuid) → uuid */
 export const commissionCaptureTitle = (..._args: unknown[]): never => notPorted("erp_finance.commission_capture_title");
-/** erp_finance.commission_confirmed(p_kind text, p_status text) → boolean */
-export const commissionConfirmed = (..._args: unknown[]): never => notPorted("erp_finance.commission_confirmed");
 /** erp_finance.commission_document(p_document uuid, p_seller uuid, OUT base_cents bigint, OUT weighted numeric, OUT items_cents bigint, OUT rule text) → record */
 export const commissionDocument = (..._args: unknown[]): never => notPorted("erp_finance.commission_document");
 /** erp_finance.commission_invoice(p_invoice uuid, p_seller uuid, OUT base_cents bigint, OUT weighted numeric, OUT items_cents bigint, OUT rule text) → record */
 export const commissionInvoice = (..._args: unknown[]): never => notPorted("erp_finance.commission_invoice");
-/** erp_finance.commission_operation_capture() → trigger */
-export const commissionOperationCapture = (..._args: unknown[]): never => notPorted("erp_finance.commission_operation_capture");
 /** erp_finance.commission_operation_frozen() → trigger */
 export const commissionOperationFrozen = (..._args: unknown[]): never => notPorted("erp_finance.commission_operation_frozen");
-/** erp_finance.commission_operation_sync(p_document uuid) → uuid */
-export const commissionOperationSync = (..._args: unknown[]): never => notPorted("erp_finance.commission_operation_sync");
 /** erp_finance.commission_return_capture() → trigger */
 export const commissionReturnCapture = (..._args: unknown[]): never => notPorted("erp_finance.commission_return_capture");
 /** erp_finance.commission_seller(p_reference jsonb) → uuid */
@@ -101,10 +95,6 @@ export const guardInvoiceTitle = (..._args: unknown[]): never => notPorted("erp_
 export const guardOriginImportBilling = (..._args: unknown[]): never => notPorted("erp_finance.guard_origin_import_billing");
 /** erp_finance.guard_origin_import_title() → trigger */
 export const guardOriginImportTitle = (..._args: unknown[]): never => notPorted("erp_finance.guard_origin_import_title");
-/** erp_finance.guard_posted_document() → trigger */
-export const guardPostedDocument = (..._args: unknown[]): never => notPorted("erp_finance.guard_posted_document");
-/** erp_finance.guard_posted_item() → trigger */
-export const guardPostedItem = (..._args: unknown[]): never => notPorted("erp_finance.guard_posted_item");
 /** erp_finance.invoice_auto_finance() → trigger */
 export const invoiceAutoFinance = (..._args: unknown[]): never => notPorted("erp_finance.invoice_auto_finance");
 /** erp_finance.invoice_blocked_reason(v erp_fiscal_invoices.invoice) → text */
@@ -133,10 +123,6 @@ export const invoiceTitleRows = (..._args: unknown[]): never => notPorted("erp_f
 export const invoiceTotalCents = (..._args: unknown[]): never => notPorted("erp_finance.invoice_total_cents");
 /** erp_finance.movement_account_start() → trigger */
 export const movementAccountStart = (..._args: unknown[]): never => notPorted("erp_finance.movement_account_start");
-/** erp_finance.notes_edit_allowed(o erp_documents.document, n erp_documents.document) → boolean */
-export const notesEditAllowed = (..._args: unknown[]): never => notPorted("erp_finance.notes_edit_allowed");
-/** erp_finance.notes_item_allowed(p_op text, o erp_documents.item, n erp_documents.item) → boolean */
-export const notesItemAllowed = (..._args: unknown[]): never => notPorted("erp_finance.notes_item_allowed");
 /** erp_finance.owned_entry_guard() → trigger */
 export const ownedEntryGuard = (..._args: unknown[]): never => notPorted("erp_finance.owned_entry_guard");
 /** erp_finance.payment_method_fee(p_method uuid, p_amount bigint) → bigint */
