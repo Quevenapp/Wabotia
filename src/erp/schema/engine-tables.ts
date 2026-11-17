@@ -26,7 +26,65 @@ export interface EngineTable {
   structural: string;
 }
 
-export const ERP_ENGINE_TABLES: readonly EngineTable[] = [];
+const DIGITS = (n: number) => "[0-9]".repeat(n);
+const ARRAY = (c: string) => `"${c}" TEXT NOT NULL DEFAULT '[]' CHECK (json_valid("${c}") AND json_type("${c}")='array')`;
+const T_NATURE = "erp_fiscal_reform__nature_class";
+const T_PRODUCT = "erp_fiscal_reform__product_class";
+
+export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
+  {
+    // Classificação de IBS/CBS por natureza de operação: o padrão (escopo any)
+    // e as exceções por NCM, produto ou grupo, como as regras da natureza.
+    table: T_NATURE,
+    ddl: [
+      `CREATE TABLE "${T_NATURE}" (
+  "nature_id" TEXT NOT NULL,
+  "position" INTEGER NOT NULL,
+  "product_scope" TEXT NOT NULL,
+  ${ARRAY("ncms")},
+  ${ARRAY("product_ids")},
+  ${ARRAY("group_ids")},
+  "cst" TEXT NOT NULL,
+  "cclasstrib" TEXT NOT NULL,
+  "updated_by" TEXT NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  PRIMARY KEY ("nature_id", "position"),
+  CONSTRAINT "${T_NATURE}_position_check" CHECK (("position" >= 1) AND ("position" <= 50)),
+  CONSTRAINT "${T_NATURE}_product_scope_check" CHECK ((product_scope IN ('any', 'ncm', 'products', 'groups'))),
+  CONSTRAINT "${T_NATURE}_scope" CHECK ((((product_scope = 'any') AND (json_array_length(ncms) = 0) AND (json_array_length(product_ids) = 0) AND (json_array_length(group_ids) = 0)) OR ((product_scope = 'ncm') AND ((json_array_length(ncms) >= 1) AND (json_array_length(ncms) <= 10)) AND (json_array_length(product_ids) = 0) AND (json_array_length(group_ids) = 0)) OR ((product_scope = 'products') AND ((json_array_length(product_ids) >= 1) AND (json_array_length(product_ids) <= 10)) AND (json_array_length(ncms) = 0) AND (json_array_length(group_ids) = 0)) OR ((product_scope = 'groups') AND ((json_array_length(group_ids) >= 1) AND (json_array_length(group_ids) <= 10)) AND (json_array_length(ncms) = 0) AND (json_array_length(product_ids) = 0)))),
+  CONSTRAINT "${T_NATURE}_cst_check" CHECK ((cst GLOB '${DIGITS(3)}')),
+  CONSTRAINT "${T_NATURE}_cclasstrib_check" CHECK ((cclasstrib GLOB '${DIGITS(6)}')),
+  CONSTRAINT "${T_NATURE}_nature_id_fkey" FOREIGN KEY ("nature_id") REFERENCES "erp_fiscal_invoices__nature" ("id")
+) STRICT`,
+    ],
+    since: 7,
+    owner: "G",
+    structural: "reforma-classificacao",
+  },
+  {
+    // Classificação de IBS/CBS do produto (e NBS do serviço): vence a da natureza.
+    table: T_PRODUCT,
+    ddl: [
+      `CREATE TABLE "${T_PRODUCT}" (
+  "product_id" TEXT NOT NULL PRIMARY KEY,
+  "cst" TEXT NOT NULL,
+  "cclasstrib" TEXT NOT NULL,
+  "nbs" TEXT,
+  "version" INTEGER NOT NULL,
+  "updated_by" TEXT NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  CONSTRAINT "${T_PRODUCT}_cst_check" CHECK ((cst GLOB '${DIGITS(3)}')),
+  CONSTRAINT "${T_PRODUCT}_cclasstrib_check" CHECK ((cclasstrib GLOB '${DIGITS(6)}')),
+  CONSTRAINT "${T_PRODUCT}_nbs_check" CHECK ((nbs GLOB '${DIGITS(9)}')),
+  CONSTRAINT "${T_PRODUCT}_version_check" CHECK ((("version" >= 1) AND ("version" <= 2147483647))),
+  CONSTRAINT "${T_PRODUCT}_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "erp_catalog__product" ("record_id")
+) STRICT`,
+    ],
+    since: 7,
+    owner: "G",
+    structural: "reforma-classificacao",
+  },
+];
 
 export const ERP_ENGINE_DDL: readonly string[] = ERP_ENGINE_TABLES.flatMap((t) => t.ddl);
 
