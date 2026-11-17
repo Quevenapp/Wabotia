@@ -84,11 +84,61 @@ export function seedRead(env: Env, r: Read, rows: any[]) {
  */
 export async function reads(env: Env, items: Read[]): Promise<any[]> {
   if (!items.length) return [];
-  const results = await batch(
+  const results = await batchPrefetched(
     env,
     items.map((r) => [r.sql, r.args]),
   );
   return readValues(items, results);
+}
+
+// ---------------------------------------------------------------------------
+// Adiantados de um comando (src/coordinator.ts, docs/LIMITES.md): as
+// instruções que a operação vai fazer primeiro, feitas no lote da abertura
+// do /command. Valem uma vez só, para a mesma instrução com os mesmos
+// argumentos: uma segunda tentativa dentro da operação (a chamada que
+// perdeu a corrida, por exemplo) vai ao banco de novo.
+const PREFETCH = Symbol.for("wabotia.prefetch");
+type PrefetchStore = Map<string, D1Result[]>;
+const statementKey = (sql: string, args: any[]) =>
+  `${sql}\u0000${JSON.stringify(args)}`;
+
+/** Guarda os resultados adiantados (instruções e resultados na mesma ordem). */
+export function seedPrefetch(
+  env: Env,
+  items: [string, any[]][],
+  results: D1Result[],
+) {
+  const target = env as any;
+  const store: PrefetchStore = (target[PREFETCH] ??= new Map());
+  items.forEach(([sql, args], i) => {
+    const key = statementKey(sql, args);
+    store.set(key, [...(store.get(key) ?? []), results[i]]);
+  });
+}
+function takePrefetched(env: Env, sql: string, args: any[]) {
+  const store: PrefetchStore | undefined = (env as any)[PREFETCH];
+  const list = store?.get(statementKey(sql, args));
+  return list?.shift();
+}
+/**
+ * Como `batch`, mas o que já veio adiantado no lote da abertura não vai ao
+ * banco: só o resto (se sobrar) faz uma ida.
+ */
+export async function batchPrefetched(
+  env: Env,
+  items: [string, any[]][],
+  options: { retry?: boolean } = {},
+): Promise<D1Result[]> {
+  const out = items.map(([sql, args]) => takePrefetched(env, sql, args));
+  const missing = items.filter((_, i) => !out[i]);
+  if (missing.length) {
+    const got = await batch(env, missing, options);
+    let next = 0;
+    out.forEach((r, i) => {
+      if (!r) out[i] = got[next++];
+    });
+  }
+  return out as D1Result[];
 }
 /**
  * O valor de cada leitura (como `reads`) a partir dos resultados de um lote

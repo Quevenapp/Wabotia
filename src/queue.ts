@@ -6,6 +6,7 @@ import {
   one,
   exec,
   batch,
+  batchPrefetched,
   cached,
   PROFILE_SETTINGS_SQL,
   PUBLIC_ORIGIN_SQL,
@@ -27,6 +28,7 @@ import {
 } from "./types";
 import { admin, canProfile, random, sha } from "./security";
 import { event, eventStatement, fanOut } from "./events";
+import { commandClosing, type CommandClosing } from "./command-context";
 import { BRASILIA_OFFSET_MS } from "./business-time";
 import { conversation, enqueue, settings } from "./service";
 import { establishment } from "./establishment";
@@ -1099,27 +1101,35 @@ export interface IssueInput {
    * Vem em `view` só quando a senha foi criada agora.
    */
   view?: Omit<ViewOptions, "queue">;
+  /**
+   * /command: a auditoria e a marca do recibo vão no lote da gravação da
+   * senha (src/command-context.ts).
+   */
+  closing?: CommandClosing | null;
 }
 
 /**
  * Issues a ticket, or returns the contact's active one in this queue.
  * Throws contact_blocked / daily_limit / queue_closed.
  */
-export async function issueTicket(
-  env: Env,
+/**
+ * O começo da emissão (issueTicket): a senha já emitida com esta chave, a
+ * fila e, no totem, o +1 do contador por minuto. O /command adianta estas
+ * mesmas instruções no lote da abertura (queuePrefetch).
+ */
+function issueFirstStatements(
   profile: string,
-  input: IssueInput,
+  input: Pick<IssueInput, "sourceKey" | "queueId"> & {
+    kioskRate?: { key: string; expires: number };
+  },
 ) {
-  // Uma ida ao D1 para o começo (docs/LIMITES.md): a senha já emitida com
-  // esta chave, a fila e, no totem, o contador por minuto.
   const items: [string, any[]][] = [];
   if (input.sourceKey)
     items.push([
       "SELECT * FROM queue_tickets WHERE source_key=?",
       [input.sourceKey],
     ]);
-  const hasQueueId = typeof input.queueId === "string";
-  if (hasQueueId)
+  if (typeof input.queueId === "string")
     items.push([
       "SELECT * FROM queues WHERE id=? AND profile_id=?",
       [input.queueId, profile],
@@ -1129,8 +1139,35 @@ export async function issueTicket(
       "INSERT INTO rate_limits(key,count,expires) VALUES(?,1,?) ON CONFLICT(key) DO UPDATE SET count=count+1 RETURNING count",
       [input.kioskRate.key, input.kioskRate.expires],
     ]);
+  return items;
+}
+
+/** Contador por minuto do totem (aplicação) na emissão. */
+function kioskRateOf(actor: Actor, at = now()) {
+  const minute = Math.floor(at / 60000);
+  return {
+    key: `queue-kiosk:${actor.id}:${minute}`,
+    expires: (minute + 1) * 60000,
+  };
+}
+
+/** Chave de origem da emissão por /command (repetição devolve a mesma senha). */
+const issueSourceKey = (actor: Actor, requestId: string) =>
+  `issue:${actor.id}:${requestId}`;
+
+export async function issueTicket(
+  env: Env,
+  profile: string,
+  input: IssueInput,
+) {
+  // Uma ida ao D1 para o começo (docs/LIMITES.md), ou nenhuma, quando o
+  // /command já adiantou estas instruções no lote da abertura.
+  const items = issueFirstStatements(profile, input);
+  const hasQueueId = typeof input.queueId === "string";
   // Repetir não faz mal: só leituras e o +1 do contador por minuto.
-  const first = items.length ? await batch(env, items, { retry: true }) : [];
+  const first = items.length
+    ? await batchPrefetched(env, items, { retry: true })
+    : [];
   let pos = 0;
   const old: any = input.sourceKey ? first[pos++].results[0] : null;
   const queueFound: any = hasQueueId ? first[pos++].results[0] : null;
@@ -1269,10 +1306,13 @@ export async function issueTicket(
       "INSERT INTO events(profile_id,kind,resource_id,payload,created,source_key) SELECT ?,'queue.issued',id,json_object('id',id,'queue_id',queue_id,'code',code,'preferential',json(CASE WHEN preferential THEN 'true' ELSE 'false' END),'source',source),?,NULL FROM queue_tickets WHERE id=? RETURNING id",
       [profile, at, id],
     ],
+    // /command: a auditoria e a marca do recibo no mesmo lote (atômico).
+    ...(input.closing?.statements(id) ?? []),
     ...(view?.items ?? []).map((r) => [r.sql, r.args] as [string, any[]]),
   ]);
   const [inserted, issued] = results;
   const ticket = inserted.results[0] as any;
+  input.closing?.committed(id);
   await fanOut(env, profile, "queue.issued", (issued.results[0] as any).id);
   return {
     ticket,
@@ -1445,6 +1485,69 @@ const CALL_SQL = {
  * encerramento das em curso, a chamada, o evento, o ciclo da fila, as senhas
  * a avisar de "faltam N" e as leituras da vista.
  */
+/** As leituras do começo da chamada (callNext). */
+function callNextReads(profile: string, counterId: string): Read[] {
+  const day = serviceDay();
+  return [
+    { sql: CALL_SQL.counter, args: [counterId, profile], first: true },
+    { sql: CALL_SQL.queues, args: [profile, counterId, day] },
+    { sql: CALL_SQL.candidates, args: [profile, counterId, day] },
+    { sql: CURRENT_SQL, args: [counterId] },
+  ];
+}
+
+/**
+ * Instruções que a operação da fila vai fazer primeiro, para o /command
+ * adiantar no lote da abertura (src/coordinator.ts): a emissão e a chamada
+ * passam a duas idas ao D1 (abertura e gravação). Têm de ser as mesmas da
+ * operação (mesma instrução, mesmos argumentos); o que não bater vai ao
+ * banco normalmente. Só leituras e o +1 do contador por minuto do totem, que
+ * pode contar uma repetição a mais sem problema.
+ */
+export function queuePrefetch(
+  op: string,
+  data: any,
+  actor: Actor,
+  profile: string,
+  requestId: string,
+): [string, any[]][] {
+  if (op === "queue.issue" && typeof data?.queue_id === "string")
+    return issueFirstStatements(profile, {
+      sourceKey: issueSourceKey(actor, requestId),
+      queueId: data.queue_id,
+      kioskRate: actor.kind === "app" ? kioskRateOf(actor) : undefined,
+    });
+  if (op === "queue.call_next" && typeof data?.id === "string")
+    return callNextReads(profile, data.id).map((r) => [r.sql, r.args]);
+  return [];
+}
+
+/** Operações da fila que fecham o recibo no lote da escrita (src/command-context.ts). */
+export const QUEUE_CLOSING_OPS = new Set(["queue.issue", "queue.call_next"]);
+
+/**
+ * Resposta de uma emissão ou chamada reconstruída pelo recurso, para a
+ * repetição com a mesma chave quando o recibo só tem a marca
+ * ("ref:<operação>:<id>"): o objeto reiniciou ou a gravação da resposta
+ * falhou depois de responder. A senha é a mesma; o que pode diferir da
+ * resposta original é o que mudou desde então: quantos estão na frente e a
+ * espera estimada (outras senhas foram chamadas) e, na chamada, o estado e o
+ * número de chamadas se a senha já andou (atendida, rechamada).
+ */
+export async function queueReplay(
+  env: Env,
+  actor: Actor,
+  profile: string,
+  ref: string,
+) {
+  const match = /^ref:(queue\.issue|queue\.call_next):([^:]+)$/.exec(ref);
+  if (!match) throw new Error("queue_replay_ref_invalid");
+  const row = await ticketRow(env, profile, match[2]);
+  return ticketView(env, row, {
+    staff: match[1] === "queue.call_next" || actor.kind === "user",
+  });
+}
+
 async function callNext(
   env: Env,
   actor: Actor,
@@ -1455,13 +1558,12 @@ async function callNext(
     throw new ApiError(404, "counter_not_found", "Guichê não encontrado.");
   const cfg = queueSettings(await settings(env, profile));
   for (let attempt = 0; attempt < 5; attempt++) {
-    const day = serviceDay();
-    const [counter, queueRows, candidates, current] = await reads(env, [
-      { sql: CALL_SQL.counter, args: [counterId, profile], first: true },
-      { sql: CALL_SQL.queues, args: [profile, counterId, day] },
-      { sql: CALL_SQL.candidates, args: [profile, counterId, day] },
-      { sql: CURRENT_SQL, args: [counterId] },
-    ]);
+    // Na primeira tentativa, estas leituras já vieram no lote da abertura do
+    // /command (queuePrefetch); nas seguintes, vão ao banco.
+    const [counter, queueRows, candidates, current] = await reads(
+      env,
+      callNextReads(profile, counterId),
+    );
     if (!counter)
       throw new ApiError(404, "counter_not_found", "Guichê não encontrado.");
     if (!counter.enabled || counter.status !== "open")
@@ -1512,6 +1614,16 @@ async function callNext(
         at,
       ],
     ]);
+    // /command: a auditoria e a marca do recibo no mesmo lote, só se a
+    // chamada pegou (a mesma condição do evento e do ciclo).
+    const closing = commandClosing(env, "queue.call_next");
+    if (closing)
+      statements.push(
+        ...closing.statements(next.id, [
+          "EXISTS(SELECT 1 FROM queue_tickets WHERE id=? AND status='called' AND counter_id=? AND called_at=?)",
+          [next.id, counter.id, at],
+        ]),
+      );
     // Depois da chamada, no mesmo lote: quem está na frente já conta com ela.
     const tail: Read[] = cfg.notify_ahead ? [aheadRead(profile, q.id)] : [];
     const view = viewReads(
@@ -1535,6 +1647,7 @@ async function callNext(
     ]);
     const ticket = results[callAt].results[0] as any;
     if (!ticket) continue;
+    closing?.committed(next.id);
     const got = readValues(tail, results);
     await notify(env, ticket, "called", { counter: counter.name });
     if (cfg.notify_ahead) await notifyAheadOf(env, got[0], cfg.notify_ahead);
@@ -2175,12 +2288,10 @@ export async function queueCommand(
       data.source === "staff" && actor.kind === "user" ? "staff" : "kiosk";
     // Totem (aplicação): limite por minuto, conferido na mesma ida que a fila
     // (issueTicket). As configurações já vieram na abertura do comando.
-    const minute = Math.floor(now() / 60000);
     const kioskRate =
       actor.kind === "app"
         ? {
-            key: `queue-kiosk:${actor.id}:${minute}`,
-            expires: (minute + 1) * 60000,
+            ...kioskRateOf(actor),
             limit: queueSettings(await settings(env, profile)).kiosk_per_minute,
           }
         : undefined;
@@ -2191,9 +2302,10 @@ export async function queueCommand(
       source,
       actorId: actor.id,
       phone: staff ? data.phone : null,
-      sourceKey: `issue:${actor.id}:${requestId}`,
+      sourceKey: issueSourceKey(actor, requestId),
       kioskRate,
       view: { staff },
+      closing: commandClosing(env, "queue.issue"),
     });
     return view ?? ticketView(env, ticket, { staff, queue });
   }
