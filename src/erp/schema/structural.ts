@@ -102,4 +102,13 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     replaced_by:
       "Rotina retention (diária, 03:10 de São Paulo, src/erp/scheduler/routines.ts): apaga tarefa done/failed terminada há mais de 90 dias, com as tentativas, em lotes de 100. Fica a tarefa ligada a uma exportação (linha imutável com FK). Os gatilhos do Fagoo são cumpridos em código no motor (domains/preferences/platform.ts), e o SQLite não tem gatilho contra o DELETE. Os recibos de comando (tabelas *command) ficam de fora.",
   },
+  {
+    id: "numero-json",
+    oracle:
+      "jsonb guarda o número como numeric, com o texto digitado: '1.0'::jsonb->>'x' é '1.0', não '1'. Regra que lê número como texto recusa o que não está na forma canônica; no lote do save, erp_documents.rich_text (b->>'indent' !~ '^[0-5]$', r->>'size' not in('8',…,'36')) recusa indent 1.0 ou size 1e1",
+    reason:
+      "O corpo do RPC chega ao motor por JSON.parse (rpc-endpoint.ts: request.json(); args.ts: jsonbArg), que transforma 1.0, 1e1 e 10.50 no número do JavaScript e perde o texto. O painel e os clientes em JavaScript nunca mandam essas formas (JSON.stringify escreve 1, 10 e 10.5); só um cliente montado à mão as manda.",
+    replaced_by:
+      "O motor aceita indent 1.0 e size 1e1 no texto rico (validados pelo valor) e grava o número na forma canônica. Fechar custa cerca de meio dia: ler o corpo com request.text() e JSON.parse com reviver, que guarda o texto original do número fora do canônico (context.source, disponível no Node 22 e no V8 do Workers) num WeakMap do objeto que o contém; jsonbText e o rich_text consultam esse texto; o harness passa a mandar o corpo em texto. O que é copiado por spread ou structuredClone perde o texto, por isso a correção vale só onde o objeto chega intacto.",
+  },
 ];

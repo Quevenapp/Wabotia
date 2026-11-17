@@ -14,7 +14,7 @@
 //   usa a escala de select_div_scale do Postgres antes do round(…, 2).
 // - Limite do motor: o corpo chega por JSON.parse, então 1.0 vira 1 (o
 //   b->>'indent' e o r->>'size' do texto rico aceitam aqui o que o Postgres
-//   recusa como texto "1.0").
+//   recusa como texto "1.0"). Declarado em schema/structural.ts, "numero-json".
 import type { SqlDriver } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
 import { jsonbKeys, jsonbText, jsonType } from "../../engine/json.ts";
