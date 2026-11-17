@@ -70,6 +70,29 @@ const dockerSteps = {
     "docker exec -u hermes CONTEINER grep PLUGIN_VERSION /opt/data/plugins/wabotia/link.py",
 };
 
+/**
+ * Conexões do Hermes pausadas pela atualização (migração
+ * 0092_retira_hermes.sql): o Hermes saiu do Wabotia. Lista o que foi pausado
+ * e o que a equipe precisa fazer; cada cartão abaixo mantém o botão Excluir.
+ */
+export function RetiredHermes({ rows }: { rows: Row[] }) {
+  const retired = rows.filter(
+    (row) => ["hermes", "hermes-whatsapp"].includes(row.kind) && parse(row.config).retired,
+  );
+  if (!retired.length) return null;
+  return (
+    <Notice tone="warn">
+      <strong>Hermes retirado.</strong> O Wabotia passou a trabalhar só com bots
+      internos (provedor de IA direto). A atualização pausou{" "}
+      {retired.map((row) => row.name).join(", ")}: os bots delas foram
+      desligados, o Atendente que era do Hermes ficou vago e as linhas que
+      usavam esses bots voltaram para a regra da área (menu ou equipe). Escolha
+      um bot interno em <strong>Automação</strong> e exclua estas conexões quando
+      quiser; o histórico das conversas continua.
+    </Notice>
+  );
+}
+
 export function ConnectionsPage() {
   const app = useApp();
   const { api, root, demo } = app;
@@ -100,6 +123,7 @@ export function ConnectionsPage() {
           </p>
         </div>
       </div>
+      <RetiredHermes rows={list.rows} />
       <details className="workspace-disclosure">
         <summary>Meu Hermes está no computador ou em uma rede privada</summary>
         <CloudflareDeploy
