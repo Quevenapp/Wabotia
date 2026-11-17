@@ -51,3 +51,8 @@ import "./rpc/erp_catalog_custom_field_save.ts";
 import "./rpc/erp_catalog_contact_tags.ts";
 import "./rpc/erp_catalog_contact_tags_save.ts";
 import "./rpc/erp_catalog_seller_options.ts";
+import "./rpc/erp_catalog_seller_get.ts";
+import "./rpc/erp_catalog_seller_page.ts";
+import "./rpc/erp_catalog_seller_save.ts";
+import "./rpc/erp_catalog_seller_from_contact.ts";
+import "./rpc/erp_catalog_contact_set_seller.ts";
