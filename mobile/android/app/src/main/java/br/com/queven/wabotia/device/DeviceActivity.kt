@@ -76,10 +76,21 @@ class DeviceActivity : ComponentActivity() {
         runDebugCommand(intent)
     }
 
-    /** `--es debug offline:20` (só no build de depuração): tira a rede da fila e derruba o WebSocket, como uma queda. */
+    /**
+     * Só no build de depuração. `--es debug offline:20`: tira a rede da fila e derruba o WebSocket, como uma queda.
+     * `--es debug burst:20` (ou `burst:20:500`, o intervalo em ms; 1000 sem ele): chamadas simuladas no painel, só
+     * neste aparelho, para conferir a rajada sem chamar senhas de verdade.
+     */
     private fun runDebugCommand(intent: Intent?) {
         if (!BuildConfig.DEBUG) return
-        val seconds = DebugNetwork.parse(intent?.getStringExtra(EXTRA_DEBUG)) ?: return
+        val command = intent?.getStringExtra(EXTRA_DEBUG)
+        BURST.matchEntire(command.orEmpty())?.let { match ->
+            val count = match.groupValues[1].toInt().coerceIn(1, 50)
+            val every = match.groupValues[2].toLongOrNull()?.coerceIn(100, 10_000) ?: 1000L
+            vm?.debugBurst(count, every)
+            return
+        }
+        val seconds = DebugNetwork.parse(command) ?: return
         DebugNetwork.goOffline(seconds)
         vm?.debugDropConnection()
     }
@@ -99,6 +110,7 @@ class DeviceActivity : ComponentActivity() {
         private const val EXTRA_DEMO = "demo"
         private const val EXTRA_DEMO_ROLE = "demo_role"
         private const val EXTRA_DEBUG = "debug"
+        private val BURST = Regex("^burst:(\\d{1,2})(?::(\\d{1,5}))?$")
 
         /** Parear com o servidor escolhido na tela Servidor (ou retomar o aparelho já pareado). */
         fun intent(context: Context, serverUrl: String? = null): Intent =

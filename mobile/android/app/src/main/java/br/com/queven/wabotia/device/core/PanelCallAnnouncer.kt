@@ -44,10 +44,12 @@ class PanelCallAnnouncer(
         // fica com as mais recentes: a mesma ordem do destaque, ao contrário.
         val chronological = pending.sortedWith(PanelCalls.MOST_RECENT_FIRST.reversed())
         if (pending.size >= silentBurstThreshold) return PanelAnnouncement(chime = true, spoken = emptyList(), latest = chronological.last())
+        val fresh = chronological.takeLast(maxSpokenPerCycle)
         return PanelAnnouncement(
             chime = true,
-            spoken = chronological.takeLast(maxSpokenPerCycle).map(::announcementText),
+            spoken = fresh.map(::announcementText),
             latest = chronological.last(),
+            fresh = fresh,
         )
     }
 
@@ -99,6 +101,11 @@ data class PanelAnnouncement(
     val spoken: List<String>,
     /** A senha chamada ou rechamada por último neste anúncio: a que o destaque mostra. */
     val latest: StationCall? = null,
+    /**
+     * As chamadas novas, na ordem em que foram chamadas: vão para a fila de anúncios ([PanelCallQueue]). Vazia na
+     * rajada de volta da rede (fila inteira de uma vez): o painel mostra, mas não recita.
+     */
+    val fresh: List<StationCall> = emptyList(),
 ) {
     companion object {
         val SILENT = PanelAnnouncement(chime = false, spoken = emptyList())
@@ -112,6 +119,12 @@ interface PanelCallAudio {
 
     /** Fala o texto já montado. */
     fun speak(text: String)
+
+    /**
+     * Fala o texto e espera a fala terminar (a fila de anúncios só passa à seguinte depois). `false` quando nada foi
+     * falado: sem voz no aparelho, motor ainda desligado ou cortado; aí o painel conta o tempo de quem não tem som.
+     */
+    suspend fun say(text: String): Boolean = false
 
     /** Corta a fala pendente (som desligado, tela fechada). */
     fun stop()

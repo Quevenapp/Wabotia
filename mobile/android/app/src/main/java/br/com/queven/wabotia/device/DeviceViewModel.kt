@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import br.com.queven.wabotia.device.core.PanelCallAnnouncer
 import br.com.queven.wabotia.device.core.PanelCallAudio
+import br.com.queven.wabotia.device.core.PanelCallQueue
 import br.com.queven.wabotia.device.core.PanelPin
 import br.com.queven.wabotia.device.core.PanelPinAttemptStore
 import br.com.queven.wabotia.device.core.PanelPinAttempts
@@ -76,7 +77,13 @@ data class DeviceState(
     val issued: QueueTicket? = null,
     val print: TicketPrint? = null,
     val notice: String? = null,
+    /**
+     * A senha em destaque no painel: a que está sendo anunciada e, acabada a fila de anúncios, a última por mais 12 s
+     * ([PanelCallQueue]). `null`: o bloco grande mostra a última chamada do `snapshot`.
+     */
     val spotlight: StationCall? = null,
+    /** O anúncio do [spotlight] está tocando: a senha toma a tela inteira. No destaque final, só o bloco grande. */
+    val announcing: Boolean = false,
     val soundEnabled: Boolean = true,
     val template: PanelTemplate = PanelTemplate.DEFAULT,
     val pinSet: Boolean = false,
@@ -108,11 +115,25 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
     private var loop: Job? = null
     /** Acorda o laço da conexão quando o WebSocket cai. */
     private val wake = Channel<Unit>(Channel.CONFLATED)
-    private var spotlightJob: Job? = null
     private var issuedJob: Job? = null
     private var pairingJob: Job? = null
     private var audio: PanelCallAudio = PanelCallAudio.None
     private val announcer = PanelCallAnnouncer()
+
+    /** A tela acompanha a fala: uma chamada por vez no destaque, na ordem, com teto e descarte (docs/FILA-SENHAS.md). */
+    private val callQueue = PanelCallQueue(
+        scope = viewModelScope,
+        announce = { call, hurry ->
+            mutable.update { it.copy(announcing = true) }
+            try {
+                PanelCallQueue.speak(call, hurry, audio) { mutable.value.soundEnabled }
+            } finally {
+                mutable.update { it.copy(announcing = false) }
+            }
+        },
+        show = { call -> mutable.update { it.copy(spotlight = call) } },
+        now = { System.nanoTime() / 1_000_000 },
+    )
     private val pinAttempts = PanelPinAttempts(services.pinAttempts)
     /** O pedido de senha sem resposta definitiva, para o próximo toque repetir a mesma chave. */
     private val issueKeys = TotemIssueKeys()
@@ -203,6 +224,7 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
             return
         }
         services.store.save(config)
+        quiet()
         audio.shutdown()
         audio = if (role.panel) services.audio() else PanelCallAudio.None
         mutable.update {
@@ -346,8 +368,15 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
         loop?.cancel()
         socket?.cancel()
         socket = null
+        quiet()
         audio.shutdown()
         audio = PanelCallAudio.None
+    }
+
+    /** Esquece os anúncios pendentes e o destaque (troca de papel, painel fechado). */
+    private fun quiet() {
+        callQueue.clear()
+        mutable.update { it.copy(spotlight = null, announcing = false) }
     }
 
     /**
@@ -368,19 +397,25 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
             announcer.prime(calls)
             return
         }
-        val announcement = announcer.announce(calls)
-        val latest = announcement.latest ?: return
-        spotlightJob?.cancel()
-        spotlightJob = viewModelScope.launch {
-            mutable.update { it.copy(spotlight = latest) }
-            delay(8000)
-            mutable.update { it.copy(spotlight = null) }
-        }
-        if (mutable.value.soundEnabled && announcement.chime) {
-            audio.chime()
-            // Uma chamada sozinha é falada duas vezes, como no Senhapp; várias de uma vez, uma vez cada.
-            val repeat = if (announcement.spoken.size == 1) 2 else 1
-            announcement.spoken.forEach { text -> repeat(repeat) { audio.speak(text) } }
+        // Cada chamada nova entra na fila de anúncios: o destaque só passa a ela quando o anúncio dela começa.
+        announcer.announce(calls).fresh.forEach(callQueue::push)
+    }
+
+    /**
+     * Só no build de depuração: [count] chamadas simuladas, uma a cada [everyMs], direto na fila de anúncios do painel
+     * (nada vai ao servidor nem muda a fila de verdade). Para conferir a rajada no aparelho.
+     */
+    fun debugBurst(count: Int, everyMs: Long) {
+        if (mutable.value.config?.role?.panel != true) return
+        viewModelScope.launch {
+            // Antes da primeira leitura da fila, a chamada só marcaria o que está na tela.
+            withTimeoutOrNull(20_000) { while (!announcer.primed) delay(250) }
+            val stamp = System.currentTimeMillis()
+            for (i in 1..count) {
+                val number = "T%03d".format(i)
+                announce(listOf(StationCall("debug-$stamp-$i", number, "calling", "Guichê ${(i - 1) % 3 + 1}", 1, recentRank = 0)))
+                delay(everyMs)
+            }
         }
     }
 

@@ -16,6 +16,18 @@ object PanelCalls {
     /** O que a TV mostra: quem está sendo chamado. */
     fun onScreen(calls: List<StationCall>): List<StationCall> = ordered(calls.filter { it.status in ON_SCREEN })
 
+    /**
+     * A senha do bloco grande ("chamando"): a que a fila de anúncios pôs em destaque ([PanelCallQueue]); sem destaque,
+     * a última chamada do `snapshot`.
+     */
+    fun hero(calls: List<StationCall>, highlight: StationCall?): StationCall? = highlight ?: onScreen(calls).firstOrNull()
+
+    /** As anteriores, do `snapshot` na hora, sem repetir a senha do bloco grande. */
+    fun previous(calls: List<StationCall>, highlight: StationCall?, limit: Int): List<StationCall> {
+        val hero = hero(calls, highlight)
+        return onScreen(calls).filter { it.ticketId != hero?.ticketId }.take(limit)
+    }
+
     const val OTHERS_ON_SCREEN = 6
 
     private val ON_SCREEN = setOf("calling", "acknowledged")

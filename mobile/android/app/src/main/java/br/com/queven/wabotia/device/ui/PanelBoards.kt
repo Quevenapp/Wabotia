@@ -268,17 +268,19 @@ internal fun CallBoard(
     campaign: (@Composable (Modifier) -> Unit)?,
     orders: (@Composable (Modifier) -> Unit)?,
     modifier: Modifier = Modifier,
+    /** A senha que a fila de anúncios pôs em destaque; sem ela, a última do snapshot. */
+    highlight: StationCall? = null,
 ) {
     val gap = LocalPanelBase.current * 0.7f
-    val onScreen = PanelCalls.onScreen(calls)
-    val previous = onScreen.drop(1).take(3)
+    val hero = PanelCalls.hero(calls, highlight)
+    val previous = PanelCalls.previous(calls, highlight, 3)
     BoxWithConstraints(modifier.testTag("panel.current")) {
         val boardWidth = maxWidth
         val boardHeight = maxHeight
         if (boardWidth > boardHeight) {
             Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(gap)) {
                 Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(gap)) {
-                    CallHero(onScreen.firstOrNull(), emptyList(), Modifier.fillMaxWidth().weight(1f))
+                    CallHero(hero, emptyList(), Modifier.fillMaxWidth().weight(1f))
                     // Com pedidos na coluna da direita, as anteriores descem para baixo da senha.
                     if (orders != null) PreviousCalls(previous, emptyList(), landscape = false, Modifier.fillMaxWidth())
                 }
@@ -304,7 +306,7 @@ internal fun CallBoard(
             }
         } else {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(gap)) {
-                CallHero(onScreen.firstOrNull(), emptyList(), Modifier.fillMaxWidth().weight(1f))
+                CallHero(hero, emptyList(), Modifier.fillMaxWidth().weight(1f))
                 PreviousCalls(previous, emptyList(), landscape = false, Modifier.fillMaxWidth())
                 orders?.invoke(Modifier.fillMaxWidth().height(boardHeight * 0.24f))
                 campaign?.invoke(Modifier.fillMaxWidth().height(boardHeight * 0.15f))
@@ -895,12 +897,14 @@ internal fun HybridBoard(
     orders: (@Composable (Modifier) -> Unit)?,
     issued: (@Composable () -> Unit)?,
     modifier: Modifier = Modifier,
+    /** A senha que a fila de anúncios pôs em destaque; sem ela, a última do snapshot. */
+    highlight: StationCall? = null,
 ) {
     val s = LocalPanelStyle.current
     val base = LocalPanelBase.current
     val gap = base * 0.7f
     val options = runtime.options.filter { it.available }
-    val current = PanelCalls.onScreen(runtime.calls).firstOrNull()
+    val current = PanelCalls.hero(runtime.calls, highlight)
     val heading: @Composable () -> Unit = {
         Text(s.name("Retire sua senha"), fontFamily = s.display, fontWeight = s.displayWeight, fontSize = (base * 1.3f).sp(), color = s.fg)
     }

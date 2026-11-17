@@ -771,16 +771,18 @@ private fun PanelScreen(state: DeviceState, vm: DeviceViewModel, onSettings: () 
                                 issued != null && role.totem && !(role.panel && landscape) ->
                                     Column(body.verticalScroll(rememberScrollState())) { issuedCard() }
                                 role == DeviceRole.HYBRID ->
-                                    HybridBoard(runtime, blocked, { queueId, _ -> vm.chooseQueue(queueId) }, null, null, if (issued != null) issuedCard else null, body)
+                                    HybridBoard(runtime, blocked, { queueId, _ -> vm.chooseQueue(queueId) }, null, null, if (issued != null) issuedCard else null, body, highlight = state.spotlight)
                                 role == DeviceRole.TOTEM ->
                                     TotemBoard(runtime, blocked, { queueId, _ -> vm.chooseQueue(queueId) }, null, null, body)
-                                else -> CallBoard(runtime.calls, null, null, body)
+                                else -> CallBoard(runtime.calls, null, null, body, highlight = state.spotlight)
                             }
                         }
                     }
                 }
             }
-            if (role.panel) state.spotlight?.let { CallSpotlight(it) }
+            // Enquanto o anúncio toca, a senha toma a tela; no destaque final (12 s), fica só no bloco grande, com as
+            // anteriores do snapshot à vista.
+            if (role.panel && state.announcing) state.spotlight?.let { CallSpotlight(it) }
         }
     }
     state.choosing?.let { queue ->

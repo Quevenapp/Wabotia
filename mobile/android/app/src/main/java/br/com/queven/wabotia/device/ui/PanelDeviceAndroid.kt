@@ -13,6 +13,7 @@ import android.media.ToneGenerator
 import android.media.audiofx.LoudnessEnhancer
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -30,7 +31,11 @@ import br.com.queven.wabotia.device.core.PanelPinAttemptStore
 import br.com.queven.wabotia.device.core.PanelPinStore
 import br.com.queven.wabotia.device.core.PanelSoundStore
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 
 /**
@@ -94,8 +99,40 @@ class AndroidPanelCallAudio(
     private fun installed(context: Context, packageName: String): Boolean =
         runCatching { context.packageManager.getPackageInfo(packageName, 0) }.isSuccess
 
+    /** Ligou com a voz em português (`true`) ou sem ela (`false`); o anúncio espera por isso um pouco. */
+    private val voiceReady = CompletableDeferred<Boolean>()
+
+    /** As falas que a fila de anúncios espera terminar, pelo id da fala. */
+    private val awaited = ConcurrentHashMap<String, CompletableDeferred<Boolean>>()
+    private val utterances = AtomicInteger()
+
     init {
+        if (speech == null) voiceReady.complete(false)
         speech?.let { engine ->
+            runCatching {
+                engine.setOnUtteranceProgressListener(
+                    object : UtteranceProgressListener() {
+                        override fun onStart(utteranceId: String?) = Unit
+
+                        override fun onDone(utteranceId: String?) {
+                            utteranceId?.let { awaited.remove(it)?.complete(true) }
+                        }
+
+                        @Deprecated("Deprecated in Java")
+                        override fun onError(utteranceId: String?) {
+                            utteranceId?.let { awaited.remove(it)?.complete(false) }
+                        }
+
+                        override fun onError(utteranceId: String?, errorCode: Int) {
+                            utteranceId?.let { awaited.remove(it)?.complete(false) }
+                        }
+
+                        override fun onStop(utteranceId: String?, interrupted: Boolean) {
+                            utteranceId?.let { awaited.remove(it)?.complete(false) }
+                        }
+                    },
+                )
+            }
             runCatching {
                 engine.setAudioAttributes(
                     AudioAttributes.Builder()
@@ -116,14 +153,16 @@ class AndroidPanelCallAudio(
         runCatching { engine.setSpeechRate(SPEECH_RATE) }
         if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
             synchronized(pending) { pending.clear() }
+            voiceReady.complete(false)
             return
         }
+        voiceReady.complete(true)
         val waiting =
             synchronized(pending) {
                 ready.set(true)
                 pending.toList().also { pending.clear() }
             }
-        waiting.forEach(::say)
+        waiting.forEach { utter(it) }
     }
 
     @Synchronized
@@ -146,14 +185,34 @@ class AndroidPanelCallAudio(
                 return
             }
         }
-        say(text)
+        utter(text)
     }
 
-    private fun say(text: String) {
+    private fun utter(text: String, id: String = text.hashCode().toString()): Boolean {
         // QUEUE_ADD mantém a ordem: duas senhas chamadas juntas saem uma depois
         // da outra, nunca sobrepostas. A sessão leva o reforço de ganho.
         val params = Bundle().apply { speechSession?.let { putInt(TextToSpeech.Engine.KEY_PARAM_SESSION_ID, it) } }
-        runCatching { speech?.speak(text, TextToSpeech.QUEUE_ADD, params, text.hashCode().toString()) }
+        return runCatching { speech?.speak(text, TextToSpeech.QUEUE_ADD, params, id) }.getOrNull() == TextToSpeech.SUCCESS
+    }
+
+    /**
+     * A fala da fila de anúncios: espera o motor ligar (até [READY_WAIT_MS], na primeira chamada depois de abrir) e
+     * a fala terminar. Motor que não avisa o fim não prende o painel: [SAY_LIMIT_MS] no máximo.
+     */
+    override suspend fun say(text: String): Boolean {
+        val engineOk = withTimeoutOrNull(READY_WAIT_MS) { voiceReady.await() } ?: false
+        if (!engineOk) return false
+        val id = "call-${utterances.incrementAndGet()}"
+        val done = CompletableDeferred<Boolean>()
+        awaited[id] = done
+        if (!utter(text, id)) {
+            awaited.remove(id)
+            return false
+        }
+        return withTimeoutOrNull(SAY_LIMIT_MS) { done.await() } ?: run {
+            awaited.remove(id)
+            true
+        }
     }
 
     override fun setVolume(level: Float) {
@@ -186,6 +245,8 @@ class AndroidPanelCallAudio(
         const val SPEECH_RATE = 0.85f
         const val CHIME_VOLUME = 90
         const val CHIME_DURATION_MS = 420
+        const val READY_WAIT_MS = 3_000L
+        const val SAY_LIMIT_MS = 12_000L
 
         /** +8 dB na voz; mais que isso distorce no alto-falante do celular. */
         const val SPEECH_GAIN_MB = 800

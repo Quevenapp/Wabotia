@@ -144,7 +144,7 @@ class MainActivity : ComponentActivity() {
             val container = (application as WabotiaApp).container
             // `--es demo device[-totem|-panel|-hybrid]`: a demonstração do modo aparelho, fora da sessão de pessoa.
             DemoMode.deviceRoleFor(link.demoScreen)?.let { role ->
-                startActivity(DeviceActivity.demoIntent(this, role.getOrNull()))
+                startActivity(DeviceActivity.demoIntent(this, role.getOrNull()).withDebugCommand(intent))
                 return null
             }
             // `--es demo courier`: a demonstração do modo entregador (`--es courier claim:0` já abre o pedido nº 12).
