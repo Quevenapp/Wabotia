@@ -60,6 +60,22 @@ WHERE assigned_bot_id IN (
 UPDATE bots SET enabled = 0
 WHERE connection_id IN (SELECT id FROM connections WHERE kind = 'hermes');
 
+-- Chaves de aplicação do perfil Hermes revogadas sempre: a aplicação cujos
+-- bots são de conexão hermes ou hermes-whatsapp. A chave guardada no servidor
+-- do Hermes deixa de valer; uma integração que continue recebe chave nova,
+-- sem bots. A aplicação fica (registro e auditoria).
+UPDATE api_keys SET revoked = 1
+WHERE revoked = 0
+  AND app_id IN (
+    SELECT a.id FROM applications a
+    WHERE json_valid(a.bots) AND EXISTS (
+      SELECT 1 FROM json_each(a.bots) j
+      JOIN bots b ON b.id = j.value
+      JOIN connections c ON c.id = b.connection_id
+      WHERE c.kind IN ('hermes', 'hermes-whatsapp')
+    )
+  );
+
 -- Conexões do Hermes (bots e o canal hermes-whatsapp) pausadas e marcadas.
 UPDATE connections
 SET status = 'paused', config = json_set(config, '$.retired', 1)

@@ -90,13 +90,38 @@ async function area() {
     );
   await convo(conversation, hermesBot);
   await convo(other, aiBot);
-  return { profile, hermes, hermesBot, ai, aiBot, line, lineAi, whatsapp, conversation, other };
+  // Aplicação do perfil Hermes (bots do Hermes) e uma integração comum.
+  const app = (id: string, bots: string[]) =>
+    exec(
+      env,
+      "INSERT INTO applications(id,name,profiles,scopes,bots,created) VALUES(?,?,?,'[]',?,?)",
+      id,
+      "App " + id.slice(0, 4),
+      JSON.stringify([profile]),
+      JSON.stringify(bots),
+      now(),
+    );
+  const key = (id: string, appId: string) =>
+    exec(env, "INSERT INTO api_keys(id,app_id,hash,prefix,expires,revoked,created) VALUES(?,?,?,'wb_',?,0,?)", id, appId, uid(), now() + 86400000, now());
+  const hermesApp = uid(),
+    otherApp = uid(),
+    hermesKey = uid(),
+    otherKey = uid();
+  await app(hermesApp, [hermesBot]);
+  await app(otherApp, [aiBot]);
+  await key(hermesKey, hermesApp);
+  await key(otherKey, otherApp);
+  return { profile, hermes, hermesBot, ai, aiBot, line, lineAi, whatsapp, conversation, other, hermesKey, otherKey };
 }
 
 describe("retirada do Hermes: atualização de uma instalação com Hermes", () => {
   it("pausa e marca as conexões, desliga os bots, esvazia o Atendente, devolve a linha à área e desliga as ações de especialista", async () => {
     const f = await area();
-    expect(await migrate()).toBe(6);
+    expect(await migrate()).toBe(7);
+    // Chave da aplicação do perfil Hermes revogada; a da integração comum, não.
+    const revoked = async (id: string) => (await one(env, "SELECT revoked FROM api_keys WHERE id=?", id)).revoked;
+    expect(await revoked(f.hermesKey)).toBe(1);
+    expect(await revoked(f.otherKey)).toBe(0);
     const conn = async (id: string) => await one(env, "SELECT status,config FROM connections WHERE id=?", id);
     // Conexões do Hermes: pausadas e marcadas (o cartão do painel lê "retired").
     for (const id of [f.hermes, f.whatsapp]) {

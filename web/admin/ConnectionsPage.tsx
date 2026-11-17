@@ -86,7 +86,11 @@ export function RetiredHermes({ rows }: { rows: Row[] }) {
       internos (provedor de IA direto). A atualização pausou{" "}
       {retired.map((row) => row.name).join(", ")}: os bots delas foram
       desligados, o Atendente que era do Hermes ficou vago e as linhas que
-      usavam esses bots voltaram para a regra da área (menu ou equipe). Escolha
+      usavam esses bots voltaram para a regra da área (menu ou equipe). As
+      chaves de API das aplicações ligadas a esses bots foram revogadas: a
+      chave guardada no servidor do Hermes não vale mais. Uma integração que
+      precise da API recebe chave nova, sem bots, em{" "}
+      <strong>API e integrações</strong>. Escolha
       um bot interno em <strong>Automação</strong> e exclua estas conexões quando
       quiser; o histórico das conversas continua.
     </Notice>
