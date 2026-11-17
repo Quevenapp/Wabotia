@@ -1651,8 +1651,8 @@
  ],
  "columns_unsupported": [],
  "deviations": {
-  "registered": 4,
-  "applied": 4
+  "registered": 5,
+  "applied": 5
  },
  "seed": {
   "tables": 30,
