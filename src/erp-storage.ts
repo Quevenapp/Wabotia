@@ -36,6 +36,12 @@ export interface ErpBucket {
    * Fagoo entrega por link; o resto sai só pela rota, com o envelope.
    */
   sign: boolean;
+  /**
+   * Nome no endereço público (/api/public/erp-storage/<área>/<apelido>/…):
+   * o nome do Fagoo (brufap-…) fica só por dentro, onde os adaptadores e o
+   * diferencial precisam dele.
+   */
+  alias: string;
 }
 
 /**
@@ -48,6 +54,7 @@ export const ERP_BUCKETS: Record<string, ErpBucket> = {
   // attachment-storage.mjs (ATTACHMENT_BUCKET_CONFIG): anexos de documento,
   // contato, produto, financeiro e funcionário; logotipo e arquivos da empresa.
   "erp-attachments": {
+    alias: "anexos",
     maxBytes: 10 * MiB,
     types: [
       "application/pdf",
@@ -63,6 +70,7 @@ export const ERP_BUCKETS: Record<string, ErpBucket> = {
   // de clientes. Caminhos das RPCs: profiles/<perfil>/remittances/<hash>.rem e
   // profiles/<perfil>/returns/<hash>.ret.
   "brufap-cnab": {
+    alias: "cobranca",
     maxBytes: 4_020_000,
     types: OCTET,
     module: "erp-cobranca",
@@ -70,6 +78,7 @@ export const ERP_BUCKETS: Record<string, ErpBucket> = {
   },
   // platform.mjs (EXPORT_BUCKET, EXPORT_MAX_BYTES; 202610210331_platform_exports)
   "brufap-exports": {
+    alias: "exportacoes",
     maxBytes: 50 * MiB,
     types: ["application/zip"],
     module: "erp",
@@ -77,6 +86,7 @@ export const ERP_BUCKETS: Record<string, ErpBucket> = {
   },
   // dfe-distribution.mjs e 202610160045_dfe_distribution: notas recebidas.
   "brufap-received-dfe": {
+    alias: "dfe",
     maxBytes: 8 * MiB,
     types: OCTET,
     module: "erp-fiscal",
@@ -85,18 +95,17 @@ export const ERP_BUCKETS: Record<string, ErpBucket> = {
   // 202610160051_fiscal_wsdl e seguintes: XML assinado, recibos e respostas
   // da SEFAZ.
   "brufap-fiscal-artifacts": {
+    alias: "fiscal",
     maxBytes: 8 * MiB,
     types: OCTET,
     module: "erp-fiscal",
     sign: false,
   },
-  // 202610160041_a1_custody: custódia do certificado A1 (cifrado, em JSON).
-  "brufap-a1-vault": {
-    maxBytes: 1_500_000,
-    types: ["application/json"],
-    module: "erp-fiscal",
-    sign: false,
-  },
+  // brufap-a1-vault (202610160041_a1_custody, custódia do certificado A1)
+  // fica de fora de propósito: o certificado nunca fica no Wabotia. Ele mora
+  // no cofre da NFapi, separado do sistema que tem bots e integrações
+  // (decisão do usuário; src/erp/emissor/README.md). Código portado do Fiscal
+  // que tente guardar ou ler o certificado aqui recebe 404.
 };
 
 /** Chave do objeto no R2 (formato de erpObjectKey, rpc-endpoint.ts). */
@@ -244,19 +253,26 @@ const tooLarge = () =>
   );
 
 // ---------------------------------------------------------------------------
-// URL assinada: /api/public/erp-storage/<área>/<bucket>/<caminho>?token=…
-// O token é <expira em segundos>.<HMAC-SHA256> de área, bucket, caminho e
-// expiração, com a MASTER_KEY (separada por um prefixo próprio). Vale só até
-// expirar e só para aquele objeto daquela área.
+// URL assinada: /api/public/erp-storage/<área>/<apelido>/<caminho>?token=…
+// O token é <expira em segundos>.<HMAC-SHA256> de área, bucket (o nome do
+// Fagoo), caminho e expiração. Vale só até expirar e só para aquele objeto
+// daquela área. A chave do HMAC não é a MASTER_KEY: é derivada dela com um
+// rótulo próprio (linkKey), para o link nunca usar a chave que cifra os
+// segredos.
 
-function masterKey(env: Env) {
+const LINK_KEY_LABEL = "erp-storage-link/v1";
+async function linkKey(env: Env) {
   if (!env.MASTER_KEY || env.MASTER_KEY.length < 32)
     throw new ApiError(
       503,
       "setup_required",
       "Configure MASTER_KEY nos secrets do Worker.",
     );
-  return env.MASTER_KEY;
+  return hmac(env.MASTER_KEY, LINK_KEY_LABEL);
+}
+/** Bucket do Fagoo pelo apelido do endereço público. */
+function bucketByAlias(alias: string) {
+  return Object.entries(ERP_BUCKETS).find(([, b]) => b.alias === alias) ?? null;
 }
 const signedPayload = (
   profile: string,
@@ -273,7 +289,7 @@ async function signToken(
   expires: number,
 ) {
   const mac = await hmac(
-    masterKey(env),
+    await linkKey(env),
     signedPayload(profile, bucket, path, expires),
   );
   return `${expires}.${mac}`;
@@ -285,7 +301,8 @@ export const SIGNED_PATH = "/api/public/erp-storage/";
 /**
  * A URL que a erp-api monta com o endereço local da costura
  * (`<local>/storage/v1/object/sign/<bucket>/…`) vira a rota pública do
- * Worker, na mesma origem em que a pessoa chamou o ERP.
+ * Worker, na mesma origem em que a pessoa chamou o ERP, com o apelido do
+ * bucket no lugar do nome do Fagoo.
  */
 export function publicSignedUrls(
   text: string,
@@ -294,11 +311,13 @@ export function publicSignedUrls(
   profile: string,
 ) {
   const from = `${local}/storage/v1/object/sign/`;
-  return text.includes(from)
-    ? text
-        .split(from)
-        .join(`${origin}${SIGNED_PATH}${encodeURIComponent(profile)}/`)
-    : text;
+  if (!text.includes(from)) return text;
+  const to = `${origin}${SIGNED_PATH}${encodeURIComponent(profile)}/`;
+  let out = text;
+  for (const [name, bucket] of Object.entries(ERP_BUCKETS))
+    if (bucket.sign)
+      out = out.split(`${from}${name}/`).join(`${to}${bucket.alias}/`);
+  return out;
 }
 
 /** GET /api/public/erp-storage/<área>/<bucket>/<caminho>?token=…&download=… */
@@ -318,10 +337,11 @@ export async function erpSignedDownload(env: Env, request: Request) {
     new ApiError(403, "invalid_signature", "Link inválido ou vencido.");
   if (!match) throw denied();
   const profile = decodeURIComponent(match[1]);
-  const [, , bucketName, path] = match;
-  const bucket = bucketOf(bucketName);
+  const [, , alias, path] = match;
+  const found = bucketByAlias(alias);
   // Só bucket que aceita link (a exportação): CNAB, fiscal e anexos nunca.
-  if (!bucket?.sign || !validPath(path)) throw denied();
+  if (!found || !found[1].sign || !validPath(path)) throw denied();
+  const [bucketName, bucket] = found;
   const [expiresText, mac] = (url.searchParams.get("token") || "").split(".");
   const expires = Number(expiresText);
   if (
@@ -331,7 +351,7 @@ export async function erpSignedDownload(env: Env, request: Request) {
   )
     throw denied();
   const expected = await hmac(
-    masterKey(env),
+    await linkKey(env),
     signedPayload(profile, bucketName, path, expires),
   );
   if (!equal(mac, expected)) throw denied();

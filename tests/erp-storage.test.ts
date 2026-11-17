@@ -27,6 +27,22 @@ import { fixture } from "./service-center-fixture";
 import { setModule } from "./erp-module-helper";
 
 const LOCAL = "https://erp.wabotia.invalid";
+const hmacHex = async (secret: string, body: string) => {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  return [
+    ...new Uint8Array(
+      await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body)),
+    ),
+  ]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+};
 const KEY = "motor-local";
 const hex = async (bytes: Uint8Array) =>
   [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
@@ -142,7 +158,7 @@ describe("armazenamento do ERP no R2", () => {
     expect(
       (
         await SELF.fetch(
-          `https://test/api/public/erp-storage/${a.profile}/brufap-cnab/${path}?token=9999999999.00`,
+          `https://test/api/public/erp-storage/${a.profile}/cobranca/${path}?token=9999999999.00`,
         )
       ).status,
     ).toBe(403);
@@ -184,9 +200,21 @@ describe("armazenamento do ERP no R2", () => {
     ).url as string;
     expect(
       url.startsWith(
-        `https://test/api/public/erp-storage/${f.profile}/brufap-exports/${objectKey}?token=`,
+        `https://test/api/public/erp-storage/${f.profile}/exportacoes/${objectKey}?token=`,
       ),
     ).toBe(true);
+    // O nome do Fagoo nunca aparece no endereço público.
+    expect(url).not.toContain("brufap-exports");
+    // A chave do link é derivada: um HMAC com a MASTER_KEY direto não vale.
+    const [, expiresText, mac] = /token=(\d+)\.([0-9a-f]+)/.exec(url)!;
+    const direct = await hmacHex(
+      env.MASTER_KEY,
+      `erp-storage-sign:v1\n${f.profile}\nbrufap-exports\n${objectKey}\n${expiresText}`,
+    );
+    expect(mac).not.toBe(direct);
+    expect(
+      (await SELF.fetch(url.replace(`.${mac}`, `.${direct}`))).status,
+    ).toBe(403);
 
     const download = await SELF.fetch(url);
     expect(download.status).toBe(200);
@@ -209,6 +237,8 @@ describe("armazenamento do ERP no R2", () => {
       ),
       url.replace(`/exports/${id}/`, `/exports/${crypto.randomUUID()}/`),
       url.replace(/token=\d+\./, "token=99999999999."),
+      // O nome do Fagoo no lugar do apelido não é rota pública.
+      url.replace("/exportacoes/", "/brufap-exports/"),
     ];
     for (const bad of tampered)
       expect((await SELF.fetch(bad)).status).toBe(403);
@@ -284,11 +314,7 @@ describe("armazenamento do ERP no R2", () => {
       headers: { "Content-Type": "application/octet-stream" },
       body: "x",
     };
-    for (const bucket of [
-      "brufap-received-dfe",
-      "brufap-fiscal-artifacts",
-      "brufap-a1-vault",
-    ]) {
+    for (const bucket of ["brufap-received-dfe", "brufap-fiscal-artifacts"]) {
       expect(
         (await storage(f.profile, "POST", `${bucket}/objects/a`, octet)).status,
         bucket,
@@ -308,6 +334,38 @@ describe("armazenamento do ERP no R2", () => {
       (await storage(f.profile, "POST", "brufap-received-dfe/objects/a", octet))
         .status,
     ).toBe(200);
+    // Certificado A1: nunca no Wabotia (fica no cofre da NFapi). Mesmo com o
+    // erp-fiscal ligado, gravar, ler, apagar e assinar dão 404, e nada vai
+    // para o R2.
+    const vault = "brufap-a1-vault/certificates/a1.json";
+    const json = {
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    };
+    expect((await storage(f.profile, "POST", vault, json)).status).toBe(404);
+    expect((await storage(f.profile, "PUT", vault, json)).status).toBe(404);
+    expect(
+      (await storage(f.profile, "GET", `authenticated/${vault}`)).status,
+    ).toBe(404);
+    expect((await storage(f.profile, "DELETE", vault)).status).toBe(404);
+    expect(
+      (
+        await storage(f.profile, "POST", `sign/${vault}`, {
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ expiresIn: 60 }),
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await env.MEDIA.list({
+          prefix: erpStorageKey(f.profile, "brufap-a1-vault", ""),
+        })
+      ).objects,
+    ).toEqual([]);
+    await expect(
+      createErpUpload(env, f.profile, "brufap-a1-vault", "application/json"),
+    ).rejects.toThrow();
     expect(
       (
         await storage(
