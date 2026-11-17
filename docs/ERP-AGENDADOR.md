@@ -16,9 +16,9 @@ disparavam**. No Wabotia elas passam a rodar no alarme do próprio objeto.
 | Peça | Onde | O que faz |
 |---|---|---|
 | Rotinas | `scheduler/routines.ts` | Lista em código: `platform.schedule` (hora cheia), `retention` (03:10 de São Paulo). Cada rotina tem bloco, próximo horário e passo (uma unidade). |
-| `wb_routine` | `scheduler/routines.ts`, declarada em `schema/structural.ts` ("agendador") | Estado de cada rotina: `next_run_us`, `last_run_us`, `last_status` (`ok`, `partial`, `error`, `skipped`), `last_error`, `last_ms`, `runs`, `failures`. Fica fora do DDL gerado e do backup, como a `erp_meta`. |
+| `wb_routine` | Criada pelo `schema/migrate.ts` (`WB_ROUTINE_DDL`, `CREATE TABLE IF NOT EXISTS`, como a `erp_meta`: vale também para instância que já existe); declarada em `schema/structural.ts` ("agendador") | Estado de cada rotina: `next_run_us`, `last_run_us`, `last_status` (`ok`, `partial`, `error`, `skipped`), `last_error`, `last_ms`, `runs`, `failures`. Fica fora do DDL gerado e do backup. Na restauração, as rotinas vencem e rodam uma vez, sem duplicar tarefas (teste "backup e restauração" em `tests/erp-do-scheduler.test.ts`). |
 | Despachante | `scheduler/dispatch.ts`, `runRound(db, opções)` | Roda as rotinas vencidas e depois drena a fila `erp_platform__task` com as funções da plataforma (domínio Preferências). Devolve a próxima acordada. |
-| Alarme | `src/erp/hub.ts`, `alarm()` | `migrate`, depois `runRound` com os blocos guardados, `last_alarm` e `setAlarm(próxima)`. |
+| Alarme | `src/erp/hub.ts`, `alarm()` | `migrate`, depois `runRound` com os blocos guardados (KV `erp_blocks`) e o relógio do objeto (`engineClock`, o mesmo dos RPCs), `last_alarm` na `erp_meta` e `setAlarm(próxima)`. |
 | Wake | `src/erp/hub.ts`, `/erp-wake` | Ganha o mais cedo e guarda os blocos (contrato abaixo). |
 | Cron | `scheduler/cron.ts`, `wakeErpAreas(env, scheduledTime)` | Rede de segurança de hora em hora. A A o liga no `scheduled`. |
 
@@ -154,3 +154,8 @@ Teste: `tests/erp-do-scheduler.test.ts`, "cron".
 - **Fila do ERP para os módulos** (`outbox` com `claim`/`ack`): vem depois. O
   agendador só cuidará dos claims vencidos e da retenção.
 - **Medição de CPU real** na instalação de teste: roteiro para a K.
+- **Notificações por pessoa:** a G vai publicar `notificationDigestFor` e
+  `notifyMember` em `preferences/shared.ts`. Com elas, o executor de
+  `notifications_generate` passa a ceder a vez entre lotes de membros, e o
+  `certificado_a1` só entra com o bloco `erp-fiscal` ligado. Isso vem num
+  commit seguinte; até lá, o `notifications_run` inteiro é uma unidade.

@@ -8,9 +8,8 @@
 import { all } from "../../db";
 import { resolveStates } from "../../modules/registry";
 import type { Env } from "../../types";
-import { erpFetch } from "../hub";
+import { ERP_OPTIONAL_BLOCKS, erpFetch } from "../hub";
 
-export const ERP_OPTIONAL_BLOCKS = ["erp-fiscal", "erp-cobranca", "erp-pdv"] as const;
 const ERP_MODULES = ["erp", ...ERP_OPTIONAL_BLOCKS];
 
 /** Só no primeiro disparo da hora (cron a cada 5 min: minuto 0 a 4). */

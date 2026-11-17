@@ -11,21 +11,11 @@ export const HOUR_MS = 3_600_000;
 export const DAY_MS = 24 * HOUR_MS;
 
 /**
- * Estado das rotinas, uma linha por rotina declarada. Como a erp_meta, fica
- * fora do DDL gerado e do backup (engine/dump.ts só leva ERP_TABLES): numa
- * restauração as rotinas voltam a vencer e rodam uma vez, sem efeito repetido
- * (chaves das tarefas e ON CONFLICT DO NOTHING).
+ * Estado das rotinas, uma linha por rotina declarada: a tabela é criada pelo
+ * migrate (schema/migrate.ts, WB_ROUTINE_DDL), como a erp_meta, e de novo
+ * pelo despachante (IF NOT EXISTS) para quem roda sem o migrate (testes).
  */
-export const WB_ROUTINE_DDL = `CREATE TABLE IF NOT EXISTS wb_routine(
-  id TEXT PRIMARY KEY,
-  next_run_us INTEGER NOT NULL,
-  last_run_us INTEGER,
-  last_status TEXT CHECK (last_status IS NULL OR last_status IN ('ok','partial','error','skipped')),
-  last_error TEXT,
-  last_ms INTEGER,
-  runs INTEGER NOT NULL DEFAULT 0,
-  failures INTEGER NOT NULL DEFAULT 0
-) STRICT`;
+export { WB_ROUTINE_DDL } from "../schema/migrate.ts";
 
 /** O que a rotina recebe em cada unidade (uma transação). */
 export interface StepContext {
