@@ -3,5 +3,6 @@
 
 // Leituras (sessão L, combinado com a O): um import por arquivo reads-*.ts.
 import "./rpc/reads-config.ts";
+import "./rpc/reads-lookup.ts";
 
 export {};
