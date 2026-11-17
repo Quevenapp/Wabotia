@@ -197,6 +197,19 @@ Nada foi alterado."
     recusa qualquer `test_origin`, seja qual for o valor (inclusive o
     endereço oficial) e esteja a assinatura como estiver; o de teste só
     aceita os da própria origem.
+  - **Chave do ensaio, nunca a oficial.** O build de teste é assinado só
+    pela chave de `WABOTIA_TEST_RELEASE_KEY`:
+    - um `.pem` descartável, fora do repositório, gerado por
+      `node scripts/release-keygen.mjs --id ensaio --out <arquivo>`;
+    - o `release.mjs` nem procura a chave oficial nesse modo e recusa uma
+      chave oficial como chave do ensaio.
+  - A pública do ensaio entra só no build de teste, pela constante
+    `__WABOTIA_TEST_RELEASE_KEYS__`, que vale só junto com a origem de teste.
+    Ela **substitui** as oficiais: o build de teste não aceita versão
+    oficial, e o oficial não aceita versão de teste. Duas travas
+    independentes: a origem e a chave.
+  - Testado em `tests/installer.test.mjs`, que compila o `src/release.ts`
+    dos três jeitos (oficial, só a constante das chaves, teste).
   - Só no build de teste existe a rota `GET /api/test-catalog/releases/*`,
     que serve o catálogo do R2 da instalação (prefixo `test-catalog/`,
     enviado por `scripts/release-test-upload.mjs`); `/api/health` mostra
@@ -205,9 +218,10 @@ Nada foi alterado."
     `output/release-test/install-wabotia.mjs`. Imprime "BUILD DE TESTE: não
     publicar".
   - **Recusa num pacote oficial:** sem `--test-origin`, `release.mjs` para
-    se `WABOTIA_TEST_RELEASE_ORIGIN` estiver definida ou se o
-    `wrangler.jsonc` tiver `define` com a constante, e confere que o Worker
-    e o instalador gerados contêm o endereço oficial.
+    se `WABOTIA_TEST_RELEASE_ORIGIN` ou `WABOTIA_TEST_RELEASE_KEY` estiver
+    definida, ou se o `wrangler.jsonc` tiver `define` com uma das duas
+    constantes. Também confere que o Worker e o instalador gerados contêm o
+    endereço oficial.
 
 ## Etapas do atualizador (`src/updates.ts`)
 
@@ -460,13 +474,17 @@ quem digita é ele.
    - cópia local do `fca4bb2`, sem commit, com o `RELEASE_ORIGIN` de
      `src/release.ts` trocado por
      `https://wabotia-catalogo-ensaio.<subdomínio>.workers.dev/api/test-catalog`;
-   - versão `0.21.80` e `npm run release` (formato 1) dessa cópia;
+   - versão `0.21.80` e `WABOTIA_ALLOW_OVER_20MB=1 npm run release`
+     (formato 1, sem chave) dessa cópia;
    - instalar com o `public/install-wabotia.mjs` dela
      (`--name wabotia-ensaio-ponte`);
    - ligar o ERP numa área e criar alguns dados.
-3. **Ponte de teste:** neste branch, versão `0.21.81`:
-   - `npm run release -- --bridge --test-origin https://wabotia-catalogo-ensaio.<subdomínio>.workers.dev`;
-   - depois `--bridge --slim` numa pasta à parte;
+3. **Ponte de teste:** neste branch, versão `0.21.81`, sem commit:
+   - uma chave do ensaio, uma vez:
+     `node scripts/release-keygen.mjs --id ensaio --out <pasta fora do repositório>\ensaio.pem`;
+   - `WABOTIA_TEST_RELEASE_KEY=<esse arquivo> npm run release -- --bridge --test-origin https://wabotia-catalogo-ensaio.<subdomínio>.workers.dev`;
+   - para a enxuta, guarde antes `output/release-test` com outro nome, pois
+     cada variante usa a pasta inteira;
    - subir no catálogo de teste.
 4. **0.21.80 → 0.21.81 pelo painel,** com `wrangler tail` aberto:
    - anotar a saída de cada alarme (`exceededMemory`), as rodadas por etapa

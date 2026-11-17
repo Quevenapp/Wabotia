@@ -101,8 +101,16 @@ export interface ReleaseKey {
   /** Chave pública crua, 32 bytes em base64url. */
   ed25519: string;
 }
+// Só o build de teste define esta constante: as públicas da chave do ensaio
+// (scripts/release.mjs, WABOTIA_TEST_RELEASE_KEY), no lugar das oficiais. Vale
+// só junto com a origem de teste; um build oficial nunca a tem.
+declare const __WABOTIA_TEST_RELEASE_KEYS__: ReleaseKey[] | undefined;
 /** Chaves públicas embutidas; a lista só muda numa versão assinada. */
-export const RELEASE_KEYS: readonly ReleaseKey[] = releaseKeys.keys;
+export const RELEASE_KEYS: readonly ReleaseKey[] =
+  typeof __WABOTIA_TEST_RELEASE_KEYS__ !== "undefined" &&
+  RELEASE_ORIGIN !== OFFICIAL_RELEASE_ORIGIN
+    ? __WABOTIA_TEST_RELEASE_KEYS__
+    : releaseKeys.keys;
 let trusted: readonly ReleaseKey[] = RELEASE_KEYS;
 /** Só para testes: troca as chaves confiáveis (com `null`, volta às embutidas). */
 export function trustReleaseKeysForTests(keys: readonly ReleaseKey[] | null) {
@@ -282,7 +290,9 @@ export function validateIndexV2(value: any, at?: number): ReleaseIndexV2 {
     },
     issued_at: value.issued_at,
     expires: value.expires,
-    ...(value.test_origin === undefined ? {} : { test_origin: value.test_origin }),
+    ...(value.test_origin === undefined
+      ? {}
+      : { test_origin: value.test_origin }),
   };
 }
 
@@ -514,7 +524,10 @@ export function nextRound<T extends { size: number }>(
 
 export function assetManifestV2(m: ReleaseManifest) {
   return Object.fromEntries(
-    m.assets.map((f) => [f.name, { hash: f.sha256.slice(0, 32), size: f.size }]),
+    m.assets.map((f) => [
+      f.name,
+      { hash: f.sha256.slice(0, 32), size: f.size },
+    ]),
   );
 }
 

@@ -188,6 +188,61 @@ test("instalação nova recusa recursos existentes, inclusive D1 paginado", asyn
   }
 });
 
+test("build de teste: só a chave do ensaio vale, e só junto com a origem de teste; o oficial nunca a aceita", async () => {
+  const { generateKeyPairSync } = await import("node:crypto");
+  const { readFile } = await import("node:fs/promises");
+  const { signatureFile } = await import("../scripts/release-sign.mjs");
+  const official = JSON.parse(await readFile("src/release-keys.json", "utf8")).keys;
+  const ensaio = generateKeyPairSync("ed25519");
+  const testKeys = [{ id: "ensaio", ed25519: ensaio.publicKey.export({ format: "jwk" }).x }];
+  const origin = "https://catalogo-ensaio.example/api/test-catalog";
+  const folder = await mkdtemp(join(tmpdir(), "wabotia-release-keys-"));
+  // Compila src/release.ts como o release.mjs compila cada tipo de build.
+  const compiled = async (name, define) => {
+    const outfile = join(folder, `${name}.mjs`);
+    await build({
+      entryPoints: ["src/release.ts"],
+      outfile,
+      bundle: true,
+      platform: "node",
+      format: "esm",
+      target: "node22",
+      define,
+      logLevel: "silent",
+    });
+    return import(pathToFileURL(outfile));
+  };
+  try {
+    const keys = JSON.stringify(testKeys);
+    const oficial = await compiled("oficial", {});
+    const soChaves = await compiled("so-chaves", { __WABOTIA_TEST_RELEASE_KEYS__: keys });
+    const teste = await compiled("teste", {
+      __WABOTIA_TEST_RELEASE_ORIGIN__: JSON.stringify(origin),
+      __WABOTIA_TEST_RELEASE_KEYS__: keys,
+    });
+    const bytes = Buffer.from('{"format":2}');
+    const signed = Buffer.from(
+      signatureFile("index", bytes, { id: "ensaio", key: ensaio.privateKey }, testKeys),
+    );
+    // Oficial: só as chaves de src/release-keys.json; a do ensaio é recusada,
+    // e qualquer test_origin também.
+    assert.deepEqual(oficial.RELEASE_KEYS, official);
+    await assert.rejects(oficial.verifySignature("index", bytes, signed), /chave desconhecida/);
+    assert.equal(oficial.testOriginAccepted(origin), false);
+    // A constante das chaves sem a origem de teste não muda nada.
+    assert.deepEqual(soChaves.RELEASE_KEYS, official);
+    await assert.rejects(soChaves.verifySignature("index", bytes, signed), /chave desconhecida/);
+    // Teste: só a chave do ensaio (nenhuma oficial) e só a própria origem.
+    assert.deepEqual(teste.RELEASE_KEYS, testKeys);
+    assert.equal(await teste.verifySignature("index", bytes, signed), "ensaio");
+    assert.ok(!teste.RELEASE_KEYS.some((k) => official.some((o) => o.ed25519 === k.ed25519)));
+    assert.equal(teste.testOriginAccepted(origin), true);
+    assert.equal(teste.testOriginAccepted("https://outro.example/api/test-catalog"), false);
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
 test("instalador no formato 2: catálogo local assinado, arquivos conferidos um a um", async () => {
   const { createHash, generateKeyPairSync } = await import("node:crypto");
   const { mkdir, writeFile, readFile, unlink } = await import("node:fs/promises");

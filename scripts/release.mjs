@@ -28,7 +28,7 @@ import {
 } from "node:fs";
 import { join, extname, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
-import { createHash, createPrivateKey } from "node:crypto";
+import { createHash, createPrivateKey, createPublicKey } from "node:crypto";
 import { createRequire } from "node:module";
 import { parse } from "jsonc-parser";
 import { unstable_splitSqlQuery } from "wrangler";
@@ -46,6 +46,7 @@ import { signatureFile, signerFor, withValidity } from "./release-sign.mjs";
 
 const OFFICIAL_ORIGIN = "https://wabotia.queven.app";
 const TEST_CONSTANT = "__WABOTIA_TEST_RELEASE_ORIGIN__";
+const TEST_KEYS_CONSTANT = "__WABOTIA_TEST_RELEASE_KEYS__";
 const args = process.argv.slice(2);
 const option = (name) => {
   const i = args.indexOf(name);
@@ -79,19 +80,57 @@ if (testInstallation) {
   // (src/index.ts; enviado por scripts/release-test-upload.mjs).
   testOrigin = url.origin + "/api/test-catalog";
 }
-// Uma origem de teste só entra pelo --test-origin, nunca por acidente.
+// Uma origem de teste (e a chave do ensaio) só entra pelo --test-origin,
+// nunca por acidente.
 const config = parse(readFileSync("wrangler.jsonc", "utf8"));
 if (
   !testOrigin &&
-  (process.env.WABOTIA_TEST_RELEASE_ORIGIN || config.define?.[TEST_CONSTANT])
+  (process.env.WABOTIA_TEST_RELEASE_ORIGIN ||
+    process.env.WABOTIA_TEST_RELEASE_KEY ||
+    config.define?.[TEST_CONSTANT] ||
+    config.define?.[TEST_KEYS_CONSTANT])
 )
   throw Error(
-    "Origem de teste configurada (WABOTIA_TEST_RELEASE_ORIGIN ou define no wrangler.jsonc): um pacote oficial não sai assim.",
+    "Origem ou chave de teste configurada (WABOTIA_TEST_RELEASE_ORIGIN, WABOTIA_TEST_RELEASE_KEY ou define no wrangler.jsonc): um pacote oficial não sai assim.",
   );
 
 const publicKeys = JSON.parse(readFileSync("src/release-keys.json", "utf8")).keys;
+/**
+ * Build de teste: assinado só pela chave do ensaio (WABOTIA_TEST_RELEASE_KEY,
+ * um .pem descartável fora do repositório, de scripts/release-keygen.mjs).
+ * A pública dela vai embutida só no build de teste, no lugar das oficiais; a
+ * chave oficial nem é procurada. Uma chave oficial como chave de ensaio é
+ * recusada.
+ */
+let testKeys = null;
+function loadTestSigner() {
+  const given = process.env.WABOTIA_TEST_RELEASE_KEY;
+  if (!given)
+    throw Error(
+      "Build de teste sem chave do ensaio: defina WABOTIA_TEST_RELEASE_KEY com o caminho de um .pem descartável (node scripts/release-keygen.mjs --id teste --out <fora do repositório>). A chave oficial não assina build de teste.",
+    );
+  const path = resolve(given);
+  if (insideRepository(path, process.cwd()))
+    throw Error("A chave do ensaio não pode ficar dentro do repositório.");
+  let key;
+  try {
+    key = createPrivateKey(readFileSync(path));
+  } catch {
+    throw Error(`Não foi possível ler a chave do ensaio em ${path}.`);
+  }
+  if (key.asymmetricKeyType !== "ed25519")
+    throw Error("A chave do ensaio precisa ser Ed25519.");
+  const x = createPublicKey(key).export({ format: "jwk" }).x;
+  if (publicKeys.some((k) => k.ed25519 === x))
+    throw Error(
+      "A chave do ensaio é uma chave oficial (src/release-keys.json). Use uma chave descartável.",
+    );
+  testKeys = [{ id: "ensaio", ed25519: x }];
+  return signerFor(key, testKeys);
+}
 /** Carrega a chave de assinatura; null só para o candidato. */
 function loadSigner() {
+  if (testOrigin) return loadTestSigner();
   let path = process.env.WABOTIA_RELEASE_KEY;
   if (!path && existsSync("release-signing.local.json"))
     path = JSON.parse(readFileSync("release-signing.local.json", "utf8")).key;
@@ -115,6 +154,8 @@ function loadSigner() {
 }
 // O candidato nunca assina, mesmo com a chave configurada.
 const signer = candidate ? null : loadSigner();
+// As públicas que conferem as assinaturas desta execução.
+const signingKeys = testKeys || publicKeys;
 const root = candidate
   ? "output/release-candidate"
   : testOrigin
@@ -138,7 +179,7 @@ const writeIndex = (index) => {
   writeFileSync(`${folder}/release-v2.json`, text);
   writeFileSync(`${root}/v2/latest.json`, text);
   if (signer) {
-    const sig = signatureFile("index", Buffer.from(text), signer, publicKeys);
+    const sig = signatureFile("index", Buffer.from(text), signer, signingKeys);
     writeFileSync(`${folder}/release-v2.sig`, sig);
     writeFileSync(`${root}/v2/latest.sig`, sig);
   }
@@ -175,7 +216,14 @@ if (
   config.services
 )
   throw Error("Novos recursos exigem revisão do formato de publicação.");
-const define = testOrigin ? { [TEST_CONSTANT]: JSON.stringify(testOrigin) } : {};
+// Build de teste: a origem do catálogo de teste e as públicas do ensaio, no
+// lugar das oficiais (src/release.ts).
+const define = testOrigin
+  ? {
+      [TEST_CONSTANT]: JSON.stringify(testOrigin),
+      [TEST_KEYS_CONSTANT]: JSON.stringify(testKeys),
+    }
+  : {};
 const require = createRequire(import.meta.url);
 // O esbuild do Wrangler, esteja ele dentro de wrangler/node_modules ou içado
 // para node_modules (depende de como o npm montou a árvore).
@@ -452,7 +500,7 @@ writeFileSync(`${folder}/manifest.json`, manifestText);
 if (signer)
   writeFileSync(
     `${folder}/manifest.sig`,
-    signatureFile("manifest", Buffer.from(manifestText), signer, publicKeys),
+    signatureFile("manifest", Buffer.from(manifestText), signer, signingKeys),
   );
 const index = withValidity({
   format: 2,
