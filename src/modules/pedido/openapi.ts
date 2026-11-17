@@ -375,11 +375,19 @@ export function pedidoSchemas() {
         },
         address: {
           type: ["object", "null"],
+          description:
+            "Endereço de entrega (mesmos nomes da Empresa do ERP). Sem cidade informada, cidade e UF são as da loja. lat/lng: localização mandada pelo cliente no WhatsApp.",
           properties: {
             street: { type: "string" },
+            number: { type: "string" },
             district: { type: "string" },
             complement: { type: "string" },
+            city: { type: "string" },
+            state: { type: "string", description: "UF." },
+            postal_code: { type: "string", description: "CEP, 8 dígitos." },
             reference: { type: "string" },
+            lat: { type: ["number", "null"] },
+            lng: { type: ["number", "null"] },
           },
         },
         address_text: { type: "string" },
@@ -489,11 +497,18 @@ export function pedidoSchemas() {
         fulfillment: { enum: ["pickup", "delivery"] },
         address: {
           type: "object",
+          description: "Sem city, valem a cidade e a UF da loja (Estabelecimento).",
           properties: {
             street: { type: "string" },
+            number: { type: "string", maxLength: 30 },
             district: { type: "string" },
             complement: { type: "string" },
+            city: { type: "string", maxLength: 100 },
+            state: { type: "string", description: "UF (SP, RJ…)." },
+            postal_code: { type: "string", description: "CEP: 8 dígitos (aceita 00000-000)." },
             reference: { type: "string" },
+            lat: { type: "number", minimum: -90, maximum: 90 },
+            lng: { type: "number", minimum: -180, maximum: 180 },
           },
         },
         delivery_fee_cents: { type: "integer", minimum: 0 },
