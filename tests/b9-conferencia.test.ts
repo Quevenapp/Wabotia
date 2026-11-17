@@ -38,6 +38,17 @@ const sent = async (conversationId: string) =>
       conversationId,
     )
   ).length;
+/** O dedupe das mensagens que saíram depois das `before` primeiras. */
+const sentSince = async (conversationId: string, before: number) =>
+  (
+    await all(
+      env,
+      "SELECT dedupe FROM outbox WHERE conversation_id=? ORDER BY created,rowid",
+      conversationId,
+    )
+  )
+    .slice(before)
+    .map((row) => String(row.dedupe));
 
 describe("criar pela API sem atender a conversa não fala com o cliente (conferência B9)", () => {
   it("OS e agendamento: criados, sem aviso", async () => {
@@ -72,12 +83,17 @@ describe("criar pela API sem atender a conversa não fala com o cliente (confer�
     expect(await sent(c.id)).toBe(before);
     // O administrador (ou quem assumiu) avisa.
     const admin = await bearer(s.f.admin);
-    await api(admin, `/profiles/${s.f.profile}/service-orders`, "POST", {
-      conversation_id: c.id,
-      item: "Celular",
-      problem: "Tela",
-    });
-    expect(await sent(c.id)).toBeGreaterThan(before);
+    const byAdmin = await (
+      await api(admin, `/profiles/${s.f.profile}/service-orders`, "POST", {
+        conversation_id: c.id,
+        item: "Celular",
+        problem: "Tela",
+      })
+    ).json<any>();
+    // Exatamente o aviso de abertura da OS do administrador.
+    expect(await sentSince(c.id, before)).toEqual([
+      expect.stringContaining(`opened:${byAdmin.id}`),
+    ]);
   });
 
   it("Reserva com sinal e pedido: criados, sem aviso nem cobrança", async () => {
@@ -207,7 +223,10 @@ describe("segunda conferência B9: outras operações pela API", () => {
         { status: "ready" },
       ),
     );
-    expect(await sent(c.id)).toBeGreaterThan(before);
+    // Exatamente o aviso "pronto" da primeira OS.
+    expect(await sentSince(c.id, before)).toEqual([
+      expect.stringContaining(`status:${first.id}:`),
+    ]);
   });
 
   it("a mensagem a mais da suíte carregada era a boas-vindas do motor, não aviso das operações (ordem forçada)", async () => {

@@ -16,6 +16,7 @@ import {
   brasilia,
   claim,
   configure,
+  drain,
   fixture,
   latest,
   receive,
@@ -402,6 +403,10 @@ describe("categoria do protocolo", () => {
     expect(
       (await (await api(token, `${base}?category=printher`)).json<any>()).data,
     ).toEqual([]);
+    // Os comandos acima agendam o alarme do Coordinator, que responde ao
+    // "pedido" recebido sem esperar: deixa o motor terminar antes de conferir
+    // que nada saiu para o cliente (antes, dependia de o alarme cair depois).
+    await drain(f);
     expect(
       await all(env, "SELECT id FROM outbox WHERE conversation_id=?", c.id),
     ).toHaveLength(0);
