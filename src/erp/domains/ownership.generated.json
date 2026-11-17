@@ -933,7 +933,7 @@
    },
    "erp_documents.decimal_value": {
     "name": "decimalValue",
-    "ported": false
+    "ported": true
    },
    "erp_documents.delivery_address": {
     "name": "deliveryAddress",
@@ -945,7 +945,7 @@
    },
    "erp_documents.document_finance_category": {
     "name": "documentFinanceCategory",
-    "ported": false
+    "ported": true
    },
    "erp_documents.document_situation_json": {
     "name": "documentSituationJson",
@@ -1093,7 +1093,7 @@
    },
    "erp_documents.require_os_permission": {
     "name": "requireOsPermission",
-    "ported": false
+    "ported": true
    },
    "erp_documents.require_role": {
     "name": "requireRole",
@@ -1137,7 +1137,7 @@
    },
    "erp_documents.text_value": {
     "name": "textValue",
-    "ported": false
+    "ported": true
    },
    "erp_documents.transition_action": {
     "name": "transitionAction",
@@ -1636,7 +1636,7 @@
    },
    "erp_finance.document_title_rows": {
     "name": "documentTitleRows",
-    "ported": false
+    "ported": true
    },
    "erp_finance.dto": {
     "name": "dto",
@@ -1876,19 +1876,19 @@
    },
    "public.erp_document_finance_post": {
     "name": "erpDocumentFinancePost",
-    "ported": false
+    "ported": true
    },
    "public.erp_document_finance_preview": {
     "name": "erpDocumentFinancePreview",
-    "ported": false
+    "ported": true
    },
    "public.erp_document_finance_reverse": {
     "name": "erpDocumentFinanceReverse",
-    "ported": false
+    "ported": true
    },
    "public.erp_document_finance_reverse_preview": {
     "name": "erpDocumentFinanceReversePreview",
-    "ported": false
+    "ported": true
    },
    "public.erp_finance_cash_execute": {
     "name": "erpFinanceCashExecute",
@@ -2052,7 +2052,7 @@
    },
    "erp_fiscal_invoices.bool_input": {
     "name": "boolInput",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.check_sales_item_links": {
     "name": "checkSalesItemLinks",
@@ -2060,15 +2060,15 @@
    },
    "erp_fiscal_invoices.check_value": {
     "name": "checkValue",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.command_hash": {
     "name": "commandHash",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.command_replay": {
     "name": "commandReplay",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.counts_for_balance": {
     "name": "countsForBalance",
@@ -2076,7 +2076,7 @@
    },
    "erp_fiscal_invoices.digits": {
     "name": "digits",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.edit_locks": {
     "name": "editLocks",
@@ -2112,7 +2112,7 @@
    },
    "erp_fiscal_invoices.ipi_situation_allowed": {
     "name": "ipiSituationAllowed",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.item_input": {
     "name": "itemInput",
@@ -2136,7 +2136,7 @@
    },
    "erp_fiscal_invoices.money_text": {
     "name": "moneyText",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.order_effects": {
     "name": "orderEffects",
@@ -2160,7 +2160,7 @@
    },
    "erp_fiscal_invoices.preference": {
     "name": "preference",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.quantity_text": {
     "name": "quantityText",
@@ -2180,7 +2180,7 @@
    },
    "erp_fiscal_invoices.require_read": {
     "name": "requireRead",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.require_single_invoice": {
     "name": "requireSingleInvoice",
@@ -2188,11 +2188,11 @@
    },
    "erp_fiscal_invoices.require_write": {
     "name": "requireWrite",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.role_of": {
     "name": "roleOf",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.sales_balance": {
     "name": "salesBalance",
@@ -2208,11 +2208,11 @@
    },
    "erp_fiscal_invoices.scalar": {
     "name": "scalar",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.spec_object": {
     "name": "specObject",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.status_group": {
     "name": "statusGroup",
@@ -2228,7 +2228,7 @@
    },
    "erp_fiscal_invoices.text_input": {
     "name": "textInput",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.transport_input": {
     "name": "transportInput",
@@ -2236,15 +2236,15 @@
    },
    "erp_fiscal_invoices.ufs": {
     "name": "ufs",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.uuid_input": {
     "name": "uuidInput",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.version_input": {
     "name": "versionInput",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_mirror.coverage": {
     "name": "coverage",
@@ -2252,11 +2252,11 @@
    },
    "erp_fiscal_mirror.native_visible": {
     "name": "nativeVisible",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_mirror.visible": {
     "name": "visible",
-    "ported": false
+    "ported": true
    },
    "public.erp_fiscal_invoice_execute": {
     "name": "erpFiscalInvoiceExecute",

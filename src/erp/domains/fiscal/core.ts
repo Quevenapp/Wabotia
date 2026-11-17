@@ -189,14 +189,20 @@ export const nativeVisible = (db: SqlDriver, user: string | null, id: string | n
 
 /**
  * erp_fiscal_mirror.visible(usuário, entidade, origem): sem carteira, tudo; com
- * carteira, o contato do espelho precisa ser de um cliente do vendedor. Com o
- * Origin fora (docs/ERP-FASE0.md), origin_sync.raw_record não existe no motor:
- * fica só o ramo de erp_fiscal_mirror.current, que também está vazio.
+ * carteira, o contato da nota espelhada (erp_fiscal_mirror.current antes de
+ * origin_sync.raw_record) precisa ser de um cliente do vendedor. Leitura do
+ * espelho portada como leitura (ERP-PORTE.md, "Origin fora"): sem dado, nada é
+ * visível com carteira, como no oráculo; com dado, compara.
  */
 export function visible(db: SqlDriver, user: string | null, entity: string | null, source: string | null): boolean {
   const scope = contactScope(db, user);
   if (scope === null) return true;
-  const c = one(db, `SELECT json_extract(payload,'$.contato.id') c FROM "erp_fiscal_mirror__current" WHERE entity=? AND source_id=?`, entity, source);
+  const c = one(
+    db,
+    `SELECT c FROM (SELECT json_extract(payload,'$.contato.id') c, 0 priority FROM "erp_fiscal_mirror__current" WHERE entity=? AND source_id=?
+       UNION ALL SELECT json_extract(payload,'$.contato.id') c, 1 priority FROM "origin_sync__raw_record" WHERE entity=? AND source_id=?) ORDER BY priority LIMIT 1`,
+    entity, source, entity, source,
+  );
   const contact = c?.c === null || c?.c === undefined ? null : String(c.c);
   return (
     contact !== null &&
