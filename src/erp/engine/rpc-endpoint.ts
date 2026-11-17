@@ -39,7 +39,7 @@ export async function handleRpc(
   const clock = engineClock(ctx);
   // Objetos do armazenamento que o RPC consulta: lidos do R2 antes da transação.
   const found = new Map<string, StoredObject>();
-  for (const key of rpcObjectKeys(name, args as Record<string, unknown>)) {
+  for (const key of rpcObjectKeys(name, args as Record<string, unknown>, storageDriver(ctx.storage))) {
     const head = media ? await media.head(erpObjectKey(profile, key)) : null;
     if (head) found.set(key, { size: head.size, mimetype: head.httpMetadata?.contentType ?? "" });
   }
