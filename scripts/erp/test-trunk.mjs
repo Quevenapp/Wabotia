@@ -18,6 +18,7 @@
 import { spawnSync, execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { acquireSuiteSlot } from "./suite-lock.mjs";
 
 const args = process.argv.slice(2);
 const arg = (name) => {
@@ -66,6 +67,10 @@ if (args.includes("--plan")) {
   console.log(full ? `vitest INTEIRO, porque: ${reasons.join("; ")}.` : "vitest só do MOTOR.");
   process.exit(0);
 }
+// No máximo 2 suítes completas na máquina (a rodada do tronco tem vaga própria: ERP_TRUNK_ROUND=1).
+const waitStart = Date.now();
+await acquireSuiteSlot(full ? "test:trunk (vitest inteiro)" : "test:trunk");
+const waited = ((Date.now() - waitStart) / 60000).toFixed(1);
 let ok = step("check", "npm", ["run", "check"]);
 const tsc7 = process.env.ERP_TSC7 ?? "D:/Code/wabotia/Wabotia-erp-painel/node_modules/.bin/tsc.cmd";
 if (existsSync(tsc7)) ok = step("tsc 7", tsc7, ["--noEmit", "-p", "."]) && ok;
@@ -82,7 +87,7 @@ ok = step(full ? "vitest inteiro" : "vitest do motor", "npx", ["vitest", "run", 
 if (ok) writeFileSync(STATE, JSON.stringify(full ? { at: Date.now(), rounds: 0 } : { ...state, rounds: state.rounds + 1 }));
 
 console.log("\n== Suíte do tronco ==");
-console.log(`base ${base} (${changed.length} arquivo(s) na junção)`);
+console.log(`base ${base} (${changed.length} arquivo(s) na junção); espera pela vaga da suíte: ${waited} min`);
 console.log(full ? `vitest INTEIRO, porque: ${reasons.join("; ")}.` : `vitest só do MOTOR (${vitestFiles.length} arquivos): a junção não toca o núcleo, não traz migração e o vitest inteiro rodou há ${state.rounds} rodada(s).`);
 for (const r of results) console.log(`- ${r.label}: ${r.ok ? "ok" : "FALHA"}, ${r.minutes} min${r.summary ? `, ${r.summary}` : ""}`);
 process.exit(ok ? 0 : 1);
