@@ -2,13 +2,14 @@
 // (gerar contas por cliente e excluir), _page, _candidates e _documents.
 // O erp_document_mirror.require_visible sai pela linha de corte do Origin
 // (docs/ERP-FASE0.md, "Origin fora"): sem documento espelho, ele não tem efeito.
-// grouped_billing.number é identity: o valor pode diferir do Postgres depois de
-// uma transação desfeita (docs/ERP-FASE0.md, regra 8); aqui é max+1.
+// grouped_billing.number é identity: nextIdentity (engine/sequence.ts), que não
+// volta com a transação, como o nextval do Postgres.
 import { fromColumn } from "../../../engine/dec.ts";
 import { one, type Row, type SqlDriver } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
+import { nextIdentity } from "../../../engine/sequence.ts";
 import { todaySaoPaulo } from "../../../engine/time.ts";
 import { guardTrashChild, requireAccess as documentsAccess } from "../../documents/public.ts";
 import {
@@ -208,9 +209,10 @@ function generate(ctx: RpcContext, data: unknown, user: string, command: string)
     const count = days.length;
     if (total < count) raise("22023", "erp_finance_invalid_condition");
     if (addDays(today, days[count - 1]) > "2100-12-31") raise("22023", "erp_finance_invalid_condition");
-    const condition = cashText(item, "condition", 200, true);
+    // Ordem das colunas do INSERT (plano genérico): o nextval do number vem antes do cash_text da condição.
     const billing = crypto.randomUUID();
-    const number = Number(one(db, 'SELECT coalesce(max(number),0) n FROM "erp_finance__grouped_billing"')!.n) + 1;
+    const number = nextIdentity(ctx, "erp_finance__grouped_billing", "number");
+    const condition = cashText(item, "condition", 200, true);
     db.exec(
       `INSERT INTO "erp_finance__grouped_billing"(id, number, contact_id, issued_on, condition, total_cents, state, version, actor, command_id, created_at) VALUES(?,?,?,?,?,?,'active',1,?,?,?)`,
       billing, number, contact, today, condition, total, user, command, ctx.clock.next().toString(),

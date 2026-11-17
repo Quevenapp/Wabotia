@@ -4,11 +4,9 @@
 // a exclusão) e as leituras (page, candidates e documents), com chamadas
 // estragadas (um campo por chamada; ERP-PORTE.md) e repetições. As notas
 // fiscais ficam de fora: dependem do domínio Fiscal.
-// Com ERP_DIFF_N=600 aparece a regra 8 do ERP-FASE0 (identity): um gerar que
-// falha no segundo cliente consome o número do faturamento no Postgres e o
-// SQLite o reaproveita; o próximo sucesso diverge em items[n].number. Pedido à
-// N: sequência no motor que não volta com a transação, ou máscara no harness.
-//   node --test tests/erp/finance-grouped-billing-diff.test.mjs
+// O número do faturamento (identity) vem do nextIdentity do motor, que não volta
+// com a transação: um gerar que falha no segundo cliente consome o número nos dois.
+//   node --test tests/erp/finance-grouped-billing-diff.test.mjs (ERP_DIFF_N=600 para mais)
 import { test, after, before } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";

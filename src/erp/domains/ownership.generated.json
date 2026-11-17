@@ -1081,7 +1081,7 @@
    },
    "erp_documents.report_last_purchase_until": {
     "name": "reportLastPurchaseUntil",
-    "ported": false
+    "ported": true
    },
    "erp_documents.require_access": {
     "name": "requireAccess",
@@ -1572,15 +1572,15 @@
    },
    "erp_finance.commission_operation_titles": {
     "name": "commissionOperationTitles",
-    "ported": false
+    "ported": true
    },
    "erp_finance.commission_operation_view": {
     "name": "commissionOperationView",
-    "ported": false
+    "ported": true
    },
    "erp_finance.commission_policy": {
     "name": "commissionPolicy",
-    "ported": false
+    "ported": true
    },
    "erp_finance.commission_return_capture": {
     "name": "commissionReturnCapture",

@@ -8,6 +8,7 @@ import { saoPauloParts } from "../../engine/time.ts";
 import { contactScope, contactSituation, contactSourceSituation } from "../catalog/public.ts";
 import { bool, cmpText, ts } from "./internal.ts";
 import { left } from "./titles.ts";
+import { get as preference } from "../preferences/public.ts";
 
 /** round(n/d) do numeric (meio para longe do zero), para n ≥ 0 e d > 0 */
 export const roundDiv = (n: bigint, d: bigint) => (n * 2n + d) / (2n * d);
@@ -195,7 +196,7 @@ export function sellerView(db: SqlDriver, id: string) {
 const rateText = (v: bigint, scale: number) => `${v / 10n ** BigInt(scale)}.${String(v % 10n ** BigInt(scale)).padStart(scale, "0")}`;
 
 /** erp_finance.commission_operation_titles(documento) */
-function operationTitles(db: SqlDriver, document: string) {
+export function operationTitles(db: SqlDriver, document: string) {
   return [
     ...db.exec(
       `SELECT l.title_id, l.position FROM "erp_finance__document_posting" p JOIN "erp_finance__document_title" l ON l.posting_id=p.id WHERE p.document_id=? AND p.state='active'`,
@@ -269,4 +270,11 @@ export function operationView(db: SqlDriver, id: string) {
     ended_reason: o.ended_reason,
     version: o.version,
   };
+}
+
+/** erp_finance.commission_policy(): a política de base de comissão das preferências (vendas.base_comissao). */
+export function commissionPolicy(db: SqlDriver) {
+  const base = preference(db, "vendas.base_comissao") ?? ["desconto"];
+  const additions = Array.isArray(base) ? ["desconto", "frete", "icms_st", "ipi", "taxas_pagamento"].filter((x) => base.includes(x)) : [];
+  return { version: 1, base: "itens_liquidos", release: "regra_do_vendedor", additions };
 }
