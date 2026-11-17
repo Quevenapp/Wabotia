@@ -13,10 +13,6 @@ export const bizUnitCost = (..._args: unknown[]): never => notPorted("erp_home.b
 export const labelDefaults = (..._args: unknown[]): never => notPorted("erp_preferences.label_defaults");
 /** erp_preferences.report_clean(p text, p_max integer) → text */
 export const reportClean = (..._args: unknown[]): never => notPorted("erp_preferences.report_clean");
-/** erp_preferences.situation_base_color(p_status text) → text */
-export const situationBaseColor = (..._args: unknown[]): never => notPorted("erp_preferences.situation_base_color");
-/** erp_preferences.situation_base_label(p_kind text, p_status text) → text */
-export const situationBaseLabel = (..._args: unknown[]): never => notPorted("erp_preferences.situation_base_label");
 /** erp_preferences.situation_bases(p_kind text) → TABLE(status text, label text, color text, ordinal integer) */
 export const situationBases = (..._args: unknown[]): never => notPorted("erp_preferences.situation_bases");
 /** erp_preferences.situation_list(p_kind text) → TABLE(key text, base_status text, name text, color text, is_default boolean, active boolean, version integer, ordinal integer, created_at timestamp with time zone) */
