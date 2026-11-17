@@ -428,7 +428,8 @@ private fun DeliveryScreen(
                         }
                         Spacer(Modifier.height(6.dp))
                         Text(delivery.address, style = MaterialTheme.typography.bodyLarge, color = c.textPrimary)
-                        delivery.addressParts?.reference?.takeIf { it.isNotBlank() }?.let {
+                        // O servidor já põe a referência entre parênteses no address_text: aqui só quando ela falta lá.
+                        delivery.addressParts?.reference?.takeIf { it.isNotBlank() && !delivery.address.contains(it, ignoreCase = true) }?.let {
                             Text("Referência: $it", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
                         }
                         if (CourierDestination.plan(delivery) == DestinationSearch.Incomplete) {
