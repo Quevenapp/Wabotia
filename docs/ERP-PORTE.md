@@ -197,9 +197,20 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
   - Exemplo: `company/rpc/files.ts`.
   - **Do lado do Worker** (`src/erp-storage.ts`): a erp-api do Fagoo chama o `/storage/v1` do Supabase, e a costura responde do R2, no bucket MEDIA que a instalação já tem.
     - Chave: `erp-storage/<área>/<bucket>/<caminho>`, a mesma do `erpObjectKey` que o objeto `erp:` consulta.
-    - Buckets aceitos (`ERP_BUCKETS`), com o tamanho e os tipos do Fagoo: `erp-attachments`, `brufap-cnab`, `brufap-exports` e `brufap-received-dfe` (só leitura). Outro bucket dá 404.
+    - Bucket lógico do Fagoo → prefixo no MEDIA (`ERP_BUCKETS`), com o tamanho e os tipos do `storage.buckets` do Fagoo e o bloco que precisa estar ligado na área:
+
+      | Bucket | Conteúdo | Bloco | Link assinado |
+      |---|---|---|---|
+      | `erp-attachments` | anexos de documento, contato, produto, financeiro e funcionário; logotipo e arquivos da empresa | `erp` | não |
+      | `brufap-cnab` | remessas e retornos (`profiles/<perfil>/remittances/<hash>.rem`, `…/returns/<hash>.ret`) | `erp-cobranca` | não |
+      | `brufap-exports` | pacote da exportação da empresa | `erp` | sim (120 s) |
+      | `brufap-received-dfe` | notas recebidas (DF-e) | `erp-fiscal` | não |
+      | `brufap-fiscal-artifacts` | XML assinado, recibos e respostas da SEFAZ | `erp-fiscal` | não |
+      | `brufap-a1-vault` | custódia do certificado A1 | `erp-fiscal` | não |
+
+      `origin-backups` e `origin-fiscal-xml` (Origin, bloco "externo") ficam de fora: 404, como qualquer bucket fora da tabela. O caminho é o que a RPC registra; o prefixo (área e bucket) é posto pela camada.
     - Rotas: enviar (`POST`, `x-upsert`; chave repetida → 409, que os adaptadores do Fagoo já aceitam), substituir (`PUT`), baixar (`GET …/authenticated/…`), apagar (`DELETE`) e assinar (`POST …/sign/…`).
-    - Nada é público. A leitura é pela rota da erp-api, com o envelope da pessoa, ou por URL assinada.
+    - Nada é público. A leitura é pela rota da erp-api, com o envelope da pessoa, ou, só na exportação, por URL assinada. Com o bloco do bucket desligado, nada entra nem sai (403), mesmo que a rota tenha passado.
     - URL assinada: a costura troca o endereço local por `/api/public/erp-storage/<área>/<bucket>/<caminho>?token=…`, na origem em que a pessoa chamou. O token é um HMAC (MASTER_KEY) da área, do bucket, do caminho e da expiração, com até 1 h. Com o ERP desligado na área, o link para de valer.
     - **Arquivo grande sem montar na memória** (exportação da empresa, até 50 MiB): `createErpUpload` grava em partes de 5 MiB e só dá o nome no fim, com o SHA-256 (`exports/<id>/<sha>.zip`); `createZipStream` (`src/erp-zip.ts`) escreve o ZIP direto nele, um conjunto de dados por vez, página por página. Os dois juntos substituem o `createZip` + `exportStorage.put` do `runExport` do Fagoo, que monta o pacote inteiro e o copia de novo no `finish` (mais de 100 MB num isolado de 128 MB).
     - Testes: `tests/erp-storage.test.ts`, com os adaptadores do Fagoo sem alteração.
