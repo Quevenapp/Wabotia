@@ -42,3 +42,4 @@ import "./rpc/erp_catalog_contact_save.ts";
 import "./rpc/erp_catalog_contact_get.ts";
 import "./rpc/erp_catalog_contact_check.ts";
 import "./rpc/erp_catalog_contact_set_situation.ts";
+import "./rpc/erp_catalog_contact_page.ts";
