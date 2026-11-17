@@ -89,6 +89,7 @@ mesmo corpo devolve a mesma resposta (`Idempotency-Replayed: true`).
 {
   "day": "2026-11-14",
   "settings": { "front_door": true, "notify_ahead": 2 },
+  "coupon": Coupon,   // o que o totem imprime; veja "Cupom da senha"
   "queues": [{
     "id": "…", "name": "Geral", "prefix_normal": "N", "prefix_preferential": "P",
     "normals_per_preferential": 2, "priority": 0, "wait_mode": "average",
@@ -119,7 +120,7 @@ mesmo corpo devolve a mesma resposta (`Idempotency-Replayed: true`).
   "window_open": true,   // cliente pode receber texto livre agora
   "created_at": 0, "called_at": null, "started_at": null, "finished_at": null,
   "service_day": "2026-11-14", "public_token": "…",
-  "whatsapp_link": "https://wa.me/55…?text=SENHA%20N023%20AB12CD" | null
+  "whatsapp_link": "https://wa.me/55…?text=Aperte%20ENVIAR…%0ASENHA%20N023%20AB23CD%0A…" | null
 }
 ```
 
@@ -146,7 +147,96 @@ mesmo corpo devolve a mesma resposta (`Idempotency-Replayed: true`).
 | `DELETE /queue/displays/{id}` | `queue.display.revoke` | admin | — |
 
 `POST /queue/tickets` responde `Ticket` (com `ahead`, `wait_minutes`,
-`whatsapp_link`). O totem imprime o cupom com esses campos.
+`whatsapp_link`). O totem imprime o cupom com esses campos e com `coupon`.
+
+### Cupom da senha
+
+O administrador escolhe, por área, o que o cupom traz (Gestão → Filas e
+guichês → Cupom da senha, ou `PUT /settings` com `queue.coupon`; objeto
+parcial mescla com o que está salvo):
+
+```json
+{ "queue": { "coupon": {
+  "establishment": true,  // dados do cadastro (Gestão → Estabelecimento)
+  "position": true,       // pessoas à frente e espera estimada
+  "footer": true,         // mensagem de rodapé
+  "footer_text": "",      // até 300 caracteres; vazio usa o rodapé do estabelecimento
+  "whatsapp_qr": true     // QR do wa.me
+} } }
+```
+
+O aparelho pareado lê o cupom já resolvido em `QueueOverview.coupon`, que vem
+em `GET /queue` e em todo `snapshot` do WebSocket (escopo `queue:read`, sem
+login de pessoa). Salvar as configurações da fila ou do estabelecimento manda
+um `snapshot` novo na hora. O recurso `queue_coupon` em `features` de
+`/capabilities` indica que o campo existe.
+
+```json
+"coupon": {
+  "establishment": { "name": "Clínica Exemplo", "document_type": "cnpj" | "cpf" | null,
+                     "document_display": "11.222.333/0001-81",
+                     "address": "Rua A, 1", "phone": "(11) 3000-0000" } | null,
+  "position": true,
+  "footer": "Obrigado pela visita!" | null,
+  "whatsapp_qr": true,
+  "whatsapp_qr_issue": null | "disabled" | "no_line" | "no_number",
+  "whatsapp_qr_notice": "O QR do WhatsApp não sai no cupom porque…" | null
+}
+```
+
+Como o aparelho imprime:
+
+- `establishment` não nulo: cabeçalho com nome e, quando não vazios,
+  documento, endereço (pode ter quebra de linha) e telefone. Nulo: sem
+  cabeçalho do estabelecimento. Imprima `document_display` como veio, com o
+  rótulo de `document_type` ("CPF" ou "CNPJ"): o CPF já chega mascarado
+  (`***.456.789-**`), porque o cupom fica com o cliente; o CNPJ vem inteiro.
+- `position`: imprime `ahead` e `wait_minutes` do `Ticket` (este só quando não
+  for `null`). Falso: só a senha, a fila e a hora.
+- `footer` não nulo: imprime o texto no fim (pode ter quebra de linha).
+- QR: imprime quando `Ticket.whatsapp_link` não é nulo. Ele já é nulo com
+  `whatsapp_qr` desligado ou sem linha com número. `whatsapp_qr_issue` diz o
+  motivo e `whatsapp_qr_notice` traz o texto pronto para mostrar ao
+  administrador (o painel mostra no cartão do cupom): `no_line` = a área não
+  tem linha de WhatsApp; `no_number` = há linha, mas nenhuma com número
+  registrado; `disabled` = desligado pelo administrador.
+
+O `whatsapp_link` abre o WhatsApp com este texto já escrito:
+
+```
+Aperte ENVIAR para ser chamado pelo WhatsApp.
+SENHA N023 AB23CD
+https://<endereço público>/api/public/imagemwa
+```
+
+A linha `SENHA <senha> <código>` vincula a conversa à senha (o código é o
+`link_code` da senha, de uso no dia). A última linha só aparece com o endereço
+público configurado (Gestão → Sistema); a prévia desse link mostra uma imagem
+com uma seta no botão de enviar (veja "Imagem do botão Enviar"). Cupons
+impressos antes, com só `SENHA N023 AB23CD`, continuam valendo.
+
+### Imagem do botão Enviar (`/api/public/imagemwa`)
+
+`GET /api/public/imagemwa` é público e devolve uma página com Open Graph para a prévia do
+link: `og:title` "Aperte ENVIAR para ser chamado pelo WhatsApp",
+`og:description`, `og:url` e `og:image` em URL absoluta (endereço público
+configurado ou, sem ele, o endereço da requisição) apontando para
+`/imagemwa.png`, uma imagem estática de 1200 × 630 px (58 KB) com uma seta no
+botão verde de enviar. Quem abre o endereço no navegador vê a mesma página,
+com a imagem. O caminho fica sob `/api/` porque só esses caminhos chegam ao
+Worker (`run_worker_first`); um endereço fora deles cai no painel, sem Open
+Graph. Para mudar o texto da imagem, edite
+`scripts/imagemwa/fonte.html` e gere o PNG de novo (o comando está no
+arquivo).
+
+Requisitos do WhatsApp para a prévia (Meta, "Link previews" da WhatsApp
+Business Platform): `og:title`, `og:description` e `og:url` não vazios dentro
+dos primeiros 300 KB do HTML; `og:image` absoluta, até 600 KB, com pelo menos
+300 px de largura e proporção de no máximo 4:1. A Meta não diz se a prévia é
+gerada para um link que já vem escrito pelo `wa.me` (só fala de links
+digitados ou colados); isso precisa ser conferido num aparelho Android e num
+iPhone. Se a prévia não aparecer no rascunho, a primeira linha do texto já diz
+o que fazer, e a prévia aparece na conversa depois do envio.
 
 Configuração geral fica em `PUT /settings` na chave `queue`:
 
@@ -242,12 +332,24 @@ Sem WebSocket, use `GET /queue` a cada 3–5 s ou `GET /events?after=` (eventos
    rechamada, transferência. Dentro da janela: texto. Fora: modelo
    (`notifications.template_name`, variáveis `{{1}}` = "Senha N023", `{{2}}` =
    texto do aviso). Sem modelo, o guichê vê "fora da janela".
-6. Cupom do totem: QR `wa.me/<linha>?text=SENHA N023 <código>` vincula a senha
-   ao telefone e abre a janela.
+6. Cupom do totem: QR `wa.me/<linha>` com o texto "Aperte ENVIAR…", a linha
+   `SENHA N023 <código>` e o link `/api/public/imagemwa` (veja "Cupom da senha") vincula a
+   senha ao telefone e abre a janela.
 
 Botões só nas linhas Zernio/Meta; nas linhas QR o mesmo conteúdo vai como texto
 numerado e as respostas digitadas (sim, não, normal, preferencial, 1, 2, 3)
 funcionam em todas.
+
+### Bot de IA: "minha senha"
+
+A ferramenta de cliente `queue_minha_senha` (só leitura, sem botão;
+`src/modules/queue-tools.ts`) responde ao cliente da conversa a senha ativa de
+hoje, emitida para esta conversa ou, como o `SENHA`, para o telefone
+verificado pelo canal: código, fila, estado (aguardando, chamada, em
+atendimento), pessoas à frente, espera estimada em minutos e guichê. Sem
+telefone, token público nem link. Rota:
+`GET /profiles/{p}/queue/conversations/{id}` (`conversations:read`; liberada
+para a chave do Hermes presa à conversa).
 
 ## Lista negra
 

@@ -68,6 +68,20 @@ export const CLOSED_STATUSES: readonly OrderStatus[] = [
   "cancelled",
 ];
 
+/**
+ * Retirada, entrega ou mesa (pedido lançado pelo garçom numa conta do módulo
+ * Mesas: segue o caminho da retirada, "Pronto" e depois "Entregue").
+ */
+export type Fulfillment = "pickup" | "delivery" | "table";
+
+/** Rótulo do estado; na mesa, "Pronto" é para servir. */
+export const statusLabel = (status: OrderStatus, fulfillment?: string) =>
+  fulfillment === "table" && status === "ready"
+    ? "Pronto para servir"
+    : fulfillment === "table" && status === "delivered"
+      ? "Servido"
+      : STATUS_LABELS[status] || status;
+
 export const isStatus = (value: unknown): value is OrderStatus =>
   typeof value === "string" &&
   (ORDER_STATUSES as readonly string[]).includes(value);
@@ -80,7 +94,7 @@ export const isStatus = (value: unknown): value is OrderStatus =>
  */
 export function nextStatuses(
   status: OrderStatus,
-  fulfillment: "pickup" | "delivery",
+  fulfillment: Fulfillment,
 ): OrderStatus[] {
   const done: OrderStatus =
     fulfillment === "delivery" ? "out_for_delivery" : "ready";
@@ -158,6 +172,17 @@ export interface PedidoConfig {
   alerts: Record<AlertStatus, number>;
   /** Mensagens ao cliente; vazia não envia. Marcadores em docs/PEDIDO.md. */
   texts: Record<TextKey, string>;
+  /**
+   * Desconto pedido pelo cliente ao bot (pedido_pedir_desconto), aprovado
+   * pela equipe: quem aprova (`admin` ou `team`, quem acessa o Pedido) e o
+   * limite em % do subtotal; com `team`, a pessoa que não é administradora vai
+   * até `team_max_percent`. `max_percent` 0 desliga o pedido de desconto.
+   */
+  discount: {
+    approvers: "admin" | "team";
+    max_percent: number;
+    team_max_percent: number;
+  };
 }
 
 export const PEDIDO_DEFAULTS: PedidoConfig = {
@@ -175,6 +200,7 @@ export const PEDIDO_DEFAULTS: PedidoConfig = {
   payment_minutes: 30,
   cart_minutes: 60,
   alerts: { received: 10, preparing: 40, ready: 60, out_for_delivery: 90 },
+  discount: { approvers: "admin", max_percent: 10, team_max_percent: 5 },
   texts: {
     awaiting_payment:
       "Pedido nº {numero} registrado. Ele vai para o preparo assim que o pagamento for confirmado.",
@@ -264,6 +290,7 @@ export function pedidoConfig(settings: any): PedidoConfig {
     payments: { ...PEDIDO_DEFAULTS.payments, ...(raw.payments || {}) },
     alerts: { ...PEDIDO_DEFAULTS.alerts, ...(raw.alerts || {}) },
     texts: { ...PEDIDO_DEFAULTS.texts, ...(raw.texts || {}) },
+    discount: { ...PEDIDO_DEFAULTS.discount, ...(raw.discount || {}) },
   };
 }
 
@@ -399,6 +426,39 @@ export function validatePedidoConfig(value: unknown): Partial<PedidoConfig> {
       texts[key as TextKey] = text.trim();
     }
     out.texts = texts as Record<TextKey, string>;
+  }
+  if (raw.discount !== undefined) {
+    const d = raw.discount;
+    requireValue(
+      d && typeof d === "object" && !Array.isArray(d),
+      "Pedido: desconto inválido.",
+    );
+    for (const key of Object.keys(d))
+      requireValue(
+        Object.hasOwn(PEDIDO_DEFAULTS.discount, key),
+        `Pedido: chave desconhecida discount.${key}.`,
+      );
+    const discount = { ...PEDIDO_DEFAULTS.discount };
+    if (d.approvers !== undefined) {
+      requireValue(
+        d.approvers === "admin" || d.approvers === "team",
+        "Pedido: quem aprova desconto é admin ou team.",
+      );
+      discount.approvers = d.approvers;
+    }
+    for (const key of ["max_percent", "team_max_percent"] as const)
+      if (d[key] !== undefined) {
+        requireValue(
+          Number.isInteger(d[key]) && d[key] >= 0 && d[key] <= 50,
+          "Pedido: limite de desconto em % inteiro de 0 a 50.",
+        );
+        discount[key] = d[key];
+      }
+    requireValue(
+      discount.team_max_percent <= discount.max_percent,
+      "Pedido: o limite da equipe não passa do limite geral do desconto.",
+    );
+    out.discount = discount;
   }
   const merged = pedidoConfig({ pedido: out });
   requireValue(

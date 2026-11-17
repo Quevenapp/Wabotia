@@ -1,6 +1,8 @@
 // Reserva e check-in (módulo "reserva"): registra rotas, comandos e ganchos
 // no núcleo (src/modules/api.ts). Regras em units.ts (cadastros). Uso:
 // docs/RESERVA.md.
+import { one } from "../../db";
+import { formatBrasilia } from "../../business-time";
 import {
   ApiError,
   requireValue,
@@ -256,6 +258,40 @@ onMcpTool(MODULE, {
   },
   required: ["conversation_id", "unit_id"],
   write: true,
+  // O que o cliente confirma: unidade e período lidos daqui, nunca o texto do
+  // modelo. Valor e sinal saem na confirmação da reserva, pelas regras.
+  describe: async (env, profile, a) => {
+    const unit = await one(
+      env,
+      "SELECT name FROM reserva_units WHERE id=? AND profile_id=?",
+      a.unit_id,
+      profile,
+    );
+    if (!unit) return null;
+    const day = (value: unknown) =>
+      typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+        ? value.split("-").reverse().join("/")
+        : null;
+    const period =
+      typeof a.starts === "number"
+        ? `Quando: ${formatBrasilia(a.starts)}` +
+          (Number.isInteger(a.duration_minutes)
+            ? ` (${a.duration_minutes} min)`
+            : "")
+        : day(a.start_date)
+          ? `Entrada: ${day(a.start_date)}` +
+            (day(a.end_date)
+              ? ` · Saída: ${day(a.end_date)}`
+              : Number.isInteger(a.nights)
+                ? ` · ${a.nights} diária${a.nights === 1 ? "" : "s"}`
+                : "")
+          : null;
+    return [
+      `Reservar: ${unit.name}`,
+      ...(period ? [period] : []),
+      ...(Number.isInteger(a.guests) ? [`Pessoas: ${a.guests}`] : []),
+    ].join("\n");
+  },
   call: (a, profile) => {
     const { conversation_id, idempotency_key: _key, profile: _p, ...rest } = a;
     return {

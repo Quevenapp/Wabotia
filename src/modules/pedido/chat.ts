@@ -40,6 +40,7 @@ import {
   type OrderLine,
 } from "./orders";
 import { all, exec, one } from "../../db";
+import { answerDraft } from "./bot";
 
 const plain = (value: string) =>
   value
@@ -345,13 +346,19 @@ export async function cartCompleted(
 // ---------------------------------------------------------------------------
 // Carrinho do catálogo da Meta (content.order)
 
-interface CatalogDraft {
+/**
+ * Rascunho no chat (carrinho do catálogo da Meta ou pedido montado pelo bot):
+ * linhas com o preço do cardápio, à espera de retirada/entrega e endereço.
+ */
+export interface CatalogDraft {
   lines: OrderLine[];
   item_count: number;
   subtotal_cents: number;
   note: string;
   row_id: string;
   fulfillment?: "pickup" | "delivery";
+  /** Origem do pedido (padrão catalog). */
+  source?: "catalog" | "bot";
 }
 
 /** Produtos distintos num carrinho do catálogo tratado pelo módulo. */
@@ -475,6 +482,23 @@ export async function catalogOrder(
       .slice(0, 300),
     row_id: rowId,
   };
+  await proceedDraft(ctx, c, draft, key, "Recebemos o seu carrinho");
+  return true;
+}
+
+/**
+ * Rascunho pronto (preços do cardápio): pergunta retirada ou entrega, o
+ * endereço, ou cria o pedido direto quando só há uma forma de receber.
+ */
+export async function proceedDraft(
+  ctx: ModuleContext,
+  c: Conversation,
+  draft: CatalogDraft,
+  key: string,
+  intro: string,
+) {
+  const cfg = await config(ctx);
+  const subtotal = draft.subtotal_cents;
   if (cfg.pickup && cfg.delivery) {
     await saveChat(ctx, c, "fulfillment", null, { draft }, 30);
     await ask(
@@ -482,7 +506,7 @@ export async function catalogOrder(
       c,
       {
         type: "button",
-        body: `Recebemos o seu carrinho (${draft.item_count} ${draft.item_count === 1 ? "item" : "itens"}, ${money(subtotal)}). Como você quer receber?`,
+        body: `${intro} (${draft.item_count} ${draft.item_count === 1 ? "item" : "itens"}, ${money(subtotal)}). Como você quer receber?`,
         buttons: [
           { id: "pedido:receber:pickup", title: "Retirar no local" },
           {
@@ -534,8 +558,8 @@ async function finishCatalog(
   const { order, created } = await createOrder(ctx, {
     conversation: c,
     customer_name: contact?.name || c.title || "",
-    source: "catalog",
-    sourceKey: `catalog:${draft.row_id}`,
+    source: draft.source || "catalog",
+    sourceKey: `${draft.source || "catalog"}:${draft.row_id}`,
     lines: draft.lines,
     item_count: draft.item_count,
     subtotal_cents: draft.subtotal_cents,
@@ -580,6 +604,9 @@ export async function pedidoTurn(
   const key = `turn:${turn.rowId}`;
   if (turn.replyId) {
     if (!turn.replyId.startsWith("pedido:")) return false;
+    // Pedido montado pelo bot: Confirmar/Cancelar do resumo do módulo.
+    const bot = /^pedido:bot:(sim|nao):([A-Za-z0-9-]+)$/.exec(turn.replyId);
+    if (bot) return answerDraft(ctx, c, bot[1] === "sim", bot[2], key);
     const pay = /^pedido:pay:([^:]+):(pix|link|cash|card)$/.exec(turn.replyId);
     if (pay) return choosePayment(ctx, c, pay[1], pay[2] as PaymentMethod, key);
     const receive = /^pedido:receber:(pickup|delivery)$/.exec(turn.replyId);
@@ -598,6 +625,14 @@ export async function pedidoTurn(
   }
   // Conversa com atendente: só respostas claras à pergunta aberta.
   switch (chat.step) {
+    case "confirm": {
+      // Só as palavras do botão: "sim" e "não" soltos podem ser a resposta a
+      // outra pergunta do bot ("quer uma bebida?") e não confirmam o pedido.
+      const yes = /^confirmar( pedido)?$/.test(text);
+      const no = /^cancelar$/.test(text);
+      if (!yes && !no) return false;
+      return answerDraft(ctx, c, yes, chat.data.draft_id, key);
+    }
     case "payment": {
       const methods: PaymentMethod[] = (chat.data.methods || []).filter(
         (m: any) => PAYMENT_METHODS.includes(m),

@@ -148,6 +148,19 @@ equipe libera o grupo com **Liberar como cortesia** (com motivo e, de
 preferência, horas); daí em diante as passagens seguem pela validade dessa
 liberação.
 
+## No bot de IA
+
+A ferramenta de cliente `suporte_situacao` (só leitura, sem botão) diz ao
+cliente da conversa se o atendimento humano está liberado, até quando (data,
+"até o protocolo fechar" e o prazo máximo) e, se não está, o que falta:
+pagamento do pacote ainda não confirmado pelo provedor, confirmação da
+equipe, mensalidade em atraso (pelo telefone verificado) ou contratar um
+pacote ou plano, com as ofertas. Não mostra pagador, documento nem telefone,
+não encerra liberação nem abre o fluxo. CPF/CNPJ dito pelo cliente não é
+consultado, e "já paguei" não libera. Rota:
+`GET /profiles/{p}/suporte/conversations/{id}/situation`
+(`conversations:read`; liberada para a chave do Hermes presa à conversa).
+
 ## O que só uma conta real confirma
 
 Os testes simulam o Mercado Pago e não enviam nada ao WhatsApp. Antes de

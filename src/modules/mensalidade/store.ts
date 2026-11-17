@@ -1,6 +1,7 @@
 // Mensalidade: cadastros (planos e assinaturas) e importação. Fala com o
 // núcleo pela interface de src/modules/api.ts; só lê tabelas do núcleo
 // (conversas pelo telefone, para avisar o cliente).
+import { requireFinancialAal } from "../../mfa";
 import { all, exec, one } from "../../db";
 import {
   ApiError,
@@ -75,7 +76,8 @@ export const isManager = (actor: Actor) =>
     : actor.kind === "user" && actor.role === "admin";
 
 export function manager(actor: Actor, message?: string) {
-  if (isManager(actor)) return;
+  // Política do segundo fator (src/mfa.ts): pessoa precisa da sessão em aal2.
+  if (isManager(actor)) return requireFinancialAal(actor);
   if (actor.kind === "app")
     throw new ApiError(
       403,
@@ -317,6 +319,8 @@ export function installmentView(row: any) {
     /** Primeira parcela cobrada na contratação pelo WhatsApp. */
     upfront: !!row.upfront,
     amount_cents: row.amount_cents,
+    /** Desconto aprovado pela equipe (já descontado de amount_cents). */
+    discount_cents: row.discount_cents ?? 0,
     status,
     status_label: INSTALLMENT_LABELS[status] || status,
     ...(row.customer_name !== undefined

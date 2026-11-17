@@ -20,7 +20,7 @@ Em **Automação**, o Bot Atendente conversa com o cliente e consulta especialis
 
 ## Instalar na Cloudflare
 
-Requisitos: conta Cloudflare, Workers Paid como referência de produção, R2 habilitado, Node.js 22.13+ e npm. Comece pelo [passo a passo do Node.js para VPS/Ubuntu, Windows e macOS](https://wabotia.queven.app/install#nodejs), incluindo `libatomic1` no Ubuntu. O guia também explica as três permissões do token inicial.
+Requisitos: conta Cloudflare com o **plano pago Workers Paid** (exigido: o plano gratuito não é suportado, veja [Limites do Cloudflare](docs/LIMITES.md)), R2 habilitado, Node.js 22.13+ e npm. Comece pelo [passo a passo do Node.js para VPS/Ubuntu, Windows e macOS](https://wabotia.queven.app/install#nodejs), incluindo `libatomic1` no Ubuntu. O guia também explica as três permissões do token inicial.
 
 ```sh
 curl -fL https://wabotia.queven.app/install-wabotia.mjs -o install-wabotia.mjs
@@ -99,6 +99,8 @@ npm run build
 npm run migrate:local
 npm run dev
 ```
+
+Durante o desenvolvimento, rode só os testes do que mudou (`npx vitest run tests/<arquivo>`). Rode a suíte completa antes de enviar, com `npm run test:ci`, que limita o vitest a 3 trabalhadores para não saturar a máquina quando há outras suítes rodando. Se um teste estourar o tempo sob carga, rode o arquivo sozinho antes de concluir que há falha. Só um teste que depende de tempo real ganha um prazo próprio; não aumente o tempo-limite global.
 
 Copie `.dev.vars.example` para `.dev.vars` com valores locais antes de testar autenticação. O modo `/app?demo=1` mostra dados fictícios e não permite gravações. Desenvolvimento local não é uma opção de hospedagem de produção.
 

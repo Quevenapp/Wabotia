@@ -1319,6 +1319,8 @@ export function openapi(origin: string) {
       method !== "get" &&
       !path.endsWith("/contacts/import/preview") &&
       !(path === "/devices/{id}" && method === "put") &&
+      // Telemetria de módulo (onTelemetry): sem Idempotency-Key.
+      !path.endsWith("/entrega/deliveries/{id}/positions") &&
       path !== "/auth/mobile/login";
     const idempotent = mutation && !path.startsWith("/pairing");
     const parameters: any[] = [...path.matchAll(/\{(\w+)\}/g)].map((m) => ({

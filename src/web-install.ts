@@ -253,6 +253,12 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
     cloudflare(token, account, path, method, data, absent);
 
   if (step === "check") {
+    // O plano não é conferido pela API: exigiria permissão de cobrança no
+    // token. O administrador confirma que a conta tem o Workers Paid.
+    if (body?.paid_plan !== true)
+      throw invalid(
+        "O Wabotia exige o plano pago Workers Paid na conta. Assine na página de planos do Workers da Cloudflare e confirme na página antes de instalar.",
+      );
     if (await call(`/workers/scripts/${name}/settings`, "GET", undefined, true))
       throw invalid(
         "Já existe um Worker com esse nome. Escolha um nome novo; o instalador não substitui outra instalação.",

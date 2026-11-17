@@ -9,6 +9,11 @@ import {
   pedidoDemoConfig,
   pedidoDemoModule,
 } from "../modules/pedido/demo";
+import {
+  mesasDemo,
+  mesasDemoConfig,
+  mesasDemoModule,
+} from "../modules/mesas/demo";
 
 const M = 60_000,
   H = 60 * M;
@@ -41,6 +46,7 @@ const settings: Row = {
   menus: [],
   apps: [],
   pedido: pedidoDemoConfig,
+  mesas: mesasDemoConfig,
   departments: [
     { id: "suporte", name: "Suporte", members: ["demo-user", "demo-ana"], enabled: true },
     { id: "financeiro", name: "Financeiro", members: ["demo-ana"], enabled: true },
@@ -322,6 +328,82 @@ const internalMessages: Row[] = [
     status: null,
   },
 ];
+// Conversa interna com o bot: ele consulta e propõe; a pessoa confirma
+// (src/bot-actions, mensagens kind "proposal" e "result").
+const botChatMessages: Row[] = [
+  {
+    id: "b1",
+    author: "demo-user",
+    kind: "text",
+    text: "Abre uma OS para o notebook da Mariana, que não liga.",
+    created: t(6 * M),
+    status: "completed",
+  },
+  {
+    id: "proposal:demo",
+    author: "bot:demo-bot",
+    kind: "proposal",
+    text: "Proposta do bot: Abrir OS do notebook da Mariana que não liga",
+    payload: {
+      operation_summary: "Abrir ordem de serviço",
+      module: "os",
+      actions: ["confirm", "cancel"],
+      proposal: {
+        id: "demo",
+        status: "pending",
+        operation: "os.create",
+        summary: "Abrir OS do notebook da Mariana que não liga",
+        params: { item: "Notebook", problem: "Não liga", customer_name: "Mariana Costa" },
+        sensitive: false,
+        expires_at: t(-6 * M),
+      },
+    },
+    created: t(5 * M),
+    status: "sent",
+  },
+  {
+    id: "b2",
+    author: "bot:demo-bot",
+    kind: "text",
+    text: "Preparei a abertura da OS. Toque em Confirmar para eu abrir em seu nome.",
+    created: t(5 * M),
+    status: null,
+  },
+  {
+    id: "approval:demo",
+    author: "bot:demo-bot",
+    kind: "approval",
+    text: "Pedido de aprovação: Desconto de 10% para Mariana Costa.",
+    payload: {
+      approval: {
+        id: "demo-approval",
+        module_id: "pedido",
+        kind: "desconto",
+        conversation_id: "demo-1",
+        title: "Desconto de 10% no pedido nº 128 de Mariana Costa",
+        status: "pending",
+        fields: [
+          { key: "itens", label: "Itens", value: "2× X-Burger, 1× Suco" },
+          { key: "total", label: "Total de tabela", value: "R$ 62,00" },
+          { key: "pedido", label: "Cliente pediu", value: "10% (R$ 6,20)" },
+          { key: "ultimas", label: "Últimas compras", value: "5 pedidos em 30 dias, média R$ 58,00" },
+        ],
+        hidden_fields: 1,
+        model_summary: "Cliente frequente; diz que o concorrente cobra menos.",
+        adjust: { label: "Desconto concedido (R$)", type: "money", min: 0, max: 6.2 },
+        can_decide: true,
+        value: null,
+        reason: null,
+        decided_by: null,
+        decided_at: null,
+        expires_at: t(-25 * M),
+        created: t(2 * M),
+      },
+    },
+    created: t(2 * M),
+    status: "sent",
+  },
+];
 const menus: Row[] = [
   { id: "menu-sales", label: "Informações da loja", type: "submenu", enabled: true, line_ids: [], trigger: "automatic" },
   { id: "menu-person", label: "Conversar com uma pessoa", type: "human", parent_id: "menu-sales", enabled: true, line_ids: [], trigger: "automatic" },
@@ -391,6 +473,7 @@ const demoModules: Row[] = [
   },
   reservaDemoModule,
   pedidoDemoModule,
+  mesasDemoModule,
   {
     id: "mensalidade",
     name: "Mensalidade",
@@ -855,14 +938,26 @@ function read(path: string, query: URLSearchParams): any {
           updated: t(28 * M),
           peer: team[1],
         },
+        {
+          id: "demo-bot-chat",
+          profile_id: "demo",
+          member_a: "bot:demo-bot",
+          member_b: "demo-user",
+          created: t(3 * H),
+          updated: t(4 * M),
+          peer: team[3],
+        },
       ],
     };
+  if (rest === "internal-chats/demo-bot-chat")
+    return { id: "demo-bot-chat", peer: team[3], messages: botChatMessages };
   if (rest.startsWith("internal-chats/"))
     return { id: "demo-chat", peer: team[1], messages: internalMessages };
   if (rest === "menus") return { data: menus, revision: "demo" };
   if (rest === "modules") return { data: demoModules };
   if (rest === "agenda" || rest.startsWith("agenda/")) return agendaDemo(rest, query);
   if (rest === "pedido" || rest.startsWith("pedido/")) return pedidoDemo(rest, query);
+  if (rest === "mesas" || rest.startsWith("mesas/")) return mesasDemo(rest, query);
   if (rest === "service-orders") {
     const status = (query.get("status") || "").split(",").filter(Boolean),
       q = (query.get("q") || "").toLowerCase();

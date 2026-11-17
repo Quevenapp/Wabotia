@@ -25,6 +25,7 @@ import {
   type PaymentMethod,
 } from "./model";
 import { cartCategories, loadMenu } from "./menu";
+import { deliveryInfo } from "./listeners";
 import { config, storeSituation } from "./store";
 import {
   applyMethod,
@@ -48,6 +49,16 @@ const clipText = (value: unknown, max: number, what: string) => {
   );
   return (value as string).trim();
 };
+
+/** Pedido de mesa: o pagamento é o da conta (módulo Mesas), não o do pedido. */
+function refuseTabOrder(order: any) {
+  if (order.tab_id)
+    throw new ApiError(
+      409,
+      "tab_order",
+      `O pedido nº ${order.number} é da ${order.table_label || "mesa"}: o pagamento é registrado na conta da mesa.`,
+    );
+}
 
 const sourceOf = (actor: Actor): OrderSource =>
   actor.kind === "user" && !actor.id.startsWith("bot:") ? "panel" : "api";
@@ -78,6 +89,11 @@ export async function listOrders(
   if (query.conversation_id) {
     where.push("conversation_id=?");
     args.push(query.conversation_id);
+  }
+  // Pedidos de uma conta de mesa (módulo Mesas).
+  if (query.tab_id) {
+    where.push("tab_id=?");
+    args.push(query.tab_id);
   }
   if (query.phone) {
     where.push("phone=?");
@@ -142,9 +158,24 @@ export async function listOrders(
   };
 }
 
+/**
+ * Entregador e previsão (módulo que acompanha a entrega, se ligado) dos
+ * pedidos de entrega; null para os demais e sem esse módulo.
+ */
+async function deliveries(ctx: ModuleContext, rows: any[]) {
+  const ids = rows
+    .filter((r) => r.fulfillment === "delivery" && r.status !== "cancelled")
+    .map((r) => r.id as string);
+  return deliveryInfo(ctx.env, ctx.profile, ids);
+}
+
 export async function orderDetail(ctx: ModuleContext, id: unknown) {
   const order = await loadOrder(ctx, id);
-  return orderView(order, await orderHistory(ctx, order.id));
+  const [history, info] = await Promise.all([
+    orderHistory(ctx, order.id),
+    deliveries(ctx, [order]),
+  ]);
+  return { ...orderView(order, history), delivery: info.get(order.id) ?? null };
 }
 
 /** Início do dia em Brasília. */
@@ -172,6 +203,7 @@ export async function board(ctx: ModuleContext, at: number) {
     since,
   );
   const store = await storeSituation(ctx, cfg, at);
+  const info = await deliveries(ctx, rows);
   const card = (row: any) => {
     const minutes = Math.max(0, Math.floor((at - row.status_at) / 60_000));
     const alert = (ALERT_STATUSES as readonly string[]).includes(row.status)
@@ -185,6 +217,8 @@ export async function board(ctx: ModuleContext, at: number) {
         row.status === "awaiting_payment"
           ? !!row.payment_due_at && row.payment_due_at <= at
           : !!alert && minutes >= alert,
+      /** Entregador e previsão de chegada (módulo Entrega); senão null. */
+      delivery: info.get(row.id) ?? null,
     };
   };
   return {
@@ -266,6 +300,7 @@ export async function updateOrder(ctx: ModuleContext, actor: Actor, data: any) {
 export async function markPaid(ctx: ModuleContext, actor: Actor, data: any) {
   ctx.access(actor, "conversations:write");
   const order = await loadOrder(ctx, data.id);
+  refuseTabOrder(order);
   if (order.payment_status === "paid")
     throw new ApiError(
       409,
@@ -340,6 +375,7 @@ export async function setMethod(ctx: ModuleContext, actor: Actor, data: any) {
     "Forma de pagamento: pix, link, cash ou card.",
   );
   const order = await loadOrder(ctx, data.id);
+  refuseTabOrder(order);
   const conv = await conversationOf(ctx, order);
   // Cobrança online vai ao cliente só por quem atende a conversa (B9);
   // dinheiro ou cartão na entrega só confirma o pedido que ele já fez.

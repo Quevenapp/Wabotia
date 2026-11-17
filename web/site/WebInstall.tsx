@@ -28,6 +28,7 @@ export function WebInstall() {
   const [enabled, setEnabled] = useState<boolean | null>(null),
     [form, setForm] = useState<Row>({ name: "wabotia-atendimento" }),
     [agreed, setAgreed] = useState(false),
+    [paidPlan, setPaidPlan] = useState(false),
     [phase, setPhase] = useState<
       "form" | "keys" | "running" | "failed" | "done"
     >("form"),
@@ -69,6 +70,7 @@ export function WebInstall() {
         token: form.token,
         name: form.name,
         step: name,
+        paid_plan: paidPlan,
         cursor: run.current.cursor,
         ...(name === "publish" ? { keys: run.current.keys } : {}),
       }),
@@ -198,6 +200,18 @@ export function WebInstall() {
             <h2>1. Prepare a conta</h2>
             <ol>
               <li>
+                Assine o plano pago <strong>Workers Paid</strong> na conta, na{" "}
+                <a
+                  href="https://dash.cloudflare.com/?to=/:account/workers/plans"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  página de planos do Workers ↗
+                </a>
+                . O Wabotia não roda no plano gratuito (
+                <a href="/install#requisitos">por quê</a>).
+              </li>
+              <li>
                 Na Cloudflare, ative a assinatura <strong>R2</strong> (
                 <a href="/install#requisitos">como ativar</a>). Sem ela a
                 conferência abaixo falha, sem criar nada.
@@ -254,12 +268,21 @@ export function WebInstall() {
             <label className="check-field">
               <input
                 type="checkbox"
+                checked={paidPlan}
+                onChange={(event) => setPaidPlan(event.target.checked)}
+              />
+              A conta tem o plano pago Workers Paid. O instalador não confere o
+              plano: isso exigiria dar ao token acesso à cobrança da conta.
+            </label>
+            <label className="check-field">
+              <input
+                type="checkbox"
                 checked={agreed}
                 onChange={(event) => setAgreed(event.target.checked)}
               />
               Entendi e quero instalar por aqui
             </label>
-            <Button type="submit" size="lg" disabled={!agreed}>
+            <Button type="submit" size="lg" disabled={!agreed || !paidPlan}>
               Conferir a conta <ArrowRight size={17} />
             </Button>
           </form>

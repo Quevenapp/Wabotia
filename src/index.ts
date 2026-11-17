@@ -12,6 +12,7 @@ import { templateCatalog } from "./router-templates";
 import { listLines, listMenus } from "./line-service";
 import {
   teamDirectory,
+  areaGrants,
   areaPeople,
   listInternalChats,
   internalChatDetail,
@@ -38,7 +39,7 @@ import {
   json,
   requireValue,
 } from "./types";
-import { all, one, exec, batch } from "./db";
+import { all, one, exec, batch, withReadCache } from "./db";
 import { documentText } from "./knowledge";
 import {
   ensureInstallationArea,
@@ -75,6 +76,20 @@ import { openapi } from "./openapi";
 import { ticketStatuses, activeTicketSql } from "./protocols";
 import { listServiceTemplates } from "./service-templates";
 import { mountMcp, takeInternalActor } from "./mcp";
+import {
+  approvalView,
+  decideApproval,
+  listApprovals,
+  loadApproval,
+} from "./approvals";
+import {
+  cancelProposal,
+  confirmProposal,
+  fullPersonalData,
+  setFullPersonalData,
+} from "./bot-actions/actions";
+import { mountAccount, mountAccountPublic } from "./account-routes";
+import { loginMfaNext, loginSecondFactor, mfaGate } from "./mfa";
 import { buildInfo } from "./build-info.generated";
 import {
   listContacts,
@@ -105,6 +120,12 @@ import {
   requireModule,
 } from "./modules/registry";
 import {
+  accessCatalog,
+  allows,
+  presetsFor,
+  requireRouteAccess,
+} from "./access";
+import {
   formInput,
   formPage,
   getWebStep,
@@ -112,12 +133,22 @@ import {
   publicOrigin,
   rememberOrigin,
   statePage,
+  appInvitePage,
   stepFor,
   touchWebStep,
   webStepByCode,
+  webStepView,
   whatsappReturnLink,
 } from "./web-steps";
-import { moduleRoutes } from "./modules/hooks";
+import { emailReady } from "./email";
+import { trackPage } from "./web-track";
+import {
+  CLAIM_PATH,
+  claimOwner,
+  ipHash,
+  peekClaim,
+} from "./module-credentials";
+import { credentialGate, moduleRoutes, webStepPageHook } from "./modules/hooks";
 import { paymentView, verifyPaymentWebhook } from "./payments";
 import {
   addCartSlot,
@@ -132,6 +163,7 @@ import { capabilities as serverCapabilities } from "./modules/capabilities";
 import { establishment } from "./establishment";
 import { erpApi, erpProbe } from "./erp/api/local-fetch";
 import { erpSignedDownload } from "./erp-storage";
+import { ERP_PEOPLE_SQL, erpIdentity, isErpPath } from "./modules/erp/identity";
 import {
   appProfiles,
   closeSockets,
@@ -147,7 +179,9 @@ import {
   listDisplays,
   displayByToken,
   publicTicket,
+  SEND_HINT_PATH,
 } from "./queue";
+import { sendHintPage } from "./send-hint";
 
 /** Hands a WebSocket upgrade to the area's Coordinator (one per area). */
 function queueSocket(
@@ -285,6 +319,90 @@ app.get("/api/public/queue/:token", async (c) => {
   if (owner) await requireModule(c.env, owner.profile_id, "queue");
   return c.json(await publicTicket(c.env, c.req.param("token")));
 });
+// Credencial por QR (src/module-credentials.ts): o app sem login troca o
+// código do QR por um token que só alcança as rotas do módulo. Uso único,
+// limite por IP; a leitura e o gancho do módulo rodam no Coordinator da área.
+app.post(
+  "/api/credentials/claim",
+  bodyLimit({ maxSize: 4 * 1024 }),
+  async (c) => {
+    const ip = c.req.header("CF-Connecting-IP") || "local";
+    await rate(
+      c.env,
+      "credential-claim:" + (await ipHash(c.env, ip)),
+      10,
+      600000,
+    );
+    const body = await c.req.json<any>().catch(() => ({}));
+    // A URL do QR (nova /api/public/c/ ou a antiga /c/, já impressa) ou só
+    // o código.
+    const code = String(body?.code ?? "")
+      .trim()
+      .replace(/^.*\/c\//, "");
+    const owner = await claimOwner(c.env, code);
+    if (!owner) throw new ApiError(404, "claim_not_found", "QR inválido.");
+    return c.env.COORDINATOR.get(
+      c.env.COORDINATOR.idFromName(owner.profile_id),
+    ).fetch("https://coordinator/credential-claim", {
+      method: "POST",
+      body: JSON.stringify({
+        profile: owner.profile_id,
+        code,
+        name: body?.name,
+        device: body?.device,
+        ip,
+      }),
+    });
+  },
+);
+// O QR (https://<endereço público>/api/public/c/<código>; debaixo de /api/
+// para o Worker responder antes dos arquivos do painel, run_worker_first do
+// wrangler.jsonc) nunca é trocado aqui: prévias
+// de link e a câmera comum não gastam o código. Com Accept: application/json,
+// a leitura pública do app antes da troca ("Entrega da loja X, servidor Y —
+// continuar?"): só o nome do estabelecimento e se o código vale; inexistente,
+// vencido, lido ou revogado dão a mesma resposta (sem oráculo). Sem JSON, a
+// página que orienta a abrir o app. Limite por IP nas duas.
+const PLAY_STORE_URL =
+  "https://play.google.com/store/apps/details?id=br.com.queven.wabotia";
+app.get(`${CLAIM_PATH}:code`, async (c) => {
+  const ip = c.req.header("CF-Connecting-IP") || "local";
+  await rate(c.env, "credential-peek:" + (await ipHash(c.env, ip)), 30, 600000);
+  const row = await peekClaim(c.env, c.req.param("code"));
+  const live =
+    row && (await moduleEnabled(c.env, row.profile_id, row.module_id))
+      ? row
+      : null;
+  const store = live
+    ? (await establishment(c.env, live.profile_id).catch(() => null))?.name ||
+      null
+    : null;
+  const server = (await publicOrigin(c.env)) || new URL(c.req.url).origin;
+  const headers = {
+    "Cache-Control": "no-store",
+    Vary: "Accept",
+  };
+  if ((c.req.header("Accept") || "").includes("application/json"))
+    return c.json(
+      live
+        ? { valid: true, store, server, expires_at: live.claim_expires }
+        : { valid: false, server },
+      200,
+      headers,
+    );
+  const links = [{ label: "Baixar na Google Play", href: PLAY_STORE_URL }];
+  if (c.env.IOS_APP_URL?.startsWith("https://"))
+    links.push({ label: "Baixar na App Store", href: c.env.IOS_APP_URL });
+  return c.html(
+    appInvitePage(appName(c.env), {
+      app: appName(c.env),
+      store,
+      links,
+    }),
+    200,
+    { ...webStepHeaders, ...headers },
+  );
+});
 // Passo web (docs/MODULOS.md): página pública leve, aberta pelo link curto
 // enviado no WhatsApp. O código do link é a credencial; só o hash é guardado.
 const webStepHeaders = {
@@ -325,6 +443,43 @@ app.get("/api/w/:code", async (c) => {
     row.conversation_id,
   );
   const whatsapp = conv ? await whatsappReturnLink(c.env, conv) : null;
+  // Página de acompanhamento (spec.page "track"): o módulo diz o que mostrar.
+  if (json(row.spec).page === "track") {
+    const hook = webStepPageHook(row.module_id);
+    const view =
+      ["sent", "opened"].includes(current.status) &&
+      hook &&
+      (await webStepAvailable(c.env, row))
+        ? await hook(c.env, row.profile_id, webStepView(current)).catch(
+            (error: unknown) => {
+              // O cliente vê "Acompanhamento encerrado"; o erro vai ao log.
+              console.error(
+                JSON.stringify({
+                  component: "web-step-page",
+                  module: row.module_id,
+                  web_step: row.id,
+                  error: String((error as Error)?.message || error).slice(
+                    0,
+                    300,
+                  ),
+                }),
+              );
+              return null;
+            },
+          )
+        : null;
+    if (!view)
+      return webStepHtml(
+        c,
+        statePage("expired", brand, {
+          whatsapp,
+          title: "Acompanhamento encerrado",
+          text: "Este acompanhamento não está mais disponível. Fale com a gente pelo WhatsApp.",
+        }),
+        410,
+      );
+    return webStepHtml(c, trackPage(view, brand, whatsapp));
+  }
   if (current.status === "completed")
     return webStepHtml(c, statePage("used", brand, { whatsapp }));
   if (
@@ -393,6 +548,9 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
   row.public_code = c.req.param("code");
   const brand = await pageBrand(c.env, row.profile_id);
   const spec = json(row.spec);
+  // Acompanhamento só se lê.
+  if (spec.page === "track")
+    return webStepHtml(c, statePage("not_found", brand), 405);
   const form = await c.req.raw.formData().catch(() => new URLSearchParams());
   const cart = spec.page === "cart";
   const input = cart ? cartInput(form) : formInput(form);
@@ -509,6 +667,14 @@ app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
     result.reason === "not_found" ? 404 : 410,
   );
 });
+// Prévia do link do cupom da senha (src/send-hint.ts), pública, sob /api/
+// para o Worker responder em vez do fallback dos arquivos estáticos.
+app.get(SEND_HINT_PATH, async (c) => {
+  const origin = (await publicOrigin(c.env)) || new URL(c.req.url).origin;
+  return c.html(sendHintPage(origin), 200, {
+    "Cache-Control": "public, max-age=3600",
+  });
+});
 const displayToken = (c: any) =>
   c.req.header("Authorization")?.match(/^Display ([0-9a-f]{64})$/)?.[1] ||
   c.req
@@ -615,6 +781,9 @@ app.get("/api/auth/status", async (c) => {
   return c.json({
     initialized: count.n > 0,
     configured: !!c.env.MASTER_KEY && !!c.env.SETUP_TOKEN,
+    // "Esqueci a senha" por e-mail (src/email.ts); sem ele, só o link do
+    // administrador e a recuperação com o SETUP_TOKEN.
+    email: count.n > 0 && (await emailReady(c.env)),
   });
 });
 app.use("/api/auth/*", async (c, next) => {
@@ -623,6 +792,7 @@ app.use("/api/auth/*", async (c, next) => {
     throw new ApiError(403, "invalid_origin", "Origem inválida.");
   await next();
 });
+mountAccountPublic(app);
 app.post("/api/auth/setup", async (c) => {
   await rate(
     c.env,
@@ -694,14 +864,19 @@ app.post("/api/auth/login", async (c) => {
       "invalid_credentials",
       "E-mail ou senha inválidos.",
     );
+  // Horário de acesso e segundo fator (src/mfa.ts).
+  const aal = await loginSecondFactor(c.env, user, data);
   const token = random();
   await exec(
     c.env,
-    "INSERT INTO sessions(hash,user_id,expires,kind,created) VALUES(?,?,?,'cookie',?)",
+    "INSERT INTO sessions(hash,user_id,expires,kind,created,id,aal,mfa_at) VALUES(?,?,?,'cookie',?,?,?,?)",
     await sha(token),
     user.id,
     now() + 43200000,
     now(),
+    uid(),
+    aal,
+    aal === 2 ? now() : null,
   );
   setCookie(c, "wabotia", token, {
     httpOnly: true,
@@ -710,7 +885,7 @@ app.post("/api/auth/login", async (c) => {
     path: "/",
     maxAge: 43200,
   });
-  return c.json({ ok: true });
+  return c.json({ ok: true, aal, mfa: await loginMfaNext(c.env, user, aal) });
 });
 const MOBILE_SESSION_MS = 30 * 86400000;
 const mobilePlatforms = ["android", "ios"];
@@ -721,20 +896,30 @@ function mobileLabel(device: any) {
     .join(" | ")
     .slice(0, 200);
 }
-async function createMobileSession(env: Env, userId: string, label: string) {
+async function createMobileSession(
+  env: Env,
+  userId: string,
+  label: string,
+  aal: 1 | 2 = 1,
+  /** Horário do código na sessão anterior (renovação): o prazo não recomeça. */
+  mfaAt: number | null = null,
+) {
   const token = MOBILE_TOKEN_PREFIX + random(),
     expires = now() + MOBILE_SESSION_MS;
   await exec(
     env,
-    "INSERT INTO sessions(hash,user_id,expires,kind,created,label,last_used) VALUES(?,?,?,'bearer',?,?,?)",
+    "INSERT INTO sessions(hash,user_id,expires,kind,created,label,last_used,id,aal,mfa_at) VALUES(?,?,?,'bearer',?,?,?,?,?,?)",
     await sha(token),
     userId,
     expires,
     now(),
     label || null,
     now(),
+    uid(),
+    aal,
+    aal === 2 ? (mfaAt ?? now()) : null,
   );
-  return { token, expires };
+  return { token, expires, aal };
 }
 const mobileUser = (user: any) => ({
   id: user.id,
@@ -770,18 +955,70 @@ app.post("/api/auth/mobile/login", async (c) => {
       "invalid_credentials",
       "E-mail ou senha inválidos.",
     );
+  const aal = await loginSecondFactor(c.env, user, data);
   const session = await createMobileSession(
     c.env,
     user.id,
     mobileLabel(data.device),
+    aal,
   );
-  return c.json({ ...session, user: mobileUser(user) });
+  return c.json({
+    ...session,
+    mfa: await loginMfaNext(c.env, user, aal),
+    user: mobileUser(user),
+  });
 });
+/** Área de uma rota /api/v1/profiles/:profile/…, ou null. */
+function profileOfPath(path: string) {
+  const [, , , segment, raw] = path.split("/");
+  if (segment !== "profiles" || !raw) return null;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+}
 app.use("/api/v1/*", async (c, next) => {
   // Chamadas internas do MCP já foram autenticadas uma vez em /api/mcp.
   const internal = takeInternalActor(c.req.raw);
-  const actor = internal || (await authenticate(c.env, c.req.raw));
+  // Uma ida só ao D1 antes da rota (docs/LIMITES.md): a credencial e, numa
+  // rota de área, o estado dos módulos, que fica no cache de leituras desta
+  // requisição. Leitura (GET) mantém o cache até o fim, e a rota reaproveita
+  // o estado; escrita usa o cache só na conferência do módulo (a rota pode
+  // passar pelo Coordinator, que grava fora deste env).
+  const pre = withReadCache(c.env);
+  if (["GET", "HEAD"].includes(c.req.method)) c.env = pre;
+  c.set("pre", pre);
+  const area = profileOfPath(c.req.path);
+  const actor =
+    internal ||
+    (await authenticate(
+      pre,
+      c.req.raw,
+      area,
+      // ERP: as pessoas da área com papel erp:* vão no mesmo lote, para o
+      // envelope de identidade (src/modules/erp/identity.ts).
+      area && isErpPath(c.req.path) ? [[ERP_PEOPLE_SQL, [area]]] : [],
+    ));
   c.set("actor", actor);
+  // Segundo fator exigido e sessão só com senha: só /me, o desafio e o
+  // cadastro do fator (src/mfa.ts).
+  if (!internal) mfaGate(actor, c.req.path);
+  // Credencial por QR: só as rotas do módulo dela, na área dela.
+  if (actor.credential) {
+    const [, , , segment, profile, route] = c.req.path.split("/");
+    const owner = route ? moduleForRoute(route) : null;
+    if (
+      segment !== "profiles" ||
+      profile !== actor.profiles[0] ||
+      owner?.id !== actor.credential.module
+    )
+      throw new ApiError(
+        403,
+        "credential_scope",
+        "Este acesso vale só para a entrega do QR.",
+      );
+  }
   // Endereço público visto por quem usa o painel e os aplicativos: o passo
   // web monta com ele os links enviados ao cliente (src/web-steps.ts). Chaves
   // de integração podem chamar por outro domínio e não contam.
@@ -813,7 +1050,8 @@ app.use("/api/v1/profiles/*", async (c, next) => {
         "not_found",
         "Área de atendimento não encontrada.",
       );
-    await requireModule(c.env, profile, owner.id);
+    // Estado dos módulos já lido junto com a credencial (authenticate).
+    await requireModule(c.get("pre") ?? c.env, profile, owner.id);
   }
   await next();
 });
@@ -826,8 +1064,12 @@ const BOUND_ROUTES: [string, RegExp][] = [
   ["POST", /^(conversations|inbound|tickets)$/],
   ["PATCH", /^tickets\/[^/]+$/],
   ["GET", /^(bots|knowledge|forms)$/],
-  ["GET", /^(agenda|agenda\/availability|reserva\/availability|pedido\/menu)$/],
-  ["GET", /^(agenda|reserva|pedido|mensalidade)\/conversations\/[^/]+$/],
+  [
+    "GET",
+    /^(agenda|agenda\/availability|reserva\/availability|pedido\/menu|pedido\/itens)$/,
+  ],
+  ["GET", /^(agenda|reserva|pedido|mensalidade|queue)\/conversations\/[^/]+$/],
+  ["GET", /^suporte\/conversations\/[^/]+\/situation$/],
   ["GET", /^service-orders\/conversation\/[^/]+$/],
 ];
 app.use("/api/v1/profiles/*", async (c, next) => {
@@ -847,7 +1089,27 @@ app.use("/api/v1/profiles/*", async (c, next) => {
   }
   await next();
 });
+// Acesso por pessoa (src/access.ts): o atendente só alcança as rotas dos
+// itens marcados no acesso dele (403 access_denied); rota fora do catálogo
+// fica só para quem tem tudo. Os comandos conferem de novo em perform.
+app.use("/api/v1/profiles/*", async (c, next) => {
+  const segment = c.req.path.split("/")[5];
+  if (segment) requireRouteAccess(c.get("actor"), segment);
+  await next();
+});
+app.get("/api/v1/profiles/:profile/access", (c) => {
+  // Catálogo para a tela de Pessoas e acessos: o que pode ser marcado nesta
+  // área (módulos ligados) e os atalhos de perfil.
+  if (!canProfile(c.get("actor"), c.req.param("profile")))
+    throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
+  return moduleStates(c.env, c.req.param("profile")).then((states) => {
+    const catalog = accessCatalog(states);
+    return c.json({ data: catalog, presets: presetsFor(catalog) });
+  });
+});
 mountMcp(app);
+// Conta: segundo fator, links de uso único (src/account-routes.ts).
+mountAccount(app);
 const mobileToken = (c: any) => {
   const bearer = c.req.header("Authorization")?.match(/^Bearer (.+)$/)?.[1];
   return bearer && bearer.startsWith(MOBILE_TOKEN_PREFIX) ? bearer : null;
@@ -888,7 +1150,14 @@ app.all("/api/v1/profiles/:profile/erp/*", async (c) => {
   const profile = c.req.param("profile");
   if (!canProfile(c.get("actor"), profile))
     throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
-  return erpApi(c.env, c.req.raw, profile, c.get("actor"));
+  // Envelope de identidade montado pelo núcleo (papel, sessão, fator e as
+  // pessoas da área, já lidas no lote antes da rota).
+  const identity = await erpIdentity(
+    c.get("pre") ?? c.env,
+    c.get("actor"),
+    profile,
+  );
+  return erpApi(c.env, c.req.raw, profile, c.get("actor"), identity);
 });
 // Emissor fiscal do ERP (cliente do cofre NFapi; src/erp/emissor/README.md):
 // pessoa da área, módulos erp e erp-fiscal ligados (409 module_disabled),
@@ -914,7 +1183,13 @@ app.post("/api/v1/profiles/:profile/erp-probe/:name", async (c) => {
   const profile = c.req.param("profile");
   if (!canProfile(c.get("actor"), profile))
     throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
-  return erpProbe(c.env, c.req.raw, profile, c.get("actor"), c.req.param("name"));
+  return erpProbe(
+    c.env,
+    c.req.raw,
+    profile,
+    c.get("actor"),
+    c.req.param("name"),
+  );
 });
 // Static catalogue, previewed in the panel before an administrator applies it.
 app.get("/api/v1/service-templates", (c) => {
@@ -987,7 +1262,7 @@ app.post("/api/v1/auth/mobile/refresh", async (c) => {
   const hash = await sha(token);
   const old = await one(
     c.env,
-    "SELECT label FROM sessions WHERE hash=? AND kind='bearer'",
+    "SELECT label,mfa_at FROM sessions WHERE hash=? AND kind='bearer'",
     hash,
   );
   const user = await one(
@@ -995,10 +1270,14 @@ app.post("/api/v1/auth/mobile/refresh", async (c) => {
     "SELECT * FROM users WHERE id=?",
     c.get("actor").id,
   );
+  // A sessão nova mantém o nível e o horário do código da antiga: o prazo
+  // da confirmação não recomeça na renovação (src/mfa.ts).
   const session = await createMobileSession(
     c.env,
     c.get("actor").id,
     old?.label || "",
+    c.get("actor").aal === 2 ? 2 : 1,
+    old?.mfa_at ?? null,
   );
   await exec(c.env, "DELETE FROM sessions WHERE hash=?", hash);
   return c.json({ ...session, user: mobileUser(user) });
@@ -1168,7 +1447,7 @@ app.get("/api/v1/users", async (c) => {
   return c.json(
     await all(
       c.env,
-      "SELECT id,email,name,role,profiles,disabled FROM users ORDER BY created",
+      "SELECT id,email,name,role,profiles,disabled,access,schedule,password='' invite_pending,EXISTS(SELECT 1 FROM user_factors f WHERE f.user_id=users.id AND f.status='active') has_mfa FROM users ORDER BY created",
     ),
   );
 });
@@ -1263,7 +1542,21 @@ app.get("/api/v1/system", async (c) => {
     deployments: await cloudflareJobs(c.env),
     // Endereço dos links enviados aos clientes (src/web-steps.ts).
     public_origin: await publicOrigin(c.env),
+    // Bot da conversa interna: dado pessoal completo nas consultas (src/bot-actions).
+    bot_full_personal_data: await fullPersonalData(c.env),
   });
+});
+// Liberar dado pessoal completo nas consultas do bot da conversa interna: os
+// dados vão ao provedor de IA. Só administrador; desligado de fábrica.
+app.post("/api/v1/system/bot-actions/configure", async (c) => {
+  admin(c.get("actor"));
+  const data = await c.req.json<any>().catch(() => ({}));
+  requireValue(
+    typeof data?.full_personal_data === "boolean",
+    "Informe full_personal_data como verdadeiro ou falso.",
+  );
+  await setFullPersonalData(c.env, data.full_personal_data);
+  return c.json({ bot_full_personal_data: data.full_personal_data });
 });
 app.get("/api/v1/system/updates/check", async (c) => {
   admin(c.get("actor"));
@@ -1310,6 +1603,7 @@ for (const [path, operation] of [
   ["updates/reset", "updates.reset"],
   ["push/configure", "push.configure"],
   ["origin/configure", "origin.save"],
+  ["email/configure", "email.configure"],
 ])
   app.post("/api/v1/system/" + path, async (c) => {
     admin(c.get("actor"));
@@ -1318,6 +1612,7 @@ for (const [path, operation] of [
 for (const [method, path, op] of [
   ["post", "profiles", "profile.create"],
   ["post", "users", "user.create"],
+  ["post", "users/invite", "user.invite"],
   ["patch", "users/:id", "user.update"],
   ["post", "applications", "application.create"],
   ["patch", "applications/:id", "application.update"],
@@ -1496,20 +1791,72 @@ for (const [method, path, op] of commands)
   });
 // Rotas declaradas pelos módulos (docs/MODULOS.md: onRoute, onRead). A
 // escrita vira comando no Coordinator da área, como as rotas acima.
+// Credencial por QR: negada por padrão; só a rota que declara
+// `credential: true`, e só com o :id do registro dela (credentialGate).
 for (const route of moduleRoutes().write)
-  app.on(route.method, `/api/v1/profiles/:profile/${route.path}`, async (c) =>
-    mutate(c, route.op, c.req.param("profile")!, {
+  app.on(route.method, `/api/v1/profiles/:profile/${route.path}`, async (c) => {
+    credentialGate(
+      c.get("actor"),
+      route,
+      c.req.param() as Record<string, string>,
+    );
+    return mutate(c, route.op, c.req.param("profile")!, {
       ...(route.method === "DELETE"
         ? {}
         : await c.req.json().catch(() => ({}))),
       ...(c.req.param("id") ? { id: c.req.param("id") } : {}),
-    }),
+    });
+  });
+// Telemetria dos módulos (onTelemetry): POST sem Idempotency-Key e fora do
+// Coordinator, para posições em lote; corpo até 64 KB, até TELEMETRY_RATE
+// chamadas por minuto por credencial, área e rota.
+const TELEMETRY_RATE = 60;
+for (const route of moduleRoutes().telemetry)
+  app.post(
+    `/api/v1/profiles/:profile/${route.path}`,
+    bodyLimit({ maxSize: 64 * 1024 }),
+    async (c) => {
+      const profile = c.req.param("profile")!;
+      const actor = c.get("actor");
+      if (!canProfile(actor, profile))
+        throw new ApiError(404, "not_found", "Perfil não encontrado.");
+      credentialGate(actor, route, c.req.param() as Record<string, string>);
+      // Conectores não mandam telemetria; a escrita mais barata da API tem
+      // limite por credencial e rota no núcleo (revisão A).
+      if (actor.kind === "connector")
+        throw new ApiError(
+          403,
+          "forbidden",
+          "Conectores não enviam dados para esta rota.",
+        );
+      await rate(
+        c.env,
+        `telemetry:${actor.keyId || actor.id}:${profile}:${route.path}`,
+        TELEMETRY_RATE,
+      );
+      const body = await c.req.json().catch(() => null);
+      requireValue(
+        body && typeof body === "object" && !Array.isArray(body),
+        "Envie um objeto JSON.",
+      );
+      return c.json(
+        await route.handler(c.env, c.get("actor"), profile, {
+          params: c.req.param() as Record<string, string>,
+          body,
+        }),
+      );
+    },
   );
 for (const route of moduleRoutes().read)
   app.get(`/api/v1/profiles/:profile/${route.path}`, async (c) => {
     const profile = c.req.param("profile")!;
     if (!canProfile(c.get("actor"), profile))
       throw new ApiError(404, "not_found", "Perfil não encontrado.");
+    credentialGate(
+      c.get("actor"),
+      route,
+      c.req.param() as Record<string, string>,
+    );
     return c.json(
       await route.handler(c.env, c.get("actor"), profile, {
         params: c.req.param() as Record<string, string>,
@@ -1580,11 +1927,14 @@ app.get("/api/v1/profiles/:profile/status", async (c) => {
     settings: await settings(c.env, p),
     enabled: (await one(c.env, "SELECT enabled FROM profiles WHERE id=?", p))
       ?.enabled,
-    conversations: await all(
-      c.env,
-      "SELECT state,count(*) count FROM conversations WHERE profile_id=? GROUP BY state",
-      p,
-    ),
+    // Contadores das conversas só para quem acessa o atendimento.
+    conversations: allows(c.get("actor"), "conversations")
+      ? await all(
+          c.env,
+          "SELECT state,count(*) count FROM conversations WHERE profile_id=? GROUP BY state",
+          p,
+        )
+      : [],
     deliveries: await all(
       c.env,
       "SELECT status,count(*) count FROM outbox WHERE profile_id=? GROUP BY status",
@@ -1631,13 +1981,81 @@ app.get("/api/v1/profiles/:profile/team", async (c) =>
 );
 // Pessoas da área para escolher responsável (aplicativos; docs/API.md).
 app.get("/api/v1/profiles/:profile/people", async (c) =>
-  c.json(await areaPeople(c.env, c.get("actor"), c.req.param("profile"))),
+  c.json(
+    await areaPeople(
+      c.env,
+      c.get("actor"),
+      c.req.param("profile"),
+      c.req.query("grant") || null,
+    ),
+  ),
+);
+app.get("/api/v1/profiles/:profile/grants", async (c) =>
+  c.json(await areaGrants(c.env, c.get("actor"), c.req.param("profile"))),
 );
 app.get("/api/v1/profiles/:profile/internal-chats", async (c) =>
   c.json(
     await listInternalChats(c.env, c.get("actor"), c.req.param("profile")),
   ),
 );
+// Pedidos de aprovação à equipe (src/approvals.ts): lista e decisão, só com
+// sessão de pessoa que pode decidir. O primeiro a decidir vence.
+app.get("/api/v1/profiles/:profile/approvals", async (c) => {
+  const actor = c.get("actor"),
+    profile = c.req.param("profile");
+  if (!canProfile(actor, profile))
+    throw new ApiError(404, "not_found", "Perfil não encontrado.");
+  return c.json(await listApprovals(c.env, actor, profile, c.req.query()));
+});
+app.get("/api/v1/profiles/:profile/approvals/:id", async (c) => {
+  const actor = c.get("actor"),
+    profile = c.req.param("profile");
+  if (!canProfile(actor, profile) || actor.kind !== "user")
+    throw new ApiError(404, "not_found", "Perfil não encontrado.");
+  return c.json(
+    approvalView(await loadApproval(c.env, profile, c.req.param("id")), actor),
+  );
+});
+app.post("/api/v1/profiles/:profile/approvals/:id/decide", async (c) => {
+  const actor = c.get("actor"),
+    profile = c.req.param("profile");
+  if (!canProfile(actor, profile))
+    throw new ApiError(404, "not_found", "Perfil não encontrado.");
+  const data = await c.req.json<any>().catch(() => ({}));
+  return c.json(
+    await decideApproval(
+      c.env,
+      actor,
+      profile,
+      c.req.param("id"),
+      data,
+      c.get("requestId"),
+    ),
+  );
+});
+// Proposta de ação do bot na conversa interna (src/bot-actions): só a pessoa
+// que pediu confirma ou cancela, pela sessão dela. Idempotente pelo estado da
+// proposta (confirmar de novo devolve o mesmo resultado).
+for (const decision of ["confirm", "cancel"] as const)
+  app.post(
+    `/api/v1/profiles/:profile/internal-chats/:id/proposals/:proposal/${decision}`,
+    async (c) => {
+      const actor = c.get("actor"),
+        profile = c.req.param("profile");
+      if (!canProfile(actor, profile))
+        throw new ApiError(404, "not_found", "Perfil não encontrado.");
+      const run = decision === "confirm" ? confirmProposal : cancelProposal;
+      return c.json(
+        await run(
+          c.env,
+          actor,
+          profile,
+          c.req.param("id"),
+          c.req.param("proposal"),
+        ),
+      );
+    },
+  );
 app.get("/api/v1/profiles/:profile/internal-chats/:id", async (c) =>
   c.json(
     await internalChatDetail(

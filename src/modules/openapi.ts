@@ -9,6 +9,16 @@ import {
   pedidoOperations,
   pedidoSchemas,
 } from "./pedido/openapi";
+import {
+  describeMesasOperation,
+  mesasOperations,
+  mesasSchemas,
+} from "./mesas/openapi";
+import {
+  describeEntregaOperation,
+  entregaOperations,
+  entregaSchemas,
+} from "./entrega/openapi";
 export const moduleSchemas = {
   ModuleSummary: {
     type: "object",
@@ -153,6 +163,8 @@ export const moduleSchemas = {
   },
   ...serviceOrderSchemas(),
   ...pedidoSchemas(),
+  ...mesasSchemas(),
+  ...entregaSchemas(),
   ...mensalidadeSchemas(),
   ...suporteSchemas(),
   WebStep: {
@@ -446,6 +458,18 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
   ],
   [
     "get",
+    "/profiles/{profile}/grants",
+    "Papéis por pessoa nos módulos ligados (entregador, garçom, técnico, caixa) e quem tem cada um",
+    "conversations:read",
+  ],
+  [
+    "get",
+    "/profiles/{profile}/access",
+    "Catálogo do que se marca no acesso de uma pessoa (áreas, módulos ligados e papéis) e atalhos de perfil",
+    "",
+  ],
+  [
+    "get",
     "/profiles/{profile}/modules",
     "Módulos da área e estado ligado/desligado",
     "",
@@ -722,6 +746,8 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
   ],
   ...reservaOperations,
   ...pedidoOperations,
+  ...mesasOperations,
+  ...entregaOperations,
   ...mensalidadeOperations(),
   ...suporteOperations(),
 ];
@@ -884,6 +910,11 @@ export function describeModuleOperation(
   const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
   if (path.startsWith("/profiles/{profile}/pedido"))
     return describePedidoOperation(path, method, entry, success);
+  if (path.startsWith("/profiles/{profile}/mesas"))
+    return describeMesasOperation(path, method, entry, success);
+
+  if (path.startsWith("/profiles/{profile}/entrega"))
+    return describeEntregaOperation(path, method, entry, success);
   if (path.includes("/service-orders"))
     return describeServiceOrderOperation(path, method, entry, success);
   if (path.includes("/mensalidade/"))
@@ -944,7 +975,7 @@ export function describeModuleOperation(
   }
   if (path === "/profiles/{profile}/people") {
     entry.description =
-      "Pessoas ativas com acesso à área (administradores incluídos), em ordem de nome, para escolher o responsável de uma ordem de serviço ou de outro registro de módulo. Sem bots e sem e-mail. Aceita sessão de pessoa da área e chave de aplicação com conversations:read; 404 se a credencial não alcançar a área.";
+      "Pessoas ativas com acesso à área (administradores incluídos), em ordem de nome, para escolher o responsável de uma ordem de serviço ou de outro registro de módulo. Sem bots e sem e-mail. grants traz os papéis da pessoa nos módulos ligados (os:technician); com ?grant=os:technician, só quem tem o papel (400 se o papel não existir ou o módulo estiver desligado). Aceita sessão de pessoa da área e chave de aplicação com conversations:read; 404 se a credencial não alcançar a área.";
     success.content["application/json"].schema = {
       type: "object",
       properties: {
@@ -957,11 +988,17 @@ export function describeModuleOperation(
               id: { type: "string" },
               name: { type: "string" },
               role: { type: "string", enum: ["admin", "operator"] },
+              grants: { type: "array", items: { type: "string" } },
             },
           },
         },
       },
     };
+    return;
+  }
+  if (path === "/profiles/{profile}/grants") {
+    entry.description =
+      'Papéis que esta área pode conceder (declarados pelos módulos ligados) e as pessoas com cada um. id é "<módulo>:<papel>". O administrador marca o papel no acesso da pessoa: PATCH /users/{id} com {"access": ["*", "os:technician"]} (docs/API.md, Acesso por pessoa). Aceita sessão de pessoa da área e chave de aplicação com conversations:read.';
     return;
   }
   if (path === "/profiles/{profile}/establishment") {
@@ -2038,6 +2075,12 @@ function suporteOperations(): [string, string, string, string?, string?][] {
       "get",
       `${base}/conversations/{id}`,
       "Suporte pago: situação de uma conversa",
+      "conversations:read",
+    ],
+    [
+      "get",
+      `${base}/conversations/{id}/situation`,
+      "Suporte pago: situação para o próprio cliente (ferramenta suporte_situacao)",
       "conversations:read",
     ],
     [

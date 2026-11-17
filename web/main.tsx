@@ -15,7 +15,6 @@ import { ApiDocs } from "./site/ApiDocs";
 import { WebInstall } from "./site/WebInstall";
 import { Privacy } from "./site/Privacy";
 import { QueueDisplay } from "./queue/QueueDisplay";
-
 createRoot(document.getElementById("root")!).render(
   location.pathname.startsWith("/app") ? (
     <App />

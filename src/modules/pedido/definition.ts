@@ -47,6 +47,7 @@ export const pedidoModule: ModuleDefinition = {
     "pedido.stale",
     "pedido.menu_changed",
     "pedido.store_changed",
+    "pedido.discount_applied",
   ],
   settings: [
     {

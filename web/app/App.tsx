@@ -16,6 +16,7 @@ import { CallsArea } from "../calls/CallsArea";
 import { AdminArea } from "../admin/AdminArea";
 import { ContactsArea } from "../admin/ContactsArea";
 import { QueueArea } from "../queue/QueueArea";
+import { MfaGate, MfaPrompt, mfaNeeded } from "./Account";
 
 function Areas() {
   const app = useApp();
@@ -110,12 +111,23 @@ export function App() {
     [profiles, setProfiles] = useState<Row[]>(demo ? [demoProfile] : []),
     [checked, setChecked] = useState(demo),
     [error, setError] = useState(""),
-    [offline, setOffline] = useState(false);
+    [offline, setOffline] = useState(false),
+    [gate, setGate] = useState<"challenge" | "enroll" | null>(null),
+    [prompt, setPrompt] = useState(false);
   const current = useRef<Row | null>(me);
   current.current = me;
   const init = useCallback(async () => {
     try {
       const actor = await api("v1/me");
+      // Segundo fator pendente (web/app/Account.tsx): só o portão, sem áreas.
+      const need = mfaNeeded(actor);
+      setGate(need);
+      if (need) {
+        setProfiles([]);
+        setMe(actor);
+        setError("");
+        return;
+      }
       let areas = await api("v1/profiles");
       if (actor.role === "admin" && areas.length === 0) {
         await api("v1/installation/area/bootstrap", "POST", {});
@@ -142,6 +154,8 @@ export function App() {
     () =>
       onApiState((state) => {
         setOffline(!state.online);
+        // Ação que exige o segundo fator: pede o código (web/app/Account.tsx).
+        if (state.mfaRequired && current.current && !demo) setPrompt(true);
         // Sessão encerrada em outra aba ou expirada: volta para a entrada.
         if (state.unauthorized && current.current && !demo) void init();
       }),
@@ -161,12 +175,29 @@ export function App() {
             <Empty
               title="Não foi possível abrir o painel"
               description={error}
-              action={<Button onClick={() => void init()}>Tentar de novo</Button>}
+              action={
+                <Button onClick={() => void init()}>Tentar de novo</Button>
+              }
             />
           </div>
         ) : (
           <Login ready={init} />
         )}
+        <ToastHost />
+      </>
+    );
+  if (gate)
+    return (
+      <>
+        <MfaGate
+          need={gate}
+          onDone={() => void init()}
+          onLogout={() =>
+            void api("v1/logout", "POST", {})
+              .catch(() => {})
+              .then(() => init())
+          }
+        />
         <ToastHost />
       </>
     );
@@ -181,6 +212,9 @@ export function App() {
       reloadSession={init}
     >
       <Areas />
+      {prompt && (
+        <MfaPrompt factor={!!me.mfa?.factor} onClose={() => setPrompt(false)} />
+      )}
       <ToastHost />
     </AppProvider>
   );

@@ -2,6 +2,8 @@
 // aplicativos consultam antes de mostrar telas de módulo (docs/MODULOS.md).
 import { all } from "../db";
 import { ApiError, type Actor, type Env } from "../types";
+import { grantsFor } from "../module-grants";
+import { accessCatalog, effectiveAccess } from "../access";
 import { canProfile } from "../security";
 import { buildInfo } from "../build-info.generated";
 import { modules, resolveStates } from "./registry";
@@ -10,7 +12,20 @@ import { modules, resolveStates } from "./registry";
 export const CAPABILITIES_VERSION = 1;
 
 /** Recursos do núcleo que um aplicativo pode precisar conferir. */
-export const coreFeatures: string[] = ["modules", "web_steps", "establishment"];
+export const coreFeatures: string[] = [
+  "modules",
+  "web_steps",
+  "establishment",
+  // `coupon` no snapshot da fila (GET /queue e WebSocket): docs/FILA-SENHAS.md.
+  "queue_coupon",
+  // `grants` em cada área: papéis da pessoa nos módulos (docs/MODULOS.md).
+  "module_grants",
+  // `access` em cada área: o que a pessoa acessa (docs/API.md).
+  "person_access",
+  // Segundo fator: login em duas etapas e elevação (403 mfa_required),
+  // docs/API.md, "Login e segundo fator".
+  "mfa",
+];
 
 export async function capabilities(
   env: Env,
@@ -53,6 +68,15 @@ export async function capabilities(
         modules: modules
           .filter((m) => states[m.id])
           .map((m) => ({ id: m.id, name: m.name, version: m.version })),
+        // Papéis da pessoa ("os:technician"), só de módulos ligados; vazio
+        // para aplicações e aparelhos pareados.
+        grants: grantsFor(actor, states),
+        // O que a pessoa acessa nesta área (áreas do núcleo, módulos e
+        // papéis), já expandido; null para aplicações e aparelhos (escopos).
+        access:
+          actor.kind === "user"
+            ? effectiveAccess(actor, accessCatalog(states))
+            : null,
       };
     }),
   };

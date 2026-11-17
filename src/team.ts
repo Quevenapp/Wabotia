@@ -11,7 +11,10 @@ import {
 import { access } from "./security";
 import { event } from "./events";
 import { createRun } from "./service";
+import { declaredGrants, grantsFor } from "./module-grants";
+import { moduleStates } from "./modules/registry";
 import { hermesRequest } from "./integrations";
+import { approvalView } from "./approvals";
 
 function teamAccess(actor: Actor, profile: string) {
   access(actor, profile, "presence:read");
@@ -27,15 +30,49 @@ function teamAccess(actor: Actor, profile: string) {
  * responsável (ordem de serviço, agenda…). Sem bots e sem sondar o Hermes,
  * ao contrário de teamDirectory. Pessoa da área ou chave com conversations:read.
  */
-export async function areaPeople(env: Env, actor: Actor, profile: string) {
+export async function areaPeople(
+  env: Env,
+  actor: Actor,
+  profile: string,
+  grant?: string | null,
+) {
   access(actor, profile, "conversations:read");
   const users = await all(
     env,
-    "SELECT id,name,role FROM users WHERE disabled=0 AND (role='admin' OR EXISTS(SELECT 1 FROM json_each(users.profiles) WHERE value=?)) ORDER BY name COLLATE NOCASE,id",
+    "SELECT id,name,role,access FROM users WHERE disabled=0 AND (role='admin' OR EXISTS(SELECT 1 FROM json_each(users.profiles) WHERE value=?)) ORDER BY name COLLATE NOCASE,id",
     profile,
   );
+  // Papéis nos módulos ligados (docs/MODULOS.md, "Acessos e papéis").
+  const states = await moduleStates(env, profile);
+  if (grant)
+    requireValue(
+      declaredGrants(states).some((g) => g.id === grant),
+      "Papel desconhecido ou de módulo desligado.",
+    );
   return {
-    data: users.map((u) => ({ id: u.id, name: u.name, role: u.role })),
+    data: users
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        role: u.role,
+        grants: grantsFor({ access: u.access }, states),
+      }))
+      .filter((u) => !grant || u.grants.includes(grant)),
+  };
+}
+
+/** Papéis que esta área pode conceder (módulos ligados) e quem tem cada um. */
+export async function areaGrants(env: Env, actor: Actor, profile: string) {
+  access(actor, profile, "conversations:read");
+  const states = await moduleStates(env, profile);
+  const people = (await areaPeople(env, actor, profile)).data;
+  return {
+    data: declaredGrants(states).map((g) => ({
+      ...g,
+      people: people
+        .filter((p) => p.grants.includes(g.id))
+        .map((p) => ({ id: p.id, name: p.name })),
+    })),
   };
 }
 export async function teamDirectory(env: Env, actor: Actor, profile: string) {
@@ -190,10 +227,61 @@ export async function internalChatDetail(
   const messages = (
     await all(
       env,
-      "SELECT m.id,m.author,m.text,m.created,coalesce(r.status,m.status) status,m.run_id FROM internal_messages m LEFT JOIN bot_runs r ON r.id=m.run_id WHERE m.chat_id=? ORDER BY m.created DESC,m.rowid DESC LIMIT 500",
+      "SELECT m.id,m.author,m.text,m.kind,m.payload,m.created,coalesce(r.status,m.status) status,m.run_id FROM internal_messages m LEFT JOIN bot_runs r ON r.id=m.run_id WHERE m.chat_id=? ORDER BY m.created DESC,m.rowid DESC LIMIT 500",
       id,
     )
-  ).reverse();
+  )
+    .reverse()
+    .map((m) => ({
+      ...m,
+      // Proposta e resultado do bot (src/bot-actions): o estado vem da
+      // proposta, sempre atual; `text` é a reserva para apps antigos.
+      payload: m.payload ? json(m.payload, null) : null,
+    }));
+  // Pedido de aprovação (src/approvals.ts): o cartão como esta pessoa vê,
+  // sempre atual (quem decidiu, campos restritos só para quem pode).
+  const approvalIds = messages
+    .filter((m) => m.kind === "approval" && m.payload?.approval?.id)
+    .map((m) => m.payload.approval.id);
+  if (approvalIds.length) {
+    const rows = await all(
+      env,
+      "SELECT * FROM approvals WHERE profile_id=? AND id IN (SELECT value FROM json_each(?))",
+      profile,
+      JSON.stringify(approvalIds),
+    );
+    for (const m of messages)
+      if (m.kind === "approval")
+        m.payload = {
+          approval: approvalView(
+            rows.find((r) => r.id === m.payload?.approval?.id),
+            actor,
+          ),
+        };
+  }
+  // Estado atual das propostas mostradas (confirmada, vencida…).
+  const ids = messages
+    .filter((m) => m.kind === "proposal" && m.payload?.proposal?.id)
+    .map((m) => m.payload.proposal.id);
+  if (ids.length) {
+    const rows = await all(
+      env,
+      "SELECT id,status,expires_at,decided_at,error FROM bot_proposals WHERE id IN (SELECT value FROM json_each(?))",
+      JSON.stringify(ids),
+    );
+    for (const m of messages) {
+      const row = rows.find((r) => r.id === m.payload?.proposal?.id);
+      if (row) {
+        const expired = row.status === "pending" && row.expires_at <= now();
+        m.payload.proposal = {
+          ...m.payload.proposal,
+          status: expired ? "expired" : row.status,
+          decided_at: row.decided_at,
+          error: row.error,
+        };
+      }
+    }
+  }
   return { ...(await withPeer(env, actor, profile, chat)), messages };
 }
 export async function internalCommand(

@@ -19,6 +19,7 @@ const PAYMENT_STATUSES = [
   "failed",
   "refunded",
   "cancelled",
+  "tab",
 ];
 const METHODS = ["pix", "link", "cash", "card"];
 const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
@@ -335,10 +336,43 @@ export function pedidoSchemas() {
             conversation_id: nullable("string"),
           },
         },
-        source: { enum: ["cart", "catalog", "panel", "api"] },
+        source: {
+          enum: ["cart", "catalog", "panel", "api", "table"],
+          description: "table: lançado pelo garçom numa conta de mesa (Mesas).",
+        },
         web_step_id: nullable("string"),
-        fulfillment: { enum: ["pickup", "delivery"] },
-        fulfillment_label: { type: "string" },
+        fulfillment: {
+          enum: ["pickup", "delivery", "table"],
+          description:
+            "table: pedido de mesa, segue o caminho da retirada (pronto para servir → servido).",
+        },
+        fulfillment_label: {
+          type: "string",
+          description: "Retirada, Entrega ou o nome da mesa (Mesa 5).",
+        },
+        table: {
+          type: ["object", "null"],
+          description:
+            "Conta de mesa do pedido (módulo Mesas, GET /mesas/tabs/{tab_id}); null fora da mesa.",
+          properties: {
+            tab_id: { type: "string" },
+            label: { type: "string" },
+          },
+        },
+        delivery: {
+          type: ["object", "null"],
+          description:
+            "Só no quadro e no detalhe: entregador e previsão de chegada do pedido de entrega, vindos do módulo que acompanha a entrega (Entrega); null sem ele.",
+          properties: {
+            status: { type: "string" },
+            status_label: { type: "string" },
+            courier_id: nullable("string"),
+            courier_name: nullable("string"),
+            eta_at: nullable("integer"),
+            eta_minutes: nullable("integer"),
+            position_at: nullable("integer"),
+          },
+        },
         address: {
           type: ["object", "null"],
           properties: {
@@ -561,6 +595,47 @@ export function pedidoSchemas() {
         },
       },
     },
+    PedidoDeliverySlipRequest: {
+      type: "object",
+      properties: {
+        columns: { enum: [32, 42, 48], default: 32 },
+      },
+    },
+    PedidoDeliverySlip: {
+      allOf: [
+        ref("PedidoTicket"),
+        {
+          type: "object",
+          properties: {
+            slip: {
+              type: "object",
+              properties: {
+                title: {
+                  type: "string",
+                  description: "ENTREGA · Pedido nº 12",
+                },
+                qr: {
+                  type: "string",
+                  description:
+                    "Conteúdo do QR (vale uma leitura; é um acesso: não envie a terceiros para desenhar).",
+                },
+                lines: { type: "array", items: { type: "string" } },
+                expires_at: nullable("integer"),
+                delivery_id: nullable("string"),
+              },
+            },
+            slip_text: {
+              type: "object",
+              description: "Título e linhas já centrados nas colunas.",
+              properties: {
+                title: { type: "string" },
+                lines: { type: "string" },
+              },
+            },
+          },
+        },
+      ],
+    },
     PedidoTicket: {
       type: "object",
       properties: {
@@ -597,6 +672,12 @@ export const pedidoOperations: [string, string, string, string?, string?][] = [
     "PedidoPause",
   ],
   ["get", `${base}/menu`, "Pedido: cardápio completo", read],
+  [
+    "get",
+    `${base}/itens`,
+    "Pedido: itens para o bot montar o pedido, sem preços",
+    read,
+  ],
   ["get", `${base}/items/{id}`, "Pedido: item do cardápio", read],
   [
     "post",
@@ -691,6 +772,13 @@ export const pedidoOperations: [string, string, string, string?, string?][] = [
     "PedidoPaymentMethod",
   ],
   ["get", `${base}/orders/{id}/ticket`, "Pedido: comanda para imprimir", read],
+  [
+    "post",
+    `${base}/orders/{id}/delivery-slip`,
+    "Pedido: via de entrega com o QR do entregador",
+    write,
+    "PedidoDeliverySlipRequest",
+  ],
 ];
 
 /** Descrições, parâmetros e respostas das rotas do Pedido. */
@@ -718,6 +806,11 @@ export function describePedidoOperation(
     return;
   }
   if (path.endsWith("/menu")) return schema(ref("PedidoMenu"));
+  if (path.endsWith("/itens")) {
+    entry.description +=
+      " Ferramenta pedido_itens do bot que atende o cliente: categorias com item_id, nome, descrição, disponível, máximo e as escolhas (grupo_id, mínimo, máximo, opções disponíveis). Sem preços: o valor chega ao cliente pelo resumo do módulo (ação pedido_montar), nunca pelo modelo. Liberada para a chave presa à conversa.";
+    return schema({ type: "object" });
+  }
   if (path.includes("/categories")) {
     if (method === "delete")
       entry.description += " Categoria com itens: 409 category_not_empty.";
@@ -746,6 +839,11 @@ export function describePedidoOperation(
       " Uma coluna por estado em andamento (do mais antigo ao mais novo), com minutes_in_status e late; mais a situação da loja e o resumo do dia (Brasília). Os apps podem reler a cada 15 s ou ao receber pedido.* em GET /events.";
     return schema(ref("PedidoBoard"));
   }
+  if (path.endsWith("/delivery-slip")) {
+    entry.description +=
+      " Ao despachar: a comanda e a parte do entregador (QR do acesso sem login) preparada pelo módulo Entrega, que cria a entrega do pedido se ainda não houver. Gerar de novo revoga o QR anterior (vale a última via). Imprima text, depois slip.title, o QR com o conteúdo de slip.qr e slip.lines. Pedido de retirada: 409 not_delivery; entregue ou cancelado: 409 order_closed; sem a Entrega ligada: 409 delivery_unavailable.";
+    return schema(ref("PedidoDeliverySlip"));
+  }
   if (path.endsWith("/ticket")) {
     entry.description +=
       " Dados do estabelecimento e do pedido para os apps imprimirem pelo ThermalPrinterKit, e o texto pronto em colunas fixas.";
@@ -767,6 +865,7 @@ export function describePedidoOperation(
         "q",
         "phone",
         "conversation_id",
+        "tab_id",
         "from",
         "to",
         "limit",
@@ -795,9 +894,9 @@ export function describePedidoOperation(
       " Transições: aguardando pagamento → recebido ou cancelado; recebido → em preparo, pronto (retirada) ou saiu para entrega (entrega), ou cancelado; em preparo → pronto ou saiu para entrega, recebido ou cancelado; pronto ou saiu para entrega → entregue, em preparo ou cancelado. Outras: 409 invalid_transition. Avisa o cliente com o texto do estado (modelo de notificação fora da janela de 24 h). Publica pedido.status_changed.";
   if (path.endsWith("/paid"))
     entry.description +=
-      " Pagamento feito na hora (dinheiro, maquininha) ou por fora depois de uma cobrança vencida. Cobrança online aberta: 409 payment_online (só o provedor confirma); já pago: 409 already_paid.";
+      " Pagamento feito na hora (dinheiro, maquininha) ou por fora depois de uma cobrança vencida. Cobrança online aberta: 409 payment_online (só o provedor confirma); já pago: 409 already_paid; pedido de mesa: 409 tab_order (paga-se a conta da mesa).";
   if (path.endsWith("/payment"))
     entry.description +=
-      " Só com o pedido aguardando a escolha (ou com a cobrança não gerada); senão 409 payment_chosen.";
+      " Só com o pedido aguardando a escolha (ou com a cobrança não gerada); senão 409 payment_chosen. Pedido de mesa: 409 tab_order.";
   schema(ref("PedidoOrder"));
 }

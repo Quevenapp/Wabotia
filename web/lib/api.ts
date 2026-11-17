@@ -13,7 +13,16 @@ export type Api = (
 
 export type ApiFailure = Error & { status: number; code?: string };
 
-type Listener = (state: { online: boolean; unauthorized?: boolean }) => void;
+/**
+ * Estado da API para a casca: rede, sessão encerrada e segundo fator pedido
+ * por uma ação (403 mfa_required: a casca abre o pedido do código).
+ */
+type ApiState = {
+  online: boolean;
+  unauthorized?: boolean;
+  mfaRequired?: boolean;
+};
+type Listener = (state: ApiState) => void;
 const listeners = new Set<Listener>();
 /** Avisos de rede (sem conexão / sessão encerrada) para a casca do aplicativo. */
 export function onApiState(listener: Listener) {
@@ -22,7 +31,7 @@ export function onApiState(listener: Listener) {
     listeners.delete(listener);
   };
 }
-const tell = (state: { online: boolean; unauthorized?: boolean }) =>
+const tell = (state: ApiState) =>
   listeners.forEach((listener) => listener(state));
 
 export const api: Api = async (
@@ -57,7 +66,9 @@ export const api: Api = async (
     if (cause?.name === "AbortError") throw cause;
     tell({ online: false });
     throw Object.assign(
-      new Error("Sem conexão com o servidor. Confira sua rede e tente de novo."),
+      new Error(
+        "Sem conexão com o servidor. Confira sua rede e tente de novo.",
+      ),
       { status: 0, code: "network" },
     );
   }
@@ -70,7 +81,13 @@ export const api: Api = async (
   if (!response.ok) {
     if (response.status >= 502 && response.status <= 504 && !data)
       tell({ online: false });
-    else tell({ online: true, unauthorized: response.status === 401 });
+    else
+      tell({
+        online: true,
+        unauthorized: response.status === 401,
+        mfaRequired:
+          response.status === 403 && data?.error?.code === "mfa_required",
+      });
     throw Object.assign(
       new Error(
         data?.error?.message ||
@@ -107,7 +124,13 @@ export function createIntents(request: Api = api) {
     const intent = method + " " + path + " " + JSON.stringify(body);
     if (!keys.has(intent)) keys.set(intent, crypto.randomUUID());
     try {
-      const result = await request(path, method, body, signal, keys.get(intent));
+      const result = await request(
+        path,
+        method,
+        body,
+        signal,
+        keys.get(intent),
+      );
       keys.delete(intent);
       return result;
     } catch (error) {

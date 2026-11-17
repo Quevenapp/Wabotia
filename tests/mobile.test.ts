@@ -1732,3 +1732,32 @@ it("lista protocolos atrasados e detalha protocolo com andamento e conversa", as
   const to = (await (await login(other.email)).json<any>()).token;
   expect((await api(to, `/profiles/${p}/tickets/${late}`)).status).toBe(404);
 });
+
+it("acesso por pessoa: quem não acessa conversas não recebe o aviso da fila", async () => {
+  const p = await profileFixture(),
+    full = await user("operator", [p]),
+    tech = await user("operator", [p]);
+  await exec(
+    env,
+    "UPDATE users SET access=? WHERE id=?",
+    JSON.stringify(["os"]),
+    tech.id,
+  );
+  const dFull = await device(full.id);
+  await device(tech.id);
+  const r = await inbound(
+    env,
+    p,
+    { external_id: "c9", message_id: uid(), text: "oi" },
+    "app:a",
+    null,
+  );
+  await processPush(env, p);
+  calls = [];
+  await event(env, p, "conversation.updated", r.conversation_id, {
+    state: "waiting",
+    reason: "humano",
+  });
+  await processPush(env, p);
+  expect(sentTokens()).toEqual([dFull.token]);
+});

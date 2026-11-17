@@ -79,6 +79,10 @@ import {
 import { applyServiceTemplate } from "./service-templates";
 import { queueCommand, validateQueueSettings } from "./queue";
 import { validateEstablishment } from "./establishment";
+import { requireOperationAccess, validateAccess } from "./access";
+import { requireFinancialAal, validateSchedule } from "./mfa";
+import { issueAccountLink } from "./auth-tokens";
+import { alertAccount, mailAccountLink } from "./email";
 import {
   hiddenMenuTypes,
   moduleById,
@@ -1508,6 +1512,10 @@ export async function perform(
   env = withReadCache(env);
   // Operações de um módulo desligado na área: 409 module_disabled.
   await requireOperation(env, profile, op);
+  // Acesso por pessoa (src/access.ts): atendente sem o item, 403.
+  requireOperationAccess(actor, op);
+  // Cobrança feita por pessoa: com a política do segundo fator (src/mfa.ts).
+  if (op.startsWith("payment.")) requireFinancialAal(actor);
   // Comandos registrados pelos módulos (src/modules/api.ts, onCommand).
   const fromModule = moduleCommandHandler(op);
   if (fromModule) return fromModule(env, actor, profile, data, requestId);
@@ -1628,7 +1636,7 @@ export async function perform(
     );
     return { id };
   }
-  if (op === "user.create") {
+  if (op === "user.create" || op === "user.invite") {
     admin(actor);
     requireValue(["admin", "operator"].includes(data.role), "Papel inválido.");
     requireValue(
@@ -1636,18 +1644,51 @@ export async function perform(
       "E-mail inválido.",
     );
     const id = uid();
+    const userAccess =
+      data.access === undefined ? null : validateAccess(data.access);
+    const schedule =
+      data.schedule === undefined ? null : validateSchedule(data.schedule);
+    const email = text(data.email, 200).toLowerCase();
+    requireValue(
+      !(await one(env, "SELECT id FROM users WHERE email=?", email)),
+      "Já existe uma pessoa com este e-mail.",
+    );
+    // Convite: a pessoa entra sem senha (nenhuma senha confere) e cria a
+    // dela pelo link de 72 h (src/auth-tokens.ts).
+    const invite = op === "user.invite";
     await exec(
       env,
-      "INSERT INTO users(id,email,name,password,role,profiles,created) VALUES(?,?,?,?,?,?,?)",
+      "INSERT INTO users(id,email,name,password,role,profiles,access,schedule,created) VALUES(?,?,?,?,?,?,?,?,?)",
       id,
-      text(data.email, 200).toLowerCase(),
+      email,
       text(data.name, 100),
-      passwordHash(data.password),
+      invite ? "" : passwordHash(data.password),
       data.role,
       JSON.stringify(data.profiles || []),
+      userAccess && JSON.stringify(userAccess),
+      schedule && JSON.stringify(schedule),
       now(),
     );
-    return { id };
+    if (!invite) return { id };
+    const link = await issueAccountLink(env, {
+      userId: id,
+      purpose: "invite",
+      createdBy: actor.id,
+    });
+    // Com `send_email`, o convite vai também por e-mail (src/email.ts); a
+    // falha não desfaz o convite, e o link segue na resposta.
+    return {
+      id,
+      ...link,
+      ...(data.send_email === true
+        ? await mailAccountLink(
+            env,
+            { id, name: text(data.name, 100), email },
+            "invite",
+            link,
+          )
+        : {}),
+    };
   }
   if (op === "user.update") {
     admin(actor);
@@ -1657,12 +1698,31 @@ export async function perform(
       data.id !== actor.id || !data.disabled,
       "Você não pode desativar sua própria conta.",
     );
+    // access: lista (src/access.ts) ou null (atendente completo); ausente,
+    // fica como estava.
+    const userAccess =
+      data.access === undefined
+        ? (u.access ?? null)
+        : (() => {
+            const list = validateAccess(data.access);
+            return list && JSON.stringify(list);
+          })();
+    // schedule: horário de acesso (src/mfa.ts) ou null (sem horário).
+    const schedule =
+      data.schedule === undefined
+        ? (u.schedule ?? null)
+        : (() => {
+            const value = validateSchedule(data.schedule);
+            return value && JSON.stringify(value);
+          })();
     await exec(
       env,
-      "UPDATE users SET name=?,profiles=?,disabled=? WHERE id=?",
+      "UPDATE users SET name=?,profiles=?,disabled=?,access=?,schedule=? WHERE id=?",
       data.name ? text(data.name, 100) : u.name,
       JSON.stringify(data.profiles ?? json(u.profiles, [])),
       data.disabled === undefined ? u.disabled : Number(!!data.disabled),
+      userAccess,
+      schedule,
       data.id,
     );
     if (data.password)
@@ -1673,6 +1733,8 @@ export async function perform(
         data.id,
       );
     await exec(env, "DELETE FROM sessions WHERE user_id=?", data.id);
+    // Senha trocada pelo administrador: a pessoa recebe o alerta.
+    if (data.password) await alertAccount(env, data.id, "password_changed");
     return { id: data.id };
   }
   if (op === "application.create") {
@@ -1896,10 +1958,13 @@ export async function perform(
     );
     next.menu_greeting = next.menu_greeting.trim();
     if (data.queue !== undefined)
-      next.queue = validateQueueSettings({
-        ...(old.queue || {}),
-        ...data.queue,
-      });
+      next.queue = validateQueueSettings(
+        {
+          ...(old.queue || {}),
+          ...data.queue,
+        },
+        old.queue,
+      );
     if (data.establishment !== undefined)
       next.establishment = validateEstablishment(data.establishment);
     // Chaves declaradas pelos módulos (src/modules, onSettingsSave). Objeto
@@ -2105,6 +2170,9 @@ export async function perform(
       ),
       profile,
     );
+    // O cupom da senha vem no snapshot da fila: avisa os aparelhos pareados.
+    if (data.queue !== undefined || data.establishment !== undefined)
+      await event(env, profile, "queue.changed", profile, { settings: true });
     if (removedDepartments.length && keep_department_conversations !== true)
       await exec(
         env,

@@ -6,6 +6,8 @@ export interface Env {
   MASTER_KEY: string;
   SETUP_TOKEN: string;
   APP_NAME?: string;
+  /** Endereço do app na App Store (página do QR do entregador, /c/<código>). */
+  IOS_APP_URL?: string;
   WABOTIA_ACCOUNT_ID?: string;
   WABOTIA_WORKER_NAME?: string;
   WABOTIA_INSTALLATION_ID?: string;
@@ -24,12 +26,54 @@ export interface Actor {
   keyId?: string;
   /** Validade da credencial (sessão ou chave), para fechar sockets abertos. */
   expiresAt?: number;
+  /**
+   * Pessoa: o que ela acessa (src/access.ts). null = tudo (atendente
+   * completo); o administrador e aplicações não usam.
+   */
+  access?: string[] | null;
+  /**
+   * Pessoa: nível da sessão (1 só senha, 2 com segundo fator) e o id público
+   * da sessão (src/mfa.ts). Aplicações não têm.
+   */
+  aal?: 1 | 2;
+  sessionId?: string;
+  /** Pessoa: tem fator ativo e a política da instância (src/mfa.ts). */
+  mfa?: { factor: boolean; policy: "off" | "financial" | "all" };
+  /**
+   * A pessoa agiu pelo bot na conversa interna (src/bot-actions): o núcleo
+   * grava `audit.via` e mascara o que vai ao modelo. O segundo fator trata o
+   * ator com `via` como pessoa (src/mfa.ts, requireFinancialAal).
+   */
+  via?: BotVia;
   rate: number;
   runLimit: number;
+  /**
+   * Credencial de módulo trocada por QR (src/module-credentials.ts): só as
+   * rotas do módulo, só o registro `subject` (a entrega). Sem escopos.
+   */
+  credential?: { id: string; module: string; subject: string };
+  /**
+   * Ator de módulo (ctx.moduleActor): o módulo `id` age em outros módulos
+   * por ctx.read/ctx.run, só nos de `reach`. Nunca vem de uma requisição.
+   */
+  module?: { id: string; reach: string[] };
+}
+export interface BotVia {
+  kind: "bot";
+  bot_id: string;
+  run_id: string;
+  proposal_id?: string;
+  /** Leitura que vai ao modelo de IA: dado pessoal mascarado (padrão). */
+  masked: boolean;
 }
 export type Bindings = {
   Bindings: Env;
-  Variables: { actor: Actor; requestId: string };
+  Variables: {
+    actor: Actor;
+    requestId: string;
+    /** Env com as leituras feitas antes da rota (src/index.ts, /api/v1). */
+    pre?: Env;
+  };
 };
 export interface Profile {
   id: string;

@@ -42,7 +42,7 @@ Funções como a fila presencial são **módulos** que o administrador liga e de
 {
   "capabilities_version": 1,
   "server": { "service": "wabotia", "version": "0.20.0", "commit": "..." },
-  "features": ["modules", "web_steps", "establishment"],
+  "features": ["modules", "web_steps", "establishment", "queue_coupon", "module_grants", "person_access", "mfa"],
   "actor": { "id": "app:...", "kind": "app", "role": "service" },
   "profiles": [
     {
@@ -62,7 +62,7 @@ Funções como a fila presencial são **módulos** que o administrador liga e de
 
 ### Dados do estabelecimento
 
-Cada área guarda nome fantasia, CPF ou CNPJ, endereço, telefone e um texto de rodapé (Gestão → Estabelecimento), para cupom do totem, comanda, recibo da ordem de serviço e cabeçalho e rodapé das páginas do passo web. Leia em `GET /profiles/{perfil}/establishment`: aceita a pessoa da área e chave de aplicação dela, inclusive aparelho pareado, sem escopo próprio (`404` se a credencial não alcançar a área). O recurso `establishment` em `features` de `/capabilities` indica que a rota existe.
+Cada área guarda nome fantasia, CPF ou CNPJ, endereço, telefone e um texto de rodapé (Gestão → Estabelecimento), para cupom do totem, comanda, recibo da ordem de serviço e cabeçalho e rodapé das páginas do passo web. Leia em `GET /profiles/{perfil}/establishment`: aceita a pessoa da área e chave de aplicação dela, inclusive aparelho pareado, sem escopo próprio (`404` se a credencial não alcançar a área). O recurso `establishment` em `features` de `/capabilities` indica que a rota existe. O cupom da senha do totem não precisa desta rota: o aparelho recebe os dados que o administrador escolheu imprimir em `coupon`, no snapshot da fila (`queue_coupon`; [FILA-SENHAS.md](FILA-SENHAS.md), "Cupom da senha").
 
 ```json
 {
@@ -81,7 +81,169 @@ Sem cadastro, `name` é o nome da área, os outros textos vêm vazios, `document
 
 ### Pessoas da área
 
-Para escolher o responsável de uma ordem de serviço (ou de outro registro de módulo), liste as pessoas em `GET /profiles/{perfil}/people`: `{"data":[{"id":"…","name":"Ana","role":"operator"}]}`, só contas ativas com acesso à área (administradores incluídos, `role` `admin` ou `operator`), em ordem de nome, sem bots e sem e-mail. Aceita a pessoa da área e chave de aplicação com `conversations:read`. O `id` é o valor de `assignee`. `GET /profiles/{perfil}/team` continua sendo o diretório da conversa interna (pessoas e bots com disponibilidade, só para sessão de pessoa).
+Para escolher o responsável de uma ordem de serviço (ou de outro registro de módulo), liste as pessoas em `GET /profiles/{perfil}/people`: `{"data":[{"id":"…","name":"Ana","role":"operator"}]}`, só contas ativas com acesso à área (administradores incluídos, `role` `admin` ou `operator`), em ordem de nome, sem bots e sem e-mail. Aceita a pessoa da área e chave de aplicação com `conversations:read`. O `id` é o valor de `assignee`. Cada pessoa traz `grants`, os papéis dela nos módulos ligados (`"os:technician"`), e `?grant=os:technician` lista só quem tem o papel; os papéis e quem tem cada um estão em `GET /profiles/{perfil}/grants` (veja "Acesso por pessoa" abaixo). `GET /profiles/{perfil}/team` continua sendo o diretório da conversa interna (pessoas e bots com disponibilidade, só para sessão de pessoa).
+
+### Login e segundo fator
+
+**Entrar** (painel: `POST /api/auth/login`, cookie; app: `POST /api/auth/mobile/login`, `Bearer wabu_…`):
+- O corpo é `{email, password}` e, quando a pessoa tem segundo fator, também `totp` (6 dígitos do aplicativo autenticador) ou `recovery_code`.
+- Sem o código, a resposta é `401 mfa_required` e nenhuma sessão é criada. O app mostra o campo do código e manda o mesmo pedido de novo com `totp`.
+- Respostas de erro:
+  - código errado ou já usado: `401 invalid_code`. O mesmo código não vale duas vezes, e o relógio aceita ±30 s.
+  - cinco erros em 15 minutos: o sexto pedido recebe `429 mfa_locked`, mesmo com o código certo.
+  - fora do horário de acesso da pessoa: `403 outside_schedule`.
+- A resposta traz:
+  - `aal`: 1 só senha, 2 com o código;
+  - `mfa`: `{policy, factor, next}`. `next: "enroll"` quer dizer que a instalação exige o segundo fator e a pessoa ainda não cadastrou.
+- O app guarda `aal`.
+
+**Login em duas etapas nos apps:** o recurso `mfa` em `features` de `/capabilities` diz que o servidor entende `totp` e `recovery_code`. App que não conhece o recurso continua entrando com senha enquanto a pessoa não tiver fator. Quando a pessoa cadastra o fator, esse app deixa de entrar e recebe `401 mfa_required`: atualize o app antes de ligar a política `all`.
+
+**Elevação sob demanda:** sessões abertas antes do segundo fator, e as abertas só com senha, ficam em aal1 e não são derrubadas.
+- Uma ação que exige aal2 responde `403 mfa_required`.
+- O app pede o código e chama `POST /api/v1/account/mfa/challenge`. A sessão passa a aal2 e o app repete a ação.
+- A confirmação vale por um prazo contado do código:
+  - 12 horas no cookie do painel;
+  - 7 dias no `wabu_` do app.
+- Passado o prazo, a sessão continua aberta em aal1 e a próxima ação protegida pede o código de novo.
+- A renovação (`POST /api/v1/auth/mobile/refresh`) leva o nível e o horário do código para a sessão nova, sem reiniciar o prazo.
+- O painel faz isso sozinho: qualquer `403 mfa_required` abre a janela "Confirme que é você" (com fator) ou o aviso para cadastrar o fator em Minha conta (sem fator).
+
+**Política da instalação** (Pessoas e acessos, `PUT /api/v1/system/mfa-policy` com `{policy}`):
+- `off`: opcional;
+- `financial`: as operações financeiras feitas por pessoas (`payment.*`, gestão da Mensalidade e ações do Suporte) exigem a sessão em aal2;
+- `all`: toda pessoa precisa do segundo fator.
+  - Só liga se o administrador que pede já tem fator; sem ele, `409 mfa_enroll_first`.
+  - O painel avisa que apps antigos, sem o recurso `mfa`, deixam de entrar.
+
+Regras gerais:
+- Com fator cadastrado, entrar sempre pede o código.
+- Só com a política `all`, uma sessão em aal1 fica restrita a `/api/v1/me`, `/api/v1/account`, `/api/v1/account/mfa/*`, a renovação e a saída. As outras rotas respondem `403 mfa_required`. O painel mostra a tela de desafio ou de cadastro antes das áreas.
+- Com `off` e `financial`, a sessão aal1 usa tudo, menos as ações que exigem aal2.
+- Chave de aplicação nunca chega a aal2: as rotas que exigem aal2 a recusam. As operações financeiras de aplicações continuam valendo por `billing:write`.
+- `GET /api/v1/me` traz `aal` (o efetivo, já com o prazo), `sessionId` e `mfa: {factor, policy}`.
+**Cadastro do aplicativo autenticador:**
+1. `POST /api/v1/account/mfa/enroll` com `{password}` devolve `{factor_id, secret, otpauth_url}`.
+   - O app pode abrir `otpauth_url`, ou mostrar `secret` para digitar.
+   - Trocar um fator ativo exige a sessão em aal2.
+2. `POST /api/v1/account/mfa/verify` com `{factor_id, code}`:
+   - devolve `{aal: 2, recovery_codes}`: 10 códigos de recuperação, mostrados uma vez só;
+   - sobe esta sessão para aal2 e derruba as outras sessões da pessoa.
+
+**Outras rotas do segundo fator:**
+- `POST /api/v1/account/mfa/challenge` com `{code}` ou `{recovery_code}` sobe a sessão para aal2.
+- `POST /api/v1/account/mfa/recovery-codes` (exige aal2) gera códigos novos.
+- `DELETE /api/v1/account/mfa/factors/{id}` (exige aal2) remove o fator. Com a política `all`, responde `409`.
+- `GET /api/v1/account` e `GET /api/v1/account/mfa` mostram a situação.
+
+**Administrador** (exige aal2 quando ele tem fator ou a política não é `off`):
+- `POST /api/v1/people/{id}/mfa/reset` zera o segundo fator da pessoa e derruba as sessões dela.
+- `POST /api/v1/people/{id}/password-link` devolve `{url, expires_at}`:
+  - é o link de redefinir a senha, de uso único e válido por 24 horas (`<origem>/app#reset=<código>`);
+  - o código vai no fragmento e só o hash fica guardado;
+  - um link novo invalida o anterior.
+- `POST /api/v1/users/invite`, com os campos de `POST /users` sem `password`:
+  - cria a pessoa sem senha e devolve `{id, url, expires_at}`;
+  - é um convite de 72 horas (`#invite=`);
+  - antes de aceitar, nenhuma senha entra.
+- `POST /users` e `PATCH /users/{id}` aceitam `schedule`, o horário de acesso no formato do Fagoo:
+  - `{"enabled": true, "windows": [{"start": "08:00", "end": "18:00", "days": [1,2,3,4,5]}]}`;
+  - até 10 janelas; dias de 0 (domingo) a 6, em ordem; horário de Brasília;
+  - `null` tira o horário;
+  - o administrador é isento;
+  - fora do horário, o login e qualquer chamada da sessão recebem `403 outside_schedule`.
+- `GET /users` traz `schedule`, `has_mfa` e `invite_pending`.
+
+**Sem sessão:**
+- `POST /api/auth/link-info` com `{token}` devolve `{purpose, name, email, expires_at}`.
+- `POST /api/auth/reset` e `POST /api/auth/invite/accept`, com `{token, password}`, gravam a senha e derrubam as sessões da pessoa.
+- `POST /api/auth/recover-admin` com `{setup_token, password}`:
+  - só funciona quando existe um único administrador ativo; com mais de um, outro administrador gera o link;
+  - troca a senha, tira o segundo fator e derruba as sessões.
+
+**E-mail** (Cloudflare Email Sending, configuração em [EMAIL.md](EMAIL.md)). `GET /api/auth/status` traz `email: true` quando a instalação envia e-mail. Com e-mail:
+- `POST /api/auth/forgot` com `{email}` ("Esqueci a senha"):
+  - responde sempre `200 {ok, message}`, exista ou não a conta, e o envio sai depois da resposta;
+  - o link (`#reset=`) vale 1 hora e uma vez só, e invalida o link de redefinição anterior;
+  - limites: 5 pedidos a cada 10 minutos por endereço de rede (`429 rate_limited`); 3 por hora por conta, sem aviso (a resposta é a mesma);
+  - sem e-mail configurado: `409 email_unavailable`.
+- `POST /api/v1/users/invite` e `POST /api/v1/people/{id}/password-link` aceitam `send_email: true`. A resposta traz o link e `email_status` (`sent`, `queued`, `bounced` ou `failed`, com `email_error`). A falha no envio não desfaz o link.
+- A pessoa recebe um alerta quando a senha é trocada (link, administrador ou recuperação) ou quando o segundo fator é removido.
+- Nenhum e-mail leva link ou código no assunto.
+
+Gestão → Sistema (administrador):
+- `GET /api/v1/system/email` devolve `{configured, account_id, token_configured, from_address, from_name, log}`. O `log` traz os últimos envios, com o endereço mascarado e sem o corpo.
+- `POST /api/v1/system/email/configure` com `{account_id, token, from_address, from_name}`:
+  - token vazio mantém o atual;
+  - `{remove: true}` desliga.
+- `POST /api/v1/system/email/test` manda um teste para o e-mail de quem pede.
+  - Erros da Cloudflare: `409 email_not_entitled` (10105, sem Workers Paid), `409 email_sending_disabled` (10203), `502 email_unauthorized` (token) e `429 email_throttled`.
+
+Sem e-mail, o administrador envia o link. Sem administrador com acesso, veja "Administrador sem acesso" em [OPERACAO.md](OPERACAO.md).
+
+### Acesso por pessoa
+
+O administrador escolhe, para cada atendente, o que ele acessa: áreas do
+atendimento, módulos e papéis de módulo (entregador, garçom, técnico, caixa).
+Uma pessoa "só caixa" entra no painel e nos apps e vê só o Caixa. O servidor
+confere em cada rota e em cada comando (`403 access_denied`), e o que a pessoa
+não acessa também some dos eventos, do push e dos contadores do `/status`. O
+administrador acessa tudo. Aplicações e aparelhos pareados seguem pelos
+escopos.
+
+**Para os apps** (recurso `person_access` em `features` de `/capabilities`):
+cada item de `profiles` traz `access`, a lista do que a pessoa logada acessa
+naquela área, já expandida e só com módulos ligados:
+
+| Item | Tela no app |
+|---|---|
+| `conversations` | Conversas e atendimento |
+| `tickets` | Protocolos |
+| `contacts` | Contatos |
+| `calls` | Ligações |
+| `team` | Equipe (conversa interna) |
+| `reports` | Relatórios e avaliações |
+| `<módulo>` (`queue`, `agenda`, `os`, `pedido`, `reserva`, `mensalidade`…) | As telas do módulo |
+| `<módulo>:<papel>` (`entrega:courier`, `mesas:waiter`, `os:technician`, `caixa:cashier`) | A tela do papel (entregador, garçom…) |
+
+- Monte a barra inferior e o menu só com os itens que vierem. Item ausente:
+  não mostre a tela, e um `403 access_denied` numa rota esconde a tela até a
+  próxima consulta.
+- Atendente completo (o padrão, e quem já existia) recebe todas as áreas e
+  todos os módulos ligados, sem papéis. Exemplo de "só garçom":
+  `"access": ["mesas", "mesas:waiter"]`.
+- `grants` continua vindo, só com os papéis (`["mesas:waiter"]`).
+- `access` vem `null` para aparelho pareado e aplicação: use `modules` e os
+  escopos, como hoje.
+- Mudar o acesso derruba as sessões da pessoa: o app recebe `401`, faz login
+  de novo e relê `/capabilities`. Releia também ao abrir e ao voltar ao
+  primeiro plano.
+
+**Para o painel e integrações administrativas:**
+- `GET /profiles/{perfil}/access` (pessoa da área) lista o catálogo:
+  `{"data": [{"id", "group": "core"|"module", "module_id", "role", "label",
+  "description"}], "presets": [{"id", "label", "access"}]}`.
+- Os atalhos (`presets`) só preenchem as caixas, e só aparecem os que têm
+  todos os itens nesta versão.
+- O administrador grava com `POST /users` ou `PATCH /users/{id}` e
+  `{"access": ["*"]}` (atendente completo), `{"access": ["caixa:cashier"]}`,
+  `{"access": ["*", "os:technician"]}` ou `{"access": null}` (o mesmo que
+  `["*"]`).
+- `GET /users` traz `access` como texto JSON (ou `null`). Item desconhecido:
+  `400`.
+
+**Papéis do ERP** (módulo `erp`, desligado de fábrica):
+- Os seis papéis do ERP são `erp:admin`, `erp:consulta`, `erp:vendas`, `erp:financeiro`, `erp:estoque` e `erp:fiscal`.
+  - É no máximo um por pessoa; dois dão `400`.
+  - Atalhos "ERP · Vendas" e outros, só com o ERP ligado.
+- O administrador do Wabotia vale `erp:admin`.
+- O `"*"` dá o módulo, mas nunca o papel. Atendente completo sem papel recebe `403 erp_role_required` em `/profiles/{perfil}/erp/…`.
+- A cada requisição o núcleo manda ao ERP o papel, a sessão (id e nível do segundo fator), se a pessoa tem fator ativo e as pessoas da área com papel.
+  - Trocar o papel em Pessoas vale na próxima requisição.
+  - Quem perde o papel fica inativo no ERP.
+- A política de segundo fator do ERP (Sistema → Segurança, dentro do ERP) usa a mesma sessão do Wabotia.
+  - Com ela ligada, quem está no escopo e está numa sessão sem o código recebe `403 ERP_MFA_REQUIRED`.
+  - O app pede o código com `POST /api/v1/account/mfa/challenge`, como em "Elevação sob demanda", e repete.
 
 ### Consentimento de notificação por finalidade
 
@@ -180,6 +342,7 @@ Desligado por padrão; `requires: ["mensalidade"]` (só liga com a Mensalidade l
 | `GET /suporte/offers` | Pacotes avulsos ativos, planos vendáveis oferecidos, `methods`, `payments_ready` e `mensalidade` |
 | `GET /suporte/pending` | Aguardando confirmação (últimos 7 dias): quem digitou o CPF/CNPJ de um cadastro por um telefone não autorizado, e pedidos de humano em grupo (`group: true`, liberados com cortesia) |
 | `GET /suporte/conversations/{id}` | Situação da conversa: `allowed` e `reason`, `release` (com `ticket_id` e `expires_at`), `session`, `awaiting_team`, `unlinked_phone` e compras |
+| `GET /suporte/conversations/{id}/situation` | Para o próprio cliente (ferramenta `suporte_situacao`): `liberado`, `liberacao` (até quando), `falta`, pagamento pendente, mensalidade em atraso e ofertas; sem pagador, documento nem telefone. Liberada para a chave presa à conversa |
 | `POST /suporte/conversations/{id}/courtesy` | Cortesia `{"reason","hours"?}` (conversa assumida ou administrador) |
 | `POST /suporte/conversations/{id}/link-phone` | Vincula o telefone da conversa ao pagador identificado pelo CPF/CNPJ (conversa assumida ou administrador) |
 | `POST /suporte/conversations/{id}/confirm` | A equipe confirma a identidade de quem aguarda confirmação `{"link":true}` e libera se o pagador estiver em dia (`409 payment_required` se não) |
@@ -198,19 +361,260 @@ Cardápio, carrinho por link, pagamento e acompanhamento (desligado por padrão;
 | `GET /pedido` | Regras da loja já com os padrões (`config`), situação (`store.open`, `reason` `open\|paused\|closed`, `opens_at`, `message`), `payments.offered` e contagem do cardápio |
 | `POST /pedido/store/pause` | `{"paused":true,"message":"…"}`: loja fechada agora (qualquer pessoa da equipe). Pausar cancela os links de carrinho abertos (`web_step.cancelled`; a página responde "Link indisponível", 410) |
 | `GET /pedido/menu` | Categorias com itens, grupos de adicionais e imagens do cardápio |
+| `GET /pedido/itens` | Para o bot que atende o cliente: itens (`item_id`, nome, descrição, disponível, máximo) e escolhas, **sem preços**; liberada para a chave presa à conversa |
 | `POST`/`PUT`/`DELETE /pedido/categories[/{id}]`, `/pedido/items[/{id}]`, `/pedido/groups[/{id}]`; `PUT /pedido/menu-images` | Cadastro do cardápio (só administrador). Item: `category_id`, `name`, `price_cents`, `description`, `photo_media_id` (de `POST /media`), `image_url` (HTTPS, para o carrinho), `available`, `max_quantity`, `retailer_id` (catálogo da Meta, único: `409 retailer_id_taken`), `group_ids`. Grupo: `name`, `min`, `max`, `options [{id?, name, price_cents, available}]` |
 | `POST /pedido/items/{id}/availability`, `/pedido/groups/{id}/availability` | `{"available":false}` (com `option_id` no grupo): esgotado pela equipe |
-| `GET /pedido/board` | Quadro da cozinha: `columns` por estado em andamento com `minutes_in_status` e `late`, `store` e `today` |
+| `GET /pedido/board` | Quadro da cozinha: `columns` por estado em andamento com `minutes_in_status`, `late` e `delivery` (entregador e previsão do módulo Entrega: `{status, status_label, courier_id, courier_name, eta_at, eta_minutes, position_at}`, ou null), `store` e `today` |
 | `GET /pedido/orders` | `status=a,b`, `open=1`, `q` (cliente, número, telefone), `phone`, `conversation_id`, `from`, `to`, `limit`, `cursor`; traz `counts` por estado |
 | `POST /pedido/orders` | Pedido de balcão ou integração: `items [{item_id, quantity, options {"<group_id>":["<option_id>"]}, note}]` (repetir `item_id` = outra montagem), `fulfillment`, `address`, `customer_name`, `phone`, `conversation_id`, `payment_method`, `note`, `notes`, `whatsapp_notices`. Só com `phone`, o pedido usa a conversa desse telefone; com `whatsapp_notices: true` (o cliente aceitou no balcão; só administrador, com `notices_evidence` dizendo como ele aceitou), abre uma na linha oficial e registra o consentimento de avisos do pedido |
-| `GET /pedido/orders/{id}` | Pedido com `history` |
+| `GET /pedido/orders/{id}` | Pedido com `history` e `delivery` (como no quadro) |
 | `PATCH /pedido/orders/{id}` | `notes` (internas), `customer_name`, `eta_minutes` |
 | `POST /pedido/orders/{id}/status` | `{"status":"…","note":"…","reason":"…","notify":true}`; transição inválida: `409 invalid_transition` |
 | `POST /pedido/orders/{id}/paid` | Baixa do pagamento feito na hora; cobrança online aberta: `409 payment_online` |
 | `POST /pedido/orders/{id}/payment` | `{"method":"cash"}`: forma escolhida pela equipe; já definida: `409 payment_chosen` |
 | `GET /pedido/orders/{id}/ticket?columns=32\|42\|48` | Comanda: `establishment`, `order` e `text` em colunas fixas |
+| `POST /pedido/orders/{id}/delivery-slip` | `{"columns":32}`: via de entrega ao despachar, a comanda mais `slip {title, qr, lines, expires_at, delivery_id}` (QR do entregador, do módulo Entrega) e `slip_text`. Gerar de novo revoga o QR anterior. `409 not_delivery`, `order_closed` ou `delivery_unavailable` |
 
-Estados: `awaiting_payment`, `received`, `preparing`, `ready` (retirada), `out_for_delivery` (entrega), `delivered`, `cancelled`; cada pedido traz `next_statuses`. Pagamento (`payment.status`): `choosing`, `pending` (na hora), `awaiting` (cobrança online aberta), `paid`, `expired`, `failed`, `refunded`, `cancelled`; `paid` online só pelo webhook do provedor (Cobrança). Linhas (`lines`) podem repetir o `item_id` com `slot` diferente (montagens). Regras da loja: chave `pedido` de `PUT /profiles/{perfil}/settings`. Pela conversa: `POST /profiles/{perfil}/conversations/{id}/actions` com `{"action":"pedido_link"}` envia o link do carrinho (conversa assumida). WhatsApp: itens de menu `{"type":"pedido_cardapio"}` e `{"type":"pedido_acompanhar"}`; botões com ids `pedido:pay:{pedido}:{forma}` e `pedido:receber:pickup|delivery`. MCP: `pedido_cardapio`, `pedido_consultar` e `pedido_enviar_carrinho`. Eventos (webhooks com `conversations:read`): `pedido.created`, `pedido.rejected` (carrinho recusado ao concluir: loja fechada pelo horário ou item esgotado; `via: "page"` quando a própria página recusou), `pedido.status_changed` (`from`, `to`, `actor`), `pedido.paid`, `pedido.payment_failed`, `pedido.payment_expired`, `pedido.payment_late` (pago depois de cancelado: estornar), `pedido.refunded`, `pedido.stale` (parado além do alerta), `pedido.menu_changed` e `pedido.store_changed`; todos com `module_id: "pedido"` e, quando houver, `order_id`, `number` e `conversation_id`.
+Estados: `awaiting_payment`, `received`, `preparing`, `ready` (retirada), `out_for_delivery` (entrega), `delivered`, `cancelled`; cada pedido traz `next_statuses`. Pagamento (`payment.status`): `choosing`, `pending` (na hora), `awaiting` (cobrança online aberta), `paid`, `expired`, `failed`, `refunded`, `cancelled`; `paid` online só pelo webhook do provedor (Cobrança). Linhas (`lines`) podem repetir o `item_id` com `slot` diferente (montagens). Regras da loja: chave `pedido` de `PUT /profiles/{perfil}/settings`. Pela conversa: `POST /profiles/{perfil}/conversations/{id}/actions` com `{"action":"pedido_link"}` envia o link do carrinho (conversa assumida). WhatsApp: itens de menu `{"type":"pedido_cardapio"}` e `{"type":"pedido_acompanhar"}`; botões com ids `pedido:pay:{pedido}:{forma}` e `pedido:receber:pickup|delivery`. MCP: `pedido_cardapio`, `pedido_consultar` e `pedido_enviar_carrinho`. Eventos (webhooks com `conversations:read`): `pedido.created`, `pedido.rejected` (carrinho recusado ao concluir: loja fechada pelo horário ou item esgotado; `via: "page"` quando a própria página recusou), `pedido.status_changed` (`from`, `to`, `actor`), `pedido.paid`, `pedido.payment_failed`, `pedido.payment_expired`, `pedido.payment_late` (pago depois de cancelado: estornar), `pedido.refunded`, `pedido.stale` (parado além do alerta), `pedido.menu_changed`, `pedido.store_changed` e `pedido.discount_applied` (desconto aprovado pela equipe: `discount_cents`, `total_cents`, `approval_id`); todos com `module_id: "pedido"` e, quando houver, `order_id`, `number` e `conversation_id`.
+
+Pedido de mesa (módulo Mesas, abaixo): `source: "table"`, `fulfillment: "table"` (caminho da retirada; `status_label` "Pronto para servir" e "Servido"), `fulfillment_label` com o nome da mesa, `table: {tab_id, label}` (null fora da mesa) e `payment.status: "tab"` ("Na conta da mesa") até a conta fechar, quando vira `paid`. `paid` e `payment` nesse pedido respondem `409 tab_order`. `GET /pedido/orders?tab_id=…` lista os pedidos de uma conta; `pedido.created` e `pedido.status_changed` trazem `tab_id`.
+
+### Mesas (módulo `mesas`)
+
+Mesas e comandas com a conta aberta pelo garçom (desligado por padrão; depende do Pedido, `requires: ["pedido"]`; uso em [MESAS.md](MESAS.md)). Rotas em `/profiles/{perfil}/mesas…`; leitura com `conversations:read`, escrita com `conversations:write` e `Idempotency-Key`. Cadastro de mesas só administrador. Operar a conta (abrir, lançar, transferir, juntar, pagar, fechar) exige o papel **Garçom** (`mesas:waiter`, em `module_grants`) ou ser administrador; pessoa sem o papel recebe `403 role_required` e só lê. Aplicações operam com o escopo. Valores em centavos.
+
+| Método e caminho | O quê |
+|---|---|
+| `GET /mesas` | Mapa: `tables [{id, name, kind table\|card, section, seats, position, state free\|occupied\|closing, state_label, tab}]`, `counts {free, occupied, closing}`, `sections`, `config`, `can_operate` (quem lê pode operar), `waiters [{id, name}]` (quem tem o papel) |
+| `POST /mesas/tables` | Uma mesa `{name, kind?, section?, seats?, position?}` ou várias `{prefix:"Mesa", from:1, to:20, …}` (até 100; repetidas em `skipped`). Nome repetido: `409 table_name_taken` |
+| `PUT`/`DELETE /mesas/tables/{id}` | Alterar; apagar só livre (`409 table_in_use`) |
+| `GET /mesas/tabs` | Contas por `status` (padrão `open,closing`; também `closed`, `cancelled`, `merged`), `table_id`, `from`, `to` (abertura), `limit`, `cursor` |
+| `POST /mesas/tabs` | Abrir: `{table_id, guests?, customer_name?, note?}`; mesa ocupada: `409 table_occupied` |
+| `GET /mesas/tabs/{id}` | Conta com `orders` (pedidos do Pedido), `payments` e `history` |
+| `PATCH /mesas/tabs/{id}` | `guests`, `customer_name`, `note`, `service` (taxa nesta conta), `waiter_id` (`"me"` assume; outra pessoa, só administrador) |
+| `POST /mesas/tabs/{id}/orders` | Lançar e mandar para a cozinha: `{items [{item_id, quantity, options, note}], note?}`, como `POST /pedido/orders`. Responde `{tab, order}`; a mesma `Idempotency-Key` devolve o mesmo pedido |
+| `POST /mesas/tabs/{id}/bill` / `reopen` | Cliente pediu a conta (`closing`) / voltar a `open`. Lançar itens também reabre |
+| `POST /mesas/tabs/{id}/transfer` | `{table_id}` livre; ocupada: `409 table_occupied` |
+| `POST /mesas/tabs/{id}/merge` | `{tab_id}` ou `{table_id}`: a outra conta vem para esta (pedidos, pagamentos, pessoas); ela fica `merged` e a mesa livre |
+| `GET /mesas/tabs/{id}/bill?split=N&columns=32\|42\|48` | Conta parcial ou final: `lines` somadas, `tab.bill`, `payments`, `split {people, of due\|total, shares}`, `establishment` e `text` para imprimir |
+| `POST /mesas/tabs/{id}/payments` | Parcial: `{method cash\|card\|pix\|other, amount_cents, tendered_cents?, note?}`; mais que o que falta: `409 amount_exceeds_due` |
+| `POST /mesas/payments/{id}/void` | `{reason}`: desfaz um pagamento (conta aberta) |
+| `POST /mesas/tabs/{id}/close` | `{payments?: [...]}` registra o que falta e fecha; ainda faltando: `409 tab_unpaid` (nada gravado). A mesa fica livre e os pedidos ficam pagos |
+| `POST /mesas/tabs/{id}/cancel` | Conta aberta por engano, sem pedidos nem pagamentos (`409 tab_not_empty`) |
+
+Conta (`tab.bill`): `subtotal_cents` (pedidos não cancelados), `service_on`, `service_percent`, `service_cents` (arredondado ao centavo), `total_cents`, `paid_cents`, `due_cents`, `overpaid_cents`. A conta também traz `item_count`, `orders_count`, `kitchen_count` (na cozinha), `ready_count` (para servir) e `minutes_open`. Configuração: chave `mesas` de `PUT /settings` com `service_percent` (0 a 20, uma casa), `service_default` e `split_max`. Para cancelar um item já enviado, cancele o pedido dele em `POST /pedido/orders/{id}/status`. Pagamentos da mesa são registros da equipe (nada é cobrado online). Eventos: `mesas.tab_opened`, `mesas.order_sent`, `mesas.tab_updated`, `mesas.bill_requested`, `mesas.tab_reopened`, `mesas.tab_transferred`, `mesas.tab_merged`, `mesas.payment_added`, `mesas.payment_voided`, `mesas.tab_closed` (totais e `payments` por forma), `mesas.tab_cancelled` e `mesas.tables_changed`; com `tab_id`, `number`, `table_id` e `table_name`.
+
+### Entrega (módulo `entrega`)
+
+Acompanhamento da entrega em tempo real (desligado por padrão; uso, privacidade e o que os apps precisam em [ENTREGA.md](ENTREGA.md)). Rotas em `/profiles/{perfil}/entrega…`; leitura com `conversations:read`, escrita com `conversations:write` e `Idempotency-Key`, **exceto o lote de posições**, que não leva a chave. O entregador sem login usa a **credencial do QR** (abaixo). Aplicação sem `contacts:read` não recebe `customer_name`, `address_text`, `destination`, `position` nem `conversation_id`; sem `notes:read`, nem `note` e `history`. Datas em ms. Desligado: `409 module_disabled`.
+
+| Método e caminho | O quê |
+|---|---|
+| `GET /entrega` | Para o app: `courier` (quem pergunta tem o papel `entrega:courier`), `couriers [{id,name}]` (pessoas com o papel), `app {sample_seconds, upload_seconds, max_batch, max_accuracy_m, stale_minutes}`, `updates`, `tracking_link`, `arriving_radius_m`, `speed_kmh`, `route_provider`, `retention_hours` |
+| `GET /entrega/mine` | Entregas do entregador (sessão de pessoa) em `assigned` e `en_route`, com `app` |
+| `GET /entrega/available` | Pedidos do Pedido com entrega (recebido, em preparo, saiu) ainda sem entrega aberta: `ref_id`, `label`, cliente, endereço, itens, total e pagamento; `pedido: false` com o Pedido desligado |
+| `GET /entrega/deliveries` | `status=a,b`, `open=0` (padrão: só abertas), `courier=me\|{id}`, `conversation_id`, `limit` |
+| `GET /entrega/deliveries/{id}` | Entrega com `history` e `access` (QRs gerados: `status issued\|active\|revoked\|expired`, `label` (nome digitado), `device`, `claimed_at`, `expires_at`) |
+| `POST /entrega/deliveries` | `{"source":"pedido","ref_id":"…","courier_id":"…\|me"}` ou `{"source":"manual","label":"…","conversation_id":"…","customer_name":"…","address_text":"…","destination":{"lat":…,"lng":…}}`. Pedido de retirada: `409 not_delivery`; aguardando pagamento ou encerrado: `409 order_not_deliverable`; já com entrega aberta: `409 delivery_exists` |
+| `POST /entrega/deliveries/{id}/assign` | `{"courier_id":"…\|me"}` antes da saída; só pessoas com o papel `entrega:courier` (`403 role_required`). Passar de um entregador do QR para uma pessoa revoga o QR |
+| `POST /entrega/deliveries/{id}/destination` | `{"lat":…,"lng":…}`: destino geocodificado no aparelho ou marcado pela equipe |
+| `POST /entrega/deliveries/{id}/start` | Só o entregador atribuído: `{"destination":{"lat":…,"lng":…}}` opcional. Pedido do Pedido vai para `out_for_delivery` e o cliente recebe o aviso do Pedido com o botão **Acompanhar** numa mensagem só (janela de 24 h aberta) e, sem destino, o pedido de localização. Responde com `app`. Pedido marcado `delivered` ou `cancelled` no quadro encerra a entrega aberta; o quadro e o detalhe do pedido trazem `delivery` com entregador e previsão |
+| `POST /entrega/deliveries/{id}/positions` | **Telemetria, sem `Idempotency-Key`**, só o entregador da entrega: `{"points":[{"t":ms,"lat":…,"lng":…,"accuracy":m,"speed":m/s}],"battery":0-100}` (1 a 200 pontos, corpo até 64 KB). Pontos repetidos, mais velhos que a última posição, anteriores à saída, do futuro (+2 min) ou com precisão pior que 300 m são ignorados; repetir o lote é seguro. Até 60 lotes por minuto por credencial (`429 rate_limited`); conector: 403. Resposta: `{active, status, accepted, ignored, last_at, eta {minutes, at, distance_m}, arriving, app}`. `active: false`: a rota terminou, pare o GPS e descarte a fila |
+| `POST /entrega/deliveries/{id}/delivered` | O entregador ou a equipe; `{"note":"…","code":"1234"}`. Com o código de confirmação ligado (`confirm_code.enabled`), o entregador precisa do `code` que o cliente recebeu: `409 code_required`, `409 code_invalid` (tentativas que restam no texto), `423 code_locked` depois de `confirm_code.attempts` erros; a equipe conclui sem ele. Pedido do Pedido vai para `delivered` (`pedido_error` se o Pedido recusar) |
+| `POST /entrega/deliveries/{id}/cancel` | `{"reason":"…"}`; o pedido do Pedido não muda. Avisa o cliente que já recebeu o aviso de saída |
+| `POST /entrega/deliveries/{id}/qr` | A equipe gera o QR do entregador sem login: `{delivery_id, qr {url, expires_at}, slip {title, qr, lines}, access}`. O QR leva `url` (`<servidor>/api/public/c/<código>`), vale uma leitura até `expires_at`; um QR novo revoga o anterior e a credencial ativa |
+| `GET /entrega/deliveries/{id}/courier` | O que o app do entregador mostra (credencial do QR ou pessoa atribuída): `label`, primeiro nome do cliente, `address_text`, `destination`, situação, `eta`, `order {number, lines, total_cents, customer_note, payment {method_label, status, paid, change_for_cents}}`, `chat {last_seq, customer_open}`, `confirm {required, attempts_left}` (código de confirmação: se é exigido para concluir e quantas tentativas restam; o código nunca vem), `app`. Sem telefone, conversa nem notas |
+| `GET /entrega/deliveries/{id}/messages?after=<seq>` | Conversa da entrega (entregador ou equipe): `{data [{seq, channel store\|customer, sender courier\|store\|customer, author_name, text, created}], last_seq, customer_open, open}`, até 100 por chamada |
+| `POST /entrega/deliveries/{id}/messages` | `{"channel":"store\|customer","text":"…"}` (até 1000). `store`: entregador e loja (interna; também nota na conversa do cliente). `customer`: só o entregador; sai pelo WhatsApp da loja como "Nome - Entregador: …"; janela de 24 h fechada: `409 window_closed`; sem conversa: `409 no_conversation`. Entrega encerrada: 400 |
+
+**Credencial do QR (entregador sem login).** O QR leva `https://<endereço público>/api/public/c/<código>` (32 caracteres; debaixo de `/api/` para chegar ao Worker antes dos arquivos do painel; a troca aceita também o antigo `/c/<código>`; a geração exige endereço público https: `409 origin_unknown`). Leitura pública sem gastar o código: `GET /api/public/c/<código>` com `Accept: application/json` → `{valid: true, store, server, expires_at}` ou `{valid: false, server}` (a mesma resposta para inexistente, vencido, lido ou revogado; 30 por IP a cada 10 min, `429`); sem esse `Accept`, a página para a câmera comum (loja, "Escanear pedido" e o link do app). Fora de `/api/v1` e sem autenticação: `POST /api/credentials/claim` `{"code":"<conteúdo do QR ou o código>","name":"Carlos Souza","device":"Moto G"}` → `{token: "wabx_…", expires_at, profile, module: "entrega", subject: <id da entrega>, credential_id, data {delivery, app}}`. Uso único (`410 claim_used`; vencido `410 claim_expired`; inválido `404 claim_not_found`; entrega encerrada `410 delivery_closed`; 10 leituras por IP a cada 10 min, `429`). Com `Authorization: Bearer wabx_…`, o token alcança só `/api/v1/profiles/<profile>/entrega/…` da entrega `subject`: `…/courier`, `…/start`, `…/destination`, `…/positions`, `…/messages`, `…/delivered` e `…/cancel` (as rotas que declaram aceitar a credencial; o núcleo nega as outras e confere o `:id`); o resto responde `403 credential_scope` (ou `403 not_your_delivery`), inclusive `/api/mcp`. O QR vale `qr.claim_minutes` (padrão 20 min, máximo 120) e o token `qr.credential_hours` (padrão 3 h, máximo 6); a leitura vira nota na conversa do pedido e o evento `entrega.qr_claimed`. Revogado ao concluir ou cancelar a entrega, ao gerar outro QR, ao passar a entrega a outro entregador ou no fim de `qr.credential_hours`: `401 invalid_token`. A câmera comum que abrir `GET /c/<código>` vê uma página que só orienta (não gasta o QR). A resposta das posições traz `chat {last_seq}`: busque `…/messages` quando mudar.
+
+Estados: `pending` (sem entregador), `assigned`, `en_route`, `delivered`, `cancelled`. Na entrega: `position` (só em `en_route`), `signal` `ok\|stale\|none`, `eta {at, minutes, distance_m}` (linha reta), `arriving`, `updates_sent`, `tracking_step_id`, `position_purged`. Entregador com login: papel `entrega:courier` (`module_grants`). Regras: chave `entrega` de `PUT /profiles/{perfil}/settings` (`qr {claim_minutes 10-1440, credential_hours 1-12}`, `speed_kmh`, `road_factor`, `route_provider`, `updates {mode: eta\|location\|eta_and_location\|off, every_minutes 5-60, max 0-20}`, `tracking_link`, `ask_location`, `link_hours`, `arriving_radius_m`, `notices {started, arriving, delivered}`, `outside_window: milestones\|none`, `app {sample_seconds, upload_seconds, near_upload_seconds, stale_minutes}`, `retention_hours`, `map {tiles_url, attribution}` (blocos do mapa da página; vazio usa o OpenStreetMap público), `texts`). WhatsApp: item de menu `{"type":"entrega_onde"}`; a localização enviada pelo cliente vira o destino da entrega aberta sem destino. Eventos (sem posição nem endereço): `entrega.created`, `entrega.assigned`, `entrega.started`, `entrega.arriving`, `entrega.delivered`, `entrega.cancelled`, `entrega.signal_lost` (`last_at`), `entrega.qr_claimed` (`credential_id`, `name`, `device`), `entrega.message` (`channel`, `sender`, `seq`, sem o texto); todos com `id`, `source`, `source_ref`, `label`, `conversation_id`, `status`, `courier`, `eta`.
+
+## Ações pelo bot na conversa interna
+
+Na conversa interna com um bot (Equipe → Conversas, ou a tela do bot), a pessoa pede em linguagem natural para consultar ou fazer algo nos módulos, inclusive o que não tem tela no app. O bot:
+
+- usa as **permissões da própria pessoa** (acesso por pessoa, papéis do módulo), nunca a chave do bot;
+- **consulta direto**;
+- para **escrever, só propõe**: a proposta aparece na conversa com **Confirmar** e **Cancelar**, e só a pessoa confirma, pela sessão dela.
+
+O bot que atende cliente no WhatsApp nunca recebe essas ferramentas. Tudo fica na auditoria com `via` (`{kind: "bot", bot_id, run_id, proposal_id}`).
+
+### Mensagens da conversa interna
+
+`GET /profiles/{perfil}/internal-chats/{id}` traz, em cada mensagem, dois campos novos:
+
+- `kind`: `"text"` (como antes), `"proposal"` ou `"result"`;
+- `payload`: nulo em `text`.
+
+**Toda mensagem tem `text`**, legível por quem não conhece o tipo:
+
+- proposta: "Proposta do bot: … Confirme no painel ou no app atualizado";
+- resultado: "Feito: …" ou "Não foi possível: …".
+
+App antigo mostra o texto; app novo desenha o cartão.
+
+**Proposta** (`kind: "proposal"`, autor `bot:<id>`):
+
+```json
+{
+  "id": "proposal:5f0c…",
+  "author": "bot:3a1e…",
+  "kind": "proposal",
+  "text": "Proposta do bot:\nMudar o estado da ordem de serviço\n• id: …\n• status: ready\nTexto do bot (não conferido): Mudar a OS nº 12 para Pronta\nConfirme no painel ou no app atualizado (vale 10 minutos).",
+  "payload": {
+    "operation_summary": "Mudar o estado da ordem de serviço",
+    "module": "os",
+    "actions": ["confirm", "cancel"],
+    "proposal": {
+      "id": "5f0c…", "status": "pending", "operation": "os.status",
+      "description": "Mudar o estado da ordem de serviço\n• id: …\n• status: ready",
+      "summary": "Mudar a OS nº 12 para Pronta",
+      "params": {"id": "…", "status": "ready"},
+      "sensitive": false, "expires_at": 1794840000000, "decided_at": null,
+      "result": null, "error": null, "bot_id": "3a1e…", "chat_id": "…", "created": 1794839400000
+    }
+  }
+}
+```
+
+O cartão mostra:
+- `description`, em destaque: o que roda ao confirmar, montado no servidor (texto do módulo ou a operação e os parâmetros, um por linha; quebras de linha com `\n`);
+- `summary`, à parte e marcado como "Texto do bot (não conferido)": foi escrito pelo modelo;
+- `operation_summary` (do catálogo, não do bot);
+- o estado.
+
+Propostas antigas, sem `description`, mostram `summary` e os `params`.
+
+`proposal.status` vem sempre atual na leitura:
+
+| Estado | Significado |
+|---|---|
+| `pending` | aguardando a pessoa; mostra os botões |
+| `running` | executando |
+| `done` | feito |
+| `failed` | não foi possível; motivo em `error` |
+| `cancelled` | cancelada |
+| `expired` | venceu; vale 10 minutos |
+
+Com `sensitive: true`, avise que o código do autenticador pode ser pedido: depende da política da instalação (`financial` ou `all`). Operações financeiras de módulos (Mensalidade, Suporte) também podem pedir o código sem a marca.
+
+**Botões**: `POST /profiles/{perfil}/internal-chats/{id}/proposals/{proposta}/confirm` e `…/cancel`.
+- Corpo vazio; `Idempotency-Key` opcional.
+- Resposta: o objeto `proposal` atualizado.
+- Só a pessoa da proposta, com sessão de pessoa (cookie ou `wabu_`). Chave de aplicação ou o próprio bot recebem `403 person_required`.
+- Confirmar de novo devolve o mesmo resultado, sem rodar outra vez: a proposta passa a `running` antes de chamar a operação, e a operação roda com `Idempotency-Key` `proposal:<id>:<tentativa>`.
+
+| Erro | Quando | O app faz |
+|---|---|---|
+| `404 not_found` | proposta de outra pessoa ou de outra conversa | some com os botões |
+| `409 proposal_expired` | passou dos 10 minutos | mostra "Venceu"; a pessoa pede de novo ao bot |
+| `409 proposal_cancelled` / `409 proposal_closed` | já cancelada / já confirmada | recarrega a conversa |
+| `403 mfa_required` | a política pede o segundo fator e a sessão está sem ele (a proposta continua aberta) | pede o código do autenticador, envia `POST /api/v1/account/mfa/challenge` com `{code}` (ou `{recovery_code}`), a sessão sobe para aal2 por um tempo, e toca em Confirmar de novo. Não há token por operação. Contrato completo em "Login e segundo fator" (`feat/login-mfa`) |
+
+**Resultado** (`kind: "result"`, autor `bot:<id>`): sai depois de confirmar ou cancelar, com `payload.proposal` (estado `done`, `failed` ou `cancelled`, e `result` ou `error`). Depois, o bot não continua sozinho; a pessoa segue a conversa.
+
+As novidades chegam pelo evento `internal.message` (`chat_id`), como as demais mensagens.
+
+**Pedido de aprovação** (`kind: "approval"`, autor `bot:<id>`): um cliente pediu algo que precisa da equipe (desconto, dispensa de parcela).
+- **Quem recebe**: o cartão chega a cada pessoa que pode decidir, na conversa interna com o bot que atendeu, e também por push (`data.type: "approval"`, `approval_id`, `conversation_id`).
+- **Texto de reserva**: "Pedido de aprovação: … Decida no painel ou no app atualizado".
+- **Payload**: `payload.approval`, sempre atual e já filtrado para quem lê:
+
+```json
+{
+  "id": "…", "module_id": "pedido", "kind": "desconto", "ref_id": "…", "conversation_id": "…",
+  "title": "Desconto de 10% no pedido nº 128 de Mariana Costa",
+  "status": "pending",
+  "fields": [{"key": "total", "label": "Total de tabela", "value": "R$ 62,00"}],
+  "hidden_fields": 1,
+  "model_summary": "Cliente frequente; diz que o concorrente cobra menos.",
+  "adjust": {"label": "Desconto concedido (R$)", "type": "money", "min": 0, "max": 6.2},
+  "can_decide": true,
+  "value": null, "reason": null, "decided_by": null, "decided_at": null,
+  "expires_at": 1794841500000, "created": 1794839700000
+}
+```
+
+**O que o cartão mostra**
+- `fields`: montado pelo módulo com dados lidos por código. Mostre como vem.
+- `hidden_fields`: quantos campos restritos (custo, margem) a pessoa não pode ver.
+- `model_summary`: o que o bot escreveu. Mostre separado, como "Resumo do bot (não verificado)", **nunca** junto dos números.
+- Estados (`status`):
+
+| Estado | Significado |
+|---|---|
+| `pending` | aguardando a equipe |
+| `deciding` | em decisão |
+| `approved` | aprovado |
+| `declined` | recusado |
+| `handoff` | conversa assumida |
+| `expired` | venceu |
+
+- Depois de decidido, mostre `decided_by`, `value` e `reason`.
+
+**Botões** só com `pending` e `can_decide`:
+- **Aprovar**, com campo opcional do `adjust`;
+- **Recusar**, com motivo opcional;
+- **Assumir a conversa**: a conversa passa a quem tocou, e o app abre a conversa.
+
+| Método e caminho | O quê |
+|---|---|
+| `GET /profiles/{perfil}/approvals?status=pending` | Pedidos que a pessoa pode decidir (aba de aprovações, se o app tiver) |
+| `GET /profiles/{perfil}/approvals/{id}` | Um pedido, como a pessoa vê |
+| `POST /profiles/{perfil}/approvals/{id}/decide` | `{"decision": "approve"\|"decline"\|"handoff", "value"?: número, "reason"?: texto}`, com `Idempotency-Key` (ex.: `decide:<id>:<decisão>`). Só sessão de pessoa. Resposta: o pedido |
+
+**A decisão**
+- O **primeiro a decidir vence**. Quem vier depois recebe `409 approval_closed` e recarrega o cartão, que já mostra quem decidiu.
+- Repetir a mesma decisão (mesma pessoa) devolve o mesmo resultado.
+
+| Erro | Quando |
+|---|---|
+| `403 approval_forbidden` | sem permissão para decidir |
+| `403` do módulo | limite da pessoa: o pedido continua pendente para outra pessoa |
+| `403 person_required` | chave de aplicação ou o próprio bot |
+| `409 approval_expired` | o prazo venceu |
+| `400` | ajuste fora dos limites |
+
+O evento `approval.requested` sai ao criar e `approval.decided` sai ao decidir ou vencer.
+
+### Dados pessoais e regra da instalação
+
+- **Padrão**: as consultas que o bot faz chegam ao modelo de IA sem telefone, documento, e-mail, endereço e observações, como para uma aplicação sem `contacts:read` e `notes:read`.
+- **Liberar**: o administrador pode liberar em Sistema → Bot e dados pessoais. Os dados vão ao provedor de IA. Mesmo liberado, o bot só vê o que a própria pessoa vê.
+  - `GET /api/v1/system` traz `bot_full_personal_data`;
+  - `POST /api/v1/system/bot-actions/configure` com `{"full_personal_data": true|false}` (só administrador).
+
+### Ferramentas do bot
+
+Três ferramentas genéricas, iguais em todo provedor:
+
+| Ferramenta | O que faz |
+|---|---|
+| `buscar_operacoes {texto, tipo?}` | Até 10 operações que a pessoa pode usar agora (módulo ligado, acesso dela), com parâmetros |
+| `consultar {operacao, parametros}` | Roda uma consulta como a pessoa |
+| `propor_acao {operacao, parametros, resumo}` | Grava a proposta e a mostra na conversa |
+
+O catálogo sai das rotas públicas e do OpenAPI dos módulos (`docs/MODULOS.md`, "Ações pelo bot"). Configurações, chaves, pessoas, sistema e módulos nunca entram.
+
+Limites por resposta do bot:
+- 6 chamadas de ferramenta e 3 propostas;
+- resultado cortado em 6.000 caracteres;
+- segredos (tokens, chaves, senhas) nunca saem.
+
+### Hermes
+
+O Hermes chama o MCP com uma chave fixa e, hoje, sem a identidade da pessoa. Para agir pela pessoa, o plugin precisa repor o cabeçalho `X-Wabotia-Run` em cada chamada MCP daquela execução.
+- **O que o Wabotia já manda**: no job `runs.create` de conversa interna, o campo `wabotia_run` (`<run>.<validade>.<hmac>`, 15 minutos). Não vai no texto enviado ao modelo nem ao Hermes por URL.
+- **O que o servidor confere**:
+  - assinatura e validade;
+  - execução ativa de conversa interna;
+  - bot atendido pela chave.
+
+  Só então `tools/list` mostra as três ferramentas, que rodam como a pessoa.
+- **Sem o cabeçalho**: tudo segue como antes.
+- **Próxima etapa (não feita)**: o plugin ler `wabotia_run` do job e mandá-lo como cabeçalho nas chamadas MCP do mesmo run.
 
 ## Exemplo cURL
 

@@ -1,0 +1,154 @@
+/* Mesas (web/modules/mesas): mapa das mesas, conta e lançamento de itens. */
+.mesas-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mesas-summary .spacer,
+.mesas-order-top .spacer {
+  flex: 1;
+}
+.mesas-section > h3 {
+  margin: 16px 2px 8px;
+  font-size: 14px;
+  color: var(--text-2);
+}
+.mesas-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+.mesas-table {
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--divider);
+  border-left-width: 4px;
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+  min-height: 88px;
+  align-content: start;
+  cursor: pointer;
+  box-shadow: var(--shadow-1);
+}
+.mesas-table:hover {
+  background: var(--hover);
+}
+.mesas-table:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.mesas-table.free {
+  border-left-color: var(--ok, #2e7d32);
+}
+.mesas-table.occupied {
+  border-left-color: var(--brand, #1565c0);
+}
+.mesas-table.closing {
+  border-left-color: var(--warn, #ef6c00);
+}
+.mesas-table-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.mesas-orders,
+.mesas-payments,
+.mesas-drafts,
+.mesas-admin-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.mesas-orders button {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--divider);
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: grid;
+  gap: 2px;
+  cursor: pointer;
+}
+.mesas-orders button:hover {
+  background: var(--hover);
+}
+.mesas-order-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mesas-payments li,
+.mesas-drafts li,
+.mesas-admin-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.mesas-payments li.void span:first-child {
+  text-decoration: line-through;
+  color: var(--text-2);
+}
+.mesas-service {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.mesas-category > h3 {
+  margin: 12px 0 6px;
+  font-size: 14px;
+}
+.mesas-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+}
+.mesas-item {
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--divider);
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: grid;
+  gap: 2px;
+  cursor: pointer;
+}
+.mesas-item:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.mesas-item:hover:not(:disabled) {
+  background: var(--hover);
+}
+.mesas-group {
+  border: 1px solid var(--divider);
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin: 0 0 8px;
+}
+.mesas-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+.mesas-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}

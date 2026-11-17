@@ -161,6 +161,7 @@ async function run(until = "done") {
       account,
       name,
       token,
+      paid_plan: true,
       step: next,
       cursor,
       ...(next === "publish" ? { keys } : {}),
@@ -256,7 +257,14 @@ describe("instalador pelo navegador", () => {
     cloud.worker = false;
     cloud.buckets = [];
     cloud.databases = [];
-    const base = { account, name, token, step: "check", cursor: {} };
+    const base = {
+      account,
+      name,
+      token,
+      paid_plan: true,
+      step: "check",
+      cursor: {},
+    };
     for (const bad of [
       { account: "curto" },
       { name: "Nome Inválido" },
@@ -268,6 +276,13 @@ describe("instalador pelo navegador", () => {
         status: 400,
       });
     expect(calls.filter((c) => c.method !== "GET")).toHaveLength(0);
+    // Sem a confirmação do plano pago, nem consulta a conta.
+    const before = calls.length;
+    for (const paid_plan of [undefined, false, "sim"])
+      await expect(installStep(e, { ...base, paid_plan })).rejects.toThrow(
+        "Workers Paid",
+      );
+    expect(calls).toHaveLength(before);
   });
   it("repassa a recusa da Cloudflare sem expor o token e permite repetir o passo", async () => {
     const { cursor } = await run("bucket");
@@ -281,6 +296,7 @@ describe("instalador pelo navegador", () => {
       account,
       name,
       token,
+      paid_plan: true,
       step: "bucket",
       cursor,
     }).catch((error) => error);
@@ -293,6 +309,7 @@ describe("instalador pelo navegador", () => {
       account,
       name,
       token,
+      paid_plan: true,
       step: "bucket",
       cursor,
     });
@@ -322,6 +339,7 @@ describe("instalador pelo navegador", () => {
       account,
       name,
       token,
+      paid_plan: true,
       step: "check",
       cursor: {},
     });
@@ -330,6 +348,7 @@ describe("instalador pelo navegador", () => {
       account,
       name,
       token,
+      paid_plan: true,
       step: "migrate",
       cursor: { ...checked.cursor, database_id: database, migration: 0 },
     });
@@ -347,14 +366,23 @@ describe("instalador pelo navegador", () => {
       account,
       name,
       token,
+      paid_plan: true,
       step: "verify",
       cursor,
     });
     expect(waiting).toMatchObject({ next: "verify", wait: true });
     cloud.live = true;
     expect(
-      (await installStep(e, { account, name, token, step: "verify", cursor }))
-        .next,
+      (
+        await installStep(e, {
+          account,
+          name,
+          token,
+          paid_plan: true,
+          step: "verify",
+          cursor,
+        })
+      ).next,
     ).toBe("done");
   });
   it("exige chaves válidas e andamento coerente para publicar", async () => {
@@ -364,6 +392,7 @@ describe("instalador pelo navegador", () => {
         account,
         name,
         token,
+        paid_plan: true,
         step: "publish",
         cursor,
         ...extra,
@@ -378,7 +407,14 @@ describe("instalador pelo navegador", () => {
       }),
     ).rejects.toThrow("Chaves da instalação");
     await expect(
-      installStep(e, { account, name, token, step: "migrate", cursor: {} }),
+      installStep(e, {
+        account,
+        name,
+        token,
+        paid_plan: true,
+        step: "migrate",
+        cursor: {},
+      }),
     ).rejects.toMatchObject({ status: 400 });
     expect(cloud.worker).toBe(false);
   });

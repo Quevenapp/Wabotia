@@ -86,6 +86,51 @@ permitido para corrigir engano.
 Na conversa, **Pedidos** mostra os pedidos em andamento do cliente e
 **Montar pedido para este cliente** envia o link do carrinho.
 
+**Mesas**: com o módulo [Mesas](MESAS.md) ligado, o garçom lança os itens na
+conta da mesa e eles chegam a este quadro já em "Novos", com o nome da mesa
+("Mesa 5") e o pagamento "Na conta da mesa". Na mesa, pronto é "Pronto para
+servir" e entregue é "Servido"; o pagamento é o da conta da mesa.
+
+## Bot de IA no atendimento do cliente
+
+Com o bot do provedor direto atendendo no WhatsApp (modo cliente), o cliente
+pode dizer o que quer e o bot monta o pedido. Regras:
+
+- **Preço é sempre do sistema.** O bot vê os itens sem preço
+  (`pedido_itens`); ao montar (`pedido_montar`, com `item_id`, quantidade,
+  escolhas e observação), o Pedido confere a loja aberta, esgotados, escolhas
+  e máximo, calcula com o cardápio e **manda ao cliente o resumo com os
+  valores** e os botões **Confirmar pedido** e **Cancelar** (ou CONFIRMAR e
+  CANCELAR digitados; "sim" solto não confirma). O bot recebe só nomes e quantidades. Item esgotado ou fora do
+  cardápio volta ao bot com as alternativas da mesma categoria.
+- **Confirmado**, o pedido segue como o do catálogo: retirada ou entrega,
+  endereço, forma de pagamento, Pix pela Cobrança e cozinha (origem `bot`).
+  Na hora de confirmar, preço e disponibilidade são conferidos de novo.
+- **Desconto.** O cliente pede ao bot (`pedido_pedir_desconto`); o bot só
+  registra o pedido de aprovação, nunca concede. O cartão para a equipe é
+  montado pelo Pedido: itens, total de tabela, os últimos pedidos entregues
+  do mesmo cliente (conversa ou telefone verificado) com os valores, e o
+  limite. O que o bot escreveu vai à parte, como não verificado. A equipe
+  aprova com o valor (em reais), recusa ou assume a conversa. Aprovado, o
+  desconto entra no pedido (`discount_cents`, `total_cents` já com ele), o
+  cliente recebe o novo total e a pergunta da forma de pagamento (escolher é
+  confirmar). Recusado ou sem resposta em 30 min, o cliente fica sabendo e o
+  total continua. Só antes do pagamento; um desconto por pedido.
+- **Quem aprova** (chave `pedido.discount`): `approvers` `admin` (padrão) ou
+  `team` (quem acessa o Pedido), `max_percent` (padrão 10% do subtotal; 0
+  desliga o pedido de desconto) e `team_max_percent` (padrão 5%, para quem não
+  é administrador quando `approvers` é `team`). Aprovar é decisão
+  financeira: com a política do segundo fator `financial` ou `all`, quem
+  aprova precisa da sessão confirmada com o código (`403 mfa_required`).
+  Uma decisão que travou no meio é retomada sem aplicar o desconto duas vezes.
+- **Isolamento.** Tudo é da conversa da execução: o botão de confirmar de uma
+  conversa não vale em outra, e o desconto só alcança o pedido desta conversa.
+  O texto do cliente nunca aprova desconto: só a decisão de uma pessoa da
+  equipe, pela rota de aprovação.
+
+`pedido_cardapio` (com preços) continua para o Hermes e a equipe, fora do bot
+do cliente; `pedido_enviar_carrinho` segue com o botão de confirmação do núcleo.
+
 ## Integrações e aplicativos
 
 Rotas, formatos e eventos `pedido.*` em [API.md](API.md#pedido-módulo-pedido).
@@ -93,6 +138,46 @@ Os apps leem o quadro em `GET /profiles/{p}/pedido/board` e a comanda em
 `GET /profiles/{p}/pedido/orders/{id}/ticket`. Pedido de balcão:
 `POST /profiles/{p}/pedido/orders`. Bots: ferramentas MCP `pedido_cardapio`,
 `pedido_consultar` e `pedido_enviar_carrinho`.
+
+## Para outros módulos (Entrega)
+
+`src/modules/pedido/public.ts` oferece três ganchos. Quem registra informa o
+próprio id; o Pedido só chama com esse módulo ligado na área, então registrar
+não exige `requires: ["pedido"]`. Erro num gancho vai para o log e o Pedido
+segue como se ele não existisse. Os ganchos devem aguentar repetição (uma
+mudança de estado pode ser anunciada de novo depois de uma falha).
+
+- `onOrderStatusChanged(módulo, fn)`: depois de cada mudança de estado
+  gravada, venha do quadro, do pagamento, da tarefa periódica ou de outro
+  módulo, com `{order, from, to, actor, note}`. A Entrega encerra a entrega
+  aberta quando a cozinha marca "Entregue" ou "Cancelado". Mudança feita pela
+  própria Entrega (`pedido.status` por `ctx.run`) também chega aqui.
+- `onStatusNotice(módulo, fn)`: antes do aviso de estado ao cliente, com o
+  texto já pronto (`{order, status, text, conversation_id, key}`). Devolver
+  true diz que o módulo mandou o aviso (por exemplo "Saiu para entrega" com o
+  botão Acompanhar numa mensagem só) e o Pedido não manda o dele.
+- `provideDeliveryInfo(módulo, fn)`: entregador e previsão de chegada dos
+  pedidos de entrega em andamento (`Map<id do pedido, {status, status_label,
+  courier_id, courier_name, eta_at, eta_minutes, position_at}>`), uma chamada
+  por leitura do quadro ou do detalhe. Vira `delivery` no pedido.
+- `provideDeliverySlip(módulo, fn)`: a parte do entregador na **via de
+  entrega** (`POST /pedido/orders/{id}/delivery-slip`), com
+  `{order, actor, requestId}`. A Entrega cria a entrega do pedido se ainda
+  não houver e gera o QR do acesso sem login: `{title, qr, lines,
+  expires_at?, delivery_id?}`. Diferente dos outros, o erro do módulo chega a
+  quem pediu (a via não sai sem o QR).
+
+### Via de entrega (ao despachar)
+
+`POST /profiles/{p}/pedido/orders/{id}/delivery-slip {"columns":32}` devolve a
+comanda (`text`, `establishment`, `order`, como `GET …/ticket`) e `slip`, a
+parte do entregador. Imprima nesta ordem: `text`, `slip.title`, o QR com o
+conteúdo de `slip.qr` e `slip.lines` (`slip_text` já traz título e linhas
+centrados). É uma escrita: gerar de novo revoga o QR anterior, então vale só a
+última via impressa; a mesma `Idempotency-Key` devolve a mesma via. O QR é um
+acesso: desenhe no aparelho (os apps, pelo ThermalPrinterKit), nunca num
+serviço de terceiros. Retirada: `409 not_delivery`; entregue ou cancelado:
+`409 order_closed`; sem a Entrega ligada: `409 delivery_unavailable`.
 
 ## Limites desta versão
 

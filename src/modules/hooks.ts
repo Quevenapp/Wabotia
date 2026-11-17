@@ -2,6 +2,8 @@
 // arquivo não importa nada de propósito: o núcleo (service, engine, web-steps)
 // consulta os ganchos sem criar ciclo de importação com os módulos.
 import type { Answers } from "../web-steps";
+// Só o erro da API (src/types.ts não importa módulos: sem ciclo).
+import { ApiError } from "../types";
 
 type Hook = (...args: any[]) => Promise<any>;
 
@@ -42,6 +44,32 @@ export function registerWebStepValidator(
 }
 export const webStepValidator = (module: string) =>
   webStepValidators.get(module);
+
+/**
+ * Página de acompanhamento (spec.page "track") aberta pelo cliente:
+ * (env, profile, step) → o que mostrar (src/web-track.ts, TrackView).
+ */
+const webStepPages = new Map<string, Hook>();
+export function registerWebStepPage(
+  module: string,
+  hook: (env: any, profile: string, step: any) => Promise<any>,
+) {
+  webStepPages.set(module, hook);
+}
+export const webStepPageHook = (module: string) => webStepPages.get(module);
+
+/**
+ * QR do módulo lido pelo app (credencial por QR, src/module-credentials.ts):
+ * (env, profile, credential) → dados da resposta ao app; lançar recusa.
+ */
+const credentialHooks = new Map<string, Hook>();
+export function registerCredentialHook(
+  module: string,
+  hook: (env: any, profile: string, credential: any) => Promise<any>,
+) {
+  credentialHooks.set(module, hook);
+}
+export const credentialHook = (module: string) => credentialHooks.get(module);
 
 /** Item de menu do WhatsApp escolhido: (env, conversation, item, rowId). */
 export function registerMenuHandler(
@@ -158,6 +186,25 @@ export interface ModuleMcpTool {
   required?: string[];
   /** Escrita: o núcleo acrescenta idempotency_key. */
   write?: boolean;
+  /**
+   * Bot do provedor de IA direto atendendo o cliente no WhatsApp
+   * (src/bot-actions/customer.ts). Padrão: leitura vira consulta direta;
+   * escrita vira proposta que o cliente confirma por botão. `false`: fora
+   * do atendimento ao cliente. `"read"`: escrita sem efeito de compra ou
+   * cobrança nova (segunda via), sem confirmação.
+   */
+  customer?: false | "read" | "propose";
+  /**
+   * Texto que o cliente confirma (modo cliente, src/bot-actions/describe.ts):
+   * montado pelo módulo com dados lidos por código (itens, valores, datas),
+   * nunca pelo modelo. `input` já vem com o conversation_id da execução. Sem
+   * ele, o núcleo lista a ação e os campos do pedido.
+   */
+  describe?: (
+    env: any,
+    profile: string,
+    input: Record<string, any>,
+  ) => Promise<string | null>;
   call: (
     args: Record<string, any>,
     profile: string,
@@ -192,13 +239,44 @@ export function registerCommand(
 }
 export const moduleCommandHandler = (op: string) => commands.get(op);
 
-export interface ModuleWriteRoute {
+/**
+ * Credencial por QR (wabx_) numa rota do módulo: negada por padrão. A rota
+ * que aceita declara `credential: true` e o núcleo confere que o parâmetro
+ * `credentialParam` (padrão "id") é o registro da credencial (`subject`).
+ * Sem esse parâmetro no caminho, a rota não pode aceitar credencial.
+ */
+export interface CredentialRouteOptions {
+  credential?: boolean;
+  credentialParam?: string;
+}
+
+/** Recusa a credencial numa rota que não a aceita ou de outro registro. */
+export function credentialGate(
+  actor: any,
+  route: { path: string } & CredentialRouteOptions,
+  params: Record<string, string>,
+) {
+  if (!actor?.credential) return;
+  const param = route.credentialParam || "id";
+  if (
+    !route.credential ||
+    !route.path.split("/").includes(":" + param) ||
+    params[param] !== actor.credential.subject
+  )
+    throw new ApiError(
+      403,
+      "credential_scope",
+      "Este acesso vale só para o registro do QR.",
+    );
+}
+
+export interface ModuleWriteRoute extends CredentialRouteOptions {
   method: "POST" | "PUT" | "PATCH" | "DELETE";
   /** Depois de /api/v1/profiles/:profile/, com :id opcional. */
   path: string;
   op: string;
 }
-export interface ModuleReadRoute {
+export interface ModuleReadRoute extends CredentialRouteOptions {
   path: string;
   handler: (
     env: any,
@@ -207,19 +285,67 @@ export interface ModuleReadRoute {
     request: { params: Record<string, string>; query: Record<string, string> },
   ) => Promise<any>;
 }
+/**
+ * Telemetria: POST fora do Coordinator, sem Idempotency-Key nem recibo, para
+ * dados idempotentes por natureza (posições com horário). Uma escrita por
+ * chamada, decidida pelo módulo.
+ */
+export interface ModuleTelemetryRoute extends CredentialRouteOptions {
+  path: string;
+  handler: (
+    env: any,
+    actor: any,
+    profile: string,
+    request: { params: Record<string, string>; body: any },
+  ) => Promise<any>;
+}
 const writeRoutes: ModuleWriteRoute[] = [];
 const readRoutes: ModuleReadRoute[] = [];
+const telemetryRoutes: ModuleTelemetryRoute[] = [];
 export function registerWriteRoute(route: ModuleWriteRoute) {
   writeRoutes.push(route);
 }
 export function registerReadRoute(route: ModuleReadRoute) {
   readRoutes.push(route);
 }
+export function registerTelemetryRoute(route: ModuleTelemetryRoute) {
+  telemetryRoutes.push(route);
+}
 /** Rotas declaradas pelos módulos, montadas por src/index.ts. */
 export const moduleRoutes = () => ({
   write: [...writeRoutes],
   read: [...readRoutes],
+  telemetry: [...telemetryRoutes],
 });
+
+/**
+ * Pedido de aprovação à equipe (src/approvals.ts): o módulo confere o ajuste
+ * e aplica o efeito da decisão. (env, profile, approval, decision).
+ */
+export interface ApprovalHook {
+  validate?: (
+    env: any,
+    profile: string,
+    approval: any,
+    decision: any,
+  ) => Promise<void>;
+  decided?: (
+    env: any,
+    profile: string,
+    approval: any,
+    decision: any,
+  ) => Promise<void>;
+}
+const approvalHooks = new Map<string, ApprovalHook>();
+export function registerApprovalHook(
+  module: string,
+  kind: string,
+  hook: ApprovalHook,
+) {
+  approvalHooks.set(`${module}:${kind}`, hook);
+}
+export const approvalHook = (module: string, kind: string) =>
+  approvalHooks.get(`${module}:${kind}`);
 
 /** Validação estrita de uma chave das configurações (PUT /settings). */
 export function registerSettingsValidator(

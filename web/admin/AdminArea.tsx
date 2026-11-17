@@ -43,6 +43,7 @@ import { ReservaPage } from "../modules/reserva/ReservaPage";
 import { ReservaSettingsPage } from "../modules/reserva/ReservaSettingsPage";
 import { OrdersPage } from "../modules/pedido/OrdersPage";
 import { MenuPage } from "../modules/pedido/MenuPage";
+import { MesasPage } from "../modules/mesas/MesasPage";
 import {
   GroupsPage,
   LogsPage,
@@ -174,6 +175,8 @@ function Page({ page }: { page: PageId }) {
       return <OrdersPage />;
     case "pedidos-cardapio":
       return <MenuPage />;
+    case "mesas":
+      return <MesasPage />;
     case "users":
       return <UsersPage />;
     case "applications":
@@ -200,7 +203,7 @@ function Navigation({
   onNavigate: () => void;
 }) {
   const app = useApp();
-  const groups = visibleGroups(app.me.role, app.modules);
+  const groups = visibleGroups(app.me.role, app.modules, app.me.access);
   const link = (id: PageId, label: string, Icon: any, child = false) => (
     <a
       key={id}
@@ -279,7 +282,7 @@ export function AdminArea({ page: requested }: { page: PageId | string }) {
   const app = useApp();
   const compact = useCompact();
   const allowed =
-    !!section(requested) && canOpenPage(requested, app.me.role, app.modules);
+    !!section(requested) && canOpenPage(requested, app.me.role, app.modules, app.me.access);
   const page = (allowed ? requested : "overview") as PageId;
   const [drawer, setDrawer] = useState(false),
     [setupActive, setSetupActive] = useState(readFlag);

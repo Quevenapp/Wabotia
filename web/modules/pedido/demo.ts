@@ -260,11 +260,26 @@ function order(
     fulfillment_label: fulfillment === "delivery" ? "Entrega" : "Retirada",
     address,
     address_text: address ? "Rua A, 10 - Centro, Apto 2" : "",
+    table: null,
+    // Quadro e detalhe: entregador e previsão (módulo Entrega).
+    delivery:
+      status === "out_for_delivery"
+        ? {
+            status: "en_route",
+            status_label: "A caminho",
+            courier_id: "demo-carlos",
+            courier_name: "Carlos",
+            eta_at: t(-12 * M),
+            eta_minutes: 12,
+            position_at: t(M),
+          }
+        : null,
     lines,
     item_count: lines.reduce((s, l) => s + l.quantity, 0),
     subtotal_cents: subtotal,
     delivery_fee_cents: fee,
     total_cents: subtotal + fee,
+    discount_cents: 0,
     note: "",
     notes: "",
     eta_minutes: fulfillment === "delivery" ? 45 : 20,
@@ -442,6 +457,78 @@ const orders: Row[] = [
 ];
 // Pedido 45: dinheiro com troco para R$ 100,00.
 orders[2].payment.change_for_cents = 10000;
+
+/** Pedido lançado pelo garçom numa conta de mesa (módulo Mesas). */
+function tableOrder(
+  number: number,
+  status: string,
+  minutes: number,
+  tabId: string,
+  table: string,
+  lines: Row[],
+): Row {
+  const base = order(
+    number,
+    status,
+    minutes,
+    table,
+    "",
+    "pickup",
+    null,
+    "tab",
+    lines,
+  );
+  return {
+    ...base,
+    id: "pedido-mesa-" + number,
+    status_label:
+      status === "ready"
+        ? "Pronto para servir"
+        : status === "delivered"
+          ? "Servido"
+          : labels[status],
+    source: "table",
+    fulfillment: "table",
+    fulfillment_label: table,
+    table: { tab_id: tabId, label: table },
+    payment: {
+      ...base.payment,
+      status: "tab",
+      status_label: "Na conta da mesa",
+    },
+    created_by: "demo-ana",
+  };
+}
+
+/** Pedidos das mesas na demonstração (também aparecem no quadro). */
+export const tableOrders: Row[] = [
+  tableOrder(48, "delivered", 40, "conta-12", "Mesa 2", [
+    line("Suco de laranja", 2, 800),
+    line("X-Burger", 1, 2500, [["Ponto da carne", "Ao ponto", 0]]),
+    line(
+      "X-Burger",
+      1,
+      2500,
+      [
+        ["Ponto da carne", "Bem passada", 0],
+        ["Adicionais", "Bacon", 500],
+      ],
+      "sem cebola",
+      1,
+    ),
+  ]),
+  tableOrder(51, "preparing", 6, "conta-12", "Mesa 2", [
+    line("Açaí na tigela", 1, 1800),
+  ]),
+  tableOrder(49, "delivered", 55, "conta-13", "Mesa 5", [
+    line("Refrigerante lata", 3, 600),
+    line("X-Salada", 3, 2700),
+  ]),
+  tableOrder(50, "ready", 2, "conta-14", "Comanda 10", [
+    line("Suco de laranja", 1, 800),
+  ]),
+];
+orders.push(...tableOrders.filter((o) => o.status !== "delivered"));
 
 const active = [
   "awaiting_payment",

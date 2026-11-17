@@ -568,7 +568,10 @@ it("extrai PDF no runtime Workers sem navegador", async () => {
   expect(
     (await one(env, "SELECT text FROM chunks WHERE document_id=?", id)).text,
   ).toContain("horario comercial");
-});
+  // Leitura de PDF é trabalho de CPU: 2 a 3 s sozinho e mais de 5 s (o teto
+  // padrão) com outras suítes rodando na mesma máquina. O teste confere a
+  // extração, não o tempo.
+}, 30_000);
 
 it("upload repetido preserva arquivo original em conflito", async () => {
   const f = await fixture(["media:read", "media:write"]);

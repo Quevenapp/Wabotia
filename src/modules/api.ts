@@ -3,8 +3,11 @@
 // publicar evento e os ganchos de menu, ação de conversa, configuração e
 // conclusão de passo web. Mudanças aqui exigem atualizar docs/MODULOS.md.
 import {
+  registerApprovalHook,
+  moduleRoutes,
   registerCommand,
   registerConversationAction,
+  registerCredentialHook,
   registerHandoffGate,
   registerInboundHandler,
   registerMenuHandler,
@@ -12,15 +15,20 @@ import {
   registerReadRoute,
   registerMcpTool,
   registerSchedule,
+  registerTelemetryRoute,
+  credentialGate,
+  type CredentialRouteOptions,
   registerTurnHandler,
   type ModuleMcpTool,
   registerSettingsValidator,
   registerWebStepHook,
+  registerWebStepPage,
   registerWebStepValidator,
   registerWriteRoute,
   type ModuleWriteRoute,
 } from "./hooks";
-import { exec, one } from "../db";
+import type { TrackView } from "../web-track";
+import { all, exec, one } from "../db";
 import {
   ApiError,
   type Actor,
@@ -28,7 +36,16 @@ import {
   type Env,
   requireValue,
 } from "../types";
-import { access } from "../security";
+import { isBound } from "../visibility";
+import { access, canProfile } from "../security";
+import { grantId } from "../module-grants";
+import { rolesOf } from "../access";
+import {
+  credentialsFor,
+  issueClaim,
+  revokeCredentials as revokeModuleCredentials,
+  type CredentialView,
+} from "../module-credentials";
 import { activeTicketSql } from "../protocols";
 import { verifiedPhone } from "../protocol-lookup";
 import { event } from "../events";
@@ -39,6 +56,7 @@ import {
   handoff as coreHandoff,
   handoffToPerson,
   message as coreMessage,
+  perform,
   settings,
   type HandoffMeta,
   type HandoffSource,
@@ -51,12 +69,25 @@ import {
 } from "../payments";
 import { establishment, type Establishment } from "../establishment";
 import {
+  requestApproval,
+  type ApprovalDecision,
+  type ApprovalRequest,
+} from "../approvals";
+export type { ApprovalDecision, ApprovalRequest, ApprovalField } from "../approvals";
+import {
   CONSENT_PURPOSES,
   consentFor,
+  purposeLabels,
   recordConsent,
   type ConsentPurpose,
   type ConsentRecord,
 } from "../consents";
+import {
+  areaEmailCount,
+  EMAIL_AREA_DAILY,
+  sendEmail,
+  type EmailMessage,
+} from "../email";
 import {
   interactiveLine,
   interactivePayload,
@@ -75,6 +106,8 @@ import {
   moduleDisabledError,
   moduleEnabled,
   moduleForMenuType,
+  moduleForOperation,
+  moduleForRoute,
   type ModuleDefinition,
 } from "./registry";
 
@@ -94,7 +127,7 @@ export type WebStepRequest = Omit<OpenWebStepInput, "conversation" | "module">;
 
 export type SensitiveKind = "contacts" | "notes";
 /** Campos fora das leituras do bot pela conversa (ctx.botView). */
-const BOT_HIDDEN = new Set([
+export const BOT_HIDDEN = new Set([
   "document",
   "document_display",
   "payer_document",
@@ -109,9 +142,15 @@ const BOT_HIDDEN = new Set([
   "notes",
   "created_by",
 ]);
-/** Pessoas da equipe sempre; aplicação só com `<kind>:read`. */
+/**
+ * Pessoas da equipe sempre; aplicação só com `<kind>:read`. Leitura que o
+ * bot da conversa interna faz pela pessoa (actor.via) e que vai ao modelo de
+ * IA: mascarada, a menos que o administrador libere na instalação.
+ */
 export const mayRead = (actor: Actor, kind: SensitiveKind) =>
-  actor.kind !== "app" || actor.scopes.includes(`${kind}:read`);
+  actor.via?.masked
+    ? false
+    : actor.kind !== "app" || actor.scopes.includes(`${kind}:read`);
 
 export interface OutgoingMessage {
   text: string;
@@ -254,6 +293,23 @@ export interface ModuleContext {
   /** Último consentimento que vale para a finalidade, ou null. */
   consent(c: Conversation, purpose: ConsentPurpose): Promise<any>;
   /**
+   * E-mail ao cliente da conversa (src/email.ts, docs/EMAIL.md):
+   * - exige o consentimento da finalidade na conversa (recordConsent), senão
+   *   409 consent_required;
+   * - `key` torna o envio idempotente na área (devolve o anterior, `repeated`);
+   * - até EMAIL_AREA_DAILY envios por área em 24 h, senão 429 email_limit;
+   * - sem e-mail configurado na instalação, 409 email_unavailable (use o
+   *   WhatsApp);
+   * - o assunto não leva link nem código (400 invalid_subject): links vão no
+   *   corpo.
+   * Cada envio fica em email_log, sem o corpo e com o endereço mascarado.
+   */
+  sendEmail(
+    c: Conversation,
+    email: EmailMessage,
+    options: { purpose: ConsentPurpose; key: string },
+  ): Promise<{ id: string; status: string; repeated?: true }>;
+  /**
    * Cancela um link aberto do próprio módulo: quem abrir vê "Link
    * indisponível" e não conclui. Já fechado (concluído, vencido, cancelado):
    * devolve como está. De outro módulo ou de outra área: 404.
@@ -307,6 +363,99 @@ export interface ModuleContext {
    * que segurou. Com `key`, repetir a chamada não passa de novo.
    */
   handoff(c: Conversation, request?: HandoffRequest): Promise<Conversation>;
+  /**
+   * Lê uma rota GET da API v1 de outro módulo em nome do ator, como se ele
+   * chamasse `GET /profiles/:profile/<path>` (mesma permissão, mesmo 409
+   * module_disabled, mesmos campos ocultos). Para usar a API pública de um
+   * módulo sem `requires` nem `public.ts` (a Entrega lê os pedidos do
+   * Pedido assim). Rota inexistente: 404.
+   */
+  read(
+    actor: Actor,
+    path: string,
+    query?: Record<string, string>,
+  ): Promise<any>;
+  /**
+   * Executa um comando público de outro módulo (o `op` de uma rota de
+   * escrita, como `pedido.status`) em nome do ator, dentro do comando ou da
+   * rodada em andamento no Coordinator: sem recibo próprio (o do comando que
+   * chamou vale), com a permissão e o 409 module_disabled do dono. Só de
+   * dentro do Coordinator (onCommand, onSchedule, ganchos que rodam nele).
+   */
+  run(actor: Actor, op: string, data: any, requestId: string): Promise<any>;
+  /**
+   * Ator de módulo para `read`/`run` em outro módulo em nome de quem não tem
+   * acesso a ele (o entregador do QR, a pessoa só com o papel entregador).
+   * Aparece nos históricos como `module:<id>` (com `label` no nome), nunca
+   * tem papel (`granted`), não entra no MCP nem nas rotas HTTP, e só alcança
+   * os módulos de `reach`; o módulo dono confere o que esse ator pode
+   * (o Pedido só aceita dele os estados de entrega). A credencial por QR
+   * nunca chega a `read`/`run`.
+   */
+  moduleActor(options: { reach: string[]; label?: string }): Actor;
+  /**
+   * Acorda o Coordinator da área: o alarme roda em seguida (a rodada dos
+   * módulos no máximo uma vez por minuto, e as entregas da fila). Para rotas
+   * fora do Coordinator (onTelemetry) que gravaram algo a avisar.
+   */
+  wake(): Promise<void>;
+  /**
+   * A pessoa tem o papel `role` deste módulo (declarado em `grants` da
+   * definição e marcado pelo administrador no acesso da pessoa, em Pessoas e
+   * acessos; vale nas áreas que ela alcança). O "*" do atendente completo e
+   * o papel de administrador não dão papel; aplicações e aparelhos pareados
+   * nunca têm (use escopos). Papel não declarado lança erro.
+   */
+  granted(actor: Actor, role: string): Promise<boolean>;
+  /** Pessoas ativas da área com o papel, em ordem de nome. */
+  grantees(role: string): Promise<{ id: string; name: string }[]>;
+  /**
+   * Pedido de aprovação à equipe a partir da conversa do cliente (desconto,
+   * isenção): o cartão (`fields`) é montado aqui, com dados lidos por código,
+   * nunca com números do modelo. Quem pode decidir: `approvers`. A decisão
+   * chega em onApproval. Repetir `key` devolve o mesmo pedido. Veja
+   * docs/MODULOS.md "Pedido de aprovação".
+   */
+  requestApproval(c: Conversation, request: ApprovalRequest): Promise<any>;
+  /**
+   * QR de acesso sem login a um registro do módulo (`subject`): devolve
+   * `{id, url, claim_expires_at}`; o QR leva `url`. O app troca uma vez só
+   * por uma credencial que alcança só as rotas deste módulo, com
+   * `actor.credential.subject`. Um QR novo revoga o anterior e a credencial
+   * ativa do mesmo registro (docs/MODULOS.md, "Credencial por QR").
+   */
+  issueCredential(
+    subject: string,
+    options: { actor: string; claimMinutes: number; ttlMinutes: number },
+  ): Promise<{ id: string; url: string; claim_expires_at: number }>;
+  /** Revoga o QR e a credencial do registro: o app recebe 401. */
+  revokeCredentials(subject: string, reason: string): Promise<number>;
+  /** QRs e credenciais do registro (quem leu, quando), sem segredo. */
+  credentials(subject: string): Promise<CredentialView[]>;
+}
+
+/** Caminho de rota de módulo ("pedido/orders/:id") contra um caminho real. */
+function matchRoute(pattern: string, path: string) {
+  const want = pattern.split("/"),
+    got = path.split("/");
+  if (want.length !== got.length) return null;
+  const params: Record<string, string> = {};
+  for (let i = 0; i < want.length; i++) {
+    if (want[i].startsWith(":")) {
+      if (!got[i]) return null;
+      params[want[i].slice(1)] = got[i];
+    } else if (want[i] !== got[i]) return null;
+  }
+  return params;
+}
+
+/** Id completo do papel; papel que o módulo não declarou é erro de código. */
+function declaredRole(moduleId: string, role: string) {
+  if (!moduleById(moduleId)?.grants?.some((g) => g.id === role))
+    throw new Error(
+      `Papel ${role} não declarado em grants do módulo ${moduleId}.`,
+    );
+  return grantId(moduleId, role);
 }
 
 export interface ActiveTicket {
@@ -368,10 +517,49 @@ function purposeField(purpose: ConsentPurpose | undefined) {
   return { consent_purpose: purpose };
 }
 
+/** A chave presa à conversa não alcança outro módulo por dentro (revisão A). */
+function refuseBound(actor: Actor) {
+  if (isBound(actor))
+    throw new ApiError(
+      403,
+      "bound_key",
+      "Esta chave atende só a conversa em que o bot está; listas e cadastros da área não estão disponíveis.",
+    );
+}
+
+/**
+ * `read`/`run` em outro módulo (revisão A, credencial por QR): a credencial
+ * nunca passa (ela só vale nas rotas que a declaram); o ator de módulo, só
+ * nos módulos do alcance dele.
+ */
+function refuseCrossing(actor: Actor, target: string | undefined) {
+  if (actor.credential)
+    throw new ApiError(
+      403,
+      "credential_scope",
+      "Este acesso vale só para o registro do QR.",
+    );
+  if (actor.module && (!target || !actor.module.reach.includes(target)))
+    throw new ApiError(
+      403,
+      "module_scope",
+      `O módulo ${actor.module.id} não age neste módulo.`,
+    );
+}
+
+export interface ModuleContextOptions {
+  /**
+   * Contexto criado no Worker, fora da fila serializada da área
+   * (onTelemetry, onWebStepPage): `run` é recusado.
+   */
+  worker?: boolean;
+}
+
 export function modulesApi(
   env: Env,
   profile: string,
   moduleId: string,
+  options: ModuleContextOptions = {},
 ): ModuleContext {
   const definition = moduleById(moduleId);
   if (!definition) throw new Error(`Módulo não registrado: ${moduleId}`);
@@ -387,7 +575,7 @@ export function modulesApi(
     access: (actor, scope) => access(actor, profile, scope),
     mayRead: (actor, kind) => mayRead(actor, kind),
     botView(actor, value) {
-      if (actor.kind !== "app") return value;
+      if (actor.kind !== "app" && !actor.via?.masked) return value;
       const walk = (v: any): any => {
         if (Array.isArray(v)) return v.map(walk);
         if (!v || typeof v !== "object") return v;
@@ -460,6 +648,20 @@ export function modulesApi(
       );
     },
     settings: () => settings(env, profile),
+    async granted(actor, role) {
+      const id = declaredRole(moduleId, role);
+      if (actor.kind !== "user" || !canProfile(actor, profile)) return false;
+      return rolesOf(actor).includes(id);
+    },
+    grantees(role) {
+      const id = declaredRole(moduleId, role);
+      return all<{ id: string; name: string }>(
+        env,
+        "SELECT id,name FROM users WHERE disabled=0 AND json_valid(access) AND EXISTS(SELECT 1 FROM json_each(users.access) WHERE value=?) AND (role='admin' OR EXISTS(SELECT 1 FROM json_each(users.profiles) WHERE value=?)) ORDER BY name COLLATE NOCASE,id",
+        id,
+        profile,
+      );
+    },
     establishment: () => establishment(env, profile),
     conversation: (id, actor) => conversation(env, id, profile, actor),
     conversationByPhone: (phone, options = {}) =>
@@ -541,6 +743,46 @@ export function modulesApi(
     consent: (c, purpose) => {
       requireValue(c.profile_id === profile, "Conversa de outra área.");
       return consentFor(env, c.id, purpose);
+    },
+    async sendEmail(c, email, options) {
+      requireValue(c.profile_id === profile, "Conversa de outra área.");
+      requireValue(
+        CONSENT_PURPOSES.includes(options?.purpose),
+        "Finalidade do e-mail inválida.",
+      );
+      requireValue(
+        typeof options.key === "string" &&
+          options.key.length > 0 &&
+          options.key.length <= 200,
+        "Informe a chave do envio (key).",
+      );
+      const key = `module:${moduleId}:${c.id}:${options.key}`;
+      const previous = await one(
+        env,
+        "SELECT id,status FROM email_log WHERE profile_id=? AND key=?",
+        profile,
+        key,
+      );
+      if (previous)
+        return { id: previous.id, status: previous.status, repeated: true };
+      if (!(await consentFor(env, c.id, options.purpose)))
+        throw new ApiError(
+          409,
+          "consent_required",
+          `O cliente não autorizou avisos de ${purposeLabels[options.purpose]} nesta conversa.`,
+        );
+      if ((await areaEmailCount(env, profile)) >= EMAIL_AREA_DAILY)
+        throw new ApiError(
+          429,
+          "email_limit",
+          "Limite diário de e-mails desta área atingido. Tente amanhã.",
+        );
+      return sendEmail(env, email, {
+        purpose: options.purpose,
+        profileId: profile,
+        moduleId,
+        key,
+      });
     },
     async cancelWebStep(id) {
       const row = await one(
@@ -665,6 +907,10 @@ export function modulesApi(
         );
       return conversation(env, c.id, profile);
     },
+    requestApproval: (c, request) => {
+      requireValue(c.profile_id === profile, "Conversa de outra área.");
+      return requestApproval(env, moduleId, c, request);
+    },
     async publish(kind, resourceId, payload, options) {
       if (!definition.events.includes(kind))
         throw new Error(
@@ -680,6 +926,75 @@ export function modulesApi(
           ? `module:${moduleId}:${profile}:${kind}:${options.key}`
           : undefined,
       );
+    },
+    async read(actor, path, query = {}) {
+      refuseBound(actor);
+      refuseCrossing(actor, moduleForRoute(path.split("/")[0])?.id);
+      for (const route of moduleRoutes().read) {
+        const params = matchRoute(route.path, path);
+        if (params) {
+          access(actor, profile, "conversations:read");
+          return route.handler(env, actor, profile, { params, query });
+        }
+      }
+      throw new ApiError(404, "not_found", "Rota não encontrada.");
+    },
+    async run(actor, op, data, requestId) {
+      // Fora do Coordinator, o comando rodaria sem a serialização da área.
+      if (options.worker)
+        throw new Error(
+          `run: ${op} chamado fora do Coordinator (onTelemetry/onWebStepPage).`,
+        );
+      refuseBound(actor);
+      // Só comandos de módulo (rotas públicas deles), nunca os do núcleo.
+      if (!moduleForOperation(op) || moduleForOperation(op)!.id === moduleId)
+        throw new Error(`run: ${op} não é comando de outro módulo.`);
+      refuseCrossing(actor, moduleForOperation(op)!.id);
+      return perform(env, actor, profile, op, data, requestId);
+    },
+    moduleActor(o) {
+      const reach = [...new Set(o.reach)];
+      if (!reach.length || reach.some((id) => id === moduleId || !moduleById(id)))
+        throw new Error(
+          `moduleActor: alcance inválido (${reach.join(", ")}) no módulo ${moduleId}.`,
+        );
+      const name = moduleById(moduleId)?.name || moduleId;
+      return {
+        id: `module:${moduleId}`,
+        // Aplicação para as regras de acesso por pessoa (que não se aplicam a
+        // ela) e para `granted` (nunca tem papel); os escopos são os de ler e
+        // mudar registros pela API pública do outro módulo.
+        kind: "app",
+        name: o.label ? `${name} (${String(o.label).slice(0, 60)})` : name,
+        role: "service",
+        profiles: [profile],
+        scopes: ["conversations:read", "conversations:write", "contacts:read"],
+        bots: [],
+        rate: 0,
+        runLimit: 0,
+        module: { id: moduleId, reach },
+      };
+    },
+    issueCredential: (subject, o) =>
+      issueClaim(env, {
+        profile,
+        module: moduleId,
+        subject,
+        actor: o.actor,
+        claimMinutes: o.claimMinutes,
+        ttlMinutes: o.ttlMinutes,
+      }),
+    revokeCredentials: (subject, reason) =>
+      revokeModuleCredentials(env, profile, moduleId, subject, reason),
+    credentials: (subject) => credentialsFor(env, profile, moduleId, subject),
+    async wake() {
+      const response = await env.COORDINATOR.get(
+        env.COORDINATOR.idFromName(profile),
+      ).fetch("https://coordinator/wake", {
+        method: "POST",
+        body: JSON.stringify({ profile }),
+      });
+      await response.body?.cancel();
     },
   };
   return ctx;
@@ -812,9 +1127,23 @@ export function onCommand(
   const definition = moduleById(moduleId);
   if (!definition?.operations.some((prefix) => op.startsWith(prefix)))
     throw new Error(`Operação ${op} fora de operations do módulo ${moduleId}.`);
-  registerCommand(op, (env, actor, profile, data, requestId) =>
-    handler(modulesApi(env, profile, moduleId), actor, data, { requestId }),
-  );
+  registerCommand(op, (env, actor, profile, data, requestId) => {
+    // Segunda conferência da credencial por QR (a primeira é na rota): só
+    // comandos de rota que a aceita, do registro dela.
+    if (actor?.credential) {
+      const routes = moduleRoutes().write.filter((r) => r.op === op);
+      if (!routes.length) credentialGate(actor, { path: "" }, {});
+      for (const route of routes)
+        credentialGate(actor, route, {
+          [route.credentialParam || "id"]: String(
+            data?.[route.credentialParam || "id"] ?? "",
+          ),
+        });
+    }
+    return handler(modulesApi(env, profile, moduleId), actor, data, {
+      requestId,
+    });
+  });
 }
 
 const ownsPath = (definition: ModuleDefinition | null, path: string) =>
@@ -842,16 +1171,92 @@ export function onRead(
     actor: Actor,
     request: { params: Record<string, string>; query: Record<string, string> },
   ) => Promise<any>,
+  /** `{credential: true}`: aceita a credencial por QR do registro `:id`. */
+  options: CredentialRouteOptions = {},
 ) {
   if (!ownsPath(moduleById(moduleId), path))
     throw new Error(`Rota ${path} fora de routes do módulo ${moduleId}.`);
   registerReadRoute({
     path,
+    ...options,
     handler: async (env, actor, profile, request) => {
       const ctx = modulesApi(env, profile, moduleId);
       await ctx.requireEnabled();
       return handler(ctx, actor, request);
     },
+  });
+}
+
+/**
+ * Telemetria: POST /api/v1/profiles/:profile/<path> fora do Coordinator, sem
+ * Idempotency-Key, recibo nem auditoria, corpo até 64 KB. Só para dados
+ * idempotentes por natureza, como posições com horário (o módulo ignora o
+ * que já tem): custa a autenticação e o que o módulo gravar, sem as 4
+ * instruções do recibo por chamada (docs/LIMITES.md). O núcleo já autenticou
+ * e conferiu a área e o módulo ligado; a permissão fica com o módulo. Para
+ * mensagens ao cliente, acorde o Coordinator (a rodada do módulo envia).
+ */
+export function onTelemetry(
+  moduleId: string,
+  path: string,
+  handler: (
+    ctx: ModuleContext,
+    actor: Actor,
+    request: { params: Record<string, string>; body: any },
+  ) => Promise<any>,
+  /** `{credential: true}`: aceita a credencial por QR do registro `:id`. */
+  options: CredentialRouteOptions = {},
+) {
+  if (!ownsPath(moduleById(moduleId), path))
+    throw new Error(`Rota ${path} fora de routes do módulo ${moduleId}.`);
+  registerTelemetryRoute({
+    path,
+    ...options,
+    handler: async (env, actor, profile, request) => {
+      const ctx = modulesApi(env, profile, moduleId, { worker: true });
+      await ctx.requireEnabled();
+      return handler(ctx, actor, request);
+    },
+  });
+}
+
+/**
+ * Página de acompanhamento (passo web com `spec.page: "track"`): cada vez que
+ * o cliente abre ou a página recarrega, o núcleo pede ao módulo o que mostrar
+ * (TrackView, src/web-track.ts) e monta a página sem script, com o mapa do
+ * OpenStreetMap. Devolva null para "Link indisponível". O passo nunca conclui;
+ * vence pelo prazo ou pelo ctx.cancelWebStep.
+ */
+export function onWebStepPage(
+  moduleId: string,
+  handler: (ctx: ModuleContext, step: WebStep) => Promise<TrackView | null>,
+) {
+  if (!moduleById(moduleId))
+    throw new Error(`Módulo não registrado: ${moduleId}`);
+  registerWebStepPage(moduleId, (env, profile, step) =>
+    handler(modulesApi(env, profile, moduleId, { worker: true }), step),
+  );
+}
+export type { TrackView } from "../web-track";
+
+/**
+ * O app leu o QR do módulo (ctx.issueCredential). Roda no Coordinator da
+ * área, depois de gravar a leitura: confira se o registro ainda aceita
+ * (lance ApiError para recusar; a leitura é desfeita e o QR segue valendo) e
+ * devolva o que o app precisa. `credential`: `{id, subject, label (nome
+ * digitado no app), device, claimed_at, expires}`; o ator dele nas rotas é
+ * `cred:<id>`.
+ */
+export function onCredentialClaim(
+  moduleId: string,
+  handler: (ctx: ModuleContext, credential: any) => Promise<any>,
+) {
+  if (!moduleById(moduleId))
+    throw new Error(`Módulo não registrado: ${moduleId}`);
+  registerCredentialHook(moduleId, async (env, profile, credential) => {
+    const ctx = modulesApi(env, profile, moduleId);
+    await ctx.requireEnabled();
+    return handler(ctx, credential);
   });
 }
 
@@ -865,9 +1270,13 @@ export function filteredHandlers(
   filter: (ctx: ModuleContext, actor: Actor, value: any) => any,
 ) {
   return {
-    onRead: (...[moduleId, path, handler]: Parameters<typeof onRead>) =>
-      onRead(moduleId, path, async (ctx, actor, request) =>
-        filter(ctx, actor, await handler(ctx, actor, request)),
+    onRead: (...[moduleId, path, handler, options]: Parameters<typeof onRead>) =>
+      onRead(
+        moduleId,
+        path,
+        async (ctx, actor, request) =>
+          filter(ctx, actor, await handler(ctx, actor, request)),
+        options,
       ),
     onCommand: (...[moduleId, op, handler]: Parameters<typeof onCommand>) =>
       onCommand(moduleId, op, async (ctx, actor, data, request) =>
@@ -884,13 +1293,16 @@ export function filteredHandlers(
 
 /**
  * Conteúdo estruturado recebido do WhatsApp antes do menu e do bot:
- * "order" (carrinho do catálogo, content.order) ou "flow_reply" (resposta de
- * Flow que não é de um passo web, content.flow_reply). Devolva true quando
- * tratou; o núcleo para ali. Só roda com o módulo ligado.
+ * "order" (carrinho do catálogo, content.order), "flow_reply" (resposta de
+ * Flow que não é de um passo web, content.flow_reply) ou "location"
+ * (localização enviada pelo cliente, content.location {latitude, longitude,
+ * name, address}; sem módulo que trate, segue o caminho de sempre: menu, bot
+ * ou equipe). Devolva true quando tratou; o núcleo para ali. Só roda com o
+ * módulo ligado.
  */
 export function onInboundContent(
   moduleId: string,
-  type: "order" | "flow_reply",
+  type: "order" | "flow_reply" | "location",
   handler: (
     ctx: ModuleContext,
     c: Conversation,
@@ -1031,6 +1443,33 @@ export function onMcpTool(
   )
     throw new Error(`Ferramenta ${tool.name}: use o prefixo ${moduleId}_.`);
   registerMcpTool({ ...tool, module: moduleId });
+}
+
+/**
+ * Decisão de um pedido de aprovação do módulo (ctx.requestApproval).
+ * `validate` (só ao aprovar): confira o ajuste e o limite de quem decide
+ * (`decision.actor`), lance ApiError para recusar; o pedido volta a pendente.
+ * `decided`: aplique o efeito; roda também no vencimento (status
+ * "expired", actor null): sem `decided`, o núcleo avisa o cliente e passa
+ * a conversa para a equipe. Erro em `decided` devolve o pedido a pendente.
+ */
+export function onApproval(
+  moduleId: string,
+  kind: string,
+  hook: {
+    validate?: (ctx: ModuleContext, approval: any, decision: ApprovalDecision) => Promise<void>;
+    decided?: (ctx: ModuleContext, approval: any, decision: ApprovalDecision) => Promise<void>;
+  },
+) {
+  if (!moduleById(moduleId)) throw new Error(`Módulo não registrado: ${moduleId}`);
+  registerApprovalHook(moduleId, kind, {
+    ...(hook.validate
+      ? { validate: (env, profile, approval, decision) => hook.validate!(modulesApi(env, profile, moduleId), approval, decision) }
+      : {}),
+    ...(hook.decided
+      ? { decided: (env, profile, approval, decision) => hook.decided!(modulesApi(env, profile, moduleId), approval, decision) }
+      : {}),
+  });
 }
 
 /** Validação estrita de uma chave declarada em `settings` do módulo. */

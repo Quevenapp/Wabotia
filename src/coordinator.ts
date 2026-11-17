@@ -24,6 +24,8 @@ import {
   retryPaymentHooks,
 } from "./payments";
 import "./modules/runtime";
+import { credentialHook } from "./modules/hooks";
+import { claim as claimCredential } from "./module-credentials";
 import { SCHEDULE_INTERVAL_MS, runModuleSchedules } from "./modules/schedule";
 import {
   processInbox,
@@ -182,7 +184,8 @@ export class Coordinator extends DurableObject<Env> {
           body.key,
         );
         await this.schedule();
-        if (/^(queue|counter)\./.test(body.operation))
+        // "settings": o cupom da senha vai no snapshot dos aparelhos.
+        if (/^(queue\.|counter\.|settings$)/.test(body.operation))
           await this.broadcastQueue();
         return Response.json(value, { status });
       });
@@ -194,6 +197,31 @@ export class Coordinator extends DurableObject<Env> {
       );
       await this.schedule();
       return Response.json(result);
+    }
+    // QR de módulo lido pelo app (src/module-credentials.ts): a leitura e o
+    // gancho do módulo na mesma fila de escrita da área.
+    if (new URL(request.url).pathname === "/credential-claim") {
+      const result = await this.ctx.blockConcurrencyWhile(async () => {
+        try {
+          return {
+            status: 200,
+            value: await claimCredential(this.env, body, async (row) => {
+              const hook = credentialHook(row.module_id);
+              if (!hook)
+                throw new ApiError(404, "claim_not_found", "QR inválido.");
+              return hook(this.env, row.profile_id, row);
+            }),
+          };
+        } catch (error) {
+          if (!(error instanceof ApiError)) throw error;
+          return {
+            status: error.status,
+            value: { error: { code: error.code, message: error.message } },
+          };
+        }
+      });
+      await this.schedule();
+      return Response.json(result.value, { status: result.status });
     }
     // Webhook de pagamento já assinado: consulta o provedor e muda o estado
     // na mesma fila de escrita da área.
@@ -245,6 +273,8 @@ export class Coordinator extends DurableObject<Env> {
       await this.schedule();
       return Response.json(result, { status: 202 });
     }
+    // Qualquer outro caminho só agenda o alarme; o /wake dos módulos
+    // (ctx.wake, rotas de telemetria) usa este caminho.
     await this.schedule();
     return Response.json({ scheduled: true });
   }

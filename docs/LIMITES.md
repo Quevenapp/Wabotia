@@ -1,6 +1,14 @@
 # Limites do Cloudflare: consultas ao D1 e CPU
 
 O Wabotia roda em Workers com D1 e um Durable Object por área (Coordinator).
+
+**O plano pago do Workers (Workers Paid) é exigido** para rodar o Wabotia,
+desde a versão seguinte à 0.20.0 (decisão de 16/11/2026). O plano gratuito
+não é suportado: o alarme de cada área e a conclusão do carrinho passam de 50
+consultas ao D1 por invocação, e a invocação que passa do limite para no meio,
+com parte já gravada (veja "Riscos" abaixo). O instalador pelo navegador pede
+que o administrador confirme o plano antes de criar qualquer recurso.
+
 Os limites que importam aqui:
 
 | Limite                        | Plano gratuito | Plano pago    |
@@ -21,7 +29,7 @@ Cada uma destas é uma invocação separada, com a própria conta:
 ## Como medimos
 
 `tests/d1-budget.test.ts` liga todos os módulos numa área (Fila, Formulários,
-Cobrança, Agenda, OS, Reserva, Pedido, Mensalidade e Suporte), monta um menu com
+Cobrança, Agenda, OS, Reserva, Pedido, Mensalidade, Suporte e Mesas), monta um menu com
 itens de vários módulos e mede cada fluxo com `tests/d1-counter.ts`, que envolve
 o `env.DB` e conta as instruções. Um `batch` conta como uma ida ao banco, mas a
 tabela abaixo usa o número de **instruções** (cada uma do batch conta), a
@@ -40,14 +48,26 @@ fluxo consultar mais, ele falha e mostra a lista de instruções.
 | Webhook do Mercado Pago: assinatura                      | Worker                   | 2     | 2      |
 | Webhook do Mercado Pago: consulta, estado, Pedido        | Coordinator              | 29    | 28²    |
 | Rodada periódica dos módulos (sem nada vencido)          | alarme (parte da rodada) | 26    | 22     |
-| Fila: emitir senha (com recibo e auditoria)              | Coordinator `/command`   | 15    | 15     |
+| Fila: emitir senha (com recibo e auditoria)              | Coordinator `/command`   | 15    | 17³    |
 | Fila: chamar a próxima (com recibo e auditoria)          | Coordinator `/command`   | 17    | 17     |
 | Alarme inteiro: uma mensagem e duas entregas canceladas  | alarme                   | 71¹   | **67** |
+| Mesas: lançar itens (vira pedido do Pedido)              | Coordinator `/command`   | —     | 25     |
+| Mesas: mapa das mesas                                    | Worker (leitura)         | —     | 7      |
+| Mesas: fechar a conta com o pagamento                    | Coordinator `/command`   | —     | 20     |
+| Entrega: lote de posições (1 escrita, sem recibo)        | Worker (telemetria)      | —     | 4⁴     |
+| Entrega: rodada com uma entrega a caminho, nada vencido  | alarme (parte da rodada) | —     | 4      |
 
 ¹ Medido já com o cache nos fluxos, antes do escopo no alarme inteiro.
 
 ² 25 com o cache; mais 3 da entrega durável do gancho do módulo (fila de
 pendentes gravada na mudança de estado, lida e esvaziada ao concluir).
+
+³ Mais 2 desde o cupom configurável: a configuração da área (QR ligado) e o
+endereço público, para o texto do QR do `wa.me`.
+
+⁴ Só o módulo (`tests/entrega.test.ts`); a requisição soma a sessão do app, o
+estado do módulo e o contador do limite por credencial (mais uma escrita). Um lote a cada minuto por entregador em rota, não uma
+escrita por ponto; detalhes em [ENTREGA.md](ENTREGA.md#limites-do-cloudflare).
 
 Os comandos da fila custam 4 instruções a mais pelo `/command` (consulta e
 gravação do recibo de idempotência, auditoria e fechamento do recibo).
@@ -68,6 +88,35 @@ gravação do recibo de idempotência, auditoria e fechamento do recibo).
 - **Fila de saída.** Cada mensagem enfileirada fazia `INSERT OR IGNORE` e depois
   `SELECT` pela chave dedupe. Agora o `SELECT` só acontece quando a chave já
   existia (repetição).
+
+- **Idas ao D1 antes da rota.** Toda requisição autenticada fazia 2 a 4
+  consultas em série antes do trabalho da rota:
+  - a sessão, depois a política do segundo fator, depois o estado dos módulos duas vezes (no `requireModule` e na rota);
+  - ou, com chave de aplicação, a chave, o contador por minuto e o estado dos módulos duas vezes;
+  - mais 2 na primeira vez de uma sessão antiga.
+
+  Com o Worker na borda do Brasil e o D1 no leste dos EUA, cada consulta é uma viagem de ida e volta de 150 a 470 ms. Agora é **uma ida só** (`db.batch`):
+  - **pessoa** (cookie ou `wabu_`): a sessão, já com a política do segundo fator numa subconsulta;
+  - **chave de aplicação**: a chave e o +1 do contador por minuto (`INSERT … SELECT … RETURNING`, que só conta para chave válida);
+  - **rota de área** (`/api/v1/profiles/:area/…`): também o estado dos módulos, que entra no cache de leituras da requisição.
+    - Leitura (GET) mantém o cache até o fim e a rota reaproveita o estado.
+    - Escrita usa o cache só na conferência do módulo, porque a rota pode passar pelo Coordinator, que grava fora deste env.
+
+  A sessão antiga ganha o id público numa instrução só (`UPDATE … RETURNING`). Sessão e permissão **não** ficam em cache entre requisições: a revogação vale na próxima chamada.
+
+  Fica uma ida a mais só na primeira requisição de pessoa em cada isolado: ela grava o endereço público (`rememberOrigin`), e isso só pode acontecer depois de a sessão valer. Tetos em `tests/d1-budget.test.ts` ("idas ao D1 antes da rota") e casos em `tests/d1-request.test.ts`.
+- **Nova tentativa em erro transitório** (`src/db.ts`). A Cloudflare manda repetir estes erros ("Retry the operation", em `d1/observability/debug-d1`):
+  - `Network connection lost`;
+  - os de objeto reiniciado;
+  - `Replica disconnected from primary`;
+  - `Cannot resolve D1 DB due to transient issue`.
+
+  O D1 já repete sozinho até duas vezes uma consulta só de leitura (SELECT/WITH), do lado dele. Para cobrir também a ida e volta entre o Worker e o banco, `one`, `all` e `batch` repetem **uma vez**, com registro em log (`{"component":"d1","retry":…}`).
+  - Só leitura: SELECT ou WITH sem palavra de escrita, e lote só de leituras.
+  - Escrita nunca é repetida, porque pode ter sido gravada antes do erro.
+  - A exceção é o lote antes da rota da chave de aplicação: contar a mesma requisição duas vezes no limite por minuto não faz mal.
+
+  Casos em `tests/d1-retry.test.ts`.
 
 Cuidados do cache: só vale dentro de uma invocação; as consultas lembradas leem
 somente as tabelas da lista em `src/db.ts` (perfis, módulos, conexões, números e
@@ -116,8 +165,8 @@ antiga da conversa, o caminho barato. Com 10 entregas, o alarme chega a mais de 
   gravada (não há transação entre as etapas). No alarme, o Coordinator registra
   o erro e volta no próximo, e as chaves de origem evitam duplicar, mas o
   trabalho atrasa e se repete parado no mesmo ponto. Na conclusão do carrinho,
-  o cliente pode ficar com o pedido criado e sem a cobrança. Para usar os
-  verticais em produção, o plano pago.
+  o cliente pode ficar com o pedido criado e sem a cobrança. Por isso o plano
+  pago passou a ser exigido.
 - **Crescimento com os dados.** A rodada dos módulos lê listas com `LIMIT`
   (lembretes da Agenda, avisos da Mensalidade, chegada e saída da Reserva,
   pedidos parados) e cada item vencido gera mensagens e escritas. Num dia com
@@ -218,7 +267,8 @@ O que reduz o custo:
 
 ## Se for preciso caber no gratuito
 
-Sem reescrever o motor, as saídas são de agenda, não de consulta:
+Não está planejado (o plano pago é exigido). Fica registrado: sem reescrever o
+motor, as saídas seriam de agenda, não de consulta:
 
 1. alarmes separados para a rodada dos módulos, para o motor e para as entregas,
    cada um com a própria conta;

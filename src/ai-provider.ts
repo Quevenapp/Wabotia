@@ -1,13 +1,17 @@
 // Conexão direta com um provedor de IA, sem Hermes (docs/PROVEDOR-IA.md).
 // O Worker chama o provedor com a chave guardada no cofre da conexão. Não há
-// ferramentas, arquivos nem memória: cada execução leva instruções, histórico e
-// fontes, como já acontece com o Hermes, e devolve só o texto da resposta.
+// arquivos nem memória: cada execução leva instruções, histórico e fontes,
+// como já acontece com o Hermes, e devolve só o texto da resposta. Ferramentas
+// só pelo Wabotia (aiCompleteWithTools): as da pessoa na conversa interna e as
+// da conversa no atendimento ao cliente (src/bot-actions).
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import { exec } from "./db";
 import { ApiError, type Env, json, now, requireValue } from "./types";
 import { publicUrl, safeFetch, secret } from "./security";
+import { providerFamily, toolLoop, type ToolCall } from "./bot-tools";
+import type { BotTool } from "./bot-actions/actions";
 
 export type AiProvider = "openai" | "deepseek" | "compatible" | "anthropic";
 
@@ -443,6 +447,160 @@ async function anthropicComplete(key: string, cfg: any, request: AiRequest) {
   } catch (error) {
     throw anthropicError(error);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Ferramentas (src/bot-tools.ts): o bot da conversa interna age pela pessoa e
+// o do atendimento usa as ferramentas da conversa (src/bot-actions). Mesmas
+// chaves, modelos, esforço e formato de resposta da chamada sem ferramentas.
+
+export type AiToolRequest = AiRequest & {
+  tools: BotTool[];
+  /** Executa uma chamada do modelo e devolve o texto do resultado. */
+  run: (call: ToolCall) => Promise<string>;
+};
+
+function schemaFor(request: AiRequest) {
+  return request.json === "attendant-jev"
+    ? attendantJevSchema
+    : request.json
+      ? attendantSchema
+      : null;
+}
+
+/** O texto final como aiComplete devolveria (JSON validado, se pedido). */
+function finalText(request: AiRequest, text: string) {
+  if (!text.trim())
+    throw new AiError("O provedor de IA respondeu sem texto.", false);
+  const schema = schemaFor(request);
+  if (!schema) return text;
+  const parsed = schema.safeParse(json(text, null));
+  if (!parsed.success)
+    throw new AiError("O provedor de IA respondeu fora do formato.", false);
+  return JSON.stringify(parsed.data);
+}
+
+/**
+ * Como aiComplete, com ferramentas: o modelo pode chamar as ferramentas
+ * dadas (até o teto de rodadas de src/bot-tools.ts) antes da resposta final.
+ */
+export async function aiCompleteWithTools(
+  env: Env,
+  conn: any,
+  request: AiToolRequest,
+) {
+  const cfg = json(conn.config);
+  const key = await connectionKey(env, conn);
+  const family = providerFamily(cfg.provider);
+  const schema = schemaFor(request);
+  let complete: (messages: any[], tools: any[], final: boolean) => Promise<any>;
+  let messages: any[];
+  if (family === "anthropic") {
+    const content: Anthropic.ContentBlockParam[] = [];
+    for (const url of request.images || []) {
+      const match = /^data:(image\/(?:jpeg|png|gif|webp));base64,(.+)$/.exec(url);
+      if (match)
+        content.push({
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: match[1] as Anthropic.Base64ImageSource["media_type"],
+            data: match[2],
+          },
+        });
+    }
+    content.push({ type: "text", text: request.input });
+    messages = [{ role: "user", content }];
+    const client = anthropicClient(key, aiCallTimeout(cfg));
+    const effort = AI_EFFORTS.anthropic.includes(cfg.effort) ? cfg.effort : "low";
+    const deep = ["xhigh", "max"].includes(cfg.effort);
+    complete = async (history, tools, final) => {
+      try {
+        const response = await client.messages.create({
+          model: cfg.model,
+          max_tokens: deep ? 32000 : 16000,
+          system: request.instructions,
+          messages: history,
+          tools,
+          // Os modelos 5.5 não aceitam tool_choice forçado; "none" fecha.
+          tool_choice: { type: final ? "none" : "auto" },
+          output_config: schema
+            ? { effort, format: zodOutputFormat(schema) }
+            : { effort },
+        } as any);
+        checkStop(response.stop_reason);
+        return response;
+      } catch (error) {
+        throw anthropicError(error);
+      }
+    };
+  } else {
+    const base = openaiBase(cfg);
+    if (!base) throw new AiError("Provedor de IA inválido.", false);
+    const images = cfg.vision ? request.images || [] : [];
+    messages = [
+      { role: "system", content: request.instructions },
+      {
+        role: "user",
+        content: images.length
+          ? [
+              { type: "text", text: request.input },
+              ...images.map((url) => ({ type: "image_url", image_url: { url } })),
+            ]
+          : request.input,
+      },
+    ];
+    complete = async (history, tools, final) => {
+      const body: Record<string, any> = {
+        model: cfg.model,
+        messages: history,
+        tools,
+        tool_choice: final ? "none" : "auto",
+      };
+      if (cfg.effort) body.reasoning_effort = cfg.effort;
+      if (request.json && cfg.provider !== "compatible")
+        body.response_format = { type: "json_object" };
+      let response: Response;
+      try {
+        response = await safeFetch(`${base}/chat/completions`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${key}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(aiCallTimeout(cfg)),
+        });
+      } catch (error) {
+        if (error instanceof ApiError) throw new AiError(error.message, false);
+        throw new AiError("O provedor de IA não respondeu a tempo.", true);
+      }
+      if (!response.ok) throw httpError(response.status);
+      const data = await response.json<any>().catch(() => null);
+      const choice = data?.choices?.[0];
+      if (!choice)
+        throw new AiError("O provedor de IA respondeu fora do formato.", false);
+      if (choice.finish_reason === "length")
+        throw new AiError("A resposta do provedor de IA foi cortada.", false);
+      if (choice.finish_reason === "content_filter")
+        throw new AiError("O provedor de IA recusou responder.", false);
+      return data;
+    };
+  }
+  const result = await toolLoop({
+    family,
+    messages,
+    tools: request.tools,
+    complete,
+    run: request.run,
+  });
+  await exec(
+    env,
+    "UPDATE connections SET last_seen=? WHERE id=?",
+    now(),
+    conn.id,
+  );
+  return finalText(request, result.text);
 }
 
 function checkStop(reason: string | null) {

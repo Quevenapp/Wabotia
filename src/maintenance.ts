@@ -12,6 +12,7 @@ import {
 } from "./updates";
 import { configurePush } from "./push";
 import { savePublicOrigin } from "./web-steps";
+import { configureEmail } from "./email";
 export async function maintenanceCommand(
   env: Env,
   actor: Actor,
@@ -37,6 +38,8 @@ export async function maintenanceCommand(
       return configurePush(env, actor, data);
     case "system.origin.save":
       return savePublicOrigin(env, data);
+    case "system.email.configure":
+      return configureEmail(env, actor, data);
     default:
       throw new ApiError(
         400,

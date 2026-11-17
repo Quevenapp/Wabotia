@@ -27,6 +27,7 @@ import {
   ShieldCheck,
   ShoppingBag,
   Star,
+  Armchair,
   Store,
   Ticket,
   Users,
@@ -82,6 +83,7 @@ export const sections = [
   ["establishment", "Estabelecimento", Store],
   ["pedidos", "Pedidos", ShoppingBag],
   ["pedidos-cardapio", "Cardápio e loja", UtensilsCrossed],
+  ["mesas", "Mesas", Armchair],
 ] as const;
 
 export type PageId = (typeof sections)[number][0];
@@ -145,7 +147,7 @@ export const workspaceGroups = [
     id: "pedidos",
     label: "Pedidos",
     icon: ShoppingBag,
-    pages: ["pedidos", "pedidos-cardapio"],
+    pages: ["pedidos", "mesas", "pedidos-cardapio"],
   },
   {
     id: "automation",
@@ -242,6 +244,7 @@ export const pageModules: Partial<Record<string, string>> = {
   "reserva-settings": "reserva",
   pedidos: "pedido",
   "pedidos-cardapio": "pedido",
+  mesas: "mesas",
 };
 /**
  * Páginas de módulo que também aparecem no trilho principal (computador) e
@@ -265,24 +268,69 @@ export const moduleAllows = (page: string, modules?: ModuleStates) => {
   return !owner || modules?.[owner] !== false;
 };
 
+/**
+ * Páginas e áreas do núcleo → item de acesso da pessoa (src/access.ts). As
+ * de módulo usam `pageModules`. Página fora das duas listas fica só para
+ * quem tem tudo ("*"); "overview" e "presence" ficam para todos.
+ */
+const pageAccess: Partial<Record<string, string | null>> = {
+  overview: null,
+  presence: null,
+  conversations: "conversations",
+  groups: "conversations",
+  consents: "conversations",
+  deliveries: "conversations",
+  "bot-runs": "conversations",
+  bots: "conversations",
+  knowledge: "conversations",
+  tickets: "tickets",
+  contacts: "contacts",
+  calls: "calls",
+  team: "team",
+  surveys: "reports",
+  reports: "reports",
+};
+
+/** Lista de acesso da pessoa (GET /me, `access`); null = tudo. */
+export type PersonAccess = string[] | null | undefined;
+
+/** A pessoa acessa a página ou área? Mesma regra do servidor (access.ts). */
+export function accessAllows(page: string, role: string, access: PersonAccess) {
+  if (role === "admin" || !access) return true;
+  const item = pageModules[page] ?? pageAccess[page];
+  if (item === null) return true;
+  if (item === undefined) return access.includes("*");
+  return (
+    access.includes(item) ||
+    access.includes("*") ||
+    access.some((id) => id.startsWith(item + ":"))
+  );
+}
+
 export function canOpenPage(
   page: string,
   role: string,
   modules?: ModuleStates,
+  access?: PersonAccess,
 ) {
   return (
     sections.some(([id]) => id === page) &&
     (role === "admin" || !adminPages.has(page)) &&
-    moduleAllows(page, modules)
+    moduleAllows(page, modules) &&
+    accessAllows(page, role, access)
   );
 }
 
-export function visibleGroups(role: string, modules?: ModuleStates) {
+export function visibleGroups(
+  role: string,
+  modules?: ModuleStates,
+  access?: PersonAccess,
+) {
   return workspaceGroups
     .map((group) => ({
       ...group,
       pages: group.pages.filter((page) =>
-        canOpenPage(page, role, modules),
+        canOpenPage(page, role, modules, access),
       ) as PageId[],
     }))
     .filter((group) => group.pages.length);
@@ -359,4 +407,6 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Quadro da cozinha com os pedidos em andamento: mude o estado, registre o pagamento e imprima a comanda.",
   "pedidos-cardapio":
     "Cardápio com fotos e adicionais, imagens do WhatsApp, horário, entrega, pagamento e mensagens ao cliente.",
+  mesas:
+    "Mapa das mesas e comandas: abra a conta, lance os itens para a cozinha, divida e feche com a forma de pagamento.",
 };

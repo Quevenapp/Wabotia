@@ -275,3 +275,31 @@ button.team-row:hover:not(:disabled) {
     margin-inline: 10px;
   }
 }
+
+/* Proposta de ação do bot (web/team/ProposalCard.tsx). */
+.proposal-card {
+  display: grid;
+  gap: 6px;
+  min-width: min(320px, 70vw);
+}
+.proposal-card p {
+  margin: 0;
+}
+.proposal-description {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.proposal-params {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 2px 10px;
+  margin: 0;
+  font-size: 0.875em;
+}
+.proposal-params dt {
+  color: var(--muted);
+}
+.proposal-params dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

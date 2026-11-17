@@ -2,7 +2,7 @@
 // atendimento (tabela profile_modules, migração 0020). Contrato:
 // docs/MODULOS.md. Este arquivo só depende do banco: service.ts, index.ts e o
 // motor o importam sem ciclos.
-import { all, cachedAll, exec, one } from "../db";
+import { all, cachedAll, exec, MODULE_STATES_SQL, one } from "../db";
 import { ApiError, type Actor, type Env, now, requireValue } from "../types";
 import { admin, canProfile } from "../security";
 import { event } from "../events";
@@ -16,6 +16,8 @@ import { mensalidadeModule } from "./mensalidade/definition";
 import { suporteModule } from "./suporte/definition";
 import { reservaModule } from "./reserva/definition";
 import { pedidoModule } from "./pedido/definition";
+import { mesasModule } from "./mesas/definition";
+import { entregaModule } from "./entrega/definition";
 import {
   erpCobrancaModule,
   erpFiscalModule,
@@ -36,6 +38,8 @@ export const modules: readonly ModuleDefinition[] = [
   suporteModule,
   reservaModule,
   pedidoModule,
+  mesasModule,
+  entregaModule,
   erpModule,
   erpFiscalModule,
   erpCobrancaModule,
@@ -138,11 +142,7 @@ export async function moduleStates(
   env: Env,
   profile: string,
 ): Promise<ModuleStates> {
-  const rows = await cachedAll(
-    env,
-    "SELECT module_id,enabled FROM profile_modules WHERE profile_id=?",
-    profile,
-  );
+  const rows = await cachedAll(env, MODULE_STATES_SQL, profile);
   return resolveStates(
     Object.fromEntries(rows.map((r) => [r.module_id, r.enabled])),
   );

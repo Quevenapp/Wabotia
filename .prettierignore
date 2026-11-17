@@ -1,0 +1,11 @@
+# Cópia do Fagoo (scripts/erp-import.mjs): mantida como veio, para comparar
+# com a origem pelo SHA-256 de web/erp/ORIGEM.json.
+web/erp/app/
+web/erp/test/
+web/erp/qa/
+web/erp/ORIGEM.json
+packages/
+# Gerador de QR do Fagoo, byte a byte igual ao original (o painel também usa).
+web/lib/qr-code.ts
+# Gerado por scripts/erp-scope-css.mjs.
+web/erp/scope.css

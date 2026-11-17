@@ -71,6 +71,7 @@ export const paymentTones: Record<string, PillTone> = {
   failed: "danger",
   refunded: "muted",
   cancelled: "muted",
+  tab: "brand",
 };
 
 export const weekdays = [

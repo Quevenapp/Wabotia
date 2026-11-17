@@ -37,3 +37,23 @@ export function setupTokenFromHash(hash: string) {
     : "";
   return setupShape.test(value) ? value : "";
 }
+
+/**
+ * Links de uso único gerados pelo administrador (src/auth-tokens.ts): redefinir
+ * a senha (#reset=) e aceitar o convite (#invite=). O código vai no fragmento,
+ * que o navegador não manda ao servidor nem grava nos registros.
+ */
+export type AccountLinkPurpose = "reset" | "invite";
+export const accountLink = (
+  origin: string,
+  purpose: AccountLinkPurpose,
+  token: string,
+) => `${origin}/app#${purpose}=${token}`;
+
+/** {purpose, token} de um link de conta no fragmento, ou null. */
+export function accountTokenFromHash(hash: string) {
+  const match = /^#(reset|invite)=([a-f0-9]{64})$/.exec(hash);
+  return match
+    ? { purpose: match[1] as AccountLinkPurpose, token: match[2] }
+    : null;
+}

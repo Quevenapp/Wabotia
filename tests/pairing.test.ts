@@ -239,7 +239,7 @@ describe("pareamento entre sistemas", () => {
 
   it("código expirado, recusa e client diferente não entregam credenciais", async () => {
     const expired = await fixture(),
-      denied = await fixture("fagoo");
+      denied = await fixture("senhapp");
     await exec(
       env,
       "UPDATE pairing_requests SET expires=? WHERE id=?",
@@ -267,8 +267,8 @@ describe("pareamento entre sistemas", () => {
   });
 
   it("aprova atomicamente uma vez mesmo com duas requisições concorrentes", async () => {
-    const f = await fixture("fagoo"),
-      body = { profile_id: f.profile, scopes: ["tickets:read"] };
+    const f = await fixture("senhapp"),
+      body = { profile_id: f.profile, scopes: ["queue:read"] };
     const result = await Promise.allSettled([
       pairingApprove(env, admin, f.request.id, body),
       pairingApprove(env, admin, f.request.id, body),
@@ -299,6 +299,19 @@ describe("pareamento entre sistemas", () => {
         uid(),
       ),
     ).rejects.toMatchObject({ code: "invalid_request" });
+    // O Fagoo virou o módulo ERP: não se pareia mais (410, com a mensagem).
+    await expect(
+      pairingStart(
+        env,
+        { client: "fagoo", instance_name: "Fagoo" },
+        "https://test",
+        uid(),
+      ),
+    ).rejects.toMatchObject({
+      status: 410,
+      code: "pairing_client_removed",
+      message: expect.stringContaining("módulo ERP"),
+    });
     const actor = { ...admin, id: uid() };
     for (let i = 0; i < 12; i++)
       await expect(

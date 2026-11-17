@@ -77,6 +77,7 @@ O que o núcleo faz com cada campo:
 | `routes` | Com o módulo desligado, `/profiles/:profile/<rota>/…` responde `409 module_disabled` |
 | `operations` | Com o módulo desligado, os comandos com esses prefixos respondem `409 module_disabled` |
 | `requires` | Opcional: ids dos módulos dos quais este depende (veja abaixo) |
+| `grants` | Opcional: papéis que o administrador marca no acesso de cada pessoa (veja "Acessos e papéis", seção 3) |
 
 ### Dependência entre módulos (`requires`)
 
@@ -138,8 +139,14 @@ export const suporteModule: ModuleDefinition = { id: "suporte", requires: ["mens
 | `charge(c, {method, amount_cents, description, ref?, sourceKey, expiresMinutes?, notification?, receipt?})` | Cobrança Pix ou link pela conta da área (seção "Cobrar"). `receipt: false`: o núcleo não manda o "Pagamento recebido" (o módulo manda o próprio comprovante no `onPaymentUpdated`) |
 | `recordConsent(c, {purpose, source, status?, evidence?, key?})` | Consentimento de notificação por finalidade (`billing`, `scheduling`, `order`, `booking`), registrado quando o cliente contrata, agenda, pede ou reserva pelo WhatsApp (`source: "whatsapp"`) ou a equipe registra o aceite (`"panel"`, `"contract"`), com data, módulo e evidência. Publica `consent.updated`. REVOGAR do cliente revoga todas as finalidades; um novo aceite depois vale de novo |
 | `consent(c, purpose)` | Último registro que vale para a finalidade (o dela ou o REVOGAR geral), ou null |
+| `sendEmail(c, {to, subject, text, html?}, {purpose, key})` | E-mail ao cliente da conversa pelo Cloudflare Email Sending da instalação ([EMAIL.md](EMAIL.md)). Exige o consentimento da finalidade (`recordConsent`, senão `409 consent_required`). `key` torna o envio idempotente na área (a repetição devolve o anterior com `repeated: true`). Limite de 200 envios por área em 24 h (`429 email_limit`). Sem e-mail configurado, `409 email_unavailable`: use o WhatsApp. O assunto não leva link nem código (`400 invalid_subject`); links vão no corpo. Cada envio fica em `email_log`, sem o corpo e com o endereço mascarado. Devolve `{id, status: "sent"\|"queued"\|"bounced"}` |
 | `cancelCharge(payment \| id)` | Cancela uma cobrança aberta pelo próprio módulo (reserva cancelada antes do sinal), no provedor também. Já cancelada ou expirada: devolve como está; paga ou estornada: `409 payment_closed`; de outro módulo: 404 |
 | `paymentsReady()` | Se a área pode cobrar agora, sem ler tabelas do núcleo: `{ready, reason: "payments_disabled"\|"payments_not_configured"\|null, message, methods}` |
+| `read(actor, path, query?)` | Lê uma rota GET de outro módulo em nome do ator, como `GET /profiles/:profile/<path>` (mesma permissão, 409 `module_disabled`, campos ocultos). Usar a API pública de um módulo sem `requires` nem `public.ts`: a Entrega lê `pedido/orders/:id` assim. Chave presa à conversa (`conversations:bound`): `403 bound_key` |
+| `run(actor, op, data, requestId)` | Executa um comando público de outro módulo (`pedido.status`) em nome do ator, dentro do comando ou da rodada em andamento no Coordinator; sem recibo próprio. Só comandos de outro módulo. Recusado no contexto criado no Worker (`onTelemetry`, `onWebStepPage`), que está fora da fila serializada da área, e para chave presa (`403 bound_key`) |
+| `moduleActor({reach, label?})` | Ator `module:<id>` para `read`/`run` só nos módulos de `reach`; o dono decide o que ele pode (veja "Ator de módulo") |
+| `issueCredential(subject, {actor, claimMinutes, ttlMinutes})` / `revokeCredentials(subject, reason)` / `credentials(subject)` | QR de acesso sem login a um registro do módulo; veja "Credencial por QR" na seção 3 |
+| `wake()` | Acorda o Coordinator da área (alarme em seguida; a rodada dos módulos no máximo uma vez por minuto). Para rotas de telemetria que gravaram algo a avisar |
 
 Ganchos registrados no carregamento do arquivo do módulo:
 
@@ -157,7 +164,11 @@ Ganchos registrados no carregamento do arquivo do módulo:
 | `onConversationTurn(module, handler)` (apelido `onInboundReply`) | Próxima mensagem do cliente numa conversa individual: `handler(ctx, c, {text, replyId, rowId})`; devolva `true` quando é do módulo. Veja "Conversa no chat" abaixo |
 | `onPaymentUpdated(module, hook)` | Cobrança aberta pelo módulo mudou: `paid`, `expired`, `cancelled` ou `refunded`. Entrega durável: se o gancho lançar, a mudança fica pendente e o núcleo repete (reenvio do webhook e alarme, com intervalo de 1 min dobrando até 1 h) até concluir, em ordem e com o `status` daquela mudança. O gancho deve ser idempotente (use chaves de origem) |
 | `onSchedule(module, handler)` | Tarefa periódica (lembrete, vencimento): `handler(ctx, {now})` em cada área com o módulo ligado, no máximo uma vez por minuto e ao menos a cada 5 minutos; veja abaixo |
-| `onInboundContent(module, type, handler)` | Cliente mandou conteúdo estruturado: `"order"` (carrinho do catálogo, `content.order`) ou `"flow_reply"` sem passo web correspondente (`content.flow_reply`). Roda antes do menu e do bot; devolva `true` quando tratou |
+| `onInboundContent(module, type, handler)` | Cliente mandou conteúdo estruturado: `"order"` (carrinho do catálogo, `content.order`), `"flow_reply"` sem passo web correspondente (`content.flow_reply`) ou `"location"` (localização, `content.location {latitude, longitude, name, address}`; sem módulo que trate, segue o caminho de sempre). Roda antes do menu e do bot; devolva `true` quando tratou |
+| `onRead`/`onRoute`/`onTelemetry` com `{ credential: true }` | A rota aceita a credencial por QR do registro `:id` (veja "Credencial por QR"); sem isso, a credencial recebe `403 credential_scope` |
+| `onTelemetry(module, path, handler)` | `POST /profiles/:profile/<path>` **fora do Coordinator**, sem `Idempotency-Key`, recibo nem auditoria (corpo até 64 KB): só para dados idempotentes por natureza, como posições com horário. `handler(ctx, actor, {params, body})`; o núcleo já conferiu a área e o módulo ligado, recusa conectores (403) e limita a 60 chamadas por minuto por credencial, área e rota (`429 rate_limited`); a permissão fica com o módulo. Poupa as 4 instruções do recibo por chamada. O contexto não executa `ctx.run`. Para mandar mensagens, `ctx.wake()` e a rodada do módulo |
+| `onCredentialClaim(module, handler)` | O app leu o QR do módulo (`ctx.issueCredential`): `handler(ctx, credential)` no Coordinator, depois de gravar a leitura; lance `ApiError` para recusar (a leitura é desfeita) ou devolva os dados da resposta ao app. Veja "Credencial por QR" |
+| `onWebStepPage(module, handler)` | Página de acompanhamento: passo web com `spec.page: "track"` (sem campos, nunca conclui). A cada abertura o núcleo chama `handler(ctx, step)` e monta a página sem script com o `TrackView` devolvido (`title`, `status_label`, `headline`, `lines`, `notice`, `map {courier, destination}`, `tiles {url, attribution}`, `refresh_seconds`; `src/web-track.ts`), mapa em blocos do OpenStreetMap público ou do provedor em `tiles` (HTTPS com `{z}`, `{x}`, `{y}`). `null` ou erro no gancho (registrado no log): "Acompanhamento encerrado" (410). O contexto não executa `ctx.run` |
 | `onHandoffRequest(module, handler)` | Toda passagem automática para humano passa por aqui antes de acontecer: `handler(ctx, c, {source, reason, department_id, summary, menu_item_id})` devolve `"hold"` para segurar ou `"allow"`. Veja "Passagem para humano" abaixo |
 
 Exemplo mínimo (do módulo Formulários):
@@ -342,8 +353,13 @@ onMcpTool("agenda", {
     `agenda_meus_agendamentos`, `agenda_remarcar`, `agenda_cancelar`.
   - Reserva: `reserva_disponibilidade`, `reserva_reservar`, `reserva_minhas`.
   - Ordem de Serviço: `os_situacao`.
-  - Mensalidade: `mensalidade_situacao`, `mensalidade_segunda_via`.
-  - Pedido: `pedido_cardapio`, `pedido_consultar`, `pedido_enviar_carrinho`.
+  - Mensalidade: `mensalidade_situacao`, `mensalidade_segunda_via`,
+    `mensalidade_pedir_dispensa`, `mensalidade_pedir_desconto`.
+  - Suporte pago: `suporte_situacao`.
+  - Fila: `queue_minha_senha`.
+  - Pedido: `pedido_cardapio` (com preços, fora do bot do cliente),
+    `pedido_itens`, `pedido_consultar`, `pedido_montar`,
+    `pedido_pedir_desconto`, `pedido_enviar_carrinho`.
 - Chave presa à conversa: com `conversations:bound` (padrão da chave criada em
   Integrações → Hermes), a aplicação só alcança as conversas que um dos bots
   dela está atendendo agora (execução na fila ou em andamento, ou encerrada há
@@ -353,8 +369,177 @@ onMcpTool("agenda", {
   cliente que injeta instruções no bot não chega à conversa de outro cliente.
   Rotas de módulo liberadas para essa chave: as `…/conversations/:id` da
   ferramenta e os catálogos sem dado pessoal (`agenda`,
-  `agenda/availability`, `reserva/availability`, `pedido/menu`); uma rota de
+  `agenda/availability`, `reserva/availability`, `pedido/menu`) e as
+  situações do cliente (`suporte/conversations/:id/situation`,
+  `queue/conversations/:id`); uma rota de
   ferramenta nova entra na lista `BOUND_ROUTES` de `src/index.ts`.
+
+### Ferramentas do cliente no bot do provedor direto (`onMcpTool` + `customer`)
+
+O bot de provedor de IA direto (Anthropic, OpenAI, DeepSeek) que atende o cliente no WhatsApp recebe **as mesmas ferramentas `onMcpTool`** que o Hermes usa com a chave presa à conversa (`src/bot-actions/customer.ts`). **Nunca recebe o catálogo** nem ferramenta de equipe. São dois modos separados em código:
+
+| | Modo equipe | Modo cliente |
+|---|---|---|
+| Quando | execução de conversa interna, pedida por uma pessoa | execução de conversa individual de linha (telefone autenticado) |
+| Ferramentas | `buscar_operacoes`, `consultar`, `propor_acao` | as `onMcpTool` dos módulos ligados |
+| Identidade | a pessoa (`actor` dela, `via`) | a conversa: o bot preso a ela (`conversations:bound`) |
+| Escrita | proposta; a pessoa confirma no painel ou no app | proposta; **o cliente** confirma tocando no botão na conversa |
+
+**Contrato para declarar uma ferramenta de cliente:**
+```ts
+onMcpTool("mensalidade", {
+  name: "mensalidade_segunda_via",          // prefixo do módulo
+  description: "…",                         // o que faz, em português
+  input: { conversation_id: { type: "string" }, installment_id: { type: "string" } },
+  required: ["conversation_id"],
+  write: true,
+  customer: "read",   // false: fora do cliente; "read": sem confirmação; "propose" (padrão de write): com botão
+  call: (a, profile) => ({ method: "POST", path: `/profiles/${profile}/conversations/${a.conversation_id}/actions`, body: { action: "mensalidade_copy" } }),
+});
+```
+
+**Regras do núcleo (valem sem o módulo fazer nada):**
+- `conversation_id` nunca vem do modelo: sai do esquema e é sempre o da execução. Ids de registro que o modelo mandar passam pela regra do módulo, que responde 404 para registro de outro cliente.
+- Leitura roda como o bot preso à conversa, sem `contacts:read`. O módulo mostra ao cliente só o mínimo (os últimos dígitos do documento, nunca o documento inteiro), como já faz para a chave presa. O núcleo ainda tira dado pessoal e segredo do que vai ao modelo.
+- Escrita (`write` sem `customer: "read"`) vira proposta e não executa. O cliente recebe "Para eu fazer isto, confirme:" com **Confirmar** e **Cancelar**.
+  - **O texto que o cliente confirma vem do módulo, nunca do modelo**: declare `describe(env, profile, input)` na ferramenta e devolva o que roda, com dados lidos por código (serviço, data, valor). O `input` já traz o `conversation_id` da execução; leia só registros desta conversa, para não mostrar dado de outro cliente. Sem `describe`, o núcleo lista a ação e os campos do pedido (`src/bot-actions/describe.ts`). O `resumo` do modelo só fica no registro.
+  - **Confirmar**:
+    - o toque no botão do próprio canal, tratado antes dos ganchos dos módulos (o id leva a proposta);
+    - CONFIRMAR ou CANCELAR digitado, só depois de os ganchos dos módulos (`onConversationTurn`) terem a chance de tratar a mensagem, e só com **uma** proposta aberta na conversa. Com mais de uma, o cliente é avisado para tocar no botão de cada uma.
+    - "sim", "não", "1" e "2" soltos não confirmam nada: são respostas comuns a outras perguntas, e tratá-los custaria uma consulta ao D1 por mensagem.
+  - **Prazo**: a proposta vale 10 minutos.
+  - **Repetir**: a ação roda com `Idempotency-Key` `proposal:<id>:<tentativa>`, e a proposta só roda uma vez (estado `running` antes de chamar), então tocar de novo não repete.
+  - **Rota**: só ação da própria conversa (`/conversations/<id>/actions`).
+- Preço, desconto, total e estado financeiro saem do módulo, nunca dos parâmetros do modelo. "Já paguei" e comprovante não mudam estado: só o webhook do provedor muda.
+- CPF/CNPJ digitado nunca abre dado financeiro nem vincula telefone (achado A4 da revisão de segurança). A identidade é o telefone verificado da conversa.
+- Limites: 6 chamadas e 3 propostas por resposta; resultado cortado em 4.000 caracteres.
+
+**Ferramentas de cliente que existem hoje:**
+
+| Módulo | Ferramentas |
+|---|---|
+| OS | `os_situacao` |
+| Mensalidade | `mensalidade_situacao`, `mensalidade_segunda_via` (só reenvia o código do próprio cliente); pedidos à equipe, sem botão porque só registram: `mensalidade_pedir_dispensa`, `mensalidade_pedir_desconto` |
+| Agenda | `agenda_servicos`, `agenda_horarios_livres`, `agenda_meus_agendamentos`; com botão: `agenda_agendar`, `agenda_remarcar`, `agenda_cancelar` |
+| Pedido | `pedido_itens` (sem preços), `pedido_consultar`; `pedido_montar` (o módulo manda o resumo com os valores e o botão Confirmar pedido dele); `pedido_pedir_desconto` (pedido de aprovação); com botão do núcleo: `pedido_enviar_carrinho`. `pedido_cardapio` (com preços) fica fora do cliente |
+| Reserva | `reserva_disponibilidade`, `reserva_minhas`; com botão: `reserva_reservar` |
+| Suporte pago | `suporte_situacao` |
+| Fila (núcleo) | `queue_minha_senha` |
+
+### Pedido de aprovação à equipe (`ctx.requestApproval` + `onApproval`)
+
+Para o cliente pedir o que só a equipe concede (desconto, isenção de taxa, dispensa de parcela). O bot **nunca concede**: a ferramenta do cliente só registra o pedido e diz que vai consultar a equipe. Núcleo em `src/approvals.ts`, migração 0086. Uso real: dispensa e desconto de mensalidade em `src/modules/mensalidade/requests.ts` (docs/MENSALIDADE.md).
+
+```ts
+// 1. Ferramenta do cliente (modo cliente), que só registra o pedido:
+onMcpTool("pedido", {
+  name: "pedido_pedir_desconto",
+  description: "Pede à equipe um desconto no pedido aberto do cliente da conversa. Não concede nada.",
+  input: { conversation_id: { type: "string" }, observacao: { type: "string" } },
+  required: ["conversation_id"], write: true, customer: "read",
+  call: (a, p) => ({ method: "POST", path: `/profiles/${p}/conversations/${a.conversation_id}/actions`,
+                     body: { action: "pedido_desconto", observacao: a.observacao } }),
+});
+
+// 2. A ação monta o cartão com dados lidos por código, nunca com números do modelo:
+onConversationAction("pedido", "pedido_desconto", async (ctx, actor, c, data) => {
+  const order = /* pedido aberto do telefone verificado da conversa */;
+  const approval = await ctx.requestApproval(c, {
+    kind: "desconto", ref: order.id,
+    title: `Desconto no pedido nº ${order.number}`,
+    fields: [
+      { key: "itens", label: "Itens", value: "…" },
+      { key: "total", label: "Total de tabela", value: "R$ 62,00" },
+      { key: "ultimas", label: "Últimas compras", value: "5 pedidos, média R$ 58,00" },
+      { key: "margem", label: "Margem", value: "38%", restricted: { admin: true } },
+    ],
+    approvers: { access: "pedido" },          // ou { admin: true } ou { role: "pedido:gerente" }
+    adjust: { label: "Desconto (R$)", type: "money", min: 0, max: 6.2 },
+    ttlMinutes: 30,
+    modelSummary: data.observacao,            // guardado à parte, como não verificado
+    botId: actor.via?.bot_id, runId: actor.via?.run_id,
+    key: order.id,                            // repetir não abre outro
+  });
+  return { pedido: approval.id, estado: "aguardando a equipe" };
+});
+
+// 3. A decisão: o módulo confere o limite de quem decide e aplica o efeito.
+onApproval("pedido", "desconto", {
+  async validate(ctx, approval, d) { /* ex.: atendente até R$ 5; lance ApiError 403 */ },
+  async decided(ctx, approval, d) {
+    // d.status: approved (d.value), declined (d.reason), handoff, expired (d.actor null)
+  },
+});
+```
+
+**Regras do núcleo**
+- **O cartão**:
+  - `fields` fica guardado como foi mostrado, para a auditoria;
+  - `restricted` esconde o campo de quem não está na audiência (o app recebe `hidden_fields`);
+  - `modelSummary` vai à parte, como "Resumo do bot (não verificado)".
+- **A decisão**:
+  - é uma rota que exige sessão de pessoa da audiência `approvers` (senão `403 approval_forbidden`); bot e chave de aplicação nunca decidem;
+  - o primeiro a decidir vence; os outros recebem `409 approval_closed`;
+  - `validate` e `decided` recebem o ator de quem decidiu, então as regras do módulo (papel, limite) valem;
+  - erro em qualquer um devolve o pedido a pendente;
+  - uma decisão que travou no meio (o Worker caiu entre o início e o fim) fica em `deciding` no máximo 2 minutos (`DECIDING_TTL`): depois a rodada periódica devolve o pedido a pendente (ou vence, se o prazo dele passou), e outra pessoa pode decidir. Por isso `decided` deve ser idempotente pelo `approval.id`: numa retomada, roda de novo.
+- **Assumir**: `handoff` passa a conversa a quem tocou (`handoffToPerson`) e depois chama `decided` com `status: "handoff"`.
+- **Prazo**: padrão 30 minutos, de 5 minutos a 7 dias. A rodada periódica vence os pedidos e chama `decided` com `status: "expired"`; sem `decided`, o núcleo avisa o cliente e põe a conversa na fila da equipe.
+- **Auditoria**: `audit` com `approval.approve|decline|handoff`, e o pedido guarda conversa, cartão, quem decidiu, valor e quando.
+- **Avisos**: o cartão vai à conversa interna de cada pessoa que pode decidir com o bot que atendeu (até 20), e o evento `approval.requested` dispara o push.
+
+### Ações pelo bot na conversa interna (`definition.bot`)
+
+Na conversa interna, o bot consulta e propõe ações **em nome da pessoa que pediu** (`src/bot-actions/`, contrato dos apps em `docs/API.md`, "Ações pelo bot"). O módulo não escreve nada para isso.
+
+**O que o módulo ganha sem fazer nada**
+- Toda rota pública do módulo entra no catálogo do bot: `onRead` vira "consulta" e `onRoute` vira "ação", com resumo e parâmetros tirados do OpenAPI do módulo (`moduleOperations` e `describe…`).
+- Esquema de entrada bem descrito no OpenAPI deixa o bot mais preciso.
+
+**Ajuste opcional na declaração**
+```ts
+bot: {
+  deny: ["os.decide"],                      // ops ou caminhos fora do catálogo (prefixos)
+  sensitive: ["mensalidade.installment.pay"], // segundo fator ao confirmar, conforme a política
+  hints: { "consulta:service-orders": "Ordens de serviço abertas, por estado ou cliente" },
+  // O que a pessoa confirma, com dados lidos por código (opcional):
+  describe: { "os.status": async (env, profile, p) => `OS nº … para ${p.status}` },
+}
+```
+- As operações com permissão de aplicação `billing:write` já contam como sensíveis.
+- **Segundo fator**: `sensitive` pede o código pela política da instalação (`requireFinancialAal`, em `src/mfa.ts`). A operação roda com o `aal`, a sessão e a política de quem confirmou, então os guardas do módulo (`requireFinancialAal` na Mensalidade e no Suporte) valem também sem `sensitive`. Quando o guarda pede o código, a proposta continua aberta e o confirmar responde `403 mfa_required`.
+- **Texto da proposta**: o cartão mostra o `describe` do módulo ou, sem ele, a operação e os parâmetros que vão rodar. O `resumo` do modelo aparece à parte, como "Texto do bot (não conferido)".
+- Configurações (`PUT /settings`), módulos, pessoas, chaves e sistema nunca entram: não são rotas de módulo.
+
+**Identidade.** A chamada chega ao módulo como se viesse da tela:
+- o `actor` é a pessoa (`kind: "user"`), com o acesso e os papéis dela;
+- o comando passa pelo `Coordinator`, com recibo e `Idempotency-Key` (`proposal:<id>` na confirmação).
+
+O único sinal é `actor.via` (`{kind: "bot", bot_id, run_id, proposal_id?, masked}`), gravado em `audit.via`. **Não use `via` em regra de negócio**: quem pode agir é decidido pelas mesmas regras da tela.
+
+**Dados pessoais.** Na leitura que vai ao modelo de IA, `ctx.mayRead(actor, …)` responde `false` e `ctx.botView` esconde os campos de `BOT_HIDDEN`, a menos que o administrador libere na instalação. Use `ctx.redact` e `filteredHandlers`, como já fazem os módulos, e nada mais é preciso. O núcleo ainda tira, de qualquer resposta, os campos de dado pessoal e os segredos.
+
+**Mudanças do núcleo para isso** (para a sessão A revisar):
+
+| Onde | O que mudou |
+|---|---|
+| `Actor.via` e `BotVia` | `src/types.ts` |
+| `actorForUser` | `src/security.ts` |
+| `audit.via` | `src/events.ts`, migração 0085 |
+| `internalCall` | `src/mcp.ts`: a chamada interna do MCP, sem requisição de origem |
+| `mayRead` e `botView` com `via.masked`; `BOT_HIDDEN` exportado | `src/modules/api.ts` |
+| `ModuleDefinition.bot` | `src/modules/types.ts` |
+| `internal_messages.kind` e `payload`; leitura com o estado da proposta | `src/team.ts` |
+| Rotas `…/proposals/:id/confirm\|cancel` e `/system/bot-actions/configure` | `src/index.ts` |
+| Campo `wabotia_run` no job do plugin | `src/integrations.ts`, `src/engine.ts` |
+| Cabeçalho `X-Wabotia-Run` no MCP | `src/mcp.ts` |
+| Segundo fator: `requireFinancialAal` do núcleo na proposta sensível; o ator que executa leva `aal`, `sessionId` e `mfa` de quem confirmou, e o guarda trata o ator com `via` como pessoa | `src/mfa.ts`, `src/bot-actions/actions.ts` |
+| Laço de ferramentas e `aiCompleteWithTools` | `src/bot-tools.ts`, `src/ai-provider.ts`; escolha do modo em `aiRun` (`src/engine.ts`) |
+| Modo cliente | `src/bot-actions/customer.ts`; resposta ao botão antes dos módulos no `processInbox`; campo `customer` em `ModuleMcpTool` (`src/modules/hooks.ts`) |
+| Pedido de aprovação | `src/approvals.ts`; `ctx.requestApproval` e `onApproval` (`src/modules/api.ts`); rotas `/approvals`; push `approval.requested`; segmento `approvals` livre no acesso (a audiência decide) |
+| Vencimento de pedidos e propostas | na rodada periódica (`src/modules/schedule.ts`) |
+| Fila no bot ("minha senha", sessão H) | `conversationTicket` em `src/queue.ts`; rota e ferramenta em `src/modules/queue-tools.ts`, carregado por `src/modules/runtime.ts` |
+| Rotas da chave presa (sessão H) | `BOUND_ROUTES` em `src/index.ts`: `queue/conversations/:id` e `suporte/conversations/:id/situation` |
 
 ### Tarefas periódicas (`onSchedule`)
 
@@ -435,6 +620,167 @@ mensagem, passo web nem protocolo.
 - **Eventos**: os de módulo e os de passo web exigem `contacts:read`; os que
   levam nota interna preenchida (e todos os da OS e do Pedido) exigem também
   `notes:read`.
+
+### Acessos e papéis (`grants`, `ctx.granted`)
+
+O administrador marca, para cada atendente, **o que ele acessa** (Gestão →
+Pessoas e acessos). A lista mistura três tipos de item, todos vindos de
+`GET /profiles/{p}/access`:
+
+- **áreas do núcleo**: `conversations`, `tickets`, `contacts`, `calls`,
+  `team` e `reports`;
+- **módulos**: o id do módulo (`os`, `agenda`, `pedido`…), que libera as
+  rotas, os comandos e as telas dele;
+- **papéis de módulo**: `<módulo>:<papel>`, declarados em `grants` da
+  definição. O papel já libera o módulo dele.
+
+```ts
+export const entregaModule: ModuleDefinition = {
+  id: "entrega",
+  grants: [{ id: "courier", label: "Entregador", description: "Leva os pedidos e envia a posição pelo app." }],
+  …
+};
+
+// No código do módulo:
+if (!(await ctx.granted(actor, "courier")))
+  throw new ApiError(403, "role_required", "Só o entregador desta entrega envia posições.");
+const couriers = await ctx.grantees("courier"); // [{id, name}] ativos da área
+```
+
+Nomes combinados para os papéis (use exatamente estes):
+
+| Módulo | Papel | Id completo | Nome no painel |
+|---|---|---|---|
+| Entrega (`entrega`) | `courier` | `entrega:courier` | Entregador |
+| Mesas (`mesas`) | `waiter` | `mesas:waiter` | Garçom |
+| Ordem de Serviço (`os`) | `technician` | `os:technician` | Técnico (já declarado) |
+| Caixa (`caixa`) | `cashier` | `caixa:cashier` | Caixa |
+
+Os atalhos de perfil do painel ("Atendente completo", "Só caixa", "Só garçom",
+"Só entregador da loja", "Técnico") só preenchem as caixas. Um atalho aparece
+quando todos os itens dele existem nesta versão.
+
+**O que o núcleo garante:**
+
+- **Lista guardada em `users.access`** (migração `0080`), por pessoa. Vale em
+  todas as áreas que ela alcança. `["*"]` é o atendente completo: todas as
+  áreas e todos os módulos, **sem papéis**. Quem já era atendente fica com
+  `NULL`, que vale como `["*"]`, e não perde nada ao atualizar.
+- **O administrador acessa tudo.** Ele não ganha papel automaticamente: para
+  aparecer na lista de entregadores, precisa receber o papel. Aplicações e
+  aparelhos pareados seguem pelos escopos e nunca têm papel.
+- **Rotas:** `/profiles/{p}/<segmento>` confere o item do segmento (o módulo
+  dono da rota, ou a área do núcleo) e responde `403 access_denied`. Dados de
+  apoio sem cliente ficam livres: `status`, `capabilities`, `establishment`,
+  `people`, `grants`, `access`, `presence`, `events`, `modules`, `media`,
+  `menus`, `lines`, `router`, `bots` e `knowledge`. Segmento novo do núcleo
+  fora dessas listas fica só para quem tem `*`. Se um módulo seu precisar de
+  rota livre, combine com a sessão A.
+- **Comandos:** `perform` confere de novo (o módulo dono do comando, ou a área
+  do núcleo pelo prefixo), também `403 access_denied`. Um módulo não precisa
+  conferir o próprio módulo; confere só o papel, quando a ação é de um papel.
+- **Leituras:** os eventos (`GET /events` e o que deriva dele) somem para quem
+  não acessa o assunto. O push de conversa, protocolo e ligação só vai a quem
+  acessa conversas, protocolos ou ligações. O `/status` traz os contadores de
+  conversas vazios para quem não acessa o atendimento. Os eventos do módulo
+  seguem o módulo dono (`events` da definição).
+- `ctx.granted(actor, papel)` e `ctx.grantees(papel)` aceitam só papéis
+  declarados em `grants` do próprio módulo; outro nome lança erro (de código).
+  Com o módulo desligado, os papéis dele somem de `capabilities`, de `/people`
+  e de `/grants`, mas ficam guardados e voltam ao religar.
+- **Leituras para escolher pessoa** (pessoa da área ou chave com
+  `conversations:read`):
+  - `GET /profiles/{p}/grants`: papéis dos módulos ligados e quem tem cada um;
+  - `GET /profiles/{p}/people`: cada pessoa traz `grants` e a rota aceita
+    `?grant=entrega:courier` (`400` se o papel não existir ou o módulo
+    estiver desligado).
+- **Gravar** (só administrador): `POST /users` e `PATCH /users/{id}` com
+  `access` (lista ou `null`). O núcleo recusa item desconhecido. Mudar o
+  acesso derruba as sessões da pessoa, que entra de novo com a lista nova.
+
+> Até `855140a` (`feat/concessoes-modulo`, nunca publicado), os papéis ficavam
+> por área em `module_grants` nas configurações. Essa chave não existe mais:
+> o papel vai na lista da pessoa. O uso de `ctx.granted`/`ctx.grantees` não
+> mudou.
+
+### Credencial por QR (acesso sem login a um registro)
+
+Para quem trabalha num registro do módulo sem ser da equipe (o entregador
+avulso da Entrega): a equipe gera um QR, o app lê **fora do login** e recebe
+um token que só alcança aquele registro. Núcleo em
+`src/module-credentials.ts` (migração `0076_module_credentials`).
+
+```ts
+// Equipe gera (num comando): revoga o QR e a credencial anteriores do registro.
+const qr = await ctx.issueCredential(entrega.id, {
+  actor: actor.id, claimMinutes: 20, ttlMinutes: 3 * 60,
+}); // {id, url: "<origem>/api/public/c/<código>", claim_expires_at}
+
+// O app leu o QR (roda no Coordinator, depois de gravar a leitura):
+onCredentialClaim("entrega", async (ctx, credential) => {
+  // credential: {id, subject, label (nome digitado), device, claimed_at, expires}
+  // Lance ApiError para recusar: a leitura é desfeita e o QR segue valendo.
+  return { delivery: … }; // vai em `data` na resposta ao app
+});
+
+// A rota declara que aceita a credencial; o núcleo confere :id === subject.
+onRead("entrega", "entrega/deliveries/:id/courier", handler, { credential: true });
+onRoute("entrega", { method: "POST", path: "entrega/deliveries/:id/start", op: "entrega.start", credential: true });
+onTelemetry("entrega", "entrega/deliveries/:id/positions", handler, { credential: true });
+// Ator `cred:<id>`, kind "app", sem escopos. O módulo ainda confere quem é o
+// entregador da entrega (segunda trava).
+
+// Fim do registro: o app recebe 401 na próxima chamada.
+await ctx.revokeCredentials(entrega.id, "Entrega concluída.");
+await ctx.credentials(entrega.id); // quem leu, quando, de que aparelho
+```
+
+- **Troca:** `POST /api/credentials/claim` `{code, name, device}`, fora de
+  `/api/v1`, sem autenticação, 10 por IP a cada 10 minutos, uso único
+  (`410 claim_used`, `410 claim_expired`, `404 claim_not_found`). Responde
+  `{token: "wabx_…", expires_at, profile, module, subject, credential_id,
+  data}`. `GET /api/public/c/<código>` só orienta (câmera comum) ou, com `Accept: application/json`, diz se o código vale e o nome da loja; não gasta o QR. Fica debaixo de `/api/` por causa do `run_worker_first` do `wrangler.jsonc` (fora dele, a instalação serve o painel).
+- **Escopo, negado por padrão:** o middleware de `/api/v1` recusa
+  (`403 credential_scope`) qualquer caminho fora de
+  `/api/v1/profiles/<área>/<rota do módulo>/…`. Dentro do módulo, **só a rota
+  que declara `{ credential: true }`** (em `onRead`, `onRoute` ou
+  `onTelemetry`) aceita a credencial, e o núcleo confere que o parâmetro do
+  caminho (`:id`, ou o nome em `credentialParam`) é o `subject` dela; a rota
+  sem esse parâmetro não pode aceitar. O comando confere de novo no
+  Coordinator. Uma rota nova que não declare responde 403 à credencial: não
+  há o que lembrar. O ator não tem escopos (`ctx.access` recusa),
+  `ctx.granted` e `ctx.mayRead` são falsos, `ctx.read`/`ctx.run` recusam
+  (`403 credential_scope`) e o MCP (`/api/mcp`) também (`403`).
+- **Prazo:** o QR vale `claimMinutes` (5 a 120) até ser lido; o token,
+  `ttlMinutes` (15 a 360) depois da leitura, e é revogado antes pelo módulo.
+  Só os hashes do código e do token ficam guardados, com o nome digitado, o
+  aparelho e o IP em HMAC com a `MASTER_KEY` (sem como reverter pelo espaço
+  do IPv4; o limite por IP da troca usa o mesmo HMAC).
+- Revisado pela sessão A em 16/11 (`sessao-A-revisao-credencial-qr.md`);
+  as mudanças estão em `fix/credencial-qr`.
+
+### Ator de módulo (`ctx.moduleActor`)
+
+Para um módulo agir em outro pela API pública dele (`ctx.read`, `ctx.run`) em
+nome de quem não tem acesso a esse outro módulo (o entregador do QR, a pessoa
+só com o papel entregador):
+
+```ts
+const asPedido = ctx.moduleActor({ reach: ["pedido"], label: actor.name });
+await ctx.run(asPedido, "pedido.status", { id, status: "delivered" }, requestId);
+```
+
+- `id` `module:<módulo>` (é o que aparece nos históricos), `kind: "app"` com
+  os escopos de ler e mudar registros e ver contatos; nunca tem papel
+  (`granted` falso), não entra no MCP nem nas rotas HTTP (só existe dentro do
+  código do módulo).
+- Só alcança os módulos de `reach` (`ctx.read`/`ctx.run` em outro:
+  `403 module_scope`). O módulo dono confere o resto: o **Pedido** aceita
+  desse ator só `pedido.status` para `out_for_delivery` ou `delivered` num
+  pedido de entrega; cancelar, pagamento, cadastro e loja dão
+  `403 module_forbidden`.
+- Não use um ator `kind: "user"` montado à mão: com o acesso por pessoa, ele
+  vale como atendente completo.
 
 ## 4. Passo web
 
@@ -708,7 +1054,7 @@ onPaymentUpdated("pedido", async (ctx, payment, { previous }) => {
 
 - `GET /api/v1/capabilities` lista, por área alcançada pela credencial
   (pessoa ou aparelho pareado), os módulos **ligados** com versão, e os
-  recursos do núcleo em `features` (`modules`, `web_steps`). O app só mostra a
+  recursos do núcleo em `features` (`modules`, `web_steps`, `establishment`, `queue_coupon`, `module_grants`, `person_access`). O app só mostra a
   tela de um módulo presente na lista; um 409 `module_disabled` numa rota do
   módulo deve esconder a tela até a próxima consulta.
 - Caminhos aceitos, todos com a mesma resposta:
@@ -721,7 +1067,7 @@ onPaymentUpdated("pedido", async (ctx, payment, { previous }) => {
   {
     "capabilities_version": 1,
     "server": { "service": "wabotia", "version": "0.19.3", "commit": "…" },
-    "features": ["modules", "web_steps"],
+    "features": ["modules", "web_steps", "establishment", "queue_coupon", "module_grants", "person_access"],
     "actor": { "id": "app:…", "kind": "app", "role": "service" },
     "profiles": [{ "id": "…", "name": "…", "enabled": true,
                    "modules": [{ "id": "queue", "name": "Fila presencial", "version": "1.0.0" }] }],
@@ -731,6 +1077,17 @@ onPaymentUpdated("pedido", async (ctx, payment, { previous }) => {
 
   (`modules` no topo só existe no caminho por área.) O id da fila é `queue`;
   o dos formulários, `forms`.
+- **O que a pessoa logada acessa** (recursos `person_access` e
+  `module_grants` em `features`): cada item de `profiles` traz `access` e
+  `grants`. O contrato completo para os apps está em
+  [API.md](API.md#acesso-por-pessoa).
+
+  ```json
+  "profiles": [{ "id": "…", "name": "…", "enabled": true,
+                 "modules": [{ "id": "os", "name": "Ordem de Serviço", "version": "1.0.0" }],
+                 "access": ["os", "os:technician"],
+                 "grants": ["os:technician"] }]
+  ```
 - O evento `module.changed` (`{module_id, enabled, version}`) avisa quando um
   administrador liga ou desliga; aplicações da área o recebem em
   `GET /events` independentemente das permissões.

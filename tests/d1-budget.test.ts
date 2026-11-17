@@ -2,7 +2,13 @@
 // ligados (docs/LIMITES.md). O plano gratuito do Cloudflare aceita 50
 // consultas por invocação; o pago, 1000. Os tetos abaixo travam regressões:
 // se um fluxo passar a consultar mais, o teste mostra a lista de instruções.
-import { env, runInDurableObject } from "cloudflare:test";
+import {
+  createExecutionContext,
+  env,
+  runInDurableObject,
+  waitOnExecutionContext,
+} from "cloudflare:test";
+import worker from "../src/index";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cachedAll, cachedOne, exec, one, withReadCache } from "../src/db";
 import { inbound, perform } from "../src/service";
@@ -12,9 +18,17 @@ import { completeWebStep } from "../src/web-steps";
 import { refreshFromProvider, verifyPaymentWebhook } from "../src/payments";
 import { runModuleSchedules } from "../src/modules/schedule";
 import { moduleStates } from "../src/modules/registry";
-import { hmac } from "../src/security";
+import { modulesApi } from "../src/modules/api";
+import { overview as mesasOverview } from "../src/modules/mesas/tabs";
+import { hmac, sha } from "../src/security";
 import { mpManifest } from "../src/payments-mercadopago";
-import { configure, fixture, type Fixture } from "./service-center-fixture";
+import {
+  application,
+  bearer,
+  configure,
+  fixture,
+  type Fixture,
+} from "./service-center-fixture";
 import {
   MP_SECRET,
   paymentAccount,
@@ -38,6 +52,7 @@ const MODULES = [
   "pedido",
   "mensalidade",
   "suporte",
+  "mesas",
 ];
 const MENUS = [
   { id: "cardapio", label: "Cardápio", type: "pedido_cardapio" },
@@ -79,11 +94,21 @@ const CEILINGS: Record<string, number> = {
   // 28: inclui a fila durável do gancho do módulo (revisão A3).
   "webhook do Mercado Pago: Coordinator": 30,
   "rodada periódica dos módulos": 24,
-  "fila: emitir senha (comando no Coordinator)": 16,
+  // 17: o QR do cupom lê a configuração da área (QR ligado) e o endereço
+  // público (link da imagem no texto).
+  "fila: emitir senha (comando no Coordinator)": 17,
   "fila: chamar a próxima (comando no Coordinator)": 18,
   // Passa de 50: manutenção, rodada dos módulos e motor na mesma invocação;
   // aqui as duas entregas são canceladas (época antiga), o caminho barato.
-  "alarme com uma mensagem e entregas pendentes": 70,
+  // 71: mais uma consulta por rodada para vencer pedidos de aprovação
+  // (src/approvals.ts, feat/bot-acoes).
+  "alarme com uma mensagem e entregas pendentes": 71,
+  // 25: conta, cardápio, pedido no Pedido (contador, pedido, histórico,
+  // evento), histórico da conta, evento e a conta relida com os totais.
+  "mesas: lançar pedido (comando no Coordinator)": 27,
+  // 7: mesas, contas abertas, totais do Pedido, pagamentos e os garçons.
+  "mesas: mapa das mesas (leitura)": 8,
+  "mesas: fechar a conta (comando no Coordinator)": 21,
 };
 
 describe("consultas ao D1 por invocação, com todos os módulos ligados", () => {
@@ -226,6 +251,34 @@ describe("consultas ao D1 por invocação, com todos os módulos ligados", () =>
       f.member,
     );
 
+    // 6. Mesas: lançar itens na conta (vira pedido do Pedido), o mapa das
+    // mesas e o fechamento com o pagamento.
+    // Garçom: papel mesas:waiter no acesso da pessoa (src/access.ts).
+    await exec(
+      env,
+      "UPDATE users SET access=? WHERE id=?",
+      JSON.stringify(["*", "mesas:waiter"]),
+      f.member.id,
+    );
+    (f.member as any).access = ["*", "mesas:waiter"];
+    const [mesa] = (await run("mesas.table.create", { name: "Mesa 1" })).data;
+    const tab = await run("mesas.tab.open", { table_id: mesa.id }, f.member);
+    report["mesas: lançar pedido (comando no Coordinator)"] = await command(
+      "mesas.order.send",
+      { id: tab.id, items: [{ item_id: menu.suco.id, quantity: 2 }] },
+      f.member,
+    );
+    report["mesas: mapa das mesas (leitura)"] = (
+      await measure(env, (e) =>
+        mesasOverview(modulesApi(e, f.profile, "mesas"), now()),
+      )
+    ).count;
+    report["mesas: fechar a conta (comando no Coordinator)"] = await command(
+      "mesas.tab.close",
+      { id: tab.id, payments: [{ method: "card", amount_cents: 1760 }] },
+      f.member,
+    );
+
     // Alarme inteiro: manutenção, rodada dos módulos, uma mensagem no motor,
     // entregas pendentes (até 10), webhooks e push, na mesma invocação.
     await send("2");
@@ -263,6 +316,70 @@ describe("consultas ao D1 por invocação, com todos os módulos ligados", () =>
     expect(report["escolha no menu (Cardápio): motor"].statements).toBeLessThan(
       FREE_PLAN,
     );
+  });
+});
+
+/**
+ * Idas ao D1 antes da rota, por requisição autenticada (calls: um lote conta
+ * uma). Cada ida é uma viagem da borda ao banco (150 a 470 ms medidos do
+ * Brasil); antes eram 2 a 4 em série. Detalhes em tests/d1-request.test.ts.
+ */
+const REQUEST_CEILINGS: Record<string, number> = {
+  "wabu_: GET /me": 1,
+  "cookie: GET /me": 1,
+  "chave de aplicação: GET /me": 1,
+};
+
+describe("idas ao D1 antes da rota (requisição autenticada)", () => {
+  it("credencial, política e estado dos módulos numa ida só", async () => {
+    const f = await fixture();
+    const wabu = await bearer(f.member);
+    await exec(
+      env,
+      "UPDATE sessions SET id=? WHERE hash=?",
+      uid(),
+      await sha(wabu),
+    );
+    const cookieToken = uid() + uid();
+    await exec(
+      env,
+      "INSERT INTO sessions(hash,user_id,expires,kind,created,label,last_used,id) VALUES(?,?,?,'cookie',?,?,?,?)",
+      await sha(cookieToken),
+      f.member.id,
+      now() + 3600000,
+      now(),
+      "teste",
+      now(),
+      uid(),
+    );
+    const app = await application(f, ["conversations:read"]);
+    const call = async (headers: Record<string, string>) => {
+      const { env: counted, count } = countingEnv(env);
+      const ctx = createExecutionContext();
+      await worker.fetch(
+        new Request("https://test/api/v1/me", { headers }),
+        counted as any,
+        ctx,
+      );
+      await waitOnExecutionContext(ctx);
+      return count;
+    };
+    // A primeira de pessoa no isolado grava o endereço público (uma vez).
+    await call({ Authorization: "Bearer " + wabu });
+    const report: Record<string, D1Count> = {
+      "wabu_: GET /me": await call({ Authorization: "Bearer " + wabu }),
+      "cookie: GET /me": await call({ Cookie: "wabotia=" + cookieToken }),
+      "chave de aplicação: GET /me": await call({
+        Authorization: "Bearer " + app.token,
+      }),
+    };
+    const over = Object.entries(report)
+      .filter(([name, c]) => c.calls > REQUEST_CEILINGS[name])
+      .map(
+        ([name, c]) =>
+          `${name}: ${c.calls} idas (teto ${REQUEST_CEILINGS[name]})\n  ${c.sql.join("\n  ")}`,
+      );
+    expect(over).toEqual([]);
   });
 });
 

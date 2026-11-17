@@ -8,7 +8,8 @@ import {
   json,
   requireValue,
 } from "./types";
-import { admin, secret, setSecret, publicUrl } from "./security";
+import { admin, secret, setSecret, publicUrl, storedAccess } from "./security";
+import { allows } from "./access";
 import { isActiveTicket, ticketTeamLabels } from "./protocols";
 import {
   sendFcm,
@@ -197,6 +198,15 @@ interface Pending {
   resource_id: string | null;
   message: PushMessage;
 }
+/** Aviso → item de acesso (src/access.ts): quem não acessa não recebe. */
+const PUSH_ACCESS: Record<string, string> = {
+  message: "conversations",
+  transfer: "conversations",
+  queue: "conversations",
+  ticket: "tickets",
+  ticket_due: "tickets",
+  call: "calls",
+};
 // A notification computed from an event or a ticket deadline, before any
 // push_log row exists. Rows are claimed right before sending (see deliver).
 interface Notification {
@@ -326,12 +336,19 @@ async function deliver(
   env: Env,
   profile: string,
   cfg: PushConfig,
-  users: { id: string }[],
+  users: { id: string; role?: string; access?: unknown }[],
   devices: Device[],
   items: Notification[],
   deadline: number,
 ) {
   const userIds = new Set(users.map((u) => u.id));
+  // Acesso por pessoa (src/access.ts), para filtrar quem recebe cada aviso.
+  const people = new Map<string, Actor>(
+    users.map((u) => [
+      u.id,
+      { kind: "user", role: u.role, access: storedAccess(u.access) } as Actor,
+    ]),
+  );
   let chunk: Pending[] = [];
   const send = async () => {
     if (!chunk.length) return;
@@ -379,10 +396,13 @@ async function deliver(
         );
         if (!claimed) continue;
       }
-      const ids =
+      // Acesso por pessoa: só quem acessa o assunto do aviso (src/access.ts).
+      const item_ = PUSH_ACCESS[item.kind];
+      const ids = (
         item.targets === "all"
           ? users.map((u) => u.id)
-          : item.targets.filter((id) => userIds.has(id));
+          : item.targets.filter((id) => userIds.has(id))
+      ).filter((id) => !item_ || allows(people.get(id)!, item_));
       const recipients = devices.filter(
         (d) =>
           ids.includes(d.user_id) &&
@@ -474,7 +494,7 @@ export async function processPush(env: Env, profile: string) {
     const started = now();
     const users = await all(
       env,
-      "SELECT id,name,role FROM users WHERE disabled=0 AND (role='admin' OR EXISTS(SELECT 1 FROM json_each(users.profiles) WHERE value=?))",
+      "SELECT id,name,role,access FROM users WHERE disabled=0 AND (role='admin' OR EXISTS(SELECT 1 FROM json_each(users.profiles) WHERE value=?))",
       profile,
     );
     const userIds = new Set(users.map((u) => u.id));
@@ -514,7 +534,15 @@ export async function processPush(env: Env, profile: string) {
       message: Omit<PushMessage, "token" | "platform">,
       alert?: Notification["alert"],
     ) => {
-      items.push({ targets, exclude, kind, resource, dedupeKey, message, alert });
+      items.push({
+        targets,
+        exclude,
+        kind,
+        resource,
+        dedupeKey,
+        message,
+        alert,
+      });
     };
     // Phase 1: compute notifications without writing anything.
     const handle = async (ev: any) => {
@@ -582,6 +610,27 @@ export async function processPush(env: Env, profile: string) {
             category: "MESSAGE",
             time_sensitive: false,
           });
+      } else if (ev.kind === "approval.requested") {
+        // Pedido de aprovação à equipe (src/approvals.ts): só quem pode decidir.
+        const targets: string[] = Array.isArray(payload.approvers)
+          ? payload.approvers.filter((id: any) => typeof id === "string")
+          : [];
+        if (!targets.length) return;
+        queue(targets, null, "approval", ev.resource_id, String(ev.id), {
+          title: minimal ? "Wabotia" : "Pedido de aprovação",
+          body: minimal ? "Novo pedido de aprovação" : truncate(String(payload.title || ""), 120),
+          data: {
+            type: "approval",
+            profile_id: profile,
+            approval_id: ev.resource_id,
+            conversation_id: payload.conversation_id,
+          },
+          priority: "high",
+          collapse_key: "aprovacao-" + ev.resource_id,
+          channel: "messages",
+          category: "MESSAGE",
+          time_sensitive: true,
+        });
       } else if (ev.kind === "ticket.created" || ev.kind === "ticket.updated") {
         const ticket = await one(
           env,
