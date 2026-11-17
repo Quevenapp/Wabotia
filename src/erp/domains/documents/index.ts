@@ -10,5 +10,7 @@ import "./rpc/reads-commerce.ts";
 import "./rpc/reads-proposal.ts";
 import "./rpc/reads-history.ts";
 import "./rpc/reads-reports.ts";
+import "./rpc/reads-b2.ts";
+import "./rpc/reads-list.ts";
 
 export {};
