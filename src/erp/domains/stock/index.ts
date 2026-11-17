@@ -11,4 +11,5 @@ import "./rpc/dashboards.ts";
 import "./rpc/document-stock.ts";
 import "./rpc/reservations.ts";
 import "./rpc/purchase-receipts.ts";
+import "./rpc/launch.ts";
 export {};
