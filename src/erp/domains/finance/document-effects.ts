@@ -146,15 +146,35 @@ const pathText = (o: unknown, path: string[]): string | null => {
   return v === undefined || v === null ? null : typeof v === "string" ? v : jsonbText(v);
 };
 
-/** erp_finance.document_seller(documento): o vendedor do corpo (o do Origin sai pela linha de corte). */
+/** erp_finance.document_seller(documento): o vendedor do corpo, senão o do Origin pela referência comercial. */
 export function documentSeller(db: SqlDriver, d: Row): string | null {
   const ref = pathText(parse(d.body), ["seller_id"]);
   if (ref !== null && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(ref)) {
     const s = one(db, 'SELECT id FROM "erp_catalog__seller" WHERE id=?', ref);
     if (s) return String(s.id);
   }
-  // erp_finance.commission_seller: lê origin_sync.raw_record, vazio com o Origin fora.
-  return null;
+  return commissionSeller(db, (parse(d.body) as Row | null)?.commercial);
+}
+
+/**
+ * erp_finance.commission_seller(referência): o vendedor do Origin pela referência comercial
+ * (system 'origin'): o contato do vendedor no raw_record, o contato do catálogo por
+ * erp_catalog.origin e o vendedor desse contato, o menor id.
+ */
+function commissionSeller(db: SqlDriver, commercial: unknown): string | null {
+  const ref = commercial !== null && typeof commercial === "object" && !Array.isArray(commercial) ? (commercial as Row).seller_reference : undefined;
+  if (ref === null || ref === undefined || typeof ref !== "object" || Array.isArray(ref)) return null;
+  if (pathText(ref, ["system"]) !== "origin") return null;
+  const source = pathText(ref, ["source_id"]);
+  if (source === null) return null;
+  const rows = db.exec(
+    `SELECT s.id FROM "origin_sync__raw_record" r
+       JOIN "erp_catalog__origin" o ON o.entity='contacts' AND o.source_id=json_extract(r.payload,'$.contato.id')
+       JOIN "erp_catalog__seller" s ON s.contact_id=o.record_id
+      WHERE r.entity='sellers' AND r.source_id=? ORDER BY s.id LIMIT 1`,
+    source,
+  ).rows;
+  return rows.length ? String(rows[0].id) : null;
 }
 
 /** erp_finance.commission_amounts(documento, política) */

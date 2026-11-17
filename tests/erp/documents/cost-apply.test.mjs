@@ -59,12 +59,17 @@ test("cost_apply: mesmo custo que o Postgres", async () => {
     return p.id;
   };
   const products = [await product("P-CUSTO-1", "12.3456789012"), await product("P-CUSTO-2", "0"), await product("P-CUSTO-3", null), await product("P-CUSTO-4", "7.5")];
-  await f.db.query("alter table erp_documents.document disable trigger cost_apply_capture");
+  // A situação vai direto por SQL (com o gatilho desligado no Postgres): o transition, que roda nos dois motores,
+  // aplicaria o custo antes da comparação.
   const order = async (items, statuses = ["open", "verified"]) => {
     let d = (await f.rpc("erp_document_save", { p_user_id: u.admin, p_kind: "sales_orders", p_id: null, p_expected_version: 0, p_command_id: randomUUID(),
       p_body: { date: "2026-10-10", contact_id: contact.id, items, installments: [] } })).document;
-    for (const status of statuses.filter((s) => s !== d.status))
-      d = (await f.rpc("erp_document_transition", { p_user_id: u.admin, p_kind: "sales_orders", p_id: d.id, p_expected_version: d.version, p_command_id: randomUUID(), p_status: status, p_reason: "Teste" })).document;
+    const status = statuses[statuses.length - 1];
+    if (status !== d.status) {
+      await f.db.query("alter table erp_documents.document disable trigger cost_apply_capture");
+      await sql("update erp_documents.document set status=$2 where id=$1", [d.id, status]);
+      await f.db.query("alter table erp_documents.document enable trigger cost_apply_capture");
+    }
     return d.id;
   };
   const item = (product, quantity = "1") => ({ product_id: product, description: "Item custo", unit: "UN", quantity, unit_price: "50", discount_percent: "0" });
@@ -73,8 +78,6 @@ test("cost_apply: mesmo custo que o Postgres", async () => {
     await order([item(products[0]), { description: "Sem produto", unit: "UN", quantity: "1", unit_price: "5", discount_percent: "0" }]),
     await order([item(products[3])], ["open"]),
   ];
-  await f.db.query("alter table erp_documents.document enable trigger cost_apply_capture");
-  await f.sync();
   const first = await compare(docs[0], "pedido verificado: fornecedor, zero e sem custo");
   assert.ok(first.n >= 2, "custos aplicados de fato");
   await compare(docs[1], "item sem produto");
