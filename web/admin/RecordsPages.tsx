@@ -8,6 +8,7 @@ import type { Row } from "../lib/api";
 import { Button, Field, Notice, SkeletonBlock, Table, toast } from "../ui";
 import { WhatsAppGroups } from "../WhatsAppGroups";
 import { navigate } from "../lib/routes";
+import { usageText } from "../lib/usage";
 import { FormDialog, Pager, useList } from "./shared";
 
 const reportSections: [string, string][] = [
@@ -102,7 +103,6 @@ export function ReportsPage() {
 }
 
 type Reconcile =
-  | { kind: "run"; id: string }
   | { kind: "delivery"; id: string; paid_template: boolean }
   | null;
 
@@ -150,6 +150,16 @@ export function LogsPage({
                 page === "webhook-deliveries" ? "attempts" : "error",
                 page === "webhook-deliveries" ? "Tentativas" : "Detalhes",
               ],
+              // Tokens da execução (provedor de IA direto): para ver o custo
+              // e se o cache de prompt está pegando. Sem valor em dinheiro:
+              // o preço muda.
+              ...(page === "bot-runs"
+                ? ([["usage", "Tokens", (row: Row) => usageText(row.usage)]] as [
+                    string,
+                    string,
+                    (row: Row) => React.ReactNode,
+                  ][])
+                : []),
               ["created", "Data"],
             ]}
             action={(row) => (
@@ -190,16 +200,14 @@ export function LogsPage({
                   )}
                 {row.status === "unknown" &&
                   app.isAdmin &&
-                  page !== "webhook-deliveries" && (
+                  page === "deliveries" && (
                     <Button
                       secondary
                       size="sm"
                       onClick={() => {
                         setForm({ status: "cancelled", allow_paid: false });
                         setReconcile(
-                          page === "bot-runs"
-                            ? { kind: "run", id: row.id }
-                            : {
+                          {
                                 kind: "delivery",
                                 id: row.id,
                                 paid_template: row.kind === "template",
@@ -222,27 +230,6 @@ export function LogsPage({
         )}
       </section>
       <Pager {...list} />
-      {reconcile?.kind === "run" && (
-        <FormDialog
-          title="Vincular execução confirmada"
-          onClose={() => setReconcile(null)}
-          onSubmit={async () => {
-            await api(root + `/bot-runs/${reconcile.id}/reconcile`, "POST", {
-              remote_id: form.remote_id,
-            });
-            toast("Salvo com sucesso.");
-            await list.reload();
-            setReconcile(null);
-          }}
-        >
-          <Field
-            label="run_id confirmado no Hermes"
-            value={form.remote_id}
-            onChange={(remote_id) => setForm({ ...form, remote_id })}
-            required
-          />
-        </FormDialog>
-      )}
       {reconcile?.kind === "delivery" && (
         <FormDialog
           title="Conferir entrega no canal"

@@ -45,9 +45,9 @@ const schemas = {
       id: { type: "string" },
       name: { type: "string", minLength: 1, maxLength: 100 },
       kind: {
-        enum: ["zernio", "qr", "hermes-whatsapp", "hermes", "ai"],
+        enum: ["zernio", "qr", "ai"],
         description:
-          "ai: provedor de IA direto (OpenAI, DeepSeek, Anthropic ou API compatível com OpenAI), sem Hermes. Gera um único bot no primeiro teste da conexão.",
+          "ai: provedor de IA direto (OpenAI, DeepSeek, Anthropic ou API compatível com OpenAI), sem servidor externo. Gera um único bot no primeiro teste da conexão.",
       },
       mode: { type: "string", default: "direct" },
       config: {
@@ -144,7 +144,7 @@ const schemas = {
       bots_removed: {
         type: "integer",
         minimum: 0,
-        description: "Conexões de bots (hermes ou ai): bots excluídos.",
+        description: "Conexões de bots (ai): bots excluídos.",
       },
     },
   },
@@ -1707,7 +1707,7 @@ export function openapi(origin: string) {
     }
     if (path.endsWith("/connections/{id}") && method === "delete") {
       entry.description +=
-        " Remove apenas a conexão local WhatsApp (Zernio, QR, Hermes WhatsApp ou legado Meta), suas credenciais e vínculos no roteador. Não desconecta a conta no provedor. Preserva mensagens, protocolos e conversas, encerrando o atendimento e impedindo novos envios por essa linha. Cancela mensagens e operações de grupo ainda na fila (pending). Retorna 409 connection_busy com envios ou operações já iniciados/ambíguos (sending/unknown) ou ligações abertas; conclua ou reconcilie antes de repetir. Para conexões de bots (hermes ou ai), exige a conexão pausada e remove a conexão, seus bots e a chave guardada, preservando conversas, mensagens e execuções; execuções ainda na fila são canceladas e os bots saem das permissões de aplicativos. Retorna 409 connection_in_use enquanto um desses bots for o Atendente, especialista, item de menu, bot de uma linha ou atender uma conversa, e 409 connection_busy com execução em andamento.";
+        " Remove apenas a conexão local WhatsApp (Zernio, QR ou legado Meta), suas credenciais e vínculos no roteador. Não desconecta a conta no provedor. Preserva mensagens, protocolos e conversas, encerrando o atendimento e impedindo novos envios por essa linha. Cancela mensagens e operações de grupo ainda na fila (pending). Retorna 409 connection_busy com envios ou operações já iniciados/ambíguos (sending/unknown) ou ligações abertas; conclua ou reconcilie antes de repetir. Para conexões de bots (ai), exige a conexão pausada e remove a conexão, seus bots e a chave guardada, preservando conversas, mensagens e execuções; execuções ainda na fila são canceladas e os bots saem das permissões de aplicativos. Retorna 409 connection_in_use enquanto um desses bots for o Atendente, especialista, item de menu, bot de uma linha ou atender uma conversa, e 409 connection_busy com execução em andamento.";
       success.content["application/json"].schema = {
         $ref: "#/components/schemas/ConnectionRemoved",
       };
@@ -1941,7 +1941,7 @@ export function openapi(origin: string) {
       title: "Wabotia API",
       version: "1.0.0",
       description:
-        'Atendimento e bots Hermes. Integrações servidor-servidor cadastradas pelo administrador. Nunca exponha sua chave em JavaScript público. Webhooks são entregues ao menos uma vez; deduplique por ID. Assinatura HMAC-SHA256 sobre timestamp.corpo_original. As operações marcadas como "Aplicativos móveis" aceitam somente sessões de usuário (token wabu_, emitido por POST /api/auth/mobile/login) ou o cookie do painel; chaves de aplicação recebem 403. O login móvel é servido em /api/auth/mobile/login, fora de /api/v1.',
+        'Atendimento e bots internos. Integrações servidor-servidor cadastradas pelo administrador. Nunca exponha sua chave em JavaScript público. Webhooks são entregues ao menos uma vez; deduplique por ID. Assinatura HMAC-SHA256 sobre timestamp.corpo_original. As operações marcadas como "Aplicativos móveis" aceitam somente sessões de usuário (token wabu_, emitido por POST /api/auth/mobile/login) ou o cookie do painel; chaves de aplicação recebem 403. O login móvel é servido em /api/auth/mobile/login, fora de /api/v1.',
     },
     servers: [{ url: origin + "/api/v1" }],
     components: {

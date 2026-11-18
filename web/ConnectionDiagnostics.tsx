@@ -1,7 +1,7 @@
 import React, { useRef, useState } from "react";
 import { ArrowRight, Check, Loader2 } from "lucide-react";
 
-type Action = "test" | "discover";
+type Action = "test";
 type Bot = { id: string; name: string; remote_profile: string };
 type Result = {
   error?: string;
@@ -10,8 +10,7 @@ type Result = {
 };
 
 export function ConnectionDiagnostics({
-  hermes,
-  listsBots = hermes,
+  listsBots = false,
   demo,
   disabled,
   request,
@@ -19,9 +18,7 @@ export function ConnectionDiagnostics({
   showBots,
   children,
 }: {
-  /** Mostra "Descobrir bots" (somente Hermes). */
-  hermes: boolean;
-  /** O teste devolve os bots da conexão (Hermes e provedor de IA). */
+  /** O teste devolve o bot da conexão com o provedor de IA. */
   listsBots?: boolean;
   demo: boolean;
   disabled: boolean;
@@ -52,19 +49,14 @@ export function ConnectionDiagnostics({
       const response = await request(action, signal);
       const found = Array.isArray(response) ? response : response?.bots;
       setResult({
-        title:
-          action === "test"
-            ? "Conexão verificada com sucesso."
-            : "Busca de bots concluída.",
+        title: "Conexão verificada com sucesso.",
         bots: listsBots && Array.isArray(found) ? found : undefined,
       });
       await refresh();
     } catch (error) {
       setResult({
         error: signal.aborted
-          ? hermes
-            ? "A verificação demorou mais que o esperado. Não foi possível confirmar o resultado. Confira se o Hermes e o túnel estão ligados antes de tentar novamente."
-            : "A verificação demorou mais que o esperado. Não foi possível confirmar o resultado. Tente novamente em instantes."
+          ? "A verificação demorou mais que o esperado. Não foi possível confirmar o resultado. Tente novamente em instantes."
           : error instanceof Error
             ? error.message
             : "Não foi possível verificar a conexão. Tente novamente.",
@@ -88,29 +80,10 @@ export function ConnectionDiagnostics({
         </button>
         {children}
       </div>
-      {hermes && (
-        <button
-          className="text-link"
-          disabled={disabled || pending !== null}
-          onClick={() => check("discover")}
-        >
-          {pending === "discover" ? (
-            <>
-              <Loader2 className="spin" size={16} /> Buscando bots…
-            </>
-          ) : (
-            <>
-              Descobrir bots <ArrowRight size={16} />
-            </>
-          )}
-        </button>
-      )}
       <div role="status" aria-live="polite" aria-atomic="true">
         {pending && !result && (
           <p className="connection-progress">
-            {pending === "test"
-              ? "Verificando o acesso ao serviço. Aguarde…"
-              : "Consultando os atendimentos Hermes. Aguarde…"}
+            Verificando o acesso ao serviço. Aguarde…
           </p>
         )}
         {result && !result.error && (
@@ -122,9 +95,7 @@ export function ConnectionDiagnostics({
               <>
                 <p>
                   {result.bots.length === 0
-                    ? hermes
-                      ? "Nenhum bot encontrado. Confira os atendimentos criados no Hermes e tente novamente."
-                      : "Nenhum bot encontrado. Tente novamente."
+                    ? "Nenhum bot encontrado. Tente novamente."
                     : `${result.bots.length} ${result.bots.length === 1 ? "bot encontrado" : "bots encontrados"}.`}
                 </p>
                 {result.bots.length > 0 && (

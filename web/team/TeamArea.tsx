@@ -11,6 +11,7 @@ import { listTime, plural } from "../lib/format";
 import { linkProps, navigate, teamSegments } from "../lib/routes";
 import {
   Avatar,
+  Button,
   CountBadge,
   Empty,
   IconButton,
@@ -29,6 +30,15 @@ import "../styles/team.css";
 
 type Segment = (typeof teamSegments)[number];
 const RUNS = "execucoes";
+
+/** Estado do bot na lista, com o motivo quando não está disponível. */
+export function botState(bot: Row) {
+  if (bot.online) return "Disponível";
+  if (!bot.enabled) return "Desligado";
+  if (bot.connection_status && bot.connection_status !== "active")
+    return "Conexão pausada";
+  return "Indisponível";
+}
 
 export function TeamArea({ sub, id }: { sub?: string; id?: string }) {
   const app = useApp();
@@ -126,6 +136,20 @@ export function TeamArea({ sub, id }: { sub?: string; id?: string }) {
       toastError(e, () => void openPeer(peer));
     } finally {
       setOpening("");
+    }
+  }
+  // Bot desligado: o administrador liga aqui mesmo (nunca liga sozinho).
+  const [enabling, setEnabling] = useState("");
+  async function enableBot(bot: Row) {
+    if (enabling || app.demoBlocked()) return;
+    setEnabling(bot.bot_id);
+    try {
+      await write(app.root + "/bots/" + bot.bot_id, "PATCH", { enabled: true });
+      await app.refresh();
+    } catch (e) {
+      toastError(e, () => void enableBot(bot));
+    } finally {
+      setEnabling("");
     }
   }
   const changeSegment = (next: Segment) => {
@@ -343,11 +367,23 @@ export function TeamArea({ sub, id }: { sub?: string; id?: string }) {
                       <span className="team-row-text">
                         <strong className="truncate">{bot.name}</strong>
                         <small className="truncate">
-                          {bot.online ? "Disponível" : "Indisponível"} ·{" "}
-                          {botLinesText(bot.line_ids)}
+                          {botState(bot)} · {botLinesText(bot.line_ids)}
                         </small>
+                        {bot.does && <small className="team-row-does">{bot.does}</small>}
                       </span>
                     </button>
+                    {!bot.enabled && app.isAdmin && (
+                      <Button
+                        secondary
+                        size="sm"
+                        busy={enabling === bot.bot_id}
+                        disabled={!!enabling}
+                        onClick={() => void enableBot(bot)}
+                        title={"Ligar " + bot.name}
+                      >
+                        Ligar
+                      </Button>
+                    )}
                     <IconButton
                       label={"Console de " + bot.name}
                       active={consoleOpen && id === bot.bot_id}
@@ -364,7 +400,11 @@ export function TeamArea({ sub, id }: { sub?: string; id?: string }) {
                 <Empty
                   icon={<Bot size={28} />}
                   title="Nenhum bot nesta área"
-                  description="Os bots aparecem aqui depois de conectar o Hermes em Gestão."
+                  description={
+                    app.isAdmin
+                      ? "Conecte um provedor de IA (Anthropic, OpenAI, DeepSeek) em Gestão › Conexões e use Testar conexão: o bot aparece aqui. Depois toque em Ligar para conversar com ele."
+                      : "Peça a um administrador para conectar um provedor de IA e ligar o bot. Ele aparece aqui para conversar."
+                  }
                 />
               )}
               <a
@@ -464,7 +504,7 @@ export function TeamArea({ sub, id }: { sub?: string; id?: string }) {
             </p>
             <p>
               O estado das pessoas acompanha a disponibilidade de cada uma. Para
-              bots, acompanha a habilitação e a conexão com o Hermes.
+              bots, acompanha a habilitação e a conexão com o provedor de IA.
             </p>
           </div>
         )}

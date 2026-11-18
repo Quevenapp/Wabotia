@@ -2,11 +2,80 @@
 import { describe, expect, it } from "vitest";
 import { BOT_TOOLS } from "../src/bot-actions/actions";
 import { MAX_ROUNDS, parseTurn, providerFamily, toolLoop, toolsFor } from "../src/bot-tools";
+import { createPiiMask } from "../src/pii-mask";
+
+describe("bot-tools: máscara de dados pessoais no laço", () => {
+  it("mascara o resultado da ferramenta e devolve os itens do modelo intactos", async () => {
+    const pii = createPiiMask(true);
+    // Cifrado com uma sequência que, solta, passaria por CPF válido.
+    const reasoning = { type: "reasoning", id: "rs_1", encrypted_content: "gAAA+52998224725/Zz==" };
+    const call = { type: "function_call", id: "fc_1", call_id: "call_1", name: "consultar", arguments: '{"cpf":"[CPF_1]"}' };
+    const seen: any[] = [];
+    const args: any[] = [];
+    pii.mask("CPF 529.982.247-25");
+    await toolLoop({
+      family: "responses",
+      pii,
+      messages: [],
+      tools: BOT_TOOLS,
+      complete: async (messages) => {
+        seen.push(structuredClone(messages));
+        return seen.length === 1
+          ? { status: "completed", output: [reasoning, call] }
+          : { status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }] };
+      },
+      run: async (c) => {
+        args.push(c.args);
+        return JSON.stringify({ telefone: "(11) 98765-4321", cpf: "529.982.247-25" });
+      },
+    });
+    // A ferramenta recebe o valor real; o provedor só vê marcadores.
+    expect(args[0]).toEqual({ cpf: "529.982.247-25" });
+    const sent = seen[1];
+    expect(sent).toContainEqual(reasoning);
+    expect(sent).toContainEqual(call);
+    const output = sent.find((m: any) => m.type === "function_call_output").output;
+    expect(output).not.toContain("98765");
+    expect(output).not.toContain("529.982");
+    expect(output).toContain("[CPF_1]");
+  });
+
+  it("número inteiro mascarado volta como número para a ferramenta", () => {
+    const pii = createPiiMask(true);
+    // 52998224725 passa no dígito do CPF: vira marcador mesmo sendo um id numérico.
+    const masked = pii.maskValue({ id: 52998224725, nome: "x" });
+    expect(masked.id).toBe("[CPF_1]");
+    expect(pii.restoreValue({ id: masked.id, texto: `ver ${masked.id}` })).toEqual({
+      id: 52998224725,
+      texto: "ver 52998224725",
+    });
+  });
+
+  it("marcador que nasceu de texto volta texto, mesmo se a ferramenta devolver o número", () => {
+    const pii = createPiiMask(true);
+    // O cliente escreveu com pontuação; a ferramenta devolve o mesmo CPF como
+    // número (mesmo marcador). Outro CPF nasce de número.
+    expect(pii.mask("CPF 529.982.247-25")).toBe("CPF [CPF_1]");
+    const masked = pii.maskValue({ cpf: 52998224725, outro: 11144477735 });
+    expect(masked).toEqual({ cpf: "[CPF_1]", outro: "[CPF_2]" });
+    const back = pii.restoreValue({ a: "[CPF_1]", b: "[CPF_2]" });
+    // Texto volta texto (nunca NaN); o que nasceu de número volta número.
+    expect(back).toEqual({ a: "529.982.247-25", b: 11144477735 });
+  });
+});
 
 describe("bot-tools: formatos", () => {
   it("monta as definições de cada família", () => {
     expect(providerFamily("anthropic")).toBe("anthropic");
-    for (const p of ["openai", "deepseek", "compatible"]) expect(providerFamily(p)).toBe("openai");
+    // OpenAI pelo Responses; DeepSeek e compatíveis pelo chat/completions.
+    expect(providerFamily("openai")).toBe("responses");
+    for (const p of ["deepseek", "compatible"]) expect(providerFamily(p)).toBe("openai");
+    expect(toolsFor("responses", BOT_TOOLS)[1]).toEqual({
+      type: "function",
+      name: "consultar",
+      description: BOT_TOOLS[1].description,
+      parameters: BOT_TOOLS[1].schema,
+    });
     expect(toolsFor("anthropic", BOT_TOOLS)[0]).toEqual({
       name: "buscar_operacoes",
       description: BOT_TOOLS[0].description,

@@ -25,10 +25,8 @@ import { expireUploads } from "./media";
 import { transport } from "./transport";
 import { routerLink } from "./number-router";
 import { auditStatement } from "./events";
-import { processCloudflareJob } from "./cloudflare";
 import { processUpdate, updatePending, automaticUpdateTick } from "./updates";
 import { processPush } from "./push";
-import { HermesLinkHub } from "./hermes-link";
 import { ErpHub } from "./erp/hub";
 import {
   closeDay,
@@ -67,7 +65,6 @@ export class Coordinator extends DurableObject<Env> {
    * bloqueio e, depois, lê a resposta gravada.
    */
   private closing = new Map<string, Promise<void>>();
-  private link = new HermesLinkHub(this.env, this.ctx);
   private erp = new ErpHub(this.env, this.ctx);
   async fetch(request: Request) {
     // Instâncias "erp:<área>" (src/erp/hub.ts): só "/erp-*", antes de ler o
@@ -76,11 +73,11 @@ export class Coordinator extends DurableObject<Env> {
     if (erpPath.startsWith("/erp-")) return this.erp.handle(erpPath, request);
     if (await this.erp.isErp())
       return new Response("Instância do ERP.", { status: 404 });
-    // Instâncias "hermes-link:<conexão>" só atendem o vínculo do plugin: não
+    // Instâncias históricas "hermes-link:<conexão>" ficam ociosas: não
     // gravam perfil nem agendam alarme.
     const linkPath = new URL(request.url).pathname;
     if (linkPath.startsWith("/link-"))
-      return this.link.handle(linkPath, request);
+      return new Response("Hermes retirado: escolha um bot interno.", { status: 410 });
     if (linkPath === "/queue-ws") return this.acceptQueueSocket(request);
     const body = await request.json<any>();
     // Credencial revogada: fecha os sockets dela nesta área (src/sockets.ts).
@@ -645,7 +642,6 @@ export class Coordinator extends DurableObject<Env> {
       if (this.profile === "_admin") {
         await automaticUpdateTick(this.env);
         await processUpdate(this.env);
-        await processCloudflareJob(this.env);
         return;
       }
       // Uma invocação: leituras de configuração lembradas no alarme inteiro
@@ -742,10 +738,7 @@ export class Coordinator extends DurableObject<Env> {
       this.busy = false;
       const pending =
         this.profile === "_admin"
-          ? await one(
-              this.env,
-              "SELECT count(*) n FROM cloudflare_jobs WHERE status IN ('pending','running')",
-            )
+          ? { n: 0 }
           : await one(
               this.env,
               "SELECT (SELECT count(*) FROM inbox WHERE profile_id=? AND status='pending')+(SELECT count(*) FROM bot_runs WHERE profile_id=? AND (status IN ('queued','starting','running','cancelling') OR (status='completed' AND completion_handled=0)))+(SELECT count(*) FROM outbox WHERE profile_id=? AND status IN ('pending','sending'))+(SELECT count(*) FROM documents WHERE profile_id=? AND status='pending')+(SELECT count(*) FROM webhook_deliveries d JOIN webhook_subscriptions s ON s.id=d.subscription_id WHERE s.profile_id=? AND d.status='pending')+(SELECT count(*) FROM group_operations WHERE profile_id=? AND status IN ('pending','sending'))+(SELECT count(*) FROM events WHERE profile_id=? AND id>coalesce((SELECT last_event_id FROM push_cursors WHERE profile_id=?),0)) n",

@@ -452,8 +452,7 @@ onConversationAction(
   },
 );
 
-// Ferramentas do bot (Hermes com a chave presa e o modo cliente do provedor
-// direto). `customer`: "read" roda sem botão de confirmação; nada aqui muda
+// Ferramentas em processo do bot interno no modo cliente. `customer`: "read" roda sem botão de confirmação; nada aqui muda
 // estado financeiro pelo cliente: a segunda via só reenvia a cobrança dele,
 // e dispensa e desconto só viram pedido que um administrador decide.
 onMcpTool("mensalidade", {

@@ -46,12 +46,10 @@ const statusLabel: Record<string, string> = {
 export function EmailSection({
   api,
   demo,
-  accountId,
 }: {
   api: Api;
   demo: boolean;
   /** Account ID da autorização Cloudflare, se já houver. */
-  accountId?: string;
 }) {
   const [config, setConfig] = useState<EmailConfig | null>(
     demo
@@ -76,7 +74,7 @@ export function EmailSection({
   const fill = (result: EmailConfig) => {
     setConfig(result);
     setForm({
-      account_id: result.account_id || accountId || "",
+      account_id: result.account_id || "",
       token: "",
       from_address: result.from_address,
       from_name: result.from_name,

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { all, exec, one } from "../src/db";
 import { now, uid, json, type Actor } from "../src/types";
 import { sha, MOBILE_TOKEN_PREFIX } from "../src/security";
-import { signRun, RUN_HEADER } from "../src/bot-actions/actions";
 import { fullCatalog, resetCatalogCache } from "../src/bot-actions/catalog";
 import { moduleStates, hiddenMenuTypes } from "../src/modules/registry";
 import { modulesApi } from "../src/modules/api";
@@ -200,41 +199,12 @@ async function customFixture(h: IntegrationHarness, type = motorWorkType()) {
   await grants(h, f, ["os:sensitive", "os:technician"]);
   return { f, ...await create(h, f, type.id), type };
 }
-async function appKey(h: IntegrationHarness, f: IntegrationFixture, bots: string[] = [], bound = false) {
+async function appKey(h: IntegrationHarness, f: IntegrationFixture, bots: string[] = []) {
   const app = uid(), token = "wab_" + uid();
-  const scopes = ["conversations:read", "conversations:write", "contacts:read", ...(bound ? ["conversations:bound"] : [])];
+  const scopes = ["conversations:read", "conversations:write", "contacts:read"];
   await exec(h.env, "INSERT INTO applications(id,name,profiles,scopes,bots,created) VALUES(?,?,?,?,?,?)", app, "Teste I2", JSON.stringify([f.profile]), JSON.stringify(scopes), JSON.stringify(bots), now());
   await exec(h.env, "INSERT INTO api_keys(id,app_id,hash,prefix,expires,created) VALUES(?,?,?,?,?,?)", uid(), app, await sha(token), token.slice(0, 12), now() + 600000, now());
   return { app, token };
-}
-export async function securityMcp(h: IntegrationHarness) {
-  const { f, type, order, c } = await customFixture(h);
-  const otherC = await customerConversation(h, f, "5511988880000");
-  const victim = await f.call("/service-orders", "POST", { type_id: type.id, conversation_id: otherC, item: SECRET, problem: "Privado", notify: false });
-  const bot = uid();
-  await exec(h.env, "INSERT INTO bots(id,profile_id,connection_id,remote_profile,name,enabled) VALUES(?,?,?,?,?,1)", bot, f.profile, f.line, bot, "Bot");
-  const key = await appKey(h, f, [bot], true), runId = uid();
-  for (const [id, conv] of [[runId, c], [uid(), otherC]]) await exec(h.env,
-    "INSERT INTO bot_runs(id,profile_id,bot_id,actor,conversation_id,epoch,status,input,created,updated) VALUES(?,?,?,?,?,0,'running','{}',?,?)", id, f.profile, bot, "system", conv, now(), now());
-  const rpc = async (name: string, args: any, header?: string) => {
-    const response = await h.fetch(new Request("https://test/api/mcp", { method: "POST", headers: { Authorization: `Bearer ${key.token}`, "Content-Type": "application/json", ...(header ? { [RUN_HEADER]: header } : {}) }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }) }));
-    return response.json<any>();
-  };
-  const signature = await signRun(h.env, runId);
-  const result = await rpc("os_situacao", { profile: f.profile, conversation_id: otherC }, signature);
-  assert(!result.error, JSON.stringify(result));
-  const data = JSON.parse(result.result.content[0].text);
-  assert.deepEqual(data.data.map((o: any) => o.id), [order.id]);
-  assert(!JSON.stringify(result).includes(SECRET));
-  assert(!(await rpc("os_situacao", { profile: "outra_area", conversation_id: otherC }, signature)).error);
-  for (const name of ["os_tarefas", "os_documentos"]) {
-    const child = await rpc(name, { conversation_id: otherC, order_id: victim.id }, signature);
-    assert(child.error || child.result.isError, name);
-  }
-  for (const header of [undefined, signature + "x", await signRun(h.env, runId, now() - 3600000)])
-    assert((await rpc("os_situacao", { conversation_id: otherC }, header)).error);
-  await exec(h.env, "UPDATE bot_runs SET status='completed',updated=? WHERE id=?", now(), runId);
-  assert((await rpc("os_situacao", { conversation_id: otherC }, signature)).error);
 }
 export async function securityReminders(h: IntegrationHarness) {
   const type = motorWorkType();

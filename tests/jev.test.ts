@@ -6,12 +6,18 @@ import { setSecret } from "../src/security";
 import { inbound } from "../src/service";
 import { processInbox, processRun } from "../src/engine";
 import { decideInterpretation } from "../src/jev";
+import { setFullPersonalData } from "../src/bot-actions/actions";
 
 afterEach(() => vi.unstubAllGlobals());
 const proposal = {
   action: "answer",
   text: "O prazo de entrega é de dois dias.",
   citations: [7],
+  capability_id: null,
+  menu_id: null,
+  protocol_number: null,
+  category_id: null,
+  clarification: null,
   interpretation: {
     intent: "consultar prazo",
     summary: "O cliente quer o prazo de entrega do pedido.",
@@ -41,7 +47,7 @@ async function decisionFixture() {
 async function serviceFixture(enabled = true) {
   const profile = uid(),
     line = uid(),
-    hermes = uid(),
+    aiConnection = uid(),
     bot = uid();
   await exec(
     env,
@@ -65,11 +71,11 @@ async function serviceFixture(enabled = true) {
   );
   await exec(
     env,
-    "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,created) VALUES(?,?,?,'hermes','api','active',?,?)",
-    hermes,
+    "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,created) VALUES(?,?,?,'ai','api','active',?,?)",
+    aiConnection,
     profile,
-    "Hermes",
-    JSON.stringify({ api_url: "https://hermes.example.com" }),
+    "provedor de IA",
+    JSON.stringify({ provider: "anthropic", model: "claude-haiku-5-5" }),
     now(),
   );
   await exec(
@@ -77,10 +83,10 @@ async function serviceFixture(enabled = true) {
     "INSERT INTO bots(id,profile_id,connection_id,remote_profile,name,enabled) VALUES(?,?,?,'default','Atendente',1)",
     bot,
     profile,
-    hermes,
+    aiConnection,
   );
-  await setSecret(env, `connection:${hermes}`, {
-    profile_keys: { default: "test-hermes-only" },
+  await setSecret(env, `connection:${aiConnection}`, {
+    api_key: "test-provider-key",
   });
   await setSecret(env, `jev:${profile}`, { key: "test-jev-only" });
   const received = await inbound(
@@ -94,11 +100,64 @@ async function serviceFixture(enabled = true) {
     `channel:${line}`,
     line,
   );
-  return { profile, line, hermes, bot, conversation: received.conversation_id };
+  return { profile, line, aiConnection, bot, conversation: received.conversation_id };
 }
 
 describe("interpretação do Atendente antes da decisão JEV", () => {
-  it("executa Hermes primeiro e só consulta JEV depois de receber a interpretação", async () => {
+  it.each(["sem bot", "bot inexistente", "padrão", "ligada", "desligada"])(
+    "consulta direta respeita a máscara pessoal: %s",
+    async (option) => {
+      const run = await decisionFixture();
+      if (option === "bot inexistente") run.bot_id = uid();
+      else if (option !== "sem bot") {
+        const f = await serviceFixture();
+        run.profile_id = f.profile;
+        run.bot_id = f.bot;
+        if (option !== "padrão")
+          await exec(
+            env,
+            "UPDATE connections SET config=json_set(config,'$.bot_options',json(?)) WHERE id=?",
+            JSON.stringify({ default: { mask_personal: option === "ligada" } }),
+            f.aiConnection,
+          );
+      }
+      const cpf = "123.456.789-09", tel = "+55 (11) 98888-7777";
+      const bodies: string[] = [];
+      vi.stubGlobal("fetch", vi.fn(async (_url: string, options: RequestInit) => {
+        bodies.push(String(options.body));
+        return Response.json(route());
+      }));
+      // Isola a opção por bot: a regra da instalação não pode esconder uma falha.
+      await setFullPersonalData(env, true);
+      try {
+        const result = await decideInterpretation(
+          env,
+          run,
+          { ...proposal, text: `Cadastro ${cpf}, telefone ${tel}.` },
+          { ...context, request: `Confira o CPF ${cpf} e telefone ${tel}.` },
+          { jev_enabled: true },
+          [],
+        );
+        expect(result.action).toBe("answer");
+        expect(bodies).toHaveLength(2);
+        for (const body of bodies) {
+          if (option === "desligada") {
+            expect(body).toContain(cpf);
+            expect(body).toContain(tel);
+          } else {
+            expect(body).not.toContain(cpf);
+            expect(body).not.toContain(tel);
+            expect(body).toContain("[CPF_1]");
+            expect(body).toContain("[TEL_1]");
+          }
+        }
+      } finally {
+        await setFullPersonalData(env, false);
+      }
+    },
+  );
+
+  it("executa provedor de IA primeiro e só consulta JEV depois de receber a interpretação", async () => {
     const f = await serviceFixture();
     const calls: { url: string; body: any }[] = [];
     vi.stubGlobal(
@@ -107,9 +166,7 @@ describe("interpretação do Atendente antes da decisão JEV", () => {
         const body = options.body ? JSON.parse(String(options.body)) : null;
         calls.push({ url: String(url), body });
         if (String(url).includes("typesafe.ai")) return Response.json(route());
-        if (options.method === "POST")
-          return Response.json({ run_id: "hermes-test" });
-        return Response.json({ status: "completed", output: proposal });
+        return Response.json({ id: "msg_test", type: "message", role: "assistant", model: "claude-haiku-5-5", content: [{ type: "text", text: JSON.stringify(proposal) }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } });
       }),
     );
     await processInbox(env, f.profile);
@@ -128,19 +185,11 @@ describe("interpretação do Atendente antes da decisão JEV", () => {
     );
     run = (await one(env, "SELECT * FROM bot_runs WHERE id=?", run.id)) as Run;
     await processRun(env, run);
-    expect(calls).toHaveLength(1);
-    expect(calls[0].url).toContain("hermes.example.com/v1/runs");
-    expect(calls[0].body.instructions).toContain('"interpretation"');
-    run = (await one(env, "SELECT * FROM bot_runs WHERE id=?", run.id)) as Run;
-    await processRun(env, run);
     expect(calls.map((call) => new URL(call.url).hostname)).toEqual([
-      "hermes.example.com",
-      "hermes.example.com",
-      "api.typesafe.ai",
+      "api.anthropic.com", "api.typesafe.ai", "api.typesafe.ai",
     ]);
-    expect(calls[2].body.state.interpretation.summary).toBe(
-      proposal.interpretation.summary,
-    );
+    expect(JSON.stringify(calls[0].body.system)).toContain('interpretation');
+    expect(calls[1].body.state.interpretation.summary).toBe(proposal.interpretation.summary);
     const outgoing = await one(
       env,
       "SELECT * FROM outbox WHERE dedupe=?",
@@ -249,7 +298,7 @@ describe("interpretação do Atendente antes da decisão JEV", () => {
       [],
     );
     expect(again).toEqual(first);
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
     expect(
       (
         await decideInterpretation(
@@ -262,16 +311,22 @@ describe("interpretação do Atendente antes da decisão JEV", () => {
         )
       ).jev.reason,
     ).toBe("interpretation_changed");
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
-  it("falha HTTP ou timeout nunca libera a resposta e não causa retry automático", async () => {
-    for (const failure of [
-      async () => new Response("falha", { status: 429 }),
-      async () => {
-        throw new Error("timeout");
-      },
-    ]) {
+  it("falha HTTP ou timeout nunca libera a resposta; só 429 e 529 são tentados de novo dentro da chamada, e a execução não repete a decisão", async () => {
+    // 429/529: a documentação manda repetir com espera (src/jev-client.ts):
+    // 3 chamadas por ordem (a primeira e duas repetições). Timeout: uma por ordem. A segunda
+    // decisão da mesma execução reaproveita a gravada, sem nova chamada.
+    for (const [failure, expected] of [
+      [async () => new Response("falha", { status: 429 }), 6],
+      [
+        async () => {
+          throw new Error("timeout");
+        },
+        2,
+      ],
+    ] as const) {
       const run = await decisionFixture(),
         fetcher = vi.fn(failure);
       vi.stubGlobal("fetch", fetcher);
@@ -293,9 +348,9 @@ describe("interpretação do Atendente antes da decisão JEV", () => {
       );
       expect(first.action).toBe("human");
       expect(again.action).toBe("human");
-      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(fetcher).toHaveBeenCalledTimes(expected);
     }
-  });
+  }, 20_000);
 
   it("não oferece ação de especialista não autorizada ao JEV", async () => {
     const run = await decisionFixture();

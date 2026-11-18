@@ -7,7 +7,7 @@ import { perform } from "../src/service";
 import { now, uid } from "../src/types";
 import { hmac } from "../src/security";
 import { mpManifest } from "../src/payments-mercadopago";
-import type { Fixture } from "./service-center-fixture";
+import { quietCoordinator, type Fixture } from "./service-center-fixture";
 
 export const MP_SECRET = "segredo-do-webhook-de-teste";
 export const MP_TOKEN = "APP_USR-token-de-teste";
@@ -18,10 +18,12 @@ export const mp = {
   nextId: 0,
   created: 0,
 };
+const accountProfiles = new Map<string, string>();
 
 /** Liga o simulador em beforeEach/afterEach do arquivo de teste. */
 export function useMercadoPago() {
   beforeEach(() => {
+    accountProfiles.clear();
     mp.remote = new Map();
     mp.nextId = 600000 + Math.floor(Math.random() * 90000);
     mp.created = 0;
@@ -85,7 +87,16 @@ export function useMercadoPago() {
       return reply({ message: "unexpected" }, 400);
     });
   });
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(async () => {
+    // O webhook agenda o alarme real. Estes testes conduzem o motor pelo
+    // drain; encerre o trabalho pendente antes de retirar o mock de rede.
+    try {
+      for (const profile of new Set(accountProfiles.values()))
+        await quietCoordinator(profile);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 }
 
 /** Origem pública e conta do Mercado Pago na área. Devolve a conta. */
@@ -95,7 +106,7 @@ export async function configurePayments(f: Fixture) {
     "INSERT OR REPLACE INTO instance_settings(key,value,updated) VALUES('public_origin','https://atendimento.example.com',?)",
     now(),
   );
-  return perform(
+  const account = await perform(
     env,
     f.admin,
     f.profile,
@@ -108,6 +119,8 @@ export async function configurePayments(f: Fixture) {
     },
     uid(),
   );
+  accountProfiles.set(account.id, f.profile);
+  return account;
 }
 
 export async function webhook(
@@ -115,20 +128,28 @@ export async function webhook(
   dataId: string,
   requestId = uid(),
 ) {
+  const profile = accountProfiles.get(accountId);
+  if (profile) await quietCoordinator(profile);
   const ts = String(Date.now());
   const v1 = await hmac(MP_SECRET, mpManifest(dataId, requestId, ts));
-  return SELF.fetch(
-    `https://test/webhooks/payments/mercadopago/${accountId}?data.id=${dataId}&type=payment`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-signature": `ts=${ts},v1=${v1}`,
-        "x-request-id": requestId,
+  try {
+    return await SELF.fetch(
+      `https://test/webhooks/payments/mercadopago/${accountId}?data.id=${dataId}&type=payment`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-signature": `ts=${ts},v1=${v1}`,
+          "x-request-id": requestId,
+        },
+        body: JSON.stringify({ type: "payment", data: { id: dataId } }),
       },
-      body: JSON.stringify({ type: "payment", data: { id: dataId } }),
-    },
-  );
+    );
+  } finally {
+    // A chamada HTTP, a assinatura, a consulta ao provedor e os ganchos são
+    // exercitados. A fixture conduz as etapas sem um alarme concorrente.
+    if (profile) await quietCoordinator(profile);
+  }
 }
 
 /**

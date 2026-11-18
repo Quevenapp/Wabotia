@@ -194,7 +194,7 @@ it("limpa roteador, autorizações, listas de bots e menus sem ampliar permissõ
     app = uid(),
     bot = uid(),
     allLinesBot = uid(),
-    hermes = uid();
+    aiConnection = uid();
   await exec(
     env,
     "INSERT INTO meta_accounts(id,profile_id,name,waba_id,created) VALUES(?,?,'Conta',?,?)",
@@ -255,8 +255,8 @@ it("limpa roteador, autorizações, listas de bots e menus sem ampliar permissõ
   );
   await exec(
     env,
-    "INSERT INTO connections(id,profile_id,name,kind,mode,created) VALUES(?,?,'Hermes','hermes','direct',?)",
-    hermes,
+    "INSERT INTO connections(id,profile_id,name,kind,mode,created) VALUES(?,?,'Provedor de IA','ai','direct',?)",
+    aiConnection,
     f.profile,
     now(),
   );
@@ -269,7 +269,7 @@ it("limpa roteador, autorizações, listas de bots e menus sem ampliar permissõ
       "INSERT INTO bots(id,profile_id,connection_id,remote_profile,name,enabled,line_ids) VALUES(?,?,?,?,?,1,?)",
       botId,
       f.profile,
-      hermes,
+      aiConnection,
       botId,
       "Especialista",
       lineIds,

@@ -960,7 +960,7 @@ describe("entrega: entregador pelo QR, sem login", () => {
     };
   }
 
-  it("MCP recusa a credencial wabx_", async () => {
+  it("MCP HTTP removido não aceita a credencial wabx_", async () => {
     const { token } = await twoDeliveries();
     const res = await SELF.fetch("https://test/api/mcp", {
       method: "POST",
@@ -971,7 +971,7 @@ describe("entrega: entregador pelo QR, sem login", () => {
       },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
     });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
   });
 
   it("negar por padrão: toda rota da Entrega recusa o wabx_ de outra entrega e as não declaradas", async () => {

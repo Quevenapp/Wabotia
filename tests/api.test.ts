@@ -131,18 +131,20 @@ async function botFixture() {
     bid = uid();
   await exec(
     env,
-    "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,created) VALUES(?,?,?,'hermes','direct','active',?,?)",
+    "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,created) VALUES(?,?,?,'ai','direct','active',?,?)",
     cid,
     f.p,
-    "Hermes",
+    "provedor de IA",
     JSON.stringify({
-      url: "https://hermes.example.com",
-      api_url: "https://hermes.example.com",
+      provider: "anthropic",
+      model: "claude-haiku-5-5",
+      text_only: true,
+      verified_at: now(),
     }),
     now(),
   );
   await setSecret(env, "connection:" + cid, {
-    profile_keys: { default: "test-hermes-key" },
+    api_key: "test-provider-key",
   });
   await exec(
     env,
@@ -310,23 +312,26 @@ it("página por cursor não repete registros e limita requisições", async () =
   await exec(env, "UPDATE applications SET rate=1 WHERE id=?", f.id);
   expect((await request(f, "/profiles")).status).toBe(429);
 });
-it("não reenvia criação de bot após timeout ambíguo", async () => {
+it("falha o bot interno após timeout fora da janela de retentativa", async () => {
   const f = await botFixture();
   const r = await createRun(env, f.actor, f.p, {
     bot_id: f.bid,
     input: "teste",
   });
-  fetchMock
-    .get("https://hermes.example.com")
-    .intercept({ path: "/v1/runs", method: "POST" })
-    .replyWithError(new Error("timeout"));
+  await exec(env, "UPDATE bot_runs SET created=? WHERE id=?", now() - 3600000, r.id);
+  // O SDK faz uma retentativa antes de devolver a falha ao motor.
+  for (let attempt = 0; attempt < 2; attempt++)
+    fetchMock
+      .get("https://api.anthropic.com")
+      .intercept({ path: "/v1/messages", method: "POST" })
+      .replyWithError(new Error("timeout"));
   await processRun(
     env,
     await one(env, "SELECT * FROM bot_runs WHERE id=?", r.id),
   );
   expect(
     (await one(env, "SELECT status FROM bot_runs WHERE id=?", r.id)).status,
-  ).toBe("unknown");
+  ).toBe("failed");
   fetchMock.assertNoPendingInterceptors();
 });
 it("guarda o resultado de bot e suprime resposta após tomada humana", async () => {
@@ -365,17 +370,7 @@ it("guarda o resultado de bot e suprime resposta após tomada humana", async () 
     { id: c.id, action: "claim" },
     uid(),
   );
-  fetchMock
-    .get("https://hermes.example.com")
-    .intercept({ path: "/v1/runs/remote1" })
-    .reply(200, {
-      status: "completed",
-      output: JSON.stringify({
-        action: "answer",
-        text: "resposta antiga",
-        citations: [1],
-      }),
-    });
+  await exec(env, "UPDATE bot_runs SET status='completed',result=? WHERE id=?", JSON.stringify({ action: "answer", text: "resposta antiga", citations: [1] }), r.id);
   await processRun(
     env,
     await one(env, "SELECT * FROM bot_runs WHERE id=?", r.id),

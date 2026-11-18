@@ -1,10 +1,5 @@
 import { type Actor, type Env, ApiError } from "./types";
 import {
-  createCloudflareJob,
-  retryCloudflareJob,
-  saveCloudflareSettings,
-} from "./cloudflare";
-import {
   configureUpdates,
   configureAutomaticUpdates,
   deleteInitialToken,
@@ -22,12 +17,6 @@ export async function maintenanceCommand(
   data: any,
 ) {
   switch (operation) {
-    case "system.cloudflare.save":
-      return saveCloudflareSettings(env, actor, data);
-    case "system.cloudflare.create":
-      return createCloudflareJob(env, actor, data);
-    case "system.cloudflare.retry":
-      return retryCloudflareJob(env, actor, data.id);
     case "system.updates.configure":
       return configureUpdates(env, actor, data);
     case "system.updates.automatic":

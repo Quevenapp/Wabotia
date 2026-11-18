@@ -66,7 +66,7 @@ export const sections = [
   ["reserva-settings", "Unidades e regras", CalendarRange],
   ["router", "Integração Zernio", Phone],
   ["lines", "Quem atende cada linha", Headphones],
-  ["connections", "Hermes e canais", Plug],
+  ["connections", "Conexões", Plug],
   ["surveys", "Avaliações", Star],
   ["reports", "Relatórios", Activity],
   ["consents", "Consentimentos", ShieldCheck],
@@ -394,7 +394,7 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
     "Configure a Integração Zernio, encontre seus telefones e configure a distribuição de mensagens.",
   lines: "Escolha o bot ou a equipe responsável por cada telefone conectado.",
   connections:
-    "Conecte o Hermes ou um provedor de IA e confira o funcionamento dos canais.",
+    "Conecte um provedor de IA e confira o funcionamento dos canais.",
   applications:
     "Pareie o Senhapp e gerencie o acesso de outros sistemas ao Wabotia.",
   presence: "Informe quando você está disponível para assumir atendimentos.",

@@ -1,4 +1,5 @@
 import { ensinoNoStore } from "./modules/ensino/http";
+import { mountInternalApi, takeInternalActor } from "./internal-api";
 import { capabilities } from "./whatsapp";
 import { authorizedMedia, mediaResponse, uploadPart, mediaKind } from "./media";
 import { callView, callPermission } from "./calls";
@@ -27,7 +28,6 @@ import {
   isBound,
   visibleEvent,
   visibleConversation,
-  wholeAreaPending,
 } from "./visibility";
 import { setCookie, deleteCookie } from "hono/cookie";
 import {
@@ -68,7 +68,6 @@ import { pushConfig, publicPushConfig, sendTest, prunePush } from "./push";
 import { wake } from "./events";
 import { settings, settingsRevision, scopes, eventTypes, conversation, perform } from "./service";
 import {
-  discover,
   probe,
   storeRemoteMedia,
   telegramRemoved,
@@ -76,7 +75,6 @@ import {
 import { openapi } from "./openapi";
 import { ticketStatuses, activeTicketSql } from "./protocols";
 import { listServiceTemplates } from "./service-templates";
-import { mountMcp, takeInternalActor } from "./mcp";
 import {
   approvalView,
   decideApproval,
@@ -107,6 +105,7 @@ import {
   TEST_CATALOG_PATH,
   TEST_CATALOG_PREFIX,
 } from "./release";
+import { removePendingConnections } from "./connection-removal";
 import {
   pairingStart,
   pairingToken,
@@ -220,17 +219,8 @@ function queueSocket(
     new Request("https://coordinator/queue-ws", { method: "GET", headers }),
   );
 }
-import {
-  linkAuth,
-  linkCodeConnection,
-  linkForward,
-  linkJobId,
-} from "./hermes-link";
-import {
-  cloudflareJobs,
-  cloudflareSettings,
-  connectorDownload,
-} from "./cloudflare";
+
+
 export { Coordinator } from "./coordinator";
 const app = new Hono<Bindings>();
 app.use("/api/v1/profiles/:profile/ensino/*", ensinoNoStore);
@@ -762,61 +752,7 @@ app.post("/api/install/step", bodyLimit({ maxSize: 256 * 1024 }), async (c) => {
   );
   return c.json(await installStep(c.env, await c.req.json()));
 });
-// Vínculo do plugin Wabotia no Hermes Agent (docs/HERMES-PLUGIN.md). O token
-// wabl_ só vale nestas rotas; o estado do poll vive na instância do vínculo.
-app.post("/api/hermes-link/pair", bodyLimit({ maxSize: 4096 }), async (c) => {
-  await rate(
-    c.env,
-    "link-pair:" + (await sha(c.req.header("CF-Connecting-IP") || "local")),
-    20,
-    600_000,
-  );
-  const body = await c.req.json().catch(() => ({}));
-  return linkForward(c.env, linkCodeConnection(body?.code), "/link-pair", body);
-});
-app.get("/api/hermes-link/poll", async (c) => {
-  const conn = await linkAuth(c.env, c.req.raw);
-  return linkForward(c.env, conn.id, "/link-poll", {
-    wait_seconds: c.req.query("wait"),
-  });
-});
-app.post("/api/hermes-link/results", async (c) => {
-  const conn = await linkAuth(c.env, c.req.raw),
-    body = await c.req.json();
-  requireValue(
-    typeof body?.id === "string" && linkJobId.test(body.id),
-    "Resultado inválido.",
-  );
-  return linkForward(c.env, conn.id, "/link-result", body);
-});
-app.put("/api/hermes-link/artifacts/:job", async (c) => {
-  const conn = await linkAuth(c.env, c.req.raw),
-    job = c.req.param("job");
-  requireValue(linkJobId.test(job), "Resultado inválido.");
-  const pending = await (
-    await linkForward(c.env, conn.id, "/link-job", { id: job })
-  ).json<any>();
-  if (pending.op !== "artifacts.download")
-    throw new ApiError(
-      409,
-      "job_not_waiting",
-      "Esta operação não aguarda arquivo.",
-    );
-  requireValue(
-    Number(c.req.header("Content-Length")) > 0 && c.req.raw.body,
-    "Envie o arquivo com Content-Length.",
-  );
-  await c.env.MEDIA.put(`hermes-link/${conn.id}/${job}`, c.req.raw.body, {
-    httpMetadata: {
-      contentType: c.req.header("Content-Type") || "application/octet-stream",
-    },
-  });
-  return linkForward(c.env, conn.id, "/link-result", {
-    id: job,
-    ok: true,
-    http_status: 200,
-  });
-});
+
 app.get("/api/auth/status", async (c) => {
   const count = await one(c.env, "SELECT count(*) n FROM users");
   return c.json({
@@ -1020,7 +956,6 @@ function profileOfPath(path: string) {
   }
 }
 app.use("/api/v1/*", async (c, next) => {
-  // Chamadas internas do MCP já foram autenticadas uma vez em /api/mcp.
   const internal = takeInternalActor(c.req.raw);
   // Uma ida só ao D1 antes da rota (docs/LIMITES.md): a credencial e, numa
   // rota de área, o estado dos módulos, que fica no cache de leituras desta
@@ -1031,9 +966,8 @@ app.use("/api/v1/*", async (c, next) => {
   if (["GET", "HEAD"].includes(c.req.method)) c.env = pre;
   c.set("pre", pre);
   const area = profileOfPath(c.req.path);
-  const actor =
-    internal ||
-    (await authenticate(
+  const actor = internal ||
+    await authenticate(
       pre,
       c.req.raw,
       area,
@@ -1046,7 +980,7 @@ app.use("/api/v1/*", async (c, next) => {
             [ERP_APPS_SQL, [area]],
           ]
         : [],
-    ));
+    );
   c.set("actor", actor);
   // Segundo fator exigido e sessão só com senha: só /me, o desafio e o
   // cadastro do fator (src/mfa.ts).
@@ -1102,7 +1036,7 @@ app.use("/api/v1/profiles/*", async (c, next) => {
   }
   await next();
 });
-// Chave restrita ao atendimento (conversations:bound, conferência A1): só as
+// Ator interno restrito ao atendimento (conversations:bound): só as
 // rotas da conversa que o bot está atendendo (a conferência da execução fica
 // em conversation()) e catálogos sem dado pessoal. Nada de listas de
 // conversas, contatos, protocolos, eventos ou relatórios da área.
@@ -1133,7 +1067,7 @@ app.use("/api/v1/profiles/*", async (c, next) => {
       throw new ApiError(
         403,
         "bound_key",
-        "Esta chave atende só a conversa em que o bot está; listas e cadastros da área não estão disponíveis.",
+        "Este bot atende só a conversa em que o bot está; listas e cadastros da área não estão disponíveis.",
       );
   }
   await next();
@@ -1156,7 +1090,6 @@ app.get("/api/v1/profiles/:profile/access", (c) => {
     return c.json({ data: catalog, presets: presetsFor(catalog) });
   });
 });
-mountMcp(app);
 // Conta: segundo fator, links de uso único (src/account-routes.ts).
 mountAccount(app);
 const mobileToken = (c: any) => {
@@ -1513,11 +1446,7 @@ app.get("/api/v1/users", async (c) => {
 app.get("/api/v1/applications", async (c) => {
   admin(c.get("actor"));
   return c.json({
-    // whole_area_pending: chave de bot de antes de conversations:bound, que
-    // o painel pede para prender ou confirmar (segunda conferência, A1).
-    applications: (
-      await all(c.env, "SELECT * FROM applications ORDER BY created DESC")
-    ).map((row) => ({ ...row, whole_area_pending: wholeAreaPending(row) })),
+    applications: await all(c.env, "SELECT * FROM applications ORDER BY created DESC"),
     keys: await all(
       c.env,
       "SELECT id,app_id,prefix,expires,revoked,created FROM api_keys",
@@ -1597,8 +1526,6 @@ app.get("/api/v1/system", async (c) => {
   admin(c.get("actor"));
   return c.json({
     updates: await updateStatus(c.env),
-    cloudflare: await cloudflareSettings(c.env),
-    deployments: await cloudflareJobs(c.env),
     // Endereço dos links enviados aos clientes (src/web-steps.ts).
     public_origin: await publicOrigin(c.env),
     // Bot da conversa interna: dado pessoal completo nas consultas (src/bot-actions).
@@ -1646,16 +1573,7 @@ app.post("/api/v1/system/push/test", async (c) => {
   );
   return c.json({ results: await sendTest(c.env, devices) });
 });
-app.get("/api/v1/system/cloudflare/:id/connector", async (c) => {
-  admin(c.get("actor"));
-  return c.json(
-    await connectorDownload(c.env, c.get("actor"), c.req.param("id")),
-  );
-});
 for (const [path, operation] of [
-  ["cloudflare/configure", "cloudflare.save"],
-  ["cloudflare/deploy", "cloudflare.create"],
-  ["cloudflare/retry", "cloudflare.retry"],
   ["updates/configure", "updates.configure"],
   ["updates/automatic", "updates.automatic"],
   ["updates/initial-token/delete", "updates.delete_initial_token"],
@@ -1813,7 +1731,6 @@ const commands = [
   ["DELETE", "webhook-subscriptions/:id", "webhook.disable"],
   ["POST", "webhook-deliveries/:id/retry", "webhook.retry"],
   ["POST", "deliveries/:id/reconcile", "delivery.reconcile"],
-  ["POST", "bot-runs/:id/reconcile", "run.reconcile"],
   // Fila de senhas (docs/FILA-SENHAS.md).
   ["POST", "queue/queues", "queue.save"],
   ["PUT", "queue/queues/:id", "queue.save"],
@@ -2169,10 +2086,7 @@ app.get("/api/v1/profiles/:profile/connections", async (c) => {
 });
 for (const op of [
   "test",
-  "discover",
   "connector-token",
-  "link-code",
-  "link-revoke",
 ])
   app.post("/api/v1/profiles/:profile/connections/:id/" + op, async (c) => {
     admin(c.get("actor"));
@@ -2276,7 +2190,7 @@ for (const [path, [table, scope]] of Object.entries(readLists))
     const more = rows.length > limit;
     rows.splice(limit);
     if (table === "bots" && rows.length) {
-      // O painel distingue bots do Hermes e de provedor de IA direto.
+      // O painel mostra o provedor de IA e o modelo do bot.
       const connections = await all(
         c.env,
         "SELECT id,kind,config FROM connections WHERE profile_id=?",
@@ -2287,8 +2201,14 @@ for (const [path, [table, scope]] of Object.entries(readLists))
         row.connection_kind = connection?.kind || null;
         if (connection?.kind === "ai") {
           const cfg = json(connection.config);
+          row.mask_personal = cfg.bot_options?.[row.remote_profile]?.mask_personal !== false;
+          row.pdf_raw_fallback = cfg.bot_options?.[row.remote_profile]?.pdf_raw_fallback === true;
+          row.image_to_team = cfg.bot_options?.[row.remote_profile]?.image_to_team === true;
           row.provider = cfg.provider;
           row.model = cfg.model;
+          // O provedor recusou as ferramentas numa execução (até salvar a
+          // conexão de novo): o painel avisa.
+          row.tools_unsupported = !!cfg.tools_unsupported_at;
         }
       }
     }
@@ -2963,7 +2883,7 @@ app.post("/webhooks/telegram/:id", () => {
 app.use("/internal/v1/connectors/:id/*", async (c, next) => {
   const conn = await one(
     c.env,
-    "SELECT * FROM connections WHERE id=? AND kind IN ('qr','hermes-whatsapp')",
+    "SELECT * FROM connections WHERE id=? AND kind='qr'",
     c.req.param("id"),
   );
   if (!conn) throw new ApiError(401, "unauthenticated", "Conector inválido.");
@@ -3147,10 +3067,13 @@ app.post("/internal/v1/connectors/:id/status", async (c) => {
   );
   return c.json({ ok: true });
 });
+mountInternalApi(app);
 export default {
   fetch: app.fetch,
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(wake(env, "_admin"));
+    // Limpeza da migração no cron, sem uma consulta extra a cada alarme de atendimento.
+    ctx.waitUntil(removePendingConnections(env));
     // Agendador do ERP (docs/ERP-AGENDADOR.md): rede de segurança do alarme
     // de cada objeto erp:<área>. Só no primeiro disparo da hora e só nas
     // áreas com o ERP ligado (src/erp/scheduler/cron.ts).

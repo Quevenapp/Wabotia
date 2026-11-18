@@ -4,7 +4,8 @@ import { conversation, perform } from "../src/service";
 import { uid } from "../src/types";
 import { drain, receive } from "./service-center-fixture";
 import { agendaSetup, at, future } from "./agenda-fixture";
-import { botKey, tool, toolNames } from "./mcp-fixture";
+import { botKey, tool, toolNames } from "./module-tools-fixture";
+import { moduleMcpTools } from "../src/modules/hooks";
 
 async function setup() {
   const s = await agendaSetup();
@@ -16,7 +17,7 @@ async function setup() {
   };
   const mine = await talk("5511971110001");
   const other = await talk("5511971110002");
-  // O bot assume a conversa em que está (como o Hermes faz).
+  // O bot assume a conversa em que está (pelo ator autorizado).
   expect(
     (await tool(token, "claim_conversation", { conversation_id: mine.id })).ok,
   ).toBe(true);
@@ -147,6 +148,7 @@ describe("ferramentas do bot: Agenda", () => {
     );
     const names = await toolNames(token);
     expect(names.some((n) => n.startsWith("agenda_"))).toBe(false);
-    expect(names).toContain("claim_conversation");
+    // O módulo continua registrado, mas desligá-lo tira suas ferramentas da área.
+    expect(moduleMcpTools().map((tool) => tool.name)).toContain("agenda_agendar");
   });
 });

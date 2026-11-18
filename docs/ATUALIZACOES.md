@@ -1,6 +1,20 @@
 # Atualização direta, sem repositório próprio
 
+## 18/11/2026 — Máscara de dados pessoais por bot
+
+Nova opção por bot, ligada também para bots existentes: documentos, telefones, e-mails e CEPs reconhecidos viram marcadores nas mensagens, histórico, ferramentas e JEV. O servidor restaura os valores nas ferramentas, propostas e respostas. O extrator de PDF lê object streams, xref streams, conteúdos Flate, ToUnicode e Differences com acentos portugueses; ignora logos e recusa páginas sem texto. Mantém os tetos de 4 MB, 10 páginas, 64 streams, 8 MiB descomprimidos, 200 mil caracteres e profundidade 32. Sem dependência nova nem migração.
+
+**O que muda nas instalações existentes:** o modelo passa a ver marcadores como `[CPF_1]` no lugar dos valores. PDFs legíveis seguem como texto mascarado. Quando a leitura falha, o padrão continua sendo encaminhar à equipe; a nova opção `pdf_raw_fallback` permite enviar o PDF inteiro sem máscara, se a conexão aceitar PDF e os tetos de tamanho/páginas forem atendidos. A nova opção `image_to_team` permite encaminhar fotos e imagens à equipe em vez do provedor; desligada, elas continuam cruas. As duas começam desligadas, aparecem abaixo da máscara e só têm efeito com ela ligada. Também é possível desligar a própria máscara por bot. Detalhes em [Dados pessoais e IA](API.md#dados-pessoais-e-ia).
+
 Desde a versão 0.3, novas instalações baixam um pacote oficial já preparado e publicam diretamente na sua conta Cloudflare. Não precisam de conta GitHub, cópia do repositório, Cloudflare Builds ou Deploy Hook. O código continua aberto no repositório oficial; uma versão só aparece no painel depois que seu pacote foi publicado pelo mantenedor.
+
+## Retirada do Hermes: servidor e painel
+
+O MCP HTTP e a porta para agente externo foram removidos. O Wabotia trabalha com bots internos, conectados diretamente a um provedor de IA. A API v1 e a execução de bots por aplicação continuam disponíveis. Nas chaves, `conversations:all` deixa de valer. Uma chave antiga presa às conversas do bot (`conversations:bound`) fica sem permissão nenhuma em vez de ganhar a área inteira: emita uma chave nova se a integração ainda precisar dela. Quando a remoção automática apaga uma conexão do Hermes criada pela preparação na Cloudflare, as ações de especialista guardadas desligadas para os bots dela também saem; refaça-as num especialista interno. `conversations:bound` fica reservado ao ator interno do bot.
+
+A migração `0094_retira_cloudflare.sql` apaga a autorização da preparação Cloudflare e as credenciais dos jobs. As conexões criadas por esses jobs são pausadas e marcadas como **sendo removidas**; o processamento periódico as remove sozinho, preservando o histórico. Não podem ser religadas durante a remoção. O token das atualizações automáticas é independente e continua funcionando.
+
+**Os recursos que o Wabotia criou na sua conta Cloudflare não somem com a retirada. Revogue-os no painel da Cloudflare: aplicação Access, service token, túnel e registros DNS.** Os nomes e IDs ficam no aviso **Hermes retirado**, em Conexões, mesmo depois da remoção local. Nenhum segredo é copiado para esse aviso.
 
 ## Usar o botão
 
@@ -178,6 +192,21 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
 ## Atualização 0.16.5: comandos do plugin na janela de pareamento
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. Em **Conexões**, a janela aberta por **Gerar comando de instalação** ou **Parear novamente** traz, em **Meu Hermes roda em Docker**, os comandos para descobrir o nome do contêiner, instalar o plugin, reiniciar o contêiner e conferir a versão instalada, cada um com botão de copiar. Em uma conexão já pareada, a janela avisa que os bots ficam fora do ar entre a execução do comando e o reinício do gateway. O plugin continua na versão 1.1.0; quem já o atualizou não precisa repetir. O roteiro completo está em [Atualizar o plugin](HERMES-PLUGIN.md#21-atualizar-o-plugin). Depois de atualizar, clique em **Reabrir painel atualizado**.
+
+## Próxima versão: bots internos (rascunho)
+
+- **Cache de prompt e PDF no bot de provedor de IA** ([PROVEDOR-IA.md](PROVEDOR-IA.md)):
+  - migração aditiva `0090_bot_runs_uso.sql` (coluna `bot_runs.usage`, com os tokens de cada execução em **Registros**);
+  - a opção **O modelo entende PDF** na conexão, para Anthropic e OpenAI.
+- **Instruções personalizadas do bot: não precisa mexer.** O texto que você escreveu vai ao modelo igual.
+  - Muda só a ordem do que o Wabotia acrescenta: menus, ações e categorias de protocolo vão num bloco "dados da área" antes do ponto de cache.
+  - A situação da conversa (sem menu, retomada) vai depois do ponto de cache.
+  - As respostas devem ser as mesmas. Se uma instrução sua dizia "veja o menu acima", ela continua valendo, porque os menus seguem antes da conversa.
+- **OpenAI pela Responses API:** conserta o bot com ferramentas (módulos, `decidir` do JEV) nos modelos atuais da OpenAI.
+  - Na 0.21.0 ele falhava em `gpt-6.1-terra` e `gpt-6.1-sol`, que só chamam ferramentas pela Responses API, e em `gpt-6-luna` com raciocínio ligado.
+  - Nada muda na conexão: mesma chave, mesmo modelo.
+  - O esforço ganha **Máximo**.
+  - Não testado contra a API real.
 
 ## Atualização 0.21.1: versão ponte para o pacote assinado
 

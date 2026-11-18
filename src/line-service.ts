@@ -57,7 +57,7 @@ export async function botAllowsLine(
   // Configuration (activeOnly=false) may still point a line at it.
   const bot = await one(
     env,
-    "SELECT b.* FROM bots b JOIN connections c ON c.id=b.connection_id WHERE b.id=? AND b.profile_id=? AND b.enabled=1 AND (? OR c.status='active')",
+    "SELECT b.* FROM bots b JOIN connections c ON c.id=b.connection_id WHERE b.id=? AND b.profile_id=? AND c.kind='ai' AND b.enabled=1 AND (? OR c.status='active')",
     botId,
     profile,
     activeOnly ? 0 : 1,
@@ -87,7 +87,7 @@ export async function validateLineIds(
     requireValue(
       await one(
         env,
-        "SELECT id FROM connections WHERE id=? AND profile_id=? AND kind IN ('zernio','qr','hermes-whatsapp')",
+        "SELECT id FROM connections WHERE id=? AND profile_id=? AND kind IN ('zernio','qr')",
         id,
         profile,
       ),
@@ -102,7 +102,7 @@ export async function listLines(env: Env, actor: Actor, profile: string) {
   );
   const rows = await all(
     env,
-    "SELECT id,name,kind,mode,status,config,last_seen FROM connections WHERE profile_id=? AND kind IN ('zernio','qr','hermes-whatsapp') ORDER BY name,id",
+    "SELECT id,name,kind,mode,status,config,last_seen FROM connections WHERE profile_id=? AND kind IN ('zernio','qr') ORDER BY name,id",
     profile,
   );
   return {
@@ -124,7 +124,7 @@ export async function saveLine(
   access(actor, profile, "conversations:write");
   const row = await one(
     env,
-    "SELECT * FROM connections WHERE id=? AND profile_id=? AND kind IN ('zernio','qr','hermes-whatsapp')",
+    "SELECT * FROM connections WHERE id=? AND profile_id=? AND kind IN ('zernio','qr')",
     data.id,
     profile,
   );

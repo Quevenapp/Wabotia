@@ -1,50 +1,39 @@
 import { one } from "./db";
 import { seesEvent } from "./access";
-import { type Actor, type Env, json, now } from "./types";
+import { type Actor, type Env, json } from "./types";
 
 /**
- * Chave restrita ao atendimento (conferência A1): com `conversations:bound`,
- * a aplicação só alcança as conversas que um dos bots dela está atendendo
- * agora (execução na fila ou em andamento, ou encerrada há menos de 2 min) e
- * as do próprio namespace. É o perfil da chave do Hermes: um cliente que
+ * Ator restrito ao atendimento: com `conversations:bound`,
+ * o ator só alcança a conversa da execução ou da proposta em andamento e
+ * as do próprio namespace. É o ator interno do bot preso à conversa: um cliente que
  * injeta instruções no bot não chega à conversa de outro cliente.
  */
 export const BOUND_SCOPE = "conversations:bound";
 export const isBound = (actor: Actor) =>
   actor.kind === "app" && actor.scopes.includes(BOUND_SCOPE);
-/**
- * Marcação, não permissão: o administrador escolheu a área inteira para uma
- * aplicação com bots (chave do Hermes "acesso a toda a área").
- */
-export const WHOLE_AREA_SCOPE = "conversations:all";
-/**
- * Chave de bot emitida antes de `conversations:bound` (segunda conferência,
- * A1): aplicação com bots e acesso a conversas, sem a restrição nem a
- * marcação de área inteira. O painel avisa e oferece prender às conversas do
- * bot ou confirmar a área inteira; nada é rebaixado sozinho.
- */
-export function wholeAreaPending(app: { scopes: unknown; bots: unknown }) {
-  const scopes: string[] = json(app.scopes as any, []);
-  const bots: string[] = json(app.bots as any, []);
-  return (
-    bots.length > 0 &&
-    scopes.some((s) =>
-      ["conversations:read", "conversations:write"].includes(s),
-    ) &&
-    !scopes.includes(BOUND_SCOPE) &&
-    !scopes.includes(WHOLE_AREA_SCOPE)
-  );
-}
 export async function boundAllows(env: Env, actor: Actor, c: any) {
   if (!isBound(actor)) return true;
   if (c.external_namespace === `app:${actor.id}`) return true;
-  if (!actor.bots.length) return false;
+  if (!actor.via?.run_id || !actor.bots.length) return false;
+  // Proposta do cliente confirmada (src/bot-actions/customer.ts): vale a
+  // conversa da proposta enquanto ela roda.
+  if (
+    actor.via?.proposal_id &&
+    (await one(
+      env,
+      "SELECT 1 FROM bot_proposals WHERE id=? AND conversation_id=? AND mode='customer' AND status='running' AND bot_id IN (SELECT value FROM json_each(?))",
+      actor.via.proposal_id,
+      c.id,
+      JSON.stringify(actor.bots),
+    ))
+  )
+    return true;
   return !!(await one(
     env,
-    "SELECT 1 FROM bot_runs WHERE conversation_id=? AND bot_id IN (SELECT value FROM json_each(?)) AND (status IN ('queued','starting','running') OR updated>?) LIMIT 1",
+    "SELECT 1 FROM bot_runs WHERE id=? AND conversation_id=? AND bot_id IN (SELECT value FROM json_each(?))",
+    actor.via.run_id,
     c.id,
     JSON.stringify(actor.bots),
-    now() - 120_000,
   ));
 }
 

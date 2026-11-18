@@ -93,7 +93,7 @@ export const routerSchemas = {
       },
       bots: {
         type: "boolean",
-        description: "Atendente e especialistas Hermes.",
+        description: "Atendente e especialistas internos.",
       },
       pool: {
         type: "boolean",

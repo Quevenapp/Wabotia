@@ -1,3 +1,4 @@
+import { tool, toolNames, toolDefinitions } from "./module-tools-fixture";
 import { SELF, env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { all, exec, one } from "../src/db";
@@ -174,31 +175,18 @@ describe("contrato dos módulos", () => {
     expect(c).toMatchObject({ state: "human", owner: f.member.id });
   });
 
-  it("ferramentas MCP declaradas pelos módulos aparecem e respeitam o módulo", async () => {
+  it("ferramentas em processo declaradas pelos módulos aparecem e respeitam o módulo", async () => {
     const f = await fixture();
     const app = await application(f, ["conversations:read"]);
-    const rpc = (method: string, params: any = {}) =>
-      SELF.fetch("https://test/api/mcp", {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer " + app.token,
-          "Content-Type": "application/json",
-          Accept: "application/json, text/event-stream",
-        },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-      }).then((r) => r.json<any>());
+
     const c = await say(f, "oi", "5511973330001");
     // Agenda e Ordem de Serviço vêm desligadas: as ferramentas não aparecem,
     // e a chamada pelo nome recebe o 409 da rota.
-    const names = (list: any) => list.result.tools.map((t: any) => t.name);
-    const off = names(await rpc("tools/list"));
+    const off = await toolNames(app.token);
     expect(off.some((n: string) => /^(agenda|os)_/.test(n))).toBe(false);
-    const call = await rpc("tools/call", {
-      name: "os_situacao",
-      arguments: { conversation_id: c.id, open: true },
-    });
-    expect(call.result.isError).toBe(true);
-    expect(JSON.stringify(call.result)).toContain("module_disabled");
+    const call = await tool(app.token, "os_situacao", { conversation_id: c.id, open: true });
+    expect(call.ok).toBe(false);
+    expect(JSON.stringify(call.error)).toContain("module_disabled");
     for (const id of ["os", "agenda"])
       await perform(
         env,
@@ -208,8 +196,8 @@ describe("contrato dos módulos", () => {
         { id, enabled: true },
         uid(),
       );
-    const list = await rpc("tools/list");
-    expect(names(list)).toEqual(
+    const list = await toolDefinitions(app.token);
+    expect(list.map((t) => t.name)).toEqual(
       expect.arrayContaining([
         "agenda_servicos",
         "agenda_horarios_livres",
@@ -217,17 +205,14 @@ describe("contrato dos módulos", () => {
         "os_situacao",
       ]),
     );
-    const book = list.result.tools.find(
+    const book = list.find(
       (t: any) => t.name === "agenda_agendar",
     );
-    expect(Object.keys(book.inputSchema.properties)).toEqual(
-      expect.arrayContaining(["profile", "idempotency_key", "starts"]),
+    expect(Object.keys(book!.input)).toEqual(
+      expect.arrayContaining(["conversation_id", "starts"]),
     );
-    const ok = await rpc("tools/call", {
-      name: "os_situacao",
-      arguments: { conversation_id: c.id, open: true },
-    });
-    expect(ok.result.isError).toBeFalsy();
-    expect(ok.result.structuredContent.data).toEqual([]);
+    const ok = await tool(app.token, "os_situacao", { conversation_id: c.id, open: true });
+    expect(ok.ok).toBe(true);
+    expect(ok.data.data).toEqual([]);
   });
 });

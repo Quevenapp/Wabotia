@@ -153,6 +153,40 @@ export function access(actor: Actor, profile: string, scope: string) {
   if (actor.kind === "app" && !actor.scopes.includes(scope))
     throw new ApiError(403, "missing_scope", `Permissão necessária: ${scope}`);
 }
+/**
+ * Ator do motor de atendimento (src/engine.ts): o que cria a execução do bot
+ * para uma mensagem de cliente e manda o menu. Sem privilégio: aplicação da
+ * própria área, só `bots:invoke`, só o bot daquela execução. Até a 0.21.0 era
+ * `kind:"user"` com `role:"admin"`; nenhum caminho levava esse ator a uma
+ * operação (revisão A do PLANO-BOTS), mas a primeira chamada nova que o
+ * passasse a `perform`, a um módulo ou ao ERP herdaria administrador pleno.
+ * `refuseEngineActor` fecha essas portas de vez.
+ */
+export const ENGINE_ACTOR_ID = "bot:attendant";
+export function engineActor(profile: string, botId: string): Actor {
+  return {
+    id: ENGINE_ACTOR_ID,
+    kind: "app",
+    name: "Atendente",
+    role: "service",
+    profiles: [profile],
+    scopes: ["bots:invoke"],
+    bots: [botId],
+    rate: 100,
+    runLimit: 100,
+  };
+}
+export const isEngineActor = (actor: Actor) => actor.id === ENGINE_ACTOR_ID;
+/**
+ * O ator do motor só cria execução e manda menu. Em operação, módulo, rota
+ * interna ou ERP é erro de programação: falha alto em vez de agir.
+ */
+export function refuseEngineActor(actor: Actor) {
+  if (isEngineActor(actor))
+    throw new Error(
+      "O ator do motor de atendimento (bot:attendant) não executa operações, módulos nem o ERP.",
+    );
+}
 export function admin(actor: Actor) {
   if (actor.kind !== "user" || actor.role !== "admin")
     throw new ApiError(403, "admin_required", "Somente administradores.");
@@ -289,6 +323,22 @@ export const MOBILE_TOKEN_PREFIX = "wabu_";
  * são leituras da rota que vão no mesmo lote para uma sessão de pessoa (as
  * pessoas do ERP), lidas depois do cache da requisição.
  */
+/**
+ * Escopos de uma chave de aplicação na autenticação. `conversations:bound` e
+ * `conversations:all` são internos e nunca valem numa chave (o MCP HTTP saiu).
+ * Falha fechada: uma chave antiga presa às conversas do bot
+ * (`conversations:bound`) só alcançava as rotas da conversa atendida
+ * (BOUND_ROUTES). Sem a restrição, qualquer escopo dela (contatos,
+ * protocolos, relatórios…) valeria na área inteira; por isso fica sem
+ * escopo nenhum, e o administrador emite uma chave nova com o alcance
+ * escolhido. `conversations:all` era só a marcação de área inteira: cai, e
+ * o resto fica.
+ */
+export function legacyKeyScopes(scopes: string[]) {
+  if (scopes.includes("conversations:bound")) return [];
+  return scopes.filter((scope) => scope !== "conversations:all");
+}
+
 export async function authenticate(
   env: Env,
   request: Request,
@@ -373,7 +423,7 @@ export async function authenticate(
       name: row.name,
       role: "service",
       profiles: json(row.profiles, []),
-      scopes: json(row.scopes, []),
+      scopes: legacyKeyScopes(json(row.scopes, [])),
       bots: json(row.bots, []),
       keyId: row.key_id,
       expiresAt: row.key_expires,

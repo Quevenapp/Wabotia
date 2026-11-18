@@ -17,9 +17,19 @@
 //   ferramentas: devolver a mensagem inteira resolve.
 // - Compatível com OpenAI: depende do serviço; quem não aceita `tools`
 //   responde erro, e a tela do bot avisa.
+// - OpenAI (Responses, conferido em 17/11/2026): os modelos atuais (gpt-6.1
+//   Terra e Sol) dizem "Tool calling requires the Responses API", e o Luna
+//   só aceita função no chat/completions com reasoning_effort "none". tools
+//   [{type:"function", name, description, parameters}]; a resposta traz em
+//   `output` itens `function_call` {call_id, name, arguments} (texto JSON) e
+//   itens `reasoning`; sem estado no servidor (store:false), todos os itens
+//   da saída voltam no `input` da próxima chamada (o raciocínio vem com
+//   encrypted_content) e cada resultado vai como {type:"function_call_output",
+//   call_id, output}.
+import type { PiiMask } from "./pii-mask";
 import type { BotTool } from "./bot-actions/actions";
 
-export type ToolProvider = "anthropic" | "openai";
+export type ToolProvider = "anthropic" | "openai" | "responses";
 
 export interface ToolCall {
   id: string;
@@ -37,10 +47,31 @@ export interface ToolTurn {
   assistant: any;
 }
 
+/** Anthropic: Messages; OpenAI: Responses; DeepSeek e compatíveis: chat/completions. */
 export const providerFamily = (provider: string): ToolProvider =>
-  provider === "anthropic" ? "anthropic" : "openai";
+  provider === "anthropic" ? "anthropic" : provider === "openai" ? "responses" : "openai";
+
+/** Texto das mensagens da saída do Responses; null se o modelo recusou. */
+export function responsesText(output: any[]): { text: string; refused: boolean } {
+  let text = "";
+  let refused = false;
+  for (const item of output)
+    if (item?.type === "message" && Array.isArray(item.content))
+      for (const part of item.content) {
+        if (part?.type === "output_text" && typeof part.text === "string") text += part.text;
+        else if (part?.type === "refusal") refused = true;
+      }
+  return { text, refused };
+}
 
 export function toolsFor(family: ToolProvider, tools: BotTool[]) {
+  if (family === "responses")
+    return tools.map((t) => ({
+      type: "function",
+      name: t.name,
+      description: t.description,
+      parameters: t.schema,
+    }));
   return family === "anthropic"
     ? tools.map((t) => ({
         name: t.name,
@@ -70,6 +101,26 @@ export function parseTurn(family: ToolProvider, response: any): ToolTurn {
         .filter((b) => b?.type === "tool_use")
         .map((b) => ({ id: String(b.id), name: String(b.name), args: b.input ?? {} })),
       assistant: { role: "assistant", content },
+    };
+  }
+  if (family === "responses") {
+    const output: any[] = Array.isArray(response?.output) ? response.output : [];
+    return {
+      text: responsesText(output).text,
+      calls: output
+        .filter((item) => item?.type === "function_call")
+        .map((item) => {
+          let args: any = {};
+          let invalid = false;
+          try {
+            args = item.arguments ? JSON.parse(item.arguments) : {};
+          } catch {
+            invalid = true;
+          }
+          return { id: String(item.call_id), name: String(item.name || ""), args, invalid };
+        }),
+      // Todos os itens (raciocínio, chamadas, mensagem) voltam como vieram.
+      assistant: output,
     };
   }
   const message = response?.choices?.[0]?.message || {};
@@ -111,6 +162,11 @@ export function resultMessages(
         })),
       },
     ];
+  if (family === "responses")
+    return [
+      ...(turn.assistant as any[]),
+      ...results.map((r) => ({ type: "function_call_output", call_id: r.id, output: r.content })),
+    ];
   return [
     turn.assistant,
     ...results.map((r) => ({ role: "tool", tool_call_id: r.id, content: r.content })),
@@ -129,6 +185,7 @@ export const MAX_ROUNDS = 8;
  */
 export async function toolLoop(options: {
   family: ToolProvider;
+  pii?: PiiMask;
   messages: any[];
   tools: BotTool[];
   /**
@@ -148,8 +205,15 @@ export async function toolLoop(options: {
     for (const call of turn.calls) {
       const content = call.invalid
         ? JSON.stringify({ erro: "Argumentos inválidos (JSON). Tente de novo." })
-        : await options.run(call);
-      results.push({ id: call.id, content, error: content.startsWith('{"erro"') });
+        : await options.run(options.pii ? { ...call, args: options.pii.restoreValue(call.args) } : call);
+      // Só o resultado da ferramenta passa pela máscara. Os itens do próprio
+      // modelo (raciocínio cifrado, assinaturas, ids) voltam intactos: um
+      // trecho de base64 que parecesse documento corromperia o cifrado.
+      results.push({
+        id: call.id,
+        content: options.pii ? options.pii.maskValue(content) : content,
+        error: content.startsWith('{"erro"'),
+      });
     }
     messages.push(...resultMessages(options.family, turn, results));
   }

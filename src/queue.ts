@@ -298,7 +298,7 @@ export const aheadOfNew = (
 async function whatsappLine(env: Env, profile: string, queue: any) {
   const rows = await all(
     env,
-    "SELECT id,config FROM connections WHERE profile_id=? AND kind IN ('zernio','qr','hermes-whatsapp') ORDER BY (id=?) DESC,created",
+    "SELECT id,config FROM connections WHERE profile_id=? AND kind IN ('zernio','qr') ORDER BY (id=?) DESC,created",
     profile,
     queue?.whatsapp_line_id || "",
   );
@@ -423,7 +423,7 @@ const VIEW_SQL = {
     "SELECT c.last_customer,n.kind FROM conversations c LEFT JOIN connections n ON n.id=c.connection_id WHERE c.id=?",
   // A linha da fila primeiro (whatsapp_line_id), como em whatsappLine.
   lines:
-    "SELECT id,config FROM connections WHERE profile_id=? AND kind IN ('zernio','qr','hermes-whatsapp') ORDER BY (id=coalesce((SELECT whatsapp_line_id FROM queues WHERE id=?),'')) DESC,created",
+    "SELECT id,config FROM connections WHERE profile_id=? AND kind IN ('zernio','qr') ORDER BY (id=coalesce((SELECT whatsapp_line_id FROM queues WHERE id=?),'')) DESC,created",
 };
 
 /** Primeiro número de WhatsApp utilizável das linhas (whatsappLine). */
@@ -646,7 +646,7 @@ const OVERVIEW_SQL = {
   recent:
     "SELECT t.*,c.name counter_name FROM queue_tickets t LEFT JOIN counters c ON c.id=t.counter_id WHERE t.profile_id=? AND t.service_day=? AND t.called_at IS NOT NULL AND t.status IN ('called','serving','done') ORDER BY t.called_at DESC LIMIT 30",
   lines:
-    "SELECT id,config FROM connections WHERE profile_id=? AND kind IN ('zernio','qr','hermes-whatsapp') ORDER BY created",
+    "SELECT id,config FROM connections WHERE profile_id=? AND kind IN ('zernio','qr') ORDER BY created",
 };
 
 export type OverviewData = Awaited<ReturnType<typeof overviewData>>;

@@ -13,7 +13,6 @@ import { event } from "./events";
 import { createRun } from "./service";
 import { declaredGrants, grantsFor } from "./module-grants";
 import { moduleStates } from "./modules/registry";
-import { hermesRequest } from "./integrations";
 import { approvalView } from "./approvals";
 
 function teamAccess(actor: Actor, profile: string) {
@@ -27,7 +26,7 @@ function teamAccess(actor: Actor, profile: string) {
 }
 /**
  * Pessoas ativas da área (id, nome, papel), para os aplicativos escolherem um
- * responsável (ordem de serviço, agenda…). Sem bots e sem sondar o Hermes,
+ * responsável (ordem de serviço, agenda…). Sem bots nem consultas ao provedor,
  * ao contrário de teamDirectory. Pessoa da área ou chave com conversations:read.
  */
 export async function areaPeople(
@@ -82,46 +81,6 @@ export async function areaGrants(env: Env, actor: Actor, profile: string) {
 }
 export async function teamDirectory(env: Env, actor: Actor, profile: string) {
   teamAccess(actor, profile);
-  const connections = await all(
-    env,
-    "SELECT c.*,b.remote_profile,p.checked_at,p.online FROM connections c JOIN bots b ON b.connection_id=c.id AND b.enabled=1 LEFT JOIN team_connection_presence p ON p.connection_id=c.id WHERE c.profile_id=? AND c.kind='hermes' AND c.status='active' GROUP BY c.id",
-    profile,
-  );
-  await Promise.all(
-    connections.map(async (connection) => {
-      if (
-        Math.max(connection.last_seen || 0, connection.checked_at || 0) >
-        now() - 60000
-      )
-        return;
-      const claimed = await exec(
-        env,
-        "INSERT INTO team_connection_presence(connection_id,checked_at,online) VALUES(?,?,0) ON CONFLICT(connection_id) DO UPDATE SET checked_at=excluded.checked_at WHERE team_connection_presence.checked_at<?",
-        connection.id,
-        now(),
-        now() - 60000,
-      );
-      if (!claimed.meta.changes) return;
-      let online = false;
-      try {
-        await hermesRequest(
-          env,
-          connection,
-          "/v1/capabilities",
-          undefined,
-          connection.remote_profile,
-        );
-        online = true;
-      } catch {}
-      await exec(
-        env,
-        "UPDATE team_connection_presence SET online=?,checked_at=? WHERE connection_id=?",
-        online ? 1 : 0,
-        now(),
-        connection.id,
-      );
-    }),
-  );
   const users = await all(
     env,
     "SELECT u.id,u.name,coalesce(p.present,0) present FROM users u LEFT JOIN presence p ON p.actor=u.id AND p.profile_id=? WHERE u.disabled=0 AND (u.role='admin' OR EXISTS(SELECT 1 FROM json_each(u.profiles) WHERE value=?)) ORDER BY u.name,u.id",
@@ -130,7 +89,7 @@ export async function teamDirectory(env: Env, actor: Actor, profile: string) {
   );
   const bots = await all(
     env,
-    "SELECT b.id,b.name,b.enabled,b.line_ids,c.kind,c.status,c.last_seen,p.checked_at,p.online FROM bots b JOIN connections c ON c.id=b.connection_id LEFT JOIN team_connection_presence p ON p.connection_id=c.id WHERE b.profile_id=? ORDER BY b.name,b.id",
+    "SELECT b.id,b.name,b.enabled,b.line_ids,c.kind,c.status,c.last_seen,c.config FROM bots b JOIN connections c ON c.id=b.connection_id WHERE b.profile_id=? ORDER BY b.name,b.id",
     profile,
   );
   return {
@@ -151,16 +110,26 @@ export async function teamDirectory(env: Env, actor: Actor, profile: string) {
         online:
           !!b.enabled &&
           b.status === "active" &&
-          (b.kind === "ai" ||
-            (b.checked_at >= (b.last_seen || 0)
-              ? !!b.online && now() - b.checked_at < 120000
-              : !!b.last_seen && now() - b.last_seen < 120000)),
+          b.kind === "ai",
         enabled: !!b.enabled,
         last_seen: b.last_seen,
         line_ids: b.line_ids === null ? null : json(b.line_ids, []),
+        // Para a Equipe dizer o que o bot faz e por que está indisponível.
+        connection_kind: b.kind,
+        connection_status: b.status,
+        does: botDoes(b),
       })),
     ],
   };
+}
+/** Uma linha sobre o que o bot faz na conversa interna (Equipe → Bots). */
+export function botDoes(b: { kind: string; config?: unknown }) {
+  if (b.kind !== "ai")
+    return "Hermes retirado: escolha um bot interno.";
+  const cfg = json(b.config as any);
+  if (cfg.tools_unsupported_at)
+    return "Só conversa: o provedor de IA recusou as ferramentas, então ele não consulta o sistema.";
+  return "Consulta o Wabotia e propõe ações em seu nome, com o seu acesso; nada muda antes de você tocar em Confirmar.";
 }
 export async function internalChat(
   env: Env,

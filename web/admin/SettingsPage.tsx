@@ -268,8 +268,58 @@ export function SettingsPage() {
             Atendente interpreta a solicitação e propõe uma ação; o JEV decide
             se ela pode seguir, se é preciso esclarecer ou encaminhar para uma
             pessoa. Se a decisão falhar ou for incerta, o atendimento vai para a
-            equipe humana.
+            equipe humana. Com o JEV ligado, os bots internos também ganham a
+            ferramenta decidir (sim ou não, ou escolha), que só consulta e nunca
+            libera uma ação sozinha.
           </p>
+          {settings.jev_enabled && (
+            <div className="form-field-grid">
+              <Field
+                label="Limiar da decisão"
+                type="number"
+                min={0.5}
+                max={0.99}
+                value={settings.jev_threshold ?? 0.8}
+                onChange={(value) => edit({ jev_threshold: Number(value) })}
+                help="De 0,5 a 0,99. Abaixo dele, a decisão vai para a equipe. Padrão: 0,8."
+              />
+              <Field
+                label="Modelo do JEV"
+                value={settings.jev_model || "jev-1.14.0"}
+                onChange={(value) => edit({ jev_model: value })}
+                options={[
+                  ["jev-1.14.0", "jev-1.14.0 (atual)"],
+                  ["jev-1.13.0", "jev-1.13.0"],
+                ]}
+                emptyOption={null}
+                help="Versão fixada: o limiar foi ajustado contra ela."
+              />
+            </div>
+          )}
+          {settings.jev_enabled && app.bots.length > 0 && (
+            <details>
+              <summary>Limiar por bot</summary>
+              <p className="workspace-help">
+                Em branco, vale o limiar da área.
+              </p>
+              {app.bots.map((bot: any) => (
+                <Field
+                  key={bot.id}
+                  label={bot.name}
+                  type="number"
+                  min={0.5}
+                  max={0.99}
+                  value={settings.jev_bot_thresholds?.[bot.id] ?? ""}
+                  onChange={(value) => {
+                    const next = { ...(settings.jev_bot_thresholds || {}) };
+                    if (value === "") delete next[bot.id];
+                    else next[bot.id] = Number(value);
+                    edit({ jev_bot_thresholds: next });
+                  }}
+                />
+              ))}
+            </details>
+          )}
           <button
             type="button"
             className="text-link block"

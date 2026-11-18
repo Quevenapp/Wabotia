@@ -1,3 +1,4 @@
+import { tool, toolNames } from "./module-tools-fixture";
 import { env, SELF } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { all, one } from "../src/db";
@@ -78,22 +79,11 @@ describe("pedido: contrato da API", () => {
     ]);
   });
 
-  it("ferramentas MCP do Pedido aparecem e consultam pedidos", async () => {
+  it("ferramentas em processo do Pedido aparecem e consultam pedidos", async () => {
     const { f } = await pedidoSetup();
     const app = await application(f, ["conversations:read"]);
-    const rpc = (method: string, params: any = {}) =>
-      SELF.fetch("https://test/api/mcp", {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer " + app.token,
-          "Content-Type": "application/json",
-          Accept: "application/json, text/event-stream",
-        },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-      }).then((r) => r.json<any>());
-    const names = (await rpc("tools/list")).result.tools.map(
-      (t: any) => t.name,
-    );
+
+    const names = await toolNames(app.token);
     expect(names).toEqual(
       expect.arrayContaining([
         "pedido_cardapio",
@@ -102,29 +92,20 @@ describe("pedido: contrato da API", () => {
       ]),
     );
     await seedMenu(f);
-    const menu = await rpc("tools/call", {
-      name: "pedido_cardapio",
-      arguments: {},
-    });
-    expect(menu.result.isError).toBeFalsy();
+    const menu = await tool(app.token, "pedido_cardapio");
+    expect(menu.ok).toBe(true);
     expect(
-      menu.result.structuredContent.categories.map((c: any) => c.name),
+      menu.data.categories.map((c: any) => c.name),
     ).toEqual(["Lanches", "Bebidas"]);
     // Pedidos só do cliente da conversa: o telefone de outro cliente
     // (parâmetro inexistente na ferramenta) não muda nada.
     const c = await say(f, "oi", "5511973000009");
-    const orders = await rpc("tools/call", {
-      name: "pedido_consultar",
-      arguments: { conversation_id: c.id, phone: "5511973000001" },
-    });
-    expect(orders.result.isError).toBeFalsy();
-    expect(orders.result.structuredContent.data).toEqual([]);
+    const orders = await tool(app.token, "pedido_consultar", { conversation_id: c.id, phone: "5511973000001" });
+    expect(orders.ok).toBe(true);
+    expect(orders.data.data).toEqual([]);
     // Sem conversa, a ferramenta recusa.
-    const bare = await rpc("tools/call", {
-      name: "pedido_consultar",
-      arguments: { phone: "5511973000001" },
-    });
-    expect(bare.error.message).toMatch(/conversation_id/);
+    const bare = await tool(app.token, "pedido_consultar", { phone: "5511973000001" });
+    expect(bare.error).toMatch(/conversation_id/);
   });
 
   async function paidPixOrder(phone: string) {

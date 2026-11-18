@@ -213,19 +213,21 @@ export async function application(f: Fixture, scopes: string[]) {
   );
   return { id, token };
 }
-/** Hermes connection plus one bot of the area; `enabled` as given. */
+/** Conexão de IA com um bot da área; habilitado conforme `enabled`. */
 export async function bot(f: Fixture, enabled = true, name = "Atendente") {
   const connection = uid(),
     id = uid();
   await exec(
     env,
-    "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,created) VALUES(?,?,?,'hermes','direct','active',?,?)",
+    "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,created) VALUES(?,?,?,'ai','direct','active',?,?)",
     connection,
     f.profile,
-    "Hermes",
+    "provedor de IA",
     JSON.stringify({
-      url: "https://hermes.example.com",
-      api_url: "https://hermes.example.com",
+      provider: "anthropic",
+      model: "claude-haiku-5-5",
+      text_only: true,
+      verified_at: now(),
     }),
     now(),
   );

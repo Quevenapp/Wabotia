@@ -1,7 +1,7 @@
 // Fila presencial no bot (ferramenta de cliente "minha senha"). A Fila é do
 // núcleo (src/queue.ts); aqui fica só a rota de leitura da conversa e a
 // ferramenta, no contrato dos módulos (onRead + onMcpTool), para o bot que
-// atende o cliente e para a chave do Hermes presa à conversa.
+// atende o cliente com o ator interno preso à conversa.
 import { conversationTicket } from "../queue";
 import { onMcpTool, onRead } from "./api";
 

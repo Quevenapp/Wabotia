@@ -22,7 +22,7 @@ export async function removeConnection(
   admin(actor);
   const connection = await one(
     env,
-    "SELECT * FROM connections WHERE id=? AND profile_id=?",
+    "SELECT *,kind IN ('hermes','hermes-whatsapp') AS retired_kind FROM connections WHERE id=? AND profile_id=?",
     id,
     profile,
   );
@@ -32,7 +32,7 @@ export async function removeConnection(
       "not_found",
       "Telefone não encontrado nesta área de atendimento.",
     );
-  if (connection.kind === "hermes" || connection.kind === "ai")
+  if (connection.kind === "ai" || (connection.retired_kind && !connection.kind.endsWith("-whatsapp")))
     return removeBotConnection(env, profile, connection);
   if (connection.kind === "telegram") {
     // Leftover of the removed Telegram channel: nothing depends on it anymore.
@@ -43,7 +43,7 @@ export async function removeConnection(
     return { id, deleted: true, conversations_preserved: 0 };
   }
   requireValue(
-    ["meta", "zernio", "qr", "hermes-whatsapp"].includes(connection.kind),
+    ["meta", "zernio", "qr"].includes(connection.kind) || connection.retired_kind,
     "A exclusão está disponível somente para conexões de telefone WhatsApp.",
   );
   if (
@@ -168,7 +168,7 @@ export async function removeConnection(
 }
 
 /**
- * Exclui uma conexão de bots (Hermes ou provedor de IA) e os bots dela. Recusa
+ * Exclui uma conexão de bots e os bots dela. Recusa
  * enquanto algum desses bots ainda atende: a pessoa escolhe o substituto antes,
  * em vez de o atendimento mudar sem aviso. Conversas, mensagens e execuções
  * anteriores ficam no histórico.
@@ -275,10 +275,74 @@ async function removeBotConnection(env: Env, profile: string, connection: any) {
     ["DELETE FROM team_connection_presence WHERE connection_id=?", [id]],
     ["DELETE FROM artifact_imports WHERE connection_id=?", [id]],
     ["DELETE FROM bots WHERE connection_id=?", [id]],
-    // Sem o segredo, o token do plugin do Hermes deixa de valer.
     ["DELETE FROM secrets WHERE id=?", [`connection:${id}`]],
     ["DELETE FROM connections WHERE id=? AND profile_id=?", [id, profile]],
   );
   await batch(env, statements);
   return { id, deleted: true, bots_removed: ids.length };
+}
+
+/** Limpeza interna do cron: só conexões pausadas e marcadas pela migração.
+ * Não recebe ator nem dados da API. Cada falha fica para a próxima rodada.
+ */
+export async function removePendingConnections(env: Env, profileId?: string) {
+  for (const connection of await all(
+    env,
+    "SELECT * FROM connections WHERE status='paused' AND json_extract(config,'$.remove_pending')=1" +
+      (profileId === undefined ? "" : " AND profile_id=?"),
+    ...(profileId === undefined ? [] : [profileId]),
+  )) {
+    try {
+      const profile = connection.profile_id;
+      const bots = await all(
+        env,
+        "SELECT id FROM bots WHERE connection_id=?",
+        connection.id,
+      );
+      const ids = bots.map((bot) => bot.id);
+      const list = JSON.stringify(ids);
+      const row = await one(
+        env,
+        "SELECT settings FROM profiles WHERE id=?",
+        profile,
+      );
+      const settings = json(row?.settings);
+      if (ids.includes(settings.attendant_bot)) delete settings.attendant_bot;
+      settings.capabilities = (settings.capabilities || []).filter(
+        (item: any) => !ids.includes(item.bot_id),
+      );
+      settings.menus = (settings.menus || []).filter(
+        (item: any) => item.type !== "bot" || !ids.includes(item.bot_id),
+      );
+      // O lote preserva o histórico e desliga referências que já não podem executar.
+      await batch(env, [
+        [
+          "UPDATE profiles SET settings=? WHERE id=?",
+          [JSON.stringify(settings), profile],
+        ],
+        [
+          "UPDATE connections SET config=json_set(config,'$.service.mode','inherit','$.service.bot_id',NULL) WHERE profile_id=? AND json_extract(config,'$.service.bot_id') IN (SELECT value FROM json_each(?))",
+          [profile, list],
+        ],
+        ["UPDATE bots SET enabled=0 WHERE connection_id=?", [connection.id]],
+        [
+          "UPDATE bot_runs SET status='cancelled',error='Conexão retirada.',updated=? WHERE bot_id IN (SELECT value FROM json_each(?)) AND status IN ('queued','starting','running','cancelling','unknown')",
+          [now(), list],
+        ],
+        [
+          "UPDATE conversations SET assigned_bot_id=NULL,epoch=epoch+1 WHERE assigned_bot_id IN (SELECT value FROM json_each(?))",
+          [list],
+        ],
+      ]);
+      await removeBotConnection(env, profile, connection);
+    } catch {
+      console.error(
+        JSON.stringify({
+          component: "connection_removal",
+          connection: connection.id,
+          error: "remove_pending",
+        }),
+      );
+    }
+  }
 }

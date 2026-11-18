@@ -835,7 +835,9 @@ describe("pedido no WhatsApp: pagamento", () => {
     expect((await texts(c.id)).at(-1)).toContain(
       "chegou depois que ele foi cancelado",
     );
-  });
+    // Pedido, cobrança, vencimento e pagamento tardio: mais passos que o
+    // padrão de 5 s aguenta com a máquina cheia (5.068 ms na suíte de 17/11).
+  }, 20_000);
 
   it("sem a Cobrança, Pix não é oferecido; falha ao cobrar volta para as formas na hora", async () => {
     const { f, menu } = await setup({

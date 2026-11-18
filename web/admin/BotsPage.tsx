@@ -1,4 +1,4 @@
-// Atendente e especialistas: bots do Hermes, linhas de cada bot e as ações
+// Atendente e especialistas: bots internos, linhas de cada bot e as ações
 // internas que o Atendente pode pedir a um especialista.
 import React, { useEffect, useState } from "react";
 import { ArrowRight, Bot, Check, Plus } from "lucide-react";
@@ -7,6 +7,7 @@ import { useAction } from "../app/hooks";
 import type { Row } from "../lib/api";
 import { Badge, Button, CopyButton, Empty, Field, toast } from "../ui";
 import { BotLinesEditor } from "../ServicePanels";
+import { linkProps } from "../lib/routes";
 import { FormDialog } from "./shared";
 
 function CapabilityDialog({ onClose }: { onClose: () => void }) {
@@ -32,11 +33,11 @@ function CapabilityDialog({ onClose }: { onClose: () => void }) {
     >
       <Field label="Nome" value={form.name} onChange={change("name")} required />
       <Field
-        label="Especialista Hermes"
+        label="Especialista"
         value={form.bot_id}
         onChange={change("bot_id")}
-        options={app.bots.filter((bot) => bot.connection_kind !== "ai")}
-        help="Só bots do Hermes executam ações. Bots de provedor de IA só conversam."
+        options={app.bots.filter((bot) => bot.connection_kind === "ai")}
+        help="Bot interno: só consulta os dados do cliente da conversa (ferramentas de leitura dos módulos ligados) e não muda nada."
       />
       <Field
         label="Quando consultar este especialista"
@@ -56,7 +57,8 @@ function CapabilityDialog({ onClose }: { onClose: () => void }) {
 
 export function BotsPage() {
   const app = useApp();
-  const { api, root, demo, bots, settings } = app;
+  const { api, root, demo, settings } = app;
+  const bots = app.bots.filter((bot) => bot.connection_kind === "ai");
   const { busy, run } = useAction();
   const [adding, setAdding] = useState(false),
     [renaming, setRenaming] = useState<Row | null>(null),
@@ -64,28 +66,61 @@ export function BotsPage() {
   useEffect(() => setName(renaming?.name || ""), [renaming?.id]);
   const save = (fn: () => Promise<any>) =>
     run(fn, { success: "Salvo com sucesso." }).then(() => app.refresh());
+  const enabledBot = bots.find((bot) => bot.enabled);
   return (
     <>
+      <section className="card">
+        <h2>Comece aqui: o bot para a equipe</h2>
+        <p className="workspace-help">
+          Além de atender clientes no WhatsApp, cada bot conversa com a equipe em{" "}
+          <strong>Equipe › Bots</strong>: consulta o Wabotia e propõe ações em nome
+          de quem pede, com o acesso dessa pessoa. Nada muda antes de ela tocar
+          em Confirmar.
+        </p>
+        <ol className="workspace-help">
+          <li>
+            {bots.length ? (
+              "Conexão feita."
+            ) : (
+              <>
+                Conecte um provedor de IA em{" "}
+                <a {...linkProps({ area: "admin", page: "connections" })}>
+                  Conexões
+                </a>{" "}
+                e use Testar conexão: o bot aparece aqui.
+              </>
+            )}
+          </li>
+          <li>
+            {enabledBot
+              ? `Bot ligado: ${enabledBot.name}.`
+              : `Habilite o bot ${bots.length ? "abaixo" : "nesta tela"}. Ele nasce desligado, para não começar a responder sem você decidir.`}
+          </li>
+          <li>
+            Converse com ele em{" "}
+            <a {...linkProps({ area: "team", sub: "bots" })}>Equipe › Bots</a>.
+          </li>
+        </ol>
+      </section>
       <section className="card">
         <h2>O Atendente conversa. Os especialistas executam.</h2>
         <p className="workspace-help">
           Escolha um bot principal para receber o cliente. Em uma ação interna,
-          ele consulta outro bot do Hermes e recebe o resultado para responder.
-          Por exemplo: o especialista financeiro do Fagoo usa suas próprias
-          credenciais para buscar a segunda via de um boleto.
+          ele consulta outro bot e recebe o resultado para responder. Por
+          exemplo: um especialista interno consulta os dados do cliente da
+          conversa nos módulos ligados e devolve o resultado ao Atendente.
         </p>
         <div className="service-flow">
           <span>Bot Atendente</span>
           <ArrowRight size={16} />
-          <span>Especialista no Hermes</span>
+          <span>Especialista</span>
           <ArrowRight size={16} />
           <span>API do sistema</span>
         </div>
       </section>
       <div className="toolbar">
         <p>
-          Selecione os bots do Hermes ou de um provedor de IA. Permissões do
-          Hermes continuam no atendimento original.
+          Selecione os bots internos conectados a um provedor de IA.
         </p>
         <Button onClick={() => setAdding(true)} icon={<Plus size={17} />}>
           Ação de especialista
@@ -103,9 +138,100 @@ export function BotsPage() {
             <h2>{bot.name}</h2>
             <p>
               {bot.connection_kind === "ai"
-                ? `Provedor de IA: ${bot.model || bot.provider || ""}. Conversa, sem ferramentas.`
-                : `Atendimento Hermes: ${bot.remote_profile}`}
+                ? `Provedor de IA: ${bot.model || bot.provider || ""}. ${
+                    bot.tools_unsupported
+                      ? "O provedor recusou as ferramentas: só conversa. Troque o modelo ou o provedor em Conexões."
+                      : "Atende clientes com as ferramentas dos módulos e, na Equipe, consulta e propõe ações em nome de quem pede."
+                  }`
+                : "Bot indisponível"}
             </p>
+            {!bot.enabled && (
+              <p className="workspace-help">
+                Desligado: não atende nem conversa na Equipe até ser habilitado.
+              </p>
+            )}
+            {app.isAdmin && (
+              <>
+                <label className="workspace-help">
+                  <input
+                    type="checkbox"
+                    checked={bot.mask_personal !== false}
+                    disabled={busy}
+                    onChange={(event) => {
+                      const mask_personal = event.target.checked;
+                      save(() =>
+                        api(root + "/bots/" + bot.id, "PATCH", {
+                          mask_personal,
+                        }),
+                      );
+                    }}
+                  />{" "}
+                  Mascarar documentos e telefones nas mensagens antes de enviar
+                  à IA
+                </label>
+                {bot.mask_personal !== false && (
+                  <>
+                    <label className="workspace-help block">
+                      <input
+                        type="checkbox"
+                        checked={bot.pdf_raw_fallback === true}
+                        disabled={busy}
+                        onChange={(event) => {
+                          const pdf_raw_fallback = event.target.checked;
+                          save(() =>
+                            api(root + "/bots/" + bot.id, "PATCH", {
+                              pdf_raw_fallback,
+                            }),
+                          );
+                        }}
+                      />{" "}
+                      PDF que não der para ler como texto: mandar o arquivo
+                      inteiro ao provedor
+                      <small className="block">
+                        Desligada, o PDF vai para a equipe. Ligada, o arquivo
+                        vai como está, sem máscara.
+                      </small>
+                    </label>
+                    <label className="workspace-help block">
+                      <input
+                        type="checkbox"
+                        checked={bot.image_to_team === true}
+                        disabled={busy}
+                        onChange={(event) => {
+                          const image_to_team = event.target.checked;
+                          save(() =>
+                            api(root + "/bots/" + bot.id, "PATCH", {
+                              image_to_team,
+                            }),
+                          );
+                        }}
+                      />{" "}
+                      Mandar fotos e imagens para a equipe em vez do provedor
+                      <small className="block">
+                        Desligada, a imagem vai ao provedor como está (o bot lê
+                        a foto, mas um documento fotografado não é mascarado).
+                      </small>
+                    </label>
+                  </>
+                )}
+                <p className="workspace-help">
+                  {bot.mask_personal === false ? (
+                    "Máscara desligada: mensagens e anexos seguem sem máscara, conforme as capacidades da conexão."
+                  ) : (
+                    <>
+                      Inclui e-mail, CEP, histórico, consultas ao JEV e texto de
+                      PDF.{" "}
+                      {bot.pdf_raw_fallback === true
+                        ? "PDF sem texto legível vai inteiro, sem máscara, se a conexão aceitar PDF e dentro dos tetos; caso contrário, vai para a equipe. "
+                        : "PDF sem texto legível vai para a equipe. "}
+                      {bot.image_to_team === true
+                        ? "Fotos e imagens vão para a equipe."
+                        : "Fotos e imagens vão ao provedor como estão: um documento fotografado não é mascarado."}
+                    </>
+                  )}
+                </p>
+              </>
+            )}
             <div className="card-actions">
               <Button
                 secondary
@@ -168,8 +294,8 @@ export function BotsPage() {
         <div className="card">
           <Empty
             icon={<Bot size={28} />}
-            title="Sua Equipe Bot começa em Hermes e canais"
-            description="Cadastre o Hermes e use Descobrir bots, ou conecte um provedor de IA e use Testar conexão."
+            title="Sua Equipe Bot começa em Conexões"
+            description="Conecte um provedor de IA e use Testar conexão."
           />
         </div>
       )}
@@ -224,7 +350,7 @@ export function BotsPage() {
             onChange={setName}
             maxLength={80}
             required
-            help="É o nome que a equipe e o cliente veem (“Nome - IA”). Descobrir bots no Hermes não desfaz a troca."
+            help="É o nome que a equipe e o cliente veem (“Nome - IA”)."
           />
         </FormDialog>
       )}

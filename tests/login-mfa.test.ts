@@ -14,6 +14,7 @@ import {
   TOTP_STEP_S,
   TOTP_WINDOW,
   totpAt,
+  validateSchedule,
   withinSchedule,
 } from "../src/mfa";
 import { api, bearer, fixture } from "./service-center-fixture";
@@ -509,20 +510,55 @@ describe("links de uso único, convite e recuperação", () => {
 });
 
 describe("horário de acesso", () => {
-  it("fora do horário não entra; o administrador é isento", async () => {
-    // Relógio parado ao meio-dia de Brasília: com o relógio de verdade, a
-    // meia-noite entre "hoje" e o login trocava o dia no meio do teste.
-    const local = new Date(Date.now() - BRASILIA_OFFSET_MS);
-    clock(
-      Date.UTC(
-        local.getUTCFullYear(),
-        local.getUTCMonth(),
-        local.getUTCDate(),
-        12,
-      ) + BRASILIA_OFFSET_MS,
+  const local = () => new Date(now() - BRASILIA_OFFSET_MS);
+  // Instante fixo, longe da meia-noite: com o relógio real, o teste falhava
+  // quando rodava perto da virada do dia (suíte de 17/11, 23:54 a 00:16).
+  const NOON = Date.UTC(2026, 10, 18, 15, 0, 0); // qua 18/11/2026 12:00 Brasília
+  const at = (day: number, hhmmss: string) => {
+    const [h, m, s] = hhmmss.split(":").map(Number);
+    return Date.UTC(2026, 10, day, h, m, s) + BRASILIA_OFFSET_MS;
+  };
+  afterEach(() => vi.useRealTimers());
+
+  it("o fim da janela inclui o minuto informado; o início também", () => {
+    const allDay = {
+      enabled: true,
+      windows: [{ start: "00:00", end: "23:59", days: [3] }], // quarta
+    };
+    expect(new Date(at(18, "12:00:00") - BRASILIA_OFFSET_MS).getUTCDay()).toBe(
+      3,
     );
+    expect(withinSchedule(allDay, at(18, "00:00:00"))).toBe(true);
+    expect(withinSchedule(allDay, at(18, "23:58:59"))).toBe(true);
+    expect(withinSchedule(allDay, at(18, "23:59:00"))).toBe(true);
+    expect(withinSchedule(allDay, at(18, "23:59:59"))).toBe(true);
+    // 00:00:00 de quinta: outro dia, fora da janela de quarta.
+    expect(withinSchedule(allDay, at(19, "00:00:00"))).toBe(false);
+    expect(withinSchedule(allDay, at(17, "23:59:59"))).toBe(false);
+    const office = {
+      enabled: true,
+      windows: [{ start: "08:00", end: "18:00", days: [3] }],
+    };
+    expect(withinSchedule(office, at(18, "07:59:59"))).toBe(false);
+    expect(withinSchedule(office, at(18, "08:00:00"))).toBe(true);
+    expect(withinSchedule(office, at(18, "18:00:00"))).toBe(true);
+    expect(withinSchedule(office, at(18, "18:00:59"))).toBe(true);
+    expect(withinSchedule(office, at(18, "18:01:00"))).toBe(false);
+    // Janela que cruza a meia-noite não é aceita: o início vem antes do fim.
+    expect(() =>
+      validateSchedule({
+        enabled: true,
+        windows: [{ start: "22:00", end: "02:00", days: [3] }],
+      }),
+    ).toThrow("Horário de acesso");
+  });
+
+  it("fora do horário não entra; o administrador é isento", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOON);
     const f = await fixture();
-    const today = local.getUTCDay();
+    const today = local().getUTCDay();
+    expect(today).toBe(3);
     const others = [0, 1, 2, 3, 4, 5, 6].filter((d) => d !== today);
     const closed = {
       enabled: true,

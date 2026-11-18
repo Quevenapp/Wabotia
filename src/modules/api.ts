@@ -44,7 +44,7 @@ import {
   requireValue,
 } from "../types";
 import { isBound } from "../visibility";
-import { access, admin, canProfile, sha } from "../security";
+import { access, admin, canProfile, refuseEngineActor, sha } from "../security";
 import { grantId } from "../module-grants";
 import { rolesOf } from "../access";
 import {
@@ -80,7 +80,11 @@ import {
   type ApprovalDecision,
   type ApprovalRequest,
 } from "../approvals";
-export type { ApprovalDecision, ApprovalRequest, ApprovalField } from "../approvals";
+export type {
+  ApprovalDecision,
+  ApprovalRequest,
+  ApprovalField,
+} from "../approvals";
 import {
   CONSENT_PURPOSES,
   consentFor,
@@ -564,6 +568,7 @@ function refuseBound(actor: Actor) {
  * nos módulos do alcance dele.
  */
 function refuseCrossing(actor: Actor, target: string | undefined) {
+  refuseEngineActor(actor);
   if (actor.credential)
     throw new ApiError(
       403,
@@ -603,7 +608,10 @@ export function modulesApi(
       if (!(await moduleEnabled(env, profile, moduleId)))
         throw moduleDisabledError(definition);
     },
-    access: (actor, scope) => access(actor, profile, scope),
+    access: (actor, scope) => {
+      refuseEngineActor(actor);
+      access(actor, profile, scope);
+    },
     mayRead: (actor, kind) => mayRead(actor, kind),
     botView(actor, value) {
       if (actor.kind !== "app" && !actor.via?.masked) return value;
@@ -1035,7 +1043,10 @@ export function modulesApi(
     },
     moduleActor(o) {
       const reach = [...new Set(o.reach)];
-      if (!reach.length || reach.some((id) => id === moduleId || !moduleById(id)))
+      if (
+        !reach.length ||
+        reach.some((id) => id === moduleId || !moduleById(id))
+      )
         throw new Error(
           `moduleActor: alcance inválido (${reach.join(", ")}) no módulo ${moduleId}.`,
         );
@@ -1357,7 +1368,9 @@ export function filteredHandlers(
   filter: (ctx: ModuleContext, actor: Actor, value: any) => any,
 ) {
   return {
-    onRead: (...[moduleId, path, handler, options]: Parameters<typeof onRead>) =>
+    onRead: (
+      ...[moduleId, path, handler, options]: Parameters<typeof onRead>
+    ) =>
       onRead(
         moduleId,
         path,
@@ -1512,8 +1525,8 @@ export function onInboundReply(
 }
 
 /**
- * Ferramenta MCP para bots (Hermes e outros clientes MCP), traduzida para uma
- * chamada à API v1 desta instalação com a chave do cliente: permissões,
+ * Ferramenta de módulo para bots internos, traduzida em processo para uma
+ * chamada à API v1 desta instalação com o ator interno: permissões,
  * idempotência e 409 module_disabled valem como na API. O nome começa com o
  * id do módulo ("agenda_horarios_livres"); `profile` entra sozinho e, com
  * `write: true`, também `idempotency_key`.
@@ -1544,17 +1557,40 @@ export function onApproval(
   moduleId: string,
   kind: string,
   hook: {
-    validate?: (ctx: ModuleContext, approval: any, decision: ApprovalDecision) => Promise<void>;
-    decided?: (ctx: ModuleContext, approval: any, decision: ApprovalDecision) => Promise<void>;
+    validate?: (
+      ctx: ModuleContext,
+      approval: any,
+      decision: ApprovalDecision,
+    ) => Promise<void>;
+    decided?: (
+      ctx: ModuleContext,
+      approval: any,
+      decision: ApprovalDecision,
+    ) => Promise<void>;
   },
 ) {
-  if (!moduleById(moduleId)) throw new Error(`Módulo não registrado: ${moduleId}`);
+  if (!moduleById(moduleId))
+    throw new Error(`Módulo não registrado: ${moduleId}`);
   registerApprovalHook(moduleId, kind, {
     ...(hook.validate
-      ? { validate: (env, profile, approval, decision) => hook.validate!(modulesApi(env, profile, moduleId), approval, decision) }
+      ? {
+          validate: (env, profile, approval, decision) =>
+            hook.validate!(
+              modulesApi(env, profile, moduleId),
+              approval,
+              decision,
+            ),
+        }
       : {}),
     ...(hook.decided
-      ? { decided: (env, profile, approval, decision) => hook.decided!(modulesApi(env, profile, moduleId), approval, decision) }
+      ? {
+          decided: (env, profile, approval, decision) =>
+            hook.decided!(
+              modulesApi(env, profile, moduleId),
+              approval,
+              decision,
+            ),
+        }
       : {}),
   });
 }

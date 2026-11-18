@@ -794,7 +794,7 @@ export async function cancelModuleWebSteps(
 export async function whatsappReturnLink(env: Env, c: Conversation) {
   const rows = await all(
     env,
-    "SELECT id,config FROM connections WHERE profile_id=? AND kind IN ('zernio','qr','hermes-whatsapp') ORDER BY (id=?) DESC,created",
+    "SELECT id,config FROM connections WHERE profile_id=? AND kind IN ('zernio','qr') ORDER BY (id=?) DESC,created",
     c.profile_id,
     c.connection_id || "",
   );

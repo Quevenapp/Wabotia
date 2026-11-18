@@ -19,7 +19,7 @@ import {
   type Fixture,
 } from "./service-center-fixture";
 import { future, reservaSetup } from "./reserva-fixture";
-import { botKey, tool, toolNames } from "./mcp-fixture";
+import { botKey, tool, toolNames } from "./module-tools-fixture";
 
 // O bot está na conversa de "mine"; "other" é outro cliente da mesma área.
 async function people(f: Fixture, a: string, b: string) {
@@ -48,7 +48,7 @@ describe("conferência N-8: leituras do bot sem dado pessoal, seja qual for o es
     const r = await receive(f, f.line, "oi", phone);
     await drain(f);
     const c = await conversation(env, r.id, f.profile);
-    // Chave com contacts:read (como o painel dava ao Hermes).
+    // Chave com contacts:read (com acesso aos dados pessoais).
     const key = (
       await application(f, [
         "conversations:read",
@@ -108,7 +108,7 @@ describe("conferência N-8: leituras do bot sem dado pessoal, seja qual for o es
     const r = await receive(f, f.line, "oi", phone);
     await drain(f);
     const c = await conversation(env, r.id, f.profile);
-    // Chave com contacts:read, como o painel dava ao Hermes.
+    // Chave com contacts:read, com acesso aos dados pessoais.
     const key = (
       await application(f, [
         "conversations:read",

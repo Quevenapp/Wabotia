@@ -1,5 +1,4 @@
-// "Conectar serviço": Hermes, provedor de IA direto e os tipos de linha
-// WhatsApp. Usado em Hermes e canais e pelo assistente de configuração.
+// Conectar provedor de IA ou linha WhatsApp, também pelo assistente.
 import React, { useState } from "react";
 import { useApp } from "../app/AppContext";
 import type { Row } from "../lib/api";
@@ -7,23 +6,15 @@ import { Field, toast } from "../ui";
 import { FormDialog } from "./shared";
 
 const configKeys = [
-  "url",
-  "api_url",
   "account_id",
   "zernio_profile_id",
   "zernio_workspace_id",
   "group",
   "number",
-  "platform",
-  "transport",
 ];
 const secretKeys = [
-  "token",
   "api_key",
   "webhook_secret",
-  "dashboard_token",
-  "access_client_id",
-  "access_client_secret",
 ];
 
 const aiProviders: [string, string][] = [
@@ -61,18 +52,20 @@ const openaiEfforts: [string, string][] = [
   ["medium", "Médio"],
   ["high", "Alto"],
   ["xhigh", "Muito alto"],
-];
-// Compatible APIs pass the value through: any level the model accepts.
-const compatibleEfforts: [string, string][] = [
-  ...openaiEfforts,
   ["max", "Máximo"],
 ];
+// Compatible APIs pass the value through: any level the model accepts.
+const compatibleEfforts: [string, string][] = openaiEfforts;
 
 /** Esforço usado quando nada foi escolhido; vazio deixa o padrão do modelo. */
+/** "O modelo entende PDF": ligada de fábrica na Anthropic, escolhida na OpenAI (src/ai-provider.ts). */
+const pdfOn = (provider: string, value: unknown) =>
+  provider === "anthropic" ? value !== false : provider === "openai" ? value === true : false;
+
 const defaultEffort = (provider: string) =>
   provider === "anthropic" || provider === "deepseek" ? "low" : "";
 
-/** Campos da conexão direta com um provedor de IA, sem Hermes. */
+/** Campos da conexão direta com um provedor de IA, sem servidor externo. */
 function AiFields({
   form,
   change,
@@ -134,9 +127,9 @@ function AiFields({
   return (
     <>
       <p>
-        O Wabotia chama o provedor direto, sem VPS nem Hermes. O bot responde
+        O Wabotia chama o provedor direto, sem servidor próprio. O bot responde
         com base nas fontes, menus e protocolos desta área, mas não executa
-        ações em outros sistemas, não gera arquivos e não pode ser especialista.
+        ações em outros sistemas, não gera arquivos.
         O custo é cobrado pelo provedor, por uso.
       </p>
       <Field
@@ -254,6 +247,24 @@ function AiFields({
           </label>
         </>
       )}
+      {(provider === "anthropic" || provider === "openai") && (
+        <>
+          <label className="check-line">
+            <input
+              type="checkbox"
+              checked={pdfOn(provider, form.pdf)}
+              onChange={(event) => change("pdf")(event.target.checked)}
+            />
+            O modelo entende PDF
+          </label>
+          <p>
+            {pdfOn(provider, form.pdf)
+              ? "Nota fiscal ou comprovante em PDF (um por mensagem, até 4 MB e 10 páginas) vai ao modelo junto com a mensagem; PDF maior, com senha ou corrompido vai para a equipe. Nas mensagens seguintes o bot não tem mais o arquivo, só o que ele escreveu sobre ele."
+              : "PDF enviado pelo cliente vai para a equipe."}
+            {provider === "openai" && " Na OpenAI, só modelos com visão leem PDF."}
+          </p>
+        </>
+      )}
       <label className="check-line">
         <input
           type="checkbox"
@@ -294,11 +305,7 @@ export function ConnectionDialog({
   onSaved: () => void | Promise<void>;
 }) {
   const app = useApp();
-  // Hermes novo começa pelo plugin, que dispensa túnel e chaves no Wabotia.
-  const [form, setForm] = useState<Row>(
-    initial.id ? initial : { transport: "link", ...initial },
-  );
-  const byPlugin = form.kind === "hermes" && form.transport === "link";
+  const [form, setForm] = useState<Row>({ ...initial, kind: initial.kind || "ai" });
   const change = (key: string) => (value: any) =>
     setForm((current) => ({ ...current, [key]: value }));
 
@@ -320,6 +327,7 @@ export function ConnectionDialog({
               : ""),
           base_url: form.provider === "compatible" ? form.base_url : undefined,
           vision: form.provider === "compatible" ? !!form.vision : undefined,
+          pdf: pdfOn(form.provider || "anthropic", form.pdf),
           effort:
             form.effort ||
             defaultEffort(form.provider || "anthropic") ||
@@ -337,31 +345,12 @@ export function ConnectionDialog({
       secrets: Row = {};
     config.groups_enabled = !!form.groups_enabled;
     for (const key of configKeys) if (form[key]) config[key] = form[key];
-    if (form.kind !== "hermes" || form.transport !== "link")
-      delete config.transport;
-    if (!byPlugin)
-      for (const key of secretKeys) if (form[key]) secrets[key] = form[key];
-    if (byPlugin) {
-      delete config.url;
-      delete config.api_url;
-    } else if (form.profile_key)
-      secrets.profile_keys = {
-        [form.remote_profile || "default"]: form.profile_key,
-      };
-    if (!byPlugin && form.profile_keys_json) {
-      try {
-        secrets.profile_keys = JSON.parse(form.profile_keys_json);
-      } catch {
-        throw new Error(
-          "As chaves por atendimento precisam ser um objeto JSON válido.",
-        );
-      }
-    }
+    for (const key of secretKeys) if (form[key]) secrets[key] = form[key];
     await app.api(app.root + "/connections", "POST", {
       id: form.id,
       name: form.name,
-      kind: form.kind || "hermes",
-      mode: form.kind === "hermes-whatsapp" ? "hermes" : "direct",
+      kind: form.kind || "ai",
+      mode: "direct",
       config,
       secrets,
     });
@@ -383,16 +372,14 @@ export function ConnectionDialog({
         value={form.kind}
         onChange={change("kind")}
         options={[
-          ["hermes", "Hermes"],
           ["ai", "Provedor de IA (sem servidor)"],
           ["zernio", "WhatsApp · Zernio"],
           ["qr", "WhatsApp · QR direto"],
-          ["hermes-whatsapp", "WhatsApp · pelo Hermes"],
         ]}
         disabled={!!form.id}
       />
       {form.kind === "ai" && <AiFields form={form} change={change} />}
-      {["qr", "zernio", "hermes-whatsapp"].includes(form.kind) && (
+      {["qr", "zernio"].includes(form.kind) && (
         <Field
           label="Telefone com DDI (somente dígitos)"
           value={form.number}
@@ -400,103 +387,6 @@ export function ConnectionDialog({
           placeholder="5511999999999"
           required
         />
-      )}
-      {form.kind === "hermes-whatsapp" && (
-        <Field
-          label="Canal configurado no Hermes"
-          value={form.platform}
-          onChange={change("platform")}
-          options={[
-            ["whatsapp", "QR Hermes"],
-            ["whatsapp_cloud", "Meta Hermes"],
-          ]}
-          required
-        />
-      )}
-      {form.kind === "hermes" && !form.id && (
-        <Field
-          label="Como ligar ao Hermes"
-          value={form.transport || "url"}
-          onChange={(value: string) =>
-            change("transport")(value === "link" ? "link" : "")
-          }
-          options={[
-            ["link", "Plugin no Hermes (recomendado, sem túnel)"],
-            ["url", "URLs públicas com túnel Cloudflare"],
-          ]}
-        />
-      )}
-      {byPlugin && (
-        <p>
-          Nada mais a preencher. Depois de salvar, use{" "}
-          <strong>Gerar comando de instalação</strong> no cartão da conexão e
-          execute o comando na máquina onde o Hermes está. As chaves do Hermes
-          ficam nessa máquina.
-        </p>
-      )}
-      {form.kind === "hermes" && !byPlugin && (
-        <>
-          <Field
-            label="URL do backend administrativo Hermes"
-            value={form.url}
-            onChange={change("url")}
-            placeholder="https://hermes.seudominio.com"
-          />
-          <Field
-            label="URL da API de bots Hermes"
-            value={form.api_url}
-            onChange={change("api_url")}
-            placeholder="https://api-hermes.seudominio.com"
-          />
-          <Field
-            label="Token administrativo Hermes"
-            type="password"
-            value={form.dashboard_token}
-            onChange={change("dashboard_token")}
-            autoComplete="off"
-          />
-          <Field
-            label="Nome do atendimento no Hermes"
-            value={form.remote_profile}
-            onChange={change("remote_profile")}
-            placeholder="default"
-          />
-          <Field
-            label="API_SERVER_KEY desse atendimento"
-            type="password"
-            value={form.profile_key}
-            onChange={change("profile_key")}
-            autoComplete="off"
-          />
-          <details>
-            <summary>Chaves de vários atendimentos Hermes</summary>
-            <p>
-              Informe um objeto JSON com nome do atendimento e chave. Deixe
-              vazio para manter as chaves já cadastradas.
-            </p>
-            <Field
-              label="Chaves por atendimento (JSON)"
-              type="textarea"
-              value={form.profile_keys_json}
-              onChange={change("profile_keys_json")}
-            />
-          </details>
-          <details>
-            <summary>Conexão protegida por Cloudflare Access</summary>
-            <Field
-              label="Client ID"
-              value={form.access_client_id}
-              onChange={change("access_client_id")}
-            />
-            <Field
-              label="Client Secret"
-              type="password"
-              value={form.access_client_secret}
-              onChange={change("access_client_secret")}
-              autoComplete="off"
-            />
-          </details>
-        </>
       )}
       {form.kind === "zernio" && (
         <>
@@ -558,10 +448,10 @@ export function ConnectionDialog({
           </p>
         </>
       )}
-      {["qr", "hermes-whatsapp"].includes(form.kind) && (
+      {form.kind === "qr" && (
         <p>
           Após salvar, gere uma chave do conector e siga o guia para iniciá-lo
-          junto do Hermes.
+          no seu servidor.
         </p>
       )}
     </FormDialog>

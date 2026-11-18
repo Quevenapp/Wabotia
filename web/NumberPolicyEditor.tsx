@@ -36,7 +36,7 @@ const options: [NumberPolicyFlag, string, string][] = [
   ],
   [
     "bots",
-    "Atendimento pelos bots Hermes",
+    "Atendimento pelos bots internos",
     "Permite o Atendente e os especialistas autorizados na área de atendimento.",
   ],
   [

@@ -444,7 +444,7 @@ export async function routerCommand(
         [
           JSON.stringify([
             ...new Set([
-              ...json(app.scopes, []),
+              ...json(app.scopes, []).filter((s: string) => !["conversations:bound", "conversations:all"].includes(s)),
               "routing:read",
               "routing:send",
               "conversations:read",

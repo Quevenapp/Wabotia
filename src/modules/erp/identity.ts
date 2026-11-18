@@ -12,7 +12,7 @@ import { cachedAll } from "../../db";
 import { modules, moduleStates } from "../registry";
 import { ApiError, type Actor, type Env } from "../../types";
 import { rolesOf } from "../../access";
-import { storedAccess } from "../../security";
+import { refuseEngineActor, storedAccess } from "../../security";
 import {
   ERP_ROLES,
   type ErpPerson,
@@ -235,6 +235,7 @@ export async function erpIdentity(
   profile: string,
   method = "GET",
 ): Promise<IdentityPort> {
+  refuseEngineActor(actor);
   if (actor.kind === "app") return appIdentity(env, actor, profile, method);
   const erp_role = erpRoleOf(actor);
   if (!erp_role)

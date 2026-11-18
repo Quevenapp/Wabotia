@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { env, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { all, exec, one } from "../src/db";
 import { now, uid } from "../src/types";
@@ -30,6 +30,12 @@ useMercadoPago();
 
 const rowsOf = (message: any) =>
   message.content.interactive.action.sections.flatMap((s: any) => s.rows);
+
+const pendingAlarm = (profile: string) =>
+  runInDurableObject(
+    env.COORDINATOR.get(env.COORDINATOR.idFromName(profile)),
+    (_instance, state) => state.storage.getAlarm(),
+  );
 
 describe("suporte: pagador em atraso", () => {
   it("oferece pagar a parcela em aberto e libera só quando o provedor confirma", async () => {
@@ -259,8 +265,10 @@ describe("suporte: sem assinatura, suporte avulso", () => {
     ).toEqual({ status: "cancelled" });
     // Paga pelo Pix; depois o pagamento é estornado.
     await approve(account.id, after[0].payment_id);
+    expect(await pendingAlarm(f.profile)).toBeNull();
     expect((await releases(c.id))[0].status).toBe("active");
     await remoteStatus(account.id, after[0].payment_id, "refunded");
+    expect(await pendingAlarm(f.profile)).toBeNull();
     expect(
       await one(
         env,
@@ -380,6 +388,7 @@ describe("suporte: sem cadastro, plano mensal", () => {
       "SELECT payer_id,payer_linked FROM mensalidade_contracts WHERE id=?",
       session.contract_id,
     );
+    expect(await pendingAlarm(f.profile)).toBeNull();
     expect(contract).toEqual({ payer_id: owner.id, payer_linked: 0 });
     const alerts = await eventsOf(f, "mensalidade.contract_unlinked");
     expect(alerts).toHaveLength(1);

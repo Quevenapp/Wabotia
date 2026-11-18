@@ -1,6 +1,6 @@
 // ERP (Fagoo) dentro do Wabotia: a instância "erp:<área>" da classe
-// Coordinator (sem classe nova de Durable Object; mesmo precedente de
-// "hermes-link:" em src/hermes-link.ts). Os dados do ERP ficam no SQLite do
+// Coordinator (sem classe nova de Durable Object, como as antigas instâncias
+// do vínculo externo). Os dados do ERP ficam no SQLite do
 // objeto (ctx.storage.sql). Fase 0: docs/ERP-FASE0.md.
 //
 // Regras da instância compartilhada:

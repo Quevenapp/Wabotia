@@ -8,10 +8,10 @@
 //   sessão dela, dentro do prazo; operação sensível exige segundo fator;
 // - dado pessoal mascarado no que vai ao modelo, salvo regra da instalação.
 import { all, exec, one } from "../db";
-import { actorForUser, canProfile, hmac } from "../security";
+import { actorForUser, canProfile } from "../security";
 import { allows } from "../access";
 import { event } from "../events";
-import { internalCall } from "../mcp";
+import { internalCall } from "../internal-api";
 import { BOT_HIDDEN } from "../modules/api";
 import {
   ApiError,
@@ -706,57 +706,6 @@ export async function expireProposals(env: Env, profile: string) {
     profile,
     now(),
   );
-}
-
-// ---------------------------------------------------------------------------
-// Hermes: identidade por execução, assinada (o plugin repõe nas chamadas MCP)
-
-export const RUN_HEADER = "X-Wabotia-Run";
-const RUN_TTL = 15 * 60000;
-
-async function runKey(env: Env) {
-  if (!env.MASTER_KEY) throw new Error("MASTER_KEY ausente.");
-  return `bot-run:${env.MASTER_KEY}`;
-}
-
-/** `<run>.<validade>.<hmac>`: vai no job do plugin, fora do contexto do modelo. */
-export async function signRun(env: Env, runId: string, at = now()) {
-  const exp = at + RUN_TTL;
-  return `${runId}.${exp}.${await hmac(await runKey(env), `${runId}.${exp}`)}`;
-}
-
-/**
- * Confere o cabeçalho do plugin numa chamada MCP: assinatura e validade,
- * execução ativa de conversa interna de um bot que a chave atende. Devolve o
- * contexto da pessoa, ou null (chamada segue como a aplicação, como hoje).
- */
-export async function runFromHeader(
-  env: Env,
-  app: Actor,
-  header: string | null,
-) {
-  const run = await authenticatedRunFromHeader(env, app, header);
-  return run ? botActionContext(env, run) : null;
-}
-
-/** Vínculo assinado do plugin; nunca vem dos argumentos produzidos pelo modelo. */
-export async function authenticatedRunFromHeader(env: Env, app: Actor, header: string | null) {
-  if (!header || app.kind !== "app") return null;
-  const [runId, expText, sig] = header.split(".");
-  const exp = Number(expText);
-  if (!runId || !sig || !Number.isSafeInteger(exp) || exp < now()) return null;
-  const expected = await hmac(await runKey(env), `${runId}.${exp}`);
-  if (expected.length !== sig.length) return null;
-  let diff = 0;
-  for (let i = 0; i < sig.length; i++)
-    diff |= expected.charCodeAt(i) ^ sig.charCodeAt(i);
-  if (diff) return null;
-  const run = await one(env, "SELECT * FROM bot_runs WHERE id=?", runId);
-  if (!run || !["queued", "starting", "running"].includes(run.status))
-    return null;
-  if (!app.bots.includes(run.bot_id) || !canProfile(app, run.profile_id))
-    return null;
-  return run;
 }
 
 /** Propostas de uma execução (para o resumo do bot e os testes). */

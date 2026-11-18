@@ -1,7 +1,6 @@
 // Bot da conversa interna agindo em nome da pessoa (src/bot-actions): portão,
 // catálogo filtrado pelo acesso, identidade, proposta e confirmação,
-// expiração, repetição, segundo fator, máscara, injeção e o cabeçalho
-// assinado do Hermes.
+// expiração, repetição, segundo fator, máscara e injeção.
 import { env, SELF } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
 import { all, exec, one } from "../src/db";
@@ -12,8 +11,6 @@ import {
   newToolState,
   runBotTool,
   setFullPersonalData,
-  signRun,
-  RUN_HEADER,
 } from "../src/bot-actions/actions";
 import { resetCatalogCache } from "../src/bot-actions/catalog";
 import { osModule } from "../src/modules/os/definition";
@@ -223,46 +220,5 @@ describe("bot age pela pessoa: proposta e confirmação", () => {
     const ctx = await botActionContext(env, run);
     await expect(confirmProposal(env, ctx!.actor, f.profile, chat.id, pending.proposta)).rejects.toMatchObject({ code: "person_required" });
     expect((await one(env, "SELECT status FROM bot_proposals WHERE id=?", pending.proposta)).status).toBe("pending");
-  });
-});
-
-describe("bot age pela pessoa: Hermes pelo MCP", () => {
-  const mcp = (token: string, body: any, header?: string) =>
-    SELF.fetch("https://test/api/mcp", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer " + token,
-        "Content-Type": "application/json",
-        ...(header ? { [RUN_HEADER]: header } : {}),
-      },
-      body: JSON.stringify(body),
-    });
-  const list = async (token: string, header?: string) =>
-    ((await (await mcp(token, { jsonrpc: "2.0", id: 1, method: "tools/list" }, header)).json<any>()).result.tools as any[]).map((t) => t.name);
-
-  it("só com o cabeçalho assinado da execução do bot da chave", async () => {
-    const { f, botId } = await setup();
-    const key = await application(f, ["conversations:read"]);
-    await exec(env, "UPDATE applications SET bots=? WHERE id=?", JSON.stringify([botId]), key.id);
-    const { run } = await ask(f, f.member, botId);
-    await exec(env, "UPDATE bot_runs SET status='running' WHERE id=?", run.id);
-    // Sem cabeçalho: como hoje.
-    expect(await list(key.token)).not.toContain("propor_acao");
-    // Assinado: as três ferramentas aparecem e rodam como a pessoa.
-    const header = await signRun(env, run.id);
-    expect(await list(key.token, header)).toEqual(expect.arrayContaining(["buscar_operacoes", "consultar", "propor_acao"]));
-    const call = await (await mcp(key.token, { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "propor_acao", arguments: { operacao: "os.create", parametros: { item: "H", problem: "H", phone: "5511966660003" }, resumo: "Abrir OS H" } } }, header)).json<any>();
-    const proposal = await one(env, "SELECT * FROM bot_proposals WHERE id=?", JSON.parse(call.result.content[0].text).proposta);
-    expect(proposal.actor).toBe(f.member.id);
-    // Assinatura adulterada, vencida, ou execução de bot que a chave não atende: nada.
-    expect(await list(key.token, header.replace(/.$/, (c) => (c === "0" ? "1" : "0")))).not.toContain("propor_acao");
-    expect(await list(key.token, await signRun(env, run.id, now() - 3600000))).not.toContain("propor_acao");
-    await exec(env, "UPDATE applications SET bots='[]' WHERE id=?", key.id);
-    expect(await list(key.token, header)).not.toContain("propor_acao");
-    // Execução encerrada: nada.
-    await exec(env, "UPDATE applications SET bots=? WHERE id=?", JSON.stringify([botId]), key.id);
-    await exec(env, "UPDATE bot_runs SET status='completed' WHERE id=?", run.id);
-    expect(await list(key.token, header)).not.toContain("propor_acao");
-    expect(await drain(f)).toBeUndefined();
   });
 });

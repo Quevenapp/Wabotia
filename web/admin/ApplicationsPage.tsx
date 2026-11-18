@@ -7,7 +7,6 @@ import type { Row } from "../lib/api";
 import { navigate } from "../lib/routes";
 import { Badge, Button, Empty, Field, Notice, Table, toast } from "../ui";
 import { PairingPanel } from "../PairingPanel";
-import { HermesMcpPanel } from "./HermesMcpPanel";
 import { AreaAccess } from "./UsersPage";
 import { FormDialog, SecretDialog, toggled, useResource } from "./shared";
 
@@ -210,75 +209,6 @@ function ErpRoleDialog({
   );
 }
 
-/**
- * Chaves de bot emitidas antes de conversations:bound (segunda conferência,
- * A1): alcançam todas as conversas da área. O administrador prende às
- * conversas do bot ou confirma a área inteira; nada muda sozinho.
- */
-function WholeAreaKeys({
-  applications,
-  onChange,
-}: {
-  applications: Row[];
-  onChange: () => void;
-}) {
-  const { api } = useApp();
-  const { busy, run } = useAction();
-  const pending = applications.filter((a) => a.whole_area_pending);
-  if (!pending.length) return null;
-  const save = (row: Row, scope: string, success: string) =>
-    run(
-      () =>
-        api("v1/applications/" + row.id, "PATCH", {
-          scopes: [...JSON.parse(row.scopes || "[]"), scope],
-        }),
-      { success },
-    ).then(onChange);
-  return (
-    <section className="card">
-      <h2>Chaves de bot com acesso a toda a área</h2>
-      <Notice tone="warn">
-        Estas aplicações têm bots e alcançam todas as conversas da área. Um
-        cliente que convença o bot pode levá-lo até a conversa de outro cliente.
-        Prenda a chave às conversas que o bot está atendendo: a mesma chave
-        continua valendo no Hermes, sem trocar nada lá.
-      </Notice>
-      {pending.map((row) => (
-        <div className="card-actions" key={row.id}>
-          <strong>{row.name}</strong>
-          <Button
-            size="sm"
-            disabled={busy}
-            onClick={() =>
-              void save(
-                row,
-                "conversations:bound",
-                "Chave presa às conversas do bot.",
-              )
-            }
-          >
-            Prender às conversas do bot
-          </Button>
-          <Button
-            secondary
-            size="sm"
-            disabled={busy}
-            onClick={() =>
-              void save(
-                row,
-                "conversations:all",
-                "Acesso a toda a área confirmado.",
-              )
-            }
-          >
-            Manter a área inteira
-          </Button>
-        </div>
-      ))}
-    </section>
-  );
-}
-
 export function ApplicationsPage() {
   const app = useApp();
   const { api, demo, root } = app;
@@ -290,17 +220,7 @@ export function ApplicationsPage() {
   const rows: Row = resource.data || {};
   return (
     <>
-      <WholeAreaKeys
-        applications={rows.applications || []}
-        onChange={() => void resource.reload()}
-      />
       <PairingPanel api={api} demo={demo} profiles={app.profiles} />
-      <HermesMcpPanel
-        api={api}
-        demo={demo}
-        profiles={app.profiles}
-        onChange={() => void resource.reload()}
-      />
       <section className="card integration-explainer">
         <h2>Depois de conectar</h2>
         <p>

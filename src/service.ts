@@ -21,7 +21,9 @@ import {
 import {
   access,
   admin,
+  isEngineActor,
   random,
+  refuseEngineActor,
   sha,
   canonical,
   setSecret,
@@ -31,10 +33,10 @@ import {
 import { event, audit } from "./events";
 import { appErpRoleInput } from "./modules/erp/identity";
 import { boundAllows, visibleConversation } from "./visibility";
-import { probe, discover, telegramRemoved } from "./integrations";
-import { isLink, linkCode, linkRevoke } from "./hermes-link";
+import { probe, telegramRemoved } from "./integrations";
 import { aiConfig, aiKey } from "./ai-provider";
 import { secret } from "./security";
+import { validateJevSettings } from "./jev-client";
 import { contactCommand } from "./contacts";
 import { authorizedMedia, mediaKind, uploadCommand } from "./media";
 import {
@@ -122,6 +124,22 @@ import {
   getNumberPolicy,
   numberPolicyError,
 } from "./number-permissions";
+/** Conexões antigas permanecem legíveis e removíveis, sem poder voltar ao serviço. */
+async function requireCurrentConnection(env: Env, connection: { id?: string; kind: string; config?: string }) {
+  if (json(connection.config).remove_pending)
+    throw new ApiError(409, "connection_removing", "Esta conexão está sendo removida.");
+  const retired = await one(env,
+    "SELECT 1 FROM (SELECT ? AS kind) WHERE kind IN ('hermes','hermes-whatsapp')",
+    connection.kind || "");
+  requireValue(!retired, "Hermes retirado: escolha um bot interno.");
+}
+
+/** Escopos internos nunca são aceitos de uma requisição de chave. */
+function rejectInternalScopes(value: unknown) {
+  if (Array.isArray(value) && value.some((scope) => ["conversations:bound", "conversations:all"].includes(scope)))
+    throw new ApiError(400, "scope_internal", "Escopos de conversa internos não podem ser emitidos em chaves de API.");
+}
+
 export const scopes = [
   "routing:read",
   "routing:send",
@@ -137,12 +155,6 @@ export const scopes = [
   // Operações financeiras dos módulos (baixa manual, isenção, planos, valores).
   // Nunca vai para aparelhos pareados de mensagens (Vinki, Fagoo).
   "billing:write",
-  // Restrição, não permissão: só as conversas que um bot da aplicação está
-  // atendendo agora (chave do Hermes; src/visibility.ts).
-  "conversations:bound",
-  // Marcação, não permissão: área inteira escolhida para uma aplicação com
-  // bots (sem ela, o painel avisa a chave antiga do Hermes).
-  "conversations:all",
   "tickets:read",
   "tickets:write",
   "knowledge:read",
@@ -228,8 +240,9 @@ export async function settings(env: Env, profile: string) {
   return cfg;
 }
 /**
- * Especialistas e itens de menu do tipo bot executam ações em sistemas
- * externos. Um bot de provedor de IA direto só conversa, então fica de fora.
+ * Especialistas e itens de menu do tipo bot: o bot precisa ser da área. Um
+ * especialista interno só consulta os dados do cliente da conversa (ferramentas de
+ * leitura dos módulos, src/engine.ts "Especialista"), sem escrita.
  */
 async function requireToolBot(
   env: Env,
@@ -244,18 +257,14 @@ async function requireToolBot(
     profile,
   );
   requireValue(
-    bot,
+    bot?.kind === "ai",
     use === "menu"
-      ? "Bot do menu não pertence à área de atendimento."
-      : "Especialista não pertence à área de atendimento.",
+      ? "Escolha um bot interno desta área para o menu."
+      : "Escolha um bot interno desta área para a ação.",
   );
-  // A menu item hands the conversation to an AI bot, which then talks as the
-  // attendant; only a specialist has to run tools, which needs the Hermes.
-  if (use === "specialist")
-    requireValue(
-      bot.kind !== "ai",
-      "Especialistas precisam de um bot Hermes. Bots de provedor de IA só conversam.",
-    );
+  // Especialista interno: um bot do provedor de IA direto responde na fase
+  // specialist só com as consultas da conversa (src/engine.ts, aiRun) e o
+  // JSON do especialista; o JEV continua decidindo a rota.
 }
 export async function conversation(
   env: Env,
@@ -1451,7 +1460,15 @@ export async function createRun(
   extra: any = {},
 ) {
   if (extra.conversation_id) {
-    const c = await conversation(env, extra.conversation_id, profile, actor);
+    // O motor processa a caixa de entrada da própria área: toda conversa
+    // dela, inclusive as abertas por aplicação (namespace app:), que a
+    // visibilidade de aplicação esconderia.
+    const c = await conversation(
+      env,
+      extra.conversation_id,
+      profile,
+      isEngineActor(actor) ? undefined : actor,
+    );
     if (!(await getNumberPolicy(env, c.connection_id)).bots)
       throw numberPolicyError("bots");
     requireValue(
@@ -1500,7 +1517,7 @@ export async function createRun(
     extra.conversation_id || null,
     extra.epoch ?? null,
     input,
-    extra.phase || "external",
+    extra.phase || "direct",
     JSON.stringify(extra.context || {}),
     now(),
     now(),
@@ -1588,6 +1605,7 @@ export async function planSettings(
       typeof next.surveys_enabled === "boolean",
     "JEV e avaliações devem estar ligados ou desligados.",
   );
+  validateJevSettings(next);
   requireValue(
     next.absence_return_to_bot === undefined ||
       typeof next.absence_return_to_bot === "boolean",
@@ -1869,8 +1887,15 @@ export async function planSettings(
       ),
       "Atendente não pertence à área de atendimento.",
     );
-  for (const action of next.capabilities || [])
-    await requireToolBot(env, profile, action.bot_id, "specialist");
+  for (const action of next.capabilities || []) {
+    // A 0092 guardou ações antigas desligadas para escolher um substituto.
+    // Só essa referência já guardada pode permanecer; novos destinos são IA.
+    const keptDisabled = action.enabled === false && old.capabilities?.some(
+      (previous: any) => previous.id === action.id &&
+        previous.bot_id === action.bot_id && previous.enabled === false,
+    );
+    if (!keptDisabled) await requireToolBot(env, profile, action.bot_id, "specialist");
+  }
   // Itens de módulos desligados não aparecem em `old` nem no editor: ficam
   // guardados como estavam e voltam quando o módulo é religado. Um item cujo
   // submenu foi excluído enquanto isso sobe para o menu principal.
@@ -1970,6 +1995,7 @@ export async function perform(
   data: any,
   requestId: string,
 ): Promise<any> {
+  refuseEngineActor(actor);
   env = withReadCache(env);
   // Operações de um módulo desligado na área: 409 module_disabled.
   await requireOperation(env, profile, op);
@@ -2026,23 +2052,15 @@ export async function perform(
     op.startsWith("connection.") &&
     [
       "connection.test",
-      "connection.discover",
       "connection.connector-token",
-      "connection.link-code",
-      "connection.link-revoke",
     ].includes(op)
   ) {
     admin(actor);
-    if (op === "connection.link-code")
-      return linkCode(env, profile, data.id, data.origin);
-    if (op === "connection.link-revoke")
-      return linkRevoke(env, profile, data.id);
     if (op === "connection.test")
       return probe(env, data.id, profile, data.origin);
-    if (op === "connection.discover") return discover(env, data.id, profile);
     const conn = await one(
       env,
-      "SELECT id FROM connections WHERE id=? AND profile_id=? AND kind IN ('qr','hermes-whatsapp')",
+      "SELECT id FROM connections WHERE id=? AND profile_id=? AND kind='qr'",
       data.id,
       profile,
     );
@@ -2200,6 +2218,7 @@ export async function perform(
   }
   if (op === "application.create") {
     admin(actor);
+    rejectInternalScopes(data.scopes);
     requireValue(
       Array.isArray(data.scopes) &&
         data.scopes.every((s: string) => scopes.includes(s)),
@@ -2237,6 +2256,7 @@ export async function perform(
   }
   if (op === "application.update") {
     admin(actor);
+    rejectInternalScopes(data.scopes);
     const old = await one(
       env,
       "SELECT * FROM applications WHERE id=?",
@@ -2273,7 +2293,7 @@ export async function perform(
       "UPDATE applications SET disabled=?,profiles=?,scopes=?,bots=?,erp_role=? WHERE id=?",
       data.disabled === undefined ? old.disabled : Number(!!data.disabled),
       JSON.stringify(data.profiles ?? json(old.profiles, [])),
-      JSON.stringify(data.scopes ?? json(old.scopes, [])),
+      JSON.stringify(data.scopes ?? json(old.scopes, []).filter((s: string) => !["conversations:bound", "conversations:all"].includes(s))),
       JSON.stringify(data.bots ?? json(old.bots, [])),
       erpRole,
       data.id,
@@ -2292,6 +2312,7 @@ export async function perform(
   }
   if (op === "key.create") {
     admin(actor);
+    rejectInternalScopes(data.scopes);
     requireValue(
       await one(env, "SELECT id FROM applications WHERE id=?", data.app_id),
       "Aplicação não encontrada.",
@@ -2327,7 +2348,7 @@ export async function perform(
       const cfg = await settings(env, profile);
       const configuredLine = await one(
         env,
-        "SELECT id FROM connections WHERE profile_id=? AND kind IN ('zernio','qr','hermes-whatsapp') AND json_extract(config,'$.service.mode') IN ('human','bot') LIMIT 1",
+        "SELECT id FROM connections WHERE profile_id=? AND kind IN ('zernio','qr') AND json_extract(config,'$.service.mode') IN ('human','bot') LIMIT 1",
         profile,
       );
       // A menu-only area is valid: without a bot the main menu answers the
@@ -2360,8 +2381,10 @@ export async function perform(
   if (op === "connection.save") {
     admin(actor);
     if (data.kind === "telegram") throw telegramRemoved();
+    const existing = data.id ? await one(env, "SELECT * FROM connections WHERE id=? AND profile_id=?", data.id, profile) : null;
+    await requireCurrentConnection(env, existing || { kind: data.kind });
     requireValue(
-      ["hermes", "zernio", "qr", "hermes-whatsapp", "ai"].includes(data.kind),
+      ["zernio", "qr", "ai"].includes(data.kind),
       "Conector inválido.",
     );
     const id = data.id || uid();
@@ -2386,6 +2409,10 @@ export async function perform(
       );
     }
     let cfg = data.config || {};
+    requireValue(
+      cfg.remove_pending === undefined,
+      "A marca de remoção da conexão é interna e não pode ser definida pela API.",
+    );
     if (data.kind === "ai") {
       // Provedor de IA direto: só provedor, modelo, endereço e opções; a chave
       // vai para o cofre. Editar exige testar de novo.
@@ -2403,23 +2430,7 @@ export async function perform(
       // Credential editors omit line assignments. Those are edited through line.save.
       cfg.service = previous.service;
       cfg.number_policy = previous.number_policy;
-      // O modo de ligação com o Hermes não muda depois de criado; o vínculo
-      // do plugin sobrevive à edição do nome.
-      cfg.transport = previous.transport;
-      cfg.link = previous.link;
-      // Nomes dados aos bots no painel valem sobre os do Hermes.
-      cfg.bot_names = previous.bot_names;
-    }
-    if (data.kind === "hermes" && cfg.transport === "link") {
-      delete cfg.url;
-      delete cfg.api_url;
-      requireValue(
-        !data.secrets || !Object.keys(data.secrets).length,
-        "A conexão por plugin não guarda chaves do Hermes.",
-      );
-    } else {
-      delete cfg.transport;
-      delete cfg.link;
+      cfg.bot_options = previous.bot_options;
     }
     const managed =
       old &&
@@ -2447,7 +2458,7 @@ export async function perform(
     }
     if (cfg.url) cfg.url = publicUrl(cfg.url);
     if (cfg.api_url) cfg.api_url = publicUrl(cfg.api_url);
-    if (["qr", "hermes-whatsapp", "zernio"].includes(data.kind))
+    if (["qr", "zernio"].includes(data.kind))
       requireValue(
         /^\d{8,16}$/.test(cfg.number || ""),
         "Informe o número completo com DDI, somente dígitos.",
@@ -2516,10 +2527,6 @@ export async function perform(
       await setSecret(env, `connection:${id}`, {
         ...previous,
         ...supplied,
-        profile_keys: {
-          ...previous.profile_keys,
-          ...data.secrets.profile_keys,
-        },
       });
     }
     return { id, status: "paused" };
@@ -2538,6 +2545,7 @@ export async function perform(
       "Estado inválido.",
     );
     if (data.status === "active") {
+      await requireCurrentConnection(env, row);
       if (row.kind === "meta")
         throw new ApiError(
           410,
@@ -2579,6 +2587,11 @@ export async function perform(
       profile,
     );
     requireValue(bot, "Bot não encontrado.");
+    if (data.mask_personal !== undefined)
+      requireValue(typeof data.mask_personal === "boolean", "Máscara de dados pessoais inválida.");
+    for (const option of ["pdf_raw_fallback", "image_to_team"])
+      if (data[option] !== undefined)
+        requireValue(typeof data[option] === "boolean", `Opção ${option} inválida: informe um booleano.`);
     if (data.line_ids !== undefined)
       await validateLineIds(env, profile, data.line_ids, true);
     if (data.name !== undefined) {
@@ -2589,62 +2602,55 @@ export async function perform(
         "Informe o nome do bot, com até 80 caracteres.",
       );
       data.name = data.name.trim();
-      // Kept in the connection so "Descobrir bots" does not undo the rename.
-      const owner = await one(
-        env,
-        "SELECT config FROM connections WHERE id=?",
-        bot.connection_id,
-      );
-      const config = json(owner?.config, {});
-      config.bot_names = {
-        ...(config.bot_names || {}),
-        [bot.remote_profile]: data.name,
-      };
-      await exec(
-        env,
-        "UPDATE connections SET config=? WHERE id=?",
-        JSON.stringify(config),
-        bot.connection_id,
-      );
     }
     const enabled = data.enabled === undefined ? !!bot.enabled : !!data.enabled;
-    if (enabled && !bot.enabled) {
+    if (enabled) {
       const keys = await secret(env, `connection:${bot.connection_id}`),
         conn = await one(
           env,
           "SELECT kind,config FROM connections WHERE id=?",
           bot.connection_id,
         );
-      if (conn?.kind === "ai")
+      if (conn) await requireCurrentConnection(env, { ...conn, id: bot.connection_id });
+      if (!bot.enabled && conn?.kind === "ai")
         requireValue(
           keys.api_key && json(conn.config).verified_at,
           "Teste a conexão com o provedor de IA antes de habilitar o bot.",
         );
-      // No modo plugin a chave fica no Hermes: vale o que "Descobrir bots"
-      // verificou na API local desse atendimento.
-      else if (isLink(conn))
-        requireValue(
-          json(conn.config).capabilities?.[bot.remote_profile],
-          "Crie a API_SERVER_KEY desse atendimento no Hermes e use Descobrir bots antes de habilitar.",
-        );
-      else
-        requireValue(
-          keys.profile_keys?.[bot.remote_profile],
-          "Cadastre a API_SERVER_KEY desse bot no Hermes antes de habilitar.",
-        );
     }
-    await exec(
-      env,
-      "UPDATE bots SET enabled=?,name=coalesce(?,name),line_ids=? WHERE id=?",
-      enabled ? 1 : 0,
-      data.name || null,
-      data.line_ids === undefined
-        ? bot.line_ids
-        : data.line_ids === null
-          ? null
-          : JSON.stringify(data.line_ids),
-      data.id,
+    const statements: [string, any[]][] = [
+      [
+        "UPDATE bots SET enabled=?,name=coalesce(?,name),line_ids=? WHERE id=?",
+        [
+          enabled ? 1 : 0,
+          data.name || null,
+          data.line_ids === undefined
+            ? bot.line_ids
+            : data.line_ids === null
+              ? null
+              : JSON.stringify(data.line_ids),
+          data.id,
+        ],
+      ],
+    ];
+    // O nome local também fica na configuração, junto dos demais dados do bot.
+    // O lote mantém as duas cópias em sincronia e preserva os outros nomes.
+    if (data.name !== undefined)
+      statements.push([
+        "UPDATE connections SET config=json_set(config,'$.bot_names',json_patch(coalesce(json_extract(config,'$.bot_names'),'{}'),json(?))) WHERE id=?",
+        [JSON.stringify({ [bot.remote_profile]: data.name }), bot.connection_id],
+      ]);
+    const personalOptions = Object.fromEntries(
+      ["mask_personal", "pdf_raw_fallback", "image_to_team"]
+        .filter((key) => data[key] !== undefined)
+        .map((key) => [key, data[key]]),
     );
+    if (Object.keys(personalOptions).length)
+      statements.push([
+        "UPDATE connections SET config=json_set(config,'$.bot_options',json_patch(coalesce(json_extract(config,'$.bot_options'),'{}'),json(?))) WHERE id=?",
+        [JSON.stringify({ [bot.remote_profile]: personalOptions }), bot.connection_id],
+      ]);
+    await batch(env, statements);
     return { id: data.id };
   }
   if (op === "inbound") {
@@ -3387,31 +3393,6 @@ export async function perform(
       profile,
     );
     return { status: data.status };
-  }
-  if (op === "run.reconcile") {
-    admin(actor);
-    const run = await one(
-      env,
-      "SELECT * FROM bot_runs WHERE id=? AND profile_id=? AND status='unknown'",
-      data.id,
-      profile,
-    );
-    requireValue(
-      run && (!json(run.context).internal_chat_id || run.actor === actor.id),
-      "Execução não encontrada.",
-    );
-    requireValue(
-      typeof data.remote_id === "string" && /^run_[\w-]+$/.test(data.remote_id),
-      "Informe run_id confirmado no Hermes.",
-    );
-    await exec(
-      env,
-      "UPDATE bot_runs SET remote_id=?,status='running',error=NULL,updated=? WHERE id=?",
-      data.remote_id,
-      now(),
-      run.id,
-    );
-    return { id: run.id, status: "running" };
   }
   throw new ApiError(404, "not_found", "Operação não encontrada.");
 }
