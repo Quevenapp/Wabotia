@@ -14,6 +14,11 @@ export interface Env {
   WABOTIA_UPDATE_TOKEN?: string;
   /** "1" only on the official site: turns on the browser installer. */
   WABOTIA_WEB_INSTALLER?: string;
+  /**
+   * Repositório do código em execução (AGPL-3.0, §13), para quem modificar o
+   * Wabotia. Padrão: o repositório oficial. Veja src/source.ts.
+   */
+  WABOTIA_SOURCE_URL?: string;
 }
 export interface Actor {
   id: string;

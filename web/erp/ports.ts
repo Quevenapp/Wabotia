@@ -1,0 +1,52 @@
+// Portas do ERP (PLANO-FAGOO-PAINEL.md, B): o que o painel do Fagoo recebia do
+// Supabase (sessão, segundo fator, endereço da API) passa a vir da casca do
+// Wabotia. mount.tsx registra as portas antes de abrir as telas; RealAccess as
+// lê ao montar. Sem portas registradas, o ERP mostra "em preparação".
+import type { AuthPort } from "./app/lib/real-access";
+import type { ChallengePort } from "./session-port";
+import type { PeoplePort } from "./people";
+
+export type ErpPorts = {
+  /** Sessão do Wabotia vista como a sessão do Supabase que o controlador espera. */
+  auth: AuthPort;
+  /**
+   * "Confirme que é você": o segundo fator na sessão do Wabotia, quando a
+   * política do ERP exige (ERP_MFA_REQUIRED) ou para mudar essa política.
+   */
+  challenge: ChallengePort;
+  /** Pessoas da área com papel erp:* (núcleo; web/erp/people.ts). */
+  people: PeoplePort;
+  /**
+   * Abre Gestão → Pessoas e acessos: convite, papel no ERP, senha, segundo
+   * fator e sessões são do núcleo. Só para o administrador do Wabotia.
+   */
+  openPeople?: () => void;
+  /**
+   * Abre "Minha conta" do Wabotia (senha e aplicativo autenticador). Ausente
+   * enquanto a casca não tiver a tela (origin/feat/login-mfa): o ERP diz onde
+   * fica, sem botão.
+   */
+  openAccount?: () => void;
+  /**
+   * Abre o "Confirme que é você" da casca (o mesmo de qualquer 403
+   * mfa_required) e resolve quando a pessoa fecha. Ausente na demonstração: o
+   * ERP usa o próprio formulário (web/erp/IdentityChallenge.tsx).
+   */
+  confirmIdentity?: () => Promise<void>;
+  /** Base da API do ERP desta área: /api/v1/profiles/<área>/erp. */
+  apiUrl: string;
+  /** fetch com cookie, sem Authorization, só para apiUrl (fetch-port.ts). */
+  fetch: typeof fetch;
+  /** Demonstração: nada é gravado. */
+  demo: boolean;
+  /** Administrador do Wabotia (atalho para Gestão → Módulos). */
+  admin?: boolean;
+  /** Abre Gestão → Módulos no painel. */
+  openModules?: () => void;
+};
+
+let current: ErpPorts | null = null;
+export function setErpPorts(ports: ErpPorts | null) {
+  current = ports;
+}
+export const erpPorts = () => current;

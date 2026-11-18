@@ -5,7 +5,14 @@
 //
 // Escritas que tocam a conversa (conclusão, mensagem de retorno, protocolo)
 // rodam no Coordinator da área (POST /web-step), como o resto do atendimento.
-import { all, exec, one, cachedOne, withReadCache } from "./db";
+import {
+  all,
+  exec,
+  one,
+  cachedOne,
+  PUBLIC_ORIGIN_SQL,
+  withReadCache,
+} from "./db";
 import { moduleById, moduleEnabled } from "./modules/registry";
 import {
   ApiError,
@@ -28,6 +35,7 @@ import {
 } from "./service";
 import { activeTicketSql } from "./protocols";
 import { isBound } from "./visibility";
+import { LICENSE_NAME, sourceInfo } from "./source";
 import { webStepHook, webStepValidator } from "./modules/hooks";
 import type { Establishment } from "./establishment";
 import { interactiveLine, sendInteractive } from "./line-service";
@@ -357,14 +365,7 @@ export async function savePublicOrigin(env: Env, data: any) {
   return { public_origin: origin };
 }
 export async function publicOrigin(env: Env) {
-  return (
-    (
-      await cachedOne(
-        env,
-        "SELECT value FROM instance_settings WHERE key='public_origin'",
-      )
-    )?.value || null
-  );
+  return (await cachedOne(env, PUBLIC_ORIGIN_SQL))?.value || null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1128,9 +1129,15 @@ export const STYLE = `*{box-sizing:border-box}body{margin:0;font:16px/1.45 syste
  * documento, endereço, telefone e o texto livre).
  */
 export type PageBrand =
-  string | { app: string; establishment?: Establishment | null };
+  | string
+  | {
+      app: string;
+      establishment?: Establishment | null;
+      /** Código-fonte do commit em execução (src/source.ts); padrão: o oficial. */
+      source?: string;
+    };
 
-const BRAND_CSS = `.brand{text-align:center;font-weight:600;color:#54656f;margin:0 0 12px}footer p{margin:0 0 4px;white-space:pre-line}footer .app{margin-top:10px;font-size:12px}`;
+const BRAND_CSS = `.brand{text-align:center;font-weight:600;color:#54656f;margin:0 0 12px}footer p{margin:0 0 4px;white-space:pre-line}footer .app{margin-top:10px;font-size:12px}footer .source{display:block;margin-top:6px;font-size:12px;color:inherit}`;
 
 export function page(
   title: string,
@@ -1163,7 +1170,11 @@ export function page(
         .map((line) => `<p>${escape(line)}</p>`)
         .join("")}<div class="app">${escape(app)}</div>`
     : escape(app);
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${escape(title)}</title><style>${STYLE}${BRAND_CSS}${extraCss}</style></head><body><main>${header}${body}<footer>${footer}</footer></main></body></html>`;
+  // AGPL-3.0, §13: quem usa a página pela rede recebe o código em execução.
+  const source =
+    (typeof brand === "string" ? null : brand.source) || sourceInfo().url;
+  const sourceLink = `<a class="source" href="${escape(source)}" rel="noreferrer" target="_blank">Código-fonte (${LICENSE_NAME})</a>`;
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${escape(title)}</title><style>${STYLE}${BRAND_CSS}${extraCss}</style></head><body><main>${header}${body}<footer>${footer}${sourceLink}</footer></main></body></html>`;
 }
 
 function fieldHtml(field: WebField, value: unknown, error: string | undefined) {
@@ -1271,13 +1282,16 @@ export function appInvitePage(
 ) {
   const links = options.links
     .map(
-      (l) => `<a class="button" href="${escape(l.href)}">${escape(l.label)}</a>`,
+      (l) =>
+        `<a class="button" href="${escape(l.href)}">${escape(l.label)}</a>`,
     )
     .join(" ");
   return page(
     `Abra no app ${options.app}`,
     `<div class="card state"><div class="icon" aria-hidden="true">📦</div><h1>${escape(
-      options.store ? `Entrega de ${options.store}` : `Abra no app ${options.app}`,
+      options.store
+        ? `Entrega de ${options.store}`
+        : `Abra no app ${options.app}`,
     )}</h1><p>${escape(
       `Abra o ${options.app} e toque em Escanear pedido para ler este QR. A câmera comum não conclui a leitura.`,
     )}</p>${links}</div>`,

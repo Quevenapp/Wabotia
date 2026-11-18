@@ -1,6 +1,20 @@
 import { DurableObject } from "cloudflare:workers";
 import { type Env, type Actor, type Run, ApiError, now, json } from "./types";
-import { one, all, exec, withReadCache } from "./db";
+import {
+  one,
+  all,
+  exec,
+  batch,
+  MODULE_STATES_SQL,
+  PROFILE_SETTINGS_SQL,
+  PUBLIC_ORIGIN_SQL,
+  seedRead,
+  seedPrefetch,
+  WEBHOOK_SUBS_SQL,
+  withReadCache,
+  type Read,
+} from "./db";
+import { serverTiming, timedEnv } from "./d1-timing";
 import { sha, seal, unseal, canonical } from "./security";
 import { REVOKED_CLOSE } from "./sockets";
 import { perform, inbound } from "./service";
@@ -10,13 +24,22 @@ import { callWebhook, expireCalls } from "./calls";
 import { expireUploads } from "./media";
 import { transport } from "./transport";
 import { routerLink } from "./number-router";
-import { audit } from "./events";
+import { auditStatement } from "./events";
 import { processCloudflareJob } from "./cloudflare";
 import { processUpdate, updatePending, automaticUpdateTick } from "./updates";
 import { processPush } from "./push";
 import { HermesLinkHub } from "./hermes-link";
 import { ErpHub } from "./erp/hub";
-import { closeDay, overview as queueOverview } from "./queue";
+import {
+  closeDay,
+  overview as queueOverview,
+  overviewData,
+  overviewOf,
+  queuePrefetch,
+  queueReplay,
+  QUEUE_CLOSING_OPS,
+} from "./queue";
+import { withCommandClosing } from "./command-context";
 import { completeWebStep, expireWebSteps } from "./web-steps";
 import {
   expirePayments,
@@ -37,6 +60,12 @@ import {
 export class Coordinator extends DurableObject<Env> {
   private profile = "";
   private busy = false;
+  /**
+   * Gravações da resposta exata no recibo em andamento (/command), por
+   * "escopo\nchave": a repetição com a mesma Idempotency-Key espera antes do
+   * bloqueio e, depois, lê a resposta gravada.
+   */
+  private closing = new Map<string, Promise<void>>();
   private link = new HermesLinkHub(this.env, this.ctx);
   private erp = new ErpHub(this.env, this.ctx);
   async fetch(request: Request) {
@@ -83,17 +112,77 @@ export class Coordinator extends DurableObject<Env> {
           throw error;
         }
       });
-    if (new URL(request.url).pathname === "/command")
+    if (new URL(request.url).pathname === "/command") {
+      // Repetição de um comando cujo recibo ainda está fechando (depois da
+      // resposta, abaixo): espera o fechamento aqui, fora do bloqueio, e
+      // segue; lá dentro, o recibo já tem a resposta e ela volta igual.
+      // NUNCA espere o fechamento dentro do blockConcurrencyWhile: o bloqueio
+      // segura a entrega da resposta do D1 que o fechamento espera, e o
+      // objeto trava até o limite do runtime (30 s) e reinicia. Achado pelo
+      // teste "repetições durante a gravação da resposta" em
+      // tests/command-receipt-closing.test.ts.
+      const pending = this.closing.get(
+        `${(body.actor as Actor).id}:${this.profile}:${body.operation}\n${body.key}`,
+      );
+      if (pending) await pending;
       return this.ctx.blockConcurrencyWhile(async () => {
         const actor: Actor = body.actor,
           scope = `${actor.id}:${this.profile}:${body.operation}`,
           fingerprint = await sha(canonical(body.data));
-        const old = await one(
-          this.env,
-          "SELECT * FROM receipts WHERE scope=? AND key=?",
-          scope,
-          body.key,
+        // Idas ao D1 deste comando (Server-Timing) e o cache de leituras dele
+        // inteiro (perform reaproveita o escopo).
+        const { env: timed, timing } = timedEnv(this.env);
+        const env = withReadCache(timed);
+        // Abertura numa ida só (docs/LIMITES.md): o recibo anterior, a
+        // reserva do recibo (INSERT OR IGNORE: só a primeira grava) e as
+        // leituras de configuração que quase todo comando faz.
+        const warmReads: Read[] = [
+          { sql: MODULE_STATES_SQL, args: [this.profile] },
+          { sql: PROFILE_SETTINGS_SQL, args: [this.profile], first: true },
+          { sql: WEBHOOK_SUBS_SQL, args: [this.profile] },
+          { sql: PUBLIC_ORIGIN_SQL, args: [], first: true },
+        ];
+        // Identificador da operação para as chaves derivadas (sourceKey, ids
+        // de registro): único por credencial, área, operação e
+        // Idempotency-Key, estável nas repetições e só com hexadecimais. A
+        // chave do cliente nunca vira id direto: outra credencial ou outra
+        // área com a mesma chave é outra operação, e "/" não quebra URL.
+        const operationId = (await sha(`${scope}\n${body.key}`)).slice(0, 32);
+        // O começo da operação também vai neste lote (a emissão e a chamada
+        // da fila): o comando inteiro fica em duas idas ao D1, a abertura e
+        // a gravação. Os resultados valem uma vez só (src/db.ts).
+        const prefetch = queuePrefetch(
+          body.operation,
+          body.data,
+          actor,
+          this.profile,
+          operationId,
         );
+        const opening = await batch(
+          env,
+          [
+            [
+              "SELECT * FROM receipts WHERE scope=? AND key=?",
+              [scope, body.key],
+            ],
+            [
+              "INSERT OR IGNORE INTO receipts(scope,key,fingerprint,created) VALUES(?,?,?,?)",
+              [scope, body.key, fingerprint, now()],
+            ],
+            ...warmReads.map((r) => [r.sql, r.args] as [string, any[]]),
+            ...prefetch,
+          ],
+          // Repetir é seguro: a reserva só grava uma vez (e o +1 do contador
+          // por minuto do totem pode contar uma repetição a mais).
+          { retry: true },
+        );
+        warmReads.forEach((r, i) => seedRead(env, r, opening[i + 2].results));
+        seedPrefetch(env, prefetch, opening.slice(2 + warmReads.length));
+        const old: any = opening[0].results[0];
+        // A emissão e a chamada da fila fecham o recibo no lote da própria
+        // escrita (src/command-context.ts): a auditoria e a marca
+        // "ref:<operação>:<id>" gravam junto com a senha, ou nada grava.
+        const closingOp = QUEUE_CLOSING_OPS.has(body.operation);
         if (old) {
           if (old.fingerprint !== fingerprint)
             return Response.json(
@@ -105,7 +194,45 @@ export class Coordinator extends DurableObject<Env> {
               },
               { status: 409 },
             );
-          if (!old.response)
+          if (old.response?.startsWith("ref:")) {
+            // A escrita gravou, mas a resposta exata não (o objeto reiniciou
+            // depois de responder, ou a gravação dela falhou): reconstrói
+            // pelo recurso e fecha o recibo aqui.
+            try {
+              const value = await queueReplay(
+                env,
+                actor,
+                this.profile,
+                old.response,
+              );
+              await batch(env, [
+                [
+                  "UPDATE receipts SET response=? WHERE scope=? AND key=? AND response=?",
+                  [
+                    "sealed:" + (await seal(this.env, value)),
+                    scope,
+                    body.key,
+                    old.response,
+                  ],
+                ],
+              ]);
+              return Response.json(value, {
+                status: old.status ?? 200,
+                headers: { "Idempotency-Replayed": "true" },
+              });
+            } catch (error) {
+              if (!(error instanceof ApiError)) throw error;
+              // O recurso sumiu: não há como reconstruir.
+            }
+          }
+          if (!old.response && closingOp) {
+            // Sem a marca, a escrita não gravou (o lote é atômico): a
+            // operação roda de novo, abaixo. Na emissão, a chave de origem
+            // ainda devolve a senha de antes, se houver.
+          } else if (!old.response || old.response.startsWith("ref:")) {
+            // Recibo sem resposta de outra operação (o objeto caiu no meio
+            // do comando): o código de sempre, que os apps repetem com a
+            // mesma chave (Senhapp, Android e iOS: operation_unknown).
             return Response.json(
               {
                 error: {
@@ -114,48 +241,76 @@ export class Coordinator extends DurableObject<Env> {
                     "A operação anterior não concluiu o recibo. Reconcilie antes de repetir.",
                 },
               },
-              { status: 409 },
+              { status: 409, headers: { "Retry-After": "1" } },
             );
-          return new Response(
-            old.response.startsWith("sealed:")
-              ? JSON.stringify(await unseal(this.env, old.response.slice(7)))
-              : old.response,
-            {
-              status: old.status,
-              headers: {
-                "Content-Type": "application/json",
-                "Idempotency-Replayed": "true",
+          } else
+            return new Response(
+              old.response.startsWith("sealed:")
+                ? JSON.stringify(await unseal(this.env, old.response.slice(7)))
+                : old.response,
+              {
+                status: old.status,
+                headers: {
+                  "Content-Type": "application/json",
+                  "Idempotency-Replayed": "true",
+                },
               },
-            },
-          );
+            );
         }
-        await exec(
-          this.env,
-          "INSERT INTO receipts(scope,key,fingerprint,created) VALUES(?,?,?,?)",
-          scope,
-          body.key,
-          fingerprint,
-          now(),
-        );
         let status = 200,
-          value: any;
-        // Identificador da operação para as chaves derivadas (sourceKey, ids
-        // de registro): único por credencial, área, operação e
-        // Idempotency-Key, estável nas repetições e só com hexadecimais. A
-        // chave do cliente nunca vira id direto: outra credencial ou outra
-        // área com a mesma chave é outra operação, e "/" não quebra URL.
-        const operationId = (await sha(`${scope}\n${body.key}`)).slice(0, 32);
+          value: any,
+          audited: [string, any[]] | null = null;
+        // Fechamento no lote da escrita (emissão e chamada da fila).
+        const closingRef = { ref: null as string | null };
+        if (closingOp)
+          withCommandClosing(env, {
+            operation: body.operation,
+            get ref() {
+              return closingRef.ref;
+            },
+            statements: (id, guard) => {
+              const [sql, args] = auditStatement(
+                actor,
+                this.profile,
+                body.operation,
+                id,
+                body.requestId,
+              );
+              const where = guard ? guard[0] : "1";
+              const guardArgs = guard ? guard[1] : [];
+              return [
+                // INSERT … VALUES(…) vira INSERT … SELECT … WHERE <condição>.
+                [
+                  sql.replace(" VALUES(", " SELECT ").replace(/\)$/, "") +
+                    ` WHERE ${where}`,
+                  [...args, ...guardArgs],
+                ],
+                [
+                  `UPDATE receipts SET response=?,status=200 WHERE scope=? AND key=? AND ${where}`,
+                  [
+                    `ref:${body.operation}:${id}`,
+                    scope,
+                    body.key,
+                    ...guardArgs,
+                  ],
+                ],
+              ];
+            },
+            committed: (id) => {
+              closingRef.ref = `ref:${body.operation}:${id}`;
+            },
+          });
         try {
           value = await perform(
-            this.env,
+            env,
             actor,
             this.profile,
             body.operation,
             body.data,
             operationId,
           );
-          await audit(
-            this.env,
+          // Auditoria no mesmo lote do fechamento do recibo (abaixo).
+          audited = auditStatement(
             actor,
             this.profile,
             body.operation,
@@ -175,20 +330,48 @@ export class Coordinator extends DurableObject<Env> {
             },
           };
         }
-        await exec(
-          this.env,
+        const sealed = "sealed:" + (await seal(this.env, value));
+        const closeReceipt: [string, any[]] = [
           "UPDATE receipts SET response=?,status=? WHERE scope=? AND key=?",
-          "sealed:" + (await seal(this.env, value)),
-          status,
-          scope,
-          body.key,
-        );
+          [sealed, status, scope, body.key],
+        ];
+        if (closingRef.ref) {
+          // A auditoria e a marca do recibo já gravaram no lote da escrita.
+          // A resposta exata vai depois da resposta ao cliente: enquanto
+          // grava, uma repetição com a mesma chave espera por ela (antes do
+          // bloqueio, acima); se ela se perder (reinício), a repetição
+          // reconstrói pela marca.
+          const closingKey = `${scope}\n${body.key}`;
+          const closing = batch(env, [closeReceipt])
+            .then(() => undefined)
+            .catch((error) => {
+              console.error(
+                JSON.stringify({
+                  component: "receipt",
+                  error: String(error?.message ?? error).slice(0, 200),
+                }),
+              );
+            })
+            .finally(() => this.closing.delete(closingKey));
+          this.closing.set(closingKey, closing);
+          this.ctx.waitUntil(closing);
+        } else {
+          // As outras operações (e a emissão que devolveu a senha de antes,
+          // ou um erro): fechamento numa ida, antes da resposta, com a
+          // auditoria se a operação deu certo.
+          await batch(env, [...(audited ? [audited] : []), closeReceipt]);
+        }
         await this.schedule();
-        // "settings": o cupom da senha vai no snapshot dos aparelhos.
+        // "settings": o cupom da senha vai no snapshot dos aparelhos. Fora do
+        // caminho da resposta: o totem e o painel não esperam o snapshot.
         if (/^(queue\.|counter\.|settings$)/.test(body.operation))
-          await this.broadcastQueue();
-        return Response.json(value, { status });
+          this.ctx.waitUntil(this.broadcastQueueSoon());
+        return Response.json(value, {
+          status,
+          headers: { "Server-Timing": serverTiming(timing) },
+        });
       });
+    }
     // Passo web concluído pela página pública: a mensagem de retorno, o
     // protocolo e a nota entram na fila da área como o resto do atendimento.
     if (new URL(request.url).pathname === "/web-step") {
@@ -339,17 +522,56 @@ export class Coordinator extends DurableObject<Env> {
       return false;
     });
   }
+  private broadcasting: Promise<void> | null = null;
+  private broadcastAgain = false;
+  /**
+   * O envio aos painéis fora do caminho da resposta do comando, um de cada
+   * vez: um pedido que chega durante um envio faz mais uma volta no fim, para
+   * o último snapshot ser sempre o mais novo (nunca um antigo depois).
+   */
+  private broadcastQueueSoon(): Promise<void> {
+    if (this.broadcasting) {
+      this.broadcastAgain = true;
+      return this.broadcasting;
+    }
+    this.broadcasting = (async () => {
+      try {
+        do {
+          this.broadcastAgain = false;
+          await this.broadcastQueue();
+        } while (this.broadcastAgain);
+      } finally {
+        this.broadcasting = null;
+      }
+    })();
+    return this.broadcasting;
+  }
   /** Sends new calls and a fresh snapshot to every connected panel. */
   private async broadcastQueue() {
     const sockets = this.closeExpiredSockets();
     if (!sockets.length || !this.profile) return;
     const cursor = (await this.ctx.storage.get<number>("queue_cursor")) || 0;
-    const rows = await all(
+    // Há evento novo? (Leitura barata: o alarme também chama o envio.)
+    const fresh = await one(
       this.env,
-      "SELECT id,kind,payload FROM events WHERE profile_id=? AND id>? AND kind LIKE 'queue.%' ORDER BY id LIMIT 200",
+      "SELECT id FROM events WHERE profile_id=? AND id>? AND kind LIKE 'queue.%' LIMIT 1",
       this.profile,
       cursor,
     );
+    if (!fresh) return;
+    // Os eventos e o panorama no mesmo lote, do mesmo instante: o envio roda
+    // fora do comando (ctx.waitUntil), e outro comando pode terminar no
+    // meio. Lidos em separado, o painel recebia a chamada da senha A e um
+    // panorama em que a atual já era a B, antes da chamada da B
+    // (tests/queue-panel-race.test.ts). Uma leitura só do panorama para
+    // todos os filtros (overviewData).
+    const data = await overviewData(this.env, this.profile, [
+      {
+        sql: "SELECT id,kind,payload FROM events WHERE profile_id=? AND id>? AND kind LIKE 'queue.%' ORDER BY id LIMIT 200",
+        args: [this.profile, cursor],
+      },
+    ]);
+    const rows: any[] = data.extra[0];
     if (!rows.length) return;
     await this.ctx.storage.put("queue_cursor", rows.at(-1)!.id);
     const calls = rows
@@ -370,7 +592,7 @@ export class Coordinator extends DurableObject<Env> {
             key,
             JSON.stringify({
               type: "snapshot",
-              data: await queueOverview(this.env, this.profile, filter),
+              data: await overviewOf(data, filter),
             }),
           );
         ws.send(snapshots.get(key)!);
@@ -449,7 +671,7 @@ export class Coordinator extends DurableObject<Env> {
         await runModuleSchedules(env, this.profile, tick);
       }
       await processInbox(env, this.profile);
-      await this.broadcastQueue();
+      await this.broadcastQueueSoon();
       for (const run of await all<Run>(
         env,
         "SELECT * FROM bot_runs WHERE profile_id=? AND (status IN ('queued','starting','running','cancelling') OR (status='completed' AND completion_handled=0)) ORDER BY created LIMIT 5",

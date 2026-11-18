@@ -28,6 +28,7 @@ import {
   type DeliveryRow,
 } from "./store";
 import { windowOpen } from "./notify";
+import { storeRef } from "./address";
 
 const firstName = (name: string) =>
   String(name || "").trim().split(/\s+/)[0]?.slice(0, 40) || "";
@@ -122,7 +123,12 @@ export async function qrClaimed(ctx: ModuleContext, credential: any) {
     } catch {
       // A leitura vale mesmo sem a nota (conversa apagada ou de grupo).
     }
-  return { delivery: courierSafe(view), app: appParams(cfg, fresh) };
+  return {
+    delivery: courierSafe(view),
+    // A loja como referência: o app procura o destino perto dela.
+    store: await storeRef(ctx),
+    app: appParams(cfg, fresh),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -189,6 +195,9 @@ export async function courierDelivery(
       last_seq: await lastSeq(ctx, row.id),
       customer_open: await customerChannelOpen(ctx, row),
     },
+    // A loja como referência: sem `destination`, o app procura o endereço
+    // perto dela (não perto do entregador).
+    store: await storeRef(ctx),
     app: appParams(cfg, row),
   };
 }

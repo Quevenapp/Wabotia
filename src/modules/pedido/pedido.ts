@@ -53,6 +53,7 @@ import {
   cartCompleted,
   cartValidate,
   catalogOrder,
+  customerLocation,
   pedidoTurn,
   sendCart,
   trackOrders,
@@ -146,6 +147,11 @@ onConversationTurn(MODULE, (ctx, c, turn) => pedidoTurn(ctx, c, turn));
 // Carrinho do catálogo da Meta (content.order) com retailer_id cadastrado.
 onInboundContent(MODULE, "order", (ctx, c, content, { rowId }) =>
   catalogOrder(ctx, c, content, rowId),
+);
+// Localização do cliente: o endereço pedido na conversa ou as coordenadas do
+// pedido de entrega aberto (com entrega aberta, segue para o módulo Entrega).
+onInboundContent(MODULE, "location", (ctx, c, content, { rowId }) =>
+  customerLocation(ctx, c, content, rowId),
 );
 
 // Antes de concluir: loja fechada ou item esgotado recusa na própria página.

@@ -48,7 +48,7 @@ fluxo consultar mais, ele falha e mostra a lista de instruções.
 | Webhook do Mercado Pago: assinatura                      | Worker                   | 2     | 2      |
 | Webhook do Mercado Pago: consulta, estado, Pedido        | Coordinator              | 29    | 28²    |
 | Rodada periódica dos módulos (sem nada vencido)          | alarme (parte da rodada) | 26    | 22     |
-| Fila: emitir senha (com recibo e auditoria)              | Coordinator `/command`   | 15    | 17³    |
+| Fila: emitir senha (com recibo e auditoria)              | Coordinator `/command`   | 15    | 16³    |
 | Fila: chamar a próxima (com recibo e auditoria)          | Coordinator `/command`   | 17    | 17     |
 | Alarme inteiro: uma mensagem e duas entregas canceladas  | alarme                   | 71¹   | **67** |
 | Mesas: lançar itens (vira pedido do Pedido)              | Coordinator `/command`   | —     | 25     |
@@ -70,7 +70,9 @@ estado do módulo e o contador do limite por credencial (mais uma escrita). Um l
 escrita por ponto; detalhes em [ENTREGA.md](ENTREGA.md#limites-do-cloudflare).
 
 Os comandos da fila custam 4 instruções a mais pelo `/command` (consulta e
-gravação do recibo de idempotência, auditoria e fechamento do recibo).
+gravação do recibo de idempotência, auditoria e fechamento do recibo). As
+instruções quase não mudaram com os lotes (seção seguinte); o que caiu foram
+as **idas** ao D1, que são o que custa tempo.
 
 ## O que foi corrigido
 
@@ -117,6 +119,38 @@ gravação do recibo de idempotência, auditoria e fechamento do recibo).
   - A exceção é o lote antes da rota da chave de aplicação: contar a mesma requisição duas vezes no limite por minuto não faz mal.
 
   Casos em `tests/d1-retry.test.ts`.
+- **Idas ao D1 nos comandos da fila.** Emitir uma senha levava ~1,8 s e o
+  panorama (`GET /queue`) ~2 s, do Brasil: eram 16 e 12 idas em série ao D1, a
+  150–470 ms cada. Agora as leituras e escritas vão em lotes (`db.batch`, uma
+  transação por lote):
+
+  | Caminho                      | Antes | Depois | Lotes                                                                                                   |
+  | ---------------------------- | ----- | ------ | ------------------------------------------------------------------------------------------------------- |
+  | Emitir senha (`/command`)    | 16    | **2**  | abertura com a fila, a chave de origem e o +1 do totem · senha + evento + vista (a resposta exata vai depois) |
+  | Chamar a próxima             | 17    | **2**  | abertura com guichê, filas, candidatas e em curso · encerra a atual, chama, evento, ciclo, "faltam N", vista (a resposta exata vai depois) |
+  | Panorama (`GET /queue`)      | 13⁵   | **2**  | pré-rota · o panorama inteiro                                                                            |
+  | Snapshot dos painéis         | 1 + 12⁵ por filtro | **2** | eventos novos · o panorama da área, montado para cada filtro                                   |
+
+  ⁵ Com uma fila e um guichê; crescia 3 idas por fila e 1 por guichê. Agora não cresce.
+
+  - **Abertura do `/command`** (`src/coordinator.ts`): a consulta e a gravação do recibo de idempotência, mais as leituras de configuração que o comando vai usar (estado dos módulos, configurações da área, assinaturas de webhook, endereço público), postas no cache da requisição (`seedRead`).
+  - **Começo da operação na abertura:** a operação declara as instruções que vai fazer primeiro (`queuePrefetch` em `src/queue.ts`: a emissão e a chamada), e elas vão no lote da abertura. Os resultados valem uma vez só (`seedPrefetch`/`batchPrefetched` em `src/db.ts`): uma segunda tentativa dentro da operação, como a chamada que perdeu a corrida, vai ao banco de novo.
+  - **Recibo no lote da escrita** (emissão e chamada; `src/command-context.ts`): a auditoria e a marca do recibo (`ref:<operação>:<id da senha>`) gravam no lote da escrita, junto com a senha e o evento. O lote é atômico: ou grava tudo, ou nada. Na chamada, as duas só gravam se a chamada pegou (a mesma condição do evento). Um reinício do objeto nunca perde a auditoria.
+    - A resposta exata vai depois da resposta ao cliente (`ctx.waitUntil`). É a meia ida a mais. O cliente não espera por ela.
+    - Repetição com a mesma `Idempotency-Key` enquanto a resposta grava: o objeto espera a gravação antes de entrar no bloqueio do comando e devolve a resposta gravada (`Idempotency-Replayed`). Esperar dentro do bloqueio travaria o objeto: o `blockConcurrencyWhile` segura a resposta do D1 que a gravação espera.
+    - Recibo só com a marca (o objeto reiniciou depois de responder, ou a gravação da resposta falhou): a repetição reconstrói a resposta pela senha (`queueReplay`) e fecha o recibo ali. A senha é a mesma. Só pode diferir o que mudou desde a primeira resposta: quantos estão na frente e a espera estimada e, na chamada, o estado e o número de chamadas, se a senha já andou.
+    - Recibo sem marca: a escrita não gravou, então a operação roda de novo. Na emissão, a chave de origem ainda devolve a senha de antes, se houver.
+    - As outras operações fecham o recibo como sempre, numa ida antes da resposta, e um recibo sem resposta delas dá `409 operation_unknown` com `Retry-After: 1`. É o código que o Senhapp e os apps Android e iOS já repetem com a mesma chave.
+    - Casos em `tests/command-receipt-closing.test.ts`: reinício entre a resposta e o fechamento, duas repetições simultâneas durante a gravação, gravação que falha e escrita que não gravou. Em todos: uma senha só e uma auditoria só.
+  - **Eventos no lote da escrita:** `eventStatement` grava o evento junto com a mudança; `fanOut` cria as entregas de webhook depois (só gasta ida se houver assinatura).
+  - **Chamada condicional:** se outra escrita pegou a senha antes, o `UPDATE … WHERE status='waiting' RETURNING *` não volta linha, e o evento e o ciclo da fila, no mesmo lote, só gravam se a senha estiver chamada neste guichê neste instante. O comando tenta de novo (até 5 vezes, como antes).
+  - **Contas no banco:** quem está na frente dos avisos de "faltam N" (`AHEAD_SQL`), as médias de atendimento e as contagens do panorama por fila (`GROUP BY` e `row_number()`), em vez de uma consulta por senha ou por fila. `tests/d1-queue.test.ts` confere que dão o mesmo que a vista da senha e o `callFrame`.
+  - **Envio aos painéis fora da resposta:** o comando responde e o snapshot vai depois (`ctx.waitUntil`), um envio de cada vez; um pedido durante o envio faz mais uma volta, para o último snapshot ser sempre o mais novo.
+  - **`Server-Timing`** na resposta do `/command`: `d1;desc="calls=N";dur=ms`, as idas e o tempo somado no D1, para medir na instalação de verdade quanto do tempo é o D1 (`src/d1-timing.ts`).
+
+  Tetos de idas em `tests/d1-queue.test.ts`.
+
+  **Ainda em série** (medido com todos os módulos ligados, `tests/d1-budget.test.ts`): mensagem recebida (`/inbound`) 14 idas; motor 26 a 39 por mensagem; conclusão do carrinho 54; mesas: lançar pedido 18, fechar a conta 11. O motor roda no alarme, fora da resposta ao webhook, mas o tempo até a resposta ao cliente soma as idas.
 
 Cuidados do cache: só vale dentro de uma invocação; as consultas lembradas leem
 somente as tabelas da lista em `src/db.ts` (perfis, módulos, conexões, números e
@@ -260,6 +294,12 @@ O que reduz o custo:
    - o tempo de um arquivo estático, que não deve mudar;
    - o `/instalar`.
 5. **Fim:** volte ao deploy sem `placement`, ou deixe o vencedor, conforme a orquestração decidir.
+
+**Instalação fora do Brasil (desenho, nada implementado):** a região fixa `aws:us-east-1` só serve porque o D1 desta instalação nasceu no leste dos EUA. Quem instalar da Europa terá o D1 (e os objetos) na Europa, e o Worker mandado para Virgínia pagaria a ida ao banco atravessando o Atlântico em cada consulta — pior que sem posicionamento.
+- A região do Worker tem de sair de **onde o D1 está**, não de uma constante do pacote. O instalador cria o D1 (e pode passar `primary_location_hint`: `wnam`, `enam`, `weur`, `eeur`, `apac`, `oc`), lê de volta onde ele ficou (API do D1, campo de região, o mesmo que o `wrangler d1 info` mostra) e grava o `placement` correspondente (por exemplo `weur` → uma região de nuvem na Europa Ocidental). O atualizador preserva o que está instalado, como já faz (`settings.placement ?? m.placement`).
+- Se a região do D1 não vier na resposta, ou não houver correspondência conhecida, o instalador usa o modo automático (`"mode": "smart"`), que mede em vez de supor, e não grava região.
+- O pacote nunca leva região fixa no manifesto; no máximo o modo automático como padrão.
+- Durable Objects nascem perto de quem faz o primeiro `get()` (ou do `locationHint`): numa instalação europeia, os Coordinators das áreas também ficam na Europa, junto do D1. O objeto `erp:` usa `locationHint`, então o hint também deve vir da região do D1, não de `"sam"` fixo.
 
 **Expectativa, a confirmar no ensaio:**
 - Sem posicionamento: 3 × ~150 ms de ida e volta + ~150 ms do navegador ≈ 0,6 s, o que bate com os 0,57 s medidos.

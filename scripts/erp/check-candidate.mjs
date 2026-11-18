@@ -11,7 +11,10 @@ import { pathToFileURL } from "node:url";
 import { parse } from "jsonc-parser";
 
 const require = createRequire(import.meta.url);
-const { build } = require("../../node_modules/wrangler/node_modules/esbuild");
+// O esbuild do Wrangler, aninhado ou içado (ver scripts/release.mjs).
+const { build } = createRequire(require.resolve("wrangler/package.json"))(
+  "esbuild",
+);
 const out = "output/erp-check";
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
@@ -64,10 +67,19 @@ const pick = (c) =>
     kv: c.kv_namespaces,
     queues: c.queues,
     services: c.services,
-    compatibility_flags: c.compatibility_flags,
   });
 if (pick(here) !== pick(main))
   throw Error("wrangler.jsonc mudou bindings ou durable_migrations em relação ao origin/main.");
+// As flags de compatibilidade vão no pacote e o atualizador as aplica
+// (src/release.ts, metadata.compatibility_flags), então podem ganhar itens;
+// nenhuma das que a instalação já usa pode sumir.
+const missingFlags = (main.compatibility_flags || []).filter(
+  (flag) => !(here.compatibility_flags || []).includes(flag),
+);
+if (missingFlags.length)
+  throw Error(`wrangler.jsonc perdeu flags de compatibilidade: ${missingFlags.join(", ")}.`);
+if (JSON.stringify(pkg.compatibility_flags) !== JSON.stringify(here.compatibility_flags))
+  throw Error("As flags do pacote diferem das do wrangler.jsonc.");
 if (
   JSON.stringify(pkg.durable_migrations) !==
   JSON.stringify([{ tag: "v1", new_sqlite_classes: ["Coordinator"] }])

@@ -132,7 +132,7 @@ function BrowserInstall() {
         </a>
         <a
           className="button secondary"
-          href="/guide/wabotia-instalacao.pdf"
+          href="https://wabotia.queven.app/guide/wabotia-instalacao.pdf"
           target="_blank"
           rel="noopener noreferrer"
         >
@@ -211,7 +211,7 @@ export function Install() {
       nav={
         <>
           <a
-            href="/guide/wabotia-instalacao.pdf"
+            href="https://wabotia.queven.app/guide/wabotia-instalacao.pdf"
             target="_blank"
             rel="noopener noreferrer"
           >

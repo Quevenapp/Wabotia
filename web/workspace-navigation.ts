@@ -100,6 +100,7 @@ export type AreaId =
   | "calls"
   | "queue"
   | "contacts"
+  | "erp"
   | "admin";
 
 /** Onde mora hoje cada página conhecida pelo assistente e pelos atalhos. */
@@ -245,6 +246,9 @@ export const pageModules: Partial<Record<string, string>> = {
   pedidos: "pedido",
   "pedidos-cardapio": "pedido",
   mesas: "mesas",
+  // ERP: a área abre com o papel erp:<papel> no acesso da pessoa (o
+  // administrador vale erp:admin); a chave do módulo é conferida em web/erp/modules.ts.
+  erp: "erp",
 };
 /**
  * Páginas de módulo que também aparecem no trilho principal (computador) e

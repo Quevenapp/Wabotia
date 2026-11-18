@@ -249,7 +249,7 @@ export function Landing() {
               </a>
               <a
                 className="text-link"
-                href="/guide/wabotia-instalacao.pdf"
+                href="https://wabotia.queven.app/guide/wabotia-instalacao.pdf"
                 target="_blank"
                 rel="noopener noreferrer"
               >

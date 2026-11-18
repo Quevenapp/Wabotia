@@ -6,6 +6,7 @@ import { grantsFor } from "../module-grants";
 import { accessCatalog, effectiveAccess } from "../access";
 import { canProfile } from "../security";
 import { buildInfo } from "../build-info.generated";
+import { sourceInfo } from "../source";
 import { modules, resolveStates } from "./registry";
 
 /** Versão do formato desta resposta; muda só com quebra de contrato. */
@@ -51,6 +52,8 @@ export async function capabilities(
       version: buildInfo.version,
       commit: buildInfo.commit,
     },
+    // Código-fonte do commit em execução (AGPL-3.0, §13).
+    source: sourceInfo(env),
     features: coreFeatures,
     actor: { id: actor.id, kind: actor.kind, role: actor.role },
     profiles: areas.map((p) => {

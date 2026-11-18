@@ -73,3 +73,7 @@ O gateway é um repassador: processa a mensagem na memória, envia ao FCM e desc
 - `src/index.ts`: rotas, validação, segredo compartilhado e limite por IP.
 - `../src/push-fcm.ts`: cliente FCM compartilhado com o servidor (OAuth RS256 e envio com 5 chamadas simultâneas). Mantido no repositório raiz, sem dependências do servidor.
 - `test/gateway.test.ts`: testes com o plugin Vitest do Cloudflare e FCM simulado.
+
+## Licença
+
+MIT ([LICENSE](LICENSE)), como os apps (`mobile/`) e os conectores: é um programa separado do servidor Wabotia (AGPL-3.0), que só atende aos apps. Veja o [NOTICE](../NOTICE).

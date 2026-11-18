@@ -175,6 +175,21 @@
   min-width: 0;
   min-height: 0;
 }
+/* ERP (web/erp): a área é o bloco de contenção dos elementos fixos do Fagoo
+   (menu lateral, painéis), que assim não cobrem o trilho; .fagoo-root rola. */
+.erp-area {
+  position: relative;
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  contain: layout paint;
+}
+.erp-area > .fagoo-root {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
 .list-pane {
   display: flex;
   flex-direction: column;
