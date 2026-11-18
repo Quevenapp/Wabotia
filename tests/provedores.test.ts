@@ -7,7 +7,7 @@ import { json, now, uid, type Run } from "../src/types";
 import { engineActor, secret, setSecret } from "../src/security";
 import { perform } from "../src/service";
 import { processRun } from "../src/engine";
-import { aiComplete, connectionKey } from "../src/ai-provider";
+import { aiComplete, ANTHROPIC_MODELS, connectionKey } from "../src/ai-provider";
 import { askJev } from "../src/jev-client";
 import { addJevUsage } from "../src/jev";
 import { runDecide } from "../src/bot-actions/decide";
@@ -396,13 +396,15 @@ describe("provedores: operações e permissões", () => {
     });
   });
 
-  it("leitura exige o acesso da tela Bots e filtra provedores, áreas e consumo", async () => {
+  it("operator com conversations lista só o resumo dos provedores; consumo e custos exigem administrador", async () => {
     network();
     const f = await fixture(), other = await fixture();
-    const shared = await create(f, { profiles: [f.profile, other.profile] });
+    const shared = await create(f, { profiles: [f.profile, other.profile], base_url: "https://api.example.com/v1" });
+    const prices = { "modelo-teste": { input: 2, output: 8 } };
+    await command(f, "provider.update", { id: shared.id, prices });
     const foreign = await create(other);
     for (const profile of [f.profile, other.profile])
-      await exec(env, "INSERT INTO ai_usage_daily(provider_id,profile_id,use,model,day,requests) VALUES(?,?,'bot','modelo-teste',?,1)", shared.id, profile, new Date().toISOString().slice(0, 10));
+      await exec(env, "INSERT INTO ai_usage_daily(provider_id,profile_id,use,model,day,requests,input) VALUES(?,?,'bot','modelo-teste',?,1,1000000)", shared.id, profile, new Date().toISOString().slice(0, 10));
     const denied = { ...f.member, access: ["contacts"] };
     for (const path of ["/providers", `/providers/${shared.id}/usage`])
       expect((await internalCall(env, denied, { path })).status).toBe(403);
@@ -416,14 +418,33 @@ describe("provedores: operações e permissões", () => {
     const providers = await response.json<any[]>();
     expect(providers.map((p) => p.id)).toEqual([shared.id]);
     expect(providers[0].profiles).toEqual([f.profile]);
-    expect((await listProviders(env, f.admin)).find((p) => p.id === shared.id)?.profiles)
-      .toEqual([f.profile, other.profile]);
+    expect(Object.keys(providers[0]).sort()).toEqual(
+      ["id", "name", "kind", "status", "capabilities", "models", "profiles"].sort(),
+    );
+    expect(providers[0]).not.toHaveProperty("base_url");
+    expect(providers[0]).not.toHaveProperty("prices");
+    const adminResponse = await internalCall(env, f.admin, { path: "/providers" });
+    expect(adminResponse.status).toBe(200);
+    const adminProviders = await adminResponse.json<any[]>();
+    expect(adminProviders.map((p) => p.id)).toContain(foreign.id);
+    expect(adminProviders.find((p) => p.id === shared.id)).toMatchObject({
+      profiles: [f.profile, other.profile], base_url: "https://api.example.com/v1", prices,
+    });
+    expect((await listProviders(env, f.admin)).find((p) => p.id === shared.id))
+      .toMatchObject({ profiles: [f.profile, other.profile], base_url: "https://api.example.com/v1", prices });
     const usage = await internalCall(env, reader, { path: `/providers/${shared.id}/usage` });
-    expect(usage.status).toBe(200);
-    expect((await usage.json<any>()).data).toMatchObject([{ requests: 1 }]);
-    expect((await command(f, "provider.usage", { id: shared.id }, reader)).data)
-      .toMatchObject([{ requests: 1 }]);
+    expect(usage.status).toBe(403);
+    await expect(command(f, "provider.usage", { id: shared.id }, reader))
+      .rejects.toMatchObject({ status: 403 });
+    // O acesso completo também não transforma um operator em administrador.
+    await expect(command(f, "provider.usage", { id: shared.id }, { ...reader, access: ["*"] }))
+      .rejects.toMatchObject({ status: 403 });
     expect((await internalCall(env, reader, { path: `/providers/${foreign.id}/usage` })).status).toBe(403);
+    const adminUsage = await internalCall(env, f.admin, { path: `/providers/${shared.id}/usage` });
+    expect(adminUsage.status).toBe(200);
+    expect((await adminUsage.json<any>()).data).toMatchObject([{ requests: 2, estimate_usd: 4 }]);
+    expect((await command(f, "provider.usage", { id: shared.id })).data)
+      .toMatchObject([{ requests: 2, estimate_usd: 4 }]);
   });
 
   it("não salva quando o teste falha, force salva sem verificação e rotate preserva vínculos", async () => {
@@ -709,6 +730,88 @@ describe("provedores: operações e permissões", () => {
     expect((await listProviders(env, f.admin)).map((p) => p.id)).toEqual(before);
     for (const row of await all(env, "SELECT id FROM ai_providers WHERE status='active'"))
       expect((await secret(env, `provider:${row.id}`)).api_key).not.toBe(KEY);
+  });
+
+  it("trocar chave pela conexão reativa o mesmo provedor exclusivo revogado", async () => {
+    network();
+    const f = await fixture();
+    const saved = await command(f, "connection.create", {
+      kind: "ai", name: "Bot", config: { provider: "openai", model: "modelo-teste" }, api_key: KEY,
+    });
+    await command(f, "provider.revoke", { id: saved.provider_id });
+    expect(await secret(env, `provider:${saved.provider_id}`)).toEqual({});
+    await command(f, "connection.update", { id: saved.id, api_key: ROTATED });
+    expect(json((await connRow(saved.id)).config).provider_id).toBe(saved.provider_id);
+    expect(await all(env, "SELECT id,status FROM ai_providers"))
+      .toEqual([{ id: saved.provider_id, status: "active" }]);
+    expect((await secret(env, `provider:${saved.provider_id}`)).api_key).toBe(ROTATED);
+    expect(await connectionKey(env, await connRow(saved.id))).toBe(ROTATED);
+  });
+
+  it("trocar openai por anthropic com chave nova cria provedor e revoga o exclusivo antigo", async () => {
+    const calls = network();
+    const f = await fixture();
+    const saved = await command(f, "connection.create", {
+      kind: "ai", name: "Bot", config: { provider: "openai", model: "modelo-teste" }, api_key: KEY,
+    });
+    const changed = await command(f, "connection.update", {
+      id: saved.id, api_key: ROTATED, config: { provider: "anthropic", model: ANTHROPIC_MODELS[0] },
+    });
+    expect(changed.provider_id).not.toBe(saved.provider_id);
+    expect(json((await connRow(saved.id)).config)).toMatchObject({
+      provider_id: changed.provider_id, provider: "anthropic", model: ANTHROPIC_MODELS[0],
+    });
+    expect(await one(env, "SELECT kind,status FROM ai_providers WHERE id=?", changed.provider_id))
+      .toMatchObject({ kind: "anthropic", status: "active" });
+    expect(await one(env, "SELECT status FROM ai_providers WHERE id=?", saved.provider_id))
+      .toMatchObject({ status: "revoked" });
+    expect(await secret(env, `provider:${saved.provider_id}`)).toEqual({});
+    expect(await one(env, "SELECT id FROM secrets WHERE id=?", `provider:${saved.provider_id}`)).toBeNull();
+    expect(await connectionKey(env, await connRow(saved.id))).toBe(ROTATED);
+    expect(calls).toEqual([]); // O cadastro implícito não testa a chave contra o serviço antigo.
+  });
+
+  it.each(["openai", "compatible"])("trocar base_url e chave do provedor exclusivo %s cria outro e apaga o segredo antigo", async (provider) => {
+    network();
+    const f = await fixture();
+    const saved = await command(f, "connection.create", {
+      kind: "ai", name: "Bot", api_key: KEY,
+      config: { provider, model: "modelo-teste", base_url: "https://old.example.com/v1" },
+    });
+    const changed = await command(f, "connection.update", {
+      id: saved.id, api_key: ROTATED, config: { base_url: "https://new.example.com/v1/" },
+    });
+    expect(changed.provider_id).not.toBe(saved.provider_id);
+    expect(json((await connRow(saved.id)).config).provider_id).toBe(changed.provider_id);
+    expect(await one(env, "SELECT kind,base_url,status FROM ai_providers WHERE id=?", changed.provider_id))
+      .toMatchObject({ kind: provider, base_url: "https://new.example.com/v1", status: "active" });
+    expect(await one(env, "SELECT status FROM ai_providers WHERE id=?", saved.provider_id))
+      .toMatchObject({ status: "revoked" });
+    expect(await secret(env, `provider:${saved.provider_id}`)).toEqual({});
+    expect(await connectionKey(env, await connRow(saved.id))).toBe(ROTATED);
+  });
+
+  it.each([
+    { label: "modelo vazio", edit: { model: "" }, shared: false },
+    { label: "nome vazio antes do rotate", edit: { name: "" }, shared: false },
+    { label: "nome vazio antes de criar provedor", edit: { name: "" }, shared: true },
+  ])("edição com chave e $label falha sem alterar conexão nem provedores", async ({ edit, shared }) => {
+    const calls = network();
+    const f = await fixture();
+    const saved = await command(f, "connection.create", {
+      kind: "ai", name: "Bot", config: { provider: "openai", model: "modelo-teste" }, api_key: KEY,
+    });
+    if (shared) await connection(f, "openai", { provider_id: saved.provider_id });
+    const before = await connRow(saved.id);
+    const providers = await all(env, "SELECT * FROM ai_providers ORDER BY id");
+    const secrets = await all(env, "SELECT * FROM secrets ORDER BY id");
+    await expect(command(f, "connection.update", { id: saved.id, api_key: ROTATED, ...edit }))
+      .rejects.toMatchObject({ status: 400 });
+    expect(await connRow(saved.id)).toEqual(before);
+    expect(await all(env, "SELECT * FROM ai_providers ORDER BY id")).toEqual(providers);
+    expect(await all(env, "SELECT * FROM secrets ORDER BY id")).toEqual(secrets);
+    expect((await secret(env, `provider:${saved.provider_id}`)).api_key).toBe(KEY);
+    expect(calls).toEqual([]);
   });
 
   it("trocar chave de provedor compartilhado cria outro e preserva a outra conexão", async () => {
