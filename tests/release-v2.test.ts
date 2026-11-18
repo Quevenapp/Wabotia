@@ -532,7 +532,7 @@ describe("assinatura do índice e do manifesto", () => {
     );
   });
 
-  it("recusa lote acima de 48 MiB antes de ler qualquer blob e aceita o limite", async () => {
+  it("recusa lote acima de 32 MiB antes de ler qualquer blob e aceita o limite", async () => {
     const r = await buildRelease(baseSpec());
     const items = [0, 1].map((i) => ({
       hash: String(i),
@@ -540,7 +540,8 @@ describe("assinatura do índice e do manifesto", () => {
     }));
     const read = vi.fn(async () => new Uint8Array(0));
     items[1].file.size++;
-    await expect(assetUploadV2(items, read)).rejects.toThrow(/excede 48 MiB/);
+    expect(MAX_UPLOAD_BATCH_BYTES).toBe(32 * 1024 * 1024);
+    await expect(assetUploadV2(items, read)).rejects.toThrow(/excede 32 MiB/);
     expect(read).not.toHaveBeenCalled();
     items[1].file.size--;
     await expect(assetUploadV2(items, read)).resolves.toBeInstanceOf(FormData);
@@ -548,7 +549,9 @@ describe("assinatura do índice e do manifesto", () => {
   });
 
   it("publicador recusa estático acima de 24 MiB, dentro do orçamento do leitor", () => {
-    expect(MAX_STATIC_ASSET_BYTES).toBe(MAX_UPLOAD_BATCH_BYTES / 2);
+    // Um estático do tamanho máximo cabe sozinho num lote do atualizador.
+    expect(MAX_STATIC_ASSET_BYTES).toBe(24 * 1024 * 1024);
+    expect(MAX_STATIC_ASSET_BYTES).toBeLessThan(MAX_UPLOAD_BATCH_BYTES);
     expect(() =>
       checkStaticAssetSize("/grande.bin", MAX_STATIC_ASSET_BYTES),
     ).not.toThrow();
@@ -708,6 +711,8 @@ describe("atualizador do formato 2", () => {
     const job = await state();
     const reset = () =>
       resetUpdate(e, actor, { confirmed_build_stopped: true });
+    // O painel só mostra "Liberar nova tentativa" com review_required.
+    const review = async () => (await updateStatus(e)).review_required;
     for (const progress of [at, at - 30 * 60000]) {
       await setSecret(e, "system:release-state", {
         ...job,
@@ -715,6 +720,7 @@ describe("atualizador do formato 2", () => {
         updated: at - 3600000,
         last_progress_at: progress,
       });
+      expect(await review()).toBe(false);
       await expect(reset()).rejects.toThrow(/Confira/);
     }
     await setSecret(e, "system:release-state", {
@@ -723,13 +729,55 @@ describe("atualizador do formato 2", () => {
       updated: at,
       last_progress_at: at - 30 * 60000 - 1,
     });
+    expect(await review()).toBe(true);
     await expect(reset()).resolves.toMatchObject({ status: "cancelled" });
     await setSecret(e, "system:release-state", {
       ...job,
       created: at - 3600000,
       updated: at - 3600000,
     });
+    expect(await review()).toBe(true);
     await expect(reset()).resolves.toMatchObject({ status: "cancelled" });
+  });
+
+  it("consulta comum de status não pega a trava; só quando há o que gravar", async () => {
+    const locks: string[] = [];
+    const db = new Proxy(env.DB, {
+      get(target: any, prop) {
+        if (prop === "prepare")
+          return (sql: string) => {
+            if (sql.includes("system_update_locks")) locks.push(sql);
+            return target.prepare(sql);
+          };
+        const v = target[prop];
+        return typeof v === "function" ? v.bind(target) : v;
+      },
+    });
+    const watched = { ...e, DB: db } as Env;
+    // Sem trabalho, com trabalho andando e com trabalho falho: só lê.
+    await updateStatus(watched);
+    await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
+    await updateStatus(watched);
+    await processUpdate(e);
+    await updateStatus(watched);
+    await setSecret(e, "system:release-state", {
+      ...(await state()),
+      status: "failed",
+    });
+    await updateStatus(watched);
+    // Nenhuma escrita no D1 pela trava, e nada que dê 409 a um "Atualizar"
+    // clicado no mesmo instante.
+    expect(locks).toEqual([]);
+    // A consulta que precisa concluir pega a trava.
+    await setSecret(e, "system:release-state", {
+      ...(await state()),
+      target: buildInfo.commit,
+      status: "requested",
+    });
+    expect((await updateStatus(watched)).state?.status).toBe("completed");
+    expect(locks.length).toBeGreaterThan(0);
   });
 
   it("cache recente vencido é consultado de novo; início recusa índice fora do prazo", async () => {
@@ -763,9 +811,14 @@ describe("atualizador do formato 2", () => {
       checked_at: at,
       issued_at: at + 2 * 86400000,
     });
-    await expect(startUpdate(e, actor, { commit: target })).rejects.toThrow(
-      /futuro/,
-    );
+    // A recusa do prazo chega ao painel com a mensagem, não como erro 500.
+    await expect(
+      startUpdate(e, actor, { commit: target }),
+    ).rejects.toMatchObject({
+      status: 502,
+      code: "update_check_failed",
+      message: expect.stringMatching(/futuro/),
+    });
     release = await buildRelease({ ...baseSpec(), expires: at + 60000 });
     await startUpdate(e, actor, {
       commit: (await checkUpdate(e, true)).commit,
@@ -811,14 +864,20 @@ describe("atualizador do formato 2", () => {
       hour,
       window_hours: 2,
     });
+    const sessions = () =>
+      calls.filter((c) => c.url.endsWith("/assets-upload-session")).length;
+    const before = sessions();
     await automaticUpdateTick(e);
+    // Volta a `prepare`: o token de conclusão (uma hora) pode ter vencido
+    // se a nova tentativa ficou para a janela seguinte.
     expect(await state()).toMatchObject({
       status: "pending",
-      phase: "publish",
+      phase: "prepare",
       attempt: 2,
     });
-    await processUpdate(e);
+    await run(20);
     expect((await state()).status).toBe("requested");
+    expect(sessions()).toBe(before + 1);
     expect(await all(e, "SELECT id FROM v2_probe")).toEqual([{ id: "one" }]);
     expect(calls.filter((c) => c.method === "PUT")).toHaveLength(1);
   });
@@ -999,7 +1058,7 @@ describe("atualizador do formato 2", () => {
     expect(await state()).toMatchObject({
       status: "failed",
       phase: "assets",
-      error: expect.stringMatching(/excede 48 MiB/),
+      error: expect.stringMatching(/excede 32 MiB/),
     });
     expect(reads).toEqual([
       workPrefix(job!.id) + "manifest.json",

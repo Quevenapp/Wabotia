@@ -602,24 +602,33 @@ opcionais: o estado gravado pela ponte continua válido.
    migrações conferidas/aplicadas e sonda concluída zeram o contador e
    atualizam `last_progress_at`. Após três rodadas interrompidas sem avanço,
    a próxima entrada encerra o trabalho como `failed`, com orientação em
-   português. O reset aceita `pending` sem avanço há **mais de 30 minutos**;
-   sem os campos novos, usa `updated` (ou `created`).
+   português. O `pending` sem avanço há **mais de 30 minutos** aparece no
+   painel para revisão (`review_required`) e o reset o aceita; sem os campos
+   novos, usa `updated` (ou `created`).
 2. A consulta de status conclui e limpa sob `updateLock`, relendo o trabalho
    e conferindo seu `id` antes de gravar. Com a trava ocupada, apenas lê.
    Mesmo se a concessão vencer durante uma limpeza lenta, A não regrava B.
+   A trava só é pega quando o estado pede conclusão, limpeza, o fechamento
+   do formato 1 ou o descarte do token do trabalho: a consulta comum não
+   escreve no D1 nem causa 409 a quem clica "Atualizar" no mesmo instante.
 3. Antes de ler os blobs e montar o base64, soma o lote: acima de
-   `MAX_UPLOAD_BATCH_BYTES` (**48 MiB brutos**) falha com mensagem clara.
-   O publicador recusa estáticos acima de **24 MiB por arquivo** antes de
-   carregá-los, metade desse orçamento. Como a Cloudflare agrupa os lotes,
-   o limite por arquivo não dispensa a conferência da soma no envio.
+   `MAX_UPLOAD_BATCH_BYTES` (**32 MiB brutos**, cerca de 43 MiB em base64
+   na memória) falha com mensagem clara. O publicador recusa estáticos
+   acima de **24 MiB por arquivo** antes de carregá-los. Como a Cloudflare
+   agrupa os lotes, o limite por arquivo não dispensa a conferência da soma
+   no envio.
 4. Falhas transitórias em `publish` antes de gravar `sending` entram na
-   nova tentativa automática com o mesmo recuo e limite existentes. Após
-   iniciar o PUT do código, permanece a conferência manual do resultado.
+   nova tentativa automática com o mesmo recuo e limite existentes; a nova
+   tentativa de `assets` ou `publish` volta a `prepare`, que abre outra
+   sessão e recebe um token de conclusão novo (o anterior vale uma hora, e
+   a tentativa pode ficar para a janela do dia seguinte). Após iniciar o
+   PUT do código, permanece a conferência manual do resultado.
 5. Um 401/403 em `assets` volta uma vez a `prepare`, que abre nova sessão
    pedindo só o que falta. `upload_session_renewals` limita a renovação a
    uma por trabalho, inclusive nas retomadas automáticas.
 6. O cache só vale com `expires > now()`, e o início valida o índice com o
-   horário atual. Um trabalho já iniciado continua depois do vencimento.
+   horário atual (a recusa chega ao painel com a mensagem do prazo). Um
+   trabalho já iniciado continua depois do vencimento.
 7. `CloudflareCallError.status` informa o HTTP mesmo com corpo não JSON;
    a mensagem inclui `Cloudflare HTTP <código>`. A decisão de repetir usa
    esse campo, sem interpretar o texto: 403 HTML não é repetível.

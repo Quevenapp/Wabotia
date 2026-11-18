@@ -611,8 +611,12 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
         {(u.review_required || state?.status === "failed") && (
           <div className="callout">
             <p>
-              {state.error} Abra seu Worker na Cloudflare, confira a aba
-              Implantações e resolva o erro exibido.
+              {state.error ||
+                (state.status === "pending"
+                  ? "A atualização está parada há mais de 30 minutos sem avançar."
+                  : "")}{" "}
+              Abra seu Worker na Cloudflare, confira a aba Implantações e
+              resolva o erro exibido.
             </p>
             <label className="check-field">
               <input

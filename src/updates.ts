@@ -500,9 +500,40 @@ async function reconcileUpdate(env: Env, id: string | undefined) {
     }
   }
 }
+/**
+ * Há algo a gravar em `reconcileUpdate`? A consulta comum do painel só lê: a
+ * trava (uma gravação no D1, e 409 para quem clicar "Atualizar" no mesmo
+ * instante) fica para quando o estado pede conclusão, limpeza, o fechamento
+ * do formato 1 ou o descarte do token do trabalho.
+ */
+async function needsReconcile(env: Env, state: any) {
+  if (
+    state.id &&
+    ((!state.format1_settled && state.index?.format !== 2) ||
+      (state.target === buildInfo.commit && state.status !== "completed") ||
+      state.cleanup_pending)
+  )
+    return true;
+  const record = await secret(env, jobTokenId);
+  return (
+    !!record.job_id &&
+    !(
+      record.job_id === state.id &&
+      state.status === "pending" &&
+      record.expires_at > now()
+    )
+  );
+}
+/** Instante do último avanço (os campos novos faltam no estado da ponte). */
+const lastProgress = (state: any) =>
+  state.last_progress_at ?? state.updated ?? state.created ?? 0;
+/** `pending` sem avanço há mais de 30 min: o painel oferece liberar. */
+const stalledPending = (state: any) =>
+  state.status === "pending" && lastProgress(state) < now() - 30 * 60000;
 export async function updateStatus(env: Env) {
   const observed = await secret(env, stateId);
-  await updateLock(env, () => reconcileUpdate(env, observed.id), true);
+  if (await needsReconcile(env, observed))
+    await updateLock(env, () => reconcileUpdate(env, observed.id), true);
   const state = await secret(env, stateId),
     stored = await secret(env, latestId),
     // O índice do formato 1 não descreve uma versão que este leitor instale.
@@ -530,8 +561,9 @@ export async function updateStatus(env: Env) {
     available: !!latest.commit && latest.commit !== buildInfo.commit,
     state: publicState(state),
     review_required:
-      ["requested", "unknown", "sending"].includes(state.status) &&
-      state.created < now() - 900000,
+      (["requested", "unknown", "sending"].includes(state.status) &&
+        state.created < now() - 900000) ||
+      stalledPending(state),
     automatic: await automaticUpdateStatus(env),
     // Site oficial (que também serve o catálogo): o painel lembra de renovar
     // o índice assinado (docs/ATUALIZACOES-FORMATO.md, "Prazo do índice").
@@ -618,7 +650,14 @@ async function startDirectUpdate(
   );
   const old = await settleFormat1Job(env);
   if (activeStatuses.includes(old.status)) return publicState(old);
-  const index = validateIndexV2(await checkUpdate(env), now());
+  // O prazo vale no início; um trabalho já começado segue até o fim. A
+  // recusa sai com a mensagem do prazo, como em checkUpdate.
+  let index: any;
+  try {
+    index = validateIndexV2(await checkUpdate(env), now());
+  } catch (e) {
+    failure(e);
+  }
   requireValue(
     data.commit === index.commit && index.commit !== buildInfo.commit,
     "Confira novamente a versão disponível antes de atualizar.",
@@ -732,7 +771,13 @@ export async function automaticUpdateTick(env: Env) {
           status: "pending",
           // A sessão de envio de estáticos vence: abre outra (a Cloudflare só
           // pede de novo o que faltou).
-          phase: job.phase === "assets" ? "prepare" : job.phase,
+          // `assets` e `publish` voltam a `prepare`: a sessão de envio e o
+          // token de conclusão valem uma hora, e a nova tentativa pode ficar
+          // para a janela do dia seguinte. Sem arquivo faltando, a Cloudflare
+          // devolve logo outro token de conclusão.
+          phase: ["assets", "publish"].includes(job.phase)
+            ? "prepare"
+            : job.phase,
           attempt: (job.attempt || 1) + 1,
           error: null,
           retry_at: null,
@@ -958,9 +1003,7 @@ async function resetDirectUpdate(env: Env, data: any) {
     data.confirmed_build_stopped === true &&
       state.id &&
       state.status !== "completed" &&
-      (state.status !== "pending" ||
-        (state.last_progress_at ?? state.updated ?? state.created) <
-          now() - 30 * 60000),
+      (state.status !== "pending" || stalledPending(state)),
     "Confira a versão e confirme que a publicação anterior terminou.",
   );
   requireValue(

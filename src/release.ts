@@ -52,8 +52,14 @@ export const MAX_ASSETS = 2000;
 export const MAX_MIGRATIONS = 1000;
 /** Hashes por lote da sessão de envio de estáticos da Cloudflare. */
 export const MAX_UPLOAD_BATCH = 2000;
-/** Bytes brutos por lote, antes da expansão para base64 e do multipart. */
-export const MAX_UPLOAD_BATCH_BYTES = 48 * 1024 * 1024;
+/**
+ * Bytes brutos por lote, antes da expansão para base64 e do multipart. O lote
+ * inteiro fica na memória em base64 (um terço maior): 32 MiB dão cerca de
+ * 43 MiB, mais o maior arquivo cru e a string dele enquanto é montado,
+ * contra os 128 MB do isolate. Com 48 MiB, o pior caso chegava perto de
+ * 120 MB.
+ */
+export const MAX_UPLOAD_BATCH_BYTES = 32 * 1024 * 1024;
 /** Por rodada do atualizador: até 20 arquivos ou 16 MiB (o que vier antes). */
 export const ROUND_FILES = 20;
 export const ROUND_BYTES = 16 * 1024 * 1024;
@@ -559,7 +565,7 @@ export async function assetUploadV2(
   assertRelease(
     items.reduce((total, { file }) => total + file.size, 0) <=
       MAX_UPLOAD_BATCH_BYTES,
-    "O lote de arquivos solicitado pela Cloudflare excede 48 MiB. O mantenedor precisa reduzir os arquivos desta versão. Nenhuma publicação foi feita.",
+    `O lote de arquivos solicitado pela Cloudflare excede ${MAX_UPLOAD_BATCH_BYTES / 1048576} MiB. O mantenedor precisa reduzir os arquivos desta versão. Nenhuma publicação foi feita.`,
   );
   const body = new FormData();
   for (const { hash, file } of items)
