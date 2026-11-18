@@ -262,6 +262,7 @@ function insertDocumentTitle(ctx: RpcContext, title: string, posting: string, po
 
 /** INSERT em erp_documents.audit */
 function documentAudit(ctx: RpcContext, a: { actor: string; command: string; document: unknown; action: string; reason?: string | null; before: unknown; after: unknown }) {
+  documents.mirrorGuardEffect(ctx.db, a.document); // aa_mirror_authority
   ctx.db.exec(
     'INSERT INTO "erp_documents__audit"(id, actor, command_id, document_id, action, reason, before_data, after_data, created_at) VALUES(?,?,?,?,?,?,?,?,?)',
     nextIdentity(ctx, "erp_documents__audit", "id"), a.actor, a.command, a.document, a.action, a.reason ?? null,

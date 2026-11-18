@@ -16,7 +16,7 @@ import { erpDocumentStockPost, erpDocumentStockPreview, erpDocumentStockReverse,
 import { approvalSituations, discountApprover, documentDto, documentView, situationAdopted, situationJson, situationKeyValid, textValue } from "../internal.ts";
 import { transitions } from "../preferences.ts";
 import { stockLaunchDate } from "../public.ts";
-import { requireVisible } from "../mirror.ts";
+import { guardEffect, requireVisible } from "../mirror.ts";
 import { contactUsable, requireRole } from "../reads-g.ts";
 import { updateDocument } from "../rows.ts";
 import { commandReplay, currentVersion, documentFinanceCategory, editable, fieldText, recordOccurrence, requireOsPermission } from "../save-checks.ts";
@@ -102,6 +102,7 @@ function transitionAction(ctx: RpcContext, user: string, kind: string, id: strin
 }
 
 function audit(ctx: RpcContext, a: { actor: string; command: string; document: string; reason: string | null; before: unknown; after: unknown }) {
+  guardEffect(ctx.db, a.document); // aa_mirror_authority
   ctx.db.exec(
     'INSERT INTO "erp_documents__audit"(id, actor, command_id, document_id, action, reason, before_data, after_data, created_at) VALUES(?,?,?,?,?,?,?,?,?)',
     nextIdentity(ctx, "erp_documents__audit", "id"), a.actor, a.command, a.document, "transition", a.reason,

@@ -5,10 +5,10 @@
 // erp_document_mirror.writing() é a checagem do papel erp_document_mirror_writer do Postgres:
 // falso no motor, que não tem papéis.
 // guard_effect (das tabelas que apontam para documento: situação, ocorrência, auditoria,
-// lançamentos, operação de comissão...) só recusa documento com authority 'origin'. Nos escritores
-// do Documentos e do Financeiro ele não alcança nada a mais: o require_visible de escrita no começo
-// e o guard_document no UPDATE do documento já recusam esse documento antes. Fica exportado
-// (mirrorGuardEffect no public.ts) para quem escreve nessas tabelas por outro caminho.
+// lançamentos, operação de comissão...) só recusa documento com authority 'origin'. Todo INSERT em
+// erp_documents__audit chama guardEffect antes (Documentos, Financeiro e Estoque; exportado como
+// mirrorGuardEffect no public.ts), mesmo onde o require_visible de escrita e o guard_document no
+// UPDATE do documento já recusaram antes; tests/erp/documents/document-triggers.test.mjs.
 import { one, type SqlDriver } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
 import type { RpcContext } from "../../engine/registry.ts";

@@ -12,7 +12,7 @@ import { nextIdentity } from "../../../engine/sequence.ts";
 import { pgBtrim } from "../../../engine/text.ts";
 import { saoPauloParts } from "../../../engine/time.ts";
 import { dateValue, decimalValue, documentDto, documentSituationJson, documentView, preference, situationAdopted, situationKeyValid, textValue } from "../internal.ts";
-import { requireVisible } from "../mirror.ts";
+import { guardEffect, requireVisible } from "../mirror.ts";
 import { transitions } from "../preferences.ts";
 import { contactUsable, requireAccess, requireRole } from "../reads-g.ts";
 import { updateDocument } from "../rows.ts";
@@ -164,12 +164,14 @@ export function erpDocumentOccurrenceAdd(ctx: RpcContext, a: RpcArgs) {
   } finally {
     for (const [k] of settings) ctx.settings.set(`erp_documents.occurrence_${k}`, "");
   }
-  const audit = (action: string, reason: string | null, before: unknown, after: unknown) =>
+  const audit = (action: string, reason: string | null, before: unknown, after: unknown) => {
+    guardEffect(db, id); // aa_mirror_authority
     db.exec(
       'INSERT INTO "erp_documents__audit"(id, actor, command_id, document_id, action, reason, before_data, after_data, created_at) VALUES(?,?,?,?,?,?,?,?,?)',
       nextIdentity(ctx, "erp_documents__audit", "id"), user, command, id, action, reason, before === null ? null : JSON.stringify(before), after === null ? null : JSON.stringify(after),
       ctx.clock.next().toString(),
     );
+  };
   if (next !== null) {
     const before = documentDto(ctx, id);
     const current = one(db, 'SELECT version, body FROM "erp_documents__document" WHERE id=?', id)!;

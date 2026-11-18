@@ -15,7 +15,7 @@ import { dto as catalogDto } from "../../catalog/public.ts";
 import * as finance from "../../finance/public.ts";
 import { approvalSituations, autoProducts, documentDto, documentSituationJson, documentView, preference, uuidValue } from "../internal.ts";
 import { checkCustomFields, extensionKeys, hasCommercialData, normalize } from "../normalize.ts";
-import { requireVisible } from "../mirror.ts";
+import { guardEffect, requireVisible } from "../mirror.ts";
 import { contactUsable, requireAccess } from "../reads-g.ts";
 import { insertDocument, updateDocument, upsertItem, deleteItem } from "../rows.ts";
 import {
@@ -118,6 +118,7 @@ export function replaceItems(ctx: RpcContext, document: string, items: unknown) 
 
 /** INSERT em erp_documents.audit (id identity, na posição da coluna) */
 function audit(ctx: RpcContext, a: { actor: string; command: string; document: string; action: string; reason?: string | null; before: unknown; after: unknown }) {
+  guardEffect(ctx.db, a.document); // aa_mirror_authority
   ctx.db.exec(
     'INSERT INTO "erp_documents__audit"(id, actor, command_id, document_id, action, reason, before_data, after_data, created_at) VALUES(?,?,?,?,?,?,?,?,?)',
     nextIdentity(ctx, "erp_documents__audit", "id"), a.actor, a.command, a.document, a.action, a.reason ?? null,
