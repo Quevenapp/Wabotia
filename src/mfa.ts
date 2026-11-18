@@ -564,7 +564,9 @@ export function withinSchedule(stored: unknown, at = now()) {
   const day = local.getUTCDay();
   const hhmm = local.toISOString().slice(11, 16);
   return (schedule.windows || []).some(
-    (w: any) => w.days.includes(day) && hhmm >= w.start && hhmm < w.end,
+    // Fim inclusivo: "até 18:00" vale durante o minuto das 18:00, e
+    // "00:00–23:59" é o dia inteiro (igual ao window_open do ERP).
+    (w: any) => w.days.includes(day) && hhmm >= w.start && hhmm <= w.end,
   );
 }
 

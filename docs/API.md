@@ -171,6 +171,7 @@ Regras gerais:
 - `POST /users` e `PATCH /users/{id}` aceitam `schedule`, o horário de acesso no formato do Fagoo:
   - `{"enabled": true, "windows": [{"start": "08:00", "end": "18:00", "days": [1,2,3,4,5]}]}`;
   - até 10 janelas; dias de 0 (domingo) a 6, em ordem; horário de Brasília;
+  - `start` antes de `end`, os dois inclusivos: "até 18:00" vale durante o minuto das 18:00, e `00:00`–`23:59` é o dia inteiro; uma janela não cruza a meia-noite;
   - `null` tira o horário;
   - o administrador é isento;
   - fora do horário, o login e qualquer chamada da sessão recebem `403 outside_schedule`.
