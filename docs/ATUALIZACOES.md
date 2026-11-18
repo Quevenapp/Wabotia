@@ -42,6 +42,12 @@ Enquanto o atualizador usa o token inicial, o painel avisa **Token inicial em us
 
 Informar ou trocar o token e apagar o inicial são feitos só pela pessoa administradora, na própria sessão (nunca por um bot agindo por ela); apagar o inicial pede o segundo fator quando a pessoa tem um ou a política pede. Contrato: `POST /api/v1/system/updates/initial-token/delete` com `{"confirmed":true}` e `Idempotency-Key`; `GET /api/v1/system` traz `updates.token_source` (`panel`, `initial` ou `null`) e `updates.initial_token_stored`.
 
+### Cofre do certificado na mesma conta
+
+Com o cofre do certificado e o Wabotia na mesma conta Cloudflare, quem conseguir executar código no Worker do Wabotia, ou obtiver o token de atualização, alcança também o cofre. A Cloudflare não oferece token restrito a um único Worker. As medidas de proteção (o token só digitado por pessoa, o token restrito no lugar do inicial, o modo "não guardar o token") reduzem essa chance; não a eliminam.
+
+Opcional: quem quiser separar de vez pode manter o cofre numa conta Cloudflare própria. Custa uma segunda conta e não é necessário para usar o Wabotia.
+
 ## Se houver falha
 
 - **Falha antes de publicar:** leia a mensagem, corrija token/permissão e libere nova tentativa. Um pacote inválido não é ativado.
