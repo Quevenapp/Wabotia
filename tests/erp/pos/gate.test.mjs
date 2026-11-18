@@ -30,6 +30,7 @@ test("todo RPC do PDV portado tem rota, e só rotas do erp-pdv", () => {
     "erp_pos_context",
     "erp_pos_favorites",
     "erp_pos_order",
+    "erp_pos_return_execute",
     "erp_pos_sale_execute",
     "erp_pos_sale_get",
     "erp_pos_sales",

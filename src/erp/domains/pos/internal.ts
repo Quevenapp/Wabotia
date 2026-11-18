@@ -2,6 +2,7 @@
 // que as RPCs do P1 usam (access, flag, txt, int, uid, keys, pref_flag,
 // certificate_state, usable_session, today, sale_view, returns_view, returned,
 // nfce), com a semântica do oráculo.
+import { createHash } from "node:crypto";
 import { one, type Row, type SqlDriver } from "../../engine/driver.ts";
 import { formatScaled, fromColumn } from "../../engine/dec.ts";
 import { raise } from "../../engine/errors.ts";
@@ -134,6 +135,12 @@ export const decColumn = (v: unknown, scale: number): Dec => ({ v: fromColumn(v)
 
 // ---------------------------------------------------------------------------
 // erp_pos.*
+
+/** erp_pos.step: md5(command::text || ':erp_pos:' || step)::uuid. */
+export function step(command: string, name: string): string {
+  const h = createHash("md5").update(`${command}:erp_pos:${name}`).digest("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
 
 /** erp_pos.today(): a data de hoje em São Paulo pelo relógio da transação. */
 export const today = (ctx: RpcContext) => todaySaoPaulo(Number(ctx.clock.next() / 1000n));
