@@ -2487,6 +2487,9 @@ export async function perform(
     requireValue(bot, "Bot não encontrado.");
     if (data.mask_personal !== undefined)
       requireValue(typeof data.mask_personal === "boolean", "Máscara de dados pessoais inválida.");
+    for (const option of ["pdf_raw_fallback", "image_to_team"])
+      if (data[option] !== undefined)
+        requireValue(typeof data[option] === "boolean", `Opção ${option} inválida: informe um booleano.`);
     if (data.line_ids !== undefined)
       await validateLineIds(env, profile, data.line_ids, true);
     if (data.name !== undefined) {
@@ -2535,10 +2538,15 @@ export async function perform(
         "UPDATE connections SET config=json_set(config,'$.bot_names',json_patch(coalesce(json_extract(config,'$.bot_names'),'{}'),json(?))) WHERE id=?",
         [JSON.stringify({ [bot.remote_profile]: data.name }), bot.connection_id],
       ]);
-    if (data.mask_personal !== undefined)
+    const personalOptions = Object.fromEntries(
+      ["mask_personal", "pdf_raw_fallback", "image_to_team"]
+        .filter((key) => data[key] !== undefined)
+        .map((key) => [key, data[key]]),
+    );
+    if (Object.keys(personalOptions).length)
       statements.push([
         "UPDATE connections SET config=json_set(config,'$.bot_options',json_patch(coalesce(json_extract(config,'$.bot_options'),'{}'),json(?))) WHERE id=?",
-        [JSON.stringify({ [bot.remote_profile]: { mask_personal: data.mask_personal } }), bot.connection_id],
+        [JSON.stringify({ [bot.remote_profile]: personalOptions }), bot.connection_id],
       ]);
     await batch(env, statements);
     return { id: data.id };

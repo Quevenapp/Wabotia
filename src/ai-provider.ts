@@ -1,4 +1,6 @@
 import type { PiiMask } from "./pii-mask";
+import { inflateBounded, PDF_INFLATE_LIMITS } from "./pdf-reader";
+export { PDF_INFLATE_LIMITS } from "./pdf-reader";
 // Conexão direta com um provedor de IA, sem servidor externo (docs/PROVEDOR-IA.md).
 // O Worker chama o provedor com a chave guardada no cofre da conexão. Não há
 // arquivos nem memória: cada execução leva instruções, histórico e fontes,
@@ -49,7 +51,7 @@ export const AI_PROVIDERS: Record<
  * inteiro mais caro. Nota fiscal e comprovante têm de 1 a 3 páginas. Um PDF
  * por mensagem, até 4 MB. Acima disso, a conversa vai para a equipe.
  */
-export const PDF_LIMITS = { files: 1, bytes: 4 * 1024 * 1024, pages: 10 } as const;
+export { PDF_LIMITS } from "./pdf-reader";
 /** Teto de tokens por página usado na estimativa (3.000 de texto + ~1.600 da imagem, arredondado). */
 export const PDF_TOKENS_PER_PAGE = 5_000;
 
@@ -64,9 +66,6 @@ export function pdfPages(bytes: Uint8Array): number | null {
   const pages = text.match(/\/Type\s*\/Page(?![A-Za-z])/g)?.length ?? 0;
   return pages || null;
 }
-
-/** Tetos da leitura dos object streams: um PDF pequeno não vira bomba de descompressão. */
-export const PDF_INFLATE_LIMITS = { streams: 64, bytes: 8 * 1024 * 1024 } as const;
 
 /**
  * Páginas de um PDF, olhando também dentro dos object streams (`/Type
@@ -87,9 +86,9 @@ export async function pdfPageCount(bytes: Uint8Array): Promise<number | null> {
   const objstm = /\/Type\s*\/ObjStm(?![A-Za-z])/g;
   const mentioned = text.match(objstm)?.length ?? 0;
   const loose = text.match(/\/Type\s*\/Page(?![A-Za-z])/g)?.length ?? 0;
-  if (!mentioned) return loose || null;
   // Cifrado: o conteúdo dos streams não é o texto dos objetos.
   if (/\/Encrypt(?![A-Za-z])/.test(text)) return null;
+  if (!mentioned) return loose || null;
   const marker = /stream\r?\n/g;
   let budget: number = PDF_INFLATE_LIMITS.bytes;
   let streams = 0;
@@ -129,41 +128,6 @@ export async function pdfPageCount(bytes: Uint8Array): Promise<number | null> {
   // dá para garantir a contagem.
   if (streams < mentioned) return null;
   return loose + pages || null;
-}
-
-/** zlib (o FlateDecode do PDF) com teto de saída; null se passar do teto ou não abrir. */
-async function inflateBounded(data: Uint8Array<ArrayBuffer>, max: number): Promise<Uint8Array | null> {
-  try {
-    const reader = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate")).getReader();
-    const parts: Uint8Array[] = [];
-    let size = 0;
-    for (;;) {
-      let step;
-      try {
-        step = await reader.read();
-      } catch {
-        // Corrompido ou cortado: contar só o que saiu seria contar a menos.
-        return null;
-      }
-      if (step.done) break;
-      size += step.value.length;
-      if (size > max) {
-        await reader.cancel().catch(() => {});
-        return null;
-      }
-      parts.push(step.value);
-    }
-    if (!size) return null;
-    const out = new Uint8Array(size);
-    let at = 0;
-    for (const part of parts) {
-      out.set(part, at);
-      at += part.length;
-    }
-    return out;
-  } catch {
-    return null;
-  }
 }
 
 /** Uso de uma execução, igual para todos os provedores (tokens). */

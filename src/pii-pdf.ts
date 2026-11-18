@@ -1,145 +1,591 @@
-/** Leitor conservador de PDF textual. Formatos não demonstravelmente legíveis vão à equipe. */
-const MAX_TEXT = 200_000;
-const MAX_STREAM = 2_000_000;
-// Preserva cada byte dos streams comprimidos, sem criar um array por byte.
-const latin = (bytes: Uint8Array) => {
-  let text = "";
-  for (let i = 0; i < bytes.length; i += 8192)
-    text += String.fromCharCode(...bytes.subarray(i, i + 8192));
-  return text;
-};
+import {
+  PDF_LIMITS,
+  PDF_INFLATE_LIMITS,
+  PdfLexer,
+  pdfDict,
+  pdfName,
+  pdfRef,
+  readPdfObjects,
+  type PdfValue,
+} from "./pdf-reader";
 
-function contentText(
-  content: string,
-  fonts: Map<string, boolean>,
-): string | null {
-  let i = 0,
-    inText = false,
-    font = false,
-    extended = false,
-    out = "",
-    operands: any[] = [];
-  const string = () => {
-    let result = "",
-      depth = 1;
-    i++;
-    while (i < content.length && depth) {
-      const c = content[i++];
-      if (c === "\\") {
-        const next = content[i++];
-        if (/[0-7]/.test(next || "")) {
-          let oct = next;
-          while (oct.length < 3 && /[0-7]/.test(content[i] || ""))
-            oct += content[i++];
-          result += String.fromCharCode(parseInt(oct, 8));
-        } else if (next === "\r" || next === "\n") {
-          if (next === "\r" && content[i] === "\n") i++;
-        } else
-          result +=
-            (
-              { n: "\n", r: "\r", t: "\t", b: "\b", f: "\f" } as Record<
-                string,
-                string
-              >
-            )[next] ?? next;
-      } else if (c === "(") {
-        depth++;
-        result += c;
-      } else if (c === ")") {
-        if (--depth) result += c;
-      } else result += c;
-    }
-    if (depth || /[^\x09\x0a\x0d\x20-\x7e\xa0-\xff]/.test(result))
-      throw new Error("Texto sem mapa confiável");
-    return { text: result };
+/** Sem OCR: somente texto cuja codificação conseguimos demonstrar. */
+const MAX_TEXT = 200_000;
+type Pdf = Awaited<ReturnType<typeof readPdfObjects>>;
+type Font = (bytes: string) => string;
+const byteString = (v: PdfValue | undefined): string => {
+  if (!v || typeof v !== "object" || !("bytes" in v))
+    throw new Error("String PDF esperada");
+  return v.bytes;
+};
+const integer = (v: PdfValue | undefined): number => {
+  if (typeof v !== "number" || !Number.isSafeInteger(v) || v < 0)
+    throw new Error("Inteiro PDF esperado");
+  return v;
+};
+const code = (s: string) => {
+  if (s.length < 1 || s.length > 2)
+    throw new Error("Código CMap não suportado");
+  return s.length === 1
+    ? s.charCodeAt(0)
+    : s.charCodeAt(0) * 256 + s.charCodeAt(1);
+};
+const fromCode = (n: number, length: number) =>
+  length === 1 ? String.fromCharCode(n) : String.fromCharCode(n >> 8, n & 255);
+function unicode(bytes: string): string {
+  if (!bytes.length || bytes.length % 2) throw new Error("UTF-16BE inválido");
+  let result = "";
+  for (let i = 0; i < bytes.length; i += 2)
+    result += String.fromCharCode(
+      bytes.charCodeAt(i) * 256 + bytes.charCodeAt(i + 1),
+    );
+  if (
+    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]|[\x00-\x08\x0b\x0c\x0e-\x1f\ufffd\ufffe\uffff]/u.test(
+      result,
+    )
+  )
+    throw new Error("Unicode não confiável");
+  return result;
+}
+
+/** CMap bfchar/bfrange com códigos de um ou dois bytes e saída UTF-16BE. */
+function cmap(text: string): Font {
+  const lexer = new PdfLexer(text),
+    mapping = new Map<string, string>();
+  const spaces: { low: string; high: string }[] = [];
+  let previous: PdfValue = null,
+    total = 0;
+  const put = (source: string, target: string) => {
+    code(source);
+    if (mapping.has(source)) throw new Error("Código CMap duplicado");
+    const value = unicode(target);
+    total += value.length;
+    if (total > MAX_TEXT || mapping.size >= 65536)
+      throw new Error("CMap excessivo");
+    mapping.set(source, value);
   };
-  while (i < content.length) {
-    if (/\s/.test(content[i])) {
-      i++;
-      continue;
+  while (lexer.at < text.length) {
+    lexer.skip();
+    if (lexer.at === text.length) break;
+    const token = lexer.read();
+    const word =
+      token && typeof token === "object" && "word" in token ? token.word : "";
+    if (
+      [
+        "usecmap",
+        "begincidchar",
+        "begincidrange",
+        "beginnotdefchar",
+        "beginnotdefrange",
+      ].includes(word)
+    )
+      throw new Error("CMap não suportado");
+    if (["beginbfchar", "beginbfrange", "begincodespacerange"].includes(word)) {
+      const count = integer(previous);
+      if (count > 65536) throw new Error("CMap excessivo");
+      for (let i = 0; i < count; i++) {
+        const low = byteString(lexer.read());
+        if (word === "beginbfchar") {
+          put(low, byteString(lexer.read()));
+          continue;
+        }
+        const high = byteString(lexer.read());
+        const start = code(low),
+          end = code(high);
+        if (low.length !== high.length || end < start)
+          throw new Error("Intervalo CMap inválido");
+        if (word === "begincodespacerange") {
+          if (spaces.length >= 64) throw new Error("Codespacerange excessivo");
+          spaces.push({ low, high });
+          continue;
+        }
+        const target = lexer.read();
+        if (Array.isArray(target)) {
+          if (target.length !== end - start + 1)
+            throw new Error("Lista CMap incompleta");
+          for (let n = start; n <= end; n++)
+            put(fromCode(n, low.length), byteString(target[n - start]));
+        } else {
+          let dest = byteString(target);
+          for (let n = start; n <= end; n++) {
+            put(fromCode(n, low.length), dest);
+            if (n === end) break;
+            const values = Array.from(dest, (c) => c.charCodeAt(0));
+            let at = values.length - 1;
+            while (at >= 0 && values[at] === 255) values[at--] = 0;
+            if (at < 0) throw new Error("Intervalo Unicode excedido");
+            values[at]++;
+            dest = String.fromCharCode(...values);
+          }
+        }
+      }
+      const close = lexer.read();
+      if (
+        !close ||
+        typeof close !== "object" ||
+        !("word" in close) ||
+        close.word !== word.replace("begin", "end")
+      )
+        throw new Error("CMap cortado");
     }
-    if (content[i] === "%") {
-      while (i < content.length && !/[\r\n]/.test(content[i])) i++;
-      continue;
-    }
-    if (content[i] === "(") {
-      operands.push(string());
-      continue;
-    }
-    if (content[i] === "[") {
-      operands.push("[");
-      i++;
-      continue;
-    }
-    if (content[i] === "]") {
-      const start = operands.lastIndexOf("[");
-      if (start < 0) return null;
-      operands.splice(
-        start,
-        operands.length - start,
-        operands.slice(start + 1),
-      );
-      i++;
-      continue;
-    }
-    if (content[i] === "<" && content[i + 1] !== "<") {
-      const end = content.indexOf(">", i + 1);
-      if (end < 0) return null;
-      let hex = content.slice(i + 1, end).replace(/\s/g, "");
-      if (!/^[0-9a-f]*$/i.test(hex)) return null;
-      if (hex.length % 2) hex += "0";
-      operands.push({
-        text: hex.replace(/../g, (pair) =>
-          String.fromCharCode(parseInt(pair, 16)),
-        ),
+    previous = token;
+  }
+  if (!mapping.size) throw new Error("CMap vazio");
+  return (bytes) => {
+    let out = "";
+    for (let at = 0; at < bytes.length;) {
+      const candidates = [1, 2].filter((length) => {
+        const key = bytes.slice(at, at + length);
+        return (
+          key.length === length &&
+          (spaces.length
+            ? spaces.some(
+                ({ low, high }) =>
+                  low.length === length &&
+                  code(key) >= code(low) &&
+                  code(key) <= code(high),
+              )
+            : mapping.has(key))
+        );
       });
-      i = end + 1;
+      if (candidates.length !== 1) throw new Error("Código CMap ambíguo");
+      const length = candidates[0],
+        value = mapping.get(bytes.slice(at, at + length));
+      if (value === undefined) throw new Error("Código sem ToUnicode");
+      out += value;
+      if (out.length > MAX_TEXT) throw new Error("Texto excessivo");
+      at += length;
+    }
+    return out;
+  };
+}
+
+// Nomes latinos da Adobe Glyph List, inclusive os acentos usados em português.
+const GLYPHS: Record<string, string> = {
+  space: " ",
+  nonbreakingspace: "\u00a0",
+  nbspace: "\u00a0",
+  exclam: "!",
+  quotedbl: '"',
+  numbersign: "#",
+  dollar: "$",
+  percent: "%",
+  ampersand: "&",
+  quotesingle: "'",
+  quoteright: "’",
+  quoteleft: "‘",
+  parenleft: "(",
+  parenright: ")",
+  asterisk: "*",
+  plus: "+",
+  comma: ",",
+  hyphen: "-",
+  period: ".",
+  slash: "/",
+  colon: ":",
+  semicolon: ";",
+  less: "<",
+  equal: "=",
+  greater: ">",
+  question: "?",
+  at: "@",
+  bracketleft: "[",
+  backslash: "\\",
+  bracketright: "]",
+  asciicircum: "^",
+  underscore: "_",
+  grave: "`",
+  braceleft: "{",
+  bar: "|",
+  braceright: "}",
+  asciitilde: "~",
+  exclamdown: "¡",
+  cent: "¢",
+  sterling: "£",
+  currency: "¤",
+  yen: "¥",
+  brokenbar: "¦",
+  section: "§",
+  dieresis: "¨",
+  copyright: "©",
+  ordfeminine: "ª",
+  guillemotleft: "«",
+  logicalnot: "¬",
+  registered: "®",
+  macron: "¯",
+  degree: "°",
+  plusminus: "±",
+  twosuperior: "²",
+  threesuperior: "³",
+  acute: "´",
+  mu: "µ",
+  paragraph: "¶",
+  periodcentered: "·",
+  cedilla: "¸",
+  onesuperior: "¹",
+  ordmasculine: "º",
+  guillemotright: "»",
+  onequarter: "¼",
+  onehalf: "½",
+  threequarters: "¾",
+  questiondown: "¿",
+  AE: "Æ",
+  ae: "æ",
+  OE: "Œ",
+  oe: "œ",
+  Oslash: "Ø",
+  oslash: "ø",
+  Lslash: "Ł",
+  lslash: "ł",
+  Eth: "Ð",
+  eth: "ð",
+  Thorn: "Þ",
+  thorn: "þ",
+  germandbls: "ß",
+  dotlessi: "ı",
+  multiply: "×",
+  divide: "÷",
+  Euro: "€",
+  bullet: "•",
+  ellipsis: "…",
+  endash: "–",
+  emdash: "—",
+  quotedblleft: "“",
+  quotedblright: "”",
+  quotesinglbase: "‚",
+  quotedblbase: "„",
+  dagger: "†",
+  daggerdbl: "‡",
+  perthousand: "‰",
+  guilsinglleft: "‹",
+  guilsinglright: "›",
+  trademark: "™",
+  florin: "ƒ",
+  fi: "ﬁ",
+  fl: "ﬂ",
+  fraction: "⁄",
+  minus: "−",
+  breve: "˘",
+  dotaccent: "˙",
+  ring: "˚",
+  hungarumlaut: "˝",
+  ogonek: "˛",
+  caron: "ˇ",
+  circumflex: "ˆ",
+  tilde: "˜",
+};
+for (const [i, name] of "zero one two three four five six seven eight nine"
+  .split(" ")
+  .entries())
+  GLYPHS[name] = String(i);
+const ACCENTS: Record<string, string> = {
+  acute: "\u0301",
+  grave: "\u0300",
+  circumflex: "\u0302",
+  tilde: "\u0303",
+  dieresis: "\u0308",
+  ring: "\u030a",
+  cedilla: "\u0327",
+  caron: "\u030c",
+  breve: "\u0306",
+  macron: "\u0304",
+  ogonek: "\u0328",
+  dotaccent: "\u0307",
+  hungarumlaut: "\u030b",
+};
+function glyph(name: string): string | undefined {
+  name = name.split(".")[0];
+  if (/^[A-Za-z]$/.test(name)) return name;
+  if (GLYPHS[name]) return GLYPHS[name];
+  const accent = /^([A-Za-z])([a-z]+)$/.exec(name);
+  if (accent && ACCENTS[accent[2]]) {
+    const value = (accent[1] + ACCENTS[accent[2]]).normalize("NFC");
+    if (value.length === 1) return value;
+  }
+  if (/^uni(?:[\dA-F]{4})+$/.test(name))
+    return unicode(
+      name.slice(3).replace(/../g, (h) => String.fromCharCode(parseInt(h, 16))),
+    );
+  return undefined;
+}
+function baseEncoding(name: string): Map<number, string> {
+  const map = new Map<number, string>();
+  if (name === "WinAnsiEncoding") {
+    const special = "€\u0000‚ƒ„…†‡ˆ‰Š‹Œ\u0000Ž\u0000\u0000‘’“”•–—˜™š›œ\u0000žŸ";
+    for (let i = 32; i <= 255; i++) {
+      const value =
+        i >= 128 && i <= 159 ? special[i - 128] : String.fromCharCode(i);
+      if (i !== 127 && value !== "\u0000") map.set(i, value);
+    }
+    // WinAnsi do PDF usa /hyphen nesta posição, ao contrário do soft hyphen de CP1252.
+    map.set(173, "-");
+  } else if (name === "StandardEncoding") {
+    for (let i = 32; i <= 126; i++) map.set(i, String.fromCharCode(i));
+    map.set(39, "’");
+    map.set(96, "‘");
+    const extended: Record<number, string> = {
+      161: "exclamdown",
+      162: "cent",
+      163: "sterling",
+      164: "fraction",
+      165: "yen",
+      166: "florin",
+      167: "section",
+      168: "currency",
+      169: "quotesingle",
+      170: "quotedblleft",
+      171: "guillemotleft",
+      172: "guilsinglleft",
+      173: "guilsinglright",
+      174: "fi",
+      175: "fl",
+      177: "endash",
+      178: "dagger",
+      179: "daggerdbl",
+      180: "periodcentered",
+      182: "paragraph",
+      183: "bullet",
+      184: "quotesinglbase",
+      185: "quotedblbase",
+      186: "quotedblright",
+      187: "guillemotright",
+      188: "ellipsis",
+      189: "perthousand",
+      191: "questiondown",
+      193: "grave",
+      194: "acute",
+      195: "circumflex",
+      196: "tilde",
+      197: "macron",
+      198: "breve",
+      199: "dotaccent",
+      200: "dieresis",
+      202: "ring",
+      203: "cedilla",
+      205: "hungarumlaut",
+      206: "ogonek",
+      207: "caron",
+      208: "emdash",
+      225: "AE",
+      227: "ordfeminine",
+      232: "Lslash",
+      233: "Oslash",
+      234: "OE",
+      235: "ordmasculine",
+      241: "ae",
+      245: "dotlessi",
+      248: "lslash",
+      249: "oslash",
+      250: "oe",
+      251: "germandbls",
+    };
+    for (const [n, g] of Object.entries(extended))
+      map.set(Number(n), GLYPHS[g]);
+  } else throw new Error("Encoding não suportado");
+  return map;
+}
+
+async function readFont(pdf: Pdf, value: PdfValue): Promise<Font> {
+  const dict = pdfDict(pdf.resolve(value));
+  if (dict.ToUnicode) return cmap(await pdf.stream(dict.ToUnicode));
+  if (!["Type1", "TrueType"].includes(pdfName(dict.Subtype) ?? ""))
+    throw new Error("Fonte sem mapa confiável");
+  const standard =
+    /^(Helvetica(?:-Bold|-Oblique|-BoldOblique)?|Times-(Roman|Bold|Italic|BoldItalic)|Courier(?:-Bold|-Oblique|-BoldOblique)?)$/.test(
+      pdfName(dict.BaseFont) ?? "",
+    );
+  if (!standard && !dict.FontDescriptor)
+    throw new Error("Fonte desconhecida sem descritor");
+  if (dict.FontDescriptor) pdfDict(pdf.resolve(dict.FontDescriptor));
+  const encoding = pdf.resolve(dict.Encoding);
+  const details =
+    encoding && typeof encoding === "object" && "dict" in encoding
+      ? encoding.dict
+      : null;
+  const name =
+    pdfName(details ? pdf.resolve(details.BaseEncoding) : encoding) ??
+    (standard ? "StandardEncoding" : "");
+  const map = baseEncoding(name);
+  if (details?.Differences) {
+    const differences = pdf.resolve(details.Differences);
+    if (!Array.isArray(differences)) throw new Error("Differences inválido");
+    let at = -1;
+    for (const v of differences) {
+      if (typeof v === "number") at = integer(v);
+      else {
+        const name = pdfName(v);
+        if (!name || at < 0 || at > 255)
+          throw new Error("Differences inválido");
+        const text = glyph(name);
+        if (text === undefined) map.delete(at);
+        else map.set(at, text);
+        at++;
+      }
+      if (at > 256) throw new Error("Differences excessivo");
+    }
+  }
+  return (bytes) => {
+    let result = "";
+    for (const c of bytes) {
+      const text = map.get(c.charCodeAt(0));
+      if (text === undefined) throw new Error("Glifo sem mapa confiável");
+      if (result.length + text.length > MAX_TEXT)
+        throw new Error("Texto excessivo");
+      result += text;
+    }
+    return result;
+  };
+}
+
+async function contentText(
+  pdf: Pdf,
+  content: string,
+  resources: Record<string, PdfValue>,
+): Promise<string> {
+  const fonts = resources.Font ? pdfDict(pdf.resolve(resources.Font)) : {};
+  const cache = new Map<string, Font>(),
+    stack: (Font | undefined)[] = [];
+  const lexer = new PdfLexer(content);
+  let font: Font | undefined,
+    inText = false,
+    out = "";
+  let operands: PdfValue[] = [];
+  const newline = () => {
+    if (out && !out.endsWith("\n")) out += "\n";
+  };
+  while (lexer.at < content.length) {
+    lexer.skip();
+    if (lexer.at === content.length) break;
+    const token = lexer.read();
+    if (!token || typeof token !== "object" || !("word" in token)) {
+      if (operands.length >= 100_000) throw new Error("Operandos excessivos");
+      operands.push(token);
       continue;
     }
-    // Dicionários inline e imagens exigem outro leitor.
-    if (/[<>]/.test(content[i])) return null;
-    const m = /^[^\s()[\]<>%]+/.exec(content.slice(i));
-    if (!m) return null;
-    const word = m[0];
-    i += word.length;
-    if (word.startsWith("/") || /^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(word)) {
-      operands.push(word);
-      continue;
-    }
+    const word = token.word;
     if (word === "BT") {
-      if (inText) return null;
+      if (inText) throw new Error("BT duplicado");
       inText = true;
     } else if (word === "ET") {
-      if (!inText) return null;
+      if (!inText) throw new Error("ET sem BT");
       inText = false;
-      out += "\n";
+      newline();
     } else if (word === "Tf") {
-      font = fonts.has(operands[0]);
-      extended = fonts.get(operands[0]) === true;
-      if (!font) return null;
+      const name = pdfName(operands[0]);
+      if (operands.length !== 2 || !name || !fonts[name])
+        throw new Error("Fonte ausente");
+      if (!cache.has(name)) cache.set(name, await readFont(pdf, fonts[name]));
+      font = cache.get(name);
     } else if (["Tj", "TJ", "'", '"'].includes(word)) {
-      if (!inText || !font) return null;
-      const value = operands.at(-1);
-      const parts = word === "TJ" ? value : [value];
-      if (!Array.isArray(parts)) return null;
+      if (!inText || !font) throw new Error("Texto sem fonte");
+      if (word === "'" || word === '"') newline();
+      const value = operands.at(-1),
+        parts = word === "TJ" ? value : [value];
+      if (!Array.isArray(parts)) throw new Error("Operador de texto inválido");
       for (const part of parts) {
-        if (part && typeof part.text === "string") {
-          if (
-            /[^\x09\x0a\x0d\x20-\x7e\xa0-\xff]/.test(part.text) ||
-            (!extended && /[^\x00-\x7f]/.test(part.text))
-          )
-            return null;
-          out += part.text;
-        } else if (typeof part !== "string" || !/^[+-]?[\d.]+$/.test(part))
-          return null;
+        if (typeof part === "number" && word === "TJ") continue;
         // Não inserir espaço no kerning: um CPF pode estar dividido entre strings.
+        out += font(byteString(part));
+        if (out.length > MAX_TEXT) throw new Error("Texto excessivo");
       }
-      if (word === "'" || word === '"') out += "\n";
-    } else if (["Td", "TD", "T*", "Tm"].includes(word)) out += "\n";
-    else if (
+    } else if (["Td", "TD", "T*", "Tm"].includes(word)) {
+      if ((word !== "Td" && word !== "TD") || operands[1] !== 0) newline();
+    } else if (word === "q") {
+      if (stack.length >= 32) throw new Error("Estado gráfico profundo");
+      stack.push(font);
+    } else if (word === "Q") {
+      if (!stack.length) throw new Error("Estado gráfico inválido");
+      font = stack.pop();
+    } else if (word === "Do") {
+      const name = pdfName(operands[0]);
+      const xobjects = pdfDict(pdf.resolve(resources.XObject));
+      if (
+        !name ||
+        pdfName(pdfDict(pdf.resolve(xobjects[name])).Subtype) !== "Image"
+      )
+        throw new Error("XObject não suportado");
+      // Imagens são ignoradas; Form XObjects podem conter texto e exigem outro leitor.
+    } else if (word === "BI") {
+      if (inText || operands.length)
+        throw new Error("Imagem inline em posição inválida");
+      const dict: Record<string, PdfValue> = Object.create(null);
+      for (;;) {
+        const key = lexer.read();
+        if (
+          key &&
+          typeof key === "object" &&
+          "word" in key &&
+          key.word === "ID"
+        )
+          break;
+        const name = pdfName(key);
+        if (!name || name in dict) throw new Error("Imagem inline ambígua");
+        dict[name] = lexer.read();
+      }
+      if (!/\s/.test(content[lexer.at] ?? "x"))
+        throw new Error("Imagem inline sem separador");
+      if (content[lexer.at++] === "\r" && content[lexer.at] === "\n")
+        lexer.at++;
+      const start = lexer.at;
+      const filter = pdfName(dict.F ?? dict.Filter);
+      let end: number;
+      if (dict.Length !== undefined) end = start + integer(dict.Length);
+      else if (!filter && !dict.F && !dict.Filter) {
+        const colors = {
+          G: 1,
+          DeviceGray: 1,
+          RGB: 3,
+          DeviceRGB: 3,
+          CMYK: 4,
+          DeviceCMYK: 4,
+        }[pdfName(dict.CS ?? dict.ColorSpace) ?? ""];
+        const mask = (dict.IM ?? dict.ImageMask) === true;
+        const bits = mask ? 1 : integer(dict.BPC ?? dict.BitsPerComponent);
+        if ((!colors && !mask) || ![1, 2, 4, 8, 16].includes(bits))
+          throw new Error("Imagem inline não suportada");
+        end =
+          start +
+          Math.ceil(
+            (integer(dict.W ?? dict.Width) * (mask ? 1 : colors!) * bits) / 8,
+          ) *
+            integer(dict.H ?? dict.Height);
+      } else if (filter === "DCT" || filter === "DCTDecode") {
+        const marker = content.indexOf("\xff\xd9", start);
+        if (marker < 0) throw new Error("JPEG inline cortado");
+        end = marker + 2;
+      } else {
+        // Imagem filtrada inline termina no delimitador EI do PDF. Os bytes
+        // anteriores nunca entram no léxico dos operadores de texto. Um EI
+        // extra ou conteúdo malformado depois dele faz a página ser recusada.
+        const marker = /[\x00\t\n\f\r ]EI(?=[\x00\t\n\f\r ]|$)/.exec(content.slice(start));
+        if (!marker) throw new Error("Imagem inline cortada");
+        end = start + marker.index;
+      }
+      if (!Number.isSafeInteger(end) || end < start || end > content.length)
+        throw new Error("Imagem inline cortada");
+      lexer.at = end;
+      lexer.skip();
+      const close = lexer.read();
+      if (
+        !close ||
+        typeof close !== "object" ||
+        !("word" in close) ||
+        close.word !== "EI"
+      )
+        throw new Error("Fim de imagem inline inválido");
+    } else if (word === "gs") {
+      const name = pdfName(operands[0]);
+      const states = pdfDict(pdf.resolve(resources.ExtGState));
+      if (!name) throw new Error("Estado gráfico sem nome");
+      const state = pdfDict(pdf.resolve(states[name]));
+      if (state.Font) {
+        const value = pdf.resolve(state.Font);
+        if (!Array.isArray(value) || value.length !== 2)
+          throw new Error("Fonte gráfica inválida");
+        font = await readFont(pdf, value[0]);
+      }
+    } else if (
       ![
-        "q",
-        "Q",
         "cm",
         "Tc",
         "Tw",
@@ -153,120 +599,139 @@ function contentText(
         "RG",
         "k",
         "K",
+        "m",
+        "l",
+        "c",
+        "v",
+        "y",
+        "h",
+        "re",
+        "S",
+        "s",
+        "f",
+        "F",
+        "f*",
+        "B",
+        "B*",
+        "b",
+        "b*",
+        "n",
+        "W",
+        "W*",
+        "w",
+        "J",
+        "j",
+        "M",
+        "d",
+        "ri",
+        "i",
+        "CS",
+        "cs",
+        "SC",
+        "SCN",
+        "sc",
+        "scn",
+        "sh",
+        "BMC",
+        "BDC",
+        "EMC",
+        "MP",
+        "DP",
       ].includes(word)
     )
-      return null;
+      throw new Error("Operador PDF não suportado");
+    if (word === "BDC" || word === "DP") {
+      const name = pdfName(operands[1]);
+      if (name) {
+        const properties = pdfDict(pdf.resolve(resources.Properties));
+        operands.push({ dict: pdfDict(pdf.resolve(properties[name])) });
+      }
+    }
+    if (
+      operands.some(
+        (v) =>
+          v && typeof v === "object" && "dict" in v && "ActualText" in v.dict,
+      )
+    )
+      throw new Error("ActualText não suportado");
     operands = [];
-    if (out.length > MAX_TEXT) return null;
   }
-  return inText || operands.length ? null : out.trim() || null;
+  if (inText || stack.length || operands.length)
+    throw new Error("Conteúdo PDF incompleto");
+  return out.trim();
 }
 
-/** Sem rede nem dependências; somente fontes padrão e streams simples ou FlateDecode. */
 export async function extractPersonalPdf(
   bytes: Uint8Array,
 ): Promise<string | null> {
   try {
-    if (bytes.length > 4 * 1024 * 1024) return null;
-    const raw = latin(bytes);
-    if (
-      !raw.startsWith("%PDF-") ||
-      /\/(?:Encrypt|ObjStm|XRef|XObject|Image|ToUnicode|FontFile\d*|Differences)\b/.test(
-        raw,
-      )
-    )
-      return null;
-    const objects = new Map<string, string>();
-    for (const m of raw.matchAll(
-      /(?:^|[\r\n])(\d+)\s+0\s+obj\b([\s\S]*?)endobj/g,
-    )) {
-      if (objects.has(m[1])) return null;
-      objects.set(m[1], m[2]);
-    }
-    const fontIds = new Map<string, boolean>();
-    for (const [id, obj] of objects)
-      if (/\/Type\s*\/Font\b/.test(obj)) {
-        if (
-          !/\/Subtype\s*\/Type1\b/.test(obj) ||
-          !/\/BaseFont\s*\/(?:Helvetica|Times-Roman|Courier)(?=[\s/>])/.test(
-            obj,
-          ) ||
-          (/\/Encoding\b/.test(obj) &&
-            !/\/Encoding\s*\/(?:WinAnsiEncoding|StandardEncoding)\b/.test(obj))
-        )
-          return null;
-        fontIds.set(id, /\/Encoding\s*\/WinAnsiEncoding\b/.test(obj));
-      }
-    if (!fontIds.size) return null;
-    const fonts = new Map<string, boolean>();
-    for (const m of raw.matchAll(/\/(\w+)\s+(\d+)\s+0\s+R\b/g))
-      if (fontIds.has(m[2])) fonts.set("/" + m[1], fontIds.get(m[2])!);
-    const pages = [...objects.values()].filter((o) =>
-      /\/Type\s*\/Page\b/.test(o),
+    const pdf = await readPdfObjects(bytes);
+    const catalogs = [...pdf.objects.values()].filter(
+      ({ value }) =>
+        value &&
+        typeof value === "object" &&
+        "dict" in value &&
+        pdfName(value.dict.Type) === "Catalog",
     );
-    if (!pages.length || pages.length > 10) return null;
+    if (catalogs.length !== 1) return null;
+    const seen = new Set<string>(),
+      pages: {
+        page: Record<string, PdfValue>;
+        resources: Record<string, PdfValue>;
+      }[] = [];
+    function visit(
+      ref: PdfValue,
+      inherited: Record<string, PdfValue>,
+      depth: number,
+    ) {
+      const id = pdfRef(ref);
+      if (!id || seen.has(id) || depth > 32 || seen.size >= 100_000)
+        throw new Error("Árvore de páginas cíclica ou profunda");
+      seen.add(id);
+      const page = pdfDict(pdf.resolve(ref));
+      const resources = page.Resources
+        ? pdfDict(pdf.resolve(page.Resources))
+        : inherited;
+      if (pdfName(page.Type) === "Page") {
+        if (pages.length >= PDF_LIMITS.pages) throw new Error("Páginas demais");
+        pages.push({ page, resources });
+      } else if (pdfName(page.Type) === "Pages") {
+        const kids = pdf.resolve(page.Kids);
+        if (!Array.isArray(kids) || !kids.length)
+          throw new Error("Árvore de páginas inválida");
+        for (const kid of kids) visit(kid, resources, depth + 1);
+      } else throw new Error("Página inválida");
+    }
+    visit(pdfDict(catalogs[0].value).Pages, {}, 0);
+    if (!pages.length) return null;
     const texts: string[] = [];
-    for (const page of pages) {
-      const contents = /\/Contents\s*(\[[^\]]+\]|\d+\s+0\s+R)/.exec(page)?.[1];
-      if (!contents) return null;
-      const refs = [...contents.matchAll(/(\d+)\s+0\s+R/g)];
-      if (!refs.length) return null;
+    let total = 0;
+    for (const { page, resources } of pages) {
       let content = "";
-      for (const ref of refs) {
-        const obj = objects.get(ref[1]);
-        if (!obj) return null;
-        const start = /\bstream\r?\n/.exec(obj);
-        const lengthMatch = /\/Length\s+(\d+)([^\d][^/>]*)/.exec(
-          obj.slice(0, start?.index),
-        );
-        const length =
-          lengthMatch && !/^\s+\d+\s+R\b/.test(lengthMatch[2])
-            ? lengthMatch[1]
-            : null;
-        if (!start || !length || Number(length) > MAX_STREAM) return null;
-        const begin = start.index + start[0].length;
-        const stream = obj.slice(begin, begin + Number(length));
-        if (
-          stream.length !== Number(length) ||
-          !/^\r?\n?endstream\s*$/.test(obj.slice(begin + Number(length)).trim())
-        )
-          return null;
-        const header = obj.slice(0, start.index);
-        if (
-          /\/Filter\b/.test(header) &&
-          !/\/Filter\s*\/FlateDecode\b/.test(header)
-        )
-          return null;
-        if (/\/DecodeParms\b/.test(header)) return null;
-        if (/\/FlateDecode\b/.test(header)) {
-          const packed = Uint8Array.from(stream, (c) => c.charCodeAt(0));
-          const reader = new Blob([packed])
-            .stream()
-            .pipeThrough(new DecompressionStream("deflate"))
-            .getReader();
-          let size = 0;
-          try {
-            while (true) {
-              const { value, done } = await reader.read();
-              if (done) break;
-              size += value.length;
-              if (size > MAX_STREAM) {
-                await reader.cancel();
-                return null;
-              }
-              content += latin(value);
-            }
-          } finally {
-            reader.releaseLock();
-          }
-        } else content += stream;
-        content += "\n";
-        if (content.length > MAX_STREAM) return null;
+      const active = new Set<string>();
+      async function contents(v: PdfValue, depth = 0): Promise<void> {
+        if (depth > 32) throw new Error("Contents profundo");
+        const id = pdfRef(v);
+        if (id) {
+          if (active.has(id)) throw new Error("Contents cíclico");
+          active.add(id);
+          const resolved = pdf.resolve(v);
+          if (Array.isArray(resolved)) await contents(resolved, depth + 1);
+          else content += (await pdf.stream(v)) + "\n";
+          active.delete(id);
+        } else if (Array.isArray(v))
+          for (const part of v) await contents(part, depth + 1);
+        else throw new Error("Contents inválido");
+        if (content.length > PDF_INFLATE_LIMITS.bytes)
+          throw new Error("Contents excessivo");
       }
-      const text = contentText(content, fonts);
+      await contents(page.Contents);
+      const text = await contentText(pdf, content, resources);
+      // Cada página precisa ter texto: uma digitalização não pode desaparecer da leitura.
       if (!text) return null;
+      total += text.length + (texts.length ? 1 : 0);
+      if (total > MAX_TEXT) return null;
       texts.push(text);
-      if (texts.join("\n").length > MAX_TEXT) return null;
     }
     return texts.join("\n");
   } catch {
