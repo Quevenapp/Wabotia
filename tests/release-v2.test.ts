@@ -575,7 +575,10 @@ describe("atualizador do formato 2", () => {
       if (request.method === "PUT") {
         if (publishFails === "hard")
           return Response.json(
-            { success: false, errors: [{ message: "bad" }] },
+            {
+              success: false,
+              errors: [{ code: 10021, message: "Uncaught Error: no module" }],
+            },
             { status: 400 },
           );
         return ok({ id: worker, etag: "etag" });
@@ -651,7 +654,11 @@ describe("atualizador do formato 2", () => {
       await ((put.body as FormData).get("metadata") as Blob).text(),
     );
     expect(metadata.assets.jwt).toBe("completion");
-  });
+    // 300 blobs pela fila (15 rodadas de 20) e 40 rodadas do atualizador.
+    // Medido sozinho no Linux de 12 núcleos (17/11): 1,95 a 2,04 s quente,
+    // 4,0 s e 12,9 s nas duas primeiras rodadas a frio; 7 a 8 s no Windows
+    // com duas suítes ao lado. Os 5 s padrão não cabem a frio nem sob carga.
+  }, 30000);
 
   it("blobs sintéticos de 20 MB: um por rodada, conferidos, sem reler o pacote", async () => {
     const s = baseSpec();
@@ -718,6 +725,10 @@ describe("atualizador do formato 2", () => {
     await run(20);
     const failed = await state();
     expect(failed).toMatchObject({ status: "failed", phase: "publish" });
+    // O que a Cloudflare disse, e não um palpite sobre permissão do token.
+    expect(failed.error).toBe(
+      "Cloudflare HTTP 400 (código 10021: Uncaught Error: no module).",
+    );
     expect(await all(env, "SELECT name FROM d1_migrations")).toHaveLength(1);
     // A equipe libera a nova tentativa: os temporários somem e tudo recomeça,
     // mas a migração aplicada fica registrada e não roda de novo.
@@ -734,6 +745,86 @@ describe("atualizador do formato 2", () => {
     expect(await all(env, "SELECT name FROM d1_migrations")).toHaveLength(1);
     expect((await one(env, "SELECT count(*) n FROM v2_probe")).n).toBe(1);
     expect(calls.filter((c) => c.method === "PUT")).toHaveLength(2);
+  });
+
+  it("erro da Cloudflare: texto com errors[], e a decisão de tentar de novo não muda", async () => {
+    // Regra de antes da mensagem nova: 4xx (fora o 429) não tenta de novo;
+    // 429, 5xx e resposta 200 sem sucesso tentam (trabalho automático).
+    const cases: [number, any, boolean, RegExp][] = [
+      [
+        400,
+        [{ code: 10021, message: "bad script" }],
+        false,
+        /^Cloudflare HTTP 400 \(código 10021: bad script\)\.$/,
+      ],
+      [
+        401,
+        [{ code: 10000, message: "Authentication error" }],
+        false,
+        /^Cloudflare HTTP 401 \(código 10000: Authentication error\)\. Confira a conta e a permissão Workers Scripts: Edit do token\.$/,
+      ],
+      [403, [], false, /^Cloudflare HTTP 403\. Confira a conta e a permissão/],
+      [
+        404,
+        [{ code: 10007 }],
+        false,
+        /^Cloudflare HTTP 404 \(código 10007\)\.$/,
+      ],
+      [
+        429,
+        [{ code: 971, message: "Please wait" }],
+        true,
+        /^Cloudflare HTTP 429 \(código 971: Please wait\)\.$/,
+      ],
+      [
+        500,
+        [{ message: "Internal" }],
+        true,
+        /^Cloudflare HTTP 500 \(Internal\)\.$/,
+      ],
+      [503, undefined, true, /^Cloudflare HTTP 503\.$/],
+      // A mensagem de fora citando "HTTP 403" não vira um 4xx para a regra.
+      [
+        502,
+        [{ message: "upstream HTTP 403\nforbidden" }],
+        true,
+        /^Cloudflare HTTP 502 \(upstream http 403 forbidden\)\.$/,
+      ],
+      [
+        200,
+        [{ message: "HTTP 400 lá dentro" }],
+        true,
+        /^Cloudflare HTTP 200 \(http 400 lá dentro\)\.$/,
+      ],
+    ];
+    for (const [status, errors, retryable, text] of cases) {
+      await exec(env, "DELETE FROM secrets WHERE id LIKE 'system:release-%'");
+      await exec(env, "DELETE FROM system_update_locks");
+      override = (url) =>
+        url.pathname.endsWith("/assets-upload-session")
+          ? Response.json({ success: false, errors }, { status })
+          : null;
+      await startUpdate(e, actor, {
+        commit: (await checkUpdate(e, true)).commit,
+      });
+      await setSecret(e, "system:release-state", {
+        ...(await state()),
+        source: "automatic",
+        started_at: Date.now(),
+      });
+      await run(20);
+      const job = await state();
+      expect([status, job.phase, job.status]).toEqual([
+        status,
+        "prepare",
+        "failed",
+      ]);
+      expect([status, job.error]).toEqual([
+        status,
+        expect.stringMatching(text),
+      ]);
+      expect([status, job.retryable]).toEqual([status, retryable]);
+    }
   });
 
   it("sonda do plano pago antes de migrar: no gratuito para sem tocar no banco", async () => {

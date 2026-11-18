@@ -640,12 +640,38 @@ export async function releaseCloudflare(
       method !== "GET",
     );
   }
-  if (!r.ok || data.success !== true)
+  if (!r.ok || data.success !== true) {
+    const detail = cloudflareErrorDetail(data);
     throw new CloudflareCallError(
-      `Cloudflare HTTP ${r.status}. Confira a conta e a permissão Workers Scripts: Edit do token.`,
+      `Cloudflare HTTP ${r.status}${detail ? ` (${detail})` : ""}.` +
+        (r.status === 401 || r.status === 403
+          ? " Confira a conta e a permissão Workers Scripts: Edit do token."
+          : ""),
       method !== "GET" && !(r.status >= 400 && r.status < 500),
     );
+  }
   return data.result;
+}
+/**
+ * Código e mensagem que a Cloudflare devolveu em `errors[]`, para quem lê o
+ * erro no painel. O atualizador decide a nova tentativa lendo "HTTP NNN" no
+ * texto do erro (updates.ts); por isso a mensagem de fora não pode trazer
+ * "HTTP" em maiúsculas, que mudaria essa decisão.
+ */
+export function cloudflareErrorDetail(data: any) {
+  const errors = Array.isArray(data?.errors) ? data.errors.slice(0, 3) : [];
+  return errors
+    .map((e: any) => {
+      const code = String(e?.code ?? "").replace(/[^\d]/g, "");
+      const message = String(e?.message ?? "")
+        .replace(/[\u0000-\u001f\u007f]+/g, " ")
+        .replace(/HTTP/gi, "http")
+        .trim()
+        .slice(0, 160);
+      return [code && `código ${code}`, message].filter(Boolean).join(": ");
+    })
+    .filter(Boolean)
+    .join("; ");
 }
 export function scriptPath(account: string, worker: string) {
   assertRelease(
