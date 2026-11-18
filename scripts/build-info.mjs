@@ -1,11 +1,9 @@
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 const pkg = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 );
 let commit = process.env.WABOTIA_SOURCE_COMMIT || "";
-if (!commit && existsSync(".wabotia-source-commit"))
-  commit = readFileSync(".wabotia-source-commit", "utf8").trim();
 if (!commit) {
   try {
     commit = execFileSync("git", ["rev-parse", "HEAD"], {

@@ -293,8 +293,7 @@ function AutomaticUpdates({
         </label>
         {!updates.configured && (
           <p>
-            Primeiro configure a atualização direta no cartão acima. Esta opção
-            não utiliza o fluxo antigo de Deploy Hook.
+            Primeiro configure a atualização direta no cartão acima.
           </p>
         )}
         <div className="system-grid">
@@ -388,6 +387,33 @@ function AutomaticUpdates({
   );
 }
 
+/**
+ * Só no site oficial (que serve o catálogo): lembra de renovar o índice
+ * assinado a partir de 60 dias da emissão (mesma regra de renewalNotice em
+ * scripts/release-plan.mjs). Sem lembrete automático além deste.
+ */
+function IndexRenewal({ updates }: { updates: any }) {
+  const index = updates.latest;
+  if (!updates.distribution || !index?.expires || !index.issued_at) return null;
+  const at = Date.now(),
+    left = Math.floor((index.expires - at) / 86400000);
+  if (index.expires > at && at - index.issued_at < 60 * 86400000) return null;
+  return (
+    <div className="callout" role="status">
+      <strong>
+        {index.expires <= at
+          ? "O índice da versão oficial venceu"
+          : `O índice da versão oficial vence em ${left} dia(s)`}
+      </strong>
+      <p>
+        Enquanto estiver vencido, as instalações recusam atualizar (o
+        atendimento delas continua). No computador com a chave de assinatura,
+        rode <code>npm run release -- --renew</code> e publique o site.
+      </p>
+    </div>
+  );
+}
+
 export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
   const system = useSystem(api, demo),
     action = useAction(demo);
@@ -426,6 +452,7 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
           Instale as versões oficiais publicadas do Wabotia. A atualização
           direta na Cloudflare mantém seu banco, mídias, domínios e credenciais.
         </p>
+        <IndexRenewal updates={u} />
         <dl className="system-facts">
           <div>
             <dt>Versão instalada</dt>
@@ -507,7 +534,9 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
                   Etapa:{" "}
                   {(
                     {
-                      download: "baixando pacote",
+                      download: "baixando a versão",
+                      manifest: "conferindo a versão",
+                      blobs: "baixando arquivos",
                       prepare: "verificando instalação",
                       assets: "enviando arquivos",
                       migrate: "preparando banco",
@@ -621,11 +650,9 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
           ) : (
             <div className="callout">
               <p>
-                Esta instalação foi criada pelo fluxo anterior.
-                {u.method === "legacy" &&
-                  " O hook existente continua disponível até a migração."}
-                Use o instalador novo para criar uma instalação sem repositório
-                próprio.
+                Esta instalação não tem a identificação para atualizar pelo
+                painel. Use o instalador para criar uma instalação sem
+                repositório próprio.
               </p>
               <a href="/install#reinstalar" className="text-link">
                 Ver o roteiro de reinstalação

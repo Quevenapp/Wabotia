@@ -48,20 +48,29 @@ O token inicial também possui D1/R2 para criar os recursos. Depois de instalar,
 
 Faça backup antes de atualizar. Não há rollback automático de dados.
 
-## Instalações anteriores e reinstalação
+## Reinstalação
 
-O fluxo anterior continua documentado em [ATUALIZACOES-LEGADO.md](ATUALIZACOES-LEGADO.md). Um hook já configurado não é apagado por uma atualização.
-
-Para adotar o fluxo direto com uma instalação nova, siga [INSTALACAO.md](INSTALACAO.md). Use nome novo, guarde a instalação antiga até conferir a nova e reconecte o Hermes existente. Não crie outro túnel para os mesmos endereços. O histórico não é importado automaticamente. Pare os canais antigos antes de ligá-los na instalação nova; cada número deve ter um único consumidor.
+Instalações criadas pelo fluxo antigo (cópia do repositório com Cloudflare Builds e Deploy Hook) não são mais atualizadas pelo painel: esse caminho saiu do código. Para adotar o fluxo direto, siga [INSTALACAO.md](INSTALACAO.md) com uma instalação nova. Use nome novo, guarde a instalação antiga até conferir a nova e reconecte o Hermes existente. Não crie outro túnel para os mesmos endereços. O histórico não é importado automaticamente. Pare os canais antigos antes de ligá-los na instalação nova; cada número deve ter um único consumidor.
 
 ## Publicar uma versão oficial (mantenedor)
 
-1. Execute tipos, testes e homologação. Atualize versão e manual. Faça commit do código.
-2. Execute `npm run release`. O script produz o instalador, o Worker, os arquivos web e o pacote com SHA-256. Publicações de uma versão são imutáveis: use outra versão para alterar o pacote.
-3. Publique o site oficial com Wrangler, preservando as pastas das versões já publicadas. O arquivo `releases/latest.json` aponta para o novo pacote.
-4. Valide a instalação e uma atualização real em staging. GitHub Actions permanece desativado.
+Toda versão sai no **formato 2, assinada** (Ed25519). O formato, a assinatura, o prazo do índice, a troca de chaves e o ensaio estão em [ATUALIZACOES-FORMATO.md](ATUALIZACOES-FORMATO.md). Rode na cópia que guarda o catálogo publicado (`public/releases/`).
 
-Pacotes e instalador gerados não são enviados ao Git. Guarde os artefatos das versões publicadas em backup. Para gerar um candidato local sem alterar o catálogo, use `npm run release -- --candidate`.
+1. **Uma vez por máquina:** aponte a chave de assinatura. Crie `release-signing.local.json` na raiz (já está no `.gitignore`) com `{"key": "D:\\Code\\Env\\wabotia\\chaves-release\\principal.pem"}`, ou defina `WABOTIA_RELEASE_KEY` com esse caminho. A chave fica fora do repositório; nunca a copie para o projeto, para um segredo de CI ou para uma variável do Worker.
+2. Execute tipos, testes e homologação. Atualize a versão (maior que a publicada) e o manual. Faça commit do código.
+3. Execute `npm run release`. O script:
+   - produz o instalador, o Worker minificado e os arquivos web;
+   - grava `releases/<versão>/manifest.json` e `manifest.sig`, os arquivos em `releases/blobs/`, e o índice `releases/v2/latest.json` com `latest.sig`, válido por 90 dias;
+   - para se faltar a chave, se a chave não estiver em `src/release-keys.json`, se a versão não for maior que a publicada e que a de `releases/latest.json`, ou se a mesma versão já tiver sido publicada com outro conteúdo.
+
+   Toda versão depois da ponte exige a ponte instalada (`requires.min_version`); outra exigência sai com `--min-version x.y.z`, e o plano Workers Paid com `--workers-paid`.
+
+   **Só uma vez, na versão ponte (0.21.1):** `npm run release -- --bridge` (ou `--bridge --slim`). Grava também o pacote de formato 1 que a 0.21.0 lê, aponta `releases/latest.json` para a ponte e registra `releases/v2/bridge.json`. Antes de publicar, rode `node scripts/erp/check-candidate.mjs public/releases/0.21.1`, que passa o pacote pelo leitor da própria 0.21.0. Detalhes, tamanhos e a saída de emergência em [ATUALIZACOES-FORMATO.md](ATUALIZACOES-FORMATO.md#versão-ponte-0211).
+4. Publique o site oficial com Wrangler, preservando as pastas das versões já publicadas, `releases/blobs/`, `releases/v2/` e `releases/latest.json`. Esse último é o índice do formato antigo: congelado na ponte, o script só o escreve com `--bridge`, e ele não deve ser apagado (as instalações 0.21.0 e anteriores o leem).
+5. Valide a instalação e uma atualização real em staging. GitHub Actions permanece desativado.
+6. **Sem versão nova em 90 dias:** antes do vencimento, rode `npm run release -- --renew` e publique o site. A partir de 60 dias, o próprio `npm run release` avisa, e a tela Sistema do site oficial também. Com o índice vencido, as instalações recusam atualizar ("o mantenedor precisa renová-lo"), mas o atendimento continua normal.
+
+Pacotes e instalador gerados não são enviados ao Git. Guarde os artefatos das versões publicadas em backup. Para conferir um pacote sem publicar, use `npm run release -- --candidate`: ele sai **sem assinatura** em `output/release-candidate/` e as instalações recusam. O build só de teste (`--test-origin`) é para o ensaio em staging e nunca vai ao site oficial.
 
 Referência do protocolo: [upload direto de arquivos Cloudflare](https://developers.cloudflare.com/workers/static-assets/direct-upload/).
 
@@ -149,6 +158,16 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
 ## Atualização 0.16.5: comandos do plugin na janela de pareamento
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. Em **Conexões**, a janela aberta por **Gerar comando de instalação** ou **Parear novamente** traz, em **Meu Hermes roda em Docker**, os comandos para descobrir o nome do contêiner, instalar o plugin, reiniciar o contêiner e conferir a versão instalada, cada um com botão de copiar. Em uma conexão já pareada, a janela avisa que os bots ficam fora do ar entre a execução do comando e o reinício do gateway. O plugin continua na versão 1.1.0; quem já o atualizou não precisa repetir. O roteiro completo está em [Atualizar o plugin](HERMES-PLUGIN.md#21-atualizar-o-plugin). Depois de atualizar, clique em **Reabrir painel atualizado**.
+
+## Atualização 0.21.1: versão ponte para o pacote assinado
+
+Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia** e acompanhe até o fim; depois clique em **Reabrir painel atualizado**. O atendimento continua no ar durante a atualização. Não há migração de banco nem recurso novo na Cloudflare, e o funcionamento é o da 0.21.0: muda só o atualizador.
+
+**Por que ela existe.** As próximas versões saem em outro formato de pacote, dividido em arquivos e assinado, que a 0.21.0 não sabe ler. A 0.21.1 é o degrau entre os dois: chega no formato antigo e, instalada, só aceita versões assinadas pelo mantenedor. Toda versão depois dela exige a 0.21.1 instalada. Uma instalação na 0.17.0 ou anterior não lê este pacote (já não lia o da 0.21.0) e precisa ser reinstalada.
+
+**Atualize acompanhando.** Com a atualização automática ligada, a 0.21.1 entra sozinha na janela configurada; prefira atualizar à mão desta vez. Se o painel ficar em "Atualizando para 0.21.1" na mesma etapa por mais de 15 minutos, siga a [saída de emergência](ATUALIZACOES-FORMATO.md#saída-de-emergência-trabalho-preso-em-atualizando).
+
+**Limites conhecidos do atualizador desta versão,** que valem só para o salto seguinte e serão corrigidos nele: se duas atualizações forem pedidas quase ao mesmo tempo, a segunda pode sumir da tela e precisar de um novo clique; uma falha ao publicar o código pede **Liberar nova tentativa** à mão, também na atualização automática. Detalhes em [Formato do pacote](ATUALIZACOES-FORMATO.md#versão-ponte-0211).
 
 ## Atualização 0.21.0: acesso por pessoa, segundo fator, ERP em implantação, fila mais rápida
 

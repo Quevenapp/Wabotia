@@ -4,7 +4,9 @@ import { exec } from "../src/db";
 import { secret, setSecret } from "../src/security";
 import { type Actor, type Env } from "../src/types";
 import { buildInfo } from "../src/build-info.generated";
+import { Buffer } from "node:buffer";
 import { RELEASE_ORIGIN } from "../src/release";
+import { signFile, testKeys, type TestKey } from "./release-v2-fixture";
 import {
   automaticWindow,
   automaticUpdateStatus,
@@ -38,8 +40,10 @@ let at: number,
   index: any,
   calls: string[],
   packageFailure: "network" | "integrity",
-  catalogFailure: boolean;
+  catalogFailure: boolean,
+  principal: TestKey;
 beforeEach(async () => {
+  principal = (await testKeys()).principal;
   at = Date.UTC(2026, 10, 9, 6, 15); // 03:15 in São Paulo.
   vi.spyOn(Date, "now").mockImplementation(() => at);
   await exec(env, "DELETE FROM secrets WHERE id LIKE 'system:release-%'");
@@ -48,21 +52,32 @@ beforeEach(async () => {
   packageFailure = "network";
   catalogFailure = false;
   index = {
-    format: 1,
+    format: 2,
     version: "99.0.0",
     commit: target,
-    package_sha256: "b".repeat(64),
-    package_size: 3,
+    manifest_sha256: "b".repeat(64),
+    manifest_size: 3,
+    total_size: 3,
+    requires: { min_version: "0.0.1", workers_paid: true },
+    issued_at: at - 60000,
+    expires: at + 90 * 86400000,
   };
   vi.stubGlobal("fetch", async (input: any, init: any = {}) => {
     const request = new Request(input, init);
     calls.push(request.url);
     expect(request.headers.get("Authorization")).toBeNull();
     expect(new URL(request.url).origin).toBe(RELEASE_ORIGIN);
+    // Só o índice do formato 2 é lido.
     if (request.url.endsWith("latest.json")) {
+      expect(request.url).toBe(RELEASE_ORIGIN + "/releases/v2/latest.json");
       if (catalogFailure) throw new TypeError("network unavailable");
-      return Response.json(index);
+      return new Response(JSON.stringify(index));
     }
+    // Assinatura do índice servido agora (o teste muda o índice no caminho).
+    if (request.url.endsWith("/releases/v2/latest.sig"))
+      return new Response(
+        await signFile("index", Buffer.from(JSON.stringify(index)), principal),
+      );
     if (packageFailure === "network")
       throw new TypeError("network unavailable");
     return new Response("bad");
@@ -151,7 +166,7 @@ it("checks at most once per successful window and never downgrades or replaces t
   index = { ...index, commit: buildInfo.commit, version: buildInfo.version };
   await automaticUpdateTick(e);
   await automaticUpdateTick(e);
-  expect(calls).toHaveLength(1);
+  expect(calls.filter((url) => url.endsWith("latest.json"))).toHaveLength(1);
   expect((await automaticUpdateStatus(e)).status).toBe("up_to_date");
   at += 86400000;
   index = { ...index, commit: target };
@@ -164,6 +179,35 @@ it("checks at most once per successful window and never downgrades or replaces t
   index.version = "0.0.1";
   await automaticUpdateTick(e);
   expect((await secret(e, "system:release-state")).id).toBeUndefined();
+});
+
+it("requires.min_version: o automático só instala a versão que aceita a versão instalada", async () => {
+  await enable();
+  // Uma versão que exige outra instalada antes (min_version acima da atual)
+  // nunca entra na fila: o automático para em revisão.
+  index = {
+    ...index,
+    requires: { min_version: "98.0.0", workers_paid: false },
+  };
+  await automaticUpdateTick(e);
+  expect(await automaticUpdateStatus(e)).toMatchObject({
+    status: "release_requires_review",
+    error: expect.stringMatching(/exige a 98\.0\.0/),
+  });
+  expect((await secret(e, "system:release-state")).id).toBeUndefined();
+  // Com a versão exigida instalada (min_version = a desta instalação), entra.
+  at += 86400000;
+  index = {
+    ...index,
+    requires: { min_version: buildInfo.version, workers_paid: false },
+  };
+  await automaticUpdateTick(e);
+  expect(await secret(e, "system:release-state")).toMatchObject({
+    status: "pending",
+    phase: "manifest",
+    target,
+    source: "automatic",
+  });
 });
 
 it("backs off catalog failures and caps attempts within the window", async () => {
@@ -215,7 +259,7 @@ it("retries only transient pre-publication failures, reusing the job with a boun
     status: "blocked",
     attempt: 3,
   });
-  expect(calls.filter((url) => url.endsWith("package.json"))).toHaveLength(3);
+  expect(calls.filter((url) => url.endsWith("manifest.json"))).toHaveLength(3);
 });
 
 it("does not retry an invalid package, migration failure, or uncertain publication", async () => {

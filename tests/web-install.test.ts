@@ -1,7 +1,15 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Buffer } from "node:buffer";
-import { digest, RELEASE_ORIGIN } from "../src/release";
+import { RELEASE_ORIGIN } from "../src/release";
+import {
+  buildRelease,
+  serveRelease,
+  signFile,
+  testKeys,
+  type BuiltRelease,
+  type ReleaseSpec,
+} from "./release-v2-fixture";
 import { installStep, webInstallerEnabled } from "../src/web-install";
 import { type Env } from "../src/types";
 import { all } from "../src/db";
@@ -20,43 +28,23 @@ const noCatalogue = {
 const e: Env = { ...env, WABOTIA_WEB_INSTALLER: "1", ASSETS: noCatalogue };
 const api = `https://api.cloudflare.com/client/v4/accounts/${account}`;
 
-let index: any, bytes: Buffer, calls: any[], cloud: any;
+let release: BuiltRelease, calls: any[], cloud: any;
 const ok = (result: any) => Response.json({ success: true, result });
 const refuse = (status: number, message: string) =>
   Response.json({ success: false, errors: [{ message }] }, { status });
 
-async function file(fileName: string, type: string, body: string) {
-  return {
-    name: fileName,
-    type,
-    data: Buffer.from(body).toString("base64"),
-    sha256: await digest(body),
-  };
-}
-beforeEach(async () => {
-  const pkg = {
-    format: 1,
+const spec = (): ReleaseSpec => ({
     version: "0.15.0",
     commit,
-    main_module: "index.js",
-    compatibility_date: "2026-11-04",
-    compatibility_flags: ["nodejs_compat"],
     assets_config: {
       not_found_handling: "single-page-application",
       run_worker_first: ["/api/*", "/webhooks/*", "/internal/*"],
       _headers: "/*\n  X-Frame-Options: DENY\n",
     },
-    durable_migrations: [{ tag: "v1", new_sqlite_classes: ["Coordinator"] }],
-    modules: [
-      await file(
-        "index.js",
-        "application/javascript+module",
-        "export default {}",
-      ),
-    ],
+    modules: [{ name: "index.js", body: "export default {}" }],
     assets: [
-      await file("/index.html", "text/html", "<html></html>"),
-      await file("/app.js", "application/javascript", "console.log(1)"),
+      { name: "/index.html", body: "<html></html>" },
+      { name: "/app.js", type: "application/javascript", body: "console.log(1)" },
     ],
     migrations: [
       {
@@ -65,15 +53,12 @@ beforeEach(async () => {
       },
       { name: "0002_more.sql", statements: ["ALTER TABLE a ADD COLUMN x"] },
     ],
-  };
-  bytes = Buffer.from(JSON.stringify(pkg));
-  index = {
-    format: 1,
-    version: pkg.version,
-    commit,
-    package_sha256: await digest(bytes),
-    package_size: bytes.length,
-  };
+});
+
+beforeEach(async () => {
+  // Formato 2: índice v2 e manifesto assinados, arquivos por SHA-256.
+  release = await buildRelease(spec());
+  const pkg = release.manifest;
   calls = [];
   cloud = {
     worker: false,
@@ -88,10 +73,8 @@ beforeEach(async () => {
       method = init.method || "GET",
       auth = init.headers?.Authorization || "";
     calls.push({ url, method, auth, body: init.body });
-    if (url === `${RELEASE_ORIGIN}/releases/latest.json`)
-      return Response.json(index);
-    if (url === `${RELEASE_ORIGIN}/releases/0.15.0/package.json`)
-      return new Response(bytes);
+    if (url.startsWith(RELEASE_ORIGIN))
+      return serveRelease(new URL(url), release)!;
     if (url === `https://${name}.minhaconta.workers.dev/api/health`)
       return cloud.live
         ? Response.json({ commit })
@@ -323,11 +306,8 @@ describe("instalador pelo navegador", () => {
         fetch: async (request: Request) => {
           const path = new URL(request.url).pathname;
           served.push(path);
-          if (path === "/releases/latest.json") return Response.json(index);
-          if (path === "/releases/0.15.0/package.json")
-            return new Response(bytes, {
-              headers: { "Content-Type": "application/json" },
-            });
+          if (path.startsWith("/releases/"))
+            return serveRelease(new URL(RELEASE_ORIGIN + path), release)!;
           // Caminho desconhecido: a página do painel, como no site real.
           return new Response("<html></html>", {
             headers: { "Content-Type": "text/html" },
@@ -353,9 +333,13 @@ describe("instalador pelo navegador", () => {
       cursor: { ...checked.cursor, database_id: database, migration: 0 },
     });
     expect(migrated.cursor.migration).toBe(1);
+    // O índice v2, o manifesto e só o arquivo da migração daquele passo.
     expect(served).toEqual([
-      "/releases/latest.json",
-      "/releases/0.15.0/package.json",
+      "/releases/v2/latest.json",
+      "/releases/v2/latest.sig",
+      "/releases/0.15.0/manifest.json",
+      "/releases/0.15.0/manifest.sig",
+      `/releases/blobs/${release.manifest.migrations[0].sha256}`,
     ]);
     expect(calls.filter((c) => c.url.startsWith(RELEASE_ORIGIN))).toEqual([]);
   });
@@ -418,6 +402,104 @@ describe("instalador pelo navegador", () => {
     ).rejects.toMatchObject({ status: 400 });
     expect(cloud.worker).toBe(false);
   });
+});
+
+describe("assinatura no instalador pelo navegador", () => {
+  const created = () =>
+    calls.filter((c) => c.method !== "GET" && c.url.startsWith(api));
+  it("cada lote da Cloudflare vai inteiro num envio", async () => {
+    await run();
+    expect(
+      calls.filter((c) => c.url.endsWith("upload?base64=true")),
+    ).toHaveLength(cloud.assetHashes.length);
+  });
+  it("aceita a reserva", async () => {
+    release = await buildRelease({ ...spec(), signer: "reserva" });
+    expect((await run()).messages.at(-1)).toBe("Instalação no ar e conferida.");
+  });
+  it.each([
+    ["sem assinatura", { signer: null }, /sem assinatura/],
+    ["chave desconhecida", { signer: "unknown" }, /chave desconhecida/],
+    [
+      "índice vencido",
+      {
+        issued_at: Date.now() - 100 * 86400000,
+        expires: Date.now() - 86400000,
+      },
+      /venceu/,
+    ],
+  ] as const)("%s: não cria nada", async (_label, change, error) => {
+    release = await buildRelease({ ...spec(), ...(change as any) });
+    await expect(run()).rejects.toMatchObject({
+      status: 502,
+      message: expect.stringMatching(error),
+    });
+    expect(created()).toHaveLength(0);
+  });
+  it("o índice que volta no andamento é conferido de novo a cada passo", async () => {
+    const keys = await testKeys();
+    const { cursor } = await run("migrate");
+    const step = (c: any) =>
+      installStep(e, { account, name, token, step: "migrate", cursor: c });
+    // Índice trocado no andamento, sem mexer no assinado: vale o assinado.
+    const swapped = await step({
+      ...cursor,
+      index: { ...cursor.index, version: "9.9.9", commit: "d".repeat(40) },
+    });
+    expect(swapped.cursor.index.version).toBe("0.15.0");
+    expect(swapped.cursor.index.commit).toBe(commit);
+    // Sem o índice assinado: recusa.
+    const { signed_index, ...unsigned } = cursor;
+    await expect(step(unsigned)).rejects.toMatchObject({ status: 400 });
+    // Bytes do índice alterados no navegador: a assinatura não confere.
+    const bytes = Buffer.from(signed_index.data, "base64");
+    const altered = Buffer.from(
+      bytes.toString("utf8").replace('"0.15.0"', '"0.15.9"'),
+    );
+    await expect(
+      step({
+        ...cursor,
+        signed_index: { ...signed_index, data: altered.toString("base64") },
+      }),
+    ).rejects.toThrow(/assinatura/);
+    // Assinado por chave fora da lista: recusa.
+    await expect(
+      step({
+        ...cursor,
+        signed_index: {
+          data: altered.toString("base64"),
+          signature: (await signFile("index", altered, keys.unknown)).toString(
+            "base64",
+          ),
+        },
+      }),
+    ).rejects.toThrow(/chave desconhecida/);
+    // Nenhuma migração foi aplicada pelos andamentos recusados; só a válida.
+    expect(cloud.queries).toHaveLength(1);
+  });
+  it("manifesto alterado em um byte: para antes da primeira migração", async () => {
+    const { cursor } = await run("migrate");
+    release.manifestBytes[3] ^= 1;
+    await expect(
+      installStep(e, { account, name, token, step: "migrate", cursor }),
+    ).rejects.toThrow(/assinatura/);
+    expect(cloud.queries).toHaveLength(0);
+  });
+  it.each(["trocado", "corrompido"])(
+    "blob %s: para sem aplicar a migração",
+    async (kind) => {
+      const { cursor } = await run("migrate");
+      const sha = release.manifest.migrations[0].sha256;
+      const other = release.manifest.migrations[1].sha256;
+      const bytes = new Uint8Array(release.blobs.get(kind === "trocado" ? other : sha)!);
+      if (kind === "corrompido") bytes[0] ^= 1;
+      release.blobs.set(sha, bytes);
+      await expect(
+        installStep(e, { account, name, token, step: "migrate", cursor }),
+      ).rejects.toThrow(/corrompido/);
+      expect(cloud.queries).toHaveLength(0);
+    },
+  );
 });
 
 describe("rota do instalador", () => {

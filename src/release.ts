@@ -1,40 +1,63 @@
-// Shared by the Worker updater and the standalone installer. No customer credentials
-// are sent to the release origin; only Cloudflare receives the API token.
+// Pacote de publicação do Wabotia (formato 2), lido pelo atualizador do
+// painel e pelos dois instaladores. Nenhuma credencial do cliente vai para a
+// origem oficial; só a Cloudflare recebe o token de API.
+// Formato, assinatura e limites: docs/ATUALIZACOES-FORMATO.md.
+//
+//   /releases/v2/latest.json            índice (versão, commit, SHA-256 do
+//   /releases/v2/latest.sig             manifesto, validade) e a assinatura
+//   /releases/<versão>/manifest.json    metadados; modules/assets/migrations
+//   /releases/<versão>/manifest.sig     como {name, type, size, sha256}
+//   /releases/blobs/<sha256>            bytes crus, endereçados por conteúdo
+//
+// O índice e o manifesto são assinados com Ed25519 por uma das chaves de
+// src/release-keys.json. O índice tem prazo (`expires`): um índice velho,
+// mesmo assinado, é recusado. Os blobs são conferidos pelo SHA-256 que o
+// manifesto assinado traz.
 import { Buffer } from "node:buffer";
+import releaseKeys from "./release-keys.json";
 
-export const RELEASE_ORIGIN = "https://wabotia.queven.app";
-// Abaixo dos 25 MiB por arquivo estático da Cloudflare, que serve o pacote, e
-// com folga para a memória de 128 MB do Worker que o lê e decodifica.
-// Instalações até a 0.17.0 aceitam no máximo 20 MB: um pacote maior só pode
-// sair depois que elas tiverem atualizado para uma versão com este limite
-// (scripts/release.mjs confere).
-export const MAX_PACKAGE = 24 * 1024 * 1024;
-export interface ReleaseIndex {
-  format: 1;
-  version: string;
-  commit: string;
-  package_sha256: string;
-  package_size: number;
+export const OFFICIAL_RELEASE_ORIGIN = "https://wabotia.queven.app";
+// Só o build de teste (`npm run release -- --test-origin <url>`) define esta
+// constante, com `<url>/api/test-catalog`: a instalação de teste serve o
+// próprio catálogo do R2 (TEST_CATALOG_PREFIX). No build oficial ela não
+// existe e vale o endereço oficial.
+declare const __WABOTIA_TEST_RELEASE_ORIGIN__: string | undefined;
+export const TEST_CATALOG_PATH = "/api/test-catalog";
+export const TEST_CATALOG_PREFIX = "test-catalog";
+export const RELEASE_ORIGIN: string =
+  typeof __WABOTIA_TEST_RELEASE_ORIGIN__ === "string"
+    ? __WABOTIA_TEST_RELEASE_ORIGIN__
+    : OFFICIAL_RELEASE_ORIGIN;
+
+/**
+ * Um pacote de teste traz `test_origin` assinado no índice e no manifesto e
+ * só vale num build de teste que aponta para essa mesma origem. O build
+ * oficial recusa qualquer `test_origin`, seja qual for o valor (inclusive o
+ * próprio endereço oficial) e esteja a assinatura como estiver.
+ */
+export function testOriginAccepted(value: unknown) {
+  if (value === undefined) return true;
+  return RELEASE_ORIGIN !== OFFICIAL_RELEASE_ORIGIN && value === RELEASE_ORIGIN;
 }
-export interface ReleaseFile {
-  name: string;
-  type: string;
-  data: string;
-  sha256: string;
-}
-export interface ReleasePackage {
-  format: 1;
-  version: string;
-  commit: string;
-  main_module: string;
-  compatibility_date: string;
-  compatibility_flags: string[];
-  assets_config: Record<string, unknown>;
-  durable_migrations: { tag: string; new_sqlite_classes?: string[] }[];
-  modules: ReleaseFile[];
-  assets: ReleaseFile[];
-  migrations: { name: string; statements: string[] }[];
-}
+
+export const MAX_MANIFEST = 2 * 1024 * 1024;
+/** Teto por arquivo: o de um estático da Cloudflare, que serve os blobs. */
+export const MAX_BLOB = 25 * 1024 * 1024;
+/** Módulos do Worker somados (o Worker aceita 64 MiB sem compressão). */
+export const MAX_MODULES_TOTAL = 40 * 1024 * 1024;
+/** Todos os arquivos únicos da versão somados. */
+export const MAX_TOTAL = 160 * 1024 * 1024;
+export const MAX_MODULES = 256;
+export const MAX_ASSETS = 2000;
+export const MAX_MIGRATIONS = 1000;
+/** Hashes por lote da sessão de envio de estáticos da Cloudflare. */
+export const MAX_UPLOAD_BATCH = 2000;
+/** Por rodada do atualizador: até 20 arquivos ou 16 MiB (o que vier antes). */
+export const ROUND_FILES = 20;
+export const ROUND_BYTES = 16 * 1024 * 1024;
+/** Validade máxima de um índice assinado. */
+export const MAX_INDEX_DAYS = 180;
+
 export function assertRelease(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
 }
@@ -44,25 +67,6 @@ export async function digest(value: Uint8Array | string) {
   return Buffer.from(
     await crypto.subtle.digest("SHA-256", bytes as BufferSource),
   ).toString("hex");
-}
-export function validateIndex(value: any): ReleaseIndex {
-  assertRelease(
-    value?.format === 1 &&
-      /^\d+\.\d+\.\d+$/.test(value.version) &&
-      /^[a-f0-9]{40}$/.test(value.commit) &&
-      /^[a-f0-9]{64}$/.test(value.package_sha256) &&
-      Number.isSafeInteger(value.package_size) &&
-      value.package_size > 0 &&
-      value.package_size <= MAX_PACKAGE,
-    "A versão oficial não contém um pacote de publicação válido.",
-  );
-  return {
-    format: 1,
-    version: value.version,
-    commit: value.commit,
-    package_sha256: value.package_sha256,
-    package_size: value.package_size,
-  };
 }
 export async function limitedBody(response: Response, limit: number) {
   assertRelease(
@@ -88,38 +92,301 @@ export async function limitedBody(response: Response, limit: number) {
   }
   return Buffer.concat(chunks);
 }
-export async function latestRelease(): Promise<ReleaseIndex> {
-  const r = await fetch(`${RELEASE_ORIGIN}/releases/latest.json`, {
+
+// ---------------------------------------------------------------------------
+// Assinatura (Ed25519)
+
+export interface ReleaseKey {
+  id: string;
+  /** Chave pública crua, 32 bytes em base64url. */
+  ed25519: string;
+}
+// Só o build de teste define esta constante: as públicas da chave do ensaio
+// (scripts/release.mjs, WABOTIA_TEST_RELEASE_KEY), no lugar das oficiais. Vale
+// só junto com a origem de teste; um build oficial nunca a tem.
+declare const __WABOTIA_TEST_RELEASE_KEYS__: ReleaseKey[] | undefined;
+/** Chaves públicas embutidas; a lista só muda numa versão assinada. */
+export const RELEASE_KEYS: readonly ReleaseKey[] =
+  typeof __WABOTIA_TEST_RELEASE_KEYS__ !== "undefined" &&
+  RELEASE_ORIGIN !== OFFICIAL_RELEASE_ORIGIN
+    ? __WABOTIA_TEST_RELEASE_KEYS__
+    : releaseKeys.keys;
+let trusted: readonly ReleaseKey[] = RELEASE_KEYS;
+/** Só para testes: troca as chaves confiáveis (com `null`, volta às embutidas). */
+export function trustReleaseKeysForTests(keys: readonly ReleaseKey[] | null) {
+  trusted = keys || RELEASE_KEYS;
+}
+
+/** O que cada assinatura cobre: separa índice de manifesto. */
+export const SIGNATURE_DOMAIN = {
+  index: "wabotia-release-index-v2\n",
+  manifest: "wabotia-release-manifest-v2\n",
+} as const;
+export type SignedKind = keyof typeof SIGNATURE_DOMAIN;
+
+/** Bytes assinados: o domínio seguido dos bytes exatos do arquivo. */
+export function signedBytes(kind: SignedKind, bytes: Uint8Array) {
+  return Buffer.concat([
+    Buffer.from(SIGNATURE_DOMAIN[kind], "utf8"),
+    Buffer.from(bytes),
+  ]);
+}
+
+export interface SignatureFile {
+  format: 1;
+  algorithm: "Ed25519";
+  key_id: string;
+  /** 64 bytes em base64. */
+  signature: string;
+}
+
+const signatureError = (detail: string) =>
+  new Error(
+    `A assinatura da versão oficial não confere (${detail}). Nada foi alterado.`,
+  );
+
+/**
+ * Confere a assinatura de um índice ou manifesto contra as chaves embutidas.
+ * Devolve o id da chave que assinou.
+ */
+export async function verifySignature(
+  kind: SignedKind,
+  bytes: Uint8Array,
+  signature: Uint8Array | null,
+) {
+  if (!signature?.length) throw signatureError("versão sem assinatura");
+  let file: SignatureFile;
+  try {
+    file = JSON.parse(Buffer.from(signature).toString("utf8"));
+  } catch {
+    throw signatureError("arquivo de assinatura inválido");
+  }
+  if (
+    file?.format !== 1 ||
+    file.algorithm !== "Ed25519" ||
+    typeof file.signature !== "string"
+  )
+    throw signatureError("arquivo de assinatura inválido");
+  const key = trusted.find((k) => k.id === file.key_id);
+  if (!key) throw signatureError("chave desconhecida");
+  const sig = Buffer.from(file.signature, "base64");
+  if (sig.length !== 64) throw signatureError("assinatura malformada");
+  const publicKey = await crypto.subtle.importKey(
+    "raw",
+    Buffer.from(key.ed25519, "base64url"),
+    { name: "Ed25519" },
+    false,
+    ["verify"],
+  );
+  const ok = await crypto.subtle.verify(
+    { name: "Ed25519" },
+    publicKey,
+    sig,
+    signedBytes(kind, bytes),
+  );
+  if (!ok) throw signatureError("conteúdo alterado ou chave errada");
+  return key.id;
+}
+
+// ---------------------------------------------------------------------------
+// Índice
+
+export interface ReleaseIndexV2 {
+  format: 2;
+  version: string;
+  commit: string;
+  manifest_sha256: string;
+  manifest_size: number;
+  total_size: number;
+  requires: { min_version: string; workers_paid: boolean };
+  /** Quando foi assinado e até quando vale (ms Unix). */
+  issued_at: number;
+  expires: number;
+  /** Só em pacote de teste: a origem do catálogo de teste. */
+  test_origin?: string;
+}
+export interface BlobRef {
+  name: string;
+  type: string;
+  size: number;
+  sha256: string;
+}
+export interface ReleaseManifest {
+  format: 2;
+  version: string;
+  commit: string;
+  main_module: string;
+  compatibility_date: string;
+  compatibility_flags: string[];
+  assets_config: Record<string, unknown>;
+  durable_migrations: { tag: string; new_sqlite_classes?: string[] }[];
+  modules: BlobRef[];
+  assets: BlobRef[];
+  /** Cada blob de migração é um JSON: lista de instruções SQL. */
+  migrations: BlobRef[];
+}
+
+const semver = /^\d+\.\d+\.\d+$/;
+/** a >= b, em versões x.y.z. */
+export function versionAtLeast(a: string, b: string) {
+  if (!semver.test(a) || !semver.test(b)) return false;
+  const x = a.split(".").map(Number),
+    y = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i];
+  return true;
+}
+/** a > b, em versões x.y.z. */
+export const versionGreater = (a: string, b: string) =>
+  versionAtLeast(a, b) && a !== b;
+
+/**
+ * Estrutura do índice. Com `at`, confere também a validade: assinado há no
+ * máximo 180 dias e ainda dentro de `expires`.
+ */
+export function validateIndexV2(value: any, at?: number): ReleaseIndexV2 {
+  assertRelease(
+    value?.format === 2 &&
+      semver.test(value.version) &&
+      /^[a-f0-9]{40}$/.test(value.commit) &&
+      /^[a-f0-9]{64}$/.test(value.manifest_sha256) &&
+      Number.isSafeInteger(value.manifest_size) &&
+      value.manifest_size > 0 &&
+      value.manifest_size <= MAX_MANIFEST &&
+      Number.isSafeInteger(value.total_size) &&
+      value.total_size > 0 &&
+      value.total_size <= MAX_TOTAL &&
+      semver.test(value.requires?.min_version) &&
+      typeof value.requires?.workers_paid === "boolean" &&
+      Number.isSafeInteger(value.issued_at) &&
+      Number.isSafeInteger(value.expires) &&
+      value.expires > value.issued_at &&
+      value.expires - value.issued_at <= MAX_INDEX_DAYS * 86400000,
+    "A versão oficial não contém um índice de publicação válido.",
+  );
+  assertRelease(
+    testOriginAccepted(value.test_origin),
+    "Este é um pacote de teste e não vale nesta instalação. Nada foi alterado.",
+  );
+  if (at !== undefined) {
+    assertRelease(
+      value.issued_at <= at + 86400000,
+      "O índice da versão oficial tem data no futuro. Confira o relógio e tente mais tarde.",
+    );
+    assertRelease(
+      value.expires > at,
+      "O índice da versão oficial venceu: o mantenedor precisa renová-lo. O atendimento continua normal; tente mais tarde.",
+    );
+  }
+  return {
+    format: 2,
+    version: value.version,
+    commit: value.commit,
+    manifest_sha256: value.manifest_sha256,
+    manifest_size: value.manifest_size,
+    total_size: value.total_size,
+    requires: {
+      min_version: value.requires.min_version,
+      workers_paid: value.requires.workers_paid,
+    },
+    issued_at: value.issued_at,
+    expires: value.expires,
+    ...(value.test_origin === undefined
+      ? {}
+      : { test_origin: value.test_origin }),
+  };
+}
+
+export const INDEX_PATH = "/releases/v2/latest.json";
+export const INDEX_SIGNATURE_PATH = "/releases/v2/latest.sig";
+export const manifestPath = (version: string) =>
+  `/releases/${version}/manifest.json`;
+export const manifestSignaturePath = (version: string) =>
+  `/releases/${version}/manifest.sig`;
+export const blobPath = (sha256: string) => `/releases/blobs/${sha256}`;
+
+/** Índice já com a assinatura conferida, a partir dos bytes. */
+export async function parseIndex(
+  bytes: Uint8Array,
+  signature: Uint8Array | null,
+  at: number = Date.now(),
+) {
+  await verifySignature("index", bytes, signature);
+  let value: unknown;
+  try {
+    value = JSON.parse(Buffer.from(bytes).toString("utf8"));
+  } catch {
+    value = null;
+  }
+  return validateIndexV2(value, at);
+}
+
+const fetchRelease = (path: string) =>
+  fetch(RELEASE_ORIGIN + path, {
     redirect: "manual",
     signal: AbortSignal.timeout(20000),
   });
-  return validateIndex(
-    JSON.parse((await limitedBody(r, 8192)).toString("utf8")),
+/** Assinatura opcional na resposta: ausente vira null (a verificação recusa). */
+async function signatureBody(path: string) {
+  const r = await fetchRelease(path);
+  if (r.status === 404) return null;
+  return limitedBody(r, 4096);
+}
+
+export async function latestReleaseV2(): Promise<ReleaseIndexV2> {
+  const bytes = await limitedBody(await fetchRelease(INDEX_PATH), 8192);
+  return parseIndex(bytes, await signatureBody(INDEX_SIGNATURE_PATH));
+}
+
+// ---------------------------------------------------------------------------
+// Manifesto e arquivos
+
+function validRef(f: any, group: "module" | "asset" | "migration") {
+  return (
+    f &&
+    typeof f.name === "string" &&
+    f.name.length <= 300 &&
+    (group === "asset"
+      ? /^\/[a-zA-Z0-9_./-]+$/
+      : group === "module"
+        ? /^[a-zA-Z0-9_./-]+$/
+        : /^\d{4}_[a-z0-9_]+\.sql$/
+    ).test(f.name) &&
+    !f.name.split("/").includes("..") &&
+    typeof f.type === "string" &&
+    f.type.length < 120 &&
+    Number.isSafeInteger(f.size) &&
+    f.size >= 0 &&
+    f.size <= MAX_BLOB &&
+    /^[a-f0-9]{64}$/.test(f.sha256)
   );
 }
-export async function fetchPackage(index: ReleaseIndex) {
-  validateIndex(index);
-  const r = await fetch(
-    `${RELEASE_ORIGIN}/releases/${index.version}/package.json`,
-    { redirect: "manual", signal: AbortSignal.timeout(20000) },
-  );
-  const bytes = await limitedBody(r, MAX_PACKAGE);
-  const pkg = await parsePackage(index, bytes);
-  return { pkg, bytes };
-}
-export async function parsePackage(
-  index: ReleaseIndex,
+
+/**
+ * Confere o manifesto: a assinatura, o SHA-256 e o tamanho fixados no
+ * índice, a estrutura e as travas de Durable Object e rotas.
+ */
+export async function parseManifest(
+  index: ReleaseIndexV2,
   bytes: Uint8Array,
-): Promise<ReleasePackage> {
+  signature: Uint8Array | null,
+): Promise<ReleaseManifest> {
+  await verifySignature("manifest", bytes, signature);
   assertRelease(
-    bytes.length === index.package_size &&
-      (await digest(bytes)) === index.package_sha256,
-    "A integridade do pacote oficial não confere. Nenhuma publicação foi feita.",
+    bytes.length === index.manifest_size &&
+      (await digest(bytes)) === index.manifest_sha256,
+    "A integridade do manifesto oficial não confere. Nenhuma publicação foi feita.",
   );
   const p = JSON.parse(Buffer.from(bytes).toString("utf8"));
   assertRelease(
-    p.format === 1 && p.version === index.version && p.commit === index.commit,
-    "O pacote não corresponde à versão escolhida.",
+    p.format === 2 &&
+      p.version === index.version &&
+      p.commit === index.commit &&
+      p.test_origin === index.test_origin,
+    "O manifesto não corresponde à versão escolhida.",
+  );
+  assertRelease(
+    testOriginAccepted(p.test_origin),
+    "Este é um pacote de teste e não vale nesta instalação. Nada foi alterado.",
   );
   assertRelease(
     /^\d{4}-\d{2}-\d{2}$/.test(p.compatibility_date) &&
@@ -127,68 +394,67 @@ export async function parsePackage(
       p.compatibility_flags.every((v: unknown) => typeof v === "string") &&
       Array.isArray(p.modules) &&
       p.modules.length > 0 &&
-      p.modules.length < 64 &&
+      p.modules.length <= MAX_MODULES &&
       Array.isArray(p.assets) &&
       p.assets.length > 0 &&
-      p.assets.length <= 100 &&
+      p.assets.length <= MAX_ASSETS &&
       Array.isArray(p.migrations) &&
-      p.migrations.length <= 100,
+      p.migrations.length <= MAX_MIGRATIONS,
     "Estrutura do pacote oficial inválida.",
   );
   const seen = new Set<string>();
+  const sizes = new Map<string, number>();
+  let modulesTotal = 0;
   for (const [group, files] of [
     ["module", p.modules],
     ["asset", p.assets],
+    ["migration", p.migrations],
   ] as const) {
     for (const f of files) {
       assertRelease(
-        typeof f.name === "string" &&
-          (group === "asset"
-            ? /^\/[a-zA-Z0-9_./-]+$/
-            : /^[a-zA-Z0-9_./-]+$/
-          ).test(f.name) &&
-          !f.name.split("/").includes("..") &&
-          !seen.has(group + f.name) &&
-          typeof f.data === "string" &&
-          /^[A-Za-z0-9+/]*={0,2}$/.test(f.data) &&
-          typeof f.type === "string" &&
-          f.type.length < 120,
-        "Arquivo inválido no pacote oficial.",
+        validRef(f, group) && !seen.has(group + f.name),
+        group === "migration"
+          ? "Migração inválida no pacote oficial."
+          : "Arquivo inválido no pacote oficial.",
       );
       seen.add(group + f.name);
-      const raw = Buffer.from(f.data, "base64");
+      // O mesmo conteúdo tem o mesmo tamanho em qualquer lugar.
       assertRelease(
-        raw.toString("base64") === f.data && (await digest(raw)) === f.sha256,
+        !sizes.has(f.sha256) || sizes.get(f.sha256) === f.size,
         "Arquivo corrompido no pacote oficial.",
       );
+      sizes.set(f.sha256, f.size);
+      if (group === "module") modulesTotal += f.size;
     }
   }
+  const migrationNames = p.migrations.map((m: BlobRef) => m.name);
+  assertRelease(
+    migrationNames.every(
+      (name: string, i: number) => i === 0 || migrationNames[i - 1] < name,
+    ),
+    "Migrações fora de ordem no pacote oficial.",
+  );
+  assertRelease(
+    modulesTotal <= MAX_MODULES_TOTAL,
+    "O Worker desta versão excede o tamanho permitido.",
+  );
+  assertRelease(
+    [...sizes.values()].reduce((a, b) => a + b, 0) === index.total_size,
+    "O tamanho total do pacote não confere com o índice.",
+  );
   assertRelease(
     p.modules.some(
-      (f: ReleaseFile) =>
+      (f: BlobRef) =>
         f.name === p.main_module && f.type === "application/javascript+module",
     ),
     "Módulo principal inválido.",
   );
+  // Durable Objects e rotas do Worker fixos: o atualizador nunca cria recurso.
   assertRelease(
     JSON.stringify(p.durable_migrations) ===
       JSON.stringify([{ tag: "v1", new_sqlite_classes: ["Coordinator"] }]),
     "Esta versão altera Durable Objects e exige atualização manual.",
   );
-  for (const m of p.migrations) {
-    assertRelease(
-      /^\d{4}_[a-z0-9_]+\.sql$/.test(m.name) &&
-        !seen.has(m.name) &&
-        Array.isArray(m.statements) &&
-        m.statements.length > 0 &&
-        m.statements.length <= 100 &&
-        m.statements.every(
-          (s: unknown) => typeof s === "string" && s.length < 100000,
-        ),
-      "Migração inválida no pacote oficial.",
-    );
-    seen.add(m.name);
-  }
   assertRelease(
     p.assets_config?.not_found_handling === "single-page-application" &&
       JSON.stringify(p.assets_config?.run_worker_first) ===
@@ -197,6 +463,129 @@ export async function parsePackage(
   );
   return p;
 }
+
+export async function fetchManifest(index: ReleaseIndexV2) {
+  validateIndexV2(index);
+  const bytes = await limitedBody(
+    await fetchRelease(manifestPath(index.version)),
+    MAX_MANIFEST,
+  );
+  const signature = await signatureBody(manifestSignaturePath(index.version));
+  return {
+    manifest: await parseManifest(index, bytes, signature),
+    bytes,
+    signature: signature!,
+  };
+}
+
+/** Confere tamanho e SHA-256 de um arquivo baixado ou relido. */
+export async function checkBlob(ref: BlobRef, bytes: Uint8Array) {
+  assertRelease(
+    bytes.length === ref.size && (await digest(bytes)) === ref.sha256,
+    `Arquivo corrompido no pacote oficial (${ref.name}). Nenhuma publicação foi feita.`,
+  );
+  return bytes;
+}
+
+export async function fetchBlob(ref: BlobRef) {
+  // Arquivo vazio: a resposta pode vir sem corpo; o SHA-256 confere o vazio.
+  if (ref.size === 0) return checkBlob(ref, new Uint8Array(0));
+  const r = await fetch(RELEASE_ORIGIN + blobPath(ref.sha256), {
+    redirect: "manual",
+    signal: AbortSignal.timeout(60000),
+  });
+  return checkBlob(ref, await limitedBody(r, Math.min(MAX_BLOB, ref.size)));
+}
+
+/** Arquivos únicos da versão (por SHA-256), em ordem estável. */
+export function uniqueBlobs(m: ReleaseManifest) {
+  const out = new Map<string, BlobRef>();
+  for (const f of [...m.modules, ...m.migrations, ...m.assets])
+    if (!out.has(f.sha256)) out.set(f.sha256, f);
+  return [...out.values()];
+}
+
+/** Próxima rodada: até ROUND_FILES arquivos ou ROUND_BYTES (pelo menos um). */
+export function nextRound<T extends { size: number }>(
+  items: T[],
+  from: number,
+  maxFiles = ROUND_FILES,
+  maxBytes = ROUND_BYTES,
+) {
+  const out: T[] = [];
+  let bytes = 0;
+  for (let i = from; i < items.length && out.length < maxFiles; i++) {
+    if (out.length && bytes + items[i].size > maxBytes) break;
+    out.push(items[i]);
+    bytes += items[i].size;
+  }
+  return out;
+}
+
+export function assetManifestV2(m: ReleaseManifest) {
+  return Object.fromEntries(
+    m.assets.map((f) => [
+      f.name,
+      { hash: f.sha256.slice(0, 32), size: f.size },
+    ]),
+  );
+}
+
+/** Estáticos pedidos pela Cloudflare num lote (até MAX_UPLOAD_BATCH hashes). */
+export function assetsForHashes(m: ReleaseManifest, hashes: unknown) {
+  assertRelease(
+    Array.isArray(hashes) &&
+      hashes.length <= MAX_UPLOAD_BATCH &&
+      hashes.every((h) => typeof h === "string"),
+    "Lote de arquivos inválido.",
+  );
+  return (hashes as string[]).map((hash) => {
+    const f = m.assets.find((file) => file.sha256.slice(0, 32) === hash);
+    assertRelease(
+      f,
+      "A Cloudflare solicitou um arquivo fora da versão escolhida.",
+    );
+    return { hash, file: f! };
+  });
+}
+
+/** Corpo do envio de estáticos (?base64=true), lendo cada arquivo só aqui. */
+export async function assetUploadV2(
+  items: { hash: string; file: BlobRef }[],
+  read: (ref: BlobRef) => Promise<Uint8Array>,
+) {
+  const body = new FormData();
+  for (const { hash, file } of items)
+    body.set(
+      hash,
+      new Blob([Buffer.from(await read(file)).toString("base64")], {
+        type: file.type,
+      }),
+      hash,
+    );
+  return body;
+}
+
+/** Instruções SQL de um blob de migração (JSON: lista de textos). */
+export function migrationStatements(ref: BlobRef, bytes: Uint8Array) {
+  let statements: unknown;
+  try {
+    statements = JSON.parse(Buffer.from(bytes).toString("utf8"));
+  } catch {
+    statements = null;
+  }
+  assertRelease(
+    Array.isArray(statements) &&
+      statements.length > 0 &&
+      statements.length <= 100 &&
+      statements.every((s) => typeof s === "string" && s.length < 100000),
+    `Migração inválida no pacote oficial (${ref.name}).`,
+  );
+  return statements as string[];
+}
+
+// ---------------------------------------------------------------------------
+// Cloudflare
 
 export class CloudflareCallError extends Error {
   constructor(
@@ -251,12 +640,38 @@ export async function releaseCloudflare(
       method !== "GET",
     );
   }
-  if (!r.ok || data.success !== true)
+  if (!r.ok || data.success !== true) {
+    const detail = cloudflareErrorDetail(data);
     throw new CloudflareCallError(
-      `Cloudflare HTTP ${r.status}. Confira a conta e a permissão Workers Scripts: Edit do token.`,
+      `Cloudflare HTTP ${r.status}${detail ? ` (${detail})` : ""}.` +
+        (r.status === 401 || r.status === 403
+          ? " Confira a conta e a permissão Workers Scripts: Edit do token."
+          : ""),
       method !== "GET" && !(r.status >= 400 && r.status < 500),
     );
+  }
   return data.result;
+}
+/**
+ * Código e mensagem que a Cloudflare devolveu em `errors[]`, para quem lê o
+ * erro no painel. O atualizador decide a nova tentativa lendo "HTTP NNN" no
+ * texto do erro (updates.ts); por isso a mensagem de fora não pode trazer
+ * "HTTP" em maiúsculas, que mudaria essa decisão.
+ */
+export function cloudflareErrorDetail(data: any) {
+  const errors = Array.isArray(data?.errors) ? data.errors.slice(0, 3) : [];
+  return errors
+    .map((e: any) => {
+      const code = String(e?.code ?? "").replace(/[^\d]/g, "");
+      const message = String(e?.message ?? "")
+        .replace(/[\u0000-\u001f\u007f]+/g, " ")
+        .replace(/HTTP/gi, "http")
+        .trim()
+        .slice(0, 160);
+      return [code && `código ${code}`, message].filter(Boolean).join(": ");
+    })
+    .filter(Boolean)
+    .join("; ");
 }
 export function scriptPath(account: string, worker: string) {
   assertRelease(
@@ -317,42 +732,18 @@ export function validateInstalledSettings(
   );
   return settings;
 }
-export function assetManifest(pkg: ReleasePackage) {
-  return Object.fromEntries(
-    pkg.assets.map((f) => [
-      f.name,
-      {
-        hash: f.sha256.slice(0, 32),
-        size: Buffer.from(f.data, "base64").length,
-      },
-    ]),
-  );
-}
-export function assetUpload(pkg: ReleasePackage, hashes: string[]) {
-  const body = new FormData();
-  assertRelease(
-    Array.isArray(hashes) && hashes.length <= 100,
-    "Lote de arquivos inválido.",
-  );
-  for (const hash of hashes) {
-    const f = pkg.assets.find((file) => file.sha256.slice(0, 32) === hash);
-    assertRelease(
-      f,
-      "A Cloudflare solicitou um arquivo fora da versão escolhida.",
-    );
-    body.set(hash, new Blob([f.data], { type: f.type }), hash);
-  }
-  return body;
-}
-export function workerUpload(
-  pkg: ReleasePackage,
+
+/** Corpo da publicação do Worker: módulos lidos sob demanda. */
+export async function workerUploadV2(
+  m: ReleaseManifest,
   settings: any,
   completionToken: string,
+  read: (ref: BlobRef) => Promise<Uint8Array>,
 ) {
   const metadata: Record<string, unknown> = {
-    main_module: pkg.main_module,
-    compatibility_date: pkg.compatibility_date,
-    compatibility_flags: pkg.compatibility_flags,
+    main_module: m.main_module,
+    compatibility_date: m.compatibility_date,
+    compatibility_flags: m.compatibility_flags,
     bindings: [{ type: "assets", name: "ASSETS" }],
     keep_bindings: [
       ...new Set(
@@ -361,9 +752,9 @@ export function workerUpload(
           .filter((t: string) => t !== "assets"),
       ),
     ],
-    assets: { jwt: completionToken, config: pkg.assets_config },
+    assets: { jwt: completionToken, config: m.assets_config },
     annotations: {
-      "workers/message": `Wabotia ${pkg.version} · ${pkg.commit.slice(0, 12)}`,
+      "workers/message": `Wabotia ${m.version} · ${m.commit.slice(0, 12)}`,
     },
   };
   for (const key of [
@@ -381,10 +772,10 @@ export function workerUpload(
     "metadata",
     new Blob([JSON.stringify(metadata)], { type: "application/json" }),
   );
-  for (const f of pkg.modules)
+  for (const f of m.modules)
     body.set(
       f.name,
-      new Blob([Buffer.from(f.data, "base64")], { type: f.type }),
+      new Blob([(await read(f)) as Uint8Array<ArrayBuffer>], { type: f.type }),
       f.name,
     );
   return body;
