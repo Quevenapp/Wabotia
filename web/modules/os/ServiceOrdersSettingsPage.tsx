@@ -1,6 +1,7 @@
 // Gestão → Ordem de serviço: termos, mensagens ao cliente, validade padrão do
 // orçamento, garantia e avisos; e os itens do menu do WhatsApp do módulo.
 import React, { useState } from "react";
+import { hasWorkMenu } from "../../menu-tree";
 import { Check, Plus } from "lucide-react";
 import { useApp } from "../../app/AppContext";
 import { useAction, useUnsavedGuard } from "../../app/hooks";
@@ -77,7 +78,7 @@ export function ServiceOrdersSettingsPage() {
       texts: { ...current.texts, [key]: value },
     }));
   const menus: Row[] = app.settings.menus || [];
-  const inMenu = (type: string) => menus.some((item) => item.type === type);
+  const inMenu = (type: string) => hasWorkMenu(menus, type);
   return (
     <>
       <Card
@@ -106,12 +107,7 @@ export function ServiceOrdersSettingsPage() {
                     void run(
                       async () => {
                         const latest = await app.api(app.root + "/menus");
-                        if (
-                          (latest.data || []).some(
-                            (item: Row) => item.type === entry.type,
-                          )
-                        )
-                          return;
+                        if (hasWorkMenu(latest.data || [], entry.type)) return;
                         await app.api(app.root + "/settings", "PUT", {
                           menus: [
                             ...(latest.data || []),

@@ -1,0 +1,270 @@
+import React, { useState } from "react";
+import { useApp } from "../../../app/AppContext";
+import { Pager } from "../../../admin/shared";
+import { Button, Field, Empty } from "../../../ui";
+import { linkProps, navigate, useRoute } from "../../../lib/routes";
+import {
+  ResourceState,
+  useWorkApi,
+  useWorkResource,
+  instantLabel,
+} from "../work-hooks";
+import type { WorkTypeCatalog, WorkTypeView } from "../work-contracts";
+import { money } from "../shared";
+import { StagePill } from "../components/StagePill";
+import { ServiceOrdersPage } from "../ServiceOrdersPage";
+import { WorkFormDialog } from "./WorkFormDialog";
+import { WorkDetailPage } from "./WorkDetailPage";
+import { workCollectionLabel, hasCustomTypes } from "../work-vocabulary";
+import "../work.css";
+
+function WorkList({
+  type,
+  catalog,
+}: {
+  type: WorkTypeView;
+  catalog: WorkTypeCatalog;
+}) {
+  const app = useApp(),
+    api = useWorkApi(),
+    route = useRoute();
+  const [cursor, setCursor] = useState(""),
+    [opening, setOpening] = useState(false);
+  const filters = route.filters || {};
+  const [search, setSearch] = useState(filters.q || "");
+  const resource = useWorkResource(
+    app.root + "/list/" + type.id + JSON.stringify(filters) + cursor,
+    () =>
+      api.orders({
+        type_id: type.id,
+        stage: filters.stage,
+        q: filters.q,
+        open: filters.stage
+          ? undefined
+          : filters.open === "0"
+            ? undefined
+            : "1",
+        facets: "1",
+        cursor,
+        limit: "50",
+      }),
+  );
+  const filter = (next: Record<string, string>) => {
+    setCursor("");
+    navigate({
+      area: "admin",
+      page: "work",
+      typeId: type.id,
+      filters: { ...filters, ...next },
+    });
+  };
+  return (
+    <div className="os-work">
+      <div className="os-work-toolbar">
+        <h2>{type.labels.plural}</h2>
+        {catalog.data.length > 1 && (
+          <Field
+            label="Tipo de trabalho"
+            value={type.id}
+            emptyOption={null}
+            options={catalog.data.map((t) => ({
+              id: t.id,
+              name: t.labels.plural + (t.archived ? " (arquivado)" : ""),
+            }))}
+            onChange={(typeId) =>
+              navigate({ area: "admin", page: "work", typeId })
+            }
+          />
+        )}
+        <Button disabled={type.archived} onClick={() => setOpening(true)}>
+          Criar: {type.labels.singular}
+        </Button>
+        {type.features.tasks && (
+          <a {...linkProps({ area: "admin", page: "my-deadlines" })}>
+            Meus prazos
+          </a>
+        )}
+      </div>
+      <form
+        className="os-work-toolbar"
+        onSubmit={(event) => {
+          event.preventDefault();
+          filter({ q: search });
+        }}
+      >
+        <Field
+          label={`Buscar por número, ${type.labels.customer_singular.toLowerCase()} ou ${type.labels.item.toLowerCase()}`}
+          value={search}
+          onChange={setSearch}
+        />
+        <Button type="submit" secondary>
+          Buscar
+        </Button>
+        <Field
+          label="Etapa"
+          value={filters.stage || (filters.open === "0" ? "all" : "open")}
+          emptyOption={null}
+          options={[
+            { id: "open", name: "Abertas" },
+            { id: "all", name: "Todas" },
+            ...type.stages.map((stage) => ({
+              id: stage.id,
+              name: `${stage.label}${resource.data?.facets?.stages?.[stage.id] === undefined ? "" : ` (${resource.data.facets.stages[stage.id]})`}`,
+            })),
+          ]}
+          onChange={(value) =>
+            filter({
+              stage: ["all", "open"].includes(value) ? "" : value,
+              open: value === "open" ? "1" : "0",
+            })
+          }
+        />
+        <Button
+          secondary
+          onClick={() => {
+            setSearch("");
+            filter({ q: "", stage: "", open: "1" });
+          }}
+        >
+          Limpar filtros
+        </Button>
+      </form>
+      <ResourceState resource={resource} />
+      {resource.data && (
+        <>
+          <ul className="os-work-records">
+            {resource.data.data.map((order) => (
+              <li className="os-work-record" key={order.id}>
+                <a
+                  {...linkProps({
+                    area: "admin",
+                    page: "work",
+                    typeId: order.type_id,
+                    id: order.id,
+                    filters,
+                  })}
+                >
+                  <strong>
+                    {order.display_number} · {order.item}
+                  </strong>
+                </a>
+                <StagePill status={order.status} label={order.stage_label} />
+                <span>
+                  {type.labels.customer_singular}: {order.customer.name}
+                </span>
+                {type.features.quote && (
+                  <span>Orçamento: {money(order.quote?.total_cents)}</span>
+                )}
+                <span>
+                  Responsável:{" "}
+                  {order.assignee
+                    ? app.names[order.assignee] || order.assignee
+                    : "Sem responsável"}
+                </span>
+                <span>
+                  Prazo geral: {instantLabel(order.due_at)}{" "}
+                  {order.due_at &&
+                  order.due_at < app.now &&
+                  !["delivered", "cancelled"].includes(order.status)
+                    ? "· Atrasado"
+                    : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {!resource.data.data.length && (
+            <Empty
+              title={`Nenhum registro em ${type.labels.plural}`}
+              description="Revise os filtros ou crie um trabalho."
+            />
+          )}
+          <Pager
+            cursor={cursor}
+            nextCursor={resource.data.next_cursor}
+            setCursor={setCursor}
+          />
+        </>
+      )}
+      {opening && (
+        <WorkFormDialog
+          type={type}
+          onClose={() => setOpening(false)}
+          onSaved={(order) => {
+            setOpening(false);
+            navigate({
+              area: "admin",
+              page: "work",
+              typeId: order.type_id,
+              id: order.id,
+              filters,
+            });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+export function WorkPage() {
+  const app = useApp(),
+    route = useRoute(),
+    api = useWorkApi();
+  const catalog = useWorkResource(
+    app.root + "/work-catalog/" + (app.status.settings_revision || ""),
+    () => api.types(true),
+  );
+  // A entrada antiga continua imediata e idêntica nas instalações sem tipos novos.
+  const configured = (app.settings.os_work_types || []).length > 0;
+  if (
+    route.page === "service-orders" &&
+    !configured &&
+    (!catalog.data || !hasCustomTypes(catalog.data.data))
+  )
+    return <ServiceOrdersPage />;
+  if (!catalog.data) return <ResourceState resource={catalog} />;
+  if (route.id)
+    return <WorkDetailPage key={app.profile + route.id} workId={route.id} />;
+  const type =
+    catalog.data.data.find((type) => type.id === route.typeId) ||
+    (!route.typeId
+      ? catalog.data.data.find(
+          (type) => !type.archived && type.kind === "custom",
+        ) || catalog.data.data[0]
+      : undefined);
+  if (!type)
+    return (
+      <Empty
+        title="Tipo não disponível"
+        description="Este tipo não está disponível para seu acesso."
+      />
+    );
+  if (type.kind === "builtin")
+    return (
+      <div className="os-work">
+        {hasCustomTypes(catalog.data.data) && (
+          <Field
+            label={workCollectionLabel(
+              catalog.data.data,
+              app.settings.os_vocabulary,
+            )}
+            value={type.id}
+            options={catalog.data.data.map((t) => ({
+              id: t.id,
+              name: t.labels.plural,
+            }))}
+            emptyOption={null}
+            onChange={(typeId) =>
+              navigate({ area: "admin", page: "work", typeId })
+            }
+          />
+        )}
+        <ServiceOrdersPage />
+      </div>
+    );
+  return (
+    <WorkList
+      key={type.id + JSON.stringify(route.filters)}
+      type={type}
+      catalog={catalog.data}
+    />
+  );
+}

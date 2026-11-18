@@ -215,3 +215,8 @@ export function menuTree(items: MenuItem[]): MenuTreeNode[] {
     if (!used.has(item.id)) roots.push(node(item, true));
   return roots;
 }
+
+/** OS antiga sem referência equivale ao tipo embutido. */
+export function hasWorkMenu(items: { type?: string; type_id?: string }[], type: string, typeId = "service_order") {
+  return items.some(item => item.type === type && (item.type_id || "service_order") === typeId);
+}
