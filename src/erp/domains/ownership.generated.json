@@ -2080,11 +2080,11 @@
    },
    "erp_fiscal_invoices.edit_locks": {
     "name": "editLocks",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.guard_invoice": {
     "name": "guardInvoice",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.import_input": {
     "name": "importInput",
@@ -2096,7 +2096,7 @@
    },
    "erp_fiscal_invoices.invoice_envelope": {
     "name": "invoiceEnvelope",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.invoice_input": {
     "name": "invoiceInput",
@@ -2104,7 +2104,7 @@
    },
    "erp_fiscal_invoices.invoice_record": {
     "name": "invoiceRecord",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.invoice_specs": {
     "name": "invoiceSpecs",
@@ -2124,11 +2124,11 @@
    },
    "erp_fiscal_invoices.list_query": {
     "name": "listQuery",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.list_rows": {
     "name": "listRows",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.money_input": {
     "name": "moneyInput",
@@ -2140,7 +2140,7 @@
    },
    "erp_fiscal_invoices.order_effects": {
     "name": "orderEffects",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.orders_finance_locked": {
     "name": "ordersFinanceLocked",
@@ -2148,7 +2148,7 @@
    },
    "erp_fiscal_invoices.origin_seller_ids": {
     "name": "originSellerIds",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.origin_status": {
     "name": "originStatus",
@@ -2216,7 +2216,7 @@
    },
    "erp_fiscal_invoices.status_group": {
     "name": "statusGroup",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.store_items": {
     "name": "storeItems",
@@ -2248,7 +2248,7 @@
    },
    "erp_fiscal_mirror.coverage": {
     "name": "coverage",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_mirror.native_visible": {
     "name": "nativeVisible",
