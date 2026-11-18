@@ -94,7 +94,7 @@ registerRpc("erp_stock_transfer_batch", (ctx, a) => {
   }
   if (commandTaken(db, command)) raise("40001", "erp_stock_transfer_batch_conflict");
   let day: string | null = null, finalNote: string | null = null;
-  const lines = [...items].sort((a, b) => String(a.product_id).localeCompare(String(b.product_id))).map(line => {
+  const lines = [...items].sort((a, b) => pgCompareText(String(a.product_id), String(b.product_id))).map(line => {
     let lot = null;
     if ("lot_id" in line) {
       if (lotProductProblem(db, String(line.product_id)) !== null) raise("22023", "erp_stock_lot_control_off");
