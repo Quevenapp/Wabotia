@@ -174,10 +174,14 @@ for (const template of templates) {
       }
     });
 
-    it("protege todos os dados adicionais do aluno e usa apenas o número nas mensagens", () => {
+    it("protege inclusive o nome do aluno e usa apenas o número nas mensagens", () => {
       for (const type of template.work_types) {
         expect(type.fields.length).toBeGreaterThan(0);
-        expect(type.labels.item).toBe("Nome do aluno");
+        expect(type.labels.item).toBe("Referência administrativa (sem dados pessoais)");
+        expect(type.fields.find((field) => field.id === "nome_aluno")).toMatchObject({
+          label: "Nome do aluno", kind: "text",
+          sensitive: true, client_visible: false, required: false,
+        });
         expect(type.labels.problem).toContain("sem dados do aluno");
         for (const field of type.fields) {
           expect(field.sensitive).toBe(true);
@@ -213,6 +217,8 @@ for (const template of templates) {
       expect(template.bot.allowed_operations).toEqual([]);
       expect(template.bot.suggested_roles).toEqual([]);
       expect(template.bot.denied_operations).toContain("os.");
+      expect(JSON.stringify(template)).not.toContain("além do nome");
+      expect(template.texts.instructions).toContain("Não informe nomes");
     });
 
     it("mantém IDs únicos por coleção e referências de menus válidas", () => {

@@ -18,16 +18,27 @@ export const professoresTemplate: AreaTemplate = {
       labels: {
         singular: "Aluno",
         plural: "Alunos",
-        item: "Nome do aluno",
+        item: "Referência administrativa (sem dados pessoais)",
         problem: "Assunto administrativo (sem dados do aluno)",
         customer_singular: "Aluno ou responsável",
         customer_plural: "Alunos e responsáveis",
       },
       number_prefix: "ALU",
       terms:
-        "Solicito atendimento para aulas particulares. Antes do início, receberei as condições de quantidade, duração, preço, validade e remarcação. Entendo que este pedido não confirma horário nem contratação. Quando o aluno for menor, o professor conferirá o responsável autorizado. No assunto, informarei apenas um título administrativo, como Interesse em aulas. Disciplina, objetivo e demais dados do aluno serão tratados em canal privado.",
+        "Solicito atendimento para aulas particulares. Antes do início, receberei as condições de quantidade, duração, preço, validade e remarcação. Entendo que este pedido não confirma horário nem contratação. Quando o aluno for menor, o professor conferirá o responsável autorizado. Na referência e no assunto, informarei apenas títulos administrativos, como Interesse em aulas, sem nomes ou dados pessoais. Nome, disciplina, objetivo e demais dados do aluno serão tratados em canal privado.",
       // Classificação conservadora também para adultos: não depende da idade.
       fields: [
+        {
+          id: "nome_aluno",
+          label: "Nome do aluno",
+          help: "Coletado em canal protegido pela equipe autorizada. Não copiar para referência, assunto ou mensagens.",
+          required: false,
+          client_visible: false,
+          sensitive: true,
+          kind: "text",
+          multiline: false,
+          max_length: 200,
+        },
         {
           id: "disciplina",
           label: "Disciplina",
@@ -407,7 +418,7 @@ export const professoresTemplate: AreaTemplate = {
   ],
   texts: {
     instructions:
-      "Informe o nome do aluno e um assunto administrativo genérico. Disciplina, objetivo e demais dados serão conferidos em atendimento privado. Saldo, reposição e contratação dependem de confirmação do professor.",
+      "Informe uma referência e um assunto administrativos genéricos, como Interesse em aulas. Não informe nomes ou dados pessoais nesses campos nem neste chat. Nome, disciplina, objetivo e demais dados serão conferidos em canal protegido e registrados em campos privados pela equipe autorizada. Saldo, reposição e contratação dependem de confirmação do professor.",
     menu_greeting:
       "Olá! Escolha Quero começar, Aulas e horários, Mensalidades e segunda via ou Falar com o professor. Para consultar saldo ou pedir reposição, use Pacote e reposições.",
     protocol_confirmation:
@@ -433,7 +444,7 @@ export const professoresTemplate: AreaTemplate = {
     "Avisos por etapa não são suportados pelo contrato; paralisação fica desligada para não cobrar aulas ativas ou pausadas. A etapa Revisão do pacote usa ready sem lembrete de retirada e sem garantia.",
     "Registrar pacote contratado, aula realizada, ausência, remarcação, reposição e ajuste com referência ao encontro e à contratação. Conferir saldo manualmente; agendamento, pagamento e alteração de campos não criam ou consomem créditos. Não debitar reposição duas vezes.",
     "Cancelamento pelo professor não consome outra aula; confirmar reposição. Falta, pausa, cancelamento do acompanhamento e reembolso exigem decisão humana e revisão financeira, sem alterar a assinatura automaticamente.",
-    "Vincular aluno, professor e responsáveis pedagógico e financeiro após conferência. Vínculos não concedem acesso. Classificar como sensíveis pessoas, tarefas, documentos e lançamentos com dados de menores além do nome; não copiar observações para assunto, mensagens ou histórico.",
+    "Vincular aluno, professor e responsáveis pedagógico e financeiro após conferência. Vínculos não concedem acesso. Classificar como sensíveis pessoas, tarefas, documentos e lançamentos com dados de menores, inclusive o nome. Coletar o nome em canal protegido e registrá-lo somente no campo privado Nome do aluno; não copiar para referência, assunto, mensagens ou histórico.",
     "Revisar condições contratadas, plano de estudos, material e resumo antes de compartilhar. Documentos de representação e registros pedagógicos internos permanecem privados; informações sensíveis não são enviadas pelo WhatsApp.",
     "Definir aviso de privacidade, finalidades e guarda; configurar canal privado e acesso humano explícito aos dados sensíveis. Não registrar diagnóstico, laudo ou dados de saúde nas observações.",
     "Manter bot desligado até separar informações públicas de conversas e documentos protegidos. Conferir permissões reais: sugestões do modelo não são barreiras de autorização e não concedem papéis.",

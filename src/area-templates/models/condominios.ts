@@ -5,17 +5,17 @@ import type {
 } from "../../modules/os/contracts";
 
 // IDs globais são locais ao manifesto; o aplicador acrescenta area_condominios__.
-// A unidade é informação declarada, nunca uma autorização de acesso.
+// A unidade é informação residencial sensível, nunca autorização de acesso.
 const unidade: WorkField = {
   id: "unidade",
   label: "Unidade (bloco e número)",
-  help: "Informe o bloco e o número, por exemplo: Bloco A, 101. Sem blocos, use Bloco único. A equipe conferirá a informação.",
+  help: "Coletar bloco e número em canal protegido e registrar somente neste campo privado. Não copiar para campos comuns ou mensagens. A equipe conferirá o vínculo.",
   kind: "text",
   multiline: false,
   max_length: 120,
-  required: true,
-  client_visible: true,
-  sensitive: false,
+  required: false,
+  client_visible: false,
+  sensitive: true,
 };
 
 const recursos: WorkFeatures = {
@@ -38,7 +38,7 @@ export const condominiosTemplate: AreaTemplate = {
   version: 1,
   name: "Condomínios",
   description:
-    "Ocorrências, encomendas, visitas e mudanças ou obras, com unidade informada em cada solicitação e conferência manual pela equipe. Não inclui cadastro de unidades, moradores ou assembleias.",
+    "Ocorrências, encomendas, visitas e mudanças ou obras, com unidade coletada em canal protegido e conferência manual pela equipe. Não inclui cadastro de unidades, moradores ou assembleias.",
   work_types: [
     {
       schema_version: 1,
@@ -432,7 +432,7 @@ export const condominiosTemplate: AreaTemplate = {
       },
       number_prefix: "VIS",
       terms:
-        "Solicito a análise de acesso à unidade informada. A portaria conferirá minha autorização para solicitar, a pessoa e o período por atendimento reservado. A entrada depende dessa conferência e das regras do condomínio. Não informe nomes, placas ou documentos nos campos de abertura. Se houver mudança de pessoa ou horário, solicite revisão antes da entrada.",
+        "Solicito a análise de acesso. A portaria conferirá a unidade, minha autorização para solicitar, a pessoa e o período por atendimento reservado. A entrada depende dessa conferência e das regras do condomínio. Não informe bloco, número da unidade, nomes, placas ou documentos nos campos de abertura. Se houver mudança de pessoa ou horário, solicite revisão antes da entrada.",
       fields: [
         { ...unidade },
         {
@@ -1066,19 +1066,19 @@ export const condominiosTemplate: AreaTemplate = {
     },
   ],
   texts: {
-    instructions: "Atenda somente os registros autorizados para a conversa. Confira manualmente a unidade e o solicitante antes de autorizar visitas, intervenções ou retirada. Use campos privados para dados reservados e revise documentos antes de compartilhar.",
-    menu_greeting: "Olá! Este é o atendimento do condomínio. Você pode abrir e acompanhar solicitações e consultar suas encomendas. Informe o bloco e o número da unidade ao abrir um pedido; a equipe fará a conferência. Para outras necessidades, selecione Falar com equipe.",
+    instructions: "Atenda somente os registros autorizados para a conversa. Colete e confira unidade e solicitante em canal protegido antes de autorizar visitas, intervenções ou retirada. Registre bloco e número somente no campo privado Unidade, nunca nos campos comuns ou mensagens. Revise documentos antes de compartilhar.",
+    menu_greeting: "Olá! Este é o atendimento do condomínio. Você pode abrir e acompanhar solicitações e consultar suas encomendas. Não informe bloco ou número da unidade nos campos de abertura nem neste chat; a equipe fará a coleta em canal protegido. Para outras necessidades, selecione Falar com equipe.",
     protocol_confirmation: "Recebemos seu pedido. A equipe fará a conferência e informará o próximo passo. O registro não autoriza entrada, obra, retirada ou cobrança.",
   },
   bot: {
-    instructions: "Você é o assistente de atendimento do condomínio. Responda em português do Brasil, com frases curtas. Use somente regras publicadas e resultados de ferramentas autorizadas. Ao citar uma regra, informe o documento e a seção; se faltar informação, encaminhe à administração. A unidade digitada é apenas uma declaração, não prova vínculo. Compartilhar unidade não dá acesso aos registros de outra pessoa. Mostre somente o que estiver autorizado para esta conversa. Oriente a abertura pelo menu e diga solicitação registrada enquanto faltar decisão humana. Não peça nem reproduza nomes de visitantes, placas, documentos pessoais, conteúdo de encomendas, relatos reservados ou dados de menores. Encaminhe a captura desses dados para atendimento reservado e painel autenticado da equipe. Não autorize entrada, obra ou retirada; não registre presença física, não decida multas, descontos ou baixas e não altere cadastros. Comprovante não confirma pagamento. Não interprete procurações nem registre votos. Este modelo não oferece cadastro de moradores, seleção validada de unidade, comunicados segmentados ou assembleias. Em risco imediato, oriente a acionar a portaria e o serviço de emergência adequado, sem prometer resposta imediata ou alerta automático. Nunca revele dados de outra unidade, códigos de acesso, localização de chaves ou rotina de presença. As permissões sugeridas precisam ser revisadas; estas instruções não substituem a autorização do servidor.",
+    instructions: "Você é o assistente de atendimento do condomínio. Responda em português do Brasil, com frases curtas. Use somente regras publicadas e resultados de ferramentas autorizadas. Ao citar uma regra, informe o documento e a seção; se faltar informação, encaminhe à administração. A unidade digitada é apenas uma declaração, não prova vínculo. Compartilhar unidade não dá acesso aos registros de outra pessoa. Mostre somente o que estiver autorizado para esta conversa. Oriente a abertura pelo menu e diga solicitação registrada enquanto faltar decisão humana. Não peça nem reproduza bloco, número da unidade, nomes de visitantes, placas, documentos pessoais, conteúdo de encomendas, relatos reservados ou dados de menores. Encaminhe a captura desses dados para atendimento reservado e painel autenticado da equipe. Não autorize entrada, obra ou retirada; não registre presença física, não decida multas, descontos ou baixas e não altere cadastros. Comprovante não confirma pagamento. Não interprete procurações nem registre votos. Este modelo não oferece cadastro de moradores, seleção validada de unidade, comunicados segmentados ou assembleias. Em risco imediato, oriente a acionar a portaria e o serviço de emergência adequado, sem prometer resposta imediata ou alerta automático. Nunca revele dados de outra unidade, códigos de acesso, localização de chaves ou rotina de presença. As permissões sugeridas precisam ser revisadas; estas instruções não substituem a autorização do servidor.",
     allowed_operations: [],
     denied_operations: ["os.", "reserva.", "mensalidade.", "payment.", "form."],
     suggested_roles: [],
   },
   manual_steps: [
     "Confirme uma área por condomínio e revise na prévia os módulos que serão desligados. O modelo não cria cadastro de blocos, unidades, moradores ou assembleias.",
-    "Confira manualmente bloco, número, solicitante e telefone autorizado de cada registro. Use Bloco único quando necessário. A unidade é obrigatória, visível ao titular e não sensível neste modelo; nunca a use como prova de vínculo ou para compartilhar registros.",
+    "Colete e confira bloco, número, solicitante e telefone autorizado em canal protegido. A unidade é opcional, sensível e interna; registre-a somente no campo privado, com acesso humano explícito os:sensitive. Não copie para referência, descrição, mensagens ou formulários comuns. Nunca use a unidade declarada como prova de vínculo ou para compartilhar registros. Se a abertura precisar exigir unidade, aguarde o fluxo próprio da extensão.",
     "Defina responsáveis humanos por Portaria, Administração, Manutenção, Síndico e Financeiro. Setores não concedem permissões. O motor não aplica papéis exclusivos por tipo ou etapa; revise os acessos antes de operar e não prometa isolamento da portaria por este modelo.",
     "Revise a concessão explícita os:sensitive para a equipe que tratará dados reservados. Campos sensíveis são opcionais e ocultos ao cliente; a equipe deve preenchê-los pelo painel autenticado quando necessários. Não copie esses valores para item, descrição, notas comuns, tarefas públicas ou mensagens.",
     "Em ocorrências, confira local e risco imediatamente; defina responsável na triagem em até 1 dia; confirme horário e acesso antes da visita; registre execução em até 1 dia; confira a solução em até 2 dias. Crie as tarefas manualmente. O campo de risco não dispara alerta automático.",
