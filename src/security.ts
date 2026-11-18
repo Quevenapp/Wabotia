@@ -311,19 +311,17 @@ export const MOBILE_TOKEN_PREFIX = "wabu_";
 /**
  * Escopos de uma chave de aplicação na autenticação. `conversations:bound` e
  * `conversations:all` são internos e nunca valem numa chave (o MCP HTTP saiu).
- * Falha fechada: uma chave antiga que era presa às conversas do bot
- * (`conversations:bound`) não ganha a área inteira ao perder a restrição;
- * perde os escopos de conversa e o administrador emite uma chave nova, com o
- * alcance escolhido. `conversations:all` era só a marcação de área inteira:
- * cai, e o resto fica.
+ * Falha fechada: uma chave antiga presa às conversas do bot
+ * (`conversations:bound`) só alcançava as rotas da conversa atendida
+ * (BOUND_ROUTES). Sem a restrição, qualquer escopo dela (contatos,
+ * protocolos, relatórios…) valeria na área inteira; por isso fica sem
+ * escopo nenhum, e o administrador emite uma chave nova com o alcance
+ * escolhido. `conversations:all` era só a marcação de área inteira: cai, e
+ * o resto fica.
  */
 export function legacyKeyScopes(scopes: string[]) {
-  const bound = scopes.includes("conversations:bound");
-  return scopes.filter(
-    (scope) =>
-      !["conversations:bound", "conversations:all"].includes(scope) &&
-      !(bound && scope.startsWith("conversations:")),
-  );
+  if (scopes.includes("conversations:bound")) return [];
+  return scopes.filter((scope) => scope !== "conversations:all");
 }
 
 export async function authenticate(

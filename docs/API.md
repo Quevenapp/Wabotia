@@ -18,7 +18,7 @@ Permissões: `conversations:read/write`, `contacts:read/write`, `notes:read`, `t
 
 `conversations:bound` é um escopo **interno** do ator do bot preso à conversa, construído pelo servidor. Não pode ser emitido ou editado em chave de aplicação (`400 scope_internal`). Chave antiga com esses escopos:
 - `conversations:all` (marcação de área inteira) é ignorado e valem as outras permissões da aplicação;
-- `conversations:bound` (chave presa às conversas do bot) não vira acesso à área inteira: a chave perde todos os escopos `conversations:*`, e o administrador emite uma chave nova com o alcance desejado.
+- `conversations:bound` (chave presa às conversas do bot) não vira acesso à área inteira: a chave fica sem escopo nenhum (antes os outros escopos dela só valiam na conversa atendida), e o administrador emite uma chave nova com o alcance desejado.
 
 Nenhuma chave de API cria um ator preso à conversa.
 

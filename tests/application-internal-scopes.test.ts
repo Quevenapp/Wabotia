@@ -62,7 +62,13 @@ describe("escopos internos não são credenciais de API", () => {
       const f = await fixture();
       const botId = await bot(f);
       // application insere a linha diretamente por SQL: simula uma instalação antiga.
-      const app = await application(f, [...legacy, "conversations:read"]);
+      const app = await application(f, [
+        ...legacy,
+        "conversations:read",
+        ...(legacy.includes("conversations:bound")
+          ? ["contacts:read", "tickets:read"]
+          : []),
+      ]);
       await exec(
         env,
         "UPDATE applications SET bots=? WHERE id=?",
@@ -91,9 +97,11 @@ describe("escopos internos não são credenciais de API", () => {
       expect(isBound(actor)).toBe(false);
       if (legacy.includes("conversations:bound")) {
         // Falha fechada: a chave presa às conversas do bot não ganha a área
-        // inteira; perde os escopos de conversa.
+        // inteira; fica sem escopo nenhum (nem contatos nem protocolos).
         expect(actor.scopes).toEqual([]);
         for (const path of [
+          `/profiles/${f.profile}/contacts`,
+          `/profiles/${f.profile}/tickets`,
           `/profiles/${f.profile}/conversations`,
           `/profiles/${f.profile}/conversations/${owned.id}`,
           `/profiles/${f.profile}/conversations/${unrelated.id}`,
