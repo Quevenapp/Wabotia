@@ -27,7 +27,7 @@ function reportWarehouse(db: SqlDriver, warehouse: string | null) {
 }
 const days = (d: string) => Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10)) / 86400000;
 /** erp_stock.report_period: até 3660 dias, entre 1900 e 2100. */
-function reportPeriod(from: string | null, to: string | null) {
+export function reportPeriod(from: string | null, to: string | null) {
   if (from === null || to === null || from > to || from < "1900-01-01" || to > "2100-12-31" || days(to) - days(from) > 3660)
     raise("22023", "erp_stock_invalid_query");
 }

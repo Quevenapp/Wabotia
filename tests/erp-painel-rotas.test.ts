@@ -412,8 +412,8 @@ describe("painel do ERP contra a rota real", () => {
     "ação de tela sem motor (0A000) avisa a casca em vez de só falhar",
     { timeout: 120_000 },
     async () => {
-      // Salvar componentes do item (erp_stock_item_components_save) ainda não
-      // tem motor. A rota valida o corpo e chama diretamente o RPC.
+      // Aplicar importação do Catálogo (erp_catalog_import_apply) não está registrado.
+      // O POST /v1/importacao-cadastros/products/apply chama o RPC sem leitura prévia.
       const { f, send, get } = await setup();
       // Primeira ida ao motor no isolado (rodando só este teste): fora da espera do controlador.
       await get(await bearer(f.admin), "/erp/v1/inicio");
@@ -428,11 +428,11 @@ describe("painel do ERP contra a rota real", () => {
           f.admin.id,
           async (controller) => {
             const failure = await controller
-              .stock(
-                `/v1/estoque/composicoes/itens/${crypto.randomUUID()}`,
+              .catalogImport(
+                "/v1/importacao-cadastros/products/apply",
                 {
                   method: "POST",
-                  body: { command_id: crypto.randomUUID(), document_id: crypto.randomUUID(), expected_document_version: 1, expected_version: 0, components: null },
+                  body: { command_id: crypto.randomUUID(), preview_hash: "0".repeat(64), items: [{ source_id: "1", source_hash: "0".repeat(64) }] },
                 },
               )
               .then(

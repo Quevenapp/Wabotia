@@ -74,6 +74,58 @@ export const discardTables = {};
 export const covered = {
   "checks": {},
   "triggers": {
+    "erp_stock__composition.guard_stock_composition": {
+      "where": "src/erp/domains/stock/rpc/compositions.ts erpStockProductCompose: único escritor, versão inicial 1, avanço unitário, identidade preservada e comando novo",
+      "test": "tests/erp/stock/compositions.test.mjs"
+    },
+    "erp_stock__composition_item.guard_stock_composition_item": {
+      "where": "src/erp/domains/stock/rpc/compositions.ts erpStockProductCompose: insere somente itens da versão e comando recém-gravados, preserva versões anteriores",
+      "test": "tests/erp/stock/compositions.test.mjs"
+    },
+    "erp_stock__composition_command.guard_stock_composition_command": {
+      "where": "src/erp/domains/stock/rpc/compositions.ts erpStockProductCompose: recibo save somente após estrutura do mesmo produto, comando e ator; replay não escreve",
+      "test": "tests/erp/stock/compositions.test.mjs"
+    },
+    "erp_stock__document_posting.aa_mirror_authority": {
+      "where": "src/erp/domains/stock/rpc/document-stock.ts insertPosting/reversePosting: documents.mirrorGuardEffect antes de gravar",
+      "test": "tests/erp/stock/document-stock-read.test.mjs"
+    },
+    "erp_stock__document_posting.guard_trash": {
+      "where": "src/erp/domains/stock/rpc/document-stock.ts insertPosting: documents.guardTrashChild recusa documento na lixeira",
+      "test": "tests/erp/stock/document-stock-read.test.mjs"
+    },
+    "erp_stock__document_posting.protect_purchase_receipt_legacy": {
+      "where": "src/erp/domains/stock/rpc/document-stock.ts insertPosting: recusa qualquer recebimento por item anterior",
+      "test": "tests/erp/stock/document-stock-read.test.mjs"
+    },
+    "erp_stock__document_posting.protect_reserved_posting": {
+      "where": "src/erp/domains/stock/rpc/document-stock.ts insertPosting: reserva ativa exige consumo da reserva",
+      "test": "tests/erp/stock/document-stock-read.test.mjs"
+    },
+    "erp_stock__document_posting.post_stock_document_lots": {
+      "where": "src/erp/domains/stock/rpc/document-stock.ts insertPosting: aplica os lotes da cópia via lotApply, na ordem produto/lote",
+      "test": "tests/erp/stock/document-stock.test.mjs"
+    },
+    "erp_stock__document_posting.immutable_document_stock_posting": {
+      "where": "src/erp/domains/stock/rpc/document-stock.ts reversePosting: somente active para reversed, versão +1 e movimento que estorna o original; não exclui nem muda a cópia",
+      "test": "tests/erp/stock/document-stock.test.mjs"
+    },
+    "erp_stock__document_audit.aa_mirror_authority": {
+      "where": "src/erp/domains/stock/rpc/document-stock.ts audit: documents.mirrorGuardEffect antes das auditorias",
+      "test": "tests/erp/stock/document-stock-read.test.mjs"
+    },
+    "erp_purchase_receipts__receipt.aa_mirror_authority": {
+      "where": "src/erp/domains/stock/rpc/purchase-receipts.ts applyWarehouse: documents.mirrorGuardEffect antes de recebimento/estorno, auditoria e recibo",
+      "test": "tests/erp/stock/purchases.test.mjs"
+    },
+    "erp_purchase_receipts__reversal.aa_mirror_authority": {
+      "where": "src/erp/domains/stock/rpc/purchase-receipts.ts applyWarehouse: documents.mirrorGuardEffect antes de recebimento/estorno, auditoria e recibo",
+      "test": "tests/erp/stock/purchases.test.mjs"
+    },
+    "erp_purchase_receipts__command.aa_mirror_authority": {
+      "where": "src/erp/domains/stock/rpc/purchase-receipts.ts applyWarehouse: documents.mirrorGuardEffect antes de recebimento/estorno, auditoria e recibo",
+      "test": "tests/erp/stock/purchases.test.mjs"
+    },
     "erp_stock__checkin.guard_stock_checkin": {
       "where": "src/erp/domains/stock/rpc/checkin.ts checkinBegin/checkinAdvance/checkinWrite: inserção in_progress v1; avanço unitário, finalizado imutável; não exclui a conferência",
       "test": "tests/erp/stock/checkin.test.mjs"

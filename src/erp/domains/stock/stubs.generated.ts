@@ -49,5 +49,3 @@ export const postDocumentLots = (..._args: unknown[]): never => notPorted("erp_s
 export const reverseLotEntries = (..._args: unknown[]): never => notPorted("erp_stock.reverse_lot_entries");
 /** erp_stock.sales_negative_allowed() → boolean */
 export const salesNegativeAllowed = (..._args: unknown[]): never => notPorted("erp_stock.sales_negative_allowed");
-/** public.erp_stock_product_compose(p_user_id uuid, p_id uuid, p_expected_version integer, p_command_id uuid, p_data jsonb, p_acknowledged jsonb, p_composition jsonb) → jsonb */
-export const erpStockProductCompose = (..._args: unknown[]): never => notPorted("public.erp_stock_product_compose");

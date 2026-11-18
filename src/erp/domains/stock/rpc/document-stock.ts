@@ -18,7 +18,7 @@ import { nextIdentity } from "../../../engine/sequence.ts";
 import { pgBtrim, pgCompareText, pgHasCntrl, pgLength, pgLower } from "../../../engine/text.ts";
 import { jsonTimestamp, todaySaoPaulo, validDate } from "../../../engine/time.ts";
 import * as documents from "../../documents/public.ts";
-import { updateDocument } from "../../documents/rows.ts";
+import { updateDocument } from "../../documents/public.ts";
 import * as preferences from "../../preferences/public.ts";
 import type { Row } from "../document-guards.ts";
 import { QTY, QTY_MAX, balanceKept as balanceKeptAt, lotApply, negativeAllowed, requireAccess, sha256 } from "../internal.ts";
@@ -40,7 +40,7 @@ const byText = (a: string, b: string) => pgCompareText(a, b);
 // Pequenas internas
 
 /** erp_stock.document_access: só admin/estoque (projeção estreita, inclui OS). */
-function documentAccess(db: SqlDriver, user: string, kind: string | null) {
+export function documentAccess(db: SqlDriver, user: string, kind: string | null) {
   requireAccess(db, user, true);
   if (kind === null || !["sales_orders", "purchase_orders", "service_orders"].includes(kind)) raise("22023", "erp_document_stock_invalid_kind");
 }
@@ -107,7 +107,7 @@ export function documentPostingSummary(db: SqlDriver, id: string) {
 const requestHash = (actor: string, action: string, data: unknown) => sha256(jsonbText({ actor, action, data }));
 
 /** erp_stock.document_command_start: replay do comando de documento. */
-function documentCommandStart(db: SqlDriver, actor: string, id: string | null, action: string, data: unknown) {
+export function documentCommandStart(db: SqlDriver, actor: string, id: string | null, action: string, data: unknown) {
   requireAccess(db, actor, true);
   if (id === null) raise("22023", "erp_document_stock_command_required");
   const c = one(db, 'SELECT actor, request_hash, result FROM "erp_stock__document_command" WHERE id=?', id);
@@ -117,7 +117,7 @@ function documentCommandStart(db: SqlDriver, actor: string, id: string | null, a
 }
 
 /** erp_stock.document_command_finish */
-function documentCommandFinish(ctx: RpcContext, actor: string, id: string, action: string, data: unknown, result: Record<string, unknown>) {
+export function documentCommandFinish(ctx: RpcContext, actor: string, id: string, action: string, data: unknown, result: Record<string, unknown>) {
   const r = { ...result, action, data_mode: "erp_native", replayed: false };
   ctx.db.exec(
     'INSERT INTO "erp_stock__document_command"(id, actor, request_hash, result, created_at) VALUES(?,?,?,?,?)',
@@ -595,7 +595,7 @@ export function bumpDocumentVersion(ctx: RpcContext, id: string, user: string) {
 }
 
 /** INSERT nas auditorias do Estoque e do Documentos. */
-function audit(ctx: RpcContext, a: { actor: string; command: string; document: string; posting: string; action: "post" | "reverse"; result: unknown; reason: string | null }) {
+export function audit(ctx: RpcContext, a: { actor: string; command: string; document: string; posting: string; action: "post" | "reverse"; result: unknown; reason: string | null }) {
   const db = ctx.db;
   // aa_mirror_authority (guard_effect) nas duas auditorias.
   documents.mirrorGuardEffect(db, a.document);

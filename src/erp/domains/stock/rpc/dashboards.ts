@@ -39,7 +39,7 @@ function preferenceDto(db: SqlDriver, actor: string) {
 }
 
 /** erp_stock.dashboard_statuses(valor, permitidos, máximo): lista ordenada e sem repetição, ou null. */
-function dashboardStatuses(value: unknown, allowed: string[], max: number): string[] | null {
+export function dashboardStatuses(value: unknown, allowed: string[], max: number): string[] | null {
   if (value === null || value === undefined || jsonType(value) !== "array") return null;
   const list = value as unknown[];
   if (list.length < 1 || list.length > max || list.some((x) => typeof x !== "string")) return null;
