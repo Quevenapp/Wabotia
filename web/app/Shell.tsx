@@ -3,11 +3,13 @@
 import React, { useEffect, useState } from "react";
 import {
   BookOpen,
+  Building2,
   CircleHelp,
   Code2,
   Contact,
   Ellipsis,
   FileText,
+  Info,
   Keyboard,
   LogOut,
   MessageCircle,
@@ -31,6 +33,7 @@ import {
   type Route,
 } from "../lib/routes";
 import { useTheme } from "../lib/theme";
+import { sourceLinkLabel, useSourceLink } from "../lib/source";
 import {
   accessAllows,
   canOpenPage,
@@ -40,6 +43,7 @@ import {
 } from "../workspace-navigation";
 import { useApp } from "./AppContext";
 import { AccountDialog } from "./Account";
+import { erpModuleOn } from "../erp/modules";
 import { PreferencesDialog, PresenceDialog, ShortcutsDialog } from "./chrome";
 
 type Item = {
@@ -100,10 +104,14 @@ function useItems(): Item[] {
         icon: item.icon,
       })),
     { area: "contacts", label: "Contatos", icon: Contact },
+    { area: "erp", label: "ERP", icon: Building2 },
     { area: "admin", label: "Gestão", icon: Settings },
   ].filter(
     (item) =>
-      moduleAllows(item.area, app.modules) &&
+      // ERP: desligado de fábrica, até o servidor declarar o módulo (web/erp/modules.ts).
+      (item.area === "erp"
+        ? erpModuleOn(app.modules, "erp")
+        : moduleAllows(item.area, app.modules)) &&
       // Acesso por pessoa: some o que ela não acessa (Gestão fica, com o
       // Início e as páginas de módulo que ela tem).
       (item.area === "admin" ||
@@ -164,6 +172,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const route = useRoute();
   const items = useItems();
   const { mode, theme, setMode } = useTheme();
+  const source = useSourceLink();
   const [dialog, setDialog] = useState<
     "" | "prefs" | "keys" | "presence" | "account"
   >("");
@@ -333,6 +342,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
                 onSelect: () => setDialog("account"),
               },
               {
+                // AGPL-3.0, §13: o código do commit em execução, para
+                // qualquer pessoa logada (a tela de conversas não tem rodapé).
+                label: sourceLinkLabel(source),
+                icon: <Info size={17} />,
+                onSelect: () => window.open(source.url, "_blank", "noopener"),
+              },
+              {
                 label: "Sair",
                 icon: <LogOut size={17} />,
                 danger: true,
@@ -387,7 +403,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
         ))}
         <NavLink
           item={{ area: "more", label: "Mais", icon: Ellipsis }}
-          active={["more", "queue", "contacts", "admin"].includes(route.area)}
+          active={["more", "queue", "contacts", "erp", "admin"].includes(
+            route.area,
+          )}
           className="tab-item"
         />
       </nav>

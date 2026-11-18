@@ -13,6 +13,34 @@ const point = {
     lng: { type: "number", minimum: -180, maximum: 180 },
   },
 };
+/** Endereço com os campos separados (mesmos nomes do pedido e da Empresa do ERP). */
+const address = {
+  type: "object",
+  description:
+    "Endereço com os campos separados; vazio onde não há. Sem cidade no pedido, cidade e UF são as da loja (Estabelecimento).",
+  properties: {
+    street: { type: "string", maxLength: 200, description: "Logradouro (a conversa traz rua e número juntos aqui)." },
+    number: { type: "string", maxLength: 30 },
+    complement: { type: "string", maxLength: 200 },
+    district: { type: "string", maxLength: 100, description: "Bairro." },
+    city: { type: "string", maxLength: 100 },
+    state: { type: "string", maxLength: 2, description: "UF." },
+    postal_code: { type: "string", maxLength: 9, description: "CEP, 8 dígitos." },
+    reference: { type: "string", maxLength: 200 },
+  },
+};
+/** A loja como referência de busca do destino. */
+const store = {
+  type: "object",
+  description:
+    "A loja (Estabelecimento). Sem `destination`, o app procura o endereço perto de `position` (não perto do entregador); sem `position`, na cidade e UF.",
+  properties: {
+    name: { type: "string" },
+    city: { type: "string" },
+    state: { type: "string" },
+    position: { oneOf: [point, { type: "null" }] },
+  },
+};
 const appParams = {
   type: "object",
   description:
@@ -37,8 +65,19 @@ export function entregaSchemas() {
         label: { type: "string", description: "Pedido nº 12" },
         conversation_id: nullable("string"),
         customer_name: { type: "string" },
-        address_text: { type: "string" },
+        address_text: {
+          type: "string",
+          description: "Endereço numa linha, já com a cidade e a UF (da loja, quando o pedido não as tinha).",
+        },
+        address: { oneOf: [address, { type: "null" }] },
+        address_incomplete: {
+          type: "boolean",
+          description:
+            "Sem cidade (nem no pedido, nem na loja) e sem destino: o app avisa o entregador em vez de procurar o endereço às cegas.",
+        },
         destination: {
+          description:
+            "Coordenadas do destino. source customer: localização mandada pelo cliente no WhatsApp; com elas, o app não procura o endereço.",
           oneOf: [
             {
               type: "object",
@@ -126,6 +165,7 @@ export function entregaSchemas() {
         conversation_id: { type: "string", description: "source manual" },
         customer_name: { type: "string", maxLength: 120 },
         address_text: { type: "string", maxLength: 300 },
+        address: { ...address, description: "source manual: o endereço com os campos separados (opcional)." },
         destination: point,
         courier_id: {
           type: "string",
@@ -279,6 +319,7 @@ export function entregaSchemas() {
             properties: { id: { type: "string" }, name: { type: "string" } },
           },
         },
+        store,
         app: appParams,
         updates: {
           type: "object",
@@ -402,7 +443,8 @@ export function describeEntregaOperation(
   }
   if (path.endsWith("/courier")) {
     entry.description +=
-      " Credencial do QR desta entrega ou a pessoa atribuída: destino, endereço, primeiro nome do cliente, resumo do pedido (itens, total, pagamento e troco), situação, `chat.last_seq` e `app`. Nunca traz telefone nem a conversa.";
+      " Credencial do QR desta entrega ou a pessoa atribuída: destino, endereço, primeiro nome do cliente, resumo do pedido (itens, total, pagamento e troco), situação, `chat.last_seq` e `app`. Nunca traz telefone nem a conversa." +
+      " Endereço: `address` com os campos separados e `address_text` já com cidade e UF (as da loja quando o pedido não as tinha). Como o app acha o destino: com `destination`, vai direto; sem ele, procura `address_text` perto de `store.position` (sem posição, na cidade e UF de `address`); com `address_incomplete`, avisa o entregador em vez de procurar às cegas.";
     return;
   }
   if (path.endsWith("/messages")) {

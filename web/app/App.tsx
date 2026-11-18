@@ -17,6 +17,7 @@ import { AdminArea } from "../admin/AdminArea";
 import { ContactsArea } from "../admin/ContactsArea";
 import { QueueArea } from "../queue/QueueArea";
 import { MfaGate, MfaPrompt, mfaNeeded } from "./Account";
+import { ErpArea } from "../erp/ErpArea";
 
 function Areas() {
   const app = useApp();
@@ -78,6 +79,8 @@ function Areas() {
         )
       ) : route.area === "contacts" ? (
         <ContactsArea key={app.profile} />
+      ) : route.area === "erp" ? (
+        <ErpArea key={app.profile} />
       ) : route.area === "more" ? (
         <MoreArea />
       ) : (

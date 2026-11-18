@@ -70,14 +70,36 @@ Cada área guarda nome fantasia, CPF ou CNPJ, endereço, telefone e um texto de 
   "document": "11222333000181",
   "document_type": "cnpj",
   "document_display": "11.222.333/0001-81",
-  "address": "Rua das Flores, 120 — Centro, Campinas/SP",
+  "address": "Rua das Flores, 120 - Centro, Campinas/SP, CEP 13010-000",
+  "address_free": "Rua das Flores, 120 — Centro, Campinas/SP",
+  "street": "Rua das Flores",
+  "number": "120",
+  "complement": "",
+  "district": "Centro",
+  "city": "Campinas",
+  "state": "SP",
+  "postal_code": "13010000",
+  "municipality_code": "3509502",
+  "latitude": -22.9056,
+  "longitude": -47.0608,
+  "position": { "lat": -22.9056, "lng": -47.0608 },
   "phone": "(19) 3333-4444",
   "footer": "Garantia de 90 dias nos serviços.",
   "configured": true
 }
 ```
 
-Sem cadastro, `name` é o nome da área, os outros textos vêm vazios, `document_type` é `null` e `configured` é `false`. `footer` e `address` podem ter quebras de linha. O administrador grava com `PUT /profiles/{perfil}/settings` e `{"establishment":{"name","document","address","phone","footer"}}` (substitui o bloco inteiro; o documento vai com ou sem pontuação, e CPF e CNPJ, inclusive o alfanumérico, têm os dígitos verificadores conferidos).
+Sem cadastro, `name` é o nome da área, os outros textos vêm vazios, `document_type` é `null` e `configured` é `false`. `footer` e `address` podem ter quebras de linha.
+
+O administrador grava com `PUT /profiles/{perfil}/settings` e `{"establishment":{…}}`, que substitui o bloco inteiro. Os campos aceitos são:
+- `name`, `document`, `address` (o texto livre), `phone` e `footer`. O documento vai com ou sem pontuação; CPF e CNPJ, inclusive o alfanumérico, têm os dígitos verificadores conferidos.
+- Endereço separado, opcional, com os nomes e formatos da Empresa do ERP: `street`, `number`, `complement`, `district`, `city`, `state` (UF), `postal_code` (8 dígitos; aceita `00000-000`) e `municipality_code` (código IBGE, 7 dígitos, da UF informada).
+- `latitude` e `longitude`, as duas ou nenhuma.
+
+Na leitura:
+- `address` é o endereço para imprimir e mostrar: montado dos campos quando rua e cidade estão preenchidas, senão o texto livre.
+- `address_free` é o texto livre gravado, como está.
+- `position` é a posição da loja, ou `null`. Os apps usam para achar endereços perto da loja ([ENTREGA.md](ENTREGA.md), "Endereço").
 
 ### Pessoas da área
 

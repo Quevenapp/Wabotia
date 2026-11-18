@@ -827,6 +827,13 @@ function read(path: string, query: URLSearchParams): any {
     return {
       settings,
       enabled: 0,
+      // ERP na vitrine: núcleo e Caixa/PDV ligados; os demais opcionais, não.
+      modules: {
+        erp: true,
+        "erp-pdv": true,
+        "erp-fiscal": false,
+        "erp-cobranca": false,
+      },
       conversations: ["waiting", "ai", "human", "closed"].map((state) => ({
         state,
         count: conversations.filter((item) => item.state === state).length,

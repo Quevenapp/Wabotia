@@ -314,11 +314,48 @@ A previsão por ruas fica atrás de uma interface (`RouteProvider` em
 Qualquer um deles envia a posição do entregador e o destino do cliente a
 terceiros: entra no aviso de privacidade e na base legal (veja abaixo).
 
-**Destino.** O pedido do Pedido traz o endereço em texto, sem coordenadas. O
-destino vem, nesta ordem: do aparelho (Geocoder do Android ou CLGeocoder do
-iOS, gratuitos e no próprio celular), corrigido pelo entregador
-(`POST …/destination`) ou da localização que o cliente enviar no WhatsApp.
+**Destino.** O destino vem, nesta ordem:
+
+1. da localização que o cliente mandou no WhatsApp. Se ela chegou durante o
+   pedido, o Pedido a guarda (`address.lat`/`lng`) e a entrega já nasce com
+   `destination.source = "customer"`; se chegou depois, a entrega a pega;
+2. do aparelho (Geocoder do Android ou CLGeocoder do iOS, gratuitos e no
+   próprio celular), procurando o endereço como descrito em "Endereço";
+3. do entregador, que corrige no mapa (`POST …/destination`).
+
 Sem destino não há previsão: o modo `eta` manda a localização no lugar.
+
+## Endereço
+
+Achado no iPhone X e no iPad com a instalação de teste: o pedido trazia só
+"Rua das Flores, 200". O app procurou sem referência e caiu no Porto, em
+Portugal. Procurando perto do entregador, o destino ficou numa cidade vizinha.
+O servidor agora manda tudo o que tem; o provedor de mapa continua sendo uma
+escolha em aberto.
+
+- `address`: os campos separados, com os mesmos nomes do pedido e da Empresa
+  do ERP: `street`, `number`, `complement`, `district`, `city`, `state` (UF),
+  `postal_code` (8 dígitos) e `reference`. Na conversa, rua e número chegam
+  juntos em `street`.
+- **Sem cidade no pedido**, cidade e UF são as do Estabelecimento (Gestão →
+  Estabelecimento). Isso vale no pedido (carrinho, conversa, balcão) e na
+  entrega. O formulário do carrinho já vem com elas preenchidas.
+- `address_text`: o endereço numa linha, já com cidade e UF.
+- `store`: a loja, com `name`, `city`, `state` e `position`, que vem do
+  botão "Usar a localização deste aparelho" do Estabelecimento. Vem na visão
+  do entregador (`…/courier`), na leitura do QR, em `GET /entrega` e em
+  `GET /entrega/mine`.
+- `address_incomplete: true`: sem cidade em lugar nenhum e sem destino.
+
+**Como o app acha o destino:**
+
+1. com `destination`, vai direto;
+2. sem `destination`, procura `address_text` perto de `store.position`, e não
+   perto do entregador;
+3. sem `store.position`, procura na cidade e UF de `address`;
+4. com `address_incomplete`, avisa o entregador ("endereço sem cidade:
+   confirme com a loja ou peça a localização ao cliente") em vez de procurar
+   às cegas.
 
 ## Mensagens ao cliente sem inundar
 

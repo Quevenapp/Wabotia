@@ -143,7 +143,7 @@ mesmo corpo devolve a mesma resposta (`Idempotency-Replayed: true`).
 | `POST /queue/tickets/{id}/transfer` | `queue.transfer` | `queue:operate` | `{queue_id}` ou `{counter_id}` |
 | `POST /queue/blocklist` | `queue.block` | pessoa (operador se permitido) | `{phone \| ticket_id \| conversation_id, days?: number\|null, note?}` |
 | `DELETE /queue/blocklist/{id}` | `queue.unblock` | admin | — |
-| `POST /queue/displays` | `queue.display.create` | admin | `{name, queue_ids?}` → `{id, token, url}` (token só aparece aqui) |
+| `POST /queue/displays` | `queue.display.create` | admin | `{name, queue_ids?}` → `{id, token, path}` (token só aparece aqui; `path` é `/painel#t=<token>`, relativo ao endereço da instalação) |
 | `DELETE /queue/displays/{id}` | `queue.display.revoke` | admin | — |
 
 `POST /queue/tickets` responde `Ticket` (com `ahead`, `wait_minutes`,
@@ -311,6 +311,35 @@ O cliente pode mandar `{"type":"ping"}`; recebe `pong`. Depois de qualquer
 mudança na fila o servidor manda `call` (se houve chamada) e um `snapshot` novo.
 Sem WebSocket, use `GET /queue` a cada 3–5 s ou `GET /events?after=` (eventos
 `queue.*`).
+
+As chamadas e o `snapshot` que vêm juntos são do mesmo instante: o
+`snapshot` nunca mostra uma chamada antes do `call` dela. Numa rajada podem
+vir vários `call` seguidos e um `snapshot` só.
+
+Painel sem filtro recebe as chamadas de todas as filas da área, inclusive as
+desligadas e as sem canal (a equipe ainda chama quem já tinha senha). Para
+ver só algumas filas, crie o painel com as filas escolhidas.
+
+### Painel: a tela acompanha a fala
+
+Vale para o painel de TV no navegador (`web/queue/call-queue.ts`) e para os
+aplicativos que anunciam chamadas:
+
+1. O destaque ("chamando") é a senha que está sendo anunciada, não a do
+   último `call` nem a do `snapshot`. A seguinte só toma o destaque quando o
+   anúncio dela começa. O resto (aguardando, últimas chamadas) atualiza na
+   hora, pelo `snapshot`.
+2. Anúncio: sinal e a fala duas vezes. Se, ao fim da primeira fala, houver
+   outras chamadas esperando, a fala não se repete.
+3. Sem som, cada chamada fica 4 s no destaque, na mesma ordem.
+4. No máximo 3 chamadas esperando a vez. Chegou mais uma, sai a mais antiga
+   da espera, que fica só em "Últimas chamadas". Com 20 chamadas em 20 s, a
+   fala termina uns 15 s depois da última, não dois minutos.
+5. Chamada esperando há mais de 30 s desde que chegou não é anunciada.
+6. Rechamada de uma senha que ainda espera substitui a anterior, no mesmo
+   lugar.
+7. Acabou a fila de anúncios: o último fica em destaque por 12 s e o painel
+   volta à última chamada do `snapshot`.
 
 ### Eventos (`events`, webhooks, push)
 

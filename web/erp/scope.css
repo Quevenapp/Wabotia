@@ -1,0 +1,576 @@
+/*
+ * GERADO por scripts/erp-scope-css.mjs: não edite à mão.
+ * Desfaz dentro do ERP (.fagoo-root) as regras globais do painel: seletores de
+ * elemento e as classes que os dois usam (active, brand, contact-history, contact-table, done, icon-button, modal, modal-backdrop, modal-body, modal-header, muted, selected, sr-only, table-scroll, transfer-heading, transfer-note).
+ * A raiz volta ao tamanho de letra do navegador, que é a base do Fagoo.
+ */
+.fagoo-root,
+.document-print-root,
+.fiscal-print-root,
+.stock-print-root,
+.labels-print-root {
+  font-size: medium;
+  -webkit-font-smoothing: auto;
+  text-rendering: auto;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) *,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) *::before,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) *::after {
+  box-sizing: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) h1,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) h2,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) h3,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) h4,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) p {
+  margin: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) h1 {
+  font-size: revert;
+  font-weight: revert;
+  letter-spacing: revert;
+  line-height: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) h2 {
+  font-size: revert;
+  font-weight: revert;
+  line-height: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) h3 {
+  font-size: revert;
+  font-weight: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) a {
+  color: revert;
+  text-decoration: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) a:hover {
+  text-decoration: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) button,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) input,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) select,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) textarea {
+  font: revert;
+  color: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) button {
+  cursor: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) button:disabled {
+  cursor: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) img,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) video {
+  max-width: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) code,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) pre,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) kbd {
+  font-family: revert;
+  font-size: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) kbd {
+  display: revert;
+  min-width: revert;
+  padding: revert;
+  border-radius: revert;
+  border: revert;
+  border-bottom-width: revert;
+  background: revert;
+  color: revert;
+  text-align: revert;
+  font-size: revert;
+  line-height: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) hr {
+  border: revert;
+  border-top: revert;
+  margin: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) ::selection {
+  background: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .sr-only {
+  position: revert;
+  width: revert;
+  height: revert;
+  margin: revert;
+  padding: revert;
+  overflow: revert;
+  clip: revert;
+  white-space: revert;
+  border: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .muted {
+  color: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) :focus {
+  outline: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) :focus-visible {
+  outline: revert;
+  outline-offset: revert;
+  border-radius: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) input:focus-visible,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) select:focus-visible,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) textarea:focus-visible {
+  outline: revert;
+  border-color: revert;
+  box-shadow: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) * {
+  scrollbar-width: revert;
+  scrollbar-color: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) ::-webkit-scrollbar {
+  width: revert;
+  height: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) ::-webkit-scrollbar-thumb {
+  background: revert;
+  border-radius: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) ::-webkit-scrollbar-thumb:hover {
+  background: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .icon-button {
+  display: revert;
+  align-items: revert;
+  justify-content: revert;
+  flex: revert;
+  width: revert;
+  height: revert;
+  padding: revert;
+  border: revert;
+  border-radius: revert;
+  background: revert;
+  color: revert;
+  transition: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .icon-button:hover:not(:disabled),
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .icon-button.active {
+  background: revert;
+  color: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .icon-button:disabled {
+  opacity: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .icon-button.brand {
+  background: revert;
+  color: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .icon-button.brand:hover:not(:disabled) {
+  background: revert;
+  color: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) input[type="text"],
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) input[type="email"],
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) input[type="password"],
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) input[type="number"],
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) input[type="url"],
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) input[type="tel"],
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) input[type="search"],
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) input[type="date"],
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) input[type="time"],
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) input[type="datetime-local"],
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) input:not([type]),
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) select,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) textarea {
+  width: revert;
+  min-height: revert;
+  padding: revert;
+  border: revert;
+  border-radius: revert;
+  background: revert;
+  color: revert;
+  font-size: revert;
+  font-weight: revert;
+  transition: revert;
+}
+
+/* web/styles/base.css */
+[data-theme="dark"] :where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]),
+[data-theme="dark"] :where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) select,
+[data-theme="dark"] :where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) textarea {
+  background: revert;
+  border-color: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) input::placeholder,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) textarea::placeholder {
+  color: revert;
+  opacity: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) input:disabled,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) select:disabled,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) textarea:disabled {
+  opacity: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) textarea {
+  min-height: revert;
+  resize: revert;
+  line-height: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) select {
+  appearance: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) input[type="checkbox"],
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) input[type="radio"] {
+  width: revert;
+  height: revert;
+  margin: revert;
+  flex: revert;
+  accent-color: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) fieldset {
+  min-width: revert;
+  margin: revert;
+  padding: revert;
+  border: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) legend {
+  padding: revert;
+  margin-bottom: revert;
+  font-size: revert;
+  font-weight: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .modal-backdrop {
+  position: revert;
+  inset: revert;
+  z-index: revert;
+  display: revert;
+  place-items: revert;
+  padding: revert;
+  background: revert;
+  animation: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .modal {
+  display: revert;
+  flex-direction: revert;
+  width: revert;
+  max-height: revert;
+  border-radius: revert;
+  background: revert;
+  box-shadow: revert;
+  overflow: revert;
+  animation: revert;
+}
+
+/* web/styles/base.css */
+[data-theme="dark"] :where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .modal {
+  background: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .modal:focus-visible {
+  outline: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .modal-header {
+  display: revert;
+  align-items: revert;
+  gap: revert;
+  padding: revert;
+  flex: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .modal-header > div {
+  flex: revert;
+  min-width: revert;
+  padding-top: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .modal-header h2 {
+  font-size: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .modal-header p {
+  margin-top: revert;
+  color: revert;
+  font-size: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .modal-body {
+  flex: revert;
+  min-height: revert;
+  overflow-y: revert;
+  padding: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .modal-body > p,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .modal-body form > p {
+  margin-bottom: revert;
+  color: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .modal,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .modal-body {
+  background-color: revert;
+}
+
+/* web/styles/base.css */
+[data-theme="dark"] :where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .modal,
+[data-theme="dark"] :where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .modal-body {
+  background-color: revert;
+}
+
+/* web/styles/base.css */
+@media (max-width: 759px) {
+  :where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .modal-backdrop {
+    padding: revert;
+    align-items: revert;
+  }
+}
+
+/* web/styles/base.css */
+@media (max-width: 759px) {
+  :where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .modal {
+    width: revert;
+    max-height: revert;
+    border-radius: revert;
+  }
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .table-scroll {
+  max-width: revert;
+  max-height: revert;
+  overflow: revert;
+  margin: revert;
+  padding: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) table {
+  width: revert;
+  border-collapse: revert;
+  font-size: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) th,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) td {
+  height: revert;
+  padding: revert;
+  border-bottom: revert;
+  text-align: revert;
+  vertical-align: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) th {
+  position: revert;
+  top: revert;
+  z-index: revert;
+  background: revert;
+  color: revert;
+  font-size: revert;
+  font-weight: revert;
+  letter-spacing: revert;
+  text-transform: revert;
+  white-space: revert;
+}
+
+/* web/styles/base.css */
+[data-theme="dark"] :where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) th {
+  background: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) tbody tr:last-child td {
+  border-bottom: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) tbody tr:hover td {
+  background: revert;
+}
+
+/* web/styles/base.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) td {
+  overflow-wrap: revert;
+}
+
+/* web/styles/base.css */
+@media (pointer: coarse) {
+  :where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) label:has(> input[type="checkbox"]),
+  :where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) label:has(> input[type="radio"]) {
+    min-height: revert;
+  }
+}
+
+/* web/styles/base.css */
+@media (pointer: coarse) {
+  :where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) summary {
+    padding-block: revert;
+  }
+}
+
+/* web/styles/base.css */
+@media (pointer: coarse) {
+  :where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  :where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) select,
+  :where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) textarea {
+    font-size: revert;
+  }
+}
+
+/* web/styles/base.css */
+@media (prefers-reduced-motion: reduce) {
+  :where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) *,
+  :where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) *::before,
+  :where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) *::after {
+    animation-duration: revert;
+    animation-iteration-count: revert;
+    transition-duration: revert;
+    scroll-behavior: revert;
+  }
+}
+
+/* web/styles/chat.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .transfer-note {
+  padding: revert;
+  color: revert;
+  font-size: revert;
+}
+
+/* web/styles/chat.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .transfer-heading {
+  margin: revert;
+  color: revert;
+  font-size: revert;
+  font-weight: revert;
+}
+
+/* web/styles/legacy.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .contact-table caption {
+  padding: revert;
+  font-weight: revert;
+  text-align: revert;
+}
+
+/* web/styles/legacy.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .contact-table th,
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .contact-table td {
+  height: revert;
+  padding: revert;
+  vertical-align: revert;
+}
+
+/* web/styles/legacy.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .contact-table td {
+  max-width: revert;
+}
+
+/* web/styles/legacy.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .contact-table small {
+  display: revert;
+  margin-top: revert;
+  color: revert;
+}
+
+/* web/styles/legacy.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .contact-history {
+  margin-top: revert;
+  padding-top: revert;
+  border-top: revert;
+}
+
+/* web/styles/legacy.css */
+:where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .contact-history h3 {
+  margin: revert;
+}
+
+/* web/styles/legacy.css */
+@media (max-width: 760px) {
+  :where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .contact-table th,
+  :where(.fagoo-root, .document-print-root, .fiscal-print-root, .stock-print-root, .labels-print-root) .contact-table td {
+    min-width: revert;
+  }
+}

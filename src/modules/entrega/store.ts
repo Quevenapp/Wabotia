@@ -24,6 +24,14 @@ import {
   type Point,
   type TrailPoint,
 } from "./geo";
+import {
+  addressIncomplete,
+  addressInput,
+  completeAddress,
+  readAddress,
+  storeRef,
+  type DeliveryAddress,
+} from "./address";
 
 export const STATUSES = [
   "pending",
@@ -112,6 +120,13 @@ export function deliveryView(row: DeliveryRow, cfg: EntregaConfig, at = now()) {
     conversation_id: row.conversation_id,
     customer_name: row.customer_name,
     address_text: row.address_text,
+    /** Campos separados (mesmos nomes do pedido e da Empresa do ERP), já com a cidade da loja quando faltava. */
+    address: readAddress(json(row.address, null)),
+    /** Sem cidade e sem destino: o app avisa o entregador em vez de procurar às cegas. */
+    address_incomplete: addressIncomplete(
+      readAddress(json(row.address, null)),
+      row.dest_lat !== null && row.dest_lat !== undefined,
+    ),
     destination:
       row.dest_lat !== null && row.dest_lat !== undefined
         ? { lat: row.dest_lat, lng: row.dest_lng, source: row.dest_source }
@@ -153,6 +168,7 @@ export type DeliveryView = ReturnType<typeof deliveryView>;
 export const PERSONAL = [
   "customer_name",
   "address_text",
+  "address",
   "destination",
   "position",
   "conversation_id",
@@ -346,6 +362,10 @@ export interface SourceInfo {
   conversation_id: string | null;
   customer_name: string;
   address_text: string;
+  /** Endereço com os campos separados, quando a origem os tem. */
+  address: DeliveryAddress | null;
+  /** Coordenadas do destino mandadas pelo cliente (localização no WhatsApp). */
+  destination: Point | null;
 }
 
 const DELIVERABLE = ["received", "preparing", "ready", "out_for_delivery"];
@@ -380,11 +400,15 @@ export async function pedidoSource(
         ? "O pedido ainda aguarda o pagamento."
         : `O pedido está ${String(order.status_label || order.status).toLowerCase()}.`,
     );
+  const a = order.address;
   return {
     label: `Pedido nº ${order.number}`,
     conversation_id: order.customer?.conversation_id || null,
     customer_name: String(order.customer?.name || ""),
     address_text: String(order.address_text || ""),
+    address: readAddress(a),
+    destination:
+      a && validLat(a.lat) && validLng(a.lng) ? { lat: a.lat, lng: a.lng } : null,
   };
 }
 
@@ -425,6 +449,7 @@ export async function available(ctx: ModuleContext, actor: Actor) {
         status_label: o.status_label,
         customer_name: o.customer?.name || "",
         address_text: o.address_text || "",
+        address: readAddress(o.address),
         item_count: o.item_count,
         total_cents: o.total_cents,
         payment: o.payment
@@ -492,9 +517,15 @@ export async function createDelivery(
       conversation_id: conversationId,
       customer_name: text(data.customer_name, 120, "Nome do cliente"),
       address_text: text(data.address_text, 300, "Endereço"),
+      address: addressInput(data.address),
+      destination: null,
     };
   }
-  const dest = destinationOf(data.destination);
+  // Destino marcado no painel vence; senão, a localização que o cliente mandou.
+  const marked = destinationOf(data.destination);
+  const dest = marked ?? info.destination;
+  // Sem cidade, a da loja: o app procura o destino na cidade certa.
+  const place = completeAddress(info.address, info.address_text, await storeRef(ctx));
   let courier: { id: string; name: string } | null = null;
   if (data.courier_id !== undefined && data.courier_id !== null)
     courier = await courierPerson(
@@ -506,7 +537,7 @@ export async function createDelivery(
   try {
     await exec(
       ctx.env,
-      "INSERT INTO entrega_deliveries(id,profile_id,source,source_ref,source_key,label,conversation_id,customer_name,address_text,dest_lat,dest_lng,dest_source,courier_id,courier_name,courier_kind,status,assigned_at,note,created_by,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO entrega_deliveries(id,profile_id,source,source_ref,source_key,label,conversation_id,customer_name,address_text,address,dest_lat,dest_lng,dest_source,courier_id,courier_name,courier_kind,status,assigned_at,note,created_by,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       id,
       ctx.profile,
       source,
@@ -515,10 +546,11 @@ export async function createDelivery(
       info.label,
       info.conversation_id,
       info.customer_name,
-      info.address_text,
+      place.address_text,
+      place.address ? JSON.stringify(place.address) : null,
       dest?.lat ?? null,
       dest?.lng ?? null,
-      dest ? "panel" : null,
+      marked ? "panel" : dest ? "customer" : null,
       courier?.id ?? null,
       courier?.name ?? "",
       courier ? "person" : null,

@@ -161,6 +161,13 @@ test("objeto da v6 (4748b75) com dados sobe para a versão atual numa abertura: 
   assert.deepEqual(content(db, Object.keys(before)), before);
   // As tabelas novas (só do motor) existem e estão vazias.
   for (const t of tablesOf(db).filter((t) => !(t in before))) assert.equal(db.prepare(`SELECT count(*) n FROM ${q(t)}`).get().n, 0, t);
+  // v9: as 5 tabelas do cofre e os 2 gatilhos de imutabilidade do __received_change.
+  const vault = ["erp_fiscal_vault__cursor", "erp_fiscal_vault__emission", "erp_fiscal_vault__event", "erp_fiscal_vault__received", "erp_fiscal_vault__received_change"];
+  assert.deepEqual(tablesOf(db).filter((t) => t.startsWith("erp_fiscal_vault__")), vault);
+  assert.deepEqual(
+    db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='erp_fiscal_vault__received_change' ORDER BY name").all().map((r) => r.name),
+    ["erp_fiscal_vault__received_change_immutable_delete", "erp_fiscal_vault__received_change_immutable_update"],
+  );
   // O esquema inteiro, com a ordem dos gatilhos, é o de uma instalação nova.
   const a = schema(db),
     b = schema(fresh);

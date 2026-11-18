@@ -19,7 +19,7 @@ import {
   parseLabelInvoiceProducts,
   captureLabelInvoiceQuery,
 } from "../../../src/erp/fagoo/packages/erp-domain/src/reports-labels.mjs";
-import { labelDefaults } from "../../../src/erp/domains/preferences/rpc/erp_preferences_labels.ts";
+import { labelDefaults } from "../../../src/erp/domains/preferences/label-defaults.ts";
 
 const fails = (assert, fn, code) => assert.rejects(fn, (e) => e.code === code);
 const remove = async (f, target, body) => {

@@ -58,11 +58,47 @@ export interface OrderLine {
   total_cents: number;
 }
 
+/**
+ * Endereço de entrega do pedido. Os nomes seguem o endereço da Empresa do ERP
+ * (street, number, district, city, state, postal_code). Os campos depois de
+ * `reference` são opcionais: pedidos antigos e a conversa (rua e número num
+ * texto só) não os têm. lat/lng: a localização que o cliente mandou pelo
+ * WhatsApp; com elas, o app do entregador não precisa procurar o endereço.
+ */
 export interface OrderAddress {
   street: string;
   district: string;
   complement: string;
   reference: string;
+  number?: string;
+  city?: string;
+  /** UF, duas letras maiúsculas. */
+  state?: string;
+  /** CEP, só os 8 dígitos. */
+  postal_code?: string;
+  lat?: number | null;
+  lng?: number | null;
+}
+
+/** Endereço com todos os campos (vazio ou null onde não há), como a API devolve. */
+export function fullAddress(raw: any): Required<OrderAddress> | null {
+  if (!raw || typeof raw !== "object") return null;
+  const s = (v: unknown) => (typeof v === "string" ? v : "");
+  const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const lat = n(raw.lat),
+    lng = n(raw.lng);
+  return {
+    street: s(raw.street),
+    number: s(raw.number),
+    complement: s(raw.complement),
+    district: s(raw.district),
+    city: s(raw.city),
+    state: s(raw.state),
+    postal_code: s(raw.postal_code),
+    reference: s(raw.reference),
+    lat: lat !== null && lng !== null ? lat : null,
+    lng: lat !== null && lng !== null ? lng : null,
+  };
 }
 
 export const PAYMENT_STATUS_LABELS: Record<string, string> = {
@@ -92,12 +128,15 @@ const clip = (value: string, max: number) =>
 // ---------------------------------------------------------------------------
 // Leitura
 
+/**
+ * Endereço numa linha: "Rua X, 200 - Bairro, Apto 2, Cidade - UF (referência)".
+ * Sem número, cidade e UF (pedido antigo, conversa) fica como sempre foi.
+ */
 export function addressText(address: OrderAddress | null) {
   if (!address) return "";
-  return [
-    [address.street, address.district].filter(Boolean).join(" - "),
-    address.complement,
-  ]
+  const street = [address.street, address.number].filter(Boolean).join(", ");
+  const place = [address.city, address.state].filter(Boolean).join(" - ");
+  return [[street, address.district].filter(Boolean).join(" - "), address.complement, place]
     .filter(Boolean)
     .join(", ")
     .concat(address.reference ? ` (${address.reference})` : "");
@@ -106,9 +145,7 @@ export function addressText(address: OrderAddress | null) {
 /** Formato da API (docs/API.md, Pedido). */
 export function orderView(row: any, history?: any[]) {
   const status = row.status as OrderStatus;
-  const address: OrderAddress | null = row.address
-    ? json(row.address, null)
-    : null;
+  const address = row.address ? fullAddress(json(row.address, null)) : null;
   const method = row.payment_method as PaymentMethod | null;
   return {
     id: row.id,

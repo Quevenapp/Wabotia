@@ -7,7 +7,10 @@ import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { PassThrough } from "node:stream";
 const require = createRequire(import.meta.url);
-const { build } = require("../node_modules/wrangler/node_modules/esbuild");
+// O esbuild do Wrangler, aninhado ou içado (ver scripts/release.mjs).
+const { build } = createRequire(require.resolve("wrangler/package.json"))(
+  "esbuild",
+);
 async function bundledInstaller(run) {
   const folder = await mkdtemp(join(tmpdir(), "wabotia-installer-ui-"));
   try {

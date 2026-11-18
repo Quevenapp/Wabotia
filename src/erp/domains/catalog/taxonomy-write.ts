@@ -1,8 +1,8 @@
 // Escrita da taxonomia: erp_catalog.category_custom_fields_set, a trilha
 // (taxonomy_audit) e os desvínculos do excluir (taxonomy_detach de produtos e
 // taxonomy_detach_contacts). O desvínculo de notas (taxonomy_detach_invoices)
-// usa invoiceTagIds/invoiceTagBump do catalog/invoice-tags.ts da B (bloco C):
-// até ele sair, excluir etiqueta de nota devolve 0A000.
+// usa invoiceTagIds/invoiceTagBump do catalog/invoice-tags.ts da B (fa60a00),
+// nota nativa ou espelhada do Origin.
 // O UPDATE de erp_catalog.origin ('local_modified') vai no updateRecord (record.ts).
 import { one } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
@@ -10,6 +10,7 @@ import { jsonbText } from "../../engine/json.ts";
 import type { RpcContext } from "../../engine/registry.ts";
 import { contactTagBump, contactTagIds } from "./contact-tags.ts";
 import { customFieldItem } from "./custom-fields.ts";
+import { invoiceTagBump, invoiceTagIds } from "./invoice-tags.ts";
 import { capture, productFull } from "./internal.ts";
 import { updateRecord } from "./record.ts";
 
@@ -128,7 +129,29 @@ export function taxonomyDetachContacts(ctx: RpcContext, user: string, command: s
   return count;
 }
 
-/** erp_catalog.taxonomy_detach_invoices: espera invoiceTagIds/invoiceTagBump (catalog/invoice-tags.ts, B). */
-export function taxonomyDetachInvoices(_ctx: RpcContext, _user: string, _command: string, _tag: string): number {
-  raise("0A000", "rpc_not_ported:erp_catalog.taxonomy_detach_invoices");
+/** erp_catalog.taxonomy_detach_invoices(p_user_id, p_command_id, p_tag_id), sobre o invoice-tags.ts da B. */
+export function taxonomyDetachInvoices(ctx: RpcContext, user: string, command: string, tag: string): number {
+  const db = ctx.db;
+  let count = 0;
+  for (const v of db.exec(
+    'SELECT origin, model, invoice_id FROM "erp_catalog__invoice_tag" WHERE tag_id=? ORDER BY origin, model, invoice_id',
+    tag,
+  ).rows) {
+    const [origin, model, id] = [String(v.origin), String(v.model), String(v.invoice_id)];
+    const before = invoiceTagIds(db, origin, model, id);
+    const deleted = db.exec(
+      'DELETE FROM "erp_catalog__invoice_tag" WHERE origin=? AND model=? AND invoice_id=? AND tag_id=?',
+      origin, model, id, tag,
+    ).rowsWritten;
+    if (deleted === 0) continue;
+    invoiceTagBump(ctx, user, origin, model, id);
+    db.exec(
+      `INSERT INTO "erp_catalog__invoice_tag_audit"(actor, command_id, origin, model, invoice_id, action, before_data, after_data, created_at)
+       VALUES(?,?,?,?,?,'tag_removed',?,?,?)`,
+      user, command, origin, model, id, json({ tag_ids: before }), json({ tag_ids: invoiceTagIds(db, origin, model, id) }),
+      ctx.clock.next().toString(),
+    );
+    count++;
+  }
+  return count;
 }

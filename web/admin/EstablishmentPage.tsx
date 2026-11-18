@@ -1,13 +1,23 @@
 // Dados do estabelecimento da área (nome fantasia, CPF/CNPJ, endereço,
 // telefone, rodapé). Gravados em PUT /settings {establishment}; módulos,
 // páginas do passo web e aplicativos leem em GET /establishment.
+// O endereço tem o texto livre de sempre e, opcional, os campos separados
+// (os mesmos da Empresa do ERP) e a posição da loja: com eles o pedido
+// completa a cidade do cliente e o app do entregador procura o destino perto
+// da loja. Sem provedor de mapa: a posição vem do aparelho ou é colada.
 import React, { useEffect, useState } from "react";
-import { Store } from "lucide-react";
+import { LocateFixed, Store } from "lucide-react";
 import { useApp } from "../app/AppContext";
 import { useAction } from "../app/hooks";
 import type { Row } from "../lib/api";
 import { Button, Field, Notice, Pill, SkeletonRows } from "../ui";
 import { useResource } from "./shared";
+import { establishmentForm, establishmentPayload } from "./establishment-form";
+
+const UFS = [
+  "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT", "PA",
+  "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO",
+];
 
 export function EstablishmentPage() {
   const app = useApp();
@@ -15,15 +25,10 @@ export function EstablishmentPage() {
   const { busy, run } = useAction();
   const data: Row | null = resource.data;
   const [form, setForm] = useState<Row>({});
+  const [locating, setLocating] = useState(false);
+  const [locateError, setLocateError] = useState("");
   useEffect(() => {
-    if (data)
-      setForm({
-        name: data.name || "",
-        document: data.document_display || "",
-        address: data.address || "",
-        phone: data.phone || "",
-        footer: data.footer || "",
-      });
+    if (data) setForm(establishmentForm(data));
   }, [data]);
   const set = (key: string) => (value: any) =>
     setForm((current) => ({ ...current, [key]: value }));
@@ -31,12 +36,43 @@ export function EstablishmentPage() {
     run(
       async () => {
         await app.api(app.root + "/settings", "PUT", {
-          establishment: form,
+          establishment: establishmentPayload(form),
         });
         await resource.reload();
       },
       { success: "Dados do estabelecimento salvos." },
     );
+  // Geolocalização do navegador: só em HTTPS (ou localhost) e com a permissão
+  // da pessoa. Recusa ou erro: a mensagem, e os campos ficam para colar.
+  const locate = () => {
+    setLocateError("");
+    if (!("geolocation" in navigator) || !window.isSecureContext) {
+      setLocateError(
+        "Este navegador não fornece a localização aqui (precisa de HTTPS). Cole a latitude e a longitude.",
+      );
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setLocating(false);
+        setForm((current) => ({
+          ...current,
+          latitude: pos.coords.latitude.toFixed(6),
+          longitude: pos.coords.longitude.toFixed(6),
+        }));
+      },
+      (error) => {
+        setLocating(false);
+        setLocateError(
+          error.code === error.PERMISSION_DENIED
+            ? "A permissão de localização foi negada. Libere no navegador ou cole a latitude e a longitude."
+            : "Não foi possível obter a localização deste aparelho. Cole a latitude e a longitude.",
+        );
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
+  };
   if (!data)
     return resource.error ? (
       <Notice tone="error" onRetry={() => void resource.reload()}>
@@ -85,11 +121,85 @@ export function EstablishmentPage() {
         help="Com ou sem pontuação. Aceita o CNPJ com letras."
       />
       <Field
-        label="Endereço (opcional)"
+        label="Endereço em texto (opcional)"
         value={form.address || ""}
         onChange={set("address")}
+        type="textarea"
+        rows={3}
         maxLength={300}
+        help="Pode ter várias linhas, como sai no cupom. Vale enquanto rua e cidade abaixo estiverem vazias."
       />
+      <h3>Endereço da loja (opcional)</h3>
+      <p className="workspace-help">
+        Com rua e cidade preenchidas, o cupom e as páginas mostram o endereço
+        montado destes campos. A cidade e a UF completam o endereço dos pedidos
+        de entrega que vierem sem cidade.
+      </p>
+      <div className="form-field-grid">
+        <Field label="Rua" value={form.street || ""} onChange={set("street")} maxLength={200} />
+        <Field label="Número" value={form.number || ""} onChange={set("number")} maxLength={30} />
+      </div>
+      <div className="form-field-grid">
+        <Field label="Bairro" value={form.district || ""} onChange={set("district")} maxLength={100} />
+        <Field
+          label="Complemento"
+          value={form.complement || ""}
+          onChange={set("complement")}
+          maxLength={200}
+        />
+      </div>
+      <div className="form-field-grid">
+        <Field label="Cidade" value={form.city || ""} onChange={set("city")} maxLength={100} />
+        <Field
+          label="UF"
+          value={form.state || ""}
+          onChange={set("state")}
+          options={UFS.map((uf) => [uf, uf])}
+          emptyOption="—"
+        />
+      </div>
+      <div className="form-field-grid">
+        <Field
+          label="CEP"
+          value={form.postal_code || ""}
+          onChange={set("postal_code")}
+          maxLength={9}
+          placeholder="00000-000"
+        />
+        <Field
+          label="Código IBGE da cidade"
+          value={form.municipality_code || ""}
+          onChange={set("municipality_code")}
+          maxLength={7}
+          placeholder="7 dígitos"
+        />
+      </div>
+      <h3>Posição da loja (opcional)</h3>
+      <p className="workspace-help">
+        O app do entregador procura o endereço do cliente perto daqui. Use o
+        botão estando na loja, ou cole a latitude e a longitude (por exemplo,
+        de um mapa).
+      </p>
+      <div className="card-actions" style={{ marginBottom: 12 }}>
+        <Button type="button" variant="secondary" busy={locating} disabled={locating} onClick={locate}>
+          <LocateFixed size={16} /> Usar a localização deste aparelho
+        </Button>
+      </div>
+      {locateError && <Notice tone="warn">{locateError}</Notice>}
+      <div className="form-field-grid">
+        <Field
+          label="Latitude"
+          value={form.latitude ?? ""}
+          onChange={set("latitude")}
+          placeholder="-22.905600"
+        />
+        <Field
+          label="Longitude"
+          value={form.longitude ?? ""}
+          onChange={set("longitude")}
+          placeholder="-47.060800"
+        />
+      </div>
       <Field
         label="Telefone (opcional)"
         value={form.phone || ""}

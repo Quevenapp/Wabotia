@@ -3,9 +3,11 @@
 import React, { useState } from "react";
 import {
   BookOpen,
+  Building2,
   ChevronRight,
   Code2,
   Contact,
+  Info,
   LogOut,
   Settings,
   SlidersHorizontal,
@@ -15,12 +17,15 @@ import {
 import { Avatar, Switch } from "../ui";
 import { linkProps } from "../lib/routes";
 import { canOpenPage, railPages } from "../workspace-navigation";
+import { erpModuleOn } from "../erp/modules";
 import { useApp } from "./AppContext";
 import { PreferencesDialog, ThemePicker } from "./chrome";
+import { sourceLinkLabel, useSourceLink } from "../lib/source";
 
 export function MoreArea() {
   const app = useApp();
   const [prefs, setPrefs] = useState(false);
+  const source = useSourceLink();
   return (
     <div className="more-area">
       <header className="more-user">
@@ -70,6 +75,13 @@ export function MoreArea() {
           <span>Contatos</span>
           <ChevronRight size={18} />
         </a>
+        {erpModuleOn(app.modules, "erp") && (
+          <a className="more-link" {...linkProps({ area: "erp" })}>
+            <Building2 size={21} />
+            <span>ERP</span>
+            <ChevronRight size={18} />
+          </a>
+        )}
         <a
           className="more-link"
           {...linkProps({ area: "admin", page: "overview" })}
@@ -131,6 +143,16 @@ export function MoreArea() {
         >
           <Code2 size={21} />
           <span>Documentação da API</span>
+          <ChevronRight size={18} />
+        </a>
+        <a
+          className="more-link"
+          href={source.url}
+          target="_blank"
+          rel="noreferrer"
+        >
+          <Info size={21} />
+          <span>{sourceLinkLabel(source)}</span>
           <ChevronRight size={18} />
         </a>
       </section>

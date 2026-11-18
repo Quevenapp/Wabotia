@@ -408,6 +408,16 @@
   cursor: pointer;
   box-shadow: var(--shadow-3);
 }
+/* Código-fonte (AGPL-3.0, §13): discreto no canto, sem disputar com a senha. */
+.display-source {
+  position: fixed;
+  right: 1.2vw;
+  bottom: 1vh;
+  color: var(--on-brand);
+  opacity: 0.55;
+  font-size: 0.8rem;
+  text-decoration: none;
+}
 @media (max-width: 759px), (orientation: portrait) {
   .display {
     grid-template-columns: 1fr;

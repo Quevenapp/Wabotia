@@ -11,8 +11,6 @@ export const arrayInput = (..._args: unknown[]): never => notPorted("erp_fiscal_
 export const authorizedInput = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.authorized_input");
 /** erp_fiscal_invoices.check_sales_item_links() → trigger */
 export const checkSalesItemLinks = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.check_sales_item_links");
-/** erp_fiscal_invoices.counts_for_balance(p_invoice uuid) → boolean */
-export const countsForBalance = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.counts_for_balance");
 /** erp_fiscal_invoices.edit_locks(p_id uuid) → jsonb */
 export const editLocks = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.edit_locks");
 /** erp_fiscal_invoices.guard_invoice() → trigger */
@@ -49,8 +47,6 @@ export const originSellerIds = (..._args: unknown[]): never => notPorted("erp_fi
 export const originStatus = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.origin_status");
 /** erp_fiscal_invoices.payment_input(p_value jsonb) → jsonb */
 export const paymentInput = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.payment_input");
-/** erp_fiscal_invoices.quantity_text(p numeric) → text */
-export const quantityText = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.quantity_text");
 /** erp_fiscal_invoices.recipient_input(p_value jsonb, p_model text) → jsonb */
 export const recipientInput = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.recipient_input");
 /** erp_fiscal_invoices.references_input(p_value jsonb) → jsonb */
@@ -59,12 +55,6 @@ export const referencesInput = (..._args: unknown[]): never => notPorted("erp_fi
 export const requireOrdersReadable = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.require_orders_readable");
 /** erp_fiscal_invoices.require_single_invoice(p_id uuid, p_direction text, p_orders jsonb) → void */
 export const requireSingleInvoice = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.require_single_invoice");
-/** erp_fiscal_invoices.sales_balance(p_document uuid) → jsonb */
-export const salesBalance = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.sales_balance");
-/** erp_fiscal_invoices.sales_full_invoice(p_document uuid) → uuid */
-export const salesFullInvoice = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.sales_full_invoice");
-/** erp_fiscal_invoices.sales_item_invoiced(p_document uuid) → TABLE(document_item_id uuid, quantity numeric) */
-export const salesItemInvoiced = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.sales_item_invoiced");
 /** erp_fiscal_invoices.status_group(p_group text) → smallint[] */
 export const statusGroup = (..._args: unknown[]): never => notPorted("erp_fiscal_invoices.status_group");
 /** erp_fiscal_invoices.store_items(p_id uuid, p_items jsonb) → void */

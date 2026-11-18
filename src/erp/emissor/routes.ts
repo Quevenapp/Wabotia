@@ -13,7 +13,7 @@ import { requireModule } from "../../modules/registry";
 import { ApiError, type Actor, type Env } from "../../types";
 import { emissorView, removeEmissor, saveEmissor, testEmissor } from "./config.ts";
 import { fiscalProviderFor } from "./index.ts";
-import { FiscalError, type FiscalEnvironment } from "./provider.ts";
+import { FiscalError, type FiscalEnvironment, type FiscalFile, type FiscalKind } from "./provider.ts";
 import { erpIdentity, erpRoleOf } from "../../modules/erp/identity";
 import { IDENTITY_HEADER, encodeIdentity } from "../engine/identity.ts";
 import { erpFetch } from "../hub.ts";
@@ -52,6 +52,86 @@ async function configurator(env: Env, actor: Actor, profile: string) {
   if (gate.open !== true) throw new ApiError(403, "ERP_ACCESS_OUTSIDE_SCHEDULE", "Fora do horário de acesso ao ERP.");
   if (gate.mfa_required && gate.mfa_ok !== true)
     throw new ApiError(403, "ERP_MFA_REQUIRED", "Confirme o segundo fator para alterar o emissor fiscal.");
+}
+
+const REF = "([A-Za-z0-9_-]{1,80})";
+const DOC_ROUTES: [RegExp, string][] = [
+  [new RegExp(`^/logotipo$`), "logo"],
+  [new RegExp(`^/nfe/${REF}/danfe$`), "danfe"],
+  [new RegExp(`^/nfce/${REF}/danfce$`), "danfce"],
+  [new RegExp(`^/nfce/${REF}/cupom$`), "receipt"],
+  [new RegExp(`^/(nfe|nfce|nfse)/${REF}/cancelamento/xml$`), "cancellation"],
+  [new RegExp(`^/nfe/${REF}/carta-correcao/(\\d{1,2})/xml$`), "correction"],
+  [new RegExp(`^/inutilizacoes/${REF}/xml$`), "void"],
+];
+
+/** Arquivo como o emissor mandou: tipo e tamanho dele, sem cache compartilhado. */
+const fileResponse = (f: FiscalFile, name: string) =>
+  new Response(f.body, {
+    headers: {
+      "Content-Type": f.content_type,
+      "Content-Length": String(f.size),
+      "Content-Disposition": `inline; filename="${name}"`,
+      "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+const xmlResponse = (xml: string, name: string) =>
+  new Response(xml, {
+    headers: {
+      "Content-Type": "application/xml; charset=utf-8",
+      "Content-Disposition": `inline; filename="${name}"`,
+      "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+
+async function documentRead(ctx: { env: Env; profile: string; fetch?: typeof fetch }, sub: string, query: URLSearchParams) {
+  const hit = DOC_ROUTES.map(([re, name]) => [re.exec(sub), name] as const).find(([m]) => m);
+  if (!hit) return null;
+  const [m, name] = hit as [RegExpExecArray, string];
+  const provider = await fiscalProviderFor(ctx);
+  switch (name) {
+    case "logo": {
+      const logo = await provider.logo(ctx);
+      if (!logo) throw new FiscalError(404, "fiscal_logo_missing", "O cofre não tem logotipo.");
+      return fileResponse(logo, logo.content_type.includes("png") ? "logotipo.png" : "logotipo.jpg");
+    }
+    case "danfe":
+      return fileResponse(await provider.danfe(ctx, m[1]), `danfe-${m[1]}.pdf`);
+    case "danfce": {
+      const width = query.get("largura") ?? "80";
+      const via = query.get("via") ?? "consumidor";
+      if (!["80", "58"].includes(width) || !["consumidor", "estabelecimento"].includes(via))
+        throw new FiscalError(400, "fiscal_invalid_request", "Informe largura 80 ou 58 e via consumidor ou estabelecimento.", {
+          field: !["80", "58"].includes(width) ? "largura" : "via",
+        });
+      return fileResponse(
+        await provider.danfce(ctx, m[1], {
+          width: width as "80" | "58",
+          copy: via === "consumidor" ? "consumer" : "establishment",
+        }),
+        `danfce-${m[1]}.pdf`,
+      );
+    }
+    case "receipt": {
+      const via = query.get("via") ?? "consumidor";
+      if (!["consumidor", "estabelecimento"].includes(via))
+        throw new FiscalError(400, "fiscal_invalid_request", "Informe via consumidor ou estabelecimento.", { field: "via" });
+      return Response.json(await provider.receipt(ctx, m[1], { copy: via === "consumidor" ? "consumer" : "establishment" }), {
+        headers: { "Cache-Control": "private, no-store" },
+      });
+    }
+    case "cancellation":
+      return xmlResponse(await provider.cancellationXml(ctx, m[1] as FiscalKind, m[2]), `cancelamento-${m[2]}.xml`);
+    case "correction": {
+      const sequence = Number(m[2]);
+      return xmlResponse(await provider.correctionXml(ctx, m[1], sequence), `carta-correcao-${m[1]}-${sequence}.xml`);
+    }
+    case "void":
+      return xmlResponse(await provider.voidRangeXml(ctx, m[1]), `inutilizacao-${m[1]}.xml`);
+  }
+  return null;
 }
 
 export async function erpEmissorRoute(
@@ -106,6 +186,12 @@ export async function erpEmissorRoute(
           environment: environment as FiscalEnvironment,
         }),
       );
+    }
+    // Leituras de documento (qualquer papel erp:*): PDF, cupom, logotipo e
+    // XML dos eventos, repassados na hora (o cofre gera; nada fica guardado).
+    if (method === "GET") {
+      const read = await documentRead(ctx, sub, url.searchParams);
+      if (read) return read;
     }
     throw new ApiError(404, "not_found", "Rota do emissor desconhecida.");
   } catch (error) {

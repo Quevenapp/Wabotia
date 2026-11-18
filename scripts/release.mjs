@@ -14,7 +14,11 @@ import { createRequire } from "node:module";
 import { parse } from "jsonc-parser";
 import { unstable_splitSqlQuery } from "wrangler";
 const require = createRequire(import.meta.url);
-const { build } = require("../node_modules/wrangler/node_modules/esbuild");
+// O esbuild do Wrangler, esteja ele dentro de wrangler/node_modules ou içado
+// para node_modules (depende de como o npm montou a árvore).
+const { build } = createRequire(require.resolve("wrangler/package.json"))(
+  "esbuild",
+);
 const config = parse(readFileSync("wrangler.jsonc", "utf8"));
 const pkg = JSON.parse(readFileSync("package.json", "utf8"));
 const commit = execFileSync("git", ["rev-parse", "HEAD"], {
@@ -55,6 +59,9 @@ run(npx, [
   "wrangler",
   "deploy",
   "--dry-run",
+  // Com o motor do ERP o Worker passa de 15 MB sem minificar; em base64 só
+  // ele já ocuparia quase todo o teto de 24 MB do pacote de formato 1.
+  "--minify",
   "--outdir",
   "output/release-worker",
   "--config",
@@ -83,6 +90,10 @@ function files(root, relative = "", modules = false) {
     (entry) => {
       const path = join(relative, entry.name).replaceAll("\\", "/");
       if (!modules && (path === "releases" || path.startsWith("releases/")))
+        return [];
+      // Os guias em PDF (2,7 MB) ficam só no site oficial: as páginas apontam
+      // para lá, e o pacote da instalação não cabe no teto com eles.
+      if (!modules && path.startsWith("guide/") && path.endsWith(".pdf"))
         return [];
       if (entry.isDirectory()) return files(root, path, modules);
       if (

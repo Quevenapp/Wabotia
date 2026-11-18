@@ -1,8 +1,9 @@
 // Moldura das páginas públicas (web/DESIGN.md §9): barra do topo com a marca
 // do app, alternância de tema e rodapé, no mesmo estilo do painel.
 import React, { useEffect } from "react";
-import { ArrowUpRight, Monitor, Moon, Sun } from "lucide-react";
+import { Monitor, Moon, Sun } from "lucide-react";
 import { Logo } from "../ui";
+import { SourceFooterLink } from "../ui/SourceLink";
 import { applyTheme, useTheme, type ThemeMode } from "../lib/theme";
 import "../styles/site.css";
 
@@ -62,11 +63,9 @@ export function SitePage({
         <footer className="site-footer">
           <div className="site-footer-inner">
             <Logo size={26} />
-            <span>MIT · Quevenapp</span>
+            <span>Quevenapp</span>
             <a href="/privacidade">Privacidade</a>
-            <a href="https://github.com/Quevenapp/Wabotia">
-              Código no GitHub <ArrowUpRight size={14} />
-            </a>
+            <SourceFooterLink />
           </div>
         </footer>
       )}

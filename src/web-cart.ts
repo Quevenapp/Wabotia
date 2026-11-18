@@ -6,6 +6,7 @@
 // total vem da página.
 import { requireValue } from "./types";
 import { escape, page, type PageBrand } from "./web-steps";
+import { UF_CODES } from "./establishment";
 
 export interface CartOption {
   id: string;
@@ -52,6 +53,12 @@ export interface CartCatalog {
     eta?: string;
     /** Endereço da retirada, mostrado ao cliente. */
     pickup_address?: string;
+    /**
+     * Cidade e UF que já vêm preenchidas no formulário de entrega (as da loja;
+     * o cliente pode trocar). Sem elas, o formulário não pergunta cidade e UF.
+     */
+    default_city?: string;
+    default_state?: string;
   };
   /** Observação geral do pedido (padrão: sim). */
   allow_note: boolean;
@@ -107,6 +114,10 @@ export interface CartOrder {
     district: string;
     complement: string;
     reference: string;
+    /** Só quando o formulário pergunta (catálogo com default_city/default_state). */
+    city?: string;
+    /** UF, duas letras maiúsculas. */
+    state?: string;
   } | null;
   note: string;
   /**
@@ -270,6 +281,13 @@ export function validateCatalog(value: any): CartCatalog {
   if (eta) fulfillment.eta = eta;
   const pickup = str(f.pickup_address, 200, "o endereço de retirada", false);
   if (pickup) fulfillment.pickup_address = pickup;
+  const city = str(f.default_city, 100, "a cidade padrão", false);
+  if (city) fulfillment.default_city = city;
+  const uf = str(f.default_state, 2, "a UF padrão", false).toUpperCase();
+  if (uf) {
+    requireValue(uf in UF_CODES, "Carrinho: UF padrão inválida.");
+    fulfillment.default_state = uf;
+  }
   const out: CartCatalog = {
     currency: "BRL",
     categories,
@@ -523,6 +541,18 @@ function finishOrder(
     ] as const)
       if (Array.from(address[key]).length > 120)
         errors[key] = "Até 120 caracteres.";
+    // Cidade e UF: só quando o formulário pergunta (vêm preenchidas com as da
+    // loja; o cliente pode trocar).
+    const city = first(input, "city");
+    if (city) {
+      if (Array.from(city).length > 100) errors.city = "Cidade: até 100 caracteres.";
+      address.city = city;
+    }
+    const uf = first(input, "state").toUpperCase();
+    if (uf) {
+      if (!(uf in UF_CODES)) errors.state = "UF: use a sigla do estado (SP, RJ…).";
+      address.state = uf;
+    }
   }
   const note = catalog.allow_note ? first(input, "note") : "";
   if (Array.from(note).length > 300)
@@ -600,7 +630,7 @@ export function cartSummary(order: CartOrder) {
       : []),
     `Total: ${money(order.total_cents)}`,
     order.fulfillment === "delivery" && order.address
-      ? `Entrega: ${order.address.street}, ${order.address.district}${order.address.complement ? `, ${order.address.complement}` : ""}${order.address.reference ? ` (${order.address.reference})` : ""}`
+      ? `Entrega: ${order.address.street}, ${order.address.district}${order.address.complement ? `, ${order.address.complement}` : ""}${cityText(order.address)}${order.address.reference ? ` (${order.address.reference})` : ""}`
       : "Retirada no local",
     `Cliente: ${order.customer_name}`,
     ...(order.payment ? [`Pagamento: ${paymentText(order.payment)}`] : []),
@@ -612,6 +642,12 @@ export function cartSummary(order: CartOrder) {
 // Páginas
 
 const CART_CSS = `.cat{margin:24px 0 8px;font-size:18px}.item{display:flex;gap:12px;padding:14px 0;border-top:1px solid #e9edef}.item:first-of-type{border-top:0}.item img{width:72px;height:72px;object-fit:cover;border-radius:10px;flex:none}.item .info{flex:1;min-width:0}.item .name{font-weight:600}.item .price{font-weight:600;color:#008069;white-space:nowrap}.item.off{opacity:.55}.qty{display:flex;align-items:center;gap:8px;margin-top:8px}.qty select{font:inherit;padding:8px 10px;border:1px solid #d1d7db;border-radius:10px;background:#fff;color:inherit}.group{margin:10px 0 0;padding:10px 12px;border:1px dashed #d1d7db;border-radius:10px}.group legend{font-size:14px}.group .option{margin-top:6px;padding:8px 10px}.mini{width:100%;font:inherit;font-size:14px;padding:8px 10px;margin-top:8px;border:1px solid #d1d7db;border-radius:10px}.lines{width:100%;border-collapse:collapse;margin:8px 0}.lines td{padding:8px 0;border-top:1px solid #e9edef;vertical-align:top}.lines td:last-child{text-align:right;white-space:nowrap;padding-left:12px}.lines small{margin:2px 0 0}.total td{font-weight:700;border-top:2px solid #d1d7db}.alert{background:#fdecea;color:#c62828;border-radius:10px;padding:10px 12px;margin:12px 0;font-size:14px}.slot{margin-top:12px;padding-top:10px;border-top:1px dashed #d1d7db}.more{display:inline-block;width:auto;margin:10px 0 0;padding:8px 12px;font-size:14px;background:none;color:#008069;border:1px solid #008069;border-radius:10px}.default{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}@media (prefers-color-scheme:dark){.item,.lines td{border-color:#2a3942}.slot{border-color:#3b4a54}.more{color:#25d366;border-color:#25d366}.qty select,.mini{background:#202c33;border-color:#3b4a54}.group{border-color:#3b4a54}.alert{background:#3b1f1f;color:#ff8a80}}`;
+
+/** ", Cidade - UF" quando o formulário perguntou; senão "". */
+const cityText = (a: { city?: string; state?: string }) => {
+  const place = [a.city, a.state].filter(Boolean).join(" - ");
+  return place ? `, ${place}` : "";
+};
 
 const err = (errors: Record<string, string>, key: string) =>
   errors[key] ? `<div class="error">${escape(errors[key])}</div>` : "";
@@ -722,13 +758,19 @@ export function cartPage(
           : ""
       }`
     : "";
-  const field = (name: string, label: string, help = "") =>
-    `<label${errors[name] ? ' class="invalid"' : ""}><span class="label">${label}</span><input type="text" name="${name}" maxlength="120" value="${escape(value(name))}">${help ? `<small>${help}</small>` : ""}${err(errors, name)}</label>`;
+  const field = (name: string, label: string, help = "", fallback = "", max = 120) =>
+    `<label${errors[name] ? ' class="invalid"' : ""}><span class="label">${label}</span><input type="text" name="${name}" maxlength="${max}" value="${escape(name in input ? value(name) : fallback)}">${help ? `<small>${help}</small>` : ""}${err(errors, name)}</label>`;
+  // Cidade e UF da loja já preenchidas (o cliente pode trocar); sem elas, o
+  // formulário fica como sempre.
+  const place =
+    f.default_city || f.default_state
+      ? `${field("city", "Cidade", "", f.default_city || "", 100)}${field("state", "UF", "", f.default_state || "", 2)}`
+      : "";
   const body = `<div class="card"><h1>${escape(meta.title)}</h1>${meta.intro ? `<p class="intro">${escape(meta.intro)}</p>` : ""}${f.eta ? `<small>${escape(f.eta)}</small>` : ""}${f.minimum_cents ? `<small>Pedido mínimo: ${money(f.minimum_cents)}</small>` : ""}${
     Object.keys(errors).length
       ? `<div class="alert" role="alert">${escape(errors.cart || "Confira os itens e os campos destacados.")}</div>`
       : ""
-  }<form method="post" novalidate><button type="submit" name="step" value="review" class="default" tabindex="-1" aria-hidden="true">Revisar</button>${items}<h2 class="cat">Como você quer receber?</h2><fieldset>${modes}${err(errors, "fulfillment")}</fieldset>${f.delivery ? `${field("street", "Rua e número", "Só para entrega.")}${field("district", "Bairro")}${field("complement", "Complemento (opcional)")}${field("reference", "Ponto de referência (opcional)")}` : ""}${paymentBlock}<label${errors.name ? ' class="invalid"' : ""}><span class="label">Seu nome</span><input type="text" name="name" maxlength="80" value="${escape(value("name"))}">${err(errors, "name")}</label>${catalog.allow_note ? `<label><span class="label">Observação do pedido (opcional)</span><textarea name="note" maxlength="300">${escape(value("note"))}</textarea>${err(errors, "note")}</label>` : ""}<button type="submit" name="step" value="review">${escape(meta.submit_label || "Revisar pedido")}</button></form></div>`;
+  }<form method="post" novalidate><button type="submit" name="step" value="review" class="default" tabindex="-1" aria-hidden="true">Revisar</button>${items}<h2 class="cat">Como você quer receber?</h2><fieldset>${modes}${err(errors, "fulfillment")}</fieldset>${f.delivery ? `${field("street", "Rua e número", "Só para entrega.")}${field("district", "Bairro")}${place}${field("complement", "Complemento (opcional)")}${field("reference", "Ponto de referência (opcional)")}` : ""}${paymentBlock}<label${errors.name ? ' class="invalid"' : ""}><span class="label">Seu nome</span><input type="text" name="name" maxlength="80" value="${escape(value("name"))}">${err(errors, "name")}</label>${catalog.allow_note ? `<label><span class="label">Observação do pedido (opcional)</span><textarea name="note" maxlength="300">${escape(value("note"))}</textarea>${err(errors, "note")}</label>` : ""}<button type="submit" name="step" value="review">${escape(meta.submit_label || "Revisar pedido")}</button></form></div>`;
   return page(meta.title, body, appName, CART_CSS);
 }
 
@@ -757,7 +799,7 @@ export function cartReviewPage(
     .join("");
   const where =
     order.fulfillment === "delivery" && order.address
-      ? `Entrega em ${escape(order.address.street)}, ${escape(order.address.district)}${order.address.complement ? `, ${escape(order.address.complement)}` : ""}`
+      ? `Entrega em ${escape(order.address.street)}, ${escape(order.address.district)}${order.address.complement ? `, ${escape(order.address.complement)}` : ""}${escape(cityText(order.address))}`
       : "Retirada no local";
   const body = `<div class="card"><h1>Confira seu pedido</h1><table class="lines">${rows}<tr><td>Subtotal</td><td>${money(order.subtotal_cents)}</td></tr>${order.fulfillment === "delivery" ? `<tr><td>Entrega</td><td>${money(order.delivery_fee_cents)}</td></tr>` : ""}<tr class="total"><td>Total</td><td>${money(order.total_cents)}</td></tr></table><p>${where}<br>${escape(order.customer_name)}${order.payment ? `<br>Pagamento: ${escape(paymentText(order.payment))}` : ""}${order.note ? `<br><small>${escape(order.note)}</small>` : ""}</p><form method="post">${hidden}<button type="submit" name="confirm" value="1">Confirmar pedido</button><button type="submit" name="step" value="edit" class="button secondary">Voltar e alterar</button></form></div>`;
   return page(meta.title, body, appName, CART_CSS);
