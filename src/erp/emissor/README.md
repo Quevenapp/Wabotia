@@ -12,7 +12,7 @@ implementação (`nfapi-provider.ts`).
 
 | Arquivo | O quê |
 |---|---|
-| `contract/openapi.json` | Cópia versionada do contrato do cofre (OpenAPI 3.1). Hoje: **0.9.0**, de `Quevenapp/nfapi` `vault/docs/openapi.json` no canal estável (`cofre-estavel`), commit `652b31c`. |
+| `contract/openapi.json` | Cópia versionada do contrato do cofre (OpenAPI 3.1). Hoje: **0.9.1**, de `Quevenapp/nfapi` `vault/docs/openapi.json` no canal estável (`cofre-estavel`), commit `5db281e`. |
 | `contract/types.generated.ts` | Tipos gerados do contrato. Não edite. |
 | `contract/generate.ts` | Gerador de tipos, lista de operações e comparação de contratos. Funções puras. |
 | `contract/sync.mjs` | Copia um contrato novo e regera os tipos. |
@@ -491,7 +491,13 @@ cofre. O ERP **lê**:
   Sem repetição automática.
 - **Sincronizar.** `POST /v1/distribuicao/sincronizar` existe no cliente fino
   (o contrato exige), mas **não** no provedor: o cofre já consulta sozinho, e
-  o ERP nunca chama em laço.
+  o ERP nunca chama em laço. Desde 0.9.1 o resultado traz `recuperados`.
+- **Documentos a recuperar (0.9.1).** Quando outro sistema (o do contador,
+  por exemplo) consulta o mesmo CNPJ, o Ambiente Nacional recusa a consulta
+  do cofre (656) e alguns documentos ficam para trás; o cofre os busca sozinho
+  pelo NSU, a cerca de 12 por hora. O provedor expõe a contagem em
+  `FiscalDistributionState.recovering_documents` (0 no uso normal e em cofre
+  0.9.0, que não informa).
 - **Primeira consulta.** A de um CNPJ não traz nada: não há retroativo.
 - **Configuração do cofre.** Sem ela, `409
   fiscal_distribution_not_configured`. Chave de homologação não age em

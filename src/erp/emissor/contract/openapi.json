@@ -2,7 +2,7 @@
 	"openapi": "3.1.0",
 	"info": {
 		"title": "Cofre NFapi",
-		"version": "0.9.0",
+		"version": "0.9.1",
 		"description": "API de emissão de notas fiscais do cofre NFapi, que roda na conta Cloudflare do emitente. Todas as chamadas levam uma chave de API criada na tela /setup do cofre. O cofre não calcula imposto: o sistema que chama informa bases, alíquotas e valores; o cofre numera, monta o XML, soma os totais, assina, transmite e arquiva. Erros vêm sempre como `{ \"erro\": { \"codigo\", \"mensagem\" } }`.",
 		"license": {
 			"name": "MIT"
@@ -10684,7 +10684,12 @@
 							"limite": {
 								"type": "integer"
 							}
-						}
+						},
+						"description": "Consultas pontuais (por chave e por NSU) na última hora e o limite do cofre."
+					},
+					"documentosARecuperar": {
+						"type": "integer",
+						"description": "Documentos que ficaram para trás e que o cofre ainda vai buscar um a um, sozinho, a cerca de 12 por hora. Acontece quando outro sistema (o do contador, por exemplo) consulta o mesmo CNPJ: o Ambiente Nacional recusa a consulta do cofre (656) e devolve o NSU em que o outro parou. Zero no uso normal."
 					}
 				}
 			},
@@ -10699,7 +10704,12 @@
 						"type": "integer"
 					},
 					"documentos": {
-						"type": "integer"
+						"type": "integer",
+						"description": "Documentos novos no cofre nesta consulta, contando os recuperados."
+					},
+					"recuperados": {
+						"type": "integer",
+						"description": "Dos documentos, quantos tinham ficado para trás e foram buscados pelo NSU (ver `documentosARecuperar`)."
 					},
 					"notasNovas": {
 						"type": "integer"

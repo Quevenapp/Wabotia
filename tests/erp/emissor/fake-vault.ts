@@ -141,6 +141,8 @@ export interface FakeVaultOptions {
   logo?: "png" | "jpeg" | null;
   /** Notas recebidas configuradas (UF do estabelecimento informada). Padrão: true. */
   distribution?: boolean;
+  /** documentosARecuperar da distribuição (0.9.1). Ausente: o campo não vem, como num cofre 0.9.0. */
+  recovering?: number;
 }
 
 export function createFakeVault(options: FakeVaultOptions = {}) {
@@ -618,6 +620,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
                     bloqueada: !!state.blockedUntil,
                     mensagem: null,
                     consultasPorChave: { naUltimaHora: keyQueries.length, limite: 18 },
+                    ...(options.recovering === undefined ? {} : { documentosARecuperar: options.recovering }),
                   },
                 ],
         },
@@ -626,7 +629,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
       if (options.distribution === false)
         return { status: 409, body: erro("distribuicao_nao_configurada", "Salve a configuração das notas recebidas antes de consultar.") };
       sent("distribuicao");
-      return { status: 200, body: { consultou: true, lotes: 1, documentos: 0, notasNovas: 0 } };
+      return { status: 200, body: { consultou: true, lotes: 1, documentos: 0, recuperados: 0, notasNovas: 0 } };
     }
     if (path === "/v1/distribuicao/consultar-chave" && method === "POST") {
       if (options.distribution === false)

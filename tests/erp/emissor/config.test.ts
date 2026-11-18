@@ -79,22 +79,22 @@ describe("configuração", () => {
 describe("Testar conexão", () => {
   it("mostra versão, atualização, certificado, ambiente e séries", async () => {
     const profile = uid();
-    const vault = createFakeVault({ apiKey: KEY, published: "0.9.1", certificateUntil: "2026-12-01T03:00:00.000Z", openapi: contract });
+    const vault = createFakeVault({ apiKey: KEY, published: "0.9.2", certificateUntil: "2026-12-01T03:00:00.000Z", openapi: contract });
     await saveEmissor(env, actor(), profile, { url: VAULT_URL, api_key: KEY });
     const view = await testEmissor(env, actor(), profile, { fetch: vault.fetch });
     expect(vault.calls.map((c) => c.path)).toEqual(["/v1/cofre", "/v1/series", "/v1/openapi.json"]);
     expect(view.checked).toMatchObject({
       ok: true,
       state: {
-        version: "0.9.0",
-        update: { published: "0.9.1", pending: true },
+        version: "0.9.1",
+        update: { published: "0.9.2", pending: true },
         certificate: { holder: "EMPRESA EXEMPLO LTDA", valid_until: "2026-12-01T03:00:00.000Z" },
         production_released: false,
         key: { scope: "completo", environments: ["homologacao", "producao"] },
         contingency: { pending_notes: 0 },
         logo: true,
       },
-      contract: { pinned: "0.9.0", vault: "0.9.0", compatible: true, differences: [] },
+      contract: { pinned: "0.9.1", vault: "0.9.1", compatible: true, differences: [] },
     });
     expect(view.checked!.series).toHaveLength(2);
     expect(view.alerts.map((a) => a.code)).toEqual(expect.arrayContaining(["vault_outdated", "certificate_expiring", "production_blocked"]));
@@ -250,7 +250,7 @@ describe("rotas /erp-emissor", () => {
     expect(await call("GET", "", undefined, actor("operator", [profile])).catch((e) => e)).toMatchObject({ status: 403, code: "erp_role_required" });
     const operator = await member("operator", profile, ["erp:consulta"]);
     const state = await (await call("GET", "", undefined, operator)).json<any>();
-    expect(state).toMatchObject({ configured: true, contract_version: "0.9.0", checked: { ok: true } });
+    expect(state).toMatchObject({ configured: true, contract_version: "0.9.1", checked: { ok: true } });
     expect(await call("PUT", "", { url: VAULT_URL }, operator).catch((e) => e)).toMatchObject({ status: 403 });
     expect(await call("POST", "/test", undefined, operator).catch((e) => e)).toMatchObject({ status: 403 });
 

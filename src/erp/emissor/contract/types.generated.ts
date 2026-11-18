@@ -1,9 +1,9 @@
 // GERADO por src/erp/emissor/contract/sync.mjs a partir de contract/openapi.json.
 // Não edite à mão: copie o contrato novo e rode o sync (README.md desta pasta).
-// Cofre NFapi 0.9.0 (OpenAPI 3.1.0).
+// Cofre NFapi 0.9.1 (OpenAPI 3.1.0).
 /* eslint-disable */
 
-export const CONTRACT_VERSION = "0.9.0";
+export const CONTRACT_VERSION = "0.9.1";
 
 export type Erro = {
   erro: {
@@ -1754,17 +1754,23 @@ export type Distribuicao = {
     codigo?: string;
     descricao?: string;
   } | null;
+  /** Consultas pontuais (por chave e por NSU) na última hora e o limite do cofre. */
   consultasPorChave?: {
     naUltimaHora?: number;
     limite?: number;
   };
+  /** Documentos que ficaram para trás e que o cofre ainda vai buscar um a um, sozinho, a cerca de 12 por hora. Acontece quando outro sistema (o do contador, por exemplo) consulta o mesmo CNPJ: o Ambiente Nacional recusa a consulta do cofre (656) e devolve o NSU em que o outro parou. Zero no uso normal. */
+  documentosARecuperar?: number;
 };
 
 export type Sincronizacao = {
   /** false: a espera ainda não venceu (ou outra consulta está em andamento) e nada foi enviado ao Ambiente Nacional. */
   consultou?: boolean;
   lotes?: number;
+  /** Documentos novos no cofre nesta consulta, contando os recuperados. */
   documentos?: number;
+  /** Dos documentos, quantos tinham ficado para trás e foram buscados pelo NSU (ver `documentosARecuperar`). */
+  recuperados?: number;
   notasNovas?: number;
   distribuicao?: Distribuicao;
 };

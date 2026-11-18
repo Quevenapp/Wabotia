@@ -27,7 +27,7 @@ const clone = () => structuredClone(spec) as OpenApi;
 
 /** Contrato conhecido por este cliente. Mudou? Revise o cliente e atualize. */
 const EXPECTED = {
-  version: "0.9.0",
+  version: "0.9.1",
   operations: {
     "POST /v1/nfe": ["200", "201", "400", "401", "403", "409", "422", "500", "502", "503"],
     "GET /v1/nfe": ["200", "401", "500", "503"],

@@ -201,6 +201,12 @@ export interface FiscalDistributionState {
   blocked: boolean;
   message: FiscalMessage | null;
   key_queries: { last_hour: number; limit: number | null };
+  /**
+   * Documentos que ficaram para trás (outro sistema consultou o mesmo CNPJ) e
+   * que o emissor ainda vai buscar sozinho, um a um. Zero no uso normal e
+   * quando o cofre é anterior a 0.9.1.
+   */
+  recovering_documents: number;
 }
 
 export interface FiscalSeries {

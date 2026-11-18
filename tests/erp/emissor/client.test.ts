@@ -79,7 +79,7 @@ describe("cliente NFapi", () => {
       { modelo: "nfce", ambiente: "homologacao", serie: 1, proximoNumero: 1, descricao: null, cnpj: "99888777000166" },
     ]);
     expect((await api.cofre()).body).toMatchObject({
-      versao: "0.9.0",
+      versao: "0.9.1",
       certificado: { titular: "EMPRESA EXEMPLO LTDA" },
       contingencia: { notasPendentes: 0 },
       logotipo: true,

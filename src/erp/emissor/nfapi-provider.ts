@@ -204,6 +204,7 @@ function distributionOf(d: Distribuicao): FiscalDistributionState {
     blocked: !!d.bloqueada,
     message: d.mensagem?.codigo ? { code: d.mensagem.codigo, description: d.mensagem.descricao ?? "" } : null,
     key_queries: { last_hour: d.consultasPorChave?.naUltimaHora ?? 0, limit: d.consultasPorChave?.limite ?? null },
+    recovering_documents: d.documentosARecuperar ?? 0,
   };
 }
 

@@ -144,8 +144,10 @@ describe("NF-e recebidas", () => {
   it("estado da distribuição; sem configuração no cofre, 409 próprio", async () => {
     const { ctx } = await vaultArea();
     expect(await provider.distribution(ctx)).toEqual([
-      expect.objectContaining({ cnpj: "99888777000166", environment: "homologacao", uf: "SP", blocked: false, key_queries: { last_hour: 0, limit: 18 } }),
+      expect.objectContaining({ cnpj: "99888777000166", environment: "homologacao", uf: "SP", blocked: false, key_queries: { last_hour: 0, limit: 18 }, recovering_documents: 0 }),
     ]);
+    const behind = await vaultArea({ recovering: 7 });
+    expect(await provider.distribution(behind.ctx)).toEqual([expect.objectContaining({ recovering_documents: 7 })]);
     const bare = await vaultArea({ distribution: false });
     expect(await provider.distribution(bare.ctx)).toEqual([]);
     const n = bare.vault.addReceived();
