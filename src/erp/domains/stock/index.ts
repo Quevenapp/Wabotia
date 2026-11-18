@@ -20,3 +20,5 @@ import "./rpc/transfers.ts";
 import "./rpc/movement-amend.ts";
 import "./rpc/product-create.ts";
 import "./rpc/opening.ts";
+import "./rpc/checkin.ts";
+import "./rpc/invoice-stock.ts";

@@ -74,6 +74,22 @@ export const discardTables = {};
 export const covered = {
   "checks": {},
   "triggers": {
+    "erp_stock__checkin.guard_stock_checkin": {
+      "where": "src/erp/domains/stock/rpc/checkin.ts checkinBegin/checkinAdvance/checkinWrite: inserção in_progress v1; avanço unitário, finalizado imutável; não exclui a conferência",
+      "test": "tests/erp/stock/checkin.test.mjs"
+    },
+    "erp_stock__checkin_item.guard_stock_checkin_item": {
+      "where": "src/erp/domains/stock/rpc/checkin.ts checkinWrite/checkinAdvance: cópia só no início/reinício; conferência finalizada e item recusado protegidos",
+      "test": "tests/erp/stock/checkin.test.mjs"
+    },
+    "erp_stock__invoice_posting.guard_stock_invoice_posting": {
+      "where": "src/erp/domains/stock/rpc/invoice-stock.ts saveInvoicePosting/invoiceReverse: inserção active v1, somente estorno do próprio movimento e avanço de versão; cópia preservada",
+      "test": "tests/erp/stock/invoice-stock.test.mjs"
+    },
+    "erp_stock__unit_conversion.guard_stock_unit_conversion": {
+      "where": "src/erp/domains/stock/rpc/invoice-stock.ts erp_stock_invoice_unit_save: inserção v1 e atualização +1 com novo comando, identidade preservada",
+      "test": "tests/erp/stock/invoice-stock.test.mjs"
+    },
     "erp_catalog__product.protect_stock_product_unit": {
       "where": "src/erp/domains/stock/public.ts protectProductUnit, chamada por src/erp/domains/catalog/record.ts updateProduct (escrita P para o Catálogo; dono N)",
       "test": "tests/erp/stock/catalog-guards.test.mjs"
