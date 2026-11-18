@@ -15,8 +15,8 @@ export const MOTOR_PENDING: readonly Pending[] = [
   // Meu Negócio: os painéis de vendas (o Início, /v1/inicio, já responde).
   { path: "/meu-negocio" },
   // Fiscal: notas, eventos, rascunhos, numeração e o certificado (as
-  // naturezas de operação e as preferências de NF-e e NFC-e já respondem).
-  { path: "/historico-fiscal" },
+  // naturezas de operação, as preferências de NF-e e NFC-e e o histórico
+  // fiscal, pela leitura das notas do F2a, já respondem).
   { path: "/notas-entrada" },
   { path: "/notas-recebidas" },
   { path: "/inutilizacoes-nfe" },

@@ -3,6 +3,7 @@
 import "./rpc/erp_fiscal_natures.ts";
 import "./rpc/erp_fiscal_tax_settings.ts";
 import "./rpc/erp_fiscal_invoice_support.ts";
+import "./rpc/erp_fiscal_invoice_reads.ts";
 import "./reform.ts";
 
 export {};
