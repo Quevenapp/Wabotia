@@ -86,9 +86,12 @@ export async function pdfPageCount(bytes: Uint8Array): Promise<number | null> {
   const objstm = /\/Type\s*\/ObjStm(?![A-Za-z])/g;
   const mentioned = text.match(objstm)?.length ?? 0;
   const loose = text.match(/\/Type\s*\/Page(?![A-Za-z])/g)?.length ?? 0;
-  // Cifrado: o conteúdo dos streams não é o texto dos objetos.
-  if (/\/Encrypt(?![A-Za-z])/.test(text)) return null;
+  // Sem object streams, os dicionários de página ficam no texto mesmo num PDF
+  // cifrado (a cifra só cobre strings e streams): a contagem solta vale.
+  // Extratos de banco costumam vir cifrados só com permissões.
   if (!mentioned) return loose || null;
+  // Cifrado com ObjStm: o conteúdo dos streams não é o texto dos objetos.
+  if (/\/Encrypt(?![A-Za-z])/.test(text)) return null;
   const marker = /stream\r?\n/g;
   let budget: number = PDF_INFLATE_LIMITS.bytes;
   let streams = 0;

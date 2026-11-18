@@ -1348,9 +1348,10 @@ describe("cache de prompt do provedor de IA", () => {
 });
 
 describe("PDF do cliente no provedor de IA", () => {
-  it("PDF cifrado sem ObjStm também não tem contagem confiável", async () => {
-    const bytes = new TextEncoder().encode(new TextDecoder().decode(pdf(1)) + "\ntrailer << /Encrypt 9 0 R >>");
-    expect(await pdfPageCount(bytes)).toBeNull();
+  it("PDF cifrado sem ObjStm: as páginas estão no texto e contam (extrato de banco)", async () => {
+    // A cifra cobre strings e streams, não os dicionários de página.
+    const bytes = new TextEncoder().encode(new TextDecoder().decode(pdf(3)) + "\ntrailer << /Encrypt 9 0 R >>");
+    expect(await pdfPageCount(bytes)).toBe(3);
   });
 
   it("PDF com ObjStm sem páginas legíveis vai à equipe sem chegar ao provedor", async () => {
