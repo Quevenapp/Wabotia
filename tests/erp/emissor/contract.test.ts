@@ -18,7 +18,7 @@ import {
   CONTRACT_OPERATIONS,
   CONTRACT_VERSION,
 } from "../../../src/erp/emissor/contract/types.generated.ts";
-import { CLIENT_OPERATIONS, OPERATION_MIN_VERSION, olderThan } from "../../../src/erp/emissor/nfapi.ts";
+import { BROWSER_ONLY_OPERATIONS, CLIENT_OPERATIONS, OPERATION_MIN_VERSION, olderThan } from "../../../src/erp/emissor/nfapi.ts";
 import { ERROR_MAP, KNOWN_SITUACOES } from "../../../src/erp/emissor/nfapi-provider.ts";
 import { requestExample, requestSchema, validate } from "./schema";
 
@@ -27,7 +27,7 @@ const clone = () => structuredClone(spec) as OpenApi;
 
 /** Contrato conhecido por este cliente. Mudou? Revise o cliente e atualize. */
 const EXPECTED = {
-  version: "0.9.0",
+  version: "0.11.0",
   operations: {
     "POST /v1/nfe": ["200", "201", "400", "401", "403", "409", "422", "500", "502", "503"],
     "GET /v1/nfe": ["200", "401", "500", "503"],
@@ -60,6 +60,12 @@ const EXPECTED = {
     "POST /v1/distribuicao/consultar-chave": ["200", "400", "401", "403", "409", "422", "429", "500", "502", "503"],
     "GET /v1/distribuicao/documentos": ["200", "400", "401", "500", "503"],
     "GET /v1/distribuicao/documentos/{sequencia}/xml": ["200", "401", "404", "500", "503"],
+    "GET /v1/notas": ["200", "400", "401", "500", "503"],
+    "GET /v1/relatorios/notas": ["200", "400", "401", "403", "500", "503"],
+    "POST /v1/exportacoes": ["201", "400", "401", "403", "500", "503"],
+    "GET /v1/exportacoes": ["200", "401", "500", "503"],
+    "GET /v1/exportacoes/{id}": ["200", "401", "404", "500", "503"],
+    "GET /exportacoes/{id}/{arquivo}": ["200", "403"],
     "POST /v1/nfse": ["200", "201", "400", "401", "403", "409", "422", "500", "502", "503"],
     "GET /v1/nfse": ["200", "401", "500", "503"],
     "GET /v1/nfse/{id}": ["200", "401", "404", "500", "503"],
@@ -120,6 +126,7 @@ const EXPECTED = {
     nota_nao_localizada: 422,
     consulta_rejeitada: 422,
     consumo_indevido: 429,
+    link_invalido: 403,
     limite_de_consultas: 429,
     sem_resposta_conclusiva: 502,
     sem_conexao: 200,
@@ -150,7 +157,9 @@ describe("contrato do cofre NFapi", () => {
   });
 
   it("o cliente cobre todas as operações do contrato, e só elas", () => {
-    expect([...CLIENT_OPERATIONS].sort()).toEqual([...CONTRACT_OPERATIONS].sort());
+    // O download da exportação é do navegador (link assinado), nunca do cliente.
+    expect([...CLIENT_OPERATIONS, ...BROWSER_ONLY_OPERATIONS].sort()).toEqual([...CONTRACT_OPERATIONS].sort());
+    for (const op of BROWSER_ONLY_OPERATIONS) expect(CLIENT_OPERATIONS).not.toContain(op);
     expect(new Set(CLIENT_OPERATIONS).size).toBe(CLIENT_OPERATIONS.length);
   });
 

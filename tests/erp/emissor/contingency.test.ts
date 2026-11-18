@@ -113,13 +113,18 @@ describe("contingência da NFC-e", () => {
     expect(error).toMatchObject({ status: 409, code: "fiscal_previous_version_open", details: { emission: { status: "contingency" } } });
   });
 
-  it("cofre anterior à 0.4.0: pedir contingência dá vault_outdated, sem emitir", async () => {
-    const { ctx, vault } = await vaultArea({ version: "0.3.2" });
-    const error = await provider.emit(ctx, "nfce", nfce(), doc(), { contingency: "automatic" }).catch((e) => e);
-    expect(error).toMatchObject({ status: 409, code: "vault_outdated", details: { min_version: "0.4.0" } });
-    expect(vault.emissions.size).toBe(0);
-    // Sem pedir contingência, esse cofre emite normalmente.
-    expect((await provider.emit(ctx, "nfce", nfce(), doc())).status).toBe("authorized");
+  it("cofre anterior à 0.8.0: a emissão dá vault_outdated antes de enviar, com ou sem contingência", async () => {
+    for (const version of ["0.3.2", "0.7.0"]) {
+      const { ctx, vault } = await vaultArea({ version });
+      for (const options of [{ contingency: "automatic" as const }, {}]) {
+        const error = await provider.emit(ctx, "nfce", nfce(), doc(), options).catch((e) => e);
+        expect(error).toMatchObject({ status: 409, code: "vault_outdated", details: { min_version: "0.8.0" } });
+      }
+      expect(vault.calls.filter((c) => c.method === "POST")).toHaveLength(0);
+      expect(vault.emissions.size).toBe(0);
+    }
+    const { ctx } = await vaultArea({ version: "0.8.0" });
+    expect((await provider.emit(ctx, "nfce", nfce(), doc(), { contingency: "automatic" })).status).toBe("authorized");
   });
 
   it("o tempo-limite de escrita cobre a espera de 20 s do cofre", async () => {
