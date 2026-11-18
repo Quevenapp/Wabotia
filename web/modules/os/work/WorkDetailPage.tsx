@@ -244,7 +244,7 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
                 </div>
               )}
             </dl>
-            {order.type_id !== "service_order" && app.me.access.includes("os:sensitive") && (
+            {order.type_id !== "service_order" && Array.isArray(app.me.access) && app.me.access.includes("os:sensitive") && (
               <Button secondary onClick={() => setPrivateOpen(true)}>
                 Abrir campos restritos
               </Button>

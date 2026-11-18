@@ -275,6 +275,21 @@ describe("revisão do painel: regressões", () => {
     expect(runtime.app.api.mock.calls.find((call: any[]) => String(call[0]).endsWith("/quote/send"))?.[2]).toEqual({ notify: false });
   });
 
+  it("abre o trabalho personalizado para quem tem acesso irrestrito (access null) sem oferecer campos restritos", async () => {
+    runtime.app.me = { role: "admin", access: null };
+    runtime.app.api.mockResolvedValue({
+      ...order(), type_id: "projeto", type_revision: 1, labels: custom().labels,
+      type_plural_label: "Projetos", fields: [], extra: {}, next_stages: [],
+      next_statuses: [], status: "received",
+    });
+    const owner = instance();
+    render(owner, () => WorkDetailPage({ workId: "o" }));
+    await tick();
+    const detail: any = render(owner, () => WorkDetailPage({ workId: "o" }));
+    const tree = render(instance(), () => detail.type(detail.props));
+    expect(button(tree, "Abrir campos restritos")).toBeUndefined();
+  });
+
   it.each([
     ["tarefa", TaskDialog, { ...record(), title: "Antes", description: "", audience: "staff", state: "open" }, "Título", "tasks/r"],
     ["pessoa", PersonDialog, { ...record(), name: "Antes", role: "Titular" }, "Nome", "people/r"],
