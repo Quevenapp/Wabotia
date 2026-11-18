@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { all, batch, exec, one } from "../src/db";
 import { ApiError, now, uid, type Actor } from "../src/types";
 import { modulesApi } from "../src/modules/api";
-import { perform } from "../src/service";
+import { perform, settingsRevision } from "../src/service";
 import * as motor from "../src/modules/os/public";
 import type { ChildMutation } from "../src/modules/os/public";
 import type { MutationRef } from "../src/modules/os/contracts";
@@ -110,7 +110,7 @@ describe("P: contrato congelado e embutido", () => {
       .toEqual({ status: "received", phone: "5511960010203" });
   });
 
-  it("expõe a dependência de M sem executar SQL parcial", async () => {
+  it("propaga erro da fronteira commitChild (sem provar atomicidade)", async () => {
     const f = await setupPeople();
     // Falha explícita da fronteira, válida também depois que M for integrado.
     vi.spyOn(motor, "commitChild").mockRejectedValue(
@@ -119,6 +119,43 @@ describe("P: contrato congelado e embutido", () => {
     await expect(createPerson(f.ctx, f.member, { id: f.order.id, ...values }, uid()))
       .rejects.toMatchObject({ status: 501, code: "not_implemented" });
     expect(await all(env, "SELECT id FROM os_people WHERE profile_id=?", f.profile)).toEqual([]);
+  });
+
+  it("reverte filho, histórico e atividade quando o lote real falha depois da escrita", async () => {
+    const f = await motorFixture();
+    await perform(env, f.admin, f.profile, "settings", {
+      os_work_types: [motorWorkType()], settings_revision: await settingsRevision(env, f.profile),
+    }, uid());
+    const order = await motorOrder(f, { type_id: motorWorkType().id });
+    await exec(env, "UPDATE os_orders SET updated=1,stale_notified_at=1 WHERE profile_id=? AND id=?", f.profile, order.id);
+    const before = await one(env, "SELECT * FROM os_orders WHERE profile_id=? AND id=?", f.profile, order.id);
+    const history = await all(env, "SELECT * FROM os_history WHERE profile_id=? AND order_id=? ORDER BY id", f.profile, order.id);
+    // O gatilho falha no fim do lote, após INSERT do filho e do histórico e
+    // UPDATE do pai. Nenhum mock de commitChild, batch ou persistência.
+    const trigger = `os_people_rollback_${uid().replaceAll("-", "")}`;
+    const orderLiteral = order.id.replaceAll("'", "''");
+    await exec(env, `CREATE TRIGGER ${trigger} AFTER UPDATE OF updated ON os_orders
+      WHEN NEW.id='${orderLiteral}' AND EXISTS (
+        SELECT 1 FROM os_people p WHERE p.profile_id=NEW.profile_id AND p.order_id=NEW.id
+      ) BEGIN SELECT RAISE(ABORT,'P_ROLLBACK_AFTER_PARENT'); END`);
+    const requestId = uid();
+    const data = { id: order.id, ...values };
+    try {
+      await expect(createPerson(f.ctx, f.member, data, requestId)).rejects.toThrow("P_ROLLBACK_AFTER_PARENT");
+      expect(await all(env, "SELECT id FROM os_people WHERE profile_id=? AND order_id=?", f.profile, order.id)).toEqual([]);
+      expect(await all(env, "SELECT * FROM os_history WHERE profile_id=? AND order_id=? ORDER BY id", f.profile, order.id)).toEqual(history);
+      expect(await one(env, "SELECT * FROM os_orders WHERE profile_id=? AND id=?", f.profile, order.id)).toEqual(before);
+      expect(await all(env, "SELECT id FROM events WHERE profile_id=? AND kind='os.person.created'", f.profile)).toEqual([]);
+    } finally {
+      await exec(env, `DROP TRIGGER ${trigger}`);
+    }
+    const person = await createPerson(f.ctx, f.member, data, requestId);
+    expect(await createPerson(f.ctx, f.member, data, requestId)).toEqual(person);
+    expect(await all(env, "SELECT id FROM os_people WHERE profile_id=? AND order_id=?", f.profile, order.id)).toHaveLength(1);
+    expect(await all(env, "SELECT entity_id FROM os_history WHERE profile_id=? AND order_id=? AND kind='os.person.created'", f.profile, order.id))
+      .toEqual([{ entity_id: person.id }]);
+    expect(await one(env, "SELECT stale_notified_at FROM os_orders WHERE profile_id=? AND id=?", f.profile, order.id)).toEqual({ stale_notified_at: null });
+    expect(await all(env, "SELECT id FROM events WHERE profile_id=? AND kind='os.person.created'", f.profile)).toHaveLength(1);
   });
 });
 
