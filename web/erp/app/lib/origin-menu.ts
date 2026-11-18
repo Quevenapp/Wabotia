@@ -155,7 +155,7 @@ export const COMPANY_PREFERENCES: readonly PreferenceCategory[] = [
   ] },
   { id: 'certificado', label: 'Certificado Digital', icon: 'certificate', sections: [
     { title: 'Configurações do certificado digital', entries: [page('certificado-digital')] },
-    { title: TOOLS, entries: [{ label: 'Certificado A1 · custódia', to: '/certificado-a1', roles: ['admin', 'fiscal'] }] },
+    { title: TOOLS, entries: [{ label: 'Emissor de notas (cofre NFapi)', to: '/certificado-a1', roles: ['admin', 'fiscal'] }] },
   ] },
   { id: 'financas', label: 'Finanças', icon: 'dollar-sign', sections: [
     { title: 'Configurações de finanças', entries: [page('financas-pagar'), page('financas-receber')] },

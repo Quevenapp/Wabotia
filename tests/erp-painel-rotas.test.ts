@@ -48,6 +48,7 @@ import {
   type CompanyExport,
 } from "../web/erp/app/lib/platform-model";
 import { erpStub } from "../src/erp/hub";
+import { emissorBadge, type EmissorView } from "../web/erp/emissor";
 
 /** Tela do painel (caminho sem /app/erp) → primeira leitura que ela faz. */
 const SCREENS: [string, string][] = [
@@ -510,6 +511,21 @@ describe("painel do ERP contra a rota real", () => {
       } finally {
         setMotorReal(false);
       }
+    },
+  );
+
+  it(
+    "o selo do emissor lê a rota real: sem cofre, 'Emissão não configurada'",
+    { timeout: 120_000 },
+    async () => {
+      // A Frente de caixa mostrava "Certificado inválido" (o A1 do Fagoo); no
+      // Wabotia o certificado fica no cofre NFapi (web/erp/emissor.ts).
+      const { f, get } = await setup();
+      const response = await get(await bearer(f.admin), "/erp-emissor");
+      expect(response.status).toBe(200);
+      const view = await response.json<EmissorView>();
+      expect(view.configured).toBe(false);
+      expect(emissorBadge(view)?.text).toBe("Emissão não configurada");
     },
   );
 
