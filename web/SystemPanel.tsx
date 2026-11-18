@@ -376,8 +376,8 @@ function AutomaticUpdates({
       <p className="muted">
         O pacote é conferido antes de publicar. Migrações incompatíveis e
         publicações sem confirmação precisam de revisão no cartão de
-        atualização. Esta opção atualiza o servidor e o painel; os processos
-        O conector QR é mantido separadamente.
+        atualização. Esta opção atualiza o servidor e o painel; o conector QR
+        é mantido separadamente.
       </p>
     </section>
   );
