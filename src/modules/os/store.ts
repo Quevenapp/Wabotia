@@ -315,6 +315,14 @@ async function conversationOf(ctx: ModuleContext, order: any) {
   }
 }
 
+/** Uma única mensagem, dentro do teto UTF-16 do transporte, mesmo após expandir campos. */
+export function customMessage(template: string, order: any, max = 3800) {
+  const expanded = fill(template, publicOrderValues(order));
+  if (expanded.length <= max) return expanded;
+  const prefix = expanded.slice(0, max - 1).replace(/[\uD800-\uDBFF]$/, "");
+  return prefix + "…";
+}
+
 /**
  * Mensagem configurável (Gestão → Ordem de serviço) à conversa da ordem.
  * Fora da janela de 24 horas sai pelo modelo de notificação. Sem conversa ou
@@ -333,7 +341,7 @@ export async function notify(
   if (!c || c.chat_type === "group") return null;
   return ctx.sendMessage(
     c,
-    { text: fill(template, publicOrderValues(order)) },
+    { text: type ? customMessage(template, order) : fill(template, publicOrderValues(order)) },
     { key, notification: true },
   );
 }
@@ -561,6 +569,9 @@ export async function moveOrder(
   }
   const keys = Object.keys(sets);
   const historyId = uid();
+  // Apenas /stage acrescenta a marca recuperável; os comandos legados
+  // conservam o histórico e os efeitos anteriores.
+  const mutationKey = options.stage ? options.mutationKey : undefined;
   const [update] = await batch(ctx.env, [
     [
       `UPDATE os_orders SET ${keys.map((k) => k + "=?").join(",")} WHERE id=? AND profile_id=? AND status=? AND quote_version=? AND row_version=?`,
@@ -574,7 +585,9 @@ export async function moveOrder(
       ],
     ],
     [
-      "INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) SELECT ?,?,?,?,?,?,?,?,? WHERE changes()=1",
+      mutationKey
+        ? "INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created,from_stage,to_stage,entity_version,mutation_key) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? WHERE changes()=1"
+        : "INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) SELECT ?,?,?,?,?,?,?,?,? WHERE changes()=1",
       [
         historyId,
         ctx.profile,
@@ -585,6 +598,7 @@ export async function moveOrder(
         actor,
         note,
         at,
+        ...(mutationKey ? [effectiveStage(order), to, sets.row_version, mutationKey] : []),
       ],
     ],
   ]);
@@ -595,31 +609,38 @@ export async function moveOrder(
       "A ordem de serviço mudou enquanto isso. Atualize e tente de novo.",
     );
   const next = await loadOrder(ctx, order.id);
-  if (order.status !== to)
-    await ctx.publish("os.status_changed", order.id, {
-      order_id: order.id,
-      number: next.number,
-      from: order.status,
+  await resumeBuiltinStatus(ctx, { id: historyId, from_status: order.status, to_status: to, actor, note, mutation_key: mutationKey, entity_version: sets.row_version }, next, options.notify !== false);
+  return next;
+}
+
+/** Efeitos legados também usados pela retomada da rota de etapa virtual. */
+export async function resumeBuiltinStatus(ctx: ModuleContext, history: any, row: any, notifyCustomer = true) {
+  const to = history.to_status, actor = history.actor, note = history.note;
+  if (history.from_status !== to)
+    await ctx.publish("os.status_changed", row.id, {
+      order_id: row.id,
+      number: row.number,
+      from: history.from_status,
       to,
       actor,
       note,
-      conversation_id: next.conversation_id,
-    });
+      conversation_id: row.conversation_id,
+    }, history.mutation_key ? { key: `status:${row.id}:${history.entity_version}` } : undefined);
   if (to === "delivered")
-    await ctx.publish("os.delivered", order.id, {
-      order_id: order.id,
-      number: next.number,
-      delivered_at: next.delivered_at,
-      warranty_until: next.warranty_until,
+    await ctx.publish("os.delivered", row.id, {
+      order_id: row.id,
+      number: row.number,
+      delivered_at: row.delivered_at,
+      warranty_until: row.warranty_until,
       actor,
-    });
+    }, history.mutation_key ? { key: `delivered:${row.id}:${history.entity_version}` } : undefined);
   if (
-    options.notify !== false &&
-    order.status !== to &&
+    notifyCustomer &&
+    (!history.mutation_key || row.row_version === history.entity_version) &&
+    history.from_status !== to &&
     (TEXT_KEYS as readonly string[]).includes(to)
   )
-    await notify(ctx, next, to as TextKey, `status:${order.id}:${historyId}`);
-  return next;
+    await notify(ctx, row, to as TextKey, `status:${row.id}:${history.id}`);
 }
 
 /** POST service-orders/:id/status: transições da equipe (MANUAL_TRANSITIONS). */

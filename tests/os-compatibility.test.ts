@@ -5,12 +5,68 @@ import { json, now, uid } from "../src/types";
 import { OS_STATUSES, STATUS_LABELS, MANUAL_TRANSITIONS, nextStatuses, orderValues, osSettings } from "../src/modules/os/model";
 import { changeStatus, createOrder, decide, listOrders, loadOrder, moveOrder, orderHistory, orderView, publicOrderValues, quoteSpec, saveQuote, sendQuote, updateOrder } from "../src/modules/os/store";
 import { resolveWorkType } from "../src/modules/os/public";
-import { api, configure } from "./service-center-fixture";
+import { changeStage } from "../src/modules/os/stages";
+import { api, configure, drain, outbox, quietCoordinator, receive } from "./service-center-fixture";
 import { motorFixture } from "./os-motor-fixture";
 
 const input = () => ({ phone: "5511960010400", item: "Celular", problem: "Tela", source: "panel" as const, actor: "teste", sourceKey: uid(), notify: false });
 
 describe("M: compatibilidade do tipo embutido", () => {
+  it("todas as etapas virtuais anunciadas executam as transições manuais legadas", async () => {
+    const f = await motorFixture();
+    for (const status of OS_STATUSES) {
+      for (const to of MANUAL_TRANSITIONS[status]) {
+        const { order } = await createOrder(f.ctx, input());
+        // Também cobre linhas antigas, cuja etapa é nula.
+        await exec(env, "UPDATE os_orders SET status=?,stage=NULL WHERE profile_id=? AND id=?", status, f.profile, order.id);
+        const row = await loadOrder(f.ctx, order.id);
+        const transition = orderView(row).next_stages.find(t => t.base_status === to)!;
+        expect(transition.transition_id).toBe(`${status}_${to}`);
+        const next = await changeStage(f.ctx, row, { transition_id: transition.transition_id, version: 1, note: "Conferido" }, f.member.id, { notify: false });
+        expect(next).toMatchObject({ status: to, stage: to, row_version: 2 });
+        expect((await orderHistory(f.ctx, order.id)).at(-1)).toMatchObject({ kind: "status", from_status: status, to_status: to, actor: f.member.id, note: "Conferido" });
+        if (to === "ready") expect(next.ready_at).toBeGreaterThan(0);
+        if (to === "delivered") expect(next.warranty_until).toBeGreaterThan(next.delivered_at);
+        await expect(changeStage(f.ctx, next, { transition_id: transition.transition_id, version: 1 }, f.member.id)).rejects.toMatchObject({ code: "version_conflict" });
+      }
+    }
+    const { order } = await createOrder(f.ctx, input());
+    await expect(changeStage(f.ctx, order, { transition_id: "received_delivered", version: 1 }, f.member.id)).rejects.toMatchObject({ code: "invalid_transition" });
+  });
+
+  it("/stage embutido preserva efeitos legados e recupera recibo sem duplicação", async () => {
+    const f = await motorFixture(), c = await receive(f, f.line, "oi"); await drain(f);
+    await configure(f, { service_orders: { texts: { ready: "Pronta {numero}" }, warranty_days: 12 } });
+    const { order } = await createOrder(f.ctx, { ...input(), conversation: c });
+    const path = `/profiles/${f.profile}/service-orders/${order.id}/stage`;
+    let version = 1;
+    for (const transition_id of ["received_analyzing", "analyzing_in_progress", "in_progress_ready", "ready_delivered"]) {
+      const key = uid(), body = { transition_id, version, note: "Conferido" };
+      const first = await api(f.token, path, "POST", body, key);
+      expect(first.status).toBe(200);
+      const result = await first.json<any>();
+      expect(result.version).toBe(++version);
+      await quietCoordinator(f.profile);
+      const before = await outbox(c.id);
+      const scope = `${f.member.id}:${f.profile}:os.stage`;
+      expect((await one(env, "SELECT response FROM receipts WHERE scope=? AND key=?", scope, key))?.response).toBeTruthy();
+      await exec(env, "UPDATE receipts SET response=NULL WHERE scope=? AND key=?", scope, key);
+      const replay = await api(f.token, path, "POST", body, key);
+      expect(replay.status).toBe(200);
+      expect(await replay.json()).toEqual(result);
+      expect(await outbox(c.id)).toEqual(before);
+    }
+    const delivered = await loadOrder(f.ctx, order.id);
+    expect(delivered.warranty_until).toBeGreaterThan(delivered.delivered_at + 11 * 86400000);
+    expect((await orderHistory(f.ctx, order.id)).map(h => h.kind)).toEqual(["opened", "status", "status", "status", "status"]);
+    const events = await all(env, "SELECT kind,payload FROM events WHERE profile_id=? AND resource_id=? AND kind LIKE 'os.%'", f.profile, order.id);
+    expect(events.filter(e => e.kind === "os.status_changed")).toHaveLength(4);
+    expect(events.filter(e => e.kind === "os.delivered")).toHaveLength(1);
+    expect(events.some(e => e.kind === "os.stage_changed")).toBe(false);
+    expect(json(events.find(e => e.kind === "os.status_changed")!.payload)).toMatchObject({ order_id: order.id, number: order.number, actor: f.member.id, note: "Conferido", conversation_id: c.id });
+    expect(JSON.stringify(await outbox(c.id))).toContain(`Pronta ${order.number}`);
+  });
+
   it("linhas antigas nos nove estados conservam número, etapa efetiva e projeção antiga", async () => {
     const f = await motorFixture();
     for (const [i, status] of OS_STATUSES.entries()) {
