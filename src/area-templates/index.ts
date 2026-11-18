@@ -4,6 +4,20 @@ import { ApiError } from "../types";
 import { applyAreaTemplate, exportAreaTemplate, previewAreaTemplate } from "./engine";
 import { validateAreaTemplate } from "./validation";
 import { assistenciaTecnicaTemplate } from "./models/assistencia-tecnica";
+import { servicosTemplate } from "./models/servicos";
+import { oficinaMecanicaTemplate } from "./models/oficina-mecanica";
+import { lavanderiaCosturaTemplate } from "./models/lavanderia-costura";
+import { graficaTemplate, despachanteTemplate, imobiliariaTemplate } from "./models/exemplos";
+import { engenheirosTemplate } from "./models/engenheiros";
+import { arquitetosTemplate } from "./models/arquitetos";
+import { construtorasTemplate } from "./models/construtoras";
+import { advogadosTemplate } from "./models/advogados";
+import { escritorioAdvocaciaTemplate } from "./models/escritorio-advocacia";
+import { clinicaMedicaTemplate } from "./models/clinica-medica";
+import { clinicaVeterinariaTemplate } from "./models/clinica-veterinaria";
+import { escolasTemplate } from "./models/escolas";
+import { professoresTemplate } from "./models/professores";
+import { condominiosTemplate } from "./models/condominios";
 
 export { applyAreaTemplate, exportAreaTemplate, previewAreaTemplate } from "./engine";
 export { validateAreaTemplate, validateAreaSetup } from "./validation";
@@ -13,16 +27,28 @@ export type { AreaTemplate, AreaTemplateSelection, AreaTemplatePreview, AreaTemp
 export const areaTemplates: readonly AreaTemplate[] = [
   assistenciaTecnicaTemplate,
   // REGISTRO RESERVADO I — acrescentar aqui uma linha por modelo importado.
-  // servicosTemplate,
-  // obrasTemplate,
-  // juridicoTemplate,
-  // saudeTemplate,
-  // ensinoTemplate,
-  // condominioTemplate,
+  servicosTemplate,
+  oficinaMecanicaTemplate,
+  lavanderiaCosturaTemplate,
+  graficaTemplate,
+  despachanteTemplate,
+  imobiliariaTemplate,
+  engenheirosTemplate,
+  arquitetosTemplate,
+  construtorasTemplate,
+  advogadosTemplate,
+  escritorioAdvocaciaTemplate,
+  clinicaMedicaTemplate,
+  clinicaVeterinariaTemplate,
+  escolasTemplate,
+  professoresTemplate,
+  condominiosTemplate,
 ];
 
 /** Somente I registra este descritor em runtime.ts. Importar não publica rotas. */
-export const areaTemplatesExtension: AdminExtension = {
+// A fábrica evita ler uma constante ainda em inicialização no ciclo
+// service → runtime → catálogo → engine → security → service.
+export function createAreaTemplatesExtension(): AdminExtension { return {
   id: "area-templates",
   reads: [
     { path: "area-templates", handler: async () => ({ data: areaTemplates.map(({ id, version, name, description }) => ({ id, version, name, description })) }) },
@@ -42,6 +68,7 @@ export const areaTemplatesExtension: AdminExtension = {
     { op: "area-template.apply", handler: (env, actor, profile, data) => applyAreaTemplate(env, actor, profile, data, areaTemplates) },
     { op: "area-template.export", handler: (env, actor, profile, data) => exportAreaTemplate(env, actor, profile, data) },
   ],
-};
+}; }
+export const areaTemplatesExtension = createAreaTemplatesExtension();
 
 // IMPORTS RESERVADOS I — imports dos outros seis modelos, sem alterar seus arquivos.

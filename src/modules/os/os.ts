@@ -45,7 +45,7 @@ import {
 import { validateWorkTypes, validateVocabulary, validateWorkTypeChanges } from "./validation";
 import { customOpenForm, openingAnswers } from "./forms";
 import { resolveWorkType, authorizedOrder } from "./public";
-import { customerProjection } from "./privacy";
+import { customerProjection, mayReadSensitive } from "./privacy";
 import { registerMotorRoutes, motorMutationKey, replayOrderMutation } from "./motor-routes";
 import { handleStageReply } from "./stage-replies";
 
@@ -265,12 +265,16 @@ onRead(
 
 onRead("os", "service-orders/:id", async (ctx, actor, { params, query }) => {
   ctx.access(actor, "conversations:read");
-  const { row: order } = await authorizedOrder(ctx, actor, params.id);
-  return visibleOrder(
+  const { row: order, type } = await authorizedOrder(ctx, actor, params.id);
+  const view = visibleOrder(
     ctx,
     actor,
     orderView(order, query.history === "none" ? undefined : await orderHistory(ctx, order.id)),
   );
+  // Definições autorizadas do snapshot permitem montar o editor privado.
+  // Os valores continuam saindo exclusivamente por /private-fields.
+  if (await mayReadSensitive(ctx, actor)) view.fields = type.fields;
+  return view;
 });
 
 onRoute("os", { method: "POST", path: "service-orders", op: "os.create" });

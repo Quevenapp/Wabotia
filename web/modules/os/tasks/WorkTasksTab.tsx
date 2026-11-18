@@ -77,7 +77,7 @@ export function WorkTasksTab({
                         await api.updateTask(workId, task.id, {
                           version: task.version,
                           state,
-                        });
+                        }, task.sensitive);
                         changed();
                       })
                     }

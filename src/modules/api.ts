@@ -39,11 +39,11 @@ import {
   type Actor,
   type Conversation,
   type Env,
+  now,
   requireValue,
 } from "../types";
 import { isBound } from "../visibility";
 import { access, admin, canProfile, sha } from "../security";
-import { storeRemoteMedia } from "../integrations";
 import { grantId } from "../module-grants";
 import { rolesOf } from "../access";
 import {
@@ -681,9 +681,22 @@ export function modulesApi(
           throw new ApiError(409, "idempotency_conflict", "Anexo de saída já criado com outros metadados.");
         return previous.id;
       }
-      return storeRemoteMedia(env, profile, input.name, input.mime_type, new Response(input.body, {
-        headers: { "Content-Type": input.mime_type, "Content-Length": String(input.byte_length) },
-      }), { id, actor: actor.id });
+      // Este adaptador roda dentro de blockConcurrencyWhile. O pipeTo de
+      // putStream/FixedLengthStream depende do input gate e trava a cópia no
+      // R2 sob esse bloqueio. Documentos têm limite de 10 MiB: conferir os
+      // bytes antes de gravá-los diretamente, mantendo a serialização.
+      const content = await readBinaryContent(new Response(input.body));
+      if (content.byte_length !== input.byte_length)
+        throw new ApiError(409, "content_mismatch", "Tamanho do anexo divergente.");
+      const objectKey = `${profile}/${id}`;
+      await env.MEDIA.put(objectKey, content.bytes, {
+        httpMetadata: { contentType: input.mime_type },
+      });
+      await exec(env,
+        "INSERT INTO media(id,profile_id,name,type,size,object_key,actor,created) VALUES(?,?,?,?,?,?,?,?)",
+        id, profile, input.name, input.mime_type, content.byte_length, objectKey, actor.id, now(),
+      );
+      return id;
     },
     async note(c, text, options = {}) {
       requireValue(c.profile_id === profile, "Conversa de outra área.");

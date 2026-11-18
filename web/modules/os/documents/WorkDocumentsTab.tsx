@@ -1,6 +1,7 @@
 import React, { useRef, useState } from "react";
 import { FormDialog } from "../../../admin/shared";
 import { useAction } from "../../../app/hooks";
+import { useApp } from "../../../app/AppContext";
 import { Button, Notice } from "../../../ui";
 import {
   ChildCollection,
@@ -53,7 +54,7 @@ function UploadDialog({
         setProgress("Enviando arquivo…");
         // Endpoint derivado de IDs autorizados: não seguimos uma URL externa da resposta.
         const uploaded = await uploadDocument(
-          api.documentUrl(workId, saved.id),
+          api.documentUrl(workId, saved.id, visibility.sensitive),
           file,
           saved.version,
           uploadKey.current,
@@ -62,7 +63,7 @@ function UploadDialog({
         await api.completeDocument(workId, saved.id, {
           version: uploaded.version,
           upload_attempt: uploaded.upload_attempt,
-        });
+        }, visibility.sensitive);
         onSaved();
       }}
     >
@@ -104,7 +105,10 @@ export function WorkDocumentsTab({
   onChanged: () => void;
 }) {
   const api = useWorkApi(),
+    app = useApp(),
     action = useAction();
+  const [privateDocuments, setPrivateDocuments] = useState(false);
+  const canReadPrivate = Array.isArray(app.me.access) && app.me.access.includes("os:sensitive");
   const [uploading, setUploading] = useState(false),
     [sending, setSending] = useState<DocumentMetadata | null>(null),
     [revision, setRevision] = useState(0);
@@ -116,11 +120,17 @@ export function WorkDocumentsTab({
   };
   return (
     <>
+      {canReadPrivate && (
+        <Button secondary onClick={() => setPrivateDocuments(value => !value)}>
+          {privateDocuments ? "Ver documentos comuns" : "Ver documentos restritos"}
+        </Button>
+      )}
       <ChildCollection<DocumentMetadata>
+        key={String(privateDocuments)}
         workId={order.id}
         collection="documents"
         revision={revision}
-        load={(cursor) => api.documents(order.id, { cursor, limit: 50 })}
+        load={(cursor) => api.documents(order.id, { cursor, limit: 50 }, privateDocuments && canReadPrivate)}
         create={() => (
           <Button onClick={() => setUploading(true)}>Anexar documento</Button>
         )}
@@ -148,7 +158,7 @@ export function WorkDocumentsTab({
               {document.state === "ready" && (
                 <a
                   className="button secondary"
-                  href={api.documentUrl(order.id, document.id)}
+                  href={api.documentUrl(order.id, document.id, document.sensitive)}
                   download={document.name}
                 >
                   Baixar
@@ -173,6 +183,7 @@ export function WorkDocumentsTab({
                         "documents",
                         document.id,
                         document.version,
+                        document.sensitive,
                       );
                       changed();
                     });

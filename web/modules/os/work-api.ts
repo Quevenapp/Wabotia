@@ -77,26 +77,27 @@ export function createWorkApi(api: Api, root: string) {
     tasks: (id: string, query: C.TaskQuery) =>
       get<C.Page<C.Task>>(child(id, "tasks"), query),
     createTask: (id: string, body: C.CreateTaskRequest) =>
-      send<C.MutationRef>(child(id, "tasks"), "POST", body),
-    updateTask: (id: string, taskId: string, body: C.UpdateTaskRequest) =>
-      send<C.MutationRef>(child(id, "tasks", taskId), "PATCH", body),
+      send<C.MutationRef>(child(id, body.sensitive ? "private-tasks" : "tasks"), "POST", body),
+    updateTask: (id: string, taskId: string, body: C.UpdateTaskRequest, sensitive = body.sensitive === true) =>
+      send<C.MutationRef>(child(id, sensitive ? "private-tasks" : "tasks", taskId), "PATCH", body),
     people: (id: string, query: C.PageQuery) =>
       get<C.Page<C.LinkedPerson>>(child(id, "people"), query),
     createPerson: (id: string, body: C.CreatePersonRequest) =>
       send<C.MutationRef>(child(id, "people"), "POST", body),
     updatePerson: (id: string, personId: string, body: C.UpdatePersonRequest) =>
       send<C.MutationRef>(child(id, "people", personId), "PATCH", body),
-    documents: (id: string, query: C.PageQuery) =>
-      get<C.Page<C.DocumentMetadata>>(child(id, "documents"), query),
+    documents: (id: string, query: C.PageQuery, sensitive = false) =>
+      get<C.Page<C.DocumentMetadata>>(child(id, sensitive ? "private-documents" : "documents"), query),
     reserveDocument: (id: string, body: C.CreateDocumentRequest) =>
-      send<C.DocumentReservation>(child(id, "documents"), "POST", body),
+      send<C.DocumentReservation>(child(id, body.sensitive ? "private-documents" : "documents"), "POST", body),
     completeDocument: (
       id: string,
       documentId: string,
       body: C.CompleteDocumentRequest,
+      sensitive = false,
     ) =>
       send<C.MutationRef>(
-        child(id, "documents", documentId) + "/complete",
+        child(id, sensitive ? "private-documents" : "documents", documentId) + "/complete",
         "POST",
         body,
       ),
@@ -106,8 +107,8 @@ export function createWorkApi(api: Api, root: string) {
         "POST",
         { version },
       ),
-    documentUrl: (id: string, documentId: string) =>
-      "/api/" + child(id, "documents", documentId) + "/content",
+    documentUrl: (id: string, documentId: string, sensitive = false) =>
+      "/api/" + child(id, sensitive ? "private-documents" : "documents", documentId) + "/content",
     entries: (id: string, query: C.EntryQuery) =>
       get<C.Page<C.Entry>>(child(id, "entries"), query),
     createEntry: (id: string, body: C.CreateEntryRequest) =>
@@ -123,14 +124,15 @@ export function createWorkApi(api: Api, root: string) {
       collection: "tasks" | "people" | "documents" | "entries",
       childId: string,
       version: number,
+      sensitive = false,
     ) =>
-      send<C.MutationRef>(child(id, collection, childId) + "/archive", "POST", {
+      send<C.MutationRef>(child(id, sensitive && ["tasks", "documents"].includes(collection) ? "private-" + collection : collection, childId) + "/archive", "POST", {
         version,
       }),
     history: (id: string, query: C.PageQuery) =>
       get<C.Page<C.OrderHistory>>(order(id) + "/history", query),
     deadlines: (query: C.DeadlineQuery) =>
-      get<C.Page<C.Deadline>>(root + "/work-tasks", query),
+      get<C.Page<C.Deadline>>(root + "/service-orders/my-tasks", query),
     saveTypes: (types: C.CustomWorkType[], settings_revision: string) =>
       send<{ settings_revision: string }>(root + "/settings", "PUT", {
         os_work_types: types,

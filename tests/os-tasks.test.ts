@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as db from "../src/db";
 import { all, batch, exec, one } from "../src/db";
 import { event } from "../src/events";
+import { perform, settingsRevision } from "../src/service";
 import { modulesApi } from "../src/modules/api";
 import * as motor from "../src/modules/os/public";
 import type { ChildMutation } from "../src/modules/os/public";
@@ -46,7 +47,12 @@ async function setup() {
   // Índice da 0100, ainda ausente na F0. Só nesta fixture local: a migração
   // 0101 permanece exatamente o DDL congelado, dependente de 0100 em produção.
   await exec(env, "CREATE UNIQUE INDEX IF NOT EXISTS os_orders_profile_id ON os_orders(profile_id,id)");
-  const order = await motorOrder(f);
+  // M agora existe: o pai persistido precisa corresponder ao tipo simulado.
+  // Uma OS embutida tem etapa "received", ausente no tipo "projeto".
+  await perform(env, f.admin, f.profile, "settings", {
+    os_work_types: [motorWorkType()], settings_revision: await settingsRevision(env, f.profile),
+  }, uid());
+  const order = await motorOrder(f, { type_id: motorWorkType().id });
   const original = motor.authorizedOrder;
   const stages = new Map<string, { stage: string; version: number }>();
   vi.spyOn(motor, "authorizedOrder").mockImplementation(async (...args) => {
@@ -84,7 +90,7 @@ async function setup() {
 }
 
 describe("tarefas: fundação e descritor", () => {
-  it("preserva o embutido desligado, o isolamento e o not_implemented de M", async () => {
+  it("preserva o embutido desligado, o isolamento e recusa mutação vazia", async () => {
     const f = await motorFixture();
     const order = await motorOrder(f);
     await expect(listTasks(f.ctx, f.member, order.id)).rejects.toMatchObject({ code: "feature_disabled" });
@@ -97,7 +103,7 @@ describe("tarefas: fundação e descritor", () => {
     await expect(motor.commitChild(f.ctx, f.member, authorized, {
       entity_kind: "task", id: uid(), expected_version: null, mutation_key: uid(),
       changed_fields: ["title"], statements: [], event: "os.task.created",
-    })).rejects.toMatchObject({ status: 501, code: "not_implemented" });
+    })).rejects.toMatchObject({ status: 409, code: "version_conflict" });
     expect(await all(env, "SELECT id FROM os_tasks WHERE profile_id=?", f.profile)).toEqual([]);
   });
 

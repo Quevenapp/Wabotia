@@ -19,3 +19,8 @@ import "./os/extension-runtime";
 // REGISTRO RESERVADO F0/I — novos registros no fim deste bloco.
 // A exporta AdminExtension; importar aqui e chamar registerAdminExtension.
 // T/P/D/L entram somente na lista de os/extensions.ts.
+import { onSettingsSave, registerAdminExtension } from "./api";
+import { createAreaTemplatesExtension, validateAreaSetup } from "../area-templates";
+
+onSettingsSave("os", "os_area_setup", validateAreaSetup);
+registerAdminExtension(createAreaTemplatesExtension());

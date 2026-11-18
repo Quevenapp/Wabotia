@@ -125,7 +125,7 @@ export function MyDeadlinesPage() {
                     await api.updateTask(task.order_id, task.id, {
                       version: task.version,
                       state: task.state === "done" ? "open" : "done",
-                    });
+                    }, task.sensitive);
                     changed();
                   })
                 }

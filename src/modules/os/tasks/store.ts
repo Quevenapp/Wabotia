@@ -1,6 +1,7 @@
 import { all, one } from "../../../db";
 import { ApiError, now, type Actor } from "../../../types";
 import { isBound } from "../../../visibility";
+import { effectiveStage, snapshotType } from "../work-types";
 import type { ModuleContext } from "../../api";
 import type { MutationRef, Page, Task } from "../contracts";
 import { authorizedOrder, commitChild, type AuthorizedOrder, type ChildMutation } from "../public";
@@ -139,6 +140,7 @@ export async function listTasks(ctx: ModuleContext, actor: Actor, orderId: strin
   await ctx.requireEnabled();
   const mine = orderId === null;
   if (mine && (botActor(actor) || actor.credential || isBound(actor))) throw new ApiError(403, "forbidden", "Meus prazos exige uma pessoa autenticada.");
+  if (mine) return listMyTasks(ctx, actor, query);
   if (conversationId) await ctx.conversation(conversationId, actor);
   if (!mine) await taskOrder(ctx, actor, identifier(orderId), false, conversationId);
   const { state, limit } = pageQuery(query, mine);
@@ -164,4 +166,64 @@ export async function listTasks(ctx: ModuleContext, actor: Actor, orderId: strin
   }
   const last = rows[Math.min(rows.length, limit) - 1];
   return { data, next_cursor: rows.length > limit ? encodeCursor(scope, mine ? last.due_at! : last.created, last.id) : null };
+}
+
+/** Consulta global por prazo, com o snapshot do pai no mesmo SELECT. */
+async function listMyTasks(ctx: ModuleContext, actor: Actor, query: Query): Promise<Page<Task>> {
+  const bad = () => new ApiError(400, "invalid_filter", "Filtro de prazos inválido.");
+  if (Object.keys(query).some(key => !["assignee", "state", "period", "type_id", "due_from", "due_to", "cursor", "limit"].includes(key)) ||
+      (query.assignee !== undefined && query.assignee !== "me")) throw bad();
+  const { state, limit } = pageQuery(Object.fromEntries(Object.entries(query).filter(([key]) => ["state", "cursor", "limit"].includes(key))), true);
+  const period = query.period ?? "dated";
+  if (!["dated", "overdue", "today", "next7", "range", "undated"].includes(period)) throw bad();
+  const day = 86_400_000, at = now();
+  const today = Math.floor((at - 3 * 3_600_000) / day) * day + 3 * 3_600_000;
+  const civil = (value: string | undefined) => {
+    if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw bad();
+    const parsed = Date.parse(value + "T00:00:00-03:00");
+    if (!Number.isFinite(parsed) || new Date(parsed - 3 * 3_600_000).toISOString().slice(0, 10) !== value) throw bad();
+    return parsed;
+  };
+  const view = await visibility(ctx, actor);
+  const where = ["t.profile_id=?", "t.assignee=?", "t.archived_at IS NULL"];
+  const args: unknown[] = [ctx.profile, actor.id];
+  if (state) { where.push("t.state=?"); args.push(state); }
+  if (view !== "private") where.push("t.sensitive=0");
+  if (query.type_id) { where.push("o.type_id=?"); args.push(query.type_id); }
+  if (period === "undated") where.push("t.due_at IS NULL");
+  else {
+    where.push("t.due_at IS NOT NULL");
+    if (period === "overdue") { where.push("t.due_at<?"); args.push(at); }
+    if (["today", "next7", "range"].includes(period)) {
+      const from = period === "range" ? civil(query.due_from) : today;
+      const until = period === "range" ? civil(query.due_to) + day : today + (period === "next7" ? 7 : 1) * day;
+      if (until <= from) throw bad();
+      where.push("t.due_at>=? AND t.due_at<?"); args.push(from, until);
+    }
+  }
+  // Inclui os limites civis (e não o relógio corrente) no vínculo do cursor.
+  const scope = await stableKey(ctx.profile, actor.id, "my-tasks", state, period, query.type_id, query.due_from, query.due_to, view,
+    ["today", "next7"].includes(period) ? today : null);
+  const after = cursor(query.cursor, scope);
+  if (after) { where.push("(COALESCE(t.due_at,0)>? OR (COALESCE(t.due_at,0)=? AND t.id>?))"); args.push(after[0], after[0], after[1]); }
+  const rows = await all<TaskRow & { type_snapshot_json: string; type_id: string; stage: string | null; status: string; type_number: number }>(ctx.env,
+    `SELECT t.*,o.type_snapshot_json,o.type_id,o.stage,o.status,COALESCE(o.type_number,o.number) type_number
+     FROM os_tasks t JOIN os_orders o ON o.profile_id=t.profile_id AND o.id=t.order_id
+     WHERE ${where.join(" AND ")} ORDER BY t.due_at,t.id LIMIT ?`, ...args, limit + 1);
+  const data: Task[] = [];
+  for (const row of rows.slice(0, limit)) {
+    const type = snapshotType(row) ?? (await taskOrder(ctx, actor, row.order_id)).type;
+    if (!type.features.tasks) throw new ApiError(409, "feature_disabled", "Tarefas desligadas neste tipo.");
+    const stage = type.stages.find(stage => stage.id === effectiveStage(row));
+    if (!stage || stage.base_status !== row.status)
+      throw new ApiError(409, "invalid_snapshot", "Etapa e estado da ordem divergem.");
+    const dto = await projectTask(ctx, actor, row);
+    if (dto) data.push(Object.assign(dto, {
+      type_id: row.type_id, type_label: type.labels.singular,
+      display_number: type.number_prefix ? `${type.number_prefix}-${row.type_number}` : String(row.type_number),
+      stage_label: stage.label,
+    }));
+  }
+  const last = rows[Math.min(rows.length, limit) - 1];
+  return { data, next_cursor: rows.length > limit ? encodeCursor(scope, last.due_at ?? 0, last.id) : null };
 }

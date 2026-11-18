@@ -1,5 +1,5 @@
 // Transporte comum; metadados só mudam por comandos serializados do Coordinator.
-import { ApiError, requireValue, type Actor, type Env } from "../types";
+import { ApiError, requireValue, uid, type Actor, type Env } from "../types";
 import { hex } from "../security";
 import { routeData } from "./hooks";
 
@@ -12,7 +12,7 @@ export interface BinaryContent {
 
 /** Conta bytes reais (Content-Length não é autoridade) antes de tocar no R2. */
 export async function readBinaryContent(
-  request: Request,
+  request: Request | Response,
   limit = MODULE_BINARY_LIMIT,
 ): Promise<BinaryContent> {
   if (Number(request.headers.get("Content-Length")) > limit)
@@ -89,6 +89,7 @@ export function binaryCommand(
         actor,
         operation,
         key,
+        requestId: uid(),
         data: routeData(data, params),
       }),
     });

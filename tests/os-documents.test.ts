@@ -152,15 +152,15 @@ async function upload(
   };
 }
 
-describe("documentos: fundação sem M", () => {
-  it("preserva o embutido com recurso desligado, o módulo desligado e o not_implemented de M", async () => {
+describe("documentos: fundação com M", () => {
+  it("preserva o embutido com recurso desligado, o módulo desligado e recusa mutação vazia", async () => {
     const f = await motorFixture();
     const order = await motorOrder(f);
     await expect(
       reserveDocument(f.ctx, f.member, order.id, input(), uid()),
     ).rejects.toMatchObject({ code: "feature_disabled" });
     await expect(motor.resolveWorkType(f.ctx, "projeto")).rejects.toMatchObject(
-      { code: "not_implemented" },
+      { status: 404, code: "type_not_found" },
     );
     await expect(
       motor.commitChild(
@@ -177,7 +177,8 @@ describe("documentos: fundação sem M", () => {
           event: "os.document_reserved",
         },
       ),
-    ).rejects.toMatchObject({ code: "not_implemented" });
+    ).rejects.toMatchObject({ status: 409, code: "version_conflict" });
+    expect(await all(env, "SELECT id FROM os_documents WHERE profile_id=?", f.profile)).toEqual([]);
     const disabled = await motorFixture({ enabled: false });
     await expect(
       listDocuments(disabled.ctx, disabled.member, order.id),

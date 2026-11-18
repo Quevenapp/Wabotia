@@ -9,6 +9,7 @@ import { entriesExtension } from "../src/modules/os/entries/extension";
 import { entryInput } from "../src/modules/os/entries/model";
 import { archiveEntry, createEntry, listEntries, reviseEntry, summarizeEntries } from "../src/modules/os/entries/store";
 import { api, receive } from "./service-center-fixture";
+import { perform, settingsRevision } from "../src/service";
 import { MOTOR_SENTINEL, motorFixture, motorOrder, motorWorkType } from "./os-motor-fixture";
 
 // Tipagem local para a checagem isolada deste teste, fora do tsconfig de produção.
@@ -109,17 +110,26 @@ describe("lançamentos: contrato F0 e descritor", () => {
     expect(entriesExtension.writes.map((r) => r.method)).toEqual(["POST", "POST", "POST"]);
   });
 
-  it("propaga not_implemented de commitChild sem escrita parcial", async () => {
+  it("confirma lançamento, histórico e publicação com commitChild real e recupera repetição", async () => {
     const { f, order } = await setup({ commit: false });
-    await expect(createEntry(f.ctx, f.member, { id: order.id, ...payload() }, uid()))
-      .rejects.toMatchObject({ status: 501, code: "not_implemented" });
-    expect(await rows(f.profile, order.id)).toEqual([]);
+    const key = uid();
+    const created = await createEntry(f.ctx, f.member, { id: order.id, ...payload() }, key);
+    expect(created).toMatchObject({ order_id: order.id, version: 1 });
+    expect(await createEntry(f.ctx, f.member, { id: order.id, ...payload() }, key)).toEqual(created);
+    expect(await rows(f.profile, order.id)).toHaveLength(1);
+    expect(await all(env, "SELECT entity_id,entity_version FROM os_history WHERE profile_id=? AND order_id=? AND kind='os.entry.created'", f.profile, order.id))
+      .toEqual([{ entity_id: created.id, entity_version: 1 }]);
+    expect(await all(env, "SELECT id FROM events WHERE profile_id=? AND kind='os.entry.created'", f.profile)).toHaveLength(1);
   });
 
-  it("conserva a fronteira de resolução personalizada ainda não implementada em M", async () => {
+  it("resolve somente tipos personalizados salvos ou fixados na ordem", async () => {
     const f = await motorFixture();
     await expect(motor.resolveWorkType(f.ctx, motorWorkType().id))
-      .rejects.toMatchObject({ status: 501, code: "not_implemented" });
+      .rejects.toMatchObject({ status: 404, code: "type_not_found" });
+    await perform(env, f.admin, f.profile, "settings", {
+      os_work_types: [motorWorkType()], settings_revision: await settingsRevision(env, f.profile),
+    }, uid());
+    expect(await motor.resolveWorkType(f.ctx, motorWorkType().id)).toEqual(motorWorkType());
   });
 });
 

@@ -24,6 +24,9 @@ export const osModule: ModuleDefinition = {
       place: "admin",
       admin: true,
     },
+    { id: "work", label: "Trabalhos", place: "admin", admin: false },
+    { id: "my-deadlines", label: "Meus prazos", place: "admin", admin: false },
+    { id: "work-types", label: "Tipos de trabalho", place: "admin", admin: true },
   ],
   menu_item_types: [
     {
@@ -55,6 +58,25 @@ export const osModule: ModuleDefinition = {
     "os.status_changed",
     "os.delivered",
     "os.stale",
+    "os.updated",
+    "os.stage_changed",
+    "os.quote_saved",
+    "os.stage_approval_requested",
+    "os.stage_approval_decided",
+    "os.private_fields_changed",
+    "os.task.created",
+    "os.task.updated",
+    "os.task.archived",
+    "os.task.due",
+    "os.person.created",
+    "os.person.updated",
+    "os.person.archived",
+    "os.document_reserved",
+    "os.document_ready",
+    "os.document_archived",
+    "os.entry.created",
+    "os.entry.revised",
+    "os.entry.archived",
   ],
   settings: [
     { key: "os_work_types", description: "Tipos personalizados de trabalho." },
@@ -76,8 +98,13 @@ export const osModule: ModuleDefinition = {
       description:
         "Executa as ordens de serviço; aparece na escolha do responsável da ordem.",
     },
+    {
+      id: "sensitive",
+      label: "Dados sensíveis",
+      description: "Permite acesso humano explícito aos dados sensíveis do motor.",
+    },
   ],
-  bot: { deny: ["os.private", "service-orders/:id/private-fields", "os.document.upload"] },
+  bot: { deny: ["os.private", "service-orders/:id/private-fields", "os.document.upload", "service-orders/:id/private-tasks", "service-orders/:id/private-documents", "os.person.", "os.entry."] },
 };
 
 // REGISTRO RESERVADO F0/I — acrescentar eventos, grants e bot.deny das filhas.
