@@ -78,10 +78,10 @@ export const receiveDocument: NonNullable<
   OsExtension["onConversationTurn"]
 > = async (ctx, c, turn) => {
   if (c.profile_id !== ctx.profile || !ctx.verifiedPhone(c)) return false;
+  // Um anexo comum deve seguir para o menu/bot, mesmo com tipos personalizados.
+  if (!/^DOCUMENTO\b/i.test(turn.text.trim())) return false;
   const match = /^DOCUMENTO\s+([1-9][0-9]{0,9})\s*$/i.exec(turn.text.trim());
   const attachments = await ctx.inboundAttachments(c, turn.rowId);
-  if (!attachments.length && !/^DOCUMENTO\b/i.test(turn.text.trim()))
-    return false;
   // Área somente com o embutido conserva o tratamento anterior, qualquer que
   // seja o número informado. Para ordens existentes vale o recurso do snapshot.
   const settings = await ctx.settings();

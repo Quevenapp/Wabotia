@@ -1,3 +1,4 @@
+import { ensinoOperations, ensinoSchemas, describeEnsinoOperation } from "./ensino/openapi";
 // Trecho do OpenAPI dos módulos embutidos (docs/MODULOS.md).
 import {
   describeReservaOperation,
@@ -20,6 +21,7 @@ import {
   entregaSchemas,
 } from "./entrega/openapi";
 export const moduleSchemas = {
+  ...ensinoSchemas,
   ModuleSummary: {
     type: "object",
     required: ["id", "name", "version"],
@@ -477,6 +479,7 @@ export const moduleSchemas = {
 };
 
 export const moduleOperations: [string, string, string, string?, string?][] = [
+  ...ensinoOperations,
   [
     "get",
     "/capabilities",
@@ -890,6 +893,7 @@ export function describeModuleOperation(
   success: any,
 ) {
   if (!moduleOperations.some(([m, p]) => p === path && m === method)) return;
+  if (path.startsWith("/profiles/{profile}/ensino/")) return describeEnsinoOperation(path, method, entry, success);
   entry.tags = ["Módulos"];
   if (path.startsWith("/profiles/{profile}/reserva"))
     return describeReservaOperation(path, method, entry, success);
@@ -1223,6 +1227,7 @@ function serviceOrderSchemas() {
       type: "object",
       required: ["items"],
       properties: {
+        version: { type: "integer", minimum: 1, description: "Versão esperada da ordem; opcional para compatibilidade." },
         items: { type: "array", minItems: 1, maxItems: 50, items: quoteItem },
         valid_days: {
           type: ["integer", "null"],
@@ -2393,6 +2398,8 @@ function workOrderProperties() {
     display_number: text,
     stage: text,
     stage_label: text,
+    features: workRef("WorkFeatures"),
+    next_task: { anyOf: [workObject({ id: text, title: text, due_at: { type: ["integer", "null"] } }), { type: "null" }] },
     labels: workRef("WorkLabels"),
     extra: workRef("ExtraValues"),
     fields: {
@@ -2871,6 +2878,7 @@ function workMotorSchemas(): Record<string, any> {
       version,
     }),
     PrivateFields: workObject({
+      fields: { type: "array", items: workRef("WorkField") },
       id: text,
       version,
       extra: workRef("ExtraValues"),
@@ -3217,8 +3225,11 @@ function workMotorContract(): WorkOperation[] {
         "type_id",
         "stage",
         "facets",
+        "assignee",
+        "due_from",
+        "due_to",
       ],
-      "Ordena pelo número global decrescente; cursor continua texto. stage exige type_id. counts é esparso e sempre da área inteira, independente de filtros. facets=1 acrescenta types e, com type_id, stages; não substitui counts. Busca não pesquisa valores sensíveis.",
+      "Ordena pelo número global decrescente; cursor continua texto. stage exige type_id. assignee aceita ID, me ou unassigned; due_from/due_to são limites inclusivos do prazo geral, em milissegundos Unix. Tipos personalizados incluem next_task, a próxima tarefa aberta autorizada, ou null. counts é esparso e sempre da área inteira, independente de filtros. facets=1 acrescenta types e, com type_id, stages; não substitui counts. Busca não pesquisa valores sensíveis.",
     ],
     [
       "get",
@@ -3746,10 +3757,10 @@ function describeWorkMotorOperation(
     include_archived: { enum: ["1", "0"] },
     history: { enum: ["legacy", "none"], default: "legacy" },
     state: { enum: ["open", "done", "cancelled"], ...(path.endsWith("/my-tasks") ? { default: "open" } : {}) },
-    assignee: { enum: ["me"], default: "me" },
+    assignee: path.endsWith("/my-tasks") ? { enum: ["me"], default: "me" } : { type: "string", description: "ID da pessoa, me ou unassigned." },
     period: { enum: ["dated", "overdue", "today", "next7", "range", "undated"], default: "dated" },
-    due_from: { type: "string", format: "date" },
-    due_to: { type: "string", format: "date" },
+    due_from: path.endsWith("/my-tasks") ? { type: "string", format: "date" } : { type: "integer", minimum: 0 },
+    due_to: path.endsWith("/my-tasks") ? { type: "string", format: "date" } : { type: "integer", minimum: 0 },
     limit: {
       type: "integer",
       minimum: 1,

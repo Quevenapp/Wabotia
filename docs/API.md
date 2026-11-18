@@ -332,6 +332,17 @@ Aqui `P = /api/v1/profiles/{profile}`, `B = P/service-orders` e `O = B/{id}`.
 `stage_approval`. `MutationRef = {id, order_id, version}` e
 `Page<T> = {data: T[], next_cursor: string | null}`.
 
+O detalhe fornece `features` da definição fixada, inclusive a política de orçamento;
+revisar o catálogo não altera trabalhos antigos. Na lista de tipos personalizados,
+`next_task` contém `{id, title, due_at}` da primeira tarefa aberta autorizada ou
+`null`. Os filtros `assignee` (ID, `me`, `unassigned`), `due_from` e `due_to`
+(milissegundos Unix inclusivos do prazo geral) são aplicados no servidor, sem
+alterar `counts`. Em `my-tasks`, os limites continuam sendo datas civis.
+
+Extensões desligadas por padrão, habilitadas por área: [Jurídico](JURIDICO.md),
+[Condomínio](CONDOMINIO.md) e [Saúde](SAUDE.md).
+Ensino: rotas, permissões e corpos em [ENSINO.md](ENSINO.md#api).
+
 Leitura usa `conversations:read`; escrita usa `conversations:write` e
 `Idempotency-Key`. Parâmetros do caminho vencem o corpo e `profile` nunca é
 obtido dele. Novos filhos usam a própria versão para concorrência, sem exigir
@@ -369,12 +380,12 @@ contrato anterior. Regras e limites de edição estão no guia administrativo.
 | `PATCH O` | Campos atuais; acrescenta `extra?` e `version?`. | `Order`. | `409 version_conflict`; `400 immutable_field`. |
 | `POST O/status` | `status`, `note?`. Embutido: `analyzing`, `in_progress`, `ready`, `delivered`, `cancelled`; personalizado também admite `received` por transição manual única que mude o estado de base. | `Order`. | `409 invalid_transition` se não houver destino; `409 stage_required` se a transição for ambígua ou exigir ação própria. |
 | `POST O/stage` | `{ transition_id, version, note? }`. | `Order`. | `409 invalid_transition`; `409 version_conflict`; `409 approval_required`. |
-| `PUT O/quote` | Corpo atual. | `Order`. | `409 feature_disabled` ou erros atuais. |
+| `PUT O/quote` | Corpo atual e `version?` da ordem; quando presente, impede sobrescrita de versão obsoleta. | `Order`. | `409 version_conflict`; `409 feature_disabled` ou erros atuais. |
 | `POST O/quote/send` | Corpo atual. | `Order`. | `409 feature_disabled` ou erros atuais. |
 | `POST O/decision` | Corpo atual: `decision: "approve" \| "decline"`, `note?`. | `Order`; a decisão continua retornando `approved` ou `declined`. | Erros atuais de pendência e validade. |
 | `POST O/stage-approval` | `{ transition_id, version }`. | `Order` com pedido pendente. | `409 approval_pending`; `409 invalid_transition`. |
 | `POST O/stage-approval/decision` | `{ decision: "approve" \| "decline", approval_version, version }`. | `Order`. | `409 approval_expired`; `409 approval_not_pending`; `409 version_conflict`. |
-| `GET O/private-fields` | Sem corpo. | `{ id, version, extra }`, somente campos sensíveis autorizados. | `403 sensitive_forbidden`. |
+| `GET O/private-fields` | Sem corpo. | `{ id, version, fields, extra }`, definições sensíveis do snapshot e seus valores autorizados. | `403 sensitive_forbidden`. |
 | `PATCH O/private-fields` | `{ version, extra }`. | `{ id, version, changed_fields }`. Não devolve valores. | `403 sensitive_forbidden`; `409 version_conflict`; `400 invalid_fields`. |
 
 Em tipos personalizados, `/status` só executa uma única transição manual

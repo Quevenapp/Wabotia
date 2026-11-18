@@ -37,7 +37,8 @@ const statuses = [
   "cancelled",
 ];
 
-// A expectativa vem do documento congelado, não do catálogo que produz a API.
+// A expectativa vem do contrato, incluindo os complementos I2, não do catálogo
+// que produz a API.
 const sections = [5, 7].map((number) => {
   const start = contract.indexOf(`## ${number}.`);
   const end = contract.indexOf(`## ${number + 1}.`, start);
@@ -137,7 +138,15 @@ function accepts(schema: any, value: any): boolean {
 
 describe("OpenAPI do contrato do motor de trabalhos", () => {
   it("documenta todas as rotas das seções 5 e 7, uma única vez", () => {
-    expect(routes).toHaveLength(45);
+    // As 45 operações originais mais as três escritas privadas de tarefas.
+    expect(routes).toHaveLength(48);
+    expect(routes.filter(({ path }) => path.includes("/private-tasks")).map(
+      ({ method, path }) => `${method.toUpperCase()} ${path}`,
+    )).toEqual([
+      `POST ${order}/private-tasks`,
+      `PATCH ${order}/private-tasks/{task_id}`,
+      `POST ${order}/private-tasks/{task_id}/archive`,
+    ]);
     for (const { method, path } of routes) {
       const entry = spec.paths[path]?.[method];
       expect(entry, `${method} ${path}`).toBeTruthy();

@@ -79,6 +79,7 @@ export async function attendance(ctx: ModuleContext, actor: Actor, orderId: stri
   await human(ctx, actor);
   const order = await authorizedOrder(ctx, actor, orderId);
   const view = projectOrderForStaff(ctx, actor, order);
+  await audit(ctx, actor, "attendance.read", null, [orderId]);
   // Nem subject_id, nem contagem de registros, nem existência de conteúdo clínico.
   return { order_id: view.id, number: view.number, status: view.status, attendance_exists: true };
 }

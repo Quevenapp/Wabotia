@@ -190,7 +190,12 @@ export async function previewAreaTemplate(env: Env, actor: Actor, profile: strin
 }
 
 /** Chamado exclusivamente pelo comando serializado do Coordinator. */
-export async function applyAreaTemplate(env: Env, actor: Actor, profile: string, input: unknown, catalog: readonly AreaTemplate[] = []): Promise<AreaTemplateApplyResult> {
+export async function applyAreaTemplate(env: Env, actor: Actor, profile: string, input: unknown, catalog: readonly AreaTemplate[] = [], requestId?: string): Promise<AreaTemplateApplyResult> {
+  const { commitSettingsPlan, recoverSettingsApplication } = await import("../service");
+  if (requestId) {
+    const recovered = await recoverSettingsApplication(env, actor, profile, requestId);
+    if (recovered) return recovered;
+  }
   const p = await prepare(env, actor, profile, input, catalog, true);
   if (p.parsed.previewHash !== p.preview.preview_hash) throw conflict("preview_stale", "A prévia mudou. Revise uma nova prévia antes de aplicar.");
   if (!p.preview.can_apply || !p.plan) throw conflict(
@@ -201,13 +206,12 @@ export async function applyAreaTemplate(env: Env, actor: Actor, profile: string,
   const provenanceChanged = !p.previous || p.previous.template_version !== p.parsed.manifest.version || p.previous.manifest_hash !== p.manifestHash ||
     !same(json(p.previous.seen_ids_json, []), p.result.seenIds) || !same(json(p.previous.seen_paths_json, []), p.result.seenPaths);
   let revision = p.baseRevision;
-  if (changed || provenanceChanged) {
+  if (changed || provenanceChanged || requestId) {
     try {
-      const { commitSettingsPlan } = await import("../service");
       const saved = await commitSettingsPlan(p.env, actor, p.plan, [[
         "INSERT INTO os_area_template_applications(profile_id,template_id,template_version,manifest_hash,seen_ids_json,seen_paths_json,applied_by,applied_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(profile_id,template_id) DO UPDATE SET template_version=excluded.template_version,manifest_hash=excluded.manifest_hash,seen_ids_json=excluded.seen_ids_json,seen_paths_json=excluded.seen_paths_json,applied_by=excluded.applied_by,applied_at=excluded.applied_at",
         [profile, p.parsed.manifest.id, p.parsed.manifest.version, p.manifestHash, JSON.stringify(p.result.seenIds), JSON.stringify(p.result.seenPaths), actor.id, now()],
-      ]]);
+      ]], requestId ? { id: requestId, result: { applied: changed, changes: p.preview.changes, manual_steps: p.preview.manual_steps, settings_revision: p.plan.settings_revision } } : undefined);
       revision = saved.settings_revision;
     } catch (error) {
       if (error instanceof ApiError && error.code === "settings_conflict") throw conflict("preview_stale", "A configuração mudou durante a aplicação. Refaça a prévia.");

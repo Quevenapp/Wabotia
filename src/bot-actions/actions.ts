@@ -735,6 +735,12 @@ export async function runFromHeader(
   app: Actor,
   header: string | null,
 ) {
+  const run = await authenticatedRunFromHeader(env, app, header);
+  return run ? botActionContext(env, run) : null;
+}
+
+/** Vínculo assinado do plugin; nunca vem dos argumentos produzidos pelo modelo. */
+export async function authenticatedRunFromHeader(env: Env, app: Actor, header: string | null) {
   if (!header || app.kind !== "app") return null;
   const [runId, expText, sig] = header.split(".");
   const exp = Number(expText);
@@ -750,7 +756,7 @@ export async function runFromHeader(
     return null;
   if (!app.bots.includes(run.bot_id) || !canProfile(app, run.profile_id))
     return null;
-  return botActionContext(env, run);
+  return run;
 }
 
 /** Propostas de uma execução (para o resumo do bot e os testes). */

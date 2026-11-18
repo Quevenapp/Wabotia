@@ -1081,6 +1081,7 @@ export async function budgetScenario(h: IntegrationHarness) {
     assert.equal(children.data.length, 50);
     assert.equal(typeof children.next_cursor, "string");
   }
+  const taskDueAt = now() - 100;
   for (let i = 0; i < 12; i++)
     await f.call(
       path + "/tasks",
@@ -1089,8 +1090,8 @@ export async function budgetScenario(h: IntegrationHarness) {
         title: `Prazo ${i}`,
         audience: "staff",
         assignee: f.actor.id,
-        due_at: now() - 100,
-        remind_at: now() - 100,
+        due_at: taskDueAt,
+        remind_at: taskDueAt,
         client_visible: false,
         sensitive: false,
       },

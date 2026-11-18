@@ -222,5 +222,5 @@ export async function sendDueNotices(ctx: ModuleContext) {
       row.notice_id,
     );
   }
-  if (rows.length === 5) await ctx.wake();
+  if (rows.length === 5) await ctx.wake({ modules: true });
 }

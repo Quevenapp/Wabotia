@@ -1,6 +1,10 @@
 // Smoke local: SQL real em SQLite, Worker/Coordinator reais, R2 e estado DO em memória.
 // Não usa rede, Vitest, Wrangler ou Miniflare. Não substitui o runtime Cloudflare.
 import { build } from "esbuild";
+import { execFileSync } from "node:child_process";
+import { relative } from "node:path";
+const baseline = process.argv.includes("--i2-baseline");
+const previous = new Set(["src/coordinator.ts","src/mcp.ts", "src/modules/os/reminders.ts", "src/modules/os/documents/delivery.ts", "src/modules/os/privacy.ts", "src/modules/os/store.ts", "src/modules/os/work-types.ts", "src/area-templates/engine.ts", "src/modules/condominio/works.ts", "src/modules/ensino/access.ts", "src/modules/ensino/store.ts", "src/modules/ensino/diary.ts", "src/modules/ensino/customer.ts", "src/modules/saude/access.ts", "src/modules/saude/store.ts"]);
 import { writeFile, rm, readdir, readFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import assert from "node:assert/strict";
@@ -8,7 +12,8 @@ let serializedDepth = 0;
 const bundle = new URL("./.os-check.generated.mjs", import.meta.url);
 const built = await build({
   stdin: {
-    contents: `export {Coordinator} from './src/coordinator'; export * from './tests/os-integration-fixture'; export * from './tests/os-integration-scenarios'; export {areaTemplates} from './src/area-templates';`,
+    // Carregar o Worker primeiro: começar pelo Coordinator escondia ciclos do registro HTTP.
+    contents: `export {default as worker} from './src/index'; export {Coordinator} from './src/coordinator'; export * from './tests/os-integration-fixture'; export * from './tests/os-integration-scenarios'; export {areaTemplates} from './src/area-templates'; export * from './tests/os-i2-scenarios';`,
     resolveDir: process.cwd(),
     loader: "ts",
   },
@@ -21,6 +26,10 @@ const built = await build({
     {
       name: "local-bindings",
       setup(b) {
+        if (baseline) b.onLoad({ filter: /\.ts$/ }, args => {
+          const path = relative(process.cwd(), args.path).replaceAll("\\", "/");
+          if (previous.has(path)) return { contents: execFileSync("git", ["show", `HEAD:${path}`], { encoding: "utf8" }), loader: "ts" };
+        });
         b.onResolve({ filter: /^cloudflare:(workers|test)$/ }, (a) => ({
           path: a.path,
           namespace: "local",
@@ -217,12 +226,18 @@ try {
               alarm = null;
             },
           },
+          inputGate: null,
           blockConcurrencyWhile: async (fn) => {
+            let release;
+            const gate = new Promise(resolve => { release = resolve; });
+            ctx.inputGate = gate;
             serializedDepth++;
             try {
               return await fn();
             } finally {
               serializedDepth--;
+              if (ctx.inputGate === gate) ctx.inputGate = null;
+              release();
             }
           },
           getWebSockets: () => [],
@@ -232,8 +247,11 @@ try {
       }
       return {
         id,
-        fetch: (input, init) =>
-          instances.get(id).instance.fetch(new Request(input, init)),
+        fetch: async (input, init) => {
+          const local = instances.get(id);
+          while (local.ctx.inputGate) await local.ctx.inputGate;
+          return local.instance.fetch(new Request(input, init));
+        },
       };
     },
   };
@@ -257,6 +275,19 @@ try {
     },
   };
   const h = lib.integrationHarness(env, runtime);
+  if (baseline) {
+    for (const name of ["securityMcp", "securityReminders", "integrationPendencies", "templateRecovery", "condominioIntegration", "ensinoIntegration", "saudeIntegration", "schedulerSerialization"]) {
+      let failed = false;
+      try { await lib[name](h); } catch (error) { failed = true; console.log("Contraprova HEAD", name, "FALHOU:", error.message.split("\n")[0]); }
+      assert(failed, `Contraprova ${name} deveria falhar na implementação anterior`);
+    }
+  } else if (process.argv.includes("--i2")) {
+    for (const name of ["extensionDefaults", "juridicoIntegration", "condominioIntegration", "saudeIntegration", "ensinoIntegration", "securityMcp", "securityReminders", "stageNotificationAuthorization", "integrationPendencies", "templateRecovery", "schedulerSerialization"]) {
+      if (lib[name]) { await lib[name](h); console.log("I2", name, "OK"); }
+    }
+    for (const channel of lib.clinicalChannels) { await lib.clinicalChannel(h, channel); console.log("Saúde", channel, "OK"); }
+  }
+  if (!process.argv.includes("--i2-only")) {
   for (const model of lib.areaTemplates) {
     await lib.applyRegisteredTemplate(h, model.id);
     console.log("Modelo", model.id, "OK");
@@ -268,6 +299,7 @@ try {
   console.log("Regressões de prazos e anexos: OK");
   if (lib.budgetScenario)
     console.log("Orçamento", JSON.stringify(await lib.budgetScenario(h)));
+  }
   const report = {};
   for (const r of h.report.filter((r) => !r.name.includes("/api/v1"))) {
     const values = (report[r.name] ??= { worker: 0, coordinator: 0 });

@@ -3,7 +3,7 @@ import { sha, hmac } from "../../security";
 import { ApiError, now, type Actor } from "../../types";
 import type { ModuleContext } from "../api";
 import { resolveWorkType } from "../os/public";
-import { classView, classroom, enrollment, forbidden, phoneHash, responsiblePerson, schoolOrder, staff, today, type ClassRow } from "./access";
+import { privateSchoolType, studentNameSql, classView, classroom, enrollment, forbidden, phoneHash, responsiblePerson, schoolOrder, staff, today, type ClassRow } from "./access";
 import { canonical, date, id, invalid, number, object, overlaps, page, periods, rule, schedule, text, type Slot } from "./model";
 
 export type SQL = [string, unknown[]];
@@ -55,7 +55,7 @@ export async function listClasses(ctx: ModuleContext, actor: Actor, query: Recor
 export async function roster(ctx: ModuleContext, actor: Actor, classId: string) {
   const c = await classroom(ctx, actor, classId);
   const rows = await all(ctx.env,
-    `SELECT e.id,e.order_id,e.start_date,e.end_date,e.ended,o.customer_name name FROM ensino_enrollments e
+    `SELECT e.id,e.order_id,e.start_date,e.end_date,e.ended,${studentNameSql} name FROM ensino_enrollments e
      JOIN os_orders o ON o.profile_id=e.profile_id AND o.id=e.order_id
      WHERE e.profile_id=? AND e.class_id=? ORDER BY e.id LIMIT 501`, ctx.profile, c.id);
   // Classe tem até 100 vagas; histórico de transferências é limitado e não truncado silenciosamente.
@@ -82,8 +82,8 @@ export async function createClass(ctx: ModuleContext, actor: Actor, input: unkno
   const slots = schedule(d.schedule), ps = periods(d.periods, start, end), r = rule(d.rule);
   const type = await resolveWorkType(ctx, id(d.type_id));
   if (type.kind !== "custom" || !type.features.people || type.archived) invalid("tipo de matrícula com pessoas ligadas");
-  if (type.fields.some(f => !f.sensitive) || type.features.customer_open || type.stages.some(s => s.message))
-    invalid("tipo escolar: extras sensíveis, abertura pela secretaria, etapas sem mensagens");
+  if (!privateSchoolType(type))
+    invalid("tipo escolar: extras sensíveis e mensagens sem dados do aluno");
   const teacherId = await teacher(ctx, d.teacher_id);
   const entityId = await mutationId(ctx, actor, "class.create", key);
   await teacherSchedule(ctx, teacherId, start, end, slots, entityId);

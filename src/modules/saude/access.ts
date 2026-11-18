@@ -9,7 +9,7 @@ export type Statement = [string, unknown[]];
 export async function human(ctx: ModuleContext, actor: Actor, write = false) {
   ctx.access(actor, write ? "conversations:write" : "conversations:read");
   await ctx.requireEnabled();
-  if (actor.kind !== "user" || actor.via || actor.module || actor.credential || actor.id.startsWith("bot:"))
+  if (actor.kind !== "user" || actor.via || actor.module || actor.credential || actor.id.startsWith("bot:") || actor.bots.length)
     fail(403, "forbidden");
 }
 export async function clinical(ctx: ModuleContext, actor: Actor, write = false) {

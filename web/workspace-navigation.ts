@@ -39,6 +39,10 @@ import {
 // Each screen has one home. The assistant opens these same screens rather than
 // maintaining a second set of connection or service configuration forms.
 export const sections = [
+  ["juridico", "Prazos", CalendarClock],
+  ["condominio", "Condomínio", Blocks],
+  ["saude", "Prontuários", FileText],
+  ["ensino", "Ensino", BookOpen],
   ["overview", "Início", LayoutDashboard],
   ["setup", "Configuração guiada", Zap],
   ["conversations", "Conversas", MessageCircle],
@@ -123,6 +127,10 @@ export const areaOfPage = (page: PageId): AreaId => pageArea[page] || "admin";
 
 /** Grupos da coluna de Gestão. */
 export const workspaceGroups = [
+  { id: "juridico", label: "Jurídico", icon: CalendarClock, pages: ["juridico"] },
+  { id: "condominio", label: "Condomínio", icon: Blocks, pages: ["condominio"] },
+  { id: "saude", label: "Saúde", icon: FileText, pages: ["saude"] },
+  { id: "ensino", label: "Ensino", icon: BookOpen, pages: ["ensino"] },
   { id: "home", label: "Início", icon: LayoutDashboard, pages: ["overview"] },
   {
     id: "mensalidades",
@@ -235,6 +243,7 @@ const adminPages: ReadonlySet<string> = new Set([
  * (src/modules, campo navigation). Com o módulo desligado na área, somem.
  */
 export const pageModules: Partial<Record<string, string>> = {
+  juridico: "juridico", condominio: "condominio", saude: "saude", ensino: "ensino",
   queue: "queue",
   "queue-settings": "queue",
   forms: "forms",
@@ -269,6 +278,7 @@ export const railPages: {
   label: string;
   icon: typeof Ticket;
 }[] = [
+  { page: "juridico", label: "Prazos", icon: CalendarClock },
   { page: "agenda", label: "Agenda", icon: CalendarDays },
   { page: "service-orders", label: "Ordens", icon: Wrench },
   { page: "pedidos", label: "Pedidos", icon: ShoppingBag },
@@ -278,6 +288,7 @@ export const railPages: {
 export type ModuleStates = Record<string, boolean> | undefined;
 export const moduleAllows = (page: string, modules?: ModuleStates) => {
   const owner = pageModules[page];
+  if (owner && ["juridico", "condominio", "saude", "ensino"].includes(owner)) return modules?.[owner] === true;
   return !owner || modules?.[owner] !== false;
 };
 
@@ -350,6 +361,10 @@ export function visibleGroups(
 }
 
 export const pageDescriptions: Partial<Record<PageId, string>> = {
+  juridico: "Calendários, prazos e conferências jurídicas.",
+  condominio: "Unidades, moradores, portaria, comunicados e assembleias.",
+  saude: "Prontuários protegidos e auditoria de acesso.",
+  ensino: "Turmas, frequência, notas, boletins e comunicados escolares.",
   work: "Acompanhe trabalhos por tipo e etapa.",
   "my-deadlines": "Suas tarefas e vencimentos nesta área de atendimento.",
   "work-types": "Vocabulário, campos, etapas e recursos dos trabalhos.",

@@ -25,7 +25,7 @@ function PrivateEditor({
   const api = useWorkApi();
   // A classificação do servidor não é alterada. Esta cópia só habilita os
   // controles depois de /private-fields autorizar explicitamente a leitura.
-  const fields: WorkField[] = order.fields
+  const fields: WorkField[] = authorized.fields
     .filter((field) => field.sensitive)
     .map((field) => ({ ...field, sensitive: false }));
   const [values, setValues] = useState(authorized.extra),

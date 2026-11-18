@@ -69,7 +69,7 @@ export async function scheduleJuridico(ctx: ModuleContext, tick: { now: number }
   let remaining = 200;
   const budget: DueBudget = { get remaining() { return remaining; }, consume(n) { remaining -= n; } };
   const result = await runJuridicoDue(ctx, { now: tick.now, budget, limit: 10 });
-  if (result.has_more) await ctx.wake();
+  if (result.has_more) await ctx.wake({ modules: true });
 }
 
 export async function listAlerts(ctx: ModuleContext, actor: Actor) {

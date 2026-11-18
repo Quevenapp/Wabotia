@@ -1,7 +1,5 @@
 // Descritores sem efeito ao importar. Registros exatos: docs/ENSINO.md.
 import type { onRead, onCommand, onRoute, onMcpTool } from "../api";
-import type { MiddlewareHandler } from "hono";
-import type { Bindings } from "../../types";
 import { classView, classroom, staff, forbidden } from "./access";
 import * as store from "./store";
 import * as diary from "./diary";
@@ -9,12 +7,7 @@ import * as notices from "./notices";
 import { ownReport, ownStudents } from "./customer";
 export { requestAccess, customerAction, claimAccess } from "./customer";
 
-/** Registrar antes do despacho de módulos; inclusive erros não podem ser cacheados. */
-export const ensinoNoStore: MiddlewareHandler<Bindings> = async (c, next) => {
-  c.header("Cache-Control", "no-store, private");
-  c.header("Referrer-Policy", "no-referrer");
-  await next();
-};
+export { ensinoNoStore } from "./http";
 
 type Read = { path: string; handler: Parameters<typeof onRead>[2]; options?: Parameters<typeof onRead>[3] };
 type Command = { op: string; handler: Parameters<typeof onCommand>[2] };

@@ -241,7 +241,7 @@ onSchedule("os", async (ctx, { now }) => {
 
 onRead("os", "service-orders", async (ctx, actor, { query }) => {
   ctx.access(actor, "conversations:read");
-  const page = await listOrders(ctx, ctx.safeQuery(actor, query));
+  const page = await listOrders(ctx, ctx.safeQuery(actor, query), actor);
   return {
     ...page,
     data: page.data.map((view) => visibleOrder(ctx, actor, view)),
@@ -271,8 +271,7 @@ onRead("os", "service-orders/:id", async (ctx, actor, { params, query }) => {
     actor,
     orderView(order, query.history === "none" ? undefined : await orderHistory(ctx, order.id)),
   );
-  // Definições autorizadas do snapshot permitem montar o editor privado.
-  // Os valores continuam saindo exclusivamente por /private-fields.
+  // Compatibilidade: metadados autorizados do snapshot; valores apenas na rota privada.
   if (await mayReadSensitive(ctx, actor)) view.fields = type.fields;
   return view;
 });

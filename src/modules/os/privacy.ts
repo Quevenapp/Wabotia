@@ -70,6 +70,7 @@ export async function projectPrivateFields(
     );
   const values = json(order.row.extra_json, {});
   return { id: order.row.id, version: order.row.row_version ?? 1,
+    fields: order.type.fields.filter(f => f.sensitive),
     extra: Object.fromEntries(order.type.fields.filter(f => f.sensitive && Object.hasOwn(values, f.id)).map(f => [f.id, values[f.id]])) };
 }
 
@@ -119,6 +120,8 @@ export function customerProjection<T extends Order>(input: T): T {
   delete view.created_by;
   delete view.assignee;
   delete view.history;
+  delete view.features;
+  delete view.next_task;
   view.fields = input.fields.filter(f => f.client_visible && !f.sensitive);
   view.extra = Object.fromEntries(view.fields.filter(f => Object.hasOwn(input.extra, f.id)).map(f => [f.id, input.extra[f.id]]));
   view.next_stages = [];

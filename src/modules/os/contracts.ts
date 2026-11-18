@@ -144,6 +144,8 @@ export interface WorkOrderAdditions {
   extra: ExtraValues;
   fields: WorkField[];
   version: number;
+  features?: WorkFeatures;
+  next_task?: { id: string; title: string; due_at: number | null } | null;
   next_stages: Array<{
     transition_id: string;
     stage: string;
@@ -279,6 +281,7 @@ export interface StageRequest extends VersionRequest {
   note?: string;
 }
 export interface QuoteRequest {
+  version?: number;
   items: QuoteItem[];
   note?: string;
   valid_days?: number;
@@ -300,6 +303,7 @@ export interface StageApprovalDecisionRequest extends VersionRequest {
 export interface PrivateFields extends VersionRequest {
   id: string;
   extra: ExtraValues;
+  fields: WorkField[];
 }
 export interface PrivateFieldsRequest extends VersionRequest {
   extra: ExtraValues;
@@ -419,6 +423,9 @@ export interface EntryQuery extends PageQuery {
 }
 /** Query HTTP: flags 1/0 e filtros de estado separados por vírgulas. */
 export interface OrderQuery {
+  assignee?: string;
+  due_from?: string;
+  due_to?: string;
   status?: string;
   open?: "1" | "0";
   conversation_id?: string;

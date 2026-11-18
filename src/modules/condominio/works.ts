@@ -128,7 +128,7 @@ export async function createWork(
   if (accessId && !type.features.customer_open) fail("feature_disabled", 409);
   if (
     type.archived ||
-    !type.fields.some((f) => f.id === "unidade" && !f.sensitive)
+    !type.fields.some((f) => f.id === "unidade")
   )
     fail("type_unavailable", 409);
   // Nunca permitir que cliente ou portaria injete campos internos/sensíveis.
@@ -153,7 +153,10 @@ export async function createWork(
       customer_name: personRow.name,
       item: d.item,
       problem: d.problem,
-      extra: { ...d.extra, unidade: unitLabel },
+      // A unidade privada do modelo corrigido vive no vínculo cond_works.
+      // O ator técnico não recebe permissão clínica/sensível do motor.
+      extra: { ...Object.fromEntries(Object.entries(d.extra).filter(([id]) => id !== "unidade")),
+        ...(type.fields.some(f => f.id === "unidade" && !f.sensitive) ? { unidade: unitLabel } : {}) },
       notify: false,
     },
     `cond-work:${key}`,

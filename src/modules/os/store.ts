@@ -40,7 +40,7 @@ import { resolveWorkType } from "./public";
 import { validateExtra } from "./validation";
 import { resumeOrderEffects } from "./motor-routes";
 import { atomic, casGuard, checkVersion, commitOrderMutation, mutationHistory } from "./mutations";
-import { customerProjection } from "./privacy";
+import { customerProjection, mayReadSensitive } from "./privacy";
 import { customStatus, customMove, customQuotePolicy, cancelApproval } from "./stages";
 
 export type OrderSource = "agent" | "panel" | "customer" | "api";
@@ -225,12 +225,24 @@ export const orderHistory = (ctx: ModuleContext, id: string) =>
 export async function listOrders(
   ctx: ModuleContext,
   query: Record<string, string>,
+  actor?: Actor,
 ) {
   const where = ["profile_id=?"],
     args: any[] = [ctx.profile];
   if (query.stage && !query.type_id) throw new ApiError(400, "invalid_filter", "Etapa exige type_id.");
   if (query.type_id) { where.push("type_id=?"); args.push(query.type_id); }
   if (query.stage) { where.push("COALESCE(stage,status)=?"); args.push(query.stage); }
+  if (query.assignee) {
+    where.push(query.assignee === "unassigned" ? "assignee IS NULL" : "assignee=?");
+    if (query.assignee !== "unassigned") args.push(query.assignee === "me" && actor ? actor.id : query.assignee);
+  }
+  for (const [key, comparison] of [["due_from", ">="], ["due_to", "<="]] as const) {
+    if (!query[key]) continue;
+    const at = Number(query[key]);
+    if (!Number.isSafeInteger(at) || at < 0) throw new ApiError(400, "invalid_filter", "Prazo inválido; use milissegundos Unix.");
+    where.push(`due_at${comparison}?`); args.push(at);
+  }
+  if (query.due_from && query.due_to && Number(query.due_from) > Number(query.due_to)) throw new ApiError(400, "invalid_filter", "Intervalo de prazo inválido.");
   // Sem repetição: a lista IN fica dentro do limite do D1 (conferência B10).
   const statuses = [
     ...new Set((query.status || "").split(",").filter(Boolean)),
@@ -295,8 +307,22 @@ export async function listOrders(
   );
   const more = rows.length > limit;
   const page = rows.slice(0, limit);
+  // Uma consulta para a página inteira, filtrando antes de eleger o próximo filho.
+  // A projeção nunca revela a existência de uma tarefa não autorizada.
+  const custom = page.filter(row => row.type_id !== "service_order" && snapshotType(row)?.features.tasks);
+  const human = actor?.kind === "user" && !actor.via && !actor.module && !actor.credential && !actor.id.startsWith("bot:");
+  const sensitive = actor && await mayReadSensitive(ctx, actor);
+  const tasks = custom.length ? await all(ctx.env, `SELECT order_id,id,title,due_at FROM (
+    SELECT order_id,id,title,due_at,row_number() OVER (PARTITION BY order_id ORDER BY due_at IS NULL,due_at,id) AS position
+    FROM os_tasks WHERE profile_id=? AND order_id IN (SELECT value FROM json_each(?)) AND state='open' AND archived_at IS NULL
+    ${sensitive ? "" : "AND sensitive=0"} ${human ? "" : "AND client_visible=1"}
+  ) WHERE position=1`, ctx.profile, JSON.stringify(custom.map(row => row.id))) : [];
+  const nextTasks = new Map(tasks.map(task => [task.order_id, { id: task.id, title: task.title, due_at: task.due_at }]));
   return {
-    data: page.map((row) => orderView(row)),
+    data: page.map(row => ({
+      ...orderView(row),
+      ...(row.type_id !== "service_order" ? { next_task: nextTasks.get(row.id) ?? null } : {}),
+    })),
     next_cursor: more ? String(page.at(-1)!.number) : null,
     counts,
     ...(query.facets === "1" ? { facets: await orderFacets(ctx, query.type_id) } : {}),
@@ -688,6 +714,7 @@ export async function saveQuote(
   mutationKey?: string,
   options: { notify?: boolean } = {},
 ) {
+  checkVersion(order, data.version, false);
   const policy = customQuotePolicy(order);
   if (policy && effectiveStage(order) !== policy.sent_stage && !policy.source_stages.includes(effectiveStage(order))) throw new ApiError(409, "invalid_transition", "Etapa não permite orçamento.");
   if (!QUOTABLE.includes(order.status))

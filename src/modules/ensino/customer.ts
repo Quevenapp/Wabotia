@@ -1,3 +1,4 @@
+import { studentNameSql } from "./access";
 import { all, exec, one } from "../../db";
 import { ApiError, now, uid, type Actor, type Conversation } from "../../types";
 import type { ModuleContext } from "../api";
@@ -69,7 +70,7 @@ export async function ownStudents(ctx: ModuleContext, actor: Actor, accessId: st
   const { identity } = await privateSession(ctx, actor, accessId);
   const p = page(query, `${ctx.profile}:${accessId}:students`);
   const rows = await all(ctx.env,
-    `SELECT e.id,o.customer_name name,c.name class_name,c.school_year FROM ensino_enrollments e
+    `SELECT e.id,${studentNameSql} name,c.name class_name,c.school_year FROM ensino_enrollments e
      JOIN os_orders o ON o.profile_id=e.profile_id AND o.id=e.order_id
      JOIN ensino_classes c ON c.profile_id=e.profile_id AND c.id=e.class_id
      WHERE e.profile_id=? AND e.order_id IN (SELECT value FROM json_each(?)) AND e.id>? ORDER BY e.id LIMIT ?`,

@@ -1912,6 +1912,7 @@ export async function planSettings(
  */
 export async function commitSettingsPlan(
   env: Env, actor: Actor, plan: SettingsPlan, provenance: [string, any[]][] = [],
+  recovery?: { id: string; result: unknown },
 ): Promise<Record<string, any>> {
   admin(actor);
   requireValue(actor.id === plan.actor_id, "Plano de outro ator.");
@@ -1931,12 +1932,32 @@ export async function commitSettingsPlan(
     `UPDATE conversations SET department_id=NULL,updated=? WHERE profile_id=? AND state!='closed' AND department_id IN (${plan.removed_departments.map(() => "?").join(",")})`,
     [now(), plan.profile, ...plan.removed_departments],
   ]);
-  await batch(env, [...statements, ...provenance]);
-  for (const change of plan.module_changes) await event(env, plan.profile, "module.changed", change.id, {
+  const publications = plan.module_changes.map(change => ({ kind: "module.changed", id: change.id, payload: {
     module_id: change.id, enabled: change.enabled, version: moduleById(change.id)!.version, actor: actor.id,
-  });
-  if (plan.queue_changed) await event(env, plan.profile, "queue.changed", plan.profile, { settings: true });
+  } as Record<string, unknown> }));
+  if (plan.queue_changed) publications.push({ kind: "queue.changed", id: plan.profile, payload: { settings: true } });
+  if (recovery) statements.push([
+    "INSERT INTO os_area_template_receipts(profile_id,operation_id,actor,result_json,events_json) VALUES(?,?,?,?,?)",
+    [plan.profile, recovery.id, actor.id, JSON.stringify(recovery.result), JSON.stringify(publications)],
+  ]);
+  await batch(env, [...statements, ...provenance]);
+  if (recovery) await recoverSettingsApplication(env, actor, plan.profile, recovery.id);
+  else for (const publication of publications) await event(env, plan.profile, publication.kind, publication.id, publication.payload);
   return { ...plan.view, settings_revision: plan.settings_revision };
+}
+
+/** Recupera antes de conferir a prévia, que já mudou pela própria aplicação. */
+export async function recoverSettingsApplication(env: Env, actor: Actor, profile: string, operationId: string) {
+  admin(actor);
+  const receipt = await one(env, "SELECT * FROM os_area_template_receipts WHERE profile_id=? AND operation_id=? AND actor=?", profile, operationId, actor.id);
+  if (!receipt) return null;
+  if (!receipt.published) {
+    const publications = json(receipt.events_json, []);
+    for (const [i, publication] of publications.entries())
+      await event(env, profile, publication.kind, publication.id, publication.payload, `area-template:${profile}:${operationId}:${i}`);
+    await exec(env, "UPDATE os_area_template_receipts SET published=1 WHERE profile_id=? AND operation_id=?", profile, operationId);
+  }
+  return json(receipt.result_json);
 }
 
 export async function perform(

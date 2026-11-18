@@ -1,3 +1,4 @@
+import { studentNameSql } from "./access";
 import { all, one } from "../../db";
 import { ApiError, now, type Actor } from "../../types";
 import type { ModuleContext } from "../api";
@@ -56,7 +57,7 @@ export async function attendance(ctx: ModuleContext, actor: Actor, classId: stri
   const lesson = await one(ctx.env, "SELECT id,date,status FROM ensino_lessons WHERE profile_id=? AND class_id=? AND id=?", ctx.profile, c.id, id(lessonId));
   if (!lesson) notFound();
   const data = await all(ctx.env,
-    `SELECT e.id enrollment_id,o.customer_name name,a.status,a.revision FROM ensino_enrollments e
+    `SELECT e.id enrollment_id,${studentNameSql} name,a.status,a.revision FROM ensino_enrollments e
      JOIN os_orders o ON o.profile_id=e.profile_id AND o.id=e.order_id
      LEFT JOIN ensino_attendance a ON a.profile_id=e.profile_id AND a.enrollment_id=e.id AND a.lesson_id=?
        AND a.revision=(SELECT max(x.revision) FROM ensino_attendance x WHERE x.profile_id=a.profile_id AND x.lesson_id=a.lesson_id AND x.enrollment_id=a.enrollment_id)
@@ -109,7 +110,7 @@ export async function grades(ctx: ModuleContext, actor: Actor, classId: string, 
   const a = await one(ctx.env, "SELECT id,date FROM ensino_assessments WHERE profile_id=? AND class_id=? AND id=?", ctx.profile, c.id, id(assessmentId));
   if (!a) notFound();
   return { version: c.version, data: await all(ctx.env,
-    `SELECT e.id enrollment_id,o.customer_name name,g.status,g.score,g.revision FROM ensino_enrollments e
+    `SELECT e.id enrollment_id,${studentNameSql} name,g.status,g.score,g.revision FROM ensino_enrollments e
      JOIN os_orders o ON o.profile_id=e.profile_id AND o.id=e.order_id
      LEFT JOIN ensino_grades g ON g.profile_id=e.profile_id AND g.enrollment_id=e.id AND g.assessment_id=?
        AND g.revision=(SELECT max(x.revision) FROM ensino_grades x WHERE x.profile_id=g.profile_id AND x.assessment_id=g.assessment_id AND x.enrollment_id=g.enrollment_id)
@@ -151,7 +152,7 @@ export async function buildReport(ctx: ModuleContext, c: ClassRow, e: Enrollment
      WHERE a.profile_id=? AND a.class_id=? AND a.period_id=? AND a.date>=? AND a.date<=? ORDER BY a.date,a.id LIMIT 100`,
     e.id, ctx.profile, c.id, period.id, e.start_date, e.end_date);
   const subjects = [...new Set(marks.map(m => m.subject))].map(subject => ({ subject, ...calculate(marks.filter(m => m.subject === subject), view.rule) }));
-  const student = await one<{ name: string }>(ctx.env, "SELECT customer_name name FROM os_orders WHERE profile_id=? AND id=?", ctx.profile, e.order_id);
+  const student = await one<{ name: string }>(ctx.env, `SELECT ${studentNameSql} name FROM os_orders o WHERE o.profile_id=? AND o.id=?`, ctx.profile, e.order_id);
   return { name: student?.name ?? "", class_name: c.name, school_year: c.school_year, period,
     subjects, frequency: await studentFrequency(ctx, c, e, period.start, period.end), rule_version: c.version };
 }

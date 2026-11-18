@@ -2,6 +2,7 @@
 // fala com o núcleo só por aqui: contato, enviar mensagem, abrir passo web,
 // publicar evento e os ganchos de menu, ação de conversa, configuração e
 // conclusão de passo web. Mudanças aqui exigem atualizar docs/MODULOS.md.
+import { localModuleWake } from "./local-wake";
 import {
   registerApprovalHook,
   moduleRoutes,
@@ -1068,6 +1069,8 @@ export function modulesApi(
       revokeModuleCredentials(env, profile, moduleId, subject, reason),
     credentials: (subject) => credentialsFor(env, profile, moduleId, subject),
     async wake(options) {
+      const local = localModuleWake(env, profile);
+      if (local) return local(options);
       const response = await env.COORDINATOR.get(
         env.COORDINATOR.idFromName(profile),
       ).fetch("https://coordinator/wake", {

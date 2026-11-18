@@ -91,9 +91,15 @@ onCredentialClaim("ensino", claimAccess);
 **`src/index.ts`:** importar o middleware e registrá-lo logo depois de `const app = new Hono<Bindings>();`, antes das rotas. O prefixo de conversa já está em `BOUND_ROUTES`; não abrir as rotas escolares nessa lista.
 
 ```ts
-import { ensinoNoStore } from "./modules/ensino/ensino";
+import { ensinoNoStore } from "./modules/ensino/http";
 app.use("/api/v1/profiles/:profile/ensino/*", ensinoNoStore);
 ```
+
+O middleware HTTP fica separado dos descritores para que a entrada do Worker
+não carregue Ensino antes do registro central. Importá-lo de `ensino/ensino`
+nessa entrada cria um ciclo com `service.ts` e `runtime.ts`, que tenta usar
+`ensinoReads` antes de sua inicialização. A reexportação antiga permanece
+disponível para consumidores que já carregaram o runtime.
 
 **Pré-requisito P/M/I, se ainda não integrado:** em `src/modules/os/extensions.ts`, importar `import { peopleExtension } from "./people/extension";` e acrescentar `peopleExtension,` ao array `osExtensions`. Em `src/modules/os/definition.ts`, incluir em `grants`:
 

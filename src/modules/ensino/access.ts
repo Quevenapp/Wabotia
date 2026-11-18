@@ -4,6 +4,8 @@ import { BRASILIA_OFFSET_MS } from "../../business-time";
 import { ApiError, type Actor, type Conversation } from "../../types";
 import { modulesApi, type ModuleContext } from "../api";
 import { authorizedOrder } from "../os/public";
+import type { WorkTypeView } from "../os/contracts";
+import { projectPrivateFields } from "../os/privacy";
 import { projectOrderForStaff, projectChildForBot, projectChildForStaff } from "../os/privacy";
 import { id, type Period, type Rule, type Slot } from "./model";
 
@@ -52,15 +54,30 @@ export async function enrollment(ctx: ModuleContext, classId: string, value: unk
   return row;
 }
 /** Só a secretaria chama a API do motor, nunca como ator técnico elevado. */
+export function privateSchoolType(type: WorkTypeView) {
+  if (type.fields.some(f => !f.sensitive)) return false;
+  if (!type.features.customer_open && type.stages.every(s => !s.message)) return true;
+  // Modelos administrativos aceitam pedidos públicos sem identificar o aluno.
+  // Seu nome vem exclusivamente do campo privado; mensagens só usam referências.
+  return type.fields.some(f => f.id === "nome_aluno" && f.kind === "text" && f.sensitive && !f.client_visible) &&
+    type.stages.every(s => [...s.message.matchAll(/\{([^}]+)\}/g)].every(m => ["numero", "identificador", "estado", "tipo"].includes(m[1])));
+}
+// Consultas pedagógicas já autorizadas pela turma/vínculo. Não reutilizar em canais comuns.
+export const studentNameSql = `CASE WHEN EXISTS (SELECT 1 FROM json_each(o.type_snapshot_json,'$.type.fields') f
+  WHERE json_extract(f.value,'$.id')='nome_aluno' AND json_extract(f.value,'$.sensitive')=1)
+  THEN coalesce(json_extract(o.extra_json,'$.nome_aluno'),'') ELSE o.customer_name END`;
 export async function schoolOrder(ctx: ModuleContext, actor: Actor, orderId: unknown, typeId: string) {
   const os = modulesApi(ctx.env, ctx.profile, "os");
   const order = await authorizedOrder(os, actor, id(orderId));
   if (order.type.id !== typeId || order.type.kind !== "custom" || !order.type.features.people)
     throw new ApiError(409, "invalid_enrollment", "Selecione uma matrícula do tipo configurado na turma, com pessoas ligadas.");
-  if (order.type.fields.some(f => !f.sensitive) || order.type.features.customer_open || order.type.stages.some(s => s.message))
-    throw new ApiError(409, "private_type_required", "A matrícula escolar exige extras sensíveis, abertura pela secretaria e etapas sem mensagens automáticas.");
+  if (!privateSchoolType(order.type))
+    throw new ApiError(409, "private_type_required", "A matrícula escolar exige extras sensíveis e mensagens sem dados do aluno.");
   if (order.row.status === "cancelled") throw new ApiError(409, "closed_order", "Matrícula cancelada.");
-  return { order, name: projectOrderForStaff(os, actor, order).customer.name };
+  const name = order.type.fields.some(f => f.id === "nome_aluno")
+    ? (await projectPrivateFields(os, actor, order)).extra.nome_aluno
+    : projectOrderForStaff(os, actor, order).customer.name;
+  return { order, name: typeof name === "string" ? name : "" };
 }
 export async function responsiblePerson(ctx: ModuleContext, actor: Actor, orderId: string, personId: unknown) {
   // Contrato público do motor, com suas projeções e autorização humana sensível.

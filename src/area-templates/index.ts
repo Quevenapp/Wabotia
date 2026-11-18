@@ -65,7 +65,7 @@ export function createAreaTemplatesExtension(): AdminExtension { return {
   ],
   commands: [
     { op: "area-template.preview", handler: (env, actor, profile, data) => previewAreaTemplate(env, actor, profile, data, areaTemplates) },
-    { op: "area-template.apply", handler: (env, actor, profile, data) => applyAreaTemplate(env, actor, profile, data, areaTemplates) },
+    { op: "area-template.apply", handler: (env, actor, profile, data, requestId) => applyAreaTemplate(env, actor, profile, data, areaTemplates, requestId) },
     { op: "area-template.export", handler: (env, actor, profile, data) => exportAreaTemplate(env, actor, profile, data) },
   ],
 }; }

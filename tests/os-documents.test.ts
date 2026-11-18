@@ -728,7 +728,18 @@ describe("documentos: D1 e transporte R2", () => {
       replyId: null,
       rowId: uid(),
     };
-    await receiveDocument(f.ctx, c, { ...turn, text: "segue" });
+    expect(await receiveDocument(f.ctx, c, { ...turn, text: "segue" })).toBe(false);
+    expect(incoming).not.toHaveBeenCalled();
+    expect(outgoing).not.toHaveBeenCalled();
+    expect(
+      await all(
+        env,
+        "SELECT id FROM os_documents WHERE profile_id=? AND order_id=?",
+        f.profile,
+        f.order.id,
+      ),
+    ).toHaveLength(0);
+    expect(await receiveDocument(f.ctx, c, { ...turn, text: "DOCUMENTO" })).toBe(true);
     expect(outgoing.mock.calls.at(-1)![1].text).toContain("número global");
     expect(
       await all(
