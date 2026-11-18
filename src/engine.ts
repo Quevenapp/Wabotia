@@ -1,3 +1,4 @@
+import { addProviderUsage } from "./ai-providers";
 import { createPiiMask, maskPersonalEnabled, type PiiMask } from "./pii-mask";
 import { extractPersonalPdf } from "./pii-pdf";
 import { preparePaidTemplate, assertPaidConsent } from "./router-templates";
@@ -1330,6 +1331,7 @@ async function pdfWithinPages(env: Env, key: string) {
  * tentativas de novo de uma mesma execução também custam.
  */
 export async function saveUsage(env: Env, run: Run, usage: AiUsage) {
+  await addProviderUsage(env, run.profile_id, `bot:${run.bot_id}`, usage);
   if (!usage.input && !usage.output && !usage.cache_read && !usage.cache_write) return;
   const row = await one(env, "SELECT usage FROM bot_runs WHERE id=?", run.id);
   const before = json(row?.usage, null) || {};

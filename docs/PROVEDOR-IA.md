@@ -1,6 +1,6 @@
 # Bot por provedor de IA, sem Hermes
 
-Uma conexão **Provedor de IA** liga o Wabotia direto à API da Anthropic, da OpenAI, da DeepSeek ou de outro serviço compatível com a OpenAI. Não há VPS, Docker, Hermes nem plugin: basta a instalação do Wabotia na Cloudflare e uma chave de API. O Hermes continua disponível e as conexões Hermes existentes não mudam.
+Um **provedor de IA** guarda a chave uma vez na instalação, com a lista de áreas que podem usá-la. Cada bot continua ligado a uma conexão `ai`, cuja configuração escolhe `provider_id` e `model`. Vários bots podem compartilhar o provedor. O Worker chama diretamente Anthropic, OpenAI, DeepSeek ou uma API compatível. O servidor e a API já usam esse cadastro; a tela própria e os seletores do painel ficam para a próxima etapa.
 
 ## O que faz e o que não faz
 
@@ -51,8 +51,8 @@ O Atendente pode encaminhar um pedido interno a outro bot de provedor de IA, com
 
 1. Crie a chave de API no site do provedor e deixe saldo ou cobrança ativos.
 2. No painel: **Hermes e canais → Nova conexão → Serviço: Provedor de IA (sem servidor)**.
-3. Escolha o provedor e cole a chave. Na **Outra API compatível com OpenAI** (OpenRouter, Groq e semelhantes), informe também a URL da API, à qual o Wabotia acrescenta `/chat/completions`, e se o modelo entende imagens.
-4. Escolha o modelo. **Buscar modelos da conta** pergunta ao provedor, com a chave digitada (ou, na edição, a já cadastrada), quais modelos a conta tem, e passa a sugeri-los no campo. A chave usada na busca não é guardada.
+3. No formulário antigo, escolha o tipo e cole a chave; o servidor cria um provedor implícito e devolve `provider_id`. Pela API, cadastre uma vez em `POST /providers` e reutilize esse id nas conexões, sem reenviar a chave. Na **Outra API compatível com OpenAI** (OpenRouter, Groq e semelhantes), informe também a URL da API, à qual o Wabotia acrescenta `/chat/completions`, e se o modelo entende imagens.
+4. Escolha o modelo. **Buscar modelos da conta** aceita o id do provedor e usa sua chave no Worker; também aceita chave digitada, sem salvá-la nessa busca.
    - **Anthropic**: Claude Opus 5.5 (padrão, mais capaz), Claude Sonnet 5.5 ou Claude Haiku 5.5 (mais barato). A busca mostra só os que a conta enxerga.
    - **OpenAI**: a lista deixa de fora modelos de imagem, voz e embeddings. Ainda é possível digitar qualquer nome.
    - **DeepSeek** e APIs compatíveis: a lista vem como o provedor publica; sem lista, digite o nome (na DeepSeek, por exemplo, `deepseek-flash` ou `deepseek-v4-pro`).
@@ -63,12 +63,14 @@ O Atendente pode encaminhar um pedido interno a outro bot de provedor de IA, com
    - **DeepSeek**: Sem raciocínio (mais rápido e barato), Baixo (padrão), Alto ou Máximo; a API da DeepSeek não tem Médio nem Muito alto. Sem escolha, a DeepSeek raciocinaria em Alto: conexões salvas antes da 0.18.0 passam a Baixo ao serem editadas e salvas.
    - Prazo de cada resposta: 60 segundos até Médio, 90 em Alto e 3 minutos em Muito alto e Máximo. As respostas de uma área saem em série, então nesses níveis as outras conversas esperam mais.
 6. Deixe marcada **Apenas mensagens (não receber áudio e vídeo)**, ou desmarque (veja abaixo).
-7. Salve e clique **Testar conexão**. O teste confere chave, modelo e endereço e cria o bot, desabilitado, com o nome da conexão. Na OpenAI e na DeepSeek, o modelo precisa estar na lista da conta; no formato OpenAI, o teste ainda faz uma chamada curta, que também valida o esforço. Uma conexão tem um único bot; para usar dois modelos, crie duas conexões.
+7. Salve e clique **Testar conexão**. O teste confere chave, modelo e endereço e cria o bot, desabilitado, com o nome da conexão. Na OpenAI e na DeepSeek, o modelo precisa estar na lista da conta; no formato OpenAI, o teste ainda faz uma chamada curta, que também valida o esforço. Uma conexão tem um único bot; para usar dois modelos, crie duas conexões com o mesmo `provider_id`.
 8. **Ativar** a conexão. Em **Atendente e especialistas**, habilite o bot e escolha **Usar como Bot Atendente**, ou defina-o como bot de uma linha.
 
-A chave fica cifrada no cofre da instalação e nunca é devolvida ao painel. Para trocá-la, pause a conexão, edite e preencha **Nova chave de API**; vazio mantém a atual. Editar exige testar de novo antes de reativar. O provedor não pode ser trocado: crie outra conexão.
+A chave fica cifrada em `provider:<id>`, nunca na configuração da conexão, e nunca é devolvida — nem trechos ou impressão. `provider.rotate` troca a chave para todos os usos; `provider.revoke` apaga o segredo e interrompe os usos com “Provedor revogado: escolha outro”. Também falha se a área sair da lista do provedor. A execução segue para a equipe, sem tentar o segredo antigo.
 
-Para remover a conexão, pause-a e use **Excluir conexão** no cartão. O bot dela deixa de existir e a chave é apagada; conversas, mensagens e execuções anteriores continuam no histórico, e a conta no provedor não é alterada. A exclusão é recusada enquanto o bot for o Atendente, o bot de uma linha ou estiver atendendo uma conversa: troque-o antes. O mesmo vale para conexões Hermes.
+Para remover a conexão, pause-a e use **Excluir conexão**. O bot deixa de existir; o provedor e sua chave continuam para os demais usos. Conversas, mensagens e execuções anteriores continuam no histórico. Para excluir o provedor, primeiro remova ou troque todos os vínculos; caso contrário, a API retorna 409 com a lista dos usos.
+
+A migração 0093 copia os segredos antigos sem abri-los e mantém `connection:<id>` para a versão anterior. Dados sem `provider_id` ainda leem esse caminho. Depois de trocar a chave do provedor, voltar à versão anterior volta a usar a chave antiga. Veja [Provedores de IA](API.md#provedores-de-ia) para operações, permissões, consumo e junção explícita.
 
 ## Áudio, vídeo e imagens
 
@@ -129,7 +131,7 @@ As respostas de uma área de atendimento são processadas em série. Com muitos 
 ## Detalhes técnicos
 
 - Conexão `kind: "ai"`; configuração `provider`, `model`, `base_url`, `vision`, `pdf`, `effort`, `text_only`; segredo `api_key` ([API](../src/openapi.ts)).
-- Modelos da conta: `POST /api/v1/profiles/{perfil}/ai-models` (administrador, 10 por minuto), com `{provider, base_url?, api_key?, connection_id?}`; responde `{data:[ids]}`. Fica fora dos comandos idempotentes para a chave não ir aos recibos.
+- Modelos da conta: `POST /api/v1/profiles/{perfil}/ai-models` (administrador, 10 por minuto), com `{provider_id} ou {provider, base_url?, api_key?, connection_id?}`; responde `{data:[ids]}`. Fica fora dos comandos idempotentes para a chave não ir aos recibos.
 - Chamadas em [src/ai-provider.ts](../src/ai-provider.ts):
   - **OpenAI pela Responses API** (`/v1/responses`). Os modelos atuais (`gpt-6.1-terra`, `gpt-6.1-sol`) só chamam ferramentas por ela, e o `gpt-6-luna` no Chat Completions só com raciocínio desligado.
     - Detalhes do pedido: `instructions` com o bloco estável primeiro, `input` com texto, `input_image` e `input_file`, `text.format` `json_object` e `reasoning.effort` quando escolhido.

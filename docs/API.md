@@ -877,3 +877,40 @@ Com a opção ligada, nenhum PDF binário segue à IA. O servidor aceita texto s
 - A voz de saída, que recebe a resposta já com os valores reais.
 
 A detecção é conservadora: CPF/CNPJ sem pontuação exigem dígitos verificadores válidos ou indicação explícita do tipo; formatos completos pontuados são mascarados mesmo com dígitos inválidos. Telefones exigem DDD brasileiro válido e formato plausível; sem DDD, exigem indicação de telefone. CEP sem hífen exige indicação de CEP. Valores em R$, datas, horários e números identificados como pedido/protocolo/ordem/código ficam intactos. Um número solto com formato de telefone pode ser ambíguo: a máscara não é uma garantia de anonimização integral.
+
+
+## Provedores de IA
+
+A chave entra uma vez no provedor da instalação e pode servir vários bots e áreas. O segredo fica cifrado em `secrets`, sob `provider:<id>`. **A chave nunca sai**: nenhuma resposta, evento, log, erro ou ferramenta devolve a chave, seus trechos ou a impressão HMAC. `key_fingerprint` fica exclusivamente no servidor.
+
+Todas as rotas abaixo começam em `/api/v1`. Escritas usam `Idempotency-Key` e o mesmo `perform`/Coordinator das operações de sistema.
+
+| Operação | Rota | Entrada |
+| --- | --- | --- |
+| lista | `GET /providers` | nenhuma |
+| `provider.create` | `POST /providers` | `kind`, `name`, `api_key`, `profiles`, `base_url?`, `force?` |
+| `provider.update` | `PATCH /providers/{id}` | `name?`, `profiles?`, `capabilities?`, `prices?`; sem chave |
+| `provider.rotate` | `POST /providers/{id}/rotate` | `api_key` |
+| `provider.revoke` | `POST /providers/{id}/revoke` | nenhuma |
+| `provider.delete` | `DELETE /providers/{id}` | nenhuma |
+| `provider.merge` | `POST /providers/merge` | `keep`, `remove` |
+| `provider.test` | `POST /providers/{id}/test` | nenhuma |
+| `provider.usage` | `GET /providers/{id}/usage?days=30` | de 1 a 400 dias, incluindo hoje em UTC |
+
+Tipos: `openai`, `anthropic`, `deepseek`, `compatible` e `typesafe`. A criação testa a chave pela lista de modelos e salva `models`, `capabilities` e `verified_at`. O teste confirma a credencial; as capacidades iniciais vêm do contrato do adaptador, não de uma prova multimodal de cada modelo. Se falhar, nada é criado, salvo `force:true`, que salva sem verificação. A rotação testa antes de trocar, preserva os vínculos e reativa um provedor revogado. O TypeSafe consulta `/v1/models` (ou `/models` sob a URL base informada); serviços sem esse endpoint exigem criação forçada e não recebem `verified_at`.
+
+Criar, editar, trocar, revogar, excluir, juntar e testar exigem o mesmo `admin(actor)` das operações de sistema: pessoa com `role=admin`. **Regra de segredo:** criar e trocar, assim como o atalho `jev` com `api_key` (ou `key` legado), exigem `requireDirectPerson`: `actor.via` e identificadores de bot recebem `403 secret_requires_person`, mesmo com acesso administrativo. O aal2 continua no `mfaGate`. O ator do motor é recusado em todas as operações. A base tem os papéis `admin`, `operator` e `service`; a leitura por área usa as áreas atribuídas à pessoa (`actor.profiles`), sem introduzir um novo papel. A pessoa administradora do sistema vê todos; as demais pessoas veem só provedores autorizados para alguma de suas áreas. O consumo também limita as linhas às áreas da pessoa.
+
+Revogar apaga apenas `provider:<id>` e marca `revoked`. Um uso com vínculo revogado, inexistente ou fora da área falha com **“Provedor revogado: escolha outro”**, sem recorrer à chave antiga; o atendimento segue o caminho de falha para a equipe. Excluir exige ausência de conexões e configurações JEV vinculadas; caso contrário responde `409 provider_in_use`, com `error.uses` (tipo, id e área de cada vínculo).
+
+Na listagem de sistema, provedores migrados sem impressão a recebem dentro do Worker. `same_key_as` lista os ids ativos com mesmo tipo, URL base e chave. A junção só ocorre por operação explícita: move vínculos de conexões e JEV, une áreas, apaga o cofre de `remove` e o deixa revogado. O histórico diário anterior permanece no id de origem, inclusive após excluir o cadastro, até a retenção de 400 dias.
+
+`provider.usage` responde `{id,days,data:[{day,use,model,requests,input,cache_read,cache_write,output,audio_seconds,estimate_usd?}]}`, somado por dia, uso e modelo. `use` é `bot:<id>` ou `jev`. `prices` é um objeto por modelo: `{ "modelo": { "input": 2, "cache_read": 0.1, "cache_write": 2, "output": 10, "audio_minute": 0.0045 } }`. Tokens custam por milhão, áudio por minuto; campos omitidos valem zero. `estimate_usd` só aparece com preço cadastrado para o modelo. Não há tabela de preços automática nesta etapa: o valor é uma **estimativa**, nunca uma fatura. O cron existente apaga dias com mais de 400 dias.
+
+Conexões `ai` aceitam `config:{provider_id,model}` em `POST /profiles/{profile}/connections` (`connection.save`) e `PATCH /profiles/{profile}/connections/{id}` (`connection.update`). `perform` também aceita `connection.create/update`; `provider_id` e `model` podem vir no topo. O provedor determina o tipo e a URL base. Edição continua exigindo conexão pausada. Por compatibilidade, `api_key` no topo ou `secrets.api_key` cria um provedor implícito da área e responde `provider_id`; esse caminho mantém a etapa antiga de testar a conexão depois de salvar. Não altera o cofre antigo.
+
+`POST /profiles/{profile}/ai-models` aceita `{provider_id}` ou uma chave avulsa `{provider,api_key,base_url?}` sem salvar; continua aceitando `connection_id`. Com uma credencial salva, a URL vem do cadastro, sem sobrescrita pelo pedido. `POST /profiles/{profile}/jev` com `{provider_id}` só vincula um TypeSafe ativo da área. Com `api_key` (ou `key` legado), cria o provedor implícito ou troca a chave do já vinculado e grava `settings.jev_provider_id`; modelo e limiar continuam em `settings.jev_*`.
+
+Sem `provider_id`/`jev_provider_id`, dados legados continuam usando `connection:<id>`/`jev:<área>`. A migração 0093 copia esses segredos e os preserva para a versão anterior. Se uma chave for trocada e a instalação voltar à versão anterior, volta a valer a chave antiga.
+
+A tela de Provedores, seleção de provedor nos formulários, transcrição e apps ficam para uma etapa posterior. O catálogo atual de `consultar` contém operações dos módulos, sem acesso ao cadastro de provedores.

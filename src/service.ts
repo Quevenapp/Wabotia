@@ -24,6 +24,7 @@ import {
   isEngineActor,
   random,
   refuseEngineActor,
+  requireDirectPerson,
   sha,
   setSecret,
   publicUrl,
@@ -33,7 +34,8 @@ import { event, audit } from "./events";
 import { appErpRoleInput } from "./modules/erp/identity";
 import { boundAllows, visibleConversation } from "./visibility";
 import { probe, telegramRemoved } from "./integrations";
-import { aiConfig, aiKey } from "./ai-provider";
+import { aiConfig, connectionKey } from "./ai-provider";
+import { allowedProvider, createImplicitProvider, providerCommand, providerConnectionConfig, providerRow } from "./ai-providers";
 import { secret } from "./security";
 import { validateJevSettings } from "./jev-client";
 import { contactCommand } from "./contacts";
@@ -1536,6 +1538,7 @@ export async function perform(
   requestId: string,
 ): Promise<any> {
   refuseEngineActor(actor);
+  const updateConnection = op === "connection.update";
   env = withReadCache(env);
   // Operações de um módulo desligado na área: 409 module_disabled.
   await requireOperation(env, profile, op);
@@ -1546,6 +1549,12 @@ export async function perform(
   // Comandos registrados pelos módulos (src/modules/api.ts, onCommand).
   const fromModule = moduleCommandHandler(op);
   if (fromModule) return fromModule(env, actor, profile, data, requestId);
+  if (op.startsWith("provider.")) return providerCommand(env, actor, op, data);
+  if (op === "connection.create" || op === "connection.update") {
+    if (op === "connection.update") requireValue(data.id, "Informe a conexão.");
+    else requireValue(!data.id, "A criação não aceita uma conexão existente.");
+    op = "connection.save";
+  }
   if (op === "line.save") return saveLine(env, actor, profile, data);
   if (op === "service-template.apply")
     return applyServiceTemplate(env, actor, profile, data, requestId);
@@ -1614,12 +1623,25 @@ export async function perform(
   }
   if (op === "jev") {
     admin(actor);
-    requireValue(
-      typeof data.key === "string" && data.key,
-      "Informe a chave JEV.",
-    );
-    await setSecret(env, `jev:${profile}`, { key: data.key });
-    return { saved: true };
+    if (data.api_key !== undefined || data.key !== undefined) requireDirectPerson(actor);
+    let id = data.provider_id;
+    requireValue(!(id && (data.api_key || data.key)), "Informe o provedor ou a chave, não ambos.");
+    if (id) {
+      const row = await allowedProvider(env, id, profile);
+      requireValue(row.kind === "typesafe", "Escolha um provedor TypeSafe para o JEV.");
+    } else {
+      const key = data.api_key ?? data.key;
+      requireValue(typeof key === "string" && key, "Informe a chave JEV.");
+      const cfg = json((await one(env, "SELECT settings FROM profiles WHERE id=?", profile))?.settings);
+      if (cfg.jev_provider_id) {
+        const row = await providerRow(env, cfg.jev_provider_id);
+        requireValue(json(row.profiles, []).includes(profile), "Provedor revogado: escolha outro");
+        requireValue(row.kind === "typesafe", "Escolha um provedor TypeSafe para o JEV.");
+        id = (await providerCommand(env, actor, "provider.rotate", { id: row.id, api_key: key })).id;
+      } else id = (await createImplicitProvider(env, actor, profile, { kind: "typesafe", name: "TypeSafe (JEV)", api_key: key })).id;
+    }
+    await exec(env, "UPDATE profiles SET settings=json_set(settings,'$.jev_provider_id',?) WHERE id=?", id, profile);
+    return { saved: true, provider_id: id };
   }
   if (op === "media.register") {
     access(actor, profile, "media:write");
@@ -1914,6 +1936,10 @@ export async function perform(
       "JEV e avaliações devem estar ligados ou desligados.",
     );
     validateJevSettings(next);
+    if (data.jev_provider_id !== undefined) {
+      const provider = await allowedProvider(env, data.jev_provider_id, profile);
+      requireValue(provider.kind === "typesafe", "Escolha um provedor TypeSafe para o JEV.");
+    }
     requireValue(
       next.absence_return_to_bot === undefined ||
         typeof next.absence_return_to_bot === "boolean",
@@ -2280,6 +2306,8 @@ export async function perform(
     admin(actor);
     if (data.kind === "telegram") throw telegramRemoved();
     const existing = data.id ? await one(env, "SELECT * FROM connections WHERE id=? AND profile_id=?", data.id, profile) : null;
+    if (updateConnection) requireValue(existing, "Conexão não encontrada.");
+    if (existing) data = { ...data, kind: data.kind ?? existing.kind, name: data.name ?? existing.name };
     await requireCurrentConnection(env, existing || { kind: data.kind });
     requireValue(
       ["zernio", "qr", "ai"].includes(data.kind),
@@ -2312,16 +2340,24 @@ export async function perform(
       "A marca de remoção da conexão é interna e não pode ser definida pela API.",
     );
     if (data.kind === "ai") {
-      // Provedor de IA direto: só provedor, modelo, endereço e opções; a chave
-      // vai para o cofre. Editar exige testar de novo.
-      cfg = aiConfig(cfg);
-      const previous = await secret(env, `connection:${id}`);
-      const key = data.secrets?.api_key || previous.api_key;
-      aiKey(key);
-      const extra = Object.keys(data.secrets || {}).filter(
-        (k) => k !== "api_key",
-      );
-      requireValue(!extra.length, "A conexão de IA guarda só a chave de API.");
+      const supplied = data.api_key ?? data.secrets?.api_key;
+      if (supplied) requireDirectPerson(actor);
+      requireValue(!Object.keys(data.secrets || {}).some((key) => key !== "api_key"), "A conexão de IA guarda só a chave de API.");
+      cfg = { ...json(old?.config), ...cfg, ...(data.model ? { model: data.model } : {}) };
+      const providerId = data.provider_id ?? cfg.provider_id;
+      if (data.provider_id !== undefined || data.config?.provider_id !== undefined)
+        requireValue(typeof providerId === "string" && providerId.length > 0, "Informe um provedor válido.");
+      requireValue(!(supplied && (data.provider_id || data.config?.provider_id)), "Informe o provedor ou a chave, não ambos.");
+      if (supplied) {
+        cfg = aiConfig(cfg);
+        const provider = await createImplicitProvider(env, actor, profile, { kind: cfg.provider, name: data.name || old?.name || cfg.provider, api_key: supplied, base_url: cfg.base_url });
+        cfg.provider_id = provider.id;
+      } else if (providerId) cfg = await providerConnectionConfig(env, profile, { ...cfg, provider_id: providerId });
+      else {
+        // Dado criado por script antigo: mantém o cofre anterior até vincular.
+        cfg = aiConfig(cfg);
+        requireValue((await secret(env, `connection:${id}`)).api_key, "Informe o provedor ou a chave de API.");
+      }
     }
     if (old) {
       const previous = json(old.config);
@@ -2411,13 +2447,9 @@ export async function perform(
       JSON.stringify(cfg),
       now(),
     );
-    if (data.secrets) {
+    if (data.secrets && data.kind !== "ai") {
       const previous = await secret(env, `connection:${id}`);
       const supplied = { ...data.secrets };
-      if (data.kind === "ai") {
-        if (supplied.api_key) supplied.api_key = aiKey(supplied.api_key);
-        else delete supplied.api_key;
-      }
       if (data.kind === "zernio") {
         for (const key of ["api_key", "webhook_secret"])
           if (!supplied[key]) delete supplied[key];
@@ -2427,7 +2459,7 @@ export async function perform(
         ...supplied,
       });
     }
-    return { id, status: "paused" };
+    return { id, status: "paused", ...(cfg.provider_id ? { provider_id: cfg.provider_id } : {}) };
   }
   if (op === "connection.state") {
     admin(actor);
@@ -2500,18 +2532,20 @@ export async function perform(
     }
     const enabled = data.enabled === undefined ? !!bot.enabled : !!data.enabled;
     if (enabled) {
-      const keys = await secret(env, `connection:${bot.connection_id}`),
-        conn = await one(
-          env,
-          "SELECT kind,config FROM connections WHERE id=?",
-          bot.connection_id,
-        );
-      if (conn) await requireCurrentConnection(env, { ...conn, id: bot.connection_id });
-      if (!bot.enabled && conn?.kind === "ai")
+      const conn = await one(
+        env,
+        "SELECT id,profile_id,kind,config FROM connections WHERE id=?",
+        bot.connection_id,
+      );
+      if (conn) await requireCurrentConnection(env, conn);
+      if (!bot.enabled && conn?.kind === "ai") {
         requireValue(
-          keys.api_key && json(conn.config).verified_at,
+          json(conn.config).verified_at,
           "Teste a conexão com o provedor de IA antes de habilitar o bot.",
         );
+        // A habilitação usa o mesmo cofre e as mesmas restrições da execução.
+        await connectionKey(env, conn);
+      }
     }
     const statements: [string, any[]][] = [
       [
