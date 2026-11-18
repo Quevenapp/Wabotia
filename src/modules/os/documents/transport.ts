@@ -7,6 +7,7 @@ import type {
   ModuleContext,
 } from "../../api";
 import type { DocumentUploadResult } from "../contracts";
+import { binaryCommand, type BinaryCommand } from "../../binary";
 import { commitChild } from "../public";
 import { authorizedDocument, type DocumentAccess } from "./access";
 import {
@@ -72,6 +73,22 @@ export async function beginUpload(
       : row.version === version)
   ) {
     if (row.state === "aborted") fail(409, "upload_expired");
+    if (row.state === "pending") {
+      pending(row);
+      if (!row.sha256 && (!row.upload_lease_until || row.upload_lease_until <= now())) {
+        const at = now();
+        const renewed = await exec(
+          ctx.env,
+          `UPDATE os_documents SET upload_lease_until=?
+          WHERE profile_id=? AND order_id=? AND id=? AND version=? AND state='pending'
+            AND upload_attempt=? AND upload_request_key=? AND archived_at IS NULL
+            AND upload_expires_at>? AND (upload_lease_until IS NULL OR upload_lease_until<=?)`,
+          at + UPLOAD_LEASE, ctx.profile, orderId, id, version,
+          row.upload_attempt, key, at, at,
+        );
+        if (renewed.meta.changes !== 1) fail(409, "upload_busy");
+      }
+    }
     return { id, version, upload_attempt: row.upload_attempt };
   }
   if (row.version !== version) fail(409, "version_conflict");
@@ -148,13 +165,13 @@ export async function recordUpload(
   pending(row);
   const content = await inspectObject(ctx, row);
   if (row.sha256) return uploadResult(row);
-  if (!row.upload_lease_until || row.upload_lease_until <= now())
-    fail(409, "upload_expired");
+  // A concessão limita novas escritas; bytes já existentes podem ser recuperados
+  // enquanto a reserva e a tentativa persistidas ainda forem válidas.
   const result = await exec(
     ctx.env,
     `UPDATE os_documents SET byte_length=?,sha256=?
     WHERE profile_id=? AND order_id=? AND id=? AND version=? AND state='pending'
-      AND upload_attempt=? AND upload_lease_until>? AND archived_at IS NULL`,
+      AND upload_attempt=? AND upload_expires_at>? AND archived_at IS NULL`,
     content.byte_length,
     content.sha256,
     ctx.profile,
@@ -257,7 +274,11 @@ export async function downloadDocument(
   };
 }
 
-export function uploadHandler(privateRoute = false): BinaryUploadHandler {
+export function uploadHandler(
+  privateRoute = false,
+  // WhatsApp já executa dentro do Coordinator e fornece seu despacho serializado.
+  beginAgain?: BinaryCommand,
+): BinaryUploadHandler {
   const prefix = privateRoute
     ? "os.private.document.upload"
     : "os.document.upload";
@@ -310,7 +331,7 @@ export function uploadHandler(privateRoute = false): BinaryUploadHandler {
         grant = { upload_attempt: recovered.upload_attempt };
       }
       // O recibo do Coordinator pode ser antigo: reler a concessão efetiva antes do R2.
-      const { row } = await authorizedDocument(
+      let { row } = await authorizedDocument(
         ctx,
         actor,
         request.params.id,
@@ -331,10 +352,28 @@ export function uploadHandler(privateRoute = false): BinaryUploadHandler {
       }
       pending(row);
       if (row.version !== request.version) fail(409, "version_conflict");
-      if (!row.upload_lease_until || row.upload_lease_until <= now())
-        fail(409, "upload_expired");
       // Se R2 gravou e a resposta se perdeu, recupera sem consumir/regravar o corpo.
       if (!(await ctx.env.MEDIA.head(row.r2_key!))) {
+        if (!row.upload_lease_until || row.upload_lease_until <= now()) {
+          // A chave HTTP original pode ter um recibo begin concluído (ou incompleto).
+          // Novo recibo técnico; a identidade lógica da tentativa continua a mesma.
+          const resume = beginAgain ?? binaryCommand(
+            ctx.env, actor, ctx.profile, request.params, [`${prefix}.begin`], uid(),
+          );
+          await resume(`${prefix}.begin`, {
+            version: request.version,
+            upload_key: request.key,
+          });
+          ({ row } = await authorizedDocument(
+            ctx, actor, request.params.id, request.params.document_id, access,
+          ));
+          if (row.upload_request_key !== key) fail(409, "upload_incomplete");
+          sameAttempt(row, grant.upload_attempt);
+          pending(row);
+          if (row.version !== request.version) fail(409, "version_conflict");
+        }
+        if (!row.upload_lease_until || row.upload_lease_until <= now())
+          fail(409, "upload_expired");
         const content = await request.content();
         if (content.byte_length !== row.expected_bytes)
           fail(409, "content_mismatch");
