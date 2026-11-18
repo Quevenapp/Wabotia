@@ -162,7 +162,10 @@ export function BotsPage() {
                   }}
                 />{" "}
                 Mascarar documentos e telefones nas mensagens antes de enviar à IA
-                <small className="block">Inclui e-mail, CEP, histórico, consultas ao JEV e texto de PDF. Imagens não são mascaradas.</small>
+                <small className="block">
+                  Inclui e-mail, CEP, histórico, consultas ao JEV e texto de PDF. Fotos e imagens vão ao provedor como estão: um
+                  documento fotografado não é mascarado. Com a opção ligada, PDF que não dá para ler como texto vai para a equipe.
+                </small>
               </label>
             )}
             <div className="card-actions">
