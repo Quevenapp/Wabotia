@@ -1,9 +1,8 @@
 import { one } from "../../../db";
-import { type Actor, type Conversation } from "../../../types";
+import { ApiError, type Actor, type Conversation } from "../../../types";
 import type { ModuleContext } from "../../api";
-import { readBinaryContent } from "../../binary";
+import { readBinaryContent, type BinaryCommand } from "../../binary";
 import type { OsExtension } from "../extensions";
-import { authorizedOrder } from "../public";
 import { documentOrder, loadDocument } from "./access";
 import { fail, versionOf } from "./model";
 import { reserveDocument } from "./store";
@@ -83,16 +82,13 @@ export const receiveDocument: NonNullable<
   const attachments = await ctx.inboundAttachments(c, turn.rowId);
   if (!attachments.length && !/^DOCUMENTO\b/i.test(turn.text.trim()))
     return false;
+  // Área somente com o embutido conserva o tratamento anterior, qualquer que
+  // seja o número informado. Para ordens existentes vale o recurso do snapshot.
+  const settings = await ctx.settings();
+  if (!settings.os_work_types?.length) return false;
   const reply = (text: string) =>
     ctx.sendMessage(c, { text }, { key: `document:inbound:${turn.rowId}` });
   if (!match || Number(match[1]) > 2147483647) {
-    // Área somente com o embutido conserva o tratamento antigo dos anexos.
-    const settings = await ctx.settings();
-    if (
-      !Array.isArray(settings.os_work_types) ||
-      !settings.os_work_types.length
-    )
-      return false;
     await reply(
       "Envie o anexo com DOCUMENTO seguido do número global da ordem na mesma mensagem.",
     );
@@ -105,13 +101,21 @@ export const receiveDocument: NonNullable<
     ctx.profile,
     Number(match[1]),
   );
-  if (!found) fail(404, "not_found");
   const access = { conversation_id: c.id };
-  const order = await authorizedOrder(ctx, actor, found.id, {
-    ...access,
-    write: true,
-  });
-  if (!order.type.features.documents) return false;
+  const unavailable = async () => {
+    // A mesma resposta para número inexistente e ordem de outro titular.
+    await reply("Não foi possível localizar uma ordem disponível para receber este documento.");
+    return true;
+  };
+  if (!found) return unavailable();
+  try {
+    await documentOrder(ctx, actor, found.id, { ...access, write: true });
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    if (error.code === "feature_disabled") return false;
+    if (error.code !== "not_found") throw error;
+    return unavailable();
+  }
   if (!attachments.length) {
     await reply("Inclua o documento como anexo na mesma mensagem.");
     return true;
@@ -137,7 +141,11 @@ export const receiveDocument: NonNullable<
     const row = await loadDocument(ctx, found.id, reserved.id);
     if (row.state === "ready") continue;
     // Mesmo transporte e confirmação do painel; os comandos já estão no Coordinator.
-    const handler = uploadHandler();
+    const command: BinaryCommand = async (op, data) =>
+      op.endsWith(".begin")
+        ? beginUpload(ctx, actor, found.id, reserved.id, data.version, key, access)
+        : recordUpload(ctx, actor, found.id, reserved.id, data.version, data.upload_attempt, access);
+    const handler = uploadHandler(false, command);
     const context = ctx;
     // A identidade interna não é bound; o titular foi conferido acima e o pai é fixo.
     const uploaded = (await handler.upload(context, actor, {
@@ -157,26 +165,7 @@ export const receiveDocument: NonNullable<
           }),
         );
       },
-      command: async (op, data) =>
-        op.endsWith(".begin")
-          ? beginUpload(
-              ctx,
-              actor,
-              found.id,
-              reserved.id,
-              data.version,
-              key,
-              access,
-            )
-          : recordUpload(
-              ctx,
-              actor,
-              found.id,
-              reserved.id,
-              data.version,
-              data.upload_attempt,
-              access,
-            ),
+      command,
     })) as { upload_attempt: string };
     await completeDocument(
       ctx,

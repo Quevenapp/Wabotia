@@ -25,7 +25,7 @@ import {
   downloadDocument,
   uploadHandler,
 } from "../src/modules/os/documents/transport";
-import { sendDocument } from "../src/modules/os/documents/delivery";
+import { receiveDocument, sendDocument } from "../src/modules/os/documents/delivery";
 import { api, receive } from "./service-center-fixture";
 import {
   MOTOR_SENTINEL,
@@ -104,6 +104,69 @@ async function setup() {
 }
 
 describe("documentos: sigilo independente de bot.masked e de nomes de campos", () => {
+  it("telefone corrigido revoga envio, consulta e recebimento pela conversa antiga, mesmo vinculada", async () => {
+    const f = await setup();
+    vi.spyOn(f.ctx, "settings").mockResolvedValue({ os_work_types: [motorWorkType()] });
+    const old = await receive(f, f.line, "oi", "5511960010203");
+    const current = await receive(f, f.line, "oi", "5511960010999");
+    await exec(env,
+      "UPDATE os_orders SET conversation_id=?,phone=? WHERE profile_id=? AND id=?",
+      old.id, "5511960010999", f.profile, f.order.id,
+    );
+    const sharedBytes = new TextEncoder().encode("Documento público");
+    const shared = {
+      ...f.row, id: uid(), name: "Público.pdf", sensitive: 0, client_visible: 1,
+      upload_attempt: uid(), upload_request_key: uid(),
+      expected_bytes: sharedBytes.length, byte_length: sharedBytes.length,
+      sha256: hex(await crypto.subtle.digest("SHA-256", sharedBytes)),
+    };
+    // Documento público independente: não reutilizar chave nem conteúdo sensível.
+    shared.r2_key = objectKey(shared, shared.upload_attempt);
+    await env.MEDIA.put(shared.r2_key, sharedBytes, {
+      customMetadata: { sha256: shared.sha256 },
+    });
+    await exec(env,
+      `INSERT INTO os_documents (${Object.keys(shared).join(",")}) VALUES (${Object.keys(shared).map(() => "?").join(",")})`,
+      ...Object.values(shared),
+    );
+    const get = vi.fn(env.MEDIA.get.bind(env.MEDIA));
+    f.ctx = { ...f.ctx, env: { ...f.ctx.env, MEDIA: { get } as unknown as R2Bucket } };
+    const media = vi.spyOn(f.ctx, "outgoingAttachment");
+    const commits = vi.spyOn(motor, "commitChild");
+    const open = vi.fn(async () => { throw new Error("Anexo de outro titular"); });
+    vi.spyOn(f.ctx, "inboundAttachments").mockResolvedValue([
+      { id: uid(), name: "Entrada.pdf", mime_type: "application/pdf", byte_length: 3, open },
+    ]);
+    const message = vi.spyOn(f.ctx, "sendMessage").mockResolvedValue("resposta");
+    for (const phone of ["5511960010203", null]) {
+      const verified = vi.spyOn(f.ctx, "verifiedPhone").mockReturnValue(phone);
+      await expect(listDocuments(f.ctx, f.member, f.order.id, {}, { conversation_id: old.id }))
+        .rejects.toMatchObject({ code: "not_found" });
+      await expect(downloadDocument(f.ctx, f.member, f.order.id, shared.id, { conversation_id: old.id }))
+        .rejects.toMatchObject({ code: "not_found" });
+      await expect(sendDocument(f.ctx, f.member, f.order.id, shared.id, 2))
+        .rejects.toMatchObject({ code: "not_found" });
+      const handled = await receiveDocument(f.ctx, old, {
+        text: `DOCUMENTO ${f.order.number}`, replyId: null, rowId: uid(),
+      });
+      expect(handled).toBe(phone !== null);
+      verified.mockRestore();
+    }
+    expect(get).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+    expect(media).not.toHaveBeenCalled();
+    expect(commits).not.toHaveBeenCalled();
+    expect(message).toHaveBeenCalledTimes(1);
+    expect(message.mock.calls[0][1].text).not.toContain(shared.name);
+    const denied = await api(f.token,
+      `/profiles/${f.profile}/service-orders/conversation/${old.id}/orders/${f.order.id}/documents`,
+    );
+    expect(denied.status).toBe(404);
+    expect(await denied.text()).not.toContain(shared.name);
+    const page = await listDocuments(f.ctx, f.member, f.order.id, {}, { conversation_id: current.id });
+    expect(page.data.map((row) => row.id)).toEqual([shared.id]);
+  });
+
   it("não revela documento sensível na rota comum, nem para quem tem o papel", async () => {
     const f = await setup();
     expect(await listDocuments(f.ctx, f.privileged, f.order.id)).toEqual({

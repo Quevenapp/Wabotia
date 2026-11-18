@@ -46,8 +46,8 @@ const input = (extra: Record<string, unknown> = {}) => ({
 async function setup() {
   const f = await motorFixture();
   const order = await motorOrder(f);
-  // M ainda não está presente: extensão LOCAL da fixture, sem alterar seu arquivo.
-  // O índice é pré-requisito da FK do DDL normativo e será criado por 0100.
+  // Isolamento local para os cenários da filha; a recuperação com M/Coordinator
+  // reais está em os-document-recovery.test.ts. A fixture comum fica intacta.
   await exec(
     env,
     "CREATE UNIQUE INDEX IF NOT EXISTS os_documents_test_parent ON os_orders(profile_id,id)",
@@ -109,7 +109,9 @@ async function upload(
     ),
   );
   const commands: unknown[] = [];
-  const result = await uploadHandler().upload(f.ctx, f.member, {
+  const result = await uploadHandler(false, async (_op, data) =>
+    beginUpload(f.ctx, f.member, f.order.id, id, data.version, String(data.upload_key)),
+  ).upload(f.ctx, f.member, {
     request: new Request("https://test.invalid", { method: "PUT" }),
     params: { id: f.order.id, document_id: id },
     query: {},
@@ -196,10 +198,15 @@ describe("documentos: fundação com M", () => {
       },
     ]);
     const messages = vi.spyOn(f.ctx, "sendMessage");
-    for (const text of ["segue anexo", `DOCUMENTO ${order.number}`])
+    const stranger = await motorOrder(f, { phone: "5511960010999" });
+    for (const text of ["segue anexo", `DOCUMENTO ${order.number}`, "DOCUMENTO 999", `DOCUMENTO ${stranger.number}`, "DOCUMENTO 9999999999", "DOCUMENTO inválido"])
       expect(
         await receiveDocument(f.ctx, c, { text, replyId: null, rowId: uid() }),
       ).toBe(false);
+    expect(messages).not.toHaveBeenCalled();
+    vi.mocked(f.ctx.inboundAttachments).mockResolvedValue([]);
+    for (const text of ["DOCUMENTO 999", `DOCUMENTO ${stranger.number}`])
+      expect(await receiveDocument(f.ctx, c, { text, replyId: null, rowId: uid() })).toBe(false);
     expect(messages).not.toHaveBeenCalled();
   });
   it("exporta descritor e adaptador binário, sem registradores nos filhos", () => {
@@ -398,9 +405,17 @@ describe("documentos: D1 e transporte R2", () => {
       "Resposta R2 perdida",
     );
     expect((await loadDocument(f.ctx, f.order.id, id)).state).toBe("pending");
-    const recovered = await upload(interrupted, id, key, "não sobrescrever");
+    await exec(env,
+      "UPDATE os_documents SET upload_lease_until=? WHERE profile_id=? AND order_id=? AND id=?",
+      now() - 60000, f.profile, f.order.id, id,
+    );
+    const attempt = (await loadDocument(f.ctx, f.order.id, id)).upload_attempt;
+    const recovered = await upload(interrupted, id, key, "não sobrescrever", (op, run) =>
+      op.endsWith(".begin") ? Promise.resolve({ upload_attempt: attempt }) : run(),
+    );
     expect(put).toHaveBeenCalledTimes(1);
     expect(recovered.content).not.toHaveBeenCalled();
+    expect((await loadDocument(f.ctx, f.order.id, id)).sha256).toBe(recovered.result.sha256);
     await completeDocument(
       f.ctx,
       f.member,
@@ -415,6 +430,32 @@ describe("documentos: D1 e transporte R2", () => {
         (await downloadDocument(f.ctx, f.member, f.order.id, id)).body,
       ).text(),
     ).toBe("abc");
+  });
+
+  it("renova a mesma tentativa sem objeto mesmo com recibo begin antigo, mais de uma vez", async () => {
+    const f = await setup();
+    const { id } = await reserveDocument(f.ctx, f.member, f.order.id, input(), uid());
+    const key = uid();
+    const grant = await beginUpload(f.ctx, f.member, f.order.id, id, 1, key);
+    const cachedBegin = (op: string, run: () => Promise<unknown>) =>
+      op.endsWith(".begin") ? Promise.resolve(grant) : run();
+    for (let retry = 0; retry < 2; retry++) {
+      await exec(env,
+        "UPDATE os_documents SET upload_lease_until=? WHERE profile_id=? AND order_id=? AND id=?",
+        now() - 60000, f.profile, f.order.id, id,
+      );
+      // O corpo incorreto interrompe após renovar, sem gravar objeto.
+      await expect(upload(f, id, key, "incorreto", cachedBegin)).rejects.toMatchObject({ code: "content_mismatch" });
+      const row = await loadDocument(f.ctx, f.order.id, id);
+      expect(row.upload_attempt).toBe(grant.upload_attempt);
+      expect(row.upload_lease_until).toBeGreaterThan(now());
+      expect(await env.MEDIA.head(row.r2_key!)).toBeNull();
+      await expect(beginUpload(f.ctx, f.member, f.order.id, id, 1, "concorrente"))
+        .rejects.toMatchObject({ code: "upload_busy" });
+    }
+    const sent = await upload(f, id, key, "abc", cachedBegin);
+    expect(sent.result.upload_attempt).toBe(grant.upload_attempt);
+    expect(sent.result.byte_length).toBe(3);
   });
 
   it("bloqueia tentativa concorrente e rejeita tentativa vencida após nova concessão", async () => {
@@ -489,6 +530,10 @@ describe("documentos: D1 e transporte R2", () => {
     });
     expect(sent.result.byte_length).toBe(3);
     expect((await loadDocument(f.ctx, f.order.id, id)).sha256).toBeNull();
+    await exec(env,
+      "UPDATE os_documents SET upload_lease_until=? WHERE profile_id=? AND order_id=? AND id=?",
+      now() - 60000, f.profile, f.order.id, id,
+    );
     // Repetição não sobrescreve os bytes, mesmo sem confirmação técnica no D1.
     const retry = await upload(f, id, key, "outro", async () => {
       throw new Error("indisponível");
@@ -709,9 +754,12 @@ describe("documentos: D1 e transporte R2", () => {
       source_message_id: turn.rowId,
     });
     const other = await receive(f, f.line, "DOCUMENTO 1", "5511960010999");
-    await expect(
-      receiveDocument(f.ctx, other, { ...turn, rowId: uid() }),
-    ).rejects.toMatchObject({ code: "not_found" });
+    expect(await receiveDocument(f.ctx, other, { ...turn, rowId: uid() })).toBe(true);
+    const denied = outgoing.mock.calls.at(-1)![1].text;
+    expect(denied).toContain("Não foi possível localizar");
+    expect(await receiveDocument(f.ctx, other, { ...turn, text: "DOCUMENTO 999", rowId: uid() })).toBe(true);
+    expect(outgoing.mock.calls.at(-1)![1].text).toBe(denied);
+    expect(await all(env, "SELECT id FROM os_documents WHERE profile_id=?", f.profile)).toHaveLength(1);
   });
 
   it("envia somente pronto/compartilhável e reutiliza chave de documento/versão", async () => {
