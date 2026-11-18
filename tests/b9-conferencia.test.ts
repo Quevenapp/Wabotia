@@ -5,10 +5,30 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { all } from "../src/db";
-import { api, application, bearer, receive } from "./service-center-fixture";
+import {
+  api,
+  application,
+  bearer,
+  drain,
+  receive,
+  type Fixture,
+} from "./service-center-fixture";
 import { agendaSetup, at, future } from "./agenda-fixture";
 import { future as reservaDay, reservaSetup } from "./reserva-fixture";
 import { MENUS, pedidoSetup, seedMenu } from "./pedido-fixture";
+
+/**
+ * A mensagem que chega e o motor responde ("oi" → boas-vindas) no alarme do
+ * Coordinator, cerca de 1 s depois. Sem esperar por ele, a resposta do motor
+ * podia cair entre o "antes" e o "depois" de uma conferência e contar como
+ * aviso (achado numa suíte carregada: 4 em vez de 3). Recebe e já deixa o
+ * motor responder (drain).
+ */
+async function received(f: Fixture, text: string, phone: string) {
+  const c = await receive(f, f.line, text, phone);
+  await drain(f);
+  return c;
+}
 
 const sent = async (conversationId: string) =>
   (
@@ -18,12 +38,23 @@ const sent = async (conversationId: string) =>
       conversationId,
     )
   ).length;
+/** O dedupe das mensagens que saíram depois das `before` primeiras. */
+const sentSince = async (conversationId: string, before: number) =>
+  (
+    await all(
+      env,
+      "SELECT dedupe FROM outbox WHERE conversation_id=? ORDER BY created,rowid",
+      conversationId,
+    )
+  )
+    .slice(before)
+    .map((row) => String(row.dedupe));
 
 describe("criar pela API sem atender a conversa não fala com o cliente (conferência B9)", () => {
   it("OS e agendamento: criados, sem aviso", async () => {
     const s = await agendaSetup();
     await s.run("module.set", { id: "os", enabled: true });
-    const c = await receive(s.f, s.f.line, "oi", "5511986200001");
+    const c = await received(s.f, "oi", "5511986200001");
     const before = await sent(c.id);
     const member = await bearer(s.f.member);
     const os = await api(
@@ -52,19 +83,24 @@ describe("criar pela API sem atender a conversa não fala com o cliente (confer�
     expect(await sent(c.id)).toBe(before);
     // O administrador (ou quem assumiu) avisa.
     const admin = await bearer(s.f.admin);
-    await api(admin, `/profiles/${s.f.profile}/service-orders`, "POST", {
-      conversation_id: c.id,
-      item: "Celular",
-      problem: "Tela",
-    });
-    expect(await sent(c.id)).toBeGreaterThan(before);
+    const byAdmin = await (
+      await api(admin, `/profiles/${s.f.profile}/service-orders`, "POST", {
+        conversation_id: c.id,
+        item: "Celular",
+        problem: "Tela",
+      })
+    ).json<any>();
+    // Exatamente o aviso de abertura da OS do administrador.
+    expect(await sentSince(c.id, before)).toEqual([
+      expect.stringContaining(`opened:${byAdmin.id}`),
+    ]);
   });
 
   it("Reserva com sinal e pedido: criados, sem aviso nem cobrança", async () => {
     const s = await reservaSetup({
       rules: { deposit_type: "percent", deposit_percent: 30 },
     });
-    const c = await receive(s.f, s.f.line, "oi", "5511986200002");
+    const c = await received(s.f, "oi", "5511986200002");
     const before = await sent(c.id);
     const member = await bearer(s.f.member);
     const res = await api(
@@ -87,7 +123,7 @@ describe("criar pela API sem atender a conversa não fala com o cliente (confer�
 
     const p = await pedidoSetup({ menus: MENUS });
     const menu = await seedMenu(p.f);
-    const pc = await receive(p.f, p.f.line, "oi", "5511986200003");
+    const pc = await received(p.f, "oi", "5511986200003");
     const pBefore = await sent(pc.id);
     const order = await api(
       await bearer(p.f.member),
@@ -110,7 +146,7 @@ describe("segunda conferência B9: outras operações pela API", () => {
     const s = await agendaSetup();
     await s.run("module.set", { id: "os", enabled: true });
     const p = s.f.profile;
-    const c = await receive(s.f, s.f.line, "oi", "5511986200011");
+    const c = await received(s.f, "oi", "5511986200011");
     const admin = await bearer(s.f.admin);
     const make = async () =>
       (
@@ -187,12 +223,66 @@ describe("segunda conferência B9: outras operações pela API", () => {
         { status: "ready" },
       ),
     );
-    expect(await sent(c.id)).toBeGreaterThan(before);
+    // Exatamente o aviso "pronto" da primeira OS.
+    expect(await sentSince(c.id, before)).toEqual([
+      expect.stringContaining(`status:${first.id}:`),
+    ]);
+  });
+
+  it("a mensagem a mais da suíte carregada era a boas-vindas do motor, não aviso das operações (ordem forçada)", async () => {
+    const s = await agendaSetup();
+    await s.run("module.set", { id: "os", enabled: true });
+    const p = s.f.profile;
+    // Como o teste de cima antes da correção: recebe e não espera o motor.
+    const c = await receive(s.f, s.f.line, "oi", "5511986200013");
+    const admin = await bearer(s.f.admin);
+    const order = await (
+      await api(admin, `/profiles/${p}/service-orders`, "POST", {
+        conversation_id: c.id,
+        item: "Notebook",
+        problem: "Não liga",
+      })
+    ).json<any>();
+    const app = (
+      await application(s.f, ["conversations:read", "conversations:write"])
+    ).token;
+    const before = await sent(c.id);
+    const status = await api(
+      app,
+      `/profiles/${p}/service-orders/${order.id}/status`,
+      "POST",
+      { status: "in_progress" },
+    );
+    expect(status.status).toBe(200);
+    // O alarme do Coordinator roda aqui, no meio das operações da aplicação
+    // (o que a carga fez sozinha na suíte): o motor responde ao "oi".
+    await drain(s.f);
+    const cancel = await api(
+      app,
+      `/profiles/${p}/service-orders/${order.id}/status`,
+      "POST",
+      { status: "cancelled" },
+    );
+    expect(cancel.status).toBe(200);
+    const rows = await all(
+      env,
+      "SELECT dedupe FROM outbox WHERE conversation_id=? ORDER BY created,rowid",
+      c.id,
+    );
+    // Uma mensagem a mais, como na suíte (4 em vez de 3)…
+    expect(rows).toHaveLength(before + 1);
+    // …e ela é a boas-vindas do motor. Nenhuma das operações da aplicação
+    // falou com o cliente, e nenhum aviso saiu em dobro.
+    expect(
+      rows.slice(before).map((r) => String(r.dedupe).split(":")[0]),
+    ).toEqual(["welcome"]);
+    const dedupes = rows.map((r) => String(r.dedupe));
+    expect(new Set(dedupes).size).toBe(dedupes.length);
   });
 
   it("aplicação que não atende a conversa não manda o link do check-in", async () => {
     const s = await reservaSetup();
-    const c = await receive(s.f, s.f.line, "oi", "5511986200012");
+    const c = await received(s.f, "oi", "5511986200012");
     const b = await s.run("reserva.book", {
       unit_id: s.jardim.id,
       start_date: reservaDay(11),

@@ -1,7 +1,7 @@
 // public.erp_catalog_product_set_deleted: exclusão lógica do produto (e a
 // restauração). O produto excluído fica inativo e só leitura; o ciclo de
 // vida liga erp_catalog.product_lifecycle para passar pelo guard_deleted_product.
-// Fora (Origin desligado): o UPDATE de erp_catalog.origin (tabela vazia).
+// O UPDATE de erp_catalog.origin ('local_modified') vai no updateRecord (record.ts).
 import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { jsonbText } from "../../../engine/json.ts";

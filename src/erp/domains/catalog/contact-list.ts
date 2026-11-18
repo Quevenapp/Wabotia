@@ -6,7 +6,7 @@
 import type { SqlDriver } from "../../engine/driver.ts";
 import { jsonTimestamp, saoPauloMidnight } from "../../engine/time.ts";
 import * as documents from "../documents/public.ts";
-import { contactSituation, contactSourceSituation } from "./contact.ts";
+import { SOURCE_SITUATION_SQL, contactSituation, contactSourceSituation } from "./contact.ts";
 import { contactTypeSlugs } from "./contact-core.ts";
 import { CNTRL, btrim, chars, lower, matches, upper } from "./fields.ts";
 import { fold } from "./internal.ts";
@@ -99,12 +99,32 @@ export interface ContactFilter {
    * seller_page acrescenta "é vendedor", como o Fagoo faz sobre o contact_where.
    */
   extra?: { sql: string; params: unknown[] } | null;
+  /** ORDER BY no lugar do page_order (aniversariantes: mês/dia, nome, id). */
+  order?: string | null;
 }
 
-/** erp_catalog.contact_situation em SQL (contact_source_situation é sempre null sem o Origin). */
-const SITUATION_SQL = `CASE WHEN r.active=1 THEN (CASE WHEN cp.situation='S' THEN 'S' ELSE 'A' END)
-  ELSE (CASE WHEN cp.situation='E' THEN 'E' ELSE 'I' END) END`;
+/**
+ * erp_catalog.contact_tag_where (etiqueta, "none" = sem etiqueta; lista de
+ * preço por contato ou por UF) como condição extra do contactPage.
+ */
+export function contactTagCondition(tag: string | null, priceList: string | null): { sql: string; params: unknown[] } {
+  return {
+    sql: `(? IS NULL OR CASE WHEN ?='none' THEN NOT EXISTS(SELECT 1 FROM "erp_catalog__contact_tag" x WHERE x.record_id=r.id)
+        ELSE EXISTS(SELECT 1 FROM "erp_catalog__contact_tag" x WHERE x.record_id=r.id AND x.tag_id=?) END)
+      AND (? IS NULL OR EXISTS(SELECT 1 FROM "erp_pricing__price_list_contact" pc WHERE pc.list_id=? AND pc.contact_id=r.id)
+        OR EXISTS(SELECT 1 FROM "erp_pricing__price_list_region" pg WHERE pg.list_id=? AND pg.state=upper(trim(c.state,' '))))`,
+    params: [tag, tag, tag, priceList, priceList, priceList],
+  };
+}
 
+/** erp_catalog.contact_tag_filter_valid(p_tag) */
+export const contactTagFilterValid = (tag: string | null) =>
+  tag === null || tag === "none" || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(tag);
+
+/** erp_catalog.contact_situation(r.active, coalesce(cp.situation, contact_source_situation(r.id))) em SQL. */
+const SITUATION_SQL = `(CASE WHEN r.active=1
+  THEN (CASE WHEN coalesce(cp.situation, ${SOURCE_SITUATION_SQL("r.id")})='S' THEN 'S' ELSE 'A' END)
+  ELSE (CASE WHEN coalesce(cp.situation, ${SOURCE_SITUATION_SQL("r.id")})='E' THEN 'E' ELSE 'I' END) END)`;
 /** page_order em SQL: __fold e id em BINARY (a collation C do oráculo). */
 const ORDER_SQL: Record<string, string> = {
   created_desc: "r.created_at DESC, r.id DESC",
@@ -154,7 +174,7 @@ export function contactPage(db: SqlDriver, f: ContactFilter, sort: string, offse
   if (f.extra) (where.push(`(${f.extra.sql})`), params.push(...f.extra.params));
   const from = `FROM "erp_catalog__record" r JOIN "erp_catalog__contact" c ON c.record_id=r.id
     LEFT JOIN "erp_catalog__contact_profile" cp ON cp.record_id=r.id WHERE ${where.join(" AND ")}`;
-  const order = ORDER_SQL[sort];
+  const order = f.order ?? ORDER_SQL[sort];
   const inTs = f.terms !== null || f.state !== null || f.city !== null || f.phone !== null || f.email !== null;
   if (!inTs) {
     const total = Number(db.exec(`SELECT count(*) n ${from}`, ...params).rows[0].n);

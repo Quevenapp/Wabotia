@@ -219,6 +219,28 @@ export function natureReviewRecord(db: SqlDriver): Json {
   return r ? { confirmed: true, version: Number(r.version), confirmed_at: jsonTimestamp(String(r.confirmed_at)) } : { confirmed: false, version: 0, confirmed_at: null };
 }
 
+type NatureIdentity = { id: unknown; direction: unknown; created_at: unknown; created_by: unknown; version: unknown; deleted_at: unknown };
+/**
+ * Gatilho guard_nature (BEFORE UPDATE OR DELETE de erp_fiscal_invoices.nature):
+ * a natureza nunca é apagada; o id, a direção, a criação e o autor não mudam;
+ * a versão sobe de um em um; a natureza excluída (deleted_at) não muda mais.
+ * Chamado antes de cada UPDATE que o motor faz na natureza.
+ */
+export function guardNature(op: "UPDATE" | "DELETE", old: NatureIdentity, next: NatureIdentity | null) {
+  if (op === "DELETE") raise("42501", "erp_fiscal_nature_no_delete");
+  const n = next!;
+  if (
+    n.id !== old.id || n.direction !== old.direction || String(n.created_at) !== String(old.created_at) || n.created_by !== old.created_by ||
+    Number(old.version) === 2147483647 || Number(n.version) !== Number(old.version) + 1
+  )
+    raise("40001", "erp_fiscal_nature_immutable_identity");
+  if (old.deleted_at !== null && old.deleted_at !== undefined) raise("40001", "erp_fiscal_nature_deleted");
+}
+
+/** A identidade da natureza como o gatilho a vê (linha do SQLite). */
+export const natureIdentity = (db: SqlDriver, id: string | null): NatureIdentity | undefined =>
+  one(db, `SELECT id, direction, CAST(created_at AS TEXT) created_at, created_by, version, deleted_at FROM "${NATURE}" WHERE id=?`, id) as NatureIdentity | undefined;
+
 /** INSERT da natureza (create e clone); devolve o id. */
 export function insertNature(ctx: RpcContext, n: Json, actor: string): string {
   const id = crypto.randomUUID();

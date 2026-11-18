@@ -965,7 +965,7 @@
    },
    "erp_documents.effect_flags": {
     "name": "effectFlags",
-    "ported": false
+    "ported": true
    },
    "erp_documents.effects_transition_allowed": {
     "name": "effectsTransitionAllowed",
@@ -1660,7 +1660,7 @@
    },
    "erp_finance.guard_finance_invoice": {
     "name": "guardFinanceInvoice",
-    "ported": false
+    "ported": true
    },
    "erp_finance.guard_grouped_title": {
     "name": "guardGroupedTitle",
@@ -1668,7 +1668,7 @@
    },
    "erp_finance.guard_invoice_order_effect": {
     "name": "guardInvoiceOrderEffect",
-    "ported": false
+    "ported": true
    },
    "erp_finance.guard_invoice_title": {
     "name": "guardInvoiceTitle",
@@ -1692,7 +1692,7 @@
    },
    "erp_finance.invoice_auto_finance": {
     "name": "invoiceAutoFinance",
-    "ported": false
+    "ported": true
    },
    "erp_finance.invoice_blocked_reason": {
     "name": "invoiceBlockedReason",
@@ -3415,7 +3415,7 @@
    },
    "erp_stock.cost_visible": {
     "name": "costVisible",
-    "ported": false
+    "ported": true
    },
    "erp_stock.count_physical": {
     "name": "countPhysical",
@@ -3423,7 +3423,7 @@
    },
    "erp_stock.default_supplier": {
     "name": "defaultSupplier",
-    "ported": false
+    "ported": true
    },
    "erp_stock.derived_command": {
     "name": "derivedCommand",
@@ -3511,7 +3511,7 @@
    },
    "erp_stock.guard_invoice_stock_delete": {
     "name": "guardInvoiceStockDelete",
-    "ported": false
+    "ported": true
    },
    "erp_stock.guard_lot": {
     "name": "guardLot",
@@ -3575,7 +3575,7 @@
    },
    "erp_stock.last_purchase": {
     "name": "lastPurchase",
-    "ported": false
+    "ported": true
    },
    "erp_stock.ledger_document_price": {
     "name": "ledgerDocumentPrice",

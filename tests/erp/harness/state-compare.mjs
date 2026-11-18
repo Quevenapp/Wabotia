@@ -28,7 +28,7 @@
 import { createHash } from "node:crypto";
 import { ERP_TABLES } from "../../../src/erp/schema/columns.generated.ts";
 import { pgSelect, pgToLite } from "../../../scripts/erp/gen-sqlite-lib.mjs";
-import { derivedIds, derivedUuid, orderFor } from "./derived-ids.mjs";
+import { clockFor, derivedIds, derivedUuid, inClockWindow, orderFor } from "./derived-ids.mjs";
 import { volatileHash } from "./volatile-hashes.mjs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -66,6 +66,8 @@ export class IdMap {
   clone() {
     const c = new IdMap(this.known);
     c.rpc = this.rpc;
+    // Janela da chamada ({ from, to } em ms; dual-fixture.mjs): valores do relógio declarados (registerClockColumn).
+    c.window = this.window;
     c.liteToPg = new Map(this.liteToPg);
     c.pgToLite = new Map(this.pgToLite);
     return c;
@@ -149,6 +151,9 @@ export function diffValues(pg, lite, ids, path = "$", out = [], specs = derivedI
         }
       }
     if (ISO_TIME.test(pg) && ISO_TIME.test(lite)) return out;
+    // Minuto ou dia do relógio declarado (registerClockColumn): os dois lados dentro da janela da chamada.
+    const clock = pg !== lite && key !== undefined ? clockFor({ key }) : null;
+    if (clock && inClockWindow(pg, clock.unit, ids.window) && inClockWindow(lite, clock.unit, ids.window)) return out;
     // Hash declarado sobre ids novos (volatile-hashes.mjs).
     if (volatileHash(ids.rpc, key, pg, lite)) return out;
     if (pg !== lite && EMBEDDED.test(pg) && EMBEDDED.test(lite)) {
@@ -291,6 +296,8 @@ export function encodeRow(row, table, specs, leaf) {
     let t;
     if (v === null || v === undefined) t = "null";
     else if (c.codec === "timestamp_us") t = '"<tempo>"';
+    // Minuto ou dia do relógio declarado (registerClockColumn), dentro da janela da chamada.
+    else if (leaf?.window && inClockWindow(String(v), clockFor({ where: `${table}.${name}` })?.unit, leaf.window)) t = '"<relógio>"';
     // Identity: a sequência do Postgres não reaproveita números de transações
     // desfeitas; o rowid do SQLite reaproveita. Só a existência conta.
     else if (c.identity) t = '"<identity>"';
@@ -345,6 +352,7 @@ function encodeAll(data, ids, specs) {
         };
         // Gerado nesta chamada: não existia e só aparece deste lado (ligado ou não).
         leaf.isNew = (u) => !ids.known.has(u) && !other.has(u);
+        leaf.window = ids.window;
         const text = encodeRow(r, table, specs, leaf);
         rows.push({ table, side, text, slots });
       }
