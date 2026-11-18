@@ -117,11 +117,11 @@ describe("Testar conexão", () => {
     expect(view.alerts.find((a) => a.code === "contract_incompatible")).toMatchObject({ level: "error", version: "0.10.0" });
   });
 
-  it("cofre mais antigo: atendido, com o alerta de desatualizado por recurso", async () => {
-    for (const [version, features] of [
-      ["0.7.0", ["documents", "received"]],
-      ["0.8.0", ["received"]],
-      ["0.9.0", []],
+  it("cofre mais antigo: a partir de 0.8.0 atendido, com o alerta de desatualizado por recurso", async () => {
+    for (const [version, compatible, features] of [
+      ["0.7.0", false, ["emission", "documents", "received"]],
+      ["0.8.0", true, ["received"]],
+      ["0.9.0", true, []],
     ] as const) {
       const profile = uid();
       const served = structuredClone(contract) as any;
@@ -129,11 +129,14 @@ describe("Testar conexão", () => {
       const vault = createFakeVault({ apiKey: KEY, version, openapi: served });
       await saveEmissor(env, actor(), profile, { url: VAULT_URL, api_key: KEY });
       const view = await testEmissor(env, actor(), profile, { fetch: vault.fetch });
-      expect(view.checked!.contract, version).toMatchObject({ vault: version, compatible: true });
-      expect(view.alerts.find((a) => a.code === "contract_incompatible"), version).toBeUndefined();
+      expect(view.checked!.contract, version).toMatchObject({ vault: version, compatible });
+      expect(!!view.alerts.find((a) => a.code === "contract_incompatible"), version).toBe(!compatible);
       const outdated = view.alerts.filter((a) => a.code === "vault_feature_outdated");
       expect(outdated.map((a) => a.feature), version).toEqual(features);
-      for (const a of outdated) expect(a.message).toMatch(/^Cofre desatualizado para .+: precisa da versão 0\.[89]\.0/);
+      for (const a of outdated) {
+        expect(a.message).toMatch(new RegExp(`^Cofre desatualizado para .+: precisa da versão 0\\.[89]\\.0 \\(instalada: ${version.replace(/\./g, "\\.")}\\)`));
+        expect(a.level).toBe(a.feature === "emission" ? "error" : "warning");
+      }
     }
   });
 

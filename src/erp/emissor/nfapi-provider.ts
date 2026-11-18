@@ -27,6 +27,7 @@ import {
   NfapiOutdatedError,
   NfapiTransportError,
   olderThan,
+  EMISSION_MIN_VERSION,
   type NfapiDoc,
   type NfapiFile,
 } from "./nfapi.ts";
@@ -449,6 +450,7 @@ export function createNfapiProvider(options: NfapiProviderOptions = {}): FiscalP
     const mine = async () =>
       (await byReference(api, kind, reference, environment).catch(() => [])).find((e) => e.ambiente === environment) ?? null;
     try {
+      await read(() => api.exigirVersao(`POST /v1/${kind}`, EMISSION_MIN_VERSION), kind);
       await previousVersionsClosed(api, kind, key, environment);
       let last: EmissaoNfe | EmissaoNfse | null = null;
       let lastError: unknown = null;

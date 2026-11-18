@@ -127,12 +127,17 @@ export interface EmissorAlert {
  * 409 vault_outdated (nfapi.ts, OPERATION_MIN_VERSION, por operação).
  */
 export const FEATURE_MIN_VERSION = [
+  { feature: "emission", label: "emitir notas (NF-e, NFC-e e NFS-e com IBS, CBS e IS)", version: "0.8.0" },
   { feature: "documents", label: "DANFE, DANFE NFC-e, cupom e contingência da NFC-e", version: "0.8.0" },
   { feature: "received", label: "NF-e recebidas e manifestação", version: "0.9.0" },
 ] as const;
 
-/** Versão mais antiga do cofre que este cliente atende. */
-export const OLDEST_SUPPORTED_VAULT = "0.3.2";
+/**
+ * Versão mais antiga do cofre que este cliente atende: a mínima da emissão
+ * (EMISSION_MIN_VERSION). Abaixo dela o contrato é incompatível e a emissão
+ * responde 409 vault_outdated antes de enviar.
+ */
+export const OLDEST_SUPPORTED_VAULT = "0.8.0";
 
 /** Dias até o certificado vencer, pela data (o número do teste envelhece). */
 export function certificateDaysLeft(validUntil: string, at = now()) {
@@ -186,7 +191,7 @@ export function emissorAlerts(checked: EmissorCheck | null, at = now()): Emissor
       if (state.version && olderThan(state.version, f.version))
         alerts.push({
           code: "vault_feature_outdated",
-          level: "warning",
+          level: f.feature === "emission" ? "error" : "warning",
           message: `Cofre desatualizado para ${f.label}: precisa da versão ${f.version} (instalada: ${state.version}).`,
           version: f.version,
           feature: f.feature,

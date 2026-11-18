@@ -58,9 +58,17 @@ e compara com a cópia versionada:
 
 ## Cofre antigo: versão mínima por operação
 
-O cliente atende cofres desde a **0.3.2**. Cada operação mais nova tem a
-versão mínima em `OPERATION_MIN_VERSION` (`nfapi.ts`), pelo histórico do
-canal estável:
+**Emissão exige cofre 0.8.0** (`EMISSION_MIN_VERSION`). Um cofre anterior à
+0.6.0 não conhece os grupos de IBS, CBS e IS e aceitaria a nota sem eles sem
+ninguém perceber. Como um cofre antigo emite sem errar, a versão é conferida
+**antes** de enviar: o provedor lê `GET /v1/cofre` a cada emissão (uma
+leitura curta) e, abaixo da 0.8.0 ou com versão ilegível, responde
+`409 vault_outdated` com `min_version` sem mandar nada. Eventos e leituras
+de notas já emitidas seguem a tabela abaixo; as leituras de antes da 0.3.2
+continuam aceitas para fechar notas antigas.
+
+Cada operação mais nova tem a versão mínima em `OPERATION_MIN_VERSION`
+(`nfapi.ts`), pelo histórico do canal estável:
 
 | Desde | Operações |
 |---|---|
@@ -77,10 +85,12 @@ provedor devolve `409 vault_outdated` com `min_version` e a versão
 instalada na mensagem, nunca o 404 cru. Um 404 de id inexistente num cofre
 em dia continua 404.
 
-No painel, o "Testar conexão" trata o cofre mais antigo como compatível e
-mostra o alerta `vault_feature_outdated` por recurso (`FEATURE_MIN_VERSION`
-em `config.ts`): documentos impressos e contingência na 0.8.0, notas
-recebidas na 0.9.0. Cofre de minor **mais nova** que a fixada continua
+No painel, o "Testar conexão" trata como compatível o cofre a partir de
+0.8.0 (`OLDEST_SUPPORTED_VAULT`) e mostra o alerta `vault_feature_outdated`
+por recurso (`FEATURE_MIN_VERSION` em `config.ts`), com a versão instalada e
+a mínima: emissão na 0.8.0 (nível `error`), documentos impressos e
+contingência na 0.8.0, notas recebidas na 0.9.0. Abaixo de 0.8.0 aparece
+também `contract_incompatible`. Cofre de minor **mais nova** que a fixada continua
 `contract_incompatible`, até o Wabotia acompanhar.
 
 ## Trava de evento fiscal em teste

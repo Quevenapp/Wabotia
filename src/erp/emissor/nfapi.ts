@@ -146,6 +146,13 @@ export const OPERATION_MIN_VERSION: Partial<Record<ContractOperation, string>> =
   "GET /v1/distribuicao/documentos/{sequencia}/xml": "0.9.0",
 };
 export const CONTINGENCY_MIN_VERSION = "0.4.0";
+/**
+ * Emissão (NF-e, NFC-e, NFS-e): cofre 0.8.0 ou mais novo. Um cofre anterior
+ * à 0.6.0 não conhece IBS, CBS e IS e aceitaria a nota sem esses grupos sem
+ * ninguém perceber; a 0.8.0 é a base dos documentos. Conferido antes de
+ * enviar (exigirVersao), não na falha: cofre antigo emite sem errar.
+ */
+export const EMISSION_MIN_VERSION = "0.8.0";
 
 /** a < b, em versões x.y.z (texto fora do formato conta como 0.0.0). */
 export function olderThan(a: string, b: string) {
@@ -333,6 +340,18 @@ export class NfapiClient {
     if (!routeMissing) return error;
     const version = await this.cofre().then((r) => r.body?.versao ?? null).catch(() => null);
     return version && olderThan(version, minVersion) ? new NfapiOutdatedError(operation, minVersion, version) : error;
+  }
+
+  /**
+   * Lê GET /v1/cofre e recusa (NfapiOutdatedError) cofre anterior a
+   * `minVersion` antes de qualquer envio. Versão ilegível também recusa:
+   * sem saber a versão, nada é emitido.
+   */
+  async exigirVersao(operation: string, minVersion: string) {
+    const version = (await this.cofre()).body?.versao;
+    if (typeof version !== "string" || !/^\d+\.\d+\.\d+/.test(version) || olderThan(version, minVersion))
+      throw new NfapiOutdatedError(operation, minVersion, typeof version === "string" ? version : "desconhecida");
+    return version;
   }
 
   private async send<T>(operation: ContractOperation, options: CallOptions): Promise<NfapiResponse<T>> {

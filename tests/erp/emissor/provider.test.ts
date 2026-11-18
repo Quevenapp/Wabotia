@@ -69,7 +69,7 @@ describe("emissão", () => {
     vault.plan.push("lose");
     const r = await provider.emit(ctx, "nfce", nfce(), key);
     expect(r).toMatchObject({ status: "authorized", replayed: true });
-    expect(vault.calls.map((c) => `${c.method} ${c.path}`)).toEqual(["POST /v1/nfce", "GET /v1/nfce"]);
+    expect(vault.calls.map((c) => `${c.method} ${c.path}`)).toEqual(["GET /v1/cofre", "POST /v1/nfce", "GET /v1/nfce"]);
     expect(notesFor(vault, key.document_id)).toBe(1);
   });
 
@@ -89,7 +89,7 @@ describe("emissão", () => {
     vault.plan.push("drop");
     const r = await provider.emit(ctx, "nfce", nfce(), key);
     expect(r).toMatchObject({ status: "authorized", replayed: false });
-    expect(vault.calls.map((c) => `${c.method} ${c.path}`)).toEqual(["POST /v1/nfce", "GET /v1/nfce", "POST /v1/nfce"]);
+    expect(vault.calls.map((c) => `${c.method} ${c.path}`)).toEqual(["GET /v1/cofre", "POST /v1/nfce", "GET /v1/nfce", "POST /v1/nfce"]);
     expect(notesFor(vault, key.document_id)).toBe(1);
   });
 
@@ -100,6 +100,7 @@ describe("emissão", () => {
     const r = await provider.emit(ctx, "nfce", nfce(), key);
     expect(r).toMatchObject({ status: "authorized", replayed: true });
     expect(vault.calls.map((c) => `${c.method} ${c.path.replace(/nfc_\w+/, "{id}")}`)).toEqual([
+      "GET /v1/cofre",
       "POST /v1/nfce",
       "POST /v1/nfce/{id}/consultar",
     ]);
@@ -129,9 +130,9 @@ describe("emissão", () => {
     vault.plan.push("inconclusive", "inconclusive", "inconclusive");
     const r = await provider.emit(ctx, "nfce", nfce(), key);
     expect(r).toMatchObject({ status: "undetermined", reference: fiscalReference(key) });
-    // Cada repetição foi precedida de consulta.
+    // Versão do cofre conferida uma vez; cada repetição foi precedida de consulta.
     const seq = vault.calls.map((c) => (c.path.endsWith("/consultar") ? "C" : c.method === "POST" ? "P" : "G"));
-    expect(seq.join("")).toBe("PCPCPC");
+    expect(seq.join("")).toBe("GPCPCPC");
     expect(vault.emissions.size).toBe(1);
     // Depois o governo responde: a mesma chave fecha a nota.
     vault.sefaz.set(fiscalReference(key), "authorized");
@@ -426,7 +427,7 @@ describe("eventos e leituras", () => {
   });
 
   it("carta de correção, XML, consulta, séries, estado e SEFAZ", async () => {
-    const { ctx } = await vaultArea({ version: "0.3.2", published: "0.3.3" });
+    const { ctx } = await vaultArea({ version: "0.8.0", published: "0.8.1" });
     const r = await provider.emit(ctx, "nfe", nfe(), doc());
     expect((await provider.correct(ctx, r.provider_ref, "Endereço de entrega: Rua das Acácias, 45")).corrections).toBe(1);
     expect(await provider.xml(ctx, "nfe", r.provider_ref)).toContain(r.access_key);
@@ -441,8 +442,8 @@ describe("eventos e leituras", () => {
       cnpj: "99888777000166",
     });
     expect(await provider.state(ctx)).toMatchObject({
-      version: "0.3.2",
-      update: { published: "0.3.3", pending: true },
+      version: "0.8.0",
+      update: { published: "0.8.1", pending: true },
       certificate: { holder: "EMPRESA EXEMPLO LTDA", document: { kind: "cnpj", id: "99888777000166" } },
       documents: { nfse: true, nfce: ["SP"] },
     });
