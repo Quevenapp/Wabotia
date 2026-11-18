@@ -150,6 +150,21 @@ export function BotsPage() {
                 Desligado: não atende nem conversa na Equipe até ser habilitado.
               </p>
             )}
+            {app.isAdmin && (
+              <label className="workspace-help">
+                <input
+                  type="checkbox"
+                  checked={bot.mask_personal !== false}
+                  disabled={busy}
+                  onChange={(event) => {
+                    const mask_personal = event.target.checked;
+                    save(() => api(root + "/bots/" + bot.id, "PATCH", { mask_personal }));
+                  }}
+                />{" "}
+                Mascarar documentos e telefones nas mensagens antes de enviar à IA
+                <small className="block">Inclui e-mail, CEP, histórico, consultas ao JEV e texto de PDF. Imagens não são mascaradas.</small>
+              </label>
+            )}
             <div className="card-actions">
               <Button
                 secondary

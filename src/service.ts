@@ -2328,6 +2328,7 @@ export async function perform(
       // Credential editors omit line assignments. Those are edited through line.save.
       cfg.service = previous.service;
       cfg.number_policy = previous.number_policy;
+      cfg.bot_options = previous.bot_options;
     }
     const managed =
       old &&
@@ -2484,6 +2485,8 @@ export async function perform(
       profile,
     );
     requireValue(bot, "Bot não encontrado.");
+    if (data.mask_personal !== undefined)
+      requireValue(typeof data.mask_personal === "boolean", "Máscara de dados pessoais inválida.");
     if (data.line_ids !== undefined)
       await validateLineIds(env, profile, data.line_ids, true);
     if (data.name !== undefined) {
@@ -2531,6 +2534,11 @@ export async function perform(
       statements.push([
         "UPDATE connections SET config=json_set(config,'$.bot_names',json_patch(coalesce(json_extract(config,'$.bot_names'),'{}'),json(?))) WHERE id=?",
         [JSON.stringify({ [bot.remote_profile]: data.name }), bot.connection_id],
+      ]);
+    if (data.mask_personal !== undefined)
+      statements.push([
+        "UPDATE connections SET config=json_set(config,'$.bot_options',json_patch(coalesce(json_extract(config,'$.bot_options'),'{}'),json(?))) WHERE id=?",
+        [JSON.stringify({ [bot.remote_profile]: { mask_personal: data.mask_personal } }), bot.connection_id],
       ]);
     await batch(env, statements);
     return { id: data.id };

@@ -26,6 +26,7 @@
 //   da saída voltam no `input` da próxima chamada (o raciocínio vem com
 //   encrypted_content) e cada resultado vai como {type:"function_call_output",
 //   call_id, output}.
+import type { PiiMask } from "./pii-mask";
 import type { BotTool } from "./bot-actions/actions";
 
 export type ToolProvider = "anthropic" | "openai" | "responses";
@@ -184,6 +185,7 @@ export const MAX_ROUNDS = 8;
  */
 export async function toolLoop(options: {
   family: ToolProvider;
+  pii?: PiiMask;
   messages: any[];
   tools: BotTool[];
   /**
@@ -203,10 +205,11 @@ export async function toolLoop(options: {
     for (const call of turn.calls) {
       const content = call.invalid
         ? JSON.stringify({ erro: "Argumentos inválidos (JSON). Tente de novo." })
-        : await options.run(call);
+        : await options.run(options.pii ? { ...call, args: options.pii.restoreValue(call.args) } : call);
       results.push({ id: call.id, content, error: content.startsWith('{"erro"') });
     }
-    messages.push(...resultMessages(options.family, turn, results));
+    const next = resultMessages(options.family, turn, results);
+    messages.push(...(options.pii ? options.pii.maskValue(next) : next));
   }
   const last = parseTurn(options.family, await options.complete(messages, tools, true));
   return { text: last.text, messages };

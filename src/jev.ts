@@ -1,3 +1,4 @@
+import { createPiiMask, maskPersonalEnabled, type PiiMask } from "./pii-mask";
 import { one, exec } from "./db";
 import { canonical, sha } from "./security";
 import { type Env, type Run, now, json } from "./types";
@@ -60,9 +61,22 @@ export async function decideInterpretation(
   context: any,
   cfg: any,
   menus: any[],
+  pii?: PiiMask,
 ): Promise<Proposal> {
   if (!cfg.jev_enabled || !["attendant", "answer"].includes(run.phase))
     return proposal;
+  if (!pii) {
+    // Chamadas diretas podem não ter bot associado; nesse caso vale o padrão ligado.
+    const bot = run.bot_id
+      ? await one(
+          env,
+          "SELECT b.remote_profile,c.config FROM bots b JOIN connections c ON c.id=b.connection_id WHERE b.id=? AND b.profile_id=?",
+          run.bot_id,
+          run.profile_id,
+        )
+      : null;
+    pii = createPiiMask(maskPersonalEnabled(json(bot?.config), bot?.remote_profile));
+  }
   const hash = await sha(canonical({ proposal, context }));
   const previous = await one(
     env,
@@ -176,7 +190,7 @@ export async function decideInterpretation(
         // Cliente e contrato: src/jev-client.ts.
         const threshold = jevThreshold(cfg, run.bot_id);
         const masked = !(await fullPersonalData(env));
-        const text = (value: unknown, size: number) => maskText(bounded(value, size), masked, size);
+        const text = (value: unknown, size: number) => maskText(pii!.mask(typeof value === "string" ? value : ""), masked, size);
         const asked = await askJevChoice(
           env,
           run.profile_id,
@@ -211,7 +225,9 @@ export async function decideInterpretation(
               })),
             sources: evidence.map((source: any) => ({
               id: source.id,
-              text: text(source.text, 3500),
+              text: source.document_id === "specialist" || source.id === "atendimento"
+                ? text(source.text, 3500)
+                : maskText(bounded(source.text, 3500), masked, 3500),
             })),
           },
           "route",

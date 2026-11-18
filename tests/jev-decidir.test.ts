@@ -150,6 +150,8 @@ describe("JEV: limiar, modelo fixado e uso", () => {
     await setFullPersonalData(env, full);
     try {
       const f = await areaFixture();
+      // Com a opção do bot desligada, a regra antiga da instalação continua valendo.
+      await exec(env, "UPDATE connections SET config=json_set(config,'$.bot_options',json(?)) WHERE id=?", JSON.stringify({ default: { mask_personal: false } }), f.ai);
       const text = "CPF 123.456.789-09, telefone +55 11 98888-7777";
       const run = await customerRun(f, text);
       const calls = mock({ jev: () => route("clarify", 0.95, 0.95) });
@@ -265,8 +267,8 @@ describe("ferramenta decidir dos bots internos", () => {
     const decide = calls.find((c) => c.url.includes("typesafe") && c.body.questions.q)!;
     // O state leva só o que o bot já leu, com os dados pessoais mascarados.
     const state = JSON.stringify(decide.body.state);
-    expect(state).toContain("[número]");
-    expect(state).toContain("[e-mail]");
+    expect(state).toContain("[TEL_1]");
+    expect(state).toContain("[EMAIL_1]");
     expect(state).not.toContain("98888");
     expect(state).not.toContain("ana@exemplo.com");
     // O resultado ao modelo: incerto, com a orientação de não decidir sozinho.
@@ -438,5 +440,58 @@ describe("ferramenta decidir dos bots internos", () => {
     await processRun(env, run);
     const tools = calls.find((c) => !c.url.includes("typesafe"))?.body.tools ?? [];
     expect(tools.map((t: any) => t.name)).not.toContain("decidir");
+  });
+});
+
+describe("marcadores pessoais em todas as fases e no JEV", () => {
+  it("varre todos os corpos: Atendente, decidir, roteamento, especialista e resposta com fonte do especialista", async () => {
+    await setFullPersonalData(env, true);
+    try {
+      const f = await areaFixture();
+      const specialist = uid(), ai = uid();
+      await exec(env, "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,created) VALUES(?,?,?,'ai','direct','active',?,?)", ai, f.profile, "Especialista", JSON.stringify({ provider: "anthropic", model: "claude-haiku-5-5", verified_at: now() }), now());
+      await setSecret(env, `connection:${ai}`, { api_key: "test-provider-key" });
+      await exec(env, "INSERT INTO bots(id,profile_id,connection_id,remote_profile,name,enabled) VALUES(?,?,?,'default','Especialista',1)", specialist, f.profile, ai);
+      const cfg = json((await one(env, "SELECT settings FROM profiles WHERE id=?", f.profile)).settings);
+      cfg.capabilities = [{ id: "cadastro", bot_id: specialist, condition: "Conferir cadastro", instructions: "Confira os dados.", enabled: true }];
+      await exec(env, "UPDATE profiles SET settings=? WHERE id=?", JSON.stringify(cfg), f.profile);
+      const values = ["123.456.789-09", "+55 (11) 98888-7777", "ana@exemplo.com", "01310-100"];
+      const run = await customerRun(f, `Confira CPF ${values[0]}, telefone ${values[1]}, e-mail ${values[2]}, CEP ${values[3]}`);
+      const calls = mock({
+        anthropic: (body) => {
+          const internal = JSON.stringify(body.system).includes("Solicitação interna");
+          const input = JSON.parse(body.messages[0].content.at(-1).text);
+          const answered = input.sources?.some((s: any) => s.document_id === "specialist");
+          const consulted = body.messages.some((m: any) => Array.isArray(m.content) && m.content.some((b: any) => b.type === "tool_result"));
+          if (!consulted) return anthropicTool({ pergunta: "Devo conferir o CPF [CPF_1]?", tipo: "sim_nao", situacao: "Telefone [TEL_1], e-mail [EMAIL_1], CEP [CEP_1]" });
+          if (internal) return anthropicText(JSON.stringify({ outcome: "resolved", text: "Cadastro de [CPF_1], [TEL_1], [EMAIL_1] e [CEP_1] conferido.", links: [], files: [] }));
+          return anthropicText(JSON.stringify({ ...attendantJson, action: answered ? "clarify" : "consult", capability_id: answered ? null : "cadastro", text: answered ? "Seu CPF [CPF_1] foi registrado" : "", interpretation: { intent: "cadastro", summary: "Conferir [CPF_1] e [TEL_1]", missing_information: [] } }));
+        },
+        jev: (body) => body.questions.q ? noul(0.99) : route(body.state.proposed_action, 0.99, 0.99),
+      });
+      await processRun(env, run);
+      const sub = await one(env, "SELECT * FROM bot_runs WHERE conversation_id=? AND phase='specialist'", run.conversation_id) as Run;
+      expect(sub).toBeTruthy();
+      await processRun(env, sub);
+      const answerRun = await one(env, "SELECT * FROM bot_runs WHERE conversation_id=? AND phase='answer'", run.conversation_id) as Run;
+      expect(answerRun).toBeTruthy();
+      await processRun(env, answerRun);
+      expect(calls.filter((c) => !c.url.includes("typesafe"))).toHaveLength(6);
+      expect(calls.some((c) => c.body.questions?.q)).toBe(true);
+      expect(calls.some((c) => c.body.questions?.route)).toBe(true);
+      for (const call of calls) {
+        const body = JSON.stringify(call.body);
+        for (const value of values) expect(body).not.toContain(value);
+        expect(body).not.toContain("98888-7777");
+        expect(body).toContain("[CPF_1]");
+        expect(body).toContain("[TEL_1]");
+      }
+      const outputs = await all(env, "SELECT payload FROM outbox WHERE conversation_id=?", run.conversation_id);
+      expect(JSON.stringify(outputs)).toContain("Seu CPF 123.456.789-09 foi registrado");
+      for (const r of [run, sub, answerRun]) {
+        const usage = (await one(env, "SELECT usage FROM bot_runs WHERE id=?", r.id)).usage;
+        for (const value of [...values, "CPF_1"]) expect(usage).not.toContain(value);
+      }
+    } finally { await setFullPersonalData(env, false); }
   });
 });
