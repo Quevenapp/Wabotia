@@ -6,6 +6,8 @@ A migração **0093_provedores.sql** cria o cadastro de provedores e o consumo d
 
 Os segredos antigos `connection:<id>` e `jev:<área>` ficam só para a volta de versão e saem na limpeza da versão seguinte (**0.23**). **Se a chave for trocada no servidor novo e a instalação voltar à versão anterior, volta a valer a chave antiga.** Revogar no servidor novo também não revoga esse cofre legado; ao voltar, confira ou revogue a credencial no próprio serviço.
 
+**Trocar a chave pela conexão do bot:** com o mesmo tipo e a mesma URL, a chave do provedor é trocada no lugar. Se a mesma edição mudar o tipo ou a URL, a conexão passa a um provedor novo e o anterior, se ninguém mais o usar, é revogado e perde a chave. Isso vale também para um provedor cadastrado na tela de Provedores que só essa conexão usava: para mantê-lo, escolha o provedor novo pela tela em vez de informar a chave na conexão.
+
 A API já permite cadastrar, testar, trocar, revogar, excluir e juntar provedores e consultar consumo estimado. Nada junta automaticamente. A impressão HMAC e a chave nunca são devolvidas. As telas de Provedores, os seletores nos usos, a transcrição e os apps ficam para depois. Detalhes em [Provedores de IA](API.md#provedores-de-ia).
 
 ## 18/11/2026 — Máscara de dados pessoais por bot

@@ -2358,7 +2358,8 @@ export async function perform(
         const base = requestedBase ? publicUrl(String(requestedBase)).replace(/\/+$/, "") : null;
         cfg = aiConfig({ ...cfg, provider: cfg.provider ?? current?.kind, base_url: base });
         if (current && uses.length === 1 && uses[0].kind === "connection" && uses[0].id === id &&
-            cfg.provider === current.kind && base === current.base_url) {
+            // A 0093 copiou a base_url crua: "…/v1/" migrado é a mesma de "…/v1".
+            cfg.provider === current.kind && base === (current.base_url ? String(current.base_url).replace(/\/+$/, "") : null)) {
           // A chave nova pode reativar um provedor revogado, mas não liberar outra área.
           if (!json(current.profiles, []).includes(profile))
             throw new ApiError(409, "provider_not_allowed", "Este provedor não está liberado para esta área.");

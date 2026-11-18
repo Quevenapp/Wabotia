@@ -791,6 +791,20 @@ describe("provedores: operações e permissões", () => {
     expect(await connectionKey(env, await connRow(saved.id))).toBe(ROTATED);
   });
 
+  it("barra final na base_url migrada: trocar só a chave mantém o mesmo provedor", async () => {
+    network();
+    const f = await fixture();
+    const saved = await command(f, "connection.create", {
+      kind: "ai", name: "Bot", api_key: KEY,
+      config: { provider: "compatible", model: "modelo-teste", base_url: "https://api.example.com/v1" },
+    });
+    // Como a 0093 copia: a base_url crua, com a barra final.
+    await exec(env, "UPDATE ai_providers SET base_url=? WHERE id=?", "https://api.example.com/v1/", saved.provider_id);
+    const changed = await command(f, "connection.update", { id: saved.id, api_key: ROTATED });
+    expect(changed.provider_id).toBe(saved.provider_id);
+    expect(await connectionKey(env, await connRow(saved.id))).toBe(ROTATED);
+  });
+
   it.each([
     { label: "modelo vazio", edit: { model: "" }, shared: false },
     { label: "nome vazio antes do rotate", edit: { name: "" }, shared: false },
