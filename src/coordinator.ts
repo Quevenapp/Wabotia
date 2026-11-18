@@ -650,7 +650,7 @@ export class Coordinator extends DurableObject<Env> {
       }
       // Uma invocação: leituras de configuração lembradas no alarme inteiro
       // (as entregas releem a área a cada linha; docs/LIMITES.md).
-      const env = withReadCache(this.env);
+      let env = withReadCache(this.env);
       await exec(
         env,
         "UPDATE outbox SET status='unknown',error='Processo interrompido durante envio; reconcilie antes de repetir.' WHERE profile_id=? AND status='sending' AND updated<?",
@@ -691,9 +691,14 @@ export class Coordinator extends DurableObject<Env> {
         try {
           // Seleção, autorização e enfileiramento não intercalam comandos que
           // reclassifiquem, encerrem ou arquivem a tarefa no mesmo Coordinator.
-          await this.ctx.blockConcurrencyWhile(() => runModuleSchedules(
-            withLocalModuleWake(withReadCache(this.env), this.profile, (options) => this.wakeModules(options)), this.profile, tick,
-          ));
+          await this.ctx.blockConcurrencyWhile(() => {
+            // Recomeçar as leituras dentro do bloqueio e reaproveitá-las no
+            // restante do alarme, sem duplicar configuração/estado dos módulos.
+            env = withReadCache(this.env);
+            return runModuleSchedules(
+              withLocalModuleWake(env, this.profile, (options) => this.wakeModules(options)), this.profile, tick,
+            );
+          });
         } catch (error) {
           await this.ctx.storage.put("modules_pending", true);
           throw error;

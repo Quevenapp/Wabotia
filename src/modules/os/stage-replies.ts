@@ -9,6 +9,7 @@ import { mutationHistory } from "./mutations";
 
 export async function handleStageReply(ctx: ModuleContext, c: Conversation, turn: { text: string; replyId?: string | null; rowId: string }) {
   if (c.chat_type === "group") return false;
+  if (!(await ctx.settings()).os_work_types?.length) return false;
   const button = /^os:stage:([^:]+):(\d+):(approve|decline)$/.exec(turn.replyId ?? "");
   if (turn.replyId && !turn.replyId.startsWith("os:stage:")) return false;
   const word = /^(aprovar|aprovo|aprovado|recusar|recuso|recusado)(?:\s+(etapa))?(?:\s+(?:a\s+)?(?:ordem\s+)?(?:n[o°º]?\s*)?(\d{1,10}))?[.!]*$/i.exec(turn.text.trim());

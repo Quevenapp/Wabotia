@@ -3725,10 +3725,13 @@ function describeWorkMotorOperation(
   if (!route) return;
   const [, , , , output, specificErrors, queries, description] = route;
   const admin = path.includes("/area-templates");
+  const base = "/profiles/{profile}/service-orders";
+  const legacy = [base, `${base}/{id}`, `${base}/{id}/status`, `${base}/{id}/quote`,
+    `${base}/{id}/quote/send`, `${base}/{id}/decision`, `${base}/conversation/{id}`].includes(path);
   entry.description =
     (admin
       ? "Exige administrador (pessoa autenticada). Funciona com os desligado. "
-      : `Permissão: conversations:${method === "get" ? "read" : "write"}. Módulo Ordem de Serviço (os); desligado, 409 module_disabled. `) +
+      : `Permissão: conversations:${method === "get" ? "read" : "write"}. Módulo ${legacy ? "Ordem de Serviço" : "de trabalhos"} (os); desligado, 409 module_disabled. `) +
     description;
   entry.description +=
     " Datas de instantes em milissegundos Unix. Parâmetros do caminho prevalecem sobre o corpo; profile não vem do corpo.";

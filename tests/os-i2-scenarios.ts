@@ -102,7 +102,7 @@ export async function condominioIntegration(h: IntegrationHarness) {
   const f = await base(h, "condominios", "condominio", ["condominio:admin", "condominio:mesa"]);
   const c = await customerConversation(h, f);
   const block = await f.call("/condominio/blocks", "POST", { name: "Bloco" });
-  const unit = await f.call("/condominio/units", "POST", { block_id: block.id, number: SECRET });
+  const unit = await f.call("/condominio/units", "POST", { block_id: block.id, number: "302" });
   const person = await f.call("/condominio/people", "POST", { name: "Morador" });
   await f.call("/condominio/phones", "POST", { person_id: person.id, conversation_id: c, confirmed: true });
   await f.call("/condominio/memberships", "POST", { person_id: person.id, unit_id: unit.id, role: "proprietario", starts_at: now() - 1000, notices: true });
@@ -110,6 +110,7 @@ export async function condominioIntegration(h: IntegrationHarness) {
   const detail = await f.call(`/condominio/works/${work.id}`);
   assert(detail);
   const order = await f.call(`/service-orders/${work.id}`);
+  assert.equal(order.extra.unidade, "Bloco · 302");
   const transition = order.next_stages.find((x: any) => x.kind === "manual");
   await f.call(`/condominio/works/${work.id}/stage`, "POST", { transition_id: transition.transition_id, version: order.version });
   assert.equal((await one(h.env, "SELECT unit_id FROM cond_works WHERE profile_id=? AND id=?", f.profile, work.id))!.unit_id, unit.id);
@@ -117,6 +118,9 @@ export async function condominioIntegration(h: IntegrationHarness) {
   assert.equal((await access.get(`/condominio/me/${encodeURIComponent(access.subject)}/units`)).data[0].id, unit.id);
   assert((await access.get(`/condominio/me/${encodeURIComponent(access.subject)}/work-types`)).data.length);
   await isolate(h, "condominio", `/condominio/works/${work.id}`);
+  await grants(h, f, ["condominio:admin", "condominio:mesa", "os:sensitive"]);
+  const current = await f.call(`/service-orders/${work.id}`);
+  await f.call(`/service-orders/${work.id}/private-fields`, "PATCH", { version: current.version, extra: { detalhes_restritos: SECRET } });
   await noCommonSecret(h, f, work.id);
   resetCatalogCache(); assert.equal(fullCatalog().some(x => x.module === "condominio"), false);
 }

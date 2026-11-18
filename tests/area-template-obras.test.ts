@@ -81,14 +81,15 @@ function reachable(start: string, graph: Array<[string, string]>) {
 }
 
 describe("modelos de obras: manifesto declarativo", () => {
-  it("reserva a identificação residencial do pós-obra ao atendimento protegido", () => {
+  it("deixa a identificação do imóvel no pós-obra visível ao próprio solicitante", () => {
     const type = construtorasTemplate.work_types.find((type) => type.id === "construtora_pos_obra")!;
     expect(type.labels.item).toBe("Referência administrativa (sem endereço)");
     expect(type.labels.problem).toBe("Problema observado (sem endereço ou unidade)");
     expect(type.fields.find((field) => field.id === "unidade")).toMatchObject({
-      kind: "text", required: false, client_visible: false, sensitive: true,
+      kind: "text", required: false, client_visible: true, sensitive: false,
     });
-    expect(construtorasTemplate.texts.instructions).toContain("Não informe endereço ou unidade");
+    expect(construtorasTemplate.texts.instructions).toContain("identificação do imóvel");
+    expect(construtorasTemplate.bot.instructions).toContain("pode pedir e citar a identificação do imóvel do próprio solicitante");
     expect(construtorasTemplate.manual_steps.join(" ")).not.toContain("Qual é o empreendimento e a unidade? Obrigatória.");
   });
 

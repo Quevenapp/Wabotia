@@ -159,9 +159,10 @@ describe("modelo de área: condomínios", () => {
     expect(template.bot.suggested_roles).toEqual([]);
     expect(template.bot.denied_operations).toContain("os.");
     expect(template.manual_steps.length).toBeGreaterThan(0);
-    expect(template.texts.menu_greeting).toContain("Não informe bloco ou número da unidade");
-    expect(template.bot.instructions).toContain("Não peça nem reproduza bloco, número da unidade");
-    expect(template.manual_steps.join(" ")).toContain("A unidade é opcional, sensível e interna");
+    expect(template.texts.menu_greeting).toContain("Informe bloco e número no campo Unidade");
+    expect(template.bot.instructions).toContain("Pode pedir bloco e número e citar a unidade do próprio morador");
+    expect(template.bot.instructions).toContain("Não peça nem reproduza nomes de visitantes, placas, documentos pessoais");
+    expect(template.manual_steps.join(" ")).toContain("A unidade é opcional e visível ao próprio morador");
   });
 
   for (const type of template.work_types) {
@@ -186,13 +187,13 @@ describe("modelo de área: condomínios", () => {
         if (type.terms !== null) textLimit(type.terms, 1400);
       });
 
-      it("mantém a unidade e os demais dados sensíveis opcionais e privados", () => {
+      it("libera a unidade ao morador e preserva os demais dados sensíveis privados", () => {
         expect(type.fields.find((field) => field.id === "unidade")).toMatchObject({
           kind: "text",
           label: "Unidade (bloco e número)",
           required: false,
-          client_visible: false,
-          sensitive: true,
+          client_visible: true,
+          sensitive: false,
         });
         for (const field of type.fields) {
           expect(["__proto__", "constructor", "prototype"]).not.toContain(field.id);

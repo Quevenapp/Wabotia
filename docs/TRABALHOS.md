@@ -282,7 +282,10 @@ outra área, ordem, coleção ou filtro. O limite de cada coleção conta arquiv
 
 A lista principal mantém `counts` global e esparso nos nove estados, mesmo
 com filtros. Use `facets=1` para contagens por tipo e, com `type_id`, por etapa.
-`stage` exige `type_id`. No detalhe, `history=none` evita carregar o histórico
+`open=1` seleciona abertas; omitir `open` ou usar `open=0` inclui todas.
+`stage` exige `type_id` e sempre significa um ID literal, inclusive `open` ou
+`all`; esses nomes não são filtros especiais nesse parâmetro. No detalhe,
+`history=none` evita carregar o histórico
 legado; consulte `/history` para eventos paginados, incluindo filhos.
 
 Em `version_conflict`, releia o registro e decida como reaplicar a alteração.
@@ -296,3 +299,21 @@ tipos novos. Só executam ações antigas com interpretação única. A edição
 completa dos tipos novos exige aplicativos atualizados. Prontuário, ensino,
 unidades e assembleias de condomínio e cálculo de prazo forense dependem de
 extensões posteriores; campos extras não os substituem.
+
+## Aplicativos
+
+Os clientes Android e iOS atuais ainda têm estas limitações para tipos
+personalizados, conforme a [conferência de API e aplicativos](areas/relatos/corr-api-apps.md):
+
+- O histórico pode mostrar códigos de eventos novos, como `os.task.created`,
+  em vez de rótulos legíveis. Os respectivos `ServiceOrderClient.kt` e
+  `ServiceOrderClient.swift` precisam apresentar esses eventos.
+- Podem oferecer edição de orçamento em `received` mesmo quando o tipo não
+  permite orçamento. A atualização deve usar `features.quote` do snapshot
+  devolvido na ordem, inclusive em trabalhos abertos em revisões anteriores.
+- Continuam usando o estado de base e as ações legadas com interpretação única;
+  não oferecem a edição completa dos tipos personalizados. A atualização deve
+  consumir `stage_label`, `next_stages` e as capacidades fixadas da ordem.
+
+Esta entrega não altera código móvel nem a autorização de documentos pelo
+WhatsApp: o telefone verificado da conversa precisa corresponder ao da ordem.

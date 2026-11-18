@@ -1132,11 +1132,13 @@ export async function conversationByPhone(
     ...(options.connectionId ? [options.connectionId] : []),
   );
   if (found || !options.open) return found;
+  // Em empate de milissegundo, preservar a ordem de cadastro das linhas;
+  // o UUID não representa antiguidade e pode escolher a segunda conexão.
   const line = await one(
     env,
     options.connectionId
       ? "SELECT * FROM connections WHERE id=? AND profile_id=? AND status='active'"
-      : "SELECT * FROM connections WHERE profile_id=? AND status='active' AND kind='zernio' ORDER BY created,id LIMIT 1",
+      : "SELECT * FROM connections WHERE profile_id=? AND status='active' AND kind='zernio' ORDER BY created,rowid LIMIT 1",
     ...(options.connectionId ? [options.connectionId, profile] : [profile]),
   );
   requireValue(
