@@ -2169,6 +2169,8 @@ for (const [path, [table, scope]] of Object.entries(readLists))
         if (connection?.kind === "ai") {
           const cfg = json(connection.config);
           row.mask_personal = cfg.bot_options?.[row.remote_profile]?.mask_personal !== false;
+          row.pdf_raw_fallback = cfg.bot_options?.[row.remote_profile]?.pdf_raw_fallback === true;
+          row.image_to_team = cfg.bot_options?.[row.remote_profile]?.image_to_team === true;
           row.provider = cfg.provider;
           row.model = cfg.model;
           // O provedor recusou as ferramentas numa execução (até salvar a

@@ -151,22 +151,86 @@ export function BotsPage() {
               </p>
             )}
             {app.isAdmin && (
-              <label className="workspace-help">
-                <input
-                  type="checkbox"
-                  checked={bot.mask_personal !== false}
-                  disabled={busy}
-                  onChange={(event) => {
-                    const mask_personal = event.target.checked;
-                    save(() => api(root + "/bots/" + bot.id, "PATCH", { mask_personal }));
-                  }}
-                />{" "}
-                Mascarar documentos e telefones nas mensagens antes de enviar à IA
-                <small className="block">
-                  Inclui e-mail, CEP, histórico, consultas ao JEV e texto de PDF. Fotos e imagens vão ao provedor como estão: um
-                  documento fotografado não é mascarado. Com a opção ligada, PDF que não dá para ler como texto vai para a equipe.
-                </small>
-              </label>
+              <>
+                <label className="workspace-help">
+                  <input
+                    type="checkbox"
+                    checked={bot.mask_personal !== false}
+                    disabled={busy}
+                    onChange={(event) => {
+                      const mask_personal = event.target.checked;
+                      save(() =>
+                        api(root + "/bots/" + bot.id, "PATCH", {
+                          mask_personal,
+                        }),
+                      );
+                    }}
+                  />{" "}
+                  Mascarar documentos e telefones nas mensagens antes de enviar
+                  à IA
+                </label>
+                {bot.mask_personal !== false && (
+                  <>
+                    <label className="workspace-help block">
+                      <input
+                        type="checkbox"
+                        checked={bot.pdf_raw_fallback === true}
+                        disabled={busy}
+                        onChange={(event) => {
+                          const pdf_raw_fallback = event.target.checked;
+                          save(() =>
+                            api(root + "/bots/" + bot.id, "PATCH", {
+                              pdf_raw_fallback,
+                            }),
+                          );
+                        }}
+                      />{" "}
+                      PDF que não der para ler como texto: mandar o arquivo
+                      inteiro ao provedor
+                      <small className="block">
+                        Desligada, o PDF vai para a equipe. Ligada, o arquivo
+                        vai como está, sem máscara.
+                      </small>
+                    </label>
+                    <label className="workspace-help block">
+                      <input
+                        type="checkbox"
+                        checked={bot.image_to_team === true}
+                        disabled={busy}
+                        onChange={(event) => {
+                          const image_to_team = event.target.checked;
+                          save(() =>
+                            api(root + "/bots/" + bot.id, "PATCH", {
+                              image_to_team,
+                            }),
+                          );
+                        }}
+                      />{" "}
+                      Mandar fotos e imagens para a equipe em vez do provedor
+                      <small className="block">
+                        Desligada, a imagem vai ao provedor como está (o bot lê
+                        a foto, mas um documento fotografado não é mascarado).
+                      </small>
+                    </label>
+                  </>
+                )}
+                <p className="workspace-help">
+                  {bot.mask_personal === false ? (
+                    "Máscara desligada: mensagens e anexos seguem sem máscara, conforme as capacidades da conexão."
+                  ) : (
+                    <>
+                      Inclui e-mail, CEP, histórico, consultas ao JEV e texto de
+                      PDF.{" "}
+                      {bot.pdf_raw_fallback === true
+                        ? "PDF sem texto legível vai inteiro, sem máscara, se a conexão aceitar PDF e dentro dos tetos; caso contrário, vai para a equipe. "
+                        : "PDF sem texto legível vai para a equipe. "}
+                      {bot.image_to_team === true
+                        ? "Fotos e imagens vão para a equipe."
+                        : "Fotos e imagens vão ao provedor como estão: um documento fotografado não é mascarado."}
+                    </>
+                  )}
+                </p>
+              </>
             )}
             <div className="card-actions">
               <Button

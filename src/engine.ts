@@ -1138,6 +1138,7 @@ export async function processInbox(env: Env, profile: string) {
           m?.type.startsWith("image/") &&
           m.size <= 5 * 1024 * 1024 &&
           images.length < 2 &&
+          !(ai && maskPersonalEnabled(ai, bot.remote_profile) && ai.bot_options?.[bot.remote_profile]?.image_to_team === true) &&
           (!ai || ai.vision)
         ) {
           images.push(m.id);
@@ -1340,23 +1341,36 @@ export async function saveUsage(env: Env, run: Run, usage: AiUsage) {
 }
 /**
  * PDFs do cliente lidos do R2 só na chamada: texto mascarado ou, quando a
- * opção está desligada, data URLs. Só a mensagem em que chegaram os leva: nas
+ * máscara está desligada ou há fallback explícito, data URLs. Só a mensagem em que chegaram os leva: nas
  * seguintes o bot tem apenas o que ele mesmo escreveu sobre o arquivo.
  */
-async function runDocuments(env: Env, run: Run, pii: PiiMask) {
+async function runDocuments(env: Env, run: Run, pii: PiiMask, config: any) {
   const documents: string[] = [];
   const texts: string[] = [];
-  for (const id of json(run.context).documents || []) {
+  const ids = json(run.context).documents || [];
+  if (ids.length > PDF_LIMITS.files) throw new AiError("PDF recusado: arquivos demais. A equipe precisa conferir.", false);
+  const bot = ids.length ? await one(env, "SELECT remote_profile FROM bots WHERE id=?", run.bot_id) : null;
+  const rawAllowed = config.pdf === true && AI_PROVIDERS[config.provider as keyof typeof AI_PROVIDERS]?.pdf === true;
+  const fallback = config.bot_options?.[bot?.remote_profile]?.pdf_raw_fallback === true && rawAllowed;
+  for (const id of ids) {
     const m = await one(env, "SELECT * FROM media WHERE id=? AND profile_id=?", id, run.profile_id);
     if (m?.type === "application/pdf") {
       const obj = await env.MEDIA.get(m.object_key);
       if (!obj) throw new AiError("PDF recusado: arquivo indisponível para análise segura pela IA. A equipe precisa conferir.", false);
       const bytes = new Uint8Array(await obj.arrayBuffer());
+      const pages = await pdfPageCount(bytes);
+      if (m.size > PDF_LIMITS.bytes || bytes.length > PDF_LIMITS.bytes || pages === null || pages > PDF_LIMITS.pages)
+        throw new AiError("PDF recusado: tamanho ou páginas fora dos tetos. A equipe precisa conferir.", false);
       if (pii.enabled) {
         const text = await extractPersonalPdf(bytes);
-        if (!text) throw new AiError("PDF recusado: não foi possível extrair texto com confiança. A equipe precisa conferir.", false);
-        texts.push(pii.mask(text));
-      } else documents.push(`data:application/pdf;base64,${Buffer.from(bytes).toString("base64")}`);
+        if (text) {
+          texts.push(pii.mask(text));
+          continue;
+        }
+        if (!fallback) throw new AiError("PDF recusado: não foi possível extrair texto com confiança. A equipe precisa conferir.", false);
+      }
+      if (!rawAllowed) throw new AiError("PDF recusado: conexão sem suporte a PDF. A equipe precisa conferir.", false);
+      documents.push(`data:application/pdf;base64,${Buffer.from(bytes).toString("base64")}`);
     }
   }
   return { documents, text: texts.join("\n\n") };
@@ -1558,7 +1572,7 @@ async function aiRun(env: Env, run: Run, conn: any, pii: PiiMask): Promise<strin
   const readable = readableOf(split.input);
   const masked = team ? !!team.actor.via?.masked : true;
   let attachments: Awaited<ReturnType<typeof runDocuments>>;
-  try { attachments = await runDocuments(env, run, pii); }
+  try { attachments = await runDocuments(env, run, pii, json(conn.config)); }
   catch (error) {
     await failRun(env, run, error instanceof AiError ? error.message : "PDF recusado: falha ao ler o documento. A equipe precisa conferir.");
     return null;

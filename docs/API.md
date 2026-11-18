@@ -864,12 +864,21 @@ Cada bot tem a opção **Mascarar documentos e telefones nas mensagens antes de 
 
 Antes de executar ferramentas, o servidor restaura os argumentos. Respostas finais ao cliente e propostas mostradas à pessoa recebem os valores reais. Resultados de ferramentas passam pela máscara depois da sanitização existente. Marcadores desconhecidos permanecem em texto. A regra da instalação `bot_full_personal_data` continua regendo as consultas e a sanitização anterior do JEV; desligar a opção do bot não desliga essa regra.
 
-Com a opção ligada, nenhum PDF binário segue à IA. O servidor aceita texto simples com fontes padrão Helvetica, Times-Roman ou Courier, sem mapa customizado, em streams simples ou `FlateDecode`, dentro dos tetos de 1 arquivo, 4 MB e 10 páginas. O texto extraído e mascarado também pode ser usado por conexões sem suporte a PDF binário. PDFs escaneados, criptografados, com fontes/operadores/filtros não suportados, estrutura ambígua ou sem texto confiável seguem pelo caminho de PDF recusado, para conferência da equipe. Não há OCR. Com a opção desligada, permanece o envio de PDF conforme a capacidade e a opção da conexão.
+Com a máscara ligada, o servidor tenta extrair o texto do PDF e sempre aplica a máscara antes de enviá-lo. Lê objetos soltos e `ObjStm` com `FlateDecode`, arquivos com xref streams, listas de `Contents`, fontes com `ToUnicode` (`bfchar`/`bfrange`, códigos de um ou dois bytes) e `Differences` sobre WinAnsi/StandardEncoding para glifos latinos, incluindo acentos portugueses. Imagens usadas como logos são ignoradas. Uma página sem texto, inclusive digitalizada, impede a extração do documento inteiro. Não há OCR. Identity-H sem ToUnicode, cifras, filtros não suportados, cadeias de filtros, DecodeParms, estruturas cíclicas/ambíguas e operadores não suportados devolvem falha de extração. O texto mascarado também pode ser usado por conexões sem suporte a PDF binário.
+
+Os tetos são **1 arquivo, 4 MB, 10 páginas, 64 streams lidos, 8 MiB acumulados de streams descomprimidos/lidos, 200 mil caracteres de texto e profundidade 32 na árvore de páginas**. Erros de descompressão recusam a extração. Form XObjects e substituições `ActualText` ainda não são interpretados. Imagens inline também são ignoradas; delimitadores malformados recusam a leitura.
+
+Duas opções adicionais ficam em `connections.config.bot_options[remote_profile]`, junto de `mask_personal`, ambas **desligadas por padrão**. São editadas por `bot.update` ou pelo mesmo `PATCH /api/v1/profiles/:profile/bots/:id`, com validação booleana, preservando as demais opções. A listagem informa os valores efetivos. A tela as mostra abaixo da máscara apenas enquanto ela está ligada:
+
+- **`pdf_raw_fallback`** — “PDF que não der para ler como texto: mandar o arquivo inteiro ao provedor”. Desligada, a falha de extração encaminha o PDF à equipe. Ligada, permite enviar o arquivo inteiro **sem máscara**, desde que `ai.pdf` esteja ligado e o provedor tenha capacidade `pdf`; sem essa capacidade, continua indo à equipe. Os tetos de tamanho e páginas continuam obrigatórios, inclusive `pdfWithinPages`. Se a extração funcionar, o PDF segue como texto mascarado, qualquer que seja essa opção.
+- **`image_to_team`** — “Mandar fotos e imagens para a equipe em vez do provedor”. Ligada junto da máscara, a imagem recebida segue o caminho de anexo que o modelo não entende, para a equipe, sem chamada ao provedor. Desligada, a imagem vai como está, conforme a capacidade da conexão: um documento fotografado não é mascarado. Com `mask_personal:false`, essa opção não tem efeito.
+
+Exemplo: `{"mask_personal":true,"pdf_raw_fallback":false,"image_to_team":true}`. Com a máscara desligada, permanece o envio de PDF e imagens conforme as capacidades e opções da conexão. Nenhuma migração é necessária.
 
 **O que não cobre:**
 
 - Fontes do Conhecimento, que são dados do negócio.
-- Imagens: inclusive imagens contendo documentos continuam sendo enviadas cruas.
+- Imagens: não recebem máscara; com `image_to_team` desligada, inclusive documentos fotografados são enviados crus. Com a chave e a máscara ligadas, vão para a equipe.
 - Nomes próprios.
 - Endereço sem CEP; o reconhecimento do CEP não oculta automaticamente o restante do endereço.
 - O que o cliente escreve de forma não reconhecível, como dígitos por extenso ou documentos fragmentados.

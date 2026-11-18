@@ -9,6 +9,7 @@ import { setSecret } from "../src/security";
 import { inbound, perform } from "../src/service";
 import { processInbox, processRun, TOOLS_UNSUPPORTED_NOTICE } from "../src/engine";
 import { teamDirectory } from "../src/team";
+import { fixturePdf } from "./pdf-cases.mjs";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -74,6 +75,15 @@ type Setup = Awaited<ReturnType<typeof setup>>;
 
 async function customerSays(s: Setup, phone: string, text: string) {
   const received = await inbound(env, s.profile, { external_id: phone, phone, message_id: uid(), text }, `channel:${s.line}`, s.line);
+  await processInbox(env, s.profile);
+  return received.conversation_id as string;
+}
+async function customerAttachment(s: Setup, type: string, bytes: Uint8Array = new Uint8Array([1, 2, 3])) {
+  const id = uid(), key = `${s.profile}/${id}`;
+  await env.MEDIA.put(key, bytes);
+  await exec(env, "INSERT INTO media(id,profile_id,name,type,size,object_key,actor,created) VALUES(?,?,?,?,?,?,?,?)",
+    id, s.profile, "anexo", type, bytes.length, key, "system", now());
+  const received = await inbound(env, s.profile, { external_id: "5511966660001", phone: "5511966660001", message_id: uid(), text: "Confira o anexo", attachments: [id] }, `channel:${s.line}`, s.line);
   await processInbox(env, s.profile);
   return received.conversation_id as string;
 }
@@ -209,6 +219,97 @@ describe("laço de ferramentas: modo cliente (OpenAI, DeepSeek)", () => {
 });
 
 describe("máscara pessoal por bot no motor", () => {
+  it.each([
+    { fallback: undefined, pdf: true, sends: false },
+    { fallback: false, pdf: true, sends: false },
+    { fallback: true, pdf: true, sends: true },
+    { fallback: true, pdf: false, sends: false },
+  ])("PDF não extraível: fallback=$fallback, PDF=$pdf", async ({ fallback, pdf, sends }) => {
+    const s = await setup({ provider: "anthropic", model: "claude-opus-5-5", pdf, bot_options: { default: { mask_personal: true, pdf_raw_fallback: fallback } } });
+    const calls = mockFetch([anthropic([{ type: "text", text: answer("Recebi o documento") }])]);
+    const c = await customerAttachment(s, "application/pdf", await fixturePdf({ imageOnly: true }));
+    const run = await runOf(c);
+    expect(run).toBeTruthy();
+    await processRun(env, run);
+    expect(calls).toHaveLength(sends ? 1 : 0);
+    if (sends) {
+      expect(calls[0].body.messages[0].content[0]).toMatchObject({ type: "document", source: { type: "base64", media_type: "application/pdf" } });
+    } else {
+      expect((await one(env, "SELECT status,error FROM bot_runs WHERE id=?", run.id))).toMatchObject({ status: "failed", error: expect.stringContaining("PDF recusado") });
+      expect((await one(env, "SELECT state FROM conversations WHERE id=?", c)).state).not.toBe("ai");
+    }
+  });
+
+  it("fallback exige também a capacidade PDF do provedor", async () => {
+    const s = await setup({ provider: "deepseek", model: "deepseek-chat", pdf: true, bot_options: { default: { pdf_raw_fallback: true } } });
+    const calls = mockFetch([]);
+    const c = await customerAttachment(s, "application/pdf", await fixturePdf({ imageOnly: true }));
+    await processRun(env, await runOf(c));
+    expect(calls).toHaveLength(0);
+    expect((await one(env, "SELECT state FROM conversations WHERE id=?", c)).state).not.toBe("ai");
+  });
+
+  it.each([false, true])("ObjStm e ToUnicode chegam como texto mascarado; fallback=%s", async (pdf_raw_fallback) => {
+    const s = await setup({ provider: "anthropic", model: "claude-opus-5-5", pdf: pdf_raw_fallback, bot_options: { default: { pdf_raw_fallback } } });
+    const c = await customerAttachment(s, "application/pdf", await fixturePdf({ objstm: true, unicode: true }));
+    const calls = mockFetch([anthropic([{ type: "text", text: answer("Seu CPF [CPF_1] foi registrado") }])]);
+    await processRun(env, await runOf(c));
+    expect(calls).toHaveLength(1);
+    const body = JSON.stringify(calls[0].body);
+    expect(body).toContain("João, ação e CPF [CPF_1]");
+    expect(body).not.toContain("123.456.789-09");
+    expect(body).not.toContain('"type":"document"');
+    expect(body).not.toContain("data:application/pdf");
+    expect(JSON.stringify(await all(env, "SELECT payload FROM outbox WHERE conversation_id=?", c))).toContain("123.456.789-09");
+  });
+
+  it.each([
+    { mask_personal: true, image_to_team: undefined, sends: true },
+    { mask_personal: true, image_to_team: false, sends: true },
+    { mask_personal: true, image_to_team: true, sends: false },
+    { mask_personal: false, image_to_team: true, sends: true },
+  ])("imagem: máscara=$mask_personal, equipe=$image_to_team", async ({ mask_personal, image_to_team, sends }) => {
+    const s = await setup({ provider: "anthropic", model: "claude-opus-5-5", vision: true, bot_options: { default: { mask_personal, image_to_team } } });
+    const calls = mockFetch([anthropic([{ type: "text", text: answer("Recebi a imagem") }])]);
+    const c = await customerAttachment(s, "image/png");
+    const run = await runOf(c);
+    if (sends) {
+      expect(run).toBeTruthy();
+      await processRun(env, run);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].body.messages[0].content.some((part: any) => part.type === "image" && part.source.media_type === "image/png")).toBe(true);
+    } else {
+      expect(run).toBeNull();
+      expect(calls).toHaveLength(0);
+      expect((await one(env, "SELECT state FROM conversations WHERE id=?", c)).state).not.toBe("ai");
+    }
+  });
+
+  it.each(["páginas", "bytes"])("fallback não dispensa o teto de %s", async (limit) => {
+    const s = await setup({ provider: "anthropic", model: "claude-opus-5-5", pdf: true, bot_options: { default: { pdf_raw_fallback: true } } });
+    const calls = mockFetch([]);
+    const bytes = limit === "páginas" ? await fixturePdf({ pages: 11, imageOnly: true }) : new Uint8Array(4 * 1024 * 1024 + 1);
+    const c = await customerAttachment(s, "application/pdf", bytes);
+    expect(await runOf(c)).toBeNull();
+    expect(calls).toHaveLength(0);
+    expect((await one(env, "SELECT state FROM conversations WHERE id=?", c)).state).not.toBe("ai");
+  });
+
+  it("valida as duas opções booleanas e preserva máscara, vizinhos e outras opções", async () => {
+    const s = await setup({ provider: "anthropic", model: "claude-opus-5-5", bot_options: { outro: { pdf_raw_fallback: true }, default: { mask_personal: false, outra_opcao: 1 } } });
+    for (const key of ["pdf_raw_fallback", "image_to_team"]) {
+      for (const value of ["false", 1, null, []])
+        await expect(perform(env, s.admin, s.profile, "bot.update", { id: s.bot, [key]: value }, uid())).rejects.toThrow("booleano");
+      await perform(env, s.admin, s.profile, "bot.update", { id: s.bot, [key]: true }, uid());
+    }
+    let config = JSON.parse((await one(env, "SELECT config FROM connections WHERE id=?", s.ai)).config);
+    expect(config.bot_options).toEqual({ outro: { pdf_raw_fallback: true }, default: { mask_personal: false, outra_opcao: 1, pdf_raw_fallback: true, image_to_team: true } });
+    await perform(env, s.admin, s.profile, "bot.update", { id: s.bot, mask_personal: true, pdf_raw_fallback: false, image_to_team: false }, uid());
+    config = JSON.parse((await one(env, "SELECT config FROM connections WHERE id=?", s.ai)).config);
+    expect(config.bot_options.default).toEqual({ mask_personal: true, outra_opcao: 1, pdf_raw_fallback: false, image_to_team: false });
+    expect(config.bot_options.outro).toEqual({ pdf_raw_fallback: true });
+  });
+
   it.each([undefined, true, false])("ida e volta, histórico e todas as chamadas HTTP; opção %s", async (option) => {
     const cpf = "123.456.789-09", tel = "+55 (11) 98888-7777";
     const s = await setup({ provider: "anthropic", model: "claude-opus-5-5", ...(option === undefined ? {} : { bot_options: { default: { mask_personal: option } } }) });

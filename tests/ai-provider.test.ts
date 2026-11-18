@@ -1348,6 +1348,11 @@ describe("cache de prompt do provedor de IA", () => {
 });
 
 describe("PDF do cliente no provedor de IA", () => {
+  it("PDF cifrado sem ObjStm também não tem contagem confiável", async () => {
+    const bytes = new TextEncoder().encode(new TextDecoder().decode(pdf(1)) + "\ntrailer << /Encrypt 9 0 R >>");
+    expect(await pdfPageCount(bytes)).toBeNull();
+  });
+
   it("PDF com ObjStm sem páginas legíveis vai à equipe sem chegar ao provedor", async () => {
     const f = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", vision: true, pdf: true });
     const calls = mockFetch(() => anthropicMessage(JSON.stringify(answer)));
