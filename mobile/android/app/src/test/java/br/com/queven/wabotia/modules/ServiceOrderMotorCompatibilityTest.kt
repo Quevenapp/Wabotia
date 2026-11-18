@@ -11,6 +11,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.MediaType.Companion.toMediaType
@@ -27,7 +28,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Ignore
 import org.junit.Test
 
-/** Tarefa C: exemplos do CONTRATO-MOTOR §§2/5 e dos DTOs F0, ainda não capturas HTTP de M/O.
+/** Exemplos conferidos com orderView, listOrders e /history; não são capturas HTTP.
  * As mesmas fixtures ficam no iOS. O interceptor entrega bytes ao cliente real, sem abrir sockets.
  */
 class ServiceOrderMotorCompatibilityTest {
@@ -51,6 +52,26 @@ class ServiceOrderMotorCompatibilityTest {
         val buffer = Buffer()
         checkNotNull(request.body).writeTo(buffer)
         return WabotiaJson.parseToJsonElement(buffer.readUtf8()).jsonObject
+    }
+
+    private fun listResponse(request: Request): String {
+        val first = objectFixture("motor-mixed-page")
+        val rows = ((first["data"] as JsonArray) + (objectFixture("motor-next-page")["data"] as JsonArray)).map { it.jsonObject }
+        val query = request.url.queryParameter("q").orEmpty().lowercase()
+        val cursor = request.url.queryParameter("cursor")?.toInt()
+        val limit = request.url.queryParameter("limit")?.toInt() ?: 50
+        val selected = rows.filter { row ->
+            val number = row.getValue("number").jsonPrimitive.content.toInt()
+            val searchable = listOf(row["item"], row["problem"], row["customer"]?.jsonObject?.get("name"))
+            (cursor == null || number < cursor) &&
+                (query.isEmpty() || searchable.any { it?.jsonPrimitive?.content?.lowercase()?.contains(query) == true }) &&
+                (request.url.queryParameter("open") != "1" || row["status"]?.jsonPrimitive?.content !in listOf("delivered", "cancelled"))
+        }.sortedByDescending { it.getValue("number").jsonPrimitive.content.toInt() }
+        val page = selected.take(limit)
+        return JsonObject(mapOf(
+            "data" to JsonArray(page), "counts" to first.getValue("counts"),
+            "next_cursor" to if (selected.size > limit) JsonPrimitive(page.last().getValue("number").jsonPrimitive.content) else JsonNull,
+        )).toString()
     }
 
     @Test fun embutidoAmpliadoConservaEstadoOrcamentoEAcoes() = runTest {
@@ -87,7 +108,10 @@ class ServiceOrderMotorCompatibilityTest {
         assertEquals(listOf("Marcar como pronta", "Cancelar ordem"), ServiceOrderRules.actions(order).map { it.second })
         // A transição própria instruir (in_progress -> in_progress) não vira botão legado.
         assertFalse(order.nextStatuses.contains("instrucao"))
-        assertEquals("Em execução", ServiceOrderRules.historyText(order.history!!.single()))
+        val history = checkNotNull(order.history)
+        assertEquals(2, history.size)
+        assertEquals("os.stage_changed", history.first().kind)
+        assertEquals("Em execução", ServiceOrderRules.historyText(history.first()))
         val receipt = ServiceOrderReceiptData.of(order, "Área", now = 1794763800000)
         assertEquals("121", receipt.number)
         val fields = ServiceOrderReceiptText.fields(receipt).toMap()
@@ -98,20 +122,46 @@ class ServiceOrderMotorCompatibilityTest {
 
     @Test fun listaMistaNaoDescartaLinhasEConservaContagemGlobalEsparsa() = runTest {
         val requests = mutableListOf<Request>()
-        val c = client { requests += it; fixture("motor-mixed-page") }
-        val page = c.list(open = true, query = "Processo")
+        val c = client { requests += it; listResponse(it) }
+        val page = c.list(open = true, limit = 2)
         assertEquals(listOf("os_custom", "os_builtin"), page.data.map { it.id })
         assertEquals(listOf("Em execução", "Orçamento enviado"), page.data.map { it.label })
-        assertEquals(mapOf("received" to 2, "quoted" to 1, "in_progress" to 3, "delivered" to 4, "cancelled" to 1), page.counts)
+        assertEquals(mapOf("received" to 1, "quoted" to 1, "in_progress" to 1), page.counts)
         assertFalse(page.counts.containsKey("inProgress"))
         assertEquals(0, page.count("ready"))
-        assertEquals(6, ServiceOrderRules.openCount(page))
+        assertEquals(3, ServiceOrderRules.openCount(page))
         assertEquals("120", page.nextCursor)
-        c.list(cursor = page.nextCursor)
+        val next = c.list(open = true, cursor = page.nextCursor, limit = 2)
         assertEquals("120", requests.last().url.queryParameter("cursor"))
-        assertEquals("Processo", requests.first().url.queryParameter("q"))
-        // Totais são da área; não são recalculados pelas duas linhas nem pelas facetas.
-        assertEquals(11, page.counts.values.sum())
+        assertEquals(listOf("os_no_quote"), next.data.map { it.id })
+        assertEquals(listOf(119), next.data.map { it.number })
+        assertNull(next.nextCursor)
+        assertTrue(next.data.none { row -> page.data.any { it.id == row.id } })
+        assertEquals(page.counts, next.counts)
+        assertTrue((page.data + next.data).all { it.history == null })
+        assertFalse(objectFixture("motor-mixed-page").containsKey("facets"))
+        val search = c.list(open = true, query = "Processo")
+        assertEquals("Processo", requests.last().url.queryParameter("q"))
+        assertEquals(listOf("os_custom"), search.data.map { it.id })
+        assertNull(search.nextCursor)
+        assertEquals(page.counts, search.counts) // Contagens da área, independentes da busca.
+        assertEquals(3, page.counts.values.sum())
+        assertTrue(c.list(query = "inexistente").data.isEmpty())
+    }
+
+    @Test fun caracterizaLimitesAtuaisDeHistoricoEOrcamentoPersonalizados() {
+        val order = decode(objectFixture("motor-custom-order"))
+        val task = order.history!!.last()
+        assertEquals("os.task.created", task.kind)
+        assertNull(task.fromStatus)
+        assertNull(task.toStatus)
+        // Achado 4 confirmado: o app ainda mostra o código bruto. Correção de produção fora desta peça.
+        assertEquals("os.task.created", ServiceOrderRules.historyText(task))
+        val initial = decode(objectFixture("motor-custom-no-quote"))
+        assertEquals("received", initial.state)
+        assertNull(initial.quote)
+        // Modelo lavanderia_costura tem features.quote=null. Achado 5: ainda oferece orçamento.
+        assertTrue(ServiceOrderRules.canEditQuote(initial))
     }
 
     @Test fun paginaVaziaAceitaCursorNuloEChavesAusentes() = runTest {

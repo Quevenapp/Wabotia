@@ -81,6 +81,10 @@ antigo continua mostrando **Em execução**; a interface atualizada distingue
 as etapas. Selecione uma transição pelo `transition_id`, com a `version` da
 ordem. Não envie o nome da etapa em `status` nem em `next_statuses`.
 
+No personalizado, `/status` também admite voltar a `received`, desde que haja
+uma única transição manual elegível e ela altere o estado de base. Isso não
+acrescenta destinos ao embutido, que conserva as operações antigas.
+
 Uma transição pode ser manual ou exigir aprovação do cliente. A segunda cria
 pedido com validade de 1 a 720 horas. Aprovar executa a transição registrada;
 recusar mantém a etapa de origem. Alterar campos, orçamento ou etapa cancela
@@ -129,6 +133,21 @@ do comando não duplica a notificação. Arquivar retira da lista corrente e
 preserva o histórico. Há até 500 tarefas por trabalho, incluindo arquivadas.
 Tarefas guardam instantes e avisos; não calculam dias úteis forenses.
 
+Para tarefas sensíveis, crie em `POST /service-orders/{id}/private-tasks`,
+edite em `PATCH …/private-tasks/{task_id}` e arquive em
+`POST …/private-tasks/{task_id}/archive`. Essas operações exigem pessoa com
+`os:sensitive` explícito e sem `via`, ficam fora do catálogo de IA e usam
+`audience: staff`, `client_visible: false` para conteúdo sensível. As escritas
+comuns recusam esse conteúdo mesmo quando a pessoa tem o papel. A leitura
+autorizada continua em `GET …/tasks`; não existe lista `private-tasks`.
+
+`GET /service-orders/my-tasks` lista tarefas da própria pessoa, com
+`assignee=me`, estado (padrão `open`), `type_id` e período (`dated`, `overdue`,
+`today`, `next7`, `range`, `undated`). Sem período, lista tarefas com prazo.
+`range` exige datas civis `due_from` e `due_to`, inclusivas em Brasília.
+Retorna também tipo, número exibido e rótulo da etapa do pai; usa cursor,
+limite padrão 50 e máximo 100. Bots e aplicações não podem usar essa consulta.
+
 ## Pessoas ligadas
 
 Com `features.people`, cadastre papel, nome e, opcionalmente, contato da área,
@@ -156,6 +175,15 @@ tamanho esperado, visibilidade e sensibilidade. O fluxo da API é:
 4. Baixe por `GET …/documents/{document_id}/content`, autenticado e com
    `Cache-Control: no-store`. Pendentes não podem ser baixados.
 
+Esse fluxo comum exige `sensitive: false`. Para conteúdo sensível, substitua
+`documents` por `private-documents` em **todas** as etapas, inclusive listagem,
+download e `POST …/private-documents/{document_id}/archive`. A reserva privada
+exige `sensitive: true` e `client_visible: false`. Todas essas rotas exigem
+pessoa com `os:sensitive` explícito e sem `via`, e ficam fora do catálogo de IA.
+Baixar conteúdo sensível por `documents` retorna `404 not_found`, mesmo com o
+papel. Não existe envio privado ao cliente. O download conserva o MIME
+cadastrado; os tipos permitidos estão em [API.md](API.md).
+
 Repetir a mesma chave recupera a tentativa concluída; não sobrescreve arquivo
 confirmado. Enviar ao WhatsApp exige documento pronto, `client_visible: true`,
 `sensitive: false` e permissão para mensagem. Um documento sensível entra pelo
@@ -180,6 +208,11 @@ cria outro lançamento com `replaces_id` e arquiva o anterior atomicamente.
 Uma correção concorrente retorna conflito. Há até 10.000 lançamentos por
 trabalho, incluindo arquivados. Horas, medições e diários aqui não geram
 movimentos financeiros automaticamente no ERP.
+
+`GET …/entries/summary` resume os lançamentos autorizados por `kind` e `unit`.
+Aceita `kind` e `include_archived`, sem paginação. Cada grupo traz `count` e
+`quantity_milli` como texto decimal exato, ou `null` quando não há quantidade;
+a soma pode ultrapassar a precisão segura de um número JavaScript.
 
 ## Menus, mensagens e numeração
 

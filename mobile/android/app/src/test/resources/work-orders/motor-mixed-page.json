@@ -29,27 +29,7 @@
       ],
       "created_by": "u1",
       "created": 1794763800000,
-      "updated": 1794763800000,
-      "history": [
-        {
-          "id": "h_stage",
-          "kind": "status",
-          "from_status": "in_progress",
-          "to_status": "in_progress",
-          "actor": "u1",
-          "note": "",
-          "created": 1794763800000,
-          "from_stage": "triagem",
-          "to_stage": "citacao",
-          "entity_kind": null,
-          "entity_id": null,
-          "entity_version": null,
-          "mutation_key": "stage-os-custom-4",
-          "changed_fields": [
-            "stage"
-          ]
-        }
-      ],
+      "updated": 1794763800001,
       "type_id": "processo",
       "type_revision": 2,
       "type_number": 12,
@@ -231,17 +211,6 @@
       "created_by": "u1",
       "created": 1794763800000,
       "updated": 1794763800000,
-      "history": [
-        {
-          "id": "h_quote",
-          "kind": "quote",
-          "from_status": "analyzing",
-          "to_status": "quoted",
-          "actor": "u1",
-          "note": "",
-          "created": 1794763800000
-        }
-      ],
       "type_id": "service_order",
       "type_revision": 1,
       "type_number": 119,
@@ -282,16 +251,8 @@
   ],
   "next_cursor": "120",
   "counts": {
-    "received": 2,
+    "received": 1,
     "quoted": 1,
-    "in_progress": 3,
-    "delivered": 4,
-    "cancelled": 1
-  },
-  "facets": {
-    "types": {
-      "service_order": 7,
-      "processo": 4
-    }
+    "in_progress": 1
   }
 }

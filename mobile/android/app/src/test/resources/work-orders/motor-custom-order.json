@@ -27,25 +27,25 @@
   ],
   "created_by": "u1",
   "created": 1794763800000,
-  "updated": 1794763800000,
+  "updated": 1794763800001,
   "history": [
     {
       "id": "h_stage",
-      "kind": "status",
+      "kind": "os.stage_changed",
       "from_status": "in_progress",
       "to_status": "in_progress",
       "actor": "u1",
       "note": "",
-      "created": 1794763800000,
-      "from_stage": "triagem",
-      "to_stage": "citacao",
-      "entity_kind": null,
-      "entity_id": null,
-      "entity_version": null,
-      "mutation_key": "stage-os-custom-4",
-      "changed_fields": [
-        "stage"
-      ]
+      "created": 1794763800000
+    },
+    {
+      "id": "h_task",
+      "kind": "os.task.created",
+      "from_status": null,
+      "to_status": null,
+      "actor": "u1",
+      "note": "",
+      "created": 1794763800001
     }
   ],
   "type_id": "processo",

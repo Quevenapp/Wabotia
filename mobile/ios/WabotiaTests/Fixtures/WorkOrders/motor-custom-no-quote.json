@@ -1,0 +1,153 @@
+{
+  "id": "os_no_quote",
+  "number": 119,
+  "status": "received",
+  "status_label": "Recebida",
+  "customer": {
+    "name": "Bia Exemplo",
+    "phone": "5520900001111",
+    "contact_id": null,
+    "conversation_id": "c1"
+  },
+  "item": "Camisa",
+  "problem": "Lavagem",
+  "notes": "",
+  "assignee": null,
+  "due_at": null,
+  "source": "panel",
+  "terms": null,
+  "quote": null,
+  "decision": null,
+  "ready_at": null,
+  "delivered_at": null,
+  "warranty_until": null,
+  "next_statuses": [
+    "in_progress",
+    "cancelled"
+  ],
+  "created_by": "u1",
+  "created": 1794763800000,
+  "updated": 1794763800000,
+  "history": [
+    {
+      "id": "h_open",
+      "kind": "opened",
+      "from_status": null,
+      "to_status": "received",
+      "actor": "u1",
+      "note": "",
+      "created": 1794763800000
+    }
+  ],
+  "type_id": "area_lavanderia_costura__at_roupas",
+  "type_revision": 1,
+  "type_number": 1,
+  "type_label": "Serviço de roupa",
+  "type_plural_label": "Serviços de roupas",
+  "display_number": "ROUPA--1",
+  "stage": "recebido",
+  "stage_label": "Recebido",
+  "labels": {
+    "singular": "Serviço de roupa",
+    "plural": "Serviços de roupas",
+    "item": "Peça ou lote",
+    "problem": "Serviço solicitado",
+    "customer_singular": "Cliente",
+    "customer_plural": "Clientes"
+  },
+  "extra": {
+    "modalidade": "lavagem",
+    "quantidade": 1
+  },
+  "fields": [
+    {
+      "id": "modalidade",
+      "label": "Serviço",
+      "kind": "choice",
+      "help": "Selecione o serviço solicitado para as peças.",
+      "required": true,
+      "client_visible": true,
+      "sensitive": false,
+      "options": [
+        {
+          "id": "lavagem",
+          "label": "Lavagem"
+        },
+        {
+          "id": "passadoria",
+          "label": "Passadoria"
+        },
+        {
+          "id": "ajuste",
+          "label": "Ajuste"
+        },
+        {
+          "id": "conserto",
+          "label": "Conserto"
+        }
+      ]
+    },
+    {
+      "id": "quantidade",
+      "label": "Quantidade de peças",
+      "kind": "integer",
+      "help": "Informe um número inteiro maior que zero; a equipe conferirá o lote.",
+      "required": true,
+      "client_visible": true,
+      "sensitive": false,
+      "min": 1,
+      "max": 2147483647
+    },
+    {
+      "id": "valor_combinado",
+      "label": "Valor combinado (centavos)",
+      "kind": "integer",
+      "help": "Centavos inteiros: 5000 corresponde a R$ 50,00. A equipe confirma o preço antes de executar.",
+      "required": false,
+      "client_visible": true,
+      "sensitive": false,
+      "min": 0,
+      "max": 2147483647
+    },
+    {
+      "id": "cuidados",
+      "label": "Cuidados e observações da peça",
+      "kind": "text",
+      "help": "Informe cuidados, condições aparentes e observações úteis para o serviço.",
+      "required": false,
+      "client_visible": true,
+      "sensitive": false,
+      "multiline": true,
+      "max_length": 2000
+    },
+    {
+      "id": "data_prometida",
+      "label": "Data combinada",
+      "kind": "date",
+      "help": "A equipe deve confirmar a data antes de iniciar o serviço.",
+      "required": false,
+      "client_visible": true,
+      "sensitive": false,
+      "min": null,
+      "max": null
+    }
+  ],
+  "version": 1,
+  "next_stages": [
+    {
+      "transition_id": "executar",
+      "stage": "execucao",
+      "stage_label": "Em execução",
+      "base_status": "in_progress",
+      "kind": "manual"
+    },
+    {
+      "transition_id": "cancelar_recebido",
+      "stage": "cancelado",
+      "stage_label": "Cancelado",
+      "base_status": "cancelled",
+      "kind": "manual"
+    }
+  ],
+  "stage_approval": null
+}

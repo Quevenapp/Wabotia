@@ -1153,7 +1153,10 @@ function serviceOrderSchemas() {
             type: "object",
             properties: {
               id: { type: "string" },
-              kind: { enum: ["opened", "status", "quote", "edit"] },
+              kind: {
+                type: "string",
+                description: "Código do registro: opened/status/quote/edit no legado e eventos os.* no motor, como os.stage_changed e os.task.created. Consumidores devem aceitar códigos novos.",
+              },
               from_status: { type: ["string", "null"] },
               to_status: { type: ["string", "null"] },
               actor: { type: "string" },
@@ -1210,7 +1213,8 @@ function serviceOrderSchemas() {
       required: ["status"],
       properties: {
         status: {
-          enum: ["analyzing", "in_progress", "ready", "delivered", "cancelled"],
+          enum: ["received", "analyzing", "in_progress", "ready", "delivered", "cancelled"],
+          description: "Embutido: analyzing, in_progress, ready, delivered ou cancelled, conforme a origem. Personalizado também admite received por uma única transição manual que altere o estado de base. quoted/approved/declined usam as rotas de orçamento.",
         },
         note: { type: "string", maxLength: 500 },
       },
@@ -2464,21 +2468,21 @@ function workOrderExamples() {
     stage_approval: null,
     next_stages: [
       {
-        transition_id: "analyzing",
+        transition_id: "received_analyzing",
         stage: "analyzing",
         stage_label: "Em análise",
         base_status: "analyzing",
         kind: "manual",
       },
       {
-        transition_id: "in_progress",
+        transition_id: "received_in_progress",
         stage: "in_progress",
         stage_label: "Em execução",
         base_status: "in_progress",
         kind: "manual",
       },
       {
-        transition_id: "cancelled",
+        transition_id: "received_cancelled",
         stage: "cancelled",
         stage_label: "Cancelada",
         base_status: "cancelled",
@@ -2544,6 +2548,17 @@ function workOrderExamples() {
   return { builtin, custom };
 }
 
+// O download conserva o MIME validado na reserva, não o tipo do corpo do upload.
+function workDocumentMimeTypes() {
+  return [
+    "application/pdf", "image/jpeg", "image/png", "image/webp", "text/plain",
+    "application/msword", "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ];
+}
+
 function workMotorSchemas(): Record<string, any> {
   const text = { type: "string" };
   const bool = { type: "boolean" };
@@ -2602,7 +2617,7 @@ function workMotorSchemas(): Record<string, any> {
   };
   const document = {
     name: { type: "string", minLength: 1, maxLength: 200 },
-    mime_type: { type: "string", minLength: 1, maxLength: 120 },
+    mime_type: { type: "string", enum: workDocumentMimeTypes() },
     expected_bytes: { type: "integer", minimum: 1, maximum: 10485760 },
     ...visibility,
   };
@@ -2894,8 +2909,8 @@ function workMotorSchemas(): Record<string, any> {
         ["data", "next_cursor", "counts"],
       ),
       example: {
-        data: Object.values(workOrderExamples()),
-        next_cursor: "42",
+        data: Object.values(workOrderExamples()).reverse(),
+        next_cursor: null,
         counts: { received: 1, in_progress: 1 },
       },
     },
@@ -2927,13 +2942,25 @@ function workMotorSchemas(): Record<string, any> {
     ),
     OrderHistoryPage: page("OrderHistory"),
     CreateTaskRequest: {
-      ...workObject(task, ["title", "audience", "client_visible", "sensitive"]),
+      ...workObject({ ...task, sensitive: { enum: [false] } }, ["title", "audience", "client_visible", "sensitive"]),
       description:
         "audience=customer exige client_visible=true e sensitive=false. remind_at exige due_at e não pode ser posterior ao prazo.",
     },
-    UpdateTaskRequest: workObject({ ...task, version, state: taskState }, [
+    UpdateTaskRequest: workObject({ ...task, sensitive: { enum: [false] }, version, state: taskState }, [
       "version",
     ]),
+    CreatePrivateTaskRequest: {
+      ...workObject(task, ["title", "audience", "client_visible", "sensitive"]),
+      description: "Operação privada exige os:sensitive mesmo com sensitive=false. Tarefa sensitive=true exige audience=staff e client_visible=false.",
+      anyOf: [
+        { properties: { sensitive: { enum: [false] } } },
+        { properties: { sensitive: { enum: [true] }, audience: { enum: ["staff"] }, client_visible: { enum: [false] } } },
+      ],
+    },
+    UpdatePrivateTaskRequest: {
+      ...workObject({ ...task, version, state: taskState }, ["version"]),
+      description: "Valida os campos combinados com a tarefa existente. Não permite retirar sensitive=true; tarefa sensível exige audience=staff e client_visible=false.",
+    },
     Task: workObject(
       {
         ...child,
@@ -2956,6 +2983,20 @@ function workMotorSchemas(): Record<string, any> {
       ],
     ),
     TaskPage: page("Task"),
+    MyTask: workObject({
+      ...child, ...task, state: taskState,
+      notified_at: nullableDate, completed_at: nullableDate,
+      type_id: text, type_label: text, display_number: text, stage_label: text,
+    }, [...new Set([...childRequired, ...Object.keys(task), "state", "notified_at", "completed_at",
+      "type_id", "type_label", "display_number", "stage_label"])]),
+    MyTaskPage: page("MyTask"),
+    EntrySummary: workObject({ data: array(workObject({
+      kind: text, unit: text, count: { type: "integer", minimum: 1 },
+      quantity_milli: {
+        type: ["string", "null"], pattern: "^[0-9]+$",
+        description: "Soma exata em milésimos como texto; null se todas as quantidades do grupo forem nulas.",
+      },
+    })) }),
     CreatePersonRequest: workObject(person, [
       "role",
       "name",
@@ -2973,7 +3014,10 @@ function workMotorSchemas(): Record<string, any> {
         "Contato e nota dependem dos escopos. Vínculo não concede acesso à ordem.",
     },
     LinkedPersonPage: page("LinkedPerson"),
-    CreateDocumentRequest: workObject(document),
+    CreateDocumentRequest: workObject({ ...document, sensitive: { enum: [false] } }),
+    CreatePrivateDocumentRequest: workObject({
+      ...document, sensitive: { enum: [true] }, client_visible: { enum: [false] },
+    }),
     DocumentMetadata: workObject(
       {
         ...child,
@@ -3143,7 +3187,18 @@ function workMotorContract(): WorkOperation[] {
   const c = `${b}/conversation/{id}/orders/{order_id}`;
   const a = "/profiles/{profile}/area-templates";
   const page = ["cursor", "limit"];
-  return [
+  const routes: WorkOperation[] = [
+    [
+      "get", `${b}/my-tasks`, "Trabalhos: meus prazos", null, "MyTaskPage",
+      "400 invalid_filter;400 invalid_cursor;403 forbidden",
+      ["assignee", "state", "period", "type_id", "due_from", "due_to", ...page],
+      "Exige pessoa autenticada, sem bot, aplicação ou credencial limitada à conversa. Somente tarefas atribuídas ao solicitante; assignee=me. state padrão open; period padrão dated (com prazo). range exige due_from e due_to como datas civis inclusivas em Brasília. Ordena por prazo e ID. Inclui type_id, type_label, display_number e stage_label do snapshot do pai; registros sensíveis exigem os:sensitive.",
+    ],
+    [
+      "get", `${o}/entries/summary`, "Trabalhos: resumo de lançamentos", null, "EntrySummary",
+      "400 invalid_filter", ["kind", "include_archived"],
+      "Agrupa somente lançamentos autorizados por kind e unit. Retorna count e quantity_milli como string decimal exata ou null; não usa cursor nem limite. include_archived=1 inclui correções arquivadas, conforme autorização.",
+    ],
     [
       "get",
       b,
@@ -3413,7 +3468,7 @@ function workMotorContract(): WorkOperation[] {
       "DocumentReservation",
       "413 document_too_large;415 unsupported_media_type;409 collection_limit",
       [],
-      "Reserva pending por 24 horas, até 10 MiB reais. Até 500 documentos incluindo arquivados. A concessão de cada tentativa de upload dura cinco minutos.",
+      "Rota comum exige sensitive=false; use private-documents para conteúdo sensível. Reserva pending por 24 horas, até 10 MiB reais. Até 500 documentos incluindo arquivados. A concessão de cada tentativa de upload dura cinco minutos.",
     ],
     [
       "put",
@@ -3443,7 +3498,7 @@ function workMotorContract(): WorkOperation[] {
       "binary",
       "404 not_found;409 document_not_ready",
       [],
-      "Autoriza área, ordem, documento, classificação e solicitante antes de abrir o objeto. Cache-Control: no-store. Documento sensível exige pessoa com os:sensitive e sem via.",
+      "Autoriza área, ordem, documento, classificação e solicitante antes de abrir o objeto. Cache-Control: no-store. Retorna o MIME cadastrado. Documento sensível nesta rota retorna 404 not_found, inclusive para pessoa com os:sensitive; use private-documents.",
     ],
     [
       "post",
@@ -3451,7 +3506,7 @@ function workMotorContract(): WorkOperation[] {
       "Trabalhos: enviar documento ao cliente",
       "VersionRequest",
       "SendDocumentResult",
-      "403 document_not_shareable;409 no_conversation",
+      "403 document_not_shareable;409 no_conversation;409 document_not_ready",
       [],
       "Exige documento pronto, client_visible=true, sensitive=false e permissão para mensagem. Cria anexo compartilhável pelo adaptador do núcleo.",
     ],
@@ -3581,7 +3636,7 @@ function workMotorContract(): WorkOperation[] {
       "Modelos de área: prévia",
       "AreaTemplatePreviewRequest",
       "AreaTemplatePreview",
-      "400 invalid_template;413 template_too_large",
+      "400 invalid_template;413 template_too_large;404 template_not_found",
       [],
       "Não grava. Informe exatamente template_id ou manifest, mais selection. Hash inclui manifesto, seleção, configuração completa, módulos, dependências, procedência e resultado. Importação até 128 KiB UTF-8.",
     ],
@@ -3591,7 +3646,7 @@ function workMotorContract(): WorkOperation[] {
       "Modelos de área: aplicar prévia",
       "AreaTemplateApplyRequest",
       "AreaTemplateApplyResult",
-      "409 preview_stale;409 template_conflict;409 dependency_conflict;400 invalid_template;413 template_too_large",
+      "409 preview_stale;409 template_conflict;409 dependency_conflict;400 invalid_template;413 template_too_large;404 template_not_found",
       [],
       "Relê e recalcula preview_hash no comando. Confirma configurações, módulos e procedência no mesmo lote. Preserva edições manuais; não recria itens apagados nem repõe caminhos removidos. Reaplicação idêntica retorna applied=false. Prefixo area_<template_id>__<id_local>; não concede papéis nem amplia permissões de bots.",
     ],
@@ -3606,6 +3661,31 @@ function workMotorContract(): WorkOperation[] {
       "Não grava. Exporta configuração declarativa dos type_ids, sem dados pessoais de ordens, filhos, membros ou segredos.",
     ],
   ];
+  // As famílias privadas compartilham transporte e versões, mas nunca /send.
+  const privateAccess = "Exige pessoa autenticada com papel explícito os:sensitive e sem via; administrador não substitui o papel. Fora do catálogo de IA e negado ao bot. ";
+  for (const route of [...routes]) {
+    const [method, path, summary, input, output, errors, query, description] = route;
+    const task = path.startsWith(`${o}/tasks`) && method !== "get";
+    const document = path.startsWith(`${o}/documents`) && !path.endsWith("/send");
+    if (!task && !document) continue;
+    const privateInput: Record<string, string> = {
+      CreateTaskRequest: "CreatePrivateTaskRequest",
+      UpdateTaskRequest: "UpdatePrivateTaskRequest",
+      CreateDocumentRequest: "CreatePrivateDocumentRequest",
+    };
+    routes.push([
+      method, path.replace(task ? "/tasks" : "/documents", task ? "/private-tasks" : "/private-documents"),
+      `${summary} (privado)`, input ? privateInput[input] ?? input : null,
+      output, `${errors};403 sensitive_forbidden`, query,
+      privateAccess + (task
+        ? "Mesmo corpo e versão da tarefa; admite sensitive=true somente com audience=staff e client_visible=false. Não permite reduzir sigilo. A leitura autorizada continua em GET /tasks. " + description
+        : "Coleção exclusiva de documentos sensitive=true e client_visible=false. Use esta família desde a reserva até upload, confirmação, download e arquivamento. Não há envio ao cliente. " + description
+          .replace("Rota comum exige sensitive=false; use private-documents para conteúdo sensível. ", "")
+          .replace("Documento sensível nesta rota retorna 404 not_found, inclusive para pessoa com os:sensitive; use private-documents.", "")),
+    ]);
+    if (task) route[7] = description + " A rota comum recusa tarefas ou valores sensíveis com 403 sensitive_forbidden, mesmo com os:sensitive; use private-tasks.";
+  }
+  return routes;
 }
 
 function workMotorOperations(): [string, string, string, string?, string?][] {
@@ -3647,11 +3727,13 @@ function describeWorkMotorOperation(
   if (method !== "get")
     entry.description +=
       " Escrita com Idempotency-Key; repetir a chave recupera o resultado sem repetir efeitos.";
-  const paged = /\/(history|tasks|people|documents|entries)$/.test(path);
+  const paged = /\/(history|tasks|my-tasks|private-documents|people|documents|entries)$/.test(path);
   const childPage = paged && !path.endsWith("/history");
   if (paged && method === "get")
     entry.description +=
-      " Página de no máximo 100 itens; cursor opaco vinculado à área, ordem, coleção e filtros. Sem OFFSET. Carregar coleções sob demanda.";
+      path.endsWith("/my-tasks")
+        ? " Página de no máximo 100 itens; cursor opaco vinculado à área, pessoa, filtros e janela civil. Sem OFFSET."
+        : " Página de no máximo 100 itens; cursor opaco vinculado à área, ordem, coleção e filtros. Sem OFFSET. Carregar coleções sob demanda.";
   if (childPage && method === "get")
     entry.description += " Listas filhas usam 50 itens por padrão.";
   const querySchemas: Record<string, any> = {
@@ -3663,7 +3745,11 @@ function describeWorkMotorOperation(
     facets: { enum: ["1", "0"] },
     include_archived: { enum: ["1", "0"] },
     history: { enum: ["legacy", "none"], default: "legacy" },
-    state: { enum: ["open", "done", "cancelled"] },
+    state: { enum: ["open", "done", "cancelled"], ...(path.endsWith("/my-tasks") ? { default: "open" } : {}) },
+    assignee: { enum: ["me"], default: "me" },
+    period: { enum: ["dated", "overdue", "today", "next7", "range", "undated"], default: "dated" },
+    due_from: { type: "string", format: "date" },
+    due_to: { type: "string", format: "date" },
     limit: {
       type: "integer",
       minimum: 1,
@@ -3737,11 +3823,9 @@ function describeWorkMotorOperation(
       output === "binary" ? "Arquivo privado" : "Conteúdo recebido";
   }
   if (output === "binary") {
-    success.content = {
-      "application/octet-stream": {
-        schema: { type: "string", format: "binary" },
-      },
-    };
+    success.content = Object.fromEntries(workDocumentMimeTypes().map((mime) => [
+      mime, { schema: { type: "string", format: "binary" } },
+    ]));
     success.headers = {
       ...success.headers,
       "Cache-Control": {
@@ -3760,13 +3844,37 @@ function describeWorkMotorOperation(
             : workRef(output),
       },
     };
-    if (output === "ServiceOrder")
+    // Exemplos de equipe não podem ser reutilizados em respostas de cliente
+    // nem em mutações cujo estado final depende da operação.
+    if (output === "ServiceOrder" && (method === "get" || path.endsWith("/service-orders"))) {
+      const examples: Record<string, any> = workOrderExamples();
+      if (method === "post") {
+        Object.assign(examples.custom, {
+          status: "received", status_label: "Recebida", stage: "entrada", stage_label: "Entrada", version: 1,
+          next_statuses: ["in_progress", "cancelled"],
+          next_stages: [
+            { transition_id: "iniciar_revisao", stage: "revisao", stage_label: "Revisão", base_status: "in_progress", kind: "manual" },
+            { transition_id: "cancelar_entrada", stage: "cancelado", stage_label: "Cancelado", base_status: "cancelled", kind: "manual" },
+          ],
+        });
+      }
+      if (path.includes("/conversation/")) {
+        for (const value of Object.values(examples)) {
+          value.customer = { name: value.customer.name };
+          for (const key of ["notes", "created_by", "assignee", "history"]) delete value[key];
+          value.fields = value.fields.filter((field: any) => field.client_visible && !field.sensitive);
+          value.extra = Object.fromEntries(value.fields.filter((field: any) => Object.hasOwn(value.extra, field.id)).map((field: any) => [field.id, value.extra[field.id]]));
+          value.next_statuses = [];
+          value.next_stages = [];
+        }
+      }
       success.content["application/json"].examples = Object.fromEntries(
-        Object.entries(workOrderExamples()).map(([name, value]) => [
+        Object.entries(examples).map(([name, value]) => [
           name,
           { value },
         ]),
       );
+    }
   }
   if (method === "put" && path.endsWith("/content")) {
     entry.parameters.push({
