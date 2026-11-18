@@ -39,6 +39,14 @@ export const discardTables = {};
 export const covered = {
   "checks": {},
   "triggers": {
+    "erp_fiscal_invoices__invoice.guard_invoice": {
+      "where": "src/erp/domains/fiscal/invoices.ts guardInvoice (BEFORE UPDATE/DELETE; exportado para F2b/F3)",
+      "test": "tests/erp/fiscal/invoice-guards.test.mjs"
+    },
+    "erp_fiscal_invoices__invoice_xml.invoice_source_record": {
+      "where": "src/erp/domains/fiscal/invoices.ts invoiceSourceRecord (AFTER INSERT; exportado para F3)",
+      "test": "tests/erp/fiscal/invoice-guards.test.mjs"
+    },
     "erp_fiscal_invoices__nature.guard_nature": {
       "where": "src/erp/domains/fiscal/natures.ts guardNature, chamada antes de cada UPDATE da natureza em src/erp/domains/fiscal/rpc/erp_fiscal_natures.ts (o motor nunca apaga natureza)",
       "test": "tests/erp/fiscal/nature-guard.test.mjs"

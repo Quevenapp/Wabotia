@@ -48,3 +48,7 @@ export {
 // Saldo de faturamento do pedido (202610210391): para o erp_document_invoice_balance
 // do Documentos (O, B4). Leitura pura; quem chama confere o acesso.
 export { countsForBalance, quantityText, salesBalance, salesFullInvoice, salesItemInvoiced } from "./sales-balance.ts";
+
+// F2a: leituras e gatilhos para os escritores de F2b/F3.
+export { invoiceRecord, invoiceEnvelope, invoiceRow, guardInvoice, invoiceSourceRecord, xmlSourceEnvironment, editLocks, orderEffects, companyText, originInt, originDate, originMoney, originItemsRefresh, originSellerIds } from "./invoices.ts";
+export { listRows, listQuery, statusGroup, coverage } from "./invoice-list.ts";
