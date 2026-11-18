@@ -219,6 +219,44 @@ describe("laço de ferramentas: modo cliente (OpenAI, DeepSeek)", () => {
 });
 
 describe("máscara pessoal por bot no motor", () => {
+  it.each(["123.456.789-09", "529.982.247-25"])("espaços de TJ chegam ao provedor com CPF mascarado: %s", async (cpf) => {
+    const s = await setup({ provider: "anthropic", model: "claude-opus-5-5", bot_options: { default: { mask_personal: true } } });
+    const c = await customerAttachment(s, "application/pdf", await fixturePdf({ content: `BT /F1 12 Tf [(CPF)-333(${cpf})-333(Nome)]TJ ET` }));
+    const calls = mockFetch([anthropic([{ type: "text", text: answer("Recebi o documento") }])]);
+    await processRun(env, await runOf(c));
+    expect(calls).toHaveLength(1);
+    const body = JSON.stringify(calls[0].body);
+    expect(body).toContain("CPF [CPF_1] Nome");
+    expect(body).not.toContain(cpf);
+    expect(body).not.toContain(cpf.replace(/\D/g, ""));
+    expect(body).not.toContain('"type":"document"');
+  });
+
+  it.each([
+    { content: "BT /F1 12 Tf 1 0 0 1 10 100 Tm (529.982.) Tj 1 0 0 1 10 90 Tm (247-25) Tj ET", fallback: false, pdf: true, provider: "anthropic", sends: false },
+    { content: "BT /F1 12 Tf (abc11.222.333/0001-81xyz) Tj ET", fallback: false, pdf: true, provider: "anthropic", sends: false },
+    { content: "BT /F1 12 Tf (abc11.222.333/0001-81xyz) Tj ET", fallback: true, pdf: true, provider: "anthropic", sends: true },
+    { content: "BT /F1 12 Tf (abc11.222.333/0001-81xyz) Tj ET", fallback: true, pdf: false, provider: "anthropic", sends: false },
+    { content: "BT /F1 12 Tf (abc11.222.333/0001-81xyz) Tj ET", fallback: true, pdf: true, provider: "deepseek", sends: false },
+  ])("documento residual: fallback=$fallback, PDF=$pdf, provedor=$provider, conteúdo=$content", async ({ content, fallback, pdf, provider, sends }) => {
+    const s = await setup({ provider, model: provider === "anthropic" ? "claude-opus-5-5" : "deepseek-chat", pdf, bot_options: { default: { mask_personal: true, pdf_raw_fallback: fallback } } });
+    const bytes = await fixturePdf({ content });
+    const c = await customerAttachment(s, "application/pdf", bytes);
+    const calls = mockFetch([anthropic([{ type: "text", text: answer("Recebi o documento") }])]);
+    const run = await runOf(c);
+    expect(run).toBeTruthy();
+    await processRun(env, run);
+    expect(calls).toHaveLength(sends ? 1 : 0);
+    if (sends) {
+      const body = JSON.stringify(calls[0].body);
+      expect(body).not.toContain("11.222.333/0001-81");
+      expect(calls[0].body.messages[0].content[0]).toMatchObject({ type: "document", source: { type: "base64", media_type: "application/pdf", data: Buffer.from(bytes).toString("base64") } });
+    } else {
+      expect(await one(env, "SELECT status,error FROM bot_runs WHERE id=?", run.id)).toMatchObject({ status: "failed", error: expect.stringContaining("PDF recusado") });
+      expect((await one(env, "SELECT state FROM conversations WHERE id=?", c)).state).not.toBe("ai");
+    }
+  });
+
   it.each([
     { fallback: undefined, pdf: true, sends: false },
     { fallback: false, pdf: true, sends: false },

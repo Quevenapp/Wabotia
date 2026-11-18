@@ -12,7 +12,8 @@ const ddds = new Set(
     " ",
   ),
 );
-function validDocument(value: string) {
+export function validDocument(value: string) {
+  if (!/^\d+$/.test(value)) return false;
   if (/^(\d)\1+$/.test(value)) return false;
   const n = value.length;
   if (n !== 11 && n !== 14) return false;
@@ -26,6 +27,26 @@ function validDocument(value: string) {
     if (Number(value[size]) !== (check === 10 ? 0 : check)) return false;
   }
   return true;
+}
+
+const nonPersonalNumber =
+  /(?:R\$\s*|(?:pedido|protocolo|ordem|código|codigo)\s*(?:n[º°o.]?\s*)?[:#-]?\s*)$/i;
+
+/** Rede de segurança para texto de PDF já mascarado, inclusive números fragmentados. */
+export function hasUnmaskedDocument(text: string): boolean {
+  // Lookahead permite examinar candidatos sobrepostos, sem fronteira de letra.
+  for (const size of [11, 14]) {
+    const pattern = new RegExp(
+      `(?<!\\d)(?=(\\d(?:[.\\-/ \\n]*\\d){${size - 1}})(?!\\d))`,
+      "g",
+    );
+    for (const match of text.matchAll(pattern)) {
+      const before = text.slice(Math.max(0, match.index! - 45), match.index);
+      if (!nonPersonalNumber.test(before) && validDocument(digits(match[1])))
+        return true;
+    }
+  }
+  return false;
 }
 
 /** Formatos explícitos ou números plausíveis; pedidos, dinheiro e datas não são documentos. */
@@ -47,13 +68,7 @@ export function detectPii(text: string): PiiMatch[] {
       )
         continue;
       const before = text.slice(Math.max(0, start - 45), start);
-      if (
-        kind !== "EMAIL" &&
-        /(?:R\$\s*|(?:pedido|protocolo|ordem|código|codigo)\s*(?:n[º°o.]?\s*)?[:#-]?\s*)$/i.test(
-          before,
-        )
-      )
-        continue;
+      if (kind !== "EMAIL" && nonPersonalNumber.test(before)) continue;
       if (accept(m[0], before)) found.push({ kind, value: m[0], start, end });
     }
   };

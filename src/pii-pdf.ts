@@ -8,6 +8,7 @@ import {
   readPdfObjects,
   type PdfValue,
 } from "./pdf-reader";
+import { hasUnmaskedDocument, type PiiMask } from "./pii-mask";
 
 /** Sem OCR: somente texto cuja codificação conseguimos demonstrar. */
 const MAX_TEXT = 200_000;
@@ -387,6 +388,8 @@ function baseEncoding(name: string): Map<number, string> {
 
 async function readFont(pdf: Pdf, value: PdfValue): Promise<Font> {
   const dict = pdfDict(pdf.resolve(value));
+  if (pdfName(dict.Subtype) === "Type3")
+    throw new Error("Fonte Type3 não suportada");
   if (dict.ToUnicode) return cmap(await pdf.stream(dict.ToUnicode));
   if (!["Type1", "TrueType"].includes(pdfName(dict.Subtype) ?? ""))
     throw new Error("Fonte sem mapa confiável");
@@ -444,14 +447,29 @@ async function contentText(
 ): Promise<string> {
   const fonts = resources.Font ? pdfDict(pdf.resolve(resources.Font)) : {};
   const cache = new Map<string, Font>(),
-    stack: (Font | undefined)[] = [];
+    stack: { font: Font | undefined; leading: number }[] = [];
   const lexer = new PdfLexer(content);
   let font: Font | undefined,
     inText = false,
     out = "";
+  let x = 0,
+    y = 0,
+    leading = 0;
+  let matrix = [1, 0, 0, 1];
   let operands: PdfValue[] = [];
   const newline = () => {
     if (out && !out.endsWith("\n")) out += "\n";
+  };
+  const space = () => {
+    if (out && !/\s$/.test(out)) out += " ";
+  };
+  const move = (dx: number, dy: number) => {
+    x += matrix[0] * dx + matrix[2] * dy;
+    y += matrix[1] * dx + matrix[3] * dy;
+  };
+  const nextLine = () => {
+    move(0, -leading);
+    newline();
   };
   while (lexer.at < content.length) {
     lexer.skip();
@@ -466,6 +484,8 @@ async function contentText(
     if (word === "BT") {
       if (inText) throw new Error("BT duplicado");
       inText = true;
+      x = y = 0;
+      matrix = [1, 0, 0, 1];
     } else if (word === "ET") {
       if (!inText) throw new Error("ET sem BT");
       inText = false;
@@ -478,24 +498,46 @@ async function contentText(
       font = cache.get(name);
     } else if (["Tj", "TJ", "'", '"'].includes(word)) {
       if (!inText || !font) throw new Error("Texto sem fonte");
-      if (word === "'" || word === '"') newline();
+      if (word === "'" || word === '"') nextLine();
       const value = operands.at(-1),
         parts = word === "TJ" ? value : [value];
       if (!Array.isArray(parts)) throw new Error("Operador de texto inválido");
       for (const part of parts) {
-        if (typeof part === "number" && word === "TJ") continue;
-        // Não inserir espaço no kerning: um CPF pode estar dividido entre strings.
+        if (typeof part === "number" && word === "TJ") {
+          // Deslocamentos largos separam palavras; kerning pequeno continua colado.
+          if (part <= -200) space();
+          continue;
+        }
         out += font(byteString(part));
         if (out.length > MAX_TEXT) throw new Error("Texto excessivo");
       }
-    } else if (["Td", "TD", "T*", "Tm"].includes(word)) {
-      if ((word !== "Td" && word !== "TD") || operands[1] !== 0) newline();
+    } else if (word === "T*") {
+      nextLine();
+    } else if (["Td", "TD", "Tm", "TL"].includes(word)) {
+      if (
+        operands.length !== (word === "Tm" ? 6 : word === "TL" ? 1 : 2) ||
+        !operands.every((v) => typeof v === "number")
+      )
+        throw new Error("Posição de texto inválida");
+      const values = operands as number[];
+      const oldX = x,
+        oldY = y;
+      if (word === "TL") leading = values[0];
+      else if (word === "Tm") {
+        matrix = values.slice(0, 4);
+        [x, y] = values.slice(4);
+      } else {
+        if (word === "TD") leading = -values[1];
+        move(values[0], values[1]);
+      }
+      if (y !== oldY) newline();
+      else if (x !== oldX) space();
     } else if (word === "q") {
       if (stack.length >= 32) throw new Error("Estado gráfico profundo");
-      stack.push(font);
+      stack.push({ font, leading });
     } else if (word === "Q") {
       if (!stack.length) throw new Error("Estado gráfico inválido");
-      font = stack.pop();
+      ({ font, leading } = stack.pop()!);
     } else if (word === "Do") {
       const name = pdfName(operands[0]);
       const xobjects = pdfDict(pdf.resolve(resources.XObject));
@@ -590,7 +632,6 @@ async function contentText(
         "Tc",
         "Tw",
         "Tz",
-        "TL",
         "Tr",
         "Ts",
         "g",
@@ -737,4 +778,15 @@ export async function extractPersonalPdf(
   } catch {
     return null;
   }
+}
+
+/** O motor só usa o texto se a máscara não deixou documentos válidos expostos. */
+export async function extractMaskedPersonalPdf(
+  bytes: Uint8Array,
+  pii: PiiMask,
+): Promise<string | null> {
+  const text = await extractPersonalPdf(bytes);
+  if (text === null) return null;
+  const masked = pii.mask(text);
+  return pii.enabled && hasUnmaskedDocument(masked) ? null : masked;
 }

@@ -31,6 +31,7 @@ export async function fixturePdf(options = {}) {
     text = "João, ação e CPF 123.456.789-09",
     unicode = false,
     objstm = false,
+    xrefPredictor = false,
     image = false,
     imageOnly = false,
     pages = 1,
@@ -153,17 +154,83 @@ export async function fixturePdf(options = {}) {
         b & 255,
       );
     }
-    raw += `${xrefId} 0 obj\n${(await stream(table, true, `/Type /XRef /Size ${size} /W [1 4 2] /Root 1 0 R`)).object}\nendobj\nstartxref\n${start}\n`;
+    if (xrefPredictor) {
+      let predicted = "";
+      for (let row = 0; row < size; row++) {
+        predicted += "\x02"; // PNG Up: Predictor 12, sete colunas por entrada.
+        for (let column = 0; column < 7; column++)
+          predicted += String.fromCharCode(
+            (table.charCodeAt(row * 7 + column) -
+              (row ? table.charCodeAt((row - 1) * 7 + column) : 0)) & 255,
+          );
+      }
+      table = predicted;
+    }
+    raw += `${xrefId} 0 obj\n${(await stream(table, true, `/Type /XRef /Size ${size} /W [1 4 2] /Root 1 0 R${xrefPredictor ? " /DecodeParms << /Predictor 12 /Columns 7 >>" : ""}`)).object}\nendobj\nstartxref\n${start}\n`;
   }
   return bytes(mutate(raw + "%%EOF"));
 }
 
 export function pdfCases({
   extractPersonalPdf,
+  extractMaskedPersonalPdf,
+  createPiiMask,
   PDF_INFLATE_LIMITS = { bytes: 8 * 1024 * 1024, streams: 64 },
 }) {
   const extract = async (opts) => extractPersonalPdf(await fixturePdf(opts));
+  const masked = async (opts) =>
+    extractMaskedPersonalPdf(await fixturePdf(opts), createPiiMask());
   return [
+    [
+      "TJ separa palavras a partir de -200, preservando kerning pequeno",
+      async () => {
+        for (const gap of [-200, -333]) {
+          const content = `BT /F1 12 Tf [(CPF)${gap}(529.982.)-30(247-25)${gap}(Nome)]TJ ET`;
+          assert.equal(await extract({ content }), "CPF 529.982.247-25 Nome");
+          assert.equal(await masked({ content }), "CPF [CPF_1] Nome");
+        }
+        assert.equal(await masked({ content: "BT /F1 12 Tf [(CPF)-333(123.456.789-09)-333(Nome)]TJ ET" }), "CPF [CPF_1] Nome");
+        assert.equal(await extract({ content: "BT /F1 12 Tf [(a)-199(b)20(c)]TJ ET" }), "abc");
+      },
+    ],
+    [
+      "Tm, Td e TD distinguem deslocamento horizontal de mudança de linha",
+      async () => {
+        assert.equal(await extract({ content: "BT /F1 12 Tf 1 0 0 1 10 100 Tm (a) Tj 1 0 0 1 30 100 Tm (b) Tj 20 0 Td (c) Tj 20 0 TD (d) Tj 1 0 0 1 10 90 Tm (e) Tj 0 -10 Td (f) Tj 0 -10 TD (g) Tj T* (h) Tj (i) ' 0 0 (j) \" ET" }), "a b c d\ne\nf\ng\nh\ni\nj");
+        assert.equal(await extract({ content: "BT /F1 12 Tf 10 TL 1 0 0 1 10 100 Tm (a) Tj T* (b) Tj 1 0 0 1 30 90 Tm (c) Tj ET" }), "a\nb c");
+        assert.equal(await extract({ content: "BT /F1 12 Tf 10 TL 1 0 0 1 10 100 Tm (a) Tj q 20 TL Q T* (b) Tj 1 0 0 1 30 90 Tm (c) Tj ET" }), "a\nb c");
+      },
+    ],
+    [
+      "rede de segurança recusa CPF/CNPJ residuais colados ou fragmentados após a máscara",
+      async () => {
+        assert.equal(await masked({ content: "BT /F1 12 Tf 1 0 0 1 10 100 Tm (529.982.) Tj 1 0 0 1 10 90 Tm (247-25) Tj ET" }), null);
+        for (const text of [
+          "abc52998224725xyz",
+          "abc11.222.333/0001-81xyz",
+          "abc11222333000181xyz",
+          "CPF 529 . 982 . 247 - 25",
+          "CNPJ 11 . 222 . 333 / 0001 - 81",
+          "1 529 . 982 . 247 - 25",
+          "CPF 529 . 982 . 247 - 25 1",
+        ]) assert.equal(await masked({ text }), null, text);
+        assert.equal(await masked({ text: "CPF 529.982.247-25 e CNPJ 11.222.333/0001-81" }), "CPF [CPF_1] e CNPJ [CNPJ_1]");
+        // Inválido e número maior não são documentos só por conterem dígitos.
+        for (const text of ["abc52998224724xyz", "abc11222333000182xyz", "1529982247251"])
+          assert.equal(await masked({ text }), text);
+      },
+    ],
+    [
+      "rede de segurança preserva pedidos, valores em R$ e datas",
+      async () => {
+        for (const text of [
+          "pedido 12345", "pedido 11988887777", "pedido 1234567890",
+          "protocolo: 52998224725", "ordem nº 11222333000181",
+          "R$ 11988887777", "R$ 1.234,56", "R$ 52998224725,00",
+          "18/11/2026 às 12:34:56", "2026-11-18 09:30", "18.11.2026",
+        ]) assert.equal(await masked({ text }), text, text);
+      },
+    ],
     [
       "ObjStm, XRef, Contents Flate e ToUnicode de dois bytes preservam acentos",
       async () => {
@@ -317,6 +384,13 @@ export function pdfCases({
       },
     ],
     [
+      "recusa Type3 inclusive com ToUnicode",
+      async () => {
+        for (const unicode of [false, true])
+          assert.equal(await extract({ unicode, mutate: (raw) => raw.replace(unicode ? "/Subtype /Type0" : "/Subtype /Type1", "/Subtype /Type3") }), null);
+      },
+    ],
+    [
       "recusa referências cíclicas em Contents, recursos e árvore de páginas",
       async () => {
         for (const opts of [
@@ -395,17 +469,7 @@ export function pdfCases({
           }),
           null,
         );
-        assert.equal(
-          await extract({
-            objstm: true,
-            mutate: (raw) =>
-              raw.replace(
-                "/Type /XRef",
-                "/DecodeParms << /Predictor 12 >> /Type /XRef",
-              ),
-          }),
-          null,
-        );
+        assert.equal(await extract({ objstm: true, mutate: (raw) => raw.replace("/Type /ObjStm", "/DecodeParms << /Predictor 12 /Columns 7 >> /Type /ObjStm") }), null);
         const empty = (await stream(" ")).object;
         const extraObjects = Array.from(
           { length: PDF_INFLATE_LIMITS.streams },
@@ -435,6 +499,19 @@ export function pdfCases({
           }),
           null,
         );
+      },
+    ],
+    [
+      "ignora XRef com DecodeParms Predictor 12 sem decodificar seus bytes",
+      async () => {
+        assert.equal(await extract({
+          objstm: true,
+          xrefPredictor: true,
+          text: "ok",
+        }), "ok");
+        // Um XRef fora dos Contents não deve entrar no orçamento de descompressão.
+        assert.equal(await extract({ text: "ok", extraObjects: [[9, (await stream(" ".repeat(PDF_INFLATE_LIMITS.bytes + 1), true, "/Type /XRef /DecodeParms << /Predictor 12 /Columns 7 >>")).object]] }), "ok");
+        assert.equal(await extract({ streamExtra: "/Type /XRef /DecodeParms << /Predictor 12 /Columns 7 >>" }), null);
       },
     ],
     [
