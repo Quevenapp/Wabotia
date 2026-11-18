@@ -14,9 +14,6 @@ type Pending = { path: string; under?: boolean; query?: [string, string[]] };
 export const MOTOR_PENDING: readonly Pending[] = [
   // Meu Negócio: os painéis de vendas (o Início, /v1/inicio, já responde).
   { path: "/meu-negocio" },
-  // Documentos: o Relatório de Vendas (também agrupado por bairro); os outros
-  // relatórios de vendas e de serviço já respondem.
-  { path: "/documentos-empresa", query: ["relatorio", ["vendas", "bairro"]] },
   // Fiscal: notas, eventos, rascunhos, numeração e o certificado (as
   // naturezas de operação e as preferências de NF-e e NFC-e já respondem).
   { path: "/historico-fiscal" },
