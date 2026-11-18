@@ -125,7 +125,7 @@ function compile(manifest: AreaTemplate, selection: AreaTemplateSelection, cfg: 
       const builtin = menu.type_id === "service_order";
       const typeId = builtin ? "service_order" : globalId(menu.type_id);
       const type = (settings.os_work_types || savedList(cfg, "os_work_types")).find((t: CustomWorkType) => t.id === typeId);
-      if (!builtin && !type && !selection.work_type_ids.includes(menu.type_id)) {
+      if ((builtin || !type) && !selection.work_type_ids.includes(menu.type_id)) {
         change(path, "skip", "Menu de um tipo não selecionado; poderá ser incluído em outra aplicação.");
         continue;
       }
