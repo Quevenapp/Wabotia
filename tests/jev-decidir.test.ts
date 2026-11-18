@@ -244,6 +244,55 @@ describe("ferramenta decidir dos bots internos", () => {
     expect(maskText("token wab_abcdefgh123", false)).toBe("token [oculto]");
   });
 
+  it("escolha: duas perguntas em ordens opostas; só vale se a mesma opção vencer nas duas, acima do limiar", async () => {
+    // Avaliação real (17/11/2026): "caixa de macarrão" deu parafuso numa ordem
+    // e espaguete 1 kg na outra. Divergência vai para a equipe.
+    const f = await areaFixture();
+    const run = await customerRun(f, "Uma caixa de macarrão");
+    const opcoes = { m500: "Espaguete 500 g", m1kg: "Espaguete 1 kg", paraf: "Parafuso" };
+    const ask = () =>
+      runDecide(env, { id: run.id, profile_id: f.profile, bot_id: f.bot }, {}, { pergunta: "Qual produto?", tipo: "escolha", opcoes }, true, readableOf(run.input));
+    // A primeira opção da lista vence: a resposta segue a ordem.
+    const first = (body: any) => Object.keys(body.questions.q.criteria)[0];
+    let calls = mock({
+      jev: (body) => ({
+        model: "jev-1.14.0",
+        answers: { q: { type: "choice", choice: first(body), confidence: 0.95, probabilities: { [first(body)]: 0.95 } } },
+        usage: { input_tokens: 100, output_tokens: 1 },
+      }),
+    });
+    const disagree = JSON.parse(await ask());
+    expect(disagree).toMatchObject({ resposta: "incerto", segura: false });
+    const jevCalls = calls.filter((c) => c.url.includes("typesafe.ai"));
+    expect(jevCalls).toHaveLength(2);
+    expect(Object.keys(jevCalls[0].body.questions.q.criteria)).toEqual(["m500", "m1kg", "paraf"]);
+    expect(Object.keys(jevCalls[1].body.questions.q.criteria)).toEqual(["paraf", "m1kg", "m500"]);
+    const row = await one(env, "SELECT answer,reason,input_tokens FROM jev_questions WHERE run_id=? ORDER BY created DESC LIMIT 1", run.id);
+    expect(row).toMatchObject({ answer: "incerto", reason: "order_disagreement", input_tokens: 200 });
+
+    // A mesma opção nas duas ordens, acima do limiar: vale, com a menor confiança.
+    let n = 0;
+    calls = mock({
+      jev: () => ({
+        model: "jev-1.14.0",
+        answers: { q: { type: "choice", choice: "m500", confidence: n++ === 0 ? 0.97 : 0.86, probabilities: { m500: 0.9 } } },
+        usage: { input_tokens: 100, output_tokens: 1 },
+      }),
+    });
+    expect(JSON.parse(await ask())).toMatchObject({ resposta: "m500", confianca: 0.86, segura: true });
+
+    // Mesma opção, mas uma das duas abaixo do limiar: incerto.
+    n = 0;
+    mock({
+      jev: () => ({
+        model: "jev-1.14.0",
+        answers: { q: { type: "choice", choice: "m500", confidence: n++ === 0 ? 0.97 : 0.6, probabilities: { m500: 0.9 } } },
+        usage: { input_tokens: 100, output_tokens: 1 },
+      }),
+    });
+    expect(JSON.parse(await ask())).toMatchObject({ resposta: "incerto" });
+  });
+
   it("consultar especialista aponta para o especialista interno: JEV aprova, o bot interno responde com o JSON de especialista e volta ao Atendente", async () => {
     const f = await areaFixture();
     // Especialista: outro bot de provedor direto (uma conexão por bot).
