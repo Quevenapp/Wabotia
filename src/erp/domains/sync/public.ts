@@ -5,6 +5,7 @@ import { one } from "../../engine/driver.ts";
 import type { RpcContext } from "../../engine/registry.ts";
 
 export * from "./stubs.generated.ts";
+export { stockObservationId } from "./cutover.ts";
 // Origin fora: o que os domínios alcançam de erp_sync.* (origin-off.ts).
 export {
   captureCatalog, captureDocument, captureFinance, captureStock, guardOriginEffectsDocument, guardOriginEffectsItem, guardZeroTitle,

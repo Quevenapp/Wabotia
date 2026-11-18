@@ -3379,7 +3379,7 @@
    },
    "erp_stock.command_taken": {
     "name": "commandTaken",
-    "ported": false
+    "ported": true
    },
    "erp_stock.component_problem": {
     "name": "componentProblem",
@@ -3403,7 +3403,7 @@
    },
    "erp_stock.composition_own_stock": {
     "name": "compositionOwnStock",
-    "ported": false
+    "ported": true
    },
    "erp_stock.composition_settings": {
     "name": "compositionSettings",
@@ -3559,7 +3559,7 @@
    },
    "erp_stock.invoice_screen": {
     "name": "invoiceScreen",
-    "ported": false
+    "ported": true
    },
    "erp_stock.invoice_unit_price": {
     "name": "invoiceUnitPrice",
@@ -3583,7 +3583,7 @@
    },
    "erp_stock.ledger_origin": {
     "name": "ledgerOrigin",
-    "ported": false
+    "ported": true
    },
    "erp_stock.lot_apply": {
     "name": "lotApply",
@@ -3623,7 +3623,7 @@
    },
    "erp_stock.negative_allowed": {
     "name": "negativeAllowed",
-    "ported": false
+    "ported": true
    },
    "erp_stock.post": {
     "name": "post",
@@ -3635,7 +3635,7 @@
    },
    "erp_stock.post_physical_025": {
     "name": "postPhysical025",
-    "ported": false
+    "ported": true
    },
    "erp_stock.protect_default_warehouse": {
     "name": "protectDefaultWarehouse",

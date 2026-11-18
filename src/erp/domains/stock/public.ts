@@ -108,3 +108,8 @@ export function guardInvoiceStockDelete(
   if (one(db, `SELECT 1 x FROM "erp_stock__invoice_posting" WHERE invoice_id=? AND state='active'`, next.id))
     raise("40001", "erp_invoice_stock_posted_delete");
 }
+
+// Dependências dos comandos de depósito, transferência e revisão do extrato.
+export { commandTaken, compositionOwnStock, negativeAllowed } from "./internal.ts";
+export { invoiceScreen, ledgerOrigin } from "./ledger.ts";
+export { postPhysical025 } from "./rpc/erp_stock_post.ts";
