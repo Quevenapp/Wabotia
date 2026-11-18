@@ -77,6 +77,21 @@ test("sale_finish com id nulo cria e finaliza: vendas deixa efeitos pendentes; a
   assert.equal((await cancel(pending, f.users.vendas)).record.state, "cancelled");
 });
 
+test("troco: Dinheiro (01) e Cheque (02) à vista contam no valor recebido; cartão não; recebido abaixo é recusado", async () => {
+  const cheque = (await f.db.query("insert into erp_catalog.payment_method(description,payment_type,destination,applicable,created_by,updated_by) values('Cheque','02','caixa','ambos',$1,$1) returning id", [f.users.admin])).rows[0].id;
+  await f.sync();
+  const pay = (method, amount, days = 0) => ({ payment_method_id: method, days, amount_cents: amount, note: null });
+  const save = (payments, received) => act("sale_save", sale({ payments, cash_received_cents: received }));
+  // Só cheque: o recebido conta contra o cheque.
+  assert.equal((await save([pay(cheque, "1000")], "1200")).record.change_cents, "200");
+  // Dinheiro + cheque: os dois somam; o cartão fica fora do troco.
+  assert.equal((await save([pay(f.methods.dinheiro, "400"), pay(cheque, "600")], "1000")).record.change_cents, "0");
+  assert.equal((await save([pay(f.methods.dinheiro, "400"), pay(f.methods.cartao, "600")], "500")).record.change_cents, "100");
+  // Cheque a prazo não é à vista; sem nada à vista, recebido é recusado.
+  await refused(save([pay(cheque, "1000", 30)], "1000"), "22023", "erp_pos_cash_received_invalid");
+  await refused(save([pay(cheque, "1000")], "999"), "22023", "erp_pos_cash_received_invalid");
+});
+
 test("sale_cancel sem efeitos e recusa financeira sem estoque", async () => {
   const open = (await act("sale_save", sale({ payments: [] }))).record;
   const cancelled = (await cancel(open, f.users.vendas)).record;
