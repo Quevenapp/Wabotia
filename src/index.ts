@@ -65,7 +65,7 @@ import {
 import { aiListModels } from "./ai-provider";
 import { pushConfig, publicPushConfig, sendTest, prunePush } from "./push";
 import { wake } from "./events";
-import { settings, scopes, eventTypes, conversation, perform } from "./service";
+import { settings, settingsRevision, scopes, eventTypes, conversation, perform } from "./service";
 import {
   discover,
   probe,
@@ -155,7 +155,7 @@ import {
   ipHash,
   peekClaim,
 } from "./module-credentials";
-import { credentialGate, moduleRoutes, webStepPageHook } from "./modules/hooks";
+import { credentialGate, matchModuleRoute, moduleRoutes, routeData, webStepPageHook } from "./modules/hooks";
 import { paymentView, verifyPaymentWebhook } from "./payments";
 import {
   addCartSlot,
@@ -1116,6 +1116,8 @@ const BOUND_ROUTES: [string, RegExp][] = [
   ["GET", /^(agenda|reserva|pedido|mensalidade|queue)\/conversations\/[^/]+$/],
   ["GET", /^suporte\/conversations\/[^/]+\/situation$/],
   ["GET", /^service-orders\/conversation\/[^/]+$/],
+  ["GET", /^service-orders\/conversation\/[^/]+\/orders\/[^/]+$/],
+  ["GET", /^service-orders\/conversation\/[^/]+\/orders\/[^/]+\/(tasks|documents|entries)$/],
 ];
 app.use("/api/v1/profiles/*", async (c, next) => {
   if (isBound(c.get("actor"))) {
@@ -1835,24 +1837,6 @@ for (const [method, path, op] of commands)
       await closeSockets(c.env, [profile], [`display:${c.req.param("id")}`]);
     return response;
   });
-// Rotas declaradas pelos módulos (docs/MODULOS.md: onRoute, onRead). A
-// escrita vira comando no Coordinator da área, como as rotas acima.
-// Credencial por QR: negada por padrão; só a rota que declara
-// `credential: true`, e só com o :id do registro dela (credentialGate).
-for (const route of moduleRoutes().write)
-  app.on(route.method, `/api/v1/profiles/:profile/${route.path}`, async (c) => {
-    credentialGate(
-      c.get("actor"),
-      route,
-      c.req.param() as Record<string, string>,
-    );
-    return mutate(c, route.op, c.req.param("profile")!, {
-      ...(route.method === "DELETE"
-        ? {}
-        : await c.req.json().catch(() => ({}))),
-      ...(c.req.param("id") ? { id: c.req.param("id") } : {}),
-    });
-  });
 // Telemetria dos módulos (onTelemetry): POST sem Idempotency-Key e fora do
 // Coordinator, para posições em lote; corpo até 64 KB, até TELEMETRY_RATE
 // chamadas por minuto por credencial, área e rota.
@@ -1893,23 +1877,34 @@ for (const route of moduleRoutes().telemetry)
       );
     },
   );
-for (const route of moduleRoutes().read)
-  app.get(`/api/v1/profiles/:profile/${route.path}`, async (c) => {
-    const profile = c.req.param("profile")!;
-    if (!canProfile(c.get("actor"), profile))
-      throw new ApiError(404, "not_found", "Perfil não encontrado.");
-    credentialGate(
-      c.get("actor"),
-      route,
-      c.req.param() as Record<string, string>,
-    );
-    return c.json(
-      await route.handler(c.env, c.get("actor"), profile, {
-        params: c.req.param() as Record<string, string>,
-        query: c.req.query(),
-      }),
-    );
-  });
+// Consulta o registro atual, inclusive extensões carregadas depois desta
+// entrada. Mantém os gates anteriores e deixa rotas do núcleo prosseguirem.
+app.use("/api/v1/profiles/:profile/*", async (c, next) => {
+  const match = matchModuleRoute(c.req.method, c.req.path);
+  if (!match) return next();
+  const { route, params } = match;
+  const profile = params.profile;
+  const actor = c.get("actor");
+  // Credencial por QR: negada por padrão, salvo declaração e ID do registro.
+  if (route.kind === "write") {
+    credentialGate(actor, route, params);
+    return mutate(c, route.op, profile, routeData(
+      route.method === "DELETE" ? {} : await c.req.json().catch(() => ({})),
+      params,
+    ));
+  }
+  if (!canProfile(actor, profile))
+    throw new ApiError(404, "not_found", "Perfil não encontrado.");
+  credentialGate(actor, route, params);
+  // Sem c.json: bytes permanecem intactos; metadados passam pelo Coordinator.
+  if (route.kind === "binary")
+    return route.handler(c.env, actor, profile, {
+      params, query: c.req.query(), request: c.req.raw,
+    });
+  return c.json(await route.handler(c.env, actor, profile, {
+    params, query: c.req.query(),
+  }));
+});
 // Uma fonte do Conhecimento com o texto completo, para edição no painel.
 app.get("/api/v1/profiles/:profile/knowledge/:id", async (c) => {
   const profile = c.req.param("profile");
@@ -1971,6 +1966,7 @@ app.get("/api/v1/profiles/:profile/status", async (c) => {
     );
   return c.json({
     settings: await settings(c.env, p),
+    settings_revision: await settingsRevision(c.env, p),
     enabled: (await one(c.env, "SELECT enabled FROM profiles WHERE id=?", p))
       ?.enabled,
     // Contadores das conversas só para quem acessa o atendimento.

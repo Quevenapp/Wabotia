@@ -16,6 +16,14 @@ export interface ModuleNavItem {
 }
 
 /** Tipo de item de menu do WhatsApp oferecido pelo módulo. */
+export interface ModuleMenuReference {
+  field: string;
+  setting: string;
+  label: string;
+  default_id?: string;
+  builtins?: Array<{ id: string; label: string }>;
+}
+
 export interface ModuleMenuType {
   /** Valor de `type` no item de menu salvo nas configurações da área. */
   type: string;
@@ -26,7 +34,7 @@ export interface ModuleMenuType {
    * do módulo (por exemplo form_id → forms[].id). O núcleo recusa salvar um
    * item que aponte para um registro inexistente.
    */
-  reference?: { field: string; setting: string; label: string };
+  reference?: ModuleMenuReference;
 }
 
 /** Chave das configurações da área (PUT /settings) que pertence ao módulo. */

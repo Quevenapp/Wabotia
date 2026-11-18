@@ -113,6 +113,9 @@ export class Coordinator extends DurableObject<Env> {
         }
       });
     if (new URL(request.url).pathname === "/command") {
+      // F0: reservas/confirmações de upload e aplicação de modelo usam esta
+      // mesma fila e os mesmos recibos. Bytes ficam no Worker/R2; nunca no
+      // JSON, na auditoria ou no recibo do Coordinator.
       // Repetição de um comando cujo recibo ainda está fechando (depois da
       // resposta, abaixo): espera o fechamento aqui, fora do bloqueio, e
       // segue; lá dentro, o recibo já tem a resposta e ela volta igual.
