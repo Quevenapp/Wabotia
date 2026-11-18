@@ -74,6 +74,18 @@ export const discardTables = {};
 export const covered = {
   "checks": {},
   "triggers": {
+    "erp_stock__item_component.guard_stock_item_component": {
+      "where": "src/erp/domains/stock/rpc/item-components.ts guardItemComponent: versão inicial 1, avanço unitário, identidade preservada e comando novo",
+      "test": "tests/erp/stock/compositions.test.mjs"
+    },
+    "erp_stock__item_component.aa_mirror_authority": {
+      "where": "src/erp/domains/stock/rpc/item-components.ts guardItemComponent/deleteComponents: mirrorGuardEffect nas linhas novas e antigas",
+      "test": "tests/erp/stock/compositions.test.mjs"
+    },
+    "erp_stock__item_component_command.aa_mirror_authority": {
+      "where": "src/erp/domains/stock/rpc/item-components.ts itemComponentsReceipt: mirrorGuardEffect antes do recibo; recibo nunca atualizado ou apagado (imutabilidade já em SQL)",
+      "test": "tests/erp/stock/compositions.test.mjs"
+    },
     "erp_stock__composition.guard_stock_composition": {
       "where": "src/erp/domains/stock/rpc/compositions.ts erpStockProductCompose: único escritor, versão inicial 1, avanço unitário, identidade preservada e comando novo",
       "test": "tests/erp/stock/compositions.test.mjs"

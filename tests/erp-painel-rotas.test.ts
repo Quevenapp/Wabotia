@@ -412,8 +412,11 @@ describe("painel do ERP contra a rota real", () => {
     "ação de tela sem motor (0A000) avisa a casca em vez de só falhar",
     { timeout: 120_000 },
     async () => {
-      // Aplicar importação do Catálogo (erp_catalog_import_apply) não está registrado.
-      // O POST /v1/importacao-cadastros/products/apply chama o RPC sem leitura prévia.
+      // Excluir nota fiscal (erp_fiscal_invoice_execute, ação delete) ainda não
+      // tem motor. O POST /v1/notas-fiscais/:id/excluir valida o corpo e chama o
+      // RPC sem leitura prévia, com o erro genérico. (A importação do Catálogo
+      // saiu da instalação principal: 404 erp_route_removed; a numeração fiscal
+      // devolve código próprio, que não aciona o aviso.)
       const { f, send, get } = await setup();
       // Primeira ida ao motor no isolado (rodando só este teste): fora da espera do controlador.
       await get(await bearer(f.admin), "/erp/v1/inicio");
@@ -428,11 +431,11 @@ describe("painel do ERP contra a rota real", () => {
           f.admin.id,
           async (controller) => {
             const failure = await controller
-              .catalogImport(
-                "/v1/importacao-cadastros/products/apply",
+              .fiscalInvoices(
+                `/v1/notas-fiscais/${crypto.randomUUID()}/excluir`,
                 {
                   method: "POST",
-                  body: { command_id: crypto.randomUUID(), preview_hash: "0".repeat(64), items: [{ source_id: "1", source_hash: "0".repeat(64) }] },
+                  body: { command_id: crypto.randomUUID(), expected_version: 1, reason: "Teste do aviso de implantação" },
                 },
               )
               .then(

@@ -24,5 +24,6 @@ import "./rpc/checkin.ts";
 import "./rpc/invoice-stock.ts";
 import "./rpc/document-stock-read.ts";
 import "./rpc/compositions.ts";
+import "./rpc/item-components.ts";
 import "./rpc/purchases.ts";
 import "./rpc/mirror.ts";
