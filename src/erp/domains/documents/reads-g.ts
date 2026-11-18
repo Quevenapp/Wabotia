@@ -57,6 +57,3 @@ export function mirrorVisible(db: SqlDriver, user: string | null, document: stri
 export function mirrorRequireVisible(db: SqlDriver, user: string | null, document: string | null, write: boolean): void {
   requireVisible(db, user, document, write);
 }
-
-/** erp_document_mirror.report_coverage(user, kind, contact, from, to): sem espelho, nada excluído. */
-export const reportCoverage = () => ({ origin: "brufap", mirror_excluded_count: 0, coverage: { partial: false, reason: "native_effects_only" } });
