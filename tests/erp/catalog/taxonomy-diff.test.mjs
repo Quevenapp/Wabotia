@@ -63,3 +63,29 @@ test("excluir tira a categoria e a etiqueta do produto e a etiqueta do contato",
   assert.equal((await f.taxonomyDelete("tags", productTag.id, productTag.version)).deleted, true);
   assert.equal((await f.taxonomyDelete("tags", contactTag.id, contactTag.version)).deleted, true);
 });
+
+test("excluir etiqueta de nota tira das notas espelhadas do Origin (versão e trilha)", async () => {
+  const keep = (await f.taxonomySave("tags", { name: "Fica", tag_type: "invoices" })).item;
+  const gone = (await f.taxonomySave("tags", { name: "Sai da nota", tag_type: "invoices" })).item;
+  await f.db.exec("set session_replication_role = replica");
+  try {
+    for (const [entity, id] of [["nfe", "123"], ["nfce", "77"], ["nfe", "9"]])
+      await f.db.query(
+        `insert into origin_sync.raw_record(entity,last_resource,source_id,payload,version_hash) values($1,$1,$2,'{}'::jsonb,$3)`,
+        [entity, id, "c".repeat(64)],
+      );
+    // NF-e 123 com as duas etiquetas e versão 2; NFC-e 77 só com a que sai; NF-e 9 só com a que fica.
+    for (const [model, id, tag] of [["55", "123", keep.id], ["55", "123", gone.id], ["65", "77", gone.id], ["55", "9", keep.id]])
+      await f.db.query(`insert into erp_catalog.invoice_tag(origin,model,invoice_id,tag_id) values('origin',$1,$2,$3)`, [model, id, tag]);
+    await f.db.query(
+      `insert into erp_catalog.invoice_tag_state(origin,model,invoice_id,version,updated_by,updated_at) values('origin','55','123',2,$1,now())`,
+      [f.users.admin],
+    );
+  } finally {
+    await f.db.exec("set session_replication_role = origin");
+  }
+  await f.sync();
+  assert.equal((await f.taxonomyDelete("tags", gone.id, gone.version)).deleted, true);
+  const left = (await f.db.query("select count(*)::int v from erp_catalog.invoice_tag where tag_id=$1", [gone.id])).rows[0].v;
+  assert.equal(left, 0);
+});
