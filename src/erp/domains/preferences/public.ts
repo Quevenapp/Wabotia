@@ -4,6 +4,9 @@ import { one, type SqlDriver } from "../../engine/driver.ts";
 
 export * from "./stubs.generated.ts";
 export { situationBaseColor, situationBaseLabel } from "./situation-labels.ts";
+// Para erp_catalog_contact_labels (sessão P): arquivos leves, só do motor.
+export { labelDefaults, labelDto } from "./label-defaults.ts";
+export { reportClean } from "./report-text.ts";
 // As leituras de situações, transições e Meu Negócio que outros domínios usam
 // estão em ./shared.ts: este arquivo fica leve (sem importar outros domínios),
 // porque Catálogo, Estoque, Financeiro e Documentos o importam para o get() e um
