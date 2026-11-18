@@ -11,6 +11,10 @@ import {
   aiComplete,
   aiCompleteWithTools,
   aiListModels,
+  AI_MAX_OUTPUT_TOKENS,
+  AI_MAX_OUTPUT_TOKENS_DEEP,
+  AI_RUN_DEADLINE_MS,
+  AiError,
   PDF_LIMITS,
   PDF_TOKENS_PER_PAGE,
   pdfPages,
@@ -18,7 +22,10 @@ import {
 } from "../src/ai-provider";
 import { usageText } from "../web/lib/usage";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 const admin: Actor = {
   id: "user-admin",
@@ -56,7 +63,7 @@ function mockFetch(reply: (call: Call) => Response | Promise<Response>) {
       };
       calls.push(call);
       const response = await reply(call);
-      return call.url.endsWith("/responses") ? asResponses(response) : response;
+      return call.url.endsWith("/responses") ? asResponses(response, call.body) : response;
     }),
   );
   return calls;
@@ -65,13 +72,20 @@ function mockFetch(reply: (call: Call) => Response | Promise<Response>) {
  * A OpenAI responde pelo Responses (src/ai-provider.ts): a resposta simulada
  * no formato do chat/completions vira o formato do Responses (status,
  * incomplete_details, output com output_text, usage em input/output_tokens).
- * Erros e respostas já no formato novo passam como vieram.
+ * O raciocínio cifrado só volta quando o pedido inclui esse campo.
  */
-async function asResponses(response: Response) {
+async function asResponses(response: Response, body: any) {
   if (!response.ok) return response;
   const data: any = await response.clone().json().catch(() => null);
   const choice = data?.choices?.[0];
-  if (!choice) return response;
+  if (!choice) {
+    if (Array.isArray(data?.output) && !body?.include?.includes("reasoning.encrypted_content")) {
+      for (const item of data.output)
+        if (item.type === "reasoning") delete item.encrypted_content;
+      return Response.json(data);
+    }
+    return response;
+  }
   const cut = choice.finish_reason === "length" ? "max_output_tokens" : choice.finish_reason === "content_filter" ? "content_filter" : null;
   const u = data.usage;
   return Response.json({
@@ -633,6 +647,56 @@ describe("cadastro da conexão de provedor de IA", () => {
 });
 
 describe("modelos e esforço", () => {
+  it.each(["anthropic", "openai", "deepseek", "compatible"])("%s limita a saída com e sem ferramentas", async (provider) => {
+    expect(AI_MAX_OUTPUT_TOKENS).toBe(16000);
+    expect(AI_MAX_OUTPUT_TOKENS_DEEP).toBe(32000);
+    const conn = { id: uid(), config: "" };
+    await setSecret(env, `connection:${conn.id}`, { api_key: "test-provider-key" });
+    const calls = mockFetch(() => provider === "anthropic" ? anthropicMessage("pronto") : openaiMessage("pronto"));
+    for (const effort of ["low", "high", "xhigh", "max"]) {
+      conn.config = JSON.stringify({ provider, model: provider === "anthropic" ? "claude-haiku-5-5" : "modelo-teste", effort, base_url: "https://llm.example.com/v1" });
+      const request = { instructions: "Responda.", input: "Oi" };
+      await aiComplete(env, conn, request);
+      await aiCompleteWithTools(env, conn, { ...request, tools: [], run: async () => "{}" });
+      for (const call of calls.slice(-2)) {
+        const field = provider === "openai" ? "max_output_tokens" : "max_tokens";
+        expect(call.body[field]).toBe(["xhigh", "max"].includes(effort) ? 32000 : 16000);
+      }
+    }
+    expect(calls).toHaveLength(8);
+  });
+
+  it.each(["anthropic", "openai", "deepseek", "compatible"])("%s reduz o timeout ao prazo restante e não inicia rodada após seis minutos", async (provider) => {
+    expect(AI_RUN_DEADLINE_MS).toBe(360_000);
+    const conn = { id: uid(), config: JSON.stringify({ provider, model: "modelo-teste", effort: "max", base_url: "https://llm.example.com/v1" }) };
+    await setSecret(env, `connection:${conn.id}`, { api_key: "test-provider-key" });
+    let clock = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => clock);
+    const timeouts = vi.spyOn(AbortSignal, "timeout");
+    const calls = mockFetch(() => Response.json(provider === "anthropic" ? {
+      id: "msg", type: "message", role: "assistant", model: "claude-haiku-5-5",
+      content: [{ type: "tool_use", id: "t1", name: "eco", input: {} }], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 },
+    } : provider === "openai" ? {
+      status: "completed", output: [{ type: "function_call", call_id: "t1", name: "eco", arguments: "{}" }],
+    } : {
+      choices: [{ finish_reason: "tool_calls", message: { role: "assistant", content: null, tool_calls: [{ id: "t1", type: "function", function: { name: "eco", arguments: "{}" } }] } }],
+    }));
+    let runs = 0;
+    const result = aiCompleteWithTools(env, conn, {
+      instructions: "Consulte.", input: "Oi",
+      tools: [{ name: "eco", description: "Ecoa.", schema: { type: "object", properties: {} } }],
+      run: async () => {
+        clock += runs++ === 0 ? AI_RUN_DEADLINE_MS - 1000 : 1000;
+        return "{}";
+      },
+    });
+    await expect(result).rejects.toBeInstanceOf(AiError);
+    await expect(result).rejects.toMatchObject({ transient: false, message: expect.stringContaining("excedeu o prazo") });
+    expect(calls).toHaveLength(2);
+    expect(runs).toBe(2);
+    expect(timeouts).toHaveBeenCalledWith(1000);
+  });
+
   it("lista modelos de chat da OpenAI e só os atuais da Anthropic", async () => {
     const calls = mockFetch((call) =>
       call.url.startsWith("https://api.openai.com/")
@@ -758,8 +822,8 @@ describe("modelos e esforço", () => {
     const calls = mockFetch(() => anthropicMessage(JSON.stringify(answer)));
     await processRun(env, run);
     expect(calls[0].body.output_config.effort).toBe("max");
-    // The highest levels get room to think before the answer.
-    expect(calls[0].body.max_tokens).toBe(32000);
+    // O esforço máximo usa o teto ampliado para raciocinar antes da resposta.
+    expect(calls[0].body.max_tokens).toBe(AI_MAX_OUTPUT_TOKENS_DEEP);
 
     const g = await serviceFixture({
       provider: "openai",
@@ -771,7 +835,7 @@ describe("modelos e esforço", () => {
     const openaiCalls = mockFetch(() => openaiMessage(JSON.stringify(answer)));
     await processRun(env, other);
     expect(openaiCalls[0].body.reasoning).toEqual({ effort: "low" });
-    expect(openaiCalls[0].body.max_output_tokens).toBeUndefined();
+    expect(openaiCalls[0].body.max_output_tokens).toBe(AI_MAX_OUTPUT_TOKENS);
 
     const h = await serviceFixture({
       provider: "deepseek",
@@ -788,6 +852,7 @@ describe("modelos e esforço", () => {
       "https://api.deepseek.com/chat/completions",
     );
     expect(deepseekCalls[0].body.reasoning_effort).toBe("none");
+    expect(deepseekCalls[0].body.max_tokens).toBe(AI_MAX_OUTPUT_TOKENS);
     expect(deepseekCalls[0].body.response_format).toEqual({
       type: "json_object",
     });
@@ -1281,6 +1346,19 @@ describe("cache de prompt do provedor de IA", () => {
 });
 
 describe("PDF do cliente no provedor de IA", () => {
+  it("PDF com ObjStm sem páginas legíveis vai à equipe sem chegar ao provedor", async () => {
+    const f = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", vision: true, pdf: true });
+    const calls = mockFetch(() => anthropicMessage(JSON.stringify(answer)));
+    const bytes = new TextEncoder().encode("%PDF-1.5\n1 0 obj\n<< /Type /ObjStm /Filter /FlateDecode >>\nstream\ncomprimido\nendstream\nendobj\n%%EOF");
+    expect(pdfPages(bytes)).toBeNull();
+    const conversation = await receive(f, "Confira o PDF", [{ type: "application/pdf", bytes }]);
+    const run = await runOf(conversation);
+    if (run) await processRun(env, run);
+    expect(calls).toHaveLength(0);
+    expect(run).toBeNull();
+    expect(await state(conversation)).not.toBe("ai");
+  });
+
   it("Anthropic: o PDF vai como bloco document antes do texto, e só na mensagem em que chegou", async () => {
     const f = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", vision: true, pdf: true });
     const conversation = await receive(f, "Segue a nota", [{ type: "application/pdf", bytes: pdf(2) }]);
@@ -1355,6 +1433,11 @@ describe("PDF do cliente no provedor de IA", () => {
     // itens da saída (raciocínio cifrado e chamada) voltam no input seguinte
     // com o function_call_output da chamada.
     const reasoning = { type: "reasoning", id: "rs_1", summary: [], encrypted_content: "cifrado" };
+    // O mock não entrega o cifrado de graça: o corpo precisa pedir include.
+    const without = await asResponses(Response.json({ output: [reasoning] }), { store: false });
+    expect((await without.json<any>()).output[0].encrypted_content).toBeUndefined();
+    const withInclude = await asResponses(Response.json({ output: [reasoning] }), { store: false, include: ["reasoning.encrypted_content"] });
+    expect((await withInclude.json<any>()).output[0].encrypted_content).toBe("cifrado");
     const call = { type: "function_call", id: "fc_1", call_id: "call_1", name: "eco", arguments: '{"texto":"oi"}' };
     const replies = [
       { id: "r1", status: "completed", output: [reasoning, call], usage: { input_tokens: 100, output_tokens: 10, input_tokens_details: { cached_tokens: 64, cache_write_tokens: 20 } } },
@@ -1383,6 +1466,7 @@ describe("PDF do cliente no provedor de IA", () => {
     ]);
     expect(calls[0].body.tool_choice).toBe("auto");
     expect(calls[0].body.reasoning).toEqual({ effort: "low" });
+    expect(calls[0].body.include).toEqual(["reasoning.encrypted_content"]);
     expect(calls[1].body.input.slice(1)).toEqual([
       reasoning,
       call,

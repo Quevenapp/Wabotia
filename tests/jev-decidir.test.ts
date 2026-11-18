@@ -8,8 +8,9 @@ import { all, exec, one } from "../src/db";
 import { defaults, json, now, uid, type Run } from "../src/types";
 import { setSecret } from "../src/security";
 import { inbound } from "../src/service";
-import { processInbox, processRun } from "../src/engine";
-import { decideInterpretation } from "../src/jev";
+import { processInbox, processRun, saveUsage } from "../src/engine";
+import { addJevUsage, decideInterpretation } from "../src/jev";
+import { setFullPersonalData } from "../src/bot-actions/actions";
 import { askJev, jevThreshold, validateJevSettings } from "../src/jev-client";
 import { maskText, readableOf, runDecide } from "../src/bot-actions/decide";
 
@@ -132,6 +133,44 @@ async function customerRun(f: { profile: string; line: string }, text: string) {
 }
 
 describe("JEV: limiar, modelo fixado e uso", () => {
+  it("roteamento que escolhe sempre a primeira opção registra order_disagreement", async () => {
+    const f = await areaFixture();
+    const run = await customerRun(f, "Quero cancelar");
+    const calls = mock({ jev: (body) => route(Object.keys(body.questions.route.criteria)[0], 0.99, 0.99) });
+    const result = await decideInterpretation(env, run, attendantJson, { request: "Quero cancelar", sources: [] }, { jev_enabled: true }, []);
+    expect(result).toMatchObject({ action: "human", jev: { reason: "order_disagreement" } });
+    expect(calls).toHaveLength(2);
+    expect(Object.keys(calls[1].body.questions.route.criteria)).toEqual(Object.keys(calls[0].body.questions.route.criteria).reverse());
+    const row = await one(env, "SELECT decision FROM jev_decisions WHERE run_id=?", run.id);
+    expect(json(row.decision).reason).toBe("order_disagreement");
+    expect(json((await one(env, "SELECT usage FROM bot_runs WHERE id=?", run.id)).usage)).toMatchObject({ jev_input: 600, jev_output: 4 });
+  });
+
+  it.each([false, true])("roteamento mascara textos livres conforme dados pessoais completos: %s", async (full) => {
+    await setFullPersonalData(env, full);
+    try {
+      const f = await areaFixture();
+      const text = "CPF 123.456.789-09, telefone +55 11 98888-7777";
+      const run = await customerRun(f, text);
+      const calls = mock({ jev: () => route("clarify", 0.95, 0.95) });
+      await decideInterpretation(env, run, {
+        ...attendantJson, text, clarification: text, citations: [7],
+        interpretation: { intent: text, summary: text, missing_information: [text] },
+      }, { request: text, sources: [{ id: 7, text }] }, { jev_enabled: true }, []);
+      expect(calls).toHaveLength(2);
+      for (const call of calls) {
+        const state = call.body.state;
+        for (const value of [state.request, state.proposed_response, state.proposed_clarification,
+          state.interpretation.intent, state.interpretation.summary, state.interpretation.missing_information[0], state.sources[0].text]) {
+          expect(value).toBe(full ? text : "CPF [documento], telefone [número]");
+        }
+        expect(state.citations).toEqual([7]);
+      }
+    } finally {
+      await setFullPersonalData(env, false);
+    }
+  });
+
   it("limiar da área e do bot no lugar do 0,8 fixo; modelo fixado; tokens no uso da execução", async () => {
     const f = await areaFixture({ jev_threshold: 0.9 });
     const run = await customerRun(f, "Quero cancelar meu pedido");
@@ -141,7 +180,7 @@ describe("JEV: limiar, modelo fixado e uso", () => {
     expect(low.action).toBe("human");
     expect(low.jev).toMatchObject({ reason: "low_confidence", threshold: 0.9, probability: 0.85 });
     expect(calls[0].body.model).toBe("jev-1.14.0");
-    expect(json((await one(env, "SELECT usage FROM bot_runs WHERE id=?", run.id)).usage)).toMatchObject({ jev_input: 300, jev_output: 2 });
+    expect(json((await one(env, "SELECT usage FROM bot_runs WHERE id=?", run.id)).usage)).toMatchObject({ jev_input: 600, jev_output: 4 });
     // Limiar do bot vale sobre o da área.
     const other = await customerRun(f, "Quero cancelar outro pedido");
     calls = mock({ jev: () => route("clarify", 0.85, 0.95) });
@@ -167,6 +206,51 @@ describe("JEV: limiar, modelo fixado e uso", () => {
 });
 
 describe("ferramenta decidir dos bots internos", () => {
+  it("escolha recusa chaves numéricas antes de consultar o JEV", async () => {
+    const f = await areaFixture();
+    const run = await customerRun(f, "Qual produto?");
+    const calls = mock({ jev: () => noul(0.9) });
+    const result = JSON.parse(await runDecide(env, run, {}, {
+      pergunta: "Qual produto?", tipo: "escolha", opcoes: { "1": "Pequeno", "2": "Grande" },
+    }, true, readableOf(run.input)));
+    expect(result.erro).toContain("Para escolha");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("conversa interna leva message como pedido e distingue bot de pessoa no histórico", async () => {
+    const f = await areaFixture();
+    const run = await customerRun(f, "Consulta interna");
+    // Mesmo JSON gravado em team.ts.
+    const input = JSON.stringify({ message: "Preciso cancelar", history: [
+      { author: "ana", text: "Pode conferir?" },
+      { author: `bot:${f.bot}`, text: "Qual pedido?" },
+    ] });
+    const calls = mock({ jev: () => noul(0.9) });
+    await runDecide(env, run, {}, { pergunta: "Pede cancelamento?", tipo: "sim_nao" }, true, readableOf(input));
+    expect(calls[0].body.state).toMatchObject({ pedido: "Preciso cancelar", conversa: [
+      { direcao: "pessoa", texto: "Pode conferir?" },
+      { direcao: "bot", texto: "Qual pedido?" },
+    ] });
+    expect(readableOf(JSON.stringify({ request: "Pedido do cliente", history: [
+      { direction: "inbound", text: "Oi" }, { direction: "outbound", text: "Olá" },
+    ] }))).toEqual({ pedido: "Pedido do cliente", conversa: [
+      { direcao: "cliente", texto: "Oi" }, { direcao: "atendimento", texto: "Olá" },
+    ] });
+  });
+
+  it("uso alternado do JEV e da IA preserva todas as somas e chaves extras", async () => {
+    const f = await areaFixture();
+    const run = await customerRun(f, "Oi");
+    await exec(env, "UPDATE bot_runs SET usage=? WHERE id=?", JSON.stringify({ input: 7, cache_read: 2, cache_write: 3, output: 4, extra: "preservado" }), run.id);
+    await addJevUsage(env, run.id, { input: 100, output: 2 });
+    await saveUsage(env, run, { input: 10, cache_read: 20, cache_write: 30, output: 40 });
+    await addJevUsage(env, run.id, { input: 200, output: 3 });
+    expect(json((await one(env, "SELECT usage FROM bot_runs WHERE id=?", run.id)).usage)).toEqual({
+      input: 17, cache_read: 22, cache_write: 33, output: 44,
+      jev_input: 300, jev_output: 5, extra: "preservado",
+    });
+  });
+
   it("resposta abaixo do limiar vira incerto, orienta encaminhar à equipe e fica registrada com a ação do bot", async () => {
     const f = await areaFixture();
     const run = await customerRun(f, "Quero cancelar, meu fone é 11 98888-7777 e o e-mail ana@exemplo.com");

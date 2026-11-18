@@ -37,6 +37,55 @@ export interface JevResult {
   usage: { input: number; output: number };
 }
 
+/** Escolha nas duas ordens: só vale o acordo acima do limiar nos dois lados. */
+export async function askJevChoice(
+  env: Env,
+  profile: string,
+  cfg: any,
+  state: unknown,
+  id: string,
+  question: Extract<JevQuestion, { type: "choice" }>,
+  threshold: number,
+) {
+  const entries = Object.entries(question.criteria);
+  const both = await Promise.all(
+    [entries, [...entries].reverse()].map((order) =>
+      askJev(env, profile, cfg, state, {
+        [id]: { ...question, criteria: Object.fromEntries(order) },
+      }),
+    ),
+  );
+  const result = {
+    ok: both.every((r) => r.ok),
+    reason: both.find((r) => !r.ok)?.reason || "",
+    model: both[0].model || both[1].model,
+    usage: {
+      input: both[0].usage.input + both[1].usage.input,
+      output: both[0].usage.output + both[1].usage.output,
+    },
+    choice: null as string | null,
+    probability: null as number | null,
+    confidence: null as number | null,
+  };
+  if (!result.ok) return result;
+  const unit = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 1;
+  const valid = both.map((r) => {
+    const a = r.answers?.[id];
+    return a?.type === "choice" && Object.hasOwn(question.criteria, a.choice) && unit(a.probabilities?.[a.choice]) && unit(a.confidence)
+      ? { choice: a.choice as string, probability: a.probabilities[a.choice] as number, confidence: a.confidence as number }
+      : null;
+  });
+  if (!valid[0] || !valid[1]) result.reason = "invalid_decision";
+  else {
+    result.probability = Math.min(valid[0].probability, valid[1].probability);
+    result.confidence = Math.min(valid[0].confidence, valid[1].confidence);
+    if (valid[0].choice !== valid[1].choice) result.reason = "order_disagreement";
+    else if (result.probability >= threshold && result.confidence >= threshold) result.choice = valid[0].choice;
+    else result.reason = "low_confidence";
+  }
+  return result;
+}
+
 /** Validação das chaves do JEV nas configurações da área. */
 export function validateJevSettings(next: any) {
   if (next.jev_model !== undefined)

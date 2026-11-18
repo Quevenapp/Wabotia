@@ -18,7 +18,7 @@
 //   probabilidade, o limiar e a ação que o bot tomou depois.
 import { exec, one } from "../db";
 import { type Env, now, uid } from "../types";
-import { askJev, jevModel, jevThreshold } from "../jev-client";
+import { askJev, askJevChoice, jevModel, jevThreshold } from "../jev-client";
 import { addJevUsage } from "../jev";
 import type { BotTool } from "./actions";
 
@@ -40,7 +40,7 @@ export const DECIDE_TOOL: BotTool = {
       opcoes: {
         type: "object",
         description:
-          "Só para tipo escolha: de 2 a 10 opções, chave curta (letras, números e _) e quando cada uma vale. Ex.: {\"macarrao_500g\": \"Macarrão espaguete 500 g\", \"macarrao_1kg\": \"Macarrão espaguete 1 kg\"}",
+          "Só para tipo escolha: de 2 a 10 opções, chave curta começando por letra (letras, números e _) e quando cada uma vale. Ex.: {\"macarrao_500g\": \"Macarrão espaguete 500 g\", \"macarrao_1kg\": \"Macarrão espaguete 1 kg\"}",
       },
       situacao: {
         type: "string",
@@ -72,21 +72,25 @@ export function maskText(text: unknown, masked: boolean, max = 4000): string {
 export function readableOf(input: string): { pedido: string; conversa: { direcao: string; texto: string }[] } {
   try {
     const data = JSON.parse(input);
-    if (data && typeof data === "object" && !Array.isArray(data))
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      const internal = typeof data.message === "string" && typeof data.request !== "string";
       return {
-        pedido: typeof data.request === "string" ? data.request : "",
+        pedido: internal ? data.message : typeof data.request === "string" ? data.request : "",
         conversa: (Array.isArray(data.history) ? data.history : []).slice(-12).map((m: any) => ({
-          direcao: m?.direction === "outbound" ? "atendimento" : "cliente",
+          direcao: internal
+            ? typeof m?.author === "string" && m.author.startsWith("bot:") ? "bot" : "pessoa"
+            : m?.direction === "outbound" ? "atendimento" : "cliente",
           texto: typeof m?.text === "string" ? m.text : "",
         })),
       };
+    }
   } catch {
     // Conversa interna: a entrada é o texto da pessoa.
   }
   return { pedido: input, conversa: [] };
 }
 
-const KEY = /^[a-z0-9_]{1,40}$/;
+const KEY = /^[a-z][a-z0-9_]{0,39}$/;
 
 /**
  * Executa `decidir` e devolve o texto do resultado para o modelo. Nunca lança:
@@ -109,7 +113,7 @@ export async function runDecide(
   if (kind === "escolha") {
     const entries = args?.opcoes && typeof args.opcoes === "object" ? Object.entries(args.opcoes) : [];
     if (entries.length < 2 || entries.length > 10 || entries.some(([k, v]) => !KEY.test(k) || typeof v !== "string"))
-      return reply({ erro: "Para escolha, informe de 2 a 10 opções: chave curta (letras, números e _) e a descrição." });
+      return reply({ erro: "Para escolha, informe de 2 a 10 opções: chave curta começando por letra (letras, números e _) e a descrição." });
     options = Object.fromEntries(entries.map(([k, v]) => [k, maskText(v, masked, 300)]));
   }
   const done = await one(env, "SELECT count(*) n FROM jev_questions WHERE run_id=?", run.id);
@@ -139,39 +143,17 @@ export async function runDecide(
       answer = a.noul >= threshold ? "sim" : a.noul <= 1 - threshold ? "não" : "incerto";
     } else if (asked.ok) reason = "invalid_decision";
   } else {
-    // Escolha: a resposta do JEV muda com a ordem das opções (avaliação real
-    // de 17/11/2026, docs/JEV.md). Duas perguntas em paralelo, na ordem dada e
-    // na inversa; só vale se a mesma opção vencer nas duas, acima do limiar.
-    const keys = Object.keys(options!);
-    const ordered = (list: string[]) => Object.fromEntries(list.map((k) => [k, options![k]]));
-    const both = await Promise.all(
-      [keys, [...keys].reverse()].map((list) =>
-        askJev(env, run.profile_id, cfg, state, {
-          q: { type: "choice", instructions: question + guard, criteria: ordered(list) },
-        }),
-      ),
-    );
-    asked = {
-      ok: both.every((r) => r.ok),
-      reason: both.find((r) => !r.ok)?.reason,
-      model: both[0].model || both[1].model,
-      usage: { input: both[0].usage.input + both[1].usage.input, output: both[0].usage.output + both[1].usage.output },
-    };
+    const choice = await askJevChoice(env, run.profile_id, cfg, state, "q", {
+      type: "choice",
+      instructions: question + guard,
+      criteria: options!,
+    }, threshold);
+    asked = choice;
     await addJevUsage(env, run.id, asked.usage);
-    reason = asked.ok ? "" : asked.reason || "provider_error";
-    const valid = both.map((r) => {
-      const a = r.answers?.q;
-      return a?.type === "choice" && Object.hasOwn(options!, a.choice) && unit(a.probabilities?.[a.choice]) && unit(a.confidence)
-        ? { choice: a.choice as string, probability: a.probabilities[a.choice] as number, confidence: a.confidence as number }
-        : null;
-    });
-    if (asked.ok && valid[0] && valid[1]) {
-      // A menor das duas: a decisão vale pelo lado mais fraco.
-      probability = Math.min(valid[0].probability, valid[1].probability);
-      confidence = Math.min(valid[0].confidence, valid[1].confidence);
-      if (valid[0].choice !== valid[1].choice) reason = "order_disagreement";
-      else if (probability >= threshold && confidence >= threshold) answer = valid[0].choice;
-    } else if (asked.ok) reason = "invalid_decision";
+    probability = choice.probability;
+    confidence = choice.confidence;
+    reason = choice.reason === "low_confidence" ? "" : choice.reason;
+    answer = choice.choice || "incerto";
   }
   const outcome = answer === "incerto" ? "incerto" : "acima_do_limiar";
   await exec(
