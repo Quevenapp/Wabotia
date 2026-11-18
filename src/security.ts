@@ -308,6 +308,24 @@ export const MOBILE_TOKEN_PREFIX = "wabu_";
  * são leituras da rota que vão no mesmo lote para uma sessão de pessoa (as
  * pessoas do ERP), lidas depois do cache da requisição.
  */
+/**
+ * Escopos de uma chave de aplicação na autenticação. `conversations:bound` e
+ * `conversations:all` são internos e nunca valem numa chave (o MCP HTTP saiu).
+ * Falha fechada: uma chave antiga que era presa às conversas do bot
+ * (`conversations:bound`) não ganha a área inteira ao perder a restrição;
+ * perde os escopos de conversa e o administrador emite uma chave nova, com o
+ * alcance escolhido. `conversations:all` era só a marcação de área inteira:
+ * cai, e o resto fica.
+ */
+export function legacyKeyScopes(scopes: string[]) {
+  const bound = scopes.includes("conversations:bound");
+  return scopes.filter(
+    (scope) =>
+      !["conversations:bound", "conversations:all"].includes(scope) &&
+      !(bound && scope.startsWith("conversations:")),
+  );
+}
+
 export async function authenticate(
   env: Env,
   request: Request,
@@ -392,8 +410,7 @@ export async function authenticate(
       name: row.name,
       role: "service",
       profiles: json(row.profiles, []),
-      scopes: json(row.scopes, []).filter((scope: string) =>
-        !["conversations:bound", "conversations:all"].includes(scope)),
+      scopes: legacyKeyScopes(json(row.scopes, [])),
       bots: json(row.bots, []),
       keyId: row.key_id,
       expiresAt: row.key_expires,

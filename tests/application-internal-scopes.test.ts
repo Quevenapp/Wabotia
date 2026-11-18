@@ -57,7 +57,7 @@ describe("escopos internos não são credenciais de API", () => {
       (legacy) => ({ legacy }),
     ),
   )(
-    "chave antiga ignora $legacy e segue as permissões comuns, sem vínculo por bot",
+    "chave antiga com $legacy: escopos internos não valem, e a presa ao bot não ganha a área",
     async ({ legacy }) => {
       const f = await fixture();
       const botId = await bot(f);
@@ -88,8 +88,20 @@ describe("escopos internos não são credenciais de API", () => {
           headers: { Authorization: "Bearer " + app.token },
         }),
       );
-      expect(actor.scopes).toEqual(["conversations:read"]);
       expect(isBound(actor)).toBe(false);
+      if (legacy.includes("conversations:bound")) {
+        // Falha fechada: a chave presa às conversas do bot não ganha a área
+        // inteira; perde os escopos de conversa.
+        expect(actor.scopes).toEqual([]);
+        for (const path of [
+          `/profiles/${f.profile}/conversations`,
+          `/profiles/${f.profile}/conversations/${owned.id}`,
+          `/profiles/${f.profile}/conversations/${unrelated.id}`,
+        ])
+          expect((await api(app.token, path)).status).toBe(403);
+        return;
+      }
+      expect(actor.scopes).toEqual(["conversations:read"]);
       expect(await boundAllows(env, actor, owned)).toBe(true);
       expect(await boundAllows(env, actor, unrelated)).toBe(true);
       // Listagem e leitura permitidas por conversations:read, inclusive fora do bot.

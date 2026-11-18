@@ -4,7 +4,7 @@ Desde a versão 0.3, novas instalações baixam um pacote oficial já preparado 
 
 ## Retirada do Hermes: servidor e painel
 
-O MCP HTTP e a porta para agente externo foram removidos. O Wabotia trabalha com bots internos, conectados diretamente a um provedor de IA. A API v1 e a execução de bots por aplicação continuam disponíveis. Escopos de conversa antigos são ignorados nas chaves; `conversations:bound` fica reservado ao ator interno do bot.
+O MCP HTTP e a porta para agente externo foram removidos. O Wabotia trabalha com bots internos, conectados diretamente a um provedor de IA. A API v1 e a execução de bots por aplicação continuam disponíveis. Nas chaves, `conversations:all` deixa de valer. Uma chave antiga presa às conversas do bot (`conversations:bound`) perde o acesso a conversas em vez de ganhar a área inteira: emita uma chave nova se a integração ainda precisar dele. `conversations:bound` fica reservado ao ator interno do bot.
 
 A migração `0094_retira_cloudflare.sql` apaga a autorização da preparação Cloudflare e as credenciais dos jobs. As conexões criadas por esses jobs são pausadas e marcadas como **sendo removidas**; o processamento periódico as remove sozinho, preservando o histórico. Não podem ser religadas durante a remoção. O token das atualizações automáticas é independente e continua funcionando.
 
