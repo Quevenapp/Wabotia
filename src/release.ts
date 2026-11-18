@@ -52,6 +52,8 @@ export const MAX_ASSETS = 2000;
 export const MAX_MIGRATIONS = 1000;
 /** Hashes por lote da sessão de envio de estáticos da Cloudflare. */
 export const MAX_UPLOAD_BATCH = 2000;
+/** Bytes brutos por lote, antes da expansão para base64 e do multipart. */
+export const MAX_UPLOAD_BATCH_BYTES = 48 * 1024 * 1024;
 /** Por rodada do atualizador: até 20 arquivos ou 16 MiB (o que vier antes). */
 export const ROUND_FILES = 20;
 export const ROUND_BYTES = 16 * 1024 * 1024;
@@ -554,6 +556,11 @@ export async function assetUploadV2(
   items: { hash: string; file: BlobRef }[],
   read: (ref: BlobRef) => Promise<Uint8Array>,
 ) {
+  assertRelease(
+    items.reduce((total, { file }) => total + file.size, 0) <=
+      MAX_UPLOAD_BATCH_BYTES,
+    "O lote de arquivos solicitado pela Cloudflare excede 48 MiB. O mantenedor precisa reduzir os arquivos desta versão. Nenhuma publicação foi feita.",
+  );
   const body = new FormData();
   for (const { hash, file } of items)
     body.set(
@@ -591,6 +598,7 @@ export class CloudflareCallError extends Error {
   constructor(
     message: string,
     public ambiguous: boolean,
+    public status?: number,
   ) {
     super(message);
   }
@@ -636,8 +644,9 @@ export async function releaseCloudflare(
     data = await r.json();
   } catch {
     throw new CloudflareCallError(
-      "Resposta inesperada da Cloudflare. Confira o andamento antes de repetir.",
+      `Cloudflare HTTP ${r.status}. Resposta inesperada da Cloudflare. Confira o andamento antes de repetir.`,
       method !== "GET",
+      r.status,
     );
   }
   if (!r.ok || data.success !== true) {
@@ -648,15 +657,15 @@ export async function releaseCloudflare(
           ? " Confira a conta e a permissão Workers Scripts: Edit do token."
           : ""),
       method !== "GET" && !(r.status >= 400 && r.status < 500),
+      r.status,
     );
   }
   return data.result;
 }
 /**
  * Código e mensagem que a Cloudflare devolveu em `errors[]`, para quem lê o
- * erro no painel. O atualizador decide a nova tentativa lendo "HTTP NNN" no
- * texto do erro (updates.ts); por isso a mensagem de fora não pode trazer
- * "HTTP" em maiúsculas, que mudaria essa decisão.
+ * erro no painel. A decisão de nova tentativa usa o status HTTP do erro,
+ * independentemente deste texto externo.
  */
 export function cloudflareErrorDetail(data: any) {
   const errors = Array.isArray(data?.errors) ? data.errors.slice(0, 3) : [];

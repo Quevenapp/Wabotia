@@ -53,6 +53,15 @@ export function insideRepository(path, root) {
 /** Prazo de validade do índice assinado (dias); src/release.ts aceita até 180. */
 export const INDEX_DAYS = 90;
 
+/** Metade do orçamento bruto de 48 MiB do envio; o leitor limita o lote. */
+export const MAX_STATIC_ASSET_BYTES = 24 * 1024 * 1024;
+export function checkStaticAssetSize(name, size) {
+  if (size > MAX_STATIC_ASSET_BYTES)
+    throw Error(
+      `O arquivo estático ${name} excede 24 MiB. Reduza-o antes de publicar para caber no orçamento de envio do atualizador.`,
+    );
+}
+
 /** A partir de quantos dias de emissão o índice publicado pede renovação. */
 export const RENEW_AFTER_DAYS = 60;
 

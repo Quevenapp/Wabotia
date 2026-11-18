@@ -1,4 +1,5 @@
-import { admin, secret, setSecret } from "./security";
+import { admin, requireDirectPerson, secret, setSecret } from "./security";
+import { requireStepUp } from "./mfa";
 import {
   ApiError,
   type Actor,
@@ -9,7 +10,7 @@ import {
 } from "./types";
 import { buildInfo } from "./build-info.generated";
 import { webInstallerEnabled } from "./web-install";
-import { all, exec } from "./db";
+import { all, exec, one } from "./db";
 import {
   assetManifestV2,
   assetsForHashes,
@@ -142,11 +143,16 @@ export async function configureAutomaticUpdates(
       data.window_hours <= 6,
     "Escolha uma janela de 1 a 6 horas.",
   );
-  if (data.enabled)
+  if (data.enabled) {
+    requireValue(
+      (await secret(env, configId)).mode !== PER_UPDATE,
+      "Com o token colado a cada atualização não há token guardado para a atualização automática. Salve um token em Alterar configuração de atualização para ligá-la.",
+    );
     requireValue(
       isDirect(env) && !!(await tokenFor(env)),
       "Configure a atualização direta desta instalação antes de ligar a atualização automática.",
     );
+  }
   return updateLock(env, async () => {
     const old = await secret(env, automaticConfigId);
     await setSecret(env, automaticConfigId, {
@@ -183,7 +189,198 @@ const isDirect = (env: Env) =>
     env.WABOTIA_WORKER_NAME
   );
 async function tokenFor(env: Env) {
-  return (await secret(env, configId)).token || env.WABOTIA_UPDATE_TOKEN || "";
+  const config = await secret(env, configId);
+  // Modo "colar o token a cada atualização": só o token do trabalho ativo,
+  // dentro do prazo. Nunca cai no do painel nem no inicial.
+  if (config.mode === PER_UPDATE) return jobToken(env);
+  return config.token || env.WABOTIA_UPDATE_TOKEN || "";
+}
+/**
+ * De onde vem o token que o atualizador usa: "panel" (salvo no painel, em
+ * geral só Workers Scripts: Edit), "initial" (o segredo do Worker que o
+ * instalador gravou, que também tem D1 e R2 Edit), "per_update" (colado a
+ * cada atualização, nada guardado em repouso) ou null.
+ */
+async function tokenSource(env: Env) {
+  const config = await secret(env, configId);
+  if (config.mode === PER_UPDATE) return PER_UPDATE;
+  if (config.token) return "panel";
+  return env.WABOTIA_UPDATE_TOKEN ? "initial" : null;
+}
+
+// ---------------------------------------------------------------------------
+// Modo "não guardar o token" (docs/ATUALIZACOES.md). A instalação não guarda
+// token em repouso: a pessoa cola o token ao iniciar a atualização; ele fica
+// cifrado em `system:release-job-token`, preso ao trabalho, só enquanto o
+// trabalho está em `pending` e por até 60 minutos. Encolhe a janela de
+// sempre para minutos por atualização; não protege contra código rodando no
+// Worker durante esses minutos.
+
+export const PER_UPDATE = "per_update";
+const jobTokenId = "system:release-job-token";
+/** Prazo do token do trabalho: seis vezes o maior salto medido (9 min 50 s). */
+export const JOB_TOKEN_TTL_MS = 60 * 60000;
+const JOB_TOKEN_EXPIRED =
+  "O prazo do token venceu. Inicie a atualização de novo e cole o token.";
+
+async function jobToken(env: Env) {
+  const record = await secret(env, jobTokenId),
+    state = await secret(env, stateId);
+  return record.token &&
+    record.job_id === state.id &&
+    state.status === "pending" &&
+    record.expires_at > now()
+    ? (record.token as string)
+    : "";
+}
+
+/**
+ * O token do trabalho só existe enquanto o trabalho dele está em `pending` e
+ * dentro do prazo. Fora disso (concluído, falho, cancelado, sem confirmação,
+ * outro trabalho) é apagado; vencido com o trabalho ainda em `pending`, o
+ * trabalho falha com a mensagem do prazo. Chamado em toda entrada do
+ * atualizador.
+ */
+async function settleJobToken(env: Env) {
+  const record = await secret(env, jobTokenId);
+  if (!record.job_id) return;
+  const state = await secret(env, stateId);
+  const own = state.id === record.job_id && state.status === "pending";
+  if (own && record.expires_at > now()) return;
+  if (own)
+    await setSecret(env, stateId, {
+      ...state,
+      status: "failed",
+      error: JOB_TOKEN_EXPIRED,
+      retryable: false,
+      retry_at: null,
+      updated: now(),
+    });
+  await exec(env, "DELETE FROM secrets WHERE id=?", jobTokenId);
+}
+
+function requireTokenShape(token: unknown) {
+  requireValue(
+    typeof token === "string" &&
+      token.length >= 20 &&
+      token.length <= 1024 &&
+      !/\s/.test(token),
+    "Informe um token Cloudflare com Workers Scripts: Edit.",
+  );
+}
+
+/** Confere o token colado contra a identidade desta instalação. */
+async function checkPastedToken(env: Env, token: string) {
+  try {
+    validateInstalledSettings(
+      await installedSettings(
+        token,
+        scriptPath(env.WABOTIA_ACCOUNT_ID!, env.WABOTIA_WORKER_NAME!),
+      ),
+      env.WABOTIA_INSTALLATION_ID!,
+    );
+  } catch (e) {
+    failure(e);
+  }
+}
+
+/**
+ * Liga o modo "colar o token a cada atualização". Para valer de verdade, não
+ * pode sobrar token guardado: apaga o do painel e o segredo inicial do
+ * Worker (com o token colado aqui) e desliga a atualização automática, que
+ * precisa de token em repouso. Voltar ao modo guardado é salvar um token em
+ * "Alterar configuração de atualização" (configureUpdates).
+ */
+export async function enablePerUpdateToken(env: Env, actor: Actor, data: any) {
+  admin(actor);
+  requireDirectPerson(actor);
+  requireStepUp(actor);
+  requireValue(
+    isDirect(env),
+    "Esta instalação não tem a identificação para atualizar pelo painel.",
+  );
+  requireValue(
+    data?.confirmed === true,
+    "Confirme que entendeu: a atualização automática fica desligada e cada atualização pede o token.",
+  );
+  requireTokenShape(data?.token);
+  return updateLock(env, async () => {
+    requireValue(
+      !activeStatuses.includes((await secret(env, stateId)).status),
+      "Aguarde a atualização atual antes de mudar o modo do token.",
+    );
+    await checkPastedToken(env, data.token);
+    let initialDeleted = false;
+    if (env.WABOTIA_UPDATE_TOKEN) {
+      await releaseCloudflare(
+        data.token,
+        `${scriptPath(env.WABOTIA_ACCOUNT_ID!, env.WABOTIA_WORKER_NAME!)}/secrets/${INITIAL_TOKEN_SECRET}`,
+        "DELETE",
+      );
+      initialDeleted = true;
+    }
+    const automatic = await secret(env, automaticConfigId);
+    if (automatic.enabled)
+      await setSecret(env, automaticConfigId, {
+        ...automatic,
+        enabled: false,
+        updated_at: now(),
+        updated_by: actor.id,
+      });
+    await setSecret(env, configId, {
+      mode: PER_UPDATE,
+      mode_at: now(),
+      mode_by: actor.id,
+    });
+    await exec(env, "DELETE FROM secrets WHERE id=?", jobTokenId);
+    return {
+      mode: PER_UPDATE,
+      initial_deleted: initialDeleted,
+      automatic_disabled: !!automatic.enabled,
+    };
+  });
+}
+
+/** Nome do segredo do Worker com o token inicial (web-install, install-release). */
+export const INITIAL_TOKEN_SECRET = "WABOTIA_UPDATE_TOKEN";
+
+/**
+ * Apaga o token inicial (segredo do Worker) usando o token salvo no painel.
+ * Depois disso não há reserva: se o token do painel for revogado, a
+ * atualização para até a pessoa salvar outro. Só a pessoa, na própria sessão,
+ * com o segundo fator quando ela tem um ou a política pede.
+ */
+export async function deleteInitialToken(env: Env, actor: Actor, data: any) {
+  admin(actor);
+  requireDirectPerson(actor);
+  requireStepUp(actor);
+  requireValue(
+    isDirect(env),
+    "Esta instalação não tem a identificação para atualizar pelo painel.",
+  );
+  requireValue(
+    data?.confirmed === true,
+    "Confirme que entendeu: depois de apagar, o token salvo no painel é o único, sem reserva.",
+  );
+  const panel = (await secret(env, configId)).token;
+  requireValue(
+    !!panel,
+    "Salve antes um token só com Workers Scripts: Edit em Alterar configuração de atualização. Sem ele, a instalação ficaria sem atualização.",
+  );
+  if (!env.WABOTIA_UPDATE_TOKEN) return { deleted: false, absent: true };
+  return updateLock(env, async () => {
+    const state = await secret(env, stateId);
+    requireValue(
+      !["pending", "sending"].includes(state.status),
+      "Há uma atualização em andamento. Apague o token inicial depois que ela terminar.",
+    );
+    await releaseCloudflare(
+      panel,
+      `${scriptPath(env.WABOTIA_ACCOUNT_ID!, env.WABOTIA_WORKER_NAME!)}/secrets/${INITIAL_TOKEN_SECRET}`,
+      "DELETE",
+    );
+    return { deleted: true };
+  });
 }
 
 function failure(error: unknown): never {
@@ -200,7 +397,12 @@ export async function checkUpdate(env: Env, force = false) {
   const cached = await secret(env, latestId);
   // Só o índice do formato 2 vale como cache: o que a 0.21.0 guardou (formato
   // 1) é consultado de novo.
-  if (!force && cached.format === 2 && cached.checked_at > now() - 300000)
+  if (
+    !force &&
+    cached.format === 2 &&
+    cached.checked_at > now() - 300000 &&
+    cached.expires > now()
+  )
     return cached;
   try {
     // Índice do formato 2 com a assinatura e a validade conferidas.
@@ -273,36 +475,57 @@ export async function settleFormat1Job(env: Env) {
   await setSecret(env, stateId, state);
   return state;
 }
-export async function updateStatus(env: Env) {
-  const state = await settleFormat1Job(env),
-    stored = await secret(env, latestId),
-    // O índice guardado pela 0.21.0 (formato 1) não descreve uma versão que
-    // este atualizador instale.
-    latest: any = stored.format === 2 ? stored : {};
+/** Chamado somente com updateLock adquirido; nunca regrava outro trabalho. */
+async function reconcileUpdate(env: Env, id: string | undefined) {
+  if ((await secret(env, stateId)).id !== id) return;
+  await settleJobToken(env);
+  const state = await settleFormat1Job(env);
   if (state.target === buildInfo.commit && state.status !== "completed") {
     // Concluída primeiro; a limpeza do R2 vem depois e, se falhar, é
     // repetida na próxima consulta (cleanup_pending).
     state.status = "completed";
     state.completed_at = now();
     state.cleanup_pending = true;
-    await setSecret(env, stateId, state);
+    if ((await secret(env, stateId)).id === id)
+      await setSecret(env, stateId, state);
   }
   if (state.cleanup_pending) {
     try {
       await dropTemporary(env, state);
       state.cleanup_pending = false;
-      await setSecret(env, stateId, state);
+      if ((await secret(env, stateId)).id === id)
+        await setSecret(env, stateId, state);
     } catch {
       // Fica pendente para a próxima consulta.
     }
   }
+}
+export async function updateStatus(env: Env) {
+  const observed = await secret(env, stateId);
+  await updateLock(env, () => reconcileUpdate(env, observed.id), true);
+  const state = await secret(env, stateId),
+    stored = await secret(env, latestId),
+    // O índice do formato 1 não descreve uma versão que este leitor instale.
+    latest: any = stored.format === 2 ? stored : {};
   return {
     installed: buildInfo,
     method: "direct",
     installation_ready: isDirect(env),
     account_id: env.WABOTIA_ACCOUNT_ID || "",
     worker_name: env.WABOTIA_WORKER_NAME || "",
-    configured: isDirect(env) && !!(await tokenFor(env)),
+    configured:
+      isDirect(env) &&
+      ((await tokenSource(env)) === PER_UPDATE || !!(await tokenFor(env))),
+    // O painel avisa quando o token inicial (com D1 e R2) ainda está em uso ou
+    // guardado, e oferece apagá-lo depois que houver um token só de Workers.
+    token_source: await tokenSource(env),
+    initial_token_stored: !!env.WABOTIA_UPDATE_TOKEN,
+    // Cofre fiscal configurado em alguma área (mesma conta Cloudflare): o
+    // painel sugere o modo "colar o token a cada atualização".
+    fiscal_vault_configured: !!(await one(
+      env,
+      "SELECT 1 x FROM secrets WHERE id LIKE 'erp-emissor:%' LIMIT 1",
+    )),
     latest: latest.commit ? latest : null,
     available: !!latest.commit && latest.commit !== buildInfo.commit,
     state: publicState(state),
@@ -317,6 +540,9 @@ export async function updateStatus(env: Env) {
 }
 export async function configureUpdates(env: Env, actor: Actor, data: any) {
   admin(actor);
+  // O token da Cloudflare é segredo: só a pessoa, na própria sessão. Ligar e
+  // desligar a atualização automática não leva segredo e segue liberável.
+  requireDirectPerson(actor);
   requireValue(
     isDirect(env),
     "Esta instalação não tem a identificação para atualizar pelo painel. Reinstale com o instalador (docs/INSTALACAO.md).",
@@ -351,16 +577,48 @@ export async function configureUpdates(env: Env, actor: Actor, data: any) {
 }
 export async function startUpdate(env: Env, actor: Actor, data: any) {
   admin(actor);
-  return updateLock(env, () => startDirectUpdate(env, data));
+  if ((await secret(env, configId)).mode !== PER_UPDATE)
+    return updateLock(env, () => startDirectUpdate(env, data));
+  // Modo "colar o token a cada atualização": o pedido leva um segredo, então
+  // só a pessoa, na própria sessão; o token é conferido antes de criar o
+  // trabalho e fica preso a ele.
+  requireDirectPerson(actor);
+  requireStepUp(actor);
+  requireTokenShape(data?.token);
+  return updateLock(env, async () => {
+    await settleJobToken(env);
+    const before = (await secret(env, stateId)).id;
+    await checkPastedToken(env, data.token);
+    const job = await startDirectUpdate(
+      env,
+      { commit: data.commit },
+      "manual",
+      true,
+    );
+    // Um trabalho que já estava ativo segue com o token dele (ou falha pelo
+    // prazo); só o trabalho criado agora recebe o token colado.
+    if (job && job.id !== before && job.status === "pending")
+      await setSecret(env, jobTokenId, {
+        token: data.token,
+        job_id: job.id,
+        expires_at: now() + JOB_TOKEN_TTL_MS,
+      });
+    return job;
+  });
 }
-async function startDirectUpdate(env: Env, data: any, source = "manual") {
+async function startDirectUpdate(
+  env: Env,
+  data: any,
+  source = "manual",
+  perUpdate = false,
+) {
   requireValue(
-    isDirect(env) && (await tokenFor(env)),
+    isDirect(env) && (perUpdate || (await tokenFor(env))),
     "Configure a autorização Cloudflare para atualizar esta instalação.",
   );
   const old = await settleFormat1Job(env);
   if (activeStatuses.includes(old.status)) return publicState(old);
-  const index = await checkUpdate(env);
+  const index = validateIndexV2(await checkUpdate(env), now());
   requireValue(
     data.commit === index.commit && index.commit !== buildInfo.commit,
     "Confira novamente a versão disponível antes de atualizar.",
@@ -429,7 +687,8 @@ export async function automaticUpdateTick(env: Env) {
         });
         return;
       }
-      await updateStatus(env); // Reconcile only against the code actually running.
+      // A trava já está adquirida; confere só o código realmente em execução.
+      await reconcileUpdate(env, (await secret(env, stateId)).id);
       const job = await secret(env, stateId);
       if (activeStatuses.includes(job.status)) {
         await save({
@@ -478,6 +737,8 @@ export async function automaticUpdateTick(env: Env) {
           error: null,
           retry_at: null,
           retryable: false,
+          rounds_without_progress: 0,
+          round_progress: undefined,
           updated: at,
         };
         await setSecret(env, stateId, retry);
@@ -572,7 +833,19 @@ export async function automaticUpdateTick(env: Env) {
   );
 }
 export async function processUpdate(env: Env) {
-  return updateLock(env, () => processDirectUpdate(env), true);
+  return updateLock(
+    env,
+    async () => {
+      await settleJobToken(env);
+      try {
+        await processDirectUpdate(env);
+      } finally {
+        // Saiu de `pending` nesta rodada: o token do trabalho sai junto.
+        await settleJobToken(env);
+      }
+    },
+    true,
+  );
 }
 async function processDirectUpdate(env: Env) {
   const state = await settleFormat1Job(env);
@@ -590,14 +863,50 @@ async function processDirectUpdate(env: Env) {
     return;
   }
   state.started_at ||= now();
+  // Campos opcionais: o estado deixado pela ponte ainda não os tem.
+  const progress = updateProgress(state);
+  if (state.round_progress !== progress) {
+    state.rounds_without_progress = 0;
+    state.last_progress_at =
+      state.round_progress === undefined
+        ? (state.last_progress_at ?? state.updated ?? state.created ?? now())
+        : now();
+  }
+  if ((state.rounds_without_progress || 0) >= 3) {
+    state.status = "failed";
+    state.error =
+      "A atualização ficou três rodadas seguidas sem avanço. Libere uma nova tentativa e, se persistir, avise o mantenedor.";
+    state.retryable = false;
+    state.retry_at = null;
+    state.updated = now();
+    await setSecret(env, stateId, state);
+    return;
+  }
+  state.round_started_at = now();
+  state.round_progress = progress;
+  state.rounds_without_progress = (state.rounds_without_progress || 0) + 1;
+  // Grava antes de qualquer trabalho: até uma queda sem catch deixa recibo.
+  await setSecret(env, stateId, state);
   try {
     const token = await tokenFor(env),
       base = scriptPath(env.WABOTIA_ACCOUNT_ID!, env.WABOTIA_WORKER_NAME!);
+    // Sem token colado para este trabalho (modo "colar a cada
+    // atualização"): não há o que esperar.
+    requireValue(
+      !!token || (await secret(env, configId)).mode !== PER_UPDATE,
+      JOB_TOKEN_EXPIRED,
+    );
     await processPhase(env, state, token, base);
+    if (updateProgress(state) !== progress) {
+      state.round_progress = updateProgress(state);
+      state.rounds_without_progress = 0;
+      state.last_progress_at = now();
+    }
     state.updated = now();
     if ((await secret(env, stateId)).status !== "completed")
       await setSecret(env, stateId, state);
   } catch (e) {
+    const beforeSending = state.status === "pending";
     state.error =
       e instanceof Error ? e.message : "A atualização não foi concluída.";
     state.status =
@@ -608,19 +917,36 @@ async function processDirectUpdate(env: Env) {
     state.updated = now();
     state.retryable =
       state.source === "automatic" &&
-      ["manifest", "blobs", "prepare", "assets"].includes(state.phase) &&
-      (e instanceof TypeError ||
-        (e instanceof Error &&
-          ["AbortError", "TimeoutError"].includes(e.name)) ||
-        (e instanceof CloudflareCallError &&
-          !/HTTP (?!429\b)4\d\d\b/.test(state.error)) ||
-        /HTTP (429|5\d\d)\b/.test(state.error));
+      beforeSending &&
+      ["manifest", "blobs", "prepare", "assets", "publish"].includes(
+        state.phase,
+      ) &&
+      (e instanceof CloudflareCallError
+        ? e.status === undefined ||
+          e.status < 400 ||
+          e.status >= 500 ||
+          e.status === 429
+        : e instanceof TypeError ||
+          (e instanceof Error &&
+            ["AbortError", "TimeoutError"].includes(e.name)) ||
+          /HTTP (429|5\d\d)\b/.test(state.error));
     state.retry_at = state.retryable
       ? now() + 300000 * 2 ** ((state.attempt || 1) - 1)
       : null;
     if ((await secret(env, stateId)).status !== "completed")
       await setSecret(env, stateId, state);
   }
+}
+/** Só avanço real conta; horários, erros e tentativas não são progresso. */
+function updateProgress(state: any) {
+  return JSON.stringify([
+    state.phase,
+    state.blob || 0,
+    state.migrations_checked || 0,
+    state.bucket || 0,
+    !!state.paid_checked,
+    state.migration || null,
+  ]);
 }
 export async function resetUpdate(env: Env, actor: Actor, data: any) {
   admin(actor);
@@ -632,7 +958,9 @@ async function resetDirectUpdate(env: Env, data: any) {
     data.confirmed_build_stopped === true &&
       state.id &&
       state.status !== "completed" &&
-      state.status !== "pending",
+      (state.status !== "pending" ||
+        (state.last_progress_at ?? state.updated ?? state.created) <
+          now() - 30 * 60000),
     "Confira a versão e confirme que a publicação anterior terminou.",
   );
   requireValue(
@@ -641,6 +969,7 @@ async function resetDirectUpdate(env: Env, data: any) {
   );
   state.status = "cancelled";
   await setSecret(env, stateId, state);
+  await settleJobToken(env);
   await dropTemporary(env, state);
   return publicState(state);
 }
@@ -822,12 +1151,28 @@ async function processPhase(env: Env, state: any, token: string, base: string) {
       manifest,
       state.upload.buckets[state.bucket],
     );
-    const result = await releaseCloudflare(
-      state.upload.jwt,
-      `/accounts/${env.WABOTIA_ACCOUNT_ID}/workers/assets/upload?base64=true`,
-      "POST",
-      await assetUploadV2(bucket, blobReader(env, state)),
-    );
+    let result;
+    try {
+      result = await releaseCloudflare(
+        state.upload.jwt,
+        `/accounts/${env.WABOTIA_ACCOUNT_ID}/workers/assets/upload?base64=true`,
+        "POST",
+        await assetUploadV2(bucket, blobReader(env, state)),
+      );
+    } catch (error) {
+      if (
+        error instanceof CloudflareCallError &&
+        (error.status === 401 || error.status === 403) &&
+        !(state.upload_session_renewals || 0)
+      ) {
+        state.upload_session_renewals = 1;
+        state.phase = "prepare";
+        delete state.upload;
+        state.bucket = 0;
+        return;
+      }
+      throw error;
+    }
     state.bucket++;
     if (state.bucket === state.upload.buckets.length) {
       requireValue(
@@ -866,6 +1211,7 @@ async function processPhase(env: Env, state: any, token: string, base: string) {
         migration.name,
       ),
     ]);
+    state.migration = migration.name;
     return;
   }
   if (state.phase === "publish") {

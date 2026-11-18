@@ -241,6 +241,16 @@ Será criada uma pasta com o nome escolhido. Nela:
 
 Ao terminar, o instalador mostra o **link de primeiro acesso** (`…/app#setup=…`). Abra-o no navegador: ele já leva o código de instalação para a tela de criar o primeiro administrador, sem abrir arquivo nenhum. O código vai no fragmento da URL, que o navegador não envia ao servidor, e só serve até essa conta existir. Se preferir, abra `chaves.local.json` em um editor e copie **somente o valor de SETUP_TOKEN**. **MASTER_KEY** protege as credenciais criptografadas. A senha de login é escolhida por você. Não gere novas chaves para uma instalação existente. O gerador do site continua disponível para configuração manual, mas não é necessário neste fluxo.
 
+#### Depois do primeiro acesso: o que fazer com a pasta
+
+`chaves.local.json` guarda tudo em texto puro. No Windows, a restrição de leitura que o instalador pede (0600) não vale: qualquer programa da sua conta lê o arquivo.
+
+- **MASTER_KEY:** copie para um gerenciador de senhas ou cofre offline, longe do backup do banco. Banco e chave juntos abrem as credenciais; separados, não.
+- **SETUP_TOKEN:** guarde junto com a MASTER_KEY. Ele cria o primeiro administrador e recupera o administrador único.
+- **Token inicial da Cloudflare:** em **Sistema e atualizações**, salve um token só com **Workers Scripts: Edit**, use **Apagar o token inicial** e revogue o inicial na Cloudflare (**My Profile → API Tokens**). A cópia na pasta perde o valor.
+
+Feito isso, a pasta pode ser apagada ou levada para fora do computador (um disco guardado, por exemplo). Para retomar uma instalação interrompida ela ainda é necessária; apague só depois de concluída.
+
 Abra a URL exibida pelo instalador seguida de `/app`. Para domínio próprio, use **Cloudflare → seu Worker → Settings → Domains & Routes → Add → Custom domain**, em um domínio da mesma conta.
 
 ### Se parou no meio

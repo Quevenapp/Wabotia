@@ -157,6 +157,21 @@ export function admin(actor: Actor) {
   if (actor.kind !== "user" || actor.role !== "admin")
     throw new ApiError(403, "admin_required", "Somente administradores.");
 }
+/**
+ * Regra de segredo, igual para todos: operação cuja entrada é um segredo
+ * (token da Cloudflare, chave de provedor, senha) só aceita pessoa em sessão
+ * direta. Por um bot o segredo passaria pelo modelo; por isso recusa
+ * `actor.via` e ator de bot, mesmo com o item liberado no grupo de
+ * administração.
+ */
+export function requireDirectPerson(actor: Actor) {
+  if (actor.kind !== "user" || actor.via || actor.id.startsWith("bot:"))
+    throw new ApiError(
+      403,
+      "secret_requires_person",
+      "Só uma pessoa, na própria sessão, informa este segredo.",
+    );
+}
 /** users.access: lista JSON de acessos ou null (tudo); src/access.ts. */
 export function storedAccess(value: unknown): string[] | null {
   const list = typeof value === "string" ? json(value, null) : null;

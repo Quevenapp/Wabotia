@@ -1,10 +1,13 @@
 import { env } from "cloudflare:test";
-import { beforeEach, afterEach, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { Buffer } from "node:buffer";
 import { RELEASE_ORIGIN } from "../src/release";
 import {
   checkUpdate,
+  configureAutomaticUpdates,
   configureUpdates,
+  deleteInitialToken,
+  enablePerUpdateToken,
   startUpdate,
   processUpdate,
   updateStatus,
@@ -133,6 +136,11 @@ beforeEach(async () => {
       expect(auth).toBe("Bearer temporary-upload-token");
       return ok({ jwt: "temporary-completion-token" });
     }
+    if (
+      method === "DELETE" &&
+      url.pathname.endsWith("/secrets/WABOTIA_UPDATE_TOKEN")
+    )
+      return ok(null);
     if (method === "PUT") {
       expect((await secret(env, "system:release-state")).status).toBe(
         "sending",
@@ -223,6 +231,255 @@ it("recusa troca de identidade e token de aplicação antes da publicação", as
   expect((await updateStatus(e)).state?.status).toBe("failed");
   expect(calls.filter((call) => call.method !== "GET")).toHaveLength(0);
 });
+it("token da Cloudflare só pela pessoa, na própria sessão; ligar a automática segue liberável", async () => {
+  const before = await secret(e, "system:release-config");
+  const via = {
+    kind: "bot" as const,
+    bot_id: "bot-admin",
+    run_id: "run-1",
+    masked: true,
+  };
+  // Bot agindo pela pessoa administradora, e o próprio ator de bot.
+  for (const who of [
+    { ...actor, via },
+    { ...actor, id: "bot:bot-admin" },
+  ])
+    await expect(
+      configureUpdates(e, who, { token: "valid-looking-token-000000" }),
+    ).rejects.toMatchObject({ status: 403, code: "secret_requires_person" });
+  // Recusa antes de qualquer chamada à Cloudflare e sem gravar nada.
+  expect(calls).toHaveLength(0);
+  expect(await secret(e, "system:release-config")).toEqual(before);
+  // Ligar e desligar a automática não leva segredo: o bot pode.
+  await configureAutomaticUpdates(
+    e,
+    { ...actor, via },
+    { enabled: false, hour: 3, window_hours: 2 },
+  );
+});
+it("token inicial: aviso por onde está o token e apagar só com o do painel", async () => {
+  // Só o segredo do instalador: em uso, com o aviso.
+  expect(await updateStatus(e)).toMatchObject({
+    token_source: "initial",
+    initial_token_stored: true,
+  });
+  // Sem token do painel não apaga: a instalação ficaria sem atualização.
+  await expect(
+    deleteInitialToken(e, actor, { confirmed: true }),
+  ).rejects.toThrow(/Salve antes um token/);
+  await configureUpdates(e, actor, { token: "workers-only-token-0000000000" });
+  expect(await updateStatus(e)).toMatchObject({
+    token_source: "panel",
+    initial_token_stored: true,
+  });
+  // Pede a confirmação de que não há reserva depois.
+  await expect(deleteInitialToken(e, actor, {})).rejects.toThrow(/sem reserva/);
+  // Bot pela pessoa e ator de bot: recusados, sem chamar a Cloudflare.
+  const via = { kind: "bot" as const, bot_id: "b", run_id: "r", masked: true };
+  const before = calls.length;
+  for (const who of [
+    { ...actor, via },
+    { ...actor, id: "bot:b" },
+  ])
+    await expect(
+      deleteInitialToken(e, who, { confirmed: true }),
+    ).rejects.toMatchObject({ code: "secret_requires_person" });
+  // Pessoa com fator e sessão aal1: pede o código.
+  await expect(
+    deleteInitialToken(
+      e,
+      { ...actor, aal: 1, mfa: { factor: true, policy: "off" } } as Actor,
+      { confirmed: true },
+    ),
+  ).rejects.toMatchObject({ code: "mfa_required" });
+  expect(calls.length).toBe(before);
+  // Atualização em andamento: espera terminar.
+  await startUpdate(e, actor, { commit: target });
+  await expect(
+    deleteInitialToken(e, actor, { confirmed: true }),
+  ).rejects.toThrow(/em andamento/);
+  await runToEnd();
+  // Apaga o segredo do Worker com o token do painel, não com o inicial.
+  expect(await deleteInitialToken(e, actor, { confirmed: true })).toEqual({
+    deleted: true,
+  });
+  const del = calls.filter((c) => c.method === "DELETE");
+  expect(del).toHaveLength(1);
+  expect(del[0].url).toBe(
+    `https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${worker}/secrets/WABOTIA_UPDATE_TOKEN`,
+  );
+  expect(del[0].auth).toBe("Bearer workers-only-token-0000000000");
+  // Já apagado (o Worker novo sobe sem o segredo): nada a fazer.
+  const gone = { ...e, WABOTIA_UPDATE_TOKEN: undefined } as Env;
+  expect(await updateStatus(gone)).toMatchObject({
+    token_source: "panel",
+    initial_token_stored: false,
+  });
+  expect(
+    await deleteInitialToken(gone, actor, { confirmed: true }),
+  ).toMatchObject({ deleted: false, absent: true });
+});
+describe("modo colar o token a cada atualização", () => {
+  const pasted = "pasted-per-update-token-00000000";
+  const jobTokenRow = () =>
+    one(env, "SELECT id FROM secrets WHERE id='system:release-job-token'");
+  const via = { kind: "bot" as const, bot_id: "b", run_id: "r", masked: true };
+  async function enable() {
+    await configureAutomaticUpdates(e, actor, {
+      enabled: true,
+      hour: 3,
+      window_hours: 2,
+    });
+    return enablePerUpdateToken(e, actor, { token: pasted, confirmed: true });
+  }
+
+  it("ligar: só pessoa, confere o token, apaga o inicial e o do painel e desliga a automática", async () => {
+    await configureUpdates(e, actor, { token: "panel-token-000000000000000" });
+    for (const who of [
+      { ...actor, via },
+      { ...actor, id: "bot:b" },
+    ])
+      await expect(
+        enablePerUpdateToken(e, who, { token: pasted, confirmed: true }),
+      ).rejects.toMatchObject({ code: "secret_requires_person" });
+    await expect(
+      enablePerUpdateToken(e, actor, { token: pasted }),
+    ).rejects.toThrow(/Confirme/);
+    wrongIdentity = true;
+    await expect(
+      enablePerUpdateToken(e, actor, { token: pasted, confirmed: true }),
+    ).rejects.toMatchObject({ status: 502 });
+    wrongIdentity = false;
+    expect(await enable()).toEqual({
+      mode: "per_update",
+      initial_deleted: true,
+      automatic_disabled: true,
+    });
+    const del = calls.filter((c) => c.method === "DELETE");
+    expect(del).toHaveLength(1);
+    expect(del[0].url).toMatch(/\/secrets\/WABOTIA_UPDATE_TOKEN$/);
+    expect(del[0].auth).toBe(`Bearer ${pasted}`);
+    const config = await secret(e, "system:release-config");
+    expect(config).toMatchObject({ mode: "per_update" });
+    expect(config.token).toBeUndefined();
+    const status = await updateStatus(e);
+    expect(status).toMatchObject({
+      token_source: "per_update",
+      configured: true,
+    });
+    expect(status.automatic.enabled).toBe(false);
+    // A automática não liga sem token guardado.
+    await expect(
+      configureAutomaticUpdates(e, actor, {
+        enabled: true,
+        hour: 3,
+        window_hours: 2,
+      }),
+    ).rejects.toThrow(/não há token guardado/);
+    // Salvar um token no painel volta ao modo guardado.
+    await configureUpdates(e, actor, { token: "panel-token-000000000000000" });
+    expect((await updateStatus(e)).token_source).toBe("panel");
+  });
+
+  it("iniciar pede o token colado, só da pessoa, e nunca usa o inicial", async () => {
+    await enable();
+    await expect(startUpdate(e, actor, { commit: target })).rejects.toThrow(
+      /Informe um token/,
+    );
+    await expect(
+      startUpdate(e, { ...actor, via }, { commit: target, token: pasted }),
+    ).rejects.toMatchObject({ code: "secret_requires_person" });
+    calls = [];
+    await startUpdate(e, actor, { commit: target, token: pasted });
+    const stored = await secret(e, "system:release-job-token");
+    expect(stored.job_id).toBe((await secret(e, "system:release-state")).id);
+    expect(stored.expires_at - now()).toBeGreaterThan(59 * 60000);
+    // O token do trabalho não aparece no estado público.
+    expect(JSON.stringify(await updateStatus(e))).not.toContain(pasted);
+    await runToEnd();
+    expect((await updateStatus(e)).state?.status).toBe("requested");
+    // Toda chamada à Cloudflare usou o token colado (o env ainda tem o
+    // inicial neste teste: o modo não cai nele).
+    // (O envio dos estáticos usa o JWT da sessão, não o token.)
+    const cloudflare = calls.filter(
+      (c) =>
+        c.url.startsWith("https://api.cloudflare.com/client/v4/accounts/") &&
+        !c.url.includes("/assets/upload"),
+    );
+    expect(cloudflare.length).toBeGreaterThan(0);
+    for (const c of cloudflare) expect(c.auth).toBe(`Bearer ${pasted}`);
+  });
+
+  it("(a) não sobra token do trabalho em nenhum estado final", async () => {
+    await enable();
+    const ends: [string, () => Promise<void>, string][] = [
+      ["requested", async () => {}, "requested"],
+      [
+        "failed",
+        async () => {
+          wrongIdentity = true;
+        },
+        "failed",
+      ],
+      [
+        "unknown",
+        async () => {
+          uploadError = true;
+        },
+        "unknown",
+      ],
+    ];
+    for (const [name, arrange, expected] of ends) {
+      wrongIdentity = false;
+      uploadError = false;
+      await exec(env, "DELETE FROM secrets WHERE id='system:release-state'");
+      await startUpdate(e, actor, { commit: target, token: pasted });
+      expect([name, !!(await jobTokenRow())]).toEqual([name, true]);
+      await arrange();
+      await runToEnd();
+      expect([name, (await secret(e, "system:release-state")).status]).toEqual([
+        name,
+        expected,
+      ]);
+      expect([name, await jobTokenRow()]).toEqual([name, null]);
+    }
+    // Concluída: o código novo no ar.
+    const done = await secret(e, "system:release-state");
+    await setSecret(e, "system:release-state", {
+      ...done,
+      status: "requested",
+      target: buildInfo.commit,
+    });
+    expect((await updateStatus(e)).state?.status).toBe("completed");
+    expect(await jobTokenRow()).toBeNull();
+    // Cancelada pela pessoa ("Liberar nova tentativa").
+    wrongIdentity = false;
+    uploadError = false;
+    await exec(env, "DELETE FROM secrets WHERE id='system:release-state'");
+    await startUpdate(e, actor, { commit: target, token: pasted });
+    wrongIdentity = true;
+    await runToEnd();
+    wrongIdentity = false;
+    await resetUpdate(e, actor, { confirmed_build_stopped: true });
+    expect((await secret(e, "system:release-state")).status).toBe("cancelled");
+    expect(await jobTokenRow()).toBeNull();
+    // Prazo vencido com o trabalho ainda em andamento.
+    await startUpdate(e, actor, { commit: target, token: pasted });
+    const record = await secret(e, "system:release-job-token");
+    await setSecret(e, "system:release-job-token", {
+      ...record,
+      expires_at: now() - 1,
+    });
+    await processUpdate(e);
+    expect(await secret(e, "system:release-state")).toMatchObject({
+      status: "failed",
+      error: expect.stringMatching(/prazo do token venceu/),
+    });
+    expect(await jobTokenRow()).toBeNull();
+    // E nada além da configuração do modo, sem token.
+    expect((await secret(e, "system:release-config")).token).toBeUndefined();
+  });
+});
 it("não repete publicação com confirmação perdida", async () => {
   uploadError = true;
   await startUpdate(e, actor, { commit: target });
@@ -246,7 +503,9 @@ it("não repete publicação com confirmação perdida", async () => {
   ).toHaveLength(0);
 });
 it("rollback da migração preserva o recibo e impede ativar código", async () => {
-  spec.migrations[0].statements.push("INSERT INTO missing_table VALUES('fail')");
+  spec.migrations[0].statements.push(
+    "INSERT INTO missing_table VALUES('fail')",
+  );
   release = await buildRelease(spec);
   await startUpdate(e, actor, { commit: target });
   await runToEnd();

@@ -7,15 +7,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Buffer } from "node:buffer";
 import {
   assetsForHashes,
+  assetUploadV2,
+  CloudflareCallError,
   digest,
   MAX_ASSETS,
   MAX_BLOB,
   MAX_MIGRATIONS,
   MAX_MODULES,
   MAX_UPLOAD_BATCH,
+  MAX_UPLOAD_BATCH_BYTES,
   nextRound,
   parseIndex,
   parseManifest,
+  releaseCloudflare,
+  scriptPath,
   OFFICIAL_RELEASE_ORIGIN,
   RELEASE_ORIGIN,
   SIGNATURE_DOMAIN,
@@ -25,6 +30,7 @@ import {
   versionGreater,
 } from "../src/release";
 import {
+  automaticUpdateTick,
   checkUpdate,
   paidPlanProbe,
   processUpdate,
@@ -39,6 +45,8 @@ import { type Actor, type Env } from "../src/types";
 import { buildInfo } from "../src/build-info.generated";
 import {
   checkVersionOrder,
+  checkStaticAssetSize,
+  MAX_STATIC_ASSET_BYTES,
   excludedAsset,
   insideRepository,
   LAST_FORMAT1,
@@ -523,6 +531,31 @@ describe("assinatura do índice e do manifesto", () => {
       /fora da versão/,
     );
   });
+
+  it("recusa lote acima de 48 MiB antes de ler qualquer blob e aceita o limite", async () => {
+    const r = await buildRelease(baseSpec());
+    const items = [0, 1].map((i) => ({
+      hash: String(i),
+      file: { ...r.manifest.assets[0], size: MAX_UPLOAD_BATCH_BYTES / 2 },
+    }));
+    const read = vi.fn(async () => new Uint8Array(0));
+    items[1].file.size++;
+    await expect(assetUploadV2(items, read)).rejects.toThrow(/excede 48 MiB/);
+    expect(read).not.toHaveBeenCalled();
+    items[1].file.size--;
+    await expect(assetUploadV2(items, read)).resolves.toBeInstanceOf(FormData);
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it("publicador recusa estático acima de 24 MiB, dentro do orçamento do leitor", () => {
+    expect(MAX_STATIC_ASSET_BYTES).toBe(MAX_UPLOAD_BATCH_BYTES / 2);
+    expect(() =>
+      checkStaticAssetSize("/grande.bin", MAX_STATIC_ASSET_BYTES),
+    ).not.toThrow();
+    expect(() =>
+      checkStaticAssetSize("/grande.bin", MAX_STATIC_ASSET_BYTES + 1),
+    ).toThrow(/estático.*24 MiB/);
+  });
 });
 
 describe("atualizador do formato 2", () => {
@@ -530,7 +563,8 @@ describe("atualizador do formato 2", () => {
     calls: { url: string; method: string; body: any }[],
     publishFails: false | "hard" = false,
     bucketsFor: (hashes: string[]) => string[][] = (h) => [h],
-    override: (url: URL) => Response | null = () => null,
+    override: (url: URL) => Response | null | Promise<Response | null> = () =>
+      null,
     crashUpload = 0;
   beforeEach(async () => {
     calls = [];
@@ -547,7 +581,7 @@ describe("atualizador do formato 2", () => {
       const request = new Request(input, init),
         url = new URL(request.url);
       calls.push({ url: request.url, method: request.method, body: init.body });
-      const replaced = override(url);
+      const replaced = await override(url);
       if (replaced) return replaced;
       const served = serveRelease(url, release);
       if (served) return served;
@@ -586,12 +620,415 @@ describe("atualizador do formato 2", () => {
       throw Error("Unexpected request " + request.url);
     });
   });
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
 
   const run = async (times: number) => {
     for (let i = 0; i < times; i++) await processUpdate(e);
   };
   const state = () => secret(e, "system:release-state");
+
+  const untilPhase = async (phase: string) => {
+    for (let i = 0; i < 30 && (await state()).phase !== phase; i++)
+      await processUpdate(e);
+    expect(await state()).toMatchObject({ phase, status: "pending" });
+  };
+
+  it("três rodadas interrompidas sem catch deixam recibo e encerram pending", async () => {
+    await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
+    // Estado da ponte: nenhum dos campos novos existe ainda.
+    expect((await state()).round_started_at).toBeUndefined();
+    let checkpoint: any;
+    override = async (url) => {
+      if (url.pathname.endsWith("/manifest.json")) checkpoint = await state();
+      return null;
+    };
+    for (let i = 1; i <= 3; i++) {
+      await processUpdate(e);
+      expect(checkpoint).toMatchObject({
+        status: "pending",
+        phase: "manifest",
+        rounds_without_progress: i,
+        round_started_at: expect.any(Number),
+        last_progress_at: expect.any(Number),
+      });
+      // Simula morte da invocação: só sobrevive o recibo anterior ao trabalho,
+      // sem as escritas finais nem as do catch.
+      await setSecret(e, "system:release-state", checkpoint);
+    }
+    const before = calls.length;
+    await processUpdate(e);
+    expect(await state()).toMatchObject({
+      status: "failed",
+      retryable: false,
+      error: expect.stringMatching(/três rodadas seguidas sem avanço/),
+    });
+    expect(calls).toHaveLength(before);
+  });
+
+  it("avanço dentro de blobs, assets e migrate zera as rodadas sem avanço", async () => {
+    const spec = baseSpec();
+    spec.assets = Array.from({ length: 85 }, (_, i) => ({
+      name: `/p${i}.txt`,
+      body: `p${i}`,
+    }));
+    spec.migrations = Array.from({ length: 5 }, (_, i) => ({
+      name: `000${i}_progress.sql`,
+      statements: ["SELECT 1"],
+    }));
+    release = await buildRelease(spec);
+    bucketsFor = (h) =>
+      Array.from({ length: 5 }, (_, i) => h.slice(i * 20, (i + 1) * 20));
+    await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
+    const counts: Record<string, number> = {};
+    for (let i = 0; i < 40 && (await state()).status === "pending"; i++) {
+      const phase = (await state()).phase;
+      counts[phase] = (counts[phase] || 0) + 1;
+      await processUpdate(e);
+      if ((await state()).status === "pending")
+        expect((await state()).rounds_without_progress).toBe(0);
+    }
+    for (const phase of ["blobs", "assets", "migrate"])
+      expect(counts[phase]).toBeGreaterThanOrEqual(5);
+    expect((await state()).status).toBe("requested");
+  });
+
+  it("reset aceita pending parado por mais de 30 minutos, inclusive sem campos novos", async () => {
+    const at = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(at);
+    await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
+    const job = await state();
+    const reset = () =>
+      resetUpdate(e, actor, { confirmed_build_stopped: true });
+    for (const progress of [at, at - 30 * 60000]) {
+      await setSecret(e, "system:release-state", {
+        ...job,
+        created: at - 3600000,
+        updated: at - 3600000,
+        last_progress_at: progress,
+      });
+      await expect(reset()).rejects.toThrow(/Confira/);
+    }
+    await setSecret(e, "system:release-state", {
+      ...job,
+      created: at - 3600000,
+      updated: at,
+      last_progress_at: at - 30 * 60000 - 1,
+    });
+    await expect(reset()).resolves.toMatchObject({ status: "cancelled" });
+    await setSecret(e, "system:release-state", {
+      ...job,
+      created: at - 3600000,
+      updated: at - 3600000,
+    });
+    await expect(reset()).resolves.toMatchObject({ status: "cancelled" });
+  });
+
+  it("cache recente vencido é consultado de novo; início recusa índice fora do prazo", async () => {
+    const at = Date.now();
+    const expired = await buildRelease({
+      ...baseSpec(),
+      issued_at: at - 60000,
+      expires: at - 1,
+    });
+    await setSecret(e, "system:release-latest", {
+      ...expired.index,
+      checked_at: at,
+    });
+    expect((await checkUpdate(e)).expires).toBe(release.index.expires);
+    expect(calls.some((c) => c.url.endsWith("/v2/latest.json"))).toBe(true);
+    release = expired;
+    await setSecret(e, "system:release-latest", {
+      ...expired.index,
+      checked_at: at,
+    });
+    await expect(startUpdate(e, actor, { commit: target })).rejects.toThrow(
+      /venceu/,
+    );
+    expect((await state()).id).toBeUndefined();
+  });
+
+  it("início valida também a data do índice em cache e trabalho iniciado continua após expires", async () => {
+    const at = Date.now();
+    await setSecret(e, "system:release-latest", {
+      ...release.index,
+      checked_at: at,
+      issued_at: at + 2 * 86400000,
+    });
+    await expect(startUpdate(e, actor, { commit: target })).rejects.toThrow(
+      /futuro/,
+    );
+    release = await buildRelease({ ...baseSpec(), expires: at + 60000 });
+    await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
+    vi.spyOn(Date, "now").mockReturnValue(at + 120000);
+    await run(20);
+    expect((await state()).status).toBe("requested");
+  });
+
+  it("automático repete publish antes de sending, sem reaplicar migrações", async () => {
+    await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
+    await untilPhase("publish");
+    await setSecret(e, "system:release-state", {
+      ...(await state()),
+      source: "automatic",
+    });
+    override = (url) =>
+      url.pathname.endsWith("/settings")
+        ? new Response("indisponível", { status: 503 })
+        : null;
+    await processUpdate(e);
+    expect(await state()).toMatchObject({
+      status: "failed",
+      phase: "publish",
+      retryable: true,
+      retry_at: expect.any(Number),
+    });
+    expect(calls.filter((c) => c.method === "PUT")).toHaveLength(0);
+    override = () => null;
+    const retryAt = (await state()).retry_at;
+    vi.spyOn(Date, "now").mockReturnValue(retryAt);
+    const hour = Number(
+      new Intl.DateTimeFormat("en", {
+        timeZone: "America/Sao_Paulo",
+        hour: "2-digit",
+        hourCycle: "h23",
+      }).format(retryAt),
+    );
+    await setSecret(e, "system:release-automatic-config", {
+      enabled: true,
+      hour,
+      window_hours: 2,
+    });
+    await automaticUpdateTick(e);
+    expect(await state()).toMatchObject({
+      status: "pending",
+      phase: "publish",
+      attempt: 2,
+    });
+    await processUpdate(e);
+    expect((await state()).status).toBe("requested");
+    expect(await all(e, "SELECT id FROM v2_probe")).toEqual([{ id: "one" }]);
+    expect(calls.filter((c) => c.method === "PUT")).toHaveLength(1);
+  });
+
+  it("automático não repete publish após o PUT ambíguo", async () => {
+    await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
+    await untilPhase("publish");
+    await setSecret(e, "system:release-state", {
+      ...(await state()),
+      source: "automatic",
+    });
+    override = (url) =>
+      url.pathname.endsWith(`/scripts/${worker}`)
+        ? new Response("indisponível", { status: 503 })
+        : null;
+    await processUpdate(e);
+    expect(await state()).toMatchObject({
+      status: "unknown",
+      phase: "publish",
+      retryable: false,
+      retry_at: null,
+    });
+    await run(3);
+    expect(calls.filter((c) => c.method === "PUT")).toHaveLength(1);
+  });
+
+  it.each([401, 403])(
+    "assets renova uma sessão vencida (%s) e envia só o que falta",
+    async (status) => {
+      const spec = baseSpec();
+      spec.assets.push({ name: "/outro.txt", body: "outro" });
+      release = await buildRelease(spec);
+      bucketsFor = (h) => h.map((hash) => [hash]);
+      await startUpdate(e, actor, {
+        commit: (await checkUpdate(e, true)).commit,
+      });
+      await untilPhase("assets");
+      await processUpdate(e); // primeiro lote aceito
+      override = (url) =>
+        url.pathname.endsWith("/assets/upload")
+          ? new Response("sessão vencida", { status })
+          : null;
+      await processUpdate(e);
+      expect(await state()).toMatchObject({
+        status: "pending",
+        phase: "prepare",
+        upload_session_renewals: 1,
+      });
+      override = (url) =>
+        url.pathname.endsWith("/assets-upload-session")
+          ? ok({
+              jwt: "renovada",
+              buckets: [[release.manifest.assets[1].sha256.slice(0, 32)]],
+            })
+          : null;
+      await run(15);
+      expect((await state()).status).toBe("requested");
+      expect(
+        calls.filter((c) => c.url.endsWith("/assets-upload-session")),
+      ).toHaveLength(2);
+      const sent = calls.filter((c) => c.url.includes("/assets/upload"));
+      expect([...(sent.at(-1)!.body as FormData).keys()]).toEqual([
+        release.manifest.assets[1].sha256.slice(0, 32),
+      ]);
+    },
+  );
+
+  it("segunda recusa de sessão para sem laço nem nova tentativa automática", async () => {
+    await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
+    await untilPhase("assets");
+    await setSecret(e, "system:release-state", {
+      ...(await state()),
+      source: "automatic",
+    });
+    override = (url) =>
+      url.pathname.endsWith("/assets/upload")
+        ? new Response("negado", { status: 403 })
+        : null;
+    await run(10);
+    expect(await state()).toMatchObject({
+      status: "failed",
+      phase: "assets",
+      upload_session_renewals: 1,
+      retryable: false,
+    });
+    expect(
+      calls.filter((c) => c.url.endsWith("/assets-upload-session")),
+    ).toHaveLength(2);
+  });
+
+  it("403 HTML da Cloudflare tem status e não permite repetição automática", async () => {
+    override = (url) =>
+      url.pathname.endsWith("/settings")
+        ? new Response("<html>Forbidden</html>", { status: 403 })
+        : null;
+    await expect(
+      releaseCloudflare("token", scriptPath(account, worker) + "/settings"),
+    ).rejects.toMatchObject({
+      status: 403,
+      message: expect.stringContaining("Cloudflare HTTP 403"),
+    });
+    await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
+    await setSecret(e, "system:release-state", {
+      ...(await state()),
+      source: "automatic",
+      started_at: Date.now(),
+    });
+    await run(10);
+    expect(await state()).toMatchObject({
+      status: "failed",
+      phase: "prepare",
+      retryable: false,
+      retry_at: null,
+    });
+  });
+
+  it("assets falha pelo orçamento do lote antes de ler blobs ou enviar", async () => {
+    // Metadados assinados grandes, sem alocar 50 MiB: a recusa precede a leitura.
+    release = await buildRelease({
+      ...baseSpec(),
+      assets: [
+        { name: "/a.bin", body: "a" },
+        { name: "/b.bin", body: "b" },
+      ],
+    });
+    for (const file of release.manifest.assets) file.size = MAX_BLOB;
+    release.manifestBytes = Buffer.from(JSON.stringify(release.manifest));
+    release.manifestSignature = await signFile(
+      "manifest",
+      release.manifestBytes,
+      (await testKeys()).principal,
+    );
+    release.index.manifest_size = release.manifestBytes.length;
+    release.index.manifest_sha256 = await digest(release.manifestBytes);
+    release.index.total_size = [
+      ...release.manifest.assets,
+      ...release.manifest.modules,
+      ...release.manifest.migrations,
+    ].reduce((sum, file) => sum + file.size, 0);
+    release.indexBytes = Buffer.from(JSON.stringify(release.index));
+    release.indexSignature = await signFile(
+      "index",
+      release.indexBytes,
+      (await testKeys()).principal,
+    );
+    const job = await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
+    await processUpdate(e); // guarda o manifesto
+    await setSecret(e, "system:release-state", {
+      ...(await state()),
+      phase: "assets",
+      bucket: 0,
+      upload: {
+        jwt: "upload",
+        buckets: [release.manifest.assets.map((f) => f.sha256.slice(0, 32))],
+      },
+    });
+    const reads: string[] = [];
+    const media = new Proxy(env.MEDIA, {
+      get(target: any, prop) {
+        if (prop === "get")
+          return async (key: string) => {
+            reads.push(key);
+            return target.get(key);
+          };
+        const value = target[prop];
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    await processUpdate({ ...e, MEDIA: media } as Env);
+    expect(await state()).toMatchObject({
+      status: "failed",
+      phase: "assets",
+      error: expect.stringMatching(/excede 48 MiB/),
+    });
+    expect(reads).toEqual([
+      workPrefix(job!.id) + "manifest.json",
+      workPrefix(job!.id) + "manifest.sig",
+    ]);
+    expect(
+      calls.filter(
+        (c) => c.url.includes("/assets/upload") || c.method === "PUT",
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("decisão usa o status de CloudflareCallError mesmo se o texto disser outro HTTP", async () => {
+    override = (url) => {
+      if (url.pathname.endsWith("/manifest.json"))
+        throw new CloudflareCallError("Cloudflare HTTP 503", false, 403);
+      return null;
+    };
+    await startUpdate(e, actor, {
+      commit: (await checkUpdate(e, true)).commit,
+    });
+    await setSecret(e, "system:release-state", {
+      ...(await state()),
+      source: "automatic",
+      started_at: Date.now(),
+    });
+    await processUpdate(e);
+    expect(await state()).toMatchObject({ status: "failed", retryable: false });
+  });
 
   it("passa pelas etapas na ordem e lê só o que cada rodada usa", async () => {
     await startUpdate(e, actor, {
@@ -747,59 +1184,55 @@ describe("atualizador do formato 2", () => {
     expect(calls.filter((c) => c.method === "PUT")).toHaveLength(2);
   });
 
-  it("erro da Cloudflare: texto com errors[], e a decisão de tentar de novo não muda", async () => {
-    // Regra de antes da mensagem nova: 4xx (fora o 429) não tenta de novo;
-    // 429, 5xx e resposta 200 sem sucesso tentam (trabalho automático).
-    const cases: [number, any, boolean, RegExp][] = [
-      [
-        400,
-        [{ code: 10021, message: "bad script" }],
-        false,
-        /^Cloudflare HTTP 400 \(código 10021: bad script\)\.$/,
-      ],
-      [
-        401,
-        [{ code: 10000, message: "Authentication error" }],
-        false,
-        /^Cloudflare HTTP 401 \(código 10000: Authentication error\)\. Confira a conta e a permissão Workers Scripts: Edit do token\.$/,
-      ],
-      [403, [], false, /^Cloudflare HTTP 403\. Confira a conta e a permissão/],
-      [
-        404,
-        [{ code: 10007 }],
-        false,
-        /^Cloudflare HTTP 404 \(código 10007\)\.$/,
-      ],
-      [
-        429,
-        [{ code: 971, message: "Please wait" }],
-        true,
-        /^Cloudflare HTTP 429 \(código 971: Please wait\)\.$/,
-      ],
-      [
-        500,
-        [{ message: "Internal" }],
-        true,
-        /^Cloudflare HTTP 500 \(Internal\)\.$/,
-      ],
-      [503, undefined, true, /^Cloudflare HTTP 503\.$/],
-      // A mensagem de fora citando "HTTP 403" não vira um 4xx para a regra.
-      [
-        502,
-        [{ message: "upstream HTTP 403\nforbidden" }],
-        true,
-        /^Cloudflare HTTP 502 \(upstream http 403 forbidden\)\.$/,
-      ],
-      [
-        200,
-        [{ message: "HTTP 400 lá dentro" }],
-        true,
-        /^Cloudflare HTTP 200 \(http 400 lá dentro\)\.$/,
-      ],
-    ];
-    for (const [status, errors, retryable, text] of cases) {
-      await exec(env, "DELETE FROM secrets WHERE id LIKE 'system:release-%'");
-      await exec(env, "DELETE FROM system_update_locks");
+  // Cada cenário percorre o atualizador com D1/R2. Testes separados mantêm
+  // os nove casos e as mesmas verificações sem somar tudo no timeout de 5 s.
+  // Regra de antes da mensagem nova: 4xx (fora o 429) não tenta de novo;
+  // 429, 5xx e resposta 200 sem sucesso tentam (trabalho automático).
+  const cloudflareErrorCases: [number, any, boolean, RegExp][] = [
+    [
+      400,
+      [{ code: 10021, message: "bad script" }],
+      false,
+      /^Cloudflare HTTP 400 \(código 10021: bad script\)\.$/,
+    ],
+    [
+      401,
+      [{ code: 10000, message: "Authentication error" }],
+      false,
+      /^Cloudflare HTTP 401 \(código 10000: Authentication error\)\. Confira a conta e a permissão Workers Scripts: Edit do token\.$/,
+    ],
+    [403, [], false, /^Cloudflare HTTP 403\. Confira a conta e a permissão/],
+    [404, [{ code: 10007 }], false, /^Cloudflare HTTP 404 \(código 10007\)\.$/],
+    [
+      429,
+      [{ code: 971, message: "Please wait" }],
+      true,
+      /^Cloudflare HTTP 429 \(código 971: Please wait\)\.$/,
+    ],
+    [
+      500,
+      [{ message: "Internal" }],
+      true,
+      /^Cloudflare HTTP 500 \(Internal\)\.$/,
+    ],
+    [503, undefined, true, /^Cloudflare HTTP 503\.$/],
+    // A mensagem de fora citando "HTTP 403" não vira um 4xx para a regra.
+    [
+      502,
+      [{ message: "upstream HTTP 403\nforbidden" }],
+      true,
+      /^Cloudflare HTTP 502 \(upstream http 403 forbidden\)\.$/,
+    ],
+    [
+      200,
+      [{ message: "HTTP 400 lá dentro" }],
+      true,
+      /^Cloudflare HTTP 200 \(http 400 lá dentro\)\.$/,
+    ],
+  ];
+  it.each(cloudflareErrorCases)(
+    "erro da Cloudflare HTTP %s: texto com errors[], e a decisão de tentar de novo não muda",
+    async (status, errors, retryable, text) => {
       override = (url) =>
         url.pathname.endsWith("/assets-upload-session")
           ? Response.json({ success: false, errors }, { status })
@@ -824,8 +1257,8 @@ describe("atualizador do formato 2", () => {
         expect.stringMatching(text),
       ]);
       expect([status, job.retryable]).toEqual([status, retryable]);
-    }
-  });
+    },
+  );
 
   it("sonda do plano pago antes de migrar: no gratuito para sem tocar no banco", async () => {
     const s = baseSpec();
@@ -876,6 +1309,82 @@ describe("atualizador do formato 2", () => {
     ).toBeNull();
     // No pago (sem limite), a sonda passa.
     await expect(paidPlanProbe(e)).resolves.toBeUndefined();
+  });
+
+  it("ACHADO 2: limpeza lenta de A não pode apagar o trabalho B criado no meio", async () => {
+    // Regressão de achado2.patch; inclui o vencimento da trava durante o R2.
+    await setSecret(e, "system:release-state", {
+      id: "trabalho-a",
+      index: { format: 2 },
+      target: buildInfo.commit,
+      version: "0.0.1",
+      status: "completed",
+      phase: "publish",
+      created: Date.now() - 60000,
+      updated: Date.now() - 60000,
+      source: "manual",
+      cleanup_pending: true,
+    });
+    let entered!: () => void, releaseCleanup!: () => void;
+    const inside = new Promise<void>((r) => (entered = r));
+    const gate = new Promise<void>((r) => (releaseCleanup = r));
+    const media = new Proxy(env.MEDIA, {
+      get(target: any, prop) {
+        if (prop === "list")
+          return async (...a: any[]) => {
+            entered();
+            await gate;
+            return target.list(...a);
+          };
+        const v = target[prop];
+        return typeof v === "function" ? v.bind(target) : v;
+      },
+    });
+    const status = updateStatus({ ...e, MEDIA: media } as Env);
+    await inside;
+    let b: any;
+    try {
+      const commit = (await checkUpdate(e, true)).commit;
+      // Enquanto a trava vale, B não começa e outra consulta só lê.
+      await expect(startUpdate(e, actor, { commit })).rejects.toMatchObject({
+        code: "update_busy",
+      });
+      expect((await updateStatus(e)).state?.id).toBe("trabalho-a");
+      expect((await state()).cleanup_pending).toBe(true);
+      // A chamada ao R2 demora mais que a concessão; B pode adquirir a trava.
+      await exec(
+        e,
+        "UPDATE system_update_locks SET expires=0 WHERE name='release'",
+      );
+      b = await startUpdate(e, actor, { commit });
+      expect(b.id).not.toBe("trabalho-a");
+    } finally {
+      releaseCleanup();
+      await status;
+    }
+    expect((await state()).id).toBe(b.id);
+    expect((await state()).status).toBe("pending");
+  });
+
+  it("consulta com trava ocupada não conclui nem limpa o trabalho", async () => {
+    const job = {
+      id: "ocupado",
+      index: { format: 2 },
+      target: buildInfo.commit,
+      status: "requested",
+      phase: "publish",
+      cleanup_pending: true,
+    };
+    await setSecret(e, "system:release-state", job);
+    await env.MEDIA.put(workPrefix(job.id) + "resto", "conteúdo");
+    await exec(
+      e,
+      "INSERT INTO system_update_locks(name,owner,expires) VALUES('release','outro',?)",
+      Date.now() + 180000,
+    );
+    expect((await updateStatus(e)).state?.status).toBe("requested");
+    expect(await state()).toEqual(job);
+    expect(await env.MEDIA.head(workPrefix(job.id) + "resto")).not.toBeNull();
   });
 
   it("concluída, os temporários do R2 são apagados", async () => {

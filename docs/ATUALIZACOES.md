@@ -38,6 +38,26 @@ O instalador configura automaticamente a atualização com o token usado na inst
 
 O token inicial também possui D1/R2 para criar os recursos. Depois de instalar, você pode substituí-lo por um token com somente **Workers Scripts: Edit** e revogar o inicial. Essa permissão permite publicar Workers na conta autorizada; escolha uma conta adequada ao projeto e guarde a credencial em local privado.
 
+Enquanto o atualizador usa o token inicial, o painel avisa **Token inicial em uso**. Depois de salvar o token só de Workers, o inicial continua guardado no Worker como reserva; o painel oferece **Apagar o token inicial**, que apaga esse segredo do Worker usando o token do painel. Depois disso não há reserva: se o token do painel for revogado, a atualização para até você salvar outro. Revogue também o inicial na Cloudflare (**My Profile → API Tokens**).
+
+Informar ou trocar o token e apagar o inicial são feitos só pela pessoa administradora, na própria sessão (nunca por um bot agindo por ela); apagar o inicial pede o segundo fator quando a pessoa tem um ou a política pede. Contrato: `POST /api/v1/system/updates/initial-token/delete` com `{"confirmed":true}` e `Idempotency-Key`; `GET /api/v1/system` traz `updates.token_source` (`panel`, `initial` ou `null`) e `updates.initial_token_stored`.
+
+### Colar o token a cada atualização
+
+Opção para não deixar token da Cloudflare guardado na instalação. Em **Colar o token a cada atualização**, a pessoa administradora cola um token com **Workers Scripts: Edit** e confirma. O servidor confere o token contra a identidade da instalação, apaga o token salvo no painel e o token inicial do Worker, e desliga a atualização automática, que precisa de token guardado.
+
+Depois disso, cada atualização pede o token. Ele é conferido antes de criar o trabalho e fica cifrado, preso àquele trabalho, só enquanto o trabalho está em andamento e por até 60 minutos (o maior salto medido levou cerca de 10). Ao terminar, falhar, ser cancelado, ficar sem confirmação ou vencer o prazo, o token é apagado; uma nova tentativa é um trabalho novo e pede o token de novo.
+
+Isso encolhe a janela de sempre para minutos por atualização. Não protege contra código rodando no Worker durante esses minutos. Para voltar a guardar o token, salve um em **Alterar configuração de atualização**. Quando o Fiscal tem cofre configurado, o painel sugere este modo.
+
+Ligar o modo e iniciar uma atualização nele são feitos só pela pessoa administradora, na própria sessão, com o segundo fator quando ela tem um ou a política pede. Contrato: `POST /api/v1/system/updates/token-mode` com `{"token":"…","confirmed":true}`; nesse modo, `POST /api/v1/system/updates/start` leva `{"commit":"…","token":"…"}`. `updates.token_source` vale `per_update`.
+
+### Cofre do certificado na mesma conta
+
+Com o cofre do certificado e o Wabotia na mesma conta Cloudflare, quem conseguir executar código no Worker do Wabotia, ou obtiver o token de atualização, alcança também o cofre. A Cloudflare não oferece token restrito a um único Worker. As medidas de proteção (o token só digitado por pessoa, o token restrito no lugar do inicial, o modo "não guardar o token") reduzem essa chance; não a eliminam.
+
+Opcional: quem quiser separar de vez pode manter o cofre numa conta Cloudflare própria. Custa uma segunda conta e não é necessário para usar o Wabotia.
+
 ## Se houver falha
 
 - **Falha antes de publicar:** leia a mensagem, corrija token/permissão e libere nova tentativa. Um pacote inválido não é ativado.

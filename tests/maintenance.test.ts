@@ -208,14 +208,27 @@ it("restringe manutenção a administradores e recusa origem cruzada", async () 
   await expect(
     saveCloudflareSettings(env, { ...admin, kind: "app" }, {}),
   ).rejects.toMatchObject({ status: 403 });
+  // Regra de segredo: bot pela pessoa administradora também não informa token.
+  const via = { kind: "bot" as const, bot_id: "b", run_id: "r", masked: true };
+  for (const who of [
+    { ...admin, via },
+    { ...admin, id: "bot:b" },
+  ])
+    await expect(
+      saveCloudflareSettings(env, who, {
+        account_id: account,
+        zone_id: zone,
+        token,
+      }),
+    ).rejects.toMatchObject({ status: 403, code: "secret_requires_person" });
 });
 it("mantém idempotência, conflito e sigilo pela API", async () => {
   const user = await session(),
     key = uid(),
     body = { account_id: account, zone_id: zone, token };
-  expect(
-    (await request(user, "/cloudflare/configure", body, key)).status,
-  ).toBe(200);
+  expect((await request(user, "/cloudflare/configure", body, key)).status).toBe(
+    200,
+  );
   const replay = await request(user, "/cloudflare/configure", body, key);
   expect(replay.headers.get("Idempotency-Replayed")).toBe("true");
   expect(
