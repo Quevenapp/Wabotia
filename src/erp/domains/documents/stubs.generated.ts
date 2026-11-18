@@ -51,8 +51,6 @@ export const documentSituationJson = (..._args: unknown[]): never => notPorted("
 export const documentView = (..._args: unknown[]): never => notPorted("erp_documents.document_view");
 /** erp_documents.dto(p_id uuid) → jsonb */
 export const dto = (..._args: unknown[]): never => notPorted("erp_documents.dto");
-/** erp_documents.editable(p_status text) → boolean */
-export const editable = (..._args: unknown[]): never => notPorted("erp_documents.editable");
 /** erp_documents.effects_transition_allowed(p_kind text, p_from text, p_to text) → boolean */
 export const effectsTransitionAllowed = (..._args: unknown[]): never => notPorted("erp_documents.effects_transition_allowed");
 /** erp_documents.extension_data(p_body jsonb) → jsonb */
