@@ -1,0 +1,49 @@
+{
+  "data": [
+    {
+      "id": "h_stage",
+      "kind": "os.stage_changed",
+      "from_status": "in_progress",
+      "to_status": "in_progress",
+      "actor": "u1",
+      "note": "",
+      "created": 1794763800000,
+      "from_stage": "triagem",
+      "to_stage": "citacao",
+      "entity_kind": null,
+      "entity_id": null,
+      "entity_version": 4,
+      "mutation_key": "stage-os-custom-4",
+      "changed_fields": [
+        "stage"
+      ]
+    },
+    {
+      "id": "h_task",
+      "kind": "os.task.created",
+      "from_status": null,
+      "to_status": null,
+      "actor": "u1",
+      "note": "",
+      "created": 1794763800001,
+      "from_stage": null,
+      "to_stage": null,
+      "entity_kind": "task",
+      "entity_id": "task_1",
+      "entity_version": 1,
+      "mutation_key": "task-os-custom-1",
+      "changed_fields": [
+        "title",
+        "description",
+        "assignee",
+        "audience",
+        "due_at",
+        "remind_at",
+        "client_visible",
+        "sensitive",
+        "state"
+      ]
+    }
+  ],
+  "next_cursor": null
+}
