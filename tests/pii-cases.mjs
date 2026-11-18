@@ -216,6 +216,10 @@ export function piiCases({
       async () => {
         const pii = createPiiMask();
         const raw = "CPF 123.456.789-09, telefone +55 (11) 98888-7777";
+        // O modelo só viu marcadores, então só os repete. Os itens dele voltam
+        // intactos ao provedor (assinaturas e cifrado não podem mudar); a
+        // máscara vale para o que o servidor acrescenta: os resultados.
+        const echoed = pii.mask(raw);
         let calls = 0,
           executions = 0;
         const result = await toolLoop({
@@ -245,7 +249,7 @@ export function piiCases({
                         name: "registrar",
                         input: { cpf: "[CPF_1]" },
                       },
-                      { type: "text", text: raw },
+                      { type: "text", text: echoed },
                     ],
               };
             if (family === "responses")
@@ -266,7 +270,7 @@ export function piiCases({
                       },
                       {
                         type: "message",
-                        content: [{ type: "output_text", text: raw }],
+                        content: [{ type: "output_text", text: echoed }],
                       },
                     ],
               };
@@ -276,8 +280,8 @@ export function piiCases({
                   message: final
                     ? { content: text }
                     : {
-                        content: raw,
-                        reasoning_content: raw,
+                        content: echoed,
+                        reasoning_content: echoed,
                         tool_calls: [
                           {
                             id: `t${calls}`,

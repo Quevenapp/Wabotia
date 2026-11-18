@@ -206,10 +206,16 @@ export async function toolLoop(options: {
       const content = call.invalid
         ? JSON.stringify({ erro: "Argumentos inválidos (JSON). Tente de novo." })
         : await options.run(options.pii ? { ...call, args: options.pii.restoreValue(call.args) } : call);
-      results.push({ id: call.id, content, error: content.startsWith('{"erro"') });
+      // Só o resultado da ferramenta passa pela máscara. Os itens do próprio
+      // modelo (raciocínio cifrado, assinaturas, ids) voltam intactos: um
+      // trecho de base64 que parecesse documento corromperia o cifrado.
+      results.push({
+        id: call.id,
+        content: options.pii ? options.pii.maskValue(content) : content,
+        error: content.startsWith('{"erro"'),
+      });
     }
-    const next = resultMessages(options.family, turn, results);
-    messages.push(...(options.pii ? options.pii.maskValue(next) : next));
+    messages.push(...resultMessages(options.family, turn, results));
   }
   const last = parseTurn(options.family, await options.complete(messages, tools, true));
   return { text: last.text, messages };
