@@ -327,27 +327,44 @@ describe("tarefas: prazos e recuperação", () => {
     expect(JSON.parse(result.payload)).toMatchObject({ id: removed.id, assignee: null, reason: "assignee_unavailable" });
   });
 
-  it("enfileira para o cliente autenticado antes de marcar e recupera falha sem duplicar", async () => {
+  it("reserva a versão lida antes de enfileirar ao cliente e recupera falha sem duplicar", async () => {
     const s = await setup();
     const c = await receive(s.f, s.f.line, "oi", "5511960010203");
     await drain(s.f);
     await exec(env, "UPDATE os_orders SET conversation_id=? WHERE profile_id=? AND id=?", c.id, s.f.profile, s.order.id);
     const task = await s.create({ audience: "customer", client_visible: true, assignee: s.f.member.id, due_at: 20, remind_at: 10 });
+    const queued = () => all(env, "SELECT payload FROM outbox WHERE profile_id=? AND dedupe LIKE '%task-due:%'", s.f.profile);
     const originalExec = db.exec;
     let fail = true;
     vi.spyOn(db, "exec").mockImplementation(async (environment, sql, ...args) => {
-      if (fail && sql.includes("SET notified_at")) { fail = false; throw new Error("falha após fila"); }
+      if (fail && sql.includes("SET notified_at")) { fail = false; throw new Error("falha na reserva"); }
       return originalExec(environment, sql, ...args);
     });
+    // Falha na reserva: nada vai à fila e a tarefa segue pendente.
     expect(await runTaskDue(s.f.ctx, { now: 10, budget: budget(), limit: 10 }, dueContext)).toEqual({ processed: 0, has_more: true });
     expect((await s.row(task.id)).notified_at).toBeNull();
-    // Texto e responsável interno entre fila e recuperação não duplicam o prazo.
+    expect(await queued()).toHaveLength(0);
+    vi.restoreAllMocks();
+    // Falha no envio depois da reserva: a reserva é desfeita, sem perder o aviso.
+    let sendFails = true;
+    const flaky: typeof modulesApi = (environment, profile, moduleId) => {
+      const ctx = dueContext(environment, profile, moduleId);
+      return { ...ctx, sendMessage: async (...args: Parameters<typeof ctx.sendMessage>) => {
+        if (sendFails) { sendFails = false; throw new Error("fila indisponível"); }
+        return ctx.sendMessage(...args);
+      } };
+    };
+    expect(await runTaskDue(s.f.ctx, { now: 11, budget: budget(), limit: 10 }, flaky)).toEqual({ processed: 0, has_more: true });
+    expect((await s.row(task.id)).notified_at).toBeNull();
+    expect(await queued()).toHaveLength(0);
+    // Texto e responsável interno alterados antes do envio: vai a versão atual, uma vez.
     await s.edit(task, { title: "Conferência revisada", assignee: null });
-    expect(await runTaskDue(s.f.ctx, { now: 11, budget: budget(), limit: 10 }, dueContext)).toEqual({ processed: 1, has_more: false });
-    const queued = await all(env, "SELECT payload FROM outbox WHERE profile_id=? AND dedupe LIKE '%task-due:%'", s.f.profile);
-    expect(queued).toHaveLength(1);
-    expect(JSON.parse(queued[0].payload).text).toContain(input.title);
-    expect((await s.row(task.id)).notified_at).toBe(11);
+    expect(await runTaskDue(s.f.ctx, { now: 12, budget: budget(), limit: 10 }, flaky)).toEqual({ processed: 1, has_more: false });
+    expect(await queued()).toHaveLength(1);
+    expect(JSON.parse((await queued())[0].payload).text).toContain("Conferência revisada");
+    expect((await s.row(task.id)).notified_at).toBe(12);
+    expect((await runTaskDue(s.f.ctx, { now: 13, budget: budget(), limit: 10 }, flaky)).processed).toBe(0);
+    expect(await queued()).toHaveLength(1);
   });
 
   it("não marca falha de publicação ou cliente sem conversa", async () => {

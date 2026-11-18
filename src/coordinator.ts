@@ -650,7 +650,7 @@ export class Coordinator extends DurableObject<Env> {
       }
       // Uma invocação: leituras de configuração lembradas no alarme inteiro
       // (as entregas releem a área a cada linha; docs/LIMITES.md).
-      let env = withReadCache(this.env);
+      const env = withReadCache(this.env);
       await exec(
         env,
         "UPDATE outbox SET status='unknown',error='Processo interrompido durante envio; reconcilie antes de repetir.' WHERE profile_id=? AND status='sending' AND updated<?",
@@ -689,16 +689,14 @@ export class Coordinator extends DurableObject<Env> {
         // Consumir antes da rodada: um novo wake durante ela fica pendente.
         await this.ctx.storage.delete("modules_pending");
         try {
-          // Seleção, autorização e enfileiramento não intercalam comandos que
-          // reclassifiquem, encerrem ou arquivem a tarefa no mesmo Coordinator.
-          await this.ctx.blockConcurrencyWhile(() => {
-            // Recomeçar as leituras dentro do bloqueio e reaproveitá-las no
-            // restante do alarme, sem duplicar configuração/estado dos módulos.
-            env = withReadCache(this.env);
-            return runModuleSchedules(
-              withLocalModuleWake(env, this.profile, (options) => this.wakeModules(options)), this.profile, tick,
-            );
-          });
+          // Sem blockConcurrencyWhile: a rodada de todos os módulos pode
+          // chamar provedores (cobrança) e não deve segurar webhooks, comandos
+          // e painel nem arriscar o limite de 30 s do bloqueio. Corridas com
+          // comandos ficam com cada módulo (tarefas de OS: reserva condicionada
+          // à versão antes do envio, src/modules/os/tasks/reminders.ts).
+          await runModuleSchedules(
+            withLocalModuleWake(env, this.profile, (options) => this.wakeModules(options)), this.profile, tick,
+          );
         } catch (error) {
           await this.ctx.storage.put("modules_pending", true);
           throw error;

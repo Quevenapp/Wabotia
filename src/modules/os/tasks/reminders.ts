@@ -111,13 +111,32 @@ export async function runTaskDue(
         const c = await ctx.conversation(parent.conversation_id);
         const phone = ctx.verifiedPhone(c);
         if (c.profile_id !== ctx.profile || !phone || phone !== parent.phone) { has_more = true; continue; }
-        const current = await one<TaskRow>(ctx.env,
-          "SELECT * FROM os_tasks WHERE profile_id=? AND order_id=? AND id=?", ctx.profile, row.order_id, row.id);
-        if (!current || current.version !== row.version || current.state !== "open" || current.archived_at !== null ||
-            current.notified_at !== null || current.audience !== "customer") { has_more = true; continue; }
-        const task = projectChildForCustomer(taskView(current));
+        const task = projectChildForCustomer(taskView(row));
         if (!task) { has_more = true; continue; }
-        await ctx.sendMessage(c, { text: `Lembrete: ${task.title}\nVencimento: ${dueDate.format(task.due_at!)} às ${dueTime.format(task.due_at!)} (Brasília)` }, { key, notification: true });
+        // A rodada não bloqueia o Coordinator: um comando pode reclassificar,
+        // encerrar ou arquivar a tarefa entre a leitura e o envio. Toda escrita
+        // na tarefa incrementa a versão; a reserva só vale para a versão lida,
+        // ainda aberta, pública e destinada ao cliente. Depois dela, o texto
+        // enviado é o dessa versão, que era público no instante da reserva.
+        const claimed = await exec(ctx.env,
+          `UPDATE os_tasks SET notified_at=? WHERE profile_id=? AND order_id=? AND id=?
+           AND version=? AND state='open' AND archived_at IS NULL AND notified_at IS NULL
+           AND audience='customer' AND client_visible=1 AND sensitive=0`,
+          now, ctx.profile, row.order_id, row.id, row.version);
+        if (!claimed.meta.changes) { has_more = true; continue; }
+        try {
+          await ctx.sendMessage(c, { text: `Lembrete: ${task.title}\nVencimento: ${dueDate.format(task.due_at!)} às ${dueTime.format(task.due_at!)} (Brasília)` }, { key, notification: true });
+        } catch (error) {
+          // Falhou antes da fila: desfaz só a própria reserva. A chave de envio
+          // é estável; uma inclusão já feita não se repete na próxima rodada.
+          await exec(ctx.env,
+            `UPDATE os_tasks SET notified_at=NULL WHERE profile_id=? AND order_id=? AND id=?
+             AND version=? AND notified_at=?`,
+            ctx.profile, row.order_id, row.id, row.version, now).catch(() => undefined);
+          throw error;
+        }
+        processed++;
+        continue;
       } else {
         const assignee = row.assignee && (await ctx.grantees("technician")).some((p) => p.id === row.assignee) ? row.assignee : null;
         // Evento durável para a equipe também funciona sem conversa. Nunca

@@ -446,16 +446,23 @@ export async function schedulerSerialization(h: IntegrationHarness) {
     const stub = h.env.COORDINATOR.get(h.env.COORDINATOR.idFromName(f.profile));
     const operation = action === "private" ? "os.private.task.update" : action === "archive" ? "os.task.archive" : "os.task.update";
     const data = { id: order.id, task_id: task.id, version: task.version, ...(action === "private" ? { sensitive: true, client_visible: false, audience: "staff" } : action === "archive" ? {} : { state: action }) };
-    let completed = false;
-    const mutation = stub.fetch("https://coordinator/command", { method: "POST", body: JSON.stringify({ profile: f.profile, actor: f.actor, operation, data, key: uid(), requestId: uid() }) }).then(response => { completed = true; return response; });
+    const before = (await messages(h, f)).length;
     try {
-      await new Promise(resolve => setTimeout(resolve, 20));
-      const interleaved = completed;
+      // O Coordinator aceita o comando com a rodada dos módulos parada entre a
+      // seleção e o envio (sem blockConcurrencyWhile em volta da rodada).
+      const result = await stub.fetch("https://coordinator/command", { method: "POST", body: JSON.stringify({ profile: f.profile, actor: f.actor, operation, data, key: uid(), requestId: uid() }) });
+      assert.equal(result.status, 200, await result.text());
       release();
       await alarm;
-      const result = await mutation;
-      assert.equal(result.status, 200, await result.text());
-      assert.equal(interleaved, false, `${action}: comando intercalou seleção e envio`);
+      // A reserva condicionada à versão lida recusa a tarefa alterada: nada
+      // vai ao cliente. (Reclassificada para a equipe, ela pode ser avisada à
+      // equipe pela rodada normal, só por evento, sem texto.)
+      const sent = (await messages(h, f)).slice(before).filter(r => String(json(r.payload).text || "").includes("Lembrete público"));
+      assert.deepEqual(sent, [], `${action}: lembrete enviado depois da alteração`);
+      if (action !== "private") {
+        const row = await one(h.env, "SELECT notified_at FROM os_tasks WHERE profile_id=? AND id=?", f.profile, task.id);
+        assert.equal(row!.notified_at, null, `${action}: tarefa encerrada marcada como avisada`);
+      }
     } finally {
       release();
       onSchedule("os", async (ctx, tick) => { await runDue(ctx, tick.now); });
