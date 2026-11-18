@@ -3707,7 +3707,7 @@
    },
    "public.erp_stock_product_compose": {
     "name": "erpStockProductCompose",
-    "ported": false
+    "ported": true
    }
   },
   "uses": {

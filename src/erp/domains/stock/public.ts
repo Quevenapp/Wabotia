@@ -113,3 +113,4 @@ export function guardInvoiceStockDelete(
 export { commandTaken, compositionOwnStock, negativeAllowed } from "./internal.ts";
 export { invoiceScreen, ledgerOrigin } from "./ledger.ts";
 export { postPhysical025 } from "./rpc/erp_stock_post.ts";
+export { erpStockProductCompose } from "./rpc/compositions.ts";

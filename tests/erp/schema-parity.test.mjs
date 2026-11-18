@@ -32,7 +32,7 @@ function proven(kind, id, item) {
   assert.ok(item && typeof item === "object" && item.where && item.test, `${kind} ${id}: declare { where, test }`);
   assert.ok(existsSync(item.test), `${kind} ${id}: teste ${item.test} não existe`);
 }
-const LIMITS = { checks_pending: 189, triggers_pending: 217, indexes_dropped: 1 };
+const LIMITS = { checks_pending: 189, triggers_pending: 204, indexes_dropped: 1 };
 
 const lite = new DatabaseSync(":memory:");
 lite.exec("PRAGMA foreign_keys=ON");

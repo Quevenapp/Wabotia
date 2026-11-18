@@ -22,3 +22,7 @@ import "./rpc/product-create.ts";
 import "./rpc/opening.ts";
 import "./rpc/checkin.ts";
 import "./rpc/invoice-stock.ts";
+import "./rpc/document-stock-read.ts";
+import "./rpc/compositions.ts";
+import "./rpc/purchases.ts";
+import "./rpc/mirror.ts";
