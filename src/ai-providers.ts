@@ -1,6 +1,7 @@
 // Cadastro da instalação. Só este módulo abre o cofre dos provedores;
 // respostas públicas usam uma lista explícita de campos, nunca a linha SQL.
 import { all, batch, exec, one } from "./db";
+import { requireAccess } from "./access";
 import {
   ApiError,
   type Actor,
@@ -48,8 +49,11 @@ const priceFields = [
 
 /** Defesa contra um serviço que ecoe a credencial em modelos ou respostas. */
 export function hideProviderKey(value: string, key: string): string {
-  for (const part of [key, key.slice(0, 8), key.slice(-8)])
-    if (part.length >= 8) value = value.split(part).join("[oculto]");
+  if (key) value = value.split(key).join("[oculto]");
+  // Inclui o separador na posição 12: sk-ant-api03- termina nesse índice.
+  const random = key.slice(key.lastIndexOf("-", 12) + 1);
+  for (const part of [random.slice(0, 12), random.slice(-12)])
+    if (part.length >= 12) value = value.split(part).join("[oculto]");
   return value;
 }
 
@@ -91,15 +95,23 @@ export async function allowedProvider(env: Env, id: string, profile: string) {
     typeof id === "string" && id
       ? await one(env, "SELECT * FROM ai_providers WHERE id=?", id)
       : null;
-  if (
-    !row ||
-    row.status !== "active" ||
-    !json(row.profiles, []).includes(profile)
-  )
+  if (!row)
+    throw new ApiError(
+      409,
+      "provider_not_found",
+      "Provedor não encontrado: escolha outro.",
+    );
+  if (row.status !== "active")
     throw new ApiError(
       409,
       "provider_revoked",
-      "Provedor revogado: escolha outro",
+      "Provedor revogado: escolha outro.",
+    );
+  if (!json(row.profiles, []).includes(profile))
+    throw new ApiError(
+      409,
+      "provider_not_allowed",
+      "Este provedor não está liberado para esta área.",
     );
   return row;
 }
@@ -122,14 +134,16 @@ export async function providerKey(env: Env, row: any): Promise<string> {
   return key;
 }
 
-function publicProvider(row: any) {
+function publicProvider(row: any, actor?: Actor) {
   return {
     id: row.id,
     name: row.name,
     kind: row.kind,
     credential: row.credential,
     base_url: row.base_url,
-    profiles: json(row.profiles, []),
+    profiles: json(row.profiles, []).filter(
+      (profile: string) => !actor || actor.role === "admin" || actor.profiles.includes(profile),
+    ),
     status: row.status,
     capabilities: json(row.capabilities),
     models: json(row.models, []),
@@ -142,12 +156,15 @@ function publicProvider(row: any) {
 
 function reader(actor: Actor) {
   refuseEngineActor(actor);
-  if (actor.kind !== "user")
+  if (actor.kind !== "user" || !["admin", "operator"].includes(actor.role))
     throw new ApiError(
       403,
       "admin_required",
       "Somente pessoas com acesso à área.",
     );
+  // Mesmo item da tela Bots (web/workspace-navigation.ts). security.access
+  // confere área/escopos; users.access é conferido por requireAccess.
+  requireAccess(actor, "conversations");
 }
 const visible = (actor: Actor, row: any) =>
   actor.role === "admin" ||
@@ -180,7 +197,7 @@ export async function listProviders(env: Env, actor: Actor) {
     if (writes.length) await batch(env, writes);
   }
   return rows.map((row) => ({
-    ...publicProvider(row),
+    ...publicProvider(row, actor),
     ...(actor.role === "admin"
       ? {
           same_key_as: rows

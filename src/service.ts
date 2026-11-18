@@ -35,7 +35,7 @@ import { appErpRoleInput } from "./modules/erp/identity";
 import { boundAllows, visibleConversation } from "./visibility";
 import { probe, telegramRemoved } from "./integrations";
 import { aiConfig, connectionKey } from "./ai-provider";
-import { allowedProvider, createImplicitProvider, providerCommand, providerConnectionConfig, providerRow } from "./ai-providers";
+import { allowedProvider, createImplicitProvider, providerCommand, providerConnectionConfig, providerRow, providerUses } from "./ai-providers";
 import { secret } from "./security";
 import { validateJevSettings } from "./jev-client";
 import { contactCommand } from "./contacts";
@@ -2349,14 +2349,19 @@ export async function perform(
         requireValue(typeof providerId === "string" && providerId.length > 0, "Informe um provedor válido.");
       requireValue(!(supplied && (data.provider_id || data.config?.provider_id)), "Informe o provedor ou a chave, não ambos.");
       if (supplied) {
-        cfg = aiConfig(cfg);
-        const provider = await createImplicitProvider(env, actor, profile, { kind: cfg.provider, name: data.name || old?.name || cfg.provider, api_key: supplied, base_url: cfg.base_url });
-        cfg.provider_id = provider.id;
+        const currentId = json(old?.config).provider_id;
+        const uses = currentId ? await providerUses(env, currentId) : [];
+        if (uses.length === 1 && uses[0].kind === "connection" && uses[0].id === id) {
+          cfg = await providerConnectionConfig(env, profile, { ...cfg, provider_id: currentId });
+          await providerCommand(env, actor, "provider.rotate", { id: currentId, api_key: supplied });
+        } else {
+          cfg = aiConfig(cfg);
+          const provider = await createImplicitProvider(env, actor, profile, { kind: cfg.provider, name: data.name || old?.name || cfg.provider, api_key: supplied, base_url: cfg.base_url });
+          cfg.provider_id = provider.id;
+        }
       } else if (providerId) cfg = await providerConnectionConfig(env, profile, { ...cfg, provider_id: providerId });
       else {
-        // Dado criado por script antigo: mantém o cofre anterior até vincular.
-        cfg = aiConfig(cfg);
-        requireValue((await secret(env, `connection:${id}`)).api_key, "Informe o provedor ou a chave de API.");
+        requireValue(false, old ? "Informe o provedor ou a chave." : "Informe o provedor ou a chave de API.");
       }
     }
     if (old) {

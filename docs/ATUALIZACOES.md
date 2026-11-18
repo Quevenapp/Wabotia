@@ -4,7 +4,7 @@
 
 A migração **0093_provedores.sql** cria o cadastro de provedores e o consumo diário. Cada conexão de IA e cada chave JEV da área vira automaticamente um provedor; os vínculos passam a usar sua chave e URL. A cópia dos segredos é feita em SQL, sem abrir as chaves. A migração é aditiva e a versão 0.21.x continua lendo o banco migrado.
 
-Os segredos antigos `connection:<id>` e `jev:<área>` ficam **até a versão seguinte**, para permitir voltar à versão anterior. **Se a chave for trocada no servidor novo e a instalação voltar à versão anterior, volta a valer a chave antiga.** Revogar no servidor novo também não revoga esse cofre legado; ao voltar, confira ou revogue a credencial no próprio serviço.
+Os segredos antigos `connection:<id>` e `jev:<área>` ficam só para a volta de versão e saem na limpeza da versão seguinte (**0.23**). **Se a chave for trocada no servidor novo e a instalação voltar à versão anterior, volta a valer a chave antiga.** Revogar no servidor novo também não revoga esse cofre legado; ao voltar, confira ou revogue a credencial no próprio serviço.
 
 A API já permite cadastrar, testar, trocar, revogar, excluir e juntar provedores e consultar consumo estimado. Nada junta automaticamente. A impressão HMAC e a chave nunca são devolvidas. As telas de Provedores, os seletores nos usos, a transcrição e os apps ficam para depois. Detalhes em [Provedores de IA](API.md#provedores-de-ia).
 

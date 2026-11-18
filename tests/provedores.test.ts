@@ -12,6 +12,8 @@ import { askJev } from "../src/jev-client";
 import { addJevUsage } from "../src/jev";
 import { runDecide } from "../src/bot-actions/decide";
 import {
+  allowedProvider,
+  hideProviderKey,
   listProviders,
   providerFingerprint,
   pruneProviderUsage,
@@ -35,10 +37,17 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function noKey(value: unknown) {
+function keyFragments(key: string) {
+  const random = key.slice(key.lastIndexOf("-", 12) + 1);
+  return [
+    ...(key ? [key] : []),
+    ...[random.slice(0, 12), random.slice(-12)].filter((part) => part.length >= 12),
+  ];
+}
+function noKey(value: unknown, candidates = keys) {
   const text = typeof value === "string" ? value : JSON.stringify(value);
-  for (const key of keys)
-    for (const fragment of [key, key.slice(0, 8), key.slice(-8)])
+  for (const key of candidates)
+    for (const fragment of keyFragments(key))
       expect(text).not.toContain(fragment);
   expect(text).not.toContain("key_fingerprint");
 }
@@ -52,7 +61,7 @@ function network(echo = false) {
       const key = authorization?.replace(/^Bearer /, "") || "";
       // O serviço só conhece a credencial recebida nesta chamada. As três
       // chaves são exercitadas abaixo, inclusive após rotação e pelo JEV.
-      const fragments = [key, key.slice(0, 8), key.slice(-8)];
+      const fragments = keyFragments(key);
       calls.push({ url, key: authorization });
       if (url.endsWith("/models"))
         return Response.json({
@@ -137,7 +146,7 @@ async function migration0093() {
     .filter(Boolean);
   for (const sql of sqls) await env.DB.prepare(sql).run();
 }
-async function connection(f: Fixture, provider: string, config: any = {}) {
+async function connection(f: Fixture, provider: string | null, config: any = {}) {
   const id = uid(),
     bot = uid();
   await exec(
@@ -182,6 +191,39 @@ const connRow = (id: string) =>
   one(env, "SELECT * FROM connections WHERE id=?", id);
 
 describe("provedores: atualização aditiva e volta à versão anterior", () => {
+  it.each([null, "fora-do-check", ""])(
+    "INSERT ignorado mantém provider=%s no cofre legado e exige vínculo ao editar",
+    async (provider) => {
+      const f = await fixture();
+      const bot = await connection(f, provider);
+      await exec(env, "UPDATE connections SET name='',status='paused' WHERE id=?", bot.id);
+      await setSecret(env, `connection:${bot.id}`, { api_key: KEY });
+      await migration0093();
+      expect(await one(env, "SELECT id FROM ai_providers WHERE id=?", `p-${bot.id}`)).toBeNull();
+      expect(json((await connRow(bot.id)).config)).not.toHaveProperty("provider_id");
+      expect(await connectionKey(env, await connRow(bot.id))).toBe(KEY);
+      await expect(command(f, "connection.update", { id: bot.id, name: "Editado" }))
+        .rejects.toThrow("Informe o provedor ou a chave.");
+      expect(await connectionKey(env, await connRow(bot.id))).toBe(KEY);
+    },
+  );
+
+  it("JEV não vincula quando a inserção do provedor é ignorada", async () => {
+    const f = await fixture();
+    await setSecret(env, `jev:${f.profile}`, { key: KEY_JEV });
+    await exec(env, "CREATE TRIGGER ignore_jev_provider BEFORE INSERT ON ai_providers WHEN NEW.kind='typesafe' BEGIN SELECT RAISE(IGNORE); END");
+    try {
+      await migration0093();
+      expect(await one(env, "SELECT id FROM ai_providers WHERE id=?", `p-jev-${f.profile}`)).toBeNull();
+      expect(json((await one(env, "SELECT settings FROM profiles WHERE id=?", f.profile)).settings))
+        .not.toHaveProperty("jev_provider_id");
+      network();
+      expect((await askJev(env, f.profile, {}, {}, { q: { type: "noul", instructions: "Sim?" } })).ok).toBe(true);
+    } finally {
+      await exec(env, "DROP TRIGGER ignore_jev_provider");
+    }
+  });
+
   it("copia os cofres sem abrir, liga bots e JEV e preserva o caminho antigo", async () => {
     const f = await fixture();
     const openai = await connection(f, "openai", { vision: true, pdf: true });
@@ -339,6 +381,51 @@ describe("provedores: atualização aditiva e volta à versão anterior", () => 
 });
 
 describe("provedores: operações e permissões", () => {
+  it("distingue provedor inexistente, revogado e fora da área", async () => {
+    network();
+    const f = await fixture(), p = await create(f);
+    await expect(allowedProvider(env, "inexistente", f.profile)).rejects.toMatchObject({
+      status: 409, message: "Provedor não encontrado: escolha outro.",
+    });
+    await expect(allowedProvider(env, p.id, "outra-area")).rejects.toMatchObject({
+      status: 409, message: "Este provedor não está liberado para esta área.",
+    });
+    await command(f, "provider.revoke", { id: p.id });
+    await expect(allowedProvider(env, p.id, f.profile)).rejects.toMatchObject({
+      status: 409, message: "Provedor revogado: escolha outro.",
+    });
+  });
+
+  it("leitura exige o acesso da tela Bots e filtra provedores, áreas e consumo", async () => {
+    network();
+    const f = await fixture(), other = await fixture();
+    const shared = await create(f, { profiles: [f.profile, other.profile] });
+    const foreign = await create(other);
+    for (const profile of [f.profile, other.profile])
+      await exec(env, "INSERT INTO ai_usage_daily(provider_id,profile_id,use,model,day,requests) VALUES(?,?,'bot','modelo-teste',?,1)", shared.id, profile, new Date().toISOString().slice(0, 10));
+    const denied = { ...f.member, access: ["contacts"] };
+    for (const path of ["/providers", `/providers/${shared.id}/usage`])
+      expect((await internalCall(env, denied, { path })).status).toBe(403);
+    await expect(command(f, "provider.usage", { id: shared.id }, denied))
+      .rejects.toMatchObject({ status: 403 });
+    await expect(listProviders(env, denied)).rejects.toMatchObject({ status: 403 });
+
+    const reader = { ...f.member, access: ["conversations"] };
+    const response = await internalCall(env, reader, { path: "/providers" });
+    expect(response.status).toBe(200);
+    const providers = await response.json<any[]>();
+    expect(providers.map((p) => p.id)).toEqual([shared.id]);
+    expect(providers[0].profiles).toEqual([f.profile]);
+    expect((await listProviders(env, f.admin)).find((p) => p.id === shared.id)?.profiles)
+      .toEqual([f.profile, other.profile]);
+    const usage = await internalCall(env, reader, { path: `/providers/${shared.id}/usage` });
+    expect(usage.status).toBe(200);
+    expect((await usage.json<any>()).data).toMatchObject([{ requests: 1 }]);
+    expect((await command(f, "provider.usage", { id: shared.id }, reader)).data)
+      .toMatchObject([{ requests: 1 }]);
+    expect((await internalCall(env, reader, { path: `/providers/${foreign.id}/usage` })).status).toBe(403);
+  });
+
   it("não salva quando o teste falha, force salva sem verificação e rotate preserva vínculos", async () => {
     const f = await fixture();
     vi.stubGlobal(
@@ -451,10 +538,10 @@ describe("provedores: operações e permissões", () => {
         provider_id: foreign.id,
         model: "modelo-teste",
       }),
-    ).rejects.toMatchObject({ code: "provider_revoked" });
+    ).rejects.toMatchObject({ code: "provider_not_allowed" });
     await expect(
       command(f, "jev", { provider_id: foreign.id }),
-    ).rejects.toMatchObject({ code: "provider_revoked" });
+    ).rejects.toMatchObject({ code: "provider_not_allowed" });
   });
 
   it("identifica iguais, junta áreas e vínculos, bloqueia exclusão em uso", async () => {
@@ -555,7 +642,7 @@ describe("provedores: operações e permissões", () => {
       profiles: [],
     });
     await expect(connectionKey(env, await connRow(bot.id))).rejects.toThrow(
-      "Provedor revogado",
+      "Este provedor não está liberado para esta área.",
     );
     await command(f, "provider.update", { id: p.id, profiles: [f.profile] });
     await command(f, "provider.revoke", { id: p.id });
@@ -577,7 +664,7 @@ describe("provedores: operações e permissões", () => {
       ),
     ).toMatchObject({
       status: "failed",
-      error: "Provedor revogado: escolha outro",
+      error: "Provedor revogado: escolha outro.",
     });
     expect(
       (await one(env, "SELECT state FROM conversations WHERE id=?", c.id))
@@ -605,7 +692,37 @@ describe("provedores: operações e permissões", () => {
         {},
         { q: { type: "noul", instructions: "Sim?" } },
       ),
-    ).toMatchObject({ ok: false, reason: "Provedor revogado: escolha outro" });
+    ).toMatchObject({ ok: false, reason: "Provedor revogado: escolha outro." });
+  });
+
+  it("trocar chave pela conexão rotaciona o provedor exclusivo sem deixar chave antiga ativa", async () => {
+    network();
+    const f = await fixture();
+    const saved = await command(f, "connection.create", {
+      kind: "ai", name: "Bot", config: { provider: "openai", model: "modelo-teste" }, api_key: KEY,
+    });
+    const before = (await listProviders(env, f.admin)).map((p) => p.id);
+    await command(f, "connection.update", { id: saved.id, api_key: ROTATED });
+    expect(json((await connRow(saved.id)).config).provider_id).toBe(saved.provider_id);
+    expect((await secret(env, `provider:${saved.provider_id}`)).api_key).toBe(ROTATED);
+    expect(await connectionKey(env, await connRow(saved.id))).toBe(ROTATED);
+    expect((await listProviders(env, f.admin)).map((p) => p.id)).toEqual(before);
+    for (const row of await all(env, "SELECT id FROM ai_providers WHERE status='active'"))
+      expect((await secret(env, `provider:${row.id}`)).api_key).not.toBe(KEY);
+  });
+
+  it("trocar chave de provedor compartilhado cria outro e preserva a outra conexão", async () => {
+    network();
+    const f = await fixture(), p = await create(f);
+    const first = await connection(f, "openai", { provider_id: p.id });
+    const second = await connection(f, "openai", { provider_id: p.id });
+    await exec(env, "UPDATE connections SET status='paused' WHERE id=?", first.id);
+    await command(f, "connection.update", { id: first.id, api_key: ROTATED });
+    expect(json((await connRow(first.id)).config).provider_id).not.toBe(p.id);
+    expect(json((await connRow(second.id)).config).provider_id).toBe(p.id);
+    expect(await connectionKey(env, await connRow(first.id))).toBe(ROTATED);
+    expect(await connectionKey(env, await connRow(second.id))).toBe(KEY);
+    expect(await listProviders(env, f.admin)).toHaveLength(2);
   });
 
   it("compatibilidade cria provedor implícito, reutiliza por id e mantém a chave antiga no rollback", async () => {
@@ -675,7 +792,7 @@ describe("provedores: operações e permissões", () => {
     await setSecret(env, `connection:${bot.id}`, { api_key: KEY });
     const before = calls.length;
     await command(f, "provider.update", { id: p.id, profiles: [] });
-    await expect(enable()).rejects.toThrow("Provedor revogado");
+    await expect(enable()).rejects.toThrow("Este provedor não está liberado para esta área.");
     expect(await enabled()).toBe(0);
     await command(f, "provider.update", { id: p.id, profiles: [f.profile] });
     await command(f, "provider.revoke", { id: p.id });
@@ -695,6 +812,35 @@ describe("provedores: operações e permissões", () => {
 });
 
 describe("provedores: consumo e a chave nunca sai", () => {
+  it.each(["sk-proj-", "sk-ant-api03-", ""])(
+    "preserva prefixos públicos e oculta chave inteira e trechos aleatórios: %s",
+    (prefix) => {
+      const random = "AbCdEf012345MnOpQr678901StUvWx234567";
+      const key = prefix + random;
+      const publicText = "Prefixos públicos sk-proj-, sk-ant-a e sk-ant-api03-; AbCdEf01234 e StUvWx23456.";
+      expect(hideProviderKey(publicText, key)).toBe(publicText);
+      noKey(publicText, [key]);
+      for (const fragment of [key, "AbCdEf012345", "StUvWx234567"]) {
+        expect(hideProviderKey(fragment, key)).toBe("[oculto]");
+        expect(() => noKey(fragment, [key])).toThrow();
+      }
+      noKey(hideProviderKey(`${key} AbCdEf012345 StUvWx234567`, key), [key]);
+    },
+  );
+
+  it("não procura trecho aleatório com menos de 12 caracteres", () => {
+    const key = "sk-proj-12345678901";
+    expect(hideProviderKey("sk-proj- 12345678901", key)).toBe("sk-proj- 12345678901");
+    expect(hideProviderKey(key, key)).toBe("[oculto]");
+  });
+
+  it("oculta e verifica a chave inteira mesmo com menos de 12 caracteres", () => {
+    const key = "AbCdEf01234";
+    expect(hideProviderKey(`Chave: ${key}`, key)).toBe("Chave: [oculto]");
+    expect(() => noKey(key, [key])).toThrow();
+    noKey(hideProviderKey(key, key), [key]);
+  });
+
   it("remove só dias com mais de 400 dias", async () => {
     const old = new Date(now() - 401 * 86400000).toISOString().slice(0, 10);
     const edge = new Date(now() - 400 * 86400000).toISOString().slice(0, 10);

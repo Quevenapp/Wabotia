@@ -36,7 +36,8 @@ INSERT OR IGNORE INTO secrets(id,value)
 SELECT 'provider:p-'||c.id,s.value FROM secrets s JOIN connections c ON s.id='connection:'||c.id
 WHERE c.kind='ai' AND json_extract(c.config,'$.provider_id') IS NULL;
 UPDATE connections SET config=json_set(config,'$.provider_id','p-'||id)
-WHERE kind='ai' AND json_extract(config,'$.provider_id') IS NULL;
+WHERE kind='ai' AND json_extract(config,'$.provider_id') IS NULL
+  AND EXISTS(SELECT 1 FROM ai_providers WHERE id='p-'||connections.id);
 INSERT OR IGNORE INTO ai_providers(id,name,kind,profiles,capabilities,created,updated)
 SELECT 'p-jev-'||p.id,'TypeSafe (JEV)','typesafe',json_array(p.id),'{"decision":true}',p.created,p.created
 FROM profiles p JOIN secrets s ON s.id='jev:'||p.id
@@ -46,4 +47,5 @@ SELECT 'provider:p-jev-'||p.id,s.value FROM profiles p JOIN secrets s ON s.id='j
 WHERE json_extract(p.settings,'$.jev_provider_id') IS NULL;
 UPDATE profiles SET settings=json_set(settings,'$.jev_provider_id','p-jev-'||id)
 WHERE EXISTS(SELECT 1 FROM secrets WHERE secrets.id='jev:'||profiles.id)
-  AND json_extract(settings,'$.jev_provider_id') IS NULL;
+  AND json_extract(settings,'$.jev_provider_id') IS NULL
+  AND EXISTS(SELECT 1 FROM ai_providers WHERE id='p-jev-'||profiles.id);
