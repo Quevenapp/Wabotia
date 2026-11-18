@@ -1646,6 +1646,7 @@ for (const [path, operation] of [
   ["updates/configure", "updates.configure"],
   ["updates/automatic", "updates.automatic"],
   ["updates/initial-token/delete", "updates.delete_initial_token"],
+  ["updates/token-mode", "updates.token_mode"],
   ["updates/start", "updates.start"],
   ["updates/reset", "updates.reset"],
   ["push/configure", "push.configure"],
