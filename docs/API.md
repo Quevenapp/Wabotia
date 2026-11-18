@@ -854,3 +854,26 @@ Cadastre `POST /profiles/{perfil}/webhook-subscriptions`, corpo `{"url":"https:/
 Valide `Wabotia-Signature: v1=<HMAC-SHA256>` sobre `Wabotia-Timestamp + "." + bytes_originais`. Recuse timestamps com diferença superior a cinco minutos, compare a assinatura em tempo constante e confira `Wabotia-Event-Id` contra `body.id`. A assinatura é recalculada a cada tentativa; o ID do evento permanece estável. Persista esse ID para deduplicar. Consulte entregas em `/webhook-deliveries`; use `/{id}/retry` para reenvio manual. Há dez tentativas automáticas, com espera progressiva limitada a uma hora entre tentativas.
 
 Veja os clientes completos em [JavaScript](../examples/client.mjs), [Python](../examples/client.py) e [cURL](../examples/curl.sh), além dos verificadores [JavaScript](../examples/webhook.mjs) e [Python](../examples/webhook.py). Os exemplos criam somente conversas no namespace da aplicação; conectar um número real exige a configuração do canal e suas permissões.
+
+
+## Dados pessoais e IA
+
+Cada bot tem a opção **Mascarar documentos e telefones nas mensagens antes de enviar à IA**, ligada por padrão. Bots antigos sem o campo também mascaram. A equipe pode desligá-la por bot em **Administração → Bots**; não há bloqueio adicional. Na API administrativa, use `PATCH /api/v1/profiles/:profile/bots/:id` com `{"mask_personal":false}`; `true` religa. A listagem de bots informa o valor efetivo. A opção fica em `connections.config.bot_options[remote_profile].mask_personal`, sem migração.
+
+**O que a máscara cobre:** mensagens, histórico, pedido, resultados de ferramentas, entradas do Atendente e do especialista, JEV (roteamento e ferramenta `decidir`) e texto extraído de PDFs. Reconhece CPF, CNPJ, telefones brasileiros, e-mail e CEP. Cada valor reconhecido vira um marcador, como `[CPF_1]` ou `[TEL_1]`, estável dentro da execução. Variações de pontuação de documentos e telefones compartilham marcador; a restauração usa a primeira grafia encontrada. O mapa fica apenas na memória do servidor durante a execução: não segue ao provedor, a logs, eventos ou `bot_runs.usage`. Uma nova execução ou tentativa reconstrói o mapa.
+
+Antes de executar ferramentas, o servidor restaura os argumentos. Respostas finais ao cliente e propostas mostradas à pessoa recebem os valores reais. Resultados de ferramentas passam pela máscara depois da sanitização existente. Marcadores desconhecidos permanecem em texto. A regra da instalação `bot_full_personal_data` continua regendo as consultas e a sanitização anterior do JEV; desligar a opção do bot não desliga essa regra.
+
+Com a opção ligada, nenhum PDF binário segue à IA. O servidor aceita texto simples com fontes padrão Helvetica, Times-Roman ou Courier, sem mapa customizado, em streams simples ou `FlateDecode`, dentro dos tetos de 1 arquivo, 4 MB e 10 páginas. O texto extraído e mascarado também pode ser usado por conexões sem suporte a PDF binário. PDFs escaneados, criptografados, com fontes/operadores/filtros não suportados, estrutura ambígua ou sem texto confiável seguem pelo caminho de PDF recusado, para conferência da equipe. Não há OCR. Com a opção desligada, permanece o envio de PDF conforme a capacidade e a opção da conexão.
+
+**O que não cobre:**
+
+- Fontes do Conhecimento, que são dados do negócio.
+- Imagens: inclusive imagens contendo documentos continuam sendo enviadas cruas.
+- Nomes próprios.
+- Endereço sem CEP; o reconhecimento do CEP não oculta automaticamente o restante do endereço.
+- O que o cliente escreve de forma não reconhecível, como dígitos por extenso ou documentos fragmentados.
+- O áudio enviado ao provedor de transcrição. A função exportada `createPiiMask` de `src/pii-mask.ts` pode ser aplicada ao texto transcrito quando essa etapa existir.
+- A voz de saída, que recebe a resposta já com os valores reais.
+
+A detecção é conservadora: CPF/CNPJ sem pontuação exigem dígitos verificadores válidos ou indicação explícita do tipo; formatos completos pontuados são mascarados mesmo com dígitos inválidos. Telefones exigem DDD brasileiro válido e formato plausível; sem DDD, exigem indicação de telefone. CEP sem hífen exige indicação de CEP. Valores em R$, datas, horários e números identificados como pedido/protocolo/ordem/código ficam intactos. Um número solto com formato de telefone pode ser ambíguo: a máscara não é uma garantia de anonimização integral.

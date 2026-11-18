@@ -6,6 +6,7 @@ import { setSecret } from "../src/security";
 import { inbound } from "../src/service";
 import { processInbox, processRun } from "../src/engine";
 import { decideInterpretation } from "../src/jev";
+import { setFullPersonalData } from "../src/bot-actions/actions";
 
 afterEach(() => vi.unstubAllGlobals());
 const proposal = {
@@ -103,6 +104,59 @@ async function serviceFixture(enabled = true) {
 }
 
 describe("interpretação do Atendente antes da decisão JEV", () => {
+  it.each(["sem bot", "bot inexistente", "padrão", "ligada", "desligada"])(
+    "consulta direta respeita a máscara pessoal: %s",
+    async (option) => {
+      const run = await decisionFixture();
+      if (option === "bot inexistente") run.bot_id = uid();
+      else if (option !== "sem bot") {
+        const f = await serviceFixture();
+        run.profile_id = f.profile;
+        run.bot_id = f.bot;
+        if (option !== "padrão")
+          await exec(
+            env,
+            "UPDATE connections SET config=json_set(config,'$.bot_options',json(?)) WHERE id=?",
+            JSON.stringify({ default: { mask_personal: option === "ligada" } }),
+            f.aiConnection,
+          );
+      }
+      const cpf = "123.456.789-09", tel = "+55 (11) 98888-7777";
+      const bodies: string[] = [];
+      vi.stubGlobal("fetch", vi.fn(async (_url: string, options: RequestInit) => {
+        bodies.push(String(options.body));
+        return Response.json(route());
+      }));
+      // Isola a opção por bot: a regra da instalação não pode esconder uma falha.
+      await setFullPersonalData(env, true);
+      try {
+        const result = await decideInterpretation(
+          env,
+          run,
+          { ...proposal, text: `Cadastro ${cpf}, telefone ${tel}.` },
+          { ...context, request: `Confira o CPF ${cpf} e telefone ${tel}.` },
+          { jev_enabled: true },
+          [],
+        );
+        expect(result.action).toBe("answer");
+        expect(bodies).toHaveLength(2);
+        for (const body of bodies) {
+          if (option === "desligada") {
+            expect(body).toContain(cpf);
+            expect(body).toContain(tel);
+          } else {
+            expect(body).not.toContain(cpf);
+            expect(body).not.toContain(tel);
+            expect(body).toContain("[CPF_1]");
+            expect(body).toContain("[TEL_1]");
+          }
+        }
+      } finally {
+        await setFullPersonalData(env, false);
+      }
+    },
+  );
+
   it("executa provedor de IA primeiro e só consulta JEV depois de receber a interpretação", async () => {
     const f = await serviceFixture();
     const calls: { url: string; body: any }[] = [];

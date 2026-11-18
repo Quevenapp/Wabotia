@@ -1,5 +1,9 @@
 # Atualização direta, sem repositório próprio
 
+## 18/11/2026 — Máscara de dados pessoais por bot
+
+Nova opção por bot, ligada também para bots existentes: documentos, telefones, e-mails e CEPs reconhecidos viram marcadores nas mensagens, histórico, ferramentas e JEV. O servidor restaura os valores nas ferramentas, propostas e respostas. PDFs passam como texto mascarado ou seguem para conferência da equipe; imagens continuam cruas. Sem migração. Detalhes e limites em [Dados pessoais e IA](API.md#dados-pessoais-e-ia).
+
 Desde a versão 0.3, novas instalações baixam um pacote oficial já preparado e publicam diretamente na sua conta Cloudflare. Não precisam de conta GitHub, cópia do repositório, Cloudflare Builds ou Deploy Hook. O código continua aberto no repositório oficial; uma versão só aparece no painel depois que seu pacote foi publicado pelo mantenedor.
 
 ## Retirada do Hermes: servidor e painel

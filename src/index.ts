@@ -2168,6 +2168,7 @@ for (const [path, [table, scope]] of Object.entries(readLists))
         row.connection_kind = connection?.kind || null;
         if (connection?.kind === "ai") {
           const cfg = json(connection.config);
+          row.mask_personal = cfg.bot_options?.[row.remote_profile]?.mask_personal !== false;
           row.provider = cfg.provider;
           row.model = cfg.model;
           // O provedor recusou as ferramentas numa execução (até salvar a

@@ -1,3 +1,4 @@
+import type { PiiMask } from "./pii-mask";
 // Conexão direta com um provedor de IA, sem servidor externo (docs/PROVEDOR-IA.md).
 // O Worker chama o provedor com a chave guardada no cofre da conexão. Não há
 // arquivos nem memória: cada execução leva instruções, histórico e fontes,
@@ -274,6 +275,8 @@ export function aiKey(value: unknown) {
 }
 
 export type AiRequest = {
+  /** Estado privado; nunca faz parte do corpo HTTP. */
+  pii?: PiiMask;
   /**
    * Instruções estáveis da área e da fase: o mesmo texto em toda execução
    * do mesmo tipo (sem carimbo de tempo nem dado da conversa). Na Anthropic
@@ -864,6 +867,7 @@ export async function aiCompleteWithTools(
   }
   const result = await toolLoop({
     family,
+    pii: request.pii,
     messages,
     tools: request.tools,
     // O laço passa aqui antes de cada rodada, inclusive a última sem ferramentas.

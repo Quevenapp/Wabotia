@@ -207,3 +207,79 @@ describe("laço de ferramentas: modo cliente (OpenAI, DeepSeek)", () => {
     expect(calls[0].body.tools).toBeUndefined();
   });
 });
+
+describe("máscara pessoal por bot no motor", () => {
+  it.each([undefined, true, false])("ida e volta, histórico e todas as chamadas HTTP; opção %s", async (option) => {
+    const cpf = "123.456.789-09", tel = "+55 (11) 98888-7777";
+    const s = await setup({ provider: "anthropic", model: "claude-opus-5-5", ...(option === undefined ? {} : { bot_options: { default: { mask_personal: option } } }) });
+    const c = await customerSays(s, "5511966660001", `Meu CPF ${cpf} e telefone ${tel}`);
+    const run = await runOf(c);
+    const customer = await import("../src/bot-actions/customer");
+    const original = customer.runCustomerTool;
+    let received: any;
+    const tool = vi.spyOn(customer, "runCustomerTool").mockImplementation(async (ctx, state, name, args) => {
+      received = args;
+      // Exercita a consulta real e um resultado textual com dados pessoais.
+      return JSON.stringify({ consulta: await original(ctx, state, name, args), observacao: `${cpf} ${tel}`, email: "ana@exemplo.com" });
+    });
+    try {
+      const cpfArg = option === false ? cpf : "[CPF_1]";
+      const calls = mockFetch([
+        anthropic([{ type: "tool_use", id: "t1", name: "os_situacao", input: { cpf: cpfArg } }], "tool_use"),
+        anthropic([{ type: "text", text: answer(`Seu CPF ${cpfArg} foi registrado`) }]),
+      ]);
+      await processRun(env, run);
+      expect(received.cpf).toBe(cpf);
+      expect(calls).toHaveLength(2);
+      for (const call of calls) {
+        const body = JSON.stringify(call.body);
+        for (const value of [cpf, tel, "ana@exemplo.com"])
+          if (option !== false) expect(body).not.toContain(value);
+        expect(body).toContain(option === false ? cpf : "[CPF_1]");
+        expect(body).toContain(option === false ? tel : "[TEL_1]");
+      }
+      const first = JSON.parse(calls[0].body.messages[0].content.at(-1).text);
+      expect(first.history.some((m: any) => m.text.includes(cpfArg))).toBe(true);
+      if (option !== false) expect(JSON.stringify(calls[1].body)).toContain("[EMAIL_1]");
+      const replies = await all(env, "SELECT payload FROM outbox WHERE conversation_id=?", c);
+      expect(replies.some((r) => JSON.parse(r.payload).text === `Seu CPF ${cpf} foi registrado`)).toBe(true);
+      const saved = await one(env, "SELECT usage,result FROM bot_runs WHERE id=?", run.id);
+      expect(saved.result).toContain(cpf);
+      expect(saved.usage).not.toContain(cpf);
+      expect(saved.usage).not.toContain("CPF_1");
+    } finally { tool.mockRestore(); }
+  });
+
+  it("restaura os argumentos e o resumo antes de guardar e mostrar a proposta à pessoa", async () => {
+    const s = await setup({ provider: "anthropic", model: "claude-opus-5-5" });
+    const chat = await perform(env, s.actor, s.profile, "internal.create", { peer_id: `bot:${s.bot}` }, uid());
+    const message = await perform(env, s.actor, s.profile, "internal.send", { id: chat.id, text: "Abra uma OS. CPF 123.456.789-09, telefone 11988887777" }, uid());
+    const run = await one(env, "SELECT * FROM bot_runs WHERE id=?", message.run_id) as Run;
+    const calls = mockFetch([
+      anthropic([{ type: "tool_use", id: "t1", name: "propor_acao", input: { operacao: "os.create", parametros: { item: "Notebook", problem: "CPF [CPF_1]", phone: "[TEL_1]" }, resumo: "OS para CPF [CPF_1]" } }], "tool_use"),
+      anthropic([{ type: "text", text: "Confira a proposta para [CPF_1] e confirme." }]),
+    ]);
+    await processRun(env, run);
+    const proposal = await one(env, "SELECT params,summary,status FROM bot_proposals WHERE run_id=?", run.id);
+    expect(proposal.status).toBe("pending");
+    expect(JSON.parse(proposal.params)).toMatchObject({ problem: "CPF 123.456.789-09", phone: "11988887777" });
+    expect(proposal.summary).toContain("123.456.789-09");
+    const shown = await all(env, "SELECT text,payload FROM internal_messages WHERE chat_id=? AND kind='proposal'", chat.id);
+    expect(JSON.stringify(shown)).toContain("123.456.789-09");
+    expect(JSON.stringify(shown)).not.toContain("[CPF_1]");
+    for (const call of calls) {
+      expect(JSON.stringify(call.body)).not.toContain("123.456.789-09");
+      expect(JSON.stringify(call.body)).not.toContain("11988887777");
+    }
+  });
+
+  it("salva a opção por bot em JSON, valida booleano e preserva bots vizinhos", async () => {
+    const s = await setup({ provider: "anthropic", model: "claude-opus-5-5", bot_options: { outro: { mask_personal: true }, default: { outra_opcao: 1 } } });
+    await perform(env, s.admin, s.profile, "bot.update", { id: s.bot, mask_personal: false }, uid());
+    const row = await one(env, "SELECT config FROM connections WHERE id=?", s.ai);
+    expect(JSON.parse(row.config).bot_options).toEqual({ outro: { mask_personal: true }, default: { outra_opcao: 1, mask_personal: false } });
+    await expect(perform(env, s.admin, s.profile, "bot.update", { id: s.bot, mask_personal: "false" }, uid())).rejects.toThrow("Máscara");
+    await perform(env, s.admin, s.profile, "bot.update", { id: s.bot, mask_personal: true }, uid());
+    expect(JSON.parse((await one(env, "SELECT config FROM connections WHERE id=?", s.ai)).config).bot_options.default.mask_personal).toBe(true);
+  });
+});

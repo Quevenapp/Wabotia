@@ -1360,7 +1360,7 @@ describe("PDF do cliente no provedor de IA", () => {
   });
 
   it("Anthropic: o PDF vai como bloco document antes do texto, e só na mensagem em que chegou", async () => {
-    const f = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", vision: true, pdf: true });
+    const f = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", vision: true, pdf: true, bot_options: { default: { mask_personal: false } } });
     const conversation = await receive(f, "Segue a nota", [{ type: "application/pdf", bytes: pdf(2) }]);
     const run = (await runOf(conversation))!;
     expect(json(run.context).documents).toHaveLength(1);
@@ -1378,7 +1378,7 @@ describe("PDF do cliente no provedor de IA", () => {
   });
 
   it("acima do teto (11 páginas ou mais de 4 MB), mais de um PDF ou opção desligada: vai para a equipe", async () => {
-    const on = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", vision: true, pdf: true });
+    const on = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", vision: true, pdf: true, bot_options: { default: { mask_personal: false } } });
     expect(PDF_LIMITS).toEqual({ files: 1, bytes: 4 * 1024 * 1024, pages: 10 });
     expect(pdfPages(pdf(10))).toBe(10);
     expect(pdfPages(new TextEncoder().encode("%PDF-1.5 comprimido"))).toBeNull();
@@ -1392,16 +1392,16 @@ describe("PDF do cliente no provedor de IA", () => {
       { type: "application/pdf", bytes: pdf(1) },
     ]);
     expect(await runOf(two)).toBeNull();
-    const off = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", vision: true, pdf: false });
+    const off = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", vision: true, pdf: false, bot_options: { default: { mask_personal: false } } });
     const refused = await receive(off, "Nota", [{ type: "application/pdf", bytes: pdf(1) }]);
     expect(await runOf(refused)).toBeNull();
     // DeepSeek e API compatível: sem formato documentado, sem PDF.
-    const ds = await serviceFixture({ provider: "deepseek", model: "deepseek-chat", pdf: true });
+    const ds = await serviceFixture({ provider: "deepseek", model: "deepseek-chat", pdf: true, bot_options: { default: { mask_personal: false } } });
     expect(await runOf(await receive(ds, "Nota", [{ type: "application/pdf", bytes: pdf(1) }]))).toBeNull();
   });
 
   it("PDF que o provedor recusa (senha, corrompido): a conversa vai para a equipe com o motivo na execução", async () => {
-    const f = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", vision: true, pdf: true });
+    const f = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", vision: true, pdf: true, bot_options: { default: { mask_personal: false } } });
     const conversation = await receive(f, "Segue", [{ type: "application/pdf", bytes: pdf(1) }]);
     const run = (await runOf(conversation))!;
     mockFetch(() =>
@@ -1415,7 +1415,7 @@ describe("PDF do cliente no provedor de IA", () => {
   });
 
   it("OpenAI com a opção ligada: PDF como input_file do Responses", async () => {
-    const f = await serviceFixture({ provider: "openai", model: "gpt-test", vision: true, pdf: true });
+    const f = await serviceFixture({ provider: "openai", model: "gpt-test", vision: true, pdf: true, bot_options: { default: { mask_personal: false } } });
     const run = (await runOf(await receive(f, "Segue", [{ type: "application/pdf", bytes: pdf(1) }])))!;
     const calls = mockFetch(() => openaiMessage(JSON.stringify({ ...answer, action: "clarify", citations: [] })));
     await processRun(env, run);
@@ -1504,5 +1504,39 @@ describe("PDF do cliente no provedor de IA", () => {
     const chars = stableSystem({ instructions: "x".repeat(4000 + 8000), area: split.area }).length + split.input.length;
     const estimate = Math.ceil(chars / 3) + PDF_LIMITS.pages * PDF_TOKENS_PER_PAGE;
     expect(estimate).toBeLessThan(100_000);
+  });
+});
+
+describe("PDF com máscara pessoal ligada por padrão", () => {
+  it.each([false, true])("texto simples/FlateDecode %s chega mascarado, sem arquivo cru", async (compressed) => {
+    const { textPdf } = await import("./pii-cases.mjs");
+    // Texto extraído não exige a capacidade de receber PDF binário do provedor.
+    const f = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", pdf: false });
+    const bytes = await textPdf("CPF 123.456.789-09, tel +55 (11) 98888-7777", compressed);
+    const c = await receive(f, "Confira o documento", [{ type: "application/pdf", bytes }]);
+    const run = (await runOf(c))!;
+    expect(run).toBeTruthy();
+    const calls = mockFetch(() => anthropicMessage(JSON.stringify({ ...answer, action: "clarify", text: "Seu CPF [CPF_1] foi registrado", citations: [] })));
+    await processRun(env, run);
+    expect(calls).toHaveLength(1);
+    for (const call of calls) {
+      const body = JSON.stringify(call.body);
+      expect(body).toContain("[CPF_1]");
+      expect(body).toContain("[TEL_1]");
+      for (const raw of ["123.456.789-09", "98888-7777", "data:application/pdf", '"type":"document"']) expect(body).not.toContain(raw);
+    }
+    expect(JSON.stringify(await outbox(c))).toContain("Seu CPF 123.456.789-09 foi registrado");
+  });
+
+  it("PDF sem texto extraível não chama o provedor e segue para a equipe", async () => {
+    const f = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", pdf: true });
+    const c = await receive(f, "Documento escaneado", [{ type: "application/pdf", bytes: pdf(1) }]);
+    const calls = mockFetch(() => anthropicMessage(JSON.stringify(answer)));
+    const run = (await runOf(c))!;
+    await processRun(env, run);
+    expect(calls).toHaveLength(0);
+    expect((await fresh(run)).status).toBe("failed");
+    expect((await fresh(run)).error).toContain("PDF recusado");
+    expect(await state(c)).not.toBe("ai");
   });
 });

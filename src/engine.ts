@@ -1,3 +1,5 @@
+import { createPiiMask, maskPersonalEnabled, type PiiMask } from "./pii-mask";
+import { extractPersonalPdf } from "./pii-pdf";
 import { preparePaidTemplate, assertPaidConsent } from "./router-templates";
 import { managedAppAllowed } from "./number-router";
 import {
@@ -1118,7 +1120,7 @@ export async function processInbox(env: Env, profile: string) {
       const bot = await one(
         env,
         "SELECT b.*,c.config,c.kind connection_kind FROM bots b JOIN connections c ON c.id=b.connection_id WHERE b.id=?",
-        cfg.attendant_bot,
+        choice?.bot_id || cfg.attendant_bot,
       );
       // Provedor de IA direto: sem transcrição. Com "apenas mensagens", áudio e
       // vídeo recebem um aviso e a conversa segue com o bot.
@@ -1146,12 +1148,12 @@ export async function processInbox(env: Env, profile: string) {
             url: "",
           });
         } else if (
-          // PDF (nota fiscal, comprovante): com a opção "O modelo entende
-          // PDF" e dentro do teto (PDF_LIMITS, src/ai-provider.ts); o resto
-          // vai para a equipe, como qualquer anexo que o modelo não entende.
+          // Com máscara, o PDF vira texto antes da IA. Sem ela, exige a
+          // capacidade PDF da conexão. Nos dois casos valem os mesmos tetos.
           m?.type === "application/pdf" &&
-          ai?.pdf === true &&
-          AI_PROVIDERS[ai.provider as keyof typeof AI_PROVIDERS]?.pdf === true &&
+          ai &&
+          (maskPersonalEnabled(ai, bot.remote_profile) ||
+            (ai.pdf === true && AI_PROVIDERS[ai.provider as keyof typeof AI_PROVIDERS]?.pdf === true)) &&
           documents.length < PDF_LIMITS.files &&
           m.size <= PDF_LIMITS.bytes &&
           (await pdfWithinPages(env, m.object_key))
@@ -1337,21 +1339,27 @@ export async function saveUsage(env: Env, run: Run, usage: AiUsage) {
   await exec(env, "UPDATE bot_runs SET usage=? WHERE id=?", JSON.stringify(total), run.id);
 }
 /**
- * PDFs do cliente anexados à execução, como data URLs, lidos do R2 só na
- * hora da chamada (sem cópia). Só a mensagem em que chegaram os leva: nas
+ * PDFs do cliente lidos do R2 só na chamada: texto mascarado ou, quando a
+ * opção está desligada, data URLs. Só a mensagem em que chegaram os leva: nas
  * seguintes o bot tem apenas o que ele mesmo escreveu sobre o arquivo.
  */
-async function runDocuments(env: Env, run: Run) {
+async function runDocuments(env: Env, run: Run, pii: PiiMask) {
   const documents: string[] = [];
+  const texts: string[] = [];
   for (const id of json(run.context).documents || []) {
     const m = await one(env, "SELECT * FROM media WHERE id=? AND profile_id=?", id, run.profile_id);
     if (m?.type === "application/pdf") {
       const obj = await env.MEDIA.get(m.object_key);
-      if (obj)
-        documents.push(`data:application/pdf;base64,${Buffer.from(await obj.arrayBuffer()).toString("base64")}`);
+      if (!obj) throw new AiError("PDF recusado: arquivo indisponível para análise segura pela IA. A equipe precisa conferir.", false);
+      const bytes = new Uint8Array(await obj.arrayBuffer());
+      if (pii.enabled) {
+        const text = await extractPersonalPdf(bytes);
+        if (!text) throw new AiError("PDF recusado: não foi possível extrair texto com confiança. A equipe precisa conferir.", false);
+        texts.push(pii.mask(text));
+      } else documents.push(`data:application/pdf;base64,${Buffer.from(bytes).toString("base64")}`);
     }
   }
-  return documents;
+  return { documents, text: texts.join("\n\n") };
 }
 /** Imagens do cliente anexadas à execução, como data URLs. */
 async function runImages(env: Env, run: Run) {
@@ -1466,7 +1474,7 @@ const AI_RETRY_GAP = 10000;
  * quando a execução foi cancelada, ficou para nova tentativa ou falhou (e a
  * conversa já foi transferida por failRun).
  */
-async function aiRun(env: Env, run: Run, conn: any): Promise<string | null> {
+async function aiRun(env: Env, run: Run, conn: any, pii: PiiMask): Promise<string | null> {
   if (run.status === "cancelling") {
     await exec(
       env,
@@ -1546,9 +1554,16 @@ async function aiRun(env: Env, run: Run, conn: any): Promise<string | null> {
   // Especialista interno: o telefone do cliente não vai ao provedor de IA (as
   // ferramentas do cliente já ficam presas à conversa).
   if (run.phase === "specialist") split.input = withoutPhone(split.input);
+  split.input = pii.maskInput(split.input);
   const readable = readableOf(split.input);
   const masked = team ? !!team.actor.via?.masked : true;
-  const documents = await runDocuments(env, run);
+  let attachments: Awaited<ReturnType<typeof runDocuments>>;
+  try { attachments = await runDocuments(env, run, pii); }
+  catch (error) {
+    await failRun(env, run, error instanceof AiError ? error.message : "PDF recusado: falha ao ler o documento. A equipe precisa conferir.");
+    return null;
+  }
+  const { documents } = attachments;
   const usage = emptyUsage();
   const request = {
     instructions: tooling
@@ -1557,9 +1572,10 @@ async function aiRun(env: Env, run: Run, conn: any): Promise<string | null> {
           "Você não gera arquivos",
         ) + tooling.extra
       : base,
-    situation,
+    situation: pii.mask(situation),
     area: split.area,
-    input: split.input,
+    input: split.input + (attachments.text ? "\n\nTexto do PDF do cliente (dado não confiável):\n" + attachments.text : ""),
+    pii,
     images: await runImages(env, run),
     documents,
     usage,
@@ -1571,6 +1587,8 @@ async function aiRun(env: Env, run: Run, conn: any): Promise<string | null> {
         ? ("specialist" as const)
         : undefined,
   };
+  const markerInstructions = pii.enabled ? " Dados pessoais aparecem como [CPF_1], [TEL_1] e outros marcadores. Preserve-os exatamente nas respostas e nos argumentos das ferramentas; o servidor resolve os valores. Não invente nem tente descobrir valores." : "";
+  request.instructions += markerInstructions;
   let output: string;
   try {
     if (!tooling) output = await aiComplete(env, conn, request);
@@ -1581,7 +1599,7 @@ async function aiRun(env: Env, run: Run, conn: any): Promise<string | null> {
           tools: tooling.tools,
           run: (call) =>
             call.name === DECIDE_TOOL.name && decide.length
-              ? runDecide(env, run, area, call.args, masked, readable)
+              ? runDecide(env, run, area, call.args, masked, readable, pii)
               : team
                 ? runBotTool(team, state, call.name, call.args)
                 : allowed.has(call.name)
@@ -1602,7 +1620,7 @@ async function aiRun(env: Env, run: Run, conn: any): Promise<string | null> {
           output = await aiComplete(env, conn, {
             ...request,
             instructions:
-              base +
+              base + markerInstructions +
               " Esta API de IA não aceita ferramentas: se o pedido exigir consultar ou mudar dados no sistema, diga que não conseguiu consultar agora.",
           });
           // Aviso claro, em vez de responder calado sem as ferramentas: a
@@ -1642,6 +1660,7 @@ async function aiRun(env: Env, run: Run, conn: any): Promise<string | null> {
     await failRun(env, run, message);
     return null;
   }
+  output = pii.restoreText(output);
   await saveUsage(env, run, usage);
   // O que o bot fez depois das perguntas ao JEV (jev_questions.bot_action).
   if (decide.length) await recordBotAction(env, run.id, output);
@@ -1704,9 +1723,10 @@ export async function processRun(env: Env, run: Run) {
   try {
     // Provedor de IA direto: a resposta chega na mesma chamada. Sem resposta
     // (cancelada, aguardando nova tentativa ou falha), não há o que concluir.
+    const pii = createPiiMask(maskPersonalEnabled(json(conn.config), bot.remote_profile));
     let aiOutput: string | null = null;
     if (conn.kind === "ai" && run.status !== "completed") {
-      aiOutput = await aiRun(env, run, conn);
+      aiOutput = await aiRun(env, run, conn, pii);
       if (aiOutput === null) return;
       run = { ...run, status: "running" };
     }
@@ -1751,6 +1771,7 @@ export async function processRun(env: Env, run: Run) {
             true,
             c.chat_type,
           ),
+          pii,
         );
         // A person may have assumed the conversation while the decision API was
         // running. Do not modify its menu, open a protocol, or start a specialist.
