@@ -4,6 +4,10 @@
 .real-pdv .pdv-body.is-collapsed { grid-template-columns: minmax(0, 1fr) 46px; }
 .real-pdv .pdv-cash-state { padding: 3px 8px; border-radius: 6px; background: #ffffff1f; font-size: 12px; }
 .real-pdv .pdv-certificate { color: #ffd6d6; }
+.real-pdv .pdv-certificate-warning { color: #ffe7a8; }
+.real-pdv .pdv-certificate-ok { color: #d4f5dc; }
+.real-pdv .pdv-certificate-ok svg { color: currentColor; }
+.real-pdv .pdv-certificate a { color: inherit; text-decoration: underline; }
 .real-pdv .pdv-message { margin: 8px 10px 0; }
 .real-pdv .pdv-ops-menu.is-open { display: grid; }
 .real-pdv .pdv-ops-menu button:disabled { color: var(--subtle); cursor: not-allowed; }
