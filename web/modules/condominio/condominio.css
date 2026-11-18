@@ -1,0 +1,61 @@
+.condominio {
+  display: grid;
+  gap: 1rem;
+}
+.condominio section {
+  padding: 1rem;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 8px;
+}
+.condominio .cond-form {
+  display: grid;
+  gap: 0.75rem;
+  max-width: 48rem;
+}
+.condominio label {
+  display: grid;
+  gap: 0.3rem;
+}
+.condominio input,
+.condominio select,
+.condominio textarea {
+  padding: 0.55rem;
+  max-width: 100%;
+}
+.condominio input[type="checkbox"] {
+  justify-self: start;
+}
+.condominio nav {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.condominio .cond-table {
+  overflow-x: auto;
+}
+.condominio table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.condominio th,
+.condominio td {
+  text-align: left;
+  padding: 0.6rem;
+  border-bottom: 1px solid var(--border, #ddd);
+}
+.condominio pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.condominio button {
+  padding: 0.5rem 0.8rem;
+  cursor: pointer;
+}
+.condominio [role="alert"] {
+  color: var(--danger, #a22);
+}
+.condominio-access {
+  max-width: 70rem;
+  margin: 2rem auto;
+  padding: 1rem;
+}
