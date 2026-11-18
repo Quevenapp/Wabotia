@@ -18,6 +18,8 @@ import {
   type OsExtension,
 } from "./extensions";
 
+class DueLimitError extends Error {}
+
 /** Um orçamento compartilhado; a próxima rodada retoma trabalho que sobrou. */
 export async function runExtensionsDue(
   ctx: ModuleContext,
@@ -31,6 +33,7 @@ export async function runExtensionsDue(
   let remaining = OS_EXTENSION_SQL_BUDGET,
     processed = 0,
     has_more = false;
+  let failure: Error | undefined;
   const budget: DueBudget = {
     get remaining() {
       return remaining;
@@ -41,7 +44,7 @@ export async function runExtensionsDue(
         instructions < 0 ||
         instructions > remaining
       )
-        throw new Error("Orçamento D1 das extensões de OS excedido.");
+        throw new DueLimitError("Orçamento D1 das extensões de OS excedido.");
       remaining -= instructions;
     },
   };
@@ -52,17 +55,30 @@ export async function runExtensionsDue(
       continue;
     }
     const limit = OS_EXTENSION_ITEM_LIMIT - processed;
-    const result = await extension.runDue(ctx, { now: at, budget, limit });
-    if (
-      !Number.isSafeInteger(result.processed) ||
-      result.processed < 0 ||
-      result.processed > limit
-    )
-      throw new Error(`Limite de itens da extensão ${extension.id} excedido.`);
-    processed += result.processed;
-    has_more ||= result.has_more;
+    try {
+      const result = await extension.runDue(ctx, { now: at, budget, limit });
+      if (
+        !Number.isSafeInteger(result.processed) ||
+        result.processed < 0 ||
+        result.processed > limit
+      )
+        throw new DueLimitError(
+          `Limite de itens da extensão ${extension.id} excedido.`,
+        );
+      processed += result.processed;
+      has_more ||= result.has_more;
+    } catch (error) {
+      // O SQL já consumido continua debitado. A falha não pode impedir os
+      // próximos filhos nem perder a tentativa seguinte; não expor seu texto.
+      has_more = true;
+      failure ||=
+        error instanceof DueLimitError
+          ? error
+          : new Error(`Falha no agendamento da extensão ${extension.id}.`);
+    }
   }
-  if (has_more) await ctx.wake();
+  if (has_more) await ctx.wake({ modules: true });
+  if (failure) throw failure;
   return { processed, has_more };
 }
 

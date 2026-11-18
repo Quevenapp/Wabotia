@@ -1,6 +1,7 @@
 import {
   createExecutionContext,
   env,
+  runInDurableObject,
   waitOnExecutionContext,
 } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
@@ -19,17 +20,21 @@ import {
   onRoute,
   onSettingsChange,
   registerAdminExtension,
+  type ModuleContext,
 } from "../src/modules/api";
 import {
   moduleRoutes,
   orderedRoutes,
   routeData,
+  registerSchedule,
+  registerScheduleExtension,
   scheduledModules,
 } from "../src/modules/hooks";
 import { moduleStates, planModuleStates } from "../src/modules/registry";
 import { binaryCommand, readBinaryContent } from "../src/modules/binary";
 import { runExtensionsDue } from "../src/modules/os/extension-runtime";
-import type { OsExtension } from "../src/modules/os/extensions";
+import type { DueRequest, OsExtension } from "../src/modules/os/extensions";
+import { SCHEDULE_INTERVAL_MS } from "../src/modules/schedule";
 import { authorizedOrder, resolveWorkType } from "../src/modules/os/public";
 import {
   projectOrderForBot,
@@ -596,6 +601,116 @@ describe("F0: rotas filhas e transporte binário", () => {
 });
 
 describe("F0: agregador e API interna congelada", () => {
+  it("falha parcial conserva orçamento, executa o próximo filho e solicita continuação sem expor o erro", async () => {
+    const f = await motorFixture();
+    const wake = vi.fn(async () => {});
+    const next = vi.fn(async (_ctx: ModuleContext, request: DueRequest) => {
+      expect(request.budget.remaining).toBe(163);
+      request.budget.consume(3);
+      return { processed: 1, has_more: false };
+    });
+    const extensions: OsExtension[] = [
+      {
+        id: "tasks", reads: [], writes: [], commands: [],
+        runDue: async (_ctx, { budget }) => {
+          budget.consume(37);
+          throw new Error(MOTOR_SENTINEL);
+        },
+      },
+      { id: "documents", reads: [], writes: [], commands: [], runDue: next },
+    ];
+    await expect(runExtensionsDue({ ...f.ctx, wake }, 1234, extensions))
+      .rejects.toThrow("Falha no agendamento da extensão tasks.");
+    expect(next).toHaveBeenCalledOnce();
+    expect(wake).toHaveBeenCalledExactlyOnceWith({ modules: true });
+  });
+
+  it("falha que esgota orçamento conserva a pendência sem executar mais SQL", async () => {
+    const f = await motorFixture();
+    const wake = vi.fn(async () => {}), next = vi.fn();
+    await expect(runExtensionsDue({ ...f.ctx, wake }, 1234, [
+      {
+        id: "tasks", reads: [], writes: [], commands: [],
+        runDue: async (_ctx, { budget }) => {
+          budget.consume(200);
+          throw new Error(MOTOR_SENTINEL);
+        },
+      },
+      { id: "documents", reads: [], writes: [], commands: [], runDue: next },
+    ])).rejects.toThrow("Falha no agendamento da extensão tasks.");
+    expect(next).not.toHaveBeenCalled();
+    expect(wake).toHaveBeenCalledExactlyOnceWith({ modules: true });
+  });
+
+  it("falha do gancho legado não impede o agregado e continua visível ao agendador", async () => {
+    const id = `f0-schedule-${uid()}`;
+    const failure = new Error("falha do lembrete");
+    const next = vi.fn(async () => {});
+    registerSchedule(id, async () => { throw failure; });
+    registerScheduleExtension(id, next);
+    const handler = scheduledModules().find(([module]) => module === id)![1];
+    await expect(handler(env, "area", 1234)).rejects.toBe(failure);
+    expect(next).toHaveBeenCalledExactlyOnceWith(env, "area", 1234);
+  });
+
+  it("onze documentos continuam após um alarme antecipado, respeitando o minuto e a área", async () => {
+    const f = await motorFixture();
+    await perform(env, f.admin, f.profile, "settings", {
+      settings_revision: await settingsRevision(env, f.profile),
+      os_work_types: [motorWorkType()],
+    }, uid());
+    const order = await motorOrder(f, { type_id: "projeto" });
+    const foreign = await motorFixture();
+    const other = await motorOrder(foreign);
+    for (const [profile, parent, count] of [
+      [f.profile, order.id, 11], [foreign.profile, other.id, 1],
+    ] as const) {
+      for (let i = 0; i < count; i++)
+        await exec(env,
+          `INSERT INTO os_documents(id,profile_id,order_id,name,mime_type,expected_bytes,
+            upload_expires_at,created_by,created,updated) VALUES(?,?,?,'Expirado','text/plain',1,1,?,1,1)`,
+          uid(), profile, parent, f.admin.id);
+    }
+    const pending = async (profile: string) => (await one(env,
+      "SELECT count(*) n FROM os_documents WHERE profile_id=? AND state='pending'", profile))!.n;
+    const stub = env.COORDINATOR.get(env.COORDINATOR.idFromName(f.profile));
+    const at = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(at);
+    try {
+      await runInDurableObject(stub, async (instance: any, state) => {
+        await state.storage.put("profile", f.profile);
+        await state.storage.deleteAlarm();
+        await instance.alarm();
+        expect(await pending(f.profile)).toBe(1);
+        expect(await state.storage.get("modules_pending")).toBe(true);
+        expect(await state.storage.getAlarm()).toBe(at + SCHEDULE_INTERVAL_MS);
+      });
+      clock.mockReturnValue(at + 1000);
+      // Outro estímulo antecipa o alarme, mas não pode consumir a continuação.
+      await f.ctx.wake();
+      await runInDurableObject(stub, async (instance: any, state) => {
+        await state.storage.deleteAlarm();
+        await instance.alarm();
+        expect(await pending(f.profile)).toBe(1);
+        expect(await state.storage.get("modules_tick")).toBe(at);
+        expect(await state.storage.get("modules_pending")).toBe(true);
+        expect(await state.storage.getAlarm()).toBe(at + SCHEDULE_INTERVAL_MS);
+      });
+      clock.mockReturnValue(at + SCHEDULE_INTERVAL_MS);
+      await runInDurableObject(stub, async (instance: any, state) => {
+        await state.storage.deleteAlarm();
+        await instance.alarm();
+        expect(await pending(f.profile)).toBe(0);
+        expect(await pending(foreign.profile)).toBe(1);
+        expect(await state.storage.get("modules_pending")).toBeUndefined();
+        expect(await state.storage.getAlarm()).toBeNull();
+      });
+    } finally {
+      clock.mockRestore();
+      await runInDurableObject(stub, (_instance, state) => state.storage.deleteAlarm());
+    }
+  });
+
   it("o agregador conserva o lembrete legado de paralisação, sem duplicar evento", async () => {
     const f = await motorFixture();
     const order = await motorOrder(f);

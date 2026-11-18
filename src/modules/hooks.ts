@@ -143,8 +143,12 @@ export function registerScheduleExtension(module: string, handler: Hook) {
 }
 export const scheduledModules = (): [string, Hook][] => [...schedules.entries()].map(
   ([module, handler]) => [module, async (...args: any[]) => {
-    await handler(...args);
-    await scheduleExtensions.get(module)?.(...args);
+    try {
+      await handler(...args);
+    } finally {
+      // Mesmo se o lembrete legado falhar, executar os filhos e sua continuação.
+      await scheduleExtensions.get(module)?.(...args);
+    }
   }],
 );
 
