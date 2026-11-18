@@ -1,0 +1,401 @@
+import type { AreaTemplate } from "../../modules/os/contracts";
+
+// Fonte: docs/areas/saude.md; conversão para as seções 3 e 7 do contrato.
+// IDs globais são locais no manifesto; o aplicador acrescenta o prefixo.
+// Sugestões e passos manuais não implementam as guardas da futura extensão Saúde.
+export const clinicaMedicaTemplate: AreaTemplate = {
+  schema_version: 1,
+  id: "clinica_medica",
+  version: 1,
+  name: "Clínica médica e consultório",
+  description:
+    "Organização administrativa de atendimentos, horários, convênios e cobranças. Não inclui prontuário ou orientação clínica.",
+  work_types: [
+    {
+      schema_version: 1,
+      kind: "custom",
+      id: "atendimento",
+      revision: 1,
+      archived: false,
+      labels: {
+        singular: "Atendimento",
+        plural: "Atendimentos",
+        item: "Identificação do atendimento",
+        problem: "Solicitação administrativa",
+        customer_singular: "Paciente",
+        customer_plural: "Pacientes",
+      },
+      number_prefix: "ATD",
+      terms:
+        "Solicito atendimento administrativo por este canal. Os horários dependem de confirmação. Não enviarei sintomas, exames, receitas ou documentos de saúde pelo WhatsApp. Informações e autorizações clínicas serão tratadas com a equipe pelo canal protegido indicado pela clínica. Este aceite não autoriza procedimento e não substitui consentimento específico.",
+      fields: [
+        {
+          id: "modalidade",
+          label: "Modalidade",
+          help:
+            "Categoria administrativa do horário, sem motivo clínico. Preenchimento pela equipe autorizada.",
+          required: false,
+          client_visible: false,
+          sensitive: true,
+          kind: "choice",
+          options: [
+            { id: "consulta", label: "Consulta" },
+            { id: "retorno", label: "Retorno" },
+            { id: "procedimento", label: "Procedimento" },
+          ],
+        },
+        {
+          id: "pagamento_tipo",
+          label: "Forma de atendimento",
+          help:
+            "Forma de pagamento informada, sujeita à conferência da recepção.",
+          required: false,
+          client_visible: false,
+          sensitive: true,
+          kind: "choice",
+          options: [
+            { id: "particular", label: "Particular" },
+            { id: "convenio", label: "Convênio" },
+          ],
+        },
+        {
+          id: "convenio_nome",
+          label: "Convênio informado",
+          help:
+            "Somente o nome do convênio. Não informe carteirinha, CPF, guias ou dados clínicos.",
+          required: false,
+          client_visible: false,
+          sensitive: true,
+          kind: "text",
+          multiline: false,
+          max_length: 120,
+        },
+        {
+          id: "autorizacao_convenio",
+          label: "Situação da autorização",
+          help:
+            "Situação administrativa conferida pela recepção. Não descreva procedimento, justificativa ou resultado.",
+          required: false,
+          client_visible: false,
+          sensitive: true,
+          kind: "choice",
+          options: [
+            { id: "nao_se_aplica", label: "Não se aplica" },
+            { id: "pendente", label: "Pendente" },
+            { id: "confirmada", label: "Confirmada" },
+            { id: "negada", label: "Negada" },
+          ],
+        },
+        {
+          id: "contato_administrativo",
+          label: "Contato administrativo",
+          help:
+            "Relação do contato com o paciente, após verificação humana. Não concede acesso ao prontuário.",
+          required: false,
+          client_visible: false,
+          sensitive: true,
+          kind: "choice",
+          options: [
+            { id: "paciente", label: "Paciente" },
+            { id: "responsavel_verificado", label: "Responsável verificado" },
+          ],
+        },
+      ],
+      retired_field_ids: [],
+      stages: [
+        {
+          id: "solicitado",
+          label: "Solicitação recebida",
+          base_status: "received",
+          message:
+            "Recebemos a solicitação nº {numero}. A recepção dará continuidade por este canal. Não envie informações de saúde aqui.",
+        },
+        {
+          id: "agendado",
+          label: "Horário reservado",
+          base_status: "analyzing",
+          message: "",
+        },
+        {
+          id: "confirmado",
+          label: "Presença confirmada",
+          base_status: "analyzing",
+          message: "",
+        },
+        {
+          id: "em_atendimento",
+          label: "Atendimento iniciado",
+          base_status: "in_progress",
+          message: "",
+        },
+        {
+          id: "concluido",
+          label: "Atendimento concluído",
+          base_status: "delivered",
+          message: "",
+        },
+        {
+          id: "cancelado",
+          label: "Cancelado",
+          base_status: "cancelled",
+          message:
+            "A solicitação nº {numero} foi cancelada. Para um novo horário, fale com a recepção.",
+        },
+        {
+          id: "ausente",
+          label: "Não compareceu",
+          base_status: "cancelled",
+          message: "",
+        },
+      ],
+      retired_stage_ids: [],
+      initial_stage: "solicitado",
+      transitions: [
+        {
+          id: "solicitado_agendado",
+          from: "solicitado",
+          to: "agendado",
+          label: "Horário reservado",
+          kind: "manual",
+        },
+        {
+          id: "solicitado_cancelado",
+          from: "solicitado",
+          to: "cancelado",
+          label: "Cancelado",
+          kind: "manual",
+        },
+        {
+          id: "agendado_confirmado",
+          from: "agendado",
+          to: "confirmado",
+          label: "Presença confirmada",
+          kind: "manual",
+        },
+        {
+          id: "agendado_cancelado",
+          from: "agendado",
+          to: "cancelado",
+          label: "Cancelado",
+          kind: "manual",
+        },
+        {
+          id: "agendado_ausente",
+          from: "agendado",
+          to: "ausente",
+          label: "Não compareceu",
+          kind: "manual",
+        },
+        {
+          id: "confirmado_agendado",
+          from: "confirmado",
+          to: "agendado",
+          label: "Horário reservado",
+          kind: "manual",
+        },
+        {
+          id: "confirmado_em_atendimento",
+          from: "confirmado",
+          to: "em_atendimento",
+          label: "Atendimento iniciado",
+          kind: "manual",
+        },
+        {
+          id: "confirmado_cancelado",
+          from: "confirmado",
+          to: "cancelado",
+          label: "Cancelado",
+          kind: "manual",
+        },
+        {
+          id: "confirmado_ausente",
+          from: "confirmado",
+          to: "ausente",
+          label: "Não compareceu",
+          kind: "manual",
+        },
+        {
+          id: "em_atendimento_concluido",
+          from: "em_atendimento",
+          to: "concluido",
+          label: "Atendimento concluído",
+          kind: "manual",
+        },
+        {
+          id: "em_atendimento_cancelado",
+          from: "em_atendimento",
+          to: "cancelado",
+          label: "Cancelar registro administrativo",
+          kind: "manual",
+        },
+      ],
+      features: {
+        customer_open: true,
+        tasks: true,
+        people: true,
+        documents: true,
+        entries: true,
+        quote: null,
+        warranty_days: 0,
+        pickup_reminder_days: 0,
+        stale_days: 0,
+      },
+      pickup_reminder_text: "",
+    },
+  ],
+  modules: {
+    os: true,
+    agenda: true,
+    forms: true,
+    payments: true,
+    mensalidade: false,
+    reserva: false,
+    erp: false,
+  },
+  vocabulary: {
+    collection_label: "Atendimentos",
+    customer_singular: "Paciente",
+    customer_plural: "Pacientes",
+  },
+  departments: [
+    {
+      id: "recepcao",
+      name: "Recepção",
+      members: [],
+      enabled: true,
+    },
+    {
+      id: "equipe_clinica",
+      name: "Equipe clínica",
+      members: [],
+      enabled: true,
+    },
+    {
+      id: "financeiro",
+      name: "Financeiro",
+      members: [],
+      enabled: true,
+    },
+    {
+      id: "privacidade_documentos",
+      name: "Privacidade e documentos",
+      members: [],
+      enabled: true,
+    },
+  ],
+  ticket_categories: [
+    { id: "agendamento", name: "Agendamento", enabled: true },
+    {
+      id: "cadastro_representacao",
+      name: "Cadastro e representação",
+      enabled: true,
+    },
+    { id: "convenio", name: "Convênio", enabled: true },
+    { id: "cobranca", name: "Cobrança", enabled: true },
+    {
+      id: "solicitacao_documento",
+      name: "Solicitação de documento",
+      enabled: true,
+    },
+    { id: "privacidade", name: "Privacidade", enabled: true },
+  ],
+  menus: [
+    {
+      id: "agendar",
+      label: "Agendar",
+      type: "human",
+      department_id: "recepcao",
+    },
+    {
+      id: "horarios",
+      label: "Meus horários",
+      type: "human",
+      department_id: "recepcao",
+    },
+    {
+      id: "solicitar",
+      label: "Solicitar atendimento",
+      type: "os_open",
+      type_id: "atendimento",
+    },
+    {
+      id: "acompanhar",
+      label: "Minhas solicitações",
+      type: "os_track",
+      type_id: "atendimento",
+    },
+    {
+      id: "preparo",
+      label: "Preparo e documentos",
+      type: "message",
+      content:
+        "Para receber preparo, solicitar documento ou tratar de exames e receitas, fale com a recepção. A equipe indicará o canal protegido. Não envie documentos de saúde por este WhatsApp.",
+    },
+    {
+      id: "preferencias",
+      label: "Preferências de contato",
+      type: "human",
+      department_id: "recepcao",
+    },
+    {
+      id: "recepcao",
+      label: "Falar com a recepção",
+      type: "human",
+      department_id: "recepcao",
+    },
+    {
+      id: "urgencia",
+      label: "Sobre urgências",
+      type: "message",
+      content:
+        "Este canal não realiza atendimento de urgência e não é acompanhado continuamente. Em uma urgência, procure um serviço de emergência.",
+    },
+  ],
+  texts: {
+    instructions:
+      "Este canal trata apenas de solicitações administrativas. Não envie sintomas, diagnósticos, exames, receitas ou documentos de saúde. A recepção indicará o canal protegido quando necessário.",
+    menu_greeting:
+      "Olá! Como podemos ajudar com sua solicitação administrativa?",
+    protocol_confirmation:
+      "Recebemos sua solicitação administrativa. A equipe dará continuidade pelo canal adequado. Não envie informações clínicas por aqui.",
+  },
+  bot: {
+    instructions:
+      "Mantenha a IA generativa desligada nesta área. Não envie conversas, áudios, imagens ou documentos à IA, inclusive para transcrição, OCR, resumo, memória, busca ou classificação de conteúdo. As instruções a seguir só orientam uma futura operação com isolamento técnico validado. Você é o assistente administrativo da clínica. Ajude com endereço, horários de funcionamento, agendamento e contato com a recepção usando somente informações administrativas autorizadas. Não peça sintomas, diagnóstico, medicamentos, exames, receitas, documentos de saúde ou informações sobre gravidez. Não forneça orientação clínica, não interprete resultados e não avalie urgência. Não confirme cobertura de convênio sem validação da recepção. Não leia prontuários, anexos clínicos, dados de menores ou mensagens clínicas recebidas. Não use dados de um familiar para responder sobre outro paciente. Pedidos sobre preparo, retorno clínico, receitas e resultados devem ser encaminhados à equipe pelo fluxo protegido. Não prometa prazo de resposta clínica. Para urgências, use apenas: “Este canal não realiza atendimento de urgência. Em uma urgência, procure um serviço de emergência.” Não forneça orientação clínica. Não registre dados clínicos em campos, notas, tarefas, pessoas, documentos, lançamentos ou cobranças do motor comum.",
+    allowed_operations: [],
+    denied_operations: [
+      "os.private",
+      "os.document.upload",
+      "os.create",
+      "os.update",
+      "os.status",
+      "os.quote.save",
+      "os.quote.send",
+      "os.decide",
+    ],
+    suggested_roles: [],
+  },
+  manual_steps: [
+    "Informar identidade, endereço e responsável técnico da clínica.",
+    "Validar aviso de privacidade, bases legais, representação e política de guarda.",
+    "Cadastrar médicos, registros profissionais, serviços, horários e bloqueios.",
+    "Conferir valores, convênios e regra administrativa de retorno.",
+    "Conceder papéis mínimos e validar representantes.",
+    "Configurar cobrança e destinatários dos recibos.",
+    "Cadastrar preparos revisados no ambiente protegido.",
+    "Validar assinatura, cópia protegida, recuperação e resposta a incidentes.",
+    "Validar o bloqueio de IA em todos os canais.",
+    "Liberar uso clínico apenas após validação técnica e normativa.",
+    "Antes de publicar, desligar a IA generativa, transcrição, OCR, resumos, memória e indexação de conversas em todos os canais. Este modelo salva sugestões; não configura nem garante esse bloqueio técnico.",
+    "Revisar todos os textos da Agenda, inclusive os montados pelo sistema, para não expor serviço clínico, especialidade, motivo ou dados pessoais. Os menus Agendar e Meus horários encaminham à recepção até configurar os fluxos determinísticos.",
+    "Configurar a Agenda: antecedência de 120 minutos, horizonte de 30 dias, grade de 10 minutos, lembrete de 24 horas e remarcação até 2 horas antes. Revisar durações, bloqueios e feriados antes de publicar.",
+    "Cadastrar Consulta (30 minutos), Retorno (20 minutos, após liberação) e Procedimento (60 minutos, somente recepção). Revisar cada duração com o médico.",
+    "Criar o formulário Preferências de contato: aceite de avisos administrativos, período de contato e encaminhamento para cadastro ou cobrança, sem texto clínico. O menu correspondente encaminha à recepção até configurar o formulário.",
+    "Usar os campos fixos apenas para identificação e solicitação administrativas. Não registrar conteúdo clínico nem em observações, histórico, tarefas, pessoas, documentos, lançamentos ou descrições de cobrança.",
+    "Preencher campos sensíveis somente pelo painel privado com papel explícito os:sensitive para pessoas autorizadas, nunca pelo bot ou formulário comum. São opcionais neste contrato; conferir as pendências administrativamente antes de prosseguir.",
+    "Criar tarefas administrativas manualmente por etapa: conferir identidade, contato autorizado, horário, valores, pendências e encerramento; em cancelamento, verificar cobrança e eventual estorno. O modelo não cria tarefas nem calcula prazos automaticamente.",
+    "Vínculos de pacientes, responsáveis, tutores e pagadores não concedem acesso. Conferir identidade e destinatário a cada entrega. Documentos e lançamentos genéricos devem conter somente informações administrativas.",
+    "O cancelamento após início encerra apenas o registro administrativo, por decisão humana, e nunca apaga atendimento, cuidado prestado ou registro clínico. Avisos de paralisação estão desligados: o contrato não permite prazo diferente por etapa.",
+    "Conferir modalidade antes de agendar, forma de atendimento e convênio antes de cobrar e autorização antes de confirmar cobertura. A presença confirmada usa o estado analyzing e não representa orçamento ou consentimento clínico.",
+  ],
+};
