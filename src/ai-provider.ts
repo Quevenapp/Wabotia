@@ -70,15 +70,25 @@ export const PDF_INFLATE_LIMITS = { streams: 64, bytes: 8 * 1024 * 1024 } as con
 /**
  * Páginas de um PDF, olhando também dentro dos object streams (`/Type
  * /ObjStm` com `/FlateDecode`), onde a maioria dos PDFs atuais guarda os
- * objetos de página. Lê no máximo PDF_INFLATE_LIMITS; passou disso, ou nada
- * contável: null, e o PDF vai para a equipe (falha fechada).
+ * objetos de página. Lê no máximo PDF_INFLATE_LIMITS.
+ *
+ * A contagem serve ao teto de páginas, então contar a menos seria falha
+ * aberta. Na dúvida devolve null e o PDF vai para a equipe: PDF cifrado,
+ * stream corrompido ou cortado, filtro que não seja só FlateDecode,
+ * /DecodeParms, ObjStm cujo dicionário não foi reconhecido, ou passou dos
+ * tetos. As páginas soltas e as de dentro dos streams se somam (não casam
+ * duas vezes: as comprimidas não aparecem no texto cru).
  */
 export async function pdfPageCount(bytes: Uint8Array): Promise<number | null> {
-  const plain = pdfPages(bytes);
-  if (plain !== null) return plain;
   let text = "";
   for (let i = 0; i < bytes.length; i += 0x8000)
     text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  const objstm = /\/Type\s*\/ObjStm(?![A-Za-z])/g;
+  const mentioned = text.match(objstm)?.length ?? 0;
+  const loose = text.match(/\/Type\s*\/Page(?![A-Za-z])/g)?.length ?? 0;
+  if (!mentioned) return loose || null;
+  // Cifrado: o conteúdo dos streams não é o texto dos objetos.
+  if (/\/Encrypt(?![A-Za-z])/.test(text)) return null;
   const marker = /stream\r?\n/g;
   let budget: number = PDF_INFLATE_LIMITS.bytes;
   let streams = 0;
@@ -87,11 +97,19 @@ export async function pdfPageCount(bytes: Uint8Array): Promise<number | null> {
     if (m.index >= 3 && text.slice(m.index - 3, m.index) === "end") continue;
     const head = text.slice(Math.max(0, m.index - 1024), m.index);
     const dict = head.slice(head.lastIndexOf("obj") + 3);
-    if (!/\/Type\s*\/ObjStm(?![A-Za-z])/.test(dict) || !/\/FlateDecode/.test(dict)) continue;
+    if (!/\/Type\s*\/ObjStm(?![A-Za-z])/.test(dict)) continue;
     if (++streams > PDF_INFLATE_LIMITS.streams) return null;
+    // Só FlateDecode puro: preditor (/DecodeParms) ou cadeia de filtros não
+    // devolvem o texto dos objetos.
+    if (
+      /\/DecodeParms/.test(dict) ||
+      !/\/Filter\s*(?:\/FlateDecode|\[\s*\/FlateDecode\s*\])(?![A-Za-z])/.test(dict)
+    )
+      return null;
     const start = m.index + m[0].length;
-    // /Length direto quando houver; senão até "endstream", sem a quebra de linha final.
-    const length = dict.match(/\/Length\s+(\d+)(?!\s+\d+\s+R)/);
+    // /Length direto quando houver (`/Length 12 0 R` é indireto: nem "1"
+    // nem "12" valem); senão até "endstream", sem a quebra de linha final.
+    const length = dict.match(/\/Length\s+(\d+)(?!\d)(?!\s+\d+\s+R)/);
     let end = length ? start + Number(length[1]) : text.indexOf("endstream", start);
     if (end < start || end > bytes.length) return null;
     if (!length) {
@@ -106,7 +124,10 @@ export async function pdfPageCount(bytes: Uint8Array): Promise<number | null> {
       chunk += String.fromCharCode(...inflated.subarray(i, i + 0x8000));
     pages += chunk.match(/\/Type\s*\/Page(?![A-Za-z])/g)?.length ?? 0;
   }
-  return pages || null;
+  // Algum ObjStm sem dicionário reconhecido (maior que a janela lida): não
+  // dá para garantir a contagem.
+  if (streams < mentioned) return null;
+  return loose + pages || null;
 }
 
 /** zlib (o FlateDecode do PDF) com teto de saída; null se passar do teto ou não abrir. */
@@ -120,8 +141,8 @@ async function inflateBounded(data: Uint8Array<ArrayBuffer>, max: number): Promi
       try {
         step = await reader.read();
       } catch {
-        // Dados corrompidos ou cortados: vale o que já saiu.
-        break;
+        // Corrompido ou cortado: contar só o que saiu seria contar a menos.
+        return null;
       }
       if (step.done) break;
       size += step.value.length;

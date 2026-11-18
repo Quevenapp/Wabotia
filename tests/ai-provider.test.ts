@@ -1365,12 +1365,21 @@ describe("PDF do cliente no provedor de IA", () => {
     const zlib = async (text: string) =>
       new Uint8Array(await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream("deflate"))).arrayBuffer());
     // PDF como os atuais: os objetos de página só existem dentro do ObjStm comprimido.
-    const objstm = async (pages: number, filler = "") => {
-      const body = await zlib(
+    const objstm = async (
+      pages: number,
+      filler = "",
+      opts: { length?: string; extra?: string; loose?: number; cut?: number } = {},
+    ) => {
+      let body = await zlib(
         Array.from({ length: pages }, (_, i) => `${i + 3} 0 obj << /Type /Page /Parent 2 0 R >> endobj`).join("\n") + filler,
       );
+      if (opts.cut) body = body.slice(0, body.length - opts.cut);
+      const loose = Array.from(
+        { length: opts.loose ?? 0 },
+        (_, i) => `${i + 100} 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n`,
+      ).join("");
       const head = new TextEncoder().encode(
-        `%PDF-1.5\n1 0 obj\n<< /Type /ObjStm /N ${pages} /First 0 /Length ${body.length} /Filter /FlateDecode >>\nstream\n`,
+        `%PDF-1.5\n${loose}1 0 obj\n<< /Type /ObjStm /N ${pages} /First 0 /Length ${opts.length ?? body.length} /Filter /FlateDecode${opts.extra ?? ""} >>\nstream\n`,
       );
       const tail = new TextEncoder().encode("\nendstream\nendobj\n%%EOF");
       const out = new Uint8Array(head.length + body.length + tail.length);
@@ -1387,6 +1396,26 @@ describe("PDF do cliente no provedor de IA", () => {
     const bomb = await objstm(1, " ".repeat(PDF_INFLATE_LIMITS.bytes + 1));
     expect(bomb.length).toBeLessThan(PDF_LIMITS.bytes);
     expect(await pdfPageCount(bomb)).toBeNull();
+    // Nunca contar a menos (a contagem decide o teto): na dúvida, null.
+    // /Length indireto: vai até endstream e conta certo (nem "1" de "12 0 R").
+    expect(await pdfPageCount(await objstm(11, "", { length: "12 0 R" }))).toBe(11);
+    // Páginas soltas e comprimidas se somam: 2 + 10 = 12, acima do teto.
+    const mixed = await objstm(10, "", { loose: 2 });
+    expect(pdfPages(mixed)).toBe(2);
+    expect(await pdfPageCount(mixed)).toBe(12);
+    // Stream cortado no meio: não conta o pedaço que saiu.
+    expect(await pdfPageCount(await objstm(11, "", { length: "12 0 R", cut: 20 }))).toBeNull();
+    // Preditor ou cadeia de filtros: o inflate não é o texto dos objetos.
+    expect(await pdfPageCount(await objstm(3, "", { extra: " /DecodeParms << /Predictor 12 >>" }))).toBeNull();
+    const chain = new TextDecoder("latin1")
+      .decode(three)
+      .replace("/Filter /FlateDecode", "/Filter [/FlateDecode /ASCII85Decode]");
+    expect(await pdfPageCount(Uint8Array.from(chain, (c) => c.charCodeAt(0)))).toBeNull();
+    // Cifrado.
+    const encrypted = new Uint8Array([...three, ...new TextEncoder().encode("\ntrailer << /Encrypt 9 0 R >>")]);
+    expect(await pdfPageCount(encrypted)).toBeNull();
+    // ObjStm mencionado sem dicionário reconhecível (maior que a janela lida).
+    expect(await pdfPageCount(await objstm(3, "", { extra: " /Pad (" + "x".repeat(2000) + ")" }))).toBeNull();
     // No motor: o PDF de 3 páginas comprimidas vai ao provedor; o de 11, não.
     const f = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", vision: true, pdf: true });
     const small = await receive(f, "Segue a nota", [{ type: "application/pdf", bytes: three }]);
