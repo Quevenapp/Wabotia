@@ -1,0 +1,13 @@
+.saude-page { max-width: 1100px; margin: auto; padding: 16px; }
+.saude-page fieldset { border: 0; padding: 0; min-width: 0; }
+.saude-page .card { padding: 20px; margin-block: 16px; }
+.saude-page form { display: grid; gap: 12px; margin-block: 16px; }
+.saude-page label { display: grid; gap: 6px; }
+.saude-page input, .saude-page select, .saude-page textarea { max-width: 100%; }
+.saude-page button { margin: 4px; min-height: 40px; }
+.saude-record { border-block-start: 1px solid var(--border); padding-block: 12px; }
+.saude-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.saude-page code, .saude-page small { overflow-wrap: anywhere; }
+.saude-table { overflow-x: auto; }
+.saude-table td, .saude-table th { padding: 8px; text-align: left; overflow-wrap: anywhere; }
+.saude-error { color: var(--danger); }
