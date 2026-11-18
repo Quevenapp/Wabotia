@@ -3,10 +3,6 @@ import { notPorted } from "../../engine/errors.ts";
 
 /** erp_purchase_receipts.guard_legacy() → trigger */
 export const guardLegacy = (..._args: unknown[]): never => notPorted("erp_purchase_receipts.guard_legacy");
-/** erp_stock.command_taken(p_id uuid) → boolean */
-export const commandTaken = (..._args: unknown[]): never => notPorted("erp_stock.command_taken");
-/** erp_stock.composition_own_stock(p_product uuid) → boolean */
-export const compositionOwnStock = (..._args: unknown[]): never => notPorted("erp_stock.composition_own_stock");
 /** erp_stock.document_access(p_actor uuid, p_kind text) → void */
 export const documentAccess = (..._args: unknown[]): never => notPorted("erp_stock.document_access");
 /** erp_stock.document_command_finish(p_actor uuid, p_id uuid, p_action text, p_data jsonb, p_result jsonb) → jsonb */
@@ -39,10 +35,6 @@ export const guardNegativeInsert = (..._args: unknown[]): never => notPorted("er
 export const guardReservedBalance = (..._args: unknown[]): never => notPorted("erp_stock.guard_reserved_balance");
 /** erp_stock.guard_reserved_posting() → trigger */
 export const guardReservedPosting = (..._args: unknown[]): never => notPorted("erp_stock.guard_reserved_posting");
-/** erp_stock.invoice_screen(p_model text, p_direction text) → text */
-export const invoiceScreen = (..._args: unknown[]): never => notPorted("erp_stock.invoice_screen");
-/** erp_stock.ledger_origin(p_movement_id uuid) → jsonb */
-export const ledgerOrigin = (..._args: unknown[]): never => notPorted("erp_stock.ledger_origin");
 /** erp_stock.lot_check(p_code text, p_manufactured date, p_expires date, p_note text) → void */
 export const lotCheck = (..._args: unknown[]): never => notPorted("erp_stock.lot_check");
 /** erp_stock.lot_dto(p_lot uuid, p_warehouse uuid) → jsonb */
@@ -51,12 +43,8 @@ export const lotDto = (..._args: unknown[]): never => notPorted("erp_stock.lot_d
 export const lotExpiryState = (..._args: unknown[]): never => notPorted("erp_stock.lot_expiry_state");
 /** erp_stock.lot_settings() → jsonb */
 export const lotSettings = (..._args: unknown[]): never => notPorted("erp_stock.lot_settings");
-/** erp_stock.negative_allowed() → boolean */
-export const negativeAllowed = (..._args: unknown[]): never => notPorted("erp_stock.negative_allowed");
 /** erp_stock.post_document_lots() → trigger */
 export const postDocumentLots = (..._args: unknown[]): never => notPorted("erp_stock.post_document_lots");
-/** erp_stock.post_physical_025(p_user_id uuid, p_command_id uuid, p_kind text, p_occurred_on date, p_reason text, p_reference text, p_items jsonb, p_reverses_id uuid) → jsonb */
-export const postPhysical025 = (..._args: unknown[]): never => notPorted("erp_stock.post_physical_025");
 /** erp_stock.reverse_lot_entries() → trigger */
 export const reverseLotEntries = (..._args: unknown[]): never => notPorted("erp_stock.reverse_lot_entries");
 /** erp_stock.sales_negative_allowed() → boolean */

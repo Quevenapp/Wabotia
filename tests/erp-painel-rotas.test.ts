@@ -412,11 +412,8 @@ describe("painel do ERP contra a rota real", () => {
     "ação de tela sem motor (0A000) avisa a casca em vez de só falhar",
     { timeout: 120_000 },
     async () => {
-      // Criar um depósito pelo Controle de estoque (erp_stock_warehouse_save) ainda
-      // não tem motor: a tela recebe a recusa e a casca mostra o aviso de
-      // implantação. A rota vai direto ao RPC depois de validar o corpo (sem
-      // leitura antes, que daria 404). Quando este for portado, troque por outra
-      // escrita sem motor (output: rotas de escrita com RPC fora do registro).
+      // Registrar recebidos do check-in (erp_stock_checkin_save) ainda não
+      // tem motor. A rota valida o corpo e chama diretamente o RPC.
       const { f, send, get } = await setup();
       // Primeira ida ao motor no isolado (rodando só este teste): fora da espera do controlador.
       await get(await bearer(f.admin), "/erp/v1/inicio");
@@ -432,10 +429,10 @@ describe("painel do ERP contra a rota real", () => {
           async (controller) => {
             const failure = await controller
               .stock(
-                "/v1/estoque/depositos",
+                `/v1/estoque/checkin/notas/${crypto.randomUUID()}/recebidos`,
                 {
                   method: "POST",
-                  body: { command_id: crypto.randomUUID(), name: "Depósito do aviso", ignore_balance: false },
+                  body: { command_id: crypto.randomUUID(), expected_version: 0, items: [{ position: 1, received: "1" }] },
                 },
               )
               .then(

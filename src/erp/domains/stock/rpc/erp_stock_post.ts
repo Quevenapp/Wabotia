@@ -63,6 +63,7 @@ export interface PostInput {
 }
 
 const COMPENSATION_REASON = "Estorno anterior ao balanço: saldo atual mantido";
+export { postPhysical as postPhysical025 };
 const COMPENSATION_SETTING = "erp_stock.reversal_compensation";
 const same = (a: unknown, b: unknown) => a !== undefined && b !== undefined && jsonbText(a) === jsonbText(b);
 /** (texto)::uuid */

@@ -22,14 +22,14 @@ const int = (v: unknown) => (v === undefined || v === null ? null : Number(v));
 const t6 = (v: bigint) => formatScaled(v, QTY);
 
 /** erp_stock.price_105(p): preço em texto (até 14 inteiros e 10 casas) → valor exato. */
-function price105(p: string | null): bigint | null {
+export function price105(p: string | null): bigint | null {
   if (p === null) return null;
   if (!PRICE_RE.test(p)) raise("22023", "erp_stock_price_invalid");
   return toScaled(p, PRICE);
 }
 
 /** erp_stock.entry_price_check(p): o preço de entrada não passa das casas da preferência (277). */
-function entryPriceCheck(db: SqlDriver, p: string | null) {
+export function entryPriceCheck(db: SqlDriver, p: string | null) {
   if (p === null || !PRICE_RE.test(p)) return;
   const n = entryDecimals(db);
   const v = toScaled(p, PRICE);

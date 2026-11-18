@@ -77,3 +77,32 @@ test("localização de produtos: validação e limpeza do texto", async () => {
   // Texto que não é JSON no argumento jsonb: 22P02 do Postgres.
   assert.match(await code(loc("x")), /^22P02:invalid input syntax for type json/);
 });
+
+test("salvar: criação, edição, sem mudança, versões, recibo e papéis", async () => {
+  const base = { p_user_id: u.estoque, p_command_id: randomUUID(), p_warehouse_id: null, p_expected_version: 0,
+    p_expected_setting_version: 0, p_name: "Depósito novo", p_ignore_balance: true };
+  const save = (patch = {}) => f.rpc("erp_stock_warehouse_save", { ...base, ...patch });
+  for (const bad of [{ p_command_id: null }, { p_expected_version: null }, { p_expected_version: -1 },
+    { p_expected_version: 2147483647 }, { p_expected_version: 1 }, { p_expected_setting_version: null },
+    { p_expected_setting_version: -1 }, { p_expected_setting_version: 2147483647 }, { p_expected_setting_version: 1 },
+    { p_ignore_balance: null }, { p_name: null }, { p_name: "" }, { p_name: " X " }, { p_name: "x".repeat(201) }, { p_name: "a\nb" }])
+    assert.match(await code(save(bad)), /^22023:erp_stock_warehouse_input_invalid/);
+  for (const role of ["consulta", "vendas", "inactive"]) assert.match(await code(save({ p_user_id: u[role] })), /^42501:/);
+  const created = await save();
+  assert.equal(created.warehouse.setting_version, 1);
+  assert.equal(created.warehouse.ignore_balance, true);
+  assert.equal((await save()).replayed, true);
+  assert.match(await code(save({ p_name: "Outro" })), /^40001:erp_stock_warehouse_command_conflict/);
+  const update = { p_user_id: u.admin, p_command_id: randomUUID(), p_warehouse_id: created.warehouse.id,
+    p_expected_version: created.warehouse.version, p_expected_setting_version: 1, p_name: "Depósito editado", p_ignore_balance: false };
+  assert.match(await code(save({ ...update, p_expected_version: 5 })), /^40001:erp_catalog_version_conflict/);
+  assert.match(await code(save({ ...update, p_expected_setting_version: 0 })), /^40001:erp_stock_warehouse_version_conflict/);
+  const changed = await save(update);
+  assert.equal(changed.warehouse.setting_version, 2);
+  const unchanged = await save({ ...update, p_command_id: randomUUID(), p_expected_version: changed.warehouse.version, p_expected_setting_version: 2 });
+  assert.equal(unchanged.receipt.catalog_changed, false);
+  assert.equal(unchanged.receipt.setting_changed, false);
+  // A repetição relê o depósito atual e mantém o recibo da criação.
+  assert.equal((await save()).warehouse.name, "Depósito editado");
+  await f.rpc("erp_stock_warehouses", { p_user_id: u.admin });
+});

@@ -16,3 +16,7 @@ import "./rpc/counts.ts";
 import "./rpc/lots.ts";
 import "./rpc/movement-lots.ts";
 export {};
+import "./rpc/transfers.ts";
+import "./rpc/movement-amend.ts";
+import "./rpc/product-create.ts";
+import "./rpc/opening.ts";
