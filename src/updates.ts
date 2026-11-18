@@ -1,4 +1,5 @@
 import { admin, requireDirectPerson, secret, setSecret } from "./security";
+import { requireStepUp } from "./mfa";
 import {
   ApiError,
   type Actor,
@@ -185,6 +186,57 @@ const isDirect = (env: Env) =>
 async function tokenFor(env: Env) {
   return (await secret(env, configId)).token || env.WABOTIA_UPDATE_TOKEN || "";
 }
+/**
+ * De onde vem o token que o atualizador usa: "panel" (salvo no painel, em
+ * geral só Workers Scripts: Edit), "initial" (o segredo do Worker que o
+ * instalador gravou, que também tem D1 e R2 Edit) ou null.
+ */
+async function tokenSource(env: Env) {
+  if ((await secret(env, configId)).token) return "panel";
+  return env.WABOTIA_UPDATE_TOKEN ? "initial" : null;
+}
+
+/** Nome do segredo do Worker com o token inicial (web-install, install-release). */
+export const INITIAL_TOKEN_SECRET = "WABOTIA_UPDATE_TOKEN";
+
+/**
+ * Apaga o token inicial (segredo do Worker) usando o token salvo no painel.
+ * Depois disso não há reserva: se o token do painel for revogado, a
+ * atualização para até a pessoa salvar outro. Só a pessoa, na própria sessão,
+ * com o segundo fator quando ela tem um ou a política pede.
+ */
+export async function deleteInitialToken(env: Env, actor: Actor, data: any) {
+  admin(actor);
+  requireDirectPerson(actor);
+  requireStepUp(actor);
+  requireValue(
+    isDirect(env),
+    "Esta instalação não tem a identificação para atualizar pelo painel.",
+  );
+  requireValue(
+    data?.confirmed === true,
+    "Confirme que entendeu: depois de apagar, o token salvo no painel é o único, sem reserva.",
+  );
+  const panel = (await secret(env, configId)).token;
+  requireValue(
+    !!panel,
+    "Salve antes um token só com Workers Scripts: Edit em Alterar configuração de atualização. Sem ele, a instalação ficaria sem atualização.",
+  );
+  if (!env.WABOTIA_UPDATE_TOKEN) return { deleted: false, absent: true };
+  return updateLock(env, async () => {
+    const state = await secret(env, stateId);
+    requireValue(
+      !["pending", "sending"].includes(state.status),
+      "Há uma atualização em andamento. Apague o token inicial depois que ela terminar.",
+    );
+    await releaseCloudflare(
+      panel,
+      `${scriptPath(env.WABOTIA_ACCOUNT_ID!, env.WABOTIA_WORKER_NAME!)}/secrets/${INITIAL_TOKEN_SECRET}`,
+      "DELETE",
+    );
+    return { deleted: true };
+  });
+}
 
 function failure(error: unknown): never {
   if (error instanceof ApiError) throw error;
@@ -303,6 +355,10 @@ export async function updateStatus(env: Env) {
     account_id: env.WABOTIA_ACCOUNT_ID || "",
     worker_name: env.WABOTIA_WORKER_NAME || "",
     configured: isDirect(env) && !!(await tokenFor(env)),
+    // O painel avisa quando o token inicial (com D1 e R2) ainda está em uso ou
+    // guardado, e oferece apagá-lo depois que houver um token só de Workers.
+    token_source: await tokenSource(env),
+    initial_token_stored: !!env.WABOTIA_UPDATE_TOKEN,
     latest: latest.commit ? latest : null,
     available: !!latest.commit && latest.commit !== buildInfo.commit,
     state: publicState(state),

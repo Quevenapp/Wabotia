@@ -38,6 +38,10 @@ O instalador configura automaticamente a atualização com o token usado na inst
 
 O token inicial também possui D1/R2 para criar os recursos. Depois de instalar, você pode substituí-lo por um token com somente **Workers Scripts: Edit** e revogar o inicial. Essa permissão permite publicar Workers na conta autorizada; escolha uma conta adequada ao projeto e guarde a credencial em local privado.
 
+Enquanto o atualizador usa o token inicial, o painel avisa **Token inicial em uso**. Depois de salvar o token só de Workers, o inicial continua guardado no Worker como reserva; o painel oferece **Apagar o token inicial**, que apaga esse segredo do Worker usando o token do painel. Depois disso não há reserva: se o token do painel for revogado, a atualização para até você salvar outro. Revogue também o inicial na Cloudflare (**My Profile → API Tokens**).
+
+Informar ou trocar o token e apagar o inicial são feitos só pela pessoa administradora, na própria sessão (nunca por um bot agindo por ela); apagar o inicial pede o segundo fator quando a pessoa tem um ou a política pede. Contrato: `POST /api/v1/system/updates/initial-token/delete` com `{"confirmed":true}` e `Idempotency-Key`; `GET /api/v1/system` traz `updates.token_source` (`panel`, `initial` ou `null`) e `updates.initial_token_stored`.
+
 ## Se houver falha
 
 - **Falha antes de publicar:** leia a mensagem, corrija token/permissão e libere nova tentativa. Um pacote inválido não é ativado.

@@ -419,6 +419,7 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
     action = useAction(demo);
   const [updateToken, setUpdateToken] = useState("");
   const [stopped, setStopped] = useState(false);
+  const [dropInitial, setDropInitial] = useState(false);
   const [cf, setCf] = useState({ account_id: "", zone_id: "", token: "" });
   const [editingCf, setEditingCf] = useState(false);
   const [editingHook, setEditingHook] = useState(false);
@@ -593,6 +594,67 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
               }
             >
               Liberar nova tentativa
+            </button>
+          </div>
+        )}
+        {u.token_source === "initial" && (
+          <div className="callout">
+            <strong>Token inicial em uso</strong>
+            <p>
+              O atualizador usa o token da instalação, que também tem{" "}
+              <strong>D1: Edit</strong> e{" "}
+              <strong>Workers R2 Storage: Edit</strong>. Essas permissões só
+              servem para instalar. Salve abaixo um token
+              só com <strong>Workers Scripts: Edit</strong> e depois apague o
+              inicial: a instalação deixa de guardar permissão sobre o banco e
+              as mídias da sua conta.
+            </p>
+            {!editingHook && (
+              <button
+                className="button secondary"
+                onClick={() => setEditingHook(true)}
+              >
+                Salvar um token só de Workers
+              </button>
+            )}
+          </div>
+        )}
+        {u.token_source === "panel" && u.initial_token_stored && (
+          <div className="callout">
+            <strong>O token inicial ainda está guardado</strong>
+            <p>
+              O atualizador já usa o token salvo no painel, mas o token da
+              instalação, com D1 e R2, continua guardado no Worker como reserva.
+              Apague-o para a instalação guardar só o token de Workers. Depois
+              não há reserva: se você revogar o token do painel, a atualização
+              para até você salvar outro. Revogue também o token inicial na
+              Cloudflare (My Profile → API Tokens).
+            </p>
+            <label className="check-field">
+              <input
+                type="checkbox"
+                checked={dropInitial}
+                onChange={(e) => setDropInitial(e.target.checked)}
+              />{" "}
+              Entendi: o token do painel passa a ser o único.
+            </label>
+            <button
+              className="button secondary"
+              disabled={!dropInitial || !!action.busy || updating}
+              onClick={() =>
+                action.run("Apagando o token inicial…", async () => {
+                  await mutate("updates/initial-token/delete", {
+                    confirmed: dropInitial,
+                  });
+                  setDropInitial(false);
+                  await system.refresh();
+                  action.setMessage(
+                    "Token inicial apagado do Worker. Revogue-o também na Cloudflare.",
+                  );
+                })
+              }
+            >
+              Apagar o token inicial
             </button>
           </div>
         )}

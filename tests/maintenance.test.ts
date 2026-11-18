@@ -190,7 +190,9 @@ it("restringe manutenção a administradores e recusa origem cruzada", async () 
   expect((await request(op, "")).status).toBe(403);
   expect((await request(op, "/cloudflare/x/connector")).status).toBe(403);
   expect(
-    (await request(op, "/updates/configure", { token: "t".repeat(40) })).status,
+    (
+      await request(op, "/updates/configure", { token: "t".repeat(40) })
+    ).status,
   ).toBe(403);
   expect(
     (

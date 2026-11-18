@@ -6,6 +6,7 @@ import {
   checkUpdate,
   configureAutomaticUpdates,
   configureUpdates,
+  deleteInitialToken,
   startUpdate,
   processUpdate,
   updateStatus,
@@ -134,6 +135,11 @@ beforeEach(async () => {
       expect(auth).toBe("Bearer temporary-upload-token");
       return ok({ jwt: "temporary-completion-token" });
     }
+    if (
+      method === "DELETE" &&
+      url.pathname.endsWith("/secrets/WABOTIA_UPDATE_TOKEN")
+    )
+      return ok(null);
     if (method === "PUT") {
       expect((await secret(env, "system:release-state")).status).toBe(
         "sending",
@@ -249,6 +255,68 @@ it("token da Cloudflare só pela pessoa, na própria sessão; ligar a automátic
     { ...actor, via },
     { enabled: false, hour: 3, window_hours: 2 },
   );
+});
+it("token inicial: aviso por onde está o token e apagar só com o do painel", async () => {
+  // Só o segredo do instalador: em uso, com o aviso.
+  expect(await updateStatus(e)).toMatchObject({
+    token_source: "initial",
+    initial_token_stored: true,
+  });
+  // Sem token do painel não apaga: a instalação ficaria sem atualização.
+  await expect(
+    deleteInitialToken(e, actor, { confirmed: true }),
+  ).rejects.toThrow(/Salve antes um token/);
+  await configureUpdates(e, actor, { token: "workers-only-token-0000000000" });
+  expect(await updateStatus(e)).toMatchObject({
+    token_source: "panel",
+    initial_token_stored: true,
+  });
+  // Pede a confirmação de que não há reserva depois.
+  await expect(deleteInitialToken(e, actor, {})).rejects.toThrow(/sem reserva/);
+  // Bot pela pessoa e ator de bot: recusados, sem chamar a Cloudflare.
+  const via = { kind: "bot" as const, bot_id: "b", run_id: "r", masked: true };
+  const before = calls.length;
+  for (const who of [
+    { ...actor, via },
+    { ...actor, id: "bot:b" },
+  ])
+    await expect(
+      deleteInitialToken(e, who, { confirmed: true }),
+    ).rejects.toMatchObject({ code: "secret_requires_person" });
+  // Pessoa com fator e sessão aal1: pede o código.
+  await expect(
+    deleteInitialToken(
+      e,
+      { ...actor, aal: 1, mfa: { factor: true, policy: "off" } } as Actor,
+      { confirmed: true },
+    ),
+  ).rejects.toMatchObject({ code: "mfa_required" });
+  expect(calls.length).toBe(before);
+  // Atualização em andamento: espera terminar.
+  await startUpdate(e, actor, { commit: target });
+  await expect(
+    deleteInitialToken(e, actor, { confirmed: true }),
+  ).rejects.toThrow(/em andamento/);
+  await runToEnd();
+  // Apaga o segredo do Worker com o token do painel, não com o inicial.
+  expect(await deleteInitialToken(e, actor, { confirmed: true })).toEqual({
+    deleted: true,
+  });
+  const del = calls.filter((c) => c.method === "DELETE");
+  expect(del).toHaveLength(1);
+  expect(del[0].url).toBe(
+    `https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${worker}/secrets/WABOTIA_UPDATE_TOKEN`,
+  );
+  expect(del[0].auth).toBe("Bearer workers-only-token-0000000000");
+  // Já apagado (o Worker novo sobe sem o segredo): nada a fazer.
+  const gone = { ...e, WABOTIA_UPDATE_TOKEN: undefined } as Env;
+  expect(await updateStatus(gone)).toMatchObject({
+    token_source: "panel",
+    initial_token_stored: false,
+  });
+  expect(
+    await deleteInitialToken(gone, actor, { confirmed: true }),
+  ).toMatchObject({ deleted: false, absent: true });
 });
 it("não repete publicação com confirmação perdida", async () => {
   uploadError = true;

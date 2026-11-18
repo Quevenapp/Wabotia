@@ -7,6 +7,7 @@ import {
 import {
   configureUpdates,
   configureAutomaticUpdates,
+  deleteInitialToken,
   resetUpdate,
   startUpdate,
 } from "./updates";
@@ -30,6 +31,8 @@ export async function maintenanceCommand(
       return configureUpdates(env, actor, data);
     case "system.updates.automatic":
       return configureAutomaticUpdates(env, actor, data);
+    case "system.updates.delete_initial_token":
+      return deleteInitialToken(env, actor, data);
     case "system.updates.start":
       return startUpdate(env, actor, data);
     case "system.updates.reset":
