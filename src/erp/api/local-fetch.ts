@@ -10,7 +10,7 @@ import { ApiError, type Actor, type Env } from "../../types";
 import { admin } from "../../security";
 import { requireModule } from "../../modules/registry";
 import { erpBlockOf } from "../blocks.ts";
-import { GATE_DENIED_HEADER, GATE_HEADER, IDENTITY_HEADER, encodeIdentity, type IdentityPort } from "../engine/identity.ts";
+import { GATE_DENIED_HEADER, GATE_HEADER, IDENTITY_HEADER, SYSTEM_HEADER, encodeIdentity, type IdentityPort } from "../engine/identity.ts";
 import { erpFetch } from "../hub.ts";
 import { erpStorage, publicSignedUrls } from "../../erp-storage";
 import { ErpUnavailable, rpcHasCommand, withStubRetry } from "./retry.ts";
@@ -96,7 +96,13 @@ export function localFetch(
           () =>
             erpFetch(env, profile, route, {
               method: "POST",
-              headers: { "Content-Type": "application/json", [IDENTITY_HEADER]: encodeIdentity(identity), ...(gate ? { [GATE_HEADER]: "1" } : {}) },
+              // SYSTEM_HEADER: a costura é chamada interna (a rota da erp-api escolheu o RPC; rpc-endpoint.ts, SYSTEM_RPCS).
+              headers: {
+                "Content-Type": "application/json",
+                [IDENTITY_HEADER]: encodeIdentity(identity),
+                [SYSTEM_HEADER]: "1",
+                ...(gate ? { [GATE_HEADER]: "1" } : {}),
+              },
               body,
             }),
           { idempotent: read || rpcHasCommand(body), route },

@@ -87,7 +87,7 @@ function documentDto(db: SqlDriver, id: string) {
 }
 
 /** erp_purchase_receipts.current(p_id): o pedido e os itens com o recebido e o que falta. */
-function current(db: SqlDriver, id: string) {
+export function current(db: SqlDriver, id: string) {
   const posted = !!one(db, 'SELECT 1 x FROM "erp_stock__document_posting" WHERE document_id=?', id);
   const items = posted
     ? []

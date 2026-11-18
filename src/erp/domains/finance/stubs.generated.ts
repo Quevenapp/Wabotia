@@ -81,20 +81,14 @@ export const entryMovementImmutable = (..._args: unknown[]): never => notPorted(
 export const findOrCreateCategory = (..._args: unknown[]): never => notPorted("erp_finance.find_or_create_category");
 /** erp_finance.guard_document_title() → trigger */
 export const guardDocumentTitle = (..._args: unknown[]): never => notPorted("erp_finance.guard_document_title");
-/** erp_finance.guard_finance_invoice() → trigger */
-export const guardFinanceInvoice = (..._args: unknown[]): never => notPorted("erp_finance.guard_finance_invoice");
 /** erp_finance.guard_grouped_title() → trigger */
 export const guardGroupedTitle = (..._args: unknown[]): never => notPorted("erp_finance.guard_grouped_title");
-/** erp_finance.guard_invoice_order_effect() → trigger */
-export const guardInvoiceOrderEffect = (..._args: unknown[]): never => notPorted("erp_finance.guard_invoice_order_effect");
 /** erp_finance.guard_invoice_title() → trigger */
 export const guardInvoiceTitle = (..._args: unknown[]): never => notPorted("erp_finance.guard_invoice_title");
 /** erp_finance.guard_origin_import_billing() → trigger */
 export const guardOriginImportBilling = (..._args: unknown[]): never => notPorted("erp_finance.guard_origin_import_billing");
 /** erp_finance.guard_origin_import_title() → trigger */
 export const guardOriginImportTitle = (..._args: unknown[]): never => notPorted("erp_finance.guard_origin_import_title");
-/** erp_finance.invoice_auto_finance() → trigger */
-export const invoiceAutoFinance = (..._args: unknown[]): never => notPorted("erp_finance.invoice_auto_finance");
 /** erp_finance.invoice_blocked_reason(v erp_fiscal_invoices.invoice) → text */
 export const invoiceBlockedReason = (..._args: unknown[]): never => notPorted("erp_finance.invoice_blocked_reason");
 /** erp_finance.invoice_contact(p_recipient jsonb) → uuid */
