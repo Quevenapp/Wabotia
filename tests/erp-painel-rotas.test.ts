@@ -412,9 +412,9 @@ describe("painel do ERP contra a rota real", () => {
     "ação de tela sem motor (0A000) avisa a casca em vez de só falhar",
     { timeout: 120_000 },
     async () => {
-      // Lançar o pedido no estoque pelo depósito (erp_stock_document_warehouse_post)
+      // A prévia do lançamento do pedido no estoque (erp_stock_document_warehouse_preview)
       // ainda não tem motor: a tela recebe a recusa e a casca mostra o aviso de
-      // implantação. Quando o Estoque portar este, troque por outra escrita sem motor.
+      // implantação. Quando o Estoque portar esta, troque por outra escrita sem motor.
       const { f, send, get } = await setup();
       // Primeira ida ao motor no isolado (rodando só este teste): fora da espera do controlador.
       await get(await bearer(f.admin), "/erp/v1/inicio");
@@ -430,10 +430,10 @@ describe("painel do ERP contra a rota real", () => {
           async (controller) => {
             const failure = await controller
               .documentStock(
-                `/v1/documentos-estoque/sales_orders/${crypto.randomUUID()}/post`,
+                `/v1/documentos-estoque/sales_orders/${crypto.randomUUID()}/preview`,
                 {
                   method: "POST",
-                  body: { command_id: crypto.randomUUID() },
+                  body: { expected_document_version: 1, occurred_on: "2026-11-12", reason: "Aviso de implantação" },
                 },
               )
               .then(
