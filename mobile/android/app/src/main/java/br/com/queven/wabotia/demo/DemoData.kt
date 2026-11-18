@@ -255,11 +255,11 @@ internal class DemoState(val t0: Long) {
         for (entry in DemoMedia.fixtures()) media[entry.id] = entry
 
         bots += row(
-            "id" to Ids.BOT_VENDAS, "profile_id" to Ids.PROFILE, "connection_id" to "hermes", "remote_profile" to "vendas",
+            "id" to Ids.BOT_VENDAS, "profile_id" to Ids.PROFILE, "connection_id" to "ai",
             "name" to "Vendas", "enabled" to 1, "line_ids" to null,
         )
         bots += row(
-            "id" to Ids.BOT_SUPORTE, "profile_id" to Ids.PROFILE, "connection_id" to "hermes", "remote_profile" to "suporte",
+            "id" to Ids.BOT_SUPORTE, "profile_id" to Ids.PROFILE, "connection_id" to "ai",
             "name" to "Suporte", "enabled" to 1, "line_ids" to "[\"${Ids.LINE_META}\"]",
         )
 
@@ -560,7 +560,7 @@ internal class DemoState(val t0: Long) {
             "No painel, abra Integrações › Webhooks, informe a URL HTTPS do seu sistema e marque os eventos message.sent e message.delivered. O Wabotia tenta de novo por até 24 horas quando o destino não responde.",
             null, hoursAgo(6.5),
         )
-        botRun("run-3", Ids.BOT_SUPORTE, Ids.ME, "failed", "Gere o relatório de SLA da semana.", null, "O Hermes não respondeu a tempo. Tente novamente em instantes.", hoursAgo(25.0))
+        botRun("run-3", Ids.BOT_SUPORTE, Ids.ME, "failed", "Gere o relatório de SLA da semana.", null, "O provedor de IA não respondeu a tempo. Tente novamente em instantes.", hoursAgo(25.0))
         botRun(
             "run-2", Ids.BOT_VENDAS, Ids.ME, "completed", "Monte o relatório de vendas de outubro.",
             j("text" to "Relatório de vendas de outubro pronto: 128 pedidos, faturamento de R$ 52.774,00 e ticket médio de R$ 412,30. A planilha completa está em anexo.", "attachments" to listOf(DemoMedia.REPORT_ID)).toString(),

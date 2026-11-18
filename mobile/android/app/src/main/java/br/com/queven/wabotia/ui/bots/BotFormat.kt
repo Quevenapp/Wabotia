@@ -36,7 +36,7 @@ fun botRunStatusColor(status: String): Color = when (status) {
     else -> Wb.colors.muted
 }
 
-/** Texto e anexos extraídos do `result` de uma execução (texto puro ou JSON do Hermes com text/output/attachments). */
+/** Texto e anexos extraídos do `result` de uma execução (texto puro ou JSON com text/output/attachments). */
 data class BotOutput(val text: String, val attachments: List<String>)
 
 fun BotRun.output(): BotOutput {

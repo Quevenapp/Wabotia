@@ -133,7 +133,8 @@ internal fun ServiceHint(text: String, modifier: Modifier = Modifier) {
 internal fun lineKindLabel(kind: String): String = when (kind) {
     "meta", "zernio" -> "WhatsApp oficial"
     "qr" -> "WhatsApp QR"
-    "hermes" -> "Hermes"
+    "ai" -> "Provedor de IA"
+    "hermes" -> "Bot externo (retirado)"
     "" -> "Linha"
     else -> kind.replaceFirstChar { it.uppercase() }
 }

@@ -332,7 +332,7 @@ fun List<TicketCategory>.nameOf(categoryId: String?): String? {
     val deliveries: List<CountRow> = emptyList(),
     val connections: List<ConnectionSummary> = emptyList(),
 ) {
-    /** `connection_id` → `kind` (meta, zernio, qr, hermes…). */
+    /** `connection_id` → `kind` (meta, zernio, qr, ai…). */
     fun lineKinds(): Map<String, String> = connections.associate { it.id to it.kind }
     fun conversationCount(state: String): Int = conversations.firstOrNull { it.state == state }?.count?.toInt() ?: 0
     /** Setores habilitados configurados no painel (`settings.departments`). */

@@ -426,7 +426,6 @@ private fun RunTurn(
             }
             run.error?.takeIf { it.isNotBlank() }?.let { err ->
                 Spacer(Modifier.height(6.dp))
-                // Enquanto roda, `error` traz avisos ("Aguardando aprovação no Hermes"); ao falhar, o motivo.
                 Text(err, color = if (active) c.textSecondary else c.danger, style = MaterialTheme.typography.bodySmall)
             }
             if (!active && output.text.isBlank() && run.error.isNullOrBlank()) {
@@ -434,7 +433,7 @@ private fun RunTurn(
                 Text(
                     when (run.status) {
                         "cancelled" -> "Execução cancelada."
-                        "unknown" -> "O Wabotia não conseguiu confirmar o resultado no Hermes."
+                        "unknown" -> "O Wabotia não conseguiu confirmar o resultado da execução."
                         else -> "Sem resposta em texto."
                     },
                     style = MaterialTheme.typography.bodyMedium,

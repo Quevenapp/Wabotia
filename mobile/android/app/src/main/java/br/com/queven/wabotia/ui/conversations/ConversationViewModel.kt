@@ -152,7 +152,7 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
     private var pendingAct: Pair<ActionRequest, String>? = null
     /** Idem para ações por mensagem (reação, apagar, marcar lida). */
     private var pendingMessageAction: Pair<MessageActionRequest, String>? = null
-    /** `connection_id` → `kind` (meta | qr | hermes…) de GET /profiles/{p}/status, carregado uma vez por ViewModel. */
+    /** `connection_id` → `kind` (meta | qr | ai…) de GET /profiles/{p}/status, carregado uma vez por ViewModel. */
     private var connectionKinds: Map<String, String>? = null
     private val uploader = MediaUploader(container)
 
