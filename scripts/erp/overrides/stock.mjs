@@ -74,6 +74,62 @@ export const discardTables = {};
 export const covered = {
   "checks": {},
   "triggers": {
+    "erp_stock__item_component.guard_stock_item_component": {
+      "where": "src/erp/domains/stock/rpc/item-components.ts guardItemComponent: versão inicial 1, avanço unitário, identidade preservada e comando novo",
+      "test": "tests/erp/stock/compositions.test.mjs"
+    },
+    "erp_stock__item_component.aa_mirror_authority": {
+      "where": "src/erp/domains/stock/rpc/item-components.ts guardItemComponent/deleteComponents: mirrorGuardEffect nas linhas novas e antigas",
+      "test": "tests/erp/stock/compositions.test.mjs"
+    },
+    "erp_stock__item_component_command.aa_mirror_authority": {
+      "where": "src/erp/domains/stock/rpc/item-components.ts itemComponentsReceipt: mirrorGuardEffect antes do recibo; recibo nunca atualizado ou apagado (imutabilidade já em SQL)",
+      "test": "tests/erp/stock/compositions.test.mjs"
+    },
+    "erp_documents__audit.aa_mirror_authority": {
+      "where": "src/erp/domains/stock/rpc/item-components.ts itemComponentsReceipt: mirrorGuardEffect antes da auditoria",
+      "test": "tests/erp/stock/compositions.test.mjs"
+    },
+    "erp_documents__document.aa_mirror_authority": {
+      "where": "src/erp/domains/stock/rpc/item-components.ts save chama documents.public.updateDocument: guardDocument preserva identidade e autoridade",
+      "test": "tests/erp/stock/compositions.test.mjs"
+    },
+    "erp_documents__document.ab_origin_effects": {
+      "where": "src/erp/domains/stock/rpc/item-components.ts save chama documents.public.updateDocument: guardOriginEffectsDocument; SET restrito a version/updated_by/updated_at, permitido mesmo com efeitos",
+      "test": "tests/erp/stock/compositions.test.mjs"
+    },
+    "erp_documents__document.guard_trash": {
+      "where": "src/erp/domains/stock/rpc/item-components.ts save chama documents.public.updateDocument: guardTrash recusa documento excluído e desfaz componentes",
+      "test": "tests/erp/stock/compositions.test.mjs"
+    },
+    "erp_documents__document.protect_document_finance": {
+      "where": "src/erp/domains/stock/rpc/item-components.ts save chama documents.public.updateDocument: finance.guardPostedDocument; só versão e metadados mudam",
+      "test": "tests/erp/stock/compositions.test.mjs"
+    },
+    "erp_documents__document.protect_document_stock": {
+      "where": "src/erp/domains/stock/rpc/item-components.ts save recusa posted; documents.public.updateDocument chama stock.guardPostedDocument",
+      "test": "tests/erp/stock/document-guards.test.mjs"
+    },
+    "erp_documents__document.protect_purchase_receipt_document": {
+      "where": "src/erp/domains/stock/rpc/item-components.ts save chama documents.public.updateDocument: stock.guardDocument preserva o documento com recebimento ativo",
+      "test": "tests/erp/stock/document-guards.test.mjs"
+    },
+    "erp_documents__document.protect_reserved_document": {
+      "where": "src/erp/domains/stock/rpc/item-components.ts save recusa reserved; documents.public.updateDocument chama stock.guardReservedDocument",
+      "test": "tests/erp/stock/document-guards.test.mjs"
+    },
+    "erp_documents__document.zz_origin_sync": {
+      "where": "src/erp/domains/stock/rpc/item-components.ts save chama documents.public.updateDocument: sync.captureDocument (Origin desligado conforme desvio comum)",
+      "test": "tests/erp/stock/compositions.test.mjs"
+    },
+    "erp_documents__document.commission_operation_capture": {
+      "where": "src/erp/domains/stock/rpc/item-components.ts save chama documents.public.updateDocument: enfileira finance.commissionOperationCapture por UPDATE, antes de costApplyCapture",
+      "test": "tests/erp/stock/compositions.test.mjs"
+    },
+    "erp_documents__document.cost_apply_capture": {
+      "where": "src/erp/domains/stock/rpc/item-components.ts save chama documents.public.updateDocument: enfileira costApplyCapture para pedido de venda, no fim da transação",
+      "test": "tests/erp/stock/compositions.test.mjs"
+    },
     "erp_stock__composition.guard_stock_composition": {
       "where": "src/erp/domains/stock/rpc/compositions.ts erpStockProductCompose: único escritor, versão inicial 1, avanço unitário, identidade preservada e comando novo",
       "test": "tests/erp/stock/compositions.test.mjs"
