@@ -105,6 +105,8 @@ export function createPiiMask(enabled = true) {
   const markers = new Map<string, string>();
   const counts: Partial<Record<PiiKind, number>> = {};
   const reserved = new Set<string>();
+  /** Marcadores que vieram de um campo numérico inteiro. */
+  const numeric = new Set<string>();
   const token = /\[(?:CPF|CNPJ|TEL|EMAIL|CEP)_\d+\]/g;
   const reserve = (text: string) => {
     for (const m of text.matchAll(token)) reserved.add(m[0]);
@@ -143,7 +145,11 @@ export function createPiiMask(enabled = true) {
     if (typeof value === "number") {
       const text = String(value),
         changed = fn(text, key);
-      return changed === text ? value : changed;
+      if (changed === text) return value;
+      // Número inteiro virou marcador: lembra o tipo para a volta devolver
+      // número à ferramenta (esquema numérico), não texto.
+      if (new RegExp(`^${token.source}$`).test(changed)) numeric.add(changed);
+      return changed;
     }
     if (Array.isArray(value)) return value.map((v) => walk(v, fn, key));
     if (value && typeof value === "object")
@@ -185,7 +191,12 @@ export function createPiiMask(enabled = true) {
     reserve(JSON.stringify(value) ?? "");
     return walk(value, maskField);
   };
-  const restoreValue = (value: any) => walk(value, restore);
+  const restoreValue = (value: any) =>
+    walk(value, (s) =>
+      enabled && numeric.has(s) && values.has(s)
+        ? (Number(values.get(s)) as any)
+        : restore(s),
+    );
   // Restaura JSON estruturalmente: valores com aspas não podem quebrar a resposta.
   const restoreText = (text: string) => {
     if (!enabled) return text;

@@ -247,6 +247,13 @@ describe("máscara pessoal por bot no motor", () => {
       expect(saved.result).toContain(cpf);
       expect(saved.usage).not.toContain(cpf);
       expect(saved.usage).not.toContain("CPF_1");
+      // O mapa marcador → valor nunca é gravado: nenhum marcador sobra no que
+      // fica guardado (eventos, execução, erro), só valores já restaurados.
+      const persisted = JSON.stringify([
+        await all(env, "SELECT payload FROM events WHERE profile_id=?", s.profile),
+        await one(env, "SELECT usage,result,error FROM bot_runs WHERE id=?", run.id),
+      ]);
+      for (const marker of ["[CPF_1]", "[TEL_1]", "[EMAIL_1]"]) expect(persisted).not.toContain(marker);
     } finally { tool.mockRestore(); }
   });
 

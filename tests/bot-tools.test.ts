@@ -39,6 +39,17 @@ describe("bot-tools: máscara de dados pessoais no laço", () => {
     expect(output).not.toContain("529.982");
     expect(output).toContain("[CPF_1]");
   });
+
+  it("número inteiro mascarado volta como número para a ferramenta", () => {
+    const pii = createPiiMask(true);
+    // 52998224725 passa no dígito do CPF: vira marcador mesmo sendo um id numérico.
+    const masked = pii.maskValue({ id: 52998224725, nome: "x" });
+    expect(masked.id).toBe("[CPF_1]");
+    expect(pii.restoreValue({ id: masked.id, texto: `ver ${masked.id}` })).toEqual({
+      id: 52998224725,
+      texto: "ver 52998224725",
+    });
+  });
 });
 
 describe("bot-tools: formatos", () => {
