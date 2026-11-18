@@ -312,6 +312,13 @@ registerOpaqueHash({
     "do pedido criado na mesma chamada pelo erp_pos_sale_execute (gen_random_uuid).",
 });
 registerOpaqueHash({
+  id: "stock.document_request_hash",
+  columns: ["erp_stock__document_command.request_hash", "erp_stock__document_posting.preview_hash"],
+  reason:
+    "erp_document_stock_post chamado pela venda do erp_pos_sale_execute: preview_hash = sha256 da prévia do pedido e dos itens criados na " +
+    "mesma chamada (gen_random_uuid), gravado na document_posting; o request_hash do document_command cobre o mesmo preview_hash.",
+});
+registerOpaqueHash({
   id: "finance.settle_request_hash",
   columns: ["erp_finance__command.request_hash"],
   reason:
