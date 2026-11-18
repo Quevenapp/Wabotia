@@ -201,8 +201,42 @@ export function inClockWindow(value, unit, window) {
 }
 
 // ---------------------------------------------------------------------------
+// Referência a coluna identity gravada na mesma chamada, em ordem que o
+// oráculo não fixa (laço sem ORDER BY): a coluna identity já vale só como
+// "<identity>" (o SQLite reaproveita rowid), e o número que aponta para ela
+// também. DECLARADO, por "tabela.coluna", com o motivo (o laço do Fagoo). O
+// teste do RPC confere em cada motor que a referência aponta para a linha
+// certa (a junção), já que o comparador deixa de ver o número.
+
+const identityRefs = new Map();
+
+export function registerIdentityRef({ column, reason = "" }) {
+  const [table, name] = String(column).split(".");
+  const col = ERP_TABLES[table]?.columns[name];
+  if (!col) throw new Error(`Referência identity: coluna ${column} não existe.`);
+  if (identityRefs.has(column)) throw new Error(`Referência identity ${column} já registrada.`);
+  if (typeof reason !== "string" || reason.length < 40)
+    throw new Error(`Referência identity ${column}: justifique (reason) com o laço do Fagoo e a conferência da junção no teste.`);
+  identityRefs.set(column, Object.freeze({ column, reason }));
+}
+
+/** A coluna "tabela.coluna" é referência identity declarada? */
+export const isIdentityRef = (where) => identityRefs.has(where);
+
+// ---------------------------------------------------------------------------
 // Declarações por domínio. Nova entrada: peça à N (pasta congelada), com o
 // trecho do Fagoo que grava o valor.
+
+// Estoque (N): erp_stock_mirror.project_one (202610220001_stock_origin_mirror.sql,
+// 114 a 132): for w in select distinct warehouse_source_id … loop insere a
+// observação (identity) e aponta a position para ela, sem ORDER BY. Com mais de
+// um depósito, qual observação ganha qual número é incidental no Postgres.
+registerIdentityRef({
+  column: "erp_stock_mirror__position.observation_id",
+  reason:
+    "project_one: laço sobre select distinct warehouse_source_id sem ORDER BY insere a observation (identity) e grava position.observation_id; " +
+    "tests/erp/stock/mirror.test.mjs confere em cada motor que a position aponta para a observação do mesmo produto e depósito.",
+});
 
 // Catálogo (P): erp_catalog_contact_type_create, migração
 // 202610200124_contact_profile.sql: slug = 't' || replace(v_id::text,'-','').

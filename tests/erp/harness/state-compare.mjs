@@ -28,7 +28,7 @@
 import { createHash } from "node:crypto";
 import { ERP_TABLES } from "../../../src/erp/schema/columns.generated.ts";
 import { pgSelect, pgToLite } from "../../../scripts/erp/gen-sqlite-lib.mjs";
-import { clockFor, derivedIds, derivedUuid, inClockWindow, orderFor } from "./derived-ids.mjs";
+import { clockFor, derivedIds, derivedUuid, inClockWindow, isIdentityRef, orderFor } from "./derived-ids.mjs";
 import { volatileHash } from "./volatile-hashes.mjs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -300,7 +300,7 @@ export function encodeRow(row, table, specs, leaf) {
     else if (leaf?.window && inClockWindow(String(v), clockFor({ where: `${table}.${name}` })?.unit, leaf.window)) t = '"<relógio>"';
     // Identity: a sequência do Postgres não reaproveita números de transações
     // desfeitas; o rowid do SQLite reaproveita. Só a existência conta.
-    else if (c.identity) t = '"<identity>"';
+    else if (c.identity || isIdentityRef(`${table}.${name}`)) t = '"<identity>"';
     else if (c.codec === "json" || c.codec.startsWith("array:")) t = encodeJson(JSON.parse(v), table, name, undefined, specs, leaf);
     else if (c.codec === "uuid") t = leaf("uuid", String(v).toLowerCase(), null);
     else if (c.codec === "text") t = encodeString(String(v), table, name, undefined, specs, leaf, false);
