@@ -1,0 +1,66 @@
+{
+  "date": "2026-11-18",
+  "environment": "https://wabotia.queven.app",
+  "version": "0.22.0",
+  "commit": "b003023c5f4073da6326bb9f95fe87be43ddbc2d",
+  "previous_version": "0.21.1",
+  "composition": {
+    "main": "efc7e54 (0.21.1)",
+    "fix/atualizador-achados": "e8f7ddc",
+    "integra/areas": "e043dd4",
+    "feat/erp-motor": "00f76d6",
+    "integra/bots": "8d5b3a5 (sem os Provedores)",
+    "integra/0.22.0": "bce6704 (junção dos bots, 11 conflitos resolvidos pela sessão F, lida pela sessão A)"
+  },
+  "backup_complete": true,
+  "backup_folder": "backup-seguro/release-0.22.0-distribution-20261118 (fora do Git)",
+  "migrations": ["0090_bot_runs_uso.sql", "0091_jev_questions.sql", "0092_retira_hermes.sql", "0094_retira_cloudflare.sql", "0100_os_work_types.sql", "0101_os_tasks.sql", "0102_os_people.sql", "0103_os_documents.sql", "0104_os_entries.sql", "0105_os_area_templates.sql", "0106_juridico_calendars.sql", "0107_juridico_deadlines.sql", "0108_juridico_alerts.sql", "0109_saude_records.sql", "0110_saude_documents_audit.sql", "0111_saude_retention_guards.sql", "0112_ensino_turmas.sql", "0113_ensino_diario.sql", "0114_ensino_comunicados.sql", "0115_condominio_cadastro.sql", "0116_condominio_comunicados.sql", "0117_condominio_assembleias.sql", "0118_area_template_recovery.sql", "0119_os_task_reminder_cursors.sql"],
+  "pending_migrations": 0,
+  "durable_object_migrations_changed": false,
+  "package_format": 2,
+  "package": {
+    "manifest_sha256": "986cb91c287eb74f2ba4fc89da8da22226b99ef0da4647e467b0f24759dae6d3",
+    "manifest_bytes": 24108,
+    "unique_files": 149,
+    "total_bytes": 19224023,
+    "worker_bytes": 10991173,
+    "migrations_in_manifest": 86,
+    "signed_by": "principal",
+    "index_expires": "2027-02-16",
+    "min_version": "0.21.1",
+    "workers_paid_probe": false
+  },
+  "legacy_latest_json": "continua em 0.21.1 (formato 1 congelado)",
+  "updater_checks": "scripts/erp/check-candidate.mjs public/releases/0.22.0",
+  "previous_versions_intact": 41,
+  "tests": {
+    "host": "Mac M4, Node 22, no commit publicado",
+    "erp": { "tests": 935, "passed": 934, "failed": 0, "todo": 1 },
+    "vitest": { "files": 244, "passed": 2183 }
+  },
+  "typescript_check": true,
+  "web_build": true,
+  "how_it_was_written": "os módulos por área, parte do ERP e parte dos bots foram escritos por agentes de código em paralelo em 18/11/2026, com revisões independentes, leitura por sessão dona dos arquivos centrais e a suíte completa antes da junção",
+  "not_verified": [
+    "atualização pelo painel de uma instalação 0.21.1 com este pacote (primeiro salto no formato 2 fora do ensaio)",
+    "telas novas dos módulos por área abertas num navegador ou usadas em atendimento real",
+    "leitura por sessão das extensões Jurídico, Condomínio e Ensino (a de Saúde foi lida)",
+    "conteúdo dos modelos de área revisado por quem exerce cada profissão",
+    "aplicativos Android e iOS com tipos de trabalho personalizados",
+    "OpenAI pela Responses API contra a API real nesta versão",
+    "sonda do plano pago numa conta gratuita real (a versão saiu sem --workers-paid)",
+    "provedores reais: WhatsApp, Mercado Pago, e-mail"
+  ],
+  "operational_installation_updated": false,
+  "checks": [
+    { "route": "/api/health", "status": 200, "version": "0.22.0" },
+    { "route": "/releases/latest.json", "status": 200, "version": "0.21.1", "format": 1 },
+    { "route": "/releases/v2/latest.json", "status": 200, "matches_local": true, "version": "0.22.0" },
+    { "route": "/releases/v2/latest.sig", "status": 200, "matches_local": true },
+    { "route": "/releases/v2/bridge.json", "status": 200, "matches_local": true },
+    { "route": "/releases/0.22.0/manifest.json", "status": 200, "matches_local": true },
+    { "route": "/releases/0.22.0/manifest.sig", "status": 200, "matches_local": true },
+    { "route": "/releases/blobs/<sha256>", "status": 200, "checked": 149, "of": 149 },
+    { "route": "/releases/<versão>/release.json", "status": 200, "versions": 41 }
+  ]
+}
