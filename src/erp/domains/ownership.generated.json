@@ -2072,7 +2072,7 @@
    },
    "erp_fiscal_invoices.counts_for_balance": {
     "name": "countsForBalance",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.digits": {
     "name": "digits",
@@ -2164,7 +2164,7 @@
    },
    "erp_fiscal_invoices.quantity_text": {
     "name": "quantityText",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.recipient_input": {
     "name": "recipientInput",
@@ -2196,15 +2196,15 @@
    },
    "erp_fiscal_invoices.sales_balance": {
     "name": "salesBalance",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.sales_full_invoice": {
     "name": "salesFullInvoice",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.sales_item_invoiced": {
     "name": "salesItemInvoiced",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.scalar": {
     "name": "scalar",
