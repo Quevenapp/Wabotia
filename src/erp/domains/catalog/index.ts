@@ -61,6 +61,7 @@ import "./rpc/erp_catalog_contact_page_tagged.ts";
 import "./rpc/erp_catalog_contact_import.ts";
 import "./rpc/erp_catalog_origin_reads.ts";
 import "./rpc/erp_catalog_contact_history.ts";
+import "./rpc/erp_catalog_contact_labels.ts";
 // Auxiliares (sessão B): campos customizados, etiquetas, vendedores.
 import "./rpc/erp_catalog_custom_fields.ts";
 import "./rpc/erp_catalog_custom_fields_screen.ts";
