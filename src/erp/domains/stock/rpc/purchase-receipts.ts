@@ -30,13 +30,13 @@ const MAX_VERSION = 2147483647;
 const DOC = "erp_documents__document";
 
 /** erp_purchase_receipts.access(p_actor, p_lock): admin ou estoque ativo. */
-function access(db: SqlDriver, actor: string | null) {
+export function access(db: SqlDriver, actor: string | null) {
   if (actor === null || !one(db, `SELECT 1 x FROM "erp_access__membership" WHERE user_id=? AND active=1 AND role IN ('admin','estoque')`, actor))
     raise("42501", "purchase_receipt_access_denied");
 }
 
 /** erp_purchase_receipts.received(p_document, p_item): o recebido do item, sem os estornados. */
-function received(db: SqlDriver, document: string, item: string): bigint {
+export function received(db: SqlDriver, document: string, item: string): bigint {
   let total = 0n;
   for (const r of db.exec(
     `SELECT r.snapshot FROM "erp_purchase_receipts__receipt" r WHERE r.document_id=? AND NOT EXISTS(SELECT 1 FROM "erp_purchase_receipts__reversal" x WHERE x.receipt_id=r.id)`,
@@ -87,7 +87,7 @@ function documentDto(db: SqlDriver, id: string) {
 }
 
 /** erp_purchase_receipts.current(p_id): o pedido e os itens com o recebido e o que falta. */
-function current(db: SqlDriver, id: string) {
+export function current(db: SqlDriver, id: string) {
   const posted = !!one(db, 'SELECT 1 x FROM "erp_stock__document_posting" WHERE document_id=?', id);
   const items = posted
     ? []
@@ -151,7 +151,7 @@ function record(db: SqlDriver, id: string, reverse = false, full = true) {
 }
 
 /** erp_purchase_receipts.lock_document: o pedido de compra na versão esperada. */
-function lockDocument(db: SqlDriver, actor: string, document: string | null, version: number | null): Row {
+export function lockDocument(db: SqlDriver, actor: string, document: string | null, version: number | null): Row {
   access(db, actor);
   if (document === null || version === null || version < 1 || version > 2147483646) raise("22023", "purchase_receipt_input_invalid");
   const d = one(db, `SELECT * FROM "${DOC}" WHERE id=? AND kind='purchase_orders'`, document);
@@ -162,7 +162,7 @@ function lockDocument(db: SqlDriver, actor: string, document: string | null, ver
 }
 
 /** erp_purchase_receipts.preview(p_actor, d, p_action, p_day, p_reason, p_items, p_receipt) */
-function preview(ctx: RpcContext, actor: string, d: Row, action: string | null, day: string | null, reason: string | null, items: unknown, receipt: string | null) {
+export function preview(ctx: RpcContext, actor: string, d: Row, action: string | null, day: string | null, reason: string | null, items: unknown, receipt: string | null) {
   const db = ctx.db;
   // 277: o recebimento leva a data da preferência (hoje, ou a prevista/a do pedido); outra data é recusada.
   if (action === "receive") {
@@ -371,6 +371,9 @@ export function applyWarehouse(
   const id = crypto.randomUUID();
   // command_id → erp_purchase_receipts.command, gravado no fim (FK adiada no Postgres).
   deferForeignKeys(ctx, action === "receive" ? "erp_purchase_receipts__receipt" : "erp_purchase_receipts__reversal");
+  // aa_mirror_authority (guard_effect) no recebimento/estorno, e pelo mesmo
+  // documento na auditoria do Documentos e no recibo do comando, logo depois.
+  documents.mirrorGuardEffect(db, d.id);
   if (action === "receive")
     db.exec(
       'INSERT INTO "erp_purchase_receipts__receipt"(id, document_id, source_document_version, document_version, command_id, movement_id, actor, snapshot, preview_hash, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)',

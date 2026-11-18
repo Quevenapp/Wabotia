@@ -15,5 +15,12 @@ import "./rpc/reads-list.ts";
 
 // Escritores do núcleo (sessão O).
 import "./rpc/erp_document_save.ts";
+import "./rpc/erp_document_transition.ts";
+import "./rpc/erp_document_small_writers.ts";
+import "./rpc/erp_document_conversions.ts";
+import "./rpc/erp_document_checkout_occurrence.ts";
+import "./rpc/erp_document_settings_writers.ts";
+import "./rpc/erp_document_sales_report.ts";
+import "./rpc/erp_document_invoice_balance.ts";
 
 export {};

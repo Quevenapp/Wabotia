@@ -49,6 +49,7 @@ Antes de cada push no tronco a N roda `npm run test:trunk` (orquestração, 17/1
   - toca arquivo fora do motor, ou a costura e a montagem (`src/erp/api`, `src/index.ts`);
   - guarda: o último vitest inteiro foi há mais de 24 h ou há 2 rodadas (estado em `output/test-trunk-state.json`).
 - No fim, o script imprime qual vitest rodou e por quê, as contagens e os tempos. O relato da rodada copia esse bloco. `--plan` só mostra a decisão.
+- **Suíte completa só pelo `npm run test:trunk`** (orquestração, 17/11/2026), em qualquer sessão. Ele pega uma vaga da trava entre sessões (`scripts/erp/suite-lock.mjs`, diretório `D:\Code\wabotia\.suite-locks`): no máximo 2 suítes completas ao mesmo tempo na máquina, e a rodada do tronco tem vaga própria (`ERP_TRUNK_ROUND=1`, só a N). Sem vaga, espera e mostra, a cada minuto, quem está segurando (pid, worktree, branch, desde quando). Vaga de processo morto ou com mais de 90 min é liberada; a vaga sai na saída, também em erro. Teste de um arquivo ou de um domínio (`test:erp:domain`) não entra na fila.
 
 ### Codificação
 
@@ -196,10 +197,20 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
    - O `test` precisa exercitar a recusa nos dois motores.
    - `tests/erp/schema-parity.test.mjs` recusa um item que não esteja pendente, sem `where` ou `test`, ou com arquivo de teste inexistente.
    - Os tetos (`LIMITS`, hoje CHECK 221 e gatilhos 237) contam só o que ninguém cobre: baixe-os no seu branch ao cobrir. Na junção eu concilio.
+   - Gatilho em PL/pgSQL que é só "se condição, recusa" sobre colunas da própria linha (imutabilidade, por exemplo, em tabela que o motor não muda) não precisa de TS: vira gatilho do SQLite por `sqlTriggers` no `scripts/erp/overrides/<domínio>.mjs` (chave `schema__tabela.gatilho`, `{ when, code, message, reason }`; o `when` é SQLite com `OLD.`/`NEW.`).
+     - O gerador confere `code` e `message` no corpo da função do oráculo.
+     - O DDL muda, então combine a versão comigo (passo `recreateTriggers` em `migrate.ts`).
+     - Teste no modelo `tests/erp/cnab-sql-triggers.test.mjs`: o mesmo UPDATE/DELETE direto nos dois motores.
+     - O SQLite dispara primeiro o gatilho criado por último; o gerador cria em ordem inversa do nome, para valer a ordem do Postgres.
 6. **Fechamento:** um domínio só fecha com o diferencial verde e os tetos baixados. Aviso curto à orquestração com as linhas de TS, os RPCs portados e os testes.
 
 ## Regras que valem para todos
 
+- **Origin fora não é "sem efeito"** (orquestração, 17/11/2026; achado da O no `commission_seller`, que virou constante e só divergiu quando o `transition` passou a rodar nos dois motores).
+  - "Origin fora" (`sync/origin-off.ts`, desvio `origin-fora`) vale só para o que precisa do Origin vivo: sincronização, papel do Postgres, chamada à API do Bling.
+  - Leitura de linha espelhada ou de tabela do Origin se porta como leitura: `origin_sync.*`, `erp_catalog.origin*`, `authority='origin'`, `erp_document_mirror.visible`. Sem dado, ela devolve o mesmo que a constante devolveria; com dado, o harness compara.
+  - Guarda sobre registro espelhado (`authority='origin'`) se porta como guarda: `erp_document_mirror.guard_document`, `guard_item`, `guard_effect`, `require_visible`.
+  - O que precisa do Origin vivo pode sair 0A000 visível (`notPorted`). Valor inventado ou "nada acontece" silencioso, não.
 - **Dialeto:** as dez regras de `docs/ERP-FASE0.md`.
   - i64 lido por `CAST(… AS TEXT)`.
   - BigInt nunca como parâmetro.
@@ -208,6 +219,10 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
   - `LIKE` do usuário vira `instr()`.
   - `lower`/`NOCASE` só valem para ASCII: compare em TS ou use a coluna `__fold`.
   - A ordem das chaves do jsonb vem de `jsonbKeys`; o texto canônico, de `jsonbText`.
+  - **Ordem dos gatilhos** (achado de 17/11, `tests/erp/cnab-sql-triggers.test.mjs`): o Postgres dispara os gatilhos da mesma tabela e momento em ordem alfabética do nome; o SQLite dispara primeiro o criado por último.
+    - Com dois gatilhos que recusam a mesma linha, o erro muda de um motor para o outro.
+    - O gerador (`gen-sqlite.mjs`) cria os gatilhos de cada tabela em ordem inversa do nome, e o passo `recreateTriggers` (`migrate.ts`) refaz essa ordem nas instâncias que já existem.
+    - Guarda escrita em TS no ponto de um gatilho segue a ordem do nome, junto com as outras guardas da mesma tabela e do mesmo momento.
 - **Decimais:**
   - A escala de cada coluna está em `columns.generated.ts`.
   - `dec`/`dec_i64` são escalados (`toScaled`, `formatScaled`).
@@ -269,6 +284,18 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
   - **Colunas de proveniência que ficam como constante:** `document.origin`/`authority` = 'brufap', `title.origin_zero_source_id` = NULL.
   - **Nomes com "origin" que são nativos e ficam:** `stock-origin.mjs`, `erp_document_copy_origin`, `product.origin` (ICMS).
   - **Mapa completo:** `sessao-N-origin-poda.md`, na pasta de notas.
+  - **Origin vivo, 0A000 visível (`rpc_not_ported`), Catálogo** (orquestração, 17/11/2026): são etapas da sincronização. Revisam e aplicam o que o coletor do Bling deixou em `origin_sync.raw_record`. A convivência com o Bling vira um componente externo que escreve pela API do ERP, e a funcionalidade equivalente fica com ele. O que cada um fazia, para o contrato de integração:
+    - `erp_catalog_import_sources`: lista paginada (cursor por `source_id`, busca em nome/código) dos registros de contatos ou produtos em `raw_record`.
+      Para cada um, traz o plano de revisão (`import_review_plan`) sem as mudanças campo a campo; só administrador (`require_import_admin`).
+    - `erp_catalog_import_preview`: para os `source_id` escolhidos, calcula o plano de importação (`import_review_plan`/`import_changes`, mapeamento `map_origin` do payload Bling para o cadastro).
+      Cada item sai como novo, vínculo, atualização ou conflito, com as mudanças campo a campo e o hash da fonte; não grava nada.
+    - `erp_catalog_import_apply`: aplica até 100 itens do plano revisado, conferindo o `preview_hash` da prévia (recibo `import_review_command`).
+      Cria ou atualiza o cadastro, grava `erp_catalog.origin` (vínculo, `applied_hash`), `source_snapshot` e o espelho `origin_mirror`.
+    - `erp_catalog_origin_categories_sync`: aplica as categorias de produto da fonte (`raw_record` 'product_categories') na taxonomia.
+      Usa `origin_category_apply`/`parent`/`inactive` e registra o vínculo e os problemas (pai ausente, ciclo, nome) em `erp_catalog.taxonomy_source`.
+    - `erp_catalog_origin_deletion_apply`: um produto por vez (versão esperada, ação `delete` ou `restore`): exclui logicamente o apagado na fonte ou restaura o que voltou (`origin_deletion_rows`).
+      Registra em `product_source_deletion` (quem, quando, `human_edited` anterior); recibo em `erp_catalog.command`; só administrador de importação.
+    - Ficam portadas, como leitura do espelho: `erp_catalog_origin_mirror_get`, `erp_catalog_origin_categories` e `erp_catalog_origin_deletions`.
 - **Desvios deliberados do Fagoo:** só valores semeados, em `src/erp/schema/deviations.ts`, com motivo; nunca regra de negócio. O diferencial aplica os mesmos valores nos dois motores.
 - **Blocos opcionais** (`erp-fiscal`, `erp-cobranca`, `erp-pdv`):
   - O portão é por rota, no Worker.

@@ -12,7 +12,7 @@ import {
   mirrorRequireVisible,
   mirrorVisible,
   osPermitted,
-  reportCoverage,
+  mirrorReportCoverage,
   requireAccess,
   requireRole,
 } from "../../../src/erp/domains/documents/public.ts";
@@ -105,7 +105,7 @@ test("contact_usable, visible, require_visible e report_coverage: carteira do ve
           await f.dual(
             "report_coverage",
             pg("select erp_document_mirror.report_coverage($1,$2,$3,$4,$5) v", [user, kind, null, "2026-12-31", contact]),
-            () => reportCoverage(),
+            lite((db) => mirrorReportCoverage(db, user, kind, null, "2026-12-31", contact)),
           );
     }
   };

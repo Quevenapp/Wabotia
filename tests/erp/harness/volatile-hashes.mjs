@@ -35,7 +35,9 @@ export const volatileHash = (rpc, key, pg, lite) =>
 
 // Estoque (N): a cadeia de recebimentos do pedido de compra inclui o id do
 // recebimento ou do estorno que o próprio RPC grava.
-for (const rpc of ["erp_purchase_receipts_receive", "erp_purchase_receipts_reverse"])
+// erp_stock_purchase_receive (202610200184_stock_document_warehouse.sql:129) é o
+// mesmo apply com depósito escolhido e devolve o mesmo current(d.id).
+for (const rpc of ["erp_purchase_receipts_receive", "erp_purchase_receipts_reverse", "erp_stock_purchase_receive"])
   registerVolatileHash({ rpc, key: "chain_hash", reason: "erp_purchase_receipts.chain_hash inclui o id novo do recebimento/estorno" });
 // Estoque (N): o registro de leituras da conferência mostra a hora local da leitura criada na própria chamada.
 for (const rpc of ["erp_stock_count_read", "erp_stock_count_delete", "erp_stock_count_warehouse", "erp_stock_count_restart"])

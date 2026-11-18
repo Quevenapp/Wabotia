@@ -6,8 +6,9 @@
 // quantidade da estrutura, escala 6; a quantidade do p_items é exata (30).
 import { formatScaled, fromColumn, rescale, toScaled } from "../../engine/dec.ts";
 import { one, type SqlDriver } from "../../engine/driver.ts";
-import { invokeRpc, type RpcContext } from "../../engine/registry.ts";
+import { type RpcContext } from "../../engine/registry.ts";
 import { jsonTimestamp } from "../../engine/time.ts";
+import { erpCatalogProductSave, erpCatalogProductPricesUpdate } from "../catalog/public.ts";
 import { QTY, supplyPart } from "./internal.ts";
 import { COMPOSITION_CURRENT, EXACT, q6to30 } from "./read.ts";
 import { compositionSettings } from "./public.ts";
@@ -104,7 +105,7 @@ export function compositionApplyValues(ctx: RpcContext, user: string, command: s
     }
     if (Object.keys(patch).length) {
       const version = one(db, 'SELECT version FROM "erp_catalog__record" WHERE id=?', product)?.version ?? null;
-      invokeRpc(ctx, "erp_catalog_product_save", {
+      erpCatalogProductSave(ctx, {
         p_user_id: user,
         p_id: product,
         p_expected_version: version,
@@ -120,7 +121,7 @@ export function compositionApplyValues(ctx: RpcContext, user: string, command: s
     if (!sup?.supplier_id) out.cost_skipped = "no_default_supplier";
     else if (distinctDec(text(sup.cost_price), t.cost, PRICE)) {
       const version = one(db, 'SELECT version FROM "erp_catalog__record" WHERE id=?', product)?.version ?? null;
-      invokeRpc(ctx, "erp_catalog_product_prices_update", {
+      erpCatalogProductPricesUpdate(ctx, {
         p_user_id: user,
         p_command_id: supplyPart(command, `composition-cost:${product}`),
         p_supplier_id: sup.supplier_id,

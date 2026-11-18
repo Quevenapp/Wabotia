@@ -21,6 +21,7 @@ import {
   createSimulatedChallengePort,
 } from "./session-port";
 import { createPeoplePort, type ErpPerson } from "./people";
+import { createDemoEmissorPort, createEmissorPort } from "./emissor";
 // Ordem: o reset do escopo primeiro; as folhas do Fagoo, prefixadas no build
 // (web/erp/css-scope.ts), vencem por terem uma classe a mais.
 import "./scope.css";
@@ -160,6 +161,7 @@ export default function ErpMount({
       admin,
       openModules: onModules,
       openPeople: admin ? onPeople : undefined,
+      emissor: simulation ? createDemoEmissorPort() : createEmissorPort(profile),
       confirmIdentity: demo ? undefined : onConfirmIdentity,
       openAccount: demo ? undefined : onAccount,
     };

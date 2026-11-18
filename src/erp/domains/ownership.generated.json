@@ -933,7 +933,7 @@
    },
    "erp_documents.decimal_value": {
     "name": "decimalValue",
-    "ported": false
+    "ported": true
    },
    "erp_documents.delivery_address": {
     "name": "deliveryAddress",
@@ -945,7 +945,7 @@
    },
    "erp_documents.document_finance_category": {
     "name": "documentFinanceCategory",
-    "ported": false
+    "ported": true
    },
    "erp_documents.document_situation_json": {
     "name": "documentSituationJson",
@@ -961,11 +961,11 @@
    },
    "erp_documents.editable": {
     "name": "editable",
-    "ported": false
+    "ported": true
    },
    "erp_documents.effect_flags": {
     "name": "effectFlags",
-    "ported": false
+    "ported": true
    },
    "erp_documents.effects_transition_allowed": {
     "name": "effectsTransitionAllowed",
@@ -1093,7 +1093,7 @@
    },
    "erp_documents.require_os_permission": {
     "name": "requireOsPermission",
-    "ported": false
+    "ported": true
    },
    "erp_documents.require_role": {
     "name": "requireRole",
@@ -1137,7 +1137,7 @@
    },
    "erp_documents.text_value": {
     "name": "textValue",
-    "ported": false
+    "ported": true
    },
    "erp_documents.transition_action": {
     "name": "transitionAction",
@@ -1636,7 +1636,7 @@
    },
    "erp_finance.document_title_rows": {
     "name": "documentTitleRows",
-    "ported": false
+    "ported": true
    },
    "erp_finance.dto": {
     "name": "dto",
@@ -1660,7 +1660,7 @@
    },
    "erp_finance.guard_finance_invoice": {
     "name": "guardFinanceInvoice",
-    "ported": false
+    "ported": true
    },
    "erp_finance.guard_grouped_title": {
     "name": "guardGroupedTitle",
@@ -1668,7 +1668,7 @@
    },
    "erp_finance.guard_invoice_order_effect": {
     "name": "guardInvoiceOrderEffect",
-    "ported": false
+    "ported": true
    },
    "erp_finance.guard_invoice_title": {
     "name": "guardInvoiceTitle",
@@ -1692,7 +1692,7 @@
    },
    "erp_finance.invoice_auto_finance": {
     "name": "invoiceAutoFinance",
-    "ported": false
+    "ported": true
    },
    "erp_finance.invoice_blocked_reason": {
     "name": "invoiceBlockedReason",
@@ -1844,7 +1844,7 @@
    },
    "erp_finance.titles_mark_returned": {
     "name": "titlesMarkReturned",
-    "ported": false
+    "ported": true
    },
    "erp_finance.transfer_account": {
     "name": "transferAccount",
@@ -1876,19 +1876,19 @@
    },
    "public.erp_document_finance_post": {
     "name": "erpDocumentFinancePost",
-    "ported": false
+    "ported": true
    },
    "public.erp_document_finance_preview": {
     "name": "erpDocumentFinancePreview",
-    "ported": false
+    "ported": true
    },
    "public.erp_document_finance_reverse": {
     "name": "erpDocumentFinanceReverse",
-    "ported": false
+    "ported": true
    },
    "public.erp_document_finance_reverse_preview": {
     "name": "erpDocumentFinanceReversePreview",
-    "ported": false
+    "ported": true
    },
    "public.erp_finance_cash_execute": {
     "name": "erpFinanceCashExecute",
@@ -2052,7 +2052,7 @@
    },
    "erp_fiscal_invoices.bool_input": {
     "name": "boolInput",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.check_sales_item_links": {
     "name": "checkSalesItemLinks",
@@ -2060,31 +2060,31 @@
    },
    "erp_fiscal_invoices.check_value": {
     "name": "checkValue",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.command_hash": {
     "name": "commandHash",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.command_replay": {
     "name": "commandReplay",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.counts_for_balance": {
     "name": "countsForBalance",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.digits": {
     "name": "digits",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.edit_locks": {
     "name": "editLocks",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.guard_invoice": {
     "name": "guardInvoice",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.import_input": {
     "name": "importInput",
@@ -2096,7 +2096,7 @@
    },
    "erp_fiscal_invoices.invoice_envelope": {
     "name": "invoiceEnvelope",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.invoice_input": {
     "name": "invoiceInput",
@@ -2104,7 +2104,7 @@
    },
    "erp_fiscal_invoices.invoice_record": {
     "name": "invoiceRecord",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.invoice_specs": {
     "name": "invoiceSpecs",
@@ -2112,7 +2112,7 @@
    },
    "erp_fiscal_invoices.ipi_situation_allowed": {
     "name": "ipiSituationAllowed",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.item_input": {
     "name": "itemInput",
@@ -2124,11 +2124,11 @@
    },
    "erp_fiscal_invoices.list_query": {
     "name": "listQuery",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.list_rows": {
     "name": "listRows",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.money_input": {
     "name": "moneyInput",
@@ -2136,11 +2136,11 @@
    },
    "erp_fiscal_invoices.money_text": {
     "name": "moneyText",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.order_effects": {
     "name": "orderEffects",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.orders_finance_locked": {
     "name": "ordersFinanceLocked",
@@ -2148,7 +2148,7 @@
    },
    "erp_fiscal_invoices.origin_seller_ids": {
     "name": "originSellerIds",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.origin_status": {
     "name": "originStatus",
@@ -2160,11 +2160,11 @@
    },
    "erp_fiscal_invoices.preference": {
     "name": "preference",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.quantity_text": {
     "name": "quantityText",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.recipient_input": {
     "name": "recipientInput",
@@ -2180,7 +2180,7 @@
    },
    "erp_fiscal_invoices.require_read": {
     "name": "requireRead",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.require_single_invoice": {
     "name": "requireSingleInvoice",
@@ -2188,35 +2188,35 @@
    },
    "erp_fiscal_invoices.require_write": {
     "name": "requireWrite",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.role_of": {
     "name": "roleOf",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.sales_balance": {
     "name": "salesBalance",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.sales_full_invoice": {
     "name": "salesFullInvoice",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.sales_item_invoiced": {
     "name": "salesItemInvoiced",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.scalar": {
     "name": "scalar",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.spec_object": {
     "name": "specObject",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.status_group": {
     "name": "statusGroup",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.store_items": {
     "name": "storeItems",
@@ -2228,7 +2228,7 @@
    },
    "erp_fiscal_invoices.text_input": {
     "name": "textInput",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.transport_input": {
     "name": "transportInput",
@@ -2236,27 +2236,27 @@
    },
    "erp_fiscal_invoices.ufs": {
     "name": "ufs",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.uuid_input": {
     "name": "uuidInput",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_invoices.version_input": {
     "name": "versionInput",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_mirror.coverage": {
     "name": "coverage",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_mirror.native_visible": {
     "name": "nativeVisible",
-    "ported": false
+    "ported": true
    },
    "erp_fiscal_mirror.visible": {
     "name": "visible",
-    "ported": false
+    "ported": true
    },
    "public.erp_fiscal_invoice_execute": {
     "name": "erpFiscalInvoiceExecute",
@@ -2798,11 +2798,11 @@
    },
    "erp_preferences.label_defaults": {
     "name": "labelDefaults",
-    "ported": false
+    "ported": true
    },
    "erp_preferences.report_clean": {
     "name": "reportClean",
-    "ported": false
+    "ported": true
    },
    "erp_preferences.situation_base_color": {
     "name": "situationBaseColor",
@@ -3379,7 +3379,7 @@
    },
    "erp_stock.command_taken": {
     "name": "commandTaken",
-    "ported": false
+    "ported": true
    },
    "erp_stock.component_problem": {
     "name": "componentProblem",
@@ -3403,7 +3403,7 @@
    },
    "erp_stock.composition_own_stock": {
     "name": "compositionOwnStock",
-    "ported": false
+    "ported": true
    },
    "erp_stock.composition_settings": {
     "name": "compositionSettings",
@@ -3415,7 +3415,7 @@
    },
    "erp_stock.cost_visible": {
     "name": "costVisible",
-    "ported": false
+    "ported": true
    },
    "erp_stock.count_physical": {
     "name": "countPhysical",
@@ -3423,7 +3423,7 @@
    },
    "erp_stock.default_supplier": {
     "name": "defaultSupplier",
-    "ported": false
+    "ported": true
    },
    "erp_stock.derived_command": {
     "name": "derivedCommand",
@@ -3511,7 +3511,7 @@
    },
    "erp_stock.guard_invoice_stock_delete": {
     "name": "guardInvoiceStockDelete",
-    "ported": false
+    "ported": true
    },
    "erp_stock.guard_lot": {
     "name": "guardLot",
@@ -3559,7 +3559,7 @@
    },
    "erp_stock.invoice_screen": {
     "name": "invoiceScreen",
-    "ported": false
+    "ported": true
    },
    "erp_stock.invoice_unit_price": {
     "name": "invoiceUnitPrice",
@@ -3575,7 +3575,7 @@
    },
    "erp_stock.last_purchase": {
     "name": "lastPurchase",
-    "ported": false
+    "ported": true
    },
    "erp_stock.ledger_document_price": {
     "name": "ledgerDocumentPrice",
@@ -3583,7 +3583,7 @@
    },
    "erp_stock.ledger_origin": {
     "name": "ledgerOrigin",
-    "ported": false
+    "ported": true
    },
    "erp_stock.lot_apply": {
     "name": "lotApply",
@@ -3623,7 +3623,7 @@
    },
    "erp_stock.negative_allowed": {
     "name": "negativeAllowed",
-    "ported": false
+    "ported": true
    },
    "erp_stock.post": {
     "name": "post",
@@ -3635,7 +3635,7 @@
    },
    "erp_stock.post_physical_025": {
     "name": "postPhysical025",
-    "ported": false
+    "ported": true
    },
    "erp_stock.protect_default_warehouse": {
     "name": "protectDefaultWarehouse",
@@ -3707,7 +3707,7 @@
    },
    "public.erp_stock_product_compose": {
     "name": "erpStockProductCompose",
-    "ported": false
+    "ported": true
    }
   },
   "uses": {

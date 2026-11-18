@@ -3,8 +3,9 @@
 // contact_field_person_type, document_issue, warnings (ramo de contatos; o de
 // produtos é productWarnings), contact_warnings, acknowledged_valid,
 // contact_type_slugs, contact_data, contact_dto, contact_write e contact_apply.
-// Fora (Origin desligado): o UPDATE de erp_catalog.origin ('local_modified')
-// no contact_apply; source do dto lê erp_catalog.origin, vazia sem o Origin.
+// O espelho do Origin: o UPDATE de erp_catalog.origin ('local_modified') do
+// contact_apply vai no updateRecord (record.ts); source do dto lê
+// erp_catalog.origin (leitura de linha espelhada).
 // Categoria financeira e natureza de operação vêm dos public.ts do Financeiro
 // e do Fiscal.
 import { formatScaled, fromColumn, toParam, toScaled } from "../../engine/dec.ts";

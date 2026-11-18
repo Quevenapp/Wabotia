@@ -66,7 +66,7 @@ test('PDV: loja and caixa from the context, configured shortcuts, certificate al
   try {
     await settle(view);
     const shown = view.text();
-    assert.match(shown, /Caixa loja sintética/); assert.match(shown, /Caixa aberto · Operadora Sintética/); assert.match(shown, /Certificado inválido/);
+    assert.match(shown, /Caixa loja sintética/); assert.match(shown, /Caixa aberto · Operadora Sintética/); assert.doesNotMatch(shown, /Certificado inválido/); // Wabotia: o selo vem do cofre de emissão (web/erp/emissor.test.mjs)
     assert.match(shown, /Finalizar venda \(Alt\+F\)/, 'the key of Preferências › Teclas de atalho');
     assert.match(shown, /Produto \(Alt\+Z\)Cliente \(Alt\+C\)Pagamento \(Alt\+B\)/);
     await addProduct(view);

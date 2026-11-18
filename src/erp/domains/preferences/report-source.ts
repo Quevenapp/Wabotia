@@ -1,7 +1,8 @@
 // erp_preferences.report_source(base): as linhas de cada base dos relatórios
 // customizados, com a chave de ordem do Fagoo (texto, ordenado em collation C)
 // e os valores já como texto (report_clean, centavos em reais, situações).
-// O espelho do Origin saiu: só documentos nativos (authority 'brufap').
+// Só documentos nativos (authority 'brufap'): o filtro é do próprio SQL do
+// Fagoo (erp_preferences.report_source), não uma redução do Origin.
 import { one, type SqlDriver } from "../../engine/driver.ts";
 import { jsonbText } from "../../engine/json.ts";
 import { pgLower } from "../../engine/text.ts";

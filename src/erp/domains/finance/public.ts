@@ -67,6 +67,15 @@ export function accountOptions(db: SqlDriver): { id: string; name: string; activ
 export { commissionPolicy, commissionRows, operationTitles as commissionOperationTitles, operationView as commissionOperationView, type CommissionRow } from "./commissions.ts";
 export { statementLines } from "./rpc/erp_finance_statement_page.ts";
 export { dto } from "./titles.ts";
+export { titlesMarkReturned } from "./title-returns.ts";
+export { guardFinanceInvoice, guardInvoiceOrderEffect, invoiceAutoFinance } from "./invoice-guards.ts";
+export {
+  documentTitleRows,
+  erpDocumentFinancePost,
+  erpDocumentFinancePreview,
+  erpDocumentFinanceReverse,
+  erpDocumentFinanceReversePreview,
+} from "./rpc/erp_document_finance.ts";
 export {
   commissionConfirmed,
   commissionOperationCapture,

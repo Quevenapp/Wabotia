@@ -63,6 +63,7 @@ export interface PostInput {
 }
 
 const COMPENSATION_REASON = "Estorno anterior ao balanço: saldo atual mantido";
+export { postPhysical as postPhysical025 };
 const COMPENSATION_SETTING = "erp_stock.reversal_compensation";
 const same = (a: unknown, b: unknown) => a !== undefined && b !== undefined && jsonbText(a) === jsonbText(b);
 /** (texto)::uuid */
@@ -260,10 +261,9 @@ function postPhysical(ctx: RpcContext, p: PostInput) {
     return c < d ? -1 : c > d ? 1 : 0;
   });
   // v_import: ajuste do ator do espelho com importação autorizada
-  // (erp_sync.stock_import_allowed exige erp_sync.applying(), que o motor
-  // nunca liga nesta fase).
-  const isImport =
-    p.kind === "adjustment" && p.user === sync.actor(ctx) && sync.applying(ctx) && false;
+  // (erp_sync.stock_import_allowed: falso fora da aplicação do espelho; na
+  // aplicação, 0A000 até o espelho ser portado).
+  const isImport = p.kind === "adjustment" && p.user === sync.actor(ctx) && sync.stockImportAllowed(ctx);
   let ordinal = 0;
   for (const line of ordered) {
     const product = lower(String(line.product_id));

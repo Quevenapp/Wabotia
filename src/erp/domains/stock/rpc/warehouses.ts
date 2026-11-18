@@ -12,7 +12,7 @@ import { jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { PG_CNTRL, pgBtrim, pgHasCntrl, pgLength } from "../../../engine/text.ts";
 import { jsonTimestamp } from "../../../engine/time.ts";
-import { allowed, fold } from "../../catalog/public.ts";
+import { allowed, fold, mutate } from "../../catalog/public.ts";
 import { ignoredWarehouse } from "../home.ts";
 import { commandTaken, requireAccess, sha256 } from "../internal.ts";
 
@@ -45,6 +45,50 @@ export function warehouseDto(db: SqlDriver, id: string) {
 }
 
 const defaultRow = (db: SqlDriver) => one(db, 'SELECT warehouse_id, version FROM "erp_stock__warehouse_default" WHERE singleton=1');
+
+// warehouse_setting só é alterada depois do recibo 'save', com versão +1;
+// a camada de tabela do Catálogo executa os gatilhos do cadastro.
+registerRpc("erp_stock_warehouse_save", (ctx: RpcContext, a: RpcArgs) => {
+  const db = ctx.db;
+  const user = a.p_user_id as string, command = a.p_command_id as string | null,
+    warehouse = a.p_warehouse_id as string | null, expected = a.p_expected_version as number | null,
+    settingVersion = a.p_expected_setting_version as number | null, name = a.p_name as string | null,
+    ignore = a.p_ignore_balance as boolean | null;
+  warehouseAccess(db, user, true);
+  if (command === null || expected === null || settingVersion === null || ignore === null ||
+    expected < 0 || expected > 2147483646 || settingVersion < 0 || settingVersion > 2147483646 ||
+    (warehouse === null) !== (expected === 0) || (warehouse === null && settingVersion !== 0) ||
+    name === null || name !== pgBtrim(name) || pgLength(name) < 1 || pgLength(name) > 200 || pgHasCntrl.test(name))
+    raise("22023", "erp_stock_warehouse_input_invalid");
+  const hash = sha256(jsonbText({ profile: "stock-warehouse-save-105", actor: user, warehouse_id: warehouse,
+    expected_version: expected, expected_setting_version: settingVersion, name, ignore_balance: ignore }));
+  const c = one(db, 'SELECT * FROM "erp_stock__warehouse_command" WHERE id=?', command);
+  if (c) {
+    if (c.actor !== user || c.action !== "save" || c.request_hash !== hash) raise("40001", "erp_stock_warehouse_command_conflict");
+    return { ...JSON.parse(String(c.result)), warehouse: warehouseDto(db, String(c.warehouse_id)), replayed: true };
+  }
+  if (commandTaken(db, command) || one(db, 'SELECT 1 x FROM "erp_catalog__command" WHERE command_id=?', command))
+    raise("40001", "erp_stock_warehouse_command_conflict");
+  const catalog = mutate(ctx, user, "warehouses", warehouse, expected, command, { name }, false, null);
+  const record = catalog.record as { id: string; version: number };
+  const s = one(db, 'SELECT * FROM "erp_stock__warehouse_setting" WHERE warehouse_id=?', record.id);
+  if (Number(s?.version ?? 0) !== settingVersion || Number(s?.version ?? 0) === 2147483647)
+    raise("40001", "erp_stock_warehouse_version_conflict");
+  const changed = (s?.ignore_balance === 1) !== ignore, at = ctx.clock.next();
+  const result = { scope: "stock_warehouse", data_mode: "erp_native", receipt: {
+    command_id: command, action: "save", created: warehouse === null,
+    catalog_changed: warehouse === null || Number(record.version) !== expected, setting_changed: changed,
+    from: { ignore_balance: s?.ignore_balance === 1 }, to: { ignore_balance: ignore }, saved_at: jsonTimestamp(at),
+  } };
+  db.exec('INSERT INTO "erp_stock__warehouse_command"(id,actor,action,warehouse_id,request_hash,result,created_at) VALUES(?,?,?,?,?,?,?)',
+    command, user, "save", record.id, hash, JSON.stringify(result), ctx.clock.next().toString());
+  if (changed) db.exec(`INSERT INTO "erp_stock__warehouse_setting"(warehouse_id,ignore_balance,version,updated_at,updated_by,command_id)
+    VALUES(?,?,1,?,?,?) ON CONFLICT(warehouse_id) DO UPDATE SET ignore_balance=excluded.ignore_balance,
+    version=version+1,updated_at=excluded.updated_at,updated_by=excluded.updated_by,command_id=excluded.command_id`,
+    record.id, ignore ? 1 : 0, at.toString(), user, command);
+  warehouseAccess(db, user, true);
+  return { ...result, warehouse: warehouseDto(db, record.id), replayed: false };
+});
 
 registerRpc("erp_stock_warehouses", (ctx: RpcContext, a: RpcArgs) => {
   const db = ctx.db;

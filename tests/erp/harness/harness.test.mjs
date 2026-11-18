@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import { oracleDb } from "../../../scripts/erp/oracle-db.mjs";
 import { ERP_TABLES } from "../../../src/erp/schema/columns.generated.ts";
 import { fold } from "../../../src/erp/domains/catalog/internal.ts";
-import { derivedIds, registerDerivedId, registerNewIdOrder } from "./derived-ids.mjs";
+import { derivedIds, registerClockColumn, registerDerivedId, registerNewIdOrder } from "./derived-ids.mjs";
 import { callRpc } from "../../../src/erp/engine/registry.ts";
 import { dualFixture, wireArgs } from "./dual-fixture.mjs";
 import { pgIdentity } from "./identity.mjs";
@@ -256,6 +256,72 @@ test("item 1: a declaração de ordem por id novo é conferida", () => {
   });
   equal(data("after_data"), KNOWN);
   differs(data("before_data"), KNOWN);
+});
+
+test("relógio em minuto e dia (registerClockColumn): igual dentro da janela da chamada, diverge fora dela", () => {
+  const ok = { reason: "trecho do Fagoo que lê o relógio, só para o teste do harness", unit: "minute" };
+  assert.throws(() => registerClockColumn({ id: "teste.unidade", columns: ["erp_documents__occurrence.occurred_time"], ...ok, unit: "hora" }), /minute ou day/);
+  assert.throws(() => registerClockColumn({ id: "teste.coluna", columns: ["erp_documents__occurrence.sequence"], ...ok }), /não é texto nem data/);
+  assert.throws(() => registerClockColumn({ id: "teste.motivo", keys: ["x"], unit: "day", reason: "relógio" }), /justifique/);
+  assert.throws(() => registerClockColumn({ id: "documents.occurrence_time", keys: ["x"], ...ok }), /já registrado/);
+  // A chamada atravessa 14:29 de São Paulo (17:29 UTC; sem horário de verão desde 2019).
+  const from = Date.UTC(2026, 10, 17, 17, 28, 59, 500);
+  const window = { from, to: from + 1000 };
+  const D = U();
+  const occ = (id, time, day = "2026-11-17") =>
+    row("erp_documents__occurrence", { id, document_id: D, sequence: "1", occurred_on: day, occurred_time: time, text: "Situação alterada", actor_id: ACTOR, command_id: CMD, document_version: "2", created_at: "1" });
+  const check = (pg, lite, w = window) => {
+    const ids = new IdMap(new Set([...KNOWN, D]));
+    ids.window = w;
+    return compareState({ erp_documents__occurrence: { pg: [pg], lite: [lite] } }, ids).diffs;
+  };
+  assert.deepEqual(check(occ(U(), "14:28"), occ(U(), "14:29")), [], "o minuto virou entre um motor e o outro");
+  assert.notDeepEqual(check(occ(U(), "14:28"), occ(U(), "17:29")), [], "hora em UTC no motor: fora da janela");
+  assert.notDeepEqual(check(occ(U(), "14:28"), occ(U(), "14:29"), null), [], "sem janela, literal");
+  assert.notDeepEqual(check(occ(U(), "14:28"), occ(U(), "14:28", "2026-11-18")), [], "dia fora da janela");
+  // Meia-noite: 23:59 → 00:00 de São Paulo.
+  const midnight = Date.UTC(2026, 10, 18, 2, 59, 59, 800);
+  assert.deepEqual(check(occ(U(), "23:59", "2026-11-17"), occ(U(), "00:00", "2026-11-18"), { from: midnight, to: midnight + 500 }), []);
+  // Na resposta, pela chave declarada.
+  const resp = (w) => Object.assign(new IdMap(new Set(KNOWN)), { window: w });
+  assert.deepEqual(diffValues({ occurred_time: "14:28" }, { occurred_time: "14:29" }, resp(window)), []);
+  assert.notDeepEqual(diffValues({ occurred_time: "14:28" }, { occurred_time: "17:29" }, resp(window)), []);
+  assert.notDeepEqual(diffValues({ outra: "14:28" }, { outra: "14:29" }, resp(window)), [], "chave não declarada");
+});
+
+test("item 1: array declarado com id antigo e id novo misturados (category_ids do campo personalizado)", () => {
+  // Categoria antiga (OLD, igual nos dois) e uma criada no comando: cada lado
+  // ordena pelo texto dos próprios ids, então o novo cai antes ou depois do
+  // antigo conforme o uuid de cada motor. Gera até as posições trocarem.
+  const OLD = U();
+  const known = [...KNOWN, OLD];
+  const tax = (id) => row("erp_catalog__taxonomy", { id, kind: "category", name: "Bebidas", version: "1", created_by: ACTOR, updated_by: ACTOR, created_at: "1", updated_at: "1", name__fold: "bebidas" });
+  const audit = (category_ids) =>
+    row("erp_catalog__custom_field_audit", { id: "1", actor: ACTOR, command_id: CMD, field_id: A, action: "update", after_data: JSON.stringify({ category_ids }), created_at: "1" });
+  const sorted = (a) => [...a].sort();
+  let p, l;
+  do {
+    p = U();
+    l = U();
+  } while (p < OLD === l < OLD);
+  const data = (lite) => ({ erp_catalog__taxonomy: { pg: [tax(p)], lite: [tax(l)] }, erp_catalog__custom_field_audit: { pg: [audit(sorted([OLD, p]))], lite: [audit(lite)] } });
+  // Na tabela: cada lado na própria ordem passa; fora da ordem, ou sem o antigo, é acusado.
+  equal(data(sorted([OLD, l])), known);
+  differs(data(sorted([OLD, l]).reverse()), known);
+  differs(data([l]), known);
+  differs(data(sorted([A2, l])), known);
+  // Na resposta do RPC declarado: o mesmo.
+  const cIds = () => Object.assign(new IdMap(new Set(known)), { rpc: "erp_catalog_taxonomy_save" });
+  assert.deepEqual(diffValues({ category_ids: sorted([OLD, p]) }, { category_ids: sorted([OLD, l]) }, cIds()), []);
+  // Fora da ordem: com 2 elementos a troca coincide com a posição do Postgres
+  // e passa (o limite da resposta, como nos borderôs); com 3 antigos e um fora
+  // do lugar, que não coincide, é acusado.
+  const three = sorted([OLD, A, A2]);
+  assert.notDeepEqual(diffValues({ category_ids: three }, { category_ids: [three[1], three[0], three[2]] }, cIds()), []);
+  assert.notDeepEqual(diffValues({ category_ids: sorted([OLD, p]) }, { category_ids: sorted([A2, l]) }, cIds()), []);
+  // Só ids antigos: ordenados e iguais, ou é divergência.
+  assert.deepEqual(diffValues({ category_ids: sorted([OLD, A]) }, { category_ids: sorted([OLD, A]) }, cIds()), []);
+  assert.notDeepEqual(diffValues({ category_ids: sorted([OLD, A]) }, { category_ids: sorted([OLD, A]).reverse() }, cIds()), []);
 });
 
 test("item 6: uuid embutido em texto (source_key = 'cash_session:<movimento>')", () => {

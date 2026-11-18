@@ -57,6 +57,30 @@ export function registerDerivedId(spec) {
 /** Os formatos registrados (todos os domínios). */
 export const derivedIds = () => [...registry.values()];
 
+/**
+ * Hash opaco sobre id novo (pedido da O, 17/11): um sha256 em hex de conteúdo
+ * que inclui um uuid criado na própria chamada (ex.: o preview_hash da
+ * prévia do lançamento de contas de um pedido criado agora). Os motores dão
+ * hashes diferentes com o comportamento igual. Declarado como formato
+ * derivado: os 32 primeiros dígitos viram um uuid de mentira, e o comparador
+ * liga o hash do Postgres ao do SQLite como liga um id novo — o mesmo par em
+ * todas as colunas e chaves declaradas (igualdade interna de cada lado). Hash
+ * que já existia (semeado ou espelhado) só vale igual. Só onde declarado,
+ * com o motivo (o trecho do Fagoo que calcula o hash e o id novo que ele cobre).
+ */
+export function registerOpaqueHash({ id, columns = [], keys = [], reason = "" }) {
+  if (typeof reason !== "string" || reason.length < 40)
+    throw new Error(`Hash opaco ${id}: justifique (reason): o trecho do Fagoo que calcula o hash e o id novo que ele cobre.`);
+  return registerDerivedId({
+    id,
+    pattern: /^([0-9a-f]{64})$/,
+    toUuid: (m) => hex32ToUuid(m[1].slice(0, 32)),
+    fromUuid: (u) => u.replace(/-/g, "") + "0".repeat(32),
+    columns,
+    keys,
+  });
+}
+
 /** Formatos que valem numa coluna de tabela (texto inteiro ou json sob `key`). */
 export function derivedFor(specs, table, column, key) {
   const where = `${table}.${column}`;
@@ -121,8 +145,98 @@ export function orderFor(key, { rpc = null, where = null } = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Valores do relógio em minuto ou dia (pedido da O, 17/11): o oráculo grava
+// to_char(clock_timestamp() at time zone 'America/Sao_Paulo', 'HH24:MI') (ou a
+// data), o motor lê o ctx.clock; cada motor lê o relógio real num instante
+// diferente da mesma chamada, e a chamada pode atravessar o minuto (ou a
+// meia-noite). DECLARADO, como os formatos acima:
+//   - id: "<domínio>.<o quê>";
+//   - columns: "tabela.coluna" (texto HH:MI ou data AAAA-MM-DD);
+//   - keys: chaves da resposta onde o valor aparece;
+//   - unit: "minute" | "day";
+//   - reason: obrigatório, o trecho do Fagoo.
+// Só onde declarado, e só se o valor de cada lado estiver dentro da janela da
+// chamada (do início do oráculo ao fim do motor, na hora de São Paulo), ele
+// vale como "<relógio>"; fora dela compara literal. Um fuso errado (UTC no
+// lugar de São Paulo) cai fora da janela e diverge.
+
+const clocks = new Map();
+
+export function registerClockColumn(spec) {
+  const { id, columns = [], keys = [], unit, reason = "" } = spec;
+  if (!/^[a-z_]+\.[a-z0-9_.]+$/.test(id ?? "")) throw new Error(`Relógio: id "${id}" fora do padrão <domínio>.<nome>.`);
+  if (clocks.has(id)) throw new Error(`Relógio ${id} já registrado.`);
+  if (!["minute", "day"].includes(unit)) throw new Error(`Relógio ${id}: unit é minute ou day.`);
+  if (!columns.length && !keys.length) throw new Error(`Relógio ${id}: diga onde (columns ou keys).`);
+  if (typeof reason !== "string" || reason.length < 40) throw new Error(`Relógio ${id}: justifique (reason) com o trecho do Fagoo.`);
+  for (const c of columns) {
+    const [table, column] = c.split(".");
+    const col = ERP_TABLES[table]?.columns[column];
+    if (!col) throw new Error(`Relógio ${id}: coluna ${c} não existe.`);
+    if (!["text", "date"].includes(col.codec)) throw new Error(`Relógio ${id}: ${c} não é texto nem data.`);
+  }
+  const frozen = Object.freeze({ id, columns: new Set(columns), keys: new Set(keys), unit, reason });
+  clocks.set(id, frozen);
+  return frozen;
+}
+
+/** A declaração de relógio da coluna `where` ("tabela.coluna") ou da chave `key` da resposta. */
+export function clockFor({ where = null, key = null } = {}) {
+  for (const c of clocks.values()) if ((where !== null && c.columns.has(where)) || (key !== null && c.keys.has(key))) return c;
+  return null;
+}
+
+const SP_MINUTE = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const SP_DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" });
+/** O valor está dentro da janela da chamada ({ from, to } em ms), na hora de São Paulo? */
+export function inClockWindow(value, unit, window) {
+  if (typeof value !== "string" || !window) return false;
+  const step = unit === "minute" ? 60_000 : 3_600_000;
+  const fmt = unit === "minute" ? SP_MINUTE : SP_DAY;
+  const from = Math.floor(window.from / step) * step;
+  const to = Math.max(window.to, from);
+  if ((to - from) / step > 2000) return false;
+  for (let t = from; t <= to + step; t += step) if (fmt.format(new Date(Math.min(t, to))) === value) return true;
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Referência a coluna identity gravada na mesma chamada, em ordem que o
+// oráculo não fixa (laço sem ORDER BY): a coluna identity já vale só como
+// "<identity>" (o SQLite reaproveita rowid), e o número que aponta para ela
+// também. DECLARADO, por "tabela.coluna", com o motivo (o laço do Fagoo). O
+// teste do RPC confere em cada motor que a referência aponta para a linha
+// certa (a junção), já que o comparador deixa de ver o número.
+
+const identityRefs = new Map();
+
+export function registerIdentityRef({ column, reason = "" }) {
+  const [table, name] = String(column).split(".");
+  const col = ERP_TABLES[table]?.columns[name];
+  if (!col) throw new Error(`Referência identity: coluna ${column} não existe.`);
+  if (identityRefs.has(column)) throw new Error(`Referência identity ${column} já registrada.`);
+  if (typeof reason !== "string" || reason.length < 40)
+    throw new Error(`Referência identity ${column}: justifique (reason) com o laço do Fagoo e a conferência da junção no teste.`);
+  identityRefs.set(column, Object.freeze({ column, reason }));
+}
+
+/** A coluna "tabela.coluna" é referência identity declarada? */
+export const isIdentityRef = (where) => identityRefs.has(where);
+
+// ---------------------------------------------------------------------------
 // Declarações por domínio. Nova entrada: peça à N (pasta congelada), com o
 // trecho do Fagoo que grava o valor.
+
+// Estoque (N): erp_stock_mirror.project_one (202610220001_stock_origin_mirror.sql,
+// 114 a 132): for w in select distinct warehouse_source_id … loop insere a
+// observação (identity) e aponta a position para ela, sem ORDER BY. Com mais de
+// um depósito, qual observação ganha qual número é incidental no Postgres.
+registerIdentityRef({
+  column: "erp_stock_mirror__position.observation_id",
+  reason:
+    "project_one: laço sobre select distinct warehouse_source_id sem ORDER BY insere a observation (identity) e grava position.observation_id; " +
+    "tests/erp/stock/mirror.test.mjs confere em cada motor que a position aponta para a observação do mesmo produto e depósito.",
+});
 
 // Catálogo (P): erp_catalog_contact_type_create, migração
 // 202610200124_contact_profile.sql: slug = 't' || replace(v_id::text,'-','').
@@ -161,4 +275,87 @@ registerNewIdOrder({
   reason:
     "settle_batch sem agrupamento: 'borderos' é jsonb_agg(erp_finance.bordero_dto(b,false) order by b) sobre unnest(v_borderos), " +
     "os ids dos borderôs criados na chamada com gen_random_uuid() (202610200110_finance_bordero.sql, 202610200249_finance_settle_history.sql).",
+});
+
+// Documentos/Financeiro (O): o lançamento de contas automático do pedido de
+// compra novo (compras.automacao_contas_pagar, erp_documents.auto_finance na
+// mesma chamada do erp_document_save). O preview_hash é sha256 do jsonb da
+// prévia (erp_documents.finance_preview), que traz o document_id novo; o
+// request_hash do recibo cobre os mesmos dados.
+registerOpaqueHash({
+  id: "finance.document_posting_hash",
+  columns: [
+    "erp_finance__document_posting.preview_hash",
+    "erp_finance__document_command.request_hash",
+    "erp_finance__document_command.result",
+  ],
+  keys: ["preview_hash", "request_hash"],
+  reason:
+    "erp_document_finance_post pelo auto_finance do erp_document_save: preview_hash = sha256 da prévia com o document_id criado na " +
+    "chamada (gen_random_uuid); o request_hash do erp_finance.document_command cobre o mesmo id.",
+});
+
+// Documentos (O): ocorrência gravada pelo transition (desde o 599a56d nos dois
+// motores) e pelo save: occurred_on e occurred_time vêm do relógio.
+registerClockColumn({
+  id: "documents.occurrence_time",
+  columns: ["erp_documents__occurrence.occurred_time"],
+  keys: ["occurred_time"],
+  unit: "minute",
+  reason:
+    "erp_documents.occurrence (202610200163_document_situations.sql): occurred_time = coalesce(setting erp_documents.occurrence_time, " +
+    "to_char(clock_timestamp() at time zone 'America/Sao_Paulo','HH24:MI')); sem o setting, cada motor lê o relógio num instante diferente da chamada.",
+});
+registerClockColumn({
+  id: "documents.occurrence_day",
+  columns: ["erp_documents__occurrence.occurred_on"],
+  unit: "day",
+  reason:
+    "erp_documents.occurrence (202610200163_document_situations.sql): occurred_on = coalesce(setting erp_documents.occurrence_on, " +
+    "(clock_timestamp() at time zone 'America/Sao_Paulo')::date); sem o setting, a chamada pode atravessar a meia-noite entre os dois motores.",
+});
+
+// Catálogo (P/B): erp_catalog.custom_field_item, migração
+// 202610200156_product_custom_fields.sql: 'category_ids' =
+// jsonb_agg(c.category_id::text order by c.category_id::text). Categoria
+// criada no mesmo comando (erp_catalog_taxonomy_save, gen_random_uuid) muda
+// de posição entre os motores; as antigas são iguais nos dois lados.
+registerNewIdOrder({
+  id: "catalog.custom_field_category_ids",
+  keys: ["category_ids"],
+  by: null,
+  dir: "asc",
+  columns: ["erp_catalog__custom_field_audit.before_data", "erp_catalog__custom_field_audit.after_data", "erp_catalog__command.result"],
+  rpcs: ["erp_catalog_custom_fields", "erp_catalog_custom_field_save", "erp_catalog_taxonomy_save"],
+  reason:
+    "erp_catalog.custom_field_item (202610200156_product_custom_fields.sql): 'category_ids' = jsonb_agg(c.category_id::text order by " +
+    "c.category_id::text); uma categoria criada no mesmo comando (erp_catalog_taxonomy_save, gen_random_uuid) muda de posição entre os motores.",
+});
+
+// PDV (L, P2): erp_pos_sale_execute sale_finish com sale_id nulo cria o pedido
+// e, na mesma chamada (invokeRpc), chama erp_document_transition e a baixa à
+// vista do Financeiro. Os dois recibos fazem hash sobre o id criado agora.
+// Os campos do hash (ator, versão, situação, motivo) são conferidos pelos
+// testes de repetição e conflito do próprio RPC (Documentos e Financeiro), não
+// por recálculo aqui: o harness repetiria a fórmula do motor.
+registerOpaqueHash({
+  id: "documents.transition_request_hash",
+  columns: ["erp_documents__command.request_hash"],
+  reason:
+    "erp_document_transition (202610200239_*.sql, linha 333): request_hash = sha256 de {op,actor,kind,id,version,status,reason}, com o id " +
+    "do pedido criado na mesma chamada pelo erp_pos_sale_execute (gen_random_uuid).",
+});
+registerOpaqueHash({
+  id: "stock.document_request_hash",
+  columns: ["erp_stock__document_command.request_hash", "erp_stock__document_posting.preview_hash"],
+  reason:
+    "erp_document_stock_post chamado pela venda do erp_pos_sale_execute: preview_hash = sha256 da prévia do pedido e dos itens criados na " +
+    "mesma chamada (gen_random_uuid), gravado na document_posting; o request_hash do document_command cobre o mesmo preview_hash.",
+});
+registerOpaqueHash({
+  id: "finance.settle_request_hash",
+  columns: ["erp_finance__command.request_hash"],
+  reason:
+    "erp_finance_execute settle chamado pela venda à vista do erp_pos_sale_execute: request_hash = sha256 com o id do título criado na " +
+    "mesma chamada (gen_random_uuid).",
 });

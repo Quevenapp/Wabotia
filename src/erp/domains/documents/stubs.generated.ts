@@ -41,24 +41,16 @@ export const currentVersion = (..._args: unknown[]): never => notPorted("erp_doc
 export const customFieldValue = (..._args: unknown[]): never => notPorted("erp_documents.custom_field_value");
 /** erp_documents.date_value(p_value jsonb, p_required boolean) → date */
 export const dateValue = (..._args: unknown[]): never => notPorted("erp_documents.date_value");
-/** erp_documents.decimal_value(p_value jsonb, p_precision integer, p_digits integer) → numeric */
-export const decimalValue = (..._args: unknown[]): never => notPorted("erp_documents.decimal_value");
 /** erp_documents.delivery_address(v jsonb) → jsonb */
 export const deliveryAddress = (..._args: unknown[]): never => notPorted("erp_documents.delivery_address");
 /** erp_documents.discount_approver(p_user_id uuid, p_kind text) → boolean */
 export const discountApprover = (..._args: unknown[]): never => notPorted("erp_documents.discount_approver");
-/** erp_documents.document_finance_category(d erp_documents.document, p_category uuid) → uuid */
-export const documentFinanceCategory = (..._args: unknown[]): never => notPorted("erp_documents.document_finance_category");
 /** erp_documents.document_situation_json(p_id uuid) → jsonb */
 export const documentSituationJson = (..._args: unknown[]): never => notPorted("erp_documents.document_situation_json");
 /** erp_documents.document_view(p_id uuid) → jsonb */
 export const documentView = (..._args: unknown[]): never => notPorted("erp_documents.document_view");
 /** erp_documents.dto(p_id uuid) → jsonb */
 export const dto = (..._args: unknown[]): never => notPorted("erp_documents.dto");
-/** erp_documents.editable(p_status text) → boolean */
-export const editable = (..._args: unknown[]): never => notPorted("erp_documents.editable");
-/** erp_documents.effect_flags(p_id uuid) → jsonb */
-export const effectFlags = (..._args: unknown[]): never => notPorted("erp_documents.effect_flags");
 /** erp_documents.effects_transition_allowed(p_kind text, p_from text, p_to text) → boolean */
 export const effectsTransitionAllowed = (..._args: unknown[]): never => notPorted("erp_documents.effects_transition_allowed");
 /** erp_documents.extension_data(p_body jsonb) → jsonb */
@@ -111,8 +103,6 @@ export const recordSituationOccurrence = (..._args: unknown[]): never => notPort
 export const replaceItems = (..._args: unknown[]): never => notPorted("erp_documents.replace_items");
 /** erp_documents.require_commercial_input(p_current jsonb, p_input jsonb) → void */
 export const requireCommercialInput = (..._args: unknown[]): never => notPorted("erp_documents.require_commercial_input");
-/** erp_documents.require_os_permission(p_user_id uuid, p_kind text, p_key text) → void */
-export const requireOsPermission = (..._args: unknown[]): never => notPorted("erp_documents.require_os_permission");
 /** erp_documents.require_seller(p_seller uuid) → void */
 export const requireSeller = (..._args: unknown[]): never => notPorted("erp_documents.require_seller");
 /** erp_documents.rich_text(p_value jsonb) → jsonb */
@@ -129,8 +119,6 @@ export const situationJson = (..._args: unknown[]): never => notPorted("erp_docu
 export const situationKeyValid = (..._args: unknown[]): never => notPorted("erp_documents.situation_key_valid");
 /** erp_documents.situation_snapshot(p jsonb) → jsonb */
 export const situationSnapshot = (..._args: unknown[]): never => notPorted("erp_documents.situation_snapshot");
-/** erp_documents.text_value(p_value jsonb, p_max integer, p_required boolean, p_multiline boolean) → text */
-export const textValue = (..._args: unknown[]): never => notPorted("erp_documents.text_value");
 /** erp_documents.transition_action(p_user_id uuid, p_kind text, p_id uuid, p_command uuid, p_action text, p_label text) → jsonb */
 export const transitionAction = (..._args: unknown[]): never => notPorted("erp_documents.transition_action");
 /** erp_documents.transition_command(p_command uuid, p_action text) → uuid */

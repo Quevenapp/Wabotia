@@ -118,4 +118,41 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     replaced_by:
       "Rotina retention (diária, 03:10 de São Paulo, src/erp/scheduler/routines.ts): apaga tarefa done/failed terminada há mais de 90 dias, com as tentativas, em lotes de 100. Fica a tarefa ligada a uma exportação (linha imutável com FK). Os gatilhos do Fagoo são cumpridos em código no motor (domains/preferences/platform.ts), e o SQLite não tem gatilho contra o DELETE. Os recibos de comando (tabelas *command) ficam de fora.",
   },
+  {
+    id: "certificado-a1-cofre",
+    oracle:
+      "erp_pos.certificate_state() lê erp_a1.head e erp_a1.credential (o A1 guardado no banco do Fagoo) e devolve missing, unknown, expired ou valid no contexto da frente de caixa (erp_pos_context.certificate)",
+    reason:
+      "O certificado A1 fica no cofre da NFapi, não no banco do ERP; o motor não chama o cofre dentro da transação (decisão 3 do plano do PDV, orquestração, 17/11/2026).",
+    replaced_by:
+      "erp_pos_context devolve certificate='missing' (src/erp/domains/pos/internal.ts, certificateState). Quando o Fiscal chegar ao bloco de emissão, o Worker leva o estado do cofre (GET /v1/cofre, certificado.validoAte) num envelope, como a identidade, e o motor troca o missing por ele. O aviso principal do certificado fica na tela do emissor fiscal.",
+    routes: ["GET /v1/frente-caixa"],
+  },
+  {
+    id: "reforma-classificacao",
+    oracle:
+      "Nada: o Fagoo não tem campo de IBS, CBS nem IS (o motor de impostos os deixa \"como digitados\" e o complemento os exclui, not_included_in_profile); as regras da natureza só aceitam icms, ipi, pis, cofins e ii (nature_rule_tax_check).",
+    reason:
+      "Reforma tributária do consumo: a nota leva o grupo IBS/CBS (CST e cClassTrib) e o cofre da NFapi o aceita. Decisão da orquestração (17/11/2026, plano do Fiscal): classificar no cadastro sem mudar os checks nem as colunas do Fagoo; quem calcula os valores (cofre ou ERP) ainda é decisão do usuário, então o motor guarda a classificação e o resultado, não a regra.",
+    replaced_by:
+      "Tabelas só do motor (schema/engine-tables.ts, versão 7): erp_fiscal_reform__nature_class (padrão e exceções por NCM, produto ou grupo de cada natureza; RPCs erp_fiscal_reform_nature_class_get e _save, só do motor) e erp_fiscal_reform__product_class (do produto, com NBS do serviço; a escrita é combinada com o Catálogo). Resolução: produto > exceção da natureza > padrão da natureza (domains/fiscal/reform.ts).",
+  },
+  {
+    id: "emissao-cofre",
+    oracle:
+      "Emissão própria do Fagoo: erp_fiscal_authorization.attempt (hash assinado, envelope, impressão do certificado, nonce), as filas unsigned_*/signed_*, numbering_* e reconciliation_*; eventos em erp_fiscal_invoices.event_request, cujo CHECK aceita só environment='2' (homologação).",
+    reason:
+      "A NF-e e a NFC-e são emitidas pelo cofre da NFapi, que guarda o A1, numera e transmite (plano do Fiscal aprovado pela orquestração, 17/11/2026, decisões 1 e 2). Nenhuma tabela do Fagoo guarda o pedido ao cofre sem distorcer, e o event_request não aceita a nota de produção registrada pela importação.",
+    replaced_by:
+      "Tabelas só do motor (schema/engine-tables.ts, versão 9): erp_fiscal_vault__emission (o pedido, com body que nunca vai para log nem atividade, a referência wb.<rascunho>.v<versão>, a situação e o resultado; a produção autorizada vira nota do ERP pela regra da importação de XML, invoice_id; a homologação fica só aqui) e erp_fiscal_vault__event (cancelamento, carta de correção, inutilização e manifestação do destinatário; alvo invoice_id, emission_id ou received_id conforme o tipo). As FKs para erp_fiscal_drafts__draft e erp_fiscal_invoices__invoice barram apagar de vez um rascunho ou nota com emissão ou evento: o Fagoo não apaga esses cabeçalhos (só os itens), e uma limpeza futura de rascunho ficaria barrada, o que é desejado.",
+  },
+  {
+    id: "notas-recebidas-cofre",
+    oracle:
+      "erp_dfe (202610160045 e 202610210359): a coleta própria na distribuição DF-e (canal por CNPJ, NSU com checkpoint, tentativas com lease, objetos no Storage, resumo extraído), desligada no Fagoo; 14 funções e as rotas /v1/notas-recebidas.",
+    reason:
+      "A distribuição DF-e e a manifestação do destinatário são feitas pelo cofre da NFapi (0.9.0): o NSU, a espera do Ambiente Nacional e o bloqueio por consumo indevido são dele. O ERP só lê o que o cofre guardou e nunca fala com o governo (desenho aprovado pela orquestração, 17/11/2026).",
+    replaced_by:
+      "Tabelas só do motor (schema/engine-tables.ts, versão 9): erp_fiscal_vault__received (a última versão de cada nota recebida, com o vínculo à nota do ERP depois da importação), erp_fiscal_vault__received_change (cada mudança pela sequência do cofre, só acréscimo, com gatilhos de imutabilidade) e erp_fiscal_vault__cursor (a ultimaSequencia por conexão). A manifestação é um erp_fiscal_vault__event (emissao-cofre). O erp_dfe do Fagoo não é portado.",
+  },
 ];

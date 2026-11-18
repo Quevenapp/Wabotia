@@ -5,6 +5,7 @@
 import type { AuthPort } from "./app/lib/real-access";
 import type { ChallengePort } from "./session-port";
 import type { PeoplePort } from "./people";
+import type { EmissorPort } from "./emissor";
 
 export type ErpPorts = {
   /** Sessão do Wabotia vista como a sessão do Supabase que o controlador espera. */
@@ -43,6 +44,8 @@ export type ErpPorts = {
   admin?: boolean;
   /** Abre Gestão → Módulos no painel. */
   openModules?: () => void;
+  /** Emissor de notas (cofre NFapi): estado e configuração (web/erp/emissor.ts). */
+  emissor?: EmissorPort;
 };
 
 let current: ErpPorts | null = null;

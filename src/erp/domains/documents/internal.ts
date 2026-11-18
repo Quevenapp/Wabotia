@@ -12,6 +12,7 @@ import { autoProductKey, documentProduct } from "../catalog/public.ts";
 import * as preferences from "../preferences/public.ts";
 import { active as receiptsActive } from "../stock/public.ts";
 import { transitions } from "./preferences.ts";
+import { mirrorDetail } from "./mirror.ts";
 import { originEffects } from "../sync/public.ts";
 
 /** erp_documents.auto_products(p_user_id, p_kind, p_command, p_items) */
@@ -122,8 +123,8 @@ export function approvalSituations(db: SqlDriver): string[] {
 // ---------------------------------------------------------------------------
 // Núcleo da leitura do documento (B3): document_view, dto, effect_flags,
 // proposal_version_json, situation_json, situation_adopted e
-// document_situation_json. Documento do Origin (authority 'origin') sai pela
-// linha de corte do Origin: erp_document_mirror.detail não é portado.
+// document_situation_json. Documento do Origin (authority 'origin'): erp_document_mirror.detail
+// (documents/mirror.ts), a leitura do espelho.
 
 const parse = (v: unknown) => (v === null || v === undefined ? null : typeof v === "string" ? JSON.parse(v) : v);
 /** ->> de um campo de objeto jsonb (texto; null quando falta ou não é objeto) */
@@ -197,7 +198,7 @@ export function documentDto(ctx: RpcContext, id: string): Record<string, unknown
   const db = ctx.db;
   const d = one(db, 'SELECT * FROM "erp_documents__document" WHERE id=?', id);
   if (!d) return null;
-  if (d.authority === "origin") notPorted("erp_document_mirror.detail");
+  if (d.authority === "origin") return mirrorDetail(db, id);
   const body = parse(d.body);
   if (body === null) return null;
   const items = db
@@ -219,7 +220,7 @@ export function documentView(ctx: RpcContext, id: string): Record<string, unknow
   const db = ctx.db;
   const d = one(db, 'SELECT kind, body, origin, authority FROM "erp_documents__document" WHERE id=?', id);
   if (!d) return null;
-  if (d.authority === "origin") notPorted("erp_document_mirror.detail");
+  if (d.authority === "origin") return mirrorDetail(db, id);
   const dto = documentDto(ctx, id);
   if (dto === null) return null;
   const body = parse(d.body);
