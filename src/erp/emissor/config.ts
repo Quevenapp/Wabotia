@@ -15,7 +15,7 @@ import { admin, secret, setSecret } from "../../security";
 import { ApiError, type Actor, type Env, now } from "../../types";
 import { compatibleVersion, contractDiff, type OpenApi } from "./contract/generate.ts";
 import { CONTRACT_VERSION } from "./contract/types.generated.ts";
-import { NfapiClient } from "./nfapi.ts";
+import { NfapiClient, olderThan } from "./nfapi.ts";
 import { fiscalError, NFAPI_PROVIDER_ID, stateFromCofre } from "./nfapi-provider.ts";
 import { FiscalError, type FiscalProviderState, type FiscalSeries } from "./provider.ts";
 
@@ -107,12 +107,38 @@ export interface EmissorAlert {
     | "contract_incompatible"
     | "contract_changed"
     | "production_blocked"
-    | "key_homologation_only";
+    | "key_homologation_only"
+    | "vault_feature_outdated"
+    | "contingency_pending"
+    | "logo_missing";
   level: "error" | "warning" | "info";
   message: string;
   days_left?: number;
   version?: string | null;
+  /** vault_feature_outdated: o recurso (FEATURE_MIN_VERSION). */
+  feature?: string;
+  /** contingency_pending: notas a transmitir. */
+  pending_notes?: number;
 }
+
+/**
+ * Versão mínima do cofre por recurso, para o alerta "cofre desatualizado
+ * para X". Cofre mais antigo atende o resto; a operação do recurso responde
+ * 409 vault_outdated (nfapi.ts, OPERATION_MIN_VERSION, por operação).
+ */
+export const FEATURE_MIN_VERSION = [
+  { feature: "emission", label: "emitir notas (NF-e, NFC-e e NFS-e com IBS, CBS e IS)", version: "0.8.0" },
+  { feature: "documents", label: "DANFE, DANFE NFC-e, cupom e contingência da NFC-e", version: "0.8.0" },
+  { feature: "received", label: "NF-e recebidas e manifestação", version: "0.9.0" },
+  { feature: "reports", label: "relatórios e exportação dos XML", version: "0.11.0" },
+] as const;
+
+/**
+ * Versão mais antiga do cofre que este cliente atende: a mínima da emissão
+ * (EMISSION_MIN_VERSION). Abaixo dela o contrato é incompatível e a emissão
+ * responde 409 vault_outdated antes de enviar.
+ */
+export const OLDEST_SUPPORTED_VAULT = "0.8.0";
 
 /** Dias até o certificado vencer, pela data (o número do teste envelhece). */
 export function certificateDaysLeft(validUntil: string, at = now()) {
@@ -162,6 +188,29 @@ export function emissorAlerts(checked: EmissorCheck | null, at = now()): Emissor
       });
     if (state.key.scope === "homologacao")
       alerts.push({ code: "key_homologation_only", level: "info", message: "A chave de API só opera em homologação." });
+    for (const f of FEATURE_MIN_VERSION)
+      if (state.version && olderThan(state.version, f.version))
+        alerts.push({
+          code: "vault_feature_outdated",
+          level: f.feature === "emission" ? "error" : "warning",
+          message: `Cofre desatualizado para ${f.label}: precisa da versão ${f.version} (instalada: ${state.version}).`,
+          version: f.version,
+          feature: f.feature,
+        });
+    const pending = state.contingency?.pending_notes ?? 0;
+    if (pending > 0)
+      alerts.push({
+        code: "contingency_pending",
+        level: "warning",
+        message: `${pending} ${pending === 1 ? "NFC-e emitida" : "NFC-e emitidas"} em contingência ainda sem transmissão. O cofre transmite quando a SEFAZ voltar; o prazo legal é o fim do primeiro dia útil seguinte.`,
+        pending_notes: pending,
+      });
+    if (state.logo === false)
+      alerts.push({
+        code: "logo_missing",
+        level: "info",
+        message: "O cofre não tem logotipo: o DANFE sai sem a marca da empresa (envie pelo painel do cofre).",
+      });
   }
   const contract = checked.contract;
   if (contract && contract.compatible === false)
@@ -256,6 +305,17 @@ export async function removeEmissor(env: Env, actor: Actor, profile: string) {
 }
 
 /**
+ * O cliente atende o contrato fixado e os cofres mais antigos desde
+ * OLDEST_SUPPORTED_VAULT (as operações novas respondem vault_outdated e o
+ * painel mostra vault_feature_outdated). Cofre de minor mais nova que a
+ * fixada segue a regra de antes: incompatível até o Wabotia acompanhar.
+ */
+function servedCompatible(vault: string) {
+  if (/^\d+\.\d+\.\d+/.test(vault) && olderThan(vault, CONTRACT_VERSION)) return !olderThan(vault, OLDEST_SUPPORTED_VAULT);
+  return compatibleVersion(CONTRACT_VERSION, vault);
+}
+
+/**
  * "Testar conexão": GET /v1/cofre, GET /v1/series e GET /v1/openapi.json.
  * Guarda o resultado (sem segredos) para o painel e devolve a visão.
  */
@@ -286,17 +346,18 @@ export async function testEmissor(
     let contract: EmissorCheck["contract"] = {
       pinned: CONTRACT_VERSION,
       vault: null,
-      compatible: compatibleVersion(CONTRACT_VERSION, state.version) ? null : false,
+      compatible: servedCompatible(state.version) ? null : false,
       differences: [],
     };
     try {
       const served = (await api.openapi()).body as OpenApi;
       if (served && typeof served === "object" && served.info && served.paths && served.components) {
         const differences = contractDiff(pinned, served);
+        const vault = String(served.info.version);
         contract = {
           pinned: CONTRACT_VERSION,
-          vault: String(served.info.version),
-          compatible: compatibleVersion(CONTRACT_VERSION, String(served.info.version)),
+          vault,
+          compatible: servedCompatible(vault),
           differences: differences.slice(0, 50),
         };
       }

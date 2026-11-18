@@ -1,6 +1,7 @@
 // erp_catalog.contact_scope, contact_situation, contact_situation_of e
 // contact_source_situation (catalog/contact.ts) contra o oráculo.
-// contact_source_situation é só do Origin (desligado): nos dois motores, null.
+// contact_source_situation lê o snapshot do Origin; sem contato espelhado,
+// null nos dois motores (o caso espelhado está em harness/origin-seed).
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";

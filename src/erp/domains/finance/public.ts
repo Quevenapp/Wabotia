@@ -68,6 +68,7 @@ export { commissionPolicy, commissionRows, operationTitles as commissionOperatio
 export { statementLines } from "./rpc/erp_finance_statement_page.ts";
 export { dto } from "./titles.ts";
 export { titlesMarkReturned } from "./title-returns.ts";
+export { guardFinanceInvoice, guardInvoiceOrderEffect, invoiceAutoFinance } from "./invoice-guards.ts";
 export {
   documentTitleRows,
   erpDocumentFinancePost,
