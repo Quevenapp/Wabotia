@@ -50,6 +50,18 @@ describe("bot-tools: máscara de dados pessoais no laço", () => {
       texto: "ver 52998224725",
     });
   });
+
+  it("marcador que nasceu de texto volta texto, mesmo se a ferramenta devolver o número", () => {
+    const pii = createPiiMask(true);
+    // O cliente escreveu com pontuação; a ferramenta devolve o mesmo CPF como
+    // número (mesmo marcador). Outro CPF nasce de número.
+    expect(pii.mask("CPF 529.982.247-25")).toBe("CPF [CPF_1]");
+    const masked = pii.maskValue({ cpf: 52998224725, outro: 11144477735 });
+    expect(masked).toEqual({ cpf: "[CPF_1]", outro: "[CPF_2]" });
+    const back = pii.restoreValue({ a: "[CPF_1]", b: "[CPF_2]" });
+    // Texto volta texto (nunca NaN); o que nasceu de número volta número.
+    expect(back).toEqual({ a: "529.982.247-25", b: 11144477735 });
+  });
 });
 
 describe("bot-tools: formatos", () => {

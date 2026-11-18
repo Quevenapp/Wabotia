@@ -105,8 +105,8 @@ export function createPiiMask(enabled = true) {
   const markers = new Map<string, string>();
   const counts: Partial<Record<PiiKind, number>> = {};
   const reserved = new Set<string>();
-  /** Marcadores que vieram de um campo numérico inteiro. */
-  const numeric = new Set<string>();
+  /** Marcadores criados por um campo numérico inteiro, com o número original. */
+  const numeric = new Map<string, number>();
   const token = /\[(?:CPF|CNPJ|TEL|EMAIL|CEP)_\d+\]/g;
   const reserve = (text: string) => {
     for (const m of text.matchAll(token)) reserved.add(m[0]);
@@ -144,11 +144,19 @@ export function createPiiMask(enabled = true) {
     if (typeof value === "string") return fn(value, key);
     if (typeof value === "number") {
       const text = String(value),
+        before = values.size,
         changed = fn(text, key);
       if (changed === text) return value;
-      // Número inteiro virou marcador: lembra o tipo para a volta devolver
-      // número à ferramenta (esquema numérico), não texto.
-      if (new RegExp(`^${token.source}$`).test(changed)) numeric.add(changed);
+      // Número inteiro que criou o marcador: a volta devolve o mesmo número
+      // à ferramenta (esquema numérico). Se o marcador já vinha de um texto
+      // (o mesmo CPF escrito com pontuação ou zero à esquerda), a volta fica
+      // texto: o número não representaria o valor guardado.
+      if (
+        values.size > before &&
+        Number.isSafeInteger(value) &&
+        new RegExp(`^${token.source}$`).test(changed)
+      )
+        numeric.set(changed, value);
       return changed;
     }
     if (Array.isArray(value)) return value.map((v) => walk(v, fn, key));
@@ -193,9 +201,7 @@ export function createPiiMask(enabled = true) {
   };
   const restoreValue = (value: any) =>
     walk(value, (s) =>
-      enabled && numeric.has(s) && values.has(s)
-        ? (Number(values.get(s)) as any)
-        : restore(s),
+      enabled && numeric.has(s) ? (numeric.get(s) as any) : restore(s),
     );
   // Restaura JSON estruturalmente: valores com aspas não podem quebrar a resposta.
   const restoreText = (text: string) => {
