@@ -54,7 +54,7 @@ export const PDF_TOKENS_PER_PAGE = 5_000;
 
 /**
  * Páginas de um PDF pelos objetos /Type /Page do arquivo. null quando não
- * dá para contar (objetos comprimidos em object streams): vale só o tamanho.
+ * dá para contar (objetos comprimidos em object streams): a equipe confere.
  */
 export function pdfPages(bytes: Uint8Array): number | null {
   let text = "";
@@ -139,6 +139,13 @@ const DEFAULT_EFFORT: Partial<Record<AiProvider, string>> = {
   anthropic: "low",
   deepseek: "low",
 };
+
+/** Tetos de saída por chamada e prazo acumulado do laço de ferramentas. */
+export const AI_MAX_OUTPUT_TOKENS = 16000;
+export const AI_MAX_OUTPUT_TOKENS_DEEP = 32000;
+export const AI_RUN_DEADLINE_MS = 6 * 60_000;
+const outputTokens = (cfg: any) =>
+  ["xhigh", "max"].includes(cfg?.effort) ? AI_MAX_OUTPUT_TOKENS_DEEP : AI_MAX_OUTPUT_TOKENS;
 
 /** Prazo de cada chamada: os níveis mais altos pensam por mais tempo. */
 export function aiCallTimeout(cfg: any) {
@@ -508,8 +515,12 @@ function responsesBody(cfg: any, request: AiRequest, input: any[]) {
     instructions: systemText(request),
     input,
     store: false,
+    max_output_tokens: outputTokens(cfg),
   };
-  if (cfg.effort) body.reasoning = { effort: cfg.effort };
+  if (cfg.effort) {
+    body.reasoning = { effort: cfg.effort };
+    body.include = ["reasoning.encrypted_content"];
+  }
   // Modo JSON: o motor valida o formato do Atendente de qualquer forma.
   if (request.json) body.text = { format: { type: "json_object" } };
   return body;
@@ -591,6 +602,7 @@ async function openaiComplete(
   // Estável primeiro: OpenAI e DeepSeek fazem cache automático por prefixo.
   const body: Record<string, any> = {
     model: cfg.model,
+    max_tokens: outputTokens(cfg),
     messages: [
       { role: "system", content: systemText(request) },
       { role: "user", content: openaiContent(cfg, request) },
@@ -675,11 +687,10 @@ function anthropicError(error: unknown) {
 
 async function anthropicComplete(key: string, cfg: any, request: AiRequest) {
   const content = anthropicContent(cfg, request);
-  const deep = ["xhigh", "max"].includes(cfg.effort);
   const params = {
     model: cfg.model,
-    // The highest levels think longer before the short JSON answer.
-    max_tokens: deep ? 32000 : 16000,
+    // Os níveis mais altos precisam de espaço para raciocinar.
+    max_tokens: outputTokens(cfg),
     system: anthropicSystem(request),
     messages: [{ role: "user" as const, content }],
   };
@@ -757,22 +768,22 @@ export async function aiCompleteWithTools(
   conn: any,
   request: AiToolRequest,
 ) {
+  const started = Date.now();
   const cfg = json(conn.config);
   const key = await connectionKey(env, conn);
   const family = providerFamily(cfg.provider);
   const schema = schemaFor(request);
-  let complete: (messages: any[], tools: any[], final: boolean) => Promise<any>;
+  let complete: (messages: any[], tools: any[], final: boolean, timeout: number, remaining: number) => Promise<any>;
   let messages: any[];
   if (family === "anthropic") {
     messages = [{ role: "user", content: anthropicContent(cfg, request) }];
     const client = anthropicClient(key, aiCallTimeout(cfg));
     const effort = AI_EFFORTS.anthropic.includes(cfg.effort) ? cfg.effort : "low";
-    const deep = ["xhigh", "max"].includes(cfg.effort);
-    complete = async (history, tools, final) => {
+    complete = async (history, tools, final, timeout, remaining) => {
       try {
         const response = await client.messages.create({
           model: cfg.model,
-          max_tokens: deep ? 32000 : 16000,
+          max_tokens: outputTokens(cfg),
           system: anthropicSystem(request),
           // Segundo ponto de cache, móvel: o fim da rodada atual, que a
           // próxima rodada do laço lê do cache.
@@ -783,7 +794,7 @@ export async function aiCompleteWithTools(
           output_config: schema
             ? { effort, format: zodOutputFormat(schema) }
             : { effort },
-        } as any);
+        } as any, { timeout, signal: AbortSignal.timeout(remaining) });
         addUsage(request.usage, "anthropic", response.usage);
         checkStop(response.stop_reason);
         return response;
@@ -793,7 +804,7 @@ export async function aiCompleteWithTools(
     };
   } else if (family === "responses") {
     messages = responsesInput(cfg, request);
-    complete = (history, tools, final) =>
+    complete = (history, tools, final, timeout) =>
       responsesCall(
         key,
         cfg,
@@ -803,7 +814,7 @@ export async function aiCompleteWithTools(
           tool_choice: final ? "none" : "auto",
         },
         request.usage,
-        aiCallTimeout(cfg),
+        timeout,
       );
   } else {
     const base = openaiBase(cfg);
@@ -812,9 +823,10 @@ export async function aiCompleteWithTools(
       { role: "system", content: systemText(request) },
       { role: "user", content: openaiContent(cfg, request) },
     ];
-    complete = async (history, tools, final) => {
+    complete = async (history, tools, final, timeout) => {
       const body: Record<string, any> = {
         model: cfg.model,
+        max_tokens: outputTokens(cfg),
         messages: history,
         tools,
         tool_choice: final ? "none" : "auto",
@@ -831,7 +843,7 @@ export async function aiCompleteWithTools(
             "Content-Type": "application/json",
           },
           body: JSON.stringify(body),
-          signal: AbortSignal.timeout(aiCallTimeout(cfg)),
+          signal: AbortSignal.timeout(timeout),
         });
       } catch (error) {
         if (error instanceof ApiError) throw new AiError(error.message, false);
@@ -854,7 +866,18 @@ export async function aiCompleteWithTools(
     family,
     messages,
     tools: request.tools,
-    complete,
+    // O laço passa aqui antes de cada rodada, inclusive a última sem ferramentas.
+    complete: async (history, tools, final) => {
+      const remaining = AI_RUN_DEADLINE_MS - (Date.now() - started);
+      const expired = () => new AiError("A execução do bot excedeu o prazo de resposta.", false);
+      if (remaining <= 0) throw expired();
+      try {
+        return await complete(history, tools, final, Math.min(aiCallTimeout(cfg), remaining), remaining);
+      } catch (error) {
+        if (Date.now() - started >= AI_RUN_DEADLINE_MS) throw expired();
+        throw error;
+      }
+    },
     run: request.run,
   });
   await exec(

@@ -132,7 +132,7 @@ describe("interpretação do Atendente antes da decisão JEV", () => {
     run = (await one(env, "SELECT * FROM bot_runs WHERE id=?", run.id)) as Run;
     await processRun(env, run);
     expect(calls.map((call) => new URL(call.url).hostname)).toEqual([
-      "api.anthropic.com", "api.typesafe.ai",
+      "api.anthropic.com", "api.typesafe.ai", "api.typesafe.ai",
     ]);
     expect(JSON.stringify(calls[0].body.system)).toContain('interpretation');
     expect(calls[1].body.state.interpretation.summary).toBe(proposal.interpretation.summary);
@@ -244,7 +244,7 @@ describe("interpretação do Atendente antes da decisão JEV", () => {
       [],
     );
     expect(again).toEqual(first);
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
     expect(
       (
         await decideInterpretation(
@@ -257,20 +257,20 @@ describe("interpretação do Atendente antes da decisão JEV", () => {
         )
       ).jev.reason,
     ).toBe("interpretation_changed");
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
   it("falha HTTP ou timeout nunca libera a resposta; só 429 e 529 são tentados de novo dentro da chamada, e a execução não repete a decisão", async () => {
     // 429/529: a documentação manda repetir com espera (src/jev-client.ts):
-    // 3 chamadas (a primeira e duas repetições). Timeout: uma só. A segunda
+    // 3 chamadas por ordem (a primeira e duas repetições). Timeout: uma por ordem. A segunda
     // decisão da mesma execução reaproveita a gravada, sem nova chamada.
     for (const [failure, expected] of [
-      [async () => new Response("falha", { status: 429 }), 3],
+      [async () => new Response("falha", { status: 429 }), 6],
       [
         async () => {
           throw new Error("timeout");
         },
-        1,
+        2,
       ],
     ] as const) {
       const run = await decisionFixture(),

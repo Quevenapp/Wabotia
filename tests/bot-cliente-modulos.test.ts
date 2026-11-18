@@ -18,6 +18,7 @@ import {
   type CustomerToolContext,
 } from "../src/bot-actions/customer";
 import { issueTicket } from "../src/queue";
+import { boundAllows } from "../src/visibility";
 import {
   api,
   bearer,
@@ -110,6 +111,30 @@ const decide = (s: Setup, token: string, id: string, body: any) =>
   api(token, `/profiles/${s.f.profile}/approvals/${id}/decide`, "POST", body);
 
 describe("ferramentas de cliente: Mensalidade, Suporte e Fila", () => {
+  it("ator da execução A não alcança B mesmo com o mesmo bot nas duas conversas", async () => {
+    const s = await setup();
+    expect(s.a.run.bot_id).toBe(s.b.run.bot_id);
+    expect(await boundAllows(env, s.a.ctx.bound, s.a.c)).toBe(true);
+    expect(await boundAllows(env, s.a.ctx.bound, s.b.c)).toBe(false);
+    expect(await boundAllows(env, s.b.ctx.bound, s.a.c)).toBe(false);
+    await expect(conversation(env, s.a.c.id, s.f.profile, s.a.ctx.bound)).resolves.toMatchObject({ id: s.a.c.id });
+    await expect(conversation(env, s.b.c.id, s.f.profile, s.a.ctx.bound)).rejects.toThrow("Conversa não encontrada");
+    const withoutRun = { ...s.a.ctx.bound, via: undefined };
+    expect(await boundAllows(env, withoutRun, s.a.c)).toBe(false);
+    // O namespace próprio continua acessível.
+    expect(await boundAllows(env, withoutRun, { id: uid(), external_namespace: `app:${withoutRun.id}` })).toBe(true);
+    const proposal = uid();
+    await exec(env,
+      "INSERT INTO bot_proposals(id,profile_id,mode,actor,bot_id,run_id,conversation_id,operation,method,path,summary,status,expires_at,created,updated) VALUES(?,?,'customer',?,?,?,?, 'teste','POST','/teste','Teste','running',?,?,?)",
+      proposal, s.f.profile, `customer:${s.b.c.id}`, s.botId, s.a.run.id, s.b.c.id,
+      now() + 60_000, now(), now());
+    const withProposal = { ...s.a.ctx.bound, via: { ...s.a.ctx.bound.via!, proposal_id: proposal } };
+    expect(await boundAllows(env, withProposal, s.b.c)).toBe(true);
+    expect(await boundAllows(env, { ...withProposal, via: { ...withProposal.via, run_id: undefined } }, s.b.c)).toBe(false);
+    await exec(env, "UPDATE bot_proposals SET status='done' WHERE id=?", proposal);
+    expect(await boundAllows(env, withProposal, s.b.c)).toBe(false);
+  });
+
   it("marcação: leitura e pedidos sem botão; nada que mude valor é read", async () => {
     const s = await setup();
     const mine = Object.fromEntries(

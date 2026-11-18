@@ -1316,24 +1316,24 @@ export function splitAreaInput(input: string): { input: string; area: Record<str
     else rest[key] = value;
   return { input: JSON.stringify(rest), area };
 }
-/** O PDF cabe no teto de páginas? Sem como contar (objetos comprimidos), vale só o tamanho. */
+/** O PDF cabe no teto de páginas? Sem contagem confiável, vai para a equipe. */
 async function pdfWithinPages(env: Env, key: string) {
   const obj = await env.MEDIA.get(key);
   if (!obj) return false;
   const pages = pdfPages(new Uint8Array(await obj.arrayBuffer()));
-  return pages === null || pages <= PDF_LIMITS.pages;
+  return pages !== null && pages <= PDF_LIMITS.pages;
 }
 /**
  * Soma o uso desta chamada ao da execução (bot_runs.usage, tokens): as
  * tentativas de novo de uma mesma execução também custam.
  */
-async function saveUsage(env: Env, run: Run, usage: AiUsage) {
+export async function saveUsage(env: Env, run: Run, usage: AiUsage) {
   if (!usage.input && !usage.output && !usage.cache_read && !usage.cache_write) return;
   const row = await one(env, "SELECT usage FROM bot_runs WHERE id=?", run.id);
-  const before = json(row?.usage, null) as AiUsage | null;
-  const total = { ...usage };
-  if (before)
-    for (const key of Object.keys(total) as (keyof AiUsage)[]) total[key] += Number(before[key]) || 0;
+  const before = json(row?.usage, null) || {};
+  const total = { ...before };
+  for (const key of ["input", "cache_read", "cache_write", "output"] as const)
+    total[key] = (Number(before[key]) || 0) + usage[key];
   await exec(env, "UPDATE bot_runs SET usage=? WHERE id=?", JSON.stringify(total), run.id);
 }
 /**
