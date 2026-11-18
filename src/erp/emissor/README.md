@@ -12,7 +12,7 @@ implementação (`nfapi-provider.ts`).
 
 | Arquivo | O quê |
 |---|---|
-| `contract/openapi.json` | Cópia versionada do contrato do cofre (OpenAPI 3.1). Hoje: **0.9.1**, de `Quevenapp/nfapi` `vault/docs/openapi.json` no canal estável (`cofre-estavel`), commit `5db281e`. |
+| `contract/openapi.json` | Cópia versionada do contrato do cofre (OpenAPI 3.1). Hoje: **0.11.0**, de `Quevenapp/nfapi` `vault/docs/openapi.json` no canal estável (`cofre-estavel`), commit `8925551`. |
 | `contract/types.generated.ts` | Tipos gerados do contrato. Não edite. |
 | `contract/generate.ts` | Gerador de tipos, lista de operações e comparação de contratos. Funções puras. |
 | `contract/sync.mjs` | Copia um contrato novo e regera os tipos. |
@@ -77,6 +77,7 @@ Cada operação mais nova tem a versão mínima em `OPERATION_MIN_VERSION`
 | 0.7.0 | Cupom da NFC-e (JSON) |
 | 0.8.0 | DANFE, DANFE NFC-e e logotipo |
 | 0.9.0 | NF-e recebidas, manifestação e distribuição |
+| 0.11.0 | Notas emitidas com filtros, relatório do período e exportação dos XML |
 
 Sem custo no caminho feliz: só quando uma dessas chamadas falha como falha
 uma rota inexistente (404, 405, 400 ou resposta fora do contrato) o cliente
@@ -517,6 +518,45 @@ cofre. O ERP **lê**:
 alarme do objeto. A conexão vem de `emissorConnection(env, área)`, que lê o
 segredo `erp-emissor:<área>` no D1 e o decifra com a `MASTER_KEY`. Não
 guarde a chave no SQLite do objeto, porque ele vai para o backup no R2.
+
+## Relatórios e exportação (cofre 0.11.0)
+
+Só leitura no cofre: nada vai ao governo. Abaixo da 0.11.0, `409
+vault_outdated` com `min_version` e o alerta `vault_feature_outdated`
+(`reports`). As rotas e telas são do Fiscal; o provedor expõe:
+
+- **`issued(filter)`** (`GET /v1/notas`): notas emitidas dos três
+  documentos, com filtros de período (`from`/`to`, AAAA-MM-DD), `kind`,
+  `status`, `environment`, `search`, `page` e `per_page` (1 a 200).
+  `total` e `amount` somam o **filtro inteiro**, não a página.
+- **`report({environment, from, to})`** (`GET /v1/relatorios/notas`):
+  período de até 366 dias, validado antes do cofre. Totais por situação,
+  dia, CFOP, natureza e destinatário, com os impostos (IBS, CBS e IS
+  inclusive). Só a nota autorizada entra nos totais; cancelada e recusada
+  aparecem só em `by_status`. Das recebidas, só as com XML completo entram
+  nos impostos (`with_xml`); terceiro fica fora (`as_third_party`).
+  - `pending_reads` (de `notasPorLer`) > 0: impostos, CFOP e natureza estão
+    incompletos. O cofre lê até 150 notas por pedido; **quem chama repete**
+    depois de `retry_after_ms` (1,5 s) até `complete`. O provedor não repete
+    sozinho.
+  - `warnings`: `pending_reads` e `nfse_ibs_cbs_not_read` (IBS e CBS da NFS-e
+    ainda vêm zerados; o aviso aparece quando há NFS-e no período). Mostre,
+    não esconda.
+- **`exportCreate`, `exportGet`, `exports`** (`/v1/exportacoes`): XML do
+  período em ZIP (partes de até 400 arquivos) com a planilha. `status`
+  `preparing`: consulte com `exportGet` depois de `retry_after_ms` (1 ou 2 s,
+  nunca em laço apertado); cada consulta leva o preparo adiante.
+  `exportCreate` não repete sozinho (um POST repetido criaria outra).
+  - **Links:** `parts[].url` e `spreadsheet.url` são links assinados para o
+    **navegador do usuário** abrir direto no cofre, sem chave de API. O
+    servidor do Wabotia nunca baixa esses arquivos nem monta o endereço
+    (`GET /exportacoes/{id}/{arquivo}` está em `BROWSER_ONLY_OPERATIONS`,
+    fora do cliente). O link só é repassado se sair da origem do cofre;
+    outro host vira `502 fiscal_provider_error`.
+  - Os links valem até `links_valid_until` (cerca de 30 min). Link vencido
+    (403 `link_invalido` no navegador): chame `exportGet` de novo, que
+    devolve links novos (`fiscal_export_link_expired` no mapa de erros).
+  - A exportação some em 24 h: `404 fiscal_export_not_found`.
 
 ## O que falta para emitir de ponta a ponta
 

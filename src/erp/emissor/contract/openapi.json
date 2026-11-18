@@ -2,7 +2,7 @@
 	"openapi": "3.1.0",
 	"info": {
 		"title": "Cofre NFapi",
-		"version": "0.9.1",
+		"version": "0.11.0",
 		"description": "API de emissão de notas fiscais do cofre NFapi, que roda na conta Cloudflare do emitente. Todas as chamadas levam uma chave de API criada na tela /setup do cofre. O cofre não calcula imposto: o sistema que chama informa bases, alíquotas e valores; o cofre numera, monta o XML, soma os totais, assina, transmite e arquiva. Erros vêm sempre como `{ \"erro\": { \"codigo\", \"mensagem\" } }`.",
 		"license": {
 			"name": "MIT"
@@ -36,6 +36,9 @@
 		},
 		{
 			"name": "NF-e recebidas"
+		},
+		{
+			"name": "Relatórios e exportação"
 		},
 		{
 			"name": "Numeração"
@@ -3321,6 +3324,602 @@
 				}
 			}
 		},
+		"/v1/notas": {
+			"get": {
+				"tags": [
+					"Relatórios e exportação"
+				],
+				"summary": "Lista as notas emitidas dos três documentos, com filtros",
+				"description": "Da emissão mais recente para a mais antiga. `total` e `valor` somam todas as notas do filtro, não só as desta página.",
+				"parameters": [
+					{
+						"name": "de",
+						"in": "query",
+						"schema": {
+							"type": "string"
+						},
+						"description": "Primeiro dia de emissão (AAAA-MM-DD)."
+					},
+					{
+						"name": "ate",
+						"in": "query",
+						"schema": {
+							"type": "string"
+						},
+						"description": "Último dia de emissão (AAAA-MM-DD)."
+					},
+					{
+						"name": "modelo",
+						"in": "query",
+						"schema": {
+							"type": "string",
+							"enum": [
+								"nfse",
+								"nfe",
+								"nfce"
+							]
+						}
+					},
+					{
+						"name": "situacao",
+						"in": "query",
+						"schema": {
+							"type": "string",
+							"enum": [
+								"processando",
+								"autorizada",
+								"rejeitada",
+								"denegada",
+								"contingencia",
+								"erro",
+								"indefinida",
+								"cancelada"
+							]
+						}
+					},
+					{
+						"name": "ambiente",
+						"in": "query",
+						"schema": {
+							"type": "string",
+							"enum": [
+								"homologacao",
+								"producao"
+							]
+						}
+					},
+					{
+						"name": "busca",
+						"in": "query",
+						"schema": {
+							"type": "string"
+						},
+						"description": "Número da nota, chave de acesso, referência, ou parte do nome ou do documento do destinatário (documento com cinco dígitos ou mais)."
+					},
+					{
+						"name": "pagina",
+						"in": "query",
+						"schema": {
+							"type": "integer",
+							"default": 1,
+							"minimum": 1
+						}
+					},
+					{
+						"name": "porPagina",
+						"in": "query",
+						"schema": {
+							"type": "integer",
+							"default": 50,
+							"maximum": 200
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Notas.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"notas": {
+											"type": "array",
+											"items": {
+												"$ref": "#/components/schemas/NotaEmitida"
+											}
+										},
+										"total": {
+											"type": "integer"
+										},
+										"valor": {
+											"type": "number",
+											"description": "Em reais."
+										},
+										"pagina": {
+											"type": "integer"
+										},
+										"porPagina": {
+											"type": "integer"
+										}
+									}
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Pedido inválido. `erro.mensagem` aponta o campo.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/relatorios/notas": {
+			"get": {
+				"tags": [
+					"Relatórios e exportação"
+				],
+				"summary": "Totais do período: por situação, dia, CFOP, natureza e destinatário, com os impostos",
+				"description": "Os impostos (inclusive IBS, CBS e Imposto Seletivo), o CFOP e a natureza vêm dos XML arquivados. O cofre os lê na primeira vez e guarda; veja `notasPorLer`. Das notas recebidas, só entram nos impostos as que já têm o XML completo. IBS e CBS da NFS-e ainda não são lidos.",
+				"parameters": [
+					{
+						"name": "ambiente",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"enum": [
+								"homologacao",
+								"producao"
+							]
+						}
+					},
+					{
+						"name": "de",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Primeiro dia de emissão, inclusive (AAAA-MM-DD)."
+					},
+					{
+						"name": "ate",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Último dia de emissão, inclusive. O período vai até 366 dias."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "O relatório.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Relatorio"
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Pedido inválido. `erro.mensagem` aponta o campo.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"403": {
+						"description": "A chave só opera em homologação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/exportacoes": {
+			"post": {
+				"tags": [
+					"Relatórios e exportação"
+				],
+				"summary": "Cria a exportação dos XML de um período",
+				"description": "Reúne os XML das notas emitidas (e os eventos de cancelamento e carta de correção), das inutilizações e das notas recebidas (com eventos e manifestações) em pastas, mais a planilha de resumo. O período é pelo dia de emissão da nota; os eventos acompanham a nota, seja qual for a data deles. Notas rejeitadas não têm XML fiscal e aparecem só na planilha. Na maioria dos casos a resposta já vem `pronta`; com muitas notas ainda não lidas, vem `preparando` e avança a cada `GET`. Entregue os links ao navegador do usuário: o arquivo sai direto do cofre.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"ambiente": {
+										"type": "string",
+										"enum": [
+											"homologacao",
+											"producao"
+										]
+									},
+									"de": {
+										"type": "string",
+										"pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+										"description": "Primeiro dia de emissão do período, inclusive (AAAA-MM-DD)."
+									},
+									"ate": {
+										"type": "string",
+										"pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+										"description": "Último dia de emissão do período, inclusive. O período vai até 366 dias."
+									},
+									"incluir": {
+										"default": [
+											"nfse",
+											"nfe",
+											"nfce",
+											"eventos",
+											"inutilizacoes",
+											"recebidas"
+										],
+										"description": "O que entra no arquivo. `eventos` vale para as notas emitidas e para as recebidas que entrarem. Padrão: tudo.",
+										"minItems": 1,
+										"type": "array",
+										"items": {
+											"type": "string",
+											"enum": [
+												"nfse",
+												"nfe",
+												"nfce",
+												"eventos",
+												"inutilizacoes",
+												"recebidas"
+											]
+										}
+									}
+								},
+								"required": [
+									"ambiente",
+									"de",
+									"ate"
+								]
+							},
+							"example": {
+								"ambiente": "producao",
+								"de": "2026-11-01",
+								"ate": "2026-11-30"
+							}
+						}
+					}
+				},
+				"responses": {
+					"201": {
+						"description": "Criada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Exportacao"
+								}
+							}
+						}
+					},
+					"400": {
+						"description": "Pedido inválido. `erro.mensagem` aponta o campo.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"403": {
+						"description": "A chave só opera em homologação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			},
+			"get": {
+				"tags": [
+					"Relatórios e exportação"
+				],
+				"summary": "Lista as exportações ainda válidas",
+				"responses": {
+					"200": {
+						"description": "Exportações.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"type": "object",
+									"properties": {
+										"exportacoes": {
+											"type": "array",
+											"items": {
+												"$ref": "#/components/schemas/Exportacao"
+											}
+										}
+									}
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/exportacoes/{id}": {
+			"get": {
+				"tags": [
+					"Relatórios e exportação"
+				],
+				"summary": "Consulta a exportação e devolve links novos",
+				"description": "Enquanto a situação for `preparando`, cada consulta leva o trabalho adiante. Depois de 24 horas a exportação some e a resposta é 404.",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da exportação (`exp_...`)."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "A exportação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Exportacao"
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/exportacoes/{id}/{arquivo}": {
+			"get": {
+				"tags": [
+					"Relatórios e exportação"
+				],
+				"summary": "Baixa um arquivo da exportação pelo link assinado",
+				"description": "É o endereço que vem em `partes[].url` e em `planilha.url`; não monte este endereço à mão. Não leva chave de API: vale a assinatura, até `linksValemAte`.",
+				"security": [],
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da exportação (`exp_...`)."
+					},
+					{
+						"name": "arquivo",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "`parte-1`, `parte-2`... ou `planilha`."
+					},
+					{
+						"name": "expira",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "integer"
+						}
+					},
+					{
+						"name": "assinatura",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "O arquivo.",
+						"content": {
+							"application/zip": {},
+							"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}
+						}
+					},
+					"403": {
+						"description": "Link vencido, adulterado ou de exportação que não existe mais (link_invalido).",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
 		"/v1/nfse": {
 			"post": {
 				"tags": [
@@ -4783,6 +5382,10 @@
 									"consumo_indevido": {
 										"status": 429,
 										"quando": "O Ambiente Nacional bloqueou as consultas do CNPJ por uma hora (cStat 656). Nada sai do cofre até o horário em `mensagem`."
+									},
+									"link_invalido": {
+										"status": 403,
+										"quando": "Download da exportação: o link venceu, foi alterado ou a exportação não existe mais. Consulte a exportação para receber links novos."
 									},
 									"limite_de_consultas": {
 										"status": 429,
@@ -10716,6 +11319,560 @@
 					},
 					"distribuicao": {
 						"$ref": "#/components/schemas/Distribuicao"
+					}
+				}
+			},
+			"NotaEmitida": {
+				"type": "object",
+				"description": "Uma nota emitida, de qualquer dos três documentos, como aparece nas listagens.",
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"modelo": {
+						"type": "string",
+						"enum": [
+							"nfse",
+							"nfe",
+							"nfce"
+						]
+					},
+					"ambiente": {
+						"type": "string",
+						"enum": [
+							"homologacao",
+							"producao"
+						]
+					},
+					"referencia": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"serie": {
+						"type": "string"
+					},
+					"numero": {
+						"type": [
+							"string",
+							"null"
+						],
+						"description": "Número da nota. Na NFS-e, o número da nota autorizada (nulo antes disso); o da declaração está em `numeroDps`."
+					},
+					"numeroDps": {
+						"type": [
+							"integer",
+							"null"
+						]
+					},
+					"situacao": {
+						"type": "string",
+						"enum": [
+							"processando",
+							"autorizada",
+							"rejeitada",
+							"denegada",
+							"contingencia",
+							"erro",
+							"indefinida",
+							"cancelada"
+						]
+					},
+					"chaveAcesso": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"protocolo": {
+						"type": [
+							"string",
+							"null"
+						]
+					},
+					"emitidaEm": {
+						"type": "string",
+						"format": "date-time"
+					},
+					"valor": {
+						"type": [
+							"number",
+							"null"
+						]
+					},
+					"destinatario": {
+						"type": [
+							"object",
+							"null"
+						],
+						"description": "Destinatário (NF-e, NFC-e) ou tomador (NFS-e); nulo quando a nota não identifica ninguém.",
+						"properties": {
+							"documento": {
+								"type": [
+									"string",
+									"null"
+								]
+							},
+							"nome": {
+								"type": [
+									"string",
+									"null"
+								]
+							}
+						}
+					},
+					"xmlDisponivel": {
+						"type": "boolean"
+					}
+				}
+			},
+			"ValoresFiscais": {
+				"type": "object",
+				"description": "Totais lidos dos XML, em reais. `total` é o valor do documento (vNF; na NFS-e, o valor líquido).",
+				"properties": {
+					"total": {
+						"type": "number"
+					},
+					"produtos": {
+						"type": "number"
+					},
+					"servicos": {
+						"type": "number"
+					},
+					"desconto": {
+						"type": "number"
+					},
+					"frete": {
+						"type": "number"
+					},
+					"seguro": {
+						"type": "number"
+					},
+					"outras": {
+						"type": "number"
+					},
+					"icms": {
+						"type": "number"
+					},
+					"icmsSt": {
+						"type": "number"
+					},
+					"fcp": {
+						"type": "number"
+					},
+					"ipi": {
+						"type": "number"
+					},
+					"pis": {
+						"type": "number"
+					},
+					"cofins": {
+						"type": "number"
+					},
+					"ii": {
+						"type": "number"
+					},
+					"iss": {
+						"type": "number"
+					},
+					"ibs": {
+						"type": "number"
+					},
+					"cbs": {
+						"type": "number"
+					},
+					"is": {
+						"type": "number"
+					}
+				}
+			},
+			"Relatorio": {
+				"type": "object",
+				"description": "Totais de um período, pelos dias de emissão. Só a nota autorizada entra nos totais fiscais: a cancelada e a recusada aparecem apenas em `porSituacao`.",
+				"properties": {
+					"ambiente": {
+						"type": "string",
+						"enum": [
+							"homologacao",
+							"producao"
+						]
+					},
+					"periodo": {
+						"type": "object",
+						"properties": {
+							"de": {
+								"type": "string"
+							},
+							"ate": {
+								"type": "string"
+							}
+						}
+					},
+					"notasPorLer": {
+						"type": "integer",
+						"description": "Notas do período cujo XML o cofre ainda não leu. O cofre lê até 150 por pedido e guarda o resultado; enquanto não for zero, os impostos, o CFOP e a natureza estão incompletos. Peça de novo."
+					},
+					"emitidas": {
+						"type": "object",
+						"properties": {
+							"porSituacao": {
+								"type": "array",
+								"items": {
+									"type": "object",
+									"properties": {
+										"modelo": {
+											"type": "string",
+											"enum": [
+												"nfse",
+												"nfe",
+												"nfce"
+											]
+										},
+										"situacao": {
+											"type": "string",
+											"enum": [
+												"processando",
+												"autorizada",
+												"rejeitada",
+												"denegada",
+												"contingencia",
+												"erro",
+												"indefinida",
+												"cancelada"
+											]
+										},
+										"quantidade": {
+											"type": "integer",
+											"description": "Quantidade de notas."
+										},
+										"valor": {
+											"type": "number",
+											"description": "Em reais."
+										}
+									}
+								}
+							},
+							"autorizadas": {
+								"type": "object",
+								"properties": {
+									"quantidade": {
+										"type": "integer",
+										"description": "Quantidade de notas."
+									},
+									"valor": {
+										"type": "number",
+										"description": "Em reais."
+									},
+									"impostos": {
+										"$ref": "#/components/schemas/ValoresFiscais"
+									}
+								}
+							},
+							"porDia": {
+								"type": "array",
+								"items": {
+									"type": "object",
+									"properties": {
+										"dia": {
+											"type": "string",
+											"description": "AAAA-MM-DD."
+										},
+										"quantidade": {
+											"type": "integer",
+											"description": "Quantidade de notas."
+										},
+										"valor": {
+											"type": "number",
+											"description": "Em reais."
+										}
+									}
+								}
+							},
+							"porCfop": {
+								"type": "array",
+								"description": "Valor dos itens por CFOP; `quantidade` conta as notas em que o CFOP aparece.",
+								"items": {
+									"type": "object",
+									"properties": {
+										"cfop": {
+											"type": "string"
+										},
+										"quantidade": {
+											"type": "integer",
+											"description": "Quantidade de notas."
+										},
+										"valor": {
+											"type": "number",
+											"description": "Em reais."
+										}
+									}
+								}
+							},
+							"porNatureza": {
+								"type": "array",
+								"items": {
+									"type": "object",
+									"properties": {
+										"natureza": {
+											"type": "string",
+											"description": "Natureza da operação; na NFS-e, o código de tributação nacional do serviço."
+										},
+										"quantidade": {
+											"type": "integer",
+											"description": "Quantidade de notas."
+										},
+										"valor": {
+											"type": "number",
+											"description": "Em reais."
+										}
+									}
+								}
+							},
+							"porDestinatario": {
+								"type": "array",
+								"description": "Os 50 de maior valor.",
+								"items": {
+									"type": "object",
+									"properties": {
+										"documento": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"nome": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"quantidade": {
+											"type": "integer",
+											"description": "Quantidade de notas."
+										},
+										"valor": {
+											"type": "number",
+											"description": "Em reais."
+										}
+									}
+								}
+							}
+						}
+					},
+					"recebidas": {
+						"type": "object",
+						"properties": {
+							"porSituacao": {
+								"type": "array",
+								"items": {
+									"type": "object",
+									"properties": {
+										"situacao": {
+											"type": "string"
+										},
+										"quantidade": {
+											"type": "integer",
+											"description": "Quantidade de notas."
+										},
+										"valor": {
+											"type": "number",
+											"description": "Em reais."
+										}
+									}
+								}
+							},
+							"autorizadas": {
+								"type": "object",
+								"description": "As autorizadas em que o titular é o destinatário. `impostos` soma só as que já têm o XML completo (`comXml`).",
+								"properties": {
+									"quantidade": {
+										"type": "integer",
+										"description": "Quantidade de notas."
+									},
+									"valor": {
+										"type": "number",
+										"description": "Em reais."
+									},
+									"comXml": {
+										"type": "integer"
+									},
+									"impostos": {
+										"$ref": "#/components/schemas/ValoresFiscais"
+									}
+								}
+							},
+							"comoTerceiro": {
+								"type": "integer",
+								"description": "Notas em que o titular é só transportador ou autorizado a baixar o XML; ficam fora dos totais."
+							},
+							"porCfop": {
+								"type": "array",
+								"description": "Valor dos itens por CFOP; `quantidade` conta as notas em que o CFOP aparece.",
+								"items": {
+									"type": "object",
+									"properties": {
+										"cfop": {
+											"type": "string"
+										},
+										"quantidade": {
+											"type": "integer",
+											"description": "Quantidade de notas."
+										},
+										"valor": {
+											"type": "number",
+											"description": "Em reais."
+										}
+									}
+								}
+							},
+							"porEmitente": {
+								"type": "array",
+								"description": "Os 50 de maior valor.",
+								"items": {
+									"type": "object",
+									"properties": {
+										"documento": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"nome": {
+											"type": [
+												"string",
+												"null"
+											]
+										},
+										"quantidade": {
+											"type": "integer",
+											"description": "Quantidade de notas."
+										},
+										"valor": {
+											"type": "number",
+											"description": "Em reais."
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			},
+			"Exportacao": {
+				"type": "object",
+				"description": "Exportação dos XML de um período, com a planilha de resumo.",
+				"properties": {
+					"id": {
+						"type": "string"
+					},
+					"ambiente": {
+						"type": "string",
+						"enum": [
+							"homologacao",
+							"producao"
+						]
+					},
+					"periodo": {
+						"type": "object",
+						"properties": {
+							"de": {
+								"type": "string"
+							},
+							"ate": {
+								"type": "string"
+							}
+						}
+					},
+					"incluir": {
+						"type": "array",
+						"items": {
+							"type": "string",
+							"enum": [
+								"nfse",
+								"nfe",
+								"nfce",
+								"eventos",
+								"inutilizacoes",
+								"recebidas"
+							]
+						}
+					},
+					"situacao": {
+						"type": "string",
+						"enum": [
+							"preparando",
+							"pronta"
+						],
+						"description": "`preparando`: o cofre ainda lê os XML para a planilha (até 200 por consulta); consulte de novo em alguns segundos. `pronta`: os links valem."
+					},
+					"notasPorLer": {
+						"type": "integer"
+					},
+					"arquivos": {
+						"type": "integer",
+						"description": "Quantidade de XML na exportação."
+					},
+					"conteudo": {
+						"type": "object",
+						"description": "Quantos arquivos de cada tipo entraram: `nfse`, `nfe`, `nfce`, `eventos`, `inutilizacoes`, `recebidas`, `eventosRecebidos`, `manifestacoes`.",
+						"additionalProperties": {
+							"type": "integer"
+						}
+					},
+					"partes": {
+						"type": "array",
+						"description": "O ZIP sai em partes de até 400 arquivos, cada uma montada na hora do download. A planilha vai dentro da primeira.",
+						"items": {
+							"type": "object",
+							"properties": {
+								"parte": {
+									"type": "integer"
+								},
+								"nome": {
+									"type": "string"
+								},
+								"url": {
+									"type": "string",
+									"format": "uri",
+									"description": "Link assinado, com prazo curto: baixa direto do cofre, sem chave de API."
+								}
+							}
+						}
+					},
+					"planilha": {
+						"type": [
+							"object",
+							"null"
+						],
+						"description": "Planilha de resumo (.xlsx), com uma aba para as emitidas e outra para as recebidas.",
+						"properties": {
+							"nome": {
+								"type": "string"
+							},
+							"url": {
+								"type": "string",
+								"format": "uri",
+								"description": "Link assinado, com prazo curto: baixa direto do cofre, sem chave de API."
+							}
+						}
+					},
+					"linksValemAte": {
+						"type": [
+							"string",
+							"null"
+						],
+						"format": "date-time",
+						"description": "Depois deste instante os links param de valer; consultar a exportação devolve links novos."
+					},
+					"criadaEm": {
+						"type": "string",
+						"format": "date-time"
+					},
+					"expiraEm": {
+						"type": "string",
+						"format": "date-time",
+						"description": "A exportação e os arquivos dela são apagados 24 horas depois de criada."
 					}
 				}
 			},

@@ -209,6 +209,154 @@ export interface FiscalDistributionState {
   recovering_documents: number;
 }
 
+// ---------------------------------------------------------------------------
+// Relatórios e exportação (NFapi 0.11.0)
+
+/** Nota emitida como aparece nas listagens (qualquer dos três documentos). */
+export interface FiscalIssuedNote {
+  provider_ref: string;
+  kind: FiscalKind;
+  environment: FiscalEnvironment;
+  reference: string | null;
+  series: string;
+  /** NFS-e: número da nota autorizada (null antes); o da declaração está em dps_number. */
+  number: string | null;
+  dps_number: number | null;
+  status: FiscalStatus;
+  access_key: string | null;
+  protocol: string | null;
+  issued_at: string | null;
+  total: number | null;
+  /** Destinatário (NF-e, NFC-e) ou tomador (NFS-e); null quando a nota não identifica ninguém. */
+  recipient: { document: string | null; name: string | null } | null;
+  xml_available: boolean;
+}
+
+export interface FiscalIssuedFilter {
+  /** Primeiro e último dia de emissão (AAAA-MM-DD). */
+  from?: string;
+  to?: string;
+  kind?: FiscalKind;
+  status?: FiscalStatus;
+  environment?: FiscalEnvironment;
+  /** Número, chave, referência, ou parte do nome ou do documento (5 dígitos ou mais) do destinatário. */
+  search?: string;
+  page?: number;
+  /** 1 a 200 (padrão 50). */
+  per_page?: number;
+}
+
+export interface FiscalIssuedPage {
+  items: FiscalIssuedNote[];
+  /** Quantidade e valor (R$) do filtro inteiro, não só desta página. */
+  total: number;
+  amount: number;
+  page: number;
+  per_page: number;
+}
+
+/** Totais lidos dos XML, em reais. `total` é o valor do documento (vNF; na NFS-e, o líquido). */
+export interface FiscalTaxTotals {
+  total: number;
+  products: number;
+  services: number;
+  discount: number;
+  freight: number;
+  insurance: number;
+  other: number;
+  icms: number;
+  icms_st: number;
+  fcp: number;
+  ipi: number;
+  pis: number;
+  cofins: number;
+  ii: number;
+  iss: number;
+  ibs: number;
+  cbs: number;
+  is: number;
+}
+
+/** Quantidade de notas e valor em reais. */
+export interface FiscalCount {
+  count: number;
+  amount: number;
+}
+
+export interface FiscalReportWarning {
+  /**
+   * pending_reads: o emissor ainda não leu o XML de algumas notas (impostos,
+   * CFOP e natureza incompletos; repita o pedido). nfse_ibs_cbs_not_read: IBS
+   * e CBS da NFS-e ainda não são lidos e aparecem zerados.
+   */
+  code: "pending_reads" | "nfse_ibs_cbs_not_read";
+  message: string;
+}
+
+/**
+ * Totais de um período pelos dias de emissão. Só a nota autorizada entra nos
+ * totais fiscais; cancelada e recusada aparecem só em by_status. Das
+ * recebidas, só as com XML completo entram nos impostos (with_xml).
+ */
+export interface FiscalReport {
+  environment: FiscalEnvironment;
+  period: { from: string; to: string };
+  /** Notas cujo XML o emissor ainda não leu. Enquanto > 0, repita depois de retry_after_ms. */
+  pending_reads: number;
+  complete: boolean;
+  retry_after_ms: number | null;
+  warnings: FiscalReportWarning[];
+  issued: {
+    by_status: (FiscalCount & { kind: FiscalKind; status: FiscalStatus })[];
+    authorized: FiscalCount & { taxes: FiscalTaxTotals };
+    by_day: (FiscalCount & { day: string })[];
+    /** count: notas em que o CFOP aparece; amount: valor dos itens. */
+    by_cfop: (FiscalCount & { cfop: string })[];
+    /** Natureza da operação; na NFS-e, o código de tributação nacional. */
+    by_nature: (FiscalCount & { nature: string })[];
+    /** Os 50 de maior valor. */
+    by_recipient: (FiscalCount & { document: string | null; name: string | null })[];
+  };
+  received: {
+    by_status: (FiscalCount & { status: string })[];
+    /** Autorizadas com o titular como destinatário; taxes soma só as with_xml. */
+    authorized: FiscalCount & { with_xml: number; taxes: FiscalTaxTotals };
+    /** Notas em que o titular é só transportador ou autorizado: fora dos totais. */
+    as_third_party: number;
+    by_cfop: (FiscalCount & { cfop: string })[];
+    by_issuer: (FiscalCount & { document: string | null; name: string | null })[];
+  };
+}
+
+export type FiscalExportItem = "nfse" | "nfe" | "nfce" | "events" | "void_ranges" | "received";
+
+/**
+ * Exportação dos XML de um período, com planilha de resumo. Os links são
+ * para o navegador do usuário abrir direto no emissor (sem chave), valem até
+ * links_valid_until (cerca de 30 min) e o servidor do Wabotia nunca baixa
+ * esses arquivos. Link vencido: consulte a exportação de novo (links novos).
+ * A exportação some em 24 h (404 fiscal_export_not_found).
+ */
+export interface FiscalExport {
+  provider_ref: string;
+  environment: FiscalEnvironment;
+  period: { from: string; to: string };
+  include: FiscalExportItem[];
+  /** preparing: consulte de novo depois de retry_after_ms (cada consulta leva o trabalho adiante). */
+  status: "preparing" | "ready";
+  pending_reads: number;
+  files: number;
+  /** Arquivos de cada tipo (nfse, nfe, nfce, eventos, inutilizacoes, recebidas, ...), como o emissor conta. */
+  contents: Record<string, number>;
+  /** Partes do ZIP (até 400 arquivos cada; a planilha vai na primeira). */
+  parts: { part: number; name: string; url: string }[];
+  spreadsheet: { name: string; url: string } | null;
+  links_valid_until: string | null;
+  created_at: string | null;
+  expires_at: string | null;
+  retry_after_ms: number | null;
+}
+
 export interface FiscalSeries {
   kind: "nfe" | "nfce";
   environment: FiscalEnvironment;
@@ -363,6 +511,21 @@ export interface FiscalProvider {
     ctx: FiscalContext,
     input: { access_key: string; environment?: FiscalEnvironment; cnpj?: string },
   ): Promise<FiscalReceivedNote>;
+
+  // Relatórios e exportação. Só leitura no emissor (nada vai ao governo).
+  /** Notas emitidas com filtros; total e amount somam o filtro inteiro. */
+  issued(ctx: FiscalContext, filter?: FiscalIssuedFilter): Promise<FiscalIssuedPage>;
+  /** Totais do período (from e to em AAAA-MM-DD, até 366 dias). Repita enquanto pending_reads > 0. */
+  report(ctx: FiscalContext, input: { environment: FiscalEnvironment; from: string; to: string }): Promise<FiscalReport>;
+  /** Cria a exportação. Acompanhe com exportGet a cada 1 ou 2 s enquanto preparing, sem laço apertado. */
+  exportCreate(
+    ctx: FiscalContext,
+    input: { environment: FiscalEnvironment; from: string; to: string; include?: FiscalExportItem[] },
+  ): Promise<FiscalExport>;
+  /** Estado e links novos. */
+  exportGet(ctx: FiscalContext, ref: string): Promise<FiscalExport>;
+  /** Exportações ainda válidas (menos de 24 h). */
+  exports(ctx: FiscalContext): Promise<FiscalExport[]>;
 
   series(ctx: FiscalContext): Promise<FiscalSeries[]>;
   state(ctx: FiscalContext): Promise<FiscalProviderState>;

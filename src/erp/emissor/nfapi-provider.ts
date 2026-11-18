@@ -20,6 +20,10 @@ import type {
   InutilizacaoRegistrada,
   ManifestacaoRegistrada,
   NotaRecebida,
+  NotaEmitida,
+  Relatorio,
+  Exportacao,
+  ValoresFiscais,
 } from "./contract/types.generated.ts";
 import {
   NfapiClient,
@@ -30,6 +34,7 @@ import {
   EMISSION_MIN_VERSION,
   type NfapiDoc,
   type NfapiFile,
+  type ExportacaoItem,
 } from "./nfapi.ts";
 import {
   FiscalError,
@@ -39,6 +44,13 @@ import {
   type FiscalDistributionState,
   type FiscalEmitOptions,
   type FiscalEnvironment,
+  type FiscalExport,
+  type FiscalExportItem,
+  type FiscalCount,
+  type FiscalIssuedNote,
+  type FiscalReport,
+  type FiscalReportWarning,
+  type FiscalTaxTotals,
   type FiscalFile,
   type FiscalKey,
   type FiscalKind,
@@ -225,7 +237,171 @@ function voidResultOf(body: InutilizacaoRegistrada, fallback: Partial<FiscalVoid
   };
 }
 
-const toFile = (f: NfapiFile): FiscalFile => ({ content_type: f.contentType, size: f.size, body: f.body });
+// ----- Relatórios e exportação (0.11.0) -----
+
+/** Intervalo sugerido para repetir o relatório ou consultar a exportação em preparo. */
+export const REPORT_RETRY_MS = 1_500;
+const DAY_MS = 86_400_000;
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+function dayOf(value: unknown, field: string) {
+  if (typeof value !== "string" || !ISO_DAY.test(value) || !Number.isFinite(Date.parse(`${value}T00:00:00Z`)) ||
+      new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) !== value)
+    throw new FiscalError(400, "fiscal_invalid_request", `${field}: data AAAA-MM-DD.`, { field });
+  return value;
+}
+
+/** Período do relatório e da exportação: de ≤ até, no máximo 366 dias. */
+function periodOf(input: { environment?: unknown; from?: unknown; to?: unknown }) {
+  if (input.environment !== "homologacao" && input.environment !== "producao")
+    throw new FiscalError(400, "fiscal_invalid_request", "environment: homologacao ou producao.", { field: "environment" });
+  const de = dayOf(input.from, "from");
+  const ate = dayOf(input.to, "to");
+  const days = (Date.parse(`${ate}T00:00:00Z`) - Date.parse(`${de}T00:00:00Z`)) / DAY_MS + 1;
+  if (days < 1) throw new FiscalError(400, "fiscal_invalid_request", "O período termina antes de começar.", { field: "to" });
+  if (days > 366) throw new FiscalError(400, "fiscal_invalid_request", "O período vai até 366 dias.", { field: "to" });
+  return { ambiente: input.environment as FiscalEnvironment, de, ate };
+}
+
+const STATUS_TO_SITUACAO = Object.fromEntries(Object.entries(SITUACAO).map(([k, v]) => [v, k])) as Record<
+  FiscalStatus,
+  NonNullable<NotaEmitida["situacao"]>
+>;
+
+export function toIssued(n: NotaEmitida): FiscalIssuedNote {
+  return {
+    provider_ref: n.id ?? "",
+    kind: n.modelo ?? "nfe",
+    environment: n.ambiente ?? "homologacao",
+    reference: n.referencia ?? null,
+    series: n.serie ?? "",
+    number: n.numero ?? null,
+    dps_number: n.numeroDps ?? null,
+    status: (n.situacao && SITUACAO[n.situacao]) || "undetermined",
+    access_key: n.chaveAcesso ?? null,
+    protocol: n.protocolo ?? null,
+    issued_at: n.emitidaEm ?? null,
+    total: n.valor ?? null,
+    recipient: n.destinatario ? { document: n.destinatario.documento ?? null, name: n.destinatario.nome ?? null } : null,
+    xml_available: !!n.xmlDisponivel,
+  };
+}
+
+function taxesOf(v: ValoresFiscais | undefined): FiscalTaxTotals {
+  const n = (x: number | undefined) => (typeof x === "number" && Number.isFinite(x) ? x : 0);
+  return {
+    total: n(v?.total), products: n(v?.produtos), services: n(v?.servicos), discount: n(v?.desconto),
+    freight: n(v?.frete), insurance: n(v?.seguro), other: n(v?.outras), icms: n(v?.icms), icms_st: n(v?.icmsSt),
+    fcp: n(v?.fcp), ipi: n(v?.ipi), pis: n(v?.pis), cofins: n(v?.cofins), ii: n(v?.ii), iss: n(v?.iss),
+    ibs: n(v?.ibs), cbs: n(v?.cbs), is: n(v?.is),
+  };
+}
+
+const countOf = (x: { quantidade?: number; valor?: number } | undefined): FiscalCount => ({
+  count: x?.quantidade ?? 0,
+  amount: x?.valor ?? 0,
+});
+
+export function toReport(r: Relatorio, asked: { ambiente: FiscalEnvironment; de: string; ate: string }): FiscalReport {
+  const e = r.emitidas ?? {};
+  const rec = r.recebidas ?? {};
+  const pending = r.notasPorLer ?? 0;
+  const byStatus = (e.porSituacao ?? []).map((s) => ({
+    ...countOf(s),
+    kind: s.modelo ?? "nfe",
+    status: (s.situacao && SITUACAO[s.situacao]) || ("undetermined" as FiscalStatus),
+  }));
+  const warnings: FiscalReportWarning[] = [];
+  if (pending > 0)
+    warnings.push({
+      code: "pending_reads",
+      message: `${pending} ${pending === 1 ? "nota ainda não lida" : "notas ainda não lidas"} pelo emissor: impostos, CFOP e natureza estão incompletos. O relatório se completa ao pedir de novo.`,
+    });
+  if (byStatus.some((s) => s.kind === "nfse"))
+    warnings.push({
+      code: "nfse_ibs_cbs_not_read",
+      message: "IBS e CBS da NFS-e ainda não são lidos pelo emissor: aparecem zerados nos impostos.",
+    });
+  return {
+    environment: r.ambiente ?? asked.ambiente,
+    period: { from: r.periodo?.de ?? asked.de, to: r.periodo?.ate ?? asked.ate },
+    pending_reads: pending,
+    complete: pending === 0,
+    retry_after_ms: pending > 0 ? REPORT_RETRY_MS : null,
+    warnings,
+    issued: {
+      by_status: byStatus,
+      authorized: { ...countOf(e.autorizadas), taxes: taxesOf(e.autorizadas?.impostos) },
+      by_day: (e.porDia ?? []).map((d) => ({ ...countOf(d), day: d.dia ?? "" })),
+      by_cfop: (e.porCfop ?? []).map((c) => ({ ...countOf(c), cfop: c.cfop ?? "" })),
+      by_nature: (e.porNatureza ?? []).map((c) => ({ ...countOf(c), nature: c.natureza ?? "" })),
+      by_recipient: (e.porDestinatario ?? []).map((c) => ({ ...countOf(c), document: c.documento ?? null, name: c.nome ?? null })),
+    },
+    received: {
+      by_status: (rec.porSituacao ?? []).map((s) => ({ ...countOf(s), status: s.situacao ?? "" })),
+      authorized: {
+        ...countOf(rec.autorizadas),
+        with_xml: rec.autorizadas?.comXml ?? 0,
+        taxes: taxesOf(rec.autorizadas?.impostos),
+      },
+      as_third_party: rec.comoTerceiro ?? 0,
+      by_cfop: (rec.porCfop ?? []).map((c) => ({ ...countOf(c), cfop: c.cfop ?? "" })),
+      by_issuer: (rec.porEmitente ?? []).map((c) => ({ ...countOf(c), document: c.documento ?? null, name: c.nome ?? null })),
+    },
+  };
+}
+
+const EXPORT_ITEM: Record<FiscalExportItem, ExportacaoItem> = {
+  nfse: "nfse",
+  nfe: "nfe",
+  nfce: "nfce",
+  events: "eventos",
+  void_ranges: "inutilizacoes",
+  received: "recebidas",
+};
+const EXPORT_ITEM_BACK = Object.fromEntries(Object.entries(EXPORT_ITEM).map(([k, v]) => [v, k])) as Record<ExportacaoItem, FiscalExportItem>;
+
+/**
+ * Link assinado repassado como veio. Só é aceito se sair do próprio cofre
+ * (mesma origem): o ERP entrega o link ao navegador e nunca o abre.
+ */
+function linkOf(url: unknown, vaultOrigin: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(String(url));
+  } catch {
+    throw new FiscalError(502, "fiscal_provider_error", "O emissor devolveu um link de exportação inválido.");
+  }
+  if (parsed.origin !== vaultOrigin)
+    throw new FiscalError(502, "fiscal_provider_error", "O emissor devolveu um link de exportação fora do endereço do cofre.");
+  return String(url);
+}
+
+export function toExport(x: Exportacao, vaultOrigin: string): FiscalExport {
+  const preparing = x.situacao !== "pronta";
+  const contents: Record<string, number> = {};
+  for (const [k, v] of Object.entries(x.conteudo ?? {})) if (typeof v === "number") contents[k] = v;
+  return {
+    provider_ref: x.id ?? "",
+    environment: x.ambiente ?? "homologacao",
+    period: { from: x.periodo?.de ?? "", to: x.periodo?.ate ?? "" },
+    include: (x.incluir ?? []).map((i) => EXPORT_ITEM_BACK[i]).filter(Boolean),
+    status: preparing ? "preparing" : "ready",
+    pending_reads: x.notasPorLer ?? 0,
+    files: x.arquivos ?? 0,
+    contents,
+    parts: preparing
+      ? []
+      : (x.partes ?? []).filter((p) => p.url).map((p) => ({ part: p.parte ?? 0, name: p.nome ?? "", url: linkOf(p.url, vaultOrigin) })),
+    spreadsheet: !preparing && x.planilha?.url ? { name: x.planilha.nome ?? "", url: linkOf(x.planilha.url, vaultOrigin) } : null,
+    links_valid_until: x.linksValemAte ?? null,
+    created_at: x.criadaEm ?? null,
+    expires_at: x.expiraEm ?? null,
+    retry_after_ms: preparing ? REPORT_RETRY_MS : null,
+  };
+}
+
+const toFile = (f: NfapiFile): FiscalFile =>({ content_type: f.contentType, size: f.size, body: f.body });
 
 /** Horário ISO em `erro.mensagem` do 429 ("Tente depois de 2026-11-17T15:00:00.000Z."). */
 export function retryAtOf(message: string): string | null {
@@ -283,6 +459,9 @@ export const ERROR_MAP: Record<ContractErrorCode, [number, string, boolean]> = {
   // 429: retry_at sai de erro.mensagem. Repetível só depois do horário.
   consumo_indevido: [429, "fiscal_queries_blocked", true],
   limite_de_consultas: [429, "fiscal_query_limit", true],
+  // Download da exportação (0.11.0): só o navegador baixa; link vencido pede
+  // nova consulta da exportação (links novos).
+  link_invalido: [410, "fiscal_export_link_expired", true],
   sem_resposta_conclusiva: [503, "fiscal_no_conclusive_answer", true],
   // Só aparece em GET /v1/sefaz/status, dentro de mensagem.codigo (não é erro HTTP).
   sem_conexao: [503, "fiscal_provider_unavailable", true],
@@ -762,6 +941,65 @@ export function createNfapiProvider(options: NfapiProviderOptions = {}): FiscalP
       } catch (error) {
         throw fiscalError(error);
       }
+    },
+    async issued(ctx, filter = {}) {
+      const page = filter.page ?? 1;
+      const perPage = filter.per_page ?? 50;
+      if (!Number.isInteger(page) || page < 1 || !Number.isInteger(perPage) || perPage < 1 || perPage > 200)
+        throw new FiscalError(400, "fiscal_invalid_request", "page: inteiro ≥ 1; per_page: de 1 a 200.", { field: "per_page" });
+      if (filter.kind !== undefined && !["nfe", "nfce", "nfse"].includes(filter.kind))
+        throw new FiscalError(400, "fiscal_invalid_request", "kind: nfe, nfce ou nfse.", { field: "kind" });
+      if (filter.status !== undefined && !STATUS_TO_SITUACAO[filter.status])
+        throw new FiscalError(400, "fiscal_invalid_request", "Situação desconhecida.", { field: "status" });
+      const api = await client(ctx);
+      const body = await read(async () =>
+        (await api.notas({
+          de: filter.from === undefined ? undefined : dayOf(filter.from, "from"),
+          ate: filter.to === undefined ? undefined : dayOf(filter.to, "to"),
+          modelo: filter.kind,
+          situacao: filter.status && STATUS_TO_SITUACAO[filter.status],
+          ambiente: filter.environment,
+          busca: filter.search?.trim() || undefined,
+          pagina: page,
+          porPagina: perPage,
+        })).body,
+      );
+      return { items: body.notas.map(toIssued), total: body.total, amount: body.valor, page: body.pagina, per_page: body.porPagina };
+    },
+    async report(ctx, input) {
+      const asked = periodOf(input);
+      const api = await client(ctx);
+      return toReport(await read(async () => (await api.relatorio(asked)).body), asked);
+    },
+    async exportCreate(ctx, input) {
+      const asked = periodOf(input);
+      const include = input.include;
+      if (include !== undefined && (!Array.isArray(include) || !include.length || include.some((i) => !EXPORT_ITEM[i])))
+        throw new FiscalError(400, "fiscal_invalid_request", "include: nfse, nfe, nfce, events, void_ranges ou received.", { field: "include" });
+      const api = await client(ctx);
+      // Sem nova tentativa automática: um POST repetido criaria outra exportação.
+      try {
+        const r = await api.exportar({ ...asked, ...(include ? { incluir: [...new Set(include)].map((i) => EXPORT_ITEM[i]) } : {}) });
+        return toExport(r.body, api.origin);
+      } catch (error) {
+        throw fiscalError(error);
+      }
+    },
+    async exportGet(ctx, ref) {
+      const api = await client(ctx);
+      try {
+        return toExport(await read(async () => (await api.exportacao(ref)).body), api.origin);
+      } catch (error) {
+        if (error instanceof FiscalError && error.details.provider_code === "nao_encontrado")
+          throw new FiscalError(404, "fiscal_export_not_found", "Exportação inexistente: ela é apagada 24 horas depois de criada. Crie outra.", {
+            provider_code: "nao_encontrado",
+          });
+        throw error;
+      }
+    },
+    async exports(ctx) {
+      const api = await client(ctx);
+      return (await read(async () => (await api.exportacoes()).body)).map((x) => toExport(x, api.origin));
     },
     async series(ctx) {
       const api = await client(ctx);

@@ -130,6 +130,7 @@ export const FEATURE_MIN_VERSION = [
   { feature: "emission", label: "emitir notas (NF-e, NFC-e e NFS-e com IBS, CBS e IS)", version: "0.8.0" },
   { feature: "documents", label: "DANFE, DANFE NFC-e, cupom e contingência da NFC-e", version: "0.8.0" },
   { feature: "received", label: "NF-e recebidas e manifestação", version: "0.9.0" },
+  { feature: "reports", label: "relatórios e exportação dos XML", version: "0.11.0" },
 ] as const;
 
 /**

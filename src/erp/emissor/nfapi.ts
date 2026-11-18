@@ -35,6 +35,9 @@ import type {
   Serie,
   Sincronizacao,
   StatusSefaz,
+  NotaEmitida,
+  Relatorio,
+  Exportacao,
 } from "./contract/types.generated.ts";
 
 export type NfapiDoc = "nfe" | "nfce" | "nfse";
@@ -144,6 +147,11 @@ export const OPERATION_MIN_VERSION: Partial<Record<ContractOperation, string>> =
   "POST /v1/distribuicao/consultar-chave": "0.9.0",
   "GET /v1/distribuicao/documentos": "0.9.0",
   "GET /v1/distribuicao/documentos/{sequencia}/xml": "0.9.0",
+  "GET /v1/notas": "0.11.0",
+  "GET /v1/relatorios/notas": "0.11.0",
+  "POST /v1/exportacoes": "0.11.0",
+  "GET /v1/exportacoes/{id}": "0.11.0",
+  "GET /v1/exportacoes": "0.11.0",
 };
 export const CONTINGENCY_MIN_VERSION = "0.4.0";
 /**
@@ -231,6 +239,20 @@ function legacyErro(value: unknown): Erro | null {
 
 /** Cancelamento e carta de correção: a emissão e se o evento já existia. */
 export type ComRepetido<T> = T & { repetido: boolean };
+
+/** Filtros de GET /v1/notas (0.11.0). */
+export interface NotasFiltro {
+  de?: string;
+  ate?: string;
+  modelo?: NfapiDoc;
+  situacao?: NotaEmitida["situacao"];
+  ambiente?: "homologacao" | "producao";
+  busca?: string;
+  pagina?: number;
+  porPagina?: number;
+}
+
+export type ExportacaoItem = NonNullable<Exportacao["incluir"]>[number];
 
 /** Pedido de manifestação do destinatário (justificativa só na operação não realizada, 15 a 255). */
 export interface Manifestacao {
@@ -614,6 +636,54 @@ export class NfapiClient {
     });
   }
 
+  // ----- Relatórios e exportação (0.11.0) -----
+
+  /** Notas emitidas dos três documentos; `total` e `valor` somam o filtro inteiro, não a página. */
+  async notas(filtro: NotasFiltro = {}) {
+    const r = await this.call<{ notas?: NotaEmitida[]; total?: number; valor?: number; pagina?: number; porPagina?: number }>(
+      "GET /v1/notas",
+      { query: { ...filtro } },
+    );
+    return {
+      status: r.status,
+      body: {
+        notas: Array.isArray(r.body?.notas) ? r.body.notas : [],
+        total: r.body?.total ?? 0,
+        valor: r.body?.valor ?? 0,
+        pagina: r.body?.pagina ?? filtro.pagina ?? 1,
+        porPagina: r.body?.porPagina ?? filtro.porPagina ?? 50,
+      },
+    };
+  }
+  /**
+   * Totais do período (até 366 dias). Com `notasPorLer` > 0, impostos, CFOP e
+   * natureza estão incompletos: quem chama repete até zerar (o cofre lê até
+   * 150 notas por pedido e guarda).
+   */
+  relatorio(filtro: { ambiente: "homologacao" | "producao"; de: string; ate: string }) {
+    return this.call<Relatorio>("GET /v1/relatorios/notas", { query: filtro });
+  }
+  /**
+   * Cria a exportação dos XML do período. Os links da resposta são para o
+   * navegador do usuário: o cliente nunca baixa o arquivo nem monta o endereço.
+   */
+  exportar(pedido: { ambiente: "homologacao" | "producao"; de: string; ate: string; incluir?: ExportacaoItem[] }) {
+    return this.call<Exportacao>("POST /v1/exportacoes", { body: pedido });
+  }
+  /** Consulta a exportação (leva a preparação adiante) e devolve links novos. 404 depois de 24 h. */
+  exportacao(id: string) {
+    return this.call<Exportacao>("GET /v1/exportacoes/{id}", { params: { id } });
+  }
+  async exportacoes() {
+    const r = await this.call<{ exportacoes?: Exportacao[] }>("GET /v1/exportacoes");
+    return { status: r.status, body: Array.isArray(r.body?.exportacoes) ? r.body.exportacoes : [] };
+  }
+
+  /** Origem do cofre (os links assinados das exportações saem dela). */
+  get origin() {
+    return new URL(this.base).origin;
+  }
+
   // ----- Leituras do cofre -----
 
   async series() {
@@ -674,4 +744,17 @@ export const CLIENT_OPERATIONS: readonly ContractOperation[] = [
   "GET /v1/cofre/logotipo",
   "GET /v1/sefaz/status",
   "GET /v1/openapi.json",
+  "GET /v1/notas",
+  "GET /v1/relatorios/notas",
+  "POST /v1/exportacoes",
+  "GET /v1/exportacoes/{id}",
+  "GET /v1/exportacoes",
 ];
+
+/**
+ * Operações do contrato que o cliente de propósito não implementa: o
+ * download da exportação é do navegador do usuário, pelo link assinado que
+ * vem em `partes[].url` e `planilha.url` (sem chave de API). O servidor do
+ * Wabotia nunca baixa esse arquivo nem monta esse endereço.
+ */
+export const BROWSER_ONLY_OPERATIONS: readonly ContractOperation[] = ["GET /exportacoes/{id}/{arquivo}"];

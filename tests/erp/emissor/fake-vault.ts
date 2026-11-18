@@ -166,7 +166,20 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
   const sent = (key: string) => sefazSends.set(key, (sefazSends.get(key) ?? 0) + 1);
   const calls: { method: string; path: string; body: any; auth: string | null; query: string }[] = [];
   const keyQueries: number[] = [];
-  const state = { sefazOnline: false, blockedUntil: null as string | null, receivedSeq: 0 };
+  const state = {
+    sefazOnline: false,
+    blockedUntil: null as string | null,
+    receivedSeq: 0,
+    /** Notas cujo XML o cofre ainda não leu para o relatório (cai 150 por pedido). */
+    notesToRead: 0,
+    /** Consultas até a exportação nova ficar pronta (0: já nasce pronta). */
+    exportPolls: 0,
+    /** Origem dos links assinados (padrão: a do próprio cofre). */
+    linkOrigin: null as string | null,
+  };
+  const reports: { ambiente: Env; de: string; ate: string }[] = [];
+  const exports = new Map<string, { id: string; ambiente: Env; de: string; ate: string; incluir: string[]; polls: number; criadaEm: string }>();
+  let currentOrigin = "";
   let seq = 0;
   const iso = () => new Date(Date.UTC(2026, 10, 16, 12, 0, seq)).toISOString();
   const has = (min: string) => !olderThan(version, min);
@@ -693,6 +706,113 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
       }
     }
 
+    // ----- Relatórios e exportação (0.11.0) -----
+    if (path === "/v1/notas" && method === "GET") {
+      const pagina = Number(query.get("pagina") || 1);
+      const porPagina = Math.min(Number(query.get("porPagina") || 50), 200);
+      const busca = query.get("busca");
+      const day = (e: Emission) => e.criadaEm.slice(0, 10);
+      const all = [...emissions.values()]
+        .filter(
+          (e) =>
+            (!query.get("modelo") || e.doc === query.get("modelo")) &&
+            (!query.get("situacao") || e.situacao === query.get("situacao")) &&
+            (!query.get("ambiente") || e.ambiente === query.get("ambiente")) &&
+            (!query.get("de") || day(e) >= query.get("de")!) &&
+            (!query.get("ate") || day(e) <= query.get("ate")!) &&
+            (!busca || String(e.numero) === busca || e.chaveAcesso === busca || e.referencia === busca),
+        )
+        .reverse();
+      return {
+        status: 200,
+        body: {
+          notas: all.slice((pagina - 1) * porPagina, pagina * porPagina).map(issuedView),
+          total: all.length,
+          valor: all.reduce((s, e) => s + e.valor, 0),
+          pagina,
+          porPagina,
+        },
+      };
+    }
+    if (path === "/v1/relatorios/notas" && method === "GET") {
+      const ambiente = query.get("ambiente") as Env | null;
+      const de = query.get("de");
+      const ate = query.get("ate");
+      if (!ambiente || !de || !ate) return { status: 400, body: erro("requisicao_invalida", "ambiente, de e ate são obrigatórios.", { campo: "de" }) };
+      if (options.scope === "homologacao" && ambiente === "producao")
+        return { status: 403, body: erro("chave_somente_homologacao", "Esta chave só opera em homologação.") };
+      reports.push({ ambiente, de, ate });
+      // O cofre lê até 150 XML por pedido e guarda.
+      state.notesToRead = Math.max(0, state.notesToRead - 150);
+      const inPeriod = [...emissions.values()].filter((e) => e.ambiente === ambiente && e.criadaEm.slice(0, 10) >= de && e.criadaEm.slice(0, 10) <= ate);
+      const groups = new Map<string, { modelo: Doc; situacao: Emission["situacao"]; quantidade: number; valor: number }>();
+      for (const e of inPeriod) {
+        const g = groups.get(`${e.doc}:${e.situacao}`) ?? { modelo: e.doc, situacao: e.situacao, quantidade: 0, valor: 0 };
+        g.quantidade++;
+        g.valor += e.valor;
+        groups.set(`${e.doc}:${e.situacao}`, g);
+      }
+      const ok = inPeriod.filter((e) => e.situacao === "autorizada");
+      const valor = ok.reduce((s, e) => s + e.valor, 0);
+      const rec = [...received.values()].filter((n) => n.ambiente === ambiente && n.papel === "destinatario" && n.situacao === "autorizada");
+      return {
+        status: 200,
+        body: {
+          ambiente,
+          periodo: { de, ate },
+          notasPorLer: state.notesToRead,
+          emitidas: {
+            porSituacao: [...groups.values()],
+            autorizadas: {
+              quantidade: ok.length,
+              valor,
+              impostos: { total: valor, produtos: valor, icms: Math.round(valor * 18) / 100, ibs: 0, cbs: 0, is: 0 },
+            },
+            porDia: ok.length ? [{ dia: ok[0].criadaEm.slice(0, 10), quantidade: ok.length, valor }] : [],
+            porCfop: ok.length ? [{ cfop: "5102", quantidade: ok.length, valor }] : [],
+            porNatureza: ok.length ? [{ natureza: "Venda de mercadoria", quantidade: ok.length, valor }] : [],
+            porDestinatario: [],
+          },
+          recebidas: {
+            porSituacao: rec.length ? [{ situacao: "autorizada", quantidade: rec.length, valor: rec.reduce((s, n) => s + n.valor, 0) }] : [],
+            autorizadas: {
+              quantidade: rec.length,
+              valor: rec.reduce((s, n) => s + n.valor, 0),
+              comXml: rec.filter((n) => n.xmlDisponivel).length,
+              impostos: { total: rec.filter((n) => n.xmlDisponivel).reduce((s, n) => s + n.valor, 0) },
+            },
+            comoTerceiro: [...received.values()].filter((n) => n.papel === "terceiro").length,
+            porCfop: [],
+            porEmitente: [],
+          },
+        },
+      };
+    }
+    if (path === "/v1/exportacoes" && method === "POST") {
+      if (options.scope === "homologacao" && body.ambiente === "producao")
+        return { status: 403, body: erro("chave_somente_homologacao", "Esta chave só opera em homologação.") };
+      const x = {
+        id: `exp_${(++seq).toString(16).padStart(20, "0")}`,
+        ambiente: body.ambiente as Env,
+        de: body.de as string,
+        ate: body.ate as string,
+        incluir: (body.incluir ?? ["nfse", "nfe", "nfce", "eventos", "inutilizacoes", "recebidas"]) as string[],
+        polls: state.exportPolls,
+        criadaEm: iso(),
+      };
+      exports.set(x.id, x);
+      return { status: 201, body: exportView(x) };
+    }
+    if (path === "/v1/exportacoes" && method === "GET")
+      return { status: 200, body: { exportacoes: [...exports.values()].map(exportView) } };
+    const exp = /^\/v1\/exportacoes\/([^/]+)$/.exec(path);
+    if (exp && method === "GET") {
+      const x = exports.get(exp[1]);
+      if (!x) return notFound("Exportação inexistente.");
+      if (x.polls > 0) x.polls--;
+      return { status: 200, body: exportView(x) };
+    }
+
     // ----- Emissões -----
     const m = /^\/v1\/(nfe|nfce|nfse)(?:\/([^/]+)(?:\/(xml|cancelar|consultar|carta-correcao|danfe|danfce|cupom|cancelamento\/xml|carta-correcao\/(\d+)\/xml))?)?$/.exec(path);
     if (!m) return notFound("Rota desconhecida.");
@@ -796,6 +916,47 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
     return notFound("Rota desconhecida.");
   }
 
+  function issuedView(e: Emission) {
+    const authorized = e.situacao === "autorizada" || e.situacao === "cancelada";
+    return {
+      id: e.id,
+      modelo: e.doc,
+      ambiente: e.ambiente,
+      referencia: e.referencia,
+      serie: String(e.serie),
+      numero: e.doc === "nfse" ? (authorized ? String(e.numero) : null) : String(e.numero),
+      numeroDps: e.doc === "nfse" ? e.numero : null,
+      situacao: e.situacao,
+      chaveAcesso: e.chaveAcesso,
+      protocolo: e.protocolo,
+      emitidaEm: e.criadaEm,
+      valor: e.valor,
+      destinatario: e.doc === "nfce" ? null : { documento: "11222333000181", nome: "CLIENTE SINTETICO LTDA" },
+      xmlDisponivel: authorized || e.situacao === "contingencia",
+    };
+  }
+
+  function exportView(x: { id: string; ambiente: Env; de: string; ate: string; incluir: string[]; polls: number; criadaEm: string }) {
+    const pronta = x.polls === 0;
+    const link = (arquivo: string) => `${state.linkOrigin ?? currentOrigin}/exportacoes/${x.id}/${arquivo}?expira=1794969000&assinatura=abc123`;
+    const arquivos = [...emissions.values()].filter((e) => e.ambiente === x.ambiente && e.situacao !== "rejeitada").length;
+    return {
+      id: x.id,
+      ambiente: x.ambiente,
+      periodo: { de: x.de, ate: x.ate },
+      incluir: x.incluir,
+      situacao: pronta ? "pronta" : "preparando",
+      notasPorLer: pronta ? 0 : 200 * x.polls,
+      arquivos,
+      conteudo: { nfe: arquivos, eventos: 0 },
+      partes: pronta ? [{ parte: 1, nome: `nfapi-${x.de}-${x.ate}-parte-1.zip`, url: link("parte-1") }] : [],
+      planilha: pronta ? { nome: `nfapi-${x.de}-${x.ate}.xlsx`, url: link("planilha") } : null,
+      linksValemAte: pronta ? "2026-11-16T12:30:00.000Z" : null,
+      criadaEm: x.criadaEm,
+      expiraEm: "2026-11-17T12:00:00.000Z",
+    };
+  }
+
   function voidView(v: (typeof voids)[number], repetido?: boolean) {
     return {
       id: v.id,
@@ -838,6 +999,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
     const auth = new Headers(init.headers).get("Authorization");
     const body = typeof init.body === "string" ? JSON.parse(init.body) : undefined;
     calls.push({ method, path: url.pathname, body, auth, query: url.search });
+    currentOrigin = url.origin;
     if (plan[0] === "same-zone" && method === "POST") {
       plan.shift();
       return new Response("error code: 1042", { status: 403, headers: { "Content-Type": "text/plain" } });
@@ -893,6 +1055,8 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
     series,
     authorizedAtSefaz,
     state,
+    reports,
+    exports,
     addReceived,
     /** O XML completo da nota recebida chegou (depois da manifestação). */
     deliverXml(id: string) {

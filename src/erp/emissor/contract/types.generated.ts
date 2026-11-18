@@ -1,9 +1,9 @@
 // GERADO por src/erp/emissor/contract/sync.mjs a partir de contract/openapi.json.
 // Não edite à mão: copie o contrato novo e rode o sync (README.md desta pasta).
-// Cofre NFapi 0.9.1 (OpenAPI 3.1.0).
+// Cofre NFapi 0.11.0 (OpenAPI 3.1.0).
 /* eslint-disable */
 
-export const CONTRACT_VERSION = "0.9.1";
+export const CONTRACT_VERSION = "0.11.0";
 
 export type Erro = {
   erro: {
@@ -1775,6 +1775,199 @@ export type Sincronizacao = {
   distribuicao?: Distribuicao;
 };
 
+/** Uma nota emitida, de qualquer dos três documentos, como aparece nas listagens. */
+export type NotaEmitida = {
+  id?: string;
+  modelo?: "nfse" | "nfe" | "nfce";
+  ambiente?: "homologacao" | "producao";
+  referencia?: string | null;
+  serie?: string;
+  /** Número da nota. Na NFS-e, o número da nota autorizada (nulo antes disso); o da declaração está em `numeroDps`. */
+  numero?: string | null;
+  numeroDps?: number | null;
+  situacao?: "processando" | "autorizada" | "rejeitada" | "denegada" | "contingencia" | "erro" | "indefinida" | "cancelada";
+  chaveAcesso?: string | null;
+  protocolo?: string | null;
+  /** format: date-time */
+  emitidaEm?: string;
+  valor?: number | null;
+  /** Destinatário (NF-e, NFC-e) ou tomador (NFS-e); nulo quando a nota não identifica ninguém. */
+  destinatario?: {
+    documento?: string | null;
+    nome?: string | null;
+  } | null;
+  xmlDisponivel?: boolean;
+};
+
+/** Totais lidos dos XML, em reais. `total` é o valor do documento (vNF; na NFS-e, o valor líquido). */
+export type ValoresFiscais = {
+  total?: number;
+  produtos?: number;
+  servicos?: number;
+  desconto?: number;
+  frete?: number;
+  seguro?: number;
+  outras?: number;
+  icms?: number;
+  icmsSt?: number;
+  fcp?: number;
+  ipi?: number;
+  pis?: number;
+  cofins?: number;
+  ii?: number;
+  iss?: number;
+  ibs?: number;
+  cbs?: number;
+  is?: number;
+};
+
+/** Totais de um período, pelos dias de emissão. Só a nota autorizada entra nos totais fiscais: a cancelada e a recusada aparecem apenas em `porSituacao`. */
+export type Relatorio = {
+  ambiente?: "homologacao" | "producao";
+  periodo?: {
+    de?: string;
+    ate?: string;
+  };
+  /** Notas do período cujo XML o cofre ainda não leu. O cofre lê até 150 por pedido e guarda o resultado; enquanto não for zero, os impostos, o CFOP e a natureza estão incompletos. Peça de novo. */
+  notasPorLer?: number;
+  emitidas?: {
+    porSituacao?: {
+      modelo?: "nfse" | "nfe" | "nfce";
+      situacao?: "processando" | "autorizada" | "rejeitada" | "denegada" | "contingencia" | "erro" | "indefinida" | "cancelada";
+      /** Quantidade de notas. */
+      quantidade?: number;
+      /** Em reais. */
+      valor?: number;
+    }[];
+    autorizadas?: {
+      /** Quantidade de notas. */
+      quantidade?: number;
+      /** Em reais. */
+      valor?: number;
+      impostos?: ValoresFiscais;
+    };
+    porDia?: {
+      /** AAAA-MM-DD. */
+      dia?: string;
+      /** Quantidade de notas. */
+      quantidade?: number;
+      /** Em reais. */
+      valor?: number;
+    }[];
+    /** Valor dos itens por CFOP; `quantidade` conta as notas em que o CFOP aparece. */
+    porCfop?: {
+      cfop?: string;
+      /** Quantidade de notas. */
+      quantidade?: number;
+      /** Em reais. */
+      valor?: number;
+    }[];
+    porNatureza?: {
+      /** Natureza da operação; na NFS-e, o código de tributação nacional do serviço. */
+      natureza?: string;
+      /** Quantidade de notas. */
+      quantidade?: number;
+      /** Em reais. */
+      valor?: number;
+    }[];
+    /** Os 50 de maior valor. */
+    porDestinatario?: {
+      documento?: string | null;
+      nome?: string | null;
+      /** Quantidade de notas. */
+      quantidade?: number;
+      /** Em reais. */
+      valor?: number;
+    }[];
+  };
+  recebidas?: {
+    porSituacao?: {
+      situacao?: string;
+      /** Quantidade de notas. */
+      quantidade?: number;
+      /** Em reais. */
+      valor?: number;
+    }[];
+    /** As autorizadas em que o titular é o destinatário. `impostos` soma só as que já têm o XML completo (`comXml`). */
+    autorizadas?: {
+      /** Quantidade de notas. */
+      quantidade?: number;
+      /** Em reais. */
+      valor?: number;
+      comXml?: number;
+      impostos?: ValoresFiscais;
+    };
+    /** Notas em que o titular é só transportador ou autorizado a baixar o XML; ficam fora dos totais. */
+    comoTerceiro?: number;
+    /** Valor dos itens por CFOP; `quantidade` conta as notas em que o CFOP aparece. */
+    porCfop?: {
+      cfop?: string;
+      /** Quantidade de notas. */
+      quantidade?: number;
+      /** Em reais. */
+      valor?: number;
+    }[];
+    /** Os 50 de maior valor. */
+    porEmitente?: {
+      documento?: string | null;
+      nome?: string | null;
+      /** Quantidade de notas. */
+      quantidade?: number;
+      /** Em reais. */
+      valor?: number;
+    }[];
+  };
+};
+
+/** Exportação dos XML de um período, com a planilha de resumo. */
+export type Exportacao = {
+  id?: string;
+  ambiente?: "homologacao" | "producao";
+  periodo?: {
+    de?: string;
+    ate?: string;
+  };
+  incluir?: ("nfse" | "nfe" | "nfce" | "eventos" | "inutilizacoes" | "recebidas")[];
+  /** `preparando`: o cofre ainda lê os XML para a planilha (até 200 por consulta); consulte de novo em alguns segundos. `pronta`: os links valem. */
+  situacao?: "preparando" | "pronta";
+  notasPorLer?: number;
+  /** Quantidade de XML na exportação. */
+  arquivos?: number;
+  /** Quantos arquivos de cada tipo entraram: `nfse`, `nfe`, `nfce`, `eventos`, `inutilizacoes`, `recebidas`, `eventosRecebidos`, `manifestacoes`. */
+  conteudo?: Record<string, unknown>;
+  /** O ZIP sai em partes de até 400 arquivos, cada uma montada na hora do download. A planilha vai dentro da primeira. */
+  partes?: {
+    parte?: number;
+    nome?: string;
+    /**
+     * Link assinado, com prazo curto: baixa direto do cofre, sem chave de API.
+     * format: uri
+     */
+    url?: string;
+  }[];
+  /** Planilha de resumo (.xlsx), com uma aba para as emitidas e outra para as recebidas. */
+  planilha?: {
+    nome?: string;
+    /**
+     * Link assinado, com prazo curto: baixa direto do cofre, sem chave de API.
+     * format: uri
+     */
+    url?: string;
+  } | null;
+  /**
+   * Depois deste instante os links param de valer; consultar a exportação devolve links novos.
+   * format: date-time
+   */
+  linksValemAte?: string | null;
+  /** format: date-time */
+  criadaEm?: string;
+  /**
+   * A exportação e os arquivos dela são apagados 24 horas depois de criada.
+   * format: date-time
+   */
+  expiraEm?: string;
+};
+
 export type InutilizacaoRegistrada = {
   id?: string;
   modelo?: string;
@@ -1894,6 +2087,7 @@ export const CONTRACT_ERROR_CODES = {
   nota_nao_localizada: 422,
   consulta_rejeitada: 422,
   consumo_indevido: 429,
+  link_invalido: 403,
   limite_de_consultas: 429,
   sem_resposta_conclusiva: 502,
   sem_conexao: 200,
@@ -1935,6 +2129,12 @@ export const CONTRACT_OPERATIONS = [
   "POST /v1/distribuicao/consultar-chave",
   "GET /v1/distribuicao/documentos",
   "GET /v1/distribuicao/documentos/{sequencia}/xml",
+  "GET /v1/notas",
+  "GET /v1/relatorios/notas",
+  "GET /v1/exportacoes",
+  "POST /v1/exportacoes",
+  "GET /v1/exportacoes/{id}",
+  "GET /exportacoes/{id}/{arquivo}",
   "GET /v1/nfse",
   "POST /v1/nfse",
   "GET /v1/nfse/{id}",
