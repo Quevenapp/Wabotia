@@ -32,7 +32,11 @@ import { ModulesPage } from "./ModulesPage";
 import { FormsPage } from "./FormsPage";
 import { AgendaPage } from "../modules/agenda/AgendaPage";
 import { AgendaSettingsPage } from "../modules/agenda/AgendaSettingsPage";
-import { ServiceOrdersPage } from "../modules/os/ServiceOrdersPage";
+import { useWorkNavigation } from "../modules/os/work-navigation";
+import { WorkPage } from "../modules/os/work/WorkListPage";
+import { WorkTypesPage } from "../modules/os/types/WorkTypesPage";
+import { MyDeadlinesPage } from "../modules/os/tasks/MyDeadlinesPage";
+import { AreaTemplatesPage } from "./area-templates/AreaTemplatesPage";
 import { ServiceOrdersSettingsPage } from "../modules/os/ServiceOrdersSettingsPage";
 import { PaymentsPage } from "./PaymentsPage";
 import { MensalidadesPage } from "../modules/mensalidade/MensalidadesPage";
@@ -153,7 +157,14 @@ function Page({ page }: { page: PageId }) {
     case "agenda-settings":
       return <AgendaSettingsPage />;
     case "service-orders":
-      return <ServiceOrdersPage />;
+    case "work":
+      return <WorkPage />;
+    case "work-types":
+      return <WorkTypesPage />;
+    case "my-deadlines":
+      return <MyDeadlinesPage />;
+    case "area-templates":
+      return <AreaTemplatesPage />;
     case "service-orders-settings":
       return <ServiceOrdersSettingsPage />;
     case "payments":
@@ -199,12 +210,23 @@ function Page({ page }: { page: PageId }) {
 function Navigation({
   page,
   onNavigate,
+  workNavigation,
 }: {
   page: PageId;
   onNavigate: () => void;
+  workNavigation: ReturnType<typeof useWorkNavigation>;
 }) {
   const app = useApp();
-  const groups = visibleGroups(app.me.role, app.modules, app.me.access);
+  const customTypes = workNavigation.hasCustom;
+  const groups = visibleGroups(app.me.role, app.modules, app.me.access).map(
+    (group) => ({
+      ...group,
+      pages: group.pages.filter(
+        (id) => workNavigation.tasksEnabled || id !== "my-deadlines",
+      ),
+    }),
+  );
+  const workLabel = workNavigation.label;
   const link = (id: PageId, label: string, Icon: any, child = false) => (
     <a
       key={id}
@@ -216,7 +238,7 @@ function Navigation({
       onClickCapture={onNavigate}
     >
       <Icon size={child ? 17 : 19} aria-hidden />
-      <span>{label}</span>
+      <span>{id === "service-orders" && customTypes ? workLabel : label}</span>
     </a>
   );
   return (
@@ -265,7 +287,9 @@ function Navigation({
             <div className="admin-group" key={group.id}>
               <h2>
                 <group.icon size={15} aria-hidden />
-                {group.label}
+                {group.id === "service-orders" && customTypes
+                  ? workLabel
+                  : group.label}
               </h2>
               {group.pages.map((id) => {
                 const [, label, Icon] = section(id)!;
@@ -282,8 +306,10 @@ function Navigation({
 export function AdminArea({ page: requested }: { page: PageId | string }) {
   const app = useApp();
   const compact = useCompact();
+  const workNavigation = useWorkNavigation();
   const allowed =
-    !!section(requested) && canOpenPage(requested, app.me.role, app.modules, app.me.access);
+    !!section(requested) &&
+    canOpenPage(requested, app.me.role, app.modules, app.me.access);
   const page = (allowed ? requested : "overview") as PageId;
   const [drawer, setDrawer] = useState(false),
     [setupActive, setSetupActive] = useState(readFlag);
@@ -304,7 +330,11 @@ export function AdminArea({ page: requested }: { page: PageId | string }) {
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
   }, [drawer]);
-  const [, title, Icon] = section(page)!;
+  const [, registeredTitle, Icon] = section(page)!;
+  const title =
+    page === "service-orders" || page === "work"
+      ? workNavigation.label
+      : registeredTitle;
   const needsProfile = !app.profile && !withoutProfile.has(page);
   return (
     <div className={"area admin-area" + (drawer ? " drawer-open" : "")}>
@@ -331,7 +361,11 @@ export function AdminArea({ page: requested }: { page: PageId | string }) {
             <X size={20} />
           </button>
         )}
-        <Navigation page={page} onNavigate={() => setDrawer(false)} />
+        <Navigation
+          page={page}
+          onNavigate={() => setDrawer(false)}
+          workNavigation={workNavigation}
+        />
       </aside>
       <div className="admin-main">
         <header className="admin-topbar">
@@ -360,7 +394,8 @@ export function AdminArea({ page: requested }: { page: PageId | string }) {
               title={title}
               icon={<Icon size={22} />}
               description={
-                pageDescriptions[page] || "Organize seu atendimento com clareza."
+                pageDescriptions[page] ||
+                "Organize seu atendimento com clareza."
               }
             />
             {setupActive && page !== "setup" && app.isAdmin && (
