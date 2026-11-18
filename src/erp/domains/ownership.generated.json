@@ -2798,11 +2798,11 @@
    },
    "erp_preferences.label_defaults": {
     "name": "labelDefaults",
-    "ported": false
+    "ported": true
    },
    "erp_preferences.report_clean": {
     "name": "reportClean",
-    "ported": false
+    "ported": true
    },
    "erp_preferences.situation_base_color": {
     "name": "situationBaseColor",

@@ -9,10 +9,6 @@ export const bizFreight = (..._args: unknown[]): never => notPorted("erp_home.bi
 export const bizRole = (..._args: unknown[]): never => notPorted("erp_home.biz_role");
 /** erp_home.biz_unit_cost(p_product uuid) → numeric */
 export const bizUnitCost = (..._args: unknown[]): never => notPorted("erp_home.biz_unit_cost");
-/** erp_preferences.label_defaults() → jsonb */
-export const labelDefaults = (..._args: unknown[]): never => notPorted("erp_preferences.label_defaults");
-/** erp_preferences.report_clean(p text, p_max integer) → text */
-export const reportClean = (..._args: unknown[]): never => notPorted("erp_preferences.report_clean");
 /** erp_preferences.situation_bases(p_kind text) → TABLE(status text, label text, color text, ordinal integer) */
 export const situationBases = (..._args: unknown[]): never => notPorted("erp_preferences.situation_bases");
 /** erp_preferences.situation_list(p_kind text) → TABLE(key text, base_status text, name text, color text, is_default boolean, active boolean, version integer, ordinal integer, created_at timestamp with time zone) */
