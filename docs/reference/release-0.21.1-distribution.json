@@ -1,0 +1,88 @@
+{
+  "date": "2026-11-18",
+  "environment": "https://wabotia.queven.app",
+  "version": "0.21.1",
+  "commit": "060ce315db3a4b64a3b9703b5fba39be02636887",
+  "previous_version": "0.21.0",
+  "bridge": true,
+  "backup_complete": true,
+  "backup_folder": "backup-seguro/release-0.21.1-distribution-20261118 (fora do Git)",
+  "migrations": [],
+  "pending_migrations": 0,
+  "durable_object_migrations_changed": false,
+  "server_code_changed": true,
+  "package_format_1": {
+    "verified": true,
+    "sha256": "c2c4ebb192e27b9498127a5dded5b1b7489110141cba005546dee416938df238",
+    "sha256_matches_catalog": true,
+    "size": 23673643,
+    "limit": 25165824,
+    "slim": false,
+    "legacy_latest_json_frozen_here": true
+  },
+  "package_format_2": {
+    "manifest_bytes": 20490,
+    "unique_files": 125,
+    "total_bytes": 17767418,
+    "worker_bytes": 9721132,
+    "signed_by": "principal",
+    "index_expires": "2027-02-16",
+    "min_version": "0.0.0"
+  },
+  "updater_checks": "scripts/erp/check-candidate.mjs public/releases/0.21.1: leitor da 0.21.0 (fca4bb2) no formato 1 e leitor atual no formato 2",
+  "previous_versions_intact": 40,
+  "tests": {
+    "host": "Linux, Node 22",
+    "erp": { "tests": 644, "passed": 641, "failed": 0, "todo": 3 },
+    "vitest": { "files": 189, "passed": 1463 }
+  },
+  "typescript_check": true,
+  "web_build": true,
+  "web_installer_enabled_on_distribution": true,
+  "rehearsal": {
+    "report": "ensaio da sessão K em 17/11/2026, instalação descartável, chave e catálogo de teste (já apagados)",
+    "base_commit": "b385b21",
+    "passed": [
+      "salto de formato 1 para a ponte completa (cerca de 63 s, painel sem interrupção)",
+      "saída de emergência sobre um trabalho ativo",
+      "salto de formato 2 a partir da ponte (427 arquivos, 69 MB, cerca de 10 min)",
+      "assinatura trocada recusada",
+      "atualização automática",
+      "falha entre migrate e publish"
+    ],
+    "not_rehearsed": "o commit 856ac94 (texto do erro da Cloudflare e tempo-limite do lote) entrou depois do ensaio"
+  },
+  "known_issues": {
+    "source": "revisão independente do atualizador (18/11/2026), oito achados conferidos, nenhum corrigido nesta versão por decisão do mantenedor",
+    "born_in_bridge": [
+      "consulta do estado pode regravar um trabalho novo com o anterior já concluído (o pedido some e precisa de novo clique)",
+      "lote de arquivos sem orçamento de bytes no formato 2",
+      "índice em cache aceito por até 5 min depois do vencimento"
+    ],
+    "already_in_0_21_0": [
+      "trabalho preso em pending sem botão de cancelar",
+      "falha em publish fora da nova tentativa automática",
+      "sessão de envio vencida não volta a prepare",
+      "resposta não JSON da Cloudflare tratada como repetível"
+    ],
+    "fix_target": "versão seguinte (vale a partir do salto seguinte)"
+  },
+  "not_verified": [
+    "atualização pelo painel de uma instalação 0.21.0 com este pacote oficial",
+    "instalador pelo navegador do site oficial com o formato 2",
+    "provedores reais: WhatsApp, Mercado Pago, IA, e-mail"
+  ],
+  "operational_installation_updated": false,
+  "checks": [
+    { "route": "/api/health", "status": 200, "version": "0.21.1" },
+    { "route": "/releases/latest.json", "status": 200, "version": "0.21.1", "format": 1 },
+    { "route": "/releases/0.21.1/package.json", "status": 200, "sha256_match": true },
+    { "route": "/releases/v2/latest.json", "status": 200, "matches_local": true },
+    { "route": "/releases/v2/latest.sig", "status": 200, "matches_local": true },
+    { "route": "/releases/v2/bridge.json", "status": 200, "matches_local": true },
+    { "route": "/releases/0.21.1/manifest.json", "status": 200, "matches_local": true },
+    { "route": "/releases/0.21.1/manifest.sig", "status": 200, "matches_local": true },
+    { "route": "/releases/<versão>/release.json", "status": 200, "versions": 41 },
+    { "route": "/releases/blobs/<sha256>", "status": 200, "sampled": 3, "of": 125 }
+  ]
+}

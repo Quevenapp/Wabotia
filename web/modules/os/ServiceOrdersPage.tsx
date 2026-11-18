@@ -636,7 +636,7 @@ function OrderDetail({
   );
 }
 
-export function ServiceOrdersPage() {
+export function ServiceOrdersPage({ typeId }: { typeId?: "service_order" } = {}) {
   const app = useApp();
   const [filter, setFilter] = useState<string>("open");
   const [search, setSearch] = useState("");
@@ -648,6 +648,7 @@ export function ServiceOrdersPage() {
     return () => clearTimeout(timer);
   }, [search]);
   const params = new URLSearchParams();
+  if (typeId) params.set("type_id", typeId);
   if (filter === "open") params.set("open", "1");
   else if (filter !== "all") params.set("status", filter);
   if (query) params.set("q", query);

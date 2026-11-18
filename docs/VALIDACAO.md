@@ -1,5 +1,21 @@
 # Validação e limites
 
+## Publicação 0.22.0 de 18/11/2026: módulos por área, bots internos sem Hermes, mais ERP
+
+Publicada na distribuição oficial `https://wabotia.queven.app` no commit `b003023c5f4073da6326bb9f95fe87be43ddbc2d`. É a `main` da 0.21.1 com as correções do atualizador (`fix/atualizador-achados` `e8f7ddc`), os módulos por área (`integra/areas` `e043dd4`), o tronco do ERP (`feat/erp-motor` `00f76d6`) e os bots sem Hermes (`integra/bots` `8d5b3a5`, sem os Provedores). Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.22.0-distribution-20261118`, fora do Git); as 24 migrações aditivas pendentes (`0090`, `0091`, `0092`, `0094` e `0100` a `0119`) foram aplicadas à distribuição antes da implantação. `/api/health` responde 0.22.0 nesse commit.
+
+É a primeira versão só no formato 2: 149 arquivos e 19224023 bytes, manifesto `986cb91c287eb74f2ba4fc89da8da22226b99ef0da4647e467b0f24759dae6d3`, assinada pela chave principal, com o índice válido até 16/02/2027 e exigindo a 0.21.1 instalada. Os 149 arquivos do manifesto respondem no site, o índice e as assinaturas conferem com os gerados, `releases/latest.json` continua na 0.21.1 e as 41 versões anteriores continuam disponíveis. A versão saiu sem a sonda do plano pago (`--workers-paid`), que ainda não foi conferida numa conta gratuita real.
+
+**2183 testes em 244 arquivos** e os 935 do ERP (934 passam, nenhuma falha, 1 a fazer) rodaram no commit publicado, com TypeScript e build. Os módulos por área, parte do ERP e parte dos bots foram escritos por agentes de código em paralelo no próprio dia 18/11, com revisões independentes, leitura dos arquivos centrais e a suíte completa antes da junção. Não verificado: a atualização pelo painel de uma instalação 0.21.1 com este pacote (é o primeiro salto no formato 2 fora do ensaio), as telas novas dos módulos por área num navegador ou em atendimento real, a leitura das extensões Jurídico, Condomínio e Ensino, o conteúdo dos modelos por quem exerce cada profissão, os aplicativos com tipos de trabalho personalizados e os provedores reais. A instalação operacional não foi atualizada nesta publicação. [Evidência](reference/release-0.22.0-distribution.json).
+
+## Publicação 0.21.1 de 18/11/2026: versão ponte para o pacote assinado
+
+Publicada na distribuição oficial `https://wabotia.queven.app` no commit `060ce315db3a4b64a3b9703b5fba39be02636887`, a partir da `main` (0.21.0) com o branch `release/0.21.1-ponte` (`856ac94`). É a 0.21.0 sem mudança de comportamento, com o atualizador e os instaladores do formato 2 assinado. Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.21.1-distribution-20261118`, fora do Git); não havia migração a aplicar. `/api/health` responde 0.21.1 nesse commit.
+
+O pacote de formato 1, que a 0.21.0 lê, confere com o SHA-256 `c2c4ebb192e27b9498127a5dded5b1b7489110141cba005546dee416938df238` (23673643 bytes, 1,49 MB abaixo do teto de 24 MiB) e passou pelo leitor da própria 0.21.0 no `check-candidate`. O formato 2 da mesma versão tem 125 arquivos e 17767418 bytes, assinado pela chave principal, com o índice válido até 16/02/2027. `releases/latest.json` fica congelado nesta versão. As 40 versões anteriores continuam disponíveis.
+
+**1463 testes em 189 arquivos** e os 644 do ERP (641 passam, nenhuma falha, 3 a fazer) rodaram no commit publicado, com TypeScript e build. O ensaio de 17/11 numa instalação descartável (salto para a ponte, saída de emergência, salto de formato 2, assinatura trocada, automático, falha entre `migrate` e `publish`) passou no `b385b21`; o `856ac94` entrou depois e não foi ensaiado. Uma revisão independente do atualizador apontou oito limites, nenhum corrigido nesta versão: eles valem para o salto seguinte e ficam para ele. Não verificado: a atualização pelo painel de uma instalação 0.21.0 com este pacote oficial, o instalador pelo navegador do site com o formato 2, e os provedores reais. A instalação operacional não foi atualizada nesta publicação. [Evidência](reference/release-0.21.1-distribution.json).
+
 ## Publicação 0.21.0 de 17/11/2026: acesso por pessoa, segundo fator, ERP em implantação
 
 Publicada na distribuição oficial `https://wabotia.queven.app` no commit `fca4bb2b6053c32bc80d3bdde87d1622fb4377c8`, a partir da `main` (0.20.0) com a linha de integração `integra/erp-painel` (`e2f1805`) e a licença AGPL-3.0 (`chore/licenca-agpl`). Um backup D1/R2 completo da distribuição precedeu a publicação (`backup-seguro/release-0.21.0-distribution-20261117`, fora do Git); as 16 migrações aditivas pendentes, de `0043` a `0089`, foram aplicadas à distribuição antes da implantação. `/api/health` responde 0.21.0 nesse commit. O pacote baixado do catálogo confere com o SHA-256 `f1b7a7935a63bd3d277c3c699cf7ecaa419f36dd9490c4d411652e8da9d26bfd` (23655027 bytes, dentro do teto de 24 MB do formato 1, com o Worker minificado e sem os guias em PDF), e as 39 versões anteriores continuam disponíveis. A instalação operacional não foi atualizada nesta publicação.
@@ -457,12 +473,14 @@ npm ci
 npm run check
 npm test
 node tests/installer.test.mjs
-node tests/updater-build.test.mjs
 node tests/qr-features.test.mjs
+node tests/router-examples.test.mjs
 npm run build
 python3 -m pip install httpx
 python3 tests/hermes_transport_test.py
 ```
+
+`tests/router-examples.test.mjs` executa também o exemplo Python do roteador: precisa de Python 3 no `PATH` (no Windows, o atalho da Microsoft Store não serve). Sem Python, esse teste falha com "Python was not found", sem relação com o código.
 
 Os scripts remotos `smoke.mjs` e `validate-examples.mjs` são exclusivos para staging e criam dados sintéticos. `validate-restore.mjs` cria e remove recursos descartáveis novos; use somente a configuração staging e um backup controlado. Os exemplos de execução de bot são opcionais e exigem `WABOTIA_BOT` autorizado.
 
@@ -484,6 +502,6 @@ O instalador independente foi executado em Linux contra a Cloudflare real, em um
 
 Cinco testes adicionais em workerd cobrem o pacote oficial, preservação de bindings, identidade da instalação, autorização administrativa, início deduplicado, confirmação pelo código ativo, timeout sem nova publicação, integridade/caminhos, incompatibilidade de Durable Objects e rollback de migração. O tag de migração é lido nos metadados do serviço, porque o endpoint de settings não o retorna.
 
-Os pacotes oficiais usam HTTPS e SHA-256; não têm assinatura assimétrica. Um commit só aparece como atualização depois de publicado no catálogo oficial. O fluxo anterior de Builds continua disponível para instalações que já têm hook configurado.
+Os pacotes oficiais usavam HTTPS e SHA-256, sem assinatura assimétrica. Desde o formato 2, o índice e o manifesto são assinados com Ed25519 e o índice tem prazo ([formato e assinatura](ATUALIZACOES-FORMATO.md)). Um commit só aparece como atualização depois de publicado no catálogo oficial. O fluxo anterior de Builds saiu do código.
 
 A atualização direta real foi concluída em 05/11/2026 no Worker isolado `wabotia-release-staging`, do candidato para o commit oficial `72916d2` (0.3.0). O painel/API registrou `completed` somente após o novo código responder. Repetir o início com a mesma Idempotency-Key retornou o mesmo trabalho; login e conversa sintética foram preservados. [Evidência sanitizada](reference/direct-release-validation.json). Nenhum canal externo foi conectado nesse teste.

@@ -12,7 +12,7 @@ implementação (`nfapi-provider.ts`).
 
 | Arquivo | O quê |
 |---|---|
-| `contract/openapi.json` | Cópia versionada do contrato do cofre (OpenAPI 3.1). Hoje: **0.3.2**, de `Quevenapp/nfapi` `vault/docs/openapi.json`, commit `398ab11`. |
+| `contract/openapi.json` | Cópia versionada do contrato do cofre (OpenAPI 3.1). Hoje: **0.11.0**, de `Quevenapp/nfapi` `vault/docs/openapi.json` no canal estável (`cofre-estavel`), commit `8925551`. |
 | `contract/types.generated.ts` | Tipos gerados do contrato. Não edite. |
 | `contract/generate.ts` | Gerador de tipos, lista de operações e comparação de contratos. Funções puras. |
 | `contract/sync.mjs` | Copia um contrato novo e regera os tipos. |
@@ -32,10 +32,12 @@ cada pedido e cada resposta contra os schemas do contrato.
 A NFapi avisa que os campos podem mudar depois do primeiro teste em
 homologação.
 
-1. Copie o contrato e regere os tipos:
+1. Copie o contrato **do canal estável** (não do disco, que pode estar à
+   frente) e regere os tipos:
 
    ```bash
-   node src/erp/emissor/contract/sync.mjs D:\Code\NFapi\vault\docs\openapi.json
+   git -C D:\Code\NFapi show origin/cofre-estavel:vault/docs/openapi.json > openapi-estavel.json
+   node src/erp/emissor/contract/sync.mjs openapi-estavel.json
    ```
 
    O comando lista as diferenças para a cópia anterior.
@@ -53,6 +55,55 @@ Em produção, o **Testar conexão** lê `GET /v1/openapi.json` do cofre instala
 e compara com a cópia versionada:
 - versão de outra minor (antes da 1.0) gera o alerta `contract_incompatible`;
 - diferença de forma na mesma minor gera o alerta `contract_changed`.
+
+## Cofre antigo: versão mínima por operação
+
+**Emissão exige cofre 0.8.0** (`EMISSION_MIN_VERSION`). Um cofre anterior à
+0.6.0 não conhece os grupos de IBS, CBS e IS e aceitaria a nota sem eles sem
+ninguém perceber. Como um cofre antigo emite sem errar, a versão é conferida
+**antes** de enviar: o provedor lê `GET /v1/cofre` a cada emissão (uma
+leitura curta) e, abaixo da 0.8.0 ou com versão ilegível, responde
+`409 vault_outdated` com `min_version` sem mandar nada. Eventos e leituras
+de notas já emitidas seguem a tabela abaixo; as leituras de antes da 0.3.2
+continuam aceitas para fechar notas antigas.
+
+Cada operação mais nova tem a versão mínima em `OPERATION_MIN_VERSION`
+(`nfapi.ts`), pelo histórico do canal estável:
+
+| Desde | Operações |
+|---|---|
+| 0.4.0 | NFC-e com `contingencia` diferente de `nunca` |
+| 0.4.1 | XML dos eventos (cancelamento, carta de correção) e consulta de inutilizações; `POST /v1/inutilizacoes` repetido devolve 200 com `repetido` |
+| 0.7.0 | Cupom da NFC-e (JSON) |
+| 0.8.0 | DANFE, DANFE NFC-e e logotipo |
+| 0.9.0 | NF-e recebidas, manifestação e distribuição |
+| 0.11.0 | Notas emitidas com filtros, relatório do período e exportação dos XML |
+
+Sem custo no caminho feliz: só quando uma dessas chamadas falha como falha
+uma rota inexistente (404, 405, 400 ou resposta fora do contrato) o cliente
+lê `GET /v1/cofre`. Versão abaixo da mínima vira `NfapiOutdatedError`, e o
+provedor devolve `409 vault_outdated` com `min_version` e a versão
+instalada na mensagem, nunca o 404 cru. Um 404 de id inexistente num cofre
+em dia continua 404.
+
+No painel, o "Testar conexão" trata como compatível o cofre a partir de
+0.8.0 (`OLDEST_SUPPORTED_VAULT`) e mostra o alerta `vault_feature_outdated`
+por recurso (`FEATURE_MIN_VERSION` em `config.ts`), com a versão instalada e
+a mínima: emissão na 0.8.0 (nível `error`), documentos impressos e
+contingência na 0.8.0, notas recebidas na 0.9.0. Abaixo de 0.8.0 aparece
+também `contract_incompatible`. Cofre de minor **mais nova** que a fixada continua
+`contract_incompatible`, até o Wabotia acompanhar.
+
+## Trava de evento fiscal em teste
+
+Em processo de teste (vitest ou `node --test`, lido do ambiente do executor
+em `TEST_PROCESS`, sem opção para desligar), **nenhum POST** sai para um
+cofre que não seja o simulado: o host precisa terminar em `.test` ou
+`.invalid` (reservados, RFC 6761). A recusa é `NfapiTestGuardError`, antes
+de qualquer `fetch`, e o provedor não a converte em erro fiscal. Vale para
+emissão, consulta, cancelamento, carta de correção, inutilização,
+manifestação (pela nota e pela chave), consulta por chave e sincronização.
+Leituras saem. O cofre simulado usa `https://nfapi-cofre.fake-vault.test`.
 
 ## Emissão: referência, repetição e idempotência
 
@@ -123,8 +174,10 @@ Itens, descontos, pagamentos e troco são os que o ERP enviou, ou estão no
   efeito no ERP: se a resposta da primeira chamada se perdeu, a segunda vem
   com `true` e o ERP nunca lançou o efeito. Lance o efeito pelo estado do
   próprio documento (ainda não está cancelado no ERP? Cancele).
-- **Inutilização:** não se repete sozinha, porque uma faixa repetida pode
-  ser recusada pela SEFAZ.
+- **Inutilização:** desde a 0.4.1 a faixa já inutilizada volta 200 com
+  `repetido` (`repeated` no resultado), então depois de resposta não
+  conclusiva o provedor repete uma vez. Em cofre mais antigo não repete,
+  porque a SEFAZ recusaria a faixa repetida.
 
 **Testes com respostas perdidas** (`provider.test.ts`): o cofre simulado conta
 as notas que o "governo" autorizou de fato, inclusive as que ficaram
@@ -160,6 +213,17 @@ O `FiscalError` estende `ApiError`. Em `details` vêm:
 | `422 producao_bloqueada` | `409 fiscal_production_blocked` | não |
 | `422 certificado_do_cliente_invalido` | `409 fiscal_certificate_rejected` | não |
 | `422 host_nao_permitido` | `502 fiscal_provider_error` | não |
+| `409 distribuicao_nao_configurada` | `409 fiscal_distribution_not_configured` | não |
+| `409 xml_indisponivel` (nota recebida só com resumo) | `409 fiscal_xml_unavailable` | não |
+| `409 manifestacao_ja_registrada` | `409 fiscal_manifestation_already_registered` | não |
+| `422 chave_de_acesso_invalida` | `422 fiscal_invalid_access_key` | não |
+| `422 justificativa_obrigatoria` | `422 fiscal_justification_required` | não |
+| `422 limite_de_manifestacoes` | `422 fiscal_manifestation_limit` | não |
+| `422 manifestacao_rejeitada` / `consulta_rejeitada` | `422 fiscal_rejected` | não |
+| `422 nota_nao_localizada` | `422 fiscal_received_note_not_found` | não |
+| `429 limite_de_consultas` / `consumo_indevido` | `429 fiscal_query_limit` / `fiscal_queries_blocked`, com `retry_at` (ISO, lido de `erro.mensagem`) | depois de `retry_at` |
+| operação mais nova que o cofre | `409 vault_outdated`, com `min_version` | não |
+| arquivo acima do limite (PDF 10 MB, imagem 2 MB) | `502 fiscal_file_too_large` | não |
 | `502 sem_resposta_conclusiva` | `503 fiscal_no_conclusive_answer` | sim |
 | `500 erro_interno` | `503 fiscal_provider_unavailable` (na emissão, procura a referência antes) | sim |
 | `503 cofre_nao_configurado` | `409 fiscal_provider_not_ready` | não |
@@ -187,7 +251,7 @@ O erro traz:
 Corrigido o cadastro ou o dado, a emissão segue a regra da rejeição: reenvie
 na **mesma** versão.
 
-A tabela segue `x-codigos` do contrato: 32 códigos com status, em
+A tabela segue `x-codigos` do contrato: 43 códigos com status, em
 `CONTRACT_ERROR_CODES`. Código desconhecido é tratado pelo status HTTP, como
 o contrato pede.
 
@@ -240,6 +304,22 @@ Escrita só com administrador. Em caso de erro fiscal, a resposta é `{ error:
 | `POST /erp-emissor/test` | admin | "Testar conexão": chama `GET /v1/cofre`, `/v1/series` e `/v1/openapi.json`, guarda e devolve o estado. |
 | `GET /erp-emissor/series` | quem tem acesso | Séries ao vivo do cofre. |
 | `GET /erp-emissor/sefaz?uf=SP&modelo=nfce&ambiente=homologacao` | quem tem acesso | Status da SEFAZ: `{in_operation, authorizer, message, average_seconds}`. |
+| `GET /erp-emissor/nfe/{ref}/danfe` | quem tem acesso | DANFE em PDF. |
+| `GET /erp-emissor/nfce/{ref}/danfce?largura=80\|58&via=consumidor\|estabelecimento` | quem tem acesso | DANFE NFC-e em PDF. Largura ou via desconhecida: 400 sem chamar o cofre. |
+| `GET /erp-emissor/nfce/{ref}/cupom?via=` | quem tem acesso | Cupom em JSON (`Cupom` do contrato), para a impressora do caixa. |
+| `GET /erp-emissor/logotipo` | quem tem acesso | Logotipo (PNG ou JPEG); sem logotipo: 404 `fiscal_logo_missing`. |
+| `GET /erp-emissor/{nfe\|nfce\|nfse}/{ref}/cancelamento/xml` | quem tem acesso | XML do cancelamento. |
+| `GET /erp-emissor/nfe/{ref}/carta-correcao/{n}/xml` | quem tem acesso | XML da carta de correção `n`. |
+| `GET /erp-emissor/inutilizacoes/{ref}/xml` | quem tem acesso | XML da inutilização. |
+
+"Quem tem acesso" é qualquer papel `erp:*`. Os arquivos vão com o tipo e o
+tamanho que o cofre mandou, sem transformação, `Cache-Control: private,
+no-store` e `X-Content-Type-Options: nosniff`. O cofre gera os PDFs na hora:
+nada fica guardado no Wabotia, e nenhum conteúdo de nota vai para log.
+Caractere fora do Latin-1 sai como "?" no PDF (limite do cofre).
+Erros do 0.8.0: 409 `fiscal_not_authorized` para nota sem XML autorizado
+arquivado; 404 `fiscal_document_not_found` para id inexistente ou de outro
+modelo.
 
 Estado (`GET`, `PUT`, `DELETE`, `POST /test`):
 
@@ -287,6 +367,9 @@ Os textos dos alertas já vêm prontos para mostrar.
 | `contract_changed` | info | O contrato do cofre tem diferenças na mesma minor. |
 | `production_blocked` | info | O cofre só emite em homologação. |
 | `key_homologation_only` | info | A chave só opera em homologação. |
+| `vault_feature_outdated` | warning | "Cofre desatualizado para X": `feature` e a versão mínima em `version`. |
+| `contingency_pending` | warning | NFC-e em contingência ainda sem transmissão (`pending_notes`). |
+| `logo_missing` | info | O cofre não tem logotipo (o DANFE sai sem a marca). |
 
 ## Chamada de Worker para Worker
 
@@ -349,20 +432,131 @@ O que isso significa para o Wabotia:
 - **Não conferido numa conta real:** se dois Workers no mesmo
   `<conta>.workers.dev` disparam o 1042.
 
-## Contingência (preparada, não implementada)
+## Contingência da NFC-e (cofre 0.4.0 em diante)
 
-A NFapi não tem contingência. A interface já tem o lugar:
-- `emit(..., { contingency: { mode: "offline" | "svc", reason } })` pede a
-  emissão em contingência;
-- `FiscalProvider.contingency` lista os modos que o provedor emite (a NFapi:
-  `[]`);
-- a situação `contingency` vale para "emitida em contingência, a transmitir";
-- `FiscalResult.contingency` traz o modo, o motivo, `since` e
-  `transmitted_at`;
-- o método opcional `transmitContingency(ctx, kind, ref)` transmite depois.
+`emit(ctx, "nfce", pedido, key, { contingency })`, com `contingency`:
+- `never` (padrão do cofre): sem resposta do governo, `503
+  fiscal_no_conclusive_answer`, como antes;
+- `automatic`: o cofre espera até 20 s e, sem resposta conclusiva, emite a
+  nota em contingência offline (tipo de emissão 9) com **número novo**. As
+  vendas seguintes saem direto em contingência enquanto a SEFAZ segue fora;
+- `forced`: emite direto em contingência.
 
-Hoje a NFapi recusa o pedido com `422 fiscal_contingency_not_supported`,
-antes de chamar o cofre, e todo resultado vem com `contingency: null`.
+O que o ERP recebe e faz:
+- **Resultado.** Status `contingency`, com `contingency: { pending, since,
+  reason, transmission_attempts, last_attempt_at, normal_note_in_review,
+  review_failure, normal_note_cancelled }`. O caixa imprime o DANFE NFC-e
+  normalmente, e o cofre usa os textos e vias próprios da contingência.
+- **Nota válida.** Na regra das versões, a nota em contingência conta como
+  autorizada: bloqueia versão nova com `fiscal_previous_version_open`.
+- **Transmissão.** O cofre transmite sozinho quando a SEFAZ volta. Para
+  forçar uma tentativa, o caminho é `reconcile` (`/consultar`): não existe
+  `transmitContingency`. O prazo legal é o fim do primeiro dia útil seguinte.
+- **Painel.** `state().contingency.pending_notes` gera o alerta
+  `contingency_pending`.
+- **Tempo-limite.** O cliente usa no mínimo 60 s de tempo-limite de escrita
+  quando o pedido traz contingência, acima da espera de 20 s do cofre.
+- **Comparação de conteúdo.** O modo não entra nela: trocar o modo entre
+  tentativas não dá `referencia_com_conteudo_diferente`.
+
+**A mesma referência repetida durante a espera** (o caixa desistiu e
+repetiu, ou a resposta se perdeu) nunca gera segunda nota nem reenvia ao
+governo. Enquanto o cofre espera, a referência está `processando`: a
+repetição recebe `409 emissao_em_andamento`, e o provedor devolve a emissão
+em processamento. Depois da espera, a repetição recebe `200` com a nota em
+contingência. É o teste `contingency.test.ts`, que conta os envios ao
+governo no cofre simulado.
+
+## NF-e recebidas e manifestação do destinatário (cofre 0.9.0)
+
+São notas que outras empresas emitiram contra o CNPJ do titular. O cofre as
+baixa do Ambiente Nacional no ritmo que ele permite. NSU e espera são só do
+cofre. O ERP **lê**:
+
+- **Lista por cursor.** `received(ctx, { after, limit, environment,
+  access_key })` devolve `{ items, last_sequence, has_more }`. Guarde
+  `last_sequence` e passe em `after`. A sequência cresce a cada mudança
+  (XML completo chegou, cancelada, manifestada), então **a mesma nota
+  reaparece**: trate por `provider_ref` ou `access_key`. Ler não consulta o
+  governo.
+- **Papel.** `role` é `recipient` ou `third_party`. Só as de `recipient` se
+  confrontam com pedido de compra.
+- **Resumo.** Antes da manifestação só há resumo: sem itens nem XML
+  (`xml_available: false`). `receivedXml` e `receivedDanfe` dão `409
+  fiscal_xml_unavailable`.
+- **Manifestação.** `manifest(ctx, { ref } | { access_key, environment?,
+  cnpj? }, { type, justification? })`, com `type` `ciencia`, `confirmacao`,
+  `desconhecimento` ou `nao_realizada`. A justificativa (15 a 255
+  caracteres) só vale na não realizada.
+  - É **evento fiscal**: no ERP, ação sensível da categoria nota fiscal.
+  - Repetir devolve `repeated: true` sem enviar nada.
+  - O provedor não repete sozinho, nem depois de 502: quem chama decide.
+  - Erros próprios: 409 `fiscal_manifestation_already_registered`, 422
+    `fiscal_manifestation_limit` e `fiscal_justification_required`.
+- **Estado.** `distribution(ctx)` devolve o estado por CNPJ e ambiente:
+  último NSU, próxima consulta, bloqueio e consultas por chave na última
+  hora.
+- **Consulta por chave.** `queryAccessKey(ctx, { access_key })` gasta a
+  cota de 18 por hora. Esgotada, volta `429 fiscal_query_limit` com
+  `retry_at`; bloqueio do Ambiente Nacional, `429 fiscal_queries_blocked`.
+  Sem repetição automática.
+- **Sincronizar.** `POST /v1/distribuicao/sincronizar` existe no cliente fino
+  (o contrato exige), mas **não** no provedor: o cofre já consulta sozinho, e
+  o ERP nunca chama em laço. Desde 0.9.1 o resultado traz `recuperados`.
+- **Documentos a recuperar (0.9.1).** Quando outro sistema (o do contador,
+  por exemplo) consulta o mesmo CNPJ, o Ambiente Nacional recusa a consulta
+  do cofre (656) e alguns documentos ficam para trás; o cofre os busca sozinho
+  pelo NSU, a cerca de 12 por hora. O provedor expõe a contagem em
+  `FiscalDistributionState.recovering_documents` (0 no uso normal e em cofre
+  0.9.0, que não informa).
+- **Primeira consulta.** A de um CNPJ não traz nada: não há retroativo.
+- **Configuração do cofre.** Sem ela, `409
+  fiscal_distribution_not_configured`. Chave de homologação não age em
+  produção.
+
+**Dentro do objeto `erp:<área>`.** O cliente é `fetch` puro: roda também no
+alarme do objeto. A conexão vem de `emissorConnection(env, área)`, que lê o
+segredo `erp-emissor:<área>` no D1 e o decifra com a `MASTER_KEY`. Não
+guarde a chave no SQLite do objeto, porque ele vai para o backup no R2.
+
+## Relatórios e exportação (cofre 0.11.0)
+
+Só leitura no cofre: nada vai ao governo. Abaixo da 0.11.0, `409
+vault_outdated` com `min_version` e o alerta `vault_feature_outdated`
+(`reports`). As rotas e telas são do Fiscal; o provedor expõe:
+
+- **`issued(filter)`** (`GET /v1/notas`): notas emitidas dos três
+  documentos, com filtros de período (`from`/`to`, AAAA-MM-DD), `kind`,
+  `status`, `environment`, `search`, `page` e `per_page` (1 a 200).
+  `total` e `amount` somam o **filtro inteiro**, não a página.
+- **`report({environment, from, to})`** (`GET /v1/relatorios/notas`):
+  período de até 366 dias, validado antes do cofre. Totais por situação,
+  dia, CFOP, natureza e destinatário, com os impostos (IBS, CBS e IS
+  inclusive). Só a nota autorizada entra nos totais; cancelada e recusada
+  aparecem só em `by_status`. Das recebidas, só as com XML completo entram
+  nos impostos (`with_xml`); terceiro fica fora (`as_third_party`).
+  - `pending_reads` (de `notasPorLer`) > 0: impostos, CFOP e natureza estão
+    incompletos. O cofre lê até 150 notas por pedido; **quem chama repete**
+    depois de `retry_after_ms` (1,5 s) até `complete`. O provedor não repete
+    sozinho.
+  - `warnings`: `pending_reads` e `nfse_ibs_cbs_not_read` (IBS e CBS da NFS-e
+    ainda vêm zerados; o aviso aparece quando há NFS-e no período). Mostre,
+    não esconda.
+- **`exportCreate`, `exportGet`, `exports`** (`/v1/exportacoes`): XML do
+  período em ZIP (partes de até 400 arquivos) com a planilha. `status`
+  `preparing`: consulte com `exportGet` depois de `retry_after_ms` (1 ou 2 s,
+  nunca em laço apertado); cada consulta leva o preparo adiante.
+  `exportCreate` não repete sozinho (um POST repetido criaria outra).
+  - **Links:** `parts[].url` e `spreadsheet.url` são links assinados para o
+    **navegador do usuário** abrir direto no cofre, sem chave de API. O
+    servidor do Wabotia nunca baixa esses arquivos nem monta o endereço
+    (`GET /exportacoes/{id}/{arquivo}` está em `BROWSER_ONLY_OPERATIONS`,
+    fora do cliente). O link só é repassado se sair da origem do cofre;
+    outro host vira `502 fiscal_provider_error`.
+  - Os links valem até `links_valid_until` (cerca de 30 min). Link vencido
+    (403 `link_invalido` no navegador): chame `exportGet` de novo, que
+    devolve links novos (`fiscal_export_link_expired` no mapa de erros).
+  - A exportação some em 24 h: `404 fiscal_export_not_found`.
 
 ## O que falta para emitir de ponta a ponta
 
@@ -371,7 +565,15 @@ antes de chamar o cofre, e todo resultado vem com `contingency: null`.
   o corpo e a versão, e gravar número, série, chave, protocolo e XML.
 - **Montar as rotas** em `src/index.ts` e as telas (sessão M).
 - **Flag de compatibilidade** se o cofre puder estar na mesma zona.
-- **PDF (DANFE/DANFCE) e contingência:** a NFapi ainda não tem.
+- **Notas recebidas no ERP:** guardar as recebidas e confrontá-las com o
+  pedido de compra é do domínio Fiscal (sessão G).
+- **Fora deste cliente:** impressão (apps), carta de correção impressa, SVC
+  da NF-e e DANFSe.
+- **Conferência da 0.8.0 e da 0.9.0:** a NFapi conferiu a 0.8.0 em testes
+  automatizados e visualmente, não num cofre publicado. O código de barras e
+  o QR Code não foram lidos por leitor físico. A 0.9.0 foi testada com um
+  Ambiente Nacional simulado, nunca contra o serviço real. Aqui, tudo contra
+  o cofre simulado.
 - **Teste real a partir do Wabotia:** este cliente nunca falou com um cofre
   real; os testes usam um cofre simulado. Do lado da NFapi, em 16/11, com um
   script local sobre o código do cofre (não pela API de um cofre publicado),

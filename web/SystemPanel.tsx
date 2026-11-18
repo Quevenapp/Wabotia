@@ -289,8 +289,7 @@ function AutomaticUpdates({
         </label>
         {!updates.configured && (
           <p>
-            Primeiro configure a atualização direta no cartão acima. Esta opção
-            não utiliza o fluxo antigo de Deploy Hook.
+            Primeiro configure a atualização direta no cartão acima.
           </p>
         )}
         <div className="system-grid">
@@ -377,10 +376,37 @@ function AutomaticUpdates({
       <p className="muted">
         O pacote é conferido antes de publicar. Migrações incompatíveis e
         publicações sem confirmação precisam de revisão no cartão de
-        atualização. Esta opção atualiza o servidor e o painel; os processos
-        O conector QR é mantido separadamente.
+        atualização. Esta opção atualiza o servidor e o painel; o conector QR
+        é mantido separadamente.
       </p>
     </section>
+  );
+}
+
+/**
+ * Só no site oficial (que serve o catálogo): lembra de renovar o índice
+ * assinado a partir de 60 dias da emissão (mesma regra de renewalNotice em
+ * scripts/release-plan.mjs). Sem lembrete automático além deste.
+ */
+function IndexRenewal({ updates }: { updates: any }) {
+  const index = updates.latest;
+  if (!updates.distribution || !index?.expires || !index.issued_at) return null;
+  const at = Date.now(),
+    left = Math.floor((index.expires - at) / 86400000);
+  if (index.expires > at && at - index.issued_at < 60 * 86400000) return null;
+  return (
+    <div className="callout" role="status">
+      <strong>
+        {index.expires <= at
+          ? "O índice da versão oficial venceu"
+          : `O índice da versão oficial vence em ${left} dia(s)`}
+      </strong>
+      <p>
+        Enquanto estiver vencido, as instalações recusam atualizar (o
+        atendimento delas continua). No computador com a chave de assinatura,
+        rode <code>npm run release -- --renew</code> e publique o site.
+      </p>
+    </div>
   );
 }
 
@@ -389,6 +415,11 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
     action = useAction(demo);
   const [updateToken, setUpdateToken] = useState("");
   const [stopped, setStopped] = useState(false);
+  const [dropInitial, setDropInitial] = useState(false);
+  const [jobToken, setJobToken] = useState("");
+  const [modeToken, setModeToken] = useState("");
+  const [modeConfirm, setModeConfirm] = useState(false);
+  const [editingMode, setEditingMode] = useState(false);
   const [editingHook, setEditingHook] = useState(false);
   const data = system.data;
   if (!data)
@@ -420,6 +451,7 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
           Instale as versões oficiais publicadas do Wabotia. A atualização
           direta na Cloudflare mantém seu banco, mídias, domínios e credenciais.
         </p>
+        <IndexRenewal updates={u} />
         <dl className="system-facts">
           <div>
             <dt>Versão instalada</dt>
@@ -466,24 +498,62 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
           >
             <RefreshCw size={16} /> Verificar atualização
           </button>
-          {u.available && u.configured && !updating && (
-            <button
-              className="button"
-              disabled={!!action.busy}
-              onClick={() =>
-                action.run("Solicitando atualização…", async () => {
-                  await mutate("updates/start", { commit: u.latest.commit });
-                  await system.refresh();
-                  action.setMessage(
-                    "Pedido registrado. Acompanhe a confirmação abaixo; você pode continuar usando o painel.",
-                  );
-                })
-              }
-            >
+          {u.available &&
+            u.configured &&
+            !updating &&
+            u.token_source !== "per_update" && (
+              <button
+                className="button"
+                disabled={!!action.busy}
+                onClick={() =>
+                  action.run("Solicitando atualização…", async () => {
+                    await mutate("updates/start", { commit: u.latest.commit });
+                    await system.refresh();
+                    action.setMessage(
+                      "Pedido registrado. Acompanhe a confirmação abaixo; você pode continuar usando o painel.",
+                    );
+                  })
+                }
+              >
+                Atualizar Wabotia <ArrowRight size={16} />
+              </button>
+            )}
+        </div>
+        {u.available && !updating && u.token_source === "per_update" && (
+          <form
+            className="system-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void action.run("Conferindo o token e solicitando…", async () => {
+                await mutate("updates/start", {
+                  commit: u.latest.commit,
+                  token: jobToken,
+                });
+                setJobToken("");
+                await system.refresh();
+                action.setMessage(
+                  "Pedido registrado. O token fica guardado só durante esta atualização, por até 60 minutos, e é apagado no fim.",
+                );
+              });
+            }}
+          >
+            <p>
+              Esta instalação não guarda token. Cole um token com{" "}
+              <strong>Workers Scripts: Edit</strong> para esta atualização.
+            </p>
+            <Input
+              label="Token Cloudflare desta atualização"
+              type="password"
+              autoComplete="off"
+              value={jobToken}
+              onChange={(e) => setJobToken(e.target.value)}
+              required
+            />
+            <button className="button" disabled={!!action.busy}>
               Atualizar Wabotia <ArrowRight size={16} />
             </button>
-          )}
-        </div>
+          </form>
+        )}
         {updating && (
           <div className="callout" role="status">
             <strong>
@@ -501,7 +571,9 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
                   Etapa:{" "}
                   {(
                     {
-                      download: "baixando pacote",
+                      download: "baixando a versão",
+                      manifest: "conferindo a versão",
+                      blobs: "baixando arquivos",
                       prepare: "verificando instalação",
                       assets: "enviando arquivos",
                       migrate: "preparando banco",
@@ -533,8 +605,12 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
         {(u.review_required || state?.status === "failed") && (
           <div className="callout">
             <p>
-              {state.error} Abra seu Worker na Cloudflare, confira a aba
-              Implantações e resolva o erro exibido.
+              {state.error ||
+                (state.status === "pending"
+                  ? "A atualização está parada há mais de 30 minutos sem avançar."
+                  : "")}{" "}
+              Abra seu Worker na Cloudflare, confira a aba Implantações e
+              resolva o erro exibido.
             </p>
             <label className="check-field">
               <input
@@ -558,6 +634,67 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
               }
             >
               Liberar nova tentativa
+            </button>
+          </div>
+        )}
+        {u.token_source === "initial" && (
+          <div className="callout">
+            <strong>Token inicial em uso</strong>
+            <p>
+              O atualizador usa o token da instalação, que também tem{" "}
+              <strong>D1: Edit</strong> e{" "}
+              <strong>Workers R2 Storage: Edit</strong>. Essas permissões só
+              servem para instalar. Salve abaixo um token
+              só com <strong>Workers Scripts: Edit</strong> e depois apague o
+              inicial: a instalação deixa de guardar permissão sobre o banco e
+              as mídias da sua conta.
+            </p>
+            {!editingHook && (
+              <button
+                className="button secondary"
+                onClick={() => setEditingHook(true)}
+              >
+                Salvar um token só de Workers
+              </button>
+            )}
+          </div>
+        )}
+        {u.token_source === "panel" && u.initial_token_stored && (
+          <div className="callout">
+            <strong>O token inicial ainda está guardado</strong>
+            <p>
+              O atualizador já usa o token salvo no painel, mas o token da
+              instalação, com D1 e R2, continua guardado no Worker como reserva.
+              Apague-o para a instalação guardar só o token de Workers. Depois
+              não há reserva: se você revogar o token do painel, a atualização
+              para até você salvar outro. Revogue também o token inicial na
+              Cloudflare (My Profile → API Tokens).
+            </p>
+            <label className="check-field">
+              <input
+                type="checkbox"
+                checked={dropInitial}
+                onChange={(e) => setDropInitial(e.target.checked)}
+              />{" "}
+              Entendi: o token do painel passa a ser o único.
+            </label>
+            <button
+              className="button secondary"
+              disabled={!dropInitial || !!action.busy || updating}
+              onClick={() =>
+                action.run("Apagando o token inicial…", async () => {
+                  await mutate("updates/initial-token/delete", {
+                    confirmed: dropInitial,
+                  });
+                  setDropInitial(false);
+                  await system.refresh();
+                  action.setMessage(
+                    "Token inicial apagado do Worker. Revogue-o também na Cloudflare.",
+                  );
+                })
+              }
+            >
+              Apagar o token inicial
             </button>
           </div>
         )}
@@ -615,17 +752,110 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
           ) : (
             <div className="callout">
               <p>
-                Esta instalação foi criada pelo fluxo anterior.
-                {u.method === "legacy" &&
-                  " O hook existente continua disponível até a migração."}
-                Use o instalador novo para criar uma instalação sem repositório
-                próprio.
+                Esta instalação não tem a identificação para atualizar pelo
+                painel. Use o instalador para criar uma instalação sem
+                repositório próprio.
               </p>
               <a href="/install#reinstalar" className="text-link">
                 Ver o roteiro de reinstalação
               </a>
             </div>
           ))}
+        {u.installation_ready && u.token_source === "per_update" && (
+          <div className="callout">
+            <strong>Token colado a cada atualização</strong>
+            <p>
+              Esta instalação não guarda token da Cloudflare. Cada atualização
+              pede o token; ele fica cifrado só enquanto ela roda (até 60
+              minutos) e é apagado no fim. Isso encolhe a janela de sempre para
+              minutos por atualização; não protege contra código rodando no
+              Worker durante esses minutos. A atualização automática fica
+              desligada. Para voltar a guardar um token, use Alterar
+              configuração de atualização.
+            </p>
+          </div>
+        )}
+        {u.installation_ready && u.token_source !== "per_update" && (
+          <>
+            {u.fiscal_vault_configured && !editingMode && (
+              <div className="callout">
+                <p>
+                  O cofre do certificado está nesta conta Cloudflare. Para não
+                  deixar o token de atualização guardado aqui, use “colar o
+                  token a cada atualização”.
+                </p>
+              </div>
+            )}
+            <button
+              className="text-link"
+              onClick={() => setEditingMode(!editingMode)}
+            >
+              Colar o token a cada atualização <ArrowRight size={16} />
+            </button>
+            {editingMode && (
+              <form
+                className="system-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void action.run("Conferindo o token…", async () => {
+                    const r = await mutate("updates/token-mode", {
+                      token: modeToken,
+                      confirmed: modeConfirm,
+                    });
+                    setModeToken("");
+                    setModeConfirm(false);
+                    setEditingMode(false);
+                    await system.refresh();
+                    action.setMessage(
+                      "Pronto: nenhum token guardado." +
+                        (r?.initial_deleted
+                          ? " O token inicial foi apagado do Worker; revogue-o também na Cloudflare."
+                          : "") +
+                        (r?.automatic_disabled
+                          ? " A atualização automática foi desligada."
+                          : ""),
+                    );
+                  });
+                }}
+              >
+                <p>
+                  A instalação deixa de guardar token: apaga o token salvo no
+                  painel e o token inicial do Worker, e cada atualização pede o
+                  token de novo. Isso encolhe a janela de sempre para minutos
+                  por atualização; não protege contra código rodando no Worker
+                  durante esses minutos.
+                </p>
+                <p>
+                  A atualização automática fica desligada: ela precisa de um
+                  token guardado.
+                </p>
+                <Input
+                  label="Token Cloudflare (Workers Scripts: Edit)"
+                  type="password"
+                  autoComplete="off"
+                  value={modeToken}
+                  onChange={(e) => setModeToken(e.target.value)}
+                  required
+                />
+                <label className="check-field">
+                  <input
+                    type="checkbox"
+                    checked={modeConfirm}
+                    onChange={(e) => setModeConfirm(e.target.checked)}
+                  />{" "}
+                  Entendi: sem atualização automática, e cada atualização pede
+                  o token.
+                </label>
+                <button
+                  className="button secondary"
+                  disabled={!modeConfirm || !!action.busy || updating}
+                >
+                  Deixar de guardar o token
+                </button>
+              </form>
+            )}
+          </>
+        )}
       </section>
       <AutomaticUpdates
         api={api}

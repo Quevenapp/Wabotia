@@ -324,6 +324,245 @@ Desligado por padrão; uso em [ORDEM-DE-SERVICO.md](ORDEM-DE-SERVICO.md). Rotas 
 
 Também pela conversa: `POST /profiles/{perfil}/conversations/{id}/actions` com `{"action":"service_order","item":"…","problem":"…"}` abre ligada à conversa, e `{"action":"service_order","send_form":true}` manda ao cliente o link para ele preencher (conversa assumida). Estados: `received`, `analyzing`, `quoted`, `approved`, `declined`, `in_progress`, `ready`, `delivered`, `cancelled`; cada ordem traz `next_statuses`. Valores em centavos e datas em milissegundos. Eventos: `os.opened`, `os.quoted`, `os.approved`, `os.declined` (com `by` e `via`), `os.status_changed` (`from`, `to`, `actor`), `os.delivered` (`warranty_until`) e `os.stale` (ordem parada), entregues aos webhooks com `conversations:read`.
 
+### Motor de trabalhos
+
+Contrato da integração em curso, definido nas seções 5 e 7 de
+[CONTRATO-MOTOR.md](areas/CONTRATO-MOTOR.md) e completado por
+[F0-ENTREGA.md](areas/F0-ENTREGA.md). A presença no OpenAPI não confirma que
+as implementações paralelas já estejam instaladas. Guia administrativo:
+[TRABALHOS.md](TRABALHOS.md). As rotas antigas e o tipo embutido continuam
+com as regras da seção anterior.
+
+Aqui `P = /api/v1/profiles/{profile}`, `B = P/service-orders` e `O = B/{id}`.
+`Order` é a ordem antiga acrescida de tipo, revisão, número do tipo, rótulos,
+`display_number`, etapa, campos extras autorizados, versão, `next_stages` e
+`stage_approval`. `MutationRef = {id, order_id, version}` e
+`Page<T> = {data: T[], next_cursor: string | null}`.
+
+O detalhe fornece `features` da definição fixada, inclusive a política de orçamento;
+revisar o catálogo não altera trabalhos antigos. Na lista de tipos personalizados,
+`next_task` contém `{id, title, due_at}` da primeira tarefa aberta autorizada ou
+`null`. Os filtros `assignee` (ID, `me`, `unassigned`), `due_from` e `due_to`
+(milissegundos Unix inclusivos do prazo geral) são aplicados no servidor, sem
+alterar `counts`. Em `my-tasks`, os limites continuam sendo datas civis.
+
+Extensões desligadas por padrão, habilitadas por área: [Jurídico](JURIDICO.md),
+[Condomínio](CONDOMINIO.md) e [Saúde](SAUDE.md).
+Ensino: rotas, permissões e corpos em [ENSINO.md](ENSINO.md#api).
+
+Leitura usa `conversations:read`; escrita usa `conversations:write` e
+`Idempotency-Key`. Parâmetros do caminho vencem o corpo e `profile` nunca é
+obtido dele. Novos filhos usam a própria versão para concorrência, sem exigir
+versão do pai. Datas de instantes são milissegundos Unix; campo extra de data
+civil usa `YYYY-MM-DD`.
+
+`status`, `status_label`, `number`, `item`, `problem` e `next_statuses` mantêm
+seus tipos antigos. São exatamente nove estados de base: `received`,
+`analyzing`, `quoted`, `approved`, `declined`, `in_progress`, `ready`,
+`delivered`, `cancelled`. `number` é global e inteiro de 1 a 2.147.483.647;
+`type_number` é uma sequência separada. `counts` é esparso, global da área e
+não segue filtros nem paginação. `facets = {types, stages?}` é opcional;
+`stages` só aparece com tipo selecionado. Nunca colocar IDs de etapas em
+`status`, `counts` ou `next_statuses`.
+
+`GET B/types` devolve `{data: WorkTypeView[], settings_revision}`. A definição
+resolvida do embutido tem os mesmos campos de configuração dos tipos próprios,
+com `kind: "builtin"`, `id: "service_order"` e `revision: 1`. Campos sensíveis
+são omitidos de quem não tem acesso. Não salvar esse tipo virtual na lista.
+`PUT P/settings` continua salvando `service_orders`; acrescenta
+`os_work_types` e `os_vocabulary`. Alterar essas duas chaves exige
+`settings_revision` obtida do catálogo, de `/status` ou da última resposta de
+configuração. Revisão divergente: `409 settings_conflict`. A revisão é SHA-256
+do JSON canônico salvo, incluindo menus ocultos. `menus_revision` mantém seu
+contrato anterior. Regras e limites de edição estão no guia administrativo.
+
+| Método e rota | Corpo ou consulta | Resposta | Erros específicos |
+|---|---|---|---|
+| `GET B` | Filtros atuais; acrescenta `type_id`, `stage`, `facets=1`. `stage` exige `type_id`. | Lista atual com `Order[]`, cursor e `counts`. `facets=1` acrescenta contagens por tipo e, quando houver tipo selecionado, por etapa. | `400 invalid_filter`; demais erros atuais. |
+| `GET B/types` | `include_archived=1`, somente equipe. | `{ data: WorkTypeView[], settings_revision }`. Inclui o embutido. | `403 forbidden`. |
+| `GET B/types/{type_id}` | Sem corpo. | Tipo atual resolvido e filtrado para o solicitante. | `404 type_not_found`. |
+| `GET O` | `history=legacy` por padrão; `history=none` para a tela nova. | `Order`. | `404 not_found`. |
+| `GET O/history` | `cursor`, `limit`, máximo 100. | Página do histórico completo, incluindo filhos. | `400 invalid_cursor`. |
+| `POST B` | Corpo atual; acrescenta `type_id?` e `extra?`. | `Order`. | `404 type_not_found`; `409 type_archived`; `400 invalid_fields`. |
+| `PATCH O` | Campos atuais; acrescenta `extra?` e `version?`. | `Order`. | `409 version_conflict`; `400 immutable_field`. |
+| `POST O/status` | `status`, `note?`. Embutido: `analyzing`, `in_progress`, `ready`, `delivered`, `cancelled`; personalizado também admite `received` por transição manual única que mude o estado de base. | `Order`. | `409 invalid_transition` se não houver destino; `409 stage_required` se a transição for ambígua ou exigir ação própria. |
+| `POST O/stage` | `{ transition_id, version, note? }`. | `Order`. | `409 invalid_transition`; `409 version_conflict`; `409 approval_required`. |
+| `PUT O/quote` | Corpo atual e `version?` da ordem; quando presente, impede sobrescrita de versão obsoleta. | `Order`. | `409 version_conflict`; `409 feature_disabled` ou erros atuais. |
+| `POST O/quote/send` | Corpo atual. | `Order`. | `409 feature_disabled` ou erros atuais. |
+| `POST O/decision` | Corpo atual: `decision: "approve" \| "decline"`, `note?`. | `Order`; a decisão continua retornando `approved` ou `declined`. | Erros atuais de pendência e validade. |
+| `POST O/stage-approval` | `{ transition_id, version }`. | `Order` com pedido pendente. | `409 approval_pending`; `409 invalid_transition`. |
+| `POST O/stage-approval/decision` | `{ decision: "approve" \| "decline", approval_version, version }`. | `Order`. | `409 approval_expired`; `409 approval_not_pending`; `409 version_conflict`. |
+| `GET O/private-fields` | Sem corpo. | `{ id, version, fields, extra }`, definições sensíveis do snapshot e seus valores autorizados. | `403 sensitive_forbidden`. |
+| `PATCH O/private-fields` | `{ version, extra }`. | `{ id, version, changed_fields }`. Não devolve valores. | `403 sensitive_forbidden`; `409 version_conflict`; `400 invalid_fields`. |
+
+Em tipos personalizados, `/status` só executa uma única transição manual
+correspondente, que mude o estado de base sem aprovação ou desvio do orçamento.
+Ausência retorna `invalid_transition`; ambiguidade ou ação própria de etapa
+retorna `stage_required`. Transições entre etapas do mesmo estado só aparecem
+em `next_stages`. Aprovação de etapa usa versão própria, conserva a origem na
+recusa e é cancelada quando campos, orçamento ou etapa mudam.
+
+| Entidade | Campos de criação |
+|---|---|
+| Tarefa | `title`, `description?`, `assignee?`, `audience`, `due_at?`, `remind_at?`, `client_visible`, `sensitive`. |
+| Pessoa | `role`, `name`, `contact_id?`, `phone?`, `email?`, `note?`, `client_visible`, `sensitive`. |
+| Documento | `name`, `mime_type`, `expected_bytes`, `client_visible`, `sensitive`. |
+| Lançamento | `kind`, `text`, `quantity_milli?`, `unit?`, `occurred_at`, `client_visible`, `sensitive`. |
+
+| Método e rota | Corpo ou consulta | Resposta | Erros específicos |
+|---|---|---|---|
+| `GET B/my-tasks` | `assignee=me`, `state?` (padrão `open`), `type_id?`, `period?`, `due_from?`, `due_to?`, `cursor?`, `limit?`. | `Page<MyTask>`: tarefa com `type_id`, `type_label`, `display_number`, `stage_label` da definição fixada do pai. | `400 invalid_filter`; `400 invalid_cursor`; `403 forbidden`. |
+| `GET O/tasks` | `state?`, `cursor?`, `limit?`. | `Page<Task>`. | `400 invalid_filter`. |
+| `POST O/tasks` | Campos de tarefa. | `MutationRef`. | `400 invalid_task`; `409 feature_disabled`. |
+| `PATCH O/tasks/{task_id}` | `version` e campos alterados; admite `state`. | `MutationRef`. | `409 version_conflict`; `400 invalid_task`. |
+| `POST O/tasks/{task_id}/archive` | `{ version }`. | `MutationRef`. | `409 version_conflict`. |
+| `POST O/private-tasks` | Campos de tarefa; sensível exige `audience=staff`, `client_visible=false`. | `MutationRef`. | `403 sensitive_forbidden`; `400 invalid_task`. |
+| `PATCH O/private-tasks/{task_id}` | `version` e campos alterados, incluindo `state`; não permite retirar sigilo. | `MutationRef`. | `403 sensitive_forbidden`; `409 version_conflict`; `400 invalid_task`. |
+| `POST O/private-tasks/{task_id}/archive` | `{ version }`. | `MutationRef`. | `403 sensitive_forbidden`; `409 version_conflict`. |
+| `GET O/people` | `cursor?`, `limit?`. | `Page<LinkedPerson>`. | Erros comuns. |
+| `POST O/people` | Campos de pessoa. | `MutationRef`. | `400 invalid_person`; `404 contact_not_found`. |
+| `PATCH O/people/{person_id}` | `version` e campos alterados. | `MutationRef`. | `409 version_conflict`. |
+| `POST O/people/{person_id}/archive` | `{ version }`. | `MutationRef`. | `409 version_conflict`. |
+| `GET O/documents` | `cursor?`, `limit?`. | `Page<DocumentMetadata>`. | Erros comuns. |
+| `POST O/documents` | Metadados de documento. | `{ id, order_id, version, upload_url, expires_at }`. | `413 document_too_large`; `415 unsupported_media_type`. |
+| `PUT O/documents/{document_id}/content` | Corpo binário; `Idempotency-Key`; versão em `Upload-Version`. | `{ id, version, upload_attempt, byte_length, sha256 }`. | `409 upload_busy`; `409 upload_expired`; `413 document_too_large`. |
+| `POST O/documents/{document_id}/complete` | `{ version, upload_attempt }`. | `MutationRef`. | `409 upload_incomplete`; `409 content_mismatch`. |
+| `GET O/documents/{document_id}/content` | Sem corpo. | Binário autenticado, com `Cache-Control: no-store`. | `404 not_found`; `409 document_not_ready`. |
+| `POST O/documents/{document_id}/send` | `{ version }`. | `{ id, message_id }`. | `403 document_not_shareable`; `409 no_conversation`; `409 document_not_ready`. |
+| `POST O/documents/{document_id}/archive` | `{ version }`. | `MutationRef`. | `409 version_conflict`. |
+| `GET O/private-documents` | `cursor?`, `limit?`. | `Page<DocumentMetadata>` somente de documentos sensíveis. | `403 sensitive_forbidden`. |
+| `POST O/private-documents` | Metadados com `sensitive=true` e `client_visible=false`. | `{ id, order_id, version, upload_url, expires_at }`. | `403 sensitive_forbidden`; `413 document_too_large`; `415 unsupported_media_type`. |
+| `PUT O/private-documents/{document_id}/content` | Bytes; `Idempotency-Key`; `Upload-Version`. | `{ id, version, upload_attempt, byte_length, sha256 }`. | `403 sensitive_forbidden`; `409 upload_busy`; `409 upload_expired`; `413 document_too_large`. |
+| `POST O/private-documents/{document_id}/complete` | `{ version, upload_attempt }`. | `MutationRef`. | `403 sensitive_forbidden`; `409 upload_incomplete`; `409 content_mismatch`. |
+| `GET O/private-documents/{document_id}/content` | Sem corpo. | Binário no MIME cadastrado, `Cache-Control: no-store`. | `403 sensitive_forbidden`; `404 not_found`; `409 document_not_ready`. |
+| `POST O/private-documents/{document_id}/archive` | `{ version }`. | `MutationRef`. | `403 sensitive_forbidden`; `409 version_conflict`. |
+| `GET O/entries` | `kind?`, `cursor?`, `limit?`, `include_archived?`. | `Page<Entry>`. | `400 invalid_filter`. |
+| `GET O/entries/summary` | `kind?`, `include_archived?`; sem cursor ou limite. | `{ data: [{ kind, unit, count, quantity_milli }] }`; soma exata `quantity_milli: string \| null`. | `400 invalid_filter`. |
+| `POST O/entries` | Campos de lançamento. | `MutationRef`. | `400 invalid_entry`; `409 feature_disabled`. |
+| `POST O/entries/{entry_id}/revisions` | `version` do anterior e campos completos da correção. | `MutationRef` do novo lançamento. | `409 version_conflict`; `409 entry_replaced`. |
+| `POST O/entries/{entry_id}/archive` | `{ version }`. | `MutationRef`. | `409 version_conflict`. |
+
+Listas filhas usam limite padrão 50 e máximo 100. O cursor opaco contém a última chave de ordenação e o ID. Deve ser validado contra área, ordem, coleção e filtros. Não usar `OFFSET`.
+
+`my-tasks` exige pessoa autenticada, sem bot, aplicação ou credencial limitada à conversa; retorna somente tarefas atribuídas ao solicitante. `period` aceita `dated` (padrão, com prazo), `overdue`, `today`, `next7`, `range` ou `undated`. `range` exige `due_from` e `due_to` como datas civis inclusivas `YYYY-MM-DD`, em Brasília. Ordenação por prazo e ID, com limite padrão 50 e máximo 100; cursor vinculado também ao ator e filtros. A visibilidade sensível exige `os:sensitive`. O resumo de lançamentos aplica a mesma autorização da lista: ocultos não entram nos grupos nem nas somas. A soma é textual para não perder precisão; `null` indica grupo sem quantidades.
+
+As escritas comuns de tarefas exigem `sensitive=false` e recusam tarefas já sensíveis com `403 sensitive_forbidden`, inclusive para quem tem o papel. Use `private-tasks` para criá-las, alterá-las e arquivá-las; a leitura autorizada continua em `GET O/tasks`. Documentos comuns também exigem `sensitive=false`; documentos sensíveis usam **toda** a família `private-documents`. Tentar baixá-los pela rota comum retorna `404 not_found`, mesmo com papel. As operações privadas exigem pessoa com `os:sensitive` explícito, sem `via`, e ficam fora do catálogo de IA. Não existe `private-documents/.../send`.
+
+No detalhe `history=legacy`, cada registro contém `id`, `kind`, `from_status`, `to_status`, `actor`, `note` (quando autorizada) e `created`. `kind` conserva `opened/status/quote/edit` antigos e também aceita eventos do motor, como `os.stage_changed` e `os.task.created`; eventos de filhos podem ter ambos os estados nulos. Metadados como `from_stage`, `to_stage`, `entity_kind`, `entity_id`, `entity_version`, `mutation_key` e `changed_fields` pertencem a `GET O/history`, não ao histórico embutido no detalhe. A listagem não carrega histórico.
+
+Limites por ordem: 500 tarefas, 200 pessoas, 500 documentos e 10.000 lançamentos. O limite conta registros arquivados. Novas inclusões acima dele retornam `409 collection_limit`. A conferência ocorre no comando serializado.
+
+Upload: reserva pendente expira em 24 horas e cada tentativa exclusiva em
+cinco minutos. Envie bytes com `Idempotency-Key` e `Upload-Version`; o servidor
+calcula SHA-256 e verifica tamanho real até 10 MiB. Repetir a chave recupera
+a tentativa concluída. `/complete` confere versão, tentativa, objeto, tamanho
+e hash antes de marcar `ready`. Download exige autorização antes de abrir o
+objeto e sempre usa `Cache-Control: no-store`. Metadados não expõem chave R2
+ou URL pública. Arquivamento não elimina imediatamente o arquivo. Envio ao
+WhatsApp exige documento pronto, público, não sensível e permissão de mensagem.
+Se ainda estiver `pending`, o envio retorna `409 document_not_ready`.
+
+O download devolve o `Content-Type` cadastrado na reserva. MIME permitidos:
+`application/pdf`, `image/jpeg`, `image/png`, `image/webp`, `text/plain`,
+`application/msword`, `application/vnd.ms-excel`,
+`application/vnd.openxmlformats-officedocument.wordprocessingml.document`,
+`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` e
+`application/vnd.openxmlformats-officedocument.presentationml.presentation`.
+`application/octet-stream` descreve o corpo binário do upload, não um MIME
+aceito na reserva nem o tipo declarado exclusivamente para download.
+
+| Situação | Resposta |
+|---|---|
+| Corpo inválido | `400 invalid_request`, com indicação do caminho do campo, sem repetir seu valor sensível. |
+| Escopo insuficiente | `403 forbidden`. |
+| Acesso sensível sem papel | `403 sensitive_forbidden`. |
+| Ordem ou filho fora da área ou do titular permitido | `404 not_found`. |
+| Módulo desligado | `409 module_disabled`. |
+| Recurso desligado no tipo | `409 feature_disabled`. |
+| Versão desatualizada | `409 version_conflict`. |
+| Tamanho excedido | `413 payload_too_large`. |
+| Limitação de frequência | `429 rate_limited`, quando aplicada pelo núcleo. |
+
+Leitura comum usa `conversations:read`. Escrita comum usa `conversations:write`. As restrições de contatos e notas continuam valendo.
+
+Dados sensíveis exigem pessoa autenticada, papel explícito `os:sensitive` e ausência de atuação por bot. Aplicações, conectores, identidades `bot:*` e qualquer ator com `via` não recebem esses dados. O papel administrativo não substitui a concessão explícita.
+
+O administrador também precisa receber explicitamente o papel de acesso sensível.
+
+Erros mantêm o envelope do núcleo; exemplos completos constam no OpenAPI:
+
+```json
+{"error":{"code":"version_conflict","message":"A versão mudou; releia o registro antes de alterar.","request_id":"req_example"}}
+```
+
+Rotas limitadas à conversa:
+
+| Método e rota | Consulta | Resposta |
+|---|---|---|
+| `GET B/conversation/{id}` | `open?`, `type_id?`. | Ordens do cliente da conversa, sem campos internos ou sensíveis novos. |
+| `GET B/conversation/{id}/orders/{order_id}` | Sem corpo. | Projeção pública da ordem. |
+| `GET B/conversation/{id}/orders/{order_id}/tasks` | `cursor?`, `limit?`. | Somente tarefas visíveis ao cliente. |
+| `GET B/conversation/{id}/orders/{order_id}/documents` | `cursor?`, `limit?`. | Somente metadados de documentos compartilháveis. |
+| `GET B/conversation/{id}/orders/{order_id}/entries` | `cursor?`, `limit?`. | Somente lançamentos visíveis ao cliente. |
+
+Essas rotas não aceitam telefone como substituto de identidade. A conversa vem da credencial e é conferida no servidor. Credenciais limitadas à conversa só acessam as rotas expressamente permitidas pelo núcleo.
+
+Os filhos nunca ampliam o conjunto de titulares. Ser tutor, responsável, advogado ou contratante registrado em `os_people` não concede acesso automaticamente.
+
+Modelos de área exigem administrador humano e funcionam com `os` desligado:
+
+| Método e rota | Corpo | Resposta | Erros |
+|---|---|---|---|
+| `GET P/area-templates` | — | Catálogo resumido. | `403 forbidden`. |
+| `GET P/area-templates/{template_id}` | — | Manifesto declarativo. | `404 template_not_found`. |
+| `POST P/area-templates/preview` | `AreaTemplatePreviewRequest`. | `AreaTemplatePreview`. Não grava nada. | `400 invalid_template`; `413 template_too_large`; `404 template_not_found`. |
+| `POST P/area-templates/apply` | `AreaTemplateApplyRequest`; `Idempotency-Key`. | `{ applied, changes, manual_steps, settings_revision }`. | `409 preview_stale`; `409 template_conflict`; `409 dependency_conflict`; `404 template_not_found`. |
+| `POST P/area-templates/export` | `{ id, name, type_ids }`. | `AreaTemplate`. Não grava nada. | `400 invalid_export`; `404 type_not_found`. |
+
+A importação usa `manifest` nas rotas de prévia e aplicação. Não executa código.
+
+O manifesto importado tem limite de 128 KiB. A configuração resultante também precisa passar pelos limites da seção 3 e pelos limites do núcleo.
+
+`AreaTemplatePreviewRequest` aceita exatamente `template_id` ou `manifest`,
+mais `selection = {work_type_ids, module_ids, menus, departments,
+ticket_categories, vocabulary, texts, bot_suggestions}`. Aplicação acrescenta
+`preview_hash`. A prévia inclui `changes`, `conflicts`, `manual_steps` e
+`can_apply`. Confirmação relê o estado e grava configuração, módulos e
+procedência no mesmo lote; divergência exige nova prévia. Não executa código,
+não concede papéis e não amplia permissões de bots. Sugestões ficam em
+`os_area_setup`. Reaplicar preserva edições e remoções manuais; resultado
+idêntico retorna `applied: false`. Exportação não contém dados pessoais das
+ordens, membros ou segredos. O manifesto usa menu `message`; a compilação
+converte para o `content` do núcleo.
+
+Exemplo de lista ampliada compatível com leitura antiga (campos adicionais
+podem ser ignorados pelo aplicativo). O OpenAPI inclui também uma ordem
+embutida completa e um projeto com duas etapas em `in_progress`:
+
+```json
+{
+  "data": [{
+    "id": "os_43", "number": 43, "status": "in_progress",
+    "status_label": "Em execução", "customer": {"name": "Cliente de exemplo"},
+    "item": "Projeto da loja", "problem": "Revisar planta", "due_at": null,
+    "source": "panel", "terms": null, "quote": null, "decision": null,
+    "ready_at": null, "delivered_at": null, "warranty_until": null,
+    "next_statuses": ["cancelled"], "created": 1795000000000, "updated": 1795000000000,
+    "type_id": "projeto", "type_revision": 1, "type_number": 7,
+    "type_label": "Projeto", "type_plural_label": "Projetos", "display_number": "PROJ-7",
+    "stage": "revisao", "stage_label": "Revisão", "version": 3,
+    "labels": {"singular": "Projeto", "plural": "Projetos", "item": "Projeto", "problem": "Objetivo", "customer_singular": "Cliente", "customer_plural": "Clientes"},
+    "extra": {}, "fields": [], "stage_approval": null,
+    "next_stages": [
+      {"transition_id": "finalizar_revisao", "stage": "execucao", "stage_label": "Execução", "base_status": "in_progress", "kind": "manual"},
+      {"transition_id": "cancelar", "stage": "cancelado", "stage_label": "Cancelado", "base_status": "cancelled", "kind": "manual"}
+    ]
+  }],
+  "next_cursor": "43",
+  "counts": {"received": 1, "in_progress": 1}
+}
+```
+
 ### Cobrança
 
 Pix e link de pagamento pelo Mercado Pago (módulo `payments`, passo a passo em [COBRANCA.md](COBRANCA.md)). O administrador configura a conta em `PUT /profiles/{perfil}/payments/account` (`access_token`, `webhook_secret`, `payer_email`, `enabled`); `GET /profiles/{perfil}/payments/account` nunca devolve os segredos, só `access_token_set`, `webhook_secret_set` e o `webhook_url` a cadastrar no Mercado Pago; `GET …/payments/account/check` confere as credenciais. Cobre com `POST /profiles/{perfil}/conversations/{id}/actions` e `{"action":"charge","method":"pix","amount_cents":4990,"description":"Consulta"}` (conversa assumida). Consulte `GET /profiles/{perfil}/payments?conversation_id=…` e `GET /profiles/{perfil}/payments/{id}`; cancele com `POST /profiles/{perfil}/payments/{id}/cancel`. O detalhe da conversa traz `payments`. Estados: `created`, `paid`, `expired`, `cancelled`, `refunded`; `paid` e `refunded` vêm só do webhook assinado do provedor seguido da consulta do pagamento. Eventos `payment.created`, `payment.paid`, `payment.expired`, `payment.cancelled` e `payment.refunded`, `payment.duplicate`.

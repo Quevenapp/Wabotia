@@ -78,7 +78,12 @@ describe("cliente NFapi", () => {
       { modelo: "nfe", ambiente: "homologacao", serie: 1, proximoNumero: 1, descricao: null, cnpj: "99888777000166" },
       { modelo: "nfce", ambiente: "homologacao", serie: 1, proximoNumero: 1, descricao: null, cnpj: "99888777000166" },
     ]);
-    expect((await api.cofre()).body).toMatchObject({ versao: "0.3.2", certificado: { titular: "EMPRESA EXEMPLO LTDA" } });
+    expect((await api.cofre()).body).toMatchObject({
+      versao: "0.11.0",
+      certificado: { titular: "EMPRESA EXEMPLO LTDA" },
+      contingencia: { notasPendentes: 0 },
+      logotipo: true,
+    });
     const status = await api.sefazStatus({ uf: "RS", modelo: "nfe", ambiente: "homologacao" }).catch((e) => e);
     expect(status).toBeInstanceOf(NfapiError);
     expect((await api.sefazStatus({ uf: "SC" })).body).toMatchObject({ emOperacao: true, autorizador: "SVRS" });

@@ -10,32 +10,83 @@ import { Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import {
   assertRelease,
-  latestRelease,
-  fetchPackage,
-  validateIndex,
-  parsePackage,
+  checkBlob,
+  fetchBlob,
+  fetchManifest,
+  latestReleaseV2,
+  migrationStatements,
+  parseManifest,
+  validateIndexV2,
   scriptPath,
-  type ReleasePackage,
+  verifySignature,
+  type BlobRef,
+  type ReleaseManifest,
 } from "../src/release";
+// Os testes do instalador (tests/installer.test.mjs) trocam as chaves por um
+// par gerado na hora.
+export { latestReleaseV2, trustReleaseKeysForTests } from "../src/release";
 import { installTokenUrl, setupLink } from "../src/install-links";
 
-export async function materializeRelease(folder: string, pkg: ReleasePackage) {
+/**
+ * Grava a versão na pasta da instalação, um arquivo por vez (formato 2): o
+ * Worker em worker/, os estáticos em web/ e as migrações em migrations/.
+ * `read` devolve os bytes já conferidos (SHA-256) de cada arquivo.
+ */
+export async function materializeRelease(
+  folder: string,
+  manifest: ReleaseManifest,
+  read: (ref: BlobRef) => Promise<Uint8Array>,
+) {
   for (const [group, files] of [
-    ["worker", pkg.modules],
-    ["web", pkg.assets],
+    ["worker", manifest.modules],
+    ["web", manifest.assets],
   ] as const) {
     for (const file of files) {
       const path = join(folder, group, file.name.replace(/^\//, ""));
       await mkdir(dirname(path), { recursive: true });
-      await writeFile(path, Buffer.from(file.data, "base64"));
+      await writeFile(path, await read(file));
     }
   }
   await mkdir(join(folder, "migrations"), { recursive: true });
-  for (const migration of pkg.migrations)
+  for (const migration of manifest.migrations)
     await writeFile(
       join(folder, "migrations", migration.name),
-      migration.statements.join(";\n") + ";\n",
+      migrationStatements(migration, await read(migration)).join(";\n") +
+        ";\n",
     );
+}
+
+const optionalFile = async (path: string) => {
+  try {
+    return await readFile(path);
+  } catch (e: any) {
+    if (e?.code === "ENOENT") return null;
+    throw e;
+  }
+};
+
+/**
+ * Catálogo local (--release-dir): <versão>/release-v2.json e .sig,
+ * manifest.json e .sig, e ../blobs/<sha>. As assinaturas valem como no
+ * catálogo publicado; só o prazo do índice não conta (a pasta é uma cópia
+ * guardada de uma versão já assinada).
+ */
+export async function localRelease(directory: string) {
+  const bytes = await readFile(join(directory, "release-v2.json"));
+  await verifySignature(
+    "index",
+    bytes,
+    await optionalFile(join(directory, "release-v2.sig")),
+  );
+  const index = validateIndexV2(JSON.parse(bytes.toString("utf8")));
+  const manifest = await parseManifest(
+    index,
+    await readFile(join(directory, "manifest.json")),
+    await optionalFile(join(directory, "manifest.sig")),
+  );
+  const read = async (ref: BlobRef) =>
+    checkBlob(ref, await readFile(join(directory, "..", "blobs", ref.sha256)));
+  return { index, manifest, read };
 }
 export async function question(
   label: string,
@@ -250,17 +301,10 @@ export async function install() {
     );
     const releaseDirectory = option("--release-dir");
     const index = releaseDirectory
-      ? validateIndex(
-          JSON.parse(
-            await readFile(
-              join(resolve(releaseDirectory), "release.json"),
-              "utf8",
-            ),
-          ),
-        )
+      ? (await localRelease(resolve(releaseDirectory))).index
       : await progress(
           "Consultando a versão oficial do Wabotia",
-          latestRelease,
+          latestReleaseV2,
         );
     await mkdir(folder, { mode: 0o700 });
     state = {
@@ -340,17 +384,21 @@ export async function install() {
     console.log(
       `1/5 · Baixando e verificando a versão oficial ${state.index.version}.`,
     );
-    const { pkg } = state.release_directory
-      ? {
-          pkg: await parsePackage(
-            validateIndex(state.index),
-            await readFile(join(state.release_directory, "package.json")),
-          ),
-        }
-      : await progress("Baixando e conferindo o pacote oficial", () =>
-          fetchPackage(validateIndex(state.index)),
-        );
-    await materializeRelease(folder, pkg);
+    // Formato 2: o manifesto e depois cada arquivo, conferido um a um.
+    const source = state.release_directory
+      ? await localRelease(state.release_directory)
+      : {
+          manifest: (
+            await progress("Baixando e conferindo o manifesto oficial", () =>
+              fetchManifest(validateIndexV2(state.index)),
+            )
+          ).manifest,
+          read: fetchBlob,
+        };
+    const pkg = source.manifest;
+    await progress("Baixando e conferindo os arquivos da versão", () =>
+      materializeRelease(folder, pkg, source.read),
+    );
     const config = {
       name,
       account_id: account,
@@ -461,7 +509,7 @@ export async function install() {
     await readFile(secretsFile, "utf8"),
   ).SETUP_TOKEN;
   console.log(
-    `5/5 · Pronto: ${state.url}/app\nPara criar o primeiro administrador, abra este link no navegador; ele já leva o código de instalação e só serve até essa conta existir:\n${setupLink(state.url, setupToken)}\nO mesmo código está em ${secretsFile}, campo SETUP_TOKEN.\nGuarde a pasta ${folder} em local privado. MASTER_KEY recupera suas credenciais; não gere outra para a mesma instalação.\nAs próximas versões são instaladas em Sistema e atualizações. O computador usado na instalação pode ser desligado.`,
+    `5/5 · Pronto: ${state.url}/app\nPara criar o primeiro administrador, abra este link no navegador; ele já leva o código de instalação e só serve até essa conta existir:\n${setupLink(state.url, setupToken)}\nO mesmo código está em ${secretsFile}, campo SETUP_TOKEN.\n\nAtenção: ${secretsFile} guarda em texto puro a MASTER_KEY, o SETUP_TOKEN e o token da Cloudflare usado aqui${process.platform === "win32" ? " (no Windows, a restrição de leitura 0600 não vale)" : ""}.\n- MASTER_KEY: copie para um gerenciador de senhas ou cofre offline, longe do backup do banco. Ela recupera suas credenciais; não gere outra para a mesma instalação.\n- SETUP_TOKEN: guarde junto com a MASTER_KEY. Ele cria o primeiro administrador e recupera o administrador único.\n- Token da Cloudflare: depois de entrar, salve em Sistema e atualizações um token só com Workers Scripts: Edit, apague o token inicial pelo painel e revogue-o na Cloudflare. A cópia na pasta perde o valor.\nFeito isso, a pasta ${folder} pode ser apagada ou levada para fora do computador.\n\nAs próximas versões são instaladas em Sistema e atualizações. O computador usado na instalação pode ser desligado.`,
   );
 }
 if (

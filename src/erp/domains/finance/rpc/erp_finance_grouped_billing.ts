@@ -1,7 +1,6 @@
 // Faturamento agrupado (SQL 141, com as notas da 247): public.erp_finance_grouped_billing_execute
 // (gerar contas por cliente e excluir), _page, _candidates e _documents.
-// O erp_document_mirror.require_visible sai pela linha de corte do Origin
-// (docs/ERP-FASE0.md, "Origin fora"): sem documento espelho, ele não tem efeito.
+// O erp_document_mirror.require_visible vem do documents/public.ts: sem documento espelhado, não faz nada.
 // grouped_billing.number é identity: nextIdentity (engine/sequence.ts), que não
 // volta com a transação, como o nextval do Postgres.
 import { fromColumn } from "../../../engine/dec.ts";
@@ -11,7 +10,8 @@ import { jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { nextIdentity } from "../../../engine/sequence.ts";
 import { todaySaoPaulo } from "../../../engine/time.ts";
-import { guardTrashChild, requireAccess as documentsAccess } from "../../documents/public.ts";
+import { guardTrashChild, mirrorRequireVisible as documentsMirrorRequireVisible, requireAccess as documentsAccess } from "../../documents/public.ts";
+import { uuidIn } from "../../../engine/args.ts";
 import {
   bool,
   btrim,
@@ -239,6 +239,14 @@ export function erpFinanceGroupedBillingExecute(ctx: RpcContext, a: RpcArgs) {
   access(db, user, true);
   if (command === null || action === null || !["grouped_billing_generate", "grouped_billing_delete"].includes(action)) raise("22023", "erp_finance_invalid_action");
   if (data === null || jsonType(data) !== "object" || jsonBytes(data) > 262144) raise("22023", "erp_finance_invalid_data");
+  // require_visible de cada pedido citado ($.items[*].document_ids[*], texto com cara de uuid).
+  const items = (data as Record<string, unknown>).items;
+  if (Array.isArray(items))
+    for (const it of items) {
+      const ids = it !== null && typeof it === "object" && !Array.isArray(it) ? (it as Record<string, unknown>).document_ids : undefined;
+      if (Array.isArray(ids))
+        for (const x of ids) if (typeof x === "string" && /^[0-9a-fA-F-]{36}$/.test(x)) documentsMirrorRequireVisible(db, user, uuidIn(x), true);
+    }
   const hash = requestHash(user, action, data);
   access(db, user, true);
   const replay = replayed(db, command, user, hash);

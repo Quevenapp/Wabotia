@@ -26,6 +26,7 @@ import {
   refuseEngineActor,
   requireDirectPerson,
   sha,
+  canonical,
   setSecret,
   publicUrl,
   passwordHash,
@@ -103,6 +104,8 @@ import {
   moduleForMenuType,
   moduleMenuTypes,
   moduleStates,
+  planModuleStates,
+  configuredModuleStates,
   requireOperation,
   resolveStates,
   modules as registeredModules,
@@ -113,6 +116,7 @@ import {
   handoffGatesList,
   moduleCommandHandler,
   settingsValidator,
+  validateSettingsChange,
 } from "./modules/hooks";
 import { cancelWebStep } from "./web-steps";
 // Ganchos dos módulos embutidos (ações de conversa, chaves de configuração).
@@ -1139,11 +1143,13 @@ export async function conversationByPhone(
     ...(options.connectionId ? [options.connectionId] : []),
   );
   if (found || !options.open) return found;
+  // Em empate de milissegundo, preservar a ordem de cadastro das linhas;
+  // o UUID não representa antiguidade e pode escolher a segunda conexão.
   const line = await one(
     env,
     options.connectionId
       ? "SELECT * FROM connections WHERE id=? AND profile_id=? AND status='active'"
-      : "SELECT * FROM connections WHERE profile_id=? AND status='active' AND kind='zernio' ORDER BY created,id LIMIT 1",
+      : "SELECT * FROM connections WHERE profile_id=? AND status='active' AND kind='zernio' ORDER BY created,rowid LIMIT 1",
     ...(options.connectionId ? [options.connectionId, profile] : [profile]),
   );
   requireValue(
@@ -1529,6 +1535,464 @@ export async function createRun(
     );
   return { id, status: "queued" };
 }
+
+/** Plano interno: a confirmação roda somente no Coordinator serializado da área. */
+export interface SettingsPlan {
+  profile: string;
+  actor_id: string;
+  base_revision: string;
+  modules_revision: string;
+  settings_revision: string;
+  settings: Record<string, any>;
+  view: Record<string, any>;
+  modules: Record<string, boolean>;
+  module_changes: Array<{ id: string; enabled: boolean }>;
+  removed_departments: string[];
+  keep_department_conversations: boolean;
+  queue_changed: boolean;
+}
+export interface SettingsPlanOptions {
+  modules?: Record<string, boolean>;
+  expected_revision?: string;
+}
+/** Revisão da configuração inteira salva, incluindo menus de módulos desligados. */
+export async function settingsRevision(env: Env, profile: string): Promise<string> {
+  const { row } = await profileWithModules(env, profile);
+  return sha(canonical(json(row.settings)));
+}
+/** Valida sem gravar: PUT /settings e prévia/aplicação de modelos usam este caminho. */
+export async function planSettings(
+  env: Env, actor: Actor, profile: string, data: Record<string, any>, options: SettingsPlanOptions = {},
+): Promise<SettingsPlan> {
+  admin(actor);
+  const { row, states } = await profileWithModules(env, profile);
+  const baseRevision = await sha(canonical(json(row.settings)));
+  const expected = options.expected_revision ?? data.settings_revision;
+  if (data.os_work_types !== undefined || data.os_vocabulary !== undefined)
+    requireValue(typeof expected === "string", "Informe settings_revision para alterar os tipos ou vocabulário.");
+  if (expected !== undefined) {
+    requireValue(typeof expected === "string" && /^[a-f0-9]{64}$/i.test(expected), "Revisão de configuração inválida.");
+    if (expected.toLowerCase() !== baseRevision)
+      throw new ApiError(409, "settings_conflict", "A configuração mudou. Atualize antes de salvar.");
+  }
+  const configuredModules = configuredModuleStates(json(row.module_states));
+  const finalModules = options.modules ? planModuleStates(configuredModules, options.modules) : states;
+  const previous = { ...defaults, ...json(row.settings) };
+  const old = structuredClone(previous);
+  const stored = { menus: (json(row.settings).menus || []) as any[], hidden: hiddenMenuTypes(finalModules) };
+  if (Array.isArray(old.menus)) old.menus = old.menus.filter((item: any) => !stored.hidden.has(item?.type));
+  const { menus_revision, settings_revision, keep_department_conversations, ...changes } = data;
+  if (menus_revision !== undefined) {
+    requireValue(
+      typeof menus_revision === "string" &&
+        /^[a-f0-9]{64}$/i.test(menus_revision) &&
+        data.menus !== undefined,
+      "A revisão dos menus deve acompanhar uma árvore de menus válida.",
+    );
+    if (
+      menus_revision.toLowerCase() !==
+      (await sha(JSON.stringify(old.menus || [])))
+    )
+      throw new ApiError(
+        409,
+        "menus_changed",
+        "Os menus foram alterados por outra pessoa. Atualize a árvore antes de salvar novamente.",
+      );
+  }
+  const next = { ...old, ...changes };
+  delete next.menus_revision;
+  delete next.settings_revision;
+  requireValue(
+    typeof next.jev_enabled === "boolean" &&
+      typeof next.surveys_enabled === "boolean",
+    "JEV e avaliações devem estar ligados ou desligados.",
+  );
+  validateJevSettings(next);
+  if (data.jev_provider_id !== undefined) {
+    const provider = await allowedProvider(env, data.jev_provider_id, profile);
+    requireValue(provider.kind === "typesafe", "Escolha um provedor TypeSafe para o JEV.");
+  }
+  requireValue(
+    next.absence_return_to_bot === undefined ||
+      typeof next.absence_return_to_bot === "boolean",
+    "Informe se a conversa volta ao bot com a equipe ausente.",
+  );
+  requireValue(
+    next.absence_survey === undefined ||
+      typeof next.absence_survey === "boolean",
+    "Informe se a avaliação é pedida depois do protocolo de ausência.",
+  );
+  if (data.notifications !== undefined) {
+    const n = data.notifications;
+    requireValue(
+      n &&
+        typeof n === "object" &&
+        typeof n.enabled === "boolean" &&
+        typeof (n.template_name ?? "") === "string" &&
+        String(n.template_name ?? "").length <= 512 &&
+        typeof (n.language ?? "pt_BR") === "string" &&
+        /^[a-z]{2,3}(_[A-Z]{2})?$/.test(n.language ?? "pt_BR"),
+      "Notificações de protocolo: informe se estão ligadas, o nome do modelo e o idioma (ex.: pt_BR).",
+    );
+    requireValue(
+      !n.enabled || String(n.template_name || "").trim(),
+      "Para ligar as notificações de protocolo, informe o nome do modelo aprovado no WhatsApp.",
+    );
+    next.notifications = {
+      enabled: n.enabled,
+      template_name: String(n.template_name || "").trim(),
+      language: n.language || "pt_BR",
+    };
+  }
+  if (next.departments === undefined) next.departments = [];
+  if (data.departments !== undefined)
+    await validateDepartments(env, profile, next.departments);
+  // Setores excluídos: recusa enquanto um item de menu os usa; as conversas
+  // abertas deles voltam para a fila geral depois de salvar.
+  const removedDepartments = (old.departments || [])
+    .map((d: any) => d.id)
+    .filter((id: string) => !next.departments.some((d: any) => d.id === id));
+  if (removedDepartments.length) {
+    const users = (Array.isArray(next.menus) ? next.menus : []).filter(
+      (item: any) =>
+        item?.type === "human" &&
+        removedDepartments.includes(item.department_id),
+    );
+    if (users.length)
+      throw new ApiError(
+        409,
+        "department_in_use",
+        `Antes de excluir o setor, troque-o ${users.length > 1 ? "nos itens" : "no item"} de menu ${users.map((item: any) => `"${item.label}"`).join(", ")}.`,
+      );
+  }
+  // Service-center fields. A partial business_hours keeps the saved parts.
+  next.ticket_categories = validateTicketCategories(
+    next.ticket_categories ?? [],
+  );
+  requireValue(
+    responseUnits.includes(next.protocol_response_unit),
+    "Unidade do prazo inválida: use hours ou business_days.",
+  );
+  requireValue(
+    validResponseDays(next.protocol_response_days),
+    "Informe o prazo em dias úteis, de 1 a 60.",
+  );
+  if (data.business_hours !== undefined) {
+    requireValue(
+      data.business_hours &&
+        typeof data.business_hours === "object" &&
+        !Array.isArray(data.business_hours),
+      "Horário de atendimento inválido.",
+    );
+    next.business_hours = validateBusinessHours({
+      ...businessHours(old.business_hours),
+      ...data.business_hours,
+    });
+  } else next.business_hours = businessHours(old.business_hours);
+  requireValue(
+    typeof next.protocol_confirmation === "string" &&
+      next.protocol_confirmation.length <= 1500,
+    "A confirmação do protocolo deve ter até 1500 caracteres.",
+  );
+  if (!next.protocol_confirmation.trim())
+    next.protocol_confirmation = defaultProtocolConfirmation;
+  // Fits the 1024-character body of a WhatsApp interactive message together
+  // with the "Escolha uma opção abaixo." line added on send.
+  next.menu_greeting = next.menu_greeting ?? "";
+  requireValue(
+    typeof next.menu_greeting === "string" &&
+      Array.from(next.menu_greeting).length <= 900,
+    "A saudação do menu deve ter até 900 caracteres.",
+  );
+  next.menu_greeting = next.menu_greeting.trim();
+  if (data.queue !== undefined)
+    next.queue = validateQueueSettings(
+      {
+        ...(old.queue || {}),
+        ...data.queue,
+      },
+      old.queue,
+    );
+  if (data.establishment !== undefined)
+    next.establishment = validateEstablishment(data.establishment);
+  // Chaves declaradas pelos módulos (src/modules, onSettingsSave). Objeto
+  // parcial mescla com o que está salvo, como queue e business_hours: os
+  // campos que não vieram ficam como estavam. Listas e valores simples
+  // substituem.
+  const plain = (v: unknown) =>
+    !!v && typeof v === "object" && !Array.isArray(v);
+  for (const key of Object.keys(data)) {
+    const validate = settingsValidator(key);
+    if (validate)
+      next[key] = validate(
+        plain(data[key]) && plain(old[key])
+          ? { ...old[key], ...data[key] }
+          : data[key],
+      );
+  }
+  requireValue(
+    JSON.stringify(next).length <= 150000,
+    "Configuração muito grande.",
+  );
+  for (const [key, max] of [
+    ["menus", 200],
+    ["apps", 100],
+    ["capabilities", 50],
+  ] as const) {
+    requireValue(
+      Array.isArray(next[key]) && next[key].length <= max,
+      `Lista ${key} inválida ou acima do limite.`,
+    );
+    const ids = next[key].map((item: any) => item?.id);
+    requireValue(
+      ids.every(
+        (id: any) =>
+          typeof id === "string" && id.length > 0 && id.length <= 100,
+      ) && new Set(ids).size === ids.length,
+      `Identificadores de ${key} inválidos ou repetidos.`,
+    );
+  }
+  for (const item of next.apps) {
+    text(item.name, 100);
+    item.url = publicUrl(item.url);
+    if (item.review_url) item.review_url = publicUrl(item.review_url);
+  }
+  if (data.menus !== undefined)
+    next.menus = next.menus.map((item: any) => {
+      requireValue(
+        item.parent_id === undefined ||
+          item.parent_id === null ||
+          (typeof item.parent_id === "string" &&
+            item.parent_id.length <= 100),
+        "Menu pai inválido.",
+      );
+      return {
+        ...item,
+        label: text(item.label, 100),
+        parent_id: item.parent_id || null,
+      };
+    });
+  for (const item of next.menus) {
+    text(item.label, 100);
+    if (item.enabled !== undefined)
+      requireValue(
+        typeof item.enabled === "boolean",
+        "Ativação de menu inválida.",
+      );
+    if (item.line_ids !== undefined)
+      await validateLineIds(env, profile, item.line_ids);
+    if (item.trigger !== undefined)
+      requireValue(
+        ["automatic", "manual"].includes(item.trigger),
+        "Modo de menu inválido.",
+      );
+    requireValue(
+      [
+        "human",
+        "app",
+        "submenu",
+        "bot",
+        "link",
+        "content",
+        "protocols",
+        "survey",
+        "ticket",
+        ...moduleMenuTypes(),
+      ].includes(item.type),
+      "Destino de menu inválido.",
+    );
+    // Itens de módulos desligados só existem guardados (veja abaixo).
+    if (stored.hidden.has(item.type))
+      throw new ApiError(
+        409,
+        "module_disabled",
+        `O destino "${item.label}" pertence ao módulo ${moduleForMenuType(item.type)?.name}, que está desligado. Ligue-o em Gestão → Módulos.`,
+      );
+    // Item de módulo que aponta para um registro da configuração
+    // (form_id → forms): o registro precisa existir.
+    const reference = moduleForMenuType(item.type)?.menu_item_types.find(
+      (t) => t.type === item.type,
+    )?.reference;
+    if (reference) {
+      const id = item[reference.field] === undefined ? reference.default_id : item[reference.field];
+      const builtin = reference.builtins?.some((entry) => entry.id === id);
+      const entry = Array.isArray(next[reference.setting])
+        ? next[reference.setting].find((entry: any) => entry?.id === id) : null;
+      requireValue(builtin || entry,
+        `${reference.label} do menu "${item.label}" não encontrado. Escolha outro ou cadastre-o antes.`);
+      requireValue(!(item.type === "os_open" && item.enabled !== false && entry?.archived),
+        "Tipo de trabalho arquivado não aceita menu ativo de abertura.");
+    }
+    if (item.type === "queue" && item.queue_id)
+      requireValue(
+        await one(
+          env,
+          "SELECT id FROM queues WHERE id=? AND profile_id=?",
+          item.queue_id,
+          profile,
+        ),
+        "Fila do menu não encontrada.",
+      );
+    if (item.type === "ticket") {
+      if (item.category_id)
+        requireValue(
+          next.ticket_categories.some((c: any) => c.id === item.category_id),
+          "Categoria do menu não encontrada.",
+        );
+      if (item.content) text(item.content, 3500);
+    }
+    if (item.type === "human" && item.department_id)
+      requireValue(
+        next.departments.some((d: any) => d.id === item.department_id),
+        "Setor do menu não encontrado.",
+      );
+    if (item.type === "link") {
+      item.url = publicUrl(item.url);
+      if (item.content) text(item.content, 3000);
+    }
+    if (item.type === "content") text(item.content, 3500);
+    if (item.type === "survey" && item.question) text(item.question, 300);
+    if (item.type === "app")
+      requireValue(
+        next.apps.some((a: any) => a.id === item.app_id),
+        "Aplicativo do menu não encontrado.",
+      );
+    if (item.type === "bot")
+      await requireToolBot(env, profile, item.bot_id, "menu");
+    const visited = new Set([item.id]);
+    let parent = item.parent_id;
+    while (parent) {
+      requireValue(!visited.has(parent), "O menu contém um ciclo.");
+      visited.add(parent);
+      const ancestor = next.menus.find((m: any) => m.id === parent);
+      requireValue(
+        ancestor?.type === "submenu",
+        "Menu pai precisa ser um submenu.",
+      );
+      parent = ancestor.parent_id;
+    }
+  }
+  // Telegram was removed: its settings are dropped whenever settings are saved.
+  delete next.reply_mode;
+  delete next.telegram_connection;
+  delete next.telegram_group;
+  requireValue(
+    next.protocol_response_hours === null ||
+      (Number.isFinite(Number(next.protocol_response_hours)) &&
+        Number(next.protocol_response_hours) > 0 &&
+        Number(next.protocol_response_hours) <= 8760),
+    "Prazo inválido.",
+  );
+  if (next.attendant_bot)
+    requireValue(
+      await one(
+        env,
+        "SELECT id FROM bots WHERE id=? AND profile_id=?",
+        next.attendant_bot,
+        profile,
+      ),
+      "Atendente não pertence à área de atendimento.",
+    );
+  for (const action of next.capabilities || []) {
+    // A 0092 guardou ações antigas desligadas para escolher um substituto.
+    // Só essa referência já guardada pode permanecer; novos destinos são IA.
+    const keptDisabled = action.enabled === false && old.capabilities?.some(
+      (previous: any) => previous.id === action.id &&
+        previous.bot_id === action.bot_id && previous.enabled === false,
+    );
+    if (!keptDisabled) await requireToolBot(env, profile, action.bot_id, "specialist");
+  }
+  // Itens de módulos desligados não aparecem em `old` nem no editor: ficam
+  // guardados como estavam e voltam quando o módulo é religado. Um item cujo
+  // submenu foi excluído enquanto isso sobe para o menu principal.
+  const kept = stored.menus
+    .filter(
+      (item) =>
+        stored.hidden.has(item?.type) &&
+        !next.menus.some((m: any) => m.id === item.id),
+    )
+    .map((item) => ({
+      ...item,
+      parent_id: next.menus.some(
+        (m: any) => m.id === item.parent_id && m.type === "submenu",
+      )
+        ? item.parent_id
+        : null,
+    }));
+
+  const saved = kept.length ? { ...next, menus: [...next.menus, ...kept] } : next;
+  // Inclui os itens preservados no limite agregado e na comparação de revisões.
+  requireValue(JSON.stringify(saved).length <= 150000, "Configuração muito grande.");
+  validateSettingsChange(structuredClone(previous), structuredClone(saved), {
+    changed_keys: Object.keys(changes), modules: finalModules,
+  });
+  return {
+    profile, actor_id: actor.id, base_revision: baseRevision,
+    modules_revision: await sha(canonical(json(row.module_states))),
+    settings_revision: await sha(canonical(saved)), settings: saved, view: next,
+    modules: finalModules,
+    module_changes: Object.keys(options.modules || {}).filter((id) => finalModules[id] !== configuredModules[id])
+      .map((id) => ({ id, enabled: finalModules[id] })),
+    removed_departments: removedDepartments,
+    keep_department_conversations: keep_department_conversations === true,
+    queue_changed: data.queue !== undefined || data.establishment !== undefined,
+  };
+}
+/**
+ * Confirma configuração, módulos e SQL de procedência de A no MESMO lote D1.
+ * Só chamar dentro de um comando do Coordinator, após recalcular o preview_hash.
+ * Não reutilizar planos de outra invocação. Eventos/cache vêm após o lote.
+ */
+export async function commitSettingsPlan(
+  env: Env, actor: Actor, plan: SettingsPlan, provenance: [string, any[]][] = [],
+  recovery?: { id: string; result: unknown },
+): Promise<Record<string, any>> {
+  admin(actor);
+  requireValue(actor.id === plan.actor_id, "Plano de outro ator.");
+  // Leitura sem cache: detecta plano antigo mesmo dentro de um env cacheado.
+  const row = await one(env, PROFILE_SETTINGS_SQL, plan.profile);
+  if (!row || await sha(canonical(json(row.settings))) !== plan.base_revision ||
+      await sha(canonical(json(row.module_states))) !== plan.modules_revision)
+    throw new ApiError(409, "settings_conflict", "A configuração ou os módulos mudaram. Refaça o plano.");
+  const statements: [string, any[]][] = [[
+    "UPDATE profiles SET settings=? WHERE id=?", [JSON.stringify(plan.settings), plan.profile],
+  ]];
+  for (const change of plan.module_changes) statements.push([
+    "INSERT INTO profile_modules(profile_id,module_id,enabled,updated,updated_by) VALUES(?,?,?,?,?) ON CONFLICT(profile_id,module_id) DO UPDATE SET enabled=excluded.enabled,updated=excluded.updated,updated_by=excluded.updated_by",
+    [plan.profile, change.id, change.enabled ? 1 : 0, now(), actor.id],
+  ]);
+  if (plan.removed_departments.length && !plan.keep_department_conversations) statements.push([
+    `UPDATE conversations SET department_id=NULL,updated=? WHERE profile_id=? AND state!='closed' AND department_id IN (${plan.removed_departments.map(() => "?").join(",")})`,
+    [now(), plan.profile, ...plan.removed_departments],
+  ]);
+  const publications = plan.module_changes.map(change => ({ kind: "module.changed", id: change.id, payload: {
+    module_id: change.id, enabled: change.enabled, version: moduleById(change.id)!.version, actor: actor.id,
+  } as Record<string, unknown> }));
+  if (plan.queue_changed) publications.push({ kind: "queue.changed", id: plan.profile, payload: { settings: true } });
+  if (recovery) statements.push([
+    "INSERT INTO os_area_template_receipts(profile_id,operation_id,actor,result_json,events_json) VALUES(?,?,?,?,?)",
+    [plan.profile, recovery.id, actor.id, JSON.stringify(recovery.result), JSON.stringify(publications)],
+  ]);
+  await batch(env, [...statements, ...provenance]);
+  if (recovery) await recoverSettingsApplication(env, actor, plan.profile, recovery.id);
+  else for (const publication of publications) await event(env, plan.profile, publication.kind, publication.id, publication.payload);
+  return { ...plan.view, settings_revision: plan.settings_revision };
+}
+
+/** Recupera antes de conferir a prévia, que já mudou pela própria aplicação. */
+export async function recoverSettingsApplication(env: Env, actor: Actor, profile: string, operationId: string) {
+  admin(actor);
+  const receipt = await one(env, "SELECT * FROM os_area_template_receipts WHERE profile_id=? AND operation_id=? AND actor=?", profile, operationId, actor.id);
+  if (!receipt) return null;
+  if (!receipt.published) {
+    const publications = json(receipt.events_json, []);
+    for (const [i, publication] of publications.entries())
+      await event(env, profile, publication.kind, publication.id, publication.payload, `area-template:${profile}:${operationId}:${i}`);
+    await exec(env, "UPDATE os_area_template_receipts SET published=1 WHERE profile_id=? AND operation_id=?", profile, operationId);
+  }
+  return json(receipt.result_json);
+}
+
 export async function perform(
   env: Env,
   actor: Actor,
@@ -1901,370 +2365,8 @@ export async function perform(
     return { revoked: true };
   }
   if (op === "settings") {
-    admin(actor);
-    const old = await settings(env, profile);
-    const stored = await (async () => {
-      const { row, states } = await profileWithModules(env, profile);
-      return {
-        menus: (json(row.settings).menus || []) as any[],
-        hidden: hiddenMenuTypes(states),
-      };
-    })();
-    const { menus_revision, keep_department_conversations, ...changes } = data;
-    if (menus_revision !== undefined) {
-      requireValue(
-        typeof menus_revision === "string" &&
-          /^[a-f0-9]{64}$/i.test(menus_revision) &&
-          data.menus !== undefined,
-        "A revisão dos menus deve acompanhar uma árvore de menus válida.",
-      );
-      if (
-        menus_revision.toLowerCase() !==
-        (await sha(JSON.stringify(old.menus || [])))
-      )
-        throw new ApiError(
-          409,
-          "menus_changed",
-          "Os menus foram alterados por outra pessoa. Atualize a árvore antes de salvar novamente.",
-        );
-    }
-    const next = { ...old, ...changes };
-    delete next.menus_revision;
-    requireValue(
-      typeof next.jev_enabled === "boolean" &&
-        typeof next.surveys_enabled === "boolean",
-      "JEV e avaliações devem estar ligados ou desligados.",
-    );
-    validateJevSettings(next);
-    if (data.jev_provider_id !== undefined) {
-      const provider = await allowedProvider(env, data.jev_provider_id, profile);
-      requireValue(provider.kind === "typesafe", "Escolha um provedor TypeSafe para o JEV.");
-    }
-    requireValue(
-      next.absence_return_to_bot === undefined ||
-        typeof next.absence_return_to_bot === "boolean",
-      "Informe se a conversa volta ao bot com a equipe ausente.",
-    );
-    requireValue(
-      next.absence_survey === undefined ||
-        typeof next.absence_survey === "boolean",
-      "Informe se a avaliação é pedida depois do protocolo de ausência.",
-    );
-    if (data.notifications !== undefined) {
-      const n = data.notifications;
-      requireValue(
-        n &&
-          typeof n === "object" &&
-          typeof n.enabled === "boolean" &&
-          typeof (n.template_name ?? "") === "string" &&
-          String(n.template_name ?? "").length <= 512 &&
-          typeof (n.language ?? "pt_BR") === "string" &&
-          /^[a-z]{2,3}(_[A-Z]{2})?$/.test(n.language ?? "pt_BR"),
-        "Notificações de protocolo: informe se estão ligadas, o nome do modelo e o idioma (ex.: pt_BR).",
-      );
-      requireValue(
-        !n.enabled || String(n.template_name || "").trim(),
-        "Para ligar as notificações de protocolo, informe o nome do modelo aprovado no WhatsApp.",
-      );
-      next.notifications = {
-        enabled: n.enabled,
-        template_name: String(n.template_name || "").trim(),
-        language: n.language || "pt_BR",
-      };
-    }
-    if (next.departments === undefined) next.departments = [];
-    if (data.departments !== undefined)
-      await validateDepartments(env, profile, next.departments);
-    // Setores excluídos: recusa enquanto um item de menu os usa; as conversas
-    // abertas deles voltam para a fila geral depois de salvar.
-    const removedDepartments = (old.departments || [])
-      .map((d: any) => d.id)
-      .filter((id: string) => !next.departments.some((d: any) => d.id === id));
-    if (removedDepartments.length) {
-      const users = (Array.isArray(next.menus) ? next.menus : []).filter(
-        (item: any) =>
-          item?.type === "human" &&
-          removedDepartments.includes(item.department_id),
-      );
-      if (users.length)
-        throw new ApiError(
-          409,
-          "department_in_use",
-          `Antes de excluir o setor, troque-o ${users.length > 1 ? "nos itens" : "no item"} de menu ${users.map((item: any) => `"${item.label}"`).join(", ")}.`,
-        );
-    }
-    // Service-center fields. A partial business_hours keeps the saved parts.
-    next.ticket_categories = validateTicketCategories(
-      next.ticket_categories ?? [],
-    );
-    requireValue(
-      responseUnits.includes(next.protocol_response_unit),
-      "Unidade do prazo inválida: use hours ou business_days.",
-    );
-    requireValue(
-      validResponseDays(next.protocol_response_days),
-      "Informe o prazo em dias úteis, de 1 a 60.",
-    );
-    if (data.business_hours !== undefined) {
-      requireValue(
-        data.business_hours &&
-          typeof data.business_hours === "object" &&
-          !Array.isArray(data.business_hours),
-        "Horário de atendimento inválido.",
-      );
-      next.business_hours = validateBusinessHours({
-        ...businessHours(old.business_hours),
-        ...data.business_hours,
-      });
-    } else next.business_hours = businessHours(old.business_hours);
-    requireValue(
-      typeof next.protocol_confirmation === "string" &&
-        next.protocol_confirmation.length <= 1500,
-      "A confirmação do protocolo deve ter até 1500 caracteres.",
-    );
-    if (!next.protocol_confirmation.trim())
-      next.protocol_confirmation = defaultProtocolConfirmation;
-    // Fits the 1024-character body of a WhatsApp interactive message together
-    // with the "Escolha uma opção abaixo." line added on send.
-    next.menu_greeting = next.menu_greeting ?? "";
-    requireValue(
-      typeof next.menu_greeting === "string" &&
-        Array.from(next.menu_greeting).length <= 900,
-      "A saudação do menu deve ter até 900 caracteres.",
-    );
-    next.menu_greeting = next.menu_greeting.trim();
-    if (data.queue !== undefined)
-      next.queue = validateQueueSettings(
-        {
-          ...(old.queue || {}),
-          ...data.queue,
-        },
-        old.queue,
-      );
-    if (data.establishment !== undefined)
-      next.establishment = validateEstablishment(data.establishment);
-    // Chaves declaradas pelos módulos (src/modules, onSettingsSave). Objeto
-    // parcial mescla com o que está salvo, como queue e business_hours: os
-    // campos que não vieram ficam como estavam. Listas e valores simples
-    // substituem.
-    const plain = (v: unknown) =>
-      !!v && typeof v === "object" && !Array.isArray(v);
-    for (const key of Object.keys(data)) {
-      const validate = settingsValidator(key);
-      if (validate)
-        next[key] = validate(
-          plain(data[key]) && plain(old[key])
-            ? { ...old[key], ...data[key] }
-            : data[key],
-        );
-    }
-    requireValue(
-      JSON.stringify(next).length <= 150000,
-      "Configuração muito grande.",
-    );
-    for (const [key, max] of [
-      ["menus", 200],
-      ["apps", 100],
-      ["capabilities", 50],
-    ] as const) {
-      requireValue(
-        Array.isArray(next[key]) && next[key].length <= max,
-        `Lista ${key} inválida ou acima do limite.`,
-      );
-      const ids = next[key].map((item: any) => item?.id);
-      requireValue(
-        ids.every(
-          (id: any) =>
-            typeof id === "string" && id.length > 0 && id.length <= 100,
-        ) && new Set(ids).size === ids.length,
-        `Identificadores de ${key} inválidos ou repetidos.`,
-      );
-    }
-    for (const item of next.apps) {
-      text(item.name, 100);
-      item.url = publicUrl(item.url);
-      if (item.review_url) item.review_url = publicUrl(item.review_url);
-    }
-    if (data.menus !== undefined)
-      next.menus = next.menus.map((item: any) => {
-        requireValue(
-          item.parent_id === undefined ||
-            item.parent_id === null ||
-            (typeof item.parent_id === "string" &&
-              item.parent_id.length <= 100),
-          "Menu pai inválido.",
-        );
-        return {
-          ...item,
-          label: text(item.label, 100),
-          parent_id: item.parent_id || null,
-        };
-      });
-    for (const item of next.menus) {
-      text(item.label, 100);
-      if (item.enabled !== undefined)
-        requireValue(
-          typeof item.enabled === "boolean",
-          "Ativação de menu inválida.",
-        );
-      if (item.line_ids !== undefined)
-        await validateLineIds(env, profile, item.line_ids);
-      if (item.trigger !== undefined)
-        requireValue(
-          ["automatic", "manual"].includes(item.trigger),
-          "Modo de menu inválido.",
-        );
-      requireValue(
-        [
-          "human",
-          "app",
-          "submenu",
-          "bot",
-          "link",
-          "content",
-          "protocols",
-          "survey",
-          "ticket",
-          ...moduleMenuTypes(),
-        ].includes(item.type),
-        "Destino de menu inválido.",
-      );
-      // Itens de módulos desligados só existem guardados (veja abaixo).
-      if (stored.hidden.has(item.type))
-        throw new ApiError(
-          409,
-          "module_disabled",
-          `O destino "${item.label}" pertence ao módulo ${moduleForMenuType(item.type)?.name}, que está desligado. Ligue-o em Gestão → Módulos.`,
-        );
-      // Item de módulo que aponta para um registro da configuração
-      // (form_id → forms): o registro precisa existir.
-      const reference = moduleForMenuType(item.type)?.menu_item_types.find(
-        (t) => t.type === item.type,
-      )?.reference;
-      if (reference)
-        requireValue(
-          Array.isArray(next[reference.setting]) &&
-            next[reference.setting].some(
-              (entry: any) => entry?.id === item[reference.field],
-            ),
-          `${reference.label} do menu "${item.label}" não encontrado. Escolha outro ou cadastre-o antes.`,
-        );
-      if (item.type === "queue" && item.queue_id)
-        requireValue(
-          await one(
-            env,
-            "SELECT id FROM queues WHERE id=? AND profile_id=?",
-            item.queue_id,
-            profile,
-          ),
-          "Fila do menu não encontrada.",
-        );
-      if (item.type === "ticket") {
-        if (item.category_id)
-          requireValue(
-            next.ticket_categories.some((c: any) => c.id === item.category_id),
-            "Categoria do menu não encontrada.",
-          );
-        if (item.content) text(item.content, 3500);
-      }
-      if (item.type === "human" && item.department_id)
-        requireValue(
-          next.departments.some((d: any) => d.id === item.department_id),
-          "Setor do menu não encontrado.",
-        );
-      if (item.type === "link") {
-        item.url = publicUrl(item.url);
-        if (item.content) text(item.content, 3000);
-      }
-      if (item.type === "content") text(item.content, 3500);
-      if (item.type === "survey" && item.question) text(item.question, 300);
-      if (item.type === "app")
-        requireValue(
-          next.apps.some((a: any) => a.id === item.app_id),
-          "Aplicativo do menu não encontrado.",
-        );
-      if (item.type === "bot")
-        await requireToolBot(env, profile, item.bot_id, "menu");
-      const visited = new Set([item.id]);
-      let parent = item.parent_id;
-      while (parent) {
-        requireValue(!visited.has(parent), "O menu contém um ciclo.");
-        visited.add(parent);
-        const ancestor = next.menus.find((m: any) => m.id === parent);
-        requireValue(
-          ancestor?.type === "submenu",
-          "Menu pai precisa ser um submenu.",
-        );
-        parent = ancestor.parent_id;
-      }
-    }
-    // Telegram was removed: its settings are dropped whenever settings are saved.
-    delete next.reply_mode;
-    delete next.telegram_connection;
-    delete next.telegram_group;
-    requireValue(
-      next.protocol_response_hours === null ||
-        (Number.isFinite(Number(next.protocol_response_hours)) &&
-          Number(next.protocol_response_hours) > 0 &&
-          Number(next.protocol_response_hours) <= 8760),
-      "Prazo inválido.",
-    );
-    if (next.attendant_bot)
-      requireValue(
-        await one(
-          env,
-          "SELECT id FROM bots WHERE id=? AND profile_id=?",
-          next.attendant_bot,
-          profile,
-        ),
-        "Atendente não pertence à área de atendimento.",
-      );
-    for (const action of next.capabilities || []) {
-      // A 0092 guardou ações antigas desligadas para escolher um substituto.
-      // Só essa referência já guardada pode permanecer; novos destinos são IA.
-      const keptDisabled = action.enabled === false && old.capabilities?.some(
-        (previous: any) => previous.id === action.id &&
-          previous.bot_id === action.bot_id && previous.enabled === false,
-      );
-      if (!keptDisabled) await requireToolBot(env, profile, action.bot_id, "specialist");
-    }
-    // Itens de módulos desligados não aparecem em `old` nem no editor: ficam
-    // guardados como estavam e voltam quando o módulo é religado. Um item cujo
-    // submenu foi excluído enquanto isso sobe para o menu principal.
-    const kept = stored.menus
-      .filter(
-        (item) =>
-          stored.hidden.has(item?.type) &&
-          !next.menus.some((m: any) => m.id === item.id),
-      )
-      .map((item) => ({
-        ...item,
-        parent_id: next.menus.some(
-          (m: any) => m.id === item.parent_id && m.type === "submenu",
-        )
-          ? item.parent_id
-          : null,
-      }));
-    await exec(
-      env,
-      "UPDATE profiles SET settings=? WHERE id=?",
-      JSON.stringify(
-        kept.length ? { ...next, menus: [...next.menus, ...kept] } : next,
-      ),
-      profile,
-    );
-    // O cupom da senha vem no snapshot da fila: avisa os aparelhos pareados.
-    if (data.queue !== undefined || data.establishment !== undefined)
-      await event(env, profile, "queue.changed", profile, { settings: true });
-    if (removedDepartments.length && keep_department_conversations !== true)
-      await exec(
-        env,
-        `UPDATE conversations SET department_id=NULL,updated=? WHERE profile_id=? AND state!='closed' AND department_id IN (${removedDepartments.map(() => "?").join(",")})`,
-        now(),
-        profile,
-        ...removedDepartments,
-      );
-    return next;
+    const plan = await planSettings(env, actor, profile, data);
+    return commitSettingsPlan(env, actor, plan);
   }
   if (op === "activate" || op === "pause") {
     admin(actor);

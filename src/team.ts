@@ -1,4 +1,4 @@
-import { all, one, exec, batch } from "./db";
+import { all, one, exec, batch, cachedOne, PROFILE_SETTINGS_SQL } from "./db";
 import {
   type Actor,
   type Env,
@@ -65,8 +65,13 @@ export async function areaGrants(env: Env, actor: Actor, profile: string) {
   access(actor, profile, "conversations:read");
   const states = await moduleStates(env, profile);
   const people = (await areaPeople(env, actor, profile)).data;
+  // O embutido não tem campos/filhos sensíveis. Preserve seu catálogo legado;
+  // a concessão continua declarada e nunca é herdada do administrador.
+  const customWork = states.os &&
+    json((await cachedOne(env, PROFILE_SETTINGS_SQL, profile))?.settings).os_work_types?.length;
   return {
-    data: declaredGrants(states).map((g) => ({
+    data: declaredGrants(states).filter((g) => g.id !== "os:sensitive" || customWork ||
+      people.some((p) => p.grants.includes(g.id))).map((g) => ({
       ...g,
       people: people
         .filter((p) => p.grants.includes(g.id))

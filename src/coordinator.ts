@@ -48,6 +48,7 @@ import "./modules/runtime";
 import { credentialHook } from "./modules/hooks";
 import { claim as claimCredential } from "./module-credentials";
 import { SCHEDULE_INTERVAL_MS, runModuleSchedules } from "./modules/schedule";
+import { withLocalModuleWake } from "./modules/local-wake";
 import {
   processInbox,
   processRun,
@@ -110,6 +111,9 @@ export class Coordinator extends DurableObject<Env> {
         }
       });
     if (new URL(request.url).pathname === "/command") {
+      // F0: reservas/confirmações de upload e aplicação de modelo usam esta
+      // mesma fila e os mesmos recibos. Bytes ficam no Worker/R2; nunca no
+      // JSON, na auditoria ou no recibo do Coordinator.
       // Repetição de um comando cujo recibo ainda está fechando (depois da
       // resposta, abaixo): espera o fechamento aqui, fora do bloqueio, e
       // segue; lá dentro, o recibo já tem a resposta e ela volta igual.
@@ -129,7 +133,7 @@ export class Coordinator extends DurableObject<Env> {
         // Idas ao D1 deste comando (Server-Timing) e o cache de leituras dele
         // inteiro (perform reaproveita o escopo).
         const { env: timed, timing } = timedEnv(this.env);
-        const env = withReadCache(timed);
+        const env = withReadCache(withLocalModuleWake(timed, this.profile, (options) => this.wakeModules(options)));
         // Abertura numa ida só (docs/LIMITES.md): o recibo anterior, a
         // reserva do recibo (INSERT OR IGNORE: só a primeira grava) e as
         // leituras de configuração que quase todo comando faz.
@@ -222,10 +226,13 @@ export class Coordinator extends DurableObject<Env> {
               // O recurso sumiu: não há como reconstruir.
             }
           }
-          if (!old.response && closingOp) {
+          const recoverableWork = /^(area-template\.apply|os\.(?:private\.)?(?:task|person|entry)\.(?:create|update|archive|revise)|os\.(?:private\.)?document\.(?:reserve|complete|archive)|os\.stage(?:\.approval|\.decision)?|os\.private\.update)$/.test(body.operation);
+          if (!old.response && (closingOp || recoverableWork)) {
             // Sem a marca, a escrita não gravou (o lote é atômico): a
             // operação roda de novo, abaixo. Na emissão, a chave de origem
             // ainda devolve a senha de antes, se houver.
+            // Filhos/etapas do motor recuperam a mutação pelo operationId
+            // estável, incluindo publicação que faltou após confirmar o D1.
           } else if (!old.response || old.response.startsWith("ref:")) {
             // Recibo sem resposta de outra operação (o objeto caiu no meio
             // do comando): o código de sempre, que os apps repetem com a
@@ -454,10 +461,21 @@ export class Coordinator extends DurableObject<Env> {
       await this.schedule();
       return Response.json(result, { status: 202 });
     }
+    if (linkPath === "/wake" && body.modules === true) {
+      await this.wakeModules({ modules: true });
+      return Response.json({ scheduled: true });
+    }
     // Qualquer outro caminho só agenda o alarme; o /wake dos módulos
     // (ctx.wake, rotas de telemetria) usa este caminho.
     await this.schedule();
     return Response.json({ scheduled: true });
+  }
+  private async wakeModules(options?: { modules?: boolean }) {
+    if (options?.modules) {
+      await this.ctx.storage.put("modules_pending", true);
+      const last = (await this.ctx.storage.get<number>("modules_tick")) || 0;
+      await this.schedule(Math.max(now() + 1000, last + SCHEDULE_INTERVAL_MS));
+    } else await this.schedule();
   }
   /** TV panels, Senhapp and the team's queue screen (hibernatable sockets). */
   private async acceptQueueSocket(request: Request) {
@@ -610,10 +628,10 @@ export class Coordinator extends DurableObject<Env> {
       // Already closed.
     }
   }
-  private async schedule() {
+  private async schedule(at = now() + 1000) {
     const scheduled = await this.ctx.storage.getAlarm();
-    if (scheduled === null || scheduled > now() + 1000)
-      await this.ctx.storage.setAlarm(now() + 1000);
+    if (scheduled === null || scheduled > at)
+      await this.ctx.storage.setAlarm(at);
   }
   async alarm() {
     // Instância do ERP: alarme próprio, nunca o pipeline da área.
@@ -665,7 +683,21 @@ export class Coordinator extends DurableObject<Env> {
       const last = (await this.ctx.storage.get<number>("modules_tick")) || 0;
       if (tick - last >= SCHEDULE_INTERVAL_MS) {
         await this.ctx.storage.put("modules_tick", tick);
-        await runModuleSchedules(env, this.profile, tick);
+        // Consumir antes da rodada: um novo wake durante ela fica pendente.
+        await this.ctx.storage.delete("modules_pending");
+        try {
+          // Sem blockConcurrencyWhile: a rodada de todos os módulos pode
+          // chamar provedores (cobrança) e não deve segurar webhooks, comandos
+          // e painel nem arriscar o limite de 30 s do bloqueio. Corridas com
+          // comandos ficam com cada módulo (tarefas de OS: reserva condicionada
+          // à versão antes do envio, src/modules/os/tasks/reminders.ts).
+          await runModuleSchedules(
+            withLocalModuleWake(env, this.profile, (options) => this.wakeModules(options)), this.profile, tick,
+          );
+        } catch (error) {
+          await this.ctx.storage.put("modules_pending", true);
+          throw error;
+        }
       }
       await processInbox(env, this.profile);
       await this.broadcastQueueSoon();
@@ -731,6 +763,10 @@ export class Coordinator extends DurableObject<Env> {
         (this.profile === "_admin" && (await updatePending(this.env)))
       )
         await this.ctx.storage.setAlarm(now() + 5000);
+      if (await this.ctx.storage.get<boolean>("modules_pending")) {
+        const last = (await this.ctx.storage.get<number>("modules_tick")) || 0;
+        await this.schedule(Math.max(now() + 1000, last + SCHEDULE_INTERVAL_MS));
+      }
     }
   }
 }

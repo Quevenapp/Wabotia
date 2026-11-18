@@ -18,3 +18,37 @@ export function natureDescription(db: SqlDriver, id: string | null): string | nu
 /** exists(select 1 from erp_fiscal_invoices.nature where id=… and active) */
 export const natureActive = (db: SqlDriver, id: string) =>
   !!one(db, 'SELECT 1 x FROM "erp_fiscal_invoices__nature" WHERE id=? AND active=1', id);
+
+// Portadas no F1 (src/erp/domains/fiscal/core.ts; dona: G). Papel, permissão e
+// leituras recebem o SqlDriver; os validadores de valor (*Input, checkValue,
+// specObject) recebem só o valor. nativeVisible e visible: para as etiquetas
+// de nota do Catálogo (sessão B).
+export {
+  boolInput,
+  checkValue,
+  commandHash,
+  commandReplay,
+  digits,
+  ipiSituationAllowed,
+  moneyText,
+  nativeVisible,
+  preference,
+  requireRead,
+  requireWrite,
+  roleOf,
+  scalar,
+  specObject,
+  textInput,
+  ufs,
+  uuidInput,
+  versionInput,
+  visible,
+} from "./core.ts";
+
+// Saldo de faturamento do pedido (202610210391): para o erp_document_invoice_balance
+// do Documentos (O, B4). Leitura pura; quem chama confere o acesso.
+export { countsForBalance, quantityText, salesBalance, salesFullInvoice, salesItemInvoiced } from "./sales-balance.ts";
+
+// F2a: leituras e gatilhos para os escritores de F2b/F3.
+export { invoiceRecord, invoiceEnvelope, invoiceRow, guardInvoice, invoiceSourceRecord, xmlSourceEnvironment, editLocks, orderEffects, companyText, originInt, originDate, originMoney, originItemsRefresh, originSellerIds } from "./invoices.ts";
+export { listRows, listQuery, statusGroup, coverage } from "./invoice-list.ts";

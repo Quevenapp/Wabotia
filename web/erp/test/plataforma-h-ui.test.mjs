@@ -84,6 +84,12 @@ test('PRF-029: Backup asks for one export, shows the in-progress refusal and is 
  const other=await mountComponent('CompanyExport.tsx',{controller:{...controller,getSnapshot:()=>snapshot('financeiro')}});assert.match(other.text(),/Backup não liberado/);
  assert.throws(()=>parseExportLink({scope:'platform_export_link',expires_in:120,url:'https://evil.example/x',filename:'brufap-exportacao-2026-10-21-1300.zip'}));
  assert.equal(parseExportLink({scope:'platform_export_link',expires_in:120,url:'https://abcdefghijklmnopqrst.supabase.co/storage/v1/object/sign/brufap-exports/exports/x?token=t',filename:'brufap-exportacao-2026-10-21-1300.zip'}).filename,'brufap-exportacao-2026-10-21-1300.zip');
+ // Wabotia: o motor nomeia wabotia-exportacao-… e assina pela rota pública do Worker, na origem do painel.
+ const wabotiaLink=(origin,path=`/api/public/erp-storage/area-1/exportacoes/exports/${'a'.repeat(8)}-aaaa-4aaa-8aaa-${'a'.repeat(12)}/${'b'.repeat(64)}.zip`)=>({scope:'platform_export_link',expires_in:120,url:`${origin}${path}?token=1.x&download=wabotia-exportacao-2026-11-17-1300.zip`,filename:'wabotia-exportacao-2026-11-17-1300.zip'});
+ assert.equal(parseExportLink(wabotiaLink('https://painel.example'),'https://painel.example').filename,'wabotia-exportacao-2026-11-17-1300.zip');
+ assert.throws(()=>parseExportLink(wabotiaLink('https://outro.example'),'https://painel.example'),'another origin');
+ assert.throws(()=>parseExportLink(wabotiaLink('https://painel.example','/api/public/erp-storage/area-1/fiscal/x.zip'),'https://painel.example'),'another bucket');
+ assert.throws(()=>parseExportLink({...wabotiaLink('https://painel.example'),filename:'outra-exportacao-2026-11-17-1300.zip'},'https://painel.example'));
  assert.throws(()=>parseExports({...empty,retention_days:30}));
  assert.deepEqual(parsePreferencesPath('/preferencias/backup/exportacao'),{kind:'backup'});
  const entry=COMPANY_PREFERENCES.find(c=>c.id==='backup').sections[0].entries.find(e=>e.label==='Backup');assert.equal(entry.to,'/preferencias/backup/exportacao');

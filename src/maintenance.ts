@@ -2,6 +2,8 @@ import { type Actor, type Env, ApiError } from "./types";
 import {
   configureUpdates,
   configureAutomaticUpdates,
+  deleteInitialToken,
+  enablePerUpdateToken,
   resetUpdate,
   startUpdate,
 } from "./updates";
@@ -19,6 +21,10 @@ export async function maintenanceCommand(
       return configureUpdates(env, actor, data);
     case "system.updates.automatic":
       return configureAutomaticUpdates(env, actor, data);
+    case "system.updates.delete_initial_token":
+      return deleteInitialToken(env, actor, data);
+    case "system.updates.token_mode":
+      return enablePerUpdateToken(env, actor, data);
     case "system.updates.start":
       return startUpdate(env, actor, data);
     case "system.updates.reset":

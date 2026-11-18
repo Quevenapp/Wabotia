@@ -25,7 +25,7 @@ const parts = { access, catalog, cnab, company, documents, finance, fiscal, pos,
 function merge(field, sub) {
   const out = {};
   for (const [domain, part] of Object.entries(parts))
-    for (const [key, value] of Object.entries(sub ? (part[field]?.[sub] ?? {}) : part[field])) {
+    for (const [key, value] of Object.entries(sub ? (part[field]?.[sub] ?? {}) : (part[field] ?? {}))) {
       if (key in out) throw Error(`overrides: ${key} declarado duas vezes (${domain})`);
       out[key] = value;
     }
@@ -37,4 +37,11 @@ export const overrides = {
   discardTables: merge("discardTables"),
   /** Pendências cumpridas em TS, por domínio (overrides/<domínio>.mjs, `covered`). */
   covered: { checks: merge("covered", "checks"), triggers: merge("covered", "triggers") },
+  /**
+   * Gatilho em PL/pgSQL que vira gatilho do SQLite com a condição escrita à mão
+   * (overrides/<domínio>.mjs, `sqlTriggers`): chave "schema__tabela.gatilho",
+   * { when: expressão do SQLite com OLD./NEW., code, message, reason }. O
+   * gerador confere code e message no corpo da função do oráculo.
+   */
+  sqlTriggers: merge("sqlTriggers"),
 };

@@ -30,6 +30,8 @@ import PdvReceiptPrint, { type PdvPrintJob } from './PdvReceiptPrint';
 import { PdvCancelDialog, PdvCloseDialog, PdvGtinDialog, PdvMoveDialog, PdvPixDialog, PdvReturnDialog, PdvSettingsDialog, PdvShortcutsDialog, PdvStoreDialog, PdvTableDialog } from './PdvDialogs';
 import { Icon } from './Icon';
 import { fitDecimal, loadDecimalPlaces, type DecimalPlaces } from '../../decimals';
+import { emissorBadge, useEmissorView } from '../../emissor';
+import { erpPorts } from '../../ports';
 import './pdv.css';
 import './real-pdv.css';
 
@@ -86,6 +88,8 @@ export default function RealPdv({ controller }: { controller: AccessController }
   const scopeOf = (s: ReturnType<AccessController['getSnapshot']> | null) => s?.phase === 'ready' && s.membership ? `${s.membership.user_id}:${s.membership.role}` : '';
   const scope = tracked ? scopeOf(snapshot) : 'isolated', current = useRef(scope); current.current = scope;
   const role = tracked ? snapshot?.membership?.role ?? '' : 'admin';
+  // Wabotia: o A1 fica no cofre de emissão (NFapi), não no ERP: o selo lê o estado do cofre (web/erp/emissor.ts).
+  const certificateBadge = emissorBadge(useEmissorView(erpPorts()?.emissor));
   const mayRead = () => current.current === scope && (!tracked || scopeOf(controller.getSnapshot()) === scope);
   const [loaded, setLoaded] = useState<{ scope: string; value: PdvContext | null; error: string }>({ scope: '', value: null, error: '' });
   const context = loaded.scope === scope ? loaded.value : null;
@@ -415,7 +419,7 @@ export default function RealPdv({ controller }: { controller: AccessController }
       {store?.session ? <span className="pdv-cash-state">Caixa aberto · {store.session.operator_name} · {dateTimeSP(store.session.opened_at)}</span>
         : context.effects.cash && context.stores.length ? <button type="button" className="pdv-open-cash" onClick={() => setDialog({ kind: 'store' })}><Icon name="cash-register" size={11} />Abrir caixa</button> : null}
       {cashNeeded && <span className="pdv-warning" role="status"><Icon name="triangle-exclamation" size={12} />Para habilitar as funcionalidades do frente de caixa, o caixa deve ser aberto.</span>}
-      {context.certificate !== 'valid' && <span className="pdv-warning pdv-certificate" role="status" title="O certificado A1 não está configurado ou venceu: a NFC-e não pode ser autorizada."><Icon name="certificate" size={12} />Certificado inválido</span>}
+      {certificateBadge && <span className={`pdv-warning pdv-certificate pdv-certificate-${certificateBadge.tone}`} role="status" title={certificateBadge.title}><Icon name="certificate" size={12} />{certificateBadge.text}{certificateBadge.action && ['admin', 'fiscal'].includes(role) && <> · <Link to={certificateBadge.action.to}>{certificateBadge.action.label}</Link></>}</span>}
       {!operate && <span className="pdv-warning" role="status"><Icon name="circle-info" size={12} />{context.role === 'vendas' ? 'Seu vendedor não tem o módulo Frente de Caixa.' : 'Somente consulta.'}</span>}
       <button type="button" className="pdv-info" title="Teclas de atalho" aria-label="Teclas de atalho" onClick={() => setDialog({ kind: 'shortcuts' })}><Icon name="keyboard" size={15} /></button>
     </header>

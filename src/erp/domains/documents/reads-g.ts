@@ -1,11 +1,11 @@
 // Escrito pela G para o domínio 11; dono: Documentos (autorizado pela N).
 // Portado de erp_documents.os_permitted, require_role, require_access e
 // contact_usable (inteiros) e de erp_document_mirror.visible, require_visible
-// e report_coverage. O espelho do Origin saiu (docs/ERP-FASE0.md, "Origin fora"):
-// na instalação do Wabotia não há documento com origin/authority 'origin' nem
-// linha em erp_documents.origin_mirror, então os ramos do espelho não são
-// portados. visible é o ramo do documento nativo, require_visible não tem
-// efeito e report_coverage é a constante native_effects_only sem exclusões.
+// e report_coverage. visible e require_visible leem o documento espelhado do
+// Origin como qualquer linha (origin/authority 'origin'): sem documento
+// espelhado, não fazem nada (require_visible está em documents/mirror.ts).
+// report_coverage é a constante native_effects_only sem exclusões.
+import { requireVisible } from "./mirror.ts";
 import { one, type SqlDriver } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
 import { permitted } from "../access/public.ts";
@@ -46,12 +46,14 @@ export function contactUsable(db: SqlDriver, user: string | null, contact: strin
 
 /** erp_document_mirror.visible(user, document): o documento nativo é visível quando o contato é usável. */
 export function mirrorVisible(db: SqlDriver, user: string | null, document: string | null): boolean {
-  const d = document === null ? undefined : one(db, 'SELECT contact_id FROM "erp_documents__document" WHERE id=?', document);
-  return d ? contactUsable(db, user, (d.contact_id as string | null) ?? null) : false;
+  const d = document === null ? undefined : one(db, 'SELECT contact_id, origin FROM "erp_documents__document" WHERE id=?', document);
+  if (!d) return false;
+  const contact = (d.contact_id as string | null) ?? null;
+  // O documento espelhado só pela visibilidade do contato; o nativo pelo contact_usable (com o consumidor do PDV).
+  return d.origin === "origin" ? contactVisibleTo(db, contactScope(db, user), contact) : contactUsable(db, user, contact);
 }
 
-/** erp_document_mirror.require_visible(user, document, write): só age em documento do espelho; sem espelho, nada. */
-export function mirrorRequireVisible(_db: SqlDriver, _user: string | null, _document: string | null, _write: boolean): void {}
-
-/** erp_document_mirror.report_coverage(user, kind, contact, from, to): sem espelho, nada excluído. */
-export const reportCoverage = () => ({ origin: "brufap", mirror_excluded_count: 0, coverage: { partial: false, reason: "native_effects_only" } });
+/** erp_document_mirror.require_visible(user, document, write): só age em documento do espelho (documents/mirror.ts). */
+export function mirrorRequireVisible(db: SqlDriver, user: string | null, document: string | null, write: boolean): void {
+  requireVisible(db, user, document, write);
+}

@@ -9,7 +9,7 @@ import { accessRequireAdmin } from "../../access/public.ts";
 import { json, text, uuid } from "../args.ts";
 import { frameworkHash, frameworkKeys, frameworkReplay, frameworkVersion } from "../framework.ts";
 import { compareText } from "../order.ts";
-import { labelDto } from "./erp_preferences_labels.ts";
+import { labelDto } from "../label-defaults.ts";
 
 /** erp_preferences.report_dto */
 export function reportDto(r: Record<string, unknown>) {

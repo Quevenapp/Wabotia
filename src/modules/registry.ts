@@ -11,6 +11,10 @@ import { queueModule } from "./queue";
 import { formsModule } from "./forms/definition";
 import { agendaModule } from "./agenda/definition";
 import { osModule } from "./os/definition";
+import { juridicoModule } from "./juridico/definition";
+import { condominioModule } from "./condominio/definition";
+import { saudeModule } from "./saude/definition";
+import { ensinoModule } from "./ensino/definition";
 import { paymentsModule } from "./payments/definition";
 import { mensalidadeModule } from "./mensalidade/definition";
 import { suporteModule } from "./suporte/definition";
@@ -33,6 +37,11 @@ export const modules: readonly ModuleDefinition[] = [
   formsModule,
   agendaModule,
   osModule,
+  // REGISTRO I2 — módulos opcionais, desligados por padrão em cada área.
+  juridicoModule,
+  condominioModule,
+  saudeModule,
+  ensinoModule,
   paymentsModule,
   mensalidadeModule,
   suporteModule,
@@ -68,6 +77,22 @@ export const moduleMenuTypes = () =>
   modules.flatMap((m) => m.menu_item_types.map((t) => t.type));
 
 export type ModuleStates = Record<string, boolean>;
+
+/** Estado configurado antes de mascarar módulos cujas dependências estão desligadas. */
+export const configuredModuleStates = (saved: Record<string, unknown>): ModuleStates => savedStates(saved, modules);
+
+/** Estado FINAL, sem cascata silenciosa; usado pelo planejador de configurações. */
+export function planModuleStates(current: ModuleStates, changes: Record<string, boolean> = {}): ModuleStates {
+  const next = { ...current };
+  for (const [id, enabled] of Object.entries(changes)) {
+    requireValue(moduleById(id) && typeof enabled === "boolean", "Módulo ou estado inválido.");
+    next[id] = enabled;
+  }
+  for (const definition of modules)
+    if (next[definition.id] && definition.requires?.some((id) => !next[id]))
+      throw new ApiError(409, "dependency_conflict", `Dependências de ${definition.name} desligadas no estado final.`);
+  return next;
+}
 
 /**
  * Estado de cada módulo a partir das linhas salvas (sem linha: padrão). Um
@@ -298,3 +323,5 @@ export async function moduleCommand(
     ...(cascade.length ? { also_disabled: cascade } : {}),
   };
 }
+
+// REGISTRO RESERVADO F0/I — extensões internas não são novos módulos.

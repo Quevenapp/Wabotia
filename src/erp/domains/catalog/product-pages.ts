@@ -214,7 +214,8 @@ function exportResult(
           : k?.state === "recorded"
             ? quantityText(k.quantity)
             : null,
-      source_id: null,
+      // (select o.source_id from erp_catalog.origin o where o.record_id=u.id): leitura do espelho.
+      source_id: one(db, 'SELECT source_id FROM "erp_catalog__origin" WHERE record_id=?', id)?.source_id ?? null,
     };
   });
   const warehouseRow =

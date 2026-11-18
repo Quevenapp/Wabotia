@@ -89,3 +89,34 @@ estado, para os chips de filtro e os totais das telas.
   "abertas", some tudo menos `delivered` e `cancelled`.
 - Rótulos em português para exibir: Recebida, Em análise, Orçamento enviado,
   Aprovada, Recusada, Em execução, Pronta, Entregue, Cancelada.
+
+## Tipo embutido no motor de trabalhos
+
+O contrato do [motor de trabalhos](TRABALHOS.md), em integração, mantém esta
+Ordem de Serviço como tipo virtual `service_order`. Não é necessário migrar
+configurações: `service_orders`, formulários, termos, nove estados, orçamento,
+garantia, lembretes e histórico das operações antigas conservam seu significado.
+Ausência de `type_id` na abertura ou no menu continua selecionando esse tipo.
+
+Os campos novos são adicionais: `type_id`, `type_revision`, `type_number`,
+`type_label`, `type_plural_label`, `display_number`, `stage`, `stage_label`,
+`labels`, `extra`, `fields`, `version`, `next_stages` e `stage_approval`.
+`status_label` continua sendo o rótulo do estado de base. Uma linha antiga usa
+`status` como etapa efetiva, `number` como número do tipo e campos extras vazios.
+
+`number` continua global, inteiro positivo até 2.147.483.647. Após abrir tipos
+diferentes, o número global e a sequência do tipo podem divergir; mensagens e
+comandos antigos continuam usando o global. `next_cursor` continua texto ou
+nulo. `counts` também não segue os novos filtros `type_id` e `stage`; para
+contagens por tipo/etapa, solicite `facets=1`.
+
+Aplicativos antigos mantêm o fluxo completo do embutido. Para tipos novos,
+conservam leitura e ações antigas não ambíguas; recursos próprios exigem versão
+atualizada. `next_statuses` contém somente estados de base. Uma ação ambígua em
+`/status` retorna `409 stage_required`; a interface nova usa `next_stages`.
+A decisão de orçamento continua recebendo `approve`/`decline` e devolvendo
+`approved`/`declined`.
+
+O detalhe antigo mantém `history=legacy` por padrão. Interfaces novas podem
+pedir `history=none` e consultar `/history`, paginado e com eventos dos filhos.
+O cadastro do embutido não deve ser copiado para `os_work_types`.

@@ -1,3 +1,4 @@
+import { ensinoNoStore } from "./modules/ensino/http";
 import { mountInternalApi, takeInternalActor } from "./internal-api";
 import { capabilities } from "./whatsapp";
 import { authorizedMedia, mediaResponse, uploadPart, mediaKind } from "./media";
@@ -67,7 +68,7 @@ import { allowedProvider, listProviders, providerCommand, providerKey, providerM
 import { requireDirectPerson } from "./security";
 import { pushConfig, publicPushConfig, sendTest, prunePush } from "./push";
 import { wake } from "./events";
-import { settings, scopes, eventTypes, conversation, perform } from "./service";
+import { settings, settingsRevision, scopes, eventTypes, conversation, perform } from "./service";
 import {
   probe,
   storeRemoteMedia,
@@ -99,7 +100,13 @@ import {
   contactNamespace,
   previewContactCsv,
 } from "./contacts";
-import { checkUpdate, updatePlan, updateStatus } from "./updates";
+import { checkUpdate, updateStatus } from "./updates";
+import {
+  OFFICIAL_RELEASE_ORIGIN,
+  RELEASE_ORIGIN,
+  TEST_CATALOG_PATH,
+  TEST_CATALOG_PREFIX,
+} from "./release";
 import { removePendingConnections } from "./connection-removal";
 import {
   pairingStart,
@@ -150,7 +157,7 @@ import {
   ipHash,
   peekClaim,
 } from "./module-credentials";
-import { credentialGate, moduleRoutes, webStepPageHook } from "./modules/hooks";
+import { credentialGate, matchModuleRoute, moduleRoutes, routeData, webStepPageHook } from "./modules/hooks";
 import { paymentView, verifyPaymentWebhook } from "./payments";
 import {
   addCartSlot,
@@ -218,6 +225,7 @@ function queueSocket(
 
 export { Coordinator } from "./coordinator";
 const app = new Hono<Bindings>();
+app.use("/api/v1/profiles/:profile/ensino/*", ensinoNoStore);
 app.use("*", async (c, next) => {
   if (/^\/internal\/v1\/connectors\/[^/]+\/media-content$/.test(c.req.path))
     return next();
@@ -277,11 +285,29 @@ app.get("/api/health", (c) =>
     runtime: "cloudflare-workers",
     // Código-fonte do commit em execução (AGPL-3.0, §13).
     source: sourceInfo(c.env),
+    // Build de teste do atualizador: mostra o catálogo de onde ele lê.
+    ...(RELEASE_ORIGIN !== OFFICIAL_RELEASE_ORIGIN
+      ? { test_build: true, release_origin: RELEASE_ORIGIN }
+      : {}),
   }),
 );
-app.get("/api/system/update-plan", async (c) =>
-  c.json(await updatePlan(c.env)),
-);
+// Só no build de teste do atualizador: o catálogo de teste vem do próprio R2
+// (scripts/release-test-upload.mjs). No build oficial a rota não existe.
+if (RELEASE_ORIGIN !== OFFICIAL_RELEASE_ORIGIN)
+  app.get(`${TEST_CATALOG_PATH}/releases/*`, async (c) => {
+    const path = c.req.path.slice(TEST_CATALOG_PATH.length + 1);
+    if (!/^releases\/[a-zA-Z0-9._/-]+$/.test(path) || path.includes(".."))
+      return c.notFound();
+    const object = await c.env.MEDIA.get(`${TEST_CATALOG_PREFIX}/${path}`);
+    if (!object) return c.notFound();
+    return new Response(object.body, {
+      headers: {
+        "Content-Type":
+          object.httpMetadata?.contentType || "application/octet-stream",
+        "Cache-Control": "no-store",
+      },
+    });
+  });
 app.get("/api/openapi.json", (c) => c.json(openapi(new URL(c.req.url).origin)));
 app.use("/api/pairing/*", bodyLimit({ maxSize: 4096 }));
 app.post("/api/pairing/start", async (c) =>
@@ -1029,6 +1055,8 @@ const BOUND_ROUTES: [string, RegExp][] = [
   ["GET", /^(agenda|reserva|pedido|mensalidade|queue)\/conversations\/[^/]+$/],
   ["GET", /^suporte\/conversations\/[^/]+\/situation$/],
   ["GET", /^service-orders\/conversation\/[^/]+$/],
+  ["GET", /^service-orders\/conversation\/[^/]+\/orders\/[^/]+$/],
+  ["GET", /^service-orders\/conversation\/[^/]+\/orders\/[^/]+\/(tasks|documents|entries)$/],
 ];
 app.use("/api/v1/profiles/*", async (c, next) => {
   if (isBound(c.get("actor"))) {
@@ -1130,6 +1158,15 @@ const erpEmissor = async (c: any) => {
 };
 app.all("/api/v1/profiles/:profile/erp-emissor", erpEmissor);
 app.all("/api/v1/profiles/:profile/erp-emissor/*", erpEmissor);
+// Relatórios e exportação pelo cofre (Fiscal, F6b; src/erp/fiscal-cofre/README.md):
+// papel fiscal ou administrador; os links de download vão ao navegador.
+app.all("/api/v1/profiles/:profile/erp-fiscal-cofre/*", async (c: any) => {
+  const profile = c.req.param("profile");
+  if (!canProfile(c.get("actor"), profile))
+    throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
+  const { erpFiscalVaultRoute } = await import("./erp/fiscal-cofre/routes");
+  return erpFiscalVaultRoute(c.env, c.req.raw, profile, c.get("actor"));
+});
 // Arquivo do ERP por URL assinada de curta duração (a exportação da empresa):
 // sem sessão, o token (HMAC) vale para um objeto de uma área até vencer
 // (src/erp-storage.ts). Os buckets do ERP nunca são públicos.
@@ -1542,6 +1579,8 @@ app.post("/api/v1/system/push/test", async (c) => {
 for (const [path, operation] of [
   ["updates/configure", "updates.configure"],
   ["updates/automatic", "updates.automatic"],
+  ["updates/initial-token/delete", "updates.delete_initial_token"],
+  ["updates/token-mode", "updates.token_mode"],
   ["updates/start", "updates.start"],
   ["updates/reset", "updates.reset"],
   ["push/configure", "push.configure"],
@@ -1740,24 +1779,6 @@ for (const [method, path, op] of commands)
       await closeSockets(c.env, [profile], [`display:${c.req.param("id")}`]);
     return response;
   });
-// Rotas declaradas pelos módulos (docs/MODULOS.md: onRoute, onRead). A
-// escrita vira comando no Coordinator da área, como as rotas acima.
-// Credencial por QR: negada por padrão; só a rota que declara
-// `credential: true`, e só com o :id do registro dela (credentialGate).
-for (const route of moduleRoutes().write)
-  app.on(route.method, `/api/v1/profiles/:profile/${route.path}`, async (c) => {
-    credentialGate(
-      c.get("actor"),
-      route,
-      c.req.param() as Record<string, string>,
-    );
-    return mutate(c, route.op, c.req.param("profile")!, {
-      ...(route.method === "DELETE"
-        ? {}
-        : await c.req.json().catch(() => ({}))),
-      ...(c.req.param("id") ? { id: c.req.param("id") } : {}),
-    });
-  });
 // Telemetria dos módulos (onTelemetry): POST sem Idempotency-Key e fora do
 // Coordinator, para posições em lote; corpo até 64 KB, até TELEMETRY_RATE
 // chamadas por minuto por credencial, área e rota.
@@ -1798,23 +1819,34 @@ for (const route of moduleRoutes().telemetry)
       );
     },
   );
-for (const route of moduleRoutes().read)
-  app.get(`/api/v1/profiles/:profile/${route.path}`, async (c) => {
-    const profile = c.req.param("profile")!;
-    if (!canProfile(c.get("actor"), profile))
-      throw new ApiError(404, "not_found", "Perfil não encontrado.");
-    credentialGate(
-      c.get("actor"),
-      route,
-      c.req.param() as Record<string, string>,
-    );
-    return c.json(
-      await route.handler(c.env, c.get("actor"), profile, {
-        params: c.req.param() as Record<string, string>,
-        query: c.req.query(),
-      }),
-    );
-  });
+// Consulta o registro atual, inclusive extensões carregadas depois desta
+// entrada. Mantém os gates anteriores e deixa rotas do núcleo prosseguirem.
+app.use("/api/v1/profiles/:profile/*", async (c, next) => {
+  const match = matchModuleRoute(c.req.method, c.req.path);
+  if (!match) return next();
+  const { route, params } = match;
+  const profile = params.profile;
+  const actor = c.get("actor");
+  // Credencial por QR: negada por padrão, salvo declaração e ID do registro.
+  if (route.kind === "write") {
+    credentialGate(actor, route, params);
+    return mutate(c, route.op, profile, routeData(
+      route.method === "DELETE" ? {} : await c.req.json().catch(() => ({})),
+      params,
+    ));
+  }
+  if (!canProfile(actor, profile))
+    throw new ApiError(404, "not_found", "Perfil não encontrado.");
+  credentialGate(actor, route, params);
+  // Sem c.json: bytes permanecem intactos; metadados passam pelo Coordinator.
+  if (route.kind === "binary")
+    return route.handler(c.env, actor, profile, {
+      params, query: c.req.query(), request: c.req.raw,
+    });
+  return c.json(await route.handler(c.env, actor, profile, {
+    params, query: c.req.query(),
+  }));
+});
 // Uma fonte do Conhecimento com o texto completo, para edição no painel.
 app.get("/api/v1/profiles/:profile/knowledge/:id", async (c) => {
   const profile = c.req.param("profile");
@@ -1876,6 +1908,7 @@ app.get("/api/v1/profiles/:profile/status", async (c) => {
     );
   return c.json({
     settings: await settings(c.env, p),
+    settings_revision: await settingsRevision(c.env, p),
     enabled: (await one(c.env, "SELECT enabled FROM profiles WHERE id=?", p))
       ?.enabled,
     // Contadores das conversas só para quem acessa o atendimento.

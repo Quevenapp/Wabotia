@@ -9,7 +9,7 @@ import { compareDec, formatScaled, toScaled } from "../../../engine/dec.ts";
 import { jsonTimestamp } from "../../../engine/time.ts";
 import { accessRequireAdmin, permitted, requirePermission } from "../../access/public.ts";
 import { allowed as catalogAllowed } from "../../catalog/public.ts";
-import { allowed as documentsAllowed, reportCoverage } from "../../documents/public.ts";
+import { allowed as documentsAllowed, mirrorReportCoverage } from "../../documents/public.ts";
 import { int, json, text, uuid } from "../args.ts";
 import { directory, readerRole } from "../center.ts";
 import { frameworkHash, frameworkKeys, frameworkReplay, frameworkText, frameworkVersion } from "../framework.ts";
@@ -342,7 +342,7 @@ export function erpPreferencesReportRun(ctx: RpcContext, a: RpcArgs) {
     total_rows: Math.min(src.length, limit!),
     truncated: src.length > limit!,
     totals,
-    ...(kind ? reportCoverage() : {}),
+    ...(kind ? mirrorReportCoverage(ctx.db, user, kind) : {}),
   };
 }
 

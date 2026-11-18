@@ -62,6 +62,26 @@ O instalador configura automaticamente a atualização com o token usado na inst
 
 O token inicial também possui D1/R2 para criar os recursos. Depois de instalar, você pode substituí-lo por um token com somente **Workers Scripts: Edit** e revogar o inicial. Essa permissão permite publicar Workers na conta autorizada; escolha uma conta adequada ao projeto e guarde a credencial em local privado.
 
+Enquanto o atualizador usa o token inicial, o painel avisa **Token inicial em uso**. Depois de salvar o token só de Workers, o inicial continua guardado no Worker como reserva; o painel oferece **Apagar o token inicial**, que apaga esse segredo do Worker usando o token do painel. Depois disso não há reserva: se o token do painel for revogado, a atualização para até você salvar outro. Revogue também o inicial na Cloudflare (**My Profile → API Tokens**).
+
+Informar ou trocar o token e apagar o inicial são feitos só pela pessoa administradora, na própria sessão (nunca por um bot agindo por ela); apagar o inicial pede o segundo fator quando a pessoa tem um ou a política pede. Contrato: `POST /api/v1/system/updates/initial-token/delete` com `{"confirmed":true}` e `Idempotency-Key`; `GET /api/v1/system` traz `updates.token_source` (`panel`, `initial` ou `null`) e `updates.initial_token_stored`.
+
+### Colar o token a cada atualização
+
+Opção para não deixar token da Cloudflare guardado na instalação. Em **Colar o token a cada atualização**, a pessoa administradora cola um token com **Workers Scripts: Edit** e confirma. O servidor confere o token contra a identidade da instalação, apaga o token salvo no painel e o token inicial do Worker, e desliga a atualização automática, que precisa de token guardado.
+
+Depois disso, cada atualização pede o token. Ele é conferido antes de criar o trabalho e fica cifrado, preso àquele trabalho, só enquanto o trabalho está em andamento e por até 60 minutos (o maior salto medido levou cerca de 10). Ao terminar, falhar, ser cancelado, ficar sem confirmação ou vencer o prazo, o token é apagado; uma nova tentativa é um trabalho novo e pede o token de novo.
+
+Isso encolhe a janela de sempre para minutos por atualização. Não protege contra código rodando no Worker durante esses minutos. Para voltar a guardar o token, salve um em **Alterar configuração de atualização**. Quando o Fiscal tem cofre configurado, o painel sugere este modo.
+
+Ligar o modo e iniciar uma atualização nele são feitos só pela pessoa administradora, na própria sessão, com o segundo fator quando ela tem um ou a política pede. Contrato: `POST /api/v1/system/updates/token-mode` com `{"token":"…","confirmed":true}`; nesse modo, `POST /api/v1/system/updates/start` leva `{"commit":"…","token":"…"}`. `updates.token_source` vale `per_update`.
+
+### Cofre do certificado na mesma conta
+
+Com o cofre do certificado e o Wabotia na mesma conta Cloudflare, quem conseguir executar código no Worker do Wabotia, ou obtiver o token de atualização, alcança também o cofre. A Cloudflare não oferece token restrito a um único Worker. As medidas de proteção (o token só digitado por pessoa, o token restrito no lugar do inicial, o modo "não guardar o token") reduzem essa chance; não a eliminam.
+
+Opcional: quem quiser separar de vez pode manter o cofre numa conta Cloudflare própria. Custa uma segunda conta e não é necessário para usar o Wabotia.
+
 ## Se houver falha
 
 - **Falha antes de publicar:** leia a mensagem, corrija token/permissão e libere nova tentativa. Um pacote inválido não é ativado.
@@ -72,20 +92,29 @@ O token inicial também possui D1/R2 para criar os recursos. Depois de instalar,
 
 Faça backup antes de atualizar. Não há rollback automático de dados.
 
-## Instalações anteriores e reinstalação
+## Reinstalação
 
-O fluxo anterior continua documentado em [ATUALIZACOES-LEGADO.md](ATUALIZACOES-LEGADO.md). Um hook já configurado não é apagado por uma atualização.
-
-Para adotar o fluxo direto com uma instalação nova, siga [INSTALACAO.md](INSTALACAO.md). Use nome novo, guarde a instalação antiga até conferir a nova e reconecte o Hermes existente. Não crie outro túnel para os mesmos endereços. O histórico não é importado automaticamente. Pare os canais antigos antes de ligá-los na instalação nova; cada número deve ter um único consumidor.
+Instalações criadas pelo fluxo antigo (cópia do repositório com Cloudflare Builds e Deploy Hook) não são mais atualizadas pelo painel: esse caminho saiu do código. Para adotar o fluxo direto, siga [INSTALACAO.md](INSTALACAO.md) com uma instalação nova. Use nome novo, guarde a instalação antiga até conferir a nova e reconecte o Hermes existente. Não crie outro túnel para os mesmos endereços. O histórico não é importado automaticamente. Pare os canais antigos antes de ligá-los na instalação nova; cada número deve ter um único consumidor.
 
 ## Publicar uma versão oficial (mantenedor)
 
-1. Execute tipos, testes e homologação. Atualize versão e manual. Faça commit do código.
-2. Execute `npm run release`. O script produz o instalador, o Worker, os arquivos web e o pacote com SHA-256. Publicações de uma versão são imutáveis: use outra versão para alterar o pacote.
-3. Publique o site oficial com Wrangler, preservando as pastas das versões já publicadas. O arquivo `releases/latest.json` aponta para o novo pacote.
-4. Valide a instalação e uma atualização real em staging. GitHub Actions permanece desativado.
+Toda versão sai no **formato 2, assinada** (Ed25519). O formato, a assinatura, o prazo do índice, a troca de chaves e o ensaio estão em [ATUALIZACOES-FORMATO.md](ATUALIZACOES-FORMATO.md). Rode na cópia que guarda o catálogo publicado (`public/releases/`).
 
-Pacotes e instalador gerados não são enviados ao Git. Guarde os artefatos das versões publicadas em backup. Para gerar um candidato local sem alterar o catálogo, use `npm run release -- --candidate`.
+1. **Uma vez por máquina:** aponte a chave de assinatura. Crie `release-signing.local.json` na raiz (já está no `.gitignore`) com `{"key": "D:\\Code\\Env\\wabotia\\chaves-release\\principal.pem"}`, ou defina `WABOTIA_RELEASE_KEY` com esse caminho. A chave fica fora do repositório; nunca a copie para o projeto, para um segredo de CI ou para uma variável do Worker.
+2. Execute tipos, testes e homologação. Atualize a versão (maior que a publicada) e o manual. Faça commit do código.
+3. Execute `npm run release`. O script:
+   - produz o instalador, o Worker minificado e os arquivos web;
+   - grava `releases/<versão>/manifest.json` e `manifest.sig`, os arquivos em `releases/blobs/`, e o índice `releases/v2/latest.json` com `latest.sig`, válido por 90 dias;
+   - para se faltar a chave, se a chave não estiver em `src/release-keys.json`, se a versão não for maior que a publicada e que a de `releases/latest.json`, ou se a mesma versão já tiver sido publicada com outro conteúdo.
+
+   Toda versão depois da ponte exige a ponte instalada (`requires.min_version`); outra exigência sai com `--min-version x.y.z`, e o plano Workers Paid com `--workers-paid`.
+
+   **Só uma vez, na versão ponte (0.21.1):** `npm run release -- --bridge` (ou `--bridge --slim`). Grava também o pacote de formato 1 que a 0.21.0 lê, aponta `releases/latest.json` para a ponte e registra `releases/v2/bridge.json`. Antes de publicar, rode `node scripts/erp/check-candidate.mjs public/releases/0.21.1`, que passa o pacote pelo leitor da própria 0.21.0. Detalhes, tamanhos e a saída de emergência em [ATUALIZACOES-FORMATO.md](ATUALIZACOES-FORMATO.md#versão-ponte-0211).
+4. Publique o site oficial com Wrangler, preservando as pastas das versões já publicadas, `releases/blobs/`, `releases/v2/` e `releases/latest.json`. Esse último é o índice do formato antigo: congelado na ponte, o script só o escreve com `--bridge`, e ele não deve ser apagado (as instalações 0.21.0 e anteriores o leem).
+5. Valide a instalação e uma atualização real em staging. GitHub Actions permanece desativado.
+6. **Sem versão nova em 90 dias:** antes do vencimento, rode `npm run release -- --renew` e publique o site. A partir de 60 dias, o próprio `npm run release` avisa, e a tela Sistema do site oficial também. Com o índice vencido, as instalações recusam atualizar ("o mantenedor precisa renová-lo"), mas o atendimento continua normal.
+
+Pacotes e instalador gerados não são enviados ao Git. Guarde os artefatos das versões publicadas em backup. Para conferir um pacote sem publicar, use `npm run release -- --candidate`: ele sai **sem assinatura** em `output/release-candidate/` e as instalações recusam. O build só de teste (`--test-origin`) é para o ensaio em staging e nunca vai ao site oficial.
 
 Referência do protocolo: [upload direto de arquivos Cloudflare](https://developers.cloudflare.com/workers/static-assets/direct-upload/).
 
@@ -188,6 +217,32 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
   - Nada muda na conexão: mesma chave, mesmo modelo.
   - O esforço ganha **Máximo**.
   - Não testado contra a API real.
+
+## Atualização 0.22.0: módulos por área, bots internos sem Hermes e mais ERP
+
+Exige a 0.21.1 instalada: é a primeira versão no pacote assinado. Faça backup, use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia** e acompanhe até o fim; depois clique em **Reabrir painel atualizado**. Ela aplica 24 migrações aditivas (`0090`, `0091`, `0092`, `0094` e `0100` a `0119`) e não cria recurso novo na Cloudflare. Se o painel ficar na mesma etapa por mais de 15 minutos, siga a [saída de emergência](ATUALIZACOES-FORMATO.md#saída-de-emergência-trabalho-preso-em-atualizando).
+
+**Hermes retirado.** O Wabotia passa a trabalhar só com bots internos, ligados direto a um provedor de IA. As conexões do Hermes ficam pausadas e são removidas sozinhas, com o histórico preservado; as linhas que atendiam com um bot do Hermes voltam à regra da área, e o Atendente da área que era um bot do Hermes fica vago até você escolher um bot interno. O servidor MCP (`/api/mcp`) e o plugin deixam de funcionar. Os recursos criados na sua conta Cloudflare pela preparação antiga (aplicação Access, service token, túnel e DNS) **não** somem: revogue-os no painel da Cloudflare, pelos nomes do aviso **Hermes retirado**, em Conexões. Detalhes em [Retirada do Hermes](#retirada-do-hermes-servidor-e-painel).
+
+**Bots internos.** Máscara de dados pessoais por bot (ligada também nos bots existentes), leitura de PDF como texto mascarado, com duas opções por bot desligadas de fábrica (mandar ao provedor o PDF que não der para ler; encaminhar imagens à equipe), cache de prompt, o especialista de decisão JEV disponível aos bots internos e a OpenAI pela Responses API, que conserta o bot com ferramentas nos modelos atuais. Detalhes nas seções [Máscara de dados pessoais por bot](#18112026--máscara-de-dados-pessoais-por-bot) e [bots internos](#próxima-versão-bots-internos-rascunho). A Responses API não foi testada nesta versão contra a API real.
+
+**Módulos por área (novo).** A Ordem de Serviço passa a aceitar **tipos de trabalho** por área de atendimento: nome próprio (processo, obra, atendimento, matrícula), campos extras, etapas com mensagem ao cliente, tarefas e prazos, pessoas ligadas, documentos e lançamentos. Quem só usa a Ordem de Serviço de antes não vê diferença. Em **Gestão → Modelos de área** há modelos prontos para advogados e escritórios, engenheiros, arquitetos, construtoras, clínicas médicas e veterinárias, assistência técnica, oficina, lavanderia e costura, serviços, escolas, professores e condomínios, com prévia antes de aplicar; depois de aplicado, tudo é configuração editável. Quatro módulos novos, desligados de fábrica, completam as áreas que pedem mais do que o modelo: **Jurídico** (calendários e prazos em dias úteis), **Condomínio** (unidades, moradores e assembleia), **Saúde** (prontuário, com papel próprio e registro de cada leitura; nada dele vai ao WhatsApp nem à IA) e **Ensino** (turmas, frequência e notas). Guias em [TRABALHOS.md](TRABALHOS.md), [JURIDICO.md](JURIDICO.md), [CONDOMINIO.md](CONDOMINIO.md), [SAUDE.md](SAUDE.md) e [ENSINO.md](ENSINO.md).
+
+Esta parte é nova e foi verificada por testes automáticos e por leitura de código, não por uso em atendimento real. Os textos e as etapas dos modelos são um ponto de partida: revise-os com quem conhece a área antes de usar com clientes. O sistema nunca afirma que um prazo jurídico está certo: mostra o cálculo e pede a conferência do advogado. Os aplicativos Android e iOS atuais mostram os trabalhos pelo estado de base e ainda não exibem etapas nem campos próprios.
+
+**ERP (em implantação, desligado de fábrica).** O servidor do ERP passa a ter completos os documentos (propostas, pedidos e ordens, com mudança de situação e lançamento de contas), o financeiro, o catálogo, o estoque e a frente de caixa, e os primeiros blocos do fiscal. As telas que ainda não têm o servidor correspondente continuam avisando que a ação está em implantação.
+
+**Atualizador.** Botão para liberar uma atualização parada há mais de 30 minutos, nova tentativa de publicação que recomeça da preparação, e mensagens de erro da Cloudflare mais claras. Valem a partir da atualização seguinte a esta.
+
+## Atualização 0.21.1: versão ponte para o pacote assinado
+
+Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia** e acompanhe até o fim; depois clique em **Reabrir painel atualizado**. O atendimento continua no ar durante a atualização. Não há migração de banco nem recurso novo na Cloudflare, e o funcionamento é o da 0.21.0: muda só o atualizador.
+
+**Por que ela existe.** As próximas versões saem em outro formato de pacote, dividido em arquivos e assinado, que a 0.21.0 não sabe ler. A 0.21.1 é o degrau entre os dois: chega no formato antigo e, instalada, só aceita versões assinadas pelo mantenedor. Toda versão depois dela exige a 0.21.1 instalada. Uma instalação na 0.17.0 ou anterior não lê este pacote (já não lia o da 0.21.0) e precisa ser reinstalada.
+
+**Atualize acompanhando.** Com a atualização automática ligada, a 0.21.1 entra sozinha na janela configurada; prefira atualizar à mão desta vez. Se o painel ficar em "Atualizando para 0.21.1" na mesma etapa por mais de 15 minutos, siga a [saída de emergência](ATUALIZACOES-FORMATO.md#saída-de-emergência-trabalho-preso-em-atualizando).
+
+**Limites conhecidos do atualizador desta versão,** que valem só para o salto seguinte e serão corrigidos nele: se duas atualizações forem pedidas quase ao mesmo tempo, a segunda pode sumir da tela e precisar de um novo clique; uma falha ao publicar o código pede **Liberar nova tentativa** à mão, também na atualização automática. Detalhes em [Formato do pacote](ATUALIZACOES-FORMATO.md#versão-ponte-0211).
 
 ## Atualização 0.21.0: acesso por pessoa, segundo fator, ERP em implantação, fila mais rápida
 

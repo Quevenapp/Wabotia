@@ -8,5 +8,6 @@ import "./rpc/erp_cnab_operational_writes.ts";
 import "./rpc/erp_cnab_itau_boleto.ts";
 import "./rpc/erp_cnab_return_writes.ts";
 import "./rpc/erp_cnab_operational_returns.ts";
+import "./rpc/erp_cnab_operational_settle.ts";
 
 export {};

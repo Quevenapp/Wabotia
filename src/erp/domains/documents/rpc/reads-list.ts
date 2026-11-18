@@ -3,8 +3,10 @@
 // public.erp_document_export, com os mesmos nomes; erp_documents.list_row,
 // list_conditions, list_condition, list_condition_value,
 // list_conditions_match, list_totals_visible, address_text, warranty_until e
-// order_invoice. Os ramos do espelho do Origin (documento com authority
-// 'origin', origin_mirror) não existem no Wabotia: docs/ERP-FASE0.md.
+// order_invoice. O documento espelhado do Origin (authority 'origin') é lido
+// como no oráculo: a linha de erp_document_mirror.list_row, o total e o número
+// da fonte, a metadata do espelho na exportação (../mirror-reads.ts e o
+// mirrorMetadata da O em ../mirror.ts).
 // Semântica do Postgres mantida: ORDER BY … DESC põe NULL primeiro; p_kind
 // nulo deixa as comparações nulas (três valores) e a validação não recusa.
 import { one, type SqlDriver } from "../../../engine/driver.ts";
@@ -19,7 +21,9 @@ import { contactScope, contactVisibleTo, unitPriceNumeric } from "../../catalog/
 import { active as receiptActive } from "../../stock/public.ts";
 import { originEffects } from "../../sync/public.ts";
 import { dateValue, preference, situationAdopted, situationJson, situationKeyValid } from "../internal.ts";
-import { contactUsable, requireAccess, transitions } from "../public.ts";
+import { mirrorListRow, mirrorSource, mirrorSourceMatches } from "../mirror-reads.ts";
+import { mirrorMetadata } from "../mirror.ts";
+import { mirrorVisible, requireAccess, transitions } from "../public.ts";
 import { pendencies } from "./reads-commerce.ts";
 import { jsonPathText } from "./reads-common.ts";
 
@@ -116,7 +120,7 @@ export function listRow(ctx: RpcContext, id: string, fiscal: boolean, stock: boo
     id,
   );
   if (!d) return null;
-  if (d.authority === "origin") raise("0A000", "rpc_not_ported:erp_document_mirror.list_row");
+  if (d.authority === "origin") return mirrorListRow(db, id);
   const body = JSON.parse(String(d.body)) as Obj;
   const snap = JSON.parse(String(d.contact_snapshot)) as Obj;
   const kind = String(d.kind);
@@ -366,7 +370,22 @@ const not = (b: boolean | null) => (b === null ? null : !b);
 /** a AND b em três valores. */
 const and = (...xs: (boolean | null)[]) => (xs.some((x) => x === false) ? false : xs.some((x) => x === null) ? null : true);
 
-type Filtered = { id: string; number: bigint | null; origin: string; day: string | null; total: bigint | null };
+/** numeric com a escala de exibição: o total da linha (coluna numeric(…,2) ou o source_total da fonte). */
+type Num = { v: bigint; s: number };
+type Filtered = { id: string; number: bigint | null; origin: string; day: string | null; total: Num | null };
+/** (texto)::numeric, com a escala digitada; texto inválido dá o 22P02 do Postgres. */
+function numericOf(text: string): Num {
+  const m = /^\s*([+-])?(\d*)(?:\.(\d*))?\s*$/.exec(text);
+  if (!m || (m[2] === "" && !m[3])) raise("22P02", `invalid input syntax for type numeric: "${text}"`);
+  const frac = m![3] ?? "";
+  const v = BigInt((m![2] || "0") + frac);
+  return { v: m![1] === "-" ? -v : v, s: frac.length };
+}
+/** sum(numeric): a escala é a maior das parcelas. */
+function sumNum(list: Num[]): Num {
+  const s = list.reduce((m, x) => Math.max(m, x.s), 0);
+  return { v: list.reduce((t, x) => t + x.v * 10n ** BigInt(s - x.s), 0n), s };
+}
 
 /** public.erp_document_list(…): a listagem de documentos com filtros, busca, ordem, cursor ou página e totais. */
 export function erpDocumentList(ctx: RpcContext, a: RpcArgs) {
@@ -507,7 +526,7 @@ export function erpDocumentList(ctx: RpcContext, a: RpcArgs) {
   let cursor: { day: string | null; number: bigint | null } | null = null;
   if (after !== null && order !== "id") {
     const c = one(db, 'SELECT number, body, contact_id, origin FROM "erp_documents__document" WHERE id=? AND kind=?', after, kind);
-    if (!c || !contactUsable(db, user, str(c.contact_id)) || !(origin === "all" || c.origin === origin)) raise("22023", "erp_document_cursor_invalid");
+    if (!c || !mirrorVisible(db, user, after) || !(origin === "all" || c.origin === origin)) raise("22023", "erp_document_cursor_invalid");
     cursor = { day: arrow(JSON.parse(String(c!.body)), "date"), number: c!.number === null ? null : BigInt(String(c!.number)) };
   }
   const offset = page === null ? 0 : (page - 1) * limit!;
@@ -515,7 +534,7 @@ export function erpDocumentList(ctx: RpcContext, a: RpcArgs) {
   const filtered: Filtered[] = [];
   const has = (hay: string | null, needle: string) => pgLower(hay ?? "").includes(needle);
   for (const d of db.exec(
-    `SELECT d.id, d.number, d.origin, d.status, d.deleted_at, d.contact_id, d.warehouse_id, d.body, d.contact_snapshot, CAST(d.total AS TEXT) total, ds.situation_id
+    `SELECT d.id, d.number, d.origin, d.authority, d.status, d.deleted_at, d.contact_id, d.warehouse_id, d.body, d.contact_snapshot, CAST(d.total AS TEXT) total, ds.situation_id
        FROM "erp_documents__document" d LEFT JOIN "erp_documents__document_situation" ds ON ds.document_id=d.id
       WHERE d.kind=? AND NOT EXISTS(SELECT 1 FROM "erp_documents__origin_mirror" bm WHERE bm.document_id=d.id AND bm.source_deleted=1)`,
     kind,
@@ -610,12 +629,19 @@ export function erpDocumentList(ctx: RpcContext, a: RpcArgs) {
         has(arrow(snap, "trade_name"), q) ||
         has(arrow(snap, "code"), q) ||
         has(arrow(snap, "email"), q) ||
+        mirrorSourceMatches(mirrorSource(db, String(d.id)), q) ||
         (kind === "purchase_orders" && has(arrow(body, "order_reference"), q)) ||
         (digits !== null && (arrow(snap, "document") ?? "").replace(/[^0-9]/g, "").includes(digits)) ||
         (digits !== null && kind === "service_orders" && (arrow(snap, "postal_code") ?? "").replace(/[^0-9]/g, "").includes(digits));
       if (!hit) continue;
     }
-    filtered.push({ id: String(d.id), number, origin: String(d.origin), day: arrow(body, "date"), total });
+    // O total da linha: o da fonte (reconciliation->>'source_total') no documento espelhado, senão a coluna.
+    let rowTotal: Num | null;
+    if (d.authority === "origin") {
+      const source = mirrorSource(db, String(d.id));
+      rowTotal = source === null || source.source_total === null ? null : numericOf(source.source_total);
+    } else rowTotal = total === null ? null : { v: total, s: 2 };
+    filtered.push({ id: String(d.id), number, origin: String(d.origin), day: arrow(body, "date"), total: rowTotal });
   }
 
   // ORDER BY: id asc; date_desc: day desc (NULL primeiro), number desc (NULL primeiro), id desc; date_asc: day, number (NULL por último), id.
@@ -657,15 +683,17 @@ export function erpDocumentList(ctx: RpcContext, a: RpcArgs) {
   const more = pageRows.length > limit!;
   const totals = listTotalsVisible(db, user, kind);
   const known = filtered.filter((f) => f.total !== null);
-  const sum = known.reduce((t, f) => t + f.total!, 0n);
+  const sum = sumNum(known.map((f) => f.total!));
   const originTotals: Record<string, unknown> = {};
   for (const o of ["brufap", "origin"]) {
     const rows = filtered.filter((f) => f.origin === o);
     const k = rows.filter((f) => f.total !== null);
-    const s2 = k.reduce((t, f) => t + f.total!, 0n);
-    originTotals[o] = { count: rows.length, known_total_count: k.length, total: rows.length === k.length ? (k.length ? formatScaled(s2, 2) : "0") : null };
+    const s2 = sumNum(k.map((f) => f.total!));
+    // coalesce(sum(total),0)::text: sem parcela, "0"; com parcelas, a maior escala delas.
+    originTotals[o] = { count: rows.length, known_total_count: k.length, total: rows.length === k.length ? (k.length ? formatScaled(s2.v, s2.s) : "0") : null };
   }
-  const amount = filtered.every((f) => f.origin !== "origin") && known.length === filtered.length ? sum : null;
+  // v_amount::numeric(20,2): só sem linha do espelho, então a soma está na escala 2 da coluna.
+  const amount = filtered.every((f) => f.origin !== "origin") && known.length === filtered.length ? sum.v * 10n ** BigInt(2 - Math.min(sum.s, 2)) : null;
   return {
     kind,
     items: shown.map((f) => listRow(ctx, f.id, fiscal, stock)),
@@ -721,16 +749,18 @@ export function erpDocumentExport(ctx: RpcContext, a: RpcArgs) {
       pgCompareText(String(x.id), String(y.id)),
   );
   const items = docs.slice((page - 1) * size, page * size).map((p) => {
-    if (p.authority === "origin") raise("0A000", "rpc_not_ported:erp_document_mirror.metadata");
+    // Documento espelhado: só leitura, com a metadata do espelho, o número e o total da fonte e os itens como observados.
+    const mirrored = p.authority === "origin";
+    const source = mirrored ? mirrorSource(db, String(p.id)) : null;
     const notes = arrow(p.b, "internal_notes");
     const situation = situationJson(db, String(p.kind), str(p.status), str(p.situation_id));
     return {
       id: p.id,
       origin: p.origin,
       authority: p.authority,
-      readonly: false,
-      mirror: null,
-      number: p.number === null ? null : String(p.number),
+      readonly: mirrored,
+      mirror: mirrored ? mirrorMetadata(db, String(p.id)) : null,
+      number: mirrored ? (source?.source_number ?? null) : p.number === null ? null : String(p.number),
       date: arrow(p.b, "date"),
       expected_date: arrow(p.b, "expected_date"),
       status: p.status,
@@ -744,7 +774,7 @@ export function erpDocumentExport(ctx: RpcContext, a: RpcArgs) {
       internal_notes: notes === null ? null : pgLeft(notes, 4000),
       freight: arrow(p.b, "freight"),
       discount: jsonPathText(p.b, ["totals", "discount"]),
-      total: p.total === null ? null : formatScaled(fromColumn(p.total), 2),
+      total: mirrored ? (source?.source_total ?? null) : p.total === null ? null : formatScaled(fromColumn(p.total), 2),
       items: db
         .exec(
           'SELECT position, data, CAST(quantity AS TEXT) quantity, unit_price, discount_percent, CAST(total AS TEXT) total FROM "erp_documents__item" WHERE document_id=?',
@@ -758,10 +788,14 @@ export function erpDocumentExport(ctx: RpcContext, a: RpcArgs) {
             code: arrow(data, "code"),
             description: arrow(data, "description"),
             unit: arrow(data, "unit"),
-            quantity: i.quantity === null ? null : formatScaled(fromColumn(i.quantity), 6),
-            unit_price: unitPriceNumeric(i.unit_price, 10),
-            discount_percent: i.discount_percent === null ? null : formatScaled(fromColumn(i.discount_percent), 4),
-            total: i.total === null ? null : formatScaled(fromColumn(i.total), 2),
+            quantity: mirrored ? arrow(data, "quantity") : i.quantity === null ? null : formatScaled(fromColumn(i.quantity), 6),
+            unit_price: mirrored ? arrow(data, "unit_price") : unitPriceNumeric(i.unit_price, 10),
+            discount_percent: mirrored
+              ? arrow(data, "discount_percent")
+              : i.discount_percent === null
+                ? null
+                : formatScaled(fromColumn(i.discount_percent), 4),
+            total: mirrored ? arrow(data, "total") : i.total === null ? null : formatScaled(fromColumn(i.total), 2),
           };
         }),
     };

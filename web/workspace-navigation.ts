@@ -39,6 +39,10 @@ import {
 // Each screen has one home. The assistant opens these same screens rather than
 // maintaining a second set of connection or service configuration forms.
 export const sections = [
+  ["juridico", "Prazos", CalendarClock],
+  ["condominio", "Condomínio", Blocks],
+  ["saude", "Prontuários", FileText],
+  ["ensino", "Ensino", BookOpen],
   ["overview", "Início", LayoutDashboard],
   ["setup", "Configuração guiada", Zap],
   ["conversations", "Conversas", MessageCircle],
@@ -78,6 +82,10 @@ export const sections = [
   ["suporte-settings", "Regras do suporte", LifeBuoy],
   ["agenda", "Agenda", CalendarDays],
   ["agenda-settings", "Serviços e horários", CalendarClock],
+  ["work", "Trabalhos", Wrench],
+  ["my-deadlines", "Meus prazos", CalendarClock],
+  ["work-types", "Tipos de trabalho", Wrench],
+  ["area-templates", "Modelos de área", LayoutTemplate],
   ["service-orders", "Ordens de serviço", Wrench],
   ["service-orders-settings", "Ordem de serviço", Wrench],
   ["establishment", "Estabelecimento", Store],
@@ -119,6 +127,10 @@ export const areaOfPage = (page: PageId): AreaId => pageArea[page] || "admin";
 
 /** Grupos da coluna de Gestão. */
 export const workspaceGroups = [
+  { id: "juridico", label: "Jurídico", icon: CalendarClock, pages: ["juridico"] },
+  { id: "condominio", label: "Condomínio", icon: Blocks, pages: ["condominio"] },
+  { id: "saude", label: "Saúde", icon: FileText, pages: ["saude"] },
+  { id: "ensino", label: "Ensino", icon: BookOpen, pages: ["ensino"] },
   { id: "home", label: "Início", icon: LayoutDashboard, pages: ["overview"] },
   {
     id: "mensalidades",
@@ -142,7 +154,7 @@ export const workspaceGroups = [
     id: "service-orders",
     label: "Ordens de serviço",
     icon: Wrench,
-    pages: ["service-orders", "service-orders-settings"],
+    pages: ["service-orders", "my-deadlines", "work-types", "service-orders-settings"],
   },
   {
     id: "pedidos",
@@ -193,13 +205,15 @@ export const workspaceGroups = [
     id: "system",
     label: "Sistema",
     icon: Cloud,
-    pages: ["establishment", "modules", "system"],
+    pages: ["establishment", "modules", "area-templates", "system"],
   },
   { id: "people", label: "Pessoas e acessos", icon: Users, pages: ["users"] },
   { id: "setup", label: "Configuração guiada", icon: Zap, pages: ["setup"] },
 ] as const;
 
 const adminPages: ReadonlySet<string> = new Set([
+  "work-types",
+  "area-templates",
   "setup",
   "settings",
   "queue-settings",
@@ -229,12 +243,16 @@ const adminPages: ReadonlySet<string> = new Set([
  * (src/modules, campo navigation). Com o módulo desligado na área, somem.
  */
 export const pageModules: Partial<Record<string, string>> = {
+  juridico: "juridico", condominio: "condominio", saude: "saude", ensino: "ensino",
   queue: "queue",
   "queue-settings": "queue",
   forms: "forms",
   agenda: "agenda",
   "agenda-settings": "agenda",
   "service-orders": "os",
+  work: "os",
+  "my-deadlines": "os",
+  "work-types": "os",
   "service-orders-settings": "os",
   payments: "payments",
   mensalidades: "mensalidade",
@@ -260,6 +278,7 @@ export const railPages: {
   label: string;
   icon: typeof Ticket;
 }[] = [
+  { page: "juridico", label: "Prazos", icon: CalendarClock },
   { page: "agenda", label: "Agenda", icon: CalendarDays },
   { page: "service-orders", label: "Ordens", icon: Wrench },
   { page: "pedidos", label: "Pedidos", icon: ShoppingBag },
@@ -269,6 +288,7 @@ export const railPages: {
 export type ModuleStates = Record<string, boolean> | undefined;
 export const moduleAllows = (page: string, modules?: ModuleStates) => {
   const owner = pageModules[page];
+  if (owner && ["juridico", "condominio", "saude", "ensino"].includes(owner)) return modules?.[owner] === true;
   return !owner || modules?.[owner] !== false;
 };
 
@@ -341,6 +361,14 @@ export function visibleGroups(
 }
 
 export const pageDescriptions: Partial<Record<PageId, string>> = {
+  juridico: "Calendários, prazos e conferências jurídicas.",
+  condominio: "Unidades, moradores, portaria, comunicados e assembleias.",
+  saude: "Prontuários protegidos e auditoria de acesso.",
+  ensino: "Turmas, frequência, notas, boletins e comunicados escolares.",
+  work: "Acompanhe trabalhos por tipo e etapa.",
+  "my-deadlines": "Suas tarefas e vencimentos nesta área de atendimento.",
+  "work-types": "Vocabulário, campos, etapas e recursos dos trabalhos.",
+  "area-templates": "Revise uma configuração inicial antes de aplicar à área.",
   overview: "Acompanhe o atendimento e escolha o que precisa fazer agora.",
   setup:
     "Configure um passo de cada vez. Você pode sair e retomar a qualquer momento.",

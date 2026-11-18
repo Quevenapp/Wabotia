@@ -1,5 +1,5 @@
 import { env, SELF } from "cloudflare:test";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { all, exec, one } from "../src/db";
 import { perform } from "../src/service";
 import { now, uid, type Actor } from "../src/types";
@@ -8,8 +8,11 @@ import { BRASILIA_OFFSET_MS } from "../src/business-time";
 import {
   base32Decode,
   currentStep,
+  matchingStep,
   requireAal2,
   sessionAal,
+  TOTP_STEP_S,
+  TOTP_WINDOW,
   totpAt,
   validateSchedule,
   withinSchedule,
@@ -65,7 +68,26 @@ async function policy(value: string) {
     now(),
   );
 }
-afterEach(() => policy("off"));
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await policy("off");
+});
+
+const STEP_MS = TOTP_STEP_S * 1000;
+/**
+ * Relógio injetado: o teste escolhe o instante e o Date.now fica parado nele
+ * até a próxima troca (o do teste e o do servidor: SELF roda no mesmo
+ * isolate). Com o relógio de verdade, a virada do passo de 30 s entre o
+ * código calculado pelo teste e a conferência do servidor (azar que a carga
+ * da suíte torna comum) mudava a distância medida: o "+2" virava +1 e
+ * entrava, o cadastro com "-1" virava -2 e era recusado.
+ */
+const clock = (ms: number) => {
+  vi.spyOn(Date, "now").mockReturnValue(ms);
+  return ms;
+};
+/** Um passo pouco à frente da hora real; o teste escolhe o instante nele. */
+const aheadStep = () => currentStep(Date.now()) + 2;
 
 /** Cadastra o fator pela API e devolve o segredo e o token aal2. */
 async function enroll(email: string, offset = 0) {
@@ -84,6 +106,13 @@ async function enroll(email: string, offset = 0) {
 }
 
 describe("segundo fator (TOTP)", () => {
+  // Cada teste começa no meio de um passo, com o relógio parado: o código
+  // calculado aqui e a conferência no servidor caem no mesmo passo, e o
+  // limite de erros (balde de 15 min) não vira no meio.
+  beforeEach(() => {
+    clock(aheadStep() * STEP_MS + STEP_MS / 2);
+  });
+
   it("vetor da RFC 6238 (SHA-1, T=59 s)", async () => {
     const secret = enc.encode("12345678901234567890");
     // 94287082 com 8 dígitos; os 6 finais.
@@ -117,20 +146,53 @@ describe("segundo fator (TOTP)", () => {
     expect((await replay.json<any>()).error.code).toBe("invalid_code");
   });
 
-  it("relógio: aceita ±1 passo, recusa ±2", async () => {
+  it("relógio: a janela é um passo de cada lado, inclusive a um segundo da virada", async () => {
+    // A regra de produção: o passo do servidor e um de cada lado (±30 s).
+    expect(TOTP_WINDOW).toBe(1);
+    const secret = enc.encode("12345678901234567890");
+    // Instante fixo, um segundo antes da virada do passo s para s+1.
+    const s = currentStep(Date.parse("2026-11-17T12:00:00-03:00"));
+    const edge = (s + 1) * STEP_MS - 1000;
+    expect(currentStep(edge)).toBe(s);
+    expect(currentStep(edge + 1000)).toBe(s + 1);
+    const at = async (step: number, instant: number) =>
+      matchingStep(secret, await totpAt(secret, step), instant);
+    expect(await at(s - 2, edge)).toBeNull();
+    expect(await at(s - 1, edge)).toBe(s - 1);
+    expect(await at(s, edge)).toBe(s);
+    expect(await at(s + 1, edge)).toBe(s + 1);
+    expect(await at(s + 2, edge)).toBeNull();
+    // Um segundo depois, virou: s-1 sai da janela, s+2 entra.
+    expect(await at(s - 1, edge + 1000)).toBeNull();
+    expect(await at(s, edge + 1000)).toBe(s);
+    expect(await at(s + 2, edge + 1000)).toBe(s + 2);
+    expect(await at(s + 3, edge + 1000)).toBeNull();
+  });
+
+  it("relógio pelo login, a um segundo da virada: celular atrasado entra; +2 e código já usado, não", async () => {
+    const s = aheadStep();
+    clock((s + 1) * STEP_MS - 1000);
     const f = await fixture();
     const u = await person("operator", [f.profile]);
-    // Cadastro com o passo anterior (relógio do celular atrasado).
+    // Cadastro com o código do passo anterior (relógio do celular atrasado).
     const { secret, verified } = await enroll(u.email, -1);
     expect(verified.aal).toBe(2);
-    const far = await mobileLogin(u.email, {
-      totp: await totpAt(secret, currentStep() + 2),
-    });
-    expect(far.status).toBe(401);
-    const near = await mobileLogin(u.email, {
-      totp: await totpAt(secret, currentStep()),
-    });
-    expect(near.status).toBe(200);
+    const login = async (step: number) =>
+      mobileLogin(u.email, { totp: await totpAt(secret, step) });
+    const refused = async (step: number) => {
+      const r = await login(step);
+      expect(r.status).toBe(401);
+      expect((await r.json<any>()).error.code).toBe("invalid_code");
+    };
+    await refused(s + 2);
+    // O código do cadastro (s-1) ainda está na janela, mas já foi usado.
+    await refused(s - 1);
+    expect((await login(s)).status).toBe(200);
+    // Vira o passo: s continua na janela (um atrás), mas já foi usado; s+2,
+    // recusado um segundo antes, agora entra.
+    clock((s + 1) * STEP_MS);
+    await refused(s);
+    expect((await login(s + 2)).status).toBe(200);
   });
 
   it("seis erros: o sexto pedido é recusado mesmo com o código certo", async () => {
@@ -352,6 +414,7 @@ describe("links de uso único, convite e recuperação", () => {
   });
 
   it("convite: a pessoa nasce sem senha e cria a dela em 72 h", async () => {
+    const start = clock(aheadStep() * STEP_MS);
     const f = await fixture();
     const adminToken = await bearer(f.admin);
     const email = `convite-${uid()}@example.test`;
@@ -364,7 +427,7 @@ describe("links de uso único, convite e recuperação", () => {
     });
     expect(r.status).toBe(200);
     const body = await r.json<any>();
-    expect(body.expires_at - now()).toBeGreaterThan(71 * 3600000);
+    expect(body.expires_at).toBe(start + 72 * 3600000);
     const token = /#invite=([a-f0-9]{64})$/.exec(body.url)![1];
     // Antes de aceitar, nenhuma senha entra.
     expect((await mobileLogin(email)).status).toBe(401);

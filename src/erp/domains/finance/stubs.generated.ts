@@ -75,28 +75,20 @@ export const documentReversePreviewData = (..._args: unknown[]): never => notPor
 export const documentSeller = (..._args: unknown[]): never => notPorted("erp_finance.document_seller");
 /** erp_finance.document_title_number() → trigger */
 export const documentTitleNumber = (..._args: unknown[]): never => notPorted("erp_finance.document_title_number");
-/** erp_finance.document_title_rows(p_posting uuid) → jsonb */
-export const documentTitleRows = (..._args: unknown[]): never => notPorted("erp_finance.document_title_rows");
 /** erp_finance.entry_movement_immutable() → trigger */
 export const entryMovementImmutable = (..._args: unknown[]): never => notPorted("erp_finance.entry_movement_immutable");
 /** erp_finance.find_or_create_category(p_name text, p_kind text) → uuid */
 export const findOrCreateCategory = (..._args: unknown[]): never => notPorted("erp_finance.find_or_create_category");
 /** erp_finance.guard_document_title() → trigger */
 export const guardDocumentTitle = (..._args: unknown[]): never => notPorted("erp_finance.guard_document_title");
-/** erp_finance.guard_finance_invoice() → trigger */
-export const guardFinanceInvoice = (..._args: unknown[]): never => notPorted("erp_finance.guard_finance_invoice");
 /** erp_finance.guard_grouped_title() → trigger */
 export const guardGroupedTitle = (..._args: unknown[]): never => notPorted("erp_finance.guard_grouped_title");
-/** erp_finance.guard_invoice_order_effect() → trigger */
-export const guardInvoiceOrderEffect = (..._args: unknown[]): never => notPorted("erp_finance.guard_invoice_order_effect");
 /** erp_finance.guard_invoice_title() → trigger */
 export const guardInvoiceTitle = (..._args: unknown[]): never => notPorted("erp_finance.guard_invoice_title");
 /** erp_finance.guard_origin_import_billing() → trigger */
 export const guardOriginImportBilling = (..._args: unknown[]): never => notPorted("erp_finance.guard_origin_import_billing");
 /** erp_finance.guard_origin_import_title() → trigger */
 export const guardOriginImportTitle = (..._args: unknown[]): never => notPorted("erp_finance.guard_origin_import_title");
-/** erp_finance.invoice_auto_finance() → trigger */
-export const invoiceAutoFinance = (..._args: unknown[]): never => notPorted("erp_finance.invoice_auto_finance");
 /** erp_finance.invoice_blocked_reason(v erp_fiscal_invoices.invoice) → text */
 export const invoiceBlockedReason = (..._args: unknown[]): never => notPorted("erp_finance.invoice_blocked_reason");
 /** erp_finance.invoice_contact(p_recipient jsonb) → uuid */
@@ -157,8 +149,6 @@ export const titleLongHistory = (..._args: unknown[]): never => notPorted("erp_f
 export const titleSeller = (..._args: unknown[]): never => notPorted("erp_finance.title_seller");
 /** erp_finance.title_text(p_data jsonb, OUT description text, OUT history text) → record */
 export const titleText = (..._args: unknown[]): never => notPorted("erp_finance.title_text");
-/** erp_finance.titles_mark_returned(p_actor uuid, p_command_id uuid, p_titles uuid[], p_source jsonb) → jsonb */
-export const titlesMarkReturned = (..._args: unknown[]): never => notPorted("erp_finance.titles_mark_returned");
 /** erp_finance.transfer_account(p_id uuid) → jsonb */
 export const transferAccount = (..._args: unknown[]): never => notPorted("erp_finance.transfer_account");
 /** erp_finance.transfer_immutable() → trigger */
@@ -169,14 +159,6 @@ export const transferLegCheck = (..._args: unknown[]): never => notPorted("erp_f
 export const transferPairCheck = (..._args: unknown[]): never => notPorted("erp_finance.transfer_pair_check");
 /** erp_finance.utf16_length(p_text text) → integer */
 export const utf16Length = (..._args: unknown[]): never => notPorted("erp_finance.utf16_length");
-/** public.erp_document_finance_post(p_user_id uuid, p_kind text, p_document_id uuid, p_expected_version integer, p_command_id uuid, p_preview_hash text, p_category_id uuid, p_plan jsonb) → jsonb */
-export const erpDocumentFinancePost = (..._args: unknown[]): never => notPorted("public.erp_document_finance_post");
-/** public.erp_document_finance_preview(p_user_id uuid, p_kind text, p_document_id uuid, p_expected_version integer, p_category_id uuid, p_plan jsonb) → jsonb */
-export const erpDocumentFinancePreview = (..._args: unknown[]): never => notPorted("public.erp_document_finance_preview");
-/** public.erp_document_finance_reverse(p_user_id uuid, p_kind text, p_document_id uuid, p_expected_version integer, p_posting_id uuid, p_posting_version integer, p_command_id uuid, p_preview_hash text, p_title_versions jsonb, p_reason text) → jsonb */
-export const erpDocumentFinanceReverse = (..._args: unknown[]): never => notPorted("public.erp_document_finance_reverse");
-/** public.erp_document_finance_reverse_preview(p_user_id uuid, p_kind text, p_document_id uuid, p_expected_version integer, p_posting_id uuid, p_posting_version integer) → jsonb */
-export const erpDocumentFinanceReversePreview = (..._args: unknown[]): never => notPorted("public.erp_document_finance_reverse_preview");
 /** public.erp_finance_cash_execute(p_user_id uuid, p_command_id uuid, p_action text, p_data jsonb) → jsonb */
 export const erpFinanceCashExecute = (..._args: unknown[]): never => notPorted("public.erp_finance_cash_execute");
 /** public.erp_finance_execute(p_user_id uuid, p_command_id uuid, p_action text, p_data jsonb) → jsonb */
