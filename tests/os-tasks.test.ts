@@ -90,6 +90,30 @@ async function setup() {
 }
 
 describe("tarefas: fundação e descritor", () => {
+  it("confirma filho, histórico e atividade pelo motor real e recupera sem duplicar", async () => {
+    const f = await motorFixture();
+    await perform(env, f.admin, f.profile, "settings", {
+      os_work_types: [motorWorkType()], settings_revision: await settingsRevision(env, f.profile),
+    }, uid());
+    const order = await motorOrder(f, { type_id: motorWorkType().id });
+    await exec(env, "UPDATE os_orders SET updated=1,stale_notified_at=1 WHERE profile_id=? AND id=?", f.profile, order.id);
+    const data = { id: order.id, ...input };
+    const requestId = uid();
+    const task = await createTask(f.ctx, f.member, data, requestId);
+    expect(task).toMatchObject({ order_id: order.id, version: 1 });
+    expect(await one(env, "SELECT title,version FROM os_tasks WHERE profile_id=? AND order_id=? AND id=?", f.profile, order.id, task.id))
+      .toEqual({ title: input.title, version: 1 });
+    const parent = await one(env, "SELECT updated,stale_notified_at FROM os_orders WHERE profile_id=? AND id=?", f.profile, order.id);
+    expect(parent.updated).toBeGreaterThan(1);
+    expect(parent.stale_notified_at).toBeNull();
+    expect(await createTask(f.ctx, f.member, data, requestId)).toEqual(task);
+    expect(await one(env, "SELECT updated,stale_notified_at FROM os_orders WHERE profile_id=? AND id=?", f.profile, order.id)).toEqual(parent);
+    expect(await all(env, "SELECT id FROM os_tasks WHERE profile_id=? AND order_id=?", f.profile, order.id)).toHaveLength(1);
+    const history = await all(env, "SELECT entity_id,entity_version,entity_kind FROM os_history WHERE profile_id=? AND order_id=? AND kind='os.task.created'", f.profile, order.id);
+    expect(history).toEqual([{ entity_id: task.id, entity_version: 1, entity_kind: "task" }]);
+    expect(await all(env, "SELECT id FROM events WHERE profile_id=? AND kind='os.task.created'", f.profile)).toHaveLength(1);
+  });
+
   it("preserva o embutido desligado, o isolamento e recusa mutação vazia", async () => {
     const f = await motorFixture();
     const order = await motorOrder(f);
@@ -308,7 +332,7 @@ describe("tarefas: prazos e recuperação", () => {
     const c = await receive(s.f, s.f.line, "oi", "5511960010203");
     await drain(s.f);
     await exec(env, "UPDATE os_orders SET conversation_id=? WHERE profile_id=? AND id=?", c.id, s.f.profile, s.order.id);
-    const task = await s.create({ audience: "customer", client_visible: true, due_at: 20, remind_at: 10 });
+    const task = await s.create({ audience: "customer", client_visible: true, assignee: s.f.member.id, due_at: 20, remind_at: 10 });
     const originalExec = db.exec;
     let fail = true;
     vi.spyOn(db, "exec").mockImplementation(async (environment, sql, ...args) => {
@@ -317,8 +341,8 @@ describe("tarefas: prazos e recuperação", () => {
     });
     expect(await runTaskDue(s.f.ctx, { now: 10, budget: budget(), limit: 10 }, dueContext)).toEqual({ processed: 0, has_more: true });
     expect((await s.row(task.id)).notified_at).toBeNull();
-    // Edição de texto entre fila e recuperação também não duplica o prazo.
-    await s.edit(task, { title: "Conferência revisada" });
+    // Texto e responsável interno entre fila e recuperação não duplicam o prazo.
+    await s.edit(task, { title: "Conferência revisada", assignee: null });
     expect(await runTaskDue(s.f.ctx, { now: 11, budget: budget(), limit: 10 }, dueContext)).toEqual({ processed: 1, has_more: false });
     const queued = await all(env, "SELECT payload FROM outbox WHERE profile_id=? AND dedupe LIKE '%task-due:%'", s.f.profile);
     expect(queued).toHaveLength(1);
@@ -334,6 +358,82 @@ describe("tarefas: prazos e recuperação", () => {
     expect(await runTaskDue(s.f.ctx, { now: 10, budget: budget(), limit: 10 }, failing)).toEqual({ processed: 0, has_more: true });
     expect((await s.row(staff.id)).notified_at).toBeNull();
     expect((await s.row(customer.id)).notified_at).toBeNull();
+  });
+
+  it("avança sobre dez clientes sem conversa e volta a tentá-los depois", async () => {
+    const s = await setup();
+    const blocked = [];
+    for (let i = 0; i < 10; i++) blocked.push(await s.create({ audience: "customer", client_visible: true, due_at: 20, remind_at: 1 }));
+    const ready = await s.create({ due_at: 20, remind_at: 2 });
+    const run = async () => {
+      // Recriar o contexto a cada rodada exige que o avanço seja durável.
+      const measured = countingEnv(env);
+      const allowance = budget();
+      const result = await runTaskDue(modulesApi(measured.env, s.f.profile, "os"), { now: 10, budget: allowance, limit: 10 }, dueContext);
+      expect(200 - allowance.remaining).toBe(measured.count.statements);
+      expect(measured.count.statements).toBeLessThanOrEqual(200);
+      return result;
+    };
+    expect(await run()).toEqual({ processed: 0, has_more: true });
+    expect((await run()).processed).toBe(1);
+    expect((await s.row(ready.id)).notified_at).toBe(10);
+    for (const task of blocked) expect((await s.row(task.id)).notified_at).toBeNull();
+    const c = await receive(s.f, s.f.line, "oi", "5511960010203");
+    await drain(s.f);
+    await exec(env, "UPDATE os_orders SET conversation_id=? WHERE profile_id=? AND id=?", c.id, s.f.profile, s.order.id);
+    expect((await run()).processed).toBe(10);
+    expect(await all(env, "SELECT id FROM outbox WHERE profile_id=? AND dedupe LIKE '%task-due:%'", s.f.profile)).toHaveLength(10);
+    for (const task of blocked) expect((await s.row(task.id)).notified_at).toBe(10);
+  });
+
+  it("avança também sobre falhas de publicação e retenta ao completar a volta", async () => {
+    const s = await setup();
+    const blocked = new Set<string>();
+    for (let i = 0; i < 10; i++) blocked.add((await s.create({ due_at: 20, remind_at: 1 })).id);
+    await s.create({ due_at: 20, remind_at: 2 });
+    const failing: typeof modulesApi = (...args) => {
+      const ctx = dueContext(...args);
+      return { ...ctx, publish: async (kind, id, ...rest) => {
+        if (blocked.has(id)) throw new Error("publicação indisponível");
+        return ctx.publish(kind, id, ...rest);
+      } };
+    };
+    expect((await runTaskDue(s.f.ctx, { now: 10, budget: budget(), limit: 10 }, failing)).processed).toBe(0);
+    expect((await runTaskDue(s.f.ctx, { now: 10, budget: budget(), limit: 10 }, failing)).processed).toBe(1);
+    expect((await runTaskDue(s.f.ctx, { now: 10, budget: budget(), limit: 10 }, dueContext)).processed).toBe(10);
+  });
+
+  it("trocar responsável só reinicia avisos à equipe, sem repetir o mesmo aviso ao cliente", async () => {
+    const s = await setup();
+    const c = await receive(s.f, s.f.line, "oi", "5511960010203");
+    await drain(s.f);
+    await exec(env, "UPDATE os_orders SET conversation_id=? WHERE profile_id=? AND id=?", c.id, s.f.profile, s.order.id);
+    const customer = await s.create({ audience: "customer", client_visible: true, assignee: s.f.member.id, due_at: 20, remind_at: 10 });
+    const staff = await s.create({ assignee: s.f.member.id, due_at: 20, remind_at: 10 });
+    expect((await runTaskDue(s.f.ctx, { now: 10, budget: budget(), limit: 10 }, dueContext)).processed).toBe(2);
+    await s.edit(customer, { assignee: null });
+    await s.edit(staff, { assignee: null });
+    expect((await s.row(customer.id)).notified_at).toBe(10);
+    expect((await s.row(staff.id)).notified_at).toBeNull();
+    expect((await runTaskDue(s.f.ctx, { now: 11, budget: budget(), limit: 10 }, dueContext)).processed).toBe(1);
+    expect(await all(env, "SELECT id FROM outbox WHERE profile_id=? AND dedupe LIKE '%task-due:%'", s.f.profile)).toHaveLength(1);
+    expect(await all(env, "SELECT id FROM events WHERE profile_id=? AND kind='os.task.due'", s.f.profile)).toHaveLength(2);
+  });
+
+  it.each([
+    ["2026-11-19T01:30:00.000Z", "18/11/2026 às 22:30 (Brasília)"],
+    ["2026-11-19T03:05:00.000Z", "19/11/2026 às 00:05 (Brasília)"],
+  ])("formata o instante %s em Brasília sem alterar o prazo", async (iso, expected) => {
+    const s = await setup();
+    const c = await receive(s.f, s.f.line, "oi", "5511960010203");
+    await drain(s.f);
+    await exec(env, "UPDATE os_orders SET conversation_id=? WHERE profile_id=? AND id=?", c.id, s.f.profile, s.order.id);
+    const due = Date.parse(iso);
+    const task = await s.create({ audience: "customer", client_visible: true, due_at: due, remind_at: due });
+    expect((await runTaskDue(s.f.ctx, { now: due, budget: budget(), limit: 10 }, dueContext)).processed).toBe(1);
+    const queued = await one(env, "SELECT payload FROM outbox WHERE profile_id=? AND dedupe LIKE '%task-due:%'", s.f.profile);
+    expect(JSON.parse(queued.payload).text).toBe(`Lembrete: ${input.title}\nVencimento: ${expected}`);
+    expect((await s.row(task.id)).due_at).toBe(due);
   });
 
   it("limita 10 itens e mede cada instrução, inclusive serviços e batches", async () => {
@@ -357,6 +457,29 @@ describe("tarefas: prazos e recuperação", () => {
 });
 
 describe("tarefas padrão na entrada de etapa", () => {
+  it("valida sigilo, responsável e destinatário somente nos modelos da etapa atual", async () => {
+    const s = await setup();
+    s.stages.set(s.order.id, { stage: "execucao", version: 2 });
+    const template = { ...input, audience: "staff" as const, id: "atual", stage: "execucao", due_after_ms: null, remind_before_ms: null };
+    const mayNotify = vi.spyOn(s.f.ctx, "mayNotify").mockResolvedValue(false);
+    const templates = [
+      template,
+      { ...template, id: "sigiloso", stage: "revisao", sensitive: true, title: MOTOR_SENTINEL },
+      { ...template, id: "removido", stage: "revisao", assignee: "responsavel-removido" },
+      { ...template, id: "cliente", stage: "revisao", audience: "customer" as const, client_visible: true },
+    ];
+    const result = await createStageTasks(s.f.ctx, s.f.member, s.order.id, { stage: "execucao", version: 2, entered_at: 1000, templates });
+    expect(result).toHaveLength(1);
+    expect(mayNotify).not.toHaveBeenCalled();
+    expect(await all(env, "SELECT title FROM os_tasks WHERE profile_id=? AND order_id=?", s.f.profile, s.order.id)).toEqual([{ title: input.title }]);
+    for (const other of templates.slice(1)) {
+      await expect(createStageTasks(s.f.ctx, s.f.member, s.order.id, {
+        stage: "execucao", version: 2, entered_at: 1000, templates: [{ ...other, stage: "execucao" }],
+      })).rejects.toBeInstanceOf(ApiError);
+    }
+    expect(s.effects).toHaveLength(1);
+  });
+
   it("usa entrada/versionamento estável; repetir não duplica e reentrar cria novas", async () => {
     const s = await setup();
     s.stages.set(s.order.id, { stage: "execucao", version: 2 });
@@ -378,13 +501,13 @@ describe("tarefas padrão na entrada de etapa", () => {
     await expect(createStageTasks(s.f.ctx, s.f.member, s.order.id, entry)).rejects.toMatchObject({ code: "version_conflict" });
   });
 
-  it("valida todos os modelos antes de criar qualquer tarefa", async () => {
+  it.each(["execucao", "revisao"])("valida a estrutura dos modelos de %s antes de criar qualquer tarefa", async (stage) => {
     const s = await setup();
     s.stages.set(s.order.id, { stage: "execucao", version: 2 });
     const template = { ...input, audience: "staff" as const, id: "visita", stage: "execucao", due_after_ms: 2000, remind_before_ms: 500 };
     await expect(createStageTasks(s.f.ctx, s.f.member, s.order.id, {
       stage: "execucao", version: 2, entered_at: 1000,
-      templates: [template, { ...template, id: "invalido", title: "" }],
+      templates: [template, { ...template, stage, id: "invalido", title: "" }],
     })).rejects.toMatchObject({ code: "invalid_task" });
     expect(s.commit).not.toHaveBeenCalled();
   });

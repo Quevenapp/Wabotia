@@ -11,6 +11,8 @@ import { stableKey, taskView, type TaskRow } from "./model";
  * no DB, inclusive batches e chamadas que falham, sempre ANTES da execução.
  */
 export const TASK_DUE_SQL_RESERVE = 32;
+const dueDate = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short" });
+const dueTime = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", timeStyle: "short" });
 class BudgetExhausted extends Error {}
 export function budgetedEnv(env: Env, budget: DueBudget): Env {
   const raw = new WeakMap<object, D1PreparedStatement>();
@@ -69,31 +71,41 @@ export async function runTaskDue(
     "SELECT COUNT(*) total FROM webhook_subscriptions WHERE profile_id=? AND enabled=1", ctx.profile);
   const reserve = TASK_DUE_SQL_RESERVE + subscribers!.total;
   if (budget.remaining < reserve + 2) return { processed: 0, has_more: true };
+  // Cursor técnico no bucket existente, só com a chave de paginação. Avança também
+  // sobre impedidos; ao terminar a volta, eles voltam a ser candidatos.
+  const checkpointKey = `os-task-maintenance/${encodeURIComponent(ctx.profile)}/cursor`;
+  const checkpoint = await ctx.env.MEDIA.get(checkpointKey);
+  const saved = checkpoint ? await checkpoint.json<[number, string] | null>() : null;
   const rows = await all<TaskRow>(ctx.env,
     `SELECT t.* FROM os_tasks t JOIN os_orders o ON o.profile_id=t.profile_id AND o.id=t.order_id
      WHERE t.profile_id=? AND t.state='open' AND t.archived_at IS NULL
        AND t.notified_at IS NULL AND t.remind_at IS NOT NULL AND t.remind_at<=?
-     ORDER BY t.remind_at,t.id LIMIT ?`, ctx.profile, now, limit + 1);
-  let processed = 0, has_more = rows.length > limit;
+       ${saved ? "AND (t.remind_at>? OR (t.remind_at=? AND t.id>?))" : ""}
+     ORDER BY t.remind_at,t.id LIMIT ?`, ctx.profile, now, ...(saved ? [saved[0], saved[0], saved[1]] : []), limit + 1);
+  let processed = 0, has_more = rows.length > limit || !!saved;
+  let examined = 0;
   for (const row of rows.slice(0, limit)) {
-    if (budget.remaining < reserve) return { processed, has_more: true };
+    if (budget.remaining < reserve) { has_more = true; break; }
+    examined++;
     try {
       const parent = await one<WorkOrderRow>(ctx.env,
         "SELECT * FROM os_orders WHERE profile_id=? AND id=?", ctx.profile, row.order_id);
-      if (!parent) continue;
+      if (!parent) { has_more = true; continue; }
       const snapshot = parent.type_snapshot_json ? JSON.parse(parent.type_snapshot_json) : null;
       const type = await resolveWorkType(ctx, parent.type_id, snapshot);
-      if (!type.features.tasks) continue;
+      if (!type.features.tasks) { has_more = true; continue; }
       // Chave do vencimento, independente de edições de texto e falhas entre
       // fila e marcação. Voltar ao mesmo prazo não reenvia o mesmo lembrete.
-      const key = `task-due:${await stableKey(ctx.profile, row.order_id, row.id, row.due_at, row.remind_at, row.audience, row.assignee)}`;
+      // A conversa já integra a chave de sendMessage. O responsável interno
+      // só é destinatário dos avisos à equipe.
+      const key = `task-due:${await stableKey(ctx.profile, row.order_id, row.id, row.due_at, row.remind_at, row.audience, row.audience === "staff" ? row.assignee : null)}`;
       if (row.audience === "customer") {
         const task = projectChildForCustomer(taskView(row));
         if (!task || !parent.conversation_id) { has_more = true; continue; }
         const c = await ctx.conversation(parent.conversation_id);
         const phone = ctx.verifiedPhone(c);
         if (c.profile_id !== ctx.profile || !phone || phone !== parent.phone) { has_more = true; continue; }
-        await ctx.sendMessage(c, { text: `Lembrete: ${task.title}\nVencimento: ${new Date(task.due_at!).toISOString()}` }, { key, notification: true });
+        await ctx.sendMessage(c, { text: `Lembrete: ${task.title}\nVencimento: ${dueDate.format(task.due_at!)} às ${dueTime.format(task.due_at!)} (Brasília)` }, { key, notification: true });
       } else {
         const assignee = row.assignee && (await ctx.grantees("technician")).some((p) => p.id === row.assignee) ? row.assignee : null;
         // Evento durável para a equipe também funciona sem conversa. Nunca
@@ -114,6 +126,11 @@ export async function runTaskDue(
       has_more = true;
       if (error instanceof BudgetExhausted) break;
     }
+  }
+  if (examined || saved) {
+    const last = rows[examined - 1];
+    const next = examined < rows.length ? (last ? [last.remind_at, last.id] : saved) : null;
+    await ctx.env.MEDIA.put(checkpointKey, JSON.stringify(next));
   }
   return { processed, has_more };
 }
