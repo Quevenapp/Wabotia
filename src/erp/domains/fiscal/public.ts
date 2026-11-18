@@ -44,3 +44,7 @@ export {
   versionInput,
   visible,
 } from "./core.ts";
+
+// Saldo de faturamento do pedido (202610210391): para o erp_document_invoice_balance
+// do Documentos (O, B4). Leitura pura; quem chama confere o acesso.
+export { countsForBalance, quantityText, salesBalance, salesFullInvoice, salesItemInvoiced } from "./sales-balance.ts";
