@@ -18,6 +18,8 @@ import {
   PDF_LIMITS,
   PDF_TOKENS_PER_PAGE,
   pdfPages,
+  pdfPageCount,
+  PDF_INFLATE_LIMITS,
   stableSystem,
 } from "../src/ai-provider";
 import { usageText } from "../web/lib/usage";
@@ -1357,6 +1359,41 @@ describe("PDF do cliente no provedor de IA", () => {
     expect(calls).toHaveLength(0);
     expect(run).toBeNull();
     expect(await state(conversation)).not.toBe("ai");
+  });
+
+  it("PDF com páginas dentro de object streams: conta as páginas descomprimidas, com teto", async () => {
+    const zlib = async (text: string) =>
+      new Uint8Array(await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream("deflate"))).arrayBuffer());
+    // PDF como os atuais: os objetos de página só existem dentro do ObjStm comprimido.
+    const objstm = async (pages: number, filler = "") => {
+      const body = await zlib(
+        Array.from({ length: pages }, (_, i) => `${i + 3} 0 obj << /Type /Page /Parent 2 0 R >> endobj`).join("\n") + filler,
+      );
+      const head = new TextEncoder().encode(
+        `%PDF-1.5\n1 0 obj\n<< /Type /ObjStm /N ${pages} /First 0 /Length ${body.length} /Filter /FlateDecode >>\nstream\n`,
+      );
+      const tail = new TextEncoder().encode("\nendstream\nendobj\n%%EOF");
+      const out = new Uint8Array(head.length + body.length + tail.length);
+      out.set(head);
+      out.set(body, head.length);
+      out.set(tail, head.length + body.length);
+      return out;
+    };
+    const three = await objstm(3);
+    expect(pdfPages(three)).toBeNull();
+    expect(await pdfPageCount(three)).toBe(3);
+    expect(await pdfPageCount(await objstm(11))).toBe(11);
+    // Bomba de descompressão: passa do teto de leitura, não conta e vai para a equipe.
+    const bomb = await objstm(1, " ".repeat(PDF_INFLATE_LIMITS.bytes + 1));
+    expect(bomb.length).toBeLessThan(PDF_LIMITS.bytes);
+    expect(await pdfPageCount(bomb)).toBeNull();
+    // No motor: o PDF de 3 páginas comprimidas vai ao provedor; o de 11, não.
+    const f = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", vision: true, pdf: true });
+    const small = await receive(f, "Segue a nota", [{ type: "application/pdf", bytes: three }]);
+    expect(json((await runOf(small))!.context).documents).toHaveLength(1);
+    const other = await serviceFixture({ provider: "anthropic", model: "claude-haiku-5-5", vision: true, pdf: true });
+    const big = await receive(other, "Segue o contrato", [{ type: "application/pdf", bytes: await objstm(11) }]);
+    expect(await runOf(big)).toBeNull();
   });
 
   it("Anthropic: o PDF vai como bloco document antes do texto, e só na mensagem em que chegou", async () => {

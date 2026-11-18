@@ -64,6 +64,86 @@ export function pdfPages(bytes: Uint8Array): number | null {
   return pages || null;
 }
 
+/** Tetos da leitura dos object streams: um PDF pequeno não vira bomba de descompressão. */
+export const PDF_INFLATE_LIMITS = { streams: 64, bytes: 8 * 1024 * 1024 } as const;
+
+/**
+ * Páginas de um PDF, olhando também dentro dos object streams (`/Type
+ * /ObjStm` com `/FlateDecode`), onde a maioria dos PDFs atuais guarda os
+ * objetos de página. Lê no máximo PDF_INFLATE_LIMITS; passou disso, ou nada
+ * contável: null, e o PDF vai para a equipe (falha fechada).
+ */
+export async function pdfPageCount(bytes: Uint8Array): Promise<number | null> {
+  const plain = pdfPages(bytes);
+  if (plain !== null) return plain;
+  let text = "";
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  const marker = /stream\r?\n/g;
+  let budget: number = PDF_INFLATE_LIMITS.bytes;
+  let streams = 0;
+  let pages = 0;
+  for (let m = marker.exec(text); m; m = marker.exec(text)) {
+    if (m.index >= 3 && text.slice(m.index - 3, m.index) === "end") continue;
+    const head = text.slice(Math.max(0, m.index - 1024), m.index);
+    const dict = head.slice(head.lastIndexOf("obj") + 3);
+    if (!/\/Type\s*\/ObjStm(?![A-Za-z])/.test(dict) || !/\/FlateDecode/.test(dict)) continue;
+    if (++streams > PDF_INFLATE_LIMITS.streams) return null;
+    const start = m.index + m[0].length;
+    // /Length direto quando houver; senão até "endstream", sem a quebra de linha final.
+    const length = dict.match(/\/Length\s+(\d+)(?!\s+\d+\s+R)/);
+    let end = length ? start + Number(length[1]) : text.indexOf("endstream", start);
+    if (end < start || end > bytes.length) return null;
+    if (!length) {
+      if (text[end - 1] === "\n") end--;
+      if (text[end - 1] === "\r") end--;
+    }
+    const inflated = await inflateBounded(bytes.slice(start, end), budget);
+    if (inflated === null) return null;
+    budget -= inflated.length;
+    let chunk = "";
+    for (let i = 0; i < inflated.length; i += 0x8000)
+      chunk += String.fromCharCode(...inflated.subarray(i, i + 0x8000));
+    pages += chunk.match(/\/Type\s*\/Page(?![A-Za-z])/g)?.length ?? 0;
+  }
+  return pages || null;
+}
+
+/** zlib (o FlateDecode do PDF) com teto de saída; null se passar do teto ou não abrir. */
+async function inflateBounded(data: Uint8Array<ArrayBuffer>, max: number): Promise<Uint8Array | null> {
+  try {
+    const reader = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate")).getReader();
+    const parts: Uint8Array[] = [];
+    let size = 0;
+    for (;;) {
+      let step;
+      try {
+        step = await reader.read();
+      } catch {
+        // Dados corrompidos ou cortados: vale o que já saiu.
+        break;
+      }
+      if (step.done) break;
+      size += step.value.length;
+      if (size > max) {
+        await reader.cancel().catch(() => {});
+        return null;
+      }
+      parts.push(step.value);
+    }
+    if (!size) return null;
+    const out = new Uint8Array(size);
+    let at = 0;
+    for (const part of parts) {
+      out.set(part, at);
+      at += part.length;
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 /** Uso de uma execução, igual para todos os provedores (tokens). */
 export interface AiUsage {
   input: number;

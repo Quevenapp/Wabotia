@@ -127,7 +127,7 @@ import {
   AI_PROVIDERS,
   emptyUsage,
   PDF_LIMITS,
-  pdfPages,
+  pdfPageCount,
   type AiUsage,
 } from "./ai-provider";
 import { signedPayload } from "./signature";
@@ -1320,7 +1320,7 @@ export function splitAreaInput(input: string): { input: string; area: Record<str
 async function pdfWithinPages(env: Env, key: string) {
   const obj = await env.MEDIA.get(key);
   if (!obj) return false;
-  const pages = pdfPages(new Uint8Array(await obj.arrayBuffer()));
+  const pages = await pdfPageCount(new Uint8Array(await obj.arrayBuffer()));
   return pages !== null && pages <= PDF_LIMITS.pages;
 }
 /**
