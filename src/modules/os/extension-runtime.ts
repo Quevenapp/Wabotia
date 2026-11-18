@@ -24,6 +24,10 @@ export async function runExtensionsDue(
   at: number,
   extensions: readonly OsExtension[] = osExtensions,
 ): Promise<DueResult> {
+  // Sem tipos personalizados não há filhos habilitados. Reutiliza a leitura
+  // de configuração do agendador legado, preservando seu custo e comportamento.
+  if (extensions === osExtensions && !(await ctx.settings()).os_work_types?.length)
+    return { processed: 0, has_more: false };
   let remaining = OS_EXTENSION_SQL_BUDGET,
     processed = 0,
     has_more = false;
@@ -82,6 +86,7 @@ registerTurnExtension("os", async (env, c, turn) => {
     return false;
   const ctx = modulesApi(env, c.profile_id, "os");
   if (!(await ctx.enabled())) return false;
+  if (!(await ctx.settings()).os_work_types?.length) return false;
   for (const extension of osExtensions)
     if (await extension.onConversationTurn?.(ctx, c, turn)) return true;
   return false;

@@ -1114,3 +1114,112 @@ acompanhamento público (`/api/public/queue/*`) respondem `409 module_disabled`;
 SENHA, SAIR, o cupom do totem e a porta de entrada deixam de responder no
 WhatsApp; o item "Entrar na fila de espera" some do menu. Instalações
 anteriores aos módulos continuam com a fila ligada (migração `0020`).
+
+## Motor de trabalhos dentro de `os`
+
+O [contrato do motor](areas/CONTRATO-MOTOR.md) e a
+[entrega F0](areas/F0-ENTREGA.md) definem a integração em curso. Tipos de
+trabalho são configuração do módulo existente, não módulos por profissão.
+O uso administrativo está em [TRABALHOS.md](TRABALHOS.md); o embutido conserva
+[ORDEM-DE-SERVICO.md](ORDEM-DE-SERVICO.md). As rotas e esquemas das seções 5 e 7
+estão documentados em [API.md](API.md#motor-de-trabalhos) e no OpenAPI, sem
+implicar que todos os descritores paralelos já estejam registrados.
+
+### Configuração e referências de menu
+
+`service_orders` continua parcial, mesclado com seus padrões. `service_order`
+é virtual e não entra em `os_work_types`. Tipos personalizados guardam revisão,
+campos, etapas, transições, recursos e vocabulário; cada ordem fixa sua definição
+na abertura. `os_vocabulary` define os nomes da coleção e do cliente. Editar
+essas chaves exige `settings_revision`, obtida em `/status`, no catálogo de
+tipos ou no retorno de `PUT /settings`; divergência retorna `settings_conflict`.
+A revisão é SHA-256 do JSON canônico salvo, incluindo menus ocultos;
+`menus_revision` não muda.
+
+`onSettingsSave` valida o valor isolado. `onSettingsChange` compara a configuração
+anterior com a final e recebe `changed_keys` e o estado final de `modules`;
+é puro e recusa por erro. M registra ambos para validar revisão, arquivamento,
+IDs aposentados, referências e preservação de sigilo. Nenhuma gravação parcial.
+
+Os menus `os_open` e `os_track` usam:
+
+```ts
+reference: {
+  field: "type_id",
+  setting: "os_work_types",
+  label: "Tipo de trabalho",
+  default_id: "service_order",
+  builtins: [{ id: "service_order", label: "Ordem de serviço" }],
+}
+```
+
+O menu antigo sem `type_id` continua válido. Abertura de tipo arquivado é
+recusada; acompanhamento continua permitido. Identifique o menu pelo par
+`(type, type_id)`. Campos sensíveis não entram em formulários web comuns;
+um passo de abertura fixa a definição e os termos efetivamente apresentados.
+
+### Interfaces das extensões internas
+
+Tarefas, pessoas, documentos e lançamentos exportam descritores `OsExtension`.
+Somente o integrador acrescenta imports e entradas nos blocos reservados de
+`extensions.ts`, `runtime.ts`, `registry.ts` e `definition.ts`. Os filhos não
+registram rotas ou agendadores por efeito de importação.
+
+- `authorizedOrder(ctx, actor, id, {write?, conversation_id?})` verifica área,
+  escopo, módulo e titular. Retorna linha interna e tipo; não serialize a linha.
+- `resolveWorkType(ctx, typeId?, snapshot?)` resolve ausência como embutido.
+  Use a cópia da ordem para operações sobre trabalhos existentes.
+- `projectOrderForStaff/Customer/Bot` e `projectChildForStaff/Customer/Bot`
+  produzem DTOs autorizados; `null` no filho significa omitir o registro,
+  inclusive das contagens. Projete um DTO, não uma linha SQL.
+- `commitChild` recebe identidade, versão esperada, chave de mutação, nomes de
+  campos, SQL e código de evento. Confirma alteração e histórico no mesmo lote,
+  atualiza atividade do pai sem incrementar sua versão lógica e recupera
+  publicação idempotente. Não grave esses efeitos separadamente.
+- `runDue` compartilha orçamento de 200 instruções e dez itens por rodada,
+  reduzido pelas extensões anteriores. Consuma orçamento antes do SQL e inclua
+  os serviços chamados. Restante retorna `has_more`; não marque aviso antes de
+  incluí-lo duravelmente na fila. Há um agregador de `os`, com gancho legado
+  primeiro e uma só vez; não chamar `onSchedule("os")` em cada extensão.
+
+As rotas filhas recebem todos os parâmetros de caminho; eles vencem o corpo,
+e `profile` é removido do corpo. Em conversa, `id` identifica a conversa e
+`order_id` identifica a ordem. Consultas incluem área e pai. Rotas estáticas
+precedem parâmetros. Toda rota de cliente deve entrar na lista explícita de
+permissões de credenciais de conversa; telefone arbitrário não autoriza.
+
+### Documentos, privacidade e modelos administrativos
+
+Documentos usam `binaryReads` e `binaryUploads` do descritor. O download
+confere autorização antes de abrir R2 e o núcleo força `no-store`. Upload
+valida chave idempotente e versão, autoriza e fornece `content()` (até 10 MiB,
+com SHA-256) e `command()` para as operações declaradas. Não use `ctx.run`
+nesse transporte Worker. Reserva, tentativa e confirmação continuam comandos;
+bytes não entram em recibos ou auditoria.
+
+`ctx.inboundAttachments` resolve somente anexos da mensagem recebida na
+conversa/área autorizada. `ctx.outgoingAttachment` produz mídia compartilhável
+apenas de documento público e não sensível, após autorização de mensagem.
+Documentos privados não usam o endpoint comum de mídia.
+
+Sensibilidade exige pessoa humana com papel explícito `os:sensitive` e sem
+`via`, independentemente da máscara. Administrador não substitui o papel.
+Bots, aplicações e conectores são bloqueados. Rotas privadas ficam em
+`bot.deny` e fora do catálogo; o manipulador também confere. Valores sensíveis
+não entram em mensagens, eventos, histórico, busca ou descrições de propostas.
+A F0 reserva a exposição do papel para M/I e ainda devolve `501 not_implemented`
+nas interfaces que dependem de M; não trate a fundação como motor concluído.
+
+Modelos de área exportam `AdminExtension` com `id: "area-templates"`, caminhos
+`area-templates` e operações `area-template.*`. Exigem administrador e funcionam
+com `os` desligado. `planSettings` planeja e valida o estado final, incluindo
+módulos; `commitSettingsPlan` confirma configuração, módulos e procedência no
+mesmo lote. A prévia usa o mesmo plano e o hash inclui revisões e procedência.
+Não aplicar `module.set` seguido de `settings` como duas operações independentes.
+Manifestos usam menu `message`, convertido para `content` na compilação.
+Sugestões em `os_area_setup` não concedem permissões automaticamente.
+
+A suíte antiga continua sem mudança de expectativas. O teste
+`tests/os-openapi-contract.test.ts` cobre o contrato publicado, não comprova
+implementação das rotas, privacidade em execução nem orçamento D1. Essas
+verificações pertencem aos testes das extensões e da integração.

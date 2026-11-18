@@ -41,7 +41,13 @@ export const OS_EXTENSION_ITEM_LIMIT = 10;
 
 // REGISTRO RESERVADO F0/I — acrescentar imports e entradas SOMENTE aqui.
 // T/P/D/L exportam OsExtension de seus diretórios; não chamam onSchedule("os").
-// Ex.: import { tasksExtension } from "./tasks/extension";
+import { tasksExtension } from "./tasks/extension";
+import { peopleExtension } from "./people/extension";
+import { documentsExtension } from "./documents/extension";
+import { entriesExtension } from "./entries/extension";
 export const osExtensions: readonly OsExtension[] = [
-  // tasksExtension, peopleExtension, documentsExtension, entriesExtension
+  tasksExtension,
+  peopleExtension,
+  documentsExtension,
+  entriesExtension,
 ];

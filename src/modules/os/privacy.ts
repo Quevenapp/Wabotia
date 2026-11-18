@@ -1,71 +1,37 @@
-// F0: projeções comuns. M completa extras/snapshots, histórico novo e privados.
+// Projeções por audiência, com classificação independente do modo do bot.
 // Nunca enviar WorkOrderRow ao cliente, à IA, ao histórico ou a um evento.
-import { ApiError, type Actor } from "../../types";
+import { ApiError, json, type Actor } from "../../types";
 import { rolesOf } from "../../access";
 import { canProfile } from "../../security";
 import type { ModuleContext } from "../api";
 import type { ChildRecord, Order, PrivateFields } from "./contracts";
 import type { AuthorizedOrder } from "./public";
 import { orderView, visibleOrder } from "./store";
+import { workOrderAdditions } from "./work-types";
 
-/** M: projeção baseada no snapshot e nos campos extras autorizados. */
+/** Projeção baseada no snapshot e nos campos extras autorizados. */
 export function projectOrderForStaff(
   ctx: ModuleContext,
   actor: Actor,
   order: AuthorizedOrder,
 ): Order {
-  if (order.type.kind !== "builtin")
-    throw new ApiError(
-      501,
-      "not_implemented",
-      "Tarefa M: projeção de ordem personalizada.",
-    );
-  const { row, type } = order;
-  const legacy = visibleOrder(ctx, actor, orderView(row));
-  return {
-    ...legacy,
-    type_id: type.id,
-    type_revision: type.revision,
-    type_number: row.type_number ?? row.number,
-    type_label: type.labels.singular,
-    type_plural_label: type.labels.plural,
-    display_number: String(row.number),
-    stage: row.status,
-    stage_label: legacy.status_label,
-    labels: { ...type.labels },
-    fields: [],
-    extra: {},
-    version: row.row_version ?? 1,
-    next_stages: type.transitions
-      .filter((t) => t.from === row.status)
-      .map((t) => ({
-        transition_id: t.id,
-        stage: t.to,
-        stage_label: type.stages.find((s) => s.id === t.to)!.label,
-        base_status: type.stages.find((s) => s.id === t.to)!.base_status,
-        kind: t.kind,
-      })),
-    stage_approval: null,
-  };
+  const view = visibleOrder(ctx, actor, {
+    ...orderView(order.row), ...workOrderAdditions(order.row, order.type),
+  });
+  return actor.via || actor.id.startsWith("bot:") || actor.module
+    ? customerProjection(view) : view;
 }
 
-/** M: filtrar extras client_visible; caller usa authorizedOrder com conversation_id. */
+/** O chamador autoriza a conversa antes de projetar os campos públicos. */
 export function projectOrderForCustomer(
   ctx: ModuleContext,
   actor: Actor,
   order: AuthorizedOrder,
 ): Order {
-  const view = projectOrderForStaff(ctx, actor, order);
-  delete view.notes;
-  delete view.created_by;
-  delete view.assignee;
-  delete view.history;
-  view.customer = { name: view.customer.name };
-  if (view.decision) view.decision = { ...view.decision, by: "customer" };
-  return view;
+  return customerProjection(projectOrderForStaff(ctx, actor, order));
 }
 
-/** M: extras e filhos públicos. Nunca depender de via.masked para sigilo. */
+/** Extras e filhos públicos. Nunca depender de via.masked para sigilo. */
 export function projectOrderForBot(
   ctx: ModuleContext,
   actor: Actor,
@@ -74,7 +40,7 @@ export function projectOrderForBot(
   return projectOrderForCustomer(ctx, actor, order);
 }
 
-/** M: reutilizar esta barreira também nos manipuladores de escrita privados. */
+/** Barreira compartilhada pelas leituras e escritas privadas. */
 export async function mayReadSensitive(
   ctx: ModuleContext,
   actor: Actor,
@@ -90,7 +56,7 @@ export async function mayReadSensitive(
   );
 }
 
-/** M: buscar apenas os valores sensíveis autorizados, fora da resposta comum. */
+/** Valores sensíveis autorizados, exclusivamente fora da resposta comum. */
 export async function projectPrivateFields(
   ctx: ModuleContext,
   actor: Actor,
@@ -102,21 +68,18 @@ export async function projectPrivateFields(
       "sensitive_forbidden",
       "Acesso sensível não autorizado.",
     );
-  if (order.type.kind !== "builtin")
-    throw new ApiError(
-      501,
-      "not_implemented",
-      "Tarefa M: projeção de campos privados.",
-    );
-  return { id: order.row.id, version: order.row.row_version ?? 1, extra: {} };
+  const values = json(order.row.extra_json, {});
+  return { id: order.row.id, version: order.row.row_version ?? 1,
+    extra: Object.fromEntries(order.type.fields.filter(f => f.sensitive && Object.hasOwn(values, f.id)).map(f => [f.id, values[f.id]])) };
 }
 
-/** M: manter esta barreira; cada filho monta primeiro seu DTO sem colunas internas. */
+/** Cada filho monta primeiro seu DTO sem colunas internas. */
 export async function projectChildForStaff<T extends ChildRecord>(
   ctx: ModuleContext,
   actor: Actor,
   child: T,
 ): Promise<T | null> {
+  if (actor.via || actor.id.startsWith("bot:") || actor.module) return projectChildForBot(child);
   if (child.sensitive && !(await mayReadSensitive(ctx, actor))) return null;
   const out = { ...child };
   // Campos de contatos e notas também respeitam os escopos legados.
@@ -130,7 +93,7 @@ export async function projectChildForStaff<T extends ChildRecord>(
   return out;
 }
 
-/** M: manter classificação independente dos nomes dos campos e do modo do bot. */
+/** Classificação independente dos nomes dos campos e do modo do bot. */
 export function projectChildForCustomer<T extends ChildRecord>(
   child: T,
 ): T | null {
@@ -140,11 +103,27 @@ export function projectChildForCustomer<T extends ChildRecord>(
   return out;
 }
 
-/** M: completar projeções específicas sem liberar conteúdo sensível para via. */
+/** Projeção de filhos para bot, inclusive atuação via pessoa. */
 export function projectChildForBot<T extends ChildRecord>(child: T): T | null {
   const out = projectChildForCustomer(child);
   if (out)
     for (const key of ["phone", "email", "contact_id", "note"])
       delete (out as Record<string, unknown>)[key];
   return out;
+}
+
+/** Também usada pelas rotas legadas ampliadas e pelas ferramentas de conversa. */
+export function customerProjection<T extends Order>(input: T): T {
+  const view = { ...input, customer: { name: input.customer.name } };
+  delete view.notes;
+  delete view.created_by;
+  delete view.assignee;
+  delete view.history;
+  view.fields = input.fields.filter(f => f.client_visible && !f.sensitive);
+  view.extra = Object.fromEntries(view.fields.filter(f => Object.hasOwn(input.extra, f.id)).map(f => [f.id, input.extra[f.id]]));
+  view.next_stages = [];
+  view.next_statuses = [];
+  if (view.decision) view.decision = { ...view.decision, by: "customer" };
+  if (view.stage_approval) view.stage_approval = { ...view.stage_approval, decided_by: view.stage_approval.decided_by ? "customer" : null };
+  return view;
 }

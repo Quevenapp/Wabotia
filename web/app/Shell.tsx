@@ -42,6 +42,7 @@ import {
   type PageId,
 } from "../workspace-navigation";
 import { useApp } from "./AppContext";
+import { useWorkNavigation } from "../modules/os/work-navigation";
 import { AccountDialog } from "./Account";
 import { erpModuleOn } from "../erp/modules";
 import { PreferencesDialog, PresenceDialog, ShortcutsDialog } from "./chrome";
@@ -59,6 +60,7 @@ type Item = {
 
 function useItems(): Item[] {
   const app = useApp();
+  const workNavigation = useWorkNavigation();
   return [
     {
       area: "conversations",
@@ -100,7 +102,7 @@ function useItems(): Item[] {
       .map((item) => ({
         area: "admin" as Area,
         page: item.page,
-        label: item.label,
+        label: item.page === "service-orders" ? workNavigation.railLabel : item.label,
         icon: item.icon,
       })),
     { area: "contacts", label: "Contatos", icon: Contact },

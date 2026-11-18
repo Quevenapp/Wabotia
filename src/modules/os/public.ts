@@ -1,24 +1,14 @@
-// F0: API interna congelada. M completa snapshots, campos e commitChild.
+// API interna do motor: autorização, snapshots e persistência dos filhos.
 // Filhos importam este arquivo, nunca store.ts/model.ts para autorizar ordens.
 import { ApiError, type Actor } from "../../types";
 import { isBound } from "../../visibility";
 import type { ModuleContext } from "../api";
-import {
-  BUILTIN_WORK_TYPE,
-  type ChildKind,
-  type MutationRef,
-  type WorkTypeSnapshot,
-  type WorkTypeView,
-} from "./contracts";
-import {
-  MANUAL_TRANSITIONS,
-  OS_STATUSES,
-  QUOTABLE,
-  STATUS_LABELS,
-  osSettings,
-  phoneDigits,
-} from "./model";
+import type { ChildKind, MutationRef, WorkTypeSnapshot, WorkTypeView } from "./contracts";
+import { phoneDigits } from "./model";
 import { loadOrder } from "./store";
+import { builtinWorkType, makeSnapshot, snapshotType } from "./work-types";
+import { validateWorkType } from "./validation";
+import { commitChildMutation } from "./mutations";
 
 export interface WorkOrderRow {
   id: string;
@@ -60,77 +50,26 @@ export interface ChildMutation {
   event: string;
 }
 
-/** M: resolver tipos personalizados validados e snapshots imutáveis. */
+/** Resolve configuração atual ou a definição fixada na abertura. */
 export async function resolveWorkType(
   ctx: ModuleContext,
   typeId = "service_order",
   snapshot?: WorkTypeSnapshot | null,
 ): Promise<WorkTypeView> {
-  if (typeId !== "service_order" || snapshot)
-    throw new ApiError(
-      501,
-      "not_implemented",
-      "Tarefa M: resolução de tipos personalizados e snapshots.",
-    );
-  const cfg = osSettings(await ctx.settings());
-  return {
-    ...BUILTIN_WORK_TYPE,
-    archived: false,
-    labels: {
-      singular: "Ordem de serviço",
-      plural: "Ordens de serviço",
-      item: "Item",
-      problem: "Problema",
-      customer_singular: "Cliente",
-      customer_plural: "Clientes",
-    },
-    number_prefix: "",
-    terms: cfg.terms,
-    fields: [],
-    retired_field_ids: [],
-    retired_stage_ids: [],
-    initial_stage: "received",
-    stages: OS_STATUSES.map((status) => ({
-      id: status,
-      label: STATUS_LABELS[status],
-      base_status: status,
-      message:
-        status === "received"
-          ? cfg.texts.opened
-          : (cfg.texts[status as keyof typeof cfg.texts] ?? ""),
-    })),
-    transitions: OS_STATUSES.flatMap((from) =>
-      MANUAL_TRANSITIONS[from].map((to) => ({
-        id: `${from}_${to}`,
-        from,
-        to,
-        label: STATUS_LABELS[to],
-        kind: "manual" as const,
-      })),
-    ),
-    features: {
-      customer_open: true,
-      tasks: false,
-      people: false,
-      documents: false,
-      entries: false,
-      quote: {
-        default_valid_days: cfg.quote_valid_days,
-        source_stages: [...QUOTABLE],
-        sent_stage: "quoted",
-        approved_stage: "approved",
-        declined_stage: "declined",
-        edited_stage: "analyzing",
-      },
-      warranty_days: cfg.warranty_days,
-      pickup_reminder_days: cfg.pickup_reminder_days,
-      stale_days: cfg.stale_days,
-    },
-    pickup_reminder_text: cfg.texts.pickup_reminder,
-  };
+  if (snapshot) {
+    const fixed = makeSnapshot(snapshot.type);
+    if (snapshot.schema_version !== 1 || fixed.type.id !== typeId)
+      throw new ApiError(409, "invalid_snapshot", "Definição da ordem inválida.");
+    return fixed.type;
+  }
+  const settings = await ctx.settings();
+  if (typeId === "service_order") return builtinWorkType(settings);
+  const type = settings.os_work_types?.find((t: WorkTypeView) => t.id === typeId);
+  if (!type) throw new ApiError(404, "type_not_found", "Tipo de trabalho não encontrado.");
+  return validateWorkType(type);
 }
 
-/** M: ler e validar snapshot da linha personalizada; autorização já é efetiva. */
+/** Autoriza área, módulo e titular antes de resolver a definição da ordem. */
 export async function authorizedOrder(
   ctx: ModuleContext,
   actor: Actor,
@@ -149,31 +88,21 @@ export async function authorizedOrder(
     const c = await ctx.conversation(access.conversation_id, actor);
     const phone = phoneDigits(ctx.verifiedPhone(c) || "");
     if (
-      c.profile_id !== ctx.profile ||
+      c.profile_id !== ctx.profile || c.chat_type === "group" ||
       (row.conversation_id !== c.id && (!phone || row.phone !== phone))
     )
       throw new ApiError(404, "not_found", "Ordem de serviço não encontrada.");
   }
-  if (row.type_snapshot_json)
-    throw new ApiError(
-      501,
-      "not_implemented",
-      "Tarefa M: leitura do snapshot da ordem.",
-    );
-  return { row, type: await resolveWorkType(ctx, row.type_id) };
+  const type = snapshotType(row);
+  return { row, type: type ?? await resolveWorkType(ctx, row.type_id) };
 }
 
-/** M: CAS do filho + histórico + atividade do pai em lote, replay e publicação recuperável. */
+/** Confirma filho, histórico e atividade; retoma publicações em repetições. */
 export async function commitChild(
-  _ctx: ModuleContext,
-  _actor: Actor,
-  _order: AuthorizedOrder,
-  _mutation: ChildMutation,
+  ctx: ModuleContext,
+  actor: Actor,
+  order: AuthorizedOrder,
+  mutation: ChildMutation,
 ): Promise<MutationRef> {
-  // Não executar SQL parcialmente antes de 0100 e da implementação de M.
-  throw new ApiError(
-    501,
-    "not_implemented",
-    "Tarefa M: commitChild (versão, histórico, atividade e publicação idempotente).",
-  );
+  return commitChildMutation(ctx, actor, order, mutation);
 }

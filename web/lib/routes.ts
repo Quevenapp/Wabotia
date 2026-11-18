@@ -17,6 +17,9 @@ export type Route = {
   sub?: string;
   /** Página de Gestão. */
   page?: PageId;
+  typeId?: string;
+  tab?: string;
+  filters?: Record<string, string>;
 };
 
 const areaSlugs: Record<Area, string> = {
@@ -32,6 +35,10 @@ const areaSlugs: Record<Area, string> = {
   more: "mais",
 };
 const pageSlugs: Partial<Record<PageId, string>> = {
+  work: "trabalhos",
+  "my-deadlines": "meus-prazos",
+  "work-types": "tipos-de-trabalho",
+  "area-templates": "modelos-de-area",
   overview: "inicio",
   setup: "configuracao",
   groups: "grupos",
@@ -72,7 +79,12 @@ const pageSlugs: Partial<Record<PageId, string>> = {
   mesas: "mesas",
 };
 /** Segmentos de Equipe aceitos no endereço. */
-export const teamSegments = ["conversas", "pessoas", "bots", "setores"] as const;
+export const teamSegments = [
+  "conversas",
+  "pessoas",
+  "bots",
+  "setores",
+] as const;
 
 const base = "/app";
 const decode = (value?: string) => {
@@ -102,6 +114,29 @@ export function parseRoute(pathname: string, search = ""): Route {
     const page = (Object.keys(pageSlugs) as PageId[]).find(
       (key) => pageSlugs[key] === second,
     );
+    if (page === "work" || page === "work-types" || page === "my-deadlines") {
+      const query = new URLSearchParams(search);
+      const filters: Record<string, string> = {};
+      for (const key of [
+        "q",
+        "stage",
+        "open",
+        "type_id",
+        "period",
+        "state",
+        "due_from",
+        "due_to",
+      ])
+        if (query.has(key)) filters[key] = query.get(key)!;
+      return {
+        area,
+        page,
+        typeId: decode(third),
+        id: page === "work" ? decode(parts[3]) : undefined,
+        tab: query.get("aba") || undefined,
+        filters,
+      };
+    }
     return { area, page: page || "overview" };
   }
   if (area === "team") {
@@ -118,9 +153,17 @@ export function parseRoute(pathname: string, search = ""): Route {
 /** Caminho de uma rota; preserva ?demo e ?pair, que valem para a sessão toda. */
 export function href(route: Route) {
   let path = base + "/" + areaSlugs[route.area];
-  if (route.area === "admin")
+  if (route.area === "admin") {
     path += "/" + (pageSlugs[route.page || "overview"] || "inicio");
-  else {
+    if (
+      (route.page === "work" || route.page === "work-types") &&
+      route.typeId
+    ) {
+      path += "/" + encodeURIComponent(route.typeId);
+      if (route.page === "work" && route.id)
+        path += "/" + encodeURIComponent(route.id);
+    }
+  } else {
     if (route.sub) path += "/" + route.sub;
     if (route.id) path += "/" + encodeURIComponent(route.id);
   }
@@ -128,6 +171,11 @@ export function href(route: Route) {
     keep = new URLSearchParams();
   for (const key of ["demo", "pair"])
     if (current.has(key)) keep.set(key, current.get(key) || "1");
+  if (route.area === "admin") {
+    if (route.tab) keep.set("aba", route.tab);
+    for (const [key, value] of Object.entries(route.filters || {}))
+      if (value) keep.set(key, value);
+  }
   const query = keep.toString();
   return path + (query ? "?" + query : "");
 }
@@ -144,6 +192,10 @@ export const sameRoute = (a: Route, b: Route) =>
   a.area === b.area &&
   (a.id || "") === (b.id || "") &&
   (a.sub || "") === (b.sub || "") &&
+  (a.typeId || "") === (b.typeId || "") &&
+  (a.tab || "") === (b.tab || "") &&
+  JSON.stringify(Object.entries(a.filters || {}).sort()) ===
+    JSON.stringify(Object.entries(b.filters || {}).sort()) &&
   (a.area !== "admin" || (a.page || "overview") === (b.page || "overview"));
 
 // --- navegação -------------------------------------------------------------
@@ -185,7 +237,11 @@ export function navigate(
   // Trocar de conversa ou de protocolo dentro da mesma área não perde edições.
   const leaving =
     current.area !== target.area ||
-    (current.area === "admin" && current.page !== target.page);
+    (current.area === "admin" &&
+      (current.page !== target.page ||
+        current.typeId !== target.typeId ||
+        current.id !== target.id ||
+        current.tab !== target.tab));
   if (!options.force && leaving && guard?.()) {
     blockedListeners.forEach((listener) => listener(target));
     return false;

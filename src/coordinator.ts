@@ -228,10 +228,13 @@ export class Coordinator extends DurableObject<Env> {
               // O recurso sumiu: não há como reconstruir.
             }
           }
-          if (!old.response && closingOp) {
+          const recoverableWork = /^(os\.(?:private\.)?(?:task|person|entry)\.(?:create|update|archive|revise)|os\.(?:private\.)?document\.(?:reserve|complete|archive)|os\.stage(?:\.approval|\.decision)?|os\.private\.update)$/.test(body.operation);
+          if (!old.response && (closingOp || recoverableWork)) {
             // Sem a marca, a escrita não gravou (o lote é atômico): a
             // operação roda de novo, abaixo. Na emissão, a chave de origem
             // ainda devolve a senha de antes, se houver.
+            // Filhos/etapas do motor recuperam a mutação pelo operationId
+            // estável, incluindo publicação que faltou após confirmar o D1.
           } else if (!old.response || old.response.startsWith("ref:")) {
             // Recibo sem resposta de outra operação (o objeto caiu no meio
             // do comando): o código de sempre, que os apps repetem com a
