@@ -297,3 +297,24 @@ registerNewIdOrder({
     "erp_catalog.custom_field_item (202610200156_product_custom_fields.sql): 'category_ids' = jsonb_agg(c.category_id::text order by " +
     "c.category_id::text); uma categoria criada no mesmo comando (erp_catalog_taxonomy_save, gen_random_uuid) muda de posição entre os motores.",
 });
+
+// PDV (L, P2): erp_pos_sale_execute sale_finish com sale_id nulo cria o pedido
+// e, na mesma chamada (invokeRpc), chama erp_document_transition e a baixa à
+// vista do Financeiro. Os dois recibos fazem hash sobre o id criado agora.
+// Os campos do hash (ator, versão, situação, motivo) são conferidos pelos
+// testes de repetição e conflito do próprio RPC (Documentos e Financeiro), não
+// por recálculo aqui: o harness repetiria a fórmula do motor.
+registerOpaqueHash({
+  id: "documents.transition_request_hash",
+  columns: ["erp_documents__command.request_hash"],
+  reason:
+    "erp_document_transition (202610200239_*.sql, linha 333): request_hash = sha256 de {op,actor,kind,id,version,status,reason}, com o id " +
+    "do pedido criado na mesma chamada pelo erp_pos_sale_execute (gen_random_uuid).",
+});
+registerOpaqueHash({
+  id: "finance.settle_request_hash",
+  columns: ["erp_finance__command.request_hash"],
+  reason:
+    "erp_finance_execute settle chamado pela venda à vista do erp_pos_sale_execute: request_hash = sha256 com o id do título criado na " +
+    "mesma chamada (gen_random_uuid).",
+});
