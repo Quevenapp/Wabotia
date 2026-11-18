@@ -75,11 +75,14 @@ export function ResourceState({
   ) : null;
 }
 export function useDraftGuard(dirty: boolean, close: () => void) {
-  useUnsavedGuard(dirty);
-  return () => {
-    if (!dirty || window.confirm("Descartar as alterações não salvas?"))
-      close();
-  };
+  const release = useUnsavedGuard(dirty);
+  return Object.assign(
+    () => {
+      if (!dirty || window.confirm("Descartar as alterações não salvas?"))
+        close();
+    },
+    { release },
+  );
 }
 export const dateTimeInput = (at?: number | null) =>
   at == null ? "" : new Date(at - 3 * 3600000).toISOString().slice(0, 16);

@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { flushSync } from "react-dom";
 import { FormDialog } from "../../../admin/shared";
 import { Field, Button, Notice } from "../../../ui";
 import type {
@@ -85,9 +84,10 @@ export function WorkFormDialog({
                 type_id: type.id,
                 conversation_id: conversationId,
               });
-          // Renderiza já sem rascunho: onSaved costuma navegar para o
-          // trabalho salvo, e a guarda de navegação lê o estado renderizado.
-          flushSync(() => setDirty(false));
+          setDirty(false);
+          // onSaved costuma navegar para o trabalho salvo antes de o estado
+          // sem rascunho ser renderizado: solta a guarda já.
+          close.release();
           onSaved(saved);
         } catch (error) {
           if ((error as { code?: string }).code === "version_conflict")

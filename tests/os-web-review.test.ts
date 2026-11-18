@@ -17,6 +17,7 @@ import { WorkDetailPage } from "../web/modules/os/work/WorkDetailPage";
 import { WorkFormDialog } from "../web/modules/os/work/WorkFormDialog";
 import { ServiceOrdersPage } from "../web/modules/os/ServiceOrdersPage";
 import { ConversationWorkOrders } from "../web/modules/os/ConversationWorkOrders";
+import { useUnsavedGuard } from "../web/app/hooks";
 
 // Executa callbacks reais dos componentes com estado/effects controlados, sem DOM,
 // navegador ou rede. Não substitui uma verificação visual no navegador.
@@ -288,6 +289,17 @@ describe("revisão do painel: regressões", () => {
     const detail: any = render(owner, () => WorkDetailPage({ workId: "o" }));
     const tree = render(instance(), () => detail.type(detail.props));
     expect(button(tree, "Abrir campos restritos")).toBeUndefined();
+  });
+
+  it("solta a guarda de rascunho antes de navegar para o trabalho recém-criado", async () => {
+    const release = vi.fn();
+    vi.mocked(useUnsavedGuard).mockReturnValueOnce(release);
+    runtime.app.api.mockResolvedValue({ ...order(), type_id: "projeto" });
+    const onSaved = vi.fn(() => expect(release).toHaveBeenCalled());
+    const tree: any = render(instance(), () => WorkFormDialog({ type: custom() as any, onClose: vi.fn(), onSaved }));
+    await tree.props.onSubmit();
+    expect(onSaved).toHaveBeenCalledTimes(1);
+    expect(onSaved.mock.results[0]?.type).toBe("return");
   });
 
   it.each([

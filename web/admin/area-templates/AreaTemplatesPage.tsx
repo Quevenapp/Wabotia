@@ -19,12 +19,24 @@ import type {
 } from "../../modules/os/work-contracts";
 import { downloadJson } from "../../modules/os/types/type-draft";
 import "../../modules/os/work.css";
+/** O modelo traz menus da Ordem de serviço embutida (type_id service_order). */
+export const usesBuiltin = (template: AreaTemplate) =>
+  template.menus.some(
+    (menu) => "type_id" in menu && menu.type_id === "service_order",
+  );
 export function templateSelection(
   template: AreaTemplate,
 ): AreaTemplateSelection {
   return {
-    work_type_ids: template.work_types.map((type) => type.id),
-    module_ids: Object.keys(template.modules) as AreaModuleId[],
+    work_type_ids: [
+      ...(usesBuiltin(template) ? ["service_order"] : []),
+      ...template.work_types.map((type) => type.id),
+    ],
+    // Por padrão o modelo só liga módulos. Desligar um módulo já ligado é
+    // escolha explícita na revisão.
+    module_ids: Object.entries(template.modules)
+      .filter(([, enabled]) => enabled)
+      .map(([id]) => id) as AreaModuleId[],
     menus: true,
     departments: true,
     ticket_categories: true,
@@ -32,6 +44,35 @@ export function templateSelection(
     texts: true,
     bot_suggestions: true,
   };
+}
+const MODULE_NAMES: Record<string, string> = {
+  os: "Ordem de serviço",
+  queue: "Fila presencial",
+  forms: "Formulários",
+  agenda: "Agenda",
+  reserva: "Reservas",
+  pedido: "Pedidos",
+  mensalidade: "Mensalidade",
+  suporte: "Suporte",
+  mesas: "Mesas",
+  entrega: "Entrega",
+  payments: "Cobrança",
+  erp: "ERP",
+};
+/** Texto da linha do módulo na revisão do modelo. */
+export function moduleLabel(
+  id: string,
+  current: boolean | undefined,
+  proposed: boolean,
+  selected: boolean,
+) {
+  const name = MODULE_NAMES[id] || id;
+  const now = current ? "ligado" : "desligado";
+  if (!!current === proposed) return `${name}: ${now}, sem mudança`;
+  if (proposed) return `${name}: ${now} → ligar`;
+  return selected
+    ? `${name}: ligado → será DESLIGADO`
+    : `${name}: ligado, continua ligado (marque para desligar como o modelo sugere)`;
 }
 function Preview({
   template,
@@ -69,6 +110,33 @@ function Preview({
         Destino: {app.profileName}. Configurações manuais serão preservadas.
         Aplicar sugestões de bot não concede papéis nem permissões.
       </Notice>
+      {usesBuiltin(template) && (
+        <section className="os-work-record">
+          <label className="os-work-check">
+            <input
+              type="checkbox"
+              disabled={action.busy}
+              checked={selection.work_type_ids.includes("service_order")}
+              onChange={(event) =>
+                change({
+                  ...selection,
+                  work_type_ids: event.target.checked
+                    ? ["service_order", ...selection.work_type_ids]
+                    : selection.work_type_ids.filter(
+                        (id) => id !== "service_order",
+                      ),
+                })
+              }
+            />
+            Ordem de serviço embutida · service_order
+          </label>
+          <p>
+            Inclui os menus do modelo para abrir e acompanhar a Ordem de
+            serviço. A estrutura e as configurações atuais da Ordem de serviço
+            não mudam.
+          </p>
+        </section>
+      )}
       {template.work_types.map((type) => (
         <section className="os-work-record" key={type.id}>
           <label className="os-work-check">
@@ -111,8 +179,7 @@ function Preview({
                 })
               }
             />
-            {id}: {app.modules?.[id] ? "ligado" : "desligado"} →{" "}
-            {enabled ? "ligado" : "desligado"}
+            {moduleLabel(id, app.modules?.[id], enabled, selection.module_ids.includes(id as AreaModuleId))}
           </label>
         ))}
       </fieldset>

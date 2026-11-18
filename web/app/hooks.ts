@@ -3,8 +3,12 @@ import { setNavigationGuard } from "../lib/routes";
 import { toast, toastError } from "../ui";
 import { useApp } from "./AppContext";
 
-/** Segura a navegação e o fechamento da aba enquanto houver alterações não salvas. */
-export function useUnsavedGuard(dirty: boolean) {
+/**
+ * Segura a navegação e o fechamento da aba enquanto houver alterações não salvas.
+ * Devolve `release`, que solta a guarda na hora: use depois de salvar quando a
+ * mesma rotina navega antes de o estado "sem rascunho" ser renderizado.
+ */
+export function useUnsavedGuard(dirty: boolean): () => void {
   const ref = useRef(dirty);
   ref.current = dirty;
   useEffect(() => {
@@ -20,6 +24,9 @@ export function useUnsavedGuard(dirty: boolean) {
     window.addEventListener("beforeunload", preventLoss);
     return () => window.removeEventListener("beforeunload", preventLoss);
   }, [dirty]);
+  return () => {
+    ref.current = false;
+  };
 }
 
 /** true quando a largura da janela casa com a consulta (ex.: "(max-width: 759px)"). */

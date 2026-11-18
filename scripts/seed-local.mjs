@@ -9,7 +9,7 @@
 //
 // Usa a API normal (setup, usuários, /inbound, ações, protocolos, contatos,
 // conversa interna, presença) e ajusta no D1 local apenas o que a API não
-// permite: bots sem Hermes, idade das mensagens, estados de entrega, reações,
+// permite: bots internos, idade das mensagens, estados de entrega, reações,
 // vínculo das conversas com as linhas, grupo e histórico de ligações.
 // Os logins de teste gerados ficam em seed-logins.local.json (ignorado pelo git).
 // Nenhuma senha, token ou segredo é impresso.
@@ -1078,8 +1078,8 @@ async function seed() {
   const ids = { admin: admin.me.id, op1: op1.me.id, op2: op2.me.id };
   log("2 atendentes de teste criados");
 
-  // Linhas e Hermes de mentira (nada aqui é ativado contra serviços reais:
-  // a linha oficial fica pausada e o endereço do Hermes não existe).
+  // Linhas e IA de mentira (nada aqui é ativado contra serviços reais:
+  // a linha oficial fica pausada e o endereço da IA não existe).
   const connect = async (body) =>
     (await admin.call(area + "/connections", "POST", body)).id;
   const official = await connect({
@@ -1101,32 +1101,29 @@ async function seed() {
   const connectorToken = (
     await admin.call(`${area}/connections/${qr}/connector-token`, "POST", {})
   ).token;
-  const hermes = await connect({
-    name: "Hermes (demonstração)",
-    kind: "hermes",
-    config: {
-      url: "https://hermes.demonstracao.invalid",
-      api_url: "https://api-hermes.demonstracao.invalid",
-    },
-    secrets: { profile_keys: { atendente: "local-seed-" + hex(8) } },
-  });
-  const hermesFinance = await connect({
-    name: "Hermes financeiro (demonstração)",
-    kind: "hermes",
-    config: {
-      url: "https://hermes-financeiro.demonstracao.invalid",
-      api_url: "https://api-hermes-financeiro.demonstracao.invalid",
-    },
-    secrets: { profile_keys: { financeiro: "local-seed-" + hex(8) } },
-  });
-  // Bots só nascem da descoberta no Hermes; aqui entram direto no D1 local.
-  // O Hermes de demonstração fica "visto agora" para o Atendente aparecer online;
-  // o financeiro fica pausado (offline). A linha QR fica ativa para o modo --connector.
+  // Bots internos (provedor de IA direto; o Hermes foi retirado). O endereço
+  // .invalid não existe: nenhuma chamada sai da máquina, e a chave é fictícia.
+  const aiConnection = (name) =>
+    connect({
+      name,
+      kind: "ai",
+      config: {
+        provider: "compatible",
+        model: "demonstracao",
+        base_url: "https://ia.demonstracao.invalid/v1",
+      },
+      secrets: { api_key: "local-seed-" + hex(8) },
+    });
+  const ai = await aiConnection("IA de demonstração");
+  const aiFinance = await aiConnection("IA financeira (demonstração)");
+  // Os bots entram direto no D1 local. A IA de demonstração fica "vista agora"
+  // para o Atendente aparecer online; a financeira fica pausada (offline).
+  // A linha QR fica ativa para o modo --connector.
   const farFuture = NOW + 3650 * 24 * 3600_000;
   d1Run([
-    `INSERT OR IGNORE INTO bots(id,profile_id,connection_id,remote_profile,name,enabled,line_ids) VALUES(${sq(BOT_ATTENDANT)},${sq(profile)},${sq(hermes)},'atendente','Atendente virtual',1,NULL)`,
-    `INSERT OR IGNORE INTO bots(id,profile_id,connection_id,remote_profile,name,enabled,line_ids) VALUES(${sq(BOT_FINANCE)},${sq(profile)},${sq(hermesFinance)},'financeiro','Especialista financeiro',1,'[]')`,
-    `UPDATE connections SET status='active',last_seen=${farFuture},config=json_set(config,'$.verified_at',${NOW}) WHERE id=${sq(hermes)}`,
+    `INSERT OR IGNORE INTO bots(id,profile_id,connection_id,remote_profile,name,enabled,line_ids) VALUES(${sq(BOT_ATTENDANT)},${sq(profile)},${sq(ai)},'default','Atendente virtual',1,NULL)`,
+    `INSERT OR IGNORE INTO bots(id,profile_id,connection_id,remote_profile,name,enabled,line_ids) VALUES(${sq(BOT_FINANCE)},${sq(profile)},${sq(aiFinance)},'default','Especialista financeiro',1,'[]')`,
+    `UPDATE connections SET status='active',last_seen=${farFuture},config=json_set(config,'$.verified_at',${NOW}) WHERE id=${sq(ai)}`,
     `UPDATE connections SET status='active',last_seen=${NOW},config=json_set(config,'$.verified_at',${NOW},'$.protocol_version',2,'$.transport_state','open') WHERE id=${sq(qr)}`,
   ]);
   log("linhas (oficial pausada, QR de teste) e 2 bots criados");
@@ -1499,7 +1496,7 @@ async function seed() {
     call(4, "paulo", "inbound", "rejected", 880, 0, ids.op1),
   );
 
-  // Conversa interna com o bot (uma execução real chamaria um Hermes que não existe).
+  // Conversa interna com o bot (uma execução real chamaria uma IA que não existe).
   const botPeer = "bot:" + BOT_ATTENDANT;
   const [memberA, memberB] = [ids.admin, botPeer].sort();
   const botChat = "seed-chat-bot-" + profile.slice(0, 8);
@@ -1523,7 +1520,7 @@ async function seed() {
     done: true,
     seeded_at: NOW,
     six_ticket_states: sixStates,
-    lines: { official, qr, hermes },
+    lines: { official, qr, ai },
     connector: { connection_id: qr, token: connectorToken },
     conversations: [...seededConversations, group],
     tickets: [...Object.values(ticketIds), ...(autoTicket ? [autoTicket.id] : [])],
