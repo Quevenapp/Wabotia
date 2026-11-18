@@ -1,5 +1,5 @@
 import { createPiiMask, maskPersonalEnabled, type PiiMask } from "./pii-mask";
-import { extractPersonalPdf } from "./pii-pdf";
+import { extractMaskedPersonalPdf } from "./pii-pdf";
 import { preparePaidTemplate, assertPaidConsent } from "./router-templates";
 import { managedAppAllowed } from "./number-router";
 import {
@@ -1362,9 +1362,9 @@ async function runDocuments(env: Env, run: Run, pii: PiiMask, config: any) {
       if (m.size > PDF_LIMITS.bytes || bytes.length > PDF_LIMITS.bytes || pages === null || pages > PDF_LIMITS.pages)
         throw new AiError("PDF recusado: tamanho ou páginas fora dos tetos. A equipe precisa conferir.", false);
       if (pii.enabled) {
-        const text = await extractPersonalPdf(bytes);
+        const text = await extractMaskedPersonalPdf(bytes, pii);
         if (text) {
-          texts.push(pii.mask(text));
+          texts.push(text);
           continue;
         }
         if (!fallback) throw new AiError("PDF recusado: não foi possível extrair texto com confiança. A equipe precisa conferir.", false);

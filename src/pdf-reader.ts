@@ -362,15 +362,7 @@ export async function readPdfObjects(bytes: Uint8Array) {
       objects.set(entry.id, { value });
     }
   }
-  // A tabela de objetos é montada acima; o xref é validado sem interpretar seus bytes como texto.
-  for (const [id, object] of objects) {
-    if (
-      object.value &&
-      typeof object.value === "object" &&
-      "dict" in object.value &&
-      pdfName(object.value.dict.Type) === "XRef"
-    )
-      await stream({ ref: id });
-  }
+  // A tabela já foi montada pelos objetos: XRef (inclusive com Predictor)
+  // não precisa ser decodificado. Contents e ObjStm continuam passando por stream().
   return { objects, resolve, stream };
 }
