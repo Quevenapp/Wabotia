@@ -412,7 +412,7 @@ describe("painel do ERP contra a rota real", () => {
     "ação de tela sem motor (0A000) avisa a casca em vez de só falhar",
     { timeout: 120_000 },
     async () => {
-      // Registrar recebidos do check-in (erp_stock_checkin_save) ainda não
+      // Salvar componentes do item (erp_stock_item_components_save) ainda não
       // tem motor. A rota valida o corpo e chama diretamente o RPC.
       const { f, send, get } = await setup();
       // Primeira ida ao motor no isolado (rodando só este teste): fora da espera do controlador.
@@ -429,10 +429,10 @@ describe("painel do ERP contra a rota real", () => {
           async (controller) => {
             const failure = await controller
               .stock(
-                `/v1/estoque/checkin/notas/${crypto.randomUUID()}/recebidos`,
+                `/v1/estoque/composicoes/itens/${crypto.randomUUID()}`,
                 {
                   method: "POST",
-                  body: { command_id: crypto.randomUUID(), expected_version: 0, items: [{ position: 1, received: "1" }] },
+                  body: { command_id: crypto.randomUUID(), document_id: crypto.randomUUID(), expected_document_version: 1, expected_version: 0, components: null },
                 },
               )
               .then(
