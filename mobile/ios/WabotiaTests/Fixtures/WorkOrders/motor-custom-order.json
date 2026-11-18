@@ -1,0 +1,175 @@
+{
+  "id": "os_custom",
+  "number": 121,
+  "status": "in_progress",
+  "status_label": "Em execução",
+  "customer": {
+    "name": "Bia Exemplo",
+    "phone": "5520900001111",
+    "contact_id": null,
+    "conversation_id": "c1"
+  },
+  "item": "Processo demonstrativo 2026/12",
+  "problem": "Revisão contratual",
+  "notes": "Observação interna",
+  "assignee": null,
+  "due_at": null,
+  "source": "panel",
+  "terms": null,
+  "quote": null,
+  "decision": null,
+  "ready_at": null,
+  "delivered_at": null,
+  "warranty_until": null,
+  "next_statuses": [
+    "ready",
+    "cancelled"
+  ],
+  "created_by": "u1",
+  "created": 1794763800000,
+  "updated": 1794763800001,
+  "history": [
+    {
+      "id": "h_stage",
+      "kind": "os.stage_changed",
+      "from_status": "in_progress",
+      "to_status": "in_progress",
+      "actor": "u1",
+      "note": "",
+      "created": 1794763800000
+    },
+    {
+      "id": "h_task",
+      "kind": "os.task.created",
+      "from_status": null,
+      "to_status": null,
+      "actor": "u1",
+      "note": "",
+      "created": 1794763800001
+    }
+  ],
+  "type_id": "processo",
+  "type_revision": 2,
+  "type_number": 12,
+  "type_label": "Processo",
+  "type_plural_label": "Processos",
+  "display_number": "PROC-12",
+  "stage": "citacao",
+  "stage_label": "Citação",
+  "labels": {
+    "singular": "Processo",
+    "plural": "Processos",
+    "item": "Nº do processo",
+    "problem": "Assunto",
+    "customer_singular": "Contratante",
+    "customer_plural": "Contratantes"
+  },
+  "extra": {
+    "comarca": "São Paulo",
+    "audiencias": 0,
+    "horas": 1.5,
+    "urgente": false,
+    "data_audiencia": null,
+    "prioridade": "normal"
+  },
+  "fields": [
+    {
+      "help": "",
+      "required": false,
+      "client_visible": true,
+      "sensitive": false,
+      "id": "comarca",
+      "label": "Comarca",
+      "kind": "text",
+      "multiline": false,
+      "max_length": 120
+    },
+    {
+      "help": "",
+      "required": false,
+      "client_visible": true,
+      "sensitive": false,
+      "id": "audiencias",
+      "label": "Audiências",
+      "kind": "integer",
+      "min": 0,
+      "max": 100
+    },
+    {
+      "help": "",
+      "required": false,
+      "client_visible": true,
+      "sensitive": false,
+      "id": "horas",
+      "label": "Horas previstas",
+      "kind": "decimal",
+      "min": 0,
+      "max": 1000,
+      "scale": 1
+    },
+    {
+      "help": "",
+      "required": false,
+      "client_visible": true,
+      "sensitive": false,
+      "id": "urgente",
+      "label": "Urgente",
+      "kind": "boolean"
+    },
+    {
+      "help": "",
+      "required": false,
+      "client_visible": true,
+      "sensitive": false,
+      "id": "data_audiencia",
+      "label": "Data da audiência",
+      "kind": "date",
+      "min": null,
+      "max": null
+    },
+    {
+      "help": "",
+      "required": false,
+      "client_visible": true,
+      "sensitive": false,
+      "id": "prioridade",
+      "label": "Prioridade",
+      "kind": "choice",
+      "options": [
+        {
+          "id": "normal",
+          "label": "Normal"
+        },
+        {
+          "id": "alta",
+          "label": "Alta"
+        }
+      ]
+    }
+  ],
+  "version": 4,
+  "next_stages": [
+    {
+      "transition_id": "instruir",
+      "stage": "instrucao",
+      "stage_label": "Instrução",
+      "base_status": "in_progress",
+      "kind": "manual"
+    },
+    {
+      "transition_id": "concluir",
+      "stage": "conclusao",
+      "stage_label": "Conclusão",
+      "base_status": "ready",
+      "kind": "manual"
+    },
+    {
+      "transition_id": "cancelar",
+      "stage": "cancelado",
+      "stage_label": "Cancelado",
+      "base_status": "cancelled",
+      "kind": "manual"
+    }
+  ],
+  "stage_approval": null
+}

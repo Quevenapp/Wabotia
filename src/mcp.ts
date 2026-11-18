@@ -18,6 +18,7 @@ import {
   proposalsOfRun,
   runBotTool,
   runFromHeader,
+  authenticatedRunFromHeader,
   type BotActionContext,
   type ToolState,
 } from "./bot-actions/actions";
@@ -1097,7 +1098,14 @@ export function mountMcp(app: Hono<Bindings>) {
     const tool = findTool(String(params?.name || ""));
     if (!tool || !toolAllowed(actor, tool))
       throw new RpcError(-32602, `Ferramenta desconhecida: ${params?.name}`);
-    const args = validate(tool, params?.arguments);
+    let argumentsValue = params?.arguments;
+    if (tool.name.startsWith("os_") && (isBound(actor) || actor.bots.length > 0)) {
+      const run = await authenticatedRunFromHeader(c.env, actor, c.req.header(RUN_HEADER) ?? null);
+      if (!run?.conversation_id)
+        throw new ApiError(403, "run_required", "Consulta de trabalhos exige uma execução de atendimento autenticada.");
+      argumentsValue = { ...argumentsValue, profile: run.profile_id, conversation_id: run.conversation_id };
+    }
+    const args = validate(tool, argumentsValue);
     const profile = resolveProfile(tool, args, actor);
     const response = await dispatch(
       c,

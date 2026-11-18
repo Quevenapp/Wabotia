@@ -2,6 +2,7 @@
 // fala com o núcleo só por aqui: contato, enviar mensagem, abrir passo web,
 // publicar evento e os ganchos de menu, ação de conversa, configuração e
 // conclusão de passo web. Mudanças aqui exigem atualizar docs/MODULOS.md.
+import { localModuleWake } from "./local-wake";
 import {
   registerApprovalHook,
   moduleRoutes,
@@ -26,7 +27,12 @@ import {
   registerWebStepValidator,
   registerWriteRoute,
   type ModuleWriteRoute,
+  registerBinaryRoute,
+  registerSettingsChangeValidator,
+  type SettingsChangeValidator,
+  type BinaryRouteRequest,
 } from "./hooks";
+import { binaryCommand, binaryResponse, readBinaryContent, type BinaryCommand, type BinaryContent } from "./binary";
 import type { TrackView } from "../web-track";
 import { all, exec, one } from "../db";
 import {
@@ -34,10 +40,11 @@ import {
   type Actor,
   type Conversation,
   type Env,
+  now,
   requireValue,
 } from "../types";
 import { isBound } from "../visibility";
-import { access, canProfile } from "../security";
+import { access, admin, canProfile, sha } from "../security";
 import { grantId } from "../module-grants";
 import { rolesOf } from "../access";
 import {
@@ -118,6 +125,25 @@ export interface ContactSummary {
   email: string;
   company: string;
   notes: string;
+}
+
+export interface InboundAttachment {
+  id: string;
+  name: string;
+  mime_type: string;
+  byte_length: number;
+  /** Abre só o objeto já vinculado à mensagem/conversa conferidas. */
+  open(): Promise<R2ObjectBody>;
+}
+export interface OutgoingAttachment {
+  name: string;
+  mime_type: string;
+  byte_length: number;
+  body: ReadableStream<Uint8Array>;
+  /** Derivar de documento + versão; não aceitar chave ou URL arbitrária do cliente. */
+  key: string;
+  client_visible: boolean;
+  sensitive: boolean;
 }
 export type WebStep = NonNullable<ReturnType<typeof webStepView>>;
 export type { InteractiveSpec } from "../whatsapp-interactive";
@@ -221,6 +247,10 @@ export interface ModuleContext {
    * quem chama. Compare ou vincule registros por telefone só com ele.
    */
   verifiedPhone(c: Conversation): string | null;
+  /** Anexos da mensagem recebida autenticada; nunca consulta media_id alegado. */
+  inboundAttachments(c: Conversation, messageId: string): Promise<InboundAttachment[]>;
+  /** Copia documento compartilhável para mídia comum, só no Coordinator. */
+  outgoingAttachment(actor: Actor, c: Conversation, input: OutgoingAttachment): Promise<string>;
   /**
    * Nota interna na conversa (só a equipe vê), por exemplo uma pendência.
    * Com `key`, a mesma nota não se repete (gancho repetido, por exemplo).
@@ -397,8 +427,9 @@ export interface ModuleContext {
    * Acorda o Coordinator da área: o alarme roda em seguida (a rodada dos
    * módulos no máximo uma vez por minuto, e as entregas da fila). Para rotas
    * fora do Coordinator (onTelemetry) que gravaram algo a avisar.
+   * `modules` conserva uma continuação até a próxima rodada permitida.
    */
-  wake(): Promise<void>;
+  wake(options?: { modules?: boolean }): Promise<void>;
   /**
    * A pessoa tem o papel `role` deste módulo (declarado em `grants` da
    * definição e marcado pelo administrador no acesso da pessoa, em Pessoas e
@@ -619,6 +650,56 @@ export function modulesApi(
       return copy as typeof row;
     },
     verifiedPhone: (c) => verifiedPhone(c),
+    async inboundAttachments(c, messageId) {
+      requireValue(c.profile_id === profile, "Conversa de outra área.");
+      await ctx.requireEnabled();
+      const attachments = await all(env,
+        "SELECT a.* FROM media a JOIN messages m ON m.profile_id=a.profile_id AND EXISTS(SELECT 1 FROM json_each(m.attachments) WHERE value=a.id) WHERE m.id=? AND m.profile_id=? AND m.conversation_id=? AND m.direction='customer'",
+        messageId, profile, c.id,
+      );
+      return attachments.map((row) => ({
+        id: row.id, name: row.name, mime_type: row.type, byte_length: row.size,
+        async open() {
+          const object = await env.MEDIA.get(row.object_key);
+          if (!object) throw new ApiError(404, "not_found", "Anexo não encontrado.");
+          return object;
+        },
+      }));
+    },
+    async outgoingAttachment(actor, c, input) {
+      if (options.worker) throw new Error("outgoingAttachment exige comando do Coordinator.");
+      ctx.access(actor, "conversations:write");
+      await ctx.requireEnabled();
+      requireValue(c.profile_id === profile, "Conversa de outra área.");
+      if (!input.client_visible || input.sensitive)
+        throw new ApiError(403, "document_not_shareable", "Documento não compartilhável.");
+      if (!ctx.mayMessage(actor, c)) throw new ApiError(403, "forbidden", "Ator não pode enviar nesta conversa.");
+      requireValue(input.key && input.name && input.mime_type && Number.isSafeInteger(input.byte_length) &&
+        input.byte_length > 0 && input.byte_length <= 10 * 1024 * 1024, "Anexo de saída inválido.");
+      const id = (await sha(`module:${moduleId}:${profile}:${input.key}`)).slice(0, 32);
+      const previous = await one(env, "SELECT id,name,type,size FROM media WHERE id=? AND profile_id=?", id, profile);
+      if (previous) {
+        if (previous.name !== input.name || previous.type !== input.mime_type || previous.size !== input.byte_length)
+          throw new ApiError(409, "idempotency_conflict", "Anexo de saída já criado com outros metadados.");
+        return previous.id;
+      }
+      // Este adaptador roda dentro de blockConcurrencyWhile. O pipeTo de
+      // putStream/FixedLengthStream depende do input gate e trava a cópia no
+      // R2 sob esse bloqueio. Documentos têm limite de 10 MiB: conferir os
+      // bytes antes de gravá-los diretamente, mantendo a serialização.
+      const content = await readBinaryContent(new Response(input.body));
+      if (content.byte_length !== input.byte_length)
+        throw new ApiError(409, "content_mismatch", "Tamanho do anexo divergente.");
+      const objectKey = `${profile}/${id}`;
+      await env.MEDIA.put(objectKey, content.bytes, {
+        httpMetadata: { contentType: input.mime_type },
+      });
+      await exec(env,
+        "INSERT INTO media(id,profile_id,name,type,size,object_key,actor,created) VALUES(?,?,?,?,?,?,?,?)",
+        id, profile, input.name, input.mime_type, content.byte_length, objectKey, actor.id, now(),
+      );
+      return id;
+    },
     async note(c, text, options = {}) {
       requireValue(c.profile_id === profile, "Conversa de outra área.");
       const value = String(text ?? "").trim();
@@ -987,12 +1068,17 @@ export function modulesApi(
     revokeCredentials: (subject, reason) =>
       revokeModuleCredentials(env, profile, moduleId, subject, reason),
     credentials: (subject) => credentialsFor(env, profile, moduleId, subject),
-    async wake() {
+    async wake(options) {
+      const local = localModuleWake(env, profile);
+      if (local) return local(options);
       const response = await env.COORDINATOR.get(
         env.COORDINATOR.idFromName(profile),
       ).fetch("https://coordinator/wake", {
         method: "POST",
-        body: JSON.stringify({ profile }),
+        body: JSON.stringify({
+          profile,
+          ...(options?.modules ? { modules: true } : {}),
+        }),
       });
       await response.body?.cancel();
     },
@@ -1151,7 +1237,8 @@ const ownsPath = (definition: ModuleDefinition | null, path: string) =>
 
 /**
  * Rota de escrita /api/v1/profiles/:profile/<path> → comando `op`. O corpo
- * JSON e o :id do caminho viram `data`; exige Idempotency-Key.
+ * JSON e todos os parâmetros do caminho viram `data` (exceto profile).
+ * O caminho prevalece sobre o corpo; exige Idempotency-Key.
  */
 export function onRoute(moduleId: string, route: ModuleWriteRoute) {
   if (!ownsPath(moduleById(moduleId), route.path))
@@ -1481,6 +1568,120 @@ export function onSettingsSave(
   if (!moduleById(moduleId)?.settings.some((s) => s.key === key))
     throw new Error(`Chave ${key} não declarada pelo módulo ${moduleId}.`);
   registerSettingsValidator(key, validate);
+}
+
+/** M: revisão, IDs aposentados e classificações; função pura, sem persistência. */
+export function onSettingsChange(moduleId: string, validate: SettingsChangeValidator) {
+  if (!moduleById(moduleId)) throw new Error(`Módulo não registrado: ${moduleId}`);
+  return registerSettingsChangeValidator(moduleId, validate);
+}
+
+export interface BinaryDownload {
+  body: BodyInit | null;
+  headers?: HeadersInit;
+}
+export type BinaryReadHandler = (
+  ctx: ModuleContext, actor: Actor, request: BinaryRouteRequest,
+) => Promise<BinaryDownload>;
+/** D deve autorizar área/ordem/documento/classificação antes de abrir o R2. */
+export function onBinaryRead(moduleId: string, path: string, handler: BinaryReadHandler) {
+  if (!ownsPath(moduleById(moduleId), path)) throw new Error(`Rota binária fora do módulo: ${path}`);
+  registerBinaryRoute({
+    method: "GET", path,
+    async handler(env, actor, profile, request) {
+      credentialGate(actor, { path }, request.params);
+      const ctx = modulesApi(env, profile, moduleId, { worker: true });
+      ctx.access(actor, "conversations:read");
+      await ctx.requireEnabled();
+      const result = await handler(ctx, actor, request);
+      return binaryResponse(result.body, result.headers);
+    },
+  });
+}
+export interface BinaryUploadRequest extends BinaryRouteRequest {
+  key: string;
+  version: number;
+  command: BinaryCommand;
+  /** Leitura limitada e hash no servidor; só depois de authorize. */
+  content(): Promise<BinaryContent>;
+}
+export interface BinaryUploadHandler {
+  /** Reserva/tentativa e confirmação de transporte, implementadas por onCommand. */
+  operations: readonly string[];
+  authorize(ctx: ModuleContext, actor: Actor, request: BinaryRouteRequest): Promise<void>;
+  upload(ctx: ModuleContext, actor: Actor, request: BinaryUploadRequest): Promise<unknown>;
+}
+/** Worker transporta bytes; o callback command é a única via para alterar metadados. */
+export function onBinaryUpload(moduleId: string, path: string, handler: BinaryUploadHandler) {
+  const definition = moduleById(moduleId);
+  if (!ownsPath(definition, path) || !handler.operations.length ||
+      handler.operations.some((op) => !definition!.operations.some((prefix) => op.startsWith(prefix))))
+    throw new Error(`Upload fora do módulo: ${path}`);
+  registerBinaryRoute({
+    method: "PUT", path,
+    async handler(env, actor, profile, request) {
+      credentialGate(actor, { path }, request.params);
+      const ctx = modulesApi(env, profile, moduleId, { worker: true });
+      ctx.access(actor, "conversations:write");
+      await ctx.requireEnabled();
+      const key = request.request.headers.get("Idempotency-Key") || "";
+      requireValue(key.length <= 200 && /^[\x21-\x7e]+$/.test(key), "Envie Idempotency-Key (até 200 caracteres ASCII).");
+      const rawVersion = request.request.headers.get("Upload-Version") || "";
+      const version = Number(rawVersion);
+      requireValue(/^[1-9][0-9]*$/.test(rawVersion) && Number.isSafeInteger(version), "Envie Upload-Version inteiro positivo.");
+      await handler.authorize(ctx, actor, request);
+      let content: Promise<BinaryContent> | undefined;
+      const result = await handler.upload(ctx, actor, {
+        ...request, key, version,
+        command: binaryCommand(env, actor, profile, request.params, handler.operations, key),
+        content: () => content ??= readBinaryContent(request.request),
+      });
+      return Response.json(result, { headers: { "Cache-Control": "no-store" } });
+    },
+  });
+}
+
+// Rotas de modelos são administrativas: não passam pelo gate de os ligado.
+// A/I registra descritores pelo bloco reservado de runtime.ts.
+export interface AdminExtension {
+  id: "area-templates";
+  reads: Array<{
+    path: string;
+    handler: (env: Env, actor: Actor, profile: string, request: {
+      params: Record<string, string>; query: Record<string, string>;
+    }) => Promise<unknown>;
+  }>;
+  writes: ModuleWriteRoute[];
+  commands: Array<{
+    op: string;
+    handler: (env: Env, actor: Actor, profile: string, data: any, requestId: string) => Promise<unknown>;
+  }>;
+}
+export function registerAdminExtension(extension: AdminExtension) {
+  const authorize = (actor: Actor, profile: string) => {
+    admin(actor);
+    if (!canProfile(actor, profile)) throw new ApiError(404, "not_found", "Área não encontrada.");
+  };
+  for (const route of [...extension.reads, ...extension.writes])
+    if (route.path.split("/")[0] !== extension.id) throw new Error(`Rota administrativa inválida: ${route.path}`);
+  for (const command of extension.commands) {
+    if (!command.op.startsWith("area-template.")) throw new Error(`Operação administrativa inválida: ${command.op}`);
+    registerCommand(command.op, async (env, actor, profile, data, requestId) => {
+      authorize(actor, profile);
+      return command.handler(env, actor, profile, data, requestId);
+    });
+  }
+  for (const route of extension.writes) {
+    if (!extension.commands.some((command) => command.op === route.op)) throw new Error(`Comando ausente: ${route.op}`);
+    registerWriteRoute(route);
+  }
+  for (const route of extension.reads) registerReadRoute({
+    path: route.path,
+    async handler(env, actor, profile, request) {
+      authorize(actor, profile);
+      return route.handler(env, actor, profile, request);
+    },
+  });
 }
 
 /** Erro padrão de regra de módulo (texto mostrado ao cliente ou à equipe). */

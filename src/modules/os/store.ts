@@ -34,6 +34,15 @@ import {
   type TextKey,
 } from "./model";
 
+import type { ExtraValues, WorkTypeSnapshot } from "./contracts";
+import { effectiveStage, legacyCustomStatuses, makeSnapshot, snapshotType, workOrderAdditions } from "./work-types";
+import { resolveWorkType } from "./public";
+import { validateExtra } from "./validation";
+import { resumeOrderEffects } from "./motor-routes";
+import { atomic, casGuard, checkVersion, commitOrderMutation, mutationHistory } from "./mutations";
+import { customerProjection, mayReadSensitive } from "./privacy";
+import { customStatus, customMove, customQuotePolicy, cancelApproval } from "./stages";
+
 export type OrderSource = "agent" | "panel" | "customer" | "api";
 
 const notFound = () =>
@@ -95,6 +104,7 @@ export function orderView(row: any, history?: any[]) {
     ? json(row.quote_items, [])
     : null;
   return {
+    ...workOrderAdditions(row),
     id: row.id,
     number: row.number,
     status,
@@ -137,7 +147,7 @@ export function orderView(row: any, history?: any[]) {
     ready_at: row.ready_at,
     delivered_at: row.delivered_at,
     warranty_until: row.warranty_until,
-    next_statuses: nextStatuses(status, !!items),
+    next_statuses: snapshotType(row) ? legacyCustomStatuses(row, snapshotType(row)!) : nextStatuses(status, !!items),
     created_by: row.created_by,
     created: row.created,
     updated: row.updated,
@@ -188,7 +198,7 @@ export function visibleOrder(
     if (out.history)
       out.history = out.history.map(({ note: _note, ...h }: any) => h);
   }
-  return out;
+  return view.type_id !== "service_order" && (actor.via || actor.id.startsWith("bot:") || actor.module) ? customerProjection(out) : out;
 }
 
 export async function loadOrder(ctx: ModuleContext, id: unknown) {
@@ -215,9 +225,24 @@ export const orderHistory = (ctx: ModuleContext, id: string) =>
 export async function listOrders(
   ctx: ModuleContext,
   query: Record<string, string>,
+  actor?: Actor,
 ) {
   const where = ["profile_id=?"],
     args: any[] = [ctx.profile];
+  if (query.stage && !query.type_id) throw new ApiError(400, "invalid_filter", "Etapa exige type_id.");
+  if (query.type_id) { where.push("type_id=?"); args.push(query.type_id); }
+  if (query.stage) { where.push("COALESCE(stage,status)=?"); args.push(query.stage); }
+  if (query.assignee) {
+    where.push(query.assignee === "unassigned" ? "assignee IS NULL" : "assignee=?");
+    if (query.assignee !== "unassigned") args.push(query.assignee === "me" && actor ? actor.id : query.assignee);
+  }
+  for (const [key, comparison] of [["due_from", ">="], ["due_to", "<="]] as const) {
+    if (!query[key]) continue;
+    const at = Number(query[key]);
+    if (!Number.isSafeInteger(at) || at < 0) throw new ApiError(400, "invalid_filter", "Prazo inválido; use milissegundos Unix.");
+    where.push(`due_at${comparison}?`); args.push(at);
+  }
+  if (query.due_from && query.due_to && Number(query.due_from) > Number(query.due_to)) throw new ApiError(400, "invalid_filter", "Intervalo de prazo inválido.");
   // Sem repetição: a lista IN fica dentro do limite do D1 (conferência B10).
   const statuses = [
     ...new Set((query.status || "").split(",").filter(Boolean)),
@@ -282,10 +307,25 @@ export async function listOrders(
   );
   const more = rows.length > limit;
   const page = rows.slice(0, limit);
+  // Uma consulta para a página inteira, filtrando antes de eleger o próximo filho.
+  // A projeção nunca revela a existência de uma tarefa não autorizada.
+  const custom = page.filter(row => row.type_id !== "service_order" && snapshotType(row)?.features.tasks);
+  const human = actor?.kind === "user" && !actor.via && !actor.module && !actor.credential && !actor.id.startsWith("bot:");
+  const sensitive = actor && await mayReadSensitive(ctx, actor);
+  const tasks = custom.length ? await all(ctx.env, `SELECT order_id,id,title,due_at FROM (
+    SELECT order_id,id,title,due_at,row_number() OVER (PARTITION BY order_id ORDER BY due_at IS NULL,due_at,id) AS position
+    FROM os_tasks WHERE profile_id=? AND order_id IN (SELECT value FROM json_each(?)) AND state='open' AND archived_at IS NULL
+    ${sensitive ? "" : "AND sensitive=0"} ${human ? "" : "AND client_visible=1"}
+  ) WHERE position=1`, ctx.profile, JSON.stringify(custom.map(row => row.id))) : [];
+  const nextTasks = new Map(tasks.map(task => [task.order_id, { id: task.id, title: task.title, due_at: task.due_at }]));
   return {
-    data: page.map((row) => orderView(row)),
+    data: page.map(row => ({
+      ...orderView(row),
+      ...(row.type_id !== "service_order" ? { next_task: nextTasks.get(row.id) ?? null } : {}),
+    })),
     next_cursor: more ? String(page.at(-1)!.number) : null,
     counts,
+    ...(query.facets === "1" ? { facets: await orderFacets(ctx, query.type_id) } : {}),
   };
 }
 
@@ -301,6 +341,14 @@ async function conversationOf(ctx: ModuleContext, order: any) {
   }
 }
 
+/** Uma única mensagem, dentro do teto UTF-16 do transporte, mesmo após expandir campos. */
+export function customMessage(template: string, order: any, max = 3800) {
+  const expanded = fill(template, publicOrderValues(order));
+  if (expanded.length <= max) return expanded;
+  const prefix = expanded.slice(0, max - 1).replace(/[\uD800-\uDBFF]$/, "");
+  return prefix + "…";
+}
+
 /**
  * Mensagem configurável (Gestão → Ordem de serviço) à conversa da ordem.
  * Fora da janela de 24 horas sai pelo modelo de notificação. Sem conversa ou
@@ -312,13 +360,14 @@ export async function notify(
   textKey: TextKey,
   key: string,
 ) {
-  const template = osSettings(await ctx.settings()).texts[textKey];
+  const type = snapshotType(order);
+  const template = type ? textKey === "pickup_reminder" ? type.pickup_reminder_text : type.stages.find(s => s.id === effectiveStage(order))?.message : osSettings(await ctx.settings()).texts[textKey];
   if (!template) return null;
   const c = await conversationOf(ctx, order);
   if (!c || c.chat_type === "group") return null;
   return ctx.sendMessage(
     c,
-    { text: fill(template, orderValues(order)) },
+    { text: type ? customMessage(template, order) : fill(template, publicOrderValues(order)) },
     { key, notification: true },
   );
 }
@@ -328,6 +377,10 @@ export async function notify(
 
 export interface CreateInput {
   conversation?: Conversation | null;
+  type_id?: string;
+  extra?: unknown;
+  /** Somente o passo web autenticado fornece a definição fixada. */
+  snapshot?: WorkTypeSnapshot;
   customer_name?: unknown;
   phone?: unknown;
   item: unknown;
@@ -351,12 +404,22 @@ export interface CreateInput {
  * Coordinator, nunca repetem número.
  */
 export async function createOrder(ctx: ModuleContext, input: CreateInput) {
+  const sourceKey = `motor:${ctx.profile}:${input.sourceKey}`;
   const existing = await one(
     ctx.env,
-    "SELECT * FROM os_orders WHERE source_key=?",
-    input.sourceKey,
+    "SELECT * FROM os_orders WHERE profile_id=? AND source_key IN (?,?)",
+    ctx.profile, sourceKey, input.sourceKey,
   );
-  if (existing) return { order: existing, created: false };
+  if (existing) {
+    await publishOpened(ctx, existing, input);
+    return { order: existing, created: false };
+  }
+  const current = await resolveWorkType(ctx, input.type_id);
+  if (current.archived) throw new ApiError(409, "type_archived", "Tipo arquivado para novas aberturas.");
+  const type = input.snapshot ? await resolveWorkType(ctx, current.id, input.snapshot) : current;
+  if (input.source === "customer" && !type.features.customer_open) throw new ApiError(409, "feature_disabled", "Abertura pelo cliente desativada.");
+  const extra = validateExtra(type.fields, input.extra ?? {}, { mode: input.source === "customer" ? "customer" : "staff" });
+  const snapshot = type.kind === "custom" ? JSON.stringify(makeSnapshot(type)) : null;
   const item = text(input.item, 200, "o item ou equipamento", true);
   const problem = text(input.problem, 2000, "o relato do problema", true);
   const notes = text(input.notes, 4000, "as observações internas");
@@ -378,58 +441,41 @@ export async function createOrder(ctx: ModuleContext, input: CreateInput) {
   );
   const name =
     text(input.customer_name, 120, "o nome do cliente") || contact?.name || "";
-  const counter = await one<{ last: number }>(
-    ctx.env,
-    "INSERT INTO os_counters(profile_id,last) VALUES(?,1) ON CONFLICT(profile_id) DO UPDATE SET last=last+1 RETURNING last",
-    ctx.profile,
-  );
-  const id = uid(),
-    at = now();
-  const [inserted] = await batch(ctx.env, [
-    [
-      "INSERT INTO os_orders(id,profile_id,number,status,conversation_id,contact_id,customer_name,phone,item,problem,notes,assignee,due_at,source,source_key,terms_text,terms_accepted_at,created_by,created,updated) VALUES(?,?,?,'received',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source_key) DO NOTHING",
-      [
-        id,
-        ctx.profile,
-        counter!.last,
-        c?.id || null,
-        contact?.id || null,
-        name,
-        phone,
-        item,
-        problem,
-        notes,
-        owner,
-        due,
-        input.source,
-        input.sourceKey,
-        input.terms || null,
-        input.terms ? at : null,
-        input.actor,
-        at,
-        at,
-      ],
-    ],
-    [
-      "INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) SELECT ?,?,?,'opened',NULL,'received',?,?,? WHERE changes()=1",
-      [uid(), ctx.profile, id, input.actor, "", at],
-    ],
-  ]);
-  if (!inserted.meta.changes)
-    return {
-      order: await one(
-        ctx.env,
-        "SELECT * FROM os_orders WHERE source_key=?",
-        input.sourceKey,
-      ),
-      created: false,
-    };
+  const id = uid(), at = now();
+  // Inicializa o embutido antes de qualquer incremento, inclusive se o
+  // primeiro trabalho novo for personalizado. Todos os efeitos são atômicos.
+  let inserted: D1Result;
+  try {
+    const results = await batch(ctx.env, [
+      ["INSERT INTO os_type_counters(profile_id,type_id,last) SELECT ?,'service_order',COALESCE((SELECT last FROM os_counters WHERE profile_id=?),0) WHERE true ON CONFLICT(profile_id,type_id) DO NOTHING", [ctx.profile, ctx.profile]],
+      ["INSERT INTO os_counters(profile_id,last) SELECT ?,1 WHERE NOT EXISTS(SELECT 1 FROM os_orders WHERE profile_id=? AND source_key=?) ON CONFLICT(profile_id) DO UPDATE SET last=last+1", [ctx.profile, ctx.profile, sourceKey]],
+      ["INSERT INTO os_type_counters(profile_id,type_id,last) SELECT ?,?,1 WHERE NOT EXISTS(SELECT 1 FROM os_orders WHERE profile_id=? AND source_key=?) ON CONFLICT(profile_id,type_id) DO UPDATE SET last=last+1", [ctx.profile, type.id, ctx.profile, sourceKey]],
+      ["SELECT CASE WHEN (SELECT last FROM os_counters WHERE profile_id=?)<=2147483647 THEN 1 ELSE json('sequence_exhausted') END", [ctx.profile]],
+      ["INSERT INTO os_orders(id,profile_id,number,status,conversation_id,contact_id,customer_name,phone,item,problem,notes,assignee,due_at,source,source_key,terms_text,terms_accepted_at,created_by,created,updated,type_id,stage,type_number,extra_json,type_snapshot_json) SELECT ?,?,(SELECT last FROM os_counters WHERE profile_id=?),'received',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,(SELECT last FROM os_type_counters WHERE profile_id=? AND type_id=?),?,? WHERE NOT EXISTS(SELECT 1 FROM os_orders WHERE profile_id=? AND source_key=?)",
+        [id, ctx.profile, ctx.profile, c?.id || null, contact?.id || null, name, phone, item, problem, notes, owner, due, input.source, sourceKey, input.terms || null, input.terms ? at : null, input.actor, at, at, type.id, type.initial_stage, ctx.profile, type.id, JSON.stringify(extra), snapshot, ctx.profile, sourceKey]],
+      ["INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created,from_stage,to_stage,entity_version,mutation_key) SELECT ?,?,?,'opened',NULL,'received',?,?,?,NULL,?,1,? WHERE changes()=1", [uid(), ctx.profile, id, input.actor, "", at, type.kind === "custom" ? type.initial_stage : null, `open:${sourceKey}`]],
+    ]);
+    inserted = results[4];
+  } catch (error) {
+    if (/sequence_exhausted|malformed JSON|last BETWEEN 0 AND 2147483647/i.test(String(error))) throw new ApiError(409, "sequence_exhausted", "Sequência de trabalhos esgotada.");
+    throw error;
+  }
+  if (!inserted.meta.changes) {
+    const order = await one(ctx.env, "SELECT * FROM os_orders WHERE profile_id=? AND source_key=?", ctx.profile, sourceKey);
+    if (!order) throw new ApiError(409, "os_conflict", "Chave de abertura indisponível.");
+    await publishOpened(ctx, order, input);
+    return { order, created: false };
+  }
   const order = await loadOrder(ctx, id);
+  await publishOpened(ctx, order, input);
+  return { order, created: true };
+}
+async function publishOpened(ctx: ModuleContext, order: any, input: CreateInput) {
   await ctx.publish(
     "os.opened",
-    id,
-    {
-      order_id: id,
+    order.id,
+    snapshotType(order) ? { order_id: order.id, id: order.id, version: 1, type_id: order.type_id } : {
+      order_id: order.id,
       number: order.number,
       source: order.source,
       conversation_id: order.conversation_id,
@@ -438,11 +484,10 @@ export async function createOrder(ctx: ModuleContext, input: CreateInput) {
       item: order.item,
       actor: input.actor,
     },
-    { key: `opened:${id}` },
+    { key: `opened:${order.id}` },
   );
-  if (input.notify !== false)
-    await notify(ctx, order, "opened", `opened:${id}`);
-  return { order, created: true };
+  if (input.notify !== false && (!snapshotType(order) || order.row_version === 1))
+    await notify(ctx, order, "opened", snapshotType(order) ? `stage:${order.id}:1:opened` : `opened:${order.id}`);
 }
 
 /** PATCH service-orders/:id: dados da ordem (encerrada: só observações). */
@@ -451,7 +496,10 @@ export async function updateOrder(
   order: any,
   data: any,
   actor: string,
+  mutationKey?: string,
 ) {
+  checkVersion(order, data.version, false);
+  for (const key of ["type_id", "stage", "status", "type_snapshot_json", "type_number"]) if (Object.hasOwn(data, key)) throw new ApiError(400, "immutable_field", "Campo imutável: " + key);
   const closed = CLOSED.includes(order.status);
   const sets: Record<string, any> = {};
   const has = (key: string) => Object.hasOwn(data, key);
@@ -464,6 +512,7 @@ export async function updateOrder(
     "phone",
     "assignee",
     "due_at",
+    "extra",
   ])
     if (has(key))
       requireValue(
@@ -480,14 +529,16 @@ export async function updateOrder(
     sets.phone = phoneDigits(text(data.phone, 40, "o telefone"));
   if (has("assignee")) sets.assignee = await assignee(ctx, data.assignee);
   if (has("due_at")) sets.due_at = optionalTime(data.due_at, "Prazo previsto");
+  if (has("extra")) sets.extra_json = JSON.stringify(validateExtra((snapshotType(order)?.fields ?? []), data.extra, { previous: json(order.extra_json, {}) }));
   const changed = Object.keys(sets).filter((key) => sets[key] !== order[key]);
   if (!changed.length) return order;
+  if (snapshotType(order)) return commitOrderMutation(ctx, order, { ...sets, stage_approval_json: cancelApproval(order) }, actor, "os.updated", changed.flatMap(k => k === "extra_json" ? Object.keys(data.extra) : [k]), mutationKey);
   const at = now();
-  await batch(ctx.env, [
+  await atomic(ctx, [
     [
-      `UPDATE os_orders SET ${changed.map((k) => k + "=?").join(",")},updated=?,stale_notified_at=NULL WHERE id=? AND profile_id=?`,
-      [...changed.map((k) => sets[k]), at, order.id, ctx.profile],
-    ],
+      `UPDATE os_orders SET ${changed.map((k) => k + "=?").join(",")},updated=?,stale_notified_at=NULL,row_version=row_version+1 WHERE id=? AND profile_id=? AND row_version=?`,
+      [...changed.map((k) => sets[k]), at, order.id, ctx.profile, order.row_version ?? 1],
+    ], casGuard,
     [
       "INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) VALUES(?,?,?,'edit',?,?,?,?,?)",
       [
@@ -521,12 +572,15 @@ export async function moveOrder(
   note = "",
   extra: Record<string, any> = {},
   kind: "status" | "quote" = "status",
-  options: { notify?: boolean } = {},
+  options: { notify?: boolean; mutationKey?: string; stage?: string } = {},
 ) {
+  if (snapshotType(order)) return customMove(ctx, order, to, actor, extra, kind, { ...options, note });
   const at = now();
   const cfg = osSettings(await ctx.settings());
   const sets: Record<string, any> = {
     status: to,
+    stage: to,
+    row_version: (order.row_version ?? 1) + 1,
     updated: at,
     stale_notified_at: null,
     pickup_reminded_at: null,
@@ -541,19 +595,25 @@ export async function moveOrder(
   }
   const keys = Object.keys(sets);
   const historyId = uid();
+  // Apenas /stage acrescenta a marca recuperável; os comandos legados
+  // conservam o histórico e os efeitos anteriores.
+  const mutationKey = options.stage ? options.mutationKey : undefined;
   const [update] = await batch(ctx.env, [
     [
-      `UPDATE os_orders SET ${keys.map((k) => k + "=?").join(",")} WHERE id=? AND profile_id=? AND status=? AND quote_version=?`,
+      `UPDATE os_orders SET ${keys.map((k) => k + "=?").join(",")} WHERE id=? AND profile_id=? AND status=? AND quote_version=? AND row_version=?`,
       [
         ...keys.map((k) => sets[k]),
         order.id,
         ctx.profile,
         order.status,
         order.quote_version,
+        order.row_version ?? 1,
       ],
     ],
     [
-      "INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) SELECT ?,?,?,?,?,?,?,?,? WHERE changes()=1",
+      mutationKey
+        ? "INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created,from_stage,to_stage,entity_version,mutation_key) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? WHERE changes()=1"
+        : "INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) SELECT ?,?,?,?,?,?,?,?,? WHERE changes()=1",
       [
         historyId,
         ctx.profile,
@@ -564,6 +624,7 @@ export async function moveOrder(
         actor,
         note,
         at,
+        ...(mutationKey ? [effectiveStage(order), to, sets.row_version, mutationKey] : []),
       ],
     ],
   ]);
@@ -574,31 +635,38 @@ export async function moveOrder(
       "A ordem de serviço mudou enquanto isso. Atualize e tente de novo.",
     );
   const next = await loadOrder(ctx, order.id);
-  if (order.status !== to)
-    await ctx.publish("os.status_changed", order.id, {
-      order_id: order.id,
-      number: next.number,
-      from: order.status,
+  await resumeBuiltinStatus(ctx, { id: historyId, from_status: order.status, to_status: to, actor, note, mutation_key: mutationKey, entity_version: sets.row_version }, next, options.notify !== false);
+  return next;
+}
+
+/** Efeitos legados também usados pela retomada da rota de etapa virtual. */
+export async function resumeBuiltinStatus(ctx: ModuleContext, history: any, row: any, notifyCustomer = true) {
+  const to = history.to_status, actor = history.actor, note = history.note;
+  if (history.from_status !== to)
+    await ctx.publish("os.status_changed", row.id, {
+      order_id: row.id,
+      number: row.number,
+      from: history.from_status,
       to,
       actor,
       note,
-      conversation_id: next.conversation_id,
-    });
+      conversation_id: row.conversation_id,
+    }, history.mutation_key ? { key: `status:${row.id}:${history.entity_version}` } : undefined);
   if (to === "delivered")
-    await ctx.publish("os.delivered", order.id, {
-      order_id: order.id,
-      number: next.number,
-      delivered_at: next.delivered_at,
-      warranty_until: next.warranty_until,
+    await ctx.publish("os.delivered", row.id, {
+      order_id: row.id,
+      number: row.number,
+      delivered_at: row.delivered_at,
+      warranty_until: row.warranty_until,
       actor,
-    });
+    }, history.mutation_key ? { key: `delivered:${row.id}:${history.entity_version}` } : undefined);
   if (
-    options.notify !== false &&
-    order.status !== to &&
+    notifyCustomer &&
+    (!history.mutation_key || row.row_version === history.entity_version) &&
+    history.from_status !== to &&
     (TEXT_KEYS as readonly string[]).includes(to)
   )
-    await notify(ctx, next, to as TextKey, `status:${order.id}:${historyId}`);
-  return next;
+    await notify(ctx, row, to as TextKey, `status:${row.id}:${history.id}`);
 }
 
 /** POST service-orders/:id/status: transições da equipe (MANUAL_TRANSITIONS). */
@@ -608,10 +676,11 @@ export async function changeStatus(
   to: unknown,
   actor: string,
   note: unknown,
-  options: { notify?: boolean } = {},
+  options: { notify?: boolean; mutationKey?: string; stage?: string } = {},
 ) {
   requireValue(isStatus(to), "Estado desconhecido.");
   const memo = text(note, 500, "a nota");
+  if (snapshotType(order)) return customStatus(ctx, order, to, actor, { ...options, note: memo });
   if (to === "quoted")
     throw new ApiError(
       409,
@@ -642,7 +711,12 @@ export async function saveQuote(
   order: any,
   data: any,
   actor: string,
+  mutationKey?: string,
+  options: { notify?: boolean } = {},
 ) {
+  checkVersion(order, data.version, false);
+  const policy = customQuotePolicy(order);
+  if (policy && effectiveStage(order) !== policy.sent_stage && !policy.source_stages.includes(effectiveStage(order))) throw new ApiError(409, "invalid_transition", "Etapa não permite orçamento.");
   if (!QUOTABLE.includes(order.status))
     throw new ApiError(
       409,
@@ -679,13 +753,15 @@ export async function saveQuote(
       memo + " (alterado depois do envio: envie de novo)",
       sets,
       "quote",
+      { ...options, mutationKey },
     );
+  if (snapshotType(order)) return commitOrderMutation(ctx, order, { ...sets, stage_approval_json: cancelApproval(order) }, actor, "os.quote_saved", ["quote"], mutationKey);
   const at = now();
   const keys = Object.keys(sets) as (keyof typeof sets)[];
   const [update] = await batch(ctx.env, [
     [
-      `UPDATE os_orders SET ${keys.map((k) => k + "=?").join(",")},updated=? WHERE id=? AND profile_id=? AND status=?`,
-      [...keys.map((k) => sets[k]), at, order.id, ctx.profile, order.status],
+      `UPDATE os_orders SET ${keys.map((k) => k + "=?").join(",")},updated=?,row_version=row_version+1 WHERE id=? AND profile_id=? AND status=? AND row_version=?`,
+      [...keys.map((k) => sets[k]), at, order.id, ctx.profile, order.status, order.row_version ?? 1],
     ],
     [
       "INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) SELECT ?,?,?,'quote',?,?,?,?,? WHERE changes()=1",
@@ -719,7 +795,7 @@ export function quoteSummary(order: any) {
       : `• ${item.description}: ${money(item.unit_cents)}`,
   );
   return [
-    `Item: ${order.item}`,
+    `${snapshotType(order)?.labels.item ?? "Item"}: ${order.item}`,
     "",
     ...lines,
     `Total: ${money(order.quote_total_cents)}`,
@@ -741,7 +817,7 @@ export function quoteSpec(order: any): InteractiveSpec {
   return {
     type: "list",
     body: Array.from(
-      `Orçamento da ordem de serviço nº ${order.number}\n${quoteSummary(order)}`,
+      `${snapshotType(order) ? `Orçamento de ${snapshotType(order)!.labels.singular} ${workOrderAdditions(order).display_number}` : `Orçamento da ordem de serviço nº ${order.number}`}\n${quoteSummary(order)}`,
     )
       .slice(0, 4000)
       .join(""),
@@ -765,8 +841,10 @@ export async function sendQuote(
   ctx: ModuleContext,
   order: any,
   actor: string,
-  options: { notify?: boolean } = {},
+  options: { notify?: boolean; mutationKey?: string; stage?: string } = {},
 ) {
+  const policy = customQuotePolicy(order);
+  if (policy && !policy.source_stages.includes(effectiveStage(order))) throw new ApiError(409, "invalid_transition", "Etapa não permite orçamento.");
   if (!QUOTABLE.includes(order.status))
     throw new ApiError(
       409,
@@ -784,7 +862,7 @@ export async function sendQuote(
     );
   const cfg = osSettings(await ctx.settings());
   const at = now();
-  const days = order.quote_valid_days || cfg.quote_valid_days;
+  const days = order.quote_valid_days || policy?.default_valid_days || cfg.quote_valid_days;
   const next = await moveOrder(
     ctx,
     order,
@@ -801,8 +879,9 @@ export async function sendQuote(
       decided_via: null,
     },
     "quote",
+    { ...options, notify: false },
   );
-  await ctx.publish("os.quoted", order.id, {
+  await ctx.publish("os.quoted", order.id, snapshotType(order) ? { order_id: order.id, version: next.row_version } : {
     order_id: order.id,
     number: next.number,
     total_cents: next.quote_total_cents,
@@ -810,7 +889,7 @@ export async function sendQuote(
     version: next.quote_version,
     sent: send,
     actor,
-  });
+  }, snapshotType(order) ? { key: `quoted:${order.id}:${next.row_version}` } : undefined);
   if (c)
     await ctx.sendInteractive(c, quoteSpec(next), {
       key: `quote:${order.id}:${next.quote_version}`,
@@ -830,11 +909,13 @@ export async function decide(
   by: string,
   via: "whatsapp" | "panel" | "api",
   note: unknown = "",
+  options: { mutationKey?: string; notify?: boolean } = {},
 ) {
   requireValue(
     decision === "approve" || decision === "decline",
     "Informe decision como approve ou decline.",
   );
+  customQuotePolicy(order);
   const memo = text(note, 500, "a nota");
   if (order.status !== "quoted")
     throw new ApiError(
@@ -857,11 +938,13 @@ export async function decide(
     by,
     memo || (via === "whatsapp" ? "Resposta do cliente pelo WhatsApp" : ""),
     { decision: to, decided_at: at, decided_by: by, decided_via: via },
+    "status",
+    snapshotType(order) ? options : {},
   );
   await ctx.publish(
     to === "approved" ? "os.approved" : "os.declined",
     order.id,
-    {
+    snapshotType(order) ? { order_id: order.id, version: next.row_version } : {
       order_id: order.id,
       number: next.number,
       total_cents: next.quote_total_cents,
@@ -870,6 +953,7 @@ export async function decide(
       via,
       at,
     },
+    snapshotType(order) ? { key: `decision:${order.id}:${next.row_version}` } : undefined,
   );
   return next;
 }
@@ -885,7 +969,7 @@ const normalize = (value: string) =>
     .replace(/[.!]+$/g, "")
     .trim();
 
-const menuOpenSince = (c: Conversation) =>
+export const menuOpenSince = (c: Conversation) =>
   c.menu_active &&
   c.menu_token?.startsWith(c.session + ".") &&
   (c.menu_expires_at || 0) > now()
@@ -994,6 +1078,9 @@ export async function handleQuoteReply(
       order = pending[0];
     }
   }
+  const mutationKey = snapshotType(order) ? `quote-reply:${c.id}:${turn.rowId}` : undefined;
+  const previous = await mutationHistory(ctx, mutationKey);
+  if (previous) { await resumeOrderEffects(ctx, previous, order); return true; }
   try {
     await decide(
       ctx,
@@ -1002,6 +1089,8 @@ export async function handleQuoteReply(
       // A conversa, não o telefone (conferência N-9).
       `customer:${c.id}`,
       "whatsapp",
+      "",
+      { mutationKey },
     );
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
@@ -1028,19 +1117,21 @@ export async function ordersOfCustomer(
   ctx: ModuleContext,
   c: Conversation,
   open = false,
+  typeId?: string,
 ) {
   const phone = phoneDigits(ctx.verifiedPhone(c) || "");
   const rows = await all(
     ctx.env,
-    `SELECT * FROM os_orders WHERE profile_id=? AND (conversation_id=? OR (phone<>'' AND phone=?))${open ? " AND status NOT IN ('delivered','cancelled')" : ""} ORDER BY number DESC LIMIT 20`,
+    `SELECT * FROM os_orders WHERE profile_id=? AND (conversation_id=? OR (phone<>'' AND phone=?))${open ? " AND status NOT IN ('delivered','cancelled')" : ""}${typeId ? " AND type_id=?" : ""} ORDER BY number DESC LIMIT 20`,
     ctx.profile,
     c.id,
     phone,
+    ...(typeId ? [typeId] : []),
   );
   return rows.map((row) => orderView(row));
 }
 
-export async function trackText(ctx: ModuleContext, c: Conversation) {
+export async function trackText(ctx: ModuleContext, c: Conversation, typeId?: string) {
   const phone = phoneDigits(ctx.verifiedPhone(c) || "");
   // Ordens abertas no balcão só com o telefone passam a ser desta conversa.
   if (phone.length >= 8)
@@ -1053,17 +1144,25 @@ export async function trackText(ctx: ModuleContext, c: Conversation) {
     );
   const rows = await all(
     ctx.env,
-    "SELECT * FROM os_orders WHERE profile_id=? AND (conversation_id=? OR (phone<>'' AND phone=?)) AND status NOT IN ('delivered','cancelled') ORDER BY number LIMIT 20",
+    `SELECT * FROM os_orders WHERE profile_id=? AND (conversation_id=? OR (phone<>'' AND phone=?)) AND status NOT IN ('delivered','cancelled')${typeId ? " AND type_id=?" : ""} ORDER BY number LIMIT 20`,
     ctx.profile,
     c.id,
     phone,
+    ...(typeId ? [typeId] : []),
   );
-  if (!rows.length)
+  if (!rows.length) {
+    if (typeId && typeId !== "service_order") {
+      const type = await resolveWorkType(ctx, typeId);
+      return `Não encontramos ${type.labels.plural.toLowerCase()} em aberto para este número.`;
+    }
     return "Não encontramos ordens de serviço abertas para este número.";
+  }
+  const custom = rows.some(row => snapshotType(row));
   const blocks = rows.map((order) => {
+    const type = snapshotType(order), view = workOrderAdditions(order);
     const lines = [
-      `Nº ${order.number} — ${order.item}`,
-      `Estado: ${STATUS_LABELS[order.status as OsStatus]}`,
+      type ? `${view.type_label} ${view.display_number} — ${order.item}` : `Nº ${order.number} — ${order.item}`,
+      type ? `Etapa: ${view.stage_label}` : `Estado: ${STATUS_LABELS[order.status as OsStatus]}`,
     ];
     if (order.status === "quoted") {
       lines.push(
@@ -1078,9 +1177,31 @@ export async function trackText(ctx: ModuleContext, c: Conversation) {
     return lines.join("\n");
   });
   return [
-    rows.length === 1
+    custom ? "Seus trabalhos em aberto:" : rows.length === 1
       ? "Sua ordem de serviço:"
       : `Suas ${rows.length} ordens de serviço abertas:`,
     ...blocks,
   ].join("\n\n");
+}
+
+/** Lista explícita de substituições; extras privados nunca entram no texto. */
+export function publicOrderValues(row: any): Record<string, string> {
+  const values = orderValues(row);
+  const type = snapshotType(row);
+  if (!type) return values;
+  const view = workOrderAdditions(row, type);
+  const extra: ExtraValues = json(row.extra_json, {});
+  return { ...values, tipo: type.labels.singular, etapa: view.stage_label,
+    numero_tipo: String(view.type_number), identificador: view.display_number,
+    ...Object.fromEntries(type.fields.filter(f => f.client_visible && !f.sensitive).map(f => {
+      const value = extra[f.id];
+      return [`campo_${f.id}`, value == null ? "" : f.kind === "boolean" ? value ? "Sim" : "Não" : f.kind === "choice" ? f.options.find(o => o.id === value)?.label ?? "" : String(value)];
+    })),
+  };
+}
+async function orderFacets(ctx: ModuleContext, typeId?: string) {
+  const rows = await all(ctx.env, "SELECT type_id,COALESCE(stage,status) AS stage,count(*) AS n FROM os_orders WHERE profile_id=? GROUP BY type_id,COALESCE(stage,status)", ctx.profile);
+  const types: Record<string, number> = Object.create(null), stages: Record<string, number> = Object.create(null);
+  for (const r of rows) { types[r.type_id] = (types[r.type_id] ?? 0) + r.n; if (r.type_id === typeId) stages[r.stage] = r.n; }
+  return { types, ...(typeId ? { stages } : {}) };
 }

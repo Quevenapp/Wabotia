@@ -1,0 +1,115 @@
+{
+  "id": "os_builtin",
+  "number": 120,
+  "status": "approved",
+  "status_label": "Aprovada",
+  "customer": {
+    "name": "Bia Exemplo",
+    "phone": "5520900001111",
+    "contact_id": null,
+    "conversation_id": "c1"
+  },
+  "item": "Celular",
+  "problem": "Tela trincada",
+  "notes": "Observação interna",
+  "assignee": null,
+  "due_at": null,
+  "source": "panel",
+  "terms": {
+    "text": "Autorizo a análise.",
+    "accepted_at": 1794763800000
+  },
+  "quote": {
+    "items": [
+      {
+        "description": "Tela",
+        "quantity": 1,
+        "unit_cents": 35000
+      },
+      {
+        "description": "Mão de obra",
+        "quantity": 2,
+        "unit_cents": 5000
+      }
+    ],
+    "total_cents": 45000,
+    "note": "",
+    "valid_days": 7,
+    "valid_until": 1900000000000,
+    "sent_at": 1794763800000,
+    "version": 1,
+    "expired": false
+  },
+  "decision": {
+    "decision": "approved",
+    "at": 1794763900000,
+    "by": "u1",
+    "via": "panel"
+  },
+  "ready_at": null,
+  "delivered_at": null,
+  "warranty_until": null,
+  "next_statuses": [
+    "in_progress",
+    "cancelled"
+  ],
+  "created_by": "u1",
+  "created": 1794763800000,
+  "updated": 1794763900000,
+  "history": [
+    {
+      "id": "h_quote",
+      "kind": "quote",
+      "from_status": "analyzing",
+      "to_status": "quoted",
+      "actor": "u1",
+      "note": "",
+      "created": 1794763800000
+    },
+    {
+      "id": "h_decision",
+      "kind": "status",
+      "from_status": "quoted",
+      "to_status": "approved",
+      "actor": "u1",
+      "note": "",
+      "created": 1794763900000
+    }
+  ],
+  "type_id": "service_order",
+  "type_revision": 1,
+  "type_number": 119,
+  "type_label": "Ordem de serviço",
+  "type_plural_label": "Ordens de serviço",
+  "display_number": "120",
+  "stage": "approved",
+  "stage_label": "Aprovada",
+  "labels": {
+    "singular": "Ordem de serviço",
+    "plural": "Ordens de serviço",
+    "item": "Item",
+    "problem": "Problema",
+    "customer_singular": "Cliente",
+    "customer_plural": "Clientes"
+  },
+  "extra": {},
+  "fields": [],
+  "version": 4,
+  "next_stages": [
+    {
+      "transition_id": "approved_in_progress",
+      "stage": "in_progress",
+      "stage_label": "Em execução",
+      "base_status": "in_progress",
+      "kind": "manual"
+    },
+    {
+      "transition_id": "approved_cancelled",
+      "stage": "cancelled",
+      "stage_label": "Cancelada",
+      "base_status": "cancelled",
+      "kind": "manual"
+    }
+  ],
+  "stage_approval": null
+}

@@ -1572,7 +1572,7 @@ export async function processRun(env: Env, run: Run) {
       };
       // Conversa interna de uma pessoa: a identidade assinada da execução vai
       // no job do plugin (src/bot-actions), para ele repor nas chamadas MCP.
-      const wabotiaRun = (await botActionContext(env, run))
+      const wabotiaRun = (run.conversation_id || await botActionContext(env, run))
         ? await signRun(env, run.id)
         : undefined;
       const result = await hermesRequest(

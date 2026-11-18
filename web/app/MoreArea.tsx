@@ -17,6 +17,7 @@ import {
 import { Avatar, Switch } from "../ui";
 import { linkProps } from "../lib/routes";
 import { canOpenPage, railPages } from "../workspace-navigation";
+import { useWorkNavigation } from "../modules/os/work-navigation";
 import { erpModuleOn } from "../erp/modules";
 import { useApp } from "./AppContext";
 import { PreferencesDialog, ThemePicker } from "./chrome";
@@ -24,6 +25,7 @@ import { sourceLinkLabel, useSourceLink } from "../lib/source";
 
 export function MoreArea() {
   const app = useApp();
+  const workNavigation = useWorkNavigation();
   const [prefs, setPrefs] = useState(false);
   const source = useSourceLink();
   return (
@@ -66,7 +68,7 @@ export function MoreArea() {
               {...linkProps({ area: "admin", page: item.page })}
             >
               <item.icon size={21} />
-              <span>{item.label}</span>
+              <span>{item.page === "service-orders" ? workNavigation.railLabel : item.label}</span>
               <ChevronRight size={18} />
             </a>
           ))}
