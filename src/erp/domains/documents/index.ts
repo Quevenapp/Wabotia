@@ -19,5 +19,6 @@ import "./rpc/erp_document_transition.ts";
 import "./rpc/erp_document_small_writers.ts";
 import "./rpc/erp_document_conversions.ts";
 import "./rpc/erp_document_checkout_occurrence.ts";
+import "./rpc/erp_document_settings_writers.ts";
 
 export {};
