@@ -11,7 +11,7 @@ import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/regi
 import { nextIdentity } from "../../../engine/sequence.ts";
 import { dto as catalogDto } from "../../catalog/public.ts";
 import { documentDto } from "../internal.ts";
-import { requireVisible } from "../mirror.ts";
+import { guardEffect, requireVisible } from "../mirror.ts";
 import { checkCustomFields, normalize } from "../normalize.ts";
 import { contactUsable, requireAccess } from "../reads-g.ts";
 import { insertDocument, insertItem, updateDocument } from "../rows.ts";
@@ -41,6 +41,7 @@ const without = (o: Data, ...keys: string[]) => {
 };
 
 function audit(ctx: RpcContext, a: { actor: string; command: string; document: unknown; action: string; before: unknown; after: unknown }) {
+  guardEffect(ctx.db, a.document); // aa_mirror_authority
   ctx.db.exec(
     'INSERT INTO "erp_documents__audit"(id, actor, command_id, document_id, action, reason, before_data, after_data, created_at) VALUES(?,?,?,?,?,?,?,?,?)',
     nextIdentity(ctx, "erp_documents__audit", "id"), a.actor, a.command, a.document, a.action, null,

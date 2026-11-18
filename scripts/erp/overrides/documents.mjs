@@ -24,5 +24,50 @@ export const discardTables = {};
  */
 export const covered = {
   "checks": {},
-  "triggers": {}
+  "triggers": {
+    "erp_documents__audit.aa_mirror_authority": {
+      "where": "INSERT em erp_documents__audit só com guardEffect antes (documents/mirror.ts): audit() de erp_document_save, _transition, _conversions, _small_writers, _settings_writers e _checkout_occurrence; documentAudit do finance/rpc/erp_document_finance.ts; Estoque com mirrorGuardEffect (document-stock, purchase-receipts, reservations, item-components). Nenhum UPDATE ou DELETE em audit no motor",
+      "test": "tests/erp/documents/document-triggers.test.mjs"
+    },
+    "erp_documents__document.aa_mirror_authority": {
+      "where": "documents/rows.ts insertDocument e updateDocument: guardDocument (mirror.ts) antes da escrita; todo escritor de documento passa por rows.ts (nenhum INSERT, UPDATE ou DELETE cru em erp_documents__document fora dele; DELETE de documento não existe no motor)",
+      "test": "tests/erp/documents/document-triggers.test.mjs"
+    },
+    "erp_documents__document.ab_origin_effects": {
+      "where": "documents/rows.ts updateDocument: sync.guardOriginEffectsDocument; com o Origin fora, só documento travado (originLocked) chega ao 0A000 declarado",
+      "test": "tests/erp/sync/origin-off.test.mjs"
+    },
+    "erp_documents__document.guard_trash": {
+      "where": "documents/rows.ts updateDocument: guardTrash (na lixeira nada muda; excluir e restaurar só mudam as colunas da lixeira e os metadados)",
+      "test": "tests/erp/documents/document-triggers.test.mjs"
+    },
+    "erp_documents__document.protect_document_finance": {
+      "where": "documents/rows.ts updateDocument: finance.guardPostedDocument",
+      "test": "tests/erp/documents/document-triggers.test.mjs"
+    },
+    "erp_documents__document.protect_document_stock": {
+      "where": "documents/rows.ts updateDocument: stock.guardPostedDocument",
+      "test": "tests/erp/documents/document-triggers.test.mjs"
+    },
+    "erp_documents__document.protect_purchase_receipt_document": {
+      "where": "documents/rows.ts updateDocument: stock.guardDocument",
+      "test": "tests/erp/documents/document-triggers.test.mjs"
+    },
+    "erp_documents__document.protect_reserved_document": {
+      "where": "documents/rows.ts updateDocument: stock.guardReservedDocument",
+      "test": "tests/erp/documents/document-triggers.test.mjs"
+    },
+    "erp_documents__document.zz_origin_sync": {
+      "where": "documents/rows.ts insertDocument e updateDocument: sync.captureDocument (sem efeito com o Origin fora)",
+      "test": "tests/erp/sync/origin-off.test.mjs"
+    },
+    "erp_documents__document.commission_operation_capture": {
+      "where": "documents/rows.ts insertDocument e updateDocument: deferCaptures enfileira finance.commissionOperationCapture para venda e OS",
+      "test": "tests/erp/documents/document-triggers.test.mjs"
+    },
+    "erp_documents__document.cost_apply_capture": {
+      "where": "documents/rows.ts insertDocument e updateDocument: deferCaptures enfileira costApplyCapture para pedido de venda",
+      "test": "tests/erp/documents/document-triggers.test.mjs"
+    }
+  }
 };

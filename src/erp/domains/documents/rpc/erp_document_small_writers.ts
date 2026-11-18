@@ -12,7 +12,7 @@ import { nextIdentity } from "../../../engine/sequence.ts";
 import { pgBtrim } from "../../../engine/text.ts";
 import { permitted } from "../../access/public.ts";
 import { documentDto, effectFlags, proposalVersionJson, textValue } from "../internal.ts";
-import { requireVisible } from "../mirror.ts";
+import { guardEffect, requireVisible } from "../mirror.ts";
 import { contactUsable, requireAccess } from "../reads-g.ts";
 import { updateDocument } from "../rows.ts";
 import { commandReplay, editable, fieldText, proposalSuperseded } from "../save-checks.ts";
@@ -23,6 +23,7 @@ const sha256 = (text: string) => createHash("sha256").update(text, "utf8").diges
 const has = (o: unknown, k: string) => o !== null && typeof o === "object" && !Array.isArray(o) && Object.prototype.hasOwnProperty.call(o, k);
 
 function audit(ctx: RpcContext, a: { actor: string; command: string; document: unknown; action: string; reason?: string | null; before: unknown; after: unknown }) {
+  guardEffect(ctx.db, a.document); // aa_mirror_authority
   ctx.db.exec(
     'INSERT INTO "erp_documents__audit"(id, actor, command_id, document_id, action, reason, before_data, after_data, created_at) VALUES(?,?,?,?,?,?,?,?,?)',
     nextIdentity(ctx, "erp_documents__audit", "id"), a.actor, a.command, a.document, a.action, a.reason ?? null,
