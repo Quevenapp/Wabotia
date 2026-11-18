@@ -5,3 +5,4 @@
 import "./rpc/reads.ts";
 import "./rpc/settings.ts";
 import "./rpc/sale.ts";
+import "./rpc/return.ts";

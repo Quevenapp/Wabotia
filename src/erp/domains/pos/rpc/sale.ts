@@ -11,15 +11,9 @@ import { pgLeft, pgLength } from "../../../engine/text.ts";
 import { documentTitleRows } from "../../finance/public.ts";
 import {
   access, arrowText, bool, dec, decAdd, decCmp, decColumn, decFixed, decRound,
-  flag, int, json, keys, nfce, prefFlag, saleView, today, txt, uid, usableSession,
+  flag, int, json, keys, nfce, prefFlag, saleView, step, today, txt, uid, usableSession,
   type Access, type Dec, type Json,
 } from "../internal.ts";
-
-/** erp_pos.step: md5(command::text || ':erp_pos:' || step)::uuid. */
-function step(command: string, name: string): string {
-  const h = createHash("md5").update(`${command}:erp_pos:${name}`).digest("hex");
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
-}
 
 /** erp_pos.cents (texto, até 14 dígitos, sem arredondamento). */
 function cents(p: Json, key: string, positive = false, required = true): bigint | null {
