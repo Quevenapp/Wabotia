@@ -29,7 +29,7 @@ function WorkList({
     api = useWorkApi(),
     route = useRoute();
   const [cursor, setCursor] = useState(""),
-    [opening, setOpening] = useState(false);
+    [opening, setOpening] = useState<WorkTypeView | null>(null);
   const filters = route.filters || {};
   const [search, setSearch] = useState(filters.q || "");
   const resource = useWorkResource(
@@ -76,7 +76,7 @@ function WorkList({
             }
           />
         )}
-        <Button disabled={type.archived} onClick={() => setOpening(true)}>
+        <Button disabled={type.archived} onClick={() => setOpening(type)}>
           Criar: {type.labels.singular}
         </Button>
         {type.features.tasks && (
@@ -102,20 +102,20 @@ function WorkList({
         </Button>
         <Field
           label="Etapa"
-          value={filters.stage || (filters.open === "0" ? "all" : "open")}
+          value={filters.stage ? `stage:${filters.stage}` : (filters.open === "0" ? "filter:all" : "filter:open")}
           emptyOption={null}
           options={[
-            { id: "open", name: "Abertas" },
-            { id: "all", name: "Todas" },
+            { id: "filter:open", name: "Abertas" },
+            { id: "filter:all", name: "Todas" },
             ...type.stages.map((stage) => ({
-              id: stage.id,
+              id: `stage:${stage.id}`,
               name: `${stage.label}${resource.data?.facets?.stages?.[stage.id] === undefined ? "" : ` (${resource.data.facets.stages[stage.id]})`}`,
             })),
           ]}
           onChange={(value) =>
             filter({
-              stage: ["all", "open"].includes(value) ? "" : value,
-              open: value === "open" ? "1" : "0",
+              stage: value.startsWith("stage:") ? value.slice(6) : "",
+              open: value === "filter:open" ? "1" : "0",
             })
           }
         />
@@ -187,10 +187,10 @@ function WorkList({
       )}
       {opening && (
         <WorkFormDialog
-          type={type}
-          onClose={() => setOpening(false)}
+          type={opening}
+          onClose={() => setOpening(null)}
           onSaved={(order) => {
-            setOpening(false);
+            setOpening(null);
             navigate({
               area: "admin",
               page: "work",
@@ -209,8 +209,9 @@ export function WorkPage() {
     route = useRoute(),
     api = useWorkApi();
   const catalog = useWorkResource(
-    app.root + "/work-catalog/" + (app.status.settings_revision || ""),
+    app.root + "/work-catalog/",
     () => api.types(true),
+    app.status.settings_revision || "",
   );
   // A entrada antiga continua imediata e idêntica nas instalações sem tipos novos.
   const configured = (app.settings.os_work_types || []).length > 0;
@@ -257,12 +258,12 @@ export function WorkPage() {
             }
           />
         )}
-        <ServiceOrdersPage />
+        <ServiceOrdersPage typeId="service_order" />
       </div>
     );
   return (
     <WorkList
-      key={type.id + JSON.stringify(route.filters)}
+      key={app.root + type.id + JSON.stringify(route.filters)}
       type={type}
       catalog={catalog.data}
     />

@@ -9,7 +9,9 @@ import {
 } from "../components/ChildCollection";
 import type { CreatePersonRequest, LinkedPerson } from "../work-contracts";
 import { useDraftGuard, useWorkApi } from "../work-hooks";
-function PersonDialog({
+import { ConflictRecovery, useConflictRecovery } from "../components/ConflictRecovery";
+import { findWorkChild } from "../work-api";
+export function PersonDialog({
   workId,
   initial,
   onClose,
@@ -21,6 +23,10 @@ function PersonDialog({
   onSaved: () => void;
 }) {
   const api = useWorkApi();
+  const recovery = useConflictRecovery(initial, async () => ({
+    record: await findWorkChild((cursor) => api.people(workId, { cursor, limit: 100 }), initial!.id),
+  }));
+  const current = recovery.latest?.record;
   const [draft, setDraft] = useState<CreatePersonRequest>({
     role: initial?.role || "",
     name: initial?.name || "",
@@ -41,18 +47,30 @@ function PersonDialog({
     <FormDialog
       title={initial ? "Editar vínculo" : "Vincular pessoa"}
       onClose={close}
+      disabled={recovery.conflict}
       onSubmit={async () => {
-        assertVisibility(draft);
-        if (initial)
-          await api.updatePerson(workId, initial.id, {
-            ...draft,
-            version: initial.version,
-          });
-        else await api.createPerson(workId, draft);
+        const body = { ...draft, sensitive: !!recovery.base?.sensitive || draft.sensitive };
+        assertVisibility(body);
+        await recovery.run(async () => {
+          if (recovery.base)
+            await api.updatePerson(workId, recovery.base.id, {
+              ...body,
+              version: recovery.base.version,
+            });
+          else await api.createPerson(workId, body);
+        });
         setDirty(false);
         onSaved();
       }}
     >
+      <ConflictRecovery recovery={recovery}>
+        {current && <dl>
+          <dt>Nome / papel atuais</dt><dd>{current.name} · {current.role}</dd>
+          <dt>Contato</dt><dd>{current.contact_id} · {current.phone} · {current.email}</dd>
+          <dt>Observação</dt><dd>{current.note}</dd>
+          <dt>Visibilidade</dt><dd>{current.sensitive ? "Restrito" : current.client_visible ? "Cliente" : "Equipe"}</dd>
+        </dl>}
+      </ConflictRecovery>
       <Notice>
         O vínculo não concede acesso ao acompanhamento. O titular continua sendo
         o contato principal do trabalho.
@@ -97,9 +115,9 @@ function PersonDialog({
         maxLength={2000}
       />
       <VisibilityFields
-        value={draft}
+        value={{ ...draft, sensitive: !!recovery.base?.sensitive || draft.sensitive }}
         onChange={change}
-        lockedSensitive={!!initial?.sensitive}
+        lockedSensitive={!!recovery.base?.sensitive}
       />
     </FormDialog>
   );
