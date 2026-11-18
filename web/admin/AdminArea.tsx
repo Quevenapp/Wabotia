@@ -311,6 +311,13 @@ function Navigation({
   );
 }
 
+/** Página existente barrada só porque o estado dos módulos ainda não chegou. */
+export const waitingModules = (
+  requested: string,
+  modules: Record<string, boolean> | undefined,
+  allowed: boolean,
+) => !allowed && modules === undefined && !!section(requested);
+
 export function AdminArea({ page: requested }: { page: PageId | string }) {
   const app = useApp();
   const compact = useCompact();
@@ -318,13 +325,17 @@ export function AdminArea({ page: requested }: { page: PageId | string }) {
   const allowed =
     !!section(requested) &&
     canOpenPage(requested, app.me.role, app.modules, app.me.access);
-  const page = (allowed ? requested : "overview") as PageId;
+  // Prazos, Condomínio, Prontuários e Ensino só abrem com o módulo ligado.
+  // Ao abrir pelo endereço (favorito, F5), o estado dos módulos ainda está
+  // carregando: espera em vez de trocar o endereço por Início.
+  const waiting = waitingModules(requested, app.modules, allowed);
+  const page = (allowed || waiting ? requested : "overview") as PageId;
   const [drawer, setDrawer] = useState(false),
     [setupActive, setSetupActive] = useState(readFlag);
   useEffect(() => {
-    if (!allowed)
+    if (!allowed && !waiting)
       navigate({ area: "admin", page: "overview" }, { replace: true });
-  }, [allowed]);
+  }, [allowed, waiting]);
   useEffect(() => {
     setDrawer(false);
     setSetupActive(readFlag());
@@ -447,6 +458,13 @@ export function AdminArea({ page: requested }: { page: PageId | string }) {
                       </Button>
                     ) : undefined
                   }
+                />
+              </div>
+            ) : waiting ? (
+              <div className="card">
+                <Empty
+                  title="Carregando…"
+                  description="Conferindo os módulos ligados nesta área de atendimento."
                 />
               </div>
             ) : (

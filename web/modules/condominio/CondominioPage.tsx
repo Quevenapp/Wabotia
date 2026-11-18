@@ -422,7 +422,8 @@ export function CondominioPage() {
     [kind, setKind] = useState("blocks"),
     [chosen, setChosen] = useState<Row | null>(null);
   const refresh = () => setRevision((v) => v + 1);
-  const caps = useData(app.api, `${root}/capabilities`).data;
+  const capabilities = useData(app.api, `${root}/capabilities`),
+    caps = capabilities.data;
   const blockPages = usePagedData(
       app.api,
       caps.admin && ["cadastro", "comunicados"].includes(tab)
@@ -561,6 +562,13 @@ export function CondominioPage() {
   return (
     <div className="condominio">
       <h1>Condomínio</h1>
+      {capabilities.error && (
+        <p role="alert">
+          {capabilities.error} O acesso ao Condomínio exige um papel do
+          condomínio (administração, mesa ou portaria), concedido em Pessoas e
+          acessos; ser administrador da área não basta.
+        </p>
+      )}
       <nav>
         {caps.admin && (
           <button

@@ -147,11 +147,61 @@ function AccessEditor({
   );
 }
 
+/**
+ * Papéis de módulo do administrador. Ser administrador não concede dados
+ * sensíveis nem papéis de módulo (prontuário, prazos jurídicos, condomínio,
+ * ensino): o servidor exige a concessão explícita também para ele.
+ */
+export function AdminRoles({
+  catalog,
+  value,
+  onChange,
+}: {
+  catalog: Catalog;
+  value: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const roles = catalog.data.filter((i) => i.role);
+  if (!roles.length) return <p>O administrador acessa tudo.</p>;
+  const moduleLabel = (id: string) =>
+    catalog.data.find((i) => !i.role && i.id === id)?.label || id;
+  return (
+    <fieldset className="scope-grid">
+      <legend>Papéis com concessão explícita</legend>
+      <p>
+        O administrador acessa tudo, menos dados sensíveis e papéis de módulo.
+        Marque os que esta pessoa deve ter.
+      </p>
+      {roles.map((role) => (
+        <label className="check-field" key={role.id} title={role.description}>
+          <input
+            type="checkbox"
+            checked={value.includes(role.id)}
+            onChange={(event) =>
+              onChange(
+                event.target.checked
+                  ? [...value.filter((id) => id !== role.id), role.id]
+                  : value.filter((id) => id !== role.id),
+              )
+            }
+          />
+          {moduleLabel(role.module_id)}: {role.label}
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
 /** Resumo na lista: "Completo", "Completo · Técnico" ou os itens marcados. */
 function accessSummary(row: Row, items: Row[]) {
-  if (row.role === "admin") return "Tudo (administrador)";
-  const value = listOf(parse(row.access, null));
   const label = (id: string) => items.find((i) => i.id === id)?.label || id;
+  if (row.role === "admin") {
+    const roles = listOf(parse(row.access, null))
+      .filter((id) => id.includes(":"))
+      .map(label);
+    return ["Tudo (administrador)", ...roles].join(" · ");
+  }
+  const value = listOf(parse(row.access, null));
   const roles = value.filter((v) => v.includes(":")).map(label);
   const base = value.includes("*")
     ? ["Completo"]
@@ -471,10 +521,13 @@ function UserDialog({
       title={user ? "Editar pessoa" : "Adicionar pessoa"}
       onClose={onClose}
       onSubmit={async () => {
-        // O que a pessoa acessa (só atendente; o administrador tem tudo) e o
-        // horário de acesso.
+        // O que a pessoa acessa (atendente) ou só os papéis explícitos
+        // (administrador, que já tem o resto) e o horário de acesso.
         const chosen = {
           ...(operator && catalog ? { access } : {}),
+          ...(!operator && catalog
+            ? { access: access.filter((id) => id.includes(":")) }
+            : {}),
           ...(operator ? { schedule } : {}),
         };
         if (user) {
@@ -577,7 +630,12 @@ function UserDialog({
       {operator && catalog && (
         <AccessEditor catalog={catalog} value={access} onChange={setAccess} />
       )}
-      {!operator && <p>O administrador acessa tudo.</p>}
+      {!operator &&
+        (catalog ? (
+          <AdminRoles catalog={catalog} value={access} onChange={setAccess} />
+        ) : (
+          <p>O administrador acessa tudo.</p>
+        ))}
       {operator && <ScheduleEditor value={schedule} onChange={setSchedule} />}
       {user && <SecuritySection user={user} />}
     </FormDialog>
