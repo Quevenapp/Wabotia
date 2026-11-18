@@ -69,6 +69,22 @@ export const moduleMenuTypes = () =>
 
 export type ModuleStates = Record<string, boolean>;
 
+/** Estado configurado antes de mascarar módulos cujas dependências estão desligadas. */
+export const configuredModuleStates = (saved: Record<string, unknown>): ModuleStates => savedStates(saved, modules);
+
+/** Estado FINAL, sem cascata silenciosa; usado pelo planejador de configurações. */
+export function planModuleStates(current: ModuleStates, changes: Record<string, boolean> = {}): ModuleStates {
+  const next = { ...current };
+  for (const [id, enabled] of Object.entries(changes)) {
+    requireValue(moduleById(id) && typeof enabled === "boolean", "Módulo ou estado inválido.");
+    next[id] = enabled;
+  }
+  for (const definition of modules)
+    if (next[definition.id] && definition.requires?.some((id) => !next[id]))
+      throw new ApiError(409, "dependency_conflict", `Dependências de ${definition.name} desligadas no estado final.`);
+  return next;
+}
+
 /**
  * Estado de cada módulo a partir das linhas salvas (sem linha: padrão). Um
  * módulo com `requires` conta como desligado se algum requerido estiver
@@ -298,3 +314,5 @@ export async function moduleCommand(
     ...(cascade.length ? { also_disabled: cascade } : {}),
   };
 }
+
+// REGISTRO RESERVADO F0/I — extensões internas não são novos módulos.

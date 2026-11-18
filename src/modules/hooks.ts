@@ -1,9 +1,11 @@
 // Ganchos que os módulos registram ao carregar (src/modules/runtime.ts). Este
-// arquivo não importa nada de propósito: o núcleo (service, engine, web-steps)
-// consulta os ganchos sem criar ciclo de importação com os módulos.
+// arquivo não importa implementações dos módulos: o núcleo (service, engine,
+// web-steps) consulta os ganchos sem criar ciclo com elas.
 import type { Answers } from "../web-steps";
+import { TrieRouter } from "hono/router/trie-router";
+import { tryDecodeURIComponent } from "hono/utils/url";
 // Só o erro da API (src/types.ts não importa módulos: sem ciclo).
-import { ApiError } from "../types";
+import { ApiError, type Actor, type Env } from "../types";
 
 type Hook = (...args: any[]) => Promise<any>;
 
@@ -133,7 +135,18 @@ export function registerSchedule(
 ) {
   schedules.set(module, handler);
 }
-export const scheduledModules = () => [...schedules.entries()];
+// Um registro por módulo. O integrador acrescenta trabalho ao agregador;
+// extensões de OS não chamam registerSchedule/onSchedule novamente.
+const scheduleExtensions = new Map<string, Hook>();
+export function registerScheduleExtension(module: string, handler: Hook) {
+  scheduleExtensions.set(module, handler);
+}
+export const scheduledModules = (): [string, Hook][] => [...schedules.entries()].map(
+  ([module, handler]) => [module, async (...args: any[]) => {
+    await handler(...args);
+    await scheduleExtensions.get(module)?.(...args);
+  }],
+);
 
 /**
  * Próxima mensagem do cliente (texto, botão ou lista), antes do menu e do bot:
@@ -152,7 +165,17 @@ export function registerTurnHandler(
   if (index >= 0) turnHandlers[index] = [module, handler];
   else turnHandlers.push([module, handler]);
 }
-export const turnHandlersList = () => [...turnHandlers];
+const turnExtensions = new Map<string, Hook>();
+/** Complementa o turno legado; não o substitui ao integrar documentos. */
+export function registerTurnExtension(module: string, handler: Hook) {
+  turnExtensions.set(module, handler);
+}
+export const turnHandlersList = (): [string, Hook][] => turnHandlers.map(
+  ([module, handler]) => [module, async (...args: any[]) => {
+    if (await handler(...args)) return true;
+    return await turnExtensions.get(module)?.(...args) || false;
+  }],
+);
 
 /**
  * Passagem automática para humano (menu, palavra-chave, bot…):
@@ -272,7 +295,7 @@ export function credentialGate(
 
 export interface ModuleWriteRoute extends CredentialRouteOptions {
   method: "POST" | "PUT" | "PATCH" | "DELETE";
-  /** Depois de /api/v1/profiles/:profile/, com :id opcional. */
+  /** Depois de /api/v1/profiles/:profile/, com parâmetros nomeados opcionais. */
   path: string;
   op: string;
 }
@@ -299,24 +322,98 @@ export interface ModuleTelemetryRoute extends CredentialRouteOptions {
     request: { params: Record<string, string>; body: any },
   ) => Promise<any>;
 }
+export interface BinaryRouteRequest {
+  params: Record<string, string>;
+  query: Record<string, string>;
+  request: Request;
+}
+export interface ModuleBinaryRoute extends CredentialRouteOptions {
+  method: "GET" | "PUT";
+  path: string;
+  handler: (env: Env, actor: Actor, profile: string, request: BinaryRouteRequest) => Promise<Response>;
+}
 const writeRoutes: ModuleWriteRoute[] = [];
 const readRoutes: ModuleReadRoute[] = [];
 const telemetryRoutes: ModuleTelemetryRoute[] = [];
+const binaryRoutes: ModuleBinaryRoute[] = [];
+let routesRevision = 0;
 export function registerWriteRoute(route: ModuleWriteRoute) {
   writeRoutes.push(route);
+  routesRevision++;
 }
 export function registerReadRoute(route: ModuleReadRoute) {
   readRoutes.push(route);
+  routesRevision++;
 }
 export function registerTelemetryRoute(route: ModuleTelemetryRoute) {
   telemetryRoutes.push(route);
 }
+export function registerBinaryRoute(route: ModuleBinaryRoute) {
+  binaryRoutes.push(route);
+  routesRevision++;
+}
+/** Campos do caminho prevalecem; profile é exclusivamente o contexto autenticado. */
+export function routeData(body: unknown, params: Record<string, string>): Record<string, unknown> {
+  const data = body && typeof body === "object" && !Array.isArray(body) ? body : {};
+  const { profile: _bodyProfile, ...safeBody } = data as Record<string, unknown>;
+  const { profile: _pathProfile, ...safeParams } = params;
+  return { ...safeBody, ...safeParams };
+}
+/** Prioridade lexical por segmento: estático antes de parâmetro, estável nos empates. */
+export function orderedRoutes<T extends { path: string }>(routes: readonly T[]): T[] {
+  return [...routes].sort((a, b) => {
+    const left = a.path.split("/"), right = b.path.split("/");
+    for (let i = 0; i < Math.min(left.length, right.length); i++) {
+      const difference = Number(left[i].startsWith(":")) - Number(right[i].startsWith(":"));
+      if (difference) return difference;
+      if (left[i] !== right[i]) return left[i].localeCompare(right[i]);
+    }
+    return left.length - right.length;
+  });
+}
 /** Rotas declaradas pelos módulos, montadas por src/index.ts. */
 export const moduleRoutes = () => ({
-  write: [...writeRoutes],
-  read: [...readRoutes],
-  telemetry: [...telemetryRoutes],
+  write: orderedRoutes(writeRoutes),
+  read: orderedRoutes(readRoutes),
+  telemetry: orderedRoutes(telemetryRoutes),
+  binary: orderedRoutes(binaryRoutes),
 });
+
+type DispatchRoute =
+  | (ModuleWriteRoute & { kind: "write" })
+  | (ModuleReadRoute & { kind: "read"; method: "GET" })
+  | (ModuleBinaryRoute & { kind: "binary" });
+let routeMatcher: TrieRouter<DispatchRoute> | undefined;
+let matchedRevision = -1;
+
+/**
+ * O registro pode terminar depois do carregamento da entrada HTTP. Recria o
+ * índice somente quando ele muda, sem acrescentar rotas a um Hono já usado.
+ * A prioridade estática vale também entre leituras JSON e binárias.
+ */
+export function matchModuleRoute(method: string, path: string) {
+  if (!routeMatcher || matchedRevision !== routesRevision) {
+    const routes: DispatchRoute[] = [
+      ...writeRoutes.map((route) => ({ ...route, kind: "write" as const })),
+      ...binaryRoutes.map((route) => ({ ...route, kind: "binary" as const })),
+      ...readRoutes.map((route) => ({ ...route, kind: "read" as const, method: "GET" as const })),
+    ];
+    routeMatcher = new TrieRouter<DispatchRoute>();
+    for (const route of orderedRoutes(routes))
+      routeMatcher.add(route.method, `/api/v1/profiles/:profile/${route.path}`, route);
+    matchedRevision = routesRevision;
+  }
+  const result = routeMatcher.match(method === "HEAD" ? "GET" : method, path);
+  const match = result[0][0];
+  if (!match) return null;
+  const [route, rawParams] = match;
+  const params: Record<string, string> = {};
+  for (const [key, value] of Object.entries(rawParams)) {
+    const raw = result[1] ? result[1][Number(value)] : String(value);
+    params[key] = tryDecodeURIComponent(raw);
+  }
+  return { route, params };
+}
 
 /**
  * Pedido de aprovação à equipe (src/approvals.ts): o módulo confere o ajuste
@@ -355,3 +452,29 @@ export function registerSettingsValidator(
   settingsValidators.set(key, validate);
 }
 export const settingsValidator = (key: string) => settingsValidators.get(key);
+
+export interface SettingsChangeContext {
+  changed_keys: readonly string[];
+  modules: Readonly<Record<string, boolean>>;
+}
+export type SettingsChangeValidator = (
+  previous: Readonly<Record<string, any>>,
+  next: Readonly<Record<string, any>>,
+  context: SettingsChangeContext,
+) => void;
+const settingsChangeValidators = new Map<string, SettingsChangeValidator>();
+/** Gancho puro: recebe a configuração completa, inclusive menus ocultos. */
+export function registerSettingsChangeValidator(module: string, validate: SettingsChangeValidator) {
+  const previous = settingsChangeValidators.get(module);
+  settingsChangeValidators.set(module, validate);
+  return () => {
+    if (settingsChangeValidators.get(module) !== validate) return;
+    if (previous) settingsChangeValidators.set(module, previous);
+    else settingsChangeValidators.delete(module);
+  };
+}
+export function validateSettingsChange(
+  previous: Readonly<Record<string, any>>, next: Readonly<Record<string, any>>, context: SettingsChangeContext,
+) {
+  for (const validate of settingsChangeValidators.values()) validate(previous, next, context);
+}
