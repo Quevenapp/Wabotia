@@ -14,7 +14,7 @@ type EntryRow = Omit<Entry, "client_visible" | "sensitive"> & {
   sensitive: number;
 };
 const COLUMNS = "id,order_id,kind,text,quantity_milli,unit,occurred_at,replaces_id,client_visible,sensitive,version,created_by,created,updated,archived_at";
-const botActor = (actor: Actor) => !!actor.via || actor.id.startsWith("bot:");
+const botActor = (actor: Actor) => !!actor.via || !!actor.module || actor.id.startsWith("bot:");
 
 function dto(row: EntryRow): Entry {
   // Lista explícita: nunca serializar a linha SQL ou a definição do pai.

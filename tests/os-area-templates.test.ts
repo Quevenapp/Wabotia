@@ -339,6 +339,42 @@ describe("modelos de área: preservação e reaplicação", () => {
     await apply(f, input);
     expect((await cfg(f)).menus.some((m: any) => m.id === "area_teste__abrir")).toBe(true);
   });
+
+  it("inclui menus do embutido só quando selecionado, sem consumir IDs ignorados", async () => {
+    const f = await fixture(), input = request();
+    input.manifest.menus.push({ id: "acompanhar_legado", label: "Acompanhar OS", type: "os_track", type_id: "service_order" });
+    input.selection.work_type_ids = ["projeto"];
+    const paths = ["menus.area_teste__legado", "menus.area_teste__acompanhar_legado"];
+    const preview = await previewAreaTemplate(env, f.admin, f.profile, input);
+    for (const path of paths)
+      expect(preview.changes).toContainEqual(expect.objectContaining({ path, action: "skip" }));
+    await apply(f, input);
+    expect((await cfg(f)).menus.some((m: any) => m.type_id === "service_order")).toBe(false);
+    expect((await cfg(f)).menus.some((m: any) => m.id === "area_teste__abrir")).toBe(true);
+    const seen = json((await application(f))!.seen_ids_json, []);
+    for (const path of paths) expect(seen).not.toContain(path);
+
+    input.selection.work_type_ids.push("service_order");
+    await apply(f, input);
+    expect((await cfg(f)).menus.filter((m: any) => m.type_id === "service_order")).toHaveLength(2);
+    input.selection.work_type_ids = ["projeto"];
+    const before = await snapshot(f);
+    expect((await apply(f, input)).applied).toBe(false);
+    expect(await snapshot(f)).toEqual(before);
+  });
+
+  it("permite menus informativos com os desligado e nenhum tipo selecionado", async () => {
+    const f = await fixture(), input = request();
+    input.selection = selection({ work_type_ids: [], module_ids: [] });
+    const preview = await previewAreaTemplate(env, f.admin, f.profile, input);
+    expect(preview.conflicts).toEqual([]);
+    expect(preview.changes).toContainEqual(expect.objectContaining({ path: "menus.area_teste__legado", action: "skip" }));
+    await apply(f, input);
+    const settings = await cfg(f);
+    expect(settings.menus.some((m: any) => m.type === "os_open" || m.type === "os_track")).toBe(false);
+    expect(settings.menus).toContainEqual(expect.objectContaining({ id: "area_teste__aviso", type: "content" }));
+    expect((await moduleStates(env, f.profile)).os).toBe(false);
+  });
 });
 
 describe("modelos de área: exportação, importação e acesso", () => {
