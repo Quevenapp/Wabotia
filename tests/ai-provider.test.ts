@@ -818,7 +818,12 @@ describe("atendimento por provedor de IA", () => {
     expect(calls[0].body.instructions).toContain("Você é o Atendente");
     expect(calls[0].body.instructions).toContain("não gera arquivos");
     expect(calls[0].body.instructions).not.toContain("artifact_id");
-    expect(calls[0].body.input[0]).toMatchObject({ role: "user", content: [{ type: "input_text" }] });
+    // Modo JSON: a API real exige "json" nas mensagens do input (400 sem isso).
+    expect(calls[0].body.input[0]).toEqual({
+      role: "developer",
+      content: [{ type: "input_text", text: "Responda somente com um objeto JSON válido." }],
+    });
+    expect(calls[0].body.input[1]).toMatchObject({ role: "user", content: [{ type: "input_text" }] });
     expect((await fresh(run)).status).toBe("completed");
     const sent = await outbox(conversation);
     expect(sent.map((row) => json(row.payload).text)).toContain(answer.text);
@@ -1336,7 +1341,7 @@ describe("PDF do cliente no provedor de IA", () => {
     const run = (await runOf(await receive(f, "Segue", [{ type: "application/pdf", bytes: pdf(1) }])))!;
     const calls = mockFetch(() => openaiMessage(JSON.stringify({ ...answer, action: "clarify", citations: [] })));
     await processRun(env, run);
-    const parts = calls[0].body.input[0].content;
+    const parts = calls[0].body.input.find((m: any) => m.role === "user").content;
     expect(parts[0].type).toBe("input_text");
     expect(parts.find((p: any) => p.type === "input_file")).toMatchObject({
       type: "input_file",
@@ -1352,7 +1357,7 @@ describe("PDF do cliente no provedor de IA", () => {
     const reasoning = { type: "reasoning", id: "rs_1", summary: [], encrypted_content: "cifrado" };
     const call = { type: "function_call", id: "fc_1", call_id: "call_1", name: "eco", arguments: '{"texto":"oi"}' };
     const replies = [
-      { id: "r1", status: "completed", output: [reasoning, call], usage: { input_tokens: 100, output_tokens: 10, input_tokens_details: { cached_tokens: 64 } } },
+      { id: "r1", status: "completed", output: [reasoning, call], usage: { input_tokens: 100, output_tokens: 10, input_tokens_details: { cached_tokens: 64, cache_write_tokens: 20 } } },
       { id: "r2", status: "completed", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "pronto" }] }], usage: { input_tokens: 120, output_tokens: 5 } },
     ];
     const calls = mockFetch(() => Response.json(replies.shift()));
@@ -1383,7 +1388,8 @@ describe("PDF do cliente no provedor de IA", () => {
       call,
       { type: "function_call_output", call_id: "call_1", output: '{"ok":true}' },
     ]);
-    expect(usage).toEqual({ input: 156, cache_read: 64, cache_write: 0, output: 15 });
+    // Formato real (17/11): input_tokens inclui o lido e o gravado no cache.
+    expect(usage).toEqual({ input: 136, cache_read: 64, cache_write: 20, output: 15 });
 
     // Recusa e resposta cortada viram o erro de sempre.
     mockFetch(() =>

@@ -98,9 +98,13 @@ export function addUsage(target: AiUsage | undefined, provider: string, raw: any
     target.cache_read += n(raw.prompt_cache_hit_tokens);
     target.output += n(raw.completion_tokens);
   } else if ("input_tokens" in raw || "output_tokens" in raw) {
+    // input_tokens inclui o lido e o gravado no cache (cache_write_tokens,
+    // visto na API real em 17/11/2026).
     const cached = n(raw.input_tokens_details?.cached_tokens);
-    target.input += Math.max(0, n(raw.input_tokens) - cached);
+    const written = n(raw.input_tokens_details?.cache_write_tokens);
+    target.input += Math.max(0, n(raw.input_tokens) - cached - written);
     target.cache_read += cached;
+    target.cache_write += written;
     target.output += n(raw.output_tokens);
   } else {
     const cached = n(raw.prompt_tokens_details?.cached_tokens);
@@ -463,6 +467,8 @@ function openaiBase(cfg: any) {
     : AI_PROVIDERS[cfg.provider as AiProvider]?.base;
 }
 
+export const RESPONSES_JSON_NOTE = "Responda somente com um objeto JSON válido.";
+
 /**
  * Conteúdo do usuário no Responses da OpenAI: texto, imagens e PDFs (guias
  * "Images and vision" e "File inputs"; até 50 MB por pedido).
@@ -471,6 +477,10 @@ function responsesInput(cfg: any, request: AiRequest) {
   const images = cfg.vision ? request.images || [] : [];
   const documents = cfg.pdf ? request.documents || [] : [];
   return [
+    // O modo json_object exige a palavra "json" nas mensagens do input, não
+    // só em `instructions` (HTTP 400 na API real em 17/11/2026). Texto fixo,
+    // antes do pedido, para não mexer no prefixo do cache.
+    ...(request.json ? [{ role: "developer", content: [{ type: "input_text", text: RESPONSES_JSON_NOTE }] }] : []),
     {
       role: "user",
       content: [
