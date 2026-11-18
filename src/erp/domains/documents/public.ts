@@ -12,6 +12,8 @@ export { costApply, costApplyCapture } from "./cost-apply.ts";
 export { decimalValue, documentDto, effectFlags, textValue } from "./internal.ts";
 export { updateDocument } from "./rows.ts";
 export { documentFinanceCategory, requireOsPermission } from "./save-checks.ts";
+// erp_documents.editable(status): para o Estoque (erp_stock.item_components_dto).
+export { editable } from "./save-checks.ts";
 // O documento espelhado do Origin: guard_effect das tabelas que apontam para documento.
 export { guardEffect as mirrorGuardEffect } from "./mirror.ts";
 
