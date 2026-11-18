@@ -62,7 +62,9 @@ import {
   hex,
   MOBILE_TOKEN_PREFIX,
 } from "./security";
-import { aiListModels } from "./ai-provider";
+import { connectionKey } from "./ai-provider";
+import { allowedProvider, listProviders, providerCommand, providerKey, providerModels, pruneProviderUsage } from "./ai-providers";
+import { requireDirectPerson } from "./security";
 import { pushConfig, publicPushConfig, sendTest, prunePush } from "./push";
 import { wake } from "./events";
 import { settings, scopes, eventTypes, conversation, perform } from "./service";
@@ -258,6 +260,7 @@ app.onError((error, c) => {
     {
       error: {
         code: known ? error.code : "internal_error",
+        ...(known && error.providerUses ? { uses: error.providerUses } : {}),
         message: known
           ? error.message
           : "Não foi possível concluir a operação.",
@@ -1578,33 +1581,41 @@ for (const [method, path, op] of [
 // Modelos da conta de um provedor de IA, para o formulário da conexão. Fica
 // fora dos comandos idempotentes: a resposta não deve ir para os recibos, e a
 // chave digitada no formulário passa só por aqui, sem ser guardada.
+app.get("/api/v1/providers", async (c) => c.json(await listProviders(c.env, c.get("actor"))));
+app.get("/api/v1/providers/:id/usage", async (c) => c.json(await providerCommand(c.env, c.get("actor"), "provider.usage", { id: c.req.param("id"), days: c.req.query("days") === undefined ? undefined : Number(c.req.query("days")) })));
+for (const [method, path, op] of [
+  ["post", "/providers", "create"],
+  ["post", "/providers/merge", "merge"],
+  ["patch", "/providers/:id", "update"],
+  ["post", "/providers/:id/rotate", "rotate"],
+  ["post", "/providers/:id/revoke", "revoke"],
+  ["delete", "/providers/:id", "delete"],
+  ["post", "/providers/:id/test", "test"],
+]) app.on(method.toUpperCase(), "/api/v1" + path, async (c) => {
+  admin(c.get("actor"));
+  if (op === "create" || op === "rotate") requireDirectPerson(c.get("actor"));
+  return mutate(c, "provider." + op, "_admin", { ...(await c.req.json<any>().catch(() => ({}))), ...(c.req.param("id") ? { id: c.req.param("id") } : {}) });
+});
 app.post("/api/v1/profiles/:profile/ai-models", async (c) => {
-  const actor = c.get("actor"),
-    profile = c.req.param("profile");
+  const actor = c.get("actor"), profile = c.req.param("profile");
   admin(actor);
   await rate(c.env, `ai-models:${actor.id}`, 10);
   const body = await c.req.json<any>().catch(() => ({}));
-  let cfg: any = {},
-    key = typeof body.api_key === "string" ? body.api_key.trim() : "";
-  if (body.connection_id) {
-    const conn = await one(
-      c.env,
-      "SELECT * FROM connections WHERE id=? AND profile_id=? AND kind='ai'",
-      String(body.connection_id),
-      profile,
-    );
+  let cfg: any = {}, key = typeof body.api_key === "string" ? body.api_key.trim() : "";
+  if (key) requireDirectPerson(actor);
+  if (body.provider_id) {
+    requireValue(!key, "Informe o provedor ou a chave, não ambos.");
+    const row = await allowedProvider(c.env, body.provider_id, profile);
+    key = await providerKey(c.env, row);
+    cfg = { provider: row.kind, base_url: row.base_url };
+  } else if (body.connection_id && !key) {
+    const conn = await one(c.env, "SELECT * FROM connections WHERE id=? AND profile_id=? AND kind='ai'", String(body.connection_id), profile);
     requireValue(conn, "Conexão não encontrada.");
     cfg = json(conn.config);
-    if (!key) key = (await secret(c.env, `connection:${conn.id}`)).api_key;
-  }
+    key = await connectionKey(c.env, conn, cfg);
+  } else cfg = { provider: body.provider, base_url: body.base_url };
   requireValue(key, "Informe a chave de API para buscar os modelos.");
-  return c.json({
-    data: await aiListModels(
-      body.provider || cfg.provider,
-      key,
-      body.base_url || cfg.base_url,
-    ),
-  });
+  return c.json({ data: (await providerModels(cfg.provider, key, cfg.base_url)).models });
 });
 // A retired authorization URL must never be replayed from Coordinator receipts.
 // The local handler still enforces administrator and integration-area access.
@@ -1650,6 +1661,7 @@ const commands = [
   ["POST", "activate", "activate"],
   ["POST", "pause", "pause"],
   ["POST", "connections", "connection.save"],
+  ["PATCH", "connections/:id", "connection.update"],
   ["PUT", "connections/:id/state", "connection.state"],
   ["DELETE", "connections/:id", "connection.delete"],
   ["PATCH", "bots/:id", "bot.update"],
@@ -3051,6 +3063,7 @@ export default {
       exec(env, "DELETE FROM rate_limits WHERE expires<?", now() - 600000),
     );
     ctx.waitUntil(exec(env, "DELETE FROM sessions WHERE expires<?", now()));
+    ctx.waitUntil(pruneProviderUsage(env));
     ctx.waitUntil(prunePush(env));
     ctx.waitUntil(prunePairings(env));
   },

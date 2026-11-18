@@ -2,7 +2,7 @@ import type { PiiMask } from "./pii-mask";
 import { inflateBounded, PDF_INFLATE_LIMITS } from "./pdf-reader";
 export { PDF_INFLATE_LIMITS } from "./pdf-reader";
 // Conexão direta com um provedor de IA, sem servidor externo (docs/PROVEDOR-IA.md).
-// O Worker chama o provedor com a chave guardada no cofre da conexão. Não há
+// O Worker chama o provedor com a chave guardada no cofre do provedor. Não há
 // arquivos nem memória: cada execução leva instruções, histórico e fontes,
 // e devolve o texto da resposta. Ferramentas
 // só pelo Wabotia (aiCompleteWithTools): as da pessoa na conversa interna e as
@@ -12,6 +12,7 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import { exec } from "./db";
 import { ApiError, type Env, json, now, requireValue } from "./types";
+import { allowedProvider, hideProviderKey, hideProviderValue, providerKey } from "./ai-providers";
 import { publicUrl, safeFetch, secret } from "./security";
 import { providerFamily, responsesText, toolLoop, type ToolCall } from "./bot-tools";
 import type { BotTool } from "./bot-actions/actions";
@@ -135,6 +136,10 @@ export async function pdfPageCount(bytes: Uint8Array): Promise<number | null> {
 
 /** Uso de uma execução, igual para todos os provedores (tokens). */
 export interface AiUsage {
+  /** Vínculo efetivamente resolvido; só usado no agregado diário. */
+  provider_id?: string;
+  model?: string;
+  requests?: number;
   input: number;
   cache_read: number;
   cache_write: number;
@@ -299,7 +304,7 @@ export async function aiListModels(
   );
   if (provider === "anthropic") {
     try {
-      const page = await anthropicClient(key).models.list({ limit: 100 });
+      const page = await anthropicClient(key, 60_000, baseUrl).models.list({ limit: 100 });
       const available = new Set(page.data.map((model) => model.id));
       return ANTHROPIC_MODELS.filter((id) => available.has(id));
     } catch (error) {
@@ -307,13 +312,14 @@ export async function aiListModels(
     }
   }
   const base =
-    provider === "compatible"
+    baseUrl || provider === "compatible"
       ? publicUrl(String(baseUrl || ""))
       : AI_PROVIDERS[provider].base!;
   let response: Response;
   try {
     response = await safeFetch(`${base}/models`, {
       headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(20_000),
     });
   } catch (error) {
     if (error instanceof ApiError) throw new AiError(error.message, false);
@@ -325,6 +331,7 @@ export async function aiListModels(
     .map((model: any) => model?.id)
     .filter((id: any) => typeof id === "string" && id.length <= 100);
   return [...new Set(ids)]
+    .filter((id) => hideProviderKey(id, key) === id)
     .filter((id) => provider !== "openai" || !NOT_CHAT.test(id))
     .sort()
     .slice(0, 500);
@@ -474,7 +481,24 @@ const specialistSchema = z.object({
   files: z.array(z.string()).default([]),
 });
 
-async function connectionKey(env: Env, conn: any) {
+export async function connectionKey(env: Env, conn: any, cfg = json(conn.config), usage?: AiUsage) {
+  if (cfg.provider_id !== undefined && cfg.provider_id !== null) {
+    try {
+      const row = await allowedProvider(env, cfg.provider_id, conn.profile_id);
+      requireValue(row.kind !== "typesafe", "Escolha um provedor de texto para o bot.");
+      const key = await providerKey(env, row);
+      cfg.provider = row.kind;
+      cfg.base_url = row.base_url;
+      if (usage) {
+        usage.provider_id = row.id;
+        usage.model = cfg.model;
+        usage.requests = (usage.requests || 0) + 1;
+      }
+      return key;
+    } catch (error) {
+      throw new AiError(error instanceof ApiError ? error.message : "Falha ao abrir a chave do provedor.", false);
+    }
+  }
   const keys = await secret(env, `connection:${conn.id}`);
   if (!keys.api_key)
     throw new AiError("Cadastre a chave de API do provedor.", false);
@@ -484,7 +508,7 @@ async function connectionKey(env: Env, conn: any) {
 /** Envia uma execução ao provedor e devolve o texto da resposta. */
 export async function aiComplete(env: Env, conn: any, request: AiRequest) {
   const cfg = json(conn.config);
-  const key = await connectionKey(env, conn);
+  const key = await connectionKey(env, conn, cfg, request.usage);
   const text =
     cfg.provider === "anthropic"
       ? await anthropicComplete(key, cfg, request)
@@ -495,7 +519,7 @@ export async function aiComplete(env: Env, conn: any, request: AiRequest) {
     now(),
     conn.id,
   );
-  return text;
+  return hideProviderKey(text, key);
 }
 
 /**
@@ -504,10 +528,10 @@ export async function aiComplete(env: Env, conn: any, request: AiRequest) {
  */
 export async function aiProbe(env: Env, conn: any) {
   const cfg = json(conn.config);
-  const key = await connectionKey(env, conn);
+  const key = await connectionKey(env, conn, cfg);
   if (cfg.provider === "anthropic") {
     try {
-      await anthropicClient(key).models.retrieve(cfg.model);
+      await anthropicClient(key, 60_000, cfg.base_url).models.retrieve(cfg.model);
     } catch (error) {
       throw anthropicError(error);
     }
@@ -540,9 +564,7 @@ export async function aiProbe(env: Env, conn: any) {
 }
 
 function openaiBase(cfg: any) {
-  return cfg.provider === "compatible"
-    ? cfg.base_url
-    : AI_PROVIDERS[cfg.provider as AiProvider]?.base;
+  return cfg.base_url || AI_PROVIDERS[cfg.provider as AiProvider]?.base;
 }
 
 export const RESPONSES_JSON_NOTE = "Responda somente com um objeto JSON válido.";
@@ -743,8 +765,13 @@ function httpError(status: number) {
   );
 }
 
-function anthropicClient(apiKey: string, timeout = 60_000) {
-  return new Anthropic({ apiKey, timeout, maxRetries: 1 });
+function anthropicClient(apiKey: string, timeout = 60_000, baseURL?: string) {
+  return new Anthropic({
+    ...(baseURL ? { baseURL } : {}),
+    apiKey, timeout, maxRetries: 1,
+    // O SDK não pode registrar cabeçalhos ou corpos com credenciais.
+    logLevel: "off",
+  });
 }
 
 function anthropicError(error: unknown) {
@@ -765,7 +792,7 @@ async function anthropicComplete(key: string, cfg: any, request: AiRequest) {
     system: anthropicSystem(request),
     messages: [{ role: "user" as const, content }],
   };
-  const client = anthropicClient(key, aiCallTimeout(cfg));
+  const client = anthropicClient(key, aiCallTimeout(cfg), cfg.base_url);
   try {
     const schema = schemaFor(request);
     // A saída estruturada vai no pedido; a validação fica aqui, depois de
@@ -841,14 +868,14 @@ export async function aiCompleteWithTools(
 ) {
   const started = Date.now();
   const cfg = json(conn.config);
-  const key = await connectionKey(env, conn);
+  const key = await connectionKey(env, conn, cfg, request.usage);
   const family = providerFamily(cfg.provider);
   const schema = schemaFor(request);
   let complete: (messages: any[], tools: any[], final: boolean, timeout: number, remaining: number) => Promise<any>;
   let messages: any[];
   if (family === "anthropic") {
     messages = [{ role: "user", content: anthropicContent(cfg, request) }];
-    const client = anthropicClient(key, aiCallTimeout(cfg));
+    const client = anthropicClient(key, aiCallTimeout(cfg), cfg.base_url);
     const effort = AI_EFFORTS.anthropic.includes(cfg.effort) ? cfg.effort : "low";
     complete = async (history, tools, final, timeout, remaining) => {
       try {
@@ -944,7 +971,7 @@ export async function aiCompleteWithTools(
       const expired = () => new AiError("A execução do bot excedeu o prazo de resposta.", false);
       if (remaining <= 0) throw expired();
       try {
-        return await complete(history, tools, final, Math.min(aiCallTimeout(cfg), remaining), remaining);
+        return hideProviderValue(await complete(history, tools, final, Math.min(aiCallTimeout(cfg), remaining), remaining), key);
       } catch (error) {
         if (Date.now() - started >= AI_RUN_DEADLINE_MS) throw expired();
         throw error;
@@ -958,7 +985,7 @@ export async function aiCompleteWithTools(
     now(),
     conn.id,
   );
-  return finalText(request, result.text);
+  return hideProviderKey(finalText(request, result.text), key);
 }
 
 /**

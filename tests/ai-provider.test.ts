@@ -391,6 +391,7 @@ describe("cadastro da conexão de provedor de IA", () => {
     );
     expect(row.status).toBe("paused");
     expect(json(row.config)).toEqual({
+      provider_id: saved.provider_id,
       provider: "anthropic",
       model: "claude-opus-5-5",
       vision: true,
@@ -399,7 +400,7 @@ describe("cadastro da conexão de provedor de IA", () => {
       effort: "low",
       text_only: true,
     });
-    expect((await secret(env, `connection:${saved.id}`)).api_key).toBe(
+    expect((await secret(env, `provider:${saved.provider_id}`)).api_key).toBe(
       "sk-ant-test-123456",
     );
     // Editar sem informar a chave mantém a cadastrada.
@@ -423,7 +424,7 @@ describe("cadastro da conexão de provedor de IA", () => {
       model: "claude-haiku-5-5",
       text_only: false,
     });
-    expect((await secret(env, `connection:${saved.id}`)).api_key).toBe(
+    expect((await secret(env, `provider:${saved.provider_id}`)).api_key).toBe(
       "sk-ant-test-123456",
     );
   });

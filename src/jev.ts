@@ -1,3 +1,4 @@
+import { addProviderUsage, type ProviderUsage } from "./ai-providers";
 import { createPiiMask, maskPersonalEnabled, type PiiMask } from "./pii-mask";
 import { one, exec } from "./db";
 import { canonical, sha } from "./security";
@@ -30,9 +31,10 @@ export function lowConfidence(reason = "low_confidence"): Decision {
  * Soma os tokens do JEV ao uso da execução (bot_runs.usage), em chaves
  * próprias (jev_input, jev_output): o JEV cobra só a entrada.
  */
-export async function addJevUsage(env: Env, runId: string, usage: { input: number; output: number }) {
-  if (!usage.input && !usage.output) return;
-  const row = await one(env, "SELECT usage FROM bot_runs WHERE id=?", runId);
+export async function addJevUsage(env: Env, runId: string, usage: ProviderUsage) {
+  if (!usage.input && !usage.output && !usage.provider_id) return;
+  const row = await one(env, "SELECT usage,profile_id FROM bot_runs WHERE id=?", runId);
+  if (row) await addProviderUsage(env, row.profile_id, "jev", usage);
   const before = json(row?.usage, null) || {};
   await exec(
     env,

@@ -36,9 +36,33 @@ const schemas = {
   ...integrationSchemas,
   ...serviceSchemas,
   ...moduleSchemas,
+  ProviderCreate: {
+    type: "object", required: ["kind", "name", "api_key", "profiles"],
+    properties: {
+      kind: { enum: ["openai", "anthropic", "deepseek", "compatible", "typesafe"] },
+      name: { type: "string", maxLength: 100 },
+      api_key: { type: "string", writeOnly: true, maxLength: 4096 },
+      base_url: { type: "string", format: "uri" },
+      profiles: { type: "array", items: { type: "string" } },
+      force: { type: "boolean", default: false, description: "Salvar sem verificação se a lista de modelos falhar." },
+    },
+  },
+  ProviderUpdate: {
+    type: "object",
+    properties: {
+      name: { type: "string", maxLength: 100 },
+      profiles: { type: "array", items: { type: "string" } },
+      capabilities: { type: "object", properties: Object.fromEntries(["text", "image", "pdf", "tools", "transcription", "decision"].map((k) => [k, { type: "boolean" }])) },
+      prices: { type: "object", description: "Por modelo: input, cache_read, cache_write e output em US$ por milhão de tokens; audio_minute em US$ por minuto.", additionalProperties: { type: "object", properties: Object.fromEntries(["input", "cache_read", "cache_write", "output", "audio_minute"].map((k) => [k, { type: "number", minimum: 0 }])) } },
+    },
+  },
+  ProviderRotate: { type: "object", required: ["api_key"], properties: { api_key: { type: "string", writeOnly: true, maxLength: 4096 } } },
+  ProviderMerge: { type: "object", required: ["keep", "remove"], properties: { keep: { type: "string" }, remove: { type: "string" } } },
+  ProviderModels: { type: "object", properties: { provider_id: { type: "string" }, connection_id: { type: "string" }, provider: { enum: ["openai", "anthropic", "deepseek", "compatible", "typesafe"] }, base_url: { type: "string", format: "uri" }, api_key: { type: "string", writeOnly: true } } },
+  JevProvider: { type: "object", properties: { provider_id: { type: "string" }, api_key: { type: "string", writeOnly: true }, key: { type: "string", writeOnly: true, deprecated: true } } },
   ConnectionInput: {
     type: "object",
-    required: ["name", "kind", "config"],
+    required: ["name", "kind"],
     description:
       "Conexão individual. Use o roteador para compartilhar credenciais entre números Zernio. Edição exige conexão pausada e sem entregas pendentes; provedor e identidade de telefone não podem mudar. O modo Meta direto foi removido.",
     properties: {
@@ -49,6 +73,9 @@ const schemas = {
         description:
           "ai: provedor de IA direto (OpenAI, DeepSeek, Anthropic ou API compatível com OpenAI), sem servidor externo. Gera um único bot no primeiro teste da conexão.",
       },
+      provider_id: { type: "string", description: "Atalho para config.provider_id em conexões ai." },
+      model: { type: "string", description: "Atalho para config.model em conexões ai." },
+      api_key: { type: "string", writeOnly: true, description: "Compatibilidade: cria um provedor implícito e devolve provider_id." },
       mode: { type: "string", default: "direct" },
       config: {
         type: "object",
@@ -70,9 +97,10 @@ const schemas = {
             description:
               "ID da integração na Zernio (campo Profile ID), obrigatório para kind=zernio.",
           },
+          provider_id: { type: "string", description: "Provedor ativo e autorizado para a área; dispensa chave, tipo e URL na conexão." },
           provider: {
             enum: ["openai", "deepseek", "anthropic", "compatible"],
-            description: "Provedor de IA, obrigatório para kind=ai.",
+            description: "Tipo de IA; dispensado quando provider_id é informado.",
           },
           model: {
             type: "string",
@@ -107,7 +135,7 @@ const schemas = {
       secrets: {
         type: "object",
         description:
-          "Para Zernio: api_key e webhook_secret obrigatórios na criação. Para kind=ai: api_key do provedor, obrigatória na criação. Campos omitidos preservam valores na edição. Segredos ficam cifrados e não são devolvidos.",
+          "Para Zernio: api_key e webhook_secret obrigatórios na criação. Para kind=ai: api_key cria um provedor implícito por compatibilidade; prefira config.provider_id. Campos omitidos preservam valores na edição. Segredos ficam cifrados e não são devolvidos.",
         properties: {
           api_key: {
             type: "string",
@@ -857,6 +885,18 @@ const schemas = {
   },
 };
 const operations: [string, string, string, string?, string?][] = [
+  ["get", "/providers", "Listar provedores de IA sem chave nem impressão"],
+  ["post", "/providers", "provider.create: cadastrar e testar provedor", "administrador do sistema em sessão direta", "ProviderCreate"],
+  ["patch", "/providers/{id}", "provider.update: editar provedor sem chave", "administrador do sistema", "ProviderUpdate"],
+  ["post", "/providers/{id}/rotate", "provider.rotate: testar e trocar chave", "administrador do sistema em sessão direta", "ProviderRotate"],
+  ["post", "/providers/{id}/revoke", "provider.revoke: revogar provedor", "administrador do sistema"],
+  ["delete", "/providers/{id}", "provider.delete: excluir provedor sem usos", "administrador do sistema"],
+  ["post", "/providers/merge", "provider.merge: juntar provedores com a mesma chave", "administrador do sistema", "ProviderMerge"],
+  ["post", "/providers/{id}/test", "provider.test: conferir modelos e capacidades", "administrador do sistema"],
+  ["get", "/providers/{id}/usage", "provider.usage: consumo diário e estimativa em US$"],
+  ["post", "/profiles/{profile}/ai-models", "Buscar modelos pelo provedor ou testar uma chave sem salvar", "administrador", "ProviderModels"],
+  ["post", "/profiles/{profile}/jev", "Vincular o provedor TypeSafe do JEV", "administrador", "JevProvider"],
+  ["patch", "/profiles/{profile}/connections/{id}", "connection.update: editar conexão pausada", "administrador", "ConnectionInput"],
   ["get", "/profiles", "Listar áreas de atendimento autorizadas"],
   [
     "get",
@@ -1880,6 +1920,11 @@ export function openapi(origin: string) {
       if (path === "/system/push/configure")
         entry.description +=
           " Segredo do gateway e conta de serviço FCM são guardados criptografados e nunca devolvidos; a resposta informa apenas se estão configurados.";
+    }
+    if (path.startsWith("/providers")) {
+      entry.description += " A chave nunca sai: nem chave, trechos ou impressão em respostas, eventos, logs ou ferramentas. Escritas exigem administrador do sistema; create e rotate exigem pessoa em sessão direta. O aal2 segue o mfaGate. Listagem e consumo são limitados às áreas da pessoa; administrador do sistema vê tudo. Exclusão com vínculos retorna 409 e error.uses. O motor não executa estas operações.";
+      if (path === "/providers" && method === "get") success.content["application/json"].schema = { type: "array", items: { type: "object" } };
+      if (path.endsWith("/usage")) entry.parameters.push({ name: "days", in: "query", schema: { type: "integer", minimum: 1, maximum: 400, default: 30 } });
     }
     describeServiceOperation(path, method, entry, success);
     describeIntegrationOperation(path, entry, origin);

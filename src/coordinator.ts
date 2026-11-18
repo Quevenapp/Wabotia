@@ -323,6 +323,7 @@ export class Coordinator extends DurableObject<Env> {
             error: {
               code: error.code,
               message: error.message,
+              ...(error.providerUses ? { uses: error.providerUses } : {}),
               request_id: body.requestId,
             },
           };

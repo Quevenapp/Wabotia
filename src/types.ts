@@ -152,6 +152,7 @@ export class ApiError extends Error {
     public status: number,
     public code: string,
     message: string,
+    public providerUses?: { kind: string; id: string; profile_id: string }[],
   ) {
     super(message);
   }

@@ -13,8 +13,9 @@
 //   tokens por pedido e 32 mil por pergunta; US$ 0,042 por milhão de tokens
 //   de entrada, saída grátis (https://docs.typesafe.ai/models). A versão
 //   fica fixada na área (jev_model): o limiar é ajustado contra uma versão.
-import { requireValue, type Env } from "./types";
+import { ApiError, requireValue, type Env } from "./types";
 import { safeFetch, secret } from "./security";
+import { allowedProvider, hideProviderKey, providerKey, type ProviderUsage } from "./ai-providers";
 
 export const JEV_URL = "https://api.typesafe.ai/v1/systemone";
 export const JEV_MODELS = ["jev-1.14.0", "jev-1.13.0"] as const;
@@ -34,7 +35,7 @@ export interface JevResult {
   reason?: string;
   model?: string;
   answers?: Record<string, any>;
-  usage: { input: number; output: number };
+  usage: ProviderUsage;
 }
 
 /** Escolha nas duas ordens: só vale o acordo acima do limiar nos dois lados. */
@@ -60,6 +61,9 @@ export async function askJevChoice(
     reason: both.find((r) => !r.ok)?.reason || "",
     model: both[0].model || both[1].model,
     usage: {
+      provider_id: both[0].usage.provider_id || both[1].usage.provider_id,
+      model: both[0].usage.model || both[1].usage.model,
+      requests: (both[0].usage.requests || 0) + (both[1].usage.requests || 0),
       input: both[0].usage.input + both[1].usage.input,
       output: both[0].usage.output + both[1].usage.output,
     },
@@ -121,7 +125,7 @@ export const jevModel = (cfg: any) =>
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Uma chamada ao JEV com a chave da área. Repete só 429 e 529, até duas
+ * Uma chamada ao JEV com a chave do provedor da área. Repete só 429 e 529, até duas
  * vezes. Nunca lança: a falha volta como `ok: false` com o motivo, e quem
  * chama encaminha para pessoa.
  */
@@ -132,16 +136,29 @@ export async function askJev(
   state: unknown,
   questions: Record<string, JevQuestion>,
 ): Promise<JevResult> {
-  const usage = { input: 0, output: 0 };
-  const keys = await secret(env, `jev:${profile}`);
-  if (!keys.key) return { ok: false, reason: "missing_key", usage };
+  const usage: ProviderUsage = { input: 0, output: 0 };
+  let key: string, url = JEV_URL;
+  try {
+    if (cfg?.jev_provider_id !== undefined && cfg?.jev_provider_id !== null) {
+      const row = await allowedProvider(env, cfg.jev_provider_id, profile);
+      requireValue(row.kind === "typesafe", "Escolha um provedor TypeSafe para o JEV.");
+      key = await providerKey(env, row);
+      url = `${row.base_url || "https://api.typesafe.ai/v1"}/systemone`;
+      usage.provider_id = row.id;
+      usage.model = jevModel(cfg);
+      usage.requests = 1;
+    } else key = (await secret(env, `jev:${profile}`)).key;
+  } catch (error) {
+    return { ok: false, reason: error instanceof ApiError ? error.message : "provider_unavailable", usage };
+  }
+  if (!key) return { ok: false, reason: "missing_key", usage };
   const body = JSON.stringify({ model: jevModel(cfg), state, questions });
   for (let attempt = 0; ; attempt++) {
     let response: Response;
     try {
-      response = await safeFetch(JEV_URL, {
+      response = await safeFetch(url, {
         method: "POST",
-        headers: { Authorization: `Bearer ${keys.key}`, "Content-Type": "application/json" },
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
         body,
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
@@ -157,8 +174,12 @@ export async function askJev(
       void response.body?.cancel().catch(() => {});
       return { ok: false, reason: response.status === 429 || response.status === 529 ? "provider_busy" : "provider_error", usage };
     }
-    const result = await response.json<any>().catch(() => null);
+    const raw = await response.text().catch(() => "");
+    let result: any;
+    try { result = JSON.parse(hideProviderKey(raw, key)); }
+    catch { return { ok: false, reason: "invalid_decision", usage }; }
     const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.round(v) : 0);
+    if (usage.provider_id && typeof result?.model === "string" && result.model.length <= 100) usage.model = result.model;
     usage.input = n(result?.usage?.input_tokens);
     usage.output = n(result?.usage?.output_tokens);
     if (!result || typeof result.answers !== "object" || !result.answers)

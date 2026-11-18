@@ -11,12 +11,16 @@ No Wabotia ele decide **julgamento**: se a ação proposta pelo Atendente pode s
 
 Em **Automação → Regras de atendimento**:
 
-1. Cadastre a chave JEV. Ela fica criptografada no servidor e não é reexibida.
+1. Vincule um provedor `typesafe` autorizado para a área por `POST /api/v1/profiles/{área}/jev` com `{provider_id}`. A chave pertence ao provedor (`provider:<id>`), e o vínculo fica em `settings.jev_provider_id`. O formulário atual com chave continua como atalho: cria ou troca o provedor da área; `api_key` e o campo legado `key` exigem pessoa administradora em sessão direta. A tela para escolher provedores fica para a próxima etapa.
 2. Ligue **Usar JEV na tomada de decisão**. O recurso vem desligado.
 3. Ajuste o limiar, se quiser:
    - **Limiar da decisão:** de 0,5 a 0,99, padrão 0,8.
    - **Limiar por bot:** em branco, vale o da área.
    - **Modelo:** `jev-1.14.0`, o atual, ou `jev-1.13.0`. A versão fica fixada: um limiar ajustado contra uma versão não muda sozinho quando o alias `jev-latest` avança.
+
+A chave nunca sai: nem respostas, eventos, logs, erros, ferramentas ou impressão. Várias áreas autorizadas podem usar o mesmo TypeSafe. Revogação ou retirada da área falha sem recorrer à chave antiga, e a decisão encaminha para a equipe. Modelo, limiar e limiares por bot continuam em `settings.jev_*`. O consumo fica em `bot_runs.usage` e, quando há vínculo resolvido, em `ai_usage_daily`, com uso `jev`; escolha em duas ordens conta duas chamadas.
+
+A migração 0093 copia `jev:<área>` para o provedor e preserva o segredo original até a versão seguinte. Sem vínculo, o caminho legado continua disponível. Se houver troca da chave e retorno à versão anterior, vale a chave antiga. Consulte [Provedores de IA](API.md#provedores-de-ia).
 
 ## Como entra no atendimento
 
