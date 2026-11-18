@@ -25,6 +25,7 @@ import {
   readdirSync,
   rmSync,
   cpSync,
+  statSync,
 } from "node:fs";
 import { join, extname, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -34,6 +35,7 @@ import { parse } from "jsonc-parser";
 import { unstable_splitSqlQuery } from "wrangler";
 import {
   checkVersionOrder,
+  checkStaticAssetSize,
   excludedAsset,
   insideRepository,
   LAST_FORMAT1,
@@ -313,6 +315,7 @@ function files(base, relative = "", modules = false) {
         (entry.name.endsWith(".map") || entry.name === "README.md")
       )
         return [];
+      if (!modules) checkStaticAssetSize(path, statSync(join(base, path)).size);
       const raw = readFileSync(join(base, path));
       return [
         {

@@ -591,6 +591,42 @@ nome nos passos.
     com um build de teste, que só lê o catálogo de teste: volte ao build
     oficial reinstalando, com o OK do usuário.
 
+## Correções posteriores à ponte 0.21.1
+
+Estas correções valem para o atualizador da versão seguinte; a ponte já
+publicada não muda. Todos os campos novos de `system:release-state` são
+opcionais: o estado gravado pela ponte continua válido.
+
+1. Antes de cada rodada, grava `round_started_at`, `round_progress` e
+   `rounds_without_progress`. Mudança de etapa, arquivos baixados/enviados,
+   migrações conferidas/aplicadas e sonda concluída zeram o contador e
+   atualizam `last_progress_at`. Após três rodadas interrompidas sem avanço,
+   a próxima entrada encerra o trabalho como `failed`, com orientação em
+   português. O reset aceita `pending` sem avanço há **mais de 30 minutos**;
+   sem os campos novos, usa `updated` (ou `created`).
+2. A consulta de status conclui e limpa sob `updateLock`, relendo o trabalho
+   e conferindo seu `id` antes de gravar. Com a trava ocupada, apenas lê.
+   Mesmo se a concessão vencer durante uma limpeza lenta, A não regrava B.
+3. Antes de ler os blobs e montar o base64, soma o lote: acima de
+   `MAX_UPLOAD_BATCH_BYTES` (**48 MiB brutos**) falha com mensagem clara.
+   O publicador recusa estáticos acima de **24 MiB por arquivo** antes de
+   carregá-los, metade desse orçamento. Como a Cloudflare agrupa os lotes,
+   o limite por arquivo não dispensa a conferência da soma no envio.
+4. Falhas transitórias em `publish` antes de gravar `sending` entram na
+   nova tentativa automática com o mesmo recuo e limite existentes. Após
+   iniciar o PUT do código, permanece a conferência manual do resultado.
+5. Um 401/403 em `assets` volta uma vez a `prepare`, que abre nova sessão
+   pedindo só o que falta. `upload_session_renewals` limita a renovação a
+   uma por trabalho, inclusive nas retomadas automáticas.
+6. O cache só vale com `expires > now()`, e o início valida o índice com o
+   horário atual. Um trabalho já iniciado continua depois do vencimento.
+7. `CloudflareCallError.status` informa o HTTP mesmo com corpo não JSON;
+   a mensagem inclui `Cloudflare HTTP <código>`. A decisão de repetir usa
+   esse campo, sem interpretar o texto: 403 HTML não é repetível.
+
+Não há mudança no formato dos pacotes, manifestos, índices ou assinaturas,
+nas chaves, nos recursos Cloudflare ou nas migrações D1.
+
 ## Para a revisão da sessão A (núcleo)
 
 - `src/release.ts`: só formato 2 (`validateIndexV2` com prazo,

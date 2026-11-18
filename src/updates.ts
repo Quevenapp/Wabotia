@@ -397,7 +397,12 @@ export async function checkUpdate(env: Env, force = false) {
   const cached = await secret(env, latestId);
   // Só o índice do formato 2 vale como cache: o que a 0.21.0 guardou (formato
   // 1) é consultado de novo.
-  if (!force && cached.format === 2 && cached.checked_at > now() - 300000)
+  if (
+    !force &&
+    cached.format === 2 &&
+    cached.checked_at > now() - 300000 &&
+    cached.expires > now()
+  )
     return cached;
   try {
     // Índice do formato 2 com a assinatura e a validade conferidas.
@@ -470,30 +475,38 @@ export async function settleFormat1Job(env: Env) {
   await setSecret(env, stateId, state);
   return state;
 }
-export async function updateStatus(env: Env) {
+/** Chamado somente com updateLock adquirido; nunca regrava outro trabalho. */
+async function reconcileUpdate(env: Env, id: string | undefined) {
+  if ((await secret(env, stateId)).id !== id) return;
   await settleJobToken(env);
-  const state = await settleFormat1Job(env),
-    stored = await secret(env, latestId),
-    // O índice guardado pela 0.21.0 (formato 1) não descreve uma versão que
-    // este atualizador instale.
-    latest: any = stored.format === 2 ? stored : {};
+  const state = await settleFormat1Job(env);
   if (state.target === buildInfo.commit && state.status !== "completed") {
     // Concluída primeiro; a limpeza do R2 vem depois e, se falhar, é
     // repetida na próxima consulta (cleanup_pending).
     state.status = "completed";
     state.completed_at = now();
     state.cleanup_pending = true;
-    await setSecret(env, stateId, state);
+    if ((await secret(env, stateId)).id === id)
+      await setSecret(env, stateId, state);
   }
   if (state.cleanup_pending) {
     try {
       await dropTemporary(env, state);
       state.cleanup_pending = false;
-      await setSecret(env, stateId, state);
+      if ((await secret(env, stateId)).id === id)
+        await setSecret(env, stateId, state);
     } catch {
       // Fica pendente para a próxima consulta.
     }
   }
+}
+export async function updateStatus(env: Env) {
+  const observed = await secret(env, stateId);
+  await updateLock(env, () => reconcileUpdate(env, observed.id), true);
+  const state = await secret(env, stateId),
+    stored = await secret(env, latestId),
+    // O índice do formato 1 não descreve uma versão que este leitor instale.
+    latest: any = stored.format === 2 ? stored : {};
   return {
     installed: buildInfo,
     method: "direct",
@@ -605,7 +618,7 @@ async function startDirectUpdate(
   );
   const old = await settleFormat1Job(env);
   if (activeStatuses.includes(old.status)) return publicState(old);
-  const index = await checkUpdate(env);
+  const index = validateIndexV2(await checkUpdate(env), now());
   requireValue(
     data.commit === index.commit && index.commit !== buildInfo.commit,
     "Confira novamente a versão disponível antes de atualizar.",
@@ -674,7 +687,8 @@ export async function automaticUpdateTick(env: Env) {
         });
         return;
       }
-      await updateStatus(env); // Reconcile only against the code actually running.
+      // A trava já está adquirida; confere só o código realmente em execução.
+      await reconcileUpdate(env, (await secret(env, stateId)).id);
       const job = await secret(env, stateId);
       if (activeStatuses.includes(job.status)) {
         await save({
@@ -723,6 +737,8 @@ export async function automaticUpdateTick(env: Env) {
           error: null,
           retry_at: null,
           retryable: false,
+          rounds_without_progress: 0,
+          round_progress: undefined,
           updated: at,
         };
         await setSecret(env, stateId, retry);
@@ -847,6 +863,30 @@ async function processDirectUpdate(env: Env) {
     return;
   }
   state.started_at ||= now();
+  // Campos opcionais: o estado deixado pela ponte ainda não os tem.
+  const progress = updateProgress(state);
+  if (state.round_progress !== progress) {
+    state.rounds_without_progress = 0;
+    state.last_progress_at =
+      state.round_progress === undefined
+        ? (state.last_progress_at ?? state.updated ?? state.created ?? now())
+        : now();
+  }
+  if ((state.rounds_without_progress || 0) >= 3) {
+    state.status = "failed";
+    state.error =
+      "A atualização ficou três rodadas seguidas sem avanço. Libere uma nova tentativa e, se persistir, avise o mantenedor.";
+    state.retryable = false;
+    state.retry_at = null;
+    state.updated = now();
+    await setSecret(env, stateId, state);
+    return;
+  }
+  state.round_started_at = now();
+  state.round_progress = progress;
+  state.rounds_without_progress = (state.rounds_without_progress || 0) + 1;
+  // Grava antes de qualquer trabalho: até uma queda sem catch deixa recibo.
+  await setSecret(env, stateId, state);
   try {
     const token = await tokenFor(env),
       base = scriptPath(env.WABOTIA_ACCOUNT_ID!, env.WABOTIA_WORKER_NAME!);
@@ -857,10 +897,16 @@ async function processDirectUpdate(env: Env) {
       JOB_TOKEN_EXPIRED,
     );
     await processPhase(env, state, token, base);
+    if (updateProgress(state) !== progress) {
+      state.round_progress = updateProgress(state);
+      state.rounds_without_progress = 0;
+      state.last_progress_at = now();
+    }
     state.updated = now();
     if ((await secret(env, stateId)).status !== "completed")
       await setSecret(env, stateId, state);
   } catch (e) {
+    const beforeSending = state.status === "pending";
     state.error =
       e instanceof Error ? e.message : "A atualização não foi concluída.";
     state.status =
@@ -871,19 +917,36 @@ async function processDirectUpdate(env: Env) {
     state.updated = now();
     state.retryable =
       state.source === "automatic" &&
-      ["manifest", "blobs", "prepare", "assets"].includes(state.phase) &&
-      (e instanceof TypeError ||
-        (e instanceof Error &&
-          ["AbortError", "TimeoutError"].includes(e.name)) ||
-        (e instanceof CloudflareCallError &&
-          !/HTTP (?!429\b)4\d\d\b/.test(state.error)) ||
-        /HTTP (429|5\d\d)\b/.test(state.error));
+      beforeSending &&
+      ["manifest", "blobs", "prepare", "assets", "publish"].includes(
+        state.phase,
+      ) &&
+      (e instanceof CloudflareCallError
+        ? e.status === undefined ||
+          e.status < 400 ||
+          e.status >= 500 ||
+          e.status === 429
+        : e instanceof TypeError ||
+          (e instanceof Error &&
+            ["AbortError", "TimeoutError"].includes(e.name)) ||
+          /HTTP (429|5\d\d)\b/.test(state.error));
     state.retry_at = state.retryable
       ? now() + 300000 * 2 ** ((state.attempt || 1) - 1)
       : null;
     if ((await secret(env, stateId)).status !== "completed")
       await setSecret(env, stateId, state);
   }
+}
+/** Só avanço real conta; horários, erros e tentativas não são progresso. */
+function updateProgress(state: any) {
+  return JSON.stringify([
+    state.phase,
+    state.blob || 0,
+    state.migrations_checked || 0,
+    state.bucket || 0,
+    !!state.paid_checked,
+    state.migration || null,
+  ]);
 }
 export async function resetUpdate(env: Env, actor: Actor, data: any) {
   admin(actor);
@@ -895,7 +958,9 @@ async function resetDirectUpdate(env: Env, data: any) {
     data.confirmed_build_stopped === true &&
       state.id &&
       state.status !== "completed" &&
-      state.status !== "pending",
+      (state.status !== "pending" ||
+        (state.last_progress_at ?? state.updated ?? state.created) <
+          now() - 30 * 60000),
     "Confira a versão e confirme que a publicação anterior terminou.",
   );
   requireValue(
@@ -1086,12 +1151,28 @@ async function processPhase(env: Env, state: any, token: string, base: string) {
       manifest,
       state.upload.buckets[state.bucket],
     );
-    const result = await releaseCloudflare(
-      state.upload.jwt,
-      `/accounts/${env.WABOTIA_ACCOUNT_ID}/workers/assets/upload?base64=true`,
-      "POST",
-      await assetUploadV2(bucket, blobReader(env, state)),
-    );
+    let result;
+    try {
+      result = await releaseCloudflare(
+        state.upload.jwt,
+        `/accounts/${env.WABOTIA_ACCOUNT_ID}/workers/assets/upload?base64=true`,
+        "POST",
+        await assetUploadV2(bucket, blobReader(env, state)),
+      );
+    } catch (error) {
+      if (
+        error instanceof CloudflareCallError &&
+        (error.status === 401 || error.status === 403) &&
+        !(state.upload_session_renewals || 0)
+      ) {
+        state.upload_session_renewals = 1;
+        state.phase = "prepare";
+        delete state.upload;
+        state.bucket = 0;
+        return;
+      }
+      throw error;
+    }
     state.bucket++;
     if (state.bucket === state.upload.buckets.length) {
       requireValue(
@@ -1130,6 +1211,7 @@ async function processPhase(env: Env, state: any, token: string, base: string) {
         migration.name,
       ),
     ]);
+    state.migration = migration.name;
     return;
   }
   if (state.phase === "publish") {
