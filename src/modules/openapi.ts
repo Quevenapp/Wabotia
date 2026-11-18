@@ -173,6 +173,7 @@ export const moduleSchemas = {
     properties: { conversation_id: { type: "string" } },
   },
   ...serviceOrderSchemas(),
+  ...workMotorSchemas(),
   ...pedidoSchemas(),
   ...mesasSchemas(),
   ...entregaSchemas(),
@@ -728,66 +729,7 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
     "Agenda: marcar ausência",
     "conversations:write",
   ],
-  [
-    "get",
-    "/profiles/{profile}/service-orders",
-    "Ordens de serviço: lista com filtro por estado e busca",
-    "conversations:read",
-  ],
-  [
-    "get",
-    "/profiles/{profile}/service-orders/conversation/{id}",
-    "Ordens de serviço do cliente de uma conversa (bot)",
-    "conversations:read",
-  ],
-  [
-    "post",
-    "/profiles/{profile}/service-orders",
-    "Abrir ordem de serviço",
-    "conversations:write",
-    "ServiceOrderCreate",
-  ],
-  [
-    "get",
-    "/profiles/{profile}/service-orders/{id}",
-    "Ordem de serviço com histórico",
-    "conversations:read",
-  ],
-  [
-    "patch",
-    "/profiles/{profile}/service-orders/{id}",
-    "Alterar dados da ordem de serviço",
-    "conversations:write",
-    "ServiceOrderUpdate",
-  ],
-  [
-    "post",
-    "/profiles/{profile}/service-orders/{id}/status",
-    "Mudar o estado da ordem de serviço",
-    "conversations:write",
-    "ServiceOrderStatus",
-  ],
-  [
-    "put",
-    "/profiles/{profile}/service-orders/{id}/quote",
-    "Salvar o orçamento da ordem de serviço",
-    "conversations:write",
-    "ServiceOrderQuote",
-  ],
-  [
-    "post",
-    "/profiles/{profile}/service-orders/{id}/quote/send",
-    "Enviar o orçamento ao cliente",
-    "conversations:write",
-    "ServiceOrderQuoteSend",
-  ],
-  [
-    "post",
-    "/profiles/{profile}/service-orders/{id}/decision",
-    "Registrar aprovação ou recusa do orçamento",
-    "conversations:write",
-    "ServiceOrderDecision",
-  ],
+  ...workMotorOperations(),
   ...reservaOperations,
   ...pedidoOperations,
   ...mesasOperations,
@@ -961,6 +903,8 @@ export function describeModuleOperation(
     return describeEntregaOperation(path, method, entry, success);
   if (path.includes("/service-orders"))
     return describeServiceOrderOperation(path, method, entry, success);
+  if (path.includes("/area-templates"))
+    return describeWorkMotorOperation(path, method, entry, success);
   if (path.includes("/mensalidade/"))
     return describeMensalidadeOperation(path, method, entry, success);
   if (path.includes("/suporte/"))
@@ -1131,6 +1075,8 @@ function serviceOrderSchemas() {
         id: { type: "string" },
         number: {
           type: "integer",
+          minimum: 1,
+          maximum: 2147483647,
           description: "Sequencial por área de atendimento.",
         },
         status: { enum: statuses },
@@ -1219,7 +1165,9 @@ function serviceOrderSchemas() {
         created_by: { type: "string" },
         created: { type: "integer" },
         updated: { type: "integer" },
+        ...workOrderProperties(),
       },
+      examples: Object.values(workOrderExamples()),
     },
     ServiceOrderCreate: {
       type: "object",
@@ -1239,6 +1187,8 @@ function serviceOrderSchemas() {
           default: true,
           description: "Avisa o cliente na conversa.",
         },
+        type_id: { type: "string", default: "service_order" },
+        extra: { $ref: "#/components/schemas/ExtraValues" },
       },
     },
     ServiceOrderUpdate: {
@@ -1251,6 +1201,8 @@ function serviceOrderSchemas() {
         notes: { type: "string", maxLength: 4000 },
         assignee: { type: ["string", "null"] },
         due_at: { type: ["integer", "null"] },
+        extra: { $ref: "#/components/schemas/ExtraValues" },
+        version: { type: "integer", minimum: 1 },
       },
     },
     ServiceOrderStatus: {
@@ -1305,64 +1257,7 @@ function describeServiceOrderOperation(
   entry: any,
   success: any,
 ) {
-  const ref = { $ref: "#/components/schemas/ServiceOrder" };
-  entry.description +=
-    " Módulo Ordem de Serviço (os); desligado, 409 module_disabled.";
-  if (path.endsWith("/service-orders") && method === "get") {
-    entry.description +=
-      " Ordena por número decrescente; next_cursor vai em cursor. counts traz o total por estado da área.";
-    entry.parameters.push(
-      ...[
-        "status",
-        "open",
-        "q",
-        "phone",
-        "conversation_id",
-        "limit",
-        "cursor",
-      ].map((name) => ({ in: "query", name, schema: { type: "string" } })),
-    );
-    success.content["application/json"].schema = {
-      type: "object",
-      properties: {
-        data: { type: "array", items: ref },
-        next_cursor: { type: ["string", "null"] },
-        counts: {
-          type: "object",
-          description:
-            "Ordens da área por estado, sem os filtros da consulta. Chaves = códigos de status (received, analyzing, quoted, approved, declined, in_progress, ready, delivered, cancelled); estado sem ordens fica ausente (vale 0).",
-          properties: Object.fromEntries(
-            [
-              "received",
-              "analyzing",
-              "quoted",
-              "approved",
-              "declined",
-              "in_progress",
-              "ready",
-              "delivered",
-              "cancelled",
-            ].map((s) => [s, { type: "integer" }]),
-          ),
-          additionalProperties: false,
-        },
-      },
-    };
-    return;
-  }
-  if (path.endsWith("/status"))
-    entry.description +=
-      " Transições: recebida → em análise, em execução ou cancelada; em análise → em execução ou cancelada; orçamento enviado → em análise ou cancelada; aprovada → em execução ou cancelada; recusada → em análise, pronta ou cancelada; em execução → pronta ou cancelada; pronta → entregue, em execução ou cancelada. Outras: 409 invalid_transition. Avisa o cliente com o texto configurado do estado.";
-  if (path.endsWith("/quote"))
-    entry.description +=
-      " Só em recebida, em análise, orçamento enviado ou recusada. Alterar um orçamento já enviado volta a ordem para em análise.";
-  if (path.endsWith("/quote/send"))
-    entry.description +=
-      " Fixa a validade (fim do dia, horário de Brasília), sobe quote.version e muda para quoted. O cliente recebe os itens e responde pelo WhatsApp; fora da janela de 24 h sai pelo modelo de notificação.";
-  if (path.endsWith("/decision"))
-    entry.description +=
-      " Resposta do cliente registrada pela equipe ou integração. 409 quote_expired com o orçamento vencido e 409 quote_not_pending fora de quoted.";
-  success.content["application/json"].schema = ref;
+  describeWorkMotorOperation(path, method, entry, success);
 }
 
 // --- Mensalidade (módulo "mensalidade", docs/MENSALIDADE.md) ----------------
@@ -2448,4 +2343,1462 @@ function describeSuporteOperation(
   }
   if (method === "get")
     success.content["application/json"].schema = ref("SuporteConversation");
+}
+
+// Motor de trabalhos: contrato das seções 3, 5 e 7, completado por F0.
+// Este catálogo documenta a integração; não registra manipuladores HTTP.
+function workRef(name: string) {
+  return { $ref: `#/components/schemas/${name}` };
+}
+
+function workObject(
+  properties: Record<string, any>,
+  required = Object.keys(properties),
+) {
+  return {
+    type: "object",
+    properties,
+    required: [...new Set(required)],
+    additionalProperties: false,
+  };
+}
+
+function workStatuses() {
+  return [
+    "received",
+    "analyzing",
+    "quoted",
+    "approved",
+    "declined",
+    "in_progress",
+    "ready",
+    "delivered",
+    "cancelled",
+  ];
+}
+
+function workOrderProperties() {
+  const text = { type: "string" };
+  const version = { type: "integer", minimum: 1 };
+  return {
+    type_id: text,
+    type_revision: version,
+    type_number: { type: "integer", minimum: 1, maximum: 2147483647 },
+    type_label: text,
+    type_plural_label: text,
+    display_number: text,
+    stage: text,
+    stage_label: text,
+    labels: workRef("WorkLabels"),
+    extra: workRef("ExtraValues"),
+    fields: {
+      type: "array",
+      items: workRef("WorkField"),
+      description:
+        "Somente definições autorizadas; campos sensíveis ficam fora da resposta comum.",
+    },
+    version,
+    next_stages: {
+      type: "array",
+      items: workObject({
+        transition_id: text,
+        stage: text,
+        stage_label: text,
+        base_status: { type: "string", enum: workStatuses() },
+        kind: { enum: ["manual", "customer_approval"] },
+      }),
+    },
+    stage_approval: {
+      anyOf: [workRef("PendingStageApproval"), { type: "null" }],
+    },
+  };
+}
+
+function workOrderExamples() {
+  const builtin = {
+    id: "os_42",
+    number: 42,
+    status: "received",
+    status_label: "Recebida",
+    customer: {
+      name: "Cliente de exemplo",
+      phone: "5511999998888",
+      contact_id: null,
+      conversation_id: "conversation_1",
+    },
+    item: "Impressora",
+    problem: "Não imprime",
+    notes: "",
+    assignee: null,
+    due_at: null,
+    source: "panel",
+    terms: null,
+    quote: null,
+    decision: null,
+    ready_at: null,
+    delivered_at: null,
+    warranty_until: null,
+    next_statuses: ["analyzing", "in_progress", "cancelled"],
+    created_by: "user_1",
+    created: 1795000000000,
+    updated: 1795000000000,
+    type_id: "service_order",
+    type_revision: 1,
+    type_number: 42,
+    type_label: "Ordem de serviço",
+    type_plural_label: "Ordens de serviço",
+    display_number: "42",
+    stage: "received",
+    stage_label: "Recebida",
+    labels: {
+      singular: "Ordem de serviço",
+      plural: "Ordens de serviço",
+      item: "Item",
+      problem: "Problema",
+      customer_singular: "Cliente",
+      customer_plural: "Clientes",
+    },
+    extra: {},
+    fields: [],
+    version: 1,
+    stage_approval: null,
+    next_stages: [
+      {
+        transition_id: "analyzing",
+        stage: "analyzing",
+        stage_label: "Em análise",
+        base_status: "analyzing",
+        kind: "manual",
+      },
+      {
+        transition_id: "in_progress",
+        stage: "in_progress",
+        stage_label: "Em execução",
+        base_status: "in_progress",
+        kind: "manual",
+      },
+      {
+        transition_id: "cancelled",
+        stage: "cancelled",
+        stage_label: "Cancelada",
+        base_status: "cancelled",
+        kind: "manual",
+      },
+    ],
+  };
+  const custom = {
+    ...builtin,
+    id: "os_43",
+    number: 43,
+    item: "Projeto da loja",
+    problem: "Revisar planta",
+    status: "in_progress",
+    status_label: "Em execução",
+    type_id: "projeto",
+    type_number: 7,
+    type_label: "Projeto",
+    type_plural_label: "Projetos",
+    display_number: "PROJ-7",
+    stage: "revisao",
+    stage_label: "Revisão",
+    version: 3,
+    labels: {
+      ...builtin.labels,
+      singular: "Projeto",
+      plural: "Projetos",
+      item: "Projeto",
+      problem: "Objetivo",
+    },
+    extra: { visitas: 0 },
+    fields: [
+      {
+        id: "visitas",
+        label: "Visitas",
+        help: "",
+        required: false,
+        client_visible: true,
+        sensitive: false,
+        kind: "integer",
+        min: 0,
+        max: 100,
+      },
+    ],
+    next_statuses: ["cancelled"],
+    next_stages: [
+      {
+        transition_id: "finalizar_revisao",
+        stage: "execucao",
+        stage_label: "Execução",
+        base_status: "in_progress",
+        kind: "manual",
+      },
+      {
+        transition_id: "cancelar",
+        stage: "cancelado",
+        stage_label: "Cancelado",
+        base_status: "cancelled",
+        kind: "manual",
+      },
+    ],
+  };
+  return { builtin, custom };
+}
+
+function workMotorSchemas(): Record<string, any> {
+  const text = { type: "string" };
+  const bool = { type: "boolean" };
+  const version = { type: "integer", minimum: 1 };
+  const nullableText = { type: ["string", "null"] };
+  const date = {
+    type: "integer",
+    description: "Instante Unix em milissegundos.",
+  };
+  const nullableDate = { ...date, type: ["integer", "null"] };
+  const array = (items: any, maxItems?: number) => ({
+    type: "array",
+    items,
+    ...(maxItems === undefined ? {} : { maxItems }),
+  });
+  const strings = array(text);
+  const id = (maxLength = 32) => ({
+    type: "string",
+    pattern: "^[a-z][a-z0-9_]*$",
+    minLength: 1,
+    maxLength,
+  });
+  const label = { type: "string", minLength: 1, maxLength: 80 };
+  const message = { type: "string", maxLength: 900 };
+  const visibility = { client_visible: bool, sensitive: bool };
+  const child = {
+    id: text,
+    order_id: text,
+    version,
+    ...visibility,
+    created_by: text,
+    created: date,
+    updated: date,
+    archived_at: nullableDate,
+  };
+  const childRequired = Object.keys(child).filter(
+    (key) => key !== "created_by",
+  );
+  const task = {
+    title: { type: "string", minLength: 1, maxLength: 160 },
+    description: { type: "string", maxLength: 4000 },
+    assignee: nullableText,
+    audience: { enum: ["staff", "customer"] },
+    due_at: nullableDate,
+    remind_at: nullableDate,
+    ...visibility,
+  };
+  const person = {
+    role: { type: "string", minLength: 1, maxLength: 64 },
+    name: { type: "string", minLength: 1, maxLength: 120 },
+    contact_id: nullableText,
+    phone: { type: "string", maxLength: 40 },
+    email: { type: "string", maxLength: 254 },
+    note: { type: "string", maxLength: 2000 },
+    ...visibility,
+  };
+  const document = {
+    name: { type: "string", minLength: 1, maxLength: 200 },
+    mime_type: { type: "string", minLength: 1, maxLength: 120 },
+    expected_bytes: { type: "integer", minimum: 1, maximum: 10485760 },
+    ...visibility,
+  };
+  const entry = {
+    kind: { type: "string", minLength: 1, maxLength: 64 },
+    text: { type: "string", minLength: 1, maxLength: 4000 },
+    quantity_milli: {
+      type: ["integer", "null"],
+      minimum: 0,
+      maximum: 1000000000000,
+      description:
+        "Quantidade em milésimos: 1500 = 1,5. Não cria movimento financeiro.",
+    },
+    unit: { type: "string", maxLength: 32 },
+    occurred_at: date,
+    ...visibility,
+  };
+  const taskState = { enum: ["open", "done", "cancelled"] };
+  const entryRequired = [
+    "kind",
+    "text",
+    "occurred_at",
+    "client_visible",
+    "sensitive",
+  ];
+  const field = {
+    id: id(),
+    label,
+    help: { type: "string", maxLength: 240 },
+    required: bool,
+    ...visibility,
+  };
+  const variants = {
+    text: {
+      multiline: bool,
+      max_length: { type: "integer", minimum: 1, maximum: 2000 },
+    },
+    integer: {
+      min: {
+        type: "integer",
+        minimum: -9007199254740991,
+        maximum: 9007199254740991,
+      },
+      max: {
+        type: "integer",
+        minimum: -9007199254740991,
+        maximum: 9007199254740991,
+      },
+    },
+    decimal: {
+      min: { type: "number" },
+      max: { type: "number" },
+      scale: { type: "integer", minimum: 0, maximum: 6 },
+    },
+    boolean: {},
+    date: {
+      min: { type: ["string", "null"], format: "date" },
+      max: { type: ["string", "null"], format: "date" },
+    },
+    choice: {
+      options: { ...array(workObject({ id: id(), label }), 32), minItems: 1 },
+    },
+  };
+  const transition = { id: id(), from: id(), to: id(), label };
+  const typeProperties = {
+    schema_version: { enum: [1] },
+    kind: { enum: ["custom"] },
+    id: { ...id(64), not: { enum: ["service_order"] } },
+    revision: version,
+    archived: bool,
+    labels: workRef("WorkLabels"),
+    number_prefix: { type: "string", maxLength: 12 },
+    terms: { type: ["string", "null"], maxLength: 1400 },
+    fields: array(workRef("WorkField"), 24),
+    retired_field_ids: array(id()),
+    stages: { ...array(workRef("WorkStage"), 32), minItems: 1 },
+    retired_stage_ids: array(id()),
+    initial_stage: id(),
+    transitions: array(workRef("WorkTransition"), 128),
+    features: workRef("WorkFeatures"),
+    pickup_reminder_text: message,
+  };
+  const modules = [
+    "os",
+    "queue",
+    "forms",
+    "agenda",
+    "reserva",
+    "pedido",
+    "mensalidade",
+    "suporte",
+    "mesas",
+    "entrega",
+    "payments",
+    "erp",
+  ];
+  const menu = { id: text, label };
+  const selection = workObject({
+    work_type_ids: strings,
+    module_ids: array({ enum: modules }),
+    menus: bool,
+    departments: bool,
+    ticket_categories: bool,
+    vocabulary: bool,
+    texts: bool,
+    bot_suggestions: bool,
+  });
+  const templateRequest = (apply: boolean) => ({
+    oneOf: ["template_id", "manifest"].map((source) =>
+      workObject({
+        [source]: source === "template_id" ? text : workRef("AreaTemplate"),
+        selection: workRef("AreaTemplateSelection"),
+        ...(apply ? { preview_hash: text } : {}),
+      }),
+    ),
+  });
+  const page = (name: string) =>
+    workObject({ data: array(workRef(name)), next_cursor: nullableText });
+  const counts = {
+    type: "object",
+    additionalProperties: false,
+    description:
+      "Mapa esparso dos nove estados da área inteira, independente de filtros e paginação; chave ausente vale zero.",
+    properties: Object.fromEntries(
+      workStatuses().map((status) => [status, { type: "integer", minimum: 0 }]),
+    ),
+  };
+  return {
+    BaseStatus: { type: "string", enum: workStatuses() },
+    ExtraValues: {
+      type: "object",
+      additionalProperties: { type: ["string", "number", "boolean", "null"] },
+      description:
+        "Até 16 KiB UTF-8; somente IDs da definição fixada na abertura. Rotas comuns rejeitam valores sensíveis. Ausência difere de false, zero, vazio e null.",
+    },
+    WorkLabels: workObject(
+      Object.fromEntries(
+        [
+          "singular",
+          "plural",
+          "item",
+          "problem",
+          "customer_singular",
+          "customer_plural",
+        ].map((key) => [key, label]),
+      ),
+    ),
+    WorkField: {
+      oneOf: Object.entries(variants).map(([kind, extra]) =>
+        workObject({ ...field, kind: { enum: [kind] }, ...extra }),
+      ),
+      description:
+        "ID único; constructor, prototype e __proto__ proibidos. sensitive exige client_visible=false e required=false. Escolha recebe ID, data civil deve existir, decimal finito respeita escala sem arredondamento.",
+    },
+    WorkStage: workObject({
+      id: id(),
+      label,
+      base_status: workRef("BaseStatus"),
+      message,
+    }),
+    WorkTransition: {
+      oneOf: [
+        workObject({ ...transition, kind: { enum: ["manual"] } }),
+        workObject({
+          ...transition,
+          kind: { enum: ["customer_approval"] },
+          valid_hours: { type: "integer", minimum: 1, maximum: 720 },
+          request_text: message,
+        }),
+      ],
+    },
+    WorkQuotePolicy: workObject({
+      default_valid_days: { type: "integer", minimum: 1, maximum: 90 },
+      source_stages: array(id()),
+      sent_stage: id(),
+      approved_stage: id(),
+      declined_stage: id(),
+      edited_stage: id(),
+    }),
+    WorkFeatures: workObject({
+      customer_open: bool,
+      tasks: bool,
+      people: bool,
+      documents: bool,
+      entries: bool,
+      quote: { anyOf: [workRef("WorkQuotePolicy"), { type: "null" }] },
+      warranty_days: { type: "integer", minimum: 0, maximum: 3650 },
+      pickup_reminder_days: { type: "integer", minimum: 0, maximum: 365 },
+      stale_days: { type: "integer", minimum: 0, maximum: 365 },
+    }),
+    CustomWorkType: {
+      ...workObject(typeProperties),
+      description:
+        "Até 12 KiB UTF-8. Novo tipo tem revisão 1; alteração incrementa uma vez. Não excluir: arquivar. IDs aposentados não são reutilizados; sigilo não pode ser reduzido. Etapa inicial received; delivered/cancelled terminais. quoted/approved/declined reservados ao orçamento.",
+    },
+    WorkTypeView: {
+      oneOf: [
+        workRef("CustomWorkType"),
+        workObject({
+          ...typeProperties,
+          kind: { enum: ["builtin"] },
+          id: { enum: ["service_order"] },
+          revision: { enum: [1] },
+        }),
+      ],
+      description:
+        "Definição resolvida; omite campos sensíveis sem autorização. O embutido é virtual; não salvar em os_work_types.",
+    },
+    OsVocabulary: workObject({
+      collection_label: label,
+      customer_singular: label,
+      customer_plural: label,
+    }),
+    WorkTypeSettings: workObject(
+      {
+        os_work_types: array(workRef("CustomWorkType"), 20),
+        os_vocabulary: workRef("OsVocabulary"),
+        settings_revision: text,
+      },
+      ["settings_revision"],
+    ),
+    WorkTypeCatalog: workObject({
+      data: array(workRef("WorkTypeView")),
+      settings_revision: text,
+    }),
+    PendingStageApproval: workObject({
+      version,
+      transition_id: text,
+      from_stage: text,
+      to_stage: text,
+      state: {
+        enum: ["pending", "approved", "declined", "expired", "cancelled"],
+      },
+      requested_at: date,
+      expires_at: date,
+      decided_at: nullableDate,
+      decided_by: nullableText,
+    }),
+    StageRequest: workObject(
+      {
+        transition_id: text,
+        version,
+        note: { type: "string", maxLength: 500 },
+      },
+      ["transition_id", "version"],
+    ),
+    StageApprovalRequest: workObject({ transition_id: text, version }),
+    StageApprovalDecisionRequest: workObject({
+      decision: { enum: ["approve", "decline"] },
+      approval_version: version,
+      version,
+    }),
+    PrivateFields: workObject({
+      id: text,
+      version,
+      extra: workRef("ExtraValues"),
+    }),
+    PrivateFieldsRequest: workObject({
+      version,
+      extra: workRef("ExtraValues"),
+    }),
+    PrivateFieldsResult: workObject({
+      id: text,
+      version,
+      changed_fields: strings,
+    }),
+    VersionRequest: workObject({ version }),
+    MutationRef: workObject({ id: text, order_id: text, version }),
+    ServiceOrderList: {
+      ...workObject(
+        {
+          data: array(workRef("ServiceOrder")),
+          next_cursor: nullableText,
+          counts,
+          facets: workObject(
+            {
+              types: {
+                type: "object",
+                additionalProperties: { type: "integer", minimum: 0 },
+              },
+              stages: {
+                type: "object",
+                additionalProperties: { type: "integer", minimum: 0 },
+              },
+            },
+            ["types"],
+          ),
+        },
+        ["data", "next_cursor", "counts"],
+      ),
+      example: {
+        data: Object.values(workOrderExamples()),
+        next_cursor: "42",
+        counts: { received: 1, in_progress: 1 },
+      },
+    },
+    ConversationOrders: workObject({ data: array(workRef("ServiceOrder")) }),
+    OrderHistory: workObject(
+      {
+        id: text,
+        kind: text,
+        from_status: {
+          type: ["string", "null"],
+          enum: [...workStatuses(), null],
+        },
+        to_status: {
+          type: ["string", "null"],
+          enum: [...workStatuses(), null],
+        },
+        actor: text,
+        note: text,
+        created: date,
+        from_stage: nullableText,
+        to_stage: nullableText,
+        entity_kind: { enum: ["task", "person", "document", "entry", null] },
+        entity_id: nullableText,
+        entity_version: { type: ["integer", "null"], minimum: 1 },
+        mutation_key: nullableText,
+        changed_fields: strings,
+      },
+      ["id", "kind", "from_status", "to_status", "actor", "created"],
+    ),
+    OrderHistoryPage: page("OrderHistory"),
+    CreateTaskRequest: {
+      ...workObject(task, ["title", "audience", "client_visible", "sensitive"]),
+      description:
+        "audience=customer exige client_visible=true e sensitive=false. remind_at exige due_at e não pode ser posterior ao prazo.",
+    },
+    UpdateTaskRequest: workObject({ ...task, version, state: taskState }, [
+      "version",
+    ]),
+    Task: workObject(
+      {
+        ...child,
+        ...task,
+        state: taskState,
+        notified_at: nullableDate,
+        completed_at: nullableDate,
+      },
+      [
+        ...childRequired,
+        "title",
+        "description",
+        "assignee",
+        "audience",
+        "due_at",
+        "remind_at",
+        "state",
+        "notified_at",
+        "completed_at",
+      ],
+    ),
+    TaskPage: page("Task"),
+    CreatePersonRequest: workObject(person, [
+      "role",
+      "name",
+      "client_visible",
+      "sensitive",
+    ]),
+    UpdatePersonRequest: workObject({ ...person, version }, ["version"]),
+    LinkedPerson: {
+      ...workObject({ ...child, ...person }, [
+        ...childRequired,
+        "role",
+        "name",
+      ]),
+      description:
+        "Contato e nota dependem dos escopos. Vínculo não concede acesso à ordem.",
+    },
+    LinkedPersonPage: page("LinkedPerson"),
+    CreateDocumentRequest: workObject(document),
+    DocumentMetadata: workObject(
+      {
+        ...child,
+        ...document,
+        byte_length: {
+          type: ["integer", "null"],
+          minimum: 1,
+          maximum: 10485760,
+        },
+        sha256: nullableText,
+        state: { enum: ["pending", "ready", "aborted"] },
+        upload_expires_at: date,
+      },
+      [
+        ...childRequired,
+        ...Object.keys(document),
+        "byte_length",
+        "sha256",
+        "state",
+        "upload_expires_at",
+      ],
+    ),
+    DocumentMetadataPage: page("DocumentMetadata"),
+    DocumentReservation: workObject({
+      id: text,
+      order_id: text,
+      version,
+      upload_url: text,
+      expires_at: date,
+    }),
+    DocumentUploadResult: workObject({
+      id: text,
+      version,
+      upload_attempt: text,
+      byte_length: { type: "integer", minimum: 1, maximum: 10485760 },
+      sha256: { type: "string", pattern: "^[a-f0-9]{64}$" },
+    }),
+    CompleteDocumentRequest: workObject({ version, upload_attempt: text }),
+    SendDocumentResult: workObject({ id: text, message_id: text }),
+    CreateEntryRequest: workObject(entry, entryRequired),
+    ReviseEntryRequest: workObject({ ...entry, version }, [
+      ...entryRequired,
+      "version",
+    ]),
+    Entry: workObject({ ...child, ...entry, replaces_id: nullableText }, [
+      ...childRequired,
+      ...Object.keys(entry),
+      "replaces_id",
+    ]),
+    EntryPage: page("Entry"),
+    AreaModuleId: { enum: modules },
+    AreaBotSuggestion: workObject({
+      instructions: text,
+      allowed_operations: strings,
+      denied_operations: strings,
+      suggested_roles: strings,
+    }),
+    TemplateMenu: {
+      oneOf: [
+        workObject({
+          ...menu,
+          type: { enum: ["os_open", "os_track"] },
+          type_id: text,
+        }),
+        workObject({
+          ...menu,
+          type: { enum: ["human"] },
+          department_id: nullableText,
+        }),
+        workObject({ ...menu, type: { enum: ["message"] }, content: text }),
+      ],
+    },
+    AreaTemplate: {
+      ...workObject({
+        schema_version: { enum: [1] },
+        id: text,
+        version,
+        name: text,
+        description: text,
+        work_types: array(workRef("CustomWorkType"), 20),
+        modules: workObject(
+          Object.fromEntries(modules.map((name) => [name, bool])),
+          [],
+        ),
+        vocabulary: workRef("OsVocabulary"),
+        departments: array(
+          workObject({
+            id: text,
+            name: text,
+            members: { type: "array", maxItems: 0 },
+            enabled: { enum: [true] },
+          }),
+        ),
+        ticket_categories: array(
+          workObject({ id: text, name: text, enabled: { enum: [true] } }),
+        ),
+        menus: array(workRef("TemplateMenu")),
+        texts: workObject(
+          {
+            instructions: text,
+            menu_greeting: text,
+            protocol_confirmation: text,
+          },
+          [],
+        ),
+        bot: workRef("AreaBotSuggestion"),
+        manual_steps: strings,
+      }),
+      description:
+        "Manifesto declarativo até 128 KiB UTF-8, sem código ou dados pessoais de ordens. message é convertido em content pelo compilador; sugestões não concedem papéis nem permissões.",
+    },
+    AreaSetup: workObject({
+      template_id: text,
+      bot: workRef("AreaBotSuggestion"),
+      manual_steps: strings,
+    }),
+    AreaTemplateSelection: selection,
+    TemplateChange: workObject({
+      path: text,
+      action: { enum: ["add", "set", "keep", "skip"] },
+      reason: text,
+    }),
+    AreaTemplatePreviewRequest: templateRequest(false),
+    AreaTemplateApplyRequest: templateRequest(true),
+    AreaTemplatePreview: workObject({
+      preview_hash: text,
+      template_id: text,
+      template_version: version,
+      changes: array(workRef("TemplateChange")),
+      conflicts: array(workObject({ path: text, code: text, message: text })),
+      manual_steps: strings,
+      can_apply: bool,
+    }),
+    AreaTemplateApplyResult: workObject({
+      applied: bool,
+      changes: array(workRef("TemplateChange")),
+      manual_steps: strings,
+      settings_revision: text,
+    }),
+    AreaTemplateExportRequest: workObject({
+      id: text,
+      name: text,
+      type_ids: strings,
+    }),
+    AreaTemplateCatalog: workObject({
+      data: array(
+        workObject({ id: text, version, name: text, description: text }),
+      ),
+    }),
+  };
+}
+
+type WorkOperation = [
+  method: string,
+  path: string,
+  summary: string,
+  input: string | null,
+  output: string,
+  errors: string,
+  query: string[],
+  description: string,
+];
+
+function workMotorContract(): WorkOperation[] {
+  const b = "/profiles/{profile}/service-orders";
+  const o = `${b}/{id}`;
+  const c = `${b}/conversation/{id}/orders/{order_id}`;
+  const a = "/profiles/{profile}/area-templates";
+  const page = ["cursor", "limit"];
+  return [
+    [
+      "get",
+      b,
+      "Trabalhos: listar ordens",
+      null,
+      "ServiceOrderList",
+      "400 invalid_filter",
+      [
+        "status",
+        "open",
+        "q",
+        "phone",
+        "conversation_id",
+        "limit",
+        "cursor",
+        "type_id",
+        "stage",
+        "facets",
+      ],
+      "Ordena pelo número global decrescente; cursor continua texto. stage exige type_id. counts é esparso e sempre da área inteira, independente de filtros. facets=1 acrescenta types e, com type_id, stages; não substitui counts. Busca não pesquisa valores sensíveis.",
+    ],
+    [
+      "get",
+      `${b}/types`,
+      "Trabalhos: catálogo de tipos",
+      null,
+      "WorkTypeCatalog",
+      "403 forbidden",
+      ["include_archived"],
+      "Inclui service_order virtual e settings_revision. include_archived=1 somente para equipe. Definições são filtradas por acesso; configuração integral é administrativa.",
+    ],
+    [
+      "get",
+      `${b}/types/{type_id}`,
+      "Trabalhos: consultar tipo",
+      null,
+      "WorkTypeView",
+      "404 type_not_found",
+      [],
+      "Retorna a definição atual resolvida, filtrada para o solicitante. Ordens existentes conservam a definição fixada na abertura.",
+    ],
+    [
+      "get",
+      o,
+      "Ordem de serviço com histórico",
+      null,
+      "ServiceOrder",
+      "404 not_found",
+      ["history"],
+      "history=legacy é o padrão e conserva o histórico antigo. A tela nova usa history=none e consulta /history separadamente.",
+    ],
+    [
+      "get",
+      `${o}/history`,
+      "Trabalhos: histórico paginado",
+      null,
+      "OrderHistoryPage",
+      "400 invalid_cursor",
+      page,
+      "Histórico completo, incluindo filhos. Novos eventos contêm IDs, versões, transições e nomes de campos alterados, sem valores sensíveis.",
+    ],
+    [
+      "post",
+      b,
+      "Abrir ordem de serviço ou trabalho",
+      "ServiceOrderCreate",
+      "ServiceOrder",
+      "404 type_not_found;409 type_archived;400 invalid_fields;409 sequence_exhausted",
+      [],
+      "Sem type_id, abre service_order e conserva o fluxo anterior. item e problem continuam obrigatórios e textuais. Tipo personalizado fixa uma cópia imutável da definição e termos. number é global e type_number é próprio do tipo; ambos até 2147483647.",
+    ],
+    [
+      "patch",
+      o,
+      "Alterar dados da ordem de serviço",
+      "ServiceOrderUpdate",
+      "ServiceOrder",
+      "409 version_conflict;400 immutable_field;400 invalid_fields",
+      [],
+      "extra contém somente campos comuns autorizados; version confere concorrência quando informado. Identidade do tipo não é editável. No embutido encerrado, somente notes pode mudar. Alterar campos cancela aprovação de etapa pendente.",
+    ],
+    [
+      "post",
+      `${o}/status`,
+      "Mudar o estado da ordem de serviço",
+      "ServiceOrderStatus",
+      "ServiceOrder",
+      "409 invalid_transition;409 stage_required",
+      [],
+      "Embutido: recebida → em análise, em execução ou cancelada; em análise → em execução ou cancelada; orçamento enviado → em análise ou cancelada; aprovada → em execução ou cancelada; recusada → em análise, pronta ou cancelada; em execução → pronta ou cancelada; pronta → entregue, em execução ou cancelada. No personalizado exige uma única transição manual elegível que altere o estado de base, sem aprovação nem desvio do orçamento. Ausência: invalid_transition; ambiguidade ou ação própria de etapa: stage_required. Nunca escolher a primeira transição.",
+    ],
+    [
+      "post",
+      `${o}/stage`,
+      "Trabalhos: executar transição",
+      "StageRequest",
+      "ServiceOrder",
+      "409 invalid_transition;409 version_conflict;409 approval_required",
+      [],
+      "Recebe transition_id, nunca um destino livre. Transição entre etapas do mesmo estado aparece somente em next_stages; não reinicia datas de garantia ou retirada. Cancela aprovação pendente ao mudar etapa.",
+    ],
+    [
+      "put",
+      `${o}/quote`,
+      "Salvar o orçamento da ordem de serviço",
+      "ServiceOrderQuote",
+      "ServiceOrder",
+      "409 feature_disabled;409 invalid_transition",
+      [],
+      "Embutido: somente received, analyzing, quoted e declined. Alterar orçamento enviado volta a analyzing. Tipo personalizado usa a política de orçamento da definição fixada. Alterar orçamento cancela aprovação de etapa pendente.",
+    ],
+    [
+      "post",
+      `${o}/quote/send`,
+      "Enviar o orçamento ao cliente",
+      "ServiceOrderQuoteSend",
+      "ServiceOrder",
+      "409 feature_disabled;409 invalid_transition;409 no_conversation",
+      [],
+      "Fixa validade no fim do dia em Brasília, incrementa quote.version e passa a quoted pela etapa de envio. notify=false só registra envio por outro meio. Fora da janela de 24 horas usa modelo de notificação.",
+    ],
+    [
+      "post",
+      `${o}/decision`,
+      "Registrar aprovação ou recusa do orçamento",
+      "ServiceOrderDecision",
+      "ServiceOrder",
+      "409 quote_expired;409 quote_not_pending;409 feature_disabled",
+      [],
+      "Entrada approve/decline; saída decision.decision continua approved/declined. Usa a política de orçamento e preserva o protocolo legado; não decide aprovação de etapa.",
+    ],
+    [
+      "post",
+      `${o}/stage-approval`,
+      "Trabalhos: pedir aprovação de etapa",
+      "StageApprovalRequest",
+      "ServiceOrder",
+      "409 approval_pending;409 invalid_transition;409 version_conflict",
+      [],
+      "Solicita transição customer_approval, com origem, destino, prazo e versão próprios; independente do orçamento.",
+    ],
+    [
+      "post",
+      `${o}/stage-approval/decision`,
+      "Trabalhos: decidir aprovação de etapa",
+      "StageApprovalDecisionRequest",
+      "ServiceOrder",
+      "409 approval_expired;409 approval_not_pending;409 version_conflict",
+      [],
+      "Confere approval_version, version da ordem, titular, origem e validade. Aprovar executa a transição registrada; recusar conserva a etapa de origem.",
+    ],
+    [
+      "get",
+      `${o}/private-fields`,
+      "Trabalhos: ler campos sensíveis",
+      null,
+      "PrivateFields",
+      "403 sensitive_forbidden",
+      [],
+      "Somente campos sensíveis autorizados. Exige pessoa autenticada, papel explícito os:sensitive e ausência de via; administrador não substitui o papel. Bots, aplicações e conectores são recusados.",
+    ],
+    [
+      "patch",
+      `${o}/private-fields`,
+      "Trabalhos: alterar campos sensíveis",
+      "PrivateFieldsRequest",
+      "PrivateFieldsResult",
+      "403 sensitive_forbidden;409 version_conflict;400 invalid_fields",
+      [],
+      "Mesma barreira da leitura privada. Responde apenas id, version e changed_fields, nunca valores. Operação fora do catálogo de IA e em bot.deny.",
+    ],
+    [
+      "get",
+      `${o}/tasks`,
+      "Trabalhos: listar tarefas",
+      null,
+      "TaskPage",
+      "400 invalid_filter",
+      ["state", ...page],
+      "Somente registros autorizados. Até 500 tarefas por ordem, contando arquivadas.",
+    ],
+    [
+      "post",
+      `${o}/tasks`,
+      "Trabalhos: criar tarefa",
+      "CreateTaskRequest",
+      "MutationRef",
+      "400 invalid_task;409 collection_limit",
+      [],
+      "audience=customer exige client_visible=true e sensitive=false. remind_at exige due_at e não pode ultrapassá-lo. Limite 500 incluindo arquivadas.",
+    ],
+    [
+      "patch",
+      `${o}/tasks/{task_id}`,
+      "Trabalhos: alterar tarefa",
+      "UpdateTaskRequest",
+      "MutationRef",
+      "409 version_conflict;400 invalid_task",
+      [],
+      "Versão do próprio filho, sem exigir versão do pai. Admite state=open/done/cancelled.",
+    ],
+    [
+      "post",
+      `${o}/tasks/{task_id}/archive`,
+      "Trabalhos: arquivar tarefa",
+      "VersionRequest",
+      "MutationRef",
+      "409 version_conflict",
+      [],
+      "Arquiva sem apagar registro ou histórico.",
+    ],
+    [
+      "get",
+      `${o}/people`,
+      "Trabalhos: listar pessoas ligadas",
+      null,
+      "LinkedPersonPage",
+      "",
+      page,
+      "Telefone, contato e nota dependem dos escopos existentes. O vínculo não concede acesso à ordem.",
+    ],
+    [
+      "post",
+      `${o}/people`,
+      "Trabalhos: vincular pessoa",
+      "CreatePersonRequest",
+      "MutationRef",
+      "400 invalid_person;404 contact_not_found;409 collection_limit",
+      [],
+      "Contato deve pertencer à área. Até 200 pessoas por ordem, incluindo arquivadas. Ser responsável, tutor ou contratante não muda o titular autorizado.",
+    ],
+    [
+      "patch",
+      `${o}/people/{person_id}`,
+      "Trabalhos: alterar pessoa ligada",
+      "UpdatePersonRequest",
+      "MutationRef",
+      "409 version_conflict",
+      [],
+      "Versão própria; não amplia acesso ao trabalho.",
+    ],
+    [
+      "post",
+      `${o}/people/{person_id}/archive`,
+      "Trabalhos: arquivar pessoa ligada",
+      "VersionRequest",
+      "MutationRef",
+      "409 version_conflict",
+      [],
+      "Retira da lista corrente, preservando histórico.",
+    ],
+    [
+      "get",
+      `${o}/documents`,
+      "Trabalhos: listar documentos",
+      null,
+      "DocumentMetadataPage",
+      "",
+      page,
+      "Somente metadados autorizados; nunca chave R2, tentativa privada ou URL pública de mídia.",
+    ],
+    [
+      "post",
+      `${o}/documents`,
+      "Trabalhos: reservar documento",
+      "CreateDocumentRequest",
+      "DocumentReservation",
+      "413 document_too_large;415 unsupported_media_type;409 collection_limit",
+      [],
+      "Reserva pending por 24 horas, até 10 MiB reais. Até 500 documentos incluindo arquivados. A concessão de cada tentativa de upload dura cinco minutos.",
+    ],
+    [
+      "put",
+      `${o}/documents/{document_id}/content`,
+      "Trabalhos: enviar conteúdo binário",
+      null,
+      "DocumentUploadResult",
+      "409 upload_busy;409 upload_expired;413 document_too_large",
+      [],
+      "Corpo binário; Upload-Version informa a versão e Idempotency-Key identifica a tentativa. Autoriza antes de ler bytes. Calcula SHA-256 no servidor. Repetir a mesma chave recupera upload concluído, sem sobrescrever objeto confirmado. É necessário confirmar em /complete.",
+    ],
+    [
+      "post",
+      `${o}/documents/{document_id}/complete`,
+      "Trabalhos: confirmar documento",
+      "CompleteDocumentRequest",
+      "MutationRef",
+      "409 upload_incomplete;409 content_mismatch",
+      [],
+      "Confere tentativa atual, objeto, tamanho e hash antes de mudar para ready. Upload pendente não pode ser baixado.",
+    ],
+    [
+      "get",
+      `${o}/documents/{document_id}/content`,
+      "Trabalhos: baixar documento autenticado",
+      null,
+      "binary",
+      "404 not_found;409 document_not_ready",
+      [],
+      "Autoriza área, ordem, documento, classificação e solicitante antes de abrir o objeto. Cache-Control: no-store. Documento sensível exige pessoa com os:sensitive e sem via.",
+    ],
+    [
+      "post",
+      `${o}/documents/{document_id}/send`,
+      "Trabalhos: enviar documento ao cliente",
+      "VersionRequest",
+      "SendDocumentResult",
+      "403 document_not_shareable;409 no_conversation",
+      [],
+      "Exige documento pronto, client_visible=true, sensitive=false e permissão para mensagem. Cria anexo compartilhável pelo adaptador do núcleo.",
+    ],
+    [
+      "post",
+      `${o}/documents/{document_id}/archive`,
+      "Trabalhos: arquivar documento",
+      "VersionRequest",
+      "MutationRef",
+      "409 version_conflict",
+      [],
+      "Oculta da lista corrente, sem apagar imediatamente o objeto. Eliminação definitiva fora deste contrato.",
+    ],
+    [
+      "get",
+      `${o}/entries`,
+      "Trabalhos: listar lançamentos",
+      null,
+      "EntryPage",
+      "400 invalid_filter",
+      ["kind", ...page, "include_archived"],
+      "Ordenação por chave occurred_at e id; include_archived inclui o histórico de correções autorizado.",
+    ],
+    [
+      "post",
+      `${o}/entries`,
+      "Trabalhos: criar lançamento",
+      "CreateEntryRequest",
+      "MutationRef",
+      "400 invalid_entry;409 collection_limit",
+      [],
+      "Até 10000 lançamentos incluindo arquivados. Texto, quantidade em milésimos e data são imutáveis; não cria movimento financeiro no ERP.",
+    ],
+    [
+      "post",
+      `${o}/entries/{entry_id}/revisions`,
+      "Trabalhos: corrigir lançamento",
+      "ReviseEntryRequest",
+      "MutationRef",
+      "409 version_conflict;409 entry_replaced;409 collection_limit",
+      [],
+      "Envia versão do anterior e todos os campos obrigatórios da correção. Cria novo lançamento com replaces_id e arquiva o anterior no mesmo lote. Retorna referência do novo.",
+    ],
+    [
+      "post",
+      `${o}/entries/{entry_id}/archive`,
+      "Trabalhos: arquivar lançamento",
+      "VersionRequest",
+      "MutationRef",
+      "409 version_conflict",
+      [],
+      "Arquiva sem apagar conteúdo ou histórico.",
+    ],
+    [
+      "get",
+      `${b}/conversation/{id}`,
+      "Ordens de serviço do cliente de uma conversa (bot)",
+      null,
+      "ConversationOrders",
+      "",
+      ["open", "type_id"],
+      "Ordens do titular autenticado da conversa. Sem campos internos ou sensíveis novos; não aceita telefone como substituto da identidade.",
+    ],
+    [
+      "get",
+      c,
+      "Trabalhos: detalhe do cliente",
+      null,
+      "ServiceOrder",
+      "404 not_found",
+      [],
+      "Projeção pública da ordem; confere conversa da credencial e titular no servidor.",
+    ],
+    [
+      "get",
+      `${c}/tasks`,
+      "Trabalhos: tarefas do cliente",
+      null,
+      "TaskPage",
+      "",
+      page,
+      "Somente tarefas client_visible=true e sensitive=false do titular autenticado.",
+    ],
+    [
+      "get",
+      `${c}/documents`,
+      "Trabalhos: documentos do cliente",
+      null,
+      "DocumentMetadataPage",
+      "",
+      page,
+      "Somente metadados compartilháveis do titular autenticado, sem chave de armazenamento.",
+    ],
+    [
+      "get",
+      `${c}/entries`,
+      "Trabalhos: lançamentos do cliente",
+      null,
+      "EntryPage",
+      "",
+      page,
+      "Somente lançamentos visíveis e não sensíveis do titular autenticado.",
+    ],
+    [
+      "get",
+      a,
+      "Modelos de área: catálogo",
+      null,
+      "AreaTemplateCatalog",
+      "403 forbidden",
+      [],
+      "Catálogo resumido de modelos declarativos.",
+    ],
+    [
+      "get",
+      `${a}/{template_id}`,
+      "Modelos de área: manifesto",
+      null,
+      "AreaTemplate",
+      "404 template_not_found",
+      [],
+      "Manifesto com tipos, módulos, menus, vocabulário, sugestões e passos manuais.",
+    ],
+    [
+      "post",
+      `${a}/preview`,
+      "Modelos de área: prévia",
+      "AreaTemplatePreviewRequest",
+      "AreaTemplatePreview",
+      "400 invalid_template;413 template_too_large",
+      [],
+      "Não grava. Informe exatamente template_id ou manifest, mais selection. Hash inclui manifesto, seleção, configuração completa, módulos, dependências, procedência e resultado. Importação até 128 KiB UTF-8.",
+    ],
+    [
+      "post",
+      `${a}/apply`,
+      "Modelos de área: aplicar prévia",
+      "AreaTemplateApplyRequest",
+      "AreaTemplateApplyResult",
+      "409 preview_stale;409 template_conflict;409 dependency_conflict;400 invalid_template;413 template_too_large",
+      [],
+      "Relê e recalcula preview_hash no comando. Confirma configurações, módulos e procedência no mesmo lote. Preserva edições manuais; não recria itens apagados nem repõe caminhos removidos. Reaplicação idêntica retorna applied=false. Prefixo area_<template_id>__<id_local>; não concede papéis nem amplia permissões de bots.",
+    ],
+    [
+      "post",
+      `${a}/export`,
+      "Modelos de área: exportar",
+      "AreaTemplateExportRequest",
+      "AreaTemplate",
+      "400 invalid_export;404 type_not_found",
+      [],
+      "Não grava. Exporta configuração declarativa dos type_ids, sem dados pessoais de ordens, filhos, membros ou segredos.",
+    ],
+  ];
+}
+
+function workMotorOperations(): [string, string, string, string?, string?][] {
+  return workMotorContract().map(([method, path, summary, input]) => [
+    method,
+    path,
+    summary,
+    path.includes("/area-templates")
+      ? undefined
+      : method === "get"
+        ? "conversations:read"
+        : "conversations:write",
+    input ?? undefined,
+  ]);
+}
+
+function describeWorkMotorOperation(
+  path: string,
+  method: string,
+  entry: any,
+  success: any,
+) {
+  const route = workMotorContract().find(
+    ([m, p]) => m === method && p === path,
+  );
+  if (!route) return;
+  const [, , , , output, specificErrors, queries, description] = route;
+  const admin = path.includes("/area-templates");
+  entry.description =
+    (admin
+      ? "Exige administrador (pessoa autenticada). Funciona com os desligado. "
+      : `Permissão: conversations:${method === "get" ? "read" : "write"}. Módulo Ordem de Serviço (os); desligado, 409 module_disabled. `) +
+    description;
+  entry.description +=
+    " Datas de instantes em milissegundos Unix. Parâmetros do caminho prevalecem sobre o corpo; profile não vem do corpo.";
+  if (!admin)
+    entry.description +=
+      " Restrições de contatos e notas continuam valendo. Dados sensíveis exigem pessoa com os:sensitive explícito e sem via; administrador não substitui o papel. Filhos ocultos são omitidos inclusive de contagens; vínculo de pessoa não concede acesso.";
+  if (method !== "get")
+    entry.description +=
+      " Escrita com Idempotency-Key; repetir a chave recupera o resultado sem repetir efeitos.";
+  const paged = /\/(history|tasks|people|documents|entries)$/.test(path);
+  const childPage = paged && !path.endsWith("/history");
+  if (paged && method === "get")
+    entry.description +=
+      " Página de no máximo 100 itens; cursor opaco vinculado à área, ordem, coleção e filtros. Sem OFFSET. Carregar coleções sob demanda.";
+  if (childPage && method === "get")
+    entry.description += " Listas filhas usam 50 itens por padrão.";
+  const querySchemas: Record<string, any> = {
+    status: {
+      type: "string",
+      pattern: `^(${workStatuses().join("|")})(,(${workStatuses().join("|")}))*$`,
+    },
+    open: { enum: ["1", "0"] },
+    facets: { enum: ["1", "0"] },
+    include_archived: { enum: ["1", "0"] },
+    history: { enum: ["legacy", "none"], default: "legacy" },
+    state: { enum: ["open", "done", "cancelled"] },
+    limit: {
+      type: "integer",
+      minimum: 1,
+      maximum: paged ? 100 : 200,
+      ...(childPage ? { default: 50 } : {}),
+    },
+  };
+  for (const name of queries)
+    entry.parameters.push({
+      in: "query",
+      name,
+      schema: querySchemas[name] ?? { type: "string" },
+      ...(name === "stage"
+        ? { description: "Exige type_id; ID da etapa do tipo selecionado." }
+        : {}),
+    });
+  const errors = new Map<string, Set<string>>();
+  const common =
+    "400 invalid_request;403 forbidden;404 not_found;409 version_conflict;413 payload_too_large;429 rate_limited" +
+    (admin
+      ? ""
+      : ";403 sensitive_forbidden;409 module_disabled;409 feature_disabled") +
+    (paged ? ";400 invalid_cursor" : "");
+  for (const pair of `${common};${specificErrors}`.split(";")) {
+    const [status, code] = pair.split(" ");
+    if (!code) continue;
+    const codes = errors.get(status) ?? new Set<string>();
+    codes.add(code);
+    errors.set(status, codes);
+  }
+  for (const [status, codes] of errors) {
+    entry.responses[status] = {
+      ...entry.responses[status],
+      description:
+        [...codes].join(", ") +
+        (status === "400"
+          ? ". Indica o caminho do campo sem repetir valores sensíveis."
+          : ""),
+      content: {
+        "application/json": {
+          schema: workRef("Error"),
+          examples: Object.fromEntries(
+            [...codes].map((code) => [
+              code,
+              {
+                value: {
+                  error: {
+                    code,
+                    message: workErrorMessage(code),
+                    request_id: "req_example",
+                  },
+                },
+              },
+            ]),
+          ),
+        },
+      },
+    };
+  }
+  if (path.endsWith("/content")) {
+    // O gerador central aplica convenções de mídia a todo /content.
+    // Documentos seguem o contrato próprio, sem Range ou inline.
+    entry.parameters = entry.parameters.filter(
+      ({ in: location, name }: { in: string; name: string }) =>
+        !(location === "header" && name === "Range") &&
+        !(location === "query" && name === "inline"),
+    );
+    delete entry.responses["206"];
+    delete entry.responses["416"];
+    success.description =
+      output === "binary" ? "Arquivo privado" : "Conteúdo recebido";
+  }
+  if (output === "binary") {
+    success.content = {
+      "application/octet-stream": {
+        schema: { type: "string", format: "binary" },
+      },
+    };
+    success.headers = {
+      ...success.headers,
+      "Cache-Control": {
+        schema: { type: "string", enum: ["no-store"] },
+        description: "Sempre no-store, inclusive para documento público.",
+      },
+    };
+  } else {
+    // Upload recebe bytes, mas responde JSON; substitui o conteúdo binário
+    // atribuído pelo gerador central antes de descrever o módulo.
+    success.content = {
+      "application/json": {
+        schema:
+          output === "ServiceOrderList"
+            ? workMotorSchemas().ServiceOrderList
+            : workRef(output),
+      },
+    };
+    if (output === "ServiceOrder")
+      success.content["application/json"].examples = Object.fromEntries(
+        Object.entries(workOrderExamples()).map(([name, value]) => [
+          name,
+          { value },
+        ]),
+      );
+  }
+  if (method === "put" && path.endsWith("/content")) {
+    entry.parameters.push({
+      in: "header",
+      name: "Upload-Version",
+      required: true,
+      schema: { type: "integer", minimum: 1 },
+      description: "Versão recebida na reserva do documento.",
+    });
+    entry.requestBody = {
+      required: true,
+      description:
+        "Bytes reais do arquivo, de 1 a 10485760 bytes; tamanho conferido no servidor.",
+      content: {
+        "application/octet-stream": {
+          schema: { type: "string", format: "binary" },
+        },
+      },
+    };
+  }
+}
+
+function workErrorMessage(code: string) {
+  const messages: Record<string, string> = {
+    invalid_request: "Entrada inválida no campo version.",
+    invalid_fields: "Campo extra não autorizado ou inválido.",
+    version_conflict: "A versão mudou; releia o registro antes de alterar.",
+    stage_required: "Selecione a transição pelo identificador da etapa.",
+    sensitive_forbidden: "Acesso sensível não autorizado.",
+    not_found: "Registro não encontrado.",
+    preview_stale: "A configuração mudou; gere outra prévia.",
+    upload_busy: "Há outra tentativa de envio ativa.",
+  };
+  return messages[code] ?? `Operação recusada: ${code}.`;
 }
