@@ -32,12 +32,22 @@ export function validDocument(value: string) {
 const nonPersonalNumber =
   /(?:R\$\s*|(?:pedido|protocolo|ordem|código|codigo)\s*(?:n[º°o.]?\s*)?[:#-]?\s*)$/i;
 
-/** Rede de segurança para texto de PDF já mascarado, inclusive números fragmentados. */
+/**
+ * Rede de segurança para texto de PDF já mascarado, inclusive números
+ * colados a letras ou partidos em linhas. Só a sequência inteira conta:
+ * os dígitos se juntam colados ou por uma pontuação (. - /) com no máximo um
+ * espaço ou quebra de cada lado ("456.\n789", "529 . 982"); espaço sozinho
+ * separa sequências, e não há janela dentro de uma sequência maior. Colunas de valores de um extrato, lado a lado, formariam
+ * janelas de 11 dígitos com verificador válido por acaso (cerca de 1 em 100)
+ * e mandariam PDFs legíveis para a equipe à toa.
+ */
 export function hasUnmaskedDocument(text: string): boolean {
-  // Lookahead permite examinar candidatos sobrepostos, sem fronteira de letra.
   for (const size of [11, 14]) {
+    // Nada, ou uma pontuação com no máximo um espaço ou quebra de cada lado.
+    // Espaço sozinho separa sequências: colunas não se juntam.
+    const sep = "(?:[ \\n]?[.\\-/][ \\n]?)?";
     const pattern = new RegExp(
-      `(?<!\\d)(?=(\\d(?:[.\\-/ \\n]*\\d){${size - 1}})(?!\\d))`,
+      `(?<!\\d${sep})(\\d(?:${sep}\\d){${size - 1}})(?!${sep}\\d)`,
       "g",
     );
     for (const match of text.matchAll(pattern)) {
