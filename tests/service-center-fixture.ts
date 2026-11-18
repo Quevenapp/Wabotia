@@ -20,7 +20,11 @@ export async function fixture() {
     JSON.stringify(defaults),
     now(),
   );
-  for (const id of [line, second, qr])
+  // `created` distinto e na ordem: a linha oficial padrão é a mais antiga
+  // (ORDER BY created,id em src/service.ts). No mesmo milissegundo, o
+  // desempate pelo id aleatório escolhia `second` metade das vezes.
+  const at = now();
+  for (const [index, id] of [line, second, qr].entries())
     await exec(
       env,
       "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,created) VALUES(?,?,?,?, 'direct','active','{}',?)",
@@ -28,7 +32,7 @@ export async function fixture() {
       profile,
       id,
       id === qr ? "qr" : "zernio",
-      now(),
+      at + index,
     );
   const people: Actor[] = [];
   for (const role of ["admin", "operator", "operator"] as const) {
