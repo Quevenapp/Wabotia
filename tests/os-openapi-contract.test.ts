@@ -1,7 +1,24 @@
 import { describe, expect, it } from "vitest";
+// Inicializa o runtime pela mesma entrada dos testes de extensões, antes de
+// consultar descritores que importam o motor e seus registros cíclicos.
+import "../src/service";
 import contract from "../docs/areas/CONTRATO-MOTOR.md?raw";
 import { openapi } from "../src/openapi";
 import { moduleOperations } from "../src/modules/openapi";
+import { tasksExtension } from "../src/modules/os/tasks/extension";
+import { documentsExtension } from "../src/modules/os/documents/extension";
+import { entriesExtension } from "../src/modules/os/entries/extension";
+import { DOCUMENT_MIME_TYPES } from "../src/modules/os/documents/model";
+import androidCustom from "../mobile/android/app/src/test/resources/work-orders/motor-custom-order.json";
+import iosCustom from "../mobile/ios/WabotiaTests/Fixtures/WorkOrders/motor-custom-order.json";
+import { lavanderiaCosturaTemplate } from "../src/area-templates/models/lavanderia-costura";
+
+const mobileFixtures = import.meta.glob("../mobile/**/motor-*.json", { eager: true, import: "default" }) as Record<string, any>;
+function fixture(platform: "android" | "ios", name: string): any {
+  const entry = Object.entries(mobileFixtures).find(([path]) => path.startsWith(`../mobile/${platform}/`) && path.endsWith(`/${name}.json`));
+  expect(entry, `${platform}/${name}`).toBeTruthy();
+  return entry![1];
+}
 
 const spec = openapi("https://test");
 const schemas: Record<string, any> = spec.components.schemas;
@@ -20,7 +37,8 @@ const statuses = [
   "cancelled",
 ];
 
-// A expectativa vem do documento congelado, não do catálogo que produz a API.
+// A expectativa vem do contrato, incluindo os complementos I2, não do catálogo
+// que produz a API.
 const sections = [5, 7].map((number) => {
   const start = contract.indexOf(`## ${number}.`);
   const end = contract.indexOf(`## ${number + 1}.`, start);
@@ -120,7 +138,15 @@ function accepts(schema: any, value: any): boolean {
 
 describe("OpenAPI do contrato do motor de trabalhos", () => {
   it("documenta todas as rotas das seções 5 e 7, uma única vez", () => {
-    expect(routes).toHaveLength(45);
+    // As 45 operações originais mais as três escritas privadas de tarefas.
+    expect(routes).toHaveLength(48);
+    expect(routes.filter(({ path }) => path.includes("/private-tasks")).map(
+      ({ method, path }) => `${method.toUpperCase()} ${path}`,
+    )).toEqual([
+      `POST ${order}/private-tasks`,
+      `PATCH ${order}/private-tasks/{task_id}`,
+      `POST ${order}/private-tasks/{task_id}/archive`,
+    ]);
     for (const { method, path } of routes) {
       const entry = spec.paths[path]?.[method];
       expect(entry, `${method} ${path}`).toBeTruthy();
@@ -174,6 +200,36 @@ describe("OpenAPI do contrato do motor de trabalhos", () => {
     }
   });
 
+  it("cobre também os descritores entregues, inclusive privados e transporte binário", () => {
+    for (const extension of [tasksExtension, documentsExtension, entriesExtension]) {
+      const delivered = [
+        ...extension.reads.map((route) => ({ ...route, method: "get" })),
+        ...extension.writes.map((route) => ({ ...route, method: route.method.toLowerCase() })),
+        ...(extension.binaryReads ?? []).map((route) => ({ ...route, method: "get" })),
+        ...(extension.binaryUploads ?? []).map((route) => ({ ...route, method: "put" })),
+      ];
+      for (const route of delivered) {
+        const path = `/profiles/{profile}/${route.path.replace(/:(\w+)/g, "{$1}")}`;
+        const entry = operation(path, route.method);
+        expect(entry, `${route.method} ${path}`).toBeTruthy();
+        expect(moduleOperations.filter(([m, p]) => m === route.method && p === path)).toHaveLength(1);
+        for (const [, name] of path.matchAll(/\{(\w+)\}/g))
+          expect(entry.parameters).toContainEqual(expect.objectContaining({ in: "path", name, required: true }));
+        if (route.method !== "get") {
+          expect(entry.requestBody.required).toBe(true);
+          expect(entry.parameters).toContainEqual(expect.objectContaining({ in: "header", name: "Idempotency-Key", required: true }));
+        }
+        if (path.includes("/private-")) {
+          expect(entry.description).toContain("os:sensitive");
+          expect(entry.description).toContain("Fora do catálogo de IA");
+          expect(entry.responses["403"].content["application/json"].examples.sensitive_forbidden.value.error.code).toBe("sensitive_forbidden");
+        }
+      }
+    }
+    expect(spec.paths[`${order}/private-documents/{document_id}/send`]).toBeUndefined();
+    expect(spec.paths[`${order}/private-tasks`].get).toBeUndefined();
+  });
+
   it("conserva os nove estados, contagem esparsa e tipos legados", () => {
     expect(schemas.ServiceOrder.properties.status.enum).toEqual(statuses);
     expect(schemas.ServiceOrder.properties.next_statuses.items.enum).toEqual(
@@ -181,12 +237,17 @@ describe("OpenAPI do contrato do motor de trabalhos", () => {
     );
     expect(schemas.BaseStatus.enum).toEqual(statuses);
     expect(schemas.ServiceOrderStatus.properties.status.enum).toEqual([
+      "received",
       "analyzing",
       "in_progress",
       "ready",
       "delivered",
       "cancelled",
     ]);
+    expect(accepts(schemas.ServiceOrderStatus, { status: "received" })).toBe(true);
+    expect(schemas.ServiceOrderStatus.properties.status.description).toContain("Embutido");
+    for (const status of ["quoted", "approved", "declined", "ajustes"])
+      expect(accepts(schemas.ServiceOrderStatus, { status })).toBe(false);
     const list = responseSchema(base);
     expect(Object.keys(list.properties.counts.properties)).toEqual(statuses);
     expect(list.properties.counts.additionalProperties).toBe(false);
@@ -214,6 +275,125 @@ describe("OpenAPI do contrato do motor de trabalhos", () => {
     expect(
       schemas.ServiceOrder.properties.decision.properties.decision.enum,
     ).toEqual(["approved", "declined"]);
+  });
+
+  it("aceita eventos reais no histórico legado do detalhe sem confundi-lo com /history", () => {
+    expect(androidCustom).toEqual(iosCustom);
+    expect(accepts(schemas.ServiceOrder, androidCustom)).toBe(true);
+    const history = schemas.ServiceOrder.properties.history;
+    for (const kind of ["opened", "status", "quote", "edit", "os.stage_changed", "os.task.created", "os.document.ready"]) {
+      expect(accepts(history, [{ id: "h", kind, from_status: null, to_status: null, actor: "u1", note: "", created: 1 }])).toBe(true);
+    }
+    expect(androidCustom.history.map((item) => item.kind)).toEqual(["os.stage_changed", "os.task.created"]);
+    for (const item of androidCustom.history)
+      expect(Object.keys(item).sort()).toEqual(["id", "kind", "from_status", "to_status", "actor", "note", "created"].sort());
+    expect(schemas.OrderHistory.properties.changed_fields).toBeTruthy();
+    expect(history.items.properties.changed_fields).toBeUndefined();
+    const page = fixture("android", "motor-custom-history-page");
+    expect(page).toEqual(fixture("ios", "motor-custom-history-page"));
+    expect(accepts(schemas.OrderHistoryPage, page)).toBe(true);
+    expect(page.data.map(({ from_stage, to_stage, entity_kind }: any) => ({ from_stage, to_stage, entity_kind }))).toEqual([
+      { from_stage: "triagem", to_stage: "citacao", entity_kind: null },
+      { from_stage: null, to_stage: null, entity_kind: "task" },
+    ]);
+  });
+
+  it("mantém fixtures móveis de páginas distintas e início de tipo sem orçamento", () => {
+    for (const name of ["motor-mixed-page", "motor-next-page", "motor-custom-no-quote"])
+      expect(fixture("android", name)).toEqual(fixture("ios", name));
+    const first = fixture("android", "motor-mixed-page");
+    const next = fixture("android", "motor-next-page");
+    for (const page of [first, next]) {
+      expect(accepts(schemas.ServiceOrderList, page)).toBe(true);
+      expect(page.facets).toBeUndefined();
+      expect(page.data.every((row: any) => row.history === undefined)).toBe(true);
+    }
+    expect(first.data).toHaveLength(2); // Consulta limit=2; há mais um registro na área.
+    expect(first.next_cursor).toBe(String(first.data.at(-1).number));
+    expect(next.data.every((row: any) => row.number < Number(first.next_cursor))).toBe(true);
+    expect(next.next_cursor).toBeNull();
+    expect(next.counts).toEqual(first.counts);
+    expect(Object.values(first.counts).reduce((sum: number, value) => sum + Number(value), 0)).toBe(first.data.length + next.data.length);
+    const initial = fixture("android", "motor-custom-no-quote");
+    const type = lavanderiaCosturaTemplate.work_types[0];
+    expect(type.features.quote).toBeNull();
+    expect(initial.type_id).toBe(`area_lavanderia_costura__${type.id}`);
+    expect(initial.stage).toBe(type.initial_stage);
+    expect(initial.status).toBe("received");
+    expect(initial.fields).toEqual(type.fields);
+    expect(initial.display_number).toBe(`${type.number_prefix}-${initial.type_number}`);
+    expect(accepts(schemas.ServiceOrder, initial)).toBe(true);
+  });
+
+  it("separa corpos comuns e privados de tarefas e documentos", () => {
+    const task = { title: "Conferir", audience: "staff", client_visible: false, sensitive: true };
+    const document = { name: "Arquivo.pdf", mime_type: "application/pdf", expected_bytes: 100, client_visible: false, sensitive: true };
+    expect(accepts(schemas.CreateTaskRequest, task)).toBe(false);
+    expect(accepts(schemas.CreatePrivateTaskRequest, task)).toBe(true);
+    expect(accepts(schemas.CreatePrivateTaskRequest, { ...task, audience: "customer" })).toBe(false);
+    expect(accepts(schemas.CreatePrivateTaskRequest, { ...task, client_visible: true })).toBe(false);
+    expect(accepts(schemas.UpdateTaskRequest, { version: 1, sensitive: true })).toBe(false);
+    expect(accepts(schemas.UpdatePrivateTaskRequest, { version: 1, sensitive: true })).toBe(true);
+    expect(accepts(schemas.CreateDocumentRequest, document)).toBe(false);
+    expect(accepts(schemas.CreateDocumentRequest, { ...document, sensitive: false })).toBe(true);
+    expect(accepts(schemas.CreatePrivateDocumentRequest, document)).toBe(true);
+    expect(accepts(schemas.CreatePrivateDocumentRequest, { ...document, sensitive: false })).toBe(false);
+    expect(accepts(schemas.CreatePrivateDocumentRequest, { ...document, client_visible: true })).toBe(false);
+    for (const [path, name] of [["private-tasks", "CreatePrivateTaskRequest"], ["private-documents", "CreatePrivateDocumentRequest"]])
+      expect(operation(`${order}/${path}`, "post").requestBody.content["application/json"].schema.$ref).toBe(`#/components/schemas/${name}`);
+  });
+
+  it("documenta filtros de meus prazos e soma exata por grupo", () => {
+    const mine = operation(`${base}/my-tasks`);
+    expect(mine.parameters.filter((p: any) => p.in === "query").map((p: any) => p.name)).toEqual([
+      "assignee", "state", "period", "type_id", "due_from", "due_to", "cursor", "limit",
+    ]);
+    expect(mine.description).toContain("pessoa autenticada");
+    expect(mine.parameters).toContainEqual(expect.objectContaining({ name: "limit", schema: { type: "integer", minimum: 1, maximum: 100, default: 50 } }));
+    expect(schemas.MyTask.required).toEqual(expect.arrayContaining(["type_id", "type_label", "display_number", "stage_label"]));
+    const summary = operation(`${order}/entries/summary`);
+    expect(summary.parameters.filter((p: any) => p.in === "query").map((p: any) => p.name)).toEqual(["kind", "include_archived"]);
+    const group = { kind: "horas", unit: "h", count: 10000, quantity_milli: "10000000000000000" };
+    expect(accepts(responseSchema(`${order}/entries/summary`), { data: [group] })).toBe(true);
+    expect(accepts(schemas.EntrySummary, { data: [{ ...group, quantity_milli: null }] })).toBe(true);
+    expect(accepts(schemas.EntrySummary, { data: [{ ...group, quantity_milli: 1500 }] })).toBe(false);
+  });
+
+  it("publica exemplos coerentes com criação, lista e projeção de cliente", () => {
+    const examples = (path: string, method = "get") => operation(path, method).responses["200"].content["application/json"].examples;
+    for (const { value } of Object.values(examples(base, "post")) as any[]) {
+      expect(value.version).toBe(1);
+      expect(value.status).toBe("received");
+      expect(accepts(schemas.ServiceOrder, value)).toBe(true);
+    }
+    const { value: builtin } = examples(order).builtin;
+    expect(builtin.next_stages.map((s: any) => s.transition_id)).toEqual(["received_analyzing", "received_in_progress", "received_cancelled"]);
+    const list = schemas.ServiceOrderList.example;
+    expect(list.data.map((row: any) => row.number)).toEqual([43, 42]);
+    expect(list.next_cursor).toBeNull();
+    expect(list.data.every((row: any) => !row.history)).toBe(true);
+    for (const { value } of Object.values(examples(`${base}/conversation/{id}/orders/{order_id}`)) as any[]) {
+      expect(Object.keys(value.customer)).toEqual(["name"]);
+      for (const key of ["notes", "assignee", "created_by", "history"]) expect(value[key]).toBeUndefined();
+      expect(value.next_statuses).toEqual([]);
+      expect(value.next_stages).toEqual([]);
+      expect(value.fields.every((f: any) => f.client_visible && !f.sensitive)).toBe(true);
+      expect(Object.keys(value.extra).every((id) => value.fields.some((f: any) => f.id === id))).toBe(true);
+      expect(accepts(schemas.ServiceOrder, value)).toBe(true);
+    }
+    expect(examples(`${order}/status`, "post")).toBeUndefined();
+  });
+
+  it("publica os erros alcançáveis de modelo inexistente e documento pendente", () => {
+    for (const [path, status, code] of [
+      [`${templates}/preview`, "404", "template_not_found"],
+      [`${templates}/apply`, "404", "template_not_found"],
+      [`${order}/documents/{document_id}/send`, "409", "document_not_ready"],
+    ]) {
+      const error = operation(path, "post").responses[status];
+      expect(error.description).toContain(code);
+      expect(error.content["application/json"].examples[code].value.error.code).toBe(code);
+    }
   });
 
   it("oferece exemplos válidos de embutido e personalizado legíveis pelos clientes antigos", () => {
@@ -335,12 +515,14 @@ describe("OpenAPI do contrato do motor de trabalhos", () => {
       "byte_length",
       "sha256",
     ]);
-    const download = operation(path).responses["200"];
-    expect(download.content["application/json"]).toBeUndefined();
-    expect(download.content["application/octet-stream"].schema.format).toBe(
-      "binary",
-    );
-    expect(download.headers["Cache-Control"].schema.enum).toEqual(["no-store"]);
+    for (const collection of ["documents", "private-documents"]) {
+      const download = operation(`${order}/${collection}/{document_id}/content`).responses["200"];
+      expect(Object.keys(download.content)).toEqual([...DOCUMENT_MIME_TYPES]);
+      for (const mime of DOCUMENT_MIME_TYPES)
+        expect(download.content[mime].schema.format).toBe("binary");
+      expect(download.headers["Cache-Control"].schema.enum).toEqual(["no-store"]);
+    }
+    expect(schemas.CreateDocumentRequest.properties.mime_type.enum).toEqual([...DOCUMENT_MIME_TYPES]);
     expect(
       schemas.CreateDocumentRequest.properties.expected_bytes.maximum,
     ).toBe(10485760);
@@ -425,6 +607,7 @@ describe("OpenAPI do contrato do motor de trabalhos", () => {
       }
       for (const child of Object.values(value)) walk(child);
     }
-    for (const { path, method } of routes) walk(operation(path, method));
+    for (const [method, path] of moduleOperations.filter(([, path]) => path.startsWith(base) || path.startsWith(templates)))
+      walk(operation(path, method));
   });
 });

@@ -97,7 +97,9 @@ export interface WebField {
   help?: string;
   /** text: caixa de várias linhas. */
   multiline?: boolean;
-  /** choice: opções mostradas ao cliente (2 a 20). */
+  /** text: limite opcional; ausência preserva 300/2000. */
+  max_length?: number;
+  /** choice: opções mostradas ao cliente (1 a 32). */
   options?: string[];
 }
 export interface WebStepSpec {
@@ -169,12 +171,16 @@ export function validateFields(value: unknown): WebField[] {
     const help = str(raw.help, 300, "a ajuda do campo", false);
     if (help) field.help = help;
     if (raw.type === "text" && raw.multiline === true) field.multiline = true;
+    if (raw.max_length !== undefined) {
+      requireValue(raw.type === "text" && Number.isInteger(raw.max_length) && raw.max_length >= 1 && raw.max_length <= 2000, "Limite de texto inválido.");
+      field.max_length = raw.max_length;
+    }
     if (raw.type === "choice") {
       requireValue(
         Array.isArray(raw.options) &&
-          raw.options.length >= 2 &&
-          raw.options.length <= 20,
-        `Campo "${field.label}": informe de 2 a 20 opções.`,
+          raw.options.length >= 1 &&
+          raw.options.length <= 32,
+        `Campo "${field.label}": informe de 1 a 32 opções.`,
       );
       const options = raw.options.map((o: unknown) =>
         str(o, 100, `a opção do campo "${field.label}"`),
@@ -277,7 +283,7 @@ export function validateAnswers(
       continue;
     }
     if (field.type === "text") {
-      const max = field.multiline ? 2000 : 300;
+      const max = field.max_length ?? (field.multiline ? 2000 : 300);
       if (Array.from(value).length > max)
         errors[field.id] = `Use até ${max} caracteres.`;
     } else if (field.type === "choice") {
@@ -1196,8 +1202,8 @@ function fieldHtml(field: WebField, value: unknown, error: string | undefined) {
     return `<div${cls}><label class="option"><input type="checkbox" name="${name}" value="on"${value === true || value === "on" ? " checked" : ""}${req}><span>${escape(field.label)}</span></label>${help}${err}</div>`;
   const input =
     field.type === "text" && field.multiline
-      ? `<textarea name="${name}" maxlength="2000"${req}>${escape(value)}</textarea>`
-      : `<input type="${field.type === "date" ? "date" : "text"}" name="${name}" value="${escape(value)}"${field.type === "text" ? ' maxlength="300"' : ""}${req}>`;
+      ? `<textarea name="${name}" maxlength="${field.max_length ?? 2000}"${req}>${escape(value)}</textarea>`
+      : `<input type="${field.type === "date" ? "date" : "text"}" name="${name}" value="${escape(value)}"${field.type === "text" ? ` maxlength="${field.max_length ?? 300}"` : ""}${req}>`;
   return `<label${cls}><span class="label">${escape(field.label)}</span>${input}${help}${err}</label>`;
 }
 

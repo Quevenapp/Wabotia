@@ -6,7 +6,7 @@ import { authorizedOrder, resolveWorkType } from "./public";
 import { mayReadSensitive, projectOrderForCustomer, projectOrderForStaff, projectPrivateFields } from "./privacy";
 import { checkVersion, commitOrderMutation, mutationHistory, publishMutation, versionConflict } from "./mutations";
 import { cancelApproval, changeStage, decideStageApproval, requestStageApproval, sendStageApproval } from "./stages";
-import { notify, quoteSpec } from "./store";
+import { notify, quoteSpec, resumeBuiltinStatus } from "./store";
 import { validateExtra } from "./validation";
 import type { WorkTypeView } from "./contracts";
 
@@ -24,6 +24,10 @@ export async function replayOrderMutation(ctx: ModuleContext, actor: Actor, id: 
   return order;
 }
 export async function resumeOrderEffects(ctx: ModuleContext, history: any, row: any, notifyCustomer = true) {
+  if (history.kind === "status" && history.mutation_key) {
+    await resumeBuiltinStatus(ctx, history, row, notifyCustomer);
+    return;
+  }
   const id = row.id;
   await publishMutation(ctx, history);
   if (history.from_status !== history.to_status)
@@ -98,7 +102,7 @@ export function registerMotorRoutes() {
       else if (path === "stage-approval") {
         if (!notifyCustomer) throw new ApiError(403, "forbidden", "Assuma a conversa antes de solicitar aprovação.");
         row = await requestStageApproval(ctx, order.row, data, actor.id, key);
-      } else if (path === "stage-approval/decision") row = await decideStageApproval(ctx, order.row, data, actor.id, key);
+      } else if (path === "stage-approval/decision") row = await decideStageApproval(ctx, order.row, data, actor.id, key, { notify: notifyCustomer });
       else {
         checkVersion(order.row, data.version);
         if (["delivered", "cancelled"].includes(order.row.status)) throw new ApiError(400, "immutable_field", "Trabalho encerrado: somente observações internas.");

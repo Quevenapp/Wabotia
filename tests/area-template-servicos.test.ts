@@ -3,9 +3,11 @@ import type { AreaTemplate, BaseStatus, CustomWorkType } from "../src/modules/os
 import { servicosTemplate } from "../src/area-templates/models/servicos";
 import { oficinaMecanicaTemplate } from "../src/area-templates/models/oficina-mecanica";
 import { lavanderiaCosturaTemplate } from "../src/area-templates/models/lavanderia-costura";
+import { assistenciaTecnicaTemplate } from "../src/area-templates/models/assistencia-tecnica";
+import { validateExtra, validateWorkType } from "../src/modules/os/validation";
 import { despachanteTemplate, graficaTemplate, imobiliariaTemplate } from "../src/area-templates/models/exemplos";
 
-// Não depende do catálogo nem dos validadores de A/M, ainda em implementação.
+// Conferências declarativas e regressões com os validadores reais do motor.
 const templates: AreaTemplate[] = [
   servicosTemplate, oficinaMecanicaTemplate, lavanderiaCosturaTemplate,
   graficaTemplate, despachanteTemplate, imobiliariaTemplate,
@@ -81,6 +83,58 @@ function graph(type: CustomWorkType) {
 }
 
 describe("modelos de serviços: catálogo declarativo", () => {
+  it("valida também os quatro tipos da Assistência técnica pelo contrato do motor", () => {
+    expect(assistenciaTecnicaTemplate.work_types).toHaveLength(4);
+    for (const type of assistenciaTecnicaTemplate.work_types) {
+      expect(validateWorkType(type)).toEqual(type);
+      messages(type);
+      const reachable = graph(type);
+      expect([...reachable(type.initial_stage)].sort()).toEqual(type.stages.map((stage) => stage.id).sort());
+    }
+  });
+
+  it("rejeita lote sem peças nas duas variantes de lavanderia", () => {
+    for (const template of [assistenciaTecnicaTemplate, lavanderiaCosturaTemplate]) {
+      const type = template.work_types.find((type) => type.fields.some((field) => field.id === "quantidade"))!;
+      const field = type.fields.find((field) => field.id === "quantidade")!;
+      expect(field).toMatchObject({ kind: "integer", required: true, min: 1 });
+      const extra = { modalidade: "lavagem", quantidade: 0 };
+      expect(() => validateExtra(type.fields, extra, { mode: "customer" })).toThrow();
+      expect(validateExtra(type.fields, { ...extra, quantidade: 1 }, { mode: "customer" }))
+        .toEqual({ modalidade: "lavagem", quantidade: 1 });
+    }
+  });
+
+  for (const template of [oficinaMecanicaTemplate, assistenciaTecnicaTemplate]) {
+    for (const type of template.work_types.filter((type) => type.features.quote !== null)) {
+      it(`${template.id}/${type.id}: devolve sem reparo sem entrar na entrega com garantia`, () => {
+        const quote = type.features.quote!;
+        const returns = type.transitions.filter((transition) =>
+          transition.from === quote.declined_stage && transition.to !== quote.edited_stage,
+        );
+        expect(returns.length).toBeGreaterThan(0);
+        for (const transition of returns) {
+          const final = type.stages.find((stage) => stage.id === transition.to)!;
+          expect(final.base_status).toBe("cancelled");
+          expect(type.transitions.filter((edge) => edge.from === final.id)).toEqual([]);
+        }
+        const returned = type.stages.find((stage) => stage.id === "devolvido_sem_reparo")!;
+        expect(returned).toMatchObject({ base_status: "cancelled", label: "Devolvido sem reparo" });
+        expect(returns.some((transition) => transition.to === returned.id)).toBe(true);
+        // A entrega com garantia continua acessível após aprovação e execução.
+        expect(type.features.warranty_days).toBe(90);
+        const executable = type.transitions.filter((edge) => edge.from === quote.approved_stage);
+        expect(executable.some((edge) => edge.to === "execucao")).toBe(true);
+        const ready = type.transitions.filter((edge) => edge.to === "pronto");
+        expect(ready.length).toBeGreaterThan(0);
+        expect(ready.every((edge) => edge.from === "execucao")).toBe(true);
+        expect(type.transitions.some((edge) => edge.from === "pronto" && edge.to === "entregue")).toBe(true);
+        expect(type.stages.find((stage) => stage.id === "entregue")?.base_status).toBe("delivered");
+        expect(template.manual_steps.join(" ")).toContain("destinação");
+      });
+    }
+  }
+
   it("exporta seis exemplos independentes com IDs únicos e sem substituir o embutido", () => {
     expect(templates).toHaveLength(6);
     ids(templates.map((template) => template.id), 64);

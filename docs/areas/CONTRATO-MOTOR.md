@@ -828,12 +828,12 @@ Não preencher `counts` com nove zeros. O teste atual exige o mapa esparso. Font
 | `PATCH O` | Campos atuais; acrescenta `extra?` e `version?`. | `Order`. | `409 version_conflict`; `400 immutable_field`. |
 | `POST O/status` | Corpo atual: `status`, `note?`. | `Order`. | Em tipo personalizado, `409 stage_required` se não houver correspondência única. |
 | `POST O/stage` | `{ transition_id, version, note? }`. | `Order`. | `409 invalid_transition`; `409 version_conflict`; `409 approval_required`. |
-| `PUT O/quote` | Corpo atual. | `Order`. | `409 feature_disabled` ou erros atuais. |
+| `PUT O/quote` | Corpo atual e `version?` da ordem. Quando informado, valida concorrência; omissão preserva clientes legados. | `Order`. | `409 version_conflict`; `409 feature_disabled` ou erros atuais. |
 | `POST O/quote/send` | Corpo atual. | `Order`. | `409 feature_disabled` ou erros atuais. |
 | `POST O/decision` | Corpo atual: `decision: "approve" \| "decline"`, `note?`. | `Order`; a decisão continua retornando `approved` ou `declined`. | Erros atuais de pendência e validade. |
 | `POST O/stage-approval` | `{ transition_id, version }`. | `Order` com pedido pendente. | `409 approval_pending`; `409 invalid_transition`. |
 | `POST O/stage-approval/decision` | `{ decision: "approve" \| "decline", approval_version, version }`. | `Order`. | `409 approval_expired`; `409 approval_not_pending`; `409 version_conflict`. |
-| `GET O/private-fields` | Sem corpo. | `{ id, version, extra }`, somente campos sensíveis autorizados. | `403 sensitive_forbidden`. |
+| `GET O/private-fields` | Sem corpo. | `{ id, version, fields, extra }`, definições sensíveis do snapshot e valores autorizados. | `403 sensitive_forbidden`. |
 | `PATCH O/private-fields` | `{ version, extra }`. | `{ id, version, changed_fields }`. Não devolve valores. | `403 sensitive_forbidden`; `409 version_conflict`; `400 invalid_fields`. |
 
 `WorkTypeView` é a definição resolvida, sem valores de ordens e com os campos sensíveis omitidos de quem não tem acesso. A configuração integral continua sendo administrativa.
@@ -877,6 +877,9 @@ Todos os filhos retornam `id`, `order_id`, `version`, datas e os campos autoriza
 | `POST O/tasks` | Campos de tarefa. | `MutationRef`. | `400 invalid_task`; `409 feature_disabled`. |
 | `PATCH O/tasks/{task_id}` | `version` e campos alterados; admite `state`. | `MutationRef`. | `409 version_conflict`; `400 invalid_task`. |
 | `POST O/tasks/{task_id}/archive` | `{ version }`. | `MutationRef`. | `409 version_conflict`. |
+| `POST O/private-tasks` | Campos de tarefa; sensível exige `audience=staff`, `client_visible=false`. | `MutationRef`. | `403 sensitive_forbidden`; `400 invalid_task`. |
+| `PATCH O/private-tasks/{task_id}` | `version` e alterações, sem retirar sigilo. | `MutationRef`. | `403 sensitive_forbidden`; `409 version_conflict`. |
+| `POST O/private-tasks/{task_id}/archive` | `{ version }`. | `MutationRef`. | `403 sensitive_forbidden`; `409 version_conflict`. |
 | `GET O/people` | `cursor?`, `limit?`. | `Page<LinkedPerson>`. | Erros comuns. |
 | `POST O/people` | Campos de pessoa. | `MutationRef`. | `400 invalid_person`; `404 contact_not_found`. |
 | `PATCH O/people/{person_id}` | `version` e campos alterados. | `MutationRef`. | `409 version_conflict`. |
@@ -1502,3 +1505,38 @@ Os testes atuais já têm limites próprios, inclusive 71 instruções para um c
 | Nome do conjunto na interface | Usar `os_vocabulary.collection_label`; padrão “Trabalhos” somente quando houver tipos personalizados. A área apenas com o embutido conserva “Ordens de serviço”. |
 
 A fase 1 só pode ser integrada com a suíte atual da Ordem de Serviço aprovada **sem alteração de expectativas**. A fase 2 exige, além disso, isolamento entre áreas e titulares, ausência de valores sensíveis nos caminhos públicos e de IA, recuperação de operações repetidas e orçamento D1 medido na invocação completa.
+
+## Complementos consolidados em I2
+
+Estes complementos formalizam os acordos de integração posteriores ao contrato
+inicial, sem alterar os estados ou efeitos do tipo embutido:
+
+- As escritas comuns de tarefas recusam valores e registros sensíveis com
+  `403 sensitive_forbidden`, inclusive para quem tem `os:sensitive`. Criação,
+  alteração e arquivamento privados usam `private-tasks`; a leitura autorizada
+  permanece em `GET O/tasks`. As operações privadas exigem pessoa com papel
+  explícito, sem atuação por bot, e não entram no catálogo de IA.
+- `GET O/private-fields` inclui `fields`, as definições sensíveis da versão
+  fixada no trabalho. O editor privado usa essa resposta; não depende do
+  cadastro atual. Valores sensíveis nunca entram na projeção comum.
+- `Order.features` fornece capacidades e política de orçamento fixadas. A lista
+  de trabalhos personalizados acrescenta `next_task: {id,title,due_at} | null`,
+  após filtrar tarefas não autorizadas. Cliente e IA não recebem esse resumo.
+  `GET B` aceita `assignee` (ID, `me`, `unassigned`) e `due_from`/`due_to`
+  (instantes inclusivos em milissegundos Unix). Os filtros não mudam `counts`.
+  `my-tasks` conserva seus filtros por datas civis em Brasília.
+- `GET O/entries/summary` soma somente registros vigentes por padrão; originais
+  corrigidos permanecem auditáveis e entram no total histórico somente com
+  `include_archived=1`. Ambos os totais filtram a autorização antes da soma.
+- Um manifesto já aplicado não pode diminuir sua versão nem mudar seu conteúdo
+  mantendo a versão anterior. Reaplicar o mesmo conteúdo/versão continua
+  idempotente. A configuração, procedência, resultado e publicações pendentes
+  são confirmados juntos; uma repetição recupera o resultado antes de revalidar
+  a prévia que a própria aplicação tornou antiga.
+- O agendador e os comandos do mesmo Coordinator são serializados da seleção
+  até o enfileiramento. A entrega já enfileirada conserva suas regras; não se
+  promete recolher mensagem após alteração posterior. Reentrada em etapa mantém
+  tarefas identificadas pela versão da entrada, conforme o comportamento já
+  testado; não foi introduzida uma regra nova de deduplicação entre entradas.
+
+Registro das extensões, evidências e limites da validação: [I2-ENTREGA.md](I2-ENTREGA.md).

@@ -1,3 +1,5 @@
+import { ResponsiblePage } from "./modules/ensino/ResponsiblePage";
+import { MoradorPage } from "./modules/condominio/MoradorPage";
 // Entrada do site: página pública, instalação, documentação da API e o
 // painel em /app. O painel vive em web/app; cada área tem seu módulo.
 import React from "react";
@@ -18,6 +20,10 @@ import { QueueDisplay } from "./queue/QueueDisplay";
 createRoot(document.getElementById("root")!).render(
   location.pathname.startsWith("/app") ? (
     <App />
+  ) : location.pathname === "/ensino/acesso" ? (
+    <ResponsiblePage />
+  ) : location.pathname === "/condominio/acesso" ? (
+    <MoradorPage />
   ) : location.pathname === "/install" ? (
     <Install />
   ) : location.pathname === "/instalar" ? (

@@ -15,7 +15,11 @@ export function useWorkApi() {
   return useMemo(() => createWorkApi(api, root), [api, root]);
 }
 /** Resultados e erros pertencem à mesma chave; nada da área anterior pisca no DOM. */
-export function useWorkResource<T>(key: string | null, load: () => Promise<T>) {
+export function useWorkResource<T>(
+  key: string | null,
+  load: () => Promise<T>,
+  refresh?: string,
+) {
   const loader = useRef(load);
   loader.current = load;
   const [attempt, retry] = useState(0);
@@ -26,20 +30,28 @@ export function useWorkResource<T>(key: string | null, load: () => Promise<T>) {
   }>({ key: "" });
   useEffect(() => {
     let alive = true;
-    setState({ key });
+    // Uma atualização da mesma área mantém formulários e seus rascunhos montados.
+    setState((old) =>
+      refresh !== undefined && old.key === key ? { key, data: old.data } : { key },
+    );
     if (!key) return;
     loader.current().then(
       (data) => {
         if (alive) setState({ key, data });
       },
       (error) => {
-        if (alive) setState({ key, error });
+        if (alive)
+          setState((old) => ({
+            key,
+            data: refresh !== undefined && old.key === key ? old.data : undefined,
+            error,
+          }));
       },
     );
     return () => {
       alive = false;
     };
-  }, [key, attempt]);
+  }, [key, attempt, refresh]);
   return {
     data: state.key === key ? state.data : undefined,
     error: state.key === key ? state.error : undefined,

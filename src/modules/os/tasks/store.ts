@@ -94,7 +94,7 @@ export async function updateTask(ctx: ModuleContext, actor: Actor, input: unknow
     // Reabrir ou reprogramar inicia um ciclo; outras edições não repetem aviso já enviado.
     const reset = (state === "open" && row.state !== "open") ||
       values.due_at !== row.due_at || values.remind_at !== row.remind_at ||
-      values.assignee !== row.assignee || values.audience !== row.audience;
+      (values.audience === "staff" && values.assignee !== row.assignee) || values.audience !== row.audience;
     mutation = {
       entity_kind: "task", id, expected_version: expected, mutation_key: key,
       changed_fields: [...fields, ...(reset ? ["notified_at"] : []), ...(state !== row.state ? ["completed_at"] : [])],

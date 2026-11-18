@@ -15,6 +15,41 @@ export const pendingImplementation = (error: unknown) => {
   const e = error as Partial<ApiFailure> | null;
   return e?.status === 404 || e?.code === "not_implemented";
 };
+export async function findWorkChild<T extends { id: string }>(
+  load: (cursor?: string) => Promise<C.Page<T>>,
+  id: string,
+): Promise<T | undefined> {
+  let cursor: string | undefined;
+  do {
+    const page = await load(cursor);
+    const record = page.data.find((record) => record.id === id);
+    if (record) return record;
+    cursor = page.next_cursor || undefined;
+  } while (cursor);
+}
+
+export async function reloadWorkEntry(
+  load: (cursor?: string) => Promise<C.Page<C.Entry>>,
+  id: string,
+) {
+  const records: C.Entry[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await load(cursor);
+    records.push(...page.data);
+    cursor = page.next_cursor || undefined;
+  } while (cursor);
+  const record = records.find((entry) => entry.id === id);
+  let successor = records.find((entry) => entry.replaces_id === id);
+  const seen = new Set([id]);
+  while (successor && !seen.has(successor.id)) {
+    seen.add(successor.id);
+    const next = records.find((entry) => entry.replaces_id === successor!.id);
+    if (!next) break;
+    successor = next;
+  }
+  return { record, successor };
+}
 export function workError(error: unknown) {
   const e = error as Partial<ApiFailure> | null;
   if (pendingImplementation(e))
@@ -64,10 +99,10 @@ export function createWorkApi(api: Api, root: string) {
       ),
     stageDecision: (id: string, body: C.StageApprovalDecisionRequest) =>
       send<C.Order>(order(id) + "/stage-approval/decision", "POST", body),
-    quote: (id: string, body: C.QuoteRequest) =>
+    quote: (id: string, body: C.QuoteRequest & { version?: number }) =>
       send<C.Order>(order(id) + "/quote", "PUT", body),
-    sendQuote: (id: string) =>
-      send<C.Order>(order(id) + "/quote/send", "POST", {}),
+    sendQuote: (id: string, body: C.QuoteSendRequest = {}) =>
+      send<C.Order>(order(id) + "/quote/send", "POST", body),
     decision: (id: string, body: C.DecisionRequest) =>
       send<C.Order>(order(id) + "/decision", "POST", body),
     privateFields: (id: string) =>
@@ -79,7 +114,7 @@ export function createWorkApi(api: Api, root: string) {
     createTask: (id: string, body: C.CreateTaskRequest) =>
       send<C.MutationRef>(child(id, body.sensitive ? "private-tasks" : "tasks"), "POST", body),
     updateTask: (id: string, taskId: string, body: C.UpdateTaskRequest, sensitive = body.sensitive === true) =>
-      send<C.MutationRef>(child(id, sensitive ? "private-tasks" : "tasks", taskId), "PATCH", body),
+      send<C.MutationRef>(child(id, sensitive || body.sensitive ? "private-tasks" : "tasks", taskId), "PATCH", body),
     people: (id: string, query: C.PageQuery) =>
       get<C.Page<C.LinkedPerson>>(child(id, "people"), query),
     createPerson: (id: string, body: C.CreatePersonRequest) =>

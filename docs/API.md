@@ -332,6 +332,17 @@ Aqui `P = /api/v1/profiles/{profile}`, `B = P/service-orders` e `O = B/{id}`.
 `stage_approval`. `MutationRef = {id, order_id, version}` e
 `Page<T> = {data: T[], next_cursor: string | null}`.
 
+O detalhe fornece `features` da definição fixada, inclusive a política de orçamento;
+revisar o catálogo não altera trabalhos antigos. Na lista de tipos personalizados,
+`next_task` contém `{id, title, due_at}` da primeira tarefa aberta autorizada ou
+`null`. Os filtros `assignee` (ID, `me`, `unassigned`), `due_from` e `due_to`
+(milissegundos Unix inclusivos do prazo geral) são aplicados no servidor, sem
+alterar `counts`. Em `my-tasks`, os limites continuam sendo datas civis.
+
+Extensões desligadas por padrão, habilitadas por área: [Jurídico](JURIDICO.md),
+[Condomínio](CONDOMINIO.md) e [Saúde](SAUDE.md).
+Ensino: rotas, permissões e corpos em [ENSINO.md](ENSINO.md#api).
+
 Leitura usa `conversations:read`; escrita usa `conversations:write` e
 `Idempotency-Key`. Parâmetros do caminho vencem o corpo e `profile` nunca é
 obtido dele. Novos filhos usam a própria versão para concorrência, sem exigir
@@ -367,14 +378,14 @@ contrato anterior. Regras e limites de edição estão no guia administrativo.
 | `GET O/history` | `cursor`, `limit`, máximo 100. | Página do histórico completo, incluindo filhos. | `400 invalid_cursor`. |
 | `POST B` | Corpo atual; acrescenta `type_id?` e `extra?`. | `Order`. | `404 type_not_found`; `409 type_archived`; `400 invalid_fields`. |
 | `PATCH O` | Campos atuais; acrescenta `extra?` e `version?`. | `Order`. | `409 version_conflict`; `400 immutable_field`. |
-| `POST O/status` | Corpo atual: `status`, `note?`. | `Order`. | Em tipo personalizado, `409 stage_required` se não houver correspondência única. |
+| `POST O/status` | `status`, `note?`. Embutido: `analyzing`, `in_progress`, `ready`, `delivered`, `cancelled`; personalizado também admite `received` por transição manual única que mude o estado de base. | `Order`. | `409 invalid_transition` se não houver destino; `409 stage_required` se a transição for ambígua ou exigir ação própria. |
 | `POST O/stage` | `{ transition_id, version, note? }`. | `Order`. | `409 invalid_transition`; `409 version_conflict`; `409 approval_required`. |
-| `PUT O/quote` | Corpo atual. | `Order`. | `409 feature_disabled` ou erros atuais. |
+| `PUT O/quote` | Corpo atual e `version?` da ordem; quando presente, impede sobrescrita de versão obsoleta. | `Order`. | `409 version_conflict`; `409 feature_disabled` ou erros atuais. |
 | `POST O/quote/send` | Corpo atual. | `Order`. | `409 feature_disabled` ou erros atuais. |
 | `POST O/decision` | Corpo atual: `decision: "approve" \| "decline"`, `note?`. | `Order`; a decisão continua retornando `approved` ou `declined`. | Erros atuais de pendência e validade. |
 | `POST O/stage-approval` | `{ transition_id, version }`. | `Order` com pedido pendente. | `409 approval_pending`; `409 invalid_transition`. |
 | `POST O/stage-approval/decision` | `{ decision: "approve" \| "decline", approval_version, version }`. | `Order`. | `409 approval_expired`; `409 approval_not_pending`; `409 version_conflict`. |
-| `GET O/private-fields` | Sem corpo. | `{ id, version, extra }`, somente campos sensíveis autorizados. | `403 sensitive_forbidden`. |
+| `GET O/private-fields` | Sem corpo. | `{ id, version, fields, extra }`, definições sensíveis do snapshot e seus valores autorizados. | `403 sensitive_forbidden`. |
 | `PATCH O/private-fields` | `{ version, extra }`. | `{ id, version, changed_fields }`. Não devolve valores. | `403 sensitive_forbidden`; `409 version_conflict`; `400 invalid_fields`. |
 
 Em tipos personalizados, `/status` só executa uma única transição manual
@@ -393,10 +404,14 @@ recusa e é cancelada quando campos, orçamento ou etapa mudam.
 
 | Método e rota | Corpo ou consulta | Resposta | Erros específicos |
 |---|---|---|---|
+| `GET B/my-tasks` | `assignee=me`, `state?` (padrão `open`), `type_id?`, `period?`, `due_from?`, `due_to?`, `cursor?`, `limit?`. | `Page<MyTask>`: tarefa com `type_id`, `type_label`, `display_number`, `stage_label` da definição fixada do pai. | `400 invalid_filter`; `400 invalid_cursor`; `403 forbidden`. |
 | `GET O/tasks` | `state?`, `cursor?`, `limit?`. | `Page<Task>`. | `400 invalid_filter`. |
 | `POST O/tasks` | Campos de tarefa. | `MutationRef`. | `400 invalid_task`; `409 feature_disabled`. |
 | `PATCH O/tasks/{task_id}` | `version` e campos alterados; admite `state`. | `MutationRef`. | `409 version_conflict`; `400 invalid_task`. |
 | `POST O/tasks/{task_id}/archive` | `{ version }`. | `MutationRef`. | `409 version_conflict`. |
+| `POST O/private-tasks` | Campos de tarefa; sensível exige `audience=staff`, `client_visible=false`. | `MutationRef`. | `403 sensitive_forbidden`; `400 invalid_task`. |
+| `PATCH O/private-tasks/{task_id}` | `version` e campos alterados, incluindo `state`; não permite retirar sigilo. | `MutationRef`. | `403 sensitive_forbidden`; `409 version_conflict`; `400 invalid_task`. |
+| `POST O/private-tasks/{task_id}/archive` | `{ version }`. | `MutationRef`. | `403 sensitive_forbidden`; `409 version_conflict`. |
 | `GET O/people` | `cursor?`, `limit?`. | `Page<LinkedPerson>`. | Erros comuns. |
 | `POST O/people` | Campos de pessoa. | `MutationRef`. | `400 invalid_person`; `404 contact_not_found`. |
 | `PATCH O/people/{person_id}` | `version` e campos alterados. | `MutationRef`. | `409 version_conflict`. |
@@ -406,14 +421,27 @@ recusa e é cancelada quando campos, orçamento ou etapa mudam.
 | `PUT O/documents/{document_id}/content` | Corpo binário; `Idempotency-Key`; versão em `Upload-Version`. | `{ id, version, upload_attempt, byte_length, sha256 }`. | `409 upload_busy`; `409 upload_expired`; `413 document_too_large`. |
 | `POST O/documents/{document_id}/complete` | `{ version, upload_attempt }`. | `MutationRef`. | `409 upload_incomplete`; `409 content_mismatch`. |
 | `GET O/documents/{document_id}/content` | Sem corpo. | Binário autenticado, com `Cache-Control: no-store`. | `404 not_found`; `409 document_not_ready`. |
-| `POST O/documents/{document_id}/send` | `{ version }`. | `{ id, message_id }`. | `403 document_not_shareable`; `409 no_conversation`. |
+| `POST O/documents/{document_id}/send` | `{ version }`. | `{ id, message_id }`. | `403 document_not_shareable`; `409 no_conversation`; `409 document_not_ready`. |
 | `POST O/documents/{document_id}/archive` | `{ version }`. | `MutationRef`. | `409 version_conflict`. |
+| `GET O/private-documents` | `cursor?`, `limit?`. | `Page<DocumentMetadata>` somente de documentos sensíveis. | `403 sensitive_forbidden`. |
+| `POST O/private-documents` | Metadados com `sensitive=true` e `client_visible=false`. | `{ id, order_id, version, upload_url, expires_at }`. | `403 sensitive_forbidden`; `413 document_too_large`; `415 unsupported_media_type`. |
+| `PUT O/private-documents/{document_id}/content` | Bytes; `Idempotency-Key`; `Upload-Version`. | `{ id, version, upload_attempt, byte_length, sha256 }`. | `403 sensitive_forbidden`; `409 upload_busy`; `409 upload_expired`; `413 document_too_large`. |
+| `POST O/private-documents/{document_id}/complete` | `{ version, upload_attempt }`. | `MutationRef`. | `403 sensitive_forbidden`; `409 upload_incomplete`; `409 content_mismatch`. |
+| `GET O/private-documents/{document_id}/content` | Sem corpo. | Binário no MIME cadastrado, `Cache-Control: no-store`. | `403 sensitive_forbidden`; `404 not_found`; `409 document_not_ready`. |
+| `POST O/private-documents/{document_id}/archive` | `{ version }`. | `MutationRef`. | `403 sensitive_forbidden`; `409 version_conflict`. |
 | `GET O/entries` | `kind?`, `cursor?`, `limit?`, `include_archived?`. | `Page<Entry>`. | `400 invalid_filter`. |
+| `GET O/entries/summary` | `kind?`, `include_archived?`; sem cursor ou limite. | `{ data: [{ kind, unit, count, quantity_milli }] }`; soma exata `quantity_milli: string \| null`. | `400 invalid_filter`. |
 | `POST O/entries` | Campos de lançamento. | `MutationRef`. | `400 invalid_entry`; `409 feature_disabled`. |
 | `POST O/entries/{entry_id}/revisions` | `version` do anterior e campos completos da correção. | `MutationRef` do novo lançamento. | `409 version_conflict`; `409 entry_replaced`. |
 | `POST O/entries/{entry_id}/archive` | `{ version }`. | `MutationRef`. | `409 version_conflict`. |
 
 Listas filhas usam limite padrão 50 e máximo 100. O cursor opaco contém a última chave de ordenação e o ID. Deve ser validado contra área, ordem, coleção e filtros. Não usar `OFFSET`.
+
+`my-tasks` exige pessoa autenticada, sem bot, aplicação ou credencial limitada à conversa; retorna somente tarefas atribuídas ao solicitante. `period` aceita `dated` (padrão, com prazo), `overdue`, `today`, `next7`, `range` ou `undated`. `range` exige `due_from` e `due_to` como datas civis inclusivas `YYYY-MM-DD`, em Brasília. Ordenação por prazo e ID, com limite padrão 50 e máximo 100; cursor vinculado também ao ator e filtros. A visibilidade sensível exige `os:sensitive`. O resumo de lançamentos aplica a mesma autorização da lista: ocultos não entram nos grupos nem nas somas. A soma é textual para não perder precisão; `null` indica grupo sem quantidades.
+
+As escritas comuns de tarefas exigem `sensitive=false` e recusam tarefas já sensíveis com `403 sensitive_forbidden`, inclusive para quem tem o papel. Use `private-tasks` para criá-las, alterá-las e arquivá-las; a leitura autorizada continua em `GET O/tasks`. Documentos comuns também exigem `sensitive=false`; documentos sensíveis usam **toda** a família `private-documents`. Tentar baixá-los pela rota comum retorna `404 not_found`, mesmo com papel. As operações privadas exigem pessoa com `os:sensitive` explícito, sem `via`, e ficam fora do catálogo de IA. Não existe `private-documents/.../send`.
+
+No detalhe `history=legacy`, cada registro contém `id`, `kind`, `from_status`, `to_status`, `actor`, `note` (quando autorizada) e `created`. `kind` conserva `opened/status/quote/edit` antigos e também aceita eventos do motor, como `os.stage_changed` e `os.task.created`; eventos de filhos podem ter ambos os estados nulos. Metadados como `from_stage`, `to_stage`, `entity_kind`, `entity_id`, `entity_version`, `mutation_key` e `changed_fields` pertencem a `GET O/history`, não ao histórico embutido no detalhe. A listagem não carrega histórico.
 
 Limites por ordem: 500 tarefas, 200 pessoas, 500 documentos e 10.000 lançamentos. O limite conta registros arquivados. Novas inclusões acima dele retornam `409 collection_limit`. A conferência ocorre no comando serializado.
 
@@ -425,6 +453,16 @@ e hash antes de marcar `ready`. Download exige autorização antes de abrir o
 objeto e sempre usa `Cache-Control: no-store`. Metadados não expõem chave R2
 ou URL pública. Arquivamento não elimina imediatamente o arquivo. Envio ao
 WhatsApp exige documento pronto, público, não sensível e permissão de mensagem.
+Se ainda estiver `pending`, o envio retorna `409 document_not_ready`.
+
+O download devolve o `Content-Type` cadastrado na reserva. MIME permitidos:
+`application/pdf`, `image/jpeg`, `image/png`, `image/webp`, `text/plain`,
+`application/msword`, `application/vnd.ms-excel`,
+`application/vnd.openxmlformats-officedocument.wordprocessingml.document`,
+`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` e
+`application/vnd.openxmlformats-officedocument.presentationml.presentation`.
+`application/octet-stream` descreve o corpo binário do upload, não um MIME
+aceito na reserva nem o tipo declarado exclusivamente para download.
 
 | Situação | Resposta |
 |---|---|
@@ -470,8 +508,8 @@ Modelos de área exigem administrador humano e funcionam com `os` desligado:
 |---|---|---|---|
 | `GET P/area-templates` | — | Catálogo resumido. | `403 forbidden`. |
 | `GET P/area-templates/{template_id}` | — | Manifesto declarativo. | `404 template_not_found`. |
-| `POST P/area-templates/preview` | `AreaTemplatePreviewRequest`. | `AreaTemplatePreview`. Não grava nada. | `400 invalid_template`; `413 template_too_large`. |
-| `POST P/area-templates/apply` | `AreaTemplateApplyRequest`; `Idempotency-Key`. | `{ applied, changes, manual_steps, settings_revision }`. | `409 preview_stale`; `409 template_conflict`; `409 dependency_conflict`. |
+| `POST P/area-templates/preview` | `AreaTemplatePreviewRequest`. | `AreaTemplatePreview`. Não grava nada. | `400 invalid_template`; `413 template_too_large`; `404 template_not_found`. |
+| `POST P/area-templates/apply` | `AreaTemplateApplyRequest`; `Idempotency-Key`. | `{ applied, changes, manual_steps, settings_revision }`. | `409 preview_stale`; `409 template_conflict`; `409 dependency_conflict`; `404 template_not_found`. |
 | `POST P/area-templates/export` | `{ id, name, type_ids }`. | `AreaTemplate`. Não grava nada. | `400 invalid_export`; `404 type_not_found`. |
 
 A importação usa `manifest` nas rotas de prévia e aplicação. Não executa código.

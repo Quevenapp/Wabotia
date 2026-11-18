@@ -19,16 +19,27 @@ export const escolasTemplate: AreaTemplate = {
       labels: {
         singular: "Matrícula",
         plural: "Matrículas",
-        item: "Nome do aluno",
+        item: "Referência administrativa (sem dados pessoais)",
         problem: "Assunto administrativo (sem dados do aluno)",
         customer_singular: "Responsável",
         customer_plural: "Responsáveis",
       },
       number_prefix: "MAT",
       terms:
-        "Solicito a análise desta matrícula. Entendo que o envio do pedido não reserva vaga nem ativa a matrícula. A secretaria conferirá os dados, a representação do aluno e as condições do contrato. Li o aviso de privacidade apresentado neste atendimento. No assunto, informarei apenas um título administrativo, como Pedido de matrícula. Dados do aluno além do nome serão tratados pela equipe autorizada em canal privado.",
+        "Solicito a análise desta matrícula. Entendo que o envio do pedido não reserva vaga nem ativa a matrícula. A secretaria conferirá os dados, a representação do aluno e as condições do contrato. Li o aviso de privacidade apresentado neste atendimento. Na referência e no assunto, informarei apenas títulos administrativos, como Pedido de matrícula, sem nomes ou dados pessoais. O nome e os demais dados do aluno serão tratados pela equipe autorizada em canal privado.",
       // Todos os extras podem descrever menores: captura privada e opcional.
       fields: [
+        {
+          id: "nome_aluno",
+          label: "Nome do aluno",
+          help: "Coletado em canal protegido pela equipe autorizada. Não copiar para referência, assunto ou mensagens.",
+          required: false,
+          client_visible: false,
+          sensitive: true,
+          kind: "text",
+          multiline: false,
+          max_length: 200,
+        },
         {
           id: "modalidade",
           label: "Modalidade",
@@ -320,15 +331,26 @@ export const escolasTemplate: AreaTemplate = {
       labels: {
         singular: "Ocorrência ou solicitação",
         plural: "Ocorrências e solicitações",
-        item: "Nome do aluno",
+        item: "Referência administrativa (sem dados pessoais)",
         problem: "Assunto administrativo (sem dados do aluno)",
         customer_singular: "Responsável",
         customer_plural: "Responsáveis",
       },
       number_prefix: "SOL",
       terms:
-        "Solicito atendimento sobre o assunto informado. Entendo que a escola conferirá meu vínculo com o aluno antes de liberar informações ou documentos. Não enviarei dados de outras famílias neste pedido. No assunto, usarei apenas um título administrativo, como Pedido à secretaria. Dados do aluno além do nome e relatos delicados serão tratados pela equipe autorizada em canal privado.",
+        "Solicito atendimento sobre o assunto informado. Entendo que a escola conferirá meu vínculo com o aluno antes de liberar informações ou documentos. Não enviarei dados de outras famílias neste pedido. Na referência e no assunto, usarei apenas títulos administrativos, como Pedido à secretaria, sem nomes ou dados pessoais. O nome, os demais dados do aluno e relatos delicados serão tratados pela equipe autorizada em canal privado.",
       fields: [
+        {
+          id: "nome_aluno",
+          label: "Nome do aluno",
+          help: "Coletado em canal protegido pela equipe autorizada. Não copiar para referência, assunto ou mensagens.",
+          required: false,
+          client_visible: false,
+          sensitive: true,
+          kind: "text",
+          multiline: false,
+          max_length: 200,
+        },
         {
           id: "categoria",
           label: "Categoria",
@@ -646,7 +668,7 @@ export const escolasTemplate: AreaTemplate = {
   ],
   texts: {
     instructions:
-      "Informe apenas o nome do aluno e um assunto administrativo genérico. Dados adicionais, documentos e relatos devem seguir o canal privado indicado pela secretaria. Um vínculo de pessoa no atendimento não concede acesso a outra família.",
+      "Informe uma referência e um assunto administrativos genéricos, como Pedido de matrícula. Não informe nomes ou dados pessoais nesses campos nem neste chat. O nome do aluno, documentos e relatos devem seguir o canal protegido indicado pela secretaria e ser registrados em campos privados pela equipe autorizada. Um vínculo de pessoa no atendimento não concede acesso a outra família.",
     menu_greeting:
       "Olá! Este é o atendimento da escola. Escolha Nova matrícula, Acompanhar matrícula, Abrir solicitação ou Falar com a equipe. Para proteger os alunos, não envie documentos ou relatos delicados neste chat.",
     protocol_confirmation:
@@ -672,7 +694,7 @@ export const escolasTemplate: AreaTemplate = {
     "Configurar planos mensais por modalidade, inicialmente inativos até definir preços; vencimento sugerido no dia 10, aviso 3 dias antes, no vencimento e a cada 7 dias de atraso, no máximo 2. Conferir o pagador e a conta de cobrança. Trancamento, cancelamento e encerramento não alteram cobranças automaticamente.",
     "Criar formulário público de primeiro contato apenas com nome e preferências do adulto responsável e ciência do aviso de privacidade. Não coletar dados do aluno, documentos ou relatos pedagógicos nesse formulário.",
     "Após configurar Agenda e Mensalidade, acrescentar seus menus no editor. O manifesto oferece encaminhamento humano; não inclui submenus, consulta de agendamentos, boletim ou segunda via automática.",
-    "Vincular aluno, responsáveis pedagógico e financeiro, representante assinante e coordenador apenas após conferência. O vínculo de pessoa não amplia os titulares da ordem. Classificar como sensíveis pessoas, tarefas, documentos e lançamentos com dados de menores além do nome.",
+    "Vincular aluno, responsáveis pedagógico e financeiro, representante assinante e coordenador apenas após conferência. O vínculo de pessoa não amplia os titulares da ordem. Classificar como sensíveis pessoas, tarefas, documentos e lançamentos com dados de menores, inclusive o nome. Coletar o nome em canal protegido e registrá-lo somente no campo privado Nome do aluno, nunca na referência ou no assunto.",
     "Registrar contatos administrativos, conferências, aceite documentado e movimentações sem copiar conteúdo privado para títulos ou histórico. Documentos de identificação, representação, relatos e dados de terceiros devem permanecer privados, sem envio pelo WhatsApp.",
     "Publicar contrato e aviso de privacidade revisados; aprovar finalidades, base legal e guarda. Configurar o canal privado antes de coletar dados. O texto de aceite pressupõe que o aviso foi apresentado.",
     "Validar acesso em telas, APIs, arquivos e exportações. Manter o bot desligado até isolar informações públicas; sugestões de operações não impõem permissões. Papéis escolares e acesso por turma dependem da extensão Ensino.",

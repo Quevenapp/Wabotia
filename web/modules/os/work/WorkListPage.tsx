@@ -18,6 +18,12 @@ import { WorkDetailPage } from "./WorkDetailPage";
 import { workCollectionLabel, hasCustomTypes } from "../work-vocabulary";
 import "../work.css";
 
+function dateFilterValue(value?: string) {
+  if (!value) return "";
+  const date = new Date(Number(value) - 3 * 3600000);
+  return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 10) : "";
+}
+
 function WorkList({
   type,
   catalog,
@@ -29,7 +35,7 @@ function WorkList({
     api = useWorkApi(),
     route = useRoute();
   const [cursor, setCursor] = useState(""),
-    [opening, setOpening] = useState(false);
+    [opening, setOpening] = useState<WorkTypeView | null>(null);
   const filters = route.filters || {};
   const [search, setSearch] = useState(filters.q || "");
   const resource = useWorkResource(
@@ -39,6 +45,7 @@ function WorkList({
         type_id: type.id,
         stage: filters.stage,
         q: filters.q,
+        assignee: filters.assignee, due_from: filters.due_from, due_to: filters.due_to,
         open: filters.stage
           ? undefined
           : filters.open === "0"
@@ -76,7 +83,7 @@ function WorkList({
             }
           />
         )}
-        <Button disabled={type.archived} onClick={() => setOpening(true)}>
+        <Button disabled={type.archived} onClick={() => setOpening(type)}>
           Criar: {type.labels.singular}
         </Button>
         {type.features.tasks && (
@@ -102,28 +109,31 @@ function WorkList({
         </Button>
         <Field
           label="Etapa"
-          value={filters.stage || (filters.open === "0" ? "all" : "open")}
+          value={filters.stage ? `stage:${filters.stage}` : (filters.open === "0" ? "filter:all" : "filter:open")}
           emptyOption={null}
           options={[
-            { id: "open", name: "Abertas" },
-            { id: "all", name: "Todas" },
+            { id: "filter:open", name: "Abertas" },
+            { id: "filter:all", name: "Todas" },
             ...type.stages.map((stage) => ({
-              id: stage.id,
+              id: `stage:${stage.id}`,
               name: `${stage.label}${resource.data?.facets?.stages?.[stage.id] === undefined ? "" : ` (${resource.data.facets.stages[stage.id]})`}`,
             })),
           ]}
           onChange={(value) =>
             filter({
-              stage: ["all", "open"].includes(value) ? "" : value,
-              open: value === "open" ? "1" : "0",
+              stage: value.startsWith("stage:") ? value.slice(6) : "",
+              open: value === "filter:open" ? "1" : "0",
             })
           }
         />
+        <Field label="Responsável" value={filters.assignee || ""} options={[{ id: "me", name: "Eu" }, { id: "unassigned", name: "Sem responsável" }, ...Object.entries(app.names).map(([id, name]) => ({ id, name: String(name) }))]} onChange={assignee => filter({ assignee })} />
+        <Field label="Prazo de (data)" type="date" value={dateFilterValue(filters.due_from)} onChange={value => filter({ due_from: value ? String(Date.parse(value + "T00:00:00-03:00")) : "" })} />
+        <Field label="Prazo até (data)" type="date" value={dateFilterValue(filters.due_to)} onChange={value => filter({ due_to: value ? String(Date.parse(value + "T23:59:59.999-03:00")) : "" })} />
         <Button
           secondary
           onClick={() => {
             setSearch("");
-            filter({ q: "", stage: "", open: "1" });
+            filter({ q: "", stage: "", open: "1", assignee: "", due_from: "", due_to: "" });
           }}
         >
           Limpar filtros
@@ -162,6 +172,7 @@ function WorkList({
                     : "Sem responsável"}
                 </span>
                 <span>
+                  {order.next_task && <span>Próxima tarefa: {order.next_task.title} · {instantLabel(order.next_task.due_at)}</span>}
                   Prazo geral: {instantLabel(order.due_at)}{" "}
                   {order.due_at &&
                   order.due_at < app.now &&
@@ -187,10 +198,10 @@ function WorkList({
       )}
       {opening && (
         <WorkFormDialog
-          type={type}
-          onClose={() => setOpening(false)}
+          type={opening}
+          onClose={() => setOpening(null)}
           onSaved={(order) => {
-            setOpening(false);
+            setOpening(null);
             navigate({
               area: "admin",
               page: "work",
@@ -209,8 +220,9 @@ export function WorkPage() {
     route = useRoute(),
     api = useWorkApi();
   const catalog = useWorkResource(
-    app.root + "/work-catalog/" + (app.status.settings_revision || ""),
+    app.root + "/work-catalog/",
     () => api.types(true),
+    app.status.settings_revision || "",
   );
   // A entrada antiga continua imediata e idêntica nas instalações sem tipos novos.
   const configured = (app.settings.os_work_types || []).length > 0;
@@ -257,12 +269,12 @@ export function WorkPage() {
             }
           />
         )}
-        <ServiceOrdersPage />
+        <ServiceOrdersPage typeId="service_order" />
       </div>
     );
   return (
     <WorkList
-      key={type.id + JSON.stringify(route.filters)}
+      key={app.root + type.id + JSON.stringify(route.filters)}
       type={type}
       catalog={catalog.data}
     />

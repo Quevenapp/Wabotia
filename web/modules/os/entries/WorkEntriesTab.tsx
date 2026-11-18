@@ -8,6 +8,8 @@ import {
   assertVisibility,
 } from "../components/ChildCollection";
 import type { CreateEntryRequest, Entry } from "../work-contracts";
+import { ConflictRecovery, useConflictRecovery } from "../components/ConflictRecovery";
+import { reloadWorkEntry } from "../work-api";
 import {
   dateTimeInput,
   dateTimeValue,
@@ -25,7 +27,7 @@ export function quantityMilli(value: string): number | null {
     throw new Error("Quantidade fora do limite.");
   return result;
 }
-function EntryDialog({
+export function EntryDialog({
   workId,
   initial,
   onClose,
@@ -37,6 +39,10 @@ function EntryDialog({
   onSaved: () => void;
 }) {
   const api = useWorkApi();
+  const recovery = useConflictRecovery(initial, () => reloadWorkEntry(
+    (cursor) => api.entries(workId, { cursor, limit: 100, include_archived: true }), initial!.id,
+  ));
+  const current = recovery.latest?.record;
   const [draft, setDraft] = useState<CreateEntryRequest>({
     kind: initial?.kind || "",
     text: initial?.text || "",
@@ -61,24 +67,36 @@ function EntryDialog({
     <FormDialog
       title={initial ? "Retificar lançamento" : "Registrar lançamento"}
       onClose={close}
+      disabled={recovery.conflict}
       onSubmit={async () => {
-        assertVisibility(draft);
         const body = {
           ...draft,
+          sensitive: !!recovery.base?.sensitive || draft.sensitive,
           quantity_milli: quantityMilli(quantity),
           occurred_at: dateTimeValue(date)!,
         };
+        assertVisibility(body);
         if (!body.occurred_at) throw new Error("Informe a data da ocorrência.");
-        if (initial)
-          await api.reviseEntry(workId, initial.id, {
-            ...body,
-            version: initial.version,
-          });
-        else await api.createEntry(workId, body);
+        await recovery.run(async () => {
+          if (recovery.base)
+            await api.reviseEntry(workId, recovery.base.id, {
+              ...body,
+              version: recovery.base.version,
+            });
+          else await api.createEntry(workId, body);
+        });
         setDirty(false);
         onSaved();
       }}
     >
+      <ConflictRecovery recovery={recovery}>
+        {current && <dl>
+          <dt>Lançamento atual</dt><dd>{current.kind} · {current.text}</dd>
+          <dt>Quantidade / ocorrência</dt><dd>{current.quantity_milli == null ? "—" : current.quantity_milli / 1000} {current.unit} · {instantLabel(current.occurred_at)}</dd>
+          <dt>Visibilidade</dt><dd>{current.sensitive ? "Restrito" : current.client_visible ? "Cliente" : "Equipe"}</dd>
+        </dl>}
+        {recovery.latest?.successor && <p>Sucessor: {recovery.latest.successor.id} · {recovery.latest.successor.kind} · {recovery.latest.successor.text}</p>}
+      </ConflictRecovery>
       {initial && (
         <Notice>
           A retificação cria um novo registro e preserva o anterior no
@@ -125,9 +143,9 @@ function EntryDialog({
         required
       />
       <VisibilityFields
-        value={draft}
+        value={{ ...draft, sensitive: !!recovery.base?.sensitive || draft.sensitive }}
         onChange={change}
-        lockedSensitive={!!initial?.sensitive}
+        lockedSensitive={!!recovery.base?.sensitive}
       />
     </FormDialog>
   );

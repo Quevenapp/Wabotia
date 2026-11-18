@@ -1,10 +1,10 @@
 import { ApiError, json, now } from "../../types";
 import type { ModuleContext } from "../api";
 import type { PendingStageApproval } from "./contracts";
-import { endOfDayAfter, fill, type OsStatus } from "./model";
+import { endOfDayAfter, type OsStatus } from "./model";
 import { checkVersion, commitOrderMutation } from "./mutations";
-import { effectiveStage, snapshotType } from "./work-types";
-import { notify, publicOrderValues } from "./store";
+import { builtinWorkType, effectiveStage, snapshotType } from "./work-types";
+import { changeStatus, customMessage, notify } from "./store";
 
 function stageNote(value: unknown): string {
   if (value === undefined || value === null) return "";
@@ -58,7 +58,11 @@ export async function customMove(ctx: ModuleContext, row: any, to: OsStatus, act
 export async function changeStage(ctx: ModuleContext, row: any, data: any, actor: string, options: { notify?: boolean; mutationKey?: string } = {}) {
   checkVersion(row, data.version);
   const type = snapshotType(row);
-  if (!type) throw stageError();
+  if (!type) {
+    const transition = builtinWorkType().transitions.find(t => t.id === data.transition_id && t.from === effectiveStage(row));
+    if (!transition) throw stageError();
+    return changeStatus(ctx, row, transition.to, actor, data.note, { ...options, stage: transition.to });
+  }
   const transition = type.transitions.find(t => t.id === data.transition_id && t.from === effectiveStage(row));
   if (!transition) throw stageError();
   if (transition.kind !== "manual") throw stageError("approval_required");
@@ -88,11 +92,11 @@ export async function sendStageApproval(ctx: ModuleContext, row: any) {
   const c = await ctx.conversation(row.conversation_id);
   if (c.chat_type === "group") return;
   await ctx.sendInteractive(c, {
-    type: "list", body: fill(transition.request_text, publicOrderValues(row)) || `Autoriza a etapa ${transition.label}?`, button: "Responder",
+    type: "list", body: customMessage(transition.request_text, row, 1024) || `Autoriza a etapa ${transition.label}?`, button: "Responder",
     sections: [{ rows: (["approve", "decline"] as const).map(decision => ({ id: `os:stage:${row.id}:${approval.version}:${decision}`, title: decision === "approve" ? "Aprovar" : "Recusar" })) }],
   }, { key: `stage-approval:${row.id}:${approval.version}`, notification: true });
 }
-export async function decideStageApproval(ctx: ModuleContext, row: any, data: any, actor: string, key?: string) {
+export async function decideStageApproval(ctx: ModuleContext, row: any, data: any, actor: string, key?: string, options: { notify?: boolean } = {}) {
   checkVersion(row, data.version);
   if (!["approve", "decline"].includes(data.decision)) throw new ApiError(400, "invalid_request", "Decisão inválida.");
   const approval = json(row.stage_approval_json, null) as PendingStageApproval | null;
@@ -105,5 +109,5 @@ export async function decideStageApproval(ctx: ModuleContext, row: any, data: an
   if (data.decision === "decline") return commitOrderMutation(ctx, row, { stage_approval_json: JSON.stringify(decided) }, actor, "os.stage_approval_decided", ["stage_approval"], key);
   const type = snapshotType(row)!;
   const target = type.stages.find(s => s.id === approval.to_stage)!;
-  return customMove(ctx, row, target.base_status, actor, { stage_approval_json: JSON.stringify(decided) }, "status", { stage: target.id, mutationKey: key });
+  return customMove(ctx, row, target.base_status, actor, { stage_approval_json: JSON.stringify(decided) }, "status", { ...options, stage: target.id, mutationKey: key });
 }

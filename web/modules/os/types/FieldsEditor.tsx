@@ -1,17 +1,17 @@
 import React from "react";
 import { Button, Field } from "../../../ui";
 import type { WorkField } from "../work-contracts";
-import { newField } from "./type-draft";
+import { newField, type WorkFieldDraft } from "./type-draft";
 export function FieldsEditor({
   fields,
   onChange,
   locked = [],
 }: {
-  fields: WorkField[];
+  fields: WorkFieldDraft[];
   onChange: (fields: WorkField[]) => void;
   locked?: string[];
 }) {
-  const update = (index: number, field: WorkField) =>
+  const update = (index: number, field: WorkFieldDraft) =>
     onChange(fields.map((old, i) => (i === index ? field : old)));
   return (
     <>
@@ -160,16 +160,13 @@ export function FieldsEditor({
               <Field
                 label="Opções (identificador: rótulo, uma por linha)"
                 type="textarea"
-                value={field.options
+                value={field.options_text ?? field.options
                   .map((option) => `${option.id}: ${option.label}`)
                   .join("\n")}
                 onChange={(value) =>
                   update(index, {
                     ...field,
-                    options: value.split("\n").map((line) => {
-                      const [id, ...parts] = line.split(":");
-                      return { id: id.trim(), label: parts.join(":").trim() };
-                    }),
+                    options_text: value,
                   })
                 }
               />

@@ -11,6 +11,10 @@ import { queueModule } from "./queue";
 import { formsModule } from "./forms/definition";
 import { agendaModule } from "./agenda/definition";
 import { osModule } from "./os/definition";
+import { juridicoModule } from "./juridico/definition";
+import { condominioModule } from "./condominio/definition";
+import { saudeModule } from "./saude/definition";
+import { ensinoModule } from "./ensino/definition";
 import { paymentsModule } from "./payments/definition";
 import { mensalidadeModule } from "./mensalidade/definition";
 import { suporteModule } from "./suporte/definition";
@@ -33,6 +37,11 @@ export const modules: readonly ModuleDefinition[] = [
   formsModule,
   agendaModule,
   osModule,
+  // REGISTRO I2 — módulos opcionais, desligados por padrão em cada área.
+  juridicoModule,
+  condominioModule,
+  saudeModule,
+  ensinoModule,
   paymentsModule,
   mensalidadeModule,
   suporteModule,

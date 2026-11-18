@@ -1,3 +1,4 @@
+import { ensinoNoStore } from "./modules/ensino/http";
 import { capabilities } from "./whatsapp";
 import { authorizedMedia, mediaResponse, uploadPart, mediaKind } from "./media";
 import { callView, callPermission } from "./calls";
@@ -232,6 +233,7 @@ import {
 } from "./cloudflare";
 export { Coordinator } from "./coordinator";
 const app = new Hono<Bindings>();
+app.use("/api/v1/profiles/:profile/ensino/*", ensinoNoStore);
 app.use("*", async (c, next) => {
   if (/^\/internal\/v1\/connectors\/[^/]+\/media-content$/.test(c.req.path))
     return next();

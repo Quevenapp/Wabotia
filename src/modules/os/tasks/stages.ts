@@ -44,11 +44,14 @@ export async function createStageTasks(ctx: ModuleContext, actor: Actor, orderId
       due_at: delay === null ? null : entry.entered_at + delay,
       remind_at: before === null || delay === null ? null : entry.entered_at + delay - before,
     });
+    // A estrutura de todos os modelos é validada; permissões e destinatários
+    // só são exigidos para as tarefas que esta entrada realmente vai criar.
+    if (template.stage !== entry.stage) continue;
     await checkSensitive(ctx, actor, values.sensitive);
     await checkAssignee(ctx, values.assignee);
     if (values.audience === "customer" && !(await ctx.mayNotify(actor, order.row.conversation_id)))
       throw new ApiError(403, "forbidden", "Ator não pode programar aviso ao cliente.");
-    if (template.stage === entry.stage) tasks.push({ values,
+    tasks.push({ values,
       key: `os.task.stage:${await stableKey(ctx.profile, orderId, entry.stage, entry.version, template.id)}`,
     });
   }

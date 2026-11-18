@@ -2,6 +2,7 @@
 // fala com o núcleo só por aqui: contato, enviar mensagem, abrir passo web,
 // publicar evento e os ganchos de menu, ação de conversa, configuração e
 // conclusão de passo web. Mudanças aqui exigem atualizar docs/MODULOS.md.
+import { localModuleWake } from "./local-wake";
 import {
   registerApprovalHook,
   moduleRoutes,
@@ -426,8 +427,9 @@ export interface ModuleContext {
    * Acorda o Coordinator da área: o alarme roda em seguida (a rodada dos
    * módulos no máximo uma vez por minuto, e as entregas da fila). Para rotas
    * fora do Coordinator (onTelemetry) que gravaram algo a avisar.
+   * `modules` conserva uma continuação até a próxima rodada permitida.
    */
-  wake(): Promise<void>;
+  wake(options?: { modules?: boolean }): Promise<void>;
   /**
    * A pessoa tem o papel `role` deste módulo (declarado em `grants` da
    * definição e marcado pelo administrador no acesso da pessoa, em Pessoas e
@@ -1066,12 +1068,17 @@ export function modulesApi(
     revokeCredentials: (subject, reason) =>
       revokeModuleCredentials(env, profile, moduleId, subject, reason),
     credentials: (subject) => credentialsFor(env, profile, moduleId, subject),
-    async wake() {
+    async wake(options) {
+      const local = localModuleWake(env, profile);
+      if (local) return local(options);
       const response = await env.COORDINATOR.get(
         env.COORDINATOR.idFromName(profile),
       ).fetch("https://coordinator/wake", {
         method: "POST",
-        body: JSON.stringify({ profile }),
+        body: JSON.stringify({
+          profile,
+          ...(options?.modules ? { modules: true } : {}),
+        }),
       });
       await response.body?.cancel();
     },

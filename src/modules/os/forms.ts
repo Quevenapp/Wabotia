@@ -19,11 +19,10 @@ export async function customOpenForm(ctx: ModuleContext, c: Conversation, type: 
   for (const f of type.fields.filter(f => f.client_visible && !f.sensitive)) {
     const base = { id: fieldId(f.id), label: f.label, help: f.help, required: f.required };
     if (f.kind === "boolean") fields.push({ ...base, type: "choice", options: ["Sim", "Não"] });
-    else if (f.kind === "choice" && f.options.length >= 2 && f.options.length <= 20)
+    else if (f.kind === "choice")
       // O índice desambigua rótulos iguais sem alterar o ID persistido.
       fields.push({ ...base, type: "choice", options: f.options.map((o, i) => `${i + 1}. ${o.label}`) });
-    else if (f.kind === "choice") fields.push({ ...base, type: "text", help: Array.from(`Informe o ID da opção. ${f.help}`).slice(0, 300).join("") });
-    else fields.push({ ...base, type: f.kind === "date" ? "date" : "text", ...(f.kind === "text" ? { multiline: f.multiline } : {}) });
+    else fields.push({ ...base, type: f.kind === "date" ? "date" : "text", ...(f.kind === "text" ? { multiline: f.multiline, max_length: f.max_length } : {}) });
   }
   if (type.terms) fields.push({ id: "terms", type: "accept", label: "Li e aceito os termos", required: true });
   const id = uid();
@@ -60,7 +59,12 @@ export async function openingAnswers(ctx: ModuleContext, step: WebStep, answers:
     } else if (f.kind === "boolean") {
       if (raw !== "Sim" && raw !== "Não") throw new ApiError(400, "invalid_fields", `Campo ${f.id}: escolha Sim ou Não.`);
       extra[f.id] = raw === "Sim";
-    } else if (f.kind === "choice" && f.options.length >= 2 && f.options.length <= 20) extra[f.id] = f.options.find((o, i) => `${i + 1}. ${o.label}` === raw)?.id;
+    } else if (f.kind === "choice") {
+      // Links já emitidos com 1 ou mais de 20 opções pediam o ID em texto.
+      // A forma do campo vem do passo persistido, nunca das respostas do cliente.
+      const legacyText = step.fields?.some((field: Pick<WebField, "id" | "type">) => field.id === fieldId(f.id) && field.type === "text");
+      extra[f.id] = legacyText ? raw : f.options.find((o, i) => `${i + 1}. ${o.label}` === raw)?.id;
+    }
     else extra[f.id] = raw;
   }
   for (const [key, max] of [["item", 200], ["problem", 2000]] as const) requireValue(typeof answers[key] === "string" && answers[key].trim() && Array.from(answers[key].trim()).length <= max, `Campo ${key} inválido.`);

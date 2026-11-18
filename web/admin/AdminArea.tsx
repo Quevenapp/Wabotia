@@ -1,3 +1,7 @@
+import { PrazosPage } from "../modules/juridico/PrazosPage";
+import { CondominioPage } from "../modules/condominio/CondominioPage";
+import { SaudePage } from "../modules/saude/SaudePage";
+import { EnsinoPage } from "../modules/ensino/EnsinoPage";
 // Gestão (web/DESIGN.md §2 e §8): coluna de navegação de administração e as
 // páginas à direita, com as mesmas regras de quem pode ver o quê.
 import React, { useEffect, useState } from "react";
@@ -124,6 +128,10 @@ function Page({ page }: { page: PageId }) {
   const app = useApp();
   const { api, root, demo } = app;
   switch (page) {
+    case "juridico": return <PrazosPage />;
+    case "condominio": return <CondominioPage />;
+    case "saude": return <SaudePage />;
+    case "ensino": return <EnsinoPage />;
     case "setup":
       return <SetupPage />;
     case "system":

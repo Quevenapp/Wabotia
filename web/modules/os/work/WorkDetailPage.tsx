@@ -46,12 +46,9 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
     [quote, setQuote] = useState(false),
     [privateOpen, setPrivateOpen] = useState(false);
   // Uma definição atual diferente nunca reinterpreta campos/etapas de uma ordem antiga.
-  const type =
-    definition.data?.revision === order.type_revision
-      ? definition.data
-      : undefined;
+  const features = order.features;
   const tabs = workTabs.filter(
-    (tab) => !("feature" in tab) || !type || type.features[tab.feature],
+    (tab) => !("feature" in tab) || !features || features[tab.feature],
   );
   const tab = tabs.find((tab) => tab.id === route.tab)?.id || "resumo";
   const changed = () => {
@@ -247,7 +244,7 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
                 </div>
               )}
             </dl>
-            {order.fields.some((field) => field.sensitive) && (
+            {order.type_id !== "service_order" && app.me.access.includes("os:sensitive") && (
               <Button secondary onClick={() => setPrivateOpen(true)}>
                 Abrir campos restritos
               </Button>
@@ -258,12 +255,12 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
                 Editar: {order.labels.singular}
               </Button>
             )}
-            {(order.quote || type?.features.quote) && (
+            {(order.quote || features?.quote) && (
               <section>
                 <h3>Orçamento</h3>
                 <p>{money(order.quote?.total_cents)}</p>
                 <div className="card-actions">
-                  {type?.features.quote?.source_stages.includes(
+                  {features?.quote?.source_stages.includes(
                     order.stage,
                   ) && (
                     <Button secondary onClick={() => setQuote(true)}>
@@ -276,12 +273,12 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
                       disabled={action.busy}
                       onClick={() =>
                         void action.run(async () => {
-                          await api.sendQuote(order.id);
+                          await api.sendQuote(order.id, { notify: !!order.customer.conversation_id });
                           changed();
                         })
                       }
                     >
-                      Enviar orçamento
+                      {order.customer.conversation_id ? "Enviar orçamento" : "Registrar orçamento sem envio pelo WhatsApp"}
                     </Button>
                   )}
                   {order.status === "quoted" &&

@@ -9,12 +9,12 @@ import { MOTOR_EVENTS } from "../src/modules/os/motor-routes";
 import { authorizedOrder, commitChild } from "../src/modules/os/public";
 import { projectOrderForBot, projectOrderForCustomer, projectOrderForStaff, projectPrivateFields } from "../src/modules/os/privacy";
 import { validateExtra, validateVocabulary, validateWorkType, validateWorkTypeChanges, validateWorkTypes } from "../src/modules/os/validation";
-import { changeStatus, createOrder, listOrders, loadOrder, orderView, publicOrderValues, saveQuote, sendQuote, decide, updateOrder } from "../src/modules/os/store";
+import { changeStatus, createOrder, customMessage, handleQuoteReply, listOrders, loadOrder, orderView, publicOrderValues, saveQuote, sendQuote, decide, updateOrder } from "../src/modules/os/store";
 import { changeStage, decideStageApproval, requestStageApproval } from "../src/modules/os/stages";
 import { handleStageReply } from "../src/modules/os/stage-replies";
 import { customOpenForm, openingAnswers } from "../src/modules/os/forms";
 import { runDue } from "../src/modules/os/reminders";
-import { api, configure, drain, receive } from "./service-center-fixture";
+import { api, application, configure, drain, outbox, quietCoordinator, receive } from "./service-center-fixture";
 import { MOTOR_SENTINEL, motorFixture, motorOrder, motorWorkType } from "./os-motor-fixture";
 
 // Tipagem local para checagem avulsa; os bindings reais vêm de tests/setup.ts.
@@ -31,6 +31,155 @@ async function setup(type = motorWorkType()) {
   return { ...f, type };
 }
 const input = (type_id = "projeto") => ({ type_id, phone: "5511960010203", item: "Objeto", problem: "Escopo", source: "panel" as const, actor: "teste", notify: false, sourceKey: uid() });
+
+function quoteApprovalType() {
+  const type = motorWorkType();
+  type.stages.push(
+    { id: "analise", label: "Análise", base_status: "analyzing", message: "" },
+    { id: "orcamento", label: "Proposta", base_status: "quoted", message: "" },
+    { id: "aceito", label: "Aceito", base_status: "approved", message: "" },
+    { id: "recusado", label: "Recusado", base_status: "declined", message: "" },
+  );
+  type.features.quote = { default_valid_days: 3, source_stages: ["entrada", "analise", "orcamento", "recusado"], sent_stage: "orcamento", approved_stage: "aceito", declined_stage: "recusado", edited_stage: "analise" };
+  for (const from of ["analise", "aceito", "recusado"]) {
+    type.transitions.push({ id: `iniciar_${from}`, from, to: "execucao", label: "Iniciar", kind: "manual" });
+    type.transitions.push({ id: `cancelar_${from}`, from, to: "cancelado", label: "Cancelar", kind: "manual" });
+  }
+  type.transitions.push({ id: "cancelar_orcamento", from: "orcamento", to: "cancelado", label: "Cancelar", kind: "customer_approval", valid_hours: 1, request_text: "Autoriza cancelar {identificador}?" });
+  return type;
+}
+
+async function pendingQuoteAndStage() {
+  const f = await setup(quoteApprovalType());
+  const c = await receive(f, f.line, "oi"); await drain(f);
+  const { order } = await createOrder(f.ctx, { ...input(), conversation: c });
+  const saved = await saveQuote(f.ctx, order, { items: [{ description: "Trabalho", unit_cents: 100 }] }, f.member.id);
+  const quoted = await sendQuote(f.ctx, saved, f.member.id, { notify: false });
+  const pending = await requestStageApproval(f.ctx, quoted, { transition_id: "cancelar_orcamento", version: quoted.row_version }, f.member.id);
+  return { f, c, pending };
+}
+
+describe("M: regressões da revisão do motor", () => {
+  it.each(["APROVAR", "RECUSAR", "1", "2", "APROVAR NUMERO"])("não decide orçamento/etapa simultâneos com %s", async command => {
+    const { f, c, pending } = await pendingQuoteAndStage();
+    const before = await all(env, "SELECT id FROM os_history WHERE profile_id=? AND order_id=?", f.profile, pending.id);
+    const turn = { text: command.replace("NUMERO", String(pending.number)), rowId: uid() };
+    expect(await handleStageReply(f.ctx, c, turn)).toBe(true);
+    expect(await loadOrder(f.ctx, pending.id)).toMatchObject({ status: "quoted", row_version: pending.row_version, stage_approval_json: pending.stage_approval_json });
+    expect(await all(env, "SELECT id FROM os_history WHERE profile_id=? AND order_id=?", f.profile, pending.id)).toEqual(before);
+    expect(JSON.stringify((await outbox(c.id)).at(-1))).toContain("ETAPA");
+  });
+
+  it.each(["APROVAR ETAPA", "APROVAR ETAPA NUMERO", "botão etapa", "botão orçamento"])("identifica o fluxo explicitamente: %s", async command => {
+    const { f, c, pending } = await pendingQuoteAndStage();
+    const quote = command === "botão orçamento";
+    const turn = { text: command.replace("NUMERO", String(pending.number)), rowId: uid(), replyId: command.startsWith("botão") ? quote ? `os:${pending.id}:${pending.quote_version}:approve` : `os:stage:${pending.id}:${json(pending.stage_approval_json).version}:approve` : undefined };
+    const handled = await handleStageReply(f.ctx, c, turn);
+    expect(handled).toBe(!quote);
+    if (!handled) expect(await handleQuoteReply(f.ctx, c, turn)).toBe(true);
+    expect((await loadOrder(f.ctx, pending.id)).status).toBe(quote ? "approved" : "cancelled");
+  });
+
+  it.each(["declined", "cancelled", "expired", "approved"])("aprovação de etapa %s não captura resposta numerada do orçamento", async state => {
+    const { f, c, pending } = await pendingQuoteAndStage();
+    await decideStageApproval(f.ctx, pending, { version: pending.row_version, approval_version: json(pending.stage_approval_json).version, decision: "decline" }, f.member.id);
+    if (state !== "declined") await exec(env, "UPDATE os_orders SET stage_approval_json=json_set(stage_approval_json,'$.state',?) WHERE profile_id=? AND id=?", state, f.profile, pending.id);
+    const turn = { text: `APROVAR ${pending.number}`, rowId: uid() };
+    expect(await handleStageReply(f.ctx, c, turn)).toBe(false);
+    expect(await handleQuoteReply(f.ctx, c, turn)).toBe(true);
+    expect((await loadOrder(f.ctx, pending.id)).status).toBe("approved");
+  });
+
+  it("decisão por aplicação sem atendimento não envia mensagem, inclusive ao recuperar recibo", async () => {
+    const type = motorWorkType();
+    type.transitions[0] = { ...type.transitions[0], kind: "customer_approval", valid_hours: 1, request_text: "Autoriza?" };
+    type.stages[1].message = "Etapa autorizada";
+    const f = await setup(type), c = await receive(f, f.line, "oi"); await drain(f);
+    const { order } = await createOrder(f.ctx, { ...input(), conversation: c });
+    const pending = await requestStageApproval(f.ctx, order, { transition_id: "iniciar", version: 1 }, f.member.id);
+    const app = await application(f, ["conversations:read", "conversations:write"]);
+    const before = await outbox(c.id), key = uid();
+    const path = `/profiles/${f.profile}/service-orders/${order.id}/stage-approval/decision`;
+    const body = { version: pending.row_version, approval_version: json(pending.stage_approval_json).version, decision: "approve" };
+    const first = await api(app.token, path, "POST", body, key);
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({ stage: "execucao", version: 3 });
+    await quietCoordinator(f.profile);
+    const scope = `app:${app.id}:${f.profile}:os.stage.decision`;
+    expect((await one(env, "SELECT response FROM receipts WHERE scope=? AND key=?", scope, key))?.response).toBeTruthy();
+    await exec(env, "UPDATE receipts SET response=NULL WHERE scope=? AND key=?", scope, key);
+    const replay = await api(app.token, path, "POST", body, key);
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({ stage: "execucao", version: 3 });
+    expect(await outbox(c.id)).toEqual(before);
+  });
+
+  it("recupera os.stage por HTTP com recibo incompleto sem duplicar histórico ou mensagem", async () => {
+    const type = motorWorkType(); type.stages[1].message = "Execução iniciada";
+    const f = await setup(type), c = await receive(f, f.line, "oi"); await drain(f);
+    const { order } = await createOrder(f.ctx, { ...input(), conversation: c });
+    const path = `/profiles/${f.profile}/service-orders/${order.id}/stage`, key = uid(), body = { transition_id: "iniciar", version: 1 };
+    expect((await api(f.token, path, "POST", body, key)).status).toBe(200);
+    await quietCoordinator(f.profile);
+    const history = await all(env, "SELECT * FROM os_history WHERE profile_id=? AND order_id=?", f.profile, order.id);
+    const messages = await outbox(c.id);
+    const scope = `${f.member.id}:${f.profile}:os.stage`;
+    expect((await one(env, "SELECT response FROM receipts WHERE scope=? AND key=?", scope, key))?.response).toBeTruthy();
+    await exec(env, "UPDATE receipts SET response=NULL WHERE scope=? AND key=?", scope, key);
+    await exec(env, "DELETE FROM events WHERE profile_id=? AND resource_id=? AND kind='os.stage_changed'", f.profile, order.id);
+    const replay = await api(f.token, path, "POST", body, key);
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({ version: 2, stage: "execucao" });
+    expect(await all(env, "SELECT * FROM os_history WHERE profile_id=? AND order_id=?", f.profile, order.id)).toEqual(history);
+    expect(await all(env, "SELECT id FROM events WHERE profile_id=? AND resource_id=? AND kind='os.stage_changed'", f.profile, order.id)).toHaveLength(1);
+    expect(await outbox(c.id)).toEqual(messages);
+  });
+
+  it.each(["a", "😀"])("limita expansão de mensagem com %s, preservando Unicode e um único envio", async character => {
+    const type = motorWorkType();
+    type.fields[0] = base("referencia", "text", { multiline: true, max_length: 2000 });
+    type.stages[1].message = "{campo_referencia}{campo_referencia}";
+    const f = await setup(type), c = await receive(f, f.line, "oi"); await drain(f);
+    const { order } = await createOrder(f.ctx, { ...input(), conversation: c, extra: { referencia: character.repeat(2000) } });
+    const before = (await outbox(c.id)).length;
+    const moved = await changeStage(f.ctx, order, { transition_id: "iniciar", version: 1 }, f.member.id);
+    expect(moved.stage).toBe("execucao");
+    const messages = await outbox(c.id);
+    expect(messages).toHaveLength(before + 1);
+    const expected = character.repeat(character === "a" ? 3799 : 1899) + "…";
+    expect(customMessage(type.stages[1].message, moved)).toBe(expected);
+    expect(JSON.stringify(messages.at(-1))).toContain(expected);
+  });
+
+  it("lembrete expandido não impede o envio aos demais trabalhos", async () => {
+    const type = motorWorkType();
+    type.fields[0] = base("referencia", "text", { multiline: true, max_length: 2000 });
+    type.stages[1].base_status = "ready";
+    type.features.pickup_reminder_days = 1;
+    type.pickup_reminder_text = "{campo_referencia}{campo_referencia}";
+    const f = await setup(type), c = await receive(f, f.line, "oi"); await drain(f);
+    for (const referencia of ["a".repeat(2000), "Retire seu trabalho"]) {
+      const { order } = await createOrder(f.ctx, { ...input(), conversation: c, extra: { referencia } });
+      await changeStage(f.ctx, order, { transition_id: "iniciar", version: 1 }, f.member.id, { notify: false });
+    }
+    const before = (await outbox(c.id)).length, at = now() + 2 * 86400000;
+    expect(await runDue(f.ctx, at)).toEqual({ reminded: 2, stale: 0 });
+    expect(await outbox(c.id)).toHaveLength(before + 2);
+    expect(await runDue(f.ctx, at)).toEqual({ reminded: 0, stale: 0 });
+    expect(await outbox(c.id)).toHaveLength(before + 2);
+  });
+
+  it("pedido de aprovação também limita os marcadores expandidos ao corpo interativo", async () => {
+    const type = motorWorkType();
+    type.fields[0] = base("referencia", "text", { multiline: true, max_length: 2000 });
+    type.transitions[0] = { ...type.transitions[0], kind: "customer_approval", valid_hours: 1, request_text: "{campo_referencia}{campo_referencia}" };
+    const f = await setup(type), c = await receive(f, f.line, "oi"); await drain(f);
+    const { order } = await createOrder(f.ctx, { ...input(), conversation: c, extra: { referencia: "a".repeat(2000) } });
+    const pending = await requestStageApproval(f.ctx, order, { transition_id: "iniciar", version: 1 }, f.member.id);
+    expect(json(pending.stage_approval_json).state).toBe("pending");
+    expect(JSON.stringify((await outbox(c.id)).at(-1))).toContain("a".repeat(1023) + "…");
+  });
+});
 
 describe("M: validação declarativa", () => {
   it("normaliza texto Unicode, rejeita chaves desconhecidas em todos os níveis e limita listas", () => {

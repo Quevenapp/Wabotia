@@ -11,6 +11,8 @@ import { stableKey, taskView, type TaskRow } from "./model";
  * no DB, inclusive batches e chamadas que falham, sempre ANTES da execução.
  */
 export const TASK_DUE_SQL_RESERVE = 32;
+const dueDate = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short" });
+const dueTime = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", timeStyle: "short" });
 class BudgetExhausted extends Error {}
 export function budgetedEnv(env: Env, budget: DueBudget): Env {
   const raw = new WeakMap<object, D1PreparedStatement>();
@@ -62,38 +64,60 @@ export async function runTaskDue(
   if (!Number.isFinite(limit) || !Number.isSafeInteger(now) || now < 0)
     throw new ApiError(400, "invalid_request", "Rodada de prazos inválida.");
   if (!limit || budget.remaining < TASK_DUE_SQL_RESERVE + 6) return { processed: 0, has_more: true };
-  const ctx = context(budgetedEnv(source.env, budget), source.profile, "os");
+  // A última instrução fica reservada ao checkpoint, mesmo se um serviço
+  // esgotar o orçamento durante o processamento de uma tarefa.
+  const checkpointEnv = budgetedEnv(source.env, budget);
+  const ctx = context(budgetedEnv(source.env, {
+    get remaining() { return Math.max(0, budget.remaining - 1); },
+    consume(count) { budget.consume(count); },
+  }), source.profile, "os");
   await ctx.requireEnabled();
   // Limite superior do fan-out; inclui até assinaturas sem permissão/evento.
   const subscribers = await one<{ total: number }>(ctx.env,
     "SELECT COUNT(*) total FROM webhook_subscriptions WHERE profile_id=? AND enabled=1", ctx.profile);
   const reserve = TASK_DUE_SQL_RESERVE + subscribers!.total;
-  if (budget.remaining < reserve + 2) return { processed: 0, has_more: true };
+  if (budget.remaining < reserve + 4) return { processed: 0, has_more: true };
+  // Uma linha por área no D1, só com a chave de paginação. Avança também
+  // sobre impedidos; ao terminar a volta, eles voltam a ser candidatos.
+  const checkpoint = await one<{ remind_at: number | null; task_id: string | null }>(ctx.env,
+    "SELECT remind_at,task_id FROM os_task_reminder_cursors WHERE profile_id=?", ctx.profile);
+  const saved = checkpoint?.remind_at != null && checkpoint.task_id != null
+    ? [checkpoint.remind_at, checkpoint.task_id] as const : null;
   const rows = await all<TaskRow>(ctx.env,
     `SELECT t.* FROM os_tasks t JOIN os_orders o ON o.profile_id=t.profile_id AND o.id=t.order_id
      WHERE t.profile_id=? AND t.state='open' AND t.archived_at IS NULL
        AND t.notified_at IS NULL AND t.remind_at IS NOT NULL AND t.remind_at<=?
-     ORDER BY t.remind_at,t.id LIMIT ?`, ctx.profile, now, limit + 1);
-  let processed = 0, has_more = rows.length > limit;
+       ${saved ? "AND (t.remind_at>? OR (t.remind_at=? AND t.id>?))" : ""}
+     ORDER BY t.remind_at,t.id LIMIT ?`, ctx.profile, now, ...(saved ? [saved[0], saved[0], saved[1]] : []), limit + 1);
+  let processed = 0, has_more = rows.length > limit || !!saved;
+  let examined = 0;
   for (const row of rows.slice(0, limit)) {
-    if (budget.remaining < reserve) return { processed, has_more: true };
+    if (budget.remaining < reserve + 1) { has_more = true; break; }
+    examined++;
     try {
       const parent = await one<WorkOrderRow>(ctx.env,
         "SELECT * FROM os_orders WHERE profile_id=? AND id=?", ctx.profile, row.order_id);
-      if (!parent) continue;
+      if (!parent) { has_more = true; continue; }
       const snapshot = parent.type_snapshot_json ? JSON.parse(parent.type_snapshot_json) : null;
       const type = await resolveWorkType(ctx, parent.type_id, snapshot);
-      if (!type.features.tasks) continue;
+      if (!type.features.tasks) { has_more = true; continue; }
       // Chave do vencimento, independente de edições de texto e falhas entre
       // fila e marcação. Voltar ao mesmo prazo não reenvia o mesmo lembrete.
-      const key = `task-due:${await stableKey(ctx.profile, row.order_id, row.id, row.due_at, row.remind_at, row.audience, row.assignee)}`;
+      // A conversa já integra a chave de sendMessage. O responsável interno
+      // só é destinatário dos avisos à equipe.
+      const key = `task-due:${await stableKey(ctx.profile, row.order_id, row.id, row.due_at, row.remind_at, row.audience, row.audience === "staff" ? row.assignee : null)}`;
       if (row.audience === "customer") {
-        const task = projectChildForCustomer(taskView(row));
-        if (!task || !parent.conversation_id) { has_more = true; continue; }
+        if (!projectChildForCustomer(taskView(row)) || !parent.conversation_id) { has_more = true; continue; }
         const c = await ctx.conversation(parent.conversation_id);
         const phone = ctx.verifiedPhone(c);
         if (c.profile_id !== ctx.profile || !phone || phone !== parent.phone) { has_more = true; continue; }
-        await ctx.sendMessage(c, { text: `Lembrete: ${task.title}\nVencimento: ${new Date(task.due_at!).toISOString()}` }, { key, notification: true });
+        const current = await one<TaskRow>(ctx.env,
+          "SELECT * FROM os_tasks WHERE profile_id=? AND order_id=? AND id=?", ctx.profile, row.order_id, row.id);
+        if (!current || current.version !== row.version || current.state !== "open" || current.archived_at !== null ||
+            current.notified_at !== null || current.audience !== "customer") { has_more = true; continue; }
+        const task = projectChildForCustomer(taskView(current));
+        if (!task) { has_more = true; continue; }
+        await ctx.sendMessage(c, { text: `Lembrete: ${task.title}\nVencimento: ${dueDate.format(task.due_at!)} às ${dueTime.format(task.due_at!)} (Brasília)` }, { key, notification: true });
       } else {
         const assignee = row.assignee && (await ctx.grantees("technician")).some((p) => p.id === row.assignee) ? row.assignee : null;
         // Evento durável para a equipe também funciona sem conversa. Nunca
@@ -114,6 +138,14 @@ export async function runTaskDue(
       has_more = true;
       if (error instanceof BudgetExhausted) break;
     }
+  }
+  if (examined || saved) {
+    const last = rows[examined - 1];
+    const next = examined < rows.length ? (last ? [last.remind_at, last.id] : saved) : null;
+    await exec(checkpointEnv,
+      `INSERT INTO os_task_reminder_cursors(profile_id,remind_at,task_id) VALUES(?,?,?)
+       ON CONFLICT(profile_id) DO UPDATE SET remind_at=excluded.remind_at,task_id=excluded.task_id`,
+      ctx.profile, next?.[0] ?? null, next?.[1] ?? null);
   }
   return { processed, has_more };
 }

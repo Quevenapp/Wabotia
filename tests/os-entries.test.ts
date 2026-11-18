@@ -2,7 +2,7 @@ import { env } from "cloudflare:test";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { all, batch, exec } from "../src/db";
 import { ApiError, uid, type Actor, type Env as WorkerEnv } from "../src/types";
-import { onCommand, onRead, onRoute } from "../src/modules/api";
+import { modulesApi, onCommand, onRead, onRoute } from "../src/modules/api";
 import type { MutationRef } from "../src/modules/os/contracts";
 import * as motor from "../src/modules/os/public";
 import { entriesExtension } from "../src/modules/os/entries/extension";
@@ -130,6 +130,38 @@ describe("lançamentos: contrato F0 e descritor", () => {
       os_work_types: [motorWorkType()], settings_revision: await settingsRevision(env, f.profile),
     }, uid());
     expect(await motor.resolveWorkType(f.ctx, motorWorkType().id)).toEqual(motorWorkType());
+  });
+
+  it("reverte correção, original, histórico e atividade se o lote real falhar", async () => {
+    const { f, order } = await setup({ commit: false });
+    const first = await createEntry(f.ctx, f.member, { id: order.id, ...payload() }, uid());
+    const snapshot = async () => ({
+      entries: await rows(f.profile, order.id),
+      history: await all(env, "SELECT * FROM os_history WHERE profile_id=? AND order_id=? ORDER BY id", f.profile, order.id),
+      parent: await all(env, "SELECT * FROM os_orders WHERE profile_id=? AND id=?", f.profile, order.id),
+      events: await all(env, "SELECT * FROM events WHERE profile_id=? ORDER BY id", f.profile),
+    });
+    const before = await snapshot();
+    let calls = 0;
+    const brokenEnv = { ...f.ctx.env, DB: new Proxy(f.ctx.env.DB, {
+      get(target, key) {
+        if (key === "batch") return (statements: D1PreparedStatement[]) => {
+          calls++;
+          // Falha real de NOT NULL após todas as escritas da mutação.
+          return target.batch([...statements, target.prepare("UPDATE os_entries SET text=NULL WHERE profile_id=? AND order_id=? AND id=?")
+            .bind(f.profile, order.id, first.id)]);
+        };
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) } as WorkerEnv;
+    const key = uid();
+    const input = { id: order.id, entry_id: first.id, version: 1, ...payload({ quantity_milli: 2000 }) };
+    await expect(reviseEntry({ ...f.ctx, env: brokenEnv }, f.member, input, key)).rejects.toThrow();
+    expect(calls).toBe(1);
+    expect(await snapshot()).toEqual(before);
+    expect(await reviseEntry(f.ctx, f.member, input, key)).toMatchObject({ order_id: order.id, version: 1 });
+    expect(await rows(f.profile, order.id)).toHaveLength(2);
   });
 });
 
@@ -293,6 +325,38 @@ describe("lançamentos: listas, somas e isolamento", () => {
     await expect(createEntry(f.ctx, f.member, { id: order.id, ...payload() }, uid())).rejects.toMatchObject({ code: "collection_limit" });
     expect((await summarizeEntries(f.ctx, f.member, order.id)).data).toEqual([]);
     expect((await summarizeEntries(f.ctx, f.member, order.id, { include_archived: "1" })).data[0].count).toBe(10000);
+  });
+
+  it("filtra ator de módulo antes de paginar e somar pela API entre módulos", async () => {
+    const { f, order } = await setup();
+    const privileged: Actor = { ...f.member, access: ["*", "os:sensitive"] };
+    await createEntry(f.ctx, privileged, { id: order.id, ...payload({ text: MOTOR_SENTINEL, sensitive: true, client_visible: false, occurred_at: 3 }) }, uid());
+    const internal = await createEntry(f.ctx, f.member, { id: order.id, ...payload({ text: "Interno", client_visible: false, occurred_at: 2 }) }, uid());
+    const visible = await createEntry(f.ctx, f.member, { id: order.id, ...payload({ text: "Público", occurred_at: 1 }) }, uid());
+    const caller = modulesApi(env, f.profile, "pedido");
+    const actor = caller.moduleActor({ reach: ["os"] });
+    const path = `service-orders/${order.id}/entries`;
+    const page = await caller.read(actor, path, { limit: "1" });
+    expect(page.data).toEqual([expect.objectContaining({ id: visible.id, text: "Público" })]);
+    expect(page.data[0]).not.toHaveProperty("created_by");
+    expect(page.next_cursor).toBeNull();
+    expect(await caller.read(actor, path + "/summary")).toEqual({
+      data: [{ kind: "horas", unit: "h", count: 1, quantity_milli: "1250" }],
+    });
+    await expect(archiveEntry(f.ctx, actor, { id: order.id, entry_id: internal.id, version: 1 }, uid()))
+      .rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("distingue total vigente do histórico que inclui originais corrigidos", async () => {
+    const { f, order } = await setup();
+    const first = await createEntry(f.ctx, f.member, { id: order.id, ...payload({ quantity_milli: 1000 }) }, uid());
+    await reviseEntry(f.ctx, f.member, { id: order.id, entry_id: first.id, version: 1, ...payload({ quantity_milli: 2000 }) }, uid());
+    expect((await summarizeEntries(f.ctx, f.member, order.id)).data).toEqual([
+      { kind: "horas", unit: "h", count: 1, quantity_milli: "2000" },
+    ]);
+    expect((await summarizeEntries(f.ctx, f.member, order.id, { include_archived: "1" })).data).toEqual([
+      { kind: "horas", unit: "h", count: 2, quantity_milli: "3000" },
+    ]);
   });
 
   it("filtra sigilo antes da página/soma e protege cliente e bot sem máscara", async () => {

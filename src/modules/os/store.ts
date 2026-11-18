@@ -40,7 +40,7 @@ import { resolveWorkType } from "./public";
 import { validateExtra } from "./validation";
 import { resumeOrderEffects } from "./motor-routes";
 import { atomic, casGuard, checkVersion, commitOrderMutation, mutationHistory } from "./mutations";
-import { customerProjection } from "./privacy";
+import { customerProjection, mayReadSensitive } from "./privacy";
 import { customStatus, customMove, customQuotePolicy, cancelApproval } from "./stages";
 
 export type OrderSource = "agent" | "panel" | "customer" | "api";
@@ -225,12 +225,24 @@ export const orderHistory = (ctx: ModuleContext, id: string) =>
 export async function listOrders(
   ctx: ModuleContext,
   query: Record<string, string>,
+  actor?: Actor,
 ) {
   const where = ["profile_id=?"],
     args: any[] = [ctx.profile];
   if (query.stage && !query.type_id) throw new ApiError(400, "invalid_filter", "Etapa exige type_id.");
   if (query.type_id) { where.push("type_id=?"); args.push(query.type_id); }
   if (query.stage) { where.push("COALESCE(stage,status)=?"); args.push(query.stage); }
+  if (query.assignee) {
+    where.push(query.assignee === "unassigned" ? "assignee IS NULL" : "assignee=?");
+    if (query.assignee !== "unassigned") args.push(query.assignee === "me" && actor ? actor.id : query.assignee);
+  }
+  for (const [key, comparison] of [["due_from", ">="], ["due_to", "<="]] as const) {
+    if (!query[key]) continue;
+    const at = Number(query[key]);
+    if (!Number.isSafeInteger(at) || at < 0) throw new ApiError(400, "invalid_filter", "Prazo inválido; use milissegundos Unix.");
+    where.push(`due_at${comparison}?`); args.push(at);
+  }
+  if (query.due_from && query.due_to && Number(query.due_from) > Number(query.due_to)) throw new ApiError(400, "invalid_filter", "Intervalo de prazo inválido.");
   // Sem repetição: a lista IN fica dentro do limite do D1 (conferência B10).
   const statuses = [
     ...new Set((query.status || "").split(",").filter(Boolean)),
@@ -295,8 +307,22 @@ export async function listOrders(
   );
   const more = rows.length > limit;
   const page = rows.slice(0, limit);
+  // Uma consulta para a página inteira, filtrando antes de eleger o próximo filho.
+  // A projeção nunca revela a existência de uma tarefa não autorizada.
+  const custom = page.filter(row => row.type_id !== "service_order" && snapshotType(row)?.features.tasks);
+  const human = actor?.kind === "user" && !actor.via && !actor.module && !actor.credential && !actor.id.startsWith("bot:");
+  const sensitive = actor && await mayReadSensitive(ctx, actor);
+  const tasks = custom.length ? await all(ctx.env, `SELECT order_id,id,title,due_at FROM (
+    SELECT order_id,id,title,due_at,row_number() OVER (PARTITION BY order_id ORDER BY due_at IS NULL,due_at,id) AS position
+    FROM os_tasks WHERE profile_id=? AND order_id IN (SELECT value FROM json_each(?)) AND state='open' AND archived_at IS NULL
+    ${sensitive ? "" : "AND sensitive=0"} ${human ? "" : "AND client_visible=1"}
+  ) WHERE position=1`, ctx.profile, JSON.stringify(custom.map(row => row.id))) : [];
+  const nextTasks = new Map(tasks.map(task => [task.order_id, { id: task.id, title: task.title, due_at: task.due_at }]));
   return {
-    data: page.map((row) => orderView(row)),
+    data: page.map(row => ({
+      ...orderView(row),
+      ...(row.type_id !== "service_order" ? { next_task: nextTasks.get(row.id) ?? null } : {}),
+    })),
     next_cursor: more ? String(page.at(-1)!.number) : null,
     counts,
     ...(query.facets === "1" ? { facets: await orderFacets(ctx, query.type_id) } : {}),
@@ -313,6 +339,14 @@ async function conversationOf(ctx: ModuleContext, order: any) {
   } catch {
     return null;
   }
+}
+
+/** Uma única mensagem, dentro do teto UTF-16 do transporte, mesmo após expandir campos. */
+export function customMessage(template: string, order: any, max = 3800) {
+  const expanded = fill(template, publicOrderValues(order));
+  if (expanded.length <= max) return expanded;
+  const prefix = expanded.slice(0, max - 1).replace(/[\uD800-\uDBFF]$/, "");
+  return prefix + "…";
 }
 
 /**
@@ -333,7 +367,7 @@ export async function notify(
   if (!c || c.chat_type === "group") return null;
   return ctx.sendMessage(
     c,
-    { text: fill(template, publicOrderValues(order)) },
+    { text: type ? customMessage(template, order) : fill(template, publicOrderValues(order)) },
     { key, notification: true },
   );
 }
@@ -561,6 +595,9 @@ export async function moveOrder(
   }
   const keys = Object.keys(sets);
   const historyId = uid();
+  // Apenas /stage acrescenta a marca recuperável; os comandos legados
+  // conservam o histórico e os efeitos anteriores.
+  const mutationKey = options.stage ? options.mutationKey : undefined;
   const [update] = await batch(ctx.env, [
     [
       `UPDATE os_orders SET ${keys.map((k) => k + "=?").join(",")} WHERE id=? AND profile_id=? AND status=? AND quote_version=? AND row_version=?`,
@@ -574,7 +611,9 @@ export async function moveOrder(
       ],
     ],
     [
-      "INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) SELECT ?,?,?,?,?,?,?,?,? WHERE changes()=1",
+      mutationKey
+        ? "INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created,from_stage,to_stage,entity_version,mutation_key) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? WHERE changes()=1"
+        : "INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) SELECT ?,?,?,?,?,?,?,?,? WHERE changes()=1",
       [
         historyId,
         ctx.profile,
@@ -585,6 +624,7 @@ export async function moveOrder(
         actor,
         note,
         at,
+        ...(mutationKey ? [effectiveStage(order), to, sets.row_version, mutationKey] : []),
       ],
     ],
   ]);
@@ -595,31 +635,38 @@ export async function moveOrder(
       "A ordem de serviço mudou enquanto isso. Atualize e tente de novo.",
     );
   const next = await loadOrder(ctx, order.id);
-  if (order.status !== to)
-    await ctx.publish("os.status_changed", order.id, {
-      order_id: order.id,
-      number: next.number,
-      from: order.status,
+  await resumeBuiltinStatus(ctx, { id: historyId, from_status: order.status, to_status: to, actor, note, mutation_key: mutationKey, entity_version: sets.row_version }, next, options.notify !== false);
+  return next;
+}
+
+/** Efeitos legados também usados pela retomada da rota de etapa virtual. */
+export async function resumeBuiltinStatus(ctx: ModuleContext, history: any, row: any, notifyCustomer = true) {
+  const to = history.to_status, actor = history.actor, note = history.note;
+  if (history.from_status !== to)
+    await ctx.publish("os.status_changed", row.id, {
+      order_id: row.id,
+      number: row.number,
+      from: history.from_status,
       to,
       actor,
       note,
-      conversation_id: next.conversation_id,
-    });
+      conversation_id: row.conversation_id,
+    }, history.mutation_key ? { key: `status:${row.id}:${history.entity_version}` } : undefined);
   if (to === "delivered")
-    await ctx.publish("os.delivered", order.id, {
-      order_id: order.id,
-      number: next.number,
-      delivered_at: next.delivered_at,
-      warranty_until: next.warranty_until,
+    await ctx.publish("os.delivered", row.id, {
+      order_id: row.id,
+      number: row.number,
+      delivered_at: row.delivered_at,
+      warranty_until: row.warranty_until,
       actor,
-    });
+    }, history.mutation_key ? { key: `delivered:${row.id}:${history.entity_version}` } : undefined);
   if (
-    options.notify !== false &&
-    order.status !== to &&
+    notifyCustomer &&
+    (!history.mutation_key || row.row_version === history.entity_version) &&
+    history.from_status !== to &&
     (TEXT_KEYS as readonly string[]).includes(to)
   )
-    await notify(ctx, next, to as TextKey, `status:${order.id}:${historyId}`);
-  return next;
+    await notify(ctx, row, to as TextKey, `status:${row.id}:${history.id}`);
 }
 
 /** POST service-orders/:id/status: transições da equipe (MANUAL_TRANSITIONS). */
@@ -667,6 +714,7 @@ export async function saveQuote(
   mutationKey?: string,
   options: { notify?: boolean } = {},
 ) {
+  checkVersion(order, data.version, false);
   const policy = customQuotePolicy(order);
   if (policy && effectiveStage(order) !== policy.sent_stage && !policy.source_stages.includes(effectiveStage(order))) throw new ApiError(409, "invalid_transition", "Etapa não permite orçamento.");
   if (!QUOTABLE.includes(order.status))

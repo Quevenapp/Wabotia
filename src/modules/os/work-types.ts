@@ -103,6 +103,7 @@ export function workOrderAdditions(row: any, resolved?: WorkTypeView): WorkOrder
     stage, stage_label: definition.label, labels: { ...type.labels }, fields,
     extra: Object.fromEntries(fields.filter(f => Object.hasOwn(values, f.id)).map(f => [f.id, values[f.id]])),
     version: row.row_version ?? 1,
+    features: structuredClone(type.features),
     next_stages: type.transitions.filter(t => t.from === stage).map(t => {
       const dest = type.stages.find(s => s.id === t.to)!;
       return { transition_id: t.id, stage: dest.id, stage_label: dest.label, base_status: dest.base_status, kind: t.kind };

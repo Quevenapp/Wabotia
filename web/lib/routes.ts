@@ -35,6 +35,7 @@ const areaSlugs: Record<Area, string> = {
   more: "mais",
 };
 const pageSlugs: Partial<Record<PageId, string>> = {
+  juridico: "prazos-juridicos", condominio: "condominio", saude: "prontuarios", ensino: "ensino",
   work: "trabalhos",
   "my-deadlines": "meus-prazos",
   "work-types": "tipos-de-trabalho",

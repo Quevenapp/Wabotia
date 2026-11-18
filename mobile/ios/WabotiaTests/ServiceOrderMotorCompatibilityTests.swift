@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import Wabotia
 
-/// Tarefa C: exemplos do CONTRATO-MOTOR §§2/5 e dos DTOs F0, ainda não capturas HTTP de M/O.
+/// Exemplos conferidos com orderView, listOrders e /history; não são capturas HTTP.
 /// As mesmas fixtures ficam no Android. StubURLProtocol entrega bytes ao cliente real sem rede.
 @MainActor
 final class ServiceOrderMotorCompatibilityTests: XCTestCase {
@@ -30,6 +30,33 @@ final class ServiceOrderMotorCompatibilityTests: XCTestCase {
     private func client(_ handler: @escaping (StubURLProtocol.Seen) -> StubURLProtocol.Answer) -> ServiceOrderClient {
         StubURLProtocol.reset(handler)
         return ServiceOrderClient(api: ProfileAPI(baseURL: "https://w.example", profileId: "p1", session: StubURLProtocol.session()) { "wabu_x" })
+    }
+
+    private func listClient() throws -> ServiceOrderClient {
+        let first = try objectFixture("motor-mixed-page")
+        let next = try objectFixture("motor-next-page")
+        let rows = try XCTUnwrap(first["data"] as? [[String: Any]]) + XCTUnwrap(next["data"] as? [[String: Any]])
+        let counts = try XCTUnwrap(first["counts"] as? [String: Int])
+        return client { request in
+            let items = URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+            func query(_ name: String) -> String? { items.first { $0.name == name }?.value }
+            let search = (query("q") ?? "").lowercased()
+            let cursor = query("cursor").flatMap(Int.init)
+            let limit = query("limit").flatMap(Int.init) ?? 50
+            let selected = rows.filter { row in
+                let number = row["number"] as! Int
+                let customer = row["customer"] as? [String: Any]
+                let searchable = [row["item"] as? String, row["problem"] as? String, customer?["name"] as? String]
+                return (cursor == nil || number < cursor!) &&
+                    (search.isEmpty || searchable.contains { $0?.lowercased().contains(search) == true }) &&
+                    (query("open") != "1" || !["delivered", "cancelled"].contains(row["status"] as! String))
+            }.sorted { ($0["number"] as! Int) > ($1["number"] as! Int) }
+            let page = Array(selected.prefix(limit))
+            let nextCursor: Any = selected.count > limit ? String(page.last!["number"] as! Int) as Any : NSNull()
+            let response: [String: Any] = ["data": page, "counts": counts, "next_cursor": nextCursor]
+            let data = try! JSONSerialization.data(withJSONObject: response)
+            return .json(200, String(decoding: data, as: UTF8.self))
+        }
     }
 
     func testBuiltinAdditionsPreserveBaseStateQuoteAndActions() async throws {
@@ -68,6 +95,8 @@ final class ServiceOrderMotorCompatibilityTests: XCTestCase {
         XCTAssertEqual(ServiceOrderRules.actions(for: order).map(\.title), ["Marcar como pronta", "Cancelar ordem"])
         // instruir troca entre etapas de in_progress e não vira botão legado.
         XCTAssertFalse((order.nextStatuses ?? []).contains("instrucao"))
+        XCTAssertEqual(order.history?.count, 2)
+        XCTAssertEqual(order.history?.first?.kind, "os.stage_changed")
         XCTAssertEqual(ServiceOrderRules.historyText(try XCTUnwrap(order.history?.first)), "Em execução")
         let receipt = ServiceOrderReceiptData.of(order, header: "Área", now: Date(timeIntervalSince1970: 1_794_763_800))
         XCTAssertEqual(receipt.number, "121")
@@ -78,28 +107,56 @@ final class ServiceOrderMotorCompatibilityTests: XCTestCase {
     }
 
     func testMixedPageKeepsEveryRowExactSparseCountsAndTextCursor() async throws {
-        let text = try fixture("motor-mixed-page")
-        let c = client { _ in .json(200, text) }
-        let page = try await c.list(open: true, query: "Processo")
+        let c = try listClient()
+        let page = try await c.list(open: true, limit: 2)
         XCTAssertEqual(page.data?.map(\.id), ["os_custom", "os_builtin"])
         XCTAssertEqual(page.data?.map(\.label), ["Em execução", "Orçamento enviado"])
-        XCTAssertEqual(page.counts, ["received": 2, "quoted": 1, "in_progress": 3, "delivered": 4, "cancelled": 1])
+        XCTAssertEqual(page.counts, ["received": 1, "quoted": 1, "in_progress": 1])
         XCTAssertNil(page.counts?["inProgress"])
         XCTAssertEqual(page.count("ready"), 0)
         XCTAssertEqual(page.nextCursor, "120")
-        _ = try await c.list(cursor: page.nextCursor)
+        let next = try await c.list(open: true, cursor: page.nextCursor, limit: 2)
         let last = try XCTUnwrap(StubURLProtocol.seen.last)
         let query = URLComponents(url: last.url, resolvingAgainstBaseURL: false)?.queryItems
         XCTAssertEqual(query?.first { $0.name == "cursor" }?.value, "120")
-        // Totais são da área; não são recalculados pelas duas linhas nem pelas facetas.
-        XCTAssertEqual(page.counts?.values.reduce(0, +), 11)
+        XCTAssertEqual(next.data?.map(\.id), ["os_no_quote"])
+        XCTAssertEqual(next.data?.map(\.number), [119])
+        XCTAssertNil(next.nextCursor)
+        XCTAssertTrue((next.data ?? []).allSatisfy { row in !(page.data ?? []).contains { $0.id == row.id } })
+        XCTAssertEqual(next.counts, page.counts)
+        XCTAssertTrue(((page.data ?? []) + (next.data ?? [])).allSatisfy { $0.history == nil })
+        XCTAssertNil(try objectFixture("motor-mixed-page")["facets"])
+        let search = try await c.list(open: true, query: "Processo")
+        XCTAssertEqual(search.data?.map(\.id), ["os_custom"])
+        XCTAssertNil(search.nextCursor)
+        XCTAssertEqual(search.counts, page.counts) // Contagens globais, independentes da busca.
+        let searched = try XCTUnwrap(StubURLProtocol.seen.last)
+        XCTAssertEqual(URLComponents(url: searched.url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value, "Processo")
+        XCTAssertEqual(page.counts?.values.reduce(0, +), 3)
+        let missing = try await c.list(query: "inexistente")
+        XCTAssertTrue(missing.data?.isEmpty == true)
         let vm = ServiceOrdersViewModel(client: c) { _ in XCTFail("A página ampliada deve carregar") }
         await vm.load()
         XCTAssertNil(vm.error)
-        XCTAssertEqual(vm.orders.count, 2)
-        XCTAssertEqual(vm.count("open"), 6)
-        XCTAssertEqual(vm.count("delivered"), 4)
+        XCTAssertEqual(vm.orders.count, 3)
+        XCTAssertEqual(vm.count("open"), 3)
+        XCTAssertEqual(vm.count("delivered"), 0)
         XCTAssertEqual(vm.count("ready"), 0)
+    }
+
+    func testCharacterizesCurrentCustomHistoryAndQuoteLimitations() throws {
+        let order = try decode(objectFixture("motor-custom-order"))
+        let task = try XCTUnwrap(order.history?.last)
+        XCTAssertEqual(task.kind, "os.task.created")
+        XCTAssertNil(task.fromStatus)
+        XCTAssertNil(task.toStatus)
+        // Achado 4: o código bruto ainda aparece. Correção de produção fora desta peça.
+        XCTAssertEqual(ServiceOrderRules.historyText(task), "os.task.created")
+        let initial = try decode(objectFixture("motor-custom-no-quote"))
+        XCTAssertEqual(initial.state, "received")
+        XCTAssertNil(initial.quote)
+        // Modelo lavanderia_costura tem features.quote=null. Achado 5: ainda oferece orçamento.
+        XCTAssertTrue(ServiceOrderRules.canEditQuote(initial))
     }
 
     func testEmptyPageAcceptsNullCursorAndMissingCountKeys() async throws {

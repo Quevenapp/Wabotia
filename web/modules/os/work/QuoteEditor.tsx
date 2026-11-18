@@ -4,6 +4,8 @@ import { Button, Field } from "../../../ui";
 import type { Order } from "../work-contracts";
 import { cents } from "../shared";
 import { useDraftGuard, useWorkApi } from "../work-hooks";
+import { ConflictRecovery, useConflictRecovery } from "../components/ConflictRecovery";
+import { money } from "../shared";
 export function QuoteEditor({
   order,
   onClose,
@@ -14,6 +16,7 @@ export function QuoteEditor({
   onSaved: () => void;
 }) {
   const api = useWorkApi();
+  const recovery = useConflictRecovery(order, async () => ({ record: await api.order(order.id) }));
   const [lines, setLines] = useState(
     order.quote?.items.map((item) => ({
       description: item.description,
@@ -22,13 +25,14 @@ export function QuoteEditor({
     })) || [{ description: "", quantity: "1", price: "" }],
   );
   const [note, setNote] = useState(order.quote?.note || ""),
-    [days, setDays] = useState(String(order.quote?.valid_days || 7)),
+    [days, setDays] = useState(order.quote?.valid_days == null ? "" : String(order.quote.valid_days)),
     [dirty, setDirty] = useState(false);
   const close = useDraftGuard(dirty, onClose);
   return (
     <FormDialog
       title={`Orçamento · ${order.display_number}`}
       onClose={close}
+      disabled={recovery.conflict}
       onSubmit={async () => {
         const items = lines.map((line) => {
           const unit_cents = cents(line.price),
@@ -37,11 +41,20 @@ export function QuoteEditor({
             throw new Error("Confira preço e quantidade dos itens.");
           return { description: line.description, quantity, unit_cents };
         });
-        await api.quote(order.id, { items, note, valid_days: Number(days) });
+        await recovery.run(() => api.quote(order.id, {
+          items, note, version: recovery.base!.version,
+          ...(days.trim() ? { valid_days: Number(days) } : {}),
+        }));
         setDirty(false);
         onSaved();
       }}
     >
+      <ConflictRecovery recovery={recovery}>
+        {recovery.latest?.record?.quote && <>
+          <ul>{recovery.latest.record.quote.items.map((item, index) => <li key={index}>{item.description} · {item.quantity} × {money(item.unit_cents)}</li>)}</ul>
+          <p>{recovery.latest.record.quote.note} · Validade: {recovery.latest.record.quote.valid_days} dias</p>
+        </>}
+      </ConflictRecovery>
       {lines.map((line, index) => (
         <fieldset key={index}>
           <legend>Item {index + 1}</legend>
@@ -90,6 +103,7 @@ export function QuoteEditor({
       </Button>
       <Field
         label="Validade em dias"
+        help="Deixe vazio para usar a validade configurada na abertura do trabalho."
         type="number"
         value={days}
         onChange={(value) => {
@@ -97,7 +111,7 @@ export function QuoteEditor({
           setDays(value);
         }}
         min={1}
-        required
+        max={90}
       />
       <Field
         label="Observação do orçamento"
