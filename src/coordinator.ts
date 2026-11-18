@@ -462,6 +462,12 @@ export class Coordinator extends DurableObject<Env> {
       await this.schedule();
       return Response.json(result, { status: 202 });
     }
+    if (linkPath === "/wake" && body.modules === true) {
+      await this.ctx.storage.put("modules_pending", true);
+      const last = (await this.ctx.storage.get<number>("modules_tick")) || 0;
+      await this.schedule(Math.max(now() + 1000, last + SCHEDULE_INTERVAL_MS));
+      return Response.json({ scheduled: true });
+    }
     // Qualquer outro caminho só agenda o alarme; o /wake dos módulos
     // (ctx.wake, rotas de telemetria) usa este caminho.
     await this.schedule();
@@ -618,10 +624,10 @@ export class Coordinator extends DurableObject<Env> {
       // Already closed.
     }
   }
-  private async schedule() {
+  private async schedule(at = now() + 1000) {
     const scheduled = await this.ctx.storage.getAlarm();
-    if (scheduled === null || scheduled > now() + 1000)
-      await this.ctx.storage.setAlarm(now() + 1000);
+    if (scheduled === null || scheduled > at)
+      await this.ctx.storage.setAlarm(at);
   }
   async alarm() {
     // Instância do ERP: alarme próprio, nunca o pipeline da área.
@@ -674,7 +680,14 @@ export class Coordinator extends DurableObject<Env> {
       const last = (await this.ctx.storage.get<number>("modules_tick")) || 0;
       if (tick - last >= SCHEDULE_INTERVAL_MS) {
         await this.ctx.storage.put("modules_tick", tick);
-        await runModuleSchedules(env, this.profile, tick);
+        // Consumir antes da rodada: um novo wake durante ela fica pendente.
+        await this.ctx.storage.delete("modules_pending");
+        try {
+          await runModuleSchedules(env, this.profile, tick);
+        } catch (error) {
+          await this.ctx.storage.put("modules_pending", true);
+          throw error;
+        }
       }
       await processInbox(env, this.profile);
       await this.broadcastQueueSoon();
@@ -743,6 +756,10 @@ export class Coordinator extends DurableObject<Env> {
         (this.profile === "_admin" && (await updatePending(this.env)))
       )
         await this.ctx.storage.setAlarm(now() + 5000);
+      if (await this.ctx.storage.get<boolean>("modules_pending")) {
+        const last = (await this.ctx.storage.get<number>("modules_tick")) || 0;
+        await this.schedule(Math.max(now() + 1000, last + SCHEDULE_INTERVAL_MS));
+      }
     }
   }
 }
