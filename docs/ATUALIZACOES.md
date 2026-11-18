@@ -159,6 +159,16 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. Em **Conexões**, a janela aberta por **Gerar comando de instalação** ou **Parear novamente** traz, em **Meu Hermes roda em Docker**, os comandos para descobrir o nome do contêiner, instalar o plugin, reiniciar o contêiner e conferir a versão instalada, cada um com botão de copiar. Em uma conexão já pareada, a janela avisa que os bots ficam fora do ar entre a execução do comando e o reinício do gateway. O plugin continua na versão 1.1.0; quem já o atualizou não precisa repetir. O roteiro completo está em [Atualizar o plugin](HERMES-PLUGIN.md#21-atualizar-o-plugin). Depois de atualizar, clique em **Reabrir painel atualizado**.
 
+## Atualização 0.21.1: versão ponte para o pacote assinado
+
+Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia** e acompanhe até o fim; depois clique em **Reabrir painel atualizado**. O atendimento continua no ar durante a atualização. Não há migração de banco nem recurso novo na Cloudflare, e o funcionamento é o da 0.21.0: muda só o atualizador.
+
+**Por que ela existe.** As próximas versões saem em outro formato de pacote, dividido em arquivos e assinado, que a 0.21.0 não sabe ler. A 0.21.1 é o degrau entre os dois: chega no formato antigo e, instalada, só aceita versões assinadas pelo mantenedor. Toda versão depois dela exige a 0.21.1 instalada. Uma instalação na 0.17.0 ou anterior não lê este pacote (já não lia o da 0.21.0) e precisa ser reinstalada.
+
+**Atualize acompanhando.** Com a atualização automática ligada, a 0.21.1 entra sozinha na janela configurada; prefira atualizar à mão desta vez. Se o painel ficar em "Atualizando para 0.21.1" na mesma etapa por mais de 15 minutos, siga a [saída de emergência](ATUALIZACOES-FORMATO.md#saída-de-emergência-trabalho-preso-em-atualizando).
+
+**Limites conhecidos do atualizador desta versão,** que valem só para o salto seguinte e serão corrigidos nele: se duas atualizações forem pedidas quase ao mesmo tempo, a segunda pode sumir da tela e precisar de um novo clique; uma falha ao publicar o código pede **Liberar nova tentativa** à mão, também na atualização automática. Detalhes em [Formato do pacote](ATUALIZACOES-FORMATO.md#versão-ponte-0211).
+
 ## Atualização 0.21.0: acesso por pessoa, segundo fator, ERP em implantação, fila mais rápida
 
 Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Faça backup antes: esta versão aplica as migrações `0059` a `0089` e acrescenta a flag de compatibilidade `global_fetch_strictly_public` ao Worker (o atualizador a aplica sozinho). Não há recurso novo na Cloudflare. Depois de atualizar, clique em **Reabrir painel atualizado**.
