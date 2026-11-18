@@ -1,4 +1,4 @@
-import { admin, secret, setSecret } from "./security";
+import { admin, requireDirectPerson, secret, setSecret } from "./security";
 import {
   ApiError,
   type Actor,
@@ -317,6 +317,9 @@ export async function updateStatus(env: Env) {
 }
 export async function configureUpdates(env: Env, actor: Actor, data: any) {
   admin(actor);
+  // O token da Cloudflare é segredo: só a pessoa, na própria sessão. Ligar e
+  // desligar a atualização automática não leva segredo e segue liberável.
+  requireDirectPerson(actor);
   requireValue(
     isDirect(env),
     "Esta instalação não tem a identificação para atualizar pelo painel. Reinstale com o instalador (docs/INSTALACAO.md).",

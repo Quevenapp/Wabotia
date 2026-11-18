@@ -1,5 +1,5 @@
 import { all, exec, one } from "./db";
-import { admin, secret, setSecret } from "./security";
+import { admin, requireDirectPerson, secret, setSecret } from "./security";
 import {
   ApiError,
   type Actor,
@@ -122,6 +122,8 @@ export async function saveCloudflareSettings(
   data: any,
 ) {
   admin(actor);
+  // Token da Cloudflare: segredo, só a pessoa na própria sessão.
+  requireDirectPerson(actor);
   requireValue(
     id32.test(data.account_id) && id32.test(data.zone_id),
     "Informe Account ID e Zone ID com 32 caracteres.",

@@ -4,6 +4,7 @@ import { Buffer } from "node:buffer";
 import { RELEASE_ORIGIN } from "../src/release";
 import {
   checkUpdate,
+  configureAutomaticUpdates,
   configureUpdates,
   startUpdate,
   processUpdate,
@@ -223,6 +224,32 @@ it("recusa troca de identidade e token de aplicação antes da publicação", as
   expect((await updateStatus(e)).state?.status).toBe("failed");
   expect(calls.filter((call) => call.method !== "GET")).toHaveLength(0);
 });
+it("token da Cloudflare só pela pessoa, na própria sessão; ligar a automática segue liberável", async () => {
+  const before = await secret(e, "system:release-config");
+  const via = {
+    kind: "bot" as const,
+    bot_id: "bot-admin",
+    run_id: "run-1",
+    masked: true,
+  };
+  // Bot agindo pela pessoa administradora, e o próprio ator de bot.
+  for (const who of [
+    { ...actor, via },
+    { ...actor, id: "bot:bot-admin" },
+  ])
+    await expect(
+      configureUpdates(e, who, { token: "valid-looking-token-000000" }),
+    ).rejects.toMatchObject({ status: 403, code: "secret_requires_person" });
+  // Recusa antes de qualquer chamada à Cloudflare e sem gravar nada.
+  expect(calls).toHaveLength(0);
+  expect(await secret(e, "system:release-config")).toEqual(before);
+  // Ligar e desligar a automática não leva segredo: o bot pode.
+  await configureAutomaticUpdates(
+    e,
+    { ...actor, via },
+    { enabled: false, hour: 3, window_hours: 2 },
+  );
+});
 it("não repete publicação com confirmação perdida", async () => {
   uploadError = true;
   await startUpdate(e, actor, { commit: target });
@@ -246,7 +273,9 @@ it("não repete publicação com confirmação perdida", async () => {
   ).toHaveLength(0);
 });
 it("rollback da migração preserva o recibo e impede ativar código", async () => {
-  spec.migrations[0].statements.push("INSERT INTO missing_table VALUES('fail')");
+  spec.migrations[0].statements.push(
+    "INSERT INTO missing_table VALUES('fail')",
+  );
   release = await buildRelease(spec);
   await startUpdate(e, actor, { commit: target });
   await runToEnd();
