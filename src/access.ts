@@ -247,7 +247,6 @@ export function requireRouteAccess(actor: Actor, segment: string) {
 
 /** Comandos do núcleo por prefixo → item. */
 const OPERATIONS: [RegExp, string | null][] = [
-  [/^provider\.usage$/, "conversations"],
   [/^(conversation|message|consent|web_step)\.|^inbound$/, "conversations"],
   [/^group\./, "conversations"],
   [/^run\.(create|cancel)$/, "conversations"],

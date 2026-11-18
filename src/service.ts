@@ -2335,6 +2335,8 @@ export async function perform(
       );
     }
     let cfg = data.config || {};
+    let saveProvider: (() => Promise<void>) | undefined;
+    let replacedProviderId: string | undefined;
     requireValue(
       cfg.remove_pending === undefined,
       "A marca de remoção da conexão é interna e não pode ser definida pela API.",
@@ -2343,21 +2345,33 @@ export async function perform(
       const supplied = data.api_key ?? data.secrets?.api_key;
       if (supplied) requireDirectPerson(actor);
       requireValue(!Object.keys(data.secrets || {}).some((key) => key !== "api_key"), "A conexão de IA guarda só a chave de API.");
-      cfg = { ...json(old?.config), ...cfg, ...(data.model ? { model: data.model } : {}) };
+      cfg = { ...json(old?.config), ...cfg, ...(data.model !== undefined ? { model: data.model } : {}) };
       const providerId = data.provider_id ?? cfg.provider_id;
       if (data.provider_id !== undefined || data.config?.provider_id !== undefined)
         requireValue(typeof providerId === "string" && providerId.length > 0, "Informe um provedor válido.");
       requireValue(!(supplied && (data.provider_id || data.config?.provider_id)), "Informe o provedor ou a chave, não ambos.");
       if (supplied) {
         const currentId = json(old?.config).provider_id;
+        const current = currentId ? await providerRow(env, currentId) : null;
         const uses = currentId ? await providerUses(env, currentId) : [];
-        if (uses.length === 1 && uses[0].kind === "connection" && uses[0].id === id) {
-          cfg = await providerConnectionConfig(env, profile, { ...cfg, provider_id: currentId });
-          await providerCommand(env, actor, "provider.rotate", { id: currentId, api_key: supplied });
+        const requestedBase = cfg.base_url !== undefined ? cfg.base_url : current?.base_url;
+        const base = requestedBase ? publicUrl(String(requestedBase)).replace(/\/+$/, "") : null;
+        cfg = aiConfig({ ...cfg, provider: cfg.provider ?? current?.kind, base_url: base });
+        if (current && uses.length === 1 && uses[0].kind === "connection" && uses[0].id === id &&
+            cfg.provider === current.kind && base === current.base_url) {
+          // A chave nova pode reativar um provedor revogado, mas não liberar outra área.
+          if (!json(current.profiles, []).includes(profile))
+            throw new ApiError(409, "provider_not_allowed", "Este provedor não está liberado para esta área.");
+          cfg.provider_id = currentId;
+          saveProvider = async () => {
+            await providerCommand(env, actor, "provider.rotate", { id: currentId, api_key: supplied });
+          };
         } else {
-          cfg = aiConfig(cfg);
-          const provider = await createImplicitProvider(env, actor, profile, { kind: cfg.provider, name: data.name || old?.name || cfg.provider, api_key: supplied, base_url: cfg.base_url });
-          cfg.provider_id = provider.id;
+          replacedProviderId = currentId;
+          saveProvider = async () => {
+            const provider = await createImplicitProvider(env, actor, profile, { kind: cfg.provider, name: data.name || old?.name || cfg.provider, api_key: supplied, base_url: base });
+            cfg.provider_id = provider.id;
+          };
         }
       } else if (providerId) cfg = await providerConnectionConfig(env, profile, { ...cfg, provider_id: providerId });
       else {
@@ -2441,17 +2455,22 @@ export async function perform(
       }
       delete cfg.verified_at;
     }
+    const name = text(data.name, 100);
+    // Nenhuma validação da edição pode falhar depois de trocar o segredo.
+    if (saveProvider) await saveProvider();
     await exec(
       env,
       "INSERT INTO connections(id,profile_id,name,kind,mode,config,created) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,config=excluded.config,kind=excluded.kind,mode=excluded.mode",
       id,
       profile,
-      text(data.name, 100),
+      name,
       data.kind,
       data.mode || "direct",
       JSON.stringify(cfg),
       now(),
     );
+    if (replacedProviderId && !(await providerUses(env, replacedProviderId)).length)
+      await providerCommand(env, actor, "provider.revoke", { id: replacedProviderId });
     if (data.secrets && data.kind !== "ai") {
       const previous = await secret(env, `connection:${id}`);
       const supplied = { ...data.secrets };

@@ -135,18 +135,22 @@ export async function providerKey(env: Env, row: any): Promise<string> {
 }
 
 function publicProvider(row: any, actor?: Actor) {
-  return {
+  const summary = {
     id: row.id,
     name: row.name,
     kind: row.kind,
-    credential: row.credential,
-    base_url: row.base_url,
     profiles: json(row.profiles, []).filter(
       (profile: string) => !actor || actor.role === "admin" || actor.profiles.includes(profile),
     ),
     status: row.status,
     capabilities: json(row.capabilities),
     models: json(row.models, []),
+  };
+  if (actor && actor.role !== "admin") return summary;
+  return {
+    ...summary,
+    credential: row.credential,
+    base_url: row.base_url,
     prices: json(row.prices),
     verified_at: row.verified_at,
     created: row.created,
@@ -406,18 +410,11 @@ export async function providerCommand(
   data: any,
 ) {
   refuseEngineActor(actor);
+  admin(actor);
   if (op === "provider.usage") {
-    reader(actor);
     const row = await providerRow(env, data.id);
-    if (!visible(actor, row))
-      throw new ApiError(
-        403,
-        "admin_required",
-        "Provedor fora das áreas autorizadas.",
-      );
     return providerUsage(env, actor, row, data.days);
   }
-  admin(actor);
   if (op === "provider.create" || op === "provider.rotate")
     requireDirectPerson(actor);
   if (op === "provider.create") return createProvider(env, data);
