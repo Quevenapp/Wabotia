@@ -13,7 +13,8 @@ import { ERP_DDL_HASH, ERP_DDL_VERSION } from "../src/erp/schema/ddl";
 import { ERP_ENGINE_TABLES } from "../src/erp/schema/engine-tables";
 
 const micros = () => String(BigInt(Date.now()) * 1000n);
-const TABLES = ERP_ENGINE_TABLES.map((t) => t.table);
+const TABLES = ERP_ENGINE_TABLES.filter((t) => t.structural === "reforma-classificacao").map((t) => t.table);
+const ALL_ENGINE = ERP_ENGINE_TABLES.map((t) => t.table);
 
 describe("ERP: tabelas da classificação da reforma", () => {
   it("passo 6→7: o objeto da versão 6 ganha as duas tabelas", async () => {
@@ -23,8 +24,8 @@ describe("ERP: tabelas da classificação da reforma", () => {
       const sql = state.storage.sql;
       const exists = () => TABLES.map((t) => sql.exec("SELECT count(*) n FROM sqlite_master WHERE type='table' AND name=?", t).toArray()[0].n);
       const fresh = exists();
-      // Como um objeto criado na versão 6: sem as tabelas só do motor.
-      for (const t of TABLES) sql.exec(`DROP TABLE "${t}"`);
+      // Como um objeto criado na versão 6: sem as tabelas só do motor (as da v9 também).
+      for (const t of ALL_ENGINE) sql.exec(`DROP TABLE "${t}"`);
       sql.exec("UPDATE erp_meta SET value='6' WHERE key='schema_version'");
       const dropped = exists();
       const step = migrate(state.storage);
