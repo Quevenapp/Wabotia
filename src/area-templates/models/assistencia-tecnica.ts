@@ -142,15 +142,21 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
         },
         {
           "id": "pronto",
-          "label": "Atendimento finalizado",
+          "label": "Reparo concluído",
           "base_status": "ready",
-          "message": "A solicitação nº {numero} foi finalizada. A equipe informará o resultado e combinará a entrega ou o encerramento."
+          "message": "O reparo nº {numero} foi concluído. A equipe combinará a entrega ou o encerramento no local."
         },
         {
           "id": "entregue",
-          "label": "Entregue ou encerrado",
+          "label": "Entregue após reparo",
           "base_status": "delivered",
-          "message": "Solicitação nº {numero} encerrada. Obrigado pela preferência!"
+          "message": "Registramos a entrega ou o encerramento no local após reparo da solicitação nº {numero}. Obrigado pela preferência!"
+        },
+        {
+          "id": "devolvido_sem_reparo",
+          "label": "Devolvido sem reparo",
+          "base_status": "cancelled",
+          "message": "Registramos a devolução ou o encerramento no local sem reparo da solicitação nº {numero}. Para esclarecer alguma pendência, fale com a equipe."
         },
         {
           "id": "cancelado",
@@ -212,10 +218,10 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
           "kind": "manual"
         },
         {
-          "id": "recusado_pronto",
+          "id": "devolver_sem_reparo",
           "from": "recusado",
-          "to": "pronto",
-          "label": "Atendimento finalizado",
+          "to": "devolvido_sem_reparo",
+          "label": "Confirmar devolução sem reparo e registrar destinação",
           "kind": "manual"
         },
         {
@@ -423,15 +429,21 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
         },
         {
           "id": "pronto",
-          "label": "Atendimento finalizado",
+          "label": "Reparo concluído",
           "base_status": "ready",
-          "message": "A solicitação nº {numero} foi finalizada. A equipe informará o resultado e combinará a entrega ou o encerramento."
+          "message": "O reparo nº {numero} foi concluído. A equipe combinará a entrega ou o encerramento no local."
         },
         {
           "id": "entregue",
-          "label": "Entregue ou encerrado",
+          "label": "Entregue após reparo",
           "base_status": "delivered",
-          "message": "Solicitação nº {numero} encerrada. Obrigado pela preferência!"
+          "message": "Registramos a entrega ou o encerramento no local após reparo da solicitação nº {numero}. Obrigado pela preferência!"
+        },
+        {
+          "id": "devolvido_sem_reparo",
+          "label": "Devolvido sem reparo",
+          "base_status": "cancelled",
+          "message": "Registramos a devolução ou o encerramento no local sem reparo da solicitação nº {numero}. Para esclarecer alguma pendência, fale com a equipe."
         },
         {
           "id": "cancelado",
@@ -493,10 +505,10 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
           "kind": "manual"
         },
         {
-          "id": "recusado_pronto",
+          "id": "devolver_sem_reparo",
           "from": "recusado",
-          "to": "pronto",
-          "label": "Atendimento finalizado",
+          "to": "devolvido_sem_reparo",
+          "label": "Confirmar devolução sem reparo e registrar destinação",
           "kind": "manual"
         },
         {
@@ -704,15 +716,21 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
         },
         {
           "id": "pronto",
-          "label": "Atendimento finalizado",
+          "label": "Reparo concluído",
           "base_status": "ready",
-          "message": "A solicitação nº {numero} foi finalizada. A equipe informará o resultado e combinará a entrega ou o encerramento."
+          "message": "O reparo nº {numero} foi concluído. A equipe combinará a entrega ou o encerramento no local."
         },
         {
           "id": "entregue",
-          "label": "Entregue ou encerrado",
+          "label": "Entregue após reparo",
           "base_status": "delivered",
-          "message": "Solicitação nº {numero} encerrada. Obrigado pela preferência!"
+          "message": "Registramos a entrega ou o encerramento no local após reparo da solicitação nº {numero}. Obrigado pela preferência!"
+        },
+        {
+          "id": "devolvido_sem_reparo",
+          "label": "Devolvido sem reparo",
+          "base_status": "cancelled",
+          "message": "Registramos a devolução ou o encerramento no local sem reparo da solicitação nº {numero}. Para esclarecer alguma pendência, fale com a equipe."
         },
         {
           "id": "cancelado",
@@ -774,10 +792,10 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
           "kind": "manual"
         },
         {
-          "id": "recusado_pronto",
+          "id": "devolver_sem_reparo",
           "from": "recusado",
-          "to": "pronto",
-          "label": "Atendimento finalizado",
+          "to": "devolvido_sem_reparo",
+          "label": "Confirmar devolução sem reparo e registrar destinação",
           "kind": "manual"
         },
         {
@@ -895,12 +913,12 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
         {
           "id": "quantidade",
           "label": "Quantidade de peças",
-          "help": "",
+          "help": "Informe um número inteiro maior que zero; a equipe conferirá o lote.",
           "required": true,
           "client_visible": true,
           "sensitive": false,
           "kind": "integer",
-          "min": 0,
+          "min": 1,
           "max": 2147483647
         },
         {
@@ -1213,7 +1231,8 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
   },
   "manual_steps": [
     "Escolher os tipos adicionais que serão publicados.",
-    "Revisar termos, taxas, validade do orçamento e garantia.",
+    "Revisar termos, taxas, validade do orçamento e garantia. Nos tipos de reparo, a garantia de 90 dias começa somente em Entregue após reparo. Após recusa, confirmar devolução ou encerramento no local e registrar motivo e destinação em lançamento antes de usar Devolvido sem reparo, que encerra sem iniciar garantia. Classificar dados pessoais como sensíveis.",
+    "Enquanto aguarda devolução sem reparo, manter Recusado e acompanhar por tarefa manual, sem lembrete automático de retirada. Reservar Reparo concluído e Entregue após reparo ao serviço executado. Uma nova execução após recusa exige reavaliação e aprovação do orçamento.",
     "Associar pessoas aos setores e conferir acessos.",
     "Configurar cobrança e confirmação do provedor.",
     "Cadastrar profissionais, horários e região atendida quando houver visita.",

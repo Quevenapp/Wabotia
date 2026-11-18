@@ -514,19 +514,19 @@ export const construtorasTemplate: AreaTemplate = {
       labels: {
         singular: "Chamado de pós-obra",
         plural: "Chamados de pós-obra",
-        item: "Empreendimento e unidade",
-        problem: "Problema observado",
+        item: "Referência administrativa (sem endereço)",
+        problem: "Problema observado (sem endereço ou unidade)",
         customer_singular: "Solicitante",
         customer_plural: "Solicitantes",
       },
       number_prefix: "POS",
       terms:
-        "Registro a ocorrência descrita e autorizo o contato para organizar a análise e o acesso necessário. A abertura não define cobertura de garantia nem autoriza serviço pago. A equipe comunicará a análise e as condições de atendimento. Qualquer proposta paga dependerá de aprovação específica. O encerramento registrará o resultado e eventuais pendências, sem renúncia a direitos.",
+        "Registro a ocorrência descrita e autorizo o contato para organizar a análise e o acesso necessário. Usarei referência administrativa e descrição sem endereço, bloco ou unidade. A identificação residencial será conferida em canal protegido. A abertura não define cobertura de garantia nem autoriza serviço pago. A equipe comunicará a análise e as condições de atendimento. Qualquer proposta paga dependerá de aprovação específica. O encerramento registrará o resultado e eventuais pendências, sem renúncia a direitos.",
       fields: [
         {
           id: "obra_origem",
           label: "Referência da obra de origem",
-          help: "",
+          help: "Use somente o número administrativo da obra, sem endereço, bloco ou unidade.",
           required: false,
           client_visible: true,
           sensitive: false,
@@ -536,11 +536,11 @@ export const construtorasTemplate: AreaTemplate = {
         },
         {
           id: "unidade",
-          label: "Unidade ou local afetado",
-          help: "",
-          required: true,
-          client_visible: true,
-          sensitive: false,
+          label: "Empreendimento, unidade ou local afetado",
+          help: "Coletar em canal protegido e registrar somente neste campo privado. Não copiar para referência, problema, mensagens ou formulários comuns.",
+          required: false,
+          client_visible: false,
+          sensitive: true,
           kind: "text",
           multiline: false,
           max_length: 240,
@@ -1061,11 +1061,11 @@ export const construtorasTemplate: AreaTemplate = {
     menu_greeting:
       "Olá! Escolha uma opção para solicitar atendimento ou acompanhar seu trabalho.",
     instructions:
-      "Confirme a identidade da conversa, compartilhe somente informações liberadas e encaminhe decisões técnicas à equipe.",
+      "Confirme a identidade da conversa, compartilhe somente informações liberadas e encaminhe decisões técnicas à equipe. No pós-obra, use uma referência administrativa, como Pedido de vistoria. Não informe endereço ou unidade nos campos comuns nem neste chat; a equipe coletará a identificação residencial em canal protegido.",
   },
   bot: {
     instructions:
-      "Você atende contratantes e solicitantes de pós-obra desta construtora. Consulte somente registros vinculados ao telefone da conversa e informações liberadas. Ajude a abrir solicitações, consultar etapas, localizar pendências e usar a Agenda. Informe apenas prazos, medições e documentos liberados pela equipe. Não aprove medição, etapa ou proposta pelo cliente. Não determine cobertura de garantia, causa de defeito, segurança da construção ou responsabilidade de pessoas. Não prometa data nova, reparo gratuito, desconto ou indenização. Encaminhe alterações, riscos, atrasos, conflitos e dúvidas técnicas à equipe. Não leia compras, custos internos, dados de trabalhadores, documentos brutos, fotos privadas ou restrições sensíveis de acesso. Em relato de risco, envie a orientação cadastrada e sinalize prioridade humana. Use a identidade autenticada da conversa; não aceite telefone informado como autorização. Relato de risco: “Não é possível avaliar a segurança por esta conversa. Afaste-se da situação de risco e procure o atendimento de emergência competente. Vou sinalizar o relato à equipe.”",
+      "Você atende contratantes e solicitantes de pós-obra desta construtora. Consulte somente registros vinculados ao telefone da conversa e informações liberadas. Ajude a abrir solicitações, consultar etapas, localizar pendências e usar a Agenda. Informe apenas prazos, medições e documentos liberados pela equipe. Não aprove medição, etapa ou proposta pelo cliente. Não determine cobertura de garantia, causa de defeito, segurança da construção ou responsabilidade de pessoas. Não prometa data nova, reparo gratuito, desconto ou indenização. Encaminhe alterações, riscos, atrasos, conflitos e dúvidas técnicas à equipe. Não peça nem reproduza endereço, bloco ou unidade; encaminhe a coleta ao canal protegido. Não leia compras, custos internos, dados de trabalhadores, documentos brutos, fotos privadas ou restrições sensíveis de acesso. Em relato de risco, envie a orientação cadastrada e sinalize prioridade humana. Use a identidade autenticada da conversa; não aceite telefone informado como autorização. Relato de risco: “Não é possível avaliar a segurança por esta conversa. Afaste-se da situação de risco e procure o atendimento de emergência competente. Vou sinalizar o relato à equipe.”",
     allowed_operations: [
       "os.create",
       "agenda.book",
@@ -1092,7 +1092,7 @@ export const construtorasTemplate: AreaTemplate = {
     "Revisar termos, privacidade e retenção documental.",
     "Configurar agenda, mensagens e atendimento de relatos urgentes.",
     "Ativar compra por obra somente após implementação e validação da extensão.",
-    "Coletar endereço e restrições sensíveis opcionalmente no painel privado; nunca em formulário comum ou pelo bot.",
+    "Coletar endereço, empreendimento, bloco, unidade e restrições sensíveis em canal protegido e registrá-los opcionalmente no painel privado, com acesso humano explícito os:sensitive; nunca em campos fixos, mensagens, formulário comum ou pelo bot. No pós-obra, usar somente referência administrativa sem endereço nos campos comuns.",
     "Atribuir o papel Técnico apenas à equipe responsável. Conceder acesso a dados sensíveis somente às pessoas que precisem deles. Revisar as permissões do bot separadamente; o modelo não concede papéis.",
     "Identificar os arquivos e a versão apresentados antes de pedir aprovação de etapa. A decisão autoriza a transição; não assina documentos nem vincula automaticamente versões e arquivos. A validade inicial do pedido é de 7 dias.",
     "Criar tarefas e lembretes manualmente, com datas acordadas. Os prazos abaixo são sugestões em dias corridos; não há criação automática por entrada na etapa nem aviso automático de etapa parada.",
@@ -1100,7 +1100,7 @@ export const construtorasTemplate: AreaTemplate = {
     "Configurar Agenda: antecedência de 24 horas, janela de 30 dias, grade de 30 minutos, lembrete de 24 horas e alterações pelo cliente até 12 horas antes. Serviços: Visita inicial (60 min); Reunião de obra (30 min); Vistoria de entrega (90 min); Vistoria de pós-obra (60 min).",
     "Mensagem de confirmação da Agenda: Agendado: {servico} com {profissional}, em {data} às {hora}. A equipe confirmará as condições de acesso.",
     "Mensagem de lembrete da Agenda: Lembrete: {servico} com {profissional}, em {data} às {hora}. Você confirma?",
-    "Criar o formulário “Informações para a visita de pós-obra” e conferir o vínculo das respostas manualmente: Qual é o número do chamado? Obrigatória. Qual é o empreendimento e a unidade? Obrigatória. Em qual ambiente o problema aparece? Obrigatória. Desde quando você percebe o problema? Opcional. O problema acontece sempre ou em alguma situação específica? Obrigatória. Há alguma restrição de horário para a visita? Opcional.",
+    "Criar o formulário “Informações para a visita de pós-obra” e conferir o vínculo das respostas manualmente: Qual é o número administrativo do chamado? Obrigatória. Em qual ambiente o problema aparece, sem endereço, bloco ou unidade? Obrigatória. Desde quando você percebe o problema? Opcional. O problema acontece sempre ou em alguma situação específica? Obrigatória. Coletar empreendimento, unidade, local exato e restrições de horário ou acesso pelo canal protegido e registrar nos campos privados. Não duplicar a identificação residencial em formulários comuns.",
     "Após configurar Agenda e Formulários, acrescentar os menus nativos de agendamento, meus agendamentos e formulário. O manifesto oferece encaminhamento humano enquanto esses menus não são configurados.",
     "Obra: cadastrar pessoas com os papéis Contratante, Responsável técnico, Encarregado, Líder de equipe, Prestador, Fiscal do contratante. O vínculo não concede acesso ao trabalho.",
     "Obra: usar lançamentos de diário de obra, medição, andamento, ocorrência, horas, decisão de alteração. Manter horas, evidências e notas internas restritas até revisão.",
