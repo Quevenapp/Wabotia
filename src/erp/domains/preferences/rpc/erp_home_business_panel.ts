@@ -15,7 +15,7 @@ import { dateArgError, jsonTimestamp, saoPauloMidnight, todaySaoPaulo } from "..
 import { formatScaled, fromColumn, toScaled } from "../../../engine/dec.ts";
 import { requirePermission } from "../../access/public.ts";
 import { fold, productCostAt } from "../../catalog/public.ts";
-import { allowed as documentsAllowed, reportCoverage, reportLastPurchaseUntil } from "../../documents/public.ts";
+import { allowed as documentsAllowed, mirrorReportCoverage, reportLastPurchaseUntil } from "../../documents/public.ts";
 import * as preferences from "../public.ts";
 import { countPhysical, ignoredWarehouse, priceText, virtualQuantity } from "../../stock/public.ts";
 import { json, text, uuid } from "../args.ts";
@@ -507,7 +507,7 @@ function monthly(pn: Panel, user: string | null, statuses: unknown, from: string
     months: months(addMonths(to!, -11), to!).map((m) => ({ month: m.slice(0, 7), total: money(sumOrNull(pn.orders(m, monthEnd(m), s), (o) => o.total)) })),
     annual: pn.kpis(year, `${to!.slice(0, 4)}-12-31`, s),
     goals: pn.goalsJson(true, 20),
-    ...reportCoverage(),
+    ...mirrorReportCoverage(pn.db, user, null),
   };
 }
 
@@ -603,7 +603,7 @@ function ordersPanel(pn: Panel, user: string | null, statuses: unknown, from: st
         fees: null,
         contribution_pct: cost && !c.missing ? pct(c.total - c.freight - (c.c ?? 0n) - c.taxes, c.total - c.freight) : null,
       })),
-    ...reportCoverage(),
+    ...mirrorReportCoverage(pn.db, user, null),
   };
 }
 
@@ -654,7 +654,7 @@ function sellers(pn: Panel, user: string | null, statuses: unknown, from: string
         ? days(from!, to!).map((d) => ({ bucket: d, total: money(sumOrNull(o.filter((x) => x.day === d), (x) => x.total)) }))
         : months(from!, to!).map((m) => ({ bucket: m.slice(0, 7), total: money(sumOrNull(o.filter((x) => x.day.slice(0, 7) === m.slice(0, 7)), (x) => x.total)) })),
     statuses: pn.statusRows(o, s),
-    ...reportCoverage(),
+    ...mirrorReportCoverage(pn.db, user, null),
   };
 }
 
@@ -675,7 +675,7 @@ function channelsPanel(pn: Panel, user: string | null) {
       month: m.slice(0, 7),
       values: top.map((c) => ({ channel: c, total: money(sumOrNull(o.filter((x) => x.channel === c && x.day.slice(0, 7) === m.slice(0, 7)), (x) => x.total)) })),
     })),
-    ...reportCoverage(),
+    ...mirrorReportCoverage(pn.db, user, null),
   };
 }
 
@@ -781,7 +781,7 @@ function forecast(pn: Panel, user: string | null, from: string | null, to: strin
       const hit = o.filter((r) => r.day === d);
       return { day: d, units: qty(sumOrNull(hit, (r) => r.units)), total: money(sumOrNull(hit, (r) => r.total)) };
     }),
-    ...reportCoverage(),
+    ...mirrorReportCoverage(pn.db, user, null),
   };
 }
 
@@ -852,7 +852,7 @@ function margin(pn: Panel, user: string | null, statuses: unknown, from: string 
         })),
       160000,
     ),
-    ...reportCoverage(),
+    ...mirrorReportCoverage(pn.db, user, null),
   };
 }
 
@@ -939,7 +939,7 @@ function customers(pn: Panel, user: string | null, statuses: unknown, from: stri
         }),
       160000,
     ),
-    ...reportCoverage(),
+    ...mirrorReportCoverage(pn.db, user, null),
   };
 }
 
@@ -1019,7 +1019,7 @@ function portfolio(pn: Panel, user: string | null, from: string | null, to: stri
         }),
       160000,
     ),
-    ...reportCoverage(),
+    ...mirrorReportCoverage(pn.db, user, null),
   };
 }
 
@@ -1085,7 +1085,7 @@ function goals(pn: Panel, user: string | null, tab: string | null) {
     total: pn.db.exec('SELECT active, end_on FROM "erp_home__goal"').rows.filter((g) => (Number(g.active) === 1 && String(g.end_on) >= t) === running).length,
     items: pn.goalsJson(running, 200),
     sellers: sellersList,
-    ...reportCoverage(),
+    ...mirrorReportCoverage(pn.db, user, null),
   };
 }
 
