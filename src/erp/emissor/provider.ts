@@ -26,21 +26,39 @@ export type FiscalStatus =
   | "undetermined"
   | "cancelled"
   /**
-   * Reservado: emitida em contingência (NFC-e offline, SVC), ainda a
-   * transmitir. Nenhum provedor usa hoje (a NFapi não tem contingência).
+   * NFC-e emitida em contingência offline (tipo de emissão 9), ainda a
+   * transmitir ou em transmissão. É nota válida: o caixa imprime e a regra
+   * das versões a trata como autorizada.
    */
   | "contingency";
 
-/** Modo de contingência pedido na emissão (reservado; README.md, "Contingência"). */
-export interface FiscalContingency {
-  mode: "offline" | "svc";
-  /** Justificativa que vai no XML (xJust). */
-  reason: string;
+/**
+ * Contingência na emissão da NFC-e (README.md, "Contingência"):
+ * - `never` (padrão): sem resposta do governo, 503 fiscal_no_conclusive_answer;
+ * - `automatic`: o emissor espera até 20 s e, sem resposta, emite em
+ *   contingência com número novo (status `contingency`);
+ * - `forced`: emite direto em contingência.
+ */
+export type FiscalContingencyMode = "never" | "automatic" | "forced";
+
+/** Estado da contingência de uma nota (null fora de contingência). */
+export interface FiscalContingencyState {
+  /** Ainda falta transmitir ao governo. */
+  pending: boolean;
+  since: string | null;
+  reason: string | null;
+  transmission_attempts: number;
+  last_attempt_at: string | null;
+  /** Nota normal da mesma venda que o emissor está conferindo (pode ter sido autorizada antes da queda). */
+  normal_note_in_review: string | null;
+  review_failure: string | null;
+  /** Nota normal cancelada pelo emissor para a venda ficar com uma nota só. */
+  normal_note_cancelled: string | null;
 }
 
 export interface FiscalEmitOptions {
-  /** Emitir em contingência. Provedor sem suporte: 422 fiscal_contingency_not_supported. */
-  contingency?: FiscalContingency;
+  /** Só NFC-e. Outro documento, ou provedor sem suporte: 422 fiscal_contingency_not_supported. */
+  contingency?: FiscalContingencyMode;
   /**
    * Manter a data de emissão do pedido. Padrão: o provedor a retira e o
    * emissor carimba a hora da emissão (no fuso da UF), o que deixa o corpo
@@ -100,11 +118,89 @@ export interface FiscalResult {
    * pelo estado do próprio documento (ainda não cancelado → cancele).
    */
   event_repeated: boolean | null;
-  /**
-   * Reservado para contingência: quando e por que saiu em contingência e
-   * quando foi transmitida. Sempre null hoje.
-   */
-  contingency: (FiscalContingency & { since: string; transmitted_at: string | null }) | null;
+  /** NFC-e que saiu em contingência (mesmo depois de transmitida); null nas demais. */
+  contingency: FiscalContingencyState | null;
+}
+
+/**
+ * Arquivo do emissor (DANFE, DANFE NFC-e, logotipo) como veio: tipo e tamanho
+ * do emissor, bytes sem transformação. Gerado na hora; nada fica guardado.
+ */
+export interface FiscalFile {
+  content_type: string;
+  size: number;
+  body: Uint8Array<ArrayBuffer>;
+}
+
+/** Cupom da NFC-e em JSON (o `Cupom` do contrato da NFapi), para a impressora do caixa. */
+export type FiscalReceipt = Record<string, unknown>;
+
+export type FiscalManifestationType = "ciencia" | "confirmacao" | "desconhecimento" | "nao_realizada";
+
+export interface FiscalManifestation {
+  type: FiscalManifestationType | null;
+  sequence: number | null;
+  protocol: string | null;
+  registered_at: string | null;
+  justification: string | null;
+  /** Quem registrou no emissor (manual, automática). */
+  origin: string | null;
+  xml_available: boolean;
+}
+
+/** NF-e que outra empresa emitiu contra o CNPJ (distribuição de DF-e). */
+export interface FiscalReceivedNote {
+  provider_ref: string;
+  environment: FiscalEnvironment;
+  cnpj: string;
+  access_key: string;
+  /** Cresce a cada mudança: a mesma nota reaparece. Trate por provider_ref ou access_key. */
+  sequence: number;
+  /** Só as de `recipient` se confrontam com pedido de compra. */
+  role: "recipient" | "third_party";
+  issuer: { document: string | null; name: string | null; ie: string | null };
+  series: number | null;
+  number: number | null;
+  issued_at: string | null;
+  authorized_at: string | null;
+  protocol: string | null;
+  operation: "entrada" | "saida" | null;
+  total: number | null;
+  status: "authorized" | "cancelled" | "denied" | null;
+  /** Antes da manifestação só há resumo: sem itens nem XML. */
+  xml_available: boolean;
+  manifestation: FiscalManifestation | null;
+  manifestations: FiscalManifestation[];
+  /** A ciência automática foi recusada pelo governo (cStat e motivo). */
+  automatic_acknowledgement_refused: FiscalMessage | null;
+  received_at: string | null;
+  updated_at: string | null;
+  /** Manifestação ou consulta repetida: nada novo foi ao governo. Null fora disso. */
+  repeated: boolean | null;
+}
+
+export interface FiscalReceivedPage {
+  items: FiscalReceivedNote[];
+  /** Guarde e passe em `after` na próxima leitura. */
+  last_sequence: number;
+  has_more: boolean;
+}
+
+/** Estado da consulta ao Ambiente Nacional, por CNPJ e ambiente (só leitura: NSU e espera são do emissor). */
+export interface FiscalDistributionState {
+  cnpj: string | null;
+  environment: FiscalEnvironment | null;
+  uf: string | null;
+  automatic_query: boolean;
+  automatic_acknowledgement: boolean;
+  last_nsu: number | null;
+  max_nsu: number | null;
+  last_query_at: string | null;
+  /** Antes disso o emissor não consulta (espera de uma hora do Ambiente Nacional). */
+  next_query_at: string | null;
+  blocked: boolean;
+  message: FiscalMessage | null;
+  key_queries: { last_hour: number; limit: number | null };
 }
 
 export interface FiscalSeries {
@@ -136,6 +232,10 @@ export interface FiscalVoidResult {
   last: number;
   protocol: string | null;
   created_at: string | null;
+  justification: string | null;
+  xml_available: boolean;
+  /** true: a faixa já estava inutilizada e nada foi ao governo (repetir é seguro). */
+  repeated: boolean | null;
 }
 
 /** Estado do emissor para o painel (GET /v1/cofre na NFapi). */
@@ -152,6 +252,10 @@ export interface FiscalProviderState {
   production_released: boolean;
   key: { scope: "completo" | "homologacao" | null; environments: FiscalEnvironment[] };
   documents: { nfse: boolean; nfe: string[] | null; nfce: string[] | null };
+  /** Notas em contingência ainda não transmitidas (null: emissor que não informa). */
+  contingency: { pending_notes: number } | null;
+  /** O emissor tem logotipo para os documentos impressos (null: não informa). */
+  logo: boolean | null;
 }
 
 export interface FiscalContext {
@@ -172,8 +276,8 @@ export interface FiscalProvider {
   id: string;
   name: string;
   kinds: FiscalKind[];
-  /** Modos de contingência que o provedor emite (vazio: nenhum). */
-  contingency: FiscalContingency["mode"][];
+  /** Modos de contingência da NFC-e que o provedor emite além de `never` (vazio: nenhum). */
+  contingency: Exclude<FiscalContingencyMode, "never">[];
   /**
    * Emite. Repetições internas usam a mesma referência; resposta perdida ou
    * sem conclusão do governo leva a uma consulta antes de qualquer reenvio.
@@ -186,15 +290,14 @@ export interface FiscalProvider {
     key: FiscalKey,
     options?: FiscalEmitOptions,
   ): Promise<FiscalResult>;
-  /**
-   * Reservado: transmite uma nota emitida em contingência. Só existe em
-   * provedor com `contingency` não vazio.
-   */
-  transmitContingency?(ctx: FiscalContext, kind: FiscalKind, ref: string): Promise<FiscalResult>;
   /** Emissão da chave no provedor, ou null se nunca chegou lá. */
   find(ctx: FiscalContext, kind: FiscalKind, key: FiscalKey): Promise<FiscalResult | null>;
   get(ctx: FiscalContext, kind: FiscalKind, ref: string): Promise<FiscalResult>;
-  /** Fecha com o governo uma emissão sem resposta conclusiva (NF-e/NFC-e). */
+  /**
+   * Consulta o governo (NF-e/NFC-e): fecha uma emissão sem resposta
+   * conclusiva e, na NFC-e em contingência, força uma tentativa de
+   * transmissão (o emissor também transmite sozinho quando a SEFAZ volta).
+   */
   reconcile(ctx: FiscalContext, kind: FiscalKind, ref: string): Promise<FiscalResult>;
   xml(ctx: FiscalContext, kind: FiscalKind, ref: string): Promise<string>;
   cancel(
@@ -206,6 +309,55 @@ export interface FiscalProvider {
   /** Carta de correção (só NF-e); o texto substitui as cartas anteriores. */
   correct(ctx: FiscalContext, ref: string, text: string): Promise<FiscalResult>;
   voidRange(ctx: FiscalContext, input: FiscalVoidRange): Promise<FiscalVoidResult>;
+
+  // Leituras (qualquer papel erp:*). Arquivos vêm como o emissor mandou.
+  /** XML do evento de cancelamento. */
+  cancellationXml(ctx: FiscalContext, kind: FiscalKind, ref: string): Promise<string>;
+  /** XML da carta de correção `sequence` (1 a 20; só NF-e). */
+  correctionXml(ctx: FiscalContext, ref: string, sequence: number): Promise<string>;
+  danfe(ctx: FiscalContext, ref: string): Promise<FiscalFile>;
+  danfce(
+    ctx: FiscalContext,
+    ref: string,
+    options?: { width?: "80" | "58"; copy?: "consumer" | "establishment" },
+  ): Promise<FiscalFile>;
+  receipt(ctx: FiscalContext, ref: string, options?: { copy?: "consumer" | "establishment" }): Promise<FiscalReceipt>;
+  /** Logotipo do emitente; null quando o emissor não tem. */
+  logo(ctx: FiscalContext): Promise<FiscalFile | null>;
+  voidRanges(
+    ctx: FiscalContext,
+    filter?: { kind?: "nfe" | "nfce"; environment?: FiscalEnvironment; series?: number },
+  ): Promise<FiscalVoidResult[]>;
+  voidRangeGet(ctx: FiscalContext, ref: string): Promise<FiscalVoidResult>;
+  voidRangeXml(ctx: FiscalContext, ref: string): Promise<string>;
+
+  // NF-e recebidas (distribuição de DF-e). Ler não consulta o governo.
+  received(
+    ctx: FiscalContext,
+    filter?: { after?: number; limit?: number; environment?: FiscalEnvironment; access_key?: string },
+  ): Promise<FiscalReceivedPage>;
+  receivedGet(ctx: FiscalContext, ref: string): Promise<FiscalReceivedNote>;
+  /** 409 fiscal_xml_unavailable antes da manifestação (só há resumo). */
+  receivedXml(ctx: FiscalContext, ref: string): Promise<string>;
+  receivedDanfe(ctx: FiscalContext, ref: string): Promise<FiscalFile>;
+  manifestationXml(ctx: FiscalContext, ref: string, type: FiscalManifestationType, sequence: number): Promise<string>;
+  /**
+   * Manifestação do destinatário: evento fiscal (ação sensível da categoria
+   * nota fiscal no ERP). Repetir devolve `repeated: true` sem enviar nada.
+   * Pela nota (`ref`) ou pela chave de acesso.
+   */
+  manifest(
+    ctx: FiscalContext,
+    target: { ref: string } | { access_key: string; environment?: FiscalEnvironment; cnpj?: string },
+    input: { type: FiscalManifestationType; justification?: string },
+  ): Promise<FiscalReceivedNote>;
+  distribution(ctx: FiscalContext): Promise<FiscalDistributionState[]>;
+  /** Busca uma NF-e pela chave no Ambiente Nacional. Gasta a cota (18 por hora: 429 com retry_at). */
+  queryAccessKey(
+    ctx: FiscalContext,
+    input: { access_key: string; environment?: FiscalEnvironment; cnpj?: string },
+  ): Promise<FiscalReceivedNote>;
+
   series(ctx: FiscalContext): Promise<FiscalSeries[]>;
   state(ctx: FiscalContext): Promise<FiscalProviderState>;
   sefazStatus(
@@ -228,6 +380,10 @@ export interface FiscalErrorDetails {
   emission?: FiscalResult | null;
   /** Pode ser repetido mais tarde com a mesma chave. */
   retryable?: boolean;
+  /** vault_outdated: versão mínima do emissor para a operação. */
+  min_version?: string | null;
+  /** 429: a partir de quando tentar de novo (ISO), quando o emissor informa. */
+  retry_at?: string | null;
 }
 
 export class FiscalError extends ApiError {
@@ -241,6 +397,8 @@ export class FiscalError extends ApiError {
       messages: details.messages ?? [],
       emission: details.emission ?? null,
       retryable: details.retryable ?? false,
+      min_version: details.min_version ?? null,
+      retry_at: details.retry_at ?? null,
     };
   }
   /** Corpo de resposta HTTP do Wabotia, com os detalhes. */

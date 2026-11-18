@@ -18,7 +18,7 @@ import {
   CONTRACT_OPERATIONS,
   CONTRACT_VERSION,
 } from "../../../src/erp/emissor/contract/types.generated.ts";
-import { CLIENT_OPERATIONS } from "../../../src/erp/emissor/nfapi.ts";
+import { CLIENT_OPERATIONS, OPERATION_MIN_VERSION, olderThan } from "../../../src/erp/emissor/nfapi.ts";
 import { ERROR_MAP, KNOWN_SITUACOES } from "../../../src/erp/emissor/nfapi-provider.ts";
 import { requestExample, requestSchema, validate } from "./schema";
 
@@ -27,34 +27,57 @@ const clone = () => structuredClone(spec) as OpenApi;
 
 /** Contrato conhecido por este cliente. Mudou? Revise o cliente e atualize. */
 const EXPECTED = {
-  version: "0.3.2",
+  version: "0.9.0",
   operations: {
-    "POST /v1/nfe": ["200", "201", "400", "401", "403", "409", "422", "502"],
-    "GET /v1/nfe": ["200", "401"],
-    "GET /v1/nfe/{id}": ["200", "401", "404"],
-    "POST /v1/nfe/{id}/consultar": ["200", "401", "404", "409"],
-    "GET /v1/nfe/{id}/xml": ["200", "401", "404"],
-    "POST /v1/nfe/{id}/cancelar": ["200", "400", "401", "403", "404", "409", "422", "502"],
-    "POST /v1/nfe/{id}/carta-correcao": ["200", "400", "401", "403", "404", "409", "422", "502"],
-    "POST /v1/nfce": ["200", "201", "400", "401", "403", "409", "422", "502"],
-    "GET /v1/nfce": ["200", "401"],
-    "GET /v1/nfce/{id}": ["200", "401", "404"],
-    "POST /v1/nfce/{id}/consultar": ["200", "401", "404", "409"],
-    "GET /v1/nfce/{id}/xml": ["200", "401", "404"],
-    "POST /v1/nfce/{id}/cancelar": ["200", "400", "401", "403", "404", "409", "422", "502"],
-    "POST /v1/nfse": ["200", "201", "400", "401", "403", "409", "422", "502"],
-    "GET /v1/nfse": ["200", "401"],
-    "GET /v1/nfse/{id}": ["200", "401", "404"],
-    "GET /v1/nfse/{id}/xml": ["200", "401", "404"],
-    "POST /v1/nfse/{id}/cancelar": ["200", "400", "401", "403", "404", "409", "422", "502"],
-    "POST /v1/inutilizacoes": ["201", "400", "401", "403", "409", "422", "502"],
-    "GET /v1/series": ["200", "401"],
-    "GET /v1/cofre": ["200", "401"],
-    "GET /v1/sefaz/status": ["200", "400", "401", "403", "409", "422"],
+    "POST /v1/nfe": ["200", "201", "400", "401", "403", "409", "422", "500", "502", "503"],
+    "GET /v1/nfe": ["200", "401", "500", "503"],
+    "GET /v1/nfe/{id}": ["200", "401", "404", "500", "503"],
+    "POST /v1/nfe/{id}/consultar": ["200", "401", "404", "409", "500", "503"],
+    "GET /v1/nfe/{id}/xml": ["200", "401", "404", "500", "503"],
+    "POST /v1/nfe/{id}/cancelar": ["200", "400", "401", "403", "404", "409", "422", "500", "502", "503"],
+    "GET /v1/nfe/{id}/cancelamento/xml": ["200", "401", "404", "500", "503"],
+    "GET /v1/nfe/{id}/danfe": ["200", "401", "404", "409", "500", "503"],
+    "GET /v1/nfe/{id}/carta-correcao/{sequencia}/xml": ["200", "401", "404", "500", "503"],
+    "POST /v1/nfe/{id}/carta-correcao": ["200", "400", "401", "403", "404", "409", "422", "500", "502", "503"],
+    "POST /v1/nfce": ["200", "201", "400", "401", "403", "409", "422", "500", "502", "503"],
+    "GET /v1/nfce": ["200", "401", "500", "503"],
+    "GET /v1/nfce/{id}": ["200", "401", "404", "500", "503"],
+    "POST /v1/nfce/{id}/consultar": ["200", "401", "404", "409", "500", "503"],
+    "GET /v1/nfce/{id}/xml": ["200", "401", "404", "500", "503"],
+    "POST /v1/nfce/{id}/cancelar": ["200", "400", "401", "403", "404", "409", "422", "500", "502", "503"],
+    "GET /v1/nfce/{id}/cancelamento/xml": ["200", "401", "404", "500", "503"],
+    "GET /v1/nfce/{id}/cupom": ["200", "400", "401", "404", "409", "500", "503"],
+    "GET /v1/nfce/{id}/danfce": ["200", "400", "401", "404", "409", "500", "503"],
+    "GET /v1/nfe-recebidas": ["200", "400", "401", "500", "503"],
+    "POST /v1/nfe-recebidas/manifestar": ["200", "400", "401", "403", "409", "422", "500", "502", "503"],
+    "GET /v1/nfe-recebidas/{id}": ["200", "401", "404", "500", "503"],
+    "GET /v1/nfe-recebidas/{id}/xml": ["200", "401", "404", "409", "500", "503"],
+    "GET /v1/nfe-recebidas/{id}/danfe": ["200", "401", "404", "409", "500", "503"],
+    "POST /v1/nfe-recebidas/{id}/manifestar": ["200", "400", "401", "403", "404", "409", "422", "500", "502", "503"],
+    "GET /v1/nfe-recebidas/{id}/manifestacoes/{tipo}/{sequencia}/xml": ["200", "401", "404", "500", "503"],
+    "GET /v1/distribuicao": ["200", "401", "500", "503"],
+    "POST /v1/distribuicao/sincronizar": ["200", "400", "401", "403", "409", "422", "500", "503"],
+    "POST /v1/distribuicao/consultar-chave": ["200", "400", "401", "403", "409", "422", "429", "500", "502", "503"],
+    "GET /v1/distribuicao/documentos": ["200", "400", "401", "500", "503"],
+    "GET /v1/distribuicao/documentos/{sequencia}/xml": ["200", "401", "404", "500", "503"],
+    "POST /v1/nfse": ["200", "201", "400", "401", "403", "409", "422", "500", "502", "503"],
+    "GET /v1/nfse": ["200", "401", "500", "503"],
+    "GET /v1/nfse/{id}": ["200", "401", "404", "500", "503"],
+    "GET /v1/nfse/{id}/xml": ["200", "401", "404", "500", "503"],
+    "GET /v1/nfse/{id}/cancelamento/xml": ["200", "401", "404", "500", "503"],
+    "POST /v1/nfse/{id}/cancelar": ["200", "400", "401", "403", "404", "409", "422", "500", "502", "503"],
+    "POST /v1/inutilizacoes": ["200", "201", "400", "401", "403", "409", "422", "500", "502", "503"],
+    "GET /v1/inutilizacoes": ["200", "400", "401", "500", "503"],
+    "GET /v1/inutilizacoes/{id}": ["200", "401", "404", "500", "503"],
+    "GET /v1/inutilizacoes/{id}/xml": ["200", "401", "404", "500", "503"],
+    "GET /v1/series": ["200", "401", "500", "503"],
+    "GET /v1/cofre": ["200", "401", "500", "503"],
+    "GET /v1/cofre/logotipo": ["200", "401", "404", "500", "503"],
+    "GET /v1/sefaz/status": ["200", "400", "401", "403", "409", "422", "500", "503"],
     "GET /v1/openapi.json": ["200"],
   } as Record<string, string[]>,
   situacoes: {
-    EmissaoNfe: ["processando", "autorizada", "rejeitada", "denegada", "erro", "indefinida", "cancelada"],
+    EmissaoNfe: ["processando", "autorizada", "contingencia", "rejeitada", "denegada", "erro", "indefinida", "cancelada"],
     EmissaoNfse: ["processando", "autorizada", "rejeitada", "erro", "indefinida", "cancelada"],
   },
   /** Tabela x-codigos: código → status. Código novo ou removido falha aqui. */
@@ -87,6 +110,17 @@ const EXPECTED = {
     inutilizacao_extinta: 422,
     host_nao_permitido: 422,
     certificado_do_cliente_invalido: 422,
+    distribuicao_nao_configurada: 409,
+    xml_indisponivel: 409,
+    manifestacao_ja_registrada: 409,
+    chave_de_acesso_invalida: 422,
+    justificativa_obrigatoria: 422,
+    limite_de_manifestacoes: 422,
+    manifestacao_rejeitada: 422,
+    nota_nao_localizada: 422,
+    consulta_rejeitada: 422,
+    consumo_indevido: 429,
+    limite_de_consultas: 429,
     sem_resposta_conclusiva: 502,
     sem_conexao: 200,
     erro_interno: 500,
@@ -95,7 +129,7 @@ const EXPECTED = {
   /** Campos de Erro que o cliente lê. */
   erro: ["erro", "campo", "nfe", "nfce", "nfse", "mensagens"],
   /** Campos de Cofre que o painel mostra. */
-  cofre: ["versao", "atualizacao", "certificado", "producaoLiberada", "chave", "documentos"],
+  cofre: ["versao", "atualizacao", "certificado", "producaoLiberada", "contingencia", "logotipo", "chave", "documentos"],
 };
 
 describe("contrato do cofre NFapi", () => {
@@ -150,6 +184,10 @@ describe("contrato do cofre NFapi", () => {
       ["POST", "/v1/nfe/{id}/cancelar"],
       ["POST", "/v1/nfse/{id}/cancelar"],
       ["POST", "/v1/nfe/{id}/carta-correcao"],
+      ["POST", "/v1/nfe-recebidas/{id}/manifestar"],
+      ["POST", "/v1/nfe-recebidas/manifestar"],
+      ["POST", "/v1/distribuicao/consultar-chave"],
+      ["POST", "/v1/distribuicao/sincronizar"],
     ]) {
       const example = requestExample(method, path);
       expect(example, `${method} ${path} sem exemplo`).toBeTruthy();
@@ -176,6 +214,29 @@ describe("contrato do cofre NFapi", () => {
     for (const path of ["/v1/nfe/{id}/cancelar", "/v1/nfce/{id}/cancelar", "/v1/nfse/{id}/cancelar", "/v1/nfe/{id}/carta-correcao"]) {
       const schema = spec.paths[path].post.responses["200"].content["application/json"].schema;
       expect(schema.allOf[1].required, path).toEqual(["repetido"]);
+    }
+  });
+
+  it("contingência, inutilização repetida, notas recebidas e versão mínima por operação", () => {
+    const schemas = spec.components.schemas;
+    // A NFC-e pede a contingência; a emissão diz se saiu nela.
+    expect(schemas.OpcoesNfce.properties.contingencia.enum).toEqual(["nunca", "automatica", "forcada"]);
+    expect(Object.keys(schemas.EmissaoNfe.properties.contingencia.anyOf?.[0]?.properties ?? schemas.EmissaoNfe.properties.contingencia.properties ?? {})).toEqual(
+      expect.arrayContaining(["pendente", "desde", "motivo"]),
+    );
+    expect(Object.keys(schemas.InutilizacaoRegistrada.properties)).toEqual(expect.arrayContaining(["justificativa", "xmlDisponivel", "repetido"]));
+    // A lista de recebidas é lida por cursor.
+    expect(spec.paths["/v1/nfe-recebidas"].get.parameters.map((p: any) => p.name)).toEqual(["depois", "limite", "ambiente", "chaveAcesso"]);
+    expect(Object.keys(spec.paths["/v1/nfe-recebidas"].get.responses["200"].content["application/json"].schema.properties)).toEqual([
+      "recebidas",
+      "ultimaSequencia",
+      "haMais",
+    ]);
+    expect(schemas.NotaRecebida.properties.papel.enum).toEqual(["destinatario", "terceiro"]);
+    // Toda operação com versão mínima existe no contrato, e a mínima nunca passa a do contrato.
+    for (const [op, min] of Object.entries(OPERATION_MIN_VERSION)) {
+      expect(CONTRACT_OPERATIONS, op).toContain(op);
+      expect(olderThan(CONTRACT_VERSION, min!), op).toBe(false);
     }
   });
 
@@ -208,6 +269,7 @@ describe("comparação de contratos", () => {
     other.paths["/v1/nfe"].post.responses["429"] = { description: "limite" };
     expect(contractDiff(spec, other)).toEqual([
       "operação alterada: POST /v1/nfe",
+      "operação removida: GET /v1/inutilizacoes",
       "operação removida: POST /v1/inutilizacoes",
       "operação nova: POST /v1/nfe/{id}/devolver",
     ]);
@@ -215,7 +277,7 @@ describe("comparação de contratos", () => {
 
   it("aponta schema alterado (campo novo, enum novo)", () => {
     const other = clone();
-    other.components.schemas.EmissaoNfe.properties.situacao.enum.push("contingencia");
+    other.components.schemas.EmissaoNfe.properties.situacao.enum.push("suspensa");
     other.components.schemas.Cofre.properties.novo = { type: "string" };
     // Schemas em ordem alfabética (a forma comparada ordena as chaves).
     expect(contractDiff(spec, other)).toEqual(["schema alterado: Cofre", "schema alterado: EmissaoNfe"]);
