@@ -1,4 +1,17 @@
 import type { CustomWorkType, WorkField } from "../work-contracts";
+// Conteúdo parcial pertence ao rascunho, nunca ao DTO enviado ao servidor.
+export type WorkFieldDraft = WorkField & { options_text?: string };
+export function prepareField(field: WorkFieldDraft): WorkField {
+  const { options_text, ...saved } = field;
+  if (saved.kind !== "choice" || options_text === undefined) return saved;
+  return {
+    ...saved,
+    options: options_text.split("\n").map((line) => {
+      const [id, ...parts] = line.split(":");
+      return { id: id.trim(), label: parts.join(":").trim() };
+    }),
+  };
+}
 export function newWorkType(): CustomWorkType {
   return {
     schema_version: 1,
@@ -240,6 +253,7 @@ export function prepareTypeSave(
 ): CustomWorkType {
   const next = {
     ...type,
+    fields: type.fields.map(prepareField),
     retired_field_ids: [
       ...new Set([
         ...type.retired_field_ids,

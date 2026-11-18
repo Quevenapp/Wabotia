@@ -10,6 +10,8 @@ import { WorkFormDialog } from "./work/WorkFormDialog";
 import { ResourceState, useWorkApi, useWorkResource } from "./work-hooks";
 import { hasCustomTypes, workCollectionLabel } from "./work-vocabulary";
 import { StagePill } from "./components/StagePill";
+import { Pager } from "../../admin/shared";
+import type { WorkTypeView } from "./work-contracts";
 export function ConversationWorkOrders(props: ConversationExtensionProps) {
   const app = useApp();
   return (
@@ -24,24 +26,28 @@ function ConversationWorkContent(props: ConversationExtensionProps) {
     api = useWorkApi(),
     action = useAction(),
     write = useIntents(app.api);
+  const [cursor, setCursor] = useState("");
   const catalog = useWorkResource(
-    app.root + "/conversation-types/" + (app.status.settings_revision || ""),
+    app.root + "/conversation-types/",
     () => api.types(),
+    app.status.settings_revision || "",
   );
   const orders = useWorkResource(
     catalog.data && hasCustomTypes(catalog.data.data)
-      ? app.root + "/conversation-work/" + props.conversation.id
+      ? app.root + "/conversation-work/" + props.conversation.id + "/" + cursor
       : null,
     () =>
       api.orders({
         open: "1",
         conversation_id: props.conversation.id,
         limit: "50",
+        cursor,
       }),
   );
   const [typeId, setTypeId] = useState(""),
-    [opening, setOpening] = useState(false);
+    [opening, setOpening] = useState<WorkTypeView | null>(null);
   if (
+    !opening &&
     !(app.settings.os_work_types || []).length &&
     (!catalog.data || !hasCustomTypes(catalog.data.data))
   )
@@ -72,6 +78,9 @@ function ConversationWorkContent(props: ConversationExtensionProps) {
           <StagePill status={order.status} label={order.stage_label} />
         </a>
       ))}
+      {orders.data && (
+        <Pager cursor={cursor} nextCursor={orders.data.next_cursor} setCursor={setCursor} />
+      )}
       {type && (
         <>
           <Field
@@ -85,7 +94,7 @@ function ConversationWorkContent(props: ConversationExtensionProps) {
             onChange={setTypeId}
           />
           <div className="card-actions">
-            <Button secondary onClick={() => setOpening(true)}>
+            <Button secondary onClick={() => setOpening(type)}>
               Criar: {type.labels.singular}
             </Button>
             {type.features.customer_open && (
@@ -112,18 +121,19 @@ function ConversationWorkContent(props: ConversationExtensionProps) {
               </Button>
             )}
           </div>
-          {opening && (
-            <WorkFormDialog
-              type={type}
-              conversationId={props.conversation.id}
-              onClose={() => setOpening(false)}
-              onSaved={() => {
-                setOpening(false);
-                orders.reload();
-              }}
-            />
-          )}
         </>
+      )}
+      {opening && (
+        <WorkFormDialog
+          type={opening}
+          conversationId={props.conversation.id}
+          onClose={() => setOpening(null)}
+          onSaved={() => {
+            setOpening(null);
+            setCursor("");
+            orders.reload();
+          }}
+        />
       )}
     </section>
   );

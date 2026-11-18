@@ -121,6 +121,8 @@ export function parseExtra(
     ) {
       if (field.required)
         throw new Error(`${field.label}: preenchimento obrigatório.`);
+      if (raw !== undefined && (field.kind === "integer" || field.kind === "decimal"))
+        values[field.id] = null;
       continue;
     }
     if (field.kind === "integer" || field.kind === "decimal") {

@@ -276,12 +276,12 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
                       disabled={action.busy}
                       onClick={() =>
                         void action.run(async () => {
-                          await api.sendQuote(order.id);
+                          await api.sendQuote(order.id, { notify: !!order.customer.conversation_id });
                           changed();
                         })
                       }
                     >
-                      Enviar orçamento
+                      {order.customer.conversation_id ? "Enviar orçamento" : "Registrar orçamento sem envio pelo WhatsApp"}
                     </Button>
                   )}
                   {order.status === "quoted" &&

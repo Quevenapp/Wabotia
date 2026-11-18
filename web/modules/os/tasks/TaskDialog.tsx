@@ -2,6 +2,8 @@ import React, { useState } from "react";
 import { FormDialog } from "../../../admin/shared";
 import { Field } from "../../../ui";
 import { AssigneeField } from "../components/AssigneeField";
+import { ConflictRecovery, useConflictRecovery } from "../components/ConflictRecovery";
+import { findWorkChild } from "../work-api";
 import {
   VisibilityFields,
   assertVisibility,
@@ -25,6 +27,10 @@ export function TaskDialog({
   onSaved: () => void;
 }) {
   const api = useWorkApi();
+  const recovery = useConflictRecovery(initial, async () => ({
+    record: await findWorkChild((cursor) => api.tasks(workId, { cursor, limit: 100 }), initial!.id),
+  }));
+  const current = recovery.latest?.record;
   const [draft, setDraft] = useState<CreateTaskRequest>({
     title: initial?.title || "",
     description: initial?.description || "",
@@ -45,13 +51,15 @@ export function TaskDialog({
     <FormDialog
       title={initial ? "Editar tarefa" : "Criar tarefa"}
       onClose={close}
+      disabled={recovery.conflict}
       onSubmit={async () => {
-        assertVisibility(draft);
         const body = {
           ...draft,
+          sensitive: !!recovery.base?.sensitive || draft.sensitive,
           due_at: dateTimeValue(due),
           remind_at: dateTimeValue(remind),
         };
+        assertVisibility(body);
         if (
           body.remind_at != null &&
           (body.due_at == null || body.remind_at > body.due_at)
@@ -64,16 +72,26 @@ export function TaskDialog({
           throw new Error(
             "Uma tarefa do cliente precisa ser visível e não sensível.",
           );
-        if (initial)
-          await api.updateTask(workId, initial.id, {
-            ...body,
-            version: initial.version,
-          });
-        else await api.createTask(workId, body);
+        await recovery.run(async () => {
+          if (recovery.base)
+            await api.updateTask(workId, recovery.base.id, {
+              ...body,
+              version: recovery.base.version,
+            }, recovery.base.sensitive);
+          else await api.createTask(workId, body);
+        });
         setDirty(false);
         onSaved();
       }}
     >
+      <ConflictRecovery recovery={recovery}>
+        {current && <dl>
+          <dt>Título e descrição atuais</dt><dd>{current.title} · {current.description}</dd>
+          <dt>Responsável / situação</dt><dd>{current.assignee || "Sem responsável"} · {current.state}</dd>
+          <dt>Vencimento / aviso</dt><dd>{dateTimeInput(current.due_at)} / {dateTimeInput(current.remind_at)}</dd>
+          <dt>Visibilidade</dt><dd>{current.sensitive ? "Restrito" : current.client_visible ? "Cliente" : "Equipe"} · {current.audience}</dd>
+        </dl>}
+      </ConflictRecovery>
       <Field
         label="Título"
         value={draft.title}
@@ -123,9 +141,9 @@ export function TaskDialog({
         }}
       />
       <VisibilityFields
-        value={draft}
+        value={{ ...draft, sensitive: !!recovery.base?.sensitive || draft.sensitive }}
         onChange={change}
-        lockedSensitive={!!initial?.sensitive}
+        lockedSensitive={!!recovery.base?.sensitive}
       />
     </FormDialog>
   );
