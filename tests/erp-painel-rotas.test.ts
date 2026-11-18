@@ -71,6 +71,22 @@ const SCREENS: [string, string][] = [
   ["/tipos-contatos-empresa", "/v1/cadastros/tipos-contato"],
   ["/categorias-produtos", "/v1/cadastros/taxonomias/categorias-produtos"],
   [
+    "/documentos-empresa?tipo=sales_orders&acao=relatorios&relatorio=vendas",
+    "/v1/documentos/sales_orders/relatorio-vendas/opcoes",
+  ],
+  [
+    "/documentos-empresa?tipo=sales_orders&acao=relatorios&relatorio=romaneio",
+    "/v1/documentos/sales_orders/romaneio?from=2026-11-01&to=2026-11-17",
+  ],
+  [
+    "/documentos-empresa?tipo=sales_orders&acao=relatorios&relatorio=curva-abc",
+    "/v1/documentos/sales_orders/curva-abc?from=2026-11-01&to=2026-11-17",
+  ],
+  ["/grupos-produtos", "/v1/cadastros/taxonomias/grupos-produtos"],
+  ["/tags", "/v1/cadastros/taxonomias/tags"],
+  ["/grupos-tags", "/v1/cadastros/taxonomias/grupos-tags"],
+  ["/numeracao-contatos", "/v1/cadastros/contatos/codigo"],
+  [
     "/documentos-empresa?tipo=sales_orders",
     "/v1/documentos/sales_orders?page=1&limit=100",
   ],
@@ -396,8 +412,8 @@ describe("painel do ERP contra a rota real", () => {
     "ação de tela sem motor (0A000) avisa a casca em vez de só falhar",
     { timeout: 120_000 },
     async () => {
-      // Registrar ocorrência no pedido (erp_document_occurrence_add) ainda não
-      // tem motor: a tela recebe a recusa e a casca mostra o aviso de implantação.
+      // Excluir uma ocorrência do pedido (erp_document_occurrence_remove) ainda
+      // não tem motor: a tela recebe a recusa e a casca mostra o aviso de implantação.
       const { f, send, get } = await setup();
       // Primeira ida ao motor no isolado (rodando só este teste): fora da espera do controlador.
       await get(await bearer(f.admin), "/erp/v1/inicio");
@@ -413,17 +429,10 @@ describe("painel do ERP contra a rota real", () => {
           async (controller) => {
             const failure = await controller
               .documents(
-                `/v1/documentos/sales_orders/${crypto.randomUUID()}/ocorrencias`,
+                `/v1/documentos/sales_orders/${crypto.randomUUID()}/ocorrencias/${crypto.randomUUID()}/exclusao`,
                 {
                   method: "POST",
-                  body: {
-                    command_id: crypto.randomUUID(),
-                    expected_version: 1,
-                    occurred_on: "2026-11-17",
-                    occurred_time: "10:00",
-                    text: "Cliente pediu a entrega para amanhã.",
-                    status: "verified",
-                  },
+                  body: { command_id: crypto.randomUUID() },
                 },
               )
               .then(
@@ -508,6 +517,42 @@ describe("painel do ERP contra a rota real", () => {
             expect([bytes[0], bytes[1]]).toEqual([0x50, 0x4b]); // ZIP
           },
         );
+      } finally {
+        setMotorReal(false);
+      }
+    },
+  );
+
+  it(
+    "Importar contatos: a simulação da planilha responde, e a tela está no menu",
+    { timeout: 120_000 },
+    async () => {
+      // A tela lê os tipos de contato e manda as linhas em simulação
+      // (dry_run) antes de gravar (RealImportContacts.tsx).
+      const { f, send } = await setup();
+      const response = await send(
+        new Request(
+          `https://test/api/v1/profiles/${f.profile}/erp/v1/cadastros/contatos/importar`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: "Bearer " + (await bearer(f.admin)),
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              dry_run: true,
+              rows: [{ row: 2, data: { name: "Ana Souza" } }],
+            }),
+          },
+        ),
+      );
+      const body = await response.json<any>().catch(() => null);
+      setMotorReal(true);
+      try {
+        expect(
+          response.status < 300,
+          `${response.status} ${JSON.stringify(body)}`,
+        ).toBe(!pendingInMotor("/importar-contatos"));
       } finally {
         setMotorReal(false);
       }

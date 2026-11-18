@@ -14,14 +14,9 @@ type Pending = { path: string; under?: boolean; query?: [string, string[]] };
 export const MOTOR_PENDING: readonly Pending[] = [
   // Meu Negócio: os painéis de vendas (o Início, /v1/inicio, já responde).
   { path: "/meu-negocio" },
-  // Cadastros: depósitos, taxonomias, importação e numeração de contatos.
-  { path: "/cadastros-reais", query: ["cadastro", ["warehouses"]] },
-  { path: "/categorias-produtos" },
-  { path: "/grupos-produtos" },
-  { path: "/tags" },
-  { path: "/grupos-tags" },
-  { path: "/importar-contatos" },
-  { path: "/numeracao-contatos" },
+  // Documentos: o Relatório de Vendas (também agrupado por bairro); os outros
+  // relatórios de vendas e de serviço já respondem.
+  { path: "/documentos-empresa", query: ["relatorio", ["vendas", "bairro"]] },
   // Fiscal: notas, eventos, rascunhos, numeração e o certificado (as
   // naturezas de operação e as preferências de NF-e e NFC-e já respondem).
   { path: "/historico-fiscal" },
@@ -47,6 +42,9 @@ export const MOTOR_READY: readonly { label: string; to: string }[] = [
   { label: "Início", to: "/acesso" },
   { label: "Produtos", to: "/cadastros-reais?cadastro=products" },
   { label: "Clientes e fornecedores", to: "/cadastros-reais?cadastro=contacts" },
+  { label: "Importar contatos", to: "/importar-contatos" },
+  { label: "Depósitos", to: "/cadastros-reais?cadastro=warehouses" },
+  { label: "Categorias de produtos", to: "/categorias-produtos" },
   { label: "Vendedores", to: "/vendedores-empresa" },
   { label: "Campos customizados", to: "/campos-customizados" },
   { label: "Naturezas de operação", to: "/naturezas-operacao" },
@@ -66,12 +64,10 @@ export const MOTOR_READY: readonly { label: string; to: string }[] = [
 /**
  * Leituras auxiliares sem motor ainda, em telas que já funcionam (a sonda
  * confere cada uma). Contra o motor, o controlador responde por elas sem ir à
- * rede (501 ERP_NOT_PORTED), e a tela segue com a ausência como já trata hoje:
- * os filtros de Produtos ficam sem as opções de categoria e tags.
+ * rede (501 ERP_NOT_PORTED), e a tela segue com a ausência como já trata hoje.
+ * Vazia desde o tronco 0c7343a (as taxonomias de Produtos responderam).
  */
-export const MOTOR_PENDING_READS: readonly RegExp[] = [
-  /^\/v1\/cadastros\/taxonomias\/(categorias-produtos|grupos-produtos|tags|grupos-tags)(\?|$)/,
-];
+export const MOTOR_PENDING_READS: readonly RegExp[] = [];
 
 let real = false;
 /** mount.tsx: true contra o motor; false na demonstração e com a API simulada. */
