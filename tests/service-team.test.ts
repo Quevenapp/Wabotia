@@ -21,7 +21,7 @@ async function fixture() {
   const p = uid(),
     line = uid(),
     second = uid(),
-    hermes = uid(),
+    aiConnection = uid(),
     bot = uid();
   await exec(
     env,
@@ -49,10 +49,10 @@ async function fixture() {
     );
   await exec(
     env,
-    "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,last_seen,created) VALUES(?,?,?,'hermes','direct','active','{}',?,?)",
-    hermes,
+    "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,last_seen,created) VALUES(?,?,?,'ai','direct','active','{}',?,?)",
+    aiConnection,
     p,
-    "Hermes",
+    "provedor de IA",
     now(),
     now(),
   );
@@ -61,7 +61,7 @@ async function fixture() {
     "INSERT INTO bots(id,profile_id,connection_id,remote_profile,name,enabled) VALUES(?,?,?,?,?,1)",
     bot,
     p,
-    hermes,
+    aiConnection,
     "support",
     "Bot suporte",
   );
@@ -95,7 +95,7 @@ async function fixture() {
     p,
     line,
     second,
-    hermes,
+    aiConnection,
     bot,
     admin: users[0],
     a: users[1],
@@ -433,42 +433,18 @@ describe("linhas, menus e equipe interna", () => {
       (await conversation(env, conversation_id, f.p)).assigned_bot_id,
     ).toBe(f.bot);
   });
-  it("renova presença de Hermes ocioso com consulta em cache", async () => {
+  it("presença do bot interno acompanha a conexão, sem sondagem de rede", async () => {
     const f = await fixture();
-    await exec(
-      env,
-      "UPDATE connections SET last_seen=?,config=? WHERE id=?",
-      now() - 600000,
-      JSON.stringify({
-        url: "https://hermes.example.com",
-        api_url: "https://hermes.example.com",
-      }),
-      f.hermes,
-    );
-    await setSecret(env, `connection:${f.hermes}`, {
-      profile_keys: { support: "test-key" },
-    });
-    const request = vi.fn(async () =>
-      Response.json({
-        features: { runs_idempotency: { supported: true, durable: true } },
-      }),
-    );
+    await exec(env, "UPDATE connections SET last_seen=? WHERE id=?", now() - 600000, f.aiConnection);
+    const request = vi.fn(() => { throw new Error("Não deve chamar rede"); });
     vi.stubGlobal("fetch", request);
-    expect(
-      (await teamDirectory(env, f.a, f.p)).data.find(
-        (x) => x.id === `bot:${f.bot}`,
-      ).online,
-    ).toBe(true);
-    expect(
-      (await teamDirectory(env, f.a, f.p)).data.find(
-        (x) => x.id === `bot:${f.bot}`,
-      ).online,
-    ).toBe(true);
-    expect(request).toHaveBeenCalledTimes(1);
-    expect(
-      (await one(env, "SELECT last_seen FROM connections WHERE id=?", f.hermes))
-        .last_seen,
-    ).toBeGreaterThan(now() - 5000);
+    const online = async () => (await teamDirectory(env, f.a, f.p)).data.find((x) => x.id === `bot:${f.bot}`)!.online;
+    expect(await online()).toBe(true);
+    expect(await online()).toBe(true);
+    await exec(env, "UPDATE connections SET status='paused' WHERE id=?", f.aiConnection);
+    expect(await online()).toBe(false);
+    expect(request).not.toHaveBeenCalled();
+    expect(await one(env, "SELECT * FROM team_connection_presence WHERE connection_id=?", f.aiConnection)).toBeNull();
   });
   it("ativa perfil por linha e preserva atribuições ao editar credenciais", async () => {
     const f = await fixture();
@@ -741,7 +717,7 @@ describe("linhas, menus e equipe interna", () => {
       "Pergunta pela conversa interna",
     ]);
     // A tela do bot lista as duas, com o texto digitado e não o JSON com o
-    // histórico que vai para o Hermes.
+    // histórico que vai para o provedor de IA.
     const headers = { Authorization: `Bearer ${await token(f.a)}` };
     const list = await (
       await SELF.fetch(`https://test/api/v1/profiles/${f.p}/bot-runs`, {

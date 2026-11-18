@@ -79,7 +79,7 @@ const apps = [
   [
     "wabotia",
     "Wabotia",
-    "canais, bots, filas, protocolos, notificações, conexão com o Hermes e integrações com Fagoo e Vinki",
+    "canais, bots, filas, protocolos, notificações, conexão com o provedor de IA e integrações com Fagoo e Vinki",
   ],
   [
     "fagoo-erp",
@@ -93,7 +93,7 @@ const apps = [
   ],
 ] as const;
 const serverSubjects =
-  "Cloudflare, Supabase, VPS, Hermes, Meta e problemas que atravessam mais de um aplicativo";
+  "Cloudflare, Supabase, VPS, provedores de IA, Meta e problemas que atravessam mais de um aplicativo";
 
 const item = (
   id: string,
@@ -485,7 +485,7 @@ export async function applyServiceTemplate(
   if (
     !(await one(
       env,
-      "SELECT id FROM connections WHERE profile_id=? AND kind IN ('zernio','qr','hermes-whatsapp') LIMIT 1",
+      "SELECT id FROM connections WHERE profile_id=? AND kind IN ('zernio','qr') LIMIT 1",
       profile,
     ))
   )

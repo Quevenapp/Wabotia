@@ -1,7 +1,7 @@
-// Conexão direta com um provedor de IA, sem Hermes (docs/PROVEDOR-IA.md).
+// Conexão direta com um provedor de IA, sem servidor externo (docs/PROVEDOR-IA.md).
 // O Worker chama o provedor com a chave guardada no cofre da conexão. Não há
 // arquivos nem memória: cada execução leva instruções, histórico e fontes,
-// como já acontece com o Hermes, e devolve só o texto da resposta. Ferramentas
+// e devolve o texto da resposta. Ferramentas
 // só pelo Wabotia (aiCompleteWithTools): as da pessoa na conversa interna e as
 // da conversa no atendimento ao cliente (src/bot-actions).
 import Anthropic from "@anthropic-ai/sdk";

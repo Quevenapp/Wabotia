@@ -1,6 +1,6 @@
 // Modo cliente: o bot do provedor de IA direto atendendo o cliente no
 // WhatsApp usa só as ferramentas que os módulos declaram para a conversa
-// (onMcpTool, as mesmas da chave presa à conversa do Hermes). Nunca o
+// (onMcpTool, chamadas em processo). Nunca o
 // catálogo nem ferramenta de equipe. Regras (docs/MODULOS.md "Ferramentas
 // para bots"):
 // - a identidade é a conversa: o `conversation_id` é sempre o da execução,
@@ -10,7 +10,7 @@
 //   conversa; preço, desconto e estado financeiro vêm do módulo, nunca do
 //   modelo; "já paguei" não muda nada (só o webhook do provedor).
 import { all, exec, one } from "../db";
-import { internalCall } from "../mcp";
+import { internalCall } from "../internal-api";
 import { sha } from "../security";
 import { moduleMcpTools, type ModuleMcpTool } from "../modules/hooks";
 import { moduleStates } from "../modules/registry";
@@ -56,7 +56,7 @@ export interface CustomerToolContext {
   profile: string;
   run: any;
   conversation: Conversation;
-  /** Bot preso à conversa (como a chave conversations:bound). */
+  /** Ator interno do bot preso à conversa (conversations:bound). */
   bound: Actor;
 }
 
@@ -403,7 +403,7 @@ export async function handleCustomerProposalTurn(
   if (!claimed.meta.changes) return true;
   // O cliente confirmou na própria conversa: a ação roda como o bot, presa à
   // mesma conversa (o caminho foi conferido ao propor), com o mesmo
-  // conversations:bound de quando propôs; a chave presa aceita a conversa da
+  // conversations:bound de quando propôs; o ator interno aceita a conversa da
   // proposta enquanto ela roda (src/visibility.ts, boundAllows).
   const actor: Actor = {
     id: `bot:${row.bot_id}`,

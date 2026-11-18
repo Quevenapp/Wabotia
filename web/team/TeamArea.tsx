@@ -402,8 +402,8 @@ export function TeamArea({ sub, id }: { sub?: string; id?: string }) {
                   title="Nenhum bot nesta área"
                   description={
                     app.isAdmin
-                      ? "Conecte um provedor de IA (Anthropic, OpenAI, DeepSeek) ou o Hermes em Gestão › Hermes e canais e use Testar conexão: o bot aparece aqui. Depois toque em Ligar para conversar com ele."
-                      : "Peça a um administrador para conectar um provedor de IA ou o Hermes e ligar o bot. Ele aparece aqui para conversar."
+                      ? "Conecte um provedor de IA (Anthropic, OpenAI, DeepSeek) em Gestão › Conexões e use Testar conexão: o bot aparece aqui. Depois toque em Ligar para conversar com ele."
+                      : "Peça a um administrador para conectar um provedor de IA e ligar o bot. Ele aparece aqui para conversar."
                   }
                 />
               )}
@@ -504,7 +504,7 @@ export function TeamArea({ sub, id }: { sub?: string; id?: string }) {
             </p>
             <p>
               O estado das pessoas acompanha a disponibilidade de cada uma. Para
-              bots, acompanha a habilitação e a conexão com o Hermes.
+              bots, acompanha a habilitação e a conexão com o provedor de IA.
             </p>
           </div>
         )}

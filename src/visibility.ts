@@ -3,38 +3,15 @@ import { seesEvent } from "./access";
 import { type Actor, type Env, json, now } from "./types";
 
 /**
- * Chave restrita ao atendimento (conferência A1): com `conversations:bound`,
- * a aplicação só alcança as conversas que um dos bots dela está atendendo
+ * Ator restrito ao atendimento: com `conversations:bound`,
+ * o ator só alcança as conversas que um dos bots dele está atendendo
  * agora (execução na fila ou em andamento, ou encerrada há menos de 2 min) e
- * as do próprio namespace. É o perfil da chave do Hermes: um cliente que
+ * as do próprio namespace. É o ator interno do bot preso à conversa: um cliente que
  * injeta instruções no bot não chega à conversa de outro cliente.
  */
 export const BOUND_SCOPE = "conversations:bound";
 export const isBound = (actor: Actor) =>
   actor.kind === "app" && actor.scopes.includes(BOUND_SCOPE);
-/**
- * Marcação, não permissão: o administrador escolheu a área inteira para uma
- * aplicação com bots (chave do Hermes "acesso a toda a área").
- */
-export const WHOLE_AREA_SCOPE = "conversations:all";
-/**
- * Chave de bot emitida antes de `conversations:bound` (segunda conferência,
- * A1): aplicação com bots e acesso a conversas, sem a restrição nem a
- * marcação de área inteira. O painel avisa e oferece prender às conversas do
- * bot ou confirmar a área inteira; nada é rebaixado sozinho.
- */
-export function wholeAreaPending(app: { scopes: unknown; bots: unknown }) {
-  const scopes: string[] = json(app.scopes as any, []);
-  const bots: string[] = json(app.bots as any, []);
-  return (
-    bots.length > 0 &&
-    scopes.some((s) =>
-      ["conversations:read", "conversations:write"].includes(s),
-    ) &&
-    !scopes.includes(BOUND_SCOPE) &&
-    !scopes.includes(WHOLE_AREA_SCOPE)
-  );
-}
 export async function boundAllows(env: Env, actor: Actor, c: any) {
   if (!isBound(actor)) return true;
   if (c.external_namespace === `app:${actor.id}`) return true;

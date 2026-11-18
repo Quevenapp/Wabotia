@@ -133,13 +133,21 @@ it.each([
         f.line,
       );
     if (reason === "bot-disabled") {
-      const bot = uid();
+      const bot = uid(),
+        connection = uid();
+      await exec(
+        env,
+        "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,created) VALUES(?,?,'Provedor de IA','ai','direct','active','{}',?)",
+        connection,
+        f.profile,
+        now(),
+      );
       await exec(
         env,
         "INSERT INTO bots(id,profile_id,connection_id,remote_profile,name,enabled) VALUES(?,?,?,'test','Bot',0)",
         bot,
         f.profile,
-        f.line,
+        connection,
       );
       leaf.type = "bot";
       leaf.bot_id = bot;

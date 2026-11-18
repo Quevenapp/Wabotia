@@ -220,7 +220,7 @@ onMenuChoice("form", async (ctx, c, item, { rowId }) => {
   }
 });
 
-// Ação do atendente (painel), de uma integração ou de um bot (MCP send_form).
+// Ação do atendente (painel), de uma integração ou de um bot interno.
 onConversationAction("forms", "form", async (ctx, actor, c, data, request) => {
   const bot = actor.id.startsWith("bot:");
   requireValue(

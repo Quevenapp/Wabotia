@@ -1438,8 +1438,8 @@ export function onInboundReply(
 }
 
 /**
- * Ferramenta MCP para bots (Hermes e outros clientes MCP), traduzida para uma
- * chamada à API v1 desta instalação com a chave do cliente: permissões,
+ * Ferramenta de módulo para bots internos, traduzida em processo para uma
+ * chamada à API v1 desta instalação com o ator interno: permissões,
  * idempotência e 409 module_disabled valem como na API. O nome começa com o
  * id do módulo ("agenda_horarios_livres"); `profile` entra sozinho e, com
  * `write: true`, também `idempotency_key`.

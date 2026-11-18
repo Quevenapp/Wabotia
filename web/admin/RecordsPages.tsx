@@ -103,7 +103,6 @@ export function ReportsPage() {
 }
 
 type Reconcile =
-  | { kind: "run"; id: string }
   | { kind: "delivery"; id: string; paid_template: boolean }
   | null;
 
@@ -201,16 +200,14 @@ export function LogsPage({
                   )}
                 {row.status === "unknown" &&
                   app.isAdmin &&
-                  page !== "webhook-deliveries" && (
+                  page === "deliveries" && (
                     <Button
                       secondary
                       size="sm"
                       onClick={() => {
                         setForm({ status: "cancelled", allow_paid: false });
                         setReconcile(
-                          page === "bot-runs"
-                            ? { kind: "run", id: row.id }
-                            : {
+                          {
                                 kind: "delivery",
                                 id: row.id,
                                 paid_template: row.kind === "template",
@@ -233,27 +230,6 @@ export function LogsPage({
         )}
       </section>
       <Pager {...list} />
-      {reconcile?.kind === "run" && (
-        <FormDialog
-          title="Vincular execução confirmada"
-          onClose={() => setReconcile(null)}
-          onSubmit={async () => {
-            await api(root + `/bot-runs/${reconcile.id}/reconcile`, "POST", {
-              remote_id: form.remote_id,
-            });
-            toast("Salvo com sucesso.");
-            await list.reload();
-            setReconcile(null);
-          }}
-        >
-          <Field
-            label="run_id confirmado no Hermes"
-            value={form.remote_id}
-            onChange={(remote_id) => setForm({ ...form, remote_id })}
-            required
-          />
-        </FormDialog>
-      )}
       {reconcile?.kind === "delivery" && (
         <FormDialog
           title="Conferir entrega no canal"

@@ -318,7 +318,6 @@ export function SetupWizard({
   }
 
   const cfg = snapshot?.status.settings || {};
-  const hermes = snapshot?.connections.filter((c) => c.kind === "hermes") || [];
   const aiConnections =
     snapshot?.connections.filter((c) => c.kind === "ai") || [];
   const attendant = snapshot?.bots.find((b) => b.id === cfg.attendant_bot);
@@ -508,9 +507,9 @@ export function SetupWizard({
                   </a>
                 </div>
                 <details className="setup-detail">
-                  <summary>Já uso WhatsApp por QR code ou pelo Hermes</summary>
+                  <summary>Já uso WhatsApp por QR code</summary>
                   <p>
-                    Esses canais continuam disponíveis. Use uma conexão
+                    O canal QR continua disponível. Use uma conexão
                     existente ou cadastre o canal em Conexões.
                   </p>
                   <Action secondary onClick={() => onNavigate("connections")}>
@@ -526,39 +525,17 @@ export function SetupWizard({
                   dentro.
                 </h3>
                 <p>
-                  O bot principal acolhe e interpreta a solicitação. No Hermes,
-                  os bots especialistas acessam os sistemas com as permissões
-                  que já possuem.
-                </p>
-                <div
-                  className="setup-flow"
-                  aria-label="Exemplo de atendimento interno"
-                >
-                  <span>Cliente pede segunda via</span>
-                  <ArrowRight size={18} aria-hidden="true" />
-                  <span>Bot atendente</span>
-                  <ArrowRight size={18} aria-hidden="true" />
-                  <span>Hermes · bot financeiro Fagoo</span>
-                </div>
-                <p>
-                  O especialista retorna o resultado ao atendente, que responde
-                  ao cliente. Cadastre uma <strong>ação de especialista</strong>{" "}
-                  para definir quando ele pode ser consultado. As credenciais
-                  financeiras ficam configuradas no bot especialista do Hermes.
-                </p>
-                <p>
-                  Sem servidor próprio, conecte um provedor de IA (Anthropic,
-                  OpenAI, DeepSeek): o bot conversa com base nas suas fontes e
-                  menus, mas não executa ações nem pode ser especialista.
+                  O bot principal acolhe e interpreta a solicitação. Especialistas
+                  internos consultam os dados do cliente nos módulos ligados e
+                  devolvem o resultado ao Atendente. Conecte um provedor de IA
+                  (Anthropic, OpenAI ou DeepSeek) e configure uma ação de especialista.
                 </p>
                 <ol className="setup-instructions">
                   <li>
-                    Cadastre e teste a conexão com o Hermes ou com o provedor de
-                    IA.
+                    Cadastre e teste a conexão com o provedor de IA.
                   </li>
                   <li>
-                    No Hermes, use <strong>Descobrir bots</strong>; no provedor
-                    de IA, o teste cria o bot. Habilite os bots desejados.
+                    O teste cria o bot. Habilite os bots desejados.
                   </li>
                   <li>
                     Escolha o bot principal na etapa Regras. Configure
@@ -567,22 +544,10 @@ export function SetupWizard({
                 </ol>
                 <div className="setup-status">
                   {snapshot
-                    ? `${hermes.length} conexão(ões) Hermes · ${aiConnections.length} provedor(es) de IA · ${snapshot.bots.filter((b) => b.enabled).length} bot(s) habilitado(s).`
-                    : "O Hermes e os bots ainda não foram consultados."}
+                    ? `${aiConnections.length} provedor(es) de IA · ${snapshot.bots.filter((b) => b.enabled).length} bot(s) habilitado(s).`
+                    : "Os bots ainda não foram consultados."}
                 </div>
                 <div className="setup-actions">
-                  <Action
-                    onClick={() =>
-                      hermes.length
-                        ? onNavigate("connections")
-                        : onConnect("hermes")
-                    }
-                  >
-                    {hermes.length
-                      ? "Testar Hermes e descobrir bots"
-                      : "Conectar Hermes"}{" "}
-                    <ArrowRight size={16} />
-                  </Action>
                   <Action
                     secondary
                     onClick={() =>

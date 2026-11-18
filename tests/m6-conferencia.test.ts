@@ -10,7 +10,7 @@ import { api, application, bearer, receive } from "./service-center-fixture";
 import { useMercadoPago } from "./mensalidade-mp";
 import { CPF_EM_DIA, payerEmDia, setupSuporte } from "./suporte-fixture";
 import { future, reservaSetup } from "./reserva-fixture";
-import { tool } from "./mcp-fixture";
+import { tool } from "./module-tools-fixture";
 
 useMercadoPago();
 
@@ -160,11 +160,11 @@ describe("conferência M6: resíduos", () => {
     );
     expect(detail.web_steps).toHaveLength(1);
     expect(detail.web_steps[0].answers).toBeNull();
-    const viaMcp = await tool(reader, "get_conversation", {
+    const viaTool = await tool(reader, "get_conversation", {
       conversation_id: c.id,
     });
-    expect(viaMcp.ok).toBe(true);
-    expect(JSON.stringify(viaMcp.data)).not.toContain("987.654.321-00");
+    expect(viaTool.ok).toBe(true);
+    expect(JSON.stringify(viaTool.data)).not.toContain("987.654.321-00");
     // Com contacts:read, vê.
     const full = (await application(s.f, FULL)).token;
     const fullDetail = await json(

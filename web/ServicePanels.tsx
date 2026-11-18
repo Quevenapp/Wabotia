@@ -1229,18 +1229,15 @@ export function MenusPanel(props: Props) {
                     }
                   >
                     <option value="">Selecione</option>
-                    {bots.map((b) => (
+                    {bots.filter((b) => b.connection_kind === "ai").map((b) => (
                       <option value={b.id} key={b.id}>
                         {b.name}
-                        {b.connection_kind === "ai" ? " (provedor de IA)" : ""}
+                        {" (provedor de IA)"}
                       </option>
                     ))}
                   </select>
                   <small>
-                    {bots.find((b) => b.id === draft.bot_id)
-                      ?.connection_kind === "ai"
-                      ? "O bot de provedor de IA assume a conversa a partir desta opção e continua atendendo."
-                      : "O bot do Hermes executa a opção com as ferramentas dele."}
+                    O bot de provedor de IA assume a conversa a partir desta opção e continua atendendo.
                   </small>
                 </label>
               )}

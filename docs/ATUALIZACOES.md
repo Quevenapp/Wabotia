@@ -2,6 +2,14 @@
 
 Desde a versão 0.3, novas instalações baixam um pacote oficial já preparado e publicam diretamente na sua conta Cloudflare. Não precisam de conta GitHub, cópia do repositório, Cloudflare Builds ou Deploy Hook. O código continua aberto no repositório oficial; uma versão só aparece no painel depois que seu pacote foi publicado pelo mantenedor.
 
+## Retirada do Hermes: servidor e painel
+
+O MCP HTTP e a porta para agente externo foram removidos. O Wabotia trabalha com bots internos, conectados diretamente a um provedor de IA. A API v1 e a execução de bots por aplicação continuam disponíveis. Escopos de conversa antigos são ignorados nas chaves; `conversations:bound` fica reservado ao ator interno do bot.
+
+A migração `0094_retira_cloudflare.sql` apaga a autorização da preparação Cloudflare e as credenciais dos jobs. As conexões criadas por esses jobs são pausadas e marcadas como **sendo removidas**; o processamento periódico as remove sozinho, preservando o histórico. Não podem ser religadas durante a remoção. O token das atualizações automáticas é independente e continua funcionando.
+
+**Os recursos que o Wabotia criou na sua conta Cloudflare não somem com a retirada. Revogue-os no painel da Cloudflare: aplicação Access, service token, túnel e registros DNS.** Os nomes e IDs ficam no aviso **Hermes retirado**, em Conexões, mesmo depois da remoção local. Nenhum segredo é copiado para esse aviso.
+
 ## Usar o botão
 
 1. Abra **sua instalação → Sistema e atualizações**.

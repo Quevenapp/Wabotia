@@ -239,8 +239,8 @@ const team: Row[] = [
     enabled: true,
     bot_id: "demo-bot",
     line_ids: null,
-    connection_kind: "hermes",
-    does: "Bot do Hermes: responde aqui com as ferramentas e permissões configuradas no Hermes.",
+    connection_kind: "ai",
+    does: "Bot interno: consulta o Wabotia e propõe ações com o acesso de quem pede.",
   },
   {
     id: "bot:demo-ia",
@@ -860,7 +860,7 @@ function read(path: string, query: URLSearchParams): any {
     };
   if (rest === "bots")
     return page([
-      { id: "demo-bot", name: "Atendente", remote_profile: "atendente", enabled: 1, line_ids: null, connection_kind: "hermes" },
+      { id: "demo-bot", name: "Atendente", remote_profile: "atendente", enabled: 1, line_ids: null, connection_kind: "ai" },
       { id: "demo-ia", name: "Bia (IA)", remote_profile: "default", enabled: 0, line_ids: [], connection_kind: "ai", provider: "anthropic", model: "claude-haiku-5-5" },
     ]);
   if (rest === "team") return { data: team };

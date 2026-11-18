@@ -1,4 +1,4 @@
-// Hermes e canais: cadastro, diagnóstico e estado de cada conexão.
+// Conexões: cadastro, diagnóstico e estado de cada conexão.
 import React, { useState } from "react";
 import { Bot, Plug, Plus } from "lucide-react";
 import { useApp } from "../app/AppContext";
@@ -11,13 +11,11 @@ import {
   Button,
   Confirm,
   CopyButton,
-  Dialog,
   Empty,
   Notice,
   SkeletonBlock,
 } from "../ui";
 import { ConnectionDiagnostics } from "../ConnectionDiagnostics";
-import { CloudflareDeploy } from "../SystemPanel";
 import { ConnectionDialog } from "./ConnectionDialog";
 import { SecretDialog, useList } from "./shared";
 
@@ -28,23 +26,10 @@ const aiProviderText: Row = {
   compatible: "API compatível com OpenAI",
 };
 
-const kindText = (kind: string) =>
-  kind === "hermes"
-    ? "Bots e ferramentas"
-    : kind === "ai"
-      ? "Bot por provedor de IA, sem servidor"
-      : kind === "telegram"
-        ? "Telegram · canal removido"
-        : kind === "meta"
-          ? "WhatsApp Meta · integração anterior"
-          : kind === "zernio"
-            ? "WhatsApp pela Zernio"
-            : kind === "qr"
-              ? "WhatsApp por QR"
-              : "WhatsApp pelo Hermes";
+const kindText = (kind: string) => ({ ai: "Bot por provedor de IA, sem servidor", telegram: "Telegram · canal removido", meta: "WhatsApp Meta · integração anterior", zernio: "WhatsApp pela Zernio", qr: "WhatsApp por QR" })[kind] || "Conexão retirada";
 
 // Tipos de conexão que deixaram de existir: só podem ser excluídos.
-const removedKinds = ["meta", "telegram"];
+const removedKinds = ["meta", "telegram", "hermes", "hermes-whatsapp"];
 // Conexões de telefone: excluir remove a linha, não a conta no provedor.
 const phoneKinds = ["meta", "zernio", "qr", "hermes-whatsapp"];
 
@@ -54,45 +39,71 @@ const zernioWebhook = (row: Row) =>
     ? "/webhooks/zernio-accounts/" + parse(row.config).zernio_workspace_id
     : "/webhooks/zernio/" + row.id);
 
-// Variantes do comando de instalação do plugin para Hermes em Docker (imagem
-// oficial: dados em /opt/data, do usuário hermes).
-function dockerCommand(pairing: Row, where: "host" | "inside") {
-  const script = `curl -fsSL ${location.origin}/hermes-plugin/install.sh`,
-    args = `${location.origin} ${pairing.code}`;
-  return where === "host"
-    ? `${script} | docker exec -i -u hermes CONTEINER bash -s -- ${args}`
-    : `${script} | su -s /bin/bash hermes -c 'HERMES_BIN=/opt/hermes/bin/hermes HERMES_HOME=/opt/data bash -s -- ${args}'`;
-}
-const dockerSteps = {
-  list: "docker ps --format '{{.Names}}  {{.Image}}'",
-  restart: "docker restart CONTEINER",
-  version:
-    "docker exec -u hermes CONTEINER grep PLUGIN_VERSION /opt/data/plugins/wabotia/link.py",
-};
-
 /**
  * Conexões do Hermes pausadas pela atualização (migração
  * 0092_retira_hermes.sql): o Hermes saiu do Wabotia. Lista o que foi pausado
  * e o que a equipe precisa fazer; cada cartão abaixo mantém o botão Excluir.
  */
-export function RetiredHermes({ rows }: { rows: Row[] }) {
-  const retired = rows.filter(
-    (row) => ["hermes", "hermes-whatsapp"].includes(row.kind) && parse(row.config).retired,
+export function RetiredHermes({
+  rows,
+  resources = [],
+}: {
+  rows: Row[];
+  resources?: Row[];
+}) {
+  const retired = rows.filter((row) =>
+    ["hermes", "hermes-whatsapp"].includes(row.kind),
   );
-  if (!retired.length) return null;
+  if (!retired.length && !resources.length) return null;
   return (
     <Notice tone="warn">
       <strong>Hermes retirado.</strong> O Wabotia passou a trabalhar só com bots
-      internos (provedor de IA direto). A atualização pausou{" "}
-      {retired.map((row) => row.name).join(", ")}: os bots delas foram
-      desligados, o Atendente que era do Hermes ficou vago e as linhas que
-      usavam esses bots voltaram para a regra da área (menu ou equipe). As
-      chaves de API das aplicações ligadas a esses bots foram revogadas: a
-      chave guardada no servidor do Hermes não vale mais. Uma integração que
-      precise da API recebe chave nova, sem bots, em{" "}
-      <strong>API e integrações</strong>. Escolha
-      um bot interno em <strong>Automação</strong> e exclua estas conexões quando
-      quiser; o histórico das conversas continua.
+      internos (provedor de IA direto).
+      {retired.length > 0 && (
+        <p>
+          A atualização pausou {retired.map((row) => row.name).join(", ")}. Os
+          bots foram desligados e as chaves das aplicações ligadas a eles foram
+          revogadas. Escolha um bot interno em Automação. O histórico das
+          conversas continua.
+        </p>
+      )}
+      {resources.length > 0 && (
+        <>
+          <p>
+            Os recursos que o Wabotia criou na sua conta Cloudflare não somem
+            com a retirada. Revogue-os no painel da Cloudflare: aplicação
+            Access, service token, túnel e registros DNS.
+          </p>
+          <ul>
+            {resources.map((job, index) => (
+              <li key={index}>
+                <strong>
+                  {job.admin_hostname} · {job.api_hostname}
+                </strong>
+                <ul>
+                  {[
+                    ["admin_app", "Aplicação Access (descoberta)"],
+                    ["api_app", "Aplicação Access (API)"],
+                    ["service_token", "Service token"],
+                    ["policy", "Política Access"],
+                    ["tunnel", "Túnel"],
+                    ["admin_dns", "DNS administrativo"],
+                    ["api_dns", "DNS da API"],
+                  ].map(
+                    ([key, label]) =>
+                      job.resources?.[key] && (
+                        <li key={key}>
+                          {label}: {job.resources[key + "_name"]} ·{" "}
+                          {job.resources[key]}
+                        </li>
+                      ),
+                  )}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </Notice>
   );
 }
@@ -104,9 +115,7 @@ export function ConnectionsPage() {
   const { busy, run } = useAction();
   const [editing, setEditing] = useState<Row | null>(null),
     [secret, setSecret] = useState(""),
-    [removing, setRemoving] = useState<Row | null>(null),
-    [pairing, setPairing] = useState<Row | null>(null),
-    [revoking, setRevoking] = useState<Row | null>(null);
+    [removing, setRemoving] = useState<Row | null>(null);
   const reload = async () => {
     await Promise.all([list.reload(), app.refresh().catch(() => {})]);
   };
@@ -117,8 +126,7 @@ export function ConnectionsPage() {
         <div>
           <strong>Um lugar para cada conexão</strong>
           <p>
-            Use bots pelo Hermes, com ferramentas, ou direto por um provedor de
-            IA, sem servidor. A equipe atende pelo painel e pelos aplicativos. A
+            Use bots internos com um provedor de IA direto, sem servidor. A equipe atende pelo painel e pelos aplicativos. A
             Integração Zernio e seus telefones ficam em{" "}
             <a {...linkProps({ area: "admin", page: "router" })}>
               Integração Zernio
@@ -127,25 +135,14 @@ export function ConnectionsPage() {
           </p>
         </div>
       </div>
-      <RetiredHermes rows={list.rows} />
-      <details className="workspace-disclosure">
-        <summary>Meu Hermes está no computador ou em uma rede privada</summary>
-        <CloudflareDeploy
-          key={app.profile}
-          api={api}
-          demo={demo}
-          profile={app.profile}
-          openSystem={() => navigate({ area: "admin", page: "system" })}
-          refreshConnections={reload}
-        />
-      </details>
+      <RetiredHermes rows={list.rows} resources={app.settings.retired_cloudflare || []} />
       <div className="toolbar">
         <p>
-          O Hermes ou o provedor de IA fornece a inteligência. Os canais trazem
+          O provedor de IA fornece a inteligência. Os canais trazem
           as conversas.
         </p>
         <Button
-          onClick={() => setEditing({ kind: "hermes" })}
+          onClick={() => setEditing({ kind: "ai" })}
           icon={<Plus size={17} />}
         >
           Nova conexão
@@ -162,9 +159,9 @@ export function ConnectionsPage() {
           <section className="card integration-card" key={row.id}>
             <div className="section-heading">
               <span className="integration-icon">
-                {["hermes", "ai"].includes(row.kind) ? <Bot /> : <Plug />}
+                {row.kind === "ai" ? <Bot /> : <Plug />}
               </span>
-              <Badge value={row.status} />
+              {parse(row.config).remove_pending ? <span className="badge">Sendo removida</span> : <Badge value={row.status} />}
             </div>
             <h2>{row.name}</h2>
             {parse(row.config).qr && (
@@ -174,7 +171,7 @@ export function ConnectionsPage() {
                 alt="Leia o código com o WhatsApp para conectar"
               />
             )}
-            {!removedKinds.includes(row.kind) && (
+            {!removedKinds.includes(row.kind) && !parse(row.config).remove_pending && (
               <button
                 type="button"
                 className="text-link"
@@ -198,10 +195,9 @@ export function ConnectionsPage() {
               </p>
             )}
             <small>Último contato: {date(row.last_seen)}</small>
-            {!removedKinds.includes(row.kind) && (
+            {!removedKinds.includes(row.kind) && !parse(row.config).remove_pending && (
               <ConnectionDiagnostics
-                hermes={row.kind === "hermes"}
-                listsBots={["hermes", "ai"].includes(row.kind)}
+                listsBots={row.kind === "ai"}
                 demo={demo}
                 disabled={busy}
                 request={(action, signal) =>
@@ -267,7 +263,7 @@ export function ConnectionsPage() {
                   : "Excluir conexão"}
               </Button>
             )}
-            {["qr", "hermes-whatsapp"].includes(row.kind) && (
+            {row.kind === "qr" && !parse(row.config).remove_pending && (
               <button
                 type="button"
                 className="text-link"
@@ -288,48 +284,6 @@ export function ConnectionsPage() {
                 Gerar chave do conector
               </button>
             )}
-            {row.kind === "hermes" &&
-              parse(row.config).transport === "link" && (
-                <>
-                  <p>
-                    {parse(row.config).link
-                      ? `Plugin pareado em ${parse(row.config).link.host || "máquina sem nome"}, em ${date(parse(row.config).link.paired_at)}.`
-                      : "Plugin ainda não pareado. Gere o comando e execute na máquina do Hermes."}
-                  </p>
-                  <button
-                    type="button"
-                    className="text-link"
-                    onClick={() =>
-                      run(
-                        () =>
-                          api(
-                            root + `/connections/${row.id}/link-code`,
-                            "POST",
-                            {},
-                          ),
-                        { success: "Comando gerado.", retry: false },
-                      ).then((result) => {
-                        if (result?.command) setPairing(result);
-                      })
-                    }
-                  >
-                    {parse(row.config).link
-                      ? "Parear novamente"
-                      : "Gerar comando de instalação"}
-                  </button>{" "}
-                  {parse(row.config).link && (
-                    <button
-                      type="button"
-                      className="text-link"
-                      onClick={() => {
-                        if (!app.demoBlocked()) setRevoking(row);
-                      }}
-                    >
-                      Revogar plugin
-                    </button>
-                  )}
-                </>
-              )}
             {row.kind === "zernio" && (
               <div className="resource-id">
                 <span>Webhook Zernio</span>
@@ -348,7 +302,7 @@ export function ConnectionsPage() {
           <Empty
             icon={<Plug size={28} />}
             title="Conecte seu primeiro serviço"
-            description="Comece pelo Hermes ou por um provedor de IA. Depois configure o WhatsApp."
+            description="Comece por um provedor de IA. Depois configure o WhatsApp."
           />
         </section>
       )}
@@ -360,112 +314,6 @@ export function ConnectionsPage() {
         />
       )}
       {secret && <SecretDialog token={secret} onClose={() => setSecret("")} />}
-      {pairing && (
-        <Dialog
-          title="Instale o plugin no Hermes"
-          onClose={() => {
-            setPairing(null);
-            void reload();
-          }}
-          footer={
-            <Button
-              onClick={() => {
-                setPairing(null);
-                void reload();
-              }}
-            >
-              Concluir
-            </Button>
-          }
-        >
-          <p>
-            Execute na máquina onde o Hermes está instalado (Linux, macOS ou
-            WSL2), com o mesmo usuário do Hermes. O código vale até{" "}
-            {date(pairing.expires)} e só pode ser usado uma vez.
-          </p>
-          <div className="secret-box">
-            <code>{pairing.command}</code>
-            <CopyButton value={pairing.command} />
-          </div>
-          <details>
-            <summary>Meu Hermes roda em Docker</summary>
-            <p>
-              Nesse caso o comando acima não encontra o Hermes. Siga estes
-              passos no terminal do servidor, trocando <code>CONTEINER</code>{" "}
-              pelo nome do contêiner do Hermes.
-            </p>
-            <p>1. Descubra o nome do contêiner:</p>
-            <div className="secret-box">
-              <code>{dockerSteps.list}</code>
-              <CopyButton value={dockerSteps.list} />
-            </div>
-            <p>2. Instale o plugin:</p>
-            <div className="secret-box">
-              <code>{dockerCommand(pairing, "host")}</code>
-              <CopyButton value={dockerCommand(pairing, "host")} />
-            </div>
-            <p>
-              Se o terminal já abre dentro do contêiner (como no painel da
-              Hostinger), use este no lugar:
-            </p>
-            <div className="secret-box">
-              <code>{dockerCommand(pairing, "inside")}</code>
-              <CopyButton value={dockerCommand(pairing, "inside")} />
-            </div>
-            <p>3. Reinicie o contêiner, pelo servidor:</p>
-            <div className="secret-box">
-              <code>{dockerSteps.restart}</code>
-              <CopyButton value={dockerSteps.restart} />
-            </div>
-            <p>4. Confira a versão do plugin instalado:</p>
-            <div className="secret-box">
-              <code>{dockerSteps.version}</code>
-              <CopyButton value={dockerSteps.version} />
-            </div>
-          </details>
-          {parse(list.rows.find((r) => r.id === pairing.connection_id)?.config)
-            .link && (
-            <p>
-              Esta conexão já está pareada: o plugin atual funciona até o
-              comando ser executado e, depois dele, os bots ficam fora do ar até
-              o gateway reiniciar. É assim que se atualiza o plugin.
-            </p>
-          )}
-          <p>
-            Depois de reiniciar o gateway do Hermes, volte a este cartão e use{" "}
-            <strong>Testar conexão</strong>, <strong>Descobrir bots</strong> e{" "}
-            <strong>Ativar</strong>.
-          </p>
-        </Dialog>
-      )}
-      {revoking && (
-        <Confirm
-          title={"Revogar o plugin de " + revoking.name + "?"}
-          confirmLabel="Revogar plugin"
-          danger
-          busy={busy}
-          onClose={() => setRevoking(null)}
-          onConfirm={() =>
-            run(
-              () =>
-                api(
-                  root + `/connections/${revoking.id}/link-revoke`,
-                  "POST",
-                  {},
-                ),
-              { success: "Plugin revogado." },
-            ).then(async () => {
-              setRevoking(null);
-              await reload();
-            })
-          }
-        >
-          <p>
-            O Hermes dessa máquina deixa de receber execuções desta conexão. Os
-            bots continuam cadastrados; para voltar a usar, pareie novamente.
-          </p>
-        </Confirm>
-      )}
       {removing && phoneKinds.includes(removing.kind) && (
         <Confirm
           title={"Excluir o telefone " + removing.name + " do Wabotia?"}
@@ -514,9 +362,7 @@ export function ConnectionsPage() {
                 Os bots desta conexão deixam de existir no Wabotia e a chave
                 guardada é apagada. Conversas, mensagens e execuções anteriores
                 continuam no histórico.{" "}
-                {removing.kind === "ai"
-                  ? "A conta no provedor de IA não é alterada."
-                  : "O Hermes não é alterado; se o plugin estiver instalado, ele perde o acesso e pode ser desativado no Hermes."}
+                A conta no provedor não é alterada.
               </p>
               <p>
                 Pause a conexão antes. Se um bot dela for o Bot Atendente, um

@@ -7,7 +7,7 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { exec } from "../src/db";
-import { internalCall } from "../src/mcp";
+import { internalCall } from "../src/internal-api";
 import { actorForUser } from "../src/security";
 import type { Actor } from "../src/types";
 import { erpIdentity } from "../src/modules/erp/identity";

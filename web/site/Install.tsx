@@ -5,7 +5,6 @@ import { ArrowRight, ArrowUpRight, Code2, ShieldCheck } from "lucide-react";
 import { DirectInstall } from "../DirectInstall";
 import { CloudflarePrerequisites } from "../cloudflare-prerequisites";
 import { InstallKeys } from "../InstallKeys";
-import { HermesInstall } from "../hermes-install";
 import { MaintenanceGuide } from "../maintenance-guide";
 import { ContactGuide } from "../ContactGuide";
 import { MetaGuide } from "../MetaGuide";
@@ -28,8 +27,8 @@ const installSteps = [
     "Baixe o arquivo de chaves e clique em Criar meu administrador ao final. O link já leva o código de instalação; você só escolhe nome, e-mail e senha.",
   ],
   [
-    "Conecte o Hermes",
-    "Em Hermes e canais, crie a conexão por plugin e execute um comando na máquina do Hermes. Teste a conexão, descubra os bots e selecione o Atendente. Não precisa de túnel nem de domínio.",
+    "Conecte um provedor de IA",
+    "Conecte um provedor de IA em Conexões.",
   ],
   [
     "Escolha seus canais",
@@ -66,7 +65,7 @@ const contents: [string, string][] = [
   ["#navegador", "Instalar pelo navegador"],
   ["#requisitos", "Serviços da Cloudflare"],
   ["#resumo", "Resumo das etapas"],
-  ["#hermes", "Hermes"],
+  ["#hermes", "Provedor de IA"],
   ["#zernio-whatsapp", "WhatsApp pela Zernio"],
   ["#regras", "Regras de atendimento"],
   ["#atualizacoes", "Atualizações"],
@@ -257,7 +256,7 @@ export function Install() {
               </article>
             ))}
           </div>
-          <HermesInstall />
+          <section id="hermes" className="account-setup"><p>Conecte um provedor de IA em Conexões.</p></section>
           <MetaGuide />
           <ServiceRulesGuide />
           <MaintenanceGuide />

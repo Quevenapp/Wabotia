@@ -1,6 +1,6 @@
 // Suporte pago: sessões de liberação, compras avulsas e liberações
 // (banco e visões da API). A conversa no WhatsApp está em ./flow.ts.
-import { all, exec, one } from "../../db";
+import { all, batch, exec, one } from "../../db";
 import { ApiError, type Conversation, json, now, uid } from "../../types";
 import type { ModuleContext } from "../api";
 import type { Payment } from "../../payments";
@@ -59,28 +59,30 @@ export async function openSession(
   c: Conversation,
   step: string,
   at: number,
-) {
-  await exec(
-    ctx.env,
-    "UPDATE suporte_sessions SET status='closed',updated=? WHERE conversation_id=? AND profile_id=? AND status='active'",
-    at,
-    c.id,
-    ctx.profile,
-  );
+): Promise<Record<string, any>> {
   const id = uid();
-  await exec(
-    ctx.env,
-    "INSERT INTO suporte_sessions(id,profile_id,conversation_id,phone,status,step,expires_at,created,updated) VALUES(?,?,?,?,'active',?,?,?,?)",
-    id,
-    ctx.profile,
-    c.id,
-    phoneDigits(ctx.verifiedPhone(c) ?? ""),
-    step,
-    at + SESSION_MINUTES * 60_000,
-    at,
-    at,
-  );
-  return (await loadSession(ctx, id))!;
+  // Fecha a anterior e abre a nova no mesmo lote. A linha devolvida pelo
+  // INSERT evita uma ida ao D1 só para reler o que acabou de ser gravado.
+  const [, inserted] = await batch(ctx.env, [
+    [
+      "UPDATE suporte_sessions SET status='closed',updated=? WHERE conversation_id=? AND profile_id=? AND status='active'",
+      [at, c.id, ctx.profile],
+    ],
+    [
+      "INSERT INTO suporte_sessions(id,profile_id,conversation_id,phone,status,step,expires_at,created,updated) VALUES(?,?,?,?,'active',?,?,?,?) RETURNING *",
+      [
+        id,
+        ctx.profile,
+        c.id,
+        phoneDigits(ctx.verifiedPhone(c) ?? ""),
+        step,
+        at + SESSION_MINUTES * 60_000,
+        at,
+        at,
+      ],
+    ],
+  ]);
+  return inserted.results[0] as Record<string, any>;
 }
 
 export async function updateSession(
@@ -90,15 +92,17 @@ export async function updateSession(
 ) {
   const at = now();
   const keys = Object.keys(sets);
-  await exec(
+  // Cada resposta do cliente muda a sessão; RETURNING preserva a linha
+  // atualizada sem uma consulta separada a cada mudança de passo.
+  return one(
     ctx.env,
-    `UPDATE suporte_sessions SET ${keys.map((k) => k + "=?").join(",")},updated=?,expires_at=? WHERE id=?`,
+    `UPDATE suporte_sessions SET ${keys.map((k) => k + "=?").join(",")},updated=?,expires_at=? WHERE id=? AND profile_id=? RETURNING *`,
     ...keys.map((k) => sets[k]),
     at,
     Math.max(session.expires_at, at + SESSION_MINUTES * 60_000),
     session.id,
+    ctx.profile,
   );
-  return (await loadSession(ctx, session.id))!;
 }
 
 export function sessionView(row: any) {
@@ -717,9 +721,9 @@ export async function buyPackage(
     expiresMinutes: 24 * 60,
     notification: true,
   });
-  await exec(
+  const row = await one(
     ctx.env,
-    "UPDATE suporte_purchases SET payment_id=?,pix_code=?,pay_url=?,payment_expires_at=?,method=?,charge_seq=?,status=CASE WHEN status IN ('expired','cancelled') THEN 'pending' ELSE status END,updated=? WHERE id=?",
+    "UPDATE suporte_purchases SET payment_id=?,pix_code=?,pay_url=?,payment_expires_at=?,method=?,charge_seq=?,status=CASE WHEN status IN ('expired','cancelled') THEN 'pending' ELSE status END,updated=? WHERE id=? RETURNING *",
     payment.id,
     payment.pix_code,
     payment.url,
@@ -727,11 +731,6 @@ export async function buyPackage(
     payment.method,
     seq,
     now(),
-    id,
-  );
-  const row = await one(
-    ctx.env,
-    "SELECT * FROM suporte_purchases WHERE id=?",
     id,
   );
   await ctx.publish(

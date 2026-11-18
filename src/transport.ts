@@ -18,7 +18,7 @@ export async function transport(
 ) {
   const conn = await one(
     env,
-    "SELECT * FROM connections WHERE id=? AND kind IN ('qr','hermes-whatsapp')",
+    "SELECT * FROM connections WHERE id=? AND kind='qr'",
     connectionId,
   );
   requireValue(conn, "Conector não encontrado.");

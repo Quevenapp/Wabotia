@@ -77,7 +77,7 @@ const outcomes: [string, string, "ok" | "muted" | "warn" | "danger"][] = [
 /** Atalho do painel para cada pendência devolvida pelo servidor. */
 const pendingLinks: Record<string, [PageId, string]> = {
   department_members: ["menus", "Abrir setores em Menus e ações"],
-  bot_missing: ["connections", "Conectar o Hermes"],
+  bot_missing: ["connections", "Conectar um provedor de IA"],
   bot_disabled: ["bots", "Abrir Atendente e especialistas"],
   attendant_bot: ["bots", "Escolher o Bot Atendente"],
   connect_whatsapp: ["router", "Abrir Integração Zernio"],

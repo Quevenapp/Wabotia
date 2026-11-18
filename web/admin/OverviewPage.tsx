@@ -45,11 +45,9 @@ function Stat({
 }
 
 const connectionKinds: Row = {
-  hermes: "Hermes",
   ai: "Provedor de IA",
   zernio: "WhatsApp · Zernio",
   qr: "WhatsApp · QR",
-  "hermes-whatsapp": "WhatsApp · Hermes",
   meta: "WhatsApp · Meta (anterior)",
 };
 
@@ -164,9 +162,8 @@ export function OverviewPage() {
             <span>Resposta ou equipe humana</span>
           </div>
           <p className="workspace-help">
-            O Atendente pode consultar especialistas pelo Hermes, como o bot
-            financeiro do Fagoo, e trazer o resultado para o cliente. As
-            credenciais dos sistemas ficam com os especialistas.
+            O Atendente pode consultar especialistas internos e trazer o resultado
+            para o cliente, usando os dados da conversa nos módulos ligados.
           </p>
           <p className="workspace-help">
             Quando a equipe está ausente, uma solicitação encaminhada gera um
@@ -200,7 +197,7 @@ export function OverviewPage() {
               compact
               icon={<Link2 size={24} />}
               title="O primeiro elo começa aqui"
-              description="Conecte o Hermes ou um provedor de IA e seus canais para acompanhar o estado de cada serviço."
+              description="Conecte um provedor de IA e seus canais para acompanhar o estado de cada serviço."
             />
           )}
           {app.isAdmin && (

@@ -12,6 +12,11 @@ const proposal = {
   action: "answer",
   text: "O prazo de entrega é de dois dias.",
   citations: [7],
+  capability_id: null,
+  menu_id: null,
+  protocol_number: null,
+  category_id: null,
+  clarification: null,
   interpretation: {
     intent: "consultar prazo",
     summary: "O cliente quer o prazo de entrega do pedido.",
@@ -41,7 +46,7 @@ async function decisionFixture() {
 async function serviceFixture(enabled = true) {
   const profile = uid(),
     line = uid(),
-    hermes = uid(),
+    aiConnection = uid(),
     bot = uid();
   await exec(
     env,
@@ -65,11 +70,11 @@ async function serviceFixture(enabled = true) {
   );
   await exec(
     env,
-    "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,created) VALUES(?,?,?,'hermes','api','active',?,?)",
-    hermes,
+    "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,created) VALUES(?,?,?,'ai','api','active',?,?)",
+    aiConnection,
     profile,
-    "Hermes",
-    JSON.stringify({ api_url: "https://hermes.example.com" }),
+    "provedor de IA",
+    JSON.stringify({ provider: "anthropic", model: "claude-haiku-5-5" }),
     now(),
   );
   await exec(
@@ -77,10 +82,10 @@ async function serviceFixture(enabled = true) {
     "INSERT INTO bots(id,profile_id,connection_id,remote_profile,name,enabled) VALUES(?,?,?,'default','Atendente',1)",
     bot,
     profile,
-    hermes,
+    aiConnection,
   );
-  await setSecret(env, `connection:${hermes}`, {
-    profile_keys: { default: "test-hermes-only" },
+  await setSecret(env, `connection:${aiConnection}`, {
+    api_key: "test-provider-key",
   });
   await setSecret(env, `jev:${profile}`, { key: "test-jev-only" });
   const received = await inbound(
@@ -94,11 +99,11 @@ async function serviceFixture(enabled = true) {
     `channel:${line}`,
     line,
   );
-  return { profile, line, hermes, bot, conversation: received.conversation_id };
+  return { profile, line, aiConnection, bot, conversation: received.conversation_id };
 }
 
 describe("interpretação do Atendente antes da decisão JEV", () => {
-  it("executa Hermes primeiro e só consulta JEV depois de receber a interpretação", async () => {
+  it("executa provedor de IA primeiro e só consulta JEV depois de receber a interpretação", async () => {
     const f = await serviceFixture();
     const calls: { url: string; body: any }[] = [];
     vi.stubGlobal(
@@ -107,9 +112,7 @@ describe("interpretação do Atendente antes da decisão JEV", () => {
         const body = options.body ? JSON.parse(String(options.body)) : null;
         calls.push({ url: String(url), body });
         if (String(url).includes("typesafe.ai")) return Response.json(route());
-        if (options.method === "POST")
-          return Response.json({ run_id: "hermes-test" });
-        return Response.json({ status: "completed", output: proposal });
+        return Response.json({ id: "msg_test", type: "message", role: "assistant", model: "claude-haiku-5-5", content: [{ type: "text", text: JSON.stringify(proposal) }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } });
       }),
     );
     await processInbox(env, f.profile);
@@ -128,19 +131,11 @@ describe("interpretação do Atendente antes da decisão JEV", () => {
     );
     run = (await one(env, "SELECT * FROM bot_runs WHERE id=?", run.id)) as Run;
     await processRun(env, run);
-    expect(calls).toHaveLength(1);
-    expect(calls[0].url).toContain("hermes.example.com/v1/runs");
-    expect(calls[0].body.instructions).toContain('"interpretation"');
-    run = (await one(env, "SELECT * FROM bot_runs WHERE id=?", run.id)) as Run;
-    await processRun(env, run);
     expect(calls.map((call) => new URL(call.url).hostname)).toEqual([
-      "hermes.example.com",
-      "hermes.example.com",
-      "api.typesafe.ai",
+      "api.anthropic.com", "api.typesafe.ai",
     ]);
-    expect(calls[2].body.state.interpretation.summary).toBe(
-      proposal.interpretation.summary,
-    );
+    expect(JSON.stringify(calls[0].body.system)).toContain('interpretation');
+    expect(calls[1].body.state.interpretation.summary).toBe(proposal.interpretation.summary);
     const outgoing = await one(
       env,
       "SELECT * FROM outbox WHERE dedupe=?",

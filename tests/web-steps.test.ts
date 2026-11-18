@@ -9,7 +9,6 @@ import {
   validateAnswers,
   webStepCode,
 } from "../src/web-steps";
-import { tools } from "../src/mcp";
 import {
   api,
   application,
@@ -481,14 +480,14 @@ describe("passo web: expiração, cancelamento e gatilhos", () => {
     },
   );
 
-  it("ferramenta do bot: send_form pelo MCP envia com gatilho bot", async () => {
+  it("API de formulário envia com gatilho bot", async () => {
     const f = await setup();
     const c = await say(f, "bom dia", "5511940000009");
     const app = await application(f, [
       "conversations:read",
       "conversations:write",
     ]);
-    // A aplicação assume a conversa, como o Hermes faz antes de responder.
+    // A aplicação assume a conversa antes de enviar o formulário.
     await api(
       app.token,
       `/profiles/${f.profile}/conversations/${c.id}/actions`,
@@ -497,44 +496,14 @@ describe("passo web: expiração, cancelamento e gatilhos", () => {
         action: "claim",
       },
     );
-    const mcp = (name: string, args: any) =>
-      SELF.fetch("https://test/api/mcp", {
-        method: "POST",
-        headers: {
-          Authorization: "Bearer " + app.token,
-          "Content-Type": "application/json",
-          Accept: "application/json, text/event-stream",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "tools/call",
-          params: { name, arguments: args },
-        }),
-      }).then((r) => r.json<any>());
-    const forms = await mcp("list_forms", { profile: f.profile });
-    expect(forms.result.structuredContent.data[0]).toMatchObject({
-      id: "cadastro",
-      title: "Cadastro",
-    });
-    const sent = await mcp("send_form", {
-      profile: f.profile,
-      conversation_id: c.id,
-      form_id: "cadastro",
-    });
-    expect(sent.result.isError).toBeFalsy();
-    expect(sent.result.structuredContent).toMatchObject({
-      status: "sent",
-      trigger: "bot",
-    });
-    const steps = await mcp("list_web_steps", {
-      profile: f.profile,
-      conversation_id: c.id,
-    });
-    expect(steps.result.structuredContent.data).toHaveLength(1);
-    expect(tools.map((t) => t.name)).toEqual(
-      expect.arrayContaining(["list_forms", "send_form", "list_web_steps"]),
-    );
+    const forms = await (await api(app.token, `/profiles/${f.profile}/forms`)).json<any>();
+    expect(forms.data[0]).toMatchObject({ id: "cadastro", title: "Cadastro" });
+    const sentResponse = await api(app.token, `/profiles/${f.profile}/forms/cadastro/send`, "POST", { conversation_id: c.id });
+    expect(sentResponse.ok).toBe(true);
+    const sent = await sentResponse.json<any>();
+    expect(sent).toMatchObject({ status: "sent", trigger: "bot" });
+    const steps = await (await api(app.token, `/profiles/${f.profile}/conversations/${c.id}/web-steps`)).json<any>();
+    expect(steps.data).toHaveLength(1);
   });
 
   it("módulo Formulários desligado: some do menu, rota recusa, link fica indisponível", async () => {

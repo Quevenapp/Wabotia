@@ -328,7 +328,7 @@ O que isso significa para o Wabotia:
   - A flag só muda o `fetch` global. Bindings não mudam: Durable Objects,
     `ASSETS`, D1 e R2.
   - Os `fetch` globais do Wabotia vão a serviços de fora: Zernio, Meta,
-    Mercado Pago, provedores de IA, Hermes e o catálogo
+    Mercado Pago, provedores de IA e o catálogo
     `https://wabotia.queven.app`. Não achei `fetch` à própria instalação.
   - Uma instalação na mesma zona do catálogo (`queven.app`) passaria a
     alcançá-lo pela borda, que é o comportamento correto.

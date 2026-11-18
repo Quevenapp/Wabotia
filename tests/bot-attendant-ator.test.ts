@@ -7,7 +7,7 @@ import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { all, exec, one } from "../src/db";
 import { conversation, createRun, perform } from "../src/service";
-import { internalCall } from "../src/mcp";
+import { internalCall } from "../src/internal-api";
 import { erpIdentity } from "../src/modules/erp/identity";
 import {
   admin,

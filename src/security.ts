@@ -392,7 +392,8 @@ export async function authenticate(
       name: row.name,
       role: "service",
       profiles: json(row.profiles, []),
-      scopes: json(row.scopes, []),
+      scopes: json(row.scopes, []).filter((scope: string) =>
+        !["conversations:bound", "conversations:all"].includes(scope)),
       bots: json(row.bots, []),
       keyId: row.key_id,
       expiresAt: row.key_expires,
