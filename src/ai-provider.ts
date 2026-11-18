@@ -10,7 +10,7 @@ import { z } from "zod";
 import { exec } from "./db";
 import { ApiError, type Env, json, now, requireValue } from "./types";
 import { publicUrl, safeFetch, secret } from "./security";
-import { providerFamily, toolLoop, type ToolCall } from "./bot-tools";
+import { providerFamily, responsesText, toolLoop, type ToolCall } from "./bot-tools";
 import type { BotTool } from "./bot-actions/actions";
 
 export type AiProvider = "openai" | "deepseek" | "compatible" | "anthropic";
@@ -78,8 +78,11 @@ const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 
  * Soma o `usage` de uma resposta em `target`, pelo formato de cada provedor:
  * - Anthropic: input_tokens (sem cache), cache_creation_input_tokens,
  *   cache_read_input_tokens, output_tokens;
- * - OpenAI: prompt_tokens (inclui o cache), prompt_tokens_details.cached_tokens,
- *   completion_tokens (cache automático, sem gravação cobrada à parte);
+ * - OpenAI (Responses): input_tokens (inclui o cache),
+ *   input_tokens_details.cached_tokens, output_tokens (com o raciocínio);
+ * - OpenAI (chat/completions) e compatíveis: prompt_tokens (inclui o cache),
+ *   prompt_tokens_details.cached_tokens, completion_tokens (cache automático,
+ *   sem gravação cobrada à parte);
  * - DeepSeek: prompt_cache_hit_tokens, prompt_cache_miss_tokens, completion_tokens;
  * - API compatível: prompt_tokens e completion_tokens, quando vierem.
  */
@@ -94,6 +97,11 @@ export function addUsage(target: AiUsage | undefined, provider: string, raw: any
     target.input += n(raw.prompt_cache_miss_tokens);
     target.cache_read += n(raw.prompt_cache_hit_tokens);
     target.output += n(raw.completion_tokens);
+  } else if ("input_tokens" in raw || "output_tokens" in raw) {
+    const cached = n(raw.input_tokens_details?.cached_tokens);
+    target.input += Math.max(0, n(raw.input_tokens) - cached);
+    target.cache_read += cached;
+    target.output += n(raw.output_tokens);
   } else {
     const cached = n(raw.prompt_tokens_details?.cached_tokens);
     target.input += Math.max(0, n(raw.prompt_tokens) - cached);
@@ -114,11 +122,12 @@ export const ANTHROPIC_MODELS = [
 // padrão aqui "low", suficiente para conversa). Na OpenAI e em APIs
 // compatíveis, em reasoning_effort, e só quando escolhido, porque modelos sem
 // raciocínio recusam o campo; cada modelo aceita uma parte dos níveis e o
-// teste da conexão confere. A DeepSeek aceita none, low, high e max e, sem o
-// campo, raciocina em high; o padrão aqui é "low".
+// teste da conexão confere (gpt-6.1-terra e gpt-6-luna: none a max; Sol: low
+// a max; guia "Reasoning", 17/11/2026). A DeepSeek aceita none, low, high e
+// max e, sem o campo, raciocina em high; o padrão aqui é "low".
 export const AI_EFFORTS: Record<AiProvider, string[]> = {
   anthropic: ["low", "medium", "high", "xhigh", "max"],
-  openai: ["none", "minimal", "low", "medium", "high", "xhigh"],
+  openai: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
   compatible: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
   deepseek: ["none", "low", "high", "max"],
 };
@@ -454,6 +463,109 @@ function openaiBase(cfg: any) {
     : AI_PROVIDERS[cfg.provider as AiProvider]?.base;
 }
 
+/**
+ * Conteúdo do usuário no Responses da OpenAI: texto, imagens e PDFs (guias
+ * "Images and vision" e "File inputs"; até 50 MB por pedido).
+ */
+function responsesInput(cfg: any, request: AiRequest) {
+  const images = cfg.vision ? request.images || [] : [];
+  const documents = cfg.pdf ? request.documents || [] : [];
+  return [
+    {
+      role: "user",
+      content: [
+        { type: "input_text", text: request.input },
+        ...images.map((url) => ({ type: "input_image", image_url: url })),
+        ...documents.map((url, i) => ({
+          type: "input_file",
+          filename: `documento-${i + 1}.pdf`,
+          file_data: url,
+        })),
+      ],
+    },
+  ];
+}
+
+/**
+ * Corpo comum do Responses. Sem estado na OpenAI (store:false): o
+ * raciocínio volta cifrado nos itens da saída e o laço de ferramentas o
+ * devolve. As instruções vão em `instructions`, estáveis primeiro, para o
+ * cache automático por prefixo.
+ */
+function responsesBody(cfg: any, request: AiRequest, input: any[]) {
+  const body: Record<string, any> = {
+    model: cfg.model,
+    instructions: systemText(request),
+    input,
+    store: false,
+  };
+  if (cfg.effort) body.reasoning = { effort: cfg.effort };
+  // Modo JSON: o motor valida o formato do Atendente de qualquer forma.
+  if (request.json) body.text = { format: { type: "json_object" } };
+  return body;
+}
+
+/** Uma chamada ao Responses; devolve a resposta inteira (status já conferido). */
+async function responsesCall(
+  key: string,
+  cfg: any,
+  body: Record<string, any>,
+  usage: AiUsage | undefined,
+  timeout: number,
+  probe = false,
+) {
+  let response: Response;
+  try {
+    response = await safeFetch(`${openaiBase(cfg)}/responses`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeout),
+    });
+  } catch (error) {
+    if (error instanceof ApiError) throw new AiError(error.message, false);
+    throw new AiError("O provedor de IA não respondeu a tempo.", true);
+  }
+  if (!response.ok) throw httpError(response.status);
+  const data = await response.json<any>().catch(() => null);
+  addUsage(usage, "openai", data?.usage);
+  if (!data || !Array.isArray(data.output))
+    throw new AiError("O provedor de IA respondeu fora do formato.", false);
+  // No teste, uma resposta cortada pelo teto curto também prova chave e modelo.
+  if (probe) return data;
+  if (data.status === "incomplete") {
+    if (data.incomplete_details?.reason === "content_filter")
+      throw new AiError("O provedor de IA recusou responder.", false);
+    throw new AiError("A resposta do provedor de IA foi cortada.", false);
+  }
+  if (data.status === "failed")
+    throw new AiError("O provedor de IA não concluiu a resposta.", true);
+  if (responsesText(data.output).refused)
+    throw new AiError("O provedor de IA recusou responder.", false);
+  return data;
+}
+
+async function responsesComplete(key: string, cfg: any, request: AiRequest, probe: boolean) {
+  const body = responsesBody(cfg, request, responsesInput(cfg, request));
+  if (probe) body.max_output_tokens = 16;
+  const data = await responsesCall(
+    key,
+    cfg,
+    body,
+    request.usage,
+    probe ? 60_000 : aiCallTimeout(cfg),
+    probe,
+  );
+  if (probe) return "";
+  const { text } = responsesText(data.output);
+  if (!text.trim())
+    throw new AiError("O provedor de IA respondeu sem texto.", false);
+  return text;
+}
+
 async function openaiComplete(
   key: string,
   cfg: any,
@@ -461,6 +573,9 @@ async function openaiComplete(
   /** Chamada de teste: curta, e qualquer resposta 200 serve. */
   probe = false,
 ) {
+  // OpenAI: Responses (as ferramentas dos modelos atuais só existem nele).
+  if (cfg.provider === "openai")
+    return responsesComplete(key, cfg, request, probe);
   const base = openaiBase(cfg);
   if (!base) throw new AiError("Provedor de IA inválido.", false);
   // Estável primeiro: OpenAI e DeepSeek fazem cache automático por prefixo.
@@ -471,10 +586,7 @@ async function openaiComplete(
       { role: "user", content: openaiContent(cfg, request) },
     ],
   };
-  // A OpenAI recusa max_tokens nos modelos com raciocínio.
-  if (probe)
-    body[cfg.provider === "openai" ? "max_completion_tokens" : "max_tokens"] =
-      16;
+  if (probe) body.max_tokens = 16;
   if (cfg.effort) body.reasoning_effort = cfg.effort;
   // Modo JSON documentado pela OpenAI e pela DeepSeek. Em APIs compatíveis o
   // suporte varia, então a resposta é validada pelo motor de qualquer forma.
@@ -669,6 +781,20 @@ export async function aiCompleteWithTools(
         throw anthropicError(error);
       }
     };
+  } else if (family === "responses") {
+    messages = responsesInput(cfg, request);
+    complete = (history, tools, final) =>
+      responsesCall(
+        key,
+        cfg,
+        {
+          ...responsesBody(cfg, request, history),
+          tools,
+          tool_choice: final ? "none" : "auto",
+        },
+        request.usage,
+        aiCallTimeout(cfg),
+      );
   } else {
     const base = openaiBase(cfg);
     if (!base) throw new AiError("Provedor de IA inválido.", false);

@@ -58,8 +58,8 @@ O Atendente pode encaminhar um pedido interno a outro bot de provedor de IA, com
    - **DeepSeek** e APIs compatíveis: a lista vem como o provedor publica; sem lista, digite o nome (na DeepSeek, por exemplo, `deepseek-flash` ou `deepseek-v4-pro`).
 5. Escolha o **Esforço de raciocínio**: quanto o modelo pensa antes de responder. Mais esforço deixa a resposta mais cuidadosa, mais lenta e mais cara.
    - **Anthropic**: Baixo (padrão, recomendado para conversa), Médio, Alto, Muito alto ou Máximo.
-   - **OpenAI**: Padrão do modelo (o campo não é enviado), Sem raciocínio, Mínimo, Baixo, Médio, Alto ou Muito alto. Cada modelo aceita só alguns níveis; com um nível que o modelo não aceita, o **Testar conexão** acusa o erro.
-   - **APIs compatíveis**: os mesmos da OpenAI e mais Máximo, repassados como estão.
+   - **OpenAI**: Padrão do modelo (o campo não é enviado), Sem raciocínio, Mínimo, Baixo, Médio, Alto, Muito alto ou Máximo. Cada modelo aceita só alguns níveis; com um nível que o modelo não aceita, o **Testar conexão** acusa o erro. Exemplos: `gpt-6.1-terra` e `gpt-6-luna` aceitam de Sem raciocínio a Máximo; `gpt-6.1-sol`, de Baixo a Máximo.
+   - **APIs compatíveis**: os mesmos da OpenAI, repassados como estão.
    - **DeepSeek**: Sem raciocínio (mais rápido e barato), Baixo (padrão), Alto ou Máximo; a API da DeepSeek não tem Médio nem Muito alto. Sem escolha, a DeepSeek raciocinaria em Alto: conexões salvas antes da 0.18.0 passam a Baixo ao serem editadas e salvas.
    - Prazo de cada resposta: 60 segundos até Médio, 90 em Alto e 3 minutos em Muito alto e Máximo. As respostas de uma área saem em série, então nesses níveis as outras conversas esperam mais.
 6. Deixe marcada **Apenas mensagens (não receber áudio e vídeo)**, ou desmarque (veja abaixo).
@@ -83,7 +83,7 @@ Com a opção **O modelo entende PDF** da conexão, o PDF que o cliente manda va
 
 - **Onde:**
   - **Anthropic:** ligada de fábrica. O PDF vai como bloco `document`, antes do texto.
-  - **OpenAI:** desligada de fábrica, porque só modelos com visão leem PDF. Vai como parte `file` do Chat Completions.
+  - **OpenAI:** desligada de fábrica, porque só modelos com visão leem PDF. Vai como `input_file` do Responses.
   - **DeepSeek e API compatível:** sem PDF, porque não há formato documentado; o PDF vai para a equipe.
 - **Teto do Wabotia** (`PDF_LIMITS` em `src/ai-provider.ts`, com o motivo no comentário): **1 PDF por mensagem, até 4 MB e 10 páginas**. Cada página custa de 1.500 a 3.000 tokens de texto, mais a página como imagem. Com 10 páginas e uma área cheia, o pedido fica abaixo de 100 mil tokens, acima dos quais o Claude Haiku 5.5 cobra o pedido inteiro mais caro. As páginas são contadas pelo arquivo; quando não dá para contar (objetos comprimidos), vale só o tamanho.
 - **Acima do teto, com a opção desligada ou em provedor sem PDF:** a conversa vai para a equipe ("Anexo necessita análise humana"), como qualquer anexo que o modelo não entende.
@@ -130,7 +130,13 @@ As respostas de uma área de atendimento são processadas em série. Com muitos 
 
 - Conexão `kind: "ai"`; configuração `provider`, `model`, `base_url`, `vision`, `pdf`, `effort`, `text_only`; segredo `api_key` ([API](../src/openapi.ts)).
 - Modelos da conta: `POST /api/v1/profiles/{perfil}/ai-models` (administrador, 10 por minuto), com `{provider, base_url?, api_key?, connection_id?}`; responde `{data:[ids]}`. Fica fora dos comandos idempotentes para a chave não ir aos recibos.
-- Chamadas em [src/ai-provider.ts](../src/ai-provider.ts): formato OpenAI (`/chat/completions`, modo JSON na OpenAI e na DeepSeek, `reasoning_effort` quando escolhido) e SDK oficial da Anthropic (`@anthropic-ai/sdk`) com saída estruturada no formato do Atendente e `output_config.effort` (padrão `low`).
+- Chamadas em [src/ai-provider.ts](../src/ai-provider.ts):
+  - **OpenAI pela Responses API** (`/v1/responses`). Os modelos atuais (`gpt-6.1-terra`, `gpt-6.1-sol`) só chamam ferramentas por ela, e o `gpt-6-luna` no Chat Completions só com raciocínio desligado.
+    - Detalhes do pedido: `instructions` com o bloco estável primeiro, `input` com texto, `input_image` e `input_file`, `text.format` `json_object` e `reasoning.effort` quando escolhido.
+    - Sem estado na OpenAI (`store:false`): no laço de ferramentas, os itens da saída (raciocínio cifrado e `function_call`) voltam no `input` seguinte com o `function_call_output`.
+    - Uso lido de `input_tokens`, `input_tokens_details.cached_tokens` e `output_tokens`.
+  - **DeepSeek e APIs compatíveis pelo Chat Completions** (`/chat/completions`), com modo JSON na DeepSeek e `reasoning_effort` quando escolhido.
+  - **Anthropic pelo SDK oficial** (`@anthropic-ai/sdk`) com saída estruturada no formato do Atendente e `output_config.effort` (padrão `low`).
 - Execução em [src/engine.ts](../src/engine.ts) (`aiRun`): a resposta chega na mesma passada, sem consulta posterior. Sem efeito colateral no provedor, uma chamada interrompida é simplesmente repetida; o envio ao cliente não duplica, porque a mensagem é identificada pela execução.
 - Uma migração de banco (`0090_bot_runs_uso.sql`: coluna `bot_runs.usage`). Sem Durable Object novo, sem binding nem secret novo: chega pela atualização normal do painel.
 - Ferramentas: modo equipe e modo cliente em [src/bot-actions](../src/bot-actions); o especialista recebe só as ferramentas de cliente sem escrita (`write` falso e `customer` diferente de `"propose"`). Provedor que recusa ferramentas: `tools_unsupported_at` na configuração da conexão, limpo ao salvar.

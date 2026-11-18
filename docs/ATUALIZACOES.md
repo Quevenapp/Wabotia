@@ -159,6 +159,11 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
   - Muda só a ordem do que o Wabotia acrescenta: menus, ações e categorias de protocolo vão num bloco "dados da área" antes do ponto de cache.
   - A situação da conversa (sem menu, retomada) vai depois do ponto de cache.
   - As respostas devem ser as mesmas. Se uma instrução sua dizia "veja o menu acima", ela continua valendo, porque os menus seguem antes da conversa.
+- **OpenAI pela Responses API:** conserta o bot com ferramentas (módulos, `decidir` do JEV) nos modelos atuais da OpenAI.
+  - Na 0.21.0 ele falhava em `gpt-6.1-terra` e `gpt-6.1-sol`, que só chamam ferramentas pela Responses API, e em `gpt-6-luna` com raciocínio ligado.
+  - Nada muda na conexão: mesma chave, mesmo modelo.
+  - O esforço ganha **Máximo**.
+  - Não testado contra a API real.
 
 ## Atualização 0.21.0: acesso por pessoa, segundo fator, ERP em implantação, fila mais rápida
 

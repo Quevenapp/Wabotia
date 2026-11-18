@@ -8,6 +8,8 @@ import { processInbox, processRun, splitAreaInput } from "../src/engine";
 import { teamDirectory } from "../src/team";
 import {
   AREA_LABEL,
+  aiComplete,
+  aiCompleteWithTools,
   aiListModels,
   PDF_LIMITS,
   PDF_TOKENS_PER_PAGE,
@@ -53,10 +55,40 @@ function mockFetch(reply: (call: Call) => Response | Promise<Response>) {
         body: init.body ? JSON.parse(String(init.body)) : null,
       };
       calls.push(call);
-      return reply(call);
+      const response = await reply(call);
+      return call.url.endsWith("/responses") ? asResponses(response) : response;
     }),
   );
   return calls;
+}
+/**
+ * A OpenAI responde pelo Responses (src/ai-provider.ts): a resposta simulada
+ * no formato do chat/completions vira o formato do Responses (status,
+ * incomplete_details, output com output_text, usage em input/output_tokens).
+ * Erros e respostas já no formato novo passam como vieram.
+ */
+async function asResponses(response: Response) {
+  if (!response.ok) return response;
+  const data: any = await response.clone().json().catch(() => null);
+  const choice = data?.choices?.[0];
+  if (!choice) return response;
+  const cut = choice.finish_reason === "length" ? "max_output_tokens" : choice.finish_reason === "content_filter" ? "content_filter" : null;
+  const u = data.usage;
+  return Response.json({
+    id: "resp_test",
+    status: cut ? "incomplete" : "completed",
+    incomplete_details: cut ? { reason: cut } : null,
+    output: choice.message?.content
+      ? [{ type: "message", role: "assistant", content: [{ type: "output_text", text: choice.message.content }] }]
+      : [],
+    usage: u
+      ? {
+          input_tokens: u.prompt_tokens,
+          input_tokens_details: { cached_tokens: u.prompt_tokens_details?.cached_tokens ?? 0 },
+          output_tokens: u.completion_tokens,
+        }
+      : undefined,
+  });
 }
 const anthropicMessage = (text: string, stop_reason = "end_turn") =>
   Response.json({
@@ -282,7 +314,7 @@ describe("cadastro da conexão de provedor de IA", () => {
       save({
         name: "IA",
         kind: "ai",
-        config: { provider: "openai", model: "gpt-test", effort: "max" },
+        config: { provider: "openai", model: "gpt-test", effort: "maximo" },
         secrets: { api_key: "sk-test-123456" },
       }),
     ).rejects.toThrow("Esforço inválido");
@@ -586,17 +618,17 @@ describe("cadastro da conexão de provedor de IA", () => {
     );
     await processRun(env, run);
     // Só ferramentas de leitura dos módulos: nada que escreva ou proponha.
-    const tools = (calls[0].body.tools || []).map(
-      (tool: any) => tool.function.name,
-    );
+    // OpenAI pelo Responses: definição {type:"function", name, ...}.
+    const tools = (calls[0].body.tools || []).map((tool: any) => tool.name);
     expect(tools).toContain("agenda_servicos");
     expect(tools).not.toContain("agenda_agendar");
     expect(tools).not.toContain("agenda_cancelar");
-    expect(calls[0].body.messages[0].content).toContain(
+    expect(calls[0].body.instructions).toContain(
       "ferramentas de consulta da conversa",
     );
     // O resultado volta ao Atendente como fonte.
-    const back = (await runOf(conversation))!;    expect(back).toMatchObject({ bot_id: f.bot, phase: "answer" });
+    const back = (await runOf(conversation))!;
+    expect(back).toMatchObject({ bot_id: f.bot, phase: "answer" });
   });
 });
 
@@ -664,10 +696,13 @@ describe("modelos e esforço", () => {
     );
     expect(calls.map((call) => call.url)).toEqual([
       "https://api.openai.com/v1/models",
-      "https://api.openai.com/v1/chat/completions",
+      "https://api.openai.com/v1/responses",
     ]);
-    expect(calls[1].body.reasoning_effort).toBe("medium");
-    expect(calls[1].body.max_completion_tokens).toBe(16);
+    // Responses: esforço em reasoning, teto curto em max_output_tokens; a
+    // resposta cortada (incomplete) ainda prova chave e modelo.
+    expect(calls[1].body.reasoning).toEqual({ effort: "medium" });
+    expect(calls[1].body.max_output_tokens).toBe(16);
+    expect(calls[1].body.store).toBe(false);
     expect(calls[1].body.max_tokens).toBeUndefined();
     listed = ["outro-modelo"];
     await expect(
@@ -735,8 +770,8 @@ describe("modelos e esforço", () => {
     const other = await withSource((await runOf(second))!);
     const openaiCalls = mockFetch(() => openaiMessage(JSON.stringify(answer)));
     await processRun(env, other);
-    expect(openaiCalls[0].body.reasoning_effort).toBe("low");
-    expect(openaiCalls[0].body.max_completion_tokens).toBeUndefined();
+    expect(openaiCalls[0].body.reasoning).toEqual({ effort: "low" });
+    expect(openaiCalls[0].body.max_output_tokens).toBeUndefined();
 
     const h = await serviceFixture({
       provider: "deepseek",
@@ -773,16 +808,17 @@ describe("atendimento por provedor de IA", () => {
     const calls = mockFetch(() => openaiMessage(JSON.stringify(answer)));
     await processRun(env, run);
     expect(calls).toHaveLength(1);
-    expect(calls[0].url).toBe("https://api.openai.com/v1/chat/completions");
+    expect(calls[0].url).toBe("https://api.openai.com/v1/responses");
     expect(calls[0].headers.get("authorization")).toBe(
       "Bearer test-provider-key",
     );
     expect(calls[0].body.model).toBe("gpt-test");
-    expect(calls[0].body.response_format).toEqual({ type: "json_object" });
-    expect(calls[0].body.messages[0].role).toBe("system");
-    expect(calls[0].body.messages[0].content).toContain("Você é o Atendente");
-    expect(calls[0].body.messages[0].content).toContain("não gera arquivos");
-    expect(calls[0].body.messages[0].content).not.toContain("artifact_id");
+    expect(calls[0].body.store).toBe(false);
+    expect(calls[0].body.text).toEqual({ format: { type: "json_object" } });
+    expect(calls[0].body.instructions).toContain("Você é o Atendente");
+    expect(calls[0].body.instructions).toContain("não gera arquivos");
+    expect(calls[0].body.instructions).not.toContain("artifact_id");
+    expect(calls[0].body.input[0]).toMatchObject({ role: "user", content: [{ type: "input_text" }] });
     expect((await fresh(run)).status).toBe("completed");
     const sent = await outbox(conversation);
     expect(sent.map((row) => json(row.payload).text)).toContain(answer.text);
@@ -1216,7 +1252,7 @@ describe("cache de prompt do provedor de IA", () => {
     );
     const r1 = await withSource((await runOf(await receive(openai, "Qual o horário?")))!);
     await processRun(env, r1);
-    expect(calls[0].body.messages[0].content).toContain(AREA_LABEL.trim());
+    expect(calls[0].body.instructions).toContain(AREA_LABEL.trim());
     expect(await usageOf(r1)).toEqual({ input: 176, cache_read: 1024, cache_write: 0, output: 30 });
     const deepseek = await serviceFixture({ provider: "deepseek", model: "deepseek-chat" });
     calls = mockFetch(() =>
@@ -1295,16 +1331,67 @@ describe("PDF do cliente no provedor de IA", () => {
     expect(await state(conversation)).not.toBe("ai");
   });
 
-  it("OpenAI com a opção ligada: PDF como parte file do Chat Completions", async () => {
+  it("OpenAI com a opção ligada: PDF como input_file do Responses", async () => {
     const f = await serviceFixture({ provider: "openai", model: "gpt-test", vision: true, pdf: true });
     const run = (await runOf(await receive(f, "Segue", [{ type: "application/pdf", bytes: pdf(1) }])))!;
     const calls = mockFetch(() => openaiMessage(JSON.stringify({ ...answer, action: "clarify", citations: [] })));
     await processRun(env, run);
-    const parts = calls[0].body.messages[1].content;
-    expect(parts.find((p: any) => p.type === "file")).toMatchObject({
-      type: "file",
-      file: { filename: "documento-1.pdf", file_data: expect.stringMatching(/^data:application\/pdf;base64,/) },
+    const parts = calls[0].body.input[0].content;
+    expect(parts[0].type).toBe("input_text");
+    expect(parts.find((p: any) => p.type === "input_file")).toMatchObject({
+      type: "input_file",
+      filename: "documento-1.pdf",
+      file_data: expect.stringMatching(/^data:application\/pdf;base64,/),
     });
+  });
+
+  it("OpenAI pelo Responses: ferramentas com raciocínio devolvido, recusa e resposta cortada", async () => {
+    // Laço de ferramentas no formato do Responses (src/bot-tools.ts): os
+    // itens da saída (raciocínio cifrado e chamada) voltam no input seguinte
+    // com o function_call_output da chamada.
+    const reasoning = { type: "reasoning", id: "rs_1", summary: [], encrypted_content: "cifrado" };
+    const call = { type: "function_call", id: "fc_1", call_id: "call_1", name: "eco", arguments: '{"texto":"oi"}' };
+    const replies = [
+      { id: "r1", status: "completed", output: [reasoning, call], usage: { input_tokens: 100, output_tokens: 10, input_tokens_details: { cached_tokens: 64 } } },
+      { id: "r2", status: "completed", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "pronto" }] }], usage: { input_tokens: 120, output_tokens: 5 } },
+    ];
+    const calls = mockFetch(() => Response.json(replies.shift()));
+    const conn = { id: uid(), config: JSON.stringify({ provider: "openai", model: "gpt-6.1-terra", effort: "low" }) };
+    await setSecret(env, `connection:${conn.id}`, { api_key: "sk-test-123456" });
+    const usage = { input: 0, cache_read: 0, cache_write: 0, output: 0 };
+    const seen: any[] = [];
+    const text = await aiCompleteWithTools(env, conn, {
+      instructions: "Use a ferramenta.",
+      input: "oi",
+      usage,
+      tools: [{ name: "eco", description: "Ecoa.", schema: { type: "object", properties: { texto: { type: "string" } } } } as any],
+      run: async (c) => {
+        seen.push(c);
+        return JSON.stringify({ ok: true });
+      },
+    });
+    expect(text).toBe("pronto");
+    expect(seen).toEqual([{ id: "call_1", name: "eco", args: { texto: "oi" }, invalid: false }]);
+    expect(calls[0].url).toBe("https://api.openai.com/v1/responses");
+    expect(calls[0].body.tools).toEqual([
+      { type: "function", name: "eco", description: "Ecoa.", parameters: { type: "object", properties: { texto: { type: "string" } } } },
+    ]);
+    expect(calls[0].body.tool_choice).toBe("auto");
+    expect(calls[0].body.reasoning).toEqual({ effort: "low" });
+    expect(calls[1].body.input.slice(1)).toEqual([
+      reasoning,
+      call,
+      { type: "function_call_output", call_id: "call_1", output: '{"ok":true}' },
+    ]);
+    expect(usage).toEqual({ input: 156, cache_read: 64, cache_write: 0, output: 15 });
+
+    // Recusa e resposta cortada viram o erro de sempre.
+    mockFetch(() =>
+      Response.json({ status: "completed", output: [{ type: "message", content: [{ type: "refusal", refusal: "não" }] }] }),
+    );
+    await expect(aiComplete(env, conn, { instructions: "x", input: "y" })).rejects.toThrow("recusou responder");
+    mockFetch(() => Response.json({ status: "incomplete", incomplete_details: { reason: "max_output_tokens" }, output: [] }));
+    await expect(aiComplete(env, conn, { instructions: "x", input: "y" })).rejects.toThrow("foi cortada");
   });
 
   it("estimativa: um PDF no teto mais o prompt de uma área cheia fica abaixo de 100 mil tokens", () => {

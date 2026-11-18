@@ -6,7 +6,15 @@ import { MAX_ROUNDS, parseTurn, providerFamily, toolLoop, toolsFor } from "../sr
 describe("bot-tools: formatos", () => {
   it("monta as definições de cada família", () => {
     expect(providerFamily("anthropic")).toBe("anthropic");
-    for (const p of ["openai", "deepseek", "compatible"]) expect(providerFamily(p)).toBe("openai");
+    // OpenAI pelo Responses; DeepSeek e compatíveis pelo chat/completions.
+    expect(providerFamily("openai")).toBe("responses");
+    for (const p of ["deepseek", "compatible"]) expect(providerFamily(p)).toBe("openai");
+    expect(toolsFor("responses", BOT_TOOLS)[1]).toEqual({
+      type: "function",
+      name: "consultar",
+      description: BOT_TOOLS[1].description,
+      parameters: BOT_TOOLS[1].schema,
+    });
     expect(toolsFor("anthropic", BOT_TOOLS)[0]).toEqual({
       name: "buscar_operacoes",
       description: BOT_TOOLS[0].description,

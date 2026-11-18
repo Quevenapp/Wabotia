@@ -61,12 +61,10 @@ const openaiEfforts: [string, string][] = [
   ["medium", "Médio"],
   ["high", "Alto"],
   ["xhigh", "Muito alto"],
-];
-// Compatible APIs pass the value through: any level the model accepts.
-const compatibleEfforts: [string, string][] = [
-  ...openaiEfforts,
   ["max", "Máximo"],
 ];
+// Compatible APIs pass the value through: any level the model accepts.
+const compatibleEfforts: [string, string][] = openaiEfforts;
 
 /** Esforço usado quando nada foi escolhido; vazio deixa o padrão do modelo. */
 /** "O modelo entende PDF": ligada de fábrica na Anthropic, escolhida na OpenAI (src/ai-provider.ts). */
