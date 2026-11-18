@@ -4,3 +4,4 @@
 // com o módulo ligado (src/erp/blocks.ts, src/erp/api/local-fetch.ts).
 import "./rpc/reads.ts";
 import "./rpc/settings.ts";
+import "./rpc/sale.ts";
