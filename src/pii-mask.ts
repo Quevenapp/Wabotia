@@ -41,7 +41,17 @@ const nonPersonalNumber =
  * janelas de 11 dígitos com verificador válido por acaso (cerca de 1 em 100)
  * e mandariam PDFs legíveis para a equipe à toa.
  */
-export function hasUnmaskedDocument(text: string): boolean {
+export function hasUnmaskedDocument(raw: string): boolean {
+  // Gerador que posiciona cada glifo: "5 2 9 . 9 8 2 . 2 4 7 - 2 5". Junta
+  // os tokens de um caractere separados só por espaço ou quebra; colunas de
+  // extrato têm tokens de vários caracteres e ficam como estão.
+  const parts = raw.split(/([ \n]+)/);
+  let text = "";
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (i % 2 === 1 && parts[i - 1]?.length === 1 && parts[i + 1]?.length === 1) continue;
+    text += part;
+  }
   for (const size of [11, 14]) {
     // Nada, ou uma pontuação com no máximo um espaço ou quebra de cada lado.
     // Espaço sozinho separa sequências: colunas não se juntam.

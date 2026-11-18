@@ -530,7 +530,9 @@ async function contentText(
         if (word === "TD") leading = -values[1];
         move(values[0], values[1]);
       }
-      if (y !== oldY) newline();
+      // Tolerância de baseline: geradores que põem cada glifo variam o y em
+      // milésimos, e uma quebra no meio do número atrapalharia a máscara.
+      if (Math.abs(y - oldY) >= 1) newline();
       else if (x !== oldX) space();
     } else if (word === "q") {
       if (stack.length >= 32) throw new Error("Estado gráfico profundo");

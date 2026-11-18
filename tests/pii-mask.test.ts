@@ -15,6 +15,11 @@ it("rede de segurança: pega documento colado ou partido, sem recusar colunas de
   expect(hasUnmaskedDocument("Empresa11.222.333/0001-81Ltda")).toBe(true);
   // Número de item antes do CPF formatado com espaços: o espaço separa.
   expect(hasUnmaskedDocument("1 529 . 982 . 247 - 25")).toBe(true);
+  // Gerador que posiciona cada glifo (cada caractere com o próprio Td/Tm),
+  // com e sem pontuação, inclusive com quebra por tremor de baseline.
+  expect(hasUnmaskedDocument("CPF 5 2 9 . 9 8 2 . 2 4 7 - 2 5 Nome")).toBe(true);
+  expect(hasUnmaskedDocument("5 2 9 9 8 2 2 4 7 2 5")).toBe(true);
+  expect(hasUnmaskedDocument("5 2 9 9 8\n2 2 4 7 2 5")).toBe(true);
   // Linha de extrato: datas, documentos de lançamento e valores lado a lado.
   // Janelas de 11 dígitos aqui poderiam passar no verificador por acaso.
   const extrato = [
