@@ -1,0 +1,24 @@
+import type { ModuleDefinition } from "../types";
+
+export const saudeModule: ModuleDefinition = {
+  id: "saude",
+  name: "Saúde — prontuário",
+  version: "1.0.0",
+  description: "Prontuário protegido de pacientes e animais, com autoria, auditoria e guarda.",
+  builtin: true,
+  default_enabled: false,
+  requires: ["os"],
+  navigation: [{ id: "saude", label: "Prontuários", place: "admin", admin: false }],
+  menu_item_types: [],
+  events: [],
+  settings: [],
+  routes: ["saude"],
+  operations: ["saude."],
+  scopes: ["conversations:read", "conversations:write"],
+  grants: [
+    { id: "clinical_read", label: "Leitura clínica", description: "Ler e exportar prontuários da área. Exige também os:sensitive." },
+    { id: "clinical_write", label: "Escrita clínica", description: "Cadastrar e escrever prontuários. Exige leitura clínica; só o autor assina sua evolução." },
+    { id: "responsible", label: "Responsável técnico", description: "Consultar auditoria e configurar guarda. Não concede leitura clínica." },
+  ],
+  bot: { deny: ["saude", "saude."], sensitive: ["saude", "saude."] },
+};
