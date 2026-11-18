@@ -49,7 +49,7 @@ enum BotsSupport {
         var links: [String]
     }
 
-    /// O `result` pode ser texto puro ou JSON produzido pelo Hermes: {text, attachments:[mediaId], links:[...]}.
+    /// O `result` pode ser texto puro ou JSON da execução: {text, attachments:[mediaId], links:[...]}.
     /// A lista GET /bot-runs não traz `attachments` calculado; por isso também lemos do JSON.
     static func parse(_ run: BotRun) -> ParsedResult {
         let raw = run.result ?? ""

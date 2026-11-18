@@ -153,8 +153,8 @@ final class DemoServer {
             ["actor": "u_carlos", "name": "Carlos Pereira", "present": 0],
         ]
         bots = [
-            ["id": "b_vendas", "profile_id": "demo", "connection_id": "hermes", "remote_profile": "vendas", "name": "Vendas", "enabled": 1, "line_ids": NSNull(), "online": true],
-            ["id": "b_suporte", "profile_id": "demo", "connection_id": "hermes", "remote_profile": "suporte", "name": "Suporte", "enabled": 1, "line_ids": ["line_zernio"], "online": false],
+            ["id": "b_vendas", "profile_id": "demo", "connection_id": "ai", "name": "Vendas", "enabled": 1, "line_ids": NSNull(), "online": true],
+            ["id": "b_suporte", "profile_id": "demo", "connection_id": "ai", "name": "Suporte", "enabled": 1, "line_ids": ["line_zernio"], "online": false],
         ]
         departments = [
             ["id": "dep_fin", "name": "Financeiro", "enabled": true, "members": [me, "u_ana", "u_carlos"]],
