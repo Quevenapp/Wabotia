@@ -17,9 +17,13 @@ import {
   onRoute,
   onSchedule,
   onSettingsSave,
+  onSettingsChange,
+  onWebStepValidate,
   onWebStepCompleted,
   type ModuleContext,
 } from "../api";
+import { one } from "../../db";
+import { json } from "../../types";
 import { osSettings, validateOsSettings } from "./model";
 import { runDue } from "./reminders";
 import {
@@ -28,7 +32,6 @@ import {
   decide,
   handleQuoteReply,
   listOrders,
-  loadOrder,
   orderHistory,
   orderView,
   visibleOrder,
@@ -39,9 +42,16 @@ import {
   updateOrder,
 } from "./store";
 
+import { validateWorkTypes, validateVocabulary, validateWorkTypeChanges } from "./validation";
+import { customOpenForm, openingAnswers } from "./forms";
+import { resolveWorkType, authorizedOrder } from "./public";
+import { customerProjection } from "./privacy";
+import { registerMotorRoutes, motorMutationKey, replayOrderMutation } from "./motor-routes";
+import { handleStageReply } from "./stage-replies";
+
 // Resposta ao orçamento: lista Aprovar/Recusar (linha oficial), 1/2 (QR) ou
 // APROVAR <nº>, antes do menu e do bot.
-onConversationTurn("os", (ctx, c, turn) => handleQuoteReply(ctx, c, turn));
+onConversationTurn("os", async (ctx, c, turn) => await handleStageReply(ctx, c, turn) || handleQuoteReply(ctx, c, turn));
 
 const clip = (value: unknown, max: number) =>
   Array.from(String(value ?? "").trim())
@@ -56,9 +66,12 @@ export async function sendOpenForm(
     trigger: "menu" | "agent" | "bot";
     actor: string;
     sourceKey: string;
+    type_id?: string;
   },
 ) {
   await ctx.requireEnabled();
+  const type = await resolveWorkType(ctx, options.type_id);
+  if (type.kind === "custom") return customOpenForm(ctx, c, type, options);
   const cfg = osSettings(await ctx.settings());
   return ctx.openWebStep(c, {
     kind: "open",
@@ -120,14 +133,19 @@ function mayMessage(actor: Actor, c: Conversation) {
 // Ganchos (carregados por src/modules/runtime.ts)
 
 onSettingsSave("os", "service_orders", validateOsSettings);
+onSettingsSave("os", "os_work_types", validateWorkTypes);
+onSettingsSave("os", "os_vocabulary", validateVocabulary);
+onSettingsChange("os", validateWorkTypeChanges);
+registerMotorRoutes();
 
 // Item de menu "Abrir ordem de serviço": link do passo web.
-onMenuChoice("os_open", async (ctx, c, _item, { rowId }) => {
+onMenuChoice("os_open", async (ctx, c, item, { rowId }) => {
   try {
     await sendOpenForm(ctx, c, {
       trigger: "menu",
       actor: "system",
       sourceKey: `menu:${rowId}`,
+      type_id: item.type_id as string | undefined,
     });
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
@@ -142,10 +160,10 @@ onMenuChoice("os_open", async (ctx, c, _item, { rowId }) => {
 });
 
 // Item de menu "Acompanhar ordem de serviço".
-onMenuChoice("os_track", async (ctx, c, _item, { rowId }) => {
+onMenuChoice("os_track", async (ctx, c, item, { rowId }) => {
   await ctx.sendMessage(
     c,
-    { text: await trackText(ctx, c) },
+    { text: await trackText(ctx, c, (item.type_id as string | undefined) ?? "service_order") },
     { key: `track:${rowId}` },
   );
 });
@@ -165,10 +183,13 @@ onConversationAction(
           trigger,
           actor: actor.id,
           sourceKey: `action:${actor.id}:${requestId}`,
+          type_id: data.type_id,
         })
       ).step;
     const { order } = await createOrder(ctx, {
       conversation: c,
+      type_id: data.type_id,
+      extra: data.extra,
       customer_name: data.customer_name,
       item: data.item,
       problem: data.problem,
@@ -184,11 +205,20 @@ onConversationAction(
   },
 );
 
+onWebStepValidate("os", async (ctx, step, answers) => {
+  if (step.kind !== "open" || !step.ref_id) return;
+  try { await openingAnswers(ctx, step, answers); }
+  catch (error) { if (error instanceof ApiError) return error.message; throw error; }
+});
+
 // Cliente concluiu o link de abertura: a ordem nasce com os termos aceitos.
 onWebStepCompleted("os", async (ctx, step, answers) => {
   if (step.kind !== "open") return;
   const c = await ctx.conversation(step.conversation_id);
+  const fixed = await openingAnswers(ctx, step, answers);
   const cfg = osSettings(await ctx.settings());
+  const original = !fixed ? await one(ctx.env, "SELECT spec FROM web_steps WHERE profile_id=? AND id=?", ctx.profile, step.id) : null;
+  const shownTerms = json(original?.spec, {}).intro?.replace(/^Termos do serviço:\n/, "") ?? cfg.terms;
   await createOrder(ctx, {
     conversation: c,
     item: clip(answers.item, 200) || "Não informado",
@@ -196,7 +226,8 @@ onWebStepCompleted("os", async (ctx, step, answers) => {
     source: "customer",
     sourceKey: `web_step:${step.id}`,
     actor: "customer",
-    terms: answers.terms === true ? cfg.terms : null,
+    terms: answers.terms === true ? shownTerms : null,
+    ...(fixed ?? {}),
   });
 });
 
@@ -217,13 +248,28 @@ onRead("os", "service-orders", async (ctx, actor, { query }) => {
   };
 });
 
-onRead("os", "service-orders/:id", async (ctx, actor, { params }) => {
+onRead(
+  "os",
+  "service-orders/conversation/:id",
+  async (ctx, actor, { params, query }) => {
+    ctx.access(actor, "conversations:read");
+    const c = await ctx.conversation(params.id, actor);
+    // Ferramenta do bot: sem telefone nem notas (conferência N-8).
+    return ctx.botView(actor, {
+      data: (await ordersOfCustomer(ctx, c, query.open === "1", query.type_id)).map((view) =>
+        view.type_id === "service_order" ? visibleOrder(ctx, actor, view) : customerProjection(visibleOrder(ctx, actor, view)),
+      ),
+    });
+  },
+);
+
+onRead("os", "service-orders/:id", async (ctx, actor, { params, query }) => {
   ctx.access(actor, "conversations:read");
-  const order = await loadOrder(ctx, params.id);
+  const { row: order } = await authorizedOrder(ctx, actor, params.id);
   return visibleOrder(
     ctx,
     actor,
-    orderView(order, await orderHistory(ctx, order.id)),
+    orderView(order, query.history === "none" ? undefined : await orderHistory(ctx, order.id)),
   );
 });
 
@@ -236,6 +282,8 @@ onCommand("os", "os.create", async (ctx, actor, data, { requestId }) => {
       : null;
   const { order } = await createOrder(ctx, {
     conversation: c,
+    type_id: data.type_id,
+    extra: data.extra,
     customer_name: data.customer_name,
     phone: data.phone,
     item: data.item,
@@ -254,13 +302,16 @@ onCommand("os", "os.create", async (ctx, actor, data, { requestId }) => {
 });
 
 onRoute("os", { method: "PATCH", path: "service-orders/:id", op: "os.update" });
-onCommand("os", "os.update", async (ctx, actor, data) => {
+onCommand("os", "os.update", async (ctx, actor, data, { requestId }) => {
   ctx.access(actor, "conversations:write");
-  const order = await loadOrder(ctx, data.id);
+  const { row: order } = await authorizedOrder(ctx, actor, data.id, { write: true });
+  const key = motorMutationKey(actor, "os.update", requestId);
+  const replay = await replayOrderMutation(ctx, actor, data.id, key);
+  if (replay) return visibleOrder(ctx, actor, orderView(replay.row));
   return visibleOrder(
     ctx,
     actor,
-    orderView(await updateOrder(ctx, order, data, actor.id)),
+    orderView(await updateOrder(ctx, order, data, actor.id, key)),
   );
 });
 
@@ -269,18 +320,21 @@ onRoute("os", {
   path: "service-orders/:id/status",
   op: "os.status",
 });
-onCommand("os", "os.status", async (ctx, actor, data) => {
+onCommand("os", "os.status", async (ctx, actor, data, { requestId }) => {
   ctx.access(actor, "conversations:write");
-  const order = await loadOrder(ctx, data.id);
+  const { row: order } = await authorizedOrder(ctx, actor, data.id, { write: true });
+  const key = motorMutationKey(actor, "os.status", requestId);
   // Aplicação que não atende a conversa muda o estado sem avisar o cliente
   // (segunda conferência, B9).
   const notify = await ctx.mayNotify(actor, order.conversation_id ?? null);
+  const replay = await replayOrderMutation(ctx, actor, data.id, key, notify);
+  if (replay) return visibleOrder(ctx, actor, orderView(replay.row));
   return visibleOrder(
     ctx,
     actor,
     orderView(
       await changeStatus(ctx, order, data.status, actor.id, data.note, {
-        notify,
+        notify, mutationKey: key,
       }),
     ),
   );
@@ -291,13 +345,16 @@ onRoute("os", {
   path: "service-orders/:id/quote",
   op: "os.quote.save",
 });
-onCommand("os", "os.quote.save", async (ctx, actor, data) => {
+onCommand("os", "os.quote.save", async (ctx, actor, data, { requestId }) => {
   ctx.access(actor, "conversations:write");
-  const order = await loadOrder(ctx, data.id);
+  const { row: order } = await authorizedOrder(ctx, actor, data.id, { write: true });
+  const key = motorMutationKey(actor, "os.quote.save", requestId);
+  const replay = await replayOrderMutation(ctx, actor, data.id, key, data.notify !== false && await ctx.mayNotify(actor, order.conversation_id));
+  if (replay) return visibleOrder(ctx, actor, orderView(replay.row));
   return visibleOrder(
     ctx,
     actor,
-    orderView(await saveQuote(ctx, order, data, actor.id)),
+    orderView(await saveQuote(ctx, order, data, actor.id, key, { notify: await ctx.mayNotify(actor, order.conversation_id) })),
   );
 });
 
@@ -306,16 +363,19 @@ onRoute("os", {
   path: "service-orders/:id/quote/send",
   op: "os.quote.send",
 });
-onCommand("os", "os.quote.send", async (ctx, actor, data) => {
+onCommand("os", "os.quote.send", async (ctx, actor, data, { requestId }) => {
   ctx.access(actor, "conversations:write");
-  const order = await loadOrder(ctx, data.id);
+  const { row: order } = await authorizedOrder(ctx, actor, data.id, { write: true });
+  const key = motorMutationKey(actor, "os.quote.send", requestId);
+  const replay = await replayOrderMutation(ctx, actor, data.id, key, data.notify !== false && await ctx.mayNotify(actor, order.conversation_id));
+  if (replay) return visibleOrder(ctx, actor, orderView(replay.row));
   const notify =
     data.notify !== false &&
     (await ctx.mayNotify(actor, order.conversation_id ?? null));
   return visibleOrder(
     ctx,
     actor,
-    orderView(await sendQuote(ctx, order, actor.id, { notify })),
+    orderView(await sendQuote(ctx, order, actor.id, { notify, mutationKey: key })),
   );
 });
 
@@ -324,9 +384,12 @@ onRoute("os", {
   path: "service-orders/:id/decision",
   op: "os.decide",
 });
-onCommand("os", "os.decide", async (ctx, actor, data) => {
+onCommand("os", "os.decide", async (ctx, actor, data, { requestId }) => {
   ctx.access(actor, "conversations:write");
-  const order = await loadOrder(ctx, data.id);
+  const { row: order } = await authorizedOrder(ctx, actor, data.id, { write: true });
+  const key = motorMutationKey(actor, "os.decide", requestId);
+  const replay = await replayOrderMutation(ctx, actor, data.id, key, data.notify !== false && await ctx.mayNotify(actor, order.conversation_id));
+  if (replay) return visibleOrder(ctx, actor, orderView(replay.row));
   return visibleOrder(
     ctx,
     actor,
@@ -338,6 +401,7 @@ onCommand("os", "os.decide", async (ctx, actor, data) => {
         actor.id,
         actor.kind === "user" ? "panel" : "api",
         data.note,
+        { mutationKey: key, notify: await ctx.mayNotify(actor, order.conversation_id) },
       ),
     ),
   );
@@ -362,18 +426,3 @@ onMcpTool("os", {
     query: { open: a.open ? "1" : undefined },
   }),
 });
-
-onRead(
-  "os",
-  "service-orders/conversation/:id",
-  async (ctx, actor, { params, query }) => {
-    ctx.access(actor, "conversations:read");
-    const c = await ctx.conversation(params.id, actor);
-    // Ferramenta do bot: sem telefone nem notas (conferência N-8).
-    return ctx.botView(actor, {
-      data: (await ordersOfCustomer(ctx, c, query.open === "1")).map((view) =>
-        visibleOrder(ctx, actor, view),
-      ),
-    });
-  },
-);
