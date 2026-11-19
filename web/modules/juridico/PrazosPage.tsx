@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useApp } from "../../app/AppContext";
 import { useIntents, type Row } from "../../lib/api";
+import { nativeReadAllows } from "../../management/native-access";
 import { Calendars } from "./Calendars";
 import { CreateDeadline } from "./CreateDeadline";
 import { CalculationView, stamp, warning, type CalendarView } from "./shared";
@@ -47,45 +48,50 @@ function Deadline({ id, close, changed }: { id: string; close: () => void; chang
 }
 function PrazosContent() {
   const app = useApp(), write = useIntents(app.api);
-  const [tab, setTab] = useState("prazos"), [calendars, setCalendars] = useState<CalendarView[]>([]), [people, setPeople] = useState<Row[]>([]);
+  const canReadCalendars = app.moduleOn("juridico") && nativeReadAllows("juridico", app.me.access);
+  const canReadDeadlines = canReadCalendars && nativeReadAllows("juridico.deadlines", app.me.access);
+  const [section, setTab] = useState(canReadDeadlines ? "prazos" : "calendarios"), [calendars, setCalendars] = useState<CalendarView[]>([]), [people, setPeople] = useState<Row[]>([]);
+  const tab = canReadDeadlines ? section : "calendarios";
   const [rows, setRows] = useState<Row[]>([]), [alerts, setAlerts] = useState<Row[]>([]), [sort, setSort] = useState("due"), [assignee, setAssignee] = useState("");
   const [state, setState] = useState("open"), [cursor, setCursor] = useState(""), [next, setNext] = useState<string | null>(null);
   const [detail, setDetail] = useState(""), [error, setError] = useState(""), [loading, setLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const refresh = useCallback(async () => { setRefreshKey(k => k + 1); }, []);
   useEffect(() => {
+    if (!canReadCalendars) return;
     const abort = new AbortController(); setError(""); setLoading(true);
     const read = (path: string) => app.api(`${app.root}/juridico/${path}`, "GET", undefined, abort.signal);
-    Promise.allSettled([read("calendars"), read("assignees")]).then(results => {
+    Promise.allSettled([read("calendars"), ...(canReadDeadlines ? [read("assignees")] : [])]).then(results => {
       if (abort.signal.aborted) return;
       if (results[0].status === "fulfilled") setCalendars(results[0].value.data);
       else setError(results[0].reason.message);
-      if (results[1].status === "fulfilled") setPeople(results[1].value.data);
-      else if (tab !== "calendarios") setError(results[1].reason.message);
+      if (results[1]?.status === "fulfilled") setPeople(results[1].value.data);
+      else if (results[1]?.status === "rejected" && tab !== "calendarios") setError(results[1].reason.message);
     }).finally(() => { if (!abort.signal.aborted) setLoading(false); });
     return () => abort.abort();
-  }, [app.api, app.root, refreshKey, tab]);
+  }, [app.api, app.root, refreshKey, tab, canReadCalendars, canReadDeadlines]);
   useEffect(() => {
-    if (tab !== "prazos") return;
+    if (!canReadDeadlines || tab !== "prazos") return;
     const abort = new AbortController();
     const query = new URLSearchParams({ sort, state, ...(assignee ? { assignee } : {}), ...(cursor ? { cursor } : {}) });
     app.api(`${app.root}/juridico/deadlines?${query}`, "GET", undefined, abort.signal)
-      .then(result => { setRows(result.data); setNext(result.next_cursor); })
+      .then(result => { if (!abort.signal.aborted) { setRows(result.data); setNext(result.next_cursor); } })
       .catch(e => { if (e.name !== "AbortError") setError(e.message); });
     return () => abort.abort();
-  }, [app.api, app.root, tab, sort, state, assignee, cursor, refreshKey]);
+  }, [app.api, app.root, tab, sort, state, assignee, cursor, refreshKey, canReadDeadlines]);
   useEffect(() => {
-    if (tab !== "prazos") return;
+    if (!canReadDeadlines || tab !== "prazos") return;
     const abort = new AbortController();
-    const read = () => app.api(`${app.root}/juridico/alerts`, "GET", undefined, abort.signal).then(result => setAlerts(result.data)).catch(e => { if (e.name !== "AbortError") setError(e.message); });
+    const read = () => app.api(`${app.root}/juridico/alerts`, "GET", undefined, abort.signal).then(result => { if (!abort.signal.aborted) setAlerts(result.data); }).catch(e => { if (e.name !== "AbortError") setError(e.message); });
     void read(); const timer = setInterval(() => { if (!document.hidden) void read(); }, 30000);
     return () => { abort.abort(); clearInterval(timer); };
-  }, [app.api, app.root, tab, refreshKey]);
+  }, [app.api, app.root, tab, refreshKey, canReadDeadlines]);
   if (!app.moduleOn("juridico")) return <p>Ative Jurídico e o motor de trabalhos em Módulos.</p>;
+  if (!canReadCalendars) return <p>Você não tem acesso à equipe jurídica desta área.</p>;
   return <div className="juridico-page">
     <h1>Prazos</h1><p role="note">{warning}</p>
     <p>Calendários e prazos são exclusivos da equipe jurídica autorizada da área. Avisos internos aparecem nesta tela; não são enviados ao cliente.</p>
-    <div className="toolbar" role="group" aria-label="Seções jurídicas">{[["prazos", "Prazos"], ["novo", "Novo prazo"], ["calendarios", "Calendários"]].map(([id, label]) => <button key={id} aria-pressed={tab === id} onClick={() => setTab(id)}>{label}</button>)}<button onClick={refresh}>Atualizar</button></div>
+    <div className="toolbar" role="group" aria-label="Seções jurídicas">{[...(canReadDeadlines ? [["prazos", "Prazos"], ["novo", "Novo prazo"]] : []), ["calendarios", "Calendários"]].map(([id, label]) => <button key={id} aria-pressed={tab === id} onClick={() => setTab(id)}>{label}</button>)}<button onClick={refresh}>Atualizar</button></div>
     {loading && <p role="status">Carregando…</p>}{error && <p role="alert">{error}</p>}
     {tab === "calendarios" && <Calendars rows={calendars} refresh={refresh} />}
     {tab === "novo" && <CreateDeadline calendars={calendars} people={people} created={async () => { setTab("prazos"); setCursor(""); await refresh(); }} />}

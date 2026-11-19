@@ -98,6 +98,27 @@ exclusividades administrativas. Não se alterou a compatibilidade de
 `moduleAllows` nas demais áreas. Vocabulário e tipos de trabalho só mudam a
 apresentação; não criam módulos nem acesso.
 
+O contêiner **Mais** é acessível a toda sessão autenticada, inclusive quando
+Conversas, Protocolos, Equipe e Ligações ocupam as quatro abas móveis. Isso não
+concede `"*"`, papel ERP nem acesso a áreas desconhecidas: cada destino conserva
+sua autorização. O trilho usa a filtragem individual de `Shell.useItems`.
+
+**Leitura nativa explícita:** `web/management/native-access.ts` declara os papéis
+conferidos por `canOpenPage` antes das exceções gerais de administrador, acesso
+nulo e `"*"`. Catálogo, abertura direta e estado do destino usam essa mesma
+decisão. Agenda e Trabalhos continuam com seus acessos nativos, sem papel ERP.
+
+| Página/operação | Leitura | Escrita |
+| --- | --- | --- |
+| Ensino | `ensino:secretaria` ou `ensino:professor`; professor limitado às próprias turmas pelo servidor | Depende da operação: secretaria administra turmas e vínculos; professor atua nas turmas autorizadas. A leitura não concede operações exclusivas da secretaria nem acesso sensível ao motor |
+| Jurídico — calendários | `os:sensitive` e `juridico:lawyer` ou `juridico:curator` | `os:sensitive` e `juridico:curator` para criar/revisar |
+| Jurídico — responsáveis, prazos e alertas | `os:sensitive` e `juridico:lawyer` | Mesmo papel explícito, com as verificações de operação, versão e objeto do servidor |
+
+Esses papéis não dispensam sessão humana autorizada, área e módulos exigidos
+pelo servidor. Curador sem papel de advogado abre **Calendários**, sem consultar
+responsáveis, prazos ou alertas. A política leve descreve leitura; não promove
+automaticamente o leitor a escritor.
+
 Na entrada `/app/erp`, status pendente não presume destino. Tudo desligado
 mostra “Nenhum módulo de gestão ligado”, com **Abrir Módulos** para administrador
 ou orientação para pedir ao administrador. Módulos ligados sem destino
@@ -136,6 +157,22 @@ de ativação das partes portadas**, usado por menu, URLs, busca e ações. O n�
 um contrato futuro verificável com contribuição isolada; não é configuração de
 produto disponível nesta versão. Não há chaves novas de módulo.
 
+**Verificação fina portada:** o contrato efetivo combina `/v1/me` e
+`/v1/sistema/permissoes`, incluindo permissões individuais (por exemplo,
+`suprimentos.controle_estoque`). A consulta fina começa somente após a autorização
+básica de um destino portado. Trilho, Mais, entrada leve e páginas nativas não
+consultam a ERP API; a casca recebe o resultado do hospedeiro autorizado.
+Destinos dependentes desse resultado ficam **a verificar**, sem presumir uma
+lista irrestrita. Erro recuperável e negativa são estados diferentes. O Dashboard
+`/acesso` preserva a entrada que inicia essa verificação.
+
+**Fiscal por tipo:** `tipo=notas` na URL corresponde a `tag_type="invoices"` no
+domínio. Com Fiscal desligado, leituras mistas excluem esse tipo e suas mutações
+são recusadas; produtos e contatos continuam disponíveis. A decisão usa o tipo
+persistido ou herdado do pai, não apenas o campo enviado pelo navegador.
+`erpPartEnabled` continua decidindo a ativação; metadados internos não alteram
+`command_id`, conteúdo de negócio ou assinaturas públicas dos RPCs.
+
 O portado usa roteador em memória e publica pela ponte registrada em
 `bindManagementRouter`. O roteador principal é o único escritor do histórico.
 Portado→portado usa a confirmação portada; entrada, saída e nativos usam a
@@ -144,6 +181,23 @@ a decisão e reaplicam somente o deslocamento aceito. Cliques durante a decisão
 portada compartilham a transação; cancelamento não publica. Descartes são
 idempotentes e não removem outra conexão. Troca de área/pessoa/permissão e eventos
 de módulos invalidam leituras anteriores e suspendem novas ações indisponíveis.
+
+**Identidade e atualização da política têm ciclos distintos:** alterar um módulo
+independente não recria editor nem roteador. Suspender uma página na mesma sessão
+preserva o rascunho, bloqueando operações e respostas invalidadas. Troca de pessoa
+ou área e expiração descartam o estado anterior; não há novo armazenamento de
+rascunhos sensíveis. A proteção de saída também deve alcançar a recarga enquanto
+o conteúdo está suspenso.
+
+**Parâmetros de sessão:** o endereço público usa `/app/erp` e conserva somente
+`demo` e `pair` como parâmetros de sessão. A ponte retira esses dois antes dos
+parsers de negócio do roteador portado, mantendo filtros, IDs, repetições válidas,
+escapes e fragmentos. Os parsers financeiros permanecem estritos. Novas abas usam
+`erpPublicHref` (`web/erp/public-url.ts`) no modo embutido, sem duplicar o prefixo
+nem herdar filtros de negócio da página atual; fora dele, conservam a URL autônoma.
+
+Essas decisões são o contrato esperado da divisão de correções. Este documento
+não atesta a execução dos testes das outras tarefas.
 
 ### Cadastro único e dependência da fase 1
 
@@ -194,8 +248,13 @@ nove chunks iniciais, com 4.893 caracteres ERP de `renderedLength`; o portado
 fica em 33 chunks próprios.
 
 O grafo inicial não inclui o portado nem as páginas operacionais da casa.
-As páginas públicas de morador e responsável continuam na entrada pública já
-existente em `web/main.tsx`; não foram migradas por esta tarefa.
+As páginas públicas de responsável (`/ensino/acesso`) e morador
+(`/condominio/acesso`) são importadas sob demanda em `web/main.tsx`: cada endereço
+carrega somente sua página; `/app` não baixa nenhuma delas nem suas folhas
+específicas. A entrada usa espera e recuperação de import com **Tentar novamente**
+e **Recarregar**, sem alterar a autenticação dos links públicos. O teste de build
+confere os módulos emitidos no grafo inicial, mantendo os limites acima. As
+medições da tabela são históricas, anteriores a esta correção.
 
 ### Dependência entre módulos (`requires`)
 

@@ -60,6 +60,18 @@ test("o pacote inicial do painel não leva o ERP, a demonstração nem o react-r
   assert.deepEqual(offenders, []);
 });
 
+test("o grafo inicial não leva páginas públicas de módulos nem suas folhas específicas", () => {
+  const publicModule = /\/web\/modules\/(ensino\/(ResponsiblePage\.tsx|ensino\.css)|condominio\/(MoradorPage\.tsx|condominio\.css))(?:\?|$)/;
+  const offenders = initialChunks().flatMap((chunk) =>
+    chunk.moduleIds.filter((id) => publicModule.test(norm(id)))
+      .map((id) => `${chunk.fileName}: ${norm(id).replace(norm(root), "")}`),
+  );
+  assert.deepEqual(offenders, []);
+  for (const page of ["ensino/ResponsiblePage.tsx", "condominio/MoradorPage.tsx"])
+    assert.ok(chunks().some((chunk) => chunk.moduleIds.some((id) => norm(id).endsWith(`/web/modules/${page}`))),
+      `${page} continua emitida para sua entrada pública`);
+});
+
 test("o pacote inicial do painel cabe no orçamento", () => {
   // Medido em 16/11/2026 no integra/erp-painel (Vite 8): 1.227 kB (357 kB gz),
   // contra 1.190 kB (341 kB gz) do tronco integra/erp sem o ERP no mesmo Vite.

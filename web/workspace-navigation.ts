@@ -1,4 +1,5 @@
 import { nativePageSlugs } from "./management/routes";
+import { nativeReadAllows } from "./management/native-access";
 import {
   Activity,
   BedDouble,
@@ -246,11 +247,13 @@ export const moduleAllows = (page: string, modules?: ModuleStates) => {
 /**
  * Páginas e áreas do núcleo → item de acesso da pessoa (src/access.ts). As
  * de módulo usam `pageModules`. Página fora das duas listas fica só para
- * quem tem tudo ("*"); "overview" e "presence" ficam para todos.
+ * quem tem tudo ("*"); "overview", "presence" e o contêiner "more" ficam
+ * para toda sessão autenticada. Cada destino de Mais mantém seu próprio acesso.
  */
 const pageAccess: Partial<Record<string, string | null>> = {
   overview: null,
   presence: null,
+  more: null,
   conversations: "conversations",
   groups: "conversations",
   consents: "conversations",
@@ -271,6 +274,7 @@ export type PersonAccess = string[] | null | undefined;
 
 /** A pessoa acessa a página ou área? Mesma regra do servidor (access.ts). */
 export function accessAllows(page: string, role: string, access: PersonAccess) {
+  if (!nativeReadAllows(page, access)) return false;
   if (role === "admin" || !access) return true;
   const item = pageModules[page] ?? pageAccess[page];
   if (item === null) return true;

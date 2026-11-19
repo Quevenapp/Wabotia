@@ -1,5 +1,3 @@
-import { ResponsiblePage } from "./modules/ensino/ResponsiblePage";
-import { MoradorPage } from "./modules/condominio/MoradorPage";
 // Entrada do site: página pública, instalação, documentação da API e o
 // painel em /app. O painel vive em web/app; cada área tem seu módulo.
 import React from "react";
@@ -17,24 +15,35 @@ import { ApiDocs } from "./site/ApiDocs";
 import { WebInstall } from "./site/WebInstall";
 import { Privacy } from "./site/Privacy";
 import { QueueDisplay } from "./queue/QueueDisplay";
-createRoot(document.getElementById("root")!).render(
-  location.pathname.startsWith("/app") ? (
+import { lazyWithRecovery } from "./management/pages";
+
+const ResponsiblePage = lazyWithRecovery<object>(() =>
+  import("./modules/ensino/ResponsiblePage").then((m) => ({ default: m.ResponsiblePage })),
+);
+const MoradorPage = lazyWithRecovery<object>(() =>
+  import("./modules/condominio/MoradorPage").then((m) => ({ default: m.MoradorPage })),
+);
+
+export function SiteEntry({ pathname = location.pathname }: { pathname?: string }) {
+  return pathname.startsWith("/app") ? (
     <App />
-  ) : location.pathname === "/ensino/acesso" ? (
+  ) : pathname === "/ensino/acesso" ? (
     <ResponsiblePage />
-  ) : location.pathname === "/condominio/acesso" ? (
+  ) : pathname === "/condominio/acesso" ? (
     <MoradorPage />
-  ) : location.pathname === "/install" ? (
+  ) : pathname === "/install" ? (
     <Install />
-  ) : location.pathname === "/instalar" ? (
+  ) : pathname === "/instalar" ? (
     <WebInstall />
-  ) : location.pathname === "/privacidade" ? (
+  ) : pathname === "/privacidade" ? (
     <Privacy />
-  ) : location.pathname === "/api-docs" ? (
+  ) : pathname === "/api-docs" ? (
     <ApiDocs />
-  ) : location.pathname === "/painel" ? (
+  ) : pathname === "/painel" ? (
     <QueueDisplay />
   ) : (
     <Landing />
-  ),
-);
+  );
+}
+
+createRoot(document.getElementById("root")!).render(<SiteEntry />);
