@@ -172,10 +172,16 @@ describe("c2-entry: composição de produção", () => {
     const f = await setup("email");
     await exec(env, "UPDATE connections SET config=json_set(config,'$.c2_enabled',json('false')) WHERE id=?", f.line);
     const unused = runtimeEmail(f); await receiveEmail(unused); expect(unused.setReject).toHaveBeenCalledOnce(); await noEffects(f);
+    expect(await all(env, "SELECT id FROM email_channel_inbox WHERE profile_id=?", f.profile)).toEqual([]);
+    expect((await env.MEDIA.list({ prefix: `email-raw/${f.profile}/` })).objects).toEqual([]);
     await exec(env, "UPDATE connections SET config=json_set(config,'$.c2_enabled',json('true')) WHERE id=?", f.line);
     await Promise.all([receiveEmail(runtimeEmail(f, "Auto-Submitted: auto-replied\r\n")), receiveEmail(runtimeEmail(f, "Auto-Submitted: auto-replied\r\n"))]);
     await alarm(f); await noEffects(f);
-    expect(await all(env, "SELECT state FROM email_channel_inbox WHERE profile_id=?", f.profile)).toEqual([{ state: "automatic" }]);
+    const receipt = await all(env, "SELECT id,state,attempts FROM email_channel_inbox WHERE profile_id=?", f.profile);
+    expect(receipt).toEqual([{ id: expect.any(String), state: "automatic", attempts: 1 }]);
+    await receiveEmail(runtimeEmail(f, "Auto-Submitted: auto-replied\r\n"));
+    await alarm(f); await noEffects(f);
+    expect(await all(env, "SELECT id,state,attempts FROM email_channel_inbox WHERE profile_id=?", f.profile)).toEqual(receipt);
   }, 60_000);
 
   it("rotas instaladas consultam área e autorização atuais no replay", async () => {
@@ -207,8 +213,15 @@ describe("c2-entry: composição de produção", () => {
     for (const row of await all<{ id: string }>(env, "SELECT id FROM profiles")) profiles.add(row.id);
     const pending = await runInDurableObject(stub, async (_instance, state) => state.storage.get<Record<string, number>>("c2_pending"));
     expect(pending?.["email.inbox"]).toBeTypeOf("number");
+    expect(pending!["email.inbox"]).toBeGreaterThan(now());
+    // A recuperação respeita nextAt: um alarme precoce não deve reivindicar a entrada.
     await alarm(f);
-    expect(await one(env, "SELECT state FROM email_channel_inbox WHERE profile_id=?", f.profile)).toEqual({ state: "processed" });
+    expect(await one(env, "SELECT state,attempts FROM email_channel_inbox WHERE profile_id=?", f.profile))
+      .toEqual({ state: "pending", attempts: 0 });
+    vi.mocked(Date.now).mockReturnValue(pending!["email.inbox"]);
+    await alarm(f);
+    expect(await one(env, "SELECT state,attempts FROM email_channel_inbox WHERE profile_id=?", f.profile))
+      .toEqual({ state: "processed", attempts: 1 });
   }, 60_000);
 
   it("remoção Telegram mantém pendência e segredo até retomada confirmada", async () => {

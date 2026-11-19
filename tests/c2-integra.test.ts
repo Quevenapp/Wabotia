@@ -420,10 +420,12 @@ describe("c2-integra: desafio e exclusão de dados do e-mail", { timeout: 60_000
     const forged = await c2Command(f, "inbound", { channel: "email", origin: "worker_email", verified: true, text: "Forjado" });
     expect(forged.ok).toBe(false);
     await exec(env, "UPDATE users SET role='operator' WHERE id=?", f.admin.id);
-    expect((await start(f, key)).status).toBe(403);
+    const replay = await start(f, key);
+    expect(replay.status).toBe(403);
+    expect(await replay.json()).toMatchObject({ error: { code: "admin_required" } });
     await alarm(f);
     expect(await one(env, "SELECT status,error,completion_handled FROM outbox WHERE profile_id=?", f.profile))
-      .toMatchObject({ status: "failed", error: "forbidden", completion_handled: 1 });
+      .toMatchObject({ status: "failed", error: "admin_required", completion_handled: 1 });
     for (const table of ["contacts", "conversations", "messages", "bot_runs"])
       expect(await all(env, `SELECT id FROM ${table} WHERE profile_id=?`, f.profile), table).toEqual([]);
   });
@@ -445,13 +447,18 @@ describe("c2-integra: desafio e exclusão de dados do e-mail", { timeout: 60_000
     await c2WorkerEmail(runtime(f, incoming(f, "automatic", "Auto-Submitted: auto-generated\r\n"))); await process(f);
     await c2WorkerEmail(runtime(f, incoming(f, "still-pending")));
     const mediaId = uid(), objectKey = `email-attachment/${f.profile}/${receipt.id}/0`;
+    expect(objectKey.length).toBeGreaterThan(50); // Prefixo real excede o limite de LIKE do D1.
     await env.MEDIA.put(objectKey, "anexo pessoal");
     await exec(env, "INSERT INTO media(id,profile_id,name,type,size,object_key,actor,created) VALUES(?,?,'pessoal.txt','text/plain',13,?,'email',?)", mediaId, f.profile, objectKey, now());
+    const unrelatedId = uid(), unrelatedKey = `email-attachment/${f.profile}/${receipt.id}-other/0`;
+    await env.MEDIA.put(unrelatedKey, "anexo de outro e-mail");
+    await exec(env, "INSERT INTO media(id,profile_id,name,type,size,object_key,actor,created) VALUES(?,?,'outro.txt','text/plain',21,?,'email',?)", unrelatedId, f.profile, unrelatedKey, now());
     const sharedId = uid(), sharedKey = `email-attachment/${f.profile}/${receipt.id}/1`, otherConversation = uid();
     await env.MEDIA.put(sharedKey, "cópia compartilhada");
     await exec(env, "INSERT INTO media(id,profile_id,name,type,size,object_key,actor,created) VALUES(?,?,'compartilhado.txt','text/plain',20,?,'email',?)", sharedId, f.profile, sharedKey, now());
     await exec(env, "UPDATE messages SET attachments=? WHERE conversation_id=?", JSON.stringify([sharedId]), receipt.conversation_id);
-    await exec(env, "INSERT INTO conversations(id,profile_id,connection_id,external_id,session,created,updated) VALUES(?,?,?,?,?,?,?)", otherConversation, f.profile, f.second, uid(), uid(), now(), now());
+    await exec(env, `INSERT INTO conversations(id,profile_id,connection_id,external_namespace,external_id,session,last_customer,created,updated)
+      VALUES(?,?,?,?,?,?,?,?,?)`, otherConversation, f.profile, f.second, `channel:${f.second}`, uid(), uid(), now(), now(), now());
     await exec(env, "INSERT INTO messages(id,profile_id,conversation_id,direction,author,text,attachments,created) VALUES(?,?,?,'outbound',?,'Outro atendimento',?,?)",
       uid(), f.profile, otherConversation, f.admin.id, JSON.stringify([sharedId]), now());
     const pendingMedia = [uid(), uid()], pendingKeys: string[] = [], pendingDeliveries: string[] = [];
@@ -489,10 +496,11 @@ describe("c2-integra: desafio e exclusão de dados do e-mail", { timeout: 60_000
     for (const table of ["email_channel_inbox", "email_channel_blocks", "inbox"])
       expect(await all(env, `SELECT * FROM ${table} WHERE profile_id=?`, f.profile), table).toEqual([]);
     expect((await all<{ id: string }>(env, "SELECT id FROM media WHERE profile_id=?", f.profile)).map(media => media.id).sort())
-      .toEqual([sharedId, ...pendingMedia].sort());
+      .toEqual([sharedId, ...pendingMedia, unrelatedId].sort());
     expect((await env.MEDIA.list({ prefix: `email-raw/${f.profile}/` })).objects).toEqual([]);
     expect((await env.MEDIA.list({ prefix: `email-attachment/${f.profile}/` })).objects.map(object => object.key).sort())
-      .toEqual([sharedKey, ...pendingKeys].sort());
+      .toEqual([sharedKey, ...pendingKeys, unrelatedKey].sort());
+    expect(await (await env.MEDIA.get(unrelatedKey))!.text()).toBe("anexo de outro e-mail");
     expect((await all<{ id: string; status: string }>(env, "SELECT id,status FROM outbox WHERE profile_id=?", f.profile)).sort((a, b) => a.id.localeCompare(b.id)))
       .toEqual(pendingDeliveries.sort().map(id => ({ id, status: "pending" })));
     expect(await env.MEDIA.head(uploadKey)).toBeNull();

@@ -412,12 +412,15 @@ export async function eraseEmailData(env: Env, profileId: string, connectionId: 
   const rows = await all<EmailInboxRow>(env, "SELECT * FROM email_channel_inbox WHERE profile_id=? AND connection_id=? AND sender=?", profileId, connectionId, address);
   for (const row of rows) {
     if (row.raw_key) await env.MEDIA.delete(row.raw_key);
+    const attachmentPrefix = `email-attachment/${profileId}/${row.id}/`;
+    // O ID inclui o hash completo; o prefixo excede o limite de padrões LIKE
+    // do D1. Compare literalmente, com o mesmo escopo usado no R2.
     const media = await all<{ id: string; object_key: string }>(env,
-      "SELECT id,object_key FROM media WHERE profile_id=? AND object_key LIKE ?", profileId, `email-attachment/${profileId}/${row.id}/%`);
+      "SELECT id,object_key FROM media WHERE profile_id=? AND substr(object_key,1,length(?))=?", profileId, attachmentPrefix, attachmentPrefix);
     for (const item of media) await eraseOwnedMedia(item);
     let orphanCursor: string | undefined;
     do {
-      const page = await env.MEDIA.list({ prefix: `email-attachment/${profileId}/${row.id}/`, limit: 100, cursor: orphanCursor });
+      const page = await env.MEDIA.list({ prefix: attachmentPrefix, limit: 100, cursor: orphanCursor });
       for (const item of page.objects) if (!retainedKeys.has(item.key)) await env.MEDIA.delete(item.key);
       orphanCursor = page.truncated ? page.cursor : undefined;
     } while (orphanCursor);
