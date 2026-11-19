@@ -2,7 +2,7 @@ import { all, exec, one } from "../../../db";
 import { ApiError, type Env } from "../../../types";
 import { modulesApi, type ModuleContext } from "../../api";
 import type { DueBudget, DueRequest, DueResult } from "../extensions";
-import { resolveWorkType, type WorkOrderRow } from "../public";
+import { resolveWorkType, workCustomerAllows, type WorkOrderRow } from "../public";
 import { projectChildForCustomer } from "../privacy";
 import { stableKey, taskView, type TaskRow } from "./model";
 
@@ -109,8 +109,7 @@ export async function runTaskDue(
       if (row.audience === "customer") {
         if (!projectChildForCustomer(taskView(row)) || !parent.conversation_id) { has_more = true; continue; }
         const c = await ctx.conversation(parent.conversation_id);
-        const phone = ctx.verifiedPhone(c);
-        if (c.profile_id !== ctx.profile || !phone || phone !== parent.phone) { has_more = true; continue; }
+        if (!(await workCustomerAllows(ctx, c, parent, true))) { has_more = true; continue; }
         const task = projectChildForCustomer(taskView(row));
         if (!task) { has_more = true; continue; }
         // A rodada não bloqueia o Coordinator: um comando pode reclassificar,

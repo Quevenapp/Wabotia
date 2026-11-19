@@ -1,8 +1,7 @@
 import { one } from "../../../db";
 import type { Actor } from "../../../types";
 import type { ModuleContext } from "../../api";
-import { authorizedOrder } from "../public";
-import { phoneDigits } from "../model";
+import { authorizedOrder, workCustomerAllows } from "../public";
 import { mayReadSensitive } from "../privacy";
 import { fail, type DocumentRow } from "./model";
 
@@ -28,12 +27,7 @@ export async function documentOrder(
   const order = await authorizedOrder(ctx, actor, id, access);
   if (access.conversation_id) {
     const c = await ctx.conversation(access.conversation_id, actor);
-    const phone = phoneDigits(ctx.verifiedPhone(c));
-    // O vínculo antigo da conversa não comprova o titular atual do documento.
-    if (
-      c.profile_id !== ctx.profile || c.chat_type === "group" ||
-      !phone || phone !== phoneDigits(order.row.phone)
-    )
+    if (!(await workCustomerAllows(ctx, c, order.row, true)))
       fail(404, "not_found");
   }
   if (access.private && !(await mayReadSensitive(ctx, actor)))

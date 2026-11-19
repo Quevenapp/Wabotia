@@ -1,7 +1,7 @@
 import { all, one } from "../../db";
 import { ApiError, json, type Conversation } from "../../types";
 import type { ModuleContext } from "../api";
-import { phoneDigits } from "./model";
+import { workCustomerScope } from "./public";
 import { menuOpenSince } from "./store";
 import { decideStageApproval } from "./stages";
 import { resumeOrderEffects } from "./motor-routes";
@@ -17,13 +17,14 @@ export async function handleStageReply(ctx: ModuleContext, c: Conversation, turn
   if (!button && !word && !digit && !turn.replyId?.startsWith("os:stage:")) return false;
   const say = (text: string) => ctx.sendMessage(c, { text }, { key: `stage-reply:${turn.rowId}` });
   if (turn.replyId && !button) { await say("Esta aprovação não está mais disponível."); return true; }
+  const scope = await workCustomerScope(ctx, c);
   let row: any;
-  if (button) row = await one(ctx.env, "SELECT * FROM os_orders WHERE profile_id=? AND id=? AND conversation_id=?", ctx.profile, button[1], c.id);
+  if (button) row = await one(ctx.env, `SELECT * FROM os_orders WHERE profile_id=? AND id=? AND ${scope.sql}`, ctx.profile, button[1], ...scope.params);
   else if (word?.[3]) {
-    row = await one(ctx.env, "SELECT * FROM os_orders WHERE profile_id=? AND number=? AND (conversation_id=? OR (phone<>'' AND phone=?))", ctx.profile, Number(word[3]), c.id, phoneDigits(ctx.verifiedPhone(c) || ""));
+    row = await one(ctx.env, `SELECT * FROM os_orders WHERE profile_id=? AND number=? AND ${scope.sql}`, ctx.profile, Number(word[3]), ...scope.params);
     if (json(row?.stage_approval_json, null)?.state !== "pending" && !word[2]) return false;
   } else {
-    const pending = await all(ctx.env, "SELECT * FROM os_orders WHERE profile_id=? AND conversation_id=? AND (status='quoted' OR json_extract(stage_approval_json,'$.state')='pending') ORDER BY number", ctx.profile, c.id);
+    const pending = await all(ctx.env, `SELECT * FROM os_orders WHERE profile_id=? AND ${scope.sql} AND (status='quoted' OR json_extract(stage_approval_json,'$.state')='pending') ORDER BY number`, ctx.profile, ...scope.params);
     const stages = pending.filter(r => json(r.stage_approval_json, null)?.state === "pending");
     if (!stages.length) return false;
     const menuSince = menuOpenSince(c);

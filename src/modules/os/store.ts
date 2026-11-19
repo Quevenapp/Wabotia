@@ -36,7 +36,9 @@ import {
 
 import type { ExtraValues, WorkTypeSnapshot } from "./contracts";
 import { effectiveStage, legacyCustomStatuses, makeSnapshot, snapshotType, workOrderAdditions } from "./work-types";
-import { resolveWorkType } from "./public";
+import { resolveWorkType, workCustomerScope, workCustomerAllows } from "./public";
+import { resolveCustomer } from "../../customer/ports";
+import { normalizeCustomerPhone } from "../../customer/phone";
 import { validateExtra } from "./validation";
 import { resumeOrderEffects } from "./motor-routes";
 import { atomic, casGuard, checkVersion, commitOrderMutation, mutationHistory } from "./mutations";
@@ -335,7 +337,8 @@ export async function listOrders(
 async function conversationOf(ctx: ModuleContext, order: any) {
   if (!order.conversation_id) return null;
   try {
-    return await ctx.conversation(order.conversation_id);
+    const c = await ctx.conversation(order.conversation_id);
+    return await workCustomerAllows(ctx, c, order, true) ? c : null;
   } catch {
     return null;
   }
@@ -364,6 +367,10 @@ export async function notify(
   const template = type ? textKey === "pickup_reminder" ? type.pickup_reminder_text : type.stages.find(s => s.id === effectiveStage(order))?.message : osSettings(await ctx.settings()).texts[textKey];
   if (!template) return null;
   const c = await conversationOf(ctx, order);
+  // O agendador legado marca retirada depois do retorno. Pendência de identidade
+  // precisa continuar tentável, sem registrar uma entrega que não ocorreu.
+  if (!c && order.conversation_id && textKey === "pickup_reminder")
+    throw new ApiError(409, "contact_conflict", "Destinatário do lembrete não confirmado.");
   if (!c || c.chat_type === "group") return null;
   return ctx.sendMessage(
     c,
@@ -431,16 +438,19 @@ export async function createOrder(ctx: ModuleContext, input: CreateInput) {
       c.chat_type !== "group",
       "Abra ordens de serviço só em conversas individuais.",
     );
-  const contact = c ? await ctx.contact(c) : null;
-  const phone = phoneDigits(
-    text(input.phone, 40, "o telefone") || c?.phone || contact?.phone || "",
-  );
-  requireValue(
-    c || phone.length >= 8,
-    "Informe a conversa ou o telefone do cliente.",
-  );
-  const name =
-    text(input.customer_name, 120, "o nome do cliente") || contact?.name || "";
+  if (c && c.profile_id !== ctx.profile) throw notFound();
+  const ref = c ? await resolveCustomer(ctx.env, c) : null;
+  const namespace = c?.external_namespace.startsWith("app:") ? c.external_namespace : "team";
+  const contactId = ref?.state === "ready" && ref.profileId === ctx.profile && ref.namespace === namespace
+    ? ref.contactId : null;
+  const contact = contactId ? await one<{ name: string }>(ctx.env,
+    "SELECT name FROM contacts WHERE id=? AND profile_id=? AND namespace=? AND identity_state='active'",
+    contactId, ctx.profile, namespace) : null;
+  const suppliedPhone = text(input.phone, 40, "o telefone");
+  const phone = normalizeCustomerPhone(suppliedPhone || ref?.verifiedPhone || "", "international") || "";
+  requireValue(!suppliedPhone || phone, "Informe um telefone internacional válido.");
+  requireValue(c || phone, "Informe a conversa ou o telefone do cliente.");
+  const name = text(input.customer_name, 120, "o nome do cliente") || contact?.name || "";
   const id = uid(), at = now();
   // Inicializa o embutido antes de qualquer incremento, inclusive se o
   // primeiro trabalho novo for personalizado. Todos os efeitos são atômicos.
@@ -452,7 +462,7 @@ export async function createOrder(ctx: ModuleContext, input: CreateInput) {
       ["INSERT INTO os_type_counters(profile_id,type_id,last) SELECT ?,?,1 WHERE NOT EXISTS(SELECT 1 FROM os_orders WHERE profile_id=? AND source_key=?) ON CONFLICT(profile_id,type_id) DO UPDATE SET last=last+1", [ctx.profile, type.id, ctx.profile, sourceKey]],
       ["SELECT CASE WHEN (SELECT last FROM os_counters WHERE profile_id=?)<=2147483647 THEN 1 ELSE json('sequence_exhausted') END", [ctx.profile]],
       ["INSERT INTO os_orders(id,profile_id,number,status,conversation_id,contact_id,customer_name,phone,item,problem,notes,assignee,due_at,source,source_key,terms_text,terms_accepted_at,created_by,created,updated,type_id,stage,type_number,extra_json,type_snapshot_json) SELECT ?,?,(SELECT last FROM os_counters WHERE profile_id=?),'received',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,(SELECT last FROM os_type_counters WHERE profile_id=? AND type_id=?),?,? WHERE NOT EXISTS(SELECT 1 FROM os_orders WHERE profile_id=? AND source_key=?)",
-        [id, ctx.profile, ctx.profile, c?.id || null, contact?.id || null, name, phone, item, problem, notes, owner, due, input.source, sourceKey, input.terms || null, input.terms ? at : null, input.actor, at, at, type.id, type.initial_stage, ctx.profile, type.id, JSON.stringify(extra), snapshot, ctx.profile, sourceKey]],
+        [id, ctx.profile, ctx.profile, c?.id || null, contact ? contactId : null, name, phone, item, problem, notes, owner, due, input.source, sourceKey, input.terms || null, input.terms ? at : null, input.actor, at, at, type.id, type.initial_stage, ctx.profile, type.id, JSON.stringify(extra), snapshot, ctx.profile, sourceKey]],
       ["INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created,from_stage,to_stage,entity_version,mutation_key) SELECT ?,?,?,'opened',NULL,'received',?,?,?,NULL,?,1,? WHERE changes()=1", [uid(), ctx.profile, id, input.actor, "", at, type.kind === "custom" ? type.initial_stage : null, `open:${sourceKey}`]],
     ]);
     inserted = results[4];
@@ -1000,12 +1010,13 @@ export async function handleQuoteReply(
       await say("Esta opção não está mais disponível.");
       return true;
     }
+    const scope = await workCustomerScope(ctx, c);
     order = await one(
       ctx.env,
-      "SELECT * FROM os_orders WHERE id=? AND profile_id=? AND conversation_id=?",
+      `SELECT * FROM os_orders WHERE id=? AND profile_id=? AND ${scope.sql}`,
       button[1],
       ctx.profile,
-      c.id,
+      ...scope.params,
     );
     if (!order) {
       await say("Não encontramos esta ordem de serviço.");
@@ -1029,6 +1040,7 @@ export async function handleQuoteReply(
         value,
       );
     if (!digit && !word) return false;
+    const scope = await workCustomerScope(ctx, c);
     decision = digit
       ? digit[1] === "1"
         ? "approve"
@@ -1036,15 +1048,13 @@ export async function handleQuoteReply(
       : word![1].startsWith("aprov")
         ? "approve"
         : "decline";
-    const phone = phoneDigits(ctx.verifiedPhone(c) || "");
     if (word?.[2]) {
       order = await one(
         ctx.env,
-        "SELECT * FROM os_orders WHERE profile_id=? AND number=? AND (conversation_id=? OR (phone<>'' AND phone=?))",
+        `SELECT * FROM os_orders WHERE profile_id=? AND number=? AND ${scope.sql}`,
         ctx.profile,
         Number(word[2]),
-        c.id,
-        phone,
+        ...scope.params,
       );
       if (!order) {
         await say(
@@ -1055,9 +1065,9 @@ export async function handleQuoteReply(
     } else {
       const pending = await all(
         ctx.env,
-        "SELECT * FROM os_orders WHERE profile_id=? AND conversation_id=? AND status='quoted' ORDER BY quote_sent_at DESC",
+        `SELECT * FROM os_orders WHERE profile_id=? AND ${scope.sql} AND status='quoted' ORDER BY quote_sent_at DESC`,
         ctx.profile,
-        c.id,
+        ...scope.params,
       );
       if (!pending.length) return false;
       // "1"/"2" só logo depois do orçamento: com um menu aberto depois dele,
@@ -1109,7 +1119,7 @@ export async function handleQuoteReply(
 
 /** Item de menu "Acompanhar ordem de serviço". */
 /**
- * Ordens do cliente da conversa (desta conversa ou do mesmo telefone), como
+ * Ordens do contato canônico (legado somente na conversa de origem), como
  * o "Acompanhar" do cliente: para o bot (os_situacao), sem busca por outro
  * telefone ou número. `open` deixa de fora entregues e canceladas.
  */
@@ -1119,37 +1129,19 @@ export async function ordersOfCustomer(
   open = false,
   typeId?: string,
 ) {
-  const phone = phoneDigits(ctx.verifiedPhone(c) || "");
-  const rows = await all(
-    ctx.env,
-    `SELECT * FROM os_orders WHERE profile_id=? AND (conversation_id=? OR (phone<>'' AND phone=?))${open ? " AND status NOT IN ('delivered','cancelled')" : ""}${typeId ? " AND type_id=?" : ""} ORDER BY number DESC LIMIT 20`,
-    ctx.profile,
-    c.id,
-    phone,
-    ...(typeId ? [typeId] : []),
-  );
+  const rows = await customerOrders(ctx, c, open, typeId, "DESC");
   return rows.map((row) => orderView(row));
 }
 
+async function customerOrders(ctx: ModuleContext, c: Conversation, open: boolean, typeId: string | undefined, direction: "ASC" | "DESC") {
+  const scope = await workCustomerScope(ctx, c);
+  return all(ctx.env,
+    `SELECT * FROM os_orders WHERE profile_id=? AND ${scope.sql}${open ? " AND status NOT IN ('delivered','cancelled')" : ""}${typeId ? " AND type_id=?" : ""} ORDER BY number ${direction} LIMIT 20`,
+    ctx.profile, ...scope.params, ...(typeId ? [typeId] : []));
+}
+
 export async function trackText(ctx: ModuleContext, c: Conversation, typeId?: string) {
-  const phone = phoneDigits(ctx.verifiedPhone(c) || "");
-  // Ordens abertas no balcão só com o telefone passam a ser desta conversa.
-  if (phone.length >= 8)
-    await exec(
-      ctx.env,
-      "UPDATE os_orders SET conversation_id=? WHERE profile_id=? AND phone=? AND conversation_id IS NULL",
-      c.id,
-      ctx.profile,
-      phone,
-    );
-  const rows = await all(
-    ctx.env,
-    `SELECT * FROM os_orders WHERE profile_id=? AND (conversation_id=? OR (phone<>'' AND phone=?)) AND status NOT IN ('delivered','cancelled')${typeId ? " AND type_id=?" : ""} ORDER BY number LIMIT 20`,
-    ctx.profile,
-    c.id,
-    phone,
-    ...(typeId ? [typeId] : []),
-  );
+  const rows = await customerOrders(ctx, c, true, typeId, "ASC");
   if (!rows.length) {
     if (typeId && typeId !== "service_order") {
       const type = await resolveWorkType(ctx, typeId);

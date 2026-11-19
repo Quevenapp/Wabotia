@@ -6,6 +6,7 @@ import type { OsExtension } from "../extensions";
 import { documentOrder, loadDocument } from "./access";
 import { fail, versionOf } from "./model";
 import { reserveDocument } from "./store";
+import { workCustomerScope } from "../public";
 import {
   beginUpload,
   completeDocument,
@@ -77,9 +78,10 @@ function inboundActor(ctx: ModuleContext, c: Conversation): Actor {
 export const receiveDocument: NonNullable<
   OsExtension["onConversationTurn"]
 > = async (ctx, c, turn) => {
-  if (c.profile_id !== ctx.profile || !ctx.verifiedPhone(c)) return false;
+  if (c.profile_id !== ctx.profile || c.chat_type === "group") return false;
   // Um anexo comum deve seguir para o menu/bot, mesmo com tipos personalizados.
   if (!/^DOCUMENTO\b/i.test(turn.text.trim())) return false;
+  if (!(await workCustomerScope(ctx, c)).verified) return false;
   const match = /^DOCUMENTO\s+([1-9][0-9]{0,9})\s*$/i.exec(turn.text.trim());
   const attachments = await ctx.inboundAttachments(c, turn.rowId);
   // Área somente com o embutido conserva o tratamento anterior, qualquer que
