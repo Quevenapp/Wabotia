@@ -5,7 +5,17 @@ import { uid, now, defaults, type Actor } from "../src/types";
 import { sha } from "../src/security";
 import { inbound } from "../src/service";
 import { contactCommand, listContacts } from "../src/contacts";
-import { parseContactCsv } from "../src/contact-csv";
+import { parseContactCsv, contactValues } from "../src/contact-csv";
+import { publicContact } from "../src/contacts";
+import { installIdentityPort } from "../src/customer/ports";
+
+// Dependência paralela: a implementação real do índice é verificada por f1-identidade.
+installIdentityPort({
+  indexContact: async () => [],
+  resolve: async () => { throw new Error("Resolvedor não solicitado neste teste"); },
+  prepareInbound: async () => ({ statements: [], state: "pending", verifiedPhone: null }),
+  maintain: async () => ({ pending: false, statements: 0, items: 0 }),
+});
 
 async function fixture(
   profile = uid(),
@@ -400,4 +410,21 @@ it("vincula explicitamente, nunca une pelo telefone nem cruza equipe e aplicaç�
   expect(
     (await all(env, "SELECT * FROM outbox WHERE profile_id=?", f.p)).length,
   ).toBe(0);
+});
+
+it("valida nome completo sem truncar e telefone sem extrair dígitos arbitrários", () => {
+  expect(contactValues({ name: "Á".repeat(200) }).name).toHaveLength(200);
+  expect(() => contactValues({ name: "Á".repeat(201) })).toThrow("200");
+  for (const phone of ["cliente5511999990000", "12345678@lid", "05511999990000", "55+11999990000"])
+    expect(() => contactValues({ name: "Ana", phone })).toThrow("Telefone");
+  expect(() => contactValues({ name: "", phone: "5511999990000" })).toThrow("nome");
+  expect(contactValues({ name: "", phone: "5511999990000" }, { phoneOnly: true })).toMatchObject({ name: "", phone: "5511999990000" });
+  expect(parseContactCsv("nome;telefone\n;5511999990000").errors).toHaveLength(1);
+  expect(parseContactCsv("nome;telefone\nAna;11999990000", { phoneMode: "human_br" }).rows[0].values.phone).toBe("5511999990000");
+  expect(parseContactCsv("nome;telefone\nAna;11999990000").rows[0].values.phone).toBe("11999990000");
+});
+it("a projeção pública é uma lista explícita e nunca expõe dados internos novos", () => {
+  const contact = publicContact({ id: "id", name: "Ana", local_patch_cipher: "privado", mirror_json: "privado", import_fingerprint: "privado", search_text: "privado", unknown_private_column: "privado" });
+  expect(contact).toMatchObject({ id: "id", name: "Ana" });
+  expect(JSON.stringify(contact)).not.toContain("privado");
 });

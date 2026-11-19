@@ -1,5 +1,5 @@
-import { all, one, batch, exec } from "./db";
-import { access, sha } from "./security";
+import { all, one, batch } from "./db";
+import { access, sha, seal, unseal, canonical } from "./security";
 import {
   ApiError,
   type Actor,
@@ -16,15 +16,29 @@ import {
 } from "./contact-csv";
 import { visibleConversation } from "./visibility";
 import { stepFor } from "./web-steps";
+import { identityPort, installWritePort } from "./customer/ports";
+import { registerCommand } from "./modules/hooks";
+import { customerProfileDeclarations } from "./customer/declarations";
+import { enrichLocal, maintainJobs, bindFromErp, dispatchCustomerMaintenance, jobInsert, replayJob, requestHash, writeResult } from "./customer/jobs";
+import { customerAccess, activeContact, contactRow, namespaceFor, phoneSafetyStatements, guardedBatch } from "./customer/local";
+import { eraseContact, resolvePhone, saveCustomerSection, requireCustomerModule } from "./customer/http";
+import type { CustomerWrite, Namespace, Statement } from "./customer/contracts";
 
-export const contactNamespace = (actor: Actor) =>
-  actor.kind === "app" ? `app:${actor.id}` : "team";
-export const conversationContactNamespace = (conv: any) =>
+export const contactNamespace = namespaceFor;
+export const conversationContactNamespace = (conv: any): Namespace =>
   conv.external_namespace.startsWith("app:") ? conv.external_namespace : "team";
-function publicContact(row: any) {
+export function publicContact(row: any) {
   if (!row) return null;
-  const { import_fingerprint, search_text, ...result } = row;
-  return result;
+  return {
+    id: row.id, profile_id: row.profile_id, namespace: row.namespace,
+    name: row.name, phone: row.phone, email: row.email, company: row.company, notes: row.notes,
+    source: row.source, created_by: row.created_by, updated_by: row.updated_by,
+    created: row.created, updated: row.updated, version: row.version,
+    document: row.document ?? null, person_type: row.person_type ?? null,
+    erp_contact_id: row.erp_contact_id ?? null, erp_version: row.erp_version ?? null,
+    identityState: row.identity_state,
+    ...(row.conversation_count === undefined ? {} : { conversation_count: row.conversation_count }),
+  };
 }
 export async function getContact(
   env: Env,
@@ -32,15 +46,8 @@ export async function getContact(
   profile: string,
   id: string,
 ) {
-  const row = await one(
-    env,
-    "SELECT * FROM contacts WHERE id=? AND profile_id=? AND (?=1 OR namespace=?)",
-    id,
-    profile,
-    actor.kind === "user" ? 1 : 0,
-    contactNamespace(actor),
-  );
-  if (!row) throw new ApiError(404, "not_found", "Contato não encontrado.");
+  customerAccess(actor, profile);
+  const row = await contactRow(env, actor, profile, id);
   return publicContact(row)!;
 }
 export async function conversationContact(
@@ -54,7 +61,7 @@ export async function conversationContact(
   return publicContact(
     await one(
       env,
-      "SELECT c.* FROM contacts c JOIN conversation_contacts l ON l.contact_id=c.id AND l.profile_id=c.profile_id WHERE l.profile_id=? AND l.conversation_id=? AND (?=1 OR c.namespace=?)",
+      "SELECT c.* FROM contacts c JOIN conversation_contacts l ON l.contact_id=c.id AND l.profile_id=c.profile_id WHERE l.profile_id=? AND l.conversation_id=? AND c.identity_state='active' AND (?=1 OR c.namespace=?)",
       profile,
       conversation,
       actor.kind === "user" ? 1 : 0,
@@ -66,13 +73,22 @@ export async function listContacts(
   env: Env,
   actor: Actor,
   profile: string,
-  query: { q?: string; cursor?: string; limit?: string; namespace?: string },
+  query: { q?: string; cursor?: string; limit?: string; namespace?: string; identity?: string; review?: string },
 ) {
-  access(actor, profile, "contacts:read");
+  customerAccess(actor, profile);
+  const identity = query.identity ?? "all";
+  requireValue(["all", "identified", "phone_only"].includes(identity), "Filtro de identidade inválido.");
+  requireValue(!query.review || query.review === "inactive180", "Filtro de revisão inválido.");
+  const cursorContext = canonical({ profile, actor: actor.id, access: actor.access ?? null,
+    namespace: query.namespace ?? "", identity, review: query.review ?? "", q: query.q ?? "" });
+  let cut = now();
   let after: [number, string] | null = null;
   try {
     if (query.cursor) {
-      after = JSON.parse(atob(query.cursor));
+      const cursor = await unseal(env, atob(query.cursor));
+      if (cursor.context !== cursorContext || !Number.isSafeInteger(cursor.cut)) throw Error();
+      cut = cursor.cut;
+      after = cursor.after;
       if (
         !Array.isArray(after) ||
         after.length !== 2 ||
@@ -93,8 +109,10 @@ export async function listContacts(
   const namespace = (query.namespace || "").slice(0, 100);
   const rows = await all(
     env,
-    "SELECT c.*, (SELECT count(*) FROM conversation_contacts l WHERE l.contact_id=c.id AND l.profile_id=c.profile_id) conversation_count FROM contacts c WHERE c.profile_id=? AND (?=1 OR c.namespace=?) AND (?='' OR c.namespace=?) AND c.search_text LIKE ? ESCAPE '!' AND (? IS NULL OR c.created<? OR (c.created=? AND c.id<?)) ORDER BY c.created DESC,c.id DESC LIMIT ?",
+    "SELECT c.*, (SELECT count(*) FROM conversation_contacts l WHERE l.contact_id=c.id AND l.profile_id=c.profile_id) conversation_count FROM contacts c WHERE c.profile_id=? AND c.created<=? AND c.identity_state='active' AND (?='all' OR (?='identified' AND (trim(c.name)<>'' OR coalesce(c.document,'')<>'' OR c.erp_contact_id IS NOT NULL)) OR (?='phone_only' AND c.phone<>'' AND trim(c.name)='' AND coalesce(c.document,'')='' AND c.erp_contact_id IS NULL)) AND (?='' OR (c.phone<>'' AND c.email='' AND c.company='' AND trim(c.name)='' AND coalesce(c.document,'')='' AND c.erp_contact_id IS NULL AND c.created<? AND NOT EXISTS(SELECT 1 FROM agenda_appointments rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM os_orders rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM pedido_orders rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM reserva_bookings rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM mensalidade_subscriptions rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM conversation_contacts l JOIN conversations v ON v.id=l.conversation_id AND v.profile_id=l.profile_id WHERE l.profile_id=c.profile_id AND l.contact_id=c.id AND v.last_customer>=?) AND NOT EXISTS(SELECT 1 FROM customer_records r WHERE r.profile_id=c.profile_id AND r.contact_id=c.id AND r.occurred_at>=?) AND NOT EXISTS(SELECT 1 FROM queue_tickets q JOIN conversation_contacts l ON l.conversation_id=q.conversation_id AND l.profile_id=q.profile_id WHERE l.profile_id=c.profile_id AND l.contact_id=c.id AND max(q.created_at,coalesce(q.finished_at,0))>=?) AND NOT EXISTS(SELECT 1 FROM web_steps w JOIN conversation_contacts l ON l.conversation_id=w.conversation_id AND l.profile_id=w.profile_id WHERE l.profile_id=c.profile_id AND l.contact_id=c.id AND coalesce(w.completed_at,w.created)>=?))) AND (?=1 OR c.namespace=?) AND (?='' OR c.namespace=?) AND c.search_text LIKE ? ESCAPE '!' AND (? IS NULL OR c.created<? OR (c.created=? AND c.id<?)) ORDER BY c.created DESC,c.id DESC LIMIT ?",
     profile,
+    cut, identity, identity, identity, query.review ?? "",
+    ...Array(5).fill(cut - 180 * 86400000),
     actor.kind === "user" ? 1 : 0,
     contactNamespace(actor),
     namespace,
@@ -111,8 +129,9 @@ export async function listContacts(
   const last = rows.at(-1);
   return {
     data: rows.map(publicContact),
+    incomplete: !!(await one(env, "SELECT 1 pending FROM contacts c WHERE c.profile_id=? AND (?=1 OR c.namespace=?) AND (?='' OR c.namespace=?) AND c.identity_state='active' AND c.phone<>'' AND NOT EXISTS(SELECT 1 FROM customer_phone_candidates p WHERE p.profile_id=c.profile_id AND p.namespace=c.namespace AND p.contact_id=c.id) LIMIT 1", profile, actor.kind === "user" ? 1 : 0, contactNamespace(actor), namespace, namespace)),
     next_cursor:
-      more && last ? btoa(JSON.stringify([last.created, last.id])) : null,
+      more && last ? btoa(await seal(env, { context: cursorContext, cut, after: [last.created, last.id] })) : null,
   };
 }
 export async function contactDetail(
@@ -121,7 +140,7 @@ export async function contactDetail(
   profile: string,
   id: string,
 ) {
-  access(actor, profile, "contacts:read");
+  customerAccess(actor, profile);
   const contact = await getContact(env, actor, profile, id);
   const conversations =
     actor.kind === "app" && !actor.scopes.includes("conversations:read")
@@ -146,7 +165,16 @@ export async function contactDetail(
         )
       ).map((row) => stepFor(actor, row))
     : [];
-  return { contact, conversations, web_steps: answers };
+  const identity = contact.phone ? await one(env, "SELECT state,contact_id FROM customer_phones WHERE profile_id=? AND namespace=? AND phone=?", profile, contact.namespace, contact.phone) : null;
+  const linkState = identity?.state === "ambiguous" ? "ambiguous" : identity?.state === "ready" && identity.contact_id === id ? "ready" : "pending";
+  const synchronization = await one(env, "SELECT id,state,error_code FROM customer_jobs WHERE profile_id=? AND contact_id=? ORDER BY created DESC,id DESC LIMIT 1", profile, id);
+  return { contact, conversations, web_steps: answers,
+    reference: { profileId: profile, namespace: contact.namespace, contactId: id, version: contact.version,
+      state: linkState, verifiedPhone: null, erp: contact.erp_contact_id ? { id: contact.erp_contact_id, version: contact.erp_version } : null },
+    state: contact.identityState,
+    synchronization: synchronization ? { jobId: synchronization.id, state: synchronization.state, errorCode: synchronization.error_code,
+      pending: !["done", "retained", "cancelled"].includes(synchronization.state) } : null,
+  };
 }
 function insertContact(
   actor: Actor,
@@ -189,8 +217,10 @@ async function importPlan(
   actor: Actor,
   profile: string,
   csv: unknown,
+  phoneMode: "international" | "human_br" = "international",
 ) {
-  const parsed = parseContactCsv(csv);
+  requireValue(phoneMode === "international" || phoneMode === "human_br", "Convenção de telefone inválida.");
+  const parsed = parseContactCsv(csv, { phoneMode });
   const hashed = await Promise.all(
     parsed.rows.map(async (row) => ({
       ...row,
@@ -225,9 +255,10 @@ export async function previewContactCsv(
   actor: Actor,
   profile: string,
   csv: unknown,
+  phoneMode: "international" | "human_br" = "international",
 ) {
-  access(actor, profile, "contacts:write");
-  const plan = await importPlan(env, actor, profile, csv);
+  customerAccess(actor, profile, true);
+  const plan = await importPlan(env, actor, profile, csv, phoneMode);
   return { ...plan, rows: plan.rows.map(({ fingerprint, ...row }) => row) };
 }
 export async function contactCommand(
@@ -236,8 +267,35 @@ export async function contactCommand(
   profile: string,
   operation: string,
   data: any,
+  commandId: string = uid(),
 ) {
-  access(actor, profile, "contacts:write");
+  if (operation === "contact.section") return saveCustomerSection(env, actor, profile, data, commandId);
+  customerAccess(actor, profile, true);
+  if (operation === "contact.promote") {
+    await requireCustomerModule(env, actor, profile, "erp");
+    return enrichLocal(env, actor, profile, data.id, { ...data, commandId }, "promote");
+  }
+  if (operation === "contact.from-erp") {
+    await requireCustomerModule(env, actor, profile, "erp");
+    return bindFromErp(env, actor, profile, data.erpId, commandId);
+  }
+  if (operation === "contact.resolve-phone") return resolvePhone(env, actor, profile, data, commandId);
+  if (operation === "contact.erasure") return eraseContact(env, actor, profile, data.id, data, commandId);
+  const legacyHash = await requestHash(actor, { operation, data });
+  if (["contact.create", "contact.import", "contact.from-conversation", "contact.unlink"].includes(operation)) {
+    const replay = await replayJob(env, profile, commandId, legacyHash);
+    if (replay) {
+      const result = await unseal(env, replay.result_cipher);
+      return result.contactId ? getContact(env, actor, profile, result.contactId) : result;
+    }
+  }
+  const commitLocal = async (statements: Statement[], contactId: string | null, namespace: Namespace, result: unknown) => {
+    const receipt = jobInsert(profile, namespace, contactId, "enrich", commandId, legacyHash, await seal(env, { operation }), null, null);
+    await guardedBatch(env, [...statements, receipt.statement,
+      ["UPDATE customer_jobs SET state='done',payload_cipher=NULL,result_cipher=?,cursor_json=? WHERE profile_id=? AND id=?",
+        [await seal(env, result), JSON.stringify({ receipt: operation }), profile, receipt.id]],
+    ]);
+  };
   if (operation === "contact.create") {
     const row = insertContact(
       actor,
@@ -246,68 +304,53 @@ export async function contactCommand(
       contactValues(data),
       "manual",
     );
-    await batch(env, [row.statement]);
+    await commitLocal([...phoneSafetyStatements(profile, contactNamespace(actor), contactValues(data).phone ? [contactValues(data).phone] : [], commandId), row.statement, ...await identityPort.indexContact(env, {
+      profileId: profile, namespace: contactNamespace(actor), contactId: row.id,
+      phones: contactValues(data).phone ? [contactValues(data).phone] : [], origin: "local",
+    })], row.id, contactNamespace(actor), { contactId: row.id });
     return getContact(env, actor, profile, row.id);
   }
   if (operation === "contact.update") {
-    const old = await getContact(env, actor, profile, data.id);
-    requireValue(
-      Number.isSafeInteger(data.expected_version),
-      "Informe a versão do contato que está editando.",
-    );
-    if (data.expected_version !== old.version)
-      throw new ApiError(
-        409,
-        "contact_conflict",
-        "Este contato foi alterado. Reabra-o antes de salvar.",
-      );
-    const values = contactValues({ ...old, ...data });
-    await exec(
-      env,
-      "UPDATE contacts SET name=?,phone=?,email=?,company=?,notes=?,search_text=?,updated_by=?,version=version+1,updated=? WHERE id=? AND profile_id=?",
-      values.name,
-      values.phone,
-      values.email,
-      values.company,
-      values.notes,
-      searchText(
-        [values.name, values.phone, values.email, values.company].join(" "),
-      ),
-      actor.id,
-      now(),
-      old.id,
-      profile,
-    );
-    return getContact(env, actor, profile, old.id);
+    const replay = await replayJob(env, profile, commandId, legacyHash);
+    if (replay) return { ...await getContact(env, actor, profile, data.id), result: await writeResult(env, replay) };
+    const old = await contactRow(env, actor, profile, data.id, true);
+    activeContact(old);
+    const values = contactValues({ ...old, ...data }, { phoneOnly: !old.name && !!old.phone });
+    const patch: CustomerWrite["patch"] = {};
+    if ("name" in data) patch.name = values.name;
+    if ("phone" in data) patch.phones = values.phone ? [values.phone] : [];
+    if ("email" in data) patch.email = values.email;
+    if ("document" in data) patch.document = data.document;
+    const input: CustomerWrite = data.customer ? { ...data.customer, commandId } : {
+      commandId, expectedVersion: data.expected_version, expectedErpVersion: old.erp_version,
+      patch, mode: "replace_confirmed",
+    };
+    if (data.customer && ["name", "phone", "email", "document"].some(k => k in data))
+      throw new ApiError(400, "invalid_request", "Envie os campos cadastrais em customer.patch.");
+    const local = "company" in data || "notes" in data ? { company: values.company, notes: values.notes } : undefined;
+    const result = await enrichLocal(env, actor, profile, old.id, input, "enrich", local, !data.customer, { operation, data });
+    return { ...await getContact(env, actor, profile, old.id), result };
   }
   if (operation === "contact.import") {
-    const plan = await importPlan(env, actor, profile, data.csv);
+    const plan = await importPlan(env, actor, profile, data.csv, data.phone_mode);
     if (plan.errors.length)
       throw new ApiError(
         400,
         "invalid_csv",
         `Nenhum contato foi importado. Corrija ${plan.errors.length} linha(s): linha ${plan.errors[0].line}, ${plan.errors[0].message}`,
       );
-    const statements = plan.rows
-      .filter((row) => !row.duplicate)
-      .map(
-        (row) =>
-          insertContact(
-            actor,
-            profile,
-            contactNamespace(actor),
-            row.values,
-            "csv",
-            row.fingerprint,
-          ).statement,
-      );
+    const additions = plan.rows.filter(row => !row.duplicate).map(row => ({
+      ...insertContact(actor, profile, contactNamespace(actor), row.values, "csv", row.fingerprint), values: row.values,
+    }));
+    const statements: Statement[] = phoneSafetyStatements(profile, contactNamespace(actor), additions.map(row => row.values.phone).filter(Boolean), commandId);
+    for (const row of additions) statements.push(row.statement, ...await identityPort.indexContact(env, {
+      profileId: profile, namespace: contactNamespace(actor), contactId: row.id,
+      phones: row.values.phone ? [row.values.phone] : [], origin: "local",
+    }));
     // One D1 batch is atomic: a failed import cannot leave a partially imported file.
-    if (statements.length) await batch(env, statements);
-    return {
-      imported: statements.length,
-      skipped: plan.skipped_count,
-      total: plan.total,
-    };
+    const result = { imported: additions.length, skipped: plan.skipped_count, total: plan.total };
+    await commitLocal(statements, null, contactNamespace(actor), result);
+    return result;
   }
   if (["contact.from-conversation", "contact.unlink"].includes(operation)) {
     access(actor, profile, "conversations:read");
@@ -346,12 +389,10 @@ export async function contactCommand(
           "contact_conflict",
           "O contato desta conversa mudou. Reabra a conversa antes de desvincular.",
         );
-      await exec(
-        env,
-        "DELETE FROM conversation_contacts WHERE conversation_id=? AND profile_id=?",
-        conv.id,
-        profile,
-      );
+      await commitLocal([
+        ["DELETE FROM conversation_contacts WHERE conversation_id=? AND profile_id=?", [conv.id, profile]],
+        ["UPDATE conversations SET customer_link_state='blocked' WHERE id=? AND profile_id=?", [conv.id, profile]],
+      ], linked?.contact_id ?? null, conversationContactNamespace(conv), { id: conv.id, unlinked: true });
       return { id: conv.id, unlinked: true };
     }
     if (linked) {
@@ -372,7 +413,7 @@ export async function contactCommand(
       if (chosen.namespace !== namespace)
         throw new ApiError(
           409,
-          "contact_namespace_conflict",
+          "namespace_conflict",
           "Escolha um contato desta equipe ou desta mesma integração.",
         );
       id = chosen.id;
@@ -385,14 +426,51 @@ export async function contactCommand(
         "conversation",
       );
       id = row.id;
-      statements.push(row.statement);
+      statements.push(...phoneSafetyStatements(profile, namespace, contactValues(data).phone ? [contactValues(data).phone] : [], commandId), row.statement, ...await identityPort.indexContact(env, {
+        profileId: profile, namespace, contactId: row.id,
+        phones: contactValues(data).phone ? [contactValues(data).phone] : [], origin: "local",
+      }));
     }
     statements.push([
       "INSERT INTO conversation_contacts(conversation_id,profile_id,contact_id,linked_by,created) VALUES(?,?,?,?,?)",
       [conv.id, profile, id, actor.id, now()],
     ]);
-    await batch(env, statements);
+    statements.push(["UPDATE conversations SET customer_link_state='pending' WHERE id=? AND profile_id=?", [conv.id, profile]]);
+    await commitLocal(statements, id, namespace, { contactId: id });
     return getContact(env, actor, profile, id);
   }
   throw new ApiError(400, "unknown_operation", "Operação de contato inválida.");
+}
+
+// O registro recebe o operationId estável de perform, nunca o X-Request-Id.
+installWritePort({ enrich: enrichLocal, maintain: maintainJobs });
+for (const operation of ["contact.create", "contact.update", "contact.import", "contact.from-conversation", "contact.unlink", "contact.promote", "contact.from-erp", "contact.resolve-phone", "contact.erasure", "contact.section"])
+  registerCommand(operation, (env, actor, profile, data, operationId) => contactCommand(env, actor, profile, operation, data, operationId));
+for (const moduleId of Object.keys(customerProfileDeclarations))
+  registerCommand(`${moduleId}.customer-section`, (env, actor, profile, data, operationId) =>
+    saveCustomerSection(env, actor, profile, { ...data, module: moduleId }, operationId));
+registerCommand("contact.maintain", async (env, actor, profile) => {
+  if (actor.kind !== "connector" || actor.id !== "customer-maintenance")
+    throw new ApiError(403, "forbidden", "Manutenção interna.");
+  // Dez instruções reservadas à abertura/fechamento do comando no Coordinator.
+  return dispatchCustomerMaintenance(env, profile);
+});
+
+/** Recupera intenção já gravada quando o recibo externo ficou sem resposta. */
+export async function recoverContactCommand(env: Env, actor: Actor, profile: string, operation: string, key: string) {
+  customerAccess(actor, profile, operation !== "contact.erasure");
+  const commandId = (await sha(`${actor.id}:${profile}:${operation}\n${key}`)).slice(0, 32);
+  const job = await one(env, "SELECT * FROM customer_jobs WHERE profile_id=? AND command_id=? AND (?=1 OR namespace=?)", profile, commandId, actor.kind === "user" ? 1 : 0, contactNamespace(actor));
+  if (!job) return null;
+  if (operation === "contact.erasure") {
+    if (actor.kind !== "user" || actor.role !== "admin" || actor.via) throw new ApiError(403, "forbidden", "A exclusão exige um administrador.");
+    return { id: job.id, contactId: job.contact_id, state: job.state, errorCode: job.error_code, missingFields: [] };
+  }
+  const receipt = JSON.parse(job.cursor_json || "{}").receipt;
+  if (receipt || operation === "contact.resolve-phone") {
+    const result = await unseal(env, job.result_cipher);
+    return receipt && result.contactId ? getContact(env, actor, profile, result.contactId) : result;
+  }
+  const result = await writeResult(env, job);
+  return operation === "contact.update" ? { ...await getContact(env, actor, profile, job.contact_id), result } : result;
 }
