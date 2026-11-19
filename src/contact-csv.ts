@@ -10,6 +10,20 @@ export type ContactValues = {
   company: string;
   notes: string;
 };
+
+/** Exportação de apresentação, sem sujeitos/contas brutos e sem prova importável. */
+export function serializeContactCsv(rows: readonly (ContactValues & { channels?: readonly { channel: string; account_label: string; username: string; state: string }[] })[]): string {
+  const multichannel = rows.some(row => row.channels?.some(channel => channel.channel !== "whatsapp"));
+  const cell = (value: string) => {
+    // Planilhas não devem interpretar conteúdo público como fórmula.
+    const safe = /^[\s]*[=+@-]/.test(value) ? `'${value}` : value;
+    return `"${safe.replace(/"/g, '""')}"`;
+  };
+  return [["nome", "telefone", "email", "empresa", "observacoes", ...(multichannel ? ["canais"] : [])],
+    ...rows.map(row => [row.name, row.phone, row.email, row.company, row.notes,
+      ...(multichannel ? [(row.channels ?? []).map(c => `${c.channel} · ${c.account_label} · ${c.username} · ${c.state}`).join(" | ")] : [])])]
+    .map(row => row.map(value => cell(value ?? "")).join(";")).join("\n") + "\n";
+}
 export function searchText(value: string) {
   return value
     .normalize("NFD")
@@ -155,6 +169,9 @@ export function parseContactCsv(input: unknown, options: { phoneMode?: "internat
   const parsed = records(csv, delimiter),
     header = parsed.shift();
   requireValue(header, "O CSV está vazio. Baixe o modelo da agenda.");
+  const identityColumns = new Set(["canais", "channels", "channel", "canal", "instagram", "facebook", "username", "handle", "subjectid", "accountid", "channelidentityid", "subjectnamespace", "verifiedchannel"]);
+  requireValue(!header.cells.some(name => identityColumns.has(searchText(name.trim()).replace(/[\s_-]/g, ""))),
+    "Canais e identidades sociais só podem ser confirmados pela entrada autenticada. Remova essas colunas para importar.");
   const aliases: Record<string, keyof ContactValues> = {
     nome: "name",
     name: "name",

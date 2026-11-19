@@ -2,12 +2,15 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ContactPage, ContactProfileView, Json, SectionView } from "../../src/customer/profile-contracts";
 import type { HistoryPage } from "../../src/customer/contracts";
+import type { ContactMergeResult } from "../../src/channel-contracts";
 import type { Api, Row } from "../lib/api";
 import { onApiState } from "../lib/api";
 import { navigationGuarded } from "../lib/routes";
 import { Dialog, SimpleContactBody } from "../ContactsPanel";
-import { bindErpContact, cancelContactJob, jobBlocksEditing, jobMessage, mountProfileHost, profileMessage, profileMode, ProfileRequests, readContactJob, replaceSectionRole, sectionWriter, synchronizationJob, watchContactJob, writeFeedback, type ProfileJob, type ProfileVocabulary } from "./model";
+import { bindErpContact, cancelContactJob, contactMergeWriter, jobBlocksEditing, jobMessage, mountProfileHost, profileMessage, profileMode, ProfileRequests, readContactJob, replaceSectionRole, sectionWriter, synchronizationJob, watchContactJob, writeFeedback, type ProfileJob, type ProfileVocabulary } from "./model";
 import { cellText, privateTarget, registeredComponent, targetHref } from "./registry";
+import { ChannelsSection } from "./ChannelsSection";
+import { MergeContactsDialog } from "./MergeContactsDialog";
 import "./profile.css";
 
 type Contribution = ContactProfileView["contributions"][number];
@@ -62,11 +65,14 @@ function ProfileSession(props: ContactProfileProps) {
   const { api, root, contactId, demo, onClose } = props;
   const [revision, setRevision] = useState(0), [contactRevision, setContactRevision] = useState(0);
   const [notice, setNotice] = useState("");
+  const mergeNotice = useRef<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [blocked, setBlocked] = useState(false), [editRevision, setEditRevision] = useState(0);
   const finishedJobs = useRef(new Set<string>());
-  const base = root + "/contacts/" + encodeURIComponent(contactId);
-  const profile = useResource<ContactProfileView>(api, demo ? null : base + "/profile", revision);
+  const requestedBase = root + "/contacts/" + encodeURIComponent(contactId);
+  const profile = useResource<ContactProfileView>(api, demo ? null : requestedBase + "/profile", revision);
+  const canonicalId = profile.value?.contactId ?? contactId;
+  const base = root + "/contacts/" + encodeURIComponent(canonicalId);
   const detail = useResource<{ contact: Row; conversations?: Row[]; synchronization?: Partial<ProfileJob> & { jobId?: string } }>(api,
     demo || profile.loading || !profile.value || profile.value.readable === false ? null : base, contactRevision);
   useEffect(() => {
@@ -78,7 +84,8 @@ function ProfileSession(props: ContactProfileProps) {
     vocabulary: props.vocabulary ?? { singular: "Cliente", plural: "Clientes" }, writable: false, contributions: [],
   } : profile.value;
   const row = demo ? props.initialContact : detail.value?.contact;
-  const valid = view?.contactId === contactId && view.profileId === decodeURIComponent(root.split("/").at(-1)!);
+  const valid = !!view && (view.contactId === contactId || view.merge?.merged_into === view.contactId)
+    && view.profileId === decodeURIComponent(root.split("/").at(-1)!);
   const saved = (message = "Cadastro salvo.", result?: Row) => {
     const feedback = writeFeedback(result, message);
     setNotice(feedback.message); setContactRevision(value => value + 1); props.onSaved?.(feedback.message);
@@ -87,6 +94,7 @@ function ProfileSession(props: ContactProfileProps) {
   };
   const closeDialog = () => {
     if (navigationGuarded()) { setNotice("Há alterações não salvas. Salve ou use Cancelar no cadastro completo antes de fechar."); return; }
+    if (mergeNotice.current) props.onSaved?.(mergeNotice.current);
     onClose();
   };
   return <Dialog title={valid ? `${view.vocabulary.singular} · ${row?.name || row?.phone || "Ficha"}` : "Ficha do contato"} close={closeDialog} busy={false} wide>
@@ -106,9 +114,9 @@ function ProfileSession(props: ContactProfileProps) {
       {valid && <>
         {(view.readable !== false || profileMode(view) === "full") && <section className="customer-profile-card" aria-label="Cadastro">
           {profileMode(view) === "full" ? <>
-            <FullBody view={view} saved={() => saved()} close={onClose} />
+            <FullBody view={view} saved={() => saved()} close={closeDialog} />
             {detail.error && <Failure error={detail.error} retry={() => setContactRevision(n => n + 1)} />}
-            {row?.id === contactId && <div className="customer-profile-local"><h3>Dados do atendimento</h3>
+            {row?.id === canonicalId && <div className="customer-profile-local"><h3>Dados do atendimento</h3>
               <SimpleContactBody key={`${row.id}:${row.version}:${editRevision}`} api={api} root={root} demo={!!demo} contact={row} conversation={props.conversation}
                 embedded localOnly vocabulary={view.vocabulary} blocked={blocked} writable={view.localWritable ?? view.writable} close={closeDialog} saved={saved} /></div>}
           </> : <>
@@ -118,18 +126,58 @@ function ProfileSession(props: ContactProfileProps) {
               <p role="status">{linkStateText(props.conversation.customer_link_state)}</p>}
             {!demo && detail.loading && <p role="status">Carregando cadastro…</p>}
             {detail.error && <Failure error={detail.error} retry={() => setContactRevision(n => n + 1)} />}
-            {row && row.id === contactId && <SimpleContactBody key={`${row.id}:${row.version}:${editRevision}`} api={api} root={root} demo={!!demo}
+            {row && row.id === canonicalId && <SimpleContactBody key={`${row.id}:${row.version}:${editRevision}`} api={api} root={root} demo={!!demo}
               contact={row} conversation={props.conversation} conversations={detail.value?.conversations}
               embedded vocabulary={view.vocabulary} blocked={blocked} writable={view.localWritable ?? view.writable} close={closeDialog} saved={saved} openConversation={props.openConversation} />}
           </>}
         </section>}
         {!demo && <>
+          {view.readable !== false && <>
+            <ChannelsSection channels={view.channels} conversations={view.other_conversations} />
+            {view.merge && <MergeControls api={api} root={root} requestedId={contactId} view={view}
+              changed={message => { mergeNotice.current = message; setNotice(message); setContactRevision(n => n + 1); setRevision(n => n + 1); }} />}
+          </>}
           {view.readable !== false && !view.namespace?.startsWith("app:") && <History api={api} base={base} />}
           {view.contributions.map(item => <ContributionCard key={`${item.moduleId}:${item.id}`} item={item} api={api} base={base} />)}
         </>}
       </>}
     </div>
   </Dialog>;
+}
+
+function MergeControls({ api, root, requestedId, view, changed }: {
+  api: Api; root: string; requestedId: string; view: ContactProfileView; changed(message: string): void;
+}) {
+  const [open, setOpen] = useState(false), [confirmUndo, setConfirmUndo] = useState(false);
+  const [lastMerge, setLastMerge] = useState<ContactMergeResult | null>(null), [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const requests = useRef(new ProfileRequests());
+  const writer = useRef(contactMergeWriter(api, root + "/contacts/" + encodeURIComponent(requestedId)));
+  useEffect(() => { const scope = new ProfileRequests(); requests.current = scope; return () => scope.dispose(); }, []);
+  const mergeId = lastMerge?.state === "applied" ? lastMerge.id : view.merge?.merge_id;
+  const canUndo = !!mergeId && (lastMerge?.state === "applied" || view.merge?.can_undo);
+  const undo = async () => {
+    if (!mergeId || !canUndo || !confirmUndo || busy) return;
+    const request = requests.current.begin("undo"); setBusy(true); setError("");
+    try {
+      const result = await writer.current.undo({ mergeId }, request.signal);
+      if (!request.current()) return;
+      setLastMerge(result); setConfirmUndo(false); changed("Junção desfeita. As fichas e seus vínculos foram restaurados.");
+    } catch (failure) { if (request.current()) setError(profileMessage(failure)); }
+    finally { if (request.current()) setBusy(false); }
+  };
+  if (!view.merge?.available && !canUndo && !view.merge?.merge_id) return null;
+  return <section className="customer-profile-card" aria-label="Junção de contatos">
+    {view.merge?.available && <button type="button" disabled={busy} onClick={() => setOpen(true)}>Juntar com outro contato</button>}
+    {view.merge?.reason && <p role="status">{view.merge.reason}</p>}
+    {canUndo && <>
+      <p>O desfazer será conferido pelo servidor. Alterações nas fichas, vínculos ou mensagens podem impedir a restauração.</p>
+      <label><input type="checkbox" checked={confirmUndo} disabled={busy} onChange={event => setConfirmUndo(event.target.checked)} /> Confirmo que quero desfazer esta junção.</label>
+      <button type="button" disabled={busy || !confirmUndo} onClick={() => void undo()}>Desfazer junção</button>
+    </>}
+    {error && <p role="alert" className="notice error">{error}</p>}
+    {open && <MergeContactsDialog api={api} root={root} contactId={view.contactId} namespace={view.namespace}
+      onClose={() => setOpen(false)} onMerged={result => { setOpen(false); setLastMerge(result); setError(""); changed("Contatos juntados. As provas de identidade permanecem separadas por canal."); }} />}
+  </section>;
 }
 
 function linkStateText(state: string) {

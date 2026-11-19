@@ -48,7 +48,7 @@ export const demoContacts = [
     conversation_count: 0,
   },
 ];
-const sourceName = (source: string) =>
+const sourceName = (source: string, phone?: string | null) => source === "automatic" && !phone ? "Perfil salvo automaticamente" :
   ({ csv: "CSV", conversation: "Conversa", manual: "Cadastro manual", automatic: "Telefone salvo automaticamente" })[
     source
   ] || source;
@@ -763,6 +763,8 @@ export function ContactsPanel({
   vocabulary?: ProfileVocabulary;
 }) {
   const app = useApp();
+  const multichannel = app.status?.multichannel === true || (Array.isArray(app.status?.connected_channels)
+    && app.status.connected_channels.some((channel: string) => channel !== "whatsapp"));
   const words = contactVocabulary(vocabulary ?? { singular: app.settings?.os_vocabulary?.customer_singular, plural: app.settings?.os_vocabulary?.customer_plural });
   const scopeKey = profileScopeKey(root, app.me, app.modules);
   const [identity, setIdentity] = useState<IdentityFilter>("identified"), [review, setReview] = useState(false);
@@ -779,11 +781,13 @@ export function ContactsPanel({
     [notice, setNotice] = useState("");
   const [editor, setEditor] = useState<Row | null>(null),
     [importing, setImporting] = useState(false);
+  useEffect(() => { setIdentity(value => multichannel && value === "phone_only" ? "no_personal_data"
+    : !multichannel && value === "no_personal_data" ? "phone_only" : value); setCursor(""); }, [multichannel]);
   useEffect(() => { setEditor(null); setImporting(false); setCursor(""); }, [scopeKey]);
   useEffect(() => {
     if (demo) {
       setRows(
-        demoContacts.filter((c) => !review && (identity !== "phone_only" || !c.name) &&
+        demoContacts.filter((c) => !review && (!["phone_only", "no_personal_data"].includes(identity) || !c.name) &&
           (c.name + c.phone + c.email + c.company)
             .toLowerCase()
             .includes(search.toLowerCase()),
@@ -888,7 +892,9 @@ export function ContactsPanel({
       {conflictsOpen && !demo && <ContactConflictReview key={scopeKey} api={api} root={root} openContact={id => setEditor({ contact: { id } })} />}
       <div className="customer-profile-filter">
         <label>Mostrar <select aria-label="Tipo de contato" value={identity} disabled={review} onChange={event => { setIdentity(event.target.value as IdentityFilter); setCursor(""); }}>
-          <option value="identified">Identificados</option><option value="phone_only">Somente telefone</option><option value="all">Todos</option>
+          <option value="identified">Identificados</option>{multichannel
+            ? <option value="no_personal_data">Sem dados pessoais</option>
+            : <option value="phone_only">Somente telefone</option>}<option value="all">Todos</option>
         </select></label>
         <label><input type="checkbox" checked={review} onChange={event => { setReview(event.target.checked); setCursor(""); }} /> Revisar telefones sem interação há 180 dias</label>
       </div>
@@ -950,7 +956,7 @@ export function ContactsPanel({
                         <small>{row.email}</small>
                       </td>
                       <td>{row.company || "—"}</td>
-                      <td>{sourceName(row.source)}</td>
+                      <td>{sourceName(row.source, row.phone)}</td>
                       <td>{row.conversation_count || 0}</td>
                     </tr>
                   ))}

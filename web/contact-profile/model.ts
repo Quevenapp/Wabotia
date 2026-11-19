@@ -1,5 +1,6 @@
 import type { ContactProfileView, Json, SectionView } from "../../src/customer/profile-contracts";
 import type { CustomerJobView } from "../../src/customer/contracts";
+import type { ContactMergePreview, ContactMergeRequest, ContactMergeResult, ContactMergeUndoRequest } from "../../src/channel-contracts";
 import type { Api } from "../lib/api";
 import { loadFullCustomerHost, type FullCustomerHost, type FullCustomerHostInput } from "./host-port";
 
@@ -73,7 +74,7 @@ export function cancelContactJob(api: Api, root: string, job: ProfileJob, expect
     { expectedUpdated: job.updated, expectedVersion, reason: reason.trim() }, signal, commandId);
 }
 
-export type IdentityFilter = "identified" | "phone_only" | "all";
+export type IdentityFilter = "identified" | "phone_only" | "no_personal_data" | "all";
 export function contactsQuery(input: { search?: string; cursor?: string; identity?: IdentityFilter; review?: boolean }) {
   const query = new URLSearchParams({ q: input.search ?? "", cursor: input.cursor ?? "", identity: input.identity ?? "identified" });
   if (input.review) { query.set("identity", "phone_only"); query.set("review", "inactive180"); }
@@ -99,8 +100,44 @@ export function profileMessage(error: unknown): string {
     customer_erasing: "O contato tem uma solicitação de exclusão em andamento.",
     forbidden: "Você não tem permissão para esta parte da ficha.",
     not_found: "Esta ficha não está disponível nesta área.",
+    merge_erp_conflict: "As fichas têm vínculos ERP diferentes. A junção não está disponível.",
+    merge_changed: "Os dados ou as conversas mudaram. Atualize a prévia; uma junção alterada não pode ser desfeita.",
+    merge_restricted: "Uma das fichas está restrita e não pode ser juntada ou restaurada.",
+    merge_jobs_pending: "Aguarde as solicitações cadastrais antes de juntar as fichas.",
+    merge_relation_conflict: "Há relações incompatíveis entre as fichas. Revise os vínculos antes de juntar.",
+    idempotency_conflict: "Esta solicitação já foi usada com outros dados. Reabra a operação para conferir o resultado.",
   };
   return messages[e?.code ?? ""] ?? (e?.status === 403 ? messages.forbidden : e?.message || "Não foi possível carregar. Tente novamente.");
+}
+
+/** A resposta só pode confirmar o par escolhido; o ERP pode inverter o sobrevivente. */
+export function validMergePreview(value: ContactMergePreview, sourceId: string, targetId: string): boolean {
+  return !!value && value.source?.id === sourceId && value.target?.id === targetId && sourceId !== targetId
+    && [sourceId, targetId].includes(value.survivorId)
+    && [value.source.version, value.target.version].every(version => Number.isSafeInteger(version) && version > 0)
+    && typeof value.previewToken === "string" && value.previewToken.length > 0
+    && Number.isFinite(value.expiresAt) && Array.isArray(value.differences) && Array.isArray(value.blockers);
+}
+
+/** Uma intenção mantém o recibo depois de timeout; mudar o corpo exige nova chave. */
+export function contactMergeWriter(api: Api, base: string) {
+  const write = contactWriter(api);
+  const sourceId = decodeURIComponent(base.slice(base.lastIndexOf("/") + 1));
+  return {
+    async merge(input: ContactMergeRequest, signal?: AbortSignal): Promise<ContactMergeResult> {
+      const result: ContactMergeResult = await write(base + "/merge", "POST", input, signal);
+      if (!result?.id || result.state !== "applied" || result.sourceId === result.targetId
+          || ![result.sourceId, result.targetId].includes(input.targetId) || ![result.sourceId, result.targetId].includes(sourceId))
+        throw new Error("Não foi possível confirmar a junção. Confira o resultado antes de repetir.");
+      return result;
+    },
+    async undo(input: ContactMergeUndoRequest, signal?: AbortSignal): Promise<ContactMergeResult> {
+      const result: ContactMergeResult = await write(base + "/merges/" + encodeURIComponent(input.mergeId) + "/undo", "POST", input, signal);
+      if (result?.id !== input.mergeId || result.state !== "undone")
+        throw new Error("Não foi possível confirmar o desfazer. Confira o resultado antes de repetir.");
+      return result;
+    },
+  };
 }
 
 /** Um canal por leitura ou formulário; uma seção nunca cancela outra. */

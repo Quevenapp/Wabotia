@@ -1,8 +1,11 @@
 import { cachedOne, one } from "../db";
 import { ApiError, now, uid, type Conversation, type Env } from "../types";
-import type { CustomerRef, IdentityPort, InboundEvidence, LinkState, Namespace, Statement } from "./contracts";
+import type { CustomerRef, IdentityPort, InboundEvidence, SocialInboundEvidence, LinkState, Namespace, Statement } from "./contracts";
 import { normalizeCustomerPhone, customerPhoneVariants, customerPhoneInputMode } from "./phone";
 import { maintainIdentity } from "./backfill";
+import { channelIdentityPort } from "../channel-ports";
+import { resolveChannelCustomer } from "./channel-identity";
+import { resolveContactAlias } from "./merge-relations";
 
 export const CONTACT_TASK = "identity.contacts.v1";
 export const CONVERSATION_TASK = "identity.conversations.v2";
@@ -26,11 +29,16 @@ export function inboundConnection(env: Env, id: string) {
 }
 
 export function evidencePhone(evidence: InboundEvidence): string | null {
+  if (evidence.channel && evidence.channel !== "whatsapp") return null;
   const phone = normalizeCustomerPhone(evidence.phone, "international");
   if (evidence.provider === "zernio" || evidence.provider === "meta") return phone;
   if (evidence.provider !== "qr") return null;
   const jidPhone = phoneFromJid(evidence.phoneJid);
   return jidPhone && (!phone || phone === jidPhone) ? jidPhone : null;
+}
+
+function socialEvidence(evidence: InboundEvidence): evidence is SocialInboundEvidence {
+  return evidence.channel !== undefined && evidence.channel !== "whatsapp";
 }
 
 export interface ContactSnapshot {
@@ -40,8 +48,10 @@ export interface ContactSnapshot {
   mirror_json: string | null;
   identity_state?: string;
   source?: string;
+  merged_into?: string | null;
 }
 export function contactPhones(row: ContactSnapshot): string[] {
+  if (row.merged_into) return [];
   let mirror: unknown = [];
   try { mirror = JSON.parse(row.mirror_json || "{}").phones; } catch { /* legado inválido não é prova */ }
   const mode = row.source !== "automatic" && !row.mirror_json ? customerPhoneInputMode(row.phone) : "international";
@@ -130,7 +140,7 @@ export function conversationIdentityStatements(profile: string, ids: readonly st
            LEFT JOIN contacts k ON k.id=p.contact_id AND k.profile_id=p.profile_id
            WHERE p.profile_id=conversations.profile_id AND p.namespace='team' AND p.phone=conversations.verified_phone),'pending')`}
        END
-     WHERE profile_id=? AND id IN (SELECT value FROM json_each(?))`,
+     WHERE profile_id=? AND id IN (SELECT value FROM json_each(?)) AND (channel IS NULL OR channel='whatsapp')`,
     [...(observed ? [observed.phone, observed.phone, observed.phone, observed.state, observed.phone, observed.state] : []), profile, list],
   ], ...(observed?.state === "ready" ? [] : [[
     `DELETE FROM conversation_contacts WHERE profile_id=? AND linked_by='identity'
@@ -157,6 +167,7 @@ export function sessionStatement(profile: string, ids: readonly string[]): State
 }
 
 async function resolve(env: Env, c: Conversation): Promise<CustomerRef> {
+  if (c.channel && c.channel !== "whatsapp") return resolveChannelCustomer(env, c);
   const namespace = namespaceOf(c);
   const ref: CustomerRef = { profileId: c.profile_id, namespace, state: "pending", contactId: null, verifiedPhone: null, version: null, erp: null };
   if (c.chat_type === "group") return { ...ref, state: "excluded" };
@@ -194,9 +205,13 @@ async function resolve(env: Env, c: Conversation): Promise<CustomerRef> {
 }
 
 async function prepareInbound(env: Env, c: Conversation, evidence: InboundEvidence) {
+  if (socialEvidence(evidence)) {
+    const plan = await channelIdentityPort.prepareInbound(env, c, evidence);
+    return { statements: plan.statements, state: plan.customer.state, verifiedPhone: null };
+  }
   const eligible = c.chat_type !== "group" && !!c.connection_id && c.external_namespace === `channel:${c.connection_id}`;
   const connection = eligible ? await inboundConnection(env, c.connection_id!) : null;
-  const trusted = eligible && connection?.profile_id === c.profile_id &&
+  const trusted = eligible && (!c.channel || c.channel === "whatsapp") && (!connection?.channel || connection.channel === "whatsapp") && connection?.profile_id === c.profile_id &&
     connection.kind === evidence.provider && ["qr", "zernio", "meta"].includes(connection.kind);
   const phone = trusted ? evidencePhone(evidence) : null;
   const simple = (state: LinkState, verifiedPhone: string | null) => ({ state, verifiedPhone,
@@ -232,9 +247,9 @@ async function prepareInbound(env: Env, c: Conversation, evidence: InboundEviden
     `WITH progress AS (SELECT cursor_json,complete FROM customer_progress WHERE profile_id=? AND namespace='team' AND task=?),
      indexed AS (SELECT contact_id id FROM customer_phone_candidates WHERE profile_id=? AND namespace='team'
        AND phone IN (SELECT value FROM json_each(?)) LIMIT 21),
-     direct AS (SELECT id FROM contacts WHERE profile_id=? AND namespace='team' AND ${legacyPhoneSql} IN (SELECT value FROM json_each(?)) LIMIT 21),
+     direct AS (SELECT id FROM contacts WHERE profile_id=? AND namespace='team' AND merged_into IS NULL AND ${legacyPhoneSql} IN (SELECT value FROM json_each(?)) LIMIT 21),
      relevant AS (SELECT id FROM indexed UNION SELECT id FROM direct LIMIT 21), page AS (
-       SELECT id FROM contacts WHERE profile_id=? AND namespace='team' AND id>coalesce((SELECT json_extract(cursor_json,'$.id') FROM progress),'')
+       SELECT id FROM contacts WHERE profile_id=? AND namespace='team' AND merged_into IS NULL AND id>coalesce((SELECT json_extract(cursor_json,'$.id') FROM progress),'')
          ORDER BY id LIMIT CASE WHEN coalesce((SELECT complete FROM progress),0)=0 THEN 20 ELSE 0 END
      ), selected AS (SELECT id FROM relevant UNION SELECT id FROM page)
      SELECT p.state,p.contact_id,p.version,
@@ -246,7 +261,7 @@ async function prepareInbound(env: Env, c: Conversation, evidence: InboundEviden
        (SELECT count(*) FROM relevant) relevant_count,(SELECT json_group_array(id) FROM relevant) relevant_ids,
        (SELECT json_group_array(id) FROM page) page_ids,
        (SELECT json_group_array(json_object('id',c.id,'version',c.version,'phone',c.phone,'mirror_json',CASE WHEN c.mirror_json IS NULL THEN NULL ELSE json_object('phones',json_extract(c.mirror_json,'$.phones')) END,
-          'identity_state',c.identity_state,'source',c.source,'created',c.created,
+          'identity_state',c.identity_state,'source',c.source,'created',c.created,'merged_into',c.merged_into,
           'denied',EXISTS(SELECT 1 FROM conversations v JOIN customer_records r
             ON r.profile_id=v.profile_id AND r.record_id=v.id||':'||v.session AND r.contact_id=c.id
               AND ((r.module_id='conversations' AND r.kind='session') OR (r.module_id='core' AND r.kind='conversation'))
@@ -289,7 +304,7 @@ async function prepareInbound(env: Env, c: Conversation, evidence: InboundEviden
        SELECT id FROM (SELECT contact_id id FROM customer_phone_candidates WHERE profile_id=? AND namespace='team'
          AND phone IN (SELECT value FROM json_each(?)) LIMIT 21)
        UNION SELECT id FROM (SELECT id FROM contacts WHERE profile_id=? AND namespace='team'
-         AND ${legacyPhoneSql} IN (SELECT value FROM json_each(?)) LIMIT 21)
+         AND merged_into IS NULL AND ${legacyPhoneSql} IN (SELECT value FROM json_each(?)) LIMIT 21)
      ) new_targets WHERE id NOT IN (SELECT value FROM json_each(?)))`,
     [profile, phone, snapshot.version ?? null, snapshot.contact_id ?? null, profile, snapshot.contact_state ?? null,
       profile, CONTACT_TASK, snapshot.cursor_json ?? null,
@@ -353,8 +368,13 @@ async function indexContact(env: Env, input: Parameters<IdentityPort["indexConta
     return phone;
   }))];
   const old = await one(env,
-    `SELECT json_group_array(phone) phones FROM customer_phone_candidates WHERE profile_id=? AND namespace=? AND contact_id=?`,
-    profileId, namespace, contactId);
+    `SELECT json_group_array(phone) phones,(SELECT merged_into FROM contacts WHERE profile_id=? AND namespace=? AND id=?) merged_into
+     FROM customer_phone_candidates WHERE profile_id=? AND namespace=? AND contact_id=?`,
+    profileId, namespace, contactId, profileId, namespace, contactId);
+  if (old.merged_into) {
+    const target = await resolveContactAlias(env, profileId, contactId, namespace);
+    return indexContact(env, { ...input, contactId: target.id });
+  }
   const previous: string[] = JSON.parse(old.phones);
   // Conserva aliases já observados enquanto ainda representam o número atual.
   for (const oldPhone of previous) if (!phones.includes(oldPhone) && phones.some(p => customerPhoneVariants(p).includes(oldPhone))) phones.push(oldPhone);
@@ -372,6 +392,24 @@ async function indexContact(env: Env, input: Parameters<IdentityPort["indexConta
 
 function recordLink(c: Conversation, link: Parameters<NonNullable<IdentityPort["recordLink"]>>[1]): Statement[] {
   if (c.profile_id !== link.profileId || c.id !== link.conversationId || c.chat_type === "group" || namespaceOf(c) !== "team") return [];
+  if (c.channel && c.channel !== "whatsapp") {
+    // Protocolos próprios continuam disponíveis em DM. Nenhum módulo recebe
+    // uma ligação por telefone cadastral de uma ficha juntada.
+    if (!["tickets", "conversations"].includes(link.moduleId)) return [];
+    return [[
+      `INSERT INTO customer_records(profile_id,module_id,kind,record_id,contact_id,conversation_id,linked_by,occurred_at)
+       SELECT v.profile_id,?,?,?,k.id,v.id,?,? FROM conversations v
+       JOIN customer_channel_ids i ON i.id=v.channel_identity_id AND i.profile_id=v.profile_id AND i.namespace='team'
+         AND i.channel=v.channel AND i.account_id=v.channel_account_id AND i.subject_namespace='dm' AND i.subject_id=v.channel_subject_id AND i.state='ready'
+       JOIN contacts k ON k.id=i.contact_id AND k.profile_id=i.profile_id AND k.namespace=i.namespace AND k.identity_state='active' AND k.merged_into IS NULL
+       WHERE v.profile_id=? AND v.id=? AND v.session=? AND v.customer_link_state='ready' AND v.chat_type='direct'
+         AND v.external_namespace='channel:'||v.connection_id
+         ${link.moduleId === "tickets" ? "AND EXISTS(SELECT 1 FROM tickets t WHERE t.profile_id=v.profile_id AND t.id=? AND t.conversation_id=v.id)" : ""}
+       ON CONFLICT(profile_id,module_id,kind,record_id) DO NOTHING`,
+      [link.moduleId, link.kind, link.recordId, link.linkedBy, link.occurredAt, c.profile_id, c.id, c.session,
+        ...(link.moduleId === "tickets" ? [link.recordId] : [])],
+    ]];
+  }
   return [[
     `INSERT INTO customer_records(profile_id,module_id,kind,record_id,contact_id,conversation_id,linked_by,occurred_at)
      SELECT v.profile_id,?,?,?,k.id,v.id,?,? FROM conversations v

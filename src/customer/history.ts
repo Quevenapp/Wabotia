@@ -7,6 +7,7 @@ import { ApiError, type Actor, type Conversation, type Env, now } from "../types
 import type { CustomerMemory, CustomerRef, HistoryItem, HistoryPort, Statement } from "./contracts";
 import type { CustomerModuleProvider } from "./profile-contracts";
 import { identityPort, installHistoryPort, registerCustomerProvider, resolveCustomer } from "./ports";
+import { contactRow } from "./local";
 
 const TASK = "history:v1";
 // Convenções de customer_records (fontes sem contact_id):
@@ -25,6 +26,7 @@ export const sessionRecords = `SELECT profile_id,record_id,min(conversation_id) 
 export const legacyHistoryProof = (c: string, at: string, initialSession = true) => `
   (${c}.epoch=0 ${initialSession ? "" : `OR EXISTS(SELECT 1 FROM conversation_contacts l WHERE l.profile_id=${c}.profile_id AND l.conversation_id=${c}.id AND l.created<=${at})`}) AND ${c}.created<=${at}
   AND ${c}.chat_type<>'group' AND ${c}.customer_link_state NOT IN ('blocked','excluded','ambiguous')
+  AND (${c}.channel IS NULL OR ${c}.channel='whatsapp')
   AND ${c}.connection_id IS NOT NULL AND ${c}.external_namespace='channel:'||${c}.connection_id
   AND NOT EXISTS(SELECT 1 FROM conversation_contacts l LEFT JOIN contacts p ON p.id=l.contact_id AND p.profile_id=l.profile_id
     WHERE l.profile_id=${c}.profile_id AND l.conversation_id=${c}.id AND (l.created>${at} OR p.identity_state<>'active'))
@@ -68,7 +70,7 @@ async function authorize(env: Env, actor: Actor, profile: string, target: { cont
   } else {
     if (isBound(actor) || actor.via || (collection && actor.kind !== "user")) fail(403, "forbidden");
     if (!permitted(actor, "contacts")) fail(403, "forbidden");
-    contactId = target.contactId;
+    contactId = (await contactRow(env, actor, profile, target.contactId, true)).id;
     namespace = "team";
   }
   if (contactId) {
@@ -263,6 +265,11 @@ export async function customerTextScope(env: Env, c: Pick<Conversation, "id" | "
     WHERE c.profile_id=? AND c.id=?`, c.profile_id, c.id);
   if (!row) return null;
   const ref = resolved ?? await identityPort.resolve(env, row);
+  const social = row.channel != null && row.channel !== "whatsapp";
+  const channelProof = social && ref.state === "ready" && !!ref.verifiedChannel &&
+    ref.verifiedPhone === null && ref.verifiedChannel.identityId === row.channel_identity_id &&
+    ref.verifiedChannel.channel === row.channel && ref.verifiedChannel.accountId === row.channel_account_id &&
+    ref.verifiedChannel.subjectNamespace === "dm" && ref.verifiedChannel.subjectId === row.channel_subject_id;
   // Grupos/aplicações sem cadastro continuam podendo fazer a interação atual.
   // "excluded" nesses canais significa que não participam da identidade pessoal.
   const nonCustomer = (row.chat_type === "group" || row.external_namespace.startsWith("app:")) && !row.linked_contact && !row.has_sessions;
@@ -270,10 +277,10 @@ export async function customerTextScope(env: Env, c: Pick<Conversation, "id" | "
   // A recusa por ambiguidade conserva a pendência; restrição do titular a encerra.
   const restricted = !!row.identity_state && row.identity_state !== "active";
   const allowed = ref.profileId === row.profile_id && ref.namespace === namespaceOf(row) &&
-    !denied.includes(row.customer_link_state) && !denied.includes(ref.state) && !restricted;
+    !denied.includes(row.customer_link_state) && !denied.includes(ref.state) && !restricted && (!social || channelProof);
   // Sessão persistida autoriza seu próprio histórico mesmo durante o backfill
   // telefônico. Isso não promove a identidade nem concede acesso a outro canal.
-  const sessionOwner = row.session_valid && row.verified_phone && row.phone === row.verified_phone &&
+  const sessionOwner = !social && row.session_valid && row.verified_phone && row.phone === row.verified_phone &&
     row.connection_id && row.external_namespace === `channel:${row.connection_id}` &&
     (!row.linked_contact || row.linked_contact === row.session_contact) && row.identity_state === "active" && row.contact_namespace === "team"
     ? row.session_contact : null;
@@ -284,7 +291,10 @@ export async function customerTextScope(env: Env, c: Pick<Conversation, "id" | "
   const since = row.session_at ?? row.created;
   // Também fixa associação pendente; trocar A por B invalida um run da mesma época.
   const proof = JSON.stringify([row.session, contactId, row.linked_contact, row.linked_at, row.session_contact, row.session_valid, since,
-    row.customer_link_state, ref.state, row.identity_state]);
+    row.customer_link_state, ref.state, row.identity_state,
+    // Só chave local e resultado da prova chegam ao contexto do run; IDs
+    // remotos pessoais não viram texto disponível para a IA.
+    ...(social ? [row.channel_identity_id, row.channel, channelProof] : [])]);
   return { allowed, proven, proof, since, contactId, restricted, conflict: !!row.session_contact && (!row.session_valid || row.session_contact !== contactId), conversation: row as Conversation };
 }
 

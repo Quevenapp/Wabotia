@@ -13,6 +13,7 @@ export async function validateCustomerSelfActor(env: Env, actor: Actor, profile:
     `SELECT 1 FROM conversations c JOIN customer_phones p ON p.profile_id=c.profile_id AND p.namespace='team' AND p.phone=c.verified_phone AND p.state='ready'
      JOIN contacts k ON k.id=p.contact_id AND k.profile_id=p.profile_id AND k.identity_state='active'
      WHERE c.profile_id=? AND 'customer:'||c.id||':'||c.session=? AND p.contact_id=? AND c.customer_link_state='ready'
+       AND (c.channel IS NULL OR c.channel='whatsapp')
        AND c.phone=c.verified_phone AND c.connection_id IS NOT NULL AND c.external_namespace='channel:'||c.connection_id AND c.chat_type='direct'
        AND NOT EXISTS(SELECT 1 FROM cond_people cp JOIN cond_memberships cm ON cm.profile_id=cp.profile_id AND cm.person_id=cp.id WHERE cp.profile_id=k.profile_id AND cp.contact_id=k.id AND cm.role='dependente')
        AND NOT EXISTS(SELECT 1 FROM saude_contact_links s WHERE s.profile_id=k.profile_id AND s.contact_id=k.id AND s.relation='self')`, profile, actor.id, contactId))
@@ -37,7 +38,17 @@ export function human(actor: Actor) {
     throw new ApiError(403, "forbidden", "Esta ação exige uma pessoa autenticada.");
 }
 export async function contactRow(env: Env, actor: Actor, profile: string, id: string, restricted = false) {
-  const row = await one(env, "SELECT * FROM contacts WHERE profile_id=? AND id=? AND (?=1 OR namespace=?)", profile, id, actor.kind === "user" ? 1 : 0, namespaceFor(actor));
+  let row = await one(env, "SELECT * FROM contacts WHERE profile_id=? AND id=? AND (?=1 OR namespace=?)", profile, id, actor.kind === "user" ? 1 : 0, namespaceFor(actor));
+  const namespace = row?.namespace;
+  const visited = new Set<string>();
+  // Contato comum conserva uma única leitura. Alias nunca atravessa área ou
+  // namespace, nem permite usar uma origem restrita para alcançar o destino.
+  while (row?.merged_into) {
+    if (row.identity_state !== "active" || visited.has(row.id) || visited.size >= 32)
+      throw new ApiError(409, "merge_restricted", "O vínculo deste contato não está disponível.");
+    visited.add(row.id);
+    row = await one(env, "SELECT * FROM contacts WHERE profile_id=? AND namespace=? AND id=?", profile, namespace, row.merged_into);
+  }
   if (!row || (!restricted && row.identity_state !== "active"))
     throw new ApiError(404, "not_found", "Contato não encontrado.");
   return row;
