@@ -100,9 +100,11 @@ for(const part of ['erp-cobranca','erp-pdv']) test(`visão geral atualiza atalho
 
 const work=m.createWorkApi(m.demoApi,'v1/profiles/demo');
 test('demonstração: catálogo e detalhe usam o contrato consumido por Trabalhos',async()=>{
- const catalog=await work.types(true);assert.ok(catalog.settings_revision);assert.equal(catalog.data.length,1);
+ const catalog=await work.types(true);assert.ok(catalog.settings_revision);assert.equal(catalog.data.length,2);
  const type=await work.type('service_order');assert.deepEqual(catalog.data[0],type);
- const list=await work.orders({facets:'1'});assert.equal(list.data.length,5);assert.equal(list.facets.types.service_order,5);
+ const allModels=await work.orders({facets:'1'});assert.equal(allModels.data.length,7);
+ assert.deepEqual([...new Set(allModels.data.map(row=>row.type_id))].sort(),catalog.data.map(type=>type.id).sort());
+ const list=await work.orders({type_id:'service_order',facets:'1'});assert.equal(list.data.length,5);assert.equal(list.facets.types.service_order,5);
  for(const row of list.data) {
   const order=await work.order(row.id);assert.deepEqual(order,row);
   assert.equal(order.type_id,type.id);assert.deepEqual(order.labels,type.labels);assert.deepEqual(order.features,type.features);
@@ -186,7 +188,7 @@ test('Módulos envia a lista exibida mesmo após atualização e reabre confirma
 
 const nodeText=value=>Array.isArray(value)?value.map(nodeText).join(''):value&&typeof value==='object'?nodeText(value.props?.children):typeof value==='string'?value:'';
 test('modelo mantém Fiscal disponível, desmarcado e visível na prévia quando marcado',async()=>{
- const requests=[],app={root:'v1/profiles/demo',profileName:'Demonstração',modules:{}};
+ const requests=[],app={root:'v1/profiles/demo',profileName:'Demonstração',modules:{},settings:{}};
  const api={preview:async body=>{requests.push(structuredClone(body));return {
   preview_hash:'demo',can_apply:true,conflicts:[],manual_steps:[],
   changes:body.selection.module_ids.map(id=>({path:'modules.'+id,action:'set',reason:'Ligar módulo selecionado'})),

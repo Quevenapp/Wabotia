@@ -437,6 +437,8 @@ export interface OrderQuery {
   type_id?: string;
   stage?: string;
   facets?: "1" | "0";
+  /** Filtro aditivo da lista do painel; IDs separados por vírgula. */
+  type_ids?: string;
 }
 export interface OrderDetailQuery {
   history?: "legacy" | "none";

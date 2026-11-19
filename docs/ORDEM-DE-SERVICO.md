@@ -8,21 +8,49 @@ relação com os **protocolos** do atendimento: são registros separados.
 ## Ligar
 
 **Gestão → Módulos → Ordem de Serviço** (administrador). Vem desligado. Com
-ele ligado aparecem, em Gestão, **Ordens de serviço** (toda a equipe) e
-**Ordem de serviço** (configurações, só administradores).
+ele ligado, entre pelo botão **ERP**. O módulo oferece **Ordens de serviço**
+(toda a equipe) e **Configurar** (só administradores). O nome da lista pode
+vir do vocabulário da área, sem se repetir no título do grupo lateral.
+
+A lista reúne a clássica e os modelos personalizados ativos. **Modelo → Todos
+os modelos** é o padrão; escolha um para filtrar e consultar suas etapas.
+Também há busca, situação, responsável e prazo de/até. **Meus prazos** fica
+no topo. Os detalhes existentes são preservados: diálogo da clássica e página
+do personalizado. Os endereços antigos, inclusive `/app/gestao/...`, continuam
+abrindo a página ou pré-selecionando o modelo correspondente.
 
 ## Abrir uma ordem
 
 Cada área de atendimento tem a sua numeração (1, 2, 3…).
 
-- **No balcão**: Ordens de serviço → **Nova ordem**, com telefone, item,
+- **No balcão**: Ordens de serviço → **Nova ordem**; com vários modelos ativos,
+  escolha primeiro o modelo. Na clássica, informe telefone, item,
   problema, observações internas, responsável e prazo previsto.
 - **Na conversa**: a ação *Abrir ordem de serviço* liga a ordem à conversa e
   avisa o cliente. Hoje ela existe na API (`service_order`); o botão na tela
   da conversa ainda não foi feito.
-- **Pelo cliente**: em Gestão → Ordem de serviço, use **Adicionar ao menu**
+- **Pelo cliente**: em ERP → Configurar → **WhatsApp**, use **Adicionar ao menu**
   em *Abrir ordem de serviço*. O cliente escolhe a opção, recebe um link,
   informa o item e o problema, aceita os termos e recebe o número no WhatsApp.
+
+## Modelos para cada segmento
+
+Em **Configurar → Modelos**, cada modelo define campos, etapas e mensagens
+de um tipo de serviço. **Criar modelo** permite começar do zero ou escolher
+um exemplo dos modelos de área, sem aplicar a área inteira. Campos e etapas
+recebem IDs a partir do rótulo; a edição desses identificadores fica em
+**Avançado**. Na tela usamos “modelo”; os nomes internos e as APIs permanecem.
+
+Os exemplos de oficina incluem Placa (opcional, pública, até 10 caracteres),
+Marca e modelo, Ano (1900 a 2100), Cor, Última manutenção informada pelo cliente,
+Quilometragem, Combustível, Peças previstas e Avarias na entrada. Quem já aplicou
+um desses modelos recebe um aviso e pode **Adicionar** somente os campos que
+faltam. Campos existentes e ordens abertas ficam preservados; as alterações
+valem para novas ordens. A placa antiga sensível não muda de classificação:
+o painel oferece um novo campo público vazio, sem transferir os valores privados.
+
+Modelos de mesmo nome mostram a origem, e a prévia de aplicação de área avisa
+quando já existe um equivalente. Para detalhes, consulte [TRABALHOS.md](TRABALHOS.md).
 
 ## Estados
 
@@ -53,7 +81,7 @@ balcão, use *Cliente aprovou* ou *Cliente recusou*.
 
 - Item de menu **Acompanhar ordem de serviço**: o cliente vê as ordens abertas
   do telefone dele e o estado de cada uma.
-- Mensagens automáticas (Gestão → Ordem de serviço → Mensagens ao cliente):
+- Mensagens automáticas (ERP → Configurar → WhatsApp):
   ordem aberta, orçamento aprovado ou recusado, serviço iniciado, pronta para
   retirada, entregue (com a garantia) e cancelada. Em branco, não envia.
   Marcadores: `{numero}`, `{item}`, `{estado}`, `{total}`, `{validade}`,
@@ -65,6 +93,9 @@ balcão, use *Cliente aprovou* ou *Cliente recusou*.
 - **Ordem parada**: sem mudança há mais dias que o configurado (padrão 7), o
   evento `os.stale` vai para as integrações.
 - **Garantia**: contada da entrega (padrão 90 dias; 0 para sem garantia).
+
+Esses três prazos da clássica ficam em **Configurar → Prazos e garantia**.
+Na mesma aba há atalhos para os Recursos dos modelos personalizados.
 
 ## Integrações e aplicativos
 

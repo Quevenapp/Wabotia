@@ -18,6 +18,7 @@ import type {
   AreaModuleId,
 } from "../../modules/os/work-contracts";
 import { downloadJson } from "../../modules/os/types/type-draft";
+import { equivalentWorkTypes } from "../../../src/area-templates/equivalent-types";
 import "../../modules/os/work.css";
 /** O modelo traz menus da Ordem de serviço embutida (type_id service_order). */
 export const usesBuiltin = (template: AreaTemplate) =>
@@ -164,6 +165,12 @@ function Preview({
             {type.fields.map((field) => `, ${field.label}`).join("")}
           </p>
           <p>Etapas: {type.stages.map((stage) => stage.label).join(" → ")}</p>
+          {equivalentWorkTypes(type, app.settings.os_work_types || [], template.id).length > 0 && (
+            <Notice>
+              Já existe um modelo equivalente nesta área. Aplicar criará outro modelo de {type.labels.plural};
+              os modelos existentes e suas ordens serão preservados. Desmarque este modelo se preferir usar o existente.
+            </Notice>
+          )}
         </section>
       ))}
       <fieldset>
@@ -343,7 +350,7 @@ function Preview({
             ))}
           </ul>
           <a {...linkProps({ area: "admin", page: "work-types" })}>
-            Abrir tipos de trabalho
+            Abrir modelos de ordem de serviço
           </a>
         </section>
       )}

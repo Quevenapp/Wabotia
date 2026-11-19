@@ -2,6 +2,7 @@ import React from "react";
 import { Button, Field } from "../../../ui";
 import type { CustomWorkType, BaseStatus } from "../work-contracts";
 import { statusOrder, statusLabels } from "../shared";
+import { labelIdentifier, renameStage } from "./type-draft";
 export function StagesEditor({
   type,
   onChange,
@@ -27,31 +28,27 @@ export function StagesEditor({
       {type.stages.map((stage, index) => (
         <fieldset key={index}>
           <legend>Etapa {index + 1}</legend>
-          <Field
+          <details>
+            <summary>Avançado</summary>
+            <Field
             label="Identificador"
             value={stage.id}
             disabled={locked.includes(stage.id)}
             onChange={(id) =>
-              onChange({
-                ...type,
-                stages: type.stages.map((s, i) =>
-                  i === index ? { ...s, id } : s,
-                ),
-              })
+              onChange(renameStage(type, index, id))
             }
             required
             maxLength={32}
           />
+          </details>
           <Field
             label="Nome"
             value={stage.label}
             onChange={(label) =>
-              onChange({
-                ...type,
-                stages: type.stages.map((s, i) =>
-                  i === index ? { ...s, label } : s,
-                ),
-              })
+              onChange(renameStage(type, index,
+                !locked.includes(stage.id) && (!stage.id || stage.id === labelIdentifier(stage.label, [...type.retired_stage_ids, ...locked, ...type.stages.filter((_, i) => i !== index).map((item) => item.id)]))
+                  ? labelIdentifier(label, [...type.retired_stage_ids, ...locked, ...type.stages.filter((_, i) => i !== index).map((item) => item.id)])
+                  : stage.id, label))
             }
             required
             maxLength={80}
@@ -128,17 +125,21 @@ export function StagesEditor({
         return (
           <fieldset key={index}>
             <legend>Transição {index + 1}</legend>
-            <Field
+            <details>
+              <summary>Avançado</summary>
+              <Field
               label="Identificador"
               value={transition.id}
               onChange={(id) => update({ id })}
               required
               maxLength={32}
             />
+            </details>
             <Field
               label="Ação"
               value={transition.label}
-              onChange={(label) => update({ label })}
+              onChange={(label) => update({ label, id: !transition.id || transition.id === labelIdentifier(transition.label, type.transitions.filter((_, i) => i !== index).map((item) => item.id))
+                ? labelIdentifier(label, type.transitions.filter((_, i) => i !== index).map((item) => item.id)) : transition.id })}
               required
               maxLength={80}
             />

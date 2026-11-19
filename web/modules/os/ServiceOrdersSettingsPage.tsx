@@ -58,7 +58,7 @@ function merged(saved: Row | undefined): Row {
   };
 }
 
-export function ServiceOrdersSettingsPage() {
+export function ServiceOrdersSettingsPage({ section }: { section?: "whatsapp" | "prazos" } = {}) {
   const app = useApp();
   const { busy, run } = useAction();
   const saved = merged(app.settings.service_orders);
@@ -81,11 +81,11 @@ export function ServiceOrdersSettingsPage() {
   const inMenu = (type: string) => hasWorkMenu(menus, type);
   return (
     <>
-      <Card
+      {!section && <Card
         title="Como funciona"
         description="A ordem nasce pela conversa (Abrir ordem de serviço), pelo painel (Ordens de serviço) ou pelo próprio cliente no menu do WhatsApp, que preenche item e problema num link e aceita os termos. O orçamento vai ao cliente com Aprovar e Recusar; a cada mudança relevante ele recebe um aviso."
-      />
-      <Card
+      />}
+      {!section && <Card
         title="Menu do WhatsApp"
         description="Itens que o módulo oferece. Depois de adicionar, ajuste a posição e as linhas em Menus e ações."
       >
@@ -135,7 +135,7 @@ export function ServiceOrdersSettingsPage() {
             </section>
           ))}
         </div>
-      </Card>
+      </Card>}
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -160,7 +160,7 @@ export function ServiceOrdersSettingsPage() {
           );
         }}
       >
-        <Card title="Prazos">
+        {section !== "whatsapp" && <Card title="Prazos da ordem de serviço clássica">
           <div className="form-field-grid">
             <Field
               label="Validade padrão do orçamento (dias)"
@@ -203,8 +203,8 @@ export function ServiceOrdersSettingsPage() {
               help="Publica o evento os.stale para a equipe e integrações."
             />
           </div>
-        </Card>
-        <Card
+        </Card>}
+        {section !== "prazos" && <><Card
           title="Termos aceitos pelo cliente"
           description="Mostrados no link de abertura pelo WhatsApp. O texto aceito fica guardado na ordem."
         >
@@ -235,7 +235,7 @@ export function ServiceOrdersSettingsPage() {
               />
             ))}
           </div>
-        </Card>
+        </Card></>}
         <div className="toolbar">
           <span />
           <Button

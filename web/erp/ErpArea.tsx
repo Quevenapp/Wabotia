@@ -186,14 +186,6 @@ export function ErpArea() {
     accessReport.permissions?.apiUrl === erpApiUrl(app.profile) &&
     (app.demo || accessReport.permissions.userId === String(app.me.id)) ? accessReport.permissions : null;
   const items = [...resolveManagement(MANAGEMENT_ITEMS, context, erpSimulated(app.demo), permissions)];
-  const workItem = items.find((item) => item.id === "os.work");
-  if (workItem) {
-    for (const type of work.types) items.push({
-      ...workItem, id: "os.type." + type.id, primary: false, order: 15,
-      label: type.labels.plural, labelKey: undefined, resolvedLabel: type.labels.plural,
-      href: href({ area: "erp", page: "work", typeId: type.id }),
-    });
-  }
   items.sort(managementItemOrder);
   const destinations = new Set<string>();
   const menu = items.filter((item) => {

@@ -78,6 +78,9 @@ const Work = lazyWithRecovery<object>(() =>
     default: m.WorkPage,
   })),
 );
+const WorkSettings = lazyWithRecovery<object>(() =>
+  import("../modules/os/WorkSettingsPage").then((m) => ({ default: m.WorkSettingsPage })),
+);
 const pages = {
   work: Work,
   "service-orders": Work,
@@ -86,16 +89,8 @@ const pages = {
       default: m.MyDeadlinesPage,
     })),
   ),
-  "work-types": lazyWithRecovery(() =>
-    import("../modules/os/types/WorkTypesPage").then((m) => ({
-      default: m.WorkTypesPage,
-    })),
-  ),
-  "service-orders-settings": lazyWithRecovery(() =>
-    import("../modules/os/ServiceOrdersSettingsPage").then((m) => ({
-      default: m.ServiceOrdersSettingsPage,
-    })),
-  ),
+  "work-types": WorkSettings,
+  "service-orders-settings": WorkSettings,
   agenda: lazyWithRecovery(() =>
     import("../modules/agenda/AgendaPage").then((m) => ({
       default: m.AgendaPage,

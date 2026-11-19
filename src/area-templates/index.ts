@@ -1,53 +1,15 @@
 import type { AdminExtension } from "../modules/api";
-import type { AreaTemplate } from "./validation";
 import { ApiError } from "../types";
 import { applyAreaTemplate, exportAreaTemplate, previewAreaTemplate } from "./engine";
 import { validateAreaTemplate } from "./validation";
-import { assistenciaTecnicaTemplate } from "./models/assistencia-tecnica";
-import { servicosTemplate } from "./models/servicos";
-import { oficinaMecanicaTemplate } from "./models/oficina-mecanica";
-import { lavanderiaCosturaTemplate } from "./models/lavanderia-costura";
-import { graficaTemplate, despachanteTemplate, imobiliariaTemplate } from "./models/exemplos";
-import { engenheirosTemplate } from "./models/engenheiros";
-import { arquitetosTemplate } from "./models/arquitetos";
-import { construtorasTemplate } from "./models/construtoras";
-import { advogadosTemplate } from "./models/advogados";
-import { escritorioAdvocaciaTemplate } from "./models/escritorio-advocacia";
-import { clinicaMedicaTemplate } from "./models/clinica-medica";
-import { clinicaVeterinariaTemplate } from "./models/clinica-veterinaria";
-import { escolasTemplate } from "./models/escolas";
-import { professoresTemplate } from "./models/professores";
-import { condominiosTemplate } from "./models/condominios";
-import { restauranteTemplate } from "./models/restaurante";
+import { areaTemplates } from "./catalog";
 
 export { applyAreaTemplate, exportAreaTemplate, previewAreaTemplate } from "./engine";
 export { validateAreaTemplate, validateAreaSetup } from "./validation";
 export type { AreaTemplate, AreaTemplateSelection } from "./validation";
 export type { AreaTemplatePreview, AreaTemplateApplyResult } from "../modules/os/contracts";
 
-// Um modelo por linha. Os demais arquivos são entregues por seus próprios donos.
-export const areaTemplates: readonly AreaTemplate[] = [
-  // Versão publicada dos conjuntos da fase 2; preserva a procedência da v1.
-  assistenciaTecnicaTemplate,
-  // REGISTRO RESERVADO I — acrescentar aqui uma linha por modelo importado.
-  servicosTemplate,
-  oficinaMecanicaTemplate,
-  lavanderiaCosturaTemplate,
-  graficaTemplate,
-  despachanteTemplate,
-  imobiliariaTemplate,
-  { ...engenheirosTemplate, version: 2 },
-  arquitetosTemplate,
-  construtorasTemplate,
-  { ...advogadosTemplate, version: 2 },
-  { ...escritorioAdvocaciaTemplate, version: 2 },
-  clinicaMedicaTemplate,
-  clinicaVeterinariaTemplate,
-  escolasTemplate,
-  professoresTemplate,
-  condominiosTemplate,
-  restauranteTemplate,
-];
+export { areaTemplates } from "./catalog";
 
 /** Somente I registra este descritor em runtime.ts. Importar não publica rotas. */
 // A fábrica evita ler uma constante ainda em inicialização no ciclo
@@ -74,5 +36,3 @@ export function createAreaTemplatesExtension(): AdminExtension { return {
   ],
 }; }
 export const areaTemplatesExtension = createAreaTemplatesExtension();
-
-// IMPORTS RESERVADOS I — imports dos outros seis modelos, sem alterar seus arquivos.

@@ -4,6 +4,7 @@
 import type { Api, Row } from "./api";
 import type { BaseStatus, Order, OrderHistory, OrderList, Page, PrivateFields, WorkTypeCatalog, WorkTypeView } from "../modules/os/work-contracts";
 import * as erpDefinitions from "../../src/modules/erp/definition";
+import { oficinaMecanicaTemplate } from "../../src/area-templates/models/oficina-mecanica";
 import { agendaDemo, agendaDemoModule } from "../modules/agenda/demo";
 import { reservaDemo, reservaDemoModule } from "../modules/reserva/demo";
 import {
@@ -20,6 +21,10 @@ import {
 const M = 60_000,
   H = 60 * M;
 const t = (ago: number) => Date.now() - ago;
+const workshopType = {
+  ...structuredClone(oficinaMecanicaTemplate.work_types[0]),
+  id: "area_oficina_mecanica__at_veiculos",
+};
 
 export const demoMe = { id: "demo-user", name: "Administrador", role: "admin" };
 export const demoProfile = {
@@ -28,6 +33,8 @@ export const demoProfile = {
 };
 
 const settings: Row = {
+  os_work_types: [workshopType],
+  os_vocabulary: { collection_label: "Ordens de serviço", customer_singular: "Cliente", customer_plural: "Clientes" },
   attendant_bot: "demo-bot",
   instructions: "Acolha o cliente e responda com clareza.",
   protocol_response_hours: 24,
@@ -485,8 +492,8 @@ const demoModules: Row[] = [
     enabled: true,
     default_enabled: false,
     navigation: [
-      { id: "service-orders", label: "Ordens de serviço", place: "admin", admin: false },
-      { id: "service-orders-settings", label: "Ordem de serviço", place: "admin", admin: true },
+      { id: "work", label: "Ordens de serviço", place: "admin", admin: false },
+      { id: "work-types", label: "Configurar", place: "admin", admin: true },
     ],
     menu_item_types: [
       { type: "os_open", label: "Abrir ordem de serviço" },
@@ -709,7 +716,25 @@ const osOrder = (
   created: t(age),
   updated: t(Math.min(age, 3 * H)),
 });
+function workshopOrder(number: number, stageId: string, name: string, item: string): Order {
+  const stage = workshopType.stages.find(entry => entry.id === stageId)!;
+  const base = osOrder(number, stage.base_status, name, "5511987650010", item, "Revisão preventiva e verificação dos freios.", 3 * 24 * H, [["Revisão", 25000]]);
+  return {
+    ...base, type_id: workshopType.id, type_revision: workshopType.revision, type_number: number - 15,
+    type_label: workshopType.labels.singular, type_plural_label: workshopType.labels.plural,
+    display_number: workshopType.number_prefix + (number - 15), labels: workshopType.labels,
+    fields: workshopType.fields, features: workshopType.features, stage: stage.id, stage_label: stage.label,
+    extra: { placa: "ABC1D23", marca_modelo: item, ano: 2021, cor: "Prata", ultima_manutencao: "2026-05-15", quilometragem: 42500, combustivel: "metade" },
+    notes: "", due_at: number === 17 ? t(24 * H) : t(-2 * 24 * H),
+    next_stages: workshopType.transitions.filter(transition => transition.from === stage.id).map(transition => {
+      const target = workshopType.stages.find(entry => entry.id === transition.to)!;
+      return { transition_id: transition.id, stage: target.id, stage_label: target.label, base_status: target.base_status, kind: transition.kind };
+    }),
+  };
+}
 const osOrders: Order[] = [
+  workshopOrder(17, "execucao", "Fernanda Alves", "Fiat Argo 1.0"),
+  workshopOrder(16, "recebido", "Pedro Santos", "Volkswagen Polo"),
   osOrder(15, "received", "Carla Mendes", "5511987650001", "Notebook Lenovo IdeaPad", "Não liga depois de uma queda.", 2 * H),
   osOrder(14, "quoted", "Mariana Costa", "5511987650002", "Celular Moto G84", "Tela trincada e touch falhando no canto.", 26 * H, [["Troca de tela", 38000], ["Película", 2500]]),
   osOrder(13, "in_progress", "Rafael Lima", "5511987650003", "Bicicleta aro 29", "Freio traseiro sem pressão.", 3 * 24 * H, [["Sangria do freio", 9000], ["Pastilhas", 6500]]),
@@ -733,10 +758,9 @@ function workPage<T>(rows: T[], query: URLSearchParams): Page<T> {
 }
 function workDemo(rest: string, query: URLSearchParams) {
   // Rotas reservadas sempre precedem o identificador do trabalho.
-  if (rest === "service-orders/types") return { data: [osType], settings_revision: "demo" } satisfies WorkTypeCatalog;
+  if (rest === "service-orders/types") return { data: [osType, workshopType], settings_revision: "demo" } satisfies WorkTypeCatalog;
   if (rest.startsWith("service-orders/types/")) {
-    if (rest !== "service-orders/types/" + osType.id) return workNotFound();
-    return osType;
+    return [osType, workshopType].find(type => rest === "service-orders/types/" + type.id) || workNotFound();
   }
   if (rest === "service-orders/my-tasks") return workPage([], query);
   if (rest === "service-orders") {
@@ -745,6 +769,7 @@ function workDemo(rest: string, query: URLSearchParams) {
     const q = (query.get("q") || "").toLocaleLowerCase("pt-BR"), assignee = query.get("assignee");
     const base = osOrders.filter(order =>
       (!query.get("type_id") || query.get("type_id") === order.type_id) &&
+      (!query.get("type_ids") || query.get("type_ids")!.split(",").includes(order.type_id)) &&
       (!query.get("conversation_id") || query.get("conversation_id") === order.customer.conversation_id) &&
       (!query.get("phone") || query.get("phone") === order.customer.phone) &&
       (!assignee || (assignee === "unassigned" ? !order.assignee : order.assignee === (assignee === "me" ? demoMe.id : assignee))) &&
@@ -752,8 +777,9 @@ function workDemo(rest: string, query: URLSearchParams) {
       (!query.get("due_to") || order.due_at !== null && order.due_at <= Number(query.get("due_to"))) &&
       (!q || `${order.display_number} ${order.item} ${order.customer.name} ${order.customer.phone}`.toLocaleLowerCase("pt-BR").includes(q)));
     const counts: OrderList["counts"] = {}, types: Record<string, number> = {}, stageCounts: Record<string, number> = {};
-    for (const order of base) {
+    for (const order of osOrders)
       counts[order.status] = (counts[order.status] || 0) + 1;
+    for (const order of base) {
       types[order.type_id] = (types[order.type_id] || 0) + 1;
       stageCounts[order.stage] = (stageCounts[order.stage] || 0) + 1;
     }
@@ -928,6 +954,11 @@ function read(path: string, query: URLSearchParams): any {
   if (path === "v1/applications") return { applications: [], keys: [], scopes: [] };
   if (path === "v1/service-templates") return { data: [] };
   const rest = path.replace(/^v1\/profiles\/[^/]+\/?/, "");
+  if (rest === "area-templates" || rest.startsWith("area-templates/"))
+    return import("../../src/area-templates/catalog").then(({ areaTemplates }) => {
+      if (rest === "area-templates") return { data: areaTemplates.map(({ id, version, name, description }) => ({ id, version, name, description })) };
+      return structuredClone(areaTemplates.find(template => rest === "area-templates/" + template.id) || workNotFound());
+    });
   if (rest === "status")
     return {
       settings,

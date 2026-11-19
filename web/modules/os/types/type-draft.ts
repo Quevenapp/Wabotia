@@ -1,6 +1,37 @@
 import type { CustomWorkType, WorkField } from "../work-contracts";
 // Conteúdo parcial pertence ao rascunho, nunca ao DTO enviado ao servidor.
 export type WorkFieldDraft = WorkField & { options_text?: string };
+/** Identificadores sugeridos pelo rótulo, sem reutilizar IDs já usados. */
+export function labelIdentifier(label: string, used: readonly string[] = [], limit = 32): string {
+  let base = label.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (!/^[a-z]/.test(base)) base = "campo_" + base;
+  if (["constructor", "prototype", "__proto__", "service_order"].includes(base)) base = "modelo_" + base;
+  base = base.slice(0, limit);
+  let id = base;
+  for (let suffix = 2; used.includes(id); suffix++) {
+    const tail = "_" + suffix;
+    id = base.slice(0, limit - tail.length) + tail;
+  }
+  return id;
+}
+export function renameStage(type: CustomWorkType, index: number, id: string, label = type.stages[index].label): CustomWorkType {
+  const old = type.stages[index].id;
+  const replace = (value: string) => old && value === old ? id : value;
+  const quote = type.features.quote;
+  return {
+    ...type,
+    initial_stage: replace(type.initial_stage),
+    stages: type.stages.map((stage, i) => i === index ? { ...stage, id, label } : stage),
+    transitions: type.transitions.map((transition) => ({ ...transition, from: replace(transition.from), to: replace(transition.to) })),
+    features: { ...type.features, quote: quote ? {
+      ...quote,
+      source_stages: quote.source_stages.map(replace),
+      sent_stage: replace(quote.sent_stage), approved_stage: replace(quote.approved_stage),
+      declined_stage: replace(quote.declined_stage), edited_stage: replace(quote.edited_stage),
+    } : null },
+  };
+}
 export function prepareField(field: WorkFieldDraft): WorkField {
   const { options_text, ...saved } = field;
   if (saved.kind !== "choice" || options_text === undefined) return saved;
@@ -127,7 +158,7 @@ export function validateTypeDraft(
       seen.add(item.id);
     }
   };
-  ids([type], "Tipo", 64);
+  ids([type], "Modelo", 64);
   ids(type.fields, "Campo", 32);
   ids(type.stages, "Etapa", 32);
   ids(type.transitions, "Transição", 32);
@@ -148,7 +179,7 @@ export function validateTypeDraft(
   )
     errors.push("Limite de campos, etapas ou transições excedido.");
   if (new TextEncoder().encode(JSON.stringify(type)).length > 12 * 1024)
-    errors.push("O tipo excede 12 KiB.");
+    errors.push("O modelo excede 12 KiB.");
   for (const field of type.fields) {
     if (field.sensitive && (field.required || field.client_visible))
       errors.push(
@@ -281,7 +312,7 @@ export function prepareTypeSave(
 }
 export function parseTypeImport(text: string): CustomWorkType {
   if (new TextEncoder().encode(text).length > 12 * 1024)
-    throw new Error("O tipo excede 12 KiB.");
+    throw new Error("O modelo excede 12 KiB.");
   const value = JSON.parse(text);
   if (
     !value ||
@@ -296,7 +327,7 @@ export function parseTypeImport(text: string): CustomWorkType {
     !Array.isArray(value.retired_stage_ids)
   )
     throw new Error(
-      "Formato de tipo inválido. Use um tipo personalizado com schema_version 1.",
+      "Formato de modelo inválido. Use um modelo personalizado com schema_version 1.",
     );
   const strings = (object: Record<string, unknown>, keys: string[]) =>
     keys.every((key) => typeof object[key] === "string");
@@ -346,7 +377,7 @@ export function parseTypeImport(text: string): CustomWorkType {
     )
   )
     throw new Error(
-      "Formato de tipo inválido: confira rótulos, campos, etapas e transições.",
+      "Formato de modelo inválido: confira rótulos, campos, etapas e transições.",
     );
   const errors = validateTypeDraft(value);
   if (errors.length) throw new Error(errors.join("\n"));

@@ -239,6 +239,12 @@ export async function listOrders(
     args: any[] = [ctx.profile];
   if (query.stage && !query.type_id) throw new ApiError(400, "invalid_filter", "Etapa exige type_id.");
   if (query.type_id) { where.push("type_id=?"); args.push(query.type_id); }
+  if (query.type_ids) {
+    const ids = [...new Set(query.type_ids.split(","))];
+    requireValue(ids.length <= 21 && ids.every(id => /^[a-z][a-z0-9_]{0,63}$/.test(id)), "Modelos inválidos.");
+    where.push(`type_id IN (${ids.map(() => "?").join(",")})`);
+    args.push(...ids);
+  }
   if (query.stage) { where.push("COALESCE(stage,status)=?"); args.push(query.stage); }
   if (query.assignee) {
     where.push(query.assignee === "unassigned" ? "assignee IS NULL" : "assignee=?");

@@ -53,8 +53,8 @@ describe("painel de trabalhos: contrato e compatibilidade", () => {
       revision: 1,
     } as WorkTypeView;
     expect(workCollectionLabel([builtin])).toBe("Ordens de serviço");
-    expect(workCollectionLabel([builtin], undefined, true)).toBe("Ordens");
-    expect(workCollectionLabel([type()])).toBe("Projetos");
+    expect(workCollectionLabel([builtin], undefined, true)).toBe("Ordens de serviço");
+    expect(workCollectionLabel([type()])).toBe("Ordens de serviço");
     expect(
       workCollectionLabel([builtin, type()], {
         collection_label: "Atividades",

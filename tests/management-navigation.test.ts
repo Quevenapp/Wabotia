@@ -108,7 +108,7 @@ describe("elegibilidade, ativação e autorização independentes", () => {
     const titles = [...new Set(items.map(item => item.module === "os" ? "Atendimentos" : item.groupLabel))];
     expect(titles.slice(0, 2)).toEqual(["Atendimentos", "Agenda"]);
     const headings = [...html.matchAll(/<h2>(.*?)<\/h2>/g)].map(match => match[1]);
-    expect(headings).toEqual([...titles, ...titles]);
+    expect(headings).toEqual([...titles.filter(title => title !== "Atendimentos"), ...titles]);
     expect(headings).not.toContain("Dashboard geral");
     const cards = [...html.split('class="management-cards"')[1].matchAll(/<section>([\s\S]*?)<\/section>/g)];
     expect(cards).toHaveLength(titles.length);
@@ -155,7 +155,7 @@ describe("elegibilidade, ativação e autorização independentes", () => {
 
   it("conserva configurações administrativas, inclusive com estrela", () => {
     const c = context({ role: "agent", access: ["*"], modules: { agenda: true, os: true } });
-    expect(resolveManagement(native, c).map((item) => item.id)).toEqual(["os.work", "os.deadlines", "agenda.calendar"]);
+    expect(resolveManagement(native, c).map((item) => item.id)).toEqual(["os.work", "agenda.calendar"]);
     expect(nativeTargetState("agenda-settings", c)).toBe("denied");
     expect(nativeTargetState("agenda", context())).toBe("disabled");
     expect(nativeTargetState("unknown", context())).toBe("not-found");
@@ -181,11 +181,40 @@ describe("elegibilidade, ativação e autorização independentes", () => {
     expect(financeiro.some((item) => item.id === "erp.payables")).toBe(true);
     expect(financeiro.some((item) => item.id === "erp.products")).toBe(false);
     const os = resolveManagement(MANAGEMENT_ITEMS, context({ role: "agent", access: ["os"], modules: { os: true, erp: true } }));
-    expect(os.map((item) => item.id)).toEqual(["os.work", "os.deadlines"]);
+    expect(os.map((item) => item.id)).toEqual(["os.work"]);
   });
 });
 
 describe("catálogo determinístico e vocabulário", () => {
+  it("oferece só a lista e Configurar, sem atalhos por modelo nem título duplicado", () => {
+    mocks.app.modules = { os: true };
+    mocks.app.settings.os_vocabulary = { collection_label: "Atendimentos" };
+    mocks.catalog = [types("service_order", "Ordens de serviço", false, "builtin"), types("oficina", "Serviços de oficina")];
+    const html = render();
+    const nav = html.match(/<nav aria-label="Módulos de gestão">([\s\S]*?)<\/nav>/)![1];
+    expect([...nav.matchAll(/href="(\/app\/erp\/modulos\/[^"?]+)/g)].map(match => match[1]))
+      .toEqual(["/app/erp/modulos/trabalhos", "/app/erp/modulos/tipos-de-trabalho"]);
+    expect(nav).toContain("Atendimentos</a>");
+    expect(nav).toContain("Configurar</a>");
+    expect(nav).not.toContain("<h2>Atendimentos</h2>");
+    expect(nav).not.toContain("Serviços de oficina");
+    expect(nav).not.toContain("Meus prazos");
+    mocks.route = { area: "erp", page: "work", typeId: "oficina" };
+    expect(render()).toMatch(/href="\/app\/erp\/modulos\/trabalhos" aria-current="page"/);
+    mocks.route = { area: "erp", page: "service-orders-settings" };
+    expect(render()).toMatch(/href="\/app\/erp\/modulos\/tipos-de-trabalho" aria-current="page"/);
+  });
+
+  it("preserva autorização dos destinos internos retirados do menu", () => {
+    const admin = context({ modules: { os: true } });
+    const agent = context({ role: "agent", access: ["os"], modules: { os: true } });
+    for (const page of ["my-deadlines", "service-orders", "service-orders-settings"])
+      expect(nativeTargetState(page, admin)).toBe("allowed");
+    expect(nativeTargetState("my-deadlines", agent)).toBe("allowed");
+    expect(nativeTargetState("service-orders-settings", agent)).toBe("denied");
+    expect(nativeTargetState("my-deadlines", context({ modules: { os: false } }))).toBe("disabled");
+  });
+
   it("ordena grupo, ordem e id sem alterar a entrada; rejeita ids repetidos mesmo enquanto carrega", () => {
     const base = NATIVE_MANAGEMENT_ITEMS.agenda[0];
     const items: ManagementItem[] = [
@@ -216,7 +245,7 @@ describe("catálogo determinístico e vocabulário", () => {
     mocks.catalog = [types("z", "Arquivados", true), types("b", "Projetos"), types("a", "Ordens", true, "builtin")];
     mocks.app.modules = { os: true };
     expect(activeNavigationTypes(mocks.catalog).map((type) => type.id)).toEqual(["b"]);
-    expect(useWorkNavigation()).toMatchObject({ label: "Projetos", hasCustom: true, tasksEnabled: true });
+    expect(useWorkNavigation()).toMatchObject({ label: "Ordens de serviço", hasCustom: true, tasksEnabled: true });
     mocks.catalog = [types("service_order", "Ordens de serviço", false, "builtin")];
     expect(useWorkNavigation().label).toBe("Ordens de serviço");
   });

@@ -8,6 +8,7 @@ import type {
   AreaTemplateExportRequest, CustomWorkType, TemplateChange,
 } from "../modules/os/contracts";
 import { identifier, invalid, list, object, string, validateAreaSetup, validateAreaTemplate, validateSelection, type AreaTemplate, type AreaTemplateSelection } from "./validation";
+import { equivalentWorkTypes } from "./equivalent-types";
 
 type Settings = Record<string, any>;
 interface Application {
@@ -67,13 +68,13 @@ function compile(manifest: AreaTemplate, selection: AreaTemplateSelection, cfg: 
     if (typeof entry.id === "string" && entry.id.startsWith(namespace))
       addConflict(`${key}.${entry.id}`, "prefix_conflict", "O prefixo já está ocupado sem procedência deste modelo.");
 
-  const add = (key: string, id: string, value: unknown) => {
+  const add = (key: string, id: string, value: unknown, reason = "Novo cadastro do modelo.") => {
     const path = `${key}.${id}`;
     const current = settings[key] || savedList(cfg, key);
     if (current.some((entry: any) => (key === "os_area_setup" ? entry.template_id : entry.id) === id))
       change(path, "keep", "Cadastro existente preservado, inclusive edições manuais.");
     else if (seenIds.has(path)) change(path, "skip", "Item já tratado e removido; não será recriado.");
-    else { settings[key] = [...current, value]; change(path, "add", "Novo cadastro do modelo."); }
+    else { settings[key] = [...current, value]; change(path, "add", reason); }
     seenIds.add(path);
   };
   const scalar = (path: string, old: unknown, write: () => void) => {
@@ -82,8 +83,13 @@ function compile(manifest: AreaTemplate, selection: AreaTemplateSelection, cfg: 
     else { write(); change(path, "set", "Preenche um caminho ainda não tratado."); }
     seenPaths.add(path);
   };
-  for (const type of manifest.work_types) if (selection.work_type_ids.includes(type.id))
-    add("os_work_types", globalId(type.id), { ...type, id: globalId(type.id) });
+  for (const type of manifest.work_types) if (selection.work_type_ids.includes(type.id)) {
+    const equivalent = equivalentWorkTypes(type, savedList(cfg, "os_work_types"), manifest.id);
+    const reason = equivalent.length
+      ? `Já existe um modelo equivalente: ${equivalent.map((candidate) => candidate.labels.plural).join(", ")}. Aplicar criará outro modelo; os existentes serão preservados.`
+      : "Novo cadastro do modelo.";
+    add("os_work_types", globalId(type.id), { ...type, id: globalId(type.id) }, reason);
+  }
   if (selection.work_type_ids.includes("service_order"))
     change("os_work_types.service_order", "keep", "Tipo embutido virtual; definição e configurações permanecem intactas.");
   for (const key of ["departments", "ticket_categories"] as const) if (selection[key])

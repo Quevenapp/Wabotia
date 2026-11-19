@@ -26,15 +26,15 @@ export const osModule: ModuleDefinition = {
       place: "admin",
       admin: true,
     },
-    { id: "work", label: "Trabalhos", place: "admin", admin: false },
+    { id: "work", label: "Ordens de serviço", place: "admin", admin: false },
     { id: "my-deadlines", label: "Meus prazos", place: "admin", admin: false },
-    { id: "work-types", label: "Tipos de trabalho", place: "admin", admin: true },
+    { id: "work-types", label: "Configurar", place: "admin", admin: true },
   ],
   menu_item_types: [
     {
       type: "os_open",
       reference: {
-        field: "type_id", setting: "os_work_types", label: "Tipo de trabalho",
+        field: "type_id", setting: "os_work_types", label: "Modelo",
         default_id: "service_order", builtins: [{ id: "service_order", label: "Ordem de serviço" }],
       },
       label: "Abrir ordem de serviço",
@@ -44,7 +44,7 @@ export const osModule: ModuleDefinition = {
     {
       type: "os_track",
       reference: {
-        field: "type_id", setting: "os_work_types", label: "Tipo de trabalho",
+        field: "type_id", setting: "os_work_types", label: "Modelo",
         default_id: "service_order", builtins: [{ id: "service_order", label: "Ordem de serviço" }],
       },
       label: "Acompanhar ordem de serviço",

@@ -84,7 +84,7 @@ function ConversationWorkContent(props: ConversationExtensionProps) {
       {type && (
         <>
           <Field
-            label="Tipo de trabalho"
+            label="Modelo"
             value={type.id}
             emptyOption={null}
             options={available.map((type) => ({

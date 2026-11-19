@@ -5,6 +5,8 @@ web/erp/app/** -text
 web/erp/test/** -text
 web/erp/qa/** -text
 packages/** -text
+# O espelho de Preferências deve conservar os mesmos bytes LF do pacote.
+src/erp/fagoo/packages/erp-domain/src/preferences/** text eol=lf
 web/lib/qr-code.ts -text
 
 tests/erp/oracle/migrations/*.sql text eol=lf
