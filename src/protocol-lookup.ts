@@ -1,4 +1,6 @@
 import { all } from "./db";
+import { resolveCustomer } from "./customer/ports";
+import { normalizeCustomerPhone, customerPhoneVariants as phoneVariants } from "./customer/phone";
 import { type Conversation, type Env, requireValue, now } from "./types";
 import { enqueue, settings } from "./service";
 import { formatBrasilia } from "./business-time";
@@ -68,12 +70,17 @@ function compactProtocol(value: string) {
 export function verifiedPhone(c: Conversation) {
   if (
     c.chat_type === "group" ||
+    ["blocked", "excluded", "ambiguous"].includes(c.customer_link_state || "") ||
     !c.connection_id ||
     c.external_namespace !== `channel:${c.connection_id}`
   )
     return null;
-  const value = String(c.phone || "").replace(/[+ ()-]/g, "");
-  return /^\d{7,15}$/.test(value) ? value : null;
+  const phone = normalizeCustomerPhone(c.phone, "international");
+  // Uma correção do telefone invalida a prova anterior. Legado de canal já
+  // autenticado continua legível mesmo antes do preenchimento cadastral.
+  if (c.verified_phone && c.verified_phone !== phone) return null;
+  if (/@(?:lid|g\.us)$/.test(c.external_id) && !c.verified_phone) return null;
+  return phone;
 }
 
 export async function lookupProtocols(
@@ -94,7 +101,10 @@ export async function lookupProtocols(
     !number || isOnlyProtocolNumber(number),
     "Informe o número completo do protocolo, como 10001.",
   );
+  const customer = await resolveCustomer(env, c);
+  const contactId = customer.state === "ready" ? customer.contactId : null;
   const phone = verifiedPhone(c);
+  const variants = JSON.stringify(phone ? phoneVariants(phone) : []);
   // The same response is returned for a nonexistent number and somebody else's
   // number. Public updates only; internal notes and operator IDs are never sent.
   return all(
@@ -103,16 +113,23 @@ export async function lookupProtocols(
       (SELECT u.text FROM ticket_updates u WHERE u.ticket_id=t.id AND u.internal=0 ORDER BY u.created DESC,u.rowid DESC LIMIT 1) latest_update
      FROM tickets t JOIN conversations original ON original.id=t.conversation_id
      WHERE t.profile_id=? AND original.profile_id=? AND original.chat_type!='group'
-       AND (original.id=? OR (? IS NOT NULL AND original.connection_id IS NOT NULL
-         AND original.external_namespace='channel:'||original.connection_id
-         AND replace(replace(replace(replace(replace(original.phone,'+',''),' ',''),'(',''),')',''),'-','')=?))
+       AND (original.id=? OR (? IS NOT NULL AND EXISTS(
+         SELECT 1 FROM customer_records r JOIN contacts k
+           ON k.id=r.contact_id AND k.profile_id=r.profile_id AND k.namespace=? AND k.identity_state='active'
+         WHERE r.profile_id=t.profile_id AND r.kind='ticket' AND r.record_id=t.id
+           AND r.conversation_id=t.conversation_id AND r.contact_id=?))
+         OR (original.connection_id IS NOT NULL AND original.external_namespace='channel:'||original.connection_id
+           AND original.customer_link_state NOT IN ('blocked','excluded','ambiguous')
+           AND replace(replace(replace(replace(replace(original.phone,'+',''),' ',''),'(',''),')',''),'-','') IN (SELECT value FROM json_each(?))))
        AND (? IS NULL OR upper(t.number)=?)
      ORDER BY t.created DESC,t.id DESC LIMIT 10`,
     c.profile_id,
     c.profile_id,
     c.id,
-    phone,
-    phone,
+    contactId,
+    customer.namespace,
+    contactId,
+    variants,
     query || null,
     query || null,
   );
@@ -125,8 +142,8 @@ export function protocolSummary(
 ) {
   if (!tickets.length)
     return requested
-      ? "Não encontramos esse protocolo vinculado ao seu atendimento ou telefone. Confira o número completo ou peça ajuda à equipe."
-      : "Ainda não há protocolos vinculados ao seu atendimento ou telefone. Para falar com a equipe, envie ATENDENTE.";
+      ? "Não encontramos esse protocolo vinculado ao seu atendimento ou cadastro. Confira o número completo ou peça ajuda à equipe."
+      : "Ainda não há protocolos vinculados ao seu atendimento ou cadastro. Para falar com a equipe, envie ATENDENTE.";
   return (
     tickets
       .map((ticket) => {

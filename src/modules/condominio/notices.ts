@@ -2,7 +2,7 @@ import { z } from "zod";
 import { all, exec, one } from "../../db";
 import { now, type Actor } from "../../types";
 import type { ModuleContext } from "../api";
-import { fail, get, id, page, parse, resident, staff, text } from "./common";
+import { fail, get, id, page, parse, personIdentity, resident, staff, text } from "./common";
 
 const audience = `m.notices=1 AND m.role!='dependente' AND m.starts_at<=? AND (m.ends_at IS NULL OR m.ends_at>?)
  AND ph.starts_at<=? AND (ph.ends_at IS NULL OR ph.ends_at>?)
@@ -166,7 +166,7 @@ export async function sendDueNotices(ctx: ModuleContext) {
     const at = now();
     const eligible = await one(
       ctx.env,
-      `SELECT ph.id FROM cond_notices n
+      `SELECT ph.id,ph.person_id FROM cond_notices n
       JOIN cond_memberships m ON m.profile_id=n.profile_id JOIN cond_units u ON u.profile_id=m.profile_id AND u.id=m.unit_id
       JOIN cond_phones ph ON ph.profile_id=m.profile_id AND ph.person_id=m.person_id
       WHERE n.profile_id=? AND n.id=? AND ph.phone=? AND n.status IN ('sending','sent') AND ${audience} LIMIT 1`,
@@ -190,6 +190,7 @@ export async function sendDueNotices(ctx: ModuleContext) {
           ctx.verifiedPhone(c) !== row.phone
         )
           fail();
+        await personIdentity(ctx, c, eligible.person_id);
         // Nem título nem corpo livre entram no WhatsApp. Janela, consentimento e modelo são do núcleo.
         await ctx.sendMessage(
           c,

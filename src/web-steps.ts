@@ -531,9 +531,17 @@ export async function openWebStep(env: Env, input: OpenWebStepInput) {
     code = newWebStepCode(),
     at = now();
   const url = origin + WEB_STEP_PATH + code;
+  // Congela o vínculo já persistido, no próprio INSERT. Não resolve telefone
+  // nem acrescenta leitura ao envio. A conclusão não escolhe outra pessoa.
   await exec(
     env,
-    "INSERT INTO web_steps(id,profile_id,conversation_id,module_id,kind,ref_id,code_hash,status,title,spec,trigger,actor,source_key,expires_at,created,updated) VALUES(?,?,?,?,?,?,?,'sent',?,?,?,?,?,?,?,?)",
+    `INSERT INTO web_steps(id,profile_id,conversation_id,module_id,kind,ref_id,code_hash,status,title,spec,trigger,actor,source_key,expires_at,created,updated,contact_id)
+     VALUES(?,?,?,?,?,?,?,'sent',?,?,?,?,?,?,?,?,
+       (SELECT cc.contact_id FROM conversation_contacts cc JOIN contacts p ON p.id=cc.contact_id AND p.profile_id=cc.profile_id
+        JOIN conversations c ON c.id=cc.conversation_id AND c.profile_id=cc.profile_id
+        WHERE cc.profile_id=? AND cc.conversation_id=? AND c.customer_link_state='ready' AND c.chat_type<>'group'
+          AND p.identity_state='active' AND (p.namespace=CASE WHEN c.external_namespace LIKE 'app:%' THEN c.external_namespace ELSE 'team' END OR (p.namespace='panel' AND c.external_namespace NOT LIKE 'app:%'))
+          AND ? NOT IN ('saude','ensino','juridico')))`,
     id,
     c.profile_id,
     c.id,
@@ -549,6 +557,9 @@ export async function openWebStep(env: Env, input: OpenWebStepInput) {
     at + ttl * 60000,
     at,
     at,
+    c.profile_id,
+    c.id,
+    input.module,
   );
   const body = clip(
     input.text?.trim() ||
@@ -889,7 +900,22 @@ export async function completeWebStep(
   const at = now();
   const claimed = await exec(
     env,
-    "UPDATE web_steps SET status='completed',result=?,completed_at=?,opened_at=coalesce(opened_at,?),updated=? WHERE id=? AND status IN ('sent','opened') AND expires_at>?",
+    `UPDATE web_steps SET status='completed',result=?,completed_at=?,opened_at=coalesce(opened_at,?),updated=?,
+      contact_id=CASE WHEN contact_id IS NULL AND module_id='forms' AND kind='form' THEN
+        coalesce((SELECT cc.contact_id FROM conversation_contacts cc JOIN contacts p ON p.id=cc.contact_id AND p.profile_id=cc.profile_id
+         JOIN conversations c ON c.id=cc.conversation_id AND c.profile_id=cc.profile_id
+         WHERE cc.profile_id=web_steps.profile_id AND cc.conversation_id=web_steps.conversation_id
+           AND (cc.created<=web_steps.created OR p.namespace='panel')
+           AND p.identity_state='active' AND c.customer_link_state NOT IN ('blocked','excluded','ambiguous')
+           AND (p.namespace=CASE WHEN c.external_namespace LIKE 'app:%' THEN c.external_namespace ELSE 'team' END OR (p.namespace='panel' AND c.external_namespace NOT LIKE 'app:%'))),
+          (SELECT r.contact_id FROM customer_records r JOIN contacts p ON p.id=r.contact_id AND p.profile_id=r.profile_id
+           JOIN conversations c ON c.id=r.conversation_id AND c.profile_id=r.profile_id
+           WHERE r.profile_id=web_steps.profile_id AND r.conversation_id=web_steps.conversation_id
+             AND r.module_id='conversations' AND r.kind='session' AND r.occurred_at<=web_steps.created
+             AND p.identity_state='active' AND c.customer_link_state NOT IN ('blocked','excluded','ambiguous')
+           ORDER BY r.occurred_at DESC,r.record_id DESC LIMIT 1))
+        ELSE contact_id END
+      WHERE id=? AND status IN ('sent','opened') AND expires_at>?`,
     JSON.stringify(answers),
     at,
     at,
@@ -998,12 +1024,6 @@ async function afterCompletion(
     spec.page === "cart"
       ? cartSummary(answers as CartOrder)
       : answersText(spec.fields, answers);
-  const contact = await one(
-    env,
-    "SELECT contact_id FROM conversation_contacts WHERE conversation_id=? AND profile_id=?",
-    c.id,
-    c.profile_id,
-  );
   let ticket: any = null;
   if (spec.ticket !== "none") {
     ticket = await one(
@@ -1050,8 +1070,7 @@ async function afterCompletion(
   }
   await exec(
     env,
-    "UPDATE web_steps SET contact_id=?,ticket_id=? WHERE id=?",
-    contact?.contact_id || null,
+    "UPDATE web_steps SET ticket_id=? WHERE id=?",
     ticket?.id || null,
     row.id,
   );

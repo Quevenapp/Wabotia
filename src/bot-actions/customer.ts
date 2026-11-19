@@ -16,6 +16,8 @@ import { moduleMcpTools, type ModuleMcpTool } from "../modules/hooks";
 import { moduleStates } from "../modules/registry";
 import { enqueue } from "../service";
 import { sendInteractive } from "../line-service";
+import { historyPort } from "../customer/ports";
+import { projectCustomerInput, projectCustomerMemory } from "../customer/history";
 import {
   ApiError,
   type Actor,
@@ -59,6 +61,13 @@ export interface CustomerToolContext {
   /** Ator interno do bot preso à conversa (conversations:bound). */
   bound: Actor;
 }
+
+export const CUSTOMER_MEMORY_TOOL = "customer_memory";
+const memoryTool: ModuleMcpTool = {
+  module: "customer", name: CUSTOMER_MEMORY_TOOL, customer: "read", input: {},
+  description: "Consulta sob demanda até 50 fatos administrativos da conversa atual: quantidade de interações, pendências e data da última interação. Não traz textos, respostas ou dados privados. Não é uma contagem de todo o cadastro.",
+  call: () => { throw new Error("A memória só pode ser consultada pela conversa da execução."); },
+};
 
 /**
  * Contexto do modo cliente, ou null. Só execução de uma conversa individual
@@ -117,12 +126,12 @@ const kindOf = (tool: ModuleMcpTool) =>
 /** Ferramentas do cliente dos módulos ligados na área. */
 export async function customerTools(env: Env, profile: string) {
   const states = await moduleStates(env, profile);
-  return moduleMcpTools().filter((t) => states[t.module] && kindOf(t));
+  return moduleMcpTools().filter((t) => states[t.module] && kindOf(t) && !["saude", "ensino", "juridico"].includes(t.module));
 }
 
 /** Definições para o modelo: sem conversation_id, profile e idempotency_key. */
 export function customerToolDefs(tools: ModuleMcpTool[]): BotTool[] {
-  return tools.map((t) => {
+  return (tools.length ? [memoryTool, ...tools.filter(t => t.name !== CUSTOMER_MEMORY_TOOL)] : []).map((t) => {
     const properties = Object.fromEntries(
       Object.entries(t.input || {}).filter(
         ([k]) => !["conversation_id", "profile", "idempotency_key"].includes(k),
@@ -194,6 +203,14 @@ export async function runCustomerTool(
     return err(
       `Limite de ${MAX_TOOL_CALLS} consultas por resposta. Responda com o que já tem.`,
     );
+  if (name === CUSTOMER_MEMORY_TOOL) {
+    try {
+      if (ctx.profile !== ctx.run.profile_id || ctx.run.conversation_id !== ctx.conversation.id || ctx.bound.via?.run_id !== ctx.run.id)
+        throw new ApiError(403, "forbidden", "Consulta fora da conversa da execução.");
+      // Nenhum argumento do modelo escolhe contato, conversa ou área.
+      return JSON.stringify(projectCustomerMemory(await historyPort.memory(ctx.env, ctx.bound, ctx.conversation)));
+    } catch { return err("Não foi possível consultar a memória desta conversa."); }
+  }
   const tool = (await customerTools(ctx.env, ctx.profile)).find(
     (t) => t.name === name,
   );
@@ -224,7 +241,7 @@ export async function runCustomerTool(
     const body = await response.json<any>().catch(() => null);
     if (!response.ok)
       return err(body?.error?.message || `Falha HTTP ${response.status}.`);
-    const text = JSON.stringify(sanitize(body, true));
+    const text = JSON.stringify(sanitize(JSON.parse(projectCustomerInput(JSON.stringify(body))), true));
     return text.length <= MAX_RESULT
       ? text
       : text.slice(0, MAX_RESULT) + "… [cortado]";

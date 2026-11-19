@@ -8,6 +8,8 @@ import type { WorkTypeView } from "../os/contracts";
 import { projectPrivateFields } from "../os/privacy";
 import { projectOrderForStaff, projectChildForBot, projectChildForStaff } from "../os/privacy";
 import { id, type Period, type Rule, type Slot } from "./model";
+import { resolveCustomer } from "../../customer/ports";
+import { normalizeCustomerPhone } from "../../customer/phone";
 
 export interface ClassRow {
   id: string; profile_id: string; name: string; school_year: string;
@@ -110,15 +112,22 @@ export const today = (at = Date.now()) => new Date(at - BRASILIA_OFFSET_MS).toIS
 export async function guardianOrders(ctx: ModuleContext, c: Conversation) {
   await ctx.requireEnabled();
   if (c.profile_id !== ctx.profile || c.chat_type === "group") notFound();
-  const phone = ctx.verifiedPhone(c);
-  if (!phone) notFound();
+  const phone = normalizeCustomerPhone(ctx.verifiedPhone(c), "international");
+  const customer = await resolveCustomer(ctx.env, c);
+  // Só o legado ainda sem identidade cadastral usa a autorização telefônica
+  // privada. Um contato conhecido mas pendente não pode validar o claim.
+  const legacy = customer.state === "pending" && !customer.contactId &&
+    !customer.verifiedPhone && !c.verified_phone;
+  if (!phone || customer.profileId !== ctx.profile || customer.namespace !== "team" ||
+      (customer.state !== "ready" && !legacy)) notFound();
   const hash = await phoneHash(ctx, phone);
   const rows = await all<{ order_id: string; phone: string }>(ctx.env,
     `SELECT DISTINCT g.order_id,p.phone FROM ensino_guardians g JOIN os_people p
      ON p.profile_id=g.profile_id AND p.order_id=g.order_id AND p.id=g.person_id
      WHERE g.profile_id=? AND g.phone_hash=? AND g.revoked_at IS NULL AND g.valid_until>=?
+     AND (g.contact_id IS NULL OR g.contact_id=?)
      AND p.archived_at IS NULL AND p.version=g.person_version AND p.sensitive=1 AND p.client_visible=0
-     ORDER BY g.order_id LIMIT 101`, ctx.profile, hash, today());
+     ORDER BY g.order_id LIMIT 101`, ctx.profile, hash, today(), customer.contactId);
   if (rows.length > 100) throw new ApiError(409, "review_required", "Solicite a conferência dos vínculos à secretaria.");
-  return { hash, orderIds: rows.filter(r => digits(r.phone) === digits(phone)).map(r => r.order_id) };
+  return { hash, orderIds: rows.filter(r => normalizeCustomerPhone(r.phone, "international") === phone).map(r => r.order_id) };
 }

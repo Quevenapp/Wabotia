@@ -7,6 +7,9 @@ const tableColumns: NonNullable<ContactContribution["columns"]> = [
   { key: "status", label: "Situação", format: "status" },
   { key: "occurredAt", label: "Data", format: "datetime" },
 ];
+const relationColumns: NonNullable<ContactContribution["columns"]> = [
+  ...tableColumns, { key: "relation", label: "Vínculo", format: "text" },
+];
 const collection = (
   moduleId: string, id: string, title: string,
   extra: Partial<ContactContribution> = {},
@@ -29,13 +32,13 @@ export const customerProfileDeclarations: Readonly<Record<string, ContactProfile
     columns: [...tableColumns, { key: "checkinStatus", label: "Check-in", format: "status" }],
   })] },
   mensalidade: { contributions: [
-    collection("mensalidade", "subscriptions", "Assinaturas"),
-    collection("mensalidade", "installments", "Parcelas"),
+    collection("mensalidade", "subscriptions", "Assinaturas", { columns: relationColumns }),
+    collection("mensalidade", "installments", "Parcelas", { columns: relationColumns }),
   ] },
   suporte: { contributions: [
-    collection("suporte", "sessions", "Atendimentos"),
-    collection("suporte", "purchases", "Compras"),
-    collection("suporte", "releases", "Liberações"),
+    collection("suporte", "sessions", "Atendimentos", { columns: relationColumns }),
+    collection("suporte", "purchases", "Compras", { columns: relationColumns }),
+    collection("suporte", "releases", "Liberações", { columns: relationColumns }),
   ] },
   queue: { contributions: [collection("queue", "tickets", "Senhas da fila")] },
   forms: { contributions: [collection("forms", "submissions", "Formulários concluídos")] },

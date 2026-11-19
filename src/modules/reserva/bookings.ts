@@ -5,6 +5,8 @@
 // mesma unidade, venham do painel, da API ou do WhatsApp. Os comandos ainda
 // rodam serializados no Coordinator da área.
 import { all, exec, one } from "../../db";
+import { confirmRoutineCustomer, routineCustomer, routineCustomerScope } from "../agenda/customer-provider";
+import { normalizeCustomerPhone } from "../../customer/phone";
 import {
   ApiError,
   type Actor,
@@ -259,21 +261,19 @@ export async function listBookings(
   return rows.map(bookingView);
 }
 
-/** Próximas reservas ativas do cliente da conversa (ou do mesmo telefone). */
+/** Próximas reservas pelo vínculo; legado somente da conversa original. */
 export async function upcomingFor(
   ctx: ModuleContext,
   c: Conversation,
   at: number,
 ) {
-  // Só o telefone autenticado pelo canal (revisão M7).
-  const phone = (ctx.verifiedPhone(c) || "").replace(/\D/g, "");
+  const scope = await routineCustomerScope(ctx, c, "customer_phone");
   const rows = await all(
     ctx.env,
-    `SELECT * FROM reserva_bookings WHERE profile_id=? AND status IN ${ACTIVE_SQL} AND departure_at>? AND (conversation_id=?${phone ? " OR customer_phone=?" : ""}) ORDER BY starts LIMIT 20`,
+    `SELECT * FROM reserva_bookings WHERE profile_id=? AND status IN ${ACTIVE_SQL} AND departure_at>? AND ${scope.sql} ORDER BY starts LIMIT 20`,
     ctx.profile,
     at,
-    c.id,
-    ...(phone ? [phone] : []),
+    ...scope.params,
   );
   return rows.map(bookingView);
 }
@@ -334,7 +334,8 @@ export async function publish(
     kind,
     b.id,
     {
-      booking: b,
+      // Respostas ficam somente na Reserva, inclusive nos eventos de alteração.
+      booking: { ...b, checkin_answers: null },
       conversation_id: b.conversation_id,
       actor,
       ...extra,
@@ -388,7 +389,7 @@ function customerOf(
     input.customer_name ?? contact?.name ?? c?.title ?? "",
   ).trim();
   const phone = String(
-    input.customer_phone ?? contact?.phone ?? c?.phone ?? "",
+    input.customer_phone ?? contact?.phone ?? normalizeCustomerPhone(c?.phone, "international") ?? "",
   ).replace(/\D/g, "");
   requireValue(
     Array.from(name).length <= 120 && phone.length <= 20,
@@ -448,8 +449,13 @@ export async function createBooking(
       input.id,
       ctx.profile,
     );
-    if (existing)
-      return { booking: await getBooking(ctx, input.id), created: false };
+    if (existing) {
+      const booking = await getBooking(ctx, input.id);
+      const c = input.conversation || null;
+      const customer = c ? await routineCustomer(ctx, c) : null;
+      await confirmRoutineCustomer(ctx, c, customer?.ref || null, "reserva", input.id, booking.contact_id);
+      return { booking, created: false };
+    }
   }
   requireValue(
     typeof input.unit_id === "string" && input.unit_id,
@@ -472,12 +478,13 @@ export async function createBooking(
     force: input.force,
   });
   const c = input.conversation || null;
-  const contact = c ? await ctx.contact(c) : null;
+  const contact = c ? await routineCustomer(ctx, c) : null;
   const customer = customerOf(input, c, contact);
   const deposit = depositOf(config, period, input);
   const status: BookingStatus = deposit > 0 ? "pending_payment" : "confirmed";
   const due = deposit > 0 ? at + config.deposit_deadline_minutes * 60000 : null;
   const id = input.id || uid();
+  await confirmRoutineCustomer(ctx, c, contact?.ref || null, "reserva", id);
   const inserted = await exec(
     ctx.env,
     `INSERT INTO reserva_bookings(id,profile_id,number,unit_id,unit_name,mode,starts,ends,arrival_at,departure_at,guests,status,conversation_id,contact_id,customer_name,customer_phone,notes,source,price_cents,deposit_cents,payment_due_at,confirmed_at,confirmed_by,created_by,created,updated)
@@ -497,7 +504,7 @@ export async function createBooking(
     guests,
     status,
     c?.id || null,
-    contact?.id || null,
+    contact?.ref.contactId || null,
     customer.name,
     customer.phone,
     customer.notes,

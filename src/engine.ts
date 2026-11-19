@@ -1,4 +1,6 @@
 import { createPiiMask, maskPersonalEnabled, type PiiMask } from "./pii-mask";
+// O carregamento registra HistoryPort e os provedores de Fila e Formulários.
+import { projectCustomerInput } from "./customer/history";
 import { extractMaskedPersonalPdf } from "./pii-pdf";
 import { preparePaidTemplate, assertPaidConsent } from "./router-templates";
 import { managedAppAllowed } from "./number-router";
@@ -1564,7 +1566,7 @@ async function aiRun(env: Env, run: Run, conn: any, pii: PiiMask): Promise<strin
   // Ordem estável para o cache de prompt (docs/PROVEDOR-IA.md, "Cache"):
   // instruções e dados da área antes do ponto de cache; a situação desta
   // execução, o pedido, o histórico, as fontes e os anexos depois.
-  const split = splitAreaInput(run.input);
+  const split = splitAreaInput(projectCustomerInput(run.input));
   // Especialista interno: o telefone do cliente não vai ao provedor de IA (as
   // ferramentas do cliente já ficam presas à conversa).
   if (run.phase === "specialist") split.input = withoutPhone(split.input);

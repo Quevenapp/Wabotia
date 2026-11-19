@@ -1,0 +1,12 @@
+.customer-profile { display: grid; gap: 1rem; }
+.customer-profile-card { border: 1px solid var(--border, #d5d9df); border-radius: .75rem; padding: 1rem; min-width: 0; }
+.customer-profile-card h3 { margin: 0 0 .75rem; }
+.customer-profile-card fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.customer-profile-fields { display: grid; gap: .5rem; }
+.customer-profile-fields label { display: grid; gap: .35rem; }
+.customer-profile-table { overflow-x: auto; }
+.customer-profile-table table { width: 100%; border-collapse: collapse; }
+.customer-profile-table th, .customer-profile-table td { text-align: left; padding: .65rem; border-bottom: 1px solid var(--border, #d5d9df); }
+.customer-profile-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .75rem; }
+.customer-profile-host { min-width: 0; }
+.customer-profile-filter { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-bottom: 1rem; }

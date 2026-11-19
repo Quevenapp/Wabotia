@@ -27,6 +27,7 @@ import { ContactMarkers, ContactTagFilters, ContactTagsBatch, contactTagChips, u
 import { ContactLabelsPrint } from './ContactLabelsPrint';
 import { contactRefusalText } from './contact-errors';
 import type { CatalogEditorProps } from './CatalogEditor';
+import { ContactEditor as ProfileEditor } from './ContactEditor';
 import type { CatalogList } from './CatalogList';
 import { LIST_TITLE, aborted, errorText, knownFailure } from './catalog-shared';
 import './contacts.css';
@@ -124,7 +125,9 @@ export function ContactCatalog({ list, Editor }: { list: CatalogList; Editor: Co
     const cleared = { ...EMPTY_LIST_FILTERS, situation: 'all' as const }; setFilters(cleared); setDraft(cleared); setQuery(''); setQueryDraft(''); setPeriod(EMPTY_LIST_PERIOD);
     if (type) setType('');
   });
+  // A navegação conserva o ID ERP; ProfileEditor obtém o ID D1 pela porta de associação.
   const open = (item: ContactListItem) => list.open(item.id);
+  const EntryEditor = record && !clone ? ProfileEditor : Editor;
   const openRow = (item: ContactListItem, event: { ctrlKey?: boolean; metaKey?: boolean; button?: number }) => {
     if (deepLinked && opensInNewTab(event)) { window.open(list.recordPath(item.id, ''), '_blank', 'noopener'); return; }
     open(item);
@@ -229,7 +232,7 @@ export function ContactCatalog({ list, Editor }: { list: CatalogList; Editor: Co
     {(error || list.error) && <p className="real-alert" role="alert">{error || list.error}<button type="button" className="text-button" onClick={() => { if (permissions) setReload(value => value + 1); else controller.retry(); }}>Tentar novamente</button></p>}
     {list.detailError && <p className="real-alert" role="alert">{list.detailError}<button type="button" className="text-button" onClick={list.closeEditor}>Voltar à listagem</button></p>}
     {page?.scoped && !editing && <p className="real-help">Exibindo somente os contatos do seu vendedor (Preferências › Contato acessível somente ao vendedor vinculado).</p>}
-    {editing ? <Editor key={`contacts:${clone ? 'clone' : record?.id || 'new'}:${record?.version || 0}:${list.editorEpoch}`} controller={controller} entity="contacts" record={record} writable={writable} initialValues={clone?.values} cloneOf={clone?.name} onClose={list.closeEditor} onSaved={(saved: CatalogRecord) => {
+    {editing ? <EntryEditor key={`contacts:${clone ? 'clone' : record?.id || 'new'}:${record?.version || 0}:${list.editorEpoch}`} controller={controller} entity="contacts" record={record} writable={writable} initialValues={clone?.values} cloneOf={clone?.name} onClose={list.closeEditor} onSaved={(saved: CatalogRecord) => {
       setNotice('Cadastro salvo.'); setReload(value => value + 1);
       if (deepLinked && new URLSearchParams(location.search).get('registro') !== saved.id) { navigate(list.recordPath(saved.id)); return; }
       list.setClone(null); list.setRecord(saved); list.setEditorEpoch(value => value + 1);

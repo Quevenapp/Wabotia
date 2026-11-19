@@ -295,6 +295,9 @@ describe("consultas ao D1 por invocação, com todos os módulos ligados", () =>
         return count;
       });
 
+    console.info("FASE1-CUSTO-D1-fluxos", JSON.stringify(Object.fromEntries(
+      Object.entries(report).map(([name, c]) => [name, { statements: c.statements, calls: c.calls }]),
+    )));
     const over = Object.entries(report)
       .filter(([name, c]) => c.statements > (CEILINGS[name] ?? FREE_PLAN))
       .map(
@@ -437,5 +440,71 @@ describe("cache de leituras por invocação (src/db.ts)", () => {
     expect((await cachedAll(scoped, sql, f.profile))[0].name).not.toBe(
       "alterado",
     );
+  });
+});
+
+// Fase 1: evidência imprimível para o script de verificação. Não alterar o
+// teto histórico sem guardar a execução antes/depois em FASE1-CUSTO-D1.md.
+describe("custo da identidade no caminho de mensagens", () => {
+  it("mede primeira entrada, canal adicional, repetição, pendência e manutenção", async () => {
+    const { identityPort } = await import("../src/customer/ports");
+    const { conversation } = await import("../src/service");
+    const f = await fixture();
+    const phone = "5511979990101";
+    const payload = { external_id: phone, phone, text: "oi", message_id: uid() };
+    const report: Record<string, D1Count> = {};
+    const first = await measure(env, (e) => inbound(e, f.profile, payload, `channel:${f.line}`, f.line));
+    report["identidade: primeiro número, legado incompleto"] = first.count;
+    expect(first.count.statements).toBeLessThanOrEqual(CEILINGS["primeira mensagem: inbound"]);
+    const original = identityPort.prepareInbound.bind(identityPort);
+    let prepared: { statements: number; calls: number; writes: number } | undefined;
+    const spy = vi.spyOn(identityPort, "prepareInbound").mockImplementation(async (e, c, evidence) => {
+      const measured = await measure(e, (me) => original(me, c, evidence));
+      prepared = { statements: measured.count.statements, calls: measured.count.calls, writes: measured.result.statements.length };
+      return measured.result;
+    });
+    try {
+      report["identidade: conversa resolvida, nova mensagem"] = (await measure(env, (e) => inbound(e, f.profile, { ...payload, message_id: uid() }, `channel:${f.line}`, f.line))).count;
+      expect(prepared).toEqual({ statements: 0, calls: 0, writes: 0 });
+    } finally { spy.mockRestore(); }
+    report["identidade: webhook repetido"] = (await measure(env, (e) => inbound(e, f.profile, payload, `channel:${f.line}`, f.line))).count;
+    expect(report["identidade: webhook repetido"]).toMatchObject({ statements: 1, calls: 1 });
+    report["identidade: segundo canal"] = (await measure(env, (e) => inbound(e, f.profile, { ...payload, message_id: uid() }, `channel:${f.second}`, f.second))).count;
+    report["identidade: LID pendente"] = (await measure(env, (e) => inbound(e, f.profile, { ...payload, external_id: "123456789012345@lid", phone: null, message_id: uid() }, `channel:${f.qr}`, f.qr))).count;
+    report["identidade: aplicação excluída"] = (await measure(env, (e) => inbound(e, f.profile, { ...payload, message_id: uid() }, "app:cost", null))).count;
+    const tick = await measure(env, (e) => identityPort.maintain(e, f.profile, { remainingStatements: 40, remainingItems: 20 }));
+    report["identidade: manutenção dedicada"] = tick.count;
+    expect(tick.result.statements).toBe(tick.count.statements);
+    expect(tick.count.statements).toBeLessThanOrEqual(40);
+    expect(tick.result.items).toBeLessThanOrEqual(20);
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const progress = await one(env, "SELECT complete FROM customer_progress WHERE profile_id=? AND namespace='team' AND task='identity.contacts.v1'", f.profile);
+      if (progress?.complete) break;
+      await identityPort.maintain(env, f.profile, { remainingStatements: 40, remainingItems: 20 });
+    }
+    expect((await one(env, "SELECT complete FROM customer_progress WHERE profile_id=? AND namespace='team' AND task='identity.contacts.v1'", f.profile)).complete).toBe(1);
+    report["identidade: primeiro número, preenchimento completo"] = (await measure(env, (e) => inbound(e, f.profile, { ...payload, external_id: "5511979990103", phone: "5511979990103", message_id: uid() }, `channel:${f.line}`, f.line))).count;
+    expect(report["identidade: primeiro número, preenchimento completo"].statements).toBeLessThanOrEqual(CEILINGS["primeira mensagem: inbound"]);
+    const duplicatePhone = "5511979990104";
+    for (let i = 0; i < 2; i++) {
+      const id = uid();
+      await exec(env, `INSERT INTO contacts(id,profile_id,namespace,name,phone,search_text,source,created_by,updated_by,created,updated)
+        VALUES(?,?,'team','',?,?,'manual','test','test',?,?)`, id, f.profile, duplicatePhone, duplicatePhone, now(), now());
+      const index = await identityPort.indexContact(env, { profileId: f.profile, namespace: "team", contactId: id, phones: [duplicatePhone], origin: "local" });
+      await env.DB.batch(index.map(([sql, args]) => env.DB.prepare(sql).bind(...args)));
+    }
+    const ambiguous = await measure(env, (e) => inbound(e, f.profile, { ...payload, external_id: duplicatePhone, phone: duplicatePhone, message_id: uid() }, `channel:${f.line}`, f.line));
+    report["identidade: número ambíguo"] = ambiguous.count;
+    expect((await conversation(env, ambiguous.result.conversation_id, f.profile)).customer_link_state).toBe("ambiguous");
+    expect((await conversation(env, first.result.conversation_id, f.profile)).verified_phone).toBe(phone);
+    // A linha da conexão é lida em todo inbound, inclusive sem cadastro.
+    // A referência abaixo mede o mesmo fluxo com a porta simulada, sem SQL
+    // de identidade. É comparação controlada, não execução da revisão antiga.
+    const reference = vi.spyOn(identityPort, "prepareInbound").mockResolvedValue({ statements: [], state: "pending", verifiedPhone: null });
+    try {
+      report["referência controlada: porta simulada"] = (await measure(env, (e) => inbound(e, f.profile, { ...payload, external_id: "5511979990102", phone: "5511979990102", message_id: uid() }, `channel:${f.line}`, f.line))).count;
+    } finally { reference.mockRestore(); }
+    console.info("FASE1-CUSTO-D1", JSON.stringify(Object.fromEntries(Object.entries(report).map(([name, count]) => [name, { statements: count.statements, calls: count.calls, sql: count.sql }]))));
+    for (const count of Object.values(report)) expect(count.statements).toBeLessThanOrEqual(FREE_PLAN);
   });
 });

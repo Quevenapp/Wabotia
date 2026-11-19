@@ -5,6 +5,8 @@ import { listCalendars, saveCalendar } from "./calendars";
 import { acknowledge, listAlerts, scheduleJuridico } from "./scheduler";
 import { changeDeadline, createDeadline, deadlineDetail, listDeadlines, previewDeadline } from "./store";
 import { idSchema, parse } from "./model";
+import { registerCustomerProvider } from "../../customer/ports";
+import { juridicoCustomerProvider, linkJuridicoCustomer } from "./customer-provider";
 
 export const juridicoReads: Array<{ path: string; handler: Parameters<typeof onRead>[2] }> = [
   { path: "juridico/calendars", handler: (ctx, actor) => listCalendars(ctx, actor) },
@@ -14,6 +16,7 @@ export const juridicoReads: Array<{ path: string; handler: Parameters<typeof onR
   { path: "juridico/deadlines/:id", handler: (ctx, actor, { params, query }) => deadlineDetail(ctx, actor, params.id, query.revision) },
 ];
 export const juridicoWrites = [
+  { method: "PUT" as const, path: "juridico/works/:order_id/contact", op: "juridico.customer.link" },
   { method: "POST" as const, path: "juridico/calendars", op: "juridico.calendar.save" },
   { method: "PUT" as const, path: "juridico/calendars/:id", op: "juridico.calendar.save" },
   { method: "POST" as const, path: "juridico/preview", op: "juridico.preview" },
@@ -23,6 +26,7 @@ export const juridicoWrites = [
   { method: "POST" as const, path: "juridico/alerts/:id/acknowledge", op: "juridico.alert.acknowledge" },
 ];
 export const juridicoCommands: Array<{ op: string; handler: Parameters<typeof onCommand>[2] }> = [
+  { op: "juridico.customer.link", handler: (ctx, actor, data) => linkJuridicoCustomer(ctx, actor, data) },
   { op: "juridico.calendar.save", handler: (ctx, actor, data, { requestId }) => saveCalendar(ctx, actor, data, requestId) },
   { op: "juridico.preview", handler: (ctx, actor, data) => previewDeadline(ctx, actor, data) },
   { op: "juridico.deadline.create", handler: (ctx, actor, data, { requestId }) => createDeadline(ctx, actor, data, requestId) },
@@ -31,6 +35,7 @@ export const juridicoCommands: Array<{ op: string; handler: Parameters<typeof on
   { op: "juridico.alert.acknowledge", handler: (ctx, actor, data) => acknowledge(ctx, actor, parse(idSchema, data.id)) },
 ];
 export function registerJuridico() {
+  registerCustomerProvider("juridico", juridicoCustomerProvider);
   for (const r of juridicoReads) onRead("juridico", r.path, r.handler);
   for (const r of juridicoWrites) onRoute("juridico", r);
   for (const r of juridicoCommands) onCommand("juridico", r.op, r.handler);

@@ -50,7 +50,11 @@ import {
   saveService,
 } from "./catalog";
 
+import { registerCustomerProvider } from "../../customer/ports";
+import { agendaCustomerProvider, withCustomerConfirmation } from "./customer-provider";
+
 const MODULE = "agenda";
+registerCustomerProvider(MODULE, agendaCustomerProvider);
 // Toda resposta das rotas e comandos passa por visibleAppointments (M6).
 const { onRead, onCommand, onConversationAction } =
   filteredHandlers(visibleAppointments);
@@ -147,7 +151,7 @@ function mayActOn(actor: Actor, c: Conversation) {
 
 // Ação do atendente: "Agendar para este cliente"
 // (POST /conversations/:id/actions {action:"agenda", service_id, starts, …}).
-onConversationAction(MODULE, "agenda", async (ctx, actor, c, data) => {
+onConversationAction(MODULE, "agenda", async (ctx, actor, c, data, { requestId }) => {
   const bot = mayActOn(actor, c);
   requireValue(
     c.chat_type !== "group",
@@ -157,7 +161,8 @@ onConversationAction(MODULE, "agenda", async (ctx, actor, c, data) => {
   // antecedência e o prazo das regras, e não há encaixe (conferência N-7).
   const staff = !bot && actor.kind === "user";
   return (
-    await book(ctx, await config(ctx), {
+    await book(withCustomerConfirmation(ctx, actor, data.customer, data.customer_name), await config(ctx), {
+      id: `cmd-${requestId}`,
       service_id: data.service_id,
       professional_id: data.professional_id ?? null,
       starts: data.starts,
@@ -196,7 +201,7 @@ onConversationAction(
 );
 
 // Bot e atendente sobre os agendamentos do cliente da conversa: só os dele
-// (mesma conversa ou mesmo telefone); id de outro cliente dá 404.
+// (vínculo persistido ou legado da conversa); id de outro cliente dá 404.
 async function customerAppointment(
   ctx: ModuleContext,
   c: Conversation,
@@ -414,7 +419,7 @@ onRoute(MODULE, {
   path: "agenda/appointments",
   op: "agenda.book",
 });
-onCommand(MODULE, "agenda.book", async (ctx, actor, data) => {
+onCommand(MODULE, "agenda.book", async (ctx, actor, data, { requestId }) => {
   ctx.access(actor, "conversations:write");
   const conversation = await linkedConversation(
     ctx,
@@ -427,7 +432,8 @@ onCommand(MODULE, "agenda.book", async (ctx, actor, data) => {
     "Informe conversation_id ou customer_name.",
   );
   return (
-    await book(ctx, await config(ctx), {
+    await book(withCustomerConfirmation(ctx, actor, data.customer, data.customer_name), await config(ctx), {
+      id: `cmd-${requestId}`,
       service_id: data.service_id,
       professional_id: data.professional_id ?? null,
       starts: data.starts,
@@ -601,7 +607,7 @@ onMcpTool("agenda", {
 onMcpTool("agenda", {
   name: "agenda_meus_agendamentos",
   description:
-    "Próximos agendamentos do cliente da conversa (desta conversa ou do mesmo telefone), com id, serviço, profissional, data e hora. Requer conversations:read.",
+    "Próximos agendamentos vinculados ao contato ou à conversa original, com id, serviço, profissional, data e hora. Requer conversations:read.",
   input: { conversation_id: { type: "string" } },
   required: ["conversation_id"],
   call: (a, profile) => ({

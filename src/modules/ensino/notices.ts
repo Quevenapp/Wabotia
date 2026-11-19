@@ -4,6 +4,7 @@ import type { ModuleContext } from "../api";
 import { classroom, guardianOrders, notFound, today } from "./access";
 import { date, id, invalid, object, text } from "./model";
 import { change, mutationId } from "./store";
+import { normalizeCustomerPhone } from "../../customer/phone";
 
 export async function notices(ctx: ModuleContext, actor: Actor, classId: string) {
   const c = await classroom(ctx, actor, classId);
@@ -64,14 +65,21 @@ export async function sendNoticeBatch(ctx: ModuleContext, actor: Actor, input: u
        AND p.archived_at IS NULL AND p.sensitive=1 AND p.client_visible=0 LIMIT 100`, ctx.profile, target.phone_hash, c.id, notice.audience_date, notice.audience_date, today());
     let status = "cancelled", message: string | null = null, errorCode: string | null = null;
     if (people.length) {
-      const phones = [...new Set(people.map(p => p.phone))];
+      const phones = [...new Set(people.map(p => normalizeCustomerPhone(p.phone, "international")).filter((p): p is string => p !== null))];
       const conversations = await all<Conversation>(ctx.env,
-        `SELECT * FROM conversations WHERE profile_id=? AND phone IN (SELECT value FROM json_each(?)) AND chat_type<>'group'
+        `SELECT * FROM conversations WHERE profile_id=? AND phone IN (SELECT value FROM json_each(?))
+         AND customer_link_state NOT IN ('blocked','excluded','ambiguous') AND chat_type<>'group'
          AND (? IS NULL OR id=?) ORDER BY last_customer DESC LIMIT 10`, ctx.profile, JSON.stringify(phones), target.conversation_id, target.conversation_id);
       status = "blocked"; errorCode = "conversation_unavailable";
       for (const conversation of conversations) {
         if (!ctx.verifiedPhone(conversation) || !ctx.mayMessage(actor, conversation)) continue;
-        const identity = await guardianOrders(ctx, conversation);
+        let identity: Awaited<ReturnType<typeof guardianOrders>>;
+        try { identity = await guardianOrders(ctx, conversation); }
+        catch (error) {
+          // Identidade desatualizada/restrita não aborta o lote nem autoriza envio.
+          if (error instanceof ApiError && error.status === 404) continue;
+          throw error;
+        }
         if (identity.hash !== target.phone_hash || !people.some(p => identity.orderIds.includes(p.order_id))) continue;
         // Fixar antes de enfileirar: recuperar uma falha não escolhe outra conversa do mesmo telefone.
         if (!target.conversation_id) await exec(ctx.env,

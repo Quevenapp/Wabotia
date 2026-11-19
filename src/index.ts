@@ -94,6 +94,7 @@ import { sourceInfo } from "./source";
 import {
   listContacts,
   contactDetail,
+  recoverContactCommand,
   conversationContact,
   contactNamespace,
   previewContactCsv,
@@ -131,6 +132,7 @@ import {
   allows,
   presetsFor,
   requireRouteAccess,
+  requireAccess,
 } from "./access";
 import {
   formInput,
@@ -169,6 +171,8 @@ import "./modules/runtime";
 import { capabilities as serverCapabilities } from "./modules/capabilities";
 import { establishment } from "./establishment";
 import { erpApi, erpProbe } from "./erp/api/local-fetch";
+import { customerRead, contactConflicts, customerResponse } from "./customer/http";
+import { readJob } from "./customer/jobs";
 import { wakeErpAreas } from "./erp/scheduler/cron";
 import { erpSignedDownload } from "./erp-storage";
 import {
@@ -1077,7 +1081,10 @@ app.use("/api/v1/profiles/*", async (c, next) => {
 // fica só para quem tem tudo. Os comandos conferem de novo em perform.
 app.use("/api/v1/profiles/*", async (c, next) => {
   const segment = c.req.path.split("/")[5];
-  if (segment) requireRouteAccess(c.get("actor"), segment);
+  const contribution = c.req.path.match(/\/contacts\/[^/]+\/modules\/([^/]+)\/(?:sections|collections)\/[^/]+$/);
+  if (contribution) requireAccess(c.get("actor"), decodeURIComponent(contribution[1]));
+  else if (/\/contacts\/[^/]+\/profile$/.test(c.req.path)) { /* ProfilePort autoriza a pessoa e cada contribuição. */ }
+  else if (segment) requireRouteAccess(c.get("actor"), ["contact-conflicts", "contact-identities", "contact-jobs"].includes(segment) ? "contacts" : segment);
   await next();
 });
 app.get("/api/v1/profiles/:profile/access", (c) => {
@@ -1507,7 +1514,7 @@ async function mutate(c: any, op: string, profile: string, data: any) {
   );
   if (profile !== "_admin" && !canProfile(c.get("actor"), profile))
     throw new ApiError(404, "not_found", "Perfil não encontrado.");
-  return c.env.COORDINATOR.get(c.env.COORDINATOR.idFromName(profile)).fetch(
+  const response = await c.env.COORDINATOR.get(c.env.COORDINATOR.idFromName(profile)).fetch(
     "https://coordinator/command",
     {
       method: "POST",
@@ -1521,6 +1528,14 @@ async function mutate(c: any, op: string, profile: string, data: any) {
       }),
     },
   );
+  if (op.startsWith("contact.") && response.status === 409) {
+    const error = await response.clone().json();
+    if (error?.error?.code === "operation_unknown") {
+      const recovered = await recoverContactCommand(c.env, c.get("actor"), profile, op, key);
+      if (recovered) return Response.json(recovered, { headers: { "Idempotency-Replayed": "true", "Cache-Control": "no-store" } });
+    }
+  }
+  return response;
 }
 app.get("/api/v1/system", async (c) => {
   admin(c.get("actor"));
@@ -1716,6 +1731,12 @@ const commands = [
   ["POST", "contacts", "contact.create"],
   ["PATCH", "contacts/:id", "contact.update"],
   ["POST", "contacts/import", "contact.import"],
+  ["POST", "contacts/:id/promote", "contact.promote"],
+  ["POST", "contacts/from-erp", "contact.from-erp"],
+  ["POST", "contact-identities/resolve", "contact.resolve-phone"],
+  ["POST", "contact-jobs/:id/resolve", "contact.resolve-job"],
+  ["POST", "contacts/:id/erasure", "contact.erasure"],
+  ["PUT", "contacts/:id/modules/:module/sections/:section", "contact.section"],
   ["PUT", "conversations/:id/contact", "contact.from-conversation"],
   ["DELETE", "conversations/:id/contact", "contact.unlink"],
   ["PUT", "presence", "presence"],
@@ -1756,16 +1777,18 @@ const commands = [
 for (const [method, path, op] of commands)
   app.on(method, `/api/v1/profiles/:profile/${path}`, async (c) => {
     const profile = c.req.param("profile")!;
-    const response = await mutate(c, op, profile, {
+    const commandOperation = op === "contact.section" ? `${c.req.param("module")}.customer-section` : op;
+    const response = await mutate(c, commandOperation, profile, {
       ...(method === "DELETE" && op !== "contact.unlink"
         ? {}
         : await c.req.json().catch(() => ({}))),
       ...(c.req.param("id") ? { id: c.req.param("id") } : {}),
+      ...(op === "contact.section" ? { module: c.req.param("module"), section: c.req.param("section") } : {}),
     });
     // Painel de TV revogado: a tela cai na hora.
     if (op === "queue.display.revoke" && response.ok)
       await closeSockets(c.env, [profile], [`display:${c.req.param("id")}`]);
-    return response;
+    return op.startsWith("contact.") ? customerResponse(response, op) : response;
   });
 // Telemetria dos módulos (onTelemetry): POST sem Idempotency-Key e fora do
 // Coordinator, para posições em lote; corpo até 64 KB, até TELEMETRY_RATE
@@ -2237,7 +2260,7 @@ app.get("/api/v1/profiles/:profile/tickets/:id", async (c) => {
     actor.kind === "user" || actor.scopes.includes("contacts:read")
       ? await one(
           c.env,
-          "SELECT ct.name FROM conversation_contacts l JOIN contacts ct ON ct.id=l.contact_id AND ct.profile_id=l.profile_id WHERE l.profile_id=? AND l.conversation_id=? AND (?=1 OR ct.namespace=?)",
+          "SELECT ct.name FROM conversation_contacts l JOIN contacts ct ON ct.id=l.contact_id AND ct.profile_id=l.profile_id WHERE l.profile_id=? AND l.conversation_id=? AND ct.identity_state='active' AND (?=1 OR ct.namespace=?)",
           p,
           conv.id,
           actor.kind === "user" ? 1 : 0,
@@ -2282,6 +2305,18 @@ app.get("/api/v1/profiles/:profile/contacts/:id", async (c) =>
     ),
   ),
 );
+for (const [path, kind] of [
+  ["contacts/:id/history", "history"],
+  ["conversations/:id/customer-history", "conversation-history"],
+  ["contacts/:id/profile", "profile"],
+  ["contacts/:id/modules/:module/collections/:collection", "collection"],
+  ["contacts/:id/modules/:module/sections/:section", "section"],
+] as const) app.get(`/api/v1/profiles/:profile/${path}`, async c => c.json(await customerRead(
+  c.env, c.get("actor"), c.req.param("profile")!, c.req.param("id")!, kind,
+  c.req.query(), c.req.param("module"), c.req.param("collection") ?? c.req.param("section"),
+)));
+app.get("/api/v1/profiles/:profile/contact-conflicts", async c => c.json(await contactConflicts(c.env, c.get("actor"), c.req.param("profile"), c.req.query())));
+app.get("/api/v1/profiles/:profile/contact-jobs/:id", async c => c.json(await readJob(c.env, c.get("actor"), c.req.param("profile"), c.req.param("id"))));
 app.post("/api/v1/profiles/:profile/contacts/import/preview", async (c) => {
   await rate(c.env, `contacts-preview:${c.get("actor").id}`, 20);
   const data = await c.req.json();
@@ -2291,6 +2326,7 @@ app.post("/api/v1/profiles/:profile/contacts/import/preview", async (c) => {
       c.get("actor"),
       c.req.param("profile"),
       data.csv,
+      data.phone_mode,
     ),
   );
 });
@@ -2362,7 +2398,7 @@ app.get("/api/v1/profiles/:profile/conversations", async (c) => {
     c.get("actor").scopes.includes("notes:read");
   const rows = await all(
     c.env,
-    "SELECT p.*,substr(lm.text,1,300) lm_text,lm.direction lm_direction,lm.created lm_created,lm.delivery_status lm_delivery_status,lm.attachments lm_attachments,lm.content lm_content,(SELECT a.type FROM media a WHERE a.id=json_extract(lm.attachments,'$[0]')) lm_media_type FROM (SELECT c.*,ct.name contact_name,ct.id contact_id FROM conversations c LEFT JOIN conversation_contacts l ON l.conversation_id=c.id AND l.profile_id=c.profile_id LEFT JOIN contacts ct ON ct.id=l.contact_id AND ct.profile_id=c.profile_id AND ?=1 AND (?=1 OR ct.namespace=?) WHERE c.profile_id=? AND (?='' OR c.state=?) AND (?='' OR c.department_id=?) AND (c.external_id LIKE ? OR c.phone LIKE ? OR ct.name LIKE ?) AND (?=1 OR c.external_namespace NOT LIKE 'app:%' OR c.external_namespace=?) AND (? IS NULL OR c.updated<? OR (c.updated=? AND c.id<?)) ORDER BY c.updated DESC,c.id DESC LIMIT ?) p LEFT JOIN messages lm ON lm.id=(SELECT m.id FROM messages m WHERE m.conversation_id=p.id AND (?=1 OR m.direction!='note') ORDER BY m.created DESC,m.id DESC LIMIT 1) ORDER BY p.updated DESC,p.id DESC",
+    "SELECT p.*,substr(lm.text,1,300) lm_text,lm.direction lm_direction,lm.created lm_created,lm.delivery_status lm_delivery_status,lm.attachments lm_attachments,lm.content lm_content,(SELECT a.type FROM media a WHERE a.id=json_extract(lm.attachments,'$[0]')) lm_media_type FROM (SELECT c.*,ct.name contact_name,ct.id contact_id FROM conversations c LEFT JOIN conversation_contacts l ON l.conversation_id=c.id AND l.profile_id=c.profile_id LEFT JOIN contacts ct ON ct.id=l.contact_id AND ct.profile_id=c.profile_id AND ct.identity_state='active' AND ?=1 AND (?=1 OR ct.namespace=?) WHERE c.profile_id=? AND (?='' OR c.state=?) AND (?='' OR c.department_id=?) AND (c.external_id LIKE ? OR c.phone LIKE ? OR ct.name LIKE ?) AND (?=1 OR c.external_namespace NOT LIKE 'app:%' OR c.external_namespace=?) AND (? IS NULL OR c.updated<? OR (c.updated=? AND c.id<?)) ORDER BY c.updated DESC,c.id DESC LIMIT ?) p LEFT JOIN messages lm ON lm.id=(SELECT m.id FROM messages m WHERE m.conversation_id=p.id AND (?=1 OR m.direction!='note') ORDER BY m.created DESC,m.id DESC LIMIT 1) ORDER BY p.updated DESC,p.id DESC",
     c.get("actor").kind === "user" ||
       c.get("actor").scopes.includes("contacts:read")
       ? 1
@@ -3078,8 +3114,14 @@ export default {
     // de cada objeto erp:<área>. Só no primeiro disparo da hora e só nas
     // áreas com o ERP ligado (src/erp/scheduler/cron.ts).
     ctx.waitUntil(wakeErpAreas(env, event.scheduledTime));
-    for (const profile of await all(env, "SELECT id FROM profiles"))
+    for (const profile of await all(env, "SELECT id FROM profiles")) {
       ctx.waitUntil(wake(env, profile.id));
+      // Invocação dedicada; não acrescenta trabalho ao alarme das mensagens.
+      ctx.waitUntil(env.COORDINATOR.get(env.COORDINATOR.idFromName(profile.id)).fetch("https://coordinator/customer-tick", {
+        method: "POST",
+        body: JSON.stringify({ profile: profile.id }),
+      }).then(response => { if (!response.ok) throw new Error(`Manutenção cadastral: ${response.status}`); }));
+    }
     ctx.waitUntil(
       exec(env, "DELETE FROM rate_limits WHERE expires<?", now() - 600000),
     );

@@ -40,6 +40,8 @@ export interface ContactProfileView {
   depth: "simple" | "full";
   vocabulary: { singular: string; plural: string };
   writable: boolean;
+  /** false: acesso somente pelas contribuições autorizadas da extensão. */
+  readable?: boolean;
   contributions: readonly (
     ContactContribution & { moduleId: string; writable: boolean }
   )[];
@@ -59,6 +61,10 @@ export interface SectionView {
   version: number;
   writable: boolean;
   schema: "condominio.units.v1" | "private.navigation.v1";
+  /** condominio.units.v1: snapshot {people,memberships,functions,subscriptions,personTypes}.
+   * private.navigation.v1: {target:{module,resource:"home",id}}, sem conteúdo privado.
+   * PUT de units recebe somente operações memberships/functions/subscriptions (até dez),
+   * com expectedVersion por função; nunca reenvia o snapshot e seus rótulos. */
   data: Json;
 }
 
@@ -69,6 +75,8 @@ export interface SectionWrite {
 }
 
 export interface CustomerModuleProvider {
+  /** Consulta de impedimentos sem conteúdo privado, inclusive com módulo desligado. */
+  erasure?(env: Env, profileId: string, contactId: string): Promise<{ state: "retained"; reason: string } | null>;
   list?(
     ctx: ModuleContext, actor: Actor, contactId: string,
     collectionId: string, query: { limit: number; cursor?: string }

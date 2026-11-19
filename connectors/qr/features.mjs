@@ -163,9 +163,13 @@ export function decodeMessage(m, content, ownJid) {
         phone: (x.vcard?.match(/TEL[^:]*:([^\n\r]+)/) || [])[1] || "",
         vcard: x.vcard,
       }));
+  const phoneJid = !group && [chat, m.key.remoteJidAlt].find((value) =>
+    typeof value === "string" && /^[1-9][0-9]{7,14}(?::[0-9]+)?@s\.whatsapp\.net$/.test(value),
+  );
   const payload = {
     external_id: chat,
-    phone: group ? null : (m.key.remoteJidAlt || chat).split("@")[0],
+    phone: phoneJid ? phoneJid.split("@")[0].split(":")[0] : null,
+    ...(phoneJid ? { phone_jid: phoneJid } : {}),
     chat_type: group ? "group" : "direct",
     message_id: m.key.id,
     text:

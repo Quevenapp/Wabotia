@@ -188,6 +188,17 @@ describe("catálogo e ativação", () => {
 });
 
 describe("fachadas permanentes", () => {
+  it.each([true, false])("composição explícita prevalece sobre o default, default primeiro=%s", async first => {
+    const p = await import("../src/customer/ports"), builtIn = identity(), explicit = identity();
+    if (first) p.installIdentityPort(builtIn, { default: true });
+    p.installIdentityPort(explicit);
+    if (!first) p.installIdentityPort(builtIn, { default: true });
+    const { env } = isolatedEnv();
+    await p.resolveCustomer(env, conversation());
+    expect(explicit.resolve).toHaveBeenCalledTimes(1);
+    expect(builtIn.resolve).not.toHaveBeenCalled();
+    expect(() => p.installIdentityPort(identity())).toThrow(/já registrada/);
+  });
   it("ausência não afirma sucesso nem consulta D1/ERP", async () => {
     const p = await import("../src/customer/ports");
     const { env, prepare, erpCall } = isolatedEnv();
@@ -302,7 +313,9 @@ describe("fachadas permanentes", () => {
     prepare.mockImplementation((sql: string) => ({ bind: (...args: unknown[]) => ({ first: async () => {
       expect(sql).not.toContain("conversation_contacts");
       if (sql.includes("FROM conversations")) return conversation();
-      expect(args).toEqual(["contact", "area", "team"]);
+      expect(args).toEqual(["contact", "area", "team", "team"]);
+      expect(sql).toContain("namespace='panel'");
+      expect(sql).toContain("source<>'automatic' OR name<>''");
       expect(sql).toContain("identity_state='active'");
       return summary;
     } }) }) as never);

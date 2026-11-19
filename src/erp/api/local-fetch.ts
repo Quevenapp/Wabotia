@@ -14,6 +14,22 @@ import { GATE_DENIED_HEADER, GATE_HEADER, IDENTITY_HEADER, SYSTEM_HEADER, encode
 import { erpFetch } from "../hub.ts";
 import { erpStorage, publicSignedUrls } from "../../erp-storage";
 import { ErpUnavailable, rpcHasCommand, withStubRetry } from "./retry.ts";
+import { installErpBridge, registerCustomerProvider } from "../../customer/ports";
+import { customerErpBridge, snapshotOf } from "../../customer/erp-bridge";
+import { markCustomerReconciliation, mirrorErpContact } from "../../customer/sync";
+import { erpCustomerProvider } from "../../modules/erp/customer-provider";
+
+// Registro sem I/O nem abertura do objeto. Encaminhadores evitam dependência
+// da ordem de avaliação entre a ponte e esta costura.
+installErpBridge({
+  apply: (...args) => customerErpBridge.apply(...args),
+  read: (...args) => customerErpBridge.read(...args),
+  scan: (...args) => customerErpBridge.scan(...args),
+}, { default: true });
+registerCustomerProvider("erp", {
+  list: (...args) => erpCustomerProvider.list!(...args),
+  maintain: (...args) => erpCustomerProvider.maintain!(...args),
+});
 
 /** Motivo de recusa do portão (x-erp-gate-denied) → código de erro da erp-api. */
 const GATE_CODES: Record<string, string> = {
@@ -72,7 +88,7 @@ export function localFetch(
   profile: string,
   actor: Actor,
   identity: IdentityPort = identityFor(actor),
-  { read = false, hops, gate }: { read?: boolean; hops?: ErpHop[]; gate?: { denied: string | null } } = {},
+  { read = false, hops, gate, trackCustomers = true }: { read?: boolean; hops?: ErpHop[]; gate?: { denied: string | null }; trackCustomers?: boolean } = {},
 ) {
   return async (input: string | URL | Request, init: RequestInit = {}) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
@@ -89,6 +105,10 @@ export function localFetch(
       // ERP_UPSTREAM_UNAVAILABLE para qualquer exceção do fetch (upstream()).
       const started = Date.now();
       try {
+        // Conservador: toda requisição externa de escrita pode alterar contatos,
+        // inclusive importações e RPCs ainda desconhecidos da leitura direcionada.
+        const tracking = trackCustomers && !read;
+        if (tracking) await markCustomerReconciliation(env, profile);
         // O portão (horário, segundo fator) roda no objeto antes do RPC, na
         // mesma ida: a erp-api não chama mais o erp_access_gate_v2 à parte
         // (o /auth/v1/user responde sem a marca brufap_access_gate).
@@ -109,6 +129,19 @@ export function localFetch(
         );
         const denied = response.headers.get(GATE_DENIED_HEADER);
         if (gate && denied) gate.denied = denied;
+        if (tracking && response.ok) {
+          try {
+            const result = await response.clone().json<any>();
+            if (result.entity === "contacts" && typeof result.record?.id === "string") {
+              const current = await localFetch(env, profile, actor, identity, { read: true, gate, hops, trackCustomers: false })(
+                `${LOCAL}/rest/v1/rpc/erp_catalog_contact_get`, { method: "POST", body: JSON.stringify({ p_user_id: identity.actor?.user_id, p_id: result.record.id }) });
+              if (current.ok) await mirrorErpContact(env, profile, snapshotOf((await current.json<any>()).record));
+            }
+          } catch {
+            // O ERP já confirmou. Falha de leitura/espelho não muda seu sucesso;
+            // a marca anterior ao envio continua durável para a varredura.
+          }
+        }
         return response;
       } finally {
         hops?.push({ rpc: rpc[1], ms: Date.now() - started });

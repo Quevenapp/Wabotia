@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { all, exec, one } from "../../db";
+import { all, batch, exec, one } from "../../db";
 import { now, type Actor } from "../../types";
 import type { ModuleContext } from "../api";
 import {
@@ -13,6 +13,9 @@ import {
   parse,
   staff,
   text,
+  publicPerson,
+  touchUnits,
+  verifiedCustomer,
 } from "./common";
 
 const period = {
@@ -80,33 +83,45 @@ export async function cadastro(
       }),
       input,
     );
-    await get(ctx, "people", d.person_id);
+    const person = await get(ctx, "people", d.person_id);
     const c = await ctx.conversation(d.conversation_id, actor);
     const phone = ctx.verifiedPhone(c);
     if (!phone || c.chat_type === "group" || c.profile_id !== profile)
       fail("phone_not_verified", 409);
     const other = await one(
       ctx.env,
-      "SELECT id FROM cond_phones WHERE profile_id=? AND phone=? AND ends_at IS NULL",
+      "SELECT id,person_id FROM cond_phones WHERE profile_id=? AND phone=? AND ends_at IS NULL",
       profile,
       phone,
     );
-    if (other && other.id !== key)
+    if (other && other.person_id !== person.id)
       fail(
         "phone_in_use",
         409,
         "Encerre o vínculo anterior após conferir a identidade.",
       );
-    await exec(
-      ctx.env,
-      "INSERT INTO cond_phones(profile_id,id,person_id,phone,verified_by,starts_at) VALUES(?,?,?,?,?,?) ON CONFLICT(profile_id,id) DO NOTHING",
-      profile,
-      key,
-      d.person_id,
-      phone,
-      actor.id,
-      now(),
-    );
+    const identity = await verifiedCustomer(ctx, c);
+    if (person.contact_id && person.contact_id !== identity.contactId)
+      fail("contact_conflict", 409, "A pessoa já está vinculada a outro contato. Solicite revisão.");
+    if (!await one(ctx.env, `SELECT p.id FROM cond_people p WHERE p.profile_id=? AND p.id=? AND ${publicPerson}`,
+      profile, person.id)) fail("forbidden", 403);
+    const phoneId = other?.id ?? key;
+    const guard = `cond-phone:${profile}:${key}`;
+    await batch(ctx.env, [
+      [`UPDATE cond_people SET contact_id=? WHERE profile_id=? AND id=?
+        AND (contact_id IS NULL OR contact_id=?) AND EXISTS(SELECT 1 FROM contacts
+        WHERE profile_id=? AND id=? AND namespace='team' AND identity_state='active')`,
+        [identity.contactId, profile, person.id, identity.contactId, profile, identity.contactId]],
+      ["INSERT INTO customer_assert(id,ok) VALUES(?,CASE WHEN changes()=1 THEN 1 ELSE 0 END)", [guard]],
+      ["INSERT INTO cond_phones(profile_id,id,person_id,phone,verified_by,starts_at) VALUES(?,?,?,?,?,?) ON CONFLICT(profile_id,id) DO NOTHING",
+        [profile, phoneId, d.person_id, phone, actor.id, now()]],
+      [`UPDATE customer_assert SET ok=CASE WHEN EXISTS(SELECT 1 FROM cond_phones
+        WHERE profile_id=? AND id=? AND person_id=? AND phone=?) THEN 1 ELSE 0 END WHERE id=?`,
+        [profile, phoneId, person.id, phone, guard]],
+      ...(person.contact_id ? [] : [touchUnits(profile, person.id)]),
+      ["DELETE FROM customer_assert WHERE id=?", [guard]],
+    ]);
+    return { id: phoneId as string };
   } else if (action === "membership") {
     const d = parse(
       z.object({
@@ -133,33 +148,22 @@ export async function cadastro(
       );
     await get(ctx, "people", d.person_id);
     await get(ctx, "units", d.unit_id);
-    await exec(
-      ctx.env,
-      "INSERT INTO cond_memberships(profile_id,id,person_id,unit_id,role,starts_at,ends_at,verified_by,notices) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(profile_id,id) DO NOTHING",
-      profile,
-      key,
-      d.person_id,
-      d.unit_id,
-      d.role,
-      d.starts_at,
-      d.ends_at,
-      actor.id,
-      +d.notices,
-    );
+    await batch(ctx.env, [
+      ["INSERT INTO cond_memberships(profile_id,id,person_id,unit_id,role,starts_at,ends_at,verified_by,notices) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(profile_id,id) DO NOTHING",
+        [profile, key, d.person_id, d.unit_id, d.role, d.starts_at, d.ends_at, actor.id, +d.notices]],
+      touchUnits(profile, d.person_id),
+    ]);
   } else if (action === "end-membership" || action === "end-phone") {
     const d = parse(z.object({ id }), input);
     const table = action === "end-phone" ? "phones" : "memberships";
     const row = await get(ctx, table, d.id);
     const at = now();
     // Vínculo futuro pode ser cancelado; não chega a conceder acesso.
-    await exec(
-      ctx.env,
-      `UPDATE cond_${table} SET ends_at=? WHERE profile_id=? AND id=? AND (ends_at IS NULL OR ends_at>?)`,
-      Math.max(at, row.starts_at),
-      profile,
-      row.id,
-      at,
-    );
+    await batch(ctx.env, [
+      [`UPDATE cond_${table} SET ends_at=? WHERE profile_id=? AND id=? AND (ends_at IS NULL OR ends_at>?)`,
+        [Math.max(at, row.starts_at), profile, row.id, at]],
+      ...(table === "memberships" ? [touchUnits(profile, row.person_id)] : []),
+    ]);
     return { id: row.id };
   } else if (action === "asset") {
     const d = parse(

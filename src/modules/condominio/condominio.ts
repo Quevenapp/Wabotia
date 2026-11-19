@@ -1,5 +1,7 @@
 // Sem efeito colateral no import. O integrador chama registerCondominio uma vez.
 import { all, exec, one } from "../../db";
+import { registerCustomerProvider } from "../../customer/ports";
+import { condominioCustomerProvider } from "./customer-provider";
 import { now, type Conversation } from "../../types";
 import {
   onCommand,
@@ -21,6 +23,8 @@ import {
   resident,
   selected,
   staff,
+  verifiedCustomer,
+  personIdentity,
 } from "./common";
 import { cadastro, directory } from "./cadastro";
 import { createWork, moveWork, workCatalog, workDetail, works } from "./works";
@@ -42,16 +46,17 @@ export async function openResidentAccess(
   rowId: string,
 ) {
   await ctx.requireEnabled();
-  const phone = ctx.verifiedPhone(c);
-  if (c.profile_id !== ctx.profile || c.chat_type === "group" || !phone)
-    fail("phone_not_verified", 409);
+  const { phone, contactId } = await verifiedCustomer(ctx, c);
   const person = await one(
     ctx.env,
-    `SELECT person_id FROM cond_phones WHERE profile_id=? AND phone=? AND ${active}`,
+    `SELECT person_id FROM cond_phones WHERE profile_id=? AND phone=? AND ${active}
+      AND EXISTS(SELECT 1 FROM cond_people p WHERE p.profile_id=cond_phones.profile_id
+      AND p.id=cond_phones.person_id AND p.contact_id=?)`,
     ctx.profile,
     phone,
     now(),
     now(),
+    contactId,
   );
   if (!person || !(await memberships(ctx, person.person_id)).length) {
     await ctx.sendMessage(
@@ -63,6 +68,7 @@ export async function openResidentAccess(
     );
     return;
   }
+  await personIdentity(ctx, c, person.person_id);
   const accessId = `access:${rowId}`;
   await exec(
     ctx.env,
@@ -75,6 +81,8 @@ export async function openResidentAccess(
     now() + 75 * 60000,
   );
   let access = await get(ctx, "access", accessId);
+  if (access.conversation_id !== c.id || access.person_id !== person.person_id || access.phone !== phone)
+    fail("contact_conflict", 409);
   if (!access.claim_url) {
     const claim = await ctx.issueCredential(accessId, {
       actor: `channel:${c.id}`,
@@ -107,6 +115,7 @@ export async function openResidentAccess(
 
 type Command = Parameters<typeof onCommand>[2];
 export function registerCondominio() {
+  registerCustomerProvider("condominio", condominioCustomerProvider);
   const command = (
     name: string,
     path: string,
@@ -470,6 +479,9 @@ export function registerCondominio() {
   onCredentialClaim("condominio", async (ctx, credential) => {
     const access = await get(ctx, "access", credential.subject);
     if (access.expires_at <= now()) fail("access_expired", 410);
+    const identity = await personIdentity(ctx, await ctx.conversation(access.conversation_id), access.person_id);
+    if (identity.phone !== access.phone) fail();
+    if (!(await memberships(ctx, access.person_id)).length) fail();
     return { access_id: access.id };
   });
   onSchedule("condominio", (ctx) => sendDueNotices(ctx));

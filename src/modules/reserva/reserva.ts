@@ -63,7 +63,12 @@ import {
   saveUnit,
 } from "./units";
 
+import { registerCustomerProvider } from "../../customer/ports";
+import { reservaCustomerProvider } from "./customer-provider";
+import { withCustomerConfirmation } from "../agenda/customer-provider";
+
 const MODULE = "reserva";
+registerCustomerProvider(MODULE, reservaCustomerProvider);
 // Toda resposta das rotas e comandos passa por visibleBookings (revisão M6).
 const { onRead, onCommand, onConversationAction } =
   filteredHandlers(visibleBookings);
@@ -182,7 +187,7 @@ onConversationAction(
       "Reserve pela conversa direta do cliente.",
     );
     const rules = await config(ctx);
-    const { booking, created } = await createBooking(ctx, rules, {
+    const { booking, created } = await createBooking(withCustomerConfirmation(ctx, actor, data.customer, data.customer_name), rules, {
       id: `act-${requestId}`,
       unit_id: data.unit_id,
       start_date: data.start_date,
@@ -304,7 +309,7 @@ onMcpTool(MODULE, {
 onMcpTool(MODULE, {
   name: "reserva_minhas",
   description:
-    "Próximas reservas do cliente da conversa (desta conversa ou do mesmo telefone): número, unidade, entrada, saída, estado e sinal. Requer conversations:read.",
+    "Próximas reservas vinculadas ao contato ou à conversa original: número, unidade, entrada, saída, estado e sinal. Requer conversations:read.",
   input: { conversation_id: { type: "string" } },
   required: ["conversation_id"],
   call: (a, profile) => ({
@@ -627,7 +632,7 @@ onCommand(MODULE, "reserva.book", async (ctx, actor, data, { requestId }) => {
     "Informe conversation_id ou customer_name.",
   );
   const rules = await config(ctx);
-  const { booking, created } = await createBooking(ctx, rules, {
+  const { booking, created } = await createBooking(withCustomerConfirmation(ctx, actor, data.customer, data.customer_name), rules, {
     // Só os campos da reserva: `at` (relógio), `id` e os de controle nunca
     // vêm do corpo (revisão B8: reserva retroativa, prazo do sinal forjado).
     unit_id: data.unit_id,

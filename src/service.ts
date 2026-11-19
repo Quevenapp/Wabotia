@@ -38,6 +38,11 @@ import { aiConfig, aiKey } from "./ai-provider";
 import { secret } from "./security";
 import { validateJevSettings } from "./jev-client";
 import { contactCommand } from "./contacts";
+import { installIdentityPort, identityPort } from "./customer/ports";
+import { customerIdentity, inboundConnection, evidencePhone } from "./customer/identity";
+import { normalizeCustomerPhone } from "./customer/phone";
+import type { InboundEvidence } from "./customer/contracts";
+installIdentityPort(customerIdentity, { default: true });
 import { authorizedMedia, mediaKind, uploadCommand } from "./media";
 import {
   outgoingContent,
@@ -60,6 +65,7 @@ import {
   validateLineIds,
   botAllowsLine,
   serviceForLine,
+  lineService,
   sendMenu,
   availableMenus,
 } from "./line-service";
@@ -535,6 +541,10 @@ export async function createTicket(
         id,
       ],
     ]);
+  writes.push(...(identityPort.recordLink?.(c, {
+    profileId: c.profile_id, moduleId: "tickets", kind: "ticket", recordId: id,
+    conversationId: c.id, linkedBy: "identity", occurredAt: at,
+  }) ?? []));
   await batch(env, writes);
   const ticket = options.sourceKey
     ? await one(
@@ -1096,6 +1106,7 @@ async function attendantAvailable(env: Env, c: Conversation, cfg: any) {
 /**
  * Telefone em dígitos e, no Brasil, também com e sem o 9 do celular: o
  * WhatsApp às vezes identifica o mesmo número das duas formas.
+ * A busca por variantes só recebe prova do canal ou pedido autorizado da equipe.
  */
 export function phoneVariants(phone: unknown) {
   let digits = String(phone ?? "").replace(/\D/g, "");
@@ -1104,7 +1115,7 @@ export function phoneVariants(phone: unknown) {
   if (/^[1-9]{2}9\d{8}$/.test(digits) || /^[1-9]{2}[2-9]\d{7}$/.test(digits))
     digits = "55" + digits;
   requireValue(
-    /^\d{10,15}$/.test(digits),
+    /^[1-9]\d{7,14}$/.test(digits),
     "Telefone inválido: use DDI, DDD e número (ex.: 5511999990000).",
   );
   const out = new Set([digits]);
@@ -1131,12 +1142,18 @@ export async function conversationByPhone(
     module?: string | null;
   } = {},
 ): Promise<Conversation | null> {
+  requireValue(normalizeCustomerPhone(phone, "international"), "Telefone inválido: use DDI, DDD e número.");
   const variants = JSON.stringify(phoneVariants(phone));
+  const digits = phoneVariants(phone)[0];
   const found = await one<Conversation>(
     env,
-    `SELECT * FROM conversations WHERE profile_id=? AND chat_type='direct' AND (phone IN (SELECT value FROM json_each(?)) OR (external_namespace LIKE 'channel:%' AND external_id IN (SELECT value FROM json_each(?))))${options.connectionId ? " AND connection_id=?" : ""} ORDER BY last_customer DESC,updated DESC LIMIT 1`,
+    `SELECT c.* FROM conversations c
+      WHERE c.profile_id=? AND c.chat_type='direct'
+        AND c.customer_link_state NOT IN ('blocked','excluded','ambiguous')
+        AND c.phone IN (SELECT value FROM json_each(?))
+        AND c.connection_id IS NOT NULL AND c.external_namespace='channel:'||c.connection_id${options.connectionId ? " AND c.connection_id=?" : ""}
+      ORDER BY c.last_customer DESC,c.updated DESC LIMIT 1`,
     profile,
-    variants,
     variants,
     ...(options.connectionId ? [options.connectionId] : []),
   );
@@ -1158,7 +1175,6 @@ export async function conversationByPhone(
     line.kind === "zernio",
     "Conversa nova pelo telefone só em linha oficial (Zernio), que envia modelos aprovados.",
   );
-  const digits = phoneVariants(phone)[0];
   const namespace = `channel:${line.id}`;
   const id = uid();
   const created = await exec(
@@ -1181,6 +1197,10 @@ export async function conversationByPhone(
     namespace,
     digits,
   );
+  // Uma colisão com conversa bloqueada/ambígua não contorna a resolução.
+  // Só a conversa de saída ainda sem resposta pode ser reutilizada aqui.
+  if (!created.meta?.changes && c &&
+      (c.customer_link_state !== "pending" || c.last_customer !== 0)) return null;
   if (created.meta?.changes)
     await event(env, profile, "conversation.created", id, {
       id,
@@ -1222,26 +1242,7 @@ export async function inbound(
   }
   const content =
     data.content && typeof data.content === "object" ? data.content : {};
-  const isGroup = data.chat_type === "group";
-  if (isGroup) {
-    requireValue(
-      !!connectionId && namespace.startsWith("channel:"),
-      "Grupos precisam de um canal autenticado.",
-    );
-    requireValue(
-      typeof content.participant === "string" && content.participant.length > 0,
-      "Informe o participante do grupo.",
-    );
-    const conn = await one(
-      env,
-      "SELECT * FROM connections WHERE id=?",
-      connectionId,
-    );
-    await syncGroup(env, conn, {
-      external_id: data.external_id,
-      title: data.title,
-    });
-  }
+  const isGroup = data.chat_type === "group" || data.external_id.endsWith("@g.us");
   const key = `${profile}:${namespace}:${data.external_id}:${data.message_id}`;
   const receivedAt = now();
   const customerAt =
@@ -1258,24 +1259,61 @@ export async function inbound(
     key,
   );
   if (old) return { conversation_id: old.conversation_id, duplicate: true };
-  const routed =
-    connectionId && !isGroup
-      ? await one(
-          env,
-          "SELECT conversation_id FROM router_affinities WHERE connection_id=? AND recipient=?",
-          connectionId,
-          data.external_id,
-        )
-      : null;
-  let c = routed
-    ? await conversation(env, routed.conversation_id, profile)
-    : await one<Conversation>(
-        env,
-        "SELECT * FROM conversations WHERE profile_id=? AND external_namespace=? AND external_id=?",
-        profile,
-        namespace,
-        data.external_id,
-      );
+  const channel = connectionId ? await inboundConnection(env, connectionId) : null;
+  requireValue(
+    !connectionId || (channel?.profile_id === profile && namespace === `channel:${connectionId}` &&
+      ["qr", "zernio", "meta"].includes(channel.kind)),
+    "Origem do canal inválida.",
+  );
+  // Entradas legadas sem conexão podem manter uma conversa e associação humana.
+  // Sem canal autenticado, prepareInbound não lhes concede prova telefônica.
+  // Compatibilidade do transporte anterior: QR já normalizado (somente dígitos)
+  // e Meta identificavam o remetente no external_id. JIDs/LIDs nunca passam por
+  // esse caminho; os conectores atuais enviam phone explicitamente, inclusive null.
+  const legacyPhone = normalizeCustomerPhone(data.external_id, "international");
+  const qrLegacy = channel?.kind === "qr" && data.phone_jid === undefined &&
+    /^[1-9][0-9]{7,14}$/.test(data.external_id) &&
+    (data.phone === undefined || data.phone === legacyPhone);
+  const evidence: InboundEvidence = {
+    provider: channel?.kind === "qr" ? "qr" : channel?.kind === "meta" ? "meta" : "zernio",
+    phone: connectionId && !isGroup ? data.phone ?? (data.phone === undefined && (qrLegacy || channel?.kind === "meta") ? legacyPhone : null) : null,
+    ...(channel?.kind === "qr" ? { phoneJid: data.phone_jid ?? (qrLegacy ? `${legacyPhone}@s.whatsapp.net` : data.external_id) } : {}),
+  };
+  const authenticatedPhone = connectionId && !isGroup ? evidencePhone(evidence) : null;
+  if (isGroup) {
+    requireValue(
+      !!connectionId && namespace.startsWith("channel:"),
+      "Grupos precisam de um canal autenticado.",
+    );
+    requireValue(
+      typeof content.participant === "string" && content.participant.length > 0,
+      "Informe o participante do grupo.",
+    );
+    await syncGroup(env, channel, {
+      external_id: data.external_id,
+      title: data.title,
+    });
+  }
+  // Uma leitura mantém a precedência: afinidade do roteador, identificador
+  // exato e, só então, a conversa de saída ainda sem resposta. O fallback
+  // exige o telefone autenticado exato; não amplia acesso por variantes.
+  let c = await one<Conversation & { inbound_match: number }>(env,
+    `WITH candidates AS (
+       SELECT conversation_id id,0 priority FROM router_affinities
+         WHERE connection_id=? AND recipient=?
+       UNION ALL SELECT id,1 FROM conversations
+         WHERE profile_id=? AND external_namespace=? AND external_id=?
+       UNION ALL SELECT id,2 FROM conversations
+         WHERE profile_id=? AND connection_id=? AND external_namespace=?
+           AND chat_type='direct' AND last_customer=0
+           AND customer_link_state NOT IN ('blocked','excluded','ambiguous')
+           AND phone IN (SELECT value FROM json_each(?))
+     ) SELECT c.*,k.priority inbound_match FROM candidates k
+       JOIN conversations c ON c.id=k.id AND c.profile_id=?
+       ORDER BY k.priority,c.created DESC LIMIT 1`,
+    isGroup ? null : connectionId, data.external_id,
+    profile, namespace, data.external_id,
+    profile, connectionId, namespace, JSON.stringify(authenticatedPhone ? phoneVariants(authenticatedPhone) : []), profile);
   requireValue(
     !c?.connection_id || !!connectionId,
     "Mensagens de cliente em um canal real devem chegar pelo webhook autenticado.",
@@ -1283,57 +1321,36 @@ export async function inbound(
   // Primeira resposta de quem recebeu uma conversa aberta pelo telefone
   // (conversationByPhone) com outro identificador do WhatsApp: a mesma
   // conversa passa a usar o identificador do canal.
-  if (!c && connectionId && !isGroup && data.phone) {
-    const variants = (() => {
-      try {
-        return phoneVariants(data.phone);
-      } catch {
-        return [];
-      }
-    })();
-    const opened = variants.length
-      ? await one<Conversation>(
-          env,
-          "SELECT * FROM conversations WHERE profile_id=? AND connection_id=? AND external_namespace=? AND chat_type='direct' AND last_customer=0 AND phone IN (SELECT value FROM json_each(?)) ORDER BY created DESC LIMIT 1",
-          profile,
-          connectionId,
-          namespace,
-          JSON.stringify(variants),
-        )
-      : null;
-    if (opened) {
-      await exec(
-        env,
-        "UPDATE conversations SET external_id=?,updated=? WHERE id=? AND last_customer=0",
-        data.external_id,
-        now(),
-        opened.id,
-      );
-      c = await conversation(env, opened.id, profile);
-    }
+  if (c?.inbound_match === 2) {
+    c = await one<Conversation & { inbound_match: number }>(env,
+      "UPDATE conversations SET external_id=?,updated=? WHERE id=? AND last_customer=0 RETURNING *,2 AS inbound_match",
+      data.external_id, now(), c.id);
   }
+  const createdConversation = !c;
   if (!c) {
     const id = uid();
-    await exec(
+    // A sessão nasce na época 1 uma única vez. O avanço da mensagem fica
+    // no lote da inbox: repetir após uma queda não avança a criação de novo.
+    c = await one<Conversation & { inbound_match: number }>(
       env,
-      "INSERT INTO conversations(id,profile_id,connection_id,external_namespace,external_id,phone,session,last_customer,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?)",
+      "INSERT INTO conversations(id,profile_id,connection_id,external_namespace,external_id,phone,epoch,session,last_customer,created,updated) VALUES(?,?,?,?,?,?,1,?,?,?,?) RETURNING *,1 AS inbound_match",
       id,
       profile,
       connectionId,
       namespace,
       data.external_id,
-      namespace.startsWith("channel:") ? data.phone || data.external_id : null,
+      authenticatedPhone,
       uid(),
       customerAt,
       now(),
       now(),
     );
-    c = await conversation(env, id, profile);
     await event(env, profile, "conversation.created", id, {
       id,
       external_id: data.external_id,
     });
   }
+  requireValue(c, "Conversa não encontrada.");
   const ratingReply =
     /^[1-5](?:\s|$)/.test(data.text) &&
     (await one(
@@ -1345,14 +1362,14 @@ export async function inbound(
   if (c.state === "closed" && !ratingReply) {
     await exec(
       env,
-      "UPDATE conversations SET state='ai',owner=NULL,epoch=epoch+1,session=?,updated=? WHERE id=?",
+      "UPDATE conversations SET state='ai',owner=NULL,epoch=epoch+1,session=?,customer_link_state=CASE WHEN customer_link_state='ready' THEN 'pending' ELSE customer_link_state END,updated=? WHERE id=?",
       uid(),
       now(),
       c.id,
     );
-    c = await conversation(env, c.id, profile);
+    c = { ...await conversation(env, c.id, profile), inbound_match: c.inbound_match };
   }
-  const line = await serviceForLine(env, connectionId);
+  const line = lineService(json(channel?.config));
   // Only the message that opens a session on a human line queues it; the
   // engine uses this to offer the main menu once (front door without a bot).
   const humanFrontDoor =
@@ -1370,32 +1387,33 @@ export async function inbound(
       now(),
       c.id,
     );
-    c = await conversation(env, c.id, profile);
+    c = { ...await conversation(env, c.id, profile), inbound_match: c.inbound_match };
     await event(env, profile, "conversation.updated", c.id, {
       action: "waiting",
       state: "waiting",
     });
   }
-  if (
+  const advanceEpoch =
     c.state === "ai" &&
     (c.chat_type !== "group" ||
       c.bot_policy === "all" ||
       (c.bot_policy === "mentions" &&
-        (content.mentioned || /^\/bot(?:\s|$)/i.test(data.text))))
-  ) {
-    await exec(env, "UPDATE conversations SET epoch=epoch+1 WHERE id=?", c.id);
-    c = await conversation(env, c.id, profile);
-  }
+        (content.mentioned || /^\/bot(?:\s|$)/i.test(data.text))));
+  // A época da mensagem é confirmada junto com a inbox; uma queda antes
+  // do lote não cancela entregas da época anterior sem salvar a entrada.
+  if (advanceEpoch) c = { ...c, epoch: c.epoch + 1 };
   const msgId = uid();
   // A protocol waiting for the customer goes back to analysis when they write.
-  const resumed = (
+  const resumed = createdConversation ? [] : (
     await all(
       env,
       "SELECT id FROM tickets WHERE conversation_id=? AND status='waiting_customer'",
       c.id,
     )
   ).map((ticket) => ticket.id as string);
+  const identity = await identityPort.prepareInbound(env, c, evidence);
   await batch(env, [
+    ...identity.statements,
     [
       "INSERT INTO inbox(id,profile_id,event_key,conversation_id,payload,created) VALUES(?,?,?,?,?,?)",
       [
@@ -1416,10 +1434,10 @@ export async function inbound(
         now(),
       ],
     ],
-    [
+    ...(resumed.length ? [[
       "UPDATE tickets SET status='in_progress',updated=? WHERE status='waiting_customer' AND id IN (SELECT value FROM json_each(?))",
       [now(), JSON.stringify(resumed)],
-    ],
+    ] as [string, any[]]] : []),
     [
       "INSERT INTO messages(id,profile_id,conversation_id,direction,author,text,attachments,external_id,created,content) VALUES(?,?,?,?,?,?,?,?,?,?)",
       [
@@ -1436,8 +1454,8 @@ export async function inbound(
       ],
     ],
     [
-      "UPDATE conversations SET last_customer=max(last_customer,?),updated=? WHERE id=?",
-      [customerAt, now(), c.id],
+      "UPDATE conversations SET last_customer=max(last_customer,?),updated=?,epoch=epoch+? WHERE id=?",
+      [customerAt, now(), advanceEpoch ? 1 : 0, c.id],
     ],
   ]);
   await event(env, profile, "message.received", msgId, {
@@ -2003,6 +2021,8 @@ export async function perform(
   requireOperationAccess(actor, op);
   // Cobrança feita por pessoa: com a política do segundo fator (src/mfa.ts).
   if (op.startsWith("payment.")) requireFinancialAal(actor);
+  if (op.startsWith("contact.") && op !== "contact.maintain")
+    return contactCommand(env, actor, profile, op, data, requestId);
   // Comandos registrados pelos módulos (src/modules/api.ts, onCommand).
   const fromModule = moduleCommandHandler(op);
   if (fromModule) return fromModule(env, actor, profile, data, requestId);
@@ -2037,8 +2057,6 @@ export async function perform(
     return messageAction(env, actor, profile, data, requestId);
   if (op.startsWith("queue.") || op.startsWith("counter."))
     return queueCommand(env, actor, profile, op, data, requestId);
-  if (op.startsWith("contact."))
-    return contactCommand(env, actor, profile, op, data);
   if (op.startsWith("module."))
     return moduleCommand(env, actor, profile, op, data);
   if (op === "web_step.cancel")

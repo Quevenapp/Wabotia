@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { all, one } from "../../db";
-import { ApiError, now, type Actor } from "../../types";
+import { ApiError, now, type Actor, type Conversation } from "../../types";
+import { normalizeCustomerPhone } from "../../customer/phone";
+import type { Statement } from "../../customer/contracts";
 import type { ModuleContext } from "../api";
 
 export const id = z.string().trim().min(1).max(160);
@@ -48,6 +50,46 @@ export async function staff(
 export const active = "starts_at<=? AND (ends_at IS NULL OR ends_at>?)";
 export const activeMembership =
   "m.starts_at<=? AND (m.ends_at IS NULL OR m.ends_at>?)";
+
+// Sem marcador de maioridade no legado, dependentes ficam no domínio protegido.
+export const publicPerson = `NOT EXISTS(SELECT 1 FROM cond_memberships protected
+  WHERE protected.profile_id=p.profile_id AND protected.person_id=p.id AND protected.role='dependente')`;
+
+export async function verifiedCustomer(ctx: ModuleContext, c: Conversation) {
+  const ref = await ctx.customer(c);
+  if (ref.state === "ambiguous")
+    fail("customer_ambiguous", 409, "Confira a identidade do telefone antes de continuar.");
+  const phone = normalizeCustomerPhone(ref.verifiedPhone, "international");
+  if (c.profile_id !== ctx.profile || c.chat_type === "group" ||
+      c.external_namespace.startsWith("app:") || ref.profileId !== ctx.profile ||
+      ref.namespace !== "team" || ref.state !== "ready" || !ref.contactId ||
+      !phone || phone !== ref.verifiedPhone || ctx.verifiedPhone(c) !== phone)
+    fail("phone_not_verified", 409);
+  if (!await one(ctx.env, `SELECT id FROM contacts WHERE profile_id=? AND id=?
+    AND namespace='team' AND identity_state='active'`, ctx.profile, ref.contactId)) fail();
+  return { contactId: ref.contactId, phone };
+}
+
+/** Cadastro canônico sozinho nunca substitui o telefone confirmado da extensão. */
+export async function personIdentity(ctx: ModuleContext, c: Conversation, personId: string) {
+  const identity = await verifiedCustomer(ctx, c);
+  const at = now();
+  const rows = await all(ctx.env, `SELECT ph.person_id FROM cond_phones ph
+    JOIN cond_people p ON p.profile_id=ph.profile_id AND p.id=ph.person_id
+    WHERE ph.profile_id=? AND ph.phone=? AND ph.starts_at<=? AND (ph.ends_at IS NULL OR ph.ends_at>?)
+    AND p.contact_id=?`, ctx.profile, identity.phone, at, at, identity.contactId);
+  if (rows.length !== 1 || rows[0].person_id !== personId) fail();
+  return identity;
+}
+
+/** Comandos antigos também invalidam a versão da seção, no mesmo lote. */
+export function touchUnits(profile: string, personId: string): Statement {
+  return [`INSERT INTO customer_sections(profile_id,contact_id,module_id,section_id,version)
+    SELECT p.profile_id,p.contact_id,'condominio','units',2 FROM cond_people p
+    WHERE p.profile_id=? AND p.id=? AND p.contact_id IS NOT NULL AND changes()=1
+    ON CONFLICT(profile_id,contact_id,module_id,section_id) DO UPDATE SET version=version+1`,
+    [profile, personId]];
+}
 export const tables = [
   "blocks",
   "units",
@@ -128,6 +170,7 @@ export async function resident(
     now(),
   );
   if (!phone) fail();
+  await personIdentity(ctx, c, access.person_id);
   const units = await memberships(ctx, access.person_id);
   if (units.length > 200)
     fail(

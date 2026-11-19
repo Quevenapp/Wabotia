@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { all, exec, one } from "../../db";
+import { all, batch, exec, one } from "../../db";
 import { now, type Actor } from "../../types";
 import type { ModuleContext } from "../api";
 import { authorizedOrder, resolveWorkType } from "../os/public";
@@ -16,6 +16,7 @@ import {
   selected,
   staff,
   text,
+  publicPerson,
 } from "./common";
 
 export const workTypes = {
@@ -54,6 +55,8 @@ const createSchema = z.object({
   kind: z.enum(["ocorrencia", "encomenda", "visitante"]),
   unit_id: id.optional(),
   person_id: id.optional(),
+  visitor_person_id: id.nullable().optional(),
+  delivery_source: z.enum(["marketplace", "correios", "outro"]).nullable().optional(),
   item: text(200),
   problem: text(2000),
   extra: z
@@ -71,6 +74,8 @@ export async function createWork(
   accessId?: string,
 ) {
   const d = parse(createSchema, input);
+  if ((d.visitor_person_id && d.kind !== "visitante") || (d.delivery_source && d.kind !== "encomenda"))
+    fail("invalid_request", 400);
   let membership: any,
     phone: string,
     person: string,
@@ -124,6 +129,14 @@ export async function createWork(
       );
     phone = p.phone;
   }
+  if (d.visitor_person_id) {
+    // Cadastro de visitante recorrente identifica a visita; não autoriza entrada.
+    if (!await one(ctx.env, `SELECT p.id FROM cond_people p JOIN cond_person_functions f
+      ON f.profile_id=p.profile_id AND f.person_id=p.id WHERE p.profile_id=? AND p.id=?
+      AND ${publicPerson} AND f.role='visitante_recorrente' AND f.unit_id=?
+      AND f.starts_at<=? AND (f.ends_at IS NULL OR f.ends_at>?)`,
+      ctx.profile, d.visitor_person_id, membership.unit_id, now(), now())) fail();
+  }
   const type = await resolveWorkType(ctx, workTypes[d.kind]);
   if (accessId && !type.features.customer_open) fail("feature_disabled", 409);
   if (
@@ -143,6 +156,8 @@ export async function createWork(
   const unitLabel = `${membership.block} · ${membership.number}`;
   const motorActor = ctx.moduleActor({ reach: ["os"] });
   const personRow = await get(ctx, "people", person);
+  if (!await one(ctx.env, `SELECT p.id FROM cond_people p WHERE p.profile_id=? AND p.id=? AND ${publicPerson}`,
+    ctx.profile, person)) fail("forbidden", 403);
   const order = await ctx.run(
     motorActor,
     "os.create",
@@ -161,18 +176,19 @@ export async function createWork(
     },
     `cond-work:${key}`,
   );
-  await exec(
-    ctx.env,
-    "INSERT INTO cond_works(profile_id,id,unit_id,person_id,membership_id,kind,created_at,source_key) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(profile_id,source_key) DO NOTHING",
-    ctx.profile,
-    order.id,
-    membership.unit_id,
-    person,
-    membership.id,
-    d.kind,
-    now(),
-    key,
-  );
+  const guard = `cond-work:${ctx.profile}:${key}:details`;
+  await batch(ctx.env, [
+    ["INSERT INTO cond_works(profile_id,id,unit_id,person_id,membership_id,kind,created_at,source_key) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(profile_id,source_key) DO NOTHING",
+      [ctx.profile, order.id, membership.unit_id, person, membership.id, d.kind, now(), key]],
+    ["INSERT INTO cond_portaria_details(profile_id,work_id,visitor_person_id,delivery_source) VALUES(?,?,?,?) ON CONFLICT(profile_id,work_id) DO NOTHING",
+      [ctx.profile, order.id, d.visitor_person_id ?? null, d.delivery_source ?? null]],
+    [`INSERT INTO customer_assert(id,ok) VALUES(?,CASE WHEN EXISTS(SELECT 1 FROM cond_works w
+      JOIN cond_portaria_details pd ON pd.profile_id=w.profile_id AND pd.work_id=w.id
+      WHERE w.profile_id=? AND w.id=? AND w.source_key=? AND w.person_id=? AND w.unit_id=?
+      AND w.membership_id=? AND w.kind=? AND pd.visitor_person_id IS ? AND pd.delivery_source IS ?) THEN 1 ELSE 0 END)`,
+      [guard, ctx.profile, order.id, key, person, membership.unit_id, membership.id, d.kind, d.visitor_person_id ?? null, d.delivery_source ?? null]],
+    ["DELETE FROM customer_assert WHERE id=?", [guard]],
+  ]);
   return { id: order.id, unit: unitLabel };
 }
 
@@ -229,7 +245,9 @@ export async function workDetail(
   if (!admin && !["encomenda", "visitante"].includes(link.kind)) fail();
   const order = await authorizedOrder(ctx, actor, orderId);
   const view = projectOrderForStaff(ctx, actor, order);
-  if (admin) return view;
+  const portaria = await one(ctx.env, `SELECT visitor_person_id,delivery_source,version
+    FROM cond_portaria_details WHERE profile_id=? AND work_id=?`, ctx.profile, orderId);
+  if (admin) return { ...view, portaria };
   // Lista explícita: orçamento, observações, relatos, placas e documentos nunca entram.
   const unit = await get(ctx, "units", link.unit_id);
   return {
@@ -241,6 +259,7 @@ export async function workDetail(
     block_id: unit.block_id,
     stage: view.stage_label,
     version: view.version,
+    portaria,
     actions: view.next_stages
       .filter((s) => s.kind === "manual")
       .map((s) => ({ id: s.transition_id, label: s.stage_label })),
