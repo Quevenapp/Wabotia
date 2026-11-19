@@ -27,9 +27,9 @@ const NO_SELECTION: ReadonlySet<string> = new Set();
 // Origin VL-04: Todos, the types (system first, no Padrao), Sem tipo definido last.
 const TYPE_FILTER = (types: ContactTypes | null) => [{ value: '', label: 'Todos' }, ...(types?.items ?? []).filter(type => type.slug !== 'default').sort((a, b) => Number(b.system) - Number(a.system) || a.position - b.position).map(type => ({ value: type.slug, label: type.label })), { value: 'none', label: 'Sem tipo definido' }];
 // The access data of the seller are applied by the documents (164), the access controls (229) and the per-request gate (241).
-const ACCESS_APPLIED = 'Aplicado: sem “Permite incluir produtos não cadastrados” o pedido de venda recusa item livre; sem “Permite visualizar informações de estoque” pedidos, propostas e ordens de serviço não mostram o saldo; fora dos horários de acesso (horário de São Paulo) o usuário vinculado não entra nem usa o FAGOO, também em cada operação.';
+const ACCESS_APPLIED = 'Aplicado: sem “Permite incluir produtos não cadastrados” o pedido de venda recusa item livre; sem “Permite visualizar informações de estoque” pedidos, propostas e ordens de serviço não mostram o saldo; fora dos horários de acesso (horário de São Paulo) o usuário vinculado não entra nem usa o ERP, também em cada operação.';
 // 202610200204-206: the Frente de caixa reads the Frente de Caixa module of the vendedor linked to the user (perfil vendas).
-const PDV_APPLIED = 'Frente de Caixa: aplicado na frente de caixa ao usuário vinculado (registro de itens e de pagamento, fechamento da venda, preço unitário, exclusão de itens e forma das parcelas; sem o módulo, o vendedor não opera a frente de caixa). O Gerenciador de POS e os demais módulos ficam guardados: o FAGOO ainda não os aplica.';
+const PDV_APPLIED = 'Frente de Caixa: aplicado na frente de caixa ao usuário vinculado (registro de itens e de pagamento, fechamento da venda, preço unitário, exclusão de itens e forma das parcelas; sem o módulo, o vendedor não opera a frente de caixa). O Gerenciador de POS e os demais módulos ficam guardados: o ERP ainda não os aplica.';
 
 export default function RealSellers({ controller }: { controller: AccessController }) {
   const [editing, setEditing] = useState<{ id: string | null } | null>(null), [notice, setNotice] = useState('');

@@ -37,7 +37,7 @@ export async function nativeXmlResult(value: unknown, id: string): Promise<Nativ
 /** File name of the support XML: the access key of the prediction, marked as generated (never confused with an authorized XML). */
 export const nativeXmlFileName = (result: Pick<NativeXmlResult, 'access_key'>) => `NFe${result.access_key}-gerado-sem-assinatura.xml`;
 export function nativeXmlSummary(result: NativeXmlResult): string {
-  if (result.valid) return `Nota validada: o XML segue o leiaute da NF-e 4.00 (${result.schema.profile}) e passou nas regras conferidas pelo FAGOO.`;
+  if (result.valid) return `Nota validada: o XML segue o leiaute da NF-e 4.00 (${result.schema.profile}) e passou nas regras conferidas pelo ERP.`;
   const count = result.schema.errors.length + result.rules.filter(r => r.severity === 'error').length;
   return `Foram encontrados ${count}${result.schema.truncated ? '+' : ''} erro(s) na nota. Corrija e valide de novo.`;
 }

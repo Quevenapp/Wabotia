@@ -18,9 +18,9 @@ export const info=(id,section,label,text,extra={})=>({id,info:true,section,label
 export const applied=(id,section,label,text,extra={})=>info(id,section,label,text,{status:'applied',...extra});
 /** Origin's e-mail block repeated on several pages; sending e-mail is not built yet, so every value is kept for it. */
 export function emailBlock(prefix,section,{subject='Assunto padrão',copy='Email padrão de cópia',sender='Nome padrão do remetente',reply='Email padrão de resposta',message='Mensagem padrão',subjectLength=100}={}){
- const note='Guardado. O FAGOO ainda não envia e-mails; o texto será usado quando o envio existir.';
+ const note='Guardado. O ERP ainda não envia e-mails; o texto será usado quando o envio existir.';
  return[text(`${prefix}.email_assunto`,section,subject,subjectLength,{note}),emails(`${prefix}.email_copia`,section,copy,{note}),text(`${prefix}.email_remetente`,section,sender,100,{note}),
-  email(`${prefix}.email_resposta`,section,reply,{note}),area(`${prefix}.email_mensagem`,section,message,4000,{note,hint:'O Origin usa texto formatado; o FAGOO guarda o texto simples.'})];
+  email(`${prefix}.email_resposta`,section,reply,{note}),area(`${prefix}.email_mensagem`,section,message,4000,{note,hint:'O Origin usa texto formatado; o ERP guarda o texto simples.'})];
 }
 /** "Próximo número" of documents: document numbering is not adjustable in Brufap yet. */
-export const nextNumber=(id,section)=>info(id,section,'Próximo número','O próximo número ainda não é ajustável no FAGOO; ele segue a numeração atual dos documentos.');
+export const nextNumber=(id,section)=>info(id,section,'Próximo número','O próximo número ainda não é ajustável no ERP; ele segue a numeração atual dos documentos.');

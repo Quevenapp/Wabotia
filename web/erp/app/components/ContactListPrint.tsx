@@ -66,7 +66,7 @@ export function ContactListPrint({ controller, request, types, onClose }: { cont
     {error && <p className="document-print-error" role="alert">{error}</p>}
     <div className="document-print-scroll" tabIndex={0} aria-label={`${title} para impressão`}>
       {rows && <article className="commercial-sheet document-list-sheet" aria-label={title}>
-        <header className="commercial-heading"><div><p className="commercial-brand">FAGOO</p><h2>{title}</h2><p className="commercial-footnote">{birthdays ? `Período: ${brDate(range.from)} até ${brDate(range.to)}` : `${rows.length} ${rows.length === 1 ? 'contato' : 'contatos'}`} · Emitido em {printedAt}</p></div></header>
+        <header className="commercial-heading"><div><h2>{title}</h2><p className="commercial-footnote">{birthdays ? `Período: ${brDate(range.from)} até ${brDate(range.to)}` : `${rows.length} ${rows.length === 1 ? 'contato' : 'contatos'}`} · Emitido em {printedAt}</p></div></header>
         {rows.length ? <table><thead><tr>{columns.map(column => <th scope="col" key={column}>{label(column)}</th>)}</tr></thead>
           <tbody>{rows.map(row => <tr key={row.id}>{columns.map(column => <td key={column}>{column === 'birth' ? birthday(row) : value(row, column, types)}</td>)}</tr>)}</tbody></table> : <p>Nenhum contato no filtro aplicado.</p>}
       </article>}

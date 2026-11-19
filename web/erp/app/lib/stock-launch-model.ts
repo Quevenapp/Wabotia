@@ -233,7 +233,7 @@ export function contextSuggestion(context:LaunchContext,productPrice:unknown):{s
       showPrice:context.settings.show_unit_price,help:price===null?PRICE_TYPE_HELP[type]:null};
   }
   return {sale:priceDraft(context.sale_price??productPrice),purchase:priceDraft(last?.unit_price),cost:priceDraft(context.average_cost??last?.unit_cost??last?.unit_price),
-    showPrice:context.settings.show_unit_price,help:last?null:'Ainda não há compra com preço registrada para este produto no FAGOO.'};
+    showPrice:context.settings.show_unit_price,help:last?null:'Ainda não há compra com preço registrada para este produto no ERP.'};
 }
 
 

@@ -10,29 +10,29 @@ export const RELEASE_NOTES: readonly ReleaseNote[] = [
     'Entregas sem confirmação exigem conferência antes de novo envio, evitando repetir gravações cuja resposta se perdeu.',
     'Contas, categorias e formas de pagamento exigem vínculos seguros. Parcelas com formas diferentes preservam suas referências.',
     'A numeração local acompanha os documentos recebidos, sem renumerar os existentes.',
-    'O checkout encontra pedidos importados já convertidos para operação no FAGOO pelo número exato; números duplicados exigem conferência.',
+    'O checkout encontra pedidos importados já convertidos para operação no ERP pelo número exato; números duplicados exigem conferência.',
     'As notas próprias continuam em homologação; as notas da conexão externa permanecem disponíveis para consulta.',
   ] },
-  { version: '2026.11.03', date: '2026-11-03', title: 'FAGOO com instalação própria e início sem dados', items: [
+  { version: '2026.11.03', date: '2026-11-03', title: 'ERP com instalação própria e início sem dados', items: [
     'Instalação própria com administrador, autenticação, banco e arquivos da empresa.',
-    'Cadastros, vendas, compras, estoque e financeiro disponíveis na interface web do FAGOO.',
+    'Cadastros, vendas, compras, estoque e financeiro disponíveis na interface web do ERP.',
     'Visão geral preparada para uma empresa nova, com indicadores preenchidos pelos seus registros.',
     'Ferramentas de integrações opcionais aparecem quando habilitadas para a instalação.',
   ] },
   { version: '2026.10.22', date: '2026-10-22', title: 'Sincronização de mão dupla com o Origin; estoque, notas e documentos comerciais do Origin', items: [
-    'Botão Sincronizar na barra superior: o que é criado, alterado ou excluído no FAGOO vai para o Origin, e o que muda no Origin chega ao FAGOO. Em conflito, vale a alteração mais recente.',
+    'Botão Sincronizar na barra superior: o que é criado, alterado ou excluído no ERP vai para o Origin, e o que muda no Origin chega ao ERP. Em conflito, vale a alteração mais recente.',
     'Contatos, produtos, propostas, pedidos de venda e de compra, contas a receber e a pagar (com baixas) e lançamentos de estoque vão e voltam. Ordens de serviço chegam do Origin; o envio de OS ainda não está implementado neste conector.',
-    'Documentos vindos do Origin passam a abrir no editor do FAGOO, com edição, exclusão, situação e lançamentos; o painel da sincronização mostra filas, horários e pendências em linguagem simples.',
+    'Documentos vindos do Origin passam a abrir no editor do ERP, com edição, exclusão, situação e lançamentos; o painel da sincronização mostra filas, horários e pendências em linguagem simples.',
     'Controle de estoque mostra os saldos físicos e virtuais observados no Origin por produto e depósito, com origem, horário da leitura e filtros de negativos e pendências.',
-    'O espelho preserva o histórico das observações e atualiza em lotes. Dados ausentes aparecem como cobertura parcial; os saldos de origem FAGOO ficam separados.',
+    'O espelho preserva o histórico das observações e atualiza em lotes. Dados ausentes aparecem como cobertura parcial; os saldos de origem ERP ficam separados.',
     'Notas fiscais de saída, NFC-e e entrada mostram origem Origin, identificação externa, horário da sincronização e cobertura dos XMLs, com consulta mais rápida.',
     'Notas espelhadas ficam somente para consulta. O acesso aos detalhes, relatórios e XMLs respeita a carteira do vendedor; dados incompletos permanecem sinalizados.',
     'Pedidos de venda, propostas, ordens de serviço e pedidos de compra do Origin aparecem nas listas com busca, filtro de origem, impressão e horário da observação.',
     'Documentos do Origin ficam somente para consulta, com valores originais e totais separados. Edição, cópia, conversão e lançamentos operacionais são bloqueados também no banco.',
-    'Relatórios e indicadores operacionais identificam os registros do FAGOO e informam quando documentos do Origin ficaram fora do cálculo.',
+    'Relatórios e indicadores operacionais identificam os registros do ERP e informam quando documentos do Origin ficaram fora do cálculo.',
   ] },
   { version: '2026.10.21', date: '2026-10-21', title: 'Leva H: acesso, plataforma, espelho do Origin, financeiro, documentos e produtos', items: [
-    'Central de ajuda do FAGOO no ícone ?, com os principais fluxos, as regras de convivência com o Origin, notas fiscais e naturezas de operação.',
+    'Central de ajuda do ERP no ícone ?, com os principais fluxos, as regras de convivência com o Origin, notas fiscais e naturezas de operação.',
     'Backup e Exportação › Backup: o administrador gera um pacote ZIP com os dados e os arquivos da empresa e baixa por um link de 2 minutos; o pacote fica 7 dias.',
     'Consultar gestão de ações mostra também as tarefas do servidor, com tentativas e histórico.',
     'Notificações internas geradas de hora em hora pelo servidor, sem duplicar avisos.',
@@ -58,7 +58,7 @@ export const RELEASE_NOTES: readonly ReleaseNote[] = [
   ] },
   { version: '2026.10.20', date: '2026-10-20', title: 'Levas A a G: paridade item a item com o Origin', items: [
     'Cadastros, vendas, compras, estoque, financeiro, notas fiscais e preferências reproduzem as telas do Origin item a item.',
-    'Emissão fiscal em produção e operações bancárias reais continuam desligadas; as notas do FAGOO ficam em homologação.',
+    'Emissão fiscal em produção e operações bancárias reais continuam desligadas; as notas do ERP ficam em homologação.',
   ] },
 ];
 export const LATEST_RELEASE = RELEASE_NOTES[0]!;

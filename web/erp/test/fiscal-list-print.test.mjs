@@ -19,7 +19,7 @@ test('fiscal list print marks native homologation and imported production separa
   const view = await mount([row({ origin: 'brufap', id: 'native-1', source_origin: 'brufap_native', source_environment: '2', observed_at: null }),
     row({ origin: 'brufap', id: 'native-2', source_origin: 'xml_import', source_environment: '1', observed_at: null }), row({ id: '9002', observed_at: undefined })]);
   try {
-    assert.match(view.text(), /Nota do FAGOO · homologação · sem valor fiscal/);
+    assert.match(view.text(), /Nota do ERP · homologação · sem valor fiscal/);
     assert.match(view.text(), /XML importado · produção/);
     assert.equal(view.nodes().some(node => node.type === 'time'), false);
     assert.equal(view.text().includes('ID Origin native'), false);

@@ -12,7 +12,7 @@ import './finance-title-drawer.css';
 const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 // Origin opens the configuration of the categories of juros, multa, desconto and tarifa in a new tab.
 const CATEGORIZATION_PATH = '/financeiro-empresa?area=categories&categorizacao=1';
-const MARKETPLACE_OUT = 'Taxas de marketplace não fazem parte do FAGOO.';
+const MARKETPLACE_OUT = 'Taxas de marketplace não fazem parte do ERP.';
 type Options = { key: string; items: ReferenceOption[]; error: string };
 type Command = { id: string; body: { data: Record<string, unknown> }; uncertain: boolean };
 function knownText(error: AccessError) {

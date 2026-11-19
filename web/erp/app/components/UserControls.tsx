@@ -76,7 +76,7 @@ export default function UserControls({controller,user,actor}:{controller:UsersCo
      {WEEKDAYS.map((d,day)=><td key={day}><input id={`controls-day-${i}-${day}`} type="checkbox" aria-label={`${WEEKDAY_NAMES[day]} no horário ${i+1}`} checked={w.days.includes(day)} onChange={()=>toggleDay(i,day)}/></td>)}
      <td><button type="button" className="icon-button" aria-label={`Excluir horário ${i+1}`} disabled={draft.windows.length===1} onClick={()=>set({windows:draft.windows.filter((_,j)=>j!==i)})}><Icon name="trash-can" size={12}/></button></td></tr>)}</tbody></table>
     <button type="button" className="secondary-button" disabled={draft.windows.length>=WINDOW_LIMIT} onClick={()=>set({windows:[...draft.windows,{start:'08:00',end:'18:00',days:[1,2,3,4,5]}]})}><Icon name="plus" size={11}/>Adicionar horário</button>
-    <p className="real-help">Horário de São Paulo. Fora dos horários, o FAGOO encerra o acesso do usuário na próxima ação.</p></div>}
+    <p className="real-help">Horário de São Paulo. Fora dos horários, o ERP encerra o acesso do usuário na próxima ação.</p></div>}
    {loaded.seller&&<p className="real-help">Vendedor vinculado ({loaded.seller.name}): {loaded.seller.enabled&&loaded.seller.windows.length?`os horários do vendedor também valem (${loaded.seller.windows.map(w=>`${w.start}–${w.end} ${daysText(w.days)}`).join('; ')}).`:'sem horários de acesso no cadastro do vendedor.'}</p>}
    <div className="form-field"><span>Permissões</span>
     <label className="preference-check"><input type="radio" name={`controls-mode-${user.user_id}`} id="controls-mode-profile" checked={!draft.custom} disabled={isAdmin} onChange={()=>set({custom:false})}/><span>Todas as permissões do perfil de acesso</span></label>

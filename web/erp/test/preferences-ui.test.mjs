@@ -14,7 +14,7 @@ const has=(v,label)=>v.nodes().some(n=>n.type==='button'&&!n.props.hidden&&v.nod
 
 test('115 Empresa › Geral loads once, marks every stored option honestly and saves only the changed key',async()=>{const f=createPreferencesFixture(),v=await mount(f,'empresa-geral');try{
  assert.deepEqual(f.calls.map(c=>[c.method,c.path]),[['GET','/v1/preferencias/empresa-geral']]);
- const text=v.text();for(const label of['Número de casas decimais na quantidade','Número de casas decimais no preço nas entradas','Número de casas decimais no preço nas saídas','Número de casas decimais no peso do produto','Não enviar link no envio de documentos','Permite a edição da data e hora das ocorrências','Ainda não aplicada','O FAGOO guarda até 6 casas decimais'])assert.ok(text.includes(label),label);
+ const text=v.text();for(const label of['Número de casas decimais na quantidade','Número de casas decimais no preço nas entradas','Número de casas decimais no preço nas saídas','Número de casas decimais no peso do produto','Não enviar link no envio de documentos','Permite a edição da data e hora das ocorrências','Ainda não aplicada','O ERP guarda até 6 casas decimais'])assert.ok(text.includes(label),label);
  /* Wabotia: padrão de 2 casas (desvio telas-2-casas, decisão do usuário de 16/11). */assert.equal(v.input('pref-empresa-decimais_quantidade').props.value,'2');assert.equal(v.button('Salvar').disabled,true);
  await v.change('pref-empresa-decimais_quantidade','4');assert.equal(v.guard().changed,true);assert.equal(v.button('Salvar').disabled,false);
  await v.click('Salvar');assert.equal(posts(f).length,1);const body=posts(f)[0].body;
@@ -121,7 +121,7 @@ test('115 hub: every page has a Origin category and an address; disabled items c
   assert.ok(v.nodes().some(n=>n.props.to==='/campos-customizados'));
   assert.ok(v.nodes().some(n=>n.props.to==='/preferencias/notas-fiscais'));assert.ok(v.nodes().some(n=>n.props.to==='/preferencias/sistema/interface'));
  }finally{v.unmount();}
- const b=await mountComponent('PreferencesPage.tsx',{homeTo:'/acesso',initialCategory:'backup',categoryHref:id=>`/preferencias/${id}`,categories:resolvePreferences({role:'admin'})});try{assert.match(b.text(),/Ainda não disponível no FAGOO/);}finally{b.unmount();}
+ const b=await mountComponent('PreferencesPage.tsx',{homeTo:'/acesso',initialCategory:'backup',categoryHref:id=>`/preferencias/${id}`,categories:resolvePreferences({role:'admin'})});try{assert.match(b.text(),/Ainda não disponível no ERP/);}finally{b.unmount();}
  const n=await mountComponent('PreferencesPage.tsx',{homeTo:'/acesso',initialCategory:'notas-fiscais',categoryHref:id=>`/preferencias/${id}`,categories:resolvePreferences({role:'fiscal'})});try{
   assert.match(n.text(),/Antes de alterar as configurações entre em contato com o seu contador/);assert.ok(n.nodes().some(x=>x.props.to==='/preferencias/notas-fiscais/nfe'));
  }finally{n.unmount();}

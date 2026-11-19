@@ -2,7 +2,7 @@
 // Left out (payment integrations / Origin Conta): payment link on save, Pix and payment-link charge models and the transaction status e-mail.
 import{definePage,PREFERENCE_READERS}from'../core.mjs';
 import{area,choice,email,emails,info,integer,text,toggle}from'../fields.mjs';
-const G='geral',B='boletos',C='cobrancas',K='carta',R='retornos',mail='Guardado. O FAGOO ainda não envia e-mails.';
+const G='geral',B='boletos',C='cobrancas',K='carta',R='retornos',mail='Guardado. O ERP ainda não envia e-mails.';
 export default definePage({id:'financas-receber',category:'financas',path:'contas-receber',title:'Contas a receber',scope:'company',readRoles:PREFERENCE_READERS.finance,subsections:false,
  sections:[{id:G,title:'Geral'},{id:B,title:'Envio automático de boletos'},{id:C,title:'E-mails de cobranças'},{id:K,title:'Carta de Cobrança'},{id:R,title:'Leitura de retornos'}],
  fields:[
@@ -10,7 +10,7 @@ export default definePage({id:'financas-receber',category:'financas',path:'conta
   toggle('financas.receber_cabecalho_recibo',G,'Exibir cabeçalho com logo e informações da empresa ao imprimir recibo',false,{note:'Aplicado: o recibo mostra o logo (Empresa › Dados da empresa › Sua marca, a partir da migração 262) e a identificação dos Dados da empresa.'}),
   choice('financas.receber_titulo_credito',G,'Habilitar tipo de título de crédito para impressão',[['duplicata','Duplicata'],['nota_promissoria','Nota Promissória'],['ambos','Ambos']],'duplicata',{note:'Aplicado: define os modelos impressos pelo ⋮ Imprimir duplicata das contas a receber.'}),
   choice('financas.boletos_vinculo',B,'Enviar boletos automaticamente para contas a receber vinculadas com',[['formas_pagamento','Formas de pagamento'],['contas_financeiras','Contas financeiras']],'formas_pagamento',{note:mail}),
-  info('financas.boletos_formas',B,'Formas de pagamento','As formas de pagamento com boleto vêm de Cadastros > Formas de pagamento. O envio automático de boletos depende de e-mail, que o FAGOO ainda não envia.'),
+  info('financas.boletos_formas',B,'Formas de pagamento','As formas de pagamento com boleto vêm de Cadastros > Formas de pagamento. O envio automático de boletos depende de e-mail, que o ERP ainda não envia.'),
   integer('financas.boletos_dias_antes',B,'Dias antes do vencimento',0,365,0,{note:mail}),
   integer('financas.boletos_dias_apos',B,'Dias após o vencimento',0,365,0,{note:mail}),
   toggle('financas.boletos_no_vencimento',B,'No dia do vencimento',false,{note:mail}),

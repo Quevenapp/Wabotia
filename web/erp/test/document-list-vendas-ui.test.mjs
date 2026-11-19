@@ -159,7 +159,7 @@ test('vendas profile: no emission, stock or finance items in ⋮ and no NF-e bat
 test('a company without any order sees the Origin welcome cards; Nova venda opens the editor and Nova venda física opens the Frente de caixa', async () => {
   const srv = server({ rows: [], total: 0, amount: '0.00' }), view = await mount(srv);
   try {
-    assert.match(view.text(), /Registre suas vendas facilmente no FAGOO\..*Registrar vendas manualmente.*Registrar vendas físicas/s);
+    assert.match(view.text(), /Registre suas vendas facilmente no ERP\..*Registrar vendas manualmente.*Registrar vendas físicas/s);
     assert.equal(view.button('Nova venda física').disabled, false); assert.match(view.button('Nova venda física').props.title, /Frente de caixa/);
     await view.click('Nova venda');
     assert.ok(component(view, 'Editor'), 'Nova venda opens the same editor as + Incluir pedido');
@@ -269,7 +269,7 @@ test('under the default Em aberto filter the welcome cards show only when the co
   const empty = viewServer({ rows: [] }), view = await mount(empty);
   try {
     assert.deepEqual(empty.lists(), ['/v1/documentos/sales_orders?limit=100&page=1&status=draft%2Copen', '/v1/documentos/sales_orders?limit=1&page=1'], 'one read without filters (one row) confirms the empty company');
-    assert.match(view.text(), /Registre suas vendas facilmente no FAGOO\./);
+    assert.match(view.text(), /Registre suas vendas facilmente no ERP\./);
   } finally { view.unmount(); }
   const some = viewServer({ rows: [] }), original = some.controller.documents;
   some.controller.documents = async (path, options = {}) => { const value = await original(path, options); return path.includes('?limit=1&') ? { ...value, items: [row(9)], total_count: 3, total_amount: '30.00' } : value; };

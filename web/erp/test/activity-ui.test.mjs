@@ -22,7 +22,7 @@ test('118 Registro de atividades starts empty, searches with the Origin filters 
 
 test('118 Consulta de exclusões realizadas lists only deletions of the month with the Origin description',async()=>{const f=createActivityFixture(),v=await mountComponent('RealActivity.tsx',{controller:f.controller,mode:'deletions'},{expandChildren:true});try{
  assert.match(f.calls[0],/operacao=exclusao/);assert.match(v.text(),/Usuários.*Usuário Vendas Sintético excluído pelo usuário Administrador Sintético/s);assert.doesNotMatch(v.text(),/Produto sintético/);
- assert.match(v.text(),/No FAGOO nada é apagado/);
+ assert.match(v.text(),/No ERP nada é apagado/);
 }finally{v.unmount();}});
 
 const settle=async v=>{for(let i=0;i<3;i++){await new Promise(r=>setTimeout(r,20));await v.flush();}};

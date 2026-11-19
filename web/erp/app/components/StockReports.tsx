@@ -78,7 +78,7 @@ export default function StockReports({ controller }: { controller: AccessControl
   const turn = (offset: number) => { if (request) run(offset, request.filters); };
   const open = (event: MouseEvent<HTMLAnchorElement>, href: string) => { if (opensInNewTab(event) || event.shiftKey) return; event.preventDefault(); guard.confirmLeave(() => navigate(href)); };
   if (!report) return <section className="stock-reports"><header className="real-heading"><h1>Relatórios</h1><span className="real-mode">Somente consulta</span></header>
-    <p className="real-notice">Relatórios de suprimentos sobre os lançamentos, notas e pedidos registrados no FAGOO. Na convivência, o que foi feito só no Origin não entra.</p>
+    <p className="real-notice">Relatórios de suprimentos sobre os lançamentos, notas e pedidos registrados no ERP. Na convivência, o que foi feito só no Origin não entra.</p>
     {(['Controle de Estoque', 'Notas de Entrada', 'Pedidos de Compra'] as const).filter(group => blockEnabled('erp-fiscal') || group !== 'Notas de Entrada').map(group => <section key={group} className="stock-report-group"><h2>{group}</h2><ul>{REPORTS.filter(item => item.group === group).map(item => <li key={item.id}>
       {reportAllowed(item, role) ? <a href={`${REPORTS_PATH}?relatorio=${item.id}`} onClick={event => open(event, `${REPORTS_PATH}?relatorio=${item.id}`)}>{item.label}</a> : <span className="is-disabled" aria-disabled="true" title={reportBlockReason(item)}>{item.label}<small>{reportBlockReason(item)}</small></span>}</li>)}</ul></section>)}
   </section>;

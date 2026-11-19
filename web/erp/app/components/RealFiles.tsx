@@ -155,7 +155,7 @@ export default function RealFiles({controller}:{controller:SystemLogController})
    {page&&<p className="real-help">{page.total.toLocaleString('pt-BR')} arquivo(s).{page.offset>0&&<button type="button" className="text-button" onClick={()=>setQuery(q=>({...q,offset:Math.max(0,q.offset-q.limit)}))}>Página anterior</button>}{page.has_more&&<button type="button" className="text-button" onClick={()=>setQuery(q=>({...q,offset:q.offset+q.limit}))}>Próxima página</button>}</p>}
   </div>
   <OriginActionsPanel collapsed={panel} onCollapse={()=>setPanel(!panel)} actions={[{label:'Inserir Arquivo',icon:'upload',disabled:locked,disabledReason:insert?'Confirme ou descarte o envio pendente.':'Aguarde a operação em andamento.',onClick:()=>picker.current?.click()},
-   {label:'Tornar público selecionados',icon:'eye',disabled:true,disabledReason:'Os arquivos do FAGOO são sempre privados: só usuários com acesso ao módulo de origem os baixam.'},
+   {label:'Tornar público selecionados',icon:'eye',disabled:true,disabledReason:'Os arquivos do ERP são sempre privados: só usuários com acesso ao módulo de origem os baixam.'},
    {label:'Tornar privado selecionados',icon:'eye-slash',disabled:true,disabledReason:'Todos os arquivos já são privados.'},
    {label:'Fazer download',icon:'download',disabled:locked||!chosen.length,disabledReason:'Selecione os arquivos para baixar.',onClick:()=>void download(chosen)}]}
    info={[{label:'Quantidade de arquivos',value:String(page?.total??0)},{label:'Espaço usado',value:fileSize(page?.total_bytes??'0')}]}/>

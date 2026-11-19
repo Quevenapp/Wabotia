@@ -64,7 +64,7 @@ export const REVIEWED_PREFLIGHT_BLOCKERS:Record<string,string>={
  REVIEWED_POLICY_MISMATCH:'Esta operação ainda não possui um perfil de autorização compatível.',
  POLICY_DISABLED:'O perfil de autorização está desativado. O envio permanece indisponível.',
  POLICY_TIME_INVALID:'A vigência do perfil de autorização precisa ser atualizada.',
- PROFILE_TIME_INVALID:'As regras de conferência do FAGOO precisam de nova revisão de vigência.',
+ PROFILE_TIME_INVALID:'As regras de conferência do ERP precisam de nova revisão de vigência.',
  REVIEW_MISSING_OR_MISMATCHED:'Abra a revisão fiscal desta assinatura, confira as escolhas e salve a revisão atual.',
  REVIEWER_INACTIVE:'A revisão precisa ser refeita por um usuário com acesso fiscal ativo.',
  REVIEW_TIME_INVALID:'A validade da revisão fiscal terminou ou ainda não começou. Atualize a revisão.',
@@ -74,6 +74,6 @@ export const REVIEWED_PREFLIGHT_BLOCKERS:Record<string,string>={
  RUNTIME_DISABLED:'O envio está desativado neste ambiente. A conferência não habilita emissão.',
  AUTHORIZATION_NFCE_EMISSION_EXPIRED:'A data de emissão deste XML de NFC-e passou do prazo de 5 minutos. Este arquivo não pode ser enviado. Preserve a preparação e confira um novo documento.',
  AUTHORIZATION_NFCE_EMISSION_FUTURE:'A data de emissão deste XML de NFC-e está mais de 5 minutos à frente. Confira a data e o horário da preparação antes de continuar.',
- AUTHORIZATION_NFCE_EMISSION_WINDOW_TOO_SHORT:'O prazo deste XML de NFC-e está terminando. O FAGOO interrompe novas tentativas 30 segundos antes do limite para reservar tempo ao envio. Este arquivo não pode iniciar o envio.',
+ AUTHORIZATION_NFCE_EMISSION_WINDOW_TOO_SHORT:'O prazo deste XML de NFC-e está terminando. O ERP interrompe novas tentativas 30 segundos antes do limite para reservar tempo ao envio. Este arquivo não pode iniciar o envio.',
 };
 export const REVIEWED_AUTHORIZATION_LABELS:Record<string,string>={prepared:'Intenção registrada, ainda não enviada',request_ready:'Pedido preparado, ainda não enviado',dispatched:'Envio registrado; resultado pendente',submission_uncertain:'Resultado do envio ainda incerto',failed_before_dispatch:'Encerrada antes do envio',receipt_pending:'Recibo recebido; processamento pendente',rejected:'Resposta de rejeição registrada',review_required:'Resposta requer conferência',authorized_homologation:'Autorização de homologação registrada',unconfirmed:'Resultado não confirmado'};

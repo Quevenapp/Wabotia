@@ -2,7 +2,7 @@
 import{definePage,PREFERENCE_READERS,BOOLEAN_YES_NO,HEADER_TYPES}from'../core.mjs';
 import{applied,area,choice,emailBlock,radio,toggle}from'../fields.mjs';
 const C='configuracoes',I='impressao',M='email';
-const print='Guardado. A impressão da proposta ainda usa o modelo padrão do FAGOO.';
+const print='Guardado. A impressão da proposta ainda usa o modelo padrão do ERP.';
 // 202610200129: the print of the proposta follows the toggles marked applied (the others are kept for later).
 const p=(key,label,value=false,used=false)=>toggle(`propostas.imprimir_${key}`,I,label,value,used?{status:'applied',note:'Aplicada na impressão da proposta.'}:{note:print});
 export default definePage({id:'vendas-propostas',category:'vendas',path:'propostas-comerciais',title:'Propostas comerciais',scope:'company',readRoles:PREFERENCE_READERS.proposals,subsections:true,

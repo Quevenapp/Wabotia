@@ -93,7 +93,7 @@ function LotRemoveDialog({ controller, lot, onClose, onDone }: { controller: Pic
   const confirm = () => void command.run(`/v1/estoque/lotes/${lot.id}/situacao`, 'POST', command.uncertain ? null : { expected_version: lot.version, active: false }, value => parseLotStatus(value, lot.id, false), onDone, lotFailure);
   return <Modal title="Excluir lote" onClose={() => { if (!frozen) onClose(); }} actions={<><button type="button" className="secondary-button" disabled={frozen} onClick={onClose}>Não</button><button type="button" className="primary-button" disabled={command.busy} onClick={confirm}>{command.busy ? 'Excluindo…' : command.uncertain ? 'Conferir resultado' : 'Sim'}</button></>}>
     {command.error && <p className="real-alert" role="alert">{command.error}</p>}
-    <p>Confirma a exclusão do lote <strong>{lot.code}</strong>? No FAGOO o lote fica inativo, sem novos lançamentos, e o histórico é mantido.</p>
+    <p>Confirma a exclusão do lote <strong>{lot.code}</strong>? No ERP o lote fica inativo, sem novos lançamentos, e o histórico é mantido.</p>
   </Modal>;
 }
 

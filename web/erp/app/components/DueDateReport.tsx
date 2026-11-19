@@ -51,7 +51,7 @@ export default function DueDateReport({ controller, onOpenTitles }: { controller
   };
   const rows = report?.days.filter(row => !hideEmpty || row.receivable_count !== '0' || row.payable_count !== '0') ?? [];
   return <div className="due-date-report">
-    <header className="real-heading"><div><h1>Relatório de vencimentos</h1><p>Valores previstos dos títulos do FAGOO.</p></div></header>
+    <header className="real-heading"><div><h1>Relatório de vencimentos</h1><p>Valores previstos dos títulos do ERP.</p></div></header>
     <NativeListLayout filters={<><h3 className="due-filter-label">Período de vencimento</h3>
       <div className="due-shortcuts" role="group" aria-label="Atalhos de período"><button type="button" className="due-shortcut" disabled={!report || loading} onClick={() => shortcut(0)}>Hoje</button><button type="button" className="due-shortcut" disabled={!report || loading} onClick={() => shortcut(6)}>Próximos 7 dias</button><button type="button" className="due-shortcut" onClick={reset}>Próximos 30 dias</button></div>
       <p className="real-help">Escolha um período de até 366 dias. As duas datas são incluídas.</p>

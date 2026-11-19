@@ -37,7 +37,7 @@ export function HomeFavorites({controller,access}:{controller:HomeController;acc
   const favorites=state?state.shortcuts.flatMap(to=>{const label=homeFavoriteLabel(to,labels,options);return label?[{to,label}]:[];}):[];
   const addable=options.filter(option=>!state?.shortcuts.includes(option.to));
   const target=favoriteTarget(link),base=homeShortcutBase(target),baseOption=options.find(option=>option.to===base),typedName=name.trim();
-  const linkProblem=!link.trim()?'':!baseOption?'Informe uma tela do FAGOO que o seu perfil abre (por exemplo, /documentos-empresa?tipo=sales_orders).':state?.shortcuts.includes(target)?'Este atalho já está nos favoritos.'
+  const linkProblem=!link.trim()?'':!baseOption?'Informe uma tela do ERP que o seu perfil abre (por exemplo, /documentos-empresa?tipo=sales_orders).':state?.shortcuts.includes(target)?'Este atalho já está nos favoritos.'
    :target!==base&&!typedName?'Dê um nome ao atalho com filtros.':'';
   const canAdd=Boolean(baseOption)&&!linkProblem&&[...typedName].length<=HOME_LABEL_MAX;
   // While the list reloads no command is sent: a read started before a save could otherwise replace the newer list.
@@ -74,7 +74,7 @@ export function HomeFavorites({controller,access}:{controller:HomeController;acc
     {picking&&!blocked&&<div className="home-favorite-picker" id={pickerId} onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();closePicker();}}}>
       <label htmlFor={nameId}>Nome</label>
       <input id={nameId} placeholder="Digite o nome do atalho" maxLength={HOME_LABEL_MAX} value={name} onChange={event=>setName(event.target.value)}/>
-      <label htmlFor={linkId}>Link <span className="home-favorite-hint" title="Endereço de uma tela do FAGOO, com os filtros que quiser. Ex.: /documentos-empresa?tipo=sales_orders&situacao=open"><Icon name="circle-info" size={10}/></span></label>
+      <label htmlFor={linkId}>Link <span className="home-favorite-hint" title="Endereço de uma tela do ERP, com os filtros que quiser. Ex.: /documentos-empresa?tipo=sales_orders&situacao=open"><Icon name="circle-info" size={10}/></span></label>
       <input id={linkId} placeholder="URL do destino" maxLength={260} value={link} aria-invalid={Boolean(linkProblem)||undefined} onChange={event=>{setLink(event.target.value);setChoice('');}}/>
       {linkProblem&&<small className="real-help" role="alert">{linkProblem}</small>}
       <label htmlFor={selectId}>Escolha uma tela</label>

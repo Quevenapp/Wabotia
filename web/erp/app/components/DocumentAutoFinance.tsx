@@ -54,7 +54,7 @@ export default function DocumentAutoFinance({ controller, onClose }: { controlle
     <p>Com o lançamento automático, as contas a receber do pedido são lançadas ao salvar o pedido numa situação de lançamento (Verificado, Em andamento, Atendido parcialmente ou Atendido) ou ao mudar para uma delas, com as parcelas do pedido.</p>
     <label className="document-check"><input id="doc-auto-finance-orders" type="checkbox" checked={checked} disabled={!view?.can_manage || busy || uncertain} onChange={event => setChecked(event.target.checked)}/>Ativar em Pedidos de venda</label>
     <label className="document-check"><input id="doc-auto-finance-invoices" type="checkbox" checked={false} disabled onChange={() => undefined}/>Ativar em Notas fiscais</label>
-    <p className="real-help">As notas fiscais do FAGOO ainda não lançam contas; esta opção fica desativada.</p>
+    <p className="real-help">As notas fiscais do ERP ainda não lançam contas; esta opção fica desativada.</p>
     {view && !view.can_manage && <p className="real-help">Somente o administrador altera esta preferência.</p>}
     <p className="real-help">Para desativar essa função acesse: Preferências &gt; Vendas &gt; Vendas</p>
     {saved && !error && <p className="real-success" role="status">Preferência salva.</p>}

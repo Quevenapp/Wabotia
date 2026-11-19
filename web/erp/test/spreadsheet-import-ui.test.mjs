@@ -111,11 +111,11 @@ test('228 readers, batches and texts: CSV and XLSX give the same cells; batches 
  assert.deepEqual(remapHeader(['Nome do cliente','Nome'],['Nome'],{Nome:'Nome do cliente'}),['Nome','']);
  const items=Array.from({length:120},(_,i)=>({row:i+2,lines:[i+2]}));assert.deepEqual(batches(items).map(b=>b.length),[50,50,20]);
  const docs=Array.from({length:3},(_,i)=>({row:i,lines:Array.from({length:200},(_,j)=>j)}));assert.deepEqual(batches(docs).map(b=>b.length),[2,1]);
- assert.equal(reasonText('sales_orders',{reason:'erp_preferences_import_not_found:item_code',field:'item_code'}),'Código do produto: não encontrado no FAGOO');
+ assert.equal(reasonText('sales_orders',{reason:'erp_preferences_import_not_found:item_code',field:'item_code'}),'Código do produto: não encontrado no ERP');
  assert.equal(reasonText('receivables',{reason:'erp_preferences_import_ambiguous:contact_name',field:'contact_name'}),'Cliente: há mais de um cadastro com esse valor');
  assert.equal(reasonText('stock_movements',{reason:'erp_stock_insufficient_or_excess_quantity',field:null}),'Estoque insuficiente: a política de estoque não permite saldo negativo');
  assert.equal(reasonText('contacts',{reason:'erp_catalog_contact_required:email',field:'email'}),'Obrigatório pelas Preferências: E-Mail');
- assert.equal(reasonText('products',{reason:'erp_x_y',field:null}),'Linha recusada pelo FAGOO (erp_x_y)');
+ assert.equal(reasonText('products',{reason:'erp_x_y',field:null}),'Linha recusada pelo ERP (erp_x_y)');
  assert.equal(jobState({status:'em_andamento',updated_at:'2026-10-20T12:00:00Z'},Date.parse('2026-10-20T12:10:00Z')),'Em andamento');
  assert.equal(jobState({status:'em_andamento',updated_at:'2026-10-20T12:00:00Z'},Date.parse('2026-10-20T13:00:00Z')),'Interrompida');
  assert.equal(SCREEN_TEMPLATES.products.columns.length>40,true);
@@ -162,7 +162,7 @@ test('228 Consultar gestão de ações lists the actions with progress and resul
   await v.change('jobs-status','concluida');assert.equal(s.calls.at(-1),'/v1/importacoes?situacao=concluida&limit=25&offset=0');
   v.nodes().find(n=>n.type==='button'&&n.props.children==='Ver resultado').props.onClick();await v.flush();
   assert.equal(s.calls.at(-1),'/v1/importacoes/d0000000-0000-4000-8000-000000000228?erros=1&limit=100&offset=0','a job with errors opens on them');
-  assert.match(v.text(),/Categoria do produto: não encontrado no FAGOO/);
+  assert.match(v.text(),/Categoria do produto: não encontrado no ERP/);
  }finally{v.unmount();}
 });
 

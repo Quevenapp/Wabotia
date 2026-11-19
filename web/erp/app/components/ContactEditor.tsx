@@ -160,7 +160,7 @@ function ContactForm({ controller, record, writable, onClose, onSaved }: Catalog
         {writable && !excluded && <button className="primary-button" disabled={locked} type="submit" form="catalog-editor-form">{saver.busy ? 'Salvando…' : 'Salvar'}</button>}</div>
       {writable && !excluded && <p className="catalog-required"><span>(*)</span> Campos obrigatórios</p>}</header>
     {excluded && <p className="real-alert" role="status">Cadastro excluído. Para editar, restaure-o na listagem com “Restaurar selecionados”.</p>}
-    {record?.source && <p className="real-help">Cadastro importado. As alterações desta tela são registradas no FAGOO.</p>}
+    {record?.source && <p className="real-help">Cadastro importado. As alterações desta tela são registradas no ERP.</p>}
     {saver.error && <p className="real-alert" role="alert" id="contact-error">{saver.error}</p>}
     {saver.warnings && <div className="catalog-warnings" role="alert" aria-labelledby="contact-warnings-title"><h3 id="contact-warnings-title">Confira antes de salvar</h3><ul>{saver.warnings.items.map(item => <li key={item.code}>{warningMessage(item)}</li>)}</ul>
       {!saver.warnings.items.some(item => item.blocked) && <p>Existem cadastros antigos com duplicidade. Salve somente se tiver certeza; a confirmação fica registrada na auditoria do cadastro.</p>}

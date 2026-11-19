@@ -45,13 +45,13 @@ export default function FiscalEventList({ controller, kind }: { controller: Acce
       if (!Array.isArray(v?.items) || v.kind !== kind || v.page !== page || !Number.isInteger(v.total_count)) throw new AccessError(502);
       const list = v.items.map(eventRecord); if (list.some(e => e.kind !== kind)) throw new AccessError(502);
       setItems(list); setTotal(v.total_count); setLoading(false);
-    }).catch(problem => { if (!request.signal.aborted && !aborted(problem)) { setLoading(false); setError(problem instanceof AccessError && problem.status === 403 ? 'Somente administrador e fiscal consultam os eventos fiscais do FAGOO.' : 'Não foi possível carregar a consulta.'); } });
+    }).catch(problem => { if (!request.signal.aborted && !aborted(problem)) { setLoading(false); setError(problem instanceof AccessError && problem.status === 403 ? 'Somente administrador e fiscal consultam os eventos fiscais do ERP.' : 'Não foi possível carregar a consulta.'); } });
     return () => request.abort();
   }, [controller, kind, applied, from, to, page, reload]);
   const chips = [...(applied ? [{ label: `Pesquisa: ${applied}`, onRemove: () => { setApplied(''); setQuery(''); } }] : []), ...(from || to ? [{ label: 'Período: Período customizado', onRemove: () => { setFrom(''); setTo(''); } }] : [])];
   return <section className="fiscal-events">
     <OriginListHeader title={TITLES[kind]} />
-    <p className="real-notice">Pedidos registrados no FAGOO em homologação. A transmissão à SEFAZ ainda não está disponível; por isso não há número de protocolo. As inutilizações e correções feitas no Origin continuam consultáveis no Origin.</p>
+    <p className="real-notice">Pedidos registrados no ERP em homologação. A transmissão à SEFAZ ainda não está disponível; por isso não há número de protocolo. As inutilizações e correções feitas no Origin continuam consultáveis no Origin.</p>
     <form className="native-list-toolbar" onSubmit={event => { event.preventDefault(); setApplied(query.trim()); setPage(1); }}>
       <div className="form-field"><label htmlFor="events-search" className="sr-only">Pesquisar</label><input id="events-search" type="search" maxLength={120} placeholder="Pesquisar" value={query} onChange={event => setQuery(event.target.value)} /></div>
       <button type="submit" className="secondary-button" aria-label="Pesquisar"><Icon name="search" size={16} /></button>
@@ -69,7 +69,7 @@ export default function FiscalEventList({ controller, kind }: { controller: Acce
           <td className="row-actions"><RowMenu label={`inutilização ${e.number_from}`} items={[{ label: 'Gerar XML (suporte)', onClick: () => void showXml(e) }]} open={menu === e.id} onToggle={() => setMenu(v => v === e.id ? null : e.id)} /></td></tr>)}</tbody></table>
       : <table className="data-table origin-table"><thead><tr><th>Série</th><th>Número</th><th>Correção</th><th>Data</th><th>Situação</th><th className="row-actions"><span className="sr-only">Ações</span></th></tr></thead>
         <tbody>{items.map(e => <tr key={e.id}><td>{e.series}</td><td>{String(e.number_from).padStart(6, '0')}</td><td className="fiscal-pre">{e.text}</td><td>{when(e.requested_at)}</td><td><span className="status-badge status-waiting">Aguardando transmissão</span> · sequência {e.sequence}</td>
-          <td className="row-actions"><RowMenu label={`carta ${e.sequence}`} items={[{ label: 'Atualizar protocolo', disabled: true, title: 'O protocolo existe só depois da transmissão, que ainda não está disponível no FAGOO.' }, { label: 'Gerar XML (suporte)', onClick: () => void showXml(e) }]} open={menu === e.id} onToggle={() => setMenu(v => v === e.id ? null : e.id)} /></td></tr>)}</tbody></table>)}
+          <td className="row-actions"><RowMenu label={`carta ${e.sequence}`} items={[{ label: 'Atualizar protocolo', disabled: true, title: 'O protocolo existe só depois da transmissão, que ainda não está disponível no ERP.' }, { label: 'Gerar XML (suporte)', onClick: () => void showXml(e) }]} open={menu === e.id} onToggle={() => setMenu(v => v === e.id ? null : e.id)} /></td></tr>)}</tbody></table>)}
     {!loading && !items.length && !error && <div className="empty-state"><h2>Nenhum registro encontrado</h2></div>}
     {total > 100 && <OriginPagination page={page} pages={Math.ceil(total / 100)} size={100} total={total} onPage={setPage} />}
     {printing && <FiscalEventsPrint title={TITLES[kind]} events={items} onClose={() => setPrinting(false)} />}

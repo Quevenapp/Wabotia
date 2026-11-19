@@ -256,7 +256,7 @@ function OperationNatureForm({ controller, id, writable, onBack, onSaved }: { co
       {field('nature-ir-rate', 'Alíquota IR retido %', rate('nature-ir-rate', draft.retentions.ir_rate, v => update({ retentions: { ...draft.retentions, ir_rate: v } })))}
     </div>}
     {tab === 'informacoes' && <div className="document-grid">
-      {draft.crt !== '3' && <div className="real-notice fiscal-wide"><strong>Crédito do ICMS</strong><p>Com CSOSN 101, 201 ou 900 e crédito informado, o FAGOO acrescenta a mensagem de aproveitamento do crédito do Simples Nacional (art. 23 da LC 123/2006).</p></div>}
+      {draft.crt !== '3' && <div className="real-notice fiscal-wide"><strong>Crédito do ICMS</strong><p>Com CSOSN 101, 201 ou 900 e crédito informado, o ERP acrescenta a mensagem de aproveitamento do crédito do Simples Nacional (art. 23 da LC 123/2006).</p></div>}
       <div className="form-field fiscal-wide"><label htmlFor="nature-additional">Informações complementares</label><textarea id="nature-additional" rows={4} maxLength={5000} disabled={locked} value={draft.additional_info} onChange={event => update({ additional_info: event.target.value })} />
         <button type="button" className="text-button" onClick={() => setVariables(true)}>Ver variáveis</button></div>
       <div className="form-field fiscal-wide"><label htmlFor="nature-fiscal">Informações adicionais de interesse do fisco</label><textarea id="nature-fiscal" rows={3} maxLength={2000} disabled={locked} value={draft.fiscal_info} onChange={event => update({ fiscal_info: event.target.value })} /></div>
@@ -264,7 +264,7 @@ function OperationNatureForm({ controller, id, writable, onBack, onSaved }: { co
     {rule && <NatureRuleDialog controller={controller} rule={rule.value} crt={draft.crt} direction={draft.direction} readOnly={locked} onCancel={() => setRule(null)}
       onSave={value => { update({ rules: rule.index === null ? [...draft.rules, value] : draft.rules.map((r, i) => i === rule.index ? value : r) }); setRule(null); }} />}
     {variables && <Modal title="Variáveis das informações complementares" onClose={() => setVariables(false)} actions={<button type="button" className="secondary-button" onClick={() => setVariables(false)}>Fechar</button>}>
-      <p className="real-help">Escreva a variável entre colchetes, por exemplo [VALOR_ICMS]. NOME_VENDEDOR vem do Vendedor da nota; NOME_CANAL_VENDA, NOME_LOJA, NOME_FANTASIA e NUMERO_CUPOM ficam vazias no FAGOO.</p>
+      <p className="real-help">Escreva a variável entre colchetes, por exemplo [VALOR_ICMS]. NOME_VENDEDOR vem do Vendedor da nota; NOME_CANAL_VENDA, NOME_LOJA, NOME_FANTASIA e NUMERO_CUPOM ficam vazias no ERP.</p>
       <h3>Impostos</h3><p className="fiscal-variables">{T.INFO_VARIABLES.impostos.join(' · ')}</p><h3>Outras</h3><p className="fiscal-variables">{T.INFO_VARIABLES.outras.join(' · ')}</p></Modal>}
   </section>;
 }

@@ -12,7 +12,7 @@ const roleOf = (controller: AccessController) => controller.getSnapshot?.()?.mem
 const failure = (error: unknown) => error instanceof AccessError ? error.status === 409 ? 'A nota ou a faixa mudou, já tem esse pedido ou usa números já emitidos. Confira e tente de novo.'
   : error.status === 403 ? 'Seu perfil não registra eventos fiscais.' : error.status === 400 ? 'O servidor recusou os dados. Confira o texto e os números.' : 'Não foi possível registrar o pedido.' : 'Não foi possível registrar o pedido.';
 type Command = { id: string; actor: string | null; body: Record<string, unknown>; uncertain: boolean };
-const HOMOLOGATION = 'Somente homologação. O pedido fica registrado como "Aguardando transmissão": a transmissão à SEFAZ ainda não está disponível no FAGOO e a nota não muda de situação.';
+const HOMOLOGATION = 'Somente homologação. O pedido fica registrado como "Aguardando transmissão": a transmissão à SEFAZ ainda não está disponível no ERP e a nota não muda de situação.';
 
 /** Shared send/recovery loop: one command id per request, repeated as is after an unknown outcome. */
 function useEventCommand(controller: AccessController, action: string, verify: (event: ReturnType<typeof eventRecord>) => boolean, onDone: () => void) {
@@ -98,7 +98,7 @@ export function InutilizationDialog({ controller, model, onClose }: { controller
     </div>
     {!numbers && (from || to) && <p className="real-help">O número inicial deve ser menor ou igual ao final, em uma faixa de até 10.000 números.</p>}
     {counter({ id: 'fiscal-inut-text', label: 'Justificativa*', value: text, min: 15, max: 255, disabled: locked, onChange: setText })}
-    <p className="real-help">Só a numeração de homologação do FAGOO ({model === '55' ? 'NF-e' : 'NFC-e'}). Números já reservados ou usados por notas são recusados. {HOMOLOGATION}</p>
+    <p className="real-help">Só a numeração de homologação do ERP ({model === '55' ? 'NF-e' : 'NFC-e'}). Números já reservados ou usados por notas são recusados. {HOMOLOGATION}</p>
     {cmd.error && <p className="real-alert" role="alert">{cmd.error}</p>}
   </Modal>;
 }

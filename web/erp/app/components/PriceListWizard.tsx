@@ -125,7 +125,7 @@ export function PriceListWizard({ controller, products = [], onClose, onSaved }:
     <p><strong>Vamos configurar a lista de preços!</strong> Etapa {index + 1} de {steps.length}: {step}.</p>
     {products.length > 0 && <p className="real-notice" role="status">Criando lista de preços a partir da seleção de {products.length} produto(s).</p>}
     {step === 'Categoria' && <div className="form-field real-field-wide"><span className="product-field-label">Qual categoria se aplicaria a lista?</span><div className="price-list-cards" role="radiogroup" aria-label="Categoria">{CARDS.map(card)}</div>
-      <small className="real-help">A categoria Loja (multilojas) não faz parte do FAGOO.</small></div>}
+      <small className="real-help">A categoria Loja (multilojas) não faz parte do ERP.</small></div>}
     {step === 'Vínculos' && <PriceListLinks controller={controller} draft={draft} set={set} locked={locked} />}
     {step === 'Montagem' && <div className="form-field real-field-wide"><span className="product-field-label">Como gostaria de montar a lista?</span>
       {choice<ListType>('price-list-build', draft.list_type, [['rates', 'Percentual/valor'], ['period', 'Por período'], ['custom', 'Customizada']], value => set({ list_type: value, ...(value === 'custom' ? { factor: '' } : {}) }))}

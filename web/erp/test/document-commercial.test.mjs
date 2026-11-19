@@ -5,6 +5,20 @@ import {normalizeDocument} from '../../../packages/erp-domain/src/index.mjs';
 import {mountComponent,AccessError} from './helpers/component-recovery-harness.mjs';
 import {actor,record,input,commercial,contact} from './helpers/document-commercial-fixtures.mjs';
 
+test('cabeçalhos usam a empresa disponível ou somente o tipo do documento', async () => {
+ for (const [componentName, title] of [['DocumentPrintSheet', 'Documento comercial'], ['DocumentProductionSheet', 'Relatório de produção']]) {
+  for (const [company, prefix] of [[null, ''], [{ tradeName: 'Nome fantasia', legalName: 'Razão social' }, 'Nome fantasia · '], [{ tradeName: null, legalName: 'Razão social' }, 'Razão social · ']]) {
+   const model = { ...documentPrintModel(record()), company };
+   const view = await mountComponent('DocumentPrintPreview.tsx', { model, options: {}, carrier: null }, { componentName });
+   try {
+    const heading = view.find(node => node.props.className === 'commercial-brand');
+    const text = node => typeof node === 'string' ? node : Array.isArray(node) ? node.map(text).join('') : node?.props ? text(node.props.children) : '';
+    assert.equal(text(heading), prefix + title);
+   } finally { view.unmount(); }
+  }
+ }
+});
+
 test('054 editor projection keeps exact references, detail and parcel data through all document kinds and explicit clearing',()=>{
  for(const kind of ['sales_proposals','sales_orders','purchase_orders','service_orders']){
   const saved=record(kind),body=documentInput(saved);assert.deepEqual(normalizeDocument(kind,body).commercial,saved.commercial);assert.equal(body.items[0].detailed_description,saved.items[0].detailed_description);assert.equal(body.installments[0].note,saved.installments[0].note);assert.deepEqual(body.installments[0].payment_reference,saved.installments[0].payment_reference);

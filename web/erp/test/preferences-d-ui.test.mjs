@@ -147,7 +147,7 @@ test('231 PRF-244 UPC-E, Code 93 and QR CODE are generated locally and read back
  assert.deepEqual(code93Checks([...'CODE 93'].map(c=>'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%'.indexOf(c))),[14,0]);
  const c=code93('CODE 93');assert.equal(c.length,100);assert.ok(c.startsWith('101011110')&&c.endsWith('1010111101'));assert.equal(code93('codigo'),null,'only capital letters');
  assert.equal(barcode('c93','CODE 93'),c);assert.equal(barcode('upce','04252614'),u);assert.equal(barcode('qr','x'),null,'QR CODE is 2D');
- for(const text of['7891234567895','Ação nº 5 — FAGOO','https://erp.example.test/produtos/12345?ref=etiqueta-sintetica-com-um-endereco-longo-para-a-versao-sete-ou-maior-do-qr',
+ for(const text of['7891234567895','Ação nº 5 — ERP','https://erp.example.test/produtos/12345?ref=etiqueta-sintetica-com-um-endereco-longo-para-a-versao-sete-ou-maior-do-qr',
   'X'.repeat(213)]){const r=readQr(qrMatrix(text));assert.equal(r.text,text);}
  assert.ok(readQr(qrMatrix('X'.repeat(150))).ver>=7,'version information present');assert.equal(qrMatrix('X'.repeat(214)),null);assert.equal(qrMatrix(''),null);
 });

@@ -10,7 +10,7 @@ test('display labels the aggregate and does not claim settlement, split money, o
   const sample = cnabReturnAmountsQa()[1], view = await mountComponent('CnabReturnAmounts.tsx', sample, { expandChildren: true });
   try {
     assert.ok(labels(view).includes('Mora/multa (agregado)')); assert.equal(labels(view).includes('Juros'), false);
-    assert.match(view.text(), /R\$ 1,23/); assert.match(view.text(), /não confirma baixa no FAGOO/);
+    assert.match(view.text(), /R\$ 1,23/); assert.match(view.text(), /não confirma baixa no ERP/);
     assert.match(view.text(), /não separa juros de multa/); assert.match(view.text(), /não calcula taxas/);
     assert.equal(view.nodes().some(n => ['button', 'input', 'form', 'a'].includes(n.type)), false);
   } finally { view.unmount(); }

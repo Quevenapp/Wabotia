@@ -50,7 +50,7 @@ export default function FiscalXmlExportDialog({ controller, config, filters, ord
         const label = `Nota ${invoiceNumber(row)}`;
         try {
           if (isImported(row)) { const file = await importedXml(controller, row.id, signal); files.push({ name: `NFe${file.access_key}.xml`, data: encoder.encode(file.xml) }); }
-          else skipped.push(`${label}: sem XML guardado no FAGOO.`);
+          else skipped.push(`${label}: sem XML guardado no ERP.`);
         } catch (problem) { if (signal.aborted || aborted(problem)) return; skipped.push(`${label}: o XML não pôde ser conferido.`); }
         setProgress({ done: index + 1, total: rows.length, files: files.length, skipped: [...skipped] });
       }
@@ -71,7 +71,7 @@ export default function FiscalXmlExportDialog({ controller, config, filters, ord
       </fieldset>
       <fieldset className="fiscal-group"><legend>Exportar</legend>
         <label htmlFor="fiscal-export-notes"><input id="fiscal-export-notes" type="checkbox" disabled={running} checked={notes} onChange={event => setNotes(event.target.checked)} /> Notas</label>
-        {config.model === '55' && <label htmlFor="fiscal-export-letters"><input id="fiscal-export-letters" type="checkbox" disabled title="As cartas de correção do FAGOO ainda não foram transmitidas." checked={false} readOnly /> Cartas de correção</label>}
+        {config.model === '55' && <label htmlFor="fiscal-export-letters"><input id="fiscal-export-letters" type="checkbox" disabled title="As cartas de correção do ERP ainda não foram transmitidas." checked={false} readOnly /> Cartas de correção</label>}
       </fieldset>
       <p className="real-help">Até {MAX_NOTES.toLocaleString('pt-BR')} notas por exportação, com os filtros aplicados na lista. Os arquivos são conferidos antes de entrar no ZIP.</p>
       {progress && <p role="status">{progress.done} de {progress.total} notas exportadas · {progress.files} arquivo(s)</p>}

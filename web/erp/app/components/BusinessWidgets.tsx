@@ -80,7 +80,7 @@ export function IndicatorsPanel({value}:{value:{revenue_without_freight:string;c
   ['PREÇO DE CUSTO',value.cost===null?'—':moneyText(value.cost),value.cost===null?noCost:'Custo médio do estoque de cada produto vendido (sem ele, o preço de custo do fornecedor padrão ou o da última compra).'],
   ['MARGEM BRUTA',value.gross_margin===null?'—':`${moneyText(value.gross_margin)}${value.gross_margin_pct?` (${pctText(value.gross_margin_pct)})`:''}`,value.gross_margin===null?noCost:'Faturamento sem frete menos o preço de custo.'],
   ['IMPOSTOS',value.taxes?moneyText(value.taxes):'—',value.taxes?'Faturamento sem frete de cada pedido × alíquota de imposto de Ajustes (estimativa; não muda a nota fiscal).':'A alíquota de imposto de Ajustes ainda não está disponível.'],
-  ['TAXA VENDA','—','Sem taxas de marketplace: marketplaces estão fora do escopo do FAGOO.'],
+  ['TAXA VENDA','—','Sem taxas de marketplace: marketplaces estão fora do escopo do ERP.'],
   ['LUCRO',value.profit?moneyText(value.profit):'—',value.profit?'Faturamento sem frete menos preço de custo e impostos.':value.cost===null?noCost:'Depende da alíquota de imposto de Ajustes.']];
  return <section className="business-card" aria-label="Indicadores"><h2>Indicadores</h2><dl className="business-indicators">{items.map(([label,text,hint])=><div key={label}><dt>{label}{hint&&<span className="business-hint" title={hint}><Icon name="circle-info" size={10}/><span className="sr-only">{hint}</span></span>}</dt><dd>{text}</dd></div>)}</dl>
   {value.lines_without_cost?<p className="real-help">{value.lines_without_cost} item(ns) sem preço de custo (produto sem compra registrada) ficam fora do custo.</p>:null}</section>;

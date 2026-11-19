@@ -178,7 +178,7 @@ export default function PriceLists({ controller }: { controller: AccessControlle
         <td><button type="button" className="text-button record-link" onClick={() => setOpen({ id: list.id })}>{list.name}</button></td><td className="numeric">{list.products}</td><td>{list.rule}</td><td>{validity(list)}</td><td>{hours(list)}</td>
         <td className="row-actions"><RowMenu label={list.name} items={rowMenu(list)} open={menu === list.id} onToggle={() => setMenu(menu === list.id ? null : list.id)} /></td></tr>)}</tbody></table>
       {!rows.length && <div className="origin-empty"><span><Icon name="exclamation" size={22} /></span><h2>{query || tab || chips.length ? 'Nenhum resultado encontrado.' : 'Nenhuma lista de preços cadastrada.'}</h2><p>{query ? 'Verifique se as palavras estão corretas ou busque por outros termos.' : ''}</p></div>}</div>}
-    <p className="real-help">A categoria Loja não existe no FAGOO. Nos pedidos de venda e nas propostas, a lista de preço é escolhida no próprio documento. <Link to="/cadastros-reais?cadastro=products">Voltar aos produtos</Link></p>
+    <p className="real-help">A categoria Loja não existe no ERP. Nos pedidos de venda e nas propostas, a lista de preço é escolhida no próprio documento. <Link to="/cadastros-reais?cadastro=products">Voltar aos produtos</Link></p>
     {batch && plan && <BatchDialog title="Excluir selecionadas" plan={plan} confirmLabel="Excluir" run={runDelete} onClose={closeBatch} description={<p>A exclusão da lista não altera o preço de venda dos produtos.</p>} />}
     {wizard && <PriceListWizard controller={controller} onClose={() => setWizard(false)} onSaved={list => { setWizard(false); setNotice('Lista salva.'); setOpen({ id: list.id }); }} />}
     {exporting && <ExportLists controller={controller} lists={exporting} onClose={() => setExporting(null)} />}
@@ -201,7 +201,7 @@ function PriceListPrint({ controller, list, onClose }: { controller: AccessContr
   }, [controller, list.id, list.version]);
   const custom = list.list_type === 'custom';
   return <PrintSheet title={list.name} subtitle={`Tipo Lista: ${TYPE[list.list_type]} · Baseado em: Preço de venda · Fator a ser aplicado: ${list.rule}${list.starts_on || list.ends_on ? ` · Validade: ${validity(list)}` : ''}${hours(list) !== '—' ? ` · Horário: ${hours(list)}` : ''}`}
-    columns={[{ key: 'name', label: 'Produto' }, { key: 'code', label: 'SKU' }, { key: 'gtin', label: 'EAN' }, { key: 'product_price', label: 'R$ Preço no FAGOO', numeric: true }, ...(custom ? [] : [{ key: 'factor', label: 'Fator' }]), { key: 'list_price', label: 'R$ Preço da lista', numeric: true }]}
+    columns={[{ key: 'name', label: 'Produto' }, { key: 'code', label: 'SKU' }, { key: 'gtin', label: 'EAN' }, { key: 'product_price', label: 'R$ Preço no ERP', numeric: true }, ...(custom ? [] : [{ key: 'factor', label: 'Fator' }]), { key: 'list_price', label: 'R$ Preço da lista', numeric: true }]}
     rows={rows} progress={progress} error={error} onClose={onClose} />;
 }
 type CommandState = { command: string; busy: boolean; uncertain: boolean; error: string };
@@ -388,7 +388,7 @@ function PriceListEditor({ controller, id, writable, onClose }: { controller: Ac
         {adjust.action !== 'fix' && <select aria-label="Unidade do valor" value={adjust.unit} onChange={event => setAdjust({ ...adjust, unit: event.target.value })}><option value="amount">R$</option><option value="percent">%</option></select>}
         <select aria-label="Aplicar para" value={adjust.target} onChange={event => setAdjust({ ...adjust, target: event.target.value })}><option value="all">Todos produtos da lista</option><option value="selected">Selecionados</option></select>
         <button type="button" className="secondary-button" disabled={locked || (adjust.target === 'selected' && !chosen.size)} onClick={runAdjust}>Atualizar</button></div>}
-      <div className="table-scroll"><table className="data-table"><thead><tr>{writable && <th scope="col" className="checkbox-cell"><span className="real-sr-only">Seleção</span></th>}<th scope="col">Produto</th><th scope="col">SKU</th><th scope="col">EAN</th><th scope="col" className="numeric">R$ Preço no FAGOO</th>{!custom && <th scope="col">Fator</th>}<th scope="col" className="numeric">R$ Preço da lista</th></tr></thead>
+      <div className="table-scroll"><table className="data-table"><thead><tr>{writable && <th scope="col" className="checkbox-cell"><span className="real-sr-only">Seleção</span></th>}<th scope="col">Produto</th><th scope="col">SKU</th><th scope="col">EAN</th><th scope="col" className="numeric">R$ Preço no ERP</th>{!custom && <th scope="col">Fator</th>}<th scope="col" className="numeric">R$ Preço da lista</th></tr></thead>
         <tbody>{items.map(item => <tr key={item.product_id}>
           {writable && <td className="checkbox-cell"><input type="checkbox" aria-label={`Selecionar ${item.name}`} checked={chosen.has(item.product_id)} onChange={event => setChosen(current => { const next = new Set(current); if (event.target.checked) next.add(item.product_id); else next.delete(item.product_id); return next; })} /></td>}
           <td>{item.name}</td><td>{item.code ?? '—'}</td><td>{item.gtin ?? '—'}</td><td className="numeric">{decimalMoney(item.product_price)}</td>{!custom && <td>{list.rule}</td>}

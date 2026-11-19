@@ -28,12 +28,12 @@ const page = (id: string): PreferenceEntry => {
 };
 const soon = (label: string, disabledReason: string, roles?: readonly CompanyRole[]): PreferenceEntry => ({ label, disabledReason, ...(roles ? { roles } : {}) });
 const ADMIN: readonly CompanyRole[] = ['admin'];
-const NOT_YET = 'Ainda não disponível no FAGOO.';
+const NOT_YET = 'Ainda não disponível no ERP.';
 // Readers of the product cadastros (erp_access.resources_for_role 'products'): the product taxonomy screens follow them.
 const PRODUCT_READERS: readonly CompanyRole[] = ['admin', 'consulta', 'vendas', 'estoque', 'fiscal'];
 // Tags of Produtos and of Contatos (migration 153): whoever reads products or contacts.
 const TAG_READERS: readonly CompanyRole[] = ['admin', 'consulta', 'vendas', 'financeiro', 'estoque', 'fiscal'];
-const TOOLS = 'Ferramentas do FAGOO';
+const TOOLS = 'Ferramentas do ERP';
 
 export const COMPANY_PREFERENCES: readonly PreferenceCategory[] = [
   { id: 'empresa', label: 'Empresa', icon: 'building', sections: [

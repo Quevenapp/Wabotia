@@ -17,7 +17,7 @@ export default function FinanceWhatsappShare({ share, onClose }: { share: Whatsa
   return <Modal title="Enviar por whatsapp" onClose={onClose} actions={<><button type="button" className="secondary-button" onClick={onClose}>Cancelar</button>
     <button type="button" className="primary-button" disabled={!url} onClick={open}>Abrir o WhatsApp</button></>}>
     <div className="finance-share-review">
-      <p className="real-help">Confira o destinatário e a mensagem de {share.title.contact_name}. O WhatsApp abre com este texto para você enviar; o FAGOO não envia mensagens.</p>
+      <p className="real-help">Confira o destinatário e a mensagem de {share.title.contact_name}. O WhatsApp abre com este texto para você enviar; o ERP não envia mensagens.</p>
       <label htmlFor={phoneId}>Celular (com DDD)<input id={phoneId} inputMode="tel" maxLength={20} value={phone} onChange={event => setPhone(event.target.value)} /></label>
       {!whatsappUrl(phone, 'x') && <p className="real-alert" role="alert">{share.phone ? 'Informe um celular com DDD.' : `O contato ${share.title.contact_name} não tem celular válido no cadastro. Informe o número para esta mensagem.`}</p>}
       <label htmlFor={messageId}>Mensagem<textarea id={messageId} maxLength={1000} value={message} onChange={event => setMessage(event.target.value)} /></label>

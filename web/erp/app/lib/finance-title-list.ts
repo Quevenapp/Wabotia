@@ -232,7 +232,7 @@ export function sameRemittance<T extends { remittance: { id: string; sequence: n
   return first && rows.every(row => row.remittance?.id === first.id) ? first : null;
 }
 /** Bank operations stay off (CNAB guards): the reason shown on the boleto actions that would send an instruction to the bank. */
-export const BANK_OFF_REASON = 'Operação bancária desligada: o FAGOO não envia instruções ao banco. Faça pelo Origin ou pelo banco.';
+export const BANK_OFF_REASON = 'Operação bancária desligada: o ERP não envia instruções ao banco. Faça pelo Origin ou pelo banco.';
 /**
  * Leva H (FIN-052): the boleto entries of the ⋮ of a conta a receber by its real situation: without boleto, Incluir em remessa (open,
  * no baixa); with a reserved remessa, Retomar remessa; with the file, Prévia do boleto (NÃO PAGAR). Cancelar boleto and Retirar da

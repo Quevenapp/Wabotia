@@ -117,5 +117,5 @@ test('custom report displays native coverage while catalog reports without metad
  const f=createReportsFixture(),read=f.controller.system;
  f.controller.system=async(path,options)=>{const raw=await read(path,options);return path==='/v1/sistema/relatorios/execucao'&&options.body.base==='vendas'?{...raw,origin:'brufap',mirror_excluded_count:17,coverage:{partial:true,reason:'native_effects_only'}}:raw;};
  const view=await mountComponent('RealReports.tsx',{controller:f.controller},{expandChildren:['OriginListHeader','ReportTable']});
- try{action(view,'Relatório de Vendas','Visualizar').props.onClick();await view.flush();assert.match(view.text(),/Relatório de registros do FAGOO; 17 documentos Origin não entram neste cálculo/);await view.click('Voltar');assert.doesNotMatch(view.text(),/17 documentos Origin/);}finally{view.unmount();}
+ try{action(view,'Relatório de Vendas','Visualizar').props.onClick();await view.flush();assert.match(view.text(),/Relatório de registros do ERP; 17 documentos Origin não entram neste cálculo/);await view.click('Voltar');assert.doesNotMatch(view.text(),/17 documentos Origin/);}finally{view.unmount();}
 });

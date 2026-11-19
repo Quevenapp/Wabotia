@@ -41,7 +41,7 @@ test('181 Estoque de Produtos: Fornecedor and Tipo de Estoque filters, the 15 mi
  try{
   assert.equal(s.calls.some(call=>call.path.startsWith('/v1/estoque/totais')),false,'no totals are computed for the selector');
   assert.match(textOf(view.find(n=>n.props.id==='stock-dash-warehouse')),/^TodosGeralLoja$/,'inactive warehouses stay out of the selector');
-  assert.match(view.text(),/podem levar até 15 minutos para ser atualizados no Origin\. No FAGOO, eles são calculados na hora da consulta\./);
+  assert.match(view.text(),/podem levar até 15 minutos para ser atualizados no Origin\. No ERP, eles são calculados na hora da consulta\./);
   assert.match(view.text(),/CAN-1Caneta4R\$ 8,00R\$ 10,00LAP-1Lápis2R\$ 2,00 médioR\$ 4,00TOTAL6R\$ 10,00R\$ 14,00/);
   assert.match(view.text(),/1 produto\(s\) com estoque e sem custo ficam sem custo/);
   await view.change('stock-dash-supplier','Alf');await wait(300);await view.flush();
@@ -49,7 +49,7 @@ test('181 Estoque de Produtos: Fornecedor and Tipo de Estoque filters, the 15 mi
   view.find(n=>n.type==='button'&&textOf(n).startsWith('Fornecedor Alfa')).props.onClick();await view.flush();
   await view.change('stock-dash-type','virtual');await view.submit();
   assert.equal(s.calls.filter(call=>call.path.startsWith('/v1/estoque/painel/estoque')).at(-1).path,`/v1/estoque/painel/estoque?pesquisar_por=description&fornecedor=${S}&tipo_estoque=virtual`);
-  assert.match(view.text(),/O FAGOO ainda não tem composições com estoque virtual/);
+  assert.match(view.text(),/O ERP ainda não tem composições com estoque virtual/);
  }finally{view.unmount();}
 });
 

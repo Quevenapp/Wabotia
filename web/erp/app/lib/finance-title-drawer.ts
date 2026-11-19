@@ -11,7 +11,7 @@ export const OCCURRENCES: readonly { id: Occurrence; label: string; available: b
   { id: 'semanal', label: 'Semanal', available: true }, { id: 'quinzenal', label: 'Quinzenal', available: true }, { id: 'mensal', label: 'Mensal', available: true },
   { id: 'bimestral', label: 'Bimestral', available: true }, { id: 'trimestral', label: 'Trimestral', available: true }, { id: 'semestral', label: 'Semestral', available: true }, { id: 'anual', label: 'Anual', available: true },
 ];
-export const RECURRENCE_UNAVAILABLE = 'Contas recorrentes ainda não são geradas pelo FAGOO.';
+export const RECURRENCE_UNAVAILABLE = 'Contas recorrentes ainda não são geradas pelo ERP.';
 export const FREQUENCY: Readonly<Partial<Record<Occurrence, string>>> = { semanal: 'weekly', quinzenal: 'biweekly', mensal: 'monthly', bimestral: 'bimonthly', trimestral: 'quarterly', semestral: 'semiannual', anual: 'annual' };
 export const isRecurring = (occurrence: Occurrence) => Boolean(FREQUENCY[occurrence]);
 /** Parcelada (SQL 172) is a recurrence too: each parcela has the Valor and "Gerar contas" goes until the nº de parcelas. */

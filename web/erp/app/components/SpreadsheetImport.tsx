@@ -132,10 +132,10 @@ export default function SpreadsheetImport({controller,kind}:{controller:ImportCo
     {file&&<p className="real-help">{file.name} · {plural(file.cells.length-1,['linha','linhas'])}{items.length!==file.cells.length-1?` · ${plural(items.length,template.noun)}`:''}</p>}</section>
    <aside className="import-card"><h2>Instruções</h2><p>{template.rule}</p>
     <p><button type="button" className="text-button" onClick={()=>download('xlsx')}>Baixar planilha modelo (.XLSX)</button> · <button type="button" className="text-button" onClick={()=>download('csv')}>(.CSV)</button></p>
-    <p className="real-help">Na convivência com o Origin, os registros importados aqui existem só no FAGOO; o Origin continua sendo o sistema principal.</p></aside>
+    <p className="real-help">Na convivência com o Origin, os registros importados aqui existem só no ERP; o Origin continua sendo o sistema principal.</p></aside>
   </div>
   {file&&<section className="import-card"><h2>Relacionar colunas</h2><p className="real-help">Escolha a coluna da planilha de cada campo. As colunas com o mesmo nome do modelo já vêm relacionadas.</p>
-   <div className="table-scroll"><table className="data-table import-mapping"><thead><tr><th scope="col">Campo do FAGOO</th><th scope="col">Coluna da planilha</th></tr></thead>
+   <div className="table-scroll"><table className="data-table import-mapping"><thead><tr><th scope="col">Campo do ERP</th><th scope="col">Coluna da planilha</th></tr></thead>
     <tbody>{template.columns.map((c,i)=><tr key={c.key}><th scope="row"><label htmlFor={`import-map-${i}`}>{c.label}{c.required?' *':''}</label></th>
      <td><select id={`import-map-${i}`} value={mapping[c.label]??''} disabled={busy||Boolean(pending)} onChange={event=>relate(c.label,event.target.value)}>
       <option value="">Não importar</option>{header.filter(h=>String(h).trim()).map((h,j)=><option key={`${h}-${j}`} value={String(h).trim()}>{String(h).trim()}</option>)}</select></td></tr>)}</tbody></table></div>

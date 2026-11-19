@@ -101,7 +101,7 @@ export default function ProductStoredImages({ controller, productId, writable, o
   }, [controller, productId, reload]);
   const firstId = page?.items[0]?.id ?? null, firstPreview = firstId ? previews[firstId] ?? null : null;
   useEffect(() => { if (page) onFirst?.(firstPreview); }, [page === null, firstId, firstPreview]);
-  if (!productId) return <section className="product-stored-images" aria-label="Imagens armazenadas"><h3>Imagens armazenadas</h3><p className="real-help">Salve o produto para enviar imagens armazenadas no FAGOO.</p></section>;
+  if (!productId) return <section className="product-stored-images" aria-label="Imagens armazenadas"><h3>Imagens armazenadas</h3><p className="real-help">Salve o produto para enviar imagens armazenadas no ERP.</p></section>;
   const act = async (label: string, work: (signal: AbortSignal) => Promise<void>) => {
     if (pending.current) return;
     const request = new AbortController(); pending.current = request; setBusy(label); setError(''); setNotice('');

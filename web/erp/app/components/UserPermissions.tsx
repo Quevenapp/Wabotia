@@ -2,8 +2,8 @@ import {useState} from 'react';
 import {PERMISSION_TABS,permissionHint,permissionStatus,type PermissionCard,type PermissionTab} from '../../../../packages/erp-domain/src/user-permissions.mjs';
 
 const STATUS_TEXT={applied:'Aplicada',stored:'Guardada',admin:'Perfil Administrador'} as const;
-const STATUS_HINT={applied:'O FAGOO já segue esta permissão.',stored:'Guardada: o FAGOO ainda não segue esta permissão; ela passa a valer quando o módulo adotar a chave.',
- admin:'No FAGOO, esta tela é do perfil Administrador; os outros perfis não a abrem.'} as const;
+const STATUS_HINT={applied:'O ERP já segue esta permissão.',stored:'Guardada: o ERP ainda não segue esta permissão; ela passa a valer quando o módulo adotar a chave.',
+ admin:'No ERP, esta tela é do perfil Administrador; os outros perfis não a abrem.'} as const;
 const keysOf=(tabId:string,c:PermissionCard)=>{const base=`${tabId}.${c.key}`;return[base,...(c.ie?[`${base}.ie`]:[]),...(c.ex?[`${base}.ex`]:[]),...c.subs.map(s=>`${base}.${s.key}`)];};
 const tabKeys=(t:PermissionTab)=>t.cards.filter(c=>!c.admin).flatMap(c=>keysOf(t.id,c));
 

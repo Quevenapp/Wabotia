@@ -71,7 +71,7 @@ test('258 Lotes e validades tab: lots with the expiry mark and Sem lote, Situaç
   // Only the lot without stock offers Excluir lote; the confirmation explains that it becomes inactive.
   assert.equal(view.nodes().filter(n=>n.type==='button'&&n.props['aria-label']?.startsWith('Excluir lote')).length,1);
   view.find(n=>n.props['aria-label']==='Excluir lote B-2').props.onClick({stopPropagation(){}});await view.flush();
-  assert.match(view.text(),/No FAGOO o lote fica inativo/);
+  assert.match(view.text(),/No ERP o lote fica inativo/);
   await view.click('Sim');assert.match(view.text(),/Não foi possível confirmar o resultado/);
   await view.click('Conferir resultado');
   const [first,second]=s.writes();assert.equal(first.path,`/v1/estoque/lotes/${L2}/situacao`);assert.deepEqual(first.body,second.body);assert.equal(first.body.active,false);

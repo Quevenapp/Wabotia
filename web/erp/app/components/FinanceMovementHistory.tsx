@@ -73,7 +73,7 @@ export default function FinanceMovementHistory({ controller, accountId }: { cont
   if (!actor) return <p className="real-help">Consulta de movimentos indisponível nesta sessão.</p>;
   return <section className="finance-history finance-movement-history" aria-labelledby={`${id}-heading`} aria-busy={loading}>
     <h3 id={`${id}-heading`}>Movimentos da conta</h3>
-    <p className="real-help">Movimentos registrados no FAGOO, pela data de lançamento. As datas inicial e final são inclusivas. A consulta é paginada e não representa conciliação bancária.</p>
+    <p className="real-help">Movimentos registrados no ERP, pela data de lançamento. As datas inicial e final são inclusivas. A consulta é paginada e não representa conciliação bancária.</p>
     <form aria-label="Período dos movimentos" onSubmit={event => { event.preventDefault(); apply(); }}>
       <fieldset disabled={loading}><legend>Período de lançamento</legend><div className="finance-movement-filters">
         {(['from', 'to'] as const).map(field => <div className="form-field" key={field}><label htmlFor={`${id}-${field}`}>{field === 'from' ? 'De' : 'Até'}</label><input id={`${id}-${field}`} type="date" min="1900-01-01" max="2100-12-31" value={selected.draft[field]} onChange={event => {

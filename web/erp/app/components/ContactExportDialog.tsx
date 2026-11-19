@@ -43,8 +43,8 @@ export function ContactExportDialog({ controller, state, types, total, onClose }
         <label><input type="radio" name="contact-export-format" checked={format === 'xls'} onChange={() => setFormat('xls')} />XLS</label></fieldset>
       <fieldset disabled={busy}><legend>Tipo dos campos</legend>
         <label><input type="radio" name="contact-export-fields" checked readOnly />Padrão</label>
-        <label title="Os campos customizados ainda não existem no FAGOO."><input type="radio" name="contact-export-fields" disabled />Customizado</label>
-        <label title="Os campos customizados ainda não existem no FAGOO."><input type="radio" name="contact-export-fields" disabled />Ambos</label></fieldset>
+        <label title="Os campos customizados ainda não existem no ERP."><input type="radio" name="contact-export-fields" disabled />Customizado</label>
+        <label title="Os campos customizados ainda não existem no ERP."><input type="radio" name="contact-export-fields" disabled />Ambos</label></fieldset>
       <p className="real-help">O formato XLS tem limite de 30 mil caracteres por célula. Para textos longos, recomendamos o CSV.</p>
       <p className="real-help">Para reimportar a planilha, exporte os campos Padrão e Customizado separadamente.</p>
       <p className="real-help">Serão exportados {total} {total === 1 ? 'contato' : 'contatos'} com os filtros atuais (limite de 10.000).</p>

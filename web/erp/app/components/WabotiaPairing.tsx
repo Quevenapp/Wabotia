@@ -98,7 +98,7 @@ export default function WabotiaPairing({
               maxLength={80}
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Fagoo da empresa"
+              placeholder="ERP da empresa"
             />
           </label>
           <button type="submit">Gerar código</button>
@@ -108,7 +108,7 @@ export default function WabotiaPairing({
         {status?.status === "authorization_pending" ? (
           <>
             <p>
-              No Wabotia, abra Integrações → Parear Vinki ou Fagoo e aprove:
+              No Wabotia, abra Integrações → Parear Vinki e aprove:
             </p>
             <strong style={{ fontSize: "1.8rem", letterSpacing: ".15em" }}>
               {status.user_code}
@@ -139,7 +139,7 @@ export default function WabotiaPairing({
         ) : status?.status === "connected" ? (
           <p>
             Conectado a {status.url}. As permissões aprovadas estão disponíveis
-            para os serviços do Fagoo.
+            para os serviços do ERP.
           </p>
         ) : (
           <p>

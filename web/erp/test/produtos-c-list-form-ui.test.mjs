@@ -132,7 +132,7 @@ test('product form: Validação do produto, searchable Categoria and Grupo, the 
   const view = await mountComponent('ProductEditor.tsx', props, { componentName: 'ProductEditor', expandChildren: ['ProductForm', 'SupplierDrawer', 'Modal', 'ProductValidationPanel'] });
   try {
     assert.equal(view.input('catalog-category_id').type.name, 'SearchableSelect'); assert.equal(view.input('catalog-product_group_id').type.name, 'SearchableSelect');
-    const card = view.find(node => node.type === 'button' && node.props['aria-label'] === 'Cadastro no FAGOO: Pendente');
+    const card = view.find(node => node.type === 'button' && node.props['aria-label'] === 'Cadastro no ERP: Pendente');
     card.props.onClick(); await view.flush();
     assert.match(view.text(), /Verificar preço \*/); assert.match(view.text(), /Inserir código \*/);
     await view.change('catalog-price', '12'); await view.change('catalog-code', 'PAR-1');

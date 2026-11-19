@@ -101,7 +101,7 @@ export default function FiscalInvoiceFinance({ controller, invoiceId, onClose, o
         {finance.invoice.status === 3 || finance.invoice.status === 10 ? <p className="real-alert" role="status">A nota foi cancelada ou denegada depois do lançamento: estorne as {kindLabel} da nota.</p> : null}
         {writer ? <>{blockedReverse && <p className="real-help">{blockedReverse}</p>}
           <div className="form-field"><label htmlFor="invoice-finance-reason">Motivo do estorno</label><textarea id="invoice-finance-reason" rows={2} maxLength={1000} disabled={command.locked || Boolean(blockedReverse)} value={reason} onChange={event => setReason(event.target.value)} /></div>
-          {finance.invoice.kind === 'receivable' && <p className="real-help">Emitir boletos abre o Incluir Remessa da cobrança Itaú com as contas em aberto da nota (até 30). A remessa é gerada só com a aprovação da cobrança; nada é enviado ao banco pelo FAGOO.</p>}</>
+          {finance.invoice.kind === 'receivable' && <p className="real-help">Emitir boletos abre o Incluir Remessa da cobrança Itaú com as contas em aberto da nota (até 30). A remessa é gerada só com a aprovação da cobrança; nada é enviado ao banco pelo ERP.</p>}</>
           : <p className="real-help">Somente administrador e financeiro estornam as contas da nota.</p>}
       </> : finance.blocked_reason ? <><p className="real-alert" role="status">{INVOICE_FINANCE_BLOCKED[finance.blocked_reason] ?? 'Esta nota não lança contas agora.'}</p>
         {finance.orders_posted.length > 0 && <p className="real-help">Pedidos com contas: {finance.orders_posted.map(order => `nº ${order.number}`).join(', ')}.</p>}

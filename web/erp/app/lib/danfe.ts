@@ -195,7 +195,7 @@ export function danfeSettings(items: readonly { key: string; value: unknown }[] 
     simplifiedProducts: get('nfe.danfe_simplificado_produtos') === true, simplifiedTotal: get('nfe.danfe_simplificado_total') === true };
 }
 export const DANFE_ERRORS: Record<string, string> = {
-  DANFE_DOCUMENT_UNSUPPORTED: 'O XML não é uma NF-e ou NFC-e que o DANFE do FAGOO lê.', DANFE_VERSION_UNSUPPORTED: 'O DANFE do FAGOO lê o leiaute 4.00 da NF-e.',
+  DANFE_DOCUMENT_UNSUPPORTED: 'O XML não é uma NF-e ou NFC-e que o DANFE do ERP lê.', DANFE_VERSION_UNSUPPORTED: 'O DANFE do ERP lê o leiaute 4.00 da NF-e.',
   DANFE_KEY_INVALID: 'A chave de acesso do XML não confere.', DANFE_ITEMS_LIMIT: 'A nota tem itens demais para o DANFE.',
 };
 export const danfeErrorText = (error: unknown) => error instanceof DanfeError ? DANFE_ERRORS[error.code] ?? 'O XML da nota não pôde ser lido para o DANFE.' : 'O XML da nota não pôde ser lido para o DANFE.';

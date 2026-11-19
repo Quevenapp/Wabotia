@@ -154,7 +154,7 @@ export default function PreferenceSettingsPage({controller,page,section,category
    {page.subsections&&<nav className="preferences-subsections" aria-label={`Seções de ${page.title}`}>{page.sections.map(s=><button type="button" key={s.id} className={s.id===current?'active':''} aria-current={s.id===current?'true':undefined} onClick={()=>go(s.id)}>{s.title}</button>)}</nav>}
    <section className="preference-form" aria-busy={busy||loading}>
     {page.scope==='user'?<p className="real-help">Estas preferências valem somente para o seu usuário.</p>:view&&!view.can_manage?<p className="real-notice">Somente administradores alteram estas preferências. Você pode consultar os valores atuais.</p>:null}
-    {stored&&<p className="real-help">As opções marcadas com “Ainda não aplicada” ficam guardadas e passam a valer quando a função correspondente existir no FAGOO.</p>}
+    {stored&&<p className="real-help">As opções marcadas com “Ainda não aplicada” ficam guardadas e passam a valer quando a função correspondente existir no ERP.</p>}
     {loading&&!view&&<p role="status">Carregando preferências…</p>}
     {error&&<p className="real-alert" role="alert">{error}{!view&&!attempt.current&&<button type="button" className="text-button" onClick={()=>setReload(n=>n+1)}>Tentar novamente</button>}</p>}
     {notice&&<p className="real-success" role="status">{notice}</p>}

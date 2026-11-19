@@ -279,8 +279,8 @@ test('complete form: Imagens armazenadas is mounted only when Imagens is first o
   try {
     assert.doesNotMatch(view.text(), /Salve o produto para enviar imagens armazenadas/);
     view.input('product-tab-images').props.onClick(); await view.flush();
-    assert.match(view.text(), /Salve o produto para enviar imagens armazenadas no FAGOO\./);
+    assert.match(view.text(), /Salve o produto para enviar imagens armazenadas no ERP\./);
     view.input('product-tab-stock').props.onClick(); await view.flush();
-    assert.match(view.text(), /Salve o produto para enviar imagens armazenadas no FAGOO\./, 'kept mounted (hidden) after the tab changes');
+    assert.match(view.text(), /Salve o produto para enviar imagens armazenadas no ERP\./, 'kept mounted (hidden) after the tab changes');
   } finally { view.unmount(); }
 });

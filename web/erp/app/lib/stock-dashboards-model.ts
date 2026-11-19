@@ -21,7 +21,7 @@ export interface SupplierFilter {id:string;name:string}
 export type StockTypeFilter=''|'fisico'|'virtual';
 export const STOCK_TYPE_OPTIONS:{value:StockTypeFilter;label:string}[]=[{value:'',label:'Todos'},{value:'fisico',label:'Físico'},{value:'virtual',label:'Virtual'}];
 /** Origin hint of the panel; Brufap reads the ledger when the panel is opened. */
-export const STOCK_DASHBOARD_HINT='Os dados de Estoque, Custo e Valor podem levar até 15 minutos para ser atualizados no Origin. No FAGOO, eles são calculados na hora da consulta.';
+export const STOCK_DASHBOARD_HINT='Os dados de Estoque, Custo e Valor podem levar até 15 minutos para ser atualizados no Origin. No ERP, eles são calculados na hora da consulta.';
 export interface StockDashboardFilters {query:string;searchBy:'code'|'description'|'gtin';warehouse:string;brand:string;supplier?:SupplierFilter|null;stockType?:StockTypeFilter}
 export function stockDashboardPath(filters:StockDashboardFilters,page:number):string {
   const params=new URLSearchParams();
@@ -75,7 +75,7 @@ export function suggestionPath(filters:SuggestionFilters):string {
 }
 // 181: the unit and the supplier of each row ("Gerar pedido de compra com os selecionados") and the origin of the Valor Estimado price.
 export type PriceSource='supplier_cost'|'supplier_purchase'|'last_purchase';
-export const PRICE_SOURCE_LABELS:Record<PriceSource,string>={supplier_cost:'Preço de custo do fornecedor',supplier_purchase:'Preço de compra do fornecedor',last_purchase:'Preço da última compra registrada no FAGOO'};
+export const PRICE_SOURCE_LABELS:Record<PriceSource,string>={supplier_cost:'Preço de custo do fornecedor',supplier_purchase:'Preço de compra do fornecedor',last_purchase:'Preço da última compra registrada no ERP'};
 export type PriceMode='ultima_compra'|'custo'|'compra';
 export interface SuggestionRow {product_id:string;code:string|null;name:string;sold:string;stock:string;reserved:string;ordered:string;suggestion:string;unit_price:string|null;value:string|null;
   unit?:string|null;price_source?:PriceSource|null;supplier_id?:string|null;supplier_name?:string|null}

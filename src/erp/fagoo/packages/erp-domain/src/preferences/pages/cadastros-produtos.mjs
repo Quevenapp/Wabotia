@@ -9,7 +9,7 @@ export const PRODUCT_ORIGINS=[['0','0 - Nacional, exceto as indicadas nos códig
  ['4','4 - Nacional, processos produtivos básicos'],['5','5 - Nacional, Conteúdo de Importação inferior ou igual a 40%'],
  ['6','6 - Estrangeira - Importação direta, sem similar nacional, lista CAMEX'],['7','7 - Estrangeira - Adquirida no mercado interno, sem similar nacional, lista CAMEX'],
  ['8','8 - Nacional, Conteúdo de Importação superior a 70%']];
-const location=(key,label,extra={})=>toggle(`produtos.localizacao_${key}`,L,label,false,{note:'Guardado. A localização ainda não aparece neste ponto do FAGOO.',...extra});
+const location=(key,label,extra={})=>toggle(`produtos.localizacao_${key}`,L,label,false,{note:'Guardado. A localização ainda não aparece neste ponto do ERP.',...extra});
 // 202610200164: applied by the document save (erp_document_save) for the profiles that register products.
 const auto='Aplicada a partir da migração 164: ao salvar o pedido de compra, o pedido de venda, a proposta ou a OS, o item livre vira um produto do cadastro (descrição, código, unidade e, nas saídas, o preço) ou é ligado ao produto ativo de mesmo código. Desde a migração 238 vale para todo perfil que grava o documento (o perfil Vendas inclusive), pela criação automática do cadastro de produtos (migração 191, que também aplica a Origem padrão e o código Sequencial); o vendedor sem "Permite incluir produtos não cadastrados" continua sem item livre no pedido de venda. Desde a migração 217, "Importar XML NF-e" de entrada também cria o produto do item sem vínculo (com o remetente como fornecedor padrão) quando quem importa cadastra produtos.';
 // 202610200222 (estoque): the composition values follow the components when the structure or a component is saved by the product form.

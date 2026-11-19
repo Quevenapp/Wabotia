@@ -1,7 +1,7 @@
 // Preferências > Finanças > Contas a pagar (Origin preferencias.php#financas/financas-contas-pagar).
 import{definePage,PREFERENCE_READERS}from'../core.mjs';
 import{email,integer,toggle}from'../fields.mjs';
-const S='contas-pagar',mail='Guardado. O FAGOO ainda não envia e-mails.';
+const S='contas-pagar',mail='Guardado. O ERP ainda não envia e-mails.';
 export default definePage({id:'financas-pagar',category:'financas',path:'contas-pagar',title:'Contas a pagar',scope:'company',readRoles:PREFERENCE_READERS.finance,subsections:false,
  sections:[{id:S,title:'Contas a pagar'}],
  fields:[

@@ -61,14 +61,18 @@ const addProduct = async view => {
   await view.change('pdv-quantity', '2'); await press(view, 'Inserir');
 };
 
-test('PDV: loja and caixa from the context, configured shortcuts, certificate alert and the item in the sale', async () => {
+for (const [platform, modifier] of [['Win32', 'Alt'], ['MacIntel', 'Ctrl+Shift']])
+test(`PDV (${platform}): loja and caixa from the context, configured shortcuts, certificate alert and the item in the sale`, async t => {
+  const navigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { platform } });
+  t.after(() => { if (navigator) Object.defineProperty(globalThis, 'navigator', navigator); else delete globalThis.navigator; });
   const source = server({ ctx: context({}, { shortcuts: { ...shortcuts, finalizar: 'F', favoritos: 'S' } }) }), view = await mount(source);
   try {
     await settle(view);
     const shown = view.text();
     assert.match(shown, /Caixa loja sintética/); assert.match(shown, /Caixa aberto · Operadora Sintética/); assert.doesNotMatch(shown, /Certificado inválido/); // Wabotia: o selo vem do cofre de emissão (web/erp/emissor.test.mjs)
-    assert.match(shown, /Finalizar venda \(Alt\+F\)/, 'the key of Preferências › Teclas de atalho');
-    assert.match(shown, /Produto \(Alt\+Z\)Cliente \(Alt\+C\)Pagamento \(Alt\+B\)/);
+    assert.ok(shown.includes(`Finalizar venda (${modifier}+F)`), 'the key of Preferências › Teclas de atalho');
+    assert.ok(shown.includes(`Produto (${modifier}+Z)Cliente (${modifier}+C)Pagamento (${modifier}+B)`));
     await addProduct(view);
     assert.match(view.text(), /Caneta sintéticaCód: CAN-01/); assert.match(view.text(), /Total R\$ 20,00/);
     assert.equal(view.guard().changed, true, 'a sale in progress keeps the unsaved-changes guard');
