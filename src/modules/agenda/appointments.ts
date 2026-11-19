@@ -28,6 +28,7 @@ import { listProfessionals, listServices } from "./catalog";
 import { availability, type SlotRules } from "./availability";
 import { confirmRoutineCustomer, routineCustomer, routineCustomerScope, routineCustomerAllows } from "./customer-provider";
 import { normalizeCustomerPhone } from "../../customer/phone";
+import { agendaCommercial, agendaNative, commercialRow, type AgendaCommercial } from "./integration";
 
 export type AppointmentStatus =
   "booked" | "confirmed" | "cancelled" | "no_show";
@@ -63,6 +64,8 @@ export interface Appointment {
   created_by: string;
   created: number;
   updated: number;
+  /** Conclusão e cobrança independentes da confirmação do horário. */
+  commercial?: AgendaCommercial;
 }
 
 export function appointmentView(
@@ -98,6 +101,7 @@ export function appointmentView(
     created_by: row.created_by,
     created: row.created,
     updated: row.updated,
+    commercial: agendaCommercial(row),
   };
 }
 
@@ -261,10 +265,12 @@ async function publish(
     kind,
     a.id,
     {
-      appointment: a,
+      appointment: { ...a, customer_name: "", customer_phone: "", contact_id: null,
+        notes: "", service_name: "Serviço contratado", cancel_reason: a.cancelled_at ? "Cancelamento solicitado" : "" },
       conversation_id: a.conversation_id,
       actor,
       ...extra,
+      ...(Object.hasOwn(extra, "reason") ? { reason: "appointment_cancelled" } : {}),
     },
     { key: `${a.id}:${a.updated}` },
   );
@@ -438,8 +444,10 @@ export async function book(
   );
   const id = input.id || uid();
   await confirmRoutineCustomer(ctx, c, customer?.ref || null, "agenda", id);
-  const inserted = await exec(
-    ctx.env,
+  const inserted = await agendaNative(
+    ctx, null, { id, service_id: slot.service.id, price_cents: slot.service.price_cents,
+      status: "booked", contact_id: customer?.ref.contactId ?? null, conversation_id: c?.id ?? null,
+      customer_name: name, customer_phone: phone, created: at, created_by: input.actor },
     `INSERT INTO agenda_appointments(id,profile_id,service_id,professional_id,starts,ends,status,conversation_id,contact_id,customer_name,customer_phone,notes,source,service_name,price_cents,booked_at,created_by,created,updated)
      SELECT ?,?,?,?,?,?,'booked',?,?,?,?,?,?,?,?,?,?,?,?
      WHERE NOT EXISTS (SELECT 1 FROM agenda_appointments WHERE profile_id=? AND professional_id=? AND status IN ('booked','confirmed') AND starts<? AND ends>?)
@@ -532,6 +540,7 @@ export async function move(
 ) {
   const at = clock();
   const before = await activeRow(ctx, input.id);
+  if (before.commercial?.completed_at) throw new ApiError(409, "appointment_closed", "Este atendimento já foi concluído.");
   if (
     before.starts === input.starts &&
     (!input.professional_id || input.professional_id === before.professional_id)
@@ -549,8 +558,9 @@ export async function move(
     ignore: before.id,
     at,
   });
-  const updated = await exec(
-    ctx.env,
+  const raw = await commercialRow(ctx, "agenda", before.id);
+  const updated = await agendaNative(
+    ctx, raw, { ...raw, starts: input.starts, ends: slot.ends, status: "booked" },
     `UPDATE agenda_appointments SET professional_id=?,starts=?,ends=?,status='booked',booked_at=?,reminded_at=NULL,confirmed_at=NULL,moves=moves+1,updated=?
      WHERE id=? AND status IN ('booked','confirmed')
        AND NOT EXISTS (SELECT 1 FROM agenda_appointments o WHERE o.profile_id=? AND o.professional_id=? AND o.status IN ('booked','confirmed') AND o.starts<? AND o.ends>? AND o.id<>?)
@@ -598,12 +608,20 @@ export async function cancel(
   config: AgendaConfig,
   input: { id: string; actor: string; reason?: string; notify?: boolean },
 ) {
-  const before = await activeRow(ctx, input.id);
   const reason = String(input.reason ?? "").trim();
   requireValue(Array.from(reason).length <= 300, "Motivo até 300 caracteres.");
+  const current = await getAppointment(ctx, input.id);
+  if (current.status === "cancelled") {
+    if (current.cancel_reason !== reason) throw new ApiError(409, "version_conflict", "O cancelamento já foi registrado com outro motivo.");
+    await publish(ctx, "agenda.cancelled", current, current.cancelled_by ?? input.actor, { reason });
+    if (input.notify ?? true) await notifyCustomer(ctx, current, fill(config.cancelled_text, describe(current)), `cancelled:${current.id}`, input.actor);
+    return current;
+  }
+  const before = await activeRow(ctx, input.id);
   const at = clock();
-  const done = await exec(
-    ctx.env,
+  const raw = await commercialRow(ctx, "agenda", before.id);
+  const done = await agendaNative(
+    ctx, raw, { ...raw, status: "cancelled", cancelled_by: input.actor },
     "UPDATE agenda_appointments SET status='cancelled',cancelled_at=?,cancelled_by=?,cancel_reason=?,updated=? WHERE id=? AND status IN ('booked','confirmed')",
     at,
     input.actor,
@@ -634,8 +652,9 @@ export async function confirm(
   if (before.status === "confirmed") return before;
   const at = clock();
   // Só o horário que foi lido: remarcado no meio, não confirma o antigo.
-  const done = await exec(
-    ctx.env,
+  const raw = await commercialRow(ctx, "agenda", before.id);
+  const done = await agendaNative(
+    ctx, raw, { ...raw, status: "confirmed" },
     "UPDATE agenda_appointments SET status='confirmed',confirmed_at=?,updated=? WHERE id=? AND status='booked' AND starts=? AND professional_id=?",
     at,
     at,

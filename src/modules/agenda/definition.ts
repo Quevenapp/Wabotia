@@ -6,6 +6,7 @@ import type { ModuleDefinition } from "../types";
 
 export const agendaModule: ModuleDefinition = {
   id: "agenda",
+  integration: { route: "title", uses: ["customers", "products", "finance"], operations: ["recognize", "receive", "cancel", "reverse"], privacy: "adult_payer_only" },
   name: "Agenda",
   version: "1.0.0",
   description:
