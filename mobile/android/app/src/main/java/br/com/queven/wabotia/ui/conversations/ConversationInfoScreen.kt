@@ -29,6 +29,7 @@ import androidx.compose.material.icons.automirrored.filled.Shortcut
 import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PersonAdd
@@ -68,6 +69,8 @@ import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.ModuleIds
 import br.com.queven.wabotia.core.media.AuthenticatedMedia
 import br.com.queven.wabotia.core.model.MediaFile
+import br.com.queven.wabotia.core.model.Channels
+import br.com.queven.wabotia.core.model.otherConversationLinks
 import br.com.queven.wabotia.core.model.nameOf
 import br.com.queven.wabotia.modules.suporte.CourtesyDialog
 import br.com.queven.wabotia.modules.suporte.HandoffBand
@@ -135,16 +138,17 @@ fun ConversationInfoScreen(
     var botsSheet by remember { mutableStateOf(false) }
     var policyDialog by remember { mutableStateOf(false) }
     var confirmResolve by remember { mutableStateOf(false) }
+    var emailSheet by remember { mutableStateOf(false) }
     var viewer by remember { mutableStateOf<MediaFile?>(null) }
 
     // Suporte pago: a situação e as ações do atendente, só com o módulo ligado.
     val enabledModules by container.modules.enabled.collectAsState()
-    val suporteEnabled = ModuleIds.SUPORTE in enabledModules[profileId].orEmpty()
+    val suporteEnabled = vm.detail?.modulesAllowed == true && ModuleIds.SUPORTE in enabledModules[profileId].orEmpty()
     val suporteVm: SuporteViewModel = viewModel(key = "suporte-info:$conversationId") { SuporteViewModel(conversationId, SuporteDeps.of(container), container) }
-    val handoff = remember(vm.detail?.handoff) { ModuleHandoff.of(vm.detail?.handoff) }
+    val handoff = remember(vm.detail?.handoff, vm.detail?.modulesAllowed) { if (vm.detail?.modulesAllowed == true) ModuleHandoff.of(vm.detail?.handoff) else null }
     var suporteDialog by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(suporteEnabled, vm.detail?.conversation?.state, vm.detail?.conversation?.isGroup, handoff) {
-        if (vm.detail?.conversation?.isGroup == false) suporteVm.load()
+        if (vm.detail?.modulesAllowed == true && vm.detail?.conversation?.isGroup == false) suporteVm.load()
     }
     LaunchedEffect(suporteVm.done) {
         val text = suporteVm.done ?: return@LaunchedEffect
@@ -177,7 +181,7 @@ fun ConversationInfoScreen(
                 else -> {
                     val conversation = detail.conversation
                     val team = vm.teamById
-                    val window = windowInfo(conversation, vm.lineKinds, now)
+                    val window = windowInfo(detail, vm.lineKinds, now)
                     val status = container.profileData.cached(profileId)
                     val line = status?.connections?.firstOrNull { it.id == conversation.connection_id }
                     val departments = vm.departments.orEmpty()
@@ -185,6 +189,7 @@ fun ConversationInfoScreen(
                     val images = remember(detail.media) { detail.media.filter { it.isImage() } }
                     val own = vm.isOwn
                     val canHandOff = own || vm.isAdmin
+                    val showChannels = detail.isMultichannel || detail.channelId?.let { it != "whatsapp" } == true
 
                     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 24.dp)) {
                         // Cabeçalho
@@ -195,9 +200,12 @@ fun ConversationInfoScreen(
                                 size = 96.dp,
                                 kind = if (conversation.isGroup) AvatarKind.Group else AvatarKind.Person,
                                 badge = conversationBadge(conversation, vm.meId),
+                                channel = detail.channelId,
+                                multichannel = detail.isMultichannel,
                             )
                             Spacer(Modifier.height(12.dp))
                             Text(conversation.displayName, color = c.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            if (showChannels) Text(listOf(Channels.label(detail.channelId), detail.accountLabel).filter { it.isNotBlank() }.joinToString(" · "), color = c.textSecondary, style = MaterialTheme.typography.bodyMedium)
                             val phone = conversation.phone?.takeIf { it.isNotBlank() && !conversation.isGroup }
                             if (phone != null) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -218,7 +226,7 @@ fun ConversationInfoScreen(
 
                         // Janela de 24 h
                         if (window != null) {
-                            SectionLabel("Janela de 24 horas")
+                            SectionLabel(window.title)
                             WbCard(Modifier.padding(horizontal = 16.dp)) {
                                 Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                                     WindowRing(window, size = 96.dp, strokeWidth = 7.dp) {
@@ -247,12 +255,12 @@ fun ConversationInfoScreen(
                                     Spacer(Modifier.width(16.dp))
                                     Column(Modifier.weight(1f)) {
                                         Text(
-                                            if (window.closed) "Janela fechada" else "${window.longText()} restantes",
+                                            if (window.closed) "Janela fechada" else if (window.humanTextOnly) "Só texto humano · ${window.longText()}" else "${window.longText()} restantes",
                                             color = c.textPrimary,
                                             style = MaterialTheme.typography.titleMedium,
                                         )
                                         Text(
-                                            if (window.closed) "Só volta quando o cliente escrever." else "Mensagem livre ${window.untilText()}.",
+                                            window.reason ?: if (window.closed) "Só volta quando o cliente escrever." else if (window.humanTextOnly) "Anexos e automações bloqueados ${window.untilText()}." else "Mensagem livre ${window.untilText()}.",
                                             color = c.textSecondary,
                                             style = MaterialTheme.typography.bodyMedium,
                                         )
@@ -266,6 +274,23 @@ fun ConversationInfoScreen(
                                 }
                             }
                         }
+
+                        if (showChannels) {
+                            val channelProfile = vm.channelProfile
+                            if (channelProfile?.readable == true && channelProfile.channels.isNotEmpty()) {
+                                SectionLabel("Canais")
+                                WbCard(Modifier.padding(horizontal = 16.dp)) {
+                                    channelProfile.channels.forEach { channel ->
+                                        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                                            Text(listOf(Channels.label(channel.channel), channel.account_label).filter { it.isNotBlank() }.joinToString(" · "), color = c.textPrimary, fontWeight = FontWeight.SemiBold)
+                                            Text(listOf(channel.display_name, channel.username, channel.stateLabel).filter { it.isNotBlank() }.joinToString(" · "), color = c.textSecondary, style = MaterialTheme.typography.bodyMedium)
+                                        }
+                                    }
+                                    Text("Para juntar ou desfazer a junção de contatos, abra a ficha na web.", color = c.textSecondary, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(16.dp))
+                                }
+                            }
+                        }
+                        OtherConversationsNotice(detail.otherConversationLinks(vm.channelProfile), onOpen = { openRelatedConversation(context, profileId, it) })
 
                         // Estado e responsável
                         SectionLabel("Atendimento")
@@ -290,7 +315,7 @@ fun ConversationInfoScreen(
                             }
                             if (line != null) {
                                 RowDivider(startIndent = 16.dp)
-                                InfoLine("Linha", line.name + if (line.kind == "meta" || line.kind == "zernio") " · WhatsApp oficial" else "")
+                                InfoLine("Linha", line.name + if (showChannels) " · ${Channels.label(detail.channelId)}" else if (line.kind == "meta" || line.kind == "zernio") " · WhatsApp oficial" else "")
                             }
                             if (canHandOff) {
                                 RowDivider(startIndent = 16.dp)
@@ -390,6 +415,10 @@ fun ConversationInfoScreen(
                                 if (!first) RowDivider()
                                 first = false
                             }
+                            if (detail.email_transcript.showsAction()) {
+                                divider()
+                                SettingsRow(Icons.Filled.Email, "Enviar conversa por e-mail", subtitle = "Escolha o destino e confira a prévia", onClick = { emailSheet = true })
+                            }
                             if (!conversation.isGroup && !conversation.phone.isNullOrBlank()) {
                                 divider()
                                 SettingsRow(Icons.Filled.PersonAdd, "Salvar contato", subtitle = "Adicionar à agenda do aparelho", onClick = {
@@ -400,11 +429,11 @@ fun ConversationInfoScreen(
                             SettingsRow(Icons.Filled.SmartToy, "Consultar bot", subtitle = "Pergunte a um bot com o contexto desta conversa", tint = c.bot, onClick = { vm.loadBots(); botsSheet = true })
                             if (canHandOff && !conversation.isGroup) {
                                 divider()
-                                SettingsRow(Icons.Filled.SentimentSatisfiedAlt, "Pesquisa de satisfação", subtitle = "Envia a pesquisa ao cliente", tint = c.warn, onClick = { vm.survey() }, enabled = !vm.busy)
+                                SettingsRow(Icons.Filled.SentimentSatisfiedAlt, "Pesquisa de satisfação", subtitle = "Envia a pesquisa ao cliente", tint = c.warn, onClick = { vm.survey() }, enabled = !vm.busy && vm.replyBlockReason(automation = true) == null)
                             }
                             if (own) {
                                 divider()
-                                SettingsRow(Icons.AutoMirrored.Filled.Undo, "Devolver ao bot", subtitle = "O bot do atendimento volta a responder", tint = c.bot, onClick = { vm.resume() }, enabled = !vm.busy)
+                                SettingsRow(Icons.AutoMirrored.Filled.Undo, "Devolver ao bot", subtitle = "O bot do atendimento volta a responder", tint = c.bot, onClick = { vm.resume() }, enabled = !vm.busy && vm.replyBlockReason(automation = true) == null)
                                 divider()
                                 SettingsRow(Icons.Filled.TaskAlt, "Concluir", subtitle = "Encerra este atendimento", tint = c.danger, titleColor = c.danger, onClick = { confirmResolve = true }, enabled = !vm.busy)
                             }
@@ -412,6 +441,7 @@ fun ConversationInfoScreen(
                     }
 
                     if (tagsSheet) TagsSheet(tags, onSave = { tagsSheet = false; vm.saveTags(it) }, onDismiss = { tagsSheet = false })
+                    if (emailSheet) EmailTranscriptSheet(container, vm, onDismiss = { emailSheet = false })
                     if (botsSheet) BotsSheet(vm.bots, onPick = { botsSheet = false; openBot(it.id) }, onDismiss = { botsSheet = false })
                     if (policyDialog) GroupPolicyDialog(conversation.bot_policy, onPick = { policyDialog = false; vm.setGroupPolicy(it) }, onDismiss = { policyDialog = false })
                     if (confirmResolve) {

@@ -11,6 +11,7 @@ import br.com.queven.wabotia.core.media.MediaUploader
 import br.com.queven.wabotia.core.media.UploadItem
 import br.com.queven.wabotia.core.media.UploadSource
 import br.com.queven.wabotia.core.model.ActionRequest
+import br.com.queven.wabotia.core.model.*
 import br.com.queven.wabotia.core.model.Bot
 import br.com.queven.wabotia.core.model.ConversationDetail
 import br.com.queven.wabotia.core.model.Department
@@ -80,6 +81,24 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
 
     var detail by mutableStateOf<ConversationDetail?>(null)
         private set
+    var channelProfile by mutableStateOf<ContactChannelProfile?>(null)
+        private set
+    private var channelProfileKey: Pair<String, String>? = null
+    private var channelProfileLoadingKey: Pair<String, String>? = null
+    var emailPreview by mutableStateOf<TranscriptPreview?>(null)
+        private set
+    var emailResult by mutableStateOf<TranscriptSendResult?>(null)
+        private set
+    var emailBusy by mutableStateOf(false)
+        private set
+    var emailError by mutableStateOf<String?>(null)
+        private set
+    private val emailAttempt = TranscriptAttempt()
+    private var emailUncertain = false
+    val emailPending: Boolean get() = emailAttempt.pending != null
+    val emailCanRetry: Boolean get() = emailAttempt.canRetry
+    val emailRejected: Boolean get() = emailAttempt.rejected
+    private var detailLoadedAtNanos = System.nanoTime()
     var loading by mutableStateOf(true)
         private set
     var loadError by mutableStateOf<String?>(null)
@@ -172,7 +191,32 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
         if (!silent) loading = detail == null
         try {
             val loaded = container.api.conversation(profileId, conversationId)
+            detailLoadedAtNanos = System.nanoTime()
             detail = loaded
+            val contactId = loaded.conversation.contact_id ?: loaded.contact?.string("id")
+            val showChannels = loaded.isMultichannel || loaded.channelId?.let { it != "whatsapp" } == true
+            val profileKey = contactId?.takeIf { showChannels }?.let { profileId to it }
+            if (profileKey == null) {
+                channelProfile = null
+                channelProfileKey = null
+                channelProfileLoadingKey = null
+            } else if ((!silent || channelProfileKey != profileKey) && channelProfileLoadingKey != profileKey) {
+                if (channelProfileKey != profileKey) channelProfile = null
+                // Marca antes do await: eventos repetidos não disparam outra leitura da mesma ficha.
+                channelProfileKey = profileKey
+                channelProfileLoadingKey = profileKey
+                try {
+                    val loadedProfile = container.api.contactProfile(profileKey.first, profileKey.second)
+                    if (channelProfileKey == profileKey) channelProfile = loadedProfile
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // Ficha complementar: falha nunca impede leitura das mensagens.
+                    if (channelProfileKey == profileKey) channelProfile = null
+                } finally {
+                    if (channelProfileLoadingKey == profileKey) channelProfileLoadingKey = null
+                }
+            }
             loadError = null
             // Prévia da lista e não lidas: o detalhe aberto é a fonte mais completa; abrir a conversa zera as não lidas.
             container.conversationCache.use(profileId)
@@ -312,6 +356,21 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
         onDone: (() -> Unit)? = null,
     ) {
         if (busy) return
+        val automated = request.action in setOf("menu", "protocols", "survey", "resume", "pedido_link") ||
+            (request.action == "transfer" && request.target?.startsWith("bot:") == true)
+        val blocked = if (automated || request.action == "reply") replyBlockReason(
+            hasAttachments = !request.attachments.isNullOrEmpty() || request.content?.string("type")?.let { it != "text" } == true,
+            automation = automated,
+        ) else null
+        if (blocked != null) {
+            notice = blocked
+            if (inSheet) sheetError = blocked
+            return
+        }
+        if (request.action == "pedido_link" && detail?.channelId?.let { it != "whatsapp" } == true) {
+            notice = "Os aplicativos estão disponíveis somente no WhatsApp."
+            return
+        }
         if (inSheet) sheetError = null
         busyAction = request.action
         // Mesmo pedido repetido após falha de rede → mesma chave; pedido diferente → chave nova.
@@ -426,6 +485,7 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
 
     fun messageAction(action: String, message: Message, emoji: String? = null) {
         if (busy) return
+        if (action == "reaction") replyBlockReason(hasAttachments = true)?.let { notice = it; return }
         val request = MessageActionRequest(action = action, message_id = message.id, emoji = emoji)
         val key = pendingMessageAction?.takeIf { it.first == request }?.second
             ?: ApiClient.newIdempotencyKey().also { pendingMessageAction = request to it }
@@ -437,7 +497,7 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
                 load(silent = true).join()
                 notice = when (action) {
                     "reaction" -> if (emoji.isNullOrEmpty()) "Reação removida." else "Reação enviada."
-                    "delete" -> "Pedido de exclusão enviado ao WhatsApp."
+                    "delete" -> "Pedido de exclusão enviado."
                     "read" -> "Mensagem marcada como lida."
                     else -> null
                 }
@@ -456,6 +516,10 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
     }
 
     fun startEdit(message: Message) {
+        if (detail?.can("edit") != true) {
+            composerError = "A edição não está disponível nesta conversa."
+            return
+        }
         editing = message
         quote = null
         text = message.text
@@ -506,8 +570,99 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
         mentions = emptyList()
     }
 
+    /** O servidor continua sendo a autoridade; o app evita oferecer envios já recusados pela janela. */
+    fun replyBlockReason(hasAttachments: Boolean = false, automation: Boolean = false): String? {
+        val current = detail ?: return "Carregando conversa."
+        val window = current.channelWindow
+        val elapsedMs = ((System.nanoTime() - detailLoadedAtNanos) / 1_000_000L).coerceAtLeast(0)
+        return current.replyBlockReason(hasAttachments = hasAttachments, automation = automation, now = (window?.serverNow ?: 0) + elapsedMs)
+    }
+
+    fun previewEmail(request: TranscriptPreviewRequest) {
+        if (emailBusy || emailPending) return
+        if (detail?.email_transcript?.available != true) return
+        emailBusy = true
+        emailError = null
+        emailPreview = null
+        viewModelScope.launch {
+            try {
+                emailPreview = container.api.emailPreview(profileId, conversationId, request)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                emailError = container.handleError(e)
+            } finally {
+                emailBusy = false
+            }
+        }
+    }
+
+    fun clearEmailPreview() {
+        if (!emailBusy && !emailPending) { emailPreview = null; emailError = null }
+    }
+
+    fun sendEmail(confirmedRecipient: String, customerRequested: Boolean) {
+        if (emailBusy || emailResult != null || emailRejected) return
+        if (!emailPending && detail?.email_transcript?.available != true) return
+        val preview = emailPreview ?: return
+        if (!emailPending && !preview.canConfirm(confirmedRecipient, customerRequested, System.currentTimeMillis())) {
+            emailError = "Confirme o destinatário e a solicitação do cliente. Se a prévia expirou, gere outra."
+            return
+        }
+        val attempt = emailAttempt.begin(
+            TranscriptSendRequest(
+                previewToken = preview.previewToken,
+                confirmedRecipient = confirmedRecipient.trim().takeIf { preview.requiresConfirmation || preview.requiresCustomerRequest },
+                customerRequested = customerRequested,
+            ), ApiClient::newIdempotencyKey,
+        )
+        emailBusy = true
+        emailError = null
+        viewModelScope.launch {
+            try {
+                val result = container.api.sendEmailTranscript(profileId, conversationId, attempt.key, attempt.request)
+                emailAttempt.record(result)
+                emailResult = result
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ApiException) {
+                val message = container.handleError(e)
+                if (!emailUncertain && e.isDefinitiveWriteRejection && e.code != "provider_unknown") {
+                    // Uma recusa comprovada encerra a tentativa. Uma intenção nova ainda exige ação explícita.
+                    emailAttempt.reject()
+                    emailError = message
+                } else {
+                    // Um replay recusado pode ocorrer após revogação de acesso a um envio já aceito.
+                    emailUncertain = true
+                    emailError = "$message A tentativa foi preservada; repetir usa a mesma chave."
+                }
+            } catch (e: Exception) {
+                // Nenhuma falha cria outra chave. Um replay reautoriza e consulta o mesmo recibo no servidor.
+                emailUncertain = true
+                emailError = container.handleError(e) + " A tentativa foi preservada; repetir usa a mesma chave."
+            } finally {
+                emailBusy = false
+            }
+        }
+    }
+
+    fun newEmail() {
+        if (emailBusy || !emailAttempt.reset()) return
+        emailResult = null
+        emailPreview = null
+        emailError = null
+        emailUncertain = false
+    }
+
+    private fun replyHasAttachments(): Boolean {
+        // Repetição valida o corpo congelado, mesmo se o rascunho atual tiver mudado.
+        val frozen = pending?.request
+        if (frozen != null) return !frozen.attachments.isNullOrEmpty() || frozen.content?.string("type")?.let { it != "text" } == true
+        return attachments.isNotEmpty() || voice != null || kind == ComposeKind.Location || kind == ComposeKind.Contacts || editing != null
+    }
+
     val canSend: Boolean
-        get() = !sending && (
+        get() = !sending && (editing == null || detail?.can("edit") == true) && replyBlockReason(hasAttachments = replyHasAttachments()) == null && (
             pending != null || editing != null && text.isNotBlank() || text.isNotBlank() || attachments.isNotEmpty() || voice != null ||
                 kind == ComposeKind.Location || kind == ComposeKind.Contacts
             )
@@ -516,6 +671,14 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
     fun send() {
         if (sending) return
         val current = detail ?: return
+        if (editing != null && !current.can("edit")) {
+            composerError = "A edição não está disponível nesta conversa."
+            return
+        }
+        replyBlockReason(hasAttachments = replyHasAttachments())?.let {
+            composerError = it
+            return
+        }
         viewModelScope.launch {
             sending = true
             composerError = null
@@ -538,7 +701,7 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
                     editKey = ApiClient.newIdempotencyKey()
                     editing = null
                     text = ""
-                    notice = "Edição enviada ao WhatsApp."
+                    notice = "Edição enviada."
                 } else {
                     var request = pending
                     if (request == null) {
@@ -601,6 +764,7 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
         if (value.length > MediaKinds.MAX_TEXT) return fail("O texto pode ter até 3.800 caracteres.")
         val voiceItem = voice
         val files = if (voiceItem != null) listOf(voiceItem) else attachments
+        replyBlockReason(hasAttachments = files.isNotEmpty() || kind == ComposeKind.Location || kind == ComposeKind.Contacts)?.let { return fail(it) }
         if (files.size > MediaKinds.MAX_ATTACHMENTS) return fail("Use até 10 anexos por mensagem.")
         if (value.isEmpty() && files.isEmpty() && kind != ComposeKind.Location && kind != ComposeKind.Contacts) {
             return fail("Escreva uma mensagem ou escolha um conteúdo.")
@@ -625,6 +789,10 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
             }
             if (!current.can(fileKind)) {
                 return fail("O canal não oferece envio de ${MediaKinds.label(fileKind)} nesta conversa.${if (fileKind != "document" && current.can("document")) " Tente \"Enviar como documento\"." else ""}")
+            }
+            if (Channels.isSocial(current.channelId)) {
+                val limit = if (fileKind == "image") 3L * 1024 * 1024 else 8L * 1024 * 1024
+                if (file.size > limit) return fail("O arquivo excede o limite local de ${limit / 1024 / 1024} MiB deste canal.")
             }
             MediaKinds.checkLimit(fileKind, file.mime, file.size, meta)?.let { return fail(it) }
         }

@@ -51,6 +51,7 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
@@ -135,6 +136,7 @@ import br.com.queven.wabotia.ui.components.PrimaryButton
 import br.com.queven.wabotia.ui.components.SecureScreenEffect
 import br.com.queven.wabotia.ui.components.SkeletonList
 import br.com.queven.wabotia.ui.components.WindowInfo
+import br.com.queven.wabotia.core.model.Channels
 import br.com.queven.wabotia.ui.components.WindowRing
 import br.com.queven.wabotia.ui.components.WindowTone
 import br.com.queven.wabotia.ui.components.color
@@ -149,7 +151,7 @@ import br.com.queven.wabotia.ui.theme.Wb
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private enum class ConversationSheet { Transfer, Tags, Bots, Policy, Note, Window }
+private enum class ConversationSheet { Transfer, Tags, Bots, Policy, Note, Window, Email }
 
 /** Item da lista de mensagens: chip de data, evento do atendimento ou bolha (com [first] = primeira do grupo). */
 private sealed interface ChatItem {
@@ -250,6 +252,7 @@ fun ConversationScreen(
                 "note" -> ConversationSheet.Note
                 "tags" -> ConversationSheet.Tags
                 "window" -> ConversationSheet.Window
+                "email" -> ConversationSheet.Email
                 else -> null
             },
         )
@@ -260,18 +263,18 @@ fun ConversationScreen(
     var confirmDelete by remember { mutableStateOf<Message?>(null) }
     var failedMessage by remember { mutableStateOf<Message?>(null) }
     var confirmResolve by remember { mutableStateOf(false) }
-    val window = conversation?.let { windowInfo(it, vm.lineKinds, now) }
+    val window = detail?.let { windowInfo(it, vm.lineKinds, now) }
     val canHandOff = vm.isOwn || vm.isAdmin
 
     // Passagem feita por módulo e Suporte pago: a faixa e as ações só com o módulo ligado, nunca em grupos.
-    val modules = enabledModules[profileId].orEmpty()
+    val modules = if (detail?.modulesAllowed == true) enabledModules[profileId].orEmpty() else emptySet()
     val suporteEnabled = ModuleIds.SUPORTE in modules
     val suporteVm: SuporteViewModel = viewModel(key = "suporte:$conversationId") { SuporteViewModel(conversationId, SuporteDeps.of(container), container) }
-    val handoff = remember(detail?.handoff) { ModuleHandoff.of(detail?.handoff) }
+    val handoff = remember(detail?.handoff, detail?.modulesAllowed) { if (detail?.modulesAllowed == true) ModuleHandoff.of(detail.handoff) else null }
     val suporte = suporteVm.status.takeIf { suporteEnabled && conversation?.isGroup == false }
     var suporteDialog by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(suporteEnabled, conversation?.isGroup, conversation?.state, conversation?.owner, handoff) {
-        if (conversation != null && !conversation.isGroup) suporteVm.load()
+        if (detail?.modulesAllowed == true && conversation != null && !conversation.isGroup) suporteVm.load()
     }
     LaunchedEffect(suporteVm.done) {
         val text = suporteVm.done ?: return@LaunchedEffect
@@ -290,7 +293,7 @@ fun ConversationScreen(
     val formsEnabled = ModuleIds.FORMS in modules
     val paymentsEnabled = ModuleIds.PAYMENTS in modules
     val itemsVm: FormsPaymentsViewModel = viewModel(key = "items:$conversationId") { FormsPaymentsViewModel(conversationId, FormsPaymentsDeps.of(container)) }
-    val webSteps = remember(detail?.web_steps, formsEnabled) { ConversationItems.steps(detail?.web_steps).filter { formsEnabled || it.kind != "form" } }
+    val webSteps = remember(detail?.web_steps, formsEnabled, detail?.modulesAllowed) { if (detail?.modulesAllowed == true) ConversationItems.steps(detail.web_steps).filter { formsEnabled || it.kind != "form" } else emptyList() }
     val payments = remember(detail?.payments, paymentsEnabled) { if (paymentsEnabled) ConversationItems.payments(detail?.payments) else emptyList() }
     val direct = conversation?.isGroup == false
     val canForm = formsEnabled && canHandOff && direct
@@ -310,13 +313,17 @@ fun ConversationScreen(
             vm.notice = "Assuma a conversa para encaminhar o atendimento."
             return
         }
+        if (tab == "menu") {
+            vm.replyBlockReason(automation = true)?.let { vm.notice = it; return }
+            if (detail?.can("menu") != true) { vm.notice = "Este canal não oferece envio de menu."; return }
+        }
         transferTab = tab
         sheet = ConversationSheet.Transfer
     }
 
     Column(Modifier.fillMaxSize().background(c.chatWallpaper).imePadding()) {
         ChatTopBar(
-            conversation = conversation,
+            conversation = detail?.let { it.conversation.copy(channel = it.channelId, account_label = it.accountLabel, multichannel = it.isMultichannel) },
             subtitle = conversation?.stateSubtitle(vm.meId, team, now),
             meId = vm.meId,
             canHandOff = canHandOff,
@@ -335,6 +342,8 @@ fun ConversationScreen(
                             conversation = conversation,
                             own = vm.isOwn,
                             canHandOff = canHandOff,
+                            canAutomate = vm.replyBlockReason(automation = true) == null,
+                            canMenu = detail.can("menu"),
                             onTags = { sheet = ConversationSheet.Tags },
                             onTicket = { openTransfer("ticket") },
                             onMenu = { openTransfer("menu") },
@@ -346,9 +355,10 @@ fun ConversationScreen(
                             },
                             onPolicy = { sheet = ConversationSheet.Policy },
                             onInfo = openInfo,
+                            onEmail = if (detail.email_transcript.showsAction()) ({ sheet = ConversationSheet.Email }) else null,
                             onResolve = { confirmResolve = true },
                             shortcuts = if (conversation.isGroup) emptyList() else ModuleRoutes.conversationShortcuts(
-                                enabledModules[profileId].orEmpty(), conversation.id, conversation.displayName,
+                                modules, conversation.id, conversation.displayName,
                             ),
                             onShortcut = { openRoute(it.route) },
                             onPedidoLink = if (!conversation.isGroup && vm.isOwn && ModuleIds.PEDIDO in modules) ({ vm.sendPedidoLink() }) else null,
@@ -370,6 +380,7 @@ fun ConversationScreen(
             detail == null || conversation == null -> ErrorState(vm.loadError ?: "Não foi possível carregar a conversa.", onRetry = { vm.load() }, modifier = Modifier.background(c.background))
             else -> {
                 if (window != null) WindowBanner(window, onClick = { sheet = ConversationSheet.Window })
+                OtherConversationsNotice(detail.other_conversations, onOpen = { openRelatedConversation(context, profileId, it) })
                 if (conversation.isGroup) GroupStrip(detail, onChangePolicy = { sheet = ConversationSheet.Policy })
                 if (SuporteRules.showBand(handoff, conversation.state, suporteEnabled)) {
                     HandoffBand(
@@ -477,6 +488,7 @@ fun ConversationScreen(
                 onDismiss = { sheet = null },
             )
             ConversationSheet.Window -> if (window != null) WindowInfoSheet(window) { sheet = null } else sheet = null
+            ConversationSheet.Email -> EmailTranscriptSheet(container, vm, onDismiss = { sheet = null })
             null -> {}
         }
         selectedMessage?.let { message ->
@@ -501,6 +513,7 @@ fun ConversationScreen(
             DeleteMessageDialog(
                 onConfirm = { vm.messageAction("delete", message); confirmDelete = null },
                 onDismiss = { confirmDelete = null },
+                channelLabel = detail.channelId?.let { Channels.label(it) } ?: "WhatsApp",
             )
         }
         failedMessage?.let { message ->
@@ -509,6 +522,7 @@ fun ConversationScreen(
                 canRetry = vm.isOwn,
                 onRetry = { failedMessage = null; vm.resend(message) },
                 onDismiss = { failedMessage = null },
+                channelLabel = detail.channelId?.let { Channels.label(it) } ?: "WhatsApp",
             )
         }
         if (confirmResolve) {
@@ -564,7 +578,8 @@ private fun ChatTopBar(
     val c = Wb.colors
     val barColor = if (c.isDark) c.surface else c.background
     Column(Modifier.fillMaxWidth().background(barColor)) {
-        Row(Modifier.fillMaxWidth().statusBarsPadding().height(60.dp), verticalAlignment = Alignment.CenterVertically) {
+        val showChannel = conversation != null && (conversation.multichannel || conversation.channel != null && conversation.channel != "whatsapp")
+        Row(Modifier.fillMaxWidth().statusBarsPadding().height(if (showChannel) 76.dp else 60.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack, modifier = Modifier.padding(start = 2.dp).size(44.dp)) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar", tint = c.textPrimary)
             }
@@ -579,6 +594,8 @@ private fun ChatTopBar(
                         size = 40.dp,
                         kind = if (conversation.isGroup) AvatarKind.Group else AvatarKind.Person,
                         badge = conversationBadge(conversation, meId),
+                        channel = conversation.channel,
+                        multichannel = conversation.multichannel,
                         ringColor = barColor,
                     )
                 } else {
@@ -596,6 +613,9 @@ private fun ChatTopBar(
                     )
                     if (!subtitle.isNullOrBlank()) {
                         Text(subtitle, color = c.textSecondary, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (showChannel && conversation != null) {
+                        Text(listOf(Channels.label(conversation.channel), conversation.account_label).filter { it.isNotBlank() }.joinToString(" · "), color = c.textSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -615,6 +635,8 @@ private fun ConversationMenu(
     conversation: Conversation,
     own: Boolean,
     canHandOff: Boolean,
+    canAutomate: Boolean,
+    canMenu: Boolean,
     onTags: () -> Unit,
     onTicket: () -> Unit,
     onMenu: () -> Unit,
@@ -625,6 +647,7 @@ private fun ConversationMenu(
     onPolicy: () -> Unit,
     onInfo: () -> Unit,
     onResolve: () -> Unit,
+    onEmail: (() -> Unit)? = null,
     shortcuts: List<ModuleShortcut> = emptyList(),
     onShortcut: (ModuleShortcut) -> Unit = {},
     /** Pedido ligado e a conversa assumida (nunca em grupos): envia o link do carrinho. */
@@ -650,7 +673,7 @@ private fun ConversationMenu(
         item("Etiquetas", Icons.AutoMirrored.Filled.Label, action = onTags)
         if (canHandOff) {
             item("Abrir protocolo", Icons.Filled.ConfirmationNumber, action = onTicket)
-            item("Enviar menu", Icons.AutoMirrored.Filled.ListAlt, action = onMenu)
+            if (canAutomate && canMenu) item("Enviar menu", Icons.AutoMirrored.Filled.ListAlt, action = onMenu)
         }
         shortcuts.forEach { shortcut -> item(shortcut.label, shortcut.icon, action = { onShortcut(shortcut) }) }
         onForm?.let { item("Enviar formulário", Icons.Filled.Description, action = it) }
@@ -659,12 +682,13 @@ private fun ConversationMenu(
         if (SuporteRules.canLink(suporte)) item(SuporteRules.linkTitle(suporte), Icons.Filled.Link, action = { onSuporte("link") })
         if (SuporteRules.canConfirm(suporte)) item("Confirmar e liberar", Icons.Filled.CheckCircle, action = { onSuporte("confirm") })
         if (SuporteRules.canCourtesy(suporte)) item("Liberar como cortesia", Icons.Filled.CardGiftcard, action = { onSuporte("courtesy") })
-        if (own) item("Devolver ao bot", Icons.AutoMirrored.Filled.Undo, action = onResume)
-        if (canHandOff && !conversation.isGroup) item("Pesquisa de satisfação", Icons.Filled.SentimentSatisfiedAlt, action = onSurvey)
+        if (own && canAutomate) item("Devolver ao bot", Icons.AutoMirrored.Filled.Undo, action = onResume)
+        if (canHandOff && canAutomate && !conversation.isGroup) item("Pesquisa de satisfação", Icons.Filled.SentimentSatisfiedAlt, action = onSurvey)
         item("Consultar bot", Icons.Filled.SmartToy, action = onBots)
         if (!conversation.isGroup && !conversation.phone.isNullOrBlank()) item("Salvar contato", Icons.Filled.PersonAdd, action = onSaveContact)
         if (conversation.isGroup) item("Respostas do bot no grupo", Icons.Filled.Groups, action = onPolicy)
         item("Dados da conversa", Icons.Filled.Info, action = onInfo)
+        onEmail?.let { item("Enviar conversa por e-mail", Icons.Filled.Email, action = it) }
         if (own) item("Concluir", Icons.Filled.TaskAlt, tint = c.danger, action = onResolve)
     }
 }
@@ -680,14 +704,15 @@ private fun WindowBanner(info: WindowInfo, onClick: () -> Unit) {
     val color = tone.color()
     val base = if (c.isDark) c.surface else c.background
     val background = if (tone == WindowTone.Danger) c.danger.copy(alpha = 0.12f) else Color.Transparent
-    Column(Modifier.fillMaxWidth().background(base).background(background).clickable(onClick = onClick, onClickLabel = "Entender a janela de 24 horas")) {
+    Column(Modifier.fillMaxWidth().background(base).background(background).clickable(onClick = onClick, onClickLabel = "Entender ${info.title.lowercase()}")) {
         Row(Modifier.fillMaxWidth().height(34.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
             WindowRing(info, size = 20.dp, strokeWidth = 2.2.dp)
             Spacer(Modifier.width(9.dp))
             Text(
-                when (tone) {
-                    WindowTone.Closed -> "Janela fechada · só volta quando o cliente escrever"
-                    WindowTone.Danger -> "Janela fecha em ${info.longText()}"
+                when {
+                    info.humanTextOnly && !info.closed -> "Só texto humano · ${info.longText()} restantes"
+                    tone == WindowTone.Closed -> info.reason ?: "Janela fechada · só volta quando o cliente escrever"
+                    tone == WindowTone.Danger -> "Janela fecha em ${info.longText()}"
                     else -> "Janela de 24h · ${info.longText()} restantes"
                 },
                 color = if (tone == WindowTone.Danger) c.danger else if (tone == WindowTone.Closed) c.textSecondary else c.textPrimary,

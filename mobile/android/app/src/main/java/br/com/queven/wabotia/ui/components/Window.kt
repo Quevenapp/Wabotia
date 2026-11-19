@@ -29,6 +29,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import br.com.queven.wabotia.core.model.Conversation
+import br.com.queven.wabotia.core.model.ConversationDetail
+import br.com.queven.wabotia.core.model.Channels
+import br.com.queven.wabotia.core.model.channelReason
 import br.com.queven.wabotia.ui.theme.Wb
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -44,9 +47,17 @@ private const val HOUR_MS: Long = 60L * 60 * 1000
 enum class WindowTone { Ok, Warn, Danger, Closed }
 
 /** Prazo da janela de uma conversa. [remainingMs] <= 0 significa janela fechada. */
-data class WindowInfo(val lastCustomer: Long, val expiresAt: Long, val remainingMs: Long) {
+data class WindowInfo(
+    val lastCustomer: Long,
+    val expiresAt: Long,
+    val remainingMs: Long,
+    val social: Boolean = false,
+    val humanTextOnly: Boolean = false,
+    val reason: String? = null,
+) {
     val closed: Boolean get() = remainingMs <= 0
-    val fraction: Float get() = (remainingMs.toFloat() / WINDOW_MS).coerceIn(0f, 1f)
+    val fraction: Float get() = (remainingMs.toFloat() / (if (humanTextOnly) 6 * WINDOW_MS else WINDOW_MS)).coerceIn(0f, 1f)
+    val title: String get() = if (social) "Janela de resposta" else "Janela de 24 horas"
     val tone: WindowTone
         get() = when {
             closed -> WindowTone.Closed
@@ -70,7 +81,8 @@ data class WindowInfo(val lastCustomer: Long, val expiresAt: Long, val remaining
     fun compactText(): String {
         if (closed) return ""
         val minutes = remainingMs / 60_000
-        return if (minutes >= 60) "${minutes / 60}h" else "${minutes.coerceAtLeast(1)}m"
+        val time = if (minutes >= 60) "${minutes / 60}h" else "${minutes.coerceAtLeast(1)}m"
+        return if (humanTextOnly) "Texto · $time" else time
     }
 
     /** "até 14:32" ou "até amanhã 09:10". */
@@ -92,6 +104,24 @@ data class WindowInfo(val lastCustomer: Long, val expiresAt: Long, val remaining
  */
 fun windowInfo(c: Conversation, lineKinds: Map<String, String>?, now: Long): WindowInfo? {
     if (c.isGroup) return null
+    if (c.channel != null && c.channel !in Channels.current) return null
+    c.window?.let { window ->
+        if (window.kind == "none") return null
+        if (window.kind != "customer") return null
+        val human = window.state == "human_text_only"
+        val deadline = (if (human) window.humanTextClosesAt else window.closesAt) ?: 0L
+        val closed = !window.allowsHumanText
+        return WindowInfo(
+            lastCustomer = c.last_customer,
+            expiresAt = deadline,
+            remainingMs = if (closed) 0 else (deadline - maxOf(now, window.serverNow)).coerceAtLeast(0),
+            social = Channels.isSocial(c.channel),
+            humanTextOnly = human,
+            reason = window.reason?.let { channelReason(it) },
+        )
+    }
+    // Ausência de janela num canal novo não autoriza inventar a regra do WhatsApp.
+    if (c.channel != null && c.channel != "whatsapp") return null
     val kind = c.connection_id?.let { lineKinds?.get(it) }
     if (kind != null && kind != "meta" && kind != "zernio") return null
     if (c.last_customer <= 0) return WindowInfo(lastCustomer = 0, expiresAt = 0, remainingMs = 0)
@@ -99,6 +129,10 @@ fun windowInfo(c: Conversation, lineKinds: Map<String, String>?, now: Long): Win
     // O relógio da tela anda de 30 em 30 s: logo depois de uma mensagem nova o "agora" pode estar atrás dela.
     return WindowInfo(lastCustomer = c.last_customer, expiresAt = expires, remainingMs = (expires - now).coerceAtMost(WINDOW_MS))
 }
+
+fun windowInfo(detail: ConversationDetail, lineKinds: Map<String, String>?, now: Long): WindowInfo? = windowInfo(
+    detail.conversation.copy(channel = detail.channelId, window = detail.channelWindow), lineKinds, now,
+)
 
 @Composable
 fun WindowTone.color(): Color = when (this) {

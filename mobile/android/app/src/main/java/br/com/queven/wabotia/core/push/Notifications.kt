@@ -16,7 +16,7 @@ import kotlinx.serialization.builtins.serializer
 
 /**
  * Canais e montagem das notificações. O payload `data` do push segue docs/MOBILE.md:
- * type (message|queue|transfer|ticket|ticket_due|call|test), profile_id, conversation_id, ticket_id, server.
+ * type (message|queue|transfer|ticket|ticket_due|call|test), profile_id, conversation_id, ticket_id, server, channel.
  * O app não atende ligações: um push `call` vira um aviso comum que abre a conversa.
  *
  * Agrupamento: uma notificação por conversa (tag `conversation:{id}`) que acumula as últimas mensagens em
@@ -28,6 +28,15 @@ object Notifications {
     const val CHANNEL_MESSAGES = "messages"
     const val CHANNEL_QUEUE = "queue"
     const val CHANNEL_TICKETS = "tickets"
+
+    /** Canal de atendimento é metadado; nunca muda o canal de notificações do Android. */
+    data class PushPresentation(val title: String, val channel: String?)
+
+    fun presentation(notificationTitle: String?, data: Map<String, String>): PushPresentation = PushPresentation(
+        // O servidor já decide entre "Nome", "Instagram · Nome" e a prévia mínima "Wabotia".
+        title = notificationTitle?.takeIf { it.isNotBlank() } ?: data["title"]?.takeIf { it.isNotBlank() } ?: "Wabotia",
+        channel = data["channel"]?.takeIf { it.isNotBlank() },
+    )
 
     /** Canais de versões antigas (ligações ao vivo), removidos ao abrir o app. */
     private val LEGACY_CHANNELS = listOf("calls", "call_service")
@@ -80,6 +89,7 @@ object Notifications {
             data["profile_id"]?.let { appendQueryParameter("profile", it) }
             data["conversation_id"]?.let { appendQueryParameter("conversation", it) }
             data["ticket_id"]?.let { appendQueryParameter("ticket", it) }
+            presentation(null, data).channel?.let { appendQueryParameter("channel", it) }
         }.build()
         return Intent(Intent.ACTION_VIEW, uri, context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
     }

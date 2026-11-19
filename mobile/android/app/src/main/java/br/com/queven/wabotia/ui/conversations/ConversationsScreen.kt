@@ -78,6 +78,7 @@ import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.MessagePreview
 import br.com.queven.wabotia.core.listPreview
 import br.com.queven.wabotia.core.model.Conversation
+import br.com.queven.wabotia.core.model.Channels
 import br.com.queven.wabotia.core.model.Department
 import br.com.queven.wabotia.core.model.TeamContact
 import br.com.queven.wabotia.ui.components.Avatar
@@ -139,6 +140,10 @@ fun ConversationsScreen(
     val status = statuses[profileId] ?: vm.status
     val departments = remember(status) { status?.departments().orEmpty() }
     val cache = container.conversationCache
+    LaunchedEffect(status?.conversation_channels) {
+        val channels = status?.conversation_channels.orEmpty().distinct()
+        if (status != null && vm.channel != null && (channels.size < 2 || vm.channel !in channels)) vm.selectChannel(null)
+    }
 
     EventPolling(
         container = container,
@@ -212,6 +217,15 @@ fun ConversationsScreen(
             }
         }
         ConnectionStrip(container)
+        val conversationChannels = status?.conversation_channels.orEmpty().distinct()
+        if (conversationChannels.size > 1) {
+            FilterRow {
+                WbFilterChip(label = "Todos os canais", selected = vm.channel == null, onClick = { vm.selectChannel(null) })
+                conversationChannels.forEach { channel ->
+                    WbFilterChip(label = Channels.label(channel), selected = vm.channel == channel, onClick = { vm.selectChannel(channel) })
+                }
+            }
+        }
         FilterRow {
             val queue = status?.conversationCount("waiting") ?: 0
             ConversationFilter.entries.forEach { f ->
@@ -220,9 +234,9 @@ fun ConversationsScreen(
                     selected = vm.filter == f,
                     onClick = { vm.selectFilter(f) },
                     count = when (f) {
-                        ConversationFilter.Queue -> queue
+                        ConversationFilter.Queue -> queue.takeIf { vm.channel == null }
                         ConversationFilter.Mine -> vm.mineCount
-                        ConversationFilter.Bots -> status?.conversationCount("ai")
+                        ConversationFilter.Bots -> status?.conversationCount("ai")?.takeIf { vm.channel == null }
                         else -> null
                     },
                     tone = if (f == ConversationFilter.Queue && queue > 0) Wb.colors.warn else null,
@@ -262,6 +276,7 @@ fun ConversationsScreen(
                                 preview = listPreview(c, cache.previews[c.id]),
                                 unread = cache.unread[c.id] ?: 0,
                                 window = windowInfo(c, lineKinds, now),
+                                multichannel = status?.multichannel == true || c.multichannel,
                                 now = now,
                                 busy = vm.actingOn == c.id,
                                 onClick = { openConversation(c.id, null) },
@@ -400,6 +415,7 @@ private fun ConversationRow(
     preview: MessagePreview?,
     unread: Int,
     window: WindowInfo?,
+    multichannel: Boolean,
     now: Long,
     busy: Boolean,
     onClick: () -> Unit,
@@ -425,6 +441,8 @@ private fun ConversationRow(
                 size = 52.dp,
                 kind = if (c.isGroup) AvatarKind.Group else AvatarKind.Person,
                 badge = conversationBadge(c, meId),
+                channel = c.channel,
+                multichannel = multichannel,
             )
             if (busy) CircularProgressIndicator(Modifier.size(52.dp), strokeWidth = 2.5.dp, color = colors.brand)
         }

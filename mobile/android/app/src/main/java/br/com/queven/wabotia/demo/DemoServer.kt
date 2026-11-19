@@ -91,6 +91,7 @@ internal object DemoServer {
 
     private val lock = Any()
     private var state: DemoState? = null
+    private var channelsState: DemoState? = null
 
     /** A fila de senhas, o pareamento do modo aparelho e as capacidades ([DemoQueue]). */
     private var queue: DemoQueue? = null
@@ -150,7 +151,10 @@ internal object DemoServer {
                 "capabilities_version" to 1,
                 "server" to j("service" to "wabotia", "version" to "demonstração", "commit" to ""),
                 "features" to listOf("modules", "establishment"),
-                "profiles" to listOf(j("id" to Ids.PROFILE, "name" to DemoMode.PROFILE_NAME, "enabled" to true, "modules" to modules)),
+                "profiles" to listOf(
+                    j("id" to Ids.PROFILE, "name" to DemoMode.PROFILE_NAME, "enabled" to true, "modules" to modules),
+                    j("id" to Ids.CHANNEL_PROFILE, "name" to "Canais · Empresa Exemplo", "enabled" to true, "modules" to emptyList<String>()),
+                ),
                 "modules" to modules,
             ),
         )
@@ -166,6 +170,7 @@ internal object DemoServer {
         val fresh = DemoState(System.currentTimeMillis())
         fresh.seed()
         state = fresh
+        channelsState = DemoState(fresh.t0, Ids.CHANNEL_PROFILE).also { it.seedChannels() }
         queue = DemoQueue(fresh.t0)
         agenda = null
         serviceOrders = null
@@ -182,6 +187,11 @@ internal object DemoServer {
 
     fun <T> withState(block: (DemoState) -> T): T = synchronized(lock) { block(state ?: reset()) }
 
+    internal fun <T> withChannelsState(block: (DemoState) -> T): T = synchronized(lock) {
+        if (state == null) reset()
+        block(checkNotNull(channelsState))
+    }
+
     fun handle(request: Request): Reply = synchronized(lock) {
         val s = state ?: reset()
         val now = System.currentTimeMillis()
@@ -194,7 +204,7 @@ internal object DemoServer {
     // -----------------------------------------------------------------------------------------------------------
 
     private fun DemoState.emit(kind: String, resourceId: String?, payload: JsonObject, at: Long) {
-        events += j("id" to eventSeq.incrementAndGet(), "profile_id" to Ids.PROFILE, "kind" to kind, "resource_id" to resourceId, "payload" to payload, "created" to at)
+        events += j("id" to eventSeq.incrementAndGet(), "profile_id" to profileId, "kind" to kind, "resource_id" to resourceId, "payload" to payload, "created" to at)
         if (events.size > 600) events.subList(0, 200).clear()
     }
 
@@ -249,8 +259,11 @@ internal object DemoServer {
         if (path.firstOrNull() != "v1") return notFound()
         val p = path.drop(1)
         return when {
-            p == listOf("me") -> ok(j("id" to Ids.ME, "kind" to "user", "name" to s.userName(Ids.ME), "role" to "admin", "profiles" to listOf(Ids.PROFILE)))
-            p == listOf("profiles") -> ok(JsonArray(listOf(j("id" to Ids.PROFILE, "name" to DemoMode.PROFILE_NAME, "enabled" to 1, "settings" to j(), "created" to s.t0 - 200 * DAY_MS))))
+            p == listOf("me") -> ok(j("id" to Ids.ME, "kind" to "user", "name" to s.userName(Ids.ME), "role" to "admin", "profiles" to listOf(Ids.PROFILE, Ids.CHANNEL_PROFILE)))
+            p == listOf("profiles") -> ok(JsonArray(listOf(
+                j("id" to Ids.PROFILE, "name" to DemoMode.PROFILE_NAME, "enabled" to 1, "settings" to j(), "created" to s.t0 - 200 * DAY_MS),
+                j("id" to Ids.CHANNEL_PROFILE, "name" to "Canais · Empresa Exemplo", "enabled" to 1, "settings" to j(), "created" to s.t0),
+            )))
             p == listOf("logout") -> okEmpty()
             p == listOf("auth", "mobile", "refresh") -> ok(sessionJson(now))
             p == listOf("pairings", "disconnect") && method == "POST" -> ok(j("disconnected" to true))
@@ -259,7 +272,15 @@ internal object DemoServer {
             p == listOf("bot-runs") && method == "POST" -> startBotRun(s, bodyJson(request), now)
             p.size == 2 && p[0] == "bot-runs" && method == "GET" ->
                 s.botRuns.firstOrNull { it.str("id") == p[1] }?.let { ok(it.json()) } ?: notFound("Execução não encontrada.")
-            p.size >= 3 && p[0] == "profiles" -> profile(s, method, p.drop(2), request, now)
+            p.size >= 3 && p[0] == "profiles" -> {
+                val selected = when (p[1]) {
+                    Ids.PROFILE -> s
+                    Ids.CHANNEL_PROFILE -> checkNotNull(channelsState)
+                    else -> return notFound("Área não encontrada.")
+                }
+                selected.tick(now)
+                profile(selected, method, p.drop(2), request, now)
+            }
             else -> notFound()
         }
     }
@@ -267,11 +288,13 @@ internal object DemoServer {
     private fun sessionJson(now: Long): JsonObject = j(
         "token" to "wabu_demo",
         "expires" to now + 30 * DAY_MS,
-        "user" to j("id" to Ids.ME, "name" to DemoMode.USER_NAME, "email" to DemoMode.USER_EMAIL, "role" to "admin", "profiles" to listOf(Ids.PROFILE)),
+        "user" to j("id" to Ids.ME, "name" to DemoMode.USER_NAME, "email" to DemoMode.USER_EMAIL, "role" to "admin", "profiles" to listOf(Ids.PROFILE, Ids.CHANNEL_PROFILE)),
     )
 
     private fun profile(s: DemoState, method: String, r: List<String>, request: Request, now: Long): Reply {
         val url = request.url
+        // A área sintética de canais não compartilha as instâncias dos módulos da área WhatsApp.
+        if (s.multichannel && r[0] in setOf("queue", "service-orders", "agenda", "mensalidade", "forms", "suporte", "pedido", "reserva")) return notFound()
         return when (r[0]) {
             "status" -> ok(status(s))
             "presence" -> if (method == "PUT") {
@@ -295,7 +318,9 @@ internal object DemoServer {
                 s.emit("conversation.updated", r[1], j("conversation_id" to r[1]), now)
                 ok(c.json())
             } else notFound()
-            "contacts" -> r.getOrNull(1)?.let { s.contacts[it] }?.let { ok(it) } ?: notFound("Contato não encontrado.")
+            "contacts" -> r.getOrNull(1)?.let { id -> s.contacts[id]?.let { contact ->
+                if (r.getOrNull(2) == "profile") ok(contactProfile(s, id, contact)) else ok(contact)
+            } } ?: notFound("Contato não encontrado.")
             "media" -> media(s, method, r.drop(1), request)
             "tickets" -> tickets(s, method, r.drop(1), request, now)
             "bots" -> if (r.size == 1) {
@@ -418,6 +443,11 @@ internal object DemoServer {
             "conversations" to listOf("ai", "waiting", "human", "closed").map { j("state" to it, "count" to (counts[it] ?: 0)) },
             "deliveries" to pending.map { j("status" to it.key, "count" to it.value) },
             "connections" to s.lines.map { j("id" to it.str("id"), "name" to it.str("name"), "kind" to it.str("kind"), "status" to it.str("status"), "last_seen" to System.currentTimeMillis() - 20_000) },
+            "multichannel" to s.multichannel,
+            "connected_channels" to if (s.multichannel) listOf("whatsapp", "instagram", "facebook") else listOf("whatsapp"),
+            "conversation_channels" to if (s.multichannel) listOf("whatsapp", "instagram", "facebook") else listOf("whatsapp"),
+            "email_transcript" to j("available" to true, "reason" to null),
+            "future_channels" to listOf("tiktok", "googlebusiness", "telegram", "email").map { j("channel" to it, "enabled" to false) },
         )
     }
 
@@ -476,27 +506,36 @@ internal object DemoServer {
             val url = request.url
             val state = url.queryParameter("state")?.takeIf { it.isNotBlank() }
             val query = url.queryParameter("q")?.trim()?.lowercase()?.takeIf { it.isNotEmpty() }
+            val channel = url.queryParameter("channel")?.takeIf { it.isNotBlank() }
+            if (channel != null && channel !in setOf("whatsapp", "instagram", "facebook", "tiktok", "googlebusiness", "telegram", "email")) {
+                return invalid("Canal desconhecido.")
+            }
             val limit = url.queryParameter("limit")?.toIntOrNull()?.coerceIn(1, 200) ?: 50
+            val cursor = url.queryParameter("cursor")?.toIntOrNull()?.coerceAtLeast(0) ?: 0
             val digits = query?.filter { it.isDigit() }.orEmpty()
             val list = s.conversations.values
                 .filter { state == null || it.str("state") == state }
+                .filter { channel == null || (it.str("channel") ?: "whatsapp") == channel }
                 .filter { c ->
                     if (query == null) return@filter true
                     val name = (c.str("contact_name") ?: c.str("title")).orEmpty().lowercase()
                     name.contains(query) || (digits.length >= 3 && c.str("phone").orEmpty().contains(digits))
                 }
                 .sortedByDescending { it.long("updated") }
-                .take(limit)
-            return ok(j("data" to list.map { JsonObject(it + ("last_message" to lastMessage(s, it.str("id").orEmpty()))) }, "next_cursor" to null))
+            val page = list.drop(cursor).take(limit)
+            return ok(j("data" to page.map {
+                JsonObject(it + channelView(s, it, now) + ("last_message" to lastMessage(s, it.str("id").orEmpty())))
+            }, "next_cursor" to if (cursor + page.size < list.size) (cursor + page.size).toString() else null))
         }
         val id = r[0]
         val c = s.conversations[id] ?: return notFound("Conversa não encontrada.")
         return when (r.getOrNull(1)) {
-            null -> ok(detail(s, c))
+            null -> ok(detail(s, c, now))
+            "email" -> transcript(s, c, method, r.drop(2), request, now)
             "actions" -> {
                 val body = bodyJson(request)
                 // Formulário e cobrança repetidos com a mesma chave devolvem o mesmo link ou a mesma cobrança.
-                if (body.str("action") in setOf("form", "charge")) actionReplays.run(request.header("Idempotency-Key"), listOf(id, "actions"), body) { action(s, c, body, now) }
+                if (s.multichannel || body.str("action") in setOf("form", "charge")) actionReplays.run(request.header("Idempotency-Key"), listOf(s.profileId, id, "actions"), body) { action(s, c, body, now) }
                 else action(s, c, body, now)
             }
             "message-actions" -> messageAction(s, c, bodyJson(request), now)
@@ -505,6 +544,12 @@ internal object DemoServer {
     }
 
     private fun capabilities(c: Map<String, JsonElement>): JsonObject {
+        if (c.str("channel") in setOf("instagram", "facebook")) return j(
+            "text" to true, "image" to true, "video" to true, "audio" to true, "document" to true,
+            "voice" to false, "sticker" to false, "location" to false, "contacts" to false, "reply" to false,
+            "reaction" to false, "read" to true, "calls" to false, "edit" to false, "delete" to false,
+            "mentions" to false, "groups" to false,
+        )
         val zernio = c.str("connection_id") == Ids.LINE_ZERNIO
         val group = c.str("chat_type") == "group"
         return j(
@@ -519,25 +564,159 @@ internal object DemoServer {
         return (runCatching { Json.parseToJsonElement(raw) as? JsonArray }.getOrNull())?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.orEmpty()
     }
 
-    private fun detail(s: DemoState, c: Row): JsonObject {
+    private fun detail(s: DemoState, c: Row, now: Long): JsonObject {
         val id = c.str("id").orEmpty()
         val messages = s.messages[id].orEmpty()
         val media = messages.flatMap { attachmentIds(it) }.distinct().mapNotNull { s.media[it] }
             .map { j("id" to it.id, "name" to it.name, "type" to it.type, "size" to it.size) }
-        return j(
-            "conversation" to c.json(),
+        return JsonObject(j(
+            "conversation" to JsonObject(c + channelView(s, c, now)),
             "media" to media,
-            "capabilities" to capabilities(c),
+            "capabilities" to JsonObject(capabilities(c) + channelView(s, c, now)),
             "group" to s.groups[id],
             "contact" to c.str("contact_id")?.let { s.contacts[it] },
             "messages" to messages.map { it.json() },
             "deliveries" to s.deliveries[id].orEmpty().map { it.json() },
             // Passagem feita por módulo (o Suporte pago passou a conversa à equipe); `null` nas outras.
-            "handoff" to suporteOf(s).handoff(id),
+            "handoff" to if (s.multichannel) null else suporteOf(s).handoff(id),
             // Cobranças e links de passo web da conversa, do mais novo para o mais antigo.
-            "payments" to cobrancaOf(s).paymentsOf(id),
-            "web_steps" to cobrancaOf(s).stepsOf(id),
+            "payments" to if (s.multichannel) emptyList<JsonObject>() else cobrancaOf(s).paymentsOf(id),
+            "web_steps" to if (s.multichannel) emptyList<JsonObject>() else cobrancaOf(s).stepsOf(id),
+            "other_conversations" to otherConversations(s, c.str("contact_id"), id),
+            "email_transcript" to transcriptOptions(c),
+        ) + channelView(s, c, now))
+    }
+
+    private fun channelView(s: DemoState, c: Map<String, JsonElement>, now: Long): JsonObject {
+        if (!s.multichannel) return j()
+        val social = c.str("channel") in setOf("instagram", "facebook")
+        val last = c.long("last_customer")
+        val valid = last > 0 && last <= now
+        val open = valid && now < last + DAY_MS
+        val human = valid && social && now < last + 7 * DAY_MS
+        return j(
+            "channel" to c.str("channel"), "account_label" to c.str("account_label"), "multichannel" to true,
+            "templates" to !social, "subject" to false, "public_reply" to false, "modules" to !social,
+            "can_initiate" to !social,
+            "menu" to j("buttons" to 3, "quickReplies" to if (social) 13 else 0, "listItems" to if (social) 0 else 10, "fallback" to "numbered_text"),
+            "window" to j(
+                "kind" to "customer", "state" to if (open) "open" else if (human) "human_text_only" else "closed",
+                "serverNow" to now, "closesAt" to if (valid) last + DAY_MS else null,
+                "humanTextClosesAt" to if (valid && social) last + 7 * DAY_MS else null,
+                "remainingMessages" to null, "canHumanText" to (open || human), "canAutomation" to open,
+                "reason" to if (open) null else if (human) "human_only" else "window_closed",
+            ),
         )
+    }
+
+    private fun otherConversations(s: DemoState, contactId: String?, except: String? = null): List<JsonObject> {
+        if (contactId == null) return emptyList()
+        return s.conversations.values.filter { it.str("contact_id") == contactId && it.str("id") != except }.map { c ->
+            j("id" to c.str("id"), "channel" to (c.str("channel") ?: "whatsapp"),
+                "account_label" to c.str("account_label").orEmpty(), "title" to c.str("contact_name"),
+                "state" to c.str("state"), "updated" to c.long("updated"))
+        }
+    }
+
+    private fun contactProfile(s: DemoState, id: String, contact: JsonObject): JsonObject = j(
+        "profileId" to s.profileId, "contactId" to id, "erpContactId" to null, "depth" to "simple",
+        "vocabulary" to j("singular" to "Contato", "plural" to "Contatos"), "writable" to false,
+        "readable" to true, "contributions" to emptyList<String>(),
+        "channels" to s.conversations.values.filter { it.str("contact_id") == id }.map { c ->
+            j("id" to "identity-${c.str("id")}", "channel" to (c.str("channel") ?: "whatsapp"),
+                "account_label" to c.str("account_label").orEmpty(), "display_name" to contact.str("name"),
+                "username" to if (c.str("channel") == "instagram") "@lia.exemplo" else "",
+                "state" to "ready", "connection_id" to c.str("connection_id"), "subject_masked" to "••••")
+        },
+        "other_conversations" to otherConversations(s, id),
+        "merge" to j("available" to true, "reason" to null, "merged_into" to null, "merge_id" to null, "can_undo" to false),
+    )
+
+    private fun transcriptOptions(c: Map<String, JsonElement>): JsonObject {
+        val reason = when {
+            c.str("id") == Ids.C_EMAIL_DENIED -> "permission_denied"
+            c.str("id") == Ids.C_EMAIL_DISABLED -> "email_not_configured"
+            c.str("chat_type") != "direct" -> "Somente conversas externas individuais."
+            else -> null
+        }
+        return j("available" to (reason == null), "reason" to reason,
+            "destinations" to if (reason == null || reason == "email_not_configured") listOf("self", "contact", "custom") else emptyList<String>(),
+            "ranges" to listOf("session", "dates"),
+            "limits" to j("maxMessages" to 2000, "maxTextChars" to 50000, "maxHtmlChars" to 200000,
+                "actorPer24Hours" to 10, "profilePer24Hours" to 50, "previewTtlMs" to 600000))
+    }
+
+    /** Simula A7 em memória: nenhum transporte de e-mail é chamado e nenhuma nota é selecionada. */
+    private fun transcript(s: DemoState, c: Row, method: String, r: List<String>, request: Request, now: Long): Reply {
+        if (method != "POST" || r !in listOf(emptyList<String>(), listOf("preview"))) return notFound()
+        val options = transcriptOptions(c)
+        if (options.bool("available") != true) return Reply.error(403, "transcript_unavailable", options.str("reason").orEmpty())
+        // Prévia é leitura autorizada. Somente o envio altera registros e exige chave do cliente.
+        val key = request.header("Idempotency-Key")?.takeIf { it.isNotBlank() }
+            ?: if (r == listOf("preview")) s.nextId("preview-read") else return Reply.error(400, "idempotency_required", "Envie Idempotency-Key.")
+        val body = bodyJson(request)
+        val id = c.str("id").orEmpty()
+        if (r == listOf("preview")) return actionReplays.run(key, listOf(s.profileId, id, "email", "preview"), body) {
+            val destination = body["destination"] as? JsonObject ?: return@run invalid("Escolha o destino.")
+            val kind = destination.str("kind")
+            val recipient = when (kind) {
+                "self" -> DemoMode.USER_EMAIL
+                "contact" -> s.contacts[c.str("contact_id")]?.str("email").orEmpty()
+                "custom" -> destination.str("address")?.trim()?.lowercase().orEmpty()
+                else -> return@run invalid("Destino inválido.")
+            }
+            // A demo aceita apenas endereços reservados, sem destinatário real.
+            if (!Regex("^[^@\\s]+@[^@\\s]+\\.example$").matches(recipient)) return@run invalid("Use um e-mail fictício terminado em .example na demonstração.")
+            val range = body["range"] as? JsonObject ?: return@run invalid("Escolha o período.")
+            val publicMessages = s.messages[id].orEmpty().filter { it.str("direction") in setOf("customer", "outbound") }
+            val selected: List<Row>
+            val from: Long
+            val to: Long
+            when (range.str("kind")) {
+                "session" -> {
+                    fun session(m: Row) = runCatching { (Json.parseToJsonElement(m.str("content").orEmpty()) as? JsonObject)?.str("customerSession") }.getOrNull()
+                    val active = publicMessages.lastOrNull { it.str("direction") == "customer" }?.let(::session)
+                        ?: return@run Reply.error(409, "session_unavailable", "Escolha um intervalo de datas para esta conversa antiga.")
+                    selected = publicMessages.filter { session(it) == active }
+                    from = selected.minOfOrNull { it.long("created") } ?: now
+                    to = now
+                }
+                "dates" -> {
+                    from = range.longOrNull("from") ?: return@run invalid("Informe a data inicial.")
+                    to = range.longOrNull("to") ?: return@run invalid("Informe a data final.")
+                    if (from < 0 || from > to) return@run invalid("Período inválido.")
+                    selected = publicMessages.filter { it.long("created") in from..to }
+                }
+                else -> return@run invalid("Período inválido.")
+            }
+            val textChars = selected.sumOf { it.str("text").orEmpty().length }
+            if (selected.size > 2000 || textChars > 50000) return@run invalid("Escolha um período menor.")
+            val token = s.nextId("preview")
+            val preview = j("recipient" to recipient, "period" to j("from" to from, "to" to to),
+                "messageCount" to selected.size, "size" to j("textChars" to textChars, "htmlChars" to textChars * 2),
+                "warnings" to listOf("Demonstração: nenhum e-mail será enviado.", "Notas internas e arquivos não são incluídos."),
+                "requiresConfirmation" to (kind != "self"), "requiresCustomerRequest" to (kind == "contact"),
+                "previewToken" to token, "expiresAt" to now + 600000)
+            s.transcriptPreviews[token] = JsonObject(preview + j("conversationId" to id, "destinationKind" to kind))
+            ok(preview)
+        }
+        val receiptKey = "${s.profileId}:${Ids.ME}:$key"
+        val existing = s.transcriptReceipts[receiptKey]
+        if (existing != null) {
+            if (existing.first != JsonObject(body + j("conversationId" to id))) return Reply.error(409, "idempotency_conflict", "A mesma chave foi usada com outro pedido.")
+            return ok(JsonObject(existing.second + j("duplicate" to true)))
+        }
+        val preview = s.transcriptPreviews[body.str("previewToken")] ?: return invalid("Faça uma nova prévia.")
+        if (preview.str("conversationId") != id || preview.long("expiresAt") <= now) return invalid("A prévia expirou. Gere uma nova prévia.")
+        val recipient = preview.str("recipient").orEmpty()
+        if (preview.str("destinationKind") == "contact" && s.contacts[c.str("contact_id")]?.str("email") != recipient) return Reply.error(409, "preview_changed", "O endereço mudou. Gere uma nova prévia.")
+        if (preview.bool("requiresConfirmation") == true && body.str("confirmedRecipient") != recipient) return invalid("Confirme o endereço exibido.")
+        if (preview.bool("requiresCustomerRequest") == true && body.bool("customerRequested") != true) return invalid("Confirme que o cliente pediu o envio.")
+        if (s.transcriptReceipts.size >= 10) return Reply.error(429, "transcript_quota", "Limite de demonstração atingido.")
+        val result = j("id" to s.nextId("email"), "status" to "sent", "to_masked" to "${recipient.take(1)}•••@${recipient.substringAfter('@')}", "duplicate" to false)
+        s.transcriptReceipts[receiptKey] = JsonObject(body + j("conversationId" to id)) to result
+        s.addMessage(id, "note", Ids.ME, "Conversa enviada por e-mail para ${result.str("to_masked")} (simulação).", now, id = "note-${result.str("id")}")
+        return ok(result)
     }
 
     private fun DemoState.system(conversationId: String, text: String, at: Long) {
@@ -559,8 +738,10 @@ internal object DemoServer {
     /** Mensagem de saída (minha ou automática), com a progressão enviada → entregue → lida. */
     private fun DemoState.outbound(c: Row, text: String, now: Long, content: JsonObject = j("type" to "text"), attachments: List<String> = emptyList()): Row {
         val id = c.str("id").orEmpty()
-        val queued = windowClosed(c, now)
-        val message = addMessage(id, "outbound", Ids.ME, text, now, if (queued) "pending" else "sent", content, attachments, id = nextId("m-$id-o"))
+        val social = c.str("channel") in setOf("instagram", "facebook")
+        val queued = !social && windowClosed(c, now)
+        val enriched = if (social) JsonObject(content + j("customerSession" to "session-$id")) else content
+        val message = addMessage(id, "outbound", Ids.ME, text, now, if (queued) "pending" else "sent", enriched, attachments, id = nextId("m-$id-o"))
         val messageId = message.str("id")
         if (queued) {
             deliveries.getOrPut(id) { ArrayList() } += row("id" to "d-$messageId", "status" to "pending", "error" to null, "created" to now, "message_id" to messageId)
@@ -636,6 +817,22 @@ internal object DemoServer {
         val me = Ids.ME
         val owner = c.str("owner")
         val mine = owner == me && c.str("state") == "human"
+        val social = c.str("channel") in setOf("instagram", "facebook")
+        if (social) {
+            val action = body.str("action")
+            if (action in setOf("form", "charge")) return Reply.error(409, "unsupported_content", "Módulos estão disponíveis somente no WhatsApp.")
+            val window = channelView(s, c, now)["window"] as? JsonObject
+            if (action in setOf("reply", "menu", "protocols", "survey", "resume") || (action == "transfer" && body.str("target").orEmpty().startsWith("bot:"))) {
+                if (window?.bool("canHumanText") != true) return Reply.error(409, "window_closed", "A janela encerrou. Aguarde nova mensagem do cliente.")
+                val files = body["attachments"] as? JsonArray
+                val content = body["content"] as? JsonObject
+                val humanText = action == "reply" && files.isNullOrEmpty() && content?.str("type").let { it == null || it == "text" }
+                if (window.bool("canAutomation") != true && !humanText) return Reply.error(409, "human_only", "Somente texto escrito por pessoa é permitido nesta janela.")
+                if (action == "reply" && (content?.containsKey("reply_to") == true || content?.str("type") in setOf("contacts", "location", "sticker", "voice"))) {
+                    return Reply.error(409, "unsupported_content", "Conteúdo indisponível neste canal.")
+                }
+            }
+        }
         when (val action = body.str("action")) {
             "claim" -> {
                 if (mine) return ok(c.json())
