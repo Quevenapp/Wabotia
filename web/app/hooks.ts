@@ -50,32 +50,36 @@ export const useCompact = () => useMedia("(max-width: 759px)");
 export function useAction() {
   const { demoBlocked } = useApp();
   const [busy, setBusy] = useState<string | null>(null);
-  const alive = useRef(true);
-  useEffect(
-    () => () => {
-      alive.current = false;
-    },
-    [],
-  );
+  const alive = useRef(false);
+  const attempt = useRef(0);
+  useEffect(() => {
+    alive.current = true;
+    setBusy(null);
+    return () => { alive.current = false; attempt.current++; };
+  }, []);
   const run = useCallback(
     async function run<T>(
       fn: () => Promise<T>,
       options: { success?: string; key?: string; retry?: boolean } = {},
     ): Promise<T | undefined> {
-      if (demoBlocked()) return undefined;
+      if (!alive.current || demoBlocked()) return undefined;
+      const current = ++attempt.current;
+      const active = () => alive.current && current === attempt.current;
       setBusy(options.key || "busy");
       try {
         const result = await fn();
+        if (!active()) return undefined;
         if (options.success) toast(options.success);
         return result;
       } catch (error) {
+        if (!active() || (error as { name?: string })?.name === "AbortError") return undefined;
         toastError(
           error,
           options.retry === false ? undefined : () => void run(fn, options),
         );
         return undefined;
       } finally {
-        if (alive.current) setBusy(null);
+        if (active()) setBusy(null);
       }
     },
     [demoBlocked],

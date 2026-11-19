@@ -11,7 +11,7 @@ import { isNativeManagementPage } from "../management/routes";
 import { portedTargetState } from "../management/ported-policy";
 import { MANAGEMENT_ITEMS, canEnterManagement, managementContext, nativeTargetState, normalizedManagementHref, resolveManagement } from "../management/registry";
 import { useWorkNavigation } from "../modules/os/work-navigation";
-import type { Disposable, ErpHostContext, ErpMountProps, MountCustomerProfile, PortedTargetState } from "../management/host-contract";
+import type { Disposable, ErpHostContext, ErpMountProps, ErpPermissions, MountCustomerProfile, PortedTargetState } from "../management/host-contract";
 import type { FullCustomerHost } from "../contact-profile/host-port";
 
 /** Testável por injeção: estado leve não inicia import nem prefetch. */
@@ -19,6 +19,24 @@ export function loadAuthorizedPorted<T>(state: PortedTargetState, load: () => Pr
   if (state !== "allowed") return null;
   prefetch();
   return load();
+}
+
+/** Guarda da casca enquanto Activity remove os efeitos do editor suspenso. */
+let heldDraftOwner: symbol | null = null;
+export function holdManagementDraft(check: () => boolean, target: EventTarget = window) {
+  const owner = Symbol("suspended-draft"); heldDraftOwner = owner;
+  const preventLoss = (event: Event) => {
+    if (heldDraftOwner !== owner || !check()) return;
+    event.preventDefault(); (event as BeforeUnloadEvent).returnValue = "";
+  };
+  setNavigationGuard(check);
+  target.addEventListener("beforeunload", preventLoss);
+  let disposed = false;
+  return () => {
+    if (disposed) return;
+    disposed = true; target.removeEventListener("beforeunload", preventLoss);
+    if (heldDraftOwner === owner) { heldDraftOwner = null; setNavigationGuard(null); }
+  };
 }
 
 /**
@@ -184,12 +202,17 @@ export function ErpArea() {
   const app = useApp();
   const route = useRoute();
   const work = useWorkNavigation();
+  const identity = JSON.stringify([app.profile, app.me.id, app.demo]);
   const context = managementContext({
     statusLoaded: app.statusLoaded, modules: app.modules,
     role: app.me.role, access: app.me.access ?? null,
     vocabulary: { ...app.settings.os_vocabulary, collection_label: work.label },
   });
-  const items = [...resolveManagement(MANAGEMENT_ITEMS, context, erpSimulated(app.demo))];
+  const [accessReport, setAccessReport] = useState<{ identity: string; permissions: ErpPermissions | null } | null>(null);
+  const permissions = route.erpPath && accessReport?.identity === identity &&
+    accessReport.permissions?.apiUrl === erpApiUrl(app.profile) &&
+    (app.demo || accessReport.permissions.userId === String(app.me.id)) ? accessReport.permissions : null;
+  const items = [...resolveManagement(MANAGEMENT_ITEMS, context, erpSimulated(app.demo), permissions)];
   const workItem = items.find((item) => item.id === "os.work");
   if (workItem) {
     for (const type of work.types) items.push({
@@ -213,21 +236,24 @@ export function ErpArea() {
   const [chromeTarget, setChromeTarget] = useState<HTMLDivElement | null>(null);
   const selection = href(route);
   const last = useRef<{ selection: string; identity: string; guarded: boolean; suspended?: boolean } | null>(null);
-  if (state === "allowed") last.current = { selection, identity: app.identityKey, guarded: navigationGuarded() };
+  const fineState = ported && state === "allowed" ? portedTargetState(ported, context, erpSimulated(app.demo), permissions) : state;
+  const waitingPermission = state === "allowed" && (fineState === "loading" || fineState === "unavailable") &&
+    last.current?.selection === selection && last.current.identity === identity && last.current.suspended;
+  if (state === "allowed" && !waitingPermission) last.current = { selection, identity, guarded: navigationGuarded() };
   const retained = (state === "disabled" || state === "loading") &&
-    last.current?.selection === selection && last.current.identity === app.identityKey;
+    last.current?.selection === selection && last.current.identity === identity;
   if (state !== "allowed" && !retained) last.current = null;
   // Activity desmonta efeitos (incluindo a guarda da tela), mas conserva estado.
   if (retained && last.current && !last.current.suspended) {
     last.current.guarded = navigationGuarded();
     last.current.suspended = true;
   }
-  const heldGuard = retained && last.current?.guarded;
+  const heldGuard = (retained || waitingPermission) && last.current?.guarded;
   useEffect(() => {
     if (!heldGuard) return;
-    setNavigationGuard(() => true);
-    return () => setNavigationGuard(null);
-  }, [heldGuard]);
+    return holdManagementDraft(() => !!last.current?.suspended && last.current.selection === selection &&
+      last.current.identity === identity && last.current.guarded);
+  }, [heldGuard, selection, identity]);
   const actor = String(app.me.id);
   const authorized = !entry && !!ported && state === "allowed";
   useEffect(() => {
@@ -235,7 +261,7 @@ export function ErpArea() {
       actor, profile: app.profile, simulated: erpSimulated(app.demo),
     });
     return () => prefetch.dispose();
-  }, [authorized, actor, app.demo, app.profile, app.identityKey, app.contextGeneration]);
+  }, [authorized, actor, app.demo, app.profile, identity, app.contextGeneration]);
 
   const [dialog, setDialog] = useState<null | { kind: "mfa"; done(): void } | { kind: "account" }>(null);
   const pendingIdentity = useRef<(() => void) | null>(null);
@@ -246,6 +272,12 @@ export function ErpArea() {
   };
   const mountProps: ErpMountProps = {
     profile: app.profile, actor, demo: app.demo, management: context,
+    suspended: state !== "allowed",
+    onPermissions: (value) => setAccessReport(previous => previous?.identity === identity && previous.permissions === value
+      ? previous : { identity: identity, permissions: value }),
+    subscribePermissions: (recheck) => app.onEvents(events => {
+      if (events.some(event => event.kind === "resync" || /^(user|person|access|profile)\.(changed|updated|deleted)$/.test(event.kind))) recheck();
+    }),
     embedded: true, chromeTarget,
     onModules: () => navigate({ area: "admin", page: "modules" }),
     onPeople: () => navigate({ area: "admin", page: "users" }),
@@ -263,14 +295,14 @@ export function ErpArea() {
     {failedStatus && <Empty title="Não foi possível abrir a gestão" description={app.statusError}
       action={<Button onClick={() => void app.refresh().catch(() => {})}>Tentar novamente</Button>} />}
     {!entry && state !== "allowed" && <ManagementState state={state} admin={app.isAdmin} retained={!!retained} />}
-    {!entry && (state === "allowed" || retained) && <ManagementRequestBoundary enabled={state === "allowed"}>
-      <Activity mode={state === "allowed" ? "visible" : "hidden"}>
+    {!entry && (state === "allowed" || retained) && <ManagementRequestBoundary key={identity} enabled={state === "allowed"}>
+      {ported ? <div className="management-page erp-area"><PortedContent target={ported} props={mountProps} /></div> : <Activity mode={state === "allowed" ? "visible" : "hidden"}>
         <div className={"management-page" + (ported ? " erp-area" : "")}>
           {route.page && isNativeManagementPage(route.page)
             ? <ManagementPage page={route.page} />
-            : ported ? <PortedContent target={ported} props={mountProps} /> : null}
+            : null}
         </div>
-      </Activity>
+      </Activity>}
     </ManagementRequestBoundary>}
     {dialog?.kind === "mfa" && <MfaPrompt factor={Boolean(app.me.mfa?.factor)} onClose={closeDialog} />}
     {dialog?.kind === "account" && <AccountDialog onClose={closeDialog} />}

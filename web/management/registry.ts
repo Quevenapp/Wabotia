@@ -10,7 +10,7 @@ import { resourcesForRole } from "../../src/erp/role-resources";
 import { canOpenPage, type PageId } from "../workspace-navigation";
 import { href } from "../lib/routes";
 import { portedTargetState } from "./ported-policy";
-import type { PortedTargetState } from "./host-contract";
+import type { ErpPermissions, PortedTargetState } from "./host-contract";
 import type { Api } from "../lib/api";
 
 export const MANAGEMENT_ITEMS: readonly ManagementItem[] = [
@@ -71,6 +71,7 @@ export function resolveManagement(
   items: readonly ManagementItem[],
   c: ManagementContext,
   simulated = false,
+  permissions?: ErpPermissions | null,
 ): readonly ResolvedManagementItem[] {
   const ids = new Set<string>();
   for (const item of items) {
@@ -85,7 +86,7 @@ export function resolveManagement(
     .filter((item) => permits(item, c) && (item.target.kind === "native"
       ? c.modules[item.module] === true &&
         canOpenPage(item.target.page, c.role, c.modules, c.access && [...c.access])
-      : portedTargetState(item.target.to, c, simulated) === "allowed"))
+      : portedTargetState(item.target.to, c, simulated, permissions) === "allowed"))
     .flatMap((item) => {
       const destination = managementItemHref(item);
       const key = normalizedManagementHref(destination);

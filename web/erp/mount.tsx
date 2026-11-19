@@ -1,14 +1,15 @@
 // Hospedagem autorizada do conteúdo portado. Somente o roteador principal escreve no histórico.
-import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import React, { Activity, Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router-dom";
 import App from "./app/App";
 import { UnsavedChangesProvider, useUnsavedChangesGuard } from "./app/hooks/useUnsavedChanges";
-import { bindManagementRouter, setNavigationGuard, navigate, parseRoute } from "../lib/routes";
+import { protectBeforeUnload } from "./app/lib/unsaved-changes-store";
+import { bindManagementRouter, setNavigationGuard, navigate, parseRoute, href as routeHref } from "../lib/routes";
 import type { BindManagementRouter, ErpMountProps, MountCustomerProfile, CustomerProfileHostOptions } from "../management/host-contract";
 import type { ManagementRouterBridge } from "../../src/modules/panel-contract";
 import { portedTargetState, portedUrl } from "../management/ported-policy";
-import { acquireErpHost, ErpHostProvider, ErpToolsScope, useErpHost, TargetNotice, type ErpHostRuntime } from "./host-runtime";
+import { acquireErpHost, ErpHostProvider, ErpToolsScope, useErpHost, useErpHostView, TargetNotice, type ErpHostRuntime } from "./host-runtime";
 import { erpSimulated } from "./fetch-port";
 import type { AccessController, AccessState } from "./app/lib/real-access";
 import type { CatalogAccess, CatalogRecord } from "./app/lib/catalog-base";
@@ -34,6 +35,10 @@ export function registerErpGuard(guard: () => boolean) {
     if (!guards.size) setNavigationGuard(null);
   };
 }
+function holdGuard(check: () => boolean) {
+  const navigation = registerErpGuard(check), unload = protectBeforeUnload(window, check);
+  return () => { navigation(); unload(); };
+}
 function GuardBridge() {
   const guard = useUnsavedChangesGuard();
   useEffect(() => registerErpGuard(() => guard.store.shouldBlock()), [guard]);
@@ -41,6 +46,7 @@ function GuardBridge() {
 }
 
 type MemoryRouter = ReturnType<typeof createMemoryRouter>;
+const connections = new WeakMap<MemoryRouter, ManagementRouterBridge>();
 const localUrl = (location: MemoryRouter["state"]["location"]) => location.pathname + location.search + location.hash;
 function publicTarget(to: string): string {
   const url = portedUrl(to);
@@ -49,10 +55,27 @@ function publicTarget(to: string): string {
   return url.pathname + url.search + url.hash;
 }
 
+/** Retira só os campos de sessão, sem reserializar filtros, escapes ou repetições. */
+export function internalErpTarget(to: string): string {
+  const url = portedUrl(publicTarget(to))!;
+  const fields = url.search.slice(1).split("&").filter(field => {
+    const params = new URLSearchParams(field);
+    return !params.has("demo") && !params.has("pair");
+  }).join("&");
+  return url.pathname + (fields ? "?" + fields : "") + url.hash;
+}
+
+function publicHref(to: string) {
+  const url = portedUrl(publicTarget(to))!;
+  if (!["demo", "pair"].some(key => new URLSearchParams(location.search).has(key))) return url.pathname + url.search + url.hash;
+  return routeHref(parseRoute(url.pathname, url.search, url.hash));
+}
+
 /** O navigate do React Router termina cedo quando bloqueado; esta ponte espera a decisão. */
 export function connectErpRouter(router: MemoryRouter, bind: BindManagementRouter = bindManagementRouter): ManagementRouterBridge {
   let disposed = false, last = localUrl(router.state.location);
-  let pending: { resolve(): void; reject(error: unknown): void; blocked: boolean; started: boolean } | null = null;
+  let lastPublic = publicHref(last);
+  let pending: { resolve(): void; reject(error: unknown): void; blocked: boolean; started: boolean; target: string; publicTarget: string; locationKey: string } | null = null;
   let connection: ReturnType<BindManagementRouter> | undefined;
   let inFlight: Promise<void> | null = null;
   const settled = () => router.state.navigation.state === "idle" && [...router.state.blockers.values()].every(blocker => blocker.state === "unblocked");
@@ -61,9 +84,11 @@ export function connectErpRouter(router: MemoryRouter, bind: BindManagementRoute
     const blocked = [...router.state.blockers.values()].some(blocker => blocker.state !== "unblocked");
     if (pending && blocked) pending.blocked = true;
     const to = localUrl(router.state.location);
-    if (settled() && to !== last) {
-      last = to;
-      try { connection?.publish(to, router.state.historyAction === "PUSH" ? "push" : "replace"); }
+    const accepted = pending?.target === to && pending.locationKey !== router.state.location.key;
+    const published = accepted ? pending!.publicTarget : publicHref(to);
+    if (settled() && (to !== last || accepted && published !== lastPublic)) {
+      last = to; lastPublic = published;
+      try { connection?.publish(published, router.state.historyAction === "PUSH" ? "push" : "replace"); }
       catch (error) { pending?.reject(error); pending = null; return; }
     }
     if (pending?.started && settled()) { const done = pending; pending = null; done.resolve(); }
@@ -71,15 +96,15 @@ export function connectErpRouter(router: MemoryRouter, bind: BindManagementRoute
   const unsubscribe = router.subscribe(inspect);
   const bridge: ManagementRouterBridge = {
     navigate(to, options) {
-      let target: string;
-      try { target = publicTarget(to); } catch (error) { return Promise.reject(error); }
+      let target: string, publicTo: string;
+      try { target = internalErpTarget(to); publicTo = publicHref(to); } catch (error) { return Promise.reject(error); }
       // Cliques enquanto a decisão está aberta pertencem à mesma transação.
       // Enfileirá-los reabria a confirmação depois de um cancelamento.
       if (inFlight) return inFlight;
       const run = () => new Promise<void>((resolve, reject) => {
         if (disposed) { reject(new Error("ERP_ROUTER_DISPOSED")); return; }
         if (!settled()) { reject(new Error("ERP_ROUTER_BUSY")); return; }
-        pending = { resolve, reject, blocked: false, started: true };
+        pending = { resolve, reject, blocked: false, started: true, target, publicTarget: publicTo, locationKey: router.state.location.key };
         // Usar caminho absoluto no roteador com basename duplicaria /app/erp.
         const relative = target.slice(ERP_BASENAME.length);
         try {
@@ -95,19 +120,25 @@ export function connectErpRouter(router: MemoryRouter, bind: BindManagementRoute
     dispose() {
       if (disposed) return;
       disposed = true;
+      if (connections.get(router) === bridge) connections.delete(router);
       unsubscribe(); connection?.dispose();
       pending?.reject(new Error("ERP_ROUTER_DISPOSED")); pending = null;
     },
   };
   try { connection = bind(bridge); } catch (error) { bridge.dispose(); throw error; }
+  connections.set(router, bridge);
   return bridge;
 }
 
 function TargetGate({ runtime }: { runtime: ErpHostRuntime }) {
+  useErpHostView();
   const location = useLocation();
   const context = runtime.context();
-  const state = portedTargetState(location.pathname + location.search + location.hash, context.management, erpSimulated(context.demo));
-  if (state !== "allowed") return <TargetNotice state={state} />;
+  const target = location.pathname + location.search + location.hash;
+  const state = portedTargetState(target, context.management, erpSimulated(context.demo));
+  const opened = useRef<string | null>(null);
+  if (state === "allowed") opened.current = target;
+  if (state !== "allowed" && !((state === "disabled" || state === "loading") && opened.current === target)) return <TargetNotice state={state} />;
   return <App />;
 }
 
@@ -115,20 +146,40 @@ function HostTree({ runtime, props }: { runtime: ErpHostRuntime; props: ErpMount
   const [router, setRouter] = useState<MemoryRouter | null>(null);
   // Atualizações do portal/callbacks não recriam o roteador nem descartam edições.
   const view = useMemo(() => ({ runtime, embedded: true, chromeTarget: props.chromeTarget, router, ToolsScope: ErpToolsScope,
+    suspended: props.suspended, holdGuard, Activity,
     bindLinks: (element: HTMLElement | null) => keepLinksInside(element, router),
-  }), [runtime, props.chromeTarget, router]);
+  }), [runtime, props.chromeTarget, router, props.management, props.suspended]);
   useEffect(() => {
-    const initial = publicTarget(location.pathname + location.search + location.hash);
+    const initial = internalErpTarget(location.pathname + location.search + location.hash);
     const next = createMemoryRouter([{ path: "*", element: <UnsavedChangesProvider><GuardBridge /><TargetGate runtime={runtime} /></UnsavedChangesProvider> }],
       { basename: ERP_BASENAME, initialEntries: [initial] });
     let bridge: ManagementRouterBridge;
     try { bridge = connectErpRouter(next); } catch (error) { next.dispose(); throw error; }
+    let previous = localUrl(next.state.location);
+    // Instala antes de RouterProvider: a nova página já nasce sob a verificação.
+    const stop = next.subscribe(state => {
+      const target = localUrl(state.location);
+      if (target !== previous) { previous = target; runtime.controller.retry(); }
+    });
     setRouter(next);
-    return () => { bridge.dispose(); next.dispose(); setRouter(null); };
+    return () => { stop(); bridge.dispose(); next.dispose(); setRouter(null); };
   }, [runtime]);
+  useEffect(() => {
+    if (props.suspended) return;
+    runtime.controller.verifyPermissions();
+    const recheck = () => { if (!document.hidden) runtime.controller.retry(); };
+    window.addEventListener("focus", recheck);
+    window.addEventListener("erp:permissions-changed", recheck);
+    document.addEventListener("visibilitychange", recheck);
+    const stop = runtime.context().subscribePermissions?.(() => runtime.controller.retry());
+    return () => {
+      stop?.(); window.removeEventListener("focus", recheck); window.removeEventListener("erp:permissions-changed", recheck);
+      document.removeEventListener("visibilitychange", recheck);
+    };
+  }, [runtime, props.suspended]);
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => keepLinksInside(root.current, router), [router]);
-  return <ErpHostProvider.Provider value={view}><div className="fagoo-root" ref={root}>{router && <RouterProvider router={router} />}</div></ErpHostProvider.Provider>;
+  return <ErpHostProvider.Provider value={view}><div className="fagoo-root" ref={root}><Activity mode={props.suspended ? "hidden" : "visible"}>{router && <RouterProvider router={router} />}</Activity></div></ErpHostProvider.Provider>;
 }
 
 export default function ErpMount(props: ErpMountProps): React.ReactElement {
@@ -208,11 +259,16 @@ export function keepLinksInside(element: HTMLElement | null, router: MemoryRoute
     if (!(scope instanceof Element)) scope = element;
     (scope as Element).querySelectorAll<HTMLAnchorElement>("a[href]").forEach(link => {
       const href = link.getAttribute("href");
-      if (!href || /^(?:#|[a-z][a-z0-9+.-]*:|\/\/|\/app(?:\/|$)|\/api(?:\/|$))/i.test(href)) return;
+      if (href && ["/app", ERP_BASENAME, ERP_BASENAME + "/"].includes(href.split(/[?#]/)[0])) return;
+      if (!href || /^(?:#|[a-z][a-z0-9+.-]*:|\/\/|\/api(?:\/|$))/i.test(href) ||
+        href.startsWith("/app/") && (!href.startsWith(ERP_BASENAME + "/") || href.startsWith(ERP_BASENAME + "/modulos"))) return;
       const base = router ? localUrl(router.state.location) : ERP_BASENAME + "/";
       const url = new URL(href, new URL(base, location.origin));
-      const target = href.startsWith("/") ? ERP_BASENAME + href : url.pathname + url.search + url.hash;
-      if (target.startsWith(ERP_BASENAME + "/")) link.setAttribute("href", target);
+      const target = href.startsWith("/") && !href.startsWith(ERP_BASENAME + "/") ? ERP_BASENAME + href : url.pathname + url.search + url.hash;
+      if (target.startsWith(ERP_BASENAME + "/")) {
+        const next = publicHref(target);
+        if (next !== href) link.setAttribute("href", next);
+      }
     });
   };
   fix(element);
@@ -228,7 +284,9 @@ export function keepLinksInside(element: HTMLElement | null, router: MemoryRoute
     const url = new URL(link.href, location.origin);
     if (url.origin !== location.origin || !url.pathname.startsWith(ERP_BASENAME + "/") || url.pathname.startsWith(ERP_BASENAME + "/modulos")) return;
     event.preventDefault();
-    void router.navigate(url.pathname.slice(ERP_BASENAME.length) + url.search + url.hash);
+    const bridge = connections.get(router), target = url.pathname + url.search + url.hash;
+    if (bridge) void bridge.navigate(target);
+    else void router.navigate(internalErpTarget(target).slice(ERP_BASENAME.length));
   };
   element.addEventListener("click", click);
   return () => { observer.disconnect(); element.removeEventListener("click", click); };
