@@ -17,12 +17,12 @@ import type { AppState } from "../app/AppContext";
 import { channelLabel, channelPresentation, conversationChannel } from "../channels";
 import type { WindowState } from "../../src/channel-contracts";
 import { channelWindowReason } from "../lib/window";
-import { channelUiFor, channelUiKey } from "../channel-extensions";
+import { channelExtensionReason, channelUiFor, channelUiKey } from "../channel-extensions";
 
 /** Detalhe novo pode projetar ChannelView no topo e/ou nas capacidades. */
 export function channelConversation(detail: Row): Row {
   const conversation = { ...detail.conversation };
-  for (const key of ["channel", "channel_context", "account_label", "multichannel", "window", "templates", "menu", "subject", "public_reply", "modules", "can_initiate", "extension"])
+  for (const key of ["channel", "channel_context", "account_label", "multichannel", "window", "templates", "menu", "subject", "public_reply", "modules", "can_initiate", "channel_extension"])
     if (key in detail) conversation[key] = detail[key];
     else if (key in (detail.capabilities || {})) conversation[key] = detail.capabilities[key];
   if (detail.connection_kind) conversation.connection_kind = detail.connection_kind;
@@ -72,7 +72,7 @@ export function channelSendPolicy(
   const reason = !known
     ? "Canal indisponível para envio."
     : !hasWindow || !text
-      ? channelWindowReason(expired && window?.state !== "closed" ? "window_closed" : window?.reason) || "Janela fechada. Aguarde uma nova mensagem do cliente."
+      ? (extensionKey && channelExtensionReason(window?.reason)) || channelWindowReason(expired && window?.state !== "closed" ? "window_closed" : window?.reason) || "Janela fechada. Aguarde uma nova mensagem do cliente."
       : humanTextOnly
         ? "Até 7 dias, somente texto escrito por uma pessoa. Anexos e respostas automáticas estão bloqueados."
         : null;

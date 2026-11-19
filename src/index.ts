@@ -5,9 +5,9 @@ import { capabilities } from "./whatsapp";
 import { installChannelRuntime } from "./channel-runtime";
 import { channelRules, channelWindow, conversationChannel, isChannelId } from "./channels";
 import { channelIdentityPort, channelTranscriptPort } from "./channel-ports";
-import { channelExtension, extensionKey, findChannelRoute, registeredChannelExtensions } from "./channel-extension-registry";
-import { assertPublicChannelData, performExtensionRoute, signVerifiedIngress } from "./channel-extension-kernel";
-import type { ExtensionConnection } from "./channel-c2-contracts";
+import { channelExtension, extensionKey, registeredChannelExtensions } from "./channel-extension-registry";
+import { assertPublicChannelData, findChannelServerRoute, performExtensionRoute, signVerifiedIngress } from "./channel-extension-kernel";
+import type { ChannelExtensionView, ExtensionConnection } from "./channel-c2-contracts";
 import { resolveZernioChannelConnection } from "./channel-accounts";
 import type { ChannelId, ChannelView } from "./channel-contracts";
 import { authorizedMedia, mediaResponse, uploadPart, mediaKind } from "./media";
@@ -1705,7 +1705,7 @@ app.put("/api/v1/profiles/:profile/router/numbers/:id/limit", async (c) =>
 // depois de importar este módulo, antes de entregar a primeira requisição.
 app.all("/api/v1/profiles/:profile/c2/*", async (c) => {
   const path = "/" + c.req.path.split("/").slice(6).join("/");
-  if (!findChannelRoute(c.req.method, path)) {
+  if (!findChannelServerRoute(c.req.method, path)) {
     if (/^\/(?:connections\/[^/]+\/(?:setup|email-test|email-inbox|email-blocks)|conversations\/email|reviews(?:\/[^/]+(?:\/(?:reply|suggestion))?)?|review-publishers\/[^/]+)$/.test(path))
       throw new ApiError(503, "channel_not_ready", "Este recurso de canal ainda não está disponível.");
     throw new ApiError(404, "not_found", "Operação de canal não encontrada.");
@@ -1959,20 +1959,36 @@ const conversationChannelSql = `CASE
   WHEN c.external_namespace='channel:'||k.id AND k.kind IN ('zernio','qr','meta') THEN k.channel
   ELSE NULL END`;
 
-function channelResponse(connection: any, conv?: any) {
+function channelResponse(connection: any, conv?: any, projection?: ChannelExtensionView | null) {
   const channel = conv ? conversationChannel(conv, connection) : channelRules(connection)?.id ?? null;
   const resolved = channel && connection ? { ...connection, channel } : null;
   const storedContext = json(conv?.channel_context).context;
   const context = conv?.chat_type === "group" ? "group" : conv?.chat_type === "comment" || storedContext === "comment" ? "comment"
     : conv?.chat_type === "review" || storedContext === "review" || channel === "googlebusiness" ? "review" : "direct";
-  const rules = channelRules(resolved, context);
-  const caps = capabilities(resolved, context);
+  const metadata = projection?.metadata;
+  const projectedCapabilities = metadata?.telegram?.blocked === true
+    ? { ...projection?.capabilities, enabled: false } : projection?.capabilities;
+  const rules = channelRules(resolved, context, projectedCapabilities);
+  const caps = capabilities(resolved, context, projectedCapabilities);
+  const remaining = metadata?.tiktok?.remainingMessages ?? metadata?.remainingMessages;
+  const sentInWindow = rules?.window.kind === "customer" && rules.window.maxMessages !== undefined && Number.isSafeInteger(remaining)
+    ? Math.max(0, rules.window.maxMessages - Math.max(0, Number(remaining))) : 0;
+  const window = rules && conv ? channelWindow(rules, conv.last_customer, now(), sentInWindow) : null;
+  const closesAt = metadata?.tiktok?.closesAt ?? metadata?.closesAt;
+  if (window && closesAt !== undefined && (closesAt === null || Number.isSafeInteger(closesAt))) {
+    window.closesAt = closesAt;
+    if (window.kind === "customer" && (closesAt === null || closesAt <= window.serverNow))
+      Object.assign(window, { state: "closed", canHumanText: false, canAutomation: false, reason: "window_closed" });
+  }
+  if (projection && window && (rules?.enabled === false || metadata?.telegram?.blocked === true))
+    Object.assign(window, { state: "closed", canHumanText: false, canAutomation: false,
+      reason: metadata?.telegram?.blocked ? "channel_blocked" : "channel_not_ready" });
   const view: ChannelView = {
     channel,
     account_label: conv?.account_label || connection?.account_label || "",
     multichannel: json(conv?.channel_context).multichannel === true ||
       json(connection?.config)._channel_summary?.multichannel === true,
-    window: rules && conv ? channelWindow(rules, conv.last_customer, now()) : null,
+    window,
     templates: caps.templates, menu: caps.menu, subject: caps.subject,
     public_reply: caps.public_reply, modules: caps.modules, can_initiate: caps.can_initiate,
   };
@@ -2400,10 +2416,30 @@ for (const [path, kind] of [
   ["contacts/:id/profile", "profile"],
   ["contacts/:id/modules/:module/collections/:collection", "collection"],
   ["contacts/:id/modules/:module/sections/:section", "section"],
-] as const) app.get(`/api/v1/profiles/:profile/${path}`, async c => c.json(await customerRead(
-  c.env, c.get("actor"), c.req.param("profile")!, c.req.param("id")!, kind,
-  c.req.query(), c.req.param("module"), c.req.param("collection") ?? c.req.param("section"),
-)));
+] as const) app.get(`/api/v1/profiles/:profile/${path}`, async c => {
+  const actor = c.get("actor"), profile = c.req.param("profile")!;
+  const result = await customerRead(c.env, actor, profile, c.req.param("id")!, kind,
+    c.req.query(), c.req.param("module"), c.req.param("collection") ?? c.req.param("section"));
+  // A ficha também abre fora da raiz React do painel. Sua projeção autorizada
+  // fornece o encaixe de canais sem exigir AppProvider nem requisição da UI.
+  if (kind === "profile" && "contactId" in result && result.readable !== false && (!result.namespace || result.namespace === "team") &&
+      allows(actor, "contacts") && allows(actor, "conversations")) {
+    const extensions = registeredChannelExtensions().filter(extension => extension.spec.serviceLine && extension.enabled);
+    if (extensions.length) {
+      const connections = await all<ExtensionConnection>(c.env,
+        "SELECT * FROM connections WHERE profile_id=? AND status='active'", profile);
+      const active = connections.filter(connection => extensions.some(extension =>
+        extension.spec.id === connection.channel && extension.enabled?.(connection)));
+      const keys = extensions.filter(extension => active.some(connection =>
+        extension.spec.id === connection.channel && extension.enabled?.(connection))).map(extension => extension.key);
+      if (keys.length) return c.json({ ...result, channel_extensions: keys, channel_status: {
+        channel_extensions: keys, connected_channels: [...new Set(active.map(connection => connection.channel))],
+        connections: active.map(({ id, name, kind, channel, status, account_label }) => ({ id, name, kind, channel, status, account_label })),
+      } });
+    }
+  }
+  return c.json(result);
+});
 app.get("/api/v1/profiles/:profile/contact-conflicts", async c => c.json(await contactConflicts(c.env, c.get("actor"), c.req.param("profile"), c.req.query())));
 app.get("/api/v1/profiles/:profile/contact-jobs/:id", async c => c.json(await readJob(c.env, c.get("actor"), c.req.param("profile"), c.req.param("id"))));
 app.post("/api/v1/profiles/:profile/contacts/import/preview", async (c) => {
@@ -2567,7 +2603,6 @@ app.get("/api/v1/profiles/:profile/conversations/:id", async (c) => {
     conv.id,
     notes ? 1 : 0,
   );
-  const view = channelResponse(conn, conv);
   const context = json(conv.channel_context).context === "comment" || conv.chat_type === "comment" ? "comment" : "direct";
   const extensionId = extensionKey(conv.channel, context);
   const extension = extensionId ? channelExtension(extensionId) : null;
@@ -2576,6 +2611,7 @@ app.get("/api/v1/profiles/:profile/conversations/:id", async (c) => {
     authorization: { actor, profileId: p, origin: "human", permissions: ["conversations:read"] }, now: now(), commandId: "",
   }) : null;
   if (extensionView) assertPublicChannelData(extensionView);
+  const view = channelResponse(conn, conv, extensionView);
   const contact = await conversationContact(c.env, actor, p, conv.id);
   const related = contact && actor.kind === "user" && !actor.via && allows(actor, "contacts")
     ? await channelIdentityPort.readChannels(c.env, actor, p, contact.id) : null;

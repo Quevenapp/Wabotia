@@ -35,6 +35,11 @@ export async function removeConnection(
       "not_found",
       "Telefone não encontrado nesta área de atendimento.",
     );
+  return finishConnectionRemoval(env, actor, profile, id, connection);
+}
+
+/** A retomada usa somente a intenção de remoção já persistida por administrador. */
+async function finishConnectionRemoval(env: Env, actor: Actor, profile: string, id: string, connection: any) {
   if (connection.kind === "ai" || (connection.retired_kind && !connection.kind.endsWith("-whatsapp")))
     return removeBotConnection(env, profile, connection);
   if (connection.kind === "telegram") {
@@ -51,8 +56,13 @@ export async function removeConnection(
     if (!driver) channelNotReady();
     // Pausa persiste antes da limpeza remota. Falha conserva credencial no cofre para retomar.
     await batch(env, [["UPDATE connections SET status='paused',config=json_set(config,'$.remove_pending',1) WHERE id=? AND profile_id=?", [id, profile]]]);
-    const result = await driver.remove({ env, actor, profileId: profile, connection: { ...connection, status: "paused" }, input: {}, commandId: `remove:${id}`, now: now() });
-    if (result.status === "removal_pending") return { id, deleted: false, pending: true };
+    try {
+      const result = await driver.remove({ env, actor, profileId: profile, connection: { ...connection, status: "paused" }, input: {}, commandId: `remove:${id}`, now: now() });
+      if (result.status !== "paused" || result.configured) return { id, deleted: false, pending: true };
+    } catch {
+      // Falha remota conserva a intenção e o segredo, sem propagar corpo/URL do fornecedor.
+      return { id, deleted: false, pending: true };
+    }
   }
   requireValue(
     ["meta", "zernio", "qr"].includes(connection.kind) || connection.retired_kind || ownChannel,
@@ -329,6 +339,12 @@ export async function removePendingConnections(env: Env, profileId?: string) {
   )) {
     try {
       const profile = connection.profile_id;
+      if (connection.kind === "telegram_bot" || connection.kind === "email") {
+        const actor: Actor = { id: "channel:maintenance", kind: "connector", role: "service",
+          name: "Manutenção de canal", profiles: [profile], scopes: [], bots: [], rate: 0, runLimit: 0 };
+        await finishConnectionRemoval(env, actor, profile, connection.id, connection);
+        continue;
+      }
       const bots = await all(
         env,
         "SELECT id FROM bots WHERE connection_id=?",

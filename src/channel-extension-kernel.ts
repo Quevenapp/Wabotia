@@ -1,15 +1,17 @@
 import { batch, one } from "./db";
-import { access, admin, equal, hmac, sha } from "./security";
+import { access, admin, engineActor, equal, hmac, sha } from "./security";
 import { requireAccess } from "./access";
 import { assertDepartmentAccess } from "./departments";
 import { boundAllows, visibleConversation } from "./visibility";
 import { currentActor } from "./channel-runtime";
 import { ApiError, json, now, requireValue, type Actor, type Conversation, type Env } from "./types";
-import type { ChannelAction, ChannelOperationContext, ChannelReview, ChannelRouteContext, ChannelWritePlan, ExtensionConnection, LoadedChannelResource, Resource, ServerChannelAction, VerifiedIngress } from "./channel-c2-contracts";
-import { channelConnectionDriver, channelExtension, channelExtensionReady, extensionKey, findChannelRoute } from "./channel-extension-registry";
+import type { ChannelAction, ChannelOperationContext, ChannelReview, ChannelRoute, ChannelRouteContext, ChannelWritePlan, ExtensionConnection, LoadedChannelResource, Resource, ServerChannelAction, VerifiedIngress } from "./channel-c2-contracts";
+import type { ChannelContext, ChannelId } from "./channel-contracts";
+import { channelConnectionDriver, channelExtension, channelExtensionReady, extensionKey, findChannelRoute, registeredChannelExtensions } from "./channel-extension-registry";
 import { channelNotReady } from "./channel-extension-stubs";
 import { refreshChannelSummaryStatements } from "./channel-accounts";
 import { signedPayload } from "./signature";
+import { channelWindow } from "./channels";
 
 const authenticated = new WeakSet<object>();
 const denied = () => new ApiError(403, "invalid_channel_evidence", "A origem do evento não foi confirmada.");
@@ -95,6 +97,17 @@ export async function loadChannelOperationContext(env: Env, original: Actor, pro
   const context = loaded.kind === "review" ? "review" : loaded.conversation.chat_type === "comment" || json(loaded.conversation.channel_context).context === "comment" ? "comment" : "direct";
   const key = extensionKey(connection.channel, context);
   if (!key || !channelExtensionReady(key) || !channelExtension(key).enabled?.(connection)) channelNotReady();
+  const accountId = loaded.kind === "review" ? loaded.review.account_id : loaded.conversation.channel_account_id;
+  const config = json(connection.config);
+  if (!accountId || (loaded.kind === "conversation" && (loaded.conversation.channel !== connection.channel ||
+      loaded.conversation.external_namespace !== `channel:${connection.id}`))) missing();
+  if (connection.kind === "zernio") {
+    if (String(config.account_id ?? "") !== accountId || !await one(env,
+      `SELECT 1 FROM zernio_channel_accounts WHERE connection_id=? AND profile_id=? AND channel=?
+       AND account_id=? AND integration_id=? AND provider_profile_id=?`,
+      connection.id, profileId, connection.channel, accountId, config.zernio_workspace_id ?? "", config.zernio_profile_id ?? "")) missing();
+  } else if (connection.kind === "telegram_bot" ? String(config.bot_id ?? config.account_id ?? "") !== accountId
+    : connection.kind === "email" ? String(config.address ?? config.account_id ?? "") !== accountId : true) missing();
   return { env, connection, resource: loaded, authorization: { actor, profileId, origin, permissions: resource.kind === "review" ? ["reports:read", "google.reply"] : ["conversations:write"] }, now: now(), commandId };
 }
 export function parseChannelAction(input: unknown): ChannelAction {
@@ -147,6 +160,16 @@ export async function authorizeChannelAction(ctx: ChannelOperationContext, input
     : key === "email/direct" ? action.type === "email.send" || action.type === "email.auto-reply" || action.type === "email.acknowledgement"
     : action.type === "message.send" || (key === "telegram/direct" && action.type === "telegram.request-contact");
   requireValue(compatible, "Esta ação não pertence ao contexto do canal.");
+  if ("commentId" in action) {
+    if (ctx.resource?.kind !== "conversation") missing();
+    const target = await one(ctx.env, `SELECT cc.id FROM channel_comments cc
+      JOIN messages m ON m.id=cc.message_id AND m.profile_id=cc.profile_id AND m.conversation_id=cc.conversation_id
+      JOIN conversations v ON v.id=cc.conversation_id AND v.profile_id=cc.profile_id
+        AND v.connection_id=cc.connection_id AND v.channel=cc.channel AND v.channel_account_id=cc.account_id
+      WHERE cc.id=? AND cc.profile_id=? AND cc.conversation_id=? AND cc.connection_id=? AND cc.channel=?`,
+      action.commentId, ctx.authorization.profileId, ctx.resource.id, ctx.connection.id, ctx.connection.channel);
+    if (!target) missing();
+  }
   if (action.type.startsWith("google.") && "version" in action &&
       (ctx.resource?.kind !== "review" || ctx.resource.review.version !== action.version))
     throw new ApiError(409, "resource_changed", "A avaliação mudou. Atualize antes de publicar.");
@@ -191,14 +214,44 @@ export async function authorizeChannelActionReplay(env: Env, actor: Actor, profi
   const ctx = await loadChannelOperationContext(env, actor, profile, { kind: "conversation", id }, "replay");
   await authorizeChannelAction(ctx, input);
 }
+export async function authorizeChannelConnectionReplay(env: Env, original: Actor, profileId: string): Promise<void> {
+  const actor = await currentActor(env, original);
+  access(actor, profileId, "routing:read"); admin(actor);
+}
+/** Sem chave nova não há leitura. O descritor decide quota/bloqueio sem produzir envio. */
+export async function channelAutomationBlock(env: Env, conversation: Conversation, source: string): Promise<{ code: string; reason: string } | null> {
+  const context = conversation.chat_type === "comment" || json(conversation.channel_context).context === "comment" ? "comment" : "direct";
+  const key = extensionKey(conversation.channel, context);
+  if (!key) return null;
+  if (context === "comment" || key === "email/direct")
+    return { code: "human_only", reason: "Este contexto exige a ação própria do canal; a transferência não envia aviso automático." };
+  let ctx: ChannelOperationContext;
+  try { ctx = await loadChannelOperationContext(env, engineActor(conversation.profile_id, ""), conversation.profile_id,
+    { kind: "conversation", id: conversation.id }, source, "bot"); }
+  catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    return { code: "channel_not_ready", reason: "Este canal não está disponível para resposta automática." };
+  }
+  const extension = channelExtension(key);
+  if (!extension.spec.contexts.direct?.bot || !channelWindow(extension.spec, conversation.last_customer, now()).canAutomation)
+    return { code: "window_closed", reason: "A resposta automática está indisponível. Aguarde uma nova mensagem do cliente ou atendimento humano." };
+  const blocked = await extension.automationBlock?.(ctx) ?? null;
+  if (blocked && (!/^[a-z_]{1,64}$/.test(blocked.code) || typeof blocked.reason !== "string" || blocked.reason.length > 500))
+    throw new ApiError(400, "invalid_channel_data", "Motivo de bloqueio inválido.");
+  assertPublicChannelData(blocked);
+  return blocked;
+}
 export async function validateChannelWritePlan(ctx: ChannelOperationContext, plan: ChannelWritePlan): Promise<void> {
   if (ctx.ingress) assertVerifiedIngress(ctx.ingress);
   requireValue(plan.statements.length <= 500, "Lote de canal grande demais.");
   if (ctx.resource && plan.resource && (ctx.resource.kind !== plan.resource.kind || ctx.resource.id !== plan.resource.id)) missing();
+  if (plan.conversationId && plan.resource && (plan.resource.kind !== "conversation" || plan.resource.id !== plan.conversationId)) missing();
   const connection = await one(ctx.env, "SELECT 1 FROM connections WHERE id=? AND profile_id=? AND channel=? AND status='active'", ctx.connection.id, ctx.authorization.profileId, ctx.connection.channel);
   if (!connection) channelNotReady();
-  if (plan.conversationId) {
-    const existing = await one<Conversation>(ctx.env, "SELECT * FROM conversations WHERE id=?", plan.conversationId);
+  const resource = plan.resource ?? (plan.conversationId ? { kind: "conversation" as const, id: plan.conversationId } : null);
+  if (resource) {
+    const existing = await one<{ profile_id: string; connection_id: string | null }>(ctx.env,
+      `SELECT profile_id,connection_id FROM ${resource.kind === "review" ? "reviews" : "conversations"} WHERE id=?`, resource.id);
     if (existing && (existing.profile_id !== ctx.authorization.profileId || existing.connection_id !== ctx.connection.id)) missing();
   }
 }
@@ -206,12 +259,36 @@ export async function applyChannelWritePlan(ctx: ChannelOperationContext, plan: 
   await validateChannelWritePlan(ctx, plan);
   if (plan.statements.length) await batch(ctx.env, plan.statements);
 }
+/** As rotas de driver pertencem ao servidor; o catálogo compartilhado fica puro.
+ * A consulta continua tardia, inclusive após a importação inicial do Worker. */
+export function findChannelServerRoute(method: string, path: string, channel?: ChannelId, context?: ChannelContext) {
+  const registered = findChannelRoute(method, path, channel, context);
+  if (registered) return registered;
+  const verb = method.toUpperCase();
+  const match = /^\/connections\/([^/]+)\/setup$/.exec(path.replace(/^\/c2(?=\/|$)/, ""));
+  if (!match || (verb !== "GET" && verb !== "POST")) return null;
+  let id: string;
+  try { id = decodeURIComponent(match[1]); } catch { return null; }
+  if (!id || id.includes("/")) return null;
+  const extension = registeredChannelExtensions().find(entry => entry.connectionDriver &&
+    (!channel || entry.spec.id === channel) && (!context || entry.key === extensionKey(entry.spec.id, context)));
+  if (!extension) return null;
+  const route: ChannelRoute = { method: verb, path: "/connections/:id/setup", authorization: "admin",
+    handler: ctx => performConnectionSetup(ctx, verb) };
+  return { extension, route, params: { id } };
+}
 async function resolvedRoute(env: Env, profileId: string, method: string, path: string) {
-  let found = findChannelRoute(method, path);
+  let found = findChannelServerRoute(method, path);
   if (found && path.includes("/connections/") && found.params.id) {
     const connection = await one<ExtensionConnection>(env, "SELECT * FROM connections WHERE id=? AND profile_id=?", found.params.id, profileId);
     if (!connection?.channel) missing();
-    found = findChannelRoute(method, path, connection.channel);
+    found = findChannelServerRoute(method, path, connection.channel);
+  }
+  if (found && path.includes("/conversations/") && found.params.id) {
+    const conversation = await one<Conversation>(env, "SELECT * FROM conversations WHERE id=? AND profile_id=?", found.params.id, profileId);
+    if (!conversation?.channel) missing();
+    const context = conversation.chat_type === "comment" || json(conversation.channel_context).context === "comment" ? "comment" : "direct";
+    found = findChannelServerRoute(method, path, conversation.channel, context);
   }
   return found;
 }
@@ -262,7 +339,12 @@ export async function performConnectionSetup(ctx: ChannelRouteContext, method: s
 export async function configureChannelConnection(env: Env, original: Actor, profileId: string, input: unknown, commandId: string) {
   const actor = await currentActor(env, original); access(actor, profileId, "routing:read"); admin(actor);
   requireValue(object(input) && identifier(commandId), "Configuração inválida.");
-  const channel = input.kind === "telegram_bot" ? "telegram" : input.kind === "email" ? "email" : null;
+  requireValue(!("remove_pending" in input) && (!object(input.config) || !("remove_pending" in input.config)), "A marca de remoção é interna ao servidor.");
+  // A configuração dos canais importados opera somente no vínculo existente.
+  // A descoberta/importação continua responsável por validar a conta Zernio.
+  const imported = input.kind === "zernio" && identifier(input.id)
+    ? await one<ExtensionConnection>(env, "SELECT * FROM connections WHERE id=? AND profile_id=? AND kind='zernio'", input.id, profileId) : null;
+  const channel = input.kind === "telegram_bot" ? "telegram" : input.kind === "email" ? "email" : imported?.channel;
   if (!channel) channelNotReady();
   const driver = channelConnectionDriver(channel); if (!driver) channelNotReady();
   requireValue(input.channel === undefined || input.channel === channel, "Canal incompatível com a conexão.");
@@ -271,6 +353,8 @@ export async function configureChannelConnection(env: Env, original: Actor, prof
   const id = identifier(input.id) ? input.id : `c2:${await sha(`${profileId}:${commandId}`)}`;
   let connection = await one<ExtensionConnection>(env, "SELECT * FROM connections WHERE id=? AND profile_id=?", id, profileId);
   if (connection && (connection.channel !== channel || connection.kind !== input.kind)) throw new ApiError(409, "channel_immutable", "O canal da conexão não pode ser alterado.");
+  if (connection && json(connection.config).remove_pending)
+    throw new ApiError(409, "connection_removing", "A conexão está em remoção e não pode ser reativada.");
   const time = now();
   if (!connection) {
     await batch(env, [["INSERT INTO connections(id,profile_id,name,kind,mode,status,config,channel,created) VALUES(?,?,?,?,'direct','paused','{}',?,?)", [id, profileId, typeof input.name === "string" ? input.name.slice(0, 120) : channel, input.kind, channel, time]]]);
@@ -278,7 +362,10 @@ export async function configureChannelConnection(env: Env, original: Actor, prof
   }
   const result = await driver.configure({ env, actor, profileId, connection, input, commandId, now: time });
   // Driver guarda segredos somente no cofre. A projeção persiste apenas configuração pública.
-  const config = result.configuration ?? validated.config;
+  const config = { ...json(connection.config), ...(result.configuration ?? validated.config) };
+  requireValue(config.remove_pending === undefined, "A marca de remoção é interna ao servidor.");
+  if (connection.kind === "zernio") for (const field of ["account_id", "zernio_workspace_id", "zernio_profile_id"])
+    requireValue(config[field] === json(connection.config)[field], "A configuração não pode alterar a conta importada.");
   assertPublicChannelData(config);
   await batch(env, [["UPDATE connections SET config=?,status=? WHERE id=? AND profile_id=?", [JSON.stringify(config), result.status === "active" ? "active" : "paused", id, profileId]], ...refreshChannelSummaryStatements(profileId)]);
   return { id, channel, status: result.status, configured: result.configured, ...(result.code ? { code: result.code } : {}) };

@@ -163,15 +163,17 @@ export function conversationChannel(conversation: {
 /** Mantém a validação específica de upload do transporte: por exemplo, Zernio
  * sem presign limita upload direto a 25 MiB; WebP/Opus exigem inspeção do arquivo.
  * maxSendBytes não substitui essas verificações existentes de whatsapp.ts. */
-export function channelRules(connection: ChannelConnection | null, context: ChannelContext = "direct"): ChannelSpec | null {
+export function channelRules(connection: ChannelConnection | null, context: ChannelContext = "direct", projection?: Partial<ChannelSpec>): ChannelSpec | null {
   const channel = connectionChannel(connection);
   if (!channel || !connection) return null;
   const key = extensionKey(channel, context);
   if (key) {
     const extension = channelExtension(key);
-    const spec = structuredClone(extension.spec);
+    const spec = structuredClone({ ...extension.spec, ...projection,
+      id: extension.spec.id, transport: extension.spec.transport, serviceLine: extension.spec.serviceLine });
     spec.context = context;
-    spec.enabled = channelExtensionReady(key) && spec.enabled && extension.enabled?.(connection) === true && spec.contexts[context]?.enabled === true;
+    if (channel === "googlebusiness") spec.serviceLine = false;
+    spec.enabled = channelExtensionReady(key) && extension.spec.enabled && spec.enabled && extension.enabled?.(connection) === true && spec.contexts[context]?.enabled === true;
     if (context === "comment" || context === "review") {
       spec.contexts[context] = { ...spec.contexts[context]!, bot: false };
       spec.menu = { ...noMenu }; spec.window = { kind: "none" };
@@ -311,8 +313,8 @@ function whatsappCapabilities(conn: ChannelConnection, context: ChannelContext) 
 
 /** Window e multichannel só são preenchidos pela leitura autorizada da conversa.
  * Não contar conexões por mensagem: usar o resumo calculado pelo servidor. */
-export function channelCapabilities(connection: ChannelConnection | null, context: ChannelContext = "direct"): ChannelCapabilities {
-  const rules = channelRules(connection, context);
+export function channelCapabilities(connection: ChannelConnection | null, context: ChannelContext = "direct", projection?: Partial<ChannelSpec>): ChannelCapabilities {
+  const rules = channelRules(connection, context, projection);
   const active = rules?.enabled === true;
   const legacy = rules?.legacyCapabilities ?? {
     text: active && rules!.text.enabled,

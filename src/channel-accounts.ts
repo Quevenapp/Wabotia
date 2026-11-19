@@ -3,6 +3,7 @@ import { access, admin } from "./security";
 import { ApiError, type Actor, type Env, json, now, requireValue, uid } from "./types";
 import { zernioRequest } from "./zernio";
 import { channelConnectionDriver, channelExtension, channelExtensionReady, extensionKey, registeredChannelExtensions } from "./channel-extension-registry";
+import { assertPublicChannelData } from "./channel-extension-kernel";
 import type { ChannelAccountsPort } from "./channel-ports";
 import type {
   ChannelAccountDiscovery, ChannelAccountImport, ChannelAccountImportResult,
@@ -151,7 +152,9 @@ export async function discoverChannelAccounts(env: Env, actor: Actor, profileId:
       accounts.push(accountView(account, remote, linked.find(row => row.channel === channel && row.account_id === remote.accountId)));
   return { accounts, warnings: [
     "Instagram exige conta profissional e Facebook exige Página com mensagens autorizadas. O Inbox deve estar ativo no plano da Zernio.",
-    "Formatos e requisitos do fornecedor: a conferir com a conta real. TikTok e Google Business ficam indisponíveis nesta etapa.",
+    channels.length > directChannels.length
+      ? "Formatos e requisitos do fornecedor: a conferir com a conta real."
+      : "Formatos e requisitos do fornecedor: a conferir com a conta real. TikTok e Google Business ficam indisponíveis nesta etapa.",
   ] };
 }
 
@@ -281,10 +284,17 @@ export async function validateChannelConfiguration(env: Env, actor: Actor, profi
   // A edição de credenciais não altera a linha nem permite forjar o resumo.
   for (const key of ["service", "bot_options", "_channel_summary"])
     if (previous[key] !== undefined) config[key] = previous[key];
-  const extension = extensionKey(input.channel, "comment");
+  const extension = extensionKey(input.channel, directChannel(input.channel) ? "comment" : input.channel === "googlebusiness" ? "review" : "direct");
   if (extension && channelExtensionReady(extension)) {
     const driver = channelConnectionDriver(input.channel);
-    if (driver) Object.assign(config, driver.validate(input).config);
+    if (driver) {
+      const validated = driver.validate(input);
+      requireValue(validated.channel === input.channel, "O canal da conexão não pode mudar.");
+      assertPublicChannelData(validated.config);
+      for (const key of ["account_id", "zernio_workspace_id", "zernio_profile_id", "service", "bot_options", "_channel_summary"])
+        requireValue(validated.config[key] === undefined || JSON.stringify(validated.config[key]) === JSON.stringify(config[key]), "O descritor não pode alterar o vínculo da conta ou o serviço da linha.");
+      Object.assign(config, validated.config);
+    }
   }
   return { channel: input.channel, config };
 }

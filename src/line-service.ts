@@ -21,7 +21,7 @@ import { loadChannelOperationContext, prepareChannelAction } from "./channel-ext
 
 function extensionLinesSql() {
   const channels = [...new Set(registeredChannelExtensions().filter(extension => extension.spec.serviceLine).map(extension => extension.spec.id))]
-    .filter(channel => !["instagram", "facebook"].includes(channel));
+    .filter(channel => !["instagram", "facebook", "googlebusiness"].includes(channel));
   return channels.length ? ` AND channel IN ('whatsapp','instagram','facebook',${channels.map(channel => `'${channel}'`).join(",")})` : "";
 }
 import {
@@ -441,6 +441,9 @@ export async function sendInteractive(
   if (c.channel != null && c.channel !== "whatsapp") {
     // Interativos próprios do WhatsApp viram texto, nunca um menu nativo social.
     const payload = interactivePayload(spec, false, { automation: automation || "interactive" });
+    const context = c.chat_type === "comment" || json(c.channel_context).context === "comment" ? "comment"
+      : c.chat_type === "review" || json(c.channel_context).context === "review" ? "review" : "direct";
+    if (extensionKey(c.channel, context)) return enqueue(env, c, actor, "text", payload, key);
     const { enqueueSocialDeliveries } = await import("./engine");
     return enqueueSocialDeliveries(env, c, actor, "text", payload, key);
   }

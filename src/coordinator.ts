@@ -23,7 +23,7 @@ import { visibleConversation } from "./visibility";
 import { REVOKED_CLOSE } from "./sockets";
 import { perform, inbound, receiveExtensionIngress, authorizeChannelDeliveryReconciliation } from "./service";
 import { channelMaintenance, registeredChannelMaintenance } from "./channel-extension-registry";
-import { authorizeChannelActionReplay, authorizeExtensionReplay, performExtensionRoute, verifyIngressTicket } from "./channel-extension-kernel";
+import { authorizeChannelActionReplay, authorizeChannelConnectionReplay, authorizeExtensionReplay, performExtensionRoute, verifyIngressTicket } from "./channel-extension-kernel";
 import { customerMaintenanceEnv, maintainCustomers, profilePort, erpBridge } from "./customer/ports";
 import { finishDelivery } from "./delivery";
 import { channelEvent } from "./whatsapp";
@@ -386,7 +386,10 @@ export class Coordinator extends DurableObject<Env> {
           }
           const recoverableWork = /^(area-template\.apply|os\.(?:private\.)?(?:task|person|entry)\.(?:create|update|archive|revise)|os\.(?:private\.)?document\.(?:reserve|complete|archive)|os\.stage(?:\.approval|\.decision)?|os\.private\.update)$/.test(body.operation);
           const recoverableCustomer = body.operation.startsWith("contact.") && body.operation !== "contact.maintain";
-          if (!old.response && (closingOp || recoverableWork || recoverableCustomer || isChannelOperation(body.operation))) {
+          const recoverableExtension = body.operation === "c2.route" ||
+            body.operation === "message.action" && body.data.action === "channel" ||
+            body.operation === "connection.save" && ["telegram_bot", "email"].includes(body.data.kind);
+          if (!old.response && (closingOp || recoverableWork || recoverableCustomer || recoverableExtension || isChannelOperation(body.operation))) {
             // Sem a marca, a escrita não gravou (o lote é atômico): a
             // operação roda de novo, abaixo. Na emissão, a chave de origem
             // ainda devolve a senha de antes, se houver.
@@ -408,6 +411,13 @@ export class Coordinator extends DurableObject<Env> {
             );
           } else {
             let response = old.response;
+            if (body.operation === "connection.save" && ["telegram_bot", "email"].includes(body.data.kind)) {
+              try { await authorizeChannelConnectionReplay(this.env, actor, this.profile); }
+              catch (error) {
+                if (!(error instanceof ApiError)) throw error;
+                return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
+              }
+            }
             if (body.operation === "conversation.action" && body.data.action === "reply") {
               const value = old.response.startsWith("sealed:") ? await unseal(this.env, old.response.slice(7)) : JSON.parse(old.response);
               if (value?.channel_extension) {

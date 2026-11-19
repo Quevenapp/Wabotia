@@ -68,6 +68,13 @@ function readPreview(file: File): Promise<string> {
   });
 }
 
+function channelAttachment(file: File, kind: Kind): Omit<SocialSendAttachment, "mediaId"> {
+  const mimeType = file.type || "application/octet-stream";
+  return { mimeType, bytes: file.size, name: file.name,
+    kind: kind === "document" || kind === "sticker" ? kind : mimeType.startsWith("image/") ? "image"
+      : mimeType.startsWith("video/") ? "video" : mimeType.startsWith("audio/") ? "audio" : "document" };
+}
+
 export const Composer = React.forwardRef<
   ComposerHandle,
   {
@@ -316,12 +323,8 @@ export const Composer = React.forwardRef<
             };
           if (kind === "contacts")
             content.contacts = [{ name: special.name, phone: special.phone }];
-          const attachmentDetails: SocialSendAttachment[] = attachments.map((mediaId, index) => {
-            const file = files[index], mimeType = file.type || "application/octet-stream";
-            return { mediaId, mimeType, bytes: file.size, name: file.name,
-              kind: kind === "document" || kind === "sticker" ? kind : mimeType.startsWith("image/") ? "image"
-                : mimeType.startsWith("video/") ? "video" : mimeType.startsWith("audio/") ? "audio" : "document" };
-          });
+          const attachmentDetails: SocialSendAttachment[] = attachments.map((mediaId, index) =>
+            ({ mediaId, ...channelAttachment(files[index], kind) }));
           const channelAction = prepareChannelUiAction({ conversation: c, text, attachments, attachmentDetails, content, fields: channelFields });
           pending.current = channelAction
             ? { action: "channel", channel_action: channelAction }
@@ -474,8 +477,10 @@ export const Composer = React.forwardRef<
   return (
     <div className={"composer-wrap" + (note ? " note-mode" : "")}>
       {!note && !edit && <ChannelComposerFields conversation={c} detail={detail} api={app.api} root={root} now={app.now}
-        refresh={refresh} disabled={locked} change={setChannelFields}
-        draft={{ conversation: c, text, attachments: [], attachmentDetails: [], content: { type: voice ? "voice" : kind }, fields: channelFields }} />}
+        refresh={refresh} disabled={locked} change={fields => { if (!locked) setChannelFields(current => ({ ...current, ...fields })); }}
+        draft={{ conversation: c, text, attachments: [], attachmentDetails: [],
+          pendingAttachments: (voice ? [voice] : items.map(item => item.file)).map(file => channelAttachment(file, kind)),
+          content: { type: voice ? "voice" : kind }, fields: channelFields }} />}
       {(policy.reason || windowClosed) && !note && (
         <div className="composer-strip warn" role="status">
           <Lock size={14} />
@@ -791,7 +796,7 @@ export const Composer = React.forwardRef<
               onChange={setText}
               onSend={() => void send()}
               disabled={locked || (!note && !policy.text)}
-              maxLength={12000}
+              maxLength={policy.channel === "email" && !note && !edit ? 50000 : 12000}
               placeholder={
                 note
                   ? "Nota interna para a equipe"

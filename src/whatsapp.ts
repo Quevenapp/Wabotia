@@ -18,9 +18,9 @@ import { zernioPresignType } from "./zernio-media";
 import { channelCapabilities, channelRules } from "./channels";
 import { finishDelivery } from "./delivery";
 
-export function capabilities(conn: any, chatType = "direct") {
+export function capabilities(conn: any, chatType = "direct", projection?: Partial<import("./channel-contracts").ChannelSpec>) {
   const context = chatType === "group" ? "group" : chatType === "comment" ? "comment" : chatType === "review" ? "review" : "direct";
-  const view = channelCapabilities(conn, context);
+  const view = channelCapabilities(conn, context, projection);
   if (view.channel !== "whatsapp") return view;
   if (conn?.kind === "zernio") {
     const group = chatType === "group",

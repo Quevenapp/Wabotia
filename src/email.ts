@@ -15,6 +15,8 @@ import { admin, safeFetch, secret, setSecret, sha } from "./security";
 import type { TranscriptEmailSettings, TranscriptSendResult } from "./channel-contracts";
 import type { ChannelConnection } from "./channel-contracts";
 import type { ChannelDeliveryResult } from "./channel-c2-contracts";
+import { mediaKind } from "./media";
+import { validateMedia } from "./whatsapp";
 
 const CONFIG_ID = "email:config";
 const API = "https://api.cloudflare.com/client/v4";
@@ -53,7 +55,8 @@ export interface ChannelEmailMessage {
 }
 export interface ChannelEmailTransport {
   /** Campos REST de anexos/cabeçalhos: formato do plano; a conferir com a conta real.
-   * Sem confirmação do contrato, deve devolver provider_contract_unverified antes da rede. */
+   * Sem confirmação do contrato, deve lançar ApiError com código
+   * provider_contract_unverified antes da rede. */
   prepare(message: ChannelEmailMessage & { from: string }): Promise<{
     body: Readonly<Record<string, unknown>>;
     /** Mensagem efetivamente codificada, incluindo cabeçalhos e anexos. */
@@ -74,7 +77,10 @@ export async function sendChannelEmail(env: Env, connection: ChannelConnection, 
   if (!transport) throw new ApiError(503, "channel_not_ready", "O envio do canal de e-mail ainda não está disponível.");
   if (connection.channel !== "email" || connection.kind !== "email") throw new ApiError(400, "invalid_channel", "Conexão de e-mail obrigatória.");
   let config: Record<string, unknown>;
-  try { config = JSON.parse(connection.config) as Record<string, unknown>; }
+  try {
+    config = JSON.parse(connection.config) as Record<string, unknown>;
+    if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error("config");
+  }
   catch { throw new ApiError(400, "invalid_request", "Configuração do canal inválida."); }
   const from = normalizeEmailAddress(config.address);
   const to = normalizeEmailAddress(input.to);
@@ -84,14 +90,20 @@ export async function sendChannelEmail(env: Env, connection: ChannelConnection, 
     throw new ApiError(400, "invalid_request", "Informe texto de até 50.000 caracteres.");
   const references = input.references ?? [];
   const ids = [input.messageId, ...(input.inReplyTo ? [input.inReplyTo] : []), ...references];
+  const threading = [`Message-ID: ${input.messageId}\r\n`,
+    ...(input.inReplyTo ? [`In-Reply-To: ${input.inReplyTo}\r\n`] : []),
+    ...(references.length ? [`References: ${references.join(" ")}\r\n`] : [])].join("");
   if (references.length > 50 || !ids.every(value => typeof value === "string" && channelMessageId(value)) ||
-      new TextEncoder().encode(ids.join("\r\n")).byteLength > 8192)
+      new TextEncoder().encode(threading).byteLength > 8192)
     throw new ApiError(400, "invalid_request", "Cabeçalhos de encadeamento inválidos.");
   if ((input.attachments?.length ?? 0) > 32 || input.attachments?.some(attachment =>
     !attachment.name || attachment.name.length > 200 || /[\r\n\u0000/\\]/.test(attachment.name) ||
     !/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(attachment.mimeType) || !(attachment.bytes instanceof Uint8Array)))
     throw new ApiError(400, "unsupported_content", "Anexo inválido.");
-  const prepared = await transport.prepare({ ...input, to, from, references });
+  const attachments = input.attachments?.map(attachment => ({ ...attachment, mimeType: attachment.mimeType.toLowerCase() }));
+  for (const attachment of attachments ?? [])
+    validateMedia({ type: attachment.mimeType, size: attachment.bytes.byteLength }, mediaKind(attachment.mimeType), connection);
+  const prepared = await transport.prepare({ ...input, to, from, references, ...(attachments ? { attachments } : {}) });
   const body = JSON.stringify(prepared.body);
   const maxBytes = 26_214_400;
   if (!(prepared.encodedMessage instanceof Uint8Array) || prepared.encodedMessage.byteLength > maxBytes ||

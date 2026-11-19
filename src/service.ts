@@ -46,8 +46,8 @@ import type { InboundEvidence, SocialInboundEvidence } from "./customer/contract
 import { channelIdentityPort } from "./channel-ports";
 import { currentActor } from "./channel-runtime";
 import { completeChannelDelivery, loadChannelDeliveryContext } from "./delivery";
-import { channelExtension, extensionKey, registeredChannelExtensions, registeredChannelMaintenance } from "./channel-extension-registry";
-import { configureChannelConnection, ingressOperationContext, performChannelAction, validateChannelWritePlan, verifyIngressTicket } from "./channel-extension-kernel";
+import { channelConnectionDriver, channelExtension, extensionKey, registeredChannelExtensions, registeredChannelMaintenance } from "./channel-extension-registry";
+import { channelAutomationBlock, configureChannelConnection, ingressOperationContext, performChannelAction, validateChannelWritePlan, verifyIngressTicket } from "./channel-extension-kernel";
 import type { ChannelOutboxRow, ChannelWritePlan, ExtensionConnection } from "./channel-c2-contracts";
 import { allowsModules, channelRules, channelWindow, conversationChannel, isChannelId } from "./channels";
 import { refreshChannelSummaryStatements, validateChannelConfiguration } from "./channel-accounts";
@@ -862,6 +862,8 @@ export interface HandoffMeta {
 /** A passagem interna continua possível fora da janela; avisos automáticos e
  * devolução ao bot não usam a extensão reservada a texto escrito por pessoa. */
 async function socialAutomationBlock(env: Env, c: Conversation) {
+  const context = c.chat_type === "comment" || json(c.channel_context).context === "comment" ? "comment" : "direct";
+  if (extensionKey(c.channel, context)) return channelAutomationBlock(env, c, `handoff:${c.id}:${c.epoch}`);
   if (c.channel !== "instagram" && c.channel !== "facebook") return null;
   const rules = channelRules(c.connection_id ? await inboundConnection(env, c.connection_id) : null);
   const window = rules && channelWindow(rules, c.last_customer, now());
@@ -2848,6 +2850,14 @@ export async function perform(
       ["active", "paused"].includes(data.status),
       "Estado inválido.",
     );
+    const activatesExtension = !!extensionKey(row.channel) || registeredChannelExtensions().some(extension =>
+      extension.spec.id === row.channel && extension.key.endsWith("/comment") && extension.enabled?.({ ...row, status: "active" }));
+    if (data.status === "active" && activatesExtension && row.channel && channelConnectionDriver(row.channel)) {
+      const result = await configureChannelConnection(env, actor, profile, {
+        id: row.id, kind: row.kind, channel: row.channel, config: json(row.config), status: "active",
+      }, requestId);
+      return { ...result, channel_extension: true };
+    }
     if (data.status === "active") {
       await requireCurrentConnection(env, row);
       if (row.kind === "meta")
@@ -3299,6 +3309,7 @@ export async function perform(
         );
         if (
           c.chat_type !== "group" &&
+          channelContext === "direct" && c.channel !== "email" &&
           action === "resolve" &&
           policy.service &&
           (policy.menu || policy.bots) &&

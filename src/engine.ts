@@ -5,7 +5,7 @@ import type { ChannelId, SocialDelivery, SocialEventScope, SocialSendAttachment 
 import type { ChannelAction, ChannelDeliveryPlan, ChannelDeliveryResult, ChannelOperationContext, ChannelOutboxRow, ServerChannelAction } from "./channel-c2-contracts";
 import type { Statement } from "./customer/contracts";
 import { channelExtension, extensionKey } from "./channel-extension-registry";
-import { assertPublicChannelData, authorizeChannelAction, loadChannelOperationContext, prepareChannelAction, validateChannelWritePlan } from "./channel-extension-kernel";
+import { assertPublicChannelData, authorizeChannelAction, channelAutomationBlock, loadChannelOperationContext, prepareChannelAction, validateChannelWritePlan } from "./channel-extension-kernel";
 import { persistedSocialOrigin } from "./zernio-social";
 // O carregamento registra HistoryPort e os provedores de Fila e Formulários.
 import { customerTextHistory, customerTextScope, projectCustomerInput } from "./customer/history";
@@ -209,12 +209,13 @@ async function stopSocialAutomation(env: Env, c: any, source: string) {
   if (["comment", "review"].includes(channelContext(c)) || engineChannel(c) === "email") return true;
   const key = extensionConversationKey(c);
   if (key) {
-    const conn = await cachedOne(env, "SELECT * FROM connections WHERE id=? AND profile_id=?", c.connection_id, c.profile_id);
-    const extension = channelExtension(key);
-    const rules = extension.spec;
-    if (!conn || conn.status !== "active" || !extension.enabled?.(conn) || !rules.contexts.direct?.bot ||
-        !channelWindow(rules, c.last_customer, now()).canAutomation) return true;
-    return false;
+    const blocked = await channelAutomationBlock(env, c, source);
+    if (!blocked) return false;
+    await batch(env, [
+      ["UPDATE conversations SET state=CASE WHEN state='ai' THEN 'waiting' ELSE state END,epoch=epoch+CASE WHEN state='ai' THEN 1 ELSE 0 END,updated=? WHERE id=? AND profile_id=?", [now(), c.id, c.profile_id]],
+      ["INSERT OR IGNORE INTO messages(id,profile_id,conversation_id,direction,author,text,attachments,created,source_key,content) VALUES(?,?,?,'note','system',?,'[]',?,?,'{}')", [`channel-block:${source}`, c.profile_id, c.id, blocked.reason, now(), `channel-block:${source}`]],
+    ]);
+    return true;
   }
   if (!isSocial(c)) return false;
   const conn = await cachedOne(env, "SELECT * FROM connections WHERE id=? AND profile_id=?", c.connection_id, c.profile_id);

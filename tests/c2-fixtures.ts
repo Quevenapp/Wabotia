@@ -11,6 +11,8 @@ import type { ChannelContext, ChannelId } from "../src/channel-contracts";
 import type { ChannelExtension, VerifiedIngress } from "../src/channel-c2-contracts";
 import { assertVerifiedIngress, signVerifiedIngress } from "../src/channel-extension-kernel";
 import { registerChannelExtension } from "../src/channel-extension-registry";
+import { loadChannelOperationContext, parseChannelAction, prepareChannelAction } from "../src/channel-extension-kernel";
+import { enqueueChannelPlan } from "../src/engine";
 import { CHANNEL_EXTENSION_STUBS } from "../src/channel-extension-stubs";
 import { fixture, quietCoordinator } from "./service-center-fixture";
 export { bearer, quietCoordinator } from "./service-center-fixture";
@@ -60,6 +62,19 @@ export async function c2Request(path: string, init?: RequestInit): Promise<Respo
   const context = createExecutionContext();
   const response = await Worker.fetch(new Request(`https://test${path}`, init), env, context);
   await waitOnExecutionContext(context);
+  return response;
+}
+/** Entrada real do runtime; não inventa assinatura SMTP nem endpoint HTTP. */
+export async function c2WorkerEmail(message: ForwardableEmailMessage): Promise<void> {
+  const context = createExecutionContext();
+  await Worker.email(message, env, context);
+  await waitOnExecutionContext(context);
+}
+export async function c2Command(f: C2Fixture, operation: string, data: unknown, key = uid(), actor = f.admin) {
+  const response = await env.COORDINATOR.get(env.COORDINATOR.idFromName(f.profile)).fetch("https://coordinator/command", {
+    method: "POST", body: JSON.stringify({ profile: f.profile, actor, operation, data, key, requestId: uid() }),
+  });
+  await quietCoordinator(f.profile);
   return response;
 }
 export async function c2ZernioWebhook(f: C2Fixture, body: unknown, signature?: string): Promise<Response> {
@@ -141,15 +156,29 @@ export const syntheticReviewExtension: ChannelExtension = {
         ctx.resource.id, ctx.outbox.profile_id, ctx.resource.review.version],
     ]] : [] };
   },
-  routes: [{ method: "GET", path: "/reviews", authorization: "reviews.read", handler: async () => ({ data: [] }) }],
+  routes: [
+    { method: "GET", path: "/reviews", authorization: "reviews.read", handler: async () => ({ data: [] }) },
+    { method: "PUT", path: "/reviews/:id/reply", authorization: "google.reply", async handler(ctx) {
+      const input = record(ctx.input);
+      const action = parseChannelAction({ type: "google.reply", text: input.text, version: input.version });
+      const operation = await loadChannelOperationContext(ctx.env, ctx.actor, ctx.profileId, { kind: "review", id: ctx.params.id }, ctx.commandId);
+      const plan = await prepareChannelAction(operation, action);
+      return { delivery_id: await enqueueChannelPlan(operation, plan, action), status: "pending" };
+    } },
+  ],
 };
 
-export async function installSyntheticReview(f: C2Fixture) {
-  registerChannelExtension(syntheticReviewExtension);
+export async function installTestExtension(f: C2Fixture, extension: ChannelExtension) {
+  registerChannelExtension(extension);
   const stub = env.COORDINATOR.get(env.COORDINATOR.idFromName(f.profile));
-  await runInDurableObject(stub, async () => { registerChannelExtension(syntheticReviewExtension); });
+  await runInDurableObject(stub, async () => { registerChannelExtension(extension); });
+}
+export async function installSyntheticReview(f: C2Fixture) {
+  await installTestExtension(f, syntheticReviewExtension);
 }
 export async function assertNoChannelEffects(profile: string) {
-  for (const table of ["conversations", "messages", "contacts", "reviews", "outbox"])
+  for (const table of ["conversations", "messages", "contacts", "reviews", "outbox", "inbox", "media", "bot_runs"])
     expect(await all(env, `SELECT id FROM ${table} WHERE profile_id=?`, profile), table).toEqual([]);
+  expect(await all(env, `SELECT e.event_key FROM channel_events e JOIN connections c ON c.id=e.connection_id
+    WHERE c.profile_id=?`, profile), "channel_events").toEqual([]);
 }

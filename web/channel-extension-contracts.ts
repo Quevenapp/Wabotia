@@ -19,6 +19,8 @@ export interface ChannelDraft {
   attachments: readonly string[];
   /** Metadados dos arquivos enviados; o servidor reconfere tipo, tamanho e área. */
   attachmentDetails: readonly SocialSendAttachment[];
+  /** Prévia local antes do upload; não contém IDs de mídia ainda inexistentes. */
+  pendingAttachments?: readonly Omit<SocialSendAttachment, "mediaId">[];
   content: ChannelUiData;
   /** Assunto, alvo e modo são preparados antes de congelar o pedido idempotente. */
   fields: ChannelUiData;
@@ -52,6 +54,9 @@ export interface ContactSlotProps {
   channels: readonly CustomerChannelView[];
   /** Projeção opcional do servidor, inclusive conexão pronta sem vínculo na ficha. */
   extensionKeys?: readonly ExtensionKey[];
+  /** Estado da área já carregado pelo painel; não exige consulta de conexões. */
+  status?: ChannelUiData;
+  demo?: boolean;
   api: ChannelUiApi;
   root: string;
   refresh(): Promise<unknown>;

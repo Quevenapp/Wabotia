@@ -5,7 +5,7 @@ import type { Row } from "../lib/api";
 import { Field, toast } from "../ui";
 import { FormDialog } from "./shared";
 import { CHANNEL_REGISTRY, isChannelId } from "../../src/channels";
-import { ChannelConnectionFields, channelCatalogVisible, channelConnectionChoices, channelConnectionUi, channelUiFor } from "../channel-extensions";
+import { ChannelConnectionFields, channelCatalogVisible, channelConnectionChoices, channelConnectionUi, channelUiFor, channelUiKey } from "../channel-extensions";
 
 /** Ausência de canal conserva apenas os transportes WhatsApp reconhecidos. */
 export function connectionChannelPresentation(row: Row) {
@@ -37,13 +37,16 @@ export function connectionFormConfiguration(form: Row, catalog = false) {
 
 export function SocialConnectionFields({ form }: { form: Row }) {
   const channel = connectionChannelPresentation(form);
+  const extension = channelUiKey(form);
   return <>
     <p><strong>{channel.label}{form.account_label ? ` · ${form.account_label}` : ""}</strong></p>
     {channel.available && form.id ? <>
       <p>Conta importada da Zernio. Canal, conta e integração são fixos; as credenciais são compartilhadas e gerenciadas em Integração Zernio.</p>
-      <p>Requer acesso à caixa de entrada (Inbox) no plano da Zernio, conta conectada, permissões de mensagens e webhook configurado. Se aparecer inbox_required, habilite o Inbox no provedor e teste novamente.</p>
-      <p>O cliente inicia a conversa. Bot e automações respondem até 24 horas após a mensagem do cliente. Até 7 dias, somente texto escrito por uma pessoa; mídia e automações não usam essa extensão.</p>
-      <p>Depois de testar a conexão, configure bot, menu e horário em Linhas de atendimento. Requisitos do provedor: a conferir com a conta real.</p>
+      {!extension && <>
+        <p>Requer acesso à caixa de entrada (Inbox) no plano da Zernio, conta conectada, permissões de mensagens e webhook configurado. Se aparecer inbox_required, habilite o Inbox no provedor e teste novamente.</p>
+        <p>O cliente inicia a conversa. Bot e automações respondem até 24 horas após a mensagem do cliente. Até 7 dias, somente texto escrito por uma pessoa; mídia e automações não usam essa extensão.</p>
+        <p>Depois de testar a conexão, configure bot, menu e horário em Linhas de atendimento. Requisitos do provedor: a conferir com a conta real.</p>
+      </>}
     </> : <p role="alert">{channel.available
       ? "Importe esta conta em Integração Zernio → Buscar contas na Zernio antes de editar a conexão."
       : "Este canal ainda não está disponível nesta etapa."}</p>}

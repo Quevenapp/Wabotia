@@ -152,6 +152,12 @@ export async function loadChannelDeliveryContext(env: Env, row: ChannelOutboxRow
     beforeFetch: async () => {
       const persisted = await one<ChannelOutboxRow>(env, "SELECT * FROM outbox WHERE id=? AND profile_id=? AND status='sending'", row.id, row.profile_id);
       if (!persisted) throw new ApiError(410, "message_expired", "Entrega cancelada antes do envio.");
+      if (!await one(env, `SELECT 1 FROM channel_delivery_state s WHERE s.outbox_id=? AND s.profile_id=? AND s.not_before<=?
+        AND NOT EXISTS(SELECT 1 FROM channel_delivery_state p JOIN outbox o ON o.id=p.outbox_id
+          WHERE p.profile_id=s.profile_id AND p.resource_key=s.resource_key
+            AND (o.status IN ('pending','sending','unknown') OR (o.status IN ('sent','failed','cancelled') AND o.completion_handled=0))
+            AND (p.created<s.created OR (p.created=s.created AND p.outbox_id<s.outbox_id)))`, row.id, row.profile_id, now()))
+        throw new ApiError(409, "delivery_order_changed", "A entrega aguarda uma operação anterior do recurso.");
       await loadChannelDeliveryContext(env, persisted);
     },
   };

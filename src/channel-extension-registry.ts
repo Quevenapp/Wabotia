@@ -25,11 +25,16 @@ export function createChannelExtensionRegistry() {
         throw new Error("Manutenção de canal já registrada.");
       nextMaintenance.set(entry.key, entry);
     }
-    const routeKeys = new Set([...extensions.values()].filter(ext => ext.spec.id === extension.spec.id).flatMap(ext => ext.routes.map(route => `${route.method} ${route.path.replace(/:[^/]+/g, ":param")}`)));
+    const routeShape = (route: ChannelRoute) => `${route.method} ${route.path.replace(/:[^/]+/g, ":param")}`;
+    const routeKeys = new Set<string>();
     for (const route of extension.routes) {
-      const key = `${route.method} ${route.path.replace(/:[^/]+/g, ":param")}`;
+      const key = routeShape(route);
+      const scoped = /^\/(?:connections|conversations)\/:[^/]+(?:\/|$)/.test(route.path);
+      const conflict = [...extensions.values()].some(ext => ext.routes.some(old => routeShape(old) === key) &&
+        (!scoped || ext.spec.id === extension.spec.id));
       if (!route.path.startsWith("/") || route.path.startsWith("/c2/") || route.path.includes("..") || routeKeys.has(key))
         throw new Error("Rota de canal inválida ou duplicada.");
+      if (conflict) throw new Error("Rota de canal inválida ou duplicada.");
       routeKeys.add(key);
     }
     // Validação completa antes de alterar qualquer mapa; nenhuma leitura de ambiente.
@@ -37,15 +42,14 @@ export function createChannelExtensionRegistry() {
     if (driver) drivers.set(driver.channel, driver);
     for (const [key, entry] of nextMaintenance) maintenance.set(key, entry);
   }
-  function findChannelRoute(method: string, path: string, channel?: ChannelId) {
+  function findChannelRoute(method: string, path: string, channel?: ChannelId, context?: ChannelContext) {
     const parts = path.replace(/^\/c2(?=\/|$)/, "").split("/");
     for (const extension of extensions.values()) {
       if (channel && extension.spec.id !== channel) continue;
-      const setupRoutes: readonly ChannelRoute[] = extension.connectionDriver ? ["GET", "POST"].map(method => ({
-        method: method as "GET" | "POST", path: "/connections/:id/setup", authorization: "admin",
-        async handler(ctx) { const { performConnectionSetup } = await import("./channel-extension-kernel"); return performConnectionSetup(ctx, method); },
-      })) : [];
-      for (const route of [...extension.routes, ...setupRoutes]) {
+      if (context && extension.key !== extensionKey(extension.spec.id, context)) continue;
+      // Este registro também compõe o catálogo do browser. Despachos de servidor
+      // (inclusive setup por driver) ficam no kernel, sem importá-lo daqui.
+      for (const route of extension.routes) {
       if (route.method !== method.toUpperCase()) continue;
       const pattern = route.path.split("/");
       if (parts.length !== pattern.length) continue;

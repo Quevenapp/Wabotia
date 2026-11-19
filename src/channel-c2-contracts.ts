@@ -152,6 +152,8 @@ export interface ChannelExtension {
   };
   /** Opt-in da conexão; ausência mantém contextos novos desligados. */
   enabled?(connection: ChannelConnection): boolean;
+  /** Quota/bloqueio específico: só consultado para um canal novo antes do bot ou aviso de transferência. */
+  automationBlock?(ctx: ChannelOperationContext): Promise<{ code: string; reason: string } | null>;
   /** Contrato de descoberta fica no descritor; não cria meta_numbers. */
   account?: { importable: boolean; serviceLine: boolean };
   prepareMenu?(ctx: ChannelOperationContext, input: {

@@ -269,6 +269,8 @@ export function ConnectionsPage() {
               "qr",
               "hermes-whatsapp",
               "telegram",
+              "telegram_bot",
+              "email",
               "hermes",
               "ai",
             ].includes(row.kind) && (
