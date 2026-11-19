@@ -39,6 +39,7 @@ interface WabotiaApi {
         @Query("q") q: String? = null,
         @Query("cursor") cursor: String? = null,
         @Query("limit") limit: Int = 50,
+        @Query("channel") channel: String? = null,
     ): Page<Conversation>
     @GET("api/v1/profiles/{p}/conversations/{id}") suspend fun conversation(@Path("p") p: String, @Path("id") id: String): ConversationDetail
     @POST("api/v1/profiles/{p}/conversations/{id}/actions") suspend fun act(
@@ -51,6 +52,15 @@ interface WabotiaApi {
         @Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: GroupPolicyRequest,
     ): JsonObject
     @GET("api/v1/profiles/{p}/contacts/{id}") suspend fun contact(@Path("p") p: String, @Path("id") id: String): JsonObject
+    @GET("api/v1/profiles/{p}/contacts/{id}/profile") suspend fun contactProfile(
+        @Path("p") p: String, @Path("id") id: String,
+    ): ContactChannelProfile
+    @POST("api/v1/profiles/{p}/conversations/{id}/email/preview") suspend fun emailPreview(
+        @Path("p") p: String, @Path("id") id: String, @Body body: TranscriptPreviewRequest,
+    ): TranscriptPreview
+    @POST("api/v1/profiles/{p}/conversations/{id}/email") suspend fun sendEmailTranscript(
+        @Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: TranscriptSendRequest,
+    ): TranscriptSendResult
 
     // --- mídia (upload em partes de 5 MiB; GET content é feito via OkHttp direto com Authorization) ---
     @POST("api/v1/profiles/{p}/media/uploads") suspend fun uploadCreate(@Path("p") p: String, @Header("Idempotency-Key") key: String, @Body body: UploadInit): UploadCreated

@@ -71,8 +71,13 @@ import kotlinx.serialization.json.JsonObject
      * null. Mantido como JSON cru para que um formato inesperado nunca derrube a lista; leia com [lastMessage].
      */
     val last_message: JsonElement? = null,
+    val channel: String? = null,
+    val account_label: String = "",
+    val multichannel: Boolean = false,
+    val window: ChannelWindow? = null,
 ) {
-    val displayName: String get() = contact_name?.takeIf { it.isNotBlank() } ?: title.takeIf { it.isNotBlank() } ?: phone ?: external_id
+    val displayName: String get() = contact_name?.takeIf { it.isNotBlank() } ?: title.takeIf { it.isNotBlank() }
+        ?: if (channel != null && channel != "whatsapp") "Contato" else phone ?: external_id
     val isGroup get() = chat_type == "group"
     fun isOwnedBy(userId: String?) = owner != null && owner == userId && state == "human"
 
@@ -153,8 +158,32 @@ data class LastMessage(
     val payments: JsonElement? = null,
     /** Links de passo web da conversa (formulário, check-in, carrinho), crus como [payments]. */
     val web_steps: JsonElement? = null,
+    val channel: String? = null,
+    val account_label: String? = null,
+    val multichannel: Boolean? = null,
+    val window: ChannelWindow? = null,
+    val other_conversations: List<OtherChannelConversation> = emptyList(),
+    val email_transcript: TranscriptOptions? = null,
 ) {
-    fun can(feature: String): Boolean = capabilities?.bool(feature) ?: false
+    fun can(feature: String): Boolean {
+        val channel = channelId
+        if (channel != null && channel !in Channels.current) return false
+        val offered = if (feature == "menu") {
+            capabilities?.obj("menu")?.let { menu ->
+                listOf("buttons", "quickReplies", "listItems").any { (menu.long(it) ?: 0) > 0 }
+            } ?: capabilities?.bool(feature) ?: (channel == null || channel == "whatsapp")
+        } else capabilities?.bool(feature) ?: false
+        if (!offered || !Channels.isSocial(channel)) return offered
+        if (feature == "reply") return false
+        if (feature == "read") return true
+        val window = channelWindow ?: return false
+        return window.blockReason(hasAttachments = feature != "text", automation = feature == "menu") == null
+    }
+    val channelId: String? get() = channel ?: capabilities?.string("channel") ?: conversation.channel
+    val accountLabel: String get() = account_label ?: capabilities?.string("account_label") ?: conversation.account_label
+    val isMultichannel: Boolean get() = multichannel ?: capabilities?.bool("multichannel") ?: conversation.multichannel
+    val channelWindow: ChannelWindow? get() = window ?: ChannelWindow.from(capabilities?.obj("window")) ?: conversation.window
+    val modulesAllowed: Boolean get() = (channelId == null || channelId == "whatsapp") && capabilities?.bool("modules") != false
 }
 
 /** POST /conversations/{id}/actions. `content` segue o esquema MessageContent da API. */
@@ -310,13 +339,20 @@ fun List<TicketCategory>.nameOf(categoryId: String?): String? {
 )
 
 @Serializable data class CountRow(val state: String? = null, val status: String? = null, val count: Long = 0)
-@Serializable data class ConnectionSummary(val id: String, val name: String = "", val kind: String = "", val status: String = "", val last_seen: Long? = null)
+@Serializable data class ConnectionSummary(
+    val id: String, val name: String = "", val kind: String = "", val status: String = "", val last_seen: Long? = null,
+    val channel: String? = null, val account_label: String = "",
+)
 @Serializable data class ProfileStatus(
     val settings: JsonObject? = null,
     val enabled: Int? = null,
     val conversations: List<CountRow> = emptyList(),
     val deliveries: List<CountRow> = emptyList(),
     val connections: List<ConnectionSummary> = emptyList(),
+    val connected_channels: List<String> = emptyList(),
+    val conversation_channels: List<String> = emptyList(),
+    val multichannel: Boolean = false,
+    val email_transcript: TranscriptAvailability? = null,
 ) {
     /** `connection_id` → `kind` (meta, zernio, qr, hermes…). */
     fun lineKinds(): Map<String, String> = connections.associate { it.id to it.kind }

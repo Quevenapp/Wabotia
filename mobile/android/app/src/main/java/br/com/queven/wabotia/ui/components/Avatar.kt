@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import br.com.queven.wabotia.core.model.Conversation
+import br.com.queven.wabotia.core.model.Channels
 import br.com.queven.wabotia.ui.theme.Wb
 import kotlin.math.absoluteValue
 
@@ -65,8 +66,11 @@ fun Avatar(
     badge: StateBadge? = null,
     online: Boolean? = null,
     ringColor: Color = Wb.colors.background,
+    channel: String? = null,
+    multichannel: Boolean = false,
 ) {
     val c = Wb.colors
+    val showChannel = Channels.showBadge(channel, multichannel)
     Box(modifier.size(size)) {
         Box(
             Modifier
@@ -98,8 +102,8 @@ fun Avatar(
             val badgeSize = (size.value * 0.4f).coerceIn(16f, 30f).dp
             Box(
                 Modifier
-                    .align(Alignment.BottomEnd)
-                    .offset(x = 2.dp, y = 2.dp)
+                    .align(if (showChannel) Alignment.TopEnd else Alignment.BottomEnd)
+                    .offset(x = 2.dp, y = if (showChannel) (-2).dp else 2.dp)
                     .size(badgeSize)
                     .background(ringColor, CircleShape)
                     .border(2.dp, ringColor, CircleShape)
@@ -124,6 +128,9 @@ fun Avatar(
             ) {
                 Box(Modifier.size(dot - 4.dp).background(if (online) c.ok else c.muted, CircleShape))
             }
+        }
+        if (showChannel) {
+            ChannelBadge(channel, Modifier.align(Alignment.BottomEnd).offset(x = 2.dp, y = 2.dp), size = (size.value * 0.4f).coerceIn(16f, 30f).dp, ringColor = ringColor)
         }
     }
 }

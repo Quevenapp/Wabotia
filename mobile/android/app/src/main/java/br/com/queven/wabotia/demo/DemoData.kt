@@ -20,6 +20,12 @@ import java.util.TreeMap
 /** Identificadores fixos, usados também pelos atalhos de tela em [DemoMode]. */
 internal object Ids {
     const val PROFILE = "demo-profile"
+    const val CHANNEL_PROFILE = "demo-channels"
+    const val C_INSTAGRAM = "c-instagram-open"
+    const val C_FACEBOOK = "c-facebook-human"
+    const val C_SOCIAL_CLOSED = "c-instagram-closed"
+    const val C_EMAIL_DISABLED = "c-email-disabled"
+    const val C_EMAIL_DENIED = "c-email-denied"
 
     const val ME = "u-diego"
     const val ANA = "u-ana"
@@ -113,7 +119,8 @@ internal class Upload(val name: String, val type: String, val size: Long) {
 }
 
 /** Tudo o que o servidor fictício guarda. Recriado a cada entrada na demonstração. */
-internal class DemoState(val t0: Long) {
+internal class DemoState(val t0: Long, val profileId: String = Ids.PROFILE) {
+    val multichannel: Boolean get() = profileId == Ids.CHANNEL_PROFILE
     val users = linkedMapOf(
         Ids.ME to DemoMode.USER_NAME,
         Ids.ANA to "Ana Souza",
@@ -136,6 +143,9 @@ internal class DemoState(val t0: Long) {
     val groups = HashMap<String, JsonObject>()
     val media = HashMap<String, DemoMedia.Entry>()
     val uploads = HashMap<String, Upload>()
+    /** Tokens opacos locais; só a simulação consulta estes dados, sem envio de e-mail real. */
+    val transcriptPreviews = HashMap<String, JsonObject>()
+    val transcriptReceipts = HashMap<String, Pair<JsonObject, JsonObject>>()
 
     val tickets = LinkedHashMap<String, Row>()
     val ticketUpdates = HashMap<String, MutableList<Row>>()
@@ -188,15 +198,19 @@ internal class DemoState(val t0: Long) {
     ): Row {
         val list = messages.getOrPut(conversationId) { ArrayList() }
         val messageId = id ?: "m-$conversationId-${list.size + 1}"
+        // O mesmo evento sintético, inclusive repetido, representa uma única mensagem.
+        list.firstOrNull { it.str("id") == messageId }?.let { return it }
         val message = row(
             "id" to messageId,
-            "profile_id" to Ids.PROFILE,
+            "profile_id" to profileId,
             "conversation_id" to conversationId,
             "direction" to direction,
             "author" to author,
             "text" to text,
             "attachments" to JsonArray(attachments.map { JsonPrimitive(it) }).toString(),
-            "external_id" to if (direction == "customer" || direction == "outbound" || direction == "operator") "wamid.DEMO.$messageId" else null,
+            "external_id" to if (direction in setOf("customer", "outbound", "operator")) {
+                if (multichannel) "demo-event:$messageId" else "wamid.DEMO.$messageId"
+            } else null,
             "created" to at,
             "content" to content.toString(),
             "delivery_status" to status,
@@ -224,7 +238,7 @@ internal class DemoState(val t0: Long) {
     ) {
         conversations[id] = row(
             "id" to id,
-            "profile_id" to Ids.PROFILE,
+            "profile_id" to profileId,
             "connection_id" to line,
             "external_namespace" to "whatsapp",
             "external_id" to (phone ?: "120363041234567890@g.us"),
@@ -249,6 +263,41 @@ internal class DemoState(val t0: Long) {
         if (!group) {
             contacts["ct-$id"] = contact ?: j("id" to "ct-$id", "name" to name, "phone" to phone, "email" to null, "company" to null, "notes" to null, "version" to 1)
         }
+    }
+
+    /** Área separada: a área original conserva integralmente seus cenários WhatsApp e módulos. */
+    fun seedChannels() {
+        for ((channel, label) in listOf("whatsapp" to "WhatsApp Exemplo", "instagram" to "@loja.exemplo", "facebook" to "Loja Exemplo")) {
+            lines += row("id" to "demo-$channel", "name" to label, "kind" to "zernio", "channel" to channel,
+                "account_label" to label, "status" to "active")
+        }
+        fun direct(id: String, channel: String, age: Double, name: String, contactId: String = "ct-$id") {
+            val label = lines.first { it.str("channel") == channel }.str("account_label")
+            conversation(id, name, if (channel == "whatsapp") "5520900008888" else null, "human", Ids.ME,
+                "demo-$channel", hoursAgo(age), minAgo(1), hoursAgo(age + 1))
+            conversations.getValue(id).apply {
+                assign("channel", channel)
+                assign("account_label", label)
+                assign("multichannel", true)
+                assign("external_namespace", "channel:demo-$channel")
+                assign("external_id", if (channel == "whatsapp") "5520900008888" else "synthetic-$id")
+                assign("contact_id", contactId)
+            }
+            contacts[contactId] = j("id" to contactId, "name" to name, "phone" to null, "email" to "cliente@loja.example", "version" to 1)
+            addMessage(id, "customer", name, "Olá! Preciso de ajuda com meu atendimento.", hoursAgo(age),
+                content = j("type" to "text", "customerSession" to "session-$id"), id = "event-$id")
+        }
+        direct("c-channels-whatsapp", "whatsapp", 1.0, "Mariana Exemplo")
+        direct(Ids.C_INSTAGRAM, "instagram", 1.0, "Lia Exemplo", "ct-social-shared")
+        direct(Ids.C_FACEBOOK, "facebook", 25.0, "Lia Exemplo", "ct-social-shared")
+        direct(Ids.C_SOCIAL_CLOSED, "instagram", 168.0, "Pedro Exemplo")
+        direct(Ids.C_EMAIL_DISABLED, "facebook", 2.0, "E-mail não configurado")
+        direct(Ids.C_EMAIL_DENIED, "instagram", 3.0, "Sem permissão de e-mail")
+        addMessage(Ids.C_INSTAGRAM, "customer", "Lia Exemplo", "Anexo indisponível. A mensagem foi preservada.", minAgo(30),
+            content = j("type" to "image", "media_unavailable" to true, "customerSession" to "session-${Ids.C_INSTAGRAM}"), id = "event-unavailable")
+        addMessage(Ids.C_INSTAGRAM, "note", Ids.ME, "Nota interna: nunca incluir na transcrição.", minAgo(20))
+        // Repetição deliberada da fixture: não acrescenta outro balão.
+        addMessage(Ids.C_INSTAGRAM, "customer", "Lia Exemplo", "Evento repetido", minAgo(30), id = "event-unavailable")
     }
 
     fun seed() {

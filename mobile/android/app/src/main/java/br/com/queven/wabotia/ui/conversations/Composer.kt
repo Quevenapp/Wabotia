@@ -110,6 +110,7 @@ import br.com.queven.wabotia.ui.components.RoundIconButton
 import br.com.queven.wabotia.ui.components.SecondaryButton
 import br.com.queven.wabotia.ui.components.WbBottomSheet
 import br.com.queven.wabotia.ui.components.WindowInfo
+import br.com.queven.wabotia.core.model.Channels
 import br.com.queven.wabotia.ui.components.formatClock
 import br.com.queven.wabotia.ui.components.rememberHaptics
 import br.com.queven.wabotia.ui.theme.Wb
@@ -145,6 +146,7 @@ internal fun Composer(
     val canVoice = detail.can("voice") || detail.can("audio")
     val members = remember(detail.group) { detail.groupMembers() }
     val locked = vm.sending || vm.pending != null
+    val channelBlock = vm.replyBlockReason()
 
     // --- gravação de voz ---
     val recorder = remember { VoiceRecorder(context) }
@@ -306,7 +308,7 @@ internal fun Composer(
 
     Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 6.dp, end = 6.dp, top = 4.dp, bottom = 6.dp)) {
         // Aviso de janela fechada: o envio continua permitido (o servidor guarda e entrega quando a janela reabrir).
-        if (window != null && window.closed) {
+        if (window != null && window.closed && !window.social) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 3.dp).clip(RoundedCornerShape(12.dp)).background(c.bubbleSystem).padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -315,6 +317,11 @@ internal fun Composer(
                 Spacer(Modifier.width(10.dp))
                 Text("Fora da janela de 24h. A mensagem fica na fila até o cliente escrever.", color = c.textSecondary, fontSize = 12.5.sp, lineHeight = 16.sp)
             }
+        }
+        if (channelBlock != null) {
+            InlineNotice(channelBlock, Modifier.padding(horizontal = 2.dp, vertical = 3.dp))
+        } else if (window?.humanTextOnly == true) {
+            Text("Até 7 dias: somente texto escrito por você. Anexos e automações não estão disponíveis.", color = c.textSecondary, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
         }
         vm.composerError?.let { InlineNotice(it, Modifier.padding(horizontal = 2.dp, vertical = 3.dp), onDismiss = { vm.composerError = null }) }
         vm.pending?.let {
@@ -419,7 +426,7 @@ internal fun Composer(
                     }
                     Box(Modifier.weight(1f).heightIn(min = 48.dp).padding(vertical = 13.dp), contentAlignment = Alignment.CenterStart) {
                         if (vm.text.isEmpty()) {
-                            Text(if (vm.editing != null) "Novo texto da mensagem" else "Mensagem", color = c.textSecondary, fontSize = 16.5.sp, maxLines = 1)
+                            Text(if (vm.editing != null) "Novo texto da mensagem" else if (detail.channelId != null && detail.channelId != "whatsapp") "Responder pelo ${Channels.label(detail.channelId)}" else "Mensagem", color = c.textSecondary, fontSize = 16.5.sp, maxLines = 1)
                         }
                         BasicTextField(
                             value = vm.text,
@@ -582,7 +589,7 @@ private fun AttachSheet(
         if (detail.can("location")) add(AttachItem("Localização", Icons.Filled.LocationOn, c.ok, onLocation))
         if (detail.can("contacts")) add(AttachItem("Contato", Icons.Filled.Person, c.tickRead, onContact))
         if (detail.conversation.isGroup && detail.can("mentions")) add(AttachItem("Mencionar", Icons.Filled.AlternateEmail, c.muted, onMention))
-        add(AttachItem("Menu", Icons.AutoMirrored.Filled.ListAlt, c.brand, onMenu))
+        if (detail.can("menu")) add(AttachItem("Menu", Icons.AutoMirrored.Filled.ListAlt, c.brand, onMenu))
         add(AttachItem("Protocolo", Icons.Filled.ConfirmationNumber, c.ticket, onTicket))
         add(AttachItem("Nota interna", Icons.Filled.Lock, c.warn, onNote))
     }

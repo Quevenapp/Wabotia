@@ -58,6 +58,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboard
 import android.content.ClipData
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import br.com.queven.wabotia.MainActivity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -67,6 +71,9 @@ import androidx.compose.ui.unit.sp
 import br.com.queven.wabotia.core.model.Bot
 import br.com.queven.wabotia.core.model.ConversationDetail
 import br.com.queven.wabotia.core.model.Message
+import br.com.queven.wabotia.core.model.Channels
+import br.com.queven.wabotia.core.model.OtherChannelConversation
+import br.com.queven.wabotia.core.model.TranscriptOptions
 import br.com.queven.wabotia.core.model.bool
 import br.com.queven.wabotia.core.model.obj
 import br.com.queven.wabotia.ui.components.Avatar
@@ -182,7 +189,7 @@ internal fun NoteSheet(busy: Boolean, error: String?, onSend: (String) -> Unit, 
 @Composable
 internal fun WindowInfoSheet(info: WindowInfo, onDismiss: () -> Unit) {
     val c = Wb.colors
-    WbBottomSheet(onDismiss = onDismiss, title = "Janela de 24 horas") {
+    WbBottomSheet(onDismiss = onDismiss, title = info.title) {
         Column(Modifier.padding(horizontal = 20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 WindowRing(info, size = 44.dp, strokeWidth = 4.dp)
@@ -197,12 +204,42 @@ internal fun WindowInfoSheet(info: WindowInfo, onDismiss: () -> Unit) {
                 }
             }
             Spacer(Modifier.height(16.dp))
-            RuleLine(Icons.Filled.Schedule, "O WhatsApp só aceita mensagem livre até 24 horas depois da última mensagem do cliente.")
-            RuleLine(Icons.Filled.Refresh, "Cada nova mensagem do cliente reinicia o prazo e o anel volta a encher.")
-            RuleLine(Icons.Filled.Lock, "Com a janela fechada, sua mensagem fica na fila e é entregue quando o cliente escrever de novo.")
+            if (info.social) {
+                RuleLine(Icons.Filled.Schedule, "Nas primeiras 24 horas, a equipe e a automação podem responder com os conteúdos aceitos pelo canal.")
+                RuleLine(Icons.Filled.Refresh, "De 24 horas até 7 dias, apenas texto escrito por uma pessoa. Anexos, menus, reações e automações ficam bloqueados.")
+                RuleLine(Icons.Filled.Lock, info.reason ?: "Após 7 dias, aguarde uma nova mensagem do contato para responder.")
+            } else {
+                RuleLine(Icons.Filled.Schedule, "O WhatsApp só aceita mensagem livre até 24 horas depois da última mensagem do cliente.")
+                RuleLine(Icons.Filled.Refresh, "Cada nova mensagem do cliente reinicia o prazo e o anel volta a encher.")
+                RuleLine(Icons.Filled.Lock, "Com a janela fechada, sua mensagem fica na fila e é entregue quando o cliente escrever de novo.")
+            }
         }
     }
 }
+
+/** Atalhos usam exclusivamente a lista já autorizada do servidor; cada conversa abre seus próprios balões. */
+@Composable
+internal fun OtherConversationsNotice(conversations: List<OtherChannelConversation>, onOpen: (String) -> Unit) {
+    val visible = conversations.filter { it.id.isNotBlank() }.distinctBy { it.id }
+    if (visible.isEmpty()) return
+    Column(Modifier.fillMaxWidth().background(Wb.colors.background).padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text("Este contato tem outros diálogos.", color = Wb.colors.textSecondary, style = MaterialTheme.typography.bodySmall)
+        visible.forEach { conversation ->
+            TextButton(onClick = { onOpen(conversation.id) }) {
+                Text(listOf(Channels.label(conversation.channel), conversation.account_label, conversation.title).filter { it.isNotBlank() }.joinToString(" · "), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+internal fun openRelatedConversation(context: Context, profileId: String, conversationId: String) {
+    val uri = Uri.Builder().scheme("wabotia").authority("open").appendPath("message")
+        .appendQueryParameter("profile", profileId).appendQueryParameter("conversation", conversationId).build()
+    context.startActivity(Intent(context, MainActivity::class.java).setData(uri).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP))
+}
+
+internal fun TranscriptOptions?.showsAction(): Boolean = this != null &&
+    (available || destinations.isNotEmpty() || reason in setOf("email_not_configured", "not_configured", "email_unconfigured"))
 
 @Composable
 private fun RuleLine(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String) {
@@ -300,11 +337,11 @@ internal fun GroupPolicyDialog(current: String, onPick: (String) -> Unit, onDism
 
 /** Confirmação de exclusão no WhatsApp. */
 @Composable
-internal fun DeleteMessageDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+internal fun DeleteMessageDialog(onConfirm: () -> Unit, onDismiss: () -> Unit, channelLabel: String = "WhatsApp") {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Apagar mensagem?") },
-        text = { Text("A mensagem também é apagada no WhatsApp do cliente. O registro de auditoria do atendimento é mantido.") },
+        text = { Text("A mensagem também é apagada no $channelLabel do cliente. O registro de auditoria do atendimento é mantido.") },
         confirmButton = { TextButton(onClick = onConfirm) { Text("Apagar", color = Wb.colors.danger, fontWeight = FontWeight.SemiBold) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
     )
@@ -312,12 +349,12 @@ internal fun DeleteMessageDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
 
 /** Mensagem que falhou: mostra o erro e oferece "Tentar de novo". */
 @Composable
-internal fun FailedMessageDialog(error: String?, canRetry: Boolean, onRetry: () -> Unit, onDismiss: () -> Unit) {
+internal fun FailedMessageDialog(error: String?, canRetry: Boolean, onRetry: () -> Unit, onDismiss: () -> Unit, channelLabel: String = "WhatsApp") {
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { IconBubble(Icons.Filled.Refresh, Wb.colors.danger) },
         title = { Text("A mensagem não foi entregue") },
-        text = { Text(error?.takeIf { it.isNotBlank() } ?: "O WhatsApp não confirmou o envio desta mensagem.") },
+        text = { Text(error?.takeIf { it.isNotBlank() } ?: "O $channelLabel não confirmou o envio desta mensagem.") },
         confirmButton = { if (canRetry) TextButton(onClick = onRetry) { Text("Tentar de novo", fontWeight = FontWeight.SemiBold) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Fechar") } },
     )

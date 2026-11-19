@@ -31,7 +31,8 @@ class WabotiaMessagingService : FirebaseMessagingService() {
         val server = data["server"]?.trim()?.trimEnd('/')
         val current = session.serverUrl
         if (!server.isNullOrBlank() && current != null && !server.equals(current, ignoreCase = true)) return
-        val title = message.notification?.title ?: data["title"] ?: "Wabotia"
+        val presentation = Notifications.presentation(message.notification?.title, data)
+        val title = presentation.title
         val body = message.notification?.body ?: data["body"] ?: when (type) {
             "queue" -> "Novo atendimento na fila"
             "transfer" -> "Atendimento transferido para você"

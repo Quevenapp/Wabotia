@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.model.ActionRequest
 import br.com.queven.wabotia.core.model.Conversation
+import br.com.queven.wabotia.core.model.ConversationPageKey
 import br.com.queven.wabotia.core.model.Event
 import br.com.queven.wabotia.core.model.Profile
 import br.com.queven.wabotia.core.model.ProfileStatus
@@ -35,6 +36,8 @@ class ConversationsViewModel(private val container: AppContainer) : ViewModel() 
     val meId: String? get() = container.session.user?.id
 
     var filter by mutableStateOf(ConversationFilter.All)
+        private set
+    var channel by mutableStateOf<String?>(null)
         private set
     var query by mutableStateOf("")
     var appliedQuery by mutableStateOf("")
@@ -76,10 +79,24 @@ class ConversationsViewModel(private val container: AppContainer) : ViewModel() 
     private val fillAttempted = HashSet<String>()
     private var pendingAct: Triple<String, ActionRequest, String>? = null
 
+    val pageKey: ConversationPageKey
+        get() = ConversationPageKey(profileId, filter.state, appliedQuery.trim(), channel)
+
+    fun selectChannel(value: String?) {
+        if (channel == value) return
+        channel = value
+        items = emptyList()
+        nextCursor = null
+        loaded = false
+        mineCount = 0
+        load(reset = true, keepCount = false)
+    }
+
     fun selectFilter(value: ConversationFilter) {
         if (filter == value) return
         filter = value
         items = emptyList()
+        nextCursor = null
         loaded = false
         load(reset = true, keepCount = false)
     }
@@ -88,6 +105,7 @@ class ConversationsViewModel(private val container: AppContainer) : ViewModel() 
     fun applyQuery() {
         if (appliedQuery == query) return
         appliedQuery = query
+        nextCursor = null
         load(reset = true, keepCount = false)
     }
 
@@ -110,12 +128,16 @@ class ConversationsViewModel(private val container: AppContainer) : ViewModel() 
     private fun load(reset: Boolean, keepCount: Boolean) {
         val gen = ++generation
         loadJob?.cancel()
+        fillJob?.cancel()
+        val requestedKey = pageKey
+        val profile = requestedKey.profileId
         val target = if (reset && keepCount) items.size else 0
         val state = filter.state
         val mine = filter == ConversationFilter.Mine
         val q = appliedQuery.trim().ifBlank { null }
         val me = meId
-        container.conversationCache.use(profileId)
+        if (reset) nextCursor = null
+        container.conversationCache.use(profile)
         loadJob = viewModelScope.launch {
             if (reset) loading = items.isEmpty() else loadingMore = true
             try {
@@ -123,13 +145,14 @@ class ConversationsViewModel(private val container: AppContainer) : ViewModel() 
                 var cursor: String? = if (reset) null else nextCursor
                 var pages = 0
                 do {
-                    val page = container.api.conversations(profileId, state = state, q = q, cursor = cursor, limit = 50)
+                    val page = container.api.conversations(profile, state = state, q = q, cursor = cursor, limit = 50, channel = requestedKey.channel)
+                    if (gen != generation || requestedKey != pageKey) return@launch
                     collected += if (mine) page.data.filter { it.owner == me } else page.data
                     cursor = page.next_cursor
                     pages++
                     val wantMore = cursor != null && pages < 6 && (collected.size < target || (mine && collected.size < 20))
                 } while (wantMore)
-                if (gen != generation) return@launch
+                if (gen != generation || requestedKey != pageKey) return@launch
                 items = collected.distinctBy { it.id }
                 nextCursor = cursor
                 error = null
@@ -141,9 +164,9 @@ class ConversationsViewModel(private val container: AppContainer) : ViewModel() 
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (gen == generation) error = container.handleError(e)
+                if (gen == generation && requestedKey == pageKey) error = container.handleError(e)
             } finally {
-                if (gen == generation) {
+                if (gen == generation && requestedKey == pageKey) {
                     loading = false
                     refreshing = false
                     loadingMore = false
