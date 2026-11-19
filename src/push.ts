@@ -11,6 +11,7 @@ import {
 import { admin, secret, setSecret, publicUrl, storedAccess } from "./security";
 import { allows } from "./access";
 import { isActiveTicket, ticketTeamLabels } from "./protocols";
+import { CHANNEL_REGISTRY, conversationChannel } from "./channels";
 import {
   sendFcm,
   type PushMessage,
@@ -33,6 +34,19 @@ export const pushDefaults: PushConfig = {
   preview: "preview",
   ticket_alert_minutes: 60,
 };
+/** O resumo já acompanha a conversa; nunca conta conexões ao notificar. */
+function pushChannel(c: any) {
+  return c ? conversationChannel(c, c.connection_id && c.connection_kind ? {
+    id: c.connection_id, profile_id: c.profile_id, kind: c.connection_kind,
+    channel: c.connection_channel, config: "{}",
+  } : null) : null;
+}
+export function conversationPushTitle(c: any): string {
+  const name = c?.contact_name || c?.title || c?.phone || (c?.channel ? "Contato" : c?.external_id) || "Contato";
+  const channel = pushChannel(c);
+  return json(c?.channel_context).multichannel === true && channel
+    ? `${CHANNEL_REGISTRY[channel].label} · ${name}` : name;
+}
 export async function pushConfig(env: Env): Promise<PushConfig> {
   const stored = await secret(env, CONFIG_ID);
   return { ...pushDefaults, ...stored };
@@ -511,20 +525,21 @@ export async function processPush(env: Env, profile: string) {
     const convCache = new Map<string, any>();
     const conv = async (id: string | null | undefined) => {
       if (!id) return null;
+      // A conexão só é relida para o legado multicanal; WhatsApp isolado
+      // conserva as leituras e usa canal desconhecido quando não há prova local.
       if (!convCache.has(id))
         convCache.set(
           id,
           await one(
             env,
-            "SELECT c.id,c.phone,c.external_id,c.title,c.state,c.owner,ct.name contact_name FROM conversations c LEFT JOIN conversation_contacts l ON l.conversation_id=c.id AND l.profile_id=c.profile_id LEFT JOIN contacts ct ON ct.id=l.contact_id AND ct.profile_id=c.profile_id WHERE c.id=? AND c.profile_id=?",
+            "SELECT c.id,c.profile_id,c.connection_id,c.phone,c.external_id,c.external_namespace,c.chat_type,c.channel,c.channel_context,c.title,c.state,c.owner,n.kind connection_kind,n.channel connection_channel,ct.name contact_name FROM conversations c LEFT JOIN conversation_contacts l ON l.conversation_id=c.id AND l.profile_id=c.profile_id LEFT JOIN contacts ct ON ct.id=l.contact_id AND ct.profile_id=c.profile_id LEFT JOIN connections n ON c.channel IS NULL AND json_extract(c.channel_context,'$.multichannel')=1 AND n.id=c.connection_id AND n.profile_id=c.profile_id WHERE c.id=? AND c.profile_id=?",
             id,
             profile,
           ),
         );
       return convCache.get(id);
     };
-    const label = (c: any) =>
-      c?.contact_name || c?.title || c?.phone || c?.external_id || "Contato";
+    const label = conversationPushTitle;
     const queue = (
       targets: string[] | "all",
       exclude: string | null,
@@ -570,6 +585,7 @@ export async function processPush(env: Env, profile: string) {
             type: "message",
             profile_id: profile,
             conversation_id: c.id,
+            channel: pushChannel(c) || "",
           },
           priority: "high",
           collapse_key: "conversa-" + c.id,
@@ -584,7 +600,7 @@ export async function processPush(env: Env, profile: string) {
           queue("all", actor, "queue", c.id, String(ev.id), {
             title: minimal ? "Wabotia" : label(c),
             body: minimal ? "Novo atendimento" : "Novo atendimento na fila",
-            data: { type: "queue", profile_id: profile, conversation_id: c.id },
+            data: { type: "queue", profile_id: profile, conversation_id: c.id, channel: pushChannel(c) || "" },
             priority: "high",
             collapse_key: "fila-" + c.id,
             channel: "queue",
@@ -603,6 +619,7 @@ export async function processPush(env: Env, profile: string) {
               type: "transfer",
               profile_id: profile,
               conversation_id: c.id,
+              channel: pushChannel(c) || "",
             },
             priority: "high",
             collapse_key: "conversa-" + c.id,
@@ -706,6 +723,7 @@ export async function processPush(env: Env, profile: string) {
             type: "call",
             profile_id: profile,
             conversation_id: c?.id || payload.conversation_id || "",
+            channel: pushChannel(c) || "",
             call_id: callId,
           },
           priority: "high",

@@ -1044,7 +1044,14 @@ export function zernioSocialThreadStatement(event: NormalizedSocialEvent): State
 
 // Evita cópia dupla no mesmo isolate. A unicidade no lote do Coordinator/D1
 // continua obrigatória entre isolates e após falhas; isto não é uma trava D1.
-const socialInboundWork = new WeakMap<Env, Map<string, Promise<Response>>>();
+// O corpo de uma Response recebida do Coordinator pertence à requisição que
+// fez o fetch. Workerd não permite compartilhar esse stream com outro webhook.
+// Leia-o na requisição original e compartilhe somente valores, sem I/O pendente.
+type SocialInboundResponse = { body: ArrayBuffer | null; status: number; statusText: string; headers: [string, string][] };
+const socialInboundWork = new WeakMap<Env, Map<string, Promise<SocialInboundResponse>>>();
+const socialInboundResponse = (result: SocialInboundResponse) => new Response(result.body, {
+  status: result.status, statusText: result.statusText, headers: result.headers,
+});
 
 async function zernioInboundSocial(
   env: Env, conn: any, body: unknown, dispatch: (data: any) => Promise<Response>,
@@ -1078,7 +1085,7 @@ async function zernioInboundSocial(
   if (!work) { work = new Map(); socialInboundWork.set(env, work); }
   const workKey = JSON.stringify([key, e.type, e.type === "message.received" ? null : e.eventId]);
   const running = work.get(workKey);
-  if (running) return (await running).clone();
+  if (running) return socialInboundResponse(await running);
   const pending = (async () => {
     if (e.type === "message.received") {
       const known = await one(env, "SELECT id FROM inbox WHERE event_key=?", key);
@@ -1142,8 +1149,11 @@ async function zernioInboundSocial(
     });
     if (response.ok) await applySocialConversationEvents(env, conn.id, externalId);
     return response;
-  })();
+  })().then(async response => ({
+    body: response.body === null ? null : await response.arrayBuffer(),
+    status: response.status, statusText: response.statusText, headers: [...response.headers],
+  } satisfies SocialInboundResponse));
   work.set(workKey, pending);
-  try { return (await pending).clone(); }
+  try { return socialInboundResponse(await pending); }
   finally { work.delete(workKey); }
 }
