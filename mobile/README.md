@@ -111,3 +111,21 @@ Os dois precisam do repositório **ThermalPrinterKit** ao lado:
 ## API de linhas e equipe
 
 Clientes 0.9.0 requerem servidor 0.9.0 para os novos recursos. `GET /profiles/{p}/lines` e `PUT /lines/{id}` consultam e configuram atendimento; `GET /menus` e `PUT /settings {menus}` configuram menus; `PATCH /bots/{id} {line_ids}` restringe linhas (`null`: todas, `[]`: somente interno). `GET /team` consulta presença. `GET/POST /internal-chats`, `GET /internal-chats/{id}` e `POST /internal-chats/{id}/messages` mantêm conversas privadas. Todos os caminhos têm o prefixo `/api/v1`. Escritas reutilizam a mesma Idempotency-Key após resposta inconclusiva; erros definitivos liberam a edição.
+
+## Primeira leva de canais
+
+Android e iOS passam a ler WhatsApp, Instagram e Facebook na mesma aba **Conversas**. Em área multicanal, a lista mostra canal, conta e janela retornada pelo servidor; o filtro de canal integra a chave de paginação e descarta respostas atrasadas. Em área só WhatsApp, permanecem avatar, subtítulo, filtro e comportamento anteriores. Campo ausente é compatibilidade com servidor antigo; canal desconhecido não é convertido em WhatsApp por exclusão.
+
+Nas DMs sociais, a janela de 24 a menos de 168 horas permite somente texto humano. Anexos, reações, menus e automação ficam bloqueados nessa extensão; a decisão final continua no servidor, inclusive para clientes antigos. Canais sem prazo não recebem relógio. Módulos permanecem exclusivos do WhatsApp mesmo quando as fichas estão juntadas.
+
+Os dados da conversa mostram os canais da ficha e atalhos para outras conversas autorizadas, sem misturar mensagens. Essa parte é somente leitura nos aplicativos; **Juntar com outro contato** e desfazer ficam na web.
+
+**Enviar conversa por e-mail** aparece conforme a permissão. Os aplicativos usam a mesma prévia, destinos, intervalo, confirmação do endereço e pedido do cliente definidos em [EMAIL.md](../docs/EMAIL.md). A chave de envio permanece estável durante repetição da mesma intenção; resultado indeterminado é mostrado sem reenvio automático. Notas internas nunca entram na transcrição.
+
+Push usa o título já preparado pelo servidor: em área multicanal pode conter `Instagram · Nome`; prévia mínima continua `Wabotia`. Android não acrescenta um segundo prefixo e conserva os canais de notificação do sistema operacional.
+
+A demonstração mantém cenários sintéticos só WhatsApp e multicanal, janelas aberta/humana/fechada, ficha compartilhada, mídia indisponível e transcrição sem configuração/permissão ou repetida. No Android, os dados multicanal pertencem à área `demo-channels`; no iOS, o modo de inspeção usa `WABOTIA_DEMO_CHANNELS=multichannel`. Nada disso é captura de conta real ou teste de entrega remota.
+
+Verificação desta leva: o orquestrador informou Android `assembleDebug` e testes unitários aprovados nesta máquina antes do aceite. O script reprodutível `node scripts/cn-android-check.mjs`, executado na raiz, exige SDK/JDK/Gradle/ThermalPrinterKit instalados e compila em modo offline, com log em `mobile/android/.gradle/cn-check/result.log`. A preparação documental não repetiu o build.
+
+**iOS permanece pendente de compilação e testes no Mac**, incluindo `ChannelsTests` e `ChannelsDemoTests`. Testes TypeScript de contratos/fontes no Windows não aprovam o build nativo. Conferência visual e acessibilidade em aparelhos também devem ser registradas. Não houve publicação em lojas ou alteração de versão de loja. Consulte [CANAIS-ACEITE.md](../docs/CANAIS-ACEITE.md).

@@ -113,6 +113,10 @@ export function phoneIndexStatements(profile: string, namespace: Namespace, phon
 /** Atualiza só o vínculo atual. Registros históricos nunca são reapontados. */
 export function conversationIdentityStatements(profile: string, ids: readonly string[], observed?: { phone: string; invalidate: boolean; state: LinkState; session?: boolean }): Statement[] {
   const list = JSON.stringify(ids);
+  // O alvo único permite atualizar no mesmo cursor que confere o canal.
+  // IN (json_each) materializa os IDs e lê a conversa uma vez a mais para
+  // filtrar channel antes de reabri-la para a escrita.
+  const target = ids.length === 1 ? "id=?" : "id IN (SELECT value FROM json_each(?))";
   return [[
     `UPDATE conversations SET
        ${observed ? "phone=?,verified_phone=?," : "verified_phone=CASE WHEN external_namespace LIKE 'app:%' THEN NULL ELSE verified_phone END,"}
@@ -140,8 +144,8 @@ export function conversationIdentityStatements(profile: string, ids: readonly st
            LEFT JOIN contacts k ON k.id=p.contact_id AND k.profile_id=p.profile_id
            WHERE p.profile_id=conversations.profile_id AND p.namespace='team' AND p.phone=conversations.verified_phone),'pending')`}
        END
-     WHERE profile_id=? AND id IN (SELECT value FROM json_each(?)) AND (channel IS NULL OR channel='whatsapp')`,
-    [...(observed ? [observed.phone, observed.phone, observed.phone, observed.state, observed.phone, observed.state] : []), profile, list],
+     WHERE profile_id=? AND ${target} AND (channel IS NULL OR channel='whatsapp')`,
+    [...(observed ? [observed.phone, observed.phone, observed.phone, observed.state, observed.phone, observed.state] : []), profile, ids.length === 1 ? ids[0] : list],
   ], ...(observed?.state === "ready" ? [] : [[
     `DELETE FROM conversation_contacts WHERE profile_id=? AND linked_by='identity'
        AND conversation_id IN (SELECT id FROM conversations WHERE profile_id=? AND id IN (SELECT value FROM json_each(?))

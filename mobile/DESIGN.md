@@ -221,3 +221,21 @@ Ajustes: cartão do usuário (avatar, nome, papel, perfil atual, presença); gru
 ## 12. O que não muda
 
 Camadas de sessão, rede, idempotência, upload, mídia autenticada, push, eventos, WebRTC/CallKit e as regras de cada recurso descritas no README. Nenhuma função existente pode sumir na troca de interface. Textos em pt-BR, diretos, sem jargão.
+
+## 13. Acréscimo da primeira leva de canais
+
+As regras desta seção complementam a referência visual anterior. A área só WhatsApp conserva o avatar, posição do estado, filtros, subtítulo e relógio anteriores. A única ação nova prevista nessa área é **Enviar conversa por e-mail**, para quem tem a permissão.
+
+Na área multicanal, o **selo de canal** ocupa o canto inferior direito do avatar; o **estado** passa ao superior direito. Não remover o estado nem o texto do responsável. O cabeçalho acrescenta canal e conta, como `Instagram · @loja`, e o composer identifica **Responder pelo Instagram/Facebook**. Canal desconhecido usa apresentação neutra; não exibir selo WhatsApp por falta de campo reconhecido.
+
+O filtro de canal fica acima dos estados e aparece quando há mais de um canal de conversa. Trocar canal reinicia a paginação; resposta atrasada de outro filtro não substitui a lista atual. As conversas continuam na mesma aba, cada uma com seus balões, conta e janela.
+
+O estado de janela retornado pelo servidor prevalece: antes de 24 h, capacidades sociais disponíveis; entre 24 e menos de 168 h, **somente texto humano**; aos 168 h, envio bloqueado. Mostrar motivo legível, inclusive ausência de timestamp válido. Não apresentar o comportamento antigo de fila da janela WhatsApp como promessa de envio social. Menu, mídia e reações não ficam habilitados na extensão. Canal sem prazo não recebe relógio.
+
+Em **Dados da conversa**, mostrar canais da ficha somente para leitura e outras conversas autorizadas como atalhos. Não exibir IDs opacos sem necessidade nem trocar o identificador social por telefone. Junção e desfazer são ações da web. A ficha compartilhada não habilita módulos sociais.
+
+O menu e os dados da conversa oferecem a mesma folha **Enviar conversa por e-mail**: destino permitido, sessão ou datas, prévia com quantidade/tamanho/avisos, confirmação do endereço e indicação de pedido do cliente quando exigida. Falta de configuração aponta **Gestão → Sistema → E-mail**; falta de permissão não libera a ação. A folha preserva a chave durante a mesma intenção e explica estado indeterminado sem repetir o envio automaticamente.
+
+Conferência visual necessária: só WhatsApp e multicanal; nome/conta longos; selo e estado simultâneos; menos de 24 h, 25 h e 168 h; campo ausente/servidor antigo e canal desconhecido; filtro trocado com resposta atrasada; fontes grandes, tema escuro, TalkBack/VoiceOver; transcrição disponível, indisponível, sem permissão e repetida. As provas automatizadas de contrato não substituem essa inspeção.
+
+O estado de compilação consta em [CANAIS-ACEITE.md](../docs/CANAIS-ACEITE.md): Android informado como compilado/testado pelo orquestrador; iOS pendente no Mac. Nenhuma pendência visual ou de compilação deve ser marcada como aprovada apenas porque existe cenário de demonstração.

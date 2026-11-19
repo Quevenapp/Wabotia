@@ -1,9 +1,10 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { all, batch, exec, one } from "../src/db";
+import { all, batch, exec, one, withReadCache } from "../src/db";
 import { now, uid } from "../src/types";
 import { canonical, unseal } from "../src/security";
 import { mergeContacts, previewContactMerge, undoContactMerge } from "../src/customer/merge";
+import { createProfilePort } from "../src/customer/profile";
 import { CONTACT_TASK, customerIdentity } from "../src/customer/identity";
 import { MERGE_RELATIONS, assertManifest, cloneManifest, manifestRows, planRelationMerge, readMergeManifest, relationStatements, resolveContactAlias, type MergeManifest } from "../src/customer/merge-relations";
 import { fixture, type Fixture } from "./service-center-fixture";
@@ -64,6 +65,35 @@ async function everyRelation(f: Fixture, owner: string, c: string) {
 }
 
 describe("junção de contatos por canal", () => {
+  it("a ficha team preserva o canal social ao seguir alias e não atravessa o namespace de aplicação", async () => {
+    const f = await fixture(), source = await contact(f), target = await contact(f), app = await contact(f);
+    const port = createProfilePort(), scope = withReadCache(env);
+    expect(await port.view(scope, f.admin, f.profile, target)).not.toHaveProperty("channels");
+    await exec(env, "UPDATE contacts SET namespace='app:outra' WHERE id=?", app);
+    const appView = await port.view(scope, f.admin, f.profile, app);
+    expect(appView).toMatchObject({ contactId: app, namespace: "app:outra", depth: "simple", erpContactId: null, contributions: [] });
+    expect(appView).not.toHaveProperty("channels");
+    expect(appView).not.toHaveProperty("merge");
+    const social = uid(), identity = uid(), at = now();
+    await insert("conversations", { id: social, profile_id: f.profile, connection_id: f.second,
+      external_namespace: `channel:${f.second}`, external_id: uid(), channel: "instagram",
+      session: uid(), last_customer: at, created: at, updated: at });
+    await insert("customer_channel_ids", { id: identity, profile_id: f.profile, namespace: "team", channel: "instagram",
+      account_id: "conta", subject_namespace: "dm", subject_id: "sujeito", contact_id: source,
+      connection_id: f.second, proof_conversation_id: social, state: "ready", created: at, updated: at });
+    expect(await port.view(scope, f.admin, f.profile, source)).toMatchObject({
+      contactId: source, channels: [expect.objectContaining({ id: identity, channel: "instagram" })],
+    });
+    await merge(f, source, target);
+    expect(await port.view(scope, f.admin, f.profile, source)).toMatchObject({
+      contactId: target, channels: [expect.objectContaining({ id: identity, channel: "instagram" })],
+      merge: { merged_into: target },
+    });
+    // Mesmo um alias inconsistente não autoriza a ficha de outro namespace.
+    await exec(env, "UPDATE contacts SET merged_into=? WHERE id=?", app, target);
+    await expect(port.view(scope, f.admin, f.profile, source)).rejects.toMatchObject({ status: 404, code: "not_found" });
+  });
+
   it("junta e desfaz toda a allowlist no D1, conservando conteúdo e papéis dos módulos", async () => {
     const f = await fixture(), a = await contact(f), b = await contact(f), c = await whatsapp(f, a, "5511987654321");
     await everyRelation(f, a, c);

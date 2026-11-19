@@ -2464,6 +2464,11 @@ app.get("/api/v1/profiles/:profile/conversations", async (c) => {
   const notes =
     c.get("actor").kind !== "app" ||
     c.get("actor").scopes.includes("notes:read");
+  // Sociais sempre gravam o canal explícito. Os predicados literais habilitam
+  // o índice parcial sem cobrar suas escritas de WhatsApp/aplicações.
+  const channelFilter = !channel ? "" : channel === "whatsapp"
+    ? `AND (${conversationChannelSql})=?`
+    : `AND c.channel IS NOT NULL AND c.channel<>'whatsapp' AND c.channel=? AND (${conversationChannelSql})=c.channel`;
   const rows = await all(
     c.env,
     `SELECT p.*,substr(lm.text,1,300) lm_text,lm.direction lm_direction,lm.created lm_created,lm.delivery_status lm_delivery_status,lm.attachments lm_attachments,lm.content lm_content,(SELECT a.type FROM media a WHERE a.id=json_extract(lm.attachments,'$[0]')) lm_media_type
@@ -2472,7 +2477,7 @@ app.get("/api/v1/profiles/:profile/conversations", async (c) => {
        LEFT JOIN conversation_contacts l ON l.conversation_id=c.id AND l.profile_id=c.profile_id LEFT JOIN contacts ct ON ct.id=l.contact_id AND ct.profile_id=c.profile_id AND ct.identity_state='active' AND ?=1 AND (?=1 OR ct.namespace=?)
        WHERE c.profile_id=? AND (?='' OR c.state=?) AND (?='' OR c.department_id=?) AND (c.external_id LIKE ? OR c.phone LIKE ? OR ct.name LIKE ?)
        AND (?=1 OR c.external_namespace NOT LIKE 'app:%' OR c.external_namespace=?)
-       AND (?='' OR (${conversationChannelSql})=?)
+       ${channelFilter}
        AND (? IS NULL OR c.updated<? OR (c.updated=? AND c.id<?)) ORDER BY c.updated DESC,c.id DESC LIMIT ?) p
      LEFT JOIN messages lm ON lm.id=(SELECT m.id FROM messages m WHERE m.conversation_id=p.id AND (?=1 OR m.direction!='note') ORDER BY m.created DESC,m.id DESC LIMIT 1) ORDER BY p.updated DESC,p.id DESC`,
     c.get("actor").kind === "user" ||
@@ -2491,8 +2496,7 @@ app.get("/api/v1/profiles/:profile/conversations", async (c) => {
     `%${q}%`,
     c.get("actor").kind !== "app" ? 1 : 0,
     "app:" + c.get("actor").id,
-    channel,
-    channel,
+    ...(channel ? [channel] : []),
     after?.[0] ?? null,
     after?.[0] ?? 0,
     after?.[0] ?? 0,
