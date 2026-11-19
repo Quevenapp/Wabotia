@@ -1,10 +1,44 @@
+import {storedPreferencePage} from '../../../../packages/erp-domain/src/preferences/catalog.mjs';
+import { requirementEnabled, responseModules } from '../../blocks.ts';
+import { erpPreferenceFieldRequirement, erpPreferenceRequirement, erpEntityRequirement } from '../../../../src/erp/parts-requirements.ts';
+export const preferenceFieldEnabled = (page: string, key: string) => requirementEnabled(erpPreferenceFieldRequirement(page, key));
 import type {AccessState,NativeRequestOptions} from './real-access';
-import {parsePreferencesPage,parsePreferencesResult,type PreferencesPageView,type PreferencesResult,type PreferencesSaveInput,type PreferenceChange} from '../../../../packages/erp-domain/src/preferences/dto.mjs';
+import {parsePreferencesPage as parseFullPage,parsePreferencesResult as parseFullResult,type PreferencesPageView,type PreferencesResult,type PreferencesSaveInput,type PreferenceChange} from '../../../../packages/erp-domain/src/preferences/dto.mjs';
 import {preferenceValueValid,preferenceValueEqual,preferenceClone,storedFields,NOT_APPLIED,type PreferenceField,type PreferenceInfo,type PreferencePageSchema,type PreferenceValue,type PreferenceDocument,type PreferenceKeymapOptions} from '../../../../packages/erp-domain/src/preferences/core.mjs';
-export {parsePreferencesPage,parsePreferencesResult,NOT_APPLIED};
+export {NOT_APPLIED};
+import { requirementsEnabled } from "../../modules.ts";
 export type {PreferencesPageView,PreferencesResult,PreferencesSaveInput,PreferenceField,PreferenceInfo,PreferencePageSchema,PreferenceValue,PreferenceDocument,PreferenceKeymapOptions};
 export interface PreferencesController{getSnapshot:()=>AccessState;subscribe:(fn:()=>void)=>()=>void;preferences:(path:string,options?:NativeRequestOptions)=>Promise<unknown>;stockOpening?:(path:string,options?:NativeRequestOptions)=>Promise<unknown>;
  /** Controle de numeração of the NF-e/NFC-e pages (fiscal lane). */fiscalNumbering?:(path:string,options?:NativeRequestOptions)=>Promise<unknown>}
+
+/** Os campos ocultos só são preenchidos na cópia interna do validador antigo; nunca no formulário ou no envio. */
+function expandPreferencePage(raw: any, pageId: string, receipt?: any) {
+ const modules=responseModules(raw),page=storedPreferencePage(pageId);
+ if(!page||!requirementsEnabled(erpPreferenceRequirement(pageId),modules))throw new Error('Página indisponível.');
+ const fields=storedFields(page),shown=fields.filter(f=>requirementsEnabled(erpPreferenceFieldRequirement(pageId,f.key),modules));
+ if(!Array.isArray(raw.items)||raw.items.length!==shown.length||raw.items.some((item:any,i:number)=>item?.key!==shown[i]?.key))throw new Error('Campos de preferências inválidos.');
+ const {unavailable_parts,...value}=structuredClone(raw);
+ value.items=fields.map(field=>{if(shown.includes(field))return raw.items.find((item:any)=>item.key===field.key);
+  const change=receipt?.changes?.find((c:any)=>c.key===field.key);
+  return {key:field.key,value:change?change.after:field.default,version:change?change.to_version:0,updated_at:change?receipt.changed_at:null};});
+ if(!shown.some(f=>f.kind==='users')&&fields.some(f=>f.kind==='users')&&raw.can_manage){if(raw.directory!==null)throw new Error('Diretório inválido.');value.directory=[];}
+ if(raw.situations?.some((s:any)=>!requirementsEnabled(erpEntityRequirement(s.kind),modules)))throw new Error('Situação indisponível.');
+ return {value,shown};
+}
+export function parsePreferencesPage(raw: unknown,pageId: string): PreferencesPageView {
+ responseModules(raw);
+ if(!Object.hasOwn(raw as object,'unavailable_parts'))return parseFullPage(raw,pageId);
+ const source=raw as any,{value,shown}=expandPreferencePage(source,pageId),parsed=parseFullPage(value,pageId);
+ return {...parsed,items:parsed.items.filter(item=>shown.some(f=>f.key===item.key)),directory:source.directory};
+}
+export function parsePreferencesResult(raw: unknown,options: Parameters<typeof parseFullResult>[1]): PreferencesResult {
+ const source=raw as any;responseModules(source);responseModules(source.page);
+ if(!Object.hasOwn(source,'unavailable_parts')&&!Object.hasOwn(source.page,'unavailable_parts'))return parseFullResult(raw,options);
+ const {value}=expandPreferencePage(source.page,source.receipt?.page,source.receipt);
+ const {unavailable_parts,...command}=source;
+ const parsed=parseFullResult({...command,page:value},options);
+ return {...parsed,page:parsePreferencesPage(source.page,source.receipt.page)};
+}
 
 /** The browser keeps what the user typed; values are normalized only when the change is built. */
 export type Draft=Record<string,PreferenceValue|string>;
@@ -26,7 +60,8 @@ export type DraftState={changes:PreferenceChange[];invalid:string[];dirty:boolea
 export function draftState(page:PreferencePageSchema,view:PreferencesPageView,draft:Draft):DraftState{
  const changes:PreferenceChange[]=[],invalid:string[]=[];
  for(const field of storedFields(page)){
-  const item=view.items.find(i=>i.key===field.key)!,raw=draft[field.key];
+  const item=view.items.find(i=>i.key===field.key),raw=draft[field.key];
+  if(!item || !preferenceFieldEnabled(page.id,field.key))continue;
   if(preferenceValueEqual(raw,item.value))continue;
   const value=normalizedValue(field,raw);
   if(value===undefined){invalid.push(field.key);continue;}

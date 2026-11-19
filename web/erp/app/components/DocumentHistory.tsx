@@ -1,3 +1,4 @@
+import { blockEnabled, entityEnabled } from '../../blocks';
 import { useEffect, useRef, useState } from 'react';
 import { AccessError, decimalMoney, type AccessController } from '../lib/real-access';
 import type { DocumentKind } from '../lib/real-documents-model';
@@ -21,6 +22,7 @@ export default function DocumentHistory({ controller, kind, contactId, request, 
   const actor = useRef(actorOf(controller));
   const contact = request.mode === 'purchase' ? (supplierOnly ? contactId : null) : contactId;
   useEffect(() => {
+    if (!entityEnabled(kind)) return;
     const signal = new AbortController();
     setLoading(true); setError('');
     void Promise.resolve().then(() => controller.documents(historyPath(kind, request, contact, query), { signal: signal.signal })).then(value => {
@@ -47,12 +49,12 @@ export default function DocumentHistory({ controller, kind, contactId, request, 
       : <table className="data-table"><thead><tr><th>Data</th><th>Número</th><th>Quantidade</th><th>Tipo</th><th>Valor unitário</th></tr></thead>
         <tbody>{rows.map(row => <tr key={`${row.type}:${row.document_id}:${row.position}`}><td>{historyDay(row.date)}</td><td>{row.number ?? '—'}</td><td className="numeric">{historyQuantity(row.quantity)} {row.unit}</td>
           <td>{HISTORY_TYPES[row.type]}</td><td className="numeric">{historyPrice(row.unit_price)}</td></tr>)}</tbody></table>;
-  const finance = page?.finance;
+  const finance = (blockEnabled('erp-financeiro') ? page?.finance : null);
   return <Modal title={title} onClose={onClose} actions={<button type="button" className="secondary-button" onClick={onClose}>Fechar</button>}>
     {request.mode !== 'client' && <p className="real-help">{request.label}</p>}
     {request.mode === 'client' && <nav className="origin-list-tabs" role="tablist" aria-label="Histórico do cliente">
       <button type="button" role="tab" aria-selected={tab === 'products'} onClick={() => setTab('products')}>Produtos</button>
-      <button type="button" role="tab" aria-selected={tab === 'finance'} onClick={() => setTab('finance')}>Financeiro</button></nav>}
+      {blockEnabled('erp-financeiro') && <button type="button" role="tab" aria-selected={tab === 'finance'} onClick={() => setTab('finance')}>Financeiro</button>}</nav>}
     {request.mode === 'client' && tab === 'products' && <form className="document-history-search" onSubmit={event => { event.preventDefault(); setQuery(draft); }}>
       <label htmlFor="document-history-query">Pesquisa avançada</label><input id="document-history-query" type="search" maxLength={120} placeholder="Descrição ou código" value={draft} onChange={event => setDraft(event.target.value)} />
       <button type="submit" className="secondary-button" disabled={loading}>Pesquisar</button></form>}

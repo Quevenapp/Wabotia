@@ -1,3 +1,4 @@
+import { operationEnabled } from '../../blocks';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { AccessController } from '../lib/real-access';
@@ -22,7 +23,7 @@ export function useProductComposition(controller: Pick<AccessController, 'stock'
   const [baseline, setBaseline] = useState(() => structureKey(NEW_STRUCTURE));
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    if (!productId) { setState({ key, status: 'ready', view: null }); return; }
+    if (!operationEnabled('composition') || !productId) { setState({ key, status: 'ready', view: null }); return; }
     const request = new AbortController(); setState({ key, status: 'loading', view: null });
     void Promise.resolve().then(() => controller.stock(`/v1/estoque/composicoes/${productId}`, { signal: request.signal })).then(raw => {
       if (request.signal.aborted) return;
@@ -43,6 +44,7 @@ export type ProductCompositionState = ReturnType<typeof useProductComposition>;
  * message to show.
  */
 export function compositionSavePayload(state: ProductCompositionState, format: string, isNew: boolean): Record<string, unknown> {
+  if (!operationEnabled('composition')) return {};
   if (format === 'E') {
     // A structure that could not be read is never rewritten: the product is saved alone.
     if (state.status !== 'ready') return {};

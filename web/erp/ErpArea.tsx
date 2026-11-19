@@ -2,7 +2,7 @@
 import React, { Activity, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ManagementRequestBoundary, useApp } from "../app/AppContext";
 import { href, navigate, navigationGuarded, setNavigationGuard, useRoute } from "../lib/routes";
-import { erpApiUrl, erpSimulated, prefetchErpMe } from "./fetch-port";
+import { erpApiUrl, erpSimulated, prefetchErpMe, contextBoundResponse } from "./fetch-port";
 import { Empty, Spinner, Button } from "../ui";
 import { AccountDialog, MfaPrompt } from "../app/Account";
 import { ManagementShell, ManagementState } from "../management/ManagementShell";
@@ -12,6 +12,7 @@ import { portedTargetState } from "../management/ported-policy";
 import { MANAGEMENT_ITEMS, managementItemOrder, canEnterManagement, managementContext, nativeTargetState, normalizedManagementHref, resolveManagement } from "../management/registry";
 import { useWorkNavigation } from "../modules/os/work-navigation";
 import type { Disposable, ErpHostContext, ErpMountProps, ErpPermissions, MountCustomerProfile, PortedTargetState } from "../management/host-contract";
+import { setPanelPartsContext } from "./fetch-port";
 import type { FullCustomerHost } from "../contact-profile/host-port";
 
 /** Testável por injeção: estado leve não inicia import nem prefetch. */
@@ -83,16 +84,19 @@ export function installManagementCustomerHost(context: ErpHostContext, dependenc
         throw new Error("ERP_CUSTOMER_CONTEXT");
       const module = await (dependencies.mount ?? (() => import("./mount")))();
       check();
-      const instance = await module.mountCustomerProfile(element, {
+      const releaseParts = setPanelPartsContext(erpApiUrl(context.profile), context.management.modules);
+      let instance: Disposable;
+      try { instance = await module.mountCustomerProfile(element, {
         context, erpContactId: input.erpContactId, vocabulary: input.vocabulary,
         onSaved: () => { if (live) input.onSaved(); },
         onClose: () => { if (live) input.onClose(); },
       });
-      if (!live) { instance.dispose(); check(); }
+      } catch (error) { releaseParts(); throw error; }
+      if (!live) { instance.dispose(); releaseParts(); check(); }
       let disposed = false;
       const owner = { dispose() {
         if (disposed) return;
-        disposed = true; mounted.delete(owner); instance.dispose();
+        disposed = true; mounted.delete(owner); instance.dispose(); releaseParts();
       } };
       mounted.add(owner);
       return owner;
@@ -115,41 +119,7 @@ export function installManagementCustomerHost(context: ErpHostContext, dependenc
   } };
 }
 
-/** Mesmo um prefetch já respondido perde seu corpo quando a autorização muda. */
-export async function contextBoundResponse(response: Response, signal: AbortSignal): Promise<Response> {
-  if (signal.aborted) throw new DOMException("Contexto alterado", "AbortError");
-  if (!response.body) return response;
-  const reader = response.body.getReader();
-  let active = true, stop = () => {};
-  const finish = () => { active = false; stop(); };
-  const body = new ReadableStream<Uint8Array>({
-    start(controller) {
-      const abort = () => {
-        if (!active) return;
-        finish();
-        controller.error(new DOMException("Contexto alterado", "AbortError"));
-        void reader.cancel().catch(() => {});
-      };
-      signal.addEventListener("abort", abort, { once: true });
-      stop = () => signal.removeEventListener("abort", abort);
-    },
-    async pull(controller) {
-      try {
-        if (signal.aborted) throw new DOMException("Contexto alterado", "AbortError");
-        const next = await reader.read();
-        if (signal.aborted) throw new DOMException("Contexto alterado", "AbortError");
-        if (!active) return;
-        if (next.done) { finish(); controller.close(); } else controller.enqueue(next.value);
-      } catch (error) { if (active) { finish(); controller.error(error); } }
-    },
-    cancel() { finish(); return reader.cancel(); },
-  });
-  const guarded = new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
-  // fetch-port descarta antecipações não utilizáveis e refaz /v1/me. Isso
-  // também vale se o cache já recebeu os cabeçalhos antes da revogação.
-  Object.defineProperty(guarded, "ok", { get: () => !signal.aborted && response.ok });
-  return guarded;
-}
+export { contextBoundResponse } from "./fetch-port";
 
 export function startAuthorizedPortedPrefetch(
   state: PortedTargetState,
@@ -208,6 +178,8 @@ export function ErpArea() {
     role: app.me.role, access: app.me.access ?? null,
     vocabulary: { ...app.settings.os_vocabulary, collection_label: work.label },
   });
+  const partsKey = JSON.stringify(context.modules);
+  useLayoutEffect(() => setPanelPartsContext(erpApiUrl(app.profile), context.modules), [app.profile, partsKey]);
   const [accessReport, setAccessReport] = useState<{ identity: string; permissions: ErpPermissions | null } | null>(null);
   const permissions = route.erpPath && accessReport?.identity === identity &&
     accessReport.permissions?.apiUrl === erpApiUrl(app.profile) &&

@@ -1,3 +1,4 @@
+import { blockEnabled } from '../../blocks';
 import {useEffect,useRef,useState,useSyncExternalStore} from 'react';
 import {Link,useNavigate} from 'react-router-dom';
 import {AccessError,type AccessState} from '../lib/real-access';
@@ -8,7 +9,7 @@ import FiscalNumberingSummary from './FiscalNumberingSummary';
 import NotificationRecipients from './NotificationRecipients';
 import {preferencesPagePath,preferencesCommandPath} from '../lib/preferences-request';
 import {parseStockPolicy} from '../../../../packages/erp-domain/src/stock-opening-dto.mjs';
-import {parsePreferencesPage,parsePreferencesResult,draftOf,draftState,visible,sectionEntries,choiceOptions,integerOptions,invalidText,readError,saveFailure,saveNotice,moment,fieldId,
+import {preferenceFieldEnabled,parsePreferencesPage,parsePreferencesResult,draftOf,draftState,visible,sectionEntries,choiceOptions,integerOptions,invalidText,readError,saveFailure,saveNotice,moment,fieldId,
  keymapOptions,formatDocument,policyText,normalizedValue,NOT_APPLIED,ROLE_NAMES,type PreferencesController,type PreferencesPageView,type PreferencesSaveInput,type PreferencePageSchema,type PreferenceField,
  type PreferenceInfo,type Draft,type PreferenceDocument} from '../lib/preferences-model';
 import './preferences-page.css';
@@ -31,7 +32,7 @@ export default function PreferenceSettingsPage({controller,page,section,category
  const snapshot=useSyncExternalStore(controller.subscribe,controller.getSnapshot);
  const actor=useRef(snapshot.membership?.user_id??null);
  const allowed=readable(snapshot,page)&&snapshot.membership?.user_id===actor.current;
- const stored=page.storedKeys.length>0,policySource=page.fields.some(f=>f.info&&f.source==='stock_negative_policy');
+ const stored=page.storedKeys.length>0,policySource=blockEnabled('erp-estoque')&&page.fields.some(f=>f.info&&f.source==='stock_negative_policy');
  const alive=useRef(true),request=useRef<AbortController|null>(null),meta=useRef<AbortController|null>(null),attempt=useRef<Attempt|null>(null);
  const [view,setView]=useState<PreferencesPageView|null>(null),[draft,setDraft]=useState<Draft>({}),[loading,setLoading]=useState(stored),[error,setError]=useState(''),[notice,setNotice]=useState('');
  const [busy,setBusy]=useState(false),[pending,setPending]=useState<'none'|'uncertain'|'missing'>('none'),[reload,setReload]=useState(0),[policy,setPolicy]=useState<boolean|null>(null),[discard,setDiscard]=useState(false);
@@ -83,6 +84,8 @@ export default function PreferenceSettingsPage({controller,page,section,category
  const directory=view?.directory??[];
 
  const renderInfo=(entry:PreferenceInfo)=>{
+  if(entry.source==='stock_negative_policy'&&!blockEnabled('erp-estoque'))return null;
+  if((entry.source==='fiscal_numbering_55'||entry.source==='fiscal_numbering_65')&&!blockEnabled('erp-fiscal'))return null;
   const role=snapshot.membership?.role;const link=entry.link&&(!entry.link.roles||role&&entry.link.roles.includes(role))?entry.link:null;
   return <div className={`preference-field preference-info${entry.status==='unavailable'?' is-unavailable':''}`} key={entry.id}>
    <span className="preference-label">{entry.label}</span>
@@ -93,6 +96,7 @@ export default function PreferenceSettingsPage({controller,page,section,category
   </div>;
  };
  const renderField=(field:PreferenceField)=>{
+  if(!preferenceFieldEnabled(page.id,field.key))return null;
   const id=fieldId(field.key),raw=draft[field.key],bad=state.invalid.includes(field.key);
   const label=<label htmlFor={id} className="preference-label">{field.label}<Hint text={field.hint}/></label>;
   let control;
@@ -143,7 +147,7 @@ export default function PreferenceSettingsPage({controller,page,section,category
  const renderSection=(id:string)=>{let group:string|undefined;const out=[];
   // Central de Notificações (187): the Origin table "Notificação | Destinatários | Editar" instead of the field list.
   if(page.id==='central-notificacoes')return [<NotificationRecipients key="recipients" page={page} draft={draft} set={set} editable={editable} directory={view?.directory??null}/>];
-  for(const entry of sectionEntries(page,id)){if(!visible(entry,draft))continue;if(entry.group&&entry.group!==group)out.push(<h4 className="preference-group" key={`g-${entry.group}`}>{entry.group}</h4>);group=entry.group;out.push(entry.info?renderInfo(entry):renderField(entry));}
+  for(const entry of sectionEntries(page,id)){if(!visible(entry,draft)||!entry.info&&!preferenceFieldEnabled(page.id,entry.key))continue;if(entry.group&&entry.group!==group)out.push(<h4 className="preference-group" key={`g-${entry.group}`}>{entry.group}</h4>);group=entry.group;out.push(entry.info?renderInfo(entry):renderField(entry));}
   return out;};
 
  const Root=embedded?'section':'main';

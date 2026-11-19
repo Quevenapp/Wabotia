@@ -1,3 +1,6 @@
+import { withoutUnavailableParts } from '../../blocks';
+import { requirementEnabled } from '../../blocks';
+import { erpReportRequirement } from '../../../../src/erp/parts-requirements';
 import {useEffect,useRef,useState,useSyncExternalStore} from 'react';
 import type {AccessState} from '../lib/real-access';
 import {useUnsavedChanges} from '../hooks/useUnsavedChanges';
@@ -52,12 +55,12 @@ export default function RealReports({controller}:{controller:ReportsController})
  useEffect(()=>{if(roleRef.current===role)return;roleRef.current=role;request.current?.abort();runner.current?.abort();save.current?.abort();setBusy(false);setRunning(false);
   setView(null);setRows(null);setMode({type:'list'});if(attempt.current)setPending(true);setReload(n=>n+1);},[role]);
  useEffect(()=>{if(!allowed||!may())return;const p=new AbortController();request.current?.abort();request.current=p;setLoading(true);setLoadError('');void(async()=>{try{
-  const raw=await controller.system(REPORTS_PATH,{method:'GET',signal:p.signal});if(p.signal.aborted||request.current!==p||!may())return;setView(parseReports(raw));
+  const raw=await controller.system(REPORTS_PATH,{method:'GET',signal:p.signal});if(p.signal.aborted||request.current!==p||!may())return;setView(parseReports(withoutUnavailableParts(raw)));
  }catch(e){if(!p.signal.aborted&&request.current===p&&!aborted(e)&&may())setLoadError(statusOf(e)===403?'Seu perfil não consulta relatórios, ou seu usuário não tem a permissão Relatórios customizados (Sistema › Usuários › Permissões › Outros).':'Não foi possível carregar os relatórios. Tente novamente.');}
  finally{if(request.current===p){request.current=null;setLoading(false);}}})();return()=>{p.abort();if(request.current===p)request.current=null;};},[controller,reload,allowed]);
  // One page of a definition; late answers of another run are dropped.
- const fetchPage=async(run:Omit<ReportRunInput,'offset'|'page'>,offset:number,page:number,signal:AbortSignal)=>{const body=captureReportRun({...run,offset,page});
-  return parseReportRows(await controller.system(REPORT_RUN_PATH,{method:'POST',body,signal}),body);};
+ const fetchPage=async(run:Omit<ReportRunInput,'offset'|'page'>,offset:number,page:number,signal:AbortSignal)=>{if(!requirementEnabled(erpReportRequirement(run.base,run.columns,run.filters)))throw new Error('A origem ou os campos deste relatório estão indisponíveis.');const body=captureReportRun({...run,offset,page});
+  return parseReportRows(withoutUnavailableParts(await controller.system(REPORT_RUN_PATH,{method:'POST',body,signal})),body);};
  const preview=async(run:Omit<ReportRunInput,'offset'|'page'>,offset=0,page=REPORT_PREVIEW)=>{runner.current?.abort();const p=new AbortController();runner.current=p;setRunning(true);setError('');
   try{const r=await fetchPage(run,offset,page,p.signal);if(p.signal.aborted||runner.current!==p||!may())return;setRows(r);}
   catch(e){if(!p.signal.aborted&&runner.current===p&&!aborted(e)&&may())setError(statusOf(e)===403?'Seu perfil não lê os dados deste relatório.':statusOf(e)===400?'Confira as colunas e os filtros do relatório.':'Não foi possível consultar o relatório. Tente novamente.');}
@@ -90,7 +93,7 @@ export default function RealReports({controller}:{controller:ReportsController})
  const back=()=>guard.confirmLeave(()=>{if(busy||pending)return;runner.current?.abort();setMode({type:'list'});setRows(null);setError('');});
  const set=(patch:Partial<Draft>)=>{if(locked)return;setMode(m=>m.type==='edit'?{...m,draft:{...m.draft,...patch}}:m);setRows(null);};
  if(mode.type==='edit'&&view){
-  const d=mode.draft,base=reportBase(d.base)!,label=(id:string)=>`${base.columns.find(c=>c.id===id)?.label} - ${base.title}`,available=base.columns.filter(c=>!d.columns.includes(c.id));
+  const d=mode.draft,base=reportBase(d.base)!,label=(id:string)=>`${base.columns.find(c=>c.id===id)?.label} - ${base.title}`,available=base.columns.filter(c=>!d.columns.includes(c.id)&&requirementEnabled(erpReportRequirement(d.base,[c.id])));
   // Marked users who lost access are not in the directory (active members only); they can stay or be unmarked.
   const stale=d.users.filter(id=>!(view.directory??[]).some(u=>u.user_id===id));
   const limit=Number(d.view_limit),limitOk=/^\d{1,4}$/.test(d.view_limit)&&limit>=1&&limit<=REPORT_MAX_LIMIT;
@@ -149,7 +152,7 @@ export default function RealReports({controller}:{controller:ReportsController})
     {rows.offset+rows.rows.length<rows.total_rows&&<button type="button" className="text-button" disabled={running} onClick={()=>void preview(mode.run,rows.offset+rows.rows.length,REPORT_PAGE)}>Próxima página</button>}</p>}
   </div>;}
  const term=search.trim().toLowerCase(),match=(title:string,group:ReportGroup)=>(!groupFilter||group===groupFilter)&&(!term||title.toLowerCase().includes(term));
- const standards=(view?.bases??[]).filter(b=>match(`Relatório de ${b.title}`,b.group)),customs=(view?.reports??[]).filter(r=>match(r.title,reportBase(r.base)!.group));
+ const standards=(view?.bases??[]).filter(b=>requirementEnabled(erpReportRequirement(b.base))&&match(`Relatório de ${b.title}`,b.group)),customs=(view?.reports??[]).filter(r=>requirementEnabled(erpReportRequirement(r.base,r.columns,r.filters))&&match(r.title,reportBase(r.base)!.group));
  const remove=()=>{if(!confirm)return;start({operation:'reports-delete',body:captureFrameworkDelete({command_id:crypto.randomUUID(),items:[{id:confirm.id,expected_version:confirm.version}]}),path:REPORTS_DELETE_PATH});};
  return <div className="real-reports">
   <OriginListHeader title="Relatórios customizados"/>

@@ -139,7 +139,7 @@ function TargetGate({ runtime }: { runtime: ErpHostRuntime }) {
   const opened = useRef<string | null>(null);
   if (state === "allowed") opened.current = target;
   if (state !== "allowed" && !((state === "disabled" || state === "loading") && opened.current === target)) return <TargetNotice state={state} />;
-  return <App />;
+  return location.pathname === "/manutencao-efeitos" ? <Suspense fallback={<TargetNotice state="loading" />}><RealAccess /></Suspense> : <App />;
 }
 
 function HostTree({ runtime, props }: { runtime: ErpHostRuntime; props: ErpMountProps }) {

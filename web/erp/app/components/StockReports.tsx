@@ -1,3 +1,4 @@
+import { erpRouteRequirement } from '../../../../src/erp/parts-requirements';
 import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useUnsavedChangesGuard } from '../hooks/useUnsavedChanges';
@@ -18,7 +19,7 @@ import { Icon } from './Icon';
 import './stock.css';
 import './stock-reports.css';
 import {nativeReportCoverageText} from '../lib/document-reports-model';
-import { blockEnabled } from '../../blocks';
+import { blockEnabled, requirementEnabled } from '../../blocks';
 
 const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 const brDate = (value: unknown) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value.split('-').reverse().join('/') : '—';
@@ -42,7 +43,9 @@ const sheetCell = (column: ReportColumn, value: unknown): SheetCell => value ===
 export default function StockReports({ controller }: { controller: AccessController }) {
   const location = useLocation(), navigate = useNavigate(), guard = useUnsavedChangesGuard();
   const snapshot = controller.getSnapshot(), role = snapshot.membership?.role, actor = snapshot.membership?.user_id ?? '';
-  const report = reportParam(location.search), today = stockDate();
+  const selectedReport = reportParam(location.search), today = stockDate();
+  const reportAvailable = (item: NonNullable<typeof selectedReport>) => {const requirement=erpRouteRequirement('GET',new URL(`/v1/estoque/relatorios/${item.api}`,'https://erp.invalid'));return (item.id !== 'pedidos-compra'||blockEnabled('erp-compras'))&&requirement!=='externo'&&requirementEnabled(requirement);};
+  const report = selectedReport && reportAvailable(selectedReport) ? selectedReport : null;
   const [filters, setFilters] = useState<ReportFilters>(defaultReportFilters(today)), [product, setProduct] = useState<CatalogRecord | null>(null);
   const [warehouses, setWarehouses] = useState<StockWarehouseOption[]>([]);
   // The request keeps the filters it was made with: pages and exports follow the report on screen, never fields edited after Visualizar.
@@ -79,7 +82,7 @@ export default function StockReports({ controller }: { controller: AccessControl
   const open = (event: MouseEvent<HTMLAnchorElement>, href: string) => { if (opensInNewTab(event) || event.shiftKey) return; event.preventDefault(); guard.confirmLeave(() => navigate(href)); };
   if (!report) return <section className="stock-reports"><header className="real-heading"><h1>Relatórios</h1><span className="real-mode">Somente consulta</span></header>
     <p className="real-notice">Relatórios de suprimentos sobre os lançamentos, notas e pedidos registrados no ERP. Na convivência, o que foi feito só no Origin não entra.</p>
-    {(['Controle de Estoque', 'Notas de Entrada', 'Pedidos de Compra'] as const).filter(group => blockEnabled('erp-fiscal') || group !== 'Notas de Entrada').map(group => <section key={group} className="stock-report-group"><h2>{group}</h2><ul>{REPORTS.filter(item => item.group === group).map(item => <li key={item.id}>
+    {(['Controle de Estoque', 'Notas de Entrada', 'Pedidos de Compra'] as const).map(group => <section key={group} className="stock-report-group"><h2>{group}</h2><ul>{REPORTS.filter(item => item.group === group && reportAvailable(item)).map(item => <li key={item.id}>
       {reportAllowed(item, role) ? <a href={`${REPORTS_PATH}?relatorio=${item.id}`} onClick={event => open(event, `${REPORTS_PATH}?relatorio=${item.id}`)}>{item.label}</a> : <span className="is-disabled" aria-disabled="true" title={reportBlockReason(item)}>{item.label}<small>{reportBlockReason(item)}</small></span>}</li>)}</ul></section>)}
   </section>;
   if (!reportAllowed(report, role)) return <section className="real-state-panel"><h1>{report.label}</h1><p>{reportBlockReason(report)}</p></section>;

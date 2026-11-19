@@ -849,6 +849,7 @@ function read(path: string, query: URLSearchParams): any {
       modules: {
         ...Object.fromEntries(demoModules.map((m) => [m.id, m.enabled !== false])),
         erp: true,
+        "erp-produtos": true, "erp-vendas": true, "erp-compras": true, "erp-estoque": true, "erp-financeiro": true,
         "erp-pdv": true,
         "erp-fiscal": false,
         "erp-cobranca": false,

@@ -1,3 +1,4 @@
+import { blockEnabled, operationEnabled, targetEnabled } from '../../blocks';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
@@ -106,7 +107,7 @@ export function useProductList(list: CatalogList) {
   list.rows.current.products = { discard: discardPrice, loaded: page => { if (page.entity === 'products') setStockAccess(page.stock_visible === true); } };
   useEffect(() => () => { stockRequest.current?.abort(); priceRequest.current?.abort(); batchRequest.current?.abort(); }, [controller]);
   const isProducts = list.entity === 'products';
-  const stockVisible = isProducts && stockAccess;
+  const stockVisible = isProducts && stockAccess && blockEnabled('erp-estoque');
   // Wabotia: os depósitos só servem ao seletor "Depósito" do filtro de Estoque e ao nome do depósito filtrado; lidos no primeiro uso.
   const [warehousesWanted, setWarehousesWanted] = useState(false);
   if (!warehousesWanted && stockVisible && Boolean(list.productFilterDraft.stock || list.productFilters.warehouse_id)) setWarehousesWanted(true);
@@ -159,7 +160,7 @@ export function useProductList(list: CatalogList) {
   }, [controller, isProducts, supplierSearch.query]);
   // Componente (Origin "Digite o nome ou código"): simple active products, with a debounce; an answer for an older text is ignored.
   // Nothing is searched once a product is picked (the field shows its name) or while the Tipo is not "Produtos com composição".
-  const componentPicked = Boolean(list.productFilterDraft.component_id), componentShown = list.productFilterDraft.type === 'composition';
+  const componentPicked = Boolean(list.productFilterDraft.component_id), componentShown = operationEnabled('composition') && list.productFilterDraft.type === 'composition';
   useEffect(() => {
     const query = componentSearch.query.trim();
     if (!isProducts || !query || componentPicked || !componentShown) return;
@@ -312,7 +313,7 @@ export function productListView(list: CatalogList, product: ProductListState): C
   const exportFilters = Object.fromEntries(Object.entries(apiFilters).filter(([key]) => key !== 'custom'));
   const adjustFilters = customApi ? { ...exportFilters, custom: customApi } : exportFilters;
   const adjusting = product.adjust.open && !deletedView;
-  const columns = prefs.columns.filter(id => product.available.includes(id) && (id !== 'stock' || stockVisible));
+  const columns = prefs.columns.filter(id => product.available.includes(id) && (!['stock', 'stock_min', 'stock_max', 'location'].includes(id) || stockVisible));
   const priceCell = (item: CatalogListItem) => {
     const edit = priceEdit?.id === item.id ? priceEdit : null;
     if (!edit) return <span className="catalog-price-value">{decimalMoney(typeof item.price === 'string' ? item.price : null)}{writable && item.active && item.deleted !== true && <button type="button" className="catalog-price-pencil" title="Clique para editar o preço do produto" aria-label={`Editar o preço de ${item.name}`} disabled={Boolean(priceEdit?.busy || priceEdit?.uncertain)} onClick={event => { event.stopPropagation(); product.startPrice(item); }}><Icon name="pen-to-square" size={11} /></button>}</span>;
@@ -366,9 +367,9 @@ export function productListView(list: CatalogList, product: ProductListState): C
       <div className="form-field"><label htmlFor="catalog-ncm-filter">NCM</label><select id="catalog-ncm-filter" value={productFilterDraft.ncm_presence} onChange={event => draft({ ncm_presence: event.target.value })}><option value="">Selecione uma opção</option><option value="missing">Sem NCM</option><option value="present">Com NCM</option></select></div>
       {productFilterDraft.ncm_presence === 'present' && <div className="form-field"><label htmlFor="catalog-ncm-number-filter">Número NCM</label><input id="catalog-ncm-number-filter" inputMode="numeric" value={productFilterDraft.ncm} minLength={2} maxLength={8} pattern="[0-9]{2,8}" title="Informe de 2 a 8 dígitos do NCM." onChange={event => draft({ ncm: event.target.value.replace(/\D/g, '') })} /></div>}
       <div className="form-field"><label htmlFor="catalog-item-type-filter">Classificação</label><select id="catalog-item-type-filter" value={productFilterDraft.item_type} onChange={event => draft({ item_type: event.target.value })}><option value="">Todas</option>{ITEM_TYPE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label.slice(3)}</option>)}</select></div>
-      <div className="form-field"><label htmlFor="catalog-type-filter">Tipo</label><select id="catalog-type-filter" value={productFilterDraft.type} onChange={event => draft({ type: event.target.value, ...(event.target.value === 'composition' ? {} : { component_id: '', component_name: '' }) })}><option value="">Todos</option>{PRODUCT_TYPE_FILTERS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div>
+      <div className="form-field"><label htmlFor="catalog-type-filter">Tipo</label><select id="catalog-type-filter" value={productFilterDraft.type} onChange={event => draft({ type: event.target.value, ...(event.target.value === 'composition' ? {} : { component_id: '', component_name: '' }) })}><option value="">Todos</option>{PRODUCT_TYPE_FILTERS.filter(option => !['composition', 'no_composition'].includes(option.value) || operationEnabled('composition')).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div>
       {/* Origin: "Produtos com composição" reveals Componente; the compositions whose current Estrutura uses the product. */}
-      {productFilterDraft.type === 'composition' && <div className="form-field"><label htmlFor="catalog-component-filter">Componente</label><input id="catalog-component-filter" value={productFilterDraft.component_id ? productFilterDraft.component_name : product.componentSearch.query} maxLength={120} autoComplete="off" placeholder="Digite o nome ou código"
+      {operationEnabled('composition') && productFilterDraft.type === 'composition' && <div className="form-field"><label htmlFor="catalog-component-filter">Componente</label><input id="catalog-component-filter" value={productFilterDraft.component_id ? productFilterDraft.component_name : product.componentSearch.query} maxLength={120} autoComplete="off" placeholder="Digite o nome ou código"
         onChange={event => { draft({ component_id: '', component_name: '' }); product.setComponentSearch({ query: event.target.value, options: [], state: event.target.value.trim() ? 'busy' : 'idle' }); }} />
         {product.componentSearch.state === 'busy' && <small role="status">Pesquisando…</small>}{product.componentSearch.state === 'error' && <small className="is-error">Não foi possível pesquisar os produtos.</small>}
         {!productFilterDraft.component_id && product.componentSearch.query.trim() && product.componentSearch.state === 'idle' && !componentOptions.length && <small>Nenhum produto simples ativo encontrado.</small>}

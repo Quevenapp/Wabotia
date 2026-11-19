@@ -1,3 +1,5 @@
+import { withoutUnavailableParts } from '../../blocks';
+import { entityEnabled } from '../../blocks';
 import {useEffect,useState} from 'react';
 import {Link} from 'react-router-dom';
 import {EXPIRING_PATH,parseExpiring,type ExpiringView} from '../lib/system-model';
@@ -14,9 +16,9 @@ const brDate=(value:string)=>value.split('-').reverse().join('/');
  * the page is keyed by actor and role, so a late answer of another session never appears here. */
 export function HomeExpiring({controller,role}:{controller:Port;role:string|undefined}){
  const [view,setView]=useState<ExpiringView|null>(null);
- const allowed=typeof controller.system==='function'&&Boolean(role&&EXPIRY_ROLES.includes(role));
+ const allowed=entityEnabled('products')&&typeof controller.system==='function'&&Boolean(role&&EXPIRY_ROLES.includes(role));
  useEffect(()=>{setView(null);if(!allowed)return;const p=new AbortController();
-  void controller.system!(EXPIRING_PATH,{method:'GET',signal:p.signal}).then(raw=>{if(!p.signal.aborted)setView(parseExpiring(raw));}).catch(()=>{/* The alert stays hidden; the home keeps working. */});
+  void controller.system!(EXPIRING_PATH,{method:'GET',signal:p.signal}).then(raw=>{if(!p.signal.aborted)setView(parseExpiring(withoutUnavailableParts(raw)));}).catch(()=>{/* The alert stays hidden; the home keeps working. */});
   return()=>p.abort();},[controller,allowed]);
  if(!view||view.total===0)return null;
  return <section className="home-expiring" aria-labelledby="home-expiring-title">

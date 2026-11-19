@@ -1,3 +1,4 @@
+import { availableTransitionActions } from '../lib/real-documents-model';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { erpPublicHref } from '../../public-url';
 import { AccessError, decimalMoney, type AccessController } from '../lib/real-access';
@@ -18,7 +19,7 @@ import { documentFinanceTitlePath } from '../lib/document-finance-link';
 import type { CatalogAccess, CatalogPage, CatalogRecord } from '../lib/catalog-model';
 import { AppliedChips, OriginPagination, IndicatorLetter, PeriodPicker, RowMenu, ToolButton, ViewToggle, type RowMenuItem } from './OriginList';
 import DocumentStatusBadge from './DocumentStatusBadge';
-import { batchSituationTargets, filterSituations, managed, permittedTargets, rowAt, rowKey, runnableTargets, transitionActions, transitionNote, type SituationModel } from '../lib/document-situations-model';
+import { actionsAllowed, batchSituationTargets, filterSituations, managed, permittedTargets, rowAt, rowKey, transitionActions, transitionNote, type SituationModel } from '../lib/document-situations-model';
 import DocumentListPrint from './DocumentListPrint';
 import DocumentOccurrences, { DATE_LOCKED } from './DocumentOccurrences';
 import DocumentColumnsDrawer from './DocumentColumnsDrawer';
@@ -62,7 +63,7 @@ import DocumentListSearch, { canonicalSearch } from './DocumentListSearch';
 import { CustomFieldsPrintQuestion } from './DocumentWaveG';
 import { DOCUMENT_CUSTOM_FIELDS_PATH, hasCustomValues, readDocumentCustomFields, type DocumentCustomField } from '../lib/document-custom-fields';
 import './document-list.css';
-import { blockEnabled } from '../../blocks';
+import { blockEnabled, entityEnabled, targetEnabled, REENABLED_AUTOMATION_NOTICE } from '../../blocks';
 
 const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 const known = (error: unknown) => error instanceof AccessError && [400, 403, 404, 409].includes(error.status);
@@ -185,8 +186,8 @@ export default function DocumentList(props: DocumentListProps) {
     const request = new AbortController();
     void Promise.resolve().then(() => controller.catalog('/v1/cadastros', { signal: request.signal })).then(async value => {
       const read = Array.isArray((value as CatalogAccess | null)?.read) ? (value as CatalogAccess).read : [];
-      if (request.signal.aborted) return; setCatalogRead(read);
-      if (!read.includes('warehouses')) return;
+      if (request.signal.aborted) return; setCatalogRead(read.filter(entityEnabled));
+      if (!entityEnabled('warehouses') || !read.includes('warehouses')) return;
       const list = await controller.catalog('/v1/cadastros/warehouses?limit=100', { signal: request.signal }) as CatalogPage;
       if (!request.signal.aborted && Array.isArray(list?.items)) setWarehouses(list.items);
     }).catch(() => { /* The filters stay hidden; document permissions are enforced separately. */ });
@@ -217,7 +218,7 @@ export default function DocumentList(props: DocumentListProps) {
   const togglePage = () => setSelected(allSelected ? new Set() : new Set(ids));
   const apply = (next: DocumentListFilters) => { const accepted = props.onApply(next); if (accepted) { setActionNotice(''); setActionError(''); } return accepted; };
   const [makeDefault, setMakeDefault] = useState(false); const [columnsOpen, setColumnsOpen] = useState(false);
-  const [xmlOpen, setXmlOpen] = useState(false), xmlAllowed = writable && Boolean(props.onImported) && (kind === 'sales_orders' || kind === 'purchase_orders');
+  const [xmlOpen, setXmlOpen] = useState(false), xmlAllowed = blockEnabled('erp-fiscal') && writable && Boolean(props.onImported) && (kind === 'sales_orders' || kind === 'purchase_orders');
   useEffect(() => { if ((props.xmlRequest ?? 0) > 0 && xmlAllowed) { setXmlOpen(true); props.onXmlRequestHandled?.(); } }, [props.xmlRequest, xmlAllowed]);
   const listView = LIST_VIEW_KINDS.includes(kind) ? props.listView ?? null : null;
   // Origin "Tornar padrão" / "Listagem customizada": the user's own settings, saved with CAS and a command of their own.
@@ -425,7 +426,7 @@ export default function DocumentList(props: DocumentListProps) {
       else changeStatus(row, action.target, null);
     }
   };
-  const menuItems = (row: DocumentListRow): RowMenuItem[] => documentRowActions(kind, row, { role, writable, serviceWritable: Boolean(access?.write.includes('service_orders')), situations: model, permissions: access?.permissions ?? null }).filter(action => blockEnabled('erp-fiscal') || !action.key.startsWith('fiscal_')).map(action => {
+  const menuItems = (row: DocumentListRow): RowMenuItem[] => documentRowActions(kind, row, { role, writable, serviceWritable: Boolean(access?.write.includes('service_orders')), situations: model, permissions: access?.permissions ?? null }).filter(action => (blockEnabled('erp-fiscal') || !action.key.startsWith('fiscal_')) && (action.action !== 'stock' || blockEnabled('erp-estoque')) && (action.action !== 'finance' || blockEnabled('erp-financeiro'))).map(action => {
     const mutation = !['edit', 'clear_warnings', 'print', 'print_receipt', 'print_detailed', 'print_carne', 'print_production', 'print_technician', 'print_label', 'print_product_labels', 'fiscal55', 'fiscal65', 'fiscal_partial', 'whatsapp', 'unavailable'].includes(action.action);
     const blocked = mutation && locked;
     return { label: action.label, ...(action.letter ? { letter: action.letter } : {}), ...(action.icon ? { icon: action.icon } : {}), separatorBefore: action.separatorBefore,
@@ -542,7 +543,7 @@ export default function DocumentList(props: DocumentListProps) {
         <button type="button" className="origin-action" disabled={!writable || !selectedRows.length || locked} title={writable ? batchTitle('Altera a situação de cada documento selecionado, um por vez') : 'Seu perfil permite apenas consultar.'} onClick={() => openBatch('batch-status')}><Icon name="circle-half-stroke" size={15} /><span>{PANEL[kind].status}</span></button>
         <button type="button" className="origin-action" disabled={!selectedRows.length || locked} title={batchTitle('Imprime a versão salva de cada documento selecionado')} onClick={() => openBatch('batch-print')}><Icon name={kind === 'service_orders' ? 'file-lines' : 'square-check'} size={15} /><span>{PANEL[kind].print}</span></button>
         {PANEL[kind].nfe && !seller && blockEnabled('erp-fiscal') && <button type="button" className="origin-action" disabled={!ORDER_BATCH_ROLES.includes(role) || !selectedRows.length || locked} title={!ORDER_BATCH_ROLES.includes(role) ? 'As notas fiscais são geradas pelo administrador e pelo fiscal.' : batchTitle('Gera uma nota de homologação de cada pedido selecionado, como Gerar nota fiscal do menu ⋮')} onClick={() => setFiscalBatch('55')}><Icon name="file-invoice-dollar" size={15} /><span>{PANEL[kind].nfe}</span></button>}
-        {kind === 'purchase_orders' && (Object.keys(PURCHASE_EFFECT_LABELS) as PurchaseEffectAction[]).map(action => <button key={action} type="button" className="origin-action" disabled={!PURCHASE_EFFECT_ROLES[action].includes(role) || !selectedRows.length || locked}
+        {kind === 'purchase_orders' && (Object.keys(PURCHASE_EFFECT_LABELS) as PurchaseEffectAction[]).filter(action => blockEnabled(action.startsWith("stock") ? "erp-estoque" : "erp-financeiro")).map(action => <button key={action} type="button" className="origin-action" disabled={!PURCHASE_EFFECT_ROLES[action].includes(role) || !selectedRows.length || locked}
           title={!PURCHASE_EFFECT_ROLES[action].includes(role) ? (action.startsWith('stock') ? 'O estoque é lançado pelo administrador e pelo estoque.' : 'As contas são lançadas pelo administrador e pelo financeiro.') : batchTitle(`${PURCHASE_EFFECT_LABELS[action]} de cada pedido selecionado, um por vez`)}
           onClick={() => { setActionError(''); setPurchaseBatch(action); }}><Icon name={action.startsWith('stock') ? 'boxes-stacked' : 'file-invoice-dollar'} size={15} /><span>{PURCHASE_EFFECT_LABELS[action]}</span></button>)}
         {kind === 'purchase_orders' && <button type="button" className="origin-action" disabled={loading || !page || Boolean(listBusy) || selectedRows.length > 0} title={selectedRows.length ? 'Disponível sem seleção.' : 'Exporta os pedidos ERP de um mês, com os itens, para XLSX.'} onClick={() => { const [year, month] = props.today.split('-'); setActionError(''); setMonthExport({ month: month!, year: year! }); }}><Icon name="file-excel" size={15} /><span>Exportar para a planilha</span></button>}
@@ -557,8 +558,8 @@ export default function DocumentList(props: DocumentListProps) {
         <h4>Imprimir</h4><button type="button" className="origin-action" disabled={!selectedRows.length} title={selectedRows.length ? 'Etiquetas de endereçamento A4 dos pedidos selecionados' : 'Selecione os pedidos na listagem.'} onClick={() => setLabels(addressLabels(kind, selectedRows))}><Icon name="tag" size={15} /><span>Etiquetas selecionadas</span></button>
         <h4>Importar</h4><button type="button" className="origin-action" disabled={!xmlAllowed || locked} title={xmlAllowed ? 'Monta um pedido a partir do XML de uma NF-e autorizada, para conferir e salvar' : 'Seu perfil permite apenas consultar.'} onClick={() => setXmlOpen(true)}><Icon name="file-import" size={15} /><span>Pedido XML</span></button>
         {/* Financeiro > Faturamento agrupado (SQL 174): the pedidos selecionados, grouped by cliente. */}
-        <h4>Outras</h4><button type="button" className="origin-action" disabled={!['admin', 'financeiro'].includes(role ?? '') || !selectedRows.length || selectedRows.length > 200 || !props.onNavigate} title={!['admin', 'financeiro'].includes(role ?? '') ? 'O faturamento agrupado é feito pelo Financeiro.' : selectedRows.length > 200 ? 'Selecione até 200 pedidos.' : selectedRows.length ? 'Agrupa os pedidos selecionados por cliente no Faturamento agrupado' : 'Selecione os pedidos na listagem.'}
-          onClick={() => guard.confirmLeave(() => props.onNavigate('/financeiro-empresa?' + new URLSearchParams({ area: 'faturamento-agrupado', pedidos: selectedRows.map(row => row.id).join(',') })))}><Icon name="file-invoice-dollar" size={15} /><span>Faturar pedidos selecionados</span></button></div>}
+        <h4>Outras</h4>{blockEnabled('erp-financeiro')&&<button type="button" className="origin-action" disabled={!['admin', 'financeiro'].includes(role ?? '') || !selectedRows.length || selectedRows.length > 200 || !props.onNavigate} title={!['admin', 'financeiro'].includes(role ?? '') ? 'O faturamento agrupado é feito pelo Financeiro.' : selectedRows.length > 200 ? 'Selecione até 200 pedidos.' : selectedRows.length ? 'Agrupa os pedidos selecionados por cliente no Faturamento agrupado' : 'Selecione os pedidos na listagem.'}
+          onClick={() => guard.confirmLeave(() => props.onNavigate('/financeiro-empresa?' + new URLSearchParams({ area: 'faturamento-agrupado', pedidos: selectedRows.map(row => row.id).join(',') })))}><Icon name="file-invoice-dollar" size={15} /><span>Faturar pedidos selecionados</span></button>}</div>}
       {kind === 'service_orders' && <div className="documents-more"><h3>Mais ações</h3>
         <h4>Imprimir</h4><button type="button" className="origin-action" disabled={!selectedRows.length || labelReading} title={selectedRows.length ? 'Etiquetas de identificação das ordens de serviço selecionadas' : 'Selecione as ordens de serviço na listagem.'} onClick={() => void printServiceLabels(selectedRows)}><Icon name="tag" size={15} /><span>{labelReading ? 'Lendo as ordens…' : 'Etiquetas selecionadas'}</span></button>
         {/* Notas lane: Origin "Gerar nota fiscal agrupando", one NF-e with the parts of several OS of the same cliente (homologação). */}
@@ -569,7 +570,7 @@ export default function DocumentList(props: DocumentListProps) {
         <h4>Imprimir</h4><button type="button" className="origin-action" disabled={!selectedRows.length || labelReading} title={selectedRows.length ? 'Etiquetas dos produtos dos pedidos de compra selecionados' : 'Selecione os pedidos na listagem.'} onClick={() => void printProductLabels(selectedRows)}><Icon name="note-sticky" size={15} /><span>{labelReading ? 'Lendo os pedidos…' : 'Imprimir etiquetas'}</span></button></div>}
       {kind === 'purchase_orders' && selectedRows.length > 0 ? <div className="native-list-summary"><h3>Informações</h3><dl className="native-list-stat"><dt>Valor</dt><dd>{decimalMoney(selectedTotal(selectedRows))}</dd></dl><dl className="native-list-stat"><dt>Selecionados</dt><dd>{selectedRows.length.toLocaleString('pt-BR')}</dd></dl><p className="real-help">Informações baseadas nos registros selecionados.</p></div>
         : <div className="native-list-summary"><h3>Informações</h3><dl className="native-list-stat"><dt>{listCountLabel(kind)}</dt><dd>{page ? page.total_count.toLocaleString('pt-BR') : '—'}</dd></dl>{totalsVisible && <dl className="native-list-stat"><dt>Valor total</dt><dd>{decimalMoney(page?.total_amount ?? null)}</dd></dl>}<p className="real-help">Informações baseadas nos filtros aplicados.</p></div>}
-      <p className="real-help">{model ? 'Salvar não lança estoque, contas ou nota fiscal. Mudar a situação só lança ou estorna estoque e contas quando a transição tiver essas ações no Gerenciador de transições.' : 'Salvar ou mudar a situação não lança estoque, financeiro ou nota fiscal automaticamente.'}</p>
+      <p className="real-help">{REENABLED_AUTOMATION_NOTICE}</p>
       {(() => { // Origin "Ferramentas de apoio": the Preferências page of this kind (when the profile reads it) and its reports.
         const prefs = preferencePage(DOCUMENT_PREFERENCE_PAGES[kind]), canPrefs = Boolean(prefs && role && (prefs.readRoles as readonly string[]).includes(role)), reportsAt = (kind === 'sales_orders' || kind === 'service_orders') && props.onNavigate;
         const noun = { sales_orders: 'pedidos de venda', sales_proposals: 'propostas comerciais', service_orders: 'ordens de serviço', purchase_orders: 'pedidos de compra' }[kind];
@@ -621,7 +622,7 @@ export default function DocumentList(props: DocumentListProps) {
     {dialog?.type === 'reason' && <Modal title={`Alterar situação · ${rowLabel(kind, dialog.row)}`} onClose={() => { if (!busy) setDialog(null); }} actions={<><button type="button" className="secondary-button" disabled={busy} onClick={() => setDialog(null)}>Cancelar</button>{uncertain ? <button type="button" className="primary-button" disabled={busy} onClick={() => void execute()}>{busy ? 'Conferindo…' : 'Conferir resultado'}</button> : <button type="button" className="primary-button" disabled={locked || !validReason(reason)} onClick={() => changeStatus(dialog.row, dialog.target, reason.trim())}>{busy ? 'Alterando…' : 'Alterar situação'}</button>}</>}>
       <p>{statusLabel(kind, rowKey(dialog.row), model)} → <strong>{statusLabel(kind, dialog.target, model)}</strong> · versão {dialog.row.version}</p>
       <div className="form-field"><label htmlFor="documents-status-reason">Motivo (obrigatório ao cancelar ou reabrir)</label><input id="documents-status-reason" maxLength={1000} value={reason} disabled={locked} onChange={event => setReason(event.target.value)} /></div>
-      <p className="real-help">{model ? dialogNote(dialog.row, dialog.target) : 'A mudança de situação é registrada com o motivo. Estoque, contas e nota fiscal não são lançados por esta ação.'}</p>
+      <p className="real-help">{REENABLED_AUTOMATION_NOTICE} {model ? dialogNote(dialog.row, dialog.target) : 'A mudança de situação é registrada com o motivo. Estoque, contas e nota fiscal não são lançados por esta ação.'}</p>
       {actionError && <p className="real-alert" role="alert">{actionError}</p>}
     </Modal>}
     {dialog?.type === 'situation' && <Modal title={`Alterando situação para ${statusLabel(kind, dialog.target, model)}`} onClose={() => { if (!busy) setDialog(null); }} actions={<><button type="button" className="secondary-button" disabled={busy} onClick={() => setDialog(null)}>Cancelar</button>{uncertain ? <button type="button" className="primary-button" disabled={busy} onClick={() => void execute()}>{busy ? 'Conferindo…' : 'Conferir resultado'}</button> : <button type="button" className="primary-button" disabled={locked} onClick={() => changeSituation(dialog.row, dialog.target)}>{busy ? 'Alterando…' : 'Alterar situação'}</button>}</>}>
@@ -728,4 +729,8 @@ export function DocumentEffectDialog({ controller, kind, row, effect, onClose, o
       {record && effect === 'stock' && (kind !== 'purchase_orders' || mode === 'legacy_full') && <DocumentStock key={`${record.id}:${record.version}`} controller={controller} record={record} launchDay={launchMode ? stockLaunchDay(launchMode, record, saoPauloNow().date) : undefined} blocked={loading || part('receipt').busy || part('receipt').draft || (kind === 'sales_orders' && row.reservation_active === true && !row.stock_active)} canAct={canAct} onChanged={async version => refresh(version)} onActive={() => undefined} onBusy={value => report('stock', 'busy', value)} onDraft={value => report('stock', 'draft', value)} />}
     </div>
   </Modal>;
+}
+
+function runnableTargets(model:SituationModel|null|undefined,kind:DocumentKind,from:string,targets:readonly string[],role:string) {
+ return targets.filter(to=>actionsAllowed(availableTransitionActions(transitionActions(model,kind,from,to)),role));
 }

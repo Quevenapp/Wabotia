@@ -1,3 +1,4 @@
+import { blockEnabled } from '../../blocks';
 import { useEffect, useRef, useState } from 'react';
 import type { AccessController } from '../lib/real-access';
 import type { DocumentInput, DocumentKind, InstallmentInput } from '../lib/real-documents-model';
@@ -22,7 +23,8 @@ export function usePaymentOptions(controller: Controller, kind: DocumentKind) {
   const load = (): Promise<PaymentOptions | null> => {
     if (pending.current?.key === key) return pending.current.promise;
     const promise = Promise.resolve().then(() => controller.documents(`/v1/documentos/${kind}/pagamento`)).then(value => {
-      const read = readPaymentOptions(value, kind);
+      const raw = value as Record<string, unknown>;
+      const read = readPaymentOptions({ ...raw, accounts: raw.accounts ?? [] }, kind);
       if (alive.current && pending.current?.key === key && actorOf(controller) === actor) { setOptions(read); setFailed(false); return read; }
       return null;
     }).catch(() => { if (alive.current && pending.current?.key === key) { setFailed(true); pending.current = null; } return null; });
@@ -44,7 +46,7 @@ export function DocumentPaymentHeader({ kind, values, options, disabled, account
   onChange: (change: Partial<DocumentInput>) => void; onConfigure?: () => void;
 }) {
   const account = values.payment_account_id ?? null, savedOnly = account && !options?.accounts.some(item => item.id === account);
-  const showDestination = destinationKind(kind) && (Boolean(values.installments?.length) || Boolean(account));
+  const showDestination = blockEnabled('erp-financeiro') && destinationKind(kind) && (Boolean(values.installments?.length) || Boolean(account));
   return <>
     {options && !options.methods.length && <p className="real-notice document-payment-warning" role="note">{NO_METHODS} {onConfigure ? <button type="button" className="text-button" onClick={onConfigure}>Configurar formas</button> : 'Peça ao administrador ou ao financeiro para cadastrar as formas de pagamento.'}</p>}
     {showDestination && <div className="form-field">
@@ -79,7 +81,7 @@ export function InstallmentMethod({ index, row, kind, options, names, disabled, 
 }) {
   const current = row.payment_method_id ?? null, known = options?.methods.some(item => item.id === current);
   return <label htmlFor={`doc-installment-method-${index}`}>Forma<select id={`doc-installment-method-${index}`} value={current ?? ''} disabled={disabled || !options}
-    onChange={event => onChange(withMethod(row, options?.methods.find(item => item.id === event.target.value) ?? null, kind))}>
+    onChange={event => onChange(blockEnabled('erp-financeiro') ? withMethod(row, options?.methods.find(item => item.id === event.target.value) ?? null, kind) : { ...row, payment_method_id: event.target.value || null })}>
     <option value="">Nenhuma forma</option>
     {current && !known && <option value={current}>{names?.[current] ?? 'Forma do documento'}</option>}
     {options?.methods.map(item => <option key={item.id} value={item.id}>{item.description}</option>)}
@@ -102,11 +104,13 @@ export function InstallmentDetailsDialog({ kind, index, row, baseDate, options, 
   const account = details.account_id, accountKnown = options?.accounts.some(item => item.id === account);
   const apply = () => {
     try {
-      const normalized = normalizeInstallmentDetails(kind, details);
+      const finance = blockEnabled('erp-financeiro');
+      const normalized = normalizeInstallmentDetails(kind, finance ? details : {...details,account_id:null,received_amount:null,fee_amount:null,commission_fee_amount:null});
+      if(!finance&&normalized)for(const key of ['account_id','received_amount','fee_amount','commission_fee_amount'] as const){if(Object.hasOwn(row.details??{},key))normalized[key]=row.details![key];else delete normalized[key];}
       if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.due_date) || !/^\d{1,12}(\.\d{1,2})?$/.test(draft.amount)) throw new Error('date');
       // Exact decimals (cents as BigInt), never floats.
       const cents = (value: string) => { const [whole, fraction = ''] = value.split('.'); return BigInt(whole!) * 100n + BigInt((fraction + '00').slice(0, 2)); };
-      for (const key of ['received_amount', 'fee_amount', 'commission_fee_amount'] as const) if (normalized?.[key] && cents(normalized[key]!) > cents(draft.amount)) throw new Error('amount');
+      if(blockEnabled('erp-financeiro')) for (const key of ['received_amount', 'fee_amount', 'commission_fee_amount'] as const) if (normalized?.[key] && cents(normalized[key]!) > cents(draft.amount)) throw new Error('amount');
       onApply({ ...draft, details: normalized });
     } catch { setError('Confira a data, os valores (até duas casas decimais, sem passar do valor da parcela), o CNPJ da credenciadora (14 caracteres) e o código de autorização.'); }
   };
@@ -116,9 +120,9 @@ export function InstallmentDetailsDialog({ kind, index, row, baseDate, options, 
       <div className="form-field"><label htmlFor="doc-detail-days">Dias</label><input id="doc-detail-days" inputMode="numeric" maxLength={4} value={daysFrom(baseDate, draft.due_date)} onChange={event => { const due = dueFromDays(baseDate, event.target.value); if (due) setDraft(previous => ({ ...previous, due_date: due })); }}/></div>
       <div className="form-field"><label htmlFor="doc-detail-date">Data</label><input id="doc-detail-date" type="date" value={draft.due_date} onChange={event => setDraft(previous => ({ ...previous, due_date: event.target.value }))}/></div>
       <InstallmentMethod index={-1} row={draft} kind={kind} options={options} names={names} disabled={false} onChange={next => setDraft({ ...next, details: next.details ?? emptyDetails() })}/>
-      <div className="form-field"><label htmlFor="doc-detail-account">Destino/Conta financeira</label><select id="doc-detail-account" value={account ?? ''} disabled={!options} onChange={event => set({ account_id: event.target.value || null })}>
+      {blockEnabled('erp-financeiro') && <div className="form-field"><label htmlFor="doc-detail-account">Destino/Conta financeira</label><select id="doc-detail-account" value={account ?? ''} disabled={!options} onChange={event => set({ account_id: event.target.value || null })}>
         <option value="">Destino do documento</option>{account && !accountKnown && <option value={account}>{accountNames?.[account] ?? 'Conta financeira da parcela'}</option>}
-        {options?.accounts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
+        {options?.accounts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>}
       <div className="form-field"><label htmlFor="doc-detail-type">Tipo de pagamento</label><select id="doc-detail-type" value={details.payment_type ?? ''} onChange={event => set({ payment_type: event.target.value || null })}>
         <option value="">Selecione</option>{PAYMENT_MEANS.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></div>
       {!purchase && <><div className="form-field"><label htmlFor="doc-detail-brand">Bandeira</label><select id="doc-detail-brand" value={details.card_brand ?? ''} onChange={event => set({ card_brand: event.target.value || null })}>
@@ -128,9 +132,9 @@ export function InstallmentDetailsDialog({ kind, index, row, baseDate, options, 
         <div className="form-field"><label htmlFor="doc-detail-cnpj">CNPJ credenciadora</label><input id="doc-detail-cnpj" maxLength={18} value={details.acquirer_cnpj ?? ''} onChange={event => set({ acquirer_cnpj: event.target.value.toUpperCase().replace(/[ ./-]/g, '') || null })}/></div></>}
       <div className="form-field"><label htmlFor="doc-detail-authorization">Código de autorização</label><input id="doc-detail-authorization" maxLength={128} value={details.authorization_code ?? ''} onChange={event => set({ authorization_code: event.target.value.trim() || null })}/></div>
       <div className="form-field"><label htmlFor="doc-detail-amount">Valor</label><input id="doc-detail-amount" inputMode="decimal" value={documentDecimalDisplay(draft.amount)} onChange={event => setDraft(previous => ({ ...previous, amount: documentDecimalInput(event.target.value) }))}/></div>
-      <div className="form-field"><label htmlFor="doc-detail-received">Valor Recebido</label><input id="doc-detail-received" inputMode="decimal" value={money(details.received_amount)} onChange={event => set({ received_amount: typed(event.target.value) })}/></div>
-      <div className="form-field"><label htmlFor="doc-detail-fee">Valor de taxa</label><input id="doc-detail-fee" inputMode="decimal" value={money(details.fee_amount)} onChange={event => set({ fee_amount: typed(event.target.value) })}/></div>
-      {!purchase && <div className="form-field"><label htmlFor="doc-detail-commission">Valor de taxa comissão</label><input id="doc-detail-commission" inputMode="decimal" value={money(details.commission_fee_amount)} onChange={event => set({ commission_fee_amount: typed(event.target.value) })}/></div>}
+      {blockEnabled('erp-financeiro') && <div className="form-field"><label htmlFor="doc-detail-received">Valor Recebido</label><input id="doc-detail-received" inputMode="decimal" value={money(details.received_amount)} onChange={event => set({ received_amount: typed(event.target.value) })}/></div>}
+      {blockEnabled('erp-financeiro') && <div className="form-field"><label htmlFor="doc-detail-fee">Valor de taxa</label><input id="doc-detail-fee" inputMode="decimal" value={money(details.fee_amount)} onChange={event => set({ fee_amount: typed(event.target.value) })}/></div>}
+      {blockEnabled('erp-financeiro') && !purchase && <div className="form-field"><label htmlFor="doc-detail-commission">Valor de taxa comissão</label><input id="doc-detail-commission" inputMode="decimal" value={money(details.commission_fee_amount)} onChange={event => set({ commission_fee_amount: typed(event.target.value) })}/></div>}
       <div className="form-field document-wide"><label htmlFor="doc-detail-note">Observação</label><textarea id="doc-detail-note" rows={2} maxLength={2000} value={draft.note ?? ''} onChange={event => setDraft(previous => ({ ...previous, note: event.target.value || null }))}/></div>
     </div>
     {error && <p className="real-alert" role="alert">{error}</p>}

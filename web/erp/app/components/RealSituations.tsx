@@ -1,3 +1,5 @@
+import { withoutUnavailableParts } from '../../blocks';
+import { entityEnabled, fieldEnabled } from '../../blocks';
 import {useEffect,useRef,useState,useSyncExternalStore} from 'react';
 import type {AccessState} from '../lib/real-access';
 import {useUnsavedChanges} from '../hooks/useUnsavedChanges';
@@ -43,7 +45,7 @@ export function SituationGraph({page,from}:{page:SituationsPage;from:string}){
 /** Sistema > Gerenciador de transições (Origin situacoes.transicoes.php): abas, acordeão por origem, modais e exclusão. */
 export default function RealSituations({controller}:{controller:FrameworksController}){
  const snapshot=useSyncExternalStore(controller.subscribe,controller.getSnapshot),actor=useRef(snapshot.membership?.user_id??null),allowed=admin(snapshot,actor.current);
- const [kind,setKind]=useState<SituationKind>('sales_orders'),[page,setPage]=useState<SituationsPage|null>(null),[loading,setLoading]=useState(false),[loadError,setLoadError]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState('');
+ const [kind,setKind]=useState<SituationKind>(()=>SITUATION_KINDS.find(entityEnabled)??'sales_orders'),[page,setPage]=useState<SituationsPage|null>(null),[loading,setLoading]=useState(false),[loadError,setLoadError]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState('');
  const [open,setOpen]=useState(''),[selected,setSelected]=useState<string[]>([]),[editor,setEditor]=useState<Editor|null>(null),[busy,setBusy]=useState(false),[pending,setPending]=useState(false),[reload,setReload]=useState(0);
  const request=useRef<AbortController|null>(null),save=useRef<AbortController|null>(null),attempt=useRef<Attempt|null>(null),alive=useRef(true);
  const may=()=>alive.current&&admin(controller.getSnapshot(),actor.current);
@@ -51,8 +53,8 @@ export default function RealSituations({controller}:{controller:FrameworksContro
  const guard=useUnsavedChanges(dirty,busy||pending);
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;request.current?.abort();save.current?.abort();};},[controller]);
  useEffect(()=>{if(allowed)return;request.current?.abort();save.current?.abort();setBusy(false);setLoading(false);setPage(null);setEditor(null);if(attempt.current)setPending(true);},[allowed]);
- useEffect(()=>{if(!allowed||!may())return;const q=captureSituationsQuery({tipo:kind}),p=new AbortController();request.current?.abort();request.current=p;setLoading(true);setLoadError('');void(async()=>{try{
-  const raw=await controller.system(situationsPath(kind),{method:'GET',signal:p.signal});if(p.signal.aborted||request.current!==p||!may())return;const v=parseSituationsPage(raw,q);setPage(v);
+ useEffect(()=>{if(!allowed||!may()||!entityEnabled(kind))return;const q=captureSituationsQuery({tipo:kind}),p=new AbortController();request.current?.abort();request.current=p;setLoading(true);setLoadError('');void(async()=>{try{
+  const raw=await controller.system(situationsPath(kind),{method:'GET',signal:p.signal});if(p.signal.aborted||request.current!==p||!may())return;const v=parseSituationsPage(withoutUnavailableParts(raw),q);setPage(v);
   setSelected(s=>s.filter(id=>v.transitions.some(t=>!t.default&&`${t.from}>${t.to}`===id)));
  }catch(e){if(!p.signal.aborted&&request.current===p&&!aborted(e)&&may())setLoadError(statusOf(e)===403?'Somente administradores configuram as situações.':'Não foi possível carregar as situações. Tente novamente.');}
  finally{if(request.current===p){request.current=null;setLoading(false);}}})();return()=>{p.abort();if(request.current===p)request.current=null;};},[controller,kind,reload,allowed]);
@@ -91,7 +93,7 @@ export default function RealSituations({controller}:{controller:FrameworksContro
  const setTransition=(patch:Partial<{to:string;active:boolean;actions:TransitionAction[]}>)=>{if(locked)return;setEditor(e=>e&&e.type==='transition'?{...e,draft:{...e.draft,...patch}}:e);};
  return <div className="real-situations">
   <OriginListHeader title="Gerenciador de transições"/>
-  <div className="frameworks-tabs" role="tablist" aria-label="Tipo de documento">{SITUATION_KINDS.map(k=><button type="button" role="tab" key={k} aria-selected={kind===k} className={kind===k?'active':''} disabled={locked&&kind!==k} onClick={()=>switchKind(k)}>{SITUATION_KIND_LABELS[k]}</button>)}
+  <div className="frameworks-tabs" role="tablist" aria-label="Tipo de documento">{SITUATION_KINDS.filter(entityEnabled).map(k=><button type="button" role="tab" key={k} aria-selected={kind===k} className={kind===k?'active':''} disabled={locked&&kind!==k} onClick={()=>switchKind(k)}>{SITUATION_KIND_LABELS[k]}</button>)}
    <button type="button" role="tab" aria-selected={false} disabled title="Ordens de produção estão fora do escopo do ERP.">Ordens de Produção</button></div>
   {page&&!page.adopted&&<p className="real-notice situations-adoption" role="note">As situações e transições ficam guardadas aqui, mas os {SITUATION_KIND_LABELS[kind].toLowerCase()} ainda seguem as situações padrão: criar situações ou desativar transições ainda não muda os documentos, e as ações de estoque e contas ficam indisponíveis até o módulo adotar o gerenciador.</p>}
   <div className="situations-toolbar"><button type="button" className="primary-button" disabled={locked||!page||custom>=SITUATION_LIMIT} title={custom>=SITUATION_LIMIT?`Limite de ${SITUATION_LIMIT} situações personalizadas por aba.`:undefined} onClick={()=>openSituation(null)}><Icon name="circle-plus" size={12}/>Criar nova situação</button></div>
@@ -138,7 +140,7 @@ export default function RealSituations({controller}:{controller:FrameworksContro
     <p className="form-field">Origem<span><Badge situation={find(editor.from)}/></span></p>
     <label className="form-field">Destino<select id="transition-to" value={editor.draft.to} disabled={Boolean(editor.transition)} onChange={e=>setTransition({to:e.target.value})}>
      {(editor.transition?[find(editor.transition.to)!]:openDestinations(page,editor.from)).map(s=><option key={s.key} value={s.key}>{s.name}</option>)}</select></label>
-    <fieldset className="transition-actions"><legend>Ações</legend>{TRANSITION_ACTIONS.map(a=><label key={a} className="preference-switch" title={page.adopted?undefined:NOT_ADOPTED}>
+    <fieldset className="transition-actions"><legend>Ações</legend>{TRANSITION_ACTIONS.filter(action=>fieldEnabled(action.endsWith('finance')?'finance_action':'stock_action')).map(a=><label key={a} className="preference-switch" title={page.adopted?undefined:NOT_ADOPTED}>
      <input id={`transition-${a}`} type="checkbox" role="switch" disabled={!page.adopted} checked={editor.draft.actions.includes(a)} onChange={e=>setTransition({actions:toggleAction(editor.draft.actions,a,e.target.checked)})}/><span>{TRANSITION_ACTION_LABELS[a]}</span></label>)}
      {!page.adopted&&<p className="real-help">{NOT_ADOPTED}</p>}</fieldset>
     <label className="form-field">Status da transição<select id="transition-active" value={editor.draft.active?'ativa':'inativa'} onChange={e=>setTransition({active:e.target.value==='ativa'})}><option value="ativa">Ativa</option><option value="inativa">Inativa</option></select></label>

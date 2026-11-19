@@ -1,3 +1,4 @@
+import { blockEnabled } from '../../blocks.ts';
 import { EXTENSION_FIELDS, normalizeDocument, STATES, type DocumentInput, type DocumentKind, type NormalizedDocument, type NormalizedItem } from '../../../../packages/erp-domain/src/index.mjs';
 import { normalizeUnitPrice } from '../../../../packages/erp-domain/src/unit-price.mjs';
 import { groupedItems, itemGroup } from './service-order-items.ts';
@@ -136,4 +137,9 @@ export function documentValidation(kind:DocumentKind,input:DocumentInput):string
     if(code.includes('NUMBER'))return 'Informe um número de 1 a 9999999999, sem zeros à esquerda.';
     return 'Confira os campos e limites antes de salvar.';
   }
+}
+
+/** Postagens suspensas são puladas; estornos existentes conservam a permissão original. */
+export function availableTransitionActions<T extends string>(actions: readonly T[], effects?: {stock:boolean;finance:boolean}): T[] {
+ return actions.filter(action=>action==='post_stock'?blockEnabled('erp-estoque'):action==='post_finance'?blockEnabled('erp-financeiro'):action==='reverse_stock'&&effects?effects.stock:action==='reverse_finance'&&effects?effects.finance:true);
 }

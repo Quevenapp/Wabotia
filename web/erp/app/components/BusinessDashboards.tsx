@@ -1,3 +1,4 @@
+import { targetEnabled } from '../../blocks';
 import { nativeIndicatorCoverageText } from '../lib/document-reports-model';
 import {PERMISSIONS_PATH} from '../lib/system-model';
 import {parseMyPermissions,allowedBy,DASHBOARD_PERMISSIONS,STOCK_DASHBOARD_PERMISSIONS,type MyPermissions} from '../../../../packages/erp-domain/src/user-permissions.mjs';
@@ -68,7 +69,7 @@ export default function BusinessDashboards({controller}:{controller:BusinessCont
   const key=STOCK_DASHBOARD_PERMISSIONS[panel as keyof typeof STOCK_DASHBOARD_PERMISSIONS];return allowedBy(perms,'meu_negocio.dashboard')&&(!key||allowedBy(perms,`meu_negocio.dashboard.${key}`));};
  // The panel is keyed by the role too: after a role change, what the previous role read (custo, estoque) never stays on screen.
  return <div className="business-dashboards">
-  <nav className="business-nav" aria-label="Dashboards de Meu Negócio">{BUSINESS_MENU.map(group=>{const entries=group.entries.filter(e=>roleOf(e.roles));if(!entries.length)return null;
+  <nav className="business-nav" aria-label="Dashboards de Meu Negócio">{BUSINESS_MENU.map(group=>{const entries=group.entries.filter(e=>roleOf(e.roles)&&(!e.to||targetEnabled(e.to))&&(!e.screen||screenAllowed(e.screen,role)));if(!entries.length)return null;
    return <section key={group.title}><h2>{group.title}</h2><ul>{entries.map(e=><li key={e.label}>{e.screen&&!permitted(e.screen)?<span className="business-nav-disabled" aria-disabled="true" title={NOT_PERMITTED}>{e.label}</span>
     :e.screen?<Link to={businessHref(e.screen)} aria-current={e.screen===screen?'page':undefined}>{e.label}</Link>
     :e.to&&!stockPermitted(e.to)?<span className="business-nav-disabled" aria-disabled="true" title={NOT_PERMITTED}>{e.label}</span>
