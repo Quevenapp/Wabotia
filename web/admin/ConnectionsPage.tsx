@@ -16,7 +16,7 @@ import {
   SkeletonBlock,
 } from "../ui";
 import { ConnectionDiagnostics } from "../ConnectionDiagnostics";
-import { ConnectionDialog } from "./ConnectionDialog";
+import { ConnectionDialog, connectionChannelPresentation } from "./ConnectionDialog";
 import { SecretDialog, useList } from "./shared";
 
 const aiProviderText: Row = {
@@ -32,6 +32,14 @@ const kindText = (kind: string) => ({ ai: "Bot por provedor de IA, sem servidor"
 const removedKinds = ["meta", "telegram", "hermes", "hermes-whatsapp"];
 // Conexões de telefone: excluir remove a linha, não a conta no provedor.
 const phoneKinds = ["meta", "zernio", "qr", "hermes-whatsapp"];
+export const isPhoneConnection = (row: Row) =>
+  phoneKinds.includes(row.kind) && connectionChannelPresentation(row).channel === "whatsapp";
+const editableConnection = (row: Row) => !removedKinds.includes(row.kind) &&
+  (row.kind === "ai" || connectionChannelPresentation(row).available);
+export const connectionKindLabel = (row: Row) => {
+  const channel = connectionChannelPresentation(row);
+  return channel.social ? `${channel.label}${row.kind === "zernio" ? " pela Zernio" : ""}${row.account_label ? ` · ${row.account_label}` : ""}` : kindText(row.kind);
+};
 
 const zernioWebhook = (row: Row) =>
   location.origin +
@@ -171,7 +179,7 @@ export function ConnectionsPage() {
                 alt="Leia o código com o WhatsApp para conectar"
               />
             )}
-            {!removedKinds.includes(row.kind) && !parse(row.config).remove_pending && (
+            {editableConnection(row) && !parse(row.config).remove_pending && (
               <button
                 type="button"
                 className="text-link"
@@ -180,7 +188,14 @@ export function ConnectionsPage() {
                 Editar conexão
               </button>
             )}
-            <p>{kindText(row.kind)}</p>
+            <p>{connectionKindLabel(row)}</p>
+            {connectionChannelPresentation(row).social && (
+              <p className="notice">
+                {connectionChannelPresentation(row).available
+                  ? "Conta importada. Requer Inbox no plano da Zernio e permissões de mensagens. O cliente inicia a conversa; teste a conexão antes de ativar."
+                  : "Este canal ainda não está disponível nesta etapa."}
+              </p>
+            )}
             {row.kind === "ai" && (
               <p>
                 {aiProviderText[parse(row.config).provider] ||
@@ -195,7 +210,7 @@ export function ConnectionsPage() {
               </p>
             )}
             <small>Último contato: {date(row.last_seen)}</small>
-            {!removedKinds.includes(row.kind) && !parse(row.config).remove_pending && (
+            {editableConnection(row) && !parse(row.config).remove_pending && (
               <ConnectionDiagnostics
                 listsBots={row.kind === "ai"}
                 demo={demo}
@@ -258,7 +273,7 @@ export function ConnectionsPage() {
                   if (!app.demoBlocked()) setRemoving(row);
                 }}
               >
-                {phoneKinds.includes(row.kind)
+                {isPhoneConnection(row)
                   ? "Excluir telefone"
                   : "Excluir conexão"}
               </Button>
@@ -314,7 +329,7 @@ export function ConnectionsPage() {
         />
       )}
       {secret && <SecretDialog token={secret} onClose={() => setSecret("")} />}
-      {removing && phoneKinds.includes(removing.kind) && (
+      {removing && isPhoneConnection(removing) && (
         <Confirm
           title={"Excluir o telefone " + removing.name + " do Wabotia?"}
           confirmLabel="Excluir telefone"
@@ -338,7 +353,7 @@ export function ConnectionsPage() {
           </p>
         </Confirm>
       )}
-      {removing && !phoneKinds.includes(removing.kind) && (
+      {removing && !isPhoneConnection(removing) && (
         <Confirm
           title={"Excluir a conexão " + removing.name + " do Wabotia?"}
           confirmLabel="Excluir conexão"
@@ -354,7 +369,9 @@ export function ConnectionsPage() {
             })
           }
         >
-          {removing.kind === "telegram" ? (
+          {connectionChannelPresentation(removing).social ? (
+            <p>O vínculo local desta conta será removido. Conversas, mensagens, canal e conta de origem permanecem no histórico. As credenciais compartilhadas da integração e a conta no provedor são preservadas. Resolva envios em andamento ou sem confirmação antes de excluir.</p>
+          ) : removing.kind === "telegram" ? (
             <p>A conexão Telegram não é mais usada e será removida.</p>
           ) : (
             <>

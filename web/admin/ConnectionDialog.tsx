@@ -4,6 +4,48 @@ import { useApp } from "../app/AppContext";
 import type { Row } from "../lib/api";
 import { Field, toast } from "../ui";
 import { FormDialog } from "./shared";
+import { CHANNEL_REGISTRY, isChannelId } from "../../src/channels";
+
+/** Ausência de canal conserva apenas os transportes WhatsApp reconhecidos. */
+export function connectionChannelPresentation(row: Row) {
+  const channel = row.kind === "ai" ? null : row.channel ??
+    (["zernio", "qr", "meta", "hermes-whatsapp"].includes(row.kind) ? "whatsapp" : null);
+  const rules = isChannelId(channel) ? CHANNEL_REGISTRY[channel] : null;
+  return {
+    channel: rules?.id ?? null,
+    label: rules?.label || "Canal desconhecido",
+    social: channel != null && channel !== "whatsapp",
+    available: channel === "whatsapp" ||
+      (row.kind === "zernio" && ["instagram", "facebook"].includes(channel)),
+    serviceLine: rules?.serviceLine === true && row.serviceLine !== false,
+    rules,
+  };
+}
+
+export function connectionFormConfiguration(form: Row) {
+  const { social } = connectionChannelPresentation(form);
+  const config: Row = {}, secrets: Row = {};
+  if (!social) config.groups_enabled = !!form.groups_enabled;
+  for (const key of configKeys)
+    if (form[key] && (!social || !["number", "group"].includes(key))) config[key] = form[key];
+  if (!social) for (const key of secretKeys) if (form[key]) secrets[key] = form[key];
+  return { config, secrets };
+}
+
+export function SocialConnectionFields({ form }: { form: Row }) {
+  const channel = connectionChannelPresentation(form);
+  return <>
+    <p><strong>{channel.label}{form.account_label ? ` · ${form.account_label}` : ""}</strong></p>
+    {channel.available && form.id ? <>
+      <p>Conta importada da Zernio. Canal, conta e integração são fixos; as credenciais são compartilhadas e gerenciadas em Integração Zernio.</p>
+      <p>Requer acesso à caixa de entrada (Inbox) no plano da Zernio, conta conectada, permissões de mensagens e webhook configurado. Se aparecer inbox_required, habilite o Inbox no provedor e teste novamente.</p>
+      <p>O cliente inicia a conversa. Bot e automações respondem até 24 horas após a mensagem do cliente. Até 7 dias, somente texto escrito por uma pessoa; mídia e automações não usam essa extensão.</p>
+      <p>Depois de testar a conexão, configure bot, menu e horário em Linhas de atendimento. Requisitos do provedor: a conferir com a conta real.</p>
+    </> : <p role="alert">{channel.available
+      ? "Importe esta conta em Integração Zernio → Buscar contas na Zernio antes de editar a conexão."
+      : "Este canal ainda não está disponível nesta etapa."}</p>}
+  </>;
+}
 
 const configKeys = [
   "account_id",
@@ -306,10 +348,13 @@ export function ConnectionDialog({
 }) {
   const app = useApp();
   const [form, setForm] = useState<Row>({ ...initial, kind: initial.kind || "ai" });
+  const channel = connectionChannelPresentation(form);
   const change = (key: string) => (value: any) =>
     setForm((current) => ({ ...current, [key]: value }));
 
   async function save() {
+    if (channel.social && (!channel.available || !form.id))
+      throw new Error("Importe uma conta de Instagram ou Facebook pela integração Zernio.");
     if (form.kind === "ai") {
       // Provedor de IA direto: a chave só é enviada quando preenchida, para
       // a edição manter a já cadastrada.
@@ -341,15 +386,12 @@ export function ConnectionDialog({
       onClose();
       return;
     }
-    const config: Row = {},
-      secrets: Row = {};
-    config.groups_enabled = !!form.groups_enabled;
-    for (const key of configKeys) if (form[key]) config[key] = form[key];
-    for (const key of secretKeys) if (form[key]) secrets[key] = form[key];
+    const { config, secrets } = connectionFormConfiguration(form);
     await app.api(app.root + "/connections", "POST", {
       id: form.id,
       name: form.name,
       kind: form.kind || "ai",
+      ...(channel.social ? { channel: channel.channel } : {}),
       mode: "direct",
       config,
       secrets,
@@ -360,7 +402,8 @@ export function ConnectionDialog({
   }
 
   return (
-    <FormDialog title="Conectar serviço" onClose={onClose} onSubmit={save}>
+    <FormDialog title="Conectar serviço" onClose={onClose} onSubmit={save}
+      disabled={channel.social && (!channel.available || !form.id)}>
       <Field
         label="Nome"
         value={form.name}
@@ -373,13 +416,14 @@ export function ConnectionDialog({
         onChange={change("kind")}
         options={[
           ["ai", "Provedor de IA (sem servidor)"],
-          ["zernio", "WhatsApp · Zernio"],
+          ["zernio", channel.social ? `${channel.label} · Zernio` : "WhatsApp · Zernio"],
           ["qr", "WhatsApp · QR direto"],
         ]}
         disabled={!!form.id}
       />
       {form.kind === "ai" && <AiFields form={form} change={change} />}
-      {["qr", "zernio"].includes(form.kind) && (
+      {channel.social && <SocialConnectionFields form={form} />}
+      {!channel.social && ["qr", "zernio"].includes(form.kind) && (
         <Field
           label="Telefone com DDI (somente dígitos)"
           value={form.number}
@@ -388,7 +432,7 @@ export function ConnectionDialog({
           required
         />
       )}
-      {form.kind === "zernio" && (
+      {form.kind === "zernio" && !channel.social && (
         <>
           <p>
             Este cadastro usa um telefone já conectado na Zernio. Para encontrar
@@ -448,7 +492,7 @@ export function ConnectionDialog({
           </p>
         </>
       )}
-      {form.kind === "qr" && (
+      {form.kind === "qr" && !channel.social && (
         <p>
           Após salvar, gere uma chave do conector e siga o guia para iniciá-lo
           no seu servidor.

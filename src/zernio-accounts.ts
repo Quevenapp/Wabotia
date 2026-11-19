@@ -3,6 +3,7 @@ import { Env, Actor, ApiError, json, requireValue, uid, now } from "./types";
 import { access, admin, secret, setSecret } from "./security";
 import { zernioRequest } from "./zernio";
 import { billingPeriod, numberUsage } from "./number-quota";
+import { refreshChannelSummaryStatements } from "./channel-accounts";
 
 const objectId = (v: unknown) =>
   typeof v === "string" && /^[a-f0-9]{24}$/i.test(v);
@@ -112,7 +113,7 @@ export async function zernioAccountCommand(
     requireValue(
       !(await one(
         env,
-        "SELECT id FROM meta_accounts WHERE provider='zernio' AND zernio_profile_id=? AND id!=?",
+        "SELECT id FROM meta_accounts WHERE provider='zernio' AND lower(zernio_profile_id)=lower(?) AND id!=?",
         remote,
         id,
       )),
@@ -164,7 +165,8 @@ export async function zernioAccountCommand(
       requireValue(
         !(await one(
           env,
-          "SELECT o.id FROM outbox o JOIN meta_numbers n ON n.connection_id=o.connection_id WHERE n.account_id=? AND o.status IN ('pending','sending','unknown') LIMIT 1",
+          "SELECT o.id FROM outbox o WHERE o.status IN ('pending','sending','unknown') AND (EXISTS(SELECT 1 FROM meta_numbers n WHERE n.connection_id=o.connection_id AND n.account_id=?) OR EXISTS(SELECT 1 FROM zernio_channel_accounts a WHERE a.connection_id=o.connection_id AND a.integration_id=?)) LIMIT 1",
+          id,
           id,
         )),
         "Reconcilie as entregas antes de alterar as credenciais da integração.",
@@ -192,11 +194,13 @@ export async function zernioAccountCommand(
     await setSecret(env, `zernio-account:${id}`, keys);
     // Revalidation is required after credential changes.
     if (changed)
-      await exec(
-        env,
-        "UPDATE connections SET status='paused',config=json_remove(config,'$.verified_at') WHERE json_extract(config,'$.zernio_workspace_id')=?",
-        id,
-      );
+      await batch(env, [
+        [
+          "UPDATE connections SET status='paused',config=json_remove(config,'$.verified_at') WHERE profile_id=? AND json_extract(config,'$.zernio_workspace_id')=?",
+          [profile, id],
+        ],
+        ...refreshChannelSummaryStatements(profile),
+      ]);
     return { id, webhook_path: `/webhooks/zernio-accounts/${id}` };
   }
   const account = await one(
@@ -254,9 +258,13 @@ export async function zernioAccountCommand(
     );
     requireValue(found, "Telefone não encontrado nesta integração Zernio.");
     requireValue(
+      typeof found.number === "string" && /^\d{8,16}$/.test(found.number),
+      "A conta descoberta não representa um telefone WhatsApp válido.",
+    );
+    requireValue(
       !(await one(
         env,
-        "SELECT id FROM connections WHERE kind='zernio' AND json_extract(config,'$.account_id')=?",
+        "SELECT id FROM connections WHERE kind='zernio' AND channel='whatsapp' AND json_extract(config,'$.account_id')=?",
         remote,
       )),
       "Este número já está cadastrado.",
@@ -299,6 +307,7 @@ export async function zernioAccountCommand(
           created,
         ],
       ],
+      ...refreshChannelSummaryStatements(profile),
     ]);
     return { id, status: "paused", usage: await numberUsage(env, id) };
   }

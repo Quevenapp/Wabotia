@@ -2,6 +2,7 @@ import { exec, one } from "./db";
 import { access, admin } from "./security";
 import { ApiError, type Actor, type Env, requireValue } from "./types";
 import { zernioRequest } from "./zernio";
+import { readZernioChannelAccounts } from "./channel-accounts";
 
 const objectId = (value: unknown): value is string =>
   typeof value === "string" && /^[a-f0-9]{24}$/i.test(value);
@@ -12,6 +13,7 @@ const dependencies = `
     SELECT 1 FROM connections
     WHERE json_extract(CASE WHEN json_valid(config) THEN config ELSE '{}' END,'$.zernio_workspace_id')=?
   )
+  OR EXISTS(SELECT 1 FROM zernio_channel_accounts WHERE integration_id=?)
   OR EXISTS(SELECT 1 FROM number_pools WHERE account_id=?)`;
 
 const notFound = () =>
@@ -47,26 +49,34 @@ async function profileOptions(env: Env, conn: any) {
   return [...options.values()];
 }
 
-async function accountProfile(env: Env, conn: any, current: string) {
+async function accountProfile(env: Env, conn: any, current: string, channel: string) {
   if (!objectId(current)) return { matched: false, profile: null };
   const cursors = new Set<string>();
   let cursor = "";
   do {
     // GET /accounts/{id} is not in Zernio's API. Identify an account through
-    // the documented cursor listing, including disconnected WhatsApp accounts.
-    const query = new URLSearchParams({ platform: "whatsapp", limit: "100" });
+    // the cursor listing, including disconnected accounts. Social platform
+    // parameters and response fields: a conferir com a conta real.
+    const query = new URLSearchParams({ platform: channel, limit: "100" });
     if (cursor) query.set("cursor", cursor);
     const result = await zernioRequest(env, conn, `accounts?${query}`);
-    if (!Array.isArray(result.accounts)) throw invalidResponse();
-    for (const item of result.accounts) {
-      if (item?._id !== current || item.platform !== "whatsapp") continue;
-      const remote =
-        typeof item.profileId === "string"
-          ? item.profileId
-          : item.profileId?._id;
-      return { matched: true, profile: objectId(remote) ? remote : null };
+    const social = channel === "instagram" || channel === "facebook"
+      ? readZernioChannelAccounts(result, channel) : null;
+    if (social) {
+      const matched = social.accounts.find(item => item.accountId === current);
+      if (matched) return { matched: true, profile: matched.providerProfileId };
+    } else {
+      if (!Array.isArray(result.accounts)) throw invalidResponse();
+      for (const item of result.accounts) {
+        if (item?._id !== current || item.platform !== "whatsapp") continue;
+        const remote =
+          typeof item.profileId === "string"
+            ? item.profileId
+            : item.profileId?._id;
+        return { matched: true, profile: objectId(remote) ? remote : null };
+      }
     }
-    const next = result.pagination?.nextCursor;
+    const next = social ? social.nextCursor : result.pagination?.nextCursor;
     if (next == null) break;
     requireValue(
       typeof next === "string" &&
@@ -97,6 +107,11 @@ export async function resolveZernioProfile(
     typeof data?.id === "string" && data.id,
     "Informe a integração.",
   );
+  const channel = data.channel ?? "whatsapp";
+  requireValue(
+    channel === "whatsapp" || channel === "instagram" || channel === "facebook",
+    "Este canal ainda não está disponível para identificar a integração.",
+  );
   const account = await one(
     env,
     "SELECT * FROM meta_accounts WHERE id=? AND profile_id=? AND provider='zernio'",
@@ -126,7 +141,7 @@ export async function resolveZernioProfile(
       suggested_id = current;
       matched_by = "current";
     } else {
-      const linked = await accountProfile(env, conn, current);
+      const linked = await accountProfile(env, conn, current, channel);
       if (includes(linked.profile)) {
         suggested_id = linked.profile;
         matched_by = "account";
@@ -177,6 +192,7 @@ export async function resolveZernioProfile(
     account.id,
     account.id,
     account.id,
+    account.id,
     `zernio:${selected}`,
     selected,
   );
@@ -212,13 +228,14 @@ export async function resolveZernioProfile(
           account.id,
           account.id,
           account.id,
+          account.id,
         )
       ).in_use
     )
       throw new ApiError(
         409,
         "integration_in_use",
-        "O ID não pode ser corrigido enquanto a integração possui telefones ou grupos de distribuição.",
+        "O ID não pode ser corrigido enquanto a integração possui telefones, contas sociais ou grupos de distribuição.",
       );
     throw new ApiError(
       409,

@@ -17,6 +17,8 @@ import {
 import "./menu-tree.css";
 import { useMenuDrag, type MenuMove } from "./useMenuDrag";
 import { useUnsavedGuard } from "./app/hooks";
+import { CHANNEL_REGISTRY, isChannelId } from "../src/channels";
+import { coreMenuTypes } from "./menu-tree";
 
 type Row = Record<string, any>;
 type Props = { api: any; root: string; demo: boolean };
@@ -27,6 +29,29 @@ const parse = (value: any, fallback: any = null) => {
     return fallback;
   }
 };
+/** A disponibilidade final é validada pelo servidor; canais futuros não viram linhas. */
+export function serviceLinePresentation(line: Row) {
+  const channel = ["ai", "app", "internal", "team"].includes(line.kind) ? null :
+    line.channel ?? (["zernio", "qr"].includes(line.kind) ? "whatsapp" : null);
+  const rules = isChannelId(channel) ? CHANNEL_REGISTRY[channel] : null;
+  const available = rules?.serviceLine === true && line.serviceLine !== false &&
+    (["whatsapp", "instagram", "facebook"].includes(channel)) &&
+    (channel === "whatsapp" ? ["zernio", "qr"].includes(line.kind) : line.kind === "zernio");
+  return {
+    available,
+    channel: rules?.id ?? null,
+    social: !!rules && rules.id !== "whatsapp",
+    label: rules?.label || "Canal desconhecido",
+    bot: available && rules?.contexts.direct?.bot === true && line.capabilities?.bot !== false,
+    modules: available && channel === "whatsapp" && line.capabilities?.modules !== false,
+    menu: line.capabilities?.menu ?? rules?.menu,
+  };
+}
+const serviceLines = (lines: Row[]) => lines.filter((line) => serviceLinePresentation(line).available);
+export function menuLinesForType(lines: Row[], type: string) {
+  const core = type === "submenu" || coreMenuTypes.some((item) => item.type === type);
+  return serviceLines(lines).filter((line) => core || serviceLinePresentation(line).modules);
+}
 export const demoLines: Row[] = [
   {
     id: "line-main",
@@ -146,24 +171,26 @@ function Feedback({ error, notice }: { error: string; notice: string }) {
     </>
   );
 }
-function LineChoices({
+export function LineChoices({
   lines,
   value,
   onChange,
   disabled = false,
+  menuType,
 }: {
   lines: Row[];
   value: string[];
   onChange: (ids: string[]) => void;
   disabled?: boolean;
+  menuType?: string;
 }) {
   return (
     <div className="service-checks">
-      {lines.map((line) => (
+      {serviceLines(lines).map((line) => (
         <label className="check-line" key={line.id}>
           <input
             type="checkbox"
-            disabled={disabled}
+            disabled={disabled || (!!menuType && !menuLinesForType([line], menuType).length && !value.includes(line.id))}
             checked={value.includes(line.id)}
             onChange={(e) =>
               onChange(
@@ -175,18 +202,20 @@ function LineChoices({
           />
           <span>
             {line.name}
-            {line.number && <small>+{line.number}</small>}
+            {serviceLinePresentation(line).social
+              ? <small>{serviceLinePresentation(line).label}{line.account_label ? ` · ${line.account_label}` : ""}</small>
+              : line.number && <small>+{line.number}</small>}
           </span>
         </label>
       ))}
-      {!lines.length && (
+      {!serviceLines(lines).length && (
         <p>Nenhuma linha cadastrada nesta área de atendimento.</p>
       )}
     </div>
   );
 }
 
-function LineCard({
+export function LineCard({
   line,
   bots,
   ...props
@@ -198,10 +227,12 @@ function LineCard({
   };
   const [draft, setDraft] = useState<Row>({ ...saved });
   const state = useWrite(props);
+  const channel = serviceLinePresentation(line);
   const botChoices = bots.filter((b) => {
     const ids = parse(b.line_ids);
     return ids === null || ids.includes(line.id);
   });
+  if (!channel.available) return null;
   return (
     <article className="card service-line-card">
       <div className="section-heading">
@@ -215,11 +246,15 @@ function LineCard({
         </span>
       </div>
       <p>
-        {line.number ? `+${line.number}` : "Número não informado"} ·{" "}
-        {line.number_policy?.pool
+        {channel.social ? `${channel.label}${line.account_label ? ` · ${line.account_label}` : ""}`
+          : line.number ? `+${line.number}` : "Número não informado"} ·{" "}
+        {!channel.social && line.number_policy?.pool
           ? "Participa do roteador"
           : "Atendimento direto"}
       </p>
+      {channel.social && <p className="notice">
+        O cliente inicia a conversa. Bot, menus e automações respeitam o horário da área e a janela de 24 horas. Até 7 dias, somente texto escrito pela equipe. Módulos, modelos e rodízio de telefones não estão disponíveis neste canal.
+      </p>}
       <form
         onSubmit={async (e) => {
           e.preventDefault();
@@ -240,12 +275,12 @@ function LineCard({
               })
             }
           >
-            <option value="inherit">Bot padrão da área de atendimento</option>
+            <option value="inherit" disabled={!channel.bot}>Bot padrão da área de atendimento</option>
             <option value="human">Equipe humana</option>
-            <option value="bot">Bot específico</option>
+            <option value="bot" disabled={!channel.bot}>Bot específico</option>
           </select>
         </label>
-        {draft.mode === "bot" && (
+        {draft.mode === "bot" && channel.bot && (
           <label>
             Bot responsável
             <select
@@ -290,11 +325,14 @@ function LineCard({
                 : "Saudações como “oi” recebem o menu. Mensagens com uma pergunta vão direto ao bot, que também pode abrir o menu."}
           </small>
         </label>
-        <button className="primary" disabled={state.busy}>
+        {channel.social && <p>
+          Menu: até {channel.menu?.buttons || 0} botões ou {channel.menu?.quickReplies || 0} respostas rápidas; demais opções viram texto numerado. Fora da janela automática, a equipe vê o motivo do bloqueio.
+        </p>}
+        <button className="primary" disabled={state.busy || (!channel.bot && draft.mode !== "human")}>
           Salvar atendimento da linha
         </button>
       </form>
-      <NumberPolicyEditor
+      {!channel.social && <NumberPolicyEditor
         policy={line.number_policy}
         name={line.name}
         busy={state.busy}
@@ -305,7 +343,7 @@ function LineCard({
           if (result) await props.refresh();
           return result;
         }}
-      />
+      />}
       <Feedback {...state} />
     </article>
   );
@@ -321,7 +359,7 @@ export function LinesPanel(props: Props) {
       props.api(props.root + "/lines"),
       props.api(props.root + "/bots"),
     ]);
-    setLines(l.data);
+    setLines(serviceLines(l.data));
     setBots(b.data);
     setLoaded(true);
   }
@@ -332,15 +370,17 @@ export function LinesPanel(props: Props) {
     <div className="service-panel">
       <div className="card">
         <h2>Linhas de atendimento</h2>
-        <p>
+        {lines.some((line) => serviceLinePresentation(line).social) ? <>
+          <p>Escolha equipe, bot e menu de cada canal. O horário da área e as janelas de resposta limitam a automação.</p>
+          <p>Importe Instagram e Facebook em Integração Zernio. Cada atendimento mantém seu canal e sua conta de origem.</p>
+        </> : <><p>
           Escolha quem atende cada número e quando seus menus aparecem. Para uma
           linha exclusiva de bot ou equipe humana, desative sua participação nos
           grupos de roteamento.
-        </p>
-        <p>
+        </p><p>
           Cadastre novas linhas em Telefones. Os atendimentos mantêm o número de
           origem durante toda a conversa.
-        </p>
+        </p></>}
         {error && (
           <div className="notice error" role="alert">
             {error}
@@ -348,7 +388,7 @@ export function LinesPanel(props: Props) {
         )}
       </div>
       <div className="cards-grid">
-        {lines.map((line) => (
+        {serviceLines(lines).map((line) => (
           <LineCard
             {...props}
             key={line.id}
@@ -377,7 +417,7 @@ export function BotLinesEditor({ bot, ...props }: Props & { bot: Row }) {
     if (!props.demo)
       props
         .api(props.root + "/lines")
-        .then((r: Row) => setLines(r.data))
+        .then((r: Row) => setLines(serviceLines(r.data).filter((line) => serviceLinePresentation(line).bot)))
         .catch((e: Error) => state.setError(e.message));
   }, [props.root]);
   return (
@@ -462,7 +502,7 @@ export function MenusPanel(props: Props) {
       props.api(props.root + "/status"),
     ]);
     setMenus(m.data);
-    setLines(l.data);
+    setLines(serviceLines(l.data));
     setBots(b.data);
     setApps(status.settings?.apps || []);
     setDepartments(status.settings?.departments || []);
@@ -588,6 +628,12 @@ export function MenusPanel(props: Props) {
   }
   async function save() {
     if (!draft || pending || conflicted) return;
+    const allowedLines = new Set(menuLinesForType(lines, draft.type).map((line) => line.id));
+    if ((draft.line_ids || []).some((id: string) => !allowedLines.has(id) &&
+      lines.some((line) => line.id === id && serviceLinePresentation(line).channel !== "whatsapp"))) {
+      state.setError("Este destino não está disponível em todas as linhas selecionadas. Módulos funcionam somente no WhatsApp; desmarque as linhas incompatíveis.");
+      return;
+    }
     setPending(true);
     try {
       const latest = props.demo
@@ -919,6 +965,9 @@ export function MenusPanel(props: Props) {
           valendo. Adicione um item e escolha: uma ação atende o cliente; um
           submenu agrupa outros itens.
         </p>
+        {lines.some((line) => serviceLinePresentation(line).social) && <p>
+          Instagram e Facebook usam até 3 botões ou 13 respostas rápidas; opções incompatíveis viram texto numerado. O menu automático só responde dentro de 24 horas. Itens de módulos aparecem somente no WhatsApp.
+        </p>}
         <Feedback {...state} />
       </div>
       {draft && (
@@ -1038,7 +1087,10 @@ export function MenusPanel(props: Props) {
                     >
                       {/* Núcleo + tipos dos módulos ligados (GET /modules) +
                           o tipo atual, para nunca trocar o tipo sem querer. */}
-                      {menuTypeOptions(moduleList, draft.type).map((option) => (
+                      {menuTypeOptions(moduleList, draft.type).filter((option) =>
+                        option.type === draft.type || !draft.line_ids?.length ||
+                        draft.line_ids.every((id: string) => menuLinesForType(lines, option.type).some((line) => line.id === id)),
+                      ).map((option) => (
                         <option key={option.type} value={option.type}>
                           {option.label}
                         </option>
@@ -1112,10 +1164,13 @@ export function MenusPanel(props: Props) {
               )}
               {draft.type === "protocols" && (
                 <p>
-                  A opção reconhece os protocolos do telefone do cliente nesta
+                  {draft.line_ids?.length && draft.line_ids.every((id: string) =>
+                    lines.some((line) => line.id === id && serviceLinePresentation(line).social))
+                    ? "A opção consulta somente os protocolos da identidade autenticada neste canal e conta. Juntar a ficha não libera protocolos de outro canal."
+                    : <>A opção reconhece os protocolos do telefone do cliente nesta
                   área de atendimento, inclusive em outras linhas. Depois, o
                   cliente pode digitar o número completo para consultar um
-                  protocolo específico.
+                  protocolo específico.</>}
                 </p>
               )}
               {draft.type === "ticket" && (
@@ -1290,6 +1345,7 @@ export function MenusPanel(props: Props) {
                 </p>
                 <LineChoices
                   lines={lines}
+                  menuType={draft.type}
                   value={draft.line_ids}
                   onChange={(line_ids) => setDraft({ ...draft, line_ids })}
                 />
