@@ -238,4 +238,23 @@ O menu e os dados da conversa oferecem a mesma folha **Enviar conversa por e-mai
 
 Conferência visual necessária: só WhatsApp e multicanal; nome/conta longos; selo e estado simultâneos; menos de 24 h, 25 h e 168 h; campo ausente/servidor antigo e canal desconhecido; filtro trocado com resposta atrasada; fontes grandes, tema escuro, TalkBack/VoiceOver; transcrição disponível, indisponível, sem permissão e repetida. As provas automatizadas de contrato não substituem essa inspeção.
 
-O estado de compilação consta em [CANAIS-ACEITE.md](../docs/CANAIS-ACEITE.md): Android informado como compilado/testado pelo orquestrador; iOS pendente no Mac. Nenhuma pendência visual ou de compilação deve ser marcada como aprovada apenas porque existe cenário de demonstração.
+O estado histórico da primeira leva consta em [CANAIS-ACEITE.md](../docs/CANAIS-ACEITE.md). A compilação iOS antes pendente foi concluída pelo orquestrador na segunda leva, conforme a seção seguinte. Nenhuma pendência visual ou de compilação deve ser marcada como aprovada apenas porque existe cenário de demonstração.
+
+## 14. Acréscimo da segunda leva de canais
+
+As capacidades e os metadados `channel_extension` recebidos do servidor governam os controles novos. Só WhatsApp e áreas com apenas a primeira leva conservam a apresentação anterior; slots ausentes não produzem assunto, comentário, contador ou aviso extra. Continua uma aba **Conversas**, sem gestão de conexão, junção de contatos ou tela Google nativa. Canal desconhecido tem apresentação neutra e não recebe envio por exclusão.
+
+| Contexto | Apresentação e ação |
+|---|---|
+| Comentário Instagram/Facebook | Identificar “Comentário”, publicação e alvo. Escolha explícita pública/privada, com situação da tentativa e prazo privado. Não reaproveitar envio genérico como publicação nem mostrar relógio de DM. |
+| Telegram | Selo e conta do canal; sem relógio. Indicar bloqueio ou espera quando projetados. Sugestão de telefone não se apresenta como identidade confirmada. |
+| E-mail | Assunto editável no composer, assunto no balão quando muda, remetente não confirmado e texto seguro. Assunto integra a intenção antes de congelar a chave idempotente. Não mostrar HTML recebido cru. |
+| TikTok | Prazo de 48 horas e “restam N de 10 mensagens”, derivados do servidor. Explicar a contagem conservadora móvel; entrada nova não zera o contador. Duas entregas precisam de duas vagas. |
+
+O relógio usa a duração e o fechamento do canal informado pelo servidor. Não aplicar rótulo fixo de 24 horas ao TikTok nem a promessa de fila do WhatsApp aos outros canais. Comentário, Telegram e e-mail não recebem relógio de DM. Motivo de envio bloqueado deve permanecer legível e não ser substituído por uma tentativa genérica.
+
+Prefixo do push é conservado sem duplicação. Módulos continuam só no WhatsApp mesmo com ficha juntada. **Enviar conversa por e-mail** conserva sua folha e suas permissões; responder a um e-mail é uma intenção separada. `provider_contract_unverified` explica a pendência do transporte e não oferece controle para fingir confirmação do contrato.
+
+A conferência visual ainda precisa cobrir fontes grandes e leitores de tela, temas claro/escuro, nomes e assuntos longos, comentário sem seleção/alvo removido, privada consumida/expirada/vínculo pendente, e-mail com assunto alterado e anexos recusados, Telegram bloqueado/429, TikTok com nove/dez vagas usadas e janela encerrada, canal desconhecido e área sem recursos novos. Demonstrações sintéticas são apoio para essa inspeção, não evidência de execução no aparelho.
+
+Estado informado pelo orquestrador: Android com APK de depuração compilado neste Dell, 198 testes Kotlin aprovados e seis ignorados; iOS compilado com Xcode 27.2 no Mac, 259 testes no simulador, zero falhas e sete pulados. As três correções iOS constam em [README.md](README.md#verificações-nativas-informadas-pelo-orquestrador). Não houve prova em aparelho ou nova compilação nativa neste aceite. O fechamento está em [CANAIS-SEGUNDA-LEVA-ACEITE.md](../docs/CANAIS-SEGUNDA-LEVA-ACEITE.md).

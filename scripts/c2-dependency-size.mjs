@@ -22,10 +22,16 @@ const sources = ['src', 'packages', 'migrations', 'package.json', 'package-lock.
 const digest = value => createHash('sha256').update(value).digest('hex');
 const json = (file, value) => writeFileSync(file, JSON.stringify(value, null, 2) + '\n', 'utf8');
 const safeRelative = value => typeof value === 'string' && !!value && !isAbsolute(value) && !value.split(/[\\/]/).includes('..');
+export function localEnvironment(input, extra = {}) {
+  const environment = { ...input, CI: '1', NO_COLOR: '1', WRANGLER_SEND_METRICS: 'false', ...extra };
+  for (const key of ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_API_KEY', 'CLOUDFLARE_EMAIL', 'CF_API_TOKEN', 'CF_API_KEY', 'CF_EMAIL', 'CLOUDFLARE_ENV'])
+    delete environment[key];
+  return environment;
+}
 function run(command, args, cwd, extraEnv = {}) {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', windowsHide: true, timeout: 300_000,
     maxBuffer: 32 * 1024 * 1024,
-    env: { ...process.env, CI: '1', NO_COLOR: '1', WRANGLER_SEND_METRICS: 'false', ...extraEnv } });
+    env: localEnvironment(process.env, extraEnv) });
   if (result.error || result.status !== 0) throw new Error(
     `${command === process.execPath ? 'node' : command} ${args.join(' ')} falhou (${result.status}): ${result.error?.message ?? ''}\n${result.stderr ?? ''}\n${result.stdout ?? ''}`);
   return result.stdout;
@@ -75,13 +81,18 @@ function attachDependencies(directory) {
 }
 function configFor(directory, main, file, assetDirectory) {
   const errors = [];
-  const config = parseJsonc(readFileSync(join(directory, 'wrangler.jsonc'), 'utf8'), errors);
+  const config = parseJsonc(readFileSync(join(directory, 'wrangler.jsonc'), 'utf8'), errors, { allowTrailingComma: true });
   assert.equal(errors.length, 0, 'wrangler.jsonc inválido.');
   assert.ok(!config.build?.command, 'Build customizado não é permitido pela sonda offline.');
   assert.ok(safeRelative(main), 'Entrada do Worker fora do snapshot.');
   // Assets não entram no orçamento de módulos; preserva o binding e usa pasta
   // vazia local. Todas as demais opções de empacotamento vêm do config real.
-  const measured = { ...config, main: resolve(directory, main), tsconfig: resolve(directory, config.tsconfig ?? 'tsconfig.json'),
+  // Só repassa `tsconfig` quando o config real o declara (hoje não declara):
+  // no Windows o dry-run do Wrangler não acha o arquivo informado por caminho
+  // absoluto ("Cannot find tsconfig file"), e sem a chave o empacotador o
+  // descobre a partir da entrada, exatamente como no release.
+  const measured = { ...config, main: resolve(directory, main),
+    ...(config.tsconfig ? { tsconfig: resolve(directory, config.tsconfig) } : {}),
     ...(config.assets ? { assets: { ...config.assets, directory: assetDirectory } } : {}),
     d1_databases: config.d1_databases?.map(database => ({ ...database,
       ...(database.migrations_dir ? { migrations_dir: resolve(directory, database.migrations_dir) } : {}) })) };
@@ -181,6 +192,12 @@ async function checkBrowserCatalog() {
   return { status: 'passed', bundledInputs: inputs.length, workerRuntimeIncluded: false };
 }
 export async function selfTest() {
+  const environment = localEnvironment({ CLOUDFLARE_ENV: 'production', CF_API_TOKEN: 'synthetic', PATH: 'local' }, { CLOUDFLARE_API_KEY: 'synthetic' });
+  assert.equal(environment.PATH, 'local');
+  for (const key of ['CLOUDFLARE_ENV', 'CF_API_TOKEN', 'CLOUDFLARE_API_KEY']) assert.equal(environment[key], undefined);
+  const configErrors = [];
+  parseJsonc(readFileSync(join(root, 'wrangler.jsonc'), 'utf8'), configErrors, { allowTrailingComma: true });
+  assert.deepEqual(configErrors, [], 'A sonda deve aceitar o JSONC real, inclusive vírgulas finais.');
   assert.deepEqual(dryRunArgs('cli', 'config', 'out'), ['cli', 'deploy', '--dry-run', '--minify', '--outdir', 'out', '--config', 'config']);
   assert.equal(moduleFile('index.js'), true); assert.equal(moduleFile('module.wasm'), true);
   assert.equal(moduleFile('index.js.map'), false); assert.equal(moduleFile('sub/README.md'), false);

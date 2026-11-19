@@ -128,4 +128,28 @@ A demonstração mantém cenários sintéticos só WhatsApp e multicanal, janela
 
 Verificação desta leva: o orquestrador informou Android `assembleDebug` e testes unitários aprovados nesta máquina antes do aceite. O script reprodutível `node scripts/cn-android-check.mjs`, executado na raiz, exige SDK/JDK/Gradle/ThermalPrinterKit instalados e compila em modo offline, com log em `mobile/android/.gradle/cn-check/result.log`. A preparação documental não repetiu o build.
 
-**iOS permanece pendente de compilação e testes no Mac**, incluindo `ChannelsTests` e `ChannelsDemoTests`. Testes TypeScript de contratos/fontes no Windows não aprovam o build nativo. Conferência visual e acessibilidade em aparelhos também devem ser registradas. Não houve publicação em lojas ou alteração de versão de loja. Consulte [CANAIS-ACEITE.md](../docs/CANAIS-ACEITE.md).
+O registro de [CANAIS-ACEITE.md](../docs/CANAIS-ACEITE.md) descreve o estado da primeira leva. A compilação iOS antes pendente foi realizada posteriormente pelo orquestrador sobre a segunda leva integrada, conforme o estado abaixo. Testes TypeScript de contratos/fontes no Windows não aprovam um build nativo. Conferência visual e acessibilidade em aparelhos também devem ser registradas. Não houve publicação em lojas ou alteração de versão de loja.
+
+## Segunda leva de canais
+
+Android e iOS leem comentários do Instagram/Facebook, Telegram, e-mail e TikTok na mesma aba **Conversas**, a partir das capacidades e da projeção `channel_extension` do servidor. Sem os canais novos, continuam os controles e a apresentação anteriores. Campo desconhecido é tolerado; canal desconhecido não ganha envio por exclusão. Não há tela Google, gestão de conexões ou junção de contatos nos aplicativos; essas operações ficam na web.
+
+- **Comentários:** tipo “Comentário”, contexto da publicação e alvo. Resposta exige escolha explícita pública/privada; envio genérico não publica. Prazo e tentativa privada vêm do servidor, sem relógio de DM e sem bot público.
+- **E-mail:** assunto no composer e no balão quando muda, aviso de remetente não confirmado e conteúdo em texto. A intenção idempotente inclui assunto antes do envio; CR/LF/NUL são recusados. Recebimento não prova identidade nem habilita dados de cliente. A transcrição existente continua separada.
+- **TikTok:** janela de 48 horas e vagas restantes projetadas pelo servidor. A regra conservadora conta dez tentativas nas últimas 48 horas corridas; nova entrada não zera a contagem. Texto com imagem ocupa duas vagas.
+- **Telegram:** sem janela; bloqueio e limites de envio são respeitados. Compartilhar telefone próprio após pedido válido pode sugerir junção humana na web, sem confirmar telefone automaticamente.
+
+Módulos continuam exclusivos do WhatsApp. Push usa o título preparado pelo servidor e não acrescenta prefixo duplicado. A demonstração da segunda leva é optativa: `?canais=2` nas requisições da demo; no iOS também `WABOTIA_DEMO_CHANNELS_SECOND_WAVE=1`. Os cenários são sintéticos e não comprovam entrega real. No Android a área própria chama-se `demo-channels-second-wave`.
+
+O transporte de produção do canal de e-mail ainda retorna `provider_contract_unverified`, aguardando confirmação do REST com conta real; a demonstração não remove esse bloqueio. Recebimento manual e limites estão em [CANAIS-EMAIL-RECEBIMENTO.md](../docs/CANAIS-EMAIL-RECEBIMENTO.md).
+
+### Verificações nativas informadas pelo orquestrador
+
+| Plataforma | Resultado já obtido antes deste aceite | O que continua pendente |
+|---|---|---|
+| Android | APK de depuração compilado neste Dell pela tarefa `c2-android`; 198 testes Kotlin passaram, seis ignorados. | Prova em aparelho e inspeção visual/acessibilidade da segunda leva. Build não repetido neste aceite. |
+| iOS | Mac com Xcode 27.2; compilação e teste em simulador: 259 testes, zero falhas, sete pulados. | Prova em aparelho e inspeção visual/acessibilidade. Build não repetido neste Windows. |
+
+O iOS precisou de três correções já incorporadas pelo orquestrador: literal aninhado sem inferência suficiente, acesso sobreposto a `rows` e assunto de e-mail com `\r\n` que escapava à verificação por `contains("\r")`, pois o par forma um só caractere em Swift. Não registrar iOS como “nunca compilado”; também não tratar simulador como aparelho real.
+
+O wrapper `node scripts/c2-android-check.mjs` reutiliza a verificação offline de build e testes reais da primeira leva. Seus modos `--self-test` e `--source-check` conferem o wrapper/fontes e **não compilam Android**. O estado do fechamento integrado e as pendências externas estão em [CANAIS-SEGUNDA-LEVA-ACEITE.md](../docs/CANAIS-SEGUNDA-LEVA-ACEITE.md).
