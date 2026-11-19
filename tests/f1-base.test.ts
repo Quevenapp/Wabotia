@@ -311,10 +311,14 @@ describe("fachadas permanentes", () => {
     const { env, prepare, erpCall } = isolatedEnv();
     const summary = { id: "contact", name: "Ana", phone: "5511987654321", email: "", company: "", notes: "Local" };
     prepare.mockImplementation((sql: string) => ({ bind: (...args: unknown[]) => ({ first: async () => {
-      expect(sql).not.toContain("conversation_contacts");
       if (sql.includes("FROM conversations")) return conversation();
-      expect(args).toEqual(["contact", "area", "team", "team"]);
-      expect(sql).toContain("namespace='panel'");
+      // A projeção publicada conserva o cadastro panel explicitamente ligado,
+      // sem transformá-lo na identidade telefônica retornada por ctx.customer.
+      expect(args).toEqual(["area", "contact", "team", "team", "conversation"]);
+      expect(sql).toContain("id=? AND namespace=?");
+      expect(sql).toContain("?='team' AND namespace='panel' AND EXISTS(");
+      expect(sql).toContain("l.profile_id=k.profile_id AND l.contact_id=k.id AND l.conversation_id=?");
+      expect(sql).toContain("ORDER BY CASE WHEN namespace='panel' THEN 0 ELSE 1 END LIMIT 1");
       expect(sql).toContain("source<>'automatic' OR name<>''");
       expect(sql).toContain("identity_state='active'");
       return summary;

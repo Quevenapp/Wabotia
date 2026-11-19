@@ -272,10 +272,10 @@ const pageAccess: Partial<Record<string, string | null>> = {
 /** Lista de acesso da pessoa (GET /me, `access`); null = tudo. */
 export type PersonAccess = string[] | null | undefined;
 
-/** A pessoa acessa a página ou área? Mesma regra do servidor (access.ts). */
+/** Elegibilidade legada de navegação. A casa e o domínio conferem a leitura privada. */
 export function accessAllows(page: string, role: string, access: PersonAccess) {
-  if (!nativeReadAllows(page, access)) return false;
   if (role === "admin" || !access) return true;
+  if (!nativeReadAllows(page, access)) return false;
   const item = pageModules[page] ?? pageAccess[page];
   if (item === null) return true;
   if (item === undefined) return access.includes("*");

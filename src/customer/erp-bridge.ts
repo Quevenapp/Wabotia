@@ -1,4 +1,4 @@
-import { all, exec, one } from "../db";
+import { all, exec, one, withReadCache } from "../db";
 import { access, canonical, seal, sha, unseal } from "../security";
 import { ApiError, now, uid, type Actor, type Env } from "../types";
 import { erpIdentity, erpSystemIdentity } from "../modules/erp/identity";
@@ -77,7 +77,8 @@ export function dataOf(patch: CustomerPatch): Record<string, unknown> {
 }
 
 export async function customerRpc(env: Env, profile: string, actor: Actor, identity: ErpIdentity, name: string, args: Record<string, unknown>) {
-  if (!await customerEnabled(env, profile)) throw new ApiError(409, "module_disabled", "Cadastro completo desligado nesta área.");
+  // localFetch confere ativação e restrições sem cache antes e depois de cada
+  // tentativa. Repetir a leitura aqui consumia o orçamento de recuperação.
   let response: Response;
   try {
     response = await localFetch(env, profile, actor, identity, { read: !name.endsWith("_save"), gate: { denied: null }, trackCustomers: false })(
@@ -97,7 +98,9 @@ export async function customerRpc(env: Env, profile: string, actor: Actor, ident
   return body;
 }
 async function systemRpc(env: Env, profile: string, actor: Actor) {
-  const identity = await erpSystemIdentity(freshCustomerEnv(env), profile, SYSTEM);
+  // Só a montagem deste envelope compartilha as leituras de configuração.
+  // A fronteira do RPC continua relendo a política após qualquer retorno.
+  const identity = await erpSystemIdentity(withReadCache(freshCustomerEnv(env)), profile, SYSTEM);
   return (name: string, args: Record<string, unknown>) => customerRpc(env, profile, actor, identity, name, args);
 }
 type Rpc = Awaited<ReturnType<typeof systemRpc>>;
