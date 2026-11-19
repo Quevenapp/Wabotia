@@ -37,7 +37,7 @@ export function erpCatalogPaymentMethodSave(ctx: RpcContext, a: RpcArgs) {
   const hash = requestHash({ profile: "erp-payment-method-save-v1", actor: user, id, version: expected, data });
   const replayed = replayCommand(ctx, command, user!, hash);
   if (replayed) return replayed;
-  const previous = id === null ? {} : paymentMethodDto(db, id) ?? {};
+  const previous = id === null ? {} : paymentMethodDto(db, id, true) ?? {};
   const supplied = !ctx.parts.finance && data !== null && typeof data === "object" && !Array.isArray(data)
     ? { ...preserveCatalogFields(false, {}, previous, PAYMENT_FINANCE_DEFAULTS), ...data } : data;
   const v = paymentMethodInput(supplied);
@@ -58,7 +58,7 @@ export function erpCatalogPaymentMethodSave(ctx: RpcContext, a: RpcArgs) {
     });
   } else {
     target = id;
-    const before = paymentMethodDto(db, id)!;
+    const before = paymentMethodDto(db, id, true)!;
     const form = Object.fromEntries(Object.entries(before).filter(([k]) => !OMIT.includes(k)));
     if (jsonbText(form) !== jsonbText(v)) {
       updateRow(ctx, id, {
@@ -68,7 +68,7 @@ export function erpCatalogPaymentMethodSave(ctx: RpcContext, a: RpcArgs) {
         updated_at: ctx.clock.next().toString(),
       });
       auxiliaryAudit(ctx, {
-        actor: user!, command, subject: "payment_method", subjectId: id, action: "update", before, after: paymentMethodDto(db, id),
+        actor: user!, command, subject: "payment_method", subjectId: id, action: "update", before, after: paymentMethodDto(db, id, true),
       });
     }
   }

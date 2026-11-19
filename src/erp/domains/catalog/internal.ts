@@ -1,3 +1,5 @@
+import { catalogParts } from "./part-context.ts";
+import { projectCatalogRecord } from "./part-projection.ts";
 // Catálogo (erp_catalog): funções internas e a camada de tabela (gatilhos)
 // que erp_catalog.document_product alcança. Portado das migrações do Fagoo
 // (versões finais no oráculo; fecho por scripts/erp/call-graph.mjs).
@@ -423,5 +425,5 @@ export function productDetailData(db: SqlDriver, id: string, display: boolean): 
 export function productFull(db: SqlDriver, id: string) {
   const a = dto(db, id),
     b = productDetailData(db, id, true);
-  return a === null || b === null ? null : { ...a, ...b };
+  return a === null || b === null ? null : projectCatalogRecord(catalogParts(db), "products", { ...a, ...b });
 }

@@ -1,3 +1,4 @@
+import { projectCatalogResult } from "./part-projection.ts";
 // Recibo de comando do catálogo (erp_catalog.command, chave command_id) e a
 // trilha dos cadastros auxiliares (erp_catalog.auxiliary_audit).
 import { createHash } from "node:crypto";
@@ -18,7 +19,7 @@ export function replayCommand(ctx: RpcContext, command: string, actor: string, h
   const row = one(ctx.db, 'SELECT actor, request_hash, result FROM "erp_catalog__command" WHERE command_id=?', command);
   if (!row) return null;
   if (row.actor !== actor || row.request_hash !== hash) raise("40001", "erp_catalog_command_conflict");
-  return { ...JSON.parse(String(row.result)), replayed: true } as Record<string, unknown>;
+  return { ...projectCatalogResult(ctx.parts, JSON.parse(String(row.result))), replayed: true } as Record<string, unknown>;
 }
 
 export function storeCommand(ctx: RpcContext, command: string, actor: string, hash: string, result: unknown) {

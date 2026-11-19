@@ -1,3 +1,5 @@
+import { catalogParts } from "./part-context.ts";
+import { projectCatalogRecord } from "./part-projection.ts";
 // Vendedores (erp_catalog.seller): regras que outros domínios chamam.
 import { one, type SqlDriver } from "../../engine/driver.ts";
 import { actorLabel, gateRequired, windowOpen } from "../access/public.ts";
@@ -54,7 +56,7 @@ export function sellerAccess(db: SqlDriver, user: string | null, write: boolean)
 }
 
 /** erp_catalog.seller_dto(p_id): as configurações do vendedor (decimais em texto com 4 casas). */
-export function sellerDto(db: SqlDriver, id: string): Record<string, unknown> | null {
+export function sellerDto(db: SqlDriver, id: string, internal = false): Record<string, unknown> | null {
   const s = one(
     db,
     `SELECT id, contact_id, CAST(version AS TEXT) version, user_id, allow_unregistered_products, view_stock, access_hours_enabled,
@@ -66,7 +68,7 @@ export function sellerDto(db: SqlDriver, id: string): Record<string, unknown> | 
   if (!s) return null;
   const dec = (v: unknown) => (v === null ? null : formatScaled(fromColumn(v), 4));
   const linked = s.user_id === null || isTechnicalUser(db, String(s.user_id)) ? null : s.user_id;
-  return {
+  const result = {
     id: s.id,
     contact_id: s.contact_id,
     version: Number(s.version),
@@ -86,6 +88,7 @@ export function sellerDto(db: SqlDriver, id: string): Record<string, unknown> | 
     created_at: jsonTimestamp(String(s.created_at)),
     updated_at: jsonTimestamp(String(s.updated_at)),
   };
+  return internal ? result : projectCatalogRecord(catalogParts(db), "sellers", result);
 }
 
 // ---------------------------------------------------------------------------
@@ -241,7 +244,7 @@ export function sellerWrite(ctx: RpcContext, user: string, sellerId: string | nu
 
 /** erp_catalog.seller_values(p_id): o seller_dto sem identidade, versão e carimbos (para comparar com sellerSettings). */
 export function sellerValues(db: SqlDriver, id: string): Json | null {
-  const dto = sellerDto(db, id);
+  const dto = sellerDto(db, id, true);
   if (dto === null) return null;
   const { id: _i, contact_id: _c, version: _v, user_name: _n, created_at: _a, updated_at: _u, ...rest } = dto;
   return rest;

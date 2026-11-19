@@ -20,7 +20,7 @@ import { ERP_TABLES } from "../../../schema/columns.generated.ts";
 import { contactScope, contactVisibleTo, unitPriceNumeric } from "../../catalog/public.ts";
 import { active as receiptActive } from "../../stock/public.ts";
 import { originEffects } from "../../sync/public.ts";
-import { dateValue, preference, situationAdopted, situationJson, situationKeyValid, unavailableParts } from "../internal.ts";
+import { dateValue, preference, situationAdopted, situationJson, situationKeyValid, unavailableParts, projectDocument } from "../internal.ts";
 import { requireErpParts } from "../../../engine/parts-gate.ts";
 import { erpRequirement } from "../../../parts.ts";
 import { mirrorListRow, mirrorSource, mirrorSourceMatches } from "../mirror-reads.ts";
@@ -166,7 +166,7 @@ export function listRow(ctx: RpcContext, id: string, fiscal: boolean, stock: boo
   const effects = originEffects(ctx, id);
   const delivery = body.delivery_address === undefined || body.delivery_address === null ? null : body.delivery_address;
   const address = addressText(delivery) ?? addressText(snap);
-  return {
+  return projectDocument(ctx, {
     id: d.id,
     kind,
     number: number === null ? null : String(number),
@@ -217,7 +217,7 @@ export function listRow(ctx: RpcContext, id: string, fiscal: boolean, stock: boo
     readonly: false,
     origin_finance: effects.finance,
     origin_invoice: effects.invoice,
-  };
+  });
 }
 
 // ---------------------------------------------------------------------------

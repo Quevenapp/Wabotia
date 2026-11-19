@@ -1,3 +1,4 @@
+import { projectCatalogRecord } from "./part-projection.ts";
 // Páginas e exportação de produtos: public.erp_catalog_product_page,
 // _page_v2, _page_v3, _page_custom, _export e _export_v2 (o corpo comum das
 // cinco últimas é o mesmo no Fagoo, com filtros extras por versão).
@@ -190,7 +191,7 @@ function exportResult(
        WHERE s.record_id=? ORDER BY s.is_default DESC, s.position LIMIT 1`,
       id,
     );
-    return {
+    return projectCatalogRecord(parts, "products", {
       ...omit(dto(db, id), ["source", "entity"]),
       ...omit(productDetailData(db, id, true), ["suppliers", "dun_codes", "images"]),
       ...(!parts.purchases || !parts.stock ? { cost_price: null } : {}),
@@ -227,7 +228,7 @@ function exportResult(
             : null,
       // (select o.source_id from erp_catalog.origin o where o.record_id=u.id): leitura do espelho.
       source_id: one(db, 'SELECT source_id FROM "erp_catalog__origin" WHERE record_id=?', id)?.source_id ?? null,
-    };
+    });
   });
   const warehouseRow =
     defaultWarehouse === null ? null : one(db, 'SELECT id, name FROM "erp_catalog__record" WHERE id=?', defaultWarehouse);

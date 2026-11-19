@@ -45,7 +45,7 @@ export function erpFinanceTitleDetail(ctx: RpcContext, a: RpcArgs) {
     record: v,
     origin: titleOrigin(db, id),
     account: acc ? { id: acc.id, name: acc.name, active: bool(acc.active) } : null,
-    billing: titleBilling(db, id),
+    ...(ctx.parts.billing ? { billing: titleBilling(db, id) } : { unavailable_parts: ["billing"] }),
     imported: !!one(db, 'SELECT 1 x FROM "erp_finance__origin_import_origin" WHERE title_id=? LIMIT 1', id),
     settled_before: !!one(db, 'SELECT 1 x FROM "erp_finance__settlement" WHERE title_id=? LIMIT 1', id),
     original,

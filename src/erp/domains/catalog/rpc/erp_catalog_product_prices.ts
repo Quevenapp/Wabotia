@@ -1,3 +1,4 @@
+import { projectCatalogResult } from "../part-projection.ts";
 // Preços de venda e custo em massa: public.erp_catalog_product_price_adjust
 // (Reajustar preços: produtos selecionados com versão, ou o conjunto filtrado
 // da lista) e public.erp_catalog_product_prices_update (Atualizar preços:
@@ -218,7 +219,7 @@ export function erpCatalogProductPriceAdjust(ctx: RpcContext, a: RpcArgs) {
     entity: "products", total: ids.length, applied, unchanged, skipped_total: skippedTotal, skipped, rule, replayed: false, data_mode: "erp_native",
   };
   storeCommand(ctx, command!, user!, hash, result);
-  return result;
+  return projectCatalogResult(ctx.parts, result);
 }
 
 export function erpCatalogProductPricesUpdate(ctx: RpcContext, a: RpcArgs) {
@@ -314,7 +315,7 @@ export function erpCatalogProductPricesUpdate(ctx: RpcContext, a: RpcArgs) {
   const result = { entity: "products", supplier_id: supplier, items: out, replayed: false, data_mode: "erp_native",
     ...catalogUnavailable(ctx.parts, ["stock", "purchases"]) };
   storeCommand(ctx, command!, user!, hash, result);
-  return result;
+  return projectCatalogResult(ctx.parts, result);
 }
 
 registerRpc("erp_catalog_product_price_adjust", erpCatalogProductPriceAdjust);

@@ -11,7 +11,7 @@ import { arrow } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { pgLeft } from "../../../engine/text.ts";
 import { unitPriceNumeric } from "../../catalog/public.ts";
-import { preference } from "../internal.ts";
+import { preference, projectDocument, unavailableParts } from "../internal.ts";
 import { contactUsable, mirrorRequireVisible, requireAccess } from "../public.ts";
 import { saleBodyFromProposal } from "../views.ts";
 import { jsonPathText, richTextPlain } from "./reads-common.ts";
@@ -102,7 +102,8 @@ export function erpDocumentConversionPreview(ctx: RpcContext, a: RpcArgs) {
   return {
     source: { id: v.id, kind: "sales_proposals", number: v.number === null ? null : String(v.number), version: Number(v.version) },
     kind,
-    data: { ...body, items },
+    data: projectDocument(ctx, { ...body, items }),
+    ...unavailableParts(ctx),
     contact: { id: v.contact_id, name: name === null ? null : pgLeft(name, 200) },
     price_list_name: list ? pgLeft(String(list.name), 120) : null,
     persisted: false,

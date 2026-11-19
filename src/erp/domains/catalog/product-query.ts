@@ -1,3 +1,4 @@
+import { projectCatalogRecord } from "./part-projection.ts";
 // Leituras de produto: filtros, ordem e páginas (erp_catalog.page_sql,
 // product_filter_sql, page_order, product_filters_valid, page_valid,
 // product_component_valid, product_ids_and, product_stock_filter,
@@ -597,7 +598,7 @@ export function productListItem(db: SqlDriver, id: string): Record<string, unkno
   const cost = !catalogParts(db).purchases || !catalogParts(db).stock ? null
     : one(db, 'SELECT cost_price FROM "erp_catalog__product_supplier" WHERE record_id=? AND is_default=1', id);
   const thumb = one(db, 'SELECT url FROM "erp_catalog__product_image" WHERE record_id=? ORDER BY position LIMIT 1', id);
-  return {
+  return projectCatalogRecord(catalogParts(db), "products", {
     ...listItem(db, id),
     stock_min: scaled6(p.stock_min),
     stock_max: scaled6(p.stock_max),
@@ -607,7 +608,7 @@ export function productListItem(db: SqlDriver, id: string): Record<string, unkno
     category_id: p.category_id ?? null,
     expiry_date: p.expiry_date ?? null,
     deleted: p.deleted_at !== null && p.deleted_at !== undefined,
-  };
+  });
 }
 
 /** O objeto "stock" das páginas (null sem acesso ao estoque). */
