@@ -70,10 +70,10 @@ export async function workPrivacy(ctx: ModuleContext, row: any): Promise<Commerc
 }
 export async function readWorkIntegration(ctx: ModuleContext, row: any) {
   const stored = await one(ctx.env, `SELECT s.*,(SELECT json_group_array(json_object('seq',seq,'payload_json',payload_json,
-    'state',state,'receipt_json',receipt_json,'body_json',body_json)) FROM (
-      SELECT e.seq,e.payload_json,d.state,d.receipt_json,r.body_json FROM module_erp_events e
+    'state',state,'unresolved',unresolved,'error_code',error_code,'receipt_json',receipt_json,'body_json',body_json)) FROM (
+      SELECT e.seq,e.payload_json,d.state,d.unresolved,d.error_code,d.receipt_json,r.body_json FROM module_erp_events e
       JOIN module_erp_delivery d ON d.event_id=e.id LEFT JOIN module_erp_requests r ON r.event_id=e.id
-      WHERE e.profile_id=s.profile_id AND e.module_id=s.module_id AND e.source_id=s.source_id ORDER BY e.seq
+      WHERE e.profile_id=s.profile_id AND e.module_id=s.module_id AND e.source_id=s.source_id ORDER BY e.source_revision,e.seq
     )) events_json FROM module_erp_sources s WHERE s.profile_id=? AND s.module_id='os' AND s.source_id=?`, ctx.profile, row.id);
   const { events_json, ...sourceData } = stored ?? {};
   const source = stored ? sourceData : null;

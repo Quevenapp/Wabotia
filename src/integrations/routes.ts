@@ -1,3 +1,4 @@
+import { effectiveSourceState } from "./state";
 import type { Hono } from "hono";
 import { all, batch, one } from "../db";
 import type { Actor, Env } from "../types";
@@ -9,9 +10,9 @@ import type { Destination, IntegrationEvent, IntegrationModule, SourceRef, State
 import { INTEGRATION_MODULES, integrationProducer } from "./registry";
 import { commercialPolicyView, ensureCommercialPolicy, initializeCommercialPolicy, patchCommercialPolicy, requireIntegrationHuman, requirePolicyAccess, humanReferenceRpc } from "./policy";
 import { readIntegrationActivation } from "./activation";
-import { acquireIntegrationLease, confirmIntegrationResult, integrationStatements, persistPreparedRequest, readPreparedRequest, sourceBindings } from "./outbox";
+import { acquireIntegrationLease, confirmIntegrationResult, integrationCasGuard, integrationStatements, persistPreparedRequest, readPreparedRequest, sourceBindings } from "./outbox";
 import { authorizeManual, closeErpCommand, getErpOrigin, manualApplyErpRequest, prepareManualErpRequest } from "./erp-adapter";
-import { closureRequest, releaseIntegrationLease } from "./consumer";
+import { closureRequest, countIntegrationAttempt, releaseIntegrationLease } from "./consumer";
 import { saveCatalogLink } from "./catalog";
 import { canonical, commandId, hash, uuid5, F3_NAMESPACES } from "./keys";
 import { exactKeys, integer, IntegrationError, opaque, sanitizedError, validateSnapshot } from "./privacy";
@@ -47,35 +48,17 @@ export async function integrationSourceView(env: Env, actor: Actor, source: Sour
   await authorizeIntegrationSource(env, actor, source);
   requireAccess(actor, source.module);
   const row = await one(env, "SELECT * FROM module_erp_sources WHERE profile_id=? AND module_id=? AND source_id=?", ...sourceBindings(source));
-  if (!row) throw new IntegrationError("not_found", 404);
-  const rows = await all(env, `SELECT e.id,e.seq,d.state,d.error_code,d.completed_ms,d.receipt_json,
+  const rows = await all(env, `SELECT e.id,e.seq,d.state,d.unresolved,d.error_code,d.completed_ms,d.receipt_json,
     json_extract(e.payload_json,'$.eligible') eligible,json_extract(e.payload_json,'$.operation') operation,
     json_extract(e.payload_json,'$.source.component') component
-    FROM module_erp_events e JOIN module_erp_delivery d ON d.event_id=e.id WHERE e.profile_id=? AND e.module_id=? AND e.source_id=? ORDER BY e.seq`, ...sourceBindings(source));
-  const { state, manual } = effectiveSourceState(rows);
+    FROM module_erp_events e JOIN module_erp_delivery d ON d.event_id=e.id WHERE e.profile_id=? AND e.module_id=? AND e.source_id=? ORDER BY e.source_revision,e.seq`, ...sourceBindings(source));
+  const { manual, ...status } = effectiveSourceState(rows, !!row?.replacement_key);
   const deliveries = rows.map(({ receipt_json, eligible, operation, component, ...d }) => d);
-  return { source, revision: row.revision, confirmed_ms: row.confirmed_ms, state, pending: state !== "done",
+  return { source, revision: row?.revision ?? 0, confirmed_ms: row?.confirmed_ms ?? null, ...status,
+    applied: status.applied.filter(d => d !== "finance" || financiallyVisible(actor)),
     manual_destinations: [...manual].filter(d => d === "finance" ? financiallyVisible(actor) : ["admin", "estoque"].includes(erpRoleOf(actor) ?? "")),
     deliveries: financiallyVisible(actor) ? deliveries : deliveries.map(d => ({ id: d.id, state: d.state, completed_ms: d.completed_ms })),
-    links: (JSON.parse(row.links_json) as any[]).filter(l => financiallyVisible(actor) || l.kind === "document") };
-}
-function effectiveSourceState(rows: any[]) {
-  // O transporte pode estar concluído e um destino ainda aguardar uma pessoa.
-  // O recibo posterior de postagem/reversão resolve a pendência desse destino.
-  const pending = new Map<string, Set<Destination>>(), review = new Set<string>();
-  for (const d of rows) if (d.receipt_json) {
-    const result = JSON.parse(d.receipt_json), eligible = JSON.parse(d.eligible);
-    const manual = pending.get(d.component) ?? new Set<Destination>();
-    pending.set(d.component, manual);
-    if (result.outcome === "closed") review.add(d.component); else review.delete(d.component);
-    for (const destination of ["stock", "finance"] as const) {
-      if (["posted", "settled", "reversed"].includes(result.effects[destination])) manual.delete(destination);
-      else if (eligible[destination] && ["execute", "recognize", "receive"].includes(d.operation) && result.outcome === "applied" && result.effects[destination] === "not_requested") manual.add(destination);
-    }
-  }
-  const manual = new Set([...pending.values()].flatMap(destinations => [...destinations]));
-  const state = rows.find(d => d.state !== "done")?.state ?? (review.size ? "blocked" : manual.size ? "waiting_manual" : "done");
-  return { state: String(state), manual };
+    links: (JSON.parse(row?.links_json ?? "[]") as any[]).filter(l => financiallyVisible(actor) || l.kind === "document") };
 }
 function receiptScope(profile: string, actor: Actor, operation: string) { return `f3:${profile}:${actor.id}:${operation}`; }
 async function reserve(env: Env, profile: string, actor: Actor, op: string, key: string, data: unknown) {
@@ -90,14 +73,17 @@ async function retry(env: Env, actor: Actor, source: SourceRef, data: any, key: 
   const event = await sourceEvent(env, source, data.event_id);
   const receipt = await reserve(env, source.profile, actor, "retry", key, { source, event_id: event.id });
   if (receipt.previous) return receipt.previous;
+  const delivery = await one(env, "SELECT error_code FROM module_erp_delivery WHERE event_id=?", event.id);
+  if (delivery?.error_code === "integration_divergent") throw new IntegrationError("integration_divergent", 409);
   const result = { event_id: event.id, accepted: true };
   await batch(env, [
-    ["UPDATE module_erp_delivery SET state='pending',attempts=0,next_attempt_ms=?,error_code=NULL,error_message=NULL WHERE event_id=? AND state<>'done' AND (lease_until_ms IS NULL OR lease_until_ms<=?)", [Date.now(), event.id, Date.now()]], receipt.finish(result),
+    ["UPDATE module_erp_delivery SET state=CASE WHEN unresolved=1 THEN 'uncertain' ELSE 'pending' END,attempts=CASE WHEN unresolved=1 THEN attempts ELSE 0 END,preparation_attempts=0,lookup_attempts=0,next_attempt_ms=?,error_code=NULL,error_message=NULL WHERE event_id=? AND state<>'done' AND (lease_until_ms IS NULL OR lease_until_ms<=?)", [Date.now(), event.id, Date.now()]], receipt.finish(result),
   ]);
   return result;
 }
-/** Fecha a identidade antiga antes de projetar outro corpo. Em caso de queda,
- * o recibo ERP e a chave local permitem retomar sem trocar pedido incerto. */
+/** Reserva a projeção e bloqueia a origem ANTES de qualquer fechamento. O
+ * plano sobrevive a queda; a instalação e a confirmação D1 são um lote único.
+ * Sucessores exigem revisão explícita, sem fechar ou renumerar fatos imutáveis. */
 async function replace(env: Env, actor: Actor, source: SourceRef, data: any, key: string, manual = false) {
   const { producer, ctx } = await authorizeIntegrationSource(env, actor, source, !manual);
   const old = await sourceEvent(env, source, data.event_id);
@@ -112,38 +98,54 @@ async function replace(env: Env, actor: Actor, source: SourceRef, data: any, key
   let next: IntegrationEvent;
   if (installed) next = JSON.parse(installed.payload_json);
   else {
-    if (manual) {
-      integer(data.version, 1);
-      const current = await one(env, "SELECT revision FROM module_erp_sources WHERE profile_id=? AND module_id=? AND source_id=?", ...sourceBindings(source));
-      if (current?.revision !== data.version) throw new IntegrationError("version_conflict", 409);
+    const row = await one(env, "SELECT * FROM module_erp_sources WHERE profile_id=? AND module_id=? AND source_id=?", ...sourceBindings(source));
+    const delivery = await one(env, "SELECT state,receipt_json,error_code FROM module_erp_delivery WHERE event_id=?", old.id);
+    if (delivery.error_code === "integration_divergent") throw new IntegrationError("integration_divergent", 409);
+    if (row.replacement_key && row.replacement_key !== newKey) throw new IntegrationError("correction_in_progress", 409);
+    if (row.replacement_key === newKey) next = JSON.parse(row.replacement_json);
+    else {
+      if (manual && row.revision !== integer(data.version, 1)) throw new IntegrationError("version_conflict", 409);
+      // Validar todos os bloqueadores antes de consumir a identidade original.
+      if (row.enqueued_seq !== (old.seq ?? 0)) throw new IntegrationError("replacement_successors", 409);
+      if (delivery.state !== "done" && row.applied_seq !== old.seq! - 1 || delivery.state === "done" && row.applied_seq !== row.enqueued_seq)
+        throw new IntegrationError("version_conflict", 409);
+      if (!manual && delivery.state === "done" && (!delivery.receipt_json || JSON.parse(delivery.receipt_json).outcome !== "closed")) throw new IntegrationError("version_conflict", 409);
+      const snapshot = await producer.project(ctx, old.source);
+      validateSnapshot(snapshot);
+      if (canonical(snapshot.source) !== canonical(old.source)) throw new IntegrationError("not_found", 404);
+      const state = await readIntegrationActivation(env, source.profile, source.module);
+      const seq = row.enqueued_seq + 1, revision = row.revision + 1;
+      next = { ...old, id: uuid5(F3_NAMESPACES.internal, newKey), command_id: commandId(source, seq), event_key: newKey,
+        seq, source_revision: revision, snapshot: { ...snapshot, source_revision: revision },
+        actor_id: actor.id, reason_code: manual ? "manual_requested" : data.reason_code,
+        ...(manual ? { occurred_ms: Date.now(), epochs: state.epochs,
+          eligible: { document: old.eligible.document, stock: destinations.includes("stock") && state.snapshot.parts.stock, finance: destinations.includes("finance") && state.snapshot.parts.finance } } : {}),
+      };
+      if (manual && destinations.some(d => !next.eligible[d])) throw new IntegrationError("part_disabled", 409);
+      // Valida também o SQL/plano antes da reserva durável.
+      integrationStatements({ source: old.source, expected_revision: row.revision, events: [next], next_state: { snapshot: next.snapshot }, replacement_key: newKey, automation_from: manual ? undefined : old.id });
+      await batch(env, [[`UPDATE module_erp_sources SET replacement_key=?,replacement_json=?
+        WHERE profile_id=? AND module_id=? AND source_id=? AND revision=? AND enqueued_seq=? AND applied_seq=? AND replacement_key IS NULL
+        AND NOT EXISTS(SELECT 1 FROM module_erp_delivery WHERE event_id=? AND lease_until_ms>?)`,
+        [newKey, canonical(next), ...sourceBindings(source), row.revision, row.enqueued_seq, row.applied_seq, old.id, Date.now()]], integrationCasGuard]);
     }
-    const delivery = await one(env, "SELECT state,receipt_json FROM module_erp_delivery WHERE event_id=?", old.id);
+    const clear: Statement = ["UPDATE module_erp_sources SET replacement_key=NULL,replacement_json=NULL WHERE profile_id=? AND module_id=? AND source_id=? AND replacement_key=?", [...sourceBindings(source), newKey]];
+    const install = [...integrationStatements({ source: old.source, expected_revision: next.source_revision - 1, events: [next], next_state: { snapshot: next.snapshot }, replacement_key: newKey, automation_from: manual ? undefined : old.id }), clear, integrationCasGuard];
     if (delivery.state !== "done") {
-      const lease = await acquireIntegrationLease(env, old.id, Date.now(), true);
+      const lease = await acquireIntegrationLease(env, old.id, Date.now(), true, newKey);
       if (!lease) throw new IntegrationError("lease_lost", 409);
       try {
         const request = await readPreparedRequest(env, old) ?? await persistPreparedRequest(env, old, await closureRequest(env, old), lease);
-        const recovered = await getErpOrigin(env, request, actor);
-        const result = recovered.receipt ?? await closeErpCommand(env, request, manual ? "manual_requested" : data.reason_code, actor);
-        await confirmIntegrationResult(env, old, lease, result);
-        if (!manual && result.outcome !== "closed") throw new IntegrationError("version_conflict", 409);
+        const deadline = Date.now() + 25_000;
+        await countIntegrationAttempt(env, old, lease, "lookup_attempts", deadline);
+        const recovered = await getErpOrigin(env, request, actor, deadline);
+        if (!recovered.receipt) await countIntegrationAttempt(env, old, lease, "attempts", deadline);
+        const result = recovered.receipt ?? await closeErpCommand(env, request, manual ? "manual_requested" : data.reason_code, actor, deadline);
+        const canReplace = manual || result.outcome === "closed";
+        await confirmIntegrationResult(env, old, lease, result, canReplace ? install : [clear, integrationCasGuard]);
+        if (!canReplace) throw new IntegrationError("version_conflict", 409);
       } catch (error) { await releaseIntegrationLease(env, old.id, lease, error); throw error; }
-    } else if (!manual && JSON.parse(delivery.receipt_json).outcome !== "closed") throw new IntegrationError("version_conflict", 409);
-    const row = await one(env, "SELECT * FROM module_erp_sources WHERE profile_id=? AND module_id=? AND source_id=?", ...sourceBindings(source));
-    if (row.applied_seq !== row.enqueued_seq || row.enqueued_seq !== old.seq) throw new IntegrationError("version_conflict", 409);
-    const snapshot = await producer.project(ctx, old.source);
-    validateSnapshot(snapshot);
-    if (canonical(snapshot.source) !== canonical(old.source)) throw new IntegrationError("not_found", 404);
-    const state = await readIntegrationActivation(env, source.profile, source.module);
-    const seq = row.enqueued_seq + 1, revision = row.revision + 1;
-    next = { ...old, id: uuid5(F3_NAMESPACES.internal, newKey), command_id: commandId(source, seq), event_key: newKey,
-      seq, source_revision: revision, snapshot: { ...snapshot, source_revision: revision },
-      actor_id: actor.id, reason_code: manual ? "manual_requested" : data.reason_code,
-      ...(manual ? { occurred_ms: Date.now(), epochs: state.epochs,
-        eligible: { document: old.eligible.document, stock: destinations.includes("stock") && state.snapshot.parts.stock, finance: destinations.includes("finance") && state.snapshot.parts.finance } } : {}),
-    };
-    if (manual && destinations.some(d => !next.eligible[d])) throw new IntegrationError("part_disabled", 409);
-    await batch(env, integrationStatements({ source: old.source, expected_revision: row.revision, events: [next], next_state: { snapshot: next.snapshot } }));
+    } else await batch(env, install);
   }
   if (manual) {
     const delivery = await one(env, "SELECT state FROM module_erp_delivery WHERE event_id=?", next.id);
@@ -152,7 +154,10 @@ async function replace(env: Env, actor: Actor, source: SourceRef, data: any, key
       if (!lease) throw new IntegrationError("lease_lost", 409);
       try {
         const request = await readPreparedRequest(env, next) ?? await persistPreparedRequest(env, next, await prepareManualErpRequest(env, next, actor, destinations), lease);
-        const recovered = await getErpOrigin(env, request, actor);
+        const deadline = Date.now() + 25_000;
+        await countIntegrationAttempt(env, next, lease, "lookup_attempts", deadline);
+        const recovered = await getErpOrigin(env, request, actor, deadline);
+        if (!recovered.receipt) await countIntegrationAttempt(env, next, lease, "attempts", deadline);
         const result = recovered.receipt ?? await manualApplyErpRequest(env, request, actor);
         await confirmIntegrationResult(env, next, lease, result);
       } catch (error) { await releaseIntegrationLease(env, next.id, lease, error); throw error; }
@@ -222,15 +227,16 @@ export function registerIntegrationRoutes(app: Hono<any>, mutate: (c: any, op: s
     requireIntegrationHuman(actor, profile); requireAccess(actor, module);
     if (!INTEGRATION_MODULES.includes(module)) throw new IntegrationError("not_found", 404);
     const activation = await readIntegrationActivation(c.env, profile, module);
-    const rows = await all(c.env, `SELECT e.source_id,d.state,d.receipt_json,
+    const rows = await all(c.env, `SELECT e.source_id,s.replacement_key,d.state,d.unresolved,d.error_code,d.receipt_json,
       json_extract(e.payload_json,'$.eligible') eligible,json_extract(e.payload_json,'$.operation') operation,
       json_extract(e.payload_json,'$.source.component') component
       FROM module_erp_delivery d JOIN module_erp_events e ON e.id=d.event_id
-      WHERE e.profile_id=? AND e.module_id=? ORDER BY e.source_id,e.seq`, profile, module);
+      JOIN module_erp_sources s ON s.profile_id=e.profile_id AND s.module_id=e.module_id AND s.source_id=e.source_id
+      WHERE e.profile_id=? AND e.module_id=? ORDER BY e.source_id,e.source_revision,e.seq`, profile, module);
     const sources = new Map<string, any[]>();
     for (const row of rows) { const values = sources.get(row.source_id) ?? []; values.push(row); sources.set(row.source_id, values); }
     const counts = new Map<string, number>();
-    for (const rows of sources.values()) { const { state } = effectiveSourceState(rows); counts.set(state, (counts.get(state) ?? 0) + 1); }
+    for (const rows of sources.values()) { const { state } = effectiveSourceState(rows, !!rows[0].replacement_key); counts.set(state, (counts.get(state) ?? 0) + 1); }
     const counters = [...counts].map(([state, count]) => ({ state, count }));
     return c.json({ module, activations: activation.activations, counters });
   });

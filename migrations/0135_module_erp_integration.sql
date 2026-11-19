@@ -11,6 +11,8 @@ CHECK (json_valid(commercial_json) AND json_type(commercial_json) = 'object');
 CREATE TABLE module_erp_policy (
   profile_id TEXT PRIMARY KEY,
   version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+  stock_epoch INTEGER NOT NULL DEFAULT 1 CHECK (stock_epoch > 0),
+  finance_epoch INTEGER NOT NULL DEFAULT 1 CHECK (finance_epoch > 0),
   config_json TEXT NOT NULL CHECK (json_valid(config_json) AND json_type(config_json) = 'object'),
   updated_ms INTEGER NOT NULL,
   updated_by TEXT NOT NULL
@@ -44,6 +46,8 @@ CREATE TABLE module_erp_sources (
   state_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(state_json) AND json_type(state_json) = 'object'),
   links_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(links_json) AND json_type(links_json) = 'array'),
   confirmed_ms INTEGER,
+  replacement_key TEXT,
+  replacement_json TEXT CHECK (replacement_json IS NULL OR json_valid(replacement_json)),
   PRIMARY KEY (profile_id, module_id, source_id),
   CHECK (enqueued_seq >= applied_seq AND applied_seq >= 0)
 );
@@ -57,7 +61,7 @@ CREATE TABLE module_erp_aliases (
 CREATE TABLE module_erp_events (
   id TEXT PRIMARY KEY,
   profile_id TEXT NOT NULL, module_id TEXT NOT NULL, source_id TEXT NOT NULL,
-  seq INTEGER NOT NULL CHECK (seq > 0),
+  seq INTEGER CHECK (seq IS NULL OR seq > 0),
   source_revision INTEGER NOT NULL CHECK (source_revision > 0),
   command_id TEXT NOT NULL UNIQUE, event_key TEXT NOT NULL, occurred_ms INTEGER NOT NULL,
   event_hash TEXT NOT NULL,
@@ -65,6 +69,14 @@ CREATE TABLE module_erp_events (
   UNIQUE (profile_id, module_id, source_id, seq), UNIQUE (profile_id, event_key),
   FOREIGN KEY (profile_id, module_id, source_id) REFERENCES module_erp_sources(profile_id, module_id, source_id)
 );
+CREATE TABLE module_erp_event_automation (
+  event_id TEXT PRIMARY KEY REFERENCES module_erp_events(id),
+  authorization_json TEXT NOT NULL CHECK (json_valid(authorization_json))
+);
+CREATE TRIGGER module_erp_automation_no_update BEFORE UPDATE ON module_erp_event_automation
+BEGIN SELECT RAISE(ABORT, 'module_erp_automation_immutable'); END;
+CREATE TRIGGER module_erp_automation_no_delete BEFORE DELETE ON module_erp_event_automation
+BEGIN SELECT RAISE(ABORT, 'module_erp_automation_immutable'); END;
 CREATE TABLE module_erp_requests (
   event_id TEXT PRIMARY KEY REFERENCES module_erp_events(id), actor_id TEXT NOT NULL,
   request_hash TEXT NOT NULL,
@@ -74,8 +86,11 @@ CREATE TABLE module_erp_requests (
 );
 CREATE TABLE module_erp_delivery (
   event_id TEXT PRIMARY KEY REFERENCES module_erp_events(id),
-  state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending','sending','waiting_manual','blocked','failed','done')),
+  state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending','sending','waiting_manual','blocked','failed','uncertain','done')),
   attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0), next_attempt_ms INTEGER NOT NULL,
+  preparation_attempts INTEGER NOT NULL DEFAULT 0 CHECK (preparation_attempts >= 0),
+  lookup_attempts INTEGER NOT NULL DEFAULT 0 CHECK (lookup_attempts >= 0),
+  unresolved INTEGER NOT NULL DEFAULT 0 CHECK (unresolved IN (0,1)),
   lease_token TEXT, lease_until_ms INTEGER, error_code TEXT, error_message TEXT,
   receipt_json TEXT CHECK (receipt_json IS NULL OR (json_valid(receipt_json) AND json_type(receipt_json) = 'object')),
   completed_ms INTEGER,

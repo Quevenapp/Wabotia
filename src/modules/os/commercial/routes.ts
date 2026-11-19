@@ -1,3 +1,4 @@
+import { effectiveSourceState } from "../../../integrations/state";
 import { one } from "../../../db";
 import { ApiError, type Actor, now } from "../../../types";
 import { onCommand, onRead, onRoute, type ModuleContext } from "../../api";
@@ -34,7 +35,7 @@ export async function workCommercialView(ctx: ModuleContext, actor: Actor, id: s
     items: state.snapshot?.items ?? [], installments: state.snapshot?.installments ?? [],
     total_cents: state.snapshot?.total_cents ?? 0,
     technical: state.snapshot?.technical ?? null,
-    pending: !!pending, state: pending?.state ?? (state.source ? "done" : "off"),
+    ...(({ manual, ...view }) => ({ ...view, manual_destinations: [...manual] }))(effectiveSourceState(state.events, !!state.source?.replacement_key)),
     confirmed_ms: state.source?.confirmed_ms ?? null,
     cancellation_pending: row.status === "cancelled" && !!(pending || state.active.stock || state.active.finance),
     warnings: state.snapshot?.items.some(i => i.kind === "material" && !i.product_id) ? ["Material sem vínculo não baixa estoque."] : [],

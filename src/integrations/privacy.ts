@@ -1,6 +1,6 @@
 import { ApiError } from "../types";
 import type { CommercialSnapshot, IntegrationEvent, IntegrationResult, SourceRef } from "./contracts";
-import { canonical, commandId } from "./keys";
+import { canonical, commandId, localEventId } from "./keys";
 
 const messages: Record<string, string> = {
   integration_not_implemented: "Integração ainda não disponível para este módulo.",
@@ -23,6 +23,11 @@ const messages: Record<string, string> = {
   not_found: "Registro não encontrado.",
   invalid_request: "Dados comerciais inválidos.",
   integration_unavailable: "Integração temporariamente indisponível.",
+  integration_divergent: "ERP e fila divergentes (restauração?)",
+  replacement_successors: "Há eventos seguintes nesta origem. A correção precisa de revisão manual antes de encerrar o comando.",
+  correction_in_progress: "Uma correção está reservada para esta origem. Retome a mesma solicitação.",
+  automation_off: "A automação estava desligada neste fato. Aguardando lançamento manual.",
+  integration_uncertain: "Envio sem confirmação. Aguardando conferência do mesmo comando no ERP.",
   lease_lost: "Outra execução está tratando este comando.",
 };
 export class IntegrationError extends ApiError {
@@ -99,10 +104,10 @@ export function validateSnapshot(s: CommercialSnapshot): void {
 }
 export function validateEvent(e: IntegrationEvent): void {
   exactKeys(e, ["id", "command_id", "event_key", "source", "seq", "source_revision", "operation", "occurred_ms", "epochs", "eligible", "snapshot", "receipt_key", "reverses_receipt_key", "reason_code", "actor_id"]);
-  validateSource(e.source); integer(e.seq, 1); integer(e.source_revision, 1); integer(e.occurred_ms);
+  validateSource(e.source); if (e.seq !== null) integer(e.seq, 1); integer(e.source_revision, 1); integer(e.occurred_ms);
   opaque(e.id); opaque(e.event_key); nullableText(e.receipt_key); nullableText(e.reverses_receipt_key); nullableText(e.actor_id);
   if (e.reason_code !== null && !/^[a-z][a-z0-9_]{0,79}$/.test(e.reason_code)) fail();
-  if (e.command_id !== commandId(e.source, e.seq)) fail();
+  if (e.seq === null ? Object.values(e.eligible).some(Boolean) || e.command_id !== localEventId(e.source, e.event_key) || e.id !== e.command_id : e.command_id !== commandId(e.source, e.seq)) fail();
   if (!["prepare", "recognize", "execute", "lifecycle", "receive", "cancel", "reverse"].includes(e.operation)) fail();
   exactKeys(e.eligible, ["document", "stock", "finance"]);
   if ([e.eligible.document, e.eligible.stock, e.eligible.finance].some(v => typeof v !== "boolean")) fail();
