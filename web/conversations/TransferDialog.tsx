@@ -21,6 +21,7 @@ import { conversationName, digits, parse, plural } from "../lib/format";
 import { navigate } from "../lib/routes";
 import { ticketStateName, ticketStateTone } from "../lib/tickets";
 import { menuPath, type MenuItem } from "../menu-tree";
+import { channelSendPolicy } from "./model";
 import {
   Avatar,
   Button,
@@ -64,7 +65,10 @@ export function TransferDialog({
 }) {
   const app = useApp();
   const write = useIntents(app.api);
-  const [tab, setTab] = useState<TransferTab>(initialTab);
+  const policy = channelSendPolicy(conversation, conversation.capabilities || {}, app.now, app.lineKinds);
+  const canMenu = policy.automation && conversation.menu !== null;
+  const allowedTab = (value: TransferTab) => (value !== "bots" || policy.automation) && (value !== "menu" || canMenu);
+  const [tab, setTab] = useState<TransferTab>(allowedTab(initialTab) ? initialTab : "people");
   const [query, setQuery] = useState("");
   const [choice, setChoice] = useState<Choice | null>(null);
   const [busy, setBusy] = useState(false);
@@ -78,7 +82,7 @@ export function TransferDialog({
   const name = conversationName(conversation);
   // Formulários (módulo Formulários): enviados por link, fora de grupos.
   const forms: Row[] =
-    !group && app.moduleOn("forms")
+    !group && policy.modules && policy.automation && app.moduleOn("forms")
       ? (app.settings.forms || []).filter((form: Row) => form.enabled !== false)
       : [];
 
@@ -94,7 +98,7 @@ export function TransferDialog({
     };
   }, []);
   useEffect(() => {
-    if (tab !== "menu" || menus) return;
+    if (tab !== "menu" || !canMenu || menus) return;
     let alive = true;
     setMenuError("");
     app
@@ -112,10 +116,10 @@ export function TransferDialog({
   useEffect(() => {
     if (tab !== "ticket" || tickets) return;
     let alive = true;
-    const phone = digits(conversation.phone || "");
+    const phone = policy.channel === "whatsapp" ? digits(conversation.phone || "") : "";
     (phone
       ? app.api(app.root + "/tickets?limit=100&q=" + encodeURIComponent(phone))
-      : Promise.resolve({ data: [] })
+      : policy.channel && policy.channel !== "whatsapp" ? app.api(app.root + "/tickets?limit=100") : Promise.resolve({ data: [] })
     )
       .then(
         (result) =>
@@ -136,6 +140,12 @@ export function TransferDialog({
     setChoice(null);
     setError("");
   }, [tab]);
+  useEffect(() => {
+    if (!allowedTab(tab)) {
+      setTab("people");
+      setChoice(null);
+    }
+  }, [policy.automation, canMenu, tab]);
 
   const matches = (text: string) =>
     !query.trim() || text.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
@@ -178,6 +188,13 @@ export function TransferDialog({
 
   async function confirm() {
     if (!choice || app.demoBlocked()) return;
+    const action = choice.body.action;
+    if (!policy.automation && (["resume", "menu", "form", "protocols"].includes(action) ||
+      (action === "transfer" && String(choice.body.target || "").startsWith("bot:")))) {
+      setError(policy.reason || "A janela não permite respostas automáticas.");
+      return;
+    }
+    if (action === "form" && !policy.modules) return;
     setBusy(true);
     setError("");
     try {
@@ -281,7 +298,9 @@ export function TransferDialog({
                 warning: person.online
                   ? undefined
                   : `${person.name} está offline e pode demorar a responder.`,
-                help: "A conversa mantém o número de WhatsApp. As permissões da linha e do destinatário continuam valendo.",
+                help: policy.channel === "whatsapp"
+                  ? "A conversa mantém o número de WhatsApp. As permissões da linha e do destinatário continuam valendo."
+                  : "A conversa mantém o canal e a conta. As permissões da conversa e do destinatário continuam valendo.",
                 body: { action: "transfer", target: person.id },
                 success: `Conversa transferida para ${person.name}.`,
               }),
@@ -483,7 +502,7 @@ export function TransferDialog({
           </span>
           <ChevronRight size={18} aria-hidden />
         </button>
-        {!group && (
+        {!group && policy.automation && (
           <div className="transfer-lookup">
             <strong>
               <Search size={15} /> Enviar consulta de protocolos ao cliente
@@ -493,7 +512,7 @@ export function TransferDialog({
               <input
                 value={number}
                 onChange={(event) => setNumber(event.target.value)}
-                placeholder="Em branco: protocolos do telefone"
+                placeholder={policy.channel === "whatsapp" ? "Em branco: protocolos do telefone" : "Em branco: protocolos desta identidade"}
               />
             </label>
             <Button
@@ -504,9 +523,9 @@ export function TransferDialog({
                   key: "lookup",
                   question: number.trim()
                     ? `Enviar ao cliente a situação do protocolo ${number.trim()}?`
-                    : "Enviar ao cliente a lista de protocolos deste telefone?",
+                    : policy.channel === "whatsapp" ? "Enviar ao cliente a lista de protocolos deste telefone?" : "Enviar ao cliente os protocolos desta identidade?",
                   confirm: "Enviar consulta",
-                  help: "O cliente recebe a situação pelo WhatsApp. Notas internas não são enviadas.",
+                  help: policy.channel === "whatsapp" ? "O cliente recebe a situação pelo WhatsApp. Notas internas não são enviadas." : "O cliente recebe a situação neste canal. Notas internas não são enviadas.",
                   body: { action: "protocols", number: number.trim() || undefined },
                   success: "Consulta de protocolos enviada.",
                 })
@@ -562,19 +581,20 @@ export function TransferDialog({
           value={tab}
           onChange={setTab}
           full
-          options={[
+          options={([
             { value: "people", label: "Pessoas", icon: <Users size={15} /> },
             { value: "bots", label: "Bots", icon: <Bot size={15} /> },
             { value: "departments", label: "Setores", icon: <Building2 size={15} /> },
             { value: "menu", label: "Menu", icon: <List size={15} /> },
             { value: "ticket", label: "Protocolo", icon: <FileText size={15} /> },
-          ]}
+          ] as { value: TransferTab; label: string; icon: React.ReactNode }[]).filter((option) => allowedTab(option.value))}
         />
         {!choice && listSize > 8 && (
           <SearchBox value={query} onChange={setQuery} placeholder="Buscar" />
         )}
       </div>
       <div className="transfer-body" role="tabpanel">
+        {!policy.automation && <Notice tone="warn">{policy.reason || "A janela não permite respostas automáticas."} A transferência para uma pessoa ou setor muda o responsável sem enviar aviso automático ao cliente.</Notice>}
         {!choice && error && <Notice tone="error">{error}</Notice>}
         {body}
       </div>

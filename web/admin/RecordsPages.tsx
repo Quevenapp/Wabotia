@@ -10,6 +10,7 @@ import { WhatsAppGroups } from "../WhatsAppGroups";
 import { navigate } from "../lib/routes";
 import { usageText } from "../lib/usage";
 import { FormDialog, Pager, useList } from "./shared";
+import { channelLabel, conversationChannels, isMultichannel } from "../channels";
 
 const reportSections: [string, string][] = [
   ["tickets", "Protocolos"],
@@ -23,7 +24,11 @@ const reportSections: [string, string][] = [
 export function ReportsPage() {
   const app = useApp();
   const [section, setSection] = useState("tickets");
-  const list = useList(app.root + "/reports?section=" + section);
+  const [selectedChannel, setChannel] = useState("");
+  const channels = conversationChannels(app.status);
+  const channel = channels.length > 1 && channels.includes(selectedChannel as any) ? selectedChannel : "";
+  const reportPath = app.root + "/reports?section=" + section + (channel ? "&channel=" + encodeURIComponent(channel) : "");
+  const list = useList(reportPath);
   const { busy, run } = useAction();
   return (
     <>
@@ -36,6 +41,8 @@ export function ReportsPage() {
             emptyOption={null}
             options={reportSections}
           />
+          {channels.length > 1 && <Field label="Canal" value={channel} onChange={setChannel}
+            emptyOption={null} options={[["", "Todos os canais"], ...channels.map((id): [string, string] => [id, channelLabel(id)])]} />}
           <Button
             secondary
             busy={busy}
@@ -44,11 +51,7 @@ export function ReportsPage() {
               run(
                 async () => {
                   const response = await fetch(
-                    "/api/" +
-                      app.root +
-                      "/reports?section=" +
-                      section +
-                      "&format=jsonl",
+                    "/api/" + reportPath + "&format=jsonl",
                     { credentials: "same-origin" },
                   );
                   if (!response.ok)
@@ -77,8 +80,8 @@ export function ReportsPage() {
         ) : (
           <Table
             rows={list.rows}
-            columns={
-              section === "tickets"
+            columns={[
+              ...(section === "tickets"
                 ? [
                     ["number", "Protocolo"],
                     ["title", "Solicitação"],
@@ -89,8 +92,9 @@ export function ReportsPage() {
                     ["id", "Identificador"],
                     ["status", "Estado"],
                     ["created", "Data"],
-                  ]
-            }
+                  ]) as [string, string][],
+              ...(isMultichannel(app.status) ? [["channel", "Canal", (row: Row) => channelLabel(row.channel)] as [string, string, (row: Row) => React.ReactNode]] : []),
+            ]}
           />
         )}
         <p className="muted">

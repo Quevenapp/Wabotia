@@ -5,6 +5,7 @@ import { useApp, useAppEvents } from "../app/AppContext";
 import type { Row } from "../lib/api";
 import { readText, writeText } from "../lib/storage";
 import { isMine } from "./model";
+import { conversationChannel, conversationChannels } from "../channels";
 
 export type ChipId = "all" | "waiting" | "mine" | "ai" | "closed";
 export const chipStates: Record<ChipId, string> = {
@@ -15,6 +16,22 @@ export const chipStates: Record<ChipId, string> = {
   closed: "closed",
 };
 const PAGE = 50;
+export function conversationListKey(root: string, generation: number, chip: string, search: string, department: string, channel: string, channels: readonly string[] = []) {
+  return JSON.stringify([root, generation, chip, search, department, channel, channels]);
+}
+
+/** Geração comum à primeira página, paginação e eventos. A troca de filtro
+ * invalida respostas já durante o render, antes de o efeito iniciar a carga. */
+export function createConversationListGate() {
+  let key = "", revision = 0;
+  return {
+    update(next: string) { if (key !== next) { key = next; revision++; } },
+    begin(scope: string) { if (scope === key) revision++; return { key: scope, revision }; },
+    capture(scope: string) { return { key: scope, revision }; },
+    current(token: { key: string; revision: number }) { return token.key === key && token.revision === revision; },
+    invalidate() { revision++; },
+  };
+}
 const sortRows = (rows: Row[]) =>
   rows.sort(
     (a, b) => (b.updated || 0) - (a.updated || 0) || (a.id < b.id ? 1 : -1),
@@ -29,13 +46,19 @@ export function useConversationList() {
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("");
+  const [selectedChannel, setChannel] = useState("");
+  const channels = conversationChannels(app.status);
+  const channel = channels.length > 1 && channels.includes(selectedChannel as any) ? selectedChannel : "";
+  const [resolvedScope, setResolvedScope] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const pages = useRef(0);
-  const request = useRef(0);
+  const gate = useRef(createConversationListGate());
+  const moreRequest = useRef(false);
+  const refreshSequence = useRef(0);
 
   // Busca com pequena espera para não consultar a cada tecla.
   useEffect(() => {
@@ -43,23 +66,29 @@ export function useConversationList() {
     return () => clearTimeout(timer);
   }, [query]);
 
-  const scope = JSON.stringify([app.root, chip, search, department]);
+  const scope = conversationListKey(app.root, app.contextGeneration, chip, search, department, channel, channels);
+  gate.current.update(scope);
   const path = useCallback(
     (after?: string | null) =>
       `${app.root}/conversations?limit=${PAGE}&q=${encodeURIComponent(search)}` +
       `&state=${chipStates[chip]}&department_id=${encodeURIComponent(department)}` +
+      (channel ? `&channel=${encodeURIComponent(channel)}` : "") +
       (after ? `&cursor=${encodeURIComponent(after)}` : ""),
-    [app.root, chip, search, department],
+    [app.root, chip, search, department, channel],
   );
   const keep = useCallback(
     (list: Row[]) =>
-      chip === "mine" ? list.filter((row) => isMine(row, app.me.id)) : list,
-    [chip, app.me.id],
+      list.filter((row) => (chip !== "mine" || isMine(row, app.me.id)) &&
+        (!channel || conversationChannel(row, app.lineKinds) === channel)),
+    [chip, app.me.id, channel, app.lineKinds],
   );
 
   /** Primeira carga do filtro atual (substitui a lista). */
   const load = useCallback(async () => {
-    const mine = ++request.current;
+    const mine = gate.current.begin(scope);
+    if (!gate.current.current(mine)) return;
+    moreRequest.current = false;
+    setLoadingMore(false);
     setLoading(true);
     setError("");
     try {
@@ -69,7 +98,7 @@ export function useConversationList() {
       // "Minhas" é filtrado aqui: busca mais páginas até ter o suficiente.
       do {
         const page = await app.api(path(next));
-        if (mine !== request.current) return;
+        if (!gate.current.current(mine)) return;
         app.rememberConversations(page.data || []);
         collected = collected.concat(keep(page.data || []));
         next = page.next_cursor || null;
@@ -78,26 +107,32 @@ export function useConversationList() {
       pages.current = fetched;
       setRows(collected);
       setCursor(next);
+      setResolvedScope(scope);
     } catch (e: any) {
-      if (mine === request.current) setError(e.message);
+      if (gate.current.current(mine)) { setError(e.message); setResolvedScope(scope); }
     } finally {
-      if (mine === request.current) setLoading(false);
+      if (gate.current.current(mine)) setLoading(false);
     }
-  }, [app.api, app.rememberConversations, path, keep, chip]);
+  }, [app.api, app.rememberConversations, path, keep, chip, scope]);
 
   useEffect(() => {
     setRows([]);
     setCursor(null);
+    pages.current = 0;
+    moreRequest.current = false;
+    setLoadingMore(false);
     void load();
+    return () => gate.current.invalidate();
   }, [scope]);
 
   const loadMore = useCallback(async () => {
-    if (!cursor || loadingMore || loading) return;
-    const mine = request.current;
+    if (!cursor || loadingMore || loading || moreRequest.current || resolvedScope !== scope) return;
+    const mine = gate.current.capture(scope);
+    moreRequest.current = true;
     setLoadingMore(true);
     try {
       const page = await app.api(path(cursor));
-      if (mine !== request.current) return;
+      if (!gate.current.current(mine)) return;
       app.rememberConversations(page.data || []);
       pages.current++;
       setRows((current) => {
@@ -108,11 +143,11 @@ export function useConversationList() {
       });
       setCursor(page.next_cursor || null);
     } catch (e: any) {
-      if (mine === request.current) setError(e.message);
+      if (gate.current.current(mine)) setError(e.message);
     } finally {
-      setLoadingMore(false);
+      if (gate.current.current(mine)) { moreRequest.current = false; setLoadingMore(false); }
     }
-  }, [cursor, loadingMore, loading, app.api, app.rememberConversations, path, keep]);
+  }, [cursor, loadingMore, loading, app.api, app.rememberConversations, path, keep, scope, resolvedScope]);
 
   /**
    * Releitura leve: a primeira página traz tudo o que mudou (a ordem é por
@@ -121,10 +156,12 @@ export function useConversationList() {
    */
   const refresh = useCallback(
     async (touched?: Set<string>) => {
-      const mine = request.current;
+      if (resolvedScope !== scope || loading) return;
+      const mine = gate.current.capture(scope);
+      const sequence = ++refreshSequence.current;
       try {
         const page = await app.api(path(null));
-        if (mine !== request.current) return;
+        if (!gate.current.current(mine) || sequence !== refreshSequence.current) return;
         const fresh: Row[] = page.data || [];
         app.rememberConversations(fresh);
         const kept = keep(fresh);
@@ -153,7 +190,7 @@ export function useConversationList() {
         /* a próxima releitura tenta de novo */
       }
     },
-    [app.api, app.rememberConversations, path, keep, chip],
+    [app.api, app.rememberConversations, path, keep, chip, scope, resolvedScope, loading],
   );
 
   // Eventos: junta os que chegam em sequência em uma releitura só.
@@ -215,11 +252,14 @@ export function useConversationList() {
     search,
     department,
     setDepartment,
-    rows,
-    hasMore: !!cursor,
-    loading,
+    channel,
+    channels,
+    setChannel,
+    rows: resolvedScope === scope ? rows : [],
+    hasMore: resolvedScope === scope && !!cursor,
+    loading: loading || resolvedScope !== scope,
     loadingMore,
-    error,
+    error: resolvedScope === scope ? error : "",
     load,
     loadMore,
     refresh: () => refresh(),

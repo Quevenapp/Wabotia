@@ -14,6 +14,7 @@ import { type Api, type Row } from "../lib/api";
 import { readStore, readText, writeStore, writeText } from "../lib/storage";
 import { notify, setTitleCount } from "../lib/notifications";
 import { conversationName } from "../lib/format";
+import { channelNotificationTitle, conversationChannel, isMultichannel } from "../channels";
 import { currentRoute, navigate, navigationGuarded } from "../lib/routes";
 import { toast, toastError } from "../ui";
 import { accessAllows } from "../workspace-navigation";
@@ -395,6 +396,13 @@ export function AppProvider({
 
   // Índice leve das conversas vistas (nome, responsável) para os avisos.
   const known = useRef(new Map<string, Row>());
+  const knownIdentity = useRef(identityKey);
+  if (knownIdentity.current !== identityKey) {
+    knownIdentity.current = identityKey;
+    known.current.clear();
+  }
+  const notificationStatus = useRef(status);
+  notificationStatus.current = status;
   const rememberConversations = useCallback((rows: Row[]) => {
     for (const row of rows)
       if (row?.id)
@@ -403,6 +411,10 @@ export function AppProvider({
           name: conversationName(row),
           owner: row.owner,
           state: row.state,
+          channel: row.channel,
+          connection_id: row.connection_id,
+          connection_kind: row.connection_kind,
+          multichannel: row.multichannel,
         });
   }, []);
 
@@ -451,18 +463,25 @@ export function AppProvider({
         nextInternal: Record<string, number> = {};
       for (const event of events) {
         const payload = event.payload || {};
-        if (event.kind.startsWith("conversation.")) touchedStatus = true;
+        if (event.kind.startsWith("conversation.") || event.kind.startsWith("connection.")) touchedStatus = true;
         if (event.kind.startsWith("ticket.")) touchedTickets = true;
         if (event.kind === "message.received" && payload.conversation_id) {
           const id = payload.conversation_id;
           if (document.hidden || openConversation.current !== id)
             nextUnread[id] = (nextUnread[id] || 0) + 1;
           const row = known.current.get(id);
-          if (row?.owner === me.id && row?.state === "human")
-            notify(row.name || "Mensagem nova", payload.text || "Anexo", {
+          if (row?.owner === me.id && row?.state === "human") {
+            const summary = notificationStatus.current;
+            const channel = payload.channel ?? conversationChannel(row, Object.fromEntries(
+              (summary.connections || []).map((connection: Row) => [connection.id, connection.kind]),
+            ));
+            const minimal = summary.settings?.push?.preview === "minimal";
+            notify(channelNotificationTitle(row.name || "Mensagem nova", channel,
+              payload.multichannel === true || isMultichannel(summary), minimal), minimal ? "Wabotia" : payload.text || "Anexo", {
               tag: "message:" + id,
               open: () => navigate({ area: "conversations", id }),
             });
+          }
         }
         if (
           event.kind === "conversation.updated" &&

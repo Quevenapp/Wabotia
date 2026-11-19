@@ -6,6 +6,7 @@ import {
   Bot,
   CheckCheck,
   FileText,
+  Mail,
   Phone,
   Plus,
   ShieldCheck,
@@ -40,12 +41,14 @@ import {
 } from "../ui";
 import { GroupControls } from "../WhatsAppGroups";
 import { isImage, mediaUrl } from "./Media";
-import { headerSubtitle, isMine, tagsOf } from "./model";
+import { channelConversation, headerSubtitle, isMine, tagsOf } from "./model";
 import { WebStepsSection } from "./WebSteps";
 import { PaymentsSection } from "./Payments";
 import { conversationExtensions } from "../modules/conversation";
 import { ContactProfile } from "../contact-profile/ContactProfile";
 import { profileScopeKey } from "../contact-profile/model";
+import { channelPresentation } from "../channels";
+import { EmailTranscriptDialog, transcriptAction } from "./EmailTranscriptDialog";
 
 export type InfoActions = {
   contact: () => void;
@@ -53,9 +56,10 @@ export type InfoActions = {
   ticket: () => void;
   call?: () => void;
   bot: () => void;
-  survey: () => void;
-  consent: () => void;
-  resume: () => void;
+  survey?: () => void;
+  consent?: () => void;
+  resume?: () => void;
+  email?: () => void;
   resolve: () => void;
   window: () => void;
   openImage: (id: string) => void;
@@ -80,8 +84,11 @@ export function InfoPanel({
   ticketsVersion: number;
 }) {
   const app = useApp();
-  const c = detail.conversation,
+  const c = channelConversation(detail),
     cap: Row = detail.capabilities || {};
+  const channel = channelPresentation(c, app.status, app.lineKinds);
+  const modules = channel.channel === "whatsapp" && c.modules !== false;
+  const email = transcriptAction(detail.email_transcript);
   const group = c.chat_type === "group";
   const mine = isMine(c, app.me.id);
   const name =
@@ -89,18 +96,20 @@ export function InfoPanel({
   const tags = tagsOf(c);
   const [tickets, setTickets] = useState<Row[] | null>(null);
   const [policyBusy, setPolicyBusy] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false);
   const [profileContact, setProfileContact] = useState<{ id: string; scope: string } | null>(null);
   const contactScope = profileScopeKey(app.root, app.me, app.modules) + ":" + c.id;
-  const number = digits(c.phone || "");
+  const number = channel.channel === "whatsapp" ? digits(c.phone || "") : "";
+  const social = channel.channel === "instagram" || channel.channel === "facebook";
 
   useEffect(() => {
     let alive = true;
-    if (!number) {
+    if (!number && !social) {
       setTickets([]);
       return;
     }
     app
-      .api(app.root + "/tickets?limit=100&q=" + encodeURIComponent(number))
+      .api(app.root + "/tickets?limit=100" + (number ? "&q=" + encodeURIComponent(number) : ""))
       .then(
         (result) =>
           alive &&
@@ -114,7 +123,7 @@ export function InfoPanel({
     return () => {
       alive = false;
     };
-  }, [c.id, number, ticketsVersion, app.ticketCounts.active, app.ticketCounts.overdue]);
+  }, [app.root, c.id, number, social, ticketsVersion, app.ticketCounts.active, app.ticketCounts.overdue]);
 
   const line = (app.status.connections || []).find(
     (connection: Row) => connection.id === c.connection_id,
@@ -137,9 +146,11 @@ export function InfoPanel({
           size={96}
           kind={group ? "group" : "person"}
           badge={conversationBadge(c, app.me.id)}
+          channel={channel.channel}
+          multichannel={channel.multichannel}
         />
         <h3>{name}</h3>
-        {c.phone && !group && (
+        {c.phone && !group && channel.channel === "whatsapp" && (
           <p className="info-phone">
             <span>{formatPhone(c.phone)}</span>
             <CopyButton value={c.phone} label="Copiar telefone" />
@@ -152,7 +163,7 @@ export function InfoPanel({
           </p>
         )}
         <p className="muted">
-          {line ? "Linha " + line.name : c.connection_id ? "Linha de atendimento" : "Sem linha de WhatsApp"}
+          {channel.subtitle || (line ? "Linha " + line.name : c.connection_id ? "Linha de atendimento" : "Sem linha de WhatsApp")}
         </p>
       </section>
 
@@ -162,7 +173,7 @@ export function InfoPanel({
             type="button"
             className={"info-window-button tone-" + info.tone}
             onClick={actions.window}
-            aria-label="Janela de 24 horas. Ver explicação"
+            aria-label={(info.state === "human_text_only" ? "Prazo para texto humano" : "Janela de atendimento") + ". Ver explicação"}
           >
             <WindowRing info={info} size={96}>
               <span className="window-ring-text">
@@ -172,7 +183,7 @@ export function InfoPanel({
             </WindowRing>
           </button>
           <div>
-            <strong>Janela de 24 horas</strong>
+            <strong>{info.state === "human_text_only" ? "Somente texto humano · até 7 dias" : "Janela de 24 horas"}</strong>
             <small>
               {info.lastCustomer
                 ? "Última mensagem do cliente: " +
@@ -180,6 +191,7 @@ export function InfoPanel({
                 : "O cliente ainda não escreveu."}
             </small>
             {!info.closed && <small>Aberta {info.until}</small>}
+            {info.reason && <small>{info.reason}</small>}
           </div>
         </section>
       )}
@@ -282,16 +294,16 @@ export function InfoPanel({
         )}
       </section>
 
-      <WebStepsSection steps={detail.web_steps || []} />
+      {modules && <WebStepsSection steps={detail.web_steps || []} />}
 
-      {!group &&
+      {!group && modules &&
         conversationExtensions
           .filter((extension) => app.moduleOn(extension.module))
           .map(({ module, Component }) => (
             <Component key={module} conversation={c} name={name} />
           ))}
 
-      {app.moduleOn("payments") && !group && (
+      {modules && app.moduleOn("payments") && !group && (
         <PaymentsSection
           conversationId={c.id}
           payments={detail.payments || []}
@@ -387,6 +399,13 @@ export function InfoPanel({
       </section>
 
       <section className="info-section info-actions">
+        {email.visible && <>
+          <button type="button" disabled={busy || !email.enabled} title={email.reason || undefined}
+            onClick={actions.email || (() => setEmailOpen(true))}>
+            <Mail size={18} /> Enviar conversa por e-mail
+          </button>
+          {email.reason && <p className="muted">{email.reason}</p>}
+        </>}
         {actions.call && (
           <button type="button" onClick={actions.call}>
             <Phone size={18} /> Ligar
@@ -402,17 +421,17 @@ export function InfoPanel({
         <button type="button" onClick={actions.bot}>
           <Bot size={18} /> Consultar bot
         </button>
-        {!group && (
+        {!group && actions.survey && (
           <button type="button" disabled={busy} onClick={actions.survey}>
             <Star size={18} /> Pesquisa de satisfação
           </button>
         )}
-        {!group && (
+        {!group && actions.consent && (
           <button type="button" disabled={busy} onClick={actions.consent}>
             <ShieldCheck size={18} /> Solicitar consentimento
           </button>
         )}
-        {mine && (
+        {mine && actions.resume && (
           <button type="button" disabled={busy} onClick={actions.resume}>
             <Undo2 size={18} /> Devolver ao bot
           </button>
@@ -423,6 +442,7 @@ export function InfoPanel({
           </button>
         )}
       </section>
+      {emailOpen && email.enabled && <EmailTranscriptDialog conversationId={c.id} options={detail.email_transcript} onClose={() => setEmailOpen(false)} />}
       {profileContact?.scope === contactScope && <ContactProfile api={app.api} root={app.root}
         contactId={profileContact.id} scopeKey={contactScope} demo={app.demo} initialContact={detail.contact}
         conversation={c} onClose={() => setProfileContact(null)} onSaved={() => { void refresh(); }} />}

@@ -2,6 +2,7 @@
 // fictícios, respondidas aqui mesmo. Nenhuma chamada sai do navegador e
 // nenhuma escrita é aceita.
 import type { Api, Row } from "./api";
+import { demoChannelRequest } from "./demo-channels";
 import { agendaDemo, agendaDemoModule } from "../modules/agenda/demo";
 import { reservaDemo, reservaDemoModule } from "../modules/reserva/demo";
 import {
@@ -1183,7 +1184,9 @@ function read(path: string, query: URLSearchParams): any {
 }
 
 /** API de demonstração: leituras com dados fictícios; escritas são recusadas. */
-export const demoApi: Api = async (path, method = "GET") => {
+export const demoApi: Api = async (path, method = "GET", body, _signal, idempotencyKey) => {
+  const channel = demoChannelRequest(path, method, body, idempotencyKey, read);
+  if (channel.handled) return channel.data;
   const [pathname, search = ""] = path.split("?");
   if (method !== "GET")
     throw Object.assign(
