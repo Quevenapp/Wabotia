@@ -29,10 +29,12 @@ export async function applyErpPartsSnapshot(storage: ErpPartsStore, profile: str
     if (saved && (BigInt(saved.revision) > BigInt(next.revision) ||
         (saved.revision === next.revision && !sameErpParts(saved.parts, next.parts))))
       throw new ErpPartsControlError("erp_parts_stale");
-    const snapshot = saved?.revision === next.revision ? { ...next, expires_at: Math.max(saved.expires_at, next.expires_at) } : next;
-    await tx.put("kind", "erp");
-    await tx.put("erp_profile", profile);
-    await tx.put(ERP_PARTS_KEY, snapshot);
+    // Conserva emissão e vencimento juntos ao ignorar uma renovação mais curta.
+    const snapshot = saved?.revision === next.revision && saved.expires_at >= next.expires_at ? saved : next;
+    if (!kind) await tx.put("kind", "erp");
+    if (!bound) await tx.put("erp_profile", profile);
+    // O Hub valida antes do import; o endpoint revalida a mesma entrega.
+    if (snapshot !== saved) await tx.put(ERP_PARTS_KEY, snapshot);
     return snapshot;
   });
 }

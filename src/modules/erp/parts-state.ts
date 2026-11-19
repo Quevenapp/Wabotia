@@ -22,7 +22,7 @@ export function erpPartsStateOf(profile: string, rows: any[], readAt: number) {
   const states: ModuleStates = resolveStates(Object.fromEntries(rows.filter(r => r.module_id).map(r => [r.module_id, r.enabled])));
   if (revision === "0") for (const id of Object.values(ERP_PART_MODULES)) states[id] = false;
   const parts = normalizeErpParts(Object.fromEntries(ERP_PART_KEYS.map(key => [key, revision !== "0" && states[ERP_PART_MODULES[key]] === true])));
-  const snapshot: ErpPartsSnapshot = Object.freeze({ profile, revision, expires_at: readAt + ERP_PARTS_TTL_MS, parts });
+  const snapshot: ErpPartsSnapshot = Object.freeze({ profile, revision, issued_at: readAt, expires_at: readAt + ERP_PARTS_TTL_MS, parts });
   return { rows, states, snapshot, erp_sync: erpSyncState(revision, delivered) };
 }
 export async function readErpPartsState(env: Env, profile: string) {
@@ -39,14 +39,15 @@ export async function acknowledgeErpParts(env: Env, profile: string, revision: s
   await exec(env, `UPDATE profile_erp_revision SET delivered_revision=CAST(? AS INTEGER)
     WHERE profile_id=? AND delivered_revision<CAST(? AS INTEGER) AND revision>=CAST(? AS INTEGER)`, revision, profile, revision, revision);
 }
-export async function deliverErpParts(env: Env, snapshot: ErpPartsSnapshot): Promise<boolean> {
+export async function deliverErpParts(env: Env, snapshot: ErpPartsSnapshot, signal?: AbortSignal): Promise<boolean> {
   try {
+    if (signal?.aborted) return false;
     const response = await erpFetch(env, snapshot.profile, "/erp-parts", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(snapshot),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(snapshot), signal,
     });
-    if (!response.ok) return false;
+    if (!response.ok || signal?.aborted) return false;
     const ack = await response.json<{ profile?: string; revision?: string }>();
-    if (ack.profile !== snapshot.profile || ack.revision !== snapshot.revision) return false;
+    if (signal?.aborted || ack.profile !== snapshot.profile || ack.revision !== snapshot.revision) return false;
     await acknowledgeErpParts(env, snapshot.profile, snapshot.revision);
     return true;
   } catch { return false; } // A revisão D1 continua pendente, inclusive após perda do ACK.
