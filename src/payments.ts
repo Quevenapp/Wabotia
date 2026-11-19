@@ -6,7 +6,7 @@
 // Estados: created → paid | expired | cancelled; paid → refunded. Dinheiro
 // confirmado vence: um pagamento aprovado depois de expirar ou de cancelado
 // localmente passa a paid. Nenhuma mensagem do cliente muda o estado.
-import { all, exec, one, cachedOne, withReadCache } from "./db";
+import { all, batch, exec, one, cachedOne, withReadCache } from "./db";
 import {
   ApiError,
   type Actor,
@@ -34,6 +34,18 @@ import type {
   WebhookInput,
 } from "./payments-provider";
 import { mercadoPago } from "./payments-mercadopago";
+import type { Statement } from "./integrations/contracts";
+import {
+  PaymentEvidenceError,
+  paymentEvidenceStatements,
+  paymentHookFailure,
+  preparePaymentEvidence,
+  providerReceiptKey,
+  readPaymentEvidence,
+  type PaymentEvidence,
+  type PaymentHookEvent,
+  type VerifiedProviderPayment,
+} from "./integrations/payment-evidence";
 
 export const providers: Record<string, PaymentProvider> = {
   mercadopago: mercadoPago,
@@ -245,6 +257,9 @@ export function paymentView(row: any) {
     paid_at: row.paid_at,
     created: row.created,
     updated: row.updated,
+    // Só o gancho recebe a evidência conferida e o evento original persistido.
+    evidence: null as PaymentEvidence | null,
+    payment_event: null as PaymentHookEvent | null,
   };
 }
 export type Payment = NonNullable<ReturnType<typeof paymentView>>;
@@ -613,10 +628,20 @@ async function deliver(
 
 const transitions: Record<string, PaymentStatus[]> = {
   paid: ["created", "expired", "cancelled"],
-  refunded: ["paid"],
+  refunded: ["created", "expired", "cancelled", "paid"],
   expired: ["created"],
   cancelled: ["created"],
 };
+
+/** Completa somente ganchos antigos que ainda aguardam entrega. */
+function attachHookEvidence(paymentId: string, evidence: PaymentEvidence): Statement {
+  return [
+    "UPDATE payments SET hook_pending=(SELECT json_group_array(json(CASE WHEN (json_extract(value,'$.status')='paid' OR (json_extract(value,'$.status')='refunded' AND ? IS NOT NULL)) AND json_extract(value,'$.evidence_key') IS NULL THEN json_set(value,'$.evidence_key',CASE WHEN json_extract(value,'$.status')='paid' THEN ? ELSE ? END,'$.occurred_ms',CASE WHEN json_extract(value,'$.status')='paid' THEN ? ELSE ? END) ELSE value END)) FROM json_each(payments.hook_pending)) WHERE id=? AND hook_pending IS NOT NULL",
+    [evidence.reverses_key, evidence.reverses_key ?? evidence.receipt_key,
+      evidence.kind === "reverse" ? evidence.receipt_key : null,
+      evidence.original?.occurred_ms ?? evidence.occurred_ms, evidence.occurred_ms, paymentId],
+  ];
+}
 
 /**
  * Muda o estado com UPDATE condicionado (webhooks repetidos e corridas não
@@ -630,38 +655,40 @@ async function transition(
     provider_status?: string;
     provider_payment_id?: string;
     paid_at?: number;
+    evidence?: PaymentEvidence;
   } = {},
-  /**
-   * Estorno que chegou antes do primeiro aviso: o "paga" só fica registrado
-   * (evento e nota), sem gancho do módulo nem comprovante ao cliente; o
-   * módulo vê só o estorno (revisão M8).
-   */
-  options: { silent?: boolean } = {},
 ) {
   const from = transitions[next];
+  if (!from?.includes(row.status)) return false;
+  const evidence = extra.evidence;
+  if ((next === "paid" || next === "refunded") &&
+      (!evidence || evidence.payment_id !== row.id || evidence.kind !== (next === "paid" ? "receive" : "reverse")))
+    throw new PaymentEvidenceError("payment_evidence_missing");
   const at = now();
   // O gancho do módulo entra na fila de pendentes no mesmo UPDATE (A3).
   const pending = JSON.stringify({
-    id: uid(),
+    id: evidence?.event_key ?? uid(),
     status: next,
     previous: row.status,
+    occurred_ms: evidence?.occurred_ms ?? at,
+    evidence_key: evidence?.receipt_key ?? null,
   });
-  const hookSql = options.silent
-    ? "hook_pending=hook_pending"
-    : "hook_pending=CASE WHEN module_id IS NULL THEN NULL ELSE json_insert(coalesce(hook_pending,'[]'),'$[' || json_array_length(coalesce(hook_pending,'[]')) || ']',json(?)) END,hook_next_at=NULL";
-  const result = await exec(
-    env,
-    `UPDATE payments SET status=?,provider_status=coalesce(?,provider_status),provider_payment_id=coalesce(?,provider_payment_id),paid_at=coalesce(?,paid_at),updated=?,${hookSql} WHERE id=? AND status IN (${from.map(() => "?").join(",")})`,
-    next,
-    extra.provider_status ?? null,
-    extra.provider_payment_id ?? null,
-    next === "paid" ? (extra.paid_at ?? at) : null,
-    at,
-    ...(options.silent ? [] : [pending]),
-    row.id,
-    ...from,
-  );
-  if (!result.meta?.changes) return false;
+  const paidAt = evidence?.original?.occurred_ms ?? evidence?.occurred_ms ?? extra.paid_at;
+  try {
+    await batch(env, [
+      ["UPDATE payments SET status=?,provider_status=coalesce(?,provider_status),provider_payment_id=coalesce(?,provider_payment_id),paid_at=coalesce(paid_at,?),updated=?,hook_pending=CASE WHEN module_id IS NULL THEN NULL ELSE json_insert(coalesce(hook_pending,'[]'),'$[' || json_array_length(coalesce(hook_pending,'[]')) || ']',json(?)) END,hook_next_at=NULL WHERE id=? AND status=? AND provider_payment_id IS ?",
+        [next, extra.provider_status ?? null, extra.provider_payment_id ?? null,
+          evidence ? paidAt : null, at, pending, row.id, row.status, row.provider_payment_id ?? null]],
+      ["SELECT CASE WHEN changes()=1 THEN 1 ELSE json('payment_state_conflict') END", []],
+      ...(evidence ? [...paymentEvidenceStatements(evidence), attachHookEvidence(row.id, evidence)] : []),
+    ]);
+  } catch (error) {
+    // D1 não fornece o literal de json inválido em todas as versões.
+    if (!evidence && /malformed JSON|payment_state_conflict/i.test(String(error))) return false;
+    if (/malformed JSON|payment_(state|evidence)_conflict/i.test(String(error)))
+      throw new PaymentEvidenceError("payment_state_conflict");
+    throw error;
+  }
   const fresh = await one(env, "SELECT * FROM payments WHERE id=?", row.id);
   await event(
     env,
@@ -687,7 +714,7 @@ async function transition(
     };
     await message(env, c, "note", "system", notes[next]);
     // receipt: false → o módulo manda o próprio comprovante.
-    if (next === "paid" && fresh.receipt !== 0 && !options.silent)
+    if (next === "paid" && fresh.receipt !== 0)
       try {
         await enqueue(
           env,
@@ -706,7 +733,7 @@ async function transition(
         if (!(error instanceof ApiError)) throw error;
       }
   }
-  if (fresh.module_id && !options.silent)
+  if (fresh.module_id)
     await deliverPaymentHooks(env, fresh.id);
   return true;
 }
@@ -716,16 +743,13 @@ async function transition(
  * lista, publica payment.duplicate_refunded e deixa nota, uma vez. A
  * cobrança continua paga pelo pagamento original (conferência N-1).
  */
-async function recordDuplicateRefund(env: Env, row: any, remoteId: string) {
-  const marked = await exec(
-    env,
-    "UPDATE payments SET duplicate_payments=(SELECT json_group_array(CASE WHEN json_extract(value,'$.id')=? THEN json_set(value,'$.refunded_at',?) ELSE json(value) END) FROM json_each(payments.duplicate_payments)),updated=? WHERE id=? AND EXISTS (SELECT 1 FROM json_each(coalesce(payments.duplicate_payments,'[]')) WHERE json_extract(value,'$.id')=? AND json_extract(value,'$.refunded_at') IS NULL)",
-    remoteId,
-    now(),
-    now(),
-    row.id,
-    remoteId,
-  );
+async function recordDuplicateRefund(env: Env, row: any, remoteId: string, evidence: PaymentEvidence) {
+  if (!(json(row.duplicate_payments, []) as { id: string }[]).some(item => item.id === remoteId)) return false;
+  const [marked] = await batch(env, [
+    ["UPDATE payments SET duplicate_payments=(SELECT json_group_array(CASE WHEN json_extract(value,'$.id')=? THEN json_set(value,'$.refunded_at',?) ELSE json(value) END) FROM json_each(payments.duplicate_payments)),updated=? WHERE id=? AND EXISTS (SELECT 1 FROM json_each(coalesce(payments.duplicate_payments,'[]')) WHERE json_extract(value,'$.id')=? AND json_extract(value,'$.refunded_at') IS NULL)",
+      [remoteId, evidence.occurred_ms, now(), row.id, remoteId]],
+    ...paymentEvidenceStatements(evidence),
+  ]);
   if (!marked.meta?.changes) return false;
   const fresh = await one(env, "SELECT * FROM payments WHERE id=?", row.id);
   await event(
@@ -760,20 +784,19 @@ async function recordDuplicate(
   env: Env,
   row: any,
   remote: { id: string; amount_cents: number },
+  evidence: PaymentEvidence,
 ) {
   const entry = JSON.stringify({
     id: String(remote.id),
     amount_cents: remote.amount_cents,
-    at: now(),
+    at: evidence.occurred_ms,
+    evidence_key: evidence.receipt_key,
   });
-  const result = await exec(
-    env,
-    "UPDATE payments SET duplicate_payments=json_insert(coalesce(duplicate_payments,'[]'),'$[' || json_array_length(coalesce(duplicate_payments,'[]')) || ']',json(?)),updated=? WHERE id=? AND NOT EXISTS (SELECT 1 FROM json_each(coalesce(payments.duplicate_payments,'[]')) WHERE json_extract(value,'$.id')=?)",
-    entry,
-    now(),
-    row.id,
-    String(remote.id),
-  );
+  const [result] = await batch(env, [
+    ["UPDATE payments SET duplicate_payments=json_insert(coalesce(duplicate_payments,'[]'),'$[' || json_array_length(coalesce(duplicate_payments,'[]')) || ']',json(?)),updated=? WHERE id=? AND NOT EXISTS (SELECT 1 FROM json_each(coalesce(payments.duplicate_payments,'[]')) WHERE json_extract(value,'$.id')=?)",
+      [entry, now(), row.id, String(remote.id)]],
+    ...paymentEvidenceStatements(evidence),
+  ]);
   if (!result.meta?.changes) return false;
   const fresh = await one(env, "SELECT * FROM payments WHERE id=?", row.id);
   await event(
@@ -817,52 +840,72 @@ const hookDelay = (attempts: number) =>
 export async function deliverPaymentHooks(env: Env, paymentId: string) {
   for (let step = 0; step < 10; step++) {
     const row = await one(env, "SELECT * FROM payments WHERE id=?", paymentId);
-    const queue: { id: string; status: string; previous: string }[] = json(
+    const queue: (PaymentHookEvent & { evidence_key?: string })[] = json(
       row?.hook_pending,
       [],
     );
     if (!row || !queue.length) return true;
     const entry = queue[0];
+    // Uma concessão limita concorrência; perda de resposta ainda exige replay
+    // idempotente no produtor. Só o detentor remove a cabeça desta fila.
+    const token = uid();
+    const acquired = await exec(env,
+      "UPDATE payments SET hook_pending=json_set(hook_pending,'$[0].lease_token',?,'$[0].lease_until_ms',?) WHERE id=? AND json_extract(hook_pending,'$[0].id')=? AND coalesce(json_extract(hook_pending,'$[0].lease_until_ms'),0)<=?",
+      token, now() + 60_000, paymentId, entry.id, now());
+    if (!acquired.meta?.changes) return false;
     const hook = row.module_id ? paymentHook(row.module_id) : undefined;
     try {
-      // O módulo vê o estado desta mudança, mesmo que outra já tenha vindo.
-      if (hook)
-        await hook(
-          env,
-          row.profile_id,
-          { ...paymentView(row), status: entry.status },
-          entry.previous,
-        );
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message.slice(0, 300) : "falha";
-      await exec(
+      if (!hook) throw new PaymentEvidenceError("payment_hook_missing");
+      const evidence = entry.evidence_key
+        ? await readPaymentEvidence(env, row.profile_id, entry.evidence_key) : null;
+      if ((entry.status === "paid" || entry.status === "refunded") && !evidence)
+        throw new PaymentEvidenceError("payment_evidence_missing");
+      if (evidence && (evidence.payment_id !== row.id || evidence.module_id !== row.module_id || evidence.ref_id !== row.ref_id ||
+          evidence.amount_cents !== row.amount_cents || evidence.currency !== row.currency ||
+          evidence.kind !== (entry.status === "paid" ? "receive" : "reverse")))
+        throw new PaymentEvidenceError("payment_evidence_conflict");
+      // Resolver este Promise confirma o commit local do produtor: mutação,
+      // recibo e saída no mesmo batch. Não chamar o ERP dentro deste gancho.
+      await hook(
         env,
-        "UPDATE payments SET hook_attempts=hook_attempts+1,hook_next_at=?,hook_error=? WHERE id=?",
-        now() + hookDelay(row.hook_attempts || 0),
-        message,
-        paymentId,
+        row.profile_id,
+        { ...paymentView(row), status: entry.status, evidence,
+          paid_at: evidence ? (evidence.original?.occurred_ms ?? evidence.occurred_ms) : row.paid_at,
+          payment_event: { id: entry.id, status: entry.status, previous: entry.previous, occurred_ms: entry.occurred_ms ?? row.updated },
+        },
+        entry.previous,
       );
+    } catch (error) {
+      const safe = paymentHookFailure(error);
+      const failed = await exec(
+        env,
+        "UPDATE payments SET hook_pending=json_remove(hook_pending,'$[0].lease_token','$[0].lease_until_ms'),hook_attempts=hook_attempts+1,hook_next_at=?,hook_error=? WHERE id=? AND json_extract(hook_pending,'$[0].id')=? AND json_extract(hook_pending,'$[0].lease_token')=?",
+        now() + hookDelay(row.hook_attempts || 0),
+        safe.message,
+        paymentId,
+        entry.id,
+        token,
+      );
+      if (!failed.meta?.changes) return false;
       console.error(
         JSON.stringify({
           component: "payments",
-          payment: paymentId,
-          module: row.module_id,
-          error: "hook_failed",
+          error: safe.code,
         }),
       );
       // Última tentativa automática (conferência N-10): avisa a equipe uma
       // vez; o efeito no módulo ficou pendente e só o reenvio do webhook (ou
       // a equipe) resolve.
       if ((row.hook_attempts || 0) + 1 === HOOK_MAX_ATTEMPTS)
-        await hookExhausted(env, row, entry.status, message);
+        await hookExhausted(env, row, entry.status, safe.message);
       return false;
     }
     await exec(
       env,
-      "UPDATE payments SET hook_pending=CASE WHEN json_array_length(hook_pending)<=1 THEN NULL ELSE json_remove(hook_pending,'$[0]') END,hook_attempts=0,hook_next_at=NULL,hook_error=NULL WHERE id=? AND json_extract(hook_pending,'$[0].id')=?",
+      "UPDATE payments SET hook_pending=CASE WHEN json_array_length(hook_pending)<=1 THEN NULL ELSE json_remove(hook_pending,'$[0]') END,hook_attempts=0,hook_next_at=NULL,hook_error=NULL WHERE id=? AND json_extract(hook_pending,'$[0].id')=? AND json_extract(hook_pending,'$[0].lease_token')=?",
       paymentId,
       entry.id,
+      token,
     );
   }
   return false;
@@ -893,7 +936,7 @@ async function hookExhausted(
       c,
       "note",
       "system",
-      `O módulo não concluiu o efeito da cobrança ${row.description} (${status === "paid" ? "pagamento" : status}) depois de ${HOOK_MAX_ATTEMPTS} tentativas: ${error}. Confira o pedido, a reserva ou a mensalidade e conclua à mão.`,
+      `O módulo não concluiu o efeito da cobrança depois de ${HOOK_MAX_ATTEMPTS} tentativas: ${error}. Confira o pedido, a reserva ou a mensalidade e conclua à mão.`,
     );
   } catch {
     // Cobrança sem conversa: fica o evento.
@@ -928,34 +971,48 @@ export async function refreshFromProvider(
     accountId,
   );
   if (!account) return { ignored: "account" };
-  const remote = await providers[account.provider].getPayment(
-    await accountCredentials(env, account.id),
-    providerPaymentId,
-  );
-  const row = remote.external_reference
+  let remote: VerifiedProviderPayment;
+  try {
+    remote = await providers[account.provider].getPayment(
+      await accountCredentials(env, account.id), providerPaymentId);
+  } catch {
+    // O erro do adaptador pode incluir resposta bruta, credencial ou texto privado.
+    throw new PaymentEvidenceError("provider_unavailable");
+  }
+  if (remote.id !== providerPaymentId || !["paid", "refunded", "pending", "rejected", "expired", "cancelled"].includes(remote.state))
+    throw new PaymentEvidenceError("payment_evidence_invalid");
+  const known = await readPaymentEvidence(env, account.profile_id,
+    providerReceiptKey(account.profile_id, account.provider, account.id, remote.id));
+  const reference = remote.external_reference ?? known?.payment_id;
+  const referenced = reference
     ? await one(
         env,
         "SELECT * FROM payments WHERE id=? AND account_id=?",
-        remote.external_reference,
+        reference,
         account.id,
       )
     : null;
-  if (!row) return { ignored: "unknown_payment" };
+  if (!referenced) return { ignored: "unknown_payment" };
+  if (referenced.profile_id !== account.profile_id || referenced.provider !== account.provider)
+    throw new PaymentEvidenceError("payment_evidence_conflict");
   if (
-    remote.amount_cents !== row.amount_cents ||
-    remote.currency !== row.currency
+    !Number.isSafeInteger(remote.amount_cents) || remote.amount_cents <= 0 ||
+    remote.amount_cents !== referenced.amount_cents ||
+    remote.currency !== referenced.currency
   ) {
     console.error(
       JSON.stringify({
         component: "payments",
-        payment: row.id,
         error: "amount_mismatch",
       }),
     );
     return { ignored: "amount_mismatch" };
   }
+  // Preservar códigos conhecidos, jamais um texto livre devolvido pelo provedor.
+  const providerStatus = ["approved", "pending", "in_process", "authorized", "in_mediation", "rejected", "cancelled", "expired", "refunded", "charged_back"].includes(remote.raw_status)
+    ? remote.raw_status : remote.state;
   const extra = {
-    provider_status: remote.raw_status,
+    provider_status: providerStatus,
     provider_payment_id: remote.id,
     ...(remote.paid_at ? { paid_at: remote.paid_at } : {}),
   };
@@ -969,76 +1026,64 @@ export async function refreshFromProvider(
           : remote.state === "cancelled"
             ? "cancelled"
             : null;
-  if (!next) {
-    await exec(
-      env,
-      "UPDATE payments SET provider_status=?,updated=? WHERE id=?",
-      remote.raw_status,
-      now(),
-      row.id,
-    );
-    return { status: row.status, changed: false };
+  // O CAS e a identidade remota disputam a mesma transação. Quem perde relê
+  // o vencedor e retoma seu gancho, sem outra evidência nem outro proprietário.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      let row = await one(env, "SELECT * FROM payments WHERE id=?", referenced.id);
+      if (!row) return { ignored: "unknown_payment" };
+      const evidence = next === "paid" || next === "refunded"
+        ? await preparePaymentEvidence(env, row, remote, now()) : null;
+      if (evidence && evidence.payment_id !== row.id) {
+        row = await one(env, "SELECT * FROM payments WHERE id=? AND profile_id=? AND account_id=? AND provider=?",
+          evidence.payment_id, account.profile_id, account.id, account.provider);
+        if (!row || row.module_id !== evidence.module_id || row.ref_id !== evidence.ref_id || row.amount_cents !== evidence.amount_cents || row.currency !== evidence.currency)
+          throw new PaymentEvidenceError("payment_evidence_conflict");
+      }
+      if (!next) {
+        await exec(env, "UPDATE payments SET provider_status=?,updated=? WHERE id=?", providerStatus, now(), row.id);
+        if (row.hook_pending) await deliverPaymentHooks(env, row.id);
+        return { status: row.status, changed: false };
+      }
+      // Outro pagamento aprovado da mesma cobrança (link pago duas vezes).
+      if (next === "paid" && (row.status === "paid" || row.status === "refunded") &&
+          row.provider_payment_id && remote.id !== row.provider_payment_id) {
+        const recorded = await recordDuplicate(env, row, remote, evidence!);
+        if (row.hook_pending) await deliverPaymentHooks(env, row.id);
+        return { status: row.status, changed: false, duplicate: recorded };
+      }
+      // Estorno/cancelamento de outra tentativa não desfaz o pagamento original.
+      if (next !== "paid" && row.provider_payment_id && remote.id !== row.provider_payment_id) {
+        const duplicate = next === "refunded"
+          ? await recordDuplicateRefund(env, row, remote.id, evidence!) : false;
+        if (row.hook_pending) await deliverPaymentHooks(env, row.id);
+        return { status: row.status, changed: false, ignored: duplicate ? "duplicate_refunded" : "other_payment" };
+      }
+      // Tentativa de checkout cancelada/vencida não fecha o link ainda pagável.
+      if ((next === "cancelled" || next === "expired") && row.method === "link" && row.status === "created") {
+        if (row.hook_pending) await deliverPaymentHooks(env, row.id);
+        return { status: row.status, changed: false, ignored: "attempt" };
+      }
+      // Estorno primeiro: original e reversão no mesmo lote, um só gancho.
+      // Não há estado intermediário pago que possa liberar o serviço.
+      const changed = await transition(env, row, next, { ...extra, ...(evidence ? { evidence } : {}) });
+      if (!changed && evidence) {
+        // Completa só ganchos pendentes anteriores à F3, após consulta real.
+        // Não inventa novo gancho para o passado.
+        await batch(env, [...paymentEvidenceStatements(evidence), attachHookEvidence(row.id, evidence)]);
+      }
+      if (!changed && row.hook_pending) await deliverPaymentHooks(env, row.id);
+      return { status: changed ? next : row.status, changed };
+    } catch (error) {
+      if ((error instanceof PaymentEvidenceError && error.code === "payment_state_conflict") ||
+          /malformed JSON|payment_evidence_conflict/i.test(String(error))) {
+        if (attempt < 2) continue;
+        throw new PaymentEvidenceError("payment_state_conflict");
+      }
+      throw error;
+    }
   }
-  // Outro pagamento aprovado da mesma cobrança (link pago duas vezes).
-  if (
-    next === "paid" &&
-    (row.status === "paid" || row.status === "refunded") &&
-    row.provider_payment_id &&
-    remote.id &&
-    String(remote.id) !== String(row.provider_payment_id)
-  ) {
-    const recorded = await recordDuplicate(env, row, remote);
-    return { status: row.status, changed: false, duplicate: recorded };
-  }
-  // Conferência N-1: estorno, cancelamento ou vencimento de OUTRO pagamento
-  // (o duplicado estornado pela equipe, uma tentativa no checkout) não mexe
-  // na cobrança paga pelo pagamento original.
-  if (
-    next !== "paid" &&
-    row.provider_payment_id &&
-    remote.id &&
-    String(remote.id) !== String(row.provider_payment_id)
-  ) {
-    const duplicate =
-      next === "refunded"
-        ? await recordDuplicateRefund(env, row, String(remote.id))
-        : false;
-    return {
-      status: row.status,
-      changed: false,
-      ignored: duplicate ? "duplicate_refunded" : "other_payment",
-    };
-  }
-  // Link de pagamento ainda sem pagamento: uma tentativa cancelada ou vencida
-  // no checkout não fecha a cobrança, que continua pagável até a validade.
-  if (
-    (next === "cancelled" || next === "expired") &&
-    row.method === "link" &&
-    row.status === "created"
-  )
-    return { status: row.status, changed: false, ignored: "attempt" };
-  // Pagamento aprovado e depois estornado antes de chegar o primeiro aviso:
-  // o "paga" só fica registrado; o módulo e o cliente veem o estorno. Já
-  // estornada, segue abaixo: o reenvio entrega o gancho pendente (segunda
-  // conferência, N2-1).
-  if (
-    next === "refunded" &&
-    row.status !== "paid" &&
-    row.status !== "refunded"
-  ) {
-    await transition(env, row, "paid", extra, { silent: true });
-    const paid = await one(env, "SELECT * FROM payments WHERE id=?", row.id);
-    const changed = await transition(env, paid, "refunded", extra);
-    return { status: "refunded", changed };
-  }
-  const changed = await transition(env, row, next, extra);
-  // Reenvio do webhook sem mudança de estado: roda o gancho que ficou
-  // pendente numa tentativa anterior (A3).
-  if (!changed && row.hook_pending) await deliverPaymentHooks(env, row.id);
-  return {
-    status: changed ? next : row.status,
-    changed,
-  };
+  throw new PaymentEvidenceError("payment_state_conflict");
 }
 
 /** Alarme da área: cobranças vencidas viram expired (e são canceladas no provedor). */
