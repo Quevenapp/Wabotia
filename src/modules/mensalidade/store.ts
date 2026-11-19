@@ -499,7 +499,10 @@ async function subscriptionRow(
       c.chat_type !== "group",
       "Assinaturas só em conversas individuais.",
     );
-  const contact = c ? await ctx.contact(c) : null;
+  const customer = c ? await ctx.customer(c) : null;
+  const contact = customer?.state === "ready" && customer.contactId
+    ? await one(ctx.env, "SELECT id,name,phone FROM contacts WHERE id=? AND profile_id=? AND namespace=? AND identity_state='active'",
+      customer.contactId, ctx.profile, customer.namespace) : null;
   const phone = phoneDigits(
     text(input.phone, 40, "o telefone") || c?.phone || contact?.phone || "",
   );

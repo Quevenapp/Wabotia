@@ -1,11 +1,17 @@
 // Mensalidade: pagadores. Quem paga (CPF ou CNPJ e nome) e os telefones
 // autorizados a falar em nome dele: uma empresa paga e vários funcionários
 // pedem suporte; uma família paga as aulas de dois filhos.
-import { all, exec, one } from "../../db";
-import { ApiError, now, requireValue, uid } from "../../types";
+import { all, batch, exec, one } from "../../db";
+import { ApiError, type Actor, now, requireValue, uid } from "../../types";
 import type { ModuleContext } from "../api";
 import { pageLimit, phoneDigits, requireDocument, text } from "./model";
 import { formatDocument } from "../../establishment";
+
+import {
+  payerChoice,
+  payerChoiceStatements,
+  payerDocumentStatement,
+} from "./customer-provider";
 
 export const PHONES_LIMIT = 50;
 
@@ -28,6 +34,7 @@ export function payerView(
 ) {
   return {
     id: row.id,
+    contact_id: row.contact_id ?? null,
     name: row.name,
     document: row.document,
     document_type: row.document_type,
@@ -96,6 +103,7 @@ const validPhone = (value: unknown) => {
 };
 
 export interface PayerInput {
+  contact_id?: unknown;
   document?: unknown;
   name?: unknown;
   email?: unknown;
@@ -128,7 +136,9 @@ export async function createPayer(
   ctx: ModuleContext,
   input: PayerInput,
   actor: string,
+  human?: Actor,
 ) {
+  const chosen = input.contact_id === undefined ? null : await payerChoice(ctx, input.contact_id, human);
   const doc =
     input.document === undefined ||
     input.document === null ||
@@ -152,20 +162,19 @@ export async function createPayer(
   );
   const id = uid(),
     at = now();
-  await exec(
-    ctx.env,
-    "INSERT INTO mensalidade_payers(id,profile_id,document,document_type,name,email,notes,created_by,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?)",
-    id,
-    ctx.profile,
-    doc?.document ?? null,
-    doc?.type ?? null,
-    name,
-    text(input.email, 200, "o e-mail"),
-    text(input.notes, 1000, "as observações"),
-    actor,
-    at,
-    at,
-  );
+  await batch(ctx.env, [
+    [
+      "INSERT INTO mensalidade_payers(id,profile_id,document,document_type,name,email,notes,created_by,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?)",
+      [
+        id, ctx.profile, doc?.document ?? null, doc?.type ?? null, name,
+        text(input.email, 200, "o e-mail"),
+        text(input.notes, 1000, "as observações"),
+        actor, at, at,
+      ],
+    ],
+    ...(chosen ? payerChoiceStatements(ctx.profile, id, chosen)
+      : payerDocumentStatement(ctx.profile, id, doc?.document)),
+  ]);
   for (const raw of phones as any[]) {
     const entry = typeof raw === "string" ? { phone: raw } : raw || {};
     await exec(
@@ -180,7 +189,7 @@ export async function createPayer(
     );
   }
   const payer = await loadPayer(ctx, id);
-  await publishPayer(ctx, "mensalidade.payer_created", payer, { actor });
+  await publishPayer(ctx, "mensalidade.payer_created", payer, { actor, contact_id: payer.contact_id, contact_link: chosen ? "human" : "document" });
   return payer;
 }
 
@@ -190,8 +199,12 @@ export async function updatePayer(
   payer: any,
   data: any,
   actor: string,
+  human?: Actor,
 ) {
   const has = (key: string) => Object.hasOwn(data, key);
+  const chosen = has("contact_id") ? await payerChoice(ctx, data.contact_id, human) : null;
+  if (chosen && payer.contact_id && chosen !== payer.contact_id)
+    throw new ApiError(409, "contact_conflict", "O pagador já está vinculado a outro contato.");
   const sets: Record<string, any> = {};
   if (has("name")) sets.name = text(data.name, 120, "o nome do pagador", true);
   if (has("email")) sets.email = text(data.email, 200, "o e-mail");
@@ -214,19 +227,25 @@ export async function updatePayer(
     }
   }
   const changed = Object.keys(sets).filter((key) => sets[key] !== payer[key]);
-  if (!changed.length) return payer;
-  await exec(
-    ctx.env,
-    `UPDATE mensalidade_payers SET ${changed.map((k) => k + "=?").join(",")},updated=? WHERE id=? AND profile_id=?`,
-    ...changed.map((k) => sets[k]),
-    now(),
-    payer.id,
-    ctx.profile,
-  );
+  if (payer.contact_id && changed.includes("document"))
+    throw new ApiError(409, "contact_conflict", "Confira o vínculo cadastral antes de trocar o documento do pagador.");
+  if (!changed.length && !chosen && payer.contact_id) return payer;
+  const statements = [
+    ...(changed.length ? [[
+      `UPDATE mensalidade_payers SET ${changed.map((k) => k + "=?").join(",")},updated=? WHERE id=? AND profile_id=?`,
+      [...changed.map((k) => sets[k]), now(), payer.id, ctx.profile],
+    ] as [string, unknown[]]] : []),
+    ...(chosen ? payerChoiceStatements(ctx.profile, payer.id, chosen)
+      : payerDocumentStatement(ctx.profile, payer.id, has("document") ? sets.document : payer.document)),
+  ];
+  if (!statements.length) return payer;
+  await batch(ctx.env, statements);
   const fresh = await loadPayer(ctx, payer.id);
   await publishPayer(ctx, "mensalidade.payer_changed", fresh, {
     change: "updated",
     fields: changed,
+    contact_id: fresh.contact_id,
+    contact_link: chosen ? "human" : "document",
     actor,
   });
   return fresh;

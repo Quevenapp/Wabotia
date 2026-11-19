@@ -23,6 +23,8 @@ import {
 } from "./model";
 import { passToTeam, releaseEffectiveEnd } from "./handoff";
 
+import { supportCustomerStatements } from "./customer-provider";
+
 export const SESSION_MINUTES = 120;
 const HOUR = 3_600_000;
 
@@ -61,6 +63,7 @@ export async function openSession(
   at: number,
 ): Promise<Record<string, any>> {
   const id = uid();
+  const customerLinks = await supportCustomerStatements(ctx, c, "sessions", id, at, "conversation");
   // Fecha a anterior e abre a nova no mesmo lote. A linha devolvida pelo
   // INSERT evita uma ida ao D1 só para reler o que acabou de ser gravado.
   const [, inserted] = await batch(ctx.env, [
@@ -81,6 +84,7 @@ export async function openSession(
         at,
       ],
     ],
+    ...customerLinks,
   ]);
   return inserted.results[0] as Record<string, any>;
 }
@@ -256,30 +260,35 @@ export async function release(ctx: ModuleContext, input: ReleaseInput) {
   ].filter(Boolean);
   const summary = lines.join(" ");
   const id = uid();
-  const inserted = await exec(
-    ctx.env,
-    "INSERT INTO suporte_releases(id,profile_id,conversation_id,session_id,phone,payer_id,payer_name,kind,ref_id,phone_linked,valid_until,until_ticket,reason,summary,actor,status,source_key,created,ticket_id,conv_session,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active',?,?,?,?,?) ON CONFLICT(source_key) DO NOTHING",
-    id,
-    ctx.profile,
-    c.id,
-    input.session?.id ?? null,
-    phoneDigits(ctx.verifiedPhone(c) ?? ""),
-    input.payer?.id ?? null,
-    input.payer?.name ?? "",
-    input.kind,
-    input.ref ?? null,
-    linked ? 1 : 0,
-    validUntil,
-    untilTicket ? 1 : 0,
-    input.reason ?? "",
-    summary,
-    input.actor,
-    input.sourceKey,
-    at,
-    ticket.id,
-    c.session,
-    expiresAt,
-  );
+  const customerLinks = await supportCustomerStatements(ctx, c, "releases", id, at, input.actor, input.session?.id);
+  const [inserted] = await batch(ctx.env, [
+    [
+      "INSERT INTO suporte_releases(id,profile_id,conversation_id,session_id,phone,payer_id,payer_name,kind,ref_id,phone_linked,valid_until,until_ticket,reason,summary,actor,status,source_key,created,ticket_id,conv_session,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active',?,?,?,?,?) ON CONFLICT(source_key) DO NOTHING",
+      [
+        id,
+        ctx.profile,
+        c.id,
+        input.session?.id ?? null,
+        phoneDigits(ctx.verifiedPhone(c) ?? ""),
+        input.payer?.id ?? null,
+        input.payer?.name ?? "",
+        input.kind,
+        input.ref ?? null,
+        linked ? 1 : 0,
+        validUntil,
+        untilTicket ? 1 : 0,
+        input.reason ?? "",
+        summary,
+        input.actor,
+        input.sourceKey,
+        at,
+        ticket.id,
+        c.session,
+        expiresAt,
+      ],
+    ],
+    ...customerLinks,
+  ]);
   if (!inserted.meta.changes)
     return {
       release: await one(
@@ -676,28 +685,34 @@ export async function buyPackage(
       "payment_closed",
       "O pagamento anterior já foi concluído; aguarde a confirmação.",
     );
-  if (!existing)
-    await exec(
-      ctx.env,
-      "INSERT INTO suporte_purchases(id,profile_id,conversation_id,session_id,payer_id,document,name,phone,package_id,package_name,price_cents,mode,hours,method,status,source_key,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?,?)",
-      id,
-      ctx.profile,
-      input.c.id,
-      input.session?.id ?? null,
-      input.payer_id ?? null,
-      input.document ?? null,
-      input.name ?? "",
-      phoneDigits(ctx.verifiedPhone(input.c) ?? ""),
-      input.pkg.id,
-      input.pkg.name,
-      input.pkg.price_cents,
-      input.pkg.mode,
-      input.pkg.hours ?? null,
-      input.method,
-      input.sourceKey,
-      at,
-      at,
-    );
+  if (!existing) {
+    const customerLinks = await supportCustomerStatements(ctx, input.c, "purchases", id, at, "buyer:whatsapp", input.session?.id);
+    await batch(ctx.env, [
+      [
+        "INSERT INTO suporte_purchases(id,profile_id,conversation_id,session_id,payer_id,document,name,phone,package_id,package_name,price_cents,mode,hours,method,status,source_key,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?,?)",
+        [
+          id,
+          ctx.profile,
+          input.c.id,
+          input.session?.id ?? null,
+          input.payer_id ?? null,
+          input.document ?? null,
+          input.name ?? "",
+          phoneDigits(ctx.verifiedPhone(input.c) ?? ""),
+          input.pkg.id,
+          input.pkg.name,
+          input.pkg.price_cents,
+          input.pkg.mode,
+          input.pkg.hours ?? null,
+          input.method,
+          input.sourceKey,
+          at,
+          at,
+        ],
+      ],
+      ...customerLinks,
+    ]);
+  }
   // Comprou pela conversa: aceita receber a cobrança e a liberação por aqui.
   await ctx.recordConsent(input.c, {
     purpose: "billing",
