@@ -50,8 +50,10 @@ import { registerMotorRoutes, motorMutationKey, replayOrderMutation } from "./mo
 import { handleStageReply } from "./stage-replies";
 import { registerCustomerProvider } from "../../customer/ports";
 import { workCustomerProvider, enrichConfirmedWorkCustomer } from "./customer-provider";
+import { registerWorkCommercial, requireCommercialWriter } from "./commercial/routes";
 
 registerCustomerProvider("os", workCustomerProvider);
+registerWorkCommercial();
 
 // Resposta ao orçamento: lista Aprovar/Recusar (linha oficial), 1/2 (QR) ou
 // APROVAR <nº>, antes do menu e do bot.
@@ -355,6 +357,7 @@ onRoute("os", {
   op: "os.quote.save",
 });
 onCommand("os", "os.quote.save", async (ctx, actor, data, { requestId }) => {
+  requireCommercialWriter(actor);
   ctx.access(actor, "conversations:write");
   const { row: order } = await authorizedOrder(ctx, actor, data.id, { write: true });
   const key = motorMutationKey(actor, "os.quote.save", requestId);
@@ -410,7 +413,7 @@ onCommand("os", "os.decide", async (ctx, actor, data, { requestId }) => {
         actor.id,
         actor.kind === "user" ? "panel" : "api",
         data.note,
-        { mutationKey: key, notify: await ctx.mayNotify(actor, order.conversation_id) },
+        { mutationKey: key, notify: await ctx.mayNotify(actor, order.conversation_id), quote_version: data.quote_version },
       ),
     ),
   );

@@ -12,6 +12,12 @@ export const osModule: ModuleDefinition = {
     "Ordens de serviço numeradas com orçamento, aprovação pelo WhatsApp, acompanhamento pelo cliente e retirada.",
   builtin: true,
   default_enabled: false,
+  erp_role: "vendas",
+  integration: {
+    route: "work", uses: ["customers", "products", "stock", "finance"],
+    operations: ["prepare", "execute", "lifecycle", "receive", "cancel", "reverse"],
+    privacy: "commercial",
+  },
   management: NATIVE_MANAGEMENT_ITEMS.os,
   navigation: [
     {
