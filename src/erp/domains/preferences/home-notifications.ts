@@ -7,6 +7,14 @@ import { one, type SqlDriver } from "../../engine/driver.ts";
 import { jsonType } from "../../engine/json.ts";
 import { countPhysical, lotsExpiring } from "../stock/public.ts";
 import { get } from "./public.ts";
+import { erpRequirementMet, normalizeErpParts, type ErpParts } from "../../parts.ts";
+import { erpNotificationRequirement } from "../../parts-requirements.ts";
+
+/** O catálogo da base também vale para executores sem RpcContext. */
+export function notificationEnabled(type: string, parts: Readonly<ErpParts>): boolean {
+  const requirement = erpNotificationRequirement(type);
+  return !!requirement && erpRequirementMet(parts, requirement);
+}
 
 export const NOTIFICATION_TYPES = [
   "contas_pagar_atrasadas", "contas_receber_atrasadas", "estoque_abaixo_minimo", "estoque_maximo", "estoque_zerado",
@@ -26,7 +34,8 @@ export function notificationRoles(type: string): string[] {
 }
 
 /** erp_home.notification_recipient(p_user, p_role, p_type): a lista da preferência, ou o administrador quando vazia. */
-export function notificationRecipient(db: SqlDriver, user: string, role: string, type: string): boolean {
+export function notificationRecipient(db: SqlDriver, user: string, role: string, type: string, parts = normalizeErpParts()): boolean {
+  if (!notificationEnabled(type, parts)) return false;
   if (!notificationRoles(type).includes(role)) return false;
   const list = get(db, `notificacoes.${type}`) ?? [];
   if (!Array.isArray(list) || list.length === 0) return role === "admin";
@@ -60,7 +69,9 @@ export function expiringProducts(db: SqlDriver, from: string | null, until: stri
  * erp_home.notification_digest(p_type, p_today): quantidade e valor (centavos,
  * ou null) do tipo no dia.
  */
-export function notificationDigest(db: SqlDriver, type: string, today: string, a1Limit: bigint): { quantity: number; amount: bigint | null } {
+export function notificationDigest(db: SqlDriver, type: string, today: string, a1Limit: bigint, parts = normalizeErpParts()): { quantity: number; amount: bigint | null } {
+  // Resumo interno vazio; os consumidores filtram o tipo antes de expor DTOs.
+  if (!notificationEnabled(type, parts)) return { quantity: 0, amount: null };
   const count = (sql: string, ...params: unknown[]) => Number(one(db, sql, ...params)!.n);
   if (type === "contas_pagar_atrasadas" || type === "contas_receber_atrasadas") {
     const r = one(

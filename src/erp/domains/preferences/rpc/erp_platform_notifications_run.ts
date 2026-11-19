@@ -6,7 +6,7 @@ import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { todaySaoPaulo } from "../../../engine/time.ts";
 import { uuid } from "../args.ts";
-import { NOTIFICATION_TYPES, addDays, notificationDigest, notificationRecipient } from "../home-notifications.ts";
+import { NOTIFICATION_TYPES, addDays, notificationDigest, notificationRecipient, notificationEnabled } from "../home-notifications.ts";
 import { taskHeld } from "../platform.ts";
 import { saoPauloMidnight } from "../time.ts";
 
@@ -19,10 +19,11 @@ export function erpPlatformNotificationsRun(ctx: RpcContext, a: RpcArgs) {
   let created = 0;
   const members = db.exec('SELECT user_id, role FROM "erp_access__membership" WHERE active=1 ORDER BY user_id').rows;
   for (const type of NOTIFICATION_TYPES) {
-    const d = notificationDigest(db, type, today, a1Limit);
+    if (!notificationEnabled(type, ctx.parts)) continue;
+    const d = notificationDigest(db, type, today, a1Limit, ctx.parts);
     if (d.quantity <= 0) continue;
     for (const m of members) {
-      if (!notificationRecipient(db, String(m.user_id), String(m.role), type)) continue;
+      if (!notificationRecipient(db, String(m.user_id), String(m.role), type, ctx.parts)) continue;
       // ON CONFLICT(user_id, type, day) DO NOTHING: conta só as novas.
       if (one(db, 'SELECT 1 x FROM "erp_home__notification" WHERE user_id=? AND type=? AND day=?', m.user_id, type, today)) continue;
       db.exec(
