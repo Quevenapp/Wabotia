@@ -111,6 +111,7 @@ export function orderView(row: any, history?: any[]) {
     number: row.number,
     status,
     status_label: STATUS_LABELS[status] || status,
+    ...(row.notification ? { notification: row.notification } : {}),
     customer: {
       name: row.customer_name,
       phone: row.phone,
@@ -207,11 +208,16 @@ export async function loadOrder(ctx: ModuleContext, id: unknown) {
   if (typeof id !== "string") throw notFound();
   const row = await one(
     ctx.env,
-    "SELECT * FROM os_orders WHERE id=? AND profile_id=?",
+    `SELECT o.*,(SELECT cursor_json FROM customer_progress p WHERE p.profile_id=o.profile_id
+      AND p.namespace='team' AND p.task LIKE 'os:notice:%' AND p.complete=0
+      AND json_extract(p.cursor_json,'$.orderId')=o.id AND json_extract(p.cursor_json,'$.version')=o.row_version
+      ORDER BY p.updated DESC LIMIT 1) notice_pending FROM os_orders o WHERE o.id=? AND o.profile_id=?`,
     id,
     ctx.profile,
   );
   if (!row) throw notFound();
+  if (row.notice_pending) row.notification = { state: json(row.notice_pending, {}).state || "pending", reason: "Aviso pendente de entrega." };
+  delete row.notice_pending;
   return row;
 }
 
@@ -334,13 +340,12 @@ export async function listOrders(
 // ---------------------------------------------------------------------------
 // Avisos ao cliente
 
-async function conversationOf(ctx: ModuleContext, order: any) {
+export async function conversationOf(ctx: ModuleContext, order: any) {
   if (!order.conversation_id) return null;
   try {
     const c = await ctx.conversation(order.conversation_id);
-    // Avisos administrativos usam o vínculo da ordem, como na API publicada.
-    // Documentos revalidam separadamente o telefone atual do titular.
-    return await workCustomerAllows(ctx, c, order) ? c : null;
+    // O vínculo histórico e o destinatário atual precisam concordar em cada envio.
+    return await workCustomerAllows(ctx, c, order, true) ? c : null;
   } catch {
     return null;
   }
@@ -368,17 +373,52 @@ export async function notify(
   const type = snapshotType(order);
   const template = type ? textKey === "pickup_reminder" ? type.pickup_reminder_text : type.stages.find(s => s.id === effectiveStage(order))?.message : osSettings(await ctx.settings()).texts[textKey];
   if (!template) return null;
-  const c = await conversationOf(ctx, order);
-  // O agendador legado marca retirada depois do retorno. Pendência de identidade
-  // precisa continuar tentável, sem registrar uma entrega que não ocorreu.
-  if (!c && order.conversation_id && textKey === "pickup_reminder")
-    throw new ApiError(409, "contact_conflict", "Destinatário do lembrete não confirmado.");
-  if (!c || c.chat_type === "group") return null;
-  return ctx.sendMessage(
-    c,
-    { text: type ? customMessage(template, order) : fill(template, publicOrderValues(order)) },
-    { key, notification: true },
-  );
+  const task = noticeTask(order.id, key);
+  await batch(ctx.env, [noticeStatement(ctx.profile, order, textKey, key)]);
+  const saved = await one(ctx.env, "SELECT complete FROM customer_progress WHERE profile_id=? AND namespace='team' AND task=?", ctx.profile, task);
+  if (saved?.complete) { order.notification = { state: "sent" }; return null; }
+  const fresh = await loadOrder(ctx, order.id);
+  const c = fresh.row_version === order.row_version ? await conversationOf(ctx, fresh) : null;
+  if (!c || c.chat_type === "group") {
+    order.notification = { state: "pending", reason: "Destinatário não confirmado." };
+    if (textKey === "pickup_reminder") throw new ApiError(409, "contact_conflict", "Destinatário do lembrete não confirmado.");
+    return null;
+  }
+  try {
+    const sent = await ctx.sendMessage(c,
+      { text: type ? customMessage(template, fresh) : fill(template, publicOrderValues(fresh)) },
+      { key, notification: true });
+    if (sent === null) { order.notification = { state: "pending" }; return null; }
+    await exec(ctx.env, "UPDATE customer_progress SET complete=1,updated=? WHERE profile_id=? AND namespace='team' AND task=?", now(), ctx.profile, task);
+    order.notification = { state: "sent" };
+    return sent;
+  } catch (error) {
+    order.notification = { state: "failed", reason: "Aviso pendente de nova tentativa." };
+    await exec(ctx.env, "UPDATE customer_progress SET cursor_json=json_set(cursor_json,'$.state','failed'),updated=? WHERE profile_id=? AND namespace='team' AND task=?", now(), ctx.profile, task);
+    throw error;
+  }
+}
+
+const noticeTask = (id: string, key: string) => `os:notice:${JSON.stringify([id, key])}`;
+function noticeStatement(profile: string, row: any, textKey: TextKey, key: string, historyId?: string): [string, unknown[]] {
+  return [`INSERT INTO customer_progress(profile_id,namespace,task,cursor_json,complete,updated)
+    SELECT ?,'team',?,?,0,? WHERE EXISTS(SELECT 1 FROM os_orders WHERE profile_id=? AND id=? AND row_version=?)
+    ${historyId ? "AND EXISTS(SELECT 1 FROM os_history WHERE id=? AND profile_id=? AND order_id=?)" : ""}
+    ON CONFLICT(profile_id,namespace,task) DO NOTHING`,
+  [profile, noticeTask(row.id, key), JSON.stringify({ orderId: row.id, version: row.row_version, textKey, key }), now(), profile, row.id, row.row_version, ...(historyId ? [historyId, profile, row.id] : [])]];
+}
+
+/** Recuperação limitada, com a mesma chave do transporte após resposta perdida. */
+export async function resumePendingNotices(ctx: ModuleContext, row: any) {
+  const pending = await all(ctx.env, `SELECT task,cursor_json FROM customer_progress
+    WHERE profile_id=? AND namespace='team' AND task LIKE 'os:notice:%' AND complete=0
+      AND json_extract(cursor_json,'$.orderId')=? AND json_extract(cursor_json,'$.version')=?
+    ORDER BY updated,task LIMIT 5`, ctx.profile, row.id, row.row_version);
+  for (const item of pending) {
+    const notice = JSON.parse(item.cursor_json);
+    if (notice.version !== row.row_version) continue;
+    await notify(ctx, row, notice.textKey, notice.key);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -445,12 +485,13 @@ export async function createOrder(ctx: ModuleContext, input: CreateInput) {
   const namespace = c?.external_namespace.startsWith("app:") ? c.external_namespace : "team";
   const contactId = ref?.state === "ready" && ref.profileId === ctx.profile && ref.namespace === namespace
     ? ref.contactId : null;
-  const contact = contactId ? await one<{ name: string }>(ctx.env,
-    "SELECT name FROM contacts WHERE id=? AND profile_id=? AND namespace=? AND identity_state='active'",
+  const contact = contactId ? await one<{ name: string; phone: string }>(ctx.env,
+    "SELECT name,phone FROM contacts WHERE id=? AND profile_id=? AND namespace=? AND identity_state='active'",
     contactId, ctx.profile, namespace) : null;
   const suppliedPhone = text(input.phone, 40, "o telefone");
-  const phone = suppliedPhone ? phoneDigits(suppliedPhone) : ref?.verifiedPhone || (c ? ctx.verifiedPhone(c) : null) || "";
-  requireValue(!suppliedPhone || normalizeCustomerPhone(phone, "international"), "Informe um telefone internacional válido.");
+  const phone = suppliedPhone ? normalizeCustomerPhone(suppliedPhone, "human_br") || ""
+    : ref?.verifiedPhone || (namespace.startsWith("app:") ? contact?.phone : null) || (c ? ctx.verifiedPhone(c) : null) || "";
+  requireValue(!suppliedPhone || normalizeCustomerPhone(phone, "international"), "Informe um telefone válido com DDD ou com + e o código do país.");
   requireValue(c || phone, "Informe a conversa ou o telefone do cliente.");
   const name = text(input.customer_name, 120, "o nome do cliente") || contact?.name || "";
   const id = uid(), at = now();
@@ -639,6 +680,8 @@ export async function moveOrder(
         ...(mutationKey ? [effectiveStage(order), to, sets.row_version, mutationKey] : []),
       ],
     ],
+    ...(options.notify !== false && order.status !== to && (TEXT_KEYS as readonly string[]).includes(to) && cfg.texts[to as TextKey]
+      ? [noticeStatement(ctx.profile, { ...order, row_version: sets.row_version }, to as TextKey, `status:${order.id}:${historyId}`, historyId)] : []),
   ]);
   if (!update.meta.changes)
     throw new ApiError(
@@ -902,8 +945,9 @@ export async function sendQuote(
     sent: send,
     actor,
   }, snapshotType(order) ? { key: `quoted:${order.id}:${next.row_version}` } : undefined);
-  if (c)
-    await ctx.sendInteractive(c, quoteSpec(next), {
+  const recipient = c ? await conversationOf(ctx, next) : null;
+  if (recipient)
+    await ctx.sendInteractive(recipient, quoteSpec(next), {
       key: `quote:${order.id}:${next.quote_version}`,
       notification: true,
     });
@@ -1143,14 +1187,23 @@ async function customerOrders(ctx: ModuleContext, c: Conversation, open: boolean
 }
 
 export async function trackText(ctx: ModuleContext, c: Conversation, typeId?: string) {
-  const phone = ctx.verifiedPhone(c);
-  if (phone) {
-    const scope = await workCustomerScope(ctx, c);
-    await exec(ctx.env, `UPDATE os_orders SET conversation_id=?,contact_id=coalesce(contact_id,?)
-      WHERE profile_id=? AND conversation_id IS NULL AND ${scope.sql}`,
-    c.id, scope.contactId, ctx.profile, ...scope.params);
+  const authorized = await customerOrders(ctx, c, false, typeId, "ASC");
+  for (const row of authorized) {
+    if (!row.conversation_id && await workCustomerAllows(ctx, c, row, true)) {
+      const scope = await workCustomerScope(ctx, c);
+      await exec(ctx.env, `UPDATE os_orders SET conversation_id=?,contact_id=coalesce(contact_id,?)
+        WHERE profile_id=? AND id=? AND conversation_id IS NULL AND contact_id IS ? AND row_version=? AND ${scope.sql}
+          AND (? IS NULL OR EXISTS(SELECT 1 FROM contacts WHERE profile_id=? AND id=? AND version=? AND identity_state='active'))
+          AND NOT EXISTS(SELECT 1 FROM conversations WHERE profile_id=? AND id=? AND customer_link_state IN ('blocked','excluded','ambiguous'))`,
+        c.id, scope.contactId, ctx.profile, row.id, row.contact_id, row.row_version, ...scope.params,
+        scope.contactId, ctx.profile, scope.contactId, 'ref' in scope ? scope.ref.version : null, ctx.profile, c.id);
+      const fresh = await loadOrder(ctx, row.id);
+      Object.assign(row, fresh);
+    }
+    try { await resumePendingNotices(ctx, row); }
+    catch { row.notification = { state: "failed", reason: "Aviso pendente de nova tentativa." }; }
   }
-  const rows = await customerOrders(ctx, c, true, typeId, "ASC");
+  const rows = authorized.filter(row => !["delivered", "cancelled"].includes(row.status));
   if (!rows.length) {
     if (typeId && typeId !== "service_order") {
       const type = await resolveWorkType(ctx, typeId);

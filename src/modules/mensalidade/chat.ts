@@ -2,6 +2,7 @@
 // via" e a escolha da parcela (toque na lista ou número na linha QR). O
 // cliente só consulta e pede o código de novo; nenhuma mensagem dele dá
 // baixa em parcela.
+import { routineCustomerScope } from "../agenda/customer-provider";
 import { all, exec, one } from "../../db";
 import { ApiError, type Conversation, json, now } from "../../types";
 import type { InteractiveSpec, ModuleContext } from "../api";
@@ -10,7 +11,6 @@ import {
   mensalidadeSettings,
   money,
   periodLabel,
-  phoneDigits,
   stamp,
 } from "./model";
 import { loadInstallment } from "./installments";
@@ -29,46 +29,35 @@ const normalize = (value: string) =>
     .trim();
 
 /**
- * Assinaturas do telefone da conversa (ou ligadas a ela). As cadastradas só
- * com o telefone passam a ser desta conversa.
+ * Assinaturas do proprietário resolvido ou da origem legada comprovada.
+ * O primeiro vínculo de destinatário é condicional e não transfere titularidade.
  */
 async function customerScope(
   ctx: ModuleContext,
   c: Conversation,
   options: { link?: boolean } = {},
 ) {
-  // Só o telefone autenticado pelo canal (nulo em conversa de integração).
-  const phone = phoneDigits(ctx.verifiedPhone(c) ?? "");
-  // Leitura (GET pela API ou ferramenta do bot) não grava (conferência
-  // N-13): a busca já casa pelo telefone; a revinculação fica com a conversa.
-  if (phone.length >= 10 && options.link !== false)
-    await exec(
-      ctx.env,
-      "UPDATE mensalidade_subscriptions SET conversation_id=? WHERE profile_id=? AND phone=? AND conversation_id IS NULL",
-      c.id,
-      ctx.profile,
-      phone,
-    );
-  return { phone };
+  const scope = await routineCustomerScope(ctx, c, "phone", "mensalidade");
+  if (["blocked", "excluded", "ambiguous"].includes(scope.ref.state))
+    return { ...scope, sql: "0", params: [] };
+  if (options.link !== false && scope.ref.state === "ready" && scope.ref.namespace === "team" && scope.ref.verifiedPhone)
+    await exec(ctx.env, `UPDATE mensalidade_subscriptions SET conversation_id=?,contact_id=coalesce(contact_id,?)
+      WHERE profile_id=? AND conversation_id IS NULL AND ${scope.sql}`, c.id, scope.ref.contactId, ctx.profile, ...scope.params);
+  return scope;
 }
 
 const SELECT =
-  "SELECT i.*,p.name AS plan_name,s.customer_name FROM mensalidade_installments i JOIN mensalidade_subscriptions s ON s.id=i.subscription_id LEFT JOIN mensalidade_plans p ON p.id=s.plan_id WHERE i.profile_id=? AND (s.conversation_id=? OR (s.phone<>'' AND s.phone=?))";
+  "SELECT i.*,p.name AS plan_name,mensalidade_subscriptions.customer_name FROM mensalidade_installments i JOIN mensalidade_subscriptions ON mensalidade_subscriptions.id=i.subscription_id AND mensalidade_subscriptions.profile_id=i.profile_id LEFT JOIN mensalidade_plans p ON p.id=mensalidade_subscriptions.plan_id WHERE i.profile_id=?";
 
-/** Parcelas em aberto do cliente da conversa (desta conversa ou do telefone). */
+/** Parcelas do proprietário autorizado ou da origem legada comprovada. */
 export async function openInstallments(
   ctx: ModuleContext,
   c: Conversation,
   options: { link?: boolean } = {},
 ) {
-  const { phone } = await customerScope(ctx, c, options);
-  return all(
-    ctx.env,
-    `${SELECT} AND i.status IN ('open','overdue') ORDER BY i.due_date,i.id LIMIT 30`,
-    ctx.profile,
-    c.id,
-    phone,
-  );
+  const scope = await customerScope(ctx, c, options);
+  return all(ctx.env, `${SELECT} AND ${scope.sql} AND i.status IN ('open','overdue') ORDER BY i.due_date,i.id LIMIT 30`,
+    ctx.profile, ...scope.params);
 }
 
 const label = (inst: any) =>
@@ -81,20 +70,18 @@ const rowTitle = (inst: any) =>
 
 /** Texto de "Minhas mensalidades": em aberto (todas) e as últimas pagas. */
 export async function statementText(ctx: ModuleContext, c: Conversation) {
-  const { phone } = await customerScope(ctx, c);
+  const scope = await customerScope(ctx, c);
   const open = await all(
     ctx.env,
-    `${SELECT} AND i.status IN ('open','overdue') ORDER BY i.due_date,i.id LIMIT 30`,
+    `${SELECT} AND ${scope.sql} AND i.status IN ('open','overdue') ORDER BY i.due_date,i.id LIMIT 30`,
     ctx.profile,
-    c.id,
-    phone,
+    ...scope.params,
   );
   const paid = await all(
     ctx.env,
-    `${SELECT} AND i.status='paid' ORDER BY i.paid_at DESC LIMIT 3`,
+    `${SELECT} AND ${scope.sql} AND i.status='paid' ORDER BY i.paid_at DESC LIMIT 3`,
     ctx.profile,
-    c.id,
-    phone,
+    ...scope.params,
   );
   if (!open.length && !paid.length) return { text: "", open };
   const lines: string[] = ["Suas mensalidades"];
@@ -216,13 +203,12 @@ async function payInstallment(
 ) {
   const say = (text: string) =>
     ctx.sendMessage(c, { text }, { key: `turno:${rowId}` });
-  const { phone } = await customerScope(ctx, c);
+  const scope = await customerScope(ctx, c);
   const own = await one(
     ctx.env,
-    `${SELECT} AND i.id=?`,
+    `${SELECT} AND ${scope.sql} AND i.id=?`,
     ctx.profile,
-    c.id,
-    phone,
+    ...scope.params,
     installmentId,
   );
   if (!own) return say("Não encontramos esta mensalidade para este número.");

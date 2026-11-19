@@ -6,21 +6,109 @@ import { jobInsert, requestHash } from "../../customer/jobs";
 import type { ModuleContext } from "../api";
 import type { CustomerRef, CustomerWrite, Statement } from "../../customer/contracts";
 import type { CustomerModuleProvider } from "../../customer/profile-contracts";
-import { normalizeCustomerPhone, customerPhoneVariants as phoneVariants } from "../../customer/phone";
 
-/** Consulta pública legada por credencial do canal; texto/API não fornece phone. */
-export async function routineCustomerScope(ctx: ModuleContext, c: Conversation, phoneColumn: "phone" | "customer_phone") {
+// Nomes compilados; nenhum identificador SQL vem do cliente.
+const sources = {
+  agenda: ["agenda_appointments", "customer_phone", "appointments"],
+  pedido: ["pedido_orders", "phone", "orders"],
+  reserva: ["reserva_bookings", "customer_phone", "bookings"],
+  os: ["os_orders", "phone", "works"],
+  mensalidade: ["mensalidade_subscriptions", "phone", "subscriptions"],
+} as const;
+
+const digitsSql = (column: string) => `replace(replace(replace(replace(replace(replace(trim(${column}),'+',''),' ',''),'.',''),'-',''),'(',''),')','')`;
+
+/** Sem snapshot original, uma edição do destinatário exige revisão no domínio. */
+function unchangedRecipient(table: string, moduleId: string) {
+  if (moduleId === "os") return `NOT EXISTS(SELECT 1 FROM os_history h WHERE h.profile_id=${table}.profile_id
+    AND h.order_id=${table}.id AND ((h.kind='edit' AND h.note LIKE 'Alterado:%phone%')
+      OR EXISTS(SELECT 1 FROM json_each(h.changed_fields_json) field WHERE field.value='phone')))`;
+  if (moduleId === "reserva") return `(${table}.conversation_id IS NOT NULL OR ${table}.changes=0)`;
+  if (moduleId === "mensalidade") return `(${table}.conversation_id IS NOT NULL OR ${table}.updated=${table}.created)`;
+  return "1";
+}
+
+/** Índice original inequívoco ou vínculo de aplicação; nunca variantes locais. */
+export function legacyRoutineOwner(table: string, phoneColumn: string, moduleId: string) {
+  const phone = digitsSql(`${table}.${phoneColumn}`);
+  return `(SELECT k.id FROM contacts k WHERE k.profile_id=${table}.profile_id AND k.identity_state='active'
+    AND ${unchangedRecipient(table, moduleId)}
+    AND NOT EXISTS(SELECT 1 FROM customer_records h WHERE h.profile_id=${table}.profile_id
+      AND h.module_id='${moduleId}' AND h.record_id=${table}.id AND h.contact_id<>k.id)
+    AND NOT EXISTS(SELECT 1 FROM customer_records h WHERE h.profile_id=${table}.profile_id
+      AND h.conversation_id=${table}.conversation_id AND h.module_id IN ('conversations','core') AND h.contact_id<>k.id)
+    AND (NOT EXISTS(SELECT 1 FROM customer_records h WHERE h.profile_id=${table}.profile_id
+      AND h.conversation_id=${table}.conversation_id AND h.module_id IN ('conversations','core'))
+      OR EXISTS(SELECT 1 FROM customer_records h WHERE h.profile_id=${table}.profile_id
+        AND h.conversation_id=${table}.conversation_id AND h.module_id IN ('conversations','core')
+        AND h.contact_id=k.id AND h.occurred_at<=${table}.created))
+    AND (
+      (k.namespace='team' AND EXISTS(SELECT 1 FROM customer_phones p
+        WHERE p.profile_id=k.profile_id AND p.namespace=k.namespace AND p.phone=${phone}
+          AND p.contact_id=k.id AND p.state='ready' AND p.version=1
+          AND NOT EXISTS(SELECT 1 FROM customer_phone_candidates x WHERE x.profile_id=p.profile_id
+            AND x.namespace=p.namespace AND x.phone=p.phone AND (x.contact_id<>k.id OR x.origin IN ('local','mirror')))
+          AND NOT EXISTS(SELECT 1 FROM contacts x WHERE x.profile_id=k.profile_id AND x.namespace=k.namespace
+            AND x.id<>k.id AND ${digitsSql('x.phone')}=p.phone))
+        AND ((${table}.conversation_id IS NULL ${moduleId === 'mensalidade' ? '' : `AND ${table}.source IN ('panel','staff','agent')`}) OR EXISTS(SELECT 1 FROM conversations c
+          LEFT JOIN conversation_contacts l ON l.profile_id=c.profile_id AND l.conversation_id=c.id
+          WHERE c.profile_id=k.profile_id AND c.id=${table}.conversation_id AND c.chat_type<>'group'
+            AND c.external_namespace NOT LIKE 'app:%' AND c.customer_link_state NOT IN ('blocked','excluded','ambiguous')
+            AND (l.contact_id IS NULL OR l.contact_id=k.id)
+            AND ((c.customer_link_state='ready' AND EXISTS(SELECT 1 FROM customer_phones verified
+                WHERE verified.profile_id=c.profile_id AND verified.namespace='team' AND verified.phone=c.verified_phone
+                  AND verified.state='ready' AND verified.contact_id=k.id)) OR
+              (c.connection_id IS NOT NULL AND c.external_namespace='channel:'||c.connection_id
+                AND c.verified_phone=${phone} AND EXISTS(SELECT 1 FROM messages m
+                  WHERE m.profile_id=c.profile_id AND m.conversation_id=c.id AND m.direction='inbound'
+                    AND m.external_id IS NOT NULL AND m.created<=${table}.created)) OR EXISTS(
+              SELECT 1 FROM customer_records h WHERE h.profile_id=c.profile_id AND h.conversation_id=c.id
+                AND h.module_id IN ('conversations','core') AND h.contact_id=k.id)))))
+      OR (k.namespace LIKE 'app:%' AND EXISTS(SELECT 1 FROM conversations c JOIN conversation_contacts l
+        ON l.profile_id=c.profile_id AND l.conversation_id=c.id WHERE c.profile_id=k.profile_id
+          AND c.id=${table}.conversation_id AND c.external_namespace=k.namespace AND c.chat_type<>'group'
+          AND c.customer_link_state='ready' AND l.contact_id=k.id))
+    ) LIMIT 1)`;
+}
+
+/** Proprietário persistido prevalece; legado local não contorna vínculo anterior. */
+export async function routineCustomerScope(ctx: ModuleContext, c: Conversation, _phoneColumn: "phone" | "customer_phone", moduleId = ctx.module.id) {
+  const source = sources[moduleId as keyof typeof sources];
+  if (!source) throw new ApiError(404, "not_found", "Rotina não encontrada.");
+  const [table, phoneColumn] = source;
   const ref = await ctx.customer(c);
   const namespace = c.external_namespace.startsWith("app:") ? c.external_namespace : "team";
   if (c.profile_id !== ctx.profile || ref.profileId !== ctx.profile || ref.namespace !== namespace)
     throw new ApiError(404, "not_found", "Contato não encontrado.");
-  if (["blocked", "excluded", "ambiguous"].includes(ref.state))
-    return { sql: "contact_id IS NULL AND conversation_id=?", params: [c.id] as unknown[] };
-  const phone = ctx.verifiedPhone(c);
+  const contactId = ref.state === "ready" ? ref.contactId : null;
+  const owner = `coalesce(${table}.contact_id,(SELECT h.contact_id FROM customer_records h
+    WHERE h.profile_id=${table}.profile_id AND h.module_id='${moduleId}' AND h.record_id=${table}.id LIMIT 1))`;
+  // O fallback publicado conserva somente a origem sem proprietário, sem
+  // sessão histórica de outra pessoa e sem atravessar linhas por telefone.
+  const local = `(${unchangedRecipient(table, moduleId)} AND ${table}.conversation_id=? AND ${table}.created>=?
+    AND (${digitsSql(`${table}.${phoneColumn}`)}=? OR ? LIKE 'app:%') AND NOT EXISTS(SELECT 1 FROM customer_records h
+    WHERE h.profile_id=${table}.profile_id AND h.conversation_id=${table}.conversation_id
+      AND h.module_id IN ('conversations','core') AND (? IS NULL OR h.contact_id<>?))
+    AND (NOT EXISTS(SELECT 1 FROM customer_records h WHERE h.profile_id=${table}.profile_id
+      AND h.conversation_id=${table}.conversation_id AND h.module_id IN ('conversations','core'))
+      OR EXISTS(SELECT 1 FROM customer_records h WHERE h.profile_id=${table}.profile_id
+        AND h.conversation_id=${table}.conversation_id AND h.module_id IN ('conversations','core')
+        AND h.contact_id=? AND h.occurred_at<=${table}.created)))`;
   return {
-    sql: `(contact_id=? OR (contact_id IS NULL AND (conversation_id=? OR ${phoneColumn} IN (SELECT value FROM json_each(?)))))`,
-    params: [ref.state === "ready" ? ref.contactId : null, c.id, JSON.stringify(phone ? phoneVariants(phone) : [])],
+    sql: c.chat_type === "group" ? "0" : `(NOT EXISTS(SELECT 1 FROM customer_records h
+      WHERE h.profile_id=${table}.profile_id AND h.module_id='${moduleId}' AND h.record_id=${table}.id
+        AND h.contact_id<>${owner}) AND (${owner}=? OR (${owner} IS NULL AND (${local}
+      OR (? IS NOT NULL AND ${legacyRoutineOwner(table, phoneColumn, moduleId)}=?)))))`,
+    params: c.chat_type === "group" ? [] : [contactId, c.id, c.created, ref.verifiedPhone || ctx.verifiedPhone(c) || c.phone, namespace, contactId, contactId, contactId, contactId, contactId] as unknown[],
+    ref,
   };
+}
+
+export async function routineCustomerAllows(ctx: ModuleContext, c: Conversation, row: { id: string }, moduleId = ctx.module.id) {
+  const source = sources[moduleId as keyof typeof sources];
+  const scope = await routineCustomerScope(ctx, c, source[1], moduleId);
+  return !!await one(ctx.env, `SELECT id FROM ${source[0]} WHERE profile_id=? AND id=? AND ${scope.sql}`,
+    ctx.profile, row.id, ...scope.params);
 }
 
 /** Utilitários compartilhados apenas pelas três rotinas desta frente. */
@@ -36,7 +124,7 @@ export async function routineCustomer(ctx: ModuleContext, c: Conversation) {
     "SELECT id,name,phone,email,document,person_type,mirror_json FROM contacts WHERE profile_id=? AND namespace=? AND id=? AND identity_state='active'",
     ctx.profile, namespace, ref.contactId);
   if (!contact) throw new ApiError(404, "not_found", "Contato não encontrado.");
-  return { ref, name: contact.name as string, phone: ref.verifiedPhone || "", snapshot: contact };
+  return { ref, name: contact.name as string, phone: ref.verifiedPhone || (namespace.startsWith("app:") ? contact.phone : "") || "", snapshot: contact };
 }
 
 /** Nome confirmado no carrinho; intenção no lote do pedido, processada na manutenção. */
@@ -124,10 +212,9 @@ export function routineProvider(source: Routine): CustomerModuleProvider {
   const task = `routine:${moduleId}:${collectionId}`;
   return {
     async list(ctx, actor, contactId, requested, query) {
-      if (actor.kind !== "user" || actor.module || actor.credential || !allows(actor, moduleId) || !allows(actor, "contacts"))
+      if (actor.kind !== "user" || actor.via || actor.id.startsWith("bot:") || actor.module || actor.credential || !allows(actor, moduleId))
         throw new ApiError(403, "forbidden", "Sem permissão para consultar esta lista.");
       ctx.access(actor, "conversations:read");
-      ctx.access(actor, "contacts:read");
       if (ctx.module.id !== moduleId || requested !== collectionId)
         throw new ApiError(404, "not_found", "Lista não encontrada.");
       await ctx.requireEnabled();
@@ -183,37 +270,16 @@ export function routineProvider(source: Routine): CustomerModuleProvider {
         "SELECT cursor_json FROM customer_progress WHERE profile_id=? AND namespace='team' AND task=?", profileId, task);
       // O cursor percorre a fonte da área inteira; cada linha conserva seu namespace.
       const cursor = progress ? JSON.parse(progress.cursor_json) : {};
-      const rows = await all(env, `SELECT r.id,r.created,r.${source.phone} snapshot_phone,
-          c.id conversation_id,c.external_namespace,c.verified_phone,c.customer_link_state,
-          cc.contact_id,ct.namespace,ct.identity_state,p.state phone_state,p.contact_id phone_contact
-        FROM ${table} r
-        LEFT JOIN conversations c ON c.profile_id=r.profile_id AND c.id=r.conversation_id AND c.chat_type<>'group'
-        LEFT JOIN conversation_contacts cc ON cc.profile_id=c.profile_id AND cc.conversation_id=c.id
-        LEFT JOIN contacts ct ON ct.profile_id=cc.profile_id AND ct.id=cc.contact_id
-        LEFT JOIN customer_phones p ON p.profile_id=c.profile_id AND p.namespace=ct.namespace AND p.phone=c.verified_phone
-        WHERE r.profile_id=? AND r.contact_id IS NULL
-        ${cursor.id ? "AND (r.created>? OR (r.created=? AND r.id>?))" : ""}
-        ORDER BY r.created,r.id LIMIT ?`, profileId,
+      const rows = await all(env, `SELECT id,created,contact_id,conversation_id,${source.phone} snapshot_phone FROM ${table}
+        WHERE profile_id=? AND contact_id IS NULL
+        ${cursor.id ? "AND (created>? OR (created=? AND id>?))" : ""}
+        ORDER BY created,id LIMIT ?`, profileId,
         ...(cursor.id ? [cursor.created, cursor.created, cursor.id] : []), limit);
-      const statements: Statement[] = [];
-      for (const row of rows) {
-        const namespace = row.external_namespace?.startsWith("app:") ? row.external_namespace : "team";
-        const snapshot = normalizeCustomerPhone(row.snapshot_phone, "international");
-        if (!row.contact_id || row.identity_state !== "active" || row.namespace !== namespace || row.customer_link_state !== "ready" ||
-            (namespace === "team" && (row.phone_state !== "ready" || row.phone_contact !== row.contact_id ||
-              !snapshot || snapshot !== row.verified_phone))) continue;
-        statements.push([
-          `UPDATE ${table} SET contact_id=? WHERE profile_id=? AND id=? AND contact_id IS NULL
-           AND EXISTS (SELECT 1 FROM conversation_contacts cc JOIN contacts ct ON ct.id=cc.contact_id AND ct.profile_id=cc.profile_id
-             JOIN conversations c ON c.id=cc.conversation_id AND c.profile_id=cc.profile_id
-             WHERE cc.profile_id=? AND cc.conversation_id=? AND cc.contact_id=? AND ct.namespace=? AND ct.identity_state='active'
-               AND c.customer_link_state='ready' AND c.external_namespace=? AND c.verified_phone IS ?
-               AND (?<>'team' OR EXISTS (SELECT 1 FROM customer_phones p WHERE p.profile_id=cc.profile_id
-                 AND p.namespace=ct.namespace AND p.phone=c.verified_phone AND p.state='ready' AND p.contact_id=ct.id)))`,
-          [row.contact_id, profileId, row.id, profileId, row.conversation_id, row.contact_id, namespace,
-            row.external_namespace, row.verified_phone, namespace],
-        ]);
-      }
+      const statements: Statement[] = rows.map(row => [
+        `UPDATE ${table} SET contact_id=${legacyRoutineOwner(table, source.phone, moduleId)}
+          WHERE profile_id=? AND id=? AND contact_id IS NULL AND conversation_id IS ? AND ${source.phone}=?`,
+        [profileId, row.id, row.conversation_id, row.snapshot_phone],
+      ]);
       const tail = rows.at(-1);
       // Ao terminar a passagem, recomeça: identidades antes ambíguas podem ter sido resolvidas.
       const next = rows.length === limit && tail ? { created: tail.created, id: tail.id } : {};

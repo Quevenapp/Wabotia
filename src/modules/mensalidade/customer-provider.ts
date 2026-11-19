@@ -57,10 +57,9 @@ export async function customerCollection(
     select?: string; cells?: (row: any) => ContactPage["items"][number]["cells"];
   },
 ): Promise<ContactPage> {
-  if (actor.kind !== "user" || actor.id.startsWith("bot:") ||
-      !allows(actor, "contacts") || !allows(actor, moduleId))
+  if (actor.kind !== "user" || actor.via || actor.module || actor.credential || actor.id.startsWith("bot:") ||
+      !allows(actor, moduleId))
     throw new ApiError(403, "forbidden", "Sem acesso a esta coleção do cliente.");
-  ctx.access(actor, "contacts:read");
   ctx.access(actor, "conversations:read");
   await requireModule(ctx.env, ctx.profile, moduleId);
   if (!await one(ctx.env, "SELECT id FROM contacts WHERE profile_id=? AND namespace='team' AND id=? AND identity_state='active'", ctx.profile, contactId))

@@ -1,3 +1,5 @@
+import { legacyRoutineOwner } from "../agenda/customer-provider";
+import { allows } from "../../access";
 import { all, batch, one } from "../../db";
 import { ApiError, now, type Actor } from "../../types";
 import { seal, unseal } from "../../security";
@@ -47,7 +49,7 @@ export async function enrichConfirmedWorkCustomer(
 export const workCustomerProvider: CustomerModuleProvider = {
   async list(ctx, actor, contactId, collectionId, query) {
     ctx.access(actor, "conversations:read");
-    ctx.access(actor, "contacts:read");
+    if (!allows(actor, "os")) throw new ApiError(403, "forbidden", "Sem acesso aos trabalhos.");
     await ctx.requireEnabled();
     if (actor.kind !== "user" || actor.via || actor.module || actor.credential || actor.id.startsWith("bot:"))
       throw new ApiError(403, "forbidden", "A ficha exige uma pessoa autenticada.");
@@ -112,26 +114,32 @@ export const workCustomerProvider: CustomerModuleProvider = {
     const { results: rows } = await env.DB.prepare(
       `SELECT o.*,c.external_namespace namespace FROM os_orders o
        LEFT JOIN conversations c ON c.profile_id=o.profile_id AND c.id=o.conversation_id
-       WHERE o.profile_id=? AND o.contact_id IS NULL AND o.number>? ORDER BY o.number LIMIT ?`)
+       WHERE o.profile_id=? AND (o.contact_id IS NULL OR o.conversation_id IS NULL) AND o.number>? ORDER BY o.number LIMIT ?`)
       .bind(profileId, after, limit).all<WorkOrderRow & { source: string; namespace: string | null }>();
     const statements: Statement[] = [];
     for (const row of rows) {
       const phone = normalizeCustomerPhone(row.phone, "international");
       // Sem inferir namespace de aplicações ou de uma conversa removida.
-      if (!phone || (row.conversation_id ? !row.namespace || row.namespace.startsWith("app:") : row.source !== "panel")) continue;
+      if (!phone || (row.conversation_id ? !row.namespace || row.namespace.startsWith("app:") : !row.contact_id && row.source !== "panel")) continue;
       statements.push([
-        `UPDATE os_orders SET contact_id=(
-           SELECT p.contact_id FROM customer_phones p JOIN contacts k ON k.id=p.contact_id AND k.profile_id=p.profile_id AND k.namespace=p.namespace
-           WHERE p.profile_id=? AND p.namespace='team' AND p.phone=? AND p.state='ready' AND p.version=1 AND k.identity_state='active'
-           AND NOT EXISTS(SELECT 1 FROM customer_phone_candidates x WHERE x.profile_id=p.profile_id AND x.namespace=p.namespace AND x.phone=p.phone AND x.contact_id<>p.contact_id)
-           AND NOT EXISTS(SELECT 1 FROM contacts x WHERE x.profile_id=p.profile_id AND x.namespace=p.namespace AND x.id<>p.contact_id
-             AND replace(replace(replace(replace(replace(replace(trim(x.phone),'+',''),' ',''),'.',''),'-',''),'(',''),')','')=p.phone)
-           AND (os_orders.conversation_id IS NULL OR EXISTS(
-             SELECT 1 FROM conversations c JOIN conversation_contacts l ON l.conversation_id=c.id AND l.profile_id=c.profile_id
-             WHERE c.profile_id=p.profile_id AND c.id=os_orders.conversation_id AND c.chat_type<>'group'
-             AND c.external_namespace NOT LIKE 'app:%' AND c.customer_link_state='ready' AND c.verified_phone=p.phone AND l.contact_id=p.contact_id))
-         ) WHERE profile_id=? AND id=? AND contact_id IS NULL AND phone=? AND conversation_id IS ?`,
-        [profileId, phone, profileId, row.id, row.phone, row.conversation_id],
+        // Materializa a prova uma vez na própria escrita: aninhá-la novamente
+        // na seleção da conversa excede a profundidade de expressão do D1.
+        `WITH owner AS MATERIALIZED (
+          SELECT coalesce(contact_id,${legacyRoutineOwner("os_orders", "phone", "os")}) contact_id
+          FROM os_orders WHERE profile_id=? AND id=?
+        )
+        UPDATE os_orders SET contact_id=(SELECT contact_id FROM owner),
+          conversation_id=coalesce(conversation_id,(SELECT c.id FROM conversations c
+            JOIN customer_phones p ON p.profile_id=c.profile_id AND p.namespace='team' AND p.phone=c.verified_phone AND p.state='ready'
+            JOIN contacts k ON k.profile_id=p.profile_id AND k.id=p.contact_id AND k.namespace='team' AND k.identity_state='active'
+            LEFT JOIN conversation_contacts l ON l.profile_id=c.profile_id AND l.conversation_id=c.id
+            WHERE c.profile_id=os_orders.profile_id AND c.chat_type<>'group' AND c.customer_link_state='ready'
+              AND c.external_namespace='channel:'||c.connection_id AND c.verified_phone=?
+              AND p.contact_id=(SELECT contact_id FROM owner)
+              AND (l.contact_id IS NULL OR l.contact_id=p.contact_id)
+            ORDER BY c.last_customer DESC,c.id LIMIT 1))
+          WHERE profile_id=? AND id=? AND contact_id IS ? AND phone=? AND conversation_id IS ? AND row_version=?`,
+        [profileId, row.id, phone, profileId, row.id, row.contact_id, row.phone, row.conversation_id, row.row_version],
       ]);
     }
     // Atualizações e checkpoint juntos: queda não pula registros; repetição não

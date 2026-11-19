@@ -5,6 +5,7 @@ import { all, batch, exec, one } from "../../db";
 import { ApiError, type Actor, now, requireValue, uid } from "../../types";
 import type { ModuleContext } from "../api";
 import { pageLimit, phoneDigits, requireDocument, text } from "./model";
+import { manager } from "./store";
 import { formatDocument } from "../../establishment";
 
 import {
@@ -227,23 +228,58 @@ export async function updatePayer(
     }
   }
   const changed = Object.keys(sets).filter((key) => sets[key] !== payer[key]);
-  if (payer.contact_id && changed.includes("document"))
-    throw new ApiError(409, "contact_conflict", "Confira o vínculo cadastral antes de trocar o documento do pagador.");
+  let reviewed: { reason: string; version: number } | null = null;
+  let contactVersion: number | null = null;
+  if (payer.contact_id && changed.includes("document")) {
+    const contact = await one(ctx.env, "SELECT document,version FROM contacts WHERE profile_id=? AND namespace='team' AND id=? AND identity_state='active'", ctx.profile, payer.contact_id);
+    if (!contact) throw new ApiError(409, "contact_conflict", "Confira o vínculo cadastral do pagador.");
+    contactVersion = contact.version;
+    if (!payer.document) {
+      if (contact.document && contact.document !== sets.document)
+        throw new ApiError(409, "contact_conflict", "O documento informado difere do contato vinculado.");
+    } else {
+      const review = data.contact_review;
+      if (!human || human.via || human.module || human.credential || chosen !== payer.contact_id ||
+          !review || typeof review.reason !== "string" || !review.reason.trim() || review.reason.length > 500 ||
+          review.expectedVersion !== contact.version || data.expectedUpdated !== payer.updated)
+        throw new ApiError(409, "contact_conflict", "Confirme o vínculo, o motivo e as versões antes de corrigir o documento.");
+      manager(human);
+      reviewed = { reason: review.reason.trim(), version: contact.version };
+    }
+  }
   if (!changed.length && !chosen && payer.contact_id) return payer;
   const statements = [
     ...(changed.length ? [[
-      `UPDATE mensalidade_payers SET ${changed.map((k) => k + "=?").join(",")},updated=? WHERE id=? AND profile_id=?`,
-      [...changed.map((k) => sets[k]), now(), payer.id, ctx.profile],
+      `UPDATE mensalidade_payers SET ${changed.map((k) => k + "=?").join(",")},updated=? WHERE id=? AND profile_id=?
+        AND updated=? AND contact_id IS ? AND document IS ?
+        ${contactVersion !== null ? "AND EXISTS(SELECT 1 FROM contacts WHERE id=mensalidade_payers.contact_id AND profile_id=mensalidade_payers.profile_id AND version=? AND identity_state='active')" : ""}`,
+      [...changed.map((k) => sets[k]), Math.max(now(), payer.updated + 1), payer.id, ctx.profile,
+        payer.updated, payer.contact_id, payer.document, ...(contactVersion !== null ? [contactVersion] : [])],
     ] as [string, unknown[]]] : []),
+    ...(changed.length ? [
+      ["INSERT INTO customer_assert(id,ok) VALUES(?,CASE WHEN changes()=1 THEN 1 ELSE 0 END)", [`payer-update:${payer.id}`]] as [string, unknown[]],
+      ["DELETE FROM customer_assert WHERE id=?", [`payer-update:${payer.id}`]] as [string, unknown[]],
+    ] : []),
     ...(chosen ? payerChoiceStatements(ctx.profile, payer.id, chosen)
       : payerDocumentStatement(ctx.profile, payer.id, has("document") ? sets.document : payer.document)),
   ];
   if (!statements.length) return payer;
-  await batch(ctx.env, statements);
+  if (reviewed) statements.push([
+    "INSERT INTO events(profile_id,kind,resource_id,payload,created,source_key) VALUES(?,'mensalidade.payer_changed',?,?,?,?)",
+    [ctx.profile, payer.id, JSON.stringify({ payer_id: payer.id, actor, change: "document_reviewed", contact_id: payer.contact_id,
+      reason: reviewed.reason, contact_version: reviewed.version, expected_updated: payer.updated }), now(), `payer-review:${payer.id}:${payer.updated}`],
+  ]);
+  try { await batch(ctx.env, statements); }
+  catch (error) {
+    if (/customer_assert|CHECK constraint failed/i.test(String(error)))
+      throw new ApiError(409, "contact_conflict", "O pagador ou o contato mudou. Atualize antes de salvar.");
+    throw error;
+  }
   const fresh = await loadPayer(ctx, payer.id);
   await publishPayer(ctx, "mensalidade.payer_changed", fresh, {
     change: "updated",
     fields: changed,
+    ...(reviewed ? { contact_review: reviewed, expected_updated: payer.updated } : {}),
     contact_id: fresh.contact_id,
     contact_link: chosen ? "human" : "document",
     actor,

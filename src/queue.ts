@@ -1201,7 +1201,7 @@ export async function issueTicket(
     if (input.source === "whatsapp" && input.conversationId) {
       const customer = await queueCustomer(env, await conversation(env, input.conversationId || "", profile));
       const linked = await one(env, "SELECT contact_id FROM customer_records WHERE profile_id=? AND module_id='queue' AND kind='ticket' AND record_id=?", profile, old.id);
-      if (old.profile_id !== profile || old.conversation_id !== input.conversationId || (linked && linked.contact_id !== customer.contactId))
+      if (old.profile_id !== profile || (linked ? linked.contact_id !== customer.contactId : old.conversation_id !== input.conversationId))
         throw new ApiError(409, "contact_conflict", "Esta senha pertence a outro vínculo de atendimento.");
     }
     return { ticket: old, created: false, queue: queueFound ?? null };
@@ -1224,14 +1224,12 @@ export async function issueTicket(
   const phone = customer?.phone || normalizePhone(input.phone);
   const day = serviceDay();
   if (phone) {
+    const scope = customer ? ticketCustomerScope(customer.contactId, input.conversationId!, customer.phone) : null;
     const existing = await one(
       env,
-      `SELECT * FROM queue_tickets WHERE profile_id=? AND queue_id=? AND phone=? AND service_day=? AND status IN ('waiting','called','serving') ${customer ? "AND conversation_id=? AND NOT EXISTS(SELECT 1 FROM customer_records r WHERE r.profile_id=queue_tickets.profile_id AND r.module_id='queue' AND r.kind='ticket' AND r.record_id=queue_tickets.id AND r.contact_id<>?)" : ""} ORDER BY created_at DESC LIMIT 1`,
-      profile,
-      queue.id,
-      phone,
-      day,
-      ...(customer ? [input.conversationId, customer.contactId] : []),
+      `SELECT q.* FROM queue_tickets q WHERE q.profile_id=? AND q.queue_id=? AND q.service_day=?
+        AND q.status IN ('waiting','called','serving') AND ${scope ? scope.sql : "q.phone=?"} ORDER BY q.created_at DESC LIMIT 1`,
+      profile, queue.id, day, ...(scope ? scope.params : [phone]),
     );
     if (existing) return { ticket: existing, created: false, queue };
     if (input.source === "whatsapp") {
@@ -1243,10 +1241,8 @@ export async function issueTicket(
         (
           await one(
             env,
-            "SELECT count(*) n FROM queue_tickets WHERE profile_id=? AND phone=? AND service_day=?",
-            profile,
-            phone,
-            day,
+            `SELECT count(*) n FROM queue_tickets q WHERE q.profile_id=? AND q.service_day=? AND ${scope ? scope.sql : "q.phone=?"}`,
+            profile, day, ...(scope ? scope.params : [phone]),
           )
         )?.n || 0;
       if (today >= cfg.max_daily_per_contact) {
@@ -2367,26 +2363,40 @@ export async function activeTicketFor(
   );
 }
 
-/** Vínculo persistido ou senha do balcão para o telefone provado pelo canal. */
+/** O proprietário da senha é independente da linha que a emitiu. */
+function ticketCustomerScope(contactId: string | null, conversationId: string, phone: string) {
+  return {
+    sql: `(EXISTS(SELECT 1 FROM customer_records r WHERE r.profile_id=q.profile_id
+      AND r.module_id='queue' AND r.kind='ticket' AND r.record_id=q.id AND r.contact_id=?)
+      OR (NOT EXISTS(SELECT 1 FROM customer_records r WHERE r.profile_id=q.profile_id
+        AND r.module_id='queue' AND r.kind='ticket' AND r.record_id=q.id)
+        AND ((q.conversation_id=? AND q.phone=?) OR (q.conversation_id IS NULL AND q.source='staff'
+          AND EXISTS(SELECT 1 FROM customer_phones p WHERE p.profile_id=q.profile_id AND p.namespace='team'
+            AND p.phone=q.phone AND p.contact_id=? AND p.state='ready' AND p.version=1
+            AND NOT EXISTS(SELECT 1 FROM customer_phone_candidates x WHERE x.profile_id=p.profile_id
+              AND x.namespace=p.namespace AND x.phone=p.phone AND (x.contact_id<>p.contact_id OR x.origin IN ('local','mirror'))))))
+        AND NOT EXISTS(SELECT 1 FROM customer_records h WHERE h.profile_id=q.profile_id
+          AND h.conversation_id=q.conversation_id AND h.module_id IN ('conversations','core')
+          AND (? IS NULL OR h.contact_id<>?))
+        AND (NOT EXISTS(SELECT 1 FROM customer_records h WHERE h.profile_id=q.profile_id
+          AND h.conversation_id=q.conversation_id AND h.module_id IN ('conversations','core'))
+          OR EXISTS(SELECT 1 FROM customer_records h WHERE h.profile_id=q.profile_id
+            AND h.conversation_id=q.conversation_id AND h.module_id IN ('conversations','core')
+            AND h.contact_id=? AND h.occurred_at<=q.created_at))))`,
+    params: [contactId, conversationId, phone, contactId, contactId, contactId, contactId],
+  };
+}
+
 export async function activeTicketForConversation(env: Env, profile: string, conversationId: string) {
-  return one(env, `SELECT q.* FROM queue_tickets q JOIN conversations c ON c.profile_id=q.profile_id
-    WHERE q.profile_id=? AND c.id=? AND q.service_day=? AND q.status IN ('waiting','called','serving')
-    AND (q.conversation_id=c.id OR (q.conversation_id IS NULL AND q.source='staff'
-      AND c.connection_id IS NOT NULL AND c.external_namespace='channel:'||c.connection_id
-      AND c.phone<>'' AND (c.verified_phone IS NULL OR c.verified_phone=c.phone)
-      AND (c.verified_phone IS NOT NULL OR (c.external_id NOT LIKE '%@lid' AND c.external_id NOT LIKE '%@g.us'))
-      AND (q.phone=c.phone
-        OR (length(c.phone)=13 AND c.phone GLOB '55[0-9][0-9]9*' AND q.phone=substr(c.phone,1,4)||substr(c.phone,6))
-        OR (length(c.phone)=12 AND c.phone GLOB '55[0-9][0-9][6-9]*' AND q.phone=substr(c.phone,1,4)||'9'||substr(c.phone,5)))))
-    AND c.chat_type<>'group' AND c.customer_link_state NOT IN ('blocked','excluded','ambiguous')
-    AND NOT EXISTS(SELECT 1 FROM conversation_contacts cc JOIN contacts p ON p.id=cc.contact_id AND p.profile_id=cc.profile_id
-      WHERE cc.profile_id=c.profile_id AND cc.conversation_id=c.id AND p.identity_state<>'active')
-    AND NOT EXISTS(SELECT 1 FROM customer_records r LEFT JOIN conversation_contacts cc ON cc.profile_id=r.profile_id AND cc.conversation_id=c.id
-      LEFT JOIN customer_phones cp ON cp.profile_id=c.profile_id AND cp.namespace='team' AND cp.phone=c.verified_phone AND cp.state='ready'
-      LEFT JOIN contacts p ON p.id=r.contact_id AND p.profile_id=r.profile_id
-      WHERE r.profile_id=q.profile_id AND r.module_id='queue' AND r.kind='ticket' AND r.record_id=q.id
-      AND (coalesce(cc.contact_id,cp.contact_id) IS NULL OR r.contact_id<>coalesce(cc.contact_id,cp.contact_id) OR p.id IS NULL OR p.identity_state<>'active'))
-    ORDER BY q.created_at DESC,q.id DESC LIMIT 1`, profile, conversationId, serviceDay());
+  const c = await conversation(env, conversationId, profile);
+  const ref = await resolveCustomer(env, c);
+  const phone = verifiedQueuePhone(c);
+  if (!phone || c.chat_type === "group" || ref.profileId !== profile || ref.namespace !== "team" ||
+      ["blocked", "excluded", "ambiguous"].includes(ref.state)) return null;
+  const scope = ticketCustomerScope(ref.state === "ready" ? ref.contactId : null, c.id, phone);
+  return one(env, `SELECT q.* FROM queue_tickets q WHERE q.profile_id=? AND q.service_day=?
+    AND q.status IN ('waiting','called','serving') AND ${scope.sql}
+    ORDER BY q.created_at DESC,q.id DESC LIMIT 1`, profile, serviceDay(), ...scope.params);
 }
 
 /**

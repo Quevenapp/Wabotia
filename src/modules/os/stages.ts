@@ -4,7 +4,7 @@ import type { PendingStageApproval } from "./contracts";
 import { endOfDayAfter, type OsStatus } from "./model";
 import { checkVersion, commitOrderMutation } from "./mutations";
 import { builtinWorkType, effectiveStage, snapshotType } from "./work-types";
-import { changeStatus, customMessage, notify } from "./store";
+import { changeStatus, customMessage, notify, conversationOf } from "./store";
 
 function stageNote(value: unknown): string {
   if (value === undefined || value === null) return "";
@@ -76,8 +76,8 @@ export async function requestStageApproval(ctx: ModuleContext, row: any, data: a
   const old = json(row.stage_approval_json, null) as PendingStageApproval | null;
   if (old?.state === "pending" && old.expires_at > now()) throw stageError("approval_pending");
   if (!row.conversation_id) throw stageError("no_conversation");
-  const c = await ctx.conversation(row.conversation_id);
-  if (c.chat_type === "group") throw stageError("no_conversation");
+  const c = await conversationOf(ctx, row);
+  if (!c || c.chat_type === "group") throw stageError("no_conversation");
   const at = now();
   const approval: PendingStageApproval = { version: (row.row_version ?? 1) + 1, transition_id: transition.id, from_stage: transition.from, to_stage: transition.to, state: "pending", requested_at: at, expires_at: at + transition.valid_hours * 3600000, decided_at: null, decided_by: null };
   const next = await commitOrderMutation(ctx, row, { stage_approval_json: JSON.stringify(approval) }, actor, "os.stage_approval_requested", ["stage_approval"], key);
@@ -89,8 +89,8 @@ export async function sendStageApproval(ctx: ModuleContext, row: any) {
   if (approval?.state !== "pending" || !row.conversation_id || approval.expires_at <= now()) return;
   const transition = snapshotType(row)?.transitions.find(t => t.id === approval.transition_id);
   if (transition?.kind !== "customer_approval") return;
-  const c = await ctx.conversation(row.conversation_id);
-  if (c.chat_type === "group") return;
+  const c = await conversationOf(ctx, row);
+  if (!c || c.chat_type === "group") return;
   await ctx.sendInteractive(c, {
     type: "list", body: customMessage(transition.request_text, row, 1024) || `Autoriza a etapa ${transition.label}?`, button: "Responder",
     sections: [{ rows: (["approve", "decline"] as const).map(decision => ({ id: `os:stage:${row.id}:${approval.version}:${decision}`, title: decision === "approve" ? "Aprovar" : "Recusar" })) }],
