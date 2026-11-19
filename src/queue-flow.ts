@@ -6,7 +6,7 @@ import { ApiError, type Conversation, type Env, json, now } from "./types";
 import { enqueue, settings } from "./service";
 import {
   activeBlock,
-  activeTicketFor,
+  activeTicketForConversation,
   aheadOfNew,
   normalsOwed,
   blockMessage,
@@ -14,7 +14,7 @@ import {
   estimateMinutes,
   issueTicket,
   linkKioskTicket,
-  normalizePhone,
+  verifiedQueuePhone,
   queueSettings,
   serviceDay,
   serviceMinutes,
@@ -247,13 +247,13 @@ export async function startQueue(
   queueId: string | null,
   rowId: string,
 ) {
-  const phone = normalizePhone(c.phone || c.external_id);
-  const active = await activeTicketFor(env, c.profile_id, phone);
+  const phone = verifiedQueuePhone(c);
+  const active = await activeTicketForConversation(env, c.profile_id, c.id);
   if (active) {
     await say(env, c, await statusText(env, active), `queue-status:${rowId}`);
     return;
   }
-  const block = await activeBlock(env, c.profile_id, phone);
+  const block = await activeBlock(env, c.profile_id, phone || "");
   if (block) {
     await say(env, c, blockMessage(block), `queue-blocked:${rowId}`);
     return;
@@ -363,18 +363,20 @@ export async function queueTurn(
 ): Promise<QueueTurn> {
   if (c.chat_type === "group") return { handled: false };
   const n = normalize(value);
-  const phone = normalizePhone(c.phone || c.external_id);
+  const phone = verifiedQueuePhone(c);
 
   // Coupon QR: a line "SENHA N023 AB12CD", alone (cupons antigos) or inside
   // the prefilled text (instrução + senha + link da imagem; couponWhatsappText).
   const kiosk = kioskLine(value);
   if (kiosk && !replyId) {
-    const { ticket, blocked } = await linkKioskTicket(
-      env,
-      c,
-      kiosk[1],
-      kiosk[2],
-    );
+    let linked;
+    try { linked = await linkKioskTicket(env, c, kiosk[1], kiosk[2]); }
+    catch (error) {
+      if (!(error instanceof ApiError)) throw error;
+      await say(env, c, error.message, `queue-link-refused:${row.id}`);
+      return { handled: true };
+    }
+    const { ticket, blocked } = linked;
     await say(
       env,
       c,
@@ -405,7 +407,7 @@ export async function queueTurn(
   }
 
   const active = !prompt
-    ? await activeTicketFor(env, c.profile_id, phone)
+    ? await activeTicketForConversation(env, c.profile_id, c.id)
     : null;
   if (active && !replyId) {
     if (/^(senha|minha senha|status|posicao|fila|minha vez)$/.test(n)) {
@@ -494,14 +496,6 @@ export async function queueTurn(
       phone,
       sourceKey: `queue-inbox:${row.id}`,
     });
-    // The contact may have had a ticket from the kiosk without a conversation.
-    if (!ticket.conversation_id)
-      await exec(
-        env,
-        "UPDATE queue_tickets SET conversation_id=? WHERE id=?",
-        c.id,
-        ticket.id,
-      );
     await say(env, c, await statusText(env, ticket), `queue-issued:${row.id}`);
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
@@ -525,11 +519,7 @@ export async function queueFrontDoor(
     return false;
   const cfg = queueSettings(await settings(env, c.profile_id));
   if (!cfg.front_door) return false;
-  const active = await activeTicketFor(
-    env,
-    c.profile_id,
-    normalizePhone(c.phone || c.external_id),
-  );
+  const active = await activeTicketForConversation(env, c.profile_id, c.id);
   if (active) {
     await say(env, c, await statusText(env, active), `queue-front:${rowId}`);
   } else if (!(await showMenu())) return false;
