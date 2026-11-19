@@ -13,7 +13,6 @@ import {
   type ModuleContext,
 } from "../api";
 import {
-  active,
   fail,
   get,
   id,
@@ -24,6 +23,7 @@ import {
   selected,
   staff,
   verifiedCustomer,
+  verifiedPerson,
   personIdentity,
 } from "./common";
 import { cadastro, directory } from "./cadastro";
@@ -46,18 +46,9 @@ export async function openResidentAccess(
   rowId: string,
 ) {
   await ctx.requireEnabled();
-  const { phone, contactId } = await verifiedCustomer(ctx, c);
-  const person = await one(
-    ctx.env,
-    `SELECT person_id FROM cond_phones WHERE profile_id=? AND phone=? AND ${active}
-      AND EXISTS(SELECT 1 FROM cond_people p WHERE p.profile_id=cond_phones.profile_id
-      AND p.id=cond_phones.person_id AND p.contact_id=?)`,
-    ctx.profile,
-    phone,
-    now(),
-    now(),
-    contactId,
-  );
+  const identity = await verifiedCustomer(ctx, c), { phone } = identity;
+  const personId = await verifiedPerson(ctx, identity);
+  const person = personId ? { person_id: personId } : null;
   if (!person || !(await memberships(ctx, person.person_id)).length) {
     await ctx.sendMessage(
       c,
