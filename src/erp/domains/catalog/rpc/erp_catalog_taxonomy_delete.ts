@@ -5,7 +5,7 @@ import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { replayCommand, requestHash, storeCommand } from "../command.ts";
 import { taxonomyItem } from "../taxonomy.ts";
-import { requireTaxonomyAccess, taxonomySpec } from "../taxonomy-access.ts";
+import { requireTaxonomyAccess, requireTaxonomyReplayAccess, taxonomySpec } from "../taxonomy-access.ts";
 import { taxonomyAudit, taxonomyDetach, taxonomyDetachContacts, taxonomyDetachInvoices } from "../taxonomy-write.ts";
 
 const MAX_VERSION = 2147483647;
@@ -17,16 +17,19 @@ export function erpCatalogTaxonomyDelete(ctx: RpcContext, a: RpcArgs) {
   const expected = (a.p_expected_version ?? null) as number | null;
   const command = (a.p_command_id ?? null) as string | null;
   const db = ctx.db;
-  requireTaxonomyAccess(db, user, kind, null, true);
+  requireTaxonomyAccess(db, user, kind, null, true, ctx.modules);
   if (taxonomySpec(kind) === null || id === null || command === null || expected === null || expected < 1 || expected > MAX_VERSION)
     raise("22023", "erp_catalog_invalid_command");
   if (kind === "tag_groups" || kind === "tags") {
     const stored = one(db, 'SELECT tag_type FROM "erp_catalog__taxonomy" WHERE id=? AND kind=?', id, kind);
-    requireTaxonomyAccess(db, user, kind, (stored?.tag_type as string | null | undefined) ?? "products", true);
+    requireTaxonomyAccess(db, user, kind, (stored?.tag_type as string | null | undefined) ?? "products", true, ctx.modules);
   }
   const hash = requestHash({ actor: user, action: "taxonomy_delete", kind, id, version: expected });
   const replayed = replayCommand(ctx, command, user!, hash);
-  if (replayed) return replayed;
+  if (replayed) {
+    requireTaxonomyReplayAccess(ctx, user, kind, command, replayed);
+    return replayed;
+  }
   const row = one(db, 'SELECT id, kind, CAST(version AS TEXT) version, tag_type FROM "erp_catalog__taxonomy" WHERE id=? AND kind=?', id, kind);
   if (!row) raise("P0002", "erp_catalog_not_found");
   if (Number(row.version) !== expected) raise("40001", "erp_catalog_version_conflict");

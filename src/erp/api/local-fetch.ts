@@ -8,7 +8,8 @@
 // Fase 0, prova 6.
 import { ApiError, type Actor, type Env } from "../../types";
 import { admin } from "../../security";
-import { requireModule } from "../../modules/registry";
+import { moduleEnabled, requireModule } from "../../modules/registry";
+import { FISCAL_MODULE_HEADER, type ErpModuleState } from "../engine/module-state.ts";
 import { erpBlockOf } from "../blocks.ts";
 import { GATE_DENIED_HEADER, GATE_HEADER, IDENTITY_HEADER, SYSTEM_HEADER, encodeIdentity, type IdentityPort } from "../engine/identity.ts";
 import { erpFetch } from "../hub.ts";
@@ -72,7 +73,7 @@ export function localFetch(
   profile: string,
   actor: Actor,
   identity: IdentityPort = identityFor(actor),
-  { read = false, hops, gate }: { read?: boolean; hops?: ErpHop[]; gate?: { denied: string | null } } = {},
+  { read = false, hops, gate, modules }: { read?: boolean; hops?: ErpHop[]; gate?: { denied: string | null }; modules?: ErpModuleState } = {},
 ) {
   return async (input: string | URL | Request, init: RequestInit = {}) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
@@ -82,6 +83,7 @@ export function localFetch(
       return Response.json({ id: identity.actor?.user_id ?? actor.id, email: null, app_metadata: {}, user_metadata: { name: actor.name } });
     const rpc = /^\/rest\/v1\/rpc\/([a-z0-9_]+)$/.exec(url.pathname);
     if (rpc) {
+      const state = modules ?? { fiscal: await moduleEnabled(env, profile, "erp-fiscal") };
       // Corpo em texto: a nova tentativa manda o mesmo de novo.
       const body = init.body == null ? undefined : typeof init.body === "string" ? init.body : await new Response(init.body).text();
       const route = `/erp-rpc/${rpc[1]}` as const;
@@ -101,6 +103,7 @@ export function localFetch(
                 "Content-Type": "application/json",
                 [IDENTITY_HEADER]: encodeIdentity(identity),
                 [SYSTEM_HEADER]: "1",
+                [FISCAL_MODULE_HEADER]: state.fiscal ? "1" : "0",
                 ...(gate ? { [GATE_HEADER]: "1" } : {}),
               },
               body,
@@ -178,6 +181,9 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
   if (block === "externo")
     throw new ApiError(404, "erp_route_removed", "Esta rota do ERP não faz parte da instalação principal.");
   if (block !== "erp") await requireModule(env, profile, block);
+  // Estado efetivo da área nesta requisição, sem depender do wake do agendador.
+  // Só a costura monta este metadado; cabeçalhos e campos do cliente não o definem.
+  const modules: ErpModuleState = { fiscal: await moduleEnabled(env, profile, "erp-fiscal") };
   // Token em forma de JWT, sem assinatura (alg none), com sessão e aal do
   // envelope: o accessGate e a rota de segurança da erp-api leem session_id e
   // aal das claims (tokenSession). Nunca é conferido como JWT: o /auth/v1/user
@@ -201,7 +207,7 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
   const hops: ErpHop[] = [];
   const gate = { denied: null as string | null };
   const started = Date.now();
-  const handler = createHandler({ fetchImpl: localFetch(env, profile, actor, identity, { read, hops, gate }) });
+  const handler = createHandler({ fetchImpl: localFetch(env, profile, actor, identity, { read, hops, gate, modules }) });
   let response = (await handler(inner, CONFIG)) as Response;
   // Portão fechado no objeto: o erro que o accessGate da erp-api daria, no formato dela.
   if (gate.denied) {

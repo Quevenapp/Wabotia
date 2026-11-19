@@ -11,7 +11,7 @@ import { requireCustomFieldPermission } from "../custom-fields.ts";
 import { CNTRL, btrim, chars, foldedKey } from "../fields.ts";
 import { fold } from "../internal.ts";
 import { taxonomyItem, taxonomyTypeGuard } from "../taxonomy.ts";
-import { requireTaxonomyAccess, taxonomySpec } from "../taxonomy-access.ts";
+import { requireTaxonomyAccess, requireTaxonomyReplayAccess, taxonomySpec } from "../taxonomy-access.ts";
 import { categoryCustomFieldsSet, taxonomyAudit } from "../taxonomy-write.ts";
 
 const MAX_VERSION = 2147483647;
@@ -28,7 +28,7 @@ export function erpCatalogTaxonomySave(ctx: RpcContext, a: RpcArgs) {
   const db = ctx.db;
   const spec = taxonomySpec(kind);
   const tagged = kind === "tag_groups" || kind === "tags";
-  requireTaxonomyAccess(db, user, kind, null, true);
+  requireTaxonomyAccess(db, user, kind, null, true, ctx.modules);
   const has = (k: string) => data !== null && typeof data === "object" && k in data;
   const ids = has("custom_field_ids") ? (data!.custom_field_ids as unknown[]) : null;
   if (
@@ -56,13 +56,16 @@ export function erpCatalogTaxonomySave(ctx: RpcContext, a: RpcArgs) {
       const parentType = parent === null ? null : ((one(db, 'SELECT tag_type FROM "erp_catalog__taxonomy" WHERE id=?', parent)?.tag_type as string | null | undefined) ?? null);
       type = (data.tag_type as string | undefined) ?? parentType ?? "products";
     }
-    requireTaxonomyAccess(db, user, kind, type ?? (data.tag_type as string | undefined) ?? "products", true);
+    requireTaxonomyAccess(db, user, kind, type ?? (data.tag_type as string | undefined) ?? "products", true, ctx.modules);
   }
   if (ids !== null) requireCustomFieldPermission(db, user, "ie");
   if (name === "" || chars(name) > spec!.name || CNTRL.test(name)) raise("22023", "erp_catalog_invalid_text");
   const hash = requestHash({ actor: user, action: "taxonomy_save", kind, id, version: expected, data });
   const replayed = replayCommand(ctx, command!, user!, hash);
-  if (replayed) return replayed;
+  if (replayed) {
+    requireTaxonomyReplayAccess(ctx, user, kind, command!, replayed);
+    return replayed;
+  }
   let row: { name: string; version: number; parent_id: string | null; tag_type: string | null } | null = null;
   if (id === null) {
     if (parent !== null) {

@@ -17,7 +17,7 @@ export function erpCatalogTaxonomyList(ctx: RpcContext, a: RpcArgs) {
   }
   let types: string[] | null = null;
   if (kind === "tag_groups" || kind === "tags") {
-    types = tagTypesReadable(db, user);
+    types = tagTypesReadable(db, user, ctx.modules);
     if (types.length === 0) raise("42501", "erp_catalog_access_denied");
   } else requireAccess(db, user, "products", false);
   const rows = db
