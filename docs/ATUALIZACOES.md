@@ -208,6 +208,20 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
   - O esforço ganha **Máximo**.
   - Não testado contra a API real.
 
+## Atualização 0.23.0: gestão numa casa só, cadastro único e ERP em partes
+
+Exige a 0.21.1 ou posterior (pacote assinado). Faça backup, use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia** e acompanhe até o fim; depois clique em **Reabrir painel atualizado**. Ela aplica 5 migrações aditivas (`0130`, `0131`, `0132` e as duas `0133`) e não cria recurso novo na Cloudflare. Se o painel ficar na mesma etapa por mais de 15 minutos, siga a [saída de emergência](ATUALIZACOES-FORMATO.md#saída-de-emergência-trabalho-preso-em-atualizando).
+
+**Gestão numa casa só.** O botão **ERP** do menu passa a ser a entrada de toda a gestão, inclusive Agenda, Trabalhos, Mensalidade, Pedido, Mesas, Reserva e os módulos de área. Ele está sempre no menu: com um módulo ligado, abre direto nele; com vários, mostra um cartão por grupo; com nada ligado, mostra "Nenhum módulo de gestão ligado" e o caminho para a tela Módulos. Os endereços antigos de `/app/gestao/...` continuam valendo e levam ao lugar novo. **Gestão** fica com a administração: Módulos, Pessoas, filas e modelos de área. O nome Fagoo saiu das telas; o ERP continua se chamando ERP.
+
+**Cadastro único.** O contato do atendimento e o cliente do ERP passam a ser a mesma pessoa. Todo número que fala com a empresa vira um contato salvo, com o histórico das conversas, mesmo sem nome; quando a pessoa compra ou é cadastrada, os dados são acrescentados ao mesmo registro, sem criar um segundo. A ficha do contato reúne o que cada módulo ligado sabe sobre a pessoa, e o vocabulário acompanha a área (cliente, paciente, aluno, condômino). Dados sensíveis continuam fora do WhatsApp, da IA e das exportações comuns.
+
+**ERP em nove partes.** O ERP deixa de ser um módulo só e passa a ter nove partes que se ligam e desligam na tela **Módulos**: Cadastro de clientes (a base), Produtos, Vendas, Compras, Estoque, Financeiro, Fiscal, Cobrança bancária e PDV. Quem já usava o ERP continua com as partes que usava. Parte desligada some das telas, recusa as chamadas e para as rotinas de fundo, e os dados dela ficam guardados para quando for ligada de novo; as outras partes continuam funcionando (documento de venda sem Estoque, Financeiro sem Vendas). Ao desligar algo de que outro módulo depende, a tela mostra a lista do que será desligado junto e pede confirmação. A Fiscal continua sem emissor e vem desligada nos modelos de área.
+
+**Modelos de área.** O modelo de Advocacia passa a ligar o módulo Jurídico. Os modelos mostram as partes do ERP que vão ligar antes de aplicar.
+
+Esta versão foi verificada por testes automáticos e por revisão de código, não por uso em atendimento real. O lançamento automático dos módulos no financeiro e no estoque **não** faz parte dela: fica para a versão seguinte.
+
 ## Atualização 0.22.0: módulos por área, bots internos sem Hermes e mais ERP
 
 Exige a 0.21.1 instalada: é a primeira versão no pacote assinado. Faça backup, use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia** e acompanhe até o fim; depois clique em **Reabrir painel atualizado**. Ela aplica 24 migrações aditivas (`0090`, `0091`, `0092`, `0094` e `0100` a `0119`) e não cria recurso novo na Cloudflare. Se o painel ficar na mesma etapa por mais de 15 minutos, siga a [saída de emergência](ATUALIZACOES-FORMATO.md#saída-de-emergência-trabalho-preso-em-atualizando).
