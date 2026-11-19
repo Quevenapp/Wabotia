@@ -1,3 +1,6 @@
+import { erpReportRequirement } from "../../../parts-requirements.ts";
+import { requireErpParts } from "../../../engine/parts-gate.ts";
+import { queryAvailable, queryCoverage } from "../business-rules.ts";
 // Relatórios customizados (migrações 149, 230, 264 e 284): public.erp_preferences_reports,
 // _report_save e _report_run (as linhas vêm de report-source.ts).
 import { one, type SqlDriver } from "../../../engine/driver.ts";
@@ -9,7 +12,7 @@ import { compareDec, formatScaled, toScaled } from "../../../engine/dec.ts";
 import { jsonTimestamp } from "../../../engine/time.ts";
 import { accessRequireAdmin, permitted, requirePermission } from "../../access/public.ts";
 import { allowed as catalogAllowed } from "../../catalog/public.ts";
-import { allowed as documentsAllowed, mirrorReportCoverage } from "../../documents/public.ts";
+import { allowed as documentsAllowed } from "../../documents/public.ts";
 import { int, json, text, uuid } from "../args.ts";
 import { directory, readerRole } from "../center.ts";
 import { frameworkHash, frameworkKeys, frameworkReplay, frameworkText, frameworkVersion } from "../framework.ts";
@@ -104,14 +107,14 @@ export function erpPreferencesReports(ctx: RpcContext, a: RpcArgs) {
   requirePermission(db, user!, "outros.relatorios_customizados");
   const reports = db
     .exec('SELECT * FROM "erp_preferences__report"')
-    .rows.filter((r) => reportVisible(db, user!, role, String(r.base)) && (role === "admin" || (JSON.parse(String(r.users)) as string[]).includes(user!)))
+    .rows.filter((r) => queryAvailable(ctx.parts, erpReportRequirement(r.base, JSON.parse(String(r.columns)), JSON.parse(String(r.filters)))) && reportVisible(db, user!, role, String(r.base)) && (role === "admin" || (JSON.parse(String(r.users)) as string[]).includes(user!)))
     .sort((x, y) => compareText(pgLower(String(x.title)), pgLower(String(y.title))) || compareText(String(x.id), String(y.id)))
     .map(reportDto);
   return {
     scope: "reports",
     data_mode: "erp_native",
     can_manage: role === "admin",
-    bases: REPORT_CATALOG.filter((b) => reportVisible(db, user!, role, b.base)),
+    bases: REPORT_CATALOG.filter((b) => queryAvailable(ctx.parts, erpReportRequirement(b.base)) && reportVisible(db, user!, role, b.base)).map(b => ({ ...b, columns: b.columns.filter(c => queryAvailable(ctx.parts, erpReportRequirement(b.base, [c.id]))) })),
     reports,
     directory: role === "admin" ? directory(ctx) : null,
   };
@@ -170,6 +173,7 @@ export function erpPreferencesReportSave(ctx: RpcContext, a: RpcArgs) {
     raise("22023", "erp_preferences_report_input_invalid");
   const base = data!.base as string;
   reportCheck(base, data!.columns, data!.filters);
+  requireErpParts(ctx, erpReportRequirement(base, data!.columns as string[], data!.filters as unknown[]));
   const title = frameworkText(data!.title, 80);
   const given = data!.users as string[];
   const users = [...new Set(given)].sort(compareText);
@@ -188,6 +192,7 @@ export function erpPreferencesReportSave(ctx: RpcContext, a: RpcArgs) {
     row = one(db, 'SELECT * FROM "erp_preferences__report" WHERE id=?', report);
     if (!row) raise("P0002", "erp_preferences_report_not_found");
     if (Number(row.version) !== expected) raise("40001", "erp_preferences_report_version_conflict");
+    requireErpParts(ctx, erpReportRequirement(row.base, JSON.parse(String(row.columns)), JSON.parse(String(row.filters))));
     if (row.base !== base) raise("22023", "erp_preferences_report_base_fixed");
     id = report;
   }
@@ -290,12 +295,18 @@ export function erpPreferencesReportRun(ctx: RpcContext, a: RpcArgs) {
   const db = ctx.db;
   const user = uuid(a, "p_user_id");
   const role = readerRole(db, user);
-  const base = text(a, "p_base");
+  const reference = ctx.partsReference?.kind === "report" ? ctx.partsReference.id : null;
+  const saved = reference ? one(db, 'SELECT * FROM "erp_preferences__report" WHERE id=?', reference) : null;
+  if (reference && !saved) raise("P0002", "erp_preferences_report_not_found");
+  if (saved && role !== "admin" && !(JSON.parse(String(saved.users)) as string[]).includes(user!)) raise("42501", "erp_preferences_report_access_denied");
+  // A rota de relatório salvo executa sua definição; o corpo só escolhe a página.
+  const base = saved ? String(saved.base) : text(a, "p_base");
   if (base === null || !reportVisible(db, user!, role, base)) raise("42501", "erp_preferences_report_access_denied");
-  const columns = json(a, "p_columns") as string[];
-  const filters = json(a, "p_filters") as { column: string; value: string }[];
+  const columns = (saved ? JSON.parse(String(saved.columns)) : json(a, "p_columns")) as string[];
+  const filters = (saved ? JSON.parse(String(saved.filters)) : json(a, "p_filters")) as { column: string; value: string }[];
   reportCheck(base!, columns, filters);
-  const limit = int(a, "p_view_limit");
+  requireErpParts(ctx, erpReportRequirement(base, columns, filters));
+  const limit = saved ? Number(saved.view_limit) : int(a, "p_view_limit");
   const page = int(a, "p_page");
   const offset = int(a, "p_offset");
   if (limit === null || limit < 1 || limit > 2000 || page === null || page < 1 || page > 200 || offset === null || offset < 0 || offset >= Math.max(limit, 1))
@@ -303,7 +314,7 @@ export function erpPreferencesReportRun(ctx: RpcContext, a: RpcArgs) {
   const b = REPORT_CATALOG.find((x) => x.base === base)!;
   const type = (col: string) => b.columns.find((k) => k.id === col)?.type ?? null;
   const numeric = (t: string | null) => t !== null && ["money", "decimal", "int"].includes(t);
-  const src = reportSource(db, base!)
+  const src = reportSource(db, base!, ctx.parts, columns, filters)
     .filter((s) =>
       filters.every((f) => {
         const v = s.data[f.column] ?? null;
@@ -342,7 +353,7 @@ export function erpPreferencesReportRun(ctx: RpcContext, a: RpcArgs) {
     total_rows: Math.min(src.length, limit!),
     truncated: src.length > limit!,
     totals,
-    ...(kind ? mirrorReportCoverage(ctx.db, user, kind) : {}),
+    ...(kind ? queryCoverage(ctx, user, kind) : {}),
   };
 }
 

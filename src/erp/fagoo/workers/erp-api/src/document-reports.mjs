@@ -1,3 +1,4 @@
+import { projectParts, responseParts, responsePartsMetadata, erpRequirementMet } from './preferences-kit.mjs';
 // Relatórios de vendas e de serviço (202610200130), read-only, under /v1/documentos/{tipo}/<relatório>.
 // Every parameter and every field of the answer is checked; amounts and quantities stay exact decimal strings.
 import { STATES } from '../../../packages/erp-domain/src/index.mjs';
@@ -103,7 +104,7 @@ function address(value) {
   for (const [key, max] of Object.entries(limits)) if (!short(value[key], max)) bad();
   return { source: value.source, ...Object.fromEntries(Object.keys(limits).map(key => [key, value[key]])) };
 }
-export function documentReportResponse(value, route, operation) {
+function documentReportResponseBody(value, route, operation) {
   if (route.report.startsWith('notas-fiscais/')) return fiscalError(() => fiscalReportResponse(value, operation));
   if (!object(value) || value.data_mode !== 'erp_native' || value.operational_effects !== false) bad();
   const base = { data_mode: 'erp_native', operational_effects: false, kind: route.kind };
@@ -179,4 +180,8 @@ export function documentReportResponse(value, route, operation) {
     return { document_id: row.document_id, number: row.number, name: row.name, occurred_on: row.occurred_on, occurred_time: row.occurred_time, text: row.text, status_before: row.status_before, status_after: row.status_after, actor_name: row.actor_name, actor_role: row.actor_role };
   });
   return { ...base, report: 'service_occurrences', from: value.from, to: value.to, rows, row_count: value.row_count, truncated: value.truncated };
+}
+
+export function documentReportResponse(value, route, operation) {
+ return projectParts(value, body => documentReportResponseBody(body, route, operation), bad);
 }

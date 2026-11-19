@@ -1,3 +1,5 @@
+import { erpEntityRequirement } from '../../../../parts-requirements.ts';
+import { projectParts, responseParts, responsePartsMetadata, erpRequirementMet } from './preferences-kit.mjs';
 import {normalizeUnitPrice,isCanonicalUnitPrice,UNIT_PRICE_INPUT_LIMIT} from '../../../packages/erp-domain/src/unit-price.mjs';
 import {productRoute,productMethods,productOperation,productResponse,productPageOperation,productListExtras,productSaveData,productRecordDetail,ProductRegistryError} from './product-registry.mjs';
 // Contatos lane (migrations 124-128): /v1/cadastros/{contatos,tipos-contato,vendedores,formas-pagamento,funcionarios}.
@@ -223,7 +225,7 @@ function record(value, entity, detail = false) {
   }
   return safe;
 }
-export function catalogResponse(value, route, operation) {
+function catalogResponseBody(value, route, operation) {
   if (route.product) return viaProduct(() => productResponse(value, route, operation, item => record(item, 'products', true)));
   if (operation.contact) return contactCall(() => contactResponse(value, route, operation));
   if (!object(value) || value.data_mode !== 'erp_native') badResponse();
@@ -325,4 +327,12 @@ function warning(value, entity) {
     return { id: match.id, name: match.name, code: match.code, active: match.active };
   });
   return { code: value.code, field, total: value.total, matches };
+}
+
+export function catalogResponse(value, route, operation) {
+ const parts=responseParts(value,badResponse);
+ if(!parts.stock&&value.stock_visible===true)badResponse();
+ if(Object.hasOwn(value,'unavailable_parts')&&operation.type==='access')for(const key of ['read','write'])
+  if(!Array.isArray(value[key])||value[key].some(entity=>!erpEntityRequirement(entity)||!erpRequirementMet(parts,erpEntityRequirement(entity))))badResponse();
+ return projectParts(value, body => catalogResponseBody(body, route, operation), badResponse);
 }

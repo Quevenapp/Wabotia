@@ -9,11 +9,14 @@ import { PG_CNTRL, pgLeft } from "../../../engine/text.ts";
 import { jsonTimestamp, todaySaoPaulo, validDate } from "../../../engine/time.ts";
 import { formatScaled, fromColumn, toScaled } from "../../../engine/dec.ts";
 import { allowed as catalogAllowed } from "../../catalog/public.ts";
-import { allowed as documentsAllowed, mirrorReportCoverage, transitions } from "../../documents/public.ts";
+import { allowed as documentsAllowed, transitions } from "../../documents/public.ts";
 import { ignoredWarehouse } from "../../stock/public.ts";
 import { text, uuid } from "../args.ts";
 import { compareText } from "../order.ts";
 import { saoPauloMidnight } from "../time.ts";
+
+import { erpEntityRequirement, erpRequirement } from "../../../parts-requirements.ts";
+import { queryAvailable, unavailableParts, queryCoverage } from "../business-rules.ts";
 
 const DAY = 86_400_000;
 const addDays = (date: string, n: number) => new Date(Date.parse(`${date}T00:00:00Z`) + n * DAY).toISOString().slice(0, 10);
@@ -63,12 +66,12 @@ export function erpHomeSummary(ctx: RpcContext, a: RpcArgs) {
   const role = memberRole(db, user);
   const today = todaySaoPaulo();
   const catalog = ["contacts", "products", "warehouses"]
-    .filter((e) => catalogAllowed(role, e, false))
+    .filter((e) => catalogAllowed(role, e, false) && queryAvailable(ctx.parts, erpEntityRequirement(e)))
     .map((e) => {
       const r = one(db, 'SELECT sum(active=1) a, sum(active=0) b FROM "erp_catalog__record" WHERE entity=?', e)!;
       return { entity: e, active: Number(r.a ?? 0), archived: Number(r.b ?? 0) };
     });
-  const documents = DOC_KINDS.filter((k) => documentsAllowed(role, k, false))
+  const documents = DOC_KINDS.filter((k) => documentsAllowed(role, k, false) && queryAvailable(ctx.parts, erpEntityRequirement(k)))
     .sort(compareText)
     .map((k) => {
       const counts = new Map(
@@ -85,7 +88,7 @@ export function erpHomeSummary(ctx: RpcContext, a: RpcArgs) {
       };
     });
   let stock = null;
-  if (["admin", "consulta", "estoque", "vendas", "fiscal"].includes(role)) {
+  if (queryAvailable(ctx.parts, erpRequirement("erp-estoque")) && ["admin", "consulta", "estoque", "vendas", "fiscal"].includes(role)) {
     const rows = db
       .exec('SELECT product_id, warehouse_id, CAST(quantity AS TEXT) quantity FROM "erp_stock__balance"')
       .rows.filter((r) => !ignoredWarehouse(db, String(r.warehouse_id)));
@@ -98,7 +101,7 @@ export function erpHomeSummary(ctx: RpcContext, a: RpcArgs) {
     };
   }
   let finance = null;
-  if (["admin", "financeiro", "consulta"].includes(role)) {
+  if (queryAvailable(ctx.parts, erpRequirement("erp-financeiro")) && ["admin", "financeiro", "consulta"].includes(role)) {
     const titles = ["payable", "receivable"].map((k) => {
       const open = db
         .exec(
@@ -141,11 +144,12 @@ export function erpHomeSummary(ctx: RpcContext, a: RpcArgs) {
     business_date: today,
     timezone: "America/Sao_Paulo",
     role,
+    ...unavailableParts(ctx.parts),
     catalog,
     documents,
     stock,
     finance,
-    ...mirrorReportCoverage(ctx.db, user, null),
+    ...queryCoverage(ctx, user),
   };
 }
 
@@ -164,7 +168,7 @@ export function erpHomeOverview(ctx: RpcContext, a: RpcArgs) {
   const grain = days > 62 ? "month" : "day";
   const inRange = (d: string | null) => d !== null && d >= from && d <= to;
   let sales = null;
-  if (documentsAllowed(role, "sales_orders", false)) {
+  if (queryAvailable(ctx.parts, erpEntityRequirement("sales_orders")) && documentsAllowed(role, "sales_orders", false)) {
     const orders = db
       .exec(`SELECT status, body, CAST(total AS TEXT) total FROM "erp_documents__document" WHERE authority='brufap' AND kind='sales_orders'`)
       .rows.filter((d) => inRange(docDate(d.body)));
@@ -181,7 +185,7 @@ export function erpHomeOverview(ctx: RpcContext, a: RpcArgs) {
   let receivable = null;
   let payable = null;
   const titles =
-    FIN_ROLES.includes(role)
+    (queryAvailable(ctx.parts, erpRequirement("erp-financeiro")) && FIN_ROLES.includes(role))
       ? db
           .exec(
             `SELECT id, kind, due_on, CAST(amount_cents AS TEXT) a, CAST(settled_cents AS TEXT) s FROM "erp_finance__title" WHERE cancelled=0 AND due_on>=? AND due_on<=?`,
@@ -190,7 +194,7 @@ export function erpHomeOverview(ctx: RpcContext, a: RpcArgs) {
           )
           .rows
       : [];
-  if (FIN_ROLES.includes(role)) {
+  if ((queryAvailable(ctx.parts, erpRequirement("erp-financeiro")) && FIN_ROLES.includes(role))) {
     const rec = titles.filter((t) => t.kind === "receivable");
     const pay = titles.filter((t) => t.kind === "payable");
     const ids = new Set(rec.map((t) => t.id));
@@ -207,7 +211,7 @@ export function erpHomeOverview(ctx: RpcContext, a: RpcArgs) {
     payable = { count: pay.length, total_cents: sum(pay, "a").toString(), open_cents: (sum(pay, "a") - sum(pay, "s")).toString() };
   }
   let invoices = null;
-  if (["admin", "fiscal"].includes(role)) {
+  if (queryAvailable(ctx.parts, erpRequirement("erp-fiscal")) && ["admin", "fiscal"].includes(role)) {
     const start = saoPauloMidnight(from);
     const end = saoPauloMidnight(addDays(to, 1));
     const drafts = db
@@ -251,7 +255,7 @@ export function erpHomeOverview(ctx: RpcContext, a: RpcArgs) {
   return {
     ...base,
     period: { key: text(a, "p_period"), from, to, day_count: days, grain, points, sales, receivable, payable, invoices },
-    ...mirrorReportCoverage(db, uuid(a, "p_user_id"), null),
+    ...queryCoverage(ctx, uuid(a, "p_user_id")),
   };
 }
 
@@ -292,7 +296,7 @@ export function erpHomeTopProducts(ctx: RpcContext, a: RpcArgs) {
       units: formatScaled(g.units, 6),
       total_cents: g.total.toString(),
     }));
-  return { scope: "home_top_products", data_mode: "erp_native", key: text(a, "p_period"), from, to, items, ...mirrorReportCoverage(ctx.db, user, null) };
+  return { scope: "home_top_products", data_mode: "erp_native", key: text(a, "p_period"), from, to, items, ...queryCoverage(ctx, user) };
 }
 
 registerRpc("erp_home_summary", erpHomeSummary);

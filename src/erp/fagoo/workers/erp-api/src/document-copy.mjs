@@ -1,3 +1,4 @@
+import { projectParts, responseParts, responsePartsMetadata, erpRequirementMet } from './preferences-kit.mjs';
 import { EXTENSION_FIELDS,INITIAL_STATE,KINDS,normalizeDocument } from '../../../packages/erp-domain/src/index.mjs';
 import { documentsResponse } from './documents.mjs';
 const UUID=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
@@ -49,7 +50,7 @@ function inputProjection(value){
  const data=pick(value,FIELDS);data.items=value.items.map(item=>pick(item,ITEM_FIELDS));data.installments=value.installments.map(row=>pick(row,['due_date','amount','method','note','payment_reference','payment_method_id','details']));return data;
 }
 function withoutItemIds(value){return{...value,items:value.items.map(({id,...item})=>item)};}
-export function documentCopyResponse(value,route){
+function documentCopyResponseBody(value,route){
  if(!object(value)||value.data_mode!=='erp_native'||value.operational_effects!==false)bad();
  const base={data_mode:'erp_native',operational_effects:false};
  if(route.type==='origin'){
@@ -83,4 +84,8 @@ export async function executeDocumentCopyRoute(route,{userId,rpc}){
  if(!uuid(userId))fail(401,'ERP_UNAUTHORIZED');
  if(!route||!['preview','copy','origin'].includes(route.type)||!KINDS.includes(route.args?.p_kind))fail(404,'ERP_NOT_FOUND');
  return documentCopyResponse(await rpc(route.rpc,{p_user_id:userId.toLowerCase(),...route.args}),route);
+}
+
+export function documentCopyResponse(value,route) {
+ return projectParts(value, body => documentCopyResponseBody(body,route), bad);
 }

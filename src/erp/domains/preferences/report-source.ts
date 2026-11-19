@@ -1,3 +1,6 @@
+import { normalizeErpParts, type ErpParts } from "../../parts.ts";
+import { erpReportRequirement } from "../../parts-requirements.ts";
+import { requireErpParts } from "../../engine/parts-gate.ts";
 // erp_preferences.report_source(base): as linhas de cada base dos relatórios
 // customizados, com a chave de ordem do Fagoo (texto, ordenado em collation C)
 // e os valores já como texto (report_clean, centavos em reais, situações).
@@ -89,7 +92,8 @@ const returnedTitles = (db: SqlDriver) => new Set(db.exec('SELECT title_id FROM 
 
 const DOC_KIND: Record<string, string> = { vendas: "sales_orders", propostas: "sales_proposals", pedidos_compra: "purchase_orders", ordens_servico: "service_orders" };
 
-export function reportSource(db: SqlDriver, base: string): SourceRow[] {
+export function reportSource(db: SqlDriver, base: string, parts: Readonly<ErpParts> = normalizeErpParts(), columns: readonly string[] = [], filters: readonly unknown[] = []): SourceRow[] {
+  requireErpParts({ parts }, erpReportRequirement(base, columns, filters));
   const out: SourceRow[] = [];
   const today = todaySaoPaulo();
   if (base === "produtos")
