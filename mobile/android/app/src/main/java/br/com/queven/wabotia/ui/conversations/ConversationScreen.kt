@@ -92,6 +92,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -143,9 +144,11 @@ import br.com.queven.wabotia.ui.components.color
 import br.com.queven.wabotia.ui.components.conversationBadge
 import br.com.queven.wabotia.ui.components.formatDayLabel
 import br.com.queven.wabotia.ui.components.formatSpan
+import br.com.queven.wabotia.ui.components.formatWhen
 import br.com.queven.wabotia.ui.components.localDayOf
 import br.com.queven.wabotia.ui.components.rememberHaptics
 import br.com.queven.wabotia.ui.components.rememberNow
+import br.com.queven.wabotia.ui.components.rememberServerNow
 import br.com.queven.wabotia.ui.components.windowInfo
 import br.com.queven.wabotia.ui.theme.Wb
 import kotlinx.coroutines.delay
@@ -159,13 +162,14 @@ private sealed interface ChatItem {
 
     data class Day(val label: String, override val key: String) : ChatItem
     data class System(val message: Message, override val key: String) : ChatItem
-    data class Bubble(val message: Message, val first: Boolean, override val key: String) : ChatItem
+    data class Bubble(val message: Message, val first: Boolean, val showSubject: Boolean, override val key: String) : ChatItem
 }
 
 private fun buildItems(messages: List<Message>): List<ChatItem> {
     val items = ArrayList<ChatItem>(messages.size + 8)
     var lastDay: java.time.LocalDate? = null
     var lastGroup: String? = null
+    var lastSubject: String? = null
     for (message in messages) {
         val day = localDayOf(message.created)
         if (day != lastDay) {
@@ -180,7 +184,9 @@ private fun buildItems(messages: List<Message>): List<ChatItem> {
         }
         val participant = if (message.isIncoming) message.contentJson.string("participant").orEmpty() else ""
         val group = "${message.direction}|${message.author}|$participant"
-        items += ChatItem.Bubble(message, first = group != lastGroup, key = message.id)
+        val subject = message.emailSubject
+        items += ChatItem.Bubble(message, first = group != lastGroup, showSubject = subject != null && subject != lastSubject, key = message.id)
+        if (subject != null) lastSubject = subject
         lastGroup = group
     }
     return items
@@ -263,7 +269,8 @@ fun ConversationScreen(
     var confirmDelete by remember { mutableStateOf<Message?>(null) }
     var failedMessage by remember { mutableStateOf<Message?>(null) }
     var confirmResolve by remember { mutableStateOf(false) }
-    val window = detail?.let { windowInfo(it, vm.lineKinds, now) }
+    val channelNow = rememberServerNow(detail?.takeIf { it.usesChannelAction }?.let { it.channelWindow?.serverNow ?: it.server_now }, now)
+    val window = detail?.let { windowInfo(it, vm.lineKinds, channelNow) }
     val canHandOff = vm.isOwn || vm.isAdmin
 
     // Passagem feita por módulo e Suporte pago: a faixa e as ações só com o módulo ligado, nunca em grupos.
@@ -380,6 +387,7 @@ fun ConversationScreen(
             detail == null || conversation == null -> ErrorState(vm.loadError ?: "Não foi possível carregar a conversa.", onRetry = { vm.load() }, modifier = Modifier.background(c.background))
             else -> {
                 if (window != null) WindowBanner(window, onClick = { sheet = ConversationSheet.Window })
+                SecondWaveMetadata(detail, now = channelNow)
                 OtherConversationsNotice(detail.other_conversations, onOpen = { openRelatedConversation(context, profileId, it) })
                 if (conversation.isGroup) GroupStrip(detail, onChangePolicy = { sheet = ConversationSheet.Policy })
                 if (SuporteRules.showBand(handoff, conversation.state, suporteEnabled)) {
@@ -615,7 +623,7 @@ private fun ChatTopBar(
                         Text(subtitle, color = c.textSecondary, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     if (showChannel && conversation != null) {
-                        Text(listOf(Channels.label(conversation.channel), conversation.account_label).filter { it.isNotBlank() }.joinToString(" · "), color = c.textSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(listOf(Channels.label(conversation.channel), if (conversation.isComment) "Comentário" else "", conversation.account_label).filter { it.isNotBlank() }.joinToString(" · "), color = c.textSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -684,7 +692,7 @@ private fun ConversationMenu(
         if (SuporteRules.canCourtesy(suporte)) item("Liberar como cortesia", Icons.Filled.CardGiftcard, action = { onSuporte("courtesy") })
         if (own && canAutomate) item("Devolver ao bot", Icons.AutoMirrored.Filled.Undo, action = onResume)
         if (canHandOff && canAutomate && !conversation.isGroup) item("Pesquisa de satisfação", Icons.Filled.SentimentSatisfiedAlt, action = onSurvey)
-        item("Consultar bot", Icons.Filled.SmartToy, action = onBots)
+        if (!conversation.isComment) item("Consultar bot", Icons.Filled.SmartToy, action = onBots)
         if (!conversation.isGroup && !conversation.phone.isNullOrBlank()) item("Salvar contato", Icons.Filled.PersonAdd, action = onSaveContact)
         if (conversation.isGroup) item("Respostas do bot no grupo", Icons.Filled.Groups, action = onPolicy)
         item("Dados da conversa", Icons.Filled.Info, action = onInfo)
@@ -713,7 +721,7 @@ private fun WindowBanner(info: WindowInfo, onClick: () -> Unit) {
                     info.humanTextOnly && !info.closed -> "Só texto humano · ${info.longText()} restantes"
                     tone == WindowTone.Closed -> info.reason ?: "Janela fechada · só volta quando o cliente escrever"
                     tone == WindowTone.Danger -> "Janela fecha em ${info.longText()}"
-                    else -> "Janela de 24h · ${info.longText()} restantes"
+                    else -> "${info.shortTitle} · ${info.longText()} restantes"
                 },
                 color = if (tone == WindowTone.Danger) c.danger else if (tone == WindowTone.Closed) c.textSecondary else c.textPrimary,
                 fontSize = 13.sp,
@@ -731,6 +739,73 @@ private fun WindowBanner(info: WindowInfo, onClick: () -> Unit) {
             Box(Modifier.fillMaxWidth(info.fraction).height(2.dp).background(color))
         }
     }
+}
+
+/** Metadados seguros já carregados no detalhe; ausência da extensão não acrescenta UI nem requisição. */
+@Composable
+internal fun SecondWaveMetadata(detail: ConversationDetail, now: Long, expanded: Boolean = false) {
+    if (!detail.usesChannelAction) return
+    val colors = Wb.colors
+    val comment = detail.comment
+    val email = detail.email
+    val telegram = detail.telegram
+    val quota = detail.remainingMessages.takeIf { detail.channelId == "tiktok" }
+    if (!detail.isComment && email == null && telegram == null && detail.channelId != "tiktok") return
+    Column(Modifier.fillMaxWidth().background(colors.surface).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        if (detail.isComment) {
+            Text("Comentário · resposta pública ou privada", color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            if (comment != null) {
+                Text(if (comment.hidden) "Comentário oculto" else "Comentário visível na publicação", color = colors.textSecondary, fontSize = 12.sp)
+                comment.postText?.takeIf { it.isNotBlank() }?.let {
+                    Text("Publicação: $it", color = colors.textSecondary, fontSize = 12.sp, maxLines = if (expanded) 6 else 2, overflow = TextOverflow.Ellipsis)
+                }
+                SafeChannelLink(comment.permalink, "Abrir publicação")
+                val privateStatus = when (comment.privateState) {
+                    "available" -> comment.privateExpiresAt?.let { if (it > now) "Resposta privada disponível até ${formatWhen(it)}" else "Prazo da resposta privada encerrado" } ?: "Prazo da resposta privada não informado"
+                    "reserved" -> "Tentativa privada reservada"
+                    "sent" -> if (comment.privateLinkPending) "Privado enviado; vínculo pendente" else "Resposta privada enviada; tentativa consumida"
+                    "failed" -> "Resposta privada falhou; tentativa consumida"
+                    "unknown" -> "Resposta privada indeterminada; tentativa consumida"
+                    else -> "Situação da resposta privada não informada"
+                }
+                Text(privateStatus, color = colors.textSecondary, fontSize = 12.sp)
+            }
+        }
+        if (email != null) {
+            Text("Remetente não confirmado", color = colors.warn, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            if (expanded) {
+                Text("Assunto: ${email.subject}", color = colors.textPrimary, fontSize = 13.sp)
+                Text("Remetente do envelope: ${email.sender}", color = colors.textSecondary, fontSize = 12.sp)
+                email.from?.takeIf { it.isNotBlank() && it != email.sender }?.let { Text("De informado: $it", color = colors.textSecondary, fontSize = 12.sp) }
+                email.replyTo?.takeIf { it.isNotBlank() && it != email.sender }?.let { Text("Responder para informado: $it", color = colors.textSecondary, fontSize = 12.sp) }
+                if (email.authentication.isNotEmpty()) {
+                    Text("Autenticação recebida (não confirma a pessoa): " + email.authentication.joinToString(" · ") { "${it.method}: ${it.result}" }, color = colors.textSecondary, fontSize = 12.sp)
+                }
+                email.attachmentWarnings.forEach { Text(it, color = colors.warn, fontSize = 12.sp) }
+            }
+        }
+        if (detail.channelId == "tiktok") {
+            Text(quota?.let { "Restam $it de 10 mensagens" } ?: "Contador de mensagens não informado pelo servidor", color = if (quota == 0) colors.warn else colors.textPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text("Regra conservadora: até 10 envios ou tentativas nas últimas 48 horas. Nova entrada não zera o contador.", color = colors.textSecondary, fontSize = 12.sp)
+        }
+        if (telegram != null) {
+            if (telegram.blocked) Text("O contato bloqueou o bot. O envio está indisponível.", color = colors.warn, fontSize = 13.sp)
+            if (expanded) {
+                Text("Telegram · sem janela de resposta", color = colors.textSecondary, fontSize = 13.sp)
+                SafeChannelLink(telegram.botUrl, "Abrir bot no Telegram")
+                telegram.phoneSuggestion?.let { Text("Telefone sugerido: ${it.masked}. Conferência humana pela ficha na web; não comprova identidade.", color = colors.textSecondary, fontSize = 12.sp) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SafeChannelLink(url: String?, label: String) {
+    val target = url?.takeIf { value ->
+        value.length <= 2048 && runCatching { android.net.Uri.parse(value).let { it.scheme in setOf("https", "http") && !it.host.isNullOrBlank() && it.userInfo == null } }.getOrDefault(false)
+    } ?: return
+    val handler = LocalUriHandler.current
+    TextButton(onClick = { runCatching { handler.openUri(target) } }) { Text(label) }
 }
 
 /** Faixa do grupo: participantes, política de resposta do bot e aviso de "somente administradores". */
@@ -880,6 +955,8 @@ private fun MessagesList(
                                 if (vm.editing != null) vm.cancelEdit()
                                 vm.quote = message
                             },
+                            showSubject = item.showSubject,
+                            onCommentTarget = if (detail.isComment && vm.isOwn && message.isIncoming && message.commentId != null) ({ vm.selectComment(message) }) else null,
                         )
                     }
                 }

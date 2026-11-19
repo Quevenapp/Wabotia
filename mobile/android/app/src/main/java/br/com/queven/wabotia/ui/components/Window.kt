@@ -39,7 +39,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
-// Relógio da janela de 24 horas (DESIGN.md, seção 2).
+// WhatsApp conserva 24 horas; canais novos usam o prazo projetado pelo servidor.
 
 const val WINDOW_MS: Long = 24L * 60 * 60 * 1000
 private const val HOUR_MS: Long = 60L * 60 * 1000
@@ -54,10 +54,14 @@ data class WindowInfo(
     val social: Boolean = false,
     val humanTextOnly: Boolean = false,
     val reason: String? = null,
+    val durationMs: Long = if (humanTextOnly) 6 * WINDOW_MS else WINDOW_MS,
+    val windowHours: Int? = null,
+    val remainingMessages: Int? = null,
 ) {
     val closed: Boolean get() = remainingMs <= 0
-    val fraction: Float get() = (remainingMs.toFloat() / (if (humanTextOnly) 6 * WINDOW_MS else WINDOW_MS)).coerceIn(0f, 1f)
-    val title: String get() = if (social) "Janela de resposta" else "Janela de 24 horas"
+    val fraction: Float get() = (remainingMs.toFloat() / durationMs.coerceAtLeast(1)).coerceIn(0f, 1f)
+    val title: String get() = windowHours?.let { "Janela de $it horas" } ?: if (social) "Janela de resposta" else "Janela de 24 horas"
+    val shortTitle: String get() = windowHours?.let { "Janela de ${it}h" } ?: if (social && durationMs != WINDOW_MS) "Janela de resposta" else "Janela de 24h"
     val tone: WindowTone
         get() = when {
             closed -> WindowTone.Closed
@@ -103,8 +107,8 @@ data class WindowInfo(
  * (`kind` diferente de `meta`/`zernio`). Quando o tipo da linha não é conhecido, o relógio aparece.
  */
 fun windowInfo(c: Conversation, lineKinds: Map<String, String>?, now: Long): WindowInfo? {
-    if (c.isGroup) return null
-    if (c.channel != null && c.channel !in Channels.current) return null
+    if (c.isGroup || c.isComment) return null
+    if (c.channel != null && !Channels.isKnown(c.channel)) return null
     c.window?.let { window ->
         if (window.kind == "none") return null
         if (window.kind != "customer") return null
@@ -115,9 +119,13 @@ fun windowInfo(c: Conversation, lineKinds: Map<String, String>?, now: Long): Win
             lastCustomer = c.last_customer,
             expiresAt = deadline,
             remainingMs = if (closed) 0 else (deadline - maxOf(now, window.serverNow)).coerceAtLeast(0),
-            social = Channels.isSocial(c.channel),
+            social = c.channel != null && c.channel != "whatsapp",
             humanTextOnly = human,
             reason = window.reason?.let { channelReason(it) },
+            durationMs = if (c.channel == "tiktok") (deadline - c.last_customer).coerceAtLeast(1) else if (human) 6 * WINDOW_MS else WINDOW_MS,
+            windowHours = if (c.channel == "tiktok" && deadline > c.last_customer && c.last_customer > 0)
+                ((deadline - c.last_customer) / HOUR_MS).toInt().takeIf { it > 0 } else null,
+            remainingMessages = window.remainingMessages,
         )
     }
     // Ausência de janela num canal novo não autoriza inventar a regra do WhatsApp.
@@ -130,9 +138,17 @@ fun windowInfo(c: Conversation, lineKinds: Map<String, String>?, now: Long): Win
     return WindowInfo(lastCustomer = c.last_customer, expiresAt = expires, remainingMs = (expires - now).coerceAtMost(WINDOW_MS))
 }
 
-fun windowInfo(detail: ConversationDetail, lineKinds: Map<String, String>?, now: Long): WindowInfo? = windowInfo(
-    detail.conversation.copy(channel = detail.channelId, window = detail.channelWindow), lineKinds, now,
-)
+fun windowInfo(detail: ConversationDetail, lineKinds: Map<String, String>?, now: Long): WindowInfo? {
+    if (detail.isComment) return null
+    val info = windowInfo(detail.conversation.copy(channel = detail.channelId, window = detail.channelWindow), lineKinds, now) ?: return null
+    if (!detail.usesChannelAction) return info
+    val hours = detail.channelWindowHours
+    return info.copy(
+        durationMs = hours?.toLong()?.times(HOUR_MS) ?: info.durationMs,
+        windowHours = hours ?: info.windowHours,
+        remainingMessages = detail.remainingMessages,
+    )
+}
 
 @Composable
 fun WindowTone.color(): Color = when (this) {
@@ -159,6 +175,14 @@ fun rememberNow(periodMs: Long = 30_000): State<Long> {
         }
     }
     return now
+}
+
+/** O relógio dos canais novos avança a partir da hora do servidor, sem depender do fuso/ajuste do aparelho. */
+@Composable
+fun rememberServerNow(serverNow: Long?, tick: Long): Long {
+    if (serverNow == null || serverNow <= 0) return tick
+    val receivedAt = remember(serverNow) { System.nanoTime() }
+    return serverNow + ((System.nanoTime() - receivedAt) / 1_000_000L).coerceAtLeast(0)
 }
 
 /**

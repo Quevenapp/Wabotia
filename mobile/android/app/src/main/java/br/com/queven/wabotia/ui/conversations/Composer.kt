@@ -61,10 +61,12 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -145,7 +147,7 @@ internal fun Composer(
     val conversation = detail.conversation
     val canVoice = detail.can("voice") || detail.can("audio")
     val members = remember(detail.group) { detail.groupMembers() }
-    val locked = vm.sending || vm.pending != null
+    val locked = vm.sending || vm.hasPending
     val channelBlock = vm.replyBlockReason()
 
     // --- gravação de voz ---
@@ -307,6 +309,36 @@ internal fun Composer(
     var mentionSheet by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 6.dp, end = 6.dp, top = 4.dp, bottom = 6.dp)) {
+        if (detail.channelId == "email" && detail.usesChannelAction) {
+            OutlinedTextField(
+                value = vm.subject,
+                onValueChange = { vm.subject = it },
+                label = { Text("Assunto") },
+                supportingText = { Text("${vm.subject.length}/200 caracteres") },
+                isError = vm.subject.length > 200 || vm.subject.any { it == '\r' || it == '\n' || it == '\u0000' },
+                singleLine = true,
+                enabled = !locked,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 4.dp),
+            )
+        }
+        if (detail.isComment) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp)) {
+                Text("Comentário selecionado", color = c.textSecondary, fontSize = 12.sp)
+                Text(vm.commentTargetText.ifBlank { detail.comment?.text ?: "Selecione um comentário para responder." },
+                    color = c.textPrimary, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = vm.commentMode == "public", onClick = { vm.commentMode = "public" },
+                        enabled = !locked, label = { Text("Resposta pública") })
+                    FilterChip(selected = vm.commentMode == "private", onClick = { vm.commentMode = "private" },
+                        enabled = !locked, label = { Text("Resposta privada") })
+                }
+                Text(when (vm.commentMode) {
+                    "public" -> "Esta resposta será publicada no comentário selecionado."
+                    "private" -> "Uma única tentativa privada por comentário, dentro do prazo informado."
+                    else -> "Escolha como responder antes de enviar."
+                }, color = c.textSecondary, fontSize = 12.sp)
+            }
+        }
         // Aviso de janela fechada: o envio continua permitido (o servidor guarda e entrega quando a janela reabrir).
         if (window != null && window.closed && !window.social) {
             Row(
@@ -324,7 +356,7 @@ internal fun Composer(
             Text("Até 7 dias: somente texto escrito por você. Anexos e automações não estão disponíveis.", color = c.textSecondary, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
         }
         vm.composerError?.let { InlineNotice(it, Modifier.padding(horizontal = 2.dp, vertical = 3.dp), onDismiss = { vm.composerError = null }) }
-        vm.pending?.let {
+        if (vm.hasPending) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 3.dp).clip(RoundedCornerShape(14.dp)).background(c.soft(c.warn, 0.16f)).padding(12.dp)) {
                 Text("O envio não foi confirmado. O pedido está guardado para uma nova tentativa segura, sem duplicar a mensagem.", color = c.textPrimary, fontSize = 13.sp, lineHeight = 17.sp)
                 Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -347,7 +379,7 @@ internal fun Composer(
                 vm.attachments.forEach { attachment ->
                     AttachmentPreviewRow(attachment, document = vm.kind == ComposeKind.Document, enabled = !locked) { vm.removeAttachment(attachment.key) }
                 }
-                Row(
+                if (!detail.usesChannelAction || detail.can("document")) Row(
                     Modifier.fillMaxWidth().clickable(enabled = !locked, role = Role.Checkbox) {
                         vm.kind = if (vm.kind == ComposeKind.Document) ComposeKind.Auto else ComposeKind.Document
                     }.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -447,13 +479,13 @@ internal fun Composer(
                         Spacer(Modifier.width(12.dp))
                     }
                 }
-                if (vm.text.length > MediaKinds.MAX_TEXT) {
-                    Text("${vm.text.length}/${MediaKinds.MAX_TEXT} caracteres", color = c.danger, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, bottom = 6.dp))
+                if (vm.text.length > detail.maxTextChars) {
+                    Text("${vm.text.length}/${detail.maxTextChars} caracteres", color = c.danger, fontSize = 12.sp, modifier = Modifier.padding(start = 16.dp, bottom = 6.dp))
                 }
             }
             Spacer(Modifier.width(6.dp))
             val showMic = canVoice && vm.editing == null && vm.text.isBlank() && vm.attachments.isEmpty() && vm.voice == null &&
-                vm.kind != ComposeKind.Location && vm.kind != ComposeKind.Contacts && vm.pending == null
+                vm.kind != ComposeKind.Location && vm.kind != ComposeKind.Contacts && !vm.hasPending
             if (showMic) {
                 RoundIconButton(Icons.Filled.Mic, "Gravar áudio", onClick = { requestRecord() }, size = 48.dp, color = c.brand, contentColor = c.onBrand, enabled = !vm.sending)
             } else {

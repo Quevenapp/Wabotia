@@ -92,6 +92,7 @@ internal object DemoServer {
     private val lock = Any()
     private var state: DemoState? = null
     private var channelsState: DemoState? = null
+    private var secondWave: ChannelsSecondWave? = null
 
     /** A fila de senhas, o pareamento do modo aparelho e as capacidades ([DemoQueue]). */
     private var queue: DemoQueue? = null
@@ -171,6 +172,7 @@ internal object DemoServer {
         fresh.seed()
         state = fresh
         channelsState = DemoState(fresh.t0, Ids.CHANNEL_PROFILE).also { it.seedChannels() }
+        secondWave = null
         queue = DemoQueue(fresh.t0)
         agenda = null
         serviceOrders = null
@@ -195,6 +197,8 @@ internal object DemoServer {
     fun handle(request: Request): Reply = synchronized(lock) {
         val s = state ?: reset()
         val now = System.currentTimeMillis()
+        if (request.url.queryParameter("canais") == "2" && secondWave == null) secondWave = ChannelsSecondWave(now)
+        secondWave?.handle(request, now)?.let { return@synchronized it }
         s.tick(now)
         route(s, request, now)
     }
@@ -259,11 +263,11 @@ internal object DemoServer {
         if (path.firstOrNull() != "v1") return notFound()
         val p = path.drop(1)
         return when {
-            p == listOf("me") -> ok(j("id" to Ids.ME, "kind" to "user", "name" to s.userName(Ids.ME), "role" to "admin", "profiles" to listOf(Ids.PROFILE, Ids.CHANNEL_PROFILE)))
+            p == listOf("me") -> ok(j("id" to Ids.ME, "kind" to "user", "name" to s.userName(Ids.ME), "role" to "admin", "profiles" to (listOf(Ids.PROFILE, Ids.CHANNEL_PROFILE) + listOfNotNull(secondWave?.let { ChannelsSecondWave.PROFILE }))))
             p == listOf("profiles") -> ok(JsonArray(listOf(
                 j("id" to Ids.PROFILE, "name" to DemoMode.PROFILE_NAME, "enabled" to 1, "settings" to j(), "created" to s.t0 - 200 * DAY_MS),
                 j("id" to Ids.CHANNEL_PROFILE, "name" to "Canais · Empresa Exemplo", "enabled" to 1, "settings" to j(), "created" to s.t0),
-            )))
+            ) + listOfNotNull(secondWave?.profile)))
             p == listOf("logout") -> okEmpty()
             p == listOf("auth", "mobile", "refresh") -> ok(sessionJson(now))
             p == listOf("pairings", "disconnect") && method == "POST" -> ok(j("disconnected" to true))
@@ -288,7 +292,7 @@ internal object DemoServer {
     private fun sessionJson(now: Long): JsonObject = j(
         "token" to "wabu_demo",
         "expires" to now + 30 * DAY_MS,
-        "user" to j("id" to Ids.ME, "name" to DemoMode.USER_NAME, "email" to DemoMode.USER_EMAIL, "role" to "admin", "profiles" to listOf(Ids.PROFILE, Ids.CHANNEL_PROFILE)),
+        "user" to j("id" to Ids.ME, "name" to DemoMode.USER_NAME, "email" to DemoMode.USER_EMAIL, "role" to "admin", "profiles" to (listOf(Ids.PROFILE, Ids.CHANNEL_PROFILE) + listOfNotNull(secondWave?.let { ChannelsSecondWave.PROFILE }))),
     )
 
     private fun profile(s: DemoState, method: String, r: List<String>, request: Request, now: Long): Reply {

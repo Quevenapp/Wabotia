@@ -27,12 +27,18 @@ fun ChannelBadge(channel: String?, modifier: Modifier = Modifier, size: Dp = 22.
         "whatsapp" -> "W"
         "instagram" -> "I"
         "facebook" -> "f"
+        "telegram" -> "T"
+        "email" -> "@"
+        "tiktok" -> "Tk"
         else -> "?"
     }
     val color = when (channel) {
         "whatsapp" -> Color(0xFF00866A)
         "instagram" -> Color(0xFFAE327F)
         "facebook" -> Color(0xFF1664C0)
+        "telegram" -> Color(0xFF167FAB)
+        "email" -> Color(0xFF7353A2)
+        "tiktok" -> Color(0xFF252A35)
         else -> Wb.colors.muted
     }
     Box(modifier.size(size).background(color, CircleShape).border(2.dp, ringColor, CircleShape).semantics { contentDescription = label }, contentAlignment = Alignment.Center) {

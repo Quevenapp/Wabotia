@@ -108,6 +108,7 @@ import br.com.queven.wabotia.ui.components.formatListTime
 import br.com.queven.wabotia.ui.components.formatSpan
 import br.com.queven.wabotia.ui.components.rememberHaptics
 import br.com.queven.wabotia.ui.components.rememberNow
+import br.com.queven.wabotia.ui.components.rememberServerNow
 import br.com.queven.wabotia.ui.components.rememberPresence
 import br.com.queven.wabotia.ui.components.windowInfo
 import br.com.queven.wabotia.ui.theme.Wb
@@ -275,7 +276,7 @@ fun ConversationsScreen(
                                 departments = departments,
                                 preview = listPreview(c, cache.previews[c.id]),
                                 unread = cache.unread[c.id] ?: 0,
-                                window = windowInfo(c, lineKinds, now),
+                                window = windowInfo(c, lineKinds, rememberServerNow(c.window?.serverNow.takeIf { c.channel == "tiktok" }, now)),
                                 multichannel = status?.multichannel == true || c.multichannel,
                                 now = now,
                                 busy = vm.actingOn == c.id,
@@ -473,6 +474,9 @@ private fun ConversationRow(
                 )
             }
             Spacer(Modifier.height(2.dp))
+            if (c.isComment) {
+                Text("Comentário", color = colors.textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+            }
             // Linha 2: prévia e relógio da janela
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val label = preview?.label()?.takeIf { it.isNotBlank() }

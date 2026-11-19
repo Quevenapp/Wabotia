@@ -54,6 +54,7 @@ import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -140,6 +141,8 @@ internal fun MessageBubble(
     onQuoteClick: () -> Unit,
     onFailedClick: () -> Unit,
     onSwipeReply: () -> Unit,
+    showSubject: Boolean = false,
+    onCommentTarget: (() -> Unit)? = null,
 ) {
     val c = Wb.colors
     val content = remember(message.content) { message.contentJson }
@@ -217,6 +220,20 @@ internal fun MessageBubble(
                     .padding(start = if (outgoing) 0.dp else TailWidth, end = if (outgoing) TailWidth else 0.dp)
                     .padding(3.dp),
             ) {
+                if (!deleted && !note && ctx.detail.channelId == "email" && showSubject) {
+                    message.emailSubject?.let { subject ->
+                        Text("Assunto: $subject", color = subtle, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp))
+                    }
+                }
+                if (!note && ctx.detail.isComment) {
+                    val visibility = when (message.commentVisibility) {
+                        "private", "comment.private" -> "Resposta privada"
+                        "public", "comment.reply" -> "Comentário público"
+                        else -> if (message.isIncoming) "Comentário público" else "Visibilidade não informada"
+                    }
+                    Text(visibility, color = subtle, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp))
+                    if (!deleted && onCommentTarget != null) TextButton(onClick = onCommentTarget) { Text("Selecionar comentário") }
+                }
                 if (label != null) {
                     Row(Modifier.padding(start = 6.dp, end = 6.dp, top = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (label.icon != null) {
