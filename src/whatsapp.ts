@@ -10,17 +10,23 @@ import {
   requireValue,
   uid,
 } from "./types";
-import { access } from "./security";
+import { access, sha } from "./security";
 import { event } from "./events";
 import { mediaKind, authorizedMedia } from "./media";
 import { conversation, enqueue } from "./service";
 import { zernioPresignType } from "./zernio-media";
+import { channelCapabilities, channelRules } from "./channels";
+import { finishDelivery } from "./delivery";
 
 export function capabilities(conn: any, chatType = "direct") {
+  const context = chatType === "group" ? "group" : chatType === "comment" ? "comment" : chatType === "review" ? "review" : "direct";
+  const view = channelCapabilities(conn, context);
+  if (view.channel !== "whatsapp") return view;
   if (conn?.kind === "zernio") {
     const group = chatType === "group",
       cfg = json(conn.config);
     return {
+      ...view,
       text: true,
       document: true,
       image: true,
@@ -51,6 +57,7 @@ export function capabilities(conn: any, chatType = "direct") {
   const has = (f: string) => direct || (qr && modern) || advertised.includes(f);
   const group = chatType === "group";
   return {
+    ...view,
     text: true,
     document: has("document"),
     image: has("image"),
@@ -84,7 +91,7 @@ export function needCapability(
   if (!(capabilities(conn, chatType) as any)[feature])
     throw new ApiError(
       422,
-      "unsupported_capability",
+      conn?.channel && conn.channel !== "whatsapp" ? "unsupported_content" : "unsupported_capability",
       `O canal não oferece ${feature} nesta conversa. Confira os recursos da conexão e a versão do conector.`,
     );
 }
@@ -231,6 +238,18 @@ export async function outgoingContent(
   return out;
 }
 export function validateMedia(m: any, kind: string, conn: any) {
+  if (conn.channel && conn.channel !== "whatsapp") {
+    const rules = channelRules(conn);
+    const format = rules?.media[kind as keyof NonNullable<typeof rules>["media"]];
+    const mime = String(m.type || "").split(";")[0].trim().toLowerCase();
+    if (!rules?.enabled)
+      throw new ApiError(503, "channel_not_ready", "Este canal ainda não está disponível.");
+    if (!format?.send || !format.mimeTypes.includes(mime) ||
+        !Number.isSafeInteger(m.size) || m.size <= 0 ||
+        (format.maxSendBytes !== null && m.size > format.maxSendBytes))
+      throw new ApiError(422, "unsupported_content", "Formato ou tamanho de anexo indisponível neste canal.");
+    return;
+  }
   const mime = m.type.split(";")[0].toLowerCase(),
     meta =
       ["meta", "zernio"].includes(conn.kind) ||
@@ -414,15 +433,17 @@ export async function messageAction(
   return { delivery_id: delivery, status: "pending" };
 }
 export async function channelEvent(env: Env, conn: any, data: any) {
+  const social = ["instagram", "facebook"].includes(conn.channel);
   requireValue(
-    ["status", "reaction", "edit", "delete", "group"].includes(data.event),
+    (social ? ["status", "reaction", "edit", "delete", "external"] : ["status", "reaction", "edit", "delete", "group"]).includes(data.event),
     "Evento de canal inválido.",
   );
   requireValue(
-    str(data.message_id, 250) && data.message_id && str(data.external_id, 200),
+    str(data.message_id, social ? 1024 : 250) && data.message_id && str(data.external_id, social ? 12291 : 200),
     "Identificador de evento inválido.",
   );
-  if (data.event === "status") await observeMetaUsage(env, conn, data);
+  if (data.event === "status" && (!conn.channel || conn.channel === "whatsapp"))
+    await observeMetaUsage(env, conn, data);
   if (data.event === "group") {
     if (data.provider_request_id)
       await exec(
@@ -455,8 +476,10 @@ export async function channelEvent(env: Env, conn: any, data: any) {
     }
     return syncGroup(env, conn, data);
   }
-  const payload = { ...data, timestamp: Number(data.timestamp) || now() };
-  const eventKey = `${conn.id}:${data.external_id}:${data.message_id}:${data.event}:${data.participant || ""}:${data.event_id || `${payload.timestamp}:${data.status || data.emoji || ""}`}`;
+  const payload = { ...data, timestamp: social ? (Number.isSafeInteger(data.timestamp) && data.timestamp > 0 ? data.timestamp : 0) : Number(data.timestamp) || now() };
+  const eventKey = social
+    ? `social:${JSON.stringify([conn.id, data.external_id, data.message_id, data.event, data.participant || "", data.event_id || [payload.timestamp, data.status || data.emoji || ""]])}`
+    : `${conn.id}:${data.external_id}:${data.message_id}:${data.event}:${data.participant || ""}:${data.event_id || `${payload.timestamp}:${data.status || data.emoji || ""}`}`;
   await exec(
     env,
     "INSERT OR IGNORE INTO channel_events(event_key,connection_id,chat,external_id,kind,payload,created) VALUES(?,?,?,?,?,?,?)",
@@ -483,9 +506,14 @@ export async function applyChannelEvents(
     externalId,
   );
   for (const e of events) {
+    if (e.kind === "external") {
+      if (await applySocialExternal(env, e))
+        await exec(env, "UPDATE channel_events SET applied=1 WHERE event_key=?", e.event_key);
+      continue;
+    }
     const m = await one(
       env,
-      "SELECT m.*,c.chat_type FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE c.connection_id=? AND m.external_id=? AND (?='' OR coalesce(c.recipient_id,c.external_id)=?)",
+      "SELECT m.*,c.chat_type,c.channel FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE c.connection_id=? AND m.external_id=? AND (?='' OR coalesce(c.recipient_id,c.external_id)=?)",
       connectionId,
       externalId,
       e.chat,
@@ -539,7 +567,8 @@ export async function applyChannelEvents(
         m.id,
       );
     } else {
-      if (p.timestamp >= (content.changed_at || 0)) {
+      if (p.timestamp >= (content.changed_at || 0) &&
+          !(m.channel && m.channel !== "whatsapp" && content.deleted && e.kind !== "delete")) {
         content.changed_at = p.timestamp;
         if (e.kind === "delete") content.deleted = true;
         else content.edited = true;
@@ -554,6 +583,9 @@ export async function applyChannelEvents(
               m.id,
             ],
           ],
+          ...(m.channel && m.channel !== "whatsapp" && e.kind === "delete" ? [[
+            "UPDATE messages SET attachments='[]' WHERE id=?", [m.id],
+          ] as [string, any[]]] : []),
           [
             "UPDATE conversations SET epoch=epoch+1 WHERE id=?",
             [m.conversation_id],
@@ -580,6 +612,61 @@ export async function applyChannelEvents(
       e.event_key,
     );
   }
+}
+
+/** Saídas do aplicativo da rede não entram na inbox, não acionam bot e não
+ * renovam last_customer. Ecos exigem associação real com uma entrega local. */
+async function applySocialExternal(env: Env, stored: any): Promise<boolean> {
+  const p = json(stored.payload);
+  const c = await one(env,
+    "SELECT * FROM conversations WHERE connection_id=? AND external_id=? AND channel IN ('instagram','facebook') AND chat_type='direct'",
+    stored.connection_id, stored.chat);
+  if (!c) return false; // Evento antes da primeira entrada: aguarda a identidade.
+  const existing = await one(env,
+    "SELECT id FROM messages WHERE profile_id=? AND conversation_id=? AND external_id=?",
+    c.profile_id, c.id, stored.external_id);
+  if (existing) {
+    await exec(env,
+      "UPDATE messages SET delivery_status='sent',status_at=? WHERE id=? AND (delivery_status IS NULL OR delivery_status NOT IN ('sent','delivered','read','played'))",
+      p.timestamp || 0, existing.id);
+    return true;
+  }
+  const local = await one(env,
+    "SELECT * FROM outbox WHERE profile_id=? AND connection_id=? AND conversation_id=? AND (external_id=? OR id=?) LIMIT 1",
+    c.profile_id, c.connection_id, c.id, stored.external_id, p.local_delivery_id || "");
+  if (local) {
+    await finishDelivery(env, local, stored.external_id);
+    return true;
+  }
+  // Um eco pode chegar antes da resposta HTTP que informa seu ID. Sem chave
+  // de correlação, aguarde a entrega em andamento em vez de criar um duplicado.
+  if (await one(env,
+    "SELECT id FROM outbox WHERE conversation_id=? AND connection_id=? AND status IN ('sending','unknown') LIMIT 1",
+    c.id, c.connection_id)) return false;
+  const id = `social:${(await sha(`${c.connection_id}:${stored.external_id}`)).slice(0, 32)}`;
+  const content = { ...p.content, external_outbound: true, customerSession: c.session };
+  await batch(env, [
+    ["INSERT OR IGNORE INTO messages(id,profile_id,conversation_id,direction,author,text,attachments,external_id,created,source_key,content,delivery_status) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+      [id, c.profile_id, c.id, "outbound", `external:${c.channel}`, String(p.text || ""),
+        JSON.stringify(Array.isArray(p.attachments) ? p.attachments : []), stored.external_id,
+        p.timestamp || stored.created, id, JSON.stringify(content), "sent"]],
+    ["UPDATE conversations SET updated=max(updated,?) WHERE id=? AND profile_id=?",
+      [p.timestamp || stored.created, c.id, c.profile_id]],
+  ]);
+  await event(env, c.profile_id, "message.sent", id,
+    { conversation_id: c.id, message_id: id, external_outbound: true }, id);
+  // Edição/exclusão/reação podem ter chegado antes desta saída externa.
+  await exec(env, "UPDATE channel_events SET applied=1 WHERE event_key=?", stored.event_key);
+  await applyChannelEvents(env, c.connection_id, stored.external_id);
+  return true;
+}
+
+/** Chamado apenas no ramo social depois do commit de uma entrada. */
+export async function applySocialConversationEvents(env: Env, connectionId: string, externalId: string) {
+  const pending = await all(env,
+    "SELECT DISTINCT external_id FROM channel_events WHERE connection_id=? AND chat=? AND applied=0 AND kind='external' ORDER BY created,event_key",
+    connectionId, externalId);
+  for (const row of pending) await applyChannelEvents(env, connectionId, row.external_id);
 }
 export async function syncGroup(env: Env, conn: any, data: any) {
   requireValue(

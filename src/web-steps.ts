@@ -475,6 +475,8 @@ const clip = (value: string, max: number) =>
  */
 export async function openWebStep(env: Env, input: OpenWebStepInput) {
   const c = input.conversation;
+  if (c.channel != null && c.channel !== "whatsapp")
+    throw new ApiError(422, "unsupported_content", "Passos de módulos estão disponíveis somente no WhatsApp.");
   const old = await one(
     env,
     "SELECT * FROM web_steps WHERE source_key=?",
@@ -803,9 +805,10 @@ export async function cancelModuleWebSteps(
 
 /** Número da linha da conversa (ou da área) para o botão Voltar ao WhatsApp. */
 export async function whatsappReturnLink(env: Env, c: Conversation) {
+  if (c.channel != null && c.channel !== "whatsapp") return null;
   const rows = await all(
     env,
-    "SELECT id,config FROM connections WHERE profile_id=? AND kind IN ('zernio','qr') ORDER BY (id=?) DESC,created",
+    "SELECT id,config FROM connections WHERE profile_id=? AND kind IN ('zernio','qr') AND channel='whatsapp' ORDER BY (id=?) DESC,created",
     c.profile_id,
     c.connection_id || "",
   );

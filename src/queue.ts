@@ -173,6 +173,7 @@ export const normalizePhone = (value: unknown) =>
 
 /** Marcador de canal autenticado; telefone digitado e external_id não são prova. */
 export function verifiedQueuePhone(c: Conversation): string | null {
+  if (c.channel != null && c.channel !== "whatsapp") return null;
   return verifiedPhone(c);
 }
 
@@ -315,7 +316,7 @@ export const aheadOfNew = (
 async function whatsappLine(env: Env, profile: string, queue: any) {
   const rows = await all(
     env,
-    "SELECT id,config FROM connections WHERE profile_id=? AND kind IN ('zernio','qr') ORDER BY (id=?) DESC,created",
+    "SELECT id,config FROM connections WHERE profile_id=? AND kind IN ('zernio','qr') AND channel='whatsapp' ORDER BY (id=?) DESC,created",
     profile,
     queue?.whatsapp_line_id || "",
   );
@@ -416,7 +417,7 @@ async function windowOpen(env: Env, conversationId: string | null) {
   if (!conversationId) return false;
   const c = await one(
     env,
-    "SELECT c.last_customer,n.kind FROM conversations c LEFT JOIN connections n ON n.id=c.connection_id WHERE c.id=?",
+    "SELECT c.last_customer,n.kind FROM conversations c JOIN connections n ON n.id=c.connection_id WHERE c.id=? AND n.channel='whatsapp' AND n.kind IN ('meta','zernio','qr') AND (c.channel IS NULL OR c.channel='whatsapp')",
     conversationId,
   );
   if (!c) return false;
@@ -437,10 +438,10 @@ const VIEW_SQL = {
     "SELECT avg(finished_at-started_at) ms,count(*) n FROM (SELECT finished_at,started_at FROM queue_tickets WHERE queue_id=? AND service_day=? AND status='done' AND started_at IS NOT NULL AND finished_at>=started_at ORDER BY finished_at DESC LIMIT 20)",
   open: "SELECT count(*) n FROM counters c WHERE c.profile_id=? AND c.enabled=1 AND c.status='open' AND EXISTS(SELECT 1 FROM json_each(c.queue_ids) WHERE value=?)",
   window:
-    "SELECT c.last_customer,n.kind FROM conversations c LEFT JOIN connections n ON n.id=c.connection_id WHERE c.id=?",
+    "SELECT c.last_customer,n.kind FROM conversations c JOIN connections n ON n.id=c.connection_id WHERE c.id=? AND n.channel='whatsapp' AND n.kind IN ('meta','zernio','qr') AND (c.channel IS NULL OR c.channel='whatsapp')",
   // A linha da fila primeiro (whatsapp_line_id), como em whatsappLine.
   lines:
-    "SELECT id,config FROM connections WHERE profile_id=? AND kind IN ('zernio','qr') ORDER BY (id=coalesce((SELECT whatsapp_line_id FROM queues WHERE id=?),'')) DESC,created",
+    "SELECT id,config FROM connections WHERE profile_id=? AND kind IN ('zernio','qr') AND channel='whatsapp' ORDER BY (id=coalesce((SELECT whatsapp_line_id FROM queues WHERE id=?),'')) DESC,created",
 };
 
 /** Primeiro número de WhatsApp utilizável das linhas (whatsappLine). */
@@ -663,7 +664,7 @@ const OVERVIEW_SQL = {
   recent:
     "SELECT t.*,c.name counter_name FROM queue_tickets t LEFT JOIN counters c ON c.id=t.counter_id WHERE t.profile_id=? AND t.service_day=? AND t.called_at IS NOT NULL AND t.status IN ('called','serving','done') ORDER BY t.called_at DESC LIMIT 30",
   lines:
-    "SELECT id,config FROM connections WHERE profile_id=? AND kind IN ('zernio','qr') ORDER BY created",
+    "SELECT id,config FROM connections WHERE profile_id=? AND kind IN ('zernio','qr') AND channel='whatsapp' ORDER BY created",
 };
 
 export type OverviewData = Awaited<ReturnType<typeof overviewData>>;
@@ -1868,6 +1869,7 @@ async function notify(
   } catch {
     return;
   }
+  if (c.channel != null && c.channel !== "whatsapp") return;
   const text =
     kind === "called"
       ? `🔔 Senha ${ticket.code}: é a sua vez! Dirija-se ao ${extra.counter}.`
@@ -2049,7 +2051,7 @@ async function saveQueue(env: Env, actor: Actor, profile: string, data: any) {
     requireValue(
       await one(
         env,
-        "SELECT id FROM connections WHERE id=? AND profile_id=?",
+        "SELECT id FROM connections WHERE id=? AND profile_id=? AND kind IN ('zernio','qr') AND channel='whatsapp'",
         next.whatsapp_line_id,
         profile,
       ),
@@ -2404,6 +2406,7 @@ export async function activeTicketForConversation(env: Env, profile: string, con
         AND proof.phone=p.phone AND proof.contact_id=p.contact_id AND proof.revoked=0
       LEFT JOIN contacts k ON k.id=proof.contact_id AND k.profile_id=c.profile_id AND k.namespace='team' AND k.identity_state='active'
       WHERE c.chat_type='direct'
+        AND (c.channel IS NULL OR c.channel='whatsapp')
         AND c.connection_id IS NOT NULL AND c.external_namespace='channel:'||c.connection_id
         AND c.customer_link_state NOT IN ('blocked','excluded','ambiguous')
         AND (c.verified_phone IS NULL OR c.verified_phone=c.normalized_phone)

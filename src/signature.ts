@@ -3,6 +3,7 @@
 // the panel keep the original text and show the author on their own.
 import { one } from "./db";
 import type { Env } from "./types";
+import type { ChannelId } from "./channel-contracts";
 
 const clean = (name: unknown) =>
   typeof name === "string"
@@ -40,6 +41,7 @@ export async function signedPayload(
   cfg: any,
   row: { kind: string; actor: string },
   payload: any,
+  channel: ChannelId | null = "whatsapp",
 ) {
   const type = payload?.content?.type;
   if (
@@ -53,6 +55,6 @@ export async function signedPayload(
     return payload;
   const signature = await senderSignature(env, cfg, row.actor);
   return signature
-    ? { ...payload, text: `*${signature}*\n${payload.text}` }
+    ? { ...payload, text: `${channel === "whatsapp" ? `*${signature}*` : signature}\n${payload.text}` }
     : payload;
 }
