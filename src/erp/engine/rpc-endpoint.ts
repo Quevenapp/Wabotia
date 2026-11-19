@@ -1,6 +1,6 @@
-import { ERP_PARTS_REFERENCE_HEADER, readErpPartsReference } from "../parts.ts";
+import { ERP_PARTS_REFERENCE_HEADER, readErpPartsReference, type ErpPartsReference } from "../parts.ts";
 import { applyErpPartsSnapshot, requireCurrentErpParts, ErpPartsControlError } from "../parts-control.ts";
-import { ERP_PARTS_DENIED_HEADER, ERP_MAINTENANCE_HEADER, ErpPartDisabled, requireRpcParts, readErpMaintenance, withErpMaintenance } from "./parts-gate.ts";
+import { ERP_PARTS_DENIED_HEADER, ERP_MAINTENANCE_HEADER, COM1_EVIDENCE_RPCS, ErpPartDisabled, requireRpcParts, readErpMaintenance, withErpMaintenance } from "./parts-gate.ts";
 // /erp-rpc/<nome> dentro do objeto erp:<área>: o lado de dentro da costura.
 // O corpo é o mesmo JSON que o PostgREST receberia ({p_user_id, …}); a
 // resposta é o JSON da função, ou {code, message} com 400 (como o PostgREST
@@ -14,6 +14,7 @@ import { CUSTOMER_BRIDGE_FIELDS, CUSTOMER_BRIDGE_SCAN, CUSTOMER_BRIDGE_USER_ID, 
 import { SIGNATURES } from "./signatures.generated.ts";
 import { ENGINE_SIGNATURES } from "./signatures-engine.ts";
 import { requestModuleState } from "./module-state.ts";
+import { COM1_AUTHORITY_HEADER, readCom1Authority, runWithCom1Authority, type Com1Authority } from "../domains/fiscal/comnfe/access.ts";
 
 /**
  * RPCs do agendador e da plataforma, sem checagem de quem chama (no Fagoo só
@@ -35,6 +36,11 @@ export const SYSTEM_RPCS: ReadonlySet<string> = new Set([
   "erp_platform_export_expired",
   "erp_platform_export_removed",
   "erp_wabotia_state",
+]);
+/** Operações fiscais internas; preserva o inventário legado do agendador. */
+export const COM1_INTERNAL_RPCS: ReadonlySet<string> = new Set([
+  "erp_com1_claim", "erp_com1_record", "erp_com1_cancel_claim",
+  "erp_com1_cancel_record", "erp_com1_cancel_xml_record",
 ]);
 import { Clock } from "./time.ts";
 
@@ -126,7 +132,7 @@ export async function handleRpc(
   // 0A000 visível, pelo callRpc).
   if (name !== CUSTOMER_BRIDGE_SCAN && !isPorted(name) && !(name in SIGNATURES) && !(name in ENGINE_SIGNATURES))
     return Response.json({ code: "PGRST202", message: `erp_rpc_unknown:${name}`, details: null, hint: null }, { status: 404 });
-  if (SYSTEM_RPCS.has(name) && request.headers.get(SYSTEM_HEADER) !== "1")
+  if ((SYSTEM_RPCS.has(name) || COM1_INTERNAL_RPCS.has(name)) && request.headers.get(SYSTEM_HEADER) !== "1")
     return Response.json({ code: "42501", message: "erp_rpc_system_only", details: null, hint: null }, { status: 403 });
   let args: unknown;
   try {
@@ -138,6 +144,23 @@ export async function handleRpc(
     return Response.json({ code: "22023", message: "erp_rpc_body_invalid" }, { status: 400 });
   const identity = decodeIdentity(request.headers.get(IDENTITY_HEADER));
   const a = args as Record<string, unknown>;
+  const authorityHeader = request.headers.get(COM1_AUTHORITY_HEADER);
+  let com1Authority: Com1Authority | undefined;
+  if (authorityHeader !== null) {
+    if (!name.startsWith("erp_com1_") || request.headers.get(SYSTEM_HEADER) !== "1")
+      return Response.json({ code: "42501", message: "com1_authority_internal_only" }, { status: 403 });
+    try { com1Authority = readCom1Authority(JSON.parse(authorityHeader)) ?? undefined; } catch { /* Recusa abaixo. */ }
+    if (!com1Authority)
+      return Response.json({ code: "42501", message: "com1_authority_invalid" }, { status: 403 });
+    const actor = identity.actor;
+    if (actor && actor.session_id && !actor.is_technical && com1Authority.origin === "application" &&
+        com1Authority.confirmation_id && com1Authority.confirmed_by === actor.user_id) {
+      // A costura comprovou a proposta e resolveu a identidade da pessoa que
+      // confirmou. O portão segue exigindo horário/MFA dessa pessoa; apenas a
+      // marca de delegação deixa de tratá-la como execução autônoma do bot.
+      identity.actor = { ...actor, is_agent: false };
+    }
+  }
   const restricted = new Set(identity.customer_privacy?.restricted_contact_ids ?? []);
   const privacyDenied = () => Response.json({ code: "42501", message: "erp_customer_restricted" }, { status: 403 });
   const references = name === CUSTOMER_BRIDGE_SCAN ? { ...a, p_after: null } : a;
@@ -163,6 +186,19 @@ export async function handleRpc(
   try {
     if (["parts", "partsControl", "maintenance", "bypass"].some(key => Object.hasOwn(a, key)))
       return Response.json({ code: "22023", message: "erp_rpc_body_invalid" }, { status: 400 });
+    if (COM1_EVIDENCE_RPCS.has(name)) {
+      // SYSTEM_HEADER já foi conferido. requireRpcParts e o registro exigem
+      // emissão, comando e token persistidos. Nenhuma identidade ou parte da
+      // chamada externa autoriza outro envio ou efeito neste commit estreito.
+      // Não reabrir o portão: a pessoa pode ter perdido acesso durante o I/O.
+      const result = callRpc(storageDriver(ctx.storage), name, a, clock, {
+        identity: { actor: null, people: null },
+        parts: { customers: false, products: false, sales: false, purchases: false,
+          stock: false, finance: false, fiscal: false, billing: false, pos: false },
+      });
+      if (containsRestrictedContact(result, restricted)) return privacyDenied();
+      return Response.json(result);
+    }
     const input = { ...identity.partsControl, parts: identity.parts };
     await applyErpPartsSnapshot(ctx.storage, profile, input);
     const snapshot = await requireCurrentErpParts(ctx.storage, profile, input);
@@ -174,7 +210,7 @@ export async function handleRpc(
     if (maintenanceHeader && (!maintenance || request.headers.get(SYSTEM_HEADER) !== "1" || bridge))
       return Response.json({ code: "42501", message: "erp_maintenance_scope_denied" }, { status: 403 });
     const referenceHeader = request.headers.get(ERP_PARTS_REFERENCE_HEADER);
-    let partsReference;
+    let partsReference: ErpPartsReference | undefined;
     if (referenceHeader) {
       try { partsReference = readErpPartsReference(JSON.parse(referenceHeader)) ?? undefined; } catch { /* Recusa abaixo. */ }
       if (!partsReference || request.headers.get(SYSTEM_HEADER) !== "1" || bridge)
@@ -213,7 +249,7 @@ export async function handleRpc(
       });
       return Response.json({ items, nextCursor: rows.length > Number(limit) ? String(items.at(-1)!.id) : null });
     }
-    const result = callRpc(storageDriver(ctx.storage), name, args as Record<string, unknown>, clock, {
+    const invoke = () => callRpc(storageDriver(ctx.storage), name, args as Record<string, unknown>, clock, {
       ...storage,
       identity,
       parts: snapshot.parts,
@@ -222,6 +258,7 @@ export async function handleRpc(
       modules: requestModuleState(request.headers, request.headers.get(SYSTEM_HEADER) === "1"),
       gate: request.headers.get(GATE_HEADER) === "1",
     });
+    const result = com1Authority ? runWithCom1Authority(com1Authority, invoke) : invoke();
     // Recibos podem anteceder a restrição e não passam novamente pelo DTO.
     if (containsRestrictedContact(result, restricted)) return privacyDenied();
     // RPC que cria tarefa da plataforma (exportação pedida no painel): o
@@ -243,7 +280,8 @@ export async function handleRpc(
     if (error instanceof ErpError)
       return Response.json(
         { code: error.code, message: error.message, details: null, hint: null },
-        { status: error.code === "erp_route_removed" ? 404 : error.code === "0A000" ? 501 : 400 },
+        { status: error.code === "erp_route_removed" ? 404 : error.code === "0A000" ? 501 :
+          name.startsWith("erp_com1_") && error.code === "42501" ? 403 : 400 },
       );
     throw error;
   }

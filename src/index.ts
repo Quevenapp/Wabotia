@@ -1166,6 +1166,11 @@ const erpEmissor = async (c: any) => {
 };
 app.all("/api/v1/profiles/:profile/erp-emissor", erpEmissor);
 app.all("/api/v1/profiles/:profile/erp-emissor/*", erpEmissor);
+// NF-e comercial: entrada própria, com contratos e recusa segura até a ligação final.
+app.all("/api/v1/profiles/:profile/erp-comercial-nfe/*", async (c: any) => {
+  const { commercialNfeRoute } = await import("./erp/commercial-nfe/routes");
+  return commercialNfeRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
+});
 // Relatórios e exportação pelo cofre (Fiscal, F6b; src/erp/fiscal-cofre/README.md):
 // papel fiscal ou administrador; os links de download vão ao navegador.
 app.all("/api/v1/profiles/:profile/erp-fiscal-cofre/*", async (c: any) => {

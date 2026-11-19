@@ -10,11 +10,13 @@
 // 9: tabelas do cofre da NFapi: notas recebidas (received, received_change com
 //    os 2 gatilhos de imutabilidade, cursor) e emissão (emission, event); passo
 //    8→9, createEngineTables.
+// 10: contratos comerciais do pedido de NF-e, comandos, revisões imutáveis,
+//     efeitos e auditoria (passo 9→10, somente tabelas novas do motor).
 import { createHash } from "node:crypto";
 import { ERP_DDL_GENERATED, ERP_DDL_HASH as GENERATED_HASH } from "./ddl.generated.ts";
 import { ERP_ENGINE_DDL } from "./engine-tables.ts";
 
-export const ERP_DDL_VERSION = 9;
+export const ERP_DDL_VERSION = 10;
 export const ERP_DDL: readonly string[] = [...ERP_DDL_GENERATED, ...ERP_ENGINE_DDL];
 /** Hash do esquema: o do gerado; com tabelas do motor, o do gerado mais o DDL delas. */
 export const ERP_DDL_HASH: string = ERP_ENGINE_DDL.length

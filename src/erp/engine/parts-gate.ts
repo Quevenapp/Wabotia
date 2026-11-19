@@ -7,6 +7,10 @@ import { ERP_PART_KEYS, erpRequirement, erpRequirementMet, type ErpModuleId, typ
 import { erpEntityRequirement, erpPreferenceRequirement, erpReportRequirement, erpNotificationRequirement, erpFieldRequirement, erpListRequirement, erpTaskRequirement } from "../parts-requirements.ts";
 
 export const ERP_PARTS_DENIED_HEADER = "x-erp-parts-denied";
+/** Somente recebimento de evidência de uma operação externa já reivindicada. */
+export const COM1_EVIDENCE_RPCS: ReadonlySet<string> = new Set([
+  "erp_com1_record", "erp_com1_cancel_record", "erp_com1_cancel_xml_record",
+]);
 export class ErpPartDisabled extends ErpError {
   constructor() { super("module_disabled", "Esta rotina depende de uma parte desligada."); }
 }
@@ -17,6 +21,11 @@ export const requireErpParts = (ctx: Pick<RpcContext, "parts">, requirement: Erp
 
 /** Inventário explícito dos RPCs registrados. Novos nomes exigem classificação. */
 const RPC_GROUPS = {
+  com1_prepare: `erp_com1_prepare`,
+  com1_claim: `erp_com1_claim`,
+  com1_read: `erp_com1_config_get erp_com1_config_save erp_com1_get erp_com1_list erp_com1_cancel_claim`,
+  com1_effect: `erp_com1_effect_apply erp_com1_effect_reverse`,
+  com1_evidence: `erp_com1_record erp_com1_cancel_record erp_com1_cancel_xml_record`,
   base: `erp_access_storage erp_access_gate_v2 erp_access_me erp_access_permissions_me erp_access_profile_me erp_access_security_policy_get
     erp_access_security_policy_save erp_access_user_controls_get erp_access_user_controls_save erp_activity_detail erp_activity_list
     erp_attachment_contact_claim erp_attachment_contact_delete erp_attachment_contact_finish erp_attachment_contact_list erp_attachment_contact_object
@@ -167,6 +176,8 @@ function documentRequirement(ctx: RpcContext, name: string, a: RpcArgs): ErpRequ
   return null;
 }
 const fixed: Partial<Record<ErpRpcRule, ErpModuleId[]>> = {
+  com1_prepare: ["erp-fiscal", "erp-vendas"], com1_read: ["erp-fiscal"],
+  com1_effect: ["erp-fiscal"],
   base: ["erp"], products: ["erp-produtos"], product_purchase: ["erp-produtos", "erp-compras"],
   stock: ["erp-estoque"], sales: ["erp-vendas"], finance: ["erp-financeiro"], billing: ["erp-cobranca"],
   fiscal: ["erp-fiscal"], pos: ["erp-pdv"], purchase_stock: ["erp-compras", "erp-estoque"],
@@ -177,8 +188,17 @@ export function rpcPartsRequirement(ctx: RpcContext, name: string, a: RpcArgs): 
   const rule = ERP_RPC_RULES[name], data = obj(a.p_data), ids: ErpModuleId[] = [];
   if (!rule) return null;
   if (rule === "external") return "externo";
+  // Commit de evidência não é um envio novo. O registro confere o comando
+  // durável e seu token antes de delegar; não depende das partes atuais.
+  if (rule === "com1_evidence") return erpRequirement();
   const add = (r: ErpRequirement | null) => { if (!r) throw new ErpError("22023", "erp_parts_unknown_type"); ids.push(...r.all); };
   if (fixed[rule]) ids.push(...fixed[rule]!);
+  if (rule === "com1_claim") {
+    const input = obj(a.p_input);
+    if (input.action !== "emit" && input.action !== "resume") throw new ErpError("22023", "com1_action_invalid");
+    ids.push("erp-fiscal");
+    if (input.action === "emit") ids.push("erp-vendas");
+  }
   if (rule === "document" || rule === "document_stock" || rule === "document_finance") {
     add(documentRequirement(ctx, name, a));
     if (name === "erp_document_conversion_preview") add(typeRequirement(a.p_kind));
@@ -321,6 +341,18 @@ export function rpcPartsRequirement(ctx: RpcContext, name: string, a: RpcArgs): 
 
 export function requireRpcParts(ctx: RpcContext, name: string, args: RpcArgs): void {
   if (!ERP_RPC_RULES[name]) throw new ErpError("0A000", `erp_rpc_unclassified:${name}`);
+  if (COM1_EVIDENCE_RPCS.has(name)) {
+    const input = obj(args.p_input);
+    if (typeof input.emission_id !== "string" || typeof input.command_id !== "string" || typeof input.claim_token !== "string")
+      throw new ErpError("42501", "com1_claim_required");
+    // Sem importar domínios aqui: seus registros criariam ciclo com registry.
+    // Repete a capacidade do store, inclusive para evidência tardia após lease.
+    const command = one(ctx.db, "SELECT emission_id,action,token FROM erp_fiscal_vault__order_command WHERE id=?", input.command_id);
+    const actions = name === "erp_com1_record" ? ["emit", "resume"] : ["cancel"];
+    if (!command || !command.token || command.token !== input.claim_token || command.emission_id !== input.emission_id || !actions.includes(String(command.action)))
+      throw new ErpError("42501", "com1_claim_required");
+    return;
+  }
   if (maintenanceAllows(ctx, name, args)) { requireErpParts(ctx, erpRequirement("erp")); return; }
   if (ERP_RPC_RULES[name] === "external" && ctx.identity.partsControl) throw new ErpError("erp_route_removed", "Esta rota do ERP não faz parte da instalação principal.");
   // O legado todo ligado conserva exatamente validações, DTOs e erros do oráculo.

@@ -162,4 +162,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     replaced_by:
       "Tabelas só do motor (schema/engine-tables.ts, versão 9): erp_fiscal_vault__received (a última versão de cada nota recebida, com o vínculo à nota do ERP depois da importação), erp_fiscal_vault__received_change (cada mudança pela sequência do cofre, só acréscimo, com gatilhos de imutabilidade) e erp_fiscal_vault__cursor (a ultimaSequencia por conexão). A manifestação é um erp_fiscal_vault__event (emissao-cofre). O erp_dfe do Fagoo não é portado.",
   },
+  {
+    id: "comercial-nfe",
+    oracle: "A emissão legada exige rascunho e restringe notas locais à homologação; não representa o pedido comercial emitido pelo cofre nos dois ambientes.",
+    reason: "Fatia vender com NF-e: manter identidade fiscal e corpo persistidos, impedir repetição de nota e efeito e conservar evidência externa mesmo após falha local. Número, assinatura, transmissão, certificado e DANFE continuam no cofre.",
+    replaced_by: "Versão 10 aditiva (9→10): commercial_settings, order_emission, order_revision, order_command, order_cancel, order_effect e order_audit em erp_fiscal_vault. Revisão e auditoria são imutáveis; pedido/versão, referência, comando e eixo têm unicidade. Corpo, resposta e XML são restritos, separados da auditoria resumida; nenhuma credencial é coluna do esquema. Emissões comerciais não são projetadas no acervo fiscal legado. Backup/restauração inclui ERP_ENGINE_TABLES; nenhuma migração D1 ou novo recurso.",
+  },
 ];

@@ -7,6 +7,20 @@
 import type { ArgSpec } from "./signatures.generated.ts";
 
 export const ENGINE_SIGNATURES: Record<string, ArgSpec[]> = {
+  // src/erp/domains/fiscal/comnfe/registry.ts. DTOs em commercial-nfe/contracts.ts.
+  // Identidade vem do envelope interno; p_user_id apenas confere quem comanda.
+  erp_com1_config_get: [["p_user_id", "u"]],
+  erp_com1_config_save: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_prepare: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_get: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_list: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_claim: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_record: [["p_input", "j"]],
+  erp_com1_cancel_claim: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_cancel_record: [["p_input", "j"]],
+  erp_com1_cancel_xml_record: [["p_input", "j"]],
+  erp_com1_effect_apply: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_effect_reverse: [["p_user_id", "u"], ["p_input", "j"]],
   // src/erp/domains/fiscal/reform.ts (sessão G; structural.ts, reforma-classificacao)
   erp_fiscal_reform_nature_class_get: [
     ["p_user_id", "u"],

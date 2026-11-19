@@ -5,5 +5,6 @@ import "./rpc/erp_fiscal_tax_settings.ts";
 import "./rpc/erp_fiscal_invoice_support.ts";
 import "./rpc/erp_fiscal_invoice_reads.ts";
 import "./reform.ts";
+import "./comnfe/registry.ts";
 
 export {};
