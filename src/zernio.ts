@@ -1,3 +1,4 @@
+import { normalizeCustomerPhone } from "./customer/phone";
 import { one, exec } from "./db";
 import { consentFor, payloadPurpose } from "./consents";
 import { templateParam } from "./template-params";
@@ -767,13 +768,15 @@ export async function zernioInbound(
   // Zernio's shared webhook schema does not expose a WhatsApp group flag.
   // Resolve groups against the number's synchronized group records, rather
   // than mistaking the participant who wrote for the conversation identity.
+  const explicitGroup = [body.conversation?.platformConversationId, destination]
+    .find((value) => typeof value === "string" && value.endsWith("@g.us"));
   const group = await one(
     env,
     "SELECT external_id FROM conversations WHERE connection_id=? AND chat_type='group' AND external_id IN (?,?) LIMIT 1",
     conn.id,
     body.conversation?.platformConversationId || "",
     destination || "",
-  );
+  ) || (explicitGroup ? { external_id: explicitGroup } : null);
   if (group) destination = group.external_id;
   else if (typeof remoteConversation === "string") {
     // A customer's visible phone can disappear during WhatsApp's BSUID
@@ -954,9 +957,7 @@ export async function zernioInbound(
       content.media_error = true;
     }
   }
-  const rawPhone =
-    m.sender?.phoneNumber ||
-    (/^\d{8,16}$/.test(m.sender?.id || "") ? m.sender.id : null);
+  const rawPhone = normalizeCustomerPhone(m.sender?.phoneNumber, "international");
   const sentAt = date(m.sentAt),
     receivedAt = now();
   // Keep malformed/future-dated messages, but do not open a free-form window

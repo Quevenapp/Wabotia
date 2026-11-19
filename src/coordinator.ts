@@ -18,6 +18,7 @@ import { serverTiming, timedEnv } from "./d1-timing";
 import { sha, seal, unseal, canonical } from "./security";
 import { REVOKED_CLOSE } from "./sockets";
 import { perform, inbound } from "./service";
+import { maintainCustomers } from "./customer/ports";
 import { finishDelivery } from "./delivery";
 import { channelEvent } from "./whatsapp";
 import { callWebhook, expireCalls } from "./calls";
@@ -93,6 +94,9 @@ export class Coordinator extends DurableObject<Env> {
           }
       return Response.json({ closed });
     }
+    if (linkPath === "/customer-tick" &&
+        (request.method !== "POST" || typeof body.profile !== "string" || !body.profile))
+      return Response.json({ error: { code: "invalid_request" } }, { status: 400 });
     this.profile = body.profile;
     await this.ctx.storage.put("profile", this.profile);
     if (new URL(request.url).pathname === "/router-link")
@@ -447,10 +451,20 @@ export class Coordinator extends DurableObject<Env> {
       await this.schedule();
       return Response.json(result);
     }
+    if (linkPath === "/customer-tick") {
+      return this.ctx.blockConcurrencyWhile(async () => {
+        const { env, timing } = timedEnv(this.env);
+        const result = await maintainCustomers(withReadCache(env), this.profile, {
+          remainingStatements: 40, remainingItems: 20,
+        });
+        return Response.json(result, { headers: { "Server-Timing": serverTiming(timing) } });
+      });
+    }
     if (new URL(request.url).pathname === "/inbound") {
+      const { env, timing } = timedEnv(this.env);
       const result = await this.ctx.blockConcurrencyWhile(() =>
         inbound(
-          this.env,
+          env,
           this.profile,
           body.data,
           body.namespace,
@@ -458,7 +472,7 @@ export class Coordinator extends DurableObject<Env> {
         ),
       );
       await this.schedule();
-      return Response.json(result, { status: 202 });
+      return Response.json(result, { status: 202, headers: { "Server-Timing": serverTiming(timing) } });
     }
     if (linkPath === "/wake" && body.modules === true) {
       await this.wakeModules({ modules: true });
