@@ -3,6 +3,7 @@
 import { requireValue } from "../../types";
 
 export interface SupportPackage {
+  /** Identidade comercial permanente; catálogo usa package/<id>/main, nunca name. */
   id: string;
   name: string;
   price_cents: number;
@@ -10,6 +11,19 @@ export interface SupportPackage {
   mode: "ticket" | "hours";
   hours?: number;
   active: boolean;
+}
+
+/** Dados contratados da compra, independentes do pacote ainda existir nas regras. */
+export interface SupportCommercialPurchase {
+  id: string;
+  profile_id: string;
+  conversation_id: string;
+  session_id: string | null;
+  payer_id: string | null;
+  package_id: string;
+  price_cents: number;
+  status: string;
+  created: number;
 }
 
 export interface SuporteSettings {
