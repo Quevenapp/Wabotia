@@ -2,7 +2,7 @@ import { one } from "../../db";
 import { ApiError, type Actor } from "../../types";
 import type { ModuleContext } from "../api";
 import type { Payment } from "../../payments";
-import { commercialPaymentEvidence, commercialReceiptFromEvidence } from "../../payments-commercial-evidence";
+import { optionalCommercialPaymentEvidence, commercialReceiptFromEvidence, pendingPaymentStatements, resolvedPaymentStatements } from "../../payments-commercial-evidence";
 import type { Statement } from "../../integrations/contracts";
 import type { IntegrationProducer } from "../../integrations/ports";
 import { registerIntegrationProducer, registerReceiptReverser } from "../../integrations/ports";
@@ -60,31 +60,52 @@ export async function guardBookingCommercialChange(ctx: ModuleContext, before: a
 }
 
 /** Evidência local confirmada pelo núcleo. O DTO público sozinho não autoriza recebimento. */
-export async function depositReceipt(ctx: ModuleContext, payment: Payment): Promise<CommercialReceipt> {
+export async function depositReceipt(ctx: ModuleContext, payment: Payment): Promise<CommercialReceipt | null> {
   if (!payment.ref_id || !["paid", "refunded"].includes(payment.status)) throw new IntegrationError("invalid_request", 422);
-  const fact = await commercialPaymentEvidence(ctx.env, ctx.profile, "reserva", payment.id, payment.ref_id,
+  const fact = await optionalCommercialPaymentEvidence(ctx.env, ctx.profile, "reserva", payment.id, payment.ref_id,
     payment.status as "paid" | "refunded", payment.evidence);
-  if (fact.amount_cents !== payment.amount_cents) throw new IntegrationError("idempotency_conflict", 409);
+  if (!fact) return null;
+  if (fact.amount_cents !== payment.amount_cents) throw new IntegrationError("invalid_request", 422);
   return commercialReceiptFromEvidence(fact);
 }
 
 /** Mutação do sinal e recibo/alocação/saída pertencem ao mesmo lote D1. */
-export async function commitDepositReceipt(ctx: ModuleContext, before: any, after: any, receipt: CommercialReceipt, native: Statement, options: { cancel?: boolean; allowAllocation?: boolean } = {}) {
-  const balance = await receiptBalance(ctx, commercialSource(ctx, "reserva", before.id));
+export async function commitDepositReceipt(ctx: ModuleContext, before: any, after: any, receipt: CommercialReceipt | null, native: Statement, options: { cancel?: boolean; allowAllocation?: boolean; payment?: Payment; late?: boolean } = {}) {
+  const source = commercialSource(ctx, "reserva", before.id);
+  const state = await commercialState(ctx, source);
+  const snapshot = state.snapshot ?? (await titlePlan(ctx, "reserva", after, { actor: null })).snapshot;
+  const late = options.late || !!await one(ctx.env,
+    "SELECT 1 FROM module_erp_events WHERE profile_id=? AND module_id='reserva' AND source_id=? AND json_extract(payload_json,'$.reason_code')='obligation_reactivation_required'", ctx.profile, before.id);
+  if (!receipt || late) {
+    const pending = await pendingPaymentStatements(ctx.env, snapshot, options.payment!.id,
+      options.payment!.status as "paid" | "refunded", late ? "obligation_reactivation_required" : "payment_evidence_required");
+    await commercialAtomic(ctx, [bookingGuard(ctx, "reserva", before), native, integrationCasGuard,
+      ...pending, ...(receipt ? (await import("../../integrations/receipts")).commercialReceiptStatements(receipt) : [])]);
+    return true;
+  }
+  const balance = await receiptBalance(ctx, source);
   const limit = options.allowAllocation === false ? 0 : Math.max(0, before.deposit_cents - balance.allocated_cents);
   const plan = await receiptPlan(ctx, "reserva", after, receipt, { limit, cancel: options.cancel, reason: receipt.kind === "reverse" ? "provider_refund" : "deposit_payment" });
   if (!plan) return false;
-  await commercialAtomic(ctx, [bookingGuard(ctx, "reserva", before), native, integrationCasGuard, ...plan.statements]);
+  await commercialAtomic(ctx, [bookingGuard(ctx, "reserva", before), native, integrationCasGuard, ...plan.statements,
+    ...(options.payment ? resolvedPaymentStatements(snapshot, options.payment.id, options.payment.status) : [])]);
   return true;
 }
 
 /** Cobrança antiga/substituída é dinheiro pendente, sem segunda obrigação. */
 export async function recordReplacedDeposit(ctx: ModuleContext, row: any, payment: Payment) {
   const receipt = await depositReceipt(ctx, payment);
+  if (!receipt) {
+    const state = await commercialState(ctx, commercialSource(ctx, "reserva", row.id));
+    const snapshot = state.snapshot ?? (await titlePlan(ctx, "reserva", row, { actor: null })).snapshot;
+    await commercialAtomic(ctx, await pendingPaymentStatements(ctx.env, snapshot, payment.id, payment.status as "paid" | "refunded"));
+    return;
+  }
   if (receipt.kind === "reverse" && !await one(ctx.env, "SELECT 1 FROM module_commercial_receipts WHERE profile_id=? AND receipt_key=?", ctx.profile, receipt.reverses_key))
     await recordReplacedDeposit(ctx, row, { ...payment, status: "paid" });
   const plan = await receiptPlan(ctx, "reserva", row, receipt, { limit: 0, reason: "replaced_payment" });
-  if (plan) await commercialAtomic(ctx, [bookingGuard(ctx, "reserva", row), ...plan.statements]);
+  await commercialAtomic(ctx, [...(plan ? [bookingGuard(ctx, "reserva", row), ...plan.statements] : []),
+    ...resolvedPaymentStatements({ source: commercialSource(ctx, "reserva", row.id) }, payment.id, payment.status)]);
 }
 
 export const rawBooking = (ctx: ModuleContext, id: string) => commercialRow(ctx, "reserva", id);

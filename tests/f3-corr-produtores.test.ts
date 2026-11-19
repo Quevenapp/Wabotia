@@ -53,7 +53,7 @@ async function fixture() {
   return { ...f, ctx };
 }
 type F = Awaited<ReturnType<typeof fixture>>;
-const events = async (f: F, module?: string) => (await all(f.env, `SELECT payload_json FROM module_erp_events WHERE profile_id=?${module ? " AND module_id=?" : ""} ORDER BY source_id,seq`, f.profile, ...(module ? [module] : []))).map(r => JSON.parse(r.payload_json));
+const events = async (f: F, module?: string) => (await all(f.env, `SELECT payload_json FROM module_erp_events WHERE profile_id=?${module ? " AND module_id=?" : ""} ORDER BY source_id,source_revision,seq`, f.profile, ...(module ? [module] : []))).map(r => JSON.parse(r.payload_json));
 const receipts = (f: F) => all(f.env, "SELECT * FROM module_commercial_receipts WHERE profile_id=? ORDER BY kind", f.profile);
 async function payment(f: F, module: string, ref: string, amount: number, conversation = uid()) {
   const id = uid(), at = Date.now();
@@ -240,10 +240,13 @@ describe("F3 correção: evidência do núcleo e recuperação real dos produtor
     expect((await receipts(f))[0].method).toBe(method);
   });
 
-  it("nenhum produtor aceita status pago sem evidência persistida", async () => {
+  it("pagamento legado conclui localmente sem fabricar recibo comercial", async () => {
     const f = await fixture(), row = await order(f), p = await payment(f, "pedido", row.id, 1000);
     await exec(f.env, "UPDATE payments SET status='paid',provider_payment_id=? WHERE id=?", p.remote.id, p.id);
-    await expect(providerOrderStatements(f.ctx("pedido"), row, p.id)).rejects.toMatchObject({ code: "payment_evidence_missing" });
+    await batch(f.env, await providerOrderStatements(f.ctx("pedido"), row, p.id));
+    expect(await receipts(f)).toEqual([]);
+    expect(await one(f.env, "SELECT d.state,d.error_code FROM module_erp_delivery d JOIN module_erp_events e ON e.id=d.event_id WHERE e.profile_id=? AND d.error_code='payment_evidence_required'", f.profile))
+      .toMatchObject({ state: "blocked", error_code: "payment_evidence_required" });
     await expect(commercialPaymentEvidence(f.env, f.profile, "pedido", p.id, row.id, "paid")).rejects.toMatchObject({ code: "payment_evidence_missing" });
   });
 
@@ -254,11 +257,12 @@ describe("F3 correção: evidência do núcleo e recuperação real dos produtor
       ["UPDATE payments SET status='paid',provider_payment_id=?,paid_at=? WHERE id=?", [p.remote.id, p.remote.paid_at, p.id]],
       ...commercialReceiptStatements(commercialReceiptFromEvidence(fact)),
     ]);
-    await expect(mensalidadePaid(local.ctx, paymentView(await p.row())!, "created"))
-      .rejects.toMatchObject({ code: "payment_evidence_missing" });
-    expect((await one(f.env, "SELECT status FROM mensalidade_installments WHERE id=?", local.row.id)).status).toBe("open");
+    await mensalidadePaid(local.ctx, paymentView(await p.row())!, "created");
+    expect((await one(f.env, "SELECT status FROM mensalidade_installments WHERE id=?", local.row.id)).status).toBe("paid");
+    expect(await one(f.env, "SELECT state,error_code FROM module_erp_delivery WHERE error_code='payment_evidence_required' AND event_id IN (SELECT id FROM module_erp_events WHERE profile_id=?)", f.profile))
+      .toMatchObject({ state: "blocked", error_code: "payment_evidence_required" });
     expect(await all(f.env, "SELECT * FROM module_erp_allocations WHERE profile_id=?", f.profile)).toEqual([]);
-    expect((await events(f, "mensalidade")).map(e => e.operation)).toEqual(["recognize"]);
+    expect((await events(f, "mensalidade")).map(e => e.operation)).toEqual(["recognize", "receive"]);
   });
 
   it.each(["mensalidade", "pedido", "reserva", "suporte"] as const)("%s: recupera evidência persistida mesmo sem a cópia no DTO", async module => {
@@ -281,7 +285,7 @@ describe("F3 correção: evidência do núcleo e recuperação real dos produtor
     expect(await all(f.env, "SELECT * FROM module_erp_allocations WHERE profile_id=?", f.profile)).toHaveLength(1);
   });
 
-  it.each(["mensalidade", "reserva", "suporte"] as const)("%s: status isolado não comprova pagamento nem altera o módulo", async module => {
+  it.each(["mensalidade", "reserva", "suporte"] as const)("%s: legado sem evidência conclui operação local e bloqueia somente ERP", async module => {
     const f = await fixture();
     const local = module === "mensalidade" ? await monthly(f) : module === "reserva" ? await booking(f, module) : await support(f);
     const p = await payment(f, module, local.row.id, module === "reserva" ? 300 : 1000, local.row.conversation_id ?? uid());
@@ -289,12 +293,13 @@ describe("F3 correção: evidência do núcleo e recuperação real dos produtor
     await exec(f.env, "UPDATE payments SET status='paid',provider_payment_id=? WHERE id=?", p.remote.id, p.id);
     const paid = paymentView(await p.row())!, before = await events(f, module);
     const table = { mensalidade: "mensalidade_installments", reserva: "reserva_bookings", suporte: "suporte_purchases" }[module];
-    const original = await one(f.env, `SELECT * FROM ${table} WHERE id=?`, local.row.id);
     const apply = () => module === "mensalidade" ? mensalidadePaid(local.ctx, paid, "created")
       : module === "reserva" ? reservaPaid(local.ctx, reservaRules, paid, "created") : purchasePaymentUpdated(local.ctx, paid);
-    await expect(apply()).rejects.toMatchObject({ code: "payment_evidence_missing" });
-    expect(await one(f.env, `SELECT * FROM ${table} WHERE id=?`, local.row.id)).toEqual(original);
-    expect(await events(f, module)).toEqual(before);
+    await apply(); await apply();
+    expect(await one(f.env, `SELECT * FROM ${table} WHERE id=?`, local.row.id)).toMatchObject({ status: module === "reserva" ? "confirmed" : "paid" });
+    const pending = await all(f.env, "SELECT d.state,d.error_code FROM module_erp_delivery d JOIN module_erp_events e ON e.id=d.event_id WHERE e.profile_id=? AND e.module_id=? AND d.error_code='payment_evidence_required'", f.profile, module);
+    expect(pending).toEqual([{ state: "blocked", error_code: "payment_evidence_required" }]);
+    expect((await events(f, module)).slice(0, before.length)).toEqual(before);
     expect(await receipts(f)).toEqual([]);
   });
 
@@ -321,13 +326,17 @@ describe("F3 correção: ordem comercial e desligamento", () => {
     await manualBookingReceipt(ctx, f.actor, module, row.id, { amount_cents: 200, method: "cash" }, "second");
     if (module === "agenda") await cancelAppointment(ctx, agendaRules, { id: row.id, actor: f.actor.id, notify: false });
     else await cancelBooking(ctx, reservaRules, { id: row.id, actor: f.actor.id, notify: false });
-    expect((await events(f, module)).some(e => e.operation === "cancel")).toBe(false);
+    expect((await events(f, module)).filter(e => e.operation === "cancel" && e.seq !== null)).toEqual([]);
+    const localCancellation = (await events(f, module)).find(e => e.operation === "cancel");
+    expect(localCancellation).toMatchObject({ seq: null, eligible: { finance: false }, reason_code: "module_cancellation_pending" });
+    expect(await one(f.env, "SELECT state,error_code FROM module_erp_delivery WHERE event_id=?", localCancellation.id)).toMatchObject({ state: "blocked", error_code: "module_cancellation_pending" });
     const originals = await receipts(f);
     await reverseBookingReceipt(ctx, f.actor, originals[0], { reason_code: "manual_void", command: "r1" });
-    expect((await events(f, module)).some(e => e.operation === "cancel")).toBe(false);
+    expect((await events(f, module)).filter(e => e.operation === "cancel" && e.seq !== null)).toEqual([]);
     await reverseBookingReceipt(ctx, f.actor, originals[1], { reason_code: "manual_void", command: "r2" });
     await reverseBookingReceipt(ctx, f.actor, originals[1], { reason_code: "manual_void", command: "r2" });
-    expect((await events(f, module)).map(e => e.operation)).toEqual(["recognize", "receive", "receive", "reverse", "reverse", "cancel"]);
+    expect((await events(f, module)).filter(e => e.seq !== null).map(e => e.operation)).toEqual(["recognize", "receive", "receive", "reverse", "reverse", "cancel"]);
+    expect(await one(f.env, "SELECT state,error_code FROM module_erp_delivery WHERE event_id=?", localCancellation.id)).toMatchObject({ state: "done", error_code: "cancellation_resolved" });
   });
 
   it.each(["agenda", "reserva"] as const)("%s: recebimento com Financeiro desligado mantém evento durável sem reconhecer passado", async module => {
@@ -343,29 +352,37 @@ describe("F3 correção: ordem comercial e desligamento", () => {
     const g = await fixture(); await setParts(g.profile, { "erp-financeiro": false });
     const historical = await booking(g, module); await setParts(g.profile, { "erp-financeiro": true });
     await manualBookingReceipt(historical.ctx, g.actor, module, historical.row.id, { amount_cents: 300, method: "cash" }, "old");
-    expect((await events(g, module)).filter(e => ["recognize", "receive"].includes(e.operation))).toEqual([]);
+    const historicalEvents = (await events(g, module)).filter(e => ["recognize", "receive"].includes(e.operation));
+    expect(historicalEvents).toHaveLength(1);
+    expect(historicalEvents[0]).toMatchObject({ operation: "receive", seq: null, eligible: { document: false, stock: false, finance: false } });
+    expect(await one(g.env, "SELECT state,error_code FROM module_erp_delivery WHERE event_id=?", historicalEvents[0].id)).toMatchObject({ state: "blocked", error_code: "historical_origin_unlinked" });
   });
 
-  it("Reserva expirada não revive com sinal tardio mesmo tendo unidade livre", async () => {
+  it("Reserva expirada revive com unidade livre e mantém recomposição ERP pendente", async () => {
     const f = await fixture(), { ctx, row } = await booking(f, "reserva"), p = await payment(f, "reserva", row.id, 300);
     await expireBooking(ctx, reservaRules, row.id, { reason: "deadline" });
     const paid = await p.fact("paid");
     await reservaPaid(ctx, reservaRules, paid, "expired"); await reservaPaid(ctx, reservaRules, paid, "expired");
-    expect(await one(f.env, "SELECT status,payment_status FROM reserva_bookings WHERE id=?", row.id)).toEqual({ status: "expired", payment_status: "paid" });
+    expect(await one(f.env, "SELECT status,payment_status FROM reserva_bookings WHERE id=?", row.id)).toEqual({ status: "confirmed", payment_status: "paid" });
     expect(await receiptBalance(ctx, commercialSource(ctx, "reserva", row.id))).toMatchObject({ received_cents: 300, allocated_cents: 0, excess_cents: 300 });
-    expect((await events(f, "reserva")).map(e => e.operation)).toEqual(["recognize", "cancel"]);
+    expect((await events(f, "reserva")).map(e => e.operation)).toEqual(["recognize", "cancel", "receive"]);
   });
 
-  it("Suporte expirado conserva sinal para devolução sem título novo ou liberação", async () => {
+  it("Suporte expirado libera atendimento sem título novo e exige recomposição ERP", async () => {
     const f = await fixture(), { ctx, row } = await support(f), p = await payment(f, "suporte", row.id, 1000, row.conversation_id);
+    await exec(f.env, "INSERT INTO conversations(id,profile_id,external_namespace,external_id,phone,session,last_customer,created,updated) VALUES(?,?,'panel',?,'',?,?,?,?)", row.conversation_id, f.profile, row.conversation_id, uid(), Date.now(), Date.now(), Date.now());
+    vi.mocked(ctx.conversation).mockResolvedValue(await one(f.env, "SELECT * FROM conversations WHERE id=?", row.conversation_id));
+    ctx.activeTicket = vi.fn(async () => ({ id: uid(), number: "1" }) as any);
+    ctx.handoff = vi.fn(async () => undefined); ctx.recordConsent = vi.fn(async () => undefined);
     await exec(f.env, "UPDATE suporte_purchases SET payment_id=? WHERE id=?", p.id, row.id);
     await purchasePaymentUpdated(ctx, { ...paymentView(await p.row())!, status: "expired" });
     const paid = await p.fact("paid");
     await purchasePaymentUpdated(ctx, paid); await purchasePaymentUpdated(ctx, paid);
-    expect(await one(f.env, "SELECT status,attention FROM suporte_purchases WHERE id=?", row.id)).toEqual({ status: "expired", attention: "late_payment_refund_required" });
-    expect(await all(f.env, "SELECT * FROM suporte_releases WHERE profile_id=?", f.profile)).toEqual([]);
+    expect(await one(f.env, "SELECT status,attention FROM suporte_purchases WHERE id=?", row.id)).toEqual({ status: "paid", attention: null });
+    expect(await all(f.env, "SELECT * FROM suporte_releases WHERE profile_id=? AND status='active'", f.profile)).toHaveLength(1);
     expect(await all(f.env, "SELECT * FROM module_erp_allocations WHERE profile_id=?", f.profile)).toEqual([]);
-    expect((await events(f, "suporte")).map(e => e.operation)).toEqual(["recognize", "cancel"]);
+    expect((await events(f, "suporte")).map(e => e.operation)).toEqual(["recognize", "cancel", "receive"]);
+    expect(await one(f.env, "SELECT state,error_code FROM module_erp_delivery WHERE error_code='obligation_reactivation_required' AND event_id IN (SELECT id FROM module_erp_events WHERE profile_id=?)", f.profile)).toMatchObject({ state: "blocked", error_code: "obligation_reactivation_required" });
     await purchasePaymentUpdated(ctx, await p.fact("refunded"));
     expect((await receipts(f)).map(r => r.kind)).toEqual(["receive", "reverse"]);
   });
@@ -408,9 +425,9 @@ describe("F3 correção: consulta do Mercado Pago", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: "remote", status: "approved", transaction_amount: 10, currency_id: "BRL", ...method }))));
     expect((await mercadoPago.getPayment({ access_token: "test", webhook_secret: "test" }, "remote")).verified_method).toBe(expected);
   });
-  it.each([undefined, 3])("devolução sem total comprovado (%s) fica em conferência manual no núcleo", async refunded => {
+  it.each([undefined, 3])("devolução parcial sem total comprovado (%s) fica em conferência manual no núcleo", async refunded => {
     const f = await fixture(), p = await payment(f, "pedido", uid(), 1000);
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: p.remote.id, status: "refunded", external_reference: p.id, transaction_amount: 10, transaction_amount_refunded: refunded, currency_id: "BRL" }))));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ id: p.remote.id, status: "refunded", status_detail: "partially_refunded", external_reference: p.id, transaction_amount: 10, transaction_amount_refunded: refunded, currency_id: "BRL" }))));
     const queried = await mercadoPago.getPayment({ access_token: "test", webhook_secret: "test" }, p.remote.id);
     expect(queried.refund_review_required).toBe(true);
     providers[providerId] = { ...mercadoPago, getPayment: async () => queried };
@@ -441,9 +458,11 @@ import React from "react";
 import { createIntegrationApi, type IntegrationApi } from "../web/modules/integrations/api";
 import { installIntegrationHost } from "../web/modules/integrations/visibility";
 import { DeliveryCommercialForm, AppointmentCommercialActions } from "../web/modules/integrations/ReceiptForm";
+import { integrationSourceView } from "../src/integrations/routes";
+import { acquireIntegrationLease, confirmIntegrationResult } from "../src/integrations/outbox";
 import { IntegrationStatus } from "../web/modules/integrations/IntegrationStatus";
 import { WorkCommercialPanel } from "../web/modules/os/work/WorkCommercialPanel";
-import { createOrder as createWork } from "../src/modules/os/store";
+import { createOrder as createWork, changeStatus, loadOrder as loadWork } from "../src/modules/os/store";
 import { workCommercialView, patchWorkCommercial } from "../src/modules/os/commercial/routes";
 import { entregaConfig } from "../src/modules/entrega/config";
 const runtime = vi.hoisted(() => ({ owner: null as any, api: null as IntegrationApi | null }));
@@ -482,6 +501,31 @@ function text(tree: any): string { if (tree == null || typeof tree === "boolean"
 const button = (tree: any, label: string) => nodes(tree).find(n => n.props?.onClick && text(n) === label);
 
 describe("F3 correção: telas usam contratos reais do servidor", () => {
+  it("servidor e componente preservam Financeiro manual quando Estoque já confirmou", async () => {
+    const f = await fixture(), ctx = f.ctx("os");
+    await exec(f.env, "UPDATE module_erp_policy SET config_json=json_set(config_json,'$.auto_post.finance',json('false')) WHERE profile_id=?", f.profile);
+    const row = (await createWork(ctx, { item: "Notebook", problem: "Não liga", phone: "5511999999988", customer_name: "Cliente", source: "panel", sourceKey: uid(), actor: f.actor.id, notify: false })).order;
+    await patchWorkCommercial(ctx, f.actor, row.id, { version: row.row_version, items: [{ description: "Peça", quantity: 1, unit_cents: 1000, kind: "material" }], authorize_fixed_price: true }, uid());
+    await changeStatus(ctx, await loadWork(ctx, row.id), "in_progress", f.actor.id, "", { notify: false });
+    // A porta de transporte confirma os efeitos; o DTO vem da projeção real D1.
+    for (const event of (await events(f, "os")).filter(e => e.seq !== null)) {
+      const token = await acquireIntegrationLease(f.env, event.id);
+      expect(token).toBeTruthy();
+      await confirmIntegrationResult(f.env, event, token!, { command_id: event.command_id, seq: event.seq, replayed: false, outcome: "applied",
+        links: [{ slot: "main:document", kind: "document", id: uid(), version: event.seq }],
+        effects: { stock: "posted", finance: "not_requested" }, reason_code: null });
+    }
+    const source = { profile: f.profile, module: "os" as const, source_id: row.id, component: "main" };
+    const view = await integrationSourceView(f.env, f.actor, source);
+    expect(view).toMatchObject({ state: "skipped", skipped_reason: "automation_off", pending: true, manual_destinations: ["finance"] });
+    expect(view.applied).toContain("stock");
+    expect(view.deliveries[0].seq).toBeNull();
+    const screen = panel(f, async () => view, () => IntegrationStatus({ module: "os", sourceId: row.id }));
+    const content = text(await screen.settle());
+    expect(content).toContain("Estoque");
+    expect(content).toContain("Lançar financeiro manualmente");
+    expect(content).not.toContain("Confirmado no ERP");
+  });
   it("Trabalho mostra o DTO plano e a autorização usa version operacional", async () => {
     const f = await fixture(), ctx = f.ctx("os");
     const created = await createWork(ctx, { item: "Notebook", problem: "Não liga", phone: "5511999999988", customer_name: "Cliente", source: "panel", sourceKey: uid(), actor: f.actor.id, type_id: "service_order", notify: false });

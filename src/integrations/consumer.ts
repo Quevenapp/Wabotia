@@ -66,7 +66,10 @@ async function attempt(env: Env, event: IntegrationEvent, token: string, deadlin
   await countInitialAttempt(env, event, token, deadline);
   integrationProducer(event.source.module);
   let request = await readPreparedRequest(env, event);
-  const maintenance = event.operation === "cancel" || event.operation === "reverse";
+  const source = ["receive", "lifecycle"].includes(event.operation) ? await one(env, "SELECT links_json FROM module_erp_sources WHERE profile_id=? AND module_id=? AND source_id=?", event.source.profile, event.source.module, event.source.source_id) : null;
+  const linked = JSON.parse(source?.links_json ?? "[]");
+  const historicalReceive = event.operation === "receive" && linked.some((l: any) => l.kind === "title");
+  const maintenance = event.operation === "cancel" || event.operation === "reverse" || event.operation === "lifecycle" && linked.some((l: any) => l.kind === "document");
   // Alguns produtores antigos marcaram manutenção como manual ao desligar
   // auto_post. Isso não pode impedir estorno histórico. A ação humana criada
   // pela rota /post, porém, continua reservada àquela pessoa.
@@ -94,7 +97,8 @@ async function attempt(env: Env, event: IntegrationEvent, token: string, deadlin
   // exige fechamento. Uma nova projeção autorizada pode continuar o outro.
   const requested = request?.body.requested as typeof eligible | undefined;
   const checked = requested ?? eligible;
-  const ended = !maintenance && (
+  if (historicalReceive && !state.snapshot.parts.finance) throw new IntegrationError("part_disabled", 409);
+  const ended = !maintenance && !historicalReceive && (
     !eventEpochOpen(event, state.activations, []) ||
     checked.stock && !eventEpochOpen(event, state.activations, ["erp-produtos", "erp-estoque"]) ||
     checked.finance && !eventEpochOpen(event, state.activations, ["erp-financeiro"]) ||
@@ -111,7 +115,7 @@ async function attempt(env: Env, event: IntegrationEvent, token: string, deadlin
   const automation = await eventAutomation(env, event);
   if (request && !maintenance && (requested?.stock && !automation.stock || requested?.finance && !automation.finance)) throw new IntegrationError("waiting_manual", 409);
   if (!request) {
-    if (!eligible.document && (eligible.finance && !automation.finance || eligible.stock && !automation.stock)) throw new IntegrationError("waiting_manual", 409);
+    if (!maintenance && !eligible.document && (eligible.finance && !automation.finance || eligible.stock && !automation.stock)) throw new IntegrationError("waiting_manual", 409);
     const prepared = await prepareErpRequest(env, event);
     checkDeadline(deadline);
     request = await persistPreparedRequest(env, event, prepared, token);

@@ -50,7 +50,7 @@ export function operationalHref(source: SourceRef): string {
 export function visibleSource(view: SourceView, context: ManagementContext): SourceView {
   const access = integrationAccess(context);
   return { ...view, manual_destinations: view.manual_destinations.filter(d => d === "finance" ? access.finance : access.postStock),
-    deliveries: view.deliveries.map(d => access.finance ? d : { id: d.id, state: d.state, completed_ms: d.completed_ms }),
+    deliveries: view.deliveries.map(d => access.finance ? d : { id: d.id, seq: d.seq, state: d.state, completed_ms: d.completed_ms }),
     links: view.links.filter(l => l.kind === "document" ? access.documents : l.kind === "stock_posting" ? access.stock : access.finance) };
 }
 

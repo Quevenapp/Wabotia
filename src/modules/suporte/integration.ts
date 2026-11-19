@@ -1,9 +1,10 @@
+import { effectiveSourceState } from "../../integrations/state";
 // Produtor D1 do Suporte avulso. Nenhuma função deste arquivo chama o ERP.
 import { all, one } from "../../db";
 import { resolveCustomer } from "../../customer/ports";
 import type { Conversation } from "../../types";
 import type { Payment } from "../../payments";
-import { commercialPaymentEvidence, commercialReceiptFromEvidence } from "../../payments-commercial-evidence";
+import { optionalCommercialPaymentEvidence, commercialReceiptFromEvidence, pendingPaymentStatements, resolvedPaymentStatements } from "../../payments-commercial-evidence";
 import type { ModuleContext } from "../api";
 import { payerForReview } from "../mensalidade/public";
 import { canProfile } from "../../security";
@@ -15,7 +16,7 @@ import { ensureCommercialPolicy, requireIntegrationHuman } from "../../integrati
 import { catalogLink } from "../../integrations/catalog";
 import { aliasStatements, integrationStatements } from "../../integrations/outbox";
 import { allocationKey, allocationStatements, commercialReceiptStatements, providerReceiptKey, type CommercialReceipt } from "../../integrations/receipts";
-import { canonical, commandId, eventKey, F3_NAMESPACES, uuid5 } from "../../integrations/keys";
+import { localEventId, canonical, commandId, eventKey, F3_NAMESPACES, uuid5 } from "../../integrations/keys";
 import { IntegrationError } from "../../integrations/privacy";
 import { suporteSettings, type SupportCommercialPurchase } from "./model";
 
@@ -96,9 +97,9 @@ export async function supportPaymentEvidence(ctx: ModuleContext, purchase: Suppo
       row.currency !== "BRL" || row.method !== payment.method)
     throw new IntegrationError("invalid_request", 422);
   if (!["paid", "refunded"].includes(payment.status)) return row;
-  const evidence = await commercialPaymentEvidence(ctx.env, ctx.profile, "suporte", payment.id, purchase.id,
+  const evidence = await optionalCommercialPaymentEvidence(ctx.env, ctx.profile, "suporte", payment.id, purchase.id,
     payment.status as "paid" | "refunded", payment.evidence, row);
-  return { ...row, status: payment.status, current_status: row.status, evidence, paid_at: evidence.original?.occurred_ms ?? evidence.occurred_ms, updated: evidence.occurred_ms };
+  return { ...row, status: payment.status, current_status: row.status, evidence, paid_at: evidence?.original?.occurred_ms ?? evidence?.occurred_ms ?? row.paid_at, updated: evidence?.occurred_ms ?? row.updated };
 }
 
 export const supportReceiptKey = (row: Record<string, any>) =>
@@ -106,9 +107,9 @@ export const supportReceiptKey = (row: Record<string, any>) =>
     ? providerReceiptKey(row.profile_id, row.provider, row.account_id, String(row.provider_payment_id)) : null;
 
 async function receipt(ctx: ModuleContext, purchase: SupportCommercialPurchase, row: Record<string, any>, kind: "receive" | "reverse"): Promise<CommercialReceipt | null> {
-  const evidence = await commercialPaymentEvidence(ctx.env, ctx.profile, "suporte", row.id, purchase.id,
+  const evidence = await optionalCommercialPaymentEvidence(ctx.env, ctx.profile, "suporte", row.id, purchase.id,
     kind === "receive" ? "paid" : "refunded", row.evidence, row);
-  return commercialReceiptFromEvidence(evidence);
+  return evidence ? commercialReceiptFromEvidence(evidence) : null;
 }
 
 /** Incluir após a mutação operacional e sua guarda no MESMO batch D1.
@@ -147,22 +148,30 @@ export async function supportIntegrationStatements(
   };
   if (operation === "recognize" && !stored && eligibleAt(setup, purchase.created)) append("recognize");
   if (operation === "cancel" && recognized) append("cancel");
-  if ((operation === "receive" || operation === "reverse") && options.reason === "late_payment_refund_required") {
-    const paid = await receipt(ctx, purchase, options.payment!, "receive");
-    extra.push(...commercialReceiptStatements(paid!));
-    if (operation === "reverse") extra.push(...commercialReceiptStatements((await receipt(ctx, purchase, options.payment!, "reverse"))!));
-  } else if (operation === "receive" || operation === "reverse") {
+  if (operation === "receive" || operation === "reverse") {
     const paid = options.payment && await receipt(ctx, purchase, options.payment, "receive");
+    const reversed = operation === "reverse" && options.payment && await receipt(ctx, purchase, options.payment, "reverse");
+    const late = options.reason === "obligation_reactivation_required" || !!await one(ctx.env,
+      "SELECT 1 FROM module_erp_events WHERE profile_id=? AND module_id='suporte' AND source_id=? AND json_extract(payload_json,'$.reason_code')='obligation_reactivation_required'", ctx.profile, purchase.id);
+    if (!paid || operation === "reverse" && !reversed || late) {
+      return [...await pendingPaymentStatements(ctx.env, snapshot, options.payment!.id,
+        operation === "receive" ? "paid" : "refunded", late ? "obligation_reactivation_required" : "payment_evidence_required"),
+        ...(paid ? commercialReceiptStatements(paid) : []), ...(reversed ? commercialReceiptStatements(reversed) : [])];
+    }
+    extra.push(...resolvedPaymentStatements(snapshot, options.payment!.id, "paid"));
+    if (operation === "reverse") extra.push(...resolvedPaymentStatements(snapshot, options.payment!.id, "refunded"));
     const received = paid && await one(ctx.env, `SELECT id FROM module_erp_events WHERE profile_id=? AND module_id='suporte'
       AND source_id=? AND json_extract(payload_json,'$.receipt_key')=?`, ctx.profile, purchase.id, paid.receipt_key);
     if (!recognized) blocked = "historical_origin_unlinked";
-    if (!paid) blocked = "invalid_request";
+
     if (options.payment?.amount_cents !== purchase.price_cents) blocked = "total_mismatch";
     // Excesso não é receita: conserva a compra e uma pendência, sem alocá-lo.
     if (!received) append("receive", blocked === "total_mismatch" ? null : paid || null);
     if (operation === "reverse") {
       const reversed = options.payment && await receipt(ctx, purchase, options.payment, "reverse");
-      append("reverse", blocked === "total_mismatch" ? null : reversed || null);
+      const already = reversed && await one(ctx.env, `SELECT 1 FROM module_erp_events WHERE profile_id=? AND module_id='suporte'
+        AND source_id=? AND json_extract(payload_json,'$.receipt_key')=?`, ctx.profile, purchase.id, reversed.receipt_key);
+      if (!already) append("reverse", blocked === "total_mismatch" ? null : reversed || null);
     }
   }
   const statements = [
@@ -171,7 +180,7 @@ export async function supportIntegrationStatements(
   ];
   if (blocked) for (const event of events) statements.push([
     "UPDATE module_erp_delivery SET state='blocked',error_code=?,error_message=? WHERE event_id=?",
-    [blocked, new IntegrationError(blocked).message, event.id],
+    [blocked, new IntegrationError(blocked).message, Object.values(event.eligible).some(Boolean) ? event.id : localEventId(event.source, event.event_key)],
   ]);
   else for (const event of events) if (event.reason_code === "manual_requested") statements.push([
     "UPDATE module_erp_delivery SET state='waiting_manual',error_code='waiting_manual',error_message=? WHERE event_id=?",
@@ -186,15 +195,14 @@ export async function supportIntegrationStatus(ctx: ModuleContext, purchaseId: s
 }
 export async function supportIntegrationStatuses(ctx: ModuleContext, purchaseIds: string[]) {
   if (!purchaseIds.length) return {};
-  const rows = await all(ctx.env, `SELECT e.source_id,d.state,d.receipt_json FROM module_erp_events e
+  const rows = await all(ctx.env, `SELECT e.source_id,e.payload_json,d.state,d.receipt_json,d.error_code,d.unresolved FROM module_erp_events e
     JOIN module_erp_delivery d ON d.event_id=e.id WHERE e.profile_id=? AND e.module_id='suporte'
-    AND e.source_id IN (SELECT value FROM json_each(?)) ORDER BY e.seq`, ctx.profile, JSON.stringify(purchaseIds));
+    AND e.source_id IN (SELECT value FROM json_each(?)) ORDER BY e.source_revision,e.seq`, ctx.profile, JSON.stringify(purchaseIds));
   return Object.fromEntries(purchaseIds.map(id => {
     const own = rows.filter(row => row.source_id === id);
-    const pending = own.find(row => row.state !== "done") ??
-      (own.at(-1)?.receipt_json && JSON.parse(own.at(-1)!.receipt_json).outcome === "closed" ? { state: "blocked" } : null);
-    return [id, { pending: !!pending, state: pending?.state ?? (own.length ? "done" : "off"),
-      message: pending?.state === "waiting_manual" ? "Aguardando lançamento manual" : pending ? "Pendente no ERP" : null }];
+    const { manual, ...view } = effectiveSourceState(own);
+    return [id, { ...view, manual_destinations: [...manual],
+      message: manual.size ? "Aguardando lançamento manual" : view.pending ? "Pendente no ERP" : null }];
   }));
 }
 

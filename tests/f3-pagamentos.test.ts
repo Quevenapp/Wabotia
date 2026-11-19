@@ -15,6 +15,7 @@ import { commandId } from "../src/integrations/keys";
 import { findIntegrationEvent, integrationStatements } from "../src/integrations/ports";
 import type { IntegrationEvent, Statement } from "../src/integrations/contracts";
 import { f3Fixture, setParts } from "./helpers/f3-fixtures";
+import { pendingPaymentStatements, resolvedPaymentStatements } from "../src/payments-commercial-evidence";
 
 const providerId = "f3_test";
 const paidAt = 1_795_000_000_000;
@@ -59,7 +60,13 @@ async function fixture(finance = true) {
   const consumer = vi.fn(async (_env: Env, _profile: string, payment: Payment) => {
     seen.push(payment);
     const e = payment.evidence;
-    if (!e) return;
+    if (!e) {
+      await batch(f.env, [
+        ["UPDATE profiles SET name=? WHERE id=?", [payment.status, f.profile]],
+        ...await pendingPaymentStatements(f.env, f.event.snapshot, payment.id, payment.status as "paid" | "refunded"),
+      ]);
+      return;
+    }
     if (await findIntegrationEvent(f.env, f.profile, e.event_key)) return;
     const source = await one(f.env, "SELECT revision,enqueued_seq FROM module_erp_sources WHERE profile_id=? AND module_id='os' AND source_id=?", f.profile, f.source.source_id);
     const revision = (source?.revision ?? 0) + 1, seq = (source?.enqueued_seq ?? 0) + 1;
@@ -73,6 +80,7 @@ async function fixture(finance = true) {
     const statements: Statement[] = [
       ["UPDATE profiles SET name=? WHERE id=?", [payment.status, f.profile]],
       ...(e.original ? receipt(e.original) : []), ...receipt(e),
+      ...resolvedPaymentStatements(snapshot, payment.id, payment.status),
       ...integrationStatements({ source: f.source, expected_revision: revision - 1, events: [event], next_state: { snapshot } }),
     ];
     if (failBefore) { failBefore = false; statements.push(["SELECT json('interrupcao_simulada')", []]); }
@@ -258,12 +266,20 @@ describe("F3 pagamentos: commit e retomada", () => {
     const legacy = { id: uid(), status: "paid", previous: "created" };
     await exec(f.env, "UPDATE payments SET status='paid',provider_payment_id=?,paid_at=?,hook_pending=? WHERE id=?",
       f.remote().id, paidAt, JSON.stringify([legacy]), f.id);
-    expect(await deliverPaymentHooks(f.env, f.id)).toBe(false);
-    expect(f.consumer).not.toHaveBeenCalled(); expect(await f.evidence()).toHaveLength(0);
+    expect(await deliverPaymentHooks(f.env, f.id)).toBe(true);
+    expect(f.consumer).toHaveBeenCalledTimes(1); expect(await f.evidence()).toHaveLength(0);
+    expect(f.seen[0].payment_event).toMatchObject(legacy); expect(f.seen[0].evidence).toBeNull();
+    expect(await one(f.env, "SELECT name FROM profiles WHERE id=?", f.profile)).toEqual({ name: "paid" });
+    expect(await f.receipts()).toHaveLength(0);
+    expect(await all(f.env, "SELECT e.seq,d.state,d.error_code FROM module_erp_events e JOIN module_erp_delivery d ON d.event_id=e.id WHERE e.profile_id=?", f.profile))
+      .toEqual([{ seq: null, state: "blocked", error_code: "payment_evidence_required" }]);
     await f.refresh();
-    expect(f.seen[0].payment_event).toMatchObject(legacy);
-    expect(f.seen[0].evidence!.occurred_ms).toBe(paidAt);
+    expect(f.consumer).toHaveBeenCalledTimes(2);
+    expect(f.seen[1].payment_event).toMatchObject({ id: `recovery:${f.seen[1].evidence!.receipt_key}`, status: "paid", previous: "paid" });
+    expect(f.seen[1].evidence!.occurred_ms).toBe(paidAt);
     expect((await f.row()).hook_pending).toBeNull(); expect(await f.receipts()).toHaveLength(1);
+    expect(await all(f.env, "SELECT d.event_id FROM module_erp_delivery d JOIN module_erp_events e ON e.id=d.event_id WHERE e.profile_id=? AND d.state='blocked'", f.profile)).toEqual([]);
+    await f.refresh(); expect(f.consumer).toHaveBeenCalledTimes(2); expect(await f.receipts()).toHaveLength(1);
   });
 
   it("retoma pela identidade remota mesmo sem external_reference no reenvio", async () => {

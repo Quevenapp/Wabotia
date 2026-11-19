@@ -492,6 +492,10 @@ export function erpDocumentCopyPreview(ctx: RpcContext, a: RpcArgs) {
   // A prévia é uma resposta pública. Metadados de disponibilidade ficam fora
   // do corpo editável, que deve continuar aceito por erp_document_copy.
   const { unavailable_parts, ...copyData } = projectDocument(ctx, withoutUnavailableLinks(ctx, data));
+  // Este formulário cria um documento novo: referências suspensas são
+  // explicitamente limpas, sem devolver os valores guardados na origem.
+  if (!ctx.parts.stock) copyData.warehouse_id = null;
+  if (!ctx.parts.finance) { copyData.category_id = null; copyData.payment_account_id = null; }
   return {
     source: { id: s!.id, kind: s!.kind, number: s!.number === null ? null : String(s!.number), version: s!.version },
     data: copyData,

@@ -1,3 +1,4 @@
+import { persistProviderEvidence } from "./helpers/f3-payment-evidence";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { all, batch, exec, one } from "../src/db";
 import { uid, type Env as AppEnv } from "../src/types";
@@ -55,7 +56,7 @@ async function received(f: Fixture, extra: Partial<NewOrder> = {}) {
   return order.status === "received" ? order : moveOrder(ctx, order, "received", f.actor.id, "", {}, { notify: false });
 }
 async function events(f: F3Fixture) {
-  return (await all(f.env, "SELECT payload_json FROM module_erp_events WHERE profile_id=? ORDER BY module_id,source_id,seq", f.profile)).map(r => JSON.parse(r.payload_json));
+  return (await all(f.env, "SELECT payload_json FROM module_erp_events WHERE profile_id=? ORDER BY module_id,source_id,source_revision,seq", f.profile)).map(r => JSON.parse(r.payload_json));
 }
 async function pump(f: F3Fixture, rounds = 10) {
   for (let i = 0; i < rounds; i++) { await due(f); await drainIntegrationOutbox(f.env, f.profile); }
@@ -101,6 +102,7 @@ for (const on of [true, false]) describe(`F3 comércio — partes ${on ? "ligada
     const f = await setup(on), ctx = f.ctx("pedido"), remote = installFakeErp();
     const order = (await createOrder(ctx, input(f))).order, paymentId = uid(), account = uid(), at = Date.now();
     await exec(f.env, "INSERT INTO payments(id,profile_id,conversation_id,account_id,provider,method,module_id,ref_id,description,amount_cents,status,provider_payment_id,trigger,actor,expires_at,paid_at,created,updated) VALUES(?,?,?,?,'mercadopago','pix','pedido',?,'Pedido',2900,'paid','remote-1','module',?,?,?,?,?)", paymentId, f.profile, uid(), account, order.id, f.actor.id, at + 10000, at, at, at);
+    await persistProviderEvidence(f.env, paymentId);
     const paid = paymentView(await one(f.env, "SELECT * FROM payments WHERE id=?", paymentId))!;
     await paymentUpdated(ctx, paid, "created"); await paymentUpdated(ctx, paid, "created");
     expect((await loadOrder(ctx, order.id)).status).toBe("received");
@@ -108,8 +110,9 @@ for (const on of [true, false]) describe(`F3 comércio — partes ${on ? "ligada
     expect(await all(f.env, "SELECT * FROM module_commercial_receipts WHERE profile_id=?", f.profile)).toHaveLength(1);
     expect((await events(f)).filter(e => e.operation === "receive")).toHaveLength(on ? 1 : 0);
     await exec(f.env, "UPDATE payments SET amount_cents=3000 WHERE id=?", paymentId);
-    await expect(paymentUpdated(ctx, paid, "created")).rejects.toMatchObject({ code: "idempotency_conflict" });
+    await expect(paymentUpdated(ctx, paid, "created")).rejects.toMatchObject({ code: "payment_evidence_conflict" });
     await exec(f.env, "UPDATE payments SET amount_cents=2900,status='refunded' WHERE id=?", paymentId);
+    await persistProviderEvidence(f.env, paymentId);
     const refunded = paymentView(await one(f.env, "SELECT * FROM payments WHERE id=?", paymentId))!;
     await paymentUpdated(ctx, refunded, "paid"); await paymentUpdated(ctx, refunded, "paid");
     expect((await loadOrder(ctx, order.id)).payment_status).toBe("refunded");
@@ -122,9 +125,11 @@ for (const on of [true, false]) describe(`F3 comércio — partes ${on ? "ligada
     await markPaid(ctx, f.actor, { id: order.id }, "manual-original");
     const id = uid(), at = Date.now();
     await exec(f.env, "INSERT INTO payments(id,profile_id,conversation_id,account_id,provider,method,module_id,ref_id,description,amount_cents,status,provider_payment_id,trigger,actor,expires_at,paid_at,created,updated) VALUES(?,?,?,?,'mercadopago','pix','pedido',?,'Pedido',2900,'paid','extra','module',?,?,?,?,?)", id, f.profile, uid(), uid(), order.id, f.actor.id, at + 10000, at, at, at);
+    await persistProviderEvidence(f.env, id);
     await paymentUpdated(ctx, paymentView(await one(f.env, "SELECT * FROM payments WHERE id=?", id))!, "created");
     expect((await loadOrder(ctx, order.id)).needs_refund).toBe(1);
     await exec(f.env, "UPDATE payments SET status='refunded' WHERE id=?", id);
+    await persistProviderEvidence(f.env, id);
     const refunded = paymentView(await one(f.env, "SELECT * FROM payments WHERE id=?", id))!;
     await paymentUpdated(ctx, refunded, "paid"); await paymentUpdated(ctx, refunded, "paid");
     expect(await loadOrder(ctx, order.id)).toMatchObject({ payment_status: "paid", needs_refund: 0, paid_by: f.actor.id, status: "received" });

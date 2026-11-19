@@ -11,7 +11,7 @@ import type { IntegrationProducer } from "../../integrations/ports";
 import { readIntegrationActivation, ensureCommercialPolicy, integrationStatements, aliasStatements, registerIntegrationProducer, registerReceiptReverser } from "../../integrations/ports";
 import { integrationCasGuard } from "../../integrations/outbox";
 import { requireIntegrationHuman } from "../../integrations/policy";
-import { canonical, commandId, eventKey, hash, uuid5, F3_NAMESPACES } from "../../integrations/keys";
+import { localEventId, canonical, commandId, eventKey, hash, uuid5, F3_NAMESPACES } from "../../integrations/keys";
 import { IntegrationError, integer, opaque } from "../../integrations/privacy";
 import { commercialReceiptStatements, allocationStatements, allocationKey, manualReceiptKey, reverseReceiptKey, type CommercialReceipt } from "../../integrations/receipts";
 import { brasiliaDate } from "./config";
@@ -150,16 +150,19 @@ export async function titlePlan(ctx: ModuleContext, module: BookingModule, row: 
   const reversing = (options.facts ?? []).filter(f => f.operation === "reverse");
   let reversed = 0;
   for (const fact of reversing) reversed += (await one(ctx.env, "SELECT coalesce(sum(amount_cents),0) amount FROM module_erp_allocations WHERE profile_id=? AND receipt_key=? AND module_id=? AND source_id=?", ctx.profile, fact.reverses_receipt_key, module, row.id)).amount;
+  const cancellationPending = !!obligation && (balance?.allocated_cents ?? 0) > reversed;
+  const deferred = cancellationPending && await one(ctx.env, `SELECT 1 FROM module_erp_events WHERE profile_id=? AND module_id=? AND source_id=?
+    AND seq IS NULL AND json_extract(payload_json,'$.reason_code')='module_cancellation_pending'`, ctx.profile, module, row.id);
   const facts = [...(recognize && finance ? [{ operation: "recognize" as const }] : []), ...(options.facts ?? []).filter(fact =>
-    fact.operation === "receive" ? !!obligation : fact.operation === "cancel" ? !!obligation && (balance?.allocated_cents ?? 0) <= reversed : fact.operation === "reverse" ? !!obligation : true)];
+    fact.operation === "cancel" ? !!obligation && !deferred : fact.operation === "reverse" ? !!obligation : true)];
   const events: IntegrationEvent[] = facts.map((fact, index) => {
     const seq = previous.seq + index + 1;
     return { id: commandId(source, seq), command_id: commandId(source, seq), event_key: eventKey(source, fact.operation, revision), source, seq, source_revision: revision,
       operation: fact.operation, occurred_ms: at, epochs: activation.epochs,
       // Manutenção de efeito anterior permanece elegível após desligamento.
-      eligible: { document: false, stock: false, finance: !!obligation || finance },
+      eligible: { document: false, stock: false, finance: fact.operation === "cancel" && cancellationPending ? false : ["receive", "reverse"].includes(fact.operation) ? !!obligation : !!obligation || finance },
       snapshot, receipt_key: fact.receipt_key ?? null, reverses_receipt_key: fact.reverses_receipt_key ?? null,
-      reason_code: fact.reason_code ?? null, actor_id: options.actor };
+      reason_code: fact.operation === "cancel" && cancellationPending ? "module_cancellation_pending" : fact.reason_code ?? null, actor_id: options.actor };
   });
   return { source, snapshot, previous, at, recognized: recognized || recognize, statements: [
     ...Object.values(activation.activations).map((a): Statement => [
@@ -168,6 +171,18 @@ export async function titlePlan(ctx: ModuleContext, module: BookingModule, row: 
     ]),
     ...integrationStatements({ source, expected_revision: previous.revision, events, next_state: { snapshot } }),
     ...aliasStatements(source, module === "agenda" ? "appointment" : "booking", row.id),
+    ...events.filter(e => e.reason_code === "module_cancellation_pending").map((e): Statement => [
+      "UPDATE module_erp_delivery SET state='blocked',completed_ms=NULL,error_code='module_cancellation_pending',error_message=? WHERE event_id=?",
+      [new IntegrationError("module_cancellation_pending").message, localEventId(source, e.event_key)]]),
+    ...(events.some(e => e.operation === "cancel" && e.eligible.finance) ? [[
+      `UPDATE module_erp_delivery SET state='done',completed_ms=?,error_code='cancellation_resolved',error_message=NULL
+        WHERE error_code='module_cancellation_pending' AND event_id IN
+          (SELECT id FROM module_erp_events WHERE profile_id=? AND module_id=? AND source_id=? AND seq IS NULL)`,
+      [at, ctx.profile, module, row.id],
+    ] as Statement] : []),
+    ...events.filter(e => e.operation === "receive" && !obligation).map((e): Statement => [
+      "UPDATE module_erp_delivery SET state='blocked',completed_ms=NULL,error_code='historical_origin_unlinked',error_message=? WHERE event_id=?",
+      [new IntegrationError("historical_origin_unlinked").message, localEventId(source, e.event_key)]]),
   ] };
 }
 
@@ -325,7 +340,7 @@ export async function receiptPlan(ctx: ModuleContext, module: BookingModule, row
   }
   const facts: TitleFact[] = allocated ? [{ operation: receipt.kind, receipt_key: receipt.receipt_key, reverses_receipt_key: receipt.reverses_key ?? undefined, reason_code: options.reason }] : [];
   if ((options.cancel || receipt.kind === "reverse" && ["cancelled", "expired"].includes(row.status)) && state.snapshot?.lifecycle.authorized_at != null && balance.allocated_cents - allocated <= 0) {
-    const cancelled = await one(ctx.env, `SELECT 1 FROM module_erp_events WHERE profile_id=? AND module_id=? AND source_id=? AND json_extract(payload_json,'$.operation')='cancel' LIMIT 1`, ctx.profile, module, row.id);
+    const cancelled = await one(ctx.env, `SELECT 1 FROM module_erp_events WHERE profile_id=? AND module_id=? AND source_id=? AND seq IS NOT NULL AND json_extract(payload_json,'$.operation')='cancel' LIMIT 1`, ctx.profile, module, row.id);
     if (!cancelled) facts.push({ operation: "cancel", reason_code: "payment_reversed" });
   }
   const plan = await titlePlan(ctx, module, row, { actor: receipt.actor_id, facts });

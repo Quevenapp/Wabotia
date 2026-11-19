@@ -277,7 +277,7 @@ test("padrões financeiros ausentes podem ser definidos antes do primeiro lança
   assert.equal(f.lite.prepare("SELECT category_id FROM erp_finance__title").get().category_id, f.category.id);
 });
 
-test("prévia de cópia omite partes desligadas e seu corpo continua aceito pelo salvamento", async t => {
+test("prévia de cópia limpa referências suspensas e seu corpo continua aceito pelo salvamento", async t => {
   const f = fixture(t);
   const source = f.rpc("erp_document_save", { p_kind: "sales_orders", p_id: null, p_expected_version: 0, p_command_id: randomUUID(), p_body: {
     date: "2026-11-18", contact_id: f.contact.id, warehouse_id: f.warehouse.id, category_id: f.category.id, payment_account_id: f.account.id,
@@ -297,7 +297,7 @@ test("prévia de cópia omite partes desligadas e seu corpo continua aceito pelo
     assert.deepEqual(f.lite.prepare("SELECT * FROM erp_documents__document WHERE id=?").get(source.id), original);
     const hidden = [...(parts.stock === false ? ["warehouse_id"] : []), ...(parts.finance === false ? ["category_id", "payment_account_id"] : [])];
     for (const value of [preview, parsed]) {
-      for (const key of hidden) assert.equal(Object.hasOwn(value.data, key), false, key);
+      for (const key of hidden) assert.equal(value.data[key], null, key);
       assert.equal(Object.hasOwn(value.data, "unavailable_parts"), false);
     }
     const copyRoute = await parseDocumentCopyRoute(new Request(url, { method: "POST", headers: { "Content-Type": "application/json" },

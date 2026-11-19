@@ -53,7 +53,7 @@ export function validateModuleBody(ctx: RpcContext): ModuleBody {
     if (!same(targetOrigin(ctx.db, "title", e.id)?.source, r.source)) raise("42501", "module_origin_denied");
     return one(ctx.db, "SELECT contact_id,category_id,payment_method_id FROM erp_finance__title WHERE id=?", e.id);
   });
-  if (["cancel", "reverse", "lifecycle"].includes(b.operation) && previous) {
+  if (["cancel", "reverse", "lifecycle", "receive"].includes(b.operation) && previous) {
     const contact = linked?.contact_id ?? titles[0]?.contact_id;
     if (!contact || titles.some(t => t?.contact_id !== contact) || s.contact_id !== null && s.contact_id !== contact) invalid();
     s.contact_id = String(contact);
@@ -130,11 +130,11 @@ export function nextComponent(b: ModuleBody, previous?: ComponentState): Compone
     effects: previous?.effects.map(e => ({ ...e })) ?? [], base_status: lifecycle.base_status, source_revision: b.snapshot.source_revision };
 }
 export function requestedDestinations(ctx: RpcContext, b: ModuleBody) {
-  const proof = execution(ctx), maintenance = ["cancel", "reverse"].includes(b.operation), human = proof.evidence.mode === "human";
+  const proof = execution(ctx), maintenance = ["cancel", "reverse"].includes(b.operation), linkedLifecycle = b.operation === "lifecycle" && !!originAnchor(ctx.db, proof.request.source, "document"), linkedReceive = b.operation === "receive" && !!previousReceipt(ctx)?.components[proof.request.source.component]?.effects.some(e => e.kind === "title"), human = proof.evidence.mode === "human";
   const requested = {
-    document: b.requested.document && (maintenance || proof.open.document) && (ctx.parts.sales || ctx.parts.finance || ctx.parts.stock),
-    stock: b.requested.stock && (maintenance || proof.open.stock && ctx.parts.stock && ctx.parts.products && (human || b.policy.auto_post.stock)),
-    finance: b.requested.finance && (maintenance || proof.open.finance && ctx.parts.finance && (human || b.policy.auto_post.finance)),
+    document: b.requested.document && (maintenance || linkedLifecycle || proof.open.document) && (ctx.parts.sales || ctx.parts.finance || ctx.parts.stock),
+    stock: b.requested.stock && (maintenance || proof.open.stock && ctx.parts.stock && ctx.parts.products && (human || b.policy.auto_post?.stock === true)),
+    finance: b.requested.finance && (maintenance || (proof.open.finance || linkedReceive) && ctx.parts.finance && (human || b.policy.auto_post?.finance === true)),
   };
   if (!maintenance && !requested.document && !requested.stock && !requested.finance) throw new ErpError("epoch_closed", "epoch_closed");
   return requested;

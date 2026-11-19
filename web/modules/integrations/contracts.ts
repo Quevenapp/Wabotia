@@ -1,8 +1,8 @@
 // Tipos puros compartilhados; nenhum código do Worker entra no painel.
-export type { CommercialItem, CommercialPolicy, CommercialSnapshot, Destination, IntegrationModule, IntegrationState, SourceRef } from "../../../src/integrations/contracts";
-import type { CommercialSnapshot, Destination, IntegrationModule, IntegrationState, SourceRef } from "../../../src/integrations/contracts";
+export type { CommercialItem, CommercialPolicy, CommercialSnapshot, Destination, IntegrationModule, IntegrationState, SourceIntegrationState, DeliveryIntegrationState, SourceRef } from "../../../src/integrations/contracts";
+import type { CommercialSnapshot, Destination, IntegrationModule, IntegrationState, SourceIntegrationState, DeliveryIntegrationState, SourceRef } from "../../../src/integrations/contracts";
 
-export type SourceState = "none" | "skipped" | "pending" | "blocked" | "failed" | "uncertain" | "done";
+export type SourceState = SourceIntegrationState;
 export interface SourceView {
   source: SourceRef;
   revision: number;
@@ -15,13 +15,13 @@ export interface SourceView {
   applied?: (Destination | "document")[];
   pending: boolean;
   manual_destinations: Destination[];
-  deliveries: { id: string; seq?: number; state: IntegrationState; error_code?: string | null; completed_ms: number | null }[];
+  deliveries: { id: string; seq: number | null; state: DeliveryIntegrationState; error_code?: string | null; completed_ms: number | null }[];
   links: { slot: string; kind: "document" | "title" | "settlement" | "stock_posting"; id: string; version: number | null }[];
 }
 export interface ModuleStatus {
   module: IntegrationModule;
   activations: Record<string, { module_id: string; epoch: number; enabled: boolean | number; first_enabled_ms: number | null; enabled_since_ms: number | null }>;
-  counters: { state: IntegrationState; count: number }[];
+  counters: { state: SourceIntegrationState; count: number }[];
 }
 export interface DocumentOrigin { document_id: string; source: SourceRef | null; readonly: true }
 export interface CatalogLink { erp_item_id: string | null; version: number }

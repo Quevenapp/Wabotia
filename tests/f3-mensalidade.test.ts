@@ -1,3 +1,4 @@
+import { persistProviderEvidence } from "./helpers/f3-payment-evidence";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { all, batch, exec, one } from "../src/db";
 import { uid, type Env } from "../src/types";
@@ -44,7 +45,7 @@ async function setup(finance = true, discount = 1500) {
   const day = today(Date.now());
   const plan = await createPlan(ctx, { name: "Conteúdo privado do plano", amount_cents: 10000, due_day: Number(day.slice(-2)), sellable: true }, f.actor.id);
   const sub = await createSubscription(ctx, { plan_id: plan.id, payer_id: payer, phone: "5511999998888", customer_name: "Nome privado do menor", notes: "Texto clínico privado", start_date: day, end_date: day, discount_cents: discount }, f.actor.id);
-  const events = async () => (await all(f.env, "SELECT payload_json FROM module_erp_events WHERE profile_id=? AND module_id='mensalidade' ORDER BY source_id,seq", f.profile)).map(r => JSON.parse(r.payload_json) as IntegrationEvent);
+  const events = async () => (await all(f.env, "SELECT payload_json FROM module_erp_events WHERE profile_id=? AND module_id='mensalidade' ORDER BY source_id,source_revision,seq", f.profile)).map(r => JSON.parse(r.payload_json) as IntegrationEvent);
   const installments = () => all(f.env, "SELECT * FROM mensalidade_installments WHERE profile_id=? ORDER BY due_date,id", f.profile);
   const generate = async () => { await generateInstallments(ctx, Date.now(), sub.id); return (await installments())[0]; };
   const drain = async (rounds = 5) => {
@@ -128,10 +129,7 @@ async function providerPayment(f: Fixture, ref: string, source: string, amount: 
   const receipt: CommercialReceipt = { profile_id: f.profile, receipt_key: key, owner_module: "mensalidade", source_id: source,
     kind: status === "refunded" ? "reverse" : "receive", evidence: "provider", reverses_key: status === "refunded" ? originalKey : null,
     amount_cents: amount, method: "pix", occurred_ms: status === "paid" ? row.paid_at : at, actor_id: null, evidence_hash: hash([originalKey, status, amount]) };
-  if (options.evidence !== false) {
-    const old = await one(f.env, "SELECT receipt_key FROM module_commercial_receipts WHERE profile_id=? AND receipt_key=?", f.profile, key);
-    if (!old) await batch(f.env, commercialReceiptStatements(receipt));
-  }
+  if (options.evidence !== false) await persistProviderEvidence(f.env, id);
   return { payment: paymentView(row)!, receipt, key, remote: row.provider_payment_id };
 }
 
@@ -337,7 +335,7 @@ describe("F3 Mensalidade: recebimento, isenção, cancelamento e estorno", () =>
     await paymentUpdated(f.ctx, p.payment, "created");
     expect((await loadInstallment(f.ctx, inst.id)).status).toBe("paid");
     await f.drain(); expect(erp.settlements.size).toBe(0);
-    await batch(f.env, commercialReceiptStatements(p.receipt));
+    await persistProviderEvidence(f.env, p.payment.id);
     await paymentUpdated(f.ctx, p.payment, "created");
     await f.drain(); expect(erp.settlements.size).toBe(1);
     expect((await f.events()).filter(e => e.operation === "receive")).toHaveLength(1);

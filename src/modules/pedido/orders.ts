@@ -1316,7 +1316,7 @@ export async function paymentUpdated(
   const at = now();
   if (payment.status === "paid") {
     const entering = order.status === "awaiting_payment";
-    if (order.payment_status === "paid" && order.paid_by === "provider") await providerOrderStatements(ctx, order, payment.id, false, true, payment.evidence?.receipt_key);
+    if (order.payment_status === "paid" && order.paid_by === "provider") await batch(ctx.env, await providerOrderStatements(ctx, order, payment.id, false, false, payment.evidence?.receipt_key));
     let claimed = { meta: { changes: 0 } };
     if (order.payment_status !== "paid") {
       const next = { ...order, payment_status: "paid", paid_at: payment.paid_at || at,
@@ -1495,7 +1495,7 @@ export async function paymentUpdated(
       await ctx.publish("pedido.refunded", order.id, { order_id: order.id, number: order.number, payment_id: payment.id, amount_cents: payment.amount_cents, needs_review: false, conversation_id: order.conversation_id }, { key: `extra-refunded:${payment.id}` });
       return;
     }
-    if (order.payment_status === "refunded") await providerOrderStatements(ctx, order, payment.id, true, true);
+    if (order.payment_status === "refunded") await batch(ctx.env, await providerOrderStatements(ctx, order, payment.id, true));
     let claimed = { meta: { changes: 0 } };
     if (order.payment_status !== "refunded") [claimed] = await batch(ctx.env, [
       ["UPDATE pedido_orders SET payment_status='refunded',needs_refund=0,updated=? WHERE id=? AND profile_id=? AND payment_status=? AND updated=?", [at, order.id, ctx.profile, order.payment_status, order.updated]], commerceGuard,

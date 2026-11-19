@@ -258,6 +258,8 @@ export async function batch(
   items: [string, any[]][],
   options: { retry?: boolean } = {},
 ) {
+  // Planos idempotentes podem não ter trabalho restante. D1 recusa batch([]).
+  if (!items.length) return [];
   for (const [sql] of items) invalidate(env, sql);
   return retryRead(
     options.retry === true || items.every(([sql]) => readOnlySql(sql)),

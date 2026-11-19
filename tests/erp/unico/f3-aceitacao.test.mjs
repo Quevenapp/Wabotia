@@ -109,7 +109,7 @@ test("A4/A8: cortes, política e agendador preservam religamento sem consultas c
   ])
     local
       .prepare(
-        "INSERT INTO profile_modules(profile_id,module_id,enabled,updated) VALUES(?,?,1,1)",
+        "INSERT INTO profile_modules(profile_id,module_id,enabled,updated) VALUES(?,?,1,1) ON CONFLICT(profile_id,module_id) DO UPDATE SET enabled=1,updated=excluded.updated",
       )
       .run(profile, module);
   const prepare = (sql, args = []) => ({
@@ -256,7 +256,7 @@ test("A4/A8: cortes, política e agendador preservam religamento sem consultas c
   ])
     local
       .prepare(
-        "INSERT INTO profile_modules(profile_id,module_id,enabled,updated) VALUES(?,?,1,1)",
+        "INSERT INTO profile_modules(profile_id,module_id,enabled,updated) VALUES(?,?,1,1) ON CONFLICT(profile_id,module_id) DO UPDATE SET enabled=1,updated=excluded.updated",
       )
       .run(profile, module);
   const reconcileSql = (sql) =>
@@ -355,9 +355,10 @@ test("A3/A4: SQL compacto da saída conserva CAS, rollback, sequência e proprie
   const second = {
     ...event,
     id: randomUUID(),
-    seq: 2,
+    seq: 1,
+    eligible: { document: true, stock: false, finance: false },
     source_revision: 2,
-    command_id: commandId(event.source, 2),
+    command_id: commandId(event.source, 1),
     event_key: eventKey(event.source, event.operation, 2),
     snapshot: { ...event.snapshot, source_revision: 2 },
   };
@@ -369,7 +370,8 @@ test("A3/A4: SQL compacto da saída conserva CAS, rollback, sequência e proprie
   const first = plan(event, 0);
   const alias = aliasStatements(event.source, "order", event.source.source_id);
   apply([...first, ...alias]);
-  assert.deepEqual(state(), { revision: 1, enqueued_seq: 1, applied_seq: 0 });
+  assert.deepEqual(state(), { revision: 1, enqueued_seq: 0, applied_seq: 0 });
+  assert.equal(local.prepare("SELECT seq FROM module_erp_events").get().seq, null);
   apply(alias);
   assert.throws(() =>
     apply([["UPDATE operational SET value=1", []], ...first]),
@@ -385,15 +387,15 @@ test("A3/A4: SQL compacto da saída conserva CAS, rollback, sequência e proprie
       ),
     ]),
   );
-  assert.deepEqual(state(), { revision: 1, enqueued_seq: 1, applied_seq: 0 });
+  assert.deepEqual(state(), { revision: 1, enqueued_seq: 0, applied_seq: 0 });
   const gap = { ...second, seq: 3, command_id: commandId(event.source, 3) };
   assert.throws(() => apply(plan(gap, 1)));
   assert.throws(() =>
     apply([...plan(second, 1), ["SELECT json('queda_depois_da_saida')", []]]),
   );
-  assert.deepEqual(state(), { revision: 1, enqueued_seq: 1, applied_seq: 0 });
+  assert.deepEqual(state(), { revision: 1, enqueued_seq: 0, applied_seq: 0 });
   apply(plan(second, 1));
-  assert.deepEqual(state(), { revision: 2, enqueued_seq: 2, applied_seq: 0 });
+  assert.deepEqual(state(), { revision: 2, enqueued_seq: 1, applied_seq: 0 });
   assert.deepEqual(
     await findIntegrationEvent(
       { DB },

@@ -1,14 +1,14 @@
 # Fase 3 — integração dos módulos com o ERP
 
-Estado em 19/11/2026: **regressões do verificador investigadas, liberação pendente**.
-Este é o relato consolidado da implementação e das duas rodadas de correção.
-O log mais recente contém três falhas Vitest e 218 falhas no painel. As causas
-foram identificadas; as correções de produção/preparação autorizadas estão nesta
-árvore. Três arquivos fora da matriz têm propostas verificadas em separado e
-ainda aguardam autorização de escrita.
+Estado em 19/11/2026: **fechamento integrado corrigido, aceite externo pendente**.
+O resumo externo mais recente registra 15 falhas e 3.352 aprovações no Vitest
+(8 arquivos com falha, 299 aprovados). As causas e o tratamento estão em
+“Correções das revisões”, que prevalece sobre os registros históricos abaixo.
+O fechamento já inclui a F2 e permite integrar os arquivos da F3; as antigas
+pendências de autorização entre donos não se aplicam a esta tarefa.
 A verificação externa recebida falhou; esta revisão não declara os três marcos aprovados. O verificador externo precisa concluir
 `check`, `build`, `test:erp`, `test:erp:painel` e o Vitest integrado com
-**TUDO VERDE**. As pendências abaixo também precisam de decisão dos donos.
+**TUDO VERDE**. Os adiamentos funcionais permanecem explícitos na seção final.
 
 ## Evidência e ordem de liberação
 
@@ -441,3 +441,147 @@ fluxos excederam o teto, e a sondagem local reproduziu e corrigiu esses quatro.
 A fase continua sem aceite final até a autorização/aplicação das propostas de
 painel e OpenAPI e um novo resumo externo `TUDO VERDE`. Não foi usado sucesso em cópia
 temporária para declarar que arquivos ainda não aplicados estão corrigidos.
+
+## Correções das revisões
+
+O fechamento da F3 integra as três correções (`f3-corr-fila`,
+`f3-corr-motor` e `f3-corr-produtores`) sobre o fechamento da F2. Esta seção
+substitui as decisões incompatíveis dos relatos anteriores, especialmente a
+recusa do efeito local de pagamentos antigos e a não liberação de pagamentos
+tardios. O aceite final depende da verificação externa completa.
+
+- **Fila e Trabalhos:** fatos sem destino elegível usam `seq=null` e não
+  incrementam `enqueued_seq`; a leitura cronológica usa `source_revision,seq`.
+  Preparação, consulta e envio têm contadores e recuo. Depois de envio sem
+  resposta, conserva-se `uncertain` e consulta-se o mesmo comando, sem um 13º
+  envio. A substituição valida a projeção e reserva a solicitação antes de
+  fechar o original. A drenagem do agendador usa `waitUntil`.
+- **Motor:** manutenção resolve o contato pelo vínculo, recusa contato diferente
+  e segue títulos, baixas e estoque históricos. Operações genéricas não podem
+  alterar esses efeitos por fora da origem. Estorno parcial mantém o cancelamento
+  bloqueado. A busca de origem usa a âncora indexada quando há área confiável.
+- **Produtores, núcleo e telas:** pagamentos usam a evidência persistida do
+  núcleo para recibo comercial e baixa ERP. Pagamento legado sem essa evidência
+  conclui a operação local e registra `blocked/payment_evidence_required`;
+  consultar novamente o provedor recupera o gancho e a integração, sem segunda
+  baixa. Divergência de identidade/valor continua recusada. Uma contratação nova
+  de Mensalidade exige evidência antes de criar pagador ou assinatura. Os formulários
+  de Trabalho/Entrega usam os contratos do servidor e a Cobrança mostra a
+  conferência de reembolso parcial (`review_required`/`review_reason`).
+
+### Quatro interfaces consolidadas
+
+1. Cancelamento, reversão e mudança de etapa vinculada levam `contact_id:null`;
+   o motor usa o contato histórico. Recebimento de título vinculado também usa
+   esse contato, sem promover novamente a pessoa.
+2. Manutenção não leva `auto_post` nem exige categoria, conta ou depósito atuais
+   para efeitos existentes. Estornos seguem os efeitos reais. Abrir sem orçamento,
+   orçar, aprovar, executar e cancelar funciona com motor real, inclusive depois
+   de desligar automação e remover padrões atuais.
+3. Só destinos elegíveis consomem sequência ERP. Fatos locais e pendências sem
+   obrigação vinculada permanecem auditáveis com `seq:null`. Em Agenda/Reserva,
+   cancelamento com dinheiro ainda alocado registra pendência local; estornos
+   ocupam a sequência remota antes do cancelamento final. Resolver a última
+   devolução encerra aquela pendência no mesmo lote.
+4. Estado público é `none | skipped | pending | blocked | failed | uncertain |
+   done`, com motivo, destinos aplicados e pendência manual por destino.
+   `waiting_manual` permanece um estado interno de entrega; publicamente vira
+   `skipped/automation_off`, com `pending:true` e `manual_destinations`.
+   “Confirmado no ERP” aparece somente para `done`. Confirmação de Estoque não
+   esconde Financeiro manual; `module_cancellation_pending` permanece bloqueado.
+
+Um recebimento de obrigação já vinculada aguarda enquanto Financeiro está
+suspenso e sobrevive à mudança de época ao religá-lo. Isso não permite reconhecer
+outra vez obrigações antigas sem vínculo: elas ficam
+`blocked/historical_origin_unlinked`. O evento local agora existe explicitamente,
+para que a preparação devolva esse código em vez de acessar um evento ausente.
+
+### Compatibilidade publicada e preparação dos testes
+
+Receber, estornar, liberar atendimento, reativar reserva e avisar a equipe
+continuam independentes de ERP. Os testes publicados de pagamentos, Pedido,
+Reserva, Mensalidade e Suporte não foram editados. O sinal tardio reativa Reserva
+se a unidade ainda estiver livre (a escrita repete a guarda de disponibilidade);
+se estiver ocupada, mantém o aviso à equipe. Suporte pago após expirar/cancelar
+volta a liberar atendimento.
+
+**Caminho adotado para recebimento depois de cancelamento:** bloqueio explícito
+`obligation_reactivation_required`, com orientação “Recebimento depois do
+cancelamento: recompor a obrigação”. Conserva-se o recibo comprovado, sem alocação
+nem baixa automática sobre título cancelado. A equipe deve conferir a obrigação
+original, decidir recomposição ou devolução e conciliar o dinheiro. Repetir o
+pagamento não cria novo título nem remove esse bloqueio. A reativação comercial
+idempotente no motor fica adiada; não se declara conciliação concluída.
+
+Reembolso integral publicado (`refunded`/`charged_back`) continua entregando o
+estorno. Indícios explícitos de devolução parcial sem total comprovado exigem
+conferência, sem fabricar estorno integral. Ganchos pago/estornado conservam sua
+ordem; duplicado estornado não cancela a cobrança original nem seu pedido.
+
+Nos testes F3, a preparação de recibos usa `payment.evidence` real persistida;
+clientes, categorias e depósitos são registros reais quando o motor é real.
+O agendador tem coletor de `waitUntil`, com resposta ERP retida até a rodada
+retornar. As expectativas alteradas seguem os contratos acima, mantendo casos
+de rollback, CAS, lacunas, propriedade de alias, privacidade, perda de resposta,
+recusa e replay. Nenhum teste foi eliminado, pulado ou teve teto aumentado.
+
+A prévia de cópia mantém o contrato já fechado na F2: referências suspensas são
+`null` no formulário novo, e omitidas no DTO do documento salvo. A normalização
+HTTP respeita os metadados de partes do documento; não restaura referências da
+origem. Os testes protegidos de catálogo/documentos e o diferencial não mudaram.
+
+A tela de conferência de Cobrança alterada é
+`web/conversations/Payments.tsx`. Não houve edição em `web/erp/app/**`, portanto
+não se acrescentou entrada de adaptação local em `web/erp/ORIGEM.json`.
+
+### Retomada após as 15 falhas externas
+
+- **Lote vazio no D1:** repetição de Pedido e Suporte podia produzir um plano
+  sem instruções. `DB.batch([])` falha no Cloudflare antes de republicar os
+  eventos do módulo. `src/db.ts` encerra esse plano sem chamar D1. O harness
+  SQLite agora recusa lotes vazios como D1, em vez de ocultar o defeito.
+  Regressões Node interrompem `pedido.paid` e `pedido.status_changed`, repetem
+  o gancho e comparam integralmente os eventos e a origem comercial.
+- **Destino manual inexistente:** execução de Trabalho sem material marcava
+  Estoque elegível e a tela cobrava lançamento manual indevido. O produtor
+  exige material para esse destino, preservando a manutenção de efeitos
+  históricos. O caso com material conserva sua expectativa original; uma
+  prova com motor real exige somente Financeiro manual no serviço sem material.
+- **Reserva ocupada:** preservada a recusa de reativação, mas o aviso volta ao
+  motivo publicado `unit_taken` (ou `cancelled` para cancelamento explícito),
+  com `needs_refund`. A pendência financeira de recomposição continua separada.
+- **Expectativas antigas:** fato inelegível tem `seq:null`, motivo local e
+  nenhum recibo remoto; salto por parte desligada é `skipped`, sem destino
+  aplicado nem ação manual. Agenda/Reserva sem obrigação vinculada conservam
+  `blocked/historical_origin_unlinked` inclusive após religamento, sem pedido
+  remoto nem dívida retroativa. Os testes verificam esses campos exatos.
+- **Gancho legado e tela:** o teste do núcleo agora prova a entrega local sem
+  evidência, a pendência sem recibo, a consulta posterior e uma única retomada
+  comprovada. A confirmação visual da correção verifica a ordem de validar,
+  reservar e consultar antes de fechar. Não se alteraram os testes publicados
+  de pagamentos, retomada dos ganchos ou Reserva para acomodar regressões.
+
+### Adiamentos e operação
+
+- **Substituição com sucessores:** continua recusada por
+  `replacement_successors`. Falta um protocolo que reserve toda a cadeia,
+  reconcilie cada comando incerto pela identidade original, valide todas as
+  projeções e instale a cadeia substituta atomicamente, preservando fatos,
+  aliases e efeitos confirmados. Não renumerar nem fechar parcialmente a cadeia.
+- **Restauração unilateral:** divergência detectada permanece
+  `blocked/integration_divergent` (“ERP e fila divergentes”). Suspender as
+  entregas da origem, preservar os dois conjuntos de evidências e comparar
+  sequência, chave, recibo e efeitos do ERP com o D1. Preferir restaurar um par
+  compatível de backups; quando isso não for possível, a equipe técnica e
+  financeira precisa reconciliar a origem antes de liberar a operação. Não
+  apagar recibos, forçar retry nem gerar uma nova chave para esconder a
+  divergência. Efeito órfão sem próximo comando não é detectado por este
+  mecanismo; não há reconciliador geral automático.
+- **Migração:** `0135` continua inédita; este fechamento não cria migração,
+  recurso Cloudflare, classe Durable Object ou mudança de esquema ERP.
+- **Validação:** provas Node locais cobrem D1/SQLite, produtores, consumidor,
+  adaptador e motor; os comandos `check`, `build`, `test:erp` e
+  `test:erp:painel` podem ser executados sem rede. O Vitest completo continua
+  exclusivo do verificador externo. Resultados e limites desta sessão são
+  entregues no relato final, fora do repositório. Nenhum teto, tempo-limite ou
+  teste diferencial foi alterado; não houve execução de Vitest/Wrangler.

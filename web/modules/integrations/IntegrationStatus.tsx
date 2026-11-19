@@ -12,7 +12,9 @@ export function integrationReason(reason: string | null | undefined) {
     part_disabled: "A parte necessária estava desligada. O administrador pode revisar as partes habilitadas; religar não lança dívidas antigas automaticamente.",
     automation_off: "A automação estava desligada. O administrador pode revisar a política e os destinos disponíveis para lançamento manual.",
     historical_origin_unlinked: "A obrigação não tem vínculo no ERP. A equipe financeira deve conferir a origem, sem criar dívida retroativa.",
-    late_payment_refund_required: "Pagamento tardio pendente de devolução. Confira a devolução no provedor; o serviço não foi liberado.",
+    obligation_reactivation_required: "Recebimento depois do cancelamento: recompor a obrigação. A equipe financeira deve conferir a obrigação e conciliar o recebimento; a operação local foi concluída.",
+    payment_evidence_required: "A operação local foi concluída. Consulte novamente a confirmação do provedor para conciliar o recebimento no ERP.",
+    module_cancellation_pending: "Cancelamento pendente: a equipe autorizada deve estornar os efeitos restantes pela origem.",
     waiting_manual: "Aguardando uma pessoa autorizada lançar os destinos disponíveis.",
   };
   return reason ? reasons[reason] ?? integrationError({ code: reason }) : "A equipe autorizada deve conferir a pendência na origem.";
@@ -55,9 +57,9 @@ export function IntegrationStatus({ module, sourceId, compact = false }: { modul
     {!view && !status && !error && <p role="status">Consultando confirmação…</p>}
     {view && <>
       {view.state === "skipped" && <p role="status">{integrationReason(view.skipped_reason ?? view.reason_code)}</p>}
-      {view.state === "blocked" && <p role="alert">{integrationReason(view.blocked_reason ?? view.reason_code ?? view.error_code ?? event?.error_code)}</p>}
+      {view.state === "blocked" && <p role="alert">{integrationReason(view.reason_code ?? view.blocked_reason ?? view.error_code ?? event?.error_code)}</p>}
       {view.state === "uncertain" && <p role="status">O envio foi feito, mas a resposta se perdeu. Aguarde a conferência do mesmo comando antes de corrigir.</p>}
-      {view.state === "done" && <p>Destinos confirmados: {(view.applied ?? []).map(d => d === "finance" ? "Financeiro" : d === "stock" ? "Estoque" : "Documento").join(", ") || "consulte os vínculos abaixo"}.</p>}
+      {!!view.applied?.length && <p>Destinos aplicados: {(view.applied ?? []).map(d => d === "finance" ? "Financeiro" : d === "stock" ? "Estoque" : "Documento").join(", ") || "consulte os vínculos abaixo"}.</p>}
       <p>Última confirmação: {confirmationTime(view.confirmed_ms)} (horário de São Paulo).</p>
       {!access.finance && view.pending && <p>Existe uma pendência. Detalhes financeiros são restritos à equipe autorizada.</p>}
       {access.finance && view.state !== "blocked" && event?.error_code && <p role="alert">Falhou: {integrationError({ code: event.error_code })}</p>}
@@ -69,7 +71,7 @@ export function IntegrationStatus({ module, sourceId, compact = false }: { modul
         {event && view.pending && (access.documents || access.stock || access.finance) && access.write(module) && <Button secondary disabled={busy} onClick={() => setReview(true)}>Corrigir pendência</Button>}
       </>}
       {review && !pending && <div role="group" aria-label="Confirmar correção">
-        <p>O servidor consultará o recibo e confirmará o fechamento do comando anterior antes de projetar outro. Se ele já foi aplicado, a correção será interrompida para revisão.</p>
+        <p>O servidor validará a correção, reservará a mesma solicitação e consultará o recibo antes de fechar o comando anterior. Se ele já foi aplicado, a correção será interrompida para revisão.</p>
         <Field label="Motivo comercial" value={reason} onChange={setReason} emptyOption={null} options={[{ id: "commercial_correction", name: "Corrigir dados comerciais" }, { id: "default_correction", name: "Corrigir padrão ausente" }, { id: "catalog_correction", name: "Corrigir vínculo de catálogo" }]} />
         <Button disabled={busy} onClick={() => void run(() => api.sourceAction(module, sourceId!, "replace", { event_id: event!.id, reason_code: reason }), true)}>Confirmar fechamento e correção</Button>
         <Button secondary disabled={busy} onClick={() => setReview(false)}>Voltar</Button>

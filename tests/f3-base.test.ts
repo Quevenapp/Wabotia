@@ -163,7 +163,13 @@ describe("F3: concessão, repetição e confirmação", () => {
     const f = await f3Fixture(), remote = installFakeErp(); await enqueue(f);
     remote.apply.mockRejectedValue(new IntegrationError("integration_unavailable", 503));
     for (let i = 0; i < 12; i++) { await due(f); await drainIntegrationOutbox(f.env, f.profile); }
-    expect(await delivery(f)).toMatchObject({ state: "failed", attempts: 12 });
+    expect(await delivery(f)).toMatchObject({ state: "uncertain", error_code: "integration_uncertain", attempts: 12 });
+    const saved = await readPreparedRequest(f.env, f.event);
+    const lookups = remote.get.mock.calls.length;
+    await due(f); await drainIntegrationOutbox(f.env, f.profile);
+    expect(remote.get.mock.calls.length).toBe(lookups + 1);
+    expect(remote.get.mock.calls.at(-1)![1]).toEqual(saved);
+    expect(remote.apply).toHaveBeenCalledTimes(12);
     expect(retryDelay(1)).toBe(5000); expect(retryDelay(12)).toBe(3600000);
     const source = { ...f.source, source_id: crypto.randomUUID() };
     const another: IntegrationEvent = { ...f.event, id: crypto.randomUUID(), source, event_key: `${f.event.event_key}:other`, command_id: commandId(source, 1), snapshot: { ...f.event.snapshot, source } };
@@ -336,7 +342,8 @@ describe("F3: correção segura, configuração e adaptador HTTP", () => {
     vi.spyOn(producer, "project").mockRejectedValueOnce(new IntegrationError("integration_unavailable", 503)).mockImplementation(project);
     const data = { module: "os", id: f.source.source_id, event_id: f.event.id, reason_code: "correction" };
     await expect(integrationCommand(f.env, f.actor, f.profile, "integration.replace", data, "replace")).rejects.toMatchObject({ status: 503 });
-    expect(JSON.parse((await delivery(f)).receipt_json).outcome).toBe("closed");
+    expect((await delivery(f)).receipt_json).toBeNull();
+    expect(remote.close).not.toHaveBeenCalled();
     const next = await integrationCommand(f.env, f.actor, f.profile, "integration.replace", data, "replace");
     expect(next.event_id).not.toBe(f.event.id);
     expect(await integrationCommand(f.env, f.actor, f.profile, "integration.replace", data, "replace")).toEqual(next);
@@ -382,7 +389,15 @@ describe("F3: correção segura, configuração e adaptador HTTP", () => {
     const f = await f3Fixture(), remote = installFakeErp(); await enqueue(f);
     vi.spyOn(hooks, "scheduledModules").mockReturnValue([]);
     vi.spyOn(approvals, "expireApprovals").mockResolvedValue(undefined);
-    await runModuleSchedules(f.env, f.profile, Date.now()); expect(remote.mutations).toHaveLength(1);
+    const work: Promise<void>[] = [];
+    let release!: () => void;
+    const hold = new Promise<void>(resolve => { release = resolve; });
+    const apply = remote.apply.getMockImplementation()!;
+    remote.apply.mockImplementation(async (...args) => { await hold; return apply(...args); });
+    await runModuleSchedules(f.env, f.profile, Date.now(), promise => { work.push(promise); });
+    expect(work).toHaveLength(1); expect(remote.mutations).toHaveLength(0);
+    release(); await Promise.all(work);
+    expect(remote.mutations).toHaveLength(1);
   });
   it("os quatro RPCs têm nomes fixos, evidência D1, portão e fotografia parts", async () => {
     const f = await f3Fixture(); await enqueue(f);
@@ -432,12 +447,12 @@ describe("F3: pendências por destino", () => {
     const second = { ...first, id: crypto.randomUUID(), source, command_id: commandId(source, 2), event_key: first.event_key + ":other",
       seq: 2, source_revision: 2, snapshot: { ...first.snapshot, source, source_revision: 2 } };
     await enqueue(f, second); await confirm(second, "posted");
-    expect(await integrationSourceView(f.env, f.actor, f.source)).toMatchObject({ state: "waiting_manual", manual_destinations: ["finance"] });
+    expect(await integrationSourceView(f.env, f.actor, f.source)).toMatchObject({ state: "skipped", skipped_reason: "automation_off", pending: true, manual_destinations: ["finance"] });
     const off = await f3Fixture(); await enqueue(off);
     const token = await acquireIntegrationLease(off.env, off.event.id);
     await confirmIntegrationResult(off.env, off.event, token!, { command_id: off.event.command_id, seq: 1, replayed: false, outcome: "applied", links: [],
       effects: { stock: "skipped", finance: "skipped" }, reason_code: "part_disabled" });
-    expect(await integrationSourceView(off.env, off.actor, off.source)).toMatchObject({ state: "done", manual_destinations: [] });
+    expect(await integrationSourceView(off.env, off.actor, off.source)).toMatchObject({ state: "skipped", skipped_reason: "part_disabled", pending: false, applied: [], manual_destinations: [] });
   });
   it("postagem automática de um destino conserva ação manual do outro", async () => {
     const f = await f3Fixture(), remote = installFakeErp();
@@ -446,7 +461,7 @@ describe("F3: pendências por destino", () => {
     expect(remote.mutations).toHaveLength(1);
     const request = await readPreparedRequest(f.env, f.event);
     expect(request?.body.requested).toEqual({ document: true, stock: true, finance: false });
-    expect(await integrationSourceView(f.env, f.actor, f.source)).toMatchObject({ state: "waiting_manual", pending: true, manual_destinations: ["finance"] });
+    expect(await integrationSourceView(f.env, f.actor, f.source)).toMatchObject({ state: "skipped", skipped_reason: "automation_off", pending: true, manual_destinations: ["finance"] });
   });
   it("validação e acesso falham imediatamente; 429 repete com atraso", async () => {
     const f = await f3Fixture(), remote = installFakeErp(); await enqueue(f);
