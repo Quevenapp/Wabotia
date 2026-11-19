@@ -50,6 +50,8 @@ function fiscalReader(actor: Actor) {
  */
 async function accessGate(env: Env, actor: Actor, profile: string) {
   const identity = await erpIdentity(env, actor, profile, "GET");
+  if (!identity.parts?.customers || !identity.parts.fiscal)
+    throw new ApiError(409, "module_disabled", "Esta rotina depende de uma parte desligada.");
   const r = await erpFetch(env, profile, "/erp-rpc/erp_access_gate_v2", {
     method: "POST",
     headers: { "Content-Type": "application/json", [IDENTITY_HEADER]: encodeIdentity(identity) },
@@ -57,6 +59,9 @@ async function accessGate(env: Env, actor: Actor, profile: string) {
   });
   if (!r.ok) {
     const refused = (await r.json().catch(() => null)) as { code?: string } | null;
+    if (refused?.code === "module_disabled") throw new ApiError(409, "module_disabled", "Esta rotina depende de uma parte desligada.");
+    if (refused?.code === "erp_parts_stale") throw new ApiError(409, "erp_parts_stale", "O estado das partes mudou. Tente novamente.");
+    if (refused?.code === "erp_parts_unavailable") throw new ApiError(503, "erp_parts_unavailable", "Estado das partes indisponível.");
     if (refused?.code === "42501") throw new ApiError(403, "erp_access_denied", "Seu acesso ao ERP desta área não está ativo.");
     throw new ApiError(503, "erp_unavailable", "O ERP não respondeu ao conferir o acesso. Tente de novo.");
   }

@@ -1,3 +1,6 @@
+import { normalizeErpParts, type ErpParts, type ErpPartsReference } from "../parts.ts";
+import { requireRpcParts, withErpMaintenance, inspectErpEffects, type ErpMaintenanceRequest } from "./parts-gate.ts";
+export { requireRpcParts } from "./parts-gate.ts";
 // Registro dos RPCs portados e a execução de um RPC: uma transação por
 // chamada (transactionSync no objeto), com o contexto que substitui o
 // set_config/current_setting do Postgres.
@@ -34,6 +37,8 @@ export interface RpcContext {
   identity: IdentityPort;
   /** Ativação por requisição; não participa dos argumentos nem do hash do comando. */
   modules?: ErpModuleState;
+  readonly parts: Readonly<ErpParts>;
+  readonly partsReference?: ErpPartsReference;
   /** Números de identity emitidos nesta chamada (engine/sequence.ts); gravados fora da transação. */
   sequences: Map<string, bigint>;
   /**
@@ -62,6 +67,9 @@ export interface RpcEnvironment {
   listing?: StoredListing[];
   identity?: IdentityPort;
   modules?: ErpModuleState;
+  parts?: Partial<ErpParts>;
+  partsReference?: ErpPartsReference;
+  maintenance?: ErpMaintenanceRequest;
   /**
    * Portão por requisição (horário de acesso e segundo fator) antes do RPC,
    * na mesma transação: o accessGate da erp-api, sem uma ida a mais ao
@@ -144,7 +152,9 @@ export function rpcObjectKeys(name: string, args: RpcArgs, db?: SqlDriver): stri
 export function invokeRpc(ctx: RpcContext, name: string, args: RpcArgs): unknown {
   const fn = registry.get(name);
   if (!fn) throw new ErpError("0A000", `rpc_not_ported:${name}`);
-  return fn(ctx, prepareArgs(name, args));
+  const prepared = prepareArgs(name, args);
+  requireRpcParts(ctx, name, prepared);
+  return fn(ctx, prepared);
 }
 export const portedRpcs = () => [...registry.keys()].sort();
 export const isPorted = (name: string) => registry.has(name);
@@ -167,7 +177,12 @@ export function callRpc(db: SqlDriver, name: string, args: RpcArgs, clock = new 
         const denied = gate(ctx);
         if (denied) throw new ErpGateDenied(denied);
       }
-      return fn(ctx, prepared);
+      const run = () => {
+        requireRpcParts(ctx, name, prepared);
+        const value = fn(ctx, prepared);
+        return typeof env === "object" && env.maintenance?.action === "inspect" ? inspectErpEffects(ctx) : value;
+      };
+      return typeof env === "object" && env.maintenance ? withErpMaintenance(ctx, env.maintenance, run) : run();
     },
     clock,
     env,
@@ -190,9 +205,12 @@ export function inTransaction<T>(db: SqlDriver, fn: (ctx: RpcContext) => T, cloc
     listing: () => listing,
     identity: e.identity ?? NO_IDENTITY,
     modules: e.modules,
+    parts: normalizeErpParts(e.parts),
+    partsReference: e.partsReference ? Object.freeze({ ...e.partsReference }) : undefined,
     sequences: new Map(),
     deferred: [],
   };
+  Object.defineProperty(ctx, "parts", { value: ctx.parts, writable: false, configurable: false });
   try {
     return db.transaction(() => {
       const result = fn(ctx);

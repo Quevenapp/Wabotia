@@ -1,3 +1,6 @@
+import { ERP_PARTS_REFERENCE_HEADER, readErpPartsReference } from "../parts.ts";
+import { applyErpPartsSnapshot, requireCurrentErpParts, ErpPartsControlError } from "../parts-control.ts";
+import { ERP_PARTS_DENIED_HEADER, ERP_MAINTENANCE_HEADER, ErpPartDisabled, requireRpcParts, readErpMaintenance, withErpMaintenance } from "./parts-gate.ts";
 // /erp-rpc/<nome> dentro do objeto erp:<área>: o lado de dentro da costura.
 // O corpo é o mesmo JSON que o PostgREST receberia ({p_user_id, …}); a
 // resposta é o JSON da função, ou {code, message} com 400 (como o PostgREST
@@ -5,7 +8,8 @@
 import "../domains/index.ts";
 import { storageDriver, type SqlDriver } from "./driver.ts";
 import { ErpError } from "./errors.ts";
-import { ErpGateDenied, callRpc, isPorted, rpcObjectKeys, rpcWakes, rpcWantsListing, type StoredListing, type StoredObject } from "./registry.ts";
+import { prepareArgs } from "./args.ts";
+import { ErpGateDenied, callRpc, inTransaction, isPorted, rpcObjectKeys, rpcWakes, rpcWantsListing, type StoredListing, type StoredObject } from "./registry.ts";
 import { CUSTOMER_BRIDGE_FIELDS, CUSTOMER_BRIDGE_SCAN, CUSTOMER_BRIDGE_USER_ID, GATE_DENIED_HEADER, GATE_HEADER, IDENTITY_HEADER, SYSTEM_HEADER, decodeIdentity, containsRestrictedContact, customerPrivacyUnsupported } from "./identity.ts";
 import { SIGNATURES } from "./signatures.generated.ts";
 import { ENGINE_SIGNATURES } from "./signatures-engine.ts";
@@ -156,8 +160,36 @@ export async function handleRpc(
   }
   if (name === CUSTOMER_BRIDGE_SCAN && !bridge) return denied();
   const clock = engineClock(ctx);
-  const storage = await rpcStorage(profile, name, args as Record<string, unknown>, media, storageDriver(ctx.storage));
   try {
+    if (["parts", "partsControl", "maintenance", "bypass"].some(key => Object.hasOwn(a, key)))
+      return Response.json({ code: "22023", message: "erp_rpc_body_invalid" }, { status: 400 });
+    const input = { ...identity.partsControl, parts: identity.parts };
+    await applyErpPartsSnapshot(ctx.storage, profile, input);
+    const snapshot = await requireCurrentErpParts(ctx.storage, profile, input);
+    const maintenanceHeader = request.headers.get(ERP_MAINTENANCE_HEADER);
+    let maintenance = null;
+    if (maintenanceHeader) {
+      try { maintenance = readErpMaintenance(JSON.parse(maintenanceHeader)); } catch { /* Envelope interno malformado: recusa abaixo. */ }
+    }
+    if (maintenanceHeader && (!maintenance || request.headers.get(SYSTEM_HEADER) !== "1" || bridge))
+      return Response.json({ code: "42501", message: "erp_maintenance_scope_denied" }, { status: 403 });
+    const referenceHeader = request.headers.get(ERP_PARTS_REFERENCE_HEADER);
+    let partsReference;
+    if (referenceHeader) {
+      try { partsReference = readErpPartsReference(JSON.parse(referenceHeader)) ?? undefined; } catch { /* Recusa abaixo. */ }
+      if (!partsReference || request.headers.get(SYSTEM_HEADER) !== "1" || bridge)
+        return Response.json({ code: "22023", message: "erp_parts_reference_invalid" }, { status: 400 });
+    }
+    const preflightName = name === CUSTOMER_BRIDGE_SCAN ? "erp_catalog_contact_page" : name;
+    inTransaction(storageDriver(ctx.storage), context => {
+      const prepared = prepareArgs(preflightName, name === CUSTOMER_BRIDGE_SCAN ? { p_user_id: a.p_user_id } : a);
+      const check = () => requireRpcParts(context, preflightName, prepared);
+      if (maintenance) withErpMaintenance(context, maintenance, check); else check();
+    }, clock, { identity, parts: snapshot.parts, partsReference });
+    const storage = await rpcStorage(profile, name, a, media, storageDriver(ctx.storage));
+    // O R2 cede a vez: uma entrega mais nova pode ter chegado nesse intervalo.
+    await requireCurrentErpParts(ctx.storage, profile, input);
+
     if (name === CUSTOMER_BRIDGE_SCAN) {
       // Só leitura por ID, sem novo esquema, registro de domínio ou D1 no objeto.
       const after = a.p_after ?? "";
@@ -167,7 +199,7 @@ export async function handleRpc(
         return Response.json({ code: "22023", message: "invalid_cursor" }, { status: 400 });
       const db = storageDriver(ctx.storage);
       const call = (rpc: string, input: Record<string, unknown>) => callRpc(db, rpc,
-        { ...input, p_user_id: a.p_user_id }, clock, { identity, gate: true });
+        { ...input, p_user_id: a.p_user_id }, clock, { identity, parts: snapshot.parts, gate: true });
       const rows = db.exec("SELECT id FROM erp_catalog__record WHERE entity='contacts' AND id>? AND id NOT IN (SELECT value FROM json_each(?)) ORDER BY id LIMIT ?",
         after, JSON.stringify([...restricted]), Number(limit) + 1).rows;
       // Cada GET aplica autorização/portão antes de devolver qualquer dado.
@@ -184,6 +216,9 @@ export async function handleRpc(
     const result = callRpc(storageDriver(ctx.storage), name, args as Record<string, unknown>, clock, {
       ...storage,
       identity,
+      parts: snapshot.parts,
+      partsReference,
+      maintenance: maintenance ?? undefined,
       modules: requestModuleState(request.headers, request.headers.get(SYSTEM_HEADER) === "1"),
       gate: request.headers.get(GATE_HEADER) === "1",
     });
@@ -194,6 +229,11 @@ export async function handleRpc(
     if (rpcWakes(name)) await wakeSoon(ctx);
     return Response.json(bridge ? bridgeResponse(name, result) : result);
   } catch (error) {
+    if (error instanceof ErpPartDisabled || error instanceof ErpPartsControlError) {
+      const status = error instanceof ErpPartDisabled ? 409 : error.status;
+      return Response.json({ code: error.code, message: error.message, error: { code: error.code, message: error.message } },
+        { status, headers: { [ERP_PARTS_DENIED_HEADER]: error.code } });
+    }
     // Portão fechado: o RPC não rodou; a costura devolve o erro do Fagoo.
     if (error instanceof ErpGateDenied)
       return Response.json(
@@ -203,7 +243,7 @@ export async function handleRpc(
     if (error instanceof ErpError)
       return Response.json(
         { code: error.code, message: error.message, details: null, hint: null },
-        { status: error.code === "0A000" ? 501 : 400 },
+        { status: error.code === "erp_route_removed" ? 404 : error.code === "0A000" ? 501 : 400 },
       );
     throw error;
   }
