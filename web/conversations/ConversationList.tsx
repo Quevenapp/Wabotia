@@ -35,6 +35,7 @@ import { Ticks } from "../ui/chat";
 import { RingingCard } from "../calls/RingingCard";
 import { isMine, ownerText, previewParts, tagsOf, WAIT_WARN_MS } from "./model";
 import type { ChipId, ConversationListState } from "./useConversationList";
+import { channelLabel, channelPresentation } from "../channels";
 
 export type QuickAction =
   | "claim"
@@ -70,6 +71,20 @@ const emptyByChip: Record<ChipId, [string, string]> = {
   closed: ["Nenhuma conversa concluída", "As conversas encerradas ficam aqui."],
 };
 
+export function ChannelFilter({ channels, value, onChange }: {
+  channels: readonly string[]; value: string; onChange: (value: string) => void;
+}) {
+  if (channels.length < 2) return null;
+  return <label className="conv-department">
+    <span>Canal</span>
+    <select aria-label="Filtrar conversas por canal" value={value}
+      onChange={(event) => onChange(event.target.value)}>
+      <option value="">Todos os canais</option>
+      {channels.map((channel) => <option key={channel} value={channel}>{channelLabel(channel)}</option>)}
+    </select>
+  </label>;
+}
+
 function ConversationRow({
   row,
   selected,
@@ -85,6 +100,7 @@ function ConversationRow({
 }) {
   const app = useApp();
   const name = conversationName(row);
+  const channel = channelPresentation(row, app.status, app.lineKinds);
   const unread = app.unread[row.id] || 0;
   const preview = previewParts(row, app);
   const info = windowInfo(row, app.lineKinds, app.now);
@@ -116,6 +132,8 @@ function ConversationRow({
           size={48}
           kind={group ? "group" : "person"}
           badge={conversationBadge(row, app.me.id)}
+          channel={channel.channel}
+          multichannel={channel.multichannel}
         />
         <span className="conv-body">
           <span className="conv-line">
@@ -152,6 +170,7 @@ function ConversationRow({
             </span>
           </span>
           <span className="conv-line conv-meta">
+            {channel.multichannel && <span className="truncate" title={channel.subtitle}>{channel.label}</span>}
             {tags.map((tag) => (
               <Pill key={tag} tone="muted">
                 {tag}
@@ -348,7 +367,7 @@ export function ConversationList({
           ref={search}
           value={list.query}
           onChange={list.setQuery}
-          placeholder="Buscar cliente ou telefone"
+          placeholder={list.channels.length > 1 ? "Buscar contato" : "Buscar cliente ou telefone"}
           onKeyDown={(event) => {
             if (event.key === "ArrowDown") {
               event.preventDefault();
@@ -357,6 +376,7 @@ export function ConversationList({
               (event.target as HTMLElement).blur();
           }}
         />
+        <ChannelFilter channels={list.channels} value={list.channel} onChange={list.setChannel} />
         <div className="chip-row" role="group" aria-label="Filtrar conversas">
           {chips.map((chip) => (
             <Chip

@@ -18,6 +18,7 @@ import {
   Forward,
   Hourglass,
   List,
+  Mail,
   PanelRight,
   Phone,
   ShieldCheck,
@@ -35,6 +36,7 @@ import { conversationName, span } from "../lib/format";
 import { navigate } from "../lib/routes";
 import { readText, writeText } from "../lib/storage";
 import { windowInfo } from "../lib/window";
+import { channelLabel, channelPresentation } from "../channels";
 import {
   Avatar,
   Button,
@@ -58,8 +60,9 @@ import { WindowDialog } from "./dialogs";
 import { InfoPanel } from "./InfoPanel";
 import { ImageViewer, isImage } from "./Media";
 import { MessageList, type Optimistic, type SessionEvent } from "./MessageList";
-import { botContext, botName, headerSubtitle, isMine } from "./model";
+import { botContext, botName, channelConversation, channelSendPolicy, headerSubtitle, isMine } from "./model";
 import type { TransferTab } from "./TransferDialog";
+import { EmailTranscriptDialog, transcriptAction } from "./EmailTranscriptDialog";
 
 export type ChatHandle = { reload: () => Promise<void> };
 
@@ -84,10 +87,15 @@ export const ChatView = React.forwardRef<
   const app = useApp();
   const compact = useCompact();
   const write = useIntents(app.api);
-  const [detail, setDetail] = useState<Row | null>(null);
-  const [error, setError] = useState<{ message: string; status?: number } | null>(
+  const scopeKey = JSON.stringify([app.root, id, app.contextGeneration]);
+  const currentScope = useRef(scopeKey);
+  currentScope.current = scopeKey;
+  const [loaded, setLoaded] = useState<{ key: string; value: Row } | null>(null);
+  const detail = loaded?.key === scopeKey ? loaded.value : null;
+  const [failure, setFailure] = useState<{ key: string; message: string; status?: number } | null>(
     null,
   );
+  const error = failure?.key === scopeKey ? failure : null;
   const [info, setInfo] = useState(
     () => readText("wabotia:conversation-info") === "open" && window.innerWidth >= 1100,
   );
@@ -97,6 +105,8 @@ export const ChatView = React.forwardRef<
     [viewer, setViewer] = useState<string | null>(null),
     [callOpen, setCallOpen] = useState(false),
     [windowOpen, setWindowOpen] = useState(false),
+    [emailOpen, setEmailOpen] = useState(false),
+    [resolveOpen, setResolveOpen] = useState(false),
     [contactEditing, setContactEditing] = useState(false),
     [saveContact, setSaveContact] = useState<Row | null>(null),
     [savingContact, setSavingContact] = useState(false),
@@ -115,32 +125,40 @@ export const ChatView = React.forwardRef<
     const mine = ++request.current;
     try {
       const next = await app.api(`${app.root}/conversations/${id}`);
-      if (!alive.current || mine !== request.current) return;
-      setDetail(next);
-      setError(null);
-      if (next.server_now) {
-        app.syncClock(next.server_now);
-        setClockOffset(next.server_now - Date.now());
+      if (!alive.current || mine !== request.current || currentScope.current !== scopeKey) return;
+      setLoaded({ key: scopeKey, value: next });
+      setFailure(null);
+      const serverNow = next.server_now || next.window?.serverNow || next.capabilities?.window?.serverNow;
+      if (serverNow) {
+        app.syncClock(serverNow);
+        setClockOffset(serverNow - Date.now());
       }
       const conversation = {
-        ...next.conversation,
+        ...channelConversation(next),
         contact_name: next.contact?.name ?? next.conversation.contact_name ?? null,
       };
       app.rememberConversations([conversation]);
       onLoadedRef.current(conversation);
     } catch (e: any) {
-      if (!alive.current || mine !== request.current) return;
+      if (!alive.current || mine !== request.current || currentScope.current !== scopeKey) return;
       // Com a conversa já na tela, uma falha de releitura não a esconde.
-      setError({ message: e.message, status: e.status });
+      setFailure({ key: scopeKey, message: e.message, status: e.status });
     }
-  }, [app.api, app.root, id, app.syncClock, app.rememberConversations]);
+  }, [app.api, app.root, id, app.syncClock, app.rememberConversations, scopeKey]);
   useImperativeHandle(ref, () => ({ reload: load }), [load]);
 
   useEffect(() => {
     alive.current = true;
+    setLoaded(null);
+    setQuote(null);
+    setEdit(null);
+    setEmailOpen(false);
+    setResolveOpen(false);
+    setOptimistic({});
     void load();
     return () => {
       alive.current = false;
+      request.current++;
     };
   }, [load]);
 
@@ -198,7 +216,7 @@ export const ChatView = React.forwardRef<
     () =>
       detail?.conversation
         ? {
-            ...detail.conversation,
+            ...channelConversation(detail),
             contact_name:
               detail.contact?.name ?? detail.conversation.contact_name ?? null,
           }
@@ -206,6 +224,9 @@ export const ChatView = React.forwardRef<
     [detail],
   );
   const cap: Row = detail?.capabilities || {};
+  const policy = channelSendPolicy(c || {}, cap, app.now, app.lineKinds);
+  const presentation = channelPresentation(c || {}, app.status, app.lineKinds);
+  const emailAction = transcriptAction(detail?.email_transcript);
   const mine = !!c && isMine(c, app.me.id);
   const canTransfer = mine || app.isAdmin;
   const group = c?.chat_type === "group";
@@ -220,7 +241,7 @@ export const ChatView = React.forwardRef<
         ? { ...app.lineKinds, [c.connection_id]: detail.connection_kind }
         : app.lineKinds;
     return windowInfo(c, kinds, app.now);
-  }, [c?.id, c?.last_customer, c?.chat_type, detail?.connection_kind, app.lineKinds, app.now]);
+  }, [c, detail?.connection_kind, app.lineKinds, app.now]);
 
   // O rodapé muda de altura quando o estado muda: mantém o fim à vista.
   useEffect(() => {
@@ -360,8 +381,11 @@ export const ChatView = React.forwardRef<
     }
     navigate({ area: "team", sub: "bots" });
   };
-  const messageAction = (action: string, body: Row) =>
+  const messageAction = (action: string, body: Row) => {
+    if (["reaction", "edit", "delete", "read"].includes(action) && !policy.capabilities[action]) return;
     void actions.act(c.id, action, body, { route: "message-actions" });
+  };
+  const requestResolve = () => policy.automation ? onResolve(c) : setResolveOpen(true);
 
   const menu: MenuAction[] = [
     { label: "Etiquetas", icon: <Tags size={17} />, onSelect: () => onTags(c) },
@@ -373,19 +397,19 @@ export const ChatView = React.forwardRef<
     {
       label: "Enviar menu",
       icon: <List size={17} />,
-      hidden: !canTransfer,
+      hidden: !canTransfer || !policy.automation || cap.menu === null,
       onSelect: () => onTransfer(c, "menu"),
     },
     {
       label: "Devolver ao bot",
       icon: <Undo2 size={17} />,
-      hidden: !mine,
+      hidden: !mine || !policy.automation,
       onSelect: () => run("resume", "Conversa devolvida ao bot."),
     },
     {
       label: "Pesquisa de satisfação",
       icon: <Star size={17} />,
-      hidden: group || !canTransfer,
+      hidden: group || !canTransfer || !policy.automation,
       onSelect: () => run("survey", "Pesquisa de satisfação enviada."),
     },
     { label: "Consultar bot", icon: <Bot size={17} />, onSelect: askBot },
@@ -398,8 +422,16 @@ export const ChatView = React.forwardRef<
     {
       label: "Solicitar consentimento",
       icon: <ShieldCheck size={17} />,
-      hidden: group,
+      hidden: group || !policy.modules || !policy.automation,
       onSelect: () => void consent(),
+    },
+    {
+      label: "Enviar conversa por e-mail",
+      icon: <Mail size={17} />,
+      hidden: !emailAction.visible,
+      disabled: !emailAction.enabled,
+      hint: emailAction.reason || undefined,
+      onSelect: () => setEmailOpen(true),
     },
     {
       label: "Dados da conversa",
@@ -412,7 +444,7 @@ export const ChatView = React.forwardRef<
       icon: <CheckCheck size={17} />,
       hidden: !mine,
       danger: true,
-      onSelect: () => onResolve(c),
+      onSelect: requestResolve,
     },
   ];
 
@@ -587,6 +619,8 @@ export const ChatView = React.forwardRef<
               size={40}
               kind={group ? "group" : "person"}
               badge={conversationBadge(c, app.me.id)}
+              channel={presentation.channel}
+              multichannel={presentation.multichannel}
             />
             <span className="chat-title-text">
               <strong className="truncate">{name}</strong>
@@ -594,7 +628,7 @@ export const ChatView = React.forwardRef<
             </span>
           </button>
           <div className="chat-actions">
-            {cap.calls && (
+            {policy.capabilities.calls && (
               <IconButton
                 label="Ligar"
                 active={callOpen}
@@ -634,11 +668,13 @@ export const ChatView = React.forwardRef<
               (windowState.closed ? " closed" : "")
             }
             onClick={() => setWindowOpen(true)}
-            aria-label="Janela de 24 horas. Ver explicação"
+            aria-label={policy.channel === "whatsapp" ? "Janela de 24 horas. Ver explicação" : "Janela de atendimento. Ver explicação"}
           >
             <WindowRing info={windowState} size={20} />
             <span className="window-banner-text truncate">
-              {windowState.closed ? (
+              {windowState.state === "human_text_only" ? (
+                <><strong>Somente texto humano</strong> · {windowState.long} restantes</>
+              ) : windowState.closed ? (
                 <>
                   <strong>Janela fechada</strong> · só volta quando o cliente
                   escrever
@@ -666,7 +702,7 @@ export const ChatView = React.forwardRef<
           api={app.api}
           root={app.root}
           conversation={c}
-          enabled={!!cap.calls}
+          enabled={!!policy.capabilities.calls}
           me={app.me}
           refresh={load}
           demo={app.demo}
@@ -678,6 +714,16 @@ export const ChatView = React.forwardRef<
             <Clock size={14} /> Não foi possível atualizar agora. Mostrando o
             que já estava carregado.
           </div>
+        )}
+        {(detail.other_conversations || []).length > 0 && (
+          <nav className="chat-other-conversations" aria-label="Outras conversas deste contato">
+            <span>Outras conversas deste contato:</span>
+            {detail.other_conversations.map((other: Row) => (
+              <button type="button" key={other.id} onClick={() => navigate({ area: "conversations", id: other.id })}>
+                {channelLabel(other.channel)}{other.account_label ? ` · ${other.account_label}` : ""} · {other.title || "Abrir conversa"}
+              </button>
+            ))}
+          </nav>
         )}
         <div className="chat-body">
           <ChatScroll
@@ -695,7 +741,7 @@ export const ChatView = React.forwardRef<
               onJump={jump}
               tools={{
                 own: mine,
-                capabilities: cap,
+                capabilities: policy.capabilities,
                 busy: actions.busy !== null,
                 onReply: (message) => {
                   setEdit(null);
@@ -739,16 +785,29 @@ export const ChatView = React.forwardRef<
             contact: () => setContactEditing(true),
             tags: () => onTags(c),
             ticket: () => onTicket(c),
-            call: cap.calls ? () => setCallOpen(true) : undefined,
+            call: policy.capabilities.calls ? () => setCallOpen(true) : undefined,
             bot: askBot,
-            survey: () => run("survey", "Pesquisa de satisfação enviada."),
-            consent: () => void consent(),
-            resume: () => run("resume", "Conversa devolvida ao bot."),
-            resolve: () => onResolve(c),
+            survey: policy.automation ? () => run("survey", "Pesquisa de satisfação enviada.") : undefined,
+            consent: policy.modules && policy.automation ? () => void consent() : undefined,
+            resume: policy.automation ? () => run("resume", "Conversa devolvida ao bot.") : undefined,
+            email: emailAction.enabled ? () => setEmailOpen(true) : undefined,
+            resolve: requestResolve,
             window: () => setWindowOpen(true),
             openImage: setViewer,
           }}
         />
+      )}
+      {emailOpen && detail.email_transcript && (
+        <EmailTranscriptDialog conversationId={c.id} options={detail.email_transcript} onClose={() => setEmailOpen(false)} />
+      )}
+      {resolveOpen && (
+        <Confirm title="Concluir conversa" confirmLabel="Concluir" busy={actions.isBusy(c.id, "resolve")}
+          onClose={() => setResolveOpen(false)} onConfirm={async () => {
+            const done = await actions.act(c.id, "resolve", {}, { success: "Conversa concluída." });
+            if (done) setResolveOpen(false);
+          }}>
+          <p>Concluir o atendimento de {name}? A janela não permite enviar convite automático para avaliar. O estado da conversa pode ser concluído.</p>
+        </Confirm>
       )}
       {viewer && (
         <ImageViewer

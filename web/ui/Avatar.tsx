@@ -2,6 +2,7 @@ import React from "react";
 import { Bot, Check, Hourglass, User, Users } from "lucide-react";
 import { avatarIndex, initials } from "../lib/format";
 import type { Row } from "../lib/api";
+import { ChannelBadge } from "./ChannelBadge";
 
 export type AvatarKind = "person" | "group" | "bot";
 /** Selo de estado da conversa no canto do avatar (mobile/DESIGN.md §1). */
@@ -36,6 +37,8 @@ export function Avatar({
   kind = "person",
   badge,
   online,
+  channel,
+  multichannel = false,
   className = "",
 }: {
   name: string;
@@ -44,6 +47,8 @@ export function Avatar({
   kind?: AvatarKind;
   badge?: StateBadge | null;
   online?: boolean | null;
+  channel?: string | null;
+  multichannel?: boolean;
   className?: string;
 }) {
   const Icon = kind === "group" ? Users : kind === "bot" ? Bot : null;
@@ -52,9 +57,9 @@ export function Avatar({
   const Mark = badge ? badges[badge].icon : null;
   return (
     <span
-      className={"avatar " + className}
+      className={"avatar " + (multichannel ? "avatar-multichannel " : "") + className}
       style={{ width: size, height: size }}
-      aria-hidden={badge || online != null ? undefined : true}
+      aria-hidden={badge || online != null || multichannel ? undefined : true}
     >
       <span
         className={
@@ -83,6 +88,7 @@ export function Avatar({
           aria-label={online ? "Online" : "Offline"}
         />
       ) : null}
+      {multichannel && <ChannelBadge channel={channel} size={badgeSize} />}
     </span>
   );
 }

@@ -14,6 +14,65 @@ import {
 import type { Row } from "../lib/api";
 import { parse, span } from "../lib/format";
 import type { AppState } from "../app/AppContext";
+import { channelLabel, channelPresentation, conversationChannel } from "../channels";
+import type { WindowState } from "../../src/channel-contracts";
+import { channelWindowReason } from "../lib/window";
+
+/** Detalhe novo pode projetar ChannelView no topo e/ou nas capacidades. */
+export function channelConversation(detail: Row): Row {
+  const conversation = { ...detail.conversation };
+  for (const key of ["channel", "account_label", "multichannel", "window", "templates", "menu", "subject", "public_reply", "modules", "can_initiate"])
+    if (key in detail) conversation[key] = detail[key];
+    else if (key in (detail.capabilities || {})) conversation[key] = detail.capabilities[key];
+  if (detail.connection_kind) conversation.connection_kind = detail.connection_kind;
+  conversation.capabilities = detail.capabilities || {};
+  return conversation;
+}
+
+/** A tela só restringe permissões anunciadas; nunca concede a extensão humana. */
+export function channelSendPolicy(
+  conversation: Row,
+  capabilities: Row = {},
+  now = Date.now(),
+  lineKinds?: Record<string, string>,
+) {
+  const source = { ...conversation, ...capabilities };
+  const channel = conversationChannel(source, lineKinds);
+  const legacy = channel === "whatsapp" && !("window" in source);
+  const window = source.window as WindowState | null | undefined;
+  const known = channel === "whatsapp" || channel === "instagram" || channel === "facebook";
+  const humanTextOnly = window?.state === "human_text_only";
+  const deadline = humanTextOnly ? window?.humanTextClosesAt : window?.closesAt;
+  const expired = window?.kind === "customer" &&
+    (window.state === "closed" || !Number.isFinite(deadline) || Number(deadline) <= Math.max(now, window.serverNow));
+  const hasWindow = legacy || window?.kind === "none" || (!!window && !expired);
+  const text = known && hasWindow && (legacy ? capabilities.text !== false : capabilities.text === true) &&
+    (legacy || window?.canHumanText === true);
+  const automation = known && hasWindow && !humanTextOnly &&
+    (legacy || window?.canAutomation === true);
+  const media = text && !humanTextOnly &&
+    ["image", "video", "audio", "voice", "document", "sticker"].some((key) => capabilities[key] === true);
+  const effective: Row = { ...capabilities };
+  if (!text || humanTextOnly) {
+    for (const key of ["image", "video", "audio", "voice", "document", "sticker", "location", "contacts", "reply", "reaction", "edit", "delete", "mentions", "calls", "video_calls"])
+      effective[key] = false;
+  }
+  // Citação, chamadas e formatos exclusivos de WhatsApp não são DMs sociais.
+  if (channel !== "whatsapp")
+    for (const key of ["reply", "location", "contacts", "sticker", "mentions", "calls", "video_calls"])
+      effective[key] = false;
+  effective.text = text;
+  const reason = !known
+    ? "Canal indisponível para envio."
+    : !hasWindow || !text
+      ? channelWindowReason(expired && window?.state !== "closed" ? "window_closed" : window?.reason) || "Janela fechada. Aguarde uma nova mensagem do cliente."
+      : humanTextOnly
+        ? "Até 7 dias, somente texto escrito por uma pessoa. Anexos e respostas automáticas estão bloqueados."
+        : null;
+  return { channel, legacy, text, media, automation,
+    modules: channel === "whatsapp" && capabilities.modules !== false,
+    humanTextOnly, reason, capabilities: effective };
+}
 
 export const isMine = (c: Row, meId: string) =>
   c.state === "human" && !!c.owner && c.owner === meId;
@@ -70,6 +129,13 @@ export function stateText(c: Row, app: AppState) {
 
 /** Subtítulo do cabeçalho: "Com você", "Na fila há 4 min", "Com Ana · Online". */
 export function headerSubtitle(c: Row, app: AppState) {
+  const state = headerStateSubtitle(c, app);
+  const presentation = channelPresentation(c, app.status, app.lineKinds);
+  return presentation.multichannel && presentation.subtitle
+    ? `${state} · ${presentation.subtitle}` : state;
+}
+
+function headerStateSubtitle(c: Row, app: AppState) {
   if (c.state === "waiting") {
     const department = departmentName(c, app);
     const wait = span(app.now - (c.updated || app.now));
@@ -150,7 +216,9 @@ export function botContext(c: Row, messages: Row[]) {
     .slice(-3)
     .map((m) => String(m.text).trim())
     .join("\n");
-  const who = c.phone || c.external_id || "Cliente";
+  const channel = conversationChannel(c);
+  const who = channel === "whatsapp" ? c.phone || c.external_id || "Cliente"
+    : channel ? "do " + channelLabel(channel) : "Cliente";
   return asked ? `Cliente ${who} perguntou: ${asked}` : `Cliente ${who}.`;
 }
 

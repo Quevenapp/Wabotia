@@ -39,6 +39,8 @@ import { MessageInput } from "../ui/chat";
 import { AudioPlayer } from "./Media";
 import { Popover } from "./Popover";
 import { uploadFile } from "./upload";
+import { channelConversation, channelSendPolicy } from "./model";
+import { channelLabel } from "../channels";
 
 const EMOJIS = [
   "😀", "😊", "😉", "😂", "😍", "🤔", "😅", "😢",
@@ -82,8 +84,9 @@ export const Composer = React.forwardRef<
   ref,
 ) {
   const app = useApp();
-  const c = detail.conversation,
-    cap: Row = detail.capabilities || {};
+  const c = channelConversation(detail);
+  const policy = channelSendPolicy(c, detail.capabilities || {}, app.now, app.lineKinds);
+  const cap = policy.capabilities;
   const root = app.root;
   const [text, setText] = useState(""),
     [items, setItems] = useState<Attachment[]>([]),
@@ -154,13 +157,21 @@ export const Composer = React.forwardRef<
 
   async function addFiles(files: File[]) {
     if (!files.length || pending.current) return;
+    if (!policy.media || note || edit) {
+      setError(policy.reason || "Anexos indisponíveis nesta conversa.");
+      return;
+    }
+    const accepted = files.filter((file) => {
+      const type = kind === "document" || kind === "sticker" ? kind : file.type.split("/")[0];
+      return cap[["image", "video", "audio"].includes(type) ? type : type === "sticker" ? "sticker" : "document"] === true;
+    });
     setVoice(null);
-    setError("");
+    setError(accepted.length !== files.length ? "Um ou mais arquivos não são aceitos por este canal." : "");
     const room = MAX_FILES - items.length;
     if (files.length > room)
       setError(`Envie até ${MAX_FILES} arquivos por mensagem.`);
     const added = await Promise.all(
-      files.slice(0, Math.max(0, room)).map(async (file) => ({
+      accepted.slice(0, Math.max(0, room)).map(async (file) => ({
         file,
         preview: await readPreview(file),
         progress: null,
@@ -171,6 +182,7 @@ export const Composer = React.forwardRef<
   useImperativeHandle(ref, () => ({ addFiles, focus: () => input.current?.focus() }));
 
   async function record() {
+    if (!cap.voice || !policy.media) return;
     setError("");
     try {
       const rec = new Recorder({
@@ -287,8 +299,8 @@ export const Composer = React.forwardRef<
           }
           const content: any = {
             type: voice ? "voice" : kind,
-            ...(quote ? { reply_to: quote.id } : {}),
-            ...(mentions.length ? { mentions } : {}),
+            ...(quote && cap.reply ? { reply_to: quote.id } : {}),
+            ...(mentions.length && cap.mentions ? { mentions } : {}),
           };
           if (kind === "location")
             content.location = {
@@ -339,13 +351,25 @@ export const Composer = React.forwardRef<
       : kind === "contacts"
         ? !!String(special.name || "").trim() && !!String(special.phone || "").trim()
         : false;
+  const outgoing = pending.current;
+  const attachmentsAllowed = items.every(({ file }) => {
+    const type = kind === "document" || kind === "sticker" ? kind : file.type.split("/")[0];
+    return cap[["image", "video", "audio", "sticker"].includes(type) ? type : "document"] === true;
+  });
+  const pendingTextOnly = !outgoing || (!outgoing.attachments?.length &&
+    (!outgoing.content?.type || outgoing.content.type === "text") && !outgoing.content?.reply_to);
+  const contentAllowed = policy.text &&
+    (!policy.humanTextOnly || (!items.length && !voice && kind === "text" && !edit && pendingTextOnly)) &&
+    (!voice || !!cap.voice) && (kind !== "location" || !!cap.location) &&
+    (kind !== "contacts" || !!cap.contacts) && (kind !== "sticker" || !!cap.sticker) &&
+    (kind !== "document" || !!cap.document) && (!items.length || (policy.media && attachmentsAllowed));
   const canSend =
-    hasPending ||
+    (hasPending && contentAllowed) ||
     (edit
-      ? !!text.trim()
+      ? !!text.trim() && !!cap.edit
       : note
         ? !!text.trim()
-        : !!text.trim() || items.length > 0 || !!voice || specialReady);
+        : contentAllowed && (!!text.trim() || items.length > 0 || !!voice || specialReady));
   const showMic =
     !!cap.voice && !text.trim() && !items.length && !voice && !edit && !note && kind === "text" && !hasPending;
 
@@ -360,12 +384,14 @@ export const Composer = React.forwardRef<
   const plus: MenuAction[] = [
     {
       label: "Arquivos",
+      hidden: !policy.media,
       icon: <Paperclip size={18} />,
       hint: "Fotos, vídeos, áudios e outros arquivos. O tipo é detectado.",
       onSelect: () => pick("text"),
     },
     {
       label: "Documento",
+      hidden: !cap.document,
       icon: <FileText size={18} />,
       hint: "Envia o arquivo como documento, sem compactar.",
       onSelect: () => pick("document"),
@@ -399,6 +425,7 @@ export const Composer = React.forwardRef<
     },
     {
       label: "Menu",
+      hidden: !policy.automation || cap.menu === null,
       icon: <List size={18} />,
       separator: true,
       onSelect: onMenu,
@@ -432,12 +459,11 @@ export const Composer = React.forwardRef<
 
   return (
     <div className={"composer-wrap" + (note ? " note-mode" : "")}>
-      {windowClosed && !note && (
+      {(policy.reason || windowClosed) && !note && (
         <div className="composer-strip warn" role="status">
           <Lock size={14} />
           <span>
-            Fora da janela de 24h. A mensagem fica na fila até o cliente
-            escrever.
+            {policy.reason || "Fora da janela de 24h. A mensagem fica na fila até o cliente escrever."}
           </span>
         </div>
       )}
@@ -451,7 +477,7 @@ export const Composer = React.forwardRef<
       {hasPending && !busy && (
         <div className="composer-strip pending" role="status">
           <span>O pedido está guardado para uma tentativa segura.</span>
-          <button type="button" onClick={() => void send()}>
+          <button type="button" disabled={!canSend} onClick={() => void send()}>
             Tentar novamente
           </button>
           <button type="button" className="danger" onClick={() => setAbandon(true)}>
@@ -668,10 +694,14 @@ export const Composer = React.forwardRef<
           <small className="tray-hint">
             {kind === "document" && !voice ? "Será enviado como documento. " : ""}
             {kind === "sticker" && !voice ? "Será enviado como figurinha. " : ""}
-            WhatsApp oficial: foto até 5 MB; vídeo/áudio até 16 MB; documento até
-            100 MB. Gravação até 2 minutos.
+            {policy.channel === "whatsapp"
+              ? "WhatsApp oficial: foto até 5 MB; vídeo/áudio até 16 MB; documento até 100 MB. Gravação até 2 minutos."
+              : "O canal confere o formato e o tamanho dos anexos antes do envio."}
           </small>
         </div>
+      )}
+      {policy.channel && policy.channel !== "whatsapp" && !note && text.trim() && (
+        <p className="tray-hint">Mensagens longas podem ser divididas em entregas ordenadas pelo canal.</p>
       )}
       {progress && (
         <p className="composer-progress" role="status">
@@ -733,7 +763,7 @@ export const Composer = React.forwardRef<
               aria-label="Emojis"
               title="Emojis"
               aria-expanded={emoji}
-              disabled={locked}
+              disabled={locked || (!note && !policy.text)}
               onClick={() => setEmoji(!emoji)}
             >
               <Smile size={21} />
@@ -743,14 +773,16 @@ export const Composer = React.forwardRef<
               value={text}
               onChange={setText}
               onSend={() => void send()}
-              disabled={locked}
+              disabled={locked || (!note && !policy.text)}
               maxLength={12000}
               placeholder={
                 note
                   ? "Nota interna para a equipe"
                   : edit
                     ? "Novo texto da mensagem"
-                    : "Mensagem"
+                    : policy.channel === "instagram" || policy.channel === "facebook"
+                      ? "Responder pelo " + channelLabel(policy.channel)
+                      : "Mensagem"
               }
               onPaste={(event) => {
                 const files = Array.from(event.clipboardData?.files || []);

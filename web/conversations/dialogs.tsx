@@ -8,6 +8,7 @@ import type { WindowInfo } from "../lib/window";
 import { whatsappServiceWindow } from "../whatsapp-service-window";
 import { Button, Dialog, Notice, WindowRing, toast } from "../ui";
 import { tagsOf } from "./model";
+import { channelLabel } from "../channels";
 
 /** Edita as etiquetas da conversa em pílulas (ação `tags`). */
 export function TagsDialog({
@@ -136,15 +137,28 @@ export function WindowDialog({
     info.lastCustomer,
     Math.max(current, info.lastCustomer),
   );
+  const social = info.channel === "instagram" || info.channel === "facebook";
+  const remaining = Math.max(0, Math.ceil((info.expiresAt - current) / 1000));
+  const countdown = info.source === "server"
+    ? `${Math.floor(remaining / 3600)}:${String(Math.floor(remaining / 60) % 60).padStart(2, "0")}:${String(remaining % 60).padStart(2, "0")}`
+    : exact.countdown;
   return (
-    <Dialog title="Janela de 24 horas" size="sm" onClose={onClose}>
+    <Dialog title={social ? "Janela de atendimento" : "Janela de 24 horas"} size="sm" onClose={onClose}>
       <div className="window-explain">
         <WindowRing info={info} size={96}>
           <span className="window-ring-text">
-            <strong>{info.closed ? "Fechada" : exact.countdown}</strong>
+            <strong>{info.closed ? "Fechada" : countdown}</strong>
           </span>
         </WindowRing>
-        <ol>
+        {social ? <>
+          <ol>
+            <li>{channelLabel(info.channel)} permite respostas humanas e automáticas nas primeiras 24 horas após a mensagem do cliente.</li>
+            <li>Entre 24 horas e 7 dias, somente texto escrito por uma pessoa. Anexos, reações, menus e automações não usam essa extensão.</li>
+            <li>Após 7 dias, aguarde uma nova mensagem do cliente. Mensagens em outro canal não renovam esta janela.</li>
+          </ol>
+          {info.reason && <p role="status">{info.reason}</p>}
+          {info.humanTextClosesAt && <p className="muted">Limite para texto humano: {date(info.humanTextClosesAt)}.</p>}
+        </> : <ol>
           <li>
             O WhatsApp só aceita mensagem livre até 24 horas depois da última
             mensagem do cliente.
@@ -154,11 +168,11 @@ export function WindowDialog({
             modelos enviados não renovam.
           </li>
           <li>
-            Com a janela fechada, a mensagem fica na fila e é entregue quando o
-            cliente escrever. Nota interna, protocolo e transferência seguem
-            normais.
+            {info.source === "server"
+              ? "Com a janela fechada, o envio depende das opções autorizadas pelo servidor. Nota interna, protocolo e transferência seguem disponíveis."
+              : "Com a janela fechada, a mensagem fica na fila e é entregue quando o cliente escrever. Nota interna, protocolo e transferência seguem normais."}
           </li>
-        </ol>
+        </ol>}
         <p className="muted">
           {info.lastCustomer
             ? `Última mensagem do cliente: ${date(info.lastCustomer)}. ` +
