@@ -25,6 +25,9 @@ export function uuid5(namespace: string, name: string): string {
   const h = digest.subarray(0, 16).toString("hex");
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
-export const commandId = (source: SourceRef, seq: number) => uuid5(F3_NAMESPACES.command, canonical([source.profile, source.module, source.source_id, seq]));
+export const commandId = (source: SourceRef, seq: number | null) => uuid5(F3_NAMESPACES.command, canonical([source.profile, source.module, source.source_id, seq]));
 export const eventKey = (source: SourceRef, operation: string, revision: number) =>
   `wb:${[source.profile, source.module, source.source_id, source.component, operation, String(revision)].map(encodeURIComponent).join(":")}`;
+
+/** Identidade de fato local: não ocupa o espaço dos comandos do ERP. */
+export const localEventId = (source: SourceRef, key: string) => uuid5(F3_NAMESPACES.internal, canonical(["local-fact", source, key]));

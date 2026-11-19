@@ -39,7 +39,8 @@ export interface CommercialSnapshot {
   technical: { equipment: string | null; serial_number: string | null; technician: string | null; defect: string | null; solution: string | null } | null;
 }
 export interface IntegrationEvent {
-  id: string; command_id: string; event_key: string; source: SourceRef; seq: number;
+  /** seq=null identifica fato encerrado localmente, sem comando no ERP. */
+  id: string; command_id: string; event_key: string; source: SourceRef; seq: number | null;
   source_revision: number; operation: IntegrationOperation; occurred_ms: number;
   epochs: Readonly<Record<string, number>>;
   eligible: { document: boolean; stock: boolean; finance: boolean };
@@ -56,4 +57,8 @@ export interface IntegrationResult {
   effects: { stock: "posted" | "reversed" | "skipped" | "not_requested"; finance: "posted" | "settled" | "reversed" | "skipped" | "not_requested" };
   reason_code: string | null;
 }
+export type SourceIntegrationState = "none" | "skipped" | "pending" | "blocked" | "failed" | "uncertain" | "done";
+export type DeliveryIntegrationState = "pending" | "sending" | "waiting_manual" | "blocked" | "failed" | "uncertain" | "done";
+/** Contrato legado do painel; migrar origem para SourceIntegrationState e
+ * entregas para DeliveryIntegrationState junto dos rótulos da interface. */
 export type IntegrationState = "off" | "pending" | "sending" | "waiting_manual" | "blocked" | "failed" | "done";

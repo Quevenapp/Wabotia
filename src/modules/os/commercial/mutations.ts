@@ -1,7 +1,7 @@
 import { one } from "../../../db";
 import { ApiError, json } from "../../../types";
 import type { ModuleContext } from "../../api";
-import type { IntegrationEvent, IntegrationOperation, IntegrationResult, Statement } from "../../../integrations/contracts";
+import type { IntegrationEvent, IntegrationOperation, Statement } from "../../../integrations/contracts";
 import { aliasStatements, commandId, ensureCommercialPolicy, eventKey, integrationStatements, readIntegrationActivation } from "../../../integrations/ports";
 import { canonical, hash } from "../../../integrations/keys";
 import { commercialFingerprint, commercialOf, projectWork, readWorkIntegration, saoPauloDate, stableQuoteItems, workPrivacy, workSource, type WorkCatalogChange } from "./projection";
@@ -122,12 +122,5 @@ export async function prepareWorkMutation(ctx: ModuleContext, row: any, input: R
     ...integrationStatements({ source, expected_revision: revision - 1, events: [event], next_state: { snapshot } }),
     ...aliasStatements(source, "work", row.id),
   ];
-  // Fato inelegível não precisa abrir o ERP nem bloquear uma ativação futura.
-  // Só avança uma sequência sem predecessores pendentes, no mesmo lote local.
-  if (!eligible.document && !eligible.stock && !eligible.finance && (integration.source?.applied_seq ?? 0) === seq - 1) {
-    const skipped: IntegrationResult = { command_id: event.command_id, seq, replayed: false, outcome: "skipped", links: [], effects: { stock: "not_requested", finance: "not_requested" }, reason_code: "part_disabled" };
-    statements.push(["UPDATE module_erp_delivery SET state='done',receipt_json=?,completed_ms=? WHERE event_id=?", [canonical(skipped), at, event.id]],
-      ["UPDATE module_erp_sources SET applied_seq=? WHERE profile_id=? AND module_id='os' AND source_id=? AND applied_seq=?", [seq, ctx.profile, row.id, seq - 1]]);
-  }
   return { sets, statements, note: sensitive && note ? (operation === "cancel" ? "Cancelamento operacional" : "Atualização operacional") : note };
 }

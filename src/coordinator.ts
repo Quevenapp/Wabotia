@@ -907,6 +907,7 @@ export class Coordinator extends DurableObject<Env> {
           // à versão antes do envio, src/modules/os/tasks/reminders.ts).
           await runModuleSchedules(
             withLocalModuleWake(env, this.profile, (options) => this.wakeModules(options)), this.profile, tick,
+            work => this.ctx.waitUntil(work),
           );
         } catch (error) {
           await this.ctx.storage.put("modules_pending", true);

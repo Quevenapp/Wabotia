@@ -1,7 +1,7 @@
 import { batch, one } from "../db";
 import type { Env } from "../types";
 import type { IntegrationEvent, IntegrationResult, PreparedErpRequest, SourceRef, Statement } from "./contracts";
-import { canonical, hash } from "./keys";
+import { canonical, hash, commandId, localEventId } from "./keys";
 import { exactKeys, integer, IntegrationError, validateEvent, validateResult, validateSnapshot, validateSource } from "./privacy";
 
 export const integrationCasGuard: Statement = ["SELECT CASE WHEN changes()=1 THEN 1 ELSE json('integration_version_conflict') END", []];
@@ -12,6 +12,8 @@ export const sourceBindings = (s: SourceRef) => [s.profile, s.module, s.source_i
  */
 export function integrationStatements(input: {
   source: SourceRef; expected_revision: number; events: readonly IntegrationEvent[]; next_state: Readonly<Record<string, unknown>>;
+  replacement_key?: string;
+  automation_from?: string;
 }): Statement[] {
   const { source, expected_revision, events, next_state } = input;
   validateSource(source); integer(expected_revision);
@@ -24,8 +26,22 @@ export function integrationStatements(input: {
   if (events.length > 100) throw new IntegrationError("invalid_request", 400);
   for (const [i, event] of events.entries()) {
     validateEvent(event);
-    if (canonical(sourceBindings(event.source)) !== canonical(sourceBindings(source)) || event.source_revision !== expected_revision + 1 || (i > 0 && event.seq !== events[i - 1].seq + 1)) throw new IntegrationError("version_conflict", 409);
+    if (canonical(sourceBindings(event.source)) !== canonical(sourceBindings(source)) || event.source_revision !== expected_revision + 1 || event.seq === null || (i > 0 && event.seq !== events[i - 1].seq! + 1)) throw new IntegrationError("version_conflict", 409);
   }
+  // Os produtores propõem a ordem; somente destinos elegíveis reservam um
+  // número remoto. O fato local continua imutável e visível, com seq=null.
+  const previousSeq = events.length ? events[0].seq! - 1 : 0;
+  let remoteSeq = previousSeq;
+  const facts = events.map(event => {
+    if (!Object.values(event.eligible).some(Boolean)) {
+      const id = localEventId(event.source, event.event_key);
+      return { ...event, id, command_id: id, seq: null };
+    }
+    const seq = ++remoteSeq;
+    const command = commandId(event.source, seq);
+    return { ...event, seq, command_id: command, id: event.id === event.command_id ? command : event.id };
+  });
+  const remoteCount = remoteSeq - previousSeq;
   const key = sourceBindings(source);
   const statements: Statement[] = [
     [`INSERT INTO module_erp_sources(profile_id,module_id,source_id,revision,state_json,enqueued_seq)
@@ -33,18 +49,27 @@ export function integrationStatements(input: {
         OR EXISTS(SELECT 1 FROM module_erp_sources WHERE profile_id=? AND module_id=? AND source_id=?)
         THEN 1 ELSE json('integration_version_conflict') END,?,?)
       ON CONFLICT(profile_id,module_id,source_id) DO UPDATE SET
-        revision=CASE WHEN module_erp_sources.revision=?${events.length ? " AND module_erp_sources.enqueued_seq=?" : ""}
+        revision=CASE WHEN module_erp_sources.revision=? AND module_erp_sources.replacement_key IS ?${events.length ? " AND module_erp_sources.enqueued_seq=?" : ""}
           THEN module_erp_sources.revision+1 ELSE json('integration_version_conflict') END,
         state_json=excluded.state_json,enqueued_seq=module_erp_sources.enqueued_seq+?`,
-    [...key, expected_revision, events.length ? events[0].seq - 1 : 0, ...key, canonical(next_state), events.length,
-      expected_revision, ...(events.length ? [events[0].seq - 1] : []), events.length]],
+    [...key, expected_revision, previousSeq, ...key, canonical(next_state), remoteCount,
+      expected_revision, input.replacement_key ?? null, ...(events.length ? [previousSeq] : []), remoteCount]],
   ];
-  for (const event of events) {
+  for (const event of facts) {
     statements.push([
       `INSERT INTO module_erp_events(id,profile_id,module_id,source_id,seq,source_revision,command_id,event_key,occurred_ms,event_hash,payload_json)
        VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
       [event.id, ...key, event.seq, event.source_revision, event.command_id, event.event_key, event.occurred_ms, hash(event), canonical(event)],
-    ], ["INSERT INTO module_erp_delivery(event_id,next_attempt_ms) VALUES(?,?)", [event.id, event.occurred_ms]]);
+    ], [
+      `INSERT INTO module_erp_event_automation(event_id,authorization_json)
+       VALUES(?,CASE WHEN ? IS NOT NULL THEN COALESCE((SELECT authorization_json FROM module_erp_event_automation WHERE event_id=?),'{}')
+       ELSE COALESCE((SELECT json_object('stock',json_extract(config_json,'$.auto_post.stock'),
+         'finance',json_extract(config_json,'$.auto_post.finance'),'stock_epoch',stock_epoch,'finance_epoch',finance_epoch)
+         FROM module_erp_policy WHERE profile_id=?),'{}') END)`,
+      [event.id, input.automation_from ?? null, input.automation_from ?? null, source.profile],
+    ], ["INSERT INTO module_erp_delivery(event_id,next_attempt_ms,state,completed_ms,error_code) VALUES(?,?,?,?,?)",
+      [event.id, event.occurred_ms, event.seq === null ? "done" : "pending", event.seq === null ? event.occurred_ms : null,
+        event.seq === null ? event.snapshot.items.length === 0 && event.snapshot.total_cents === 0 ? "no_commercial_content" : "part_disabled" : null]]);
   }
   return statements;
 }
@@ -78,6 +103,7 @@ export function compactReceiptWrites(statements: Statement[]): Statement[] {
   return rest;
 }
 export async function readPreparedRequest(env: Env, event: IntegrationEvent): Promise<PreparedErpRequest | null> {
+  if (event.seq === null) return null;
   const row = await one(env, "SELECT * FROM module_erp_requests WHERE event_id=?", event.id);
   if (!row) return null;
   const request: PreparedErpRequest = { schema: 1, source: event.source, command_id: event.command_id, seq: event.seq, event_hash: hash(event), actor_id: row.actor_id, expected: JSON.parse(row.expected_json), body: JSON.parse(row.body_json) };
@@ -86,6 +112,7 @@ export async function readPreparedRequest(env: Env, event: IntegrationEvent): Pr
 }
 export async function persistPreparedRequest(env: Env, event: IntegrationEvent, request: PreparedErpRequest, token: string): Promise<PreparedErpRequest> {
   validateEvent(event);
+  if (event.seq === null) throw new IntegrationError("invalid_request", 400);
   if (request.event_hash !== hash(event) || request.command_id !== event.command_id || request.seq !== event.seq || canonical(request.source) !== canonical(event.source)) throw new IntegrationError("idempotency_conflict", 409);
   exactKeys(request, ["schema", "command_id", "actor_id", "source", "seq", "event_hash", "expected", "body"]);
   if (request.schema !== 1 || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(request.actor_id)) throw new IntegrationError("invalid_request", 400);
@@ -106,15 +133,15 @@ export async function persistPreparedRequest(env: Env, event: IntegrationEvent, 
   // Se outro consumidor já preparou, usar exclusivamente o pedido vencedor.
   return (await readPreparedRequest(env, event))!;
 }
-export async function acquireIntegrationLease(env: Env, eventId: string, now = Date.now(), force = false): Promise<string | null> {
+export async function acquireIntegrationLease(env: Env, eventId: string, now = Date.now(), force = false, replacementKey: string | null = null): Promise<string | null> {
   const token = crypto.randomUUID();
   const result = await env.DB.prepare(`UPDATE module_erp_delivery SET state='sending',lease_token=?,lease_until_ms=?
     WHERE event_id=? AND state<>'done' AND (lease_until_ms IS NULL OR lease_until_ms<=?)
-    AND (?=1 OR (state IN ('pending','sending') AND next_attempt_ms<=?))
+    AND (?=1 OR (state IN ('pending','sending','uncertain') AND (lookup_attempts<12 OR state='sending') AND next_attempt_ms<=?))
     AND EXISTS(SELECT 1 FROM module_erp_events e JOIN module_erp_sources s
       ON s.profile_id=e.profile_id AND s.module_id=e.module_id AND s.source_id=e.source_id
-      WHERE e.id=event_id AND e.seq=s.applied_seq+1)`)
-    .bind(token, now + 60_000, eventId, now, force ? 1 : 0, now).run();
+      WHERE e.id=event_id AND e.seq=s.applied_seq+1 AND s.replacement_key IS ?)`)
+    .bind(token, now + 60_000, eventId, now, force ? 1 : 0, now, replacementKey).run();
   return result.meta.changes === 1 ? token : null;
 }
 export async function renewIntegrationLease(env: Env, eventId: string, token: string): Promise<boolean> {
@@ -123,6 +150,7 @@ export async function renewIntegrationLease(env: Env, eventId: string, token: st
   return r.meta.changes === 1;
 }
 export async function confirmIntegrationResult(env: Env, event: IntegrationEvent, token: string, receipt: IntegrationResult, extra: Statement[] = []): Promise<void> {
+  if (event.seq === null) throw new IntegrationError("invalid_request", 400);
   validateResult(receipt, event.command_id, event.seq);
   const source = await one(env, "SELECT links_json FROM module_erp_sources WHERE profile_id=? AND module_id=? AND source_id=?", ...sourceBindings(event.source));
   const links = new Map<string, IntegrationResult["links"][number]>();
@@ -133,7 +161,7 @@ export async function confirmIntegrationResult(env: Env, event: IntegrationEvent
   for (const link of receipt.links) links.set(`${link.kind}:${link.id}`, link);
   const at = Date.now();
   await batch(env, [
-    [`UPDATE module_erp_delivery SET state='done',receipt_json=?,completed_ms=?,lease_token=NULL,lease_until_ms=NULL,error_code=NULL,error_message=NULL
+    [`UPDATE module_erp_delivery SET state='done',receipt_json=?,completed_ms=?,lease_token=NULL,lease_until_ms=NULL,error_code=NULL,error_message=NULL,unresolved=0
       WHERE event_id=? AND lease_token=? AND lease_until_ms>? AND state='sending'`, [canonical(receipt), at, event.id, token, at]], integrationCasGuard,
     [`UPDATE module_erp_sources SET applied_seq=?,links_json=?,confirmed_ms=? WHERE profile_id=? AND module_id=? AND source_id=? AND applied_seq=?`, [event.seq, canonical([...links.values()]), at, ...sourceBindings(event.source), event.seq - 1]], integrationCasGuard,
     ...extra,

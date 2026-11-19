@@ -26,13 +26,13 @@ export async function runModuleSchedules(
   env: Env,
   profile: string,
   now: number,
+  background?: (work: Promise<void>) => void,
 ): Promise<ScheduleOutcome[]> {
   env = withReadCache(env);
   const states = await moduleStates(env, profile);
-  // Independente de produtores/agendadores instalados; recupera concessões e
-  // resultados cuja resposta se perdeu sem bloquear atendimento do WhatsApp.
-  try { if (states.erp) await drainIntegrationOutbox(env, profile); }
-  catch (error) { logIntegrationError(error); }
+  // Só quem possui waitUntil agenda o consumidor; a rodada não o aguarda.
+  // Reutiliza a leitura acima e mantém custo zero de fila com Base desligada.
+  if (states.erp && background) background(drainIntegrationOutbox(env, profile).catch(logIntegrationError));
   // Pedidos de aprovação vencidos (src/approvals.ts): o módulo decide ou o
   // cliente é avisado e vai para a equipe. Uma consulta por rodada. As
   // propostas do bot vencem na leitura e na confirmação, sem rodada.

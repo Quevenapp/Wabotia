@@ -106,7 +106,9 @@ export async function patchCommercialPolicy(env: Env, actor: Actor, profile: str
   if (["warehouse_id", "revenue_category_id", "payment_method_id", "settlement_accounts"].some(k => Object.hasOwn(patch, k))) await validatePolicyReferences(env, actor, next);
   const { profile: _, version: __, ...config } = next;
   await batch(env, [
-    ["UPDATE module_erp_policy SET config_json=?,version=?,updated_ms=?,updated_by=? WHERE profile_id=? AND version=?", [canonical(config), next.version, Date.now(), actor.id, profile, before.version]], integrationCasGuard,
+    [`UPDATE module_erp_policy SET stock_epoch=stock_epoch+CASE WHEN json_extract(config_json,'$.auto_post.stock')<>json_extract(?,'$.auto_post.stock') THEN 1 ELSE 0 END,
+      finance_epoch=finance_epoch+CASE WHEN json_extract(config_json,'$.auto_post.finance')<>json_extract(?,'$.auto_post.finance') THEN 1 ELSE 0 END,
+      config_json=?,version=?,updated_ms=?,updated_by=? WHERE profile_id=? AND version=?`, [canonical(config), canonical(config), canonical(config), next.version, Date.now(), actor.id, profile, before.version]], integrationCasGuard,
     ["INSERT INTO receipts(scope,key,fingerprint,response,status,created) VALUES(?,?,?,?,200,?)", [scope, command, fingerprint, canonical(next), Date.now()]],
   ]);
   return next;
