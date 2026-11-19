@@ -54,29 +54,29 @@ type Catalog = { data: Row[]; presets: Row[] };
 const listOf = (value: string[] | null | undefined) => value ?? ["*"];
 
 /** Marca ou desmarca um item; "*" se desfaz e se refaz conforme o caso. */
-function toggleAccess(
+export function toggleAccess(
   catalog: Row[],
   value: string[],
   id: string,
   on: boolean,
 ) {
-  const plain = catalog.filter((i) => !i.role).map((i) => i.id as string);
-  const roles = value.filter((v) => v.includes(":"));
+  const plain = catalog.filter((i) => !i.role && !i.explicitOnly).map((i) => i.id as string);
+  const separate = value.filter((v) => v !== "*" && !plain.includes(v));
   let items = value.includes("*")
     ? plain
-    : value.filter((v) => v !== "*" && !v.includes(":"));
-  const isRole = id.includes(":");
-  const nextRoles = isRole ? toggled(roles, id, on) : roles;
-  if (!isRole) items = toggled(items, id, on);
+    : value.filter((v) => plain.includes(v));
+  const isSeparate = !plain.includes(id);
+  const nextSeparate = isSeparate ? toggled(separate, id, on) : separate;
+  if (!isSeparate) items = toggled(items, id, on);
   const all = plain.every((p) => items.includes(p));
-  return [...(all ? ["*"] : items), ...nextRoles];
+  return [...(all ? ["*"] : items), ...nextSeparate];
 }
 
 /**
  * Caixas do que a pessoa acessa: atalhos de perfil, áreas do atendimento e
  * cada módulo ligado com os papéis dele (entregador, garçom, técnico…).
  */
-function AccessEditor({
+export function AccessEditor({
   catalog,
   value,
   onChange,
@@ -87,7 +87,7 @@ function AccessEditor({
 }) {
   const items = catalog.data;
   const checked = (item: Row) =>
-    value.includes(item.id) || (!item.role && value.includes("*"));
+    value.includes(item.id) || (!item.role && !item.explicitOnly && value.includes("*"));
   const preset =
     catalog.presets.find(
       (p) =>
@@ -111,7 +111,8 @@ function AccessEditor({
       {item.label}
     </label>
   );
-  const core = items.filter((i) => i.group === "core");
+  const core = items.filter((i) => i.group === "core" && !i.explicitOnly);
+  const explicit = items.filter((i) => i.explicitOnly);
   const mods = items.filter((i) => i.group === "module" && !i.role);
   return (
     <>
@@ -130,6 +131,13 @@ function AccessEditor({
         <legend>Atendimento</legend>
         {core.map((item) => box(item))}
       </fieldset>
+      {explicit.length > 0 && (
+        <fieldset className="scope-grid">
+          <legend>Permissões com concessão explícita</legend>
+          <p>Marque separadamente. O atalho “Atendente completo” não concede estas permissões.</p>
+          {explicit.map((item) => box(item))}
+        </fieldset>
+      )}
       {mods.length > 0 && (
         <fieldset className="scope-grid">
           <legend>Módulos</legend>

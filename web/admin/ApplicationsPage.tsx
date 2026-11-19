@@ -16,6 +16,7 @@ const defaultScopes = [
   "groups:manage",
   "conversations:read",
   "conversations:write",
+  "conversations:email",
   "contacts:read",
   "contacts:write",
   "tickets:read",
@@ -24,6 +25,46 @@ const defaultScopes = [
   "bots:invoke",
   "webhooks:manage",
 ];
+
+/** A exportação é concedida separadamente; juntar contatos é exclusivo de pessoas. */
+export function applicationScopes(scopes: string[]) {
+  return [...new Set([...(scopes.length ? scopes : defaultScopes), "conversations:email"])]
+    .filter((scope) => scope !== "contacts:merge");
+}
+
+export function toggleApplicationScope(value: string[], scope: string, checked: boolean) {
+  let next = toggled(value, scope, checked);
+  if (scope === "conversations:email" && checked && !next.includes("conversations:read"))
+    next = [...next, "conversations:read"];
+  if (scope === "conversations:read" && !checked)
+    next = next.filter((item) => item !== "conversations:email");
+  return next.filter((item) => item !== "contacts:merge");
+}
+
+export function ApplicationScopes({ scopes, value, onChange }: {
+  scopes: string[];
+  value: string[];
+  onChange: (value: string[]) => void;
+}) {
+  return (
+    <fieldset className="scope-grid">
+      <legend>Permissões na Área de atendimento</legend>
+      {applicationScopes(scopes).map((scope) => (
+        <label className="check-field" key={scope}>
+          <input type="checkbox" checked={value.includes(scope)} onChange={(event) =>
+            onChange(toggleApplicationScope(value, scope, event.target.checked))
+          } />
+          {scope === "conversations:email" ? "Enviar conversa por e-mail (concessão explícita)" : scope}
+        </label>
+      ))}
+      <p className="muted">
+        Enviar conversa por e-mail exige também leitura da conversa e respeita a visibilidade
+        da aplicação. “*” não concede o envio. Aplicações não têm destino “Meu e-mail”
+        e não podem juntar contatos.
+      </p>
+    </fieldset>
+  );
+}
 
 /**
  * Papéis do ERP que uma aplicação pode ter (src/modules/erp/identity.ts):
@@ -80,11 +121,40 @@ function ErpRoleField({
 
 type Open =
   | { kind: "application" }
+  | { kind: "permissions"; app: Row }
   | { kind: "erp-role"; app: Row }
   | { kind: "key"; app_id: string }
   | { kind: "webhook"; app_id: string }
   | { kind: "secret"; token: string }
   | null;
+
+function ApplicationPermissionsDialog({ app: row, onClose, onSaved }: {
+  app: Row;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const { api } = useApp();
+  const [value, setValue] = useState<string[]>(JSON.parse(row.scopes || "[]"));
+  return (
+    <FormDialog title={`Envio de conversa por e-mail · ${row.name}`} onClose={onClose} onSubmit={async () => {
+      await api("v1/applications/" + row.id, "PATCH", { scopes: value });
+      toast("Permissões salvas.");
+      await onSaved();
+      onClose();
+    }}>
+      <label className="check-field">
+        <input type="checkbox" checked={value.includes("conversations:email")} onChange={(event) =>
+          setValue(toggleApplicationScope(value, "conversations:email", event.target.checked))
+        } />
+        Permitir envio de conversa por e-mail
+      </label>
+      <p>
+        Esta concessão inclui a leitura de conversas e respeita a visibilidade da aplicação.
+        O envio exige confirmação do destinatário. A aplicação não tem destino “Meu e-mail”.
+      </p>
+    </FormDialog>
+  );
+}
 
 function ApplicationDialog({
   scopes,
@@ -134,23 +204,7 @@ function ApplicationDialog({
           onChange={change("profiles")}
         />
       )}
-      <fieldset className="scope-grid">
-        <legend>Permissões na Área de atendimento</legend>
-        {(scopes.length ? scopes : defaultScopes).map((scope) => (
-          <label className="check-field" key={scope}>
-            <input
-              type="checkbox"
-              checked={(form.scopes || []).includes(scope)}
-              onChange={(event) =>
-                change("scopes")(
-                  toggled(form.scopes || [], scope, event.target.checked),
-                )
-              }
-            />
-            {scope}
-          </label>
-        ))}
-      </fieldset>
+      <ApplicationScopes scopes={scopes} value={form.scopes || []} onChange={change("scopes")} />
       {(form.scopes || []).includes("erp:write") ? (
         <ErpRoleField value={form.erp_role} onChange={change("erp_role")} />
       ) : (form.scopes || []).includes("erp:read") ? (
@@ -272,6 +326,9 @@ export function ApplicationsPage() {
             ]}
             action={(row) => (
               <div className="card-actions">
+                <Button secondary size="sm" onClick={() => setOpen({ kind: "permissions", app: row })}>
+                  Permissão de e-mail
+                </Button>
                 <Button
                   secondary
                   size="sm"
@@ -365,6 +422,13 @@ export function ApplicationsPage() {
       {open?.kind === "application" && (
         <ApplicationDialog
           scopes={rows.scopes || []}
+          onClose={() => setOpen(null)}
+          onSaved={resource.reload}
+        />
+      )}
+      {open?.kind === "permissions" && (
+        <ApplicationPermissionsDialog
+          app={open.app}
           onClose={() => setOpen(null)}
           onSaved={resource.reload}
         />

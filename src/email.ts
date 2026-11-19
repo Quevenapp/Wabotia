@@ -9,20 +9,25 @@
 //   no fragmento da URL (src/install-links.ts).
 // - Cada envio fica em email_log, com o endereço mascarado e o hash, sem o
 //   corpo. `key` torna o envio idempotente na área.
-import { all, exec, one } from "./db";
+import { all, batch, exec, one } from "./db";
 import { ApiError, type Actor, type Env, now, uid } from "./types";
 import { admin, safeFetch, secret, setSecret, sha } from "./security";
+import type { TranscriptEmailSettings, TranscriptSendResult } from "./channel-contracts";
 
 const CONFIG_ID = "email:config";
 const API = "https://api.cloudflare.com/client/v4";
 /** Limite diário de e-mails de módulos por área (ctx.sendEmail). */
 export const EMAIL_AREA_DAILY = 200;
+export const TRANSCRIPT_ACTOR_DAILY = 10;
+export const TRANSCRIPT_AREA_DAILY = 50;
 
 export interface EmailConfig {
   account_id?: string;
   token?: string;
   from_address?: string;
   from_name?: string;
+  transcript_custom_enabled?: boolean;
+  transcript_allowed_domains?: string[];
   updated?: number;
 }
 
@@ -49,6 +54,57 @@ const emailShape = /^[^\s@<>"',;]+@[^\s@<>"',;]+\.[^\s@<>"',;]+$/;
 export const validEmail = (value: unknown): value is string =>
   typeof value === "string" && value.length <= 254 && emailShape.test(value);
 
+/** Domínio exato, inclusive a forma ASCII de domínios internacionais. */
+export function normalizeEmailDomain(value: unknown): string {
+  if (typeof value !== "string")
+    throw new ApiError(400, "invalid_request", "Informe domínios de e-mail válidos.");
+  const domain = value.trim().toLowerCase();
+  if (!domain || /[\s/@:#?%\\]/.test(domain))
+    throw new ApiError(400, "invalid_request", "Informe domínios de e-mail válidos, sem endereço ou caminho.");
+  let host: string;
+  try {
+    host = new URL(`https://${domain}`).hostname;
+  } catch {
+    throw new ApiError(400, "invalid_request", "Domínio de e-mail inválido.");
+  }
+  if (host.length > 253 || !host.includes(".") || host.endsWith(".") ||
+    !host.split(".").every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)))
+    throw new ApiError(400, "invalid_request", "Domínio de e-mail inválido.");
+  return host;
+}
+
+export function normalizeEmailAddress(value: unknown): string {
+  const address = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!validEmail(address))
+    throw new ApiError(400, "invalid_request", "E-mail do destinatário inválido.");
+  const at = address.lastIndexOf("@");
+  const normalized = `${address.slice(0, at)}@${normalizeEmailDomain(address.slice(at + 1))}`;
+  if (!validEmail(normalized))
+    throw new ApiError(400, "invalid_request", "E-mail do destinatário inválido.");
+  return normalized;
+}
+
+function transcriptSettings(cfg: EmailConfig): TranscriptEmailSettings {
+  return {
+    transcript_custom_enabled: cfg.transcript_custom_enabled === true,
+    transcript_allowed_domains: cfg.transcript_allowed_domains ?? [],
+  };
+}
+
+/** Projeção sem credencial, usada pelas opções e pela prévia. */
+export async function getTranscriptEmailConfig(env: Env) {
+  const cfg = await emailConfig(env);
+  return { configured: configured(cfg), ...transcriptSettings(cfg) };
+}
+
+export function assertTranscriptRecipient(cfg: TranscriptEmailSettings, value: unknown): string {
+  const address = normalizeEmailAddress(value);
+  const domain = address.slice(address.lastIndexOf("@") + 1);
+  if (cfg.transcript_allowed_domains.length && !cfg.transcript_allowed_domains.includes(domain))
+    throw new ApiError(403, "email_domain_not_allowed", "O domínio do destinatário não está autorizado para transcrições.");
+  return address;
+}
+
 export async function emailConfig(env: Env): Promise<EmailConfig> {
   return (await secret(env, CONFIG_ID)) as EmailConfig;
 }
@@ -73,6 +129,7 @@ export function publicEmailConfig(cfg: EmailConfig) {
     token_configured: !!cfg.token,
     from_address: cfg.from_address || "",
     from_name: cfg.from_name || "",
+    ...transcriptSettings(cfg),
     updated: cfg.updated || 0,
   };
 }
@@ -108,6 +165,14 @@ export async function configureEmail(env: Env, actor: Actor, data: any) {
       "Use um nome de remetente com até 80 caracteres, sem aspas nem < >.",
     );
   const old = await emailConfig(env);
+  if (data?.transcript_custom_enabled !== undefined && typeof data.transcript_custom_enabled !== "boolean")
+    throw new ApiError(400, "invalid_request", "A opção de endereço digitado deve ser verdadeira ou falsa.");
+  let domains = old.transcript_allowed_domains ?? [];
+  if (data?.transcript_allowed_domains !== undefined) {
+    if (!Array.isArray(data.transcript_allowed_domains) || data.transcript_allowed_domains.length > 100)
+      throw new ApiError(400, "invalid_request", "Informe uma lista com até 100 domínios permitidos.");
+    domains = [...new Set<string>(data.transcript_allowed_domains.map(normalizeEmailDomain))].sort();
+  }
   // Token vazio mantém o atual, se a conta for a mesma.
   const token =
     data?.token || (old.account_id === accountId ? old.token || "" : "");
@@ -127,6 +192,8 @@ export async function configureEmail(env: Env, actor: Actor, data: any) {
     token,
     from_address: from,
     from_name: name,
+    transcript_custom_enabled: data?.transcript_custom_enabled ?? old.transcript_custom_enabled ?? false,
+    transcript_allowed_domains: domains,
     updated: now(),
   };
   await setSecret(env, CONFIG_ID, cfg);
@@ -211,6 +278,7 @@ class ProviderError extends ApiError {
     code: string,
     message: string,
     readonly providerCode: string,
+    readonly indeterminate = false,
   ) {
     super(status, code, message);
   }
@@ -219,6 +287,7 @@ class ProviderError extends ApiError {
 async function deliver(
   cfg: EmailConfig,
   msg: EmailMessage,
+  strict = false,
 ): Promise<EmailStatus> {
   let response: Response;
   try {
@@ -248,6 +317,7 @@ async function deliver(
       "email_failed",
       "Não foi possível falar com a Cloudflare para enviar o e-mail.",
       "network",
+      true,
     );
   }
   const body: any = await response.json().catch(() => null);
@@ -260,14 +330,20 @@ async function deliver(
       known?.[2] ??
         `A Cloudflare não enviou o e-mail (HTTP ${response.status}).`,
       String(code || response.status),
+      strict && (response.status >= 500 || !body || (response.ok && body?.success !== false)),
     );
   }
+  // Leitor único do retorno: delivered/queued e eventual ID de mensagem são
+  // a conferir com a conta real. Transcrição sem confirmação fica indeterminada;
+  // provider_message_id permanece vazio até haver um campo documentado.
   const result = body.result ?? body;
   const has = (list: unknown) =>
     Array.isArray(list) &&
     list.some((item) => String(item).toLowerCase() === msg.to);
   if (has(result.permanent_bounces)) return "bounced";
   if (has(result.queued)) return "queued";
+  if (strict && !has(result.delivered))
+    throw new ProviderError(502, "email_unknown", "O provedor não confirmou o resultado do envio. Confira antes de enviar novamente.", "unconfirmed", true);
   return "sent";
 }
 
@@ -347,12 +423,146 @@ export async function sendEmail(
   }
 }
 
+export interface ConversationEmailInput extends EmailMessage {
+  profileId: string;
+  actorId: string;
+  conversationId: string;
+  /** Chave HTTP original; o registro usa uma chave composta, sem expô-la. */
+  key: string;
+  /** SHA-256 da seleção e do conteúdo aprovado, calculado pelo handler. */
+  requestHash: string;
+}
+
+type ConversationEmailReplayInput = Pick<ConversationEmailInput, "profileId" | "actorId" | "key" | "requestHash">;
+
+async function conversationEmailKey(input: ConversationEmailReplayInput) {
+  if (typeof input.key !== "string" || !input.key || input.key.length > 200 || !/^[\x21-\x7e]+$/.test(input.key))
+    throw new ApiError(400, "invalid_request", "Envie Idempotency-Key (até 200 caracteres ASCII).");
+  if (!/^[a-f0-9]{64}$/.test(input.requestHash))
+    throw new ApiError(400, "invalid_request", "A transcrição precisa de uma prévia válida.");
+  const digest = await sha(JSON.stringify([input.profileId, input.actorId, input.key]));
+  return { id: `email:${digest}`, key: `conversation.email:${digest}` };
+}
+
+/** Apenas leitura. O handler deve reautorizar ator, conversa e destinatário antes. */
+export async function conversationEmailReplay(
+  env: Env,
+  input: ConversationEmailReplayInput,
+): Promise<TranscriptSendResult | null> {
+  const { key } = await conversationEmailKey(input);
+  const previous = await one<{
+    id: string; status: TranscriptSendResult["status"]; to_masked: string; request_hash: string;
+  }>(env, "SELECT id,status,to_masked,request_hash FROM email_log WHERE profile_id=? AND key=?", input.profileId, key);
+  if (!previous) return null;
+  if (previous.request_hash !== input.requestHash)
+    throw new ApiError(409, "idempotency_conflict", "Esta chave já foi usada com outra transcrição ou destinatário.");
+  return { id: previous.id, status: previous.status, to_masked: previous.to_masked, duplicate: true };
+}
+
+const TRANSCRIPT_PURPOSE = "conversation.email";
+const transcriptStatusText: Record<TranscriptSendResult["status"], string> = {
+  reserved: "reserva registrada",
+  sending: "envio em andamento",
+  queued: "aceita na fila do provedor",
+  sent: "envio confirmado pelo provedor",
+  failed: "envio recusado pelo provedor",
+  unknown: "resultado indeterminado; confira com a equipe antes de enviar novamente",
+};
+const transcriptNote = (to: string, status: TranscriptSendResult["status"]) =>
+  `Transcrição por e-mail para ${to}: ${transcriptStatusText[status]}.`;
+
+/**
+ * Fronteira de envio da transcrição: o handler reautoriza e aprova o conteúdo
+ * antes de chamar. Uma única instrução reserva o registro e ambas as cotas;
+ * notas/auditoria ficam na mesma transação. Nada repete a chamada ao provedor.
+ */
+export async function sendConversationEmail(
+  env: Env,
+  input: ConversationEmailInput,
+): Promise<TranscriptSendResult> {
+  const { id, key } = await conversationEmailKey(input);
+  assertSafeSubject(input.subject);
+  if (typeof input.text !== "string" || !input.text.trim() || input.text.length > 50000 ||
+    (input.html !== undefined && (typeof input.html !== "string" || input.html.length > 200000)))
+    throw new ApiError(400, "transcript_too_large", "A transcrição excede o limite. Escolha um intervalo menor.");
+  const cfg = await emailConfig(env);
+  if (!configured(cfg))
+    throw new ApiError(409, "email_unavailable", "Configure o envio em Gestão → Sistema → E-mail.");
+  const to = assertTranscriptRecipient(transcriptSettings(cfg), input.to);
+  const toMasked = maskEmail(to);
+  const noteId = `${id}:note`;
+  const at = now();
+  // O estado inicial já é indeterminado: se a execução cair depois da reserva,
+  // uma repetição nunca confunde a falta de confirmação com permissão de enviar.
+  const result = await batch(env, [
+    [
+      `INSERT OR IGNORE INTO email_log(id,profile_id,module_id,user_id,purpose,to_masked,to_hash,status,error_code,key,created,conversation_id,request_hash)
+       SELECT ?,?,NULL,?,?,?,?,'unknown','delivery_unconfirmed',?,?,?,?
+       WHERE (SELECT count(*) FROM email_log WHERE profile_id=? AND purpose=? AND created>? AND user_id=?)<?
+         AND (SELECT count(*) FROM email_log WHERE profile_id=? AND purpose=? AND created>?)<?`,
+      [id, input.profileId, input.actorId, TRANSCRIPT_PURPOSE, toMasked, await sha(to), key, at,
+        input.conversationId, input.requestHash,
+        input.profileId, TRANSCRIPT_PURPOSE, at - 86400000, input.actorId, TRANSCRIPT_ACTOR_DAILY,
+        input.profileId, TRANSCRIPT_PURPOSE, at - 86400000, TRANSCRIPT_AREA_DAILY],
+    ],
+    [
+      `INSERT OR IGNORE INTO messages(id,profile_id,conversation_id,direction,author,text,attachments,created,content)
+       SELECT ?,e.profile_id,e.conversation_id,'note',e.user_id,?,'[]',e.created,json_object('emailLogId',e.id)
+       FROM email_log e JOIN conversations c ON c.id=e.conversation_id AND c.profile_id=e.profile_id
+       WHERE e.id=? AND e.request_hash=?`,
+      [noteId, transcriptNote(toMasked, "unknown"), id, input.requestHash],
+    ],
+    [
+      `INSERT INTO audit(profile_id,actor,operation,resource_id,request_id,created)
+       SELECT e.profile_id,e.user_id,?,e.conversation_id,e.id,e.created FROM email_log e
+       WHERE e.id=? AND e.request_hash=? AND NOT EXISTS (
+         SELECT 1 FROM audit a WHERE a.profile_id=e.profile_id AND a.operation=? AND a.request_id=e.id
+       )`,
+      [TRANSCRIPT_PURPOSE, id, input.requestHash, TRANSCRIPT_PURPOSE],
+    ],
+  ]);
+  if (!result[0].meta?.changes) {
+    const previous = await conversationEmailReplay(env, input);
+    if (!previous)
+      throw new ApiError(429, "email_limit", "Limite de transcrições atingido: 10 por pessoa ou aplicação e 50 por área em 24 horas.");
+    return previous;
+  }
+
+  let status: TranscriptSendResult["status"];
+  let errorCode: string | null = null;
+  try {
+    const delivered = await deliver(cfg, { to, subject: input.subject, text: input.text, html: input.html }, true);
+    status = delivered === "bounced" ? "failed" : delivered;
+    if (delivered === "bounced") errorCode = "bounced";
+  } catch (error) {
+    const definite = error instanceof ProviderError && !error.indeterminate;
+    status = definite ? "failed" : "unknown";
+    errorCode = error instanceof ProviderError ? error.providerCode : "delivery_unconfirmed";
+  }
+  try {
+    await batch(env, [
+      ["UPDATE email_log SET status=?,error_code=? WHERE id=? AND status='unknown'", [status, errorCode, id]],
+      ["UPDATE messages SET text=? WHERE id=? AND profile_id=? AND direction='note'", [transcriptNote(toMasked, status), noteId, input.profileId]],
+    ]);
+  } catch {
+    // O provedor pode ter recebido. Não repetir nem transformar em falha segura.
+    return { id, status: "unknown", to_masked: toMasked, duplicate: false };
+  }
+  return { id, status, to_masked: toMasked, duplicate: false };
+}
+
 /** Envios de módulos na área nas últimas 24 h (limite EMAIL_AREA_DAILY). */
 export async function areaEmailCount(env: Env, profileId: string) {
+  // Registros legados podem não ter module_id. Nesses casos, só as finalidades
+  // de avisos já reconhecidas pelos módulos entram no teto. Transcrições e
+  // e-mails de conta continuam fora, sem reclassificar nem regravar o histórico.
   return (
     await one(
       env,
-      "SELECT count(*) n FROM email_log WHERE profile_id=? AND created>?",
+      `SELECT count(*) n FROM email_log WHERE profile_id=? AND created>?
+       AND (module_id IS NOT NULL OR (
+         module_id IS NULL AND purpose IN ('billing','scheduling','order','booking')
+       ))`,
       profileId,
       now() - 86400000,
     )
@@ -363,7 +573,7 @@ export async function areaEmailCount(env: Env, profileId: string) {
 export async function emailLog(env: Env, limit = 50) {
   return all(
     env,
-    "SELECT id,profile_id,module_id,purpose,to_masked,status,error_code,created FROM email_log ORDER BY created DESC LIMIT ?",
+    "SELECT id,profile_id,module_id,user_id,conversation_id,purpose,to_masked,status,error_code,provider_message_id,created FROM email_log ORDER BY created DESC LIMIT ?",
     Math.min(200, Math.max(1, limit)),
   );
 }

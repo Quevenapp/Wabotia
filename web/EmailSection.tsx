@@ -17,6 +17,8 @@ type EmailConfig = {
   token_configured: boolean;
   from_address: string;
   from_name: string;
+  transcript_custom_enabled?: boolean;
+  transcript_allowed_domains?: string[];
   log?: {
     id: string;
     purpose: string;
@@ -24,6 +26,8 @@ type EmailConfig = {
     status: string;
     error_code: string | null;
     created: number;
+    conversation_id?: string | null;
+    user_id?: string | null;
   }[];
 };
 
@@ -34,6 +38,7 @@ const purposeLabel: Record<string, string> = {
   "account.invite": "Convite",
   "account.password_changed": "Alerta: senha trocada",
   "account.mfa_reset": "Alerta: segundo fator removido",
+  "conversation.email": "Transcrição de conversa",
 };
 const statusLabel: Record<string, string> = {
   sent: "Enviado",
@@ -41,7 +46,64 @@ const statusLabel: Record<string, string> = {
   bounced: "Devolvido",
   failed: "Falhou",
   sending: "Enviando",
+  unknown: "Resultado indeterminado",
 };
+
+export function TranscriptEmailSettings({ enabled, domains, onEnabled, onDomains }: {
+  enabled: boolean;
+  domains: string;
+  onEnabled: (value: boolean) => void;
+  onDomains: (value: string) => void;
+}) {
+  return (
+    <fieldset>
+      <legend>Transcrição de conversas</legend>
+      <label className="check-field">
+        <input type="checkbox" checked={enabled} onChange={(event) => onEnabled(event.target.checked)} />
+        Permitir endereço digitado para envio de conversa
+      </label>
+      <Field label="Domínios permitidos para transcrições" value={domains} onChange={onDomains}
+        placeholder="empresa.com.br, exemplo.com" autoComplete="off"
+        help="Separe por vírgulas. Vazio não acrescenta restrição. Cada domínio deve corresponder exatamente ao endereço de destino." />
+      <p className="muted">
+        O envio exige a permissão “Enviar conversa por e-mail”. Endereços digitados vêm desligados
+        e exigem confirmação. O envio ao contato exige confirmação e solicitação do cliente.
+        O limite é de 10 envios por pessoa ou aplicação e 50 por área a cada 24 horas,
+        separado dos avisos dos módulos.
+      </p>
+    </fieldset>
+  );
+}
+
+export function EmailLog({ rows }: { rows: NonNullable<EmailConfig["log"]> }) {
+  if (!rows.length) return null;
+  const transcripts = rows.some((row) => row.purpose === "conversation.email");
+  return (
+    <details>
+      <summary>Últimos envios</summary>
+      {transcripts && <p>Resultado indeterminado: o envio pode ter ocorrido. A mesma solicitação não será reenviada automaticamente.</p>}
+      <table className="table">
+        <thead><tr>
+          <th>Quando</th><th>Tipo</th><th>Para</th><th>Situação</th>
+          {transcripts && <><th>Conversa</th><th>Solicitante</th></>}
+        </tr></thead>
+        <tbody>{rows.map((row) => (
+          <tr key={row.id}>
+            <td>{new Date(row.created).toLocaleString("pt-BR")}</td>
+            <td>{purposeLabel[row.purpose] || row.purpose}</td>
+            <td>{row.to_masked}</td>
+            <td>
+              {row.purpose === "conversation.email" && row.status === "sending"
+                ? statusLabel.unknown : statusLabel[row.status] || row.status}
+              {row.error_code ? ` (${row.error_code})` : ""}
+            </td>
+            {transcripts && <><td>{row.conversation_id || "—"}</td><td>{row.user_id || "—"}</td></>}
+          </tr>
+        ))}</tbody>
+      </table>
+    </details>
+  );
+}
 
 export function EmailSection({
   api,
@@ -67,6 +129,8 @@ export function EmailSection({
     token: "",
     from_address: "",
     from_name: "",
+    transcript_custom_enabled: false,
+    transcript_allowed_domains: "",
   });
   const [busy, setBusy] = useState(""),
     [message, setMessage] = useState(""),
@@ -78,6 +142,8 @@ export function EmailSection({
       token: "",
       from_address: result.from_address,
       from_name: result.from_name,
+      transcript_custom_enabled: result.transcript_custom_enabled === true,
+      transcript_allowed_domains: (result.transcript_allowed_domains || []).join(", "),
     });
   };
   const load = useCallback(async () => {
@@ -148,6 +214,8 @@ export function EmailSection({
                   account_id: form.account_id.trim(),
                   from_address: form.from_address.trim(),
                   from_name: form.from_name.trim(),
+                  transcript_custom_enabled: form.transcript_custom_enabled,
+                  transcript_allowed_domains: form.transcript_allowed_domains.split(/[,;\s]+/).filter(Boolean),
                   ...(form.token ? { token: form.token.trim() } : {}),
                 },
                 AbortSignal.timeout(20000),
@@ -197,6 +265,12 @@ export function EmailSection({
             é guardado criptografado e não volta a ser exibido. Os e-mails nunca
             levam links ou códigos no assunto.
           </small>
+          <TranscriptEmailSettings
+            enabled={form.transcript_custom_enabled}
+            domains={form.transcript_allowed_domains}
+            onEnabled={(enabled) => setForm((current) => ({ ...current, transcript_custom_enabled: enabled }))}
+            onDomains={set("transcript_allowed_domains")}
+          />
           <div className="card-actions">
             <Button type="submit" busy={busy === "save"} disabled={!!busy}>
               Salvar e-mail
@@ -243,34 +317,7 @@ export function EmailSection({
           </div>
         </form>
       )}
-      {!!config?.log?.length && (
-        <details>
-          <summary>Últimos envios</summary>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Quando</th>
-                <th>Tipo</th>
-                <th>Para</th>
-                <th>Situação</th>
-              </tr>
-            </thead>
-            <tbody>
-              {config.log.map((row) => (
-                <tr key={row.id}>
-                  <td>{new Date(row.created).toLocaleString("pt-BR")}</td>
-                  <td>{purposeLabel[row.purpose] || row.purpose}</td>
-                  <td>{row.to_masked}</td>
-                  <td>
-                    {statusLabel[row.status] || row.status}
-                    {row.error_code ? ` (${row.error_code})` : ""}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </details>
-      )}
+      <EmailLog rows={config?.log || []} />
     </section>
   );
 }
