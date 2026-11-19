@@ -5,6 +5,7 @@ import {
   type Actor,
   type Env,
   requireValue,
+  json,
   now,
   uid,
 } from "./types";
@@ -160,7 +161,7 @@ export async function contactDetail(
   // Dono histórico prevalece. Sem proprietário persistido não há fallback
   // pela associação atual da conversa, mesmo que o telefone coincida.
   const forms = canReadConversations ? await all(env,
-    `SELECT w.id,w.conversation_id,w.module_id,w.kind,w.status,w.created,w.completed_at,w.updated
+    `SELECT w.id,w.conversation_id,w.module_id,w.kind,w.status,w.created,w.completed_at,w.updated,w.result
      FROM web_steps w WHERE w.profile_id=? AND w.status='completed'
        AND coalesce(w.contact_id,(SELECT r.contact_id FROM customer_records r
          WHERE r.profile_id=w.profile_id AND r.module_id=w.module_id AND r.kind=w.kind AND r.record_id=w.id))=?
@@ -172,7 +173,11 @@ export async function contactDetail(
     if (["saude", "ensino", "juridico"].includes(module)) continue;
     if (allows(actor, module) && await moduleEnabled(env, profile, module)) allowedModules.add(module);
   }
-  const answers = forms.filter(row => allowedModules.has(row.module_id));
+  // O detalhe publicado conserva as respostas para quem pode ler a conversa
+  // e o módulo. Histórico e listas da ficha única usam a projeção administrativa
+  // de customer/history, que continua sem respostas ou campos do formulário.
+  const answers = forms.filter(row => allowedModules.has(row.module_id))
+    .map(({ result, ...row }) => ({ ...row, answers: result ? json(result, null) : null }));
   const identity = contact.phone ? await one(env, "SELECT state,contact_id FROM customer_phones WHERE profile_id=? AND namespace=? AND phone=?", profile, contact.namespace, contact.phone) : null;
   const linkState = identity?.state === "ambiguous" ? "ambiguous" : identity?.state === "ready" && identity.contact_id === id ? "ready" : "pending";
   const synchronization = await one(env, "SELECT id,state,error_code FROM customer_jobs WHERE profile_id=? AND contact_id=? ORDER BY created DESC,id DESC LIMIT 1", profile, id);

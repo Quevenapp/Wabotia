@@ -988,17 +988,17 @@ export function ContactsPanel({
             <p>
               {search
                 ? "Tente buscar por outro nome, telefone, e-mail ou empresa."
-                : `Cadastre ${words.plural.toLocaleLowerCase("pt-BR")}, importe uma planilha CSV ou salve a partir de uma conversa.`}
+                : `Cadastre ${words.plural.toLocaleLowerCase("pt-BR")} ou importe uma planilha CSV. Quem envia uma mensagem já entra nos contatos automaticamente.`}
             </p>
           </div>
         )}
       </section>
       <div className="contacts-help">
         <div>
-          <h3>Salvar a partir de uma conversa</h3>
+          <h3>Contatos das conversas</h3>
           <p>
-            Em Conversas, abra o atendimento e clique em{" "}
-            <strong>Salvar contato</strong>. Cadastre {words.singular.toLocaleLowerCase("pt-BR")} ou escolha um cadastro que já existe na agenda.
+            Todo número que envia uma mensagem vira contato automaticamente.
+            O nome e os demais dados podem ser completados depois na ficha.
           </p>
         </div>
         <div>

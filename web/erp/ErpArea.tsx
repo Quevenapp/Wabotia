@@ -9,7 +9,7 @@ import { ManagementShell, ManagementState } from "../management/ManagementShell"
 import { ManagementPage } from "../management/pages";
 import { isNativeManagementPage } from "../management/routes";
 import { portedTargetState } from "../management/ported-policy";
-import { MANAGEMENT_ITEMS, canEnterManagement, managementContext, nativeTargetState, normalizedManagementHref, resolveManagement } from "../management/registry";
+import { MANAGEMENT_ITEMS, managementItemOrder, canEnterManagement, managementContext, nativeTargetState, normalizedManagementHref, resolveManagement } from "../management/registry";
 import { useWorkNavigation } from "../modules/os/work-navigation";
 import type { Disposable, ErpHostContext, ErpMountProps, ErpPermissions, MountCustomerProfile, PortedTargetState } from "../management/host-contract";
 import type { FullCustomerHost } from "../contact-profile/host-port";
@@ -84,7 +84,7 @@ export function installManagementCustomerHost(context: ErpHostContext, dependenc
       const module = await (dependencies.mount ?? (() => import("./mount")))();
       check();
       const instance = await module.mountCustomerProfile(element, {
-        context, erpContactId: input.erpContactId,
+        context, erpContactId: input.erpContactId, vocabulary: input.vocabulary,
         onSaved: () => { if (live) input.onSaved(); },
         onClose: () => { if (live) input.onClose(); },
       });
@@ -221,7 +221,7 @@ export function ErpArea() {
       href: href({ area: "erp", page: "work", typeId: type.id }),
     });
   }
-  items.sort((a, b) => a.groupOrder - b.groupOrder || a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  items.sort(managementItemOrder);
   const destinations = new Set<string>();
   const menu = items.filter((item) => {
     const key = normalizedManagementHref(item.href);

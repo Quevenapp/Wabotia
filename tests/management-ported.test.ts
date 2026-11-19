@@ -16,6 +16,9 @@ import { connectErpRouter, keepLinksInside, mountCustomerProfile, readCustomerPr
 import { createUnsavedChangesStore } from "../web/erp/app/lib/unsaved-changes-store";
 import OriginTopBar from "../web/erp/app/components/OriginTopBar";
 import RealAccess from "../web/erp/app/components/RealAccess";
+import App from "../web/erp/app/App";
+import { ContactEditor } from "../web/erp/app/components/ContactEditor";
+import { ContactProfileEntry } from "../web/erp/contact-profile-entry";
 import CompanyNavigation from "../web/erp/app/components/CompanyNavigation";
 import { resolveMenu } from "../web/erp/app/lib/origin-menu";
 import policySource from "../web/management/ported-policy.ts?raw";
@@ -28,6 +31,7 @@ import navigationSource from "../web/erp/app/components/CompanyNavigation.tsx?ra
 
 // Sem navegador ou rede: roteador em memória real, controlador real e portas simuladas.
 const testRuntime = vi.hoisted(() => ({
+  location: { pathname: "/acesso", search: "", hash: "" },
   hooks: null as any, view: null as any, roots: [] as any[], bound: null as any,
   publish: vi.fn(), disconnect: vi.fn(), guard: null as null | (() => boolean), navigate: vi.fn(),
 }));
@@ -47,7 +51,7 @@ vi.mock("../web/erp/app/hooks/useUnsavedChanges", async original => ({
 }));
 vi.mock("react-router-dom", async original => ({
   ...await original<typeof import("react-router-dom")>(),
-  useLocation: () => ({ pathname: "/acesso", search: "", hash: "" }), useNavigate: () => testRuntime.navigate,
+  useLocation: () => testRuntime.location, useNavigate: () => testRuntime.navigate,
 }));
 vi.mock("react", async original => {
   const actual = await original<typeof import("react")>();
@@ -73,7 +77,8 @@ const host = (change: Record<string, unknown> = {}) => ({ profile: "area-a", act
   onModules: vi.fn(), onPeople: vi.fn(), onLeave: vi.fn(), onExpired: vi.fn(), ...change });
 function acquire(options = host()) { const lease = acquireErpHost(options); leases.push(lease); return lease; }
 const member = (id = actor, role = "admin", resources = ["contacts", "products"]) => ({ user_id: id, role, resources, data_mode: "staging_readonly" });
-const record = { id: "erp-42", entity: "contacts", version: 1, active: true, name: "Cliente", credit_limit_mode: "none", types: [] };
+const record = { id: "erp-42", entity: "contacts" as const, version: 1, active: true, name: "Cliente", credit_limit_mode: "none", types: [],
+  code: null, source: null, created_at: "2026-11-19T00:00:00Z", updated_at: "2026-11-19T00:00:00Z" };
 const fetcher = vi.fn(async (input: unknown) => {
   const path = String(input);
   if (path.endsWith("/v1/me")) return Response.json(member());
@@ -101,6 +106,7 @@ class Scope {
   remove() { this.removed = true; }
 }
 beforeEach(() => {
+  testRuntime.location = { pathname: "/acesso", search: "", hash: "" };
   vi.clearAllMocks(); testRuntime.roots.length = 0; testRuntime.view = null; testRuntime.bound = null;
   vi.stubGlobal("location", new URL("https://painel.example/app/erp/acesso"));
   vi.stubGlobal("fetch", fetcher);
@@ -173,7 +179,7 @@ describe("política portada pura", () => {
     for (const page of PREFERENCE_PAGES) {
       const to = preferencePageHref(page);
       expect(portedTarget(to), to).not.toBeNull();
-      for (const role of Object.keys(ROLE_RESOURCES)) expect(portedPermissionAllowed(to, role, ROLE_RESOURCES[role]), `${to}:${role}`).toBe(page.readRoles.includes(role));
+      for (const role of Object.keys(ROLE_RESOURCES)) expect(portedPermissionAllowed(to, role, ROLE_RESOURCES[role]), `${to}:${role}`).toBe(page.readRoles.some(allowed => allowed === role));
       if (page.subsections) for (const section of page.sections) expect(portedTarget(preferencePageHref(page, section.id))).not.toBeNull();
     }
     expect(portedTargetState("/tags?tipo=contatos", context({ erpRole: "financeiro" }))).toBe("allowed");
@@ -196,6 +202,18 @@ describe("ponte portada", () => {
     leases.push({ dispose() { bridge.dispose(); router.dispose(); } });
     return { router, bridge };
   }
+  it("o alias de acesso publica o painel geral por replace, preservando consulta e fragmento", async () => {
+    testRuntime.location = { pathname: "/acesso", search: "?periodo=mes", hash: "#resumo" };
+    const redirect = App();
+    expect(redirect.props.to).toBe("/visao-geral?periodo=mes#resumo");
+    expect(redirect.props.replace).toBe(true);
+    const { router } = routerFixture();
+    await router.navigate(redirect.props.to, { replace: redirect.props.replace });
+    expect(testRuntime.publish).toHaveBeenCalledExactlyOnceWith("/app/erp/visao-geral?periodo=mes#resumo", "replace");
+    expect(portedTargetState("/visao-geral", context())).toBe("allowed");
+    testRuntime.location = { pathname: "/visao-geral", search: "", hash: "" };
+    expect(App().props.to).toBeUndefined(); // link copiado/recarregado renderiza a tela, sem outro redirecionamento
+  });
   it("não publica a montagem, espera confirmação e publica uma única vez", async () => {
     const { router, bridge } = routerFixture();
     expect(testRuntime.publish).not.toHaveBeenCalled();
@@ -239,6 +257,17 @@ describe("ponte portada", () => {
 });
 
 describe("hospedeiros autorizados", () => {
+  it("instala a ficha pela porta e monta o corpo bruto sem reabrir a entrada", async () => {
+    const lease = acquire(), runtime = await lease.ready; await ready(runtime);
+    expect(runtime.ports.contactProfileEditor).toBe(ContactProfileEntry);
+    const props = { controller: runtime.controller, entity: "contacts" as const, record, writable: true, onClose: vi.fn(), onSaved: vi.fn() };
+    expect(render(() => ContactEditor(props)).type).toBe(ContactProfileEntry);
+    expect(render(() => ContactEditor({ ...props, record: null })).type.name).toBe("ContactForm");
+    lease.dispose();
+    expect(render(() => ContactEditor(props)).type.name).toBe("ContactForm");
+    expect(mountSource).toContain("default: module.RawContactEditor");
+    expect(mountSource).toContain("embeddedProfile vocabulary={options.vocabulary}");
+  });
   it("compartilha dois hospedeiros, libera só o último e repassa o ID D1 sem conversão", async () => {
     const openContactProfile = vi.fn(), a = acquire(host({ openContactProfile })), b = acquire(host());
     const [one, two] = await Promise.all([a.ready, b.ready]); await ready(one);

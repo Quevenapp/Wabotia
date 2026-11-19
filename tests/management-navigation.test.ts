@@ -64,6 +64,7 @@ import {
 } from "../web/management/registry";
 import { ErpArea, contextBoundResponse, createDeferredHostSlot, loadAuthorizedPorted, startAuthorizedPortedPrefetch } from "../web/erp/ErpArea";
 import { activeNavigationTypes, useWorkNavigation } from "../web/modules/os/work-navigation";
+import { ManagementShell } from "../web/management/ManagementShell";
 
 const context = (input: Partial<Parameters<typeof managementContext>[0]> = {}) => managementContext({
   statusLoaded: true, role: "admin", access: null, modules: {}, ...input,
@@ -89,6 +90,37 @@ beforeEach(() => {
 });
 
 describe("elegibilidade, ativação e autorização independentes", () => {
+  it("ErpArea mantém os nativos antes dos grupos portados ao montar o menu final", () => {
+    mocks.app.modules = { agenda: true, erp: true };
+    const html = render();
+    const headings = [...html.matchAll(/<h2>(.*?)<\/h2>/g)].map(match => match[1]);
+    expect(headings[0]).toBe("Agenda");
+    expect(headings[1]).toBe("Resultados");
+  });
+
+  it("entrada e menu usam grupos, nativos primeiro, com cinco destinos e Ver todos", () => {
+    const c = context({ modules: { os: true, agenda: true, erp: true }, vocabulary: { collection_label: "Atendimentos" } });
+    const items = resolveManagement(MANAGEMENT_ITEMS, c);
+    const html = renderToString(React.createElement(ManagementShell, {
+      context: c, items, entry: true, chromeRef: vi.fn(), children: null,
+    }));
+    const titles = [...new Set(items.map(item => item.module === "os" ? "Atendimentos" : item.groupLabel))];
+    expect(titles.slice(0, 2)).toEqual(["Atendimentos", "Agenda"]);
+    const headings = [...html.matchAll(/<h2>(.*?)<\/h2>/g)].map(match => match[1]);
+    expect(headings).toEqual([...titles, ...titles]);
+    expect(headings).not.toContain("Dashboard geral");
+    const cards = [...html.split('class="management-cards"')[1].matchAll(/<section>([\s\S]*?)<\/section>/g)];
+    expect(cards).toHaveLength(titles.length);
+    for (const [index, card] of cards.entries()) {
+      const destinations = items.filter(item => (item.module === "os" ? "Atendimentos" : item.groupLabel) === titles[index]);
+      const links = [...card[1].matchAll(/<a[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/g)];
+      expect(links.map(link => link[2])).toEqual([
+        ...destinations.slice(0, 5).map(item => item.resolvedLabel), ...(destinations.length > 5 ? ["Ver todos"] : []),
+      ]);
+      if (destinations.length > 5) expect(links.at(-1)![1]).toBe(destinations[0].href.replaceAll("&", "&amp;"));
+    }
+  });
+
   it("mantém administrador e pessoa elegível com todos os módulos desligados", () => {
     for (const c of [context(), context({ role: "agent", access: ["agenda"] })]) {
       expect(canEnterManagement(c)).toBe(true);
@@ -143,7 +175,7 @@ describe("elegibilidade, ativação e autorização independentes", () => {
     expect(consulta.some((item) => item.id === "erp.customers")).toBe(true);
     expect(consulta.some((item) => item.id === "erp.products")).toBe(true);
     expect(consulta.some((item) => item.id === "erp.employees")).toBe(false);
-    expect(managementLanding(consulta)).toBe("/app/erp/acesso");
+    expect(managementLanding(consulta)).toBe("/app/erp/visao-geral");
     const financeiro = resolveManagement(ERP_MANAGEMENT_ITEMS, context({ role: "agent", access: ["erp:financeiro"], modules: { erp: true } }));
     expect(financeiro.some((item) => item.id === "erp.payables")).toBe(true);
     expect(financeiro.some((item) => item.id === "erp.products")).toBe(false);

@@ -67,6 +67,10 @@ export const managementItemHref = (item: ManagementItem): string =>
     ? href({ area: "erp", page: item.target.page as PageId })
     : "/app/erp" + (item.target.to.startsWith("/") ? "" : "/") + item.target.to;
 
+export const managementItemOrder = (a: ManagementItem, b: ManagementItem): number =>
+  Number(a.target.kind === "ported") - Number(b.target.kind === "ported") ||
+  a.groupOrder - b.groupOrder || a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
 export function resolveManagement(
   items: readonly ManagementItem[],
   c: ManagementContext,
@@ -81,8 +85,7 @@ export function resolveManagement(
   if (!c.statusLoaded) return [];
   const destinations = new Set<string>();
   return [...items]
-    .sort((a, b) => a.groupOrder - b.groupOrder || a.order - b.order ||
-      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .sort(managementItemOrder)
     .filter((item) => permits(item, c) && (item.target.kind === "native"
       ? c.modules[item.module] === true &&
         canOpenPage(item.target.page, c.role, c.modules, c.access && [...c.access])

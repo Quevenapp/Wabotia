@@ -23,7 +23,7 @@ import "./app/components/document-layout.css";
 export const ERP_BASENAME = "/app/erp";
 const CONTACT_TARGET = "/cadastros-reais?cadastro=contacts";
 const RealAccess = lazy(() => import("./app/components/RealAccess"));
-const ContactEditor = lazy(() => import("./app/components/ContactEditor").then(module => ({ default: module.ContactEditor })));
+const ContactEditor = lazy(() => import("./app/components/ContactEditor").then(module => ({ default: module.RawContactEditor })));
 
 const guards = new Map<symbol, () => boolean>();
 export function registerErpGuard(guard: () => boolean) {
@@ -210,7 +210,7 @@ function CustomerBody({ runtime, options, state }: { runtime: ErpHostRuntime; op
   }, [runtime, options.erpContactId, state.membership]);
   if (!runtime.allowed(CONTACT_TARGET, state)) return <TargetNotice state="denied" />;
   if (!data || data.membership !== state.membership || error) return <TargetNotice state={error ? "unavailable" : "loading"} />;
-  return <Suspense fallback={<TargetNotice state="loading" />}><ContactEditor key={`${data.record.id}:${data.record.version}`} controller={runtime.controller} entity="contacts" record={data.record} writable={data.writable}
+  return <Suspense fallback={<TargetNotice state="loading" />}><ContactEditor key={`${data.record.id}:${data.record.version}`} controller={runtime.controller} entity="contacts" record={data.record} writable={data.writable} embeddedProfile vocabulary={options.vocabulary}
     onClose={() => guard.confirmLeave(options.onClose)} onSaved={record => { setData({ ...data, record }); options.onSaved?.(); }} /></Suspense>;
 }
 

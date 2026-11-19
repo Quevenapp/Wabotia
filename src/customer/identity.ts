@@ -226,6 +226,8 @@ async function prepareInbound(env: Env, c: Conversation, evidence: InboundEviden
   // um filtro por complete no WHERE pode descartar o namespace linha a linha.
   // O autor exige prefixo literal: LIKE interpreta curingas e seu padrão
   // com um ID de canal de 32 caracteres já ultrapassa o limite do D1.
+  // A coleção de telefones de cada candidato usa o índice por contato:
+  // o índice por namespace/telefone pode ler a base inteira para um único ID.
   const snapshot = await one(env,
     `WITH progress AS (SELECT cursor_json,complete FROM customer_progress WHERE profile_id=? AND namespace='team' AND task=?),
      indexed AS (SELECT contact_id id FROM customer_phone_candidates WHERE profile_id=? AND namespace='team'
@@ -257,7 +259,7 @@ async function prepareInbound(env: Env, c: Conversation, evidence: InboundEviden
               AND v.phone=v.verified_phone AND v.phone=c.phone AND v.chat_type='direct'
               AND v.external_namespace='channel:'||v.connection_id AND v.customer_link_state NOT IN ('blocked','excluded','ambiguous')
               AND m.profile_id=v.profile_id AND instr(m.author,'customer:'||v.external_namespace||':')=1 AND c.updated<=m.created LIMIT 1),
-          'candidates',(SELECT json_group_array(json_object('phone',k.phone,'origin',k.origin)) FROM (SELECT phone,origin FROM customer_phone_candidates
+          'candidates',(SELECT json_group_array(json_object('phone',k.phone,'origin',k.origin)) FROM (SELECT phone,origin FROM customer_phone_candidates INDEXED BY customer_phone_candidates_contact
             WHERE profile_id=c.profile_id AND namespace=c.namespace AND contact_id=c.id LIMIT 32) k),
           'proofs',(SELECT json_group_array(json_object('phone',q.phone,'revoked',q.revoked)) FROM customer_phone_proofs q
             WHERE q.profile_id=c.profile_id AND q.namespace=c.namespace AND q.contact_id=c.id AND q.phone IN (SELECT value FROM json_each(?)))))

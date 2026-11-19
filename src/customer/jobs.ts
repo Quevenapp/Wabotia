@@ -75,7 +75,7 @@ export function jobInsert(profile: string, namespace: Namespace, contact: string
   const time = now();
   return { id, statement: [`INSERT INTO customer_jobs(profile_id,id,namespace,contact_id,kind,command_id,request_hash,expected_version,expected_erp_version,payload_cipher,retry_at,created,updated,state,error_code,cursor_json)
     SELECT ?,?,?,?,?,?,?,?,?,CASE WHEN n<? THEN ? ELSE NULL END,?,?,?,CASE WHEN n<? THEN 'pending' ELSE 'retained' END,CASE WHEN n<? THEN NULL ELSE 'customer_queue_full' END,CASE WHEN n<${CUSTOMER_QUEUE_LIMIT} THEN ? ELSE '{}' END
-    FROM (SELECT count(*) n FROM customer_jobs WHERE profile_id=? AND namespace=? AND contact_id IS ? AND state NOT IN ('done','retained','cancelled'))`,
+    FROM (SELECT count(*) n FROM customer_jobs WHERE profile_id=? AND namespace=? AND contact_id IS ? AND state NOT IN ('done','retained','cancelled')) WHERE 1`,
     [profile, id, namespace, contact, kind, command, hash, version, erpVersion, CUSTOMER_QUEUE_LIMIT, cipher, time, time, time, CUSTOMER_QUEUE_LIMIT, CUSTOMER_QUEUE_LIMIT, JSON.stringify(cursor), profile, namespace, contact]] };
 }
 function accepted(job: any) {

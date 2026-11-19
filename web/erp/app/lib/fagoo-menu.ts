@@ -4,6 +4,7 @@ import type {ResolvedGroup} from './origin-menu';
 export type WorkspaceModule={name:string;icon:string;columns:{title:string;items:{label:string;to:string}[]}[]};
 const MODULES=Object.values(ERP_MENU_GROUPS).map(group=>[group.groupLabel,group.icon] as const);
 const destinationGroups=new Map(ERP_MANAGEMENT_ITEMS.map(item=>[item.target.to,item.groupLabel]));
+destinationGroups.set('/acesso', ERP_MENU_GROUPS.resultados.groupLabel);
 /** The modules each profile uses all day come first; the others keep the standard order. */
 const ROLE_FOCUS:Record<string,readonly string[]>={
  vendas:['Comercial','Catálogo','Pessoas','Resultados'],

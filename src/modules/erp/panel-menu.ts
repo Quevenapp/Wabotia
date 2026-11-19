@@ -38,7 +38,7 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     id: "erp.overview", module: "erp", part: "resultados",
     ...ERP_MENU_GROUPS.resultados, order: 10,
     label: "Dashboard geral", primary: true,
-    target: { kind: "ported", to: "/acesso" },
+    target: { kind: "ported", to: "/visao-geral" },
     permission: { kind: "erp" },
   },
   {
@@ -341,7 +341,8 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
 const legacyItems: Record<string, MenuItemDefinition> = Object.fromEntries(
   ERP_MANAGEMENT_ITEMS.map(({ id, label, target, permission }) => [id, {
     label,
-    real: { to: target.to,
+    // O menu legado conserva seu alias; a casa publica o destino canônico.
+    real: { to: id === "erp.overview" ? "/acesso" : target.to,
       ...(permission.roles ? { roles: permission.roles } : {}),
       ...(permission.resource ? { resource: permission.resource } : {}),
     },

@@ -195,6 +195,13 @@ identificador estável já calculado pelo Coordinator, **não** de `X-Request-Id
 | `GET P/contacts/:id/modules/:module/sections/:section` | — | `SectionView` |
 | `PUT P/contacts/:id/modules/:module/sections/:section` | `SectionWrite` | `SectionView & {replayed:boolean}` |
 
+O detalhe legado (`GET P/contacts/:id`) conserva `web_steps[].answers` dos
+formulários vinculados ao contato para quem pode ler Contatos, a conversa e o
+módulo habilitado. A associação histórica prevalece sobre uma reassociação
+posterior da conversa; os módulos privados permanecem excluídos. Isso não altera
+a projeção administrativa de `history` e das coleções da ficha única, que segue
+sem respostas, esquema de formulário ou notas privadas.
+
 Erros comuns:
 
 - `400 invalid_request`, `invalid_cursor` ou `invalid_customer_patch`.
@@ -254,6 +261,19 @@ Relação preenchida não muda por nova associação da conversa. Sessões novas
 vínculo próprio em `customer_records`, origem `conversationId:session`. Identidade
 inequívoca ausente permanece pendente. Fallback legado limita-se à conversa
 original autorizada; não reintroduzir busca ampla por telefone.
+
+Na OS, o telefone informado na ordem é um snapshot administrativo: quando o
+contato persistido e o titular comprovado da conversa destinatária concordam,
+esse telefone pode diferir do número do canal. A autorização relê o proprietário,
+a conversa e o telefone persistidos, inclusive em repetições; uma linha antiga em
+memória não concede acesso após mudança do proprietário.
+
+Uma OS de balcão pode existir antes da primeira conversa vinculada pela equipe.
+Para esse legado sem proprietário, a sessão inicial da conversa também serve
+como limite temporal da origem. Permanecem obrigatórios o índice original
+inequívoco, telefone sem edição e ausência de histórico de outro titular. Uma
+sessão posterior de uma conversa já existente não transfere a ordem. A leitura
+ou o envio não grava nem substitui o proprietário.
 
 ### Autoridade e enriquecimento
 

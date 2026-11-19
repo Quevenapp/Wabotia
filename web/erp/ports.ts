@@ -37,6 +37,8 @@ export type ErpPorts = {
   openAccount?: () => void;
   /** ID D1, sem conversão; a implementação captura a área de atendimento. */
   openContactProfile?: (contactId: string) => void | Promise<void>;
+  /** Ficha única instalada pelo hospedeiro; o componente portado não importa o painel. */
+  contactProfileEditor?: import("react").ComponentType<import("./app/components/CatalogEditor").CatalogEditorProps>;
   /**
    * Abre o "Confirme que é você" da casca (o mesmo de qualquer 403
    * mfa_required) e resolve quando a pessoa fecha. Ausente na demonstração: o

@@ -38,6 +38,7 @@ export function hiddenPortedTarget(to: string): boolean {
 // Inventário complementar a App.tsx/origin-menu.ts. Só metadados de roteamento;
 // não importar os schemas completos de preferências no pacote inicial.
 const extra: Readonly<Record<string, PortedTarget>> = {
+  "/acesso": rule("resultados"), // alias legado, redirecionado pelo roteador portado
   "/estoque-empresa": { ...rule("estoque", products), readPermission: "suprimentos.controle_estoque" },
   "/empresa-configuracoes": rule("sistema"),
   "/estoque-abertura": rule("estoque", admin),
