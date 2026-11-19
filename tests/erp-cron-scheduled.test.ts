@@ -66,6 +66,7 @@ describe("cron do Worker e o agendador do ERP", () => {
         await cron(start); // :35 também entrega, não só :00.
         const first = await inspect(on.profile), stopped = await inspect(off.profile);
         expect(first.snapshot?.parts.customers).toBe(true);
+        expect(first.snapshot?.issued_at).toBe(start);
         expect(first.snapshot?.expires_at).toBe(start + 360_000);
         expect(first.alarm).toBe(start + 1_000);
         expect(stopped.snapshot?.parts.customers).toBe(false);
@@ -80,7 +81,7 @@ describe("cron do Worker e o agendador do ERP", () => {
         await reconciled(on.profile, start + 300_000);
         await cron(start + 300_000);
         const renewed = await inspect(on.profile);
-        expect(renewed.snapshot).toEqual({ ...first.snapshot, expires_at: start + 660_000 });
+        expect(renewed.snapshot).toEqual({ ...first.snapshot, issued_at: start + 300_000, expires_at: start + 660_000 });
         expect(renewed.alarm).toBe(planned);
         expect(renewed.schema).toEqual([]);
         expect(await inspect(off.profile)).toEqual(stopped);

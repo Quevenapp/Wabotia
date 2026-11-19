@@ -274,10 +274,17 @@ export const suporteModule: ModuleDefinition = { id: "suporte", requires: ["mens
   de" e trava o botão até o requerido ligar.
 - **Desligar o requerido** com dependentes ligados responde
   `409 module_required` listando os dependentes. Com `{"enabled":false,
-  "cascade":true}` (a tela Módulos pede confirmação e envia), o requerido e os
+  "cascade":true}`, o requerido e os
   dependentes desligam juntos; cada um publica `module.changed`, os
   dependentes com `because`. A resposta traz `also_disabled`. Religar o
   requerido não religa os dependentes.
+  `confirmed_dependents` é uma lista opcional de IDs junto de `cascade: true`:
+  quando enviada, deve ser exatamente o conjunto atual de dependentes ligados,
+  em qualquer ordem. Falta, sobra, repetição ou tipo inválido retorna
+  `409 module_cascade_conflict`, sem alterar módulos, revisões ou eventos.
+  Sem a lista, a API conserva a compatibilidade e desliga os dependentes atuais.
+  A tela Módulos sempre envia a lista exibida; diante de conflito, recarrega o
+  estado e pede nova confirmação.
 - **Estado efetivo**: com um requerido desligado, o dependente conta como
   desligado em todo lugar (`GET /modules`, capacidades, rotas, menus,
   ganchos), mesmo que a linha salva diga ligado.

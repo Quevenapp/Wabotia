@@ -6,8 +6,6 @@ import { randomUUID } from 'node:crypto';
 import { freshLite, nodeDriver } from '../harness/node-driver.mjs';
 import '../../../src/erp/domains/index.ts';
 import { extensionKeys } from '../../../src/erp/domains/documents/normalize.ts';
-import { erpDocumentConversionPreview } from '../../../src/erp/domains/documents/rpc/reads-proposal.ts';
-import { normalizeErpParts } from '../../../src/erp/parts.ts';
 import { callRpc } from '../../../src/erp/engine/registry.ts';
 import { documentsResponse, documentsOperation, documentsRoute } from '../../../src/erp/fagoo/workers/erp-api/src/documents.mjs';
 import { catalogResponse } from '../../../src/erp/fagoo/workers/erp-api/src/catalog.mjs';
@@ -293,11 +291,33 @@ test('6: listagem e prévia de conversão também retiram os vínculos suspensos
  const proposal=f.rpc('erp_document_save',{p_kind:'sales_proposals',p_id:null,p_expected_version:0,p_command_id:randomUUID(),p_body:body}).document;
  const stored=JSON.parse(f.lite.prepare('SELECT body FROM erp_documents__document WHERE id=?').get(proposal.id).body);
  f.lite.prepare('UPDATE erp_documents__document SET body=? WHERE id=?').run(JSON.stringify({...stored,category_id:category.id,payment_account_id:account.id}),proposal.id);
- // O portão atual confunde p_kind (destino) com o tipo da proposta; a correção
- // desse portão pertence a outra tarefa. Aqui se verifica o leitor e seu parser.
- const preview=erpDocumentConversionPreview({db:nodeDriver(f.lite),parts:normalizeErpParts({stock:false,finance:false})},{p_user_id:admin,p_kind:'sales_orders',p_proposal_id:proposal.id});
- const parsed=documentsResponse(preview,{kind:'sales_orders',proposal:proposal.id},{type:'from_proposal'});
- for(const value of [preview,parsed])absent(value.data,['warehouse_id','category_id','payment_account_id']);
+ const snapshot=()=>Object.fromEntries(['erp_documents__document','erp_documents__item','erp_documents__command','erp_documents__audit']
+  .map(table=>[table,f.lite.prepare(`SELECT * FROM ${table}`).all()]));
+ const before=snapshot();
+ // Percorre adaptador HTTP, portão do RPC, leitor e parser nos dois destinos.
+ for(const kind of ['sales_orders','service_orders']) {
+  const url=new URL(`https://erp.invalid/v1/documentos/${kind}/a-partir-da-proposta/${proposal.id}`);
+  const route=documentsRoute(url.pathname),op=await documentsOperation(new Request(url),route,url.searchParams);
+  assert.equal(op.rpc,'erp_document_conversion_preview');
+  const preview=f.rpc(op.rpc,op.args,{stock:false,finance:false});
+  const parsed=documentsResponse(preview,route,op);
+  for(const value of [preview,parsed]) {
+   absent(value.data,['warehouse_id','category_id','payment_account_id']);
+   assert.ok(value.unavailable_parts.includes('stock'));
+   assert.ok(value.unavailable_parts.includes('finance'));
+   assert.equal(value.source.id,proposal.id);
+   assert.equal(value.source.kind,'sales_proposals');
+   assert.equal(value.kind,kind);
+   assert.equal(value.persisted,false);
+  }
+  for(const part of ['sales','products']) assert.throws(()=>f.rpc(op.rpc,op.args,{[part]:false}),e=>e.code==='module_disabled');
+  assert.throws(()=>f.rpc(op.rpc,{...op.args,p_proposal_id:sale.id},{stock:false}),/erp_parts_owner_mismatch/);
+  const restored=f.rpc(op.rpc,op.args);
+  assert.equal(restored.data.warehouse_id,warehouse.id);
+  assert.equal(restored.data.category_id,category.id);
+  assert.equal(restored.data.payment_account_id,account.id);
+ }
+ assert.deepEqual(snapshot(),before);
 });
 
 test('2: preferências de listagem compartilhada não expõem colunas e filtros da parte desligada',t=>{

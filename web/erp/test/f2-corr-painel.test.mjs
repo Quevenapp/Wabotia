@@ -80,6 +80,24 @@ test('resposta atrasada da geração anterior não recoloca valores e a Base per
  } finally {view.unmount();}
 });
 
+for(const part of ['erp-cobranca','erp-pdv']) test(`visão geral atualiza atalhos de ${part} sem repetir a consulta de fontes inalteradas`,async()=>{
+ m.setErpModuleContext(all);const source=homeServer(),view=await mountHome(source);
+ const urls=()=>view.nodes().map(node=>node.props.to).filter(Boolean);
+ try {
+  assert.equal(source.pending.length,1);
+  source.change({...all,[part]:false});await view.flush();
+  assert.equal(source.pending.length,1);assert.equal(source.pending[0].signal.aborted,false);
+  if(part==='erp-cobranca')assert.equal(urls().includes('/cobranca-empresa'),false);
+  // A resposta em voo continua válida: nenhuma fonte do resumo foi suspensa.
+  source.pending[0].resolve(summary());await view.flush();
+  assert.match(view.text(),/Caixas e bancos/);assert.match(view.text(),/Posições sem saldo/);
+  assert.equal(chart(view).props.period.receivable.open_cents,'12300');
+  source.change(all);await view.flush();assert.equal(source.pending.length,1);
+  assert.match(view.text(),/Caixas e bancos/);assert.match(view.text(),/Posições sem saldo/);
+  if(part==='erp-cobranca')assert.equal(urls().includes('/cobranca-empresa'),true);
+ } finally {view.unmount();}
+});
+
 const work=m.createWorkApi(m.demoApi,'v1/profiles/demo');
 test('demonstração: catálogo e detalhe usam o contrato consumido por Trabalhos',async()=>{
  const catalog=await work.types(true);assert.ok(catalog.settings_revision);assert.equal(catalog.data.length,1);

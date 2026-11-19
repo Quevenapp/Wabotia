@@ -13,6 +13,10 @@ const actor = { user_id: admin, erp_role: "admin", is_agent: false, verified_fac
 const identity = { actor, people: [actor] };
 const disabled = e => e.code === "module_disabled";
 const off = { stock: false, finance: false };
+const hidden = (value, keys, part) => {
+  for (const key of keys) assert.equal(Object.hasOwn(value, key), false, key);
+  if (part) assert.ok(value.unavailable_parts.includes(part), part);
+};
 const details = (account) => ({ account_id: account, payment_type: null, card_brand: null, integration_type: null,
   acquirer_cnpj: null, authorization_code: null, received_amount: null, fee_amount: "1.00", commission_fee_amount: "0.50" });
 
@@ -97,11 +101,15 @@ test("proposta, compra e OS nascem sem depósito/categoria; compra automática p
   f.pref("suprimentos-compras", "compras.automacao_contas_pagar", true);
   for (const kind of ["sales_proposals", "purchase_orders", "service_orders"]) {
     const args = f.saveArgs(f.body(), null, kind), r = f.rpc("erp_document_save", args, off);
-    assert.equal(r.document.warehouse_id, null);
+    hidden(r.document, ["warehouse_id"], "stock");
+    const stored = f.lite.prepare("SELECT warehouse_id,body FROM erp_documents__document WHERE id=?").get(r.document.id);
+    assert.equal(stored.warehouse_id, null);
     assert.equal(f.count("erp_finance__document_posting", r.document.id), 0);
     if (kind === "purchase_orders") assert.deepEqual(r.auto_finance, { outcome: "skipped", reason: "part_disabled" });
     assert.equal(f.rpc("erp_document_save", args).replayed, true);
     assert.equal(f.count("erp_finance__document_posting", r.document.id), 0);
+    assert.equal(f.rpc("erp_document_get", { p_kind: kind, p_id: r.document.id }).document.warehouse_id, null);
+    assert.deepEqual(f.lite.prepare("SELECT warehouse_id,body FROM erp_documents__document WHERE id=?").get(r.document.id), stored);
   }
 });
 
@@ -138,25 +146,40 @@ test("campos suspensos omitidos e iguais são preservados; troca e limpeza são 
   const f = fixture(t);
   let doc = f.save(f.body({ warehouse_id: f.warehouse.id, category_id: f.category.id, payment_account_id: f.account.id,
     installments: [{ due_date: "2026-11-20", amount: "10", payment_method_id: null, details: details(f.account.id) }] })).document;
+  const stored = () => {
+    const row = f.lite.prepare("SELECT warehouse_id,body FROM erp_documents__document WHERE id=?").get(doc.id);
+    const body = JSON.parse(row.body);
+    return { warehouse_id: row.warehouse_id, body_warehouse_id: body.warehouse_id,
+      category_id: body.category_id, payment_account_id: body.payment_account_id, details: body.installments[0].details };
+  };
+  const before = stored();
+  const preserved = () => {
+    hidden(doc, ["warehouse_id"], "stock");
+    hidden(doc, ["category_id", "payment_account_id"], "finance");
+    hidden(doc.installments[0].details, ["account_id", "fee_amount", "commission_fee_amount"]);
+    // Os demais dados da parcela permanecem visíveis, sem valores artificiais.
+    const visible = { ...details(f.account.id) };
+    for (const key of ["account_id", "fee_amount", "commission_fee_amount"]) delete visible[key];
+    assert.deepEqual(doc.installments[0].details, visible);
+    assert.deepEqual(stored(), before);
+  };
   const input = f.editBody(doc);
   for (const key of ["warehouse_id", "category_id", "payment_account_id"]) delete input[key];
   for (const key of ["account_id", "fee_amount", "commission_fee_amount"]) delete input.installments[0].details[key];
   input.installments[0].due_date = "2026-12-01";
   doc = f.save(input, off, doc).document;
-  assert.equal(doc.warehouse_id, f.warehouse.id);
-  assert.equal(doc.category_id, f.category.id);
-  assert.equal(doc.payment_account_id, f.account.id);
-  assert.deepEqual(doc.installments[0].details, details(f.account.id));
+  preserved();
   assert.equal(doc.installments[0].due_date, "2026-12-01");
   const equalValue = f.editBody(doc); equalValue.installments[0].details.fee_amount = "1";
   doc = f.save(equalValue, off, doc).document;
+  preserved();
   const omittedPlan = f.editBody(doc); delete omittedPlan.installments;
   doc = f.save(omittedPlan, off, doc).document;
-  assert.deepEqual(doc.installments[0].details, details(f.account.id));
+  preserved();
   const smaller = f.editBody(doc); smaller.items[0].unit_price = "0.25"; smaller.installments[0].amount = "0.25";
   doc = f.save(smaller, off, doc).document;
   assert.equal(doc.totals.total, "0.25");
-  assert.deepEqual(doc.installments[0].details, details(f.account.id));
+  preserved();
   doc = f.save(f.editBody(doc), off, doc).document;
   for (const key of ["warehouse_id", "category_id", "payment_account_id"]) for (const value of [null, randomUUID()])
     assert.throws(() => f.save({ ...f.editBody(doc), [key]: value }, off, doc), disabled);
@@ -174,20 +197,44 @@ test("campos suspensos omitidos e iguais são preservados; troca e limpeza são 
   assert.throws(() => f.save({ ...f.editBody(doc), installments: null }, off, doc), disabled);
   assert.throws(() => f.save(f.body({ warehouse_id: randomUUID() }), off), disabled);
   assert.throws(() => f.save(f.body({ category_id: randomUUID() }), off), disabled);
+  preserved();
+  const restored = f.rpc("erp_document_get", { p_kind: doc.kind, p_id: doc.id }).document;
+  assert.equal(restored.warehouse_id, f.warehouse.id);
+  assert.equal(restored.category_id, f.category.id);
+  assert.equal(restored.payment_account_id, f.account.id);
+  assert.deepEqual(restored.installments[0].details, details(f.account.id));
+  assert.deepEqual(stored(), before);
 });
 
 test("cópia limpa referências opcionais e continua comercial", t => {
   const f = fixture(t);
   const doc = f.save(f.body({ warehouse_id: f.warehouse.id, category_id: f.category.id, payment_account_id: f.account.id })).document;
+  const source = () => f.lite.prepare("SELECT * FROM erp_documents__document WHERE id=?").get(doc.id);
+  const before = source();
   const preview = f.rpc("erp_document_copy_preview", { p_kind: doc.kind, p_source_id: doc.id }, off);
   assert.equal(preview.data.warehouse_id, null);
   assert.equal(preview.data.category_id, null);
   assert.equal(preview.data.payment_account_id, null);
+  assert.deepEqual(source(), before);
   const copied = f.rpc("erp_document_copy", { p_kind: doc.kind, p_source_id: doc.id, p_expected_source_version: doc.version,
     p_command_id: randomUUID(), p_body: preview.data }, off).document;
-  assert.equal(copied.warehouse_id, null);
-  assert.equal(copied.category_id, null);
+  hidden(copied, ["warehouse_id"], "stock");
+  hidden(copied, ["category_id", "payment_account_id"], "finance");
+  const storedCopy = f.lite.prepare("SELECT warehouse_id,body FROM erp_documents__document WHERE id=?").get(copied.id);
+  assert.equal(storedCopy.warehouse_id, null);
+  assert.equal(JSON.parse(storedCopy.body).category_id, null);
+  assert.equal(JSON.parse(storedCopy.body).payment_account_id, null);
   assert.equal(f.count("erp_finance__document_posting", copied.id), 0);
+  assert.deepEqual(source(), before);
+  const restored = f.rpc("erp_document_get", { p_kind: doc.kind, p_id: doc.id }).document;
+  assert.equal(restored.warehouse_id, f.warehouse.id);
+  assert.equal(restored.category_id, f.category.id);
+  assert.equal(restored.payment_account_id, f.account.id);
+  const restoredCopy = f.rpc("erp_document_get", { p_kind: copied.kind, p_id: copied.id }).document;
+  assert.equal(restoredCopy.warehouse_id, null);
+  assert.equal(restoredCopy.category_id, null);
+  assert.equal(restoredCopy.payment_account_id, null);
+  assert.deepEqual(f.lite.prepare("SELECT warehouse_id,body FROM erp_documents__document WHERE id=?").get(copied.id), storedCopy);
 });
 
 test("efeitos antigos mantêm flags e guardas; estornos funcionam desligados e repetem recibo", t => {
@@ -273,22 +320,36 @@ test("lotes antigos são preservados sem consultar lote; inclusão, troca e limp
   const lot = f.rpc("erp_stock_lot_save", { p_command_id: randomUUID(), p_product_id: f.product.id, p_lot_id: null, p_expected_version: 0, p_code: "L-1" }).lot;
   const input = f.body(); input.items[0].lots = [{ lot_id: lot.id, quantity: "1" }];
   let doc = f.save(input).document;
+  const storedLots = () => f.lite.prepare("SELECT data FROM erp_documents__item WHERE document_id=? ORDER BY position").all(doc.id)
+    .map(row => JSON.parse(row.data).lots);
+  const before = storedLots();
+  assert.deepEqual(before, [[{ lot_id: lot.id, quantity: "1.000000" }]]);
   const next = f.editBody(doc); delete next.items[0].lots;
   f.queries.length = 0;
   doc = f.save(next, off, doc).document;
-  assert.deepEqual(doc.items[0].lots, [{ lot_id: lot.id, quantity: "1.000000" }]);
+  hidden(doc.items[0], ["lots"]);
+  assert.ok(doc.unavailable_parts.includes("stock"));
+  assert.deepEqual(storedLots(), before);
   assert.ok(!f.queries.some(q => /FROM "erp_stock__lot"/.test(q)));
   const equalValue = f.editBody(doc); equalValue.items[0].lots[0].quantity = "1";
   doc = f.save(equalValue, off, doc).document;
+  hidden(doc.items[0], ["lots"]);
+  assert.ok(doc.unavailable_parts.includes("stock"));
+  assert.deepEqual(storedLots(), before);
   const larger = f.editBody(doc); larger.items[0].quantity = "2"; larger.installments[0].amount = "20";
   doc = f.save(larger, off, doc).document;
   assert.equal(doc.items[0].quantity, "2.000000");
-  assert.deepEqual(doc.items[0].lots, [{ lot_id: lot.id, quantity: "1.000000" }]);
+  hidden(doc.items[0], ["lots"]);
+  assert.ok(doc.unavailable_parts.includes("stock"));
+  assert.deepEqual(storedLots(), before);
   for (const value of [null, [], [{ lot_id: randomUUID(), quantity: "1" }]]) {
     const changed = f.editBody(doc); changed.items[0].lots = value;
     assert.throws(() => f.save(changed, off, doc), disabled);
   }
   assert.throws(() => f.save(input, off), disabled);
+  assert.deepEqual(storedLots(), before);
+  const restored = f.rpc("erp_document_get", { p_kind: doc.kind, p_id: doc.id }).document;
+  assert.deepEqual(restored.items[0].lots, [{ lot_id: lot.id, quantity: "1.000000" }]);
 });
 
 test("comissão congelada na confirmação, edição e troca de vendedor; cancelamento compensa a anterior", t => {
