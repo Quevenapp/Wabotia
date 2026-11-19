@@ -1,4 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { erpPublicHref } from '../../public-url';
 import NativeListLayout from './NativeListLayout';
 import FinanceTransfers from './FinanceTransfers';
 import FinanceMovementHistory from './FinanceMovementHistory';
@@ -437,7 +438,7 @@ export default function RealFinance({ controller, initialTab = 'receivable' }: {
   const openRow = (id: string, event?: { ctrlKey?: boolean; metaKey?: boolean; button?: number }) => {
     if (entity === 'titles' && event && opensInNewTab(event)) {
       if (route.error || !permissions?.read || permissionScope.current !== authScope || !mayRead()) return;
-      try { const { titleId, ...filters } = route.value; window.open(`${location.pathname}?${financeListParams({ ...filters, titleId: id })}`, '_blank', 'noopener'); } catch (failure) { setError((failure as Error).message); }
+      try { const { titleId, ...filters } = route.value; window.open(erpPublicHref(`${location.pathname}?${financeListParams({ ...filters, titleId: id })}${location.hash}`), '_blank', 'noopener'); } catch (failure) { setError((failure as Error).message); }
       return;
     }
     void open(id);

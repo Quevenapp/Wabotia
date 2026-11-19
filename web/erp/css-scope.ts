@@ -22,6 +22,7 @@ export const PORTAL_ROOTS = [
   "fiscal-print-root",
   "stock-print-root",
   "labels-print-root",
+  "pdv-print-root",
 ];
 const PREFIX = `:is(${[SCOPE, ...PORTAL_ROOTS.map((c) => "." + c)].join(", ")})`;
 

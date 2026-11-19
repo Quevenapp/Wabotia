@@ -80,10 +80,11 @@
 .pdv-print-note, .pdv-print-foot { margin: 6px 0 0; text-align: center; font-size: .9em; }
 .pdv-print-sign { margin-top: 16px; }
 @media print {
-  body * { visibility: hidden !important; }
-  .pdv-print-sheet, .pdv-print-sheet * { visibility: visible !important; }
-  .pdv-print-dialog { position: static; background: none; }
-  .pdv-print-sheet { position: absolute; top: 0; left: 0; margin: 0; }
-  @page { size: 80mm auto; margin: 0; }
+  body.pdv-print-open > :not(.pdv-print-root), body.pdv-print-open .pdv-print-controls { display: none !important; }
+  body.pdv-print-open .pdv-print-root, body.pdv-print-open .pdv-print-sheet, body.pdv-print-open .pdv-print-sheet * { visibility: visible !important; }
+  body.pdv-print-open .pdv-print-dialog { position: static; display: block; background: none; }
+  body.pdv-print-open .pdv-print-scroll { overflow: visible; padding: 0; }
+  body.pdv-print-open .pdv-print-sheet { page: pdv-receipt; margin: 0; }
+  @page pdv-receipt { size: 80mm auto; margin: 0; }
 }
 @media (max-width: 900px) { .real-pdv .pdv-body, .real-pdv .pdv-body.is-collapsed { grid-template-columns: 1fr; } .real-pdv .pdv-pay-totals > div { grid-template-columns: minmax(0, 1fr) 120px; } }

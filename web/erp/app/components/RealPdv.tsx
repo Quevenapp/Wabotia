@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import type { AccessController } from '../lib/real-access';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import { useFinanceCommand, type FinanceCommand } from '../lib/finance-command';
-import { ORIGIN_MENU } from '../lib/origin-menu';
+import { ORIGIN_MENU, realTargetAllowed } from '../lib/origin-menu';
+import { targetEnabled } from '../../blocks';
 import { preferencePage, preferencePageHref } from '../../../../packages/erp-domain/src/preferences/catalog.mjs';
 import { INVOICE_STATUS } from '../../../../packages/erp-domain/src/fiscal-invoice-dto.mjs';
 import { productListPrice } from '../lib/document-price-list-model';
@@ -402,7 +403,8 @@ export default function RealPdv({ controller }: { controller: AccessController }
     {loaded.scope === scope && loaded.error && <button type="button" className="primary-button" onClick={() => setReload(value => value + 1)}>Tentar novamente</button>}</section>;
   const operate = context.permissions.operate, cashNeeded = context.settings.cash_control && !store?.session, locked = sale.locked || !operate;
   const finishLabel = operate && (context.settings.default_operation === 'pre_venda' || !context.permissions.finish || !context.permissions.payments) ? 'Enviar pré-venda' : 'Finalizar venda';
-  const menu = ORIGIN_MENU.flatMap(group => group.columns.flatMap(column => column.items)).filter(item => item.real && (!item.real.roles || item.real.roles.includes(role as never)));
+  const embedded = erpPorts()?.embedded === true;
+  const menu = embedded ? [] : ORIGIN_MENU.flatMap(group => group.columns.flatMap(column => column.items)).filter(item => realTargetAllowed(item.real, { ...snapshot?.membership, role }));
   const pdvPage = preferencePage('vendas-frente-caixa');
   const subtotal = (item: CartItem) => { try { return money(lineTotals(item).total.replace('.', '')); } catch { return '—'; } };
   const productSubtotal = (() => { try { if (!product.record) return ''; const quantity = quantityInput(product.quantity || '1'), price = priceInput(product.price || '0');
@@ -414,7 +416,7 @@ export default function RealPdv({ controller }: { controller: AccessController }
   const panel = (id: Tab, label: string) => ({ id: `pdv-panel-${id}`, role: 'tabpanel', 'aria-label': label, hidden: tab !== id });
   return <div className="pdv-workspace real-pdv">
     <header className="pdv-topbar">
-      <button type="button" className="pdv-menu-button" aria-label="Abrir menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}><Icon name="bars" size={15} /></button>
+      {!embedded && <button type="button" className="pdv-menu-button" aria-label="Abrir menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}><Icon name="bars" size={15} /></button>}
       <span className="pdv-store"><span className="pdv-store-avatar" aria-hidden="true">{(store?.store.name ?? 'B').slice(0, 1).toUpperCase()}</span>{store?.store.name ?? 'Frente de caixa'}</span>
       {store?.session ? <span className="pdv-cash-state">Caixa aberto · {store.session.operator_name} · {dateTimeSP(store.session.opened_at)}</span>
         : context.effects.cash && context.stores.length ? <button type="button" className="pdv-open-cash" onClick={() => setDialog({ kind: 'store' })}><Icon name="cash-register" size={11} />Abrir caixa</button> : null}
@@ -423,9 +425,9 @@ export default function RealPdv({ controller }: { controller: AccessController }
       {!operate && <span className="pdv-warning" role="status"><Icon name="circle-info" size={12} />{context.role === 'vendas' ? 'Seu vendedor não tem o módulo Frente de Caixa.' : 'Somente consulta.'}</span>}
       <button type="button" className="pdv-info" title="Teclas de atalho" aria-label="Teclas de atalho" onClick={() => setDialog({ kind: 'shortcuts' })}><Icon name="keyboard" size={15} /></button>
     </header>
-    {menuOpen && <><button type="button" className="origin-drawer-backdrop" aria-label="Fechar menu" onClick={() => setMenuOpen(false)} /><nav className="origin-drawer" aria-label="Menu">
-      <Link to="/acesso"><Icon name="house" size={13} />Início</Link>{menu.map(item => <Link key={`${item.label}:${item.real!.to}`} to={item.real!.to}>{item.label}</Link>)}
-      {pdvPage && pdvPage.readRoles.includes(role as never) && <Link to={preferencePageHref(pdvPage)}><Icon name="gear" size={13} />Preferências › Frente de caixa</Link>}</nav></>}
+    {!embedded && menuOpen && <><button type="button" className="origin-drawer-backdrop" aria-label="Fechar menu" onClick={() => setMenuOpen(false)} /><nav className="origin-drawer" aria-label="Menu">
+      {targetEnabled('/acesso') && <Link to="/acesso"><Icon name="house" size={13} />Início</Link>}{menu.map(item => <Link key={`${item.label}:${item.real!.to}`} to={item.real!.to}>{item.label}</Link>)}
+      {pdvPage && pdvPage.readRoles.includes(role as never) && targetEnabled(preferencePageHref(pdvPage)) && <Link to={preferencePageHref(pdvPage)}><Icon name="gear" size={13} />Preferências › Frente de caixa</Link>}</nav></>}
     {(notice || error || sale.error) && <p className={sale.error || error ? 'real-alert pdv-message' : 'real-success pdv-message'} role={sale.error || error ? 'alert' : 'status'}>{sale.error || error || notice}</p>}
     <div className={`pdv-body${collapsed ? ' is-collapsed' : ''}`}>
       <section className="pdv-sale" aria-label="Venda">

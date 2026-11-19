@@ -20,7 +20,7 @@ import {HomeProfileCard} from './CompanyChrome';
 import {HomeExpiring} from './HomeExpiring';
 import {Icon} from './Icon';
 import './real-home.css';
-import { blockEnabled } from '../../blocks';
+import { blockEnabled, targetEnabled } from '../../blocks';
 
 const count=(value:number)=>value.toLocaleString('pt-BR');
 const ORDER=['sales_orders','sales_proposals','purchase_orders','service_orders'];
@@ -57,7 +57,7 @@ function HomeView({controller,access}:{controller:HomeController;access:CompanyA
   const newInvoicesOn=Boolean(role&&blockEnabled('erp-fiscal')&&['admin','consulta','fiscal'].includes(role));
   const newInvoices=useNewInvoices(controller as unknown as Partial<PlatformPort>,newInvoicesOn);
   // Quick actions come from the destinations this access already has in the menu; nothing new is granted here.
-  const quick=useMemo(()=>access?workspaceActions(resolveMenu('real',access),access.role):[],[access]);
+  const quick=access?workspaceActions(resolveMenu('real',access),access.role):[];
   const togglePanel=()=>{const next=!panel;setPanel(next);try{globalThis.localStorage?.setItem(PANEL_KEY,next?'open':'closed');}catch{/* Visit only. */}};
   const toggleHidden=()=>{const next=!hidden;setHidden(next);try{globalThis.localStorage?.setItem(VALUES_KEY,next?'hidden':'visible');}catch{/* Visit only. */}};
   useEffect(()=>{
@@ -168,9 +168,9 @@ function HomeView({controller,access}:{controller:HomeController;access:CompanyA
         <HomeProfileCard controller={controller as Parameters<typeof HomeProfileCard>[0]["controller"]}/>
         <HomeFavorites controller={controller} access={access}/>
         <nav aria-label="Outras consultas"><ul className="home-favorites home-favorites-brufap">
-          {originHistoryAvailable(access)&&<li><Link to="/dados-origin"><Icon name="bookmark" size={12}/>Consultar histórico do Origin</Link></li>}
-          {role&&['admin','financeiro','consulta'].includes(role)&&<li><Link to="/cobranca-empresa"><Icon name="bookmark" size={12}/>Cobrança bancária</Link></li>}
-          {role==='admin'&&<li><Link to="/importar-cadastros"><Icon name="bookmark" size={12}/>Importar cadastros</Link></li>}
+          {originHistoryAvailable(access)&&targetEnabled('/dados-origin')&&<li><Link to="/dados-origin"><Icon name="bookmark" size={12}/>Consultar histórico do Origin</Link></li>}
+          {role&&['admin','financeiro','consulta'].includes(role)&&targetEnabled('/cobranca-empresa')&&<li><Link to="/cobranca-empresa"><Icon name="bookmark" size={12}/>Cobrança bancária</Link></li>}
+          {role==='admin'&&targetEnabled('/preferencias/importacoes')&&<li><Link to="/preferencias/importacoes"><Icon name="bookmark" size={12}/>Importar cadastros</Link></li>}
         </ul></nav>
       </div>
     </aside>
