@@ -1,6 +1,6 @@
 import { createPiiMask, maskPersonalEnabled, type PiiMask } from "./pii-mask";
 // O carregamento registra HistoryPort e os provedores de Fila e Formulários.
-import { projectCustomerInput } from "./customer/history";
+import { customerTextHistory, customerTextScope, projectCustomerInput } from "./customer/history";
 import { extractMaskedPersonalPdf } from "./pii-pdf";
 import { preparePaidTemplate, assertPaidConsent } from "./router-templates";
 import { managedAppAllowed } from "./number-router";
@@ -162,12 +162,24 @@ import {
  * (src/security.ts, engineActor): aplicação sem privilégio, presa ao bot da
  * execução. Até a 0.21.0 era um administrador (revisão A do PLANO-BOTS).
  */
-const createRunAsEngine = (
+const createRunAsEngine = async (
   env: Env,
   profile: string,
   data: { bot_id: string; [key: string]: any },
   extra: any = {},
-) => createRun(env, engineActor(profile, data.bot_id), profile, data, extra);
+) => {
+  if (extra.conversation_id) {
+    const scope = await customerTextScope(env, { id: extra.conversation_id, profile_id: profile });
+    if ((extra.context?.session && extra.context.session !== scope?.conversation.session) ||
+      (extra.context?.customerHistoryProof && extra.context.customerHistoryProof !== scope?.proof))
+      return { id: "", status: "cancelled" };
+    extra = { ...extra, context: { ...extra.context, session: scope?.conversation.session,
+      customerHistoryProof: scope?.proof } };
+  }
+  const projected = json(projectCustomerInput(JSON.stringify({ input: data.input, context: extra.context || {} })));
+  return createRun(env, engineActor(profile, data.bot_id), profile,
+    { ...data, input: projected.input ?? "{}" }, { ...extra, context: projected.context || {} });
+};
 export async function processInbox(env: Env, profile: string) {
   // Uma mensagem por chamada; leituras de configuração lembradas nela.
   env = withReadCache(env);
@@ -1110,11 +1122,6 @@ export async function processInbox(env: Env, profile: string) {
         text: followupSituation(followup.ticket),
         url: "",
       });
-    const history = await all(
-      env,
-      "SELECT direction,text FROM messages WHERE conversation_id=? AND direction!='note' ORDER BY created DESC LIMIT 12",
-      c.id,
-    );
     let input = value;
     const images: string[] = [];
     const documents: string[] = [];
@@ -1199,7 +1206,6 @@ export async function processInbox(env: Env, profile: string) {
             cfg,
             input,
             sources,
-            history.reverse(),
           ),
         ),
       },
@@ -1427,19 +1433,10 @@ async function attendantInput(
   cfg: any,
   request: string,
   sources: any[],
-  history?: any[],
 ) {
   return {
     request,
-    history:
-      history ??
-      (
-        await all(
-          env,
-          "SELECT direction,text FROM messages WHERE conversation_id=? AND direction!='note' ORDER BY created DESC LIMIT 12",
-          c.id,
-        )
-      ).reverse(),
+    history: await customerTextHistory(env, c),
     sources,
     menus: (
       await availableMenus(
@@ -1607,6 +1604,13 @@ async function aiRun(env: Env, run: Run, conn: any, pii: PiiMask): Promise<strin
   request.instructions += markerInstructions;
   let output: string;
   try {
+    if (current) {
+      const scope = await customerTextScope(env, current);
+      if (!scope?.allowed || json(run.context).customerHistoryProof !== scope.proof) {
+        await exec(env, "UPDATE bot_runs SET status='cancelled',updated=? WHERE id=?", now(), run.id);
+        return null;
+      }
+    }
     if (!tooling) output = await aiComplete(env, conn, request);
     else
       try {
@@ -1690,6 +1694,33 @@ async function aiRun(env: Env, run: Run, conn: any, pii: PiiMask): Promise<strin
   return claimed.meta.changes ? output : null;
 }
 export async function processRun(env: Env, run: Run) {
+  if (run.conversation_id) {
+    const scope = await customerTextScope(env, { id: run.conversation_id, profile_id: run.profile_id });
+    const context = json(run.context);
+    if (!scope?.allowed || (context.session && context.session !== scope.conversation.session) ||
+      (context.customerHistoryProof && context.customerHistoryProof !== scope.proof) ||
+      (!context.customerHistoryProof && (scope.conflict || run.created < scope.since ||
+        (scope.conversation as any).linked_at > run.created))) {
+      await exec(env, "UPDATE bot_runs SET status='cancelled',updated=? WHERE id=?", now(), run.id);
+      return;
+    }
+    // Contextos anteriores à proteção não são prova de autorização. Releia os
+    // textos, inclusive para runs concluídos que ainda aguardam seus efeitos.
+    const history = await customerTextHistory(env, scope.conversation, scope, run.created);
+    const refresh = (value: any): any => {
+      if (!value || typeof value !== "object") return value;
+      if (Array.isArray(value)) return value.map(refresh);
+      return Object.fromEntries(Object.entries(value).map(([key, entry]) =>
+        [key, key === "history" ? history : refresh(entry)]));
+    };
+    const projected = json(projectCustomerInput(JSON.stringify({ input: run.input, context })));
+    const input = projected.input ?? "{}";
+    let refreshed = input;
+    try { refreshed = JSON.stringify(refresh(JSON.parse(input))); } catch { /* solicitação textual */ }
+    run = { ...run, input: refreshed, context: JSON.stringify({
+      ...refresh(projected.context || {}), session: scope.conversation.session, customerHistoryProof: scope.proof,
+    }) };
+  }
   const bot = await one(env, "SELECT * FROM bots WHERE id=?", run.bot_id),
     conn = bot
       ? await one(
@@ -1756,6 +1787,11 @@ export async function processRun(env: Env, run: Run) {
     );
     if (run.conversation_id) {
       const c = await conversation(env, run.conversation_id, run.profile_id);
+      const scope = await customerTextScope(env, c);
+      if (!scope?.allowed || json(run.context).customerHistoryProof !== scope.proof) {
+        await exec(env, "UPDATE bot_runs SET status='cancelled',updated=? WHERE id=?", now(), run.id);
+        return;
+      }
       const cfg = await settings(env, run.profile_id);
       const line = await serviceForLine(env, c.connection_id);
       cfg.attendant_bot =
