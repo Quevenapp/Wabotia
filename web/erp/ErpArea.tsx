@@ -14,6 +14,9 @@ import { useWorkNavigation } from "../modules/os/work-navigation";
 import type { Disposable, ErpHostContext, ErpMountProps, ErpPermissions, MountCustomerProfile, PortedTargetState } from "../management/host-contract";
 import { setPanelPartsContext } from "./fetch-port";
 import type { FullCustomerHost } from "../contact-profile/host-port";
+import { installIntegrationHost, integrationRouteState, portableWorkBlocked, visibleIntegrationItems } from "../modules/integrations/visibility";
+import { IntegrationsPage } from "../modules/integrations/IntegrationStatus";
+import { setMotorWorkEnabled } from "./motor";
 
 /** Testável por injeção: estado leve não inicia import nem prefetch. */
 export function loadAuthorizedPorted<T>(state: PortedTargetState, load: () => Promise<T>, prefetch: () => void): Promise<T> | null {
@@ -180,11 +183,15 @@ export function ErpArea() {
   });
   const partsKey = JSON.stringify(context.modules);
   useLayoutEffect(() => setPanelPartsContext(erpApiUrl(app.profile), context.modules), [app.profile, partsKey]);
+  const integrationKey = JSON.stringify([identity, partsKey, context.role, context.access, context.statusLoaded, app.contextGeneration]);
+  useLayoutEffect(() => installIntegrationHost({ context, api: app.api, root: app.root, actor: String(app.me.id), generation: app.contextGeneration }), [integrationKey, app.api]);
+  useLayoutEffect(() => { setMotorWorkEnabled(context.modules.os === true); return () => setMotorWorkEnabled(false); }, [partsKey]);
   const [accessReport, setAccessReport] = useState<{ identity: string; permissions: ErpPermissions | null } | null>(null);
   const permissions = route.erpPath && accessReport?.identity === identity &&
     accessReport.permissions?.apiUrl === erpApiUrl(app.profile) &&
     (app.demo || accessReport.permissions.userId === String(app.me.id)) ? accessReport.permissions : null;
-  const items = [...resolveManagement(MANAGEMENT_ITEMS, context, erpSimulated(app.demo), permissions)];
+  const items = [...resolveManagement(visibleIntegrationItems(MANAGEMENT_ITEMS, context), context, erpSimulated(app.demo), permissions)];
+  if (integrationRouteState(context) === "allowed") items.push({ id: "erp.integrations", module: "erp", group: "comercial", groupLabel: "Comercial", groupOrder: 20, order: 225, label: "Integrações", resolvedLabel: "Integrações", icon: "link", target: { kind: "ported", to: "/integracoes" }, permission: { kind: "erp" }, href: "/app/erp/integracoes" });
   const workItem = items.find((item) => item.id === "os.work");
   if (workItem) {
     for (const type of work.types) items.push({
@@ -202,13 +209,15 @@ export function ErpArea() {
   });
   const entry = !route.page && !route.erpPath && !route.nativePath;
   const ported = route.erpPath ? route.erpPath + (route.search || "") + (route.hash || "") : null;
-  const state: PortedTargetState = route.nativePath ? "not-found"
+  const integrations = route.erpPath === "/integracoes";
+  const workRequired = !!ported && portableWorkBlocked(ported, context);
+  const state: PortedTargetState = integrations ? integrationRouteState(context) : workRequired ? "unavailable" : route.nativePath ? "not-found"
     : route.page ? isNativeManagementPage(route.page) ? nativeTargetState(route.page, context) : "not-found"
     : ported ? portedTargetState(ported, context, erpSimulated(app.demo)) : "loading";
   const [chromeTarget, setChromeTarget] = useState<HTMLDivElement | null>(null);
   const selection = href(route);
   const last = useRef<{ selection: string; identity: string; guarded: boolean; suspended?: boolean } | null>(null);
-  const fineState = ported && state === "allowed" ? portedTargetState(ported, context, erpSimulated(app.demo), permissions) : state;
+  const fineState = !integrations && ported && state === "allowed" ? portedTargetState(ported, context, erpSimulated(app.demo), permissions) : state;
   const waitingPermission = state === "allowed" && (fineState === "loading" || fineState === "unavailable") &&
     last.current?.selection === selection && last.current.identity === identity && last.current.suspended;
   if (state === "allowed" && !waitingPermission) last.current = { selection, identity, guarded: navigationGuarded() };
@@ -227,7 +236,7 @@ export function ErpArea() {
       last.current.identity === identity && last.current.guarded);
   }, [heldGuard, selection, identity]);
   const actor = String(app.me.id);
-  const authorized = !entry && !!ported && state === "allowed";
+  const authorized = !entry && !integrations && !!ported && state === "allowed";
   useEffect(() => {
     const prefetch = startAuthorizedPortedPrefetch(authorized ? "allowed" : "denied", {
       actor, profile: app.profile, simulated: erpSimulated(app.demo),
@@ -266,9 +275,9 @@ export function ErpArea() {
   return <ManagementShell context={context} items={menu} entry={entry && !failedStatus} chromeRef={setChromeTarget}>
     {failedStatus && <Empty title="Não foi possível abrir a gestão" description={app.statusError}
       action={<Button onClick={() => void app.refresh().catch(() => {})}>Tentar novamente</Button>} />}
-    {!entry && state !== "allowed" && <ManagementState state={state} admin={app.isAdmin} retained={!!retained} />}
+    {workRequired ? <Empty title="Crie um trabalho para esta operação" description="A ordem de serviço comercial acompanha o trabalho da área." action={<a href="/app/erp/modulos/trabalhos">Abrir trabalhos</a>} /> : !entry && state !== "allowed" && <ManagementState state={state} admin={app.isAdmin} retained={!!retained} />}
     {!entry && (state === "allowed" || retained) && <ManagementRequestBoundary key={identity} enabled={state === "allowed"}>
-      {ported ? <div className="management-page erp-area"><PortedContent target={ported} props={mountProps} /></div> : <Activity mode={state === "allowed" ? "visible" : "hidden"}>
+      {integrations ? <IntegrationsPage key={selection + identity} search={route.search} /> : ported ? <div className="management-page erp-area"><PortedContent target={ported} props={mountProps} /></div> : <Activity mode={state === "allowed" ? "visible" : "hidden"}>
         <div className={"management-page" + (ported ? " erp-area" : "")}>
           {route.page && isNativeManagementPage(route.page)
             ? <ManagementPage page={route.page} />

@@ -1,3 +1,4 @@
+import { IntegrationStatus } from '../integrations/IntegrationStatus';
 // Pedidos (módulo "pedido", docs/PEDIDO.md): quadro da cozinha com os pedidos
 // em andamento por estado, lista de todos os pedidos, detalhe com itens,
 // adicionais, observação, endereço, pagamento e histórico, mudança de estado,
@@ -303,6 +304,7 @@ export function OrderDetail({
           </>
         }
       >
+        <IntegrationStatus module={order.tab_id ? "mesas" : "pedido"} sourceId={order.integration?.source_id || order.tab_id || order.id} />
         {order.status === "awaiting_payment" && (
           <Notice tone="warn">
             {payment.status === "choosing"

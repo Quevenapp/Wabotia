@@ -1,5 +1,6 @@
 // DTOs de F0: imports apenas de tipos, sem levar o servidor ao bundle.
 export type * from "../../../src/modules/os/contracts";
+export type { CommercialItem, WorkCommercialView } from "../integrations/contracts";
 import type { Task } from "../../../src/modules/os/contracts";
 // Consulta agregada de T/I em service-orders/my-tasks; datas civis de Brasília.
 export interface Deadline extends Task {

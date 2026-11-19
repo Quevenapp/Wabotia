@@ -1,0 +1,107 @@
+import React, { lazy, Suspense, useEffect, useState } from "react";
+import { Button, Field } from "../../ui";
+import { integrationError, useIntegrationApi } from "./api";
+import { integrationAccess, operationalHref, sourceHref, useIntegrationHost } from "./visibility";
+import { MODULE_LABELS, type IntegrationModule, type IntegrationState, type ModuleStatus, type SourceView } from "./contracts";
+import { CommercialPolicyPanel } from "./CommercialPolicyPanel";
+import { DeliveryCommercialForm, ReceiptForm, ReceiptReverseForm } from "./ReceiptForm";
+
+export const STATE_LABELS: Record<IntegrationState, string> = { off: "Operação local", pending: "Pendente no ERP", sending: "Aguardando confirmação ERP", waiting_manual: "Aguardando lançamento manual", blocked: "Pendente de correção", failed: "Falhou", done: "Confirmado no ERP" };
+export const confirmationTime = (value: number | null) => value == null ? "Ainda não confirmada" : new Date(value).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+export function actionableEvent(view: SourceView) { return view.deliveries.find(d => d.state !== "done") ?? view.deliveries.at(-1); }
+
+export function IntegrationStatus({ module, sourceId, compact = false }: { module: IntegrationModule; sourceId?: string; compact?: boolean }) {
+  const host = useIntegrationHost(), api = useIntegrationApi();
+  const allowed = !!host && integrationAccess(host.context).module(module);
+  const [data, setData] = useState<{ api: typeof api; key: string; view?: SourceView; status?: ModuleStatus } | null>(null);
+  const [error, setError] = useState(""), [busy, setBusy] = useState(false), [reload, setReload] = useState(0), [review, setReview] = useState(false);
+  const [reason, setReason] = useState("commercial_correction");
+  const key = `${module}:${sourceId ?? ""}`;
+  useEffect(() => {
+    setError(""); setReview(false);
+    if (!api || !allowed) return;
+    const request = new AbortController();
+    const load = sourceId ? api.source(module, sourceId, request.signal).then(view => ({ view })) : api.status(module, request.signal).then(status => ({ status }));
+    void load.then(value => { if (!request.signal.aborted) setData({ api, key, ...value }); }).catch(e => { if (!request.signal.aborted) setError(integrationError(e)); });
+    return () => request.abort();
+  }, [api, allowed, key, reload]);
+  if (!host || !allowed || !api) return sourceId ? <p>Operação local. A integração ERP está indisponível neste contexto.</p> : null;
+  const access = integrationAccess(host.context), view = data?.api === api && data.key === key ? data.view : undefined, status = data?.api === api && data.key === key ? data.status : undefined;
+  const pending = sourceId ? api.pending(key) : null;
+  const canResume = pending?.path.endsWith("/post")
+    ? ((pending.body as { destinations?: string[] }).destinations ?? []).every(d => d === "finance" ? access.finance : access.postStock)
+    : access.write(module) && (access.documents || access.stock || access.finance);
+  const event = view && actionableEvent(view);
+  const run = async (operation: () => Promise<unknown>, correction = false) => {
+    setBusy(true); setError("");
+    try { await operation(); setReview(false); setReload(n => n + 1); }
+    catch (e) { setError(integrationError(e)); if (correction) setReview(true); }
+    finally { setBusy(false); }
+  };
+  return <section className="card" aria-label={`Integração · ${MODULE_LABELS[module]}`}>
+    <h3>{view ? STATE_LABELS[view.state] : `Integração · ${MODULE_LABELS[module]}`}</h3>
+    <p>A situação operacional e a confirmação ERP são independentes.</p>
+    {error && <p role="alert">{error}</p>}
+    {!view && !status && !error && <p role="status">Consultando confirmação…</p>}
+    {view && <>
+      <p>Última confirmação: {confirmationTime(view.confirmed_ms)} (horário de São Paulo).</p>
+      {!access.finance && view.pending && <p>Existe uma pendência. Detalhes financeiros são restritos à equipe autorizada.</p>}
+      {access.finance && event?.error_code && <p role="alert">Falhou: {integrationError({ code: event.error_code })}</p>}
+      {view.links.filter(l => l.kind === "document").map(link => <p key={link.id}><a href={`/app/erp/documentos-empresa?${new URLSearchParams({ tipo: module === "os" ? "service_orders" : "sales_orders", documento: link.id })}`}>Abrir documento ERP · somente leitura</a></p>)}
+      {access.finance && view.links.filter(l => l.kind === "title").map(link => <p key={link.id}>Título confirmado: {link.id}</p>)}
+      {pending ? <><p role="status">A confirmação da ação anterior não foi recebida. A retomada desta tela não enviou nenhum comando.</p>{canResume && <Button disabled={busy} onClick={() => void run(() => api.resumeSource(module, sourceId!))}>Repetir a mesma ação</Button>}</> : <>
+        {event && view.pending && (access.documents || access.stock || access.finance) && access.write(module) && <Button disabled={busy} onClick={() => void run(() => api.sourceAction(module, sourceId!, "retry", { event_id: event.id }))}>Tentar novamente</Button>}
+        {event && view.manual_destinations.map(destination => <Button key={destination} disabled={busy} onClick={() => void run(() => api.sourceAction(module, sourceId!, "post", { event_id: event.id, version: view.revision, destinations: [destination] }))}>{`Lançar ${destination === "stock" ? "estoque" : "financeiro"} manualmente`}</Button>)}
+        {event && view.pending && (access.documents || access.stock || access.finance) && access.write(module) && <Button secondary disabled={busy} onClick={() => setReview(true)}>Corrigir pendência</Button>}
+      </>}
+      {review && !pending && <div role="group" aria-label="Confirmar correção">
+        <p>O servidor consultará o recibo e confirmará o fechamento do comando anterior antes de projetar outro. Se ele já foi aplicado, a correção será interrompida para revisão.</p>
+        <Field label="Motivo comercial" value={reason} onChange={setReason} emptyOption={null} options={[{ id: "commercial_correction", name: "Corrigir dados comerciais" }, { id: "default_correction", name: "Corrigir padrão ausente" }, { id: "catalog_correction", name: "Corrigir vínculo de catálogo" }]} />
+        <Button disabled={busy} onClick={() => void run(() => api.sourceAction(module, sourceId!, "replace", { event_id: event!.id, reason_code: reason }), true)}>Confirmar fechamento e correção</Button>
+        <Button secondary disabled={busy} onClick={() => setReview(false)}>Voltar</Button>
+      </div>}
+    </>}
+    {status && <><ul>{status.counters.map(c => <li key={c.state}>{STATE_LABELS[c.state]}: {c.count}</li>)}</ul>{!compact && <ul>{Object.values(status.activations).map(a => <li key={a.module_id}>{a.module_id} · época {a.epoch} · corte: {confirmationTime(a.enabled_since_ms)}</li>)}</ul>}</>}
+    <Button secondary disabled={busy} onClick={() => setReload(n => n + 1)}>Atualizar confirmação</Button>
+    {compact && <a href={sourceHref({ profile: "", module, source_id: sourceId ?? "", component: "main" })}>Abrir integrações</a>}
+  </section>;
+}
+
+export function IntegrationsPage({ search = "" }: { search?: string }) {
+  const host = useIntegrationHost();
+  const query = new URLSearchParams(search), requested = query.get("module");
+  const available = host ? (Object.keys(MODULE_LABELS) as IntegrationModule[]).filter(m => integrationAccess(host.context).module(m)) : [];
+  const [selected, setSelected] = useState<IntegrationModule | "">(requested && Object.hasOwn(MODULE_LABELS, requested) ? requested as IntegrationModule : "");
+  const [id, setId] = useState(query.get("source") ?? ""), [opened, setOpened] = useState(query.get("source") ?? "");
+  const module = selected || available[0];
+  return <div className="management-page"><h2>Integrações</h2>
+    <CommercialPolicyPanel />
+    {module && available.includes(module) && <>
+      <Field label="Módulo" value={module} onChange={value => { setSelected(value as IntegrationModule); setOpened(""); setId(""); }} emptyOption={null} options={available.map(id => ({ id, name: MODULE_LABELS[id] }))} />
+      <IntegrationStatus key={module} module={module} />
+      <form onSubmit={e => { e.preventDefault(); setOpened(id.trim()); }}><Field label="Identificador da origem" value={id} onChange={setId} required /><Button type="submit">Consultar origem</Button></form>
+      {opened && <><IntegrationStatus key={module + opened} module={module} sourceId={opened} /><OriginOperationLink module={module} id={opened} /></>}
+      {opened && (module === "agenda" || module === "reserva") && <ReceiptForm key={module + opened} module={module} sourceId={opened} />}
+      {opened && module === "entrega" && <DeliveryCommercialForm key={opened} id={opened} />}
+    </>}
+    {requested && !available.includes(requested as IntegrationModule) && <p>Este módulo está desligado ou seu perfil não permite consultá-lo.</p>}
+    <ReceiptReverseForm />
+  </div>;
+}
+const OriginOrderDetail = lazy(() => import("../pedido/OrdersPage").then(value => ({ default: value.OrderDetail })));
+function OriginOperationLink({ module, id }: { module: IntegrationModule; id: string }) {
+  const host = useIntegrationHost();
+  const [orderOpen, setOrderOpen] = useState(false);
+  const [workType, setWorkType] = useState<string | null>(null);
+  useEffect(() => {
+    if (!host || module !== "os" || !integrationAccess(host.context).module(module)) return;
+    const request = new AbortController();
+    void host.api(`${host.root}/service-orders/${encodeURIComponent(id)}?history=none`, "GET", undefined, request.signal).then(row => { if (!request.signal.aborted) setWorkType(row.type_id); }).catch(() => {});
+    return () => request.abort();
+  }, [host, module, id]);
+  if (!host) return null;
+  if (module === "pedido") return <><Button secondary onClick={() => setOrderOpen(true)}>Abrir pedido</Button>{orderOpen && <Suspense fallback={<p>Abrindo pedido…</p>}><OriginOrderDetail id={id} onClose={() => setOrderOpen(false)} onChanged={() => {}} /></Suspense>}</>;
+  if (module === "entrega") return null;
+  if (module === "os") return workType ? <a href={`/app/erp/modulos/trabalhos/${encodeURIComponent(workType)}/${encodeURIComponent(id)}`}>Abrir trabalho</a> : null;
+  return <a href={operationalHref({ profile: "", module, source_id: id, component: "main" })}>Abrir {MODULE_LABELS[module].toLowerCase()}</a>;
+}

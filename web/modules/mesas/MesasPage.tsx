@@ -1,3 +1,5 @@
+import { IntegrationStatus } from '../integrations/IntegrationStatus';
+import { useRoute } from '../../lib/routes';
 // Mesas (módulo "mesas", docs/MESAS.md): mapa das mesas e comandas com o
 // estado (livre, ocupada, fechando), a conta de cada uma, lançar itens para a
 // cozinha do Pedido, pedir a conta, pagamentos parciais, conta dividida para
@@ -1095,9 +1097,10 @@ function TablesDialog({
 
 export function MesasPage() {
   const app = useApp();
+  const route = useRoute();
   const resource = useResource(`${app.root}/mesas`);
   const [opening, setOpening] = useState<Row | null>(null);
-  const [tabId, setTabId] = useState<string | null>(null);
+  const [tabId, setTabId] = useState<string | null>(() => new URLSearchParams(route.search).get("origem"));
   const [admin, setAdmin] = useState(false);
   const view: Row | null = resource.data;
   useAppEvents((events: Row[]) => {
@@ -1126,6 +1129,8 @@ export function MesasPage() {
     );
   return (
     <>
+      <IntegrationStatus module="mesas" compact />
+      {tabId && <IntegrationStatus key={tabId} module="mesas" sourceId={tabId} />}
       <section className="card mesas-summary">
         <Pill tone="ok">{view.counts.free} livres</Pill>
         <Pill tone="brand">{view.counts.occupied} ocupadas</Pill>

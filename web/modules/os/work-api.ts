@@ -80,6 +80,8 @@ export function createWorkApi(api: Api, root: string) {
       });
     });
   return {
+    commercial: (id: string) => get<import("../integrations/contracts").WorkCommercialView>(order(id) + "/commercial"),
+    saveCommercial: (id: string, body: object) => send<import("../integrations/contracts").WorkCommercialView>(order(id) + "/commercial", "PATCH", body),
     types: (archived = false) =>
       get<C.WorkTypeCatalog>(base + "/types", {
         include_archived: archived ? "1" : undefined,

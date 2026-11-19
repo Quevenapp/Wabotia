@@ -183,6 +183,7 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
   },
   {
     id: "erp.service-orders", module: "erp-vendas", part: "servicos",
+    hidden_when_modules_enabled: ["os"],
     ...ERP_MENU_GROUPS.comercial, order: 220,
     label: "Ordens de serviço",
     target: { kind: "ported", to: "/documentos-empresa?tipo=service_orders" },
