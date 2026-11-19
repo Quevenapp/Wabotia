@@ -18,7 +18,7 @@ export async function transport(
 ) {
   const conn = await one(
     env,
-    "SELECT * FROM connections WHERE id=? AND kind='qr'",
+    "SELECT * FROM connections WHERE id=? AND kind='qr' AND channel='whatsapp'",
     connectionId,
   );
   requireValue(conn, "Conector não encontrado.");
@@ -87,7 +87,7 @@ export async function transport(
     );
     const row = await one(
       env,
-      "SELECT o.*,c.external_id destination,c.last_customer,c.chat_type FROM outbox o JOIN conversations c ON c.id=o.conversation_id WHERE o.connection_id=? AND o.kind!='team' AND o.status='pending' AND o.epoch=c.epoch AND NOT EXISTS(SELECT 1 FROM outbox p WHERE p.conversation_id=o.conversation_id AND p.kind!='team' AND (p.created<o.created OR p.created=o.created AND p.rowid<o.rowid) AND p.status IN ('pending','sending','unknown')) ORDER BY o.created,o.rowid LIMIT 1",
+      "SELECT o.*,c.external_id destination,c.last_customer,c.chat_type FROM outbox o JOIN conversations c ON c.id=o.conversation_id WHERE o.connection_id=? AND (c.channel IS NULL OR c.channel='whatsapp') AND o.kind!='team' AND o.status='pending' AND o.epoch=c.epoch AND NOT EXISTS(SELECT 1 FROM outbox p WHERE p.conversation_id=o.conversation_id AND p.kind!='team' AND (p.created<o.created OR p.created=o.created AND p.rowid<o.rowid) AND p.status IN ('pending','sending','unknown')) ORDER BY o.created,o.rowid LIMIT 1",
       conn.id,
     );
     if (!row) return { commands: [] };
@@ -186,6 +186,7 @@ export async function transport(
   if (operation === "check") {
     let valid =
       conn.status === "active" &&
+      (c.channel == null || c.channel === "whatsapp") &&
       row.status === "sending" &&
       row.epoch === c.epoch;
     try {

@@ -1,4 +1,8 @@
 import { createPiiMask, maskPersonalEnabled, type PiiMask } from "./pii-mask";
+import { allowsModules, channelRules, channelWindow, assertChannelSend, conversationChannel } from "./channels";
+import { socialTransportPort } from "./channel-ports";
+import type { ChannelId, SocialDelivery, SocialEventScope, SocialSendAttachment } from "./channel-contracts";
+import { persistedSocialOrigin } from "./zernio-social";
 // O carregamento registra HistoryPort e os provedores de Fila e Formulários.
 import { customerTextHistory, customerTextScope, projectCustomerInput } from "./customer/history";
 import { extractMaskedPersonalPdf } from "./pii-pdf";
@@ -66,7 +70,7 @@ import {
 import {
   settings,
   conversation,
-  enqueue,
+  enqueue as legacyEnqueue,
   message,
   handoff,
   createRun,
@@ -180,6 +184,110 @@ const createRunAsEngine = async (
   return createRun(env, engineActor(profile, data.bot_id), profile,
     { ...data, input: projected.input ?? "{}" }, { ...extra, context: projected.context || {} });
 };
+
+/** Conversas antigas de canal conservam o caminho WhatsApp, sem nova leitura.
+ * Aplicação/equipe e origens desconhecidas nunca ganham acesso aos módulos. */
+function engineChannel(c: any): ChannelId | null {
+  if (c.channel != null || c.external_namespace?.startsWith("app:") || ["team", "internal"].includes(c.chat_type))
+    return conversationChannel(c, null);
+  return c.connection_id && c.external_namespace === `channel:${c.connection_id}` ? "whatsapp" : null;
+}
+const isSocial = (c: any) => ["instagram", "facebook"].includes(engineChannel(c) || "");
+
+/** Suspende respostas automáticas expiradas sem produzir mensagem pública de
+ * transferência. O motivo aparece como nota interna idempotente à equipe. */
+async function stopSocialAutomation(env: Env, c: any, source: string) {
+  if (!isSocial(c)) return false;
+  const conn = await cachedOne(env, "SELECT * FROM connections WHERE id=? AND profile_id=?", c.connection_id, c.profile_id);
+  const rules = channelRules(conn);
+  const window = rules && channelWindow(rules, c.last_customer, now());
+  if (rules?.enabled && window?.canAutomation) return false;
+  const reason = !rules?.enabled ? "Este canal ainda não está disponível."
+    : window?.state === "human_text_only" ? "A janela automática terminou. Somente texto escrito por uma pessoa pode ser enviado."
+    : "A janela de atendimento terminou. Aguarde uma nova mensagem do cliente.";
+  await batch(env, [
+    ["UPDATE conversations SET state=CASE WHEN state='ai' THEN 'waiting' ELSE state END,epoch=epoch+CASE WHEN state='ai' THEN 1 ELSE 0 END,updated=? WHERE id=? AND profile_id=?", [now(), c.id, c.profile_id]],
+    ["INSERT OR IGNORE INTO messages(id,profile_id,conversation_id,direction,author,text,attachments,created,source_key,content) VALUES(?,?,?,'note','system',?,'[]',?,?,'{}')", [`social-window:${source}`, c.profile_id, c.id, reason, now(), `social-window:${source}`]],
+  ]);
+  return true;
+}
+
+/** Encaixe para o ramo social de service.enqueue na composição cn-servidor.
+ * A operação humana deve remover origin/human/messageTag/social_provenance do
+ * corpo cliente e criar SocialSendProvenance somente para actor.kind=user,
+ * sem actor.via: manual_text para texto livre e human_media para anexos.
+ * Bots, aplicações, menus e automações nunca recebem prova de texto manual.
+ * Este helper confirma essa prova junto das entregas no mesmo lote da outbox. */
+export async function enqueueSocialDeliveries(env: Env, c: any, actor: string, kind: string, payload: any, dedupe: string) {
+  if (!isSocial(c)) throw new ApiError(422, "unsupported_content", "Conversa social obrigatória.");
+  const existing = await one(env, "SELECT id,profile_id,conversation_id FROM outbox WHERE dedupe=?", dedupe);
+  if (existing) {
+    if (existing.profile_id !== c.profile_id || existing.conversation_id !== c.id)
+      throw new ApiError(409, "idempotency_conflict", "A chave já pertence a outra conversa.");
+    return existing.id as string;
+  }
+  const connection = await one(env, "SELECT * FROM connections WHERE id=? AND profile_id=?", c.connection_id, c.profile_id);
+  const rules = channelRules(connection);
+  if (!rules?.enabled || rules.id !== engineChannel(c) || connection.status !== "active")
+    throw new ApiError(503, "channel_not_ready", "Este canal ainda não está disponível.");
+  const account = await one(env, "SELECT * FROM zernio_channel_accounts WHERE connection_id=? AND profile_id=? AND channel=?", c.connection_id, c.profile_id, rules.id);
+  const connectionConfig = json(connection.config);
+  if (!account || account.account_id !== c.channel_account_id || connectionConfig.account_id !== account.account_id ||
+      connectionConfig.zernio_workspace_id !== account.integration_id)
+    throw new ApiError(409, "cannot_initiate", "A conta desta conversa não está vinculada ao canal.");
+  const thread = await one(env, "SELECT conversation_id FROM zernio_conversations WHERE connection_id=? AND external_id=?", connection.id, c.external_id);
+  const origin = persistedSocialOrigin({ actor, conversation_id: c.id, connection_id: connection.id, kind }, payload, c, connection);
+  const contentType = payload.content?.type || "text";
+  if (payload.template_message || payload.template || !["text", "image", "video", "audio", "document", "buttons", "quick_replies"].includes(contentType))
+    throw new ApiError(422, "unsupported_content", "Conteúdo indisponível neste canal.");
+  const ids: string[] = payload.media_id ? [payload.media_id] : payload.attachments || [];
+  const attachments: SocialSendAttachment[] = [];
+  for (const id of ids) {
+    const media = await one(env, "SELECT * FROM media WHERE id=? AND profile_id=?", id, c.profile_id);
+    if (!media) throw new ApiError(422, "unsupported_content", "Anexo indisponível.");
+    const mediaType = media.type.startsWith("image/") ? "image" : media.type.startsWith("video/") ? "video"
+      : media.type.startsWith("audio/") ? "audio" : "document";
+    attachments.push({ mediaId: media.id, kind: mediaType, mimeType: media.type, bytes: media.size, name: media.name });
+  }
+  const cfg = await settings(env, c.profile_id);
+  const signed = await signedPayload(env, cfg, { kind, actor }, payload, rules.id);
+  const fresh = await conversation(env, c.id, c.profile_id);
+  if (fresh.epoch !== c.epoch || fresh.channel_account_id !== c.channel_account_id)
+    throw new ApiError(409, "window_closed", "A conversa mudou antes do envio.");
+  const scope: SocialEventScope = { profileId: c.profile_id, connectionId: connection.id, integrationId: account.integration_id,
+    channel: rules.id as "instagram" | "facebook", accountId: account.account_id, providerProfileId: account.provider_profile_id };
+  const plan = await socialTransportPort.prepareSend(env, { scope, conversationId: c.id, threadId: thread?.conversation_id || null,
+    commandId: dedupe, origin, lastCustomer: fresh.last_customer, serverNow: now(), text: signed.text || "", attachments,
+    ...(["buttons", "quick_replies"].includes(contentType) ? { menu: payload.content.options } : {}) });
+  if (!plan.deliveries.length) throw new ApiError(422, "unsupported_content", "Mensagem vazia.");
+  const at = now();
+  const writes: [string, any[]][] = [];
+  for (const delivery of plan.deliveries) {
+    const type = delivery.content.type === "media" ? delivery.content.attachment.kind : delivery.content.type;
+    assertChannelSend({ rules, window: channelWindow(rules, fresh.last_customer, at), origin, contentType: type, hasAttachments: delivery.content.type === "media" });
+    const prepared = { ...payload, text: delivery.content.type === "media" ? "" : delivery.content.text, attachments: [],
+      media_id: delivery.content.type === "media" ? delivery.content.attachment.mediaId : undefined,
+      content: { ...payload.content, type, customerSession: c.session },
+      // Uma adaptação para texto não transforma mídia/menu/automação em texto
+      // manual quando a janela é reconferida depois de preparar a entrega.
+      social_provenance: (origin === "manual_text" || origin === "human_media") &&
+        !["buttons", "quick_replies"].includes(contentType) ? payload.social_provenance : undefined,
+      social_delivery: delivery, social_thread_id: plan.threadId, social_scope: scope };
+    writes.push(["INSERT OR IGNORE INTO outbox(id,profile_id,conversation_id,connection_id,epoch,kind,actor,payload,dedupe,created,updated) SELECT ?,?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM outbox WHERE dedupe=? AND (profile_id!=? OR conversation_id!=?))",
+      [delivery.id, c.profile_id, c.id, connection.id, c.epoch, kind, actor, JSON.stringify(prepared), delivery.sequence === 0 ? dedupe : `${dedupe}:social:${delivery.sequence}`, at, at, dedupe, c.profile_id, c.id]]);
+  }
+  await batch(env, writes);
+  const confirmed = await one(env, "SELECT id,profile_id,conversation_id FROM outbox WHERE dedupe=?", dedupe);
+  if (confirmed?.id !== plan.deliveries[0].id || confirmed.profile_id !== c.profile_id || confirmed.conversation_id !== c.id)
+    throw new ApiError(409, "idempotency_conflict", "A chave já pertence a outra conversa.");
+  return plan.deliveries[0].id;
+}
+
+async function enqueue(env: Env, c: any, actor: string, kind: string, payload: any, dedupe: string) {
+  return isSocial(c) ? enqueueSocialDeliveries(env, c, actor, kind, payload, dedupe)
+    : legacyEnqueue(env, c, actor, kind, payload, dedupe);
+}
+
 export async function processInbox(env: Env, profile: string) {
   // Uma mensagem por chamada; leituras de configuração lembradas nela.
   env = withReadCache(env);
@@ -216,6 +324,7 @@ export async function processInbox(env: Env, profile: string) {
       await ticketResumedEvent(env, profile, ticketId, data.message_record_id);
   await exec(env, "UPDATE inbox SET status='processing' WHERE id=?", row.id);
   try {
+    if (await stopSocialAutomation(env, c, `inbox:${row.id}`)) return;
     if (c.chat_type === "group") {
       const group = await one(
         env,
@@ -234,7 +343,7 @@ export async function processInbox(env: Env, profile: string) {
       return;
     // Resposta de Flow e carrinho do catálogo: tratados antes do menu e do
     // bot (src/structured-inbound.ts); o resumo em texto não abre o menu.
-    if (c.chat_type !== "group" && isStructured(data.content)) {
+    if (allowsModules(engineChannel(c)) && c.chat_type !== "group" && isStructured(data.content)) {
       await structuredInbound(
         env,
         c,
@@ -247,7 +356,7 @@ export async function processInbox(env: Env, profile: string) {
     // Localização enviada pelo cliente: só quando um módulo trata (destino
     // da Entrega); sem dono, segue o caminho de sempre.
     if (
-      c.chat_type !== "group" &&
+      allowsModules(engineChannel(c)) && c.chat_type !== "group" &&
       data.content?.type === "location" &&
       (await moduleLocation(env, c, row, data))
     )
@@ -365,7 +474,7 @@ export async function processInbox(env: Env, profile: string) {
     const replyId = data.content?.interactive_reply_id;
     // Fila de senhas: coupon link, SENHA/SAIR and the open queue question.
     // With the module off (Gestão → Módulos) none of it answers.
-    const queueOn = await moduleEnabled(env, profile, "queue");
+    const queueOn = allowsModules(engineChannel(c)) && await moduleEnabled(env, profile, "queue");
     const queueResult = queueOn
       ? await queueTurn(env, c, row, value, replyId)
       : { handled: false, menu: false };
@@ -381,6 +490,7 @@ export async function processInbox(env: Env, profile: string) {
             null,
             !!c.menu_manual,
             c.chat_type,
+            engineChannel(c),
           )
         ).length
       )
@@ -399,7 +509,7 @@ export async function processInbox(env: Env, profile: string) {
     // onConversationTurn): a próxima mensagem vai a eles antes da porta de
     // entrada, dos protocolos, do menu e do bot. Toques em botão só valem
     // vindos do próprio canal, como no menu.
-    if (c.chat_type !== "group") {
+    if (allowsModules(engineChannel(c)) && c.chat_type !== "group") {
       const turn = {
         text: value,
         replyId:
@@ -442,6 +552,7 @@ export async function processInbox(env: Env, profile: string) {
               null,
               false,
               c.chat_type,
+              engineChannel(c),
             )
           ).length
         )
@@ -556,6 +667,7 @@ export async function processInbox(env: Env, profile: string) {
                 null,
                 !!c.menu_manual,
                 c.chat_type,
+                engineChannel(c),
               )
             ).length
           )
@@ -592,6 +704,7 @@ export async function processInbox(env: Env, profile: string) {
         null,
         false,
         c.chat_type,
+        engineChannel(c),
       );
       if (menu.length) {
         await sendMenu(
@@ -652,6 +765,7 @@ export async function processInbox(env: Env, profile: string) {
         parent,
         !!c.menu_manual,
         c.chat_type,
+        engineChannel(c),
       );
       // If an administrator removed the branch while it was open, return to
       // the current root rather than handing the conversation to another owner.
@@ -664,6 +778,7 @@ export async function processInbox(env: Env, profile: string) {
           null,
           !!c.menu_manual,
           c.chat_type,
+          engineChannel(c),
         );
       }
       if (options.length)
@@ -703,6 +818,7 @@ export async function processInbox(env: Env, profile: string) {
           c.menu_parent || null,
           !!c.menu_manual,
           c.chat_type,
+          engineChannel(c),
         )
       : [];
     const trustedReply =
@@ -795,7 +911,7 @@ export async function processInbox(env: Env, profile: string) {
             bot_id: choice.bot_id,
             input: JSON.stringify({
               request: `Opção selecionada: ${choice.label}. Mensagem: ${value}`,
-              phone: c.phone,
+              phone: engineChannel(c) === "whatsapp" ? c.phone : "",
               instructions:
                 "Execute somente a opção do menu autorizada na área de atendimento, seguindo suas políticas e aprovações.",
             }),
@@ -810,13 +926,13 @@ export async function processInbox(env: Env, profile: string) {
         );
         return;
       }
-      if (choice.type === "queue" && c.chat_type !== "group") {
+      if (allowsModules(engineChannel(c)) && choice.type === "queue" && c.chat_type !== "group") {
         await startQueue(env, c, choice.queue_id || null, row.id);
         return;
       }
       // Tipos de item declarados pelos módulos (src/modules/api.ts). Itens de
       // módulo desligado nem chegam aqui: settings() os esconde do menu.
-      const moduleMenu = menuHandler(choice.type);
+      const moduleMenu = allowsModules(engineChannel(c)) ? menuHandler(choice.type) : null;
       if (moduleMenu) {
         if (c.chat_type === "group")
           await enqueue(
@@ -1032,6 +1148,7 @@ export async function processInbox(env: Env, profile: string) {
           null,
           false,
           c.chat_type,
+          engineChannel(c),
         )
       ).length
     ) {
@@ -1226,6 +1343,7 @@ export async function processInbox(env: Env, profile: string) {
     );
     await showTyping(env, c);
   } catch (error) {
+    if (await stopSocialAutomation(env, c, `inbox:${row.id}`)) return;
     await handoff(
       env,
       c,
@@ -1446,6 +1564,7 @@ async function attendantInput(
         null,
         true,
         c.chat_type,
+        engineChannel(c),
       )
     ).map((m: any) => ({ id: m.id, label: m.label, type: m.type })),
     actions: (cfg.capabilities || []).filter((a: any) => a.enabled !== false),
@@ -1500,6 +1619,13 @@ async function aiRun(env: Env, run: Run, conn: any, pii: PiiMask): Promise<strin
   let current: any = null;
   if (run.conversation_id) {
     current = await conversation(env, run.conversation_id, run.profile_id);
+    if (isSocial(current)) {
+      const social = current.channel_identity_id ? await one(env,
+        "SELECT username,display_name FROM customer_channel_ids WHERE id=? AND profile_id=? AND account_id=? AND subject_id=? AND channel=? AND state='ready'",
+        current.channel_identity_id, current.profile_id, current.channel_account_id, current.channel_subject_id, current.channel) : null;
+      pii.rememberSocial({ subjectId: current.channel_subject_id,
+        username: social?.username, displayName: social?.display_name || current.title });
+    }
     if (
       current.epoch !== run.epoch ||
       !runStillWanted(current, json(run.context))
@@ -1533,6 +1659,7 @@ async function aiRun(env: Env, run: Run, conn: any, pii: PiiMask): Promise<strin
   const customer =
     !team &&
     run.conversation_id &&
+    current && allowsModules(engineChannel(current)) &&
     ["attendant", "answer", "specialist"].includes(run.phase)
       ? await customerToolContext(env, run)
       : null;
@@ -1566,7 +1693,7 @@ async function aiRun(env: Env, run: Run, conn: any, pii: PiiMask): Promise<strin
   const split = splitAreaInput(projectCustomerInput(run.input));
   // Especialista interno: o telefone do cliente não vai ao provedor de IA (as
   // ferramentas do cliente já ficam presas à conversa).
-  if (run.phase === "specialist") split.input = withoutPhone(split.input);
+  if (run.phase === "specialist" || (current && engineChannel(current) !== "whatsapp")) split.input = withoutPhone(split.input);
   split.input = pii.maskInput(split.input);
   const readable = readableOf(split.input);
   const masked = team ? !!team.actor.via?.masked : true;
@@ -1735,6 +1862,10 @@ export async function processRun(env: Env, run: Run) {
   }
   if (run.conversation_id) {
     const c = await conversation(env, run.conversation_id, run.profile_id);
+    if (await stopSocialAutomation(env, c, `run:${run.id}`)) {
+      await exec(env, "UPDATE bot_runs SET status='cancelled',completion_handled=1,error='Automação bloqueada pela janela do canal.',updated=? WHERE id=?", now(), run.id);
+      return;
+    }
     const line = await serviceForLine(env, c.connection_id);
     if (
       !(await getNumberPolicy(env, c.connection_id)).bots ||
@@ -1822,6 +1953,7 @@ export async function processRun(env: Env, run: Run) {
             null,
             true,
             c.chat_type,
+            engineChannel(c),
           ),
           pii,
         );
@@ -1979,7 +2111,7 @@ export async function processRun(env: Env, run: Run) {
                 bot_id: action.bot_id,
                 input: JSON.stringify({
                   request: context.request,
-                  phone: c.phone,
+                  phone: engineChannel(c) === "whatsapp" ? c.phone : "",
                   condition: action.condition,
                   instructions: action.instructions,
                 }),
@@ -2195,6 +2327,7 @@ async function failRun(env: Env, run: Run, error: string, status = "failed") {
   );
   if (run.conversation_id) {
     const c = await conversation(env, run.conversation_id, run.profile_id);
+    if (await stopSocialAutomation(env, c, `run:${run.id}`)) return;
     if (c.epoch === run.epoch && c.state === "ai")
       // The error stays in the run and the event; the protocol opened with the
       // team absent is named after what the customer asked.
@@ -2230,6 +2363,71 @@ async function failRun(env: Env, run: Run, error: string, status = "failed") {
     error,
   });
 }
+/** A mesma decisão é usada antes da reivindicação e no último instante antes
+ * do fetch. O payload recebido aqui deve ser o que foi persistido na outbox. */
+export function assertSocialDeliveryWindow(connection: any, c: any, row: any, payload: any, at = now()) {
+  const rules = channelRules(connection);
+  if (!rules || rules.id !== engineChannel(c) || !isSocial(c) || connection.profile_id !== c.profile_id ||
+      connection.id !== c.connection_id || row.connection_id !== connection.id || row.conversation_id !== c.id)
+    throw new ApiError(503, "channel_not_ready", "Canal da entrega indisponível.");
+  const delivery = payload.social_delivery as SocialDelivery | undefined;
+  if (!delivery || !delivery.id || !delivery.idempotencyKey || !payload.social_thread_id)
+    throw new ApiError(409, "inbox_required", "A entrega social precisa ser preparada pela caixa de entrada.");
+  const contentType = delivery.content.type === "media" ? delivery.content.attachment.kind : delivery.content.type;
+  const origin = persistedSocialOrigin(row, payload, c, connection);
+  const window = channelWindow(rules, c.last_customer, at);
+  assertChannelSend({ rules, window, origin, contentType, hasAttachments: delivery.content.type === "media" });
+  if (window.state === "human_text_only") delivery.messageTag = "HUMAN_AGENT";
+  else delete delivery.messageTag;
+  return window;
+}
+
+async function deliverSocial(env: Env, candidate: any, connection: any) {
+  // Só o payload confirmado pelo servidor serve como prova de origem manual.
+  const row = await one(env, "SELECT * FROM outbox WHERE id=? AND profile_id=? AND status='pending'", candidate.id, candidate.profile_id);
+  if (!row) return;
+  const payload = json(row.payload);
+  const c = await conversation(env, row.conversation_id, row.profile_id);
+  const previous = await one(env, "SELECT p.id FROM outbox p JOIN outbox o ON o.id=? WHERE p.conversation_id=o.conversation_id AND (p.created<o.created OR (p.created=o.created AND p.rowid<o.rowid)) AND p.status IN ('pending','sending','unknown') LIMIT 1", row.id);
+  if (previous) return;
+  try {
+    assertSocialDeliveryWindow(connection, c, row, payload);
+    const claimed = await exec(env, "UPDATE outbox SET status='sending',updated=? WHERE id=? AND status='pending'", now(), row.id);
+    if (!claimed.meta.changes) return;
+    const beforeFetch = async () => {
+      const persisted = await one(env, "SELECT * FROM outbox WHERE id=? AND status='sending'", row.id);
+      const fresh = await conversation(env, c.id, c.profile_id);
+      const current = await one(env, "SELECT c.*,a.account_id social_account_id,a.integration_id social_integration_id,a.provider_profile_id social_profile_id FROM connections c JOIN zernio_channel_accounts a ON a.connection_id=c.id AND a.profile_id=c.profile_id AND a.channel=c.channel WHERE c.id=? AND c.profile_id=?", connection.id, c.profile_id);
+      const thread = await one(env, "SELECT conversation_id FROM zernio_conversations WHERE connection_id=? AND external_id=?", connection.id, fresh.external_id);
+      if (!persisted || fresh.epoch !== row.epoch || current?.status !== "active")
+        throw new ApiError(410, "message_expired", "A conversa ou a conexão mudou antes do envio.");
+      if (typeof payload.expires_at === "number" && payload.expires_at <= now())
+        throw new ApiError(410, "message_expired", "Validade da mensagem encerrada antes do envio.");
+      const currentConfig = json(current.config), originalConfig = json(connection.config);
+      if (fresh.channel_account_id !== current.social_account_id || payload.social_scope?.accountId !== current.social_account_id ||
+          currentConfig.account_id !== current.social_account_id || currentConfig.zernio_workspace_id !== current.social_integration_id ||
+          originalConfig.account_id !== currentConfig.account_id || originalConfig.zernio_workspace_id !== currentConfig.zernio_workspace_id ||
+          payload.social_scope?.profileId !== current.profile_id || payload.social_scope?.connectionId !== current.id ||
+          payload.social_scope?.channel !== current.channel ||
+          payload.social_scope?.integrationId !== current.social_integration_id ||
+          payload.social_scope?.providerProfileId !== current.social_profile_id ||
+          thread?.conversation_id !== payload.social_thread_id)
+        throw new ApiError(409, "cannot_initiate", "A associação da conta ou da conversa mudou antes do envio.");
+      const stored = json(persisted.payload);
+      assertSocialDeliveryWindow(current, fresh, persisted, stored);
+      payload.social_delivery.messageTag = stored.social_delivery.messageTag;
+    };
+    const external = await zernioSend(env, connection, c.external_id, payload, payload.social_delivery.idempotencyKey, beforeFetch);
+    await finishDelivery(env, row, external);
+  } catch (error) {
+    const status = error instanceof ApiError && error.code === "message_expired" ? "cancelled"
+      : error instanceof ApiError && error.code !== "provider_unknown" &&
+        (error.status < 500 || error.code === "channel_not_ready") ? "failed" : "unknown";
+    await exec(env, "UPDATE outbox SET status=?,error=?,updated=? WHERE id=? AND status IN ('pending','sending')", status,
+      error instanceof ApiError ? `${error.code}: ${error.message}` : "provider_unknown: Envio sem confirmação; reconcilie antes de reenviar.", now(), row.id);
+  }
+}
+
 export async function deliver(env: Env, row: any) {
   if (row.status !== "pending") return;
   const c = row.conversation_id
@@ -2278,6 +2476,10 @@ export async function deliver(env: Env, row: any) {
     connection.kind === "qr"
   )
     return;
+  if (isSocial(c) || (connection.channel && connection.channel !== "whatsapp")) {
+    await deliverSocial(env, row, connection);
+    return;
+  }
   const managed =
     ["meta", "zernio"].includes(connection.kind) &&
     (await cachedOne(

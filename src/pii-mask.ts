@@ -1,5 +1,17 @@
 /** Detecção sem E/S; também serve para o futuro texto transcrito de áudio. */
-export type PiiKind = "CPF" | "CNPJ" | "TEL" | "EMAIL" | "CEP";
+export type PiiKind = "CPF" | "CNPJ" | "TEL" | "EMAIL" | "CEP" | "SOCIAL_ID" | "HANDLE" | "NAME";
+export interface SocialPiiValues {
+  subjectId?: string | null;
+  username?: string | null;
+  displayName?: string | null;
+}
+const socialFields: Record<string, PiiKind> = {
+  subjectid: "SOCIAL_ID", subject_id: "SOCIAL_ID", channel_subject_id: "SOCIAL_ID",
+  social_id: "SOCIAL_ID", socialid: "SOCIAL_ID", channel_account_id: "SOCIAL_ID",
+  social_user_id: "SOCIAL_ID", scoped_user_id: "SOCIAL_ID",
+  username: "HANDLE", handle: "HANDLE", social_username: "HANDLE",
+  displayname: "NAME", display_name: "NAME", social_display_name: "NAME",
+};
 export interface PiiMatch {
   kind: PiiKind;
   value: string;
@@ -135,14 +147,25 @@ export const maskPersonalEnabled = (config: any, remoteProfile: string) =>
 
 export type PiiMask = ReturnType<typeof createPiiMask>;
 /** Mapa privado de uma execução: nunca serializar nem guardar em uso, eventos ou logs. */
-export function createPiiMask(enabled = true) {
+export function createPiiMask(enabled = true, knownSocial?: SocialPiiValues) {
   const values = new Map<string, string>();
   const markers = new Map<string, string>();
   const counts: Partial<Record<PiiKind, number>> = {};
   const reserved = new Set<string>();
   /** Marcadores criados por um campo numérico inteiro, com o número original. */
   const numeric = new Map<string, number>();
-  const token = /\[(?:CPF|CNPJ|TEL|EMAIL|CEP)_\d+\]/g;
+  const token = /\[(?:CPF|CNPJ|TEL|EMAIL|CEP|SOCIAL_ID|HANDLE|NAME)_\d+\]/g;
+  const known = new Map<string, PiiKind>();
+  const rememberSocial = (input: SocialPiiValues) => {
+    for (const [value, kind] of [
+      [input.subjectId, "SOCIAL_ID"], [input.username, "HANDLE"], [input.displayName, "NAME"],
+    ] as const) {
+      if (typeof value !== "string" || !value.trim()) continue;
+      known.set(value, kind);
+      if (kind === "HANDLE") known.set(value.startsWith("@") ? value.slice(1) : `@${value}`, kind);
+    }
+  };
+  if (knownSocial) rememberSocial(knownSocial);
   const reserve = (text: string) => {
     for (const m of text.matchAll(token)) reserved.add(m[0]);
   };
@@ -151,8 +174,23 @@ export function createPiiMask(enabled = true) {
     reserve(text);
     let last = 0,
       out = "";
-    for (const m of detectPii(text)) {
-      let canonical = m.kind === "EMAIL" ? m.value : digits(m.value);
+    const matches: PiiMatch[] = [];
+    // Valores autenticados prevalecem sobre heurísticas: um ID numérico não é telefone.
+    for (const [value, kind] of [...known].sort((a, b) => b[0].length - a[0].length)) {
+      if (!value) continue;
+      let start = text.indexOf(value);
+      while (start >= 0) {
+        const end = start + value.length;
+        const embedded = /[\p{L}\p{N}_]/u.test(text[start - 1] || "") || /[\p{L}\p{N}_]/u.test(text[end] || "");
+        if (!embedded && !matches.some((m) => start < m.end && end > m.start))
+          matches.push({ kind, value, start, end });
+        start = text.indexOf(value, end);
+      }
+    }
+    for (const match of detectPii(text))
+      if (!matches.some((m) => match.start < m.end && match.end > m.start)) matches.push(match);
+    for (const m of matches.sort((a, b) => a.start - b.start)) {
+      let canonical = ["EMAIL", "SOCIAL_ID", "HANDLE", "NAME"].includes(m.kind) ? m.value : digits(m.value);
       if (m.kind === "TEL" && canonical.length >= 12)
         canonical = canonical.slice(2);
       const key = `${m.kind}:${canonical}`;
@@ -202,6 +240,13 @@ export function createPiiMask(enabled = true) {
     return value;
   };
   const maskField = (text: string, key: string): string => {
+    if (values.has(text)) return text;
+    const socialKind = socialFields[key.toLowerCase()];
+    if (socialKind && text.trim()) {
+      known.set(text, socialKind);
+      // Mascara o campo inteiro mesmo quando seu conteúdo inclui pontuação.
+      return mask(text);
+    }
     // Resultados das ferramentas costumam chegar como JSON dentro de texto.
     if (/^\s*[\[{]/.test(text)) {
       try {
@@ -232,6 +277,13 @@ export function createPiiMask(enabled = true) {
   const maskValue = (value: any): any => {
     if (!enabled) return value;
     reserve(JSON.stringify(value) ?? "");
+    // Primeiro colhe campos conhecidos, inclusive quando aparecem depois do texto
+    // no JSON. Assim o mesmo dado fica mascarado em todas as partes da entrada.
+    walk(value, (text, key) => {
+      const kind = socialFields[key.toLowerCase()];
+      if (kind && text.trim() && !values.has(text)) known.set(text, kind);
+      return text;
+    });
     return walk(value, maskField);
   };
   const restoreValue = (value: any) =>
@@ -275,6 +327,7 @@ export function createPiiMask(enabled = true) {
   };
   return {
     enabled,
+    rememberSocial,
     mask,
     maskValue,
     maskInput,

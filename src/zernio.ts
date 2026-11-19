@@ -6,7 +6,7 @@ import { ApiError, Env, json, now, requireValue } from "./types";
 import { equal, hmac, publicUrl, secret, sha } from "./security";
 import { approvedTemplate, storeRemoteMedia } from "./integrations";
 import { mediaKind, multipartStream } from "./media";
-import { validateMedia } from "./whatsapp";
+import { applyChannelEvents, applySocialConversationEvents, validateMedia } from "./whatsapp";
 import { zernioPresignType } from "./zernio-media";
 import { normalizeZernioError } from "./zernio-errors";
 import {
@@ -15,6 +15,11 @@ import {
   interactiveFallbackText,
 } from "./whatsapp-interactive";
 import { normalizeZernioMetadata } from "./whatsapp-inbound";
+import { socialTransportPort } from "./channel-ports";
+import type { NormalizedSocialEvent, SocialDelivery, SocialEventScope } from "./channel-contracts";
+import type { Statement } from "./customer/contracts";
+import { copySocialMedia } from "./zernio-social-media";
+import { socialDeliveryPayload, socialEchoHint, socialExternalId, socialInteractiveReplyId, socialProviderError, socialProviderMessageId } from "./zernio-social";
 export { zernioPresignType } from "./zernio-media";
 
 const API = "https://zernio.com/api/v1/";
@@ -54,15 +59,18 @@ export async function zernioRequest(
   method = "GET",
   body?: any,
   idempotencyKey?: string,
+  beforeFetch?: () => Promise<void>,
 ) {
   return zernioRawRequest(
     env,
     conn,
     path,
     method,
-    body === undefined ? undefined : JSON.stringify(body),
+    body === undefined ? undefined : typeof body === "function" ? () => JSON.stringify(body()) : JSON.stringify(body),
     "application/json",
     idempotencyKey,
+    undefined,
+    beforeFetch,
   );
 }
 
@@ -71,10 +79,11 @@ async function zernioRawRequest(
   conn: any,
   path: string,
   method: string,
-  body: string | ReadableStream<Uint8Array> | undefined,
+  body: string | ReadableStream<Uint8Array> | (() => string) | undefined,
   contentType: string,
   idempotencyKey?: string,
   contentLength?: number,
+  beforeFetch?: () => Promise<void>,
 ) {
   requireValue(
     !path.startsWith("/") && !path.includes("\\") && !path.includes("://"),
@@ -93,6 +102,10 @@ async function zernioRawRequest(
     "Configure a API key da Zernio.",
   );
   let response: Response;
+  // A guarda roda depois da leitura da credencial, imediatamente antes da rede.
+  // Erro de janela não é resultado indeterminado do fornecedor.
+  await beforeFetch?.();
+  const requestBody = typeof body === "function" ? body() : body;
   try {
     response = await fetch(url, {
       method,
@@ -104,7 +117,7 @@ async function zernioRawRequest(
           : { "Content-Length": String(contentLength) }),
         ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
       },
-      body,
+      body: requestBody,
       redirect: "manual",
       signal: AbortSignal.timeout(contentLength === undefined ? 15000 : 60000),
     });
@@ -180,6 +193,9 @@ export async function zernioConversation(
     externalId,
   );
   if (saved) return saved.conversation_id;
+  // Social só responde ao thread autenticado já associado à conversa local.
+  // Não descobrir/importar histórico remoto nem iniciar por telefone/modelo.
+  if (conn.channel && conn.channel !== "whatsapp") return null;
   const cursors = new Set<string>();
   let cursor = "";
   for (let page = 0; page < 100; page++) {
@@ -231,6 +247,7 @@ export async function zernioConversation(
  * Best-effort: resolves false when the channel did not show it.
  */
 export async function zernioTyping(env: Env, conn: any, externalId: string) {
+  if (conn.channel && conn.channel !== "whatsapp") return false;
   const saved = await one(
     env,
     "SELECT conversation_id FROM zernio_conversations WHERE connection_id=? AND external_id=?",
@@ -491,7 +508,10 @@ export async function zernioSend(
   to: string,
   payload: any,
   idempotencyKey?: string,
+  beforeFetch?: () => Promise<void>,
 ) {
+  if (conn.channel && conn.channel !== "whatsapp")
+    return zernioSendSocial(env, conn, to, payload, idempotencyKey, beforeFetch);
   if (typeof payload.expires_at === "number" && payload.expires_at <= now())
     throw new ApiError(
       410,
@@ -748,6 +768,8 @@ export async function zernioInbound(
   body: any,
   dispatch: (data: any) => Promise<Response>,
 ) {
+  if (conn.channel && conn.channel !== "whatsapp")
+    return zernioInboundSocial(env, conn, body, dispatch);
   if (body.test || body.event === "webhook.test")
     return Response.json({ received: true, test: true });
   if (
@@ -976,4 +998,152 @@ export async function zernioInbound(
     content,
     chat_type: group ? "group" : "direct",
   });
+}
+
+/** Uma entrega social equivale a uma única chamada de envio. A outbox prepara
+ * assinatura, divisão e origem; esta fronteira não cria entregas escondidas. */
+async function zernioSendSocial(
+  env: Env, conn: any, to: string, payload: any, key?: string,
+  beforeFetch?: () => Promise<void>,
+) {
+  if (!["instagram", "facebook"].includes(conn.channel))
+    throw new ApiError(503, "channel_not_ready", "Este canal ainda não está disponível.");
+  const delivery = payload.social_delivery as SocialDelivery | undefined;
+  if (!delivery || !beforeFetch || !key || key !== delivery.idempotencyKey)
+    throw new ApiError(422, "unsupported_content", "Envio social exige uma entrega preparada pela outbox.");
+  const check = async () => {
+    if (typeof payload.expires_at === "number" && payload.expires_at <= now())
+      throw new ApiError(410, "message_expired", "Validade da mensagem encerrada antes do envio.");
+    await beforeFetch();
+  };
+  await check();
+  const thread = await zernioConversation(env, conn, to);
+  if (!thread)
+    throw new ApiError(409, "cannot_initiate", "Aguarde uma mensagem do cliente para responder neste canal.");
+  let upload: { url: string; name: string } | undefined;
+  if (delivery.content.type === "media")
+    upload = await zernioUpload(env, conn, delivery.content.attachment.mediaId, delivery.content.attachment.kind);
+  try {
+    const result = await zernioRequest(env, conn,
+      `inbox/conversations/${segment(thread)}/messages`, "POST",
+      () => ({ accountId: accountId(conn), ...socialDeliveryPayload(delivery, upload) }), key, check);
+    return socialProviderMessageId(result);
+  } catch (error) {
+    throw socialProviderError(error);
+  }
+}
+
+/** cn-servidor inclui esta instrução no MESMO lote da identidade/inbox/mensagem.
+ * O parser nunca confirma um thread antes de a entrada ter sido confirmada. */
+export function zernioSocialThreadStatement(event: NormalizedSocialEvent): Statement {
+  return [
+    "INSERT INTO zernio_conversations(connection_id,external_id,conversation_id) VALUES(?,?,?) ON CONFLICT(connection_id,external_id) DO UPDATE SET conversation_id=excluded.conversation_id",
+    [event.scope.connectionId, socialExternalId(event.subject.id), event.threadId],
+  ];
+}
+
+// Evita cópia dupla no mesmo isolate. A unicidade no lote do Coordinator/D1
+// continua obrigatória entre isolates e após falhas; isto não é uma trava D1.
+const socialInboundWork = new WeakMap<Env, Map<string, Promise<Response>>>();
+
+async function zernioInboundSocial(
+  env: Env, conn: any, body: unknown, dispatch: (data: any) => Promise<Response>,
+) {
+  const mediaDeadline = now() + 3000;
+  if (!["instagram", "facebook"].includes(conn.channel))
+    return Response.json({ received: true, ignored: true, reason: "channel_not_ready" });
+  const cfg = json(conn.config);
+  const binding = await one(env,
+    `SELECT a.* FROM zernio_channel_accounts a JOIN connections c ON c.id=a.connection_id AND c.profile_id=a.profile_id
+     WHERE a.connection_id=? AND a.profile_id=? AND a.integration_id=? AND a.channel=? AND a.account_id=? AND c.kind='zernio' AND c.channel=a.channel`,
+    conn.id, conn.profile_id, cfg.zernio_workspace_id || "", conn.channel, cfg.account_id || "");
+  if (!binding)
+    return Response.json({ received: true, ignored: true, reason: "scope_mismatch" });
+  const scope: SocialEventScope = {
+    profileId: conn.profile_id, connectionId: conn.id, channel: conn.channel,
+    integrationId: binding.integration_id, accountId: binding.account_id,
+    providerProfileId: binding.provider_profile_id || null,
+  };
+  const result = await socialTransportPort.normalizeEvent(body, scope);
+  if (result.status === "ignored")
+    return Response.json({ received: true, ignored: true, reason: result.reason });
+  const e = result.event, externalId = socialExternalId(e.subject.id);
+  const mapped = await one(env,
+    "SELECT external_id FROM zernio_conversations WHERE connection_id=? AND conversation_id=?",
+    conn.id, e.threadId);
+  if (mapped && mapped.external_id !== externalId)
+    return Response.json({ received: true, ignored: true, reason: "scope_mismatch" });
+  const key = `${scope.profileId}:channel:${conn.id}:${externalId}:${e.messageId}`;
+  let work = socialInboundWork.get(env);
+  if (!work) { work = new Map(); socialInboundWork.set(env, work); }
+  const workKey = JSON.stringify([key, e.type, e.type === "message.received" ? null : e.eventId]);
+  const running = work.get(workKey);
+  if (running) return (await running).clone();
+  const pending = (async () => {
+    if (e.type === "message.received") {
+      const known = await one(env, "SELECT id FROM inbox WHERE event_key=?", key);
+      if (known) {
+        await applyChannelEvents(env, conn.id, e.messageId);
+        await applySocialConversationEvents(env, conn.id, externalId);
+        return Response.json({ received: true, duplicate: true });
+      }
+    } else {
+      const stored = await one(env,
+        "SELECT event_key FROM channel_events WHERE connection_id=? AND external_id=? AND json_extract(payload,'$.event_id')=?",
+        conn.id, e.messageId, e.eventId);
+      if (stored) {
+        await applyChannelEvents(env, conn.id, e.messageId);
+        return Response.json({ received: true, duplicate: true });
+      }
+    }
+    const common = { external_id: externalId, message_id: e.messageId,
+      event_id: e.eventId, timestamp: e.occurredAt ?? 0, channel: scope.channel };
+    if (e.type === "message.read" || e.type === "message.delivered")
+      return dispatch({ ...common, event: "status", status: e.type.slice(8) });
+    if (e.type === "message.deleted") return dispatch({ ...common, event: "delete" });
+    if (e.type === "message.reaction")
+      return dispatch({ ...common, event: "reaction", participant: e.subject.id, emoji: e.reaction || "" });
+    if (e.type !== "message.received" && e.type !== "message.sent" && e.type !== "message.edited")
+      return Response.json({ received: true, ignored: true });
+    if (e.type === "message.edited")
+      return dispatch({ ...common, event: "edit", text: e.text });
+    // Correlação opaca é só uma pista do fornecedor; confirme conta/conversa na outbox.
+    const hint = e.type === "message.sent" ? socialEchoHint(body) : null;
+    const local = hint ? await one(env,
+      `SELECT o.id FROM outbox o JOIN conversations c ON c.id=o.conversation_id AND c.profile_id=o.profile_id
+       WHERE o.profile_id=? AND o.connection_id=? AND c.external_id=? AND c.channel=?
+         AND (o.id=? OR json_extract(o.payload,'$.social_delivery.idempotencyKey')=?)`,
+      scope.profileId, conn.id, externalId, scope.channel, hint, hint) : null;
+    if (e.type === "message.sent" && local)
+      return dispatch({ ...common, event: "external", local_delivery_id: local.id, text: "", attachments: [] });
+    const copied = await copySocialMedia(env, scope, e.messageId, e.media, { deadline: mediaDeadline });
+    const text = e.text + (copied.unavailable ? "\n[Anexo indisponível. Solicite o reenvio ou verifique o tamanho e a conexão.]" : "");
+    const content = {
+      type: e.media[0]?.kind || "text", zernio_conversation_id: e.threadId,
+      participant: e.subject.id, participant_name: e.subject.displayName || "Contato",
+      ...(socialInteractiveReplyId(body) ? { interactive_reply_id: socialInteractiveReplyId(body) } : {}),
+      ...(copied.unavailable ? { media_error: true } : {}),
+    };
+    if (e.type === "message.sent")
+      return dispatch({ ...common, event: "external", text, attachments: copied.attachments, content });
+    // Este DTO é consumido pelo ramo social de service.inbound (cn-servidor).
+    // phone:null e external_id com prefixo impedem interpretar ID numérico como telefone.
+    const response = await dispatch({
+      ...common, phone: null, customer_at: e.occurredAt ?? 0, text,
+      attachments: copied.attachments, content, chat_type: "direct",
+      channel_account_id: scope.accountId, channel_subject_id: e.subject.id,
+      account_label: conn.account_label || "", channel_context: e.context,
+      display_name: e.subject.displayName || "", username: e.subject.username || "",
+      evidence: { channel: scope.channel, provider: "zernio", accountId: scope.accountId,
+        subjectNamespace: "dm", subjectId: e.subject.id,
+        displayName: e.subject.displayName, username: e.subject.username },
+      // Normalizado, sem URL ou corpo bruto: o servidor constrói a instrução do lote.
+      channel_thread: { connectionId: conn.id, externalId, threadId: e.threadId },
+    });
+    if (response.ok) await applySocialConversationEvents(env, conn.id, externalId);
+    return response;
+  })();
+  work.set(workKey, pending);
+  try { return (await pending).clone(); }
+  finally { work.delete(workKey); }
 }

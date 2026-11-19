@@ -14,6 +14,8 @@ import { getNumberPolicy, numberPolicyError } from "./number-permissions";
 import { settings, enqueue } from "./service";
 import { sha } from "./security";
 import { departmentFor } from "./departments";
+import { allowsModules, assertChannelSend, channelRules, channelWindow } from "./channels";
+import type { ChannelId } from "./channel-contracts";
 import {
   type InteractiveSpec,
   buildInteractive,
@@ -102,13 +104,13 @@ export async function listLines(env: Env, actor: Actor, profile: string) {
   );
   const rows = await all(
     env,
-    "SELECT id,name,kind,mode,status,config,last_seen FROM connections WHERE profile_id=? AND kind IN ('zernio','qr') ORDER BY name,id",
+    "SELECT id,name,kind,channel,account_label,mode,status,config,last_seen FROM connections WHERE profile_id=? AND kind IN ('zernio','qr') AND channel IN ('whatsapp','instagram','facebook') ORDER BY name,id",
     profile,
   );
   return {
     data: rows.map(({ config, ...row }) => ({
       ...row,
-      number: json(config).number || json(config).phone || "",
+      number: row.channel === "whatsapp" ? json(config).number || json(config).phone || "" : "",
       number_policy: numberPolicy(json(config)),
       service: lineService(json(config)),
     })),
@@ -223,6 +225,7 @@ async function availableMenuTree(
   includeManual = false,
   chatType = "direct",
   cfg?: any,
+  channel?: ChannelId | null,
 ) {
   cfg ||= await settings(env, profile);
   const policy = await getNumberPolicy(env, connection),
@@ -231,6 +234,9 @@ async function availableMenuTree(
   const result = [];
   for (const item of cfg.menus || []) {
     if (!menuAllowed(item, cfg.menus, connection, includeManual)) continue;
+    if (!allowsModules(channel === undefined && connection ? "whatsapp" : channel ?? null) &&
+        !["human", "bot", "submenu", "protocols", "survey", "ticket", "link", "content", "app"].includes(item.type))
+      continue;
     if (item.type === "human" && !policy.human) continue;
     if (
       item.type === "human" &&
@@ -297,9 +303,10 @@ export async function availableMenus(
   parent: string | null = null,
   includeManual = false,
   chatType = "direct",
+  channel?: ChannelId | null,
 ) {
   return (
-    await availableMenuTree(env, profile, connection, includeManual, chatType)
+    await availableMenuTree(env, profile, connection, includeManual, chatType, undefined, channel)
   ).filter((item: any) => (item.parent_id || null) === parent);
 }
 export function menuPayload(
@@ -308,11 +315,25 @@ export function menuPayload(
   token: string,
   interactive: boolean,
   submenu = false,
+  channel?: ChannelId | null,
 ) {
   const navigation = submenu
     ? "\nEnvie VOLTAR para subir um nível ou MENU para voltar ao menu principal."
     : "";
   const text = `${title}\n${items.map((item, index) => `${index + 1}. ${item.label}`).join("\n")}${navigation}`;
+  if (channel === "instagram" || channel === "facebook") {
+    const options = items.map((item) => ({ id: `wmenu:${token}:${item.id}`, title: item.label }));
+    // Limites locais conservadores; formato de opção a conferir com a conta real.
+    const compatible = options.length > 0 && options.length <= 13 &&
+      options.every((option) => typeof option.title === "string" && option.title.trim() &&
+        Array.from(option.title).length <= 20 && !/[\u0000-\u001f\u007f]/.test(option.title) &&
+        new TextEncoder().encode(option.id).length <= 256);
+    if (!interactive || !compatible) return { text, automation: "menu" };
+    return {
+      text: title + (navigation || "\nEscolha uma opção abaixo."), automation: "menu",
+      content: { type: options.length <= 3 ? "buttons" : "quick_replies", options },
+    };
+  }
   if (!interactive || items.length > 10 || !items.length)
     return { text, automation: "menu" };
   const buttons =
@@ -365,6 +386,7 @@ export function menuPayload(
  * chats. QR and group chats receive the numbered text with links instead.
  */
 export async function interactiveLine(env: Env, c: Conversation) {
+  if (c.channel != null && c.channel !== "whatsapp") return false;
   if (!c.connection_id || c.chat_type === "group") return false;
   const line = await cachedOne(
     env,
@@ -407,6 +429,12 @@ export async function sendInteractive(
   key: string,
   automation?: string,
 ) {
+  if (c.channel != null && c.channel !== "whatsapp") {
+    // Interativos próprios do WhatsApp viram texto, nunca um menu nativo social.
+    const payload = interactivePayload(spec, false, { automation: automation || "interactive" });
+    const { enqueueSocialDeliveries } = await import("./engine");
+    return enqueueSocialDeliveries(env, c, actor, "text", payload, key);
+  }
   const payload = interactivePayload(
     spec,
     await interactiveLine(env, c),
@@ -499,19 +527,17 @@ export async function listMenus(
 ) {
   access(actor, profile, "conversations:read");
   const cfg = await settings(env, profile);
-  if (connection)
+  let line: any = null;
+  if (connection) {
+    line = await one(env, "SELECT id,channel FROM connections WHERE id=? AND profile_id=?", connection, profile);
     requireValue(
-      await one(
-        env,
-        "SELECT id FROM connections WHERE id=? AND profile_id=?",
-        connection,
-        profile,
-      ),
+      line,
       "Linha não encontrada.",
     );
+  }
   return {
     data: connection
-      ? await availableMenuTree(env, profile, connection, true, "direct", cfg)
+      ? await availableMenuTree(env, profile, connection, true, "direct", cfg, line.channel)
       : cfg.menus || [],
     revision: await sha(JSON.stringify(cfg.menus || [])),
   };
@@ -524,12 +550,22 @@ export async function sendMenu(
   key: string,
   manual = true,
 ) {
+  const social = c.channel != null && c.channel !== "whatsapp";
+  if (social) {
+    const connection = c.connection_id
+      ? await cachedOne(env, "SELECT * FROM connections WHERE id=?", c.connection_id) : null;
+    const rules = channelRules(connection, c.chat_type === "group" ? "group" : "direct");
+    if (!rules || rules.id !== c.channel || connection?.profile_id !== c.profile_id)
+      throw new ApiError(503, "channel_not_ready", "Canal indisponível para este menu.");
+    assertChannelSend({ rules, window: channelWindow(rules, c.last_customer, now()),
+      origin: "automation", contentType: "text", hasAttachments: false });
+  }
   const policy = await getNumberPolicy(env, c.connection_id);
   if (!policy.menu) throw numberPolicyError("menu");
   if (!policy.service) throw numberPolicyError("service");
   const service = await serviceForLine(env, c.connection_id);
   requireValue(service.menu_mode !== "off", "Menus desativados nesta linha.");
-  if (c.connection_id) {
+  if (c.connection_id && !social) {
     const line = await cachedOne(
       env,
       "SELECT kind FROM connections WHERE id=?",
@@ -558,6 +594,7 @@ export async function sendMenu(
     menuId,
     manual,
     c.chat_type,
+    c.channel ?? undefined,
   );
   requireValue(
     items.length,
@@ -565,7 +602,7 @@ export async function sendMenu(
   );
   const token =
     c.session + "." + (await sha(`${c.id}:${c.session}:${key}`)).slice(0, 24);
-  const connection = c.connection_id
+  const connection = c.connection_id && !social
     ? await cachedOne(
         env,
         "SELECT kind FROM connections WHERE id=?",
@@ -578,8 +615,9 @@ export async function sendMenu(
       String(cfg.menu_greeting || "").trim() ||
       "Como podemos ajudar?",
     token,
-    ["meta", "zernio"].includes(connection?.kind) && c.chat_type !== "group",
+    (social || ["meta", "zernio"].includes(connection?.kind)) && c.chat_type !== "group",
     !!menuId,
+    c.channel,
   );
   // Use the person's own authorization for a manual send. Bot menus retain the
   // automation capability check; no ownership or channel authorization is bypassed.
@@ -587,7 +625,10 @@ export async function sendMenu(
     ? [payload.text]
     : payload.text.match(/[\s\S]{1,3800}/g) || [payload.text];
   const deliveries = [];
-  for (const [index, part] of parts.entries())
+  if (social) {
+    const { enqueueSocialDeliveries } = await import("./engine");
+    deliveries.push(await enqueueSocialDeliveries(env, c, actor.id, "text", payload, key));
+  } else for (const [index, part] of parts.entries())
     deliveries.push(
       await enqueue(
         env,
