@@ -2281,7 +2281,7 @@ export async function perform(
       throw new ApiError(
         409,
         "scope_not_allowed",
-        "billing:write não pode ser concedida a aparelhos pareados do Vinki ou do Fagoo.",
+        "billing:write não pode ser concedida a aparelhos pareados do Vinki.",
       );
     // Papel do ERP: só muda se veio no pedido (null tira o papel).
     const erpRole =

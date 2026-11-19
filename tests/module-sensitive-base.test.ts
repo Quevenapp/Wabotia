@@ -103,7 +103,11 @@ describe("base do núcleo: dado sensível, telefone verificado e billing:write",
           { id: paired.id, scopes: ["conversations:read", "billing:write"] },
           uid(),
         ),
-      ).rejects.toMatchObject({ code: "scope_not_allowed" });
+      ).rejects.toMatchObject({
+        code: "scope_not_allowed",
+        message:
+          "billing:write não pode ser concedida a aparelhos pareados do Vinki.",
+      });
       // Outras mudanças de permissão continuam valendo.
       await perform(
         env,

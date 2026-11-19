@@ -82,7 +82,7 @@ export const integrationOperations: [
   [
     "post",
     "/pairing/start",
-    "Iniciar pareamento no servidor do Vinki ou Fagoo",
+    "Iniciar pareamento no servidor do Vinki",
     "",
     "PairingStart",
   ],

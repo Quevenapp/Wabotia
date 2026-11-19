@@ -151,7 +151,7 @@ export function translate(expr, cols, { prefix = "" } = {}) {
     bad("função jsonb");
   if (/\b(regexp_|split_part|position\(|strpos|format\(|to_char|to_number|left\(|right\(|md5|digest)/.test(s))
     bad("função de texto");
-  if (/\b[a-z_]+\.[a-z_]+\(/.test(s)) bad("função do Fagoo");
+  if (/\b[a-z_]+\.[a-z_]+\(/.test(s)) bad("função do ERP");
   // ARRAY e ANY/ALL
   s = s.replace(/= ANY \(ARRAY\[([^\]]*)\]\)/g, " IN ($1)");
   s = s.replace(/<> ALL \(ARRAY\[([^\]]*)\]\)/g, " NOT IN ($1)");

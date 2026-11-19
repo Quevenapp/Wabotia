@@ -24,7 +24,7 @@ const routerSteps = [
   {
     id: "access",
     title: "Acesso dos sistemas",
-    description: "Autorize Vinki, Fagoo e outros sistemas.",
+    description: "Autorize o Vinki e outros sistemas.",
   },
 ] as const;
 type RouterStep = (typeof routerSteps)[number]["id"];
@@ -1270,7 +1270,7 @@ export function NumberRouter({
             <section className="card">
               <h3>Quais telefones cada sistema pode usar</h3>
               <p>
-                Cadastre Vinki, Fagoo ou outro sistema em{" "}
+                Cadastre o Vinki ou outro sistema em{" "}
                 <strong>Integrações</strong>, com acesso a esta área de
                 atendimento. Depois escolha aqui os telefones ou grupos que ele
                 poderá usar. O pareamento por código temporário fica em

@@ -17,7 +17,7 @@ const names: Row = {
   "queue:issue": "Emitir senhas (totem)",
   "queue:operate": "Chamar e transferir senhas (guichê)",
 };
-const clientNames: Row = { vinki: "Vinki", fagoo: "Fagoo", senhapp: "Senhapp" };
+const clientNames: Row = { vinki: "Vinki", fagoo: "ERP (pareamento antigo)", senhapp: "Senhapp" };
 export function PairingPanel({
   api,
   demo,

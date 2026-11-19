@@ -9,7 +9,7 @@ import { cpSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } fr
 import { join, relative } from "node:path";
 
 const source = process.argv[2];
-if (!source) throw Error("Informe a pasta do Fagoo.");
+if (!source) throw Error("Informe a pasta do ERP de origem.");
 const target = "src/erp/fagoo";
 const parts = [
   "workers/erp-api/src",

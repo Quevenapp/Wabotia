@@ -310,7 +310,8 @@ describe("pareamento entre sistemas", () => {
     ).rejects.toMatchObject({
       status: 410,
       code: "pairing_client_removed",
-      message: expect.stringContaining("módulo ERP"),
+      message:
+        "O ERP agora faz parte do Wabotia. Ligue o módulo ERP em Gestão → Módulos; não é preciso parear.",
     });
     const actor = { ...admin, id: uid() };
     for (let i = 0; i < 12; i++)

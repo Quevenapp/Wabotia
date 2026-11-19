@@ -430,7 +430,7 @@ const people = () => ({
 const categories = [
   { id: "wabotia", name: "Wabotia", enabled: true },
   { id: "printher", name: "Printher", enabled: true },
-  { id: "fagoo-erp", name: "Fagoo ERP", enabled: true },
+  { id: "fagoo-erp", name: "ERP", enabled: true },
   { id: "pagamentos", name: "Pagamentos e notas", enabled: true },
   { id: "outro", name: "Outro ou não sei", enabled: true },
 ];
@@ -512,7 +512,7 @@ const conversations = [
     line: "official",
     phone: "5519991234001",
     steps: [
-      { t: 4300, in: "Quero uma proposta para 15 licenças do Fagoo ERP." },
+      { t: 4300, in: "Quero uma proposta para 15 licenças do ERP." },
       // Ninguém online neste momento: o encaminhamento abre um protocolo sozinho.
       { act: "transfer", by: "admin", department_id: "comercial" },
     ],
