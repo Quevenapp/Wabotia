@@ -1,3 +1,4 @@
+import { resumeCustomerMaintenance } from "./customer/ports";
 import { ensinoNoStore } from "./modules/ensino/http";
 import { mountInternalApi, takeInternalActor } from "./internal-api";
 import { capabilities } from "./whatsapp";
@@ -127,10 +128,13 @@ import {
   moduleStates,
   requireModule,
 } from "./modules/registry";
+// Reutilize este import: antecipar access à abertura carrega registry ainda
+// incompleto pelo ciclo security → web-steps → service → runtime.
 import {
   accessCatalog,
   allows,
   presetsFor,
+  customerResourceRoute,
   requireRouteAccess,
   requireAccess,
 } from "./access";
@@ -1083,7 +1087,7 @@ app.use("/api/v1/profiles/*", async (c, next) => {
   const segment = c.req.path.split("/")[5];
   const contribution = c.req.path.match(/\/contacts\/[^/]+\/modules\/([^/]+)\/(?:sections|collections)\/[^/]+$/);
   if (contribution) requireAccess(c.get("actor"), decodeURIComponent(contribution[1]));
-  else if (/\/contacts\/[^/]+\/profile$/.test(c.req.path)) { /* ProfilePort autoriza a pessoa e cada contribuição. */ }
+  else if (customerResourceRoute(c.req.method, c.req.path.split("/").slice(5).join("/"))) { /* O handler autoriza a pessoa e o recurso. */ }
   else if (segment) requireRouteAccess(c.get("actor"), ["contact-conflicts", "contact-identities", "contact-jobs"].includes(segment) ? "contacts" : segment);
   await next();
 });
@@ -1735,6 +1739,7 @@ const commands = [
   ["POST", "contacts/from-erp", "contact.from-erp"],
   ["POST", "contact-identities/resolve", "contact.resolve-phone"],
   ["POST", "contact-jobs/:id/resolve", "contact.resolve-job"],
+  ["POST", "contact-jobs/:id/cancel", "contact.job-cancel"],
   ["POST", "contacts/:id/erasure", "contact.erasure"],
   ["PUT", "contacts/:id/modules/:module/sections/:section", "contact.section"],
   ["PUT", "conversations/:id/contact", "contact.from-conversation"],
@@ -3104,6 +3109,7 @@ app.post("/internal/v1/connectors/:id/status", async (c) => {
   return c.json({ ok: true });
 });
 mountInternalApi(app);
+
 export default {
   fetch: app.fetch,
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
@@ -3117,10 +3123,7 @@ export default {
     for (const profile of await all(env, "SELECT id FROM profiles")) {
       ctx.waitUntil(wake(env, profile.id));
       // Invocação dedicada; não acrescenta trabalho ao alarme das mensagens.
-      ctx.waitUntil(env.COORDINATOR.get(env.COORDINATOR.idFromName(profile.id)).fetch("https://coordinator/customer-tick", {
-        method: "POST",
-        body: JSON.stringify({ profile: profile.id }),
-      }).then(response => { if (!response.ok) throw new Error(`Manutenção cadastral: ${response.status}`); }));
+      ctx.waitUntil(resumeCustomerMaintenance(env, profile.id));
     }
     ctx.waitUntil(
       exec(env, "DELETE FROM rate_limits WHERE expires<?", now() - 600000),

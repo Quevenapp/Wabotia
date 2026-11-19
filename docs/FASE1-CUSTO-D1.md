@@ -1,5 +1,159 @@
 # Fase 1 — identidade no caminho de mensagens
 
+## Correção c1-coordenacao — 19/11/2026
+
+Revisão restrita aos seis arquivos desta frente. Os achados foram reconferidos
+na base integrada; os testes existentes foram preservados. Esta seção descreve
+o resultado completo desta frente, incluindo a inicialização corrigida na rodada
+anterior e as quatro falhas de contexto de I/O do log externo atual. Os relatos
+abaixo de “Integração das dez entregas” são históricos; a situação desta frente
+e sua verificação atual estão nesta seção.
+
+| Item | Estado e implementação | Regressão em `tests/c-coordenacao.test.ts` |
+| --- | --- | --- |
+| E4/P-AC1 | **Corrigido** em `src/customer/ports.ts` e `src/coordinator.ts`. A rotação já existia, mas o turno era confirmado depois das portas e exceções interrompiam a rodada. Agora a reserva avança o turno antes do trabalho; cada participante ganha a primeira posição em um ciclo finito, com 40 instruções disponíveis. Um item fica reservado para o seguinte; falhas debitam SQL efetivamente tentado e itens conservadoramente. | Identidade extensa, histórico irresolvido, oportunidades para jobs/OS, erro individual e limite físico de lotes/leituras. |
+| E8 | **Corrigido** em `src/coordinator.ts`. `/customer-tick` e o comando antigo `contact.maintain` compartilham a execução fora de `blockConcurrencyWhile`. Só reserva e confirmação usam bloqueios curtos. | ERP aguardando liberação enquanto comando e inbox concluem; tick concorrente recusado; confirmação por token. |
+| P10 | **Corrigido** em `src/index.ts` e `src/customer/ports.ts`. O cron chama a sequência dedicada, com até 128 invocações e janela de 20 segundos, interrompida por conclusão, falta de progresso informado ou lease ocupada. | Contagem das chamadas, segunda janela, interrupções e prazo durante espera remota. |
+| S6 | **Corrigido** em `src/coordinator.ts`. Recibos antigos, JSON e selados revalidam usuário/aplicação, permissões, contato ativo, namespace, associação e seção. Não repetem a mutação para reconstruir uma resposta armazenada. O hash e o recibo original permanecem intactos quando o acesso é recusado. | Exclusão/restrição, permissão retirada com ator antigo, namespace, associação e seção sem chamar saveSection. |
+| F4 | **Corrigido** nos portões externos de `src/access.ts` e `src/index.ts`. Só ficha, promoção/associação ERP e operações de job chegam à autorização do recurso. Lista, edição, importação e resolução de identidade mantêm o portão de Contatos. | Papel ERP passa pelas operações específicas e continua barrado na agenda geral. |
+| P5 (rota) | **Corrigido** em `src/index.ts`. `POST /contact-jobs/:id/cancel` usa `contact.job-cancel` no encaminhamento comum com Idempotency-Key. | Falta da chave é recusada; com chave, o recibo usa a operação e o hash esperados. |
+
+### Verificação externa atual — causa e correção
+
+O `.codex-verificacao.log` atual registra `npm run check` aprovado e **87 testes:
+83 aprovados, quatro falhas**. `f1-base` (44), `d1-budget` (5),
+`command-receipt-closing` (6) e `person-access` (6) passaram integralmente.
+Em `c-coordenacao`, passaram 22 dos 26 testes. Falharam os dois casos de ERP lento
+(dedicado e legado), o vencimento sem resposta e a confirmação com lease sucessora.
+O erro é `Cannot perform I/O on behalf of a different Durable Object`, com tipos
+`OutgoingFactory` e `ReadableStreamSource`; não é uma asserção de autorização,
+orçamento ou atendimento bloqueado.
+
+A causa está na sincronização do teste: `deferred()` compartilha uma Promise
+entre o Runner e o Coordinator. O plugin instalado ativa explicitamente
+`no_handle_cross_request_promise_resolution` em sua configuração do runtime.
+Nesse modo, resolver o sinal dentro do Coordinator pode executar a continuação
+do teste naquele contexto. Reutilizar o stub criado no Runner ou consumir seu
+corpo de resposta passa a violar a propriedade do I/O. O replay remoto escapava
+da falha de stub porque criava outro stub depois da espera, já no contexto trocado.
+
+`tests/c-coordenacao.test.ts` agora compartilha somente um booleano por sinal;
+cada `wait()` usa `scheduler.wait` nativo no contexto de quem espera. No teste de
+vencimento, o relógio avança separadamente e o callback continua em um timer
+nativo do Coordinator, liberado por sinal. Duas asserções adicionais conferem
+o prazo solicitado, acima de 59 e até 60 segundos. Permanecem as verificações de
+timeout, nova rodada sem lease ocupada, proibição da escrita tardia, atendimento
+concomitante, tick concorrente e preservação da lease sucessora. Os 26 cenários
+foram mantidos; nenhum `skip`, tolerância de resultado ou remoção de asserção.
+Esta rodada altera somente o teste autorizado e este relato; a correção não
+exige mudar o comportamento de produção nem a configuração do plugin.
+Na checagem adicional de tipos do teste, as duas requisições com chave vazia
+esbarravam no tipo UUID inferido pelo helper compartilhado `api`. Elas agora
+usam `SELF.fetch` em um helper local, com URL, método, cabeçalhos e corpo iguais
+aos anteriores. A chave vazia e as expectativas de rejeição foram preservadas;
+nenhum cast ou supressão de diagnóstico foi acrescentado.
+
+A reprodução local usou diretamente o binário `workerd` instalado, sem executar
+Vitest ou Wrangler. Configurações temporárias têm `sockets=[]`, storage em memória
+e saída global encaminhada a um serviço que rejeita rede. Com a mesma opção de
+contexto do plugin, o helper anterior reproduziu `OutgoingFactory`; o helper novo
+passou. Um segundo ensaio extraiu o método real `customerTick` e o medidor real
+`customerMaintenanceEnv` dos fontes: **três cenários passaram** (espera com tick
+concorrente e atendimento simples, CAS da lease sucessora e timeout com retomada
+e bloqueio da escrita tardia). As portas, o D1 e o handler simples de atendimento
+são simulados nesse ensaio; ele não substitui as cinco suítes nem comprova inbox,
+ERP ou banco reais. Os artefatos e scripts ficam em
+`/private/tmp/c1-coordenacao-io/`, fora dos arquivos da entrega.
+
+### Falha de inicialização anterior — corrigida e confirmada pelo log atual
+
+O log da rodada anterior registrava `npm run check` concluído e as cinco suítes interrompidas na
+inicialização, com **zero testes executados**. A causa era o novo import de
+`customerResourceRoute` de `access` no início de `src/index.ts`: ele entrava em
+`access → modules/registry → security → module-credentials → web-steps → service
+→ modules/runtime → forms`. O registro de Formulários chamava `onSettingsSave`
+antes da inicialização de `moduleById`, causando `TypeError: moduleById is not a
+function`. O aviso de sourcemap de `standardwebhooks` não era a causa da falha.
+
+`customerResourceRoute` agora integra o import de `access` que já existia mais
+adiante na entrada. A autorização e os validadores permanecem os mesmos;
+nenhum arquivo de módulos foi alterado. A regressão adicionada em
+`tests/c-coordenacao.test.ts`, “carrega a entrada real e registra o validador de
+Formulários”, usa `SELF`, confere `/api/health`, a declaração do módulo e a
+validação estrita registrada, sem mock de `registry` ou `runtime`.
+
+Uma verificação local com Node e esbuild reproduziu exatamente o erro antes
+da correção. Depois, carregou a entrada real, obteve HTTP 200 em `/api/health`
+e confirmou o validador de Formulários aceitando lista válida e rejeitando
+objeto inválido. Reintroduzir o import antecipado **somente em memória** voltou
+a produzir o mesmo erro. Essa verificação não executa Vitest nem acessa a rede;
+substitui somente a classe-base `cloudflare:workers` para permitir a carga em
+Node, portanto não valida o comportamento do runtime Cloudflare ou do D1.
+No log externo atual, a regressão de inicialização passou, assim como os quatro
+arquivos de testes de compatibilidade; a inicialização deixou de ser bloqueadora.
+
+### Limites, controle e retomada
+
+Cada invocação dedicada tem teto agregado de **40 instruções D1 e 20 itens**.
+O medidor envolve todas as portas e conta leituras, retries, lotes e checkpoints,
+inclusive em falha. Lote que não cabe não é enviado. O controle da orquestração
+usa storage do Coordinator: leitura de lease e turno, uma gravação conjunta da
+reserva/turno, releitura e remoção condicionada ao token na confirmação; portanto
+esse controle acrescenta **zero instruções D1**. O turno é persistido antes de
+qualquer participante, e uma queda não devolve a primeira posição ao falho.
+A identificação da instância e a gravação do perfil na entrada também usam
+somente storage do DO.
+
+A lease dura 60 segundos. A marca em memória impede execução sobreposta durante
+esse prazo. O vencimento encerra a espera e libera a vez mesmo se o transporte
+nunca responder; itens sem retorno são debitados conservadoramente como 20 e
+o SQL é contado pelo medidor agregado. Após reinício, uma lease vencida também
+pode ser retomada. O medidor recusa novos acessos D1 depois do vencimento; retorno
+ERP tardio depende da reconciliação/idempotência do job existente. Confirmação
+antiga não remove lease com outro token. Não foi acrescentado trabalho cadastral
+ao alarme das mensagens, nem alterada a frequência global do cron.
+
+Quando o replay precisa autorizar um registro no ERP, esse RPC também ocorre
+fora do bloqueio. Antes de devolver o recibo, uma etapa curta relê ator e
+restrições locais; exclusão ou retirada de acesso durante o RPC impede a
+resposta antiga. A regressão mantém o RPC pendente, atende outro comando e
+restringe o contato antes de liberar o retorno.
+
+### Contagem para 50 mil contatos — não é medição de latência
+
+Na composição atual há dez participantes de manutenção (identidade, escrita,
+histórico, Agenda, ERP, Mensalidade, OS, Pedido, Reserva e Suporte). Em 128 rodadas,
+cada um tem pelo menos **12 oportunidades como primeiro**, além das oportunidades
+com o saldo das outras rodadas. Uma página de identidade recebe até 19 itens:
+50.000 contatos exigem **2.632 páginas**, ou **220 janelas de 128 rodadas** se cada
+primeira oportunidade avançar uma página. Contatos e conversas são passagens
+separadas; esse número não inclui a passagem das conversas.
+
+Para o scanner ERP atual de um item por chamada, as mesmas 12 oportunidades dão
+**4.167 janelas** para 50.000 itens no cenário de disputa máxima. Se os outros
+participantes estiverem ociosos e o scanner puder avançar em todas as 128 rodadas,
+são **391 janelas**, contra 50.000 janelas com uma única chamada por cron. A
+regressão imprime a contagem usando o número de participantes registrado, para
+continuar legível caso a integração acrescente manutenção de outro domínio.
+
+Esses são cálculos de capacidade condicionais, **não prazos garantidos**: a janela
+pode encerrar antes de 128 rodadas por tempo, lease ou falta de progresso. Não foi
+medida latência Cloudflare/ERP, nem foi atribuído throughput real a esses números.
+O avanço interno do cursor ERP e o tamanho de sua página pertencem a c1-cadastro.
+
+### Verificação e limites desta entrega
+
+- `node node_modules/typescript/bin/tsc --noEmit`: passou, sem diagnósticos. A configuração do projeto inclui produção e painel, mas não os arquivos de teste.
+- Checagem adicional com a API do TypeScript, incluindo `tests/c-coordenacao.test.ts` e as declarações de `cloudflare:test`: passou, **zero diagnósticos**, após corrigir localmente as chamadas com chave vazia. Script: `/private/tmp/c1-coordenacao-io/check-tests.mjs`.
+- `node scripts/check-conflict-markers.mjs`, `node scripts/check-encoding.mjs` (4.274 arquivos de texto), `node scripts/erp-scope-css.mjs --check` e `git diff --check`: passaram nesta retomada.
+- Verificação de inicialização Node/esbuild da rodada anterior: passou; a variante com o import incorreto falhou como esperado. O teste correspondente passou na execução externa atual.
+- Reprodução local de I/O com `workerd test`: helper anterior falhou com o erro do log; helper corrigido passou. Ensaio do método real: três cenários aprovados, com as limitações descritas acima. Não houve sockets, acesso externo ou execução de Vitest/Wrangler.
+- Regressões mantidas em `tests/c-coordenacao.test.ts`, com sincronização corrigida e duas asserções novas de prazo. Comparação sintática confirmou a preservação das 65 asserções em instruções `expect(...)` e a adição de duas. Os testes de outros arquivos foram preservados integralmente.
+- `npm run check` passou na execução externa registrada no log; não foi repetido localmente porque seu wrapper escreve `src/build-info.generated.ts`, fora da matriz. Os checks sem escrita são executados separadamente.
+- Fora: executor de cancelamento e autorização interna de jobs/associação (c1-cadastro), políticas dos provedores (respectivas frentes), cursor ERP, painel, migrações e recursos Cloudflare. O portão externo delega; ele não concede a autorização do recurso.
+- Pendente: repetir externamente as cinco suítes (`c-coordenacao`, `f1-base`, `d1-budget`, `command-receipt-closing` e `person-access`) após esta correção. Os 83 testes aprovados do log atual são evidência da versão anterior a esta mudança de sincronização; não se afirma que os 87 já passaram. Nenhuma dúvida de produto foi aberta; a integração dos handlers de c1-cadastro continua necessária para o cancelamento completo.
+- Nenhum commit, acesso à rede ou alteração no repositório fora dos seis arquivos autorizados.
+
 ## Integração das dez entregas — revisão após verificação externa, 19/11/2026
 
 Esta seção substitui o estado e as pendências dos relatos individuais preservados

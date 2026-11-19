@@ -245,12 +245,19 @@ export function requireRouteAccess(actor: Actor, segment: string) {
   requireAccess(actor, item ?? ALL);
 }
 
+/** Só estes endpoints delegam a autorização à ficha/ERP/job do recurso. */
+export function customerResourceRoute(method: string, path: string): boolean {
+  return (method === "GET" && /^(contacts\/[^/]+\/profile|contact-jobs\/[^/]+)$/.test(path)) ||
+    (method === "POST" && /^(contacts\/[^/]+\/promote|contacts\/from-erp|contact-jobs\/[^/]+\/(resolve|cancel))$/.test(path));
+}
+
 /** Comandos do núcleo por prefixo → item. */
 const OPERATIONS: [RegExp, string | null][] = [
   [/^(conversation|message|consent|web_step)\.|^inbound$/, "conversations"],
   [/^group\./, "conversations"],
   [/^run\.(create|cancel)$/, "conversations"],
   [/^ticket\./, "tickets"],
+  [/^contact\.(promote|from-erp|resolve-job|job-cancel|section)$/, null],
   [/^contact\./, "contacts"],
   [/^call\./, "calls"],
   [/^internal\./, "team"],

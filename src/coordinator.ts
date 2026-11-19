@@ -15,10 +15,14 @@ import {
   type Read,
 } from "./db";
 import { serverTiming, timedEnv } from "./d1-timing";
-import { sha, seal, unseal, canonical } from "./security";
+import { sha, seal, unseal, canonical, access, storedAccess, legacyKeyScopes } from "./security";
+import { allows, requireAccess, requireOperationAccess } from "./access";
+import { contactRow, customerAccess, human, namespaceFor, validateCustomerSelfActor } from "./customer/local";
+import { requireCustomerModule } from "./customer/http";
+import { visibleConversation } from "./visibility";
 import { REVOKED_CLOSE } from "./sockets";
 import { perform, inbound } from "./service";
-import { maintainCustomers } from "./customer/ports";
+import { customerMaintenanceEnv, maintainCustomers, profilePort, erpBridge } from "./customer/ports";
 import { finishDelivery } from "./delivery";
 import { channelEvent } from "./whatsapp";
 import { callWebhook, expireCalls } from "./calls";
@@ -57,9 +61,101 @@ import {
   deliverWebhook,
   importDocument,
 } from "./engine";
+
+/** Recibos, inclusive os anteriores a esta versão, não são credenciais. */
+export async function authorizeCustomerReplay(env: Env, actor: Actor, profile: string,
+  operation: string, data: any, value: any,
+  options?: { remote?: boolean; actorCheck?: (actor: Actor) => void }) {
+  const missing = (): never => { throw new ApiError(404, "not_found", "Recurso não encontrado."); };
+  if (actor.expiresAt && actor.expiresAt <= now()) missing();
+  if (actor.kind === "user") {
+    const current = await one(env, "SELECT role,profiles,access FROM users WHERE id=? AND disabled=0", actor.id);
+    if (!current) missing();
+    actor = { ...actor, role: current.role, profiles: json(current.profiles, []), access: storedAccess(current.access) };
+  } else if (actor.kind === "app") {
+    const current = await one(env, "SELECT profiles,scopes FROM applications WHERE id=? AND disabled=0", actor.id.replace(/^app:/, ""));
+    if (!current) missing();
+    if (actor.keyId && !await one(env, "SELECT 1 FROM api_keys WHERE id=? AND app_id=? AND revoked=0 AND expires>?", actor.keyId, actor.id.replace(/^app:/, ""), now())) missing();
+    actor = { ...actor, profiles: json(current.profiles, []), scopes: legacyKeyScopes(json(current.scopes, [])) };
+  }
+  options?.actorCheck?.(actor);
+  access(actor, profile, "contacts:write");
+  requireOperationAccess(actor, operation);
+  const section = operation === "contact.section" || operation.endsWith(".customer-section");
+  const module = section ? (operation === "contact.section" ? data.module : operation.split(".")[0]) : "";
+  const erpOperation = ["contact.promote", "contact.from-erp"].includes(operation);
+  const jobOperation = ["contact.resolve-job", "contact.job-cancel"].includes(operation);
+  if (section) await requireCustomerModule(env, actor, profile, module);
+  else if (erpOperation || (jobOperation && !allows(actor, "contacts"))) await requireCustomerModule(env, actor, profile, "erp");
+  else customerAccess(actor, profile, true);
+  if (jobOperation || operation === "contact.resolve-phone") human(actor);
+  if (operation === "contact.erasure") {
+    human(actor);
+    if (actor.role !== "admin") throw new ApiError(403, "forbidden", "A exclusão exige um administrador.");
+  }
+  // Erros e importação só retornam uma projeção sem dados cadastrais.
+  if (value?.error) return { error: { code: value.error.code, message: "A operação anterior não foi concluída." } };
+  if (operation === "contact.import") return { imported: value?.imported, skipped: value?.skipped, total: value?.total };
+  const ids = new Set<string>();
+  for (const id of [operation === "contact.resolve-phone" ? data.contactId : null,
+    operation === "contact.from-conversation" ? data.contact_id : null,
+    operation === "contact.unlink" ? data.expected_contact_id : null, value?.contactId, value?.result?.contactId])
+    if (typeof id === "string" && id) ids.add(id);
+  const association = ["contact.from-conversation", "contact.unlink"].includes(operation);
+  let associationNamespace: string | undefined;
+  if (association) {
+    access(actor, profile, "conversations:read"); requireAccess(actor, "conversations");
+    const conv = await one(env, "SELECT * FROM conversations WHERE profile_id=? AND id=?", profile, data.id);
+    if (!conv || !visibleConversation(actor, conv) || (actor.kind === "app" && conv.external_namespace !== namespaceFor(actor))) missing();
+    associationNamespace = conv.external_namespace.startsWith("app:") ? conv.external_namespace : "team";
+    if (operation === "contact.from-conversation") {
+      if (["blocked", "excluded"].includes(conv.customer_link_state)) missing();
+      const link = await one(env, "SELECT contact_id FROM conversation_contacts WHERE profile_id=? AND conversation_id=?", profile, data.id);
+      if (!link || link.contact_id !== (value?.contactId ?? value?.id)) missing();
+      ids.add(link.contact_id);
+    }
+  } else if ((section || ["contact.update", "contact.promote", "contact.erasure"].includes(operation)) && typeof data.id === "string") ids.add(data.id);
+  if (["contact.create", "contact.update", "contact.from-conversation"].includes(operation) && typeof value?.id === "string") ids.add(value.id);
+  let jobNamespace: string | undefined;
+  if (jobOperation || value?.jobId || operation === "contact.erasure") {
+    const job = await one(env, "SELECT * FROM customer_jobs WHERE profile_id=? AND id=?", profile, jobOperation ? data.id : value.jobId ?? value.id);
+    if (!job || (actor.kind !== "user" && job.namespace !== namespaceFor(actor))) missing();
+    jobNamespace = job.namespace;
+    if (job.contact_id && value?.contactId && job.contact_id !== value.contactId) missing();
+    if (job.contact_id) ids.add(job.contact_id);
+  }
+  // Sem recurso identificável não há reconstrução por nova mutação.
+  if (!ids.size) missing();
+  for (const id of ids) {
+    const row = await contactRow(env, actor, profile, id);
+    if (jobNamespace && row.namespace !== jobNamespace) missing();
+    if (associationNamespace && row.namespace !== associationNamespace) missing();
+    if (value?.namespace && value.namespace !== row.namespace) missing();
+    if (operation === "contact.resolve-phone" && data.namespace !== row.namespace) missing();
+    if (actor.kind === "connector") await validateCustomerSelfActor(env, actor, profile, id);
+    if (erpOperation || (jobOperation && !allows(actor, "contacts"))) {
+      if (row.namespace !== "team") missing();
+      const erpId = row.erp_contact_id ?? (operation === "contact.from-erp" ? data.erpId : null);
+      if (operation === "contact.from-erp" && row.erp_contact_id && row.erp_contact_id !== data.erpId) missing();
+      if (erpId) { if (options?.remote !== false) await erpBridge.read(env, actor, profile, erpId); }
+      else if (!allows(actor, "contacts")) missing();
+    }
+  }
+  if (operation === "contact.resolve-phone") {
+    const current = await one(env, "SELECT contact_id,state FROM customer_phones WHERE profile_id=? AND namespace=? AND phone=?", profile, data.namespace, value.phone);
+    if (!current || current.contact_id !== value.contactId || current.state !== value.state) missing();
+  }
+  if (section) {
+    const current = await profilePort.section(env, actor, profile, data.id, module, data.section);
+    if (!current.writable) throw new ApiError(403, "forbidden", "Você não pode editar esta seção.");
+  }
+  return value;
+}
+
 export class Coordinator extends DurableObject<Env> {
   private profile = "";
   private busy = false;
+  private customerMaintenanceRunning = false;
   /**
    * Gravações da resposta exata no recibo em andamento (/command), por
    * "escopo\nchave": a repetição com a mesma Idempotency-Key espera antes do
@@ -99,6 +195,13 @@ export class Coordinator extends DurableObject<Env> {
       return Response.json({ error: { code: "invalid_request" } }, { status: 400 });
     this.profile = body.profile;
     await this.ctx.storage.put("profile", this.profile);
+    // Também o comando legado passa pela reserva dedicada. Nunca deixe
+    // contact.maintain chegar ao perform dentro da fila do atendimento.
+    if (linkPath === "/customer-tick" || (linkPath === "/command" && body.operation === "contact.maintain")) {
+      if (linkPath === "/command" && (body.actor?.kind !== "connector" || body.actor?.id !== "customer-maintenance"))
+        return Response.json({ error: { code: "forbidden", message: "Manutenção interna." } }, { status: 403 });
+      return this.customerTick(body.profile);
+    }
     if (new URL(request.url).pathname === "/router-link")
       return this.ctx.blockConcurrencyWhile(async () => {
         try {
@@ -130,7 +233,7 @@ export class Coordinator extends DurableObject<Env> {
         `${(body.actor as Actor).id}:${this.profile}:${body.operation}\n${body.key}`,
       );
       if (pending) await pending;
-      return this.ctx.blockConcurrencyWhile(async () => {
+      const commandResult = await this.ctx.blockConcurrencyWhile(async () => {
         const actor: Actor = body.actor,
           scope = `${actor.id}:${this.profile}:${body.operation}`,
           fingerprint = await sha(canonical(body.data));
@@ -252,11 +355,14 @@ export class Coordinator extends DurableObject<Env> {
               },
               { status: 409, headers: { "Retry-After": "1" } },
             );
-          } else
+          } else {
+            let response = old.response;
+            if (body.operation.startsWith("contact.") || body.operation.endsWith(".customer-section")) {
+              return { customerReplay: old.response.startsWith("sealed:")
+                ? await unseal(this.env, old.response.slice(7)) : JSON.parse(old.response), status: old.status };
+            } else if (old.response.startsWith("sealed:")) response = JSON.stringify(await unseal(this.env, old.response.slice(7)));
             return new Response(
-              old.response.startsWith("sealed:")
-                ? JSON.stringify(await unseal(this.env, old.response.slice(7)))
-                : old.response,
+              response,
               {
                 status: old.status,
                 headers: {
@@ -265,6 +371,7 @@ export class Coordinator extends DurableObject<Env> {
                 },
               },
             );
+          }
         }
         let status = 200,
           value: any,
@@ -380,6 +487,34 @@ export class Coordinator extends DurableObject<Env> {
           headers: { "Server-Timing": serverTiming(timing) },
         });
       });
+      if (commandResult instanceof Response) return commandResult;
+      try {
+        let authorization = "";
+        // A política do registro ERP pode exigir RPC: também fora do bloqueio.
+        if (["contact.promote", "contact.from-erp", "contact.resolve-job", "contact.job-cancel"].includes(body.operation))
+          await authorizeCustomerReplay(this.env, body.actor, body.profile, body.operation, body.data, commandResult.customerReplay, {
+            actorCheck: actor => { authorization = canonical(actor); },
+          });
+        // Depois da espera remota, relê restrições e ator na fila curta, sem
+        // repetir o RPC nem a mutação. O Env é novo, sem cache da abertura.
+        return await this.ctx.blockConcurrencyWhile(async () => {
+          try {
+            const value = await authorizeCustomerReplay(this.env, body.actor, body.profile, body.operation, body.data, commandResult.customerReplay, {
+              remote: false,
+              actorCheck: actor => {
+                if (authorization && canonical(actor) !== authorization) throw new ApiError(403, "forbidden", "O acesso mudou. Reabra a ficha.");
+              },
+            });
+            return Response.json(value, { status: commandResult.status, headers: { "Idempotency-Replayed": "true" } });
+          } catch (error) {
+            if (!(error instanceof ApiError)) throw error;
+            return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
+          }
+        });
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error;
+        return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
+      }
     }
     // Passo web concluído pela página pública: a mensagem de retorno, o
     // protocolo e a nota entram na fila da área como o resto do atendimento.
@@ -452,17 +587,6 @@ export class Coordinator extends DurableObject<Env> {
       await this.schedule();
       return Response.json(result);
     }
-    if (linkPath === "/customer-tick") {
-      return this.ctx.blockConcurrencyWhile(async () => {
-        const { env, timing } = timedEnv(this.env);
-        const turn = await this.ctx.storage.get<number>("customer_maintenance_turn") ?? 0;
-        const result = await maintainCustomers(withReadCache(env), this.profile, {
-          remainingStatements: 40, remainingItems: 20,
-        }, turn);
-        await this.ctx.storage.put("customer_maintenance_turn", turn + 1);
-        return Response.json(result, { headers: { "Server-Timing": serverTiming(timing) } });
-      });
-    }
     if (new URL(request.url).pathname === "/inbound") {
       const { env, timing } = timedEnv(this.env);
       const result = await this.ctx.blockConcurrencyWhile(() =>
@@ -485,6 +609,54 @@ export class Coordinator extends DurableObject<Env> {
     // (ctx.wake, rotas de telemetria) usa este caminho.
     await this.schedule();
     return Response.json({ scheduled: true });
+  }
+  private async customerTick(profile: string) {
+    const reservation = await this.ctx.blockConcurrencyWhile(async () => {
+      const lease = await this.ctx.storage.get<{ token: string; until: number }>("customer_maintenance_lease");
+      if (this.customerMaintenanceRunning || (lease && lease.until > now())) return null;
+      const turn = await this.ctx.storage.get<number>("customer_maintenance_turn") ?? 0;
+      const next = { token: crypto.randomUUID(), until: now() + 60_000 };
+      // Avança ANTES de chamar a porta: queda/falha não monopoliza a vez.
+      // Controle fica no storage do DO, sem instruções D1 adicionais.
+      await this.ctx.storage.put({ customer_maintenance_turn: turn + 1, customer_maintenance_lease: next });
+      this.customerMaintenanceRunning = true;
+      return { ...next, turn };
+    });
+    if (!reservation) return Response.json({ pending: true, progress: false, leased: true, statements: 0, items: 0 });
+    const { env, timing } = timedEnv(this.env);
+    let progress = false;
+    let active = true;
+    const check = () => { if (!active || now() >= reservation.until) throw new Error("Reserva de manutenção vencida."); };
+    const meter = customerMaintenanceEnv(env, 40, check);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const work = maintainCustomers(withReadCache(meter.env), profile, {
+        remainingStatements: 40, remainingItems: 20,
+      }, reservation.turn, {
+        fair: true,
+        onProgress: () => { progress = true; },
+        // Um retorno ERP após o vencimento não pode confirmar D1 com lease
+        // velha. A intenção da porta será reconciliada na próxima passagem.
+        check,
+      });
+      // Um transporte que nunca retorna também não pode monopolizar a
+      // manutenção. Ao vencer, libera a vez; o trabalho antigo fica impedido
+      // de confirmar D1 pelo guardião acima, mesmo se o ERP responder depois.
+      const result = await Promise.race([work, new Promise<null>(resolve => {
+        timer = setTimeout(() => resolve(null), Math.max(0, reservation.until - now()));
+      })]);
+      return Response.json(result ? { ...result, progress } : {
+        pending: true, progress: false, timedOut: true, statements: meter.count(), items: 20,
+      }, { headers: { "Server-Timing": serverTiming(timing) } });
+    } finally {
+      active = false;
+      clearTimeout(timer);
+      await this.ctx.blockConcurrencyWhile(async () => {
+        const current = await this.ctx.storage.get<{ token: string }>("customer_maintenance_lease");
+        if (current?.token === reservation.token) await this.ctx.storage.delete("customer_maintenance_lease");
+        this.customerMaintenanceRunning = false;
+      });
+    }
   }
   private async wakeModules(options?: { modules?: boolean }) {
     if (options?.modules) {
