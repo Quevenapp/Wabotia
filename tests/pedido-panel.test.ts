@@ -1,3 +1,4 @@
+import { pageRoute, parseRoute } from "../web/lib/routes";
 import { describe, expect, it } from "vitest";
 import { api, bearer, configure } from "./service-center-fixture";
 import {
@@ -14,6 +15,7 @@ import { orderView } from "../src/modules/pedido/orders";
 import { wrap } from "../src/modules/pedido/ticket";
 import { pedidoDemo } from "../web/modules/pedido/demo";
 import {
+  areaOfPage,
   canOpenPage,
   pageModules,
   railPages,
@@ -147,7 +149,11 @@ describe("pedido: comanda e painel", () => {
   it("navegação: quadro para a equipe, cardápio só para administradores, some com o módulo desligado", () => {
     expect(pageModules.pedidos).toBe("pedido");
     expect(pageModules["pedidos-cardapio"]).toBe("pedido");
-    expect(railPages.map((p) => p.page)).toContain("pedidos");
+    expect(railPages.map((p) => p.page)).not.toContain("pedidos");
+    expect(areaOfPage("pedidos")).toBe("erp");
+    expect(pageRoute("pedidos")).toEqual({ area: "erp", page: "pedidos" });
+    expect(parseRoute("/app/gestao/pedidos")).toEqual({ area: "erp", page: "pedidos" });
+    expect(parseRoute("/app/gestao/cardapio-e-loja")).toEqual({ area: "erp", page: "pedidos-cardapio" });
     expect(canOpenPage("pedidos", "operator", { pedido: true })).toBe(true);
     expect(canOpenPage("pedidos-cardapio", "operator", { pedido: true })).toBe(
       false,

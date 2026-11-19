@@ -1,7 +1,3 @@
-import { PrazosPage } from "../modules/juridico/PrazosPage";
-import { CondominioPage } from "../modules/condominio/CondominioPage";
-import { SaudePage } from "../modules/saude/SaudePage";
-import { EnsinoPage } from "../modules/ensino/EnsinoPage";
 // Gestão (web/DESIGN.md §2 e §8): coluna de navegação de administração e as
 // páginas à direita, com as mesmas regras de quem pode ver o quê.
 import React, { useEffect, useState } from "react";
@@ -33,26 +29,8 @@ import { ApplicationsPage } from "./ApplicationsPage";
 import { TemplatesPage } from "./TemplatesPage";
 import { QueueSettingsPage } from "../queue/QueueSettingsPage";
 import { ModulesPage } from "./ModulesPage";
-import { FormsPage } from "./FormsPage";
-import { AgendaPage } from "../modules/agenda/AgendaPage";
-import { AgendaSettingsPage } from "../modules/agenda/AgendaSettingsPage";
-import { useWorkNavigation } from "../modules/os/work-navigation";
-import { WorkPage } from "../modules/os/work/WorkListPage";
-import { WorkTypesPage } from "../modules/os/types/WorkTypesPage";
-import { MyDeadlinesPage } from "../modules/os/tasks/MyDeadlinesPage";
 import { AreaTemplatesPage } from "./area-templates/AreaTemplatesPage";
-import { ServiceOrdersSettingsPage } from "../modules/os/ServiceOrdersSettingsPage";
-import { PaymentsPage } from "./PaymentsPage";
-import { MensalidadesPage } from "../modules/mensalidade/MensalidadesPage";
-import { MensalidadeSettingsPage } from "../modules/mensalidade/MensalidadeSettingsPage";
-import { SuportePage } from "../modules/suporte/SuportePage";
-import { SuporteSettingsPage } from "../modules/suporte/SuporteSettingsPage";
 import { EstablishmentPage } from "./EstablishmentPage";
-import { ReservaPage } from "../modules/reserva/ReservaPage";
-import { ReservaSettingsPage } from "../modules/reserva/ReservaSettingsPage";
-import { OrdersPage } from "../modules/pedido/OrdersPage";
-import { MenuPage } from "../modules/pedido/MenuPage";
-import { MesasPage } from "../modules/mesas/MesasPage";
 import {
   GroupsPage,
   LogsPage,
@@ -128,10 +106,6 @@ function Page({ page }: { page: PageId }) {
   const app = useApp();
   const { api, root, demo } = app;
   switch (page) {
-    case "juridico": return <PrazosPage />;
-    case "condominio": return <CondominioPage />;
-    case "saude": return <SaudePage />;
-    case "ensino": return <EnsinoPage />;
     case "setup":
       return <SetupPage />;
     case "system":
@@ -158,45 +132,10 @@ function Page({ page }: { page: PageId }) {
       return <QueueSettingsPage />;
     case "modules":
       return <ModulesPage />;
-    case "forms":
-      return <FormsPage />;
-    case "agenda":
-      return <AgendaPage />;
-    case "agenda-settings":
-      return <AgendaSettingsPage />;
-    case "service-orders":
-    case "work":
-      return <WorkPage />;
-    case "work-types":
-      return <WorkTypesPage />;
-    case "my-deadlines":
-      return <MyDeadlinesPage />;
     case "area-templates":
       return <AreaTemplatesPage />;
-    case "service-orders-settings":
-      return <ServiceOrdersSettingsPage />;
-    case "payments":
-      return <PaymentsPage />;
-    case "mensalidades":
-      return <MensalidadesPage />;
-    case "mensalidade-settings":
-      return <MensalidadeSettingsPage />;
-    case "suporte":
-      return <SuportePage />;
-    case "suporte-settings":
-      return <SuporteSettingsPage />;
     case "establishment":
       return <EstablishmentPage />;
-    case "reserva":
-      return <ReservaPage />;
-    case "reserva-settings":
-      return <ReservaSettingsPage />;
-    case "pedidos":
-      return <OrdersPage />;
-    case "pedidos-cardapio":
-      return <MenuPage />;
-    case "mesas":
-      return <MesasPage />;
     case "users":
       return <UsersPage />;
     case "applications":
@@ -218,23 +157,12 @@ function Page({ page }: { page: PageId }) {
 function Navigation({
   page,
   onNavigate,
-  workNavigation,
 }: {
   page: PageId;
   onNavigate: () => void;
-  workNavigation: ReturnType<typeof useWorkNavigation>;
 }) {
   const app = useApp();
-  const customTypes = workNavigation.hasCustom;
-  const groups = visibleGroups(app.me.role, app.modules, app.me.access).map(
-    (group) => ({
-      ...group,
-      pages: group.pages.filter(
-        (id) => workNavigation.tasksEnabled || id !== "my-deadlines",
-      ),
-    }),
-  );
-  const workLabel = workNavigation.label;
+  const groups = visibleGroups(app.me.role, app.modules, app.me.access);
   const link = (id: PageId, label: string, Icon: any, child = false) => (
     <a
       key={id}
@@ -246,7 +174,7 @@ function Navigation({
       onClickCapture={onNavigate}
     >
       <Icon size={child ? 17 : 19} aria-hidden />
-      <span>{id === "service-orders" && customTypes ? workLabel : label}</span>
+      <span>{label}</span>
     </a>
   );
   return (
@@ -295,9 +223,7 @@ function Navigation({
             <div className="admin-group" key={group.id}>
               <h2>
                 <group.icon size={15} aria-hidden />
-                {group.id === "service-orders" && customTypes
-                  ? workLabel
-                  : group.label}
+                {group.label}
               </h2>
               {group.pages.map((id) => {
                 const [, label, Icon] = section(id)!;
@@ -321,11 +247,9 @@ export const waitingModules = (
 export function AdminArea({ page: requested }: { page: PageId | string }) {
   const app = useApp();
   const compact = useCompact();
-  const workNavigation = useWorkNavigation();
   const allowed =
     !!section(requested) &&
     canOpenPage(requested, app.me.role, app.modules, app.me.access);
-  // Prazos, Condomínio, Prontuários e Ensino só abrem com o módulo ligado.
   // Ao abrir pelo endereço (favorito, F5), o estado dos módulos ainda está
   // carregando: espera em vez de trocar o endereço por Início.
   const waiting = waitingModules(requested, app.modules, allowed);
@@ -349,11 +273,7 @@ export function AdminArea({ page: requested }: { page: PageId | string }) {
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
   }, [drawer]);
-  const [, registeredTitle, Icon] = section(page)!;
-  const title =
-    page === "service-orders" || page === "work"
-      ? workNavigation.label
-      : registeredTitle;
+  const [, title, Icon] = section(page)!;
   const needsProfile = !app.profile && !withoutProfile.has(page);
   return (
     <div className={"area admin-area" + (drawer ? " drawer-open" : "")}>
@@ -383,7 +303,6 @@ export function AdminArea({ page: requested }: { page: PageId | string }) {
         <Navigation
           page={page}
           onNavigate={() => setDrawer(false)}
-          workNavigation={workNavigation}
         />
       </aside>
       <div className="admin-main">

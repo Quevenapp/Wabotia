@@ -135,7 +135,7 @@ describe("revisão do painel: regressões", () => {
     const list = instance();
     let tree = render(list, () => selected.type(selected.props));
     expect(elements(tree).find((node) => node.type === "a" && elementsText(node) === "Meus prazos")?.props.href)
-      .toBe("/app/gestao/meus-prazos?demo=1&pair=teste");
+      .toBe("/app/erp/modulos/meus-prazos?demo=1&pair=teste");
     button(tree, "Criar:").props.onClick();
     const revised = { ...type, revision: 2, labels: { ...type.labels, item: "Novo rótulo" } };
     selected = { ...selected, props: { ...selected.props, type: revised } };
@@ -179,14 +179,14 @@ describe("revisão do painel: regressões", () => {
     let tree = render(owner, draw);
     expect(elements(tree).filter((node) => node.type === "a")).toHaveLength(50);
     expect(elements(tree).find((node) => node.type === "a")?.props.href)
-      .toBe("/app/gestao/trabalhos/projeto/0?demo=1&pair=teste");
+      .toBe("/app/erp/modulos/trabalhos/projeto/0?demo=1&pair=teste");
     component(tree, Pager).props.setCursor("pagina2");
     render(owner, draw);
     await tick();
     tree = render(owner, draw);
     expect(elementsText(tree)).toContain("P-51");
     expect(elements(tree).find((node) => node.type === "a")?.props.href)
-      .toBe("/app/gestao/trabalhos/projeto/51?demo=1&pair=teste");
+      .toBe("/app/erp/modulos/trabalhos/projeto/51?demo=1&pair=teste");
     const requested = runtime.app.api.mock.calls.map((call: any[]) => String(call[0]));
     expect(requested).toContain("v1/profiles/a/service-orders?open=1&conversation_id=c%2F1&limit=50&cursor=pagina2");
     expect(component(tree, Pager).props.nextCursor).toBeNull();
@@ -267,7 +267,7 @@ describe("revisão do painel: regressões", () => {
     const detail: any = render(owner, () => WorkDetailPage({ workId: "o" }));
     const tree = render(instance(), () => detail.type(detail.props));
     expect(elements(tree).find((node) => node.type === "a")?.props.href)
-      .toBe("/app/gestao/trabalhos/projeto?demo=1&pair=teste");
+      .toBe("/app/erp/modulos/trabalhos/projeto?demo=1&pair=teste");
     expect(button(tree, "Abrir campos restritos")).toBeDefined();
     const save = button(tree, "Registrar orçamento sem envio pelo WhatsApp");
     expect(save).toBeDefined();
