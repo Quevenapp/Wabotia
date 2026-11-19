@@ -6,6 +6,7 @@ import { aliasStatements } from "../../integrations/outbox";
 import { commercialReceiptStatements } from "../../integrations/receipts";
 import { IntegrationError } from "../../integrations/privacy";
 import { hash } from "../../integrations/keys";
+import { billTotals } from "./model";
 import { CommercePlan, allocateSale, commercialId, manualReceipt, projectOrder, receiptReplay, saleSnapshot, saleSource, savedSale, tabOrders, type CommercialReceipt, type CommercialSnapshot, type SourceRef } from "../pedido/public";
 
 export function requireReceiptPerson(actor: Actor) {
@@ -135,4 +136,16 @@ export async function touchTableOrigin(ctx: ModuleContext, tab: any, plan: Comme
     const policy = await plan.policy();
     await plan.add(saleSnapshot(saleSource(ctx.profile, "mesas", tab.id), 0, tab.opened_at, [], policy.version));
   }
+}
+
+/** O cancelamento do pedido e a taxa correspondente usam o mesmo plano/lote. */
+export async function cancelledOrderService(ctx: ModuleContext, order: any, plan: CommercePlan) {
+  const tab = await one(ctx.env, "SELECT * FROM mesas_tabs WHERE profile_id=? AND id=?", ctx.profile, order.tab_id);
+  if (!tab || !["open", "closing"].includes(tab.status)) return;
+  const orders = await tabOrders(ctx.env, ctx.profile, tab.id);
+  const subtotal = orders.filter(o => o.id !== order.id && o.status !== "cancelled").reduce((sum, o) => sum + o.total_cents, 0);
+  const desired = billTotals(subtotal, !!tab.service, tab.service_permille, 0).service_cents;
+  await serviceComponents(ctx, tab, desired, plan);
+  plan.append(["UPDATE mesas_tabs SET updated=? WHERE profile_id=? AND id=? AND updated=? AND status=?", [plan.at, ctx.profile, tab.id, tab.updated, tab.status]],
+    ["SELECT CASE WHEN changes()=1 THEN 1 ELSE json('integration_version_conflict') END", []]);
 }

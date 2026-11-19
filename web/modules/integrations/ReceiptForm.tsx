@@ -41,7 +41,7 @@ export function AppointmentCommercialActions({ id, version, priceCents, onSaved 
   const access = host && integrationAccess(host.context);
   if (!api || !access?.localFinance || !access.localWrite("agenda")) return null;
   const pending = api.pending(`appointment:${id}`);
-  return <section><p>{priceCents == null ? "Preço ainda não definido; nenhuma cobrança será inventada." : `Preço contratado: ${(priceCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}</p>
+  return <section><p>Marcar ausência mantém a cobrança antecipada devida. Cancelamento e devolução exigem ações próprias.</p><p>{priceCents == null ? "Preço ainda não definido; nenhuma cobrança será inventada." : `Preço contratado: ${(priceCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}</p>
     {version == null ? <p>O produtor ainda não informou a revisão comercial para cobrar ou concluir.</p> : <>
       <Button secondary disabled={busy || !!pending || priceCents == null || priceCents <= 0} onClick={() => setReview("charge")}>Conferir cobrança</Button>
       <Button secondary disabled={busy || !!pending} onClick={() => setReview("complete")}>Conferir conclusão</Button>
@@ -71,22 +71,23 @@ export function ReceiptReverseForm() {
 export function DeliveryCommercialForm({ id }: { id: string }) {
   const host = useIntegrationHost(), api = useIntegrationApi(), access = host && integrationAccess(host.context);
   const allowed = access?.module("entrega") && (access.documents || access.finance || access.stock);
-  const [data, setData] = useState<{ source: string; source_ref: string | null; commercial?: { revision: number; price_cents: number | null; authorized: boolean } } | null>(null);
+  const [data, setData] = useState<{ source: string; source_ref: string | null; commercial?: { version: number; price_cents: number | null; authorized_at: number | null } } | null>(null);
   const [price, setPrice] = useState(""), [authorized, setAuthorized] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(""), [reload, setReload] = useState(0);
   useEffect(() => {
     if (!api || !allowed) return;
     const request = new AbortController();
-    void api.delivery(id, request.signal).then(value => { if (!request.signal.aborted) { setData(value); setPrice(value.commercial?.price_cents == null ? "" : (value.commercial.price_cents / 100).toFixed(2)); setAuthorized(value.commercial?.authorized ?? false); } }).catch(e => { if (!request.signal.aborted) setError(integrationError(e)); });
+    void api.delivery(id, request.signal).then(value => { if (!request.signal.aborted) { setData(value); setPrice(value.commercial?.price_cents == null ? "" : (value.commercial.price_cents / 100).toFixed(2)); setAuthorized(value.commercial?.authorized_at != null); } }).catch(e => { if (!request.signal.aborted) setError(integrationError(e)); });
     return () => request.abort();
   }, [api, id, allowed, reload]);
   if (!api || !allowed) return null;
   if (data?.source === "pedido") return <p>Entrega vinculada ao pedido: o frete acompanha o documento do pedido e não será lançado novamente.</p>;
   const pending = api.pending(`delivery:${id}`);
   return <section><h3>Entrega avulsa</h3>{error && <p role="alert">{error}</p>}
-    {data?.commercial ? <><fieldset disabled={busy || !!pending || !access?.write("entrega")}><Field label="Preço contratado (R$)" value={price} onChange={setPrice} /><label><input type="checkbox" checked={authorized} onChange={e => setAuthorized(e.target.checked)} /> Cobrança expressamente autorizada</label></fieldset>
-      {access?.write("entrega") && <Button disabled={busy || !pending && (!authorized || receiptCents(price) == null)} onClick={() => {
+    {data?.commercial ? <><fieldset disabled={busy || !!pending || data.commercial.authorized_at != null || !access?.write("entrega")}><Field label="Preço contratado (R$)" value={price} onChange={setPrice} /><label><input type="checkbox" checked={authorized} onChange={e => setAuthorized(e.target.checked)} /> Cobrança expressamente autorizada</label></fieldset>
+      {data.commercial.authorized_at != null && <p>Preço e autorização registrados.</p>}
+      {access?.write("entrega") && data.commercial.authorized_at == null && <Button disabled={busy || !pending && (!authorized || receiptCents(price) == null)} onClick={() => {
         setBusy(true); setError("");
-        void api.deliveryCommercial(id, pending?.body ?? { revision: data.commercial!.revision, price_cents: receiptCents(price), authorized }).then(() => setReload(n => n + 1)).catch(e => setError(integrationError(e))).finally(() => setBusy(false));
+        void api.deliveryCommercial(id, pending?.body ?? { version: data.commercial!.version, price_cents: receiptCents(price), authorize: authorized }).then(() => setReload(n => n + 1)).catch(e => setError(integrationError(e))).finally(() => setBusy(false));
       }}>{pending ? "Repetir a mesma autorização" : "Confirmar preço e autorização"}</Button>}
       <ReceiptForm key={id} module="entrega" sourceId={id} onSaved={() => setReload(n => n + 1)} />
     </> : <p>Sem dados comerciais publicados pelo módulo. A entrega continua local, sem cobrança inventada.</p>}

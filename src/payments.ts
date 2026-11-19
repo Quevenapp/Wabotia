@@ -18,7 +18,7 @@ import {
   uid,
 } from "./types";
 import { access, admin, secret, setSecret, unseal } from "./security";
-import { event } from "./events";
+import { event, eventStatement } from "./events";
 import { conversation, enqueue, message } from "./service";
 import { interactiveLine, sendInteractive } from "./line-service";
 import { publicOrigin } from "./web-steps";
@@ -250,6 +250,8 @@ export function paymentView(row: any) {
     currency: row.currency,
     status: row.status as PaymentStatus,
     provider_status: row.provider_status,
+    review_required: row.provider_status === "refund_review_required",
+    review_reason: row.provider_status === "refund_review_required" ? "refund_amount_unconfirmed" : null,
     pix_code: row.pix_code,
     url: row.url,
     trigger: row.trigger,
@@ -1029,6 +1031,18 @@ export async function refreshFromProvider(
       }),
     );
     return { ignored: "amount_mismatch" };
+  }
+  if (remote.refund_review_required || remote.state === "refunded" && remote.refunded_amount_cents != null && remote.refunded_amount_cents !== remote.amount_cents) {
+    const at = now();
+    await batch(env, [
+      ["UPDATE payments SET provider_status='refund_review_required',updated=? WHERE id=? AND profile_id=?", [at, referenced.id, account.profile_id]],
+      eventStatement(account.profile_id, "payment.refund_review", referenced.id,
+        { payment_id: referenced.id, reason_code: "refund_amount_unconfirmed", amount_cents: Number.isSafeInteger(remote.refunded_amount_cents) && remote.refunded_amount_cents! >= 0 ? remote.refunded_amount_cents : null },
+        `payment.refund_review:${receiptKey}`),
+    ]);
+    // A fila histórica continua avançando; não enfileira estorno inventado.
+    await deliverPaymentHooks(env, referenced.id);
+    return { status: referenced.status, changed: false, review_required: true, ignored: "refund_amount_unconfirmed" };
   }
   // Preservar códigos conhecidos, jamais um texto livre devolvido pelo provedor.
   const providerStatus = ["approved", "pending", "in_process", "authorized", "in_mediation", "rejected", "cancelled", "expired", "refunded", "charged_back"].includes(remote.raw_status)

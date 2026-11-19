@@ -63,7 +63,7 @@ async function call(
     throw new ApiError(
       502,
       "provider_error",
-      `O Mercado Pago recusou a operação: ${String(data?.message || data?.error || response.status).slice(0, 200)}`,
+      "O Mercado Pago recusou a operação. Confira os dados no painel do provedor.",
     );
   return data;
 }
@@ -191,9 +191,17 @@ export const mercadoPago: PaymentProvider = {
       `/v1/payments/${encodeURIComponent(id)}`,
     );
     const raw = String(data?.status || "");
+    const refunded = data?.transaction_amount_refunded == null ? null : cents(data.transaction_amount_refunded);
+    const total = cents(data?.transaction_amount);
+    const refundSignal = raw === "refunded" || data?.status_detail === "partially_refunded" || refunded !== null && refunded > 0 || data?.refunds?.length > 0;
     return {
       id: String(data?.id ?? id),
       state: mpState(raw, data?.status_detail),
+      verified_method: data?.payment_method_id === "pix" ? "pix"
+        : ["credit_card", "debit_card", "prepaid_card"].includes(data?.payment_type_id) ? "card" : "unknown",
+      refunded_amount_cents: refunded,
+      // Sem valor integral comprovado não se fabrica um estorno integral.
+      refund_review_required: refundSignal && (!Number.isSafeInteger(refunded) || refunded !== total),
       raw_status: raw,
       external_reference: data?.external_reference
         ? String(data.external_reference)

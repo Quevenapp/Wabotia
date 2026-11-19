@@ -1,5 +1,6 @@
 // Projeções comerciais: somente D1. Nenhum caminho de atendimento chama o ERP.
 import { Buffer } from "node:buffer";
+import { commercialPaymentEvidence, commercialReceiptFromEvidence } from "../../payments-commercial-evidence";
 import { all, batch, one } from "../../db";
 import type { Actor, Env } from "../../types";
 import type { ModuleContext } from "../api";
@@ -98,6 +99,8 @@ export class CommercePlan {
       SELECT value ->> '$.profile' profile,value ->> '$.module' module,value ->> '$.source_id' source_id,
         value ->> '$.component' component,value ->> '$.scope' scope FROM json_each(?)
     ) SELECT i.*,s.revision,s.enqueued_seq,
+      (SELECT payload_json FROM module_erp_events e WHERE e.profile_id=i.profile AND e.module_id=i.module AND e.source_id=i.source_id
+        AND e.payload_json ->> '$.source.component'=i.component AND e.payload_json ->> '$.operation'='execute' ORDER BY e.seq DESC LIMIT 1) execution_json,
       (SELECT response FROM receipts WHERE scope=i.scope ORDER BY CAST(key AS INTEGER) DESC LIMIT 1) snapshot_json,
       (SELECT COALESCE(sum(CASE WHEN r.kind='receive' THEN a.amount_cents ELSE -a.amount_cents END),0)
         FROM module_erp_allocations a JOIN module_commercial_receipts r ON r.profile_id=a.profile_id AND r.receipt_key=a.receipt_key
@@ -138,13 +141,13 @@ export class CommercePlan {
       eligible.finance = eventEpochOpen(trigger, state.activations, ["erp-financeiro"]);
       eligible.stock = input.stock !== false && next.items.some(i => i.kind === "material" && i.product_id !== null) && eventEpochOpen(trigger, state.activations, ["erp-produtos", "erp-estoque"]);
       eligible.document = eligible.finance || eligible.stock || eventEpochOpen(trigger, state.activations, ["erp-vendas"]);
-      if (["cancel", "reverse"].includes(input.operation)) {
-        const prior = await one(this.ctx.env, "SELECT payload_json FROM module_erp_events WHERE profile_id=? AND module_id=? AND source_id=? AND json_extract(payload_json,'$.source.component')=? AND json_extract(payload_json,'$.operation')='execute' ORDER BY seq DESC LIMIT 1", source.profile, source.module, source.source_id, source.component);
+      if (["cancel", "reverse", "receive"].includes(input.operation)) {
+        const prior = (await this.inspect(source)).execution_json;
         if (prior) {
-          const old = JSON.parse(prior.payload_json) as IntegrationEvent;
-          eligible.document ||= old.eligible.document;
+          const old = JSON.parse(prior) as IntegrationEvent;
+          eligible.document ||= input.operation !== "receive" && old.eligible.document;
           eligible.finance ||= old.eligible.finance;
-          eligible.stock ||= input.stock !== false && old.eligible.stock;
+          eligible.stock ||= input.operation !== "receive" && input.stock !== false && old.eligible.stock;
         }
       }
       if (!eligible.document && !eligible.stock && !eligible.finance) continue;
@@ -195,7 +198,12 @@ export async function buildOrderCommerce(ctx: ModuleContext, row: any, actor: st
   return plan;
 }
 export async function orderCommerce(ctx: ModuleContext, row: any, actor: string, operation: "received" | "lifecycle" | "cancel", at = Date.now()): Promise<Statement[]> {
-  return (await buildOrderCommerce(ctx, row, actor, operation, at)).statements();
+  const plan = await buildOrderCommerce(ctx, row, actor, operation, at);
+  if (operation === "cancel" && row.tab_id) {
+    const { cancelledOrderService } = await import("../mesas/integration");
+    await cancelledOrderService(ctx, row, plan);
+  }
+  return plan.statements();
 }
 
 export function manualReceipt(source: SourceRef, request: string, amount: number, method: string, actor: string, at = Date.now()): CommercialReceipt {
@@ -226,8 +234,8 @@ export async function netAllocated(env: Env, source: SourceRef): Promise<number>
   const r = await one(env, `SELECT COALESCE(sum(CASE WHEN r.kind='receive' THEN a.amount_cents ELSE -a.amount_cents END),0) amount FROM module_erp_allocations a JOIN module_commercial_receipts r ON r.profile_id=a.profile_id AND r.receipt_key=a.receipt_key WHERE a.profile_id=? AND a.module_id=? AND a.source_id=? AND a.component=?`, source.profile, source.module, source.source_id, source.component);
   return r.amount;
 }
-export async function reverseReceiptStatements(ctx: ModuleContext, original: CommercialReceipt, actor: string | null, reason: string, at = Date.now()): Promise<Statement[]> {
-  const receipt: CommercialReceipt = { ...original, receipt_key: reverseReceiptKey(original.receipt_key), kind: "reverse", reverses_key: original.receipt_key, actor_id: actor, occurred_ms: at, evidence_hash: hash([original.receipt_key, reason]) };
+export async function reverseReceiptStatements(ctx: ModuleContext, original: CommercialReceipt, actor: string | null, reason: string, at = Date.now(), confirmed?: CommercialReceipt): Promise<Statement[]> {
+  const receipt: CommercialReceipt = confirmed ?? { ...original, receipt_key: reverseReceiptKey(original.receipt_key), kind: "reverse", reverses_key: original.receipt_key, actor_id: actor, occurred_ms: at, evidence_hash: hash([original.receipt_key, reason]) };
   if (await receiptReplay(ctx.env, receipt)) return [];
   const plan = new CommercePlan(ctx, actor, at);
   plan.append(...commercialReceiptStatements(receipt));
@@ -246,12 +254,16 @@ export async function providerOrderStatements(ctx: ModuleContext, row: any, paym
   if (row.tab_id) throw new IntegrationError("invalid_request", 409);
   const receiptFields = "profile_id,receipt_key,owner_module,source_id,kind,evidence,reverses_key,amount_cents,method,occurred_ms,actor_id,evidence_hash".split(",");
   const payment = await one(ctx.env, `SELECT p.*,
+    (SELECT payload FROM events WHERE profile_id=p.profile_id AND kind='payment.evidence' AND source_key=?) evidence_json,
     (SELECT json_object('module_id',module_id,'source_id',source_id,'component',component) FROM module_erp_aliases
       WHERE profile_id=p.profile_id AND record_kind='order' AND record_id=p.ref_id AND module_id IN ('pedido','mesas')) source_json,
     (SELECT json_object(${receiptFields.map(f => `'${f}',${f}`).join(",")}) FROM module_commercial_receipts
       WHERE profile_id=p.profile_id AND receipt_key=?) receipt_json
-    FROM payments p WHERE p.id=? AND p.profile_id=? AND p.module_id='pedido' AND p.ref_id=?`, receiptKey ?? null, paymentId, ctx.profile, row.id);
-  if (!payment || !payment.provider_payment_id || payment.status !== (reverse ? "refunded" : "paid")) throw new IntegrationError("invalid_request", 422);
+    FROM payments p WHERE p.id=? AND p.profile_id=? AND p.module_id='pedido' AND p.ref_id=?`, receiptKey ? `payment.evidence:${receiptKey}` : null, receiptKey ?? null, paymentId, ctx.profile, row.id);
+  if (!payment || !payment.provider_payment_id) throw new IntegrationError("invalid_request", 422);
+  payment.evidence_key = receiptKey;
+  const fact = await commercialPaymentEvidence(ctx.env, ctx.profile, "pedido", paymentId, row.id, reverse ? "refunded" : "paid", undefined, payment);
+  const paidFact = fact.original ? { ...fact.original, original: null } : fact;
   const alias = payment.source_json ? JSON.parse(payment.source_json) : null;
   const source = alias ? saleSource(ctx.profile, alias.module_id, alias.source_id, alias.component) : saleSource(ctx.profile, "pedido", row.id);
   const key = providerReceiptKey(ctx.profile, payment.provider, payment.account_id, payment.provider_payment_id);
@@ -259,11 +271,11 @@ export async function providerOrderStatements(ctx: ModuleContext, row: any, paym
   const old: CommercialReceipt | null = receiptKey
     ? payment.receipt_json ? JSON.parse(payment.receipt_json) : null
     : await one<CommercialReceipt>(ctx.env, "SELECT * FROM module_commercial_receipts WHERE profile_id=? AND receipt_key=?", ctx.profile, key);
-  if (old && (old.owner_module !== "pedido" || old.source_id !== row.id || old.amount_cents !== payment.amount_cents || old.evidence !== "provider" || old.kind !== "receive" || old.method !== (payment.method === "pix" ? "pix" : "card"))) throw new IntegrationError("idempotency_conflict", 409);
+  if (old && (old.owner_module !== "pedido" || old.source_id !== row.id || old.amount_cents !== payment.amount_cents || old.evidence !== "provider" || old.kind !== "receive" || old.method !== paidFact.method)) throw new IntegrationError("idempotency_conflict", 409);
   if (validateOnly) return [];
-  if (reverse) return old ? reverseReceiptStatements(ctx, old, null, "provider_refund") : [];
+  if (reverse) return old ? reverseReceiptStatements(ctx, old, null, "provider_refund", fact.occurred_ms, commercialReceiptFromEvidence(fact)) : [];
   if (old && (row.status === "cancelled" || await netAllocated(ctx.env, source) >= row.total_cents || await one(ctx.env, "SELECT 1 FROM module_erp_allocations WHERE profile_id=? AND receipt_key=?", ctx.profile, key))) return [];
-  const receipt: CommercialReceipt = old ?? { profile_id: ctx.profile, receipt_key: key, owner_module: "pedido", source_id: row.id, kind: "receive", evidence: "provider", reverses_key: null, amount_cents: payment.amount_cents, method: payment.method === "pix" ? "pix" : "card", occurred_ms: payment.paid_at ?? Date.now(), actor_id: null, evidence_hash: hash([key, payment.amount_cents, payment.method]) };
+  const receipt: CommercialReceipt = old ?? commercialReceiptFromEvidence(paidFact);
   const plan = new CommercePlan(ctx, row.created_by ?? null);
   const snapshot = await projectOrder(ctx, row, source, plan);
   const state = await plan.inspect(source);

@@ -1207,6 +1207,8 @@ export async function cancelTab(ctx: ModuleContext, actor: Actor, data: any) {
   const reason =
     text(data.reason, 200, "o motivo") || "Conta aberta por engano.";
   const at = now();
+  const commercial = new CommercePlan(ctx, actor.id, at);
+  await serviceComponents(ctx, tab, 0, commercial);
   const [update] = await batch(ctx.env, [
     guardedUpdate(ctx, tab, {
       status: "cancelled",
@@ -1219,7 +1221,9 @@ export async function cancelTab(ctx: ModuleContext, actor: Actor, data: any) {
       closed_at: at,
       updated: at,
     }),
+    commerceGuard,
     history(ctx, tab.id, "cancelled", actor.id, reason, at),
+    ...commercial.statements(),
   ]);
   if (!update.meta.changes) throw conflict();
 

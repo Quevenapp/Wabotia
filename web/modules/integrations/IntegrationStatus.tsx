@@ -2,11 +2,21 @@ import React, { lazy, Suspense, useEffect, useState } from "react";
 import { Button, Field } from "../../ui";
 import { integrationError, useIntegrationApi } from "./api";
 import { integrationAccess, operationalHref, sourceHref, useIntegrationHost } from "./visibility";
-import { MODULE_LABELS, type IntegrationModule, type IntegrationState, type ModuleStatus, type SourceView } from "./contracts";
+import { MODULE_LABELS, type IntegrationModule, type IntegrationState, type SourceState, type ModuleStatus, type SourceView } from "./contracts";
 import { CommercialPolicyPanel } from "./CommercialPolicyPanel";
 import { DeliveryCommercialForm, ReceiptForm, ReceiptReverseForm } from "./ReceiptForm";
 
-export const STATE_LABELS: Record<IntegrationState, string> = { off: "Operação local", pending: "Pendente no ERP", sending: "Aguardando confirmação ERP", waiting_manual: "Aguardando lançamento manual", blocked: "Pendente de correção", failed: "Falhou", done: "Confirmado no ERP" };
+export const STATE_LABELS: Record<IntegrationState | SourceState, string> = { none: "Sem lançamento no ERP", skipped: "Lançamento pulado", uncertain: "Confirmação ERP incerta", off: "Operação local", pending: "Pendente no ERP", sending: "Aguardando confirmação ERP", waiting_manual: "Aguardando lançamento manual", blocked: "Pendente de correção", failed: "Falhou", done: "Confirmado no ERP" };
+export function integrationReason(reason: string | null | undefined) {
+  const reasons: Record<string, string> = {
+    part_disabled: "A parte necessária estava desligada. O administrador pode revisar as partes habilitadas; religar não lança dívidas antigas automaticamente.",
+    automation_off: "A automação estava desligada. O administrador pode revisar a política e os destinos disponíveis para lançamento manual.",
+    historical_origin_unlinked: "A obrigação não tem vínculo no ERP. A equipe financeira deve conferir a origem, sem criar dívida retroativa.",
+    late_payment_refund_required: "Pagamento tardio pendente de devolução. Confira a devolução no provedor; o serviço não foi liberado.",
+    waiting_manual: "Aguardando uma pessoa autorizada lançar os destinos disponíveis.",
+  };
+  return reason ? reasons[reason] ?? integrationError({ code: reason }) : "A equipe autorizada deve conferir a pendência na origem.";
+}
 export const confirmationTime = (value: number | null) => value == null ? "Ainda não confirmada" : new Date(value).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
 export function actionableEvent(view: SourceView) { return view.deliveries.find(d => d.state !== "done") ?? view.deliveries.at(-1); }
 
@@ -44,9 +54,13 @@ export function IntegrationStatus({ module, sourceId, compact = false }: { modul
     {error && <p role="alert">{error}</p>}
     {!view && !status && !error && <p role="status">Consultando confirmação…</p>}
     {view && <>
+      {view.state === "skipped" && <p role="status">{integrationReason(view.skipped_reason ?? view.reason_code)}</p>}
+      {view.state === "blocked" && <p role="alert">{integrationReason(view.blocked_reason ?? view.reason_code ?? view.error_code ?? event?.error_code)}</p>}
+      {view.state === "uncertain" && <p role="status">O envio foi feito, mas a resposta se perdeu. Aguarde a conferência do mesmo comando antes de corrigir.</p>}
+      {view.state === "done" && <p>Destinos confirmados: {(view.applied ?? []).map(d => d === "finance" ? "Financeiro" : d === "stock" ? "Estoque" : "Documento").join(", ") || "consulte os vínculos abaixo"}.</p>}
       <p>Última confirmação: {confirmationTime(view.confirmed_ms)} (horário de São Paulo).</p>
       {!access.finance && view.pending && <p>Existe uma pendência. Detalhes financeiros são restritos à equipe autorizada.</p>}
-      {access.finance && event?.error_code && <p role="alert">Falhou: {integrationError({ code: event.error_code })}</p>}
+      {access.finance && view.state !== "blocked" && event?.error_code && <p role="alert">Falhou: {integrationError({ code: event.error_code })}</p>}
       {view.links.filter(l => l.kind === "document").map(link => <p key={link.id}><a href={`/app/erp/documentos-empresa?${new URLSearchParams({ tipo: module === "os" ? "service_orders" : "sales_orders", documento: link.id })}`}>Abrir documento ERP · somente leitura</a></p>)}
       {access.finance && view.links.filter(l => l.kind === "title").map(link => <p key={link.id}>Título confirmado: {link.id}</p>)}
       {pending ? <><p role="status">A confirmação da ação anterior não foi recebida. A retomada desta tela não enviou nenhum comando.</p>{canResume && <Button disabled={busy} onClick={() => void run(() => api.resumeSource(module, sourceId!))}>Repetir a mesma ação</Button>}</> : <>

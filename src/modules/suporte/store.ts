@@ -598,7 +598,7 @@ export async function listPurchases(
 async function purchaseAttention(
   ctx: ModuleContext,
   purchase: any,
-  reason: "duplicate_payment" | "paid_after_cancel" | "refunded",
+  reason: "duplicate_payment" | "paid_after_cancel" | "late_payment_refund_required" | "refunded",
   payment: Payment,
 ) {
   await exec(
@@ -834,13 +834,22 @@ export async function purchasePaymentUpdated(
   );
   if (!purchase) return;
   const evidence = await supportPaymentEvidence(ctx, purchase, payment);
-  // Estorno já confirmado vence um gancho paid atrasado; não libera por instantes.
-  if (payment.status === "paid" && evidence.status === "refunded") payment = { ...payment, status: "refunded" };
   const at = now();
   if (payment.status === "paid") {
     const paidAt = evidence.paid_at || at;
     let changed = false;
-    if (["pending", "expired", "cancelled"].includes(purchase.status)) {
+    if (["expired", "cancelled"].includes(purchase.status)) {
+      // O motor não reabre título cancelado. Não libera suporte sem recompor a obrigação.
+      const statements = await supportIntegrationStatements(ctx, purchase, "receive", paidAt,
+        { payment: evidence, reason: "late_payment_refund_required" });
+      await batch(ctx.env, [
+        ["UPDATE suporte_purchases SET attention='late_payment_refund_required',paid_at=?,updated=? WHERE id=? AND profile_id=? AND status=? AND payment_id IS ? AND charge_seq=?",
+          [paidAt, at, purchase.id, ctx.profile, purchase.status, purchase.payment_id, purchase.charge_seq]], integrationCasGuard, ...statements,
+      ]);
+      await purchaseAttention(ctx, purchase, "late_payment_refund_required", payment);
+      return;
+    }
+    if (purchase.status === "pending") {
       const commercialStatements = await supportIntegrationStatements(ctx, { ...purchase, status: "paid" }, "receive", paidAt,
         { payment: evidence });
       await batch(ctx.env, [
@@ -871,10 +880,9 @@ export async function purchasePaymentUpdated(
         await purchaseAttention(ctx, purchase, "duplicate_payment", payment);
       return;
     }
-    // Paga depois de cancelada (o cliente trocou de pacote ou de sessão):
-    // libera, mas a equipe confere se não pagou a outra também.
-    if (purchase.status === "cancelled")
-      await purchaseAttention(ctx, purchase, "paid_after_cancel", payment);
+    // O fato paid continua aplicado em ordem, mas não libera um serviço cujo
+    // estorno já está confirmado e será entregue pelo próximo gancho.
+    if (evidence.current_status === "refunded") return;
     await ctx.publish(
       "suporte.purchase_paid",
       purchase.id,
@@ -924,7 +932,7 @@ export async function purchasePaymentUpdated(
     // aviso, que têm chave.
     if (purchase.status !== "refunded") {
       const commercialStatements = await supportIntegrationStatements(ctx, { ...purchase, status: "refunded" }, "reverse", evidence.updated,
-        { payment: evidence, reason: "payment_refunded" });
+        { payment: evidence, reason: purchase.attention === "late_payment_refund_required" || ["expired", "cancelled"].includes(purchase.status) ? "late_payment_refund_required" : "payment_refunded" });
       await batch(ctx.env, [
         ["UPDATE suporte_purchases SET status='refunded',updated=? WHERE id=? AND profile_id=? AND status=? AND payment_id IS ? AND charge_seq=?",
           [at, purchase.id, ctx.profile, purchase.status, purchase.payment_id, purchase.charge_seq]],
