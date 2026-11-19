@@ -39,6 +39,7 @@ import {
   invoiceTotalCents,
 } from "../invoices.ts";
 import { insertTitle, left, updateTitle } from "../titles.ts";
+import { linkedInvoiceDocumentsGuard } from "../../documents/module-policy.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -222,6 +223,7 @@ export function invoicePost(ctx: RpcContext, user: string, command: string | nul
   const db = ctx.db;
   if (data === null || data === undefined || jsonType(data) !== "object") raise("22023", "erp_finance_invalid_data");
   keys(data, ["invoice_id", "expected_version", "preview_hash", "category_id", "account_id"]);
+  linkedInvoiceDocumentsGuard(db, field(data, "invoice_id"));
   const group = crypto.randomUUID();
   const replay = documentCommandStart(db, user, command, "invoice_post", data);
   if (replay) return replay;
@@ -274,6 +276,7 @@ function reverse(ctx: RpcContext, a: RpcArgs) {
   const data = a.p_data === undefined || a.p_data === null ? null : jsonArg(a.p_data);
   if (data === null || jsonType(data) !== "object") raise("22023", "erp_finance_invalid_data");
   keys(data, ["invoice_id", "posting_id", "expected_version", "titles", "reason"]);
+  linkedInvoiceDocumentsGuard(db, field(data, "invoice_id"));
   const replay = documentCommandStart(db, user, command, "invoice_reverse", data);
   if (replay) return replay;
   const v = one(db, 'SELECT * FROM "erp_fiscal_invoices__invoice" WHERE id=?', uuidValue(field(data, "invoice_id")));

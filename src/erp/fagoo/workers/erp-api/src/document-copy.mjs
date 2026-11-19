@@ -87,5 +87,12 @@ export async function executeDocumentCopyRoute(route,{userId,rpc}){
 }
 
 export function documentCopyResponse(value,route) {
- return projectParts(value, body => documentCopyResponseBody(body,route), bad);
+ const parts=responseParts(value,bad);
+ const result=projectParts(value, body => documentCopyResponseBody(body,route), bad);
+ // A normalização do formulário repõe defaults; a resposta respeita as partes.
+ if(route.type==='preview'){
+  if(!parts.stock)delete result.data.warehouse_id;
+  if(!parts.finance)for(const key of ['category_id','payment_account_id'])delete result.data[key];
+ }
+ return result;
 }

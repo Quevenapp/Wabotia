@@ -2,7 +2,7 @@
 // Nenhum campo recebido por HTTP é uma instância de capacidade.
 import { createHash } from "node:crypto";
 import { canonical, commandId, F3_NAMESPACES, hash, uuid5 } from "../../integrations/keys.ts";
-import type { CommercialSnapshot, IntegrationEvent, IntegrationModule, IntegrationResult, PreparedErpRequest, SourceRef } from "../../integrations/contracts.ts";
+import type { CommercialPolicy, CommercialSnapshot, IntegrationEvent, IntegrationModule, IntegrationResult, PreparedErpRequest, SourceRef } from "../../integrations/contracts.ts";
 import type { IdentityPort } from "./identity.ts";
 import type { RpcArgs, RpcContext } from "./registry.ts";
 import { one, type SqlDriver } from "./driver.ts";
@@ -33,6 +33,7 @@ export interface OriginReceipt {
 }
 export interface ComponentState {
   snapshot: CommercialSnapshot;
+  parameters?: Pick<CommercialPolicy, "warehouse_id" | "revenue_category_id" | "payment_method_id">;
   executed: boolean;
   commercial_hash: string; first_execution_at: number | null; delivered_at: number | null; warranty_until: number | null;
   stock_posted: boolean; finance_posted: boolean; base_status: string; source_revision: number;
@@ -172,7 +173,16 @@ export function originAnchor(db: SqlDriver, source: SourceRef, slot: string): Or
   return r;
 }
 export function targetOrigin(db: SqlDriver, kind: string, id: string): OriginAnchor | null {
-  // Também protege escritores humanos sem envelope/área. Busca só evidência F3.
+  // As âncoras reversas já são indexadas pela PK de command_id. Sem área
+  // (núcleos legados/testes), conserva a busca defensiva, nunca supõe ausência.
+  const profile = db.originProfile ?? drivers.get(db)?.identity.module_execution?.profile;
+  if (profile) {
+    const a = saved(db, reverseKey(profile, kind, id));
+    if (!a) return null;
+    if (a.policy !== ORIGIN_POLICY || a.type !== "anchor" || a.source?.profile !== profile ||
+        a.target?.kind !== kind || a.target?.id !== id) denied();
+    return originAnchor(db, a.source, a.slot);
+  }
   const row = one(db, `SELECT result FROM erp_documents__command WHERE json_extract(result,'$.policy')=?
     AND json_extract(result,'$.type')='anchor' AND json_extract(result,'$.target.kind')=? AND json_extract(result,'$.target.id')=? LIMIT 1`, ORIGIN_POLICY, kind, id);
   if (!row) return null;
@@ -221,7 +231,8 @@ export function withModuleExecution<T>(ctx: RpcContext, name: string, args: RpcA
 }
 export function withOriginOperation<T>(ctx: RpcContext, operation: OriginOperation, ids: readonly string[], effects: readonly string[], run: (inner: RpcContext) => T): T {
   const parent = scopes.get(ctx) ?? denied();
-  const db: SqlDriver = { exec: (sql, ...params) => ctx.db.exec(sql, ...params), transaction: fn => ctx.db.transaction(fn) };
+  const db: SqlDriver = { originProfile: parent.proof.request.source.profile,
+    exec: (sql, ...params) => ctx.db.exec(sql, ...params), transaction: fn => ctx.db.transaction(fn) };
   const inner = { ...ctx, db };
   const scope = Object.freeze({ evidence: parent.proof.evidence, operation, target_ids: new Set(ids), original_effect_ids: new Set(effects) });
   scopes.set(inner, { ...parent, scope }); drivers.set(db, inner);
