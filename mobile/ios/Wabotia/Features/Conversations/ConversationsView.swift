@@ -238,8 +238,8 @@ struct ConversationRow: View {
                 HStack(alignment: .center, spacing: 6) {
                     previewLine
                     Spacer(minLength: 4)
-                    if let window = workspace.channelWindow(for: conversation), window.showsClock, conversation.state != "closed" {
-                        Text(window.label).font(Theme.font(11, .semibold))
+                    if !conversation.isComment, let window = workspace.channelWindow(for: conversation), window.showsClock, conversation.state != "closed" {
+                        Text(window.label(for: workspace.channel(for: conversation))).font(Theme.font(11, .semibold))
                             .foregroundStyle(window.canHumanText ? Theme.textSecondary : Theme.warn)
                             .lineLimit(2)
                     } else if let clock = workspace.window(for: conversation), conversation.state != "closed" {
@@ -253,6 +253,14 @@ struct ConversationRow: View {
                     }
                 }
                 HStack(spacing: 5) {
+                    if conversation.isComment {
+                        Text("Comentário").font(Theme.font(11, .semibold)).foregroundStyle(Theme.textSecondary)
+                    }
+                    if workspace.channel(for: conversation) == .tiktok,
+                       let remaining = conversation.window?.remainingMessages, (0...10).contains(remaining) {
+                        Text("Restam \(remaining) de 10 mensagens")
+                            .font(Theme.font(11)).foregroundStyle(Theme.textSecondary)
+                    }
                     ForEach(tags.prefix(2), id: \.self) { TagChip(text: $0) }
                     if tags.count > 2 { Text("+\(tags.count - 2)").font(Theme.font(11, .semibold)).foregroundStyle(Theme.textSecondary) }
                     if !tags.isEmpty { Text("·").font(Theme.font(12)).foregroundStyle(Theme.textSecondary) }

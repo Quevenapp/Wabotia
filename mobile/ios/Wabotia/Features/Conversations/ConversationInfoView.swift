@@ -42,9 +42,10 @@ struct ConversationInfoView: View {
                             Group {
                                 identity(c)
                                 if let clock = vm.window { windowCard(clock, c) }
-                                if vm.channel?.isSocial == true, let window = vm.channelWindow, window.showsClock {
-                                    ChannelWindowSummary(window: window).card()
+                                if !vm.isComment, vm.channel != .whatsapp, let window = vm.channelWindow, window.showsClock {
+                                    ChannelWindowSummary(window: window, channel: vm.channel).card()
                                 }
+                                if let detail = vm.detail { ChannelSecondWaveSummary(detail: detail, now: workspace.nowMillisPrecise) }
                                 channelCard
                                 if let error = vm.actionError { InlineError(text: error) }
                                 statusCard(c)
@@ -161,7 +162,7 @@ struct ConversationInfoView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Telefone \(phone). Copiar")
             }
-            if vm.isMultichannel || vm.channel?.isSocial == true {
+            if vm.showsChannelIdentity {
                 Pill(text: vm.channelAccount, color: Theme.brand, icon: "bubble.left.fill")
             } else if let line = workspace.connectionName(c.connection_id) {
                 Pill(text: line, color: Theme.brand, icon: "phone.fill")
@@ -173,7 +174,7 @@ struct ConversationInfoView: View {
 
     /// A ficha e os atalhos são projeções autorizadas; junção e desfazer permanecem no painel web.
     @ViewBuilder private var channelCard: some View {
-        if vm.isMultichannel || vm.channel?.isSocial == true {
+        if vm.showsChannelIdentity {
             SectionCard(title: "Canais") {
                 if let phone = vm.linkedContactPhone {
                     CardRow(title: "Telefone cadastral", value: ConversationFormatting.phone(phone))
@@ -186,7 +187,7 @@ struct ConversationInfoView: View {
                                 .font(Theme.font(14, .semibold)).foregroundStyle(Theme.textPrimary)
                             if !item.display_name.isEmpty { Text(item.display_name).font(Theme.font(13)) }
                             if !item.username.isEmpty { Text(item.username).font(Theme.font(13)) }
-                            Text(channelState(item.state)).font(Theme.font(12))
+                            Text(item.channel == .email ? "Remetente não confirmado" : channelState(item.state)).font(Theme.font(12))
                         }.foregroundStyle(Theme.textSecondary)
                         Spacer(minLength: 0)
                     }.padding(.vertical, 8)

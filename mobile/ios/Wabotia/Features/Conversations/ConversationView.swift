@@ -49,9 +49,10 @@ struct ConversationView: View {
             if let clock = vm.window, vm.conversation?.state != "closed" {
                 WindowBanner(clock: clock) { showWindowInfo = true }
             }
-            if vm.channel?.isSocial == true, let window = vm.channelWindow, window.showsClock {
-                ChannelWindowSummary(window: window)
+            if !vm.isComment, vm.channel != .whatsapp, let window = vm.channelWindow, window.showsClock {
+                ChannelWindowSummary(window: window, channel: vm.channel)
             }
+            if let detail = vm.detail { ChannelSecondWaveSummary(detail: detail, now: workspace.nowMillisPrecise, compact: true) }
             if !vm.otherConversations.isEmpty {
                 Button { push(.conversationInfo(id: conversationId)) } label: {
                     Label("Há outras conversas deste contato", systemImage: "bubble.left.and.bubble.right")
@@ -178,7 +179,7 @@ struct ConversationView: View {
                                 .foregroundStyle(c.state == "waiting" ? Theme.warn : Theme.textSecondary)
                                 .lineLimit(1)
                         }
-                        if vm.isMultichannel || vm.channel?.isSocial == true {
+                        if vm.showsChannelIdentity {
                             Text(vm.channelAccount).font(Theme.font(11)).foregroundStyle(Theme.textSecondary).lineLimit(1)
                         }
                     }
@@ -199,7 +200,7 @@ struct ConversationView: View {
         }
         .padding(.leading, 4)
         .padding(.trailing, 4)
-        .frame(height: vm.isMultichannel || vm.channel?.isSocial == true ? 66 : 54)
+        .frame(height: vm.showsChannelIdentity ? 66 : 54)
         .background(Theme.bar.ignoresSafeArea(edges: .top))
         .overlay(alignment: .bottom) { ThinDivider() }
     }
@@ -588,7 +589,7 @@ struct ChannelTransferSheet: View {
                 ScrollView {
                     VStack(spacing: 12) {
                         if let error = vm.actionError { InlineError(text: error) }
-                        if let window = vm.channelWindow, !window.canAutomation { ChannelWindowSummary(window: window) }
+                        if !vm.isComment, let window = vm.channelWindow, !window.canAutomation { ChannelWindowSummary(window: window, channel: vm.channel) }
                         SectionCard(title: "Pessoas") {
                             ForEach(workspace.people.filter { $0.id != vm.meId }) { person in
                                 Button { choose(.person(person)) } label: {
