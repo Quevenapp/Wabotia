@@ -9,6 +9,7 @@ import {
 } from "./types";
 import { putStream } from "./media";
 import { zernioAccountList } from "./zernio-accounts";
+import { probeZernioChannelAccount } from "./channel-accounts";
 import { secret } from "./security";
 import { aiProbe } from "./ai-provider";
 /** The Telegram team channel no longer exists; old connections can only be deleted. */
@@ -70,17 +71,22 @@ export async function probe(
     );
   }
   if (c.kind === "zernio") {
-    const found = await zernioAccountList(env, c, cfg.zernio_profile_id);
-    const account = found.find((a: any) => a.account_id === cfg.account_id);
-    requireValue(
-      account && account.number === cfg.number,
-      "A Zernio não confirmou este telefone na integração informada.",
-    );
-    details = {
-      account_id: account.account_id,
-      number: account.number,
-      provider: "zernio",
-    };
+    if (!c.channel || c.channel === "whatsapp") {
+      const found = await zernioAccountList(env, c, cfg.zernio_profile_id);
+      const account = found.find((a: any) => a.account_id === cfg.account_id);
+      requireValue(
+        account && account.number === cfg.number,
+        "A Zernio não confirmou este telefone na integração informada.",
+      );
+      details = {
+        account_id: account.account_id,
+        number: account.number,
+        provider: "zernio",
+      };
+    } else {
+      // O vínculo importado confirma canal/área/conta; identidade social não é telefone.
+      details = { ...await probeZernioChannelAccount(env, c), provider: "zernio" };
+    }
   }
   if (c.kind === "qr") {
     requireValue(

@@ -3,6 +3,8 @@ import { NumberPolicyEditor } from "./NumberPolicyEditor";
 import { MonthlyDeliveredUsage } from "./MonthlyDeliveredUsage";
 import { ZernioTemplatesCatalog } from "./ZernioTemplatesCatalog";
 import { numberPolicyPresets } from "../src/number-policy";
+import type { ChannelAccountDiscovery, ChannelAccountView } from "../src/channel-contracts";
+import { CHANNEL_REGISTRY } from "../src/channels";
 import "./router-workspace.css";
 
 const routerSteps = [
@@ -34,6 +36,38 @@ type ZernioResolution = {
   current_id: string | null;
   suggested_id?: string | null;
 };
+export function channelAccountReason(reason: string | null) {
+  return ({
+    inbox_required: "Habilite a caixa de entrada (Inbox) no plano da Zernio para importar e receber mensagens.",
+    channel_not_ready: "Este canal ainda não está disponível nesta etapa.",
+    provider_unknown: "Não foi possível confirmar esta conta no provedor. Confira o acesso e tente novamente.",
+    account_unavailable: "Reconecte esta conta na Zernio antes de importar.",
+    account_disconnected: "Reconecte esta conta na Zernio antes de importar.",
+    account_already_imported: "Esta conta já está vinculada a uma conexão no Wabotia.",
+  } as Record<string, string>)[reason || ""] || reason || "";
+}
+
+export function ChannelAccountChoices({ accounts, warnings = [], busy, onImport }: {
+  accounts: readonly ChannelAccountView[];
+  warnings?: readonly string[];
+  busy: boolean;
+  onImport: (account: ChannelAccountView) => void;
+}) {
+  return <>
+    {warnings.map((warning, index) => <p className="notice" key={index}>{channelAccountReason(warning)}</p>)}
+    {accounts.map((item) => {
+      const supported = item.channel === "instagram" || item.channel === "facebook";
+      return <article className="router-number" key={`${item.channel}:${item.accountId}`}>
+        <strong>{CHANNEL_REGISTRY[item.channel]?.label || "Canal desconhecido"} · {item.accountLabel || "Conta sem nome público"}</strong>
+        <p>{item.connectionId ? "Conexão já importada." : supported ? "Conta encontrada na integração selecionada." : "Canal reservado para uma próxima etapa."}</p>
+        {item.reason && <p className="notice">{channelAccountReason(item.reason)}</p>}
+        {!item.connectionId && <button type="button" disabled={busy || !item.importable || !supported}
+          onClick={() => onImport(item)}>Importar conta</button>}
+      </article>;
+    })}
+    {!accounts.length && <p>Nenhuma conta encontrada. Confira a conexão e as permissões no painel da Zernio.</p>}
+  </>;
+}
 const parse = (v: any) => {
   try {
     return typeof v === "string" ? JSON.parse(v) : v || [];
@@ -138,6 +172,7 @@ export function NumberRouter({
     [accountId, setAccountId] = useState(demo ? "conta-exemplo" : ""),
     [resolution, setResolution] = useState<ZernioResolution | null>(null),
     [resolvedId, setResolvedId] = useState(""),
+    [channelDiscovery, setChannelDiscovery] = useState<ChannelAccountDiscovery | null>(null),
     [accountForm, setAccountForm] = useState<Row>({
       name: "",
       zernio_profile_id: "",
@@ -184,6 +219,9 @@ export function NumberRouter({
     legacyAccount = !!account && account.provider === "meta",
     available = parse(account?.discovered),
     numbers = data.numbers.filter((n: Row) => n.account_id === accountId),
+    channelAccounts: ChannelAccountView[] = (data.channel_accounts || []).filter(
+      (item: ChannelAccountView) => item.integrationId === accountId,
+    ),
     resolvedOption = resolution?.options.find(
       (option) => option.id === resolvedId,
     );
@@ -228,7 +266,7 @@ export function NumberRouter({
         ].includes(e.code)
       )
         intents.current.delete(intent);
-      setError(e.message);
+      setError(e.code === "inbox_required" ? channelAccountReason(e.code) : e.message);
     } finally {
       setBusy("");
     }
@@ -253,6 +291,7 @@ export function NumberRouter({
   }
   function resetAccountForms() {
     clearResolution();
+    setChannelDiscovery(null);
     setError("");
     setNotice("");
     setAccountEditing(false);
@@ -303,7 +342,7 @@ export function NumberRouter({
     );
   }
   async function useZernioId() {
-    if (!account || !resolvedOption || numbers.length > 0) return;
+    if (!account || !resolvedOption || numbers.length > 0 || channelAccounts.length > 0) return;
     const version = resolutionVersion.current;
     const result = await write(
       "router/accounts/" + account.id + "/resolve",
@@ -318,6 +357,25 @@ export function NumberRouter({
         : "Este ID já estava cadastrado. ") +
         "A API key e o segredo do webhook foram preservados. Abra Telefones para buscar as linhas na Zernio.",
     );
+  }
+  async function discoverChannels() {
+    if (!account || legacyAccount) return;
+    const version = resolutionVersion.current;
+    const path = `router/accounts/${account.id}/discover-channels`;
+    intents.current.delete(path + JSON.stringify({}));
+    const result: ChannelAccountDiscovery | undefined = await write(path, {}, "Buscar contas na Zernio");
+    if (result && version === resolutionVersion.current) setChannelDiscovery(result);
+  }
+  async function importChannel(item: ChannelAccountView) {
+    if (!item.importable || !["instagram", "facebook"].includes(item.channel) || item.integrationId !== accountId) return;
+    const version = resolutionVersion.current;
+    const result = await write(`router/accounts/${accountId}/channel-connections`,
+      { accountId: item.accountId, channel: item.channel }, "Importar conta");
+    if (!result || version !== resolutionVersion.current) return;
+    setChannelDiscovery((current) => current ? { ...current, accounts: current.accounts.map((entry) =>
+      entry.channel === item.channel && entry.accountId === item.accountId ? result.account : entry) } : current);
+    setNotice(result.duplicate ? "Esta conta já está importada. A mesma conexão foi preservada."
+      : "Conta importada pausada. Em Conexões, teste e ative a conexão; depois configure sua linha de atendimento.");
   }
   function selectApp(id: string) {
     setAppId(id);
@@ -347,7 +405,7 @@ export function NumberRouter({
     <div className="number-router">
       <section className="card">
         <div className="section-heading">
-          <h2>WhatsApp da sua empresa</h2>
+          <h2>{data.channel_accounts?.length ? "Canais da sua empresa" : "WhatsApp da sua empresa"}</h2>
           <button
             disabled={!!busy}
             onClick={() => load().catch((e) => setError(e.message))}
@@ -490,7 +548,7 @@ export function NumberRouter({
               {account && !accountEditing && (
                 <button
                   type="button"
-                  disabled={!!busy || numbers.length > 0}
+                  disabled={!!busy || numbers.length > 0 || channelAccounts.length > 0}
                   onClick={async () => {
                     if (
                       !demo &&
@@ -521,7 +579,9 @@ export function NumberRouter({
             </div>
             {account && !accountEditing && (
               <p className="router-field-help">
-                {numbers.length > 0
+                {channelAccounts.length > 0
+                  ? "Para excluir esta integração, primeiro remova as contas sociais vinculadas em Conexões e os telefones na etapa Telefones."
+                  : numbers.length > 0
                   ? "Para excluir esta integração, primeiro exclua os telefones vinculados na etapa Telefones."
                   : "Sem telefones vinculados. Você pode excluir o cadastro local da integração e suas credenciais, preservando o histórico e a conexão no provedor."}
               </p>
@@ -584,7 +644,9 @@ export function NumberRouter({
                         nem desconecta o WhatsApp no provedor.
                       </p>
                     )}
-                    {numbers.length > 0 && (
+                    {channelAccounts.length > 0 ? (
+                      <p>Esta integração tem contas sociais vinculadas. Remova as conexões antes de alterar o ID.</p>
+                    ) : numbers.length > 0 && (
                       <p>
                         Esta integração tem telefones vinculados. Exclua-os na
                         etapa Telefones antes de alterar o ID.
@@ -594,7 +656,7 @@ export function NumberRouter({
                       <button
                         type="button"
                         disabled={
-                          !!busy || !resolvedOption || numbers.length > 0
+                          !!busy || !resolvedOption || numbers.length > 0 || channelAccounts.length > 0
                         }
                         onClick={useZernioId}
                       >
@@ -820,6 +882,24 @@ export function NumberRouter({
                 importar os telefones já conectados no provedor. O histórico
                 permanece disponível.
               </p>
+            )}
+            {account && !legacyAccount && !accountEditing && (
+              <details>
+                <summary>Instagram e Facebook nesta integração</summary>
+                <p>Importe contas conectadas à integração selecionada. Elas usam as credenciais já salvas, sem telefone, cota de números ou rodízio.</p>
+                <p>Requer caixa de entrada (Inbox) habilitada no plano da Zernio, permissões de mensagens e webhook configurado. O cliente inicia a conversa. Comentários e canais da próxima etapa continuam desligados.</p>
+                <button type="button" disabled={!!busy || !account.zernio_profile_id} onClick={discoverChannels}>
+                  Buscar contas na Zernio
+                </button>
+                {!account.zernio_profile_id && <p>Use Encontrar ID na Zernio antes de buscar contas.</p>}
+                {(channelDiscovery || channelAccounts.length > 0) && <ChannelAccountChoices
+                  accounts={channelDiscovery?.accounts || channelAccounts}
+                  warnings={channelDiscovery?.warnings}
+                  busy={!!busy}
+                  onImport={(item) => void importChannel(item)}
+                />}
+                <p className="router-field-help">Requisitos e formatos do provedor: a conferir com a conta real.</p>
+              </details>
             )}
             {account && !legacyAccount && (
               <>

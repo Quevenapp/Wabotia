@@ -13,6 +13,7 @@ import {
   deniedNumberCapability,
 } from "./number-policy";
 import { numberPolicyError } from "./number-permissions";
+import type { ChannelAccountView } from "./channel-contracts";
 
 export async function sourceAllowed(
   env: Env,
@@ -137,6 +138,25 @@ export async function routerView(env: Env, actor: Actor, profile: string) {
       ...a,
       webhook_path:
         a.provider === "zernio" ? `/webhooks/zernio-accounts/${a.id}` : null,
+    }));
+    // Somente apresentação administrativa: contas sociais não participam de
+    // números, cotas, concessões de telefones nem grupos de distribuição.
+    result.channel_accounts = (await all(
+      env,
+      `SELECT a.* FROM zernio_channel_accounts a
+        JOIN connections c ON c.id=a.connection_id AND c.profile_id=a.profile_id
+        JOIN meta_accounts i ON i.id=a.integration_id AND i.profile_id=a.profile_id
+        WHERE a.profile_id=? ORDER BY a.created,a.connection_id`,
+      profile,
+    )).map((a): ChannelAccountView => ({
+      integrationId: a.integration_id,
+      channel: a.channel,
+      accountId: a.account_id,
+      providerProfileId: a.provider_profile_id,
+      accountLabel: a.account_label,
+      connectionId: a.connection_id,
+      importable: false,
+      reason: null,
     }));
     result.applications = await all(
       env,

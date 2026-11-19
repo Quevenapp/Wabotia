@@ -1,5 +1,6 @@
 import { all, batch, one } from "./db";
 import { access, admin } from "./security";
+import { refreshChannelSummaryStatements } from "./channel-accounts";
 import {
   ApiError,
   type Actor,
@@ -9,7 +10,7 @@ import {
   requireValue,
 } from "./types";
 
-/** Remove a local phone connection without deleting its provider account or history.
+/** Remove a local connection without deleting its provider account or history.
  * Commands run inside the profile coordinator, serialized with sends and webhooks.
  */
 export async function removeConnection(
@@ -46,6 +47,7 @@ export async function removeConnection(
     ["meta", "zernio", "qr"].includes(connection.kind) || connection.retired_kind,
     "A exclusão está disponível somente para conexões de telefone WhatsApp.",
   );
+  const social = connection.channel && connection.channel !== "whatsapp";
   if (
     await one(
       env,
@@ -56,7 +58,9 @@ export async function removeConnection(
     throw new ApiError(
       409,
       "connection_busy",
-      "Aguarde os envios em andamento ou reconcilie as mensagens sem confirmação antes de excluir o telefone.",
+      social
+        ? "Aguarde os envios em andamento ou reconcilie as mensagens sem confirmação antes de excluir a conexão."
+        : "Aguarde os envios em andamento ou reconcilie as mensagens sem confirmação antes de excluir o telefone.",
     );
   if (
     await one(
@@ -94,6 +98,15 @@ export async function removeConnection(
     id,
   );
   const statements: [string, any[]][] = [];
+  // Guardar a origem antes de neutralizar a FK: até conversas anteriores à
+  // gravação explícita de canais continuam identificáveis no histórico.
+  statements.push([
+    `UPDATE conversations SET channel=COALESCE(channel,?),
+      account_label=CASE WHEN account_label='' THEN ? ELSE account_label END,
+      channel_account_id=COALESCE(channel_account_id,?) WHERE connection_id=?
+      AND external_namespace='channel:'||connection_id AND chat_type NOT IN ('team','internal')`,
+    [connection.channel || "whatsapp", connection.account_label || "", json(connection.config).account_id || null, id],
+  ]);
   // An empty bot line list means no lines; NULL means every line. Keep that distinction.
   for (const bot of await all(
     env,
@@ -128,8 +141,8 @@ export async function removeConnection(
     ]);
   statements.push(
     [
-      "UPDATE outbox SET status='cancelled',error='Telefone excluído antes do envio.',updated=? WHERE connection_id=? AND status='pending'",
-      [time, id],
+      "UPDATE outbox SET status='cancelled',error=?,updated=? WHERE connection_id=? AND status='pending'",
+      [social ? "Conexão excluída antes do envio." : "Telefone excluído antes do envio.", time, id],
     ],
     [
       "UPDATE group_operations SET status='cancelled',error='Telefone excluído antes da execução.',updated=? WHERE connection_id=? AND status='pending'",
@@ -140,8 +153,8 @@ export async function removeConnection(
       [id],
     ],
     [
-      "UPDATE bot_runs SET status='cancelled',error='Telefone excluído.',updated=? WHERE status='queued' AND conversation_id IN (SELECT id FROM conversations WHERE connection_id=?)",
-      [time, id],
+      "UPDATE bot_runs SET status='cancelled',error=?,updated=? WHERE status='queued' AND conversation_id IN (SELECT id FROM conversations WHERE connection_id=?)",
+      [social ? "Conexão excluída." : "Telefone excluído.", time, id],
     ],
     [
       "UPDATE number_pools SET enabled=0,public_token=NULL WHERE profile_id=? AND id IN (SELECT pool_id FROM number_pool_members WHERE connection_id=?) AND NOT EXISTS(SELECT 1 FROM number_pool_members m WHERE m.pool_id=number_pools.id AND m.connection_id!=?)",
@@ -154,6 +167,11 @@ export async function removeConnection(
     ],
     ["DELETE FROM router_affinities WHERE connection_id=?", [id]],
     ["DELETE FROM meta_numbers WHERE connection_id=?", [id]],
+    ["DELETE FROM zernio_channel_accounts WHERE connection_id=? AND profile_id=?", [id, profile]],
+    [
+      "UPDATE customer_channel_ids SET connection_id=NULL WHERE connection_id=? AND profile_id=?",
+      [id, profile],
+    ],
     ["DELETE FROM call_permissions WHERE connection_id=?", [id]],
     ["DELETE FROM team_connection_presence WHERE connection_id=?", [id]],
     ["DELETE FROM secrets WHERE id=?", [`connection:${id}`]],
@@ -162,6 +180,7 @@ export async function removeConnection(
       [time, id],
     ],
     ["DELETE FROM connections WHERE id=? AND profile_id=?", [id, profile]],
+    ...refreshChannelSummaryStatements(profile),
   );
   await batch(env, statements);
   return { id, deleted: true, conversations_preserved: conversations.n };
