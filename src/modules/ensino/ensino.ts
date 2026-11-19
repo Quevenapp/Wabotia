@@ -1,4 +1,6 @@
-// Descritores sem efeito ao importar. Registros exatos: docs/ENSINO.md.
+// Descritores de rotas e registro do provedor cadastral da própria extensão.
+import { registerCustomerProvider } from "../../customer/ports";
+import { ensinoCustomerProvider, linkEnsinoCustomer } from "./customer-provider";
 import type { onRead, onCommand, onRoute, onMcpTool } from "../api";
 import { classView, classroom, staff, forbidden } from "./access";
 import * as store from "./store";
@@ -8,6 +10,7 @@ import { ownReport, ownStudents } from "./customer";
 export { requestAccess, customerAction, claimAccess } from "./customer";
 
 export { ensinoNoStore } from "./http";
+registerCustomerProvider("ensino", ensinoCustomerProvider);
 
 type Read = { path: string; handler: Parameters<typeof onRead>[2]; options?: Parameters<typeof onRead>[3] };
 type Command = { op: string; handler: Parameters<typeof onCommand>[2] };
@@ -26,6 +29,8 @@ export const ensinoReads: Read[] = [
   { path: "ensino/access/:id/students/:enrollment_id", options: { credential: true }, handler: (c, a, r) => ownReport(c, a, r.params.id, r.params.enrollment_id) },
 ];
 export const ensinoWrites: Parameters<typeof onRoute>[1][] = [
+  { method: "PUT", path: "ensino/classes/:id/enrollments/:enrollment_id/guardians/:guardian_id/contact", op: "ensino.customer.guardian.link" },
+  { method: "PUT", path: "ensino/classes/:id/enrollments/:enrollment_id/billing-contact", op: "ensino.customer.billing.link" },
   { method: "POST", path: "ensino/classes", op: "ensino.class.create" },
   { method: "PATCH", path: "ensino/classes/:id", op: "ensino.class.update" },
   { method: "POST", path: "ensino/classes/:id/enrollments", op: "ensino.enrollment.create" },
@@ -64,6 +69,10 @@ export const ensinoCommands: Command[] = Object.entries(handlers).map(([op, hand
     return previous ?? handler(ctx, actor, data, requestId);
   },
 }));
+ensinoCommands.push(
+  { op: "ensino.customer.guardian.link", handler: (ctx, actor, data, { requestId }) => linkEnsinoCustomer(ctx, actor, data, requestId, "guardian") },
+  { op: "ensino.customer.billing.link", handler: (ctx, actor, data, { requestId }) => linkEnsinoCustomer(ctx, actor, data, requestId, "billing") },
+);
 export const ensinoTool: Parameters<typeof onMcpTool>[1] = {
   name: "ensino_pedir_boletim",
   description: "Envia no WhatsApp uma consulta escolar protegida. Confere o telefone verificado de um responsável autorizado. Não retorna notas, frequência, vínculos nem o link à IA.",
