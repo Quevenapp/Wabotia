@@ -8,7 +8,9 @@ import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { pgBtrim, pgCompareText, pgLeft, pgLower } from "../../../engine/text.ts";
-import { approvalSituations } from "../internal.ts";
+import { approvalSituations, unavailableParts } from "../internal.ts";
+import { requireErpParts } from "../../../engine/parts-gate.ts";
+import { erpRequirement } from "../../../parts.ts";
 import { requireAccess } from "../public.ts";
 import { customFieldItem, listViewDto, numberingDto, printHeaderView, signatureView } from "../views.ts";
 import { bool, by, cmpTextArray, cmpUuid, isAdmin, validIdList } from "./reads-common.ts";
@@ -19,6 +21,7 @@ const NATIVE = { data_mode: "erp_native", operational_effects: false } as const;
 
 /** public.erp_document_categories(p_user_id, p_kind): árvore de categorias financeiras do tipo do documento. */
 export function erpDocumentCategories(ctx: RpcContext, a: RpcArgs) {
+  requireErpParts(ctx, erpRequirement("erp-financeiro"));
   const user = str(a.p_user_id),
     kind = str(a.p_kind);
   requireAccess(ctx.db, user, kind, false);
@@ -133,21 +136,21 @@ export function erpDocumentPaymentOptions(ctx: RpcContext, a: RpcArgs) {
       payment_type: f.payment_type,
       condition: f.condition,
       destination: f.destination,
-      account_id: f.destination === "caixa" ? f.account_id : null,
+      ...(ctx.parts.finance ? { account_id: f.destination === "caixa" ? f.account_id : null } : {}),
       card_brand: f.card_brand,
       card_integration: f.card_integration,
       card_cnpj: f.card_cnpj,
       is_default: bool(f.is_default),
     }));
   const accounts =
-    kind === "sales_proposals"
+    kind === "sales_proposals" || !ctx.parts.finance
       ? []
       : ctx.db
           .exec('SELECT id, name, kind FROM "erp_finance__account" WHERE active=1')
           .rows.sort(by<Row>((x, y) => pgCompareText(pgLower(String(x.name)), pgLower(String(y.name))), (x, y) => cmpUuid(x.id, y.id)))
           .slice(0, 200)
           .map((c) => ({ id: c.id, name: pgLeft(String(c.name), 200), kind: c.kind }));
-  return { kind, methods, accounts, ...NATIVE };
+  return { kind, methods, ...(ctx.parts.finance ? { accounts } : {}), ...unavailableParts(ctx, ["finance"]), ...NATIVE };
 }
 
 /** public.erp_document_supplier_codes(p_user_id, p_contact_id, p_product_ids): código do produto no fornecedor. */
@@ -167,6 +170,7 @@ export function erpDocumentSupplierCodes(ctx: RpcContext, a: RpcArgs) {
 
 /** public.erp_document_lot_products(p_user_id, p_kind, p_product_ids): quais produtos controlam lote. */
 export function erpDocumentLotProducts(ctx: RpcContext, a: RpcArgs) {
+  requireErpParts(ctx, erpRequirement("erp-estoque"));
   const kind = str(a.p_kind),
     ids = a.p_product_ids;
   if (kind === null || !["sales_orders", "service_orders"].includes(kind) || ids === null || ids === undefined || !validIdList(ids))

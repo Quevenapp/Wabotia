@@ -22,6 +22,7 @@ import { documentDto, preference, situationAdopted, situationKeyValid, textValue
 import { guardEffect, requireVisible } from "../mirror.ts";
 import { hasCommercialData, richText } from "../normalize.ts";
 import { transitions } from "../preferences.ts";
+import { withoutUnavailableLinks } from "../save-checks.ts";
 import { contactUsable, requireAccess } from "../reads-g.ts";
 import { carrierUsable, categoryUsable, commandReplay, fieldText } from "../save-checks.ts";
 import { customFieldItem, listViewColumns, listViewDto, numberingDto, occurrenceJson, printHeaderView, signatureView } from "../views.ts";
@@ -458,7 +459,7 @@ export function erpDocumentCopyPreview(ctx: RpcContext, a: RpcArgs) {
   for (const f of ["discount_mode", "discount_value", "freight", "other_expenses", "payment_terms", "delivery_terms", "notes", "internal_notes"]) data[f] = arrowOrNull(body, f);
   if (kind !== "purchase_orders" && fieldText(body, "seller_id") !== null) data.seller_id = body.seller_id;
   // 168: a cópia mantém a categoria e o transportador enquanto ainda podem ser escolhidos.
-  if (categoryUsable(db, kind!, fieldText(body, "category_id"))) data.category_id = body.category_id;
+  if (ctx.parts.finance && categoryUsable(db, kind!, fieldText(body, "category_id"))) data.category_id = body.category_id;
   if (carrierUsable(db, fieldText(body, "carrier_id"))) data.carrier_id = body.carrier_id;
   // 196: Lista de preço (válida agora), Destino (conta ativa), Detalhes de pagamento e os impostos.
   const listId = fieldText(body, "price_list_id");
@@ -472,7 +473,7 @@ export function erpDocumentCopyPreview(ctx: RpcContext, a: RpcArgs) {
   )
     data.price_list_id = body.price_list_id;
   const accountId = fieldText(body, "payment_account_id");
-  if (accountId !== null && one(db, 'SELECT 1 x FROM "erp_finance__account" WHERE id=? AND active=1', accountId)) data.payment_account_id = body.payment_account_id;
+  if (ctx.parts.finance && accountId !== null && one(db, 'SELECT 1 x FROM "erp_finance__account" WHERE id=? AND active=1', accountId)) data.payment_account_id = body.payment_account_id;
   // 270: Outros itens ou serviços e Condições comerciais da proposta.
   for (const f of ["payment_means", "payment_indicator", "tax_ipi", "tax_icms_st", "other_items", "commercial_conditions"]) if (has(body, f)) data[f] = body[f];
   // 287: os campos customizados da OS cujo campo segue ativo.
@@ -488,7 +489,7 @@ export function erpDocumentCopyPreview(ctx: RpcContext, a: RpcArgs) {
   } else if (has(body, "commercial")) data.commercial = body.commercial;
   return {
     source: { id: s!.id, kind: s!.kind, number: s!.number === null ? null : String(s!.number), version: s!.version },
-    data,
+    data: withoutUnavailableLinks(ctx, data),
     reset_fields: keepDate
       ? ["valid_until", "next_contact", "installments", "template", "equipment", "serial_number", "technician", "defect", "solution"]
       : ["date", "expected_date", "valid_until", "next_contact", "installments", "template", "equipment", "serial_number", "technician", "defect", "solution"],

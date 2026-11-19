@@ -152,7 +152,7 @@ export function erpDocumentCheckoutGet(ctx: RpcContext, a: RpcArgs) {
   requireAccess(ctx.db, user, "sales_orders", true);
   const d = id === null ? null : one(ctx.db, `SELECT contact_id FROM "erp_documents__document" WHERE id=? AND kind='sales_orders'`, id);
   if (!d || !contactUsable(ctx.db, user, str(d.contact_id))) raise("P0002", "erp_document_not_found");
-  return checkoutView(ctx.db, id!);
+  return checkoutView(ctx.db, id!, ctx.parts);
 }
 
 /** public.erp_document_checkout_lookup(p_user_id, p_number): o pedido pelo número lido no checkout. */

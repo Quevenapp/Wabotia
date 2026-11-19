@@ -6,6 +6,7 @@
 import { createHash } from "node:crypto";
 import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
+import { maintenanceAllows, withErpMaintenance } from "../../../engine/parts-gate.ts";
 import * as finance from "../../finance/public.ts";
 import { jsonbText } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
@@ -57,27 +58,37 @@ function transitionAction(ctx: RpcContext, user: string, kind: string, id: strin
   const day = todaySaoPaulo();
   const reason = [...`${action.startsWith("reverse_") ? "Estorno pela mudança de situação para " : "Lançamento pela mudança de situação para "}${label}`].slice(0, 500).join("");
   const scope = () => ({ p_user_id: user, p_kind: kind, p_document_id: id, p_expected_version: currentVersion(db, id) });
+  const compensate = <T>(part: "stock" | "finance", preview: boolean, args: RpcArgs, run: () => T): T => {
+    const action = part === "stock"
+      ? preview ? "document_stock_reverse_preview" : "document_stock_reverse"
+      : preview ? "document_finance_reverse_preview" : "document_finance_reverse";
+    if (ctx.parts[part] || maintenanceAllows(ctx, `erp_${action}`, args)) return run();
+    return withErpMaintenance(ctx, { origin: { type: kind, id }, action }, run);
+  };
   if (action === "reverse_stock") {
     const p = one(db, `SELECT id, version FROM "erp_stock__document_posting" WHERE document_id=? AND state='active'`, id);
-    if (!p) return { action, outcome: "skipped" };
-    const preview = (erpDocumentStockReversePreview(ctx, { ...scope(), p_posting_id: p.id, p_posting_version: p.version, p_occurred_on: day, p_reason: reason }) as Data).preview as Data;
-    erpDocumentStockReverse(ctx, {
+    if (!p) return { action, outcome: "skipped", ...(!ctx.parts.stock ? { reason: "part_disabled" } : {}) };
+    const args = { ...scope(), p_posting_id: p.id, p_posting_version: p.version, p_occurred_on: day, p_reason: reason };
+    const preview = (compensate("stock", true, args, () => erpDocumentStockReversePreview(ctx, args)) as Data).preview as Data;
+    compensate("stock", false, args, () => erpDocumentStockReverse(ctx, {
       ...scope(), p_posting_id: p.id, p_posting_version: p.version, p_command_id: transitionCommand(command, action), p_preview_hash: fieldText(preview, "preview_hash"), p_occurred_on: day, p_reason: reason,
-    });
+    }));
     return { action, outcome: "done", posting_id: p.id };
   }
   if (action === "reverse_finance") {
     const p = one(db, `SELECT id, version FROM "erp_finance__document_posting" WHERE document_id=? AND state='active'`, id);
-    if (!p) return { action, outcome: "skipped" };
-    const preview = (finance.erpDocumentFinanceReversePreview(ctx, { ...scope(), p_posting_id: p.id, p_posting_version: p.version }) as Data).preview as Data;
+    if (!p) return { action, outcome: "skipped", ...(!ctx.parts.finance ? { reason: "part_disabled" } : {}) };
+    const args = { ...scope(), p_posting_id: p.id, p_posting_version: p.version };
+    const preview = (compensate("finance", true, args, () => finance.erpDocumentFinanceReversePreview(ctx, args)) as Data).preview as Data;
     const titles = ((preview.titles as Data[]) ?? []).map((t) => ({ id: fieldText(t, "id"), version: Number(fieldText(t, "version")) }));
-    finance.erpDocumentFinanceReverse(ctx, {
+    compensate("finance", false, args, () => finance.erpDocumentFinanceReverse(ctx, {
       ...scope(), p_posting_id: p.id, p_posting_version: p.version, p_command_id: transitionCommand(command, action), p_preview_hash: fieldText(preview, "preview_hash"),
       p_title_versions: titles, p_reason: reason,
-    });
+    }));
     return { action, outcome: "done", posting_id: p.id };
   }
   if (action === "post_stock") {
+    if (!ctx.parts.stock) return { action, outcome: "skipped", reason: "part_disabled" };
     if (one(db, `SELECT 1 x FROM "erp_stock__document_posting" WHERE document_id=? AND state='active' LIMIT 1`, id)) return { action, outcome: "skipped" };
     const launch = stockLaunchDate(db, id);
     const preview = (erpDocumentStockPreview(ctx, { ...scope(), p_occurred_on: launch, p_reason: reason }) as Data).preview as Data;
@@ -88,6 +99,7 @@ function transitionAction(ctx: RpcContext, user: string, kind: string, id: strin
     return { action, outcome: "done", posting_id: fieldText((result as Data).posting, "id") };
   }
   if (action === "post_finance") {
+    if (!ctx.parts.finance) return { action, outcome: "skipped", reason: "part_disabled" };
     if (one(db, `SELECT 1 x FROM "erp_finance__document_posting" WHERE document_id=? AND state='active' LIMIT 1`, id)) return { action, outcome: "skipped" };
     const d = one(db, 'SELECT * FROM "erp_documents__document" WHERE id=?', id)!;
     const category = documentFinanceCategory(db, d, null);

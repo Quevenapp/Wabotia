@@ -10,7 +10,9 @@ import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/regi
 import { pgBtrim, pgCompareText, pgLeft, pgLower, pgUpper } from "../../../engine/text.ts";
 import { contactScope, contactVisibleTo, productCostAt } from "../../catalog/public.ts";
 import * as stock from "../../stock/public.ts";
-import { dateValue, textValue, uuidValue } from "../internal.ts";
+import { dateValue, textValue, uuidValue, unavailableParts } from "../internal.ts";
+import { erpFieldRequirement, erpOperationRequirement, erpRequirement, erpRequirementMet } from "../../../parts-requirements.ts";
+import { requireErpParts } from "../../../engine/parts-gate.ts";
 import { reportCoverage } from "../mirror-reads.ts";
 import { transitions } from "../preferences.ts";
 import { reportLastPurchaseUntil } from "../public.ts";
@@ -113,6 +115,10 @@ export function erpDocumentSalesReport(ctx: RpcContext, a: RpcArgs) {
   )
     invalid();
   const f = filters as Row;
+  if (f.show_profit === true || f.profit_base != null) requireErpParts(ctx, erpOperationRequirement("margin"));
+  if (f.category_ids != null) requireErpParts(ctx, erpFieldRequirement("category_id"));
+  if (f.warehouse_id != null) requireErpParts(ctx, erpFieldRequirement("warehouse_id"));
+  if (f.without_invoice === true || f.date_type === "invoice") requireErpParts(ctx, erpRequirement("erp-fiscal"));
   const get = (k: string) => (has(f, k) ? f[k] : null);
   const bool = (k: string, d: boolean) => (get(k) === null ? d : (get(k) as boolean));
   const from = dateValue(get("from"), true)!;
@@ -361,11 +367,12 @@ export function erpDocumentSalesReport(ctx: RpcContext, a: RpcArgs) {
     amount: money(r2(sumAmount)),
     cost: profit ? money(c2(sumCost)) : null,
     profit: profit ? money(r2(sumAmount)! - c2(sumCost)!) : null,
-    items_without_cost: lines.reduce((s, l) => s + l.costless, 0),
+    ...(erpRequirementMet(ctx.parts, erpOperationRequirement("margin")) ? { items_without_cost: lines.reduce((s, l) => s + l.costless, 0) } : {}),
   };
   return {
     report: "sales", group, subgroup: sub, from, to, date_type: dateType, item_values: itemsMode, include_freight: freightIn, show_profit: profit, profit_base: base,
     groups: result, group_count: groups.length, truncated: groups.length > 2000, totals, data_mode: "erp_native", operational_effects: false,
+    ...unavailableParts(ctx, ["purchases", "stock", "finance", "fiscal"]),
     ...reportCoverage(db, user, "sales_orders", from, to),
   };
 }
@@ -395,7 +402,9 @@ export function erpDocumentSalesReportOptions(ctx: RpcContext, a: RpcArgs) {
     .sort(byName);
   return {
     report: "sales_options", contact_types: types, tags: tags.slice(0, 500), tag_count: tags.length, sellers: sellers.slice(0, 500), seller_count: sellers.length,
-    profit_visible: st.costVisible(db, user), invoice_visible: ACTIVE(db, user, ["admin", "fiscal"]), data_mode: "erp_native", operational_effects: false,
+    profit_visible: erpRequirementMet(ctx.parts, erpOperationRequirement("margin")) && st.costVisible(db, user),
+    invoice_visible: ctx.parts.fiscal && ACTIVE(db, user, ["admin", "fiscal"]), data_mode: "erp_native", operational_effects: false,
+    ...unavailableParts(ctx, ["purchases", "stock", "finance", "fiscal"]),
   };
 }
 

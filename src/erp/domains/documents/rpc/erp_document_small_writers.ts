@@ -15,7 +15,7 @@ import { documentDto, effectFlags, proposalVersionJson, textValue } from "../int
 import { guardEffect, requireVisible } from "../mirror.ts";
 import { contactUsable, requireAccess } from "../reads-g.ts";
 import { updateDocument } from "../rows.ts";
-import { commandReplay, editable, fieldText, proposalSuperseded } from "../save-checks.ts";
+import { commandReplay, editable, fieldText, proposalSuperseded, withoutUnavailableLinks } from "../save-checks.ts";
 import { erpDocumentSave, transitionCommand } from "./erp_document_save.ts";
 
 type Data = Record<string, unknown>;
@@ -60,7 +60,7 @@ export function erpDocumentProposalVersion(ctx: RpcContext, a: RpcArgs) {
   const seq = Number(one(db, 'SELECT coalesce(max(version_seq),1) n FROM "erp_documents__proposal_version" WHERE base_id=?', base)!.n) + 1;
   if (seq > 9999) raise("54000", "erp_proposal_version_limit");
   const saved = erpDocumentSave(ctx, {
-    p_user_id: user, p_kind: "sales_proposals", p_id: null, p_expected_version: 0, p_command_id: transitionCommand(command, "proposal_version"), p_body: body,
+    p_user_id: user, p_kind: "sales_proposals", p_id: null, p_expected_version: 0, p_command_id: transitionCommand(command, "proposal_version"), p_body: withoutUnavailableLinks(ctx, body as Data),
   }) as Data;
   const versionId = String((saved.document as Data).id);
   db.exec(

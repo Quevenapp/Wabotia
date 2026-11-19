@@ -29,6 +29,8 @@ import * as sync from "../sync/public.ts";
 import { costApplyCapture } from "./cost-apply.ts";
 import { guardDocument, guardItem } from "./mirror.ts";
 import { guardTrashChild } from "./public.ts";
+import { guardUnavailableFields } from "./save-checks.ts";
+import { erpOperationRequirement, erpRequirementMet } from "../../parts-requirements.ts";
 
 export type Row = Record<string, unknown>;
 const DOC = "erp_documents__document",
@@ -48,8 +50,15 @@ function change(db: SqlDriver, table: string, id: unknown, set: Row) {
 /** Os dois gatilhos adiados do documento, por evento de linha. */
 function deferCaptures(ctx: RpcContext, n: Row) {
   const id = String(n.id);
-  if (n.kind === "sales_orders" || n.kind === "service_orders") defer(ctx, () => finance.commissionOperationCapture(ctx, id));
-  if (n.kind === "sales_orders") defer(ctx, () => costApplyCapture(ctx, id));
+  if (n.kind === "sales_orders" || n.kind === "service_orders") {
+    if ((ctx.parts.finance && ctx.parts.sales) || n.status === "cancelled") defer(ctx, () => {
+      // Compensação explícita usa a situação final; nenhuma troca de vendedor recalcula comissão suspensa.
+      if (ctx.parts.finance && ctx.parts.sales || one(ctx.db, `SELECT 1 FROM "erp_documents__document" d
+        JOIN "erp_finance__commission_operation" o ON o.document_id=d.id AND o.state='active' WHERE d.id=? AND d.status='cancelled'`, id))
+        finance.commissionOperationCapture(ctx, id);
+    });
+  }
+  if (n.kind === "sales_orders" && erpRequirementMet(ctx.parts, erpOperationRequirement("margin"))) defer(ctx, () => costApplyCapture(ctx, id));
 }
 
 /** erp_documents.advance_received_number (document_number_continuity) */
@@ -78,6 +87,7 @@ function guardTrash(o: Row, n: Row) {
 export function insertDocument(ctx: RpcContext, row: Row) {
   const db = ctx.db;
   guardDocument(ctx, "INSERT", null, row); // aa_mirror_authority
+  if (!ctx.parts.stock || !ctx.parts.finance) guardUnavailableFields(ctx, { ...JSON.parse(String(row.body)), warehouse_id: row.warehouse_id }, null);
   write(db, DOC, row);
   advanceReceivedNumber(db, row); // document_number_continuity
   sync.captureDocument(ctx); // zz_origin_sync
@@ -98,6 +108,8 @@ export function updateDocument(ctx: RpcContext, id: string, set: Row) {
   stock.guardPostedDocument(db, "UPDATE", o, n); // protect_document_stock
   stock.guardDocument(db, "UPDATE", o, n); // protect_purchase_receipt_document
   stock.guardReservedDocument(db, "UPDATE", o, n); // protect_reserved_document
+  if (!ctx.parts.stock || !ctx.parts.finance)
+    guardUnavailableFields(ctx, { ...JSON.parse(String(n.body)), warehouse_id: n.warehouse_id }, { ...JSON.parse(String(o.body)), warehouse_id: o.warehouse_id });
   change(db, DOC, id, set);
   // AFTER, na ordem do nome.
   if ("kind" in set || "number" in set) advanceReceivedNumber(db, n); // document_number_continuity
@@ -125,6 +137,10 @@ function itemBefore(ctx: RpcContext, op: "INSERT" | "UPDATE" | "DELETE", o: Row 
   stock.guardPostedItem(db, op, o, n); // protect_document_item_stock
   stock.guardItem(db, op, o, n); // protect_purchase_receipt_item
   stock.guardReservedItem(db, op, o, n); // protect_reserved_item
+  if (!ctx.parts.stock) {
+    const prior = o ?? (n ? one(db, `SELECT * FROM "${ITEM}" WHERE id=? AND document_id=?`, n.id, n.document_id) : null);
+    guardUnavailableFields(ctx, { items: n ? [JSON.parse(String(n.data))] : [] }, { items: prior ? [JSON.parse(String(prior.data))] : [] });
+  }
 }
 
 /** INSERT em item com os gatilhos. */
