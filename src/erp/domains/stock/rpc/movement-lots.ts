@@ -9,6 +9,8 @@ import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
+import { requireErpParts } from "../../../engine/parts-gate.ts";
+import { erpEntityRequirement } from "../../../parts-requirements.ts";
 import { pgBtrim, pgCompareText, pgLower } from "../../../engine/text.ts";
 import { validDate } from "../../../engine/time.ts";
 import * as documents from "../../documents/public.ts";
@@ -48,9 +50,13 @@ export function unassignedQuantity(db: SqlDriver, product: string, warehouse: st
 }
 
 /** erp_stock.lot_origin_access(p_user, p_origin): lote de pedido ou OS só para quem lê o documento. */
-function lotOriginAccess(db: SqlDriver, user: string, origin: { type: string; document_kind: string | null }) {
+function lotOriginAccess(ctx: RpcContext, user: string, origin: { type: string; document_kind: string | null }, operational = false) {
+  const db = ctx.db;
   const role = (one(db, 'SELECT role FROM "erp_access__membership" WHERE user_id=? AND active=1', user)?.role as string | undefined) ?? null;
   if (["sales", "purchases", "services"].includes(origin.type) && !documents.allowed(role, origin.document_kind, false)) raise("42501", "erp_stock_lot_origin_denied");
+  // A linha do movimento continua rastreável e mantida pelo Estoque. Abrir a
+  // rotina da origem, porém, exige sua parte; a referência histórica não some.
+  if (operational) requireErpParts(ctx, erpEntityRequirement(origin.type === "invoices" ? "nfe" : origin.document_kind));
 }
 
 /** erp_stock.movement_lot_line(p_movement, p_product, p_warehouse): a linha do lançamento e os lotes dela. */
@@ -269,7 +275,7 @@ registerRpc("erp_stock_movement_lots", (ctx: RpcContext, a: RpcArgs) => {
   if (movement === null || product === null || warehouse === null) raise("22023", "erp_stock_invalid_query");
   const line = movementLotLine(db, movement, product.toLowerCase(), warehouse.toLowerCase());
   if (line === null) raise("P0002", "erp_stock_movement_not_found");
-  lotOriginAccess(db, user, line.origin);
+  lotOriginAccess(ctx, user, line.origin);
   return { scope: "stock_movement_lots", data_mode: "erp_native", ...movementLotsDto(db, user, line) };
 });
 
@@ -320,7 +326,7 @@ registerRpc("erp_stock_movement_lots_assign", (ctx: RpcContext, a: RpcArgs) => {
     w = warehouse.toLowerCase();
   const line = movementLotLine(db, movement, p, w);
   if (line === null) raise("P0002", "erp_stock_movement_not_found");
-  lotOriginAccess(db, user, line.origin);
+  lotOriginAccess(ctx, user, line.origin);
   if (line.lots_version !== expected) raise("40001", "erp_stock_lot_version_conflict");
   if (!line.assignable) raise("22023", "erp_stock_lot_assign_unavailable");
   const sum = lots.reduce((t, j) => t + toScaled(String(j.quantity), QTY), 0n);
@@ -380,12 +386,14 @@ registerRpc("erp_stock_source_lots", (ctx: RpcContext, a: RpcArgs) => {
     documents.mirrorRequireVisible(db, user, sourceId, false);
     const d = one(db, `SELECT id, kind, contact_id FROM "erp_documents__document" WHERE id=? AND kind IN ('sales_orders','purchase_orders','service_orders')`, sourceId);
     if (!d) raise("P0002", "erp_document_not_found");
+    lotOriginAccess(ctx, user, { type: d.kind === "purchase_orders" ? "purchases" : d.kind === "service_orders" ? "services" : "sales", document_kind: String(d.kind) }, true);
     if (!documents.allowed(role, String(d.kind), false)) raise("42501", "erp_stock_lot_origin_denied");
     // 238: documento de um contato que a pessoa não vê não é encontrado.
     if (!documents.contactUsable(db, user, (d.contact_id as string | null) ?? null)) raise("P0002", "erp_document_not_found");
     doc = String(d.id);
   } else {
     invoiceAccess(db, user, false);
+    lotOriginAccess(ctx, user, { type: "invoices", document_kind: null }, true);
     if (!one(db, 'SELECT 1 x FROM "erp_fiscal_invoices__invoice" WHERE id=?', sourceId)) raise("P0002", "erp_invoice_not_found");
     flag = invoiceFlag(db, sourceId).flag;
     if (flag === "R") {
