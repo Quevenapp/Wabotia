@@ -2,6 +2,8 @@
 // do núcleo (ctx.charge: Pix copia e cola ou link, docs/COBRANCA.md); a
 // parcela só vira paga pelo webhook do provedor (onPaymentUpdated) ou pela
 // baixa manual da equipe, nunca por mensagem do cliente.
+import { routineCustomerAllows } from "../agenda/customer-provider";
+import { normalizeCustomerPhone } from "../../customer/phone";
 import { all, exec, one } from "../../db";
 import { ApiError, type Conversation, now } from "../../types";
 import type { ModuleContext } from "../api";
@@ -76,36 +78,51 @@ export function noticeText(inst: any, kind: NoticeKind, at: number) {
 }
 
 /**
- * Conversa do cliente da assinatura: a guardada, ou a conversa individual
- * mais recente da área com o mesmo telefone (que passa a ser guardada).
- * O módulo não abre conversa nova: sem conversa, o aviso não sai.
+ * Revalida a conversa guardada ou outro canal autorizado do proprietário.
+ * A abertura para primeiro aviso não cria prova de identidade.
  */
 export async function conversationFor(
   ctx: ModuleContext,
   sub: { id: string; phone: string; conversation_id: string | null },
   options: { open?: boolean } = {},
 ): Promise<Conversation | null> {
-  if (sub.conversation_id)
+  const saved = await one(ctx.env, `SELECT s.*,(SELECT h.contact_id FROM customer_records h
+    WHERE h.profile_id=s.profile_id AND h.module_id='mensalidade' AND h.record_id=s.id LIMIT 1) record_owner
+    FROM mensalidade_subscriptions s WHERE s.profile_id=? AND s.id=?`, ctx.profile, sub.id);
+  if (!saved) return null;
+  const owner = saved.contact_id ?? saved.record_owner;
+  const allowed = async (c: Conversation) => {
+    const ref = await ctx.customer(c);
+    if (c.chat_type === "group" || c.profile_id !== ctx.profile || ref.namespace !== "team" ||
+        ["blocked", "excluded", "ambiguous"].includes(ref.state)) return false;
+    if (await routineCustomerAllows(ctx, c, saved, "mensalidade")) return true;
+    // Abertura expressa para primeiro aviso: permanece sem prova de identidade.
+    return options.open !== false && !owner && !saved.conversation_id && saved.updated === saved.created && !c.last_customer &&
+      !!c.connection_id && c.external_namespace === `channel:${c.connection_id}` && ref.state === "pending" && normalizeCustomerPhone(saved.phone, "international") === normalizeCustomerPhone(c.phone, "international");
+  };
+  if (saved.conversation_id) {
     try {
-      const c = await ctx.conversation(sub.conversation_id);
-      if (c.chat_type !== "group") return c;
-    } catch {
-      // Conversa apagada ou de outra área: procura pelo telefone.
-    }
-  if (!sub.phone) return null;
-  // A conversa do telefone (com ou sem o 9); quem nunca escreveu ganha uma na
-  // linha oficial, que só recebe notificação por modelo até responder.
-  const found = await ctx.conversationByPhone(sub.phone, {
-    open: options.open !== false,
-  });
-  if (!found || found.chat_type === "group") return null;
-  await exec(
-    ctx.env,
-    "UPDATE mensalidade_subscriptions SET conversation_id=? WHERE id=? AND profile_id=?",
-    found.id,
-    sub.id,
-    ctx.profile,
-  );
+      const c = await ctx.conversation(saved.conversation_id);
+      if (await allowed(c)) return c;
+    } catch { /* Busca outro canal autorizado do mesmo proprietário. */ }
+  }
+  let found: Conversation | null = null;
+  if (owner) {
+    const candidates = await all<Conversation>(ctx.env, `SELECT c.* FROM conversations c
+      LEFT JOIN conversation_contacts l ON l.profile_id=c.profile_id AND l.conversation_id=c.id
+      LEFT JOIN customer_phones p ON p.profile_id=c.profile_id AND p.namespace='team' AND p.phone=c.verified_phone AND p.state='ready'
+      WHERE c.profile_id=? AND coalesce(l.contact_id,p.contact_id)=? AND c.customer_link_state='ready'
+        AND c.chat_type<>'group' AND c.external_namespace='channel:'||c.connection_id
+      ORDER BY c.last_customer DESC,c.id LIMIT 10`, ctx.profile, owner);
+    for (const c of candidates) if (await allowed(c)) { found = c; break; }
+  } else if (saved.phone) {
+    const candidate = await ctx.conversationByPhone(saved.phone, { open: options.open !== false });
+    if (candidate && await allowed(candidate)) found = candidate;
+  }
+  if (!found) return null;
+  await exec(ctx.env, `UPDATE mensalidade_subscriptions SET conversation_id=?
+    WHERE profile_id=? AND id=? AND conversation_id IS NULL AND contact_id IS ? AND updated=?`,
+    found.id, ctx.profile, saved.id, saved.contact_id, saved.updated);
   return found;
 }
 

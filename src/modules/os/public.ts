@@ -1,8 +1,10 @@
 // API interna do motor: autorização, snapshots e persistência dos filhos.
 // Filhos importam este arquivo, nunca store.ts/model.ts para autorizar ordens.
+import { one } from "../../db";
 import { ApiError, type Actor, type Conversation } from "../../types";
 import { resolveCustomer } from "../../customer/ports";
-import { normalizeCustomerPhone, customerPhoneVariants as phoneVariants } from "../../customer/phone";
+import { routineCustomerScope, routineCustomerAllows } from "../agenda/customer-provider";
+import { normalizeCustomerPhone } from "../../customer/phone";
 import { verifiedPhone } from "../../protocol-lookup";
 import { isBound } from "../../visibility";
 import type { ModuleContext } from "../api";
@@ -43,38 +45,30 @@ export interface OrderAccess {
 export async function workCustomerScope(ctx: ModuleContext, c: Conversation) {
   if (c.profile_id !== ctx.profile || c.chat_type === "group")
     return { sql: "0", params: [] as unknown[], contactId: null, verified: false };
-  const ref = await resolveCustomer(ctx.env, c);
-  const namespace = c.external_namespace.startsWith("app:") ? c.external_namespace : "team";
-  if (ref.profileId !== ctx.profile || ref.namespace !== namespace ||
-      ref.state === "blocked" || ref.state === "excluded")
+  const scope = await routineCustomerScope({ ...ctx, verifiedPhone: ctx.verifiedPhone ?? verifiedPhone, customer: ctx.customer ?? (c => resolveCustomer(ctx.env, c)) }, c, "phone", "os");
+  if (["blocked", "excluded", "ambiguous"].includes(scope.ref.state))
     return { sql: "0", params: [] as unknown[], contactId: null, verified: false };
-  const contactId = ref.state === "ready" ? ref.contactId : null;
-  const phone = ctx.verifiedPhone ? ctx.verifiedPhone(c) : verifiedPhone(c);
-  const phones = phone ? phoneVariants(phone) : [];
-  return {
-    sql: "((contact_id IS NOT NULL AND contact_id=?) OR (contact_id IS NULL AND (conversation_id=? OR (phone<>'' AND phone IN (SELECT value FROM json_each(?))))))",
-    params: [contactId, c.id, JSON.stringify(phones)], contactId,
-    verified: namespace === "team" && !!phone,
-    phones,
-  };
+  return { ...scope, contactId: scope.ref.state === "ready" ? scope.ref.contactId : null,
+    verified: scope.ref.namespace === "team" && !!(scope.ref.verifiedPhone || (ctx.verifiedPhone ? ctx.verifiedPhone(c) : verifiedPhone(c))) };
 }
 
-/** Envios e documentos revalidam também o telefone atual do titular. */
+/** Toda ação e repetição revalida o proprietário, inclusive em outra linha. */
 export async function workCustomerAllows(
   ctx: ModuleContext, c: Conversation, row: WorkOrderRow, recipient = false,
 ) {
   if (row.profile_id !== ctx.profile) return false;
-  if (recipient && !row.contact_id) {
-    const phone = ctx.verifiedPhone ? ctx.verifiedPhone(c) : verifiedPhone(c);
-    return c.profile_id === ctx.profile && !!phone && phoneVariants(phone).includes(normalizeCustomerPhone(row.phone, "international") || "");
-  }
   const scope = await workCustomerScope(ctx, c);
   if (scope.sql === "0") return false;
-  const phoneMatches = scope.verified && scope.phones?.includes(normalizeCustomerPhone(row.phone, "international") || "");
-  // O telefone corrigido da ordem revoga documentos e avisos imediatamente,
-  // inclusive se ainda houver uma conversa/contact_id antigo na ordem.
-  if (recipient) return !!phoneMatches && (!row.contact_id || row.contact_id === scope.contactId);
-  return row.contact_id ? row.contact_id === scope.contactId : row.conversation_id === c.id || !!phoneMatches;
+  if (!await routineCustomerAllows({ ...ctx, verifiedPhone: ctx.verifiedPhone ?? verifiedPhone, customer: ctx.customer ?? (c => resolveCustomer(ctx.env, c)) }, c, row, "os")) return false;
+  if (!recipient) return true;
+  const phone = ctx.verifiedPhone ? ctx.verifiedPhone(c) : verifiedPhone(c);
+  if (!phone || !scope.verified) return false;
+  const snapshot = normalizeCustomerPhone(row.phone, "international");
+  if (snapshot === phone) return true;
+  // Outro número só é destinatário se os dois vínculos persistidos concordam.
+  return !!scope.contactId && !!await one(ctx.env,
+    `SELECT 1 FROM customer_phones WHERE profile_id=? AND namespace='team'
+      AND phone=? AND state='ready' AND contact_id=?`, ctx.profile, snapshot, scope.contactId);
 }
 export type ChildStatement = [sql: string, bindings: unknown[]];
 export interface ChildMutation {

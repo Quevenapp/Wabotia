@@ -6,7 +6,7 @@ import { authorizedOrder, resolveWorkType } from "./public";
 import { mayReadSensitive, projectOrderForCustomer, projectOrderForStaff, projectPrivateFields } from "./privacy";
 import { checkVersion, commitOrderMutation, mutationHistory, publishMutation, versionConflict } from "./mutations";
 import { cancelApproval, changeStage, decideStageApproval, requestStageApproval, sendStageApproval } from "./stages";
-import { notify, quoteSpec, resumeBuiltinStatus } from "./store";
+import { notify, quoteSpec, resumeBuiltinStatus, conversationOf } from "./store";
 import { validateExtra } from "./validation";
 import type { WorkTypeView } from "./contracts";
 
@@ -43,8 +43,8 @@ export async function resumeOrderEffects(ctx: ModuleContext, history: any, row: 
       await notify(ctx, row, "opened", `stage:${id}:${history.entity_version}`);
     }
     if (changed.includes("quote_version") && row.conversation_id) {
-      const c = await ctx.conversation(row.conversation_id);
-      if (c.chat_type !== "group") await ctx.sendInteractive(c, quoteSpec(row), { key: `quote:${id}:${row.quote_version}`, notification: true });
+      const c = await conversationOf(ctx, row);
+      if (c && c.chat_type !== "group") await ctx.sendInteractive(c, quoteSpec(row), { key: `quote:${id}:${row.quote_version}`, notification: true });
     }
   }
   if (history.to_status === "delivered" && history.from_status !== "delivered")

@@ -26,7 +26,7 @@ import {
 } from "./config";
 import { listProfessionals, listServices } from "./catalog";
 import { availability, type SlotRules } from "./availability";
-import { confirmRoutineCustomer, routineCustomer } from "./customer-provider";
+import { confirmRoutineCustomer, routineCustomer, routineCustomerScope, routineCustomerAllows } from "./customer-provider";
 import { normalizeCustomerPhone } from "../../customer/phone";
 
 export type AppointmentStatus =
@@ -203,14 +203,14 @@ export async function upcomingFor(
   c: Conversation,
   at: number,
 ) {
-  const customer = await routineCustomer(ctx, c);
+  const scope = await routineCustomerScope(ctx, c, "customer_phone", "agenda");
   const [rows, names] = await Promise.all([
     all(
       ctx.env,
-      `SELECT * FROM agenda_appointments WHERE profile_id=? AND status IN ('booked','confirmed') AND ends>? AND (${customer ? "contact_id=? OR (contact_id IS NULL AND conversation_id=?)" : "conversation_id=?"}) ORDER BY starts LIMIT 20`,
+      `SELECT * FROM agenda_appointments WHERE profile_id=? AND status IN ('booked','confirmed') AND ends>? AND (${scope.sql}) ORDER BY starts LIMIT 20`,
       ctx.profile,
       at,
-      ...(customer ? [customer.ref.contactId, c.id] : [c.id]),
+      ...scope.params,
     ),
     professionalNames(ctx),
   ]);
@@ -245,6 +245,7 @@ export async function notifyCustomer(
   } catch {
     return null;
   }
+  if (!await routineCustomerAllows(ctx, c, a, "agenda")) return null;
   return ctx.sendMessage(c, { text }, { key, actor, notification: true });
 }
 

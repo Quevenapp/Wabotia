@@ -34,7 +34,7 @@ import {
 } from "./model";
 import { config, offeredMethods, paymentsReady } from "./store";
 import { emitStatusChange, noticeHandled } from "./listeners";
-import { confirmRoutineCustomer, routineCustomer, routineCustomerScope, selfCustomerStatements } from "../agenda/customer-provider";
+import { confirmRoutineCustomer, routineCustomer, routineCustomerScope, selfCustomerStatements, routineCustomerAllows } from "../agenda/customer-provider";
 import { normalizeCustomerPhone } from "../../customer/phone";
 
 /**
@@ -346,7 +346,7 @@ export async function conversationOf(ctx: ModuleContext, order: any) {
   if (!order.conversation_id) return null;
   try {
     const c = await ctx.conversation(order.conversation_id);
-    return c.chat_type === "group" ? null : c;
+    return c.chat_type !== "group" && await routineCustomerAllows(ctx, c, order, "pedido") ? c : null;
   } catch {
     return null;
   }
@@ -468,6 +468,7 @@ export async function sendSummary(
   c: Conversation,
   order: any,
 ) {
+  if (!await routineCustomerAllows(ctx, c, order, "pedido")) return null;
   const name = await storeName(ctx, await config(ctx));
   return say(
     ctx,
@@ -933,6 +934,7 @@ async function askPayment(
   cfg: PedidoConfig,
   key: string,
 ) {
+  if (!await routineCustomerAllows(ctx, c, order, "pedido")) return;
   await saveChat(ctx, c, "payment", order.id, { methods }, cfg.payment_minutes);
   try {
     await ctx.sendInteractive(c, paymentSpec(order, methods), {
@@ -1514,7 +1516,7 @@ export async function paymentUpdated(
 
 /** Pedidos pelo vínculo; legado somente da conversa original. */
 export async function openOrdersFor(ctx: ModuleContext, c: Conversation) {
-  const scope = await routineCustomerScope(ctx, c, "phone");
+  const scope = await routineCustomerScope(ctx, c, "phone", "pedido");
   return all(
     ctx.env,
     `SELECT * FROM pedido_orders WHERE profile_id=? AND ${scope.sql} AND status IN (${ACTIVE_STATUSES.map(() => "?").join(",")}) ORDER BY number DESC LIMIT 5`,
