@@ -139,6 +139,18 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
 
     // --- composer ---
     var text by mutableStateOf("")
+    var subject by mutableStateOf("")
+    private var subjectInitialized = false
+    private var suggestedSubject = ""
+    var commentMode by mutableStateOf<String?>(null)
+    var commentId by mutableStateOf<String?>(null)
+        private set
+    var commentTargetText by mutableStateOf("")
+        private set
+    private val channelAttempt = ChannelSendAttempt()
+    var pendingChannel by mutableStateOf<ChannelPending?>(null)
+        private set
+    val hasPending: Boolean get() = pending != null || pendingChannel != null
     var attachments by mutableStateOf<List<PendingAttachment>>(emptyList())
         private set
     var voice by mutableStateOf<PendingAttachment?>(null)
@@ -193,6 +205,15 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
             val loaded = container.api.conversation(profileId, conversationId)
             detailLoadedAtNanos = System.nanoTime()
             detail = loaded
+            if (loaded.channelId == "email" && !sending && !hasPending && (!subjectInitialized || subject == suggestedSubject)) {
+                suggestedSubject = loaded.emailReplySubject
+                subject = suggestedSubject
+                subjectInitialized = true
+            }
+            if (loaded.isComment && commentId == null && pendingChannel == null) {
+                commentId = loaded.comment?.id
+                commentTargetText = loaded.comment?.text.orEmpty()
+            }
             val contactId = loaded.conversation.contact_id ?: loaded.contact?.string("id")
             val showChannels = loaded.isMultichannel || loaded.channelId?.let { it != "whatsapp" } == true
             val profileKey = contactId?.takeIf { showChannels }?.let { profileId to it }
@@ -570,12 +591,23 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
         mentions = emptyList()
     }
 
+    fun selectComment(message: Message) {
+        if (sending || hasPending || detail?.isComment != true || !message.isIncoming) return
+        val target = message.commentId ?: return
+        commentId = target
+        commentTargetText = message.text
+        commentMode = null
+        composerError = null
+    }
+
     /** O servidor continua sendo a autoridade; o app evita oferecer envios já recusados pela janela. */
     fun replyBlockReason(hasAttachments: Boolean = false, automation: Boolean = false): String? {
+        // O replay precisa consultar o recibo mesmo quando a janela/quota já mudou após o envio.
+        if (pendingChannel != null && !automation) return null
         val current = detail ?: return "Carregando conversa."
         val window = current.channelWindow
         val elapsedMs = ((System.nanoTime() - detailLoadedAtNanos) / 1_000_000L).coerceAtLeast(0)
-        return current.replyBlockReason(hasAttachments = hasAttachments, automation = automation, now = (window?.serverNow ?: 0) + elapsedMs)
+        return current.replyBlockReason(hasAttachments = hasAttachments, automation = automation, now = (window?.serverNow ?: current.server_now) + elapsedMs)
     }
 
     fun previewEmail(request: TranscriptPreviewRequest) {
@@ -662,15 +694,20 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
     }
 
     val canSend: Boolean
-        get() = !sending && (editing == null || detail?.can("edit") == true) && replyBlockReason(hasAttachments = replyHasAttachments()) == null && (
+        get() = !sending && (pendingChannel != null || ((detail?.isComment != true || commentMode in setOf("public", "private")) &&
+            (editing == null || detail?.can("edit") == true) && replyBlockReason(hasAttachments = replyHasAttachments()) == null && (
             pending != null || editing != null && text.isNotBlank() || text.isNotBlank() || attachments.isNotEmpty() || voice != null ||
                 kind == ComposeKind.Location || kind == ComposeKind.Contacts
-            )
+            )))
 
     /** Envia (ou repete o pedido pendente com a mesma Idempotency-Key). */
     fun send() {
         if (sending) return
         val current = detail ?: return
+        if (pendingChannel != null || current.usesChannelAction) {
+            sendChannel(current)
+            return
+        }
         if (editing != null && !current.can("edit")) {
             composerError = "A edição não está disponível nesta conversa."
             return
@@ -749,8 +786,88 @@ class ConversationViewModel(private val container: AppContainer, val conversatio
     /** Abandona o pedido guardado (confira Entregas antes de reenviar). O rascunho permanece. */
     fun abandonPending() {
         pending = null
+        channelAttempt.clear()
+        pendingChannel = null
         sendKey = ApiClient.newIdempotencyKey()
         composerError = "Pedido abandonado. Confira as entregas antes de enviar de novo para evitar duplicidade."
+    }
+
+    /** A intenção inteira é montada antes da API; erros nunca trocam a chave do canal. */
+    private fun sendChannel(current: ConversationDetail) {
+        viewModelScope.launch {
+            sending = true
+            composerError = null
+            try {
+                val attempt = pendingChannel ?: run {
+                    val request = buildChannelRequest(current)
+                    channelAttempt.begin(request, ApiClient::newIdempotencyKey).also { pendingChannel = it }
+                }
+                progress = "Confirmando envio…"
+                container.api.channelAction(profileId, conversationId, attempt.key, attempt.request)
+                channelAttempt.clear()
+                pendingChannel = null
+                clearComposer()
+                if (current.channelId == "email") {
+                    subjectInitialized = false
+                    subject = ""
+                }
+                commentMode = null
+                load(silent = true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IllegalArgumentException) {
+                composerError = e.message ?: "Revise o conteúdo antes de enviar."
+            } catch (e: Exception) {
+                val message = container.handleError(e)
+                composerError = if (pendingChannel != null)
+                    "$message O pedido e a chave foram preservados. Confira as entregas ou tente novamente." else message
+            } finally {
+                sending = false
+                progress = null
+                progressPercent = null
+            }
+        }
+    }
+
+    private suspend fun buildChannelRequest(current: ConversationDetail): ChannelActionRequest {
+        // Copiar também os campos visuais antes do primeiro upload suspenso.
+        val value = text.trim()
+        val frozenSubject = subject
+        val frozenMode = commentMode
+        val frozenTarget = commentId
+        val chosenKind = kind
+        val voiceItem = voice
+        val files = (voiceItem?.let { listOf(it) } ?: attachments).toList()
+        require(editing == null && quote == null && mentions.isEmpty()) { "Esta ação de canal não oferece edição, citação ou menções." }
+        require(chosenKind != ComposeKind.Location && chosenKind != ComposeKind.Contacts) { "Este conteúdo não está disponível nesta ação de canal." }
+        require(files.size <= MediaKinds.MAX_ATTACHMENTS) { "Use até 10 anexos por mensagem." }
+        val projected = files.map { file ->
+            val fileKind = when {
+                voiceItem != null -> "audio"
+                chosenKind == ComposeKind.Document -> "document"
+                else -> MediaKinds.kindOf(file.mime)
+            }
+            require(current.can(fileKind)) { "O canal não oferece envio de ${MediaKinds.label(fileKind)} nesta conversa." }
+            require(file.size > 0 && file.size <= MediaKinds.MAX_UPLOAD_BYTES) { "Arquivo vazio ou maior que o limite local de 100 MiB." }
+            ChannelAttachment(mediaId = file.uploadedId ?: file.key, kind = fileKind,
+                mimeType = MediaKinds.baseMime(file.mime), bytes = file.size, name = file.name)
+        }
+        val window = current.channelWindow
+        val elapsed = ((System.nanoTime() - detailLoadedAtNanos) / 1_000_000L).coerceAtLeast(0)
+        val prepared = current.prepareChannelAction(text = value, subject = frozenSubject, commentMode = frozenMode,
+            commentId = frozenTarget, attachments = projected, now = (window?.serverNow ?: current.server_now) + elapsed)
+        val uploaded = files.mapIndexed { index, file ->
+            val id = file.uploadedId ?: run {
+                progress = "Enviando ${file.name}: 0%"
+                progressPercent = 0
+                uploader.upload(profileId, file.item) { pct ->
+                    progress = "Enviando ${file.name}: $pct%"
+                    progressPercent = pct
+                }.also { markUploaded(file, it) }
+            }
+            projected[index].copy(mediaId = id)
+        }
+        return prepared.copy(channel_action = prepared.channel_action.copy(attachments = uploaded.takeIf { it.isNotEmpty() }))
     }
 
     private fun fail(message: String): ActionRequest? {

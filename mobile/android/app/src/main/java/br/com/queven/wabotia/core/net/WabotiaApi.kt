@@ -48,6 +48,10 @@ interface WabotiaApi {
     @POST("api/v1/profiles/{p}/conversations/{id}/message-actions") suspend fun messageAction(
         @Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: MessageActionRequest,
     ): JsonObject
+    /** Ação e assunto já congelados junto da chave; comentários nunca usam a resposta genérica. */
+    @POST("api/v1/profiles/{p}/conversations/{id}/message-actions") suspend fun channelAction(
+        @Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: ChannelActionRequest,
+    ): JsonObject
     @PUT("api/v1/profiles/{p}/groups/{id}/policy") suspend fun groupPolicy(
         @Path("p") p: String, @Path("id") id: String, @Header("Idempotency-Key") key: String, @Body body: GroupPolicyRequest,
     ): JsonObject

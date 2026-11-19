@@ -75,10 +75,14 @@ import kotlinx.serialization.json.JsonObject
     val account_label: String = "",
     val multichannel: Boolean = false,
     val window: ChannelWindow? = null,
+    val channel_context: JsonElement? = null,
 ) {
     val displayName: String get() = contact_name?.takeIf { it.isNotBlank() } ?: title.takeIf { it.isNotBlank() }
         ?: if (channel != null && channel != "whatsapp") "Contato" else phone ?: external_id
     val isGroup get() = chat_type == "group"
+    val channelContext: JsonObject get() = channel_context as? JsonObject
+        ?: channel_context?.asStringOrNull().parseJsonObject()
+    val isComment get() = chat_type == "comment" || channelContext.string("context") == "comment"
     fun isOwnedBy(userId: String?) = owner != null && owner == userId && state == "human"
 
     /** `last_message` lido com tolerância; null em servidores antigos ou quando a conversa não tem mensagens. */
@@ -137,6 +141,12 @@ data class LastMessage(
     val contentJson: JsonObject get() = content.parseJsonObject()
     val isIncoming get() = direction == "customer"
     val isNote get() = direction == "note"
+    /** Somente texto normalizado pelo servidor; o aplicativo nunca interpreta HTML recebido. */
+    val emailSubject: String? get() = (contentJson.obj("email")?.string("subject") ?: contentJson.string("subject"))
+        ?.takeIf { it.isNotBlank() }
+    val commentId: String? get() = contentJson.obj("comment")?.let { it.string("id") ?: it.string("commentId") }
+    val commentVisibility: String? get() = contentJson.obj("comment")?.let { it.string("visibility") ?: it.string("mode") }
+        ?.takeIf { it == "public" || it == "private" }
 }
 
 @Serializable data class MediaFile(val id: String, val name: String = "", val type: String = "application/octet-stream", val size: Long = 0)
@@ -164,10 +174,14 @@ data class LastMessage(
     val window: ChannelWindow? = null,
     val other_conversations: List<OtherChannelConversation> = emptyList(),
     val email_transcript: TranscriptOptions? = null,
+    val channel_extension: ChannelExtensionView? = null,
+    val server_now: Long = 0,
 ) {
     fun can(feature: String): Boolean {
         val channel = channelId
-        if (channel != null && channel !in Channels.current) return false
+        if (channel != null && !Channels.isKnown(channel)) return false
+        if (channel == "googlebusiness") return false
+        if (usesChannelAction) return extensionCan(feature)
         val offered = if (feature == "menu") {
             capabilities?.obj("menu")?.let { menu ->
                 listOf("buttons", "quickReplies", "listItems").any { (menu.long(it) ?: 0) > 0 }
@@ -184,6 +198,20 @@ data class LastMessage(
     val isMultichannel: Boolean get() = multichannel ?: capabilities?.bool("multichannel") ?: conversation.multichannel
     val channelWindow: ChannelWindow? get() = window ?: ChannelWindow.from(capabilities?.obj("window")) ?: conversation.window
     val modulesAllowed: Boolean get() = (channelId == null || channelId == "whatsapp") && capabilities?.bool("modules") != false
+    val isComment: Boolean get() = conversation.isComment
+    val usesChannelAction: Boolean get() = isComment || channelId in setOf("telegram", "email", "tiktok")
+    val extensionKey: String? get() = channelId?.let { "$it/${if (isComment) "comment" else "direct"}" }
+    val extension: ChannelExtensionView? get() = channel_extension?.takeIf { it.key == extensionKey }
+    val comment: ChannelComment? get() = extension?.metadata?.comment
+    val email: ChannelEmail? get() = extension?.metadata?.email
+    val telegram: ChannelTelegram? get() = extension?.metadata?.telegram
+    val tiktok: ChannelTikTok? get() = extension?.metadata?.tiktok
+    val emailReplySubject: String get() = replyEmailSubject(email?.subject ?: extension?.metadata?.subject.orEmpty())
+    val remainingMessages: Int? get() = (tiktok?.remainingMessages ?: extension?.metadata?.remainingMessages
+        ?: channelWindow?.remainingMessages)?.coerceIn(0, 10)
+    val channelWindowHours: Int? get() = extension?.capabilities?.obj("window")?.long("hours")?.takeIf { it in 1..720 }?.toInt()
+    val maxTextChars: Int get() = extension?.capabilities?.obj("text")?.long("maxChars")
+        ?.takeIf { it in 1..50_000 }?.toInt() ?: 3800
 }
 
 /** POST /conversations/{id}/actions. `content` segue o esquema MessageContent da API. */

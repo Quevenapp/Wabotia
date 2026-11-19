@@ -98,6 +98,7 @@ import br.com.queven.wabotia.ui.components.conversationBadge
 import br.com.queven.wabotia.ui.components.formatPhone
 import br.com.queven.wabotia.ui.components.formatWhen
 import br.com.queven.wabotia.ui.components.rememberNow
+import br.com.queven.wabotia.ui.components.rememberServerNow
 import br.com.queven.wabotia.ui.components.windowInfo
 import br.com.queven.wabotia.ui.theme.Wb
 import br.com.queven.wabotia.ui.tickets.TicketCard
@@ -181,7 +182,8 @@ fun ConversationInfoScreen(
                 else -> {
                     val conversation = detail.conversation
                     val team = vm.teamById
-                    val window = windowInfo(detail, vm.lineKinds, now)
+                    val channelNow = rememberServerNow(detail.takeIf { it.usesChannelAction }?.let { it.channelWindow?.serverNow ?: it.server_now }, now)
+                    val window = windowInfo(detail, vm.lineKinds, channelNow)
                     val status = container.profileData.cached(profileId)
                     val line = status?.connections?.firstOrNull { it.id == conversation.connection_id }
                     val departments = vm.departments.orEmpty()
@@ -205,7 +207,7 @@ fun ConversationInfoScreen(
                             )
                             Spacer(Modifier.height(12.dp))
                             Text(conversation.displayName, color = c.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            if (showChannels) Text(listOf(Channels.label(detail.channelId), detail.accountLabel).filter { it.isNotBlank() }.joinToString(" · "), color = c.textSecondary, style = MaterialTheme.typography.bodyMedium)
+                            if (showChannels) Text(listOf(Channels.label(detail.channelId), if (detail.isComment) "Comentário" else "", detail.accountLabel).filter { it.isNotBlank() }.joinToString(" · "), color = c.textSecondary, style = MaterialTheme.typography.bodyMedium)
                             val phone = conversation.phone?.takeIf { it.isNotBlank() && !conversation.isGroup }
                             if (phone != null) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -224,7 +226,9 @@ fun ConversationInfoScreen(
                             }
                         }
 
-                        // Janela de 24 h
+                        SecondWaveMetadata(detail, now = channelNow, expanded = true)
+
+                        // Prazo informado pelo servidor, com fallback legado de WhatsApp.
                         if (window != null) {
                             SectionLabel(window.title)
                             WbCard(Modifier.padding(horizontal = 16.dp)) {
@@ -425,15 +429,19 @@ fun ConversationInfoScreen(
                                     if (!saveContact(context, conversation.displayName, conversation.phone)) vm.notice = "Nenhum aplicativo de contatos disponível."
                                 })
                             }
-                            divider()
-                            SettingsRow(Icons.Filled.SmartToy, "Consultar bot", subtitle = "Pergunte a um bot com o contexto desta conversa", tint = c.bot, onClick = { vm.loadBots(); botsSheet = true })
-                            if (canHandOff && !conversation.isGroup) {
+                            if (!detail.isComment) {
+                                divider()
+                                SettingsRow(Icons.Filled.SmartToy, "Consultar bot", subtitle = "Pergunte a um bot com o contexto desta conversa", tint = c.bot, onClick = { vm.loadBots(); botsSheet = true })
+                            }
+                            if (canHandOff && !conversation.isGroup && !detail.isComment) {
                                 divider()
                                 SettingsRow(Icons.Filled.SentimentSatisfiedAlt, "Pesquisa de satisfação", subtitle = "Envia a pesquisa ao cliente", tint = c.warn, onClick = { vm.survey() }, enabled = !vm.busy && vm.replyBlockReason(automation = true) == null)
                             }
                             if (own) {
-                                divider()
-                                SettingsRow(Icons.AutoMirrored.Filled.Undo, "Devolver ao bot", subtitle = "O bot do atendimento volta a responder", tint = c.bot, onClick = { vm.resume() }, enabled = !vm.busy && vm.replyBlockReason(automation = true) == null)
+                                if (!detail.isComment) {
+                                    divider()
+                                    SettingsRow(Icons.AutoMirrored.Filled.Undo, "Devolver ao bot", subtitle = "O bot do atendimento volta a responder", tint = c.bot, onClick = { vm.resume() }, enabled = !vm.busy && vm.replyBlockReason(automation = true) == null)
+                                }
                                 divider()
                                 SettingsRow(Icons.Filled.TaskAlt, "Concluir", subtitle = "Encerra este atendimento", tint = c.danger, titleColor = c.danger, onClick = { confirmResolve = true }, enabled = !vm.busy)
                             }
