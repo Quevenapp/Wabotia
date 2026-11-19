@@ -157,6 +157,7 @@ final class Workspace: ObservableObject {
     private var toastTask: Task<Void, Never>?
     /// Diferença entre o relógio do servidor e o do aparelho (ms), para a janela de 24 h.
     private var clockOffset: Int64 = 0
+    private var lastClockServerNow: Int64 = 0
     /// Conversa interna aberta no momento (não soma não lidas).
     var visibleInternalChatId: String?
 
@@ -178,6 +179,9 @@ final class Workspace: ObservableObject {
     var bots: [TeamContact] { team.filter(\.isBot) }
     var onlinePeople: Int { people.filter(\.online).count }
     var activeBots: Int { bots.filter { $0.online && ($0.enabled ?? true) }.count }
+    var isMultichannel: Bool { status?.multichannel == true }
+    var channelFilterOptions: [ChannelID] { status?.channelFilterOptions ?? [] }
+    var showsChannelFilter: Bool { status?.showsChannelFilter == true }
     var totalUnread: Int { unread.values.reduce(0, +) }
     var totalInternalUnread: Int { internalUnread.values.reduce(0, +) }
     var profileName: String {
@@ -187,6 +191,20 @@ final class Workspace: ObservableObject {
 
     func count(_ state: String) -> Int { status?.conversationCount(state) ?? 0 }
     func connectionKind(_ id: String?) -> String? { status?.connectionKind(id) }
+    func channel(for conversation: Conversation) -> ChannelID? {
+        // O canal explícito da conversa prevalece; a conexão só completa DTOs antigos.
+        if conversation.channel != nil { return conversation.resolvedChannel(connectionKind: connectionKind(conversation.connection_id)) }
+        if let connection = status?.connections.first(where: { $0.id == conversation.connection_id }), let channel = connection.channel {
+            guard connection.kind != "ai", conversation.chat_type != "internal",
+                  conversation.external_namespace == "channel:\(connection.id)" else { return nil }
+            return channel
+        }
+        return conversation.resolvedChannel(connectionKind: connectionKind(conversation.connection_id))
+    }
+    func channelWindow(for conversation: Conversation) -> ChannelWindowState? {
+        guard channel(for: conversation) != .whatsapp || isMultichannel else { return nil }
+        return conversation.window?.projected(at: nowMillisPrecise)
+    }
     func connectionName(_ id: String?) -> String? {
         guard let id else { return nil }
         return status?.connections.first { $0.id == id }?.name
@@ -199,7 +217,9 @@ final class Workspace: ObservableObject {
     /// Relógio da janela de uma conversa; nil quando a janela não se aplica (grupo, linha sem janela).
     func window(for conversation: Conversation, kind: String? = nil) -> WindowClock? {
         let lineKind = kind ?? connectionKind(conversation.connection_id)
-        guard WindowClock.applies(chatType: conversation.chat_type, connectionKind: lineKind) else { return nil }
+        guard (channel(for: conversation) ?? conversation.resolvedChannel(connectionKind: lineKind)) == .whatsapp,
+              conversation.window?.kind != "none",
+              WindowClock.applies(chatType: conversation.chat_type, connectionKind: lineKind) else { return nil }
         return WindowClock(lastCustomer: conversation.last_customer, now: nowMillis)
     }
 
@@ -279,6 +299,8 @@ final class Workspace: ObservableObject {
         ownerLoad = [:]
         loadedOnce = false
         offline = false
+        clockOffset = 0
+        lastClockServerNow = 0
     }
 
     private func switchProfile(to p: String) {
@@ -501,15 +523,25 @@ final class Workspace: ObservableObject {
 
     /// Atualiza a prévia com a última mensagem do detalhe (texto, tipo do anexo, direção e recibo).
     func record(detail: ConversationDetail) {
-        if let serverNow = detail.server_now, serverNow > 0 {
-            clockOffset = serverNow - Int64((Date().timeIntervalSince1970 * 1000).rounded())
-        }
+        if let serverNow = detail.channelWindow?.serverNow ?? detail.server_now { recordServerClock(serverNow) }
         guard let last = detail.messages.last else { return }
         let preview = Self.preview(of: last, media: detail.media)
         if previews[detail.conversation.id] != preview {
             previews[detail.conversation.id] = preview
             saveCache()
         }
+    }
+
+    func recordChannelClock(_ conversations: [Conversation]) {
+        if let serverNow = conversations.compactMap({ $0.window?.serverNow }).max() { recordServerClock(serverNow) }
+    }
+
+    private func recordServerClock(_ serverNow: Int64) {
+        // Página antiga ou detalhe atrasado não volta o relógio e não reabre uma janela.
+        guard serverNow > lastClockServerNow else { return }
+        let offset = serverNow - Int64((Date().timeIntervalSince1970 * 1000).rounded())
+        clockOffset = lastClockServerNow == 0 ? offset : max(clockOffset, offset)
+        lastClockServerNow = serverNow
     }
 
     func record(internal chat: InternalChat) {

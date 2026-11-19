@@ -133,6 +133,7 @@ final class ConversationViewModel: ObservableObject {
     @Published private(set) var detail: ConversationDetail?
     @Published private(set) var timeline: [ChatDay] = []
     @Published private(set) var tickets: [Ticket] = []
+    @Published private(set) var contactChannels: ContactChannelsProfile?
     @Published private(set) var loading = false
     @Published var error: String?
     @Published var actionError: String?
@@ -195,8 +196,30 @@ final class ConversationViewModel: ObservableObject {
     var isAdmin: Bool { container.user?.isAdmin ?? false }
     var isOwned: Bool { conversation?.isOwned(by: meId) ?? false }
     var isGroup: Bool { conversation?.isGroup ?? false }
-    func can(_ feature: String) -> Bool { detail?.can(feature) ?? false }
-    func allows(_ feature: String) -> Bool { detail?.allows(feature) ?? true }
+    private var fallbackKind: String? { workspace.connectionKind(conversation?.connection_id) }
+    var channel: ChannelID? { detail?.resolvedChannel(fallbackKind: fallbackKind) }
+    var isMultichannel: Bool { detail?.isMultichannel == true || workspace.status?.multichannel == true }
+    var channelAccount: String {
+        let label = channel?.label ?? "Canal desconhecido"
+        let account = detail?.channelAccountLabel ?? ""
+        return account.isEmpty ? label : "\(label) · \(account)"
+    }
+    var channelWindow: ChannelWindowState? { detail?.channelWindow?.projected(at: workspace.nowMillisPrecise) }
+    var modulesAllowed: Bool { detail?.modulesAllowed(fallbackKind: fallbackKind) ?? false }
+    var humanReplyAllowed: Bool { detail?.canHumanReply(now: workspace.nowMillisPrecise, fallbackKind: fallbackKind) ?? false }
+    var automationAllowed: Bool {
+        if channel == .whatsapp { return true }
+        return channel?.isSocial == true && (conversation?.chat_type == nil || conversation?.chat_type == "direct")
+            && channelWindow?.kind == "customer" && channelWindow?.state == "open" && channelWindow?.canAutomation == true
+    }
+    var menuAllowed: Bool { automationAllowed && (channel == .whatsapp || detail?.channelMenuAvailable == true) }
+    var composerPlaceholder: String { channel == .whatsapp ? "Mensagem" : "Responder pelo \(channel?.label ?? "canal desconhecido")" }
+    func can(_ feature: String) -> Bool {
+        detail?.can(feature) == true && detail?.allowsChannelFeature(feature, now: workspace.nowMillisPrecise, fallbackKind: fallbackKind) == true
+    }
+    func allows(_ feature: String) -> Bool {
+        detail?.allowsChannelFeature(feature, now: workspace.nowMillisPrecise, fallbackKind: fallbackKind) ?? false
+    }
     var tags: [String] { JSONValue.parseStringList(conversation?.tags) }
     var team: [TeamContact] { workspace.team }
     var role: ConversationRole { conversation?.role(me: meId) ?? .other }
@@ -209,8 +232,30 @@ final class ConversationViewModel: ObservableObject {
 
     /// Relógio da janela de 24 h; nil quando não se aplica (grupo ou linha sem janela).
     var window: WindowClock? {
-        guard let c = conversation else { return nil }
+        guard let c = conversation, channel == .whatsapp else { return nil }
         return workspace.window(for: c, kind: detail?.connection_kind)
+    }
+
+    var otherConversations: [OtherChannelConversation] {
+        let values = (detail?.other_conversations ?? []) + (contactChannels?.other_conversations ?? [])
+        var seen = Set<String>()
+        return values.filter { $0.id != conversationId && seen.insert($0.id).inserted }
+    }
+
+    /// A ficha já vem filtrada pelo servidor; não busca relações por nome, telefone ou perfil social.
+    func loadContactChannels() async {
+        contactChannels = nil
+        guard isMultichannel || channel?.isSocial == true,
+              let p = profileId,
+              let id = detail?.contact?["id"]?.stringValue ?? conversation?.contact_id else { return }
+        do {
+            let value = try await container.api.contactChannelProfile(p, id: id)
+            guard p == profileId, id == (detail?.contact?["id"]?.stringValue ?? conversation?.contact_id) else { return }
+            contactChannels = value.readable == false ? nil : value
+        } catch {
+            // Ausência da rota em servidor anterior não impede abrir a conversa.
+            contactChannels = nil
+        }
     }
 
     /// `claim` só vale para conversas sem responsável (fila, bot, concluídas): o servidor devolve 409
@@ -252,13 +297,26 @@ final class ConversationViewModel: ObservableObject {
     }
 
     var canSend: Bool {
-        guard isOwned, !busy else { return false }
+        guard isOwned, !busy, humanReplyAllowed, sendContentAllowed else { return false }
         if pending != nil { return true }
         if editing != nil { return !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         return !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty || voice != nil || location != nil || contactDraft != nil
     }
 
     var composerLocked: Bool { busy || pending != nil }
+
+    private var sendContentAllowed: Bool {
+        if editing != nil && !can("edit") { return false }
+        if voice != nil && !allows("voice") { return false }
+        if location != nil && !can("location") { return false }
+        if contactDraft != nil && !can("contacts") { return false }
+        if attachments.contains(where: { !allows(sendKind == .document ? "document" : $0.kind) }) { return false }
+        if let request = pending {
+            if !(request.body.attachments ?? []).isEmpty && channelWindow?.isHumanTextOnly == true { return false }
+            if channel != .whatsapp, let type = request.body.content?["type"]?.stringValue, type != "text", channelWindow?.isHumanTextOnly == true { return false }
+        }
+        return true
+    }
 
     // MARK: Carga e eventos
 
@@ -282,6 +340,7 @@ final class ConversationViewModel: ObservableObject {
         if !silent, detail == nil { loading = true }
         do {
             let d = try await container.api.conversation(p, id: conversationId)
+            guard p == profileId else { return }
             let grew = (detail?.messages.count ?? 0) < d.messages.count
             detail = d
             error = nil
@@ -290,6 +349,7 @@ final class ConversationViewModel: ObservableObject {
             reconcileOutgoing(d)
             rebuild()
             if grew { scrollToken += 1 }
+            await loadContactChannels()
         } catch {
             if let e = error as? APIError, e.isUnauthorized { container.handleUnauthorized(); return }
             if detail == nil { self.error = APIError.describe(error) } else { actionError = APIError.describe(error) }
@@ -434,6 +494,14 @@ final class ConversationViewModel: ObservableObject {
     func act(_ action: String, text: String? = nil, target: String? = nil, tags: [String]? = nil, menuId: String? = nil, departmentId: String? = nil, number: String? = nil,
              formId: String? = nil, method: String? = nil, amountCents: Int? = nil, description: String? = nil) async -> Bool {
         guard let p = profileId, !busy else { return false }
+        if ["form", "charge", "pedido_link"].contains(action), !modulesAllowed {
+            actionError = "Os módulos de atendimento estão disponíveis somente no WhatsApp."
+            return false
+        }
+        if (["resume", "menu", "survey", "protocols"].contains(action) || (action == "transfer" && target?.hasPrefix("bot:") == true)), !automationAllowed {
+            actionError = channelWindow?.label ?? "A automação não está disponível neste canal."
+            return false
+        }
         busy = true
         busyAction = action
         actionError = nil
@@ -519,14 +587,15 @@ final class ConversationViewModel: ObservableObject {
     // MARK: Formulários e Cobrança
 
     /// Links de passo web e cobranças desta conversa, do mais novo para o mais antigo.
-    var webSteps: [WebStep] { detail?.web_steps ?? [] }
-    var payments: [ConversationPayment] { detail?.payments ?? [] }
+    var webSteps: [WebStep] { modulesAllowed ? (detail?.web_steps ?? []) : [] }
+    var payments: [ConversationPayment] { modulesAllowed ? (detail?.payments ?? []) : [] }
 
     /// Formulários ativos da área (`GET /forms`), para "Enviar formulário".
     @Published private(set) var forms: [FormSummary]?
     @Published private(set) var formsError: String?
 
     func loadForms() async {
+        guard modulesAllowed else { forms = []; formsError = "Formulários disponíveis somente no WhatsApp."; return }
         formsError = nil
         do { forms = try await FormsClient(api: .current()).forms() } catch {
             if let e = error as? QueueError { ModuleFailure.handler(ModuleId.forms)(e) }
@@ -555,7 +624,7 @@ final class ConversationViewModel: ObservableObject {
     // MARK: Passagem por módulo e Suporte pago
 
     /// Resumo e marcadores de quem passou a conversa à equipe (ex.: "telefone não vinculado ao pagador X").
-    var handoff: ModuleHandoff? { detail?.handoff.flatMap { $0.hasContent ? $0 : nil } }
+    var handoff: ModuleHandoff? { modulesAllowed ? detail?.handoff.flatMap { $0.hasContent ? $0 : nil } : nil }
 
     @Published private(set) var suporte: SuporteStatus?
     @Published private(set) var suporteBusy: String?
@@ -563,7 +632,7 @@ final class ConversationViewModel: ObservableObject {
 
     /// Estado do Suporte pago nesta conversa, quando o módulo está ligado na área.
     func loadSuporte() async {
-        guard let p = profileId, ModuleFeature.shared.isAvailable(ModuleId.suporte, p), conversation?.isGroup != true else { suporte = nil; return }
+        guard modulesAllowed, let p = profileId, ModuleFeature.shared.isAvailable(ModuleId.suporte, p), conversation?.isGroup != true else { suporte = nil; return }
         do {
             suporte = try await SuporteClient(api: .current()).status(conversationId)
             #if DEBUG
@@ -581,7 +650,7 @@ final class ConversationViewModel: ObservableObject {
     /// `link` (vincular o telefone ao pagador), `confirm` (confirmar e liberar) ou `courtesy` (com motivo e validade).
     @discardableResult
     func suporteAction(_ action: String, reason: String? = nil, hours: Int? = nil) async -> Bool {
-        guard suporteBusy == nil else { return false }
+        guard modulesAllowed, suporteBusy == nil else { return false }
         let client = SuporteClient(api: .current())
         let key = suporteKeys.key(for: "\(action):\(conversationId):\(reason ?? ""):\(hours ?? 0)")
         suporteBusy = action
@@ -674,7 +743,7 @@ final class ConversationViewModel: ObservableObject {
     }
 
     func saveContact(name: String, phone: String) async -> Bool {
-        guard let p = profileId else { return false }
+        guard channel == .whatsapp, let p = profileId else { return false }
         busy = true
         actionError = nil
         defer { busy = false }
@@ -692,7 +761,7 @@ final class ConversationViewModel: ObservableObject {
     // MARK: Ações por mensagem
 
     func messageAction(_ action: String, message: Message, emoji: String? = nil, text: String? = nil) async {
-        guard let p = profileId else { return }
+        guard let p = profileId, can(action == "react" ? "reaction" : action) else { return }
         busy = true
         actionError = nil
         defer { busy = false }
@@ -715,6 +784,7 @@ final class ConversationViewModel: ObservableObject {
     }
 
     func beginReply(_ m: Message) {
+        guard can("reply") else { return }
         editing = nil
         quote = m
         Haptics.light()
@@ -819,6 +889,10 @@ final class ConversationViewModel: ObservableObject {
 
     private func performSend() async {
         guard let p = profileId, let c = conversation else { return }
+        guard humanReplyAllowed, sendContentAllowed else {
+            actionError = channelWindow?.label ?? "O canal não permite este envio."
+            return
+        }
         busy = true
         actionError = nil
         info = nil
@@ -893,6 +967,17 @@ final class ConversationViewModel: ObservableObject {
     }
 
     private func upload(_ p: String, data: Data, name: String, type: String) async throws -> String {
+        if channel?.isSocial == true {
+            // Limites locais do Wabotia, como src/channels.ts; formatos a conferir com a conta real.
+            let supported = ["image/jpeg", "image/png", "video/mp4", "audio/mpeg", "audio/mp4", "application/pdf"]
+            guard supported.contains(type.lowercased()) else {
+                throw APIError(status: 400, code: "unsupported_content", message: "Formato ainda não disponível neste canal.")
+            }
+            let maximum = (type.hasPrefix("image/") ? 3 : 8) * 1024 * 1024
+            guard data.count <= maximum else {
+                throw APIError(status: 413, code: "unsupported_content", message: "Neste canal, imagens aceitam até 3 MiB e os demais arquivos até 8 MiB.")
+            }
+        }
         guard data.count <= 100 * 1024 * 1024 else {
             throw APIError(status: 413, code: "too_large", message: "Cada arquivo pode ter até 100 MB. O canal pode ter limites menores.")
         }

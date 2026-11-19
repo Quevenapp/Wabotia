@@ -45,7 +45,11 @@ struct ComposerView: View {
                 banner(text: info, color: Theme.textSecondary, icon: "info.circle.fill") { vm.info = nil }
             }
             if let pending = vm.pending { pendingBanner(pending) }
-            if vm.window?.isClosed == true, !noteMode {
+            if !noteMode, vm.channel != .whatsapp, !vm.humanReplyAllowed {
+                Text(vm.channelWindow?.label ?? "Envio indisponível: o canal não informou uma janela válida.")
+                    .font(Theme.font(12, .medium)).foregroundStyle(Theme.danger)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10)
+            } else if vm.window?.isClosed == true, !noteMode {
                 HStack(alignment: .top, spacing: 7) {
                     Image(systemName: "lock.fill").font(.system(size: 11, weight: .semibold)).padding(.top, 2)
                     Text("Fora da janela de 24h. A mensagem fica na fila até o cliente escrever.").font(Theme.font(12, .medium)).fixedSize(horizontal: false, vertical: true)
@@ -197,7 +201,7 @@ struct ComposerView: View {
     }
 
     @ViewBuilder private var field: some View {
-        let placeholder = vm.editing != nil ? "Novo texto da mensagem" : (noteMode ? "Escreva a nota interna" : "Mensagem")
+        let placeholder = vm.editing != nil ? "Novo texto da mensagem" : (noteMode ? "Escreva a nota interna" : vm.composerPlaceholder)
         if #available(iOS 16, *) {
             AppMultilineField(placeholder, text: $vm.draft, lines: 1...5, font: Theme.font(16))
                 .focused($focused)
@@ -269,7 +273,8 @@ struct ComposerView: View {
         if vm.allows("audio") { list.append(.audio) }
         if vm.can("location") { list.append(.location) }
         if vm.can("contacts") { list.append(.contact) }
-        list += [.menu, .ticket, .note]
+        if vm.menuAllowed { list.append(.menu) }
+        list += [.ticket, .note]
         return list
     }
 

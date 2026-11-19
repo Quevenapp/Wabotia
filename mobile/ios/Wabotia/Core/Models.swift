@@ -108,6 +108,11 @@ struct Conversation: Codable, Identifiable, Equatable {
     /// Servidor 0.14+: prévia da última mensagem (`{text, direction, created, delivery_status, attachments, kind}`)
     /// ou nulo. Fica como JSON cru para um formato inesperado nunca derrubar a lista; leia com `lastMessage`.
     var last_message: JSONValue?
+    /// Campos opcionais: servidor antigo conserva o DTO e o comportamento da linha conhecida.
+    var channel: ChannelID?
+    var account_label: String?
+    var multichannel: Bool?
+    var window: ChannelWindowState?
 
     /// `last_message` lido com tolerância; nil em servidores antigos ou quando a conversa não tem mensagens.
     var lastMessage: LastMessage? { LastMessage(last_message) }
@@ -115,6 +120,7 @@ struct Conversation: Codable, Identifiable, Equatable {
     var displayName: String {
         if let n = contact_name, !n.isEmpty { return n }
         if let t = title, !t.isEmpty { return t }
+        if let channel, channel != .whatsapp { return "Contato do \(channel.label)" }
         return phone ?? external_id
     }
     var isGroup: Bool { chat_type == "group" }
@@ -183,6 +189,18 @@ struct ConversationDetail: Codable {
     /// Últimas cobranças e links de passo web da conversa (servidor com Cobrança e Formulários).
     var payments: [ConversationPayment]?
     var web_steps: [WebStep]?
+    var channel: ChannelID?
+    var account_label: String?
+    var multichannel: Bool?
+    var window: ChannelWindowState?
+    var templates: Bool?
+    var menu: ChannelMenu?
+    var subject: Bool?
+    var public_reply: Bool?
+    var modules: Bool?
+    var can_initiate: Bool?
+    var other_conversations: [OtherChannelConversation]?
+    var email_transcript: TranscriptOptions?
     func can(_ feature: String) -> Bool { capabilities?[feature]?.boolValue ?? false }
     /// Recurso de mídia básico: só some quando a linha diz explicitamente que não oferece.
     func allows(_ feature: String) -> Bool { capabilities?[feature]?.boolValue ?? true }
@@ -347,8 +365,26 @@ struct DeviceRegistration: Codable {
 struct Device: Codable, Identifiable { var id: String; var user_id: String? = ""; var platform: String? = ""; var provider: String? = "fcm"; var name: String? = ""; var app_version: String? = ""; var profiles: [String]? = []; var enabled: Int? = 1; var last_error: String?; var created: Int64? = 0; var updated: Int64? = 0 }
 
 struct CountRow: Codable { var state: String?; var status: String?; var count: Int64 = 0 }
-struct ConnectionSummary: Codable, Identifiable { var id: String; var name: String = ""; var kind: String = ""; var status: String = ""; var last_seen: Int64? }
-struct ProfileStatus: Codable { var settings: JSONValue?; var enabled: Int?; var conversations: [CountRow] = []; var deliveries: [CountRow] = []; var connections: [ConnectionSummary] = [] }
+struct ConnectionSummary: Codable, Identifiable {
+    var id: String
+    var name: String = ""
+    var kind: String = ""
+    var status: String = ""
+    var last_seen: Int64?
+    var channel: ChannelID?
+    var account_label: String?
+}
+struct ProfileStatus: Codable {
+    var settings: JSONValue?
+    var enabled: Int?
+    var conversations: [CountRow] = []
+    var deliveries: [CountRow] = []
+    var connections: [ConnectionSummary] = []
+    var connected_channels: [ChannelID]?
+    var conversation_channels: [ChannelID]?
+    var multichannel: Bool?
+    var email_transcript: TranscriptAvailability?
+}
 
 /// Setor de atendimento (`settings.departments` de GET /status).
 struct Department: Identifiable, Equatable {

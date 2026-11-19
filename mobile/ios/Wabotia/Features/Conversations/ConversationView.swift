@@ -33,6 +33,7 @@ struct ConversationView: View {
     @State private var showCourtesy = false
     @State private var showForms = false
     @State private var showCharge = false
+    @State private var showEmailTranscript = false
     @State private var ranScript = false
 
     init(conversationId: String) {
@@ -47,6 +48,15 @@ struct ConversationView: View {
             header
             if let clock = vm.window, vm.conversation?.state != "closed" {
                 WindowBanner(clock: clock) { showWindowInfo = true }
+            }
+            if vm.channel?.isSocial == true, let window = vm.channelWindow, window.showsClock {
+                ChannelWindowSummary(window: window)
+            }
+            if !vm.otherConversations.isEmpty {
+                Button { push(.conversationInfo(id: conversationId)) } label: {
+                    Label("Há outras conversas deste contato", systemImage: "bubble.left.and.bubble.right")
+                        .font(Theme.font(12)).padding(8).frame(maxWidth: .infinity)
+                }.buttonStyle(.plain).foregroundStyle(Theme.brand).background(Theme.background)
             }
             if let handoff = vm.handoff, vm.conversation?.state != "closed" {
                 HandoffBanner(handoff: handoff) { push(.conversationInfo(id: conversationId)) }
@@ -79,7 +89,7 @@ struct ConversationView: View {
             if phase == .active { Task { await vm.load(silent: true) } }
         }
         .sheet(item: $transferTab) { tab in
-            TransferSheet(vm: vm, initialTab: tab) { ticketId in
+            ChannelTransferSheet(vm: vm, initialTab: tab) { ticketId in
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { push(.ticket(id: ticketId)) }
             }
         }
@@ -88,6 +98,9 @@ struct ConversationView: View {
             if let bot = pendingBot { pendingBot = nil; push(.bot(id: bot.id, conversationId: conversationId)) }
         }) { BotPickerSheet { bot in pendingBot = bot } }
         .sheet(isPresented: $showSaveContact) { SaveContactSheet(vm: vm) }
+        .sheet(isPresented: $showEmailTranscript) {
+            if let options = vm.detail?.email_transcript { EmailTranscriptSheet(conversationId: conversationId, options: options) }
+        }
         .sheet(isPresented: $showWindowInfo) { WindowInfoSheet(clock: vm.window) }
         .sheet(isPresented: $showCourtesy) {
             CourtesySheet { reason, hours in showCourtesy = false; Task { await vm.suporteAction("courtesy", reason: reason, hours: hours) } }
@@ -128,7 +141,7 @@ struct ConversationView: View {
                 confirmDelete = nil
             }
             Button("Cancelar", role: .cancel) { confirmDelete = nil }
-        } message: { Text("A mensagem também será apagada no WhatsApp do cliente.") }
+        } message: { Text(vm.channel == .whatsapp ? "A mensagem também será apagada no WhatsApp do cliente." : "A mensagem também será apagada no canal do cliente.") }
         .alert("A mensagem não foi entregue", isPresented: Binding(get: { failedMessage != nil }, set: { if !$0 { failedMessage = nil } })) {
             if vm.isOwned, failedMessage?.message.text.isEmpty == false {
                 Button("Tentar de novo") {
@@ -137,7 +150,7 @@ struct ConversationView: View {
                 }
             }
             Button("OK", role: .cancel) { failedMessage = nil }
-        } message: { Text("O WhatsApp recusou a entrega. Confira o número do cliente e a janela de 24 horas." + (vm.isOwned ? " Tentar de novo devolve o texto ao campo de mensagem." : "")) }
+        } message: { Text((vm.channel == .whatsapp ? "O WhatsApp recusou a entrega. Confira o número do cliente e a janela de 24 horas." : "O canal recusou a entrega. Confira a janela e o motivo em Entregas.") + (vm.isOwned ? " Tentar de novo devolve o texto ao campo de mensagem." : "")) }
     }
 
     // MARK: Barra superior
@@ -156,7 +169,7 @@ struct ConversationView: View {
 
             Button { push(.conversationInfo(id: conversationId)) } label: {
                 HStack(spacing: 9) {
-                    AvatarView(name: vm.displayName, seed: conversationId, kind: vm.isGroup ? .group : .person, size: 38, badge: vm.conversation.map { .role($0.role(me: vm.meId)) }, ring: Theme.bar)
+                    AvatarView(name: vm.displayName, seed: conversationId, kind: vm.isGroup ? .group : .person, size: 38, badge: vm.conversation.map { .role($0.role(me: vm.meId)) }, ring: Theme.bar, channel: vm.channel, multichannel: vm.isMultichannel)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(vm.displayName).font(Theme.font(16, .semibold)).foregroundStyle(Theme.textPrimary).lineLimit(1)
                         if let c = vm.conversation {
@@ -164,6 +177,9 @@ struct ConversationView: View {
                                 .font(Theme.font(12))
                                 .foregroundStyle(c.state == "waiting" ? Theme.warn : Theme.textSecondary)
                                 .lineLimit(1)
+                        }
+                        if vm.isMultichannel || vm.channel?.isSocial == true {
+                            Text(vm.channelAccount).font(Theme.font(11)).foregroundStyle(Theme.textSecondary).lineLimit(1)
                         }
                     }
                     Spacer(minLength: 0)
@@ -183,7 +199,7 @@ struct ConversationView: View {
         }
         .padding(.leading, 4)
         .padding(.trailing, 4)
-        .frame(height: 54)
+        .frame(height: vm.isMultichannel || vm.channel?.isSocial == true ? 66 : 54)
         .background(Theme.bar.ignoresSafeArea(edges: .top))
         .overlay(alignment: .bottom) { ThinDivider() }
     }
@@ -204,20 +220,20 @@ struct ConversationView: View {
         Menu {
             Button { showTags = true } label: { Label("Etiquetas", systemImage: "tag") }
             Button { push(.newTicket(conversationId: conversationId)) } label: { Label("Abrir protocolo", systemImage: "doc.text") }
-            if !c.isGroup, modules.isAvailable(ModuleId.agenda, container.profileId) {
+            if vm.modulesAllowed, !c.isGroup, modules.isAvailable(ModuleId.agenda, container.profileId) {
                 Button { push(.newAppointment(conversationId: conversationId, customer: vm.displayName)) } label: { Label("Agendar para este cliente", systemImage: "calendar.badge.plus") }
             }
-            if !c.isGroup, modules.isAvailable(ModuleId.serviceOrders, container.profileId) {
+            if vm.modulesAllowed, !c.isGroup, modules.isAvailable(ModuleId.serviceOrders, container.profileId) {
                 Button { push(.newServiceOrder(conversationId: conversationId, customer: vm.displayName)) } label: { Label("Abrir ordem de serviço", systemImage: "wrench.and.screwdriver") }
             }
-            if !c.isGroup, modules.isAvailable(ModuleId.reserva, container.profileId) {
+            if vm.modulesAllowed, !c.isGroup, modules.isAvailable(ModuleId.reserva, container.profileId) {
                 Button { push(.bookingForm(conversationId: conversationId, customer: vm.displayName, unitId: nil, date: nil)) } label: { Label("Reservar para este cliente", systemImage: "bed.double") }
             }
-            if !c.isGroup, vm.isOwned, modules.isAvailable(ModuleId.pedido, container.profileId) {
+            if vm.modulesAllowed, !c.isGroup, vm.isOwned, modules.isAvailable(ModuleId.pedido, container.profileId) {
                 Button { Task { await vm.sendPedidoLink() } } label: { Label("Montar pedido para este cliente", systemImage: "takeoutbag.and.cup.and.straw") }
             }
             // Formulário e Cobrança: com o módulo ligado e a conversa assumida (ou administrador), como o servidor exige.
-            if !c.isGroup, vm.isOwned || vm.isAdmin, c.state != "closed" {
+            if vm.modulesAllowed, !c.isGroup, vm.isOwned || vm.isAdmin, c.state != "closed" {
                 if modules.isAvailable(ModuleId.forms, container.profileId) {
                     Button { vm.actionError = nil; showForms = true } label: { Label("Enviar formulário", systemImage: "doc.text") }
                 }
@@ -226,7 +242,7 @@ struct ConversationView: View {
                 }
             }
             // Suporte pago: só com a conversa assumida (ou administrador), como o servidor exige.
-            if !c.isGroup, vm.isOwned || vm.isAdmin, let s = vm.suporte {
+            if vm.modulesAllowed, !c.isGroup, vm.isOwned || vm.isAdmin, let s = vm.suporte {
                 if SuporteRules.canLink(s) {
                     Button { confirmLink = true } label: { Label(SuporteRules.linkTitle(s), systemImage: "link") }
                 }
@@ -237,23 +253,30 @@ struct ConversationView: View {
                     Button { showCourtesy = true } label: { Label("Liberar como cortesia", systemImage: "gift") }
                 }
             }
-            if vm.canTransfer {
+            if vm.canTransfer, vm.menuAllowed {
                 Button { transferTab = .menu } label: { Label("Enviar menu", systemImage: "list.bullet") }
             }
-            if vm.isOwned {
+            if vm.isOwned, vm.automationAllowed {
                 Button { confirmResume = true } label: { Label("Devolver ao bot", systemImage: "cpu") }
                 if !c.isGroup {
                     Button { confirmSurvey = true } label: { Label("Pesquisa de satisfação", systemImage: "star") }
                 }
             }
-            Button { showBots = true } label: { Label("Consultar bot", systemImage: "text.bubble") }
-            if !c.isGroup {
+            if vm.modulesAllowed {
+                Button { showBots = true } label: { Label("Consultar bot", systemImage: "text.bubble") }
+            }
+            if !c.isGroup, vm.channel == .whatsapp {
                 if vm.hasLinkedContact {
                     // Já vinculado: PUT /contact devolveria 409; edição/desvínculo ficam no painel.
                     Button {} label: { Label("Contato salvo", systemImage: "person.crop.circle.badge.checkmark") }.disabled(true)
                 } else {
                     Button { showSaveContact = true } label: { Label("Salvar contato", systemImage: "person.crop.circle.badge.plus") }
                 }
+            }
+            if let options = vm.detail?.email_transcript, options.available || !options.destinations.isEmpty {
+                Button { showEmailTranscript = true } label: { Label("Enviar conversa por e-mail", systemImage: "envelope") }
+                    .disabled(!options.available)
+                if !options.available, let reason = options.reason { Text(reason) }
             }
             Divider()
             Button { Task { await vm.load(); await vm.loadPresence() } } label: { Label("Atualizar", systemImage: "arrow.clockwise") }
@@ -531,6 +554,91 @@ struct ConversationView: View {
         .frame(maxWidth: .infinity)
         .background(Theme.bar.ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) { ThinDivider() }
+    }
+}
+
+/// Mantém a folha anterior do WhatsApp e oferece apenas operações permitidas na janela social.
+struct ChannelTransferSheet: View {
+    @ObservedObject var vm: ConversationViewModel
+    var initialTab: TransferSheet.Tab = .people
+    var onOpenTicket: ((String) -> Void)? = nil
+    @ObservedObject private var workspace = Workspace.shared
+    @Environment(\.dismiss) private var dismiss
+    @State private var choice: Choice?
+    @State private var confirming = false
+
+    private enum Choice {
+        case person(TeamContact), department(Department), menu, automation
+        var title: String {
+            switch self {
+            case .person(let person): return "Transferir para \(person.name)?"
+            case .department(let department): return "Encaminhar para \(department.name)?"
+            case .menu: return "Enviar o menu principal?"
+            case .automation: return "Devolver ao bot?"
+            }
+        }
+    }
+
+    var body: some View {
+        if vm.channel == .whatsapp {
+            TransferSheet(vm: vm, initialTab: initialTab, onOpenTicket: onOpenTicket)
+        } else {
+            VStack(spacing: 0) {
+                SheetHeader(title: "Encaminhar atendimento", subtitle: vm.displayName) { dismiss() }
+                ScrollView {
+                    VStack(spacing: 12) {
+                        if let error = vm.actionError { InlineError(text: error) }
+                        if let window = vm.channelWindow, !window.canAutomation { ChannelWindowSummary(window: window) }
+                        SectionCard(title: "Pessoas") {
+                            ForEach(workspace.people.filter { $0.id != vm.meId }) { person in
+                                Button { choose(.person(person)) } label: {
+                                    CardRow(title: person.name, subtitle: person.online ? "Online" : "Offline", chevron: true)
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                        if !workspace.departments.isEmpty {
+                            SectionCard(title: "Setores") {
+                                ForEach(workspace.departments) { department in
+                                    Button { choose(.department(department)) } label: { CardRow(title: department.name, chevron: true) }.buttonStyle(.plain)
+                                }
+                            }
+                        }
+                        if vm.automationAllowed {
+                            SectionCard(title: "Automação") {
+                                Button { choose(.automation) } label: { CardRow(title: "Devolver ao bot", chevron: true) }.buttonStyle(.plain)
+                                ForEach(workspace.bots.filter { $0.serves(line: vm.conversation?.connection_id) }) { bot in
+                                    Button { choose(.person(bot)) } label: { CardRow(title: bot.name, chevron: true) }.buttonStyle(.plain)
+                                }
+                                if vm.menuAllowed {
+                                    Button { choose(.menu) } label: { CardRow(title: "Enviar menu principal", chevron: true) }.buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }.padding(16).disabled(!vm.canTransfer || vm.busy)
+                }
+            }
+            .background(Theme.background.ignoresSafeArea())
+            .appSheetDetents(medium: false)
+            .task { await workspace.refreshTeam() }
+            .confirmationDialog(choice?.title ?? "Confirmar encaminhamento?", isPresented: $confirming, titleVisibility: .visible) {
+                Button("Confirmar") { Task { await performChoice() } }
+                Button("Cancelar", role: .cancel) { choice = nil }
+            }
+        }
+    }
+
+    private func choose(_ value: Choice) { choice = value; confirming = true }
+    private func performChoice() async {
+        guard let choice else { return }
+        let success: Bool
+        switch choice {
+        case .person(let person): success = await vm.transfer(to: person)
+        case .department(let department): success = await vm.transfer(toDepartment: department)
+        case .menu: success = await vm.sendMenu(id: nil, label: "Menu principal")
+        case .automation: success = await vm.resumeAutomation()
+        }
+        self.choice = nil
+        if success { dismiss() }
     }
 }
 
