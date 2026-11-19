@@ -49,7 +49,8 @@ function initials(name: string) {
 
 const modalOpen = () => Boolean(globalThis.document?.querySelector?.('dialog[open], [aria-modal="true"]'));
 
-export default function OriginTopBar({ groups, activeGroup, homeTo, preferencesTo, user, theme, onTheme, onLogout, userLinks = [], searchLinks = [], userTitle, companyTo, storage, notificationCount, notificationsPanel, actionsTo, helpLinks = [], syncTool, role, trail }: {
+export default function OriginTopBar({ groups, activeGroup, homeTo, preferencesTo, user, theme, onTheme, onLogout, userLinks = [], searchLinks = [], userTitle, companyTo, storage, notificationCount, notificationsPanel, actionsTo, helpLinks = [], syncTool, role, trail, embedded = false, allows }: {
+  embedded?: boolean; allows?: (to: string) => boolean;
   groups: readonly ResolvedGroup[]; activeGroup?: string; homeTo: string; preferencesTo: string; user: TopBarUser;
   theme: 'light' | 'dark'; onTheme: () => void; onLogout?: () => void; userLinks?: readonly TopBarLink[]; searchLinks?: readonly TopBarLink[];
   userTitle?: string; companyTo?: string; storage?: { label: string; to: string } | null; notificationCount?: number | null; notificationsPanel?: (close: () => void) => ReactNode;
@@ -66,8 +67,12 @@ export default function OriginTopBar({ groups, activeGroup, homeTo, preferencesT
 }) {
   const navigate = useNavigate(), location = useLocation();
   const navigation = useMemo(() => workspaceMenu(groups, role), [groups, role]);
-  const actions = useMemo(() => workspaceActions(groups, role), [groups, role]);
-  const goTo = useMemo(() => goToShortcuts(groups, homeTo), [groups, homeTo]);
+  const actions = useMemo(() => workspaceActions(groups, role).filter(action => !allows || allows(action.to)), [groups, role, allows]);
+  const goTo = useMemo(() => goToShortcuts(groups, homeTo).filter(item => !allows || allows(item.to)), [groups, homeTo, allows]);
+  const shortcuts = allows ? WORKSPACE_SHORTCUTS.map(section => ({ ...section, items: section.items.filter(item =>
+    item.keys.length === 1 && ['N', 'O'].includes(item.keys[0]) ? actions.some(action => action.keys.length === 1 && action.keys[0] === item.keys[0]) :
+    item.keys.length === 2 && item.keys[0] === 'G' ? goTo.some(target => target.key === item.keys[1].toLowerCase()) : true,
+  ) })).filter(section => section.items.length) : WORKSPACE_SHORTCUTS;
   const createActions = actions.filter(action => action.create || action.id === 'pdv');
   const primaryAction = actions.find(action => action.create);
   // On the overview the sidebar opens the module the profile works in (Comercial for sellers), not the dashboards.
@@ -86,15 +91,15 @@ export default function OriginTopBar({ groups, activeGroup, homeTo, preferencesT
   const destinations = useMemo(() => {
     const items: TopBarLink[] = [];
     for (const group of navigation) for (const column of group.columns) for (const item of column.items) if (item.to) items.push({ label: item.label, to: item.to });
-    return [...items, ...searchLinks].filter((item, index, all) => all.findIndex(other => other.label === item.label && other.to === item.to) === index);
-  }, [navigation, searchLinks]);
+    return [...items, ...searchLinks].filter(item => !allows || allows(item.to)).filter((item, index, all) => all.findIndex(other => other.label === item.label && other.to === item.to) === index);
+  }, [navigation, searchLinks, allows]);
   type Result = { key: string; label: string; detail: string; to: string; icon: string; keys?: readonly string[] };
   const actionResult = (action: WorkspaceAction): Result => ({ key: `action:${action.id}`, label: action.label, detail: action.description, to: action.to, icon: action.icon, keys: action.keys });
   const results: Result[] = query.trim()
     ? [...actions.filter(action => matchesSearch(action.label, query)).map(actionResult),
       ...destinations.filter(item => matchesSearch(item.label, query)).map(item => ({ key: `screen:${item.to}:${item.label}`, label: item.label, detail: navigation.find(group => group.columns.some(column => column.items.some(entry => entry.to === item.to)))?.name ?? 'Configurações', to: item.to, icon: 'arrow-right' }))].slice(0, 8)
     : actions.map(actionResult);
-  const go = (to: string) => { close(); setQuery(''); setActive(0); searchInput.current?.blur(); navigate(to); };
+  const go = (to: string) => { if (allows && !allows(to)) return; close(); setQuery(''); setActive(0); searchInput.current?.blur(); navigate(to); };
   const submitSearch = (event: FormEvent) => { event.preventDefault(); const target = results[Math.min(active, results.length - 1)]; if (query.trim() && target) go(target.to); else if (!query.trim() && target && popover === 'search') go(target.to); };
   const searchKeys = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -129,8 +134,8 @@ export default function OriginTopBar({ groups, activeGroup, homeTo, preferencesT
   const searchOpen = popover === 'search' && (query.trim() !== '' || results.length > 0);
 
   return <>
-    {popover === 'drawer' && <button type="button" className="fagoo-nav-backdrop" aria-label="Fechar menu" onClick={close}/>}
-    <aside className={`fagoo-navigation${popover === 'drawer' ? ' is-open' : ''}`} aria-label="Navegação do ERP">
+    {!embedded && popover === 'drawer' && <button type="button" className="fagoo-nav-backdrop" aria-label="Fechar menu" onClick={close}/>}
+    {!embedded && <aside className={`fagoo-navigation${popover === 'drawer' ? ' is-open' : ''}`} aria-label="Navegação do ERP">
       <Link className="fagoo-nav-brand" to={homeTo} aria-label="ERP, página inicial" onClick={close}><FagooBrand/></Link>
       <div className="fagoo-workspace"><span className="fagoo-workspace-mark" aria-hidden="true">{initials(user.company)}</span><span><small>Espaço de trabalho</small><strong>{user.company}</strong></span></div>
       {primaryAction && <Link className="fagoo-nav-cta" to={primaryAction.to} onClick={close}><Icon name="plus" size={17}/><span>{primaryAction.label.replace(' de venda', '')}</span><kbd aria-hidden="true">{primaryAction.keys[0]}</kbd></Link>}
@@ -146,9 +151,9 @@ export default function OriginTopBar({ groups, activeGroup, homeTo, preferencesT
         <Link to={preferencesTo} onClick={close}><Icon name="gear" size={17}/>Configurações</Link>
         <button type="button" onClick={() => { setPopover('help'); }}><Icon name="keyboard" size={17}/>Atalhos do teclado<kbd aria-hidden="true">?</kbd></button>
       </div>
-    </aside>
+    </aside>}
     <header className="origin-topbar fagoo-topbar">
-    <button ref={drawerButton} type="button" className="origin-drawer-toggle" aria-label="Abrir menu" aria-expanded={popover === 'drawer'} onClick={() => toggle('drawer')}><Icon name="bars" size={20}/></button>
+    {!embedded && <button ref={drawerButton} type="button" className="origin-drawer-toggle" aria-label="Abrir menu" aria-expanded={popover === 'drawer'} onClick={() => toggle('drawer')}><Icon name="bars" size={20}/></button>}
     <div className="fagoo-topbar-trail">{trail ?? <span className="fagoo-context-title">{currentModule || activeGroup || 'Seu espaço de trabalho'}</span>}</div>
     <form className="origin-global-search" role="search" onSubmit={submitSearch}>
       <Icon name="magnifying-glass" size={15} />
@@ -175,7 +180,7 @@ export default function OriginTopBar({ groups, activeGroup, homeTo, preferencesT
       <div className="origin-tool"><button type="button" className="origin-tool-button" aria-label="Central de ajuda" title="Ajuda e atalhos (?)" aria-expanded={popover === 'help'} onClick={() => toggle('help')}><Icon name="circle-question" size={17} /></button>
         {popover === 'help' && <><button type="button" className="origin-dismiss" tabIndex={-1} aria-label="Fechar ajuda" onClick={close} /><div className="origin-popover origin-help" role="dialog" aria-label="Ajuda e atalhos de teclado">{helpLinks.length > 0 && <><h3>Central de ajuda</h3><nav className="origin-help-links" aria-label="Ajuda do ERP">{helpLinks.map(link => <Link key={link.to} to={link.to} onClick={close}><Icon name={link.icon || 'circle-question'} size={14} />{link.label}</Link>)}</nav></>}
           <h3>Atalhos de teclado</h3>
-          {WORKSPACE_SHORTCUTS.map(section => <section className="origin-help-group" key={section.group}><h4>{section.group}</h4><dl>{section.items.map(item => <div key={item.action + item.keys.join('+')}><dt>{item.keys.map((key, index) => <span key={key}>{index > 0 && <i aria-hidden="true">{item.keys.length > 1 && section.group.startsWith('Ir para') ? 'e' : '+'}</i>}<kbd>{key}</kbd></span>)}</dt><dd>{item.action}</dd></div>)}</dl></section>)}
+          {shortcuts.map(section => <section className="origin-help-group" key={section.group}><h4>{section.group}</h4><dl>{section.items.map(item => <div key={item.action + item.keys.join('+')}><dt>{item.keys.map((key, index) => <span key={key}>{index > 0 && <i aria-hidden="true">{item.keys.length > 1 && section.group.startsWith('Ir para') ? 'e' : '+'}</i>}<kbd>{key}</kbd></span>)}</dt><dd>{item.action}</dd></div>)}</dl></section>)}
           <section className="origin-help-group"><h4>Listagens e frente de caixa</h4><dl>{ORIGIN_SHORTCUTS.map(item => <div key={item.keys}><dt><kbd>{item.keys}</kbd></dt><dd>{item.action}</dd></div>)}</dl></section>
           <p className="origin-help-credit">Os atalhos de uma letra ficam desligados enquanto você digita em um campo.</p></div></>}</div>
       <Link className="origin-tool-button" to={preferencesTo} aria-label="Preferências" title="Preferências" onClick={close}><Icon name="gear" size={17} /></Link>

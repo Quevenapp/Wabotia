@@ -28,6 +28,8 @@ export type ErpPorts = {
    * fica, sem botão.
    */
   openAccount?: () => void;
+  /** ID D1, sem conversão; a implementação captura a área de atendimento. */
+  openContactProfile?: (contactId: string) => void | Promise<void>;
   /**
    * Abre o "Confirme que é você" da casca (o mesmo de qualquer 403
    * mfa_required) e resolve quando a pessoa fecha. Ausente na demonstração: o
@@ -52,4 +54,11 @@ let current: ErpPorts | null = null;
 export function setErpPorts(ports: ErpPorts | null) {
   current = ports;
 }
-export const erpPorts = () => current;
+const installations = new Map<symbol, ErpPorts>();
+/** Cada hospedeiro remove apenas a própria instalação. */
+export function installErpPorts(ports: ErpPorts): () => void {
+  const owner = Symbol("erp-host");
+  installations.set(owner, ports);
+  return () => { installations.delete(owner); };
+}
+export const erpPorts = () => [...installations.values()].at(-1) ?? current;

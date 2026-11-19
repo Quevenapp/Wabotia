@@ -1,5 +1,10 @@
 import { originIntegrationEnabled, originHistoryAvailable, isOriginIntegrationRoute } from '../lib/integration-capabilities';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { ErpToolsScope, useErpHostView } from '../../host-runtime';
+import { keepLinksInside } from '../../mount';
+import { targetEnabled } from '../../blocks';
+import { portedPermissionAllowed } from '../../../management/ported-policy';
 import { Link, useLocation } from 'react-router-dom';
 import type { AccessState } from '../lib/real-access';
 import { ROLE_LABELS } from '../lib/real-access';
@@ -18,8 +23,11 @@ const COMPANY_HELP_LINKS = [{ label: 'Central de ajuda do ERP', to: '/ajuda', ic
 // Company area navigation: the Origin top bar (same menu as the demo) plus the location trail.
 // Brufap-only tools live in Preferências (gear), like Origin's own settings. With a controller that offers the Sistema port,
 // the bar shows the user's name, the razão social, Armazenamento and the live notifications (migration 151).
-export default function CompanyNavigation({ state, onLogout, controller }: { state: AccessState; onLogout: () => void; controller?: Partial<SystemController> & { preferences?: (path: string, options?: { method?: 'GET'; signal?: AbortSignal }) => Promise<unknown> } }) {
+export default function CompanyNavigation({ state, onLogout, controller, embedded = false, chromeTarget = null }: { embedded?: boolean; chromeTarget?: HTMLElement | null; state: AccessState; onLogout: () => void; controller?: Partial<SystemController> & { preferences?: (path: string, options?: { method?: 'GET'; signal?: AbortSignal }) => Promise<unknown> } }) {
   const location = useLocation();
+  const host = useErpHostView();
+  const tools = useRef<HTMLDivElement>(null);
+  useEffect(() => keepLinksInside(tools.current, host?.router ?? null), [host?.router, chromeTarget, embedded]);
   const { theme, toggle } = useTheme();
   const ready = state.phase === 'ready';
   const role = state.membership?.role;
@@ -28,9 +36,10 @@ export default function CompanyNavigation({ state, onLogout, controller }: { sta
   const originIntegration = ready && originIntegrationEnabled(state.membership);
   const originHistory = ready && originHistoryAvailable(state.membership);
   const access = ready && role ? { role, resources, capabilities: state.membership?.capabilities } : {};
-  const groups = useMemo(() => resolveMenu('real', access), [ready, role, resources.join(','), originIntegration, originHistory]);
+  const allows = (to: string) => ready && (host ? host.runtime.allowed(to, state) : targetEnabled(to) && portedPermissionAllowed(to, role, resources));
+  const groups = useMemo(() => resolveMenu('real', access).map(group => ({ ...group, columns: group.columns.map(column => ({ ...column, items: column.items.filter(item => item.to && allows(item.to)) })).filter(column => column.items.length), footer: group.footer?.to && allows(group.footer.to) ? group.footer : undefined })).filter(group => group.columns.length), [state, host, ready, role, resources.join(','), originIntegration, originHistory]);
   const preferences = useMemo(() => resolvePreferences(access), [ready, role, originIntegration, originHistory]);
-  const preferenceLinks = preferences.flatMap(category => category.entries.map(entry => ({ label: entry.label, to: entry.to })));
+  const preferenceLinks = preferences.flatMap(category => category.entries.filter(entry => allows(entry.to)).map(entry => ({ label: entry.label, to: entry.to })));
   const preparationPage = originHistory && ready && role === 'admin' && ['/preparacao-virada/depositos', '/preparacao-virada/depositos/estoque'].includes(location.pathname);
   const stockPage = preparationPage && location.pathname.endsWith('/estoque');
   const active = activeGroupFor(groups, location.pathname, location.search);
@@ -52,10 +61,12 @@ export default function CompanyNavigation({ state, onLogout, controller }: { sta
         : hubCategory ? <><span aria-hidden="true">›</span><Link to="/preferencias">Preferências</Link><span aria-hidden="true">›</span><span aria-current="page">{hubCategory.label}</span></>
         : preference ? <><span aria-hidden="true">›</span><Link to="/preferencias">Preferências</Link><span aria-hidden="true">›</span>{preference.entry.to.startsWith('/preferencias/') ? <Link to={`/preferencias/${preference.category.id}`}>{preference.category.label}</Link> : <span>{preference.category.label}</span>}<span aria-hidden="true">›</span><span aria-current="page">{preference.entry.label}</span></> : null}
     </nav> : undefined;
-  return <>
-    <OriginTopBar groups={ready ? groups : []} activeGroup={active?.name} homeTo="/acesso" preferencesTo="/preferencias" user={user} theme={theme} onTheme={toggle} role={ready ? role : undefined} trail={trail}
-      userTitle="Meu Perfil" companyTo={ready ? '/empresa-configuracoes' : undefined} storage={ready && chrome.storage ? { label: `Armazenamento ${storageSummary(chrome.storage).label}`, to: '/empresa-configuracoes?secao=armazenamento' } : null}
+  const bar = <>
+    <OriginTopBar embedded={embedded} allows={allows} groups={ready ? groups : []} activeGroup={active?.name} homeTo="/acesso" preferencesTo="/preferencias" user={user} theme={theme} onTheme={toggle} role={ready ? role : undefined} trail={trail}
+      userTitle="Meu Perfil" companyTo={allows('/empresa-configuracoes') ? '/empresa-configuracoes' : undefined} storage={allows('/empresa-configuracoes?secao=armazenamento') && chrome.storage ? { label: `Armazenamento ${storageSummary(chrome.storage).label}`, to: '/empresa-configuracoes?secao=armazenamento' } : null}
       notificationCount={ready ? chrome.unread : null} notificationsPanel={system && chrome.actor ? close => <NotificationsPanel controller={system} actor={chrome.actor!} onUnread={chrome.setUnread} onNavigate={close} /> : undefined}
-      onLogout={authenticated ? onLogout : undefined} actionsTo={ready ? '/preferencias/sistema/gestao-acoes' : undefined} helpLinks={ready ? COMPANY_HELP_LINKS.filter(link => originHistory || !isOriginIntegrationRoute(link.to)) : []} userLinks={ready ? [{ label: 'Dados da empresa', to: '/empresa-configuracoes', icon: 'building' }] : []} searchLinks={preferenceLinks} />
+      onLogout={authenticated ? onLogout : undefined} actionsTo={allows('/preferencias/sistema/gestao-acoes') ? '/preferencias/sistema/gestao-acoes' : undefined} helpLinks={ready ? COMPANY_HELP_LINKS.filter(link => allows(link.to) && (originHistory || !isOriginIntegrationRoute(link.to))) : []} userLinks={allows('/empresa-configuracoes') ? [{ label: 'Dados da empresa', to: '/empresa-configuracoes', icon: 'building' }] : []} searchLinks={preferenceLinks} />
   </>;
+  if (embedded) return chromeTarget ? createPortal(<ErpToolsScope scopeRef={tools}>{bar}</ErpToolsScope>, chromeTarget) : null;
+  return bar;
 }
