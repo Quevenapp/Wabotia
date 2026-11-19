@@ -1,6 +1,7 @@
-import { all } from "./db";
+import { all, one } from "./db";
 import { resolveCustomer } from "./customer/ports";
-import { normalizeCustomerPhone, customerPhoneVariants as phoneVariants } from "./customer/phone";
+import { legacyHistoryProof, sessionRecords } from "./customer/history";
+import { normalizeCustomerPhone } from "./customer/phone";
 import { type Conversation, type Env, requireValue, now } from "./types";
 import { enqueue, settings } from "./service";
 import { formatBrasilia } from "./business-time";
@@ -101,35 +102,50 @@ export async function lookupProtocols(
     !number || isOnlyProtocolNumber(number),
     "Informe o número completo do protocolo, como 10001.",
   );
-  const customer = await resolveCustomer(env, c);
+  const current = await one<Conversation>(env, "SELECT * FROM conversations WHERE profile_id=? AND id=?", c.profile_id, c.id);
+  if (!current || ["blocked", "excluded", "ambiguous"].includes(current.customer_link_state ?? "pending")) return [];
+  const customer = await resolveCustomer(env, current);
+  if (customer.profileId !== c.profile_id || customer.namespace !== (current.external_namespace.startsWith("app:") ? current.external_namespace : "team")) return [];
+  if (["blocked", "excluded", "ambiguous"].includes(customer.state)) return [];
   const contactId = customer.state === "ready" ? customer.contactId : null;
-  const phone = verifiedPhone(c);
-  const variants = JSON.stringify(phone ? phoneVariants(phone) : []);
   // The same response is returned for a nonexistent number and somebody else's
   // number. Public updates only; internal notes and operator IDs are never sent.
   return all(
     env,
-    `SELECT t.number,t.title,t.status,t.category,t.response_due_at,t.first_response_at,t.created,t.updated,
+    `WITH sessions AS (${sessionRecords}), viewer AS (
+       SELECT v.*,coalesce(?,CASE WHEN ? THEN s.contact_id END) history_contact FROM conversations v
+       LEFT JOIN sessions s ON s.profile_id=v.profile_id AND s.record_id=v.id||':'||v.session AND s.valid
+       WHERE v.profile_id=? AND v.id=?
+         AND NOT EXISTS(SELECT 1 FROM conversation_contacts l JOIN contacts k ON k.id=l.contact_id AND k.profile_id=l.profile_id
+           WHERE l.profile_id=v.profile_id AND l.conversation_id=v.id AND (k.identity_state<>'active' OR (s.contact_id IS NOT NULL AND l.contact_id<>s.contact_id)))
+         AND NOT EXISTS(SELECT 1 FROM sessions x WHERE x.profile_id=v.profile_id AND x.record_id=v.id||':'||v.session AND NOT x.valid)
+     ) SELECT t.number,t.title,t.status,t.category,t.response_due_at,t.first_response_at,t.created,t.updated,
       (SELECT u.text FROM ticket_updates u WHERE u.ticket_id=t.id AND u.internal=0 ORDER BY u.created DESC,u.rowid DESC LIMIT 1) latest_update
-     FROM tickets t JOIN conversations original ON original.id=t.conversation_id
+     FROM tickets t JOIN conversations original ON original.id=t.conversation_id CROSS JOIN viewer v
      WHERE t.profile_id=? AND original.profile_id=? AND original.chat_type!='group'
-       AND (original.id=? OR (? IS NOT NULL AND EXISTS(
+       AND (EXISTS(
          SELECT 1 FROM customer_records r JOIN contacts k
            ON k.id=r.contact_id AND k.profile_id=r.profile_id AND k.namespace=? AND k.identity_state='active'
-         WHERE r.profile_id=t.profile_id AND r.kind='ticket' AND r.record_id=t.id
-           AND r.conversation_id=t.conversation_id AND r.contact_id=?))
-         OR (original.connection_id IS NOT NULL AND original.external_namespace='channel:'||original.connection_id
+         WHERE r.profile_id=t.profile_id AND r.module_id='tickets' AND r.kind='ticket' AND r.record_id=t.id
+           AND r.conversation_id=t.conversation_id AND r.contact_id=v.history_contact)
+         OR (NOT EXISTS(SELECT 1 FROM customer_records r WHERE r.profile_id=t.profile_id AND r.module_id='tickets' AND r.kind='ticket' AND r.record_id=t.id)
            AND original.customer_link_state NOT IN ('blocked','excluded','ambiguous')
-           AND replace(replace(replace(replace(replace(original.phone,'+',''),' ',''),'(',''),')',''),'-','') IN (SELECT value FROM json_each(?))))
+           AND (EXISTS(SELECT 1 FROM sessions s JOIN contacts k ON k.id=s.contact_id AND k.profile_id=s.profile_id AND k.identity_state='active' AND k.namespace=?
+             WHERE s.profile_id=t.profile_id AND s.conversation_id=original.id AND s.valid AND s.contact_id=v.history_contact AND s.occurred_at<=t.created
+               AND NOT EXISTS(SELECT 1 FROM sessions later WHERE later.profile_id=s.profile_id AND later.conversation_id=s.conversation_id AND later.occurred_at<=t.created AND (later.occurred_at>s.occurred_at OR (later.occurred_at=s.occurred_at AND later.contact_id<>s.contact_id) OR NOT later.valid)))
+             OR ((original.id=v.id OR EXISTS(SELECT 1 FROM conversation_contacts l WHERE l.profile_id=original.profile_id AND l.conversation_id=original.id AND l.contact_id=v.history_contact AND l.created<=t.created))
+               AND ${legacyHistoryProof("original", "t.created", false)}
+               AND NOT EXISTS(SELECT 1 FROM sessions s WHERE s.profile_id=original.profile_id AND s.conversation_id=original.id AND s.occurred_at<=t.created)))))
        AND (? IS NULL OR upper(t.number)=?)
      ORDER BY t.created DESC,t.id DESC LIMIT 10`,
-    c.profile_id,
+    contactId,
+    current.verified_phone && verifiedPhone(current) ? 1 : 0,
     c.profile_id,
     c.id,
-    contactId,
+    c.profile_id,
+    c.profile_id,
     customer.namespace,
-    contactId,
-    variants,
+    customer.namespace,
     query || null,
     query || null,
   );
