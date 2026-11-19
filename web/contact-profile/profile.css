@@ -10,3 +10,6 @@
 .customer-profile-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .75rem; }
 .customer-profile-host { min-width: 0; }
 .customer-profile-filter { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-bottom: 1rem; }
+.customer-profile-job, .customer-profile-relation { border-top: 1px solid var(--border, #d5d9df); padding-block: .75rem; }
+.customer-profile-job label, .customer-profile-card form label { display: grid; gap: .35rem; margin-block: .5rem; }
+.customer-profile-role-change { display: grid; gap: .5rem; }

@@ -32,9 +32,10 @@ async function contact(env: Env, actor: Actor, profileId: string, contactId: str
   if (actor.kind !== "user" || actor.via || actor.module || actor.credential || actor.id.startsWith("bot:") || actor.bots.length) forbidden();
   access(actor, profileId, "contacts:read");
   const row = await one<Contact>(env,
-    "SELECT id,profile_id,namespace,erp_contact_id,identity_state FROM contacts WHERE id=? AND profile_id=? AND namespace='team'",
+    "SELECT id,profile_id,namespace,erp_contact_id,identity_state FROM contacts WHERE id=? AND profile_id=? AND (namespace='team' OR namespace LIKE 'app:%')",
     contactId, profileId);
-  if (!row || row.profile_id !== profileId || row.namespace !== "team" || row.identity_state !== "active") missing();
+  if (!row || row.profile_id !== profileId || row.identity_state !== "active") return missing();
+  if (row.namespace !== "team" && !allows(actor, "contacts")) forbidden();
   return row!;
 }
 
@@ -77,6 +78,7 @@ async function policy(ctx: ModuleContext, actor: Actor, item: ContactContributio
 async function contribution(env: Env, actor: Actor, profileId: string, contactId: string,
   moduleId: string, id: string, kind: ContactContribution["kind"], write = false) {
   const row = await contact(env, actor, profileId, contactId);
+  if (row.namespace !== "team") return missing();
   if (!moduleById(moduleId)) return missing();
   const item = declaration(moduleId)?.contributions.find(c => c.id === id && c.kind === kind);
   if (!item) return missing();
@@ -139,12 +141,26 @@ export function createProfilePort(): ProfilePort {
       const row = await contact(env, actor, profileId, contactId);
       const words = await vocabulary(env, profileId);
       const contributions: ContactProfileView["contributions"][number][] = [];
+      if (row.namespace !== "team") return {
+        profileId, contactId, namespace: row.namespace, erpContactId: null, depth: "simple",
+        vocabulary: { singular: words.singular, plural: words.plural }, writable: true, contributions,
+      };
+      let erpAllowed = false;
+      if (row.erp_contact_id && allows(actor, "erp") && resourcesForRole(erpRoleOf(actor)).includes("contacts") &&
+          await isFullCustomerEnabled(env, profileId)) {
+        try {
+          const provider = customerProvider("erp");
+          if (!provider) unavailable();
+          await provide(() => provider!.authorizeProfile?.(modulesApi(env, profileId, "erp", { worker: true }), actor, contactId) ?? Promise.resolve());
+          erpAllowed = true;
+        } catch (e) { if (!(e instanceof ApiError) || ![403, 404].includes(e.status)) throw e; }
+      }
       for (const module of modules) for (const item of declaration(module.id)?.contributions ?? []) {
         try {
           await requireEnabled(env, profileId, module.id, item);
           const ctx = modulesApi(env, profileId, module.id, { worker: true });
           await policy(ctx, actor, item);
-          if (module.id === "erp" && !row.erp_contact_id) continue;
+          if (module.id === "erp" && !erpAllowed) continue;
           let writable = false;
           if (item.kind === "section") {
             try { await policy(ctx, actor, item, true); writable = true; }
@@ -156,20 +172,20 @@ export function createProfilePort(): ProfilePort {
           if (!(e instanceof ApiError) || ![403, 409].includes(e.status)) throw e;
         }
       }
-      const full = !!row.erp_contact_id && await isFullCustomerEnabled(env, profileId) &&
-        allows(actor, "erp") && resourcesForRole(erpRoleOf(actor)).includes("contacts");
+      const full = erpAllowed;
       if (!allows(actor, "contacts") && !full && !contributions.length) forbidden();
       return {
-        profileId, contactId, erpContactId: row.erp_contact_id,
+        profileId, contactId, erpContactId: allows(actor, "contacts") || full ? row.erp_contact_id : null,
         depth: full ? "full" : "simple", vocabulary: { singular: words.singular, plural: words.plural },
         ...(!allows(actor, "contacts") ? { readable: false } : {}),
+        ...(full ? { localWritable: allows(actor, "contacts") } : {}),
         // ERP é somente uma indicação: o hospedeiro reaplica o .ie granular e MFA.
         writable: full ? ["admin", "vendas", "financeiro"].includes(erpRoleOf(actor) ?? "") : allows(actor, "contacts"),
         contributions,
       };
     },
     async collection(env, actor, profileId, contactId, moduleId, collectionId, query) {
-      const { row, ctx } = await contribution(env, actor, profileId, contactId, moduleId, collectionId, "collection");
+      const { row, ctx, item } = await contribution(env, actor, profileId, contactId, moduleId, collectionId, "collection");
       if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 100) failure(400, "invalid_request", "Limite inválido.");
       const binding = JSON.stringify([profileId, row.namespace, contactId, moduleId, collectionId, query.limit,
         actor.id, actor.sessionId ?? null, actor.role, actor.access ?? null]);
@@ -189,7 +205,15 @@ export function createProfilePort(): ProfilePort {
       const page = await provide(() => provider.list!(ctx, actor, contactId, collectionId, { limit: query.limit, ...(cursor ? { cursor } : {}) }));
       if (!Array.isArray(page.items) || page.items.length > query.limit || typeof page.incomplete !== "boolean" ||
         (page.nextCursor !== null && typeof page.nextCursor !== "string")) return unavailable();
-      return { items: page.items, incomplete: page.incomplete,
+      const items = page.items.map(entry => ({ id: entry.id,
+        target: { module: entry.target.module, resource: entry.target.resource, id: entry.target.id },
+        cells: Object.fromEntries((item.columns ?? []).map(column => {
+        // Compatibilidade com a projeção anterior do Condomínio, sem inventar valores ausentes.
+        const value = entry.cells[column.key] ?? (moduleId === "condominio"
+          ? column.key === "id" ? entry.id : column.key === "occurredAt" ? entry.cells.createdAt : null : null);
+        return [column.key, typeof value === "string" || typeof value === "number" ? value : null];
+      })) }));
+      return { items, incomplete: page.incomplete,
         nextCursor: page.nextCursor ? btoa(await seal(env, { kind: "customer-profile.v1", binding, cutoff, cursor: page.nextCursor })) : null };
     },
     async section(env, actor, profileId, contactId, moduleId, sectionId) {
