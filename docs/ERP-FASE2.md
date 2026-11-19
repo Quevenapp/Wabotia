@@ -5,6 +5,10 @@ de navegação permanece **ERP**. Todas começam desligadas. A migração aditiv
 `0133_erp_parts.sql` replica o estado existente de `erp` nas cinco novas
 partes, sem sobrescrever escolhas, reiniciar revisões ou alterar o SQLite do
 ERP. As tabelas continuam existindo mesmo quando uma parte está desligada.
+Na janela entre a migração e o Worker novo, ativações antigas sem a marca
+`profile_erp_parts_managed` também completam essas cinco partes. Escritas da
+versão nova gravam a marca antes dos módulos no mesmo lote D1 e conservam a
+seleção explícita, inclusive ao reativar a Base ou reaplicar a migração.
 
 ## Módulos e dependências
 
@@ -649,3 +653,283 @@ final do runtime Cloudflare, conforme a regra da tarefa. Não se declara
 aceite integral antes do retorno externo verde. Permanecem os limites de
 A7/A8 já descritos: sem transação distribuída, recomposição retroativa ou
 ponte operacional automática de OS/Pedido para o ERP.
+
+## Correções das revisões
+
+Esta seção registra a integração de `f2-corr-fundo`, `f2-corr-partes` e
+`f2-corr-painel` sobre o aceite anterior. As verificações históricas acima
+não certificam esta junção; o fechamento depende da cadeia externa inteira.
+
+| Revisão | Correções integradas |
+|---|---|
+| `f2-corr-fundo` | Cron entrega durante a leitura, com concorrência 4, limite de 100 áreas, orçamento de 45 segundos e continuidade durável no D1. Fotografias têm emissão e margem de relógio; renovação evita gravações redundantes. O hub confere autorização antes de importar/migrar o motor. Fixtures do cron limpam somente suas áreas. |
+| `f2-corr-partes` | Atividades são classificadas antes da contagem/paginação. Cadastros, produtos, documentos, fotografias aninhadas e replays omitem campos de partes suspensas e preservam valores, hashes e efeitos armazenados. Adaptadores aceitam apenas ausências declaradas. Financeiro sem Cobrança não consulta nem devolve os detalhes de boleto/remessa. |
+| `f2-corr-painel` | Resumo invalida dados antigos quando as partes mudam; demonstração corrige Trabalhos, rotas e coleções; Fiscal começa desmarcado nos cinco modelos. Painel envia os dependentes confirmados e recarrega após conflito. Registro e configurações sincronizam o ERP apenas com revisão pendente. |
+
+Decisões aplicadas neste fechamento:
+
+1. As expectativas dos nove casos de catálogo/documentos passam a exigir
+   ausência dos campos suspensos e `unavailable_parts`, com leitura das tabelas
+   do motor comprovando preservação integral. Cada caso prova o reaparecimento
+   dos valores ao religar. Guardas, recusas de troca/limpeza, histórico,
+   idempotência e efeitos anteriores permanecem. O contrato da prévia de cópia,
+   que já limpava referências para `null`, foi mantido.
+2. `cascade: true` sem `confirmed_dependents` continua desligando os dependentes
+   atuais. Com a lista, o conjunto deve coincidir exatamente, sem duplicatas e
+   independentemente da ordem; falta, sobra ou tipo inválido retorna
+   `409 module_cascade_conflict` antes de qualquer escrita/entrega/evento.
+   O campo é opcional na documentação e no OpenAPI; o painel continua enviando-o.
+   Nenhum patch que adiciona a lista às chamadas antigas foi aplicado.
+3. `erp_document_conversion_preview` classifica a origem por `p_proposal_id`
+   como proposta e trata `p_kind` como destino. Ambos os requisitos são
+   conferidos, sem comparar o destino com o tipo da origem. O teste percorre
+   rota e operação HTTP, portão RPC, leitor e parser para venda e OS; recusa
+   parte suspensa/origem incompatível e comprova que a prévia não grava.
+4. A janela da atualização foi fechada na própria `0133`, ainda não publicada.
+   A tabela D1 `profile_erp_parts_managed` marca áreas geridas pela versão nova.
+   `moduleCommand` e `commitSettingsPlan` inserem a marca antes de alterar
+   módulos, no mesmo batch; erro reverte ambos. INSERT ligado ou transição
+   desligado→ligado do ERP antigo sem marca completa Produtos, Vendas, Compras,
+   Estoque e Financeiro, usando os gatilhos de revisão existentes. Fiscal,
+   Cobrança e PDV não são ligados. A marca protege escolhas explícitas contra
+   reativação antiga e contra reexecução da migração. A preparação compartilhada
+   dos testes marca as escolhas novas; os casos de compatibilidade optam pela
+   preparação antiga. Não houve migração nova nem alteração no SQLite do ERP.
+
+### Asserções alteradas nos nove casos autorizados
+
+Nos caminhos abaixo, `C` significa `tests/erp/unico/f2-catalogo.test.mjs`
+e `D`, `tests/erp/unico/f2-documentos.test.mjs`. “Ausente” usa `Object.hasOwn`,
+não igualdade a `undefined`. Toda ausência é acompanhada da indisponibilidade
+da parte no registro/documento e da comparação dos valores persistidos;
+os dados visíveis que não pertencem à parte continuam sendo conferidos.
+
+| Arquivo / caso | Antes | Agora |
+|---|---|---|
+| C — produto existente | `p.suppliers[0].supplier_id === supplier.id` | `suppliers` ausente; fornecedores completos iguais no SQLite e após religar. |
+| C — produto existente | `page.items[0].cost_price === null` | `cost_price` ausente; custo e histórico preservados. |
+| C — produto existente | `exported.items[0].cost_price === null` | `cost_price` ausente; custo e histórico preservados. |
+| C — produto existente | `exported.items[0].supplier === null` | `supplier` ausente; fornecedores preservados. |
+| C — contato comum | `c.finance_category_id === cat.id` | Campo ausente; perfil integral igual no SQLite e valores iguais após religar. |
+| C — contato comum | `c.credit_limit === "100.00"` | Campo ausente; limite e modo preservados e reapresentados. |
+| C — contato comum | Novo contato: `finance_category_id === null` | Campo ausente; `null` conferido no SQLite e após religar. |
+| C — contato comum | Leitura: `finance_category_name === null` | Campo ausente; nome original reaparece após religar. |
+| C — forma comum | Nova forma: `account_id === null` | Campo ausente; `null` conferido no SQLite e após religar. |
+| C — forma comum | Forma editada: `account_id === a.id` | Campo ausente; conta preservada no SQLite e após religar. |
+| C — forma comum | Forma editada: `fee_rate === "2.0000"` | Campo ausente; todos os campos financeiros preservados e reapresentados. |
+| C — forma comum | Leitura: `account_name === null` | Campo ausente; nome original reaparece após religar. |
+| C — vendedor | `commission_rate === "3.0000"` | Campo ausente; regra, modo, taxa e faixas preservados no SQLite e após religar. |
+| C — vendedor | Novo vendedor: `commission_rate === null` | Campo ausente; `null` conferido no SQLite e após religar. |
+| C — reajuste em massa | `items[0].cost_price === null`, para Estoque/Compras suspensos | Campo ausente; linhas completas dos fornecedores/custos e histórico iguais; fornecedores e `cost_price` reaparecem iguais. |
+| D — proposta, compra e OS | `document.warehouse_id === null`, nos três tipos | Campo ausente; `null` no SQLite e após religar; corpo persistido igual. |
+| D — campos suspensos | `warehouse_id === warehouse.id` | Campo ausente; coluna e referência no corpo preservadas; valor reaparece. |
+| D — campos suspensos | `category_id === category.id` | Campo ausente; valor no corpo preservado e reapresentado. |
+| D — campos suspensos | `payment_account_id === account.id` | Campo ausente; valor no corpo preservado e reapresentado. |
+| D — campos suspensos | `installments[0].details === details(account.id)` após omitir campos | Três campos financeiros ausentes; demais detalhes iguais; detalhes integrais preservados no SQLite e após religar. |
+| D — campos suspensos | Mesma igualdade após omitir o plano de parcelas | Mesma projeção, com detalhes integrais preservados no SQLite. |
+| D — campos suspensos | Mesma igualdade após reduzir o total | Mesma projeção, com detalhes integrais preservados no SQLite. |
+| D — cópia | `copied.warehouse_id === null` | Campo ausente; cópia persiste `null` e o reapresenta; documento original integral inalterado. |
+| D — cópia | `copied.category_id === null` | Campo ausente; cópia persiste `null` e o reapresenta; vínculos originais reaparecem iguais. |
+| D — lotes antigos | `items[0].lots` contém o lote e quantidade `1.000000` após omissão | Campo ausente; lista integral igual no SQLite e após religar. |
+| D — lotes antigos | Mesma lista após aumentar a quantidade do item | Campo ausente; lista integral igual no SQLite e após religar. |
+
+### Arquivos do fechamento e limites
+
+| Arquivo | Mudança desta integração |
+|---|---|
+| `src/modules/registry.ts` | Lista da cascata opcional e marca transacional antes da alteração dos módulos. |
+| `src/service.ts` | Marca no lote dos planos que alteram módulos. |
+| `migrations/0133_erp_parts.sql` | Marca, dois gatilhos de compatibilidade e preservação da escolha nova na reexecução. |
+| `src/erp/engine/parts-gate.ts` | Separa origem e destino da prévia de conversão. |
+| `src/modules/openapi.ts`, `docs/MODULOS.md` | Contrato opcional de `confirmed_dependents`. |
+| `tests/erp/unico/f2-catalogo.test.mjs`, `tests/erp/unico/f2-documentos.test.mjs` | Nove casos autorizados, detalhados na tabela acima. |
+| `tests/erp/unico/f2-corr-partes.test.mjs` | Prévia de conversão atravessa o portão real e ambos os adaptadores. |
+| `tests/f2-corr-painel.test.ts` | Compatibilidade sem lista; mantém recusas e acrescenta tipos inválidos. |
+| `tests/erp/unico/f2-fecha.test.mjs` | Nove testes Node: cinco da migração, escolhas persistidas e rollback; quatro com Hub/produtor/motor reais, cobrindo objetos novos e instalados, autorização antes da classificação de RPC, renovação de emissão/vencimento e o ciclo completo do cron com seleção SQL, entrega e ACK reais. |
+| `tests/f2-fecha.test.ts` | Oito cenários D1 dos escritores antigo/novo, entrega exata e atomicidade nos dois caminhos novos. |
+| `tests/service-center-fixture.ts` | Apenas preparação: marca escolhas da versão nova, com opção explícita para simular o escritor antigo. |
+| `tests/c-fronteira-erp.test.ts` | Apenas preparação do caso sem fotografia: ping instala o esquema antes das recusas; todas as asserções existentes permanecem. |
+| `tests/erp-do-rpc-system.test.ts` | Apenas preparação: ping no objeto que deve manter tabelas vazias e fotografia válida para alcançar a classificação de nome desconhecido. |
+| `tests/erp-cron-scheduled.test.ts` | Ajuste já aplicado antes desta rodada: confere emissão inicial e atualiza emissão e vencimento juntos na igualdade integral da renovação. Todas as demais asserções permanecem. O último Vitest externo ainda executou a versão anterior, conforme diagnóstico abaixo. |
+| `web/erp/app/components/RealHome.tsx` | Invalidação do resumo considera as sete partes que alimentam suas fontes, em ordem estável; Cobrança/PDV continuam atualizando os atalhos sem repetir a consulta. |
+| `web/erp/test/f2-corr-painel.test.mjs` | Acrescenta dois casos: mudança de Cobrança/PDV mantém uma única consulta, aceita sua resposta em voo e atualiza os atalhos. Os nove casos existentes permanecem. |
+| `web/erp/ORIGEM.json` | Registra a adaptação de RealHome e as duas regressões novas. |
+| `docs/ERP-FASE2.md` | Decisões, rastreabilidade das asserções, verificações e limites da junção. |
+
+A exportação administrativa continua **completa por decisão do orquestrador**.
+Backup/restauração permanecem exceções internas; não há nova rota pública.
+Papéis do emissor/cofre e acesso Fiscal permanecem com as correções de
+`f2-aceite2`. Não foram criados recursos Cloudflare, classes de Durable Object,
+migrações adicionais. A alteração de `web/erp/app/components/RealHome.tsx`
+está registrada na seção `local` de `web/erp/ORIGEM.json`.
+Continuam sem medição local o custo faturado e a carga no runtime Cloudflare,
+e não há transação distribuída nem recomposição retroativa de efeitos.
+Não resta decisão de produto pendente. O ajuste do cron já está aplicado;
+o último retorno externo executou a expectativa anterior. `check`, `build`,
+`test:erp` e `test:erp:painel` passaram externamente. A aceitação final ainda
+depende de uma nova execução externa do Vitest completo sobre o arquivo atual,
+sem editar os fontes enquanto a verificação estiver em andamento.
+
+### Verificação desta integração — rodada inicial
+
+| Comando/evidência | Resultado local |
+|---|---|
+| `npx tsc --noEmit` | Passou na junção e após as mudanças de produção; `.f2-fecha-tsc.log`. |
+| `node --no-warnings --test` com `f2-base`, `f2-catalogo`, `f2-documentos`, `f2-corr-partes` e `f2-fecha` de `tests/erp/unico/` | Cinco arquivos aprovados, zero falhas; `.f2-fecha-focais.log`. Inclui a migração D1 em SQLite, sem alterar o teste diferencial. |
+| `node --no-warnings --test tests/erp/unico/f2-paridade.test.mjs` | Passou, incluindo o diferencial contra Postgres local; `.f2-fecha-paridade.log`. |
+| `node --no-warnings --test --test-concurrency=3 'tests/erp/**/*.test.mjs'` (comando de `test:erp`) | **234 de 235 arquivos aprovados**, saída 1, em aproximadamente 15 min 45 s. Única falha: preparo de `schema-upgrade.test.mjs` por `spawnSync git EPERM`; `.f2-fecha-erp.log`. Todos os arquivos da fase 2, incluindo a paridade, passaram. |
+| Diagnóstico sem isolamento de processos (`--experimental-test-isolation=none --test`) | Catálogo: 13 casos aprovados. Documentos e correções das partes: 35 casos aprovados. O runner isolado desta máquina resume por arquivo; o modo sem isolamento permite ver cada asserção. |
+| `node --no-warnings --experimental-test-isolation=none --test tests/erp/schema-upgrade.test.mjs` | Dois casos bloqueados no preparo por `spawnSync git EPERM`, antes das asserções; `.f2-fecha-schema.log`. Arquivo original intacto. |
+| Marcadores de conflito, CSS, `git diff --check` e busca por CR nos arquivos alterados | Passaram. |
+| `node scripts/check-encoding.mjs` | Bloqueado por `spawnSync git EPERM`. A mesma guarda, em cópia temporária recebendo a lista de arquivos pelo shell, aprovou 4.333 arquivos de texto; a cópia foi removida. |
+| `check` completo, `build`, `test:erp:painel` e Vitest completo | Não executados localmente. Permanecem na verificação externa; Vitest e Wrangler não foram chamados. Os oito novos testes D1 aguardam essa execução. |
+
+Na rodada inicial, as falhas locais remanescentes foram as duas chamadas a Git por
+`spawnSync`: a guarda de codificação e a preparação dos dois casos de subida
+do esquema. A guarda equivalente passou via lista fornecida pelo shell; o
+teste original de subida permanece aguardando a execução externa. Não se
+declara a cadeia externa verde com base nesses resultados locais.
+
+
+### Primeiro retorno externo e correções da continuação (histórico)
+
+O arquivo `.codex-verificacao.log` fornecido na primeira continuação registrava
+**291 arquivos e 3.022 testes aprovados; quatro arquivos e cinco testes
+reprovados no Vitest**. É o resultado anterior às correções abaixo; o trecho
+não informa o resultado individual dos outros comandos da cadeia externa.
+
+| Falha externa | Causa comprovada e tratamento |
+|---|---|
+| `c-fronteira-erp`, P11 sem fotografia: tabela `erp_catalog__record` inexistente | A recusa do Hub passou a acontecer antes de importar/migrar o motor. O teste consultava tabelas que sua própria preparação não criava. Um ping prepara o objeto instalado; as recusas e a igualdade das três tabelas vazias permanecem. O novo teste Node cobre também o objeto novo, exigindo esquema vazio e zero SQL/import/R2 na recusa. |
+| `erp-do-rpc-system`, marca sem fotografia: tabela `erp_platform__task` inexistente | Mesma causa. O ping prepara somente o esquema; nenhuma fotografia ou alarme é criado. Preservadas as provas de 503, nenhuma tarefa, fotografia ausente, alarme nulo e zero acesso no handler. |
+| `erp-do-rpc-system`, nome desconhecido: 503 em vez de 404 | O pedido não trazia fotografia e era corretamente barrado antes de chegar à classificação. A preparação passa a enviar fotografia válida. O novo teste Node prova ambos os caminhos: sem fotografia → 503; com fotografia → 404 completo; RPC válida de tarefa → 200. |
+| `c-telas`, Dashboard: duas chamadas em vez de uma | A geração do resumo incluía Cobrança e PDV, embora essas partes não alimentem suas fontes. RealHome passa a invalidar pelas sete fontes efetivas; os atalhos continuam sendo filtrados pela ativação atual. O teste antigo ficou intacto. As duas novas regressões Node falharam antes da correção (`2 !== 1`) e passaram depois. |
+| `erp-cron-scheduled`, igualdade da renovação | O produtor agora envia `issued_at`; renovar exige atualizar emissão e vencimento juntos. A igualdade antiga copia a emissão inicial e troca apenas o vencimento, exigindo uma concessão de onze minutos, inválida pelo contrato de seis minutos. A prova Node com produtor e Hub reais passou com ambos os horários atualizados. Naquela rodada, o patch estrito ficou em `/tmp/f2-fecha-cron-issued-at.patch`; já está aplicado no estado atual. |
+
+A regra da tarefa diz: “Fora das exceções das decisões 1 e 2, teste antigo
+só muda na preparação”. Por isso, naquela rodada o ajuste do cron ficou
+pendente da exceção solicitada. A continuação atual já recebeu o patch aplicado.
+Ele acrescenta a prova
+`first.snapshot.issued_at === start` e conserva a igualdade integral da
+renovação, agora exigindo `issued_at === start + 300_000` junto de
+`expires_at === start + 660_000`. Nenhuma asserção é removida ou relaxada;
+todas as demais provas de TTL, revisão, ACK, esquema, motor, alarme e área
+desligada permanecem. `git apply --check` havia aprovado o patch.
+
+Outras mudanças de expectativas autorizadas, além dos nove casos da tabela:
+
+| Arquivo / caso | Antes | Agora |
+|---|---|---|
+| `tests/f2-corr-painel.test.ts`, cascata com `confirmed_dependents: undefined` | Recusa com `module_cascade_conflict`. | Sucesso compatível, Base e dependente desligados, `also_disabled` exato e uma entrega. |
+| Mesmo arquivo, listas inválidas | Conferia código de conflito e preservação do estado. | Conserva essas provas e exige também status 409; acrescenta `null`, membro numérico e igualdade após remoção do dependente. |
+| `tests/erp/unico/f2-corr-partes.test.mjs`, prévia de conversão | Leitor direto e parser omitiam os três vínculos. | Mesmas ausências pelo adaptador e portão reais nos dois destinos, com indisponibilidade, origem, destino, recusa de partes/origem inválidas, reaparecimento ao religar e quatro tabelas intactas. |
+| `tests/erp-cron-scheduled.test.ts`, renovação (patch já recebido aplicado) | Igualdade integral copiava `issued_at` inicial e atualizava só `expires_at`. | Mesma igualdade integral exige `issued_at: start + 300_000` e `expires_at: start + 660_000`; acrescenta emissão inicial igual a `start`. Não remove nem relaxa nenhuma prova. |
+
+### Verificação local da primeira continuação (histórico)
+
+| Comando/evidência | Resultado |
+|---|---|
+| `npm run check` | Parou na guarda de codificação por `spawnSync git EPERM`; `.f2-fecha-retorno-check.log`. Nenhuma guarda foi alterada. |
+| `npm run build` | Passou, saída 0; somente avisos de diretivas `use client` do React Router. `.f2-fecha-retorno-build.log`. |
+| `./node_modules/.bin/tsc --noEmit` | Passou, saída 0; `.f2-fecha-retorno-tsc.log`. O tsconfig não inclui os arquivos Vitest. |
+| `npm run test:erp` | **234 de 235 arquivos aprovados**, saída 1, em 17 min 06 s; `.f2-fecha-retorno-erp.log`. Única falha: preparação de `schema-upgrade.test.mjs` por `spawnSync git EPERM`. Todos os arquivos da fase 2 e o diferencial passaram, sem alterar o oráculo. |
+| `schema-upgrade.test.mjs` original sem isolamento | Os dois casos param no hook de preparação por `spawnSync git EPERM`, antes das asserções; `.f2-fecha-retorno-schema.log`. |
+| `npm run test:erp:painel` | **375 arquivos aprovados**, zero falhas, cancelamentos, pulos ou TODO; `.f2-fecha-retorno-painel.log`. |
+| `f2-corr-painel.test.mjs` e `origem.test.mjs` sem isolamento | **15 casos aprovados**, zero falhas; `.f2-fecha-retorno-painel-focal.log`. Inclui as duas novas regressões que falharam antes da correção, em `.f2-fecha-retorno-painel-repro.log`. |
+| `tests/erp/unico/f2-fecha.test.mjs` sem isolamento | **8 casos aprovados**, zero falhas; `.f2-fecha-retorno-hub.log`. Usa Hub, produtor de fotografias, migração e RPC reais sobre SQLite local, sem substituir a lógica de produção. |
+| Catálogo, documentos, correções das partes e rotinas de fundo sem isolamento | **57 casos aprovados**, zero falhas, cancelamentos, pulos ou TODO; `.f2-fecha-retorno-focais.log`. O caso de reajuste foi repetido após acrescentar a igualdade direta do `cost_price` reapresentado: **1 aprovado**, `.f2-fecha-retorno-custo.log`; a suíte completa também passou com essa asserção. |
+| Transformação dos cinco arquivos TypeScript de teste alterados/novos | Sintaxe aprovada com esbuild, sem importar nem executar Vitest; `.f2-fecha-retorno-testes-sintaxe.log`. Não substitui a execução externa. |
+| Subida do esquema em cópia temporária | **2 casos aprovados**, com todas as asserções originais e os mesmos quatro arquivos do commit `4748b75`, obtidos pelo shell; `.f2-fecha-retorno-schema-equivalente.log`. Apenas a obtenção dos arquivos históricos foi adaptada; a cópia foi removida e o teste original permanece intacto. Não equivale a declarar o comando original verde. |
+| Codificação com lista obtida pelo shell | Mesma guarda aprovou **4.333 arquivos de texto**, incluindo arquivos novos; `.f2-fecha-retorno-encoding.log`. A cópia temporária da guarda foi removida. |
+| Marcadores de conflito, CSS e `git diff --check` | Passaram. |
+| Vitest completo | Não executado localmente, conforme a instrução. As correções ainda precisam do novo retorno externo. |
+
+Sem commit, acesso à rede, execução de Vitest ou enfraquecimento de testes.
+A exportação administrativa permanece completa por decisão. Não houve
+alteração no diferencial, no esquema do ERP ou criação de migração/classe
+de Durable Object. A janela de atualização foi resolvida na `0133`; não
+ficou adiada. Permanecem fora desta execução as medições de custo/carga em
+Cloudflare e a validação externa integral. Naquele encerramento, a aceitação
+continuava aberta, inclusive pela expectativa do cron ainda pendente.
+
+
+Falhas e pendências ao encerrar a primeira continuação, superadas em parte
+pelo retorno externo detalhado na seção seguinte:
+
+- `check`: a guarda original não consegue concluir a chamada de Git por
+  `spawnSync git EPERM`; a validação equivalente de codificação passou.
+- `test:erp`: somente `schema-upgrade.test.mjs` falha, com o mesmo erro de
+  permissão no preparo dos dois casos; a execução equivalente passou sem
+  mudar nenhuma asserção.
+- Vitest: o último retorno externo ainda é o log com cinco falhas. Quatro
+  receberam correção no produto/preparação; a quinta, do cron, tem patch
+  pronto e validado para aplicação, pendente da exceção solicitada. Nenhum
+  novo resultado externo havia sido recebido naquela rodada.
+
+### Segundo retorno externo: causa da falha e estado atual
+
+O resumo atual `.codex-verificacao.log` informa **294 arquivos e 3.026 testes
+aprovados; um arquivo e um teste reprovados** no Vitest. O script externo
+`/home/bruno/wabotia/tarefas/f2-fecha.verifica.sh` preservou os logs completos
+em `/tmp/tmp.VGaQp2yuzK/`. Eles foram lidos, sem executar o script nem Vitest,
+e copiados para `.f2-fecha-externo2-{check,build,erp,painel,vitest}.log` nesta
+área de trabalho. Isso permitiu verificar também os quatro comandos verdes,
+omitidos pelo resumo de falhas.
+
+A única falha ainda executou **a expectativa antiga do cron**. O diff externo
+mostra estes valores exatos:
+
+| Campo da renovação | Esperado pelo teste executado | Recebido |
+|---|---:|---:|
+| `issued_at` | `1795188900000` (emissão inicial) | `1795189200000` (cinco minutos depois) |
+| `expires_at` | `1795189560000` | `1795189560000` |
+
+O recebido concede seis minutos; a expectativa antiga combinava emissão e
+vencimento distantes onze minutos. O Vitest começou às **12:55:09 de
+19/11/2026**, horário de São Paulo; a alteração do arquivo está registrada
+às **12:56:57**, depois do início. O erro aponta a linha 83 da versão
+executada, enquanto o trecho de fonte exibido no fim já mostra a versão
+atual, com a asserção na linha 84 e o `issued_at` corrigido. Portanto, esse
+retorno não testa o ajuste que já estava no arquivo ao iniciar esta rodada.
+Não houve motivo para mudar o produto nem relaxar a igualdade do teste.
+
+Foi acrescentado um nono teste em `tests/erp/unico/f2-fecha.test.mjs`, que
+percorre `wakeErpAreas`, leitura/seleção SQL, produtor, Hub, KV e ACK reais,
+adaptando apenas D1 para SQLite local e o armazenamento do objeto para
+memória. Confere a entrega inicial de duas áreas, a renovação exata aos
+cinco minutos, a preservação do alarme já planejado, a entrega do desligamento
+com revisão nova e ACK, nenhuma entrega repetida após o ACK e a área já
+desligada intacta. Exige zero SQL no ERP e zero novas cargas do motor durante
+todo esse ciclo. A reprodução em cópia temporária com a expectativa antiga
+falhou exatamente em `issued_at` por 300.000 ms; o arquivo atual passou.
+A cópia temporária foi removida, sem alterar as asserções de nenhum teste antigo.
+
+### Verificação consolidada mais recente
+
+| Comando/evidência | Resultado e alcance |
+|---|---|
+| `npm run check`, externo | **Passou**; codificação de 4.331 arquivos versionados, conflitos, CSS e TypeScript. `.f2-fecha-externo2-check.log`. |
+| `npm run build`, externo | **Passou**; avisos de `use client` do React Router, sem erro. `.f2-fecha-externo2-build.log`. |
+| `npm run test:erp`, externo | **1.065 aprovados, zero falhas e um TODO preexistente**, em 15 min 31 s. Inclui subida do esquema e diferencial contra Postgres intactos. O TODO é o caso 248 da ponte de pedido de compra com Documentos; não foi criado ou alterado neste fechamento. `.f2-fecha-externo2-erp.log`. |
+| `npm run test:erp:painel`, externo | **2.247 aprovados**, zero falhas, cancelamentos, pulos ou TODO. `.f2-fecha-externo2-painel.log`. |
+| Vitest completo, externo | **294/295 arquivos e 3.026/3.027 testes aprovados**. Única falha: expectativa antiga de emissão no cron, detalhada acima. Os testes de fronteira, RPC de sistema, Dashboard, cascata e os oito cenários D1 de `f2-fecha` passaram. `.f2-fecha-externo2-vitest.log`. |
+| Seis arquivos Node focais, nesta rodada | **81 casos aprovados**, zero falhas/cancelamentos/pulos/TODO: `f2-base`, `f2-catalogo`, `f2-documentos`, `f2-corr-partes`, `f2-corr-fundo` e `f2-fecha`, com `--experimental-test-isolation=none`. `.f2-fecha-final-focais.log`. |
+| `tests/erp/unico/f2-fecha.test.mjs`, nesta rodada | **9/9 casos aprovados** sem isolamento; também aprovado com o isolamento padrão usado por `test:erp`. `.f2-fecha-cron-hub.log` e `.f2-fecha-final-isolado.log`. |
+| Controle negativo do cron | **Falha esperada reproduzida** em cópia temporária, mudando somente a expectativa de emissão para a antiga; diferença exata de 300.000 ms. `.f2-fecha-final-cron-antigo.log`. Cópia removida. |
+| `npm run check`, repetição local | Continua bloqueado por `spawnSync git EPERM` na guarda de codificação; nenhuma guarda foi alterada. `.f2-fecha-final-check.log`. O resultado externo verde acima é independente dessa restrição local. |
+| TypeScript direto e sintaxe dos seis arquivos de teste TS alterados/novos | **Passaram**, sem importar/executar Vitest. `.f2-fecha-final-tsc.log` e `.f2-fecha-final-sintaxe.log`. |
+| Codificação incluindo arquivos novos, conflitos, CSS e `git diff --check` | **Passaram** nas verificações separadas. A guarda de codificação foi executada com a lista obtida pelo shell em cópia temporária; a cópia foi removida. `.f2-fecha-final-guardas.log`. |
+
+Nesta rodada não foram repetidos build, motor inteiro ou painel inteiro:
+os logs externos completos já comprovam aprovação e não houve alteração
+adicional de produção/painel. As mudanças novas se limitam à regressão Node
+do cron e a este relato. Vitest e o script de verificação externa não foram
+executados localmente. Não houve commit, rede, alteração do oráculo,
+enfraquecimento de testes, migração nova ou alteração no esquema do ERP.
+
+**Pendência final:** reexecutar externamente o Vitest completo sobre o estado
+atual, sem editar fontes durante a execução. Não se declara aceite integral
+enquanto esse resultado não chegar. A exportação administrativa continua
+completa por decisão; custo/carga em Cloudflare, transação distribuída e
+recomposição retroativa continuam fora do escopo. Não há dúvida de produto
+ou autorização pendente nesta continuação.

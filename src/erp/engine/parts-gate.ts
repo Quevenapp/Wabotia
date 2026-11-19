@@ -152,6 +152,9 @@ export function persistedEntityRequirement(db: SqlDriver, table: "erp_documents_
 }
 function typeRequirement(value: unknown) { return erpEntityRequirement(typeof value === "string" ? entityAliases[value] ?? value : value); }
 function documentRequirement(ctx: RpcContext, name: string, a: RpcArgs): ErpRequirement | null {
+  // Nesta prévia p_kind é o destino, não o discriminador da origem lida.
+  if (name === "erp_document_conversion_preview")
+    return persistedEntityRequirement(ctx.db, "erp_documents__document", a.p_proposal_id, "sales_proposals");
   const supplied = a.p_kind ?? a.p_entity;
   let id = a.p_document_id ?? a.p_document ?? a.p_proposal_id;
   if (!id && !name.includes("_custom_field_") && /^(erp_document_|erp_proposal_convert|erp_sales_order_convert)/.test(name)) id = a.p_id ?? a.p_source_id;
@@ -179,6 +182,7 @@ export function rpcPartsRequirement(ctx: RpcContext, name: string, a: RpcArgs): 
   if (fixed[rule]) ids.push(...fixed[rule]!);
   if (rule === "document" || rule === "document_stock" || rule === "document_finance") {
     add(documentRequirement(ctx, name, a));
+    if (name === "erp_document_conversion_preview") add(typeRequirement(a.p_kind));
     if (rule === "document_stock") ids.push("erp-estoque");
     if (rule === "document_finance" || /commission|categories/.test(name)) ids.push("erp-financeiro");
     if (name === "erp_document_invoice_balance") ids.push("erp-fiscal");

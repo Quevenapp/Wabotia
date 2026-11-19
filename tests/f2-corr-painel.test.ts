@@ -53,29 +53,43 @@ describe("f2-corr-painel: confirmação de cascata", () => {
     expect(d.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("recusa confirmação ausente, duplicada, com IDs extras ou com dependente removido", async () => {
+  it("recusa confirmação inválida, duplicada, com IDs extras ou com dependente removido", async () => {
     const f = await fixture(), d = delivery();
     await save(f.profile, "erp"); await save(f.profile, "erp-financeiro");
-    // O aviso anterior não substitui a lista enviada na confirmação.
-    // Um cliente antigo que só repete com cascade: true continua recusado.
+    // Quando enviada, a lista deve corresponder ao conjunto atual.
     const beforeWarning = await snapshot(f.profile);
     await expect(moduleCommand(d.local, f.admin, f.profile, "module.set", {
       id: "erp", enabled: false,
     })).rejects.toMatchObject({ status: 409, code: "module_required" });
     expect(await snapshot(f.profile)).toEqual(beforeWarning);
-    for (const confirmed_dependents of [undefined, [], ["erp-financeiro", "erp-financeiro"], ["erp-financeiro", "agenda"], "erp-financeiro"]) {
+    for (const confirmed_dependents of [null, [], ["erp-financeiro", "erp-financeiro"], ["erp-financeiro", "agenda"], "erp-financeiro", [1]]) {
       const before = await snapshot(f.profile);
       await expect(moduleCommand(d.local, f.admin, f.profile, "module.set", {
         id: "erp", enabled: false, cascade: true, confirmed_dependents,
-      })).rejects.toMatchObject({ code: "module_cascade_conflict" });
+      })).rejects.toMatchObject({ status: 409, code: "module_cascade_conflict" });
       expect(await snapshot(f.profile)).toEqual(before);
     }
     await save(f.profile, "erp-financeiro", false);
+    const afterRemoval = await snapshot(f.profile);
     await expect(moduleCommand(d.local, f.admin, f.profile, "module.set", {
       id: "erp", enabled: false, cascade: true, confirmed_dependents: ["erp-financeiro"],
-    })).rejects.toMatchObject({ code: "module_cascade_conflict" });
+    })).rejects.toMatchObject({ status: 409, code: "module_cascade_conflict" });
+    expect(await snapshot(f.profile)).toEqual(afterRemoval);
     expect((await moduleStates(env, f.profile)).erp).toBe(true);
     expect(d.idFromName).not.toHaveBeenCalled();
+  });
+
+  it("aceita cascade sem lista e desliga os dependentes atuais por compatibilidade", async () => {
+    const f = await fixture(), d = delivery();
+    await save(f.profile, "erp"); await save(f.profile, "erp-financeiro");
+    const result = await moduleCommand(d.local, f.admin, f.profile, "module.set", {
+      id: "erp", enabled: false, cascade: true, confirmed_dependents: undefined,
+    });
+    expect(result.also_disabled).toEqual(["erp-financeiro"]);
+    const states = await moduleStates(env, f.profile);
+    expect(states.erp).toBe(false);
+    expect(states["erp-financeiro"]).toBe(false);
+    expect(d.fetch).toHaveBeenCalledTimes(1);
   });
 
   it("uma confirmação vazia não autoriza um dependente ligado depois", async () => {

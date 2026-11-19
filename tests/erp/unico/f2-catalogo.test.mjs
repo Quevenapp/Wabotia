@@ -14,6 +14,11 @@ const actor = { user_id: admin, erp_role: "admin", is_agent: false, verified_fac
 const identity = { actor, people: [actor] };
 const isolated = { stock: false, finance: false, purchases: false, sales: false, fiscal: false, billing: false, pos: false };
 const disabled = e => e.code === "module_disabled";
+const hidden = (record, keys, parts = ["finance"]) => {
+  for (const key of keys) assert.equal(Object.hasOwn(record, key), false, key);
+  for (const part of parts) assert.ok(record.unavailable_parts.includes(part), part);
+};
+const pick = (record, keys) => Object.fromEntries(keys.map(key => [key, record[key]]));
 const command = (data, record) => ({ p_id: record?.id ?? null, p_expected_version: record?.version ?? 0,
   p_command_id: randomUUID(), p_data: data });
 function fixture(t) {
@@ -81,38 +86,66 @@ test("produto existente conserva fornecedores, custo, lote e limites suspensos",
   const f = fixture(t), supplier = f.contact({ types: ["supplier"] });
   const suppliers = [{ supplier_id: supplier.id, is_default: true, purchase_price: "7", cost_price: "8" }];
   let p = f.product({ suppliers, lot_control: true, stock_min: "2" });
+  const keys = ["suppliers", "cost_price", "lot_control", "stock_min", "stock_max", "location"];
+  const original = pick(p, keys);
+  const stored = () => ({
+    suppliers: f.lite.prepare("SELECT * FROM erp_catalog__product_supplier WHERE record_id=? ORDER BY position").all(p.id),
+    product: f.lite.prepare("SELECT stock_min,stock_max,location FROM erp_catalog__product WHERE record_id=?").get(p.id),
+    detail: f.lite.prepare("SELECT * FROM erp_catalog__product_detail WHERE record_id=?").get(p.id),
+  });
+  const storedBefore = stored();
   const history = () => f.lite.prepare("SELECT * FROM erp_catalog__product_cost_history WHERE product_id=?").all(p.id);
   const before = history();
   p = f.rpc("erp_catalog_product_save", command({ name: "Renomeado" }, p), isolated).record;
+  hidden(p, keys, ["purchases", "stock"]);
+  assert.deepEqual(stored(), storedBefore);
   p = f.rpc("erp_catalog_product_save", command({ suppliers, lot_control: true, stock_min: "2" }, p), isolated).record;
   assert.deepEqual(history(), before);
-  assert.equal(p.suppliers[0].supplier_id, supplier.id);
+  hidden(p, keys, ["purchases", "stock"]);
+  assert.deepEqual(stored(), storedBefore);
   assert.throws(() => f.rpc("erp_catalog_product_save", command({ suppliers: [] }, p), isolated), disabled);
   assert.throws(() => f.rpc("erp_catalog_product_save", command({ lot_control: false }, p), isolated), disabled);
   assert.throws(() => f.rpc("erp_catalog_product_save", command({ stock_min: null }, p), isolated), disabled);
   const page = f.rpc("erp_catalog_product_page_v2", {}, isolated);
   const exported = f.rpc("erp_catalog_product_export", {}, isolated);
-  assert.equal(page.items[0].cost_price, null);
-  assert.equal(exported.items[0].cost_price, null);
-  assert.equal(exported.items[0].supplier, null);
+  hidden(page.items[0], ["cost_price"], ["purchases", "stock"]);
+  hidden(exported.items[0], ["cost_price", "supplier"], ["purchases", "stock"]);
   assert.throws(() => f.rpc("erp_catalog_product_purchase_info", { p_product_ids: [p.id] }, isolated), disabled);
+  assert.deepEqual(stored(), storedBefore);
+  const restored = f.rpc("erp_catalog_product_get", { p_id: p.id }).record;
+  assert.equal(restored.suppliers[0].supplier_id, supplier.id);
+  assert.deepEqual(pick(restored, keys), original);
 });
 
 test("contato comum e importação isolados; vínculos anteriores preservados em gravação completa", t => {
   const f = fixture(t), cat = f.category();
   let c = f.contact({ finance_category_id: cat.id, credit_limit_mode: "value", credit_limit: "100" });
+  const keys = ["finance_category_id", "finance_category_name", "credit_limit_mode", "credit_limit"];
+  const original = pick(c, keys);
+  const stored = () => f.lite.prepare("SELECT * FROM erp_catalog__contact_profile WHERE record_id=?").get(c.id);
+  const before = stored();
   c = f.rpc("erp_catalog_contact_save", command({ name: "Nome alterado" }, c), isolated).record;
-  assert.equal(c.finance_category_id, cat.id);
-  assert.equal(c.credit_limit, "100.00");
+  hidden(c, keys);
+  assert.deepEqual(stored(), before);
   c = f.rpc("erp_catalog_contact_save", command({ name: "Nome completo", finance_category_id: cat.id,
     credit_limit_mode: "value", credit_limit: "100" }, c), isolated).record;
+  hidden(c, keys);
+  assert.deepEqual(stored(), before);
   for (const patch of [{ finance_category_id: null }, { finance_category_id: randomUUID() }, { credit_limit_mode: "zero", credit_limit: null }])
     assert.throws(() => f.rpc("erp_catalog_contact_save", command(patch, c), isolated), disabled);
-  assert.equal(f.contact({}, isolated).finance_category_id, null);
+  const common = f.contact({}, isolated);
+  hidden(common, keys);
+  assert.equal(f.lite.prepare("SELECT finance_category_id FROM erp_catalog__contact_profile WHERE record_id=?").get(common.id).finance_category_id, null);
+  assert.equal(f.rpc("erp_catalog_contact_get", { p_id: common.id }).record.finance_category_id, null);
   f.queries.length = 0;
   const read = f.rpc("erp_catalog_contact_get", { p_id: c.id }, isolated);
-  assert.equal(read.record.finance_category_name, null);
+  hidden(read.record, keys);
   assert.deepEqual(f.queries.filter(sql => /erp_finance__/.test(sql)), []);
+  assert.deepEqual(stored(), before);
+  const restored = f.rpc("erp_catalog_contact_get", { p_id: c.id }).record;
+  assert.equal(restored.finance_category_id, cat.id);
+  assert.equal(restored.credit_limit, "100.00");
+  assert.deepEqual(pick(restored, keys), original);
   for (const dry of [true, false]) {
     const args = { p_command_id: randomUUID(), p_dry_run: dry, p_rows: [{ row: 1, data: { name: "Importado", person_type: "J" } }] };
     assert.equal(f.rpc("erp_catalog_contact_import", args, isolated).items[0].status, dry ? "valid" : "created");
@@ -124,14 +157,23 @@ test("contato comum e importação isolados; vínculos anteriores preservados em
 
 test("forma comum sem conta e preservação de conta/tarifas sem consulta financeira oculta", t => {
   const f = fixture(t), a = f.account();
-  assert.equal(f.rpc("erp_catalog_payment_method_save", command(method), isolated).item.account_id, null);
+  const keys = ["account_id", "account_name", "interest_rate", "fine_rate", "auto_settle", "fee_type", "fee_rate", "fee_fixed", "settlement_days"];
+  const common = f.rpc("erp_catalog_payment_method_save", command(method), isolated).item;
+  hidden(common, keys);
+  assert.equal(f.lite.prepare("SELECT account_id FROM erp_catalog__payment_method WHERE id=?").get(common.id).account_id, null);
+  assert.equal(f.rpc("erp_catalog_payment_method_get", { p_id: common.id }).item.account_id, null);
   let m = f.rpc("erp_catalog_payment_method_save", command({ ...method, account_id: a.id, fee_rate: "2" })).item;
+  const original = pick(m, keys);
+  const stored = () => f.lite.prepare("SELECT account_id,interest_rate,fine_rate,auto_settle,fee_type,fee_rate,fee_fixed,settlement_days FROM erp_catalog__payment_method WHERE id=?").get(m.id);
+  const before = stored();
   const partial = { ...method, description: "Nova descrição" };
   for (const key of ["account_id", "interest_rate", "fine_rate", "auto_settle", "fee_type", "fee_rate", "fee_fixed", "settlement_days"]) delete partial[key];
   m = f.rpc("erp_catalog_payment_method_save", command(partial, m), isolated).item;
-  assert.equal(m.account_id, a.id);
-  assert.equal(m.fee_rate, "2.0000");
+  hidden(m, keys);
+  assert.deepEqual(stored(), before);
   m = f.rpc("erp_catalog_payment_method_save", command({ ...method, account_id: a.id, fee_rate: "2" }, m), isolated).item;
+  hidden(m, keys);
+  assert.deepEqual(stored(), before);
   assert.throws(() => f.rpc("erp_catalog_payment_method_save", command({ ...method, account_id: null, fee_rate: "2.0000" }, m), isolated), disabled);
   assert.throws(() => f.rpc("erp_catalog_payment_method_save", command({ ...method, account_id: a.id }, null), isolated), disabled);
   f.queries.length = 0;
@@ -139,9 +181,14 @@ test("forma comum sem conta e preservação de conta/tarifas sem consulta financ
   const page = f.rpc("erp_catalog_payment_method_page", { p_page: 1, p_size: 20 }, isolated);
   assert.deepEqual(get.accounts, []);
   assert.deepEqual(page.accounts, []);
-  assert.equal(get.item.account_name, null);
+  hidden(get.item, keys);
   assert.deepEqual(f.queries.filter(sql => /erp_finance__/.test(sql)), []);
   assert.throws(() => f.rpc("erp_catalog_payment_method_page", { p_page: 1, p_size: 20, p_account_id: a.id }, isolated), disabled);
+  assert.deepEqual(stored(), before);
+  const restored = f.rpc("erp_catalog_payment_method_get", { p_id: m.id }).item;
+  assert.equal(restored.account_id, a.id);
+  assert.equal(restored.fee_rate, "2.0000");
+  assert.deepEqual(pick(restored, keys), original);
 });
 
 test("vendedor conserva comissão e permite alterar dados comuns", t => {
@@ -152,13 +199,27 @@ test("vendedor conserva comissão e permite alterar dados comuns", t => {
     p_contact: { name: "Vendedor" }, p_settings: settings,
   }, parts);
   let s = save({ ...sellerSettings, commission_rate: "3" });
+  const keys = ["commission_rule", "commission_mode", "commission_rate", "commission_bands"];
+  const original = pick(s.seller, keys);
+  const stored = () => f.lite.prepare("SELECT commission_rule,commission_mode,commission_rate,commission_bands FROM erp_catalog__seller WHERE id=?").get(s.seller.id);
+  const before = stored();
   const common = { ...sellerSettings, notes: "Observação" };
   for (const k of ["commission_rule", "commission_mode", "commission_rate", "commission_bands"]) delete common[k];
   s = save(common, s, isolated);
-  assert.equal(s.seller.commission_rate, "3.0000");
+  hidden(s.seller, keys);
+  assert.deepEqual(stored(), before);
   s = save({ ...sellerSettings, commission_rate: "3" }, s, isolated);
+  hidden(s.seller, keys);
+  assert.deepEqual(stored(), before);
   assert.throws(() => save({ ...sellerSettings, commission_rate: null }, s, isolated), disabled);
-  assert.equal(save(common, null, isolated).seller.commission_rate, null);
+  const created = save(common, null, isolated).seller;
+  hidden(created, keys);
+  assert.equal(f.lite.prepare("SELECT commission_rate FROM erp_catalog__seller WHERE id=?").get(created.id).commission_rate, null);
+  assert.equal(f.rpc("erp_catalog_seller_get", { p_id: created.id }).seller.commission_rate, null);
+  assert.deepEqual(stored(), before);
+  const restored = f.rpc("erp_catalog_seller_get", { p_id: s.seller.id }).seller;
+  assert.equal(restored.commission_rate, "3.0000");
+  assert.deepEqual(pick(restored, keys), original);
 });
 
 test("histórico respeita a origem e ficha permanece acessível", t => {
@@ -201,12 +262,15 @@ test("unidade e tipo de produto movimentado continuam protegidos sem Estoque", t
 test("reajuste e atualização em massa preservam custo suspenso e não recalculam kits", t => {
   const f = fixture(t), supplier = f.contact({ types: ["supplier"] });
   let p = f.product({ suppliers: [{ supplier_id: supplier.id, is_default: true, cost_price: "8" }] });
+  const stored = () => f.lite.prepare("SELECT * FROM erp_catalog__product_supplier WHERE record_id=? ORDER BY position").all(p.id);
+  const before = stored(), original = p.suppliers;
   const history = f.lite.prepare("SELECT * FROM erp_catalog__product_cost_history").all();
   for (const parts of [{ stock: false }, { purchases: false }]) {
     const args = { p_command_id: randomUUID(), p_supplier_id: supplier.id,
       p_items: [{ product_id: p.id, expected_version: p.version, price: "20", cost_price: "8" }] };
     const result = f.rpc("erp_catalog_product_prices_update", args, parts);
-    assert.equal(result.items[0].cost_price, null);
+    hidden(result.items[0], ["cost_price"], [parts.stock === false ? "stock" : "purchases"]);
+    assert.deepEqual(stored(), before);
     assert.deepEqual(f.lite.prepare("SELECT * FROM erp_catalog__product_cost_history").all(), history);
     p = { ...p, version: f.lite.prepare("SELECT version FROM erp_catalog__record WHERE id=?").get(p.id).version };
     assert.throws(() => f.rpc("erp_catalog_product_prices_update", { ...args, p_command_id: randomUUID(),
@@ -220,6 +284,9 @@ test("reajuste e atualização em massa preservam custo suspenso e não recalcul
   const result = f.rpc("erp_catalog_product_price_adjust", { ...adjust, p_filters: { situation: "active" } }, isolated);
   assert.equal(result.applied, 1);
   assert.deepEqual(f.queries.filter(sql => /erp_stock__/.test(sql)), []);
+  assert.deepEqual(stored(), before);
+  assert.deepEqual(f.rpc("erp_catalog_product_get", { p_id: p.id }).record.suppliers, original);
+  assert.equal(f.rpc("erp_catalog_product_get", { p_id: p.id }).record.cost_price, original[0].cost_price);
 });
 
 test("cadastro de kit histórico e replay não criam custo ao religar", t => {

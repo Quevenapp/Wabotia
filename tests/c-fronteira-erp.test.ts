@@ -217,6 +217,9 @@ describe("fronteira ERP: restrição, executor e transporte", () => {
 
   it("P11: envelope sem fotografia falha fechado sem carregar opções ou gravar vendedor", async () => {
     const f = await setup();
+    // Objeto já instalado: as recusas abaixo devem conservar as tabelas vazias.
+    // Uma chamada recusada não carrega mais o motor nem cria o esquema.
+    expect((await erpFetch(env, f.profile, "/erp-ping")).status).toBe(200);
     const complete = await erpIdentity(env, f.admin, f.profile);
     const identity = { actor: complete.actor, people: null };
     const options = await rpc(f, "erp_catalog_seller_options", {}, { identity, direct: true });

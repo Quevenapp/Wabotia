@@ -1961,6 +1961,9 @@ export async function commitSettingsPlan(
   const statements: [string, any[]][] = [[
     "UPDATE profiles SET settings=? WHERE id=?", [JSON.stringify(plan.settings), plan.profile],
   ]];
+  if (plan.module_changes.length) statements.push([
+    "INSERT OR IGNORE INTO profile_erp_parts_managed(profile_id) VALUES(?)", [plan.profile],
+  ]);
   for (const change of plan.module_changes) statements.push([
     "INSERT INTO profile_modules(profile_id,module_id,enabled,updated,updated_by) VALUES(?,?,?,?,?) ON CONFLICT(profile_id,module_id) DO UPDATE SET enabled=excluded.enabled,updated=excluded.updated,updated_by=excluded.updated_by",
     [plan.profile, change.id, change.enabled ? 1 : 0, now(), actor.id],

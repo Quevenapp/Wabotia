@@ -20,12 +20,15 @@ import {HomeProfileCard} from './CompanyChrome';
 import {HomeExpiring} from './HomeExpiring';
 import {Icon} from './Icon';
 import './real-home.css';
-import { blockEnabled, currentErpModules, entityEnabled, targetEnabled } from '../../blocks';
+import { blockEnabled, entityEnabled, targetEnabled } from '../../blocks';
 
 const count=(value:number)=>value.toLocaleString('pt-BR');
 const ORDER=['sales_orders','sales_proposals','purchase_orders','service_orders'];
 const PANEL_KEY='brufap.erp.home-panel',VALUES_KEY='brufap.erp.home-values';
 const noSubscription=()=>()=>{},noSnapshot=()=>null;
+// Fontes de erp_home_overview: Cobrança e PDV só alteram os atalhos desta tela.
+// A ordem fixa também evita recargas por reordenação das chaves do contexto.
+const summaryGeneration=()=>JSON.stringify((['erp','erp-produtos','erp-vendas','erp-compras','erp-estoque','erp-financeiro','erp-fiscal'] as const).map(blockEnabled));
 // Origin "Resumo diário": "Atualizado Hoje às 09:56" (horário de São Paulo).
 const updated=(asOf:string,businessDate:string)=>{const date=new Date(asOf),day=todaySP(date),time=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',hour:'2-digit',minute:'2-digit'}).format(date);return `${day===businessDate?'hoje':`em ${financeDate(day)}`} às ${time}`;};
 function readPanel(){try{return globalThis.localStorage?.getItem(PANEL_KEY)!=='closed';}catch{return true;}}
@@ -39,7 +42,7 @@ export default function RealHome({controller}:{controller:HomeController}){
   const access=homeSessionAccess(session);
   if(tracked&&!access)return <p className="real-result-status" role="status">Verificando permissões…</p>;
   const scope=access?`${access.user_id}:${access.role}:${(access.resources||[]).join(',')}`:'isolated';
-  const partsGeneration=JSON.stringify(currentErpModules());
+  const partsGeneration=summaryGeneration();
   return <HomeView key={scope} controller={controller} access={access} partsGeneration={partsGeneration}/>;
 }
 
@@ -77,12 +80,12 @@ function HomeView({controller,access,partsGeneration}:{controller:HomeController
     if(!route.value){setLoading(false);return;}
     const request=new AbortController(),expected=route.value;setLoading(true);
     void controller.home(homeSummaryPath(expected),{signal:request.signal}).then(value=>{
-      if(request.signal.aborted||partsGeneration!==JSON.stringify(currentErpModules()))return;
+      if(request.signal.aborted||partsGeneration!==summaryGeneration())return;
       const result=value as HomeSummary;
       if(!homePeriodMatches(result?.period,expected))throw new AccessError(502);
       setSummary({generation:partsGeneration,value:result});setLoading(false);
     }).catch(failure=>{
-      if(request.signal.aborted||partsGeneration!==JSON.stringify(currentErpModules()))return;
+      if(request.signal.aborted||partsGeneration!==summaryGeneration())return;
       setLoading(false);setError(failure instanceof AccessError&&failure.status===403?'Seu acesso ao painel precisa ser verificado.':'Não foi possível carregar o resumo. Tente novamente.');
     });return()=>request.abort();
   },[controller,reload,routeKey,partsGeneration]);
