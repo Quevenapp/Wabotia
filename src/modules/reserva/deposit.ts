@@ -342,7 +342,9 @@ async function depositPaid(
   const balance = await receiptBalance(ctx, commercialSource(ctx, "reserva", id));
   const free = `NOT EXISTS (SELECT 1 FROM reserva_bookings o WHERE o.profile_id=reserva_bookings.profile_id AND o.unit_id=reserva_bookings.unit_id AND o.id<>reserva_bookings.id AND o.status IN ('pending_payment','confirmed') AND o.starts<reserva_bookings.ends AND o.ends>reserva_bookings.starts)
     AND NOT EXISTS (SELECT 1 FROM reserva_blocks k WHERE k.profile_id=reserva_bookings.profile_id AND (k.unit_id IS NULL OR k.unit_id=reserva_bookings.unit_id) AND k.starts<reserva_bookings.ends AND k.ends>reserva_bookings.starts)`;
-  const canRevive = row.status === "expired" && row.ends > at && !!await one(ctx.env, `SELECT id FROM reserva_bookings WHERE profile_id=? AND id=? AND ${free}`, ctx.profile, id);
+  // Sem reabertura comercial no motor, sinal tardio exige devolução/conferência.
+  // Nem a unidade livre autoriza reviver a reserva com títulos cancelados.
+  const canRevive = false;
   const signalPaid = balance.allocated_cents + receipt.amount_cents >= row.deposit_cents;
   const confirm = signalPaid && (row.status === "pending_payment" || canRevive);
   const changed = await commitDepositReceipt(ctx, row, { ...row, status: confirm ? "confirmed" : row.status }, receipt, [
@@ -398,7 +400,7 @@ async function depositPaid(
   }
   if (b.status === "confirmed" || b.status === "completed" || b.status === "pending_payment") return;
   await publish(ctx, "reserva.payment_late", b, "system", {
-    reason: b.status === "cancelled" ? "cancelled" : "unit_taken",
+    reason: "late_payment_refund_required",
     needs_refund: true,
   });
   await notifyCustomer(

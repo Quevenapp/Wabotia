@@ -6,6 +6,7 @@ import { canProfile } from "../../security";
 import { requireAccess } from "../../access";
 import { modulesApi, type ModuleContext } from "../api";
 import type { Payment } from "../../payments";
+import { commercialPaymentEvidence, commercialReceiptFromEvidence } from "../../payments-commercial-evidence";
 import type { CommercialSnapshot, IntegrationEvent, SourceRef, Statement } from "../../integrations/contracts";
 import {
   aliasStatements, catalogLink, commandId, ensureCommercialPolicy, eventKey,
@@ -16,7 +17,7 @@ import { canonical, F3_NAMESPACES, hash, uuid5 } from "../../integrations/keys";
 import { integer, IntegrationError, opaque, sanitizedError } from "../../integrations/privacy";
 import {
   allocationKey, allocationStatements, commercialReceiptStatements, manualReceiptKey,
-  providerReceiptKey, reverseReceiptKey, type CommercialReceipt,
+  reverseReceiptKey, type CommercialReceipt,
 } from "../../integrations/receipts";
 import { today } from "./model";
 import { humanReferenceRpc, requireIntegrationHuman } from "../../integrations/policy";
@@ -116,10 +117,12 @@ export async function mensalidadeStatements(ctx: ModuleContext, input: Mensalida
   const key = input.receipt?.receipt_key ?? input.receiptKey ?? null;
   const receiptEvent = key && await one(ctx.env, `SELECT payload_json FROM module_erp_events WHERE profile_id=? AND module_id='mensalidade' AND source_id=? AND json_extract(payload_json,'$.receipt_key')=?`, ctx.profile, source.source_id, key);
   if (receiptEvent) operation = null;
-  const historical = !before && !input.newObligation;
+  const recognized = await one(ctx.env, `SELECT 1 FROM module_erp_events WHERE profile_id=? AND module_id='mensalidade' AND source_id=?
+    AND json_extract(payload_json,'$.operation')='recognize' AND json_extract(payload_json,'$.eligible.finance')=1 LIMIT 1`, ctx.profile, source.source_id);
+  const historical = !recognized && !input.newObligation;
   const maintenance = operation === "cancel" || operation === "reverse";
   const eligible = operation === "recognize" ? active && !!input.newObligation && !input.record.retroactive
-    : maintenance ? !!before || !!row?.links_json && row.links_json !== "[]" : active;
+    : maintenance ? !!before || !!row?.links_json && row.links_json !== "[]" : !!recognized;
   if (operation) {
     const seq = (row?.enqueued_seq ?? 0) + 1;
     events.push({ id: commandId(source, seq), command_id: commandId(source, seq), event_key: eventKey(source, operation, revision), source,
@@ -131,6 +134,7 @@ export async function mensalidadeStatements(ctx: ModuleContext, input: Mensalida
   const statements = integrationStatements({ source, expected_revision: revision - 1, events, next_state: { snapshot } });
   for (const alias of [{ kind: input.kind, id: input.record.id }, ...input.aliases ?? []]) statements.push(...aliasStatements(source, alias.kind, alias.id));
   if (input.receipt) {
+    statements.push(...commercialReceiptStatements(input.receipt));
     const receiptAlias = await one(ctx.env, "SELECT source_id FROM module_erp_aliases WHERE profile_id=? AND module_id='mensalidade' AND record_kind IN ('installment','contract') AND record_id=? AND source_id=? AND component=?", ctx.profile, input.receipt.source_id, source.source_id, source.component);
     if (input.receipt.owner_module !== "mensalidade" || input.receipt.profile_id !== ctx.profile ||
       !receiptAlias && ![source.source_id, source.source_id.startsWith("contract:") ? source.source_id.slice(9) : source.source_id].includes(input.receipt.source_id)) throw new IntegrationError("idempotency_conflict", 409);
@@ -157,18 +161,11 @@ function blocked(event: IntegrationEvent, code: string): Statement {
 
 /** A frente de pagamentos é a única escritora da evidência de provedor. */
 export async function mensalidadePaymentEvidence(ctx: ModuleContext, payment: Payment) {
-  const row = await one(ctx.env, "SELECT * FROM payments WHERE id=? AND profile_id=? AND module_id='mensalidade' AND ref_id=?", payment.id, ctx.profile, payment.ref_id);
-  if (!row || !row.provider_payment_id) return { receipt: null, receiptKey: null };
-  // Um gancho pago pode estar pendente quando o estorno já foi persistido.
-  // A evidência imutável do recebimento continua obrigatória nesse replay.
-  if (row.amount_cents !== payment.amount_cents ||
-    !(row.status === payment.status || payment.status === "paid" && row.status === "refunded")) throw new IntegrationError("idempotency_conflict", 409);
-  const originalKey = providerReceiptKey(ctx.profile, row.provider, row.account_id, String(row.provider_payment_id));
-  const receiptKey = payment.status === "refunded" ? reverseReceiptKey(originalKey) : originalKey;
-  const receipt = await one<CommercialReceipt>(ctx.env, "SELECT * FROM module_commercial_receipts WHERE profile_id=? AND receipt_key=?", ctx.profile, receiptKey);
-  if (receipt && (receipt.evidence !== "provider" || receipt.amount_cents !== payment.amount_cents ||
-    receipt.kind !== (payment.status === "refunded" ? "reverse" : "receive") || receipt.reverses_key !== (payment.status === "refunded" ? originalKey : null))) throw new IntegrationError("idempotency_conflict", 409);
-  return { receipt, receiptKey };
+  if (!payment.ref_id || !["paid", "refunded"].includes(payment.status)) throw new IntegrationError("invalid_request", 422);
+  const fact = await commercialPaymentEvidence(ctx.env, ctx.profile, "mensalidade", payment.id, payment.ref_id,
+    payment.status as "paid" | "refunded", payment.evidence);
+  if (fact.amount_cents !== payment.amount_cents) throw new IntegrationError("idempotency_conflict", 409);
+  return { receipt: commercialReceiptFromEvidence(fact), receiptKey: fact.receipt_key };
 }
 
 export async function manualMensalidadeReceipt(ctx: ModuleContext, inst: any, actor: string, request: string, at: number, method: CommercialReceipt["method"] = "unknown", paidAtProvided = false, note = "") {

@@ -3,6 +3,7 @@ import { all, one } from "../../db";
 import { resolveCustomer } from "../../customer/ports";
 import type { Conversation } from "../../types";
 import type { Payment } from "../../payments";
+import { commercialPaymentEvidence, commercialReceiptFromEvidence } from "../../payments-commercial-evidence";
 import type { ModuleContext } from "../api";
 import { payerForReview } from "../mensalidade/public";
 import { canProfile } from "../../security";
@@ -13,8 +14,8 @@ import { readIntegrationActivation } from "../../integrations/activation";
 import { ensureCommercialPolicy, requireIntegrationHuman } from "../../integrations/policy";
 import { catalogLink } from "../../integrations/catalog";
 import { aliasStatements, integrationStatements } from "../../integrations/outbox";
-import { allocationKey, allocationStatements, commercialReceiptStatements, providerReceiptKey, reverseReceiptKey, type CommercialReceipt } from "../../integrations/receipts";
-import { canonical, commandId, eventKey, F3_NAMESPACES, hash, uuid5 } from "../../integrations/keys";
+import { allocationKey, allocationStatements, commercialReceiptStatements, providerReceiptKey, type CommercialReceipt } from "../../integrations/receipts";
+import { canonical, commandId, eventKey, F3_NAMESPACES, uuid5 } from "../../integrations/keys";
 import { IntegrationError } from "../../integrations/privacy";
 import { suporteSettings, type SupportCommercialPurchase } from "./model";
 
@@ -92,19 +93,12 @@ export async function supportPaymentEvidence(ctx: ModuleContext, purchase: Suppo
   payment.id, ctx.profile, purchase.id);
   if (!row || payment.module_id !== "suporte" || row.ref_id !== payment.ref_id ||
       row.conversation_id !== purchase.conversation_id || row.amount_cents !== payment.amount_cents ||
-      row.currency !== "BRL" || row.method !== payment.method ||
-      (payment.status === "paid" && !["paid", "refunded"].includes(row.status)) ||
-      (payment.status === "refunded" && row.status !== "refunded"))
+      row.currency !== "BRL" || row.method !== payment.method)
     throw new IntegrationError("invalid_request", 422);
-  const key = supportReceiptKey(row);
-  if (key && ["paid", "refunded"].includes(payment.status)) {
-    const existing = await one<CommercialReceipt>(ctx.env,
-      "SELECT * FROM module_commercial_receipts WHERE profile_id=? AND receipt_key=?", ctx.profile, key);
-    if (existing && (existing.owner_module !== "suporte" || existing.source_id !== purchase.id ||
-        existing.kind !== "receive" || existing.amount_cents !== row.amount_cents))
-      throw new IntegrationError("idempotency_conflict", 409);
-  }
-  return row;
+  if (!["paid", "refunded"].includes(payment.status)) return row;
+  const evidence = await commercialPaymentEvidence(ctx.env, ctx.profile, "suporte", payment.id, purchase.id,
+    payment.status as "paid" | "refunded", payment.evidence, row);
+  return { ...row, status: payment.status, current_status: row.status, evidence, paid_at: evidence.original?.occurred_ms ?? evidence.occurred_ms, updated: evidence.occurred_ms };
 }
 
 export const supportReceiptKey = (row: Record<string, any>) =>
@@ -112,22 +106,9 @@ export const supportReceiptKey = (row: Record<string, any>) =>
     ? providerReceiptKey(row.profile_id, row.provider, row.account_id, String(row.provider_payment_id)) : null;
 
 async function receipt(ctx: ModuleContext, purchase: SupportCommercialPurchase, row: Record<string, any>, kind: "receive" | "reverse"): Promise<CommercialReceipt | null> {
-  const key = supportReceiptKey(row);
-  if (!key || !Number.isSafeInteger(row.paid_at) || row.paid_at <= 0) return null;
-  const receiptKey = kind === "receive" ? key : reverseReceiptKey(key);
-  const method = row.method === "pix" ? "pix" : "unknown"; // Link não comprova cartão.
-  const old = await one<CommercialReceipt>(ctx.env, "SELECT * FROM module_commercial_receipts WHERE profile_id=? AND receipt_key=?", ctx.profile, receiptKey);
-  // B8 pode já ter gravado a evidência comum: reutilizar seu hash e instante.
-  if (old) {
-    if (old.owner_module !== "suporte" || old.source_id !== purchase.id || old.kind !== kind ||
-        old.amount_cents !== row.amount_cents || old.evidence !== "provider" ||
-        old.reverses_key !== (kind === "reverse" ? key : null)) throw new IntegrationError("idempotency_conflict", 409);
-    return old;
-  }
-  return { profile_id: ctx.profile, receipt_key: receiptKey, owner_module: "suporte", source_id: purchase.id,
-    kind, evidence: "provider", reverses_key: kind === "reverse" ? key : null,
-    amount_cents: row.amount_cents, method, occurred_ms: kind === "receive" ? row.paid_at : row.updated,
-    actor_id: null, evidence_hash: hash([ctx.profile, row.provider, row.account_id, String(row.provider_payment_id), kind, row.amount_cents, method, row.paid_at]) };
+  const evidence = await commercialPaymentEvidence(ctx.env, ctx.profile, "suporte", row.id, purchase.id,
+    kind === "receive" ? "paid" : "refunded", row.evidence, row);
+  return commercialReceiptFromEvidence(evidence);
 }
 
 /** Incluir após a mutação operacional e sua guarda no MESMO batch D1.
@@ -148,7 +129,7 @@ export async function supportIntegrationStatements(
   const snapshot: CommercialSnapshot = { ...base, source_revision: revision,
     lifecycle: { ...base.lifecycle, base_status: purchase.status } };
   const recognized = await one(ctx.env, `SELECT id FROM module_erp_events WHERE profile_id=? AND module_id='suporte'
-    AND source_id=? AND json_extract(payload_json,'$.operation')='recognize' LIMIT 1`, ctx.profile, purchase.id);
+    AND source_id=? AND json_extract(payload_json,'$.operation')='recognize' AND json_extract(payload_json,'$.eligible.finance')=1 LIMIT 1`, ctx.profile, purchase.id);
   const events: IntegrationEvent[] = [], extra: Statement[] = [];
   let blocked: string | null = null;
   const append = (op: IntegrationOperation, evidence: CommercialReceipt | null = null) => {
@@ -157,17 +138,20 @@ export async function supportIntegrationStatements(
     events.push({ id: uuid5(F3_NAMESPACES.internal, key), command_id: commandId(source, seq), event_key: key,
       source, seq, source_revision: revision, operation: op, occurred_ms: evidence?.occurred_ms ?? at,
       epochs: setup.activation.epochs, eligible: { document: false, stock: false,
-        finance: op === "cancel" || op === "reverse" ? !!recognized : eligibleAt(setup, evidence?.occurred_ms ?? at) },
+        finance: op === "recognize" ? eligibleAt(setup, at) : !!recognized },
       snapshot, receipt_key: evidence?.receipt_key ?? null, reverses_receipt_key: evidence?.reverses_key ?? null,
-      // O adaptador da base também consulta auto_post na manutenção. Conservar
-      // ação humana explícita evita confirmar cancelamento/estorno sem efeito.
-      reason_code: !setup.policy.auto_post.finance ? "manual_requested" : options.reason ?? null, actor_id: null });
+      // Cancelar/estornar acompanha os efeitos anteriores, não auto_post atual.
+      reason_code: !setup.policy.auto_post.finance && !["cancel", "reverse"].includes(op) ? "manual_requested" : options.reason ?? null, actor_id: null });
     if (evidence) extra.push(...commercialReceiptStatements(evidence),
       ...allocationStatements(source, evidence.receipt_key, allocationKey(evidence.receipt_key, source, 0), evidence.amount_cents));
   };
   if (operation === "recognize" && !stored && eligibleAt(setup, purchase.created)) append("recognize");
   if (operation === "cancel" && recognized) append("cancel");
-  if (operation === "receive" || operation === "reverse") {
+  if ((operation === "receive" || operation === "reverse") && options.reason === "late_payment_refund_required") {
+    const paid = await receipt(ctx, purchase, options.payment!, "receive");
+    extra.push(...commercialReceiptStatements(paid!));
+    if (operation === "reverse") extra.push(...commercialReceiptStatements((await receipt(ctx, purchase, options.payment!, "reverse"))!));
+  } else if (operation === "receive" || operation === "reverse") {
     const paid = options.payment && await receipt(ctx, purchase, options.payment, "receive");
     const received = paid && await one(ctx.env, `SELECT id FROM module_erp_events WHERE profile_id=? AND module_id='suporte'
       AND source_id=? AND json_extract(payload_json,'$.receipt_key')=?`, ctx.profile, purchase.id, paid.receipt_key);

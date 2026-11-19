@@ -144,14 +144,20 @@ export async function titlePlan(ctx: ModuleContext, module: BookingModule, row: 
     const a = activation.activations[id];
     return a?.enabled === 1 && a.enabled_since_ms !== null && a.enabled_since_ms <= at;
   }) && activation.snapshot.parts.finance;
+  const obligation = previous.seq > 0 && await one(ctx.env, `SELECT 1 FROM module_erp_events WHERE profile_id=? AND module_id=? AND source_id=?
+    AND json_extract(payload_json,'$.operation')='recognize' AND json_extract(payload_json,'$.eligible.finance')=1 LIMIT 1`, ctx.profile, module, row.id);
+  const balance = options.facts?.some(f => f.operation === "cancel") ? await receiptBalance(ctx, source) : null;
+  const reversing = (options.facts ?? []).filter(f => f.operation === "reverse");
+  let reversed = 0;
+  for (const fact of reversing) reversed += (await one(ctx.env, "SELECT coalesce(sum(amount_cents),0) amount FROM module_erp_allocations WHERE profile_id=? AND receipt_key=? AND module_id=? AND source_id=?", ctx.profile, fact.reverses_receipt_key, module, row.id)).amount;
   const facts = [...(recognize && finance ? [{ operation: "recognize" as const }] : []), ...(options.facts ?? []).filter(fact =>
-    fact.operation === "receive" ? finance : ["cancel", "reverse"].includes(fact.operation) ? previous.seq > 0 : true)];
+    fact.operation === "receive" ? !!obligation : fact.operation === "cancel" ? !!obligation && (balance?.allocated_cents ?? 0) <= reversed : fact.operation === "reverse" ? !!obligation : true)];
   const events: IntegrationEvent[] = facts.map((fact, index) => {
     const seq = previous.seq + index + 1;
     return { id: commandId(source, seq), command_id: commandId(source, seq), event_key: eventKey(source, fact.operation, revision), source, seq, source_revision: revision,
       operation: fact.operation, occurred_ms: at, epochs: activation.epochs,
       // Manutenção de efeito anterior permanece elegível após desligamento.
-      eligible: { document: false, stock: false, finance: fact.operation === "cancel" || fact.operation === "reverse" || finance },
+      eligible: { document: false, stock: false, finance: !!obligation || finance },
       snapshot, receipt_key: fact.receipt_key ?? null, reverses_receipt_key: fact.reverses_receipt_key ?? null,
       reason_code: fact.reason_code ?? null, actor_id: options.actor };
   });
@@ -318,7 +324,10 @@ export async function receiptPlan(ctx: ModuleContext, module: BookingModule, row
     if (remaining !== 0) throw new IntegrationError("total_mismatch");
   }
   const facts: TitleFact[] = allocated ? [{ operation: receipt.kind, receipt_key: receipt.receipt_key, reverses_receipt_key: receipt.reverses_key ?? undefined, reason_code: options.reason }] : [];
-  if (options.cancel && state.snapshot?.lifecycle.authorized_at != null) facts.push({ operation: "cancel", reason_code: "payment_reversed" });
+  if ((options.cancel || receipt.kind === "reverse" && ["cancelled", "expired"].includes(row.status)) && state.snapshot?.lifecycle.authorized_at != null && balance.allocated_cents - allocated <= 0) {
+    const cancelled = await one(ctx.env, `SELECT 1 FROM module_erp_events WHERE profile_id=? AND module_id=? AND source_id=? AND json_extract(payload_json,'$.operation')='cancel' LIMIT 1`, ctx.profile, module, row.id);
+    if (!cancelled) facts.push({ operation: "cancel", reason_code: "payment_reversed" });
+  }
   const plan = await titlePlan(ctx, module, row, { actor: receipt.actor_id, facts });
   return { ...plan, allocated, statements: [...plan.statements, ...commercialReceiptStatements(receipt), ...allocations.flatMap(a => allocationStatements(source, receipt.receipt_key, a.allocation_key, a.amount_cents)),
     ...aliasStatements(source, "commercial_receipt", receipt.receipt_key)] };

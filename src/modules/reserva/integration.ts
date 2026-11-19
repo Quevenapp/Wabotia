@@ -2,13 +2,13 @@ import { one } from "../../db";
 import { ApiError, type Actor } from "../../types";
 import type { ModuleContext } from "../api";
 import type { Payment } from "../../payments";
+import { commercialPaymentEvidence, commercialReceiptFromEvidence } from "../../payments-commercial-evidence";
 import type { Statement } from "../../integrations/contracts";
 import type { IntegrationProducer } from "../../integrations/ports";
 import { registerIntegrationProducer, registerReceiptReverser } from "../../integrations/ports";
 import { integrationCasGuard } from "../../integrations/outbox";
 import { IntegrationError } from "../../integrations/privacy";
-import { hash } from "../../integrations/keys";
-import { providerReceiptKey, reverseReceiptKey, type CommercialReceipt } from "../../integrations/receipts";
+import { type CommercialReceipt } from "../../integrations/receipts";
 import {
   authorizeBooking, bookingGuard, commercialAtomic, commercialRow, commercialSource, commercialState,
   receiptBalance, receiptPlan, reverseBookingReceipt, sourceProjection, titlePlan,
@@ -61,19 +61,11 @@ export async function guardBookingCommercialChange(ctx: ModuleContext, before: a
 
 /** Evidência local confirmada pelo núcleo. O DTO público sozinho não autoriza recebimento. */
 export async function depositReceipt(ctx: ModuleContext, payment: Payment): Promise<CommercialReceipt> {
-  const stored = await one(ctx.env, "SELECT * FROM payments WHERE profile_id=? AND id=?", ctx.profile, payment.id);
-  if (!stored || stored.module_id !== "reserva" || stored.ref_id !== payment.ref_id || stored.amount_cents !== payment.amount_cents ||
-    stored.currency !== "BRL" || !stored.account_id || !stored.provider_payment_id || !["paid", "refunded"].includes(stored.status) ||
-    !["paid", "refunded"].includes(payment.status) || payment.status === "refunded" && stored.status !== "refunded")
-    throw new IntegrationError("invalid_request", 422);
-  const key = providerReceiptKey(ctx.profile, stored.provider, stored.account_id, String(stored.provider_payment_id));
-  const method = stored.method === "pix" ? "pix" : "unknown";
-  const base: CommercialReceipt = { profile_id: ctx.profile, receipt_key: key, owner_module: "reserva", source_id: stored.ref_id,
-    kind: "receive", evidence: "provider", reverses_key: null, amount_cents: stored.amount_cents, method,
-    occurred_ms: stored.paid_at ?? stored.updated, actor_id: null,
-    evidence_hash: hash([ctx.profile, stored.provider, stored.account_id, String(stored.provider_payment_id), stored.ref_id, stored.amount_cents, method, "paid"]) };
-  if (payment.status !== "refunded") return base;
-  return { ...base, receipt_key: reverseReceiptKey(key), kind: "reverse", reverses_key: key, occurred_ms: stored.updated, evidence_hash: hash([base.evidence_hash, "reverse"]) };
+  if (!payment.ref_id || !["paid", "refunded"].includes(payment.status)) throw new IntegrationError("invalid_request", 422);
+  const fact = await commercialPaymentEvidence(ctx.env, ctx.profile, "reserva", payment.id, payment.ref_id,
+    payment.status as "paid" | "refunded", payment.evidence);
+  if (fact.amount_cents !== payment.amount_cents) throw new IntegrationError("idempotency_conflict", 409);
+  return commercialReceiptFromEvidence(fact);
 }
 
 /** Mutação do sinal e recibo/alocação/saída pertencem ao mesmo lote D1. */

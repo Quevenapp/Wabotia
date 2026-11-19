@@ -2,11 +2,17 @@
 export type { CommercialItem, CommercialPolicy, CommercialSnapshot, Destination, IntegrationModule, IntegrationState, SourceRef } from "../../../src/integrations/contracts";
 import type { CommercialSnapshot, Destination, IntegrationModule, IntegrationState, SourceRef } from "../../../src/integrations/contracts";
 
+export type SourceState = "none" | "skipped" | "pending" | "blocked" | "failed" | "uncertain" | "done";
 export interface SourceView {
   source: SourceRef;
   revision: number;
   confirmed_ms: number | null;
-  state: IntegrationState;
+  state: SourceState;
+  skipped_reason?: string | null;
+  blocked_reason?: string | null;
+  reason_code?: string | null;
+  error_code?: string | null;
+  applied?: (Destination | "document")[];
   pending: boolean;
   manual_destinations: Destination[];
   deliveries: { id: string; seq?: number; state: IntegrationState; error_code?: string | null; completed_ms: number | null }[];

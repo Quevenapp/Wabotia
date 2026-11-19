@@ -111,7 +111,7 @@ function AppointmentCard({
             {started && (
               <IconButton
                 size="sm"
-                label="Marcar ausência"
+                label="Marcar ausência (mantém a cobrança)"
                 disabled={busy}
                 onClick={onNoShow}
               >

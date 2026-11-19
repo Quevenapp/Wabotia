@@ -28,6 +28,7 @@ export const purchaseTones: Record<string, "ok" | "warn" | "danger" | "muted"> =
 /** Pendência da compra para a equipe. */
 export const attentionLabels: Record<string, string> = {
   duplicate_payment: "Pago em dobro: estornar",
+  late_payment_refund_required: "Pagamento tardio pendente de devolução; suporte não liberado. Confira no provedor.",
   paid_after_cancel: "Paga depois de cancelada: conferir",
   refunded: "Estornada depois de liberar",
 };

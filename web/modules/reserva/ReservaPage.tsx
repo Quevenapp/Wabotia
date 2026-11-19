@@ -188,6 +188,7 @@ function Detail({
                   ? `, prazo ${moment(b.payment_due_at)}`
                   : ""}
                 {b.paid_at ? `, pago ${moment(b.paid_at)}` : ""}
+                {b.payment_status === "paid" && ["cancelled", "expired"].includes(b.status) && <p role="alert">Pagamento pendente de devolução. A reserva permanece encerrada; confira a devolução no provedor.</p>}
               </dd>
             </>
           )}

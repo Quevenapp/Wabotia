@@ -43,6 +43,11 @@ export interface ProviderPayment {
   amount_cents: number;
   currency: string;
   paid_at: number | null;
+  /** Somente campos da consulta autenticada, nunca o canal de cobrança. */
+  verified_method?: "cash" | "pix" | "card" | "other" | "unknown";
+  refunded_at?: number | null;
+  refunded_amount_cents?: number | null;
+  refund_review_required?: boolean;
 }
 
 export interface WebhookInput {

@@ -131,7 +131,7 @@ export function createIntegrationApi(api: Api, root: string, context: () => Mana
     async receipt(module: "agenda" | "reserva" | "entrega", id: string, body: ManualReceipt) { require(access().localWrite(module) && access().localFinance); const collection = { agenda: "appointments", reserva: "bookings", entrega: "deliveries" }[module]; return commands.execute(`receipt:${module}:${id}`, `${root}/${module}/${collection}/${enc(id)}/receipts`, "POST", body); },
     async reverseReceipt(id: string, reason_code: string) { require(access().finance); return commands.execute(`reverse:${id}`, `${base}/receipts/${enc(id)}/reverse`, "POST", { reason_code }); },
     async deliveryCommercial(id: string, body: object) { checkModule("entrega", true); return commands.execute(`delivery:${id}`, `${root}/entrega/deliveries/${enc(id)}/commercial`, "PATCH", body); },
-    async delivery(id: string, signal?: AbortSignal): Promise<{ source: string; source_ref: string | null; commercial?: { revision: number; price_cents: number | null; authorized: boolean } }> { checkModule("entrega"); return get(`${root}/entrega/deliveries/${enc(id)}`, signal); },
+    async delivery(id: string, signal?: AbortSignal): Promise<{ source: string; source_ref: string | null; commercial?: { version: number; price_cents: number | null; authorized_at: number | null } }> { checkModule("entrega"); return get(`${root}/entrega/deliveries/${enc(id)}`, signal); },
   };
 }
 export function useIntegrationApi() {
