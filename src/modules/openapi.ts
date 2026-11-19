@@ -123,6 +123,13 @@ export const moduleSchemas = {
         description:
           "Ao desligar um módulo do qual outros dependem (requires), desliga os dependentes junto. Sem ele, 409 module_required.",
       },
+      confirmed_dependents: {
+        type: "array",
+        items: { type: "string" },
+        uniqueItems: true,
+        description:
+          "Opcional com cascade: true. Quando presente, deve conter exatamente os dependentes ligados atuais, em qualquer ordem; falta, sobra, repetição ou tipo inválido retorna 409 module_cascade_conflict sem alterações. Omitido, desliga os dependentes atuais por compatibilidade. O painel envia a lista exibida na confirmação.",
+      },
     },
   },
   PaymentAccountInput: {

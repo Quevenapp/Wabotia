@@ -7,7 +7,7 @@ import { sha, MOBILE_TOKEN_PREFIX } from "../src/security";
 
 // Shared by the 0.14 service-center tests: one enabled area with two Zernio
 // lines, one QR line, an administrator and two operators.
-export async function fixture() {
+export async function fixture({ legacyErpModules = false } = {}) {
   const profile = uid(),
     line = uid(),
     second = uid(),
@@ -20,6 +20,10 @@ export async function fixture() {
     JSON.stringify(defaults),
     now(),
   );
+  // As escritas SQL das fixtures representam escolhas da versão nova.
+  // Só os testes da janela de atualização simulam o escritor antigo.
+  if (!legacyErpModules) await exec(env,
+    "INSERT INTO profile_erp_parts_managed(profile_id) VALUES(?)", profile);
   // `created` distinto e na ordem: a linha oficial padrão é a mais antiga
   // (ORDER BY created,id em src/service.ts). No mesmo milissegundo, o
   // desempate pelo id aleatório escolhia `second` metade das vezes.

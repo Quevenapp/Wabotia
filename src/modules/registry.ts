@@ -295,7 +295,7 @@ export async function moduleCommand(
         "module_required",
         `${cascade.map(name).join(", ")} ${cascade.length > 1 ? "dependem" : "depende"} de ${definition.name} e ${cascade.length > 1 ? "serão desligados" : "será desligado"} junto. Confirme a lista de dependentes.`,
       );
-    if (data.cascade === true && (
+    if (data.cascade === true && data.confirmed_dependents !== undefined && (
       !Array.isArray(data.confirmed_dependents) ||
       data.confirmed_dependents.length !== cascade.length ||
       new Set(data.confirmed_dependents).size !== cascade.length ||
@@ -304,10 +304,14 @@ export async function moduleCommand(
   }
   const changes = [definition.id, ...cascade].map(id => ({ id, enabled: id === definition.id ? data.enabled : false }));
   const updated = now();
-  await batch(env, changes.map(({ id, enabled }) => [
+  const statements: [string, any[]][] = [
+    ["INSERT OR IGNORE INTO profile_erp_parts_managed(profile_id) VALUES(?)", [profile]],
+  ];
+  for (const { id, enabled } of changes) statements.push([
     "INSERT INTO profile_modules(profile_id,module_id,enabled,updated,updated_by) VALUES(?,?,?,?,?) ON CONFLICT(profile_id,module_id) DO UPDATE SET enabled=excluded.enabled,updated=excluded.updated,updated_by=excluded.updated_by",
     [profile, id, enabled ? 1 : 0, updated, actor.id],
-  ]));
+  ]);
+  await batch(env, statements);
   // Os gatilhos registram toda mudança de chave ERP; uma revisão pendente
   // também cobre a entrega que falhou numa alteração anterior.
   const revision = await one(env, "SELECT CAST(revision AS TEXT) revision, CAST(delivered_revision AS TEXT) delivered_revision FROM profile_erp_revision WHERE profile_id=?", profile);

@@ -52,6 +52,8 @@ describe("ERP: rota /erp-rpc com as RPCs do agendador", () => {
 
   it("marca interna sem fotografia falha fechado sem ler arquivos nem reclamar tarefa", async () => {
     const profile = uid();
+    // Prepara apenas o esquema; o ping não entrega fotografia nem agenda tarefa.
+    expect((await erpFetch(env, profile, "/erp-ping")).status).toBe(200);
     const response = await post(profile, "erp_platform_task_claim", {
       p_lease: crypto.randomUUID(), p_purposes: ["company_export"],
     }, { [SYSTEM_HEADER]: "1" });
@@ -75,7 +77,11 @@ describe("ERP: rota /erp-rpc com as RPCs do agendador", () => {
 
   it("nome fora do registro e do oráculo: 404 erp_rpc_unknown; RPC comum segue respondendo", async () => {
     const profile = uid();
-    const r = await post(profile, "erp_nao_existe_de_jeito_nenhum", {});
+    // Passa pelo controle de partes para alcançar a classificação do nome.
+    const r = await post(profile, "erp_nao_existe_de_jeito_nenhum", {}, {
+      [IDENTITY_HEADER]: encodeIdentity({ actor: null, people: null, parts: normalizeErpParts(),
+        partsControl: { profile, revision: "1", expires_at: Date.now() + 360_000 } }),
+    });
     expect(r.status).toBe(404);
     expect(await r.json()).toMatchObject({ code: "PGRST202", message: "erp_rpc_unknown:erp_nao_existe_de_jeito_nenhum" });
     // RPC comum (não do agendador), sem a marca: a rota não recusa por nome.
