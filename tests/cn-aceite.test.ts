@@ -190,31 +190,33 @@ describe("aceite encadeado pelas rotas reais", () => {
     const invalid = await request(f, "/connections", { name: "Social digitado", kind: "zernio", channel, config: {} });
     expect(invalid.status).toBeGreaterThanOrEqual(400);
 
-    const ticket = uid(), at = now();
-    await batch(env, [
-      ["INSERT INTO tickets(id,number,profile_id,conversation_id,title,created,updated) VALUES(?,'10001',?,?,'PROTOCOLO SÓ WHATSAPP',?,?)", [ticket, f.profile, wa.detail.conversation.id, at, at]],
-      ["INSERT INTO customer_records(profile_id,module_id,kind,record_id,contact_id,conversation_id,linked_by,occurred_at) VALUES(?,'tickets','ticket',?,?,?,'teste',?)", [f.profile, ticket, target, wa.detail.conversation.id, at]],
-    ]);
+    // O número é globalmente único. A fixture não pode reservar '10001', que
+    // pode já existir; a rota real numera e vincula o protocolo no mesmo lote.
+    const ticket = await ok(await request(f, "/tickets", {
+      conversation_id: wa.detail.conversation.id, title: "PROTOCOLO SÓ WHATSAPP",
+    }));
+    expect(await one(env, "SELECT contact_id,conversation_id FROM customer_records WHERE profile_id=? AND module_id='tickets' AND kind='ticket' AND record_id=?",
+      f.profile, ticket.id)).toEqual({ contact_id: target, conversation_id: wa.detail.conversation.id });
     const first = await merge(f, source, target);
     const joined = await get(f, `/conversations/${id}`);
     expect(joined.other_conversations.map((c: any) => c.id)).toContain(wa.detail.conversation.id);
     expect(joined.conversation.verified_phone).toBeNull();
     const history = await get(f, `/contacts/${target}/history`);
-    expect(history.items.map((item: any) => item.target.id)).toEqual(expect.arrayContaining([id, wa.detail.conversation.id, ticket]));
+    expect(history.items.map((item: any) => item.target.id)).toEqual(expect.arrayContaining([id, wa.detail.conversation.id, ticket.id]));
     const originHistory = await get(f, `/conversations/${id}/customer-history`);
     expect(originHistory.items.map((item: any) => item.target.id)).toContain(id);
     expect(originHistory.items.map((item: any) => item.target.id)).not.toContain(wa.detail.conversation.id);
-    expect(originHistory.items.map((item: any) => item.target.id)).not.toContain(ticket);
+    expect(originHistory.items.map((item: any) => item.target.id)).not.toContain(ticket.id);
     const undoKey = uid(), undoPath = `/contacts/${source}/merges/${first.id}/undo`;
     expect(await ok(await request(f, undoPath, {}, undoKey))).toMatchObject({ state: "undone" });
     await ok(await request(f, undoPath, {}, undoKey));
     expect((await get(f, `/conversations/${id}`)).contact.id).toBe(source);
     const second = await merge(f, source, target);
     // A resposta HTTP é o resultado real da consulta que será enviada ao cliente.
-    const protocols = await ok(await request(f, `/conversations/${id}/actions`, { action: "protocols", number: "10001" }));
+    const protocols = await ok(await request(f, `/conversations/${id}/actions`, { action: "protocols", number: ticket.number }));
     expect(protocols.data).toEqual([]);
-    const waProtocols = await ok(await request(f, `/conversations/${wa.detail.conversation.id}/actions`, { action: "protocols", number: "10001" }));
-    expect(waProtocols.data).toMatchObject([{ number: "10001" }]);
+    const waProtocols = await ok(await request(f, `/conversations/${wa.detail.conversation.id}/actions`, { action: "protocols", number: ticket.number }));
+    expect(waProtocols.data).toMatchObject([{ number: ticket.number }]);
     const blockedModule = await request(f, `/conversations/${id}/actions`, { action: "form" });
     expect(blockedModule.status).toBe(422);
     expect((await blockedModule.json<any>()).error.code).toBe("unsupported_content");

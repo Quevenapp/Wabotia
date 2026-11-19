@@ -2,6 +2,8 @@
 
 Esta leva acrescenta mensagens diretas do Instagram e do Facebook à caixa de entrada, canais na ficha, junção reversível de contatos e envio de conversa por e-mail. A referência de compatibilidade é `20e15da9`. O estado das provas está em [CANAIS-ACEITE.md](CANAIS-ACEITE.md); implementação disponível e aceite concluído são estados diferentes.
 
+No fechamento de 19/11/2026, a última execução externa passou em `check` e na comparação D1: **20 cenários/85 fases sem aumento**, todos com delta zero de linhas escritas; `ambiguous/coordinator` leu **70 → 67** linhas. A suíte teve **3.223 casos aprovados e quatro falhas** em ficha de aplicação, fixture de junção e timeout cadastral. As duas primeiras causas foram corrigidas e aguardam nova execução; o timeout de 5 segundos permanece para repetição isolada, sem alteração do teste antigo. Build, pacote e donos não foram alcançados nessa linha; o delta de pacote **+142.812 bytes** é resultado histórico informado. O relatório do Worker é lido de `task.meta` pelo reporter JSON, pois seu console não chega ao terminal neste ambiente. O relatório de console do teste legado `tests/d1-budget.test.ts` permanece invisível e o teste não foi alterado. iOS continua sem compilação, dependente de Mac; formatos Zernio/Meta estão **a conferir com a conta real**. Nada foi publicado.
+
 ## Alcance e operação
 
 | Recurso | Comportamento desta leva |

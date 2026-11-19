@@ -14,11 +14,10 @@ import { areaTemplates } from "../area-templates";
 import { customerProfileDeclarations } from "./declarations";
 import { isFullCustomerEnabled } from "./feature";
 import { customerProvider } from "./ports";
-import { contactRow } from "./local";
 import { readCustomerChannels } from "./channel-identity";
 import type { ContactContribution, ContactProfileView, ProfilePort, SectionView } from "./profile-contracts";
 
-type Contact = { id: string; profile_id: string; namespace: string; erp_contact_id: string | null; identity_state: string };
+type Contact = { id: string; profile_id: string; namespace: string; erp_contact_id: string | null; identity_state: string; merged_into?: string | null; social_profile?: number };
 const failure = (status: number, code: string, message: string): never => { throw new ApiError(status, code, message); };
 const forbidden = () => failure(403, "forbidden", "Você não tem permissão para esta parte da ficha.");
 const missing = () => failure(404, "not_found", "Contato ou contribuição não encontrado.");
@@ -33,7 +32,24 @@ async function contact(env: Env, actor: Actor, profileId: string, contactId: str
   // A ficha não é uma API para aplicações, credenciais de extensão ou bots.
   if (actor.kind !== "user" || actor.via || actor.module || actor.credential || actor.id.startsWith("bot:") || actor.bots.length) forbidden();
   access(actor, profileId, "contacts:read");
-  const row = await contactRow(env, actor, profileId, contactId) as Contact;
+  const read = (id: string, namespace?: string) => one<Contact>(env,
+    `SELECT id,profile_id,namespace,erp_contact_id,identity_state,merged_into,
+       CASE WHEN namespace='team' THEN
+         (EXISTS(SELECT 1 FROM customer_channel_ids i WHERE i.profile_id=contacts.profile_id AND i.contact_id=contacts.id AND i.namespace=contacts.namespace AND i.channel<>'whatsapp' AND i.state<>'erased')
+          OR EXISTS(SELECT 1 FROM connections k WHERE k.profile_id=contacts.profile_id AND k.channel IN ('instagram','facebook')))
+         ELSE 0 END AS social_profile
+     FROM contacts WHERE id=? AND profile_id=? AND (namespace='team' OR namespace GLOB 'app:*')${namespace === undefined ? "" : " AND namespace=?"}`,
+    id, profileId, ...(namespace === undefined ? [] : [namespace]));
+  let row = await read(contactId);
+  const namespace = row?.namespace;
+  const visited = new Set<string>();
+  // Humanos podem abrir a ficha simples de app; aliases conservam o namespace de origem.
+  while (row?.merged_into) {
+    if (row.identity_state !== "active" || visited.has(row.id) || visited.size >= 32)
+      failure(409, "merge_restricted", "O vínculo deste contato não está disponível.");
+    visited.add(row.id);
+    row = await read(row.merged_into, namespace);
+  }
   if (!row || row.profile_id !== profileId || row.identity_state !== "active") return missing();
   if (row.namespace !== "team" && !allows(actor, "contacts")) forbidden();
   return row!;
@@ -135,11 +151,8 @@ async function sectionResult(ctx: ModuleContext, actor: Actor, item: ContactCont
 }
 
 async function channelProfile(env: Env, actor: Actor, row: Contact, requestedId: string): Promise<Partial<ContactProfileView>> {
-  if (!allows(actor, "contacts")) return {};
+  if (!allows(actor, "contacts") || (!row.social_profile && requestedId === row.id)) return {};
   const channelView = await readCustomerChannels(env, actor, row.profile_id, row.id);
-  const social = channelView.channels.some(channel => channel.channel !== "whatsapp") || !!await one(env,
-    "SELECT 1 FROM connections WHERE profile_id=? AND channel IN ('instagram','facebook') LIMIT 1", row.profile_id);
-  if (!social && requestedId === row.id) return {};
   const applied = await one(env,
     "SELECT id FROM customer_merges WHERE profile_id=? AND namespace=? AND target_id=? AND state='applied' AND before_cipher<>'' ORDER BY created DESC,id DESC LIMIT 1",
     row.profile_id, row.namespace, row.id);
@@ -160,11 +173,11 @@ export function createProfilePort(): ProfilePort {
       contactId = row.id;
       const words = await vocabulary(env, profileId);
       const contributions: ContactProfileView["contributions"][number][] = [];
-      const channels = await channelProfile(env, actor, row, requestedId);
       if (row.namespace !== "team") return {
         profileId, contactId, namespace: row.namespace, erpContactId: null, depth: "simple",
-        vocabulary: { singular: words.singular, plural: words.plural }, writable: true, contributions, ...channels,
+        vocabulary: { singular: words.singular, plural: words.plural }, writable: true, contributions,
       };
+      const channels = await channelProfile(env, actor, row, requestedId);
       let erpAllowed = false;
       if (row.erp_contact_id && allows(actor, "erp") && resourcesForRole(erpRoleOf(actor)).includes("contacts") &&
           await isFullCustomerEnabled(env, profileId)) {

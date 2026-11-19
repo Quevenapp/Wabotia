@@ -1,10 +1,10 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { all, batch, exec, one, withReadCache } from "../src/db";
-import { now, uid, type Actor, type Conversation } from "../src/types";
+import { now, uid, type Actor, type Conversation, type Env } from "../src/types";
 import type { SocialInboundEvidence, Statement } from "../src/customer/contracts";
 import { prepareChannelInbound, readCustomerChannels, resolveChannelCustomer } from "../src/customer/channel-identity";
-import { customerIdentity, evidencePhone, inboundConnection } from "../src/customer/identity";
+import { conversationIdentityStatements, customerIdentity, evidencePhone, inboundConnection } from "../src/customer/identity";
 import { customerHistory, customerTextHistory, customerTextScope } from "../src/customer/history";
 import { validateCustomerSelfActor } from "../src/customer/local";
 import { eraseContact } from "../src/customer/http";
@@ -12,7 +12,7 @@ import { lookupProtocols } from "../src/protocol-lookup";
 import { previewContactMerge, mergeContacts, undoContactMerge } from "../src/customer/merge";
 import { listContacts } from "../src/contacts";
 import { parseContactCsv, serializeContactCsv } from "../src/contact-csv";
-import { conversation, inbound } from "../src/service";
+import { conversation, conversationByPhone, inbound } from "../src/service";
 import { fixture, type Fixture } from "./service-center-fixture";
 import { measure } from "./d1-counter";
 
@@ -28,7 +28,7 @@ async function socialLine(f: Fixture, line = f.line, account = uid(), channel: "
   ]);
   return { line, account, channel };
 }
-async function socialConversation(f: Fixture, line: Awaited<ReturnType<typeof socialLine>>, subject = uid(), persist = true) {
+async function socialConversation(f: Fixture, line: Awaited<ReturnType<typeof socialLine>>, subject: string = uid(), persist = true) {
   const at = now(), id = uid();
   const c = { id, profile_id: f.profile, connection_id: line.line, external_namespace: `channel:${line.line}`,
     external_id: uid(), channel: line.channel, channel_account_id: line.account, channel_subject_id: subject,
@@ -52,6 +52,66 @@ async function receiveSocial(c: Conversation, evidence: SocialInboundEvidence, e
 }
 
 describe("identidade por canal", () => {
+  it("índice de aliases preserva a busca telefônica do snapshot e da assertion", async () => {
+    const f = await fixture(), phone = "5511987654321";
+    const c = await conversationByPhone(env, f.profile, phone, { open: true, connectionId: f.line });
+    const queries: string[] = [];
+    const DB = new Proxy(env.DB, { get(db, key) {
+      if (key === "prepare") return (sql: string) => { queries.push(sql); return db.prepare(sql); };
+      const value = Reflect.get(db, key);
+      return typeof value === "function" ? value.bind(db) : value;
+    } });
+    const plan = await customerIdentity.prepareInbound({ ...env, DB } as Env, c!, { provider: "zernio", phone });
+    const snapshot = queries.find(sql => sql.startsWith("WITH progress AS"));
+    expect(snapshot).toBeDefined();
+    const guard = plan.statements.find(([sql]) => sql.startsWith("INSERT INTO customer_assert"));
+    expect(guard).toBeDefined();
+    for (const sql of [snapshot!, guard![0]]) {
+      const queryPlan = await all(env, `EXPLAIN QUERY PLAN ${sql}`, ...(sql.match(/\?/g) ?? []).map(() => null));
+      const details = queryPlan.map(row => row.detail).join("\n");
+      expect(details).toMatch(/USING INDEX contacts_legacy_phone .*<expr>=\?/);
+      expect(details).not.toContain("contacts_merge_target");
+    }
+  });
+
+  it.each([null, "whatsapp"] as const)("guarda de canal não acrescenta leitura à atualização ambígua com channel=%s", async channel => {
+    const f = await fixture(), phone = "5511987654321";
+    const c = await conversationByPhone(env, f.profile, phone, { open: true, connectionId: f.line });
+    await batch(env, [
+      ["INSERT INTO customer_phones(profile_id,namespace,phone,state) VALUES(?,'team',?,'ambiguous')", [f.profile, phone]],
+      ["UPDATE conversations SET channel=?,verified_phone=?,customer_link_state='ambiguous',customer_identity_proof=NULL WHERE id=?", [channel, phone, c!.id]],
+    ]);
+    const [sql, args] = conversationIdentityStatements(f.profile, [c!.id], { phone, invalidate: true, state: "ambiguous", session: false })[0];
+    // Controle sem a guarda social: mesmo banco, argumentos e estado. As duas
+    // atualizações são idempotentes, sem transição de estado nos gatilhos.
+    const controlSql = sql.replace(" AND (channel IS NULL OR channel='whatsapp')", "");
+    expect(controlSql).not.toBe(sql);
+    const control = await env.DB.prepare(controlSql).bind(...args).run();
+    const guarded = await env.DB.prepare(sql).bind(...args).run();
+    expect(control.meta.rows_read).toBeGreaterThan(0);
+    expect(guarded.meta.rows_read).toBeLessThanOrEqual(control.meta.rows_read);
+    expect(guarded.meta.rows_written).toBe(control.meta.rows_written);
+    expect(await one(env, "SELECT channel,phone,verified_phone,customer_link_state,customer_identity_proof FROM conversations WHERE id=?", c!.id))
+      .toEqual({ channel, phone, verified_phone: phone, customer_link_state: "ambiguous", customer_identity_proof: null });
+  });
+
+  it("atualização telefônica preserva canal social e outra área em alvo unitário e lote", async () => {
+    const f = await fixture(), other = await fixture(), phone = "5511987654321";
+    const own = await conversationByPhone(env, f.profile, phone, { open: true, connectionId: f.second });
+    const foreign = await conversationByPhone(env, other.profile, phone, { open: true, connectionId: other.line });
+    const social = await socialConversation(f, await socialLine(f));
+    const beforeSocial = await one(env, "SELECT * FROM conversations WHERE id=?", social.c.id);
+    const beforeForeign = await one(env, "SELECT * FROM conversations WHERE id=?", foreign!.id);
+    for (const ids of [[social.c.id], [foreign!.id], [own!.id, social.c.id, foreign!.id]]) {
+      const [sql, args] = conversationIdentityStatements(f.profile, ids, { phone, invalidate: true, state: "ambiguous", session: false })[0];
+      await env.DB.prepare(sql).bind(...args).run();
+      expect(await one(env, "SELECT * FROM conversations WHERE id=?", social.c.id)).toEqual(beforeSocial);
+      expect(await one(env, "SELECT * FROM conversations WHERE id=?", foreign!.id)).toEqual(beforeForeign);
+    }
+    expect(await one(env, "SELECT verified_phone,customer_link_state FROM conversations WHERE id=?", own!.id))
+      .toEqual({ verified_phone: phone, customer_link_state: "ambiguous" });
+  });
+
   it("só WhatsApp conserva prova telefônica e caminho pronto sem instrução adicional", async () => {
     const f = await fixture(), phone = "5511987654321";
     const received = await inbound(env, f.profile, { external_id: phone, phone, text: "Oi", message_id: uid() }, `channel:${f.line}`, f.line);
@@ -127,8 +187,8 @@ describe("identidade por canal", () => {
     expect(JSON.stringify(view)).not.toContain(line.account);
     const modern = await listContacts(env, f.admin, f.profile, { identity: "no_personal_data" });
     const legacy = await listContacts(env, f.admin, f.profile, { identity: "phone_only" });
-    expect(modern.data.map(c => c.id)).toEqual(legacy.data.map(c => c.id));
-    expect(modern.data.map(c => c.id)).toContain(ref.contactId);
+    expect(modern.data.map(c => c!.id)).toEqual(legacy.data.map(c => c!.id));
+    expect(modern.data.map(c => c!.id)).toContain(ref.contactId);
   });
 
   it("junção social com WhatsApp/ERP não concede telefone, protocolos nem memória da outra origem", async () => {

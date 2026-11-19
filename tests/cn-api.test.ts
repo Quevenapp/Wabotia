@@ -1,6 +1,7 @@
-import { env, SELF } from "cloudflare:test";
+import { createExecutionContext, env, SELF, waitOnExecutionContext } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installChannelRuntime } from "../src/channel-runtime";
+import worker from "../src/index";
 import { all, batch, exec, one } from "../src/db";
 import { configureEmail } from "../src/email";
 import { refreshChannelSummaryStatements } from "../src/channel-accounts";
@@ -122,6 +123,62 @@ describe("DTOs, filtros e escopos das rotas públicas", () => {
     expect(cursor).toBeNull();
     expect((await api(app.token, `/profiles/${f.profile}/conversations?channel=desconhecido`)).status).toBe(400);
     expect((await (await api(app.token, `/profiles/${f.profile}/conversations?channel=tiktok`)).json<any>()).data).toEqual([]);
+  });
+
+  it("a consulta real da lista usa índice parcial social e preserva WhatsApp legado e aplicação", async () => {
+    const f = await setup();
+    await exec(env, "UPDATE connections SET channel='instagram' WHERE id=?", f.line);
+    const social = await dialog(f, { channel: "instagram" });
+    const legacy = await dialog(f, { connection: f.second });
+    const whatsapp = await dialog(f, { connection: f.second, channel: "whatsapp" });
+    const application = await dialog(f, { connection: null, namespace: "app:integracao" });
+    const explicitApplication = await dialog(f, { channel: "instagram", namespace: "app:outra" });
+    const internal = await dialog(f, { channel: "instagram" });
+    await exec(env, "UPDATE conversations SET chat_type='team' WHERE id=?", internal);
+    const queries: { sql: string; params: unknown[] }[] = [];
+    // Só observa SQL/argumentos; autenticação, rota e D1 continuam reais.
+    const DB = new Proxy(env.DB, {
+      get(target, property) {
+        if (property === "prepare") return (sql: string) => {
+          const statement = target.prepare(sql);
+          if (!sql.startsWith("SELECT p.*,substr(lm.text")) return statement;
+          return new Proxy(statement, {
+            get(prepared, method) {
+              if (method === "bind") return (...params: unknown[]) => {
+                queries.push({ sql, params });
+                return prepared.bind(...params);
+              };
+              const value = Reflect.get(prepared, method);
+              return typeof value === "function" ? value.bind(prepared) : value;
+            },
+          });
+        };
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    for (const [channel, expected] of [
+      ["instagram", [social]], ["whatsapp", [legacy, whatsapp]],
+      ["", [social, legacy, whatsapp, application, explicitApplication, internal]],
+    ] as const) {
+      const ctx = createExecutionContext();
+      const response = await worker.fetch(new Request(
+        `https://wabotia.test/api/v1/profiles/${f.profile}/conversations${channel ? `?channel=${channel}` : ""}`,
+        { headers: { Authorization: `Bearer ${f.token}` } },
+      ), { ...env, DB }, ctx);
+      await waitOnExecutionContext(ctx);
+      expect(response.status).toBe(200);
+      const page = await response.json<any>();
+      expect(page.data.map((row: any) => row.id).sort()).toEqual([...expected].sort());
+      const query = queries.at(-1)!;
+      expect(query).toBeDefined();
+      const plan = await all(env, `EXPLAIN QUERY PLAN ${query.sql}`, ...query.params);
+      const details = plan.map(row => row.detail).join("\n");
+      if (channel === "instagram")
+        expect(details).toMatch(/SEARCH c USING INDEX conversations_channel_recent \(profile_id=\? AND channel=\?\)/);
+      else expect(details).not.toContain("conversations_channel_recent");
+    }
+    expect(queries).toHaveLength(3);
   });
 
   it("não infere WhatsApp para conversa de aplicação e oculta conversa de outra área", async () => {

@@ -46,8 +46,10 @@ ALTER TABLE conversations
 ALTER TABLE contacts ADD COLUMN merged_into TEXT;
 ALTER TABLE contacts ADD COLUMN merge_id TEXT;
 
+-- Só aliases: contatos comuns conservam o custo de escrita e os índices de telefone.
 CREATE INDEX contacts_merge_target
-  ON contacts(profile_id,namespace,merged_into);
+  ON contacts(profile_id,namespace,merged_into)
+  WHERE merged_into IS NOT NULL;
 
 CREATE TABLE customer_merges (
   profile_id TEXT NOT NULL REFERENCES profiles(id),

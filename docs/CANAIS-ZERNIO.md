@@ -2,6 +2,8 @@
 
 Este é o registro central dos formatos da Zernio/Meta ainda **a conferir com a conta real** na primeira leva. Não houve acesso à rede, chamada a conta real ou publicação durante o aceite restrito. As fixtures dos testes e demonstrações representam o esquema fornecido no anexo; não são capturas reais e não confirmam permissões, limites ou comportamento remoto.
 
+A última execução externa recebida no fechamento passou em `check` e na comparação D1: **20 cenários/85 fases sem aumento**, todos com delta zero de linhas escritas. A suíte teve **3.223 casos aprovados e quatro falhas** em ficha de aplicação, fixture de junção e timeout cadastral; as correções da ficha/fixture aguardam nova execução, e o timeout exige repetição isolada. Build, pacote e donos não foram alcançados nessa linha; o delta de pacote **+142.812 bytes** é resultado histórico informado. Nenhum desses resultados confirma os formatos remotos abaixo. O relatório medido vem de `task.meta` no reporter JSON porque o console dos testes do Worker não chega ao terminal; o relatório legado de `tests/d1-budget.test.ts` permanece invisível, sem alteração desse teste. iOS segue pendente de compilação no Mac. Nada foi publicado.
+
 ## Pontos de leitura e envio
 
 | Pendência a conferir com a conta real | Arquivo e função/objeto que concentra o formato | Tratamento atual |

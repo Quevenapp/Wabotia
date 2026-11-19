@@ -35,7 +35,8 @@ CREATE UNIQUE INDEX meta_accounts_id_profile
   ON meta_accounts(id,profile_id);
 
 CREATE INDEX conversations_channel_recent
-  ON conversations(profile_id,channel,updated DESC,id DESC);
+  ON conversations(profile_id,channel,updated DESC,id DESC)
+  WHERE channel IS NOT NULL AND channel<>'whatsapp';
 
 CREATE INDEX connections_profile_channel
   ON connections(profile_id,channel,status);
