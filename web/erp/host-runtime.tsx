@@ -109,6 +109,8 @@ export function acquireErpHost(context: ErpHostContext) {
           current();
           return response;
         },
+        embedded: true,
+        accessHost: ErpAccessHost,
         admin: context.management.role === "admin",
         openModules: () => current().onModules(),
         get openPeople() { return current().management.role === "admin" ? () => current().onPeople() : undefined; },
@@ -123,6 +125,7 @@ export function acquireErpHost(context: ErpHostContext) {
         },
       };
       const controller = createAccessController(ports.auth, ports.apiUrl, ports.fetch, {});
+      ports.controller = controller;
       const runtime: ErpHostRuntime = {
         key, ports, controller, context: () => [...entry.owners.values()].at(-1) ?? context,
         allowed(to, state = controller.getSnapshot()) {
@@ -180,31 +183,17 @@ export function useErpHost(context: ErpHostContext) {
   return result?.key === key ? result : null;
 }
 
-type HostView = { runtime: ErpHostRuntime; embedded: boolean; chromeTarget: HTMLElement | null; router?: ReturnType<typeof createMemoryRouter> | null; body?: (controller: AccessController, state: AccessState) => React.ReactNode };
-export const ErpHostProvider = createContext<HostView | null>(null);
+export type ErpHostView = { runtime: ErpHostRuntime; embedded: boolean; chromeTarget: HTMLElement | null; router?: ReturnType<typeof createMemoryRouter> | null; ToolsScope?: typeof ErpToolsScope; bindLinks?: (element: HTMLElement | null) => (() => void) | undefined; body?: (controller: AccessController, state: AccessState) => React.ReactNode };
+export const ErpHostProvider = createContext<ErpHostView | null>(null);
 export const useErpHostView = () => useContext(ErpHostProvider);
 
-/** Escopo de ferramentas fora da árvore de estilos do painel hospedeiro. */
-export function ErpToolsScope({ scopeRef, children }: { scopeRef: React.RefObject<HTMLDivElement | null>; children: React.ReactNode }) {
-  return <div className="fagoo-root" data-erp-tools="" ref={scopeRef}>{children}</div>;
+function ErpAccessHost({ children }: { children(host: ErpHostView | null): React.ReactNode }) {
+  return children(useErpHostView());
 }
 
-/** Compatibilidade dos testes e da montagem independente anterior ao hospedeiro. */
-const controllers = new WeakMap<ErpPorts, { controller: AccessController; users: number; stop?: () => void }>();
-export function useErpAccess(ports: ErpPorts) {
-  const host = useErpHostView();
-  let shared = controllers.get(ports);
-  if (!shared) {
-    shared = { controller: host?.runtime.controller ?? createAccessController(ports.auth, ports.apiUrl, ports.fetch, {}), users: 0 };
-    controllers.set(ports, shared);
-  }
-  const entry = shared;
-  useEffect(() => {
-    if (host) return;
-    if (entry.users++ === 0) entry.stop = entry.controller.start();
-    return () => { if (--entry.users === 0) { entry.stop?.(); entry.stop = undefined; } };
-  }, [entry, host]);
-  return host?.runtime.controller ?? entry.controller;
+/** Escopo de ferramentas pertence ao hospedeiro, fora da cópia portada. */
+export function ErpToolsScope({ scopeRef, children }: { scopeRef: React.RefObject<HTMLDivElement | null>; children: React.ReactNode }) {
+  return <div className="fagoo-root" data-erp-tools="" ref={scopeRef}>{children}</div>;
 }
 
 export function TargetNotice({ state }: { state: string }) {

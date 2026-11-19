@@ -8,6 +8,13 @@ import type { PeoplePort } from "./people";
 import type { EmissorPort } from "./emissor";
 
 export type ErpPorts = {
+  /** Controlador iniciado pelo hospedeiro; telas legadas criam o próprio quando ausente. */
+  controller?: import("./app/lib/real-access").AccessController;
+  embedded?: boolean;
+  /** Adaptador React do hospedeiro; conserva o contexto sem acoplar as telas ao runtime. */
+  accessHost?: import("react").ComponentType<{
+    children(host: import("./host-runtime").ErpHostView | null): import("react").ReactNode;
+  }>;
   /** Sessão do Wabotia vista como a sessão do Supabase que o controlador espera. */
   auth: AuthPort;
   /**
