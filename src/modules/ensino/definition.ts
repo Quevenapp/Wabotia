@@ -1,9 +1,11 @@
+import { NATIVE_MANAGEMENT_ITEMS } from "../panel-navigation";
 import type { ModuleDefinition } from "../types";
 
 export const ensinoModule: ModuleDefinition = {
   id: "ensino", name: "Ensino", version: "1.0.0", builtin: true,
   description: "Turmas, frequência, avaliações e consulta protegida pelos responsáveis.",
   default_enabled: false, requires: ["os"],
+  management: NATIVE_MANAGEMENT_ITEMS.ensino,
   navigation: [{ id: "ensino", label: "Ensino", place: "admin", admin: false }],
   menu_item_types: [{ type: "ensino_boletim", label: "Boletim e frequência",
     description: "Abre uma consulta protegida para o telefone verificado de um responsável autorizado." }],

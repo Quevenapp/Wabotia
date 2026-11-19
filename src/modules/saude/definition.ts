@@ -1,3 +1,4 @@
+import { NATIVE_MANAGEMENT_ITEMS } from "../panel-navigation";
 import type { ModuleDefinition } from "../types";
 
 export const saudeModule: ModuleDefinition = {
@@ -8,6 +9,7 @@ export const saudeModule: ModuleDefinition = {
   builtin: true,
   default_enabled: false,
   requires: ["os"],
+  management: NATIVE_MANAGEMENT_ITEMS.saude,
   navigation: [{ id: "saude", label: "Prontuários", place: "admin", admin: false }],
   menu_item_types: [],
   events: [],

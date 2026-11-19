@@ -1,3 +1,4 @@
+import { NATIVE_MANAGEMENT_ITEMS } from "../panel-navigation";
 // Cobrança (Pix e link de pagamento) no núcleo, ligável por área como um
 // módulo. O código fica em src/payments.ts; aqui, só a declaração.
 import type { ModuleDefinition } from "../types";
@@ -11,6 +12,7 @@ export const paymentsModule: ModuleDefinition = {
   builtin: true,
   // Sem conta configurada nada é cobrado; ligado para a configuração aparecer.
   default_enabled: true,
+  management: NATIVE_MANAGEMENT_ITEMS.payments,
   navigation: [
     { id: "payments", label: "Cobrança", place: "admin", admin: true },
   ],

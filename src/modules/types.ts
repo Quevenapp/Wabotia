@@ -2,15 +2,18 @@
 // o núcleo lê daqui o que mostrar no painel, que itens de menu do WhatsApp
 // aceitar, que rotas e operações pertencem ao módulo e que eventos ele publica.
 
+import type { ManagementItem } from "./panel-contract";
+
 /** Lugar do painel que o módulo ocupa. */
 export interface ModuleNavItem {
   /**
    * Para `place: "rail"`, a área do trilho (web/lib/routes.ts); para
-   * `place: "admin"`, a página de Gestão (web/workspace-navigation.ts).
+   * `place: "admin"`, a página de Gestão (web/workspace-navigation.ts);
+   * `place: "erp"`, um destino da casa de gestão.
    */
   id: string;
   label: string;
-  place: "rail" | "admin";
+  place: "rail" | "admin" | "erp";
   /** Só administradores veem. */
   admin: boolean;
 }
@@ -55,6 +58,8 @@ export interface ModuleDefinition {
   /** Estado de uma área sem registro em profile_modules. */
   default_enabled: boolean;
   navigation: ModuleNavItem[];
+  /** Contribuições puras para a casa de gestão; navigation segue compatível. */
+  management?: readonly ManagementItem[];
   menu_item_types: ModuleMenuType[];
   /** Tipos de evento publicados (tabela events, webhooks, tempo real). */
   events: string[];

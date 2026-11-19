@@ -1,11 +1,9 @@
+import { ERP_MANAGEMENT_ITEMS, ERP_MENU_GROUPS } from '../../../../src/modules/erp/panel-menu.ts';
 import type {ResolvedGroup} from './origin-menu';
 
 export type WorkspaceModule={name:string;icon:string;columns:{title:string;items:{label:string;to:string}[]}[]};
-const MODULES=[
- ['Resultados','chart-line'],['Comercial','receipt'],['Compras','cart-shopping'],
- ['Catálogo','box'],['Estoque','warehouse'],['Financeiro','building-columns'],
- ['Fiscal','file-invoice'],['Pessoas','users'],
-] as const;
+const MODULES=Object.values(ERP_MENU_GROUPS).map(group=>[group.groupLabel,group.icon] as const);
+const destinationGroups=new Map(ERP_MANAGEMENT_ITEMS.map(item=>[item.target.to,item.groupLabel]));
 /** The modules each profile uses all day come first; the others keep the standard order. */
 const ROLE_FOCUS:Record<string,readonly string[]>={
  vendas:['Comercial','Catálogo','Pessoas','Resultados'],
@@ -22,16 +20,8 @@ export function workspaceMenu(groups:readonly ResolvedGroup[],role?:string):Work
   const entries=[...group.columns.flatMap(column=>column.items),...(group.footer?[group.footer]:[])];
   for(const entry of entries){
    if(!entry.to)continue;
-   const route=new URL(entry.to,'https://fagoo.invalid'),p=route.pathname,q=route.searchParams;
-   let target:string;
-   if(/fiscal|nfce|notas-/.test(p))target='Fiscal';
-   else if(q.get('tipo')==='purchase_orders'||/compras|recebimentos/.test(p)||q.get('painel')==='sugestao')target='Compras';
-   else if(p==='/cadastros-reais')target=q.get('cadastro')==='products'?'Catálogo':q.get('cadastro')==='warehouses'?'Estoque':'Pessoas';
-   else if(/contatos|vendedores|funcionarios|funcionários/.test(p)||entry.label==='Fornecedores')target='Pessoas';
-   else if(/produtos|listas-precos/.test(p)&&group.name==='Cadastros')target='Catálogo';
-   else if(/estoque|depositos/.test(p))target='Estoque';
-   else if(/financeir|pagamento|cobranca|caixas-bancos|remessas|comissoes|controle-caixa|faturamento/.test(p))target='Financeiro';
-   else target=group.name==='Meu Negócio'?'Resultados':group.name==='Cadastros'?'Catálogo':group.name==='Estoque'?'Compras':group.name==='Financeiro'?'Financeiro':'Comercial';
+   const target=destinationGroups.get(entry.to);
+   if(!target)continue;
    const items=buckets.get(target)!;
    if(!items.some(item=>item.to===entry.to))items.push({label:entry.label,to:entry.to});
   }

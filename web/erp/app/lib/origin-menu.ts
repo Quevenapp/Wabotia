@@ -4,87 +4,13 @@ import { originHistoryAvailable, isOriginIntegrationRoute } from './integration-
 import { preferencePage, preferencePageHref } from '../../../../packages/erp-domain/src/preferences/catalog.mjs';
 import { blockOf, ERP_BLOCK_LABELS, hiddenInWabotia, targetEnabled } from '../../blocks.ts';
 
-export type MenuGroupName = 'Meu Negócio' | 'Cadastros' | 'Vendas' | 'Estoque' | 'Financeiro';
-export type CompanyRole = 'admin' | 'consulta' | 'financeiro' | 'vendas' | 'estoque' | 'fiscal';
-
-export interface RealTarget { to: string; roles?: readonly CompanyRole[]; resource?: string }
-export interface MenuItemDefinition { label: string; real?: RealTarget }
-export interface MenuColumnDefinition { title: string; items: readonly MenuItemDefinition[] }
-export interface MenuGroupDefinition { name: MenuGroupName; columns: readonly MenuColumnDefinition[]; footer?: MenuItemDefinition }
+import { ORIGIN_MENU } from '../../../../src/modules/erp/panel-menu.ts';
+import type { CompanyRole, MenuGroupName, MenuItemDefinition, RealTarget } from '../../../../src/modules/erp/panel-menu.ts';
+export { ORIGIN_MENU } from '../../../../src/modules/erp/panel-menu.ts';
+export type { MenuGroupName, CompanyRole, RealTarget, MenuItemDefinition, MenuColumnDefinition, MenuGroupDefinition } from '../../../../src/modules/erp/panel-menu.ts';
 
 const FINANCE: readonly CompanyRole[] = ['admin', 'consulta', 'financeiro'];
 const FISCAL_READ: readonly CompanyRole[] = ['admin', 'consulta', 'fiscal'];
-
-export const ORIGIN_MENU: readonly MenuGroupDefinition[] = [
-  { name: 'Meu Negócio', columns: [{ title: 'Dashboards', items: [
-    { label: 'Dashboard geral', real: { to: '/acesso' } },
-    // Preferências lane (migration 150): Meu Negócio dashboards on /meu-negocio; cost needs purchase orders (margem).
-    { label: 'Dashboard vendas', real: { to: '/meu-negocio?painel=mensal', roles: ['admin', 'consulta', 'vendas', 'financeiro', 'estoque', 'fiscal'] } },
-    { label: 'Dashboard margem por pedido', real: { to: '/meu-negocio?painel=margem-pedido', roles: ['admin', 'consulta', 'financeiro', 'estoque', 'fiscal'] } },
-    { label: 'Dashboard produtos', real: { to: '/painel-produtos-empresa', roles: ['admin', 'consulta', 'vendas', 'estoque', 'fiscal'] } },
-    { label: 'Dashboard clientes', real: { to: '/meu-negocio?painel=novos-recorrentes', roles: ['admin', 'consulta', 'vendas', 'financeiro', 'estoque', 'fiscal'] } },
-    { label: 'Curva ABC', real: { to: '/meu-negocio?painel=curva-abc', roles: ['admin', 'consulta', 'vendas', 'financeiro', 'estoque', 'fiscal'] } },
-    { label: 'Metas', real: { to: '/meu-negocio?painel=metas', roles: ['admin', 'consulta', 'vendas', 'financeiro', 'estoque', 'fiscal'] } },
-  ] }] },
-  { name: 'Cadastros', columns: [
-    { title: 'Cadastros', items: [
-      { label: 'Produtos', real: { to: '/cadastros-reais?cadastro=products', resource: 'products' } },
-      { label: 'Clientes e fornecedores', real: { to: '/cadastros-reais?cadastro=contacts', resource: 'contacts' } },
-      { label: 'Vendedores', real: { to: '/vendedores-empresa', roles: ['admin', 'consulta', 'vendas', 'financeiro'] } },
-      { label: 'Funcionários', real: { to: '/funcionarios-empresa', roles: ['admin'] } },
-      { label: 'Contas Financeiras', real: { to: '/financeiro-empresa?area=contas-financeiras', roles: FINANCE } },
-      { label: 'Categorias Financeiras', real: { to: '/financeiro-empresa?area=categories', roles: FINANCE } },
-      { label: 'Formas de pagamento', real: { to: '/formas-pagamento-empresa', roles: ['admin', 'consulta', 'financeiro', 'vendas'] } },
-    ] },
-    { title: 'Ferramentas', items: [
-      { label: 'Categorias de produtos', real: { to: '/categorias-produtos', resource: 'products' } },
-      { label: 'Listas de preços', real: { to: '/listas-precos', resource: 'products' } },
-    ] },
-  ], footer: { label: 'Ver relatórios de cadastros' } },
-  { name: 'Vendas', columns: [
-    { title: 'Gestão', items: [
-      { label: 'Pedidos de venda', real: { to: '/documentos-empresa?tipo=sales_orders', roles: ['admin', 'consulta', 'financeiro', 'vendas', 'estoque', 'fiscal'] } },
-      { label: 'Notas fiscais de saída', real: { to: '/historico-fiscal?modelo=55', roles: FISCAL_READ } },
-      { label: 'NFC-e', real: { to: '/historico-fiscal?modelo=65', roles: FISCAL_READ } },
-      { label: 'Frente de caixa', real: { to: '/frente-caixa-empresa', roles: ['admin', 'consulta', 'vendas', 'financeiro'] } },
-      { label: 'Propostas comerciais', real: { to: '/documentos-empresa?tipo=sales_proposals', roles: ['admin', 'consulta', 'financeiro', 'vendas'] } },
-    ] },
-    { title: 'Serviços', items: [
-      { label: 'Ordens de serviço', real: { to: '/documentos-empresa?tipo=service_orders', roles: ['admin', 'consulta', 'financeiro', 'vendas'] } },
-      { label: 'Relatórios de serviço', real: { to: '/documentos-empresa?tipo=service_orders&acao=relatorios', roles: ['admin', 'consulta', 'financeiro', 'vendas'] } },
-    ] },
-    // Logística: only Checkout de pedidos is in scope (objetos de postagem, logística reversa and Origin Envios are out).
-    { title: 'Logística', items: [
-      { label: 'Checkout de pedidos', real: { to: '/documentos-empresa?tipo=sales_orders&acao=checkout', roles: ['admin', 'vendas'] } },
-    ] },
-  ], footer: { label: 'Ver relatórios de vendas', real: { to: '/documentos-empresa?tipo=sales_orders&acao=relatorios', roles: ['admin', 'consulta', 'financeiro', 'vendas', 'estoque', 'fiscal'] } } },
-  { name: 'Estoque', columns: [
-    { title: 'Compras', items: [
-      { label: 'Pedidos de compra', real: { to: '/documentos-empresa?tipo=purchase_orders', roles: ['admin', 'consulta', 'financeiro', 'estoque', 'fiscal'] } },
-      { label: 'Notas fiscais de entrada', real: { to: '/notas-entrada', roles: ['admin', 'fiscal', 'consulta'] } },
-      { label: 'Fornecedores', real: { to: '/cadastros-reais?cadastro=contacts&contato=fornecedor', resource: 'contacts' } },
-      { label: 'Sugestão de Compras', real: { to: '/painel-produtos-empresa?painel=sugestao', roles: ['admin', 'consulta', 'estoque', 'fiscal'] } },
-      { label: 'Check-in de Recebimentos', real: { to: '/checkin-recebimentos', roles: ['admin', 'estoque', 'fiscal'] } },
-    ] },
-    { title: 'Estoque', items: [
-      { label: 'Lançamentos de estoque', real: { to: '/estoque-empresa', roles: ['admin', 'consulta', 'vendas', 'estoque', 'fiscal'] } },
-      { label: 'Conferência de estoque', real: { to: '/conferencia-estoque-empresa', roles: ['admin', 'estoque'] } },
-      { label: 'Depósitos', real: { to: '/cadastros-reais?cadastro=warehouses', roles: ['admin', 'consulta', 'estoque'] } },
-    ] },
-  ], footer: { label: 'Ver relatórios de compras e estoque', real: { to: '/relatorios-estoque', roles: ['admin', 'consulta', 'vendas', 'estoque', 'fiscal'] } } },
-  { name: 'Financeiro', columns: [
-    { title: 'Gestão financeira', items: [
-      { label: 'Caixas e bancos', real: { to: '/financeiro-empresa?area=accounts', roles: FINANCE } },
-      { label: 'Contas a pagar', real: { to: '/financeiro-empresa?area=payable', roles: FINANCE } },
-      { label: 'Contas a receber', real: { to: '/financeiro-empresa?area=receivable', roles: FINANCE } },
-      { label: 'Remessas e retornos', real: { to: '/financeiro-empresa?area=remessas', roles: FINANCE } },
-      { label: 'Ficha Financeira', real: { to: '/financeiro-empresa?area=ficha', roles: FINANCE } },
-      { label: 'Comissões', real: { to: '/financeiro-empresa?area=comissoes', roles: FINANCE } },
-      { label: 'Controle de caixa', real: { to: '/financeiro-empresa?area=controle-caixa', roles: FINANCE } },
-      { label: 'Faturamento agrupado', real: { to: '/financeiro-empresa?area=faturamento-agrupado', roles: FINANCE } },
-    ] },
-  ], footer: { label: 'Ver relatórios financeiros', real: { to: '/financeiro-empresa?area=relatorios', roles: FINANCE } } },
-];
 
 // Preferências, as in Origin (gear → Preferências): categories in Origin order with Origin's groups ("Configurações de …",
 // "Tabelas e configurações adicionais", "Planilhas modelo") and items in Origin order. Logística is out of scope and omitted.

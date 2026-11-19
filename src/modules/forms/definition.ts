@@ -1,3 +1,4 @@
+import { NATIVE_MANAGEMENT_ITEMS } from "../panel-navigation";
 // Formulários definidos pelo administrador: o primeiro uso concreto do passo
 // web. Declaração só com dados, lida pelo registro (src/modules/registry.ts).
 import type { ModuleDefinition } from "../types";
@@ -11,6 +12,7 @@ export const formsModule: ModuleDefinition = {
   builtin: true,
   // Não muda nada sozinho: sem formulário cadastrado, nada aparece ao cliente.
   default_enabled: true,
+  management: NATIVE_MANAGEMENT_ITEMS.forms,
   navigation: [
     { id: "forms", label: "Formulários", place: "admin", admin: true },
   ],

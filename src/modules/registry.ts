@@ -218,6 +218,7 @@ export function moduleView(m: ModuleDefinition, enabled: boolean) {
     builtin: m.builtin,
     enabled,
     navigation: m.navigation,
+    management: m.management ?? [],
     menu_item_types: m.menu_item_types,
     events: m.events,
     settings: m.settings,
