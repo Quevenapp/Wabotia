@@ -114,14 +114,14 @@ onCommand(MODULE, "mesas.tab.transfer", (ctx, actor, data) =>
 onCommand(MODULE, "mesas.tab.merge", (ctx, actor, data) =>
   mergeTab(ctx, actor, data),
 );
-onCommand(MODULE, "mesas.payment.add", (ctx, actor, data) =>
-  addPayment(ctx, actor, data),
+onCommand(MODULE, "mesas.payment.add", (ctx, actor, data, { requestId }) =>
+  addPayment(ctx, actor, data, requestId),
 );
 onCommand(MODULE, "mesas.payment.void", (ctx, actor, data) =>
   voidPayment(ctx, actor, data),
 );
-onCommand(MODULE, "mesas.tab.close", (ctx, actor, data) =>
-  closeTab(ctx, actor, data),
+onCommand(MODULE, "mesas.tab.close", (ctx, actor, data, { requestId }) =>
+  closeTab(ctx, actor, data, requestId),
 );
 onCommand(MODULE, "mesas.tab.cancel", (ctx, actor, data) =>
   cancelTab(ctx, actor, data),

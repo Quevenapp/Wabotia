@@ -329,8 +329,8 @@ onRoute(MODULE, {
   path: "pedido/orders/:id/paid",
   op: "pedido.payment.paid",
 });
-onCommand(MODULE, "pedido.payment.paid", async (ctx, actor, data) =>
-  visibleOrders(ctx, actor, await markPaid(ctx, actor, data)),
+onCommand(MODULE, "pedido.payment.paid", async (ctx, actor, data, { requestId }) =>
+  visibleOrders(ctx, actor, await markPaid(ctx, actor, data, requestId)),
 );
 
 onRoute(MODULE, {

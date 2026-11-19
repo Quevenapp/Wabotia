@@ -1,6 +1,10 @@
+import { canonical, hash } from "../../integrations/keys";
 // Pedido: pedidos (criar com número sequencial, ler, mudar estado), forma de
 // pagamento, cobrança online pela Cobrança do núcleo e avisos ao cliente.
 // Fala com o núcleo pela interface de src/modules/api.ts.
+import { buildOrderCommerce, type CommercePlan, orderCommerce, commerceGuard, providerOrderStatements, saleSource, commercialId } from "./integration";
+import { aliasStatements, integrationStatements } from "../../integrations/outbox";
+import type { Statement } from "../../integrations/contracts";
 import { all, batch, exec, one } from "../../db";
 import {
   ApiError,
@@ -504,6 +508,8 @@ export interface NewOrder {
    * cozinha, com o pagamento na conta da mesa (payment_status "tab").
    */
   tab?: { id: string; label: string };
+  /** Mutação da conta no mesmo lote do pedido e da saída comercial. */
+  commit?: (row: any, commerce: CommercePlan | null) => Promise<Statement[]>;
 }
 
 /**
@@ -512,6 +518,8 @@ export interface NewOrder {
  * número). A forma de pagamento vem depois (startPayment).
  */
 export async function createOrder(ctx: ModuleContext, input: NewOrder) {
+  const creationScope = `f3-order-create:${ctx.profile}`;
+  const creationHash = hash(JSON.parse(JSON.stringify({ source: input.source, actor: input.actor, conversation: input.conversation?.id ?? null, customer_name: input.customer_name, phone: input.phone ?? "", lines: input.lines, item_count: input.item_count, subtotal_cents: input.subtotal_cents, delivery_fee_cents: input.delivery_fee_cents, total_cents: input.total_cents, fulfillment: input.fulfillment, address: input.address, note: input.note, notes: input.notes ?? "", tab_id: input.tab?.id ?? null })));
   const existing = await one(
     ctx.env,
     "SELECT * FROM pedido_orders WHERE source_key=? AND profile_id=?",
@@ -519,6 +527,9 @@ export async function createOrder(ctx: ModuleContext, input: NewOrder) {
     ctx.profile,
   );
   if (existing) {
+    const receipt = await one(ctx.env, "SELECT fingerprint FROM receipts WHERE scope=? AND key=?", creationScope, input.sourceKey);
+    if (receipt ? receipt.fingerprint !== creationHash : canonical(JSON.parse(existing.lines)) !== canonical(input.lines) || existing.total_cents + (existing.discount_cents ?? 0) !== input.total_cents || existing.delivery_fee_cents !== input.delivery_fee_cents || existing.fulfillment !== input.fulfillment || existing.created_by !== input.actor)
+      throw new ApiError(409, "idempotency_conflict", "Esta chave já identifica outro pedido.");
     const c = input.conversation;
     const customer = c ? await routineCustomer(ctx, c) : null;
     await confirmRoutineCustomer(ctx, c, customer?.ref || null, "pedido", input.sourceKey, existing.contact_id);
@@ -548,8 +559,13 @@ export async function createOrder(ctx: ModuleContext, input: NewOrder) {
     "INSERT INTO pedido_counters(profile_id,last) VALUES(?,1) ON CONFLICT(profile_id) DO UPDATE SET last=last+1 RETURNING last",
     ctx.profile,
   );
-  const id = uid(),
+  const id = commercialId(ctx.profile, input.sourceKey),
     at = now();
+  const commercialRow = { ...input, number: counter!.last, id, profile_id: ctx.profile, created: at, confirmed_at: tab ? at : null, status, tab_id: tab?.id ?? null, contact_id: contact?.ref.contactId ?? null };
+  const source = saleSource(ctx.profile, tab ? "mesas" : "pedido", tab?.id ?? id, tab ? `order:${id}` : "main");
+  const commerce = tab ? await buildOrderCommerce(ctx, commercialRow, input.actor, "received", at) : null;
+  const additional = input.commit ? await input.commit(commercialRow, commerce) : [];
+  const commercial = commerce ? commerce.statements() : [...integrationStatements({ source, expected_revision: 0, events: [], next_state: {} }), ...aliasStatements(source, "order", id)];
   const [inserted] = await batch(ctx.env, [
     [
       "INSERT INTO pedido_orders(id,profile_id,number,status,status_at,conversation_id,contact_id,customer_name,phone,source,source_key,web_step_id,lines,item_count,subtotal_cents,delivery_fee_cents,total_cents,fulfillment,address,note,notes,eta_minutes,payment_status,tab_id,table_label,confirmed_at,created_by,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source_key) DO NOTHING",
@@ -585,6 +601,7 @@ export async function createOrder(ctx: ModuleContext, input: NewOrder) {
         at,
       ],
     ],
+    commerceGuard,
     [
       "INSERT INTO pedido_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) SELECT ?,?,?,'created',NULL,?,?,?,? WHERE changes()=1",
       [
@@ -599,6 +616,9 @@ export async function createOrder(ctx: ModuleContext, input: NewOrder) {
         at,
       ],
     ],
+    ...commercial,
+    ...additional,
+    ["INSERT INTO receipts(scope,key,fingerprint,response,status,created) VALUES(?,?,?,?,200,?)", [creationScope, input.sourceKey, creationHash, JSON.stringify({ id }), at]],
     ...(c && contact && input.source === "cart" && input.actor === "customer"
       ? await selfCustomerStatements(ctx, c, contact, input.sourceKey, input.customer_name || "") : []),
   ]);
@@ -707,10 +727,12 @@ export async function moveOrder(
         order.updated,
       ],
     ],
+    commerceGuard,
     [
       "INSERT INTO pedido_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) SELECT ?,?,?,'status',?,?,?,?,? WHERE changes()=1",
       [historyId, ctx.profile, order.id, order.status, to, actor, note, at],
     ],
+    ...await orderCommerce(ctx, { ...order, ...sets }, actor, to === "received" ? "received" : to === "cancelled" ? "cancel" : "lifecycle", at),
   ]);
   if (!update.meta.changes) throw conflict();
   if (
@@ -1292,14 +1314,21 @@ export async function paymentUpdated(
   }
   const at = now();
   if (payment.status === "paid") {
-    const claimed = await exec(
-      ctx.env,
-      "UPDATE pedido_orders SET payment_status='paid',paid_at=?,paid_by='provider',payment_id=coalesce(payment_id,?),payment_error=NULL,needs_refund=CASE WHEN status='cancelled' THEN 1 ELSE needs_refund END,updated=? WHERE id=? AND payment_status<>'paid'",
-      payment.paid_at || at,
-      payment.id,
-      at,
-      order.id,
-    );
+    const entering = order.status === "awaiting_payment";
+    if (order.payment_status === "paid" && order.paid_by === "provider") await providerOrderStatements(ctx, order, payment.id, false, true);
+    let claimed = { meta: { changes: 0 } };
+    if (order.payment_status !== "paid") {
+      const next = { ...order, payment_status: "paid", paid_at: payment.paid_at || at,
+        status: entering ? "received" : order.status, confirmed_at: entering ? at : order.confirmed_at };
+      const statements = await providerOrderStatements(ctx, next, payment.id);
+      [claimed] = await batch(ctx.env, [
+        ["UPDATE pedido_orders SET payment_status='paid',paid_at=?,paid_by='provider',payment_id=coalesce(payment_id,?),payment_error=NULL,needs_refund=CASE WHEN status='cancelled' OR ?>total_cents THEN 1 ELSE needs_refund END,status=?,confirmed_at=?,status_at=?,updated=? WHERE id=? AND profile_id=? AND payment_status=? AND status=? AND updated=?",
+          [next.paid_at, payment.id, payment.amount_cents, next.status, next.confirmed_at, entering ? at : order.status_at, at, order.id, ctx.profile, order.payment_status, order.status, order.updated]], commerceGuard,
+        ["INSERT INTO pedido_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) VALUES(?,?,?,'payment',?,?,'provider','Pagamento confirmado pelo provedor.',?)", [uid(), ctx.profile, order.id, order.status, next.status, at]],
+        ...(entering ? [["INSERT INTO pedido_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) VALUES(?,?,?,'status',?,'received','provider','Pagamento confirmado.',?)", [uid(), ctx.profile, order.id, order.status, at]] as Statement] : []),
+        ...statements,
+      ]);
+    }
     // Repetição do gancho (conferência A3): já marcado pago por este
     // pagamento, refaz os passos seguintes (todos com chave) em vez de sair;
     // uma falha no meio da primeira vez não deixa o pedido parado.
@@ -1310,13 +1339,10 @@ export async function paymentUpdated(
       order.payment_status === "paid" &&
       order.paid_by !== "provider"
     ) {
-      await exec(
-        ctx.env,
-        "UPDATE pedido_orders SET needs_refund=1,updated=? WHERE id=? AND profile_id=?",
-        at,
-        order.id,
-        ctx.profile,
-      );
+      await batch(ctx.env, [
+        ["UPDATE pedido_orders SET needs_refund=1,updated=? WHERE id=? AND profile_id=? AND payment_status='paid'", [at, order.id, ctx.profile]], commerceGuard,
+        ...await providerOrderStatements(ctx, order, payment.id),
+      ]);
       await ctx.publish(
         "pedido.payment_late",
         order.id,
@@ -1348,14 +1374,7 @@ export async function paymentUpdated(
       order.payment_status === "paid" &&
       (!order.payment_id || order.payment_id === payment.id);
     if (!claimed.meta.changes && !repeat) return;
-    if (claimed.meta.changes)
-      await history(
-        ctx,
-        order,
-        "payment",
-        "provider",
-        `Pagamento confirmado pelo provedor: ${money(payment.amount_cents)}.`,
-      );
+
     await ctx.publish(
       "pedido.paid",
       order.id,
@@ -1379,7 +1398,7 @@ export async function paymentUpdated(
         "provider",
         "Pagamento confirmado.",
       );
-    else if (repeat && fresh.status === "received")
+    else if ((repeat || entering) && fresh.status === "received")
       await reannounceMove(ctx, order.id, "awaiting_payment", "received");
     else if (fresh.status === "cancelled") {
       await ctx.publish(
@@ -1458,17 +1477,28 @@ export async function paymentUpdated(
     return;
   }
   if (payment.status === "refunded") {
-    const claimed = await exec(
-      ctx.env,
-      "UPDATE pedido_orders SET payment_status='refunded',needs_refund=0,updated=? WHERE id=? AND payment_status<>'refunded'",
-      at,
-      order.id,
-    );
+    // A devolução da cobrança extra não anula o recebimento manual original.
+    if (order.payment_status === "paid" && order.paid_by !== "provider") {
+      const reversal = await providerOrderStatements(ctx, order, payment.id, true);
+      if (reversal.length || order.needs_refund) await batch(ctx.env, [
+        ["UPDATE pedido_orders SET needs_refund=0,updated=? WHERE id=? AND profile_id=? AND payment_status='paid' AND paid_by=?", [at, order.id, ctx.profile, order.paid_by]], commerceGuard,
+        ["INSERT INTO pedido_history(id,profile_id,order_id,kind,actor,note,created) VALUES(?,?,?,'payment','provider','Estorno de pagamento adicional confirmado.',?)", [uid(), ctx.profile, order.id, at]],
+        ...reversal,
+      ]);
+      await ctx.publish("pedido.refunded", order.id, { order_id: order.id, number: order.number, payment_id: payment.id, amount_cents: payment.amount_cents, needs_review: false, conversation_id: order.conversation_id }, { key: `extra-refunded:${payment.id}` });
+      return;
+    }
+    if (order.payment_status === "refunded") await providerOrderStatements(ctx, order, payment.id, true, true);
+    let claimed = { meta: { changes: 0 } };
+    if (order.payment_status !== "refunded") [claimed] = await batch(ctx.env, [
+      ["UPDATE pedido_orders SET payment_status='refunded',needs_refund=0,updated=? WHERE id=? AND profile_id=? AND payment_status=? AND updated=?", [at, order.id, ctx.profile, order.payment_status, order.updated]], commerceGuard,
+      ["INSERT INTO pedido_history(id,profile_id,order_id,kind,actor,note,created) VALUES(?,?,?,'payment','provider','Pagamento estornado.',?)", [uid(), ctx.profile, order.id, at]],
+      ...await providerOrderStatements(ctx, order, payment.id, true),
+    ]);
     // Repetição (conferência A3): refaz cancelamento, evento e nota (com
     // chave) se a primeira vez falhou no meio.
     if (!claimed.meta.changes && order.payment_status !== "refunded") return;
-    if (claimed.meta.changes)
-      await history(ctx, order, "payment", "provider", "Pagamento estornado.");
+
     // Estorno ou contestação (revisão M8): pedido que ainda não foi para o
     // preparo é cancelado; já em preparo ou entregue, vira pendência para a
     // equipe (nota interna e needs_review no evento).

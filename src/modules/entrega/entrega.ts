@@ -1,3 +1,4 @@
+import { receiveDelivery, updateDeliveryCommercial } from "./integration";
 // Entrega (módulo "entrega"): registra rotas, comandos e ganchos no núcleo
 // (src/modules/api.ts). Regras em ./store.ts (entregas e posições) e
 // ./notify.ts (mensagens ao cliente, rodada periódica, página). Uso:
@@ -258,3 +259,9 @@ onInboundContent(MODULE, "location", (ctx, c, content, { rowId }) =>
 
 // Avisos de chegada, atualizações periódicas, sinal perdido e retenção.
 onSchedule(MODULE, (ctx, { now: at }) => runDue(ctx, at));
+
+// Cobrança explícita de entrega avulsa; não acessível pela credencial de QR.
+onRoute(MODULE, { method: "PATCH", path: "entrega/deliveries/:id/commercial", op: "entrega.commercial" });
+onCommand(MODULE, "entrega.commercial", (ctx, actor, data, { requestId }) => updateDeliveryCommercial(ctx, actor, data, requestId));
+onRoute(MODULE, { method: "POST", path: "entrega/deliveries/:id/receipts", op: "entrega.receipt" });
+onCommand(MODULE, "entrega.receipt", (ctx, actor, data, { requestId }) => receiveDelivery(ctx, actor, data, requestId));

@@ -1,8 +1,11 @@
+import { hash } from "../../integrations/keys";
+import { commerceGuard } from "../pedido/public";
+import { deliveryCreationStatements, deliveryLifecycleStatements, deliveryCommercial } from "./integration";
 // Entregas: criar, atribuir, iniciar a rota, receber posições, concluir e
 // cancelar. As escritas da equipe e do app passam pelos comandos (Coordinator);
 // só o lote de posições usa a rota de telemetria (uma escrita por lote, fora
 // do Coordinator). Regras em docs/ENTREGA.md.
-import { all, exec, one } from "../../db";
+import { all, batch, exec, one } from "../../db";
 import {
   ApiError,
   type Actor,
@@ -113,6 +116,7 @@ export function deliveryView(row: DeliveryRow, cfg: EntregaConfig, at = now()) {
         }
       : null;
   return {
+    commercial: deliveryCommercial(row),
     id: row.id,
     source: row.source,
     source_ref: row.source_ref,
@@ -183,6 +187,7 @@ export function courierSafe(view: Record<string, any>) {
     conversation_id: _c,
     note: _n,
     history: _h,
+    commercial: _commercial,
     created_by: _b,
     customer_name,
     ...rest
@@ -492,6 +497,13 @@ export async function createDelivery(
 ) {
   team(ctx, actor);
   const cfg = await config(ctx);
+  const createScope = `f3-delivery-create:${ctx.profile}:${actor.id}`;
+  const fingerprint = hash(data);
+  const replay = await one(ctx.env, "SELECT fingerprint,response FROM receipts WHERE scope=? AND key=?", createScope, requestId);
+  if (replay) {
+    if (replay.fingerprint !== fingerprint) throw new ApiError(409, "idempotency_conflict", "Esta chave já identifica outra entrega.");
+    return deliveryView(await loadDelivery(ctx, JSON.parse(replay.response).id), cfg);
+  }
   const source = data.source ?? "manual";
   requireValue(
     (SOURCES as readonly string[]).includes(source),
@@ -535,10 +547,9 @@ export async function createDelivery(
   const id = uid(),
     at = now();
   try {
-    await exec(
-      ctx.env,
+    await batch(ctx.env, [[
       "INSERT INTO entrega_deliveries(id,profile_id,source,source_ref,source_key,label,conversation_id,customer_name,address_text,address,dest_lat,dest_lng,dest_source,courier_id,courier_name,courier_kind,status,assigned_at,note,created_by,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-      id,
+      [id,
       ctx.profile,
       source,
       ref,
@@ -559,8 +570,12 @@ export async function createDelivery(
       text(data.note, 500, "Observação"),
       actor.id,
       at,
-      at,
-    );
+      at],
+    ], commerceGuard,
+      ["INSERT INTO entrega_history(id,profile_id,delivery_id,status,actor,note,created) VALUES(?,?,?,?,?,'',?)", [uid(), ctx.profile, id, courier ? "assigned" : "pending", actor.id, at]],
+      ...await deliveryCreationStatements(ctx, { id, source, source_ref: ref }),
+      ["INSERT INTO receipts(scope,key,fingerprint,response,status,created) VALUES(?,?,?,?,200,?)", [createScope, requestId, fingerprint, JSON.stringify({ id }), at]],
+    ]);
   } catch (error) {
     if (/UNIQUE/i.test(String((error as Error)?.message)))
       throw new ApiError(
@@ -570,7 +585,7 @@ export async function createDelivery(
       );
     throw error;
   }
-  await history(ctx, id, courier ? "assigned" : "pending", actor.id);
+
   const row = await loadDelivery(ctx, id);
   const view = deliveryView(row, cfg);
   await ctx.publish("entrega.created", id, eventPayload(view), { key: id });
@@ -823,6 +838,7 @@ export async function finish(
   const cfg = await config(ctx);
   const row = await loadDelivery(ctx, data.id);
   if (!isCourierOf(actor, row)) team(ctx, actor);
+  if (row.status === "delivered") return { ...deliveryView(row, cfg), pedido_error: null };
   requireValue(
     ["assigned", "en_route"].includes(row.status),
     row.status === "delivered"
@@ -836,30 +852,11 @@ export async function finish(
   // A entrega é concluída antes de mudar o Pedido: o gancho de estado do
   // Pedido (onOrderStatusChanged) já a encontra entregue e não repete.
   const at = now();
-  await exec(
-    ctx.env,
-    "UPDATE entrega_deliveries SET status='delivered',delivered_at=?,ended_at=?,updated=? WHERE id=? AND status IN ('assigned','en_route')",
-    at,
-    at,
-    at,
-    row.id,
-  );
-  await history(
-    ctx,
-    row.id,
-    "delivered",
-    actor.id,
-    [
-      note,
-      (row as any).confirm_code
-        ? byCourier
-          ? "Código de entrega conferido."
-          : "Concluída pela loja sem o código de entrega."
-        : "",
-    ]
-      .filter(Boolean)
-      .join(" "),
-  );
+  await batch(ctx.env, [
+    ["UPDATE entrega_deliveries SET status='delivered',delivered_at=?,ended_at=?,updated=? WHERE id=? AND profile_id=? AND status=?", [at, at, at, row.id, ctx.profile, row.status]], commerceGuard,
+    ["INSERT INTO entrega_history(id,profile_id,delivery_id,status,actor,note,created) VALUES(?,?,?,'delivered',?,?,?)", [uid(), ctx.profile, row.id, actor.id, [note, row.confirm_code ? byCourier ? "Código de entrega conferido." : "Concluída pela loja sem o código de entrega." : ""].filter(Boolean).join(" "), at]],
+    ...await deliveryLifecycleStatements(ctx, { ...row, status: "delivered", delivered_at: at }, actor.id, false),
+  ]);
   await endAccess(ctx, row.id, "Entrega concluída.");
   const asPedido = pedidoActor(ctx, actor);
   let pedidoError: string | null = null;
@@ -900,20 +897,19 @@ export async function cancel(ctx: ModuleContext, actor: Actor, data: any) {
   const cfg = await config(ctx);
   const row = await loadDelivery(ctx, data.id);
   if (!isCourierOf(actor, row)) team(ctx, actor);
+  if (row.status === "cancelled") {
+    if (row.cancel_reason !== text(data.reason, 300, "Motivo")) throw new ApiError(409, "idempotency_conflict", "O cancelamento já tem outro motivo.");
+    return { ...deliveryView(row, cfg), was_en_route: !!row.started_at };
+  }
   requireValue(OPEN.includes(row.status), "A entrega já terminou.");
   const reason = text(data.reason, 300, "Motivo");
   requireValue(reason, "Informe o motivo (reason).");
   const at = now();
-  await exec(
-    ctx.env,
-    "UPDATE entrega_deliveries SET status='cancelled',cancelled_at=?,ended_at=?,cancel_reason=?,updated=? WHERE id=? AND status IN ('pending','assigned','en_route')",
-    at,
-    at,
-    reason,
-    at,
-    row.id,
-  );
-  await history(ctx, row.id, "cancelled", actor.id, reason);
+  await batch(ctx.env, [
+    ["UPDATE entrega_deliveries SET status='cancelled',cancelled_at=?,ended_at=?,cancel_reason=?,updated=? WHERE id=? AND profile_id=? AND status=?", [at, at, reason, at, row.id, ctx.profile, row.status]], commerceGuard,
+    ["INSERT INTO entrega_history(id,profile_id,delivery_id,status,actor,note,created) VALUES(?,?,?,'cancelled',?,?,?)", [uid(), ctx.profile, row.id, actor.id, reason, at]],
+    ...await deliveryLifecycleStatements(ctx, { ...row, status: "cancelled" }, actor.id, true),
+  ]);
   await endAccess(ctx, row.id, "Entrega cancelada.");
   const view = deliveryView(await loadDelivery(ctx, row.id), cfg);
   await ctx.publish("entrega.cancelled", row.id, eventPayload(view), {

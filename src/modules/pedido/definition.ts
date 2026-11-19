@@ -7,6 +7,8 @@ import type { ModuleDefinition } from "../types";
 
 export const pedidoModule: ModuleDefinition = {
   id: "pedido",
+  erp_role: "vendas",
+  integration: { route: "sale", uses: ["customers", "products", "stock", "finance"], operations: ["prepare", "execute", "lifecycle", "receive", "cancel", "reverse"], privacy: "commercial" },
   name: "Pedido",
   version: "1.0.0",
   description:
