@@ -10,7 +10,7 @@ import { pgBtrim, pgLower } from "../../../engine/text.ts";
 import { labelDefaults, labelDto, reportClean } from "../../preferences/public.ts";
 import { requireAccess } from "../access.ts";
 import { auxiliaryAudit } from "../command.ts";
-import { contactScope } from "../contact.ts";
+import { contactScope, contactRequirePrivacy } from "../contact.ts";
 import { compareText } from "../fields.ts";
 import type { SqlDriver } from "../../../engine/driver.ts";
 
@@ -51,6 +51,7 @@ export function erpCatalogContactLabels(ctx: RpcContext, a: RpcArgs) {
     if (!one(db, `SELECT 1 x FROM "erp_catalog__record" r JOIN "erp_catalog__contact" c ON c.record_id=r.id WHERE r.id=? AND r.entity='contacts'`, id))
       raise("P0002", "erp_catalog_not_found");
   const scope = contactScope(db, user);
+  for (const id of ids) contactRequirePrivacy(db, id);
   if (scope !== null)
     for (const id of ids)
       if (!one(db, `SELECT 1 x FROM "erp_catalog__contact_profile" WHERE record_id=? AND seller_id=?`, id, scope))

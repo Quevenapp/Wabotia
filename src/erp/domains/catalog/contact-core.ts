@@ -11,6 +11,8 @@
 import { formatScaled, fromColumn, toParam, toScaled } from "../../engine/dec.ts";
 import { one, type SqlDriver } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
+import { CUSTOMER_BRIDGE_USER_ID } from "../../engine/identity.ts";
+import { customerPhoneVariants, normalizeCustomerPhone } from "../../../customer/phone.ts";
 import { jsonbKeys, jsonbText, jsonType } from "../../engine/json.ts";
 import type { RpcContext } from "../../engine/registry.ts";
 import { jsonTimestamp, todaySaoPaulo } from "../../engine/time.ts";
@@ -18,7 +20,7 @@ import { actorLabel } from "../access/public.ts";
 import * as finance from "../finance/public.ts";
 import * as fiscal from "../fiscal/public.ts";
 import * as preferences from "../preferences/public.ts";
-import { contactRequireVisible, contactScope, contactSituation, contactSituationOf, contactSourceSituation } from "./contact.ts";
+import { contactRequireVisible, contactScope, contactSituation, contactSituationOf, contactSourceSituation, contactRequirePrivacy, contactPrivacyVisible } from "./contact.ts";
 import { contactCodeCounter, highestContactCode } from "./contact-code.ts";
 import {
   SPACES,
@@ -416,6 +418,7 @@ export function contactData(db: SqlDriver, id: string): Json | null {
 
 /** erp_catalog.contact_dto(p_id): o contato para a tela (null se não é contato). */
 export function contactDto(db: SqlDriver, id: string): Json | null {
+  contactRequirePrivacy(db, id);
   const rec = one(
     db,
     `SELECT id, active, CAST(version AS TEXT) version, CAST(created_at AS TEXT) created_at, CAST(updated_at AS TEXT) updated_at, updated_by
@@ -429,7 +432,7 @@ export function contactDto(db: SqlDriver, id: string): Json | null {
   const roles = one(db, 'SELECT roles FROM "erp_catalog__contact" WHERE record_id=?', id);
   const origin = one(db, 'SELECT source_id, state, applied_hash, latest_hash FROM "erp_catalog__origin" WHERE record_id=?', id);
   const seller = profile?.seller_id
-    ? one(db, 'SELECT r.name FROM "erp_catalog__seller" s JOIN "erp_catalog__record" r ON r.id=s.contact_id WHERE s.id=?', profile.seller_id)
+    ? one(db, 'SELECT r.id, r.name FROM "erp_catalog__seller" s JOIN "erp_catalog__record" r ON r.id=s.contact_id WHERE s.id=?', profile.seller_id)
     : null;
   const own = one(db, 'SELECT id FROM "erp_catalog__seller" WHERE contact_id=?', id);
   return {
@@ -446,7 +449,7 @@ export function contactDto(db: SqlDriver, id: string): Json | null {
       : null,
     finance_category_name: profile?.finance_category_id ? finance.categoryLabel(db, String(profile.finance_category_id)) : null,
     operation_nature_name: profile?.operation_nature_id ? fiscal.natureDescription(db, String(profile.operation_nature_id)) : null,
-    seller_name: seller ? seller.name : null,
+    seller_name: seller && contactPrivacyVisible(db, String(seller.id)) ? seller.name : null,
     seller_record_id: own ? own.id : null,
     persons: db
       .exec(
@@ -454,7 +457,8 @@ export function contactDto(db: SqlDriver, id: string): Json | null {
          WHERE p.contact_id=? ORDER BY p.position`,
         id,
       )
-      .rows.map((r) => ({ id: r.id, name: r.name, code: r.code ?? null, situation: contactSituationOf(db, String(r.id)) })),
+      .rows.filter((r) => contactPrivacyVisible(db, String(r.id)))
+      .map((r) => ({ id: r.id, name: r.name, code: r.code ?? null, situation: contactSituationOf(db, String(r.id)) })),
     updated_by_name: rec.updated_by === null ? null : actorLabel(db, String(rec.updated_by)),
   };
 }
@@ -566,6 +570,18 @@ export function contactApply(
   if (acknowledged !== null && acknowledged !== undefined && codes.some((c) => !(acknowledged as unknown[]).includes(c)))
     raise("40001", "erp_catalog_warning_unacknowledged");
   const active = ["A", "S"].includes(String(full.situation));
+  if (id === null && user === CUSTOMER_BRIDGE_USER_ID) {
+    // callRpc mantém esta conferência e o INSERT na mesma transactionSync.
+    // Telefone só localiza candidatos; não vincula fichas nem limita humanos.
+    const variants = (value: unknown) => {
+      return [normalizeCustomerPhone(value, "international"), normalizeCustomerPhone(value, "human_br")]
+        .flatMap((phone) => phone ? customerPhoneVariants(phone) : []);
+    };
+    const phones = new Set([full.phone, full.mobile].flatMap(variants));
+    if (phones.size && db.exec('SELECT phone,mobile FROM "erp_catalog__contact"').rows
+      .some((other) => [other.phone, other.mobile].flatMap(variants).some((phone) => phones.has(phone))))
+      raise("40001", "erp_catalog_contact_command_conflict:duplicate_phone");
+  }
   let target: string;
   let changed: boolean;
   if (id === null) {

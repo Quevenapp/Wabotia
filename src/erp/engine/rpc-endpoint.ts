@@ -6,7 +6,7 @@ import "../domains/index.ts";
 import { storageDriver, type SqlDriver } from "./driver.ts";
 import { ErpError } from "./errors.ts";
 import { ErpGateDenied, callRpc, isPorted, rpcObjectKeys, rpcWakes, rpcWantsListing, type StoredListing, type StoredObject } from "./registry.ts";
-import { CUSTOMER_BRIDGE_FIELDS, CUSTOMER_BRIDGE_SCAN, CUSTOMER_BRIDGE_USER_ID, GATE_DENIED_HEADER, GATE_HEADER, IDENTITY_HEADER, SYSTEM_HEADER, decodeIdentity } from "./identity.ts";
+import { CUSTOMER_BRIDGE_FIELDS, CUSTOMER_BRIDGE_SCAN, CUSTOMER_BRIDGE_USER_ID, GATE_DENIED_HEADER, GATE_HEADER, IDENTITY_HEADER, SYSTEM_HEADER, decodeIdentity, containsRestrictedContact, customerPrivacyUnsupported } from "./identity.ts";
 import { SIGNATURES } from "./signatures.generated.ts";
 import { ENGINE_SIGNATURES } from "./signatures-engine.ts";
 import { requestModuleState } from "./module-state.ts";
@@ -134,6 +134,10 @@ export async function handleRpc(
     return Response.json({ code: "22023", message: "erp_rpc_body_invalid" }, { status: 400 });
   const identity = decodeIdentity(request.headers.get(IDENTITY_HEADER));
   const a = args as Record<string, unknown>;
+  const restricted = new Set(identity.customer_privacy?.restricted_contact_ids ?? []);
+  const privacyDenied = () => Response.json({ code: "42501", message: "erp_customer_restricted" }, { status: 403 });
+  const references = name === CUSTOMER_BRIDGE_SCAN ? { ...a, p_after: null } : a;
+  if (containsRestrictedContact(references, restricted) || (restricted.size && customerPrivacyUnsupported(name, a))) return privacyDenied();
   const bridge = identity.actor?.user_id === CUSTOMER_BRIDGE_USER_ID;
   const denied = () => Response.json({ code: "42501", message: "erp_customer_bridge_scope" }, { status: 403 });
   if (bridge) {
@@ -164,7 +168,8 @@ export async function handleRpc(
       const db = storageDriver(ctx.storage);
       const call = (rpc: string, input: Record<string, unknown>) => callRpc(db, rpc,
         { ...input, p_user_id: a.p_user_id }, clock, { identity, gate: true });
-      const rows = db.exec("SELECT id FROM erp_catalog__record WHERE entity='contacts' AND id>? ORDER BY id LIMIT ?", after, Number(limit) + 1).rows;
+      const rows = db.exec("SELECT id FROM erp_catalog__record WHERE entity='contacts' AND id>? AND id NOT IN (SELECT value FROM json_each(?)) ORDER BY id LIMIT ?",
+        after, JSON.stringify([...restricted]), Number(limit) + 1).rows;
       // Cada GET aplica autorização/portão antes de devolver qualquer dado.
       // Na página vazia também precisa conferir o acesso. Evita executar a
       // listagem (que filtra toda a base) a cada página da varredura por ID.
@@ -182,6 +187,8 @@ export async function handleRpc(
       modules: requestModuleState(request.headers, request.headers.get(SYSTEM_HEADER) === "1"),
       gate: request.headers.get(GATE_HEADER) === "1",
     });
+    // Recibos podem anteceder a restrição e não passam novamente pelo DTO.
+    if (containsRestrictedContact(result, restricted)) return privacyDenied();
     // RPC que cria tarefa da plataforma (exportação pedida no painel): o
     // agendador acorda em 1 s, sem esperar a próxima acordada (até 1 h).
     if (rpcWakes(name)) await wakeSoon(ctx);

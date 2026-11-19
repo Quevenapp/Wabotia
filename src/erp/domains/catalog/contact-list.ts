@@ -6,7 +6,7 @@
 import type { SqlDriver } from "../../engine/driver.ts";
 import { jsonTimestamp, saoPauloMidnight } from "../../engine/time.ts";
 import * as documents from "../documents/public.ts";
-import { SOURCE_SITUATION_SQL, contactSituation, contactSourceSituation } from "./contact.ts";
+import { SOURCE_SITUATION_SQL, contactSituation, contactSourceSituation, contactRestrictedIds, contactRequirePrivacy, contactPrivacyVisible } from "./contact.ts";
 import { contactTypeSlugs } from "./contact-core.ts";
 import { CNTRL, btrim, chars, lower, matches, upper } from "./fields.ts";
 import { fold } from "./internal.ts";
@@ -145,6 +145,11 @@ const ORDER_SQL: Record<string, string> = {
 export function contactPage(db: SqlDriver, f: ContactFilter, sort: string, offset: number, limit: number): { total: number; ids: string[] } {
   const where: string[] = ["r.entity='contacts'"];
   const params: unknown[] = [];
+  const restricted = contactRestrictedIds(db);
+  if (restricted.size) {
+    where.push("r.id NOT IN (SELECT value FROM json_each(?))");
+    params.push(JSON.stringify([...restricted]));
+  }
   if (f.situation === "latest") where.push(`${SITUATION_SQL}<>'E'`);
   else if (f.situation !== "all") (where.push(`${SITUATION_SQL}=?`), params.push(f.situation));
   if (f.type === "none")
@@ -208,6 +213,7 @@ export function contactPage(db: SqlDriver, f: ContactFilter, sort: string, offse
 }
 /** erp_catalog.contact_list_item(p_id) */
 export function contactListItem(db: SqlDriver, id: string): Row | null {
+  contactRequirePrivacy(db, id);
   const r = db.exec(
     `SELECT r.id, r.active, CAST(r.version AS TEXT) version, r.name, r.code, CAST(r.created_at AS TEXT) created_at,
      CAST(r.updated_at AS TEXT) updated_at, c.trade_name, c.person_type, c.document, c.email, c.phone, c.mobile, c.city, c.state, c.roles,
@@ -221,7 +227,7 @@ export function contactListItem(db: SqlDriver, id: string): Row | null {
   const seller =
     r.seller_id === null || r.seller_id === undefined
       ? null
-      : db.exec('SELECT sr.name FROM "erp_catalog__seller" s JOIN "erp_catalog__record" sr ON sr.id=s.contact_id WHERE s.id=?', r.seller_id).rows[0];
+      : db.exec('SELECT sr.id, sr.name FROM "erp_catalog__seller" s JOIN "erp_catalog__record" sr ON sr.id=s.contact_id WHERE s.id=?', r.seller_id).rows[0];
   return {
     id: r.id,
     entity: "contacts",
@@ -245,7 +251,7 @@ export function contactListItem(db: SqlDriver, id: string): Row | null {
     types: contactTypeSlugs(db, id),
     crt: r.crt ?? null,
     seller_id: r.seller_id ?? null,
-    seller_name: seller ? seller.name : null,
+    seller_name: seller && contactPrivacyVisible(db, String(seller.id)) ? seller.name : null,
     next_visit: r.next_visit ?? null,
     is_seller: db.exec('SELECT 1 x FROM "erp_catalog__seller" WHERE contact_id=?', id).rows.length > 0,
   };

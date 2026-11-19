@@ -33,6 +33,8 @@ export interface ErpPerson {
   email: string | null;
   erp_role: ErpRole | null;
   verified_factor: boolean;
+  /** Marca do diretório interno, nunca inferida do nome da pessoa. */
+  is_technical?: boolean;
 }
 
 export interface ErpActor extends ErpPerson {
@@ -44,6 +46,8 @@ export interface ErpActor extends ErpPerson {
 export interface IdentityPort {
   actor: ErpActor | null;
   people: ErpPerson[] | null;
+  /** Restrição D1 lida pelo Worker; o objeto recebe só IDs, sem acesso ao D1. */
+  customer_privacy?: { restricted_contact_ids: string[] };
 }
 
 export const NO_IDENTITY: IdentityPort = { actor: null, people: null };
@@ -58,13 +62,17 @@ function person(v: any): ErpPerson | null {
     email: typeof v.email === "string" ? v.email : null,
     erp_role: ERP_ROLES.includes(v.erp_role) ? v.erp_role : null,
     verified_factor: v.verified_factor === true,
+    ...(v.is_technical === true ? { is_technical: true } : {}),
   };
 }
 
 /** Envelope recebido (JSON já decodificado) → porta validada; o que não confere vira ausente. */
 export function readIdentity(raw: unknown): IdentityPort {
   if (!raw || typeof raw !== "object") return NO_IDENTITY;
-  const r = raw as { actor?: any; people?: any };
+  const r = raw as { actor?: any; people?: any; customer_privacy?: any };
+  const restricted = r.customer_privacy?.restricted_contact_ids;
+  if (r.customer_privacy !== undefined && (!Array.isArray(restricted) ||
+      restricted.length > 2000 || restricted.some((id: unknown) => typeof id !== "string" || !UUID.test(id)))) return NO_IDENTITY;
   const base = person(r.actor);
   const actor: ErpActor | null = base
     ? {
@@ -75,7 +83,24 @@ export function readIdentity(raw: unknown): IdentityPort {
       }
     : null;
   const people = Array.isArray(r.people) ? r.people.map(person).filter((p: ErpPerson | null): p is ErpPerson => p !== null) : null;
-  return { actor, people };
+  return { actor, people, ...(restricted ? { customer_privacy: { restricted_contact_ids: restricted } } : {}) };
+}
+
+/** Também alcança IDs em recibos antigos, referências e snapshots aninhados. */
+export function containsRestrictedContact(value: unknown, restricted: ReadonlySet<string>): boolean {
+  if (!restricted.size) return false;
+  if (typeof value === "string") return restricted.has(value.toLowerCase()) ||
+    (value.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi) ?? [])
+      .some((id) => restricted.has(id.toLowerCase()));
+  if (Array.isArray(value)) return value.some((item) => containsRestrictedContact(item, restricted));
+  return !!value && typeof value === "object" && Object.values(value).some((item) => containsRestrictedContact(item, restricted));
+}
+
+/** Coleções/artefatos legados sem filtro antes da paginação não têm projeção segura. */
+export function customerPrivacyUnsupported(rpc: string, args: Record<string, unknown>): boolean {
+  return /^erp_platform_export/.test(rpc) || /^erp_(activity_|history_backups|read_records|catalog_origin_)/.test(rpc) ||
+    ["erp_catalog_seller_options", "erp_catalog_employee_page"].includes(rpc) ||
+    (args.p_entity === "contacts" && ["erp_catalog_page", "erp_catalog_list"].includes(rpc));
 }
 
 const b64url = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");

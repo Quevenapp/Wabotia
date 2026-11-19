@@ -9,7 +9,7 @@ import { pgBtrim, pgHasCntrl, pgLength, pgLower } from "../../../engine/text.ts"
 import { jsonTimestamp } from "../../../engine/time.ts";
 import { requireAccess } from "../access.ts";
 import { contactCarrierMatch } from "../carrier.ts";
-import { contactScope, contactSituation, contactSourceSituation } from "../contact.ts";
+import { contactScope, contactSituation, contactSourceSituation, contactPrivacyVisible, contactRequirePrivacy } from "../contact.ts";
 import { contactTypeSlugs } from "../contact-core.ts";
 import { compareText, matches, searchTerms } from "../fields.ts";
 import { fold } from "../internal.ts";
@@ -19,6 +19,7 @@ const concatWs = (sep: string, ...xs: unknown[]) => xs.filter((x) => x !== null 
 
 /** erp_catalog.contact_option_item(p_id) */
 export function contactOptionItem(db: SqlDriver, id: string): Record<string, unknown> | null {
+  contactRequirePrivacy(db, id);
   const r = one(
     db,
     `SELECT r.id, CAST(r.version AS TEXT) version, r.active, r.name, r.code, CAST(r.created_at AS TEXT) created_at,
@@ -108,6 +109,7 @@ export function erpCatalogContactOptions(ctx: RpcContext, a: RpcArgs) {
       carrier: role === "carrier" ? contactCarrierMatch(db, String(r.id)) : null,
     }))
     .filter((r) => {
+      if (!contactPrivacyVisible(db, r.id)) return false;
       const roles: string[] = JSON.parse(String(r.roles));
       if (role !== null && !roles.includes(role) && !(role === "carrier" && r.carrier !== null) && !(role === "technician" && technicians!.has(r.id)))
         return false;

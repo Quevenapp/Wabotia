@@ -7,7 +7,7 @@ import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/regi
 import { requireAccess } from "../access.ts";
 import { contactCarrierMatch } from "../carrier.ts";
 import { replayCommand, requestHash, storeCommand } from "../command.ts";
-import { contactScope } from "../contact.ts";
+import { contactScope, contactRequirePrivacy } from "../contact.ts";
 
 export function erpCatalogContactCarrierComplement(ctx: RpcContext, a: RpcArgs) {
   const user = (a.p_user_id ?? null) as string | null;
@@ -17,6 +17,7 @@ export function erpCatalogContactCarrierComplement(ctx: RpcContext, a: RpcArgs) 
   const db = ctx.db;
   requireAccess(db, user, "contacts", true);
   if (id === null || carrier === null || command === null) raise("22023", "erp_catalog_invalid_command");
+  contactRequirePrivacy(db, id);
   const hash = requestHash({ actor: user, action: "contact_carrier_complement", id, carrier });
   const replayed = replayCommand(ctx, command, user!, hash);
   if (replayed) return replayed;
