@@ -1,4 +1,5 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { erpPublicHref } from '../../public-url';
 import { useEffect, useRef, useState, type ComponentType, type FormEvent, type ReactNode } from 'react';
 import NativeListLayout from './NativeListLayout';
 import { Icon } from './Icon';
@@ -118,7 +119,7 @@ export function useCatalogList(controller: AccessController, initialEntity: Cata
   const recordPath = (id: string, base = location.search) => { const params = new URLSearchParams(base); params.set('cadastro', entity); params.set('registro', id); return `/cadastros-reais?${params}`; };
   const open = (id: string) => changeList(() => { if (deepLinked) { navigate(recordPath(id)); return; } void load(id); });
   const openRow = (id: string, event: { ctrlKey?: boolean; metaKey?: boolean; button?: number }) => {
-    if (deepLinked && opensInNewTab(event)) { window.open(recordPath(id, ''), '_blank', 'noopener'); return; }
+    if (deepLinked && opensInNewTab(event)) { window.open(erpPublicHref(recordPath(id) + location.hash), '_blank', 'noopener'); return; }
     open(id);
   };
   const closeEditor = () => {

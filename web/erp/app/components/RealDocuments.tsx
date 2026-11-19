@@ -1,4 +1,5 @@
 import './document-layout.css';
+import { erpPublicHref } from '../../public-url';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { TechnicianOptions } from './TechnicianOptions';
 import { DocumentStepNav, useDocumentSteps } from './DocumentSteps';
@@ -856,7 +857,7 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
   const writable=Boolean(access?.write.includes(kind));
   // Origin opens a record by clicking its row; Ctrl/Cmd or middle click opens the same deep link in a new tab.
   const deepLinked=location.pathname==='/documentos-empresa';
-  const openRow=(id:string,event:{ctrlKey?:boolean;metaKey?:boolean;button?:number})=>{if(deepLinked&&opensInNewTab(event)){const params=new URLSearchParams(location.search);params.set('tipo',kind);params.set('documento',id);window.open(`${location.pathname}?${params}`,'_blank','noopener');return;}void open(id);};
+  const openRow=(id:string,event:{ctrlKey?:boolean;metaKey?:boolean;button?:number})=>{if(deepLinked&&opensInNewTab(event)){const params=new URLSearchParams(location.search);params.set('tipo',kind);params.set('documento',id);window.open(erpPublicHref(`${location.pathname}?${params}${location.hash}`),'_blank','noopener');return;}void open(id);};
   const changeOrder=(next:DocumentListOrder)=>{setOrder(next);setListPage(1);};
   // ⋮ Clonar: the same reviewed copy preview as "Duplicar como novo", opened from the list; nothing is saved until Salvar.
   // mode "model" (Criar modelo) and "model_copy" (Clonar modelo) open the reviewed copy as a modelo; "copy" is a plain proposta/documento.
@@ -876,7 +877,7 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
   const importedDraft=(draft:ImportDraft)=>{if(draft.kind!==kind||!access?.write.includes(kind))return;detail.current?.abort();setCopyDraft(null);setRecord(null);setImportDraft(draft);setEditing(true);setEditorEpoch(value=>value+1);setNotice('');};
   const openCreated=(target:DocumentKind,id:string,message:string)=>{if(location.pathname==='/documentos-empresa'){const params=new URLSearchParams(location.search);params.set('tipo',target);params.set('documento',id);navigate(`${location.pathname}?${params}`);return;}setKind(target);clearFilters();setListPage(1);close();setNotice(message);setReload(n=>n+1);};
   return <>
-    <header className="real-heading"><div><h1>{LIST_TITLES[kind]}</h1></div>{!writable&&<span className="real-mode">Somente consulta</span>}{writable&&!editing&&!hasRouteDocument&&<button type="button" className="primary-button documents-primary" title={PRIMARY[kind].title} onClick={event=>{if(deepLinked&&opensInNewTab(event)){window.open(`${location.pathname}?${new URLSearchParams({tipo:kind,acao:'incluir'})}`,'_blank','noopener');return;}create();}} onAuxClick={event=>{if(deepLinked&&event.button===1)window.open(`${location.pathname}?${new URLSearchParams({tipo:kind,acao:'incluir'})}`,'_blank','noopener');}}><Icon name="plus" size={12}/>{PRIMARY[kind].label}</button>}</header>
+    <header className="real-heading"><div><h1>{LIST_TITLES[kind]}</h1></div>{!writable&&<span className="real-mode">Somente consulta</span>}{writable&&!editing&&!hasRouteDocument&&<button type="button" className="primary-button documents-primary" title={PRIMARY[kind].title} onClick={event=>{if(deepLinked&&opensInNewTab(event)){window.open(erpPublicHref(`${location.pathname}?${new URLSearchParams({tipo:kind,acao:'incluir'})}${location.hash}`),'_blank','noopener');return;}create();}} onAuxClick={event=>{if(deepLinked&&event.button===1)window.open(erpPublicHref(`${location.pathname}?${new URLSearchParams({tipo:kind,acao:'incluir'})}${location.hash}`),'_blank','noopener');}}><Icon name="plus" size={12}/>{PRIMARY[kind].label}</button>}</header>
     {notice&&<p className="real-success" role="status">{notice}</p>}
     {error&&<p className="real-alert" role="alert">{error}<button className="text-button" onClick={()=>access?setReload(n=>n+1):controller.retry()}>Tentar novamente</button></p>}
     {/* Wabotia: a versão saiu da chave (salvar no lugar não remonta; os demais caminhos trocam editorEpoch) e o editor espera o acesso,

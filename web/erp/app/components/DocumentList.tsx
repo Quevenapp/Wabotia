@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { erpPublicHref } from '../../public-url';
 import { AccessError, decimalMoney, type AccessController } from '../lib/real-access';
 import { DOCUMENT_MIRROR_READ_ONLY } from '../lib/document-mirror-model';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
@@ -404,8 +405,8 @@ export default function DocumentList(props: DocumentListProps) {
     // Origin "Gerar nota fiscal" opens the note form in a new tab, filled from the pedido (notas lane, 202610200176); the pedido de compra
     // opens the entry note. The note is saved only by its Salvar (homologação).
     if (action.action === 'fiscal_partial') { setPartialInvoice({ id: row.id, number: String(row.number) }); return; }
-    if (action.action === 'fiscal55' || action.action === 'fiscal65') { window.open(kind === 'purchase_orders' ? `/notas-entrada?${new URLSearchParams({ origem: 'brufap', nota: 'nova', pedido: row.id })}`
-      : `/historico-fiscal?${new URLSearchParams({ modelo: action.action === 'fiscal55' ? '55' : '65', origem: 'brufap', nota: 'nova', pedido: row.id })}`, '_blank', 'noopener'); return; }
+    if (action.action === 'fiscal55' || action.action === 'fiscal65') { window.open(erpPublicHref(kind === 'purchase_orders' ? `/notas-entrada?${new URLSearchParams({ origem: 'brufap', nota: 'nova', pedido: row.id })}`
+      : `/historico-fiscal?${new URLSearchParams({ modelo: action.action === 'fiscal55' ? '55' : '65', origem: 'brufap', nota: 'nova', pedido: row.id })}`), '_blank', 'noopener'); return; }
     if (action.action === 'whatsapp') { void sendWhatsapp(row); return; }
     if (locked) return;
     if (action.action === 'clone') { guard.confirmLeave(() => props.onClone(row)); return; }
@@ -563,7 +564,7 @@ export default function DocumentList(props: DocumentListProps) {
         {/* Notas lane: Origin "Gerar nota fiscal agrupando", one NF-e with the parts of several OS of the same cliente (homologação). */}
         {(() => { const reason = groupedInvoiceReason(role, selectedNativeRows);
           return <><h4>Gerar</h4><button type="button" className="origin-action" disabled={Boolean(reason) || locked} title={reason ?? 'Abre em nova aba uma nota com as peças das ordens de serviço selecionadas, para conferir e salvar'}
-            onClick={() => window.open(`/historico-fiscal?${new URLSearchParams({ modelo: '55', origem: 'brufap', nota: 'nova', pedido: selectedRows.map(r => r.id).join(',') })}`, '_blank', 'noopener')}><Icon name="file-invoice-dollar" size={15} /><span>Gerar nota fiscal agrupando</span></button></>; })()}</div>}
+            onClick={() => window.open(erpPublicHref(`/historico-fiscal?${new URLSearchParams({ modelo: '55', origem: 'brufap', nota: 'nova', pedido: selectedRows.map(r => r.id).join(',') })}`), '_blank', 'noopener')}><Icon name="file-invoice-dollar" size={15} /><span>Gerar nota fiscal agrupando</span></button></>; })()}</div>}
       {kind === 'purchase_orders' && <div className="documents-more"><h3>Mais ações</h3>
         <h4>Imprimir</h4><button type="button" className="origin-action" disabled={!selectedRows.length || labelReading} title={selectedRows.length ? 'Etiquetas dos produtos dos pedidos de compra selecionados' : 'Selecione os pedidos na listagem.'} onClick={() => void printProductLabels(selectedRows)}><Icon name="note-sticky" size={15} /><span>{labelReading ? 'Lendo os pedidos…' : 'Imprimir etiquetas'}</span></button></div>}
       {kind === 'purchase_orders' && selectedRows.length > 0 ? <div className="native-list-summary"><h3>Informações</h3><dl className="native-list-stat"><dt>Valor</dt><dd>{decimalMoney(selectedTotal(selectedRows))}</dd></dl><dl className="native-list-stat"><dt>Selecionados</dt><dd>{selectedRows.length.toLocaleString('pt-BR')}</dd></dl><p className="real-help">Informações baseadas nos registros selecionados.</p></div>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { AccessController } from '../lib/real-access';
 import type { CompanyRecord } from '../lib/company-model';
 // 302 (mixed lane): CPF for a company of Pessoa Física.
@@ -56,7 +57,13 @@ export function PdvReceiptSheet({ job, receipt, order, company }: { job: PdvPrin
 }
 
 export default function PdvReceiptPrint({ controller, job, receipt, order, onClose }: { controller: Controller; job: PdvPrintJob; receipt: PdvReceiptSettings; order: 'alfabetica' | 'insercao'; onClose: () => void }) {
+  const [portal] = useState(() => { const node = document.createElement('div'); node.className = 'pdv-print-root'; return node; });
   const [company, setCompany] = useState<Company>(null), [failed, setFailed] = useState(false);
+  useEffect(() => {
+    document.body.append(portal);
+    document.body.classList.add('pdv-print-open');
+    return () => { document.body.classList.remove('pdv-print-open'); portal.remove(); };
+  }, [portal]);
   useEffect(() => {
     const request = new AbortController();
     void controller.company('/v1/empresa/identidade', { signal: request.signal }).then(value => {
@@ -65,10 +72,10 @@ export default function PdvReceiptPrint({ controller, job, receipt, order, onClo
     }).catch(() => { if (!request.signal.aborted) setFailed(true); });
     return () => request.abort();
   }, [controller]);
-  return <div className="pdv-print-dialog" role="dialog" aria-modal="true" aria-labelledby="pdv-print-title">
+  return createPortal(<div className="pdv-print-dialog" role="dialog" aria-modal="true" aria-labelledby="pdv-print-title">
     <header className="pdv-print-controls"><h2 id="pdv-print-title">Imprimir</h2>{failed && <span className="real-help">A identificação da empresa não foi lida; o comprovante sai sem ela.</span>}
       <button type="button" className="secondary-button" onClick={onClose}>Fechar</button>
       <button type="button" className="primary-button" onClick={() => { try { globalThis.window?.print(); } catch { /* The sheet stays on screen. */ } }}><Icon name="print" size={13} />Imprimir</button></header>
     <div className="pdv-print-scroll"><PdvReceiptSheet job={job} receipt={receipt} order={order} company={company} /></div>
-  </div>;
+  </div>, portal);
 }
