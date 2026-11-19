@@ -39,7 +39,7 @@ const settings: Row = {
   },
   ticket_categories: [
     { id: "printher", name: "Printher", enabled: true },
-    { id: "fagoo-erp", name: "Fagoo ERP", enabled: true },
+    { id: "fagoo-erp", name: "ERP", enabled: true },
     { id: "outro", name: "Outro ou não sei", enabled: true },
   ],
   capabilities: [],

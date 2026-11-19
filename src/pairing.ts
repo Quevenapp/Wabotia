@@ -24,7 +24,7 @@ export const pairingClients = {
     ],
   },
   fagoo: {
-    name: "Fagoo",
+    name: "ERP (pareamento antigo)",
     scopes: [
       "routing:read",
       "routing:send",
@@ -106,7 +106,7 @@ export async function pairingStart(
     throw new ApiError(
       410,
       "pairing_client_removed",
-      "O Fagoo agora faz parte do Wabotia, como o módulo ERP. Ligue o ERP em Gestão → Módulos; não é preciso parear.",
+      "O ERP agora faz parte do Wabotia. Ligue o módulo ERP em Gestão → Módulos; não é preciso parear.",
     );
   requireValue(
     body && Object.hasOwn(pairingClients, body.client),

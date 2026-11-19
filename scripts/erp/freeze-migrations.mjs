@@ -26,7 +26,7 @@ if (process.argv[2] === "--check") {
 }
 
 const source = process.argv[2];
-if (!source) throw Error("Informe a pasta supabase/migrations do Fagoo.");
+if (!source) throw Error("Informe a pasta supabase/migrations do ERP de origem.");
 mkdirSync(target, { recursive: true });
 const names = readdirSync(source).filter((n) => n.endsWith(".sql")).sort();
 const files = names.map((name) => {

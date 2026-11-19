@@ -51,7 +51,7 @@ describe("modelo central-aplicativos", () => {
       "NFS-e Leve",
       "Printher",
       "Wabotia",
-      "Fagoo ERP",
+      "ERP",
       "Vinki",
       "Servidor ou integração",
       "Outro ou não sei",
