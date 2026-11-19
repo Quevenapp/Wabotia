@@ -1346,6 +1346,9 @@ export async function receiveExtensionIngress(env: Env, profileId: string, ticke
   const resource = plan.resource ?? (plan.conversationId ? { kind: "conversation" as const, id: plan.conversationId } : undefined);
   requireValue(!plan.conversationId || resource?.kind === "conversation" && resource.id === plan.conversationId,
     "Recurso de entrada inválido.");
+  // Automáticos, bloqueados e quarentena ficam somente na caixa do e-mail.
+  // O recibo terminal e seu lease já deduplicam essas entradas sem atendimento.
+  const emailReceiptOnly = key === "email/direct" && event.kind === "email.received" && !resource && !plan.wake;
   const result = { ...(plan.conversationId ? { conversation_id: plan.conversationId } : {}), ...(resource ? { resource } : {}) };
   const guard: [string, unknown[]] = [
     `INSERT INTO customer_assert(id,ok) SELECT ?,CASE WHEN EXISTS(SELECT 1 FROM connections
@@ -1358,11 +1361,16 @@ export async function receiveExtensionIngress(env: Env, profileId: string, ticke
       WHERE id=? AND profile_id=? AND connection_id=?) THEN 1 ELSE 0 END
       ON CONFLICT(id) DO UPDATE SET ok=excluded.ok`,
     [`${eventKey}:resource`, resource.id, profileId, scope.connectionId],
+  ]] : emailReceiptOnly ? [[
+    `INSERT INTO customer_assert(id,ok) SELECT ?,CASE WHEN EXISTS(SELECT 1 FROM email_channel_inbox
+      WHERE id=? AND profile_id=? AND connection_id=? AND state IN ('automatic','blocked','quarantine','error'))
+      THEN 1 ELSE 0 END ON CONFLICT(id) DO UPDATE SET ok=excluded.ok`,
+    [`${eventKey}:receipt`, event.remoteId, profileId, scope.connectionId],
   ]] : [];
   try {
     await batch(env, [guard,
-      ["INSERT INTO channel_events(event_key,connection_id,chat,external_id,kind,payload,applied,created) VALUES(?,?,?,?,?,?,1,?)",
-        [eventKey, scope.connectionId, key, event.remoteId, event.kind, JSON.stringify(result), ctx.now]],
+      ...(emailReceiptOnly ? [] : [["INSERT INTO channel_events(event_key,connection_id,chat,external_id,kind,payload,applied,created) VALUES(?,?,?,?,?,?,1,?)",
+        [eventKey, scope.connectionId, key, event.remoteId, event.kind, JSON.stringify(result), ctx.now]] as [string, unknown[]]]),
       ...plan.statements, ...resourceGuard,
     ]);
   } catch (error) {
@@ -2850,7 +2858,7 @@ export async function perform(
       ["active", "paused"].includes(data.status),
       "Estado inválido.",
     );
-    const activatesExtension = !!extensionKey(row.channel) || registeredChannelExtensions().some(extension =>
+    const activatesExtension = !!extensionKey(row.channel, row.channel === "googlebusiness" ? "review" : "direct") || registeredChannelExtensions().some(extension =>
       extension.spec.id === row.channel && extension.key.endsWith("/comment") && extension.enabled?.({ ...row, status: "active" }));
     if (data.status === "active" && activatesExtension && row.channel && channelConnectionDriver(row.channel)) {
       const result = await configureChannelConnection(env, actor, profile, {

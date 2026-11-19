@@ -4,7 +4,10 @@ import { installChannelRuntime } from "../src/channel-runtime";
 import { all, batch, exec, one } from "../src/db";
 import { hmac, setSecret } from "../src/security";
 import { conversation, inbound } from "../src/service";
-import { channelImplementationReady } from "../src/channel-ports";
+import { channelAccountsPort, channelImplementationReady } from "../src/channel-ports";
+import { registeredChannelExtensions } from "../src/channel-extension-registry";
+import { CHANNEL_REGISTRY } from "../src/channels";
+import type { ChannelAccountImport, ChannelContext, ChannelId } from "../src/channel-contracts";
 import { resolveCustomer } from "../src/customer/ports";
 import { zernioInbound } from "../src/zernio";
 import { processPush } from "../src/push";
@@ -109,8 +112,31 @@ describe("Worker e Coordinator com os ports reais", () => {
   it("instala somente os canais liberados", async () => {
     installChannelRuntime(); // A mesma composição pode ser usada por Worker e Coordinator.
     expect((await SELF.fetch("https://test/api/health")).status).toBe(200);
-    for (const channel of ["whatsapp", "instagram", "facebook"] as const) expect(channelImplementationReady(channel)).toBe(true);
-    for (const channel of ["tiktok", "googlebusiness", "telegram", "email"] as const) expect(channelImplementationReady(channel)).toBe(false);
+    const installed = [
+      ...(["whatsapp", "instagram", "facebook"] as const).flatMap(channel =>
+        Object.entries(CHANNEL_REGISTRY[channel].contexts)
+          .filter(([context, rules]) => rules.enabled && channelImplementationReady(channel, context as ChannelContext))
+          .map(([context]) => `${channel}/${context}`)),
+      ...registeredChannelExtensions().map(extension => extension.key),
+    ].sort();
+    expect(installed).toEqual([
+      "email/direct", "facebook/comment", "facebook/direct", "googlebusiness/review",
+      "instagram/comment", "instagram/direct", "telegram/direct", "tiktok/direct",
+      "whatsapp/direct", "whatsapp/group",
+    ]);
+    for (const key of installed) {
+      const [channel, context] = key.split("/");
+      expect(channelImplementationReady(channel as ChannelId, context as ChannelContext), key).toBe(true);
+    }
+    expect(channelImplementationReady("googlebusiness", "direct")).toBe(false);
+    const unknown = "future_channel" as ChannelId;
+    expect(channelImplementationReady(unknown)).toBe(false);
+    const f = await fixture();
+    profiles.add(f.profile);
+    // Canal inexistente viola o DTO de propósito; a fachada deve recusá-lo.
+    await expect(channelAccountsPort.importAccount(env, f.admin, f.profile, {
+      commandId: uid(), integrationId: uid(), channel: unknown, accountId: uid(),
+    } as unknown as ChannelAccountImport)).rejects.toMatchObject({ status: 503, code: "channel_not_ready" });
   });
 
   it.each(["instagram", "facebook"] as const)("%s: assinatura, concorrência e replay produzem uma identidade, inbox e mensagem", async channel => {

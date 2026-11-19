@@ -261,6 +261,7 @@ async function listReviews(ctx: ChannelRouteContext) {
   query.cursor?.[0] ?? null, query.cursor?.[0] ?? null, query.cursor?.[0] ?? null, query.cursor?.[1] ?? null, query.limit + 1);
   const publish = await canPublish(ctx.env, actor, ctx.profileId), selected = rows.slice(0, query.limit), last = selected.at(-1);
   return { data: selected.map(row => dto(row, publish)), next_cursor: rows.length > query.limit && last ? JSON.stringify([last.updated, last.id]) : null,
+    permissions: { can_read: true, can_reply: publish, is_admin: actor.role === "admin" },
     can_publish: publish, reply_max_chars: GOOGLE_REPLY_MAX_CHARS, reply_limit_source: "Wabotia" };
 }
 async function mutateReply(ctx: ChannelRouteContext, type: "google.reply" | "google.reply.delete" | "google.suggest") {

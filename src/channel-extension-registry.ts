@@ -42,6 +42,26 @@ export function createChannelExtensionRegistry() {
     if (driver) drivers.set(driver.channel, driver);
     for (const [key, entry] of nextMaintenance) maintenance.set(key, entry);
   }
+  // Só para testes. A composição de produção (src/c2-entry/install.ts) instala os
+  // descritores reais na carga do Worker; um teste que precisa de um descritor
+  // simulado, ou do estado "ainda não instalado", troca ou retira por aqui.
+  // Nenhuma rota ou código de produto chama estas duas funções.
+  function removeChannelExtensionForTests(key: ExtensionKey): void {
+    const previous = extensions.get(key);
+    if (!previous) return;
+    extensions.delete(key);
+    const others = [...extensions.values()];
+    const driver = previous.connectionDriver;
+    if (driver && drivers.get(driver.channel) === driver && !others.some(ext => ext.connectionDriver === driver))
+      drivers.delete(driver.channel);
+    for (const entry of previous.maintenance ?? [])
+      if (maintenance.get(entry.key) === entry && !others.some(ext => (ext.maintenance ?? []).includes(entry)))
+        maintenance.delete(entry.key);
+  }
+  function replaceChannelExtensionForTests(extension: ChannelExtension): void {
+    if (extensions.get(extension.key) !== extension) removeChannelExtensionForTests(extension.key);
+    registerChannelExtension(extension);
+  }
   function findChannelRoute(method: string, path: string, channel?: ChannelId, context?: ChannelContext) {
     const parts = path.replace(/^\/c2(?=\/|$)/, "").split("/");
     for (const extension of extensions.values()) {
@@ -65,7 +85,7 @@ export function createChannelExtensionRegistry() {
     return null;
   }
   return {
-    registerChannelExtension, findChannelRoute,
+    registerChannelExtension, findChannelRoute, removeChannelExtensionForTests, replaceChannelExtensionForTests,
     channelExtension: (key: ExtensionKey): ChannelExtension => extensions.get(key) ?? CHANNEL_EXTENSION_STUBS[key],
     channelExtensionReady: (key: ExtensionKey) => extensions.has(key),
     channelConnectionDriver: (channel: ChannelId) => drivers.get(channel) ?? null,
@@ -77,6 +97,7 @@ export function createChannelExtensionRegistry() {
 export const {
   registerChannelExtension, findChannelRoute, channelExtension, channelExtensionReady,
   channelConnectionDriver, channelMaintenance, registeredChannelExtensions, registeredChannelMaintenance,
+  removeChannelExtensionForTests, replaceChannelExtensionForTests,
 } = createChannelExtensionRegistry();
 export function installChannelExtensions(extensions: readonly ChannelExtension[]): void {
   for (const extension of extensions) registerChannelExtension(extension);

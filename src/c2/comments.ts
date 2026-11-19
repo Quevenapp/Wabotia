@@ -343,7 +343,7 @@ async function complete(ctx: ChannelCompletionContext): Promise<ChannelWritePlan
   return plan;
 }
 
-export function commentView(row: CommentRow): ChannelExtensionView["metadata"]["comment"] {
+export function commentView(row: CommentRow): NonNullable<ChannelExtensionView["metadata"]["comment"]> {
   const post = object(json(row.post_context));
   return { id: row.id, postId: row.post_id, ...(row.parent_id ? { parentId: row.parent_id } : {}), text: row.text ?? "",
     postText: text(post.text), permalink: text(post.permalink), hidden: row.hidden === 1, version: row.version,
@@ -356,12 +356,13 @@ async function view(ctx: ChannelOperationContext): Promise<ChannelExtensionView>
       !(ctx.resource.conversation.chat_type === "comment" || json(ctx.resource.conversation.channel_context).context === "comment"))
     return { capabilities: {}, metadata: {} };
   const c = resourceConversation(ctx);
-  const row = await one<CommentRow>(ctx.env, `SELECT cc.*,m.text FROM channel_comments cc
+  const rows = await all<CommentRow>(ctx.env, `SELECT cc.*,m.text FROM channel_comments cc
     JOIN messages m ON m.id=cc.message_id AND m.profile_id=cc.profile_id AND m.conversation_id=cc.conversation_id
-    WHERE cc.profile_id=? AND cc.connection_id=? AND cc.conversation_id=? ORDER BY cc.created DESC,cc.id DESC LIMIT 1`,
+    WHERE cc.profile_id=? AND cc.connection_id=? AND cc.conversation_id=? ORDER BY cc.created DESC,cc.id DESC`,
     c.profile_id, ctx.connection.id, c.id);
+  const row = rows[0];
   return { capabilities: commentSpec(ctx.connection.channel as CommentChannel), metadata: {
-    identityTrust: "none", ...(row ? { commentId: row.id, postId: row.post_id, permalink: text(json(row.post_context).permalink),
+    identityTrust: "none", comments: rows.map(commentView), ...(row ? { commentId: row.id, postId: row.post_id, permalink: text(json(row.post_context).permalink),
       version: row.version, comment: commentView(row) } : {}) } };
 }
 

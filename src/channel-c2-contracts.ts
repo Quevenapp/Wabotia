@@ -4,7 +4,7 @@ import type { Statement } from "./customer/contracts";
 import type { ChannelConfigurationResult, ChannelConnection, ChannelContext, ChannelId, ChannelSpec, ChannelSubjectNamespace, SocialSendAttachment } from "./channel-contracts";
 
 export type ExtensionKey = "instagram/comment" | "facebook/comment" | "telegram/direct" | "googlebusiness/review" | "email/direct" | "tiktok/direct";
-export type Resource = { kind: "conversation"; id: string } | { kind: "review"; id: string };
+export type Resource = { kind: "conversation"; id: string } | { kind: "review"; id: string } | { kind: "connection"; id: string };
 export type IdentityTrust = "channel" | "unverified_sender" | "none";
 /** Somente o kernel autentica este valor; objetos recebidos por HTTP não são prova. */
 export interface VerifiedIngress {
@@ -44,7 +44,7 @@ export type ChannelAction =
   | { type: "google.reply.delete" | "google.suggest"; version: number };
 /** Não integra o DTO público nem pode ser solicitado por message-actions. */
 export type ChannelInternalAction = { type: "email.auto-reply" | "email.acknowledgement"; text: string; subject: string };
-export type ServerChannelAction = ChannelAction | ChannelInternalAction;
+export type ServerChannelAction = ChannelAction | ChannelInternalAction | { type: "email.probe" };
 export interface ChannelReview {
   id: string; profile_id: string; connection_id: string; account_id: string; remote_id: string;
   rating: number; text: string; author_name: string; author_picture: string; permalink: string;
@@ -53,7 +53,8 @@ export interface ChannelReview {
 }
 export type LoadedChannelResource =
   | { kind: "conversation"; id: string; conversation: Conversation }
-  | { kind: "review"; id: string; review: ChannelReview };
+  | { kind: "review"; id: string; review: ChannelReview }
+  | { kind: "connection"; id: string };
 export interface ExtensionConnection extends ChannelConnection {
   status: string; name: string; mode: string; created: number;
 }
@@ -85,14 +86,19 @@ export interface ChannelDeliveryContext {
 }
 export interface ChannelCompletionContext extends ChannelDeliveryContext { result: ChannelDeliveryResult }
 export interface ChannelReadContext extends ChannelOperationContext {}
+export interface ChannelCommentView {
+  id: string; postId: string; parentId?: string; text?: string; postText?: string; permalink?: string;
+  hidden: boolean; version: number; privateState: "available" | "reserved" | "sent" | "failed" | "unknown";
+  privateExpiresAt: number | null; privateConversationId?: string | null; privateLinkPending?: boolean;
+}
 export interface ChannelExtensionView {
   capabilities: Partial<ChannelSpec>;
   metadata: { subject?: string; identityTrust?: IdentityTrust; remainingMessages?: number;
     closesAt?: number | null; state?: string; configured?: boolean; accountLabel?: string;
     commentId?: string; postId?: string; permalink?: string; version?: number;
-    comment?: { id: string; postId: string; parentId?: string; text?: string; postText?: string; permalink?: string;
-      hidden: boolean; version: number; privateState: "available" | "reserved" | "sent" | "failed" | "unknown";
-      privateExpiresAt: number | null; privateConversationId?: string | null; privateLinkPending?: boolean };
+    comment?: ChannelCommentView;
+    /** Estado atual por alvo, inclusive comentários anteriores da mesma publicação. */
+    comments?: readonly ChannelCommentView[];
     email?: { subject: string; sender: string; from?: string; replyTo?: string; identityTrust: "unverified_sender";
       authentication?: readonly { method: string; result: string }[]; attachmentWarnings?: readonly string[] };
     telegram?: { username?: string; botUrl?: string; blocked: boolean; webhookConfigured: boolean;
@@ -139,10 +145,14 @@ export interface ChannelExtension {
   /** Ack de protocolo (por exemplo callback Telegram), inclusive no replay. Não cria atendimento. */
   acknowledge?(ctx: ChannelOperationContext, event: NormalizedChannelEvent, duplicate: boolean): Promise<void>;
   prepareInbound(ctx: ChannelOperationContext, event: NormalizedChannelEvent): Promise<ChannelWritePlan>;
+  /** Exclusão explícita de dados pessoais; nunca executado na entrada de mensagens. */
+  eraseContact?(env: Env, profileId: string, contactId: string): Promise<void>;
   prepareSend(ctx: ChannelOperationContext, input: ServerChannelAction): Promise<ChannelDeliveryPlan>;
   deliver(ctx: ChannelDeliveryContext): Promise<ChannelDeliveryResult>;
   complete(ctx: ChannelCompletionContext): Promise<ChannelWritePlan>;
   view?(ctx: ChannelReadContext): Promise<ChannelExtensionView>;
+  /** Leitura autorizada da ficha; ausência mantém a iniciação de envio bloqueada. */
+  contactStatus?(ctx: ChannelReadContext): Promise<{ send_ready: boolean }>;
   routes: readonly ChannelRoute[];
   connectionDriver?: ChannelConnectionDriver;
   maintenance?: readonly ChannelMaintenance[];

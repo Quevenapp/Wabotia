@@ -6,6 +6,8 @@ import {
   resolveZernioChannelConnection,
 } from "../src/channel-accounts";
 import { CHANNEL_REGISTRY } from "../src/channels";
+import { channelImplementationReady } from "../src/channel-ports";
+import type { ChannelAccountImport } from "../src/channel-contracts";
 import { removeConnection } from "../src/connection-removal";
 import { all, exec, one } from "../src/db";
 import { probe } from "../src/integrations";
@@ -280,7 +282,7 @@ describe("cn-contas: integração existente e importação social", () => {
     expect(JSON.stringify(discovery)).not.toContain("nao-persistir");
   });
 
-  it("mantém Google sem linha e todos os canais da segunda leva indisponíveis", async () => {
+  it("mantém Google sem linha e recusa importação sem conta correspondente ou por canal próprio", async () => {
     const f = await fixture();
     provider(f, [social(f, "googlebusiness"), social(f, "tiktok")]);
     const discovery = await channelAccountsHandlers.discover(env, admin, f.profile, f.integrationId);
@@ -290,11 +292,23 @@ describe("cn-contas: integração existente e importação social", () => {
       new URL(input instanceof Request ? input.url : String(input)).searchParams.get("platform")).sort())
       .toEqual(["facebook", "instagram"]);
     expect(CHANNEL_REGISTRY.googlebusiness.serviceLine).toBe(false);
-    for (const channel of ["googlebusiness", "tiktok", "telegram", "email"] as const) {
+    for (const channel of ["googlebusiness", "tiktok"] as const) {
       await expect(channelAccountsHandlers.importAccount(env, admin, f.profile, {
-        commandId: uid(), integrationId: f.integrationId, channel: channel as any, accountId: remoteId(),
-      })).rejects.toMatchObject({ code: "channel_not_ready" });
+        commandId: uid(), integrationId: f.integrationId, channel, accountId: remoteId(),
+      })).rejects.toMatchObject({ status: 400, code: "invalid_request", message: "Conta não encontrada neste canal e nesta integração Zernio." });
     }
+    // Telegram e e-mail estão instalados, mas usam conexão própria: não são
+    // contas importáveis da Zernio e conservam a recusa channel_not_ready.
+    for (const channel of ["telegram", "email"] as const) {
+      expect(channelImplementationReady(channel, "direct")).toBe(true);
+      // Viola o DTO de propósito para provar a recusa também em runtime.
+      await expect(channelAccountsHandlers.importAccount(env, admin, f.profile, {
+        commandId: uid(), integrationId: f.integrationId, channel, accountId: remoteId(),
+      } as unknown as ChannelAccountImport)).rejects.toMatchObject({ status: 503, code: "channel_not_ready" });
+    }
+    expect(await all(env, "SELECT connection_id FROM zernio_channel_accounts WHERE profile_id=?", f.profile)).toEqual([]);
+    expect(await all(env, "SELECT connection_id FROM meta_numbers WHERE account_id=?", f.integrationId)).toEqual([]);
+    expect(await all(env, "SELECT id FROM contacts WHERE profile_id=?", f.profile)).toEqual([]);
     expect(await all(env, "SELECT id FROM connections WHERE profile_id=?", f.profile)).toEqual([]);
   });
 

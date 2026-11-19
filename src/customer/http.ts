@@ -11,6 +11,7 @@ import { activeContact, contactRow, customerAccess, guard, guardedBatch, human, 
 import { jobInsert, jobView, replayJob, requestHash } from "./jobs";
 import type { Namespace, Statement } from "./contracts";
 import type { SectionWrite } from "./profile-contracts";
+import { registeredChannelExtensions } from "../channel-extension-registry";
 
 export function pageQuery(query: Record<string, string | undefined>, fallback: number, maximum: number) {
   if (query.limit !== undefined && (!/^\d+$/.test(query.limit) || Number(query.limit) < 1))
@@ -98,6 +99,9 @@ export async function resolvePhone(env: Env, actor: Actor, profile: string, data
   ]);
   return result;
 }
+export async function eraseContactChannels(env: Env, profile: string, contactId: string): Promise<void> {
+  for (const extension of registeredChannelExtensions()) await extension.eraseContact?.(env, profile, contactId);
+}
 export async function eraseContact(env: Env, actor: Actor, profile: string, id: string, data: any, command: string) {
   human(actor); customerAccess(actor, profile, true);
   if (actor.role !== "admin") throw new ApiError(403, "forbidden", "A exclusão exige um administrador.");
@@ -106,11 +110,11 @@ export async function eraseContact(env: Env, actor: Actor, profile: string, id: 
     throw new ApiError(400, "invalid_request", "Confirme o pedido e informe a versão do contato.");
   const hash = await requestHash(actor, { operation: "erase", id, data });
   const replay = await replayJob(env, profile, command, hash);
-  if (replay) return jobView(replay);
+  if (replay) { await eraseContactChannels(env, profile, replay.contact_id); return jobView(replay); }
   const row = await contactRow(env, actor, profile, id, true);
   id = row.id;
   const previous = await one(env, "SELECT * FROM customer_jobs WHERE profile_id=? AND contact_id=? AND kind='erase' ORDER BY created,id LIMIT 1", profile, id);
-  if (previous) return jobView(previous);
+  if (previous) { await eraseContactChannels(env, profile, id); return jobView(previous); }
   activeContact(row);
   if (row.version !== data.expectedVersion) throw new ApiError(409, "contact_conflict", "O contato mudou. Reabra a ficha.");
   const impediments = await customerRetention(env, profile, id);
@@ -131,6 +135,9 @@ export async function eraseContact(env: Env, actor: Actor, profile: string, id: 
     auditStatement(actor, profile, "contact.erasure", id, command),
   ];
   await guardedBatch(env, statements);
+  // A identidade já está bloqueada. Falha de armazenamento propaga e o replay
+  // retoma a limpeza antes de devolver o recibo da exclusão.
+  await eraseContactChannels(env, profile, id);
   return jobView(await one(env, "SELECT * FROM customer_jobs WHERE profile_id=? AND id=?", profile, job.id));
 }
 export async function contactConflicts(env: Env, actor: Actor, profile: string, query: Record<string, string | undefined>) {

@@ -49,6 +49,8 @@ export interface ChannelSpec {
     quickReplies: number;
     listItems: number;
     fallback: "numbered_text";
+    /** Suporte explícito a menu numerado, sem anunciar botões inexistentes. */
+    numberedText?: boolean;
   };
   window:
     | { kind: "none" }

@@ -3,6 +3,10 @@
  * do fornecedor é simulada; nenhuma captura de cliente ou credencial real. */
 import { createExecutionContext, env, runInDurableObject, waitOnExecutionContext } from "cloudflare:test";
 import { expect, vi } from "vitest";
+// Estes ensaios instalam descritores (inclusive sintéticos) explicitamente.
+// Isolamos apenas a instalação automática; Worker, Coordinator e registro
+// continuam reais. c2-entry.test.ts não usa este helper e testa o main completo.
+vi.mock("../src/c2-entry/install", () => ({}));
 import Worker from "../src/index";
 import { all, exec } from "../src/db";
 import { hmac, setSecret, sha } from "../src/security";
@@ -10,7 +14,7 @@ import { ApiError, json, now, uid, type Env as WorkerEnv } from "../src/types";
 import type { ChannelContext, ChannelId } from "../src/channel-contracts";
 import type { ChannelExtension, VerifiedIngress } from "../src/channel-c2-contracts";
 import { assertVerifiedIngress, signVerifiedIngress } from "../src/channel-extension-kernel";
-import { registerChannelExtension } from "../src/channel-extension-registry";
+import { replaceChannelExtensionForTests } from "../src/channel-extension-registry";
 import { loadChannelOperationContext, parseChannelAction, prepareChannelAction } from "../src/channel-extension-kernel";
 import { enqueueChannelPlan } from "../src/engine";
 import { CHANNEL_EXTENSION_STUBS } from "../src/channel-extension-stubs";
@@ -168,10 +172,12 @@ export const syntheticReviewExtension: ChannelExtension = {
   ],
 };
 
+// A composição de produção já instala os descritores reais; o teste troca o da
+// mesma chave pelo que quer exercitar (o próprio descritor real passa direto).
 export async function installTestExtension(f: C2Fixture, extension: ChannelExtension) {
-  registerChannelExtension(extension);
+  replaceChannelExtensionForTests(extension);
   const stub = env.COORDINATOR.get(env.COORDINATOR.idFromName(f.profile));
-  await runInDurableObject(stub, async () => { registerChannelExtension(extension); });
+  await runInDurableObject(stub, async () => { replaceChannelExtensionForTests(extension); });
 }
 export async function installSyntheticReview(f: C2Fixture) {
   await installTestExtension(f, syntheticReviewExtension);
