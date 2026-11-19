@@ -44,6 +44,8 @@ import { headerSubtitle, isMine, tagsOf } from "./model";
 import { WebStepsSection } from "./WebSteps";
 import { PaymentsSection } from "./Payments";
 import { conversationExtensions } from "../modules/conversation";
+import { ContactProfile } from "../contact-profile/ContactProfile";
+import { profileScopeKey } from "../contact-profile/model";
 
 export type InfoActions = {
   contact: () => void;
@@ -87,6 +89,8 @@ export function InfoPanel({
   const tags = tagsOf(c);
   const [tickets, setTickets] = useState<Row[] | null>(null);
   const [policyBusy, setPolicyBusy] = useState(false);
+  const [profileContact, setProfileContact] = useState<{ id: string; scope: string } | null>(null);
+  const contactScope = profileScopeKey(app.root, app.me, app.modules) + ":" + c.id;
   const number = digits(c.phone || "");
 
   useEffect(() => {
@@ -389,9 +393,10 @@ export function InfoPanel({
           </button>
         )}
         {!group && (
-          <button type="button" onClick={actions.contact}>
+          <button type="button" onClick={() => detail.contact?.id
+            ? setProfileContact({ id: detail.contact.id, scope: contactScope }) : actions.contact()}>
             {detail.contact ? <UserRoundPen size={18} /> : <UserPlus size={18} />}
-            {detail.contact ? "Editar contato" : "Salvar contato"}
+            {detail.contact ? "Abrir ficha" : "Salvar contato"}
           </button>
         )}
         <button type="button" onClick={actions.bot}>
@@ -418,6 +423,9 @@ export function InfoPanel({
           </button>
         )}
       </section>
+      {profileContact?.scope === contactScope && <ContactProfile api={app.api} root={app.root}
+        contactId={profileContact.id} scopeKey={contactScope} demo={app.demo} initialContact={detail.contact}
+        conversation={c} onClose={() => setProfileContact(null)} onSaved={() => { void refresh(); }} />}
     </SidePanel>
   );
 }

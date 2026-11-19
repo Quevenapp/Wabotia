@@ -1,4 +1,7 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react';
+import { erpPorts } from '../../ports';
+import { api } from '../../../lib/api';
+import { ErpProfileEntry } from '../../../contact-profile/ContactProfile';
 import { useReferenceOptions } from '../hooks/useReferenceOptions';
 import type { PlatformPort } from '../lib/platform-model';
 import { AccessError, type AccessController } from '../lib/real-access';
@@ -46,6 +49,33 @@ function useOptions<T>(load: (signal: AbortSignal) => Promise<T>, deps: unknown[
 }
 
 export function ContactEditor(props: CatalogEditorProps) {
+  const snapshot = useSyncExternalStore(props.controller.subscribe, props.controller.getSnapshot, props.controller.getSnapshot);
+  const changed = useRef(false);
+  const ports = erpPorts();
+  const [sessionEpoch, setSessionEpoch] = useState(0);
+  useEffect(() => {
+    const subscription = ports?.auth.onAuthStateChange(() => setSessionEpoch(epoch => epoch + 1)).data.subscription;
+    return () => subscription?.unsubscribe();
+  }, [ports?.auth]);
+  if (!props.record || ports?.demo) return <RawContactEditor {...props} />;
+  if (!ports || snapshot.phase !== 'ready') return <section className="real-editor catalog-editor"><p role="alert">Ficha completa temporariamente indisponível.</p><button type="button" onClick={props.onClose}>Voltar à listagem</button></section>;
+  const root = ports.apiUrl.replace(/^\/api\//, '').replace(/\/erp\/?$/, '');
+  // A7 acrescenta esta porta opcional. Enquanto ausente, a mesma ficha monta
+  // pelo ID D1 retornado pela associação, sem inventar igualdade entre IDs.
+  const openContactProfile = (ports as typeof ports & { openContactProfile?: (contactId: string) => void }).openContactProfile;
+  return <ErpProfileEntry api={api} root={root} erpContactId={String(props.record.id)}
+    scopeKey={JSON.stringify([root, snapshot.phase, snapshot.membership, sessionEpoch])}
+    openContactProfile={openContactProfile} onSaved={() => { changed.current = true; }}
+    onClose={() => { if (changed.current) props.onSaved(props.record!); props.onClose(); }} />;
+}
+
+export type RawContactEditorProps = CatalogEditorProps & { embeddedProfile?: boolean };
+/** Corpo bruto: o hospedeiro usa esta entrada e nunca reabre ContactProfile. */
+export function RawContactEditor(props: RawContactEditorProps) {
+  return <LoadedContactEditor key={`${props.record?.id ?? 'new'}:${props.record?.version ?? 0}`} {...props} />;
+}
+
+function LoadedContactEditor(props: RawContactEditorProps) {
   const { controller, writable } = props;
   const [record, setRecord] = useState<ContactRecord | null>(fullRecord(props.record) ? props.record : null);
   const [loadError, setLoadError] = useState('');
@@ -65,7 +95,7 @@ export function ContactEditor(props: CatalogEditorProps) {
   return <ContactForm {...props} record={record} writable={writable} />;
 }
 
-function ContactForm({ controller, record, writable, onClose, onSaved }: CatalogEditorProps & { record: ContactRecord | null }) {
+function ContactForm({ controller, record, writable, onClose, onSaved, embeddedProfile }: RawContactEditorProps & { record: ContactRecord | null }) {
   const today = saoPauloToday();
   const [values, setValues] = useState<Record<string, string>>(() => contactFormValues(record, today));
   const [types, setTypes] = useState<string[]>(() => record?.types ?? []);
@@ -178,7 +208,7 @@ function ContactForm({ controller, record, writable, onClose, onSaved }: Catalog
         <legend className="real-sr-only">Dados do cadastro</legend>
         <section className="contact-section" id="contact-section-identity" tabIndex={-1}><div className="contact-section-title"><h3 className="catalog-group-title">Dados cadastrais</h3>{changed && <span className="contact-changed">Alterado em {changed}{record?.updated_by_name ? `, por ${record.updated_by_name}` : ''}</span>}</div>
           <div className="contact-grid">
-            {field(SECTION_FIELDS.cadastrais[0], record ? <ContactSalesHistory controller={controller} contactId={record.id} /> : undefined)}
+            {field(SECTION_FIELDS.cadastrais[0], record && !embeddedProfile ? <ContactSalesHistory controller={controller} contactId={record.id} /> : undefined)}
             {SECTION_FIELDS.cadastrais.slice(1, 9).map(spec => field(spec))}
             {person === 'J' && <div className="form-field contact-check"><label><input type="checkbox" id="contact-ie_exempt" checked={values.ie_exempt === 'true'} disabled={locked} onChange={event => change('ie_exempt', event.target.checked ? 'true' : '')} />IE Isento</label></div>}
             {SECTION_FIELDS.cadastrais.slice(9).map(spec => field(spec))}
