@@ -126,6 +126,11 @@ acessível mostram negativa. Um único módulo acessível abre seu `primary`
 autorizado (ou primeiro destino) por `replace`; vários mostram uma entrada leve.
 A contagem usa módulos distintos, não grupos, itens ou tipos de trabalho.
 IDs repetidos são erro; destinos completos normalizados são deduplicados.
+Entrada e menu lateral colocam os módulos nativos antes dos grupos portados.
+A entrada mostra um cartão por grupo, com seu nome (e vocabulário da área para
+Trabalhos), até cinco destinos e **Ver todos** para o primeiro destino quando
+houver mais. O Dashboard geral usa `/app/erp/visao-geral`; o alias `/app/erp/acesso`
+redireciona por `replace`, conservando consulta e fragmento.
 
 As páginas nativas ficam em `/app/erp/modulos/<slug>`. Os aliases
 `/app/gestao/{agenda,servicos-e-horarios,mensalidades,mensalidade,pedidos,
@@ -164,7 +169,7 @@ básica de um destino portado. Trilho, Mais, entrada leve e páginas nativas nã
 consultam a ERP API; a casca recebe o resultado do hospedeiro autorizado.
 Destinos dependentes desse resultado ficam **a verificar**, sem presumir uma
 lista irrestrita. Erro recuperável e negativa são estados diferentes. O Dashboard
-`/acesso` preserva a entrada que inicia essa verificação.
+`/visao-geral` preserva a entrada que inicia essa verificação.
 
 **Fiscal por tipo:** `tipo=notas` na URL corresponde a `tag_type="invoices"` no
 domínio. Com Fiscal desligado, leituras mistas excluem esse tipo e suas mutações
@@ -213,12 +218,13 @@ o hospedeiro completo. O ID ERP resolvido vai ao editor; o callback opcional
 as fichas da instância, inclusive montagens tardias. Registro e consulta da porta
 não importam o ERP nem promovem/sincronizam contatos.
 
-Nesta junção ainda faltam `web/contact-profile/ContactProfile.tsx` e
-`ErpContactBody.tsx`. O hospedeiro usa o editor ERP existente; não inventa o
-callback de abertura da ficha unificada. Registro/adaptação e montagem estão
-implementados; a integração visual e o callback real da fase 1 **permanecem
-pendentes** desses componentes. Ficha simples e contato sem vínculo ERP não
-podem solicitar a montagem completa.
+O hospedeiro instala `contactProfileEditor` em `web/erp/ports.ts`. A entrada
+portada usa esse componente em tempo de execução; o adaptador carrega
+`ContactProfile.tsx` sob demanda e resolve a associação pelo ID D1. O corpo
+completo monta `RawContactEditor`, com o vocabulário recebido e sem reabrir a
+entrada da ficha. Componentes em `web/erp/app/**` não importam estaticamente as
+telas do painel; sem essa porta, preservam o editor legado. Ficha simples e
+contato sem vínculo ERP não podem solicitar a montagem completa.
 
 A suíte integrada está em `tests/management-lifecycle.test.ts`. Histórico,
 políticas, rede controlada e descarte não substituem a inspeção real: foco,

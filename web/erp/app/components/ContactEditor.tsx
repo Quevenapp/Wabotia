@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { erpPorts } from '../../ports';
-import { api } from '../../../lib/api';
-import { ErpProfileEntry } from '../../../contact-profile/ContactProfile';
-import { contactVocabulary, type ProfileVocabulary } from '../../../contact-profile/model';
+import { contactEditorTitle } from '../../contact-editor-labels';
+export { contactEditorTitle } from '../../contact-editor-labels';
+import type { ProfileVocabulary } from '../../../contact-profile/model';
 import { useReferenceOptions } from '../hooks/useReferenceOptions';
 import type { PlatformPort } from '../lib/platform-model';
 import { AccessError, type AccessController } from '../lib/real-access';
@@ -50,42 +50,29 @@ function useOptions<T>(load: (signal: AbortSignal) => Promise<T>, deps: unknown[
 }
 
 export function ContactEditor(props: CatalogEditorProps & { vocabulary?: ProfileVocabulary }) {
-  const snapshot = useSyncExternalStore(props.controller.subscribe, props.controller.getSnapshot, props.controller.getSnapshot);
-  const changed = useRef(false);
   const ports = erpPorts();
-  const [sessionEpoch, setSessionEpoch] = useState(0);
-  useEffect(() => {
-    const subscription = ports?.auth.onAuthStateChange(() => setSessionEpoch(epoch => epoch + 1)).data.subscription;
-    return () => subscription?.unsubscribe();
-  }, [ports?.auth]);
-  if (!props.record || ports?.demo) return <RawContactEditor {...props} />;
-  if (!ports || snapshot.phase !== 'ready') return <section className="real-editor catalog-editor"><p role="alert">Ficha completa temporariamente indisponível.</p><button type="button" onClick={props.onClose}>Voltar à listagem</button></section>;
-  const root = ports.apiUrl.replace(/^\/api\//, '').replace(/\/erp\/?$/, '');
-  // A7 acrescenta esta porta opcional. Enquanto ausente, a mesma ficha monta
-  // pelo ID D1 retornado pela associação, sem inventar igualdade entre IDs.
-  const openContactProfile = (ports as typeof ports & { openContactProfile?: (contactId: string) => void }).openContactProfile;
-  return <ErpProfileEntry api={api} root={root} erpContactId={String(props.record.id)}
-    scopeKey={JSON.stringify([root, snapshot.phase, snapshot.membership, sessionEpoch])}
-    openContactProfile={openContactProfile} onSaved={() => { changed.current = true; }}
-    onClose={() => { if (changed.current) props.onSaved(props.record!); props.onClose(); }} />;
+  const Host = ports?.contactProfileEditor;
+  const hosted = Boolean(props.record && !ports?.demo && Host);
+  const body = useContactEditorBody(props, hosted);
+  return hosted && Host ? <Host {...props} /> : body;
 }
 
 export type RawContactEditorProps = CatalogEditorProps & { embeddedProfile?: boolean; vocabulary?: ProfileVocabulary };
-export function contactEditorTitle(vocabulary?: ProfileVocabulary, types: readonly string[] = []) {
-  if (types.includes('supplier') && !types.includes('customer')) return 'Fornecedor';
-  return `${contactVocabulary(vocabulary).singular} ou Fornecedor`;
-}
 /** Corpo bruto: o hospedeiro usa esta entrada e nunca reabre ContactProfile. */
 export function RawContactEditor(props: RawContactEditorProps) {
   return <LoadedContactEditor key={`${props.record?.id ?? 'new'}:${props.record?.version ?? 0}`} {...props} />;
 }
 
 function LoadedContactEditor(props: RawContactEditorProps) {
+  return useContactEditorBody(props);
+}
+
+function useContactEditorBody(props: RawContactEditorProps, hosted = false) {
   const { controller, writable } = props;
   const [record, setRecord] = useState<ContactRecord | null>(fullRecord(props.record) ? props.record : null);
   const [loadError, setLoadError] = useState('');
   useEffect(() => {
-    if (!props.record || fullRecord(props.record)) return;
+    if (hosted || !props.record || fullRecord(props.record)) return;
     const request = new AbortController();
     void controller.catalog(`/v1/cadastros/contatos/${props.record.id}`, { signal: request.signal }).then(value => {
       const result = value as { record?: ContactRecord };
@@ -94,7 +81,7 @@ function LoadedContactEditor(props: RawContactEditorProps) {
       setRecord(result.record as ContactRecord);
     }).catch(failure => { if (!request.signal.aborted && !aborted(failure)) setLoadError(errorText(failure)); });
     return () => request.abort();
-  }, [controller, props.record?.id]);
+  }, [controller, props.record?.id, hosted]);
   if (props.record && !record) return <section className="real-editor catalog-editor"><h2>{contactEditorTitle(props.vocabulary, props.record.types as string[] | undefined)}</h2>
     {loadError ? <p className="real-alert" role="alert">{loadError}<button type="button" className="text-button" onClick={props.onClose}>Voltar à listagem</button></p> : <p role="status">Carregando cadastro…</p>}</section>;
   return <ContactForm {...props} record={record} writable={writable} />;
@@ -244,7 +231,7 @@ function ContactForm({ controller, record, writable, onClose, onSaved, embeddedP
                 : <select id="contact-operation_nature_id" value={values.operation_nature_id ?? ''} disabled={locked} onChange={event => change('operation_nature_id', event.target.value)}><option value="">Selecione</option>
                   {values.operation_nature_id && !natureList.some(n => n.id === values.operation_nature_id) && <option value={values.operation_nature_id}>{record?.operation_nature_name ?? 'Natureza atual'}</option>}
                   {natureList.map(nature => <option key={nature.id} value={nature.id}>{nature.description}</option>)}</select>}
-              <small className="real-help">Usada como sugestão nas notas de {contactVocabulary(vocabulary, types.includes('supplier') && !types.includes('customer')).singular.toLocaleLowerCase('pt-BR')} quando a emissão adotar o cadastro.</small></div>}
+              <small className="real-help">Usada como sugestão nas notas de {(types.includes('supplier') && !types.includes('customer') ? 'Fornecedor' : vocabulary?.singular?.trim() || 'Cliente').toLocaleLowerCase('pt-BR')} quando a emissão adotar o cadastro.</small></div>}
             {field(SECTION_FIELDS.adicionais.find(spec => spec.key === 'suframa')!)}
             {/* 202610200170 (documentos lane): Foto in the private attachment storage. */}
             <ContactPhoto controller={controller} contactId={record?.id ?? null} writable={writable && !excluded} />

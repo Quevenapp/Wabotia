@@ -1,9 +1,11 @@
 import { env, runInDurableObject } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { exec, one, withReadCache } from "../src/db";
 import { now, uid, type Env } from "../src/types";
 import { eraseContact } from "../src/customer/http";
 import { erpApi, localFetch } from "../src/erp/api/local-fetch";
+import { customerProvider } from "../src/customer/ports";
+import { erpCustomerProvider } from "../src/modules/erp/customer-provider";
 import { erpFetch, erpStub } from "../src/erp/hub";
 import { erpIdentity, erpSystemIdentity } from "../src/modules/erp/identity";
 import { moduleEnabled } from "../src/modules/registry";
@@ -15,6 +17,18 @@ import { fixture, type Fixture } from "./service-center-fixture";
 import { setModule } from "./erp-module-helper";
 
 const LOCAL = "https://erp.wabotia.invalid/rest/v1/rpc/";
+it("a costura registra e encaminha a autorização da ficha ERP", async () => {
+  const authorize = vi.spyOn(erpCustomerProvider, "authorizeProfile").mockResolvedValue(undefined);
+  try {
+    const ctx = { profile: "area" } as any, actor = { id: "person" } as any;
+    const provider = customerProvider("erp");
+    expect(provider?.authorizeProfile).toBeTypeOf("function");
+    await provider!.authorizeProfile!(ctx, actor, "contact");
+    expect(authorize).toHaveBeenCalledExactlyOnceWith(ctx, actor, "contact");
+    expect(provider?.list).toBeTypeOf("function");
+    expect(provider?.maintain).toBeTypeOf("function");
+  } finally { authorize.mockRestore(); }
+});
 const SETTINGS = {
   user_id: null, allow_unregistered_products: false, view_stock: false, access_hours_enabled: false, access_windows: [], modules: {},
   commission_rule: "parcial", commission_mode: "fixa", commission_rate: null, commission_bands: [], discount_limit: "0", notes: null,

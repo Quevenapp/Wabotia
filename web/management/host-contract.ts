@@ -64,6 +64,7 @@ export interface CustomerProfileHostOptions {
   context: ErpHostContext;
   /** ID ERP já resolvido pela fase 1; nunca interpretar como ID D1. */
   erpContactId: string;
+  vocabulary?: { singular: string; plural: string };
   onClose(): void;
   onSaved?: () => void;
 }

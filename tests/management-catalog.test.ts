@@ -65,9 +65,11 @@ describe("catálogo da casa de gestão", () => {
     const linked = originItems.filter((item) => item.real);
     expect(linked).toHaveLength(43);
     expect(ERP_MANAGEMENT_ITEMS).toHaveLength(linked.length);
-    expect(ERP_MANAGEMENT_ITEMS.map((item) => item.target.to)).toEqual(linked.map((item) => item.real!.to));
+    const legacyTarget = (item: typeof ERP_MANAGEMENT_ITEMS[number]) => item.id === "erp.overview" ? "/acesso" : item.target.to;
+    expect(ERP_MANAGEMENT_ITEMS.find(item => item.id === "erp.overview")?.target.to).toBe("/visao-geral");
+    expect(ERP_MANAGEMENT_ITEMS.map(legacyTarget)).toEqual(linked.map((item) => item.real!.to));
     for (const item of ERP_MANAGEMENT_ITEMS) {
-      const old = linked.find((entry) => entry.real!.to === item.target.to)!;
+      const old = linked.find((entry) => entry.real!.to === legacyTarget(item))!;
       expect(item.module).toBe("erp");
       expect(item.label).toBe(old.label);
       expect(item.permission).toEqual({
@@ -98,7 +100,7 @@ describe("catálogo da casa de gestão", () => {
       "Resultados", "Comercial", "Compras", "Catálogo", "Estoque", "Financeiro", "Fiscal", "Pessoas",
     ]);
     for (const item of ERP_MANAGEMENT_ITEMS) {
-      const group = menu.find((group) => group.columns.some((column) => column.items.some((entry) => entry.to === item.target.to)));
+      const group = menu.find((group) => group.columns.some((column) => column.items.some((entry) => entry.to === (item.id === "erp.overview" ? "/acesso" : item.target.to))));
       expect(group?.name).toBe(item.groupLabel);
     }
   });

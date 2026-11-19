@@ -34,6 +34,7 @@ installErpBridge({
   scan: (...args) => customerErpBridge.scan(...args),
 }, { default: true });
 registerCustomerProvider("erp", {
+  authorizeProfile: (...args) => erpCustomerProvider.authorizeProfile!(...args),
   list: (...args) => erpCustomerProvider.list!(...args),
   maintain: (...args) => erpCustomerProvider.maintain!(...args),
 });

@@ -11,6 +11,7 @@ import { createDemoEmissorPort, createEmissorPort } from "./emissor";
 import { setErpBlocks, installErpTargetAccess } from "./blocks";
 import { setActionPendingNotice, setMotorReal } from "./motor";
 import { toast } from "../ui";
+import { ContactProfileEntry } from "./contact-profile-entry";
 
 const DEMO_ACTOR = "d3e00000-0000-4000-8000-000000000001";
 const cancelled = () => new DOMException("Contexto do ERP encerrado", "AbortError");
@@ -141,6 +142,7 @@ export function acquireErpHost(context: ErpHostContext) {
         },
         embedded: true,
         accessHost: ErpAccessHost,
+        contactProfileEditor: ContactProfileEntry,
         get admin() { return current().management.role === "admin"; },
         openModules: () => current().onModules(),
         get openPeople() { return current().management.role === "admin" ? () => current().onPeople() : undefined; },

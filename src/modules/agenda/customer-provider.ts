@@ -31,6 +31,13 @@ function unchangedRecipient(table: string, moduleId: string) {
 /** Índice original inequívoco ou vínculo de aplicação; nunca variantes locais. */
 export function legacyRoutineOwner(table: string, phoneColumn: string, moduleId: string) {
   const phone = digitsSql(`${table}.${phoneColumn}`);
+  // Uma OS de balcão pode preceder a primeira conversa vinculada pela equipe.
+  // Nesse caso, a sessão inicial dessa conversa também prova a origem. Sessões
+  // posteriores continuam insuficientes; os vetos a outro titular, edição do
+  // telefone, colisão e índice revisado permanecem abaixo.
+  const originTime = moduleId === "os" ? `max(${table}.created,coalesce((SELECT origin.created FROM conversations origin
+    WHERE origin.profile_id=${table}.profile_id AND origin.id=${table}.conversation_id
+      AND ${table}.source IN ('panel','staff','agent')),${table}.created))` : `${table}.created`;
   return `(SELECT k.id FROM contacts k WHERE k.profile_id=${table}.profile_id AND k.identity_state='active'
     AND ${unchangedRecipient(table, moduleId)}
     AND NOT EXISTS(SELECT 1 FROM customer_records h WHERE h.profile_id=${table}.profile_id
@@ -41,7 +48,7 @@ export function legacyRoutineOwner(table: string, phoneColumn: string, moduleId:
       AND h.conversation_id=${table}.conversation_id AND h.module_id IN ('conversations','core'))
       OR EXISTS(SELECT 1 FROM customer_records h WHERE h.profile_id=${table}.profile_id
         AND h.conversation_id=${table}.conversation_id AND h.module_id IN ('conversations','core')
-        AND h.contact_id=k.id AND h.occurred_at<=${table}.created))
+        AND h.contact_id=k.id AND h.occurred_at<=${originTime}))
     AND (
       (k.namespace='team' AND EXISTS(SELECT 1 FROM customer_phones p
         WHERE p.profile_id=k.profile_id AND p.namespace=k.namespace AND p.phone=${phone}
@@ -136,6 +143,8 @@ export async function selfCustomerStatements(ctx: ModuleContext, c: Conversation
   const base = row.mirror_json ? JSON.parse(row.mirror_json) : { name: row.name, phones: row.phone ? [row.phone] : [], email: row.email, document: row.document, personType: row.person_type };
   const hash = await requestHash(actor, { source, contactId: customer.ref.contactId, name: name.trim() });
   const job = jobInsert(ctx.profile, "team", customer.ref.contactId, "enrich", input.commandId, hash, await seal(ctx.env, { actor, input, base, operation: "enrich" }), input.expectedVersion, input.expectedErpVersion);
+  // jobInsert termina o SELECT com WHERE: sem ele, SQLite interpreta o ON
+  // como condição de JOIN e recusa o lote inteiro do pedido.
   return [[job.statement[0] + " ON CONFLICT(profile_id,command_id) DO NOTHING", job.statement[1]]];
 }
 

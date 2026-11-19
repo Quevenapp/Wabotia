@@ -13,6 +13,7 @@ import { customerErpBridge, customerRpc, customerRpcCommandId, dataOf } from "..
 import { bindFromErp, cancelCustomerJob, CUSTOMER_QUEUE_LIMIT, enrichLocal, jobInsert, jobView, maintainJobs, processJob, readJob } from "../src/customer/jobs";
 import { customerRead, eraseContact, resolvePhone } from "../src/customer/http";
 import { cleanMirror } from "../src/customer/local";
+import { customerHistory } from "../src/customer/history";
 import { maintainErpCustomers, markCustomerReconciliation, SCAN_TASK } from "../src/customer/sync";
 import { withLocalModuleWake } from "../src/modules/local-wake";
 import { erpIdentity } from "../src/modules/erp/identity";
@@ -110,7 +111,7 @@ it("S1: procedência observada e sessão persistida permitem conservar titularid
   expect((await one(env, "SELECT contact_id FROM customer_records WHERE conversation_id=?", c)).contact_id).toBe(id);
 });
 
-it("S3: formulário de A não acompanha conversa reassociada a B; ficha entrega apenas metadados permitidos", async () => {
+it("S3: formulário de A não acompanha conversa reassociada a B; histórico sem respostas e detalhe autorizado preservados", async () => {
   const f = await fixture(), a = await contact(f), b = await contact(f), c = await conversation(f), step = uid();
   await setModule(f.profile, "forms", true, f.admin.id);
   await exec(env, "INSERT INTO conversation_contacts(conversation_id,profile_id,contact_id,linked_by,created) VALUES(?,?,?,?,?)", c, f.profile, b, f.admin.id, now());
@@ -118,8 +119,12 @@ it("S3: formulário de A não acompanha conversa reassociada a B; ficha entrega 
     VALUES(?,?,?,'forms','form',?,'completed','Segredo',?,?,?,'agent',?,?,?, ?,?)`, step, f.profile, c, uid(), JSON.stringify({ fields: [{ id: "privado", label: "Segredo" }] }), JSON.stringify({ privado: "Resposta secreta" }), a, f.admin.id, now(), now(), now(), now());
   expect((await contactDetail(env, f.admin, f.profile, b)).web_steps).toEqual([]);
   const visible = (await contactDetail(env, f.admin, f.profile, a)).web_steps;
-  expect(visible).toEqual([expect.objectContaining({ id: step, status: "completed" })]);
-  expect(JSON.stringify(visible)).not.toMatch(/answers|result|spec|fields|Segredo|secreta/);
+  expect(visible).toEqual([expect.objectContaining({ id: step, status: "completed", answers: { privado: "Resposta secreta" } })]);
+  expect(JSON.stringify(visible)).not.toMatch(/"result"|"spec"|"fields"|Segredo/);
+  const history = await customerHistory.read(env, f.admin, f.profile, { contactId: a }, {});
+  expect(history.items).toEqual([expect.objectContaining({ kind: "form", sourceKey: `form:${step}`, status: "completed" })]);
+  expect(JSON.stringify(history)).not.toMatch(/answers|result|spec|fields|Segredo|secreta/);
+  expect((await customerHistory.read(env, f.admin, f.profile, { contactId: b }, {})).items).toEqual([]);
   expect((await contactDetail(env, { ...f.member, access: ["contacts", "forms"] }, f.profile, a)).web_steps).toEqual([]);
   expect((await contactDetail(env, { ...f.member, access: ["contacts", "conversations"] }, f.profile, a)).web_steps).toEqual([]);
 });

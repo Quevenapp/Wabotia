@@ -3,7 +3,7 @@
 import { one } from "../../db";
 import { ApiError, type Actor, type Conversation } from "../../types";
 import { resolveCustomer } from "../../customer/ports";
-import { routineCustomerScope, routineCustomerAllows } from "../agenda/customer-provider";
+import { routineCustomerScope } from "../agenda/customer-provider";
 import { normalizeCustomerPhone } from "../../customer/phone";
 import { verifiedPhone } from "../../protocol-lookup";
 import { isBound } from "../../visibility";
@@ -59,11 +59,18 @@ export async function workCustomerAllows(
   if (row.profile_id !== ctx.profile) return false;
   const scope = await workCustomerScope(ctx, c);
   if (scope.sql === "0") return false;
-  if (!await routineCustomerAllows({ ...ctx, verifiedPhone: ctx.verifiedPhone ?? verifiedPhone, customer: ctx.customer ?? (c => resolveCustomer(ctx.env, c)) }, c, row, "os")) return false;
+  const saved = await one<WorkOrderRow>(ctx.env,
+    `SELECT contact_id,conversation_id,phone FROM os_orders WHERE profile_id=? AND id=? AND ${scope.sql}`,
+    ctx.profile, row.id, ...scope.params);
+  if (!saved) return false;
   if (!recipient) return true;
   const phone = ctx.verifiedPhone ? ctx.verifiedPhone(c) : verifiedPhone(c);
   if (!phone || !scope.verified) return false;
-  const snapshot = normalizeCustomerPhone(row.phone, "international");
+  // O telefone informado na ordem é um snapshot administrativo. A conversa
+  // persistida continua destinatária quando seu titular comprovado é o dono
+  // da ordem, mesmo que esse snapshot tenha outro telefone.
+  if (scope.contactId && saved.contact_id === scope.contactId && saved.conversation_id === c.id) return true;
+  const snapshot = normalizeCustomerPhone(saved.phone, "international");
   if (snapshot === phone) return true;
   // Outro número só é destinatário se os dois vínculos persistidos concordam.
   return !!scope.contactId && !!await one(ctx.env,

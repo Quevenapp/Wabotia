@@ -12,7 +12,9 @@ import { erpCustomerProvider } from "../src/modules/erp/customer-provider";
 import * as bridge from "../src/customer/erp-bridge";
 import * as identity from "../src/modules/erp/identity";
 import { SimpleContactBody, ContactsPanel, ContactConflictReview } from "../web/ContactsPanel";
-import { contactEditorTitle } from "../web/erp/app/components/ContactEditor";
+// O contrato de vocabulário não precisa avaliar o grafo de telas portadas no Worker.
+// O formulário importa e reexporta esta mesma função; sua UI segue coberta pela suíte Node.
+import { contactEditorTitle } from "../web/erp/contact-editor-labels";
 import { installFullCustomerHost, loadFullCustomerHost } from "../web/contact-profile/host-port";
 import { cancelContactJob, contactNamespace, contactVocabulary, contactWriter, jobBlocksEditing, jobMessage, mountProfileHost,
   profileMessage, profileMode, ProfileRequests, readContactConflicts, replaceSectionRole, resolveContactIdentity,
@@ -284,6 +286,15 @@ describe("F9/F10/F11 — destinos, colunas e moeda", () => {
 });
 
 describe("F12 e hospedeiro — vocabulário e ciclo de vida", () => {
+  it("explica a criação automática de contatos e a complementação posterior na ficha", () => {
+    const html = renderToStaticMarkup(React.createElement(ContactsPanel, {
+      api: vi.fn(), root: "root", demo: true, openConversation: vi.fn(),
+    }));
+    expect(html).toContain("Todo número que envia uma mensagem vira contato automaticamente.");
+    expect(html).toContain("O nome e os demais dados podem ser completados depois na ficha.");
+    expect(html).not.toContain("Salvar a partir de uma conversa");
+    expect(html).not.toContain("clique em");
+  });
   it.each([{ singular: "Paciente", plural: "Pacientes" }, { singular: "Aluno", plural: "Alunos" }])("usa $singular na lista, corpo e contrato do hospedeiro", async vocabulary => {
     const api = vi.fn(), close = vi.fn(), saved = vi.fn();
     const listHtml = renderToStaticMarkup(React.createElement(ContactsPanel, { api, root: "root", demo: true, openConversation: vi.fn(), vocabulary }));

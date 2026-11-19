@@ -109,6 +109,8 @@ export function ManagementShell({ context, items, entry, chromeRef, children }: 
 
   const groups = new Map<string, ResolvedManagementItem[]>();
   for (const item of items) groups.set(item.group, [...(groups.get(item.group) || []), item]);
+  const groupTitle = (item: ResolvedManagementItem) => item.module === "os"
+    ? context.vocabulary?.collection_label || item.groupLabel : item.groupLabel;
   const destinationKey = (to: string) => normalizedManagementHref(href(managementRoute(to)));
   const link = (to: string) => ({
     ...linkProps(managementRoute(to)),
@@ -137,7 +139,7 @@ export function ManagementShell({ context, items, entry, chromeRef, children }: 
         <a {...linkProps({ area: mobile ? "more" : "conversations" })}>Áreas do painel</a>
         <a {...link("/app/erp")} aria-current={entry ? "page" : undefined}>Início da gestão</a>
         {[...groups].map(([group, entries]) => <section key={group}>
-          <h2>{entries[0].module === "os" ? context.vocabulary?.collection_label || entries[0].groupLabel : entries[0].groupLabel}</h2>
+          <h2>{groupTitle(entries[0])}</h2>
           {entries.map((item) => <a key={item.id} {...link(item.href)} aria-current={
             normalizedManagementHref(current) === destinationKey(item.href) ? "page" : undefined
           }>{item.resolvedLabel}</a>)}
@@ -148,13 +150,11 @@ export function ManagementShell({ context, items, entry, chromeRef, children }: 
       {entry ? state === "home" ? <div className="management-home">
         <h1>Gestão da área</h1><p>Escolha um módulo para continuar.</p>
         <div className="management-cards">
-          {[...new Set(items.map((item) => item.module))].map((module) => {
-            const destinations = items.filter((item) => item.module === module);
-            const primary = destinations.find((item) => item.primary) || destinations[0];
-            return <section key={module}><h2>{primary.resolvedLabel}</h2>
-              {destinations.map((item) => <a key={item.id} {...link(item.href)}>{item.resolvedLabel}</a>)}
-            </section>;
-          })}
+          {[...groups].map(([group, destinations]) => <section key={group}>
+            <h2>{groupTitle(destinations[0])}</h2>
+            {destinations.slice(0, 5).map((item) => <a key={item.id} {...link(item.href)}>{item.resolvedLabel}</a>)}
+            {destinations.length > 5 && <a {...link(destinations[0].href)}>Ver todos</a>}
+          </section>)}
         </div>
       </div> : <ManagementState state={state} admin={context.role === "admin"} /> : children}
     </div>
