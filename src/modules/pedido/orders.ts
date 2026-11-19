@@ -34,6 +34,8 @@ import {
 } from "./model";
 import { config, offeredMethods, paymentsReady } from "./store";
 import { emitStatusChange, noticeHandled } from "./listeners";
+import { confirmRoutineCustomer, routineCustomer } from "../agenda/customer-provider";
+import { normalizeCustomerPhone } from "../../customer/phone";
 
 /**
  * table: lançado pelo garçom numa conta de mesa (Mesas). bot: montado pelo
@@ -511,20 +513,26 @@ export interface NewOrder {
 export async function createOrder(ctx: ModuleContext, input: NewOrder) {
   const existing = await one(
     ctx.env,
-    "SELECT * FROM pedido_orders WHERE source_key=?",
+    "SELECT * FROM pedido_orders WHERE source_key=? AND profile_id=?",
     input.sourceKey,
+    ctx.profile,
   );
-  if (existing) return { order: existing, created: false };
+  if (existing) {
+    const c = input.conversation;
+    const customer = c ? await routineCustomer(ctx, c) : null;
+    await confirmRoutineCustomer(ctx, c, customer?.ref || null, "pedido", input.sourceKey, existing.contact_id);
+    return { order: existing, created: false };
+  }
   const c = input.conversation;
   if (c)
     requireValue(
       c.chat_type !== "group",
       "Pedidos só em conversas individuais.",
     );
-  const contact = c ? await ctx.contact(c) : null;
-  // Da conversa, só o telefone autenticado pelo canal (revisão M7).
+  const contact = c ? await routineCustomer(ctx, c) : null;
+  // Snapshot da operação; este telefone nunca autoriza consultas ou vínculos.
   const phone = phoneDigits(
-    input.phone || (c && ctx.verifiedPhone(c)) || contact?.phone || "",
+    input.phone || contact?.phone || normalizeCustomerPhone(c?.phone, "international") || "",
   );
   const cfg = await config(ctx);
   const eta =
@@ -533,6 +541,7 @@ export async function createOrder(ctx: ModuleContext, input: NewOrder) {
       : cfg.pickup_minutes;
   const tab = input.tab || null;
   const status: OrderStatus = tab ? "received" : "awaiting_payment";
+  await confirmRoutineCustomer(ctx, c, contact?.ref || null, "pedido", input.sourceKey);
   const counter = await one<{ last: number }>(
     ctx.env,
     "INSERT INTO pedido_counters(profile_id,last) VALUES(?,1) ON CONFLICT(profile_id) DO UPDATE SET last=last+1 RETURNING last",
@@ -550,8 +559,8 @@ export async function createOrder(ctx: ModuleContext, input: NewOrder) {
         status,
         at,
         c?.id || null,
-        contact?.id || null,
-        clip(input.customer_name || contact?.name || "", 80),
+        contact?.ref.contactId || null,
+        clip(input.customer_name || contact?.name || c?.title || "", 80),
         phone,
         input.source,
         input.sourceKey,
@@ -590,15 +599,16 @@ export async function createOrder(ctx: ModuleContext, input: NewOrder) {
       ],
     ],
   ]);
-  if (!inserted.meta.changes)
-    return {
-      order: await one(
-        ctx.env,
-        "SELECT * FROM pedido_orders WHERE source_key=?",
-        input.sourceKey,
-      ),
-      created: false,
-    };
+  if (!inserted.meta.changes) {
+    const previous = await one(
+      ctx.env,
+      "SELECT * FROM pedido_orders WHERE source_key=? AND profile_id=?",
+      input.sourceKey,
+      ctx.profile,
+    );
+    if (!previous) throw new ApiError(409, "idempotency_conflict", "Esta origem já pertence a outro pedido.");
+    return { order: previous, created: false };
+  }
   const order = await loadOrder(ctx, id);
   // O cliente pediu pelo WhatsApp (carrinho ou catálogo): consentimento para
   // os avisos deste pedido fora da janela de 24 horas.
@@ -1500,17 +1510,14 @@ export async function paymentUpdated(
 // ---------------------------------------------------------------------------
 // Acompanhamento pelo cliente
 
-/** Pedidos em andamento do cliente (conversa ou telefone). */
+/** Pedidos pelo vínculo; legado somente da conversa original. */
 export async function openOrdersFor(ctx: ModuleContext, c: Conversation) {
-  // Telefone só o autenticado pelo canal (revisão M7): em conversa de
-  // integração, só os pedidos desta conversa.
-  const phone = phoneDigits(ctx.verifiedPhone(c) || "");
+  const customer = await routineCustomer(ctx, c);
   return all(
     ctx.env,
-    `SELECT * FROM pedido_orders WHERE profile_id=? AND (conversation_id=? OR (phone<>'' AND phone=?)) AND status IN (${ACTIVE_STATUSES.map(() => "?").join(",")}) ORDER BY number DESC LIMIT 5`,
+    `SELECT * FROM pedido_orders WHERE profile_id=? AND (${customer ? "contact_id=? OR (contact_id IS NULL AND conversation_id=?)" : "conversation_id=?"}) AND status IN (${ACTIVE_STATUSES.map(() => "?").join(",")}) ORDER BY number DESC LIMIT 5`,
     ctx.profile,
-    c.id,
-    phone,
+    ...(customer ? [customer.ref.contactId, c.id] : [c.id]),
     ...ACTIVE_STATUSES,
   );
 }

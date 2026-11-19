@@ -234,7 +234,6 @@ export async function completeCheckin(
   const b = await getBooking(ctx, bookingId);
   await publish(ctx, "reserva.checkin_completed", b, "customer", {
     web_step_id: stepId,
-    answers,
   });
   return b;
 }

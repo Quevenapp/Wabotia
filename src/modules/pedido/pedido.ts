@@ -72,7 +72,11 @@ import {
   setOptionAvailability,
 } from "./menu";
 
+import { registerCustomerProvider } from "../../customer/ports";
+import { pedidoCreationContext, pedidoCustomerProvider } from "./customer-provider";
+
 const MODULE = "pedido";
+registerCustomerProvider(MODULE, pedidoCustomerProvider);
 
 /**
  * Ator de outro módulo (ctx.moduleActor; a Entrega em nome do entregador):
@@ -278,8 +282,13 @@ onRoute(MODULE, {
 onCommand(
   MODULE,
   "pedido.order.create",
-  async (ctx, actor, data, { requestId }) =>
-    visibleOrders(ctx, actor, await createFromApi(ctx, actor, data, requestId)),
+  async (ctx, actor, data, { requestId }) => {
+    const creation = pedidoCreationContext(ctx, actor, data.customer, data.customer_name);
+    if (data.whatsapp_notices === true && !data.conversation_id &&
+        !(await creation.conversationByPhone(data.phone)))
+      throw new ApiError(422, "contact_required", "Informe a conversa original para enviar avisos enquanto a identificação está pendente.");
+    return visibleOrders(ctx, actor, await createFromApi(creation, actor, data, requestId));
+  },
 );
 
 onRoute(MODULE, {
@@ -485,7 +494,7 @@ onMcpTool(MODULE, {
 onMcpTool(MODULE, {
   name: "pedido_consultar",
   description:
-    "Pedidos em andamento do cliente da conversa (desta conversa ou do mesmo telefone): número, estado, itens, total e pagamento. Requer conversations:read.",
+    "Pedidos em andamento vinculados ao contato ou à conversa original: número, estado, itens, total e pagamento. Requer conversations:read.",
   input: { conversation_id: { type: "string" } },
   required: ["conversation_id"],
   customer: "read",

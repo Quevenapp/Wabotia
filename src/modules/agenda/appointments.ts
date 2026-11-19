@@ -26,6 +26,8 @@ import {
 } from "./config";
 import { listProfessionals, listServices } from "./catalog";
 import { availability, type SlotRules } from "./availability";
+import { confirmRoutineCustomer, routineCustomer } from "./customer-provider";
+import { normalizeCustomerPhone } from "../../customer/phone";
 
 export type AppointmentStatus =
   "booked" | "confirmed" | "cancelled" | "no_show";
@@ -195,22 +197,20 @@ export function visibleAppointments(
   return walk(value);
 }
 
-/** Próximos agendamentos ativos do cliente da conversa (ou do mesmo telefone). */
+/** Próximos agendamentos pelo vínculo; legado somente da conversa original. */
 export async function upcomingFor(
   ctx: ModuleContext,
   c: Conversation,
   at: number,
 ) {
-  // Só o telefone autenticado pelo canal (revisão M7).
-  const phone = (ctx.verifiedPhone(c) || "").replace(/\D/g, "");
+  const customer = await routineCustomer(ctx, c);
   const [rows, names] = await Promise.all([
     all(
       ctx.env,
-      `SELECT * FROM agenda_appointments WHERE profile_id=? AND status IN ('booked','confirmed') AND ends>? AND (conversation_id=?${phone ? " OR customer_phone=?" : ""}) ORDER BY starts LIMIT 20`,
+      `SELECT * FROM agenda_appointments WHERE profile_id=? AND status IN ('booked','confirmed') AND ends>? AND (${customer ? "contact_id=? OR (contact_id IS NULL AND conversation_id=?)" : "conversation_id=?"}) ORDER BY starts LIMIT 20`,
       ctx.profile,
       at,
-      c.id,
-      ...(phone ? [phone] : []),
+      ...(customer ? [customer.ref.contactId, c.id] : [c.id]),
     ),
     professionalNames(ctx),
   ]);
@@ -406,20 +406,25 @@ export async function book(
       input.id,
       ctx.profile,
     );
-    if (existing)
+    if (existing) {
+      const appointment = await getAppointment(ctx, input.id);
+      const c = input.conversation || null;
+      const customer = c ? await routineCustomer(ctx, c) : null;
+      await confirmRoutineCustomer(ctx, c, customer?.ref || null, "agenda", input.id, appointment.contact_id);
       return {
-        appointment: await getAppointment(ctx, input.id),
+        appointment,
         created: false,
       };
+    }
   }
   const slot = await resolveSlot(ctx, config, { ...input, at });
   const c = input.conversation || null;
-  const contact = c ? await ctx.contact(c) : null;
+  const customer = c ? await routineCustomer(ctx, c) : null;
   const name = String(
-    input.customer_name ?? contact?.name ?? c?.title ?? "",
+    input.customer_name ?? customer?.name ?? c?.title ?? "",
   ).trim();
   const phone = String(
-    input.customer_phone ?? contact?.phone ?? c?.phone ?? "",
+    input.customer_phone ?? customer?.phone ?? normalizeCustomerPhone(c?.phone, "international") ?? "",
   ).replace(/\D/g, "");
   requireValue(
     Array.from(name).length <= 120 && phone.length <= 20,
@@ -431,6 +436,7 @@ export async function book(
     "Observação até 1000 caracteres.",
   );
   const id = input.id || uid();
+  await confirmRoutineCustomer(ctx, c, customer?.ref || null, "agenda", id);
   const inserted = await exec(
     ctx.env,
     `INSERT INTO agenda_appointments(id,profile_id,service_id,professional_id,starts,ends,status,conversation_id,contact_id,customer_name,customer_phone,notes,source,service_name,price_cents,booked_at,created_by,created,updated)
@@ -444,7 +450,7 @@ export async function book(
     input.starts,
     slot.ends,
     c?.id || null,
-    contact?.id || null,
+    customer?.ref.contactId || null,
     name,
     phone,
     notes,

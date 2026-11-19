@@ -575,10 +575,10 @@ async function finishCatalog(
   const cfg = await config(ctx);
   await clearChat(ctx, c.id);
   const fee = draft.fulfillment === "delivery" ? cfg.delivery_fee_cents : 0;
-  const contact = await ctx.contact(c);
   const { order, created } = await createOrder(ctx, {
     conversation: c,
-    customer_name: contact?.name || c.title || "",
+    // createOrder lê o snapshot do contato central; título do canal não é confirmação.
+    customer_name: "",
     source: draft.source || "catalog",
     sourceKey: `${draft.source || "catalog"}:${draft.row_id}`,
     lines: draft.lines,
