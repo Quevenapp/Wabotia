@@ -5,6 +5,7 @@ import { ZernioTemplatesCatalog } from "./ZernioTemplatesCatalog";
 import { numberPolicyPresets } from "../src/number-policy";
 import type { ChannelAccountDiscovery, ChannelAccountView } from "../src/channel-contracts";
 import { CHANNEL_REGISTRY } from "../src/channels";
+import { channelCatalogVisible, channelUiFor } from "./channel-extensions";
 import "./router-workspace.css";
 
 const routerSteps = [
@@ -47,16 +48,17 @@ export function channelAccountReason(reason: string | null) {
   } as Record<string, string>)[reason || ""] || reason || "";
 }
 
-export function ChannelAccountChoices({ accounts, warnings = [], busy, onImport }: {
+export function ChannelAccountChoices({ accounts, warnings = [], busy, onImport, catalog = false }: {
   accounts: readonly ChannelAccountView[];
   warnings?: readonly string[];
   busy: boolean;
   onImport: (account: ChannelAccountView) => void;
+  catalog?: boolean;
 }) {
   return <>
     {warnings.map((warning, index) => <p className="notice" key={index}>{channelAccountReason(warning)}</p>)}
-    {accounts.map((item) => {
-      const supported = item.channel === "instagram" || item.channel === "facebook";
+    {accounts.filter(item => catalog || !!item.connectionId || !channelUiFor({ channel: item.channel })).map((item) => {
+      const supported = item.channel === "instagram" || item.channel === "facebook" || ((catalog || !!item.connectionId) && !!channelUiFor({ channel: item.channel }));
       return <article className="router-number" key={`${item.channel}:${item.accountId}`}>
         <strong>{CHANNEL_REGISTRY[item.channel]?.label || "Canal desconhecido"} · {item.accountLabel || "Conta sem nome público"}</strong>
         <p>{item.connectionId ? "Conexão já importada." : supported ? "Conta encontrada na integração selecionada." : "Canal reservado para uma próxima etapa."}</p>
@@ -363,11 +365,12 @@ export function NumberRouter({
     const version = resolutionVersion.current;
     const path = `router/accounts/${account.id}/discover-channels`;
     intents.current.delete(path + JSON.stringify({}));
-    const result: ChannelAccountDiscovery | undefined = await write(path, {}, "Buscar contas na Zernio");
+    const c2 = channelCatalogVisible({ ...data, connected_channels: (data.channel_accounts || []).map((item: ChannelAccountView) => item.channel) });
+    const result: ChannelAccountDiscovery | undefined = await write(path, c2 ? { c2: true } : {}, "Buscar contas na Zernio");
     if (result && version === resolutionVersion.current) setChannelDiscovery(result);
   }
   async function importChannel(item: ChannelAccountView) {
-    if (!item.importable || !["instagram", "facebook"].includes(item.channel) || item.integrationId !== accountId) return;
+    if (!item.importable || (!["instagram", "facebook"].includes(item.channel) && !channelUiFor({ channel: item.channel })) || item.integrationId !== accountId) return;
     const version = resolutionVersion.current;
     const result = await write(`router/accounts/${accountId}/channel-connections`,
       { accountId: item.accountId, channel: item.channel }, "Importar conta");
@@ -893,6 +896,7 @@ export function NumberRouter({
                 </button>
                 {!account.zernio_profile_id && <p>Use Encontrar ID na Zernio antes de buscar contas.</p>}
                 {(channelDiscovery || channelAccounts.length > 0) && <ChannelAccountChoices
+                  catalog={channelCatalogVisible({ ...data, connected_channels: (data.channel_accounts || []).map((item: ChannelAccountView) => item.channel) })}
                   accounts={channelDiscovery?.accounts || channelAccounts}
                   warnings={channelDiscovery?.warnings}
                   busy={!!busy}

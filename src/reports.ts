@@ -2,6 +2,7 @@ import { all } from "./db";
 import { access } from "./security";
 import { type Actor, type Env, requireValue, ApiError } from "./types";
 import { isChannelId } from "./channels";
+import { channelExtension } from "./channel-extension-registry";
 export async function report(
   env: Env,
   actor: Actor,
@@ -9,6 +10,11 @@ export async function report(
   query: URLSearchParams,
 ) {
   access(actor, profile, "reports:read");
+  if (query.get("section") === "google.reviews") {
+    const extension = channelExtension("googlebusiness/review");
+    if (!extension.report) throw new ApiError(503, "channel_not_ready", "O relatório de avaliações ainda não está disponível.");
+    return extension.report({ env, actor, profileId: profile, query });
+  }
   const tables: Record<string, string> = {
     conversations: "conversations",
     tickets: "tickets",

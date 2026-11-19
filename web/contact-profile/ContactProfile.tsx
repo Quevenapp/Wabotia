@@ -10,10 +10,18 @@ import { Dialog, SimpleContactBody } from "../ContactsPanel";
 import { bindErpContact, cancelContactJob, contactMergeWriter, jobBlocksEditing, jobMessage, mountProfileHost, profileMessage, profileMode, ProfileRequests, readContactJob, replaceSectionRole, sectionWriter, synchronizationJob, watchContactJob, writeFeedback, type ProfileJob, type ProfileVocabulary } from "./model";
 import { cellText, privateTarget, registeredComponent, targetHref } from "./registry";
 import { ChannelsSection } from "./ChannelsSection";
+import { ChannelContactActions } from "../channel-extensions";
+import type { ChannelUiData } from "../channel-extension-contracts";
+import type { ExtensionKey } from "../../src/channel-c2-contracts";
 import { MergeContactsDialog } from "./MergeContactsDialog";
 import "./profile.css";
 
 type Contribution = ContactProfileView["contributions"][number];
+type ContactChannelStatus = ChannelUiData & { channel_extensions?: readonly ExtensionKey[] };
+type ChannelContactProfileView = ContactProfileView & {
+  channel_extensions?: readonly ExtensionKey[];
+  channel_status?: ContactChannelStatus;
+};
 export type ContactProfileProps = {
   api: Api;
   root: string;
@@ -23,6 +31,8 @@ export type ContactProfileProps = {
   demo?: boolean;
   initialContact?: Row;
   conversation?: Row;
+  channelExtensions?: readonly ExtensionKey[];
+  channelStatus?: ContactChannelStatus;
   vocabulary?: ProfileVocabulary;
   onClose(): void;
   onSaved?(message?: string): void;
@@ -70,7 +80,7 @@ function ProfileSession(props: ContactProfileProps) {
   const [blocked, setBlocked] = useState(false), [editRevision, setEditRevision] = useState(0);
   const finishedJobs = useRef(new Set<string>());
   const requestedBase = root + "/contacts/" + encodeURIComponent(contactId);
-  const profile = useResource<ContactProfileView>(api, demo ? null : requestedBase + "/profile", revision);
+  const profile = useResource<ChannelContactProfileView>(api, demo ? null : requestedBase + "/profile", revision);
   const canonicalId = profile.value?.contactId ?? contactId;
   const base = root + "/contacts/" + encodeURIComponent(canonicalId);
   const detail = useResource<{ contact: Row; conversations?: Row[]; synchronization?: Partial<ProfileJob> & { jobId?: string } }>(api,
@@ -79,10 +89,11 @@ function ProfileSession(props: ContactProfileProps) {
     const id = synchronizationJob(detail.value);
     if (id && !finishedJobs.current.has(id)) { setJobId(id); setBlocked(jobBlocksEditing(detail.value?.synchronization ?? null)); }
   }, [detail.value]);
-  const view: ContactProfileView | null = demo ? {
+  const view: ChannelContactProfileView | null = demo ? {
     profileId: decodeURIComponent(root.split("/").at(-1)!), contactId, erpContactId: null, depth: "simple",
     vocabulary: props.vocabulary ?? { singular: "Cliente", plural: "Clientes" }, writable: false, contributions: [],
   } : profile.value;
+  const channelStatus = props.channelStatus ?? view?.channel_status ?? {};
   const row = demo ? props.initialContact : detail.value?.contact;
   const valid = !!view && (view.contactId === contactId || view.merge?.merged_into === view.contactId)
     && view.profileId === decodeURIComponent(root.split("/").at(-1)!);
@@ -131,6 +142,10 @@ function ProfileSession(props: ContactProfileProps) {
               embedded vocabulary={view.vocabulary} blocked={blocked} writable={view.localWritable ?? view.writable} close={closeDialog} saved={saved} openConversation={props.openConversation} />}
           </>}
         </section>}
+        {view.readable !== false && <ChannelContactActions contactId={canonicalId} contact={row || {}} conversation={props.conversation}
+          channels={view.channels || []} status={channelStatus} demo={!!demo}
+          extensionKeys={props.channelExtensions ?? channelStatus.channel_extensions ?? view.channel_extensions ?? []}
+          api={api} root={root} refresh={async () => { setContactRevision(n => n + 1); setRevision(n => n + 1); }} />}
         {!demo && <>
           {view.readable !== false && <>
             <ChannelsSection channels={view.channels} conversations={view.other_conversations} />

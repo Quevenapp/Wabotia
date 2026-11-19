@@ -1,6 +1,8 @@
 import { all, batch, one } from "./db";
 import { access, admin } from "./security";
 import { refreshChannelSummaryStatements } from "./channel-accounts";
+import { channelConnectionDriver } from "./channel-extension-registry";
+import { channelNotReady } from "./channel-extension-stubs";
 import {
   ApiError,
   type Actor,
@@ -33,6 +35,11 @@ export async function removeConnection(
       "not_found",
       "Telefone não encontrado nesta área de atendimento.",
     );
+  return finishConnectionRemoval(env, actor, profile, id, connection);
+}
+
+/** A retomada usa somente a intenção de remoção já persistida por administrador. */
+async function finishConnectionRemoval(env: Env, actor: Actor, profile: string, id: string, connection: any) {
   if (connection.kind === "ai" || (connection.retired_kind && !connection.kind.endsWith("-whatsapp")))
     return removeBotConnection(env, profile, connection);
   if (connection.kind === "telegram") {
@@ -43,8 +50,22 @@ export async function removeConnection(
     ]);
     return { id, deleted: true, conversations_preserved: 0 };
   }
+  const ownChannel = connection.kind === "telegram_bot" || connection.kind === "email";
+  if (ownChannel) {
+    const driver = channelConnectionDriver(connection.channel);
+    if (!driver) channelNotReady();
+    // Pausa persiste antes da limpeza remota. Falha conserva credencial no cofre para retomar.
+    await batch(env, [["UPDATE connections SET status='paused',config=json_set(config,'$.remove_pending',1) WHERE id=? AND profile_id=?", [id, profile]]]);
+    try {
+      const result = await driver.remove({ env, actor, profileId: profile, connection: { ...connection, status: "paused" }, input: {}, commandId: `remove:${id}`, now: now() });
+      if (result.status !== "paused" || result.configured) return { id, deleted: false, pending: true };
+    } catch {
+      // Falha remota conserva a intenção e o segredo, sem propagar corpo/URL do fornecedor.
+      return { id, deleted: false, pending: true };
+    }
+  }
   requireValue(
-    ["meta", "zernio", "qr"].includes(connection.kind) || connection.retired_kind,
+    ["meta", "zernio", "qr"].includes(connection.kind) || connection.retired_kind || ownChannel,
     "A exclusão está disponível somente para conexões de telefone WhatsApp.",
   );
   const social = connection.channel && connection.channel !== "whatsapp";
@@ -174,6 +195,11 @@ export async function removeConnection(
     ],
     ["DELETE FROM call_permissions WHERE connection_id=?", [id]],
     ["DELETE FROM team_connection_presence WHERE connection_id=?", [id]],
+    ...(ownChannel ? [
+      ["DELETE FROM email_channel_addresses WHERE connection_id=? AND profile_id=?", [id, profile]],
+      ["DELETE FROM email_channel_probes WHERE connection_id=? AND profile_id=?", [id, profile]],
+      ["DELETE FROM telegram_callbacks WHERE connection_id=? AND profile_id=?", [id, profile]],
+    ] as [string, unknown[]][] : []),
     ["DELETE FROM secrets WHERE id=?", [`connection:${id}`]],
     [
       "UPDATE conversations SET connection_id=NULL,state='closed',owner=NULL,assigned_bot_id=NULL,epoch=epoch+1,menu_active=0,menu_manual=0,menu_token=NULL,menu_expires_at=NULL,menu_items='[]',updated=? WHERE connection_id=?",
@@ -313,6 +339,12 @@ export async function removePendingConnections(env: Env, profileId?: string) {
   )) {
     try {
       const profile = connection.profile_id;
+      if (connection.kind === "telegram_bot" || connection.kind === "email") {
+        const actor: Actor = { id: "channel:maintenance", kind: "connector", role: "service",
+          name: "Manutenção de canal", profiles: [profile], scopes: [], bots: [], rate: 0, runLimit: 0 };
+        await finishConnectionRemoval(env, actor, profile, connection.id, connection);
+        continue;
+      }
       const bots = await all(
         env,
         "SELECT id FROM bots WHERE connection_id=?",

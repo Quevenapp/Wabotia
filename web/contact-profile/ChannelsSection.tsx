@@ -27,7 +27,7 @@ export function ChannelsSection({ channels, conversations = [] }: {
         <strong>{customerChannelLabel(item.channel)}</strong>
         {item.account_label && <span>Conta empresarial: {item.account_label}</span>}
         {(item.display_name || item.username) && <span>{item.display_name}{item.display_name && item.username ? " · " : ""}{item.username}</span>}
-        <span>{states[item.state] ?? "Situação desconhecida"}</span>
+        <span>{item.channel === "email" && item.state === "ready" ? "Remetente não confirmado" : states[item.state] ?? "Situação desconhecida"}</span>
       </li>)}
     </ul>
     {conversations.length > 0 && <>

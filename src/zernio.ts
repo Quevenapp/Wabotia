@@ -16,6 +16,10 @@ import {
 } from "./whatsapp-interactive";
 import { normalizeZernioMetadata } from "./whatsapp-inbound";
 import { socialTransportPort } from "./channel-ports";
+import { channelExtension, extensionKey } from "./channel-extension-registry";
+import { signVerifiedIngress } from "./channel-extension-kernel";
+import type { ExtensionKey, ExtensionConnection } from "./channel-c2-contracts";
+import type { ChannelId } from "./channel-contracts";
 import type { NormalizedSocialEvent, SocialDelivery, SocialEventScope } from "./channel-contracts";
 import type { Statement } from "./customer/contracts";
 import { copySocialMedia } from "./zernio-social-media";
@@ -157,6 +161,32 @@ export async function verifyZernioWebhook(
     /^[a-f0-9]{64}$/.test(signature || "") &&
     equal(await hmac(key, rawBody), signature!)
   );
+}
+
+/** Seleção sem I/O. Os detalhes do envelope pertencem ao leitor do descritor;
+ * esta função é consultada depois da assinatura e não altera o parser de DM. */
+export function zernioExtensionKey(channel: ChannelId | null | undefined, input: unknown): ExtensionKey | null {
+  if (channel === "tiktok") return "tiktok/direct";
+  if (channel === "googlebusiness") return "googlebusiness/review";
+  if (channel !== "instagram" && channel !== "facebook") return null;
+  const key = extensionKey(channel, "comment");
+  return key && channelExtension(key).ingress?.zernio?.matches(input) ? key : null;
+}
+
+/** Chamada somente pelo webhook que acabou de validar o HMAC bruto.
+ * O Coordinator confere o ticket, o vínculo atual e o lote de deduplicação. */
+export async function zernioExtensionInbound(env: Env, conn: ExtensionConnection, input: unknown, key: ExtensionKey) {
+  const extension = channelExtension(key);
+  if (conn.status !== "active" || !extension.enabled?.(conn))
+    return Response.json({ received: true, ignored: true, reason: "channel_not_ready" });
+  const config = json(conn.config);
+  const scope = { profileId: conn.profile_id, connectionId: conn.id, channel: extension.spec.id,
+    context: key.endsWith("/comment") ? "comment" as const : key.endsWith("/review") ? "review" as const : "direct" as const,
+    accountId: String(config.account_id || ""), source: "zernio_hmac" as const };
+  const ticket = await signVerifiedIngress(env, scope, input);
+  return env.COORDINATOR.get(env.COORDINATOR.idFromName(conn.profile_id)).fetch("https://coordinator/c2-inbound", {
+    method: "POST", body: JSON.stringify({ profile: conn.profile_id, ticket }),
+  });
 }
 
 export async function zernioRememberConversation(

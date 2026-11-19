@@ -18,9 +18,9 @@ import { zernioPresignType } from "./zernio-media";
 import { channelCapabilities, channelRules } from "./channels";
 import { finishDelivery } from "./delivery";
 
-export function capabilities(conn: any, chatType = "direct") {
+export function capabilities(conn: any, chatType = "direct", projection?: Partial<import("./channel-contracts").ChannelSpec>) {
   const context = chatType === "group" ? "group" : chatType === "comment" ? "comment" : chatType === "review" ? "review" : "direct";
-  const view = channelCapabilities(conn, context);
+  const view = channelCapabilities(conn, context, projection);
   if (view.channel !== "whatsapp") return view;
   if (conn?.kind === "zernio") {
     const group = chatType === "group",
@@ -237,9 +237,9 @@ export async function outgoingContent(
   );
   return out;
 }
-export function validateMedia(m: any, kind: string, conn: any) {
+export function validateMedia(m: any, kind: string, conn: any, context: import("./channel-contracts").ChannelContext = "direct") {
   if (conn.channel && conn.channel !== "whatsapp") {
-    const rules = channelRules(conn);
+    const rules = channelRules(conn, context);
     const format = rules?.media[kind as keyof NonNullable<typeof rules>["media"]];
     const mime = String(m.type || "").split(";")[0].trim().toLowerCase();
     if (!rules?.enabled)

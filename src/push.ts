@@ -12,6 +12,7 @@ import { admin, secret, setSecret, publicUrl, storedAccess } from "./security";
 import { allows } from "./access";
 import { isActiveTicket, ticketTeamLabels } from "./protocols";
 import { CHANNEL_REGISTRY, conversationChannel } from "./channels";
+import { channelExtension } from "./channel-extension-registry";
 import {
   sendFcm,
   type PushMessage,
@@ -220,6 +221,7 @@ const PUSH_ACCESS: Record<string, string> = {
   ticket: "tickets",
   ticket_due: "tickets",
   call: "calls",
+  google_review: "reports",
 };
 // A notification computed from an event or a ticket deadline, before any
 // push_log row exists. Rows are claimed right before sending (see deliver).
@@ -565,6 +567,21 @@ export async function processPush(env: Env, profile: string) {
       const payload = json(ev.payload);
       const actor: string | null =
         typeof payload.actor === "string" ? payload.actor : null;
+      if (ev.kind.startsWith("google.review.")) {
+        const project = channelExtension("googlebusiness/review").push;
+        if (!project) return;
+        const review = await project({ env, profileId: profile, event: { id: String(ev.id), kind: ev.kind,
+          resourceId: ev.resource_id ?? null, payload, created: ev.created }, now: now() });
+        if (!review || !Number.isInteger(review.rating) || review.rating < 1 || review.rating > 5) return;
+        queue("all", actor, "google_review", review.reviewId, String(ev.id), {
+          title: minimal ? "Wabotia" : `Google · nova avaliação de ${review.rating} estrelas`,
+          body: minimal ? "Nova avaliação" : "Confira a avaliação na área Avaliações.",
+          data: { type: "web", profile_id: profile, review_id: review.reviewId,
+            url: `/app?area=reviews&review=${encodeURIComponent(review.reviewId)}` },
+          priority: "normal", channel: "messages", collapse_key: `review-${review.reviewId}`,
+        });
+        return;
+      }
       if (ev.kind === "message.received") {
         const c = await conv(payload.conversation_id);
         if (!c) return;

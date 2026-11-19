@@ -36,7 +36,7 @@ export const isChannelOperation = (operation: string) => operations.has(operatio
 const missing = (): never => { throw new ApiError(404, "not_found", "Recurso não encontrado."); };
 
 /** O recibo não mantém uma concessão revogada, nem amplia os escopos da chave original. */
-async function currentActor(env: Env, actor: Actor): Promise<Actor> {
+export async function currentActor(env: Env, actor: Actor): Promise<Actor> {
   if (actor.via || actor.module || actor.credential || actor.kind === "connector" ||
       actor.id.startsWith("bot:") || actor.scopes.includes("conversations:bound"))
     throw new ApiError(403, "forbidden", "Esta operação não permite execução automática.");
@@ -101,7 +101,7 @@ async function authorizeOperation(env: Env, original: Actor, profile: string, op
 export async function performChannelOperation(env: Env, original: Actor, profile: string, operation: string, data: any, commandId: string) {
   const { actor, conversation } = await authorizeOperation(env, original, profile, operation, data);
   switch (operation) {
-    case "channel.discover": return channelAccountsPort.discover(env, actor, profile, data.integrationId);
+    case "channel.discover": return channelAccountsPort.discover(env, actor, profile, data.integrationId, data.c2 === true ? { c2: true } : undefined);
     case "channel.import": return channelAccountsPort.importAccount(env, actor, profile, {
       commandId, integrationId: data.integrationId, accountId: data.accountId, channel: data.channel,
     });

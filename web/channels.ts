@@ -1,5 +1,6 @@
 import type { ChannelId } from "../src/channel-contracts";
 import type { Row } from "./lib/api";
+import { channelUiFor } from "./channel-extensions";
 
 const labels: Record<ChannelId, string> = {
   whatsapp: "WhatsApp", instagram: "Instagram", facebook: "Facebook",
@@ -21,10 +22,11 @@ export function conversationChannel(row: Row, lineKinds?: Record<string, string>
   return ["qr", "meta", "zernio", "whatsapp"].includes(kind || "") ? "whatsapp" : null;
 }
 
-/** Canais futuros não são oferecidos como conexões ou filtros nesta leva. */
+/** Só os canais de conversa projetados pelo servidor entram nos filtros. */
 export function conversationChannels(status: Row): ChannelId[] {
   const values: unknown[] = Array.isArray(status.conversation_channels) ? status.conversation_channels : [];
-  return ["whatsapp", "instagram", "facebook"].filter((id) => values.includes(id)) as ChannelId[];
+  return ["whatsapp", "instagram", "facebook", "telegram", "email", "tiktok"].filter((id) =>
+    values.includes(id) && (["whatsapp", "instagram", "facebook"].includes(id) || !!channelUiFor({ channel: id }))) as ChannelId[];
 }
 
 export function isMultichannel(status: Row): boolean {

@@ -2,6 +2,10 @@ import { createPiiMask, maskPersonalEnabled, type PiiMask } from "./pii-mask";
 import { allowsModules, channelRules, channelWindow, assertChannelSend, conversationChannel } from "./channels";
 import { socialTransportPort } from "./channel-ports";
 import type { ChannelId, SocialDelivery, SocialEventScope, SocialSendAttachment } from "./channel-contracts";
+import type { ChannelAction, ChannelDeliveryPlan, ChannelDeliveryResult, ChannelOperationContext, ChannelOutboxRow, ServerChannelAction } from "./channel-c2-contracts";
+import type { Statement } from "./customer/contracts";
+import { channelExtension, extensionKey } from "./channel-extension-registry";
+import { assertPublicChannelData, authorizeChannelAction, channelAutomationBlock, loadChannelOperationContext, prepareChannelAction, validateChannelWritePlan } from "./channel-extension-kernel";
 import { persistedSocialOrigin } from "./zernio-social";
 // O carregamento registra HistoryPort e os provedores de Fila e Formulários.
 import { customerTextHistory, customerTextScope, projectCustomerInput } from "./customer/history";
@@ -60,6 +64,7 @@ import { consentFor } from "./consents";
 import {
   type Env,
   type Actor,
+  type Conversation,
   type Run,
   ApiError,
   uid,
@@ -139,9 +144,9 @@ import {
   type AiUsage,
 } from "./ai-provider";
 import { signedPayload } from "./signature";
-import { engineActor, secret, hmac, safeFetch } from "./security";
+import { engineActor, secret, hmac, safeFetch, sha, canonical } from "./security";
 import { event } from "./events";
-import { finishDelivery } from "./delivery";
+import { finishDelivery, completeChannelDelivery, loadChannelDeliveryContext } from "./delivery";
 import { zernioSend, zernioTemplatePayload, zernioTyping } from "./zernio";
 import { presentInDepartment } from "./departments";
 import { formatBrasilia } from "./business-time";
@@ -192,11 +197,26 @@ function engineChannel(c: any): ChannelId | null {
     return conversationChannel(c, null);
   return c.connection_id && c.external_namespace === `channel:${c.connection_id}` ? "whatsapp" : null;
 }
-const isSocial = (c: any) => ["instagram", "facebook"].includes(engineChannel(c) || "");
+const channelContext = (c: any) => c.chat_type === "comment" ? "comment" : json(c.channel_context).context || "direct";
+const isSocial = (c: any) => ["instagram", "facebook"].includes(engineChannel(c) || "") && channelContext(c) === "direct";
+const extensionConversationKey = (c: any) => extensionKey(engineChannel(c), channelContext(c));
 
 /** Suspende respostas automáticas expiradas sem produzir mensagem pública de
  * transferência. O motivo aparece como nota interna idempotente à equipe. */
 async function stopSocialAutomation(env: Env, c: any, source: string) {
+  // Comentários/avaliações nunca executam o bot. O canal de e-mail possui
+  // entrada própria, limitada à mensagem corrente, sem o histórico deste motor.
+  if (["comment", "review"].includes(channelContext(c)) || engineChannel(c) === "email") return true;
+  const key = extensionConversationKey(c);
+  if (key) {
+    const blocked = await channelAutomationBlock(env, c, source);
+    if (!blocked) return false;
+    await batch(env, [
+      ["UPDATE conversations SET state=CASE WHEN state='ai' THEN 'waiting' ELSE state END,epoch=epoch+CASE WHEN state='ai' THEN 1 ELSE 0 END,updated=? WHERE id=? AND profile_id=?", [now(), c.id, c.profile_id]],
+      ["INSERT OR IGNORE INTO messages(id,profile_id,conversation_id,direction,author,text,attachments,created,source_key,content) VALUES(?,?,?,'note','system',?,'[]',?,?,'{}')", [`channel-block:${source}`, c.profile_id, c.id, blocked.reason, now(), `channel-block:${source}`]],
+    ]);
+    return true;
+  }
   if (!isSocial(c)) return false;
   const conn = await cachedOne(env, "SELECT * FROM connections WHERE id=? AND profile_id=?", c.connection_id, c.profile_id);
   const rules = channelRules(conn);
@@ -284,8 +304,240 @@ export async function enqueueSocialDeliveries(env: Env, c: any, actor: string, k
 }
 
 async function enqueue(env: Env, c: any, actor: string, kind: string, payload: any, dedupe: string) {
+  if (extensionConversationKey(c)) return enqueueChannelAutomation(env, c, actor, kind, payload, dedupe);
   return isSocial(c) ? enqueueSocialDeliveries(env, c, actor, kind, payload, dedupe)
     : legacyEnqueue(env, c, actor, kind, payload, dedupe);
+}
+
+const channelDeliveryWake = Symbol("channel-delivery-wake");
+type ChannelWakeEnv = Env & { [channelDeliveryWake]?: { profile: string; wake: () => Promise<void> } };
+/** Capacidade local do Coordinator; nunca faz RPC para si próprio. */
+export function withChannelDeliveryWake(env: Env, profile: string, wake: () => Promise<void>): Env {
+  return { ...env, [channelDeliveryWake]: { profile, wake } } as ChannelWakeEnv;
+}
+async function wakeChannelDelivery(env: Env, profile: string): Promise<void> {
+  const capability = (env as ChannelWakeEnv)[channelDeliveryWake];
+  if (capability?.profile === profile) await capability.wake();
+}
+
+/** Reserva da outbox e dos limites do descritor em um único lote, sem rede. */
+export async function enqueueChannelPlan(ctx: ChannelOperationContext, plan: ChannelDeliveryPlan, action: ServerChannelAction): Promise<string> {
+  if (!ctx.resource || ctx.resource.kind !== plan.resource.kind || ctx.resource.id !== plan.resource.id || !ctx.commandId)
+    throw new ApiError(409, "inbox_required", "O recurso precisa ser carregado antes de enviar.");
+  await authorizeChannelAction(ctx, action);
+  const context = ctx.resource.kind === "review" ? "review" : channelContext(ctx.resource.conversation);
+  const key = extensionKey(ctx.connection.channel, context);
+  if (!key) throw new ApiError(503, "channel_not_ready", "Canal indisponível.");
+  const resourceKey = `${plan.resource.kind}:${plan.resource.id}`;
+  if (plan.deliveries.length > 100 || !plan.operation || plan.operation.length > 100 ||
+      plan.orderKey !== resourceKey ||
+      new Set(plan.deliveries.map(item => item.key)).size !== plan.deliveries.length)
+    throw new ApiError(400, "invalid_request", "Plano de entrega inválido.");
+  if (!plan.deliveries.length) {
+    if (plan.statements?.length) throw new ApiError(400, "invalid_request", "Uma sugestão não reserva entrega.");
+    return "";
+  }
+  const requestHash = await sha(canonical({ resource: plan.resource, action, operation: plan.operation, actor: ctx.authorization.actor.id }));
+  const dedupe = `c2:${ctx.authorization.profileId}:${ctx.commandId}`;
+  const existing = await one<{ id: string; request_hash: string }>(ctx.env,
+    "SELECT o.id,s.request_hash FROM outbox o JOIN channel_delivery_state s ON s.outbox_id=o.id WHERE o.dedupe=? AND o.profile_id=?", dedupe, ctx.authorization.profileId);
+  if (existing) {
+    if (existing.request_hash !== requestHash) throw new ApiError(409, "idempotency_conflict", "A chave já foi usada com outra ação.");
+    await wakeChannelDelivery(ctx.env, ctx.authorization.profileId);
+    return existing.id;
+  }
+  await validateChannelWritePlan(ctx, { statements: plan.statements ?? [], resource: plan.resource, wake: true });
+  const prefix = `c2:${await sha(dedupe)}`;
+  const time = now(), profile = ctx.authorization.profileId;
+  const statements: Statement[] = [[
+    `INSERT INTO customer_assert(id,ok) SELECT ?,CASE WHEN NOT EXISTS(SELECT 1 FROM outbox WHERE dedupe=?)
+      AND EXISTS(SELECT 1 FROM connections WHERE id=? AND profile_id=? AND channel=? AND status='active')
+      THEN 1 ELSE 0 END ON CONFLICT(id) DO UPDATE SET ok=excluded.ok`,
+    [prefix, dedupe, ctx.connection.id, profile, ctx.connection.channel],
+  ]];
+  const ids: string[] = [];
+  plan.deliveries.forEach((delivery, index) => {
+    if (!delivery.key || delivery.key.length > 1024) throw new ApiError(400, "invalid_request", "Chave de entrega inválida.");
+    const id = `${prefix}:${String(index).padStart(4, "0")}`;
+    ids.push(id);
+    const payload = { c2: { key, authorization: ctx.authorization, action, resource: plan.resource, delivery: delivery.payload } };
+    assertPublicChannelData(payload);
+    statements.push([
+      `INSERT INTO outbox(id,profile_id,conversation_id,connection_id,epoch,kind,actor,payload,dedupe,created,updated)
+       VALUES(?,?,?,?,?,'channel',?,?,?,max(?,coalesce((SELECT max(created)+1 FROM channel_delivery_state WHERE profile_id=? AND resource_key=?),?)),?)`,
+      [id, profile, plan.resource.kind === "conversation" ? plan.resource.id : null, ctx.connection.id,
+        ctx.resource!.kind === "conversation" ? ctx.resource!.conversation.epoch : null, ctx.authorization.actor.id,
+        JSON.stringify(payload), index === 0 ? dedupe : `${dedupe}:${index}`, time, profile, resourceKey, time, time],
+    ], [
+      `INSERT INTO channel_delivery_state(outbox_id,profile_id,connection_id,resource_key,operation,request_hash,created,updated)
+       VALUES(?,?,?,?,?,?,(SELECT created FROM outbox WHERE id=?),?)`,
+      [id, profile, ctx.connection.id, resourceKey, plan.operation, requestHash, id, time],
+    ]);
+  });
+  statements.push(...(plan.statements ?? []), ...(plan.reservations?.(ids.map((id, index) => ({ id, key: plan.deliveries[index].key }))) ?? []));
+  if (statements.length > 500) throw new ApiError(400, "invalid_request", "Lote de entrega grande demais.");
+  // Persistir a indicação antes do lote fecha a janela de crash após reservar.
+  await wakeChannelDelivery(ctx.env, profile);
+  try { await batch(ctx.env, statements); }
+  catch (error) {
+    // Uma segunda invocação perde o CAS; não reaplica reservas nem quota.
+    const committed = await one<{ id: string; request_hash: string }>(ctx.env,
+      "SELECT o.id,s.request_hash FROM outbox o JOIN channel_delivery_state s ON s.outbox_id=o.id WHERE o.dedupe=? AND o.profile_id=?", dedupe, profile);
+    if (committed?.request_hash === requestHash) {
+      await wakeChannelDelivery(ctx.env, profile);
+      return committed.id;
+    }
+    throw error;
+  }
+  return ids[0];
+}
+
+export async function enqueueChannelAutomation(env: Env, c: Conversation,
+  actor: string, kind: string, payload: Record<string, unknown>, dedupe: string): Promise<string> {
+  const key = extensionConversationKey(c);
+  if (!key || key.endsWith("/comment") || key === "googlebusiness/review" || key === "email/direct")
+    throw new ApiError(403, "human_only", "Este contexto exige uma ação humana explícita.");
+  const bot = engineActor(c.profile_id, typeof payload.bot_id === "string" ? payload.bot_id : "");
+  const ctx = await loadChannelOperationContext(env, bot, c.profile_id, { kind: "conversation", id: c.id }, dedupe, "bot");
+  if (actor && !["bot:attendant", "system", "bot"].includes(actor) && kind === "manual")
+    throw new ApiError(403, "human_only", "Envio humano exige autorização da ação de canal.");
+  const attachments: SocialSendAttachment[] = [];
+  const mediaIds = typeof payload.media_id === "string" ? [payload.media_id]
+    : Array.isArray(payload.attachments) ? payload.attachments.filter((id): id is string => typeof id === "string") : [];
+  for (const id of mediaIds) {
+    const media = await one<{ id: string; type: string; size: number; name: string }>(env, "SELECT id,type,size,name FROM media WHERE id=? AND profile_id=?", id, c.profile_id);
+    if (!media) throw new ApiError(422, "unsupported_content", "Anexo indisponível.");
+    attachments.push({ mediaId: id, mimeType: media.type, bytes: media.size, name: media.name,
+      kind: media.type.startsWith("image/") ? "image" : media.type.startsWith("video/") ? "video" : media.type.startsWith("audio/") ? "audio" : "document" });
+  }
+  const action: ChannelAction = { type: "message.send", text: typeof payload.text === "string" ? payload.text : "", attachments };
+  return enqueueChannelPlan(ctx, await prepareChannelAction(ctx, action), action);
+}
+
+/** Só é chamado para kind=channel: nenhuma leitura nova nas entregas antigas. */
+export async function dispatchChannelDelivery(env: Env, candidate: ChannelOutboxRow): Promise<boolean> {
+  if (candidate.kind !== "channel") return false;
+  const row = await one<ChannelOutboxRow>(env, "SELECT * FROM outbox WHERE id=? AND profile_id=? AND status='pending'", candidate.id, candidate.profile_id);
+  if (!row) return true;
+  const ready = await one(env, `SELECT s.outbox_id FROM channel_delivery_state s WHERE s.outbox_id=? AND s.profile_id=? AND s.not_before<=?
+    AND NOT EXISTS(SELECT 1 FROM channel_delivery_state p JOIN outbox o ON o.id=p.outbox_id
+      WHERE p.profile_id=s.profile_id AND p.resource_key=s.resource_key AND (o.status IN ('pending','sending','unknown') OR
+        (o.status IN ('sent','failed','cancelled') AND o.completion_handled=0))
+      AND (p.created<s.created OR (p.created=s.created AND p.outbox_id<s.outbox_id)))`, row.id, row.profile_id, now());
+  if (!ready) return true;
+  let attempted = false;
+  try {
+    await loadChannelDeliveryContext(env, row);
+    const claimed = await exec(env, "UPDATE outbox SET status='sending',updated=? WHERE id=? AND profile_id=? AND status='pending'", now(), row.id, row.profile_id);
+    if (!claimed.meta.changes) return true;
+    const loaded = await loadChannelDeliveryContext(env, { ...row, status: "sending" });
+    await loaded.context.beforeFetch();
+    const reauthorize = loaded.context.beforeFetch;
+    loaded.context.beforeFetch = async () => {
+      await reauthorize();
+      // O descritor valida formato/mídia antes daqui. Só esta fronteira consome tentativa.
+      await exec(env, "UPDATE channel_delivery_state SET attempted_at=coalesce(attempted_at,?),updated=? WHERE outbox_id=? AND profile_id=?", now(), now(), row.id, row.profile_id);
+      attempted = true;
+    };
+    const result = await channelExtension(loaded.envelope.key).deliver(loaded.context);
+    await settleChannelDelivery(env, row, result);
+  } catch (error) {
+    // Não conservar corpo remoto, URL ou mensagem de erro do provedor.
+    const status = attempted ? "unknown" : error instanceof ApiError && error.code === "message_expired" ? "cancelled" : "failed";
+    await exec(env, "UPDATE outbox SET status=?,error=?,updated=? WHERE id=? AND profile_id=? AND status IN ('pending','sending')",
+      status, attempted ? "provider_unknown" : error instanceof ApiError && /^[a-z_]{1,64}$/.test(error.code) ? error.code : "channel_not_ready", now(), row.id, row.profile_id);
+    await completeChannelDelivery(env, row);
+  }
+  return true;
+}
+
+async function settleChannelDelivery(env: Env, row: ChannelOutboxRow, result: ChannelDeliveryResult): Promise<void> {
+  const code = result.kind !== "sent" && /^[a-z_]{1,64}$/.test(result.code) ? result.code : "provider_unknown";
+  if (result.kind === "sent") {
+    assertPublicChannelData(result);
+    await batch(env, [
+      ["UPDATE channel_delivery_state SET result_context=?,not_before=0,updated=? WHERE outbox_id=? AND profile_id=?", [JSON.stringify(result.context ?? {}), now(), row.id, row.profile_id]],
+      ["UPDATE outbox SET status='sent',external_id=?,error=NULL,updated=? WHERE id=? AND profile_id=? AND status='sending'", [result.externalId ?? null, now(), row.id, row.profile_id]],
+    ]);
+    await finishDelivery(env, { ...row, status: "sent" }, result.externalId ?? "");
+  } else if (result.kind === "retry" && Number.isSafeInteger(result.notBefore) && result.notBefore > now()) {
+    await batch(env, [
+      ["UPDATE channel_delivery_state SET not_before=?,updated=? WHERE outbox_id=? AND profile_id=?", [result.notBefore, now(), row.id, row.profile_id]],
+      ["UPDATE outbox SET status='pending',error=?,updated=? WHERE id=? AND profile_id=? AND status='sending'", [code, now(), row.id, row.profile_id]],
+    ]);
+  } else {
+    await exec(env, "UPDATE outbox SET status=?,error=?,updated=? WHERE id=? AND profile_id=? AND status='sending'", result.kind === "failed" ? "failed" : "unknown", code, now(), row.id, row.profile_id);
+    await completeChannelDelivery(env, row);
+  }
+}
+
+const readyChannelOrder = `NOT EXISTS(SELECT 1 FROM channel_delivery_state p JOIN outbox q ON q.id=p.outbox_id
+  WHERE p.profile_id=s.profile_id AND p.resource_key=s.resource_key AND (q.status IN ('pending','sending','unknown') OR
+    (q.status IN ('sent','failed','cancelled') AND q.completion_handled=0))
+  AND (p.created<s.created OR (p.created=s.created AND p.outbox_id<s.outbox_id)))`;
+export async function listReadyChannelDeliveries(env: Env, profile: string, limit = 30): Promise<ChannelOutboxRow[]> {
+  return all<ChannelOutboxRow>(env, `SELECT o.* FROM outbox o JOIN channel_delivery_state s ON s.outbox_id=o.id AND s.profile_id=o.profile_id
+    WHERE o.profile_id=? AND o.kind='channel' AND o.status='pending' AND s.not_before<=? AND ${readyChannelOrder}
+    ORDER BY s.not_before,s.created,s.outbox_id LIMIT ?`, profile, now(), Math.max(1, Math.min(100, limit)));
+}
+export async function nextChannelDeliveryAt(env: Env, profile: string): Promise<number | null> {
+  const row = await one<{ next_at: number | null }>(env, `SELECT min(due) next_at FROM (
+    SELECT s.not_before due FROM outbox o JOIN channel_delivery_state s ON s.outbox_id=o.id AND s.profile_id=o.profile_id
+      WHERE o.profile_id=? AND o.kind='channel' AND o.status='pending' AND ${readyChannelOrder}
+    UNION ALL SELECT updated+120001 due FROM outbox WHERE profile_id=? AND kind='channel' AND status='sending'
+    UNION ALL SELECT ? due FROM outbox WHERE profile_id=? AND kind='channel' AND status IN ('sent','failed','unknown','cancelled') AND completion_handled=0
+  )`, profile, profile, now() + 30_000, profile);
+  return row?.next_at === null || row?.next_at === undefined ? null : Math.max(now() + 100, row.next_at);
+}
+/** Interrupção após reivindicar pode ter enviado; retomar nunca repete a rede. */
+export async function recoverChannelDeliveries(env: Env, profile: string): Promise<void> {
+  await exec(env, "UPDATE outbox SET status='unknown',error='provider_unknown',updated=? WHERE profile_id=? AND kind='channel' AND status='sending' AND updated<?", now(), profile, now() - 120_000);
+  const terminal = await all<ChannelOutboxRow>(env, "SELECT * FROM outbox WHERE profile_id=? AND kind='channel' AND status IN ('sent','failed','unknown','cancelled') AND completion_handled=0 ORDER BY created,id LIMIT 30", profile);
+  for (const row of terminal) await completeChannelDelivery(env, row);
+}
+
+/** E-mail nunca passa pela triagem que carrega ficha, protocolos ou sessões. */
+async function processEmailChannelInbox(env: Env, c: Conversation, row: { id: string }, data: Record<string, unknown>, enabled: boolean): Promise<void> {
+  await event(env, c.profile_id, "conversation.created", c.id, { id: c.id, external_id: c.external_id });
+  if (typeof data.message_record_id === "string") await event(env, c.profile_id, "message.received", data.message_record_id,
+    { conversation_id: c.id, message_id: data.message_record_id, text: typeof data.text === "string" ? data.text : "", attachments: data.attachments ?? [] });
+  const claimed = await exec(env, "UPDATE inbox SET status='processing' WHERE id=? AND status='pending'", row.id);
+  if (!claimed.meta.changes) return;
+  try {
+    if (!enabled) return;
+    const extension = channelExtension("email/direct");
+    if (!extension.prepareBotReply && !extension.prepareAcknowledgement) return;
+    const connection = await one(env, "SELECT * FROM connections WHERE id=? AND profile_id=? AND channel='email' AND status='active'", c.connection_id, c.profile_id);
+    if (!connection || !extension.enabled?.(connection)) return;
+    const config = json(connection.config);
+    const pii = createPiiMask(config.mask_personal !== false, { emailAddress: c.channel_subject_id, displayName: c.title });
+    const input = {
+      messageId: typeof data.message_record_id === "string" ? data.message_record_id : row.id,
+      text: pii.mask(typeof data.text === "string" ? data.text.slice(0, 50_000) : ""),
+      attachments: Array.isArray(data.attachments) ? data.attachments.filter((id): id is string => typeof id === "string").slice(0, 32) : [],
+      occurredAt: typeof data.occurred_at === "number" && Number.isFinite(data.occurred_at) ? data.occurred_at : null,
+    };
+    const prepare = async (purpose: "email.auto-reply" | "email.acknowledgement", hook: NonNullable<typeof extension.prepareBotReply>) => {
+      const commandId = `${purpose}:${row.id}`;
+      if (await one(env, "SELECT id FROM outbox WHERE profile_id=? AND dedupe=?", c.profile_id, `c2:${c.profile_id}:${commandId}`)) return;
+      const ctx = await loadChannelOperationContext(env, engineActor(c.profile_id, ""), c.profile_id, { kind: "conversation", id: c.id }, commandId, "bot");
+      const reply = await hook(ctx, input);
+      if (!reply) return;
+      if (reply.action.type !== purpose) throw new ApiError(400, "invalid_channel_action", "Finalidade da resposta automática inválida.");
+      await enqueueChannelPlan(ctx, { ...reply.plan,
+        deliveries: reply.plan.deliveries.map(delivery => ({ ...delivery, payload: pii.restoreValue(delivery.payload) as Record<string, unknown> })),
+      }, { ...reply.action, text: pii.restore(reply.action.text), subject: pii.restore(reply.action.subject) });
+    };
+    if (config.auto_ack_enabled === true && extension.prepareAcknowledgement)
+      await prepare("email.acknowledgement", extension.prepareAcknowledgement);
+    if (config.bot_enabled === true && c.bot_policy !== "off" && c.state === "ai" && extension.prepareBotReply)
+      await prepare("email.auto-reply", extension.prepareBotReply);
+  } catch {
+    // Falha do bot gera somente encaminhamento local, sem confirmar dado do remetente.
+    await exec(env, "UPDATE conversations SET state='waiting',updated=? WHERE id=? AND profile_id=? AND state='ai'", now(), c.id, c.profile_id);
+  } finally {
+    await exec(env, "UPDATE inbox SET status='done' WHERE id=?", row.id);
+  }
 }
 
 export async function processInbox(env: Env, profile: string) {
@@ -300,6 +552,10 @@ export async function processInbox(env: Env, profile: string) {
   if (!row) return;
   const data = json(row.payload);
   let c = await conversation(env, row.conversation_id, profile);
+  if (c.channel === "email") {
+    await processEmailChannelInbox(env, c, row, data, !!p?.enabled);
+    return;
+  }
   const cfg = await settings(env, profile);
   const policy = await getNumberPolicy(env, c.connection_id);
   const line = await serviceForLine(env, c.connection_id);
@@ -1619,7 +1875,7 @@ async function aiRun(env: Env, run: Run, conn: any, pii: PiiMask): Promise<strin
   let current: any = null;
   if (run.conversation_id) {
     current = await conversation(env, run.conversation_id, run.profile_id);
-    if (isSocial(current)) {
+    if (isSocial(current) || ["telegram", "tiktok"].includes(engineChannel(current) ?? "")) {
       const social = current.channel_identity_id ? await one(env,
         "SELECT username,display_name FROM customer_channel_ids WHERE id=? AND profile_id=? AND account_id=? AND subject_id=? AND channel=? AND state='ready'",
         current.channel_identity_id, current.profile_id, current.channel_account_id, current.channel_subject_id, current.channel) : null;
@@ -2430,6 +2686,7 @@ async function deliverSocial(env: Env, candidate: any, connection: any) {
 
 export async function deliver(env: Env, row: any) {
   if (row.status !== "pending") return;
+  if (await dispatchChannelDelivery(env, row)) return;
   const c = row.conversation_id
     ? await conversation(env, row.conversation_id, row.profile_id)
     : null;

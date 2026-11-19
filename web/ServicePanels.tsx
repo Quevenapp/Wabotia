@@ -19,6 +19,7 @@ import { useMenuDrag, type MenuMove } from "./useMenuDrag";
 import { useUnsavedGuard } from "./app/hooks";
 import { CHANNEL_REGISTRY, isChannelId } from "../src/channels";
 import { coreMenuTypes } from "./menu-tree";
+import { channelUiFor, channelUiKey } from "./channel-extensions";
 
 type Row = Record<string, any>;
 type Props = { api: any; root: string; demo: boolean };
@@ -34,15 +35,18 @@ export function serviceLinePresentation(line: Row) {
   const channel = ["ai", "app", "internal", "team"].includes(line.kind) ? null :
     line.channel ?? (["zernio", "qr"].includes(line.kind) ? "whatsapp" : null);
   const rules = isChannelId(channel) ? CHANNEL_REGISTRY[channel] : null;
+  const extension = channelUiKey(line);
+  const extensionReady = !!extension && !!channelUiFor(line) && line.serviceLine === true && line.capabilities?.channel === channel;
   const available = rules?.serviceLine === true && line.serviceLine !== false &&
-    (["whatsapp", "instagram", "facebook"].includes(channel)) &&
-    (channel === "whatsapp" ? ["zernio", "qr"].includes(line.kind) : line.kind === "zernio");
+    (extension ? extensionReady && !extension.endsWith("/comment") :
+      ["whatsapp", "instagram", "facebook"].includes(channel) &&
+      (channel === "whatsapp" ? ["zernio", "qr"].includes(line.kind) : line.kind === "zernio"));
   return {
     available,
     channel: rules?.id ?? null,
     social: !!rules && rules.id !== "whatsapp",
     label: rules?.label || "Canal desconhecido",
-    bot: available && rules?.contexts.direct?.bot === true && line.capabilities?.bot !== false,
+    bot: available && (extension ? line.capabilities?.bot === true : rules?.contexts.direct?.bot === true && line.capabilities?.bot !== false),
     modules: available && channel === "whatsapp" && line.capabilities?.modules !== false,
     menu: line.capabilities?.menu ?? rules?.menu,
   };
@@ -252,7 +256,7 @@ export function LineCard({
           ? "Participa do roteador"
           : "Atendimento direto"}
       </p>
-      {channel.social && <p className="notice">
+      {channel.social && !channelUiKey(line) && <p className="notice">
         O cliente inicia a conversa. Bot, menus e automações respeitam o horário da área e a janela de 24 horas. Até 7 dias, somente texto escrito pela equipe. Módulos, modelos e rodízio de telefones não estão disponíveis neste canal.
       </p>}
       <form
@@ -326,7 +330,7 @@ export function LineCard({
           </small>
         </label>
         {channel.social && <p>
-          Menu: até {channel.menu?.buttons || 0} botões ou {channel.menu?.quickReplies || 0} respostas rápidas; demais opções viram texto numerado. Fora da janela automática, a equipe vê o motivo do bloqueio.
+          Menu: até {channel.menu?.buttons || 0} botões ou {channel.menu?.quickReplies || 0} respostas rápidas; demais opções viram texto numerado.{!channelUiKey(line) && " Fora da janela automática, a equipe vê o motivo do bloqueio."}
         </p>}
         <button className="primary" disabled={state.busy || (!channel.bot && draft.mode !== "human")}>
           Salvar atendimento da linha

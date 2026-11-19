@@ -17,11 +17,12 @@ import type { AppState } from "../app/AppContext";
 import { channelLabel, channelPresentation, conversationChannel } from "../channels";
 import type { WindowState } from "../../src/channel-contracts";
 import { channelWindowReason } from "../lib/window";
+import { channelExtensionReason, channelUiFor, channelUiKey } from "../channel-extensions";
 
 /** Detalhe novo pode projetar ChannelView no topo e/ou nas capacidades. */
 export function channelConversation(detail: Row): Row {
   const conversation = { ...detail.conversation };
-  for (const key of ["channel", "account_label", "multichannel", "window", "templates", "menu", "subject", "public_reply", "modules", "can_initiate"])
+  for (const key of ["channel", "channel_context", "account_label", "multichannel", "window", "templates", "menu", "subject", "public_reply", "modules", "can_initiate", "channel_extension"])
     if (key in detail) conversation[key] = detail[key];
     else if (key in (detail.capabilities || {})) conversation[key] = detail.capabilities[key];
   if (detail.connection_kind) conversation.connection_kind = detail.connection_kind;
@@ -40,7 +41,10 @@ export function channelSendPolicy(
   const channel = conversationChannel(source, lineKinds);
   const legacy = channel === "whatsapp" && !("window" in source);
   const window = source.window as WindowState | null | undefined;
-  const known = channel === "whatsapp" || channel === "instagram" || channel === "facebook";
+  const extensionKey = channelUiKey(source);
+  const publicContext = extensionKey?.endsWith("/comment") || extensionKey?.endsWith("/review");
+  const known = extensionKey ? !!channelUiFor(source)?.prepareAction && capabilities.text === true
+    : channel === "whatsapp" || channel === "instagram" || channel === "facebook";
   const humanTextOnly = window?.state === "human_text_only";
   const deadline = humanTextOnly ? window?.humanTextClosesAt : window?.closesAt;
   const expired = window?.kind === "customer" &&
@@ -48,7 +52,7 @@ export function channelSendPolicy(
   const hasWindow = legacy || window?.kind === "none" || (!!window && !expired);
   const text = known && hasWindow && (legacy ? capabilities.text !== false : capabilities.text === true) &&
     (legacy || window?.canHumanText === true);
-  const automation = known && hasWindow && !humanTextOnly &&
+  const automation = known && !publicContext && hasWindow && !humanTextOnly &&
     (legacy || window?.canAutomation === true);
   const media = text && !humanTextOnly &&
     ["image", "video", "audio", "voice", "document", "sticker"].some((key) => capabilities[key] === true);
@@ -58,14 +62,17 @@ export function channelSendPolicy(
       effective[key] = false;
   }
   // Citação, chamadas e formatos exclusivos de WhatsApp não são DMs sociais.
-  if (channel !== "whatsapp")
+  if (channel !== "whatsapp" && !extensionKey)
     for (const key of ["reply", "location", "contacts", "sticker", "mentions", "calls", "video_calls"])
+      effective[key] = false;
+  if (channel !== "whatsapp")
+    for (const key of ["mentions", "calls", "video_calls", "groups", "group_manage"])
       effective[key] = false;
   effective.text = text;
   const reason = !known
     ? "Canal indisponível para envio."
     : !hasWindow || !text
-      ? channelWindowReason(expired && window?.state !== "closed" ? "window_closed" : window?.reason) || "Janela fechada. Aguarde uma nova mensagem do cliente."
+      ? (extensionKey && channelExtensionReason(window?.reason)) || channelWindowReason(expired && window?.state !== "closed" ? "window_closed" : window?.reason) || "Janela fechada. Aguarde uma nova mensagem do cliente."
       : humanTextOnly
         ? "Até 7 dias, somente texto escrito por uma pessoa. Anexos e respostas automáticas estão bloqueados."
         : null;

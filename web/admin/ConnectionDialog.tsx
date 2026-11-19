@@ -5,6 +5,7 @@ import type { Row } from "../lib/api";
 import { Field, toast } from "../ui";
 import { FormDialog } from "./shared";
 import { CHANNEL_REGISTRY, isChannelId } from "../../src/channels";
+import { ChannelConnectionFields, channelCatalogVisible, channelConnectionChoices, channelConnectionUi, channelUiFor, channelUiKey } from "../channel-extensions";
 
 /** Ausência de canal conserva apenas os transportes WhatsApp reconhecidos. */
 export function connectionChannelPresentation(row: Row) {
@@ -16,31 +17,36 @@ export function connectionChannelPresentation(row: Row) {
     label: rules?.label || "Canal desconhecido",
     social: channel != null && channel !== "whatsapp",
     available: channel === "whatsapp" ||
-      (row.kind === "zernio" && ["instagram", "facebook"].includes(channel)),
+      (row.kind === "zernio" && ["instagram", "facebook"].includes(channel)) || !!channelUiFor(row),
     serviceLine: rules?.serviceLine === true && row.serviceLine !== false,
     rules,
   };
 }
 
-export function connectionFormConfiguration(form: Row) {
+export function connectionFormConfiguration(form: Row, catalog = false) {
   const { social } = connectionChannelPresentation(form);
   const config: Row = {}, secrets: Row = {};
   if (!social) config.groups_enabled = !!form.groups_enabled;
   for (const key of configKeys)
     if (form[key] && (!social || !["number", "group"].includes(key))) config[key] = form[key];
   if (!social) for (const key of secretKeys) if (form[key]) secrets[key] = form[key];
+  const extension = channelConnectionUi(form, catalog)?.prepareConnection?.(form);
+  if (extension) return { config: { ...config, ...extension.config }, secrets: { ...secrets, ...extension.secrets } };
   return { config, secrets };
 }
 
 export function SocialConnectionFields({ form }: { form: Row }) {
   const channel = connectionChannelPresentation(form);
+  const extension = channelUiKey(form);
   return <>
     <p><strong>{channel.label}{form.account_label ? ` · ${form.account_label}` : ""}</strong></p>
     {channel.available && form.id ? <>
       <p>Conta importada da Zernio. Canal, conta e integração são fixos; as credenciais são compartilhadas e gerenciadas em Integração Zernio.</p>
-      <p>Requer acesso à caixa de entrada (Inbox) no plano da Zernio, conta conectada, permissões de mensagens e webhook configurado. Se aparecer inbox_required, habilite o Inbox no provedor e teste novamente.</p>
-      <p>O cliente inicia a conversa. Bot e automações respondem até 24 horas após a mensagem do cliente. Até 7 dias, somente texto escrito por uma pessoa; mídia e automações não usam essa extensão.</p>
-      <p>Depois de testar a conexão, configure bot, menu e horário em Linhas de atendimento. Requisitos do provedor: a conferir com a conta real.</p>
+      {!extension && <>
+        <p>Requer acesso à caixa de entrada (Inbox) no plano da Zernio, conta conectada, permissões de mensagens e webhook configurado. Se aparecer inbox_required, habilite o Inbox no provedor e teste novamente.</p>
+        <p>O cliente inicia a conversa. Bot e automações respondem até 24 horas após a mensagem do cliente. Até 7 dias, somente texto escrito por uma pessoa; mídia e automações não usam essa extensão.</p>
+        <p>Depois de testar a conexão, configure bot, menu e horário em Linhas de atendimento. Requisitos do provedor: a conferir com a conta real.</p>
+      </>}
     </> : <p role="alert">{channel.available
       ? "Importe esta conta em Integração Zernio → Buscar contas na Zernio antes de editar a conexão."
       : "Este canal ainda não está disponível nesta etapa."}</p>}
@@ -349,11 +355,14 @@ export function ConnectionDialog({
   const app = useApp();
   const [form, setForm] = useState<Row>({ ...initial, kind: initial.kind || "ai" });
   const channel = connectionChannelPresentation(form);
+  const catalog = channelCatalogVisible(app.status);
+  const extension = channelConnectionUi(form, catalog);
+  const ownConnection = !!extension?.connection && extension.connection.kind === form.kind;
   const change = (key: string) => (value: any) =>
     setForm((current) => ({ ...current, [key]: value }));
 
   async function save() {
-    if (channel.social && (!channel.available || !form.id))
+    if (channel.social && (!channel.available || (!form.id && !ownConnection)))
       throw new Error("Importe uma conta de Instagram ou Facebook pela integração Zernio.");
     if (form.kind === "ai") {
       // Provedor de IA direto: a chave só é enviada quando preenchida, para
@@ -386,7 +395,7 @@ export function ConnectionDialog({
       onClose();
       return;
     }
-    const { config, secrets } = connectionFormConfiguration(form);
+    const { config, secrets } = connectionFormConfiguration(form, catalog);
     await app.api(app.root + "/connections", "POST", {
       id: form.id,
       name: form.name,
@@ -403,7 +412,7 @@ export function ConnectionDialog({
 
   return (
     <FormDialog title="Conectar serviço" onClose={onClose} onSubmit={save}
-      disabled={channel.social && (!channel.available || !form.id)}>
+      disabled={channel.social && (!channel.available || (!form.id && !ownConnection))}>
       <Field
         label="Nome"
         value={form.name}
@@ -413,16 +422,20 @@ export function ConnectionDialog({
       <Field
         label="Serviço"
         value={form.kind}
-        onChange={change("kind")}
+        onChange={(kind) => setForm(current => ({ ...current, kind,
+          channel: channelConnectionChoices(app.status).find(item => item.kind === kind)?.channel }))}
         options={[
           ["ai", "Provedor de IA (sem servidor)"],
           ["zernio", channel.social ? `${channel.label} · Zernio` : "WhatsApp · Zernio"],
           ["qr", "WhatsApp · QR direto"],
+          ...channelConnectionChoices(app.status).map((item): [string, string] => [item.kind, item.label]),
         ]}
         disabled={!!form.id}
       />
       {form.kind === "ai" && <AiFields form={form} change={change} />}
-      {channel.social && <SocialConnectionFields form={form} />}
+      {channel.social && !ownConnection && <SocialConnectionFields form={form} />}
+      <ChannelConnectionFields form={form} change={change} api={app.api} root={app.root} disabled={false}
+        refresh={async () => { await onSaved(); }} catalog={catalog} />
       {!channel.social && ["qr", "zernio"].includes(form.kind) && (
         <Field
           label="Telefone com DDI (somente dígitos)"

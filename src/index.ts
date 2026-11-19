@@ -5,6 +5,9 @@ import { capabilities } from "./whatsapp";
 import { installChannelRuntime } from "./channel-runtime";
 import { channelRules, channelWindow, conversationChannel, isChannelId } from "./channels";
 import { channelIdentityPort, channelTranscriptPort } from "./channel-ports";
+import { channelExtension, extensionKey, registeredChannelExtensions } from "./channel-extension-registry";
+import { assertPublicChannelData, findChannelServerRoute, performExtensionRoute, signVerifiedIngress } from "./channel-extension-kernel";
+import type { ChannelExtensionView, ExtensionConnection } from "./channel-c2-contracts";
 import { resolveZernioChannelConnection } from "./channel-accounts";
 import type { ChannelId, ChannelView } from "./channel-contracts";
 import { authorizedMedia, mediaResponse, uploadPart, mediaKind } from "./media";
@@ -13,6 +16,8 @@ import {
   zernioCredentials,
   zernioInbound,
   verifyZernioWebhook,
+  zernioExtensionKey,
+  zernioExtensionInbound,
 } from "./zernio";
 import { routerView, routedMessage, routerCommand } from "./number-router";
 import { zernioAccountCommand } from "./zernio-accounts";
@@ -72,7 +77,7 @@ import {
 import { aiListModels } from "./ai-provider";
 import { pushConfig, publicPushConfig, sendTest, prunePush } from "./push";
 import { wake } from "./events";
-import { settings, settingsRevision, scopes, eventTypes, conversation, perform } from "./service";
+import { settings, settingsRevision, scopes, eventTypes, conversation, perform, resumeChannelExtensions } from "./service";
 import {
   probe,
   storeRemoteMedia,
@@ -1093,6 +1098,7 @@ app.use("/api/v1/profiles/*", async (c, next) => {
   const segment = c.req.path.split("/")[5];
   const contribution = c.req.path.match(/\/contacts\/[^/]+\/modules\/([^/]+)\/(?:sections|collections)\/[^/]+$/);
   if (contribution) requireAccess(c.get("actor"), decodeURIComponent(contribution[1]));
+  else if (segment === "c2") { /* Política do descritor, resolvida a cada invocação. */ }
   else if (customerResourceRoute(c.req.method, c.req.path.split("/").slice(5).join("/"))) { /* O handler autoriza a pessoa e o recurso. */ }
   else if (segment) requireRouteAccess(c.get("actor"), ["contact-conflicts", "contact-identities", "contact-jobs"].includes(segment) ? "contacts" : segment);
   await next();
@@ -1695,6 +1701,22 @@ app.put("/api/v1/profiles/:profile/router/numbers/:id/limit", async (c) =>
     ),
   ),
 );
+// O registro é consultado dentro do handler: a integração instala descritores
+// depois de importar este módulo, antes de entregar a primeira requisição.
+app.all("/api/v1/profiles/:profile/c2/*", async (c) => {
+  const path = "/" + c.req.path.split("/").slice(6).join("/");
+  if (!findChannelServerRoute(c.req.method, path)) {
+    if (/^\/(?:connections\/[^/]+\/(?:setup|email-test|email-inbox|email-blocks)|conversations\/email|reviews(?:\/[^/]+(?:\/(?:reply|suggestion))?)?|review-publishers\/[^/]+)$/.test(path))
+      throw new ApiError(503, "channel_not_ready", "Este recurso de canal ainda não está disponível.");
+    throw new ApiError(404, "not_found", "Operação de canal não encontrada.");
+  }
+  const profile = c.req.param("profile");
+  if (c.req.method === "GET") return Response.json(await performExtensionRoute(
+    c.env, c.get("actor"), profile, "GET", path, Object.fromEntries(new URL(c.req.url).searchParams), "",
+  ));
+  const input: unknown = await c.req.json().catch(() => ({}));
+  return mutate(c, "c2.route", profile, { method: c.req.method, path, input });
+});
 const commands = [
   ["PUT", "lines/:id", "line.save"],
   ["POST", "internal-chats", "internal.create"],
@@ -1937,19 +1959,36 @@ const conversationChannelSql = `CASE
   WHEN c.external_namespace='channel:'||k.id AND k.kind IN ('zernio','qr','meta') THEN k.channel
   ELSE NULL END`;
 
-function channelResponse(connection: any, conv?: any) {
+function channelResponse(connection: any, conv?: any, projection?: ChannelExtensionView | null) {
   const channel = conv ? conversationChannel(conv, connection) : channelRules(connection)?.id ?? null;
   const resolved = channel && connection ? { ...connection, channel } : null;
-  const context = conv?.chat_type === "group" ? "group" : conv?.chat_type === "comment" ? "comment"
-    : conv?.chat_type === "review" ? "review" : "direct";
-  const rules = channelRules(resolved, context);
-  const caps = capabilities(resolved, context);
+  const storedContext = json(conv?.channel_context).context;
+  const context = conv?.chat_type === "group" ? "group" : conv?.chat_type === "comment" || storedContext === "comment" ? "comment"
+    : conv?.chat_type === "review" || storedContext === "review" || channel === "googlebusiness" ? "review" : "direct";
+  const metadata = projection?.metadata;
+  const projectedCapabilities = metadata?.telegram?.blocked === true
+    ? { ...projection?.capabilities, enabled: false } : projection?.capabilities;
+  const rules = channelRules(resolved, context, projectedCapabilities);
+  const caps = capabilities(resolved, context, projectedCapabilities);
+  const remaining = metadata?.tiktok?.remainingMessages ?? metadata?.remainingMessages;
+  const sentInWindow = rules?.window.kind === "customer" && rules.window.maxMessages !== undefined && Number.isSafeInteger(remaining)
+    ? Math.max(0, rules.window.maxMessages - Math.max(0, Number(remaining))) : 0;
+  const window = rules && conv ? channelWindow(rules, conv.last_customer, now(), sentInWindow) : null;
+  const closesAt = metadata?.tiktok?.closesAt ?? metadata?.closesAt;
+  if (window && closesAt !== undefined && (closesAt === null || Number.isSafeInteger(closesAt))) {
+    window.closesAt = closesAt;
+    if (window.kind === "customer" && (closesAt === null || closesAt <= window.serverNow))
+      Object.assign(window, { state: "closed", canHumanText: false, canAutomation: false, reason: "window_closed" });
+  }
+  if (projection && window && (rules?.enabled === false || metadata?.telegram?.blocked === true))
+    Object.assign(window, { state: "closed", canHumanText: false, canAutomation: false,
+      reason: metadata?.telegram?.blocked ? "channel_blocked" : "channel_not_ready" });
   const view: ChannelView = {
     channel,
     account_label: conv?.account_label || connection?.account_label || "",
     multichannel: json(conv?.channel_context).multichannel === true ||
       json(connection?.config)._channel_summary?.multichannel === true,
-    window: rules && conv ? channelWindow(rules, conv.last_customer, now()) : null,
+    window,
     templates: caps.templates, menu: caps.menu, subject: caps.subject,
     public_reply: caps.public_reply, modules: caps.modules, can_initiate: caps.can_initiate,
   };
@@ -1967,18 +2006,22 @@ app.get("/api/v1/profiles/:profile/status", async (c) => {
   const connections = await all(c.env,
     "SELECT id,profile_id,name,kind,channel,account_label,status,last_seen,config FROM connections WHERE profile_id=?", p);
   const connectedChannels = [...new Set(connections.map(conn => {
-    const rules = channelRules(conn);
+    const rules = channelRules(conn, conn.channel === "googlebusiness" ? "review" : "direct");
     return rules?.enabled ? rules.id : null;
   }).filter(isChannelId))];
+  const extensionKeys = registeredChannelExtensions().filter(extension =>
+    connections.some(connection => connection.status === "active" && connection.channel === extension.spec.id && extension.enabled?.(connection)),
+  ).map(extension => extension.key);
   const conversationChannels: ChannelId[] = allows(c.get("actor"), "conversations")
-    ? [...new Set([...connectedChannels, ...(await all(c.env,
+    ? [...new Set([...connectedChannels.filter(channel => channel !== "googlebusiness"), ...(await all(c.env,
       `SELECT DISTINCT ${conversationChannelSql} channel FROM conversations c
        LEFT JOIN connections k ON k.id=c.connection_id AND k.profile_id=c.profile_id WHERE c.profile_id=?`, p))
-      .map(row => row.channel).filter(isChannelId)])] : [];
+      .map(row => row.channel).filter(isChannelId).filter(channel => channel !== "googlebusiness")])] : [];
   const mayEmail = allows(c.get("actor"), "conversations") && allows(c.get("actor"), "conversations:email");
   const emailConfigured = mayEmail && (await getTranscriptEmailConfig(c.env)).configured;
   return c.json({
     connected_channels: connectedChannels,
+    ...(extensionKeys.length ? { channel_extensions: extensionKeys } : {}),
     conversation_channels: conversationChannels,
     multichannel: conversationChannels.some(channel => channel !== "whatsapp"),
     email_transcript: { available: !!emailConfigured,
@@ -2373,10 +2416,30 @@ for (const [path, kind] of [
   ["contacts/:id/profile", "profile"],
   ["contacts/:id/modules/:module/collections/:collection", "collection"],
   ["contacts/:id/modules/:module/sections/:section", "section"],
-] as const) app.get(`/api/v1/profiles/:profile/${path}`, async c => c.json(await customerRead(
-  c.env, c.get("actor"), c.req.param("profile")!, c.req.param("id")!, kind,
-  c.req.query(), c.req.param("module"), c.req.param("collection") ?? c.req.param("section"),
-)));
+] as const) app.get(`/api/v1/profiles/:profile/${path}`, async c => {
+  const actor = c.get("actor"), profile = c.req.param("profile")!;
+  const result = await customerRead(c.env, actor, profile, c.req.param("id")!, kind,
+    c.req.query(), c.req.param("module"), c.req.param("collection") ?? c.req.param("section"));
+  // A ficha também abre fora da raiz React do painel. Sua projeção autorizada
+  // fornece o encaixe de canais sem exigir AppProvider nem requisição da UI.
+  if (kind === "profile" && "contactId" in result && result.readable !== false && (!result.namespace || result.namespace === "team") &&
+      allows(actor, "contacts") && allows(actor, "conversations")) {
+    const extensions = registeredChannelExtensions().filter(extension => extension.spec.serviceLine && extension.enabled);
+    if (extensions.length) {
+      const connections = await all<ExtensionConnection>(c.env,
+        "SELECT * FROM connections WHERE profile_id=? AND status='active'", profile);
+      const active = connections.filter(connection => extensions.some(extension =>
+        extension.spec.id === connection.channel && extension.enabled?.(connection)));
+      const keys = extensions.filter(extension => active.some(connection =>
+        extension.spec.id === connection.channel && extension.enabled?.(connection))).map(extension => extension.key);
+      if (keys.length) return c.json({ ...result, channel_extensions: keys, channel_status: {
+        channel_extensions: keys, connected_channels: [...new Set(active.map(connection => connection.channel))],
+        connections: active.map(({ id, name, kind, channel, status, account_label }) => ({ id, name, kind, channel, status, account_label })),
+      } });
+    }
+  }
+  return c.json(result);
+});
 app.get("/api/v1/profiles/:profile/contact-conflicts", async c => c.json(await contactConflicts(c.env, c.get("actor"), c.req.param("profile"), c.req.query())));
 app.get("/api/v1/profiles/:profile/contact-jobs/:id", async c => c.json(await readJob(c.env, c.get("actor"), c.req.param("profile"), c.req.param("id"))));
 app.post("/api/v1/profiles/:profile/contacts/import/preview", async (c) => {
@@ -2540,7 +2603,15 @@ app.get("/api/v1/profiles/:profile/conversations/:id", async (c) => {
     conv.id,
     notes ? 1 : 0,
   );
-  const view = channelResponse(conn, conv);
+  const context = json(conv.channel_context).context === "comment" || conv.chat_type === "comment" ? "comment" : "direct";
+  const extensionId = extensionKey(conv.channel, context);
+  const extension = extensionId ? channelExtension(extensionId) : null;
+  const extensionView = conn && extension?.enabled?.(conn) && extension.view ? await extension.view({
+    env: c.env, connection: conn, resource: { kind: "conversation", id: conv.id, conversation: conv },
+    authorization: { actor, profileId: p, origin: "human", permissions: ["conversations:read"] }, now: now(), commandId: "",
+  }) : null;
+  if (extensionView) assertPublicChannelData(extensionView);
+  const view = channelResponse(conn, conv, extensionView);
   const contact = await conversationContact(c.env, actor, p, conv.id);
   const related = contact && actor.kind === "user" && !actor.via && allows(actor, "contacts")
     ? await channelIdentityPort.readChannels(c.env, actor, p, contact.id) : null;
@@ -2559,6 +2630,7 @@ app.get("/api/v1/profiles/:profile/conversations/:id", async (c) => {
     server_now: now(),
     media,
     capabilities: view,
+    ...(extensionView ? { channel_extension: { key: extensionId, ...extensionView } } : {}),
     group:
       conv.chat_type === "group"
         ? await one(
@@ -2944,8 +3016,9 @@ app.post("/webhooks/zernio/:id", async (c) => {
     throw new ApiError(403, "invalid_signature", "Assinatura inválida.");
   const body = json(raw, null);
   requireValue(body && typeof body === "object", "Webhook Zernio inválido.");
+  const extension = zernioExtensionKey(conn.channel, body);
   if (conn.channel && conn.channel !== "whatsapp") {
-    if (conn.channel !== "instagram" && conn.channel !== "facebook")
+    if (conn.channel !== "instagram" && conn.channel !== "facebook" && !extension)
       return c.json({ received: true, ignored: true, reason: "channel_not_ready" });
     const cfg = json(conn.config);
     const resolved = await resolveZernioChannelConnection(c.env, {
@@ -2956,6 +3029,7 @@ app.post("/webhooks/zernio/:id", async (c) => {
     if (!resolved || resolved.id !== conn.id || body.account?.platform !== conn.channel)
       return c.json({ received: true, ignored: true, reason: "scope_mismatch" });
   }
+  if (extension) return zernioExtensionInbound(c.env, conn, body, extension);
   return zernioInbound(c.env, conn, body, (data) => ingest(c.env, conn, data));
 });
 app.post("/webhooks/zernio-accounts/:id", async (c) => {
@@ -2980,13 +3054,15 @@ app.post("/webhooks/zernio-accounts/:id", async (c) => {
   // Só o seletor de conta é lido aqui, depois da assinatura. O leitor único
   // zernio-social valida e normaliza o evento inteiro antes de qualquer efeito.
   const platform = body.account?.platform;
-  if (platform === "instagram" || platform === "facebook") {
+  const extension = isChannelId(platform) ? zernioExtensionKey(platform, body) : null;
+  if (platform === "instagram" || platform === "facebook" || extension) {
     const conn = await resolveZernioChannelConnection(c.env, {
       profileId: account.profile_id, integrationId: account.id, channel: platform,
       accountId: body.account?.accountId ?? body.account?.id ?? "",
       providerProfileId: body.account?.profileId ?? null,
     });
     if (!conn) return c.json({ received: true, ignored: true, reason: "scope_mismatch" });
+    if (extension) return zernioExtensionInbound(c.env, conn as ExtensionConnection, body, extension);
     return zernioInbound(c.env, conn, body, data => ingest(c.env, conn, data));
   }
   if (platform && platform !== "whatsapp")
@@ -3042,6 +3118,32 @@ app.post("/webhooks/payments/:provider/:account", async (c) => {
 app.post("/webhooks/telegram/:id", () => {
   throw telegramRemoved();
 });
+app.post("/webhooks/telegram-bot/:id", async (c) => {
+  const connection = await one<ExtensionConnection>(c.env,
+    "SELECT * FROM connections WHERE id=? AND kind='telegram_bot' AND channel='telegram'", c.req.param("id"));
+  if (!connection) throw new ApiError(403, "invalid_secret", "Origem da entrada inválida.");
+  const credentials = await secret(c.env, `connection:${connection.id}`);
+  const supplied = c.req.header("X-Telegram-Bot-Api-Secret-Token") ?? "";
+  // Antes de parse, mídia, fila, auditoria ou escrita. Nenhum segredo é projetado.
+  if (typeof credentials.webhook_secret !== "string" || !credentials.webhook_secret ||
+      !supplied || !equal(credentials.webhook_secret, supplied))
+    throw new ApiError(403, "invalid_secret", "Origem da entrada inválida.");
+  const extension = channelExtension("telegram/direct");
+  if (connection.status !== "active" || !extension.enabled?.(connection))
+    return c.json({ received: true, ignored: true, reason: "channel_not_ready" });
+  const input: unknown = await c.req.json();
+  const config = json(connection.config);
+  const ticket = await signVerifiedIngress(c.env, {
+    profileId: connection.profile_id, connectionId: connection.id, channel: "telegram", context: "direct",
+    accountId: String(config.bot_id || config.account_id || ""), source: "telegram_secret",
+  }, input);
+  return c.env.COORDINATOR.get(c.env.COORDINATOR.idFromName(connection.profile_id)).fetch("https://coordinator/c2-inbound", {
+    method: "POST", body: JSON.stringify({ profile: connection.profile_id, ticket }),
+  });
+});
+// E-mail não possui substituto HTTP, inclusive para testes administrativos.
+app.all("/webhooks/email", () => { throw new ApiError(403, "invalid_channel_evidence", "E-mail exige o runtime de recebimento."); });
+app.all("/webhooks/email/*", () => { throw new ApiError(403, "invalid_channel_evidence", "E-mail exige o runtime de recebimento."); });
 app.use("/internal/v1/connectors/:id/*", async (c, next) => {
   const conn = await one(
     c.env,
@@ -3233,6 +3335,12 @@ mountInternalApi(app);
 
 export default {
   fetch: app.fetch,
+  async email(message: ForwardableEmailMessage, env: Env, ctx: ExecutionContext) {
+    installChannelRuntime();
+    const receive = channelExtension("email/direct").ingress?.email;
+    if (!receive) throw new ApiError(503, "channel_not_ready", "O recebimento de e-mail ainda não está disponível.");
+    await receive(message, env, ctx);
+  },
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     installChannelRuntime();
     ctx.waitUntil(wake(env, "_admin"));
@@ -3246,6 +3354,7 @@ export default {
       ctx.waitUntil(wake(env, profile.id));
       // Invocação dedicada; não acrescenta trabalho ao alarme das mensagens.
       ctx.waitUntil(resumeCustomerMaintenance(env, profile.id));
+      if (registeredChannelExtensions().length) ctx.waitUntil(resumeChannelExtensions(env, profile.id));
     }
     ctx.waitUntil(
       exec(env, "DELETE FROM rate_limits WHERE expires<?", now() - 600000),
