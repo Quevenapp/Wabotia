@@ -83,6 +83,9 @@ do motor direto. Toda entrada de produção exige mapa completo e
 `partsControl: {profile, revision, expires_at}`. Corpo comercial e cabeçalho
 externo não autorizam partes. Fotografia ausente/inválida responde
 `503 erp_parts_unavailable`; revisão superada responde `409 erp_parts_stale`.
+No armazenamento, a costura interrompe o adaptador quando essas recusas ou
+`module_disabled` aparecem, preservando o código público. Um 409 de parte
+desligada não pode ser tratado como duplicação idempotente de arquivo.
 
 O lote de autenticação inclui pessoas, aplicações e a fotografia das partes.
 A consulta de pessoas contém uma linha de controle independente de haver
@@ -167,6 +170,11 @@ dependem de rede ficam a cargo do script do orquestrador; testes escritos
 não equivalem a testes executados.
 
 ## Relato consolidado do aceite — 19/11/2026
+
+**Registro histórico de `f2-aceite`.** As duas autorizações pendentes abaixo
+foram concedidas em `f2-aceite2`. O estado desta continuação, a verificação
+local e a tabela de asserções estão na seção final deste documento. Os logs
+e impedimentos desta seção descrevem a rodada anterior, não a atual.
 
 Este relato inclui as alterações que já estavam na árvore quando esta rodada
 começou e as correções posteriores ao log `.codex-verificacao.log`. **O aceite
@@ -409,3 +417,235 @@ incompatibilidades acima e a regressão de acesso não aplicada.
   de `os`/`pedido` para os domínios do ERP. Ligar Fiscal não instala emissor.
 - Não foi feita validação visual em navegador nem chamada a serviço externo.
   Os testes do painel usam controladores, roteadores e componentes locais.
+
+## Fechamento autorizado — f2-aceite2, 19/11/2026
+
+Base recebida: `585bb741`. A última verificação externa desta base aprovou
+`check`, `build`, `test:erp` e `test:erp:painel`; no Vitest foram **279 arquivos
+e 2.966 casos aprovados, 13 arquivos e 23 casos reprovados**. Este resultado
+é o ponto de partida de `f2-aceite2`, posterior ao log histórico de 28 falhas.
+O retorno externo mais recente, em `.codex-verificacao.log`, já contém
+**290 arquivos e 2.993 casos aprovados, dois arquivos e dois casos reprovados**:
+cron e armazenamento. O recorte recebido não repete os resultados dos outros
+comandos. As causas e correções dessas duas falhas estão incorporadas abaixo,
+junto com todas as alterações anteriores desta tarefa.
+**A suíte integral da árvore agora corrigida ainda depende de novo resultado externo.**
+Não foi executado Vitest nem Wrangler, inclusive por outro runner.
+
+As duas exceções foram aplicadas dentro dos limites concedidos. Não houve
+commit, push, troca de branch, acesso à rede, migração, alteração de DDL,
+semente, oráculo, teste de origem ou orçamento inicial do painel. Nenhum caso
+foi apagado, pulado, marcado TODO ou esvaziado. Os três arquivos de transporte
+da integração anterior (`local-fetch.ts`, `identity.ts`, `rpc-endpoint.ts`)
+foram relidos; somente a recusa de armazenamento em `local-fetch.ts` precisou
+de correção adicional. A fotografia convive com a restrição de privacidade
+e com a capacidade técnica limitada do cadastro; não foi introduzido fallback.
+
+### Correções de produto
+
+- `src/access.ts`: somente o import de `ERP_MODULE_IDS` e a expressão de
+  retorno de `routeAccess` autorizados. Rotas das partes exigem o acesso
+  `erp`; a ativação continua verificando a parte dona. A rota nativa
+  `service-orders`, cujo dono é `os`, conserva o acesso `os`.
+- `src/modules/erp/panel-menu.ts`: oito `primary: true` explícitos nas
+  contribuições Produtos, Contas Financeiras, Pedidos de venda, Notas fiscais
+  de saída, Frente de caixa, Pedidos de compra, Lançamentos de estoque e
+  Remessas e retornos. A separação dos donos deixara essas oito declarações
+  sem primary. A asserção de **exatamente um primary por módulo não mudou**.
+  IDs, destinos, ordem, ícones, rótulos e permissões foram conservados.
+- `src/erp/engine/parts-gate.ts`: a taxonomia resolve também o pai persistido,
+  o recibo do mesmo ator e a auditoria da exclusão. Antes, tipo fiscal
+  explícito/presente recebia 409, mas inclusão herdada e replay após exclusão
+  podiam cair na recusa legada 403. Todos esses caminhos agora identificam a
+  parte Fiscal suspensa antes da operação e devolvem `module_disabled`.
+  Não altera gravação, hash, recibo nem o comportamento todo ligado.
+- `src/erp/api/local-fetch.ts`: a recusa das partes no armazenamento agora
+  interrompe o adaptador com `ApiError`, depois de registrar `partsDenied`
+  quando houver coletor. O adaptador CNAB portado aceita qualquer 400/409
+  como possível duplicação de chave imutável e só verifica bytes numa leitura
+  posterior. Por isso `storeFile` resolvia sem gravar ao receber
+  `409 module_disabled`, contrariando a prova de recusa. A costura distingue
+  `module_disabled`/`erp_parts_unavailable`/`erp_parts_stale` de `Duplicate`,
+  inclusive sem coletor. `erpStorage` continua respondendo 409/503 e a API
+  pública conserva esses códigos; duplicação verdadeira continua idempotente.
+  O adaptador CNAB de origem, fora da matriz, permanece intacto.
+
+### Causa do cron e do erro de I/O no retorno externo
+
+O `scheduled` real executa tanto `wakeErpAreas` quanto
+`resumeCustomerMaintenance`. Uma área recém-criada, sem checkpoint de
+reconciliação, chama `erpBridge.scan` por esse segundo caminho. Isso carrega
+o motor legitimamente; não é uma carga causada pela entrega da fotografia.
+A preparação agora registra `erp.contacts.scan.v1` concluído e fresco antes
+de :35 e :40. Assim, o caso de renovação isolada mantém **zero** cargas nas
+três passagens, sem retirar nenhuma rotina do `scheduled` nem substituir a
+reconciliação por mock. Desligamento pendente, ACK, TTL, revisão, ausência de
+esquema e área desligada sem alarme continuam conferidos.
+
+O mock de observação incrementava o contador antes de `importOriginal`.
+Esse import usa o RPC do runner Vitest; quando disparado dentro do objeto
+pela varredura, pode falhar com o `RefcountedFulfiller` registrado no log.
+O próprio plugin instalado documenta a exigência de contexto do runner em
+`node_modules/@cloudflare/vitest-plugin/dist/worker/lib/cloudflare/test-internal.mjs`
+(`runInRunnerObject`/`importModule`). O log resumido não traz uma pilha para
+atribuir cada ocorrência, portanto a confirmação em Cloudflare ainda é externa.
+Após todas as provas de zero carga, o controle positivo importa o módulo
+no runner, confere uma carga e faz ping no objeto real, agora também
+conferindo a criação do esquema. Não se alterou o carregador de produção
+nem se suprimiu erro do runtime.
+
+Uma prova adicional `node:test` instrumenta a avaliação do módulo real:
+`ErpHub.handle('/erp-parts')` persiste, renova e desliga sem avaliar o motor;
+o alarme com Base desligada também não o avalia. Só o ping de controle
+incrementa o contador e alcança a migração. Essa prova roda sem Cloudflare
+ou Vitest e complementa o caso integrado.
+
+### Alterações dos testes por arquivo
+
+| Arquivo | Preparação e prova preservada/acrescentada |
+|---|---|
+| `tests/f2-aceite.test.ts` | Caso novo na API real: pessoa restrita com `erp:consulta` lê o emissor; Fiscal desligado dá 409; sem acesso ERP dá 403; acesso Base sem papel continua insuficiente; OS exige seu próprio item e funciona com ele. |
+| `tests/area-template-juridico.test.ts` | Os dois modelos esperam OS e Jurídico. Todos os controles de tipos, menus, departamentos, bot sem operações/papéis sugeridos e passos manuais permanecem. |
+| `tests/c-fronteira-erp.test.ts` | P11 conserva `people: null` e carrega o restante do envelope original. Mantém recusa dos dois IDs técnicos e rollback do contato; acrescenta status da segunda recusa. Caso novo sem fotografia verifica 503, opções ausentes, zero consultas no handler e nenhuma gravação em cadastro/vendedor/recibo. |
+| `tests/c-hospedagem.test.ts` | Somente a URL sintética da chamada muda para `/v1/cadastros/contatos`; 403 e revalidação posterior continuam iguais. |
+| `tests/c-taxonomias.test.ts` | Produtos explícito na preparação do painel; donos e requisitos separados; helper de recusa exige 409 e código `module_disabled`. A chamada HTTP interna recebe a identidade completa, conservando a falta das marcas combinadas; recusa e igualdade das sete tabelas são conferidas. Caso novo sem fotografia exige 503, ausência de dados/resultados, zero consultas no handler e tabelas intactas. |
+| `tests/erp-cron-scheduled.test.ts` | Usa KV `erp_parts`, clock controlado e o `scheduled` real em :35/:40/:45. Prepara reconciliação cadastral concluída/fresca em :35/:40 para medir somente renovação. Confere TTL sem nova revisão, alarme futuro preservado, desligamento pendente entregue/confirmado e área desligada sem alarme nem esquema. Observa o import real: zero cargas nas passagens; controle positivo no runner ao final, seguido de ping e esquema no objeto. |
+| `tests/erp-do-instance.test.ts` | Os dois casos de alarme ligam Base e entregam fotografia por `syncErpParts` antes do wake. As asserções antigas de D1, inbox/outbox, separação da área e alarmes permanecem. Caso novo sem fotografia exige 503, nenhum esquema/dado ERP e nenhum alarme, inclusive após `alarm()`. |
+| `tests/erp-do-rpc-system.test.ts` | Fotografia completa nas chamadas antigas de RPC, inclusive na chamada direta do agendador; ausência da marca interna continua 403. Caso novo: marca sozinha não autoriza, 503 sem claim, alarme, leitura SQL ou R2. O nome desconhecido continua 404. |
+| `tests/erp-storage.test.ts` | `ports` recebe `erpIdentity`; novas requisições após alternar Cobrança recebem fotografia nova. Anexo usa contato/documento/reserva e autorização do objeto exato por RPC real; antes dessa autorização o upload é recusado. O prazo do primeiro caso passa a 60 s por incluir inicialização do motor. A chamada direta de storage recebe fotografia fresca; MIME e assinatura usam origem válida e autorização de chave específica. Isolamento, bytes, duplicação, CNAB, links, limites e multipart permanecem; recusas preservam objetos históricos. Caso novo exige 503 antes de qualquer método R2. |
+| `tests/management-catalog.test.ts` | Preserva 43 destinos da projeção legada e confere a 44ª contribuição de manutenção separadamente; distribui donos pelas nove partes. Unicidade de IDs/destinos, grupos, ordem explícita e exatamente um primary permanecem. |
+| `tests/management-lifecycle.test.ts` | Várias extensões nativas resolvem Trabalhos; somente Base abre Clientes e não expõe Produtos. Conserva zero import/prefetch do portado nos estados nativos/negados. |
+| `tests/management-navigation.test.ts` | Somente a expectativa de destino com OS + Agenda muda para Trabalhos; os demais controles de elegibilidade/ativação/permissão permanecem. |
+| `tests/os-integration-fixture.ts` | O ajudante confere cada módulo declarado. Modelos com OS continuam conferindo quantidade, validação integral e ausência de `service_order` na lista personalizada. Restaurante exige `pedido`/`queue`, OS desligado e ausência de tipos OS; prévia sem mutação, replay e reaplicação idempotente permanecem. |
+| `tests/erp/unico/f2-aceite.test.mjs` | Três casos novos executáveis sem rede: pai fiscal e recibos de inclusão/edição/exclusão recusados sem mudar sete tabelas, com replay original após religar; CNAB real recusa Cobrança/Financeiro desligados com/sem coletor, sem gravar nem mudar bytes históricos, e preserva duplicação legítima; hub real persiste/renova/desliga antes de avaliar o motor, com ping de controle positivo. A costura/hub são compilados por esbuild em diretório temporário removido ao final; não é runner alternativo de Vitest. Nenhuma asserção antiga foi alterada. |
+| `docs/ERP-FASE2.md` | Preserva o relato anterior como histórico e registra o diff, cada asserção alterada e os limites desta verificação. |
+
+`tests/erp-do-emissor-route.test.ts` permanece intacto: sua falha é tratada no
+produto. `tests/erp-identity.test.ts`, testes de fase 1 não citados acima,
+oráculo e diferencial existente permanecem intactos.
+
+Referências da preparação dos casos antigos nesta árvore (as linhas do relato
+histórico correspondem à rodada anterior):
+
+| Arquivo | Linhas e preparação |
+|---|---|
+| `tests/c-fronteira-erp.test.ts` | 207: conserva a fotografia no envelope com `people: null`. |
+| `tests/c-hospedagem.test.ts` | 291: URL válida na mesma operação cuja recusa 403 é conferida. |
+| `tests/c-taxonomias.test.ts` | 56: Produtos no contexto; 331: identidade completa na fronteira HTTP. |
+| `tests/erp-cron-scheduled.test.ts` | 46: checkpoint; 63 e 80: reconciliação fresca; 103: controle de import somente após as provas de zero carga. |
+| `tests/erp-do-instance.test.ts` | 13: ajudante que entrega a fotografia antes dos dois wakes. |
+| `tests/erp-do-rpc-system.test.ts` | 30–33: fotografia e cabeçalho comum; 84–85: fotografia do RPC comum. |
+| `tests/erp-storage.test.ts` | 59: `ports` com identidade; 82: storage direto com fotografia; 103–104: partes; 108–129: contato/documento/reserva/autorização real; 162 e 201: nova requisição após alternar Cobrança; 332 e 435: origens válidas para MIME e assinatura. |
+
+### Registro de cada asserção antiga alterada
+
+As linhas abaixo incluem mudança de argumento ou do conjunto percorrido,
+mesmo quando o matcher e o valor esperado permanecem. Casos novos e
+asserções somente acrescentadas estão registrados na tabela seguinte.
+
+| Arquivo | Caso | O que conferia | O que confere agora | Cláusula |
+|---|---|---|---|---|
+| `tests/area-template-juridico.test.ts` | Referências locais dos menus, Advogados e Escritório de advocacia (dois casos) | `modules` não contém `juridico`. | `modules.juridico === true`; `os === true` permanece. O nome dos casos foi atualizado. | A8 |
+| `tests/c-hospedagem.test.ts` | Ignora permissão atrasada após suspensão/área trocada e revalida após 403 | Chamada a `/v1/cadastros/negado` rejeita com status 403. | Chamada à rota válida `/v1/cadastros/contatos` rejeita com o mesmo status 403; revalidação intacta. | A4; autorização 2.6 |
+| `tests/c-taxonomias.test.ts` | Produtos, contatos, listas mistas e exceções de destino conservam seu acesso | Todo alias/tipo tem dono `erp`. | Tipo `produtos` tem dono `erp-produtos`; contatos e lista mista conservam `erp`. | A2/A5 |
+| `tests/c-taxonomias.test.ts` | Mesmo caso, borderôs | Base sozinha permite destino Financeiro. | Base sozinha não permite borderôs; caso adicional confirma com Financeiro. | A2/A5 |
+| `tests/c-taxonomias.test.ts` | Mesmo caso, meu contador | Base sozinha permite preferência contábil. | Exige Financeiro, com prova positiva adicional. | A5, preferências |
+| `tests/c-taxonomias.test.ts` | Omite notas, recusa tipo explícito/herdado e operações por ID… (`denied`, em todas as chamadas) | Status 403. | Status 409 e código `module_disabled`; ausência de item/deleted/replayed e igualdade das sete tabelas permanecem. | A4/A6 |
+| `tests/c-taxonomias.test.ts` | Recibos fiscais de inclusão, edição e exclusão não vazam… (`denied`, três chamadas) | Status 403 para replay fiscal suspenso. | Status 409 e código `module_disabled`; replay de produtos/contatos, restauração fiscal e não mutação permanecem. | A4/A6 |
+| `tests/erp-cron-scheduled.test.ts` | Antigo “acorda só no primeiro disparo da hora…” — estado inicial | `erp_blocks` ausente após ping. | `erp_parts` ausente nos dois objetos antes da primeira passagem, sem ping que carregaria motor. | A6/A7 |
+| `tests/erp-cron-scheduled.test.ts` | Mesmo caso — disparo fora de :00 | `erp_blocks` continua ausente em :35. | :35 entrega fotografia e alarme apenas à área ligada; :40 renova validade, conserva revisão e alarme futuro, sem carregar motor. | A7 |
+| `tests/erp-cron-scheduled.test.ts` | Mesmo caso — entrega à área ligada | `erp_blocks` truthy em :00. | Fotografia completa com Base ligada e validade exata; confirma ACK, renova em cinco minutos e depois entrega revisão maior com Base desligada. | A7 |
+| `tests/erp-cron-scheduled.test.ts` | Mesmo caso — área desligada | `erp_blocks` sempre ausente. | Recebe seu desligamento pendente, permanece sem alarme/esquema/trabalho e não é renovada após ACK; desligamento posterior da outra área também cancela o alarme. | A7 |
+| `tests/erp-storage.test.ts` | Anexos e CNAB… — outra área | Download do mesmo caminho em outra área retorna 404. | Retorna 403 por falta de autorização do objeto exato; também confere ausência física na outra área. | A4/A6 |
+| `tests/erp-storage.test.ts` | Anexos e CNAB… — Cobrança desligada | GET direto de CNAB retorna 403. | Retorna 409; adaptador continua rejeitando e bytes anteriores permanecem iguais. | A4/A6 |
+| `tests/erp-storage.test.ts` | Recusa bucket/caminho/tipo/tamanho… — MIME | Caminho `erp-attachments/a.html` retorna 415. | Origem válida `erp-attachments/company/a.html`, fotografia e autorização exata retornam o mesmo 415; objeto não é criado. | A4/A6 |
+| `tests/erp-storage.test.ts` | Mesmo caso — POST nos dois buckets fiscais | Status 403 com Fiscal desligado. | Status 409; objeto ausente continua ausente. | A4/A6 |
+| `tests/erp-storage.test.ts` | Mesmo caso — GET nos dois buckets fiscais | Status 403 com Fiscal desligado. | Status 409; não entrega dados. | A4/A6 |
+| `tests/erp-storage.test.ts` | Mesmo caso — DELETE nos dois buckets fiscais | Status 403 com Fiscal desligado. | Status 409; provas adicionais verificam preservação de objetos históricos em GET/PUT/DELETE. | A4/A6 |
+| `tests/erp-storage.test.ts` | Mesmo caso — assinatura de anexo | `sign("erp-attachments/nada.pdf", 120)` retorna 403. | Origem válida `company/nada.pdf` com autorização exata retorna o mesmo 403; assinatura continua exclusiva de exportações. | A4/A6 |
+| `tests/management-catalog.test.ts` | IDs/destinos únicos, grupos consistentes e ordem explícita | Prefixo do ID coincide com `item.module` em todos os itens. | Prefixo portado permanece `erp.` apesar do novo dono; nativos conservam prefixo do módulo. | A2/A5, preservar IDs |
+| `tests/management-catalog.test.ts` | Preserva todos os destinos portados… — quantidade | Catálogo tem exatamente os 43 itens legados. | Tem os 43 legados mais uma contribuição de manutenção, explicitamente conferida. | A4/A5 |
+| `tests/management-catalog.test.ts` | Mesmo caso — sequência de destinos | Todos os destinos equivalem à sequência legada. | Os 43 destinos legados continuam exatamente na mesma sequência; manutenção é conferida à parte. | A4/A5 |
+| `tests/management-catalog.test.ts` | Mesmo caso — dono de cada contribuição | Todo `item.module` é `erp`. | Dono corresponde ao mapa comum `ERP_PART_OWNERS[item.part]`; manutenção pertence à Base. | A2/A5 |
+| `tests/management-catalog.test.ts` | Mesmo caso — rótulo | Comparação de rótulo com a entrada legada, percorrendo todo o catálogo. | Mesma comparação em todos os 43 itens legados; o item novo não tem equivalente legado. | A5 |
+| `tests/management-catalog.test.ts` | Mesmo caso — permissão | Comparação exata com papéis/recurso legado, percorrendo todo o catálogo. | Mesma comparação nos 43 legados; permissão da manutenção é explicitamente `kind: erp`. | A4/A5 |
+| `tests/management-catalog.test.ts` | Mesmo caso — parte válida | Lista de partes admitidas aplicada a todo o catálogo. | Mesma conferência nos 43 legados; manutenção confere especificamente `part: sistema`. | A5 |
+| `tests/management-catalog.test.ts` | Classifica explicitamente sem depender do rótulo apresentado | Todo item precisa aparecer no menu de compatibilidade com seu grupo. | Os 43 itens de compatibilidade conservam grupo mesmo com rótulo traduzido; manutenção tem grupo Sistema próprio, conferido separadamente. | A4/A5 |
+| `tests/management-catalog.test.ts` | Vincula cada contribuição à declaração… | Contribuintes são nativos + `erp`. | Contribuintes são nativos + os nove IDs ERP; igualdade por dono e exatamente um primary permanecem sem alteração. | A2/A5 |
+| `tests/management-catalog.test.ts` | GET /modules acrescenta management… | `erp` desligado contém o catálogo ERP inteiro. | Cada uma das nove partes desligadas contém exatamente suas contribuições. | A2/A5 |
+| `tests/management-lifecycle.test.ts` | Administrador vazio… só Agenda… e vários módulos… | Com OS + Agenda, markup mostra “Escolha um módulo”. | Resolve `/app/erp/modulos/trabalhos` e markup de redirecionamento “Abrindo a gestão”; zero import/prefetch permanece. | A5, entrada nativa |
+| `tests/management-lifecycle.test.ts` | Antigo “só Cadastro é contribuição isolada futura…” | Base sozinha inclui `erp.products`. | Base sozinha não inclui Produtos e abre Clientes; caso positivo adicional liga Produtos. | A2/A5 |
+| `tests/management-navigation.test.ts` | Conta módulos, incluindo configurações e tipos… | Landing com OS + Agenda é `null`. | Landing é `/app/erp/modulos/trabalhos`; os demais destinos/configurações continuam conferidos. | A5 |
+| `tests/os-integration-fixture.ts` | `applyRegisteredTemplate`, quantidade de tipos | Todo modelo tem `os_work_types.length === work_types.length`. | Mesma igualdade para todos os modelos com OS; Restaurante declara zero tipos e não grava `os_work_types`. | A8 |
+| `tests/os-integration-fixture.ts` | Mesmo ajudante, validação dos tipos | `validateWorkType(type)` é idêntico a cada tipo de todo modelo. | Mesma validação integral dos modelos com OS; Restaurante confere ausência de tipos. | A8 |
+| `tests/os-integration-fixture.ts` | Mesmo ajudante, tipo embutido | Nenhum modelo grava `service_order` na coleção personalizada. | Mesma prova para OS; Restaurante não cria sequer a coleção personalizada. | A8 |
+| `tests/os-integration-fixture.ts` | Mesmo ajudante, módulos | Todo modelo termina com `os === true`. | Todos os módulos declarados coincidem com o manifesto; OS continua true nos modelos OS, Restaurante mantém OS false e Pedido/Fila true. | A8 |
+
+### Asserções adicionais, sem substituição das antigas
+
+| Arquivo/caso | Novas conferências | Contrato |
+|---|---|---|
+| `tests/f2-aceite.test.ts`, papel da Base | 200/configuração ausente no emissor, 409/código ao desligar Fiscal, 403/códigos sem acesso ou sem papel, dono/acesso OS independente e 200 com acesso OS. | A2/A4/A6; autorização 1 |
+| `tests/c-fronteira-erp.test.ts`, P11 existente | Status 400 na segunda recusa técnica. | A6 e preservação da fase 1 |
+| `tests/c-fronteira-erp.test.ts`, novo caso sem fotografia | 503/código em leitura e escrita, `users` ausente, zero leitura SQL no handler, tabelas de cadastro/vendedor/comando vazias. | A6 |
+| `tests/c-taxonomias.test.ts`, destinos | Produtos desligado impede só o destino de produtos; Financeiro ligado permite borderôs e contador. | A2/A5 |
+| `tests/c-taxonomias.test.ts`, `denied` | Código público `module_disabled`, além do status e das provas antigas de não mutação. | A4/A6 |
+| `tests/c-taxonomias.test.ts`, fronteira HTTP sem marcas combinadas | Status 400 do RPC com `42501` (a API pública traduz para 403) e igualdade das sete tabelas após cada tentativa. | A6; marca interna preservada |
+| `tests/c-taxonomias.test.ts`, novo caso sem fotografia | 503/código, ausência de items/deleted, igualdade das sete tabelas, zero leitura SQL no handler. | A6 |
+| `tests/erp-cron-scheduled.test.ts`, cron | TTL, revisões, alarmes, ACK pendente/aplicado, esquema vazio, igualdade da área desligada e contador de import com controle positivo. Nesta continuação acrescentou a contagem após import explícito no runner e a presença de esquema após ping; todas as asserções anteriores, inclusive zero cargas nas passagens, permanecem. | A7 |
+| `tests/erp-do-instance.test.ts`, preparação dos dois alarmes | Entrega confirmada (`applied`) antes do wake. | A6/A7 |
+| `tests/erp-do-instance.test.ts`, novo caso sem fotografia | 503/código, fotografia ausente, alarme nulo e esquema vazio após wake e alarm. | A6/A7 |
+| `tests/erp-do-rpc-system.test.ts`, novo caso sem fotografia | 503/código mesmo com marca, nenhuma tarefa/fotografia/alarme e zero métodos SQL/R2 chamados por export_chunk. | A6 |
+| `tests/erp-storage.test.ts`, preparação por RPC | Cada RPC real retorna 200; upload antes da autorização falha sem objeto; chave autorizada é a reservada. | A4/A6 |
+| `tests/erp-storage.test.ts`, anexos/CNAB | Outra área sem objeto; CNAB anterior conserva todos os bytes após desligar. | A4/A6 |
+| `tests/erp-storage.test.ts`, recusas de armazenamento | MIME/tamanho inválidos não criam objeto; Fiscal desligado não cria nem altera/remove objeto histórico (409/código e bytes iguais). | A4/A6 |
+| `tests/erp-storage.test.ts`, novo caso sem fotografia | GET/POST/DELETE dão 503/código e nenhum método R2 é chamado. | A6 |
+| `tests/management-catalog.test.ts`, manutenção | Contribuição explícita Base/Sistema, ordem 440, destino `/manutencao-efeitos` e permissão ERP. | A4/A5 |
+| `tests/management-lifecycle.test.ts`, entradas | Landing nativa explícita; catálogo inteiro da Base abre Clientes; ligar Produtos expõe sua contribuição. | A5 |
+| `tests/os-integration-fixture.ts`, módulos/modelo sem OS | Cada chave corresponde ao manifesto; ramo sem OS é Restaurante, sem tipos, com Pedido e Fila ligados. | A8 |
+| `tests/erp/unico/f2-aceite.test.mjs`, taxonomias fiscais | Pai e três recibos recusados em 409/código sem mutação das sete tabelas; após religar, 200/replay sem mutação. | A4/A6/A9 |
+| `tests/erp/unico/f2-aceite.test.mjs`, CNAB na costura real | 409/código no armazenamento direto; rejeição do adaptador e do fetch local sem coletor, `partsDenied` preservado com coletor, zero acesso ao D1, nenhuma gravação indevida e bytes históricos iguais com Cobrança ou Financeiro desligados; duplicação verdadeira grava uma vez e permite ler os mesmos bytes. | A4/A6/A9 |
+| `tests/erp/unico/f2-aceite.test.mjs`, hub real | Fotografia persistida, TTL renovado sem adiantar alarme, revisão de desligamento preservada, alarme cancelado; contador zero até o ping, depois um e migração alcançada. | A7/A9 |
+
+### Verificação local e limites
+
+<!-- F2_ACEITE2_VALIDATION -->
+| Comando/evidência | Resultado na árvore corrigida |
+|---|---|
+| `npm run check` | Aprovado, saída 0: marcadores, codificação, CSS e TypeScript. `.f2-aceite2-check.log`. O tsconfig verifica produto/painel, não os arquivos Vitest. |
+| `npm run build` | Aprovado, saída 0; somente avisos sobre diretivas de dependências React Router. `.f2-aceite2-build.log`. |
+| `node --no-warnings --test --test-name-pattern='CNAB na costura real\|hub real persiste' tests/erp/unico/f2-aceite.test.mjs` | Dois aprovados, zero falhas/cancelamentos/pulos/TODO. `.f2-aceite2-regressions.log`. |
+| `npm run test:erp` | **1.029 aprovados, zero falhas/cancelamentos/pulos e um TODO preexistente**; 1.030 casos contabilizados, saída 0. Inclui diferencial inteiro contra Postgres local e os três casos novos de aceite. `.f2-aceite2-erp.log`. |
+| `npm run test:erp:painel` | **2.236 aprovados, zero falhas/cancelamentos/pulos/TODO**, saída 0; inclui manifesto de origem, orçamento inicial e textos. `.f2-aceite2-painel.log`. |
+| `git diff --check` | Aprovado, sem problemas de whitespace. |
+| Vitest / Cloudflare | Não executado, por instrução explícita. O retorno externo recebido tem 2.993 casos aprovados e dois reprovados, **antes** destas correções. |
+<!-- /F2_ACEITE2_VALIDATION -->
+
+Antes da correção de produto, a nova prova de CNAB falhou com
+`Missing expected rejection`, reproduzindo o defeito sem Vitest. O primeiro
+ensaio do harness precisou ajustar a compilação ESM e a duração dos arquivos
+temporários; isso não mudou as expectativas da regressão. O log de reprodução
+é `.f2-aceite2-repro.log`; o de aprovação está na tabela. A rodada anterior
+de `f2-aceite2` tinha 40 casos distintos focais aprovados (aceite, taxonomias,
+paridade, Base e anexos), além de TypeScript e verificações textuais. Essas
+contagens anteriores não são somadas às execuções completas atuais.
+O único TODO continua sendo o caso “248 pedido de compra Em aberto lança
+contas and still moves on to Em andamento”, em
+`tests/erp/fagoo/finance-invoice-postings-sql.test.mjs:282`, já presente no
+commit base. Nem esse arquivo nem sua marcação foram alterados. A suíte
+completa do motor terminou em aproximadamente 12 minutos e 7 segundos.
+
+Cada caso alterado foi relido contra os resolvedores, o transporte, os RPCs,
+o armazenamento e a casca que exercita. O novo teste de cron observa o import
+do motor com um controle positivo, além da ausência do esquema; sua nova
+preparação e o isolamento de I/O no ambiente Cloudflare ainda precisam ser
+confirmados externamente. O caso de armazenamento que falhou mantém todas
+as asserções: a correção desta continuação está no produto.
+
+Não há pedido adicional de autorização nem pendência de decisão de produto
+identificada. As exceções de acesso e testes foram concedidas e aplicadas;
+não há novo pedido à base. Fica de fora a execução do Vitest e a confirmação
+final do runtime Cloudflare, conforme a regra da tarefa. Não se declara
+aceite integral antes do retorno externo verde. Permanecem os limites de
+A7/A8 já descritos: sem transação distribuída, recomposição retroativa ou
+ponte operacional automática de OS/Pedido para o ERP.

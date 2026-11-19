@@ -1,3 +1,4 @@
+import { projectCatalogRecord } from "./part-projection.ts";
 // Núcleo do cadastro de contatos: erp_catalog.contact_input, contact_merge,
 // contact_take_code, contact_check_full, contact_required_missing/field,
 // contact_field_person_type, document_issue, warnings (ramo de contatos; o de
@@ -424,7 +425,7 @@ export function contactData(db: SqlDriver, id: string): Json | null {
 }
 
 /** erp_catalog.contact_dto(p_id): o contato para a tela (null se não é contato). */
-export function contactDto(db: SqlDriver, id: string): Json | null {
+export function contactDto(db: SqlDriver, id: string, internal = false): Json | null {
   contactRequirePrivacy(db, id);
   const rec = one(
     db,
@@ -442,7 +443,7 @@ export function contactDto(db: SqlDriver, id: string): Json | null {
     ? one(db, 'SELECT r.id, r.name FROM "erp_catalog__seller" s JOIN "erp_catalog__record" r ON r.id=s.contact_id WHERE s.id=?', profile.seller_id)
     : null;
   const own = one(db, 'SELECT id FROM "erp_catalog__seller" WHERE contact_id=?', id);
-  return {
+  const result = {
     ...v,
     id: rec.id,
     entity: "contacts",
@@ -469,6 +470,7 @@ export function contactDto(db: SqlDriver, id: string): Json | null {
       .map((r) => ({ id: r.id, name: r.name, code: r.code ?? null, situation: contactSituationOf(db, String(r.id)) })),
     updated_by_name: rec.updated_by === null ? null : actorLabel(db, String(rec.updated_by)),
   };
+  return internal ? result : projectCatalogRecord(catalogParts(db), "contacts", result);
 }
 
 const CONTACT_COLUMNS = [

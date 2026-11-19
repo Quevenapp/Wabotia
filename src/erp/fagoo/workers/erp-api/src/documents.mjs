@@ -1,3 +1,4 @@
+import { parsePartRecord } from './preferences-kit.mjs';
 import { erpEntityRequirement, erpFieldRequirement } from '../../../../parts-requirements.ts';
 import { projectParts, responseParts, responsePartsMetadata, erpRequirementMet } from './preferences-kit.mjs';
 import { CARD_BRANDS, EXTENSION_FIELDS, KINDS, PAYMENT_TYPES, STATES, documentNumber, normalizeDocument } from '../../../packages/erp-domain/src/index.mjs';
@@ -320,7 +321,7 @@ export async function documentsOperation(request,route,params) {
   if(route.action==='proposal_version'){
     if(!only(input,['command_id','expected_version','data'])||!UUID.test(input.command_id||'')||!Number.isInteger(input.expected_version)||input.expected_version<1||input.expected_version>2147483647
       ||!object(input.data)||Object.hasOwn(input.data,'number')||input.data.template===true)invalid();
-    try{normalizeDocument('sales_proposals',input.data);}catch{return invalid();}
+    try{validateDocumentInput('sales_proposals',input.data);}catch{return invalid();}
     return {rpc:'erp_document_proposal_version',args:{p_id:route.id,p_expected_version:input.expected_version,p_command_id:input.command_id.toLowerCase(),p_body:input.data},type:'document'};
   }
   // 202610200196: a new pedido/OS may carry the proposta it comes from (Gerar venda / Gerar ordem de serviço opened prefilled).
@@ -333,7 +334,7 @@ export async function documentsOperation(request,route,params) {
     if(!situationKey(route.kind,input.status)|| (input.reason!==undefined && input.reason!==null && (typeof input.reason!=='string'||input.reason.length>1000||/[\x00-\x1f\x7f]/.test(input.reason))))invalid();
     return {rpc:'erp_document_transition',args:{...base,p_status:input.status,p_reason:input.reason??null},type:'document'};
   }
-  try{normalizeDocument(route.kind,input.data);}catch{return invalid();}
+  try{validateDocumentInput(route.kind,input.data);}catch{return invalid();}
   if(input.source_proposal!==undefined){
     const source=input.source_proposal;
     if(!only(source,['id','expected_version'])||!UUID.test(source.id||'')||!Number.isInteger(source.expected_version)||source.expected_version<1||source.expected_version>2147483647)invalid();
@@ -430,7 +431,7 @@ function accessSeller(value){
     ||typeof value.allow_unregistered_products!=='boolean'||typeof value.view_stock!=='boolean'||typeof value.discount_limit!=='string'||!/^(0|[1-9][0-9]{0,2})\.[0-9]{4}$/.test(value.discount_limit)||Number(value.discount_limit)>100)badResponse();
   return {id:value.id,name:value.name,allow_unregistered_products:value.allow_unregistered_products,view_stock:value.view_stock,discount_limit:value.discount_limit};
 }
-function snapshot(value,expectedId,contact) {
+function snapshotBody(value,expectedId,contact) {
   if(expectedId===null){if(value!==null&&value!==undefined)badResponse();return null;}
   if(!object(value)||value.id!==expectedId||!Number.isInteger(value.version)||value.version<1)badResponse();
   // 202610200129: GTIN, GTIN tributário, NCM, localização and peso bruto of the product, for the Preferências print options and "Somar peso bruto".
@@ -439,6 +440,10 @@ function snapshot(value,expectedId,contact) {
   for(const [key,max]of Object.entries(fields)){const v=value[key]??null;if(v!==null&&(typeof v!=='string'||v.length>max))badResponse();safe[key]=v;}
   if(typeof safe.name!=='string'||!safe.name||!contact&&safe.price!==null&&!isCanonicalUnitPrice(safe.price,14)||!contact&&safe.gross_weight!==null&&!/^(0|[1-9][0-9]{0,11})(\.[0-9]{1,6})?$/.test(safe.gross_weight))badResponse();return safe;
 }
+function snapshot(value,expectedId,contact) {
+  if(expectedId===null)return snapshotBody(value,expectedId,contact);
+  return parsePartRecord(value,body=>snapshotBody(body,expectedId,contact),contact?[]:[[['stock'],{location:null}]],badResponse);
+}
 function metadata(value,kind) {
   if(!object(value)||value.kind!==kind||!UUID.test(value.id||'')||!Number.isInteger(value.version)||value.version<1||value.version>2147483647
     ||typeof value.number!=='string'||!/^[1-9][0-9]{0,9}$/.test(value.number)||!Object.hasOwn(STATES[kind],value.status))badResponse();
@@ -446,7 +451,7 @@ function metadata(value,kind) {
   for(const key of ['created_at','updated_at']){if(typeof value[key]!=='string'||value[key].length>100||!Number.isFinite(Date.parse(value[key])))badResponse();meta[key]=value[key];}
   return meta;
 }
-function summary(value,kind) {
+function summaryBody(value,kind) {
   // 202610220009: a document of Origin origin converted to the native model (authority brufap) is read as a native one.
   if(value?.authority==='origin')return shape(()=>documentMirrorSummary(value,kind));
   const meta=metadata(value,kind);
@@ -699,7 +704,7 @@ function documentsResponseBody(value,route,operation,parts) {
     const data=picked(value.data,INPUT_FIELDS);
     if(!Array.isArray(value.data.items)||!Array.isArray(value.data.installments??[]))badResponse();
     data.items=value.data.items.map(item=>object(item)?picked(item,ITEM_FIELDS):null);data.installments=(value.data.installments??[]).map(row=>object(row)?picked(row,INSTALLMENT_FIELDS):null);
-    let normalized;try{normalized=normalizeDocument(route.kind,data);}catch{return badResponse();}
+    let normalized;try{normalized=parts.finance?normalizeDocument(route.kind,data):validateDocumentInput(route.kind,data);}catch{return badResponse();}
     const contact=value.contact,listName=value.price_list_name;
     if(normalized.items.some(item=>item.id!==null)||normalized.template||!only(contact,['id','name'])||contact.id!==normalized.contact_id||typeof contact.name!=='string'||!contact.name||characters(contact.name)>200
       ||(listName!==null&&(normalized.price_list_id===undefined||normalized.price_list_id===null||typeof listName!=='string'||!listName||characters(listName)>120)))badResponse();
@@ -730,7 +735,7 @@ function documentsResponseBody(value,route,operation,parts) {
     if(value.mirror_available!==undefined&&typeof value.mirror_available!=='boolean')badResponse();
     for(const key of ['read','write'])if(!Array.isArray(value[key])||value[key].some(kind=>!KINDS.includes(kind)))badResponse();
     // 202610200164: settings applied by the document screens and the vendedor linked to the user (absent before 164).
-    return {...base,read:[...new Set(value.read)],write:[...new Set(value.write)],...(value.mirror_available===undefined?{}:{mirror_available:value.mirror_available}),...(Object.hasOwn(value,'settings')?{settings:partAccessSettings(value.settings,parts),seller:accessSeller(value.seller)}:{}),
+    return {...base,read:[...new Set(value.read)],write:[...new Set(value.write)],...(value.mirror_available===undefined?{}:{mirror_available:value.mirror_available}),...(Object.hasOwn(value,'settings')?{settings:partAccessSettings(value.settings,parts),seller:partAccessSeller(value.seller,parts)}:{}),
       ...(Object.hasOwn(value,'permissions')?{permissions:partAccessPermissions(value.permissions,parts)}:{})};
   }
   if(value.replayed!==undefined&&typeof value.replayed!=='boolean')badResponse();
@@ -795,11 +800,23 @@ export function documentsResponse(value,route,operation) {
  const parts=responseParts(value,badResponse);
  if(Object.hasOwn(value,'unavailable_parts')&&operation.type==='access')for(const key of ['read','write'])
   if(!Array.isArray(value[key])||value[key].some(kind=>!erpEntityRequirement(kind)||!erpRequirementMet(parts,erpEntityRequirement(kind))))badResponse();
+ if(operation.type==='pendencies')return parsePartRecord(value,body=>documentsResponseBody(body,route,operation,parts),[[['fiscal'],{pendencies:[]}]],badResponse);
+ if(operation.type==='structures')return parsePartRecord(value,body=>documentsResponseBody(body,route,operation,parts),[[['stock','products'],{items:[]}]],badResponse);
  return projectParts(value, body => documentsResponseBody(body,route,operation,parts), badResponse);
 }
 
 function document(value,kind) {
- return projectParts(value, body=>documentBody(body,kind), badResponse);
+ const parts=responseParts(value,badResponse),input=structuredClone(value);
+ if(!parts.finance&&Array.isArray(input.installments))for(const row of input.installments)if(object(row?.details))
+  for(const key of ['account_id','fee_amount','commission_fee_amount'])if(!Object.hasOwn(row.details,key))row.details[key]=null;
+ const parsed=parsePartRecord(input,body=>documentBody(body,kind),[
+  [['stock'],{warehouse_id:null}],
+  [['finance'],{category_id:null,payment_account_id:null}],
+ ],badResponse);
+ if(!parts.stock)for(const item of parsed.items??[])delete item.lots;
+ if(!parts.finance)for(const row of parsed.installments??[])if(object(row.details))
+  for(const key of ['account_id','fee_amount','commission_fee_amount'])delete row.details[key];
+ return parsed;
 }
 function partTransitionEffects(value) {
  if(!Array.isArray(value))badResponse();
@@ -822,7 +839,7 @@ function partAccessSettings(value,parts) {
   if(erpRequirementMet(parts,requirement))badResponse();
   object[key]=fallback;removed.push(path);
  };
- for(const key of ['stock_launch_date','default_warehouse'])optional(input,key,key==='stock_launch_date'?'data_atual':null,erpFieldRequirement('stock_action'),[key]);
+ for(const key of ['stock_launch_date','default_warehouse','cross_docking_days'])optional(input,key,key==='stock_launch_date'?'data_atual':key==='cross_docking_days'?0:null,erpFieldRequirement('stock_action'),[key]);
  if(object(input.auto_products))for(const [key,entity] of [['sales','sales_orders'],['services','service_orders'],['purchases','purchase_orders']])optional(input.auto_products,key,false,erpEntityRequirement(entity),['auto_products',key]);
  const parsed=accessSettings(input);
  for(const path of removed){if(path.length===1)delete parsed[path[0]];else delete parsed[path[0]][path[1]];}
@@ -843,11 +860,41 @@ function partAccessPermissions(value,parts) {
  const parsed=accessPermissions(input);for(const key of removed)delete parsed.service_orders[key];for(const kind of removedKinds)delete parsed[kind];return parsed;
 }
 
+function partAccessSeller(value,parts) {
+ if(value===null)return null;
+ if(!object(value))badResponse();
+ const omitted=!Object.hasOwn(value,'view_stock');
+ if(omitted&&parts.stock)badResponse();
+ const parsed=accessSeller(omitted?{...value,view_stock:false}:value);
+ if(omitted)delete parsed.view_stock;
+ return parsed;
+}
 function partPaymentOptions(value,kind,parts) {
  if(!object(value))badResponse();
  const omitted=!Object.hasOwn(value,'accounts');
  if(omitted&&erpRequirementMet(parts,erpFieldRequirement('finance_action')))badResponse();
- const parsed=paymentOptionsBody(omitted?{...value,accounts:[]}:value,kind);
+ if(!Array.isArray(value.methods))badResponse();
+ const methods=value.methods.map(m=>{
+  if(!object(m))badResponse();
+  if(Object.hasOwn(m,'account_id'))return m;
+  if(parts.finance)badResponse();
+  return {...m,account_id:null};
+ });
+ const parsed=paymentOptionsBody({...value,methods,...(omitted?{accounts:[]}:{})},kind);
+ parsed.methods.forEach((m,i)=>{if(!Object.hasOwn(value.methods[i],'account_id'))delete m.account_id;});
  if(omitted)delete parsed.accounts;
  return parsed;
+}
+
+// A omissão segue intacta para a guarda do motor; nunca vira uma limpeza no pedido.
+function validateDocumentInput(kind,value) {
+ if(!object(value))invalid();
+ const input=structuredClone(value);
+ if(Array.isArray(input.installments))for(const row of input.installments)if(object(row?.details))
+  for(const key of ['account_id','fee_amount','commission_fee_amount'])if(!Object.hasOwn(row.details,key))row.details[key]=null;
+ return normalizeDocument(kind,input);
+}
+
+function summary(value,kind) {
+ return parsePartRecord(value,body=>summaryBody(body,kind),[[['stock'],{warehouse_id:null,warehouse_name:null}]],badResponse);
 }

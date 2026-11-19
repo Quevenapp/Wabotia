@@ -1,3 +1,4 @@
+import { projectCatalogResult } from "./part-projection.ts";
 // Núcleo do cadastro (erp_catalog.record e as linhas de contato, produto e
 // depósito): erp_catalog.mutate, write_fields e os gatilhos dessas tabelas na
 // ordem do Postgres (BEFORE por nome, depois AFTER por nome).
@@ -269,5 +270,5 @@ export function mutate(ctx: RpcContext, p: MutateInput): Record<string, unknown>
     );
   }
   storeCommand(ctx, p.command, p.user!, hash, result);
-  return result;
+  return projectCatalogResult(ctx.parts, result);
 }

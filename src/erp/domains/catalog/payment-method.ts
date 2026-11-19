@@ -1,3 +1,4 @@
+import { projectCatalogRecord } from "./part-projection.ts";
 // Formas de pagamento (erp_catalog.payment_method): payment_method_access,
 // payment_method_input, payment_method_dto, payment_method_accounts,
 // payment_condition_valid e o gatilho payment_method_defaults_fit (camada de
@@ -250,7 +251,7 @@ export function updateRow(ctx: RpcContext, id: string, changes: Row) {
 export const accountActive = (db: SqlDriver, id: string) => finance.accountActive(db, id);
 
 /** erp_catalog.payment_method_dto (null se não existe ou foi excluída). */
-export function paymentMethodDto(db: SqlDriver, id: string): Record<string, unknown> | null {
+export function paymentMethodDto(db: SqlDriver, id: string, internal = false): Record<string, unknown> | null {
   const m = readRow(db, id);
   if (!m) return null;
   const out: Record<string, unknown> = {
@@ -277,7 +278,7 @@ export function paymentMethodDto(db: SqlDriver, id: string): Record<string, unkn
   };
   for (const b of BOOLS) out[b] = !!Number(m[b]);
   for (const r of RATES) out[r] = m[r] === null ? null : formatScaled(fromColumn(m[r]), 4);
-  return out;
+  return internal ? out : projectCatalogRecord(catalogParts(db), "payment_methods", out);
 }
 
 /** erp_catalog.payment_method_accounts */

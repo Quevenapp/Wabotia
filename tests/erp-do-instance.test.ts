@@ -7,6 +7,13 @@ import { all, one } from "../src/db";
 import { erpFetch, erpStub, ERP_PROFILE_HEADER } from "../src/erp/hub";
 import { countingEnv } from "./d1-counter";
 import { drain, fixture, receive } from "./service-center-fixture";
+import { setModule } from "./erp-module-helper";
+import { syncErpParts } from "../src/modules/erp/parts-state";
+
+async function authorize(f: Awaited<ReturnType<typeof fixture>>) {
+  await setModule(f.profile, "erp", true, f.admin.id);
+  expect((await syncErpParts(env, f.profile)).status).toBe("applied");
+}
 
 describe("ERP fase 0: instância erp: ao lado da área", () => {
   it("alarme do ERP não toca outbox/inbox nem consulta o D1; a área segue igual", async () => {
@@ -23,6 +30,7 @@ describe("ERP fase 0: instância erp: ao lado da área", () => {
 
     const ping = await (await erpFetch(env, f.profile, "/erp-ping")).json<any>();
     expect(ping).toMatchObject({ kind: "erp", profile: f.profile });
+    await authorize(f);
     expect((await erpFetch(env, f.profile, "/erp-wake", { method: "POST" })).status).toBe(200);
 
     const stub = erpStub(env, f.profile);
@@ -94,6 +102,7 @@ describe("ERP fase 0: instância erp: ao lado da área", () => {
     const f = await fixture();
     const stub = erpStub(env, f.profile);
     await erpFetch(env, f.profile, "/erp-ping");
+    await authorize(f);
     await runInDurableObject(stub, (_i: any, state: DurableObjectState) => state.storage.deleteAlarm());
     const lastAlarm = () =>
       runInDurableObject(stub, (_i: any, state: DurableObjectState) =>
@@ -120,6 +129,22 @@ describe("ERP fase 0: instância erp: ao lado da área", () => {
     expect(await runDurableObjectAlarm(stub)).toBe(true);
     await runInDurableObject(stub, (_i: any, state: DurableObjectState) => state.storage.deleteAlarm());
   }, 60_000);
+
+  it("sem fotografia o wake falha fechado sem carregar dados nem agendar trabalho", async () => {
+    const f = await fixture();
+    const response = await erpFetch(env, f.profile, "/erp-wake", { method: "POST" });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: { code: "erp_parts_unavailable" } });
+    const stored = await runInDurableObject(erpStub(env, f.profile), async (instance: any, state) => {
+      await instance.alarm();
+      return {
+        alarm: await state.storage.getAlarm(),
+        parts: await state.storage.get("erp_parts"),
+        tables: state.storage.sql.exec("SELECT name FROM sqlite_master WHERE name LIKE 'erp_%'").toArray(),
+      };
+    });
+    expect(stored).toEqual({ alarm: null, parts: undefined, tables: [] });
+  });
 
   it("recusa outra área, instância de área e rotas da área na instância do ERP", async () => {
     const f = await fixture();

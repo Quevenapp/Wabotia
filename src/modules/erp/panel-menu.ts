@@ -85,6 +85,7 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
   },
   {
     id: "erp.products", module: "erp-produtos", part: "catalogo",
+    primary: true,
     ...ERP_MENU_GROUPS.catalogo, order: 80,
     label: "Produtos",
     target: { kind: "ported", to: "/cadastros-reais?cadastro=products" },
@@ -113,6 +114,7 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
   },
   {
     id: "erp.financial-accounts", module: "erp-financeiro", part: "financeiro",
+    primary: true,
     ...ERP_MENU_GROUPS.financeiro, order: 120,
     label: "Contas Financeiras",
     target: { kind: "ported", to: "/financeiro-empresa?area=contas-financeiras" },
@@ -148,6 +150,7 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
   },
   {
     id: "erp.sales-orders", module: "erp-vendas", part: "vendas",
+    primary: true,
     ...ERP_MENU_GROUPS.comercial, order: 170,
     label: "Pedidos de venda",
     target: { kind: "ported", to: "/documentos-empresa?tipo=sales_orders" },
@@ -155,6 +158,7 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
   },
   {
     id: "erp.outgoing-invoices", module: "erp-fiscal", part: "fiscal",
+    primary: true,
     ...ERP_MENU_GROUPS.fiscal, order: 180,
     label: "Notas fiscais de saída",
     target: { kind: "ported", to: "/historico-fiscal?modelo=55" },
@@ -169,6 +173,7 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
   },
   {
     id: "erp.pos", module: "erp-pdv", part: "pdv",
+    primary: true,
     ...ERP_MENU_GROUPS.comercial, order: 200,
     label: "Frente de caixa",
     target: { kind: "ported", to: "/frente-caixa-empresa" },
@@ -212,6 +217,7 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
   },
   {
     id: "erp.purchase-orders", module: "erp-compras", part: "compras",
+    primary: true,
     ...ERP_MENU_GROUPS.compras, order: 260,
     label: "Pedidos de compra",
     target: { kind: "ported", to: "/documentos-empresa?tipo=purchase_orders" },
@@ -247,6 +253,7 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
   },
   {
     id: "erp.stock-movements", module: "erp-estoque", part: "estoque",
+    primary: true,
     ...ERP_MENU_GROUPS.estoque, order: 310,
     label: "Lançamentos de estoque",
     target: { kind: "ported", to: "/estoque-empresa" },
@@ -296,6 +303,7 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
   },
   {
     id: "erp.bank-remittances", module: "erp-cobranca", part: "cobranca",
+    primary: true,
     ...ERP_MENU_GROUPS.financeiro, order: 380,
     label: "Remessas e retornos",
     target: { kind: "ported", to: "/financeiro-empresa?area=remessas" },

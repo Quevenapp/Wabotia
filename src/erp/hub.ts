@@ -10,8 +10,9 @@
 //   de qualquer coisa da área (pipeline do WhatsApp, D1);
 // - nunca chama a instância da área de forma síncrona.
 import type { Env } from "../types";
-import { currentErpParts, handleErpParts, ERP_PARTS_KEY } from "./parts-control.ts";
-import { readErpPartsSnapshot } from "./parts.ts";
+import { applyErpPartsSnapshot, requireCurrentErpParts, ErpPartsControlError, currentErpParts, handleErpParts, ERP_PARTS_KEY } from "./parts-control.ts";
+import { ERP_PARTS_DENIED_HEADER, readErpPartsSnapshot } from "./parts.ts";
+import { decodeIdentity, IDENTITY_HEADER } from "./engine/identity.ts";
 
 /**
  * Motor e esquema por import dinâmico: o bundle os traz, mas só são avaliados
@@ -100,7 +101,37 @@ export class ErpHub {
       return response;
     }
     if (path === "/erp-wake") return this.wake(profile, request);
+    // Identidade e controle são leves: nenhuma importação do motor, SQL ou
+    // migração pode preceder a recusa de uma fotografia ausente ou superada.
+    const rpc = path.startsWith("/erp-rpc/");
+    const identity = rpc ? decodeIdentity(request.headers.get(IDENTITY_HEADER)) : null;
+    const input = identity && { ...identity.partsControl, parts: identity.parts };
+    const authorize = async (apply: boolean) => {
+      try {
+        const snapshot = apply
+          ? await applyErpPartsSnapshot(this.ctx.storage, profile, input)
+          : await requireCurrentErpParts(this.ctx.storage, profile, input);
+        if (!snapshot.parts.customers) {
+          const error = { code: "module_disabled", message: "Esta rotina depende de uma parte desligada." };
+          return Response.json({ ...error, error }, { status: 409, headers: { [ERP_PARTS_DENIED_HEADER]: error.code } });
+        }
+        return null;
+      } catch (error) {
+        if (!(error instanceof ErpPartsControlError)) throw error;
+        return Response.json({ code: error.code, message: error.message, error: { code: error.code, message: error.message } },
+          { status: error.status, headers: { [ERP_PARTS_DENIED_HEADER]: error.code } });
+      }
+    };
+    if (rpc) {
+      const denied = await authorize(true);
+      if (denied) return denied;
+    }
     const { ERP_SCHEMA_VERSION, migrate, backupToR2, dumpAll, handleRpc, readBackup, restoreAll } = await engine();
+    if (rpc) {
+      // O import cede a vez: expiração ou revisão nova também bloqueiam a migração.
+      const denied = await authorize(false);
+      if (denied) return denied;
+    }
     const applied = migrate(this.ctx.storage);
     if (applied.status === "newer")
       return fail(503, "erp_schema_newer", `O esquema gravado (${applied.version}) é mais novo que o do código (${ERP_SCHEMA_VERSION}).`);
@@ -111,8 +142,11 @@ export class ErpHub {
         schema_version: ERP_SCHEMA_VERSION,
         database_size: this.ctx.storage.sql.databaseSize,
       });
-    // Backup lógico no R2 e restauração (prova 8). Restaurar é só numa
-    // instância nova ou para recuperar: troca o conteúdo inteiro.
+    // Exceção deliberada de recuperação: /erp-backup e /erp-restore só têm
+    // chamadores internos pelo binding do Coordinator (e testes); não há
+    // encaminhamento no Worker nem em api/local-fetch.ts. Precisam funcionar
+    // sem fotografia, inclusive em instância nova ou com ERP suspenso.
+    // Restaurar troca o conteúdo inteiro. Não expor estas rotas na API pública.
     if (path === "/erp-backup") {
       const dump = dumpAll(this.ctx.storage);
       const saved = await backupToR2(this.env.MEDIA, profile, dump);

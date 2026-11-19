@@ -149,7 +149,7 @@ describe("elegibilidade, ativação e autorização independentes", () => {
     expect(managementLanding(agenda)).toBe("/app/erp/modulos/agenda");
     expect(managementLanding(agenda.slice(1))).toBe("/app/erp/modulos/servicos-e-horarios");
     expect(managementLanding([])).toBeNull();
-    expect(managementLanding(resolveManagement(MANAGEMENT_ITEMS, context({ modules: { agenda: true, os: true } })))).toBeNull();
+    expect(managementLanding(resolveManagement(MANAGEMENT_ITEMS, context({ modules: { agenda: true, os: true } })))).toBe("/app/erp/modulos/trabalhos");
     expect(managementLanding([...agenda, { ...agenda[0], id: "agenda.extra", primary: false, href: "/app/erp/modulos/agenda?extra=1" }])).toBe(agenda[0].href);
   });
 

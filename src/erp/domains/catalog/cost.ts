@@ -5,17 +5,16 @@ import { ErpError } from "../../engine/errors.ts";
 import { saoPauloMidnight } from "../../engine/time.ts";
 import * as stock from "../stock/public.ts";
 import { registerBeforeRpc } from "../../engine/registry.ts";
-import { normalizeErpParts, type ErpParts } from "../../parts.ts";
+import type { ErpParts } from "../../parts.ts";
 import { ErpPartDisabled } from "../../engine/parts-gate.ts";
 import { jsonbText } from "../../engine/json.ts";
+import { catalogParts, setCatalogParts } from "./part-context.ts";
+export { catalogParts } from "./part-context.ts";
 
 // Os leitores legados recebem SqlDriver, como as restrições de contato.
 // Reiniciado antes de todo RPC (inclusive sem parts), sem alterar a identidade
 // do driver usada pelo cadastro único. invokeRpc herda a fotografia síncrona.
-const snapshots = new WeakMap<SqlDriver, Readonly<ErpParts>>();
-const allParts = normalizeErpParts();
-export const catalogParts = (db: SqlDriver) => snapshots.get(db) ?? allParts;
-registerBeforeRpc(ctx => snapshots.set(ctx.db, ctx.parts));
+registerBeforeRpc(ctx => setCatalogParts(ctx.db, ctx.parts));
 
 /** Campos suspensos: omissão preserva; reenvio idêntico passa; limpeza não. */
 export function preserveCatalogFields(

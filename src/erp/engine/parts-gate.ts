@@ -194,7 +194,20 @@ export function rpcPartsRequirement(ctx: RpcContext, name: string, a: RpcArgs): 
     const saved = rowAt(ctx.db, "erp_catalog__taxonomy", a.p_id);
     if (saved?.kind && (a.p_kind ?? a.p_type) && saved.kind !== (a.p_kind ?? a.p_type)) throw new ErpError("22023", "erp_parts_owner_mismatch");
     add(typeRequirement(saved?.kind ?? a.p_kind ?? a.p_type));
-    if ((saved?.tag_type ?? data.tag_type) === "invoices") ids.push("erp-fiscal");
+    const parent = rowAt(ctx.db, "erp_catalog__taxonomy", saved?.parent_id ?? data.parent_id);
+    const command = rowAt(ctx.db, "erp_catalog__command", a.p_command_id, "command_id");
+    const receipt = command && command.actor === a.p_user_id ? obj(parse(command.result)) : {};
+    const audit = receipt.kind === (a.p_kind ?? a.p_type) && receipt.deleted === true
+      ? one(ctx.db, `SELECT before_data FROM "erp_catalog__taxonomy_audit"
+          WHERE command_id=? AND actor=? AND kind=? AND item_id=? AND action='delete'`,
+        a.p_command_id, a.p_user_id, receipt.kind, receipt.id)
+      : null;
+    // Pai e recibos sobreviventes também fixam a origem. Um corpo que omite
+    // tag_type não pode trocar a recusa da parte suspensa por acesso legado.
+    const types = [saved?.tag_type, data.tag_type, parent?.tag_type,
+      receipt.kind === (a.p_kind ?? a.p_type) ? obj(receipt.item).tag_type : null,
+      obj(parse(audit?.before_data)).tag_type];
+    if (types.includes("invoices")) ids.push("erp-fiscal");
   }
   if (rule === "preference") {
     const saved = name === "erp_preferences_command" ? rowAt(ctx.db, "erp_preferences__command", a.p_command_id) : null;

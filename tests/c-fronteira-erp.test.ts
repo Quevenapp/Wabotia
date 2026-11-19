@@ -11,6 +11,7 @@ import { erpIdentity, erpSystemIdentity } from "../src/modules/erp/identity";
 import { moduleEnabled } from "../src/modules/registry";
 import { CUSTOMER_BRIDGE_SCAN, CUSTOMER_BRIDGE_USER_ID, encodeIdentity, GATE_HEADER, IDENTITY_HEADER, SYSTEM_HEADER, type IdentityPort } from "../src/erp/engine/identity";
 import { storageDriver } from "../src/erp/engine/driver";
+import { handleRpc } from "../src/erp/engine/rpc-endpoint";
 import { contactScope } from "../src/erp/domains/catalog/contact";
 import { sellerAccessAllowed, sellerUsers } from "../src/erp/domains/catalog/seller";
 import { fixture, type Fixture } from "./service-center-fixture";
@@ -203,14 +204,43 @@ describe("fronteira ERP: restrição, executor e transporte", () => {
     const denied = await rpc(f, "erp_catalog_seller_save", input, { identity, direct: true });
     expect(denied.status).toBe(400);
     expect(denied.body.message).toBe("erp_catalog_seller_invalid:user_id");
-    const persisted = { actor: identity.actor, people: null };
+    const persisted = { ...identity, people: null };
     const appDenied = await rpc(f, "erp_catalog_seller_save", {
       ...input, p_command_id: uid(), p_settings: { ...SETTINGS, user_id: app },
     }, { identity: persisted, direct: true });
+    expect(appDenied.status).toBe(400);
     expect(appDenied.body.message).toBe("erp_catalog_seller_invalid:user_id");
     const count = await runInDurableObject(erpStub(env, f.profile), (_instance, state) =>
       state.storage.sql.exec("SELECT count(*) n FROM erp_catalog__record WHERE entity='contacts'").one().n);
     expect(count).toBe(0); // a transação também desfez o contato criado pelo formulário
+  }, 120_000);
+
+  it("P11: envelope sem fotografia falha fechado sem carregar opções ou gravar vendedor", async () => {
+    const f = await setup();
+    const complete = await erpIdentity(env, f.admin, f.profile);
+    const identity = { actor: complete.actor, people: null };
+    const options = await rpc(f, "erp_catalog_seller_options", {}, { identity, direct: true });
+    expect(options.status).toBe(503);
+    expect(options.body.code).toBe("erp_parts_unavailable");
+    expect(options.body.users).toBeUndefined();
+    const read = vi.fn(() => { throw new Error("Não deve carregar opções sem fotografia"); });
+    const blocked = await handleRpc({ storage: { sql: { exec: read } } } as unknown as DurableObjectState,
+      f.profile, "erp_catalog_seller_options", new Request("https://internal/erp-rpc/erp_catalog_seller_options", {
+        method: "POST", headers: { [IDENTITY_HEADER]: encodeIdentity(identity) },
+        body: JSON.stringify({ p_user_id: f.admin.id }),
+      }));
+    expect(blocked.status).toBe(503);
+    expect(read).not.toHaveBeenCalled();
+    const denied = await rpc(f, "erp_catalog_seller_save", {
+      p_id: null, p_expected_version: 0, p_contact_expected_version: 0, p_command_id: uid(),
+      p_contact: { name: "Não gravar" }, p_settings: SETTINGS, p_acknowledged: [],
+    }, { identity, direct: true });
+    expect(denied.status).toBe(503);
+    expect(denied.body.code).toBe("erp_parts_unavailable");
+    const stored = await runInDurableObject(erpStub(env, f.profile), (_instance, state) =>
+      Object.fromEntries(["record", "seller", "command"].map(table => [table,
+        state.storage.sql.exec(`SELECT * FROM erp_catalog__${table}`).toArray()])));
+    expect(stored).toEqual({ record: [], seller: [], command: [] });
   }, 120_000);
 
   it("P11: vínculo técnico preexistente não impõe carteira/horário; humano permanece restrito", async () => {

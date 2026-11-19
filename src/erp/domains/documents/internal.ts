@@ -10,6 +10,7 @@ import { notPorted, raise } from "../../engine/errors.ts";
 import { arrow, jsonType } from "../../engine/json.ts";
 import type { RpcContext } from "../../engine/registry.ts";
 import { autoProductKey, documentProduct } from "../catalog/public.ts";
+import { projectCatalogRecord } from "../catalog/part-projection.ts";
 import * as preferences from "../preferences/public.ts";
 import { active as receiptsActive } from "../stock/public.ts";
 import { transitions } from "./preferences.ts";
@@ -205,7 +206,7 @@ export function documentDto(ctx: RpcContext, id: string): Record<string, unknown
   const db = ctx.db;
   const d = one(db, 'SELECT * FROM "erp_documents__document" WHERE id=?', id);
   if (!d) return null;
-  if (d.authority === "origin") return mirrorDetail(db, id);
+  if (d.authority === "origin") { const value = mirrorDetail(db, id); return value ? projectDocument(ctx, value) : value; }
   const body = parse(d.body);
   if (body === null) return null;
   const items = db
@@ -214,12 +215,12 @@ export function documentDto(ctx: RpcContext, id: string): Record<string, unknown
       const data = parse(i.data);
       return data === null ? null : { ...data, product_snapshot: parse(i.product_snapshot) };
     });
-  return Object.assign({}, body, {
+  return projectDocument(ctx, Object.assign({}, body, {
     id: d.id, kind: d.kind, number: d.number === null ? null : String(d.number), status: d.status, version: d.version,
     effect_flags: effectFlags(ctx, id), contact_snapshot: parse(d.contact_snapshot), source_proposal_id: d.source_proposal_id,
     created_at: d.created_at === null ? null : jsonTimestamp(d.created_at as bigint), updated_at: d.updated_at === null ? null : jsonTimestamp(d.updated_at as bigint),
     items, origin: d.origin, authority: d.authority, readonly: false, ...unavailableParts(ctx),
-  });
+  }));
 }
 
 /** erp_documents.document_view(id): o dto com situação, nomes e versões da proposta. */
@@ -227,7 +228,7 @@ export function documentView(ctx: RpcContext, id: string): Record<string, unknow
   const db = ctx.db;
   const d = one(db, 'SELECT kind, body, origin, authority FROM "erp_documents__document" WHERE id=?', id);
   if (!d) return null;
-  if (d.authority === "origin") return mirrorDetail(db, id);
+  if (d.authority === "origin") { const value = mirrorDetail(db, id); return value ? projectDocument(ctx, value) : value; }
   const dto = documentDto(ctx, id);
   if (dto === null) return null;
   const body = parse(d.body);
@@ -252,7 +253,7 @@ export function documentView(ctx: RpcContext, id: string): Record<string, unknow
   const wantedAccounts = new Set(installments().map((p) => fieldText(details(p), "account_id")).filter((x) => x !== null));
   if (ctx.parts.finance) for (const a of db.exec('SELECT id, name FROM "erp_finance__account"').rows)
     if (wantedAccounts.has(String(a.id))) accounts[String(a.id)] = pgLeft(String(a.name), 200);
-  return Object.assign(
+  return projectDocument(ctx, Object.assign(
     dto,
     {
       situation: documentSituationJson(db, id),
@@ -266,7 +267,7 @@ export function documentView(ctx: RpcContext, id: string): Record<string, unknow
     },
     d.kind === "sales_proposals" ? { proposal_version: proposalVersionJson(db, id) } : {},
     { origin: d.origin, authority: d.authority, readonly: false },
-  );
+  ));
 }
 
 /** erp_documents.situation_key_valid(kind, chave): status do tipo ou situação própria do tipo. */
@@ -275,4 +276,33 @@ export function situationKeyValid(db: SqlDriver, kind: string | null, key: strin
   const map = transitions()[kind];
   if (map && Object.prototype.hasOwnProperty.call(map, key)) return true;
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(key) && !!one(db, 'SELECT 1 x FROM "erp_preferences__situation" WHERE id=? AND kind=? LIMIT 1', key, kind);
+}
+
+/** Projeção comum de leituras e recibos; nunca modifica o corpo persistido. */
+export function projectDocument(ctx: Pick<RpcContext, "parts">, value: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...value, ...unavailableParts(ctx) };
+  const omit = (row: Record<string, unknown>, keys: string[]) => keys.forEach(key => delete row[key]);
+  const snapshot = (entity: string, value: unknown) => value !== null && typeof value === "object" && !Array.isArray(value)
+    ? projectCatalogRecord(ctx.parts, entity, value as Record<string, unknown>) : value;
+  if (Object.hasOwn(out, "contact_snapshot")) out.contact_snapshot = snapshot("contacts", out.contact_snapshot);
+  if (Array.isArray(out.items)) out.items = out.items.map(item => {
+    if (item === null || typeof item !== "object" || Array.isArray(item)) return item;
+    const row = { ...item };
+    if (Object.hasOwn(row, "product_snapshot")) row.product_snapshot = snapshot("products", row.product_snapshot);
+    if (!ctx.parts.stock) delete row.lots;
+    return row;
+  });
+  if (!ctx.parts.stock) {
+    omit(out, ["warehouse_id", "warehouse_name"]);
+  }
+  if (!ctx.parts.finance) {
+    omit(out, ["category_id", "category_name", "payment_account_id", "payment_account_name", "payment_account_names"]);
+    if (Array.isArray(out.installments)) out.installments = out.installments.map(part => {
+      if (!part.details) return { ...part };
+      const details = { ...part.details };
+      omit(details, ["account_id", "fee_amount", "commission_fee_amount"]);
+      return { ...part, details };
+    });
+  }
+  return out;
 }

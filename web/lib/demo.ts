@@ -2,6 +2,7 @@
 // fictícios, respondidas aqui mesmo. Nenhuma chamada sai do navegador e
 // nenhuma escrita é aceita.
 import type { Api, Row } from "./api";
+import type { BaseStatus, Order, OrderHistory, OrderList, Page, PrivateFields, WorkTypeCatalog, WorkTypeView } from "../modules/os/work-contracts";
 import * as erpDefinitions from "../../src/modules/erp/definition";
 import { agendaDemo, agendaDemoModule } from "../modules/agenda/demo";
 import { reservaDemo, reservaDemoModule } from "../modules/reserva/demo";
@@ -614,38 +615,69 @@ const queueOverview = () => ({
 });
 
 // Ordem de Serviço (módulo "os"): o mesmo formato de GET /service-orders.
-const osLabels: Row = {
+const osLabels: Record<BaseStatus, string> = {
   received: "Recebida",
   analyzing: "Em análise",
   quoted: "Orçamento enviado",
   approved: "Aprovada",
+  declined: "Recusada",
   in_progress: "Em execução",
   ready: "Pronta",
   delivered: "Entregue",
+  cancelled: "Cancelada",
 };
-const osNext: Row = {
+const osNext: Record<BaseStatus, BaseStatus[]> = {
   received: ["analyzing", "in_progress", "cancelled"],
   analyzing: ["in_progress", "cancelled", "quoted"],
   quoted: ["analyzing", "cancelled", "quoted", "approved", "declined"],
   approved: ["in_progress", "cancelled"],
+  declined: ["analyzing", "ready", "cancelled"],
   in_progress: ["ready", "cancelled"],
   ready: ["delivered", "in_progress", "cancelled"],
   delivered: [],
+  cancelled: [],
+};
+// A OS embutida usa o contrato atual, inclusive as transições manuais
+// separadas das ações de orçamento. Coleções opcionais ficam vazias nela.
+const osType: WorkTypeView = {
+  schema_version: 1, kind: "builtin", id: "service_order", revision: 1, archived: false,
+  labels: { singular: "Ordem de serviço", plural: "Ordens de serviço", item: "Item", problem: "Problema", customer_singular: "Cliente", customer_plural: "Clientes" },
+  number_prefix: "", terms: "Autorizo a análise do item informado.",
+  fields: [], retired_field_ids: [], retired_stage_ids: [], initial_stage: "received",
+  stages: (Object.keys(osLabels) as BaseStatus[]).map(id => ({ id, label: osLabels[id], base_status: id, message: "" })),
+  transitions: (Object.keys(osNext) as BaseStatus[]).flatMap(from =>
+    (from === "analyzing" || from === "quoted" ? osNext[from].filter(to => !["quoted", "approved", "declined"].includes(to)) : osNext[from])
+      .map(to => ({ id: `${from}_${to}`, from, to, label: osLabels[to], kind: "manual" as const }))),
+  features: {
+    customer_open: true, tasks: false, people: false, documents: false, entries: false,
+    quote: { default_valid_days: 7, source_stages: ["received", "analyzing", "quoted", "declined"], sent_stage: "quoted", approved_stage: "approved", declined_stage: "declined", edited_stage: "analyzing" },
+    warranty_days: 90, pickup_reminder_days: 3, stale_days: 7,
+  },
+  pickup_reminder_text: "Seu item está pronto para retirada.",
 };
 const osOrder = (
   number: number,
-  status: string,
+  status: BaseStatus,
   name: string,
   phone: string,
   item: string,
   problem: string,
   age: number,
   quote: [string, number][] | null = null,
-): Row => ({
+): Order => ({
   id: "os-" + number,
   number,
   status,
   status_label: osLabels[status],
+  type_id: osType.id, type_revision: osType.revision, type_number: number,
+  type_label: osType.labels.singular, type_plural_label: osType.labels.plural,
+  display_number: String(number), stage: status, stage_label: osLabels[status],
+  labels: { ...osType.labels }, fields: [], extra: {}, version: 1,
+  features: structuredClone(osType.features), next_task: null, stage_approval: null,
+  next_stages: osType.transitions.filter(transition => transition.from === status).map(transition => ({
+    transition_id: transition.id, stage: transition.to, stage_label: transition.label,
+    base_status: transition.to as BaseStatus, kind: transition.kind,
+  })),
   customer: { name, phone, contact_id: null, conversation_id: number === 14 ? "demo-1" : null },
   item,
   problem,
@@ -677,19 +709,71 @@ const osOrder = (
   created: t(age),
   updated: t(Math.min(age, 3 * H)),
 });
-const osOrders: Row[] = [
+const osOrders: Order[] = [
   osOrder(15, "received", "Carla Mendes", "5511987650001", "Notebook Lenovo IdeaPad", "Não liga depois de uma queda.", 2 * H),
   osOrder(14, "quoted", "Mariana Costa", "5511987650002", "Celular Moto G84", "Tela trincada e touch falhando no canto.", 26 * H, [["Troca de tela", 38000], ["Película", 2500]]),
   osOrder(13, "in_progress", "Rafael Lima", "5511987650003", "Bicicleta aro 29", "Freio traseiro sem pressão.", 3 * 24 * H, [["Sangria do freio", 9000], ["Pastilhas", 6500]]),
   osOrder(12, "ready", "Patrícia Souza", "5511987650004", "Terno azul-marinho", "Ajustar barra e cintura.", 4 * 24 * H, [["Ajuste de barra", 4000], ["Ajuste de cintura", 5000]]),
   osOrder(11, "delivered", "João Pereira", "5511987650005", "Máquina de lavar Brastemp", "Vazamento na lateral.", 9 * 24 * H, [["Mangueira", 4500], ["Mão de obra", 12000]]),
 ];
-const osHistory = (order: Row): Row[] => [
-  { id: order.id + "-h1", kind: "opened", from_status: null, to_status: "received", actor: order.source === "customer" ? "customer" : "demo-user", note: "", created: order.created },
+const osHistory = (order: Order): OrderHistory[] => [
+  { id: order.id + "-h1", kind: "opened", from_status: null, to_status: "received", from_stage: null, to_stage: "received", actor: order.source === "customer" ? "customer" : "demo-user", note: "", created: order.created },
   ...(order.status !== "received"
-    ? [{ id: order.id + "-h2", kind: "status", from_status: "received", to_status: order.status, actor: "demo-user", note: "", created: order.updated }]
+    ? [{ id: order.id + "-h2", kind: "status", from_status: "received" as const, to_status: order.status, from_stage: "received", to_stage: order.stage, actor: "demo-user", note: "", created: order.updated }]
     : []),
 ];
+
+function workNotFound(): never {
+  throw Object.assign(new Error("Trabalho ou recurso não encontrado na demonstração."), { status: 404, code: "demo_not_found" });
+}
+function workPage<T>(rows: T[], query: URLSearchParams): Page<T> {
+  const start = Math.max(0, Number(query.get("cursor")) || 0);
+  const limit = Math.min(100, Math.max(1, Number(query.get("limit")) || 50));
+  return { data: rows.slice(start, start + limit), next_cursor: start + limit < rows.length ? String(start + limit) : null };
+}
+function workDemo(rest: string, query: URLSearchParams) {
+  // Rotas reservadas sempre precedem o identificador do trabalho.
+  if (rest === "service-orders/types") return { data: [osType], settings_revision: "demo" } satisfies WorkTypeCatalog;
+  if (rest.startsWith("service-orders/types/")) {
+    if (rest !== "service-orders/types/" + osType.id) return workNotFound();
+    return osType;
+  }
+  if (rest === "service-orders/my-tasks") return workPage([], query);
+  if (rest === "service-orders") {
+    const statuses = (query.get("status") || "").split(",").filter(Boolean);
+    const stages = (query.get("stage") || "").split(",").filter(Boolean);
+    const q = (query.get("q") || "").toLocaleLowerCase("pt-BR"), assignee = query.get("assignee");
+    const base = osOrders.filter(order =>
+      (!query.get("type_id") || query.get("type_id") === order.type_id) &&
+      (!query.get("conversation_id") || query.get("conversation_id") === order.customer.conversation_id) &&
+      (!query.get("phone") || query.get("phone") === order.customer.phone) &&
+      (!assignee || (assignee === "unassigned" ? !order.assignee : order.assignee === (assignee === "me" ? demoMe.id : assignee))) &&
+      (!query.get("due_from") || order.due_at !== null && order.due_at >= Number(query.get("due_from"))) &&
+      (!query.get("due_to") || order.due_at !== null && order.due_at <= Number(query.get("due_to"))) &&
+      (!q || `${order.display_number} ${order.item} ${order.customer.name} ${order.customer.phone}`.toLocaleLowerCase("pt-BR").includes(q)));
+    const counts: OrderList["counts"] = {}, types: Record<string, number> = {}, stageCounts: Record<string, number> = {};
+    for (const order of base) {
+      counts[order.status] = (counts[order.status] || 0) + 1;
+      types[order.type_id] = (types[order.type_id] || 0) + 1;
+      stageCounts[order.stage] = (stageCounts[order.stage] || 0) + 1;
+    }
+    return {
+      ...workPage(base.filter(order => (!statuses.length || statuses.includes(order.status)) &&
+        (!stages.length || stages.includes(order.stage)) &&
+        (query.get("open") !== "1" || !["delivered", "cancelled"].includes(order.status))), query),
+      counts, ...(query.get("facets") === "1" ? { facets: { types, stages: stageCounts } } : {}),
+    } satisfies OrderList;
+  }
+  const match = rest.match(/^service-orders\/([^/]+)(?:\/([^/]+))?$/);
+  const order = match && osOrders.find(item => item.id === match[1]);
+  if (!order) return workNotFound();
+  const collection = match![2];
+  if (!collection) return { ...order, ...(query.get("history") === "none" ? {} : { history: osHistory(order) }) } satisfies Order;
+  if (collection === "history") return workPage(osHistory(order), query);
+  if (collection === "private-fields") return { id: order.id, version: order.version, fields: [], extra: {} } satisfies PrivateFields;
+  if (["tasks", "private-tasks", "people", "documents", "private-documents", "entries"].includes(collection)) return workPage([], query);
+  return workNotFound();
+}
 
 // Mensalidade (módulo "mensalidade"): escola de idiomas, nos formatos de
 // GET /mensalidade/plans, /subscriptions, /installments, /summary e /delinquents.
@@ -847,6 +931,7 @@ function read(path: string, query: URLSearchParams): any {
   if (rest === "status")
     return {
       settings,
+      settings_revision: "demo",
       enabled: 0,
       // Estado explícito de cada módulo da vitrine, como o servidor manda: a
       // casa de gestão (web/management/registry.ts) só mostra módulo com
@@ -986,29 +1071,7 @@ function read(path: string, query: URLSearchParams): any {
   if (rest === "agenda" || rest.startsWith("agenda/")) return agendaDemo(rest, query);
   if (rest === "pedido" || rest.startsWith("pedido/")) return pedidoDemo(rest, query);
   if (rest === "mesas" || rest.startsWith("mesas/")) return mesasDemo(rest, query);
-  if (rest === "service-orders") {
-    const status = (query.get("status") || "").split(",").filter(Boolean),
-      q = (query.get("q") || "").toLowerCase();
-    const counts: Row = {};
-    for (const order of osOrders) counts[order.status] = (counts[order.status] || 0) + 1;
-    return {
-      data: osOrders.filter(
-        (order) =>
-          (!status.length || status.includes(order.status)) &&
-          (query.get("open") !== "1" || !["delivered", "cancelled"].includes(order.status)) &&
-          (!q ||
-            String(order.number) === q ||
-            `${order.item} ${order.customer.name} ${order.customer.phone}`.toLowerCase().includes(q)),
-      ),
-      next_cursor: null,
-      counts,
-    };
-  }
-  const osMatch = rest.match(/^service-orders\/([^/]+)$/);
-  if (osMatch) {
-    const order = osOrders.find((item) => item.id === osMatch[1]) || osOrders[0];
-    return { ...order, history: osHistory(order) };
-  }
+  if (rest === "service-orders" || rest.startsWith("service-orders/")) return workDemo(rest, query);
   if (rest === "establishment")
     return {
       name: "Assistência Exemplo",

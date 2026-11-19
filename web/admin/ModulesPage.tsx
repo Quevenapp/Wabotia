@@ -135,20 +135,35 @@ export function ModulesPage() {
   const app = useApp();
   const list = useResource(app.root + "/modules");
   const { busyKey, run } = useAction();
-  const [confirm, setConfirm] = useState<Row | null>(null);
+  const [confirm, setConfirm] = useState<{ module: Row; dependents: Row[]; changed?: boolean } | null>(null);
   const modules: Row[] = list.data?.data || [];
-  const change = async (module: Row, enabled: boolean) => {
+  const confirmation = (all: Row[], module: Row, changed = false) => {
+    const ids = dependentsOf(all, module.id);
+    return { module, changed, dependents: all.filter(item => ids.includes(item.id)) };
+  };
+  const change = async (module: Row, enabled: boolean, confirmed: Row[] = []) => {
     // Desligar um módulo do qual outros dependem desliga os dependentes
     // junto (cascade), depois da confirmação que os lista.
-    const cascade = !enabled && dependentsOf(modules, module.id).length > 0;
     await run(
-      () =>
-        app.api(app.root + "/modules/" + module.id, "PUT", {
-          enabled,
-          ...(cascade ? { cascade: true } : {}),
-        }),
+      async () => {
+        try {
+          return await app.api(app.root + "/modules/" + module.id, "PUT", {
+            enabled,
+            ...(!enabled ? { cascade: true, confirmed_dependents: confirmed.map(item => item.id) } : {}),
+          });
+        } catch (error) {
+          if ((error as { code?: string }).code === "module_cascade_conflict" ||
+              (error as { code?: string }).code === "module_required") {
+            const fresh = await app.api(app.root + "/modules");
+            const target = fresh.data.find((item: Row) => item.id === module.id);
+            if (target?.enabled) setConfirm(confirmation(fresh.data, target, true));
+          }
+          throw error;
+        }
+      },
       {
         key: module.id,
+        retry: false,
         success: enabled
           ? `${module.name} ligado.`
           : `${module.name} desligado.`,
@@ -185,7 +200,7 @@ export function ModulesPage() {
               all={modules}
               busy={busyKey === module.id}
               onToggle={(next) =>
-                next ? void change(module, true) : setConfirm(module)
+                next ? void change(module, true) : setConfirm(confirmation(modules, module))
               }
             />
           ))}
@@ -203,32 +218,33 @@ export function ModulesPage() {
       )}
       {confirm && (
         <Confirm
-          title={`Desligar ${confirm.name}?`}
+          title={`Desligar ${confirm.module.name}?`}
           confirmLabel="Desligar"
           danger
           onClose={() => setConfirm(null)}
           onConfirm={() => {
             const target = confirm;
             setConfirm(null);
-            void change(target, false);
+            void change(target.module, false, target.dependents);
           }}
         >
+          {confirm.changed && <Notice>Os módulos mudaram. Confira esta lista e confirme novamente.</Notice>}
           <p>
-            {confirm.name} sai da navegação do painel e do menu do WhatsApp
+            {confirm.module.name} sai da navegação do painel e do menu do WhatsApp
             desta área. Aplicativos e aparelhos que usam o módulo passam a
             receber o aviso de módulo desligado.
           </p>
-          {dependentsOf(modules, confirm.id).length > 0 && (
+          {confirm.dependents.length > 0 && (
             <p>
               <strong>
                 Também serão desligados:{" "}
-                {names(modules, dependentsOf(modules, confirm.id)).join(", ")}
+                {confirm.dependents.map(item => item.name).join(", ")}
               </strong>
               , que{" "}
-              {dependentsOf(modules, confirm.id).length > 1
+              {confirm.dependents.length > 1
                 ? "dependem"
                 : "depende"}{" "}
-              de {confirm.name}.
+              de {confirm.module.name}.
             </p>
           )}
           <p>

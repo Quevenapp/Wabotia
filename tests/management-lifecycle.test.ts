@@ -129,7 +129,8 @@ describe("casa integrada: entrada e isolamento", () => {
     expect(native).toContain("Agenda autorizada"); expect(native).not.toContain("fagoo-root");
     expect(surface.nativeLoads).toBe(1);
     app({ agenda: true, os: true }); routes.navigate({ area: "erp" });
-    expect(await markup()).toContain("Escolha um módulo");
+    expect(registry.managementLanding(registry.resolveManagement(registry.MANAGEMENT_ITEMS, context({ agenda: true, os: true })))).toBe("/app/erp/modulos/trabalhos");
+    expect(await markup()).toContain("Abrindo a gestão");
     expect(surface.portedLoads).toBe(0); expect(fetcher).not.toHaveBeenCalled();
   });
 
@@ -150,12 +151,14 @@ describe("casa integrada: entrada e isolamento", () => {
     expect(surface.nativeLoads).toBe(0); expect(surface.portedLoads).toBe(0); expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("só Cadastro é contribuição isolada futura, não ativação nova do núcleo", async () => {
+  it("só Cadastro abre Clientes e mantém Produtos desligado", async () => {
     const { ERP_MANAGEMENT_ITEMS } = await import("../src/modules/erp/panel-menu");
     const customer = ERP_MANAGEMENT_ITEMS.filter(item => item.id === "erp.customers");
     const c = context({ erp: true });
     expect(registry.managementLanding(registry.resolveManagement(customer, c))).toBe("/app/erp" + contactTarget);
-    expect(registry.resolveManagement(registry.MANAGEMENT_ITEMS, c).some(item => item.id === "erp.products")).toBe(true);
+    expect(registry.managementLanding(registry.resolveManagement(registry.MANAGEMENT_ITEMS, c))).toBe("/app/erp" + contactTarget);
+    expect(registry.resolveManagement(registry.MANAGEMENT_ITEMS, c).some(item => item.id === "erp.products")).toBe(false);
+    expect(registry.resolveManagement(registry.MANAGEMENT_ITEMS, context({ erp: true, "erp-produtos": true })).some(item => item.id === "erp.products")).toBe(true);
     expect(registry.resolveManagement(customer, context({ "erp-cadastro": true }))).toEqual([]);
   });
 });
