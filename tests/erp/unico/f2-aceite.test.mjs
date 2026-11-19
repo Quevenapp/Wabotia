@@ -1,7 +1,11 @@
-import { test } from "node:test";
+import { after, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { build } from "esbuild";
 import "../../../src/erp/domains/index.ts";
 import { freshLite, nodeDriver } from "../harness/node-driver.mjs";
 import { callRpc, inTransaction, portedRpcs } from "../../../src/erp/engine/registry.ts";
@@ -15,10 +19,135 @@ import { partsMaintenance } from "../../../src/erp/api/parts-maintenance.ts";
 import { homeResponse } from "../../../src/erp/fagoo/workers/erp-api/src/home.mjs";
 import { documentsResponse } from "../../../src/erp/fagoo/workers/erp-api/src/documents.mjs";
 import { cnabFixture } from "../cnab/fixture.mjs";
+import { createCnabStorage } from "../../../src/erp/fagoo/workers/erp-api/src/cnab.mjs";
 
 const admin = "11111111-1111-4111-8111-111111111111";
 const actor = { user_id: admin, name: "Administrador", email: null, erp_role: "admin", verified_factor: false, session_id: null, aal: "aal1", is_agent: false };
 const baseOnly = Object.fromEntries(ERP_PART_KEYS.map(key => [key, key === "customers"]));
+
+// A costura tem imports sem extensão; compila o código real para Node, sem
+// Vitest/Worker nem rede. O contador observa a avaliação do motor, sem trocá-lo.
+let transportBundle;
+const transportCleanups = [];
+after(() => { for (const clean of transportCleanups) clean(); });
+async function transport() {
+  return transportBundle ??= (async () => {
+    const dir = mkdtempSync(join(tmpdir(), "f2-aceite-transport-"));
+    const counter = `f2-engine-${randomUUID()}`;
+    transportCleanups.push(() => { rmSync(dir, { recursive: true, force: true }); delete globalThis[counter]; });
+    await build({
+      stdin: { contents: `export {localFetch} from './src/erp/api/local-fetch.ts';
+        export {erpStorage} from './src/erp-storage.ts';
+        export {ErpHub} from './src/erp/hub.ts';
+        export const engineLoads = () => globalThis[${JSON.stringify(counter)}] ?? 0;`,
+        resolveDir: fileURLToPath(new URL("../../../", import.meta.url)), loader: "ts" },
+      bundle: true, splitting: true, outdir: dir, outExtension: { ".js": ".mjs" },
+      format: "esm", platform: "node", mainFields: ["module", "main"], logLevel: "silent",
+      banner: { js: `import {createRequire as __f2Require} from 'node:module'; const require = __f2Require(${JSON.stringify(import.meta.url)});` },
+      plugins: [{ name: "observe-engine", setup(builder) {
+        builder.onLoad({ filter: /[/\\]hub-engine\.ts$/ }, ({ path }) => ({
+          contents: readFileSync(path, "utf8") + `\nglobalThis[${JSON.stringify(counter)}] = (globalThis[${JSON.stringify(counter)}] ?? 0) + 1;`, loader: "ts",
+        }));
+      } }],
+    });
+    return import(pathToFileURL(join(dir, "stdin.mjs")).href);
+  })();
+}
+
+test("CNAB na costura real: recusa de parte não vira duplicação; replay preserva bytes", async () => {
+  const { localFetch, erpStorage } = await transport();
+  const profile = randomUUID(), objects = new Map(), writes = [];
+  const env = {
+    DB: { prepare() { assert.fail("fotografia pronta não deve reler o D1 neste caminho"); } },
+    MEDIA: {
+      head: async key => objects.has(key) ? { size: objects.get(key).length } : null,
+      put: async (key, bytes) => { writes.push(key); objects.set(key, bytes.slice()); },
+      get: async key => objects.has(key) ? { size: objects.get(key).length, body: objects.get(key) } : null,
+    },
+  };
+  const person = { id: admin, name: "Administrador", kind: "user", role: "admin" };
+  const bytes = new TextEncoder().encode("0".repeat(240) + "\r\n");
+  const hash = Buffer.from(await crypto.subtle.digest("SHA-256", bytes)).toString("hex");
+  const path = `profiles/${profile}/remittances/${hash}.rem`;
+  const input = { bucket: "brufap-cnab", path, bytes, upsert: false };
+  const url = `https://erp.wabotia.invalid/storage/v1/object/brufap-cnab/${path}`;
+  const port = parts => {
+    const identity = { actor, people: [actor], parts: normalizeErpParts(parts),
+      partsControl: { profile, revision: "1", expires_at: Date.now() + 360_000 } };
+    const gate = { denied: null };
+    const fetchImpl = localFetch(env, profile, person, identity, { gate, trackCustomers: false });
+    return { identity, gate, fetchImpl, cnab: createCnabStorage({
+      baseUrl: "https://erp.wabotia.invalid", supabaseDeployment: "self-hosted", key: "motor-local", fetchImpl,
+    }) };
+  };
+  const open = port({});
+  for (const historical of [false, true]) {
+    if (historical) {
+      await open.cnab.storeFile(input);
+      await open.cnab.storeFile(input);
+      assert.equal(writes.length, 1, "duplicação verdadeira não regrava");
+      assert.deepEqual(await open.cnab.getFile(input), bytes);
+    }
+    const before = structuredClone(objects);
+    for (const parts of [{ billing: false }, { finance: false }]) {
+      const closed = port(parts);
+      const response = await erpStorage(env, profile, new Request(url, { method: "POST", body: bytes }), closed.identity);
+      assert.equal(response.status, 409);
+      assert.equal((await response.json()).error, "module_disabled");
+      await assert.rejects(closed.cnab.storeFile(input), { code: "ERP_CNAB_STORAGE_UNAVAILABLE" });
+      await assert.rejects(closed.cnab.getFile(input));
+      assert.equal(closed.gate.partsDenied, "module_disabled");
+      // Sem coletor opcional a recusa também precisa interromper o adaptador.
+      const direct = localFetch(env, profile, person, closed.identity);
+      await assert.rejects(direct(url, { method: "POST", body: bytes }), { status: 409, code: "module_disabled" });
+      assert.deepEqual(objects, before);
+      assert.equal(writes.length, historical ? 1 : 0);
+    }
+  }
+});
+
+test("hub real persiste e renova fotografia antes de avaliar motor, com controle positivo", async t => {
+  const m = await transport();
+  const start = Date.now();
+  t.mock.method(Date, "now", () => start);
+  const kv = new Map(); let alarm = null;
+  const storage = {
+    get: async key => kv.get(key), put: async (key, value) => {
+      if (typeof key === "string") kv.set(key, structuredClone(value));
+      else for (const [k, v] of Object.entries(key)) kv.set(k, structuredClone(v));
+    },
+    transaction: async fn => fn(storage), getAlarm: async () => alarm,
+    setAlarm: async at => { alarm = at; }, deleteAlarm: async () => { alarm = null; },
+    sql: { exec() { throw new Error("controle positivo: migração solicitada"); } },
+  };
+  const hub = new m.ErpHub({}, { storage, id: { name: "erp:aceite-hub" } });
+  const send = snapshot => hub.handle("/erp-parts", new Request("https://internal/erp-parts", {
+    method: "POST", headers: { "x-erp-profile": "aceite-hub" }, body: JSON.stringify(snapshot),
+  }));
+  const first = { profile: "aceite-hub", revision: "1", expires_at: start + 360_000, parts: normalizeErpParts() };
+  assert.equal(m.engineLoads(), 0);
+  assert.equal((await send(first)).status, 200);
+  assert.deepEqual(kv.get("erp_parts"), first);
+  assert.equal(alarm, start + 1000);
+  assert.equal(m.engineLoads(), 0);
+  alarm = start + 3_600_000;
+  t.mock.method(Date, "now", () => start + 300_000);
+  const renewed = { ...first, expires_at: start + 660_000 };
+  assert.equal((await send(renewed)).status, 200);
+  assert.deepEqual(kv.get("erp_parts"), renewed);
+  assert.equal(alarm, start + 3_600_000);
+  assert.equal(m.engineLoads(), 0);
+  const disabled = { ...renewed, revision: "2", parts: normalizeErpParts({ customers: false }) };
+  assert.equal((await send(disabled)).status, 200);
+  assert.deepEqual(kv.get("erp_parts"), disabled);
+  await hub.alarm();
+  assert.equal(alarm, null);
+  assert.equal(m.engineLoads(), 0);
+  await assert.rejects(hub.handle("/erp-ping", new Request("https://internal/erp-ping", {
+    headers: { "x-erp-profile": "aceite-hub" },
+  })), /controle positivo: migração solicitada/);
+  assert.equal(m.engineLoads(), 1);
+});
 
 test("rotas com parâmetros camelCase e numéricos reconhecem o identificador inteiro", () => {
   const patterns = ERP_ROUTE_PATTERNS.filter(([, path]) => /:[a-z_]*[A-Z]/.test(path));
@@ -92,6 +221,44 @@ test("transporte valida fotografia e privacidade juntas; cadastro técnico preci
   assert.ok(!("notes" in contact.record));
   assert.equal((await f.raw("erp_home_overview", args)).status, 403);
   assert.equal((await f.raw("erp_catalog_contact_save", { p_id: f.contact.id, p_data: { notes: "Não autorizado" } })).status, 403);
+});
+
+test("taxonomias fiscais resolvem pai e recibos persistidos antes de escrever ou repetir", async t => {
+  const f = fixture(t);
+  const save = (data, id = null, version = 0) => ({ p_kind: "tags", p_id: id,
+    p_expected_version: version, p_command_id: randomUUID(), p_data: data });
+  const group = f.direct("erp_catalog_taxonomy_save", { ...save({ name: "Fiscal", tag_type: "invoices" }), p_kind: "tag_groups" }).item;
+  const create = save({ name: "Herdada", parent_id: group.id });
+  const tag = f.direct("erp_catalog_taxonomy_save", create).item;
+  const edit = save({ name: "Renomeada" }, tag.id, tag.version);
+  f.direct("erp_catalog_taxonomy_save", edit);
+  const remove = { p_kind: "tags", p_id: tag.id, p_expected_version: 2, p_command_id: randomUUID() };
+  f.direct("erp_catalog_taxonomy_delete", remove);
+  f.direct("erp_catalog_taxonomy_delete", { ...remove, p_kind: "tag_groups", p_id: group.id, p_expected_version: 1, p_command_id: randomUUID() });
+  const parent = f.direct("erp_catalog_taxonomy_save", { ...save({ name: "Pai presente", tag_type: "invoices" }), p_kind: "tag_groups" }).item;
+  const existing = f.direct("erp_catalog_taxonomy_save", save({ name: "Nota presente", parent_id: parent.id })).item;
+  const tables = () => Object.fromEntries(["taxonomy", "taxonomy_audit", "command", "invoice_tag", "invoice_tag_state", "product_tag", "contact_tag"]
+    .map(name => [name, f.lite.prepare(`SELECT * FROM erp_catalog__${name} ORDER BY rowid`).all()]));
+  const before = tables();
+  f.parts({ fiscal: false });
+  for (const [name, args] of [
+    ["erp_catalog_taxonomy_save", save({ name: "Pai herdado", parent_id: parent.id })],
+    ["erp_catalog_taxonomy_save", save({ name: "Não mudar" }, existing.id, existing.version)],
+    ["erp_catalog_taxonomy_save", create], ["erp_catalog_taxonomy_save", edit],
+    ["erp_catalog_taxonomy_delete", remove],
+  ]) {
+    const response = await f.raw(name, args);
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).code, "module_disabled");
+    assert.deepEqual(tables(), before);
+  }
+  f.parts();
+  for (const [name, args] of [["erp_catalog_taxonomy_save", create], ["erp_catalog_taxonomy_save", edit], ["erp_catalog_taxonomy_delete", remove]]) {
+    const response = await f.raw(name, args, undefined, { "x-erp-fiscal-enabled": "1" });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).replayed, true);
+    assert.deepEqual(tables(), before);
+  }
 });
 
 for (const stock of [false, true]) for (const finance of [false, true]) test(`transporte comercial e parser: Estoque=${stock}, Financeiro=${finance}`, async t => {

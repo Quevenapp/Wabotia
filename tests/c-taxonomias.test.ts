@@ -3,7 +3,9 @@ import { env, runInDurableObject, SELF } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { erpFetch, erpStub } from "../src/erp/hub";
 import { FISCAL_MODULE_HEADER } from "../src/erp/engine/module-state";
-import { SYSTEM_HEADER } from "../src/erp/engine/identity";
+import { SYSTEM_HEADER, IDENTITY_HEADER, encodeIdentity } from "../src/erp/engine/identity";
+import { erpIdentity } from "../src/modules/erp/identity";
+import { handleRpc } from "../src/erp/engine/rpc-endpoint";
 import { bearer, fixture } from "./service-center-fixture";
 import { setModule } from "./erp-module-helper";
 import { portedTargetState } from "../web/management/ported-policy";
@@ -51,7 +53,7 @@ afterEach(() => {
 const aliases = ["/tags", "/grupos-tags", "/preferencias/suprimentos/tags", "/preferencias/suprimentos/grupos-tags"];
 const management = (fiscal: boolean, erpRole = "admin") => ({
   statusLoaded: true, role: "admin", access: null, erpRole,
-  modules: { erp: true, "erp-fiscal": fiscal },
+  modules: { erp: true, "erp-produtos": true, "erp-fiscal": fiscal },
 } as any);
 describe("A5: destinos completos de taxonomias", () => {
   it("notas e aliases exigem núcleo, Fiscal e permissão; a classificação fiscal é respeitada", () => {
@@ -73,15 +75,18 @@ describe("A5: destinos completos de taxonomias", () => {
   it("produtos, contatos, listas mistas e exceções de destino conservam seu acesso", () => {
     for (const path of aliases) for (const tipo of ["", "produtos", "contatos"]) {
       const to = `${path}?tipo=${tipo}`;
-      expect(blockOf(to)).toBe("erp");
+      expect(blockOf(to)).toBe(tipo === "produtos" ? "erp-produtos" : "erp");
       for (const role of ["admin", "consulta", "vendas", "financeiro", "estoque", "fiscal"]) {
         expect(portedTargetState(to, management(false, role))).toBe(portedTargetState(to, management(true, role)));
       }
       expect(portedTargetState(to, management(false))).toBe("allowed");
+      expect(portedTargetState(to, { ...management(false), modules: { erp: true } })).toBe(tipo === "produtos" ? "disabled" : "allowed");
     }
-    expect(erpPartEnabled("financeiro", { erp: true }, "/financeiro-empresa?area=borderos")).toBe(true);
+    expect(erpPartEnabled("financeiro", { erp: true }, "/financeiro-empresa?area=borderos")).toBe(false);
+    expect(erpPartEnabled("financeiro", { erp: true, "erp-financeiro": true }, "/financeiro-empresa?area=borderos")).toBe(true);
     expect(erpPartEnabled("financeiro", { erp: true }, "/financeiro-empresa?area=remessas")).toBe(false);
-    expect(erpPartEnabled("sistema", { erp: true }, "/preferencias/contabilidade/meu-contador")).toBe(true);
+    expect(erpPartEnabled("sistema", { erp: true }, "/preferencias/contabilidade/meu-contador")).toBe(false);
+    expect(erpPartEnabled("sistema", { erp: true, "erp-financeiro": true }, "/preferencias/contabilidade/meu-contador")).toBe(true);
     expect(erpPartEnabled("pdv", { erp: true }, "/frente-caixa-empresa")).toBe(false);
   });
 });
@@ -237,7 +242,8 @@ async function apiFixture() {
   return { ...f, call, create, toggle, stored };
 }
 const denied = (result: { status: number; body: any }) => {
-  expect(result.status, JSON.stringify(result.body)).toBe(403);
+  expect(result.status, JSON.stringify(result.body)).toBe(409);
+  expect(result.body.error?.code).toBe("module_disabled");
   expect(result.body.item).toBeUndefined();
   expect(result.body.deleted).toBeUndefined();
   expect(result.body.replayed).toBeUndefined();
@@ -322,16 +328,50 @@ describe("A5: API real do Worker, ativação da área e idempotência", () => {
     const f = await apiFixture();
     const tag = await f.create("tags", { name: "Fiscal", tag_type: "invoices" });
     await f.create("tags", { name: "Produto", tag_type: "products" });
+    const identity = await erpIdentity(env, f.admin, f.profile);
+    const before = await f.stored();
     for (const headers of [{}, { [FISCAL_MODULE_HEADER]: "1" }, { [SYSTEM_HEADER]: "1" }]) {
       const request = (name: string, body: any) => erpFetch(env, f.profile, `/erp-rpc/${name}`, {
-        method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body),
+        method: "POST", headers: { "Content-Type": "application/json", [IDENTITY_HEADER]: encodeIdentity(identity), ...headers }, body: JSON.stringify(body),
       });
       const list = await (await request("erp_catalog_taxonomy_list", { p_user_id: f.admin.id, p_kind: "tags" })).json<any>();
       expect(list.items.map((item: any) => item.tag_type)).toEqual(["products"]);
       const result = await request("erp_catalog_taxonomy_delete", {
         p_user_id: f.admin.id, p_kind: "tags", p_id: tag.id, p_expected_version: 1, p_command_id: crypto.randomUUID(),
       });
+      expect(result.status).toBe(400);
       expect(await result.json()).toMatchObject({ code: "42501", message: "erp_catalog_access_denied" });
+      expect(await f.stored()).toEqual(before);
     }
+  }, 120_000);
+
+  it("sem fotografia a fronteira falha fechado, sem listar dados nem alterar vínculos", async () => {
+    const f = await apiFixture();
+    const tag = await f.create("tags", { name: "Preservada", tag_type: "invoices" });
+    const identity = await erpIdentity(env, f.admin, f.profile);
+    const before = await f.stored();
+    for (const name of ["erp_catalog_taxonomy_list", "erp_catalog_taxonomy_delete"]) {
+      const response = await erpFetch(env, f.profile, `/erp-rpc/${name}`, {
+        method: "POST", headers: { [SYSTEM_HEADER]: "1", [FISCAL_MODULE_HEADER]: "1",
+          [IDENTITY_HEADER]: encodeIdentity({ actor: identity.actor, people: identity.people }) },
+        body: JSON.stringify({ p_user_id: f.admin.id, p_kind: "tags", ...(name.endsWith("_delete") ? {
+          p_id: tag.id, p_expected_version: 1, p_command_id: crypto.randomUUID(),
+        } : {}) }),
+      });
+      expect(response.status).toBe(503);
+      const body = await response.json<any>();
+      expect(body.code).toBe("erp_parts_unavailable");
+      expect(body.items).toBeUndefined();
+      expect(body.deleted).toBeUndefined();
+      expect(await f.stored()).toEqual(before);
+    }
+    const read = vi.fn(() => { throw new Error("Não deve carregar taxonomias sem fotografia"); });
+    const blocked = await handleRpc({ storage: { sql: { exec: read } } } as unknown as DurableObjectState,
+      f.profile, "erp_catalog_taxonomy_list", new Request("https://internal/erp-rpc/erp_catalog_taxonomy_list", {
+        method: "POST", headers: { [IDENTITY_HEADER]: encodeIdentity({ actor: identity.actor, people: null }) },
+        body: JSON.stringify({ p_user_id: f.admin.id, p_kind: "tags" }),
+      }));
+    expect(blocked.status).toBe(503);
+    expect(read).not.toHaveBeenCalled();
   }, 120_000);
 });

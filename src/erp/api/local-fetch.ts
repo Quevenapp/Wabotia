@@ -223,9 +223,16 @@ export function localFetch(
       // O arquivo passa pelo portão das partes (fase 2) em qualquer caso.
       const stored = async () => {
         const response = await erpStorage(env, profile, new Request(input, init), await trustedIdentity(), authorizedKeys);
-        if (gate && [409, 503].includes(response.status)) {
+        if ([409, 503].includes(response.status)) {
           const error = await response.clone().json<any>().catch(() => null);
-          if (["module_disabled", "erp_parts_unavailable", "erp_parts_stale"].includes(error?.error)) gate.partsDenied = error.error;
+          if (["module_disabled", "erp_parts_unavailable", "erp_parts_stale"].includes(error?.error)) {
+            if (gate) gate.partsDenied = error.error;
+            // CNAB/exportação aceitam 409 de chave imutável como replay. Uma
+            // recusa das partes precisa interromper o adaptador, inclusive sem
+            // coletor; a API pública conserva o código/status pelo gate acima.
+            await response.body?.cancel();
+            throw new ApiError(response.status, error.error, error.message);
+          }
         }
         return response;
       };

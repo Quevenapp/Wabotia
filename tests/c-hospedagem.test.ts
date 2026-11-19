@@ -288,7 +288,7 @@ describe("A4 — mesma autorização efetiva", () => {
     lease.update(host()); await vi.waitFor(() => expect(runtime.controller.getSnapshot().permissions?.phase).toBe("ready"));
     delay.resolve(Response.json(permissions([]))); await check; expect(runtime.allowed(stock)).toBe(true);
     fetcher.mockImplementationOnce(async () => Response.json({}, { status: 403 })).mockImplementationOnce(async () => Response.json(member())).mockImplementationOnce(async () => Response.json(permissions([])));
-    await expect(runtime.controller.catalog("/v1/cadastros/negado")).rejects.toMatchObject({ status: 403 });
+    await expect(runtime.controller.catalog("/v1/cadastros/contatos")).rejects.toMatchObject({ status: 403 });
     await vi.waitFor(() => expect(runtime.controller.getSnapshot().permissions?.permissions).toEqual([])); expect(runtime.allowed(stock)).toBe(false);
     const old = deferred<Response>(); let oldSignal: AbortSignal | undefined;
     // Esperar a requisição da área A: uma contagem fixa de microtarefas pode

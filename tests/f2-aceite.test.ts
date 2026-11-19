@@ -1,6 +1,8 @@
 import { createExecutionContext, env, runInDurableObject, SELF, waitOnExecutionContext } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import worker from "../src/index";
+import { exec } from "../src/db";
+import { routeAccess } from "../src/access";
 import { fixture, bearer, application } from "./service-center-fixture";
 import { setModule } from "./erp-module-helper";
 import { countingEnv } from "./d1-counter";
@@ -17,6 +19,42 @@ import { MANAGEMENT_ITEMS, managementContext, managementEntryState, managementLa
 import * as definitions from "../src/modules/erp/definition";
 
 describe("fase 2: aceitação da árvore reunida", () => {
+  it("papel da Base autoriza leitura fiscal; ativação da parte e acesso nativo continuam independentes", async () => {
+    const f = await fixture();
+    await setModule(f.profile, "erp", true, f.admin.id);
+    await setModule(f.profile, "erp-fiscal", true, f.admin.id);
+    await setModule(f.profile, "os", true, f.admin.id);
+    const tokenFor = async (access: string[]) => {
+      await exec(env, "UPDATE users SET access=? WHERE id=?", JSON.stringify(access), f.member.id);
+      return bearer(f.member);
+    };
+    const get = (segment: string, token: string) => SELF.fetch(`https://test/api/v1/profiles/${f.profile}/${segment}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const reader = await tokenFor(["erp:consulta"]);
+    const read = await get("erp-emissor", reader);
+    expect(read.status).toBe(200);
+    expect(await read.json()).toMatchObject({ configured: false });
+    await setModule(f.profile, "erp-fiscal", false, f.admin.id);
+    const disabled = await get("erp-emissor", reader);
+    expect(disabled.status).toBe(409);
+    expect(await disabled.json()).toMatchObject({ error: { code: "module_disabled" } });
+    await setModule(f.profile, "erp-fiscal", true, f.admin.id);
+    const nativeDenied = await get("service-orders", reader);
+    expect(nativeDenied.status).toBe(403);
+    expect(await nativeDenied.json()).toMatchObject({ error: { code: "access_denied" } });
+    expect(routeAccess("service-orders")).toBe("os");
+    const noErpRole = await tokenFor(["os"]);
+    const denied = await get("erp-emissor", noErpRole);
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toMatchObject({ error: { code: "access_denied" } });
+    const baseWithoutRole = await tokenFor(["erp", "os"]);
+    const roleDenied = await get("erp-emissor", baseWithoutRole);
+    expect(roleDenied.status).toBe(403);
+    expect(await roleDenied.json()).toMatchObject({ error: { code: "erp_role_required" } });
+    expect((await get("service-orders", baseWithoutRole)).status).toBe(200);
+  }, 60_000);
+
   it("demonstração real mantém os cinco grupos e o PDV; Módulos usa os nomes e dependências registrados", async () => {
     const status = await demoApi("v1/profiles/demo/status"), modules = await demoApi("v1/profiles/demo/modules");
     const context = managementContext({ statusLoaded: true, modules: status.modules, role: "admin", access: null });
