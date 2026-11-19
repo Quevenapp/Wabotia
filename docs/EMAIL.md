@@ -76,3 +76,24 @@ Regras de segurança:
 | Devolvido (Últimos envios) | — | O endereço de destino não existe ou recusou. Confira o e-mail da pessoa |
 
 Se o teste sai mas o e-mail cai no spam, confira os registros SPF, DKIM e DMARC do passo 1. Use também um nome de remetente reconhecível.
+
+## Enviar conversa por e-mail
+
+A primeira leva de canais acrescenta **Enviar conversa por e-mail** no menu e nos dados de uma conversa externa direta, na web e nos aplicativos. A ação exige `conversations:email` e acesso à conversa. Administradores começam autorizados; `*` não concede essa permissão a outras pessoas. Aplicações exigem os escopos explícitos de leitura e exportação e não podem usar o destino **Meu e-mail**. Bots, conectores e execução delegada não exportam.
+
+O envio usa esta mesma configuração em **Gestão → Sistema → E-mail**. Sem configuração, a ação explica onde ativá-la. O administrador pode permitir endereço digitado (`transcript_custom_enabled`, inicialmente falso) e restringir domínios (`transcript_allowed_domains`). Lista vazia não acrescenta restrição de domínio; domínio permitido deve coincidir exatamente, após normalização. Um envio tem um destinatário, sem CC/BCC.
+
+1. Escolha **Meu e-mail**, **E-mail do contato** ou um endereço digitado quando permitido.
+2. Escolha **Este atendimento** ou um intervalo de datas. Histórico antigo sem sessão segura exige datas; não é exportado inteiro silenciosamente.
+3. Confira destinatário, período, quantidade de mensagens, tamanho e avisos na prévia. Ela não envia e-mail e expira em dez minutos.
+4. Para contato, confirme o endereço exibido e que o cliente pediu o envio. Endereço digitado também exige confirmação. Mudança de destinatário ou e-mail cadastral exige nova prévia.
+
+A transcrição contém somente mensagens públicas nas direções `customer` e `outbound`, ordenadas por data e ID. Notas internas ficam sempre fora, inclusive para administrador e envio ao próprio e-mail. Mensagens apagadas aparecem como “mensagem apagada”. Anexos aparecem somente por tipo e nome, sem bytes, links privados, URL temporária ou token; documentos sensíveis/não visíveis aparecem como `[documento não incluído]`. Campos laterais como formulário, cobrança e check-in não são exportados. Destino digitado recebe CPF/CNPJ mascarados inclusive em cabeçalhos e nomes de arquivos. O HTML é escapado e não contém imagens remotas.
+
+O assunto é `Conversa de atendimento · DD/MM/AAAA`. A prévia e o conteúdo usam o fuso da área. Os limites são 2.000 mensagens, 50.000 caracteres de texto e 200.000 de HTML; excesso pede intervalo menor, sem corte silencioso.
+
+Há cota própria de **10 reservas por ator e 50 por área em 24 horas móveis**. Falhas também contam; replay da mesma chave não reserva de novo. A finalidade é `conversation.email`. Transcrições ficam fora da cota de 200 e-mails dos módulos. Avisos legados sem `module_id`, nas finalidades `billing`, `scheduling`, `order` e `booking`, continuam contando na cota dos módulos; o histórico não é reclassificado.
+
+A chave idempotente é mantida enquanto a intenção de envio não muda; corpo diferente com a mesma chave dá conflito. Permissão e seleção são conferidas novamente no envio e no replay. O log, auditoria e nota interna usam destinatário mascarado e não guardam corpo ou endereço integral. O resultado pode ser enviado, na fila, devolvido, falhou ou **indeterminado**. Se houver queda após reserva/envio e antes da confirmação, o sistema não reenvia automaticamente: confira o resultado antes de criar outra intenção. Não há promessa de entrega remota exatamente uma vez.
+
+O formato real de confirmação do provedor permanece registrado em [CANAIS-ZERNIO.md](CANAIS-ZERNIO.md). `provider_message_id` só será preenchido com campo documentado confirmado; não é inventado. O estado das provas está em [CANAIS-ACEITE.md](CANAIS-ACEITE.md).
