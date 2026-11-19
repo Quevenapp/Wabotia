@@ -12,7 +12,7 @@ export function effectiveSourceState(rows: any[], correctionInProgress = false) 
     const manual = pending.get(component) ?? new Set<Destination>();
     pending.set(component, manual);
     if (!d.receipt_json) {
-      if (d.state === "done" && d.error_code !== "no_commercial_content") skipped.set(component, d.error_code ?? "part_disabled");
+      if (d.state === "done" && !["no_commercial_content", "payment_evidence_recovered", "cancellation_resolved"].includes(d.error_code)) skipped.set(component, d.error_code ?? "part_disabled");
       if (d.state === "waiting_manual") {
         for (const target of ["stock", "finance"] as const) if (eligible[target]) manual.add(target);
       }
@@ -20,7 +20,8 @@ export function effectiveSourceState(rows: any[], correctionInProgress = false) 
     }
     const result = JSON.parse(d.receipt_json);
     if (result.outcome === "applied" && (result.links.length || Object.values(result.effects).some(effect => ["posted", "settled", "reversed"].includes(String(effect))))) skipped.delete(component);
-    if (result.outcome === "closed") closed.set(component, result.reason_code ?? "epoch_closed"); else closed.delete(component);
+    if (result.reason_code === "module_cancellation_pending") closed.set(component, result.reason_code);
+    else if (result.outcome === "closed") closed.set(component, result.reason_code ?? "epoch_closed"); else closed.delete(component);
     for (const link of result.links) {
       if (link.kind === "document") applied.add("document");
       if (link.kind === "title" || link.kind === "settlement") applied.add("finance");
@@ -29,7 +30,9 @@ export function effectiveSourceState(rows: any[], correctionInProgress = false) 
     for (const target of ["stock", "finance"] as const) {
       if (["posted", "settled", "reversed"].includes(result.effects[target])) {
         manual.delete(target); applied.add(target);
-      } else if (eligible[target] && ["execute", "recognize", "receive"].includes(operation) && result.outcome === "applied" && result.effects[target] === "not_requested") manual.add(target);
+      } else if (result.reason_code === "module_cancellation_pending" && result.links.some((link: any) =>
+        target === "finance" ? ["title", "settlement"].includes(link.kind) : link.kind === "stock_posting")) manual.add(target);
+      else if (eligible[target] && ["execute", "recognize", "receive"].includes(operation) && result.outcome === "applied" && result.effects[target] === "not_requested") manual.add(target);
     }
     if (result.outcome === "skipped" || result.reason_code === "part_disabled") skipped.set(component, result.reason_code ?? "part_disabled");
   }

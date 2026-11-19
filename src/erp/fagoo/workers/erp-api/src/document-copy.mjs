@@ -50,7 +50,7 @@ function inputProjection(value){
  const data=pick(value,FIELDS);data.items=value.items.map(item=>pick(item,ITEM_FIELDS));data.installments=value.installments.map(row=>pick(row,['due_date','amount','method','note','payment_reference','payment_method_id','details']));return data;
 }
 function withoutItemIds(value){return{...value,items:value.items.map(({id,...item})=>item)};}
-function documentCopyResponseBody(value,route){
+function documentCopyResponseBody(value,route,parts){
  if(!object(value)||value.data_mode!=='erp_native'||value.operational_effects!==false)bad();
  const base={data_mode:'erp_native',operational_effects:false};
  if(route.type==='origin'){
@@ -75,7 +75,7 @@ function documentCopyResponseBody(value,route){
  let result;try{result=documentsResponse(value,{kind:route.args.p_kind,id:null},{type:'document'});}catch{bad();}
  const doc=result.document;
  if(!uuid(doc.id)||doc.id===origin.id||doc.version!==1||!(doc.status===INITIAL_STATE[doc.kind]||(doc.kind==='sales_orders'&&doc.status==='draft'))||doc.source_proposal_id!==null)bad();
- const expected=normalizedData(route.args.p_body,route.args.p_kind),actual=normalizedData(inputProjection(doc),route.args.p_kind);
+ const expected=normalizedData(route.args.p_body,route.args.p_kind),actual=normalizedData({...inputProjection(doc),...(!parts.stock?{warehouse_id:null}:{}),...(!parts.finance?{category_id:null,payment_account_id:null}:{})},route.args.p_kind);
  const submittedIds=new Set(expected.items.map(item=>item.id).filter(Boolean));
  if(doc.items.some(item=>submittedIds.has(item.id))||JSON.stringify(withoutItemIds(actual))!==JSON.stringify(withoutItemIds(expected)))bad();
  return{...result,copy_source:origin};
@@ -87,12 +87,12 @@ export async function executeDocumentCopyRoute(route,{userId,rpc}){
 }
 
 export function documentCopyResponse(value,route) {
- const parts=responseParts(value,bad);
- const result=projectParts(value, body => documentCopyResponseBody(body,route), bad);
+ const parts=responseParts(route.type==='copy'?value?.document:value,bad);
+ const result=projectParts(value, body => documentCopyResponseBody(body,route,parts), bad);
  // A normalização do formulário repõe defaults; a resposta respeita as partes.
  if(route.type==='preview'){
-  if(!parts.stock)delete result.data.warehouse_id;
-  if(!parts.finance)for(const key of ['category_id','payment_account_id'])delete result.data[key];
+  if(!parts.stock)result.data.warehouse_id=null;
+  if(!parts.finance)for(const key of ['category_id','payment_account_id'])result.data[key]=null;
  }
  return result;
 }

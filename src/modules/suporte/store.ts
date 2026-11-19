@@ -838,20 +838,10 @@ export async function purchasePaymentUpdated(
   if (payment.status === "paid") {
     const paidAt = evidence.paid_at || at;
     let changed = false;
-    if (["expired", "cancelled"].includes(purchase.status)) {
-      // O motor não reabre título cancelado. Não libera suporte sem recompor a obrigação.
-      const statements = await supportIntegrationStatements(ctx, purchase, "receive", paidAt,
-        { payment: evidence, reason: "late_payment_refund_required" });
-      await batch(ctx.env, [
-        ["UPDATE suporte_purchases SET attention='late_payment_refund_required',paid_at=?,updated=? WHERE id=? AND profile_id=? AND status=? AND payment_id IS ? AND charge_seq=?",
-          [paidAt, at, purchase.id, ctx.profile, purchase.status, purchase.payment_id, purchase.charge_seq]], integrationCasGuard, ...statements,
-      ]);
-      await purchaseAttention(ctx, purchase, "late_payment_refund_required", payment);
-      return;
-    }
-    if (purchase.status === "pending") {
+    const late = ["expired", "cancelled"].includes(purchase.status);
+    if (purchase.status === "pending" || late) {
       const commercialStatements = await supportIntegrationStatements(ctx, { ...purchase, status: "paid" }, "receive", paidAt,
-        { payment: evidence });
+        { payment: evidence, reason: late ? "obligation_reactivation_required" : undefined });
       await batch(ctx.env, [
         ["UPDATE suporte_purchases SET status='paid',paid_at=?,payment_id=?,updated=? WHERE id=? AND profile_id=? AND status=? AND payment_id IS ? AND charge_seq=?",
           [paidAt, payment.id, at, purchase.id, ctx.profile, purchase.status, purchase.payment_id, purchase.charge_seq]],
@@ -882,6 +872,7 @@ export async function purchasePaymentUpdated(
     }
     // O fato paid continua aplicado em ordem, mas não libera um serviço cujo
     // estorno já está confirmado e será entregue pelo próximo gancho.
+    if (retry) await batch(ctx.env, await supportIntegrationStatements(ctx, purchase, "receive", paidAt, { payment: evidence }));
     if (evidence.current_status === "refunded") return;
     await ctx.publish(
       "suporte.purchase_paid",
@@ -943,6 +934,8 @@ export async function purchasePaymentUpdated(
         ...commercialStatements,
       ]);
     }
+    if (purchase.status === "refunded") await batch(ctx.env,
+      await supportIntegrationStatements(ctx, purchase, "reverse", evidence.updated, { payment: evidence, reason: "payment_refunded" }));
     const rel = await one(
       ctx.env,
       "SELECT id FROM suporte_releases WHERE source_key=? AND status='active'",

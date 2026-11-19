@@ -145,6 +145,9 @@ export function PaymentsSection({
                     ? "paga " + whenLabel(payment.paid_at, app.now)
                     : "enviada " + whenLabel(payment.created, app.now)}
                 </small>
+                {payment.review_required && <p role="alert">{payment.review_reason === "refund_amount_unconfirmed"
+                  ? "Reembolso com valor total não comprovado. Confira o total devolvido no provedor antes de conciliar o estorno."
+                  : "Este pagamento precisa de conferência pela equipe financeira."}</p>}
                 {payment.status === "created" && canCharge && (
                   <Button
                     secondary

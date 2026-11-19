@@ -6,18 +6,18 @@ import { canProfile } from "../../security";
 import { requireAccess } from "../../access";
 import { modulesApi, type ModuleContext } from "../api";
 import type { Payment } from "../../payments";
-import { commercialPaymentEvidence, commercialReceiptFromEvidence } from "../../payments-commercial-evidence";
+import { optionalCommercialPaymentEvidence, commercialPaymentEvidence, commercialReceiptFromEvidence } from "../../payments-commercial-evidence";
 import type { CommercialSnapshot, IntegrationEvent, SourceRef, Statement } from "../../integrations/contracts";
 import {
   aliasStatements, catalogLink, commandId, ensureCommercialPolicy, eventKey,
   integrationStatements, readIntegrationActivation,
 } from "../../integrations/ports";
 import { integrationCasGuard, sourceBindings } from "../../integrations/outbox";
-import { canonical, F3_NAMESPACES, hash, uuid5 } from "../../integrations/keys";
+import { localEventId, canonical, F3_NAMESPACES, hash, uuid5 } from "../../integrations/keys";
 import { integer, IntegrationError, opaque, sanitizedError } from "../../integrations/privacy";
 import {
   allocationKey, allocationStatements, commercialReceiptStatements, manualReceiptKey,
-  reverseReceiptKey, type CommercialReceipt,
+  providerReceiptKey, reverseReceiptKey, type CommercialReceipt,
 } from "../../integrations/receipts";
 import { today } from "./model";
 import { humanReferenceRpc, requireIntegrationHuman } from "../../integrations/policy";
@@ -89,6 +89,7 @@ export interface MensalidadeMutation {
   newObligation?: boolean;
   reason?: string;
   receipt?: CommercialReceipt | null;
+  originalReceipt?: CommercialReceipt | null;
   receiptKey?: string | null;
   aliases?: { kind: RecordKind; id: string }[];
 }
@@ -134,6 +135,15 @@ export async function mensalidadeStatements(ctx: ModuleContext, input: Mensalida
   const statements = integrationStatements({ source, expected_revision: revision - 1, events, next_state: { snapshot } });
   for (const alias of [{ kind: input.kind, id: input.record.id }, ...input.aliases ?? []]) statements.push(...aliasStatements(source, alias.kind, alias.id));
   if (input.receipt) {
+    if (input.originalReceipt) {
+      statements.push(...commercialReceiptStatements(input.originalReceipt));
+      const pendingOriginal = await one(ctx.env, `SELECT e.id FROM module_erp_events e JOIN module_erp_delivery d ON d.event_id=e.id
+        WHERE e.profile_id=? AND e.module_id='mensalidade' AND e.source_id=? AND json_extract(e.payload_json,'$.receipt_key')=?
+          AND d.error_code='payment_evidence_required' AND e.seq IS NOT NULL`, ctx.profile, source.source_id, input.originalReceipt.receipt_key);
+      if (pendingOriginal && input.originalReceipt.amount_cents === snapshot.total_cents) statements.push(
+        ...allocationStatements(source, input.originalReceipt.receipt_key, allocationKey(input.originalReceipt.receipt_key, source, 0), input.originalReceipt.amount_cents),
+        ["UPDATE module_erp_delivery SET state='pending',error_code=NULL,error_message=NULL,next_attempt_ms=? WHERE event_id=?", [at, pendingOriginal.id]]);
+    }
     statements.push(...commercialReceiptStatements(input.receipt));
     const receiptAlias = await one(ctx.env, "SELECT source_id FROM module_erp_aliases WHERE profile_id=? AND module_id='mensalidade' AND record_kind IN ('installment','contract') AND record_id=? AND source_id=? AND component=?", ctx.profile, input.receipt.source_id, source.source_id, source.component);
     if (input.receipt.owner_module !== "mensalidade" || input.receipt.profile_id !== ctx.profile ||
@@ -156,16 +166,22 @@ export async function mensalidadeStatements(ctx: ModuleContext, input: Mensalida
 
 function blocked(event: IntegrationEvent, code: string): Statement {
   return ["UPDATE module_erp_delivery SET state='blocked',error_code=?,error_message=? WHERE event_id=?", [code,
-    code === "historical_origin_unlinked" ? "A obrigação anterior não possui vínculo no ERP." : code === "total_mismatch" ? "Os valores comerciais não conferem." : "Aguardando evidência comum de pagamento.", event.id]];
+    code === "historical_origin_unlinked" ? "A obrigação anterior não possui vínculo no ERP." : code === "total_mismatch" ? "Os valores comerciais não conferem." : "Aguardando evidência comum de pagamento.", Object.values(event.eligible).some(Boolean) ? event.id : localEventId(event.source, event.event_key)]];
 }
 
 /** A frente de pagamentos é a única escritora da evidência de provedor. */
-export async function mensalidadePaymentEvidence(ctx: ModuleContext, payment: Payment) {
+export async function mensalidadePaymentEvidence(ctx: ModuleContext, payment: Payment, required = false) {
   if (!payment.ref_id || !["paid", "refunded"].includes(payment.status)) throw new IntegrationError("invalid_request", 422);
-  const fact = await commercialPaymentEvidence(ctx.env, ctx.profile, "mensalidade", payment.id, payment.ref_id,
+  const fact = await (required ? commercialPaymentEvidence : optionalCommercialPaymentEvidence)(ctx.env, ctx.profile, "mensalidade", payment.id, payment.ref_id,
     payment.status as "paid" | "refunded", payment.evidence);
+  if (!fact) {
+    const row = await one(ctx.env, "SELECT * FROM payments WHERE profile_id=? AND id=?", ctx.profile, payment.id);
+    const key = providerReceiptKey(ctx.profile, row.provider, row.account_id, String(row.provider_payment_id));
+    return { receipt: null, receiptKey: payment.status === "refunded" ? reverseReceiptKey(key) : key };
+  }
   if (fact.amount_cents !== payment.amount_cents) throw new IntegrationError("idempotency_conflict", 409);
-  return { receipt: commercialReceiptFromEvidence(fact), receiptKey: fact.receipt_key };
+  return { receipt: commercialReceiptFromEvidence(fact), receiptKey: fact.receipt_key,
+    originalReceipt: fact.original ? commercialReceiptFromEvidence({ ...fact.original, original: null }) : null };
 }
 
 export async function manualMensalidadeReceipt(ctx: ModuleContext, inst: any, actor: string, request: string, at: number, method: CommercialReceipt["method"] = "unknown", paidAtProvided = false, note = "") {

@@ -50,7 +50,7 @@ export function authorizeManual(actor: Actor, profile: string, destinations: rea
 }
 async function prepare(env: Env, event: IntegrationEvent, actor?: Actor, destinations?: readonly Destination[]): Promise<PreparedErpRequest> {
   validateEvent(event);
-  if (event.seq === null) throw new IntegrationError("invalid_request", 400);
+  if (event.seq === null) throw new IntegrationError(event.operation === "receive" ? "historical_origin_unlinked" : "invalid_request", event.operation === "receive" ? 422 : 400);
   integrationProducer(event.source.module);
   const declaration = moduleById(event.source.module)?.integration;
   if (!declaration || !declaration.operations.includes(event.operation) || declaration.route === "delegate") throw new IntegrationError("integration_not_implemented");
@@ -62,19 +62,21 @@ async function prepare(env: Env, event: IntegrationEvent, actor?: Actor, destina
   const links = JSON.parse(source.links_json) as IntegrationResult["links"];
   if (["receive", "reverse"].includes(event.operation) && !links.some(l => l.kind === "title" || l.kind === "document")) throw new IntegrationError("historical_origin_unlinked");
   const maintenance = event.operation === "cancel" || event.operation === "reverse" || event.operation === "lifecycle" && links.length > 0;
+  const historicalReceive = event.operation === "receive" && links.some(l => l.kind === "title");
+  if (historicalReceive && !state.snapshot.parts.finance) throw new IntegrationError("part_disabled", 409);
   const automation = await eventAutomation(env, event);
   const requested = {
     document: event.eligible.document && (maintenance || documentEpochOpen(event, state.activations)),
     stock: event.eligible.stock && (maintenance || eventEpochOpen(event, state.activations, ["erp-produtos", "erp-estoque"])) && (maintenance || (destinations ? destinations.includes("stock") : automation.stock)),
-    finance: event.eligible.finance && (maintenance || eventEpochOpen(event, state.activations, ["erp-financeiro"])) && (maintenance || (destinations ? destinations.includes("finance") : automation.finance)),
+    finance: event.eligible.finance && (maintenance || historicalReceive || eventEpochOpen(event, state.activations, ["erp-financeiro"])) && (maintenance || (destinations ? destinations.includes("finance") : automation.finance)),
   };
   // Não consultar/promover clientes nem inicializar ERP para fato inelegível.
   if (!maintenance && !requested.document && !requested.stock && !requested.finance) throw new IntegrationError(
     (event.eligible.stock && !automation.stock || event.eligible.finance && !automation.finance) ? "waiting_manual" : "epoch_closed", 409);
-  const contact = maintenance ? null : await resolveCommercialCustomer(env, event.snapshot, actor ?? await integrationPerson(env, event.source.profile, event.actor_id));
-  if (requested.finance && ["execute", "recognize"].includes(event.operation) && !policy.revenue_category_id) throw new IntegrationError("category_required");
+  const contact = maintenance || historicalReceive ? null : await resolveCommercialCustomer(env, event.snapshot, actor ?? await integrationPerson(env, event.source.profile, event.actor_id));
+  if (requested.finance && ["execute", "recognize"].includes(event.operation) && !links.some(l => l.kind === "title") && !policy.revenue_category_id) throw new IntegrationError("category_required");
   const physical = event.snapshot.items.some(i => i.kind === "material" && i.product_id);
-  if (requested.stock && physical && !maintenance && !policy.warehouse_id) throw new IntegrationError("warehouse_required");
+  if (requested.stock && physical && !maintenance && !links.some(l => l.kind === "stock_posting") && !policy.warehouse_id) throw new IntegrationError("warehouse_required");
   let receipt = null;
   if (event.receipt_key) {
     receipt = await allocatedReceipt(env, event.source, event.receipt_key);
@@ -127,6 +129,8 @@ async function moduleRpc(env: Env, request: PreparedErpRequest, rpc: ModuleRpc, 
       // comando, um recibo concluído que sumiu (ou efeito remoto sem fato D1)
       // não é detectado: a retomada exige o par de backups e revisão humana.
       if (["module_sequence_conflict", "module_command_conflict"].includes(body?.message)) throw new IntegrationError("integration_divergent", 409);
+      if (typeof body?.message === "string" && ["historical_origin_unlinked", "module_cancellation_pending", "module_cancellation_blocked", "module_receipt_excess", "module_commercial_frozen", "module_transition_invalid", "module_title_settled", "module_settlement_missing", "module_finance_blocked", "erp_document_finance_reverse_blocked", "erp_stock_reverse_blocked", "erp_finance_active_payments", "erp_finance_billed_locked"].includes(body.message))
+        throw new IntegrationError(body.message, 422);
       const codes: Record<string, string> = { PGRST202: "integration_not_implemented", "40001": "version_conflict", "42501": "forbidden" };
       const known = ["part_disabled", "epoch_closed", "waiting_manual", "historical_origin_unlinked", "default_inactive", "erp_parts_unavailable"];
       throw new IntegrationError(known.includes(body?.code) ? body.code : codes[body?.code] ?? (response.status >= 500 || response.status === 429 ? "integration_unavailable" : "invalid_request"), response.status === 404 ? 422 : response.status);

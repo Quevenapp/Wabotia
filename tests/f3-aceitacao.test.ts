@@ -73,7 +73,7 @@ async function setup() {
 }
 type Fixture = Awaited<ReturnType<typeof setup>>;
 async function events(f: Fixture, id?: string): Promise<IntegrationEvent[]> {
-  return (await all(f.env, `SELECT payload_json FROM module_erp_events WHERE profile_id=?${id ? " AND source_id=?" : ""} ORDER BY module_id,source_id,seq`, f.profile, ...(id ? [id] : []))).map(row => JSON.parse(row.payload_json));
+  return (await all(f.env, `SELECT payload_json FROM module_erp_events WHERE profile_id=?${id ? " AND source_id=?" : ""} ORDER BY module_id,source_id,source_revision,seq`, f.profile, ...(id ? [id] : []))).map(row => JSON.parse(row.payload_json));
 }
 async function pump(f: Fixture) {
   for (let n = 0; n < 30; n++) {
@@ -83,6 +83,20 @@ async function pump(f: Fixture) {
     expect(pending.filter(d => ["blocked", "failed", "waiting_manual"].includes(d.state)), JSON.stringify(pending)).toEqual([]);
   }
   throw new Error("Fila não concluiu em 30 sequências");
+}
+async function historicalReceipt(f: Fixture, module: "agenda" | "reserva", id: string) {
+  await due(f); await drainIntegrationOutbox(f.env, f.profile);
+  const rows = await all(f.env, `SELECT e.seq,d.state,d.error_code,d.receipt_json FROM module_erp_events e
+    JOIN module_erp_delivery d ON d.event_id=e.id WHERE e.profile_id=? AND e.source_id=?`, f.profile, id);
+  expect(rows).toEqual([{ seq: null, state: "blocked", error_code: "historical_origin_unlinked", receipt_json: null }]);
+  expect(await integrationSourceView(f.env, f.actor, { profile: f.profile, module, source_id: id, component: "main" }))
+    .toMatchObject({ state: "blocked", reason_code: "historical_origin_unlinked", pending: true, applied: [] });
+  expect(await one(f.env, "SELECT enqueued_seq FROM module_erp_sources WHERE profile_id=? AND source_id=?", f.profile, id)).toEqual({ enqueued_seq: 0 });
+  await setParts(f.profile, { "erp-financeiro": true });
+  await due(f); await drainIntegrationOutbox(f.env, f.profile);
+  expect(await all(f.env, "SELECT * FROM module_erp_requests r JOIN module_erp_events e ON e.id=r.event_id WHERE e.profile_id=?", f.profile)).toEqual([]);
+  expect(await integrationSourceView(f.env, f.actor, { profile: f.profile, module, source_id: id, component: "main" }))
+    .toMatchObject({ state: "blocked", reason_code: "historical_origin_unlinked", pending: true, applied: [] });
 }
 async function work(f: Fixture, fixed = false, material = false) {
   const ctx = f.ctx("os");
@@ -156,8 +170,15 @@ describe("Marco 1 — assistência técnica, Worker e ERP reais", () => {
     await setParts(f.profile, { erp: true }); await pump(f);
     expect(await f.count("erp_documents__document")).toBe(0);
     expect(await f.count("erp_finance__title")).toBe(0);
-    expect((await all(f.env, "SELECT receipt_json FROM module_erp_delivery d JOIN module_erp_events e ON e.id=d.event_id WHERE e.profile_id=?", f.profile))
-      .every(r => JSON.parse(r.receipt_json).reason_code === "part_disabled")).toBe(true);
+    const localFacts = await all(f.env, "SELECT e.seq,e.payload_json,d.state,d.error_code,d.receipt_json FROM module_erp_delivery d JOIN module_erp_events e ON e.id=d.event_id WHERE e.profile_id=?", f.profile);
+    expect(localFacts.length).toBeGreaterThan(0);
+    for (const fact of localFacts) {
+      const snapshot = JSON.parse(fact.payload_json).snapshot;
+      expect(fact).toMatchObject({ seq: null, state: "done", receipt_json: null,
+        error_code: snapshot.items.length === 0 && snapshot.total_cents === 0 ? "no_commercial_content" : "part_disabled" });
+    }
+    expect(await one(f.env, "SELECT enqueued_seq FROM module_erp_sources WHERE profile_id=? AND source_id=?", f.profile, w.row.id)).toEqual({ enqueued_seq: 0 });
+    expect(await all(f.env, "SELECT * FROM module_erp_requests r JOIN module_erp_events e ON e.id=r.event_id WHERE e.profile_id=?", f.profile)).toEqual([]);
   });
 
   it("assistência com peça lança os dois destinos e cancela efeitos próprios após desligá-los", async () => {
@@ -243,14 +264,14 @@ describe("Marco 1 — assistência técnica, Worker e ERP reais", () => {
     const w = await work(f, true);
     await changeStatus(w.ctx, w.row, "in_progress", f.actor.id, "", quiet); await pump(f);
     const source = await integrationSourceView(f.env, f.actor, w.source);
-    expect(source.state).toBe("waiting_manual"); expect(await f.count("erp_finance__title")).toBe(0);
+    expect(source).toMatchObject({ state: "skipped", skipped_reason: "automation_off", pending: true, manual_destinations: ["finance"] }); expect(await f.count("erp_finance__title")).toBe(0);
     const token = await bearer(f.actor);
     const response = await SELF.fetch(`https://test/api/v1/profiles/${f.profile}/service-orders/${w.row.id}/commercial`, { headers: { Authorization: `Bearer ${token}` } });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ version: expect.any(Number), revision: source.revision, frozen: false, items: expect.any(Array), total_cents: 1000, authorization: { kind: "fixed_price" } });
     const summary = await SELF.fetch(`https://test/api/v1/profiles/${f.profile}/integrations/os/status`, { headers: { Authorization: `Bearer ${token}` } });
     expect(summary.status).toBe(200);
-    expect((await summary.json<any>()).counters).toContainEqual({ state: "waiting_manual", count: 1 });
+    expect((await summary.json<any>()).counters).toContainEqual({ state: "skipped", count: 1 });
     const input = { module: "os", id: w.row.id, event_id: source.deliveries.at(-1)!.id, version: source.revision, destinations: ["finance"] };
     const result = await integrationCommand(f.env, f.actor, f.profile, "integration.post", input, "manual");
     expect(await integrationCommand(f.env, f.actor, f.profile, "integration.post", input, "manual")).toEqual(result);
@@ -414,7 +435,7 @@ describe("Marco 3 — demais produtores com transporte real", () => {
     await agendaTrigger(ctx, f.actor, id, "charge", {}, "charge");
     await agendaTrigger(ctx, f.actor, id, "charge", {}, "charge");
     await manualBookingReceipt(ctx, f.actor, "agenda", id, { amount_cents: 1000, method: "cash" }, "paid");
-    await pump(f);
+    if (finance) await pump(f); else await historicalReceipt(f, "agenda", id);
     expect(await f.count("erp_finance__title")).toBe(finance ? 1 : 0); expect(await f.count("erp_finance__settlement")).toBe(finance ? 1 : 0);
     expect(canonical(await events(f))).not.toContain("PRIVADO");
   });
@@ -431,7 +452,7 @@ describe("Marco 3 — demais produtores com transporte real", () => {
     expect(booking.deposit_cents).toBe(300);
     await manualBookingReceipt(ctx, f.actor, "reserva", booking.id, { amount_cents: 300, method: "cash" }, "deposit");
     await manualBookingReceipt(ctx, f.actor, "reserva", booking.id, { amount_cents: 300, method: "cash" }, "deposit");
-    await pump(f);
+    if (finance) await pump(f); else await historicalReceipt(f, "reserva", booking.id);
     expect(await f.count("erp_finance__title")).toBe(finance ? 2 : 0);
     expect(await f.count("erp_finance__settlement")).toBe(finance ? 1 : 0);
     if (finance) {

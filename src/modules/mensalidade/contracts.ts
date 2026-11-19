@@ -274,7 +274,7 @@ async function contractPaid(
 ) {
   // Conferir o fato antes de criar pagador/assinatura ou publicar avisos.
   // Um DTO sem evidência não pode deixar efeitos locais ao ser recusado.
-  const evidence = await mensalidadePaymentEvidence(ctx, payment);
+  const evidence = await mensalidadePaymentEvidence(ctx, payment, true);
   if (contract.status === "paid" && contract.payment_id === payment.id) {
     await recoverMensalidadePayment(ctx, "contract", contract, payment);
     // O núcleo repete o gancho até concluir: refaz os avisos (com chave).
@@ -300,7 +300,7 @@ async function contractPaid(
     return;
   }
   const at = now();
-  const paidAt = evidence.receipt.occurred_ms;
+  const paidAt = evidence.receipt!.occurred_ms;
   let payerId: string | null = contract.payer_id;
   if (!payerId) {
     const taken = contract.document

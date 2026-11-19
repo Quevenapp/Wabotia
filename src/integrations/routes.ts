@@ -57,7 +57,7 @@ export async function integrationSourceView(env: Env, actor: Actor, source: Sour
   return { source, revision: row?.revision ?? 0, confirmed_ms: row?.confirmed_ms ?? null, ...status,
     applied: status.applied.filter(d => d !== "finance" || financiallyVisible(actor)),
     manual_destinations: [...manual].filter(d => d === "finance" ? financiallyVisible(actor) : ["admin", "estoque"].includes(erpRoleOf(actor) ?? "")),
-    deliveries: financiallyVisible(actor) ? deliveries : deliveries.map(d => ({ id: d.id, state: d.state, completed_ms: d.completed_ms })),
+    deliveries: financiallyVisible(actor) ? deliveries : deliveries.map(d => ({ id: d.id, seq: d.seq, state: d.state, completed_ms: d.completed_ms })),
     links: (JSON.parse(row?.links_json ?? "[]") as any[]).filter(l => financiallyVisible(actor) || l.kind === "document") };
 }
 function receiptScope(profile: string, actor: Actor, operation: string) { return `f3:${profile}:${actor.id}:${operation}`; }

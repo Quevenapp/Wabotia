@@ -1,6 +1,6 @@
 // Projeções comerciais: somente D1. Nenhum caminho de atendimento chama o ERP.
 import { Buffer } from "node:buffer";
-import { commercialPaymentEvidence, commercialReceiptFromEvidence } from "../../payments-commercial-evidence";
+import { optionalCommercialPaymentEvidence, commercialReceiptFromEvidence, pendingPaymentStatements, resolvedPaymentStatements, paymentPendingEventKey } from "../../payments-commercial-evidence";
 import { all, batch, one } from "../../db";
 import type { Actor, Env } from "../../types";
 import type { ModuleContext } from "../api";
@@ -253,19 +253,25 @@ export async function reverseReceiptStatements(ctx: ModuleContext, original: Com
 export async function providerOrderStatements(ctx: ModuleContext, row: any, paymentId: string, reverse = false, validateOnly = false, receiptKey?: string): Promise<Statement[]> {
   if (row.tab_id) throw new IntegrationError("invalid_request", 409);
   const receiptFields = "profile_id,receipt_key,owner_module,source_id,kind,evidence,reverses_key,amount_cents,method,occurred_ms,actor_id,evidence_hash".split(",");
+  const pendingKey = paymentPendingEventKey(saleSource(ctx.profile, "pedido", row.id), paymentId, reverse ? "refunded" : "paid");
   const payment = await one(ctx.env, `SELECT p.*,
+    EXISTS(SELECT 1 FROM module_erp_events e JOIN module_erp_delivery d ON d.event_id=e.id
+      WHERE e.profile_id=p.profile_id AND e.event_key=? AND d.error_code='payment_evidence_required') recovery_pending,
     (SELECT payload FROM events WHERE profile_id=p.profile_id AND kind='payment.evidence' AND source_key=?) evidence_json,
     (SELECT json_object('module_id',module_id,'source_id',source_id,'component',component) FROM module_erp_aliases
       WHERE profile_id=p.profile_id AND record_kind='order' AND record_id=p.ref_id AND module_id IN ('pedido','mesas')) source_json,
     (SELECT json_object(${receiptFields.map(f => `'${f}',${f}`).join(",")}) FROM module_commercial_receipts
       WHERE profile_id=p.profile_id AND receipt_key=?) receipt_json
-    FROM payments p WHERE p.id=? AND p.profile_id=? AND p.module_id='pedido' AND p.ref_id=?`, receiptKey ? `payment.evidence:${receiptKey}` : null, receiptKey ?? null, paymentId, ctx.profile, row.id);
+    FROM payments p WHERE p.id=? AND p.profile_id=? AND p.module_id='pedido' AND p.ref_id=?`, pendingKey, receiptKey ? `payment.evidence:${receiptKey}` : null, receiptKey ?? null, paymentId, ctx.profile, row.id);
   if (!payment || !payment.provider_payment_id) throw new IntegrationError("invalid_request", 422);
   payment.evidence_key = receiptKey;
-  const fact = await commercialPaymentEvidence(ctx.env, ctx.profile, "pedido", paymentId, row.id, reverse ? "refunded" : "paid", undefined, payment);
-  const paidFact = fact.original ? { ...fact.original, original: null } : fact;
+  const fact = await optionalCommercialPaymentEvidence(ctx.env, ctx.profile, "pedido", paymentId, row.id, reverse ? "refunded" : "paid", undefined, payment);
+
   const alias = payment.source_json ? JSON.parse(payment.source_json) : null;
   const source = alias ? saleSource(ctx.profile, alias.module_id, alias.source_id, alias.component) : saleSource(ctx.profile, "pedido", row.id);
+  if (!fact) return validateOnly ? [] : pendingPaymentStatements(ctx.env, await projectOrder(ctx, row, source), paymentId, reverse ? "refunded" : "paid");
+  const paidFact = fact.original ? { ...fact.original, original: null } : fact;
+  const recovered = payment.recovery_pending ? resolvedPaymentStatements({ source }, paymentId, reverse ? "refunded" : "paid") : [];
   const key = providerReceiptKey(ctx.profile, payment.provider, payment.account_id, payment.provider_payment_id);
   if (receiptKey && receiptKey !== key) throw new IntegrationError("idempotency_conflict", 409);
   const old: CommercialReceipt | null = receiptKey
@@ -273,14 +279,16 @@ export async function providerOrderStatements(ctx: ModuleContext, row: any, paym
     : await one<CommercialReceipt>(ctx.env, "SELECT * FROM module_commercial_receipts WHERE profile_id=? AND receipt_key=?", ctx.profile, key);
   if (old && (old.owner_module !== "pedido" || old.source_id !== row.id || old.amount_cents !== payment.amount_cents || old.evidence !== "provider" || old.kind !== "receive" || old.method !== paidFact.method)) throw new IntegrationError("idempotency_conflict", 409);
   if (validateOnly) return [];
-  if (reverse) return old ? reverseReceiptStatements(ctx, old, null, "provider_refund", fact.occurred_ms, commercialReceiptFromEvidence(fact)) : [];
-  if (old && (row.status === "cancelled" || await netAllocated(ctx.env, source) >= row.total_cents || await one(ctx.env, "SELECT 1 FROM module_erp_allocations WHERE profile_id=? AND receipt_key=?", ctx.profile, key))) return [];
+  if (reverse) return [...recovered, ...resolvedPaymentStatements({ source }, paymentId, "paid"), ...(old
+    ? await reverseReceiptStatements(ctx, old, null, "provider_refund", fact.occurred_ms, commercialReceiptFromEvidence(fact))
+    : [...commercialReceiptStatements(commercialReceiptFromEvidence(paidFact)), ...commercialReceiptStatements(commercialReceiptFromEvidence(fact))])];
+  if (old && (row.status === "cancelled" || await netAllocated(ctx.env, source) >= row.total_cents || await one(ctx.env, "SELECT 1 FROM module_erp_allocations WHERE profile_id=? AND receipt_key=?", ctx.profile, key))) return recovered;
   const receipt: CommercialReceipt = old ?? commercialReceiptFromEvidence(paidFact);
   const plan = new CommercePlan(ctx, row.created_by ?? null);
   const snapshot = await projectOrder(ctx, row, source, plan);
   const state = await plan.inspect(source);
   if (!state.snapshot && row.status === "received") await plan.add(snapshot, [{ operation: "prepare" }, { operation: "execute" }]);
-  plan.append(...commercialReceiptStatements(receipt));
+  plan.append(...recovered, ...commercialReceiptStatements(receipt));
   const amount = row.status === "cancelled" ? 0 : Math.min(receipt.amount_cents, Math.max(0, snapshot.total_cents - state.allocated));
   if (amount) await allocateSale(plan, snapshot, receipt, amount, 0);
   else await plan.add(snapshot);

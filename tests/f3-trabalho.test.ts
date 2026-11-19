@@ -55,10 +55,10 @@ async function fixture(enabled = true, custom = false) {
 }
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 async function events(f: Fixture) {
-  return (await all(f.env, "SELECT payload_json FROM module_erp_events WHERE profile_id=? AND source_id=? ORDER BY seq", f.profile, f.row.id)).map(r => JSON.parse(r.payload_json) as IntegrationEvent);
+  return (await all(f.env, "SELECT payload_json FROM module_erp_events WHERE profile_id=? AND source_id=? ORDER BY source_revision,seq", f.profile, f.row.id)).map(r => JSON.parse(r.payload_json) as IntegrationEvent);
 }
-async function approved(f: Fixture) {
-  const quoted = await sendQuote(f.ctx, await saveQuote(f.ctx, f.row, { items: [item()] }, f.actor.id, uid()), f.actor.id, { ...quiet, mutationKey: uid() });
+async function approved(f: Fixture, material = false) {
+  const quoted = await sendQuote(f.ctx, await saveQuote(f.ctx, f.row, { items: [{ ...item(), kind: material ? "material" : "free" }] }, f.actor.id, uid()), f.actor.id, { ...quiet, mutationKey: uid() });
   return decide(f.ctx, quoted, "approve", f.actor.id, "panel", "", { ...quiet, quote_version: quoted.quote_version, mutationKey: uid() });
 }
 async function drainAll(f: Fixture) {
@@ -130,7 +130,7 @@ describe("F3 trabalho: contrato e conteúdo comercial", () => {
 describe("F3 trabalho: autorização, primeira execução e manutenção", () => {
   for (const enabled of [true, false]) it(`assistência completa, ERP ${enabled ? "ligado" : "desligado"}, uma origem e um lançamento`, async () => {
     const f = await fixture(enabled), remote = installFakeErp();
-    const row = await approved(f);
+    const row = await approved(f, true);
     expect((await events(f)).some(e => e.operation === "execute")).toBe(false);
     const key = uid();
     const running = await changeStatus(f.ctx, row, "in_progress", f.actor.id, "", { ...quiet, mutationKey: key });
@@ -254,7 +254,7 @@ describe("F3 trabalho: privacidade, personalização e rotas", () => {
     for (const e of output) {
       expect(e.snapshot.technical).toBeNull();
       expect(e.snapshot.description).toBe("Serviço contratado");
-      expect(e.snapshot.customer_ref).toBe(e.seq === 1 ? null : f.local);
+      expect(e.snapshot.customer_ref).toBe(e.source_revision === 1 ? null : f.local);
     }
     const audit = await all(f.env, "SELECT note FROM os_history WHERE profile_id=?", f.profile);
     expect(JSON.stringify(audit)).not.toContain(secret);

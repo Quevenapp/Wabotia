@@ -15,6 +15,9 @@ import { setMotorWorkEnabled, MOTOR_READY } from "../web/erp/motor";
 import { loadAuthorizedPorted, startAuthorizedPortedPrefetch } from "../web/erp/ErpArea";
 import { parseRoute } from "../web/lib/routes";
 import type { CommercialPolicy, SourceView, StockObservation } from "../web/modules/integrations/contracts";
+import * as appContext from "../web/app/AppContext";
+import { PaymentsSection } from "../web/conversations/Payments";
+import { paymentView } from "../src/payments";
 
 // O painel usa React real para os elementos. Este hospedeiro controla efeitos,
 // desmontagem e respostas, sem navegador, rede ou produtores de outras frentes.
@@ -40,7 +43,7 @@ const cleanups: (() => void)[] = [];
 afterEach(() => { while (cleanups.length) cleanups.pop()!(); runtime.api = null; runtime.owner = null; setMotorWorkEnabled(false); vi.restoreAllMocks(); });
 const context = (patch: Partial<ManagementContext> = {}): ManagementContext => ({ statusLoaded: true, role: "admin", erpRole: "admin", access: null,
   modules: Object.fromEntries(["erp", "erp-produtos", "erp-vendas", "erp-estoque", "erp-financeiro", "os", "pedido", "mesas", "agenda", "mensalidade", "reserva", "suporte", "entrega"].map(id => [id, true])), ...patch });
-const source = (patch: Partial<SourceView> = {}): SourceView => ({ source: { profile: "area", module: "os", source_id: "work-1", component: "main" }, revision: 7, confirmed_ms: null, state: "waiting_manual", pending: true,
+const source = (patch: Partial<SourceView> = {}): SourceView => ({ source: { profile: "area", module: "os", source_id: "work-1", component: "main" }, revision: 7, confirmed_ms: null, state: "skipped", skipped_reason: "automation_off", pending: true,
   deliveries: [{ id: "event-1", seq: 1, state: "done", completed_ms: null }], manual_destinations: ["stock", "finance"], links: [], ...patch });
 const storage = (): IntentStorage => { const values = new Map<string, string>(); return { getItem: k => values.get(k) ?? null, setItem: (k, v) => { values.set(k, v); }, removeItem: k => { values.delete(k); } }; };
 const ticks = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
@@ -59,6 +62,24 @@ function mount(render: () => any) {
 function nodes(tree: any): any[] { if (!tree || typeof tree !== "object") return []; if (Array.isArray(tree)) return tree.flatMap(nodes); return [tree, ...nodes(tree.props?.children)]; }
 function text(tree: any): string { if (tree == null || typeof tree === "boolean") return ""; if (typeof tree !== "object") return String(tree); if (Array.isArray(tree)) return tree.map(text).join(" "); return text(tree.props?.children); }
 function button(tree: any, label: string) { return nodes(tree).find(node => node.props?.onClick && text(node) === label); }
+
+it("Cobrança mostra a conferência do DTO real sem apresentar reembolso parcial como estorno integral", () => {
+  const at = Date.now(), request = vi.fn();
+  vi.spyOn(appContext, "useApp").mockReturnValue({ now: at, api: request, demoBlocked: () => false } as any);
+  const row = { id: "payment-1", profile_id: "area", status: "paid", provider_status: "refund_review_required",
+    amount_cents: 1000, method: "pix", description: "Serviço", paid_at: at, created: at, updated: at };
+  const payment = paymentView(row)!;
+  expect(payment).toMatchObject({ status: "paid", review_required: true, review_reason: "refund_amount_unconfirmed" });
+  const tree = mount(() => PaymentsSection({ conversationId: "conversation-1", payments: [payment], canCharge: false, refresh: async () => {} })).draw();
+  const alerts = nodes(tree).filter(node => node.props?.role === "alert");
+  expect(alerts).toHaveLength(1);
+  expect(text(alerts[0])).toContain("Reembolso com valor total não comprovado");
+  expect(text(alerts[0])).toContain("Confira o total devolvido no provedor antes de conciliar o estorno");
+  expect(text(tree)).toContain("Paga"); expect(text(tree)).not.toContain("Estornada");
+  const settled = mount(() => PaymentsSection({ conversationId: "conversation-1", payments: [paymentView({ ...row, provider_status: "approved" })!], canCharge: false, refresh: async () => {} })).draw();
+  expect(nodes(settled).filter(node => node.props?.role === "alert")).toEqual([]);
+  expect(request).not.toHaveBeenCalled();
+});
 
 describe("f3-painel: partes e permissões antes da leitura", () => {
   it.each(["os", "pedido", "mesas", "entrega", "mensalidade", "agenda", "reserva", "suporte"] as const)("só consulta %s ligado e autorizado", async module => {
@@ -109,7 +130,7 @@ describe("f3-painel: partes e permissões antes da leitura", () => {
   });
   it("retém apenas a existência de pendência sem expor títulos, contas, baixas ou erro sensível", async () => {
     const c = context({ role: "agent", erpRole: "vendas", access: ["os", "erp:vendas"] });
-    const raw = source({ links: [{ kind: "title", id: "finance-secret", slot: "finance", version: 1 }, { kind: "settlement", id: "receipt-secret", slot: "receipt", version: 1 }], deliveries: [{ id: "event-1", state: "failed", completed_ms: null, error_code: "private-clinical-text" }] });
+    const raw = source({ links: [{ kind: "title", id: "finance-secret", slot: "finance", version: 1 }, { kind: "settlement", id: "receipt-secret", slot: "receipt", version: 1 }], deliveries: [{ id: "event-1", seq: 1, state: "failed", completed_ms: null, error_code: "private-clinical-text" }] });
     const request = vi.fn(async (..._args: any[]) => raw); const api = host(c, request);
     const result = await api.source("os", "work-1");
     expect(JSON.stringify(result)).not.toMatch(/finance-secret|receipt-secret|private-clinical-text/);
@@ -177,7 +198,7 @@ describe("f3-painel: repetição e fechamento", () => {
   it("retoma após queda sem novo envio e repete a chave e o corpo que já tiveram efeito", async () => {
     const store = storage(), commands = new Map<string, unknown>(); let effects = 0, lose = true;
     const request = vi.fn(async (_path: string, method: string, body: unknown, _signal: unknown, key: string) => {
-      if (method === "GET") return source({ revision: effects ? 8 : 7, state: effects ? "done" : "waiting_manual", manual_destinations: effects ? [] : ["finance"] });
+      if (method === "GET") return source({ revision: effects ? 8 : 7, state: effects ? "done" : "skipped", skipped_reason: effects ? null : "automation_off", manual_destinations: effects ? [] : ["finance"] });
       if (!commands.has(key)) { effects++; commands.set(key, { accepted: true, event_id: "next-event" }); }
       if (lose) { lose = false; throw Object.assign(new Error("timeout"), { status: 0 }); }
       return commands.get(key);
@@ -223,7 +244,9 @@ describe("f3-painel: repetição e fechamento", () => {
     host(context(), request);
     const screen = mount(() => IntegrationStatus({ module: "os", sourceId: "work-1" }));
     button(await screen.settle(), "Corrigir pendência").props.onClick();
-    const review = screen.draw(); expect(text(review)).toContain("confirmará o fechamento"); expect(projected).toBe(0);
+    const review = screen.draw();
+    expect(text(review)).toContain("validará a correção, reservará a mesma solicitação e consultará o recibo antes de fechar o comando anterior");
+    expect(text(review)).toContain("Se ele já foi aplicado, a correção será interrompida para revisão"); expect(projected).toBe(0);
     button(review, "Confirmar fechamento e correção").props.onClick(); await ticks();
     expect(projected).toBe(1); expect(closed).toBe(true);
     expect(request.mock.calls.filter(call => call[1] === "POST")).toHaveLength(1);
@@ -237,7 +260,7 @@ describe("f3-painel: repetição e fechamento", () => {
     expect(request.mock.calls.filter(call => call[1] === "POST")).toHaveLength(1);
   });
   it("usa a primeira pendência e conserva a revisão para postagem manual", () => {
-    const view = source({ deliveries: [{ id: "done", state: "done", completed_ms: 1 }, { id: "first", state: "failed", completed_ms: null }, { id: "second", state: "pending", completed_ms: null }] });
+    const view = source({ deliveries: [{ id: "done", seq: 1, state: "done", completed_ms: 1 }, { id: "first", seq: 2, state: "failed", completed_ms: null }, { id: "second", seq: 3, state: "pending", completed_ms: null }] });
     expect(actionableEvent(view)?.id).toBe("first");
   });
 });

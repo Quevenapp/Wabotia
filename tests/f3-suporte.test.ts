@@ -1,3 +1,4 @@
+import { persistProviderEvidence } from "./helpers/f3-payment-evidence";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as db from "../src/db";
 import { all, batch, exec, one } from "../src/db";
@@ -82,6 +83,7 @@ async function fixture(options: { finance?: boolean; products?: boolean; auto?: 
   const payment = async (id: string, status: Payment["status"], remote = `remote-${id}`) => {
     await exec(f.env, `UPDATE payments SET status=?,provider_payment_id=?,paid_at=CASE WHEN ? IN ('paid','refunded')
       THEN coalesce(paid_at,?) ELSE paid_at END,updated=? WHERE id=?`, status, remote, status, Date.now(), Date.now(), id);
+    if (["paid", "refunded"].includes(status)) await persistProviderEvidence(f.env, id);
     return paymentView(await one(f.env, "SELECT * FROM payments WHERE id=?", id))!;
   };
   const hooks = async (id: string, status: Payment["status"], count = 1) => {
@@ -89,7 +91,7 @@ async function fixture(options: { finance?: boolean; products?: boolean; auto?: 
     for (let n = 0; n < count; n++) await purchasePaymentUpdated(ctx, value);
     return value;
   };
-  const events = async () => (await all(f.env, "SELECT payload_json FROM module_erp_events WHERE profile_id=? AND module_id='suporte' ORDER BY source_id,seq", f.profile))
+  const events = async () => (await all(f.env, "SELECT payload_json FROM module_erp_events WHERE profile_id=? AND module_id='suporte' ORDER BY source_id,source_revision,seq", f.profile))
     .map(row => JSON.parse(row.payload_json) as IntegrationEvent);
   const releases = () => all(f.env, "SELECT * FROM suporte_releases WHERE profile_id=?", f.profile);
   const flush = async () => {
@@ -197,7 +199,7 @@ describe("F3 Suporte: origem avulsa e responsabilidade mensal", () => {
     await purchasePaymentUpdated(f.ctx, paid);
     await exec(f.env, "UPDATE payments SET amount_cents=10000 WHERE id=?", paid.id);
     const altered = paymentView(await one(f.env, "SELECT * FROM payments WHERE id=?", paid.id))!;
-    await expect(purchasePaymentUpdated(f.ctx, altered)).rejects.toMatchObject({ code: "idempotency_conflict" });
+    await expect(purchasePaymentUpdated(f.ctx, altered)).rejects.toMatchObject({ code: "payment_evidence_conflict" });
     expect((await f.events()).filter(e => e.operation === "receive")).toHaveLength(1);
   });
 
@@ -322,18 +324,18 @@ describe("F3 Suporte: partes, privacidade e recuperação", () => {
     const f = await fixture({ auto: false }), remote = fakeTitles(); const purchase = await f.buy();
     await f.hooks(purchase.payment_id, "paid"); await f.flush();
     expect(remote.apply).not.toHaveBeenCalled();
-    expect(await supportIntegrationStatus(f.ctx, purchase.id)).toMatchObject({ state: "waiting_manual", message: "Aguardando lançamento manual" });
+    expect(await supportIntegrationStatus(f.ctx, purchase.id)).toMatchObject({ state: "skipped", skipped_reason: "automation_off", manual_destinations: ["finance"], message: "Aguardando lançamento manual" });
     expect(await f.releases()).toHaveLength(1);
   });
 
-  it("desligar automação após a baixa conserva o estorno para ação humana e encerra atendimento", async () => {
+  it("desligar automação após a baixa conserva o estorno histórico e encerra atendimento", async () => {
     const f = await fixture(), remote = fakeTitles(); const purchase = await f.buy();
     await f.hooks(purchase.payment_id, "paid"); await f.flush();
     await exec(f.env, "UPDATE module_erp_policy SET config_json=json_set(config_json,'$.auto_post.finance',json('false')) WHERE profile_id=?", f.profile);
     await f.hooks(purchase.payment_id, "refunded"); await f.flush();
-    expect([...remote.titles.values()][0].paid).toBe(9000);
+    expect([...remote.titles.values()][0].paid).toBe(0);
     expect((await f.releases())[0].status).toBe("ended");
-    expect(await supportIntegrationStatus(f.ctx, purchase.id)).toMatchObject({ state: "waiting_manual" });
+    expect(await supportIntegrationStatus(f.ctx, purchase.id)).toMatchObject({ state: "done", pending: false, manual_destinations: [] });
   });
 
   it("queda depois da liberação local repete o gancho sem duplicar compra, baixa ou liberação", async () => {
@@ -445,6 +447,7 @@ describe("F3 Suporte: partes, privacidade e recuperação", () => {
     await expect(supportIntegrationProducer.authorizeSource(f.ctx, f.actor, { ...source, component: "catalog:package:main", source_id: f.pkg.name }, true)).rejects.toMatchObject({ code: "not_found" });
     await expect(supportIntegrationProducer.authorizeSource(f.ctx, f.actor, { ...source, component: "catalog:package:main", source_id: f.pkg.id }, true)).resolves.toBeUndefined();
     const summary = await supportIntegrationStatus(f.ctx, purchase.id);
-    expect(Object.keys(summary).sort()).toEqual(["message", "pending", "state"]);
+    expect(Object.keys(summary).sort()).toEqual(["applied", "blocked_reason", "manual_destinations", "message", "pending", "reason_code", "skipped_reason", "state"]);
+    expect(JSON.stringify(summary)).not.toMatch(/title_id|account_id|settlement_id|links/);
   });
 });

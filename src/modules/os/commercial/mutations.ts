@@ -103,6 +103,9 @@ export async function prepareWorkMutation(ctx: ModuleContext, row: any, input: R
   sets.commercial_json = next.commercial_json = JSON.stringify(local);
   const source = workSource(ctx.profile, row.id), revision = (integration.source?.revision ?? 0) + 1, seq = (integration.source?.enqueued_seq ?? 0) + 1;
   const snapshot = await projectWork(ctx, next, revision, { integration, privacy, policy, products: parts.products, catalogChange });
+  // Serviço sem material não deixa um lançamento de estoque manual pendente.
+  // Cancelamento continua seguindo os efeitos históricos, mesmo sem item atual.
+  if (!maintenance) eligible.stock &&= snapshot.items.some(item => item.kind === "material");
   const event: IntegrationEvent = { id: commandId(source, seq), command_id: commandId(source, seq), event_key: eventKey(source, operation, revision),
     source, seq, source_revision: revision, operation, occurred_ms: occurred,
     epochs: state.epochs, eligible, snapshot, receipt_key: null, reverses_receipt_key: null,

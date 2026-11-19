@@ -1,3 +1,4 @@
+import { persistProviderEvidence } from "./helpers/f3-payment-evidence";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { all, batch, exec, one } from "../src/db";
 import * as db from "../src/db";
@@ -56,15 +57,17 @@ async function booking(f: Fixture, deposit = true) {
   return (await createBooking(f.reserva, reservaRules, { id: uid(), unit_id: f.unit.id, starts: future(), duration_minutes: 60, source: "panel", actor: f.actor.id, conversation: f.conversation, deposit, staff: true, notify: false, notes: "Respostas privadas de menores" })).booking;
 }
 const events = async (f: Fixture, module?: string) => (await all(f.env,
-  `SELECT payload_json FROM module_erp_events WHERE profile_id=?${module ? " AND module_id=?" : ""} ORDER BY module_id,source_id,seq`, f.profile, ...(module ? [module] : []))).map(r => JSON.parse(r.payload_json));
+  `SELECT payload_json FROM module_erp_events WHERE profile_id=?${module ? " AND module_id=?" : ""} ORDER BY module_id,source_id,source_revision,seq`, f.profile, ...(module ? [module] : []))).map(r => JSON.parse(r.payload_json));
 async function providerPayment(f: Fixture, bookingId: string, amount = 300) {
   const id = uid(), at = Date.now();
   await exec(f.env, `INSERT INTO payments(id,profile_id,conversation_id,account_id,provider,method,module_id,ref_id,description,amount_cents,status,provider_payment_id,trigger,actor,expires_at,paid_at,created,updated)
     VALUES(?,?,?,?, 'mercadopago','pix','reserva',?,'Descrição privada',?,'paid',?,'module','system',?,?,?,?)`, id, f.profile, f.conversation.id, uid(), bookingId, amount, uid(), at + 60000, at, at, at);
+  await persistProviderEvidence(f.env, id);
   return paymentView(await one(f.env, "SELECT * FROM payments WHERE id=?", id))!;
 }
 async function refund(f: Fixture, payment: NonNullable<ReturnType<typeof paymentView>>) {
   await exec(f.env, "UPDATE payments SET status='refunded',updated=? WHERE id=?", Date.now(), payment.id);
+  await persistProviderEvidence(f.env, payment.id);
   return paymentView(await one(f.env, "SELECT * FROM payments WHERE id=?", payment.id))!;
 }
 

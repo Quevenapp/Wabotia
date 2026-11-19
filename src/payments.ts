@@ -34,7 +34,8 @@ import type {
   WebhookInput,
 } from "./payments-provider";
 import { mercadoPago } from "./payments-mercadopago";
-import type { Statement } from "./integrations/contracts";
+import { paymentPendingEventKey } from "./payments-commercial-evidence";
+import type { IntegrationModule, Statement } from "./integrations/contracts";
 import {
   PaymentEvidenceError,
   paymentEvidenceStatements,
@@ -882,8 +883,8 @@ export async function deliverPaymentHooks(env: Env, paymentId: string) {
       if (!hook) throw new PaymentEvidenceError("payment_hook_missing");
       const evidence = entry.evidence_key
         ? parsePaymentEvidence(row.hook_evidence_json, row.profile_id, entry.evidence_key) : null;
-      if ((entry.status === "paid" || entry.status === "refunded") && !evidence)
-        throw new PaymentEvidenceError("payment_evidence_missing");
+      // Ganchos legados sem evidência concluem o efeito local; o produtor
+      // registra payment_evidence_required sem fabricar recibo comercial.
       if (evidence && (evidence.payment_id !== row.id || evidence.module_id !== row.module_id || evidence.ref_id !== row.ref_id ||
           evidence.amount_cents !== row.amount_cents || evidence.currency !== row.currency ||
           evidence.kind !== (entry.status === "paid" ? "receive" : "reverse")))
@@ -1103,12 +1104,26 @@ export async function refreshFromProvider(
       // Estorno primeiro: original e reversão no mesmo lote, um só gancho.
       // Não há estado intermediário pago que possa liberar o serviço.
       const changed = await transition(env, row, next, { ...extra, ...(evidence ? { evidence } : {}) });
+      let recovered = false;
       if (!changed && evidence) {
-        // Completa só ganchos pendentes anteriores à F3, após consulta real.
-        // Não inventa novo gancho para o passado.
-        await batch(env, [...paymentEvidenceStatements(evidence), attachHookEvidence(row.id, evidence)]);
+        // Uma consulta real pode completar a pendência de um gancho legado já
+        // entregue. Só essa pendência autoriza repetir o mesmo efeito local.
+        const status = evidence.kind === "receive" ? "paid" : "refunded";
+        const pendingKey = paymentPendingEventKey({ profile: row.profile_id, module: row.module_id as IntegrationModule, source_id: row.ref_id, component: "main" }, row.id, status);
+        const recovery = { id: `recovery:${evidence.receipt_key}`, status, previous: row.status,
+          occurred_ms: evidence.occurred_ms, evidence_key: evidence.receipt_key };
+        const results = await batch(env, [...paymentEvidenceStatements(evidence), attachHookEvidence(row.id, evidence),
+          [`UPDATE payments SET hook_pending=json_array(json(?)),hook_next_at=NULL WHERE id=? AND status=?
+            AND coalesce(json_array_length(hook_pending),0)=0 AND EXISTS(
+              SELECT 1 FROM module_erp_events e JOIN module_erp_delivery d ON d.event_id=e.id
+              WHERE e.profile_id=payments.profile_id AND e.module_id=payments.module_id
+                AND d.state='blocked' AND d.error_code='payment_evidence_required'
+                AND (e.event_key=? OR json_extract(e.payload_json,'$.receipt_key')=?))`,
+            [JSON.stringify(recovery), row.id, status, pendingKey, evidence.receipt_key]],
+        ]);
+        recovered = results.at(-1)!.meta.changes === 1;
       }
-      if (!changed && row.hook_pending) await deliverPaymentHooks(env, row.id);
+      if (!changed && (row.hook_pending || recovered)) await deliverPaymentHooks(env, row.id);
       return { status: changed ? next : row.status, changed };
     } catch (error) {
       if ((error instanceof PaymentEvidenceError && error.code === "payment_state_conflict") ||
