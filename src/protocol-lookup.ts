@@ -1,7 +1,7 @@
 import { all, one } from "./db";
 import { resolveCustomer } from "./customer/ports";
 import { legacyHistoryProof, sessionRecords } from "./customer/history";
-import { normalizeCustomerPhone } from "./customer/phone";
+import { customerPhoneVariants, normalizeCustomerPhone } from "./customer/phone";
 import { type Conversation, type Env, requireValue, now } from "./types";
 import { enqueue, settings } from "./service";
 import { formatBrasilia } from "./business-time";
@@ -71,6 +71,7 @@ function compactProtocol(value: string) {
 export function verifiedPhone(c: Conversation) {
   if (
     c.chat_type === "group" ||
+    (c.channel != null && c.channel !== "whatsapp") ||
     ["blocked", "excluded", "ambiguous"].includes(c.customer_link_state || "") ||
     !c.connection_id ||
     c.external_namespace !== `channel:${c.connection_id}`
@@ -108,6 +109,26 @@ export async function lookupProtocols(
   if (customer.profileId !== c.profile_id || customer.namespace !== (current.external_namespace.startsWith("app:") ? current.external_namespace : "team")) return [];
   if (["blocked", "excluded", "ambiguous"].includes(customer.state)) return [];
   const contactId = customer.state === "ready" ? customer.contactId : null;
+  // A ficha juntada é apenas propriedade cadastral. A consulta do cliente
+  // conserva a origem comprovada, inclusive as variantes telefônicas legadas.
+  const phone = current.verified_phone && verifiedPhone(current);
+  const phones = phone ? customerPhoneVariants(phone) : [];
+  const social = current.channel != null && current.channel !== "whatsapp";
+  // O ramo WhatsApp não consulta a tabela de identidades sociais.
+  const origin = social ? `EXISTS(SELECT 1 FROM customer_channel_ids i
+    WHERE i.profile_id=v.profile_id AND i.namespace=? AND i.state='ready' AND i.proof_conversation_id IS NOT NULL
+      AND i.id=v.channel_identity_id AND i.id=original.channel_identity_id
+      AND i.channel=v.channel AND i.channel=original.channel AND i.channel IN ('instagram','facebook')
+      AND i.account_id=v.channel_account_id AND i.account_id=original.channel_account_id
+      AND i.subject_namespace='dm' AND i.subject_id=v.channel_subject_id AND i.subject_id=original.channel_subject_id
+      AND v.external_namespace='channel:'||v.connection_id AND original.external_namespace='channel:'||original.connection_id)`
+    : `((v.channel IS NULL OR v.channel='whatsapp') AND (original.channel IS NULL OR original.channel='whatsapp')
+      AND v.verified_phone=v.phone AND original.verified_phone=original.phone
+      AND original.verified_phone IN (SELECT value FROM json_each(?))
+      AND EXISTS(SELECT 1 FROM connections vc JOIN connections oc ON oc.id=original.connection_id AND oc.profile_id=original.profile_id
+        WHERE vc.id=v.connection_id AND vc.profile_id=v.profile_id AND vc.kind IN ('meta','qr','zernio') AND oc.kind IN ('meta','qr','zernio')
+          AND vc.channel='whatsapp' AND oc.channel='whatsapp'
+          AND v.external_namespace='channel:'||vc.id AND original.external_namespace='channel:'||oc.id))`;
   // The same response is returned for a nonexistent number and somebody else's
   // number. Public updates only; internal notes and operator IDs are never sent.
   return all(
@@ -123,6 +144,8 @@ export async function lookupProtocols(
       (SELECT u.text FROM ticket_updates u WHERE u.ticket_id=t.id AND u.internal=0 ORDER BY u.created DESC,u.rowid DESC LIMIT 1) latest_update
      FROM tickets t JOIN conversations original ON original.id=t.conversation_id CROSS JOIN viewer v
      WHERE t.profile_id=? AND original.profile_id=? AND original.chat_type!='group'
+       AND original.customer_link_state NOT IN ('blocked','excluded','ambiguous')
+       AND (original.id=v.id OR ${origin})
        AND (EXISTS(
          SELECT 1 FROM customer_records r JOIN contacts k
            ON k.id=r.contact_id AND k.profile_id=r.profile_id AND k.namespace=? AND k.identity_state='active'
@@ -144,6 +167,7 @@ export async function lookupProtocols(
     c.id,
     c.profile_id,
     c.profile_id,
+    social ? customer.namespace : JSON.stringify(phones),
     customer.namespace,
     customer.namespace,
     query || null,

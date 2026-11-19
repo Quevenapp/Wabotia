@@ -35,18 +35,18 @@ export async function customerRead(env: Env, actor: Actor, profile: string, id: 
   if (kind === "profile") return profilePort.view(env, actor, profile, id);
   if (kind === "history") customerAccess(actor, profile);
   else await requireCustomerModule(env, actor, profile, module);
-  await contactRow(env, actor, profile, id);
+  id = (await contactRow(env, actor, profile, id)).id;
   if (kind === "history") return historyPort.read(env, actor, profile, { contactId: id }, pageQuery(query, 20, 50));
   if (kind === "collection") return profilePort.collection(env, actor, profile, id, module, contribution, pageQuery(query, 25, 100));
   return profilePort.section(env, actor, profile, id, module, contribution);
 }
 export async function saveCustomerSection(env: Env, actor: Actor, profile: string, data: any, command: string) {
   await requireCustomerModule(env, actor, profile, data.module);
-  await contactRow(env, actor, profile, data.id);
+  const contactId = (await contactRow(env, actor, profile, data.id)).id;
   const input: SectionWrite = { commandId: command, expectedVersion: data.expectedVersion, data: data.data };
   if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)
     throw new ApiError(400, "invalid_request", "Informe a versão da seção.");
-  return profilePort.saveSection(env, actor, profile, data.id, data.module, data.section, input);
+  return profilePort.saveSection(env, actor, profile, contactId, data.module, data.section, input);
 }
 function namespace(value: unknown, actor: Actor): Namespace {
   if (typeof value !== "string" || !(value === "team" || /^app:[^\s]{1,190}$/.test(value)))
@@ -80,6 +80,7 @@ export async function resolvePhone(env: Env, actor: Actor, profile: string, data
       AND r.record_id=v.id||':'||v.session
     WHERE k.profile_id=? AND k.namespace='team' AND k.phone=? AND k.contact_id=? AND k.origin='observed'
       AND cn.kind IN ('meta','qr','zernio') AND v.external_namespace='channel:'||cn.id AND v.chat_type='direct'
+      AND (v.channel IS NULL OR v.channel='whatsapp') AND cn.channel='whatsapp'
       AND v.customer_link_state NOT IN ('blocked','excluded')
       AND NOT EXISTS(SELECT 1 FROM customer_phone_candidates other WHERE other.profile_id=k.profile_id
         AND other.namespace=k.namespace AND other.phone=k.phone AND other.contact_id<>k.contact_id AND other.origin='observed'))`;
@@ -107,6 +108,7 @@ export async function eraseContact(env: Env, actor: Actor, profile: string, id: 
   const replay = await replayJob(env, profile, command, hash);
   if (replay) return jobView(replay);
   const row = await contactRow(env, actor, profile, id, true);
+  id = row.id;
   const previous = await one(env, "SELECT * FROM customer_jobs WHERE profile_id=? AND contact_id=? AND kind='erase' ORDER BY created,id LIMIT 1", profile, id);
   if (previous) return jobView(previous);
   activeContact(row);
@@ -119,6 +121,11 @@ export async function eraseContact(env: Env, actor: Actor, profile: string, id: 
     ...guard(command, "restrict"),
     ["UPDATE customer_jobs SET state='cancelled',lease_until=NULL,payload_cipher=NULL,error_code='customer_erasing',updated=max(updated+1,?) WHERE profile_id=? AND contact_id=? AND id<>? AND state NOT IN ('done','retained','cancelled')", [now(), profile, id, job.id]],
     ["UPDATE conversations SET customer_link_state='excluded' WHERE profile_id=? AND (id IN (SELECT conversation_id FROM conversation_contacts WHERE profile_id=? AND contact_id=?) OR (verified_phone IN (SELECT phone FROM customer_phone_candidates WHERE profile_id=? AND namespace=? AND contact_id=?) AND (CASE WHEN external_namespace LIKE 'app:%' THEN external_namespace ELSE 'team' END)=?))", [profile, profile, id, profile, row.namespace, id, row.namespace]],
+    // Marcadores sociais são conservados, sem apresentação pessoal. Nunca
+    // recriar a identidade bloqueada nem restaurar conteúdo de um snapshot.
+    ["UPDATE customer_channel_ids SET state='blocked',display_name='',username='',version=version+1,updated=? WHERE profile_id=? AND namespace=? AND contact_id=? AND state<>'erased'", [now(), profile, row.namespace, id]],
+    ["UPDATE conversations SET customer_link_state='excluded' WHERE profile_id=? AND channel_identity_id IN (SELECT id FROM customer_channel_ids WHERE profile_id=? AND namespace=? AND contact_id=?)", [profile, profile, row.namespace, id]],
+    ["UPDATE customer_merges SET before_cipher='' WHERE profile_id=? AND namespace=? AND (source_id=? OR target_id=? OR source_id IN (WITH RECURSIVE aliases(id) AS (SELECT id FROM contacts WHERE profile_id=? AND namespace=? AND id=? UNION SELECT c.id FROM contacts c JOIN aliases a ON c.merged_into=a.id WHERE c.profile_id=? AND c.namespace=?) SELECT id FROM aliases) OR target_id IN (WITH RECURSIVE aliases(id) AS (SELECT id FROM contacts WHERE profile_id=? AND namespace=? AND id=? UNION SELECT c.id FROM contacts c JOIN aliases a ON c.merged_into=a.id WHERE c.profile_id=? AND c.namespace=?) SELECT id FROM aliases))", [profile, row.namespace, id, id, profile, row.namespace, id, profile, row.namespace, profile, row.namespace, id, profile, row.namespace]],
     // Candidatos e telefone ficam como tombstone: um novo inbound não recria a pessoa.
     ["UPDATE customer_jobs SET state='retained',error_code=?,updated=max(updated+1,?) WHERE profile_id=? AND id=?", [errorCode, now(), profile, job.id]],
     auditStatement(actor, profile, "contact.erasure", id, command),

@@ -13,6 +13,7 @@ import {
   contactValues,
   contactChanges,
   parseContactCsv,
+  serializeContactCsv,
   searchText,
   type ContactValues,
 } from "./contact-csv";
@@ -26,6 +27,7 @@ import { enrichLocal, maintainJobs, bindFromErp, dispatchCustomerMaintenance, jo
 import { customerAccess, activeContact, contactRow, namespaceFor, phoneSafetyStatements, guardedBatch } from "./customer/local";
 import { eraseContact, resolvePhone, saveCustomerSection, requireCustomerModule } from "./customer/http";
 import type { CustomerWrite, Namespace, Statement } from "./customer/contracts";
+import { readCustomerChannels } from "./customer/channel-identity";
 
 export const contactNamespace = namespaceFor;
 export const conversationContactNamespace = (conv: any): Namespace =>
@@ -79,7 +81,7 @@ export async function listContacts(
   query: { q?: string; cursor?: string; limit?: string; namespace?: string; identity?: string; review?: string },
 ) {
   customerAccess(actor, profile);
-  const identity = query.identity ?? "all";
+  const identity = query.identity === "no_personal_data" ? "phone_only" : query.identity ?? "all";
   requireValue(["all", "identified", "phone_only"].includes(identity), "Filtro de identidade inválido.");
   requireValue(!query.review || query.review === "inactive180", "Filtro de revisão inválido.");
   const cursorContext = canonical({ profile, actor: actor.id, access: actor.access ?? null,
@@ -110,9 +112,11 @@ export async function listContacts(
   );
   const q = searchText((query.q || "").slice(0, 200)).replace(/[!%_]/g, "!$&");
   const namespace = (query.namespace || "").slice(0, 100);
+  // Nome público recebido da rede não significa complementação cadastral.
+  const socialIncomplete = "(c.source='automatic' AND c.created_by='channel_identity' AND c.updated_by='channel_identity' AND c.phone='' AND c.email='' AND c.company='' AND coalesce(c.document,'')='' AND c.erp_contact_id IS NULL)";
   const rows = await all(
     env,
-    "SELECT c.*, (SELECT count(*) FROM conversations v LEFT JOIN conversation_contacts l ON l.conversation_id=v.id AND l.profile_id=v.profile_id LEFT JOIN customer_phones p ON p.profile_id=v.profile_id AND p.namespace=c.namespace AND p.phone=v.verified_phone AND p.state='ready' AND v.customer_link_state='ready' WHERE v.profile_id=c.profile_id AND coalesce(l.contact_id,p.contact_id)=c.id) conversation_count FROM contacts c WHERE c.profile_id=? AND c.created<=? AND c.identity_state='active' AND (?='all' OR (?='identified' AND (trim(c.name)<>'' OR coalesce(c.document,'')<>'' OR c.erp_contact_id IS NOT NULL)) OR (?='phone_only' AND c.phone<>'' AND trim(c.name)='' AND coalesce(c.document,'')='' AND c.erp_contact_id IS NULL)) AND (?='' OR (c.phone<>'' AND c.email='' AND c.company='' AND trim(c.name)='' AND coalesce(c.document,'')='' AND c.erp_contact_id IS NULL AND c.created<? AND NOT EXISTS(SELECT 1 FROM agenda_appointments rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM os_orders rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM pedido_orders rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM reserva_bookings rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM mensalidade_subscriptions rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM conversation_contacts l JOIN conversations v ON v.id=l.conversation_id AND v.profile_id=l.profile_id WHERE l.profile_id=c.profile_id AND l.contact_id=c.id AND v.last_customer>=?) AND NOT EXISTS(SELECT 1 FROM customer_records r WHERE r.profile_id=c.profile_id AND r.contact_id=c.id AND max(r.occurred_at,coalesce((SELECT v.last_customer FROM conversations v WHERE v.profile_id=r.profile_id AND v.id=r.conversation_id AND r.module_id='conversations' AND r.kind='session' AND r.record_id=v.id||':'||v.session),0),coalesce((SELECT q.finished_at FROM queue_tickets q WHERE q.profile_id=r.profile_id AND q.id=r.record_id AND r.module_id='queue'),0))>=?) AND NOT EXISTS(SELECT 1 FROM queue_tickets q JOIN conversation_contacts l ON l.conversation_id=q.conversation_id AND l.profile_id=q.profile_id WHERE l.profile_id=c.profile_id AND l.contact_id=c.id AND max(q.created_at,coalesce(q.finished_at,0))>=?) AND NOT EXISTS(SELECT 1 FROM web_steps w LEFT JOIN conversation_contacts l ON l.conversation_id=w.conversation_id AND l.profile_id=w.profile_id WHERE w.profile_id=c.profile_id AND coalesce(w.contact_id,l.contact_id)=c.id AND coalesce(w.completed_at,w.created)>=?))) AND (?=1 OR c.namespace=?) AND (?='' OR c.namespace=?) AND c.search_text LIKE ? ESCAPE '!' AND (? IS NULL OR c.created<? OR (c.created=? AND c.id<?)) ORDER BY c.created DESC,c.id DESC LIMIT ?",
+    `SELECT c.*, (SELECT count(*) FROM conversations v LEFT JOIN conversation_contacts l ON l.conversation_id=v.id AND l.profile_id=v.profile_id LEFT JOIN customer_phones p ON p.profile_id=v.profile_id AND p.namespace=c.namespace AND p.phone=v.verified_phone AND p.state='ready' AND v.customer_link_state='ready' WHERE v.profile_id=c.profile_id AND coalesce(l.contact_id,p.contact_id)=c.id) conversation_count FROM contacts c WHERE c.profile_id=? AND c.created<=? AND c.identity_state='active' AND c.merged_into IS NULL AND (?='all' OR (?='identified' AND NOT ${socialIncomplete} AND (trim(c.name)<>'' OR coalesce(c.document,'')<>'' OR c.erp_contact_id IS NOT NULL)) OR (?='phone_only' AND ((c.phone<>'' AND trim(c.name)='' AND coalesce(c.document,'')='' AND c.erp_contact_id IS NULL) OR ${socialIncomplete}))) AND (?='' OR (c.phone<>'' AND c.email='' AND c.company='' AND trim(c.name)='' AND coalesce(c.document,'')='' AND c.erp_contact_id IS NULL AND c.created<? AND NOT EXISTS(SELECT 1 FROM agenda_appointments rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM os_orders rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM pedido_orders rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM reserva_bookings rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM mensalidade_subscriptions rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM conversation_contacts l JOIN conversations v ON v.id=l.conversation_id AND v.profile_id=l.profile_id WHERE l.profile_id=c.profile_id AND l.contact_id=c.id AND v.last_customer>=?) AND NOT EXISTS(SELECT 1 FROM customer_records r WHERE r.profile_id=c.profile_id AND r.contact_id=c.id AND max(r.occurred_at,coalesce((SELECT v.last_customer FROM conversations v WHERE v.profile_id=r.profile_id AND v.id=r.conversation_id AND r.module_id='conversations' AND r.kind='session' AND r.record_id=v.id||':'||v.session),0),coalesce((SELECT q.finished_at FROM queue_tickets q WHERE q.profile_id=r.profile_id AND q.id=r.record_id AND r.module_id='queue'),0))>=?) AND NOT EXISTS(SELECT 1 FROM queue_tickets q JOIN conversation_contacts l ON l.conversation_id=q.conversation_id AND l.profile_id=q.profile_id WHERE l.profile_id=c.profile_id AND l.contact_id=c.id AND max(q.created_at,coalesce(q.finished_at,0))>=?) AND NOT EXISTS(SELECT 1 FROM web_steps w LEFT JOIN conversation_contacts l ON l.conversation_id=w.conversation_id AND l.profile_id=w.profile_id WHERE w.profile_id=c.profile_id AND coalesce(w.contact_id,l.contact_id)=c.id AND coalesce(w.completed_at,w.created)>=?))) AND (?=1 OR c.namespace=?) AND (?='' OR c.namespace=?) AND c.search_text LIKE ? ESCAPE '!' AND (? IS NULL OR c.created<? OR (c.created=? AND c.id<?)) ORDER BY c.created DESC,c.id DESC LIMIT ?`,
     profile,
     cut, identity, identity, identity, query.review ?? "",
     ...Array(5).fill(cut - 180 * 86400000),
@@ -145,6 +149,7 @@ export async function contactDetail(
 ) {
   customerAccess(actor, profile);
   const contact = await getContact(env, actor, profile, id);
+  id = contact.id;
   const canReadConversations = allows(actor, "conversations") &&
     (actor.kind !== "app" || actor.scopes.includes("conversations:read"));
   const conversations =
@@ -274,6 +279,19 @@ export async function previewContactCsv(
   const plan = await importPlan(env, actor, profile, csv, phoneMode);
   return { ...plan, rows: plan.rows.map(({ fingerprint, ...row }) => row) };
 }
+
+/** Página limitada, com o mesmo filtro/autorização da agenda. O servidor pode
+ * expor o cursor para continuação explícita; nunca truncar uma exportação total. */
+export async function exportContactCsv(env: Env, actor: Actor, profile: string, query: Parameters<typeof listContacts>[3] = {}) {
+  const page = await listContacts(env, actor, profile, { ...query, limit: "100" });
+  const rows = [];
+  for (const contact of page.data) {
+    if (!contact) continue;
+    const channels = actor.kind === "user" && !actor.via ? (await readCustomerChannels(env, actor, profile, contact.id)).channels : [];
+    rows.push({ ...contact, channels });
+  }
+  return { csv: serializeContactCsv(rows), next_cursor: page.next_cursor, incomplete: page.incomplete };
+}
 export async function contactCommand(
   env: Env,
   actor: Actor,
@@ -290,7 +308,8 @@ export async function contactCommand(
   customerAccess(actor, profile, true);
   if (operation === "contact.promote") {
     await requireCustomerModule(env, actor, profile, "erp");
-    return enrichLocal(env, actor, profile, data.id, { ...data, commandId }, "promote");
+    const contact = await contactRow(env, actor, profile, data.id);
+    return enrichLocal(env, actor, profile, contact.id, { ...data, commandId }, "promote");
   }
   if (operation === "contact.job-cancel") return cancelCustomerJob(env, actor, profile, data.id, data, commandId);
   if (operation === "contact.resolve-phone") return resolvePhone(env, actor, profile, data, commandId);
@@ -400,6 +419,7 @@ export async function contactCommand(
       await commitLocal([
         ["DELETE FROM conversation_contacts WHERE conversation_id=? AND profile_id=?", [conv.id, profile]],
         ["UPDATE conversations SET customer_link_state='blocked' WHERE id=? AND profile_id=?", [conv.id, profile]],
+        ...(conv.channel_identity_id ? [["UPDATE customer_channel_ids SET state='blocked',version=version+1,updated=? WHERE profile_id=? AND id=?", [now(), profile, conv.channel_identity_id]] as Statement] : []),
       ], currentContact ?? null, conversationContactNamespace(conv), { id: conv.id, unlinked: true });
       return { id: conv.id, unlinked: true };
     }

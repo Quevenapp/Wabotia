@@ -14,6 +14,8 @@ import { areaTemplates } from "../area-templates";
 import { customerProfileDeclarations } from "./declarations";
 import { isFullCustomerEnabled } from "./feature";
 import { customerProvider } from "./ports";
+import { contactRow } from "./local";
+import { readCustomerChannels } from "./channel-identity";
 import type { ContactContribution, ContactProfileView, ProfilePort, SectionView } from "./profile-contracts";
 
 type Contact = { id: string; profile_id: string; namespace: string; erp_contact_id: string | null; identity_state: string };
@@ -31,9 +33,7 @@ async function contact(env: Env, actor: Actor, profileId: string, contactId: str
   // A ficha não é uma API para aplicações, credenciais de extensão ou bots.
   if (actor.kind !== "user" || actor.via || actor.module || actor.credential || actor.id.startsWith("bot:") || actor.bots.length) forbidden();
   access(actor, profileId, "contacts:read");
-  const row = await one<Contact>(env,
-    "SELECT id,profile_id,namespace,erp_contact_id,identity_state FROM contacts WHERE id=? AND profile_id=? AND (namespace='team' OR namespace LIKE 'app:%')",
-    contactId, profileId);
+  const row = await contactRow(env, actor, profileId, contactId) as Contact;
   if (!row || row.profile_id !== profileId || row.identity_state !== "active") return missing();
   if (row.namespace !== "team" && !allows(actor, "contacts")) forbidden();
   return row!;
@@ -134,16 +134,36 @@ async function sectionResult(ctx: ModuleContext, actor: Actor, item: ContactCont
   return { version: result.version, writable, schema, data: result.data };
 }
 
+async function channelProfile(env: Env, actor: Actor, row: Contact, requestedId: string): Promise<Partial<ContactProfileView>> {
+  if (!allows(actor, "contacts")) return {};
+  const channelView = await readCustomerChannels(env, actor, row.profile_id, row.id);
+  const social = channelView.channels.some(channel => channel.channel !== "whatsapp") || !!await one(env,
+    "SELECT 1 FROM connections WHERE profile_id=? AND channel IN ('instagram','facebook') LIMIT 1", row.profile_id);
+  if (!social && requestedId === row.id) return {};
+  const applied = await one(env,
+    "SELECT id FROM customer_merges WHERE profile_id=? AND namespace=? AND target_id=? AND state='applied' AND before_cipher<>'' ORDER BY created DESC,id DESC LIMIT 1",
+    row.profile_id, row.namespace, row.id);
+  const canMerge = actor.role === "admin" || !!actor.access?.includes("contacts:merge");
+  return { ...channelView, merge: {
+    available: canMerge, reason: canMerge ? null : "É necessária a permissão para juntar contatos.",
+    merged_into: requestedId !== row.id ? row.id : null,
+    merge_id: applied?.id ?? null, can_undo: canMerge && !!applied,
+  } };
+}
+
 /** Instanciado pelo runtime, sem importar/carregar o motor ERP. */
 export function createProfilePort(): ProfilePort {
   return {
     async view(env, actor, profileId, contactId) {
       const row = await contact(env, actor, profileId, contactId);
+      const requestedId = contactId;
+      contactId = row.id;
       const words = await vocabulary(env, profileId);
       const contributions: ContactProfileView["contributions"][number][] = [];
+      const channels = await channelProfile(env, actor, row, requestedId);
       if (row.namespace !== "team") return {
         profileId, contactId, namespace: row.namespace, erpContactId: null, depth: "simple",
-        vocabulary: { singular: words.singular, plural: words.plural }, writable: true, contributions,
+        vocabulary: { singular: words.singular, plural: words.plural }, writable: true, contributions, ...channels,
       };
       let erpAllowed = false;
       if (row.erp_contact_id && allows(actor, "erp") && resourcesForRole(erpRoleOf(actor)).includes("contacts") &&
@@ -181,11 +201,13 @@ export function createProfilePort(): ProfilePort {
         ...(full ? { localWritable: allows(actor, "contacts") } : {}),
         // ERP é somente uma indicação: o hospedeiro reaplica o .ie granular e MFA.
         writable: full ? ["admin", "vendas", "financeiro"].includes(erpRoleOf(actor) ?? "") : allows(actor, "contacts"),
+        ...channels,
         contributions,
       };
     },
     async collection(env, actor, profileId, contactId, moduleId, collectionId, query) {
       const { row, ctx, item } = await contribution(env, actor, profileId, contactId, moduleId, collectionId, "collection");
+      contactId = row.id;
       if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 100) failure(400, "invalid_request", "Limite inválido.");
       const binding = JSON.stringify([profileId, row.namespace, contactId, moduleId, collectionId, query.limit,
         actor.id, actor.sessionId ?? null, actor.role, actor.access ?? null]);
@@ -217,13 +239,15 @@ export function createProfilePort(): ProfilePort {
         nextCursor: page.nextCursor ? btoa(await seal(env, { kind: "customer-profile.v1", binding, cutoff, cursor: page.nextCursor })) : null };
     },
     async section(env, actor, profileId, contactId, moduleId, sectionId) {
-      const { ctx, item } = await contribution(env, actor, profileId, contactId, moduleId, sectionId, "section");
+      const { row, ctx, item } = await contribution(env, actor, profileId, contactId, moduleId, sectionId, "section");
+      contactId = row.id;
       const provider = customerProvider(moduleId);
       if (!provider?.section) return unavailable();
       return sectionResult(ctx, actor, item, await provide(() => provider.section!(ctx, actor, contactId, sectionId)));
     },
     async saveSection(env, actor, profileId, contactId, moduleId, sectionId, input) {
-      const { ctx, item } = await contribution(env, actor, profileId, contactId, moduleId, sectionId, "section", true);
+      const { row, ctx, item } = await contribution(env, actor, profileId, contactId, moduleId, sectionId, "section", true);
+      contactId = row.id;
       if (!input || typeof input.commandId !== "string" || !input.commandId.trim() || input.commandId.length > 200 ||
         !Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1 || input.data === undefined)
         failure(400, "invalid_request", "Informe o comando e a versão da seção.");

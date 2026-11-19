@@ -13,3 +13,14 @@
 .customer-profile-job, .customer-profile-relation { border-top: 1px solid var(--border, #d5d9df); padding-block: .75rem; }
 .customer-profile-job label, .customer-profile-card form label { display: grid; gap: .35rem; margin-block: .5rem; }
 .customer-profile-role-change { display: grid; gap: .5rem; }
+.customer-profile-channels { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: .75rem; list-style: none; padding: 0; }
+.customer-profile-channels li { display: grid; align-content: start; gap: .35rem; overflow-wrap: anywhere; }
+.customer-merge-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.customer-merge-pair section { border: 1px solid var(--border, #d5d9df); border-radius: .5rem; padding: .75rem; overflow-wrap: anywhere; }
+.customer-merge-pair h3 { margin: 0 0 .5rem; }
+.customer-merge-pair dt { font-weight: 600; }
+.customer-merge-pair dd { margin: .25rem 0 .75rem; }
+.customer-merge label { display: grid; gap: .35rem; margin-block: .75rem; }
+.customer-merge input[type=checkbox] { justify-self: start; }
+.customer-merge select, .customer-merge input, .customer-merge textarea { min-width: 0; max-width: 100%; }
+@media (max-width: 40rem) { .customer-merge-pair { grid-template-columns: 1fr; } }
