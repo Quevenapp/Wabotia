@@ -119,6 +119,9 @@ export function localFetch(
       return Response.json({ id: identity.actor?.user_id ?? actor.id, email: null, app_metadata: {}, user_metadata: { name: actor.name } });
     const rpc = /^\/rest\/v1\/rpc\/([a-z0-9_]+)$/.exec(url.pathname);
     if (rpc) {
+      // A API humana não encaminha o executor da fila nem sua marca interna.
+      if (rpc[1].startsWith("erp_module_") || identity.module_execution)
+        return Response.json({ code: "42501", message: "module_origin_denied" }, { status: 403 });
       identity = await trustedIdentity();
       const state = { fiscal: identity.parts!.fiscal };
       const maintenance = new Headers(init.headers).get(ERP_MAINTENANCE_HEADER);

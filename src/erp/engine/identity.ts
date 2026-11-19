@@ -1,4 +1,5 @@
 import { readErpPartsSnapshot, type ErpParts, type ErpPartsControl } from "../parts.ts";
+import { readModuleEvidence, type ModuleExecutionEvidence } from "./module-origin.ts";
 // Porta de identidade: o que no Fagoo vinha de auth.* (Supabase Auth) e no
 // Wabotia vem do núcleo (Pessoas, login, MFA). O Worker preenche o envelope
 // antes da transação; o motor nunca consulta o D1. Fase 3: o lado do Worker
@@ -45,6 +46,7 @@ export interface ErpActor extends ErpPerson {
 }
 
 export interface IdentityPort {
+  module_execution?: ModuleExecutionEvidence;
   actor: ErpActor | null;
   people: ErpPerson[] | null;
   /** Restrição D1 lida pelo Worker; o objeto recebe só IDs, sem acesso ao D1. */
@@ -72,7 +74,9 @@ function person(v: any): ErpPerson | null {
 /** Envelope recebido (JSON já decodificado) → porta validada; o que não confere vira ausente. */
 export function readIdentity(raw: unknown): IdentityPort {
   if (!raw || typeof raw !== "object") return NO_IDENTITY;
-  const r = raw as { actor?: any; people?: any; customer_privacy?: any; parts?: unknown; partsControl?: any };
+  const r = raw as { actor?: any; people?: any; customer_privacy?: any; parts?: unknown; partsControl?: any; module_execution?: unknown };
+  const module_execution = readModuleEvidence(r.module_execution);
+  if (r.module_execution !== undefined && !module_execution) return NO_IDENTITY;
   const restricted = r.customer_privacy?.restricted_contact_ids;
   if (r.customer_privacy !== undefined && (!Array.isArray(restricted) ||
       restricted.length > 2000 || restricted.some((id: unknown) => typeof id !== "string" || !UUID.test(id)))) return NO_IDENTITY;
@@ -88,7 +92,7 @@ export function readIdentity(raw: unknown): IdentityPort {
   const people = Array.isArray(r.people) ? r.people.map(person).filter((p: ErpPerson | null): p is ErpPerson => p !== null) : null;
   // As duas extensões do envelope convivem: a restrição cadastral (fase 1) e
   // o estado das partes do ERP (fase 2).
-  const privacy = restricted ? { customer_privacy: { restricted_contact_ids: restricted as string[] } } : {};
+  const privacy = { ...(restricted ? { customer_privacy: { restricted_contact_ids: restricted as string[] } } : {}), ...(module_execution ? { module_execution } : {}) };
   const snapshot = readErpPartsSnapshot({ ...r.partsControl, parts: r.parts });
   if (!snapshot) return { actor, people, ...privacy };
   const { parts, ...partsControl } = snapshot;
@@ -128,7 +132,7 @@ export const GATE_DENIED_HEADER = "x-erp-gate-denied";
  * direto e nem passa pela rota.
  */
 export const SYSTEM_HEADER = "x-erp-system";
-export const encodeIdentity = (port: IdentityPort) => b64url(JSON.stringify(port));
+export const encodeIdentity = (port: Omit<IdentityPort, "module_execution"> & { module_execution?: unknown }) => b64url(JSON.stringify(port));
 export function decodeIdentity(header: string | null): IdentityPort {
   if (!header || header.length > 200_000) return NO_IDENTITY;
   try {

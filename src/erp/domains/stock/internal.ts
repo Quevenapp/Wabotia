@@ -3,6 +3,7 @@
 // Portado das migrações do Fagoo; os gatilhos que só lançam erro
 // (immutable_ledger) já estão em SQL gerado (src/erp/schema).
 import { createHash } from "node:crypto";
+import { originAccess, driverContext, systemScope } from "../../engine/module-origin.ts";
 import { one, type SqlDriver } from "../../engine/driver.ts";
 import { formatScaled, fromColumn, toParam } from "../../engine/dec.ts";
 import { notPorted, raise } from "../../engine/errors.ts";
@@ -17,6 +18,7 @@ const MAX = 999999999999999999n; // 999999999999.999999 na escala 6
 
 /** erp_stock.require_access */
 export function requireAccess(db: SqlDriver, user: string, write: boolean) {
+  if (originAccess(db, user, ["stock_post", "stock_reverse"]) && systemScope(driverContext(db)!)) return;
   const role = activeRole(db, user);
   if (
     !role ||

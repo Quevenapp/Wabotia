@@ -16,7 +16,10 @@ import * as documents from "../../documents/public.ts";
 import * as preferences from "../../preferences/public.ts";
 import { commissionAmounts, commissionWeighted, documentSeller } from "../document-effects.ts";
 import { commissionPolicy } from "../commissions.ts";
-import { requireRpcParts } from "../../../engine/parts-gate.ts";
+import { requireRpcParts } from "../../../engine/registry.ts";
+import { driverContext, originScope, requireOriginOperation, assertOwnEffect } from "../../../engine/module-origin.ts";
+import { linkedDocumentGuard } from "../../documents/module-policy.ts";
+import { moduleFinanceAudit as insertAudit, moduleUpdateTitle as updateTitle, moduleFinancePreviewGuard } from "../module-posting.ts";
 import { erpRequirement, erpRequirementMet } from "../../../parts.ts";
 import { erpEntityRequirement } from "../../../parts-requirements.ts";
 import {
@@ -26,7 +29,6 @@ import {
   documentCommandStart,
   expected,
   field,
-  insertAudit,
   keys,
   requireAccess,
   txt,
@@ -34,7 +36,7 @@ import {
   writeRow,
 } from "../internal.ts";
 import { invoiceEffectActive } from "../invoices.ts";
-import { insertTitle, updateTitle } from "../titles.ts";
+import { insertTitle } from "../titles.ts";
 
 type Data = Record<string, unknown>;
 const sha256 = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
@@ -55,6 +57,9 @@ const roundDiv = (n: bigint, d: bigint) => {
 
 /** erp_finance.document_lock(ator, kind, documento, versão) */
 export function documentLock(db: SqlDriver, actor: string, kind: string | null, document: string | null, version: number | null): Row {
+  const ctx = driverContext(db);
+  linkedDocumentGuard(db, document, ctx);
+  if (ctx && document) requireOriginOperation(ctx, originScope(ctx)!.operation, document);
   requireAccess(db, actor, true);
   documents.requireAccess(db, actor, kind, false);
   if (document === null || version === null || version < 1) raise("22023", "erp_document_finance_invalid_version");
@@ -285,7 +290,7 @@ export function erpDocumentFinancePreview(ctx: RpcContext, a: RpcArgs) {
   const kind = (a.p_kind as string | null) ?? null;
   // 239: Ordem de Serviço "Lançar contas".
   documents.mirrorRequireVisible(db, user, (a.p_document_id as string | null) ?? null, true);
-  documents.requireOsPermission(db, user, kind!, "lancar_contas");
+  if (!originScope(ctx)) documents.requireOsPermission(db, user, kind!, "lancar_contas");
   const d = documentLock(db, user, kind, (a.p_document_id as string | null) ?? null, (a.p_expected_version as number | null) ?? null);
   const category = documents.documentFinanceCategory(db, d, (a.p_category_id as string | null) ?? null);
   return { preview: financePaymentPreview(db, d, documentPreviewData(db, d, category, jsonArg(a.p_plan))), data_mode: "erp_native", cash_movement_performed: false };
@@ -304,7 +309,7 @@ export function erpDocumentFinancePost(ctx: RpcContext, a: RpcArgs) {
   const plan = jsonArg(a.p_plan);
   const group = crypto.randomUUID();
   documents.mirrorRequireVisible(db, user, (a.p_document_id as string | null) ?? null, true);
-  documents.requireOsPermission(db, user, kind!, "lancar_contas");
+  if (!originScope(ctx)) documents.requireOsPermission(db, user, kind!, "lancar_contas");
   // O comando guarda a categoria como pedida: a repetição de um comando antigo continua batendo.
   const data = { kind, document_id: documentId, version, preview_hash: hash, category_id: categoryArg, plan };
   const replay = documentCommandStart(db, user, command, "post", data);
@@ -312,23 +317,29 @@ export function erpDocumentFinancePost(ctx: RpcContext, a: RpcArgs) {
   const d = documentLock(db, user, kind, documentId, version);
   const category = documents.documentFinanceCategory(db, d, categoryArg);
   const preview = financePaymentPreview(db, d, documentPreviewData(db, d, category, plan));
+  moduleFinancePreviewGuard(ctx, preview);
   if (hash === null || !/^[a-f0-9]{64}$/.test(hash) || hash !== preview.preview_hash) raise("40001", "erp_document_finance_preview_conflict");
   const beforeDoc = documents.documentDto(ctx, String(d.id));
   documents.guardTrashChild(db, String(d.id)); // guard_trash (BEFORE INSERT em document_posting)
   const posting = crypto.randomUUID();
   const { preview_hash: _h, ...snapshot } = preview;
+  const label = `${d.kind === "sales_orders" ? "Pedido de venda" : d.kind === "purchase_orders" ? "Pedido de compra" : "Ordem de serviço"} nº ${d.number === null ? "" : String(d.number)}`;
+  const parts = preview.installments as Data[];
+  const createTitle = (part: Data) => insertTitle(ctx, {
+    group_id: group, installment: Number(part.position), installments: parts.length, kind: preview.direction, contact_id: d.contact_id, category_id: category, description: d.number === null ? null : label,
+    issued_on: preview.issued_on, due_on: part.due_on, amount_cents: Number(part.amount_cents), payment_method_id: part.payment_method_id ?? null, account_id: part.account_id ?? null,
+  });
+  // A guarda F2 de insertTitle exige Vendas quando a postagem já existe.
+  // Para F3, validar o documento acima, criar parcelas e só então vinculá-las,
+  // na MESMA transação. Nenhuma parte ou papel é artificialmente ligado.
+  const moduleTitles = originScope(ctx) ? parts.map(createTitle) : null;
   db.exec(
     `INSERT INTO "erp_finance__document_posting"(id, document_id, document_version, group_id, state, version, snapshot, preview_hash, actor, command_id, created_at)
        VALUES(?,?,?,?,'active',1,?,?,?,?,?)`,
     posting, d.id, d.version, group, JSON.stringify(snapshot), hash, user, command, ctx.clock.next().toString(),
   );
-  const label = `${d.kind === "sales_orders" ? "Pedido de venda" : d.kind === "purchase_orders" ? "Pedido de compra" : "Ordem de serviço"} nº ${d.number === null ? "" : String(d.number)}`;
-  const parts = preview.installments as Data[];
-  for (const part of parts) {
-    const title = insertTitle(ctx, {
-      group_id: group, installment: Number(part.position), installments: parts.length, kind: preview.direction, contact_id: d.contact_id, category_id: category, description: d.number === null ? null : label,
-      issued_on: preview.issued_on, due_on: part.due_on, amount_cents: Number(part.amount_cents), payment_method_id: part.payment_method_id ?? null, account_id: part.account_id ?? null,
-    });
+  for (const [index, part] of parts.entries()) {
+    const title = moduleTitles ? moduleTitles[index] : createTitle(part);
     insertDocumentTitle(ctx, title, posting, Number(part.position));
   }
   documents.updateDocument(ctx, String(d.id), { version: Number(d.version) + 1, updated_by: user, updated_at: ctx.clock.next().toString() });
@@ -363,7 +374,8 @@ export function erpDocumentFinanceReversePreview(ctx: RpcContext, a: RpcArgs) {
   const user = a.p_user_id as string;
   const kind = (a.p_kind as string | null) ?? null;
   documents.mirrorRequireVisible(db, user, (a.p_document_id as string | null) ?? null, true);
-  documents.requireOsPermission(db, user, kind!, "lancar_contas");
+  if (!originScope(ctx)) documents.requireOsPermission(db, user, kind!, "lancar_contas");
+  if (originScope(ctx)) assertOwnEffect(ctx, "finance_posting", String(a.p_posting_id));
   const d = documentLock(db, user, kind, (a.p_document_id as string | null) ?? null, (a.p_expected_version as number | null) ?? null);
   return {
     preview: documentReversePreviewData(db, d, (a.p_posting_id as string | null) ?? null, (a.p_posting_version as number | null) ?? null),
@@ -385,7 +397,8 @@ export function erpDocumentFinanceReverse(ctx: RpcContext, a: RpcArgs) {
   const titles = jsonArg(a.p_title_versions);
   const reason = (a.p_reason as string | null) ?? null;
   documents.mirrorRequireVisible(db, user, (a.p_document_id as string | null) ?? null, true);
-  documents.requireOsPermission(db, user, kind!, "lancar_contas");
+  if (!originScope(ctx)) documents.requireOsPermission(db, user, kind!, "lancar_contas");
+  if (originScope(ctx)) assertOwnEffect(ctx, "finance_posting", String(a.p_posting_id));
   const data = { kind, document_id: documentId, version, posting_id: postingId, posting_version: postingVersion, preview_hash: hash, title_versions: titles, reason };
   const replay = documentCommandStart(db, user, command, "reverse", data);
   if (replay) return replay;

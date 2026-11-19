@@ -2,6 +2,7 @@
 // ordem de serviço), erp_sales_order_convert_to_service e erp_document_copy (Copiar).
 // As escritas passam pela camada de linha (documents/rows.ts).
 import { createHash } from "node:crypto";
+import { linkedDocumentGuard } from "../module-policy.ts";
 import { jsonbArg } from "../../../engine/args.ts";
 import { decText, toScaled } from "../../../engine/dec.ts";
 import { one, type SqlDriver } from "../../../engine/driver.ts";
@@ -145,6 +146,9 @@ function orderInvoice(db: SqlDriver, id: string) {
 }
 
 export function erpSalesOrderConvertToService(ctx: RpcContext, a: RpcArgs) {
+  if (ctx.workEnabled) raise("work_required", "Crie o trabalho para gerar sua parte comercial.");
+  linkedDocumentGuard(ctx.db, a.p_id);
+  linkedDocumentGuard(ctx.db, a.p_document_id);
   const db = ctx.db;
   const user = a.p_user_id as string;
   const id = (a.p_id as string | null) ?? null;
@@ -211,6 +215,9 @@ function checkSellerRules(db: SqlDriver, user: string, kind: string, data: Data)
 }
 
 export function erpDocumentCopy(ctx: RpcContext, a: RpcArgs) {
+  linkedDocumentGuard(ctx.db, a.p_source_id);
+  linkedDocumentGuard(ctx.db, a.p_id);
+  linkedDocumentGuard(ctx.db, a.p_document_id);
   const db = ctx.db;
   const user = a.p_user_id as string;
   const kind = (a.p_kind as string | null) ?? null;

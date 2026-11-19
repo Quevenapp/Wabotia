@@ -8,6 +8,7 @@
 // - erp_document_signature_save (assinatura da proposta);
 // - erp_document_copy_preview (o formulário da cópia, sem gravar).
 import { createHash } from "node:crypto";
+import { linkedDocumentGuard } from "../module-policy.ts";
 import { jsonbArg } from "../../../engine/args.ts";
 import { formatScaled, fromColumn } from "../../../engine/dec.ts";
 import { one, type SqlDriver } from "../../../engine/driver.ts";
@@ -315,6 +316,7 @@ export function erpDocumentNumberingSet(ctx: RpcContext, a: RpcArgs) {
 
 /** public.erp_document_occurrence_remove */
 export function erpDocumentOccurrenceRemove(ctx: RpcContext, a: RpcArgs) {
+  linkedDocumentGuard(ctx.db, a.p_document_id);
   const db = ctx.db;
   const user = a.p_user_id as string;
   const kind = (a.p_kind as string | null) ?? null;

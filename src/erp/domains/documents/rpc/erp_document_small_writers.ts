@@ -2,6 +2,7 @@
 // versão da proposta, 269), erp_document_notes_save (só Observações e Observações internas, 303)
 // e erp_document_trash (Excluir e Restaurar, lixeira dos documentos).
 import { createHash } from "node:crypto";
+import { linkedDocumentGuard } from "../module-policy.ts";
 import { uuidIn } from "../../../engine/args.ts";
 import { jsonbArg } from "../../../engine/args.ts";
 import { one, type SqlDriver } from "../../../engine/driver.ts";
@@ -89,6 +90,7 @@ export function effectsActive(db: SqlDriver, id: string): boolean {
 
 /** public.erp_document_notes_save: Observações e Observações internas, também com efeito ativo (303). */
 export function erpDocumentNotesSave(ctx: RpcContext, a: RpcArgs) {
+  linkedDocumentGuard(ctx.db, a.p_id);
   const db = ctx.db;
   const user = a.p_user_id as string;
   const kind = (a.p_kind as string | null) ?? null;
@@ -143,12 +145,14 @@ export function trashBlocker(ctx: RpcContext, id: string): string | null {
 
 /** public.erp_document_trash: Excluir e Restaurar em lote. */
 export function erpDocumentTrash(ctx: RpcContext, a: RpcArgs) {
+  linkedDocumentGuard(ctx.db, a.p_id);
   const db = ctx.db;
   const user = a.p_user_id as string;
   const kind = (a.p_kind as string | null) ?? null;
   const action = (a.p_action as string | null) ?? null;
   const command = (a.p_command_id as string | null) ?? null;
   const ids = a.p_ids === undefined ? null : jsonbArg(a.p_ids);
+  if (Array.isArray(ids)) for (const id of ids) linkedDocumentGuard(ctx.db, id);
   const reasonArg = (a.p_reason as string | null) ?? null;
   if (
     kind === null || !["sales_proposals", "sales_orders", "purchase_orders", "service_orders"].includes(kind) || action === null || !["delete", "restore"].includes(action) ||

@@ -9,6 +9,7 @@
 // - [[:cntrl:]] pega C0, DEL e C1 (CNTRL);
 // - btrim() sem segundo argumento tira só espaços.
 import { createHash } from "node:crypto";
+import { originAccess, driverContext, systemScope } from "../../engine/module-origin.ts";
 import { formatScaled, fromColumn } from "../../engine/dec.ts";
 import { one, type Row, type SqlDriver } from "../../engine/driver.ts";
 import { ERP_TABLES } from "../../schema/columns.generated.ts";
@@ -112,6 +113,7 @@ export const hasKey = (data: unknown, key: string) =>
 /** erp_finance.require_access: papel ativo admin/financeiro/consulta (consulta só lê). */
 export function requireAccess(db: SqlDriver, actor: string, write: boolean): string {
   const role = activeRole(db, actor);
+  if (originAccess(db, actor, ["title_create", "title_settle", "title_cancel", "settlement_reverse"]) && systemScope(driverContext(db)!)) return role!;
   if (!role || !["admin", "financeiro", "consulta"].includes(role) || (write && role === "consulta"))
     raise("42501", "erp_finance_access_denied");
   return role;
