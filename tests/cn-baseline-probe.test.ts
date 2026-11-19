@@ -87,7 +87,7 @@ afterEach(async () => {
   unexpected.length = 0;
 });
 
-it("CN_BASELINE_PROBE_V3: Worker, Coordinator, motor, outbox e push reais", async () => {
+it("CN_BASELINE_PROBE_V3: Worker, Coordinator, motor, outbox e push reais", async ({ task }) => {
   const outbound: any[] = [], notifications: any[] = [];
   let mediaDownloads = 0;
   const allowedThreads = new Set<string>(), allowedAccounts = new Set<string>();
@@ -344,5 +344,8 @@ it("CN_BASELINE_PROBE_V3: Worker, Coordinator, motor, outbox e push reais", asyn
   }
   // Um único JSON por execução; o script guarda stdout completo e compara
   // cenários/fases individualmente. Não usar números históricos como prova.
-  console.info("CN_BASELINE_REPORT=" + JSON.stringify({ fixtureVersion: 3, report }));
+  // A saída de console dos testes do Worker não chega ao terminal neste
+  // ambiente. O relatório segue nos metadados do teste, que o reporter JSON
+  // do Vitest grava em arquivo; o script lê de lá.
+  (task.meta as Record<string, unknown>).cnBaselineReport = JSON.stringify({ fixtureVersion: 3, report });
 }, 120_000);

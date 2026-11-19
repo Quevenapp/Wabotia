@@ -95,6 +95,26 @@ export function ensureBaseline(root = rootDefault) {
 export function parseReport(output) {
   const lines = output.replace(/\x1b\[[0-9;]*m/g, '').split(/\r?\n/);
   const reports = lines.filter(line => line.includes('CN_BASELINE_REPORT='));
+  // Formato em partes (o console do workerd não atravessa uma linha gigante):
+  // CN_BASELINE_PART=<i>/<n>=<trecho ASCII>; exige todas as partes, uma vez cada.
+  const parts = new Map();
+  let total = 0;
+  for (const line of lines) {
+    const match = line.match(/CN_BASELINE_PART=(\d+)\/(\d+)=(.*)$/);
+    if (!match) continue;
+    const index = Number(match[1]);
+    assert.ok(!parts.has(index), `Parte ${index} do relatório repetida.`);
+    assert.ok(total === 0 || total === Number(match[2]), 'Partes de relatórios diferentes misturadas.');
+    total = Number(match[2]);
+    parts.set(index, match[3]);
+  }
+  if (total > 0) {
+    assert.equal(reports.length, 0, 'Relatório em linha única e em partes ao mesmo tempo.');
+    assert.equal(parts.size, total, 'A prova deve emitir exatamente um relatório completo.');
+    let joined = '';
+    for (let index = 1; index <= total; index++) joined += parts.get(index);
+    reports.push('CN_BASELINE_REPORT=' + joined);
+  }
   assert.equal(reports.length, 1, 'A prova deve emitir exatamente um relatório completo.');
   const report = JSON.parse(reports[0].slice(reports[0].indexOf('CN_BASELINE_REPORT=') + 'CN_BASELINE_REPORT='.length));
   assert.equal(report.fixtureVersion, FIXTURE_VERSION);
@@ -137,20 +157,38 @@ export function assertProbePassed(result, log, label) {
   throw new Error(`${label}: prova falhou (status ${result.status}${result.signal ? `, sinal ${result.signal}` : ''}); confira output/cn-aceite/${label}.log.\n${result.error?.message || ''}\n${tail}`);
 }
 
+/** Linhas CN_BASELINE_REPORT= a partir dos metadados gravados pelo reporter JSON. */
+export function metaReportLines(file) {
+  if (!existsSync(file)) return [];
+  const text = readFileSync(file, 'utf8');
+  if (!text.trim()) return [];
+  const found = [];
+  for (const suite of JSON.parse(text).testResults ?? [])
+    for (const test of suite.assertionResults ?? [])
+      if (typeof test.meta?.cnBaselineReport === 'string') found.push('CN_BASELINE_REPORT=' + test.meta.cnBaselineReport);
+  return found;
+}
+
 function probe(directory, commit, output, label) {
   run(process.execPath, ['scripts/build-info.mjs'], directory, { WABOTIA_SOURCE_COMMIT: commit });
   const localArtifacts = path.join(directory, 'output/cn-aceite');
   mkdirSync(localArtifacts, { recursive: true });
   writeFileSync(path.join(localArtifacts, 'probe.config.mjs'), probeConfig, 'utf8');
+  // A saída de console dos testes do Worker não chega ao terminal: o relatório
+  // vem nos metadados do teste, gravados pelo reporter JSON do Vitest.
+  const reportFile = path.join(localArtifacts, 'probe.vitest.json');
+  if (existsSync(reportFile)) writeFileSync(reportFile, '', 'utf8');
   const args = ['node_modules/vitest/vitest.mjs', 'run', 'tests/cn-baseline-probe.test.ts',
     '--config', 'output/cn-aceite/probe.config.mjs', '--configLoader', 'runner', '--cache=false',
-    '--maxWorkers=1', '--testTimeout=120000'];
+    '--maxWorkers=1', '--testTimeout=120000',
+    '--reporter=default', '--reporter=json', '--outputFile.json=output/cn-aceite/probe.vitest.json'];
   const result = spawnSync(process.execPath, args, { cwd: directory, encoding: 'utf8', windowsHide: true,
     env: { ...process.env, NO_COLOR: '1', CI: '1', WRANGLER_SEND_METRICS: 'false' }, maxBuffer: 64 * 1024 * 1024, timeout: 900_000 });
   const log = (result.stdout || '') + '\n' + (result.stderr || '');
   writeFileSync(path.join(output, `${label}.log`), log, 'utf8');
   assertProbePassed(result, log, label);
-  const report = parseReport(log); json(path.join(output, `${label}.json`), report); return report;
+  const report = parseReport(log + '\n' + metaReportLines(reportFile).join('\n'));
+  json(path.join(output, `${label}.json`), report); return report;
 }
 
 export function selfTest() {
