@@ -10,6 +10,8 @@
 //   de qualquer coisa da área (pipeline do WhatsApp, D1);
 // - nunca chama a instância da área de forma síncrona.
 import type { Env } from "../types";
+import { currentErpParts, handleErpParts, ERP_PARTS_KEY } from "./parts-control.ts";
+import { readErpPartsSnapshot } from "./parts.ts";
 
 /**
  * Motor e esquema por import dinâmico: o bundle os traz, mas só são avaliados
@@ -21,10 +23,8 @@ const engine = () => (engineModule ??= import("./hub-engine.ts"));
 
 export const ERP_KIND = "erp";
 export const ERP_PROFILE_HEADER = "x-erp-profile";
-/** Blocos opcionais do ERP que o wake informa ao agendador. */
+/** Compatibilidade de imports antigos; o wake não recebe autorização por blocos. */
 export const ERP_OPTIONAL_BLOCKS = ["erp-fiscal", "erp-cobranca", "erp-pdv"] as const;
-/** Chave do KV do objeto com os blocos ligados (gravada pelo /erp-wake). */
-const ERP_BLOCKS_KEY = "erp_blocks";
 
 /** Stub da instância ERP da área (localização preferida: América do Sul). */
 export function erpStub(env: Env, profile: string) {
@@ -64,7 +64,7 @@ export class ErpHub {
 
   /**
    * Amarra a instância à área na primeira chamada; recusa outra área depois.
-   * Aplica o esquema na versão do código.
+   * Só KV: controle e wake não carregam o motor nem aplicam esquema.
    */
   private async bind(profile: string) {
     const storage = this.ctx.storage;
@@ -84,14 +84,6 @@ export class ErpHub {
       await storage.put({ kind: ERP_KIND, erp_profile: profile });
     } else if (kind !== ERP_KIND || bound !== profile)
       return fail(409, "erp_profile_mismatch", "Instância do ERP de outra área.");
-    const { migrate, ERP_SCHEMA_VERSION } = await engine();
-    const applied = migrate(this.ctx.storage);
-    if (applied.status === "newer")
-      return fail(
-        503,
-        "erp_schema_newer",
-        `O esquema gravado (${applied.version}) é mais novo que o do código (${ERP_SCHEMA_VERSION}).`,
-      );
     return null;
   }
 
@@ -100,7 +92,18 @@ export class ErpHub {
     if (!profile) return fail(400, "erp_profile_required", "Área ausente.");
     const refused = await this.bind(profile);
     if (refused) return refused;
-    const { ERP_SCHEMA_VERSION, backupToR2, dumpAll, handleRpc, readBackup, restoreAll } = await engine();
+    if (path === "/erp-parts") {
+      const previous = await currentErpParts(this.ctx.storage, profile);
+      const response = await handleErpParts(this.ctx.storage, profile, request);
+      // A entrega, inclusive desligamento, reconcilia o alarme no mesmo KV.
+      if (response.ok) await this.schedule(profile, Date.now() + 1_000, previous?.revision);
+      return response;
+    }
+    if (path === "/erp-wake") return this.wake(profile, request);
+    const { ERP_SCHEMA_VERSION, migrate, backupToR2, dumpAll, handleRpc, readBackup, restoreAll } = await engine();
+    const applied = migrate(this.ctx.storage);
+    if (applied.status === "newer")
+      return fail(503, "erp_schema_newer", `O esquema gravado (${applied.version}) é mais novo que o do código (${ERP_SCHEMA_VERSION}).`);
     if (path === "/erp-ping")
       return Response.json({
         kind: ERP_KIND,
@@ -108,8 +111,6 @@ export class ErpHub {
         schema_version: ERP_SCHEMA_VERSION,
         database_size: this.ctx.storage.sql.databaseSize,
       });
-    // Acorda o agendador do ERP (docs/ERP-AGENDADOR.md): o mais cedo vence.
-    if (path === "/erp-wake") return this.wake(request);
     // Backup lógico no R2 e restauração (prova 8). Restaurar é só numa
     // instância nova ou para recuperar: troca o conteúdo inteiro.
     if (path === "/erp-backup") {
@@ -136,71 +137,72 @@ export class ErpHub {
     return fail(404, "not_found", "Rota do ERP desconhecida.");
   }
 
-  /**
-   * POST /erp-wake {blocks?, at?}: guarda os blocos ligados no KV do objeto
-   * (o objeto nunca lê o D1) e antecipa o alarme para `at` (padrão: agora). O
-   * mais cedo vence: o wake nunca adia um alarme já agendado.
-   */
-  private async wake(request: Request) {
-    const invalid = () => fail(400, "erp_wake_invalid", "Corpo do wake inválido.");
-    const text = await request.text();
-    let body: { blocks?: unknown; at?: unknown } = {};
-    if (text) {
-      try {
-        body = JSON.parse(text);
-      } catch {
-        return invalid();
+  /** Serializa a decisão de alarme com as entregas: desligamento nunca perde para um wake antigo. */
+  private schedule(profile: string, target: number | null, previousRevision?: string) {
+    return this.ctx.storage.transaction(async tx => {
+      const saved = await tx.get(ERP_PARTS_KEY);
+      const current = await tx.getAlarm();
+      const snapshot = readErpPartsSnapshot(saved, profile);
+      if (!snapshot?.parts.customers) {
+        await tx.deleteAlarm();
+        return null;
       }
-      if (!body || typeof body !== "object" || Array.isArray(body)) return invalid();
-    }
-    const { blocks, at } = body;
-    if (at !== undefined && (typeof at !== "number" || !Number.isFinite(at))) return invalid();
-    if (blocks !== undefined) {
-      if (!blocks || typeof blocks !== "object" || Array.isArray(blocks)) return invalid();
-      for (const [k, v] of Object.entries(blocks))
-        if (!(ERP_OPTIONAL_BLOCKS as readonly string[]).includes(k) || typeof v !== "boolean") return invalid();
-      await this.ctx.storage.put(ERP_BLOCKS_KEY, { blocks, at: Date.now() });
-    }
-    const now = Date.now();
-    const target = Math.max(now + 1, (at as number | undefined) ?? now + 1);
-    const current = await this.ctx.storage.getAlarm();
-    if (current !== null && current <= target) return Response.json({ ok: true, alarm: current });
-    await this.ctx.storage.setAlarm(target);
-    return Response.json({ ok: true, alarm: target });
+      // Uma entrega/wake que chegou durante a rodada mantém sua antecipação.
+      if (target === null || previousRevision === snapshot.revision && current !== null) return current;
+      const next = current === null ? target : Math.min(current, target);
+      await tx.setAlarm(next);
+      return next;
+    });
   }
 
-  /**
-   * Alarme da instância ERP: uma rodada do agendador (src/erp/scheduler/),
-   * cedendo a vez entre as unidades, e o próximo alarme. Nunca toca a área
-   * nem o D1.
-   */
+  /** POST /erp-wake {at?}: só antecipa usando autorização completa já entregue. */
+  private async wake(profile: string, request: Request) {
+    if (request.method !== "POST") return new Response(null, { status: 405 });
+    const invalid = () => fail(400, "erp_wake_invalid", "Corpo do wake inválido.");
+    const text = await request.text();
+    let body: { at?: unknown } = {};
+    try { if (text) body = JSON.parse(text); } catch { return invalid(); }
+    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(k => k !== "at")) return invalid();
+    if (body.at !== undefined && (typeof body.at !== "number" || !Number.isSafeInteger(body.at))) return invalid();
+    const alarm = await this.schedule(profile, Math.max(Date.now() + 1, (body.at as number | undefined) ?? Date.now() + 1));
+    if (alarm === null) return fail(503, "erp_parts_unavailable", "Estado das partes indisponível.");
+    return Response.json({ ok: true, alarm });
+  }
+
+  /** Uma rodada, com KV revalidado antes do motor, depois de I/O e entre unidades. */
   async alarm() {
-    const { CONTINUE_AFTER_MS, FILE_PURPOSES, engineClock, migrate, runFileTasks, runRound, storageDriver } = await engine();
     const storage = this.ctx.storage;
+    const profile = await storage.get<string>("erp_profile");
+    if (!profile) { await storage.deleteAlarm(); return; }
+    const readParts = async () => {
+      const snapshot = await currentErpParts(storage, profile);
+      return snapshot?.parts.customers ? snapshot.parts : null;
+    };
+    let parts = await readParts();
+    if (!parts) { await this.schedule(profile, null); return; }
+    const { CONTINUE_AFTER_MS, FILE_PURPOSES, ROUTINES, TASK_HANDLERS, nextWake, engineClock, migrate, runFileTasks, runRound, storageDriver } = await engine();
+    parts = await readParts();
+    if (!parts) { await this.schedule(profile, null); return; }
     if (migrate(storage).status === "newer") return;
-    const [saved, profile] = await Promise.all([
-      storage.get<{ blocks: Record<string, boolean> }>(ERP_BLOCKS_KEY),
-      storage.get<string>("erp_profile"),
-    ]);
-    const report = await runRound(storageDriver(storage), {
-      blocks: saved?.blocks ?? {},
-      clock: engineClock(this.ctx),
-      filePurposes: FILE_PURPOSES,
-    });
-    let next = report.nextWake ?? Date.now() + 3_600_000;
-    // Tarefa com arquivo (exportação, limpeza): não retoma em outra acordada,
-    // então vai sozinha, numa acordada em que a rodada não fez mais nada; se
-    // fez, a próxima acordada (1 s) é dela. Cede a vez a cada ida ao R2.
-    if (report.fileDue && !report.more && profile) {
-      if (!report.routines.length && !report.tasks.length) await runFileTasks(this.env, this.ctx, profile);
-      next = Date.now() + CONTINUE_AFTER_MS;
+    const db = storageDriver(storage);
+    const report = await runRound(db, { parts, readParts, clock: engineClock(this.ctx), filePurposes: FILE_PURPOSES });
+    parts = await readParts();
+    if (!parts) { await this.schedule(profile, null); return; }
+    let next = report.nextWake;
+    if (report.fileDue && !report.more) {
+      if (!report.routines.length && !report.tasks.length) {
+        await runFileTasks(this.env, this.ctx, profile, { parts, readParts });
+        parts = await readParts();
+        if (!parts) { await this.schedule(profile, null); return; }
+        // A última tarefa não pede uma acordada vazia só para descobrir que acabou.
+        next = nextWake(db, ROUTINES, parts, [...Object.keys(TASK_HANDLERS), ...FILE_PURPOSES], Date.now());
+        if (next !== null && next <= Date.now() + 1) next = Date.now() + CONTINUE_AFTER_MS;
+      } else next = Date.now() + CONTINUE_AFTER_MS;
     }
     storage.sql.exec(
       "INSERT INTO erp_meta(key,value) VALUES('last_alarm',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
       String(Date.now()),
     );
-    // Um wake que chegou durante a rodada pode ter agendado mais cedo: fica o mais cedo.
-    const current = await storage.getAlarm();
-    if (current === null || current > next) await storage.setAlarm(next);
+    await this.schedule(profile, next);
   }
 }

@@ -6,6 +6,7 @@ import type { SqlDriver } from "../engine/driver.ts";
 import type { Clock } from "../engine/time.ts";
 import { saoPauloLocal, saoPauloParts } from "../engine/time.ts";
 import { callRpc } from "../engine/registry.ts";
+import type { ErpParts } from "../parts.ts";
 
 export const HOUR_MS = 3_600_000;
 export const DAY_MS = 24 * HOUR_MS;
@@ -23,11 +24,12 @@ export interface StepContext {
   clock: Clock;
   /** Agora, em ms (o relógio da rodada). */
   now: number;
+  parts: Readonly<ErpParts>;
 }
 
 export interface Routine {
   id: string;
-  /** Bloco do ERP: "erp" vale sempre que o ERP está ligado; os demais, pelo wake. */
+  /** Módulo exigido; inclusive a Base precisa estar ligada. */
   block: string;
   /** Próximo horário depois de `after` (ms). Dias parado: roda uma vez e vai ao próximo horário. */
   next(after: number): number;
@@ -96,7 +98,7 @@ export const ROUTINES: readonly Routine[] = [
     block: "erp",
     next: nextHour,
     step(ctx) {
-      callRpc(ctx.db, "erp_platform_schedule", { p_now: new Date(ctx.now).toISOString() }, ctx.clock);
+      callRpc(ctx.db, "erp_platform_schedule", { p_now: new Date(ctx.now).toISOString() }, ctx.clock, { parts: ctx.parts });
       return "done";
     },
   },
