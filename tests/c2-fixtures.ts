@@ -14,7 +14,7 @@ import { ApiError, json, now, uid, type Env as WorkerEnv } from "../src/types";
 import type { ChannelContext, ChannelId } from "../src/channel-contracts";
 import type { ChannelExtension, VerifiedIngress } from "../src/channel-c2-contracts";
 import { assertVerifiedIngress, signVerifiedIngress } from "../src/channel-extension-kernel";
-import { registerChannelExtension } from "../src/channel-extension-registry";
+import { replaceChannelExtensionForTests } from "../src/channel-extension-registry";
 import { loadChannelOperationContext, parseChannelAction, prepareChannelAction } from "../src/channel-extension-kernel";
 import { enqueueChannelPlan } from "../src/engine";
 import { CHANNEL_EXTENSION_STUBS } from "../src/channel-extension-stubs";
@@ -172,10 +172,12 @@ export const syntheticReviewExtension: ChannelExtension = {
   ],
 };
 
+// A composição de produção já instala os descritores reais; o teste troca o da
+// mesma chave pelo que quer exercitar (o próprio descritor real passa direto).
 export async function installTestExtension(f: C2Fixture, extension: ChannelExtension) {
-  registerChannelExtension(extension);
+  replaceChannelExtensionForTests(extension);
   const stub = env.COORDINATOR.get(env.COORDINATOR.idFromName(f.profile));
-  await runInDurableObject(stub, async () => { registerChannelExtension(extension); });
+  await runInDurableObject(stub, async () => { replaceChannelExtensionForTests(extension); });
 }
 export async function installSyntheticReview(f: C2Fixture) {
   await installTestExtension(f, syntheticReviewExtension);

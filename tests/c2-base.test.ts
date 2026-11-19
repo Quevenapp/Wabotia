@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { all, batch, exec, one } from "../src/db";
 import { now, uid, type Conversation, type Env } from "../src/types";
 import { channelRules } from "../src/channels";
-import { createChannelExtensionRegistry, extensionKey, registerChannelExtension } from "../src/channel-extension-registry";
+import { createChannelExtensionRegistry, extensionKey, registerChannelExtension, removeChannelExtensionForTests, replaceChannelExtensionForTests } from "../src/channel-extension-registry";
 import { CHANNEL_EXTENSION_STUBS } from "../src/channel-extension-stubs";
 import { assertPublicChannelData, assertVerifiedIngress, authorizeChannelAction, loadChannelOperationContext,
   channelAutomationBlock, findChannelServerRoute, parseChannelAction, prepareChannelAction, signVerifiedIngress, validateChannelWritePlan, verifyIngressTicket } from "../src/channel-extension-kernel";
@@ -112,6 +112,8 @@ describe("c2-base: ações de canal na ficha independente", () => {
       VALUES(?,?,'team','Pessoa','pessoa','manual',?,?,?,?)`, id, f.profile, f.admin.id, f.admin.id, now(), now());
     const token = await bearer(f.admin), path = `/api/v1/profiles/${f.profile}/contacts/${id}/profile`;
     const request = () => c2Request(path, { headers: { Authorization: `Bearer ${token}` } });
+    // A composição já instala o e-mail real; este caso prova o antes e o depois da instalação.
+    removeChannelExtensionForTests("email/direct");
     const before = await request();
     expect(before.status, await before.clone().text()).toBe(200);
     const legacy = await before.json();
@@ -195,7 +197,7 @@ describe("c2-base: instalação e fachadas tardias", () => {
   it("encaminha opção de menu com link à outbox da extensão sem duplicar no replay", async () => {
     const f = await setup("tiktok"), id = uid(), command = uid();
     const stub = CHANNEL_EXTENSION_STUBS["tiktok/direct"];
-    registerChannelExtension({
+    replaceChannelExtensionForTests({
       ...stub, spec: { ...stub.spec, enabled: true, contexts: { direct: { enabled: true, bot: true, publicReply: false } } },
       enabled: () => true,
       async prepareSend(ctx, action) {
