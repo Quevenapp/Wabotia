@@ -48,6 +48,10 @@ import { resolveWorkType, authorizedOrder } from "./public";
 import { customerProjection, mayReadSensitive } from "./privacy";
 import { registerMotorRoutes, motorMutationKey, replayOrderMutation } from "./motor-routes";
 import { handleStageReply } from "./stage-replies";
+import { registerCustomerProvider } from "../../customer/ports";
+import { workCustomerProvider, enrichConfirmedWorkCustomer } from "./customer-provider";
+
+registerCustomerProvider("os", workCustomerProvider);
 
 // Resposta ao orçamento: lista Aprovar/Recusar (linha oficial), 1/2 (QR) ou
 // APROVAR <nº>, antes do menu e do bot.
@@ -201,6 +205,7 @@ onConversationAction(
       sourceKey: `action:${actor.id}:${requestId}`,
       actor: actor.id,
     });
+    await enrichConfirmedWorkCustomer(ctx, actor, order, data.customer, `os:customer:action:${actor.id}:${requestId}`);
     return visibleOrder(ctx, actor, orderView(order));
   },
 );
@@ -301,6 +306,7 @@ onCommand("os", "os.create", async (ctx, actor, data, { requestId }) => {
     sourceKey: `command:${actor.id}:${requestId}`,
     actor: actor.id,
   });
+  await enrichConfirmedWorkCustomer(ctx, actor, order, data.customer, `os:customer:command:${actor.id}:${requestId}`);
   return visibleOrder(ctx, actor, orderView(order));
 });
 
@@ -418,7 +424,7 @@ onCommand("os", "os.decide", async (ctx, actor, data, { requestId }) => {
 onMcpTool("os", {
   name: "os_situacao",
   description:
-    "Situação das ordens de serviço do cliente da conversa (desta conversa ou do mesmo telefone): número, item, estado, orçamento e próximos passos. open=true só as abertas. Requer conversations:read.",
+    "Situação das ordens de serviço do contato da conversa: número, item, estado, orçamento e próximos passos. open=true só as abertas. Requer conversations:read.",
   input: {
     conversation_id: { type: "string" },
     open: { type: "boolean" },
