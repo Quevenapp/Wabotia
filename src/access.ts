@@ -29,6 +29,12 @@ export const coreAccess = [
       "Caixa de entrada, responder, assumir e transferir conversas, grupos e respostas de formulário.",
   },
   {
+    id: "conversations:email",
+    label: "Enviar conversa por e-mail",
+    description: "Exportar mensagens públicas de uma conversa autorizada. Exige concessão explícita.",
+    explicitOnly: true,
+  },
+  {
     id: "tickets",
     label: "Protocolos",
     description: "Lista e detalhe dos protocolos, prazos e mudanças de estado.",
@@ -37,6 +43,12 @@ export const coreAccess = [
     id: "contacts",
     label: "Contatos",
     description: "Agenda de contatos, importação e vínculo com conversas.",
+  },
+  {
+    id: "contacts:merge",
+    label: "Juntar contatos",
+    description: "Juntar e desfazer a junção de fichas autorizadas. Exclusivo de pessoas, com concessão explícita.",
+    explicitOnly: true,
   },
   {
     id: "calls",
@@ -61,6 +73,8 @@ export type AccessItem = {
   module_id: string | null;
   /** Papel de módulo (entregador, garçom…): não entra no "*". */
   role: boolean;
+  /** Permissão do núcleo concedida separadamente; nunca entra no "*". */
+  explicitOnly?: boolean;
   label: string;
   description: string;
 };
@@ -135,6 +149,9 @@ export function presetsFor(catalog: AccessItem[]) {
 
 /** Lista guardada da pessoa; null (sem lista) vale como ["*"]. */
 const listOf = (actor: Pick<Actor, "access">) => actor.access ?? [ALL];
+const explicitOnly = new Set<string>(
+  coreAccess.filter((item) => "explicitOnly" in item && item.explicitOnly).map((item) => item.id),
+);
 
 /** Pessoa com lista restrita (atendente); admin e aplicações não. */
 export const restricted = (actor: Actor) =>
@@ -142,16 +159,18 @@ export const restricted = (actor: Actor) =>
 
 /**
  * O que a pessoa acessa, por id do catálogo, já expandido: "*" vira todos os
- * itens que não são papel; papel dá também o módulo dele.
+ * itens que não são papel nem explicitOnly; papel dá também o módulo dele.
  */
 export function effectiveAccess(actor: Actor, catalog: AccessItem[]) {
   if (!restricted(actor))
-    return catalog.filter((i) => !i.role).map((i) => i.id);
+    return catalog.filter((i) => !i.role && (!i.explicitOnly || allows(actor, i.id))).map((i) => i.id);
   const list = listOf(actor);
   const out = new Set<string>();
   for (const item of catalog) {
     if (
-      item.role
+      item.explicitOnly
+        ? allows(actor, item.id)
+        : item.role
         ? list.includes(item.id)
         : list.includes(ALL) || list.includes(item.id)
     )
@@ -164,10 +183,18 @@ export function effectiveAccess(actor: Actor, catalog: AccessItem[]) {
 
 /** Papéis de módulo concedidos (só os da lista, nunca pelo "*"). */
 export const rolesOf = (actor: Actor) =>
-  actor.kind === "user" ? listOf(actor).filter((id) => id.includes(":")) : [];
+  actor.kind === "user" ? listOf(actor).filter((id) => id.includes(":") && !explicitOnly.has(id)) : [];
 
 /** A pessoa acessa o item (núcleo ou módulo)? Papel dá o módulo. */
 export function allows(actor: Actor, item: string) {
+  if (explicitOnly.has(item)) {
+    if (actor.via || actor.module || actor.credential || actor.id?.startsWith("bot:") ||
+        actor.scopes?.includes("conversations:bound")) return false;
+    if (actor.kind === "app")
+      return item === "conversations:email" && !!actor.scopes?.includes(item);
+    if (actor.kind !== "user" || actor.role === "service") return false;
+    return actor.role === "admin" || listOf(actor).includes(item);
+  }
   if (!restricted(actor)) return true;
   const list = listOf(actor);
   // "*" como item: o que só o atendente completo alcança.
@@ -175,7 +202,7 @@ export function allows(actor: Actor, item: string) {
   if (list.includes(item)) return true;
   // Área do núcleo ou módulo pelo "*"; módulo também por um papel dele.
   if (!item.includes(":") && list.includes(ALL)) return true;
-  return list.some((id) => id.startsWith(item + ":"));
+  return list.some((id) => !explicitOnly.has(id) && id.startsWith(item + ":"));
 }
 
 export function requireAccess(actor: Actor, item: string) {
