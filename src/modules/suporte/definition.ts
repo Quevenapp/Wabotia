@@ -1,3 +1,4 @@
+import { NATIVE_MANAGEMENT_ITEMS } from "../panel-navigation";
 // Suporte pago: o atendimento humano só depois de conferir o pagamento.
 // Identifica o pagador pelo telefone ou pelo CPF/CNPJ (Mensalidade), libera
 // quem está em dia e vende suporte avulso ou plano mensal pela Cobrança.
@@ -14,6 +15,7 @@ export const suporteModule: ModuleDefinition = {
   default_enabled: false,
   // Identifica o pagador e vende planos pela interface pública da Mensalidade.
   requires: ["mensalidade"],
+  management: NATIVE_MANAGEMENT_ITEMS.suporte,
   navigation: [
     { id: "suporte", label: "Suporte pago", place: "admin", admin: false },
     {

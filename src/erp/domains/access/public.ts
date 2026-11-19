@@ -7,6 +7,7 @@ import { saoPauloMidnight } from "../../engine/time.ts";
 import { PERMISSION_KEYS } from "./permission-keys.generated.ts";
 
 export * from "./stubs.generated.ts";
+export { ROLE_RESOURCES, resourcesForRole } from "../../role-resources.ts";
 // Reexportada pela P (Catálogo) para erp_catalog.seller_access_allowed, com o
 // combinado da orquestração; nada muda no Acesso.
 export { windowOpen } from "./internal.ts";
@@ -78,17 +79,6 @@ export function requireHistoryRole(db: SqlDriver, user: string | null): string {
 export function requirePermission(db: SqlDriver, user: string, key: string) {
   if (!permitted(db, user, key)) raise("42501", "erp_access_permission_denied");
 }
-
-const RESOURCES: Record<string, string[]> = {
-  admin: ["contacts", "products", "sales_orders", "purchase_orders", "sales_proposals", "receivables", "payables", "nfe", "nfce"],
-  consulta: ["contacts", "products", "sales_orders", "purchase_orders", "sales_proposals", "receivables", "payables", "nfe", "nfce"],
-  vendas: ["contacts", "products", "sales_orders", "sales_proposals"],
-  financeiro: ["contacts", "receivables", "payables"],
-  estoque: ["contacts", "products", "purchase_orders"],
-  fiscal: ["contacts", "products", "sales_orders", "purchase_orders", "nfe", "nfce"],
-};
-/** erp_access.resources_for_role */
-export const resourcesForRole = (role: string | null): string[] => [...(RESOURCES[role ?? ""] ?? [])];
 
 /** erp_access.scalar_text(jsonb, p_max default 200): texto de string, número ou booleano; senão null. */
 export function scalarText(value: unknown, max: number | null = 200): string | null {

@@ -1,3 +1,4 @@
+import { NATIVE_MANAGEMENT_ITEMS } from "../panel-navigation";
 // Ordem de Serviço: assistência técnica, oficina, lavanderia e serviços
 // parecidos. Declaração só com dados, lida pelo registro
 // (src/modules/registry.ts). Código em ./os.ts; uso em docs/ORDEM-DE-SERVICO.md.
@@ -11,6 +12,7 @@ export const osModule: ModuleDefinition = {
     "Ordens de serviço numeradas com orçamento, aprovação pelo WhatsApp, acompanhamento pelo cliente e retirada.",
   builtin: true,
   default_enabled: false,
+  management: NATIVE_MANAGEMENT_ITEMS.os,
   navigation: [
     {
       id: "service-orders",

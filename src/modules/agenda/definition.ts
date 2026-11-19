@@ -1,3 +1,4 @@
+import { NATIVE_MANAGEMENT_ITEMS } from "../panel-navigation";
 // Agenda: serviços, profissionais, horários, agendamento pelo WhatsApp,
 // lembrete e confirmação. Declaração só com dados, lida pelo registro
 // (src/modules/registry.ts). Uso: docs/AGENDA.md.
@@ -11,6 +12,7 @@ export const agendaModule: ModuleDefinition = {
     "Serviços, profissionais e horários; o cliente agenda, confirma, remarca e cancela pelo WhatsApp, com lembrete antes do horário.",
   builtin: true,
   default_enabled: false,
+  management: NATIVE_MANAGEMENT_ITEMS.agenda,
   navigation: [
     // No trilho quando o núcleo aceitar áreas de módulo; por ora em Gestão.
     { id: "agenda", label: "Agenda", place: "admin", admin: false },

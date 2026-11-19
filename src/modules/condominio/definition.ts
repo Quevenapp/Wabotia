@@ -1,3 +1,4 @@
+import { NATIVE_MANAGEMENT_ITEMS } from "../panel-navigation";
 import type { ModuleDefinition } from "../types";
 
 export const condominioModule: ModuleDefinition = {
@@ -9,6 +10,7 @@ export const condominioModule: ModuleDefinition = {
     "Unidades, moradores, portaria, comunicados e assembleias com voto por unidade.",
   default_enabled: false,
   requires: ["os"],
+  management: NATIVE_MANAGEMENT_ITEMS.condominio,
   navigation: [
     { id: "condominio", label: "Condomínio", place: "admin", admin: false },
   ],

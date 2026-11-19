@@ -1,3 +1,4 @@
+import { ERP_MANAGEMENT_ITEMS } from "./panel-menu";
 // ERP (Fagoo) como módulo da área, desligado de fábrica (PLANO-FAGOO.md,
 // itens 16 e 17). O núcleo `erp` (cadastros, documentos, estoque,
 // financeiro, preferências) é indivisível; Fiscal, Cobrança bancária e
@@ -34,6 +35,7 @@ export const erpModule: ModuleDefinition = {
     "Cadastros de produtos e contatos, pedidos de venda e de compra, propostas, ordens de serviço, estoque e financeiro, no banco próprio da área.",
   builtin: true,
   default_enabled: false,
+  management: ERP_MANAGEMENT_ITEMS,
   navigation: [{ id: "erp", label: "ERP", place: "rail", admin: false }],
   menu_item_types: [],
   events: [],

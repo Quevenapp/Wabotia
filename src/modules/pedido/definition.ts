@@ -1,3 +1,4 @@
+import { NATIVE_MANAGEMENT_ITEMS } from "../panel-navigation";
 // Pedido: cardápio, carrinho por link, pagamento e acompanhamento pelo
 // WhatsApp, para lanchonete, pizzaria, marmitaria, açaí e confeitaria por
 // encomenda. Declaração só com dados, lida pelo registro
@@ -12,6 +13,7 @@ export const pedidoModule: ModuleDefinition = {
     "Cardápio com fotos e adicionais, carrinho por link, pagamento por Pix, cartão ou na entrega, e o pedido acompanhado pelo WhatsApp e pelo quadro da cozinha.",
   builtin: true,
   default_enabled: false,
+  management: NATIVE_MANAGEMENT_ITEMS.pedido,
   navigation: [
     { id: "pedidos", label: "Pedidos", place: "admin", admin: false },
     {

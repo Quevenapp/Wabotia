@@ -1,3 +1,4 @@
+import { NATIVE_MANAGEMENT_ITEMS } from "../panel-navigation";
 // Mensalidade: escola de idiomas, escolinha de esporte, academia pequena,
 // contador, condomínio. Declaração só com dados, lida pelo registro
 // (src/modules/registry.ts). Código em ./mensalidade.ts; uso em
@@ -12,6 +13,7 @@ export const mensalidadeModule: ModuleDefinition = {
     "Planos, assinaturas e parcelas com cobrança por Pix ou link antes do vencimento, avisos de atraso e comprovante pelo WhatsApp.",
   builtin: true,
   default_enabled: false,
+  management: NATIVE_MANAGEMENT_ITEMS.mensalidade,
   navigation: [
     { id: "mensalidades", label: "Mensalidades", place: "admin", admin: false },
     {

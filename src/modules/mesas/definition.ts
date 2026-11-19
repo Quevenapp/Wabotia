@@ -1,3 +1,4 @@
+import { NATIVE_MANAGEMENT_ITEMS } from "../panel-navigation";
 // Mesas: mesas e comandas, a conta aberta pelo garçom no celular, os pedidos
 // lançados para a cozinha (pedidos do Pedido, no mesmo quadro), transferência
 // e junção de mesas, conta parcial e dividida, taxa de serviço e fechamento.
@@ -13,6 +14,7 @@ export const mesasModule: ModuleDefinition = {
     "Mesas e comandas com conta aberta pelo garçom no celular: lança os itens do cardápio para o quadro da cozinha, transfere e junta mesas, divide a conta, cobra a taxa de serviço e fecha com a forma de pagamento.",
   builtin: true,
   default_enabled: false,
+  management: NATIVE_MANAGEMENT_ITEMS.mesas,
   navigation: [{ id: "mesas", label: "Mesas", place: "admin", admin: false }],
   menu_item_types: [],
   events: [

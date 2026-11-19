@@ -1,0 +1,421 @@
+// Catálogo puro: não importar preferências, telas, registro de módulos ou motor ERP.
+import type { ManagementItem, PanelErpRole } from "../panel-contract.ts";
+
+export type MenuGroupName = 'Meu Negócio' | 'Cadastros' | 'Vendas' | 'Estoque' | 'Financeiro';
+export type CompanyRole = PanelErpRole;
+
+export interface RealTarget { to: string; roles?: readonly CompanyRole[]; resource?: string }
+export interface MenuItemDefinition { label: string; real?: RealTarget }
+export interface MenuColumnDefinition { title: string; items: readonly MenuItemDefinition[] }
+export interface MenuGroupDefinition { name: MenuGroupName; columns: readonly MenuColumnDefinition[]; footer?: MenuItemDefinition }
+
+export type ErpPart =
+  | "cadastro" | "catalogo" | "vendas" | "compras" | "estoque"
+  | "financeiro" | "fiscal" | "cobranca" | "pdv" | "servicos"
+  | "resultados" | "sistema";
+
+export interface ErpManagementItem extends ManagementItem {
+  part: ErpPart;
+  target: { kind: "ported"; to: string };
+  permission: { kind: "erp"; roles?: readonly PanelErpRole[]; resource?: string };
+}
+
+/** Ordem e ícones atuais do menu portado, sem dependência de textos para classificar. */
+export const ERP_MENU_GROUPS = {
+  resultados: { group: "resultados", groupLabel: "Resultados", groupOrder: 10, icon: "chart-line" },
+  comercial: { group: "comercial", groupLabel: "Comercial", groupOrder: 20, icon: "receipt" },
+  compras: { group: "compras", groupLabel: "Compras", groupOrder: 30, icon: "cart-shopping" },
+  catalogo: { group: "catalogo", groupLabel: "Catálogo", groupOrder: 40, icon: "box" },
+  estoque: { group: "estoque", groupLabel: "Estoque", groupOrder: 50, icon: "warehouse" },
+  financeiro: { group: "financeiro", groupLabel: "Financeiro", groupOrder: 60, icon: "building-columns" },
+  fiscal: { group: "fiscal", groupLabel: "Fiscal", groupOrder: 70, icon: "file-invoice" },
+  pessoas: { group: "pessoas", groupLabel: "Pessoas", groupOrder: 80, icon: "users" },
+} as const;
+
+/** Núcleo legado: todas as partes continuam sob a chave erp. */
+export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
+  {
+    id: "erp.overview", module: "erp", part: "resultados",
+    ...ERP_MENU_GROUPS.resultados, order: 10,
+    label: "Dashboard geral", primary: true,
+    target: { kind: "ported", to: "/acesso" },
+    permission: { kind: "erp" },
+  },
+  {
+    id: "erp.sales-dashboard", module: "erp", part: "resultados",
+    ...ERP_MENU_GROUPS.resultados, order: 20,
+    label: "Dashboard vendas",
+    target: { kind: "ported", to: "/meu-negocio?painel=mensal" },
+    permission: { kind: "erp", roles: ["admin","consulta","vendas","financeiro","estoque","fiscal"] },
+  },
+  {
+    id: "erp.order-margin", module: "erp", part: "resultados",
+    ...ERP_MENU_GROUPS.resultados, order: 30,
+    label: "Dashboard margem por pedido",
+    target: { kind: "ported", to: "/meu-negocio?painel=margem-pedido" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro","estoque","fiscal"] },
+  },
+  {
+    id: "erp.products-dashboard", module: "erp", part: "resultados",
+    ...ERP_MENU_GROUPS.resultados, order: 40,
+    label: "Dashboard produtos",
+    target: { kind: "ported", to: "/painel-produtos-empresa" },
+    permission: { kind: "erp", roles: ["admin","consulta","vendas","estoque","fiscal"] },
+  },
+  {
+    id: "erp.customers-dashboard", module: "erp", part: "resultados",
+    ...ERP_MENU_GROUPS.resultados, order: 50,
+    label: "Dashboard clientes",
+    target: { kind: "ported", to: "/meu-negocio?painel=novos-recorrentes" },
+    permission: { kind: "erp", roles: ["admin","consulta","vendas","financeiro","estoque","fiscal"] },
+  },
+  {
+    id: "erp.abc-curve", module: "erp", part: "resultados",
+    ...ERP_MENU_GROUPS.resultados, order: 60,
+    label: "Curva ABC",
+    target: { kind: "ported", to: "/meu-negocio?painel=curva-abc" },
+    permission: { kind: "erp", roles: ["admin","consulta","vendas","financeiro","estoque","fiscal"] },
+  },
+  {
+    id: "erp.goals", module: "erp", part: "resultados",
+    ...ERP_MENU_GROUPS.resultados, order: 70,
+    label: "Metas",
+    target: { kind: "ported", to: "/meu-negocio?painel=metas" },
+    permission: { kind: "erp", roles: ["admin","consulta","vendas","financeiro","estoque","fiscal"] },
+  },
+  {
+    id: "erp.products", module: "erp", part: "catalogo",
+    ...ERP_MENU_GROUPS.catalogo, order: 80,
+    label: "Produtos",
+    target: { kind: "ported", to: "/cadastros-reais?cadastro=products" },
+    permission: { kind: "erp", resource: "products" },
+  },
+  {
+    id: "erp.customers", module: "erp", part: "cadastro",
+    ...ERP_MENU_GROUPS.pessoas, order: 90,
+    label: "Clientes e fornecedores", labelKey: "customers",
+    target: { kind: "ported", to: "/cadastros-reais?cadastro=contacts" },
+    permission: { kind: "erp", resource: "contacts" },
+  },
+  {
+    id: "erp.sellers", module: "erp", part: "cadastro",
+    ...ERP_MENU_GROUPS.pessoas, order: 100,
+    label: "Vendedores",
+    target: { kind: "ported", to: "/vendedores-empresa" },
+    permission: { kind: "erp", roles: ["admin","consulta","vendas","financeiro"] },
+  },
+  {
+    id: "erp.employees", module: "erp", part: "cadastro",
+    ...ERP_MENU_GROUPS.pessoas, order: 110,
+    label: "Funcionários",
+    target: { kind: "ported", to: "/funcionarios-empresa" },
+    permission: { kind: "erp", roles: ["admin"] },
+  },
+  {
+    id: "erp.financial-accounts", module: "erp", part: "financeiro",
+    ...ERP_MENU_GROUPS.financeiro, order: 120,
+    label: "Contas Financeiras",
+    target: { kind: "ported", to: "/financeiro-empresa?area=contas-financeiras" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
+  },
+  {
+    id: "erp.financial-categories", module: "erp", part: "financeiro",
+    ...ERP_MENU_GROUPS.financeiro, order: 130,
+    label: "Categorias Financeiras",
+    target: { kind: "ported", to: "/financeiro-empresa?area=categories" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
+  },
+  {
+    id: "erp.payment-methods", module: "erp", part: "financeiro",
+    ...ERP_MENU_GROUPS.financeiro, order: 140,
+    label: "Formas de pagamento",
+    target: { kind: "ported", to: "/formas-pagamento-empresa" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro","vendas"] },
+  },
+  {
+    id: "erp.product-categories", module: "erp", part: "catalogo",
+    ...ERP_MENU_GROUPS.catalogo, order: 150,
+    label: "Categorias de produtos",
+    target: { kind: "ported", to: "/categorias-produtos" },
+    permission: { kind: "erp", resource: "products" },
+  },
+  {
+    id: "erp.price-lists", module: "erp", part: "catalogo",
+    ...ERP_MENU_GROUPS.catalogo, order: 160,
+    label: "Listas de preços",
+    target: { kind: "ported", to: "/listas-precos" },
+    permission: { kind: "erp", resource: "products" },
+  },
+  {
+    id: "erp.sales-orders", module: "erp", part: "vendas",
+    ...ERP_MENU_GROUPS.comercial, order: 170,
+    label: "Pedidos de venda",
+    target: { kind: "ported", to: "/documentos-empresa?tipo=sales_orders" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro","vendas","estoque","fiscal"] },
+  },
+  {
+    id: "erp.outgoing-invoices", module: "erp", part: "fiscal",
+    ...ERP_MENU_GROUPS.fiscal, order: 180,
+    label: "Notas fiscais de saída",
+    target: { kind: "ported", to: "/historico-fiscal?modelo=55" },
+    permission: { kind: "erp", roles: ["admin","consulta","fiscal"] },
+  },
+  {
+    id: "erp.consumer-invoices", module: "erp", part: "fiscal",
+    ...ERP_MENU_GROUPS.fiscal, order: 190,
+    label: "NFC-e",
+    target: { kind: "ported", to: "/historico-fiscal?modelo=65" },
+    permission: { kind: "erp", roles: ["admin","consulta","fiscal"] },
+  },
+  {
+    id: "erp.pos", module: "erp", part: "pdv",
+    ...ERP_MENU_GROUPS.comercial, order: 200,
+    label: "Frente de caixa",
+    target: { kind: "ported", to: "/frente-caixa-empresa" },
+    permission: { kind: "erp", roles: ["admin","consulta","vendas","financeiro"] },
+  },
+  {
+    id: "erp.sales-proposals", module: "erp", part: "vendas",
+    ...ERP_MENU_GROUPS.comercial, order: 210,
+    label: "Propostas comerciais",
+    target: { kind: "ported", to: "/documentos-empresa?tipo=sales_proposals" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro","vendas"] },
+  },
+  {
+    id: "erp.service-orders", module: "erp", part: "servicos",
+    ...ERP_MENU_GROUPS.comercial, order: 220,
+    label: "Ordens de serviço",
+    target: { kind: "ported", to: "/documentos-empresa?tipo=service_orders" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro","vendas"] },
+  },
+  {
+    id: "erp.service-reports", module: "erp", part: "servicos",
+    ...ERP_MENU_GROUPS.comercial, order: 230,
+    label: "Relatórios de serviço",
+    target: { kind: "ported", to: "/documentos-empresa?tipo=service_orders&acao=relatorios" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro","vendas"] },
+  },
+  {
+    id: "erp.order-checkout", module: "erp", part: "vendas",
+    ...ERP_MENU_GROUPS.comercial, order: 240,
+    label: "Checkout de pedidos",
+    target: { kind: "ported", to: "/documentos-empresa?tipo=sales_orders&acao=checkout" },
+    permission: { kind: "erp", roles: ["admin","vendas"] },
+  },
+  {
+    id: "erp.sales-reports", module: "erp", part: "vendas",
+    ...ERP_MENU_GROUPS.comercial, order: 250,
+    label: "Ver relatórios de vendas",
+    target: { kind: "ported", to: "/documentos-empresa?tipo=sales_orders&acao=relatorios" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro","vendas","estoque","fiscal"] },
+  },
+  {
+    id: "erp.purchase-orders", module: "erp", part: "compras",
+    ...ERP_MENU_GROUPS.compras, order: 260,
+    label: "Pedidos de compra",
+    target: { kind: "ported", to: "/documentos-empresa?tipo=purchase_orders" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro","estoque","fiscal"] },
+  },
+  {
+    id: "erp.incoming-invoices", module: "erp", part: "fiscal",
+    ...ERP_MENU_GROUPS.fiscal, order: 270,
+    label: "Notas fiscais de entrada",
+    target: { kind: "ported", to: "/notas-entrada" },
+    permission: { kind: "erp", roles: ["admin","fiscal","consulta"] },
+  },
+  {
+    id: "erp.suppliers", module: "erp", part: "cadastro",
+    ...ERP_MENU_GROUPS.pessoas, order: 280,
+    label: "Fornecedores",
+    target: { kind: "ported", to: "/cadastros-reais?cadastro=contacts&contato=fornecedor" },
+    permission: { kind: "erp", resource: "contacts" },
+  },
+  {
+    id: "erp.purchase-suggestions", module: "erp", part: "compras",
+    ...ERP_MENU_GROUPS.compras, order: 290,
+    label: "Sugestão de Compras",
+    target: { kind: "ported", to: "/painel-produtos-empresa?painel=sugestao" },
+    permission: { kind: "erp", roles: ["admin","consulta","estoque","fiscal"] },
+  },
+  {
+    id: "erp.receiving-checkin", module: "erp", part: "compras",
+    ...ERP_MENU_GROUPS.compras, order: 300,
+    label: "Check-in de Recebimentos",
+    target: { kind: "ported", to: "/checkin-recebimentos" },
+    permission: { kind: "erp", roles: ["admin","estoque","fiscal"] },
+  },
+  {
+    id: "erp.stock-movements", module: "erp", part: "estoque",
+    ...ERP_MENU_GROUPS.estoque, order: 310,
+    label: "Lançamentos de estoque",
+    target: { kind: "ported", to: "/estoque-empresa" },
+    permission: { kind: "erp", roles: ["admin","consulta","vendas","estoque","fiscal"] },
+  },
+  {
+    id: "erp.stock-count", module: "erp", part: "estoque",
+    ...ERP_MENU_GROUPS.estoque, order: 320,
+    label: "Conferência de estoque",
+    target: { kind: "ported", to: "/conferencia-estoque-empresa" },
+    permission: { kind: "erp", roles: ["admin","estoque"] },
+  },
+  {
+    id: "erp.warehouses", module: "erp", part: "estoque",
+    ...ERP_MENU_GROUPS.estoque, order: 330,
+    label: "Depósitos",
+    target: { kind: "ported", to: "/cadastros-reais?cadastro=warehouses" },
+    permission: { kind: "erp", roles: ["admin","consulta","estoque"] },
+  },
+  {
+    id: "erp.stock-reports", module: "erp", part: "estoque",
+    ...ERP_MENU_GROUPS.estoque, order: 340,
+    label: "Ver relatórios de compras e estoque",
+    target: { kind: "ported", to: "/relatorios-estoque" },
+    permission: { kind: "erp", roles: ["admin","consulta","vendas","estoque","fiscal"] },
+  },
+  {
+    id: "erp.cash-and-banks", module: "erp", part: "financeiro",
+    ...ERP_MENU_GROUPS.financeiro, order: 350,
+    label: "Caixas e bancos",
+    target: { kind: "ported", to: "/financeiro-empresa?area=accounts" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
+  },
+  {
+    id: "erp.payables", module: "erp", part: "financeiro",
+    ...ERP_MENU_GROUPS.financeiro, order: 360,
+    label: "Contas a pagar",
+    target: { kind: "ported", to: "/financeiro-empresa?area=payable" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
+  },
+  {
+    id: "erp.receivables", module: "erp", part: "financeiro",
+    ...ERP_MENU_GROUPS.financeiro, order: 370,
+    label: "Contas a receber",
+    target: { kind: "ported", to: "/financeiro-empresa?area=receivable" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
+  },
+  {
+    id: "erp.bank-remittances", module: "erp", part: "cobranca",
+    ...ERP_MENU_GROUPS.financeiro, order: 380,
+    label: "Remessas e retornos",
+    target: { kind: "ported", to: "/financeiro-empresa?area=remessas" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
+  },
+  {
+    id: "erp.financial-statement", module: "erp", part: "financeiro",
+    ...ERP_MENU_GROUPS.financeiro, order: 390,
+    label: "Ficha Financeira",
+    target: { kind: "ported", to: "/financeiro-empresa?area=ficha" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
+  },
+  {
+    id: "erp.commissions", module: "erp", part: "financeiro",
+    ...ERP_MENU_GROUPS.financeiro, order: 400,
+    label: "Comissões",
+    target: { kind: "ported", to: "/financeiro-empresa?area=comissoes" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
+  },
+  {
+    id: "erp.cash-control", module: "erp", part: "financeiro",
+    ...ERP_MENU_GROUPS.financeiro, order: 410,
+    label: "Controle de caixa",
+    target: { kind: "ported", to: "/financeiro-empresa?area=controle-caixa" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
+  },
+  {
+    id: "erp.grouped-billing", module: "erp", part: "financeiro",
+    ...ERP_MENU_GROUPS.financeiro, order: 420,
+    label: "Faturamento agrupado",
+    target: { kind: "ported", to: "/financeiro-empresa?area=faturamento-agrupado" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
+  },
+  {
+    id: "erp.financial-reports", module: "erp", part: "financeiro",
+    ...ERP_MENU_GROUPS.financeiro, order: 430,
+    label: "Ver relatórios financeiros",
+    target: { kind: "ported", to: "/financeiro-empresa?area=relatorios" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
+  },
+];
+
+// Projeção de compatibilidade: conserva forma, rótulos, ordem, colunas e rodapés.
+const legacyItems: Record<string, MenuItemDefinition> = Object.fromEntries(
+  ERP_MANAGEMENT_ITEMS.map(({ id, label, target, permission }) => [id, {
+    label,
+    real: { to: target.to,
+      ...(permission.roles ? { roles: permission.roles } : {}),
+      ...(permission.resource ? { resource: permission.resource } : {}),
+    },
+  }]),
+);
+
+export const ORIGIN_MENU: readonly MenuGroupDefinition[] = [
+  { name: 'Meu Negócio', columns: [{ title: 'Dashboards', items: [
+    legacyItems["erp.overview"],
+    // Preferências lane (migration 150): Meu Negócio dashboards on /meu-negocio; cost needs purchase orders (margem).
+    legacyItems["erp.sales-dashboard"],
+    legacyItems["erp.order-margin"],
+    legacyItems["erp.products-dashboard"],
+    legacyItems["erp.customers-dashboard"],
+    legacyItems["erp.abc-curve"],
+    legacyItems["erp.goals"],
+  ] }] },
+  { name: 'Cadastros', columns: [
+    { title: 'Cadastros', items: [
+      legacyItems["erp.products"],
+      legacyItems["erp.customers"],
+      legacyItems["erp.sellers"],
+      legacyItems["erp.employees"],
+      legacyItems["erp.financial-accounts"],
+      legacyItems["erp.financial-categories"],
+      legacyItems["erp.payment-methods"],
+    ] },
+    { title: 'Ferramentas', items: [
+      legacyItems["erp.product-categories"],
+      legacyItems["erp.price-lists"],
+    ] },
+  ], footer: { label: 'Ver relatórios de cadastros' } },
+  { name: 'Vendas', columns: [
+    { title: 'Gestão', items: [
+      legacyItems["erp.sales-orders"],
+      legacyItems["erp.outgoing-invoices"],
+      legacyItems["erp.consumer-invoices"],
+      legacyItems["erp.pos"],
+      legacyItems["erp.sales-proposals"],
+    ] },
+    { title: 'Serviços', items: [
+      legacyItems["erp.service-orders"],
+      legacyItems["erp.service-reports"],
+    ] },
+    // Logística: only Checkout de pedidos is in scope (objetos de postagem, logística reversa and Origin Envios are out).
+    { title: 'Logística', items: [
+      legacyItems["erp.order-checkout"],
+    ] },
+  ], footer: legacyItems["erp.sales-reports"] },
+  { name: 'Estoque', columns: [
+    { title: 'Compras', items: [
+      legacyItems["erp.purchase-orders"],
+      legacyItems["erp.incoming-invoices"],
+      legacyItems["erp.suppliers"],
+      legacyItems["erp.purchase-suggestions"],
+      legacyItems["erp.receiving-checkin"],
+    ] },
+    { title: 'Estoque', items: [
+      legacyItems["erp.stock-movements"],
+      legacyItems["erp.stock-count"],
+      legacyItems["erp.warehouses"],
+    ] },
+  ], footer: legacyItems["erp.stock-reports"] },
+  { name: 'Financeiro', columns: [
+    { title: 'Gestão financeira', items: [
+      legacyItems["erp.cash-and-banks"],
+      legacyItems["erp.payables"],
+      legacyItems["erp.receivables"],
+      legacyItems["erp.bank-remittances"],
+      legacyItems["erp.financial-statement"],
+      legacyItems["erp.commissions"],
+      legacyItems["erp.cash-control"],
+      legacyItems["erp.grouped-billing"],
+    ] },
+  ], footer: legacyItems["erp.financial-reports"] },
+];
+

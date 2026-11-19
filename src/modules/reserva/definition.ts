@@ -1,3 +1,4 @@
+import { NATIVE_MANAGEMENT_ITEMS } from "../panel-navigation";
 // Reserva e check-in: unidades reserváveis (quarto, chalé, quadra, salão),
 // disponibilidade por diária ou por hora, reserva pelo WhatsApp com sinal pela
 // Cobrança, check-in por passo web, lembrete e mensagem de saída.
@@ -13,6 +14,7 @@ export const reservaModule: ModuleDefinition = {
     "Quartos, chalés, quadras e salões reservados pelo WhatsApp por diária ou por hora, com sinal por Pix ou link, check-in online, lembrete e mensagem de saída.",
   builtin: true,
   default_enabled: false,
+  management: NATIVE_MANAGEMENT_ITEMS.reserva,
   navigation: [
     // No trilho quando o núcleo aceitar áreas de módulo; por ora em Gestão.
     { id: "reserva", label: "Reservas", place: "admin", admin: false },
