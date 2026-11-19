@@ -7,8 +7,14 @@ import { useApp } from "../../app/AppContext";
 import { useAction } from "../../app/hooks";
 import { useIntents, type Row } from "../../lib/api";
 import { Button, Pill } from "../../ui";
-import { OrderDetail } from "./OrdersPage";
+import { lazyWithRecovery } from "../../management/pages";
 import { money, statusLabels, statusTones } from "./shared";
+
+const OrderDetail = lazyWithRecovery<
+  React.ComponentProps<typeof import("./OrdersPage").OrderDetail>
+>(() =>
+  import("./OrdersPage").then((module) => ({ default: module.OrderDetail })),
+);
 
 export function ConversationPedido({
   conversation,

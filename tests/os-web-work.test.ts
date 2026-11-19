@@ -24,7 +24,7 @@ import {
   parseTypeImport,
 } from "../web/modules/os/types/type-draft";
 import { hasWorkMenu } from "../web/menu-tree";
-import { parseRoute, sameRoute } from "../web/lib/routes";
+import { href, pageRoute, parseRoute, sameRoute } from "../web/lib/routes";
 import { canOpenPage } from "../web/workspace-navigation";
 import { workCollectionLabel } from "../web/modules/os/work-vocabulary";
 import { quantityMilli } from "../web/modules/os/entries/WorkEntriesTab";
@@ -74,21 +74,24 @@ describe("painel de trabalhos: contrato e compatibilidade", () => {
   });
 
   it("endereça tipo, trabalho, aba e filtros sem quebrar o endereço antigo", () => {
-    expect(parseRoute("/app/gestao/ordens-de-servico")).toEqual({
-      area: "admin",
-      page: "service-orders",
+    expect(parseRoute("/app/gestao/ordens-de-servico")).toMatchObject({
+      area: "erp",
+      page: "work",
     });
     const route = parseRoute(
       "/app/gestao/trabalhos/projeto/order%2F1",
       "?aba=tarefas&stage=vistoria&q=abc&open=0",
     );
     expect(route).toMatchObject({
+      area: "erp",
       page: "work",
       typeId: "projeto",
       id: "order/1",
       tab: "tarefas",
       filters: { stage: "vistoria", q: "abc", open: "0" },
     });
+    expect(href(route)).toBe("/app/erp/modulos/trabalhos/projeto/order%2F1?aba=tarefas&stage=vistoria&q=abc&open=0");
+    expect(pageRoute("service-orders")).toEqual({ area: "erp", page: "work" });
     expect(sameRoute(route, { ...route, tab: "pessoas" })).toBe(false);
     expect(sameRoute(route, { ...route, typeId: "obra" })).toBe(false);
     expect(

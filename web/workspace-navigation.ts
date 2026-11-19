@@ -1,3 +1,4 @@
+import { nativePageSlugs } from "./management/routes";
 import {
   Activity,
   BedDouble,
@@ -99,7 +100,7 @@ export type PageId = (typeof sections)[number][0];
 /**
  * Áreas de atendimento do trilho (web/DESIGN.md §2). Cada página antiga do
  * painel continua tendo um lugar: as de atendimento viraram áreas próprias e
- * as demais ficam em Gestão.
+ * as operacionais ficam no ERP e as administrativas em Gestão.
  */
 export type AreaId =
   | "conversations"
@@ -113,6 +114,7 @@ export type AreaId =
 
 /** Onde mora hoje cada página conhecida pelo assistente e pelos atalhos. */
 export const pageArea: Partial<Record<PageId, AreaId>> = {
+  ...Object.fromEntries(Object.keys(nativePageSlugs).map((page) => [page, "erp" as const])),
   conversations: "conversations",
   tickets: "tickets",
   calls: "calls",
@@ -127,41 +129,7 @@ export const areaOfPage = (page: PageId): AreaId => pageArea[page] || "admin";
 
 /** Grupos da coluna de Gestão. */
 export const workspaceGroups = [
-  { id: "juridico", label: "Jurídico", icon: CalendarClock, pages: ["juridico"] },
-  { id: "condominio", label: "Condomínio", icon: Blocks, pages: ["condominio"] },
-  { id: "saude", label: "Saúde", icon: FileText, pages: ["saude"] },
-  { id: "ensino", label: "Ensino", icon: BookOpen, pages: ["ensino"] },
   { id: "home", label: "Início", icon: LayoutDashboard, pages: ["overview"] },
-  {
-    id: "mensalidades",
-    label: "Mensalidades",
-    icon: PiggyBank,
-    pages: ["mensalidades", "mensalidade-settings"],
-  },
-  {
-    id: "suporte",
-    label: "Suporte pago",
-    icon: LifeBuoy,
-    pages: ["suporte", "suporte-settings"],
-  },
-  {
-    id: "agenda",
-    label: "Agenda",
-    icon: CalendarDays,
-    pages: ["agenda", "agenda-settings"],
-  },
-  {
-    id: "service-orders",
-    label: "Ordens de serviço",
-    icon: Wrench,
-    pages: ["service-orders", "my-deadlines", "work-types", "service-orders-settings"],
-  },
-  {
-    id: "pedidos",
-    label: "Pedidos",
-    icon: ShoppingBag,
-    pages: ["pedidos", "mesas", "pedidos-cardapio"],
-  },
   {
     id: "automation",
     label: "Automação",
@@ -173,15 +141,7 @@ export const workspaceGroups = [
       "knowledge",
       "settings",
       "queue-settings",
-      "forms",
-      "payments",
     ],
-  },
-  {
-    id: "reserva",
-    label: "Reservas",
-    icon: BedDouble,
-    pages: ["reserva", "reserva-settings"],
   },
   {
     id: "channels",
@@ -268,21 +228,12 @@ export const pageModules: Partial<Record<string, string>> = {
   // administrador vale erp:admin); a chave do módulo é conferida em web/erp/modules.ts.
   erp: "erp",
 };
-/**
- * Páginas de módulo que também aparecem no trilho principal (computador) e
- * em Mais (celular), além de Gestão. Um módulo acrescenta UMA linha; a página
- * precisa estar em `sections` e em `pageModules`. Abre a página de Gestão.
- */
+/** Exportação compatível: as páginas operacionais ficam somente na casa ERP. */
 export const railPages: {
   page: PageId;
   label: string;
   icon: typeof Ticket;
-}[] = [
-  { page: "juridico", label: "Prazos", icon: CalendarClock },
-  { page: "agenda", label: "Agenda", icon: CalendarDays },
-  { page: "service-orders", label: "Ordens", icon: Wrench },
-  { page: "pedidos", label: "Pedidos", icon: ShoppingBag },
-];
+}[] = [];
 
 /** Estado dos módulos da área, de GET /status (ausente: ainda carregando). */
 export type ModuleStates = Record<string, boolean> | undefined;
