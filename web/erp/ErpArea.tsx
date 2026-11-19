@@ -1,125 +1,225 @@
-// Área ERP do painel (/app/erp/…): limite do carregamento sob demanda. Nada do
-// Fagoo (web/erp/app) entra no pacote inicial do painel; o import() abaixo é a
-// única porta (tests/erp-painel-build.test.ts confere no build).
-import React, { lazy, Suspense, useEffect, useState } from "react";
-import { useApp } from "../app/AppContext";
-import { navigate } from "../lib/routes";
-import { erpModuleOn } from "./modules";
+// A casca e as políticas são leves. O hospedeiro portado só entra por import().
+import React, { Activity, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ManagementRequestBoundary, useApp } from "../app/AppContext";
+import { href, navigate, navigationGuarded, setNavigationGuard, useRoute } from "../lib/routes";
 import { erpApiUrl, erpSimulated, prefetchErpMe } from "./fetch-port";
 import { Empty, Spinner, Button } from "../ui";
 import { AccountDialog, MfaPrompt } from "../app/Account";
+import { ManagementShell, ManagementState } from "../management/ManagementShell";
+import { ManagementPage } from "../management/pages";
+import { isNativeManagementPage } from "../management/routes";
+import { portedTargetState } from "../management/ported-policy";
+import { MANAGEMENT_ITEMS, canEnterManagement, managementContext, nativeTargetState, normalizedManagementHref, resolveManagement } from "../management/registry";
+import { useWorkNavigation } from "../modules/os/work-navigation";
+import type { Disposable, ErpMountProps, PortedTargetState } from "../management/host-contract";
 
-const ErpMount = lazy(() => import("./mount"));
+/** Testável por injeção: estado leve não inicia import nem prefetch. */
+export function loadAuthorizedPorted<T>(state: PortedTargetState, load: () => Promise<T>, prefetch: () => void): Promise<T> | null {
+  if (state !== "allowed") return null;
+  prefetch();
+  return load();
+}
+
+/**
+ * Encaixe local da fase 1. Não é uma assinatura de host-port.ts.
+ * Quando publicada, a instalação dinâmica ficará aqui, acionada somente pela
+ * abertura autorizada da ficha completa, capturando área e identidade. Até lá
+ * não há instalador nem openContactProfile nos props do hospedeiro.
+ */
+export function createDeferredHostSlot(authorized: () => boolean, install?: () => Promise<Disposable>) {
+  let disposed = false, installed: Disposable | undefined, pending: Promise<void> | undefined;
+  return {
+    open(): Promise<void> {
+      if (disposed || !authorized() || !install || installed) return Promise.resolve();
+      if (!pending) pending = install().then((value) => {
+        if (disposed || !authorized()) value.dispose();
+        else installed = value;
+      }).finally(() => { pending = undefined; });
+      return pending;
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      installed?.dispose();
+      installed = undefined;
+    },
+  };
+}
+
+/** Mesmo um prefetch já respondido perde seu corpo quando a autorização muda. */
+export async function contextBoundResponse(response: Response, signal: AbortSignal): Promise<Response> {
+  if (signal.aborted) throw new DOMException("Contexto alterado", "AbortError");
+  if (!response.body) return response;
+  const reader = response.body.getReader();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const abort = () => {
+        controller.error(new DOMException("Contexto alterado", "AbortError"));
+        void reader.cancel().catch(() => {});
+      };
+      signal.addEventListener("abort", abort, { once: true });
+    },
+    async pull(controller) {
+      try {
+        if (signal.aborted) throw new DOMException("Contexto alterado", "AbortError");
+        const next = await reader.read();
+        if (signal.aborted) throw new DOMException("Contexto alterado", "AbortError");
+        if (next.done) controller.close(); else controller.enqueue(next.value);
+      } catch (error) { controller.error(error); }
+    },
+    cancel() { return reader.cancel(); },
+  });
+  const guarded = new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+  // fetch-port descarta antecipações não utilizáveis e refaz /v1/me. Isso
+  // também vale se o cache já recebeu os cabeçalhos antes da revogação.
+  Object.defineProperty(guarded, "ok", { get: () => !signal.aborted && response.ok });
+  return guarded;
+}
+
+export function startAuthorizedPortedPrefetch(
+  state: PortedTargetState,
+  context: { profile: string; actor: string; simulated: boolean },
+  prefetch = prefetchErpMe,
+): Disposable {
+  const controller = new AbortController();
+  if (state === "allowed" && context.actor && !context.simulated) {
+    prefetch(erpApiUrl(context.profile), context.actor, async (input, init) => {
+      const response = await fetch(input, { ...init, signal: controller.signal });
+      return contextBoundResponse(response, controller.signal);
+    });
+  }
+  return { dispose: () => controller.abort() };
+}
 
 class LoadBoundary extends React.Component<
-  { children: React.ReactNode },
-  { failed: boolean }
+  { children: React.ReactNode; target: string; retry(): void },
+  { failed: boolean; target: string }
 > {
-  state = { failed: false };
-  static getDerivedStateFromError() {
-    return { failed: true };
+  state = { failed: false, target: this.props.target };
+  static getDerivedStateFromError() { return { failed: true }; }
+  static getDerivedStateFromProps(props: { target: string }, state: { target: string }) {
+    return props.target !== state.target ? { failed: false, target: props.target } : null;
   }
   render() {
     if (!this.state.failed) return this.props.children;
-    return (
-      <div className="area">
-        <Empty
-          title="Não foi possível abrir o ERP"
-          description="Confira a conexão e recarregue a página. Se o painel acabou de ser atualizado, recarregar busca a versão nova."
-          action={<Button onClick={() => location.reload()}>Recarregar</Button>}
-        />
-      </div>
-    );
+    return <Empty title="Não foi possível abrir esta página" description="Confira a conexão e tente novamente."
+      action={<Button onClick={this.props.retry}>Tentar novamente</Button>} />;
   }
 }
 
-/** Opcionais do ERP com chave própria em Gestão → Módulos (PLANO-FAGOO.md, itens 16 e 17; o Origin saiu). */
-const OPTIONAL = ["erp-fiscal", "erp-cobranca", "erp-pdv"] as const;
+function PortedContent({ target, props }: { target: string; props: ErpMountProps }) {
+  const [attempt, setAttempt] = useState(0);
+  const ErpMount = useMemo(() => lazy(() => {
+    // A política é conferida também no ponto exato de importação.
+    const state = portedTargetState(target, props.management, erpSimulated(props.demo));
+    const loading = loadAuthorizedPorted(state, () => import("./mount"), () => {});
+    if (!loading) return Promise.reject(new Error("Destino indisponível"));
+    return loading;
+  }), [attempt]);
+  return <LoadBoundary key={attempt} target={target} retry={() => setAttempt((value) => value + 1)}>
+    <Suspense fallback={<div className="loading"><Spinner label="Abrindo a página…" /></div>}>
+      <ErpMount {...props} />
+    </Suspense>
+  </LoadBoundary>;
+}
 
 export function ErpArea() {
   const app = useApp();
-  // Primeira visita: o /v1/me sai já aqui, em paralelo com o download do
-  // ERP; o primeiro /v1/me do controlador recebe esta resposta
-  // (web/erp/fetch-port.ts). A API simulada não vai à rede.
-  const erpOn = app.statusLoaded && erpModuleOn(app.modules, "erp");
-  const actor = String(app.me?.id ?? "");
+  const route = useRoute();
+  const work = useWorkNavigation();
+  const context = managementContext({
+    statusLoaded: app.statusLoaded, modules: app.modules,
+    role: app.me.role, access: app.me.access ?? null,
+    vocabulary: { ...app.settings.os_vocabulary, collection_label: work.label },
+  });
+  const items = [...resolveManagement(MANAGEMENT_ITEMS, context, erpSimulated(app.demo))];
+  const workItem = items.find((item) => item.id === "os.work");
+  if (workItem) {
+    for (const type of work.types) items.push({
+      ...workItem, id: "os.type." + type.id, primary: false, order: 15,
+      label: type.labels.plural, labelKey: undefined, resolvedLabel: type.labels.plural,
+      href: href({ area: "erp", page: "work", typeId: type.id }),
+    });
+  }
+  items.sort((a, b) => a.groupOrder - b.groupOrder || a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const destinations = new Set<string>();
+  const menu = items.filter((item) => {
+    const key = normalizedManagementHref(item.href);
+    if (destinations.has(key)) return false;
+    destinations.add(key); return true;
+  });
+  const entry = !route.page && !route.erpPath && !route.nativePath;
+  const ported = route.erpPath ? route.erpPath + (route.search || "") + (route.hash || "") : null;
+  const state: PortedTargetState = route.nativePath ? "not-found"
+    : route.page ? isNativeManagementPage(route.page) ? nativeTargetState(route.page, context) : "not-found"
+    : ported ? portedTargetState(ported, context, erpSimulated(app.demo)) : "loading";
+  const [chromeTarget, setChromeTarget] = useState<HTMLDivElement | null>(null);
+  const selection = href(route);
+  const last = useRef<{ selection: string; identity: string; guarded: boolean; suspended?: boolean } | null>(null);
+  if (state === "allowed") last.current = { selection, identity: app.identityKey, guarded: navigationGuarded() };
+  const retained = (state === "disabled" || state === "loading") &&
+    last.current?.selection === selection && last.current.identity === app.identityKey;
+  if (state !== "allowed" && !retained) last.current = null;
+  // Activity desmonta efeitos (incluindo a guarda da tela), mas conserva estado.
+  if (retained && last.current && !last.current.suspended) {
+    last.current.guarded = navigationGuarded();
+    last.current.suspended = true;
+  }
+  const heldGuard = retained && last.current?.guarded;
   useEffect(() => {
-    if (erpOn && actor && !erpSimulated(app.demo))
-      prefetchErpMe(erpApiUrl(app.profile), actor);
-  }, [erpOn, actor, app.demo, app.profile]);
-  // Diálogos da casca que o ERP abre: o "Confirme que é você" (o mesmo de
-  // qualquer 403 mfa_required; ERP_MFA_REQUIRED do portão do ERP) e Minha conta.
-  const [dialog, setDialog] = useState<
-    null | { kind: "mfa"; done: () => void } | { kind: "account" }
-  >(null);
+    if (!heldGuard) return;
+    setNavigationGuard(() => true);
+    return () => setNavigationGuard(null);
+  }, [heldGuard]);
+  const actor = String(app.me.id);
+  const authorized = !entry && !!ported && state === "allowed";
+  // A fase 1 preencherá este slot apenas ao abrir uma ficha completa autorizada.
+  // Nenhum import de host-port.ts nem callback é instalado enquanto faltar o contrato.
+  const contactProfileHost = useRef<ReturnType<typeof createDeferredHostSlot> | null>(null);
+  useEffect(() => () => {
+    contactProfileHost.current?.dispose();
+    contactProfileHost.current = null;
+  }, [app.identityKey, app.contextGeneration]);
+  useEffect(() => {
+    const prefetch = startAuthorizedPortedPrefetch(authorized ? "allowed" : "denied", {
+      actor, profile: app.profile, simulated: erpSimulated(app.demo),
+    });
+    return () => prefetch.dispose();
+  }, [authorized, actor, app.demo, app.profile, app.identityKey, app.contextGeneration]);
+
+  const [dialog, setDialog] = useState<null | { kind: "mfa"; done(): void } | { kind: "account" }>(null);
+  const pendingIdentity = useRef<(() => void) | null>(null);
+  useLayoutEffect(() => () => { pendingIdentity.current?.(); pendingIdentity.current = null; }, []);
   const closeDialog = () => {
-    if (dialog?.kind === "mfa") dialog.done();
+    pendingIdentity.current?.(); pendingIdentity.current = null;
     setDialog(null);
   };
-  // As chaves vêm de GET /status; até lá não se sabe se o ERP está ligado.
-  if (!app.statusLoaded)
-    return (
-      <div className="loading">
-        <Spinner label="Abrindo o ERP…" />
-      </div>
-    );
-  if (!erpModuleOn(app.modules, "erp"))
-    return (
-      <div className="area">
-        <Empty
-          title="ERP desligado"
-          description={
-            app.isAdmin
-              ? "O ERP está desligado nesta área de atendimento. Ligue-o em Gestão → Módulos."
-              : "O ERP está desligado nesta área de atendimento. Fale com o administrador."
-          }
-          action={
-            app.isAdmin ? (
-              <Button
-                onClick={() => navigate({ area: "admin", page: "modules" })}
-              >
-                Abrir Módulos
-              </Button>
-            ) : undefined
-          }
-        />
-      </div>
-    );
-  const blocks = Object.fromEntries(
-    OPTIONAL.map((id) => [id, erpModuleOn(app.modules, id)]),
-  );
-  return (
-    <div className="erp-area">
-      <LoadBoundary>
-        <Suspense
-          fallback={
-            <div className="loading">
-              <Spinner label="Abrindo o ERP…" />
-            </div>
-          }
-        >
-          <ErpMount
-            key={JSON.stringify(blocks)}
-            profile={app.profile}
-            actor={String(app.me.id)}
-            demo={app.demo}
-            blocks={blocks}
-            admin={app.isAdmin}
-            onModules={() => navigate({ area: "admin", page: "modules" })}
-            onPeople={() => navigate({ area: "admin", page: "users" })}
-            onConfirmIdentity={() =>
-              new Promise<void>((done) => setDialog({ kind: "mfa", done }))
-            }
-            onAccount={() => setDialog({ kind: "account" })}
-            onLeave={() => navigate({ area: "conversations" })}
-            onExpired={() => void app.reloadSession()}
-          />
-        </Suspense>
-      </LoadBoundary>
-      {dialog?.kind === "mfa" && (
-        <MfaPrompt factor={Boolean(app.me.mfa?.factor)} onClose={closeDialog} />
-      )}
-      {dialog?.kind === "account" && <AccountDialog onClose={closeDialog} />}
-    </div>
-  );
+  const mountProps: ErpMountProps = {
+    profile: app.profile, actor, demo: app.demo, management: context,
+    embedded: true, chromeTarget,
+    onModules: () => navigate({ area: "admin", page: "modules" }),
+    onPeople: () => navigate({ area: "admin", page: "users" }),
+    onLeave: () => navigate({ area: "conversations" }),
+    onExpired: () => void app.reloadSession(),
+    onConfirmIdentity: () => new Promise<void>((done) => {
+      pendingIdentity.current?.(); pendingIdentity.current = done;
+      setDialog({ kind: "mfa", done });
+    }),
+    onAccount: () => setDialog({ kind: "account" }),
+  };
+  if (!canEnterManagement(context)) return <ManagementState state="denied" admin={false} />;
+  return <ManagementShell context={context} items={menu} entry={entry} chromeRef={setChromeTarget}>
+    {!entry && state !== "allowed" && <ManagementState state={state} admin={app.isAdmin} retained={!!retained} />}
+    {!entry && (state === "allowed" || retained) && <ManagementRequestBoundary enabled={state === "allowed"}>
+      <Activity mode={state === "allowed" ? "visible" : "hidden"}>
+        <div className={"management-page" + (ported ? " erp-area" : "")}>
+          {route.page && isNativeManagementPage(route.page)
+            ? <ManagementPage page={route.page} />
+            : ported ? <PortedContent target={ported} props={mountProps} /> : null}
+        </div>
+      </Activity>
+    </ManagementRequestBoundary>}
+    {dialog?.kind === "mfa" && <MfaPrompt factor={Boolean(app.me.mfa?.factor)} onClose={closeDialog} />}
+    {dialog?.kind === "account" && <AccountDialog onClose={closeDialog} />}
+  </ManagementShell>;
 }

@@ -6,6 +6,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -16,6 +17,7 @@ import { conversationName } from "../lib/format";
 import { currentRoute, navigate, navigationGuarded } from "../lib/routes";
 import { toast, toastError } from "../ui";
 import { accessAllows } from "../workspace-navigation";
+import { createManagementGeneration, createManagementRequestScope } from "../management/registry";
 
 export type AppEvent = {
   id: number;
@@ -48,6 +50,9 @@ export type AppState = {
   /** O módulo não está desligado na área. */
   moduleOn: (id: string) => boolean;
   statusLoaded: boolean;
+  /** Invalida respostas de módulos, pessoa, permissões e área anteriores. */
+  contextGeneration: number;
+  identityKey: string;
   bots: Row[];
   /** Diretório de GET /team (pessoas e bots com presença). */
   team: Row[];
@@ -130,8 +135,26 @@ export function AppProvider({
   }, [profiles]);
   const root = "v1/profiles/" + profile;
 
-  const [status, setStatus] = useState<Row>({});
-  const [statusLoaded, setStatusLoaded] = useState(false);
+  // A ordem também importa: identity.ts valida o primeiro erp:<papel>.
+  const accessKey = JSON.stringify(me.access ?? null);
+  const identityKey = JSON.stringify([profile, me.id, me.role, accessKey, demo]);
+  const currentIdentity = useRef(identityKey);
+  currentIdentity.current = identityKey;
+  const scope = useRef(createManagementGeneration());
+  scope.current.update(identityKey);
+  const [statusSnapshot, setStatusSnapshot] = useState<{ key: string; value: Row; loaded: boolean }>({ key: "", value: {}, loaded: false });
+  const status = statusSnapshot.key === identityKey ? statusSnapshot.value : {};
+  const statusLoaded = statusSnapshot.key === identityKey && statusSnapshot.loaded;
+  const setStatus = (value: Row) => setStatusSnapshot({ key: identityKey, value, loaded: true });
+  const lastModules = useRef("");
+  const refreshSequence = useRef(0);
+  const contextGeneration = scope.current.capture();
+  const requests = useMemo(() => createManagementRequestScope(api), [api, identityKey]);
+  requests.update(String(contextGeneration), true);
+  useLayoutEffect(() => {
+    requests.update(String(scope.current.capture()), true);
+    return () => requests.update("disposed", false);
+  }, [requests]);
   const [bots, setBots] = useState<Row[]>([]);
   const [team, setTeam] = useState<Row[]>([]);
   const [presence, setPresence] = useState<Row[]>([]);
@@ -163,11 +186,10 @@ export function AppProvider({
   }, []);
 
   // --- dados da área ---------------------------------------------------
-  const scope = useRef("");
-  scope.current = profile;
   const refresh = useCallback(async () => {
-    if (!profile) return;
-    const current = profile;
+    if (!profile || currentIdentity.current !== identityKey) return;
+    const current = scope.current.capture();
+    const sequence = ++refreshSequence.current;
     const [nextStatus, nextBots, nextTeam, nextPresence] = await Promise.all([
       api(root + "/status"),
       api(root + "/bots"),
@@ -176,23 +198,27 @@ export function AppProvider({
         : { data: [] },
       api(root + "/presence").catch(() => []),
     ]);
-    if (scope.current !== current) return;
+    if (!scope.current.current(current) || sequence !== refreshSequence.current) return;
+    const modulesKey = JSON.stringify(Object.entries(nextStatus.modules || {}).sort());
+    if (lastModules.current !== modulesKey) {
+      lastModules.current = modulesKey;
+      scope.current.invalidate();
+    }
     setStatus(nextStatus);
     setBots(nextBots.data || nextBots);
     setTeam(nextTeam.data || []);
     setPresence(Array.isArray(nextPresence) ? nextPresence : []);
-    setStatusLoaded(true);
-  }, [api, root, profile]);
+  }, [api, root, profile, identityKey]);
   const refreshTickets = useCallback(() => {
     // Acesso por pessoa: sem Protocolos, nada de contador nem aviso.
-    if (!profile || !accessAllows("tickets", me.role, me.access)) return;
-    const current = profile;
+    if (!profile || currentIdentity.current !== identityKey || !accessAllows("tickets", me.role, me.access)) return;
+    const current = scope.current.capture();
     Promise.all([
       api(root + "/tickets?overdue=1&limit=100"),
       api(root + "/tickets?active=1&limit=100"),
     ])
       .then(([overdue, active]) => {
-        if (scope.current !== current) return;
+        if (!scope.current.current(current)) return;
         const activeRows = (active.data || []).filter(
           (ticket: Row) => !["closed", "resolved"].includes(ticket.status),
         );
@@ -230,14 +256,14 @@ export function AppProvider({
         }
       })
       .catch(() => {});
-  }, [api, root, profile, me.id]);
+  }, [api, root, profile, me.id, identityKey]);
 
   useEffect(() => {
-    setStatus({});
-    setStatusLoaded(false);
+    setStatusSnapshot({ key: identityKey, value: {}, loaded: false });
     setBots([]);
     setTeam([]);
     setPresence([]);
+    setPresenceBusy(false);
     setRingingCalls([]);
     setTicketCounts({ overdue: 0, active: 0 });
     if (!profile) return;
@@ -275,9 +301,10 @@ export function AppProvider({
     let alive = true;
     const check = async () => {
       if (document.hidden) return;
+      const current = scope.current.capture();
       try {
         const result = await api(root + "/calls?limit=30");
-        if (alive)
+        if (alive && scope.current.current(current))
           setRingingCalls(
             (result.data || []).filter(
               (call: Row) =>
@@ -295,7 +322,7 @@ export function AppProvider({
       alive = false;
       clearInterval(timer);
     };
-  }, [profile, me.id, demo, api, root]);
+  }, [profile, me.id, demo, api, root, identityKey]);
 
   // --- não lidas (locais, por área) -------------------------------------
   const unreadKey = "wabotia:unread:" + profile,
@@ -391,7 +418,27 @@ export function AppProvider({
       hiddenSince = 0,
       running = false;
     const dispatch = (events: AppEvent[]) => {
-      let touchedStatus = false,
+      const moduleEvents = events.filter((event) => event.kind === "module.changed");
+      if (moduleEvents.length) {
+        scope.current.invalidate();
+        requests.update(String(scope.current.capture()), false);
+        setStatusSnapshot((old) => {
+          if (old.key !== identityKey) return old;
+          const modules = { ...old.value.modules };
+          for (const event of moduleEvents) {
+            const id = event.payload?.module_id || event.resource_id;
+            if (typeof event.payload?.enabled === "boolean") modules[id] = event.payload.enabled;
+          }
+          return { ...old, value: { ...old.value, modules } };
+        });
+      }
+      if (events.some((event) => /^(user|person|access|profile)\.(changed|updated|deleted)$/.test(event.kind))) {
+        scope.current.invalidate();
+        requests.update(String(scope.current.capture()), false);
+        setStatusSnapshot({ key: identityKey, value: {}, loaded: false });
+        void reloadSession().then(() => handlers.current.refresh()).catch(() => {});
+      }
+      let touchedStatus = moduleEvents.length > 0 || events.some((event) => event.kind === "resync"),
         touchedTickets = false;
       const nextUnread: Record<string, number> = {},
         nextInternal: Record<string, number> = {};
@@ -478,7 +525,10 @@ export function AppProvider({
         if (document.hidden && Date.now() - hiddenSince > HIDDEN_PAUSE_MS)
           return;
         const fetchAfter = async (after: number) => {
+          const current = scope.current.capture();
           const result = await api(root + "/events?after=" + after);
+          if (!alive || currentIdentity.current !== identityKey || !scope.current.current(current))
+            throw new DOMException("Contexto alterado", "AbortError");
           return {
             events: (result.data || []) as AppEvent[],
             cursor: Number(result.cursor) || after,
@@ -559,7 +609,7 @@ export function AppProvider({
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", visibility);
     };
-  }, [profile, demo, api, root, me.id]);
+  }, [profile, demo, api, root, me.id, identityKey, reloadSession, requests]);
 
   // --- derivados ---------------------------------------------------------
   const names = useMemo(() => {
@@ -590,10 +640,12 @@ export function AppProvider({
   }, [demo]);
   const setOnline = useCallback(
     async (next: boolean) => {
-      if (demoBlocked()) return;
+      if (currentIdentity.current !== identityKey || demoBlocked()) return;
+      const current = scope.current.capture();
       setPresenceBusy(true);
       try {
-        await api(root + "/presence", "PUT", { present: next });
+        await requests.api(root + "/presence", "PUT", { present: next });
+        if (!scope.current.current(current)) return;
         setPresence((current) =>
           current.map((person) =>
             person.actor === me.id ? { ...person, present: next ? 1 : 0 } : person,
@@ -602,12 +654,12 @@ export function AppProvider({
         toast(next ? "Você está online" : "Você está offline");
         refresh().catch(() => {});
       } catch (error) {
-        toastError(error, () => void setOnline(next));
+        if (scope.current.current(current)) toastError(error, () => void setOnline(next));
       } finally {
-        setPresenceBusy(false);
+        if (scope.current.current(current)) setPresenceBusy(false);
       }
     },
-    [api, root, me.id, refresh, demoBlocked],
+    [requests, root, me.id, refresh, demoBlocked, identityKey],
   );
   const chooseProfile = useCallback(
     (id: string) => {
@@ -625,6 +677,7 @@ export function AppProvider({
         route.area === "admin" ? route : { area: route.area, sub: route.sub },
         { replace: true, force: true },
       );
+      scope.current.invalidate();
       setProfile(id);
     },
     [profile],
@@ -652,9 +705,11 @@ export function AppProvider({
     modules: status.modules,
     moduleOn: (id: string) => status.modules?.[id] !== false,
     statusLoaded,
-    bots,
-    team,
-    names,
+    contextGeneration,
+    identityKey,
+    bots: statusLoaded ? bots : [],
+    team: statusLoaded ? team : [],
+    names: statusLoaded ? names : {},
     lineKinds,
     count,
     online,
@@ -666,7 +721,7 @@ export function AppProvider({
     refresh,
     now,
     syncClock,
-    ringingCalls,
+    ringingCalls: statusLoaded ? ringingCalls : [],
     unread,
     unreadTotal,
     markRead,
@@ -675,7 +730,7 @@ export function AppProvider({
     internalUnreadTotal,
     markInternalRead,
     setOpenInternalChat,
-    ticketCounts,
+    ticketCounts: statusLoaded ? ticketCounts : { overdue: 0, active: 0 },
     refreshTickets,
     rememberConversations,
     onEvents,
@@ -693,4 +748,24 @@ export function useAppEvents(listener: EventListener) {
   const ref = useRef(listener);
   ref.current = listener;
   useEffect(() => onEvents((events) => ref.current(events)), [onEvents]);
+}
+
+/** Mantém o rascunho suspenso, mas fecha a API da tela ao perder ativação. */
+export function ManagementRequestBoundary({ enabled, children }: {
+  enabled: boolean;
+  children: React.ReactNode;
+}) {
+  const app = useApp();
+  const previous = useRef(app);
+  if (enabled) previous.current = app;
+  const requests = useMemo(() => createManagementRequestScope(app.api), [app.api]);
+  const key = String(app.contextGeneration);
+  requests.update(key, enabled);
+  useLayoutEffect(() => {
+    requests.update(key, enabled);
+    return () => requests.update("disposed", false);
+  }, [requests, key, enabled]);
+  return <Context.Provider value={{ ...(enabled ? app : previous.current), api: requests.api }}>
+    {children}
+  </Context.Provider>;
 }

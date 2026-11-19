@@ -22,8 +22,11 @@ import { ErpArea } from "../erp/ErpArea";
 function Areas() {
   const app = useApp();
   const route = useRoute();
-  const [blocked, setBlocked] = useState<Route | null>(null);
-  useEffect(() => onBlocked(setBlocked), []);
+  const [blocked, setBlocked] = useState<{ target: Route; identity: string } | null>(null);
+  // Rotas decide se delega à ponte portada. Só onBlocked abre esta confirmação;
+  // o menu nunca pergunta antes de encaminhar uma navegação interna portada.
+  useEffect(() => onBlocked((target) => setBlocked({ target, identity: app.identityKey })), [app.identityKey]);
+  useEffect(() => setBlocked(null), [app.identityKey, route]);
   const needsProfile = route.area !== "admin" && route.area !== "more";
   return (
     <Shell>
@@ -80,20 +83,20 @@ function Areas() {
       ) : route.area === "contacts" ? (
         <ContactsArea key={app.profile} />
       ) : route.area === "erp" ? (
-        <ErpArea key={app.profile} />
+        <ErpArea key={app.identityKey} />
       ) : route.area === "more" ? (
         <MoreArea />
       ) : (
         <AdminArea page={route.page || "overview"} />
       )}
-      {blocked && (
+      {blocked && blocked.identity === app.identityKey && (
         <Confirm
           title="Alterações ainda não salvas"
           confirmLabel="Descartar e continuar"
           cancelLabel="Continuar editando"
           onClose={() => setBlocked(null)}
           onConfirm={() => {
-            const target = blocked;
+            const target = blocked.target;
             setBlocked(null);
             navigate(target, { force: true });
           }}
@@ -119,9 +122,12 @@ export function App() {
     [prompt, setPrompt] = useState(false);
   const current = useRef<Row | null>(me);
   current.current = me;
+  const sessionGeneration = useRef(0);
   const init = useCallback(async () => {
+    const generation = ++sessionGeneration.current;
     try {
       const actor = await api("v1/me");
+      if (generation !== sessionGeneration.current) return;
       // Segundo fator pendente (web/app/Account.tsx): só o portão, sem áreas.
       const need = mfaNeeded(actor);
       setGate(need);
@@ -136,17 +142,19 @@ export function App() {
         await api("v1/installation/area/bootstrap", "POST", {});
         areas = await api("v1/profiles");
       }
+      if (generation !== sessionGeneration.current) return;
       setProfiles(areas);
       setMe(actor);
       setError("");
     } catch (e: any) {
+      if (generation !== sessionGeneration.current) return;
       if (e.status === 401) {
         setMe(null);
         setProfiles([]);
       } else if (!current.current)
         setError(e.message || "Não foi possível abrir a Área de atendimento.");
     } finally {
-      setChecked(true);
+      if (generation === sessionGeneration.current) setChecked(true);
     }
   }, []);
   useEffect(() => {

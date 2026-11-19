@@ -16,16 +16,15 @@ import {
 } from "lucide-react";
 import { Avatar, Switch } from "../ui";
 import { linkProps } from "../lib/routes";
-import { canOpenPage, railPages } from "../workspace-navigation";
-import { useWorkNavigation } from "../modules/os/work-navigation";
-import { erpModuleOn } from "../erp/modules";
+import { canEnterManagement, managementContext } from "../management/registry";
 import { useApp } from "./AppContext";
 import { PreferencesDialog, ThemePicker } from "./chrome";
 import { sourceLinkLabel, useSourceLink } from "../lib/source";
 
 export function MoreArea() {
   const app = useApp();
-  const workNavigation = useWorkNavigation();
+  const management = managementContext({ statusLoaded: app.statusLoaded,
+    modules: app.modules, role: app.me.role, access: app.me.access ?? null });
   const [prefs, setPrefs] = useState(false);
   const source = useSourceLink();
   return (
@@ -59,25 +58,12 @@ export function MoreArea() {
             <ChevronRight size={18} />
           </a>
         )}
-        {railPages
-          .filter((item) => canOpenPage(item.page, app.me.role, app.modules, app.me.access))
-          .map((item) => (
-            <a
-              key={item.page}
-              className="more-link"
-              {...linkProps({ area: "admin", page: item.page })}
-            >
-              <item.icon size={21} />
-              <span>{item.page === "service-orders" ? workNavigation.railLabel : item.label}</span>
-              <ChevronRight size={18} />
-            </a>
-          ))}
         <a className="more-link" {...linkProps({ area: "contacts" })}>
           <Contact size={21} />
           <span>Contatos</span>
           <ChevronRight size={18} />
         </a>
-        {erpModuleOn(app.modules, "erp") && (
+        {canEnterManagement(management) && (
           <a className="more-link" {...linkProps({ area: "erp" })}>
             <Building2 size={21} />
             <span>ERP</span>
