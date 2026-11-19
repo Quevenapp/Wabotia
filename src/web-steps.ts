@@ -540,7 +540,7 @@ export async function openWebStep(env: Env, input: OpenWebStepInput) {
        (SELECT cc.contact_id FROM conversation_contacts cc JOIN contacts p ON p.id=cc.contact_id AND p.profile_id=cc.profile_id
         JOIN conversations c ON c.id=cc.conversation_id AND c.profile_id=cc.profile_id
         WHERE cc.profile_id=? AND cc.conversation_id=? AND c.customer_link_state='ready' AND c.chat_type<>'group'
-          AND p.identity_state='active' AND p.namespace=CASE WHEN c.external_namespace LIKE 'app:%' THEN c.external_namespace ELSE 'team' END
+          AND p.identity_state='active' AND (p.namespace=CASE WHEN c.external_namespace LIKE 'app:%' THEN c.external_namespace ELSE 'team' END OR (p.namespace='panel' AND c.external_namespace NOT LIKE 'app:%'))
           AND ? NOT IN ('saude','ensino','juridico')))`,
     id,
     c.profile_id,
@@ -902,11 +902,18 @@ export async function completeWebStep(
     env,
     `UPDATE web_steps SET status='completed',result=?,completed_at=?,opened_at=coalesce(opened_at,?),updated=?,
       contact_id=CASE WHEN contact_id IS NULL AND module_id='forms' AND kind='form' THEN
-        (SELECT cc.contact_id FROM conversation_contacts cc JOIN contacts p ON p.id=cc.contact_id AND p.profile_id=cc.profile_id
+        coalesce((SELECT cc.contact_id FROM conversation_contacts cc JOIN contacts p ON p.id=cc.contact_id AND p.profile_id=cc.profile_id
          JOIN conversations c ON c.id=cc.conversation_id AND c.profile_id=cc.profile_id
-         WHERE cc.profile_id=web_steps.profile_id AND cc.conversation_id=web_steps.conversation_id AND cc.created<=web_steps.created
-           AND p.identity_state='active' AND c.customer_link_state='ready'
-           AND p.namespace=CASE WHEN c.external_namespace LIKE 'app:%' THEN c.external_namespace ELSE 'team' END)
+         WHERE cc.profile_id=web_steps.profile_id AND cc.conversation_id=web_steps.conversation_id
+           AND (cc.created<=web_steps.created OR p.namespace='panel')
+           AND p.identity_state='active' AND c.customer_link_state NOT IN ('blocked','excluded','ambiguous')
+           AND (p.namespace=CASE WHEN c.external_namespace LIKE 'app:%' THEN c.external_namespace ELSE 'team' END OR (p.namespace='panel' AND c.external_namespace NOT LIKE 'app:%'))),
+          (SELECT r.contact_id FROM customer_records r JOIN contacts p ON p.id=r.contact_id AND p.profile_id=r.profile_id
+           JOIN conversations c ON c.id=r.conversation_id AND c.profile_id=r.profile_id
+           WHERE r.profile_id=web_steps.profile_id AND r.conversation_id=web_steps.conversation_id
+             AND r.module_id='conversations' AND r.kind='session' AND r.occurred_at<=web_steps.created
+             AND p.identity_state='active' AND c.customer_link_state NOT IN ('blocked','excluded','ambiguous')
+           ORDER BY r.occurred_at DESC,r.record_id DESC LIMIT 1))
         ELSE contact_id END
       WHERE id=? AND status IN ('sent','opened') AND expires_at>?`,
     JSON.stringify(answers),

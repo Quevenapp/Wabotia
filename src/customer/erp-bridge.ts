@@ -6,12 +6,18 @@ import { CUSTOMER_BRIDGE_SCAN, type IdentityPort as ErpIdentity } from "../erp/e
 import { localFetch } from "../erp/api/local-fetch";
 import type { BridgeCommand, BridgeResult, BridgeSnapshot, CustomerErpBridge, CustomerPatch } from "./contracts";
 import { normalizeCustomerPhone } from "./phone";
+import { isCustomerSelfActor, validateCustomerSelfActor } from "./local";
 import { bridgeConflict, confirmBridgeSnapshot, contactForBridge, customerEnabled, freshCustomerEnv,
   markCustomerReconciliation, type BridgeContact, type BridgeJob } from "./sync";
 
 const SYSTEM = "contact-erp-link";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const invalid = () => new ApiError(400, "invalid_customer_patch", "Informe somente dados administrativos válidos.");
+async function erpCommandId(value: string) {
+  if (UUID.test(value)) return value;
+  const hash = await sha(`customer-erp:${value}`);
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+}
 export function requireCustomerPerson(actor: Actor): void {
   if (actor.kind !== "user" || actor.via || actor.credential || actor.module || actor.id.startsWith("bot:"))
     throw new ApiError(403, "forbidden", "A ficha completa exige uma pessoa autenticada.");
@@ -165,6 +171,7 @@ async function deliver(env: Env, job: BridgeJob, intent: Intent): Promise<Bridge
   }
   const contact = await contactForBridge(env, command.profileId, command.contactId);
   if (!contact || contact.namespace !== "team" || contact.identity_state !== "active") throw bridgeConflict("customer_erasing");
+  if (isCustomerSelfActor(command.actor)) await validateCustomerSelfActor(env, command.actor, command.profileId, command.contactId);
   const finish = async (result: BridgeResult, state: string, code: string) => {
     await updateJob(env, job, { ...m, result }, state, code); return result;
   };
@@ -196,7 +203,7 @@ async function deliver(env: Env, job: BridgeJob, intent: Intent): Promise<Bridge
       await markCustomerReconciliation(env, command.profileId);
       const saved = await rpc("erp_catalog_contact_save", { p_id: command.erpId,
         p_expected_version: command.operation === "promote" ? 0 : command.expectedErpVersion,
-        p_command_id: command.commandId, p_data: intent.data, p_acknowledged: [] });
+        p_command_id: await erpCommandId(command.commandId), p_data: intent.data, p_acknowledged: [] });
       replayed ||= saved.replayed === true;
       // Recibo do comando é antigo. Só GET atual pode produzir o espelho.
       snapshot = snapshotOf((await rpc("erp_catalog_contact_get", { p_id: saved.record.id })).record);
@@ -248,7 +255,7 @@ export const customerErpBridge: CustomerErpBridge = {
     }
     if (command.namespace !== "team" || command.actor.kind === "app") return { status: "paused", reason: "awaiting_proof" };
     access(command.actor, command.profileId, "contacts:write");
-    if (!UUID.test(command.commandId) || !command.requestHash || !["promote", "patch", "bind"].includes(command.operation)) throw invalid();
+    if (!command.commandId || command.commandId.length > 200 || !command.requestHash || !["promote", "patch", "bind"].includes(command.operation)) throw invalid();
     const patch = dataOf(command.patch);
     const fingerprint = await sha(canonical({ ...command, actor: { id: command.actor.id, kind: command.actor.kind } }));
     let job = await one<BridgeJob>(env, "SELECT * FROM customer_jobs WHERE profile_id=? AND command_id=?", command.profileId, command.commandId);
@@ -277,14 +284,17 @@ export const customerErpBridge: CustomerErpBridge = {
     if (command.operation === "patch") {
       // Editar a ficha completa conserva a permissão própria e o portão humano.
       // A identidade técnica só executa o corpo autorizado e seu replay.
-      requireCustomerPerson(command.actor);
-      const identity = await erpIdentity(freshCustomerEnv(env), command.actor, command.profileId, "POST");
+      if (isCustomerSelfActor(command.actor)) await validateCustomerSelfActor(env, command.actor, command.profileId, command.contactId);
+      else requireCustomerPerson(command.actor);
+      const identity = isCustomerSelfActor(command.actor)
+        ? await erpSystemIdentity(freshCustomerEnv(env), command.profileId, SYSTEM)
+        : await erpIdentity(freshCustomerEnv(env), command.actor, command.profileId, "POST");
       await customerRpc(env, command.profileId, command.actor, identity, "erp_catalog_contact_check", { p_id: command.erpId, p_data: patch });
     }
     const data = command.operation === "promote" ? { name: contact.name, phone: contact.phone, email: contact.email,
       document: contact.document, person_type: contact.person_type, ...patch, roles: ["customer"] } : patch;
     const safeActor = { id: command.actor.id, kind: command.actor.kind, profiles: [command.profileId], role: command.actor.role,
-      name: "Solicitante do cadastro", scopes: [], bots: [], rate: 0, runLimit: 0 } as Actor;
+      name: "Solicitante do cadastro", scopes: isCustomerSelfActor(command.actor) ? ["contacts:self"] : [], bots: [], rate: 0, runLimit: 0 } as Actor;
     const intent: Intent = { command: { ...command, actor: safeActor }, fingerprint, data, source: { version: contact.version, localPatch: contact.local_patch_cipher } };
     const m: Metadata = { fingerprint, intent: await seal(env, intent) };
     if (!job) {
@@ -301,11 +311,13 @@ export const customerErpBridge: CustomerErpBridge = {
   },
   async read(env, actor, profileId, erpId) {
     if (!await customerEnabled(env, profileId)) throw new ApiError(409, "module_disabled", "Cadastro completo desligado nesta área.");
-    requireCustomerPerson(actor); access(actor, profileId, "contacts:read");
-    const link = await one<{ namespace: string; identity_state: string }>(env,
-      "SELECT namespace,identity_state FROM contacts WHERE profile_id=? AND erp_contact_id=?", profileId, erpId);
+    if (!isCustomerSelfActor(actor)) requireCustomerPerson(actor);
+    access(actor, profileId, "contacts:read");
+    const link = await one<{ id: string; namespace: string; identity_state: string }>(env,
+      "SELECT id,namespace,identity_state FROM contacts WHERE profile_id=? AND erp_contact_id=?", profileId, erpId);
     if (link && (link.namespace !== "team" || link.identity_state !== "active")) throw new ApiError(404, "not_found", "Contato não encontrado.");
-    const identity = await erpIdentity(freshCustomerEnv(env), actor, profileId);
+    if (isCustomerSelfActor(actor)) await validateCustomerSelfActor(env, actor, profileId, link?.id ?? "");
+    const identity = isCustomerSelfActor(actor) ? await erpSystemIdentity(freshCustomerEnv(env), profileId, SYSTEM) : await erpIdentity(freshCustomerEnv(env), actor, profileId);
     return snapshotOf((await customerRpc(env, profileId, actor, identity, "erp_catalog_contact_get", { p_id: erpId })).record);
   },
   async scan(env, profileId, cursor, limit) {

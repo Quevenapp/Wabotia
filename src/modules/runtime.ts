@@ -48,4 +48,4 @@ onCredentialClaim("ensino", claimAccess);
 // Fase 1: agregador autorizado da ficha; provedores se registram em seus módulos.
 import { installProfilePort } from "../customer/ports";
 import { createProfilePort } from "../customer/profile";
-installProfilePort(createProfilePort());
+installProfilePort(createProfilePort(), { default: true });

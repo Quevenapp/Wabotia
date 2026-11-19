@@ -4,7 +4,7 @@ import { auditStatement } from "../events";
 import { ApiError, now, type Actor, type Env } from "../types";
 import { moduleEnabled } from "../modules/registry";
 import { requireAccess } from "../access";
-import { historyPort, profilePort } from "./ports";
+import { historyPort, profilePort, customerRetention } from "./ports";
 import { isFullCustomerEnabled } from "./feature";
 import { normalizeCustomerPhone } from "./phone";
 import { activeContact, contactRow, customerAccess, guard, guardedBatch, human, namespaceFor } from "./local";
@@ -30,11 +30,13 @@ export async function customerRead(env: Env, actor: Actor, profile: string, id: 
     requireAccess(actor, "conversations");
     return historyPort.read(env, actor, profile, { conversationId: id }, pageQuery(query, 20, 50));
   }
-  if (kind === "history" || kind === "profile") customerAccess(actor, profile);
+  // A ficha autoriza cada contribuição: um papel de extensão não precisa do
+  // cadastro comum para chegar à própria seção.
+  if (kind === "profile") return profilePort.view(env, actor, profile, id);
+  if (kind === "history") customerAccess(actor, profile);
   else await requireCustomerModule(env, actor, profile, module);
   await contactRow(env, actor, profile, id);
   if (kind === "history") return historyPort.read(env, actor, profile, { contactId: id }, pageQuery(query, 20, 50));
-  if (kind === "profile") return profilePort.view(env, actor, profile, id);
   if (kind === "collection") return profilePort.collection(env, actor, profile, id, module, contribution, pageQuery(query, 25, 100));
   return profilePort.section(env, actor, profile, id, module, contribution);
 }
@@ -94,18 +96,20 @@ export async function eraseContact(env: Env, actor: Actor, profile: string, id: 
   if (previous) return jobView(previous);
   activeContact(row);
   if (row.version !== data.expectedVersion) throw new ApiError(409, "contact_conflict", "O contato mudou. Reabra a ficha.");
-  const job = jobInsert(profile, row.namespace, id, "erase", command, hash, await seal(env, { actor, reason: why }), row.version, row.erp_version);
+  const impediments = await customerRetention(env, profile, id);
+  const errorCode = impediments[0] ?? "retention_inventory_incomplete";
+  const job = jobInsert(profile, row.namespace, id, "erase", command, hash, await seal(env, { actor, reason: why, impediments }), row.version, row.erp_version);
   const statements: Statement[] = [job.statement,
     ["UPDATE contacts SET identity_state='restricted',local_patch_cipher=NULL,version=version+1,updated=?,updated_by=? WHERE profile_id=? AND id=? AND version=? AND identity_state='active'", [now(), actor.id, profile, id, row.version]],
     ...guard(command, "restrict"),
     ["UPDATE customer_jobs SET state='cancelled',lease_until=NULL,payload_cipher=NULL,error_code='customer_erasing',updated=? WHERE profile_id=? AND contact_id=? AND id<>? AND state NOT IN ('done','retained','cancelled')", [now(), profile, id, job.id]],
     ["UPDATE conversations SET customer_link_state='excluded' WHERE profile_id=? AND (id IN (SELECT conversation_id FROM conversation_contacts WHERE profile_id=? AND contact_id=?) OR (verified_phone IN (SELECT phone FROM customer_phone_candidates WHERE profile_id=? AND namespace=? AND contact_id=?) AND (CASE WHEN external_namespace LIKE 'app:%' THEN external_namespace ELSE 'team' END)=?))", [profile, profile, id, profile, row.namespace, id, row.namespace]],
     // Candidatos e telefone ficam como tombstone: um novo inbound não recria a pessoa.
-    ["UPDATE customer_jobs SET state='retained',error_code='retention_inventory_incomplete',updated=? WHERE profile_id=? AND id=?", [now(), profile, job.id]],
+    ["UPDATE customer_jobs SET state='retained',error_code=?,updated=? WHERE profile_id=? AND id=?", [errorCode, now(), profile, job.id]],
     auditStatement(actor, profile, "contact.erasure", id, command),
   ];
   await guardedBatch(env, statements);
-  return { id: job.id, contactId: id, state: "retained" as const, errorCode: "retention_inventory_incomplete", missingFields: [] };
+  return { id: job.id, contactId: id, state: "retained" as const, errorCode, missingFields: [] };
 }
 export async function contactConflicts(env: Env, actor: Actor, profile: string, query: Record<string, string | undefined>) {
   human(actor); customerAccess(actor, profile);

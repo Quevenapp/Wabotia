@@ -17,6 +17,10 @@ async function contact(ctx: ModuleContext, contactId: string) {
 }
 
 export const juridicoCustomerProvider: CustomerModuleProvider = {
+  async erasure(env, profileId, contactId) {
+    return await one(env, "SELECT 1 FROM os_orders o JOIN jur_deadlines j ON j.profile_id=o.profile_id AND j.order_id=o.id WHERE o.profile_id=? AND o.contact_id=? LIMIT 1", profileId, contactId)
+      ? juridicoCustomerErasure : null;
+  },
   async section(ctx, actor, contactId, sectionId) {
     await staff(ctx, actor);
     if (sectionId !== "private") throw new ApiError(404, "not_found", "Seção não encontrada.");

@@ -778,9 +778,10 @@ export function modulesApi(
       if (ref.state !== "ready" || !ref.contactId) return null;
       return one<ContactSummary>(
         env,
-        "SELECT id,name,phone,email,company,notes FROM contacts WHERE id=? AND profile_id=? AND namespace=? AND identity_state='active'",
+        "SELECT id,name,phone,email,company,notes FROM contacts WHERE id=? AND profile_id=? AND (namespace=? OR (?='team' AND namespace='panel')) AND identity_state='active' AND (source<>'automatic' OR name<>'')",
         ref.contactId,
         profile,
+        ref.namespace,
         ref.namespace,
       );
     },

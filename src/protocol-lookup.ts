@@ -1,6 +1,6 @@
 import { all } from "./db";
 import { resolveCustomer } from "./customer/ports";
-import { normalizeCustomerPhone } from "./customer/phone";
+import { normalizeCustomerPhone, customerPhoneVariants as phoneVariants } from "./customer/phone";
 import { type Conversation, type Env, requireValue, now } from "./types";
 import { enqueue, settings } from "./service";
 import { formatBrasilia } from "./business-time";
@@ -70,12 +70,17 @@ function compactProtocol(value: string) {
 export function verifiedPhone(c: Conversation) {
   if (
     c.chat_type === "group" ||
-    c.customer_link_state !== "ready" ||
+    ["blocked", "excluded", "ambiguous"].includes(c.customer_link_state || "") ||
     !c.connection_id ||
     c.external_namespace !== `channel:${c.connection_id}`
   )
     return null;
-  return normalizeCustomerPhone(c.verified_phone, "international");
+  const phone = normalizeCustomerPhone(c.phone, "international");
+  // Uma correção do telefone invalida a prova anterior. Legado de canal já
+  // autenticado continua legível mesmo antes do preenchimento cadastral.
+  if (c.verified_phone && c.verified_phone !== phone) return null;
+  if (/@(?:lid|g\.us)$/.test(c.external_id) && !c.verified_phone) return null;
+  return phone;
 }
 
 export async function lookupProtocols(
@@ -98,6 +103,8 @@ export async function lookupProtocols(
   );
   const customer = await resolveCustomer(env, c);
   const contactId = customer.state === "ready" ? customer.contactId : null;
+  const phone = verifiedPhone(c);
+  const variants = JSON.stringify(phone ? phoneVariants(phone) : []);
   // The same response is returned for a nonexistent number and somebody else's
   // number. Public updates only; internal notes and operator IDs are never sent.
   return all(
@@ -110,7 +117,10 @@ export async function lookupProtocols(
          SELECT 1 FROM customer_records r JOIN contacts k
            ON k.id=r.contact_id AND k.profile_id=r.profile_id AND k.namespace=? AND k.identity_state='active'
          WHERE r.profile_id=t.profile_id AND r.kind='ticket' AND r.record_id=t.id
-           AND r.conversation_id=t.conversation_id AND r.contact_id=?)))
+           AND r.conversation_id=t.conversation_id AND r.contact_id=?))
+         OR (original.connection_id IS NOT NULL AND original.external_namespace='channel:'||original.connection_id
+           AND original.customer_link_state NOT IN ('blocked','excluded','ambiguous')
+           AND replace(replace(replace(replace(replace(original.phone,'+',''),' ',''),'(',''),')',''),'-','') IN (SELECT value FROM json_each(?))))
        AND (? IS NULL OR upper(t.number)=?)
      ORDER BY t.created DESC,t.id DESC LIMIT 10`,
     c.profile_id,
@@ -119,6 +129,7 @@ export async function lookupProtocols(
     contactId,
     customer.namespace,
     contactId,
+    variants,
     query || null,
     query || null,
   );

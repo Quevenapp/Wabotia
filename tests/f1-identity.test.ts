@@ -42,13 +42,14 @@ describe("identidade de atendimento", () => {
     expect(noErp).not.toHaveBeenCalled();
   });
 
-  it("isola áreas, namespaces e variantes do nono dígito", async () => {
+  it("isola áreas e namespaces, preservando o nono dígito compatível com a versão publicada", async () => {
     const f = await fixture(), other = await fixture();
     const appContact = await contact(f, phone, "app:integration");
     const a = await resolveCustomer(env, await send(f));
     const b = await resolveCustomer(env, await send(other));
     const variant = await resolveCustomer(env, await send(f, f.line, "551187654321"));
-    expect(new Set([appContact, a.contactId, b.contactId, variant.contactId]).size).toBe(4);
+    expect(variant.contactId).toBe(a.contactId);
+    expect(new Set([appContact, a.contactId, b.contactId]).size).toBe(3);
     expect(await conversationByPhone(env, f.profile, "55117654321")).toBeNull();
   });
 
@@ -109,7 +110,8 @@ describe("identidade de atendimento", () => {
     await expect(send(f, f.second)).rejects.toThrow();
     plan.mockRestore();
     expect(await all(env, "SELECT id FROM inbox WHERE profile_id=?", f.profile)).toHaveLength(1);
-    expect(await all(env, "SELECT contact_id FROM conversation_contacts WHERE profile_id=?", f.profile)).toEqual([{ contact_id: ref.contactId }]);
+    expect(await all(env, "SELECT contact_id FROM conversation_contacts WHERE profile_id=?", f.profile)).toEqual([]);
+    expect(await all(env, "SELECT contact_id FROM customer_phones WHERE profile_id=?", f.profile)).toEqual([{ contact_id: ref.contactId }]);
     expect((await send(f, f.second)).customer_link_state).toBe("excluded");
     expect(await all(env, "SELECT id FROM contacts WHERE profile_id=?", f.profile)).toHaveLength(1);
   });

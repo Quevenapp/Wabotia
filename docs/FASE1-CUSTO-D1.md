@@ -1,13 +1,262 @@
 # Fase 1 — identidade no caminho de mensagens
 
+## Integração das dez entregas — revisão após verificação externa, 19/11/2026
+
+Esta seção substitui o estado e as pendências dos relatos individuais preservados
+abaixo. Nenhum teste anterior a `f1-*` foi editado nesta integração. Migrações,
+esquema ERP e arquivos reservados da casa permaneceram intactos.
+
+O fim do log externo recebido nesta rodada registra **258 arquivos aprovados e
+8 falhos; 2.484 testes aprovados e 10 falhos (2.494 no total)**. Esse é o resultado
+**anterior às correções desta revisão**, não uma aprovação do estado atual.
+As dez falhas foram analisadas e tratadas abaixo. A nova execução completa de
+Vitest continua pendente da verificação externa. Sem commit, rede ou Vitest.
+
+### Causas comuns corrigidas
+
+1. A entrada recusava a conexão `meta` usada pelos fluxos publicados; o código de
+   identidade reconhecia somente QR/Zernio. Meta volta a ser origem autenticada.
+2. A exigência de índice cadastral pronto retirava a credencial telefônica dos
+   canais legados e as variantes brasileiras da busca de conversas, protocolos,
+   pedidos, reservas e OS de balcão. A compatibilidade é restrita à prova do canal;
+   telefone de aplicação, texto arbitrário e LID continuam sem credencial.
+3. A importação do serviço instalava uma identidade diferente da composição
+   explícita dos testes. Defaults agora admitem uma composição explícita, em
+   qualquer ordem; dois registros explícitos diferentes continuam sendo erro.
+4. Contato automático ocupava a associação humana de `conversation_contacts`,
+   quebrando APIs antigas e fixtures publicadas. O vínculo telefônico automático
+   usa `customer_phones`; sessões preservam a prova histórica. A associação humana
+   continua separada, e o adaptador antigo `ctx.contact` permanece nulo para ficha
+   automática sem nome. `ctx.customer` devolve a referência canônica completa.
+5. Produtores usavam `core/conversation`; o histórico consumia
+   `conversations/session`. Protocolos também não tinham o vínculo na origem.
+   As chaves agora coincidem e os vínculos são gravados no lote da origem.
+6. A fila e a ponte tentavam concluir o mesmo job; a fila apagava metadados de
+   retomada. A conclusão real da ponte agora é reconhecida e o cursor preservado.
+   O ID hexadecimal do Coordinator vira UUID determinístico somente no recibo ERP.
+7. A cron chamava um comando comum; a manutenção efetiva estava em
+   `/customer-tick`. O chamador agora usa essa rota dedicada, com rodízio e saldo
+   compartilhado de 40 instruções/20 itens.
+8. A memória cadastral acrescentava `tools` mesmo com todas as ferramentas de
+   cliente desligadas. Essa configuração publicada volta a produzir lista vazia.
+
+9. A entrada interna sem conexão passou a ser rejeitada, mesmo quando só
+   pretendia manter a conversa legada e receber associação humana. Ela volta a
+   funcionar sem prova telefônica, sem contato automático e sem acesso cruzado.
+10. Avisos administrativos de OS passaram a usar a regra estrita de documentos;
+    um telefone de balcão diferente impedia avisos de uma conversa já vinculada.
+    Avisos voltam a usar o vínculo; documentos mantêm a conferência do telefone.
+11. A normalização legada de OS preservava números curtos não vazios; sua
+    existência era tomada por validade. O número normalizado agora é validado
+    antes de qualquer gravação, preservando DDD brasileiro e formatação.
+12. A consulta da fila deixou de encontrar senhas emitidas no balcão antes da
+    conversa. O fallback agora exige canal autenticado, senha `staff` sem outra
+    conversa, mesma área e ausência de impedimentos; o totem ainda exige cupom.
+13. O fallback telefônico do Ensino aceitou também contato conhecido pendente.
+    Ele agora só atende legado sem referência/telefone cadastral; um contato
+    conhecido pendente, ambíguo, bloqueado ou excluído é recusado.
+14. Dois testes novos ainda descreviam a integração anterior: a projeção `contact`
+    esperava três bindings SQL e o histórico confundia canal legado válido com
+    ausência de prova. As expectativas foram alinhadas sem remover as recusas.
+
+### As dez falhas do log e sua resolução
+
+| Teste / quantidade | Causa e correção |
+| --- | --- |
+| `contacts` / 1 | `inbound` recusava `meta:test` sem conexão. A entrada legada é aceita para conversa/associação humana, conservando `verifiedPhone:null`. |
+| `f1-base` / 1 | Mock esperava três parâmetros; a compatibilidade `team/panel` usa quatro. Expectativa corrigida, com novas asserções do namespace legado e da projeção de contato automático. |
+| `f1-history` / 1 | O canal legado prova o telefone mesmo sem `verified_phone`; contato pendente recusa a associação com `customer_ambiguous`. O teste também mantém a recusa `forbidden` retirando a conexão e confere que o vínculo histórico não mudou. |
+| `f1-private` / 1 | Contato conhecido em `pending` passava no fallback do Ensino. Corrigido no código; nenhuma asserção desse teste foi alterada. |
+| `os-compatibility` / 1 | Aviso de etapa embutida era recusado por telefone diferente. `conversationOf` usa a autorização do vínculo, preservando a regra estrita dos documentos. |
+| `os-orders` / 1 | `123` era aceito por ser não vazio. A validação exige telefone internacional válido depois da normalização brasileira. |
+| `os-work-types` / 3 | A mesma regra de destinatário impedia os dois avisos expandidos e o lote de lembretes. Corrigida no ponto comum, sem alterar expansão, limite Unicode ou repetição. |
+| `queue-module` / 1 | `SENHA` ignorava emissão `staff` sem conversa prévia. A consulta restaura o caminho autenticado em uma única instrução SQL, sem transferir senha já vinculada. |
+
+### Medição conjunta, sem aumento de teto
+
+Medição **local**, com Node 26.4.0, `node:sqlite`, migrações reais, transações,
+`tests/d1-counter.ts` e os fluxos de `tests/d1-budget.test.ts`. O mesmo adaptador
+executou os fontes de `31fb3ba5` via `git show`, sem checkout, e os fontes desta
+integração. Ambos usaram o mesmo esquema aditivo atual. Mercado Pago, R2 e
+superfície de Durable Object foram simulados; serviço, motor, módulos, SQL e
+Coordinator foram os reais. Não é medição de latência, cobrança ou runtime D1.
+O metadado gerado de build foi reutilizado, sem influência nas consultas.
+
+`I/V` significa instruções SQL/viagens ao adaptador. Os tetos abaixo foram
+conferidos em `git show 31fb3ba5:tests/d1-budget.test.ts` e não foram editados.
+A comparação completa abaixo foi medida na rodada anterior da integração.
+Nesta revisão foram medidos novamente os caminhos afetados de entrada e consulta
+da fila: primeira entrada **20/9**, seguinte **10/7**, repetida **1/1**, consulta
+de senha **1/1**. Não foi repetida toda a simulação de pagamentos/alarme/mesas;
+essas linhas conservam a evidência anterior, sem se apresentarem como nova
+medição. As correções atuais não acrescentam instruções nesses fluxos.
+
+| Fluxo | Base I/V | Integração I/V | Teto de instruções, antes = depois |
+| --- | ---: | ---: | ---: |
+| Primeira mensagem: entrada | 18/14 | 20/9 | 20 |
+| Primeira mensagem: motor | 28/26 | 28/26 | 30 |
+| Menu Cardápio | 40/39 | 41/40 | 43 |
+| Encaminhamento ao atendente | 33/31 | 34/31 | 37 |
+| Conclusão do carrinho Pix | 55/53 | 57/54 | 59 |
+| Webhook Mercado Pago: Worker | 2/2 | 2/2 | 2 |
+| Webhook Mercado Pago: Coordinator | 28/26 | 28/26 | 30 |
+| Rodada dos módulos | 23/23 | 23/23 | 24 |
+| Fila: emitir senha | 17/3 | 17/3 | 17 |
+| Fila: chamar próxima | 18/3 | 18/3 | 18 |
+| Alarme com mensagem/entregas | 70/69 | 71/70 | 71 |
+| Mesas: lançar pedido | 26/18 | 26/18 | 27 |
+| Mesas: mapa | 6/6 | 6/6 | 8 |
+| Mesas: fechar conta | 21/11 | 21/11 | 21 |
+
+Na integração, mensagem seguinte na conversa resolvida: **10/7**, com **zero**
+instrução de identidade. Webhook repetido: **1/1**, antes do resolvedor. A sessão
+de Suporte continua em uma única viagem (3 instruções, incluindo vínculo).
+O acréscimo no carrinho é a leitura da referência e a intenção de enriquecimento
+no lote do pedido; o processamento dessa intenção fica na manutenção. No menu e
+alarme aparece a consulta de identidade; no encaminhamento, o vínculo da sessão.
+Quatro invocações conjuntas de manutenção tiveram consumo declarado igual ao
+contador real do adaptador e respeitaram 40/20.
+
+### Pedidos à base, um a um
+
+| Origem | Pedido e solução |
+| --- | --- |
+| Identidade 1 | `perform` entrega o ID estável diretamente a `contactCommand`, sem captura antiga pelo registro de módulos. |
+| Identidade 2 | Desvinculação mantém o `blocked` no lote do comando; leituras/entrada respeitam o bloqueio. |
+| Identidade 3 | Escritores usam `indexContact` no lote condicionado; aliases observados são preservados enquanto representam o telefone atual. |
+| Identidade 4 / Histórico 1 | Sessões usam `conversationId:session`, módulo `conversations`, tipo `session`, data da reabertura; protocolos usam `tickets/ticket`, no lote de criação. |
+| Identidade 5 / Histórico 2 | Cron existente de cinco minutos chama `/customer-tick`; o Coordinator alterna participantes por cursor KV, sem acrescentar manutenção ao alarme. |
+| Identidade 6 | Revisão é `GET /contacts?identity=phone_only&review=inactive180`, já consumida pelo painel. Inclui atividade recente da sessão atual e conclusão de formulário/fila; exige revisão humana, sem exclusão automática. |
+| Cadastro 1 | Endereço permanece somente na intenção cifrada. Sem endereço no espelho, reconciliação divergente exige revisão; não se inventa equivalência. |
+| Cadastro 2 | Recibo do Coordinator sem intenção persistida permite repetir comandos cadastrais com o mesmo ID. Jobs existentes continuam sendo a fonte de recuperação. |
+| Cadastro 3 | `POST /contact-jobs/:id/resolve` recebe novo `CustomerWrite`, exige pessoa/versões atuais e cancela/substitui atomicamente a intenção em conflito, preservando a posição na fila. Intenção já enviada ao ERP não pode ser substituída: exige reconciliação do recibo existente. |
+| Histórico 3 | Rotas usam a fachada e mantêm o `Cache-Control: no-store` do middleware. |
+| Rotinas 1 | Confirmação do nome no carrinho grava intenção com ator interno limitado a contato/conversa/sessão, `fill_empty`, sem papel humano/ERP. A manutenção revalida canal, sessão, identidade e impedimentos de dependentes antes da escrita. Confirmações humanas continuam com o ator original. |
+| Rotinas 2 | Balcão volta a usar a abertura autorizada de conversa e as variantes publicadas; aplicações não recebem essa credencial. |
+| Pagadores | As cinco coleções de Mensalidade/Suporte declaram a coluna `relation` / “Vínculo”. |
+| Condomínio 1 | Sem coluna de maioridade, dependentes permanecem fora da ficha comum e do enriquecimento automático. Não foi criada migração. |
+| Condomínio 2 / Ficha 3 | Snapshot e comandos de `memberships`, `functions`, `subscriptions` foram separados no adaptador da ficha: somente diferenças, até dez operações, versão própria da função. Assinaturas expõem `linked`; papéis existentes não são editáveis silenciosamente. |
+| Privados 1 | `CustomerModuleProvider.erasure` e `customerRetention` consultam impedimentos inclusive com módulo desligado, sem transportar conteúdo privado. O pedido durável guarda os motivos; eliminação integral continua `retained`. |
+| Privados 2 | Navegação privada mantém `{target:{module,resource:"home",id}}`, aceito pelo registro e projetado pelo agregador. |
+| Ficha 1 | **Pendente da casa:** A7 não está instalado nos arquivos reservados. O carregador preserva `dependency_unavailable`; esses arquivos não foram alterados. |
+| Ficha 2 | O portão de `/contacts/:id/profile` delega ao agregador; papel de extensão alcança suas contribuições sem liberar cadastro comum. `readable:false` evita leituras gerais na interface. |
+| Ponte 1 | Confirmação da ponte conclui espelho/índice/job atomicamente; fila reconhece `customerErp.done` e preserva os metadados em pendências. |
+| Ponte 2 | A fila usa `CustomerMirror`, intenção `{base,patch}` cifrada e retorno com `contactId/version`; a ponte também conserva companhia/notas locais quando presentes. |
+| Ponte 3 | A fila valida versão D1, versão ERP e `fill_empty` antes de montar o `BridgeCommand`; a ponte mantém seu CAS e a intenção imutável. |
+| Ponte 4 | Mesma cron dedicada, orçamento compartilhado e rodízio descritos acima. |
+| Trabalhos | Sem pedido adicional; compatibilidade de balcão/telefone foi restaurada, mantendo revogação de documentos quando o telefone da ordem muda e de avisos quando o contato vinculado muda. Avisos administrativos conservam o vínculo da conversa, como na versão publicada. |
+
+### Arquivos alterados nesta integração
+
+| Arquivos | Mudança |
+| --- | --- |
+| `src/customer/ports.ts`, `contracts.ts`, `phone.ts`, `identity.ts` | Composição de portas, origem Meta, vínculo automático, aliases e plano SQL de vínculos. |
+| `src/service.ts`, `protocol-lookup.ts` | Entrada/telefone compatíveis, sessão/protocolo e ID estável dos comandos. |
+| `src/contacts.ts`, `src/modules/api.ts`, `src/web-steps.ts` | Contato automático e associação humana compatíveis, mesma ficha ao enriquecer, formulários e revisão. |
+| `src/queue.ts`, `src/modules/suporte/customer-provider.ts` | Fluxos antigos da fila e vínculo de Suporte sem viagem extra. |
+| `src/modules/os/public.ts`, `store.ts` | Titularidade, telefone de balcão, acompanhamento, proteção do destinatário. |
+| `src/modules/agenda/customer-provider.ts`, `src/modules/pedido/{customer-provider,orders,pedido}.ts`, `src/modules/reserva/bookings.ts` | Escopo legado autenticado e confirmação cadastral do carrinho. |
+| `src/modules/ensino/{access,notices}.ts` | Acesso telefônico legado preservando a autorização privada e sua revogação; contato conhecido pendente é recusado. |
+| `src/customer/{jobs,local,erp-bridge,sync}.ts` | Ator do autoatendimento, fila/recibo, retomada, conflito e espelho. |
+| `src/coordinator.ts`, `src/index.ts`, `src/customer/http.ts` | Manutenção dedicada, recuperação antes da intenção, rotas e retenção. |
+| `src/customer/{declarations,profile-contracts,profile}.ts`, `src/modules/{saude,ensino,juridico}/customer-provider.ts` | Colunas, autorização da ficha, contrato das seções e impedimentos privados. |
+| `src/modules/condominio/customer-provider.ts`, `web/contact-profile/{model.ts,ContactProfile.tsx}` | Conversão de snapshot em comandos e edição administrativa da seção. |
+| `src/customer/history.ts`, `src/modules/runtime.ts`, `src/erp/api/local-fetch.ts` | Registro explícito das implementações padrão, sem I/O de importação. |
+| `src/bot-actions/customer.ts` | Preserva configuração sem ferramentas do cliente. |
+| `tests/f1-base.test.ts`, `tests/f1-profile-ui.test.ts`, `tests/f1-integration.test.ts` | Novas regressões de composição, comandos do Condomínio e fluxo integrado real, incluindo resposta ERP perdida, associação legada, aviso vinculado e senha de balcão. |
+| `tests/f1-history.test.ts` | Distingue contato pendente de canal sem prova, confere preservação histórica e explicita `required:false` na fixture do formulário para satisfazer `WebField`. |
+| Demais `tests/f1-*` alterados | Ajustes de compatibilidade detalhados abaixo; nenhum teste antigo ou teto foi modificado. |
+
+### Ajustes nos testes novos e limites da validação
+
+- `f1-base`: acrescenta composição explícita/default nas duas ordens de carga;
+  mantém erro para duas implementações explícitas. O mock de `contact` agora
+  confere os quatro bindings, compatibilidade `panel` e contato automático.
+- `f1-history`: diferencia `customer_ambiguous` com canal legado autenticado de
+  `forbidden` sem conexão; preserva vínculo e demais asserções. A fixture declara
+  `required:false`, equivalente ao valor antes implícito, sem mudar as respostas.
+- `f1-profile-ui`: acrescenta regressão do adaptador de Condomínio: somente
+  diferenças, versões próprias e máximo de dez operações.
+- `f1-integration` (novo nesta integração): composição real, sem mock das portas,
+  para identidade, sessões, enriquecimento, desvinculação, promoção e queda após
+  save ERP. Nesta revisão ganhou três cenários: entrada legada sem credencial;
+  avisos de OS com telefone diferente, rejeição de número curto, idempotência e
+  revogação por troca de contato; fila de balcão com variantes, custo unitário,
+  recusa de aplicação, bloqueio, não transferência e cupom do totem.
+
+- `f1-identity`: variantes do nono dígito reaproveitam contato; prova automática
+  conferida no índice, preservando o slot da associação humana publicada.
+- `f1-inbound`: aplicação permanece pendente sem prova; consulta de protocolos
+  conserva telefone autenticado entre linhas; vínculos usam a chave consumida
+  pelo histórico. Contagens verificam índice/histórico sem exigir associação manual.
+- `f1-history-privacy`: todas as ferramentas desligadas produzem lista vazia,
+  conforme o teste antigo de IA; a memória direta continua isolada e sem ERP.
+- `f1-rotinas`: balcão delega abertura com variantes à porta existente; a
+  aplicação continua recusada.
+- `f1-work`: fixture passa a representar canal autenticado real; documento
+  legado do titular conserva acesso por telefone, conforme a especificação antiga.
+  Permanecem as asserções de sigilo, troca de identidade e isolamento.
+
+Na rodada anterior, o diagnóstico offline exercitou entrada Meta/QR/Zernio,
+LID sem contato, repetição, alias, associação legada `panel`, sessão de Suporte,
+OS de balcão, recusa de integração, confirmação cadastral do cliente, ficha
+telefônica, revisão de inatividade, manutenção compartilhada, promoção
+fila→ponte→ERP, resposta perdida após save e retomada sem cliente duplicado.
+A tabela de custos conserva essa evidência. Os scripts daquela rodada foram
+removidos e os cenários permanentes ficaram nos testes `f1-*`.
+
+Nesta revisão, **11 cenários offline passaram**, com código real, migrações reais,
+SQLite 3.54.1 e Node 26.4.0. Incluem as regressões de entrada, validação e avisos
+OS (embutido, texto, Unicode, lembretes, repetição e troca de contato), fila de
+balcão, totem, Ensino e os custos acima. As regressões também foram reproduzidas
+num bundle temporário com as condições anteriores às correções. D1 é adaptado
+sobre SQLite; R2 é simulado em memória e a superfície de DO não é exercitada.
+`fetch` foi substituído por uma função que falha para impedir rede no diagnóstico.
+Isso não equivale a executar Vitest ou o runtime Cloudflare. Scripts e resultado
+ficaram em `/private/tmp/f1-integra-revisao/` para inspeção local.
+
+Validação desta revisão:
+
+- `npx --no-install tsc --noEmit`: passou.
+- TypeScript estrito adicional de `f1-base`, `f1-history`, `f1-integration` e
+  `f1-private`, com as declarações instaladas de `cloudflare:test`: passou.
+  A primeira tentativa avulsa detectou a declaração `required` ausente na fixture
+  e não carregava as declarações do plugin; ambas as causas foram resolvidas.
+- `vite build --outDir /private/tmp/f1-integra-revisao/dist`: passou, 2.555 módulos.
+  Permanecem avisos de tamanho de chunks, nome do grupo de divisão e diretivas
+  `use client` de dependência; nenhum erro de compilação.
+- `check-conflict-markers.mjs`, `check-encoding.mjs` (4.260 arquivos),
+  `erp-scope-css.mjs --check` e `git diff --check`: passaram.
+- `node --no-warnings --test tests/erp/access/identity.test.mjs tests/erp/access/agent-gate.test.mjs tests/erp/catalog/contact-scope.test.mjs`:
+  **8 aprovados**, sem falhas/skips.
+- Somente arquivos da matriz autorizada e `tests/f1-*` foram alterados;
+  testes antigos, tetos, migrações e arquivos reservados foram preservados.
+
+Não executei `npm run check` nem `npm run build` como wrappers: ambos chamam o
+escritor de `src/build-info.generated.ts`, fora da matriz. Executei a checagem
+TypeScript, os guardas e o build Vite diretamente, reutilizando o metadado já
+existente. Os wrappers completos ficam com a verificação externa.
+
+**Ainda não exercitado nesta revisão:** Vitest completo; suíte ERP completa;
+runtime D1/Worker/Coordinator real; navegador e interação da ficha; provedores
+externos; cron Cloudflare real; MFA interativo; hospedeiro A7. Não se afirma que
+os 266 arquivos de Vitest passaram. A7 continua pendente da frente da casa porque
+seus três arquivos são expressamente reservados. Eliminação integral, maioridade
+sem prova e resolução automática de conflito já enviado ao ERP continuam
+indisponíveis conforme as decisões de privacidade e retenção descritas acima.
+
+---
+
+## Relato individual anterior (histórico)
+
 ## Estado da entrega e causa da falha atual
 
 Relato completo atualizado em 18/11/2026. Trabalho limitado aos arquivos de
 `f1-identidade` na Parte B. Sem commit, rede, Vitest ou Wrangler nesta sessão;
 nenhuma asserção existente removida e nenhum teto aumentado.
 
-O `.codex-verificacao.log` atual registra `npm run check` aprovado e
-**35 testes aprovados, 3 falhos, de 38** na execução externa:
+Na etapa individual de 18/11, o log então recebido registrava `npm run check`
+aprovado e **35 testes aprovados, 3 falhos, de 38** na execução externa:
 
 | Arquivo | Aprovados | Falhos |
 | --- | ---: | ---: |

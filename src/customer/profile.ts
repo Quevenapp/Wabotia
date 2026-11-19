@@ -162,6 +162,7 @@ export function createProfilePort(): ProfilePort {
       return {
         profileId, contactId, erpContactId: row.erp_contact_id,
         depth: full ? "full" : "simple", vocabulary: { singular: words.singular, plural: words.plural },
+        ...(!allows(actor, "contacts") ? { readable: false } : {}),
         // ERP é somente uma indicação: o hospedeiro reaplica o .ie granular e MFA.
         writable: full ? ["admin", "vendas", "financeiro"].includes(erpRoleOf(actor) ?? "") : allows(actor, "contacts"),
         contributions,

@@ -257,6 +257,6 @@ function provider(module: "queue" | "forms", collection: string, source: Source)
   } };
 }
 
-installHistoryPort(customerHistory);
+installHistoryPort(customerHistory, { default: true });
 registerCustomerProvider("queue", provider("queue", "tickets", "queue"));
 registerCustomerProvider("forms", provider("forms", "submissions", "form"));

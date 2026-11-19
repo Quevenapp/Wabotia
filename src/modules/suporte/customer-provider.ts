@@ -1,6 +1,6 @@
 import { all, batch, one } from "../../db";
 import { ApiError, type Conversation } from "../../types";
-import { customerRecordStatements } from "../../customer/ports";
+import { customerRecordStatements, identityPort } from "../../customer/ports";
 import type { Statement } from "../../customer/contracts";
 import type { CustomerModuleProvider } from "../../customer/profile-contracts";
 import type { ModuleContext } from "../api";
@@ -16,6 +16,10 @@ export async function supportCustomerStatements(
 ): Promise<Statement[]> {
   if (c.profile_id !== ctx.profile) throw new ApiError(404, "not_found", "Conversa não encontrada.");
   if (c.chat_type === "group" || c.external_namespace.startsWith("app:")) return [];
+  if (kind === "sessions" && identityPort.recordLink) return identityPort.recordLink(c, {
+    profileId: ctx.profile, moduleId: "suporte", kind, recordId: supportSessionKey(c.id, id),
+    conversationId: c.id, linkedBy, occurredAt: at,
+  });
   let contactId: string | null = null;
   if (sessionId) {
     // Nunca troca o interlocutor histórico pelo titular de payer_id ou por

@@ -6,7 +6,7 @@ import { searchText } from "../contact-csv";
 import { erpBridge, identityPort, maintainCustomers } from "./ports";
 import { isFullCustomerEnabled } from "./feature";
 import type { BridgeCommand, CustomerJobView, CustomerMirror, CustomerWrite, CustomerWriteResult, JobState, MaintenanceBudget, MaintenanceResult, Namespace, Statement } from "./contracts";
-import { activeContact, cleanMirror, contactRow, customerAccess, guard, guardedBatch, human, mergePatch, mirrorOf, namespaceFor, reconcilePatch, validateWrite, phoneSafetyStatements } from "./local";
+import { activeContact, cleanMirror, contactRow, customerAccess, guard, guardedBatch, human, mergePatch, mirrorOf, namespaceFor, reconcilePatch, validateWrite, phoneSafetyStatements, isCustomerSelfActor, validateCustomerSelfActor } from "./local";
 
 interface Intent {
   actor: Actor;
@@ -41,7 +41,7 @@ export async function replayJob(env: Env, profile: string, command: string, hash
   if (job && job.request_hash !== hash) throw new ApiError(409, "idempotency_conflict", "Este comando já foi usado com outro conteúdo ou ator.");
   return job;
 }
-export function jobInsert(profile: string, namespace: Namespace, contact: string | null, kind: string, command: string, hash: string, cipher: string, version: number | null, erpVersion: number | null, id = uid()): { id: string; statement: Statement } {
+export function jobInsert(profile: string, namespace: Namespace, contact: string | null, kind: string, command: string, hash: string, cipher: string, version: number | null, erpVersion: number | null, id: string = uid()): { id: string; statement: Statement } {
   const time = now();
   return { id, statement: ["INSERT INTO customer_jobs(profile_id,id,namespace,contact_id,kind,command_id,request_hash,expected_version,expected_erp_version,payload_cipher,retry_at,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
     [profile, id, namespace, contact, kind, command, hash, version, erpVersion, cipher, time, time, time]] };
@@ -79,10 +79,10 @@ export async function enrichLocal(env: Env, actor: Actor, profile: string, id: s
 }
 const headPredicate = `NOT EXISTS(SELECT 1 FROM customer_jobs earlier WHERE earlier.profile_id=customer_jobs.profile_id AND earlier.contact_id=customer_jobs.contact_id AND earlier.state NOT IN ('done','retained','cancelled') AND (earlier.created<customer_jobs.created OR (earlier.created=customer_jobs.created AND earlier.id<customer_jobs.id)))`;
 async function finishState(env: Env, job: any, state: JobState, code: string | null, fields: readonly string[] = [], details?: unknown) {
-  await exec(env, "UPDATE customer_jobs SET state=?,error_code=?,cursor_json=?,result_cipher=coalesce(?,result_cipher),lease_until=NULL,retry_at=?,updated=? WHERE profile_id=? AND id=? AND state='running' AND attempts=?", state, code, JSON.stringify({ missingFields: fields }), details === undefined ? null : await seal(env, details), now() + 60_000, now(), job.profile_id, job.id, job.attempts);
+  await exec(env, "UPDATE customer_jobs SET state=?,error_code=?,cursor_json=json_set(cursor_json,'$.missingFields',json(?)),result_cipher=coalesce(?,result_cipher),lease_until=NULL,retry_at=?,updated=? WHERE profile_id=? AND id=? AND state='running' AND attempts=?", state, code, JSON.stringify(fields), details === undefined ? null : await seal(env, details), now() + 60_000, now(), job.profile_id, job.id, job.attempts);
 }
 function finishStatement(job: any, state: JobState, cipher: string, payload: string | null = null): Statement[] {
-  return [["UPDATE customer_jobs SET state=?,result_cipher=?,payload_cipher=?,error_code=NULL,cursor_json='{}',lease_until=NULL,updated=? WHERE profile_id=? AND id=? AND state='running' AND attempts=?", [state, cipher, payload, now(), job.profile_id, job.id, job.attempts]], ...guard(job.command_id, "finish")];
+  return [["UPDATE customer_jobs SET state=?,result_cipher=?,payload_cipher=?,error_code=NULL,cursor_json=json_remove(cursor_json,'$.missingFields'),lease_until=NULL,updated=? WHERE profile_id=? AND id=? AND state='running' AND attempts=?", [state, cipher, payload, now(), job.profile_id, job.id, job.attempts]], ...guard(job.command_id, "finish")];
 }
 async function applyLocal(env: Env, job: any, intent: Intent, row: any) {
   if (intent.localVersion) return finishState(env, job, "paused", "module_disabled");
@@ -142,7 +142,13 @@ async function applyErp(env: Env, job: any, intent: Intent, row: any) {
     ]);
   }
   if (!await enabled(env, job.profile_id)) return finishState(env, job, "paused", "module_disabled");
-  const result = await erpBridge.apply(env, intent.bridge);
+  const result = !row && intent.operation === "bind"
+    ? { status: "applied" as const, snapshot: await erpBridge.read(env, intent.actor, job.profile_id, intent.erpId!), replayed: false }
+    : await erpBridge.apply(env, intent.bridge);
+  // A ponte real confirma espelho, índice e job no mesmo lote. Adaptadores que
+  // só devolvem snapshot continuam usando a confirmação abaixo, uma única vez.
+  const committed = await one(env, "SELECT state,cursor_json FROM customer_jobs WHERE profile_id=? AND id=?", job.profile_id, job.id);
+  if (committed?.state === "done" && JSON.parse(committed.cursor_json).customerErp?.done) return;
   if (!await enabled(env, job.profile_id)) return finishState(env, job, "paused", "module_disabled");
   if (result.status === "paused") return finishState(env, job, "paused", result.reason);
   if (result.status === "needs_data") return finishState(env, job, "paused", "contact_required", result.fields);
@@ -175,6 +181,12 @@ export async function processJob(env: Env, profile: string, id: string) {
   try {
     const intent: Intent = await unseal(env, claimed.payload_cipher);
     const row = claimed.contact_id ? await contactRow(env, intent.actor, profile, claimed.contact_id, true) : null;
+    if (isCustomerSelfActor(intent.actor)) {
+      if (intent.operation !== "enrich" || intent.input.mode !== "fill_empty" || intent.local ||
+          Object.keys(intent.input.patch).some(key => !["name", "email", "document", "personType"].includes(key)))
+        throw new ApiError(403, "forbidden", "Confirmação cadastral fora do escopo.");
+      await validateCustomerSelfActor(env, intent.actor, profile, claimed.contact_id);
+    }
     if (!row && intent.operation === "bind") {
       const existing = await one(env, "SELECT * FROM contacts WHERE profile_id=? AND erp_contact_id=?", profile, intent.erpId);
       if (existing) {
@@ -238,6 +250,36 @@ export async function bindFromErp(env: Env, actor: Actor, profile: string, erpId
   await batch(env, [job.statement]);
   // Associação sempre devolve a intenção; não cria uma pessoa no ERP.
   return { contactId: intent.newContactId!, version: 1, jobId: job.id, state: "pending", pending: true };
+}
+
+/** Revisão humana substitui a intenção em conflito, sem editar o corpo de um replay. */
+export async function resolveCustomerJob(env: Env, actor: Actor, profile: string, id: string, raw: CustomerWrite, command: string) {
+  human(actor); customerAccess(actor, profile, true);
+  const input = validateWrite({ ...raw, commandId: command });
+  const hash = await requestHash(actor, { operation: "resolve-job", id, input });
+  const replay = await replayJob(env, profile, command, hash);
+  if (replay) return writeResult(env, replay);
+  const old = await one(env, "SELECT * FROM customer_jobs WHERE profile_id=? AND id=?", profile, id);
+  if (!old?.contact_id) throw new ApiError(404, "not_found", "Solicitação não encontrada.");
+  const row = await contactRow(env, actor, profile, old.contact_id);
+  const cursor = JSON.parse(old.cursor_json);
+  // Um save ERP enviado precisa ser reconciliado pela mesma intenção; não criar
+  // um novo recibo capaz de duplicar a pessoa após uma resposta perdida.
+  if (old.state !== "conflict" || cursor.customerErp?.sent || !["enrich", "promote"].includes(old.kind))
+    throw new ApiError(409, "sync_pending", "Concilie a intenção já enviada ao ERP antes de substituí-la.");
+  if (row.version !== input.expectedVersion || row.erp_version !== input.expectedErpVersion)
+    throw new ApiError(409, "contact_conflict", "O cadastro mudou. Reabra a ficha.");
+  const intent: Intent = { actor, input, base: mirrorOf(row), operation: old.kind };
+  const next = jobInsert(profile, row.namespace, row.id, old.kind, command, hash, await seal(env, intent), row.version, row.erp_version, `${old.id}:r`);
+  // Mantém a posição (created,id) anterior aos comandos que ela bloqueava.
+  next.statement[1][11] = old.created;
+  await guardedBatch(env, [
+    ["UPDATE customer_jobs SET state='cancelled',payload_cipher=NULL,updated=? WHERE profile_id=? AND id=? AND state='conflict' AND cursor_json=?", [now(), profile, id, old.cursor_json]],
+    ...guard(command, "resolve-job"), next.statement,
+    auditStatement(actor, profile, "contact.resolve-job", row.id, command),
+  ]);
+  await tryJob(env, profile, next.id);
+  return writeResult(env, await one(env, "SELECT * FROM customer_jobs WHERE profile_id=? AND id=?", profile, next.id));
 }
 
 class BudgetExhausted extends Error {}

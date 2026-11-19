@@ -329,12 +329,16 @@ it("endereço de terceiro fica no Pedido e respostas de check-in ficam na Reserv
   })).toThrow();
 });
 
-it("busca do balcão usa telefone canônico e identidade central, sem variantes nem namespace alheio", async () => {
+it("busca do balcão preserva a abertura compatível e não entrega essa credencial a aplicações", async () => {
   const f = await fixture(), c = await f.conversation();
-  const ctx = pedidoCreationContext(f.ctx("pedido"), f.actor, undefined);
+  const lookup = vi.fn(async () => c);
+  const original = { ...f.ctx("pedido"), conversationByPhone: lookup };
+  const ctx = pedidoCreationContext(original, f.actor, undefined);
   expect((await ctx.conversationByPhone(phone))?.id).toBe(c.id);
-  expect(await ctx.conversationByPhone("11987654321")).toBeNull();
+  expect((await ctx.conversationByPhone("551187654321", { open: true }))?.id).toBe(c.id);
+  expect(lookup).toHaveBeenLastCalledWith("551187654321", { open: true });
   expect(await ctx.conversationByPhone("telefone " + phone)).toBeNull();
-  await exec(env, "UPDATE customer_phones SET state='ambiguous',contact_id=NULL WHERE profile_id=?", f.profile);
-  expect(await ctx.conversationByPhone(phone)).toBeNull();
+  const app = pedidoCreationContext(original, { ...f.actor, kind: "app", scopes: ["contacts:read"] }, undefined);
+  expect(await app.conversationByPhone(phone)).toBeNull();
+  expect(lookup).toHaveBeenCalledTimes(2);
 });

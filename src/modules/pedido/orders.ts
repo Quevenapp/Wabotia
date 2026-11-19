@@ -34,7 +34,7 @@ import {
 } from "./model";
 import { config, offeredMethods, paymentsReady } from "./store";
 import { emitStatusChange, noticeHandled } from "./listeners";
-import { confirmRoutineCustomer, routineCustomer } from "../agenda/customer-provider";
+import { confirmRoutineCustomer, routineCustomer, routineCustomerScope, selfCustomerStatements } from "../agenda/customer-provider";
 import { normalizeCustomerPhone } from "../../customer/phone";
 
 /**
@@ -598,6 +598,8 @@ export async function createOrder(ctx: ModuleContext, input: NewOrder) {
         at,
       ],
     ],
+    ...(c && contact && input.source === "cart" && input.actor === "customer"
+      ? await selfCustomerStatements(ctx, c, contact, input.sourceKey, input.customer_name || "") : []),
   ]);
   if (!inserted.meta.changes) {
     const previous = await one(
@@ -1512,12 +1514,12 @@ export async function paymentUpdated(
 
 /** Pedidos pelo vínculo; legado somente da conversa original. */
 export async function openOrdersFor(ctx: ModuleContext, c: Conversation) {
-  const customer = await routineCustomer(ctx, c);
+  const scope = await routineCustomerScope(ctx, c, "phone");
   return all(
     ctx.env,
-    `SELECT * FROM pedido_orders WHERE profile_id=? AND (${customer ? "contact_id=? OR (contact_id IS NULL AND conversation_id=?)" : "conversation_id=?"}) AND status IN (${ACTIVE_STATUSES.map(() => "?").join(",")}) ORDER BY number DESC LIMIT 5`,
+    `SELECT * FROM pedido_orders WHERE profile_id=? AND ${scope.sql} AND status IN (${ACTIVE_STATUSES.map(() => "?").join(",")}) ORDER BY number DESC LIMIT 5`,
     ctx.profile,
-    ...(customer ? [customer.ref.contactId, c.id] : [c.id]),
+    ...scope.params,
     ...ACTIVE_STATUSES,
   );
 }

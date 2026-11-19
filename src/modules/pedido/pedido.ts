@@ -284,9 +284,6 @@ onCommand(
   "pedido.order.create",
   async (ctx, actor, data, { requestId }) => {
     const creation = pedidoCreationContext(ctx, actor, data.customer, data.customer_name);
-    if (data.whatsapp_notices === true && !data.conversation_id &&
-        !(await creation.conversationByPhone(data.phone)))
-      throw new ApiError(422, "contact_required", "Informe a conversa original para enviar avisos enquanto a identificação está pendente.");
     return visibleOrders(ctx, actor, await createFromApi(creation, actor, data, requestId));
   },
 );

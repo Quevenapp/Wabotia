@@ -42,7 +42,7 @@ import { installIdentityPort, identityPort } from "./customer/ports";
 import { customerIdentity, inboundConnection, evidencePhone } from "./customer/identity";
 import { normalizeCustomerPhone } from "./customer/phone";
 import type { InboundEvidence } from "./customer/contracts";
-installIdentityPort(customerIdentity);
+installIdentityPort(customerIdentity, { default: true });
 import { authorizedMedia, mediaKind, uploadCommand } from "./media";
 import {
   outgoingContent,
@@ -541,6 +541,10 @@ export async function createTicket(
         id,
       ],
     ]);
+  writes.push(...(identityPort.recordLink?.(c, {
+    profileId: c.profile_id, moduleId: "tickets", kind: "ticket", recordId: id,
+    conversationId: c.id, linkedBy: "identity", occurredAt: at,
+  }) ?? []));
   await batch(env, writes);
   const ticket = options.sourceKey
     ? await one(
@@ -1102,7 +1106,7 @@ async function attendantAvailable(env: Env, c: Conversation, cfg: any) {
 /**
  * Telefone em dígitos e, no Brasil, também com e sem o 9 do celular: o
  * WhatsApp às vezes identifica o mesmo número das duas formas.
- * Somente revisão do legado; variantes não são prova nem autorização.
+ * A busca por variantes só recebe prova do canal ou pedido autorizado da equipe.
  */
 export function phoneVariants(phone: unknown) {
   let digits = String(phone ?? "").replace(/\D/g, "");
@@ -1111,7 +1115,7 @@ export function phoneVariants(phone: unknown) {
   if (/^[1-9]{2}9\d{8}$/.test(digits) || /^[1-9]{2}[2-9]\d{7}$/.test(digits))
     digits = "55" + digits;
   requireValue(
-    /^\d{10,15}$/.test(digits),
+    /^[1-9]\d{7,14}$/.test(digits),
     "Telefone inválido: use DDI, DDD e número (ex.: 5511999990000).",
   );
   const out = new Set([digits]);
@@ -1138,19 +1142,19 @@ export async function conversationByPhone(
     module?: string | null;
   } = {},
 ): Promise<Conversation | null> {
-  const digits = normalizeCustomerPhone(phone, "international");
-  requireValue(digits, "Telefone inválido: use DDI, DDD e número.");
+  requireValue(normalizeCustomerPhone(phone, "international"), "Telefone inválido: use DDI, DDD e número.");
+  const variants = JSON.stringify(phoneVariants(phone));
+  const digits = phoneVariants(phone)[0];
   const found = await one<Conversation>(
     env,
     `SELECT c.* FROM conversations c
-      JOIN customer_phones p ON p.profile_id=c.profile_id AND p.namespace='team' AND p.phone=c.verified_phone AND p.state='ready'
-      JOIN conversation_contacts l ON l.conversation_id=c.id AND l.profile_id=c.profile_id AND l.contact_id=p.contact_id
-      JOIN contacts k ON k.id=l.contact_id AND k.profile_id=c.profile_id AND k.namespace='team' AND k.identity_state='active'
-      WHERE c.profile_id=? AND c.chat_type='direct' AND c.verified_phone=? AND c.customer_link_state='ready'
+      WHERE c.profile_id=? AND c.chat_type='direct'
+        AND c.customer_link_state NOT IN ('blocked','excluded','ambiguous')
+        AND c.phone IN (SELECT value FROM json_each(?))
         AND c.connection_id IS NOT NULL AND c.external_namespace='channel:'||c.connection_id${options.connectionId ? " AND c.connection_id=?" : ""}
       ORDER BY c.last_customer DESC,c.updated DESC LIMIT 1`,
     profile,
-    digits,
+    variants,
     ...(options.connectionId ? [options.connectionId] : []),
   );
   if (found || !options.open) return found;
@@ -1258,14 +1262,22 @@ export async function inbound(
   const channel = connectionId ? await inboundConnection(env, connectionId) : null;
   requireValue(
     !connectionId || (channel?.profile_id === profile && namespace === `channel:${connectionId}` &&
-      ["qr", "zernio"].includes(channel.kind)),
+      ["qr", "zernio", "meta"].includes(channel.kind)),
     "Origem do canal inválida.",
   );
-  requireValue(connectionId || namespace.startsWith("app:"), "Origem da mensagem inválida.");
+  // Entradas legadas sem conexão podem manter uma conversa e associação humana.
+  // Sem canal autenticado, prepareInbound não lhes concede prova telefônica.
+  // Compatibilidade do transporte anterior: QR já normalizado (somente dígitos)
+  // e Meta identificavam o remetente no external_id. JIDs/LIDs nunca passam por
+  // esse caminho; os conectores atuais enviam phone explicitamente, inclusive null.
+  const legacyPhone = normalizeCustomerPhone(data.external_id, "international");
+  const qrLegacy = channel?.kind === "qr" && data.phone_jid === undefined &&
+    /^[1-9][0-9]{7,14}$/.test(data.external_id) &&
+    (data.phone === undefined || data.phone === legacyPhone);
   const evidence: InboundEvidence = {
-    provider: channel?.kind === "qr" ? "qr" : "zernio",
-    phone: connectionId && !isGroup ? data.phone ?? null : null,
-    ...(channel?.kind === "qr" ? { phoneJid: data.phone_jid ?? data.external_id } : {}),
+    provider: channel?.kind === "qr" ? "qr" : channel?.kind === "meta" ? "meta" : "zernio",
+    phone: connectionId && !isGroup ? data.phone ?? (data.phone === undefined && (qrLegacy || channel?.kind === "meta") ? legacyPhone : null) : null,
+    ...(channel?.kind === "qr" ? { phoneJid: data.phone_jid ?? (qrLegacy ? `${legacyPhone}@s.whatsapp.net` : data.external_id) } : {}),
   };
   const authenticatedPhone = connectionId && !isGroup ? evidencePhone(evidence) : null;
   if (isGroup) {
@@ -1293,13 +1305,15 @@ export async function inbound(
          WHERE profile_id=? AND external_namespace=? AND external_id=?
        UNION ALL SELECT id,2 FROM conversations
          WHERE profile_id=? AND connection_id=? AND external_namespace=?
-           AND chat_type='direct' AND last_customer=0 AND phone=?
+           AND chat_type='direct' AND last_customer=0
+           AND customer_link_state NOT IN ('blocked','excluded','ambiguous')
+           AND phone IN (SELECT value FROM json_each(?))
      ) SELECT c.*,k.priority inbound_match FROM candidates k
        JOIN conversations c ON c.id=k.id AND c.profile_id=?
        ORDER BY k.priority,c.created DESC LIMIT 1`,
     isGroup ? null : connectionId, data.external_id,
     profile, namespace, data.external_id,
-    profile, connectionId, namespace, authenticatedPhone, profile);
+    profile, connectionId, namespace, JSON.stringify(authenticatedPhone ? phoneVariants(authenticatedPhone) : []), profile);
   requireValue(
     !c?.connection_id || !!connectionId,
     "Mensagens de cliente em um canal real devem chegar pelo webhook autenticado.",
@@ -2007,6 +2021,8 @@ export async function perform(
   requireOperationAccess(actor, op);
   // Cobrança feita por pessoa: com a política do segundo fator (src/mfa.ts).
   if (op.startsWith("payment.")) requireFinancialAal(actor);
+  if (op.startsWith("contact.") && op !== "contact.maintain")
+    return contactCommand(env, actor, profile, op, data, requestId);
   // Comandos registrados pelos módulos (src/modules/api.ts, onCommand).
   const fromModule = moduleCommandHandler(op);
   if (fromModule) return fromModule(env, actor, profile, data, requestId);
@@ -2041,13 +2057,6 @@ export async function perform(
     return messageAction(env, actor, profile, data, requestId);
   if (op.startsWith("queue.") || op.startsWith("counter."))
     return queueCommand(env, actor, profile, op, data, requestId);
-  if (op.startsWith("contact."))
-    // f1-cadastro acrescenta o sexto argumento. Mantém compatibilidade de
-    // compilação com a assinatura da base, sem descartar o ID estável.
-    return (contactCommand as typeof contactCommand & ((env: Env, actor: Actor,
-      profile: string, operation: string, data: any, commandId: string) => Promise<any>))(
-        env, actor, profile, op, data, requestId,
-      );
   if (op.startsWith("module."))
     return moduleCommand(env, actor, profile, op, data);
   if (op === "web_step.cancel")

@@ -90,7 +90,7 @@ function view(snapshot: Snapshot, version: number, at: number): SectionView {
     return { ...row, label: labels[row.role], active };
   });
   return { version, writable: true, schema: "condominio.units.v1", data: {
-    people: snapshot.people, memberships, functions, subscriptions: snapshot.subscriptions,
+    people: snapshot.people, memberships, functions, subscriptions: snapshot.subscriptions.map(row => ({ ...row, linked: true })),
     personTypes: [...roles].sort().map(key => ({ key, label: labels[key] })),
   } as Json };
 }

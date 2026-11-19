@@ -1,6 +1,6 @@
 import { all, batch, exec, one } from "../db";
 import { searchText } from "../contact-csv";
-import { canonical, seal } from "../security";
+import { canonical, seal, unseal } from "../security";
 import { ApiError, now, uid, type Env } from "../types";
 import type { BridgeSnapshot, CustomerMirror, MaintenanceBudget, MaintenanceResult, Statement } from "./contracts";
 import { isFullCustomerEnabled } from "./feature";
@@ -15,6 +15,7 @@ export interface BridgeContact {
 export interface BridgeJob {
   id: string; profile_id: string; namespace: string; contact_id: string; command_id: string;
   request_hash: string; state: string; cursor_json: string; created: number;
+  payload_cipher?: string | null;
 }
 export const SCAN_TASK = "erp.contacts.scan.v1";
 // Retira somente os caches de invocação; ativação precisa ser relida após uma ida remota.
@@ -53,6 +54,7 @@ export async function mirrorStatements(
     "SELECT id FROM contacts WHERE profile_id=? AND erp_contact_id=? AND id<>?", contact.profile_id, snapshot.erpId, contact.id);
   if (owner) throw bridgeConflict("namespace_conflict");
   const mirror = snapshot.mirror;
+  const local = job?.payload_cipher ? (await unseal(env, job.payload_cipher)).local : null;
   const changed = contact.erp_contact_id !== snapshot.erpId || contact.erp_version !== snapshot.erpVersion ||
     contact.mirror_json !== JSON.stringify(mirror) || !!contact.local_patch_cipher;
   if (!changed && !job) return [];
@@ -66,17 +68,21 @@ export async function mirrorStatements(
      WHERE profile_id=? AND id=? AND namespace='team' AND identity_state='active' AND version=?
        AND local_patch_cipher IS ? AND mirror_json IS ? AND erp_contact_id IS ? AND erp_version IS ?`,
     [mirror.name, mirror.phones[0] ?? "", mirror.email, mirror.document, mirror.personType, snapshot.erpId,
-      snapshot.erpVersion, JSON.stringify(mirror), searchText([mirror.name, ...mirror.phones, mirror.email, mirror.document, contact.company].join(" ")),
+      snapshot.erpVersion, JSON.stringify(mirror), searchText([mirror.name, ...mirror.phones, mirror.email, mirror.document, local?.company ?? contact.company].join(" ")),
       now(), changed ? 1 : 0, contact.profile_id, contact.id, contact.version, contact.local_patch_cipher,
       contact.mirror_json, contact.erp_contact_id, contact.erp_version],
   ], guard(`${key}:contact`), ...indexed];
+  if (local) statements.push([
+    "UPDATE contacts SET company=?,notes=? WHERE profile_id=? AND id=?",
+    [local.company, local.notes, contact.profile_id, contact.id],
+  ]);
   if (job) {
     const cursor = JSON.parse(job.cursor_json);
     // Endereço e corpo entregues deixam a intenção; fica só o fingerprint do recibo.
     cursor.customerErp = { fingerprint: cursor.customerErp.fingerprint, done: true };
     statements.push([
       "UPDATE customer_jobs SET state='done',cursor_json=?,result_cipher=?,payload_cipher=NULL,error_code=NULL,lease_until=NULL,updated=? WHERE profile_id=? AND id=? AND cursor_json=? AND state NOT IN ('cancelled','retained')",
-      [JSON.stringify(cursor), await seal(env, { status: "applied", snapshot }), now(), job.profile_id, job.id, job.cursor_json],
+      [JSON.stringify(cursor), await seal(env, { status: "applied", snapshot, contactId: contact.id, version: contact.version + (changed ? 1 : 0) }), now(), job.profile_id, job.id, job.cursor_json],
     ], guard(`${key}:job`), ["DELETE FROM customer_assert WHERE id=?", [`${key}:job`]]);
   }
   statements.push(["DELETE FROM customer_assert WHERE id=?", [`${key}:contact`]]);

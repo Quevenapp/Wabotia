@@ -5,7 +5,7 @@
 // mesma unidade, venham do painel, da API ou do WhatsApp. Os comandos ainda
 // rodam serializados no Coordinator da área.
 import { all, exec, one } from "../../db";
-import { confirmRoutineCustomer, routineCustomer } from "../agenda/customer-provider";
+import { confirmRoutineCustomer, routineCustomer, routineCustomerScope } from "../agenda/customer-provider";
 import { normalizeCustomerPhone } from "../../customer/phone";
 import {
   ApiError,
@@ -267,13 +267,13 @@ export async function upcomingFor(
   c: Conversation,
   at: number,
 ) {
-  const customer = await routineCustomer(ctx, c);
+  const scope = await routineCustomerScope(ctx, c, "customer_phone");
   const rows = await all(
     ctx.env,
-    `SELECT * FROM reserva_bookings WHERE profile_id=? AND status IN ${ACTIVE_SQL} AND departure_at>? AND (${customer ? "contact_id=? OR (contact_id IS NULL AND conversation_id=?)" : "conversation_id=?"}) ORDER BY starts LIMIT 20`,
+    `SELECT * FROM reserva_bookings WHERE profile_id=? AND status IN ${ACTIVE_SQL} AND departure_at>? AND ${scope.sql} ORDER BY starts LIMIT 20`,
     ctx.profile,
     at,
-    ...(customer ? [customer.ref.contactId, c.id] : [c.id]),
+    ...scope.params,
   );
   return rows.map(bookingView);
 }

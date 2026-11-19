@@ -64,7 +64,7 @@ function ProfileSession(props: ContactProfileProps) {
   const [jobId, setJobId] = useState<string | null>(null);
   const base = root + "/contacts/" + encodeURIComponent(contactId);
   const profile = useResource<ContactProfileView>(api, demo ? null : base + "/profile", revision);
-  const detail = useResource<{ contact: Row; conversations?: Row[] }>(api, demo ? null : base, contactRevision);
+  const detail = useResource<{ contact: Row; conversations?: Row[] }>(api, demo || profile.loading || profile.value?.readable === false ? null : base, contactRevision);
   const view: ContactProfileView | null = demo ? {
     profileId: decodeURIComponent(root.split("/").at(-1)!), contactId, erpContactId: null, depth: "simple",
     vocabulary: { singular: "Cliente", plural: "Clientes" }, writable: false, contributions: [],
@@ -88,7 +88,7 @@ function ProfileSession(props: ContactProfileProps) {
       {profile.error && <Failure error={profile.error} retry={() => setRevision(n => n + 1)} />}
       {view && !valid && <p role="alert">Esta ficha não pertence ao contato e à área selecionados.</p>}
       {valid && <>
-        <section className="customer-profile-card" aria-label="Cadastro">
+        {(view.readable !== false || profileMode(view) === "full") && <section className="customer-profile-card" aria-label="Cadastro">
           {profileMode(view) === "full" ? <>
             <FullBody view={view} saved={() => saved()} close={onClose} />
             {detail.error && <Failure error={detail.error} retry={() => setContactRevision(n => n + 1)} />}
@@ -106,9 +106,9 @@ function ProfileSession(props: ContactProfileProps) {
               contact={row} conversation={props.conversation} conversations={detail.value?.conversations}
               embedded writable={view.writable} close={closeDialog} saved={saved} openConversation={props.openConversation} />}
           </>}
-        </section>
+        </section>}
         {!demo && <>
-          <History api={api} base={base} />
+          {view.readable !== false && <History api={api} base={base} />}
           {view.contributions.map(item => <ContributionCard key={`${item.moduleId}:${item.id}`} item={item} api={api} base={base} />)}
         </>}
       </>}
@@ -243,14 +243,11 @@ function SectionBody({ item, initial, api, path, reload }: { item: Contribution;
 
 // A extensão entrega somente campos administrativos públicos. IDs e campos
 // desconhecidos são preservados no corpo, mas nunca viram inputs livres.
-const publicLabels: Record<string, string> = { units: "Unidades", memberships: "Vínculos", functions: "Funções", links: "Vínculos",
+const publicLabels: Record<string, string> = { units: "Unidades", memberships: "Vínculos", functions: "Funções", links: "Vínculos", subscriptions: "Mensalidades", notices: "Receber avisos", linked: "Vinculada",
   unit: "Unidade", unitLabel: "Unidade", number: "Número", block: "Bloco", role: "Vínculo ou função", label: "Descrição",
   startsAt: "Início", endsAt: "Fim", starts_at: "Início", ends_at: "Fim" };
 const roleLabels: Record<string, string> = { morador: "Morador", proprietario: "Proprietário", inquilino: "Inquilino", sindico: "Síndico", zelador: "Zelador",
   porteiro: "Porteiro", prestador: "Prestador", funcionario: "Empregado da unidade", empregado_unidade: "Empregado da unidade", visitante_recorrente: "Visitante recorrente" };
-const membershipRoles = ["proprietario", "inquilino", "funcionario"];
-const functionRoles = ["sindico", "zelador", "porteiro", "prestador", "visitante_recorrente"];
-const rolesFor = (value: string) => membershipRoles.includes(value) ? membershipRoles : functionRoles.includes(value) ? functionRoles : [];
 function PublicFields({ data, change }: { data: Json; change(value: Json): void }) {
   if (Array.isArray(data)) return <div className="customer-profile-fields">{data.length ? data.map((value, index) => <PublicFields key={index} data={value}
     change={next => change(data.map((entry, i) => i === index ? next : entry))} />) : <p>Nenhum vínculo disponível.</p>}</div>;
@@ -258,9 +255,10 @@ function PublicFields({ data, change }: { data: Json; change(value: Json): void 
   const entries = Object.entries(data).filter(([key]) => Object.hasOwn(publicLabels, key));
   return <div className="customer-profile-fields">{entries.length ? entries.map(([key, value]) => <div key={key}>
     {value && typeof value === "object" ? <><h4>{publicLabels[key]}</h4><PublicFields data={value} change={next => change({ ...data, [key]: next })} /></>
-      : key === "role" && typeof value === "string" && rolesFor(value).length ? <label>{publicLabels[key]}<select value={value} onChange={event => change({ ...data, [key]: event.target.value })}>
-        {rolesFor(value).map(role => <option key={role} value={role}>{roleLabels[role]}</option>)}</select></label>
-      : <p><strong>{publicLabels[key]}: </strong>{value == null ? "—" : String(value)}</p>}
+      : key === "notices" || key === "linked" ? <label><input type="checkbox" checked={value === true} onChange={event => change({ ...data, [key]: event.target.checked })} />{publicLabels[key]}</label>
+      : key === "endsAt" ? <label>{publicLabels[key]}<input type="datetime-local" value={typeof value === "number" ? new Date(value - new Date(value).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ""}
+        onChange={event => change({ ...data, [key]: event.target.value ? new Date(event.target.value).getTime() : null })} /></label>
+      : <p><strong>{publicLabels[key]}: </strong>{value == null ? "—" : key === "role" ? roleLabels[String(value)] ?? String(value) : String(value)}</p>}
   </div>) : <p>Os vínculos são administrados no módulo Condomínio.</p>}</div>;
 }
 

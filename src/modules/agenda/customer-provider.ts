@@ -2,10 +2,26 @@ import { all, batch, one } from "../../db";
 import { allows } from "../../access";
 import { seal, unseal } from "../../security";
 import { ApiError, type Actor, type Conversation } from "../../types";
+import { jobInsert, requestHash } from "../../customer/jobs";
 import type { ModuleContext } from "../api";
 import type { CustomerRef, CustomerWrite, Statement } from "../../customer/contracts";
 import type { CustomerModuleProvider } from "../../customer/profile-contracts";
-import { normalizeCustomerPhone } from "../../customer/phone";
+import { normalizeCustomerPhone, customerPhoneVariants as phoneVariants } from "../../customer/phone";
+
+/** Consulta pública legada por credencial do canal; texto/API não fornece phone. */
+export async function routineCustomerScope(ctx: ModuleContext, c: Conversation, phoneColumn: "phone" | "customer_phone") {
+  const ref = await ctx.customer(c);
+  const namespace = c.external_namespace.startsWith("app:") ? c.external_namespace : "team";
+  if (c.profile_id !== ctx.profile || ref.profileId !== ctx.profile || ref.namespace !== namespace)
+    throw new ApiError(404, "not_found", "Contato não encontrado.");
+  if (["blocked", "excluded", "ambiguous"].includes(ref.state))
+    return { sql: "contact_id IS NULL AND conversation_id=?", params: [c.id] as unknown[] };
+  const phone = ctx.verifiedPhone(c);
+  return {
+    sql: `(contact_id=? OR (contact_id IS NULL AND (conversation_id=? OR ${phoneColumn} IN (SELECT value FROM json_each(?)))))`,
+    params: [ref.state === "ready" ? ref.contactId : null, c.id, JSON.stringify(phone ? phoneVariants(phone) : [])],
+  };
+}
 
 /** Utilitários compartilhados apenas pelas três rotinas desta frente. */
 export async function routineCustomer(ctx: ModuleContext, c: Conversation) {
@@ -17,10 +33,22 @@ export async function routineCustomer(ctx: ModuleContext, c: Conversation) {
     throw new ApiError(404, "not_found", "Contato não encontrado.");
   if (c.chat_type === "group" || ref.state !== "ready" || !ref.contactId) return null;
   const contact = await one(ctx.env,
-    "SELECT id,name,phone FROM contacts WHERE profile_id=? AND namespace=? AND id=? AND identity_state='active'",
+    "SELECT id,name,phone,email,document,person_type,mirror_json FROM contacts WHERE profile_id=? AND namespace=? AND id=? AND identity_state='active'",
     ctx.profile, namespace, ref.contactId);
   if (!contact) throw new ApiError(404, "not_found", "Contato não encontrado.");
-  return { ref, name: contact.name as string, phone: ref.verifiedPhone || "" };
+  return { ref, name: contact.name as string, phone: ref.verifiedPhone || "", snapshot: contact };
+}
+
+/** Nome confirmado no carrinho; intenção no lote do pedido, processada na manutenção. */
+export async function selfCustomerStatements(ctx: ModuleContext, c: Conversation, customer: NonNullable<Awaited<ReturnType<typeof routineCustomer>>>, source: string, name: string): Promise<Statement[]> {
+  if (!name.trim() || customer.ref.namespace !== "team" || !customer.ref.verifiedPhone || name === customer.name) return [];
+  const actor: Actor = { id: `customer:${c.id}:${c.session}`, kind: "connector", name: "Cliente da conversa", role: "service", profiles: [ctx.profile], scopes: ["contacts:self"], bots: [], rate: 0, runLimit: 0 };
+  const input: CustomerWrite = { commandId: `self:${source}`, expectedVersion: customer.ref.version!, expectedErpVersion: customer.ref.erp?.version ?? null, mode: "fill_empty", patch: { name: name.trim() } };
+  const row = customer.snapshot;
+  const base = row.mirror_json ? JSON.parse(row.mirror_json) : { name: row.name, phones: row.phone ? [row.phone] : [], email: row.email, document: row.document, personType: row.person_type };
+  const hash = await requestHash(actor, { source, contactId: customer.ref.contactId, name: name.trim() });
+  const job = jobInsert(ctx.profile, "team", customer.ref.contactId, "enrich", input.commandId, hash, await seal(ctx.env, { actor, input, base, operation: "enrich" }), input.expectedVersion, input.expectedErpVersion);
+  return [[job.statement[0] + " ON CONFLICT(profile_id,command_id) DO NOTHING", job.statement[1]]];
 }
 
 type Confirmation = { actor: Actor; name?: unknown; input?: Pick<CustomerWrite, "expectedVersion" | "expectedErpVersion" | "patch"> };

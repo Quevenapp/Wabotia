@@ -35,6 +35,7 @@ import { establishment } from "./establishment";
 import { publicOrigin } from "./web-steps";
 import { normalizeCustomerPhone } from "./customer/phone";
 import { customerRecordStatements, resolveCustomer } from "./customer/ports";
+import { verifiedPhone } from "./protocol-lookup";
 
 const DAY_MS = 86400000;
 export const QUEUE_SCOPES = ["queue:read", "queue:issue", "queue:operate"];
@@ -172,9 +173,7 @@ export const normalizePhone = (value: unknown) =>
 
 /** Marcador de canal autenticado; telefone digitado e external_id não são prova. */
 export function verifiedQueuePhone(c: Conversation): string | null {
-  return c.chat_type !== "group" && c.connection_id &&
-    c.external_namespace === `channel:${c.connection_id}` && c.customer_link_state === "ready"
-    ? normalizeCustomerPhone(c.verified_phone, "international") : null;
+  return verifiedPhone(c);
 }
 
 async function queueCustomer(env: Env, c: Conversation) {
@@ -1199,7 +1198,7 @@ export async function issueTicket(
       );
   }
   if (old) {
-    if (input.source === "whatsapp") {
+    if (input.source === "whatsapp" && input.conversationId) {
       const customer = await queueCustomer(env, await conversation(env, input.conversationId || "", profile));
       const linked = await one(env, "SELECT contact_id FROM customer_records WHERE profile_id=? AND module_id='queue' AND kind='ticket' AND record_id=?", profile, old.id);
       if (old.profile_id !== profile || old.conversation_id !== input.conversationId || (linked && linked.contact_id !== customer.contactId))
@@ -1220,7 +1219,7 @@ export async function issueTicket(
       "queue_closed",
       "Esta fila não está aceitando senhas.",
     );
-  const customer = input.source === "whatsapp"
+  const customer = input.source === "whatsapp" && input.conversationId
     ? await queueCustomer(env, await conversation(env, input.conversationId || "", profile)) : null;
   const phone = customer?.phone || normalizePhone(input.phone);
   const day = serviceDay();
@@ -2368,24 +2367,32 @@ export async function activeTicketFor(
   );
 }
 
-/** A senha se autoriza pelo vínculo persistido, nunca pela coincidência do número. */
+/** Vínculo persistido ou senha do balcão para o telefone provado pelo canal. */
 export async function activeTicketForConversation(env: Env, profile: string, conversationId: string) {
-  return one(env, `SELECT q.* FROM queue_tickets q JOIN conversations c ON c.id=q.conversation_id AND c.profile_id=q.profile_id
-    WHERE q.profile_id=? AND q.conversation_id=? AND q.service_day=? AND q.status IN ('waiting','called','serving')
+  return one(env, `SELECT q.* FROM queue_tickets q JOIN conversations c ON c.profile_id=q.profile_id
+    WHERE q.profile_id=? AND c.id=? AND q.service_day=? AND q.status IN ('waiting','called','serving')
+    AND (q.conversation_id=c.id OR (q.conversation_id IS NULL AND q.source='staff'
+      AND c.connection_id IS NOT NULL AND c.external_namespace='channel:'||c.connection_id
+      AND c.phone<>'' AND (c.verified_phone IS NULL OR c.verified_phone=c.phone)
+      AND (c.verified_phone IS NOT NULL OR (c.external_id NOT LIKE '%@lid' AND c.external_id NOT LIKE '%@g.us'))
+      AND (q.phone=c.phone
+        OR (length(c.phone)=13 AND c.phone GLOB '55[0-9][0-9]9*' AND q.phone=substr(c.phone,1,4)||substr(c.phone,6))
+        OR (length(c.phone)=12 AND c.phone GLOB '55[0-9][0-9][6-9]*' AND q.phone=substr(c.phone,1,4)||'9'||substr(c.phone,5)))))
     AND c.chat_type<>'group' AND c.customer_link_state NOT IN ('blocked','excluded','ambiguous')
     AND NOT EXISTS(SELECT 1 FROM conversation_contacts cc JOIN contacts p ON p.id=cc.contact_id AND p.profile_id=cc.profile_id
       WHERE cc.profile_id=c.profile_id AND cc.conversation_id=c.id AND p.identity_state<>'active')
     AND NOT EXISTS(SELECT 1 FROM customer_records r LEFT JOIN conversation_contacts cc ON cc.profile_id=r.profile_id AND cc.conversation_id=c.id
+      LEFT JOIN customer_phones cp ON cp.profile_id=c.profile_id AND cp.namespace='team' AND cp.phone=c.verified_phone AND cp.state='ready'
       LEFT JOIN contacts p ON p.id=r.contact_id AND p.profile_id=r.profile_id
       WHERE r.profile_id=q.profile_id AND r.module_id='queue' AND r.kind='ticket' AND r.record_id=q.id
-      AND (cc.contact_id IS NULL OR r.contact_id<>cc.contact_id OR p.id IS NULL OR p.identity_state<>'active'))
+      AND (coalesce(cc.contact_id,cp.contact_id) IS NULL OR r.contact_id<>coalesce(cc.contact_id,cp.contact_id) OR p.id IS NULL OR p.identity_state<>'active'))
     ORDER BY q.created_at DESC,q.id DESC LIMIT 1`, profile, conversationId, serviceDay());
 }
 
 /**
  * "Minha senha" for the customer of a conversation (bot tool
- * queue_minha_senha): today's active ticket issued to this conversation or,
- * pelo vínculo persistido da conversa. Only what the
+ * queue_minha_senha): today's active ticket linked to this conversation or
+ * issued by staff for its authenticated phone. Only what the
  * customer sees on WhatsApp: code, queue, position and estimate; no phone,
  * public token or link.
  */

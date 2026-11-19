@@ -231,7 +231,8 @@ export class Coordinator extends DurableObject<Env> {
             }
           }
           const recoverableWork = /^(area-template\.apply|os\.(?:private\.)?(?:task|person|entry)\.(?:create|update|archive|revise)|os\.(?:private\.)?document\.(?:reserve|complete|archive)|os\.stage(?:\.approval|\.decision)?|os\.private\.update)$/.test(body.operation);
-          if (!old.response && (closingOp || recoverableWork)) {
+          const recoverableCustomer = body.operation.startsWith("contact.") && body.operation !== "contact.maintain";
+          if (!old.response && (closingOp || recoverableWork || recoverableCustomer)) {
             // Sem a marca, a escrita não gravou (o lote é atômico): a
             // operação roda de novo, abaixo. Na emissão, a chave de origem
             // ainda devolve a senha de antes, se houver.
@@ -454,9 +455,11 @@ export class Coordinator extends DurableObject<Env> {
     if (linkPath === "/customer-tick") {
       return this.ctx.blockConcurrencyWhile(async () => {
         const { env, timing } = timedEnv(this.env);
+        const turn = await this.ctx.storage.get<number>("customer_maintenance_turn") ?? 0;
         const result = await maintainCustomers(withReadCache(env), this.profile, {
           remainingStatements: 40, remainingItems: 20,
-        });
+        }, turn);
+        await this.ctx.storage.put("customer_maintenance_turn", turn + 1);
         return Response.json(result, { headers: { "Server-Timing": serverTiming(timing) } });
       });
     }

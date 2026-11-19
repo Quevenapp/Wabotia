@@ -19,6 +19,10 @@ async function contact(ctx: ModuleContext, contactId: string) {
 }
 
 export const saudeCustomerProvider: CustomerModuleProvider = {
+  async erasure(env, profileId, contactId) {
+    return await one(env, "SELECT 1 FROM saude_contact_links WHERE profile_id=? AND contact_id=? LIMIT 1", profileId, contactId)
+      ? saudeCustomerErasure : null;
+  },
   async section(ctx, actor, contactId, sectionId) {
     await clinical(ctx, actor);
     if (sectionId !== "private") fail(404, "not_found");

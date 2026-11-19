@@ -131,7 +131,7 @@ export async function customerTools(env: Env, profile: string) {
 
 /** Definições para o modelo: sem conversation_id, profile e idempotency_key. */
 export function customerToolDefs(tools: ModuleMcpTool[]): BotTool[] {
-  return [memoryTool, ...tools.filter(t => t.name !== CUSTOMER_MEMORY_TOOL)].map((t) => {
+  return (tools.length ? [memoryTool, ...tools.filter(t => t.name !== CUSTOMER_MEMORY_TOOL)] : []).map((t) => {
     const properties = Object.fromEntries(
       Object.entries(t.input || {}).filter(
         ([k]) => !["conversation_id", "profile", "idempotency_key"].includes(k),

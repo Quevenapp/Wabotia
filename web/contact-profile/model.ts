@@ -51,15 +51,31 @@ export class ProfileRequests {
 export function sectionWriter(api: Api, path: string) {
   let pending: { signature: string; commandId: string } | null = null;
   return async (section: SectionView, data: Json, signal: AbortSignal): Promise<SectionView> => {
-    const signature = JSON.stringify([section.version, data]);
+    const changes = sectionChanges(section, data);
+    const signature = JSON.stringify([section.version, changes]);
     if (pending?.signature !== signature) pending = { signature, commandId: crypto.randomUUID() };
     const command = pending;
-    const result: SectionView = await api(path, "PUT", { commandId: command.commandId, expectedVersion: section.version, data }, signal, command.commandId);
+    const result: SectionView = await api(path, "PUT", { commandId: command.commandId, expectedVersion: section.version, data: changes }, signal, command.commandId);
     if (result.schema !== section.schema || !Number.isSafeInteger(result.version) || result.version < section.version)
       throw new Error("Não foi possível confirmar a versão salva.");
     if (pending === command) pending = null;
     return result;
   };
+}
+
+/** A seção devolve um snapshot; PUT recebe até dez operações, sem rótulos derivados. */
+export function sectionChanges(section: SectionView, draft: Json): Json {
+  if (section.schema !== "condominio.units.v1" || !draft || typeof draft !== "object" || Array.isArray(draft) || !Array.isArray(draft.memberships)) return draft;
+  const before = section.data as Record<string, Json>;
+  const pick = (row: any, keys: string[]) => Object.fromEntries(keys.map(key => [key, row[key]]));
+  const changed = (key: string) => (draft[key] as any[] ?? []).filter(row =>
+    JSON.stringify(row) !== JSON.stringify((before[key] as any[] ?? []).find(old => key === "subscriptions"
+      ? old.unitId === row.unitId && old.subscriptionId === row.subscriptionId : old.id === row.id)));
+  const memberships = changed("memberships").map(row => pick(row, ["id", "personId", "unitId", "role", "startsAt", "endsAt", "notices"]));
+  const functions = changed("functions").map(row => ({ ...pick(row, ["id", "personId", "unitId", "role", "startsAt", "endsAt"]), expectedVersion: row.version ?? 0 }));
+  const subscriptions = changed("subscriptions").map(row => ({ ...pick(row, ["unitId", "subscriptionId"]), linked: row.linked !== false }));
+  if (memberships.length + functions.length + subscriptions.length > 10) throw new Error("Salve até dez alterações por vez.");
+  return { memberships, functions, subscriptions } as Json;
 }
 
 /** Cancelamento cobre também importação e mount que não respeitam AbortSignal. */

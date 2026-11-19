@@ -18,6 +18,17 @@ function registration<T>(name: string, previous: T | null, next: T): T {
   return next;
 }
 
+// Implementações embutidas são defaults. Uma composição explícita pode substituí-las
+// sem depender da ordem de importação; duas implementações explícitas continuam erro.
+type Installation = { default: true };
+const defaults = new Map<string, unknown>();
+const overrides = new Map<string, unknown>();
+function install<T>(name: string, next: T, options?: Installation): T {
+  const registry = options?.default ? defaults : overrides;
+  registry.set(name, registration(name, registry.get(name) as T ?? null, next));
+  return (overrides.get(name) ?? defaults.get(name)) as T;
+}
+
 let identity: IdentityPort | null = null;
 let writer: WritePort | null = null;
 let history: HistoryPort | null = null;
@@ -29,27 +40,28 @@ const providers = new Map<string, CustomerModuleProvider>();
 let resolutions = new WeakMap<Env, Map<string, Promise<CustomerRef>>>();
 const invalidate = (env: Env) => resolutions.delete(env);
 
-export function installIdentityPort(port: IdentityPort): void {
-  identity = registration("identidade", identity, port);
+export function installIdentityPort(port: IdentityPort, options?: Installation): void {
+  identity = install("identidade", port, options);
   resolutions = new WeakMap();
 }
-export function installWritePort(port: WritePort): void {
-  writer = registration("escrita cadastral", writer, port);
+export function installWritePort(port: WritePort, options?: Installation): void {
+  writer = install("escrita cadastral", port, options);
 }
-export function installHistoryPort(port: HistoryPort): void {
-  history = registration("histórico", history, port);
+export function installHistoryPort(port: HistoryPort, options?: Installation): void {
+  history = install("histórico", port, options);
 }
-export function installProfilePort(port: ProfilePort): void {
-  profile = registration("ficha", profile, port);
+export function installProfilePort(port: ProfilePort, options?: Installation): void {
+  profile = install("ficha", port, options);
 }
-export function installErpBridge(port: CustomerErpBridge): void {
-  bridge = registration("ponte ERP", bridge, port);
+export function installErpBridge(port: CustomerErpBridge, options?: Installation): void {
+  bridge = install("ponte ERP", port, options);
 }
 
 const pendingMaintenance = (): MaintenanceResult => ({ pending: true, statements: 0, items: 0 });
 
 /** Objetos permanentes: uma referência capturada antes do registro segue válida. */
 export const identityPort: IdentityPort = {
+  get recordLink() { return identity?.recordLink; },
   async resolve(env, conversation) {
     if (identity) return identity.resolve(env, conversation);
     return {
@@ -180,6 +192,14 @@ export function registerCustomerProvider(moduleId: string, provider: CustomerMod
 export function customerProvider(moduleId: string): CustomerModuleProvider | null {
   return providers.get(moduleId) ?? null;
 }
+export async function customerRetention(env: Env, profileId: string, contactId: string) {
+  const reasons = new Set<string>();
+  for (const provider of providers.values()) {
+    const impediment = await provider.erasure?.(env, profileId, contactId);
+    if (impediment?.state === "retained") reasons.add(impediment.reason);
+  }
+  return [...reasons];
+}
 
 /**
  * Só a invocação dedicada do Coordinator deve chamar esta fachada. Participantes
@@ -187,7 +207,7 @@ export function customerProvider(moduleId: string): CustomerModuleProvider | nul
  * Não chama a ponte ERP nem importa implementações para completar registros.
  */
 export async function maintainCustomers(
-  env: Env, profileId: string, budget: MaintenanceBudget,
+  env: Env, profileId: string, budget: MaintenanceBudget, startAt = 0,
 ): Promise<MaintenanceResult> {
   if (![budget.remainingStatements, budget.remainingItems].every((n) => Number.isSafeInteger(n) && n >= 0))
     throw new ApiError(400, "invalid_request", "Orçamento de manutenção inválido.");
@@ -203,7 +223,8 @@ export async function maintainCustomers(
     ...[...providers.entries()].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
       .map(([, provider]) => provider).filter((provider) => provider.maintain),
   ];
-  for (const participant of participants) {
+  const offset = participants.length ? Math.abs(Math.trunc(startAt)) % participants.length : 0;
+  for (const participant of [...participants.slice(offset), ...participants.slice(0, offset)]) {
     if (!remaining.remainingStatements || !remaining.remainingItems) {
       result.pending = true;
       break;

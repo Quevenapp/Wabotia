@@ -12,6 +12,7 @@ import { sendDocument } from "../src/modules/os/documents/delivery";
 import { handleStageReply } from "../src/modules/os/stage-replies";
 import { runTaskDue } from "../src/modules/os/tasks/reminders";
 import { workCustomerProvider, enrichConfirmedWorkCustomer } from "../src/modules/os/customer-provider";
+import { verifiedPhone } from "../src/protocol-lookup";
 import type { CustomWorkType } from "../src/modules/os/contracts";
 
 const env = testEnv as unknown as Env;
@@ -67,7 +68,7 @@ async function setup() {
   const actor: Actor = { id: uid(), kind: "user", name: "Equipe", role: "admin", profiles: [profile], scopes: [], bots: [], rate: 1, runLimit: 1 };
   const settings = { ...defaults, os_work_types: [motorWorkType()] };
   const ctx = {
-    env, profile, settings: async () => settings,
+    env, profile, verifiedPhone, settings: async () => settings,
     access: (a: Actor) => { if (!a.profiles.includes(profile)) throw new ApiError(403, "forbidden", "Área não autorizada."); },
     requireEnabled: vi.fn(async () => {}),
     mayRead: () => true, mayMessage: () => true,
@@ -88,8 +89,10 @@ async function setup() {
   }
   async function conversation(namespace = `channel:${uid()}`) {
     const id = uid();
-    await exec(env, `INSERT INTO conversations(id,profile_id,external_namespace,external_id,phone,session,last_customer,created,updated)
-      VALUES(?,?,?,?,?,?,?,?,?)`, id, profile, namespace, uid(), phone, uid(), now(), now(), now());
+    const line = namespace.startsWith("channel:") ? namespace.slice(8) : null;
+    if (line) await exec(env, "INSERT INTO connections(id,profile_id,name,kind,mode,status,config,created) VALUES(?,?,'Linha','qr','direct','active','{}',?)", line, profile, now());
+    await exec(env, `INSERT INTO conversations(id,profile_id,connection_id,external_namespace,external_id,phone,session,last_customer,created,updated)
+      VALUES(?,?,?,?,?,?,?,?,?,?)`, id, profile, line, namespace, uid(), phone, uid(), now(), now(), now());
     return ctx.conversation(id);
   }
   function ready(c: Conversation, contactId: string, extra: Partial<CustomerRef> = {}) {
@@ -185,7 +188,7 @@ describe("trabalhos e identidade canônica", () => {
     expect((await documentOrder(f.ctx, f.actor, row.id, { conversation_id: b.id })).row.id).toBe(row.id);
     const legacy = await f.open(undefined, true);
     await exec(env, "UPDATE os_orders SET conversation_id=? WHERE id=?", a.id, legacy.id);
-    await expect(documentOrder(f.ctx, f.actor, legacy.id, { conversation_id: a.id })).rejects.toMatchObject({ code: "not_found" });
+    expect((await documentOrder(f.ctx, f.actor, legacy.id, { conversation_id: a.id })).row.id).toBe(legacy.id);
     await expect(documentOrder(f.ctx, f.actor, row.id, { private: true })).rejects.toMatchObject({ code: "sensitive_forbidden" });
     f.ready(a, other, { version: 2 });
     await expect(documentOrder(f.ctx, f.actor, row.id, { conversation_id: a.id })).rejects.toMatchObject({ code: "not_found" });

@@ -18,6 +18,10 @@ async function contact(ctx: ModuleContext, contactId: string) {
 }
 
 export const ensinoCustomerProvider: CustomerModuleProvider = {
+  async erasure(env, profileId, contactId) {
+    return await one(env, "SELECT 1 WHERE EXISTS(SELECT 1 FROM ensino_guardians WHERE profile_id=? AND contact_id=?) OR EXISTS(SELECT 1 FROM ensino_enrollments WHERE profile_id=? AND billing_contact_id=?)", profileId, contactId, profileId, contactId)
+      ? ensinoCustomerErasure : null;
+  },
   async section(ctx, actor, contactId, sectionId) {
     await staff(ctx, actor);
     if (sectionId !== "private") notFound();

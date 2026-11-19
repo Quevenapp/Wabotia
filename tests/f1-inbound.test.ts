@@ -109,13 +109,13 @@ describe("entrada autenticada", () => {
     expect(await all(env, "SELECT id FROM contacts WHERE profile_id=?", f.profile)).toEqual([]);
   });
 
-  it("grupo e aplicação ficam excluded, mesmo recebendo campos de prova forjados", async () => {
+  it("grupo fica excluded e aplicação pending, sem aceitar campos de prova forjados", async () => {
     const f = await fixture();
     const app = await inbound(env, f.profile, message({ provider: "qr", phone_jid: `${phone}@s.whatsapp.net`, verified_phone: phone, customer_link_state: "ready" }), "app:integration", null);
     const group = await inbound(env, f.profile, message({ external_id: "123456789@g.us", chat_type: "group", content: { participant: `${phone}@s.whatsapp.net` } }), `channel:${f.qr}`, f.qr);
     for (const r of [app, group]) {
       const c = await conversation(env, r.conversation_id, f.profile);
-      expect(c).toMatchObject({ customer_link_state: "excluded", verified_phone: null });
+      expect(c).toMatchObject({ customer_link_state: r === app ? "pending" : "excluded", verified_phone: null });
       expect(verifiedPhone(c)).toBeNull();
     }
     expect(await all(env, "SELECT id FROM contacts WHERE profile_id=?", f.profile)).toEqual([]);
@@ -137,8 +137,9 @@ describe("entrada autenticada", () => {
     expect(repeated.result).toMatchObject({ duplicate: true, conversation_id: c.id });
     expect(repeated.count).toMatchObject({ statements: 1, calls: 1 });
     expect((await conversation(env, c.id, f.profile)).epoch).toBe(c.epoch);
-    for (const table of ["inbox", "contacts", "customer_phones", "conversation_contacts", "customer_records", "messages"])
+    for (const table of ["inbox", "contacts", "customer_phones", "customer_records", "messages"])
       expect(await all(env, `SELECT * FROM ${table} WHERE profile_id=?`, f.profile)).toHaveLength(1);
+    expect(await all(env, "SELECT * FROM conversation_contacts WHERE profile_id=?", f.profile)).toEqual([]);
   });
 
   it.each(["before", "inside", "after"] as const)("queda %s preserva a época anterior de uma conversa existente até confirmar a inbox", async (mode) => {
@@ -165,8 +166,9 @@ describe("entrada autenticada", () => {
     expect((await conversation(env, c.id, f.profile)).epoch).toBe(38);
     for (const table of ["inbox", "messages"])
       expect(await all(env, `SELECT id FROM ${table} WHERE profile_id=?`, f.profile)).toHaveLength(2);
-    for (const table of ["contacts", "customer_phones", "conversation_contacts", "customer_records"])
+    for (const table of ["contacts", "customer_phones", "customer_records"])
       expect(await all(env, `SELECT * FROM ${table} WHERE profile_id=?`, f.profile)).toHaveLength(1);
+    expect(await all(env, "SELECT * FROM conversation_contacts WHERE profile_id=?", f.profile)).toEqual([]);
   });
 
   it("retorno abre vínculo próprio de sessão e preserva o anterior", async () => {
@@ -226,19 +228,21 @@ describe("entrada autenticada", () => {
 });
 
 describe("protocolos por identidade resolvida", () => {
-  it("não amplia por telefone e mantém somente a conversa original quando pendente", async () => {
+  it("preserva protocolos pelo telefone autenticado entre linhas e bloqueia identidades recusadas", async () => {
     const f = await fixture();
     const a = await inbound(env, f.profile, message(), `channel:${f.line}`, f.line);
     const b = await inbound(env, f.profile, message(), `channel:${f.second}`, f.second);
     const ca = await conversation(env, a.conversation_id, f.profile), cb = await conversation(env, b.conversation_id, f.profile);
     const ref = await resolveCustomer(env, ca), ticket = uid();
     await exec(env, "INSERT INTO tickets(id,number,profile_id,conversation_id,title,created,updated) VALUES(?,?,?,?,?,?,?)", ticket, uid(), f.profile, ca.id, "Atendimento", now(), now());
-    expect(await lookupProtocols(env, cb)).toEqual([]); // mesmo telefone, sem vínculo histórico próprio
+    expect(await lookupProtocols(env, cb)).toHaveLength(1); // compatibilidade da 0.22.0
     // Simula o produtor de histórico pela fachada da base.
-    await batch(env, customerRecordStatements({ profileId: f.profile, moduleId: "core", kind: "ticket",
+    await batch(env, customerRecordStatements({ profileId: f.profile, moduleId: "tickets", kind: "ticket",
       recordId: ticket, contactId: ref.contactId!, conversationId: ca.id, linkedBy: "test", occurredAt: now() }));
     expect(await lookupProtocols(env, cb)).toHaveLength(1);
-    for (const state of ["pending", "ambiguous", "blocked", "excluded"]) {
+    await exec(env, "UPDATE conversations SET customer_link_state='pending' WHERE id=?", cb.id);
+    expect(await lookupProtocols(env, await conversation(env, cb.id, f.profile))).toHaveLength(1);
+    for (const state of ["ambiguous", "blocked", "excluded"]) {
       await exec(env, "UPDATE conversations SET customer_link_state=? WHERE id=?", state, cb.id);
       const current = await conversation(env, cb.id, f.profile);
       expect(verifiedPhone(current)).toBeNull();

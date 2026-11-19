@@ -2,7 +2,8 @@
 // Filhos importam este arquivo, nunca store.ts/model.ts para autorizar ordens.
 import { ApiError, type Actor, type Conversation } from "../../types";
 import { resolveCustomer } from "../../customer/ports";
-import { normalizeCustomerPhone } from "../../customer/phone";
+import { normalizeCustomerPhone, customerPhoneVariants as phoneVariants } from "../../customer/phone";
+import { verifiedPhone } from "../../protocol-lookup";
 import { isBound } from "../../visibility";
 import type { ModuleContext } from "../api";
 import type { ChildKind, MutationRef, WorkTypeSnapshot, WorkTypeView } from "./contracts";
@@ -38,7 +39,7 @@ export interface OrderAccess {
   conversation_id?: string;
 }
 
-/** Uma única regra para consultas, decisões e filhos. Telefone nunca autoriza. */
+/** O vínculo amplia o cadastro; a credencial telefônica vem somente do canal. */
 export async function workCustomerScope(ctx: ModuleContext, c: Conversation) {
   if (c.profile_id !== ctx.profile || c.chat_type === "group")
     return { sql: "0", params: [] as unknown[], contactId: null, verified: false };
@@ -48,22 +49,32 @@ export async function workCustomerScope(ctx: ModuleContext, c: Conversation) {
       ref.state === "blocked" || ref.state === "excluded")
     return { sql: "0", params: [] as unknown[], contactId: null, verified: false };
   const contactId = ref.state === "ready" ? ref.contactId : null;
+  const phone = ctx.verifiedPhone ? ctx.verifiedPhone(c) : verifiedPhone(c);
+  const phones = phone ? phoneVariants(phone) : [];
   return {
-    sql: "((contact_id IS NOT NULL AND contact_id=?) OR (contact_id IS NULL AND conversation_id=?))",
-    params: [contactId, c.id], contactId,
-    verified: namespace === "team" && !!contactId && !!normalizeCustomerPhone(ref.verifiedPhone, "international"),
+    sql: "((contact_id IS NOT NULL AND contact_id=?) OR (contact_id IS NULL AND (conversation_id=? OR (phone<>'' AND phone IN (SELECT value FROM json_each(?))))))",
+    params: [contactId, c.id, JSON.stringify(phones)], contactId,
+    verified: namespace === "team" && !!phone,
+    phones,
   };
 }
 
-/** Envios e documentos exigem titular resolvido; legado aguarda preenchimento. */
+/** Envios e documentos revalidam também o telefone atual do titular. */
 export async function workCustomerAllows(
   ctx: ModuleContext, c: Conversation, row: WorkOrderRow, recipient = false,
 ) {
   if (row.profile_id !== ctx.profile) return false;
+  if (recipient && !row.contact_id) {
+    const phone = ctx.verifiedPhone ? ctx.verifiedPhone(c) : verifiedPhone(c);
+    return c.profile_id === ctx.profile && !!phone && phoneVariants(phone).includes(normalizeCustomerPhone(row.phone, "international") || "");
+  }
   const scope = await workCustomerScope(ctx, c);
   if (scope.sql === "0") return false;
-  if (recipient) return scope.verified && !!row.contact_id && row.contact_id === scope.contactId;
-  return row.contact_id ? row.contact_id === scope.contactId : row.conversation_id === c.id;
+  const phoneMatches = scope.verified && scope.phones?.includes(normalizeCustomerPhone(row.phone, "international") || "");
+  // O telefone corrigido da ordem revoga documentos e avisos imediatamente,
+  // inclusive se ainda houver uma conversa/contact_id antigo na ordem.
+  if (recipient) return !!phoneMatches && (!row.contact_id || row.contact_id === scope.contactId);
+  return row.contact_id ? row.contact_id === scope.contactId : row.conversation_id === c.id || !!phoneMatches;
 }
 export type ChildStatement = [sql: string, bindings: unknown[]];
 export interface ChildMutation {

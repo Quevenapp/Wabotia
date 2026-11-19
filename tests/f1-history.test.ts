@@ -62,6 +62,10 @@ describe("histórico por vínculo persistido", () => {
     // Nem um número igual autoriza outra conversa a ver a senha.
     expect(await conversationTicket(env, f.profile, uid(), f.c.verified_phone!)).toEqual({ senha: null });
     await exec(env, "UPDATE conversations SET verified_phone=NULL,customer_link_state='pending' WHERE id=?", f.cid);
+    // O canal legado ainda prova o telefone, mas o contato pendente impede o vínculo.
+    await expect(linkKioskTicket(env, f.c, "N001", "ABCDEF")).rejects.toMatchObject({ code: "customer_ambiguous" });
+    expect(await all(env, "SELECT contact_id FROM customer_records WHERE profile_id=? AND module_id='queue'", f.profile)).toEqual([{ contact_id: f.contact }]);
+    await exec(env, "UPDATE conversations SET connection_id=NULL WHERE id=?", f.cid);
     await expect(linkKioskTicket(env, f.c, "N001", "ABCDEF")).rejects.toMatchObject({ code: "forbidden" });
   });
 
@@ -86,7 +90,7 @@ describe("histórico por vínculo persistido", () => {
   it("formulário fixa o contato no envio, preserva-o na conclusão e não copia respostas", async () => {
     const f = await setup(), other = uid();
     await exec(env, "INSERT INTO instance_settings(key,value,updated) VALUES('public_origin','https://example.test',1) ON CONFLICT(key) DO UPDATE SET value=excluded.value");
-    const opened = await openWebStep(env, { conversation: f.c, module: "forms", kind: "form", ref: "administrativo", actor: "test", trigger: "menu", sourceKey: uid(), spec: { title: "Cadastro", fields: [{ id: "f_nome", type: "text", label: "Nome" }], ticket: "none", return_message: "module" } });
+    const opened = await openWebStep(env, { conversation: f.c, module: "forms", kind: "form", ref: "administrativo", actor: "test", trigger: "menu", sourceKey: uid(), spec: { title: "Cadastro", fields: [{ id: "f_nome", type: "text", label: "Nome", required: false }], ticket: "none", return_message: "module" } });
     expect(opened.step.contact_id).toBe(f.contact);
     await exec(env, "INSERT INTO contacts(id,profile_id,namespace,name,search_text,source,created_by,updated_by,created,updated) VALUES(?,?,'team','','','manual','test','test',1,1)", other, f.profile);
     await exec(env, "UPDATE conversation_contacts SET contact_id=?,created=? WHERE conversation_id=?", other, now() + 1, f.cid);

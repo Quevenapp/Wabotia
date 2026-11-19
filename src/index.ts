@@ -1083,6 +1083,7 @@ app.use("/api/v1/profiles/*", async (c, next) => {
   const segment = c.req.path.split("/")[5];
   const contribution = c.req.path.match(/\/contacts\/[^/]+\/modules\/([^/]+)\/(?:sections|collections)\/[^/]+$/);
   if (contribution) requireAccess(c.get("actor"), decodeURIComponent(contribution[1]));
+  else if (/\/contacts\/[^/]+\/profile$/.test(c.req.path)) { /* ProfilePort autoriza a pessoa e cada contribuição. */ }
   else if (segment) requireRouteAccess(c.get("actor"), ["contact-conflicts", "contact-identities", "contact-jobs"].includes(segment) ? "contacts" : segment);
   await next();
 });
@@ -1733,6 +1734,7 @@ const commands = [
   ["POST", "contacts/:id/promote", "contact.promote"],
   ["POST", "contacts/from-erp", "contact.from-erp"],
   ["POST", "contact-identities/resolve", "contact.resolve-phone"],
+  ["POST", "contact-jobs/:id/resolve", "contact.resolve-job"],
   ["POST", "contacts/:id/erasure", "contact.erasure"],
   ["PUT", "contacts/:id/modules/:module/sections/:section", "contact.section"],
   ["PUT", "conversations/:id/contact", "contact.from-conversation"],
@@ -3115,11 +3117,9 @@ export default {
     for (const profile of await all(env, "SELECT id FROM profiles")) {
       ctx.waitUntil(wake(env, profile.id));
       // Invocação dedicada; não acrescenta trabalho ao alarme das mensagens.
-      ctx.waitUntil(env.COORDINATOR.get(env.COORDINATOR.idFromName(profile.id)).fetch("https://coordinator/command", {
+      ctx.waitUntil(env.COORDINATOR.get(env.COORDINATOR.idFromName(profile.id)).fetch("https://coordinator/customer-tick", {
         method: "POST",
-        body: JSON.stringify({ profile: profile.id, operation: "contact.maintain",
-          actor: { id: "customer-maintenance", kind: "connector", name: "Manutenção cadastral", role: "service", profiles: [profile.id], scopes: [], bots: [], rate: 1, runLimit: 1 },
-          data: {}, key: `customer-maintenance:${event.scheduledTime}`, requestId: `customer-maintenance:${event.scheduledTime}` }),
+        body: JSON.stringify({ profile: profile.id }),
       }).then(response => { if (!response.ok) throw new Error(`Manutenção cadastral: ${response.status}`); }));
     }
     ctx.waitUntil(

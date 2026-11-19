@@ -1,7 +1,7 @@
 import { cachedOne, one } from "../db";
 import { ApiError, now, uid, type Conversation, type Env } from "../types";
 import type { CustomerRef, IdentityPort, InboundEvidence, LinkState, Namespace, Statement } from "./contracts";
-import { normalizeCustomerPhone } from "./phone";
+import { normalizeCustomerPhone, customerPhoneVariants } from "./phone";
 import { maintainIdentity } from "./backfill";
 
 export const CONTACT_TASK = "identity.contacts.v1";
@@ -23,7 +23,7 @@ export function inboundConnection(env: Env, id: string) {
 
 export function evidencePhone(evidence: InboundEvidence): string | null {
   const phone = normalizeCustomerPhone(evidence.phone, "international");
-  if (evidence.provider === "zernio") return phone;
+  if (evidence.provider === "zernio" || evidence.provider === "meta") return phone;
   if (evidence.provider !== "qr") return null;
   const jidPhone = phoneFromJid(evidence.phoneJid);
   return jidPhone && (!phone || phone === jidPhone) ? jidPhone : null;
@@ -126,7 +126,9 @@ export function conversationIdentityStatements(profile: string, ids: readonly st
       `INSERT INTO conversation_contacts(conversation_id,profile_id,contact_id,linked_by,created)
        SELECT c.id,c.profile_id,p.contact_id,'identity',? FROM conversations c JOIN customer_phones p
          ON p.profile_id=c.profile_id AND p.namespace='team' AND p.phone=c.verified_phone AND p.state='ready'
+       JOIN contacts k ON k.id=p.contact_id AND k.profile_id=p.profile_id
        WHERE c.profile_id=? AND c.id IN (SELECT value FROM json_each(?)) AND c.customer_link_state='ready'
+         AND (k.source<>'automatic' OR k.name<>'')
        ON CONFLICT(conversation_id) DO UPDATE SET contact_id=excluded.contact_id,
          linked_by=excluded.linked_by,created=excluded.created
          WHERE conversation_contacts.contact_id IS NOT excluded.contact_id`,
@@ -139,9 +141,10 @@ export function conversationIdentityStatements(profile: string, ids: readonly st
 export function sessionStatement(profile: string, ids: readonly string[]): Statement {
   return [
     `INSERT INTO customer_records(profile_id,module_id,kind,record_id,contact_id,conversation_id,linked_by,occurred_at)
-     SELECT c.profile_id,'core','conversation',c.id||':'||c.session,l.contact_id,c.id,'identity',?
-       FROM conversations c JOIN conversation_contacts l ON l.conversation_id=c.id AND l.profile_id=c.profile_id
-       JOIN contacts k ON k.id=l.contact_id AND k.profile_id=c.profile_id AND k.namespace='team' AND k.identity_state='active'
+     SELECT c.profile_id,'conversations','session',c.id||':'||c.session,k.id,c.id,'identity',?
+       FROM conversations c LEFT JOIN conversation_contacts l ON l.conversation_id=c.id AND l.profile_id=c.profile_id
+       LEFT JOIN customer_phones p ON p.profile_id=c.profile_id AND p.namespace='team' AND p.phone=c.verified_phone AND p.state='ready'
+       JOIN contacts k ON k.id=coalesce(l.contact_id,p.contact_id) AND k.profile_id=c.profile_id AND k.namespace IN ('team','panel') AND k.identity_state='active'
        WHERE c.profile_id=? AND c.id IN (SELECT value FROM json_each(?)) AND c.customer_link_state='ready'
        ON CONFLICT(profile_id,module_id,kind,record_id) DO NOTHING`,
     [now(), profile, JSON.stringify(ids)],
@@ -153,22 +156,27 @@ async function resolve(env: Env, c: Conversation): Promise<CustomerRef> {
   const ref: CustomerRef = { profileId: c.profile_id, namespace, state: "pending", contactId: null, verifiedPhone: null, version: null, erp: null };
   if (c.chat_type === "group") return { ...ref, state: "excluded" };
   const row = await one(env,
-    `SELECT v.customer_link_state,v.verified_phone,v.connection_id,v.external_namespace,v.chat_type,
-       k.id,k.version,k.identity_state,k.erp_contact_id,k.erp_version,p.contact_id phone_contact,p.state phone_state
+    `SELECT v.customer_link_state,v.phone,v.verified_phone,v.connection_id,v.external_namespace,v.chat_type,
+       l.contact_id explicit_contact,k.id,k.version,k.identity_state,k.erp_contact_id,k.erp_version,p.contact_id phone_contact,p.state phone_state
      FROM conversations v LEFT JOIN conversation_contacts l ON l.conversation_id=v.id AND l.profile_id=v.profile_id
-     LEFT JOIN contacts k ON k.id=l.contact_id AND k.profile_id=v.profile_id AND k.namespace=?
      LEFT JOIN customer_phones p ON p.profile_id=v.profile_id AND p.namespace=? AND p.phone=v.verified_phone
+     LEFT JOIN contacts k ON k.id=coalesce(l.contact_id,p.contact_id) AND k.profile_id=v.profile_id
+       AND (k.namespace=? OR (?='team' AND k.namespace='panel'))
      WHERE v.id=? AND v.profile_id=? AND v.external_namespace=?`,
-    namespace, namespace, c.id, c.profile_id, c.external_namespace);
+    namespace, namespace, namespace, c.id, c.profile_id, c.external_namespace);
   if (!row) return ref;
   ref.state = row.customer_link_state;
   ref.verifiedPhone = namespace === "team" ? normalizeCustomerPhone(row.verified_phone, "international") : null;
   if (row.chat_type === "group" || (row.id && row.identity_state !== "active"))
     return { ...ref, state: "excluded", verifiedPhone: null };
+  if (ref.state === "blocked" || ref.state === "excluded" || ref.state === "ambiguous") return ref;
+  if (namespace === "team" && (!row.connection_id || row.external_namespace !== `channel:${row.connection_id}` ||
+      normalizeCustomerPhone(row.phone, "international") !== ref.verifiedPhone)) ref.verifiedPhone = null;
+  // Associação humana legada é cadastro, não prova de telefone. O índice
+  // automático não ocupa a associação editável da API publicada.
+  if (row.explicit_contact && row.id) ref.state = "ready";
   if (ref.state !== "ready") return ref;
-  if (!row.id || (namespace === "team" && (!row.connection_id ||
-      row.external_namespace !== `channel:${row.connection_id}` || !ref.verifiedPhone ||
-      row.phone_state !== "ready" || row.phone_contact !== row.id)))
+  if (!row.id || (!row.explicit_contact && (row.phone_state !== "ready" || row.phone_contact !== row.id || !ref.verifiedPhone)))
     return { ...ref, state: "pending" };
   return { ...ref, contactId: row.id, version: row.version,
     erp: row.erp_contact_id && row.erp_version !== null ? { id: row.erp_contact_id, version: row.erp_version } : null };
@@ -178,12 +186,13 @@ async function prepareInbound(env: Env, c: Conversation, evidence: InboundEviden
   const eligible = c.chat_type !== "group" && !!c.connection_id && c.external_namespace === `channel:${c.connection_id}`;
   const connection = eligible ? await inboundConnection(env, c.connection_id!) : null;
   const trusted = eligible && connection?.profile_id === c.profile_id &&
-    connection.kind === evidence.provider && ["qr", "zernio"].includes(connection.kind);
+    connection.kind === evidence.provider && ["qr", "zernio", "meta"].includes(connection.kind);
   const phone = trusted ? evidencePhone(evidence) : null;
   const simple = (state: LinkState, verifiedPhone: string | null) => ({ state, verifiedPhone,
     statements: [["UPDATE conversations SET verified_phone=?,customer_link_state=? WHERE id=? AND profile_id=?",
       [verifiedPhone, state, c.id, c.profile_id]]] as Statement[] });
   if (c.customer_link_state === "blocked") return simple("blocked", phone);
+  if (namespaceOf(c).startsWith("app:")) return simple("pending", null);
   if (!trusted) return simple("excluded", null);
   if (!phone) return simple("pending", null);
   // A invalidação do índice ocorre no mesmo lote de quem o altera. O objeto
@@ -192,19 +201,21 @@ async function prepareInbound(env: Env, c: Conversation, evidence: InboundEviden
     return { statements: [], state: "ready" as const, verifiedPhone: phone };
 
   const profile = c.profile_id, namespace: Namespace = "team";
+  const variants = customerPhoneVariants(phone);
   const snapshot = await one(env,
     `SELECT p.state,p.contact_id,p.version,
        (SELECT identity_state FROM contacts WHERE id=p.contact_id AND profile_id=p.profile_id AND namespace=p.namespace) contact_state,
        coalesce((SELECT complete FROM customer_progress WHERE profile_id=? AND namespace=? AND task=?),0) complete,
        (SELECT json_group_array(contact_id) FROM customer_phone_candidates WHERE profile_id=? AND namespace=? AND phone=?) candidates,
-       CASE WHEN coalesce((SELECT complete FROM customer_progress WHERE profile_id=? AND namespace=? AND task=?),0)=0
-         THEN (SELECT json_group_array(json_object('id',id,'version',version,'phone',phone,'mirror_json',mirror_json,'identity_state',identity_state)) FROM contacts WHERE profile_id=? AND namespace=?) ELSE '[]' END legacy
+       (SELECT json_group_array(json_object('id',id,'version',version,'phone',phone,'mirror_json',mirror_json,'identity_state',identity_state)) FROM contacts
+         WHERE profile_id=? AND namespace=? AND (coalesce((SELECT complete FROM customer_progress WHERE profile_id=? AND namespace=? AND task=?),0)=0
+           OR id IN (SELECT contact_id FROM customer_phone_candidates WHERE profile_id=? AND namespace=? AND phone IN (SELECT value FROM json_each(?))))) legacy
      FROM (SELECT 1) LEFT JOIN customer_phones p ON p.profile_id=? AND p.namespace=? AND p.phone=?`,
     profile, namespace, CONTACT_TASK, profile, namespace, phone,
-    profile, namespace, CONTACT_TASK, profile, namespace, profile, namespace, phone);
+    profile, namespace, profile, namespace, CONTACT_TASK, profile, namespace, JSON.stringify(variants), profile, namespace, phone);
   const legacy: ContactSnapshot[] = JSON.parse(snapshot.legacy);
   const existing: string[] = JSON.parse(snapshot.candidates);
-  const missing = legacy.filter((r) => contactPhones(r).includes(phone) && !existing.includes(r.id));
+  const missing = legacy.filter((r) => contactPhones(r).some(p => variants.includes(p)) && !existing.includes(r.id));
   const guard = `identity:${c.id}:${c.session}:${phone}`;
   // Uma só asserção protege o legado, a versão do índice e a restrição do
   // contato escolhido, inclusive quando o preenchimento já terminou.
@@ -258,6 +269,8 @@ async function indexContact(env: Env, input: Parameters<IdentityPort["indexConta
     `SELECT json_group_array(phone) phones FROM customer_phone_candidates WHERE profile_id=? AND namespace=? AND contact_id=?`,
     profileId, namespace, contactId);
   const previous: string[] = JSON.parse(old.phones);
+  // Conserva aliases já observados enquanto ainda representam o número atual.
+  for (const oldPhone of previous) if (!phones.includes(oldPhone) && phones.some(p => customerPhoneVariants(p).includes(oldPhone))) phones.push(oldPhone);
   if (previous.length === phones.length && phones.every((phone) => previous.includes(phone))) return [[
     `UPDATE conversations SET customer_link_state='pending' WHERE profile_id=?
       AND customer_link_state NOT IN ('blocked','excluded') AND id IN
@@ -277,4 +290,21 @@ async function indexContact(env: Env, input: Parameters<IdentityPort["indexConta
   ];
 }
 
-export const customerIdentity: IdentityPort = { resolve, prepareInbound, indexContact, maintain: maintainIdentity };
+function recordLink(c: Conversation, link: Parameters<NonNullable<IdentityPort["recordLink"]>>[1]): Statement[] {
+  if (c.profile_id !== link.profileId || c.id !== link.conversationId || c.chat_type === "group" || namespaceOf(c) !== "team") return [];
+  return [[
+    `INSERT INTO customer_records(profile_id,module_id,kind,record_id,contact_id,conversation_id,linked_by,occurred_at)
+     SELECT v.profile_id,?,?,?,k.id,v.id,?,? FROM conversations v
+       LEFT JOIN conversation_contacts cc ON cc.conversation_id=v.id AND cc.profile_id=v.profile_id
+       LEFT JOIN customer_phones p ON p.profile_id=v.profile_id AND p.namespace='team' AND p.phone=v.verified_phone AND p.state='ready'
+       JOIN contacts k ON k.id=coalesce(cc.contact_id,p.contact_id) AND k.profile_id=v.profile_id AND k.namespace='team' AND k.identity_state='active'
+       WHERE v.profile_id=? AND v.id=? AND v.session=? AND v.customer_link_state='ready' AND v.chat_type<>'group'
+         ${link.moduleId === "tickets" ? "AND EXISTS(SELECT 1 FROM tickets t WHERE t.profile_id=v.profile_id AND t.id=? AND t.conversation_id=v.id)" : ""}
+         AND v.connection_id IS NOT NULL AND v.external_namespace='channel:'||v.connection_id
+       ON CONFLICT(profile_id,module_id,kind,record_id) DO NOTHING`,
+    [link.moduleId, link.kind, link.recordId, link.linkedBy, link.occurredAt, c.profile_id, c.id, c.session,
+      ...(link.moduleId === "tickets" ? [link.recordId] : [])],
+  ]];
+}
+
+export const customerIdentity: IdentityPort = { resolve, prepareInbound, indexContact, recordLink, maintain: maintainIdentity };

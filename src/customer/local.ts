@@ -6,6 +6,18 @@ import { normalizeCustomerPhone } from "./phone";
 import type { CustomerMirror, CustomerPatch, CustomerWrite, Namespace, Statement } from "./contracts";
 
 export const namespaceFor = (actor: Actor): Namespace => actor.kind === "app" ? `app:${actor.id}` : "team";
+export const isCustomerSelfActor = (actor: Actor) => actor.kind === "connector" && actor.id.startsWith("customer:") &&
+  actor.role === "service" && actor.scopes.length === 1 && actor.scopes[0] === "contacts:self" && !actor.via && !actor.module && !actor.credential;
+export async function validateCustomerSelfActor(env: Env, actor: Actor, profile: string, contactId: string) {
+  if (!isCustomerSelfActor(actor) || actor.profiles.length !== 1 || actor.profiles[0] !== profile || !await one(env,
+    `SELECT 1 FROM conversations c JOIN customer_phones p ON p.profile_id=c.profile_id AND p.namespace='team' AND p.phone=c.verified_phone AND p.state='ready'
+     JOIN contacts k ON k.id=p.contact_id AND k.profile_id=p.profile_id AND k.identity_state='active'
+     WHERE c.profile_id=? AND 'customer:'||c.id||':'||c.session=? AND p.contact_id=? AND c.customer_link_state='ready'
+       AND c.phone=c.verified_phone AND c.connection_id IS NOT NULL AND c.external_namespace='channel:'||c.connection_id AND c.chat_type='direct'
+       AND NOT EXISTS(SELECT 1 FROM cond_people cp JOIN cond_memberships cm ON cm.profile_id=cp.profile_id AND cm.person_id=cp.id WHERE cp.profile_id=k.profile_id AND cp.contact_id=k.id AND cm.role='dependente')
+       AND NOT EXISTS(SELECT 1 FROM saude_contact_links s WHERE s.profile_id=k.profile_id AND s.contact_id=k.id AND s.relation='self')`, profile, actor.id, contactId))
+    throw new ApiError(403, "forbidden", "Confirmação cadastral não pertence à sessão autenticada.");
+}
 export function customerAccess(actor: Actor, profile: string, write = false) {
   try {
     access(actor, profile, write ? "contacts:write" : "contacts:read");
@@ -14,7 +26,7 @@ export function customerAccess(actor: Actor, profile: string, write = false) {
     if (error instanceof ApiError && error.status === 403) throw new ApiError(403, "forbidden", "Acesso ao cadastro não permitido.");
     throw error;
   }
-  if (actor.kind !== "user" && actor.kind !== "app")
+  if (actor.kind !== "user" && actor.kind !== "app" && !isCustomerSelfActor(actor))
     throw new ApiError(403, "forbidden", "Acesso ao cadastro não permitido.");
 }
 export function human(actor: Actor) {

@@ -19,7 +19,7 @@ import { stepFor } from "./web-steps";
 import { identityPort, installWritePort } from "./customer/ports";
 import { registerCommand } from "./modules/hooks";
 import { customerProfileDeclarations } from "./customer/declarations";
-import { enrichLocal, maintainJobs, bindFromErp, dispatchCustomerMaintenance, jobInsert, replayJob, requestHash, writeResult } from "./customer/jobs";
+import { enrichLocal, maintainJobs, bindFromErp, dispatchCustomerMaintenance, jobInsert, replayJob, requestHash, writeResult, resolveCustomerJob } from "./customer/jobs";
 import { customerAccess, activeContact, contactRow, namespaceFor, phoneSafetyStatements, guardedBatch } from "./customer/local";
 import { eraseContact, resolvePhone, saveCustomerSection, requireCustomerModule } from "./customer/http";
 import type { CustomerWrite, Namespace, Statement } from "./customer/contracts";
@@ -61,7 +61,7 @@ export async function conversationContact(
   return publicContact(
     await one(
       env,
-      "SELECT c.* FROM contacts c JOIN conversation_contacts l ON l.contact_id=c.id AND l.profile_id=c.profile_id WHERE l.profile_id=? AND l.conversation_id=? AND c.identity_state='active' AND (?=1 OR c.namespace=?)",
+      `SELECT c.* FROM conversations v LEFT JOIN conversation_contacts l ON l.conversation_id=v.id AND l.profile_id=v.profile_id LEFT JOIN customer_phones p ON p.profile_id=v.profile_id AND p.namespace=CASE WHEN v.external_namespace LIKE 'app:%' THEN v.external_namespace ELSE 'team' END AND p.phone=v.verified_phone AND p.state='ready' AND v.customer_link_state='ready' JOIN contacts c ON c.id=coalesce(l.contact_id,p.contact_id) AND c.profile_id=v.profile_id WHERE v.profile_id=? AND v.id=? AND c.identity_state='active' AND (?=1 OR c.namespace=?)`,
       profile,
       conversation,
       actor.kind === "user" ? 1 : 0,
@@ -109,7 +109,7 @@ export async function listContacts(
   const namespace = (query.namespace || "").slice(0, 100);
   const rows = await all(
     env,
-    "SELECT c.*, (SELECT count(*) FROM conversation_contacts l WHERE l.contact_id=c.id AND l.profile_id=c.profile_id) conversation_count FROM contacts c WHERE c.profile_id=? AND c.created<=? AND c.identity_state='active' AND (?='all' OR (?='identified' AND (trim(c.name)<>'' OR coalesce(c.document,'')<>'' OR c.erp_contact_id IS NOT NULL)) OR (?='phone_only' AND c.phone<>'' AND trim(c.name)='' AND coalesce(c.document,'')='' AND c.erp_contact_id IS NULL)) AND (?='' OR (c.phone<>'' AND c.email='' AND c.company='' AND trim(c.name)='' AND coalesce(c.document,'')='' AND c.erp_contact_id IS NULL AND c.created<? AND NOT EXISTS(SELECT 1 FROM agenda_appointments rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM os_orders rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM pedido_orders rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM reserva_bookings rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM mensalidade_subscriptions rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM conversation_contacts l JOIN conversations v ON v.id=l.conversation_id AND v.profile_id=l.profile_id WHERE l.profile_id=c.profile_id AND l.contact_id=c.id AND v.last_customer>=?) AND NOT EXISTS(SELECT 1 FROM customer_records r WHERE r.profile_id=c.profile_id AND r.contact_id=c.id AND r.occurred_at>=?) AND NOT EXISTS(SELECT 1 FROM queue_tickets q JOIN conversation_contacts l ON l.conversation_id=q.conversation_id AND l.profile_id=q.profile_id WHERE l.profile_id=c.profile_id AND l.contact_id=c.id AND max(q.created_at,coalesce(q.finished_at,0))>=?) AND NOT EXISTS(SELECT 1 FROM web_steps w JOIN conversation_contacts l ON l.conversation_id=w.conversation_id AND l.profile_id=w.profile_id WHERE l.profile_id=c.profile_id AND l.contact_id=c.id AND coalesce(w.completed_at,w.created)>=?))) AND (?=1 OR c.namespace=?) AND (?='' OR c.namespace=?) AND c.search_text LIKE ? ESCAPE '!' AND (? IS NULL OR c.created<? OR (c.created=? AND c.id<?)) ORDER BY c.created DESC,c.id DESC LIMIT ?",
+    "SELECT c.*, (SELECT count(*) FROM conversations v LEFT JOIN conversation_contacts l ON l.conversation_id=v.id AND l.profile_id=v.profile_id LEFT JOIN customer_phones p ON p.profile_id=v.profile_id AND p.namespace=c.namespace AND p.phone=v.verified_phone AND p.state='ready' AND v.customer_link_state='ready' WHERE v.profile_id=c.profile_id AND coalesce(l.contact_id,p.contact_id)=c.id) conversation_count FROM contacts c WHERE c.profile_id=? AND c.created<=? AND c.identity_state='active' AND (?='all' OR (?='identified' AND (trim(c.name)<>'' OR coalesce(c.document,'')<>'' OR c.erp_contact_id IS NOT NULL)) OR (?='phone_only' AND c.phone<>'' AND trim(c.name)='' AND coalesce(c.document,'')='' AND c.erp_contact_id IS NULL)) AND (?='' OR (c.phone<>'' AND c.email='' AND c.company='' AND trim(c.name)='' AND coalesce(c.document,'')='' AND c.erp_contact_id IS NULL AND c.created<? AND NOT EXISTS(SELECT 1 FROM agenda_appointments rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM os_orders rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM pedido_orders rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM reserva_bookings rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM mensalidade_subscriptions rel WHERE rel.profile_id=c.profile_id AND rel.contact_id=c.id) AND NOT EXISTS(SELECT 1 FROM conversation_contacts l JOIN conversations v ON v.id=l.conversation_id AND v.profile_id=l.profile_id WHERE l.profile_id=c.profile_id AND l.contact_id=c.id AND v.last_customer>=?) AND NOT EXISTS(SELECT 1 FROM customer_records r WHERE r.profile_id=c.profile_id AND r.contact_id=c.id AND max(r.occurred_at,coalesce((SELECT v.last_customer FROM conversations v WHERE v.profile_id=r.profile_id AND v.id=r.conversation_id AND r.module_id='conversations' AND r.kind='session' AND r.record_id=v.id||':'||v.session),0),coalesce((SELECT q.finished_at FROM queue_tickets q WHERE q.profile_id=r.profile_id AND q.id=r.record_id AND r.module_id='queue'),0))>=?) AND NOT EXISTS(SELECT 1 FROM queue_tickets q JOIN conversation_contacts l ON l.conversation_id=q.conversation_id AND l.profile_id=q.profile_id WHERE l.profile_id=c.profile_id AND l.contact_id=c.id AND max(q.created_at,coalesce(q.finished_at,0))>=?) AND NOT EXISTS(SELECT 1 FROM web_steps w LEFT JOIN conversation_contacts l ON l.conversation_id=w.conversation_id AND l.profile_id=w.profile_id WHERE w.profile_id=c.profile_id AND coalesce(w.contact_id,l.contact_id)=c.id AND coalesce(w.completed_at,w.created)>=?))) AND (?=1 OR c.namespace=?) AND (?='' OR c.namespace=?) AND c.search_text LIKE ? ESCAPE '!' AND (? IS NULL OR c.created<? OR (c.created=? AND c.id<?)) ORDER BY c.created DESC,c.id DESC LIMIT ?",
     profile,
     cut, identity, identity, identity, query.review ?? "",
     ...Array(5).fill(cut - 180 * 86400000),
@@ -147,7 +147,7 @@ export async function contactDetail(
       ? []
       : await all(
           env,
-          "SELECT c.id,c.phone,c.external_id,c.state,c.updated FROM conversations c JOIN conversation_contacts l ON l.conversation_id=c.id AND l.profile_id=c.profile_id WHERE l.profile_id=? AND l.contact_id=? AND (?=1 OR c.external_namespace=?) ORDER BY c.updated DESC,c.id DESC LIMIT 50",
+          "SELECT c.id,c.phone,c.external_id,c.state,c.updated FROM conversations c LEFT JOIN conversation_contacts l ON l.conversation_id=c.id AND l.profile_id=c.profile_id LEFT JOIN customer_phones p ON p.profile_id=c.profile_id AND p.namespace=CASE WHEN c.external_namespace LIKE 'app:%' THEN c.external_namespace ELSE 'team' END AND p.phone=c.verified_phone AND p.state='ready' AND c.customer_link_state='ready' WHERE c.profile_id=? AND coalesce(l.contact_id,p.contact_id)=? AND (?=1 OR c.external_namespace=?) ORDER BY c.updated DESC,c.id DESC LIMIT 50",
           profile,
           id,
           actor.kind === "user" ? 1 : 0,
@@ -280,6 +280,7 @@ export async function contactCommand(
     return bindFromErp(env, actor, profile, data.erpId, commandId);
   }
   if (operation === "contact.resolve-phone") return resolvePhone(env, actor, profile, data, commandId);
+  if (operation === "contact.resolve-job") return resolveCustomerJob(env, actor, profile, data.id, data, commandId);
   if (operation === "contact.erasure") return eraseContact(env, actor, profile, data.id, data, commandId);
   const legacyHash = await requestHash(actor, { operation, data });
   if (["contact.create", "contact.import", "contact.from-conversation", "contact.unlink"].includes(operation)) {
@@ -378,12 +379,13 @@ export async function contactCommand(
       profile,
     );
     if (operation === "contact.unlink") {
+      const currentContact = linked?.contact_id ?? (conv.customer_link_state === "ready" ? (await identityPort.resolve(env, conv)).contactId : null);
       requireValue(
         typeof data.expected_contact_id === "string" &&
           data.expected_contact_id.length > 0,
         "Informe o contato que deseja desvincular.",
       );
-      if (linked && linked.contact_id !== data.expected_contact_id)
+      if (currentContact && currentContact !== data.expected_contact_id)
         throw new ApiError(
           409,
           "contact_conflict",
@@ -392,7 +394,7 @@ export async function contactCommand(
       await commitLocal([
         ["DELETE FROM conversation_contacts WHERE conversation_id=? AND profile_id=?", [conv.id, profile]],
         ["UPDATE conversations SET customer_link_state='blocked' WHERE id=? AND profile_id=?", [conv.id, profile]],
-      ], linked?.contact_id ?? null, conversationContactNamespace(conv), { id: conv.id, unlinked: true });
+      ], currentContact ?? null, conversationContactNamespace(conv), { id: conv.id, unlinked: true });
       return { id: conv.id, unlinked: true };
     }
     if (linked) {
@@ -418,18 +420,36 @@ export async function contactCommand(
         );
       id = chosen.id;
     } else {
-      const row = insertContact(
-        actor,
-        profile,
-        namespace,
-        contactValues(data),
-        "conversation",
-      );
-      id = row.id;
-      statements.push(...phoneSafetyStatements(profile, namespace, contactValues(data).phone ? [contactValues(data).phone] : [], commandId), row.statement, ...await identityPort.indexContact(env, {
-        profileId: profile, namespace, contactId: row.id,
-        phones: contactValues(data).phone ? [contactValues(data).phone] : [], origin: "local",
-      }));
+      const automatic = conv.customer_link_state === "ready" && namespace === "team" ? await one(env,
+        `SELECT c.* FROM customer_phones p JOIN contacts c ON c.id=p.contact_id AND c.profile_id=p.profile_id AND c.namespace=p.namespace
+         WHERE p.profile_id=? AND p.namespace='team' AND p.phone=? AND p.state='ready' AND c.identity_state='active' AND c.source='automatic'`,
+        profile, conv.verified_phone) : null;
+      if (automatic) {
+        // A ficha telefônica já existe. Associá-la conserva seu histórico; os
+        // dados seguem pelo comando cadastral, inclusive pela ponte quando ligada.
+        id = automatic.id;
+        const values = contactValues(data);
+        const enrichmentId = `${commandId}:details`;
+        const previous = await one(env, "SELECT expected_version,expected_erp_version FROM customer_jobs WHERE profile_id=? AND command_id=?", profile, enrichmentId);
+        await enrichLocal(env, actor, profile, id, {
+          commandId: enrichmentId, expectedVersion: previous?.expected_version ?? automatic.version,
+          expectedErpVersion: previous ? previous.expected_erp_version : automatic.erp_version,
+          mode: "fill_empty", patch: { name: values.name, ...(values.phone ? { phones: [values.phone] } : {}), ...(values.email ? { email: values.email } : {}) },
+        }, "enrich", { company: values.company, notes: values.notes });
+      } else {
+        const row = insertContact(
+          actor,
+          profile,
+          namespace,
+          contactValues(data),
+          "conversation",
+        );
+        id = row.id;
+        statements.push(...phoneSafetyStatements(profile, namespace, contactValues(data).phone ? [contactValues(data).phone] : [], commandId), row.statement, ...await identityPort.indexContact(env, {
+          profileId: profile, namespace, contactId: row.id,
+          phones: contactValues(data).phone ? [contactValues(data).phone] : [], origin: "local",
+        }));
+      }
     }
     statements.push([
       "INSERT INTO conversation_contacts(conversation_id,profile_id,contact_id,linked_by,created) VALUES(?,?,?,?,?)",
@@ -443,7 +463,7 @@ export async function contactCommand(
 }
 
 // O registro recebe o operationId estável de perform, nunca o X-Request-Id.
-installWritePort({ enrich: enrichLocal, maintain: maintainJobs });
+installWritePort({ enrich: enrichLocal, maintain: maintainJobs }, { default: true });
 for (const operation of ["contact.create", "contact.update", "contact.import", "contact.from-conversation", "contact.unlink", "contact.promote", "contact.from-erp", "contact.resolve-phone", "contact.erasure", "contact.section"])
   registerCommand(operation, (env, actor, profile, data, operationId) => contactCommand(env, actor, profile, operation, data, operationId));
 for (const moduleId of Object.keys(customerProfileDeclarations))

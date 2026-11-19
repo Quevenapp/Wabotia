@@ -78,10 +78,10 @@ describe("memória administrativa e privacidade", () => {
     await expect(customerHistory.memory(env, f.ctx.bound, f.a)).rejects.toMatchObject({ status: 404 });
   });
 
-  it("módulos desligados não retiram a ferramenta de memória nem acionam o ERP", async () => {
+  it("sem ferramentas de cliente o provedor continua sem tools; memória direta não aciona ERP", async () => {
     const f = await setup();
-    for (const module of ["queue", "forms", "reserva", "erp", "saude", "ensino", "juridico"]) await exec(env, "INSERT INTO profile_modules(profile_id,module_id,enabled,updated) VALUES(?,?,0,?) ON CONFLICT(profile_id,module_id) DO UPDATE SET enabled=0", f.profile, module, f.at);
-    expect(customerToolDefs(await customerTools(env, f.profile)).some(t => t.name === CUSTOMER_MEMORY_TOOL)).toBe(true);
+    for (const module of ["queue", "forms", "reserva", "erp", "saude", "ensino", "juridico", "os", "agenda", "pedido", "mensalidade", "suporte", "condominio"]) await exec(env, "INSERT INTO profile_modules(profile_id,module_id,enabled,updated) VALUES(?,?,0,?) ON CONFLICT(profile_id,module_id) DO UPDATE SET enabled=0", f.profile, module, f.at);
+    expect(customerToolDefs(await customerTools(env, f.profile))).toEqual([]);
     const moduleTools = await customerTools(env, f.profile);
     expect(moduleTools.some(t => ["saude", "ensino", "juridico"].includes(t.module))).toBe(false);
     const memory = await customerHistory.memory({ ...env, COORDINATOR: new Proxy({}, { get() { throw new Error("O ERP não pode ser chamado."); } }) } as any, f.ctx.bound, f.a);

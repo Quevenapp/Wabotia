@@ -72,7 +72,7 @@ export interface CustomerJobView {
 }
 
 export interface InboundEvidence {
-  provider: "zernio" | "qr";
+  provider: "zernio" | "qr" | "meta";
   phone: string | null;
   phoneJid?: string;
 }
@@ -95,6 +95,8 @@ export interface MaintenanceResult {
 }
 
 export interface IdentityPort {
+  /** Plano sem I/O, confirmado no mesmo lote da origem. null pede o adaptador de leitura. */
+  recordLink?(conversation: Conversation, link: Omit<CustomerRecordLink, "contactId">): Statement[];
   resolve(env: Env, conversation: Conversation): Promise<CustomerRef>;
   prepareInbound(
     env: Env, conversation: Conversation, evidence: InboundEvidence

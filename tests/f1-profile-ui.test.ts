@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ContactContribution, ContactProfileView, SectionView } from "../src/customer/profile-contracts";
 import type { Api } from "../web/lib/api";
-import { bindErpContact, contactsQuery, mountProfileHost, profileMode, profileScopeKey, ProfileRequests, sectionWriter } from "../web/contact-profile/model";
+import { bindErpContact, contactsQuery, mountProfileHost, profileMode, profileScopeKey, ProfileRequests, sectionChanges, sectionWriter } from "../web/contact-profile/model";
 import { installFullCustomerHost, type FullCustomerHost } from "../web/contact-profile/host-port";
 import { privateTarget, registeredComponent, targetHref } from "../web/contact-profile/registry";
 
@@ -75,6 +75,17 @@ describe("ficha simples e hospedeiro completo", () => {
 });
 
 describe("leituras e formulários independentes", () => {
+  it("Condomínio transforma somente diferenças em operações e preserva versões próprias", () => {
+    const membership = { id: "m", personId: "p", unitId: "u", role: "proprietario", startsAt: 1, endsAt: null, notices: true, label: "Proprietário", active: true };
+    const func = { id: "f", personId: "p", unitId: null, role: "sindico", startsAt: 1, endsAt: null, version: 3, label: "Síndico" };
+    const section: SectionView = { version: 4, writable: true, schema: "condominio.units.v1", data: { memberships: [membership], functions: [func], subscriptions: [] } };
+    expect(sectionChanges(section, section.data)).toEqual({ memberships: [], functions: [], subscriptions: [] });
+    expect(sectionChanges(section, { memberships: [{ ...membership, notices: false }], functions: [{ ...func, endsAt: 2 }], subscriptions: [] })).toEqual({
+      memberships: [{ id: "m", personId: "p", unitId: "u", role: "proprietario", startsAt: 1, endsAt: null, notices: false }],
+      functions: [{ id: "f", personId: "p", unitId: null, role: "sindico", startsAt: 1, endsAt: 2, expectedVersion: 3 }], subscriptions: [],
+    });
+    expect(() => sectionChanges(section, { memberships: Array.from({ length: 11 }, (_, i) => ({ ...membership, id: String(i) })), functions: [], subscriptions: [] })).toThrow(/dez/);
+  });
   it("respostas fora de ordem e transportes que ignoram abort não sobrescrevem o contato atual", async () => {
     const requests = new ProfileRequests(), first = deferred<string>(), second = deferred<string>();
     let visible = "";

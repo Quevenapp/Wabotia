@@ -114,8 +114,12 @@ export async function guardianOrders(ctx: ModuleContext, c: Conversation) {
   if (c.profile_id !== ctx.profile || c.chat_type === "group") notFound();
   const phone = normalizeCustomerPhone(ctx.verifiedPhone(c), "international");
   const customer = await resolveCustomer(ctx.env, c);
+  // Só o legado ainda sem identidade cadastral usa a autorização telefônica
+  // privada. Um contato conhecido mas pendente não pode validar o claim.
+  const legacy = customer.state === "pending" && !customer.contactId &&
+    !customer.verifiedPhone && !c.verified_phone;
   if (!phone || customer.profileId !== ctx.profile || customer.namespace !== "team" ||
-      customer.state !== "ready" || !customer.contactId || customer.verifiedPhone !== phone) notFound();
+      (customer.state !== "ready" && !legacy)) notFound();
   const hash = await phoneHash(ctx, phone);
   const rows = await all<{ order_id: string; phone: string }>(ctx.env,
     `SELECT DISTINCT g.order_id,p.phone FROM ensino_guardians g JOIN os_people p

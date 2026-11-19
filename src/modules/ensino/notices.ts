@@ -67,8 +67,8 @@ export async function sendNoticeBatch(ctx: ModuleContext, actor: Actor, input: u
     if (people.length) {
       const phones = [...new Set(people.map(p => normalizeCustomerPhone(p.phone, "international")).filter((p): p is string => p !== null))];
       const conversations = await all<Conversation>(ctx.env,
-        `SELECT * FROM conversations WHERE profile_id=? AND verified_phone IN (SELECT value FROM json_each(?))
-         AND customer_link_state='ready' AND chat_type<>'group'
+        `SELECT * FROM conversations WHERE profile_id=? AND phone IN (SELECT value FROM json_each(?))
+         AND customer_link_state NOT IN ('blocked','excluded','ambiguous') AND chat_type<>'group'
          AND (? IS NULL OR id=?) ORDER BY last_customer DESC LIMIT 10`, ctx.profile, JSON.stringify(phones), target.conversation_id, target.conversation_id);
       status = "blocked"; errorCode = "conversation_unavailable";
       for (const conversation of conversations) {

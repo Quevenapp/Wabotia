@@ -338,7 +338,9 @@ async function conversationOf(ctx: ModuleContext, order: any) {
   if (!order.conversation_id) return null;
   try {
     const c = await ctx.conversation(order.conversation_id);
-    return await workCustomerAllows(ctx, c, order, true) ? c : null;
+    // Avisos administrativos usam o vínculo da ordem, como na API publicada.
+    // Documentos revalidam separadamente o telefone atual do titular.
+    return await workCustomerAllows(ctx, c, order) ? c : null;
   } catch {
     return null;
   }
@@ -447,8 +449,8 @@ export async function createOrder(ctx: ModuleContext, input: CreateInput) {
     "SELECT name FROM contacts WHERE id=? AND profile_id=? AND namespace=? AND identity_state='active'",
     contactId, ctx.profile, namespace) : null;
   const suppliedPhone = text(input.phone, 40, "o telefone");
-  const phone = normalizeCustomerPhone(suppliedPhone || ref?.verifiedPhone || "", "international") || "";
-  requireValue(!suppliedPhone || phone, "Informe um telefone internacional válido.");
+  const phone = suppliedPhone ? phoneDigits(suppliedPhone) : ref?.verifiedPhone || (c ? ctx.verifiedPhone(c) : null) || "";
+  requireValue(!suppliedPhone || normalizeCustomerPhone(phone, "international"), "Informe um telefone internacional válido.");
   requireValue(c || phone, "Informe a conversa ou o telefone do cliente.");
   const name = text(input.customer_name, 120, "o nome do cliente") || contact?.name || "";
   const id = uid(), at = now();
@@ -1141,6 +1143,13 @@ async function customerOrders(ctx: ModuleContext, c: Conversation, open: boolean
 }
 
 export async function trackText(ctx: ModuleContext, c: Conversation, typeId?: string) {
+  const phone = ctx.verifiedPhone(c);
+  if (phone) {
+    const scope = await workCustomerScope(ctx, c);
+    await exec(ctx.env, `UPDATE os_orders SET conversation_id=?,contact_id=coalesce(contact_id,?)
+      WHERE profile_id=? AND conversation_id IS NULL AND ${scope.sql}`,
+    c.id, scope.contactId, ctx.profile, ...scope.params);
+  }
   const rows = await customerOrders(ctx, c, true, typeId, "ASC");
   if (!rows.length) {
     if (typeId && typeId !== "service_order") {

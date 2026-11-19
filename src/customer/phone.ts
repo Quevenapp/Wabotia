@@ -20,3 +20,12 @@ export function normalizeCustomerPhone(
   } else if (mode !== "international" && mode !== "human_br") return null;
   return phone;
 }
+
+/** Compatibilidade publicada do WhatsApp brasileiro, só após prova do canal. */
+export function customerPhoneVariants(phone: string): string[] {
+  if (!normalizeCustomerPhone(phone, "international")) return [];
+  const phones = [phone];
+  if (/^55\d{2}9\d{8}$/.test(phone)) phones.push(phone.slice(0, 4) + phone.slice(5));
+  else if (/^55\d{2}[6-9]\d{7}$/.test(phone)) phones.push(phone.slice(0, 4) + "9" + phone.slice(4));
+  return phones;
+}
