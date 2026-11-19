@@ -21,11 +21,22 @@ export function normalizeCustomerPhone(
   return phone;
 }
 
+/** Só o formato brasileiro local inequívoco recebe DDI na leitura legada. */
+export function customerPhoneInputMode(value: unknown): "international" | "human_br" {
+  return typeof value === "string" && !value.trim().startsWith("+") &&
+    /^(?:[1-9]{2}9[0-9]{8}|[1-9]{2}[2-9][0-9]{7})$/.test(value.replace(/[ ().-]/g, ""))
+    ? "human_br" : "international";
+}
+
 /** Compatibilidade publicada do WhatsApp brasileiro, só após prova do canal. */
-export function customerPhoneVariants(phone: string): string[] {
-  if (!normalizeCustomerPhone(phone, "international")) return [];
+export function customerPhoneVariants(value: string, mode: "international" | "human_br" = "international", legacy = false): string[] {
+  const phone = normalizeCustomerPhone(value, mode);
+  if (!phone) return [];
   const phones = [phone];
   if (/^55\d{2}9\d{8}$/.test(phone)) phones.push(phone.slice(0, 4) + phone.slice(5));
   else if (/^55\d{2}[6-9]\d{7}$/.test(phone)) phones.push(phone.slice(0, 4) + "9" + phone.slice(4));
-  return phones;
+  // Sem DDI só é candidato quando a origem é brasileira. Um + internacional
+  // explícito nunca é reinterpretado como DDD brasileiro.
+  if (legacy && /^55[1-9][0-9]{9,10}$/.test(phone)) phones.push(...phones.map(p => p.slice(2)));
+  return [...new Set(phones)];
 }

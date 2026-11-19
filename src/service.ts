@@ -30,7 +30,7 @@ import {
   publicUrl,
   passwordHash,
 } from "./security";
-import { event, audit } from "./events";
+import { event, audit, eventStatement, fanOut } from "./events";
 import { appErpRoleInput } from "./modules/erp/identity";
 import { boundAllows, visibleConversation } from "./visibility";
 import { probe, telegramRemoved } from "./integrations";
@@ -40,7 +40,7 @@ import { validateJevSettings } from "./jev-client";
 import { contactCommand } from "./contacts";
 import { installIdentityPort, identityPort } from "./customer/ports";
 import { customerIdentity, inboundConnection, evidencePhone } from "./customer/identity";
-import { normalizeCustomerPhone } from "./customer/phone";
+import { normalizeCustomerPhone, customerPhoneVariants, customerPhoneInputMode } from "./customer/phone";
 import type { InboundEvidence } from "./customer/contracts";
 installIdentityPort(customerIdentity, { default: true });
 import { authorizedMedia, mediaKind, uploadCommand } from "./media";
@@ -462,7 +462,8 @@ export async function message(
   const id = uid();
   await exec(
     env,
-    "INSERT INTO messages(id,profile_id,conversation_id,direction,author,text,attachments,external_id,created) VALUES(?,?,?,?,?,?,?,?,?)",
+    `INSERT INTO messages(id,profile_id,conversation_id,direction,author,text,attachments,external_id,created,content)
+     SELECT ?,?,?,?,?,?,?,?,?,json_object('customerSession',session) FROM conversations WHERE id=? AND profile_id=?`,
     id,
     c.profile_id,
     c.id,
@@ -472,6 +473,8 @@ export async function message(
     JSON.stringify(attachments),
     external,
     now(),
+    c.id,
+    c.profile_id,
   );
   return id;
 }
@@ -1109,21 +1112,9 @@ async function attendantAvailable(env: Env, c: Conversation, cfg: any) {
  * A busca por variantes só recebe prova do canal ou pedido autorizado da equipe.
  */
 export function phoneVariants(phone: unknown) {
-  let digits = String(phone ?? "").replace(/\D/g, "");
-  // Sem DDI, no formato brasileiro (DDD + celular com 9, ou DDD + 8
-  // dígitos): é do Brasil. O WhatsApp sempre usa o número com o DDI.
-  if (/^[1-9]{2}9\d{8}$/.test(digits) || /^[1-9]{2}[2-9]\d{7}$/.test(digits))
-    digits = "55" + digits;
-  requireValue(
-    /^[1-9]\d{7,14}$/.test(digits),
-    "Telefone inválido: use DDI, DDD e número (ex.: 5511999990000).",
-  );
-  const out = new Set([digits]);
-  if (/^55\d{2}9\d{8}$/.test(digits))
-    out.add(digits.slice(0, 4) + digits.slice(5));
-  else if (/^55\d{2}[6-9]\d{7}$/.test(digits))
-    out.add(digits.slice(0, 4) + "9" + digits.slice(4));
-  return [...out];
+  const variants = typeof phone === "string" ? customerPhoneVariants(phone, customerPhoneInputMode(phone)) : [];
+  requireValue(variants.length, "Telefone inválido: use DDI, DDD e número (ex.: 5511999990000).");
+  return variants;
 }
 
 /**
@@ -1143,14 +1134,17 @@ export async function conversationByPhone(
   } = {},
 ): Promise<Conversation | null> {
   requireValue(normalizeCustomerPhone(phone, "international"), "Telefone inválido: use DDI, DDD e número.");
-  const variants = JSON.stringify(phoneVariants(phone));
   const digits = phoneVariants(phone)[0];
+  const variants = JSON.stringify(customerPhoneVariants(digits, "international", true));
   const found = await one<Conversation>(
     env,
     `SELECT c.* FROM conversations c
       WHERE c.profile_id=? AND c.chat_type='direct'
         AND c.customer_link_state NOT IN ('blocked','excluded','ambiguous')
         AND c.phone IN (SELECT value FROM json_each(?))
+        AND (c.last_customer=0 OR c.customer_identity_proof IS NOT NULL OR EXISTS
+          (SELECT 1 FROM messages m WHERE m.conversation_id=c.id AND m.profile_id=c.profile_id
+           AND m.direction='customer' AND instr(m.author,'customer:'||c.external_namespace||':')=1))
         AND c.connection_id IS NOT NULL AND c.external_namespace='channel:'||c.connection_id${options.connectionId ? " AND c.connection_id=?" : ""}
       ORDER BY c.last_customer DESC,c.updated DESC LIMIT 1`,
     profile,
@@ -1198,9 +1192,15 @@ export async function conversationByPhone(
     digits,
   );
   // Uma colisão com conversa bloqueada/ambígua não contorna a resolução.
-  // Só a conversa de saída ainda sem resposta pode ser reutilizada aqui.
+  // Legado que já recebeu mensagem exige origem autenticada no mesmo canal.
   if (!created.meta?.changes && c &&
-      (c.customer_link_state !== "pending" || c.last_customer !== 0)) return null;
+      (c.chat_type !== "direct" || c.connection_id !== line.id ||
+       ["blocked", "excluded", "ambiguous"].includes(c.customer_link_state || "pending"))) return null;
+  if (!created.meta?.changes && c && c.last_customer > 0) {
+    const received = await one(env, `SELECT 1 FROM messages WHERE conversation_id=? AND profile_id=? AND direction='customer'
+      AND instr(author,?)=1 LIMIT 1`, c.id, profile, `customer:${namespace}:`);
+    if (!received) return null;
+  }
   if (created.meta?.changes)
     await event(env, profile, "conversation.created", id, {
       id,
@@ -1241,7 +1241,8 @@ export async function inbound(
       );
   }
   const content =
-    data.content && typeof data.content === "object" ? data.content : {};
+    data.content && typeof data.content === "object" ? { ...data.content } : {};
+  delete content.customerSession;
   const isGroup = data.chat_type === "group" || data.external_id.endsWith("@g.us");
   const key = `${profile}:${namespace}:${data.external_id}:${data.message_id}`;
   const receivedAt = now();
@@ -1294,26 +1295,30 @@ export async function inbound(
       title: data.title,
     });
   }
-  // Uma leitura mantém a precedência: afinidade do roteador, identificador
-  // exato e, só então, a conversa de saída ainda sem resposta. O fallback
-  // exige o telefone autenticado exato; não amplia acesso por variantes.
-  let c = await one<Conversation & { inbound_match: number }>(env,
+  // Afinidade e ID exato têm precedência. O fallback só usa encaminhamento
+  // persistido do canal; dois destinos equivalentes exigem revisão.
+  const routePhones = JSON.stringify(authenticatedPhone ? customerPhoneVariants(authenticatedPhone, "international", true) : []);
+  const phoneIdentifier = !!normalizeCustomerPhone(data.external_id, "international") || !!data.external_id.match(/^[0-9]+(?::[0-9]+)?@s\.whatsapp\.net$/);
+  let c = await one<Conversation & { inbound_match: number; route_count?: number }>(env,
     `WITH candidates AS (
-       SELECT conversation_id id,0 priority FROM router_affinities
-         WHERE connection_id=? AND recipient=?
-       UNION ALL SELECT id,1 FROM conversations
-         WHERE profile_id=? AND external_namespace=? AND external_id=?
+       SELECT conversation_id id,0 priority FROM router_affinities WHERE connection_id=? AND recipient=?
+       UNION ALL SELECT id,1 FROM conversations WHERE profile_id=? AND external_namespace=? AND external_id=?
        UNION ALL SELECT id,2 FROM conversations
-         WHERE profile_id=? AND connection_id=? AND external_namespace=?
-           AND chat_type='direct' AND last_customer=0
+         WHERE profile_id=? AND connection_id=? AND external_namespace=? AND chat_type='direct'
            AND customer_link_state NOT IN ('blocked','excluded','ambiguous')
            AND phone IN (SELECT value FROM json_each(?))
-     ) SELECT c.*,k.priority inbound_match FROM candidates k
+           AND (last_customer=0 OR external_id IN (SELECT value FROM json_each(?)) OR ?=1)
+           AND (last_customer=0 OR customer_identity_proof IS NOT NULL OR EXISTS
+             (SELECT 1 FROM messages m WHERE m.conversation_id=conversations.id AND m.profile_id=conversations.profile_id
+               AND m.direction='customer' AND instr(m.author,'customer:'||conversations.external_namespace||':')=1))
+     ) SELECT c.*,k.priority inbound_match,
+       (SELECT count(DISTINCT id) FROM candidates WHERE priority=2) route_count FROM candidates k
        JOIN conversations c ON c.id=k.id AND c.profile_id=?
        ORDER BY k.priority,c.created DESC LIMIT 1`,
-    isGroup ? null : connectionId, data.external_id,
-    profile, namespace, data.external_id,
-    profile, connectionId, namespace, JSON.stringify(authenticatedPhone ? phoneVariants(authenticatedPhone) : []), profile);
+    isGroup ? null : connectionId, data.external_id, profile, namespace, data.external_id,
+    profile, connectionId, namespace, routePhones, routePhones, phoneIdentifier ? 1 : 0, profile);
+  if (c?.inbound_match === 2 && (c.route_count || 0) > 1)
+    throw new ApiError(409, "customer_phone_ambiguous", "Há mais de uma conversa para este telefone. Revise o vínculo.");
   requireValue(
     !c?.connection_id || !!connectionId,
     "Mensagens de cliente em um canal real devem chegar pelo webhook autenticado.",
@@ -1321,11 +1326,6 @@ export async function inbound(
   // Primeira resposta de quem recebeu uma conversa aberta pelo telefone
   // (conversationByPhone) com outro identificador do WhatsApp: a mesma
   // conversa passa a usar o identificador do canal.
-  if (c?.inbound_match === 2) {
-    c = await one<Conversation & { inbound_match: number }>(env,
-      "UPDATE conversations SET external_id=?,updated=? WHERE id=? AND last_customer=0 RETURNING *,2 AS inbound_match",
-      data.external_id, now(), c.id);
-  }
   const createdConversation = !c;
   if (!c) {
     const id = uid();
@@ -1341,14 +1341,10 @@ export async function inbound(
       data.external_id,
       authenticatedPhone,
       uid(),
-      customerAt,
+      0,
       now(),
       now(),
     );
-    await event(env, profile, "conversation.created", id, {
-      id,
-      external_id: data.external_id,
-    });
   }
   requireValue(c, "Conversa não encontrada.");
   const ratingReply =
@@ -1359,16 +1355,14 @@ export async function inbound(
       c.id,
       now() - 86400000,
     ));
-  if (c.state === "closed" && !ratingReply) {
-    await exec(
-      env,
-      "UPDATE conversations SET state='ai',owner=NULL,epoch=epoch+1,session=?,customer_link_state=CASE WHEN customer_link_state='ready' THEN 'pending' ELSE customer_link_state END,updated=? WHERE id=?",
-      uid(),
-      now(),
-      c.id,
-    );
-    c = { ...await conversation(env, c.id, profile), inbound_match: c.inbound_match };
-  }
+  const previous = c;
+  const reopened = c.state === "closed" && !ratingReply;
+  const changedPhone = !!authenticatedPhone && !!c.verified_phone &&
+    !customerPhoneVariants(authenticatedPhone, "international", true).includes(c.verified_phone);
+  if (reopened || changedPhone) c = { ...c, session: uid(),
+    ...(reopened ? { state: "ai", owner: null, epoch: c.epoch + 1 } : {}),
+    customer_link_state: c.customer_link_state === "ready" ? "pending" : c.customer_link_state };
+  if (c.inbound_match === 2 && c.last_customer === 0) c = { ...c, external_id: data.external_id };
   const line = lineService(json(channel?.config));
   // Only the message that opens a session on a human line queues it; the
   // engine uses this to offer the main menu once (front door without a bot).
@@ -1380,19 +1374,7 @@ export async function inbound(
   // (revisão M2).
   const lineGate = humanFrontDoor && (await gatedArea(env, profile));
   const queuedByLine = humanFrontDoor && !lineGate;
-  if (queuedByLine) {
-    await exec(
-      env,
-      "UPDATE conversations SET state='waiting',owner=NULL,epoch=epoch+1,updated=? WHERE id=?",
-      now(),
-      c.id,
-    );
-    c = { ...await conversation(env, c.id, profile), inbound_match: c.inbound_match };
-    await event(env, profile, "conversation.updated", c.id, {
-      action: "waiting",
-      state: "waiting",
-    });
-  }
+  if (queuedByLine) c = { ...c, state: "waiting", owner: null, epoch: c.epoch + 1 };
   const advanceEpoch =
     c.state === "ai" &&
     (c.chat_type !== "group" ||
@@ -1411,8 +1393,20 @@ export async function inbound(
       c.id,
     )
   ).map((ticket) => ticket.id as string);
-  const identity = await identityPort.prepareInbound(env, c, evidence);
-  await batch(env, [
+  const identity = await identityPort.prepareInbound(env, { ...c, session: previous.session }, evidence);
+  // O plano pode descobrir outro proprietário até com o mesmo telefone.
+  if ((identity as typeof identity & { sessionChanged?: boolean }).sessionChanged && c.session === previous.session)
+    c = { ...c, session: uid(), epoch: c.epoch + (advanceEpoch ? 0 : 1) };
+  content.customerSession = c.session;
+  const entryEvents = [
+    ...(createdConversation || (previous.last_customer === 0 && previous.epoch === 1)
+      ? [{ kind: "conversation.created", id: c.id, payload: { id: c.id, external_id: c.external_id } }] : []),
+    ...(queuedByLine ? [{ kind: "conversation.updated", id: c.id, payload: { action: "waiting", state: "waiting" } }] : []),
+    { kind: "message.received", id: msgId, payload: { conversation_id: c.id, message_id: msgId, text: data.text, attachments } },
+  ];
+  const committed = await batch(env, [
+    ["UPDATE conversations SET state=?,owner=?,epoch=?,session=?,external_id=?,last_customer=max(last_customer,?),updated=? WHERE id=? AND profile_id=?",
+      [c.state, c.owner, c.epoch, c.session, c.external_id, customerAt, receivedAt, c.id, profile]],
     ...identity.statements,
     [
       "INSERT INTO inbox(id,profile_id,event_key,conversation_id,payload,created) VALUES(?,?,?,?,?,?)",
@@ -1423,6 +1417,7 @@ export async function inbound(
         c.id,
         JSON.stringify({
           ...data,
+          content,
           message_record_id: msgId,
           attachments,
           epoch: c.epoch,
@@ -1453,17 +1448,12 @@ export async function inbound(
         JSON.stringify(content),
       ],
     ],
-    [
-      "UPDATE conversations SET last_customer=max(last_customer,?),updated=?,epoch=epoch+? WHERE id=?",
-      [customerAt, now(), advanceEpoch ? 1 : 0, c.id],
-    ],
+    ...entryEvents.map(e => eventStatement(profile, e.kind, e.id, e.payload)),
   ]);
-  await event(env, profile, "message.received", msgId, {
-    conversation_id: c.id,
-    message_id: msgId,
-    text: data.text,
-    attachments,
-  });
+  // Os eventos existem no mesmo commit; assinaturas só recebem publicação
+  // depois que identidade, sessão, inbox e mensagem foram confirmadas.
+  for (let i = 0; i < entryEvents.length; i++)
+    await fanOut(env, profile, entryEvents[i].kind, (committed[committed.length - entryEvents.length + i].results[0] as { id: number }).id);
   for (const ticketId of resumed)
     await ticketResumedEvent(env, profile, ticketId, msgId);
   if (connectionId)
