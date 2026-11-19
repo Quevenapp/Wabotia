@@ -31,7 +31,8 @@ import {
   saveChat,
   type OrderLine,
 } from "./orders";
-import { dateTimeOf, money, phoneDigits } from "./model";
+import { dateTimeOf, money } from "./model";
+import { routineCustomer } from "../agenda/customer-provider";
 import { proceedDraft, type CatalogDraft } from "./chat";
 
 const DRAFT_MINUTES = 30;
@@ -423,16 +424,14 @@ export async function requestDiscount(
       `O pedido nº ${order.number} já tem desconto.`,
     );
   const view = orderView(order);
-  // Últimos pedidos do mesmo cliente: desta conversa ou do telefone
-  // verificado pelo canal (nunca de um número citado no texto).
-  const phone = phoneDigits(ctx.verifiedPhone(c) || "");
+  // O histórico ampliado depende do vínculo central, nunca do telefone digitado.
+  const customer = await routineCustomer(ctx, c);
   const past = await all(
     ctx.env,
-    "SELECT number,total_cents,discount_cents,created FROM pedido_orders WHERE profile_id=? AND id<>? AND status='delivered' AND (conversation_id=? OR (phone<>'' AND phone=?)) ORDER BY created DESC LIMIT 5",
+    `SELECT number,total_cents,discount_cents,created FROM pedido_orders WHERE profile_id=? AND id<>? AND status='delivered' AND (${customer ? "contact_id=? OR (contact_id IS NULL AND conversation_id=?)" : "conversation_id=?"}) ORDER BY created DESC LIMIT 5`,
     ctx.profile,
     order.id,
-    c.id,
-    phone,
+    ...(customer ? [customer.ref.contactId, c.id] : [c.id]),
   );
   const max = limitCents(order, cfg.discount.max_percent);
   const teamMax = limitCents(order, cfg.discount.team_max_percent);
