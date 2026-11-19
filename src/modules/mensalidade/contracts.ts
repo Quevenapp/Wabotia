@@ -20,6 +20,7 @@ import { createSubscription } from "./store";
 import { announcePaid } from "./listeners";
 import { sendReceipt } from "./billing";
 import { sendPayMessage } from "./pay-message";
+import { commitMensalidade as batch, mensalidadeCasGuard, mensalidadeHistory, mensalidadePaymentEvidence, mensalidadeSource, mensalidadeStatements, reconcileMensalidadeContracts, recoverMensalidadePayment } from "./integration";
 
 const BILLING = { notification: true, purpose: "billing" as const };
 
@@ -184,6 +185,7 @@ export async function chargeContract(
   method: "pix" | "link",
   key: string,
 ) {
+  await reconcileMensalidadeContracts(ctx);
   if (contract.status === "paid")
     throw new ApiError(
       409,
@@ -191,6 +193,16 @@ export async function chargeContract(
       "A primeira mensalidade deste plano já foi paga.",
     );
   const at = now();
+  // A obrigação nasce antes de enviar a cobrança. Retentativas conservam a
+  // fotografia inicial; cobrança anterior à integração não importa passado.
+  const obligation = await mensalidadeStatements(ctx, {
+    kind: "contract", record: { ...contract, obligation_ms: contract.charge_seq ? contract.created : at },
+    operation: contract.charge_seq ? null : "recognize", newObligation: !contract.charge_seq, at, actor: contract.actor,
+  });
+  await batch(ctx.env, [
+    ["UPDATE mensalidade_contracts SET updated=? WHERE id=? AND profile_id=? AND status=? AND charge_seq=? AND amount_cents=? AND payment_id IS ?", [at, contract.id, ctx.profile, contract.status, contract.charge_seq, contract.amount_cents, contract.payment_id ?? null]],
+    mensalidadeCasGuard, ...obligation.statements,
+  ]);
   if (
     contract.payment_id &&
     contract.payment_status === "created" &&
@@ -230,19 +242,12 @@ export async function chargeContract(
     notification: true,
     receipt: false,
   });
-  await exec(
-    ctx.env,
-    "UPDATE mensalidade_contracts SET payment_id=?,payment_status=?,payment_expires_at=?,pix_code=?,pay_url=?,method=?,charge_seq=?,status=CASE WHEN status IN ('expired','cancelled') THEN 'pending' ELSE status END,updated=? WHERE id=?",
-    payment.id,
-    payment.status,
-    payment.expires_at,
-    payment.pix_code,
-    payment.url,
-    payment.method,
-    seq,
-    at,
-    contract.id,
-  );
+  const charged = await mensalidadeStatements(ctx, { kind: "contract", record: contract, operation: null, at });
+  await batch(ctx.env, [
+    ["UPDATE mensalidade_contracts SET payment_id=?,payment_status=?,payment_expires_at=?,pix_code=?,pay_url=?,method=?,charge_seq=?,status=CASE WHEN status IN ('expired','cancelled') THEN 'pending' ELSE status END,updated=? WHERE id=? AND profile_id=? AND status=? AND charge_seq=? AND payment_id IS ?",
+      [payment.id, payment.status, payment.expires_at, payment.pix_code, payment.url, payment.method, seq, at, contract.id, ctx.profile, contract.status, contract.charge_seq, contract.payment_id ?? null]],
+    mensalidadeCasGuard, ...charged.statements,
+  ]);
   return loadContract(ctx, contract.id);
 }
 
@@ -260,9 +265,11 @@ async function contractPaid(
   contract: any,
   payment: Payment,
 ) {
-  if (contract.status === "paid" && contract.payment_id === payment.id)
+  if (contract.status === "paid" && contract.payment_id === payment.id) {
+    await recoverMensalidadePayment(ctx, "contract", contract, payment);
     // O núcleo repete o gancho até concluir: refaz os avisos (com chave).
     return contractAnnounce(ctx, contract, payment);
+  }
   if (contract.status === "paid") {
     if (contract.payment_id !== payment.id)
       await ctx.publish(
@@ -326,6 +333,8 @@ async function contractPaid(
       phone: contract.phone,
       plan_id: contract.plan_id,
       payer_id: payer.id,
+      amount_cents: contract.amount_cents,
+      discount_cents: 0,
       customer_name: payer.name || contract.name,
       start_date: today(paidAt),
       sourceKey: `contrato:${contract.id}`,
@@ -336,54 +345,36 @@ async function contractPaid(
   const day = today(paidAt),
     period = day.slice(0, 7),
     instId = uid();
-  const amount = sub.amount_cents - sub.discount_cents;
-  const inserted = await exec(
-    ctx.env,
-    "INSERT INTO mensalidade_installments(id,profile_id,subscription_id,period_key,due_date,amount_cents,status,upfront,paid_at,paid_via,paid_by,payment_id,payment_status,payment_method,notice_before_at,notice_due_at,created,updated) VALUES(?,?,?,?,?,?,'paid',1,?,?,'provider',?,'paid',?,?,?,?,?) ON CONFLICT(subscription_id,period_key) DO NOTHING",
-    instId,
-    ctx.profile,
-    sub.id,
-    period,
-    day,
-    amount,
-    paidAt,
-    payment.method,
-    payment.id,
-    payment.method,
-    at,
-    at,
-    at,
-    at,
-  );
-  if (!inserted.meta.changes)
-    // O gerador chegou antes: a parcela do mês é esta.
-    await exec(
-      ctx.env,
-      "UPDATE mensalidade_installments SET status='paid',paid_at=?,paid_via=?,paid_by='provider',payment_id=?,payment_status='paid',updated=? WHERE subscription_id=? AND period_key=? AND status IN ('open','overdue')",
-      paidAt,
-      payment.method,
-      payment.id,
-      at,
-      sub.id,
-      period,
-    );
-  const inst = await one(
+  const amount = contract.amount_cents;
+  const existing = await one(
     ctx.env,
     "SELECT * FROM mensalidade_installments WHERE subscription_id=? AND period_key=?",
     sub.id,
     period,
   );
-  const claimed = await exec(
-    ctx.env,
-    "UPDATE mensalidade_contracts SET status='paid',paid_at=?,payment_id=?,payment_status='paid',subscription_id=?,installment_id=?,updated=? WHERE id=? AND status IN ('pending','expired','cancelled')",
-    paidAt,
-    payment.id,
-    sub.id,
-    inst.id,
-    at,
-    contract.id,
-  );
-  if (!claimed.meta.changes) return;
+  const inst = existing ?? { id: instId, profile_id: ctx.profile, subscription_id: sub.id, period_key: period, due_date: day, amount_cents: amount, status: "paid", created: at };
+  const evidence = await mensalidadePaymentEvidence(ctx, payment);
+  const source = await mensalidadeSource(ctx, "contract", contract);
+  const commercial = await mensalidadeStatements(ctx, { kind: "contract", record: { ...contract, status: "paid" }, source, operation: "receive", at: evidence.receipt?.occurred_ms ?? paidAt, ...evidence,
+    aliases: [{ kind: "installment", id: inst.id }] });
+  const writes: import("../../integrations/contracts").Statement[] = [];
+  if (existing) {
+    // Uma associação tardia não pode adotar uma parcela já reconhecida por
+    // outra origem. A guarda desfaz também o pagamento local neste lote.
+    writes.push(["SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM module_erp_sources WHERE profile_id=? AND module_id='mensalidade' AND source_id=?) THEN 1 ELSE json('mensalidade_origin_conflict') END", [ctx.profile, inst.id]]);
+    writes.push(["UPDATE mensalidade_installments SET status='paid',upfront=1,paid_at=?,paid_via=?,paid_by='provider',payment_id=?,payment_status='paid',updated=? WHERE id=? AND profile_id=? AND amount_cents=? AND (status IN ('open','overdue') OR (status='paid' AND payment_id=? AND paid_by='provider'))", [paidAt, payment.method, payment.id, at, inst.id, ctx.profile, amount, payment.id]], mensalidadeCasGuard);
+  } else writes.push([
+    "INSERT INTO mensalidade_installments(id,profile_id,subscription_id,period_key,due_date,amount_cents,status,upfront,paid_at,paid_via,paid_by,payment_id,payment_status,payment_method,notice_before_at,notice_due_at,created,updated) VALUES(?,?,?,?,?,?,'paid',1,?,?,'provider',?,'paid',?,?,?,?,?)",
+    [inst.id, ctx.profile, sub.id, period, day, amount, paidAt, payment.method, payment.id, payment.method, at, at, at, at],
+  ]);
+  await batch(ctx.env, [
+    ...writes,
+    ["UPDATE mensalidade_contracts SET status='paid',paid_at=?,payment_id=?,payment_status='paid',subscription_id=?,installment_id=?,updated=? WHERE id=? AND profile_id=? AND status=? AND amount_cents=?", [paidAt, payment.id, sub.id, inst.id, at, contract.id, ctx.profile, contract.status, contract.amount_cents]],
+    mensalidadeCasGuard,
+    mensalidadeHistory(ctx, "mensalidade.installment_created", inst.id, { installment_id: inst.id, subscription_id: sub.id, period_key: period, due_date: day, amount_cents: amount, status: "paid", upfront: true }, inst.id),
+    mensalidadeHistory(ctx, "mensalidade.paid", inst.id, { installment_id: inst.id, subscription_id: sub.id, contract_id: contract.id, period_key: period, amount_cents: amount, via: payment.method, by: "provider", payment_id: payment.id, paid_at: paidAt, previous_status: "contract" }, `${inst.id}:paid:${payment.id}`),
+    ...commercial.statements,
+  ]);
   return contractAnnounce(ctx, await loadContract(ctx, contract.id), payment);
 }
 
@@ -506,14 +497,15 @@ export async function contractPaymentUpdated(
         )
       : null;
   // Vencida ou cancelada: o contrato espera outra cobrança.
-  await exec(
-    ctx.env,
-    "UPDATE mensalidade_contracts SET payment_status=?,status=CASE WHEN status='pending' THEN ? ELSE status END,updated=? WHERE id=? AND payment_id=?",
-    payment.status,
-    payment.status === "cancelled" ? "cancelled" : "expired",
-    now(),
-    contract.id,
-    payment.id,
-  );
+  if (contract.payment_id !== payment.id) return null;
+  const at = now(), status = contract.status === "pending" ? payment.status === "cancelled" ? "cancelled" : "expired" : contract.status;
+  if (contract.payment_status === payment.status && contract.status === status) return null;
+  const commercial = await mensalidadeStatements(ctx, { kind: "contract", record: { ...contract, status }, operation: null, at });
+  // Expirar o Pix não cancela o contrato: outra tentativa de cobrança ainda
+  // paga a mesma obrigação. Cancelamento operacional é um fato separado.
+  await batch(ctx.env, [
+    ["UPDATE mensalidade_contracts SET payment_status=?,status=?,updated=? WHERE id=? AND profile_id=? AND payment_id=? AND status=?", [payment.status, status, at, contract.id, ctx.profile, payment.id, contract.status]],
+    mensalidadeCasGuard, ...commercial.statements,
+  ]);
   return null;
 }
