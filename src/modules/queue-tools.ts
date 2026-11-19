@@ -8,7 +8,7 @@ import { onMcpTool, onRead } from "./api";
 onRead("queue", "queue/conversations/:id", async (ctx, actor, { params }) => {
   ctx.access(actor, "conversations:read");
   const c = await ctx.conversation(params.id, actor);
-  return conversationTicket(ctx.env, ctx.profile, c.id, ctx.verifiedPhone(c));
+  return conversationTicket(ctx.env, ctx.profile, c.id);
 });
 
 onMcpTool("queue", {

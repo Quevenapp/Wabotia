@@ -33,6 +33,8 @@ import { BRASILIA_OFFSET_MS } from "./business-time";
 import { conversation, enqueue, settings } from "./service";
 import { establishment } from "./establishment";
 import { publicOrigin } from "./web-steps";
+import { normalizeCustomerPhone } from "./customer/phone";
+import { customerRecordStatements, resolveCustomer } from "./customer/ports";
 
 const DAY_MS = 86400000;
 export const QUEUE_SCOPES = ["queue:read", "queue:issue", "queue:operate"];
@@ -166,7 +168,23 @@ const dayEnd = (at = now()) =>
   Date.parse(serviceDay(at) + "T00:00:00Z") + BRASILIA_OFFSET_MS + DAY_MS;
 
 export const normalizePhone = (value: unknown) =>
-  typeof value === "string" ? value.replace(/\D/g, "").slice(0, 20) : "";
+  normalizeCustomerPhone(value, "international") || "";
+
+/** Marcador de canal autenticado; telefone digitado e external_id não são prova. */
+export function verifiedQueuePhone(c: Conversation): string | null {
+  return c.chat_type !== "group" && c.connection_id &&
+    c.external_namespace === `channel:${c.connection_id}` && c.customer_link_state === "ready"
+    ? normalizeCustomerPhone(c.verified_phone, "international") : null;
+}
+
+async function queueCustomer(env: Env, c: Conversation) {
+  const phone = verifiedQueuePhone(c);
+  if (!phone) throw new ApiError(403, "forbidden", "A senha precisa de uma conversa com telefone autenticado.");
+  const ref = await resolveCustomer(env, c);
+  if (ref.state !== "ready" || !ref.contactId || ref.namespace !== "team" || ref.profileId !== c.profile_id || ref.verifiedPhone !== phone)
+    throw new ApiError(409, "customer_ambiguous", "Confirme o vínculo do contato antes de associar a senha.");
+  return { phone, contactId: ref.contactId };
+}
 
 /** Spoken form: "N023" → "Senha N 23". */
 export function speech(code: string, counter?: string | null) {
@@ -1180,7 +1198,15 @@ export async function issueTicket(
         "Muitas senhas em pouco tempo. Aguarde um instante.",
       );
   }
-  if (old) return { ticket: old, created: false, queue: queueFound ?? null };
+  if (old) {
+    if (input.source === "whatsapp") {
+      const customer = await queueCustomer(env, await conversation(env, input.conversationId || "", profile));
+      const linked = await one(env, "SELECT contact_id FROM customer_records WHERE profile_id=? AND module_id='queue' AND kind='ticket' AND record_id=?", profile, old.id);
+      if (old.profile_id !== profile || old.conversation_id !== input.conversationId || (linked && linked.contact_id !== customer.contactId))
+        throw new ApiError(409, "contact_conflict", "Esta senha pertence a outro vínculo de atendimento.");
+    }
+    return { ticket: old, created: false, queue: queueFound ?? null };
+  }
   if (!queueFound)
     throw new ApiError(404, "queue_not_found", "Fila não encontrada.");
   const queue = queueFound;
@@ -1194,16 +1220,19 @@ export async function issueTicket(
       "queue_closed",
       "Esta fila não está aceitando senhas.",
     );
-  const phone = normalizePhone(input.phone);
+  const customer = input.source === "whatsapp"
+    ? await queueCustomer(env, await conversation(env, input.conversationId || "", profile)) : null;
+  const phone = customer?.phone || normalizePhone(input.phone);
   const day = serviceDay();
   if (phone) {
     const existing = await one(
       env,
-      "SELECT * FROM queue_tickets WHERE profile_id=? AND queue_id=? AND phone=? AND service_day=? AND status IN ('waiting','called','serving') ORDER BY created_at DESC LIMIT 1",
+      `SELECT * FROM queue_tickets WHERE profile_id=? AND queue_id=? AND phone=? AND service_day=? AND status IN ('waiting','called','serving') ${customer ? "AND conversation_id=? AND NOT EXISTS(SELECT 1 FROM customer_records r WHERE r.profile_id=queue_tickets.profile_id AND r.module_id='queue' AND r.kind='ticket' AND r.record_id=queue_tickets.id AND r.contact_id<>?)" : ""} ORDER BY created_at DESC LIMIT 1`,
       profile,
       queue.id,
       phone,
       day,
+      ...(customer ? [input.conversationId, customer.contactId] : []),
     );
     if (existing) return { ticket: existing, created: false, queue };
     if (input.source === "whatsapp") {
@@ -1306,6 +1335,7 @@ export async function issueTicket(
       "INSERT INTO events(profile_id,kind,resource_id,payload,created,source_key) SELECT ?,'queue.issued',id,json_object('id',id,'queue_id',queue_id,'code',code,'preferential',json(CASE WHEN preferential THEN 'true' ELSE 'false' END),'source',source),?,NULL FROM queue_tickets WHERE id=? RETURNING id",
       [profile, at, id],
     ],
+    ...(customer ? customerRecordStatements({ profileId: profile, contactId: customer.contactId, moduleId: "queue", kind: "ticket", recordId: id, conversationId: input.conversationId!, linkedBy: `conversation:${input.conversationId}`, occurredAt: at }) : []),
     // /command: a auditoria e a marca do recibo no mesmo lote (atômico).
     ...(input.closing?.statements(id) ?? []),
     ...(view?.items ?? []).map((r) => [r.sql, r.args] as [string, any[]]),
@@ -2338,10 +2368,24 @@ export async function activeTicketFor(
   );
 }
 
+/** A senha se autoriza pelo vínculo persistido, nunca pela coincidência do número. */
+export async function activeTicketForConversation(env: Env, profile: string, conversationId: string) {
+  return one(env, `SELECT q.* FROM queue_tickets q JOIN conversations c ON c.id=q.conversation_id AND c.profile_id=q.profile_id
+    WHERE q.profile_id=? AND q.conversation_id=? AND q.service_day=? AND q.status IN ('waiting','called','serving')
+    AND c.chat_type<>'group' AND c.customer_link_state NOT IN ('blocked','excluded','ambiguous')
+    AND NOT EXISTS(SELECT 1 FROM conversation_contacts cc JOIN contacts p ON p.id=cc.contact_id AND p.profile_id=cc.profile_id
+      WHERE cc.profile_id=c.profile_id AND cc.conversation_id=c.id AND p.identity_state<>'active')
+    AND NOT EXISTS(SELECT 1 FROM customer_records r LEFT JOIN conversation_contacts cc ON cc.profile_id=r.profile_id AND cc.conversation_id=c.id
+      LEFT JOIN contacts p ON p.id=r.contact_id AND p.profile_id=r.profile_id
+      WHERE r.profile_id=q.profile_id AND r.module_id='queue' AND r.kind='ticket' AND r.record_id=q.id
+      AND (cc.contact_id IS NULL OR r.contact_id<>cc.contact_id OR p.id IS NULL OR p.identity_state<>'active'))
+    ORDER BY q.created_at DESC,q.id DESC LIMIT 1`, profile, conversationId, serviceDay());
+}
+
 /**
  * "Minha senha" for the customer of a conversation (bot tool
  * queue_minha_senha): today's active ticket issued to this conversation or,
- * like the SENHA command, to its channel-verified phone. Only what the
+ * pelo vínculo persistido da conversa. Only what the
  * customer sees on WhatsApp: code, queue, position and estimate; no phone,
  * public token or link.
  */
@@ -2349,17 +2393,9 @@ export async function conversationTicket(
   env: Env,
   profile: string,
   conversationId: string,
-  phone: string | null,
+  _phone: string | null = null,
 ) {
-  const digits = normalizePhone(phone);
-  const row = await one(
-    env,
-    `SELECT * FROM queue_tickets WHERE profile_id=? AND service_day=? AND status IN ('waiting','called','serving') AND (conversation_id=?${digits ? " OR phone=?" : ""}) ORDER BY created_at DESC LIMIT 1`,
-    profile,
-    serviceDay(),
-    conversationId,
-    ...(digits ? [digits] : []),
-  );
+  const row = await activeTicketForConversation(env, profile, conversationId);
   if (!row) return { senha: null };
   const view = await ticketView(env, row, { link: false });
   return {
@@ -2411,23 +2447,32 @@ export async function linkKioskTicket(
   code: string,
   linkCode: string,
 ) {
+  c = await conversation(env, c.id, c.profile_id);
+  const customer = await queueCustomer(env, c);
   const ticket = await one(
     env,
-    "SELECT * FROM queue_tickets WHERE profile_id=? AND service_day=? AND code=? AND link_code=? AND status IN ('waiting','called','serving') LIMIT 1",
+    "SELECT q.*,(SELECT contact_id FROM customer_records r WHERE r.profile_id=q.profile_id AND r.module_id='queue' AND r.kind='ticket' AND r.record_id=q.id) linked_contact FROM queue_tickets q WHERE profile_id=? AND service_day=? AND code=? AND link_code=? AND status IN ('waiting','called','serving') LIMIT 1",
     c.profile_id,
     serviceDay(),
     code.toUpperCase(),
     linkCode.toUpperCase(),
   );
   if (!ticket) return { ticket: null, blocked: null };
-  const phone = normalizePhone(c.phone || c.external_id);
+  if ((ticket.conversation_id && ticket.conversation_id !== c.id) ||
+      (ticket.linked_contact && ticket.linked_contact !== customer.contactId) ||
+      (ticket.phone && normalizePhone(ticket.phone) !== customer.phone))
+    throw new ApiError(409, "contact_conflict", "Esta senha já está associada. Procure o atendimento para conferir o vínculo.");
+  const phone = customer.phone;
   const block = await activeBlock(env, c.profile_id, phone);
   if (block) return { ticket, blocked: block };
   await batch(env, [
     [
-      "UPDATE queue_tickets SET conversation_id=?,phone=?,updated=? WHERE id=?",
-      [c.id, phone || null, now(), ticket.id],
+      "UPDATE queue_tickets SET conversation_id=?,phone=?,updated=? WHERE id=? AND profile_id=? AND (conversation_id IS NULL OR conversation_id=?) AND status IN ('waiting','called','serving')",
+      [c.id, phone, now(), ticket.id, c.profile_id, c.id],
     ],
+    ["INSERT INTO customer_assert(id,ok) VALUES(?,CASE WHEN changes()=1 THEN 1 ELSE 0 END) ON CONFLICT(id) DO UPDATE SET ok=excluded.ok", [`queue-link:${ticket.id}:claim`]],
+    ["DELETE FROM customer_assert WHERE id=?", [`queue-link:${ticket.id}:claim`]],
+    ...customerRecordStatements({ profileId: c.profile_id, contactId: customer.contactId, moduleId: "queue", kind: "ticket", recordId: ticket.id, conversationId: c.id, linkedBy: `conversation:${c.id}`, occurredAt: ticket.created_at }),
   ]);
   return {
     ticket: await ticketRow(env, c.profile_id, ticket.id),
