@@ -15,6 +15,13 @@ export const suporteModule: ModuleDefinition = {
   default_enabled: false,
   // Identifica o pagador e vende planos pela interface pública da Mensalidade.
   requires: ["mensalidade"],
+  // Só compras avulsas. Contratos, parcelas e suas baixas pertencem à Mensalidade.
+  integration: {
+    route: "title",
+    uses: ["customers", "products", "finance"],
+    operations: ["recognize", "receive", "cancel", "reverse"],
+    privacy: "adult_payer_only",
+  },
   management: NATIVE_MANAGEMENT_ITEMS.suporte,
   navigation: [
     { id: "suporte", label: "Suporte pago", place: "admin", admin: false },
@@ -39,6 +46,7 @@ export const suporteModule: ModuleDefinition = {
     "suporte.released",
     "suporte.awaiting_team",
     "suporte.group_held",
+    "suporte.purchase_accepted",
     "suporte.purchase_created",
     "suporte.purchase_paid",
     "suporte.purchase_expired",

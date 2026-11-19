@@ -24,6 +24,15 @@ import {
 import { passToTeam, releaseEffectiveEnd } from "./handoff";
 
 import { supportCustomerStatements } from "./customer-provider";
+import { eventStatement } from "../../events";
+import { integrationCasGuard } from "../../integrations/outbox";
+import { IntegrationError } from "../../integrations/privacy";
+import {
+  supportCommercialContext,
+  supportIntegrationStatements,
+  supportPaymentEvidence,
+  supportReceiptKey,
+} from "./integration";
 
 export const SESSION_MINUTES = 120;
 const HOUR = 3_600_000;
@@ -649,13 +658,25 @@ export async function buyPackage(
     sourceKey: string;
   },
 ) {
+  if (input.c.profile_id !== ctx.profile) throw new IntegrationError("not_found", 404);
+  if (!Number.isSafeInteger(input.pkg.price_cents) || input.pkg.price_cents < 100 || input.pkg.price_cents > 100_000_00)
+    throw new IntegrationError("invalid_request", 400);
   const existing = await one(
     ctx.env,
     "SELECT * FROM suporte_purchases WHERE source_key=?",
     input.sourceKey,
   );
+  if (existing && (existing.profile_id !== ctx.profile || existing.conversation_id !== input.c.id ||
+      existing.package_id !== input.pkg.id || existing.price_cents !== input.pkg.price_cents ||
+      (existing.payer_id ?? null) !== (input.payer_id ?? null) || (existing.session_id ?? null) !== (input.session?.id ?? null) ||
+      existing.mode !== input.pkg.mode || (existing.hours ?? null) !== (input.pkg.hours ?? null)))
+    throw new IntegrationError("idempotency_conflict", 409);
+  // Estabelece o corte antes do aceite. Lê apenas D1, inclusive com ERP desligado.
+  const commercial = !existing ? await supportCommercialContext(ctx) : undefined;
   const at = now();
   if (existing?.status === "paid") return existing;
+  if (existing?.status === "refunded")
+    throw new ApiError(409, "purchase_closed", "Esta compra foi estornada. Inicie uma nova compra.");
   if (
     existing?.payment_id &&
     existing.status === "pending" &&
@@ -672,13 +693,19 @@ export async function buyPackage(
     id,
   );
   for (const other of others)
-    if (await cancelPurchaseCharge(ctx, other))
-      await exec(
-        ctx.env,
-        "UPDATE suporte_purchases SET status='cancelled',updated=? WHERE id=? AND status='pending'",
-        at,
-        other.id,
-      );
+    if (await cancelPurchaseCharge(ctx, other)) {
+      const commercialStatements = await supportIntegrationStatements(ctx, { ...other, status: "cancelled" }, "cancel", at,
+        { reason: "purchase_replaced" });
+      await batch(ctx.env, [
+        ["UPDATE suporte_purchases SET status='cancelled',updated=? WHERE id=? AND profile_id=? AND status='pending' AND payment_id IS ? AND charge_seq=?",
+          [at, other.id, ctx.profile, other.payment_id, other.charge_seq]],
+        integrationCasGuard,
+        eventStatement(ctx.profile, "suporte.purchase_expired", other.id,
+          { module_id: "suporte", purchase_id: other.id, conversation_id: other.conversation_id, status: "cancelled" },
+          `module:suporte:${ctx.profile}:suporte.purchase_expired:${other.id}:cancelled`),
+        ...commercialStatements,
+      ]);
+    }
   if (existing && !(await cancelPurchaseCharge(ctx, existing)))
     throw new ApiError(
       409,
@@ -687,6 +714,11 @@ export async function buyPackage(
     );
   if (!existing) {
     const customerLinks = await supportCustomerStatements(ctx, input.c, "purchases", id, at, "buyer:whatsapp", input.session?.id);
+    const commercialStatements = await supportIntegrationStatements(ctx, {
+      id, profile_id: ctx.profile, conversation_id: input.c.id, session_id: input.session?.id ?? null,
+      payer_id: input.payer_id ?? null, package_id: input.pkg.id, price_cents: input.pkg.price_cents,
+      status: "pending", created: at,
+    }, "recognize", at, { setup: commercial, conversation: input.c });
     await batch(ctx.env, [
       [
         "INSERT INTO suporte_purchases(id,profile_id,conversation_id,session_id,payer_id,document,name,phone,package_id,package_name,price_cents,mode,hours,method,status,source_key,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?,?)",
@@ -710,9 +742,15 @@ export async function buyPackage(
           at,
         ],
       ],
+      integrationCasGuard,
       ...customerLinks,
+      eventStatement(ctx.profile, "suporte.purchase_accepted", id,
+        { module_id: "suporte", purchase_id: id, price_cents: input.pkg.price_cents }, `module:suporte:${ctx.profile}:suporte.purchase_accepted:${id}`),
+      ...commercialStatements,
     ]);
   }
+  await ctx.publish("suporte.purchase_accepted", id,
+    { purchase_id: id, price_cents: input.pkg.price_cents }, { key: id });
   // Comprou pela conversa: aceita receber a cobrança e a liberação por aqui.
   await ctx.recordConsent(input.c, {
     purpose: "billing",
@@ -729,25 +767,34 @@ export async function buyPackage(
   const payment = await ctx.charge(input.c, {
     method: input.method,
     amount_cents: input.pkg.price_cents,
-    description: `Suporte avulso: ${input.pkg.name}`,
+    description: "Suporte avulso",
     ref: id,
     // A primeira mantém a chave antiga (compras de antes desta versão).
     sourceKey: seq === 1 ? `compra:${id}` : `compra:${id}:${seq}`,
     expiresMinutes: 24 * 60,
     notification: true,
   });
-  const row = await one(
-    ctx.env,
-    "UPDATE suporte_purchases SET payment_id=?,pix_code=?,pay_url=?,payment_expires_at=?,method=?,charge_seq=?,status=CASE WHEN status IN ('expired','cancelled') THEN 'pending' ELSE status END,updated=? WHERE id=? RETURNING *",
-    payment.id,
-    payment.pix_code,
-    payment.url,
-    payment.expires_at,
-    payment.method,
-    seq,
-    now(),
-    id,
-  );
+  const beforeCharge = await one(ctx.env, "SELECT * FROM suporte_purchases WHERE profile_id=? AND id=?", ctx.profile, id);
+  // Uma confirmação que ganhou a corrida jamais é sobrescrita pela cobrança.
+  if (["paid", "refunded"].includes(beforeCharge.status)) return beforeCharge;
+  if (beforeCharge.charge_seq !== seq - 1) {
+    if (beforeCharge.charge_seq === seq && beforeCharge.payment_id === payment.id) return beforeCharge;
+    throw new IntegrationError("version_conflict", 409);
+  }
+  const chargeAt = now();
+  const commercialStatements = await supportIntegrationStatements(ctx, { ...beforeCharge, status: "pending" }, null, chargeAt);
+  const [changed] = await batch(ctx.env, [
+    ["UPDATE suporte_purchases SET payment_id=?,pix_code=?,pay_url=?,payment_expires_at=?,method=?,charge_seq=?,status='pending',updated=? WHERE id=? AND profile_id=? AND status=? AND payment_id IS ? AND charge_seq=? RETURNING *",
+      [payment.id, payment.pix_code, payment.url, payment.expires_at, payment.method, seq, chargeAt,
+        id, ctx.profile, beforeCharge.status, beforeCharge.payment_id, beforeCharge.charge_seq]],
+    integrationCasGuard,
+    eventStatement(ctx.profile, "suporte.purchase_created", id,
+      { module_id: "suporte", purchase_id: id, conversation_id: input.c.id, package_id: input.pkg.id,
+        price_cents: input.pkg.price_cents, method: input.method, payment_id: payment.id },
+      `module:suporte:${ctx.profile}:suporte.purchase_created:${id}`),
+    ...commercialStatements,
+  ]);
+  const row = changed.results[0];
   await ctx.publish(
     "suporte.purchase_created",
     id,
@@ -773,7 +820,8 @@ export async function purchasePaymentUpdated(
   ctx: ModuleContext,
   payment: Payment,
 ) {
-  if (!payment.ref_id) return;
+  // Cobranças de planos nunca entram no produtor avulso, mesmo com IDs iguais.
+  if (!payment.ref_id || payment.module_id !== "suporte" || payment.status === "created") return;
   const purchase = await one(
     ctx.env,
     "SELECT * FROM suporte_purchases WHERE id=? AND profile_id=?",
@@ -781,24 +829,38 @@ export async function purchasePaymentUpdated(
     ctx.profile,
   );
   if (!purchase) return;
+  const evidence = await supportPaymentEvidence(ctx, purchase, payment);
+  // Estorno já confirmado vence um gancho paid atrasado; não libera por instantes.
+  if (payment.status === "paid" && evidence.status === "refunded") payment = { ...payment, status: "refunded" };
   const at = now();
   if (payment.status === "paid") {
-    const paidAt = payment.paid_at || at;
-    const changed = await exec(
-      ctx.env,
-      "UPDATE suporte_purchases SET status='paid',paid_at=?,payment_id=?,updated=? WHERE id=? AND status IN ('pending','expired','cancelled')",
-      paidAt,
-      payment.id,
-      at,
-      purchase.id,
-    );
+    const paidAt = evidence.paid_at || at;
+    let changed = false;
+    if (["pending", "expired", "cancelled"].includes(purchase.status)) {
+      const commercialStatements = await supportIntegrationStatements(ctx, { ...purchase, status: "paid" }, "receive", paidAt,
+        { payment: evidence });
+      await batch(ctx.env, [
+        ["UPDATE suporte_purchases SET status='paid',paid_at=?,payment_id=?,updated=? WHERE id=? AND profile_id=? AND status=? AND payment_id IS ? AND charge_seq=?",
+          [paidAt, payment.id, at, purchase.id, ctx.profile, purchase.status, purchase.payment_id, purchase.charge_seq]],
+        integrationCasGuard,
+        eventStatement(ctx.profile, "suporte.purchase_paid", purchase.id,
+          { module_id: "suporte", purchase_id: purchase.id, conversation_id: purchase.conversation_id, price_cents: purchase.price_cents, payment_id: payment.id },
+          `module:suporte:${ctx.profile}:suporte.purchase_paid:${purchase.id}:paid`),
+        ...commercialStatements,
+      ]);
+      changed = true;
+    }
     // O núcleo repete o gancho até concluir: a mesma confirmação de novo
     // refaz a liberação (com chave), sem virar "em dobro".
-    const retry =
-      !changed.meta.changes &&
-      purchase.status === "paid" &&
-      purchase.payment_id === payment.id;
-    if (!changed.meta.changes && !retry) {
+    const originalPayment = !changed && purchase.status === "paid" && purchase.payment_id !== payment.id
+      ? await one(ctx.env, "SELECT profile_id,provider,account_id,provider_payment_id,amount_cents FROM payments WHERE profile_id=? AND id=?", ctx.profile, purchase.payment_id)
+      : null;
+    const sameRemote = originalPayment && supportReceiptKey(evidence) !== null &&
+      supportReceiptKey(originalPayment) === supportReceiptKey(evidence);
+    if (sameRemote && originalPayment.amount_cents !== evidence.amount_cents)
+      throw new IntegrationError("idempotency_conflict", 409);
+    const retry = !changed && purchase.status === "paid" && (purchase.payment_id === payment.id || sameRemote);
+    if (!changed && !retry) {
       // Outro pagamento da mesma compra (cobrança antiga paga junto com a
       // nova, link pago duas vezes): dinheiro em dobro para a equipe estornar.
       if (purchase.payment_id !== payment.id)
@@ -842,22 +904,33 @@ export async function purchasePaymentUpdated(
         purchase.mode === "hours" ? paidAt + purchase.hours * HOUR : null,
       actor: "provider",
       sourceKey: `compra:${purchase.id}`,
-      detail: `${purchase.package_name}, ${money(purchase.price_cents)}${purchase.document ? `, documento ${purchase.document}` : ""}`,
+      detail: `Suporte avulso, ${money(purchase.price_cents)}`,
     });
     return;
   }
   if (payment.status === "refunded") {
     // Estorno (ou chargeback) do pagamento que valeu: a compra volta e a
     // liberação acaba; a equipe fica sabendo para conferir o atendimento.
-    if (purchase.payment_id !== payment.id) return;
+    if (purchase.payment_id !== payment.id) {
+      const original = await one(ctx.env, "SELECT profile_id,provider,account_id,provider_payment_id,amount_cents FROM payments WHERE profile_id=? AND id=?", ctx.profile, purchase.payment_id);
+      if (!original || !supportReceiptKey(evidence) || supportReceiptKey(original) !== supportReceiptKey(evidence)) return;
+      if (original.amount_cents !== evidence.amount_cents) throw new IntegrationError("idempotency_conflict", 409);
+    }
     // Sem "já estornada, sai": a repetição do gancho refaz o encerramento e o
     // aviso, que têm chave.
-    await exec(
-      ctx.env,
-      "UPDATE suporte_purchases SET status='refunded',updated=? WHERE id=? AND status<>'refunded'",
-      at,
-      purchase.id,
-    );
+    if (purchase.status !== "refunded") {
+      const commercialStatements = await supportIntegrationStatements(ctx, { ...purchase, status: "refunded" }, "reverse", evidence.updated,
+        { payment: evidence, reason: "payment_refunded" });
+      await batch(ctx.env, [
+        ["UPDATE suporte_purchases SET status='refunded',updated=? WHERE id=? AND profile_id=? AND status=? AND payment_id IS ? AND charge_seq=?",
+          [at, purchase.id, ctx.profile, purchase.status, purchase.payment_id, purchase.charge_seq]],
+        integrationCasGuard,
+        eventStatement(ctx.profile, "suporte.purchase_attention", purchase.id,
+          { module_id: "suporte", purchase_id: purchase.id, conversation_id: purchase.conversation_id, reason: "refunded", payment_id: payment.id, amount_cents: payment.amount_cents },
+          `module:suporte:${ctx.profile}:suporte.purchase_attention:${purchase.id}:refunded:${payment.id}`),
+        ...commercialStatements,
+      ]);
+    }
     const rel = await one(
       ctx.env,
       "SELECT id FROM suporte_releases WHERE source_key=? AND status='active'",
@@ -868,15 +941,21 @@ export async function purchasePaymentUpdated(
     return;
   }
   // Vencida ou cancelada: só a cobrança que vale agora muda a compra.
-  const changed = await exec(
-    ctx.env,
-    "UPDATE suporte_purchases SET status=?,updated=? WHERE id=? AND status='pending' AND payment_id=?",
-    payment.status === "cancelled" ? "cancelled" : "expired",
-    at,
-    purchase.id,
-    payment.id,
-  );
-  if (changed.meta.changes)
+  if (purchase.status === "pending" && purchase.payment_id === payment.id) {
+    const status = payment.status === "cancelled" ? "cancelled" : "expired";
+    const commercialStatements = await supportIntegrationStatements(ctx, { ...purchase, status }, "cancel", at,
+      { reason: status === "expired" ? "purchase_expired" : "purchase_cancelled" });
+    await batch(ctx.env, [
+      ["UPDATE suporte_purchases SET status=?,updated=? WHERE id=? AND profile_id=? AND status='pending' AND payment_id=? AND charge_seq=?",
+        [status, at, purchase.id, ctx.profile, payment.id, purchase.charge_seq]],
+      integrationCasGuard,
+      eventStatement(ctx.profile, "suporte.purchase_expired", purchase.id,
+        { module_id: "suporte", purchase_id: purchase.id, conversation_id: purchase.conversation_id, status: payment.status },
+        `module:suporte:${ctx.profile}:suporte.purchase_expired:${purchase.id}:${payment.status}`),
+      ...commercialStatements,
+    ]);
+  }
+  if (["pending", "expired", "cancelled"].includes(purchase.status) && purchase.payment_id === payment.id)
     await ctx.publish(
       "suporte.purchase_expired",
       purchase.id,
