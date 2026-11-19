@@ -7,6 +7,7 @@ import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { arrow, jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcContext } from "../../../engine/registry.ts";
+import { requireRpcParts } from "../../../engine/parts-gate.ts";
 import { pgBtrim, pgCompareText, pgHasCntrl, pgLeft, pgLength, pgUpper } from "../../../engine/text.ts";
 import { jsonTimestamp, todaySaoPaulo } from "../../../engine/time.ts";
 import * as preferences from "../../preferences/public.ts";
@@ -162,6 +163,7 @@ function saveCommand(ctx: RpcContext, a: Row, action: string, h: string, result:
 }
 const movementItems = (preview: Row) => preview.positions.map((p: Row) => ({ product_id: p.product_id, warehouse_id: p.warehouse_id, quantity: p.quantity, expected_version: p.expected_version }));
 export function saveInvoicePosting(ctx: RpcContext, a: Row, v: Row, preview: Row, source: string, h: string, extra: Row = {}) {
+  requireRpcParts(ctx, "erp_stock_invoice_post", { ...a, p_invoice_id: v.id });
   const movement = post(ctx, { user: a.p_user_id, command: a.p_command_id, kind: preview.direction, occurredOn: preview.occurred_on, reason: preview.reason, reference: invoiceLabel(v.model, v.number), items: movementItems(preview) }) as Row;
   if (movement.replayed !== false) raise("40001", "erp_invoice_stock_conflict");
   const id = crypto.randomUUID(), { preview_hash, ...snapshot } = preview;
@@ -184,6 +186,7 @@ registerRpc("erp_stock_invoice_get", ({ db }, a) => {
     default_warehouse: w ?? null, postings: postings.map(p => invoicePostingDto(db, String(p.id))) };
 });
 function invoicePost(ctx: RpcContext, a: Row, write: boolean) {
+  requireRpcParts(ctx, write ? "erp_stock_invoice_post" : "erp_stock_invoice_preview", a);
   invoiceAccess(ctx.db, a.p_user_id, true);
   if (a.p_expected_version === null || a.p_expected_version < 1 || a.p_warehouse_id === null || (write && (a.p_preview_hash === null || !/^[a-f0-9]{64}$/.test(a.p_preview_hash)))) raise("22023", "erp_invoice_stock_invalid");
   const h = write ? hash({ profile: "stock-invoice-post-259", actor: a.p_user_id, invoice_id: a.p_invoice_id, version: a.p_expected_version, warehouse_id: a.p_warehouse_id, hash: a.p_preview_hash }) : "";
@@ -198,6 +201,7 @@ function invoicePost(ctx: RpcContext, a: Row, write: boolean) {
 registerRpc("erp_stock_invoice_preview", (ctx, a) => invoicePost(ctx, a, false));
 registerRpc("erp_stock_invoice_post", (ctx, a) => invoicePost(ctx, a, true));
 function invoiceReverse(ctx: RpcContext, a: Row, write: boolean) {
+  requireRpcParts(ctx, write ? "erp_stock_invoice_reverse" : "erp_stock_invoice_reverse_preview", a);
   const db = ctx.db;
   invoiceAccess(db, a.p_user_id, true);
   if (a.p_posting_id === null || a.p_posting_version === null || a.p_posting_version < 1 || (write && (a.p_preview_hash === null || !/^[a-f0-9]{64}$/.test(a.p_preview_hash)))) raise("22023", "erp_invoice_stock_invalid");

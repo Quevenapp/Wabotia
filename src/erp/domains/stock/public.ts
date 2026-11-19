@@ -3,11 +3,18 @@
 // próxima geração (scripts/erp/gen-ownership.mjs).
 import { one, type SqlDriver } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
+import { requireRpcParts } from "../../engine/parts-gate.ts";
+import { erpStockPost as stockPost, post as physicalPost, postPhysical025 as rawPhysicalPost } from "./rpc/erp_stock_post.ts";
+import { erpStockProductCompose as productCompose } from "./rpc/compositions.ts";
+import { lotApply as applyLot } from "./internal.ts";
 import * as preferences from "../preferences/public.ts";
 
 export * from "./stubs.generated.ts";
 export { movementDto, requireAccess, reservedQuantity } from "./internal.ts";
-export { erpStockPost } from "./rpc/erp_stock_post.ts";
+export function erpStockPost(...args: Parameters<typeof stockPost>) {
+  requireRpcParts(args[0], "erp_stock_post", args[1]);
+  return stockPost(...args);
+}
 export { countPhysical, ignoredWarehouse, lotQuantity, lotsExpiring } from "./home.ts";
 // Para o domínio 11 (painel Meu Negócio, sessão G) e Documentos: escalas em
 // read.ts (quantidade de kits inteira), ledger.ts e costs.ts (preço escala 10).
@@ -31,8 +38,15 @@ export {
   erpDocumentStockPost, erpDocumentStockPreview, erpDocumentStockReverse, erpDocumentStockReversePreview, itemCompositionLines,
   lotProductProblem,
 } from "./rpc/document-stock.ts";
-export { post } from "./rpc/erp_stock_post.ts";
-export { balanceKept, derivedCommand, lotApply, reservationWriteAccess } from "./internal.ts";
+export function post(...args: Parameters<typeof physicalPost>) {
+  requireRpcParts(args[0], "erp_stock_post", {});
+  return physicalPost(...args);
+}
+export { balanceKept, derivedCommand, reservationWriteAccess } from "./internal.ts";
+export function lotApply(...args: Parameters<typeof applyLot>) {
+  requireRpcParts(args[0], "erp_stock_movement_lots_assign", {});
+  return applyLot(...args);
+}
 export { invoicePostedForDocument, itemComponentRows } from "./read.ts";
 // Composição de kit: o Catálogo chama compositionApplyValues no composition_sync.
 export { compositionApplyValues, compositionDto, compositionTotals } from "./composition.ts";
@@ -112,5 +126,11 @@ export function guardInvoiceStockDelete(
 // Dependências dos comandos de depósito, transferência e revisão do extrato.
 export { commandTaken, compositionOwnStock, negativeAllowed } from "./internal.ts";
 export { invoiceScreen, ledgerOrigin } from "./ledger.ts";
-export { postPhysical025 } from "./rpc/erp_stock_post.ts";
-export { erpStockProductCompose } from "./rpc/compositions.ts";
+export function postPhysical025(...args: Parameters<typeof rawPhysicalPost>) {
+  requireRpcParts(args[0], "erp_stock_post", {});
+  return rawPhysicalPost(...args);
+}
+export function erpStockProductCompose(...args: Parameters<typeof productCompose>) {
+  requireRpcParts(args[0], "erp_stock_product_compose", args[1]);
+  return productCompose(...args);
+}

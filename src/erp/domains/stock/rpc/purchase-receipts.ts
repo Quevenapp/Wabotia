@@ -10,6 +10,7 @@ import { raise } from "../../../engine/errors.ts";
 import { deferForeignKeys } from "../../../engine/fk.ts";
 import { jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
+import { requireRpcParts } from "../../../engine/parts-gate.ts";
 import { nextIdentity } from "../../../engine/sequence.ts";
 import { pgBtrim, pgCompareText } from "../../../engine/text.ts";
 import { jsonTimestamp } from "../../../engine/time.ts";
@@ -162,7 +163,10 @@ export function lockDocument(db: SqlDriver, actor: string, document: string | nu
 }
 
 /** erp_purchase_receipts.preview(p_actor, d, p_action, p_day, p_reason, p_items, p_receipt) */
-export function preview(ctx: RpcContext, actor: string, d: Row, action: string | null, day: string | null, reason: string | null, items: unknown, receipt: string | null) {
+export function preview(ctx: RpcContext, actor: string, d: Row, action: string | null, day: string | null, reason: string | null, items: unknown, receipt: string | null, applying = false) {
+  const rpc = action === "reverse" ? (applying ? "erp_purchase_receipts_reverse" : "erp_purchase_receipts_reverse_preview")
+    : (applying ? "erp_purchase_receipts_receive" : "erp_purchase_receipts_preview");
+  requireRpcParts(ctx, rpc, { p_document_id: d.id, p_receipt_id: receipt });
   const db = ctx.db;
   // 277: o recebimento leva a data da preferência (hoje, ou a prevista/a do pedido); outra data é recusada.
   if (action === "receive") {
@@ -319,6 +323,9 @@ export function applyWarehouse(
   confirm: boolean | null,
   warehouse: string | null,
 ) {
+  requireRpcParts(ctx, action === "reverse" ? "erp_purchase_receipts_reverse" : "erp_purchase_receipts_receive", {
+    p_document_id: document, p_receipt_id: receipt,
+  });
   const db = ctx.db;
   access(db, actor);
   if (command === null || confirm !== true || hash === null || !/^[a-f0-9]{64}$/.test(hash) || action === null || !["receive", "reverse"].includes(action))
@@ -345,7 +352,7 @@ export function applyWarehouse(
     const w = r ? (parse(r.snapshot) as Record<string, any>)?.warehouse?.id : undefined;
     if (w !== undefined && w !== null) d.warehouse_id = String(w).toLowerCase();
   }
-  const p = preview(ctx, actor, d, action, day, reason, items, receipt);
+  const p = preview(ctx, actor, d, action, day, reason, items, receipt, true);
   if (hash !== p.preview_hash) raise("40001", "purchase_receipt_preview_changed");
   if (
     one(db, 'SELECT 1 x FROM "erp_stock__command" WHERE id=?', command) ||

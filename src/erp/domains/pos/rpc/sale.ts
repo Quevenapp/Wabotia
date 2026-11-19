@@ -6,6 +6,8 @@ import { fromSqlite, raise } from "../../../engine/errors.ts";
 import { jsonbText, jsonType } from "../../../engine/json.ts";
 import { replay } from "../../../engine/receipt.ts";
 import { invokeRpc, registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
+import { requireRpcParts } from "../../../engine/parts-gate.ts";
+import { commissionOperationSync } from "../../finance/document-effects.ts";
 import { nextIdentity } from "../../../engine/sequence.ts";
 import { pgLeft, pgLength } from "../../../engine/text.ts";
 import { documentTitleRows } from "../../finance/public.ts";
@@ -42,6 +44,7 @@ const call = (ctx: RpcContext, name: string, args: RpcArgs) => invokeRpc(ctx, na
 
 /** erp_pos.sale_write: grava o pedido e as parcelas, sem lançar efeitos. */
 function saleWrite(ctx: RpcContext, user: string, command: string, data: Json, finish: boolean, a: Access): string {
+  requireRpcParts(ctx, "erp_pos_sale_execute", { p_action: finish ? "sale_finish" : "sale_save", p_data: data });
   const db = ctx.db, day = today(ctx);
   const fields = ["sale_id", "expected_version", "document_version", "kind", "table_number", "account_id", "cash_session_id", "contact_id", "price_list_id", "document", "payments", "destination_account_id", "to_ledger", "cash_received_cents"];
   keys(data, fields, fields);
@@ -197,6 +200,8 @@ function attempt(ctx: RpcContext, fallback: string, fn: () => void): string | nu
 
 /** erp_pos.sale_effects (267): Atendido, lançamentos e baixas parciais. */
 function saleEffects(ctx: RpcContext, user: string, command: string, id: string, a: Access): Json {
+  // Indisponibilidade é erro da operação inteira, antes dos blocos que geram pending.
+  requireRpcParts(ctx, "erp_pos_sale_execute", { p_action: "sale_finish", p_data: { sale_id: id } });
   const db = ctx.db, day = today(ctx), s = saleRow(db, id)!;
   const d = one(db, 'SELECT *, CAST(number AS TEXT) number FROM "erp_documents__document" WHERE id=?', s.document_id)!;
   const reason = `Venda da frente de caixa nº ${d.number}`;
@@ -248,6 +253,7 @@ function saleEffects(ctx: RpcContext, user: string, command: string, id: string,
 
 /** erp_pos.sale_cancel: estorna baixas, contas, estoque e cancela o pedido. */
 function saleCancel(ctx: RpcContext, user: string, command: string, data: Json, a: Access): string {
+  requireRpcParts(ctx, "erp_pos_sale_execute", { p_action: "sale_cancel", p_data: data });
   const db = ctx.db, day = today(ctx);
   keys(data, ["sale_id", "expected_version", "reason"], ["sale_id", "expected_version", "reason"]);
   const s = saleRow(db, uid(data, "sale_id", true)!);
@@ -288,6 +294,9 @@ function saleCancel(ctx: RpcContext, user: string, command: string, data: Json, 
   const d = one(db, 'SELECT id, version, status FROM "erp_documents__document" WHERE id=?', s.document_id)!;
   if (d.status !== "cancelled") call(ctx, "erp_document_transition", { p_user_id: user, p_kind: "sales_orders", p_id: d.id,
     p_expected_version: d.version, p_command_id: step(command, "cancel"), p_status: "cancelled", p_reason: reason });
+  // O gatilho adiado roda fora do escopo temporário da Base. Compensar aqui
+  // mantém a autorização restrita ao pedido desta venda, na mesma transação.
+  if (!ctx.parts.finance || !ctx.parts.sales) commissionOperationSync(ctx, String(d.id));
   const old = json(s.effects);
   const effects = { stock: stockReversed || arrowText(old, "stock") === "posted" ? "reversed" : arrowText(old, "stock") ?? "none",
     finance: financeReversed || arrowText(old, "finance") === "posted" ? "reversed" : arrowText(old, "finance") ?? "none",
@@ -299,6 +308,7 @@ function saleCancel(ctx: RpcContext, user: string, command: string, data: Json, 
 
 /** public.erp_pos_sale_execute: recibo comum a todas as operações. */
 function erpPosSaleExecute(ctx: RpcContext, args: RpcArgs): Json {
+  requireRpcParts(ctx, "erp_pos_sale_execute", args);
   const db = ctx.db, user = args.p_user_id as string | null;
   const a = access(db, user, true);
   const command = args.p_command_id as string | null, action = args.p_action as string | null, data = args.p_data as Json;

@@ -7,6 +7,7 @@
 import { formatScaled, fromColumn, rescale, toScaled } from "../../engine/dec.ts";
 import { one, type SqlDriver } from "../../engine/driver.ts";
 import { type RpcContext } from "../../engine/registry.ts";
+import { requireRpcParts } from "../../engine/parts-gate.ts";
 import { jsonTimestamp } from "../../engine/time.ts";
 import { erpCatalogProductSave, erpCatalogProductPricesUpdate } from "../catalog/public.ts";
 import { QTY, supplyPart } from "./internal.ts";
@@ -82,6 +83,7 @@ const distinctDec = (a: string | null, b: string, scale: number) => a === null |
  * do fornecedor padrão), conforme as opções ligadas. Devolve o que mudou.
  */
 export function compositionApplyValues(ctx: RpcContext, user: string, command: string, product: string, skipBase = false): Record<string, unknown> {
+  requireRpcParts(ctx, "erp_stock_composition_get", { p_product_id: product });
   const db = ctx.db;
   const s = compositionSettings(db);
   const out: Record<string, unknown> = {};
@@ -116,7 +118,8 @@ export function compositionApplyValues(ctx: RpcContext, user: string, command: s
       Object.assign(out, patch);
     }
   }
-  if (s.update_cost) {
+  if (s.update_cost && !ctx.parts.purchases) out.cost_skipped = "part_disabled";
+  if (s.update_cost && ctx.parts.purchases) {
     const sup = one(db, 'SELECT supplier_id, cost_price FROM "erp_catalog__product_supplier" WHERE record_id=? AND is_default=1', product);
     if (!sup?.supplier_id) out.cost_skipped = "no_default_supplier";
     else if (distinctDec(text(sup.cost_price), t.cost, PRICE)) {

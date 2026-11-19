@@ -8,6 +8,9 @@ import { one, type Row, type SqlDriver } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
+import { requireRpcParts } from "../../../engine/parts-gate.ts";
+import { erpRequirementMet, type ErpPartKey } from "../../../parts.ts";
+import { erpEntityRequirement } from "../../../parts-requirements.ts";
 import { nextIdentity } from "../../../engine/sequence.ts";
 import { todaySaoPaulo } from "../../../engine/time.ts";
 import { guardTrashChild, mirrorRequireVisible as documentsMirrorRequireVisible, requireAccess as documentsAccess } from "../../documents/public.ts";
@@ -110,6 +113,7 @@ function billingView(db: SqlDriver, id: string) {
 const uuidList = (v: unknown) => ((v ?? []) as unknown[]).map((x) => uuidValue(x)!);
 
 function generate(ctx: RpcContext, data: unknown, user: string, command: string) {
+  requireRpcParts(ctx, "erp_finance_grouped_billing_execute", { p_action: "grouped_billing_generate", p_data: data });
   const db = ctx.db;
   const today = todaySaoPaulo();
   // GERAR CONTAS: cada cliente com os seus pedidos e notas (o total lido é o CAS) e a Condição em dias depois de hoje.
@@ -209,6 +213,7 @@ function generate(ctx: RpcContext, data: unknown, user: string, command: string)
 }
 
 function remove(ctx: RpcContext, data: unknown, user: string) {
+  requireRpcParts(ctx, "erp_finance_grouped_billing_execute", { p_action: "grouped_billing_delete", p_data: data });
   const db = ctx.db;
   // Excluir selecionados: as contas sem baixa nem boleto são canceladas e os pedidos e notas liberados.
   keys(data, ["id", "expected_version"]);
@@ -236,6 +241,7 @@ export function erpFinanceGroupedBillingExecute(ctx: RpcContext, a: RpcArgs) {
   const command = uuidArg(a.p_command_id);
   const action = (a.p_action as string | null) ?? null;
   const data = a.p_data === undefined || a.p_data === null ? null : jsonArg(a.p_data);
+  requireRpcParts(ctx, "erp_finance_grouped_billing_execute", { ...a, p_data: data });
   access(db, user, true);
   if (command === null || action === null || !["grouped_billing_generate", "grouped_billing_delete"].includes(action)) raise("22023", "erp_finance_invalid_action");
   if (data === null || jsonType(data) !== "object" || jsonBytes(data) > 262144) raise("22023", "erp_finance_invalid_data");
@@ -263,6 +269,7 @@ export function erpFinanceGroupedBillingExecute(ctx: RpcContext, a: RpcArgs) {
 }
 
 export function erpFinanceGroupedBillingPage(ctx: RpcContext, a: RpcArgs) {
+  requireRpcParts(ctx, "erp_finance_grouped_billing_page", a);
   const db = ctx.db;
   const user = uuidArg(a.p_user_id)!;
   const from = (a.p_from as string | null) ?? null;
@@ -289,6 +296,12 @@ export function erpFinanceGroupedBillingPage(ctx: RpcContext, a: RpcArgs) {
 const badDocuments = (docs: (string | null)[] | null) => docs !== null && (!Array.isArray(docs) || docs.some((d) => Array.isArray(d)) || docs.length < 1 || docs.length > 200 || docs.includes(null));
 
 export function erpFinanceGroupedBillingCandidates(ctx: RpcContext, a: RpcArgs) {
+  requireRpcParts(ctx, "erp_finance_grouped_billing_candidates", a);
+  const sales = erpRequirementMet(ctx.parts, erpEntityRequirement("sales_orders")!);
+  const fiscal = erpRequirementMet(ctx.parts, erpEntityRequirement("nfe")!);
+  const unavailable: ErpPartKey[] = [];
+  if (!sales) unavailable.push("sales");
+  if (!fiscal) unavailable.push("fiscal");
   const db = ctx.db;
   const user = uuidArg(a.p_user_id)!;
   const from = (a.p_from as string | null) ?? null;
@@ -306,20 +319,21 @@ export function erpFinanceGroupedBillingCandidates(ctx: RpcContext, a: RpcArgs) 
     raise("22023", "erp_finance_invalid_query");
   const chosen = documents === null ? null : new Set(documents.map((d) => String(d).toLowerCase()));
   const docs: { contact: string; kind: string; cents: number }[] = [];
-  for (const d of db.exec(`SELECT * FROM "erp_documents__document" WHERE authority='brufap' AND kind='sales_orders'`).rows) {
+  for (const d of sales ? db.exec(`SELECT * FROM "erp_documents__document" WHERE authority='brufap' AND kind='sales_orders'`).rows : []) {
     if (!documentEligible(db, d)) continue;
     const date = (JSON.parse(String(d.body)) as Record<string, unknown>)?.date;
     const dateText = date === undefined || date === null ? null : typeof date === "string" ? date : jsonbText(date);
     if (chosen !== null ? !chosen.has(String(d.id)) : dateText === null || dateText < from! || dateText > to!) continue;
     // 247: o pedido cuja nota do mesmo cliente está na lista é aquela venda: o Valor Total conta só a nota.
     const noted =
+      fiscal &&
       chosen === null &&
       db
         .exec('SELECT i.* FROM "erp_fiscal_invoices__invoice_order" o JOIN "erp_fiscal_invoices__invoice" i ON i.id=o.invoice_id WHERE o.document_id=?', d.id)
         .rows.some((i) => invoiceContact(i.recipient) === d.contact_id && String(i.issue_date) >= from! && String(i.issue_date) <= to! && invoiceEligible(db, i));
     docs.push({ contact: String(d.contact_id), kind: "sales_orders", cents: noted ? 0 : docCents(d)! });
   }
-  if (chosen === null)
+  if (chosen === null && fiscal)
     for (const i of db.exec('SELECT * FROM "erp_fiscal_invoices__invoice" WHERE issue_date>=? AND issue_date<=?', from, to).rows)
       if (invoiceEligible(db, i)) docs.push({ contact: invoiceContact(i.recipient)!, kind: "fiscal_invoices", cents: invoiceTotalCents(i.totals)! });
   const clients = new Map<string, { name: string; documents: number; invoices: number; cents: number }>();
@@ -335,6 +349,7 @@ export function erpFinanceGroupedBillingCandidates(ctx: RpcContext, a: RpcArgs) 
   const sorted = [...clients.entries()].sort(([ix, x], [iy, y]) => cmpText(pgLower(x.name), pgLower(y.name)) || cmpText(ix, iy));
   return {
     entity: "grouped_billing_candidates", from, to, selected: documents !== null, page, limit, total: sorted.length,
+    ...(unavailable.length ? { unavailable_parts: unavailable } : {}),
     items: sorted
       .slice((page - 1) * limit, (page - 1) * limit + limit)
       .map(([id, c]) => ({ contact_id: id, contact_name: c.name, documents: c.documents, invoices: c.invoices, total_cents: String(c.cents) })),
@@ -343,6 +358,12 @@ export function erpFinanceGroupedBillingCandidates(ctx: RpcContext, a: RpcArgs) 
 }
 
 export function erpFinanceGroupedBillingDocuments(ctx: RpcContext, a: RpcArgs) {
+  requireRpcParts(ctx, "erp_finance_grouped_billing_documents", a);
+  const sales = erpRequirementMet(ctx.parts, erpEntityRequirement("sales_orders")!);
+  const fiscal = erpRequirementMet(ctx.parts, erpEntityRequirement("nfe")!);
+  const unavailable: ErpPartKey[] = [];
+  if (!sales) unavailable.push("sales");
+  if (!fiscal) unavailable.push("fiscal");
   const db = ctx.db;
   const user = uuidArg(a.p_user_id)!;
   const contact = uuidArg(a.p_contact);
@@ -354,14 +375,14 @@ export function erpFinanceGroupedBillingDocuments(ctx: RpcContext, a: RpcArgs) {
     raise("22023", "erp_finance_invalid_query");
   const chosen = documents === null ? null : new Set(documents.map((d) => String(d).toLowerCase()));
   const docs: { id: string; kind: string; number: string | null; sort: number | null; day: string | null; cents: number | null; version: unknown; orders: unknown }[] = [];
-  for (const d of db.exec(`SELECT * FROM "erp_documents__document" WHERE authority='brufap' AND kind='sales_orders' AND contact_id=?`, contact).rows) {
+  for (const d of sales ? db.exec(`SELECT * FROM "erp_documents__document" WHERE authority='brufap' AND kind='sales_orders' AND contact_id=?`, contact).rows : []) {
     if (!documentEligible(db, d)) continue;
     const date = (JSON.parse(String(d.body)) as Record<string, unknown>)?.date;
     const day = date === undefined || date === null ? null : typeof date === "string" ? date : jsonbText(date);
     if (chosen !== null ? !chosen.has(String(d.id)) : day === null || day < from! || day > to!) continue;
     docs.push({ id: String(d.id), kind: "sales_orders", number: d.number === null ? null : String(d.number), sort: d.number === null ? null : Number(d.number), day, cents: docCents(d), version: d.version, orders: null });
   }
-  if (chosen === null)
+  if (chosen === null && fiscal)
     for (const i of db.exec('SELECT * FROM "erp_fiscal_invoices__invoice" WHERE issue_date>=? AND issue_date<=?', from, to).rows) {
       if (invoiceContact(i.recipient) !== contact || !invoiceEligible(db, i)) continue;
       const orders = db
@@ -379,6 +400,7 @@ export function erpFinanceGroupedBillingDocuments(ctx: RpcContext, a: RpcArgs) {
   );
   return {
     entity: "grouped_billing_documents", contact_id: contact, total: docs.length,
+    ...(unavailable.length ? { unavailable_parts: unavailable } : {}),
     items: docs.slice(0, 500).map((x) => ({ id: x.id, kind: x.kind, number: x.number, date: x.day, total_cents: x.cents === null ? null : String(x.cents), version: x.version, orders: x.orders })),
     data_mode: "erp_native",
   };

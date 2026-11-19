@@ -5,6 +5,7 @@ import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { arrow, jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcContext } from "../../../engine/registry.ts";
+import { requireRpcParts } from "../../../engine/parts-gate.ts";
 import { nextIdentity } from "../../../engine/sequence.ts";
 import { activeRole } from "../../access/public.ts";
 import * as documents from "../../documents/public.ts";
@@ -79,6 +80,7 @@ function deleteComponents(db: SqlDriver, item: string) {
 
 /** Auditoria e recibo: ambos append-only, com aa_mirror_authority antes da inserção. */
 export function itemComponentsReceipt(ctx: RpcContext, user: string, command: string, document: string, item: string, hash: string, before: unknown, result: ReturnType<typeof itemComponentsDto> & Row) {
+  requireRpcParts(ctx, "erp_stock_item_components_save", { p_document_id: document, p_item_id: item });
   const db = ctx.db;
   const auditId = nextIdentity(ctx, "erp_documents__audit", "id");
   documents.mirrorGuardEffect(db, document);

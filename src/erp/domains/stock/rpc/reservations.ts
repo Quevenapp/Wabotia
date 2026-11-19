@@ -9,6 +9,7 @@ import { raise } from "../../../engine/errors.ts";
 import { deferForeignKeys } from "../../../engine/fk.ts";
 import { arrow, jsonbText } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
+import { requireRpcParts } from "../../../engine/parts-gate.ts";
 import { nextIdentity } from "../../../engine/sequence.ts";
 import { pgBtrim, pgCompareText } from "../../../engine/text.ts";
 import { jsonTimestamp } from "../../../engine/time.ts";
@@ -73,7 +74,10 @@ export function reservationLock(db: SqlDriver, actor: string, document: string |
 }
 
 /** erp_stock.reservation_preview(d, p_action, p_day, p_reason, p_id): a conferência de reservar, liberar ou baixar. */
-export function reservationPreview(ctx: RpcContext, d: Row, action: string | null, day: string | null, reason: string | null, id: string | null) {
+export function reservationPreview(ctx: RpcContext, d: Row, action: string | null, day: string | null, reason: string | null, id: string | null, applying = false) {
+  requireRpcParts(ctx, applying ? "erp_stock_reservation_apply" : "erp_stock_reservation_preview", {
+    p_document_id: d.id, p_action: action, p_reservation_id: id,
+  });
   const db = ctx.db;
   documentMeta(day, reason);
   if (action === null || !["reserve", "release", "consume"].includes(action) || (action === "reserve") !== (id === null))
@@ -170,6 +174,7 @@ function reservationCommandStart(db: SqlDriver, actor: string, command: string |
 
 /** public.erp_stock_reservation_apply: reservar, liberar ou baixar (a baixa lança o estoque do pedido). */
 export function erpStockReservationApply(ctx: RpcContext, a: RpcArgs) {
+  requireRpcParts(ctx, "erp_stock_reservation_apply", a);
   const db = ctx.db;
   const user = a.p_user_id as string;
   const document = str(a.p_document_id),
@@ -197,7 +202,7 @@ export function erpStockReservationApply(ctx: RpcContext, a: RpcArgs) {
   // Um lançamento manual pode ter gravado o mesmo comando enquanto este esperava.
   if (one(db, 'SELECT 1 x FROM "erp_stock__command" WHERE id=?', command) || one(db, 'SELECT 1 x FROM "erp_stock__document_command" WHERE id=?', command))
     raise("40001", "erp_stock_command_conflict");
-  const preview = reservationPreview(ctx, d, action, day, reason, reservation);
+  const preview = reservationPreview(ctx, d, action, day, reason, reservation, true);
   reservationWriteAccess(db, user);
   if (hash === null || !/^[a-f0-9]{64}$/.test(hash) || hash !== preview.preview_hash) raise("40001", "erp_stock_reservation_preview_conflict");
   let rid: string;

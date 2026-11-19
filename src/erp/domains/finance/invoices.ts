@@ -5,6 +5,8 @@
 import { one, type Row, type SqlDriver } from "../../engine/driver.ts";
 import { fromSqlite } from "../../engine/errors.ts";
 import type { RpcContext } from "../../engine/registry.ts";
+import { requireRpcParts, rpcPartsRequirement } from "../../engine/parts-gate.ts";
+import { erpRequirement, erpRequirementMet } from "../../parts.ts";
 import * as preferences from "../preferences/public.ts";
 import { jsonbText } from "../../engine/json.ts";
 import { jsonTimestamp as jsonTs } from "../../engine/time.ts";
@@ -210,6 +212,7 @@ function commissionInvoice(db: SqlDriver, invoice: string, seller: string) {
 
 /** erp_finance.commission_capture_invoice_title: a comissão de uma parcela da nota (null quando não cabe). */
 function captureInvoiceTitle(ctx: RpcContext, title: string) {
+  if (!erpRequirementMet(ctx.parts, erpRequirement("erp-financeiro", "erp-fiscal"))) return;
   const db = ctx.db;
   const l = one(db, 'SELECT * FROM "erp_finance__invoice_title" WHERE title_id=?', title);
   const p = l ? one(db, 'SELECT * FROM "erp_finance__invoice_posting" WHERE id=?', l.posting_id) : undefined;
@@ -217,6 +220,8 @@ function captureInvoiceTitle(ctx: RpcContext, title: string) {
   if (!p || p.state !== "active" || snap?.direction !== "receivable") return;
   if (one(db, 'SELECT 1 x FROM "erp_finance__commission" WHERE title_id=? LIMIT 1', title)) return;
   const v = one(db, 'SELECT * FROM "erp_fiscal_invoices__invoice" WHERE id=?', p.invoice_id)!;
+  const requirement = rpcPartsRequirement(ctx, "erp_finance_invoice_finance_post", { p_invoice_id: v.id });
+  if (!requirement || requirement === "externo" || !erpRequirementMet(ctx.parts, requirement)) return;
   const seller = v.seller_id === null ? undefined : (one(db, 'SELECT id FROM "erp_catalog__seller" WHERE id=?', v.seller_id)?.id as string | undefined);
   if (seller === undefined) return;
   const calc = commissionInvoice(db, String(v.id), seller);
@@ -255,6 +260,8 @@ function captureInvoiceTitle(ctx: RpcContext, title: string) {
 
 /** INSERT em invoice_title, com o gatilho commission_capture_invoice. */
 export function insertInvoiceTitle(ctx: RpcContext, title: string, posting: string, position: number) {
+  const p = one(ctx.db, 'SELECT invoice_id FROM "erp_finance__invoice_posting" WHERE id=?', posting);
+  requireRpcParts(ctx, "erp_finance_invoice_finance_post", { p_invoice_id: p?.invoice_id });
   ctx.db.exec('INSERT INTO "erp_finance__invoice_title"(title_id, posting_id, position) VALUES(?,?,?)', title, posting, position);
   try {
     captureInvoiceTitle(ctx, title);

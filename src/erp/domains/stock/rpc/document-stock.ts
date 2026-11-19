@@ -14,6 +14,7 @@ import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { arrow, jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
+import { requireRpcParts } from "../../../engine/parts-gate.ts";
 import { nextIdentity } from "../../../engine/sequence.ts";
 import { pgBtrim, pgCompareText, pgHasCntrl, pgLength, pgLower } from "../../../engine/text.ts";
 import { jsonTimestamp, todaySaoPaulo, validDate } from "../../../engine/time.ts";
@@ -532,6 +533,7 @@ export function documentReversePreviewData(ctx: RpcContext, d: Row, postingId: s
 
 /** INSERT em erp_stock.document_posting com os gatilhos BEFORE (ordem do nome) e o AFTER dos lotes. */
 export function insertPosting(ctx: RpcContext, row: { document_id: string; document_version: number; movement_id: string; snapshot: Record<string, unknown>; preview_hash: string; actor: string; command_id: string }) {
+  requireRpcParts(ctx, "erp_document_stock_post", { p_document_id: row.document_id });
   const db = ctx.db;
   documents.mirrorGuardEffect(db, row.document_id); // aa_mirror_authority (erp_document_mirror.guard_effect)
   documents.guardTrashChild(db, row.document_id); // guard_trash
@@ -631,6 +633,7 @@ const int = (v: unknown) => (v === undefined || v === null ? null : Number(v));
 
 /** public.erp_document_stock_preview */
 export function erpDocumentStockPreview(ctx: RpcContext, a: RpcArgs) {
+  requireRpcParts(ctx, "erp_document_stock_preview", a);
   const user = a.p_user_id as string;
   documents.mirrorRequireVisible(ctx.db, user, str(a.p_document_id), true);
   requireOsPermission(ctx.db, user, str(a.p_kind));
@@ -640,6 +643,7 @@ export function erpDocumentStockPreview(ctx: RpcContext, a: RpcArgs) {
 
 /** public.erp_document_stock_post */
 export function erpDocumentStockPost(ctx: RpcContext, a: RpcArgs) {
+  requireRpcParts(ctx, "erp_document_stock_post", a);
   const db = ctx.db;
   const user = a.p_user_id as string;
   const kind = str(a.p_kind),
@@ -697,6 +701,7 @@ export function erpDocumentStockPost(ctx: RpcContext, a: RpcArgs) {
 
 /** public.erp_document_stock_reverse_preview */
 export function erpDocumentStockReversePreview(ctx: RpcContext, a: RpcArgs) {
+  requireRpcParts(ctx, "erp_document_stock_reverse_preview", a);
   const user = a.p_user_id as string;
   documents.mirrorRequireVisible(ctx.db, user, str(a.p_document_id), true);
   requireOsPermission(ctx.db, user, str(a.p_kind));
@@ -709,6 +714,7 @@ export function erpDocumentStockReversePreview(ctx: RpcContext, a: RpcArgs) {
 
 /** public.erp_document_stock_reverse */
 export function erpDocumentStockReverse(ctx: RpcContext, a: RpcArgs) {
+  requireRpcParts(ctx, "erp_document_stock_reverse", a);
   const db = ctx.db;
   const user = a.p_user_id as string;
   const kind = str(a.p_kind),

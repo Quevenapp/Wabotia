@@ -6,6 +6,9 @@ import { one } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
 import { jsonType } from "../../engine/json.ts";
 import type { RpcContext } from "../../engine/registry.ts";
+import { requireRpcParts } from "../../engine/parts-gate.ts";
+import { erpRequirementMet } from "../../parts.ts";
+import { erpEntityRequirement } from "../../parts-requirements.ts";
 import { pgHasCntrl, pgLength } from "../../engine/text.ts";
 import { saoPauloParts } from "../../engine/time.ts";
 import { operationTitles } from "./commissions.ts";
@@ -29,6 +32,7 @@ function commissionReturnCapture(ctx: RpcContext, r: { title_id: string; source:
     .rows.filter((c) => operationTitles(db, String(c.document_id)).some((x) => x.title_id === r.title_id));
   const o = ops[0];
   if (!o) return;
+  if (!erpRequirementMet(ctx.parts, erpEntityRequirement(o.kind)!)) return;
   let net = BigInt(String(o.estimated_cents));
   for (const a of db.exec('SELECT amount_cents FROM "erp_finance__commission_adjustment" WHERE operation_id=?', o.id).rows) net += BigInt(String(a.amount_cents));
   const share = t === undefined || t.amount_cents === null ? null : roundDiv(BigInt(String(o.estimated_cents)) * BigInt(String(t.amount_cents)), BigInt(String(o.total_cents)));
@@ -47,16 +51,22 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** erp_finance.titles_mark_returned(ator, comando, contas, origem): marca as contas devolvidas e cancela as abertas. */
 export function titlesMarkReturned(ctx: RpcContext, actor: string | null, command: string | null, titles: (string | null)[] | null, source: unknown) {
+  // Devolução cria um vínculo novo; não faz parte da capacidade de estorno.
+  requireRpcParts(ctx, "erp_finance_execute", { p_action: "title_return" });
+  const kind = source && typeof source === "object" ? (source as Data).kind : null;
+  if (kind === "pos_return") requireRpcParts(ctx, "erp_pos_return_execute", {});
+  if (kind === "invoice_return") requireRpcParts(ctx, "erp_fiscal_invoice_get", {});
+  if (kind === "document_return") requireRpcParts(ctx, "erp_document_get", { p_id: (source as Data).id });
   const db = ctx.db;
   const s = source as Data;
   const text = (v: unknown) => (typeof v === "string" ? v : null);
-  const kind = jsonType(source) === "object" ? text(s.kind) : null;
+  const sourceKind = jsonType(source) === "object" ? text(s.kind) : null;
   const id = jsonType(source) === "object" ? s.id : undefined;
   const label = jsonType(source) === "object" ? s.label : undefined;
   if (
     actor === null || command === null || titles === null || !Array.isArray(titles) || titles.some((x) => Array.isArray(x)) || titles.length < 1 || titles.length > 120 ||
     titles.includes(null) || new Set(titles).size !== titles.length || source === null || source === undefined || jsonType(source) !== "object" ||
-    Object.keys(s).some((k) => !["kind", "id", "label"].includes(k)) || kind === null || !["pos_return", "invoice_return", "document_return"].includes(kind) ||
+    Object.keys(s).some((k) => !["kind", "id", "label"].includes(k)) || sourceKind === null || !["pos_return", "invoice_return", "document_return"].includes(sourceKind) ||
     jsonType(id) !== "string" || pgLength(id as string) < 1 || pgLength(id as string) > 60 || pgHasCntrl.test(id as string) ||
     ("label" in s && (jsonType(label) !== "string" || pgLength(label as string) < 1 || pgLength(label as string) > 120 || pgHasCntrl.test(label as string)))
   )

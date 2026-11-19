@@ -10,6 +10,8 @@ import { one } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
 import { jsonbText } from "../../engine/json.ts";
 import { defer, type RpcContext } from "../../engine/registry.ts";
+import { requireRpcParts, rpcPartsRequirement } from "../../engine/parts-gate.ts";
+import { erpRequirement, erpRequirementMet } from "../../parts.ts";
 import * as preferences from "../preferences/public.ts";
 import { invoiceBlockedReason, invoiceContact, invoiceEffectActive } from "./invoices.ts";
 import { invoicePost, invoicePreviewData } from "./rpc/erp_finance_invoice_finance.ts";
@@ -42,16 +44,26 @@ export function guardFinanceInvoice(ctx: RpcContext, op: Op, o: Row | null, n: R
  */
 export function invoiceAutoFinance(ctx: RpcContext, op: Op, _o: Row | null, n: Row | null) {
   if (op !== "INSERT" || !n) return;
+  if (!erpRequirementMet(ctx.parts, erpRequirement("erp-financeiro", "erp-fiscal"))) return;
   const id = String(n.id);
+  const args = { p_invoice_id: id };
+  const requirement = rpcPartsRequirement(ctx, "erp_finance_invoice_finance_post", args);
+  if (!requirement || requirement === "externo" || !erpRequirementMet(ctx.parts, requirement)) return;
+  // A capacidade de manutenção termina antes de drenar os gatilhos adiados.
+  // Validar também no agendamento impede usá-la para deixar uma criação futura.
+  requireRpcParts(ctx, "erp_finance_invoice_finance_post", args);
   const direction = n.direction;
   defer(ctx, () => {
     const db = ctx.db;
+    const requirement = rpcPartsRequirement(ctx, "erp_finance_invoice_finance_post", args);
+    if (!requirement || requirement === "externo" || !erpRequirementMet(ctx.parts, requirement)) return;
     if (direction !== "0" || preferences.get(db, "nfe.contas_pagar_entrada") !== true) return;
     const v = one(db, 'SELECT * FROM "erp_fiscal_invoices__invoice" WHERE id=?', id);
     if (!v || v.deleted_at !== null || invoiceBlockedReason(db, v) !== null) return;
     if (!one(db, `SELECT 1 x FROM "erp_access__membership" WHERE user_id=? AND active=1 AND role IN ('admin','financeiro')`, v.created_by)) return;
     try {
       db.transaction(() => {
+        requireRpcParts(ctx, "erp_finance_invoice_finance_post", args);
         const preview = invoicePreviewData(db, v, null, null);
         invoicePost(ctx, String(v.created_by), md5Uuid(`invoice-auto-finance:${id}`), { invoice_id: id, expected_version: v.version, preview_hash: preview.preview_hash }, "automatic");
       });
