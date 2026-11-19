@@ -1,3 +1,17 @@
+import { type ErpParts } from "../../../parts.ts";
+import { erpDestinationRequirement, erpNotificationRequirement, erpEntityRequirement } from "../../../parts-requirements.ts";
+import { requireErpParts } from "../../../engine/parts-gate.ts";
+import { queryAvailable, unavailableParts } from "../business-rules.ts";
+
+// Mantém a posição relativa das escolhas ocultas ao salvar só a projeção visível.
+function retainHidden(current: string[], sent: string[], visible: (value: string) => boolean) {
+  const result = sent.filter(visible);
+  current.forEach((value, index) => { if (!visible(value)) result.splice(Math.min(index, result.length), 0, value); });
+  return result;
+}
+const destinationAvailable = (parts: Readonly<ErpParts>, path: string) => queryAvailable(parts, erpDestinationRequirement(path)?.requirement ?? null);
+const chartAvailable = (parts: Readonly<ErpParts>, chart: string) => chart === "resumo" || queryAvailable(parts, erpEntityRequirement("sales_orders"));
+const notificationAvailable = (parts: Readonly<ErpParts>, type: string) => queryAvailable(parts, erpNotificationRequirement(type));
 // Início (erp_home): gráficos e atalhos por usuário, produtos a vencer e a
 // central de notificações. public.erp_home_charts_get, _charts_save,
 // _shortcuts_get, _shortcuts_save, _expiring, _notifications e
@@ -31,11 +45,12 @@ const topProductsAllowed = (role: string) => documentsAllowed(role, "sales_order
 const availableCharts = (role: string) => CHART_KEYS.filter((k) => k !== "top_skus" || topProductsAllowed(role));
 
 /** erp_home.charts_view */
-function chartsView(db: SqlDriver, user: string, role: string) {
+function chartsView(db: SqlDriver, user: string, role: string, parts: Readonly<ErpParts>) {
   const c = one(db, 'SELECT charts, version FROM "erp_home__chart_preference" WHERE user_id=?', user);
   const list = c ? (JSON.parse(String(c.charts)) as string[]) : CHART_KEYS;
-  const available = availableCharts(role);
+  const available = availableCharts(role).filter(k => chartAvailable(parts, k));
   return {
+    ...unavailableParts(parts),
     scope: "home_charts",
     data_mode: "erp_native",
     role,
@@ -48,7 +63,7 @@ function chartsView(db: SqlDriver, user: string, role: string) {
 
 export function erpHomeChartsGet(ctx: RpcContext, a: RpcArgs) {
   const user = uuid(a, "p_user_id");
-  return chartsView(ctx.db, user!, requireMember(ctx.db, user));
+  return chartsView(ctx.db, user!, requireMember(ctx.db, user), ctx.parts);
 }
 
 export function erpHomeChartsSave(ctx: RpcContext, a: RpcArgs) {
@@ -70,23 +85,27 @@ export function erpHomeChartsSave(ctx: RpcContext, a: RpcArgs) {
     charts.some((e) => jsonType(e) !== "string" || !CHART_KEYS.includes(e as string))
   )
     invalid();
-  const list = charts as string[];
+  let list = charts as string[];
   if (new Set(list).size !== list.length) invalid();
   if (list.some((e) => !availableCharts(role).includes(e))) raise("42501", "erp_home_chart_forbidden");
   const hash = frameworkHash({ op: "charts", actor: user, version: expected, charts });
   const stored = one(db, 'SELECT actor, request_hash, result FROM "erp_home__shortcut_command" WHERE command_id=?', command);
   if (stored) {
     if (stored.actor !== user || stored.request_hash !== hash) raise("40001", "erp_home_command_conflict");
-    return { ...chartsView(db, user!, role), receipt: JSON.parse(String(stored.result)), replayed: true };
+    return { ...chartsView(db, user!, role, ctx.parts), receipt: JSON.parse(String(stored.result)), replayed: true };
   }
   const row = one(db, 'SELECT charts, version FROM "erp_home__chart_preference" WHERE user_id=?', user);
   if ((row ? Number(row.version) : 0) !== expected) raise("40001", "erp_home_charts_version_conflict");
+  const current = row ? JSON.parse(String(row.charts)) as string[] : CHART_KEYS;
+  const visible = (k: string) => chartAvailable(ctx.parts, k);
+  if (list.some(k => !visible(k) && !current.includes(k))) requireErpParts(ctx, erpEntityRequirement("sales_orders"));
+  list = retainHidden(current, list, visible);
   const version = expected! + 1;
   const at = ctx.clock.next().toString();
   if (!row)
     db.exec('INSERT INTO "erp_home__chart_preference"(user_id, charts, version, created_at, updated_at) VALUES (?,?,?,?,?)', user, JSON.stringify(list), version, at, at);
   else db.exec('UPDATE "erp_home__chart_preference" SET charts=?, version=?, updated_at=? WHERE user_id=?', JSON.stringify(list), version, at, user);
-  const result = { command_id: command, version, charts: list, changed_at: jsonTimestamp(ctx.clock.next().toString()) };
+  const result = { command_id: command, version, charts, changed_at: jsonTimestamp(ctx.clock.next().toString()) };
   db.exec('INSERT INTO "erp_home__shortcut_command"(command_id, actor, request_hash, result, created_at) VALUES (?,?,?,?,?)', command, user, hash, jsonbText(result), at);
   db.exec(
     'INSERT INTO "erp_home__shortcut_audit"(actor, command_id, before_data, after_data, created_at) VALUES (?,?,?,?,?)',
@@ -96,7 +115,7 @@ export function erpHomeChartsSave(ctx: RpcContext, a: RpcArgs) {
     jsonbText({ version, charts: list }),
     at,
   );
-  return { ...chartsView(db, user!, role), receipt: result, replayed: false };
+  return { ...chartsView(db, user!, role, ctx.parts), receipt: result, replayed: false };
 }
 
 /** erp_home.shortcut_catalog(): ordinal, caminho, papéis (null: todos) e recurso exigido. */
@@ -187,11 +206,11 @@ function shortcutBase(link: string | null): string | null {
   return null;
 }
 
-const availableShortcuts = (role: string) => SHORTCUTS.filter((c) => shortcutAllowed(role, c[1])).map((c) => c[1]);
-const visibleShortcuts = (role: string, list: string[]) => list.filter((s) => shortcutAllowed(role, shortcutBase(s)));
-function visibleLabels(role: string, list: string[], labels: Record<string, unknown>) {
+const availableShortcuts = (role: string, parts: Readonly<ErpParts>) => SHORTCUTS.filter((c) => shortcutAllowed(role, c[1]) && destinationAvailable(parts, c[1])).map((c) => c[1]);
+const visibleShortcuts = (role: string, list: string[], parts: Readonly<ErpParts>) => list.filter((s) => shortcutAllowed(role, shortcutBase(s)) && destinationAvailable(parts, s));
+function visibleLabels(role: string, list: string[], labels: Record<string, unknown>, parts: Readonly<ErpParts>) {
   const out: Record<string, unknown> = {};
-  for (const s of list) if (s in labels && shortcutAllowed(role, shortcutBase(s))) out[s] = labels[s];
+  for (const s of list) if (s in labels && shortcutAllowed(role, shortcutBase(s)) && destinationAvailable(parts, s)) out[s] = labels[s];
   return out;
 }
 
@@ -202,14 +221,15 @@ export function erpHomeShortcutsGet(ctx: RpcContext, a: RpcArgs) {
   const list = row ? (JSON.parse(String(row.shortcuts)) as string[]) : DEFAULT_SHORTCUTS;
   const labels = row ? (JSON.parse(String(row.labels)) as Record<string, unknown>) : {};
   return {
+    ...unavailableParts(ctx.parts),
     scope: "home_shortcuts",
     data_mode: "erp_native",
     role,
     version: row ? Number(row.version) : 0,
     customized: !!row,
-    shortcuts: visibleShortcuts(role, list),
-    labels: visibleLabels(role, list, labels),
-    available: availableShortcuts(role),
+    shortcuts: visibleShortcuts(role, list, ctx.parts),
+    labels: visibleLabels(role, list, labels, ctx.parts),
+    available: availableShortcuts(role, ctx.parts),
   };
 }
 
@@ -234,7 +254,7 @@ export function erpHomeShortcutsSave(ctx: RpcContext, a: RpcArgs) {
     (labelsIn !== null && (jsonType(labelsIn) !== "object" || Object.keys(labelsIn).length > 20))
   )
     invalid();
-  const list = shortcuts as string[];
+  let list = shortcuts as string[];
   if (new Set(list).size !== list.length || list.some((e) => shortcutBase(e) === null)) invalid();
   const labels: Record<string, string> = {};
   const given = labelsIn ?? {};
@@ -259,16 +279,26 @@ export function erpHomeShortcutsSave(ctx: RpcContext, a: RpcArgs) {
     const result = JSON.parse(String(stored.result)) as Record<string, unknown>;
     return {
       ...result,
+      ...unavailableParts(ctx.parts),
       scope: "home_shortcuts",
       data_mode: "erp_native",
       role,
-      labels: result.labels ?? {},
-      available: availableShortcuts(role),
+      shortcuts: visibleShortcuts(role, result.shortcuts as string[], ctx.parts),
+      labels: visibleLabels(role, result.shortcuts as string[], (result.labels ?? {}) as Record<string, unknown>, ctx.parts),
+      available: availableShortcuts(role, ctx.parts),
       replayed: true,
     };
   }
   const row = one(db, 'SELECT shortcuts, labels, version FROM "erp_home__shortcut_preference" WHERE user_id=?', user);
   if ((row ? Number(row.version) : 0) !== expected) raise("40001", "erp_home_shortcuts_version_conflict");
+  const current = row ? JSON.parse(String(row.shortcuts)) as string[] : DEFAULT_SHORTCUTS;
+  const currentLabels = row ? JSON.parse(String(row.labels)) as Record<string, string> : {};
+  const visible = (path: string) => destinationAvailable(ctx.parts, path);
+  for (const path of list) if (!visible(path) && (!current.includes(path) || (path in labels && labels[path] !== currentLabels[path])))
+    requireErpParts(ctx, erpDestinationRequirement(path)?.requirement ?? null);
+  list = retainHidden(current, list, visible);
+  if (list.length > 20) invalid();
+  for (const path of current) if (!visible(path) && path in currentLabels) labels[path] = currentLabels[path];
   const version = expected! + 1;
   const at = ctx.clock.next().toString();
   if (!row)
@@ -290,7 +320,8 @@ export function erpHomeShortcutsSave(ctx: RpcContext, a: RpcArgs) {
       at,
       user,
     );
-  const result = { version, customized: true, shortcuts: list, labels };
+  // O recibo guarda a projeção enviada; escolhas ocultas ficam no estado e na auditoria.
+  const result = { version, customized: true, shortcuts, labels: given };
   db.exec('INSERT INTO "erp_home__shortcut_command"(command_id, actor, request_hash, result, created_at) VALUES (?,?,?,?,?)', command, user, hash, jsonbText(result), at);
   db.exec(
     'INSERT INTO "erp_home__shortcut_audit"(actor, command_id, before_data, after_data, created_at) VALUES (?,?,?,?,?)',
@@ -300,7 +331,7 @@ export function erpHomeShortcutsSave(ctx: RpcContext, a: RpcArgs) {
     jsonbText({ version, shortcuts: list, labels }),
     at,
   );
-  return { ...result, scope: "home_shortcuts", data_mode: "erp_native", role, available: availableShortcuts(role), replayed: false };
+  return { ...result, ...unavailableParts(ctx.parts), shortcuts: visibleShortcuts(role, list, ctx.parts), labels: visibleLabels(role, list, labels, ctx.parts), scope: "home_shortcuts", data_mode: "erp_native", role, available: availableShortcuts(role, ctx.parts), replayed: false };
 }
 
 const CNTRL_ALL = new RegExp(PG_CNTRL, "gu");
@@ -309,6 +340,7 @@ export function erpHomeExpiring(ctx: RpcContext, a: RpcArgs) {
   const db = ctx.db;
   catalogRequireAccess(db, uuid(a, "p_user_id"), "products", false);
   const today = todaySaoPaulo();
+  requireErpParts(ctx, erpEntityRequirement("products"));
   const days = expiryDays(db);
   const all = expiringProducts(db, null, addDays(today, days));
   const items = all
@@ -336,14 +368,14 @@ const notificationDto = (n: Record<string, unknown>) => ({
 });
 
 /** erp_home.notifications_view */
-function notificationsView(db: SqlDriver, user: string, role: string, tab: string) {
+function notificationsView(db: SqlDriver, user: string, role: string, tab: string, parts: Readonly<ErpParts>) {
   const mine = db
     .exec(
       `SELECT id, type, day, quantity, CAST(amount AS TEXT) amount, CAST(created_at AS TEXT) created_at, read_at FROM "erp_home__notification"
        WHERE user_id=? ORDER BY created_at DESC, id DESC`,
       user,
     )
-    .rows.filter((n) => notificationRoles(String(n.type)).includes(role));
+    .rows.filter((n) => notificationAvailable(parts, String(n.type)) && notificationRoles(String(n.type)).includes(role));
   return {
     scope: "notifications",
     data_mode: "erp_native",
@@ -364,7 +396,7 @@ export function erpHomeNotifications(ctx: RpcContext, a: RpcArgs) {
   const today = todaySaoPaulo();
   const a1Limit = saoPauloMidnight(addDays(today, 31));
   for (const t of NOTIFICATION_TYPES) {
-    if (!notificationRecipient(db, user!, role, t) || one(db, 'SELECT 1 x FROM "erp_home__notification" WHERE user_id=? AND type=? AND day=?', user, t, today))
+    if (!notificationAvailable(ctx.parts, t) || !notificationRecipient(db, user!, role, t) || one(db, 'SELECT 1 x FROM "erp_home__notification" WHERE user_id=? AND type=? AND day=?', user, t, today))
       continue;
     const d = notificationDigest(db, t, today, a1Limit);
     if (d.quantity > 0)
@@ -378,7 +410,7 @@ export function erpHomeNotifications(ctx: RpcContext, a: RpcArgs) {
         ctx.clock.next().toString(),
       );
   }
-  return notificationsView(db, user!, role, tab!);
+  return notificationsView(db, user!, role, tab!, ctx.parts);
 }
 
 export function erpHomeNotificationsRead(ctx: RpcContext, a: RpcArgs) {
@@ -400,14 +432,14 @@ export function erpHomeNotificationsRead(ctx: RpcContext, a: RpcArgs) {
   const stored = one(db, 'SELECT actor, request_hash, result FROM "erp_home__notification_command" WHERE id=?', command);
   if (stored) {
     if (stored.actor !== user || stored.request_hash !== hash) raise("40001", "erp_home_notifications_command_conflict");
-    return { ...(JSON.parse(String(stored.result)) as object), view: notificationsView(db, user!, role, "nao_lidas"), replayed: true };
+    return { ...(JSON.parse(String(stored.result)) as object), view: notificationsView(db, user!, role, "nao_lidas", ctx.parts), replayed: true };
   }
   const list = ids === null ? null : (ids as string[]).map((x) => BigInt(x));
   if (list !== null && list.some((i) => !one(db, 'SELECT 1 x FROM "erp_home__notification" WHERE id=? AND user_id=?', i.toString(), user)))
     raise("P0002", "erp_home_notification_not_found");
   const targets = db
     .exec('SELECT id, type FROM "erp_home__notification" WHERE user_id=? AND read_at IS NULL', user)
-    .rows.filter((n) => notificationRoles(String(n.type)).includes(role) && (list === null || list.includes(BigInt(n.id as number))));
+    .rows.filter((n) => notificationAvailable(ctx.parts, String(n.type)) && notificationRoles(String(n.type)).includes(role) && (list === null || list.includes(BigInt(n.id as number))));
   const at = ctx.clock.next();
   const result = {
     scope: "notifications_command",
@@ -416,7 +448,7 @@ export function erpHomeNotificationsRead(ctx: RpcContext, a: RpcArgs) {
   };
   db.exec('INSERT INTO "erp_home__notification_command"(id, actor, request_hash, result, created_at) VALUES (?,?,?,?,?)', command, user, hash, jsonbText(result), at.toString());
   for (const n of targets) db.exec('UPDATE "erp_home__notification" SET read_at=?, read_command=? WHERE id=?', at.toString(), command, n.id);
-  return { ...result, view: notificationsView(db, user!, role, "nao_lidas"), replayed: false };
+  return { ...result, view: notificationsView(db, user!, role, "nao_lidas", ctx.parts), replayed: false };
 }
 
 registerRpc("erp_home_charts_get", erpHomeChartsGet);

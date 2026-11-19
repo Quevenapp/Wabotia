@@ -1,3 +1,4 @@
+import { projectParts, responseParts, responsePartsMetadata, erpRequirementMet } from './preferences-kit.mjs';
 /** Produtos no padrão do Origin (migrations 202610200119-120), served under /v1/cadastros so the ERP keeps one catalog prefix:
  * - /v1/cadastros/taxonomias/:tipo (GET list, POST create), /:tipo/:id (PATCH rename), /:tipo/:id/excluir (POST delete), where :tipo is
  *   categorias-produtos | grupos-produtos | grupos-tags | tags;
@@ -265,7 +266,7 @@ function exportItem(value) {
   safe.supplier = supplier && { name: supplier.name, description: supplier.description ?? null, code: supplier.code ?? null, purchase_price: supplier.purchase_price ?? null, cost_price: supplier.cost_price ?? null, warranty_months: supplier.warranty_months ?? null };
   return safe;
 }
-export function productResponse(value, route, operation, record) {
+function productResponseBody(value, route, operation, record) {
   if (route.product === 'price-lists') return viaPrice(() => priceListResponse(value, route, operation));
   if (route.product === 'contact-tags') return viaPrice(() => contactTagResponse(value, route, operation));
   if (route.product === 'prices') return viaPrice(() => productPricesResponse(value, route, operation));
@@ -323,3 +324,9 @@ export function productResponse(value, route, operation, record) {
   return { entity: 'products', record: row, data_mode: 'erp_native', ...replayed };
 }
 export { PRODUCT_DETAIL_KEYS, PRODUCT_DETAIL_DECIMALS };
+
+export function productResponse(value, route, operation, record) {
+ const parts=responseParts(value,badResponse);
+ if(!parts.stock&&(value.stock_visible===true||operation.type==='export'&&Array.isArray(value.items)&&value.items.some(item=>item.stock!==null)))badResponse();
+ return projectParts(value, body => productResponseBody(body, route, operation, record), badResponse);
+}

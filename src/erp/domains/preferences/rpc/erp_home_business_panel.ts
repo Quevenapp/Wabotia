@@ -1,3 +1,6 @@
+import { erpOperationRequirement, erpEntityRequirement } from "../../../parts-requirements.ts";
+import { requireErpParts } from "../../../engine/parts-gate.ts";
+import { queryAvailable, unavailableParts, queryCoverage } from "../business-rules.ts";
 // Meu Negócio: public.erp_home_business_panel e os painéis que ele despacha
 // (mensal, diário, pedidos de venda, vendas por vendedor, venda por canal,
 // previsão de estoque v1 e v2, margem por pedido, novos e recorrentes,
@@ -15,7 +18,7 @@ import { dateArgError, jsonTimestamp, saoPauloMidnight, todaySaoPaulo } from "..
 import { formatScaled, fromColumn, toScaled } from "../../../engine/dec.ts";
 import { requirePermission } from "../../access/public.ts";
 import { fold, productCostAt } from "../../catalog/public.ts";
-import { allowed as documentsAllowed, mirrorReportCoverage, reportLastPurchaseUntil } from "../../documents/public.ts";
+import { allowed as documentsAllowed, reportLastPurchaseUntil } from "../../documents/public.ts";
 import * as preferences from "../public.ts";
 import { countPhysical, ignoredWarehouse, priceText, virtualQuantity } from "../../stock/public.ts";
 import { json, text, uuid } from "../args.ts";
@@ -197,6 +200,8 @@ class Panel {
     this.ctx = ctx;
     this.rate = taxRate(ctx.db);
   }
+  costVisible(role: string) { return costVisible(role) && queryAvailable(this.ctx.parts, erpOperationRequirement("margin")); }
+  stockVisible(role: string) { return stockVisible(role) && queryAvailable(this.ctx.parts, erpOperationRequirement("forecast")); }
   get db() {
     return this.ctx.db;
   }
@@ -247,7 +252,7 @@ class Panel {
     for (const o of this.orders(from, to, statuses))
       for (const i of this.db.exec(
         `SELECT i.id, i.product_id, i.product_snapshot, i.data, CAST(i.quantity AS TEXT) q, CAST(i.total AS TEXT) t, r.code, r.name, p.brand,
-          (SELECT a.unit_cost FROM "erp_documents__item_cost_applied" a WHERE a.item_id=i.id) applied
+          ${queryAvailable(this.ctx.parts, erpOperationRequirement("margin")) ? '(SELECT a.unit_cost FROM "erp_documents__item_cost_applied" a WHERE a.item_id=i.id)' : "NULL"} applied
          FROM "erp_documents__item" i LEFT JOIN "erp_catalog__record" r ON r.id=i.product_id LEFT JOIN "erp_catalog__product" p ON p.record_id=i.product_id
          WHERE i.document_id=?`,
         o.id,
@@ -256,7 +261,7 @@ class Panel {
         const desc = bizText(jp(data, "description"), 200);
         const product = (i.product_id as string | null) ?? null;
         let cost: string | null = null;
-        if (product !== null)
+        if (product !== null && queryAvailable(this.ctx.parts, erpOperationRequirement("margin")))
           cost =
             (i.applied as string | null) ??
             productCostAt(this.db, product, o.day) ??
@@ -289,8 +294,9 @@ class Panel {
       role,
       as_of: jsonTimestamp((BigInt(Date.now()) * 1000n).toString()),
       business_date: today(),
-      cost_visible: costVisible(role),
-      stock_visible: stockVisible(role),
+      ...unavailableParts(this.ctx.parts),
+      cost_visible: this.costVisible(role),
+      stock_visible: this.stockVisible(role),
       filters,
     };
   }
@@ -483,8 +489,8 @@ function monthly(pn: Panel, user: string | null, statuses: unknown, from: string
   bizPeriod(from, to, 366);
   if ((cf === null) !== (ct === null)) invalid();
   if (cf !== null) bizPeriod(cf, ct, 366);
-  const cost = costVisible(role),
-    stock = stockVisible(role);
+  const cost = pn.costVisible(role),
+    stock = pn.stockVisible(role);
   const year = `${to!.slice(0, 4)}-01-01`;
   const span = diff(from!, to!) + 1;
   const top = pn.products(from!, to!, s, false, stock, 10).map((x) => {
@@ -507,7 +513,7 @@ function monthly(pn: Panel, user: string | null, statuses: unknown, from: string
     months: months(addMonths(to!, -11), to!).map((m) => ({ month: m.slice(0, 7), total: money(sumOrNull(pn.orders(m, monthEnd(m), s), (o) => o.total)) })),
     annual: pn.kpis(year, `${to!.slice(0, 4)}-12-31`, s),
     goals: pn.goalsJson(true, 20),
-    ...mirrorReportCoverage(pn.db, user, null),
+    ...queryCoverage(pn.ctx, user),
   };
 }
 
@@ -535,8 +541,8 @@ function daily(pn: Panel, user: string | null, statuses: unknown, day: string | 
       previous: compare !== null ? { ...pn.kpis(compare, compare, s), new_customers: newCustomers(compare) } : null,
     },
     statuses: pn.statusRows(pn.orders(day!, day!, s), s),
-    indicators: pn.indicators(day!, day!, s, costVisible(role)),
-    top_skus: pn.products(day!, day!, s, false, stockVisible(role), 10),
+    indicators: pn.indicators(day!, day!, s, pn.costVisible(role)),
+    top_skus: pn.products(day!, day!, s, false, pn.stockVisible(role), 10),
   };
 }
 
@@ -545,7 +551,7 @@ function ordersPanel(pn: Panel, user: string | null, statuses: unknown, from: st
   const s = statusesJson(statuses);
   bizPeriod(from, to);
   if (state !== null && !UF.test(state)) invalid();
-  const cost = costVisible(role);
+  const cost = pn.costVisible(role);
   const o = pn.orders(from!, to!, s).filter((x) => state === null || x.state === state);
   const ids = new Set(o.map((x) => x.id));
   const l = pn.lines(from!, to!, s).filter((x) => ids.has(x.document_id));
@@ -603,7 +609,7 @@ function ordersPanel(pn: Panel, user: string | null, statuses: unknown, from: st
         fees: null,
         contribution_pct: cost && !c.missing ? pct(c.total - c.freight - (c.c ?? 0n) - c.taxes, c.total - c.freight) : null,
       })),
-    ...mirrorReportCoverage(pn.db, user, null),
+    ...queryCoverage(pn.ctx, user),
   };
 }
 
@@ -613,7 +619,7 @@ function sellers(pn: Panel, user: string | null, statuses: unknown, from: string
   bizPeriod(from, to);
   if (seller !== null && (pgLength(seller) > 80 || pgHasCntrl.test(seller))) invalid();
   const sel = seller === null || pgBtrim(seller) === "" ? null : pgBtrim(seller);
-  const cost = costVisible(role);
+  const cost = pn.costVisible(role);
   const span = diff(from!, to!) + 1;
   const all = pn.orders(from!, to!, s);
   const o = all.filter((x) => sel === null || x.seller === sel);
@@ -654,7 +660,7 @@ function sellers(pn: Panel, user: string | null, statuses: unknown, from: string
         ? days(from!, to!).map((d) => ({ bucket: d, total: money(sumOrNull(o.filter((x) => x.day === d), (x) => x.total)) }))
         : months(from!, to!).map((m) => ({ bucket: m.slice(0, 7), total: money(sumOrNull(o.filter((x) => x.day.slice(0, 7) === m.slice(0, 7)), (x) => x.total)) })),
     statuses: pn.statusRows(o, s),
-    ...mirrorReportCoverage(pn.db, user, null),
+    ...queryCoverage(pn.ctx, user),
   };
 }
 
@@ -675,7 +681,7 @@ function channelsPanel(pn: Panel, user: string | null) {
       month: m.slice(0, 7),
       values: top.map((c) => ({ channel: c, total: money(sumOrNull(o.filter((x) => x.channel === c && x.day.slice(0, 7) === m.slice(0, 7)), (x) => x.total)) })),
     })),
-    ...mirrorReportCoverage(pn.db, user, null),
+    ...queryCoverage(pn.ctx, user),
   };
 }
 
@@ -692,7 +698,7 @@ function compositionItems(db: SqlDriver, product: string) {
 
 function forecast(pn: Panel, user: string | null, from: string | null, to: string | null, warehouse: string | null, reserve: boolean | null, mode: string | null, v2: boolean) {
   const role = bizRole(pn.db, user);
-  if (!stockVisible(role)) denied();
+  if (!pn.stockVisible(role)) denied();
   bizPeriod(from, to);
   if (reserve === null || (v2 && (mode === null || !["itens", "desmembrados"].includes(mode)))) invalid();
   if (warehouse !== null && !one(pn.db, 'SELECT 1 x FROM "erp_catalog__warehouse" WHERE record_id=?', warehouse)) raise("P0002", "erp_home_business_warehouse_not_found");
@@ -781,13 +787,13 @@ function forecast(pn: Panel, user: string | null, from: string | null, to: strin
       const hit = o.filter((r) => r.day === d);
       return { day: d, units: qty(sumOrNull(hit, (r) => r.units)), total: money(sumOrNull(hit, (r) => r.total)) };
     }),
-    ...mirrorReportCoverage(pn.db, user, null),
+    ...queryCoverage(pn.ctx, user),
   };
 }
 
 function margin(pn: Panel, user: string | null, statuses: unknown, from: string | null, to: string | null, tab: string | null) {
   const role = bizRole(pn.db, user);
-  if (!costVisible(role)) denied();
+  if (!pn.costVisible(role)) denied();
   const s = statusesJson(statuses);
   bizPeriod(from, to);
   if (tab === null || !["todos", "lucro", "prejuizo"].includes(tab)) invalid();
@@ -852,7 +858,7 @@ function margin(pn: Panel, user: string | null, statuses: unknown, from: string 
         })),
       160000,
     ),
-    ...mirrorReportCoverage(pn.db, user, null),
+    ...queryCoverage(pn.ctx, user),
   };
 }
 
@@ -860,7 +866,7 @@ function customers(pn: Panel, user: string | null, statuses: unknown, from: stri
   const role = bizRole(pn.db, user);
   const s = statusesJson(statuses);
   bizPeriod(from, to);
-  const cost = costVisible(role);
+  const cost = pn.costVisible(role);
   const earlier = new Set(
     pn.db
       .exec(`SELECT contact_id, status, body FROM "erp_documents__document" WHERE authority='brufap' AND kind='sales_orders'`)
@@ -939,7 +945,7 @@ function customers(pn: Panel, user: string | null, statuses: unknown, from: stri
         }),
       160000,
     ),
-    ...mirrorReportCoverage(pn.db, user, null),
+    ...queryCoverage(pn.ctx, user),
   };
 }
 
@@ -1019,7 +1025,7 @@ function portfolio(pn: Panel, user: string | null, from: string | null, to: stri
         }),
       160000,
     ),
-    ...mirrorReportCoverage(pn.db, user, null),
+    ...queryCoverage(pn.ctx, user),
   };
 }
 
@@ -1085,7 +1091,7 @@ function goals(pn: Panel, user: string | null, tab: string | null) {
     total: pn.db.exec('SELECT active, end_on FROM "erp_home__goal"').rows.filter((g) => (Number(g.active) === 1 && String(g.end_on) >= t) === running).length,
     items: pn.goalsJson(running, 200),
     sellers: sellersList,
-    ...mirrorReportCoverage(pn.db, user, null),
+    ...queryCoverage(pn.ctx, user),
   };
 }
 
@@ -1293,6 +1299,9 @@ export function erpHomeBusinessPanel(ctx: RpcContext, a: RpcArgs) {
   if (user === null) raise("42501", "erp_access_permission_denied");
   requirePermission(db, user!, "meu_negocio.dashboard");
   requirePermission(db, user!, "meu_negocio.dashboard." + key);
+  requireErpParts(ctx, erpEntityRequirement("sales_orders"));
+  if (panel === "margem-pedido") requireErpParts(ctx, erpOperationRequirement("margin"));
+  if (panel === "previsao-estoque") requireErpParts(ctx, erpOperationRequirement("forecast"));
   const pn = new Panel(ctx);
   const A = args!;
   switch (panel) {
