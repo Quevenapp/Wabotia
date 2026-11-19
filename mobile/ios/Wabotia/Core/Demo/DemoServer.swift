@@ -1125,7 +1125,7 @@ final class DemoServer {
             case "custom": recipient = (destination["address"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             default: return self.fail(400, "invalid_destination", "Destino não permitido.")
             }
-            guard recipient.contains("@"), !recipient.contains("\n"), !recipient.contains(","), !recipient.contains(";") else {
+            guard recipient.contains("@"), !recipient.unicodeScalars.contains(where: { $0 == "\r" || $0 == "\n" }), !recipient.contains(","), !recipient.contains(";") else {
                 return self.fail(400, "invalid_recipient", "Informe um único endereço de e-mail válido.")
             }
             let publicMessages = (self.messages[id] ?? []).filter { ["customer", "outbound"].contains($0["direction"] as? String ?? "") }

@@ -114,18 +114,35 @@ final class ChannelsSecondWave {
                            "remainingMessages": tiktok ? remaining as Any : NSNull(), "canHumanText": canSend,
                            "canAutomation": canSend && !comment && channel != "email",
                            "reason": canSend ? NSNull() as Any : tiktok && remaining == 0 ? "quota_exhausted" : "window_closed"]
-        let spec: Row = ["id": channel, "enabled": known, "context": context, "contexts": [context: ["enabled": known, "bot": !comment && channel != "email", "publicReply": comment]],
-                         "text": ["enabled": known, "maxChars": channel == "email" ? 50_000 : tiktok ? 6000 : 4096],
-                         "media": comment ? [:] as Row : ["image": ["send": true, "receive": true, "maxSendBytes": tiktok ? 3_000_000 : 10_000_000, "mimeTypes": ["image/jpeg", "image/png"]]],
-                         "menu": menu, "window": tiktok ? ["kind": "customer", "hours": 48, "maxMessages": 10, "after": "blocked"] as Row : ["kind": "none"],
-                         "subject": channel == "email", "replyTo": channel == "email" || channel == "telegram", "templates": false]
-        return ["channel": channel, "account_label": "Conta de exemplo", "multichannel": true, "window": window,
-                "modules": false, "subject": channel == "email", "public_reply": comment, "templates": false,
-                "menu": menu, "can_initiate": false, "channel_extension": ["key": "\(channel)/\(context)", "capabilities": spec, "metadata": meta],
-                "capabilities": ["channel": channel, "text": known, "image": !comment && known, "modules": false,
+        // Literais aninhados de [String: Any] em partes tipadas: num só literal o
+        // compilador do Swift desiste de inferir os tipos ("failed to produce diagnostic").
+        let email = channel == "email"
+        let contextSpec: Row = ["enabled": known, "bot": !comment && !email, "publicReply": comment]
+        let contexts: Row = [context: contextSpec]
+        let maxChars: Int = email ? 50_000 : (tiktok ? 6000 : 4096)
+        let textSpec: Row = ["enabled": known, "maxChars": maxChars]
+        let maxSendBytes: Int = tiktok ? 3_000_000 : 10_000_000
+        let mimeTypes: [String] = ["image/jpeg", "image/png"]
+        let imageSpec: Row = ["send": true, "receive": true, "maxSendBytes": maxSendBytes, "mimeTypes": mimeTypes]
+        let mediaSpec: Row = comment ? [:] : ["image": imageSpec]
+        let tiktokWindow: Row = ["kind": "customer", "hours": 48, "maxMessages": 10, "after": "blocked"]
+        let noWindow: Row = ["kind": "none"]
+        let windowSpec: Row = tiktok ? tiktokWindow : noWindow
+        let replyTo: Bool = email || channel == "telegram"
+        let spec: Row = ["id": channel, "enabled": known, "context": context, "contexts": contexts,
+                         "text": textSpec, "media": mediaSpec, "menu": menu, "window": windowSpec,
+                         "subject": email, "replyTo": replyTo, "templates": false]
+        let extensionView: Row = ["key": "\(channel)/\(context)", "capabilities": spec, "metadata": meta]
+        let canImage: Bool = !comment && known
+        let capabilities: Row = ["channel": channel, "text": known, "image": canImage, "modules": false,
                                  "reply": channel == "telegram", "reaction": false, "edit": false, "delete": false,
                                  "document": false, "video": false, "audio": false, "voice": false, "sticker": false,
-                                 "contacts": false, "location": false, "templates": false, "calls": false, "window": window]]
+                                 "contacts": false, "location": false, "templates": false, "calls": false, "window": window]
+        let result: Row = ["channel": channel, "account_label": "Conta de exemplo", "multichannel": true, "window": window,
+                           "modules": false, "subject": email, "public_reply": comment, "templates": false,
+                           "menu": menu, "can_initiate": false, "channel_extension": extensionView,
+                           "capabilities": capabilities]
+        return result
     }
 
     func conversationRows(now: Int64) -> [Row] {
@@ -206,7 +223,8 @@ final class ChannelsSecondWave {
             content["channel_action"] = type
         } else if channel == "email" {
             guard type == "email.send", let subject = action["subject"] as? String, subject.utf16.count <= 200,
-                  !subject.contains("\r"), !subject.contains("\n"), !subject.contains("\0") else { return fail("subject_invalid", "Revise o assunto do e-mail.") }
+                  // Por escalar: em Swift "\r\n" é um caractere só, e contains("\r") não o acha.
+                  !subject.unicodeScalars.contains(where: { $0 == "\r" || $0 == "\n" || $0 == "\0" }) else { return fail("subject_invalid", "Revise o assunto do e-mail.") }
             guard text.utf16.count <= 50_000 else { return fail("unsupported_content", "O texto excede o limite de 50.000 caracteres.") }
             content["subject"] = subject
             content["email"] = ["subject": subject]
@@ -245,7 +263,11 @@ final class ChannelsSecondWave {
         eventIds.insert(eventId)
         remoteIds.insert("\(conversationId):\(remoteId)")
         messages[conversationId, default: []].append(message(remoteId, conversation: conversationId, direction: "customer", text: text, content: [:], now: occurredAt))
-        if occurredAt > 0 && occurredAt <= t0 { rows[conversationId]?["last_customer"] = max(rows[conversationId]?["last_customer"] as? Int64 ?? 0, occurredAt) }
+        if occurredAt > 0 && occurredAt <= t0 {
+            // Lê antes de gravar: ler e modificar `rows` na mesma expressão viola o acesso exclusivo do Swift.
+            let previous = rows[conversationId]?["last_customer"] as? Int64 ?? 0
+            rows[conversationId]?["last_customer"] = max(previous, occurredAt)
+        }
         return true
     }
 

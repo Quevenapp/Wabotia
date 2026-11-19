@@ -305,7 +305,8 @@ struct ChannelEmailMetadata: Codable, Equatable {
     var attachmentWarnings: [String]?
 
     static func validSubject(_ subject: String) -> Bool {
-        subject.utf16.count <= 200 && !subject.contains("\r") && !subject.contains("\n") && !subject.contains("\0")
+        // Por escalar: em Swift "\r\n" é um caractere só, e contains("\r") não o acha.
+        subject.utf16.count <= 200 && !subject.unicodeScalars.contains(where: { $0 == "\r" || $0 == "\n" || $0 == "\0" })
     }
     static func replySubject(_ subject: String) -> String {
         var value = subject.trimmingCharacters(in: .whitespacesAndNewlines)
