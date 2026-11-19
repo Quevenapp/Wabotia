@@ -1,3 +1,8 @@
+import { registerCustomerProvider } from "../../customer/ports";
+import { mensalidadeCustomerProvider } from "./customer-provider";
+
+registerCustomerProvider("mensalidade", mensalidadeCustomerProvider);
+
 // Mensalidade (módulo "mensalidade"): ganchos e rotas. Cadastros em
 // ./store.ts; regras puras em ./model.ts. Carregado por
 // src/modules/runtime.ts. Uso: docs/MENSALIDADE.md.
@@ -28,6 +33,7 @@ import {
 // contacts:read, e observações só com notes:read, como no núcleo; pessoas da
 // equipe veem. Toda rota de leitura e de escrita passa por este filtro.
 const CONTACT_FIELDS = new Set([
+  "contact_id",
   "document",
   "document_display",
   "payer_document",
@@ -309,7 +315,7 @@ onCommand(
   "mensalidade.payer.create",
   async (ctx, actor, data) => {
     ctx.access(actor, "conversations:write");
-    const payer = await createPayer(ctx, data, actor.id);
+    const payer = await createPayer(ctx, data, actor.id, actor);
     return payerView(payer, await payerPhones(ctx, payer.id));
   },
 );
@@ -331,6 +337,7 @@ onCommand(
       await loadPayer(ctx, data.id),
       data,
       actor.id,
+      actor,
     );
     return payerView(payer, await payerPhones(ctx, payer.id));
   },

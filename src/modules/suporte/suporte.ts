@@ -1,3 +1,8 @@
+import { registerCustomerProvider } from "../../customer/ports";
+import { suporteCustomerProvider } from "./customer-provider";
+
+registerCustomerProvider("suporte", suporteCustomerProvider);
+
 // Suporte pago (módulo "suporte"): ganchos e rotas. Conversa no WhatsApp em
 // ./flow.ts; banco em ./store.ts; passagem para humano em ./handoff.ts.
 // Depende da Mensalidade por src/modules/mensalidade/public.ts (até o núcleo
