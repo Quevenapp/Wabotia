@@ -16,6 +16,7 @@ import { WebInstall } from "./site/WebInstall";
 import { Privacy } from "./site/Privacy";
 import { QueueDisplay } from "./queue/QueueDisplay";
 import { lazyWithRecovery } from "./management/pages";
+import { installC2Web } from "./c2/register";
 
 const ResponsiblePage = lazyWithRecovery<object>(() =>
   import("./modules/ensino/ResponsiblePage").then((m) => ({ default: m.ResponsiblePage })),
@@ -46,4 +47,5 @@ export function SiteEntry({ pathname = location.pathname }: { pathname?: string 
   );
 }
 
+installC2Web();
 createRoot(document.getElementById("root")!).render(<SiteEntry />);

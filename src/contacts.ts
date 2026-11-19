@@ -25,7 +25,7 @@ import { registerCommand } from "./modules/hooks";
 import { customerProfileDeclarations } from "./customer/declarations";
 import { enrichLocal, maintainJobs, bindFromErp, dispatchCustomerMaintenance, jobInsert, jobView, replayJob, requestHash, writeResult, resolveCustomerJob, cancelCustomerJob, enqueueImport, importResult } from "./customer/jobs";
 import { customerAccess, activeContact, contactRow, namespaceFor, phoneSafetyStatements, guardedBatch } from "./customer/local";
-import { eraseContact, resolvePhone, saveCustomerSection, requireCustomerModule } from "./customer/http";
+import { eraseContact, eraseContactChannels, resolvePhone, saveCustomerSection, requireCustomerModule } from "./customer/http";
 import type { CustomerWrite, Namespace, Statement } from "./customer/contracts";
 import { readCustomerChannels } from "./customer/channel-identity";
 
@@ -515,6 +515,7 @@ export async function recoverContactCommand(env: Env, actor: Actor, profile: str
   if (operation === "contact.import") return importResult(env, job);
   if (operation === "contact.erasure") {
     if (actor.kind !== "user" || actor.role !== "admin" || actor.via) throw new ApiError(403, "forbidden", "A exclusão exige um administrador.");
+    await eraseContactChannels(env, profile, job.contact_id);
     return jobView(job);
   }
   const receipt = JSON.parse(job.cursor_json || "{}").receipt;

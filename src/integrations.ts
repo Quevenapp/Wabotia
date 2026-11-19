@@ -37,7 +37,8 @@ export async function probe(
     profile,
   );
   requireValue(c, "Conexão não encontrada.");
-  if (c.kind === "telegram_bot" || c.kind === "email") {
+  if (c.kind === "telegram_bot" || c.kind === "email" ||
+      (c.kind === "zernio" && (c.channel === "googlebusiness" || c.channel === "tiktok"))) {
     const driver = channelConnectionDriver(c.channel);
     if (!driver) channelNotReady();
     if (!actor || actor.kind !== "user" || actor.via || actor.role !== "admin")

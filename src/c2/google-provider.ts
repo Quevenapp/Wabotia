@@ -4,7 +4,7 @@
 import type { ChannelDeliveryContext, ChannelDeliveryResult, ExtensionConnection, VerifiedIngress } from "../channel-c2-contracts";
 import { one } from "../db";
 import { ApiError, json, now, type Env } from "../types";
-import { zernioRequest } from "../zernio";
+import { ZernioRequestError, zernioRequest } from "../zernio";
 
 export interface GoogleReviewData {
   remoteId: string;
@@ -169,12 +169,11 @@ export async function publishGoogleReply(ctx: ChannelDeliveryContext, input: {
     // A guarda deve chegar ao motor com seu código local, sem ser confundida
     // com timeout depois de uma publicação possivelmente aceita.
     if (!attempted) throw error instanceof ApiError ? error : new ApiError(409, "channel_not_ready", "A conexão Google não está pronta.");
-    if (error instanceof ApiError && error.code === "zernio_rejected") {
-      // O transporte antigo conserva o status apenas no prefixo gerado localmente.
-      // Não interpretar corpo, URL ou conselho remoto como autorização para retry.
-      if (/^Zernio recusou a operação \(HTTP 429(?:,|\))/.test(error.message))
-        return { kind: "retry", code: "rate_limited", notBefore: ctx.now + 60_000 };
-      if (/^Zernio recusou a operação \(HTTP 408(?:,|\))/.test(error.message))
+    if (error instanceof ZernioRequestError && error.code === "zernio_rejected") {
+      // Só uma recusa HTTP comprovada autoriza retry; o texto remoto não é prova.
+      if (error.httpStatus === 429)
+        return { kind: "retry", code: "rate_limited", notBefore: now() + Math.max(1000, error.retryAfterMs ?? 60_000) };
+      if (error.httpStatus === 408)
         return { kind: "unknown", code: "provider_unknown" };
       return { kind: "failed", code: "google_reply_rejected" };
     }

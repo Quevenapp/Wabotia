@@ -55,6 +55,28 @@ function accountId(conn: any): string {
 /** The Zernio Account ID of this line's phone. */
 export const zernioAccountId = accountId;
 
+/** Metadados locais da resposta HTTP, sem corpo nem cabeçalhos brutos.
+ * Status, código e mensagem de ApiError conservam o contrato legado. */
+export class ZernioRequestError extends ApiError {
+  constructor(status: number, code: string, message: string,
+    public readonly httpStatus: number, public readonly retryAfterMs: number | null) {
+    super(status, code, message);
+  }
+}
+function retryAfterMilliseconds(header: string | null): number | null {
+  if (!header || header.length > 128) return null;
+  const value = header.trim();
+  if (/^\d+$/.test(value)) {
+    const delay = Number(value) * 1000;
+    return Number.isSafeInteger(delay) && Number.isSafeInteger(now() + delay) ? delay : null;
+  }
+  // Não interpretar números negativos, valores fracionários ou texto livre
+  // como data. Somente a forma HTTP-date do cabeçalho é aceita aqui.
+  if (!/^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(value)) return null;
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - now()) : null;
+}
+
 /** Paths are always relative to the fixed Zernio API origin. */
 export async function zernioRequest(
   env: Env,
@@ -138,7 +160,8 @@ async function zernioRawRequest(
       keys.api_key,
       keys.webhook_secret,
     ]);
-    throw new ApiError(failure.status, failure.code, failure.message);
+    throw new ZernioRequestError(failure.status, failure.code, failure.message,
+      response.status, retryAfterMilliseconds(response.headers.get("Retry-After")));
   }
   if (!result || typeof result !== "object")
     throw new ApiError(

@@ -4,7 +4,7 @@
  * enviada pela UI nunca habilita uma hipótese de transporte. */
 import { all, one } from "../db";
 import { ApiError, json, now } from "../types";
-import { canonical, sha } from "../security";
+import { canonical, sha, unseal } from "../security";
 import { sendChannelEmail, type ChannelEmailMessage, type ChannelEmailTransport } from "../email";
 import { normalizeEmailAddress as normalizeAddress } from "./email-mime";
 import { mediaKind } from "../media";
@@ -256,6 +256,28 @@ export async function prepareEmailSend(ctx: ChannelOperationContext, action: Ser
     } };
 }
 export async function deliverEmail(ctx: ChannelDeliveryContext, transport: ChannelEmailTransport = emailProviderTransport): Promise<ChannelDeliveryResult> {
+  if (ctx.resource.kind === "connection") {
+    const payload = record(record(json(ctx.outbox.payload).c2).delivery);
+    if (ctx.connection.channel !== "email" || ctx.sidecar.operation !== "email.probe" || typeof payload.probeId !== "string" ||
+        typeof payload.challengeCipher !== "string" || payload.address !== json(ctx.connection.config).address)
+      fail("inbox_required", "Teste de recebimento inválido.", 409);
+    const challenge = record(await unseal(ctx.env, String(payload.challengeCipher)));
+    if (typeof challenge.token !== "string" || !/^[a-f0-9]{64}$/.test(challenge.token)) fail("inbox_required", "Desafio de recebimento indisponível.", 409);
+    const token = String(challenge.token), hash = await sha(token), address = normalizeEmailAddress(payload.address);
+    const check = async () => {
+      if (!await one(ctx.env, `SELECT 1 FROM email_channel_probes p JOIN email_channel_addresses a
+        ON a.connection_id=p.connection_id AND a.profile_id=p.profile_id WHERE p.id=? AND p.profile_id=?
+        AND p.connection_id=? AND p.token_hash=? AND p.state='pending' AND p.expires>? AND a.address=?`,
+      payload.probeId, ctx.outbox.profile_id, ctx.connection.id, hash, now(), address))
+        fail("message_expired", "O teste expirou ou o endereço foi alterado.", 410);
+    };
+    await check();
+    return sendChannelEmail(ctx.env, ctx.connection, { to: address, subject: `Wabotia: teste de recebimento ${token}`,
+      text: "Este é o teste de recebimento do Wabotia. Não responda a esta mensagem.",
+      messageId: `<${await sha(ctx.outbox.id)}@${address.split("@")[1]}>`, automatic: true }, async () => {
+      await check(); await ctx.beforeFetch();
+    }, transport);
+  }
   if (ctx.connection.channel !== "email" || ctx.resource.kind !== "conversation")
     fail("channel_not_ready", "Canal de e-mail indisponível.", 503);
   const conversation = ctx.resource.kind === "conversation" ? ctx.resource.conversation : fail("inbox_required", "Conversa obrigatória.", 409);
@@ -285,6 +307,16 @@ export async function deliverEmail(ctx: ChannelDeliveryContext, transport: Chann
   }, transport);
 }
 export async function completeEmail(ctx: ChannelCompletionContext): Promise<ChannelWritePlan> {
+  if (ctx.resource.kind === "connection") {
+    const payload = record(record(json(ctx.outbox.payload).c2).delivery);
+    return { resource: { kind: "connection", id: ctx.resource.id }, wake: false, statements: [
+      ["UPDATE outbox SET payload=json_remove(payload,'$.c2.delivery.challengeCipher') WHERE id=? AND profile_id=?", [ctx.outbox.id, ctx.outbox.profile_id]],
+      ["UPDATE email_log SET status=?,error_code=?,provider_message_id=? WHERE id=? AND profile_id=? AND purpose='channel.email'",
+        [ctx.result.kind === "sent" ? "accepted" : ctx.result.kind === "unknown" ? "unknown" : "failed",
+          ctx.result.kind === "sent" ? null : ctx.result.code, ctx.result.kind === "sent" ? ctx.result.externalId ?? null : null, ctx.outbox.id, ctx.outbox.profile_id]],
+      ...ctx.result.kind === "failed" ? [["UPDATE email_channel_probes SET state='failed' WHERE id=? AND profile_id=? AND state='pending'", [payload.probeId, ctx.outbox.profile_id]] as Statement] : [],
+    ] };
+  }
   if (ctx.resource.kind !== "conversation") fail("inbox_required", "Conclusão de e-mail exige conversa.", 409);
   const payload = deliveryPayload(ctx), sent = ctx.result.kind === "sent";
   const externalId = ctx.result.kind === "sent" ? ctx.result.externalId ?? null : null;

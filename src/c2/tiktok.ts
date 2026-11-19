@@ -22,7 +22,7 @@ export const tiktokSpec: ChannelSpec = {
   contexts: { direct: { enabled: true, bot: true, publicReply: false } },
   text: { enabled: true, maxChars: 6000 },
   media: { image: { receive: true, send: true, maxSendBytes: 3_000_000, mimeTypes: ["image/jpeg", "image/png"] } },
-  menu: { buttons: 0, quickReplies: 0, listItems: 0, fallback: "numbered_text" },
+  menu: { buttons: 0, quickReplies: 0, listItems: 0, fallback: "numbered_text", numberedText: true },
   window: { kind: "customer", hours: 48, maxMessages: 10, after: "blocked" },
   initiation: "customer_first", templates: false, subject: false, replyTo: false, bold: "none",
 };

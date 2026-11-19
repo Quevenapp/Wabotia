@@ -4,11 +4,12 @@ import type { ChannelConnection, ChannelSpec } from "../channel-contracts";
 import { all, batch, exec, one } from "../db";
 import { emailReady, normalizeEmailDomain, type ChannelEmailTransport } from "../email";
 import { ApiError, json, requireValue, type Conversation } from "../types";
-import { sha } from "../security";
-import { configureChannelConnection } from "../channel-extension-kernel";
+import { seal, sha } from "../security";
+import { configureChannelConnection, loadChannelOperationContext } from "../channel-extension-kernel";
+import { enqueueChannelPlan } from "../engine";
 import { boundAllows, visibleConversation } from "../visibility";
 import { assertDepartmentAccess } from "../departments";
-import { emailMaintenance, normalizeEmailIngress, prepareEmailInbound, receiveEmail } from "./email-ingress";
+import { emailMaintenance, eraseEmailContact, normalizeEmailIngress, prepareEmailInbound, receiveEmail } from "./email-ingress";
 import { completeEmail, deliverEmail, emailProviderTransport, emailReplySubject, prepareEmailSend } from "./email-provider";
 import { EMAIL_MEDIA_POLICY, normalizeEmailAddress as normalizeMimeAddress } from "./email-mime";
 
@@ -30,7 +31,6 @@ export const EMAIL_SETUP_GUIDE = Object.freeze([
 export const EMAIL_PENDING_CONTRACTS = Object.freeze([
   "Campos REST de MIME, cabeçalhos, anexos e ID retornado: a conferir com a conta real.",
   "Repetição da entrega após falha do handler, MX de subdomínio e nomes do painel: a conferir com a conta real.",
-  "A outbox da base ainda não oferece recurso de teste sem conversa; o teste não envia nem ativa a conexão enquanto esse contrato estiver indisponível.",
 ]);
 export const EMAIL_STATES = Object.freeze({
   pending: "Aguardando teste de recebimento", active: "Recebimento confirmado",
@@ -132,21 +132,38 @@ async function setup(ctx: ChannelRouteContext) {
     guide: EMAIL_SETUP_GUIDE, pending_contracts: EMAIL_PENDING_CONTRACTS, identityTrust: "unverified_sender" };
 }
 
-/** Um desafio não é prova de pessoa. Sem uma operação de outbox sem conversa
- * para testes, não criar atendimento fictício nem enviar fora da fila. */
+/** O desafio fica cifrado na outbox e somente seu hash fica no registro do teste. */
 async function startProbe(ctx: ChannelRouteContext) {
   const row = await connection(ctx);
   const previous = await one<{ id: string; state: string; expires: number }>(ctx.env,
     "SELECT id,state,expires FROM email_channel_probes WHERE profile_id=? AND command_id=?", ctx.profileId, ctx.commandId);
-  if (previous) return { ...previous, code: "provider_contract_unverified", message: "Teste inconclusivo: o contrato de envio do teste pela outbox está pendente." };
+  if (previous) return previous;
   requireValue(!!await one(ctx.env, "SELECT 1 FROM email_channel_addresses WHERE connection_id=? AND profile_id=?", row.id, ctx.profileId), "Configure o endereço antes do teste.");
+  if (!await emailReady(ctx.env)) throw new ApiError(409, "email_unavailable", "Configure o envio de e-mail do Sistema antes do teste.");
+  const operation = await loadChannelOperationContext(ctx.env, ctx.actor, ctx.profileId, { kind: "connection", id: row.id }, ctx.commandId);
   const token = Array.from(crypto.getRandomValues(new Uint8Array(32)), byte => byte.toString(16).padStart(2, "0")).join("");
   const id = `email-probe:${await sha(JSON.stringify([ctx.profileId, ctx.commandId]))}`;
-  await exec(ctx.env, `INSERT INTO email_channel_probes(id,profile_id,connection_id,command_id,token_hash,expires,state,created)
-    VALUES(?,?,?,?,?,?,'failed',?) ON CONFLICT(profile_id,command_id) DO NOTHING`,
-    id, ctx.profileId, row.id, ctx.commandId, await sha(token), ctx.now + 600_000, ctx.now);
-  return { id, state: "failed", expires: ctx.now + 600_000, code: "provider_contract_unverified",
-    message: "Teste inconclusivo: o contrato de envio do teste pela outbox está pendente." };
+  const expires = ctx.now + 600_000;
+  const address = String(json(row.config).address), toHash = await sha(address);
+  const quota = await one<{ daily: number; hourly: number }>(ctx.env, `SELECT count(*) daily,coalesce(sum(to_hash=? AND created>?),0) hourly
+    FROM email_log WHERE profile_id=? AND purpose='channel.email' AND created>?`, toHash, ctx.now - 3_600_000, ctx.profileId, ctx.now - 86_400_000);
+  if ((quota?.daily ?? 0) >= 200 || (quota?.hourly ?? 0) >= 10) throw new ApiError(429, "quota_exhausted", "A cota local de e-mail foi atingida.");
+  await enqueueChannelPlan(operation, { resource: { kind: "connection", id: row.id }, operation: "email.probe", orderKey: `connection:${row.id}`,
+    deliveries: [{ key: ctx.commandId, payload: { probeId: id, challengeCipher: await seal(ctx.env, { token }), address } }],
+    statements: [[`INSERT INTO email_channel_probes(id,profile_id,connection_id,command_id,token_hash,expires,state,created)
+      VALUES(?,?,?,?,?,?,'pending',?)`, [id, ctx.profileId, row.id, ctx.commandId, await sha(token), expires, ctx.now]]],
+    reservations(deliveries) { return [
+      [`INSERT INTO customer_assert(id,ok) SELECT ?,CASE WHEN
+        (SELECT count(*) FROM email_log WHERE profile_id=? AND purpose='channel.email' AND created>?)<200 AND
+        (SELECT count(*) FROM email_log WHERE profile_id=? AND purpose='channel.email' AND to_hash=? AND created>?)<10
+        THEN 1 ELSE 0 END ON CONFLICT(id) DO UPDATE SET ok=excluded.ok`,
+      [`email-quota:${deliveries[0].id}`, ctx.profileId, ctx.now - 86_400_000, ctx.profileId, toHash, ctx.now - 3_600_000]],
+      [`INSERT INTO email_log(id,profile_id,user_id,purpose,to_masked,to_hash,status,key,created,request_hash)
+        VALUES(?,?,?,'channel.email',?,?,'reserved',?,?,?)`, [deliveries[0].id, ctx.profileId, ctx.actor.id,
+        `${address[0]}***@${address.split("@")[1]}`, toHash, `channel.email:probe:${ctx.commandId}`, ctx.now, id]],
+    ]; },
+  }, { type: "email.probe" });
+  return { id, state: "pending", expires };
 }
 
 function safeMetadata(value: string) {
@@ -264,9 +281,19 @@ export function createEmailChannel(options: { transport?: ChannelEmailTransport 
     key: "email/direct", spec: emailChannelSpec, enabled: emailEnabled,
     connectionDriver: emailConnectionDriver, account: { importable: false, serviceLine: true },
     ingress: { email: receiveEmail }, normalize: normalizeEmailIngress, prepareInbound: prepareEmailInbound,
+    eraseContact: eraseEmailContact,
     async prepareSend(ctx, action) { await transportReady(ctx, transport); return prepareEmailSend(ctx, action); },
     deliver: ctx => deliverEmail(ctx, transport), complete: completeEmail,
     maintenance: [emailMaintenance],
+    async contactStatus(ctx) {
+      if (ctx.connection.channel !== "email" || ctx.connection.status !== "active" || !emailEnabled(ctx.connection) || !await emailReady(ctx.env)) return { send_ready: false };
+      const address = normalizeEmailAddress(json(ctx.connection.config).address);
+      if (!await one(ctx.env, "SELECT 1 FROM email_channel_addresses WHERE connection_id=? AND profile_id=? AND address=? AND active=1 AND verified_at IS NOT NULL", ctx.connection.id, ctx.authorization.profileId, address)) return { send_ready: false };
+      try {
+        await transport.prepare({ from: address, to: address, subject: "Verificação local", text: "Verificação local de capacidade.", messageId: "<capability@wabotia.invalid>" });
+        return { send_ready: true };
+      } catch (error) { if (error instanceof ApiError) return { send_ready: false }; throw error; }
+    },
     async view(ctx) {
       if (ctx.connection.channel !== "email" || ctx.resource?.kind !== "conversation") return { capabilities: {}, metadata: {} };
       const context = record(json(ctx.resource.conversation.channel_context)), email = record(context.email);

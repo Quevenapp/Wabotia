@@ -362,28 +362,70 @@ export const emailMaintenance: ChannelMaintenance = {
 
 /** Explicit erasure hook for the integration's personal-data deletion workflow.
  * It includes durable pending raw data; normal media never exposes MIME blobs. */
+export async function eraseEmailContact(env: Env, profileId: string, contactId: string): Promise<void> {
+  // O vínculo cadastral não é prova do remetente. Aqui ele serve somente para
+  // aplicar o pedido humano de exclusão aos dados operacionais já vinculados.
+  const scopes = await all<{ connection_id: string; sender: string }>(env, `SELECT DISTINCT c.id connection_id,i.subject_id sender
+    FROM customer_channel_ids i JOIN connections c ON c.profile_id=i.profile_id AND c.channel='email'
+      AND json_extract(c.config,'$.address')=i.account_id
+    WHERE i.profile_id=? AND i.contact_id=? AND i.channel='email' AND i.subject_namespace='email-address'
+    UNION SELECT DISTINCT coalesce(v.connection_id,substr(v.external_namespace,9)),i.subject_id
+    FROM customer_channel_ids i JOIN conversations v ON v.profile_id=i.profile_id AND v.channel_identity_id=i.id AND v.channel='email'
+    WHERE i.profile_id=? AND i.contact_id=? AND i.channel='email' AND i.subject_namespace='email-address'`,
+  profileId, contactId, profileId, contactId);
+  for (const scope of scopes) await eraseEmailData(env, profileId, scope.connection_id, scope.sender);
+}
 export async function eraseEmailData(env: Env, profileId: string, connectionId: string, sender: string): Promise<void> {
   const address = normalizeEmailAddress(sender);
   const senderHash = await sha(address);
   const conversations = await all<{ id: string }>(env, `SELECT id FROM conversations WHERE profile_id=?
-    AND connection_id=? AND channel='email' AND channel_subject_id=?`, profileId, connectionId, address);
+    AND (connection_id=? OR external_namespace=?) AND channel='email' AND channel_subject_id=?`, profileId, connectionId, `channel:${connectionId}`, address);
+  const conversationIds = JSON.stringify(conversations.map(conversation => conversation.id));
+  const referencedMedia = await all<{ id: string; object_key: string }>(env, `SELECT DISTINCT m.id,m.object_key FROM media m WHERE m.profile_id=? AND m.id IN (
+    SELECT a.value FROM messages v,json_each(v.attachments) a WHERE v.profile_id=? AND v.conversation_id IN (SELECT value FROM json_each(?))
+    UNION SELECT json_extract(a.value,'$.mediaId') FROM outbox o,json_each(o.payload,'$.c2.delivery.attachments') a
+      WHERE o.profile_id=? AND o.conversation_id IN (SELECT value FROM json_each(?)))`,
+  profileId, profileId, conversationIds, profileId, conversationIds);
+  // Anexos enviados também são dados pessoais. Uma cópia usada fora deste
+  // atendimento conserva a própria política de retenção, sem apagar outro recurso.
+  const retainedMedia = new Set<string>(), retainedKeys = new Set<string>();
+  const exclusiveMedia = new Set<string>();
+  const eraseOwnedMedia = async (media: { id: string; object_key: string }) => {
+    if (retainedMedia.has(media.id) || exclusiveMedia.has(media.id)) return;
+    const shared = await one(env, `SELECT 1 FROM messages v,json_each(v.attachments) a
+      WHERE v.profile_id=? AND v.conversation_id NOT IN (SELECT value FROM json_each(?)) AND a.value=?
+      UNION ALL SELECT 1 FROM outbox o,json_each(o.payload,'$.c2.delivery.attachments') a
+      WHERE o.profile_id=? AND (o.conversation_id IS NULL OR o.conversation_id NOT IN (SELECT value FROM json_each(?)))
+        AND json_extract(a.value,'$.mediaId')=?
+      UNION ALL SELECT 1 FROM outbox o WHERE o.profile_id=?
+        AND (o.conversation_id IS NULL OR o.conversation_id NOT IN (SELECT value FROM json_each(?)))
+        AND (json_extract(o.payload,'$.media_id')=? OR EXISTS(SELECT 1 FROM json_each(o.payload,'$.attachments') a
+          WHERE CASE WHEN a.type='object' THEN json_extract(a.value,'$.mediaId') ELSE a.value END=?)) LIMIT 1`,
+      profileId, conversationIds, media.id, profileId, conversationIds, media.id, profileId, conversationIds, media.id, media.id);
+    if (shared) { retainedMedia.add(media.id); retainedKeys.add(media.object_key); }
+    else {
+      await env.MEDIA.delete(media.object_key); await exec(env, "DELETE FROM media WHERE id=? AND profile_id=?", media.id, profileId);
+      exclusiveMedia.add(media.id);
+    }
+  };
+  for (const media of referencedMedia) await eraseOwnedMedia(media);
   const rows = await all<EmailInboxRow>(env, "SELECT * FROM email_channel_inbox WHERE profile_id=? AND connection_id=? AND sender=?", profileId, connectionId, address);
   for (const row of rows) {
     if (row.raw_key) await env.MEDIA.delete(row.raw_key);
     const media = await all<{ id: string; object_key: string }>(env,
       "SELECT id,object_key FROM media WHERE profile_id=? AND object_key LIKE ?", profileId, `email-attachment/${profileId}/${row.id}/%`);
-    for (const item of media) await env.MEDIA.delete(item.object_key);
+    for (const item of media) await eraseOwnedMedia(item);
     let orphanCursor: string | undefined;
     do {
       const page = await env.MEDIA.list({ prefix: `email-attachment/${profileId}/${row.id}/`, limit: 100, cursor: orphanCursor });
-      for (const item of page.objects) await env.MEDIA.delete(item.key);
+      for (const item of page.objects) if (!retainedKeys.has(item.key)) await env.MEDIA.delete(item.key);
       orphanCursor = page.truncated ? page.cursor : undefined;
     } while (orphanCursor);
     await batch(env, [
       ["DELETE FROM email_channel_inbox WHERE id=? AND profile_id=?", [row.id, profileId]],
       ["DELETE FROM inbox WHERE id=? AND profile_id=?", [row.id, profileId]],
       ["UPDATE messages SET text='',attachments='[]',content='{}',author='customer:erased',external_id=NULL WHERE id=? AND profile_id=?", [row.message_id, profileId]],
-      ...media.map(item => ["DELETE FROM media WHERE id=? AND profile_id=?", [item.id, profileId]] as Statement),
+      ...media.filter(item => !retainedMedia.has(item.id)).map(item => ["DELETE FROM media WHERE id=? AND profile_id=?", [item.id, profileId]] as Statement),
     ]);
   }
   // Include raw objects whose D1 registration failed. Only the hash is kept in
@@ -403,6 +445,7 @@ export async function eraseEmailData(env: Env, profileId: string, connectionId: 
     [`UPDATE outbox SET payload='{}',completion_handled=1,status=CASE WHEN status='pending' THEN 'cancelled' WHEN status='sending' THEN 'unknown' ELSE status END
       WHERE conversation_id=? AND profile_id=? AND kind='channel'`, [conversation.id, profileId]],
     ["UPDATE email_log SET to_masked='',to_hash='',provider_message_id=NULL WHERE conversation_id=? AND profile_id=? AND purpose LIKE 'channel.email%'", [conversation.id, profileId]],
+    ["UPDATE channel_delivery_state SET result_context='{}' WHERE profile_id=? AND resource_key=?", [profileId, `conversation:${conversation.id}`]],
     ["UPDATE events SET payload='{}' WHERE profile_id=? AND (resource_id=? OR resource_id IN (SELECT id FROM messages WHERE conversation_id=? AND profile_id=?))",
       [profileId, conversation.id, conversation.id, profileId]],
   ]);

@@ -218,15 +218,19 @@ describe("c2-email: caixas, bloqueios e teste de recebimento", () => {
     expect(stored).not.toContain(token); expect(stored).not.toContain("b".repeat(64));
   }, 60_000);
 
-  it("endpoint de teste informa a lacuna da outbox sem enviar ou ativar silenciosamente", async () => {
+  it("endpoint de teste reserva a outbox sem conversa, sem enviar ou ativar silenciosamente", async () => {
     const f = await fixture(false), key = uid();
+    await setSecret(env, "email:config", { account_id: "a".repeat(32), token: "email-probe-synthetic", from_address: f.address });
     const first = await route(f, "POST", `/connections/${f.line}/email-test`, {}, key);
     expect(first.status).toBe(200);
-    const result = await first.json(); expect(result).toMatchObject({ state: "failed", code: "provider_contract_unverified" });
+    const result = await first.json(); expect(result).toMatchObject({ state: "pending", expires: now() + 600_000 });
     expect(await (await route(f, "POST", `/connections/${f.line}/email-test`, {}, key)).json()).toEqual(result);
     expect(await all(env, "SELECT id FROM email_channel_probes WHERE profile_id=?", f.profile)).toHaveLength(1);
     expect(await one(env, "SELECT active FROM email_channel_addresses WHERE connection_id=?", f.line)).toEqual({ active: 0 });
-    expect(await all(env, "SELECT id FROM outbox WHERE profile_id=?", f.profile)).toEqual([]);
+    expect(await all(env, "SELECT conversation_id,kind,status FROM outbox WHERE profile_id=?", f.profile))
+      .toEqual([{ conversation_id: null, kind: "channel", status: "pending" }]);
+    for (const table of ["contacts", "conversations", "messages", "bot_runs"])
+      expect(await all(env, `SELECT id FROM ${table} WHERE profile_id=?`, f.profile), table).toEqual([]);
   }, 60_000);
 
   it("endereço é exclusivo; mudança com histórico exige nova conexão e bot nasce desligado", async () => {

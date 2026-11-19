@@ -118,13 +118,13 @@ export async function loadChannelDeliveryContext(env: Env, row: ChannelOutboxRow
   } else {
     // Efeito remoto confirmado precisa concluir mesmo após revogação ou remoção.
     // Este caminho não reenvia e não lê credencial.
-    const resource = envelope.resource.kind === "review"
+    const resource = envelope.resource.kind === "connection" ? null : envelope.resource.kind === "review"
       ? await one<ChannelReview>(env, "SELECT * FROM reviews WHERE id=? AND profile_id=?", envelope.resource.id, row.profile_id)
       : await one<Conversation>(env, "SELECT * FROM conversations WHERE id=? AND profile_id=?", envelope.resource.id, row.profile_id);
     const historicalConversation = envelope.resource.kind === "conversation" && resource &&
       resource.connection_id === null && (resource as Conversation).external_namespace === `channel:${row.connection_id}` &&
       (resource as Conversation).channel === channelExtension(envelope.key).spec.id;
-    if (!resource || (resource.connection_id !== row.connection_id && !historicalConversation))
+    if (envelope.resource.kind !== "connection" && (!resource || (resource.connection_id !== row.connection_id && !historicalConversation)))
       throw new ApiError(409, "inbox_required", "O recurso da conclusão mudou.");
     const extension = channelExtension(envelope.key);
     const connection = await one<ExtensionConnection>(env, "SELECT * FROM connections WHERE id=? AND profile_id=?", row.connection_id, row.profile_id) ?? {
@@ -132,18 +132,18 @@ export async function loadChannelDeliveryContext(env: Env, row: ChannelOutboxRow
       name: "", mode: "", config: "{}", status: "removed", created: 0,
     };
     operation = { env, connection, now: now(), commandId: row.dedupe, authorization: envelope.authorization,
-      resource: envelope.resource.kind === "review" ? { ...envelope.resource, review: resource as ChannelReview }
+      resource: envelope.resource.kind === "connection" ? envelope.resource : envelope.resource.kind === "review" ? { ...envelope.resource, review: resource as ChannelReview }
         : { ...envelope.resource, conversation: resource as Conversation } };
   }
   if (!operation.resource || operation.connection.id !== row.connection_id || operation.connection.profile_id !== row.profile_id ||
       (envelope.resource.kind === "conversation" ? row.conversation_id !== envelope.resource.id : row.conversation_id !== null))
     throw new ApiError(409, "inbox_required", "O recurso da entrega mudou.");
   const resource = operation.resource;
-  const contextKey = resource.kind === "review" ? "review" : resource.conversation.chat_type === "comment" ? "comment" : json(resource.conversation.channel_context).context || "direct";
+  const contextKey = resource.kind === "connection" ? "direct" : resource.kind === "review" ? "review" : resource.conversation.chat_type === "comment" ? "comment" : json(resource.conversation.channel_context).context || "direct";
   if (extensionKey(operation.connection.channel, contextKey) !== envelope.key)
     throw new ApiError(409, "inbox_required", "O canal da entrega mudou.");
   if (reauthorize) {
-    if (operation.connection.status !== "active" || (resource.kind === "conversation" && resource.conversation.epoch !== row.epoch))
+    if ((resource.kind !== "connection" && operation.connection.status !== "active") || (resource.kind === "conversation" && resource.conversation.epoch !== row.epoch))
       throw new ApiError(410, "message_expired", "A conversa ou a conexão mudou antes do envio.");
     await authorizeChannelAction(operation, envelope.action);
   }

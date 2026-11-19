@@ -325,7 +325,7 @@ export async function enqueueChannelPlan(ctx: ChannelOperationContext, plan: Cha
   if (!ctx.resource || ctx.resource.kind !== plan.resource.kind || ctx.resource.id !== plan.resource.id || !ctx.commandId)
     throw new ApiError(409, "inbox_required", "O recurso precisa ser carregado antes de enviar.");
   await authorizeChannelAction(ctx, action);
-  const context = ctx.resource.kind === "review" ? "review" : channelContext(ctx.resource.conversation);
+  const context = ctx.resource.kind === "connection" ? "direct" : ctx.resource.kind === "review" ? "review" : channelContext(ctx.resource.conversation);
   const key = extensionKey(ctx.connection.channel, context);
   if (!key) throw new ApiError(503, "channel_not_ready", "Canal indisponível.");
   const resourceKey = `${plan.resource.kind}:${plan.resource.id}`;
@@ -351,9 +351,10 @@ export async function enqueueChannelPlan(ctx: ChannelOperationContext, plan: Cha
   const time = now(), profile = ctx.authorization.profileId;
   const statements: Statement[] = [[
     `INSERT INTO customer_assert(id,ok) SELECT ?,CASE WHEN NOT EXISTS(SELECT 1 FROM outbox WHERE dedupe=?)
-      AND EXISTS(SELECT 1 FROM connections WHERE id=? AND profile_id=? AND channel=? AND status='active')
+      AND EXISTS(SELECT 1 FROM connections WHERE id=? AND profile_id=? AND channel=? AND (status='active' OR (?=1 AND status='paused'))
+        AND coalesce(json_extract(config,'$.remove_pending'),0)=0)
       THEN 1 ELSE 0 END ON CONFLICT(id) DO UPDATE SET ok=excluded.ok`,
-    [prefix, dedupe, ctx.connection.id, profile, ctx.connection.channel],
+    [prefix, dedupe, ctx.connection.id, profile, ctx.connection.channel, plan.resource.kind === "connection" ? 1 : 0],
   ]];
   const ids: string[] = [];
   plan.deliveries.forEach((delivery, index) => {
@@ -386,6 +387,15 @@ export async function enqueueChannelPlan(ctx: ChannelOperationContext, plan: Cha
     if (committed?.request_hash === requestHash) {
       await wakeChannelDelivery(ctx.env, profile);
       return committed.id;
+    }
+    // O CHECK da reserva é atômico; só converte uma disputa de quota comprovada.
+    if (key === "tiktok/direct" && ctx.resource.kind === "conversation" && error instanceof Error && /CHECK constraint failed/i.test(error.message)) {
+      const quota = await one<{ used: number }>(ctx.env, `SELECT count(*) used FROM tiktok_send_slots
+        WHERE profile_id=? AND connection_id=? AND conversation_id=?
+          AND (state='reserved' OR (state IN ('attempted','sent','unknown','external') AND counted_at>?))`,
+      profile, ctx.connection.id, ctx.resource.id, now() - 48 * 60 * 60 * 1000);
+      if ((quota?.used ?? 0) + plan.deliveries.length > 10)
+        throw new ApiError(409, "quota_exhausted", "A cota de dez mensagens do TikTok foi atingida. Aguarde para enviar novamente.");
     }
     throw error;
   }

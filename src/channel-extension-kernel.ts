@@ -68,6 +68,17 @@ export async function loadChannelOperationContext(env: Env, original: Actor, pro
   requireValue(identifier(commandId), "Informe a chave idempotente.");
   const actor = origin === "human" ? await currentActor(env, original) : original;
   if (origin === "human" && (actor.kind !== "user" || actor.via)) throw new ApiError(403, "human_only", "Esta ação exige uma pessoa autenticada.");
+  // O teste de recebimento pertence à conexão, ainda pendente, e não cria conversa.
+  if (resource.kind === "connection") {
+    if (origin !== "human") throw new ApiError(403, "human_only", "O teste exige uma pessoa administradora.");
+    access(actor, profileId, "routing:read"); admin(actor);
+    const connection = await one<ExtensionConnection>(env, "SELECT * FROM connections WHERE id=? AND profile_id=? AND kind='email' AND channel='email'", resource.id, profileId);
+    if (!connection) missing();
+    if (!["active", "paused"].includes(connection.status) || json(connection.config).remove_pending ||
+        !channelExtensionReady("email/direct") || !channelExtension("email/direct").enabled?.(connection)) channelNotReady();
+    if (!await one(env, "SELECT 1 FROM email_channel_addresses WHERE connection_id=? AND profile_id=? AND address=?", connection.id, profileId, json(connection.config).address ?? "")) missing();
+    return { env, connection, resource, authorization: { actor, profileId, origin, permissions: ["routing:read"] }, now: now(), commandId };
+  }
   if (origin === "human") access(actor, profileId, resource.kind === "review" ? "reports:read" : "conversations:write");
   let loaded: LoadedChannelResource;
   let connectionId: string | null;
@@ -137,6 +148,13 @@ export function parseChannelAction(input: unknown): ChannelAction {
   throw new ApiError(400, "invalid_channel_action", "Ação de canal inválida.");
 }
 export function parseServerChannelAction(ctx: ChannelOperationContext, input: unknown): ServerChannelAction {
+  if (object(input) && input.type === "email.probe") {
+    if (ctx.resource?.kind !== "connection" || ctx.resource.id !== ctx.connection.id || ctx.connection.channel !== "email" ||
+        ctx.authorization.origin !== "human" || ctx.authorization.actor.kind !== "user" || ctx.authorization.actor.via)
+      throw new ApiError(403, "human_only", "Esta operação é interna ao teste de recebimento.");
+    admin(ctx.authorization.actor);
+    return { type: "email.probe" };
+  }
   if (!object(input) || !["email.auto-reply", "email.acknowledgement"].includes(String(input.type))) return parseChannelAction(input);
   const ack = input.type === "email.acknowledgement";
   if (ctx.authorization.origin !== "bot" || ctx.connection.channel !== "email" ||
@@ -157,7 +175,7 @@ export async function authorizeChannelAction(ctx: ChannelOperationContext, input
     throw new ApiError(403, "human_only", "Publicação exige uma pessoa autenticada.");
   const compatible = key.endsWith("/comment") ? action.type.startsWith("comment.")
     : key === "googlebusiness/review" ? action.type.startsWith("google.")
-    : key === "email/direct" ? action.type === "email.send" || action.type === "email.auto-reply" || action.type === "email.acknowledgement"
+    : key === "email/direct" ? action.type === "email.send" || action.type === "email.auto-reply" || action.type === "email.acknowledgement" || action.type === "email.probe"
     : action.type === "message.send" || (key === "telegram/direct" && action.type === "telegram.request-contact");
   requireValue(compatible, "Esta ação não pertence ao contexto do canal.");
   if ("commentId" in action) {
@@ -246,6 +264,10 @@ export async function validateChannelWritePlan(ctx: ChannelOperationContext, pla
   requireValue(plan.statements.length <= 500, "Lote de canal grande demais.");
   if (ctx.resource && plan.resource && (ctx.resource.kind !== plan.resource.kind || ctx.resource.id !== plan.resource.id)) missing();
   if (plan.conversationId && plan.resource && (plan.resource.kind !== "conversation" || plan.resource.id !== plan.conversationId)) missing();
+  if (ctx.resource?.kind === "connection") {
+    await loadChannelOperationContext(ctx.env, ctx.authorization.actor, ctx.authorization.profileId, ctx.resource, ctx.commandId);
+    return;
+  }
   const connection = await one(ctx.env, "SELECT 1 FROM connections WHERE id=? AND profile_id=? AND channel=? AND status='active'", ctx.connection.id, ctx.authorization.profileId, ctx.connection.channel);
   if (!connection) channelNotReady();
   const resource = plan.resource ?? (plan.conversationId ? { kind: "conversation" as const, id: plan.conversationId } : null);

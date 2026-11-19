@@ -3,6 +3,10 @@
  * do fornecedor é simulada; nenhuma captura de cliente ou credencial real. */
 import { createExecutionContext, env, runInDurableObject, waitOnExecutionContext } from "cloudflare:test";
 import { expect, vi } from "vitest";
+// Estes ensaios instalam descritores (inclusive sintéticos) explicitamente.
+// Isolamos apenas a instalação automática; Worker, Coordinator e registro
+// continuam reais. c2-entry.test.ts não usa este helper e testa o main completo.
+vi.mock("../src/c2-entry/install", () => ({}));
 import Worker from "../src/index";
 import { all, exec } from "../src/db";
 import { hmac, setSecret, sha } from "../src/security";

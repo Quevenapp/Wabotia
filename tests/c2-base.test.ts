@@ -120,11 +120,14 @@ describe("c2-base: ações de canal na ficha independente", () => {
       enabled: connection => JSON.parse(String(connection.config)).c2_enabled === true });
     const active = await request();
     expect(active.status, await active.clone().text()).toBe(200);
-    const result = await active.json();
+    const result = await active.json() as { channel_extensions: string[]; channel_status: {
+      connected_channels: string[]; can_reply: boolean; connections: unknown[];
+    } };
     expect(result.channel_extensions).toEqual(["email/direct"]);
     expect(result.channel_status.connected_channels).toEqual(["email"]);
+    expect(result.channel_status.can_reply).toBe(true);
     expect(result.channel_status.connections).toEqual([{ id: f.line, name: f.line, kind: "email", channel: "email",
-      status: "active", account_label: "Conta sintética" }]);
+      status: "active", account_label: "Conta sintética", can_reply: true, send_ready: false }]);
     expect(JSON.stringify(result.channel_status)).not.toContain("config");
     await exec(env, "UPDATE connections SET status='paused' WHERE id=?", f.line);
     const paused = await request();

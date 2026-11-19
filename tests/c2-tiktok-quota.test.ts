@@ -190,6 +190,8 @@ describe("c2-tiktok: janela e reserva persistente", { timeout: 30_000 }, () => {
     const results = await Promise.allSettled([enqueueChannelPlan(human, plans[0], action), enqueueChannelPlan(bot, plans[1], action)]);
     expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
     expect(results.filter(result => result.status === "rejected")).toHaveLength(1);
+    expect((results.find(result => result.status === "rejected") as PromiseRejectedResult).reason)
+      .toMatchObject({ status: 409, code: "quota_exhausted" });
     expect(await slots(f)).toHaveLength(10);
     expect(await all(env, "SELECT id FROM outbox WHERE profile_id=?", f.profile)).toHaveLength(1);
     expect(await all(env, "PRAGMA foreign_key_check")).toEqual([]);

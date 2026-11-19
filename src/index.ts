@@ -33,6 +33,7 @@ import {
 } from "./team";
 import { MAX_DEVICES_PER_USER } from "./mobile-limits";
 import { report } from "./reports";
+import "./c2-entry/install";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import {
@@ -2432,10 +2433,25 @@ for (const [path, kind] of [
         extension.spec.id === connection.channel && extension.enabled?.(connection)));
       const keys = extensions.filter(extension => active.some(connection =>
         extension.spec.id === connection.channel && extension.enabled?.(connection))).map(extension => extension.key);
-      if (keys.length) return c.json({ ...result, channel_extensions: keys, channel_status: {
-        channel_extensions: keys, connected_channels: [...new Set(active.map(connection => connection.channel))],
-        connections: active.map(({ id, name, kind, channel, status, account_label }) => ({ id, name, kind, channel, status, account_label })),
-      } });
+      if (keys.length) {
+        const canReply = actor.kind === "user" && !actor.via;
+        const connections = await Promise.all(active.map(async connection => {
+          const descriptors = extensions.filter(extension => extension.spec.id === connection.channel && extension.enabled?.(connection));
+          let sendReady = false;
+          for (const descriptor of descriptors) if (canReply && descriptor.contactStatus) {
+            const status = await descriptor.contactStatus({ env: c.env, connection, resource: null,
+              authorization: { actor, profileId: profile, origin: "human", permissions: ["contacts:read", "conversations:write"] },
+              now: now(), commandId: "" });
+            sendReady ||= status.send_ready === true;
+          }
+          const { id, name, kind, channel, status, account_label } = connection;
+          return { id, name, kind, channel, status, account_label, can_reply: canReply, send_ready: sendReady };
+        }));
+        return c.json({ ...result, channel_extensions: keys, channel_status: {
+          channel_extensions: keys, connected_channels: [...new Set(active.map(connection => connection.channel))],
+          can_reply: canReply, connections,
+        } });
+      }
     }
   }
   return c.json(result);
@@ -2615,6 +2631,17 @@ app.get("/api/v1/profiles/:profile/conversations/:id", async (c) => {
   const contact = await conversationContact(c.env, actor, p, conv.id);
   const related = contact && actor.kind === "user" && !actor.via && allows(actor, "contacts")
     ? await channelIdentityPort.readChannels(c.env, actor, p, contact.id) : null;
+  const messages = await all(c.env,
+    "SELECT * FROM messages WHERE conversation_id=? AND (?=1 OR direction!='note') ORDER BY created,id",
+    conv.id, notes ? 1 : 0);
+  const comments = extensionView?.metadata.comments;
+  if (comments?.length) {
+    const byId = new Map(comments.map(comment => [comment.id, comment]));
+    for (const message of messages) if (message.direction === "customer") {
+      const content = json(message.content), comment = byId.get(content.comment?.id);
+      if (comment) message.content = JSON.stringify({ ...content, comment });
+    }
+  }
   return c.json({
     conversation: conv,
     channel: view.channel,
@@ -2640,12 +2667,7 @@ app.get("/api/v1/profiles/:profile/conversations/:id", async (c) => {
           )
         : null,
     contact,
-    messages: await all(
-      c.env,
-      "SELECT * FROM messages WHERE conversation_id=? AND (?=1 OR direction!='note') ORDER BY created,id",
-      conv.id,
-      notes ? 1 : 0,
-    ),
+    messages,
     deliveries: await all(
       c.env,
       "SELECT id,status,error,created FROM outbox WHERE conversation_id=? ORDER BY created",

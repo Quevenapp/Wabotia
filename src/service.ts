@@ -2850,7 +2850,7 @@ export async function perform(
       ["active", "paused"].includes(data.status),
       "Estado inválido.",
     );
-    const activatesExtension = !!extensionKey(row.channel) || registeredChannelExtensions().some(extension =>
+    const activatesExtension = !!extensionKey(row.channel, row.channel === "googlebusiness" ? "review" : "direct") || registeredChannelExtensions().some(extension =>
       extension.spec.id === row.channel && extension.key.endsWith("/comment") && extension.enabled?.({ ...row, status: "active" }));
     if (data.status === "active" && activatesExtension && row.channel && channelConnectionDriver(row.channel)) {
       const result = await configureChannelConnection(env, actor, profile, {
