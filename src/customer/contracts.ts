@@ -69,6 +69,9 @@ export interface CustomerJobView {
   state: JobState;
   errorCode: string | null;
   missingFields: readonly string[];
+  reason?: string | null;
+  updated?: number;
+  progress?: { processed: number; imported: number; skipped: number; total: number };
 }
 
 export interface InboundEvidence {
@@ -201,6 +204,9 @@ export interface BridgeCommand {
   erpId: string | null;
   expectedErpVersion: number | null;
   patch: CustomerPatch;
+  /** Versão do espelho usado na comparação de três versões; não é o CAS remoto. */
+  baseErpVersion?: number | null;
+  expectedVersion?: number;
 }
 
 export type BridgeResult =

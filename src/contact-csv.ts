@@ -54,6 +54,12 @@ export function contactValues(data: any, options: { phoneOnly?: boolean; phoneMo
   };
 }
 
+/** A edição simples valida só o que veio, sem reinterpretar o espelho ERP. */
+export function contactChanges(data: any, automatic = false, currentPhone = ""): Partial<ContactValues> {
+  const values = contactValues({ name: "Contato", ...(automatic ? { phone: currentPhone } : {}), ...data }, { phoneOnly: automatic });
+  return Object.fromEntries(Object.entries(values).filter(([key]) => key in data));
+}
+
 // RFC 4180 quoting, with the semicolon dialect commonly saved by Brazilian Excel.
 function records(csv: string, delimiter: string) {
   const rows: { line: number; cells: string[] }[] = [];

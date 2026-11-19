@@ -18,10 +18,13 @@ export async function validateCustomerSelfActor(env: Env, actor: Actor, profile:
        AND NOT EXISTS(SELECT 1 FROM saude_contact_links s WHERE s.profile_id=k.profile_id AND s.contact_id=k.id AND s.relation='self')`, profile, actor.id, contactId))
     throw new ApiError(403, "forbidden", "Confirmação cadastral não pertence à sessão autenticada.");
 }
-export function customerAccess(actor: Actor, profile: string, write = false) {
+export function customerAccess(actor: Actor, profile: string, write = false, resource = "contacts") {
   try {
     access(actor, profile, write ? "contacts:write" : "contacts:read");
-    requireAccess(actor, "contacts");
+    // Este portão só abre o recurso indicado. O chamador ainda autoriza o
+    // registro no domínio; nunca usar a exceção para lista ou notas locais.
+    if (resource !== "contacts") human(actor);
+    requireAccess(actor, resource);
   } catch (error) {
     if (error instanceof ApiError && error.status === 403) throw new ApiError(403, "forbidden", "Acesso ao cadastro não permitido.");
     throw error;
@@ -107,14 +110,18 @@ export function mirrorOf(row: any): CustomerMirror {
     document: row.document ?? null, personType: row.person_type ?? null };
 }
 export function cleanMirror(value: CustomerMirror): CustomerMirror {
-  const patch = validatePatch({ name: value.name, phones: value.phones, email: value.email, document: value.document, personType: value.personType });
+  const patch = validatePatch({ name: value.name, phones: value.phones, document: value.document, personType: value.personType });
+  const email = text(value.email, 254);
+  if (email && email.split(/[;,]/).some(part => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(part.trim()))) return invalid();
+  // O espelho conserva a representação do ERP, inclusive todos os e-mails.
+  patch.email = value.email;
   if (!patch.name && !patch.phones?.length) return invalid();
   return patch as CustomerMirror;
 }
 export const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 const empty = (value: unknown) => value == null || value === "" || (Array.isArray(value) && !value.length);
 /** Só campos declarados; endereço fica exclusivamente na intenção cifrada. */
-export function mergePatch(base: CustomerMirror, patch: CustomerPatch, mode: CustomerWrite["mode"]) {
+export function mergePatch(base: CustomerMirror, patch: CustomerPatch, mode: CustomerWrite["mode"], automatic = true) {
   const merged = { ...base }, conflicts: string[] = [];
   for (const key of ["name", "phones", "email", "document", "personType"] as const) {
     if (!(key in patch)) continue;
@@ -122,6 +129,7 @@ export function mergePatch(base: CustomerMirror, patch: CustomerPatch, mode: Cus
     else Object.assign(merged, { [key]: patch[key] });
   }
   if (!merged.name && !merged.phones.length) invalid();
+  if (!automatic && !merged.name.trim()) invalid();
   return { mirror: merged, conflicts };
 }
 /** Comparação de três versões, sem considerar observações locais como dado ERP. */

@@ -1,19 +1,21 @@
 import { all, batch, exec, one } from "../db";
 import { searchText } from "../contact-csv";
 import { canonical, seal, unseal } from "../security";
-import { ApiError, now, uid, type Env } from "../types";
+import { ApiError, now, uid, type Actor, type Env } from "../types";
 import type { BridgeSnapshot, CustomerMirror, MaintenanceBudget, MaintenanceResult, Statement } from "./contracts";
 import { isFullCustomerEnabled } from "./feature";
 import { erpBridge, identityPort } from "./ports";
+import { cleanMirror, phoneSafetyStatements } from "./local";
+import { auditStatement } from "../events";
 
 export interface BridgeContact {
   id: string; profile_id: string; namespace: string; name: string; phone: string; email: string;
-  document: string | null; person_type: "F" | "J" | "E" | null; company: string; version: number;
+  document: string | null; person_type: "F" | "J" | "E" | null; company: string; notes: string; version: number;
   erp_contact_id: string | null; erp_version: number | null; mirror_json: string | null;
   local_patch_cipher: string | null; identity_state: string;
 }
 export interface BridgeJob {
-  id: string; profile_id: string; namespace: string; contact_id: string; command_id: string;
+  id: string; profile_id: string; namespace: string; contact_id: string | null; command_id: string;
   request_hash: string; state: string; cursor_json: string; created: number;
   payload_cipher?: string | null;
 }
@@ -53,10 +55,12 @@ export async function mirrorStatements(
   const owner = await one<{ id: string }>(env,
     "SELECT id FROM contacts WHERE profile_id=? AND erp_contact_id=? AND id<>?", contact.profile_id, snapshot.erpId, contact.id);
   if (owner) throw bridgeConflict("namespace_conflict");
-  const mirror = snapshot.mirror;
-  const local = job?.payload_cipher ? (await unseal(env, job.payload_cipher)).local : null;
+  const mirror = cleanMirror(snapshot.mirror);
+  const intent = job?.payload_cipher ? await unseal(env, job.payload_cipher) : null;
+  const local = intent?.localVersion ? null : intent?.local;
   const changed = contact.erp_contact_id !== snapshot.erpId || contact.erp_version !== snapshot.erpVersion ||
-    contact.mirror_json !== JSON.stringify(mirror) || !!contact.local_patch_cipher;
+    contact.mirror_json !== JSON.stringify(mirror) || !!contact.local_patch_cipher ||
+    (local?.company !== undefined && local.company !== contact.company) || (local?.notes !== undefined && local.notes !== contact.notes);
   if (!changed && !job) return [];
   const indexed = changed ? await identityPort.indexContact(env, {
     profileId: contact.profile_id, namespace: "team", contactId: contact.id, phones: mirror.phones, origin: "mirror",
@@ -74,16 +78,22 @@ export async function mirrorStatements(
   ], guard(`${key}:contact`), ...indexed];
   if (local) statements.push([
     "UPDATE contacts SET company=?,notes=? WHERE profile_id=? AND id=?",
-    [local.company, local.notes, contact.profile_id, contact.id],
+    [local.company ?? contact.company, local.notes ?? contact.notes, contact.profile_id, contact.id],
   ]);
   if (job) {
     const cursor = JSON.parse(job.cursor_json);
     // Endereço e corpo entregues deixam a intenção; fica só o fingerprint do recibo.
-    cursor.customerErp = { fingerprint: cursor.customerErp.fingerprint, done: true };
+    cursor.customerErp = { fingerprint: cursor.customerErp.fingerprint, rpcCommandId: cursor.customerErp.rpcCommandId, done: true };
+    delete cursor.missingFields;
+    delete cursor.localApplied;
+    cursor.compacted = 1;
     statements.push([
-      "UPDATE customer_jobs SET state='done',cursor_json=?,result_cipher=?,payload_cipher=NULL,error_code=NULL,lease_until=NULL,updated=? WHERE profile_id=? AND id=? AND cursor_json=? AND state NOT IN ('cancelled','retained')",
-      [JSON.stringify(cursor), await seal(env, { status: "applied", snapshot, contactId: contact.id, version: contact.version + (changed ? 1 : 0) }), now(), job.profile_id, job.id, job.cursor_json],
+      "UPDATE customer_jobs SET state='done',cursor_json=?,result_cipher=?,payload_cipher=NULL,error_code=NULL,lease_until=NULL,updated=max(updated+1,?) WHERE profile_id=? AND id=? AND cursor_json=? AND state NOT IN ('cancelled','retained')",
+      [JSON.stringify(cursor), await seal(env, { contactId: contact.id, version: contact.version + (changed ? 1 : 0) }), now(), job.profile_id, job.id, job.cursor_json],
     ], guard(`${key}:job`), ["DELETE FROM customer_assert WHERE id=?", [`${key}:job`]]);
+    const { finishOfflineJobs } = await import("./jobs");
+    statements.push(...await finishOfflineJobs(env, contact, job.id, contact.version + (changed ? 1 : 0)));
+    if (intent?.actor) statements.push(auditStatement(intent.actor, contact.profile_id, "contact.sync", contact.id, job.command_id));
   }
   statements.push(["DELETE FROM customer_assert WHERE id=?", [`${key}:contact`]]);
   return statements;
@@ -99,12 +109,38 @@ export async function confirmBridgeSnapshot(
   return true;
 }
 
+/** Associação por leitura autorizada: espelho novo, vínculo e recibo juntos. */
+export async function confirmBridgeBinding(env: Env, id: string, snapshot: BridgeSnapshot, job: BridgeJob, actor: Actor) {
+  const mirror = cleanMirror(snapshot.mirror);
+  const existing = await one<BridgeContact>(env, "SELECT * FROM contacts WHERE profile_id=? AND erp_contact_id=?", job.profile_id, snapshot.erpId);
+  if (existing && (existing.namespace !== "team" || existing.identity_state !== "active")) throw bridgeConflict("namespace_conflict");
+  const contactId = existing?.id ?? id, version = existing?.version ?? 1, time = now();
+  const cursor = JSON.parse(job.cursor_json);
+  cursor.customerErp = { fingerprint: cursor.customerErp.fingerprint, rpcCommandId: cursor.customerErp.rpcCommandId, done: true };
+  cursor.compacted = 1;
+  const statements: Statement[] = existing ? [] : [...phoneSafetyStatements(job.profile_id, "team", mirror.phones, job.command_id), [
+    `INSERT INTO contacts(id,profile_id,namespace,name,phone,email,document,person_type,erp_contact_id,erp_version,mirror_json,search_text,source,created_by,updated_by,created,updated)
+      VALUES(?,?,'team',?,?,?,?,?,?,?,?,?,'erp',?,?,?,?)`,
+    [id, job.profile_id, mirror.name, mirror.phones[0] ?? "", mirror.email, mirror.document, mirror.personType, snapshot.erpId, snapshot.erpVersion,
+      JSON.stringify(mirror), searchText([mirror.name, ...mirror.phones, mirror.email].join(" ")), actor.id, actor.id, time, time],
+  ], ...await identityPort.indexContact(env, { profileId: job.profile_id, namespace: "team", contactId: id, phones: mirror.phones, origin: "mirror" })];
+  statements.push([
+    `UPDATE customer_jobs SET contact_id=?,state='done',payload_cipher=NULL,result_cipher=?,cursor_json=?,error_code=NULL,lease_until=NULL,updated=max(updated+1,?)
+      WHERE profile_id=? AND id=? AND cursor_json=? AND state NOT IN ('done','retained','cancelled')
+        AND EXISTS(SELECT 1 FROM contacts WHERE profile_id=? AND id=? AND version=? AND identity_state='active' AND namespace='team')`,
+    [contactId, await seal(env, { contactId, version }), JSON.stringify(cursor), time, job.profile_id, job.id, job.cursor_json, job.profile_id, contactId, version],
+  ], guard(`bind:${job.id}`), ["DELETE FROM customer_assert WHERE id=?", [`bind:${job.id}`]], auditStatement(actor, job.profile_id, "contact.bind", contactId, job.command_id));
+  if (!await customerEnabled(env, job.profile_id)) throw new ApiError(409, "module_disabled", "Cadastro completo desligado nesta área.");
+  await batch(env, statements);
+}
+
 /** Antes de enviar uma escrita. Falha aqui impede envio, nunca fica só em memória. */
 export async function markCustomerReconciliation(env: Env, profile: string): Promise<void> {
   if (!await customerEnabled(env, profile)) throw new ApiError(409, "module_disabled", "Cadastro completo desligado nesta área.");
   await exec(env, `INSERT INTO customer_progress(profile_id,namespace,task,cursor_json,complete,updated)
     VALUES(?,'team',?,?,0,?) ON CONFLICT(profile_id,namespace,task) DO UPDATE SET
-    cursor_json=excluded.cursor_json,complete=0,updated=excluded.updated`,
+    cursor_json=CASE WHEN customer_progress.complete=1 THEN excluded.cursor_json
+      ELSE json_set(customer_progress.cursor_json,'$.again',1) END,complete=0,updated=excluded.updated`,
   profile, SCAN_TASK, JSON.stringify({ after: null, generation: uid() }), now());
 }
 
@@ -144,7 +180,8 @@ function metered(env: Env, maximum: number) {
 
 /** Uma página por invocação. Checkpoint e espelho no mesmo lote; reinício periódico por ID. */
 export async function maintainErpCustomers(env: Env, profile: string, budget: MaintenanceBudget): Promise<MaintenanceResult> {
-  const meter = metered(env, Math.min(40, budget.remainingStatements));
+  const maximum = Math.min(40, budget.remainingStatements);
+  const meter = metered(env, maximum);
   const e = meter.env;
   let items = 0;
   let pending = true;
@@ -153,9 +190,9 @@ export async function maintainErpCustomers(env: Env, profile: string, budget: Ma
     if (!await customerEnabled(e, profile)) return { pending: false, items, statements: meter.used() };
     // Recuperação de intenção existe também para quem chamou apply sem a fila externa.
     const jobs = await all<BridgeJob>(e, `SELECT * FROM customer_jobs WHERE profile_id=? AND namespace='team'
-      AND (state IN ('pending','running') OR (state='paused' AND error_code='module_disabled'))
+      AND (state IN ('pending','running') OR (state='paused' AND error_code='module_disabled') OR (state='conflict' AND json_extract(cursor_json,'$.customerErp.sent')=1 AND json_extract(cursor_json,'$.customerErp.outcome') IS NULL))
       AND retry_at<=? AND (lease_until IS NULL OR lease_until<=?)
-      AND json_extract(cursor_json,'$.customerErp.intent') IS NOT NULL ORDER BY created,id LIMIT 1`, profile, now(), now());
+      AND payload_cipher IS NULL AND json_extract(cursor_json,'$.customerErp.intent') IS NOT NULL ORDER BY created,id LIMIT 1`, profile, now(), now());
     if (jobs.length) {
       const { resumeBridgeJob } = await import("./erp-bridge");
       await resumeBridgeJob(e, jobs[0]);
@@ -170,29 +207,55 @@ export async function maintainErpCustomers(env: Env, profile: string, budget: Ma
         const current = !progress || progress.complete ? await one<{ cursor_json: string }>(e,
           "SELECT cursor_json FROM customer_progress WHERE profile_id=? AND namespace='team' AND task=?", profile, SCAN_TASK) : progress;
         const cursor = JSON.parse(current!.cursor_json);
-        const page = await erpBridge.scan(e, profile, cursor.after ?? null, 1);
-        const statements: Statement[] = [];
-        for (const snapshot of page.items) {
+        const page = await erpBridge.scan(e, profile, cursor.after ?? null, Math.min(20, budget.remainingItems));
+        const checkpoint = (after: string | null, end: boolean, failed: boolean): Statement[] => [[
+          `UPDATE customer_progress SET
+            cursor_json=json_set(cursor_json,'$.after',?, '$.again',CASE WHEN ?=1 THEN 1 WHEN ?=1 THEN 0 ELSE coalesce(json_extract(cursor_json,'$.again'),0) END),
+            complete=CASE WHEN ?=1 AND ?=0 AND coalesce(json_extract(cursor_json,'$.again'),0)=0 THEN 1 ELSE 0 END,updated=?
+            WHERE profile_id=? AND namespace='team' AND task=? AND json_extract(cursor_json,'$.generation') IS ? AND json_extract(cursor_json,'$.after') IS ?`,
+          [after, failed ? 1 : 0, end ? 1 : 0, end ? 1 : 0, failed ? 1 : 0, now(), profile, SCAN_TASK, cursor.generation ?? null, cursor.after ?? null],
+        ], guard(`erp-scan:${profile}`), ["DELETE FROM customer_assert WHERE id=?", [`erp-scan:${profile}`]]];
+        if (!page.items.length) {
+          if (meter.used() + 4 <= maximum && await customerEnabled(e, profile)) {
+            await batch(e, checkpoint(null, true, false)); pending = !!cursor.again;
+          }
+        }
+        for (let index = 0; index < page.items.length; index++) {
+          if (meter.used() + 5 > maximum) break;
+          const snapshot = page.items[index];
+          let statements: Statement[] = [], failed = false;
           const contact = await one<BridgeContact>(e, "SELECT * FROM contacts WHERE profile_id=? AND erp_contact_id=?", profile, snapshot.erpId);
-          // Sem associação explícita: candidato team, nunca novo contato ou vínculo app.
           if (contact?.namespace === "team" && contact.identity_state === "active" && snapshot.erpVersion > (contact.erp_version ?? 0)) {
-            const busy = await one(e, "SELECT 1 FROM customer_jobs WHERE profile_id=? AND contact_id=? AND state IN ('pending','running','paused','conflict') LIMIT 1", profile, contact.id);
-            if (!busy) {
-              if (hasLocalChanges(contact)) {
-                const command = `erp-review:${contact.id}:${snapshot.erpVersion}:${contact.version}`;
-                statements.push([`INSERT OR IGNORE INTO customer_jobs(profile_id,id,namespace,contact_id,kind,state,command_id,request_hash,error_code,retry_at,created,updated)
-                  VALUES(?,?,'team',?,'sync','conflict',?,?,'contact_conflict',?,?,?)`,
-                [profile, uid(), contact.id, command, command, now(), now(), now()]]);
-              } else statements.push(...await mirrorStatements(e, contact, snapshot));
+            // Reserva uma etapa inteira, inclusive índice, CAS e checkpoint.
+            if (meter.used() + 18 > maximum) break;
+            try {
+              const busy = await one(e, "SELECT 1 FROM customer_jobs WHERE profile_id=? AND contact_id=? AND state IN ('pending','running','paused','conflict') LIMIT 1", profile, contact.id);
+              if (!busy) {
+                if (hasLocalChanges(contact)) {
+                  const command = `erp-review:${contact.id}:${snapshot.erpVersion}:${contact.version}`;
+                  statements.push([`INSERT OR IGNORE INTO customer_jobs(profile_id,id,namespace,contact_id,kind,state,command_id,request_hash,error_code,retry_at,created,updated)
+                    VALUES(?,?,'team',?,'sync','conflict',?,?,'contact_conflict',?,?,?)`,
+                  [profile, uid(), contact.id, command, command, now(), now(), now()]]);
+                } else statements = await mirrorStatements(e, contact, snapshot);
+              }
+            } catch (error) {
+              if (error instanceof BudgetEnd) throw error;
+              // Erro individual não reinicia a página. A próxima passagem tenta
+              // outra vez; nenhuma mensagem arbitrária/dado privado vai ao cursor.
+              failed = true; statements = [];
             }
           }
+          const end = index === page.items.length - 1 && page.nextCursor === null;
+          const after = end ? null : snapshot.erpId;
+          const writes = [...statements, ...checkpoint(after, end, failed)];
+          if (meter.used() + writes.length + 1 > maximum) break;
+          if (!await customerEnabled(e, profile)) break;
+          await batch(e, writes);
+          cursor.after = after;
+          cursor.again ||= failed;
           items++;
+          pending = !end || !!cursor.again;
         }
-        cursor.after = page.nextCursor;
-        statements.push(["UPDATE customer_progress SET cursor_json=?,complete=?,updated=? WHERE profile_id=? AND namespace='team' AND task=? AND cursor_json=?",
-          [JSON.stringify(cursor), page.nextCursor === null ? 1 : 0, now(), profile, SCAN_TASK, current!.cursor_json]],
-        guard(`erp-scan:${profile}`), ["DELETE FROM customer_assert WHERE id=?", [`erp-scan:${profile}`]]);
-        if (await customerEnabled(e, profile)) { await batch(e, statements); pending = page.nextCursor !== null; }
       }
     }
   } catch (error) {
