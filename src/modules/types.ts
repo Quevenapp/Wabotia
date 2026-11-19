@@ -3,6 +3,7 @@
 // aceitar, que rotas e operações pertencem ao módulo e que eventos ele publica.
 
 import type { ManagementItem } from "./panel-contract";
+import type { ContactProfileDeclaration } from "../customer/profile-contracts";
 
 /** Lugar do painel que o módulo ocupa. */
 export interface ModuleNavItem {
@@ -60,6 +61,8 @@ export interface ModuleDefinition {
   navigation: ModuleNavItem[];
   /** Contribuições puras para a casa de gestão; navigation segue compatível. */
   management?: readonly ManagementItem[];
+  /** Declarações cadastrais não habilitam módulos nem concedem acesso. */
+  customer_profile?: ContactProfileDeclaration;
   menu_item_types: ModuleMenuType[];
   /** Tipos de evento publicados (tabela events, webhooks, tempo real). */
   events: string[];

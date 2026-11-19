@@ -7,6 +7,7 @@ import { ApiError, type Actor, type Env, now, requireValue } from "../types";
 import { admin, canProfile } from "../security";
 import { event } from "../events";
 import type { ModuleDefinition } from "./types";
+import { customerProfileDeclarations } from "../customer/declarations";
 import { queueModule } from "./queue";
 import { formsModule } from "./forms/definition";
 import { agendaModule } from "./agenda/definition";
@@ -219,6 +220,7 @@ export function moduleView(m: ModuleDefinition, enabled: boolean) {
     enabled,
     navigation: m.navigation,
     management: m.management ?? [],
+    customer_profile: m.customer_profile ?? customerProfileDeclarations[m.id] ?? null,
     menu_item_types: m.menu_item_types,
     events: m.events,
     settings: m.settings,

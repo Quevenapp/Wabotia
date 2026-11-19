@@ -35,6 +35,8 @@ import {
 import { binaryCommand, binaryResponse, readBinaryContent, type BinaryCommand, type BinaryContent } from "./binary";
 import type { TrackView } from "../web-track";
 import { all, exec, one } from "../db";
+import type { CustomerModuleApi } from "../customer/contracts";
+import { enrichCustomer, resolveCustomer } from "../customer/ports";
 import {
   ApiError,
   type Actor,
@@ -190,7 +192,7 @@ export interface OutgoingMessage {
   attachments?: string[];
 }
 
-export interface ModuleContext {
+export interface ModuleContext extends CustomerModuleApi {
   env: Env;
   /** Área de atendimento. */
   profile: string;
@@ -290,7 +292,7 @@ export interface ModuleContext {
    * até o protocolo fechar", sem ler a tabela tickets.
    */
   activeTicket(c: Conversation | string): Promise<ActiveTicket | null>;
-  /** Contato vinculado à conversa, ou null. */
+  /** Adaptador do resolvedor cadastral: só projeta um vínculo ready. */
   contact(c: Conversation | string): Promise<ContactSummary | null>;
   /**
    * Envia mensagem ao cliente pela fila de entrega. `key` torna o envio
@@ -768,13 +770,29 @@ export function modulesApi(
       );
     },
     async contact(c) {
-      const id = typeof c === "string" ? c : c.id;
+      const conv = typeof c === "string"
+        ? await one<Conversation>(env, "SELECT * FROM conversations WHERE id=? AND profile_id=?", c, profile)
+        : c;
+      if (!conv) return null;
+      const ref = await ctx.customer(conv);
+      if (ref.state !== "ready" || !ref.contactId) return null;
       return one<ContactSummary>(
         env,
-        "SELECT ct.id,ct.name,ct.phone,ct.email,ct.company,ct.notes FROM conversation_contacts l JOIN contacts ct ON ct.id=l.contact_id AND ct.profile_id=l.profile_id WHERE l.conversation_id=? AND l.profile_id=?",
-        id,
+        "SELECT id,name,phone,email,company,notes FROM contacts WHERE id=? AND profile_id=? AND namespace=? AND identity_state='active'",
+        ref.contactId,
         profile,
+        ref.namespace,
       );
+    },
+    customer(c) {
+      requireValue(c.profile_id === profile, "Conversa de outra área.");
+      return resolveCustomer(env, c);
+    },
+    enrichCustomer(actor, c, input) {
+      if (options.worker) throw new Error("enrichCustomer exige comando do Coordinator.");
+      requireValue(c.profile_id === profile, "Conversa de outra área.");
+      ctx.access(actor, "contacts:write");
+      return enrichCustomer(env, actor, c, input);
     },
     async sendMessage(c, outgoing, options) {
       requireValue(c.profile_id === profile, "Conversa de outra área.");
