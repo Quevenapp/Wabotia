@@ -45,8 +45,10 @@ struct ComposerView: View {
                 banner(text: info, color: Theme.textSecondary, icon: "info.circle.fill") { vm.info = nil }
             }
             if let pending = vm.pending { pendingBanner(pending) }
+            if let attempt = vm.channelPending { channelPendingBanner(attempt) }
+            if !noteMode { channelFields }
             if !noteMode, vm.channel != .whatsapp, !vm.humanReplyAllowed {
-                Text(vm.channelWindow?.label ?? "Envio indisponível: o canal não informou uma janela válida.")
+                Text(vm.channelSendHint)
                     .font(Theme.font(12, .medium)).foregroundStyle(Theme.danger)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10)
             } else if vm.window?.isClosed == true, !noteMode {
@@ -155,6 +157,52 @@ struct ComposerView: View {
     #endif
 
     // MARK: Linha principal
+
+    @ViewBuilder private var channelFields: some View {
+        if vm.usesSecondWave, vm.channel == .email {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Assunto").font(Theme.font(12, .semibold))
+                TextField("Assunto do e-mail", text: $vm.emailSubject)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(vm.composerLocked)
+                    .accessibilityLabel("Assunto do e-mail")
+                Text("\(vm.emailSubject.utf16.count)/200 caracteres").font(Theme.font(11))
+                    .foregroundStyle(ChannelEmailMetadata.validSubject(vm.emailSubject) ? Theme.textSecondary : Theme.danger)
+            }.padding(.horizontal, 8)
+        }
+        if vm.isComment {
+            VStack(alignment: .leading, spacing: 5) {
+                Picker("Comentário alvo", selection: $vm.commentTarget) {
+                    Text("Escolha o comentário alvo").tag("")
+                    ForEach(vm.commentTargets, id: \.id) { comment in
+                        Text(comment.text?.isEmpty == false ? String(comment.text!.prefix(90)) : "Comentário \(comment.id ?? "")")
+                            .tag(comment.id ?? "")
+                    }
+                }
+                Picker("Tipo de resposta", selection: $vm.commentAction) {
+                    Text("Escolha como responder").tag("")
+                    Text("Resposta pública").tag("comment.reply")
+                    Text("Resposta privada").tag("comment.private")
+                }
+                if let comment = vm.selectedComment {
+                    Text(comment.privateStatusLabel(at: max(workspace.nowMillisPrecise, vm.detail?.server_now ?? 0))).font(Theme.font(12))
+                    if let expires = comment.privateExpiresAt {
+                        Text("Prazo privado: \(ConversationFormatting.date(expires))").font(Theme.font(12))
+                    }
+                    Button(comment.hidden == true ? "Mostrar comentário" : "Ocultar comentário") {
+                        vm.setCommentVisibility(hidden: comment.hidden != true)
+                    }
+                    .disabled(vm.detail?.canChannelAction("comment.visibility", commentId: vm.commentTarget, now: workspace.nowMillisPrecise) != true)
+                }
+            }
+            .font(Theme.font(13)).padding(.horizontal, 8)
+            .disabled(vm.composerLocked)
+        }
+        if vm.channel == .tiktok, !vm.attachments.isEmpty, !draftEmpty {
+            Text("Texto e imagem serão duas entregas, nesta ordem, e usarão duas vagas.")
+                .font(Theme.font(12)).foregroundStyle(Theme.textSecondary).padding(.horizontal, 8)
+        }
+    }
 
     private var inputRow: some View {
         HStack(alignment: .bottom, spacing: 6) {
@@ -390,7 +438,8 @@ struct ComposerView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("Alterna entre tipo automático e enviar como documento")
-                Text("Foto até 5 MB · vídeo e áudio até 16 MB").font(Theme.font(11)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+                Text(vm.usesSecondWave ? (vm.channel == .tiktok ? "Uma imagem JPG/PNG até 3.000.000 bytes" : "Anexos sujeitos aos limites informados pelo canal") : "Foto até 5 MB · vídeo e áudio até 16 MB")
+                    .font(Theme.font(11)).foregroundStyle(Theme.textSecondary).lineLimit(2)
             }
         }
     }
@@ -443,6 +492,24 @@ struct ComposerView: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.warn.opacity(0.14)))
+    }
+
+    private func channelPendingBanner(_ attempt: ChannelActionAttempt) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Pedido do canal sem confirmação").font(Theme.font(13, .semibold))
+            if let subject = attempt.body.channel_action.subject { Text("Assunto: \(subject)") }
+            if let target = attempt.body.channel_action.commentId {
+                Text("Comentário alvo: \(target) · \(attempt.body.channel_action.type == "comment.private" ? "privado" : "público")")
+            }
+            Text("Consultar repete exatamente o corpo e a chave desta tentativa.")
+            HStack(spacing: 14) {
+                Button("Consultar esta tentativa") { vm.send() }.disabled(vm.busy)
+                Button("Abandonar pedido") { vm.abandonPending() }.disabled(vm.busy)
+            }
+        }
+        .font(Theme.font(12)).foregroundStyle(Theme.textPrimary)
+        .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.warn.opacity(0.14)))
     }
 
     private func banner(text: String, color: Color, icon: String, dismiss: @escaping () -> Void) -> some View {

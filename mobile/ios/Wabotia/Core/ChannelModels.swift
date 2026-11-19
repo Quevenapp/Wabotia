@@ -22,6 +22,8 @@ struct ChannelID: RawRepresentable, Codable, Hashable, Identifiable {
     var isSocial: Bool { self == .instagram || self == .facebook }
     /// A declaração de canais futuros não habilita conexão, composição ou envio.
     var enabled: Bool { self == .whatsapp || isSocial }
+    /// Catálogo nativo: a presença aqui não concede envio; capacidades e contexto são obrigatórios.
+    var supportsConversation: Bool { enabled || self == .telegram || self == .email || self == .tiktok }
     var label: String {
         switch self {
         case .whatsapp: return "WhatsApp"
@@ -41,6 +43,16 @@ struct ChannelMenu: Codable, Equatable {
     var quickReplies: Int
     var listItems: Int
     var fallback: String
+}
+
+extension ChannelMenu {
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        buttons = try values.decodeIfPresent(Int.self, forKey: .buttons) ?? 0
+        quickReplies = try values.decodeIfPresent(Int.self, forKey: .quickReplies) ?? 0
+        listItems = try values.decodeIfPresent(Int.self, forKey: .listItems) ?? 0
+        fallback = try values.decodeIfPresent(String.self, forKey: .fallback) ?? ""
+    }
 }
 
 /// O servidor decide a janela. A projeção local só expira permissões, nunca as amplia.
@@ -98,6 +110,26 @@ struct ChannelWindowState: Codable, Equatable {
         if isHumanTextOnly { return "Somente texto escrito por pessoa · até 7 dias" }
         return showsClock ? "Janela de 24 horas aberta" : "Sem prazo de resposta"
     }
+
+    func label(for channel: ChannelID?) -> String {
+        if state != "open" || !showsClock { return label }
+        return channel == .tiktok ? "Janela de 48 horas aberta" : "Janela de 24 horas aberta"
+    }
+}
+
+extension ChannelWindowState {
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try values.decodeIfPresent(String.self, forKey: .kind) ?? "unknown"
+        state = try values.decodeIfPresent(String.self, forKey: .state) ?? "closed"
+        serverNow = try values.decodeIfPresent(Int64.self, forKey: .serverNow) ?? 0
+        closesAt = try values.decodeIfPresent(Int64.self, forKey: .closesAt)
+        humanTextClosesAt = try values.decodeIfPresent(Int64.self, forKey: .humanTextClosesAt)
+        remainingMessages = try values.decodeIfPresent(Int.self, forKey: .remainingMessages)
+        canHumanText = try values.decodeIfPresent(Bool.self, forKey: .canHumanText) ?? false
+        canAutomation = try values.decodeIfPresent(Bool.self, forKey: .canAutomation) ?? false
+        reason = try values.decodeIfPresent(String.self, forKey: .reason)
+    }
 }
 
 enum ChannelReason {
@@ -110,6 +142,14 @@ enum ChannelReason {
         case "inbox_required": return "A conversa precisa estar na caixa de entrada"
         case "channel_not_ready": return "Canal ainda não disponível"
         case "provider_unknown": return "Canal ou capacidades não reconhecidos"
+        case "private_reply_used": return "A tentativa de resposta privada já foi usada"
+        case "private_reply_expired": return "O prazo para responder em privado terminou"
+        case "quota_exhausted": return "Limite de mensagens atingido · aguarde uma vaga"
+        case "rate_limited": return "Aguardando o intervalo permitido para envio"
+        case "sender_unverified": return "Remetente não confirmado · sem acesso a dados do cliente"
+        case "subject_invalid": return "Revise o assunto do e-mail"
+        case "attachment_too_large": return "Anexo maior que o permitido pelo canal"
+        case "provider_contract_unverified": return "Recurso aguardando confirmação do provedor"
         default: return code
         }
     }
@@ -162,6 +202,193 @@ struct ContactChannelsProfile: Codable {
     var readable: Bool?
     var channels: [CustomerChannelView]?
     var other_conversations: [OtherChannelConversation]?
+}
+
+/// Somente a projeção pública normalizada. Todos os acréscimos são opcionais para compatibilidade.
+struct ChannelExtensionView: Codable, Equatable {
+    var key: String?
+    var capabilities: ChannelExtensionCapabilities?
+    var metadata: ChannelExtensionMetadata?
+}
+
+struct ChannelExtensionCapabilities: Codable, Equatable {
+    struct Text: Codable, Equatable { var enabled: Bool?; var maxChars: Int? }
+    struct Context: Codable, Equatable { var enabled: Bool?; var bot: Bool?; var publicReply: Bool? }
+    struct Media: Codable, Equatable {
+        var receive: Bool?; var send: Bool?; var maxSendBytes: Int64?; var mimeTypes: [String]?
+    }
+    struct Window: Codable, Equatable {
+        var kind: String?; var hours: Int?; var humanTextHours: Int?; var maxMessages: Int?; var after: String?
+    }
+    var enabled: Bool?
+    var context: String?
+    var contexts: [String: Context]?
+    var text: Text?
+    var media: [String: Media]?
+    var menu: ChannelMenu?
+    var window: Window?
+    var templates: Bool?
+    var subject: Bool?
+    var replyTo: Bool?
+}
+
+struct ChannelExtensionMetadata: Codable, Equatable {
+    var subject: String?
+    var identityTrust: String?
+    var remainingMessages: Int?
+    var closesAt: Int64?
+    var state: String?
+    var configured: Bool?
+    var accountLabel: String?
+    var commentId: String?
+    var postId: String?
+    var permalink: String?
+    var version: Int?
+    var comment: ChannelCommentMetadata?
+    var email: ChannelEmailMetadata?
+    var telegram: ChannelTelegramMetadata?
+    var tiktok: ChannelTikTokMetadata?
+}
+
+struct ChannelCommentMetadata: Codable, Equatable, Identifiable {
+    var id: String?
+    var postId: String?
+    var parentId: String?
+    var text: String?
+    var postText: String?
+    var permalink: String?
+    var hidden: Bool?
+    var version: Int?
+    var privateState: String?
+    var privateExpiresAt: Int64?
+    var privateConversationId: String?
+    var privateLinkPending: Bool?
+
+    func privateReplyAvailable(at now: Int64) -> Bool {
+        guard let id, !id.isEmpty, privateState == "available", let privateExpiresAt else { return false }
+        return privateExpiresAt > now
+    }
+    var privateStatusLabel: String {
+        switch privateState {
+        case "available": return "Uma tentativa de resposta privada"
+        case "reserved": return "Tentativa privada reservada"
+        case "sent": return privateLinkPending == true ? "Privado enviado; vínculo pendente" : "Resposta privada enviada"
+        case "failed": return "Resposta privada falhou · tentativa consumida"
+        case "unknown": return "Resposta privada indeterminada · tentativa consumida"
+        default: return "Situação da resposta privada indisponível"
+        }
+    }
+    func privateStatusLabel(at now: Int64) -> String {
+        guard privateState == "available" else { return privateStatusLabel }
+        guard let privateExpiresAt, privateExpiresAt > 0 else { return "Prazo da resposta privada indisponível" }
+        return privateExpiresAt <= now ? "Prazo da resposta privada encerrado" : privateStatusLabel
+    }
+    var safePermalink: URL? { ChannelSafeLink.url(permalink) }
+}
+
+enum ChannelSafeLink {
+    static func url(_ raw: String?) -> URL? {
+        guard let raw, let url = URL(string: raw), let scheme = url.scheme?.lowercased(),
+              ["https", "http"].contains(scheme), url.host != nil, url.user == nil, url.password == nil else { return nil }
+        return url
+    }
+}
+
+struct ChannelEmailMetadata: Codable, Equatable {
+    struct Authentication: Codable, Equatable { var method: String?; var result: String? }
+    var subject: String?
+    var sender: String?
+    var from: String?
+    var replyTo: String?
+    var identityTrust: String?
+    var authentication: [Authentication]?
+    var attachmentWarnings: [String]?
+
+    static func validSubject(_ subject: String) -> Bool {
+        subject.utf16.count <= 200 && !subject.contains("\r") && !subject.contains("\n") && !subject.contains("\0")
+    }
+    static func replySubject(_ subject: String) -> String {
+        var value = subject.trimmingCharacters(in: .whitespacesAndNewlines)
+        while value.lowercased().hasPrefix("re:") {
+            value = String(value.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return "Re: \(value)"
+    }
+}
+
+struct ChannelTelegramMetadata: Codable, Equatable {
+    struct PhoneSuggestion: Codable, Equatable { var masked: String?; var confirmedByHuman: Bool? }
+    var username: String?
+    var botUrl: String?
+    var blocked: Bool?
+    var webhookConfigured: Bool?
+    var phoneSuggestion: PhoneSuggestion?
+    var safeBotURL: URL? { ChannelSafeLink.url(botUrl) }
+}
+
+struct ChannelTikTokMetadata: Codable, Equatable {
+    var remainingMessages: Int?
+    var closesAt: Int64?
+    var conservativeQuota: Bool?
+    var remainingLabel: String? {
+        guard let remainingMessages, (0...10).contains(remainingMessages) else { return nil }
+        return "Restam \(remainingMessages) de 10 mensagens"
+    }
+    static let quotaExplanation = "Regra conservadora: até 10 envios ou tentativas nas últimas 48 horas. Uma nova mensagem do cliente renova o prazo, mas não zera o contador."
+}
+
+struct ChannelSendAttachment: Codable, Equatable {
+    var mediaId: String
+    var kind: String
+    var mimeType: String
+    var bytes: Int64
+    var name: String? = nil
+}
+
+/// Sem ator/origem/prova: toda autorização e resolução de destinatário pertencem ao servidor.
+struct ChannelAction: Codable, Equatable {
+    var type: String
+    var text: String? = nil
+    var subject: String? = nil
+    var commentId: String? = nil
+    var hidden: Bool? = nil
+    var attachments: [ChannelSendAttachment]? = nil
+}
+
+struct ChannelActionRequest: Codable, Equatable {
+    var action: String = "channel"
+    var channel_action: ChannelAction
+}
+
+/// O corpo é um valor independente: renovar a projeção não muda assunto, alvo ou chave do retry.
+struct ChannelActionAttempt: Equatable {
+    let body: ChannelActionRequest
+    let key: String
+    init(body: ChannelActionRequest, key: String = UUID().uuidString) {
+        self.body = body; self.key = key
+    }
+    static func reusing(_ previous: ChannelActionAttempt?, body: ChannelActionRequest) -> ChannelActionAttempt {
+        if let previous, previous.body == body { return previous }
+        return ChannelActionAttempt(body: body)
+    }
+}
+
+extension Message {
+    /// Ponto único de leitura dos metadados normalizados; não interpreta HTML nem carrega recursos remotos.
+    var emailSubject: String? { contentJSON["email"]?["subject"]?.stringValue ?? contentJSON["subject"]?.stringValue }
+    var channelSubject: String? { emailSubject }
+    var commentContext: ChannelCommentMetadata? {
+        guard let value = contentJSON["comment"], let data = try? JSONEncoder().encode(value) else { return nil }
+        return try? JSONDecoder().decode(ChannelCommentMetadata.self, from: data)
+    }
+    var channelComment: ChannelCommentMetadata? { commentContext }
+    private var commentActionType: String? {
+        contentJSON["channel_action"]?["type"]?.stringValue ?? contentJSON["channel_action"]?.stringValue
+    }
+    var isPrivateComment: Bool { commentActionType == "comment.private" }
+    var isPublicComment: Bool {
+        !isPrivateComment && (commentContext != nil || contentJSON["context"]?.stringValue == "comment")
+    }
 }
 
 struct TranscriptAvailability: Codable, Equatable {
@@ -255,6 +482,9 @@ struct TranscriptAttempt: Equatable {
 }
 
 extension Conversation {
+    var isComment: Bool {
+        chat_type == "comment" || JSONValue.parse(channel_context)["context"]?.stringValue == "comment"
+    }
     /// Uma origem interna/aplicação jamais usa o fallback telefônico.
     func resolvedChannel(connectionKind: String?) -> ChannelID? {
         if connectionKind == "ai" || chat_type == "internal" || external_namespace.hasPrefix("app:") || external_namespace.hasPrefix("internal") { return nil }
@@ -267,6 +497,48 @@ extension Conversation {
 }
 
 extension ConversationDetail {
+    var isComment: Bool {
+        conversation.isComment
+    }
+    var usesSecondWave: Bool {
+        if isComment { return true }
+        guard let channel = resolvedChannel else { return false }
+        return [.telegram, .email, .tiktok].contains(channel)
+    }
+    var expectedExtensionKey: String? {
+        guard let channel = resolvedChannel else { return nil }
+        if isComment && channel.isSocial { return "\(channel.rawValue)/comment" }
+        if [.telegram, .email, .tiktok].contains(channel) { return "\(channel.rawValue)/direct" }
+        return nil
+    }
+    var hasMatchingExtension: Bool {
+        guard let expectedExtensionKey else { return false }
+        return channel_extension?.key == expectedExtensionKey && channel_extension?.capabilities?.enabled != false
+    }
+    var commentContext: ChannelCommentMetadata? { isComment ? channel_extension?.metadata?.comment : nil }
+    var emailContext: ChannelEmailMetadata? { resolvedChannel == .email ? channel_extension?.metadata?.email : nil }
+    var telegramContext: ChannelTelegramMetadata? { resolvedChannel == .telegram ? channel_extension?.metadata?.telegram : nil }
+    var tiktokContext: ChannelTikTokMetadata? {
+        guard resolvedChannel == .tiktok else { return nil }
+        if let value = channel_extension?.metadata?.tiktok { return value }
+        guard let metadata = channel_extension?.metadata else { return nil }
+        return ChannelTikTokMetadata(remainingMessages: metadata.remainingMessages, closesAt: metadata.closesAt, conservativeQuota: nil)
+    }
+    var emailSubject: String? { emailContext?.subject ?? (resolvedChannel == .email ? channel_extension?.metadata?.subject : nil) }
+    var replySubject: String { ChannelEmailMetadata.replySubject(emailSubject ?? "") }
+    var channelTextLimit: Int? { channel_extension?.capabilities?.text?.maxChars }
+    func commentTarget(_ id: String?) -> ChannelCommentMetadata? {
+        guard let id, !id.isEmpty else { return nil }
+        if commentContext?.id == id { return commentContext }
+        return messages.compactMap(\.commentContext).first { $0.id == id }
+    }
+    private var extensionTextAllowed: Bool {
+        guard hasMatchingExtension, channel_extension?.capabilities?.text?.enabled != false else { return false }
+        return capabilities?["text"]?.boolValue ?? (channel_extension?.capabilities?.text?.enabled == true)
+    }
+    private var emailSubjectAllowed: Bool {
+        resolvedChannel == .email && (subject ?? capabilities?["subject"]?.boolValue ?? channel_extension?.capabilities?.subject) == true
+    }
     var resolvedChannel: ChannelID? { resolvedChannel(fallbackKind: nil) }
     func resolvedChannel(fallbackKind: String?) -> ChannelID? {
         let kind = connection_kind ?? fallbackKind
@@ -299,10 +571,24 @@ extension ConversationDetail {
         return modules ?? capabilities?["modules"]?.boolValue ?? true
     }
     func canHumanReply(now: Int64, fallbackKind: String? = nil) -> Bool {
-        guard let channel = resolvedChannel(fallbackKind: fallbackKind), channel.enabled else { return false }
+        guard let channel = resolvedChannel(fallbackKind: fallbackKind), channel.supportsConversation else { return false }
         // WhatsApp conserva a composição/enfileiramento anterior; o servidor decide a entrega.
         if channel == .whatsapp { return capabilities?["text"]?.boolValue ?? true }
+        // Comentário nunca transforma o envio genérico em publicação pública.
+        if isComment { return false }
         guard conversation.chat_type == nil || conversation.chat_type == "direct" else { return false }
+        if usesSecondWave {
+            guard extensionTextAllowed, channel_extension?.capabilities?.contexts?["direct"]?.enabled != false,
+                  telegramContext?.blocked != true, let current = channelWindow?.projected(at: now),
+                  current.canHumanText, current.state == "open" else { return false }
+            if channel == .email && !emailSubjectAllowed { return false }
+            if channel == .tiktok {
+                guard current.kind == "customer", let remaining = tiktokContext?.remainingMessages ?? current.remainingMessages,
+                      (1...10).contains(remaining) else { return false }
+                if let end = tiktokContext?.closesAt, end <= max(now, current.serverNow) { return false }
+            }
+            return true
+        }
         if let window = channelWindow, window.kind == "customer" {
             let current = window.projected(at: now)
             return current.canHumanText && current.state != "closed" && (capabilities?["text"]?.boolValue ?? (channel == .whatsapp))
@@ -310,9 +596,19 @@ extension ConversationDetail {
         return false
     }
     func allowsChannelFeature(_ feature: String, now: Int64, fallbackKind: String? = nil) -> Bool {
-        guard let channel = resolvedChannel(fallbackKind: fallbackKind), channel.enabled else { return false }
+        guard let channel = resolvedChannel(fallbackKind: fallbackKind), channel.supportsConversation else { return false }
         if feature == "modules" { return modulesAllowed(fallbackKind: fallbackKind) }
         if feature == "text" { return canHumanReply(now: now, fallbackKind: fallbackKind) }
+        if usesSecondWave {
+            guard !isComment, canHumanReply(now: now, fallbackKind: fallbackKind) else { return false }
+            if feature == "menu" { return channelAutomationAllowed(now: now) && channelMenuAvailable }
+            if feature == "templates" { return false }
+            if feature == "subject" { return emailSubjectAllowed }
+            // A união ChannelAction não possui reply_to: não oferecer um alvo que seria descartado.
+            if feature == "reply" { return false }
+            if let media = channel_extension?.capabilities?.media?[feature], media.send == false { return false }
+            return capabilities?[feature]?.boolValue == true
+        }
         if channel.isSocial {
             guard conversation.chat_type == nil || conversation.chat_type == "direct",
                   let current = channelWindow?.projected(at: now), current.kind == "customer",
@@ -325,13 +621,44 @@ extension ConversationDetail {
         }
         return capabilities?[feature]?.boolValue ?? true
     }
+
+    func canChannelAction(_ type: String, commentId: String? = nil, now: Int64) -> Bool {
+        guard let channel = resolvedChannel, channel.supportsConversation, hasMatchingExtension else { return false }
+        if isComment {
+            guard channel.isSocial, extensionTextAllowed,
+                  channel_extension?.capabilities?.contexts?["comment"]?.enabled != false,
+                  let target = commentTarget(commentId) else { return false }
+            if type == "comment.private" {
+                return target.privateReplyAvailable(at: max(now, server_now ?? 0))
+            }
+            guard ["comment.reply", "comment.visibility", "comment.suggest"].contains(type) else { return false }
+            return public_reply ?? capabilities?["public_reply"]?.boolValue ??
+                (channel_extension?.capabilities?.contexts?["comment"]?.publicReply == true)
+        }
+        if type == "email.send" { return channel == .email && canHumanReply(now: now) && allowsChannelFeature("subject", now: now) }
+        if type == "telegram.request-contact" { return channel == .telegram && canHumanReply(now: now) }
+        return type == "message.send" && [.telegram, .tiktok].contains(channel) && canHumanReply(now: now)
+    }
+
+    func channelAutomationAllowed(now: Int64) -> Bool {
+        guard !isComment, let channel = resolvedChannel, channel.supportsConversation else { return false }
+        if channel == .whatsapp { return true }
+        guard let current = channelWindow?.projected(at: now), current.canAutomation, current.state == "open" else { return false }
+        if usesSecondWave {
+            return canHumanReply(now: now) && channel_extension?.capabilities?.contexts?["direct"]?.bot == true
+        }
+        return channel.isSocial
+    }
 }
 
 extension ProfileStatus {
     /// O servidor já aplica autorização; não inferir filtro a partir de contas futuras declaradas.
     var channelFilterOptions: [ChannelID] {
         var seen = Set<ChannelID>()
-        return (conversation_channels ?? []).filter { $0.enabled && seen.insert($0).inserted }
+        return (conversation_channels ?? []).filter {
+            let active = $0.enabled || ($0.supportsConversation && (channel_extensions ?? []).contains("\($0.rawValue)/direct"))
+            return active && seen.insert($0).inserted
+        }
     }
     var showsChannelFilter: Bool { channelFilterOptions.count > 1 }
 }

@@ -128,6 +128,15 @@ struct MessageBubbleView: View, Equatable {
                 senderLabel
             }
             if let quoted = item.quotedText { quoteBlock(quoted) }
+            if let subject = item.emailSubjectHeading {
+                Text("Assunto: \(subject)").font(Theme.font(12, .semibold)).foregroundStyle(Theme.textSecondary)
+            }
+            if message.isPublicComment {
+                Label("Comentário público", systemImage: "text.bubble").font(Theme.font(11, .semibold)).foregroundStyle(Theme.textSecondary)
+            }
+            if message.isPrivateComment {
+                Label("Resposta privada", systemImage: "lock.bubble").font(Theme.font(11, .semibold)).foregroundStyle(Theme.textSecondary)
+            }
             content
         }
         .padding(.top, 6)

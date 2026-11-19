@@ -113,6 +113,7 @@ struct Conversation: Codable, Identifiable, Equatable {
     var account_label: String?
     var multichannel: Bool?
     var window: ChannelWindowState?
+    var channel_context: String?
 
     /// `last_message` lido com tolerância; nil em servidores antigos ou quando a conversa não tem mensagens.
     var lastMessage: LastMessage? { LastMessage(last_message) }
@@ -201,6 +202,8 @@ struct ConversationDetail: Codable {
     var can_initiate: Bool?
     var other_conversations: [OtherChannelConversation]?
     var email_transcript: TranscriptOptions?
+    /// Projeção normalizada da segunda leva; servidores anteriores podem omiti-la.
+    var channel_extension: ChannelExtensionView?
     func can(_ feature: String) -> Bool { capabilities?[feature]?.boolValue ?? false }
     /// Recurso de mídia básico: só some quando a linha diz explicitamente que não oferece.
     func allows(_ feature: String) -> Bool { capabilities?[feature]?.boolValue ?? true }
@@ -384,6 +387,7 @@ struct ProfileStatus: Codable {
     var conversation_channels: [ChannelID]?
     var multichannel: Bool?
     var email_transcript: TranscriptAvailability?
+    var channel_extensions: [String]?
 }
 
 /// Setor de atendimento (`settings.departments` de GET /status).

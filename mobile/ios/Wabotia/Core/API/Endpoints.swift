@@ -33,6 +33,10 @@ extension APIClient {
     func conversation(_ p: String, id: String) async throws -> ConversationDetail { try await request(.get, "api/v1/profiles/\(p)/conversations/\(id)") }
     func act(_ p: String, conversation id: String, _ body: ActionRequest, key: String) async throws -> JSONValue { try await request(.post, "api/v1/profiles/\(p)/conversations/\(id)/actions", body: body, key: key) }
     func messageAction(_ p: String, conversation id: String, _ body: MessageActionRequest, key: String = APIClient.newIdempotencyKey()) async throws -> JSONValue { try await request(.post, "api/v1/profiles/\(p)/conversations/\(id)/message-actions", body: body, key: key) }
+    /// O corpo completo (incluindo assunto/alvo) já foi congelado junto da chave pelo composer.
+    func channelAction(_ p: String, conversation id: String, _ body: ChannelActionRequest, key: String) async throws -> JSONValue {
+        try await request(.post, "api/v1/profiles/\(p)/conversations/\(id)/message-actions", body: body, key: key)
+    }
     func groupPolicy(_ p: String, conversation id: String, policy: String, key: String = APIClient.newIdempotencyKey()) async throws -> JSONValue { try await request(.put, "api/v1/profiles/\(p)/groups/\(id)/policy", body: GroupPolicyRequest(bot_policy: policy), key: key) }
     func contact(_ p: String, id: String) async throws -> JSONValue { try await request(.get, "api/v1/profiles/\(p)/contacts/\(id)") }
     func contactChannelProfile(_ p: String, id: String) async throws -> ContactChannelsProfile {

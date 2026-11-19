@@ -80,6 +80,7 @@ struct ChatMessage: Identifiable, Equatable {
     var quotedAuthor: String?
     var quotedId: String?
     var reactions: [String]
+    var emailSubjectHeading: String? = nil
 
     var id: String { message.id }
     var isDeleted: Bool { content["deleted"]?.boolValue ?? false }
@@ -157,6 +158,12 @@ final class ConversationViewModel: ObservableObject {
     @Published var location: LocationDraft?
     @Published var contactDraft: ContactDraft?
     @Published private(set) var pending: PendingRequest?
+    @Published var emailSubject = ""
+    /// Sem escolha inicial: comentário nunca vira publicação por envio genérico.
+    @Published var commentAction = ""
+    @Published var commentTarget = ""
+    @Published private(set) var channelPending: ChannelActionAttempt?
+    private var suggestedEmailSubject: String?
 
     private var key = APIClient.newIdempotencyKey()
     private var sendTask: Task<Void, Never>?
@@ -206,19 +213,51 @@ final class ConversationViewModel: ObservableObject {
     }
     var channelWindow: ChannelWindowState? { detail?.channelWindow?.projected(at: workspace.nowMillisPrecise) }
     var modulesAllowed: Bool { detail?.modulesAllowed(fallbackKind: fallbackKind) ?? false }
-    var humanReplyAllowed: Bool { detail?.canHumanReply(now: workspace.nowMillisPrecise, fallbackKind: fallbackKind) ?? false }
+    var isComment: Bool { detail?.isComment == true }
+    var usesSecondWave: Bool { detail?.usesSecondWave == true }
+    var showsChannelIdentity: Bool { isMultichannel || channel?.isSocial == true || usesSecondWave }
+    var humanReplyAllowed: Bool {
+        if isComment {
+            return detail?.canChannelAction(commentAction, commentId: commentTarget, now: workspace.nowMillisPrecise) == true
+        }
+        if usesSecondWave {
+            return detail?.canChannelAction(channel == .email ? "email.send" : "message.send", now: workspace.nowMillisPrecise) == true
+        }
+        return detail?.canHumanReply(now: workspace.nowMillisPrecise, fallbackKind: fallbackKind) ?? false
+    }
     var automationAllowed: Bool {
         if channel == .whatsapp { return true }
+        if usesSecondWave { return detail?.channelAutomationAllowed(now: workspace.nowMillisPrecise) == true }
         return channel?.isSocial == true && (conversation?.chat_type == nil || conversation?.chat_type == "direct")
             && channelWindow?.kind == "customer" && channelWindow?.state == "open" && channelWindow?.canAutomation == true
     }
     var menuAllowed: Bool { automationAllowed && (channel == .whatsapp || detail?.channelMenuAvailable == true) }
-    var composerPlaceholder: String { channel == .whatsapp ? "Mensagem" : "Responder pelo \(channel?.label ?? "canal desconhecido")" }
+    var composerPlaceholder: String {
+        if isComment { return commentAction == "comment.private" ? "Resposta privada" : "Resposta ao comentário" }
+        return channel == .whatsapp ? "Mensagem" : "Responder pelo \(channel?.label ?? "canal desconhecido")"
+    }
     func can(_ feature: String) -> Bool {
-        detail?.can(feature) == true && detail?.allowsChannelFeature(feature, now: workspace.nowMillisPrecise, fallbackKind: fallbackKind) == true
+        if usesSecondWave { return allows(feature) }
+        return detail?.can(feature) == true && detail?.allowsChannelFeature(feature, now: workspace.nowMillisPrecise, fallbackKind: fallbackKind) == true
     }
     func allows(_ feature: String) -> Bool {
-        detail?.allowsChannelFeature(feature, now: workspace.nowMillisPrecise, fallbackKind: fallbackKind) ?? false
+        // A união channel_action ainda não serializa localização nem contato de saída.
+        if usesSecondWave && ["location", "contacts", "reply", "edit", "delete", "reaction", "read"].contains(feature) { return false }
+        return detail?.allowsChannelFeature(feature, now: workspace.nowMillisPrecise, fallbackKind: fallbackKind) ?? false
+    }
+    var commentTargets: [ChannelCommentMetadata] {
+        var result: [ChannelCommentMetadata] = []
+        var seen = Set<String>()
+        for value in [detail?.commentContext] + messages.map({ $0.commentContext }) {
+            if let value, let id = value.id, !id.isEmpty, seen.insert(id).inserted { result.append(value) }
+        }
+        return result
+    }
+    var selectedComment: ChannelCommentMetadata? { commentTargets.first { $0.id == commentTarget } }
+    var channelSendHint: String {
+        if isComment { return "Escolha o comentário alvo e o envio público ou privado disponível." }
+        if !usesSecondWave { return channelWindow?.label ?? "Envio indisponível: o canal não informou uma janela válida." }
+        return channelWindow?.label ?? "Envio indisponível pelas capacidades informadas pelo canal."
     }
     var tags: [String] { JSONValue.parseStringList(conversation?.tags) }
     var team: [TeamContact] { workspace.team }
@@ -245,7 +284,7 @@ final class ConversationViewModel: ObservableObject {
     /// A ficha já vem filtrada pelo servidor; não busca relações por nome, telefone ou perfil social.
     func loadContactChannels() async {
         contactChannels = nil
-        guard isMultichannel || channel?.isSocial == true,
+        guard showsChannelIdentity,
               let p = profileId,
               let id = detail?.contact?["id"]?.stringValue ?? conversation?.contact_id else { return }
         do {
@@ -297,15 +336,24 @@ final class ConversationViewModel: ObservableObject {
     }
 
     var canSend: Bool {
+        if usesSecondWave, channelPending != nil { return isOwned && !busy && detail?.hasMatchingExtension == true && channel?.supportsConversation == true }
         guard isOwned, !busy, humanReplyAllowed, sendContentAllowed else { return false }
         if pending != nil { return true }
         if editing != nil { return !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         return !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty || voice != nil || location != nil || contactDraft != nil
     }
 
-    var composerLocked: Bool { busy || pending != nil }
+    var composerLocked: Bool { busy || pending != nil || channelPending != nil }
 
     private var sendContentAllowed: Bool {
+        if usesSecondWave {
+            if channel == .email && !ChannelEmailMetadata.validSubject(emailSubject) { return false }
+            if let limit = detail?.channelTextLimit, draft.utf16.count > limit { return false }
+            if channel == .tiktok {
+                let count = attachments.count + (draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0 : 1)
+                guard attachments.count <= 1, count <= (detail?.tiktokContext?.remainingMessages ?? 0) else { return false }
+            }
+        }
         if editing != nil && !can("edit") { return false }
         if voice != nil && !allows("voice") { return false }
         if location != nil && !can("location") { return false }
@@ -343,6 +391,13 @@ final class ConversationViewModel: ObservableObject {
             guard p == profileId else { return }
             let grew = (detail?.messages.count ?? 0) < d.messages.count
             detail = d
+            if d.resolvedChannel == .email {
+                let suggestion = d.replySubject
+                if channelPending == nil && !busy && (suggestedEmailSubject == nil || emailSubject == suggestedEmailSubject) {
+                    emailSubject = suggestion
+                }
+                suggestedEmailSubject = suggestion
+            }
             error = nil
             workspace.record(detail: d)
             if visible { workspace.markRead(conversationId) }
@@ -403,6 +458,7 @@ final class ConversationViewModel: ObservableObject {
         guard let detail else { timeline = []; return }
         var items: [ChatItem] = []
         var previous: (side: ChatMessage.Side, author: String)?
+        var previousEmailSubject: String?
         let byId = Dictionary(detail.messages.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         for m in detail.messages {
             if m.direction == "system" {
@@ -431,10 +487,14 @@ final class ConversationViewModel: ObservableObject {
                 else if let fromMe = content["reply_from_me"]?.boolValue { quotedAuthor = fromMe ? "Você" : detail.displayName }
             }
             let reactions = (content["reactions"]?.objectValue ?? [:]).values.compactMap { $0["emoji"]?.stringValue }.filter { !$0.isEmpty }
+            let subject = channel == .email && !m.isNote ? m.emailSubject : nil
+            let subjectHeading = subject != previousEmailSubject ? subject : nil
+            if let subject { previousEmailSubject = subject }
             items.append(.message(ChatMessage(
                 message: m, content: content, media: m.attachmentIds.map { media(for: $0) }, side: side,
                 sender: sender(of: m, content: content), firstInGroup: first,
-                quotedText: quotedText, quotedAuthor: quotedAuthor, quotedId: quotedId, reactions: reactions
+                quotedText: quotedText, quotedAuthor: quotedAuthor, quotedId: quotedId, reactions: reactions,
+                emailSubjectHeading: subjectHeading
             )))
         }
         for event in workspace.serviceEvents[conversationId] ?? [] { items.append(.event(event)) }
@@ -806,6 +866,13 @@ final class ConversationViewModel: ObservableObject {
         guard isOwned, !m.text.isEmpty else { return }
         editing = nil
         draft = m.text
+        if usesSecondWave {
+            if let subject = m.emailSubject { emailSubject = subject }
+            if isComment {
+                commentTarget = m.commentContext?.id ?? ""
+                commentAction = "" // A pessoa precisa escolher novamente o tipo de resposta.
+            }
+        }
     }
 
     // MARK: Envio
@@ -820,6 +887,7 @@ final class ConversationViewModel: ObservableObject {
 
     func abandonPending() {
         pending = nil
+        channelPending = nil
         key = APIClient.newIdempotencyKey()
         actionError = nil
         info = "Pedido abandonado. Confira Entregas no painel antes de reenviar para evitar duplicidade."
@@ -832,6 +900,8 @@ final class ConversationViewModel: ObservableObject {
         discardMedia()
         location = nil
         contactDraft = nil
+        commentAction = ""
+        commentTarget = ""
     }
 
     // Localização e contato são tipos próprios de `content.type` e não aceitam anexos (o servidor responde
@@ -889,6 +959,7 @@ final class ConversationViewModel: ObservableObject {
 
     private func performSend() async {
         guard let p = profileId, let c = conversation else { return }
+        if usesSecondWave { await performChannelSend(profile: p); return }
         guard humanReplyAllowed, sendContentAllowed else {
             actionError = channelWindow?.label ?? "O canal não permite este envio."
             return
@@ -923,6 +994,79 @@ final class ConversationViewModel: ObservableObject {
             forceScrollToken += 1
         } catch {
             handleActionError(error)
+        }
+    }
+
+    /// Segunda leva: congela a união completa antes da chamada e repete a mesma chave.
+    /// Um recibo (inclusive unknown) encerra a tentativa local, sem nova publicação automática.
+    private func performChannelSend(profile p: String) async {
+        guard isOwned, !busy, detail?.hasMatchingExtension == true, channel?.supportsConversation == true else { return }
+        guard channelPending != nil || (humanReplyAllowed && sendContentAllowed) else {
+            actionError = channelSendHint
+            return
+        }
+        busy = true
+        actionError = nil
+        info = nil
+        defer { busy = false; progress = nil }
+        do {
+            if channelPending == nil {
+                let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                let subject = emailSubject
+                let target = commentTarget
+                let operation = isComment ? commentAction : (channel == .email ? "email.send" : "message.send")
+                let files = attachments
+                let recording = voice
+                let asDocument = sendKind == .document
+                guard !text.isEmpty || !files.isEmpty || recording != nil else { return }
+                var uploaded: [ChannelSendAttachment] = []
+                for file in files {
+                    let id = try await upload(p, data: file.data, name: file.name, type: file.mimeType)
+                    uploaded.append(ChannelSendAttachment(mediaId: id, kind: asDocument ? "document" : file.kind,
+                                                         mimeType: file.mimeType, bytes: Int64(file.data.count), name: file.name))
+                }
+                if let recording {
+                    let data = try Data(contentsOf: recording.url)
+                    let id = try await upload(p, data: data, name: recording.fileName, type: recording.mimeType)
+                    uploaded.append(ChannelSendAttachment(mediaId: id, kind: "audio", mimeType: recording.mimeType,
+                                                         bytes: Int64(data.count), name: recording.fileName))
+                }
+                let action = ChannelAction(type: operation, text: text, subject: channel == .email ? subject : nil,
+                                           commentId: isComment ? target : nil, attachments: uploaded.isEmpty ? nil : uploaded)
+                channelPending = ChannelActionAttempt(body: ChannelActionRequest(channel_action: action))
+            }
+            guard let attempt = channelPending else { return }
+            progress = "Confirmando envio…"
+            let result = try await container.api.channelAction(p, conversation: conversationId, attempt.body, key: attempt.key)
+            if let deliveryId = result["delivery_id"]?.stringValue {
+                outgoing.append(PendingBubble(id: deliveryId, text: attempt.body.channel_action.text ?? "Ação do canal",
+                    created: workspace.nowMillisPrecise, status: result["status"]?.stringValue ?? "pending", error: nil))
+            }
+            let clearsDraft = ["message.send", "email.send", "comment.reply", "comment.private"].contains(attempt.body.channel_action.type)
+            channelPending = nil
+            if clearsDraft { clearComposer() }
+            Haptics.light()
+            rebuild()
+            forceScrollToken += 1
+            await load(silent: true)
+            if channel == .email, clearsDraft { emailSubject = detail?.replySubject ?? "" }
+        } catch {
+            // Não trocar chave nem alvo após conflito/timeout: a tentativa continua revisável.
+            if let error = error as? APIError {
+                actionError = ChannelReason.label(error.code)
+                if error.isUnauthorized { container.handleUnauthorized() }
+            } else { actionError = APIError.describe(error) }
+        }
+    }
+
+    func setCommentVisibility(hidden: Bool) {
+        guard isOwned, !composerLocked, sendTask == nil, let p = profileId,
+              detail?.canChannelAction("comment.visibility", commentId: commentTarget, now: workspace.nowMillisPrecise) == true else { return }
+        let action = ChannelAction(type: "comment.visibility", commentId: commentTarget, hidden: hidden)
+        channelPending = ChannelActionAttempt(body: ChannelActionRequest(channel_action: action))
+        sendTask = Task {
+            await performChannelSend(profile: p)
+            sendTask = nil
         }
     }
 
@@ -967,6 +1111,26 @@ final class ConversationViewModel: ObservableObject {
     }
 
     private func upload(_ p: String, data: Data, name: String, type: String) async throws -> String {
+        if usesSecondWave {
+            let kind = sendKind == .document ? "document" : PendingAttachment(data: data, name: name, mimeType: type).kind
+            guard allows(kind) else {
+                throw APIError(status: 400, code: "unsupported_content", message: "Este canal não permite este anexo.")
+            }
+            if let policy = detail?.channel_extension?.capabilities?.media?[kind] {
+                if let maxBytes = policy.maxSendBytes, Int64(data.count) > maxBytes {
+                    throw APIError(status: 413, code: "attachment_too_large", message: "O arquivo excede o limite informado pelo canal.")
+                }
+                if let mimeTypes = policy.mimeTypes, !mimeTypes.contains(type.lowercased()) {
+                    throw APIError(status: 400, code: "unsupported_content", message: "O canal não aceita este formato.")
+                }
+            }
+            if channel == .telegram && data.count > (kind == "image" ? 10_000_000 : 50_000_000) {
+                throw APIError(status: 413, code: "attachment_too_large", message: "O arquivo excede o limite conservador do Telegram.")
+            }
+            if channel == .tiktok && (!["image/jpeg", "image/png"].contains(type.lowercased()) || data.count > 3_000_000) {
+                throw APIError(status: 413, code: "attachment_too_large", message: "TikTok aceita uma imagem JPG/PNG de até 3.000.000 bytes.")
+            }
+        }
         if channel?.isSocial == true {
             // Limites locais do Wabotia, como src/channels.ts; formatos a conferir com a conta real.
             let supported = ["image/jpeg", "image/png", "video/mp4", "audio/mpeg", "audio/mp4", "application/pdf"]

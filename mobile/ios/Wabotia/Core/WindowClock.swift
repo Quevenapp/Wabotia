@@ -107,15 +107,16 @@ struct WindowClock: Equatable {
     }
 
     /// Texto atualizado sem usar o relógio do aparelho para renovar permissões do servidor.
-    static func channelLabel(_ window: ChannelWindowState, now: Int64) -> String {
+    static func channelLabel(_ window: ChannelWindowState, now: Int64, channel: ChannelID? = nil) -> String {
         let current = window.projected(at: now)
-        guard current.showsClock, current.state != "closed" else { return current.label }
+        guard current.showsClock, current.state != "closed" else { return current.label(for: channel) }
         let end = current.isHumanTextOnly ? current.humanTextClosesAt : current.closesAt
-        guard let end else { return current.label }
+        guard let end else { return current.label(for: channel) }
         let left = max(0, end - max(now, current.serverNow))
         let hours = left / hour
         let minutes = (left % hour) / minute
         let remaining = hours > 0 ? "\(hours)h \(String(format: "%02d", minutes))min" : "\(max(1, minutes)) min"
-        return current.isHumanTextOnly ? "Somente texto humano · \(remaining) restantes" : "Janela de 24h · \(remaining) restantes"
+        let duration = channel == .tiktok ? "48h" : "24h"
+        return current.isHumanTextOnly ? "Somente texto humano · \(remaining) restantes" : "Janela de \(duration) · \(remaining) restantes"
     }
 }

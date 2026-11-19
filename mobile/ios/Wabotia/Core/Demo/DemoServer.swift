@@ -70,8 +70,8 @@ final class DemoServer {
     static let queue = DispatchQueue(label: "br.com.queven.wabotia.demo")
 
     /// Recomeça os dados de exemplo (cada entrada na demonstração começa igual).
-    static func reset(channelScenario: ChannelScenario = .environment) {
-        queue.sync { shared = DemoServer(channelScenario: channelScenario) }
+    static func reset(channelScenario: ChannelScenario = .environment, secondWave: Bool = ChannelsSecondWave.environmentEnabled) {
+        queue.sync { shared = DemoServer(channelScenario: channelScenario, secondWave: secondWave) }
     }
 
     /// Arquivo local com os bytes de um anexo, para os players de áudio e vídeo: o AVPlayer não passa pela
@@ -83,6 +83,7 @@ final class DemoServer {
     var extraProfile = false
     var simulateOffline = false
     private let channelScenario: ChannelScenario
+    private(set) var secondWave: ChannelsSecondWave?
     private var channelEventIds: Set<String> = []
     private var transcriptPreviews: [String: Row] = [:]
     private var channelReceipts: [String: (fingerprint: Data, reply: Reply)] = [:]
@@ -145,8 +146,9 @@ final class DemoServer {
             ["id": "nota", "type": "choice", "label": "Nota", "required": true], ["id": "comentario", "type": "text", "label": "Comentário", "required": false]]],
     ]
 
-    private init(channelScenario: ChannelScenario = .legacy) {
+    private init(channelScenario: ChannelScenario = .legacy, secondWave: Bool = ChannelsSecondWave.environmentEnabled) {
         self.channelScenario = channelScenario
+        if secondWave { self.secondWave = ChannelsSecondWave(t0: start) }
         buildFixtures()
         buildChannelFixtures()
         // Na conversa da Mariana: o formulário da coleta já respondido e o Pix do frete aguardando.
@@ -662,6 +664,9 @@ final class DemoServer {
         var query: [String: String] = [:]
         URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.forEach { query[$0.name] = $0.value ?? "" }
         let body = (try? JSONSerialization.jsonObject(with: data)) as? Row ?? [:]
+        if query["canais"] == "2", secondWave == nil { secondWave = ChannelsSecondWave(t0: now) }
+        if let reply = secondWave?.route(method: method, parts: parts, body: body, key: key, now: now,
+                                         emit: { [unowned self] kind, payload in self.emit(kind, payload) }) { return reply }
 
         func m(_ pattern: String) -> [String]? {
             let wanted = pattern.split(separator: "/").map(String.init)
@@ -750,6 +755,7 @@ final class DemoServer {
                 }
                 status["future_channels"] = futureChannels.map { ["channel": $0, "enabled": false] as Row }
             }
+            secondWave?.extendStatus(&status, now: now)
             return ok(status)
         }
         if get, m(base + "presence") != nil { return ok(presence) }
@@ -764,7 +770,7 @@ final class DemoServer {
             return ok(["data": Array(fresh.prefix(100)), "cursor": fresh.prefix(100).last?["id"] ?? max(after, eventId)])
         }
         if get, m(base + "team") != nil { return ok(["data": team()]) }
-        if get, m(base + "lines") != nil { return ok(["data": lines]) }
+        if get, m(base + "lines") != nil { return ok(["data": lines + (secondWave?.lines ?? [])]) }
         if put, let c = m(base + "lines/*") {
             guard let i = lines.firstIndex(where: { $0["id"] as? String == c[1] }) else { return fail(404, "not_found", "Linha não encontrada.") }
             if let service = body["service"] as? Row { lines[i]["service"] = service }
@@ -790,7 +796,7 @@ final class DemoServer {
 
         // Conversas
         if get, m(base + "conversations") != nil {
-            var list = conversations
+            var list = conversations + (secondWave?.conversationRows(now: now) ?? [])
             if let channel = query["channel"] {
                 guard demoChannels.contains(channel) || futureChannels.contains(channel) else { return fail(400, "invalid_channel", "Canal desconhecido.") }
                 list = list.filter { channelName($0) == channel }
@@ -804,8 +810,10 @@ final class DemoServer {
             list.sort { ($0["updated"] as? Int64 ?? 0) > ($1["updated"] as? Int64 ?? 0) }
             list = list.map { row in
                 var row = row
-                row["last_message"] = lastMessage(row["id"] as? String ?? "")
-                if channelSchema { row.merge(channelView(row)) { _, new in new } }
+                if secondWave?.contains(row["id"] as? String ?? "") != true {
+                    row["last_message"] = lastMessage(row["id"] as? String ?? "")
+                    if channelSchema { row.merge(channelView(row)) { _, new in new } }
+                }
                 return row
             }
             let offset = max(0, Int(query["cursor"] ?? "0") ?? 0)
