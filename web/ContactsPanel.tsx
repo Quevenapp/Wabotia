@@ -1,4 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useApp } from "./app/AppContext";
+import { ContactProfile } from "./contact-profile/ContactProfile";
+import { contactsQuery, profileScopeKey, type IdentityFilter } from "./contact-profile/model";
 import {
   BookUser,
   Download,
@@ -46,11 +49,11 @@ export const demoContacts = [
   },
 ];
 const sourceName = (source: string) =>
-  ({ csv: "CSV", conversation: "Conversa", manual: "Cadastro manual" })[
+  ({ csv: "CSV", conversation: "Conversa", manual: "Cadastro manual", automatic: "Telefone salvo automaticamente" })[
     source
   ] || source;
 
-function Dialog({
+export function Dialog({
   title,
   close,
   busy,
@@ -128,15 +131,26 @@ function Dialog({
 // Retrying an identical action after a lost response must use the same receipt.
 function useWrite(api: Api) {
   const receipts = useRef(new Map<string, string>());
-  return (path: string, method: string, body: any) => {
+  return (path: string, method: string, body: any, signal?: AbortSignal) => {
     const signature = JSON.stringify([path, method, body]);
     if (!receipts.current.has(signature))
       receipts.current.set(signature, crypto.randomUUID());
-    return api(path, method, body, undefined, receipts.current.get(signature));
+    return api(path, method, body, signal, receipts.current.get(signature));
   };
 }
 
-export function ContactEditor({
+/** Mantém a entrada usada pela conversa e pela lista, sempre pelo ID D1. */
+export function ContactEditor(props: React.ComponentProps<typeof SimpleContactBody>) {
+  const app = useApp(), changed = useRef(false);
+  const scopeKey = profileScopeKey(props.root, app.me, app.modules);
+  if (!props.contact?.id) return <SimpleContactBody key={JSON.stringify([scopeKey, props.conversation?.id])} {...props} />;
+  return <ContactProfile api={props.api} root={props.root} contactId={props.contact.id} scopeKey={scopeKey}
+    demo={props.demo} initialContact={props.contact} conversation={props.conversation}
+    onSaved={() => { changed.current = true; }} onClose={() => changed.current ? props.saved("Contato atualizado.") : props.close()}
+    openConversation={props.openConversation} />;
+}
+
+export function SimpleContactBody({
   api,
   root,
   contact,
@@ -146,6 +160,9 @@ export function ContactEditor({
   close,
   saved,
   openConversation,
+  embedded = false,
+  writable = true,
+  localOnly = false,
 }: {
   api: Api;
   root: string;
@@ -154,8 +171,11 @@ export function ContactEditor({
   conversations?: Row[];
   demo: boolean;
   close: () => void;
-  saved: (message: string) => void;
+  saved: (message: string, result?: Row) => void;
   openConversation?: (row: Row) => void;
+  embedded?: boolean;
+  writable?: boolean;
+  localOnly?: boolean;
 }) {
   const [form, setForm] = useState<Row>(() => ({
     ...blank,
@@ -167,7 +187,8 @@ export function ContactEditor({
         : "") ||
       "",
   }));
-  const [mode, setMode] = useState("new"),
+  const ambiguous = !contact && conversation?.customer_link_state === "ambiguous";
+  const [mode, setMode] = useState(ambiguous ? "existing" : "new"),
     [q, setQ] = useState(""),
     [matches, setMatches] = useState<Row[]>([]),
     [chosen, setChosen] = useState("");
@@ -175,6 +196,11 @@ export function ContactEditor({
     [searching, setSearching] = useState(false),
     [error, setError] = useState("");
   const write = useWrite(api);
+  const lifetime = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const controller = new AbortController(); lifetime.current = controller;
+    return () => controller.abort();
+  }, []);
   const namespace = conversation?.external_namespace?.startsWith("app:")
     ? conversation.external_namespace
     : "team";
@@ -202,11 +228,12 @@ export function ContactEditor({
         controller.signal,
       )
         .then((result) => {
+          if (controller.signal.aborted) return;
           setMatches(result.data);
           setError("");
         })
         .catch((e) => {
-          if (e.name !== "AbortError") setError(e.message);
+          if (!controller.signal.aborted && e.name !== "AbortError") setError(e.message);
         })
         .finally(() => {
           if (!controller.signal.aborted) setSearching(false);
@@ -218,84 +245,59 @@ export function ContactEditor({
     };
   }, [q, mode, root, namespace, demo]);
   const act = async (unlink = false) => {
-    if (busy || demo) return;
+    if (busy || demo || !writable || ambiguous) return;
+    const current = lifetime.current;
     setBusy(true);
     setError("");
     try {
+      let result: any;
       if (unlink)
-        await write(
+        result = await write(
           root + `/conversations/${conversation!.id}/contact`,
           "DELETE",
           { expected_contact_id: contact!.id },
+          current?.signal,
         );
       else if (contact)
-        await write(root + "/contacts/" + contact.id, "PATCH", {
-          ...Object.fromEntries(Object.keys(blank).map((k) => [k, form[k]])),
+        result = await write(root + "/contacts/" + contact.id, "PATCH", {
+          ...Object.fromEntries((localOnly ? ["company", "notes"] : Object.keys(blank)).map((k) => [k, form[k]])),
           expected_version: contact.version,
-        });
+        }, current?.signal);
       else if (conversation)
-        await write(
+        result = await write(
           root + `/conversations/${conversation.id}/contact`,
           "PUT",
           mode === "existing" ? { contact_id: chosen } : form,
+          current?.signal,
         );
-      else await write(root + "/contacts", "POST", form);
+      else result = await write(root + "/contacts", "POST", form, current?.signal);
+      if (current?.signal.aborted) return;
       saved(
         unlink
           ? "Contato desvinculado. Ele continua salvo na agenda."
-          : "Contato salvo na agenda.",
+          : result?.pending || result?.customer?.pending
+            ? "Atualização salva e aguardando sincronização."
+            : "Contato salvo na agenda.", result,
       );
+      if (unlink) close();
     } catch (e: any) {
-      setError(e.message);
+      if (!current?.signal.aborted) setError(e.message);
     } finally {
-      setBusy(false);
+      if (!current?.signal.aborted) setBusy(false);
     }
   };
-  return (
-    <Dialog
-      title={
-        contact
-          ? "Editar contato"
-          : conversation
-            ? "Salvar contato da conversa"
-            : "Novo contato"
-      }
-      close={close}
-      busy={busy}
-    >
+  const content = <>
+      {!writable && <p className="muted">Somente consulta.</p>}
+      {ambiguous && <p className="notice" role="status">Este número tem mais de um contato possível. Resolva a identidade em revisão antes de criar ou vincular um cadastro.</p>}
       {demo && (
-        <p className="notice">
-          Dados fictícios. Entre na sua instalação para salvar contatos.
-        </p>
+        <p className="notice">Dados fictícios. Entre na sua instalação para salvar contatos.</p>
       )}
       {conversation && !contact && (
-        <div
-          className="contact-mode"
-          role="group"
-          aria-label="Como salvar o contato"
-        >
-          <button
-            type="button"
-            className={mode === "new" ? "button" : "button secondary"}
-            disabled={busy}
-            onClick={() => {
-              setMode("new");
-              setError("");
-            }}
-          >
-            Criar novo contato
-          </button>
-          <button
-            type="button"
-            className={mode === "existing" ? "button" : "button secondary"}
-            disabled={busy}
-            onClick={() => {
-              setMode("existing");
-              setError("");
-            }}
-          >
-            Vincular contato existente
-          </button>
+        <div className="contact-mode" role="group" aria-label="Como salvar o contato">
+          <button type="button" className={mode === "new" ? "button" : "button secondary"} disabled={busy || !writable || ambiguous}
+            onClick={() => { setMode("new"); setError(""); }}>Criar novo contato</button>
+          <button type="button" className={mode === "existing" ? "button" : "button secondary"} disabled={busy || !writable}
+            onClick={() => { setMode("existing"); setError(""); }}>Vincular contato existente</button>
         </div>
       )}
       <form
@@ -304,7 +306,7 @@ export function ContactEditor({
           act();
         }}
       >
-        <fieldset disabled={busy} className="contact-fields">
+        <fieldset disabled={busy || !writable} className="contact-fields">
           {mode === "existing" && !contact ? (
             <>
               <label className="field">
@@ -337,7 +339,7 @@ export function ContactEditor({
                         required
                       />
                       <span>
-                        <strong>{row.name}</strong>
+                        <strong>{row.name || row.phone}</strong>
                         <small>
                           {[row.phone, row.email, row.company]
                             .filter(Boolean)
@@ -361,15 +363,15 @@ export function ContactEditor({
                   ["email", "E-mail", "email", 254],
                   ["company", "Empresa", "text", 160],
                 ] as const
-              ).map(([key, label, type, max]) => (
+              ).filter(([key]) => !localOnly || key === "company").map(([key, label, type, max]) => (
                 <label className="field" key={key}>
                   <span>
                     {label}
-                    {key !== "name" && <small> (opcional)</small>}
+                    {(key !== "name" || !!contact) && <small> (opcional)</small>}
                   </span>
                   <input
                     type={type}
-                    required={key === "name"}
+                    required={key === "name" && !contact}
                     maxLength={max}
                     value={form[key]}
                     onChange={(e) =>
@@ -418,7 +420,7 @@ export function ContactEditor({
           <button
             className="button"
             type="submit"
-            disabled={busy || demo || (mode === "existing" && !chosen)}
+            disabled={busy || demo || !writable || ambiguous || (mode === "existing" && !chosen)}
           >
             {busy ? (
               <>
@@ -427,7 +429,7 @@ export function ContactEditor({
             ) : mode === "existing" ? (
               "Vincular contato"
             ) : (
-              "Salvar contato"
+              localOnly ? "Salvar dados do atendimento" : "Salvar contato"
             )}
           </button>
         </div>
@@ -441,14 +443,14 @@ export function ContactEditor({
           <button
             className="button secondary"
             type="button"
-            disabled={busy || demo}
+            disabled={busy || demo || !writable}
             onClick={() => act(true)}
           >
             Desvincular desta conversa
           </button>
         </div>
       )}
-      {contact && !conversation && openConversation && (
+      {!embedded && contact && !conversation && openConversation && (
         <div className="contact-history">
           <h3>Conversas vinculadas</h3>
           {conversations.length ? (
@@ -478,8 +480,9 @@ export function ContactEditor({
           )}
         </div>
       )}
-    </Dialog>
-  );
+    </>;
+  return embedded ? content : <Dialog title={contact ? "Editar contato" : conversation ? "Salvar contato da conversa" : "Novo contato"}
+    close={close} busy={busy}>{content}</Dialog>;
 }
 
 function CsvImport({
@@ -699,6 +702,10 @@ export function ContactsPanel({
   demo: boolean;
   openConversation: (row: Row) => void;
 }) {
+  const app = useApp();
+  const scopeKey = profileScopeKey(root, app.me, app.modules);
+  const [identity, setIdentity] = useState<IdentityFilter>("identified"), [review, setReview] = useState(false);
+  const [incomplete, setIncomplete] = useState(false);
   const [rows, setRows] = useState<Row[]>([]),
     [q, setQ] = useState(""),
     [search, setSearch] = useState("");
@@ -710,11 +717,11 @@ export function ContactsPanel({
     [notice, setNotice] = useState("");
   const [editor, setEditor] = useState<Row | null>(null),
     [importing, setImporting] = useState(false);
-  const opening = useRef(false);
+  useEffect(() => { setEditor(null); setImporting(false); setCursor(""); }, [scopeKey]);
   useEffect(() => {
     if (demo) {
       setRows(
-        demoContacts.filter((c) =>
+        demoContacts.filter((c) => !review && (identity !== "phone_only" || !c.name) &&
           (c.name + c.phone + c.email + c.company)
             .toLowerCase()
             .includes(search.toLowerCase()),
@@ -727,29 +734,26 @@ export function ContactsPanel({
     setLoading(true);
     setError("");
     api(
-      root +
-        "/contacts?q=" +
-        encodeURIComponent(search) +
-        "&cursor=" +
-        encodeURIComponent(cursor),
+      root + "/contacts?" + contactsQuery({ search, cursor, identity, review }),
       "GET",
       undefined,
       controller.signal,
     )
       .then((result) => {
+        if (controller.signal.aborted) return;
         setRows(result.data);
         setNext(result.next_cursor);
+        setIncomplete(!!result.incomplete);
       })
       .catch((e) => {
-        if (e.name !== "AbortError") setError(e.message);
+        if (!controller.signal.aborted && e.name !== "AbortError") setError(e.message);
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [search, cursor, revision, root, demo]);
+  }, [search, cursor, revision, root, demo, identity, review, scopeKey]);
   async function edit(row: Row) {
-    if (opening.current) return;
     if (demo) {
       setEditor({
         contact: row,
@@ -770,15 +774,7 @@ export function ContactsPanel({
       });
       return;
     }
-    opening.current = true;
-    setError("");
-    try {
-      setEditor(await api(root + "/contacts/" + row.id));
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      opening.current = false;
-    }
+    setEditor({ contact: row });
   }
   function saved(message: string) {
     setEditor(null);
@@ -826,6 +822,13 @@ export function ContactsPanel({
           </button>
         </div>
       </div>
+      <div className="customer-profile-filter">
+        <label>Mostrar <select aria-label="Tipo de contato" value={identity} disabled={review} onChange={event => { setIdentity(event.target.value as IdentityFilter); setCursor(""); }}>
+          <option value="identified">Identificados</option><option value="phone_only">Somente telefone</option><option value="all">Todos</option>
+        </select></label>
+        <label><input type="checkbox" checked={review} onChange={event => { setReview(event.target.checked); setCursor(""); }} /> Revisar telefones sem interação há 180 dias</label>
+      </div>
+      {incomplete && <p role="status" className="notice">A lista está incompleta enquanto os vínculos antigos são preparados.</p>}
       {notice && (
         <p className="notice" role="status">
           {notice}
@@ -872,7 +875,7 @@ export function ContactsPanel({
                           className="contact-name"
                           onClick={() => edit(row)}
                         >
-                          {row.name}
+                          {row.name || row.phone || "Contato sem identificação"}
                         </button>
                         {row.namespace !== "team" && (
                           <small>Integração externa</small>

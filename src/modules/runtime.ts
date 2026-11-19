@@ -44,3 +44,8 @@ onMenuChoice("ensino_boletim", async (ctx, c, _item, { rowId }) => { await reque
 onConversationAction("ensino", "ensino_boletim", (ctx, actor, c, data, { requestId }) => customerAction(ctx, actor, c, data, requestId));
 onMcpTool("ensino", ensinoTool);
 onCredentialClaim("ensino", claimAccess);
+
+// Fase 1: agregador autorizado da ficha; provedores se registram em seus módulos.
+import { installProfilePort } from "../customer/ports";
+import { createProfilePort } from "../customer/profile";
+installProfilePort(createProfilePort());
