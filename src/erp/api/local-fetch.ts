@@ -1,3 +1,9 @@
+import { erpPartsEnvelope } from "../../modules/erp/parts-state";
+import { erpRequirementMet, readErpPartsSnapshot } from "../parts.ts";
+import { erpRouteRequirement } from "../parts-requirements.ts";
+import { ERP_PARTS_DENIED_HEADER, ERP_PARTS_REFERENCE_HEADER, readErpPartsReference, type ErpPartsReference } from "../parts.ts";
+import { ERP_MAINTENANCE_HEADER } from "../parts-requirements.ts";
+import { partsMaintenance } from "./parts-maintenance.ts";
 // Costura da erp-api do Fagoo (src/erp/fagoo/workers/erp-api, sem
 // alteração): createHandler({ fetchImpl }) com um fetch local no lugar do
 // Supabase. O mesmo truque das fixtures do Fagoo (pos-fixture.mjs), agora
@@ -8,9 +14,8 @@
 // Fase 0, prova 6.
 import { ApiError, type Actor, type Env } from "../../types";
 import { admin } from "../../security";
-import { moduleEnabled, requireModule } from "../../modules/registry";
+import { requireModule } from "../../modules/registry";
 import { FISCAL_MODULE_HEADER, type ErpModuleState } from "../engine/module-state.ts";
-import { erpBlockOf } from "../blocks.ts";
 import { GATE_DENIED_HEADER, GATE_HEADER, IDENTITY_HEADER, SYSTEM_HEADER, encodeIdentity, type IdentityPort } from "../engine/identity.ts";
 import { erpFetch } from "../hub.ts";
 import { erpStorage, publicSignedUrls } from "../../erp-storage";
@@ -89,8 +94,14 @@ export function localFetch(
   profile: string,
   actor: Actor,
   identity: IdentityPort = identityFor(actor),
-  { read = false, hops, gate, trackCustomers = true, modules }: { read?: boolean; hops?: ErpHop[]; gate?: { denied: string | null }; trackCustomers?: boolean; modules?: ErpModuleState } = {},
+  { read = false, hops, gate, trackCustomers = true, modules, partsReference }: { read?: boolean; hops?: ErpHop[]; gate?: { denied: string | null; partsDenied?: string }; trackCustomers?: boolean; modules?: ErpModuleState; partsReference?: ErpPartsReference } = {},
 ) {
+  const authorizedKeys = new Set<string>();
+  let trusted: Promise<IdentityPort> | undefined;
+  const trustedIdentity = () => trusted ??= (async () => {
+    if (readErpPartsSnapshot({ ...identity.partsControl, parts: identity.parts }, profile)) return identity;
+    return { ...identity, ...await erpPartsEnvelope(env, profile) };
+  })();
   return async (input: string | URL | Request, init: RequestInit = {}) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
     if (url.origin !== LOCAL) throw new Error("A erp-api tentou sair da costura local.");
@@ -99,7 +110,9 @@ export function localFetch(
       return Response.json({ id: identity.actor?.user_id ?? actor.id, email: null, app_metadata: {}, user_metadata: { name: actor.name } });
     const rpc = /^\/rest\/v1\/rpc\/([a-z0-9_]+)$/.exec(url.pathname);
     if (rpc) {
-      const state = modules ?? { fiscal: await moduleEnabled(env, profile, "erp-fiscal") };
+      identity = await trustedIdentity();
+      const state = { fiscal: identity.parts!.fiscal };
+      const maintenance = new Headers(init.headers).get(ERP_MAINTENANCE_HEADER);
       // Corpo em texto: a nova tentativa manda o mesmo de novo.
       const body = init.body == null ? undefined : typeof init.body === "string" ? init.body : await new Response(init.body).text();
       const route = `/erp-rpc/${rpc[1]}` as const;
@@ -123,6 +136,8 @@ export function localFetch(
                 "Content-Type": "application/json",
                 [IDENTITY_HEADER]: encodeIdentity(identity),
                 [SYSTEM_HEADER]: "1",
+                ...(partsReference ? { [ERP_PARTS_REFERENCE_HEADER]: JSON.stringify(partsReference) } : {}),
+                ...(maintenance ? { [ERP_MAINTENANCE_HEADER]: maintenance } : {}),
                 [FISCAL_MODULE_HEADER]: state.fiscal ? "1" : "0",
                 ...(gate ? { [GATE_HEADER]: "1" } : {}),
               },
@@ -130,6 +145,16 @@ export function localFetch(
             }),
           { idempotent: read || rpcHasCommand(body), route },
         );
+        if (response.ok) {
+          const collect = (value: any): void => {
+            if (!value || typeof value !== "object") return;
+            if (typeof value.bucket === "string" && typeof value.object_key === "string") authorizedKeys.add(`${value.bucket}/${value.object_key}`);
+            for (const v of Object.values(value)) if (v && typeof v === "object") collect(v);
+          };
+          collect(await response.clone().json().catch(() => null));
+        }
+        const partDenied = response.headers.get(ERP_PARTS_DENIED_HEADER);
+        if (gate && partDenied) gate.partsDenied = partDenied;
         const denied = response.headers.get(GATE_DENIED_HEADER);
         if (gate && denied) gate.denied = denied;
         if (tracking && response.ok) {
@@ -151,7 +176,14 @@ export function localFetch(
       }
     }
     // Arquivos no R2 (MEDIA), por área: src/erp-storage.ts.
-    if (url.pathname.startsWith("/storage/v1/")) return erpStorage(env, profile, new Request(input, init));
+    if (url.pathname.startsWith("/storage/v1/")) {
+      const response = await erpStorage(env, profile, new Request(input, init), await trustedIdentity(), authorizedKeys);
+      if (gate && [409, 503].includes(response.status)) {
+        const error = await response.clone().json<any>().catch(() => null);
+        if (["module_disabled", "erp_parts_unavailable", "erp_parts_stale"].includes(error?.error)) gate.partsDenied = error.error;
+      }
+      return response;
+    }
     return Response.json({ message: "not found" }, { status: 404 });
   };
 }
@@ -210,13 +242,39 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
   // Portão dos blocos (src/erp/blocks.ts): opcional desligado → 409 antes do
   // objeto; o que saiu da instalação principal (Origin, MCP, autoatualização
   // do Fagoo) → 404. O módulo `erp` em si já passou pelo portão comum.
-  const block = erpBlockOf(path);
-  if (block === "externo")
-    throw new ApiError(404, "erp_route_removed", "Esta rota do ERP não faz parte da instalação principal.");
-  if (block !== "erp") await requireModule(env, profile, block);
-  // Estado efetivo da área nesta requisição, sem depender do wake do agendador.
-  // Só a costura monta este metadado; cabeçalhos e campos do cliente não o definem.
-  const modules: ErpModuleState = { fiscal: await moduleEnabled(env, profile, "erp-fiscal") };
+  let bodyBytes = ["GET", "HEAD"].includes(request.method) ? undefined : await request.arrayBuffer();
+  let routeBody: unknown;
+  if (bodyBytes && /application\/json/i.test(request.headers.get("Content-Type") ?? "")) {
+    try { routeBody = JSON.parse(new TextDecoder().decode(bodyBytes)); } catch { /* O handler original valida o JSON. */ }
+  }
+  const innerUrl = new URL(path + url.search, "https://erp-api.wabotia.invalid");
+  let partsReference: ErpPartsReference | undefined;
+  if (path === "/v1/sistema/etiquetas/registros" && innerUrl.searchParams.has("label_id")) {
+    partsReference = readErpPartsReference({ kind: "label", id: innerUrl.searchParams.get("label_id") }) ?? undefined;
+    if (!partsReference) throw new ApiError(400, "erp_parts_reference_invalid", "Definição salva inválida.");
+    innerUrl.searchParams.delete("label_id");
+  }
+  if (routeBody && typeof routeBody === "object" && !Array.isArray(routeBody)) {
+    const body = routeBody as Record<string, unknown>;
+    const key = path === "/v1/sistema/relatorios/execucao" ? "report_id" : path === "/v1/sistema/etiquetas/registros" ? "label_id" : null;
+    if (key && Object.hasOwn(body, key)) {
+      partsReference = readErpPartsReference({ kind: key === "report_id" ? "report" : "label", id: body[key] }) ?? undefined;
+      if (!partsReference) throw new ApiError(400, "erp_parts_reference_invalid", "Definição salva inválida.");
+      const { [key]: _reference, ...commercial } = body;
+      routeBody = commercial;
+      bodyBytes = new TextEncoder().encode(JSON.stringify(commercial)).buffer;
+    }
+  }
+  const requirement = erpRouteRequirement(request.method, innerUrl, routeBody);
+  if (requirement === "externo") throw new ApiError(404, "erp_route_removed", "Esta rota do ERP não faz parte da instalação principal.");
+  if (!requirement) throw new ApiError(404, "not_found", "Rota não encontrada.");
+  identity = { ...identity, ...await erpPartsEnvelope(env, profile) };
+  if (!erpRequirementMet(identity.parts!, requirement)) throw new ApiError(409, "module_disabled", "Esta rotina depende de uma parte desligada.");
+  const modules: ErpModuleState = { fiscal: identity.parts!.fiscal };
+  if (path === "/v1/sistema/manutencao-efeitos") {
+    const maintenanceRequest = new Request(request.url, { method: request.method, headers: request.headers, body: bodyBytes });
+    return partsMaintenance(maintenanceRequest, identity, localFetch(env, profile, actor, identity, { read: request.method === "GET", gate: { denied: null } }));
+  }
   // Token em forma de JWT, sem assinatura (alg none), com sessão e aal do
   // envelope: o accessGate e a rota de segurança da erp-api leem session_id e
   // aal das claims (tokenSession). Nunca é conferido como JWT: o /auth/v1/user
@@ -228,22 +286,26 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
   const headers = new Headers({ Authorization: `Bearer ${part({ alg: "none", typ: "JWT" })}.${part(claims)}.wabotia` });
   const type = request.headers.get("Content-Type");
   if (type) headers.set("Content-Type", type);
-  const inner = new Request(new URL(path + url.search, "https://erp-api.wabotia.invalid"), {
+  const inner = new Request(innerUrl, {
     method: request.method,
     headers,
-    body: ["GET", "HEAD"].includes(request.method) ? undefined : await request.arrayBuffer(),
+    body: bodyBytes,
   });
   // A erp-api (3 MB) só é avaliada na primeira chamada do ERP (prova 7).
   // @ts-ignore módulo JavaScript do Fagoo, sem tipos (allowJs desligado).
   const { createHandler } = await (erpApiModule ??= import("../fagoo/workers/erp-api/src/index.mjs"));
   const read = ["GET", "HEAD"].includes(request.method);
   const hops: ErpHop[] = [];
-  const gate = { denied: null as string | null };
+  const gate = { denied: null as string | null, partsDenied: undefined as string | undefined };
   const started = Date.now();
-  const handler = createHandler({ fetchImpl: localFetch(env, profile, actor, identity, { read, hops, gate, modules }) });
+  const handler = createHandler({ fetchImpl: localFetch(env, profile, actor, identity, { read, hops, gate, modules, partsReference }) });
   let response = (await handler(inner, CONFIG)) as Response;
   // Portão fechado no objeto: o erro que o accessGate da erp-api daria, no formato dela.
-  if (gate.denied) {
+  if (gate.partsDenied) {
+    const code = gate.partsDenied;
+    response = Response.json({ error: { code, message: code === "module_disabled" ? "Esta rotina depende de uma parte desligada." : "Estado das partes indisponível. Atualize e tente novamente." } },
+      { status: code === "erp_parts_unavailable" ? 503 : 409 });
+  } else if (gate.denied) {
     const requestId = ((await response.json().catch(() => null)) as { error?: { request_id?: string } } | null)?.error?.request_id;
     const headers = new Headers(response.headers);
     headers.delete("content-length");

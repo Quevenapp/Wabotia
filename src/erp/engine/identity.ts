@@ -1,3 +1,4 @@
+import { readErpPartsSnapshot, type ErpParts, type ErpPartsControl } from "../parts.ts";
 // Porta de identidade: o que no Fagoo vinha de auth.* (Supabase Auth) e no
 // Wabotia vem do núcleo (Pessoas, login, MFA). O Worker preenche o envelope
 // antes da transação; o motor nunca consulta o D1. Fase 3: o lado do Worker
@@ -44,6 +45,8 @@ export interface ErpActor extends ErpPerson {
 export interface IdentityPort {
   actor: ErpActor | null;
   people: ErpPerson[] | null;
+  parts?: Readonly<ErpParts>;
+  partsControl?: ErpPartsControl;
 }
 
 export const NO_IDENTITY: IdentityPort = { actor: null, people: null };
@@ -64,7 +67,7 @@ function person(v: any): ErpPerson | null {
 /** Envelope recebido (JSON já decodificado) → porta validada; o que não confere vira ausente. */
 export function readIdentity(raw: unknown): IdentityPort {
   if (!raw || typeof raw !== "object") return NO_IDENTITY;
-  const r = raw as { actor?: any; people?: any };
+  const r = raw as { actor?: any; people?: any; parts?: unknown; partsControl?: any };
   const base = person(r.actor);
   const actor: ErpActor | null = base
     ? {
@@ -75,7 +78,10 @@ export function readIdentity(raw: unknown): IdentityPort {
       }
     : null;
   const people = Array.isArray(r.people) ? r.people.map(person).filter((p: ErpPerson | null): p is ErpPerson => p !== null) : null;
-  return { actor, people };
+  const snapshot = readErpPartsSnapshot({ ...r.partsControl, parts: r.parts });
+  if (!snapshot) return { actor, people };
+  const { parts, ...partsControl } = snapshot;
+  return { actor, people, parts, partsControl };
 }
 
 const b64url = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");

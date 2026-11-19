@@ -1,3 +1,4 @@
+import { syncErpParts } from "./modules/erp/parts-state";
 import {
   all,
   one,
@@ -1988,7 +1989,7 @@ export async function commitSettingsPlan(
   await batch(env, [...statements, ...provenance]);
   if (recovery) await recoverSettingsApplication(env, actor, plan.profile, recovery.id);
   else for (const publication of publications) await event(env, plan.profile, publication.kind, publication.id, publication.payload);
-  return { ...plan.view, settings_revision: plan.settings_revision };
+  return { ...plan.view, settings_revision: plan.settings_revision, erp_sync: await syncErpParts(env, plan.profile) };
 }
 
 /** Recupera antes de conferir a prévia, que já mudou pela própria aplicação. */
