@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { blockEnabled } from '../../blocks';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import { AccessError, type AccessController } from '../lib/real-access';
 import type { CatalogAccess } from '../lib/catalog-model';
@@ -38,19 +39,24 @@ type FormState = { id: string | null; version: number; parent: string | null; na
   fieldIds: string[]; initialFieldIds: string[]; fieldsRead?: boolean };
 const sameIds = (a: readonly string[], b: readonly string[]) => [...a].sort().join() === [...b].sort().join();
 const typeOf = (item: TaxonomyItem): TagType => item.tag_type ?? 'products';
+const typeEnabled = (type: TagType) => type !== 'invoices' || blockEnabled('erp-fiscal');
+const FISCAL_DISABLED = 'Fiscal está desligado nesta área. Ligue o módulo em Gestão › Módulos para continuar com esta tag ou grupo.';
 
 export default function ProductTaxonomy({ controller, kind }: { controller: AccessController; kind: TaxonomyKind }) {
   const text = TEXT[kind], tagged = kind === 'tags' || kind === 'tag_groups';
+  const fiscalEnabled = blockEnabled('erp-fiscal');
   const location = useLocation();
   const [items, setItems] = useState<TaxonomyItem[] | null>(null), [groups, setGroups] = useState<TaxonomyItem[]>([]);
   const [error, setError] = useState(''), [notice, setNotice] = useState(''), [reload, setReload] = useState(0);
   // Writable tag types (Produtos with the products permission, Contatos with the contacts one); categories and groups use 'products'.
   const [profileTypes, setWritableTypes] = useState<TagType[]>([]);
+  const [profileReadTypes, setReadableTypes] = useState<TagType[]>([]);
   // 202610200282: Sistema › Usuários › Permissões › Outros › "Cadastro de tags" / "Cadastro de grupos de tags" guard every write of
   // these two screens (null until read; unreadable permissions keep the profile, the server still decides).
   const [screenAllowed, setScreenAllowed] = useState<boolean | null>(null);
   const screenKey = kind === 'tags' ? 'outros.tags' : kind === 'tag_groups' ? 'outros.grupos_tags' : null;
-  const writableTypes = screenKey && screenAllowed === false ? [] : profileTypes;
+  const readableTypes = profileReadTypes.filter(typeEnabled);
+  const writableTypes = screenKey && screenAllowed === false ? [] : profileTypes.filter(typeEnabled);
   const [typeFilter, setTypeFilter] = useState<'' | TagType>(() => tagged ? TYPE_PARAM[new URLSearchParams(location.search).get('tipo') ?? ''] ?? '' : '');
   const [query, setQuery] = useState(''), [selected, setSelected] = useState<ReadonlySet<string>>(new Set()), [menu, setMenu] = useState<string | null>(null);
   const [form, setForm] = useState<FormState | null>(null), [batch, setBatch] = useState<TaxonomyItem[] | null>(null);
@@ -66,6 +72,24 @@ export default function ProductTaxonomy({ controller, kind }: { controller: Acce
     return () => signal.abort();
   }, [controller, kind, reload]);
   useEffect(() => () => { request.current?.abort(); save.current?.abort(); batchRequest.current?.abort(); }, []);
+  // O estado retido não autoriza uma operação depois de desligar Fiscal.
+  useEffect(() => {
+    if (!tagged) return;
+    if (fiscalEnabled) {
+      setForm(current => current?.error === FISCAL_DISABLED ? { ...current, error: '' } : current);
+      return;
+    }
+    setTypeFilter(current => current === 'invoices' ? '' : current);
+    setSelected(current => new Set([...current].filter(id => items?.some(item => item.id === id && typeEnabled(typeOf(item))))));
+    setMenu(null);
+    if (form?.type === 'invoices') {
+      save.current?.abort(); save.current = null;
+      setForm(current => current && { ...current, busy: false, uncertain: current.uncertain || Boolean(current.busy) });
+    }
+    if (batch?.some(item => typeOf(item) === 'invoices')) {
+      batchRequest.current?.abort(); batchRequest.current = null; setBatch(null);
+    }
+  }, [fiscalEnabled, tagged]);
   // Campos Customizados › Inclusão e edição (Sistema › Usuários › Permissões): without it the linked fields are shown, not changed.
   // Unreadable permissions keep the control (the server decides).
   const [fieldsLocked, setFieldsLocked] = useState(false);
@@ -96,7 +120,8 @@ export default function ProductTaxonomy({ controller, kind }: { controller: Acce
         const read = Array.isArray(access?.read) ? access.read : [], write = Array.isArray(access?.write) ? access.write : [];
         if (!read.includes('products') && !(tagged && read.includes('contacts'))) { setItems([]); setError(tagged ? 'Seu perfil não permite consultar as tags.' : 'Seu perfil não permite consultar os cadastros de produtos.'); return; }
         const role = controller.getSnapshot().membership?.role ?? '';
-        setWritableTypes(TAG_TYPES.filter(type => type === 'invoices' ? tagged && INVOICE_TAG_WRITERS.includes(role) : write.includes(type)));
+        setReadableTypes(TAG_TYPES.filter(type => typeEnabled(type) && (type === 'invoices' ? tagged && [...INVOICE_TAG_WRITERS, 'consulta'].includes(role) : read.includes(type))));
+        setWritableTypes(TAG_TYPES.filter(type => typeEnabled(type) && (type === 'invoices' ? tagged && INVOICE_TAG_WRITERS.includes(role) : write.includes(type))));
         const list = taxonomyItems(await controller.catalog(`/v1/cadastros/taxonomias/${TAXONOMY_SLUG[kind]}`, { signal: signal.signal }), kind);
         const parents = kind === 'tags' ? taxonomyItems(await controller.catalog('/v1/cadastros/taxonomias/grupos-tags', { signal: signal.signal }), 'tag_groups') : [];
         if (signal.signal.aborted) return;
@@ -104,15 +129,17 @@ export default function ProductTaxonomy({ controller, kind }: { controller: Acce
       } catch (failure) { if (!signal.signal.aborted && !aborted(failure)) { setItems(current => current ?? []); setError(errorText(failure)); } }
     })();
     return () => signal.abort();
-  }, [controller, kind, reload]);
+  }, [controller, kind, reload, fiscalEnabled]);
   const writable = tagged ? writableTypes.length > 0 : writableTypes.includes('products');
-  const canWrite = (item: TaxonomyItem) => tagged ? writableTypes.includes(typeOf(item)) : writable;
-  const all = items ?? [];
-  const typed = tagged && typeFilter ? all.filter(item => typeOf(item) === typeFilter) : all;
+  const canWrite = (item: TaxonomyItem) => tagged ? typeEnabled(typeOf(item)) && writableTypes.includes(typeOf(item)) : writable;
+  const all = (items ?? []).filter(item => !tagged || readableTypes.includes(typeOf(item)));
+  const activeFilter = typeFilter && readableTypes.includes(typeFilter) ? typeFilter : '';
+  const typed = tagged && activeFilter ? all.filter(item => typeOf(item) === activeFilter) : all;
   const visible = query.trim() ? taxonomyTree(typed).filter(({ item }) => fold(item.name).includes(fold(query.trim()))) : taxonomyTree(typed);
-  const parentName = (item: TaxonomyItem) => kind === 'tags' ? groups.find(group => group.id === item.parent_id)?.name ?? '—' : all.find(other => other.id === item.parent_id)?.name ?? '—';
+  const parentName = (item: TaxonomyItem) => kind === 'tags' ? groups.find(group => readableTypes.includes(typeOf(group)) && group.id === item.parent_id)?.name ?? '—' : all.find(other => other.id === item.parent_id)?.name ?? '—';
   const defaultType = (): TagType => typeFilter && writableTypes.includes(typeFilter) ? typeFilter : writableTypes[0] ?? 'products';
   const open = (state: Partial<FormState>) => guard.confirmLeave(() => { const type = state.type ?? defaultType();
+    if (tagged && !typeEnabled(type)) return;
     setForm({ id: null, version: 0, parent: null, name: '', initial: '', command: crypto.randomUUID(), uncertain: false, busy: false, error: '', group: '', initialGroup: '', type, initialType: type, fieldIds: [], initialFieldIds: [], ...state }); });
   const linkedFields = (id: string) => Array.isArray(customFields) ? customFields.filter(field => field.category_ids.includes(id)).map(field => field.id) : [];
   const edit = (item: TaxonomyItem) => { const fieldIds = kind === 'categories' ? linkedFields(item.id) : [];
@@ -125,6 +152,8 @@ export default function ProductTaxonomy({ controller, kind }: { controller: Acce
   }, [customFields, form?.id, form?.fieldsRead]);
   const submit = async (event?: FormEvent) => {
     event?.preventDefault(); const current = form; if (!current || current.busy || save.current) return;
+    if (tagged && !typeEnabled(current.type)) { setForm(latest => latest && { ...latest, error: FISCAL_DISABLED }); return; }
+    if (tagged ? !writableTypes.includes(current.type) : !writable) return;
     const name = current.name.trim();
     if (!current.uncertain && (!name || name.length > text.max)) { setForm({ ...current, error: `Informe o nome com até ${text.max} caracteres.` }); return; }
     const parent = kind === 'tags' ? current.group || null : current.parent;
@@ -136,11 +165,11 @@ export default function ProductTaxonomy({ controller, kind }: { controller: Acce
     try {
       const path = `/v1/cadastros/taxonomias/${TAXONOMY_SLUG[kind]}${current.id ? `/${current.id}` : ''}`;
       const result = await controller.catalog(path, { method: current.id ? 'PATCH' : 'POST', body, signal: signal.signal }) as { saved?: boolean; reason?: string; item?: TaxonomyItem };
-      if (signal.signal.aborted) return;
+      if (signal.signal.aborted || tagged && !typeEnabled(current.type)) return;
       if (!result.saved) { setForm({ ...current, busy: false, uncertain: false, command: crypto.randomUUID(), error: `Já existe ${kind === 'categories' ? 'uma categoria' : kind === 'tags' ? 'uma tag' : 'um grupo'} com este nome${parent || kind === 'tags' ? ' neste nível' : ''}${tagged ? ` no tipo ${TAG_TYPE_LABELS[current.type]}` : ''}.` }); return; }
       setForm(null); setNotice(current.id ? 'Cadastro salvo.' : `${text.noun[0].toUpperCase()}${text.noun.slice(1)} incluíd${kind === 'categories' || kind === 'tags' ? 'a' : 'o'}.`); setReload(value => value + 1);
     } catch (failure) {
-      if (signal.signal.aborted) return;
+      if (signal.signal.aborted || tagged && !typeEnabled(current.type)) return;
       const known = !current.uncertain && !aborted(failure) && knownFailure(failure);
       setForm({ ...current, busy: false, uncertain: !known, command: known ? crypto.randomUUID() : current.command,
         error: known ? (failure as AccessError).status === 409 ? 'O cadastro foi alterado por outra operação. Feche o formulário e abra de novo.' : errorText(failure) : 'Não foi possível confirmar o resultado. Use “Conferir resultado” para repetir a mesma operação sem duplicar.' });
@@ -155,7 +184,9 @@ export default function ProductTaxonomy({ controller, kind }: { controller: Acce
     if (!signal || signal.aborted || snapshot.phase !== 'ready' || snapshot.membership?.user_id !== actor.current) throw new Error('A sessão mudou durante a operação. Este cadastro não foi enviado.');
     const body = { command_id: crypto.randomUUID(), expected_version: item.version };
     const send = async () => {
+      if (!canWrite(item)) throw new Error(typeOf(item) === 'invoices' && !typeEnabled('invoices') ? FISCAL_DISABLED : 'Seu perfil não permite excluir este cadastro.');
       const result = await controller.catalog(`/v1/cadastros/taxonomias/${TAXONOMY_SLUG[kind]}/${item.id}/excluir`, { method: 'POST', body, signal }) as { deleted?: boolean; reason?: string; products?: number };
+      if (signal.aborted || !canWrite(item)) throw new Error('O acesso mudou durante a operação. Atualize a listagem.');
       if (!result.deleted) throw new Error(REFUSED[result.reason ?? ''] ?? 'Não foi excluído.');
       return result.products ? { message: `${result.products} ${typeOf(item) === 'contacts' ? 'contato(s)' : typeOf(item) === 'invoices' ? 'nota(s)' : 'produto(s)'} atualizado(s).` } : undefined;
     };
@@ -177,7 +208,7 @@ export default function ProductTaxonomy({ controller, kind }: { controller: Acce
   ];
   const parentOfForm = form?.parent ? all.find(item => item.id === form.parent) : null;
   const formEditable = form ? (tagged ? writableTypes.includes(form.type) : writable) : false;
-  const formGroups = groups.filter(group => !form || typeOf(group) === form.type);
+  const formGroups = groups.filter(group => readableTypes.includes(typeOf(group)) && (!form || typeOf(group) === form.type));
   const used = (item: TaxonomyItem) => kind === 'tags' && typeOf(item) === 'contacts' ? item.contacts ?? 0 : kind === 'tags' && typeOf(item) === 'invoices' ? item.invoices ?? 0 : item.products;
   return <section className="real-section taxonomy-screen" aria-labelledby="taxonomy-title">
     <header className="real-heading catalog-heading"><div className="catalog-title"><h1 id="taxonomy-title">{text.title}</h1></div>
@@ -202,20 +233,21 @@ export default function ProductTaxonomy({ controller, kind }: { controller: Acce
                 onChange={event => { if (event.target.value) setForm({ ...form, fieldIds: [...form.fieldIds, event.target.value] }); }} />
               <small>Um campo sem agrupador aparece em todos os produtos; escolhido aqui, ele passa a aparecer só nas categorias marcadas no agrupador do campo (e nas subcategorias delas).</small></>}</>}</div>}
         {tagged && <div className="form-field"><label htmlFor="taxonomy-type">Tipo</label><select id="taxonomy-type" value={form.type} disabled={Boolean(form.id)} onChange={event => setForm({ ...form, type: event.target.value as TagType, group: '' })}>
-          {(form.id ? [form.type] : writableTypes).map(type => <option key={type} value={type}>{TAG_TYPE_LABELS[type]}</option>)}</select>
+          {(form.id ? [form.type].filter(type => readableTypes.includes(type)) : writableTypes).map(type => <option key={type} value={type}>{TAG_TYPE_LABELS[type]}</option>)}</select>
           {form.id && <small>O tipo é definido na inclusão.</small>}</div>}
         {kind === 'tags' && <div className="form-field"><label htmlFor="taxonomy-group">Grupo</label><select id="taxonomy-group" value={form.group} disabled={Boolean(form.id)} onChange={event => setForm({ ...form, group: event.target.value })}><option value="">Selecione uma opção</option>{formGroups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select>
           {form.id && <small>O grupo é definido na inclusão da tag.</small>}</div>}
       </fieldset>
+      {tagged && form.type === 'invoices' && !fiscalEnabled && <p className="real-alert" role="alert">{FISCAL_DISABLED}</p>}
       {form.error && <p className="real-alert" role="alert">{form.error}</p>}
       <div className="real-editor-actions"><button type="button" className="secondary-button" disabled={form.busy} onClick={close}>Cancelar</button>{formEditable && <button type="submit" className="primary-button" disabled={form.busy}>{form.busy ? 'Salvando…' : form.uncertain ? 'Conferir resultado' : 'Salvar'}</button>}</div>
     </form>}
     {kind === 'categories' && <aside className="taxonomy-tip"><h2>Dica — Criando suas categorias</h2><p>Pense nas categorias como as seções de uma vitrine: o cliente encontra o produto mais rápido quando ele está no lugar certo.</p>
       <ul><li>Crie primeiro a categoria-pai (por exemplo, “Ferragens”) e depois as subcategorias com “Incluir subcategoria”.</li><li>Use nomes curtos e claros; evite categorias genéricas como “Diversos”.</li><li>Os produtos recebem a categoria no formulário (aba Características) ou em lote pela listagem de produtos.</li></ul></aside>}
     <div className="native-list-toolbar"><div className="form-field"><label htmlFor="taxonomy-search">{text.search}</label><input id="taxonomy-search" type="search" maxLength={100} value={query} placeholder={text.search} onChange={event => setQuery(event.target.value)} /></div>
-      {tagged && <div className="form-field"><label htmlFor="taxonomy-type-filter">Tipo</label><select id="taxonomy-type-filter" value={typeFilter} onChange={event => { setTypeFilter(event.target.value as '' | TagType); setSelected(new Set()); }}><option value="">Todos</option>{TAG_TYPES.map(type => <option key={type} value={type}>{TAG_TYPE_LABELS[type]}</option>)}</select></div>}
+      {tagged && <div className="form-field"><label htmlFor="taxonomy-type-filter">Tipo</label><select id="taxonomy-type-filter" value={activeFilter} onChange={event => { setTypeFilter(event.target.value as '' | TagType); setSelected(new Set()); }}><option value="">Todos</option>{readableTypes.map(type => <option key={type} value={type}>{TAG_TYPE_LABELS[type]}</option>)}</select></div>}
       {writable && <button type="button" className={`secondary-button${selected.size ? ' is-danger' : ''}`} title="Excluir selecionados" aria-label="Excluir selecionados" disabled={!selected.size} onClick={() => startDelete(all.filter(item => selected.has(item.id)))}><Icon name="trash-can" size={13} /></button>}</div>
-    {tagged && <AppliedChips chips={[...(typeFilter ? [{ label: `Tipo: ${TAG_TYPE_LABELS[typeFilter]}`, onRemove: () => setTypeFilter('') }] : []), ...(query.trim() ? [{ label: `Pesquisa: ${query.trim()}`, onRemove: () => setQuery('') }] : [])]} onClear={() => { setTypeFilter(''); setQuery(''); }} />}
+    {tagged && <AppliedChips chips={[...(activeFilter ? [{ label: `Tipo: ${TAG_TYPE_LABELS[activeFilter]}`, onRemove: () => setTypeFilter('') }] : []), ...(query.trim() ? [{ label: `Pesquisa: ${query.trim()}`, onRemove: () => setQuery('') }] : [])]} onClear={() => { setTypeFilter(''); setQuery(''); }} />}
     <div className="catalog-list-controls">{writable ? <ListControls checked={allSelected} indeterminate={!allSelected && ids.some(id => selected.has(id))} onToggleAll={() => setSelected(allSelected ? new Set() : new Set(ids))} onRefresh={() => setReload(value => value + 1)} />
       : <button type="button" className="origin-refresh" title="Recarregar" aria-label="Recarregar" onClick={() => setReload(value => value + 1)}><Icon name="rotate-right" size={12} /></button>}
       <div className="native-list-summary"><dl className="native-list-stat"><dt>{text.count}</dt><dd>{items ? typed.length : '—'}</dd></dl></div></div>

@@ -64,6 +64,9 @@ const PDV = new Set([
   "/frente-caixa-empresa",
   "/preferencias/vendas/frente-caixa",
 ]);
+const TAGS = new Set([
+  "/tags", "/grupos-tags", "/preferencias/suprimentos/tags", "/preferencias/suprimentos/grupos-tags",
+]);
 
 /** Bloco de um endereço do ERP (caminho sem o /app/erp, com ou sem ?consulta). */
 export function blockOf(target: string): ErpBlock {
@@ -72,6 +75,7 @@ export function blockOf(target: string): ErpBlock {
     path === prefix || path.startsWith(prefix + "/");
   if (
     FISCAL.has(path) ||
+    (TAGS.has(path) && new URLSearchParams(query).getAll("tipo").includes("notas")) ||
     under("/preferencias/notas-fiscais") ||
     under("/preferencias/certificado")
   )
@@ -96,5 +100,6 @@ export function erpPartEnabled(
   if (!["cadastro", "catalogo", "vendas", "compras", "estoque", "financeiro",
     "fiscal", "cobranca", "pdv", "servicos", "resultados", "sistema"].includes(part)) return false;
   const block = blockOf(to);
-  return modules.erp === true && (block === "erp" || modules[block] === true);
+  return modules.erp === true && (part !== "fiscal" || modules["erp-fiscal"] === true) &&
+    (block === "erp" || modules[block] === true);
 }

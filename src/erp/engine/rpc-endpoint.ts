@@ -9,6 +9,7 @@ import { ErpGateDenied, callRpc, isPorted, rpcObjectKeys, rpcWakes, rpcWantsList
 import { CUSTOMER_BRIDGE_FIELDS, CUSTOMER_BRIDGE_SCAN, CUSTOMER_BRIDGE_USER_ID, GATE_DENIED_HEADER, GATE_HEADER, IDENTITY_HEADER, SYSTEM_HEADER, decodeIdentity } from "./identity.ts";
 import { SIGNATURES } from "./signatures.generated.ts";
 import { ENGINE_SIGNATURES } from "./signatures-engine.ts";
+import { requestModuleState } from "./module-state.ts";
 
 /**
  * RPCs do agendador e da plataforma, sem checagem de quem chama (no Fagoo só
@@ -178,6 +179,7 @@ export async function handleRpc(
     const result = callRpc(storageDriver(ctx.storage), name, args as Record<string, unknown>, clock, {
       ...storage,
       identity,
+      modules: requestModuleState(request.headers, request.headers.get(SYSTEM_HEADER) === "1"),
       gate: request.headers.get(GATE_HEADER) === "1",
     });
     // RPC que cria tarefa da plataforma (exportação pedida no painel): o

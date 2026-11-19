@@ -7,6 +7,7 @@ import { Clock } from "./time.ts";
 import { NO_IDENTITY, type IdentityPort } from "./identity.ts";
 import { prepareArgs } from "./args.ts";
 import { flushSequences } from "./sequence.ts";
+import type { ErpModuleState } from "./module-state.ts";
 
 /** Objeto já enviado ao armazenamento (o storage.objects do Supabase; no Wabotia, o R2). */
 export interface StoredObject {
@@ -31,6 +32,8 @@ export interface RpcContext {
   listing: () => StoredListing[];
   /** Quem chama e as pessoas da área (porta de identidade, engine/identity.ts). */
   identity: IdentityPort;
+  /** Ativação por requisição; não participa dos argumentos nem do hash do comando. */
+  modules?: ErpModuleState;
   /** Números de identity emitidos nesta chamada (engine/sequence.ts); gravados fora da transação. */
   sequences: Map<string, bigint>;
   /**
@@ -58,6 +61,7 @@ export interface RpcEnvironment {
   objects?: ObjectLookup;
   listing?: StoredListing[];
   identity?: IdentityPort;
+  modules?: ErpModuleState;
   /**
    * Portão por requisição (horário de acesso e segundo fator) antes do RPC,
    * na mesma transação: o accessGate da erp-api, sem uma ida a mais ao
@@ -185,6 +189,7 @@ export function inTransaction<T>(db: SqlDriver, fn: (ctx: RpcContext) => T, cloc
     objects: e.objects ?? noObjects,
     listing: () => listing,
     identity: e.identity ?? NO_IDENTITY,
+    modules: e.modules,
     sequences: new Map(),
     deferred: [],
   };
