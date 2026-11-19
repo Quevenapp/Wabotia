@@ -46,12 +46,16 @@ beforeAll(() => {
   expect(customerProvider("erp")).toBeNull();
   registerCustomerProvider("erp", { authorizeProfile: authorize, list });
   registerCustomerProvider("condominio", { list, section });
-  registerCustomerProvider("ensino", { section });
+  // O acesso escolar importa sua composição mesmo com runtime isolado.
+  // Preserve o registro real e substitua apenas a operação usada pela ficha.
+  if (!customerProvider("ensino")) registerCustomerProvider("ensino", { section });
 });
 beforeEach(() => {
   authorize.mockReset().mockResolvedValue(undefined);
   list.mockReset().mockResolvedValue({ items: [], nextCursor: null, incomplete: false });
   section.mockReset().mockResolvedValue({ version: 1, writable: false, schema: "private.navigation.v1", data: { target: { module: "ensino", resource: "home", id: "ensino" } } });
+  const school = customerProvider("ensino")!;
+  if (school.section !== section) vi.spyOn(school, "section").mockImplementation(section);
   installFullCustomerHost(null);
 });
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); installFullCustomerHost(null); });

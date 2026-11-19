@@ -39,6 +39,8 @@ export interface OrderAccess {
   write?: boolean;
   /** Obrigatório para contexto cliente; validado por ctx.conversation. */
   conversation_id?: string;
+  /** Documentos mantêm a conferência telefônica do destinatário. */
+  recipient?: boolean;
 }
 
 /** O vínculo amplia o cadastro; a credencial telefônica vem somente do canal. */
@@ -49,29 +51,36 @@ export async function workCustomerScope(ctx: ModuleContext, c: Conversation) {
   if (["blocked", "excluded", "ambiguous"].includes(scope.ref.state))
     return { sql: "0", params: [] as unknown[], contactId: null, verified: false };
   return { ...scope, contactId: scope.ref.state === "ready" ? scope.ref.contactId : null,
-    verified: scope.ref.namespace === "team" && !!(scope.ref.verifiedPhone || (ctx.verifiedPhone ? ctx.verifiedPhone(c) : verifiedPhone(c))) };
+    verified: scope.ref.namespace === "team" && !!(ctx.verifiedPhone ? ctx.verifiedPhone(c) : verifiedPhone(c)) };
 }
 
 /** Toda ação e repetição revalida o proprietário, inclusive em outra linha. */
 export async function workCustomerAllows(
-  ctx: ModuleContext, c: Conversation, row: WorkOrderRow, recipient = false,
+  ctx: ModuleContext, c: Conversation, row: WorkOrderRow, recipient: boolean | "notice" = false,
 ) {
   if (row.profile_id !== ctx.profile) return false;
   const scope = await workCustomerScope(ctx, c);
   if (scope.sql === "0") return false;
+  const phone = ctx.verifiedPhone ? ctx.verifiedPhone(c) : verifiedPhone(c);
+  // Antes do cadastro único, documentos de uma OS sem titular persistido
+  // acompanhavam o telefone corrigido pela equipe. Preserve essa autorização
+  // estreita, sem substituir um proprietário já gravado pela fase 1.
+  const legacyDocument = recipient === true && phone && scope.verified;
   const saved = await one<WorkOrderRow>(ctx.env,
-    `SELECT contact_id,conversation_id,phone FROM os_orders WHERE profile_id=? AND id=? AND ${scope.sql}`,
-    ctx.profile, row.id, ...scope.params);
+    `SELECT contact_id,conversation_id,phone FROM os_orders WHERE profile_id=? AND id=? AND (${scope.sql}
+      ${legacyDocument ? `OR (contact_id IS NULL AND phone=? AND NOT EXISTS(SELECT 1 FROM customer_records r
+        WHERE r.profile_id=os_orders.profile_id AND r.module_id='os' AND r.record_id=os_orders.id))` : ""})`,
+    ctx.profile, row.id, ...scope.params, ...(legacyDocument ? [phone] : []));
   if (!saved) return false;
   if (!recipient) return true;
-  const phone = ctx.verifiedPhone ? ctx.verifiedPhone(c) : verifiedPhone(c);
   if (!phone || !scope.verified) return false;
   // O telefone informado na ordem é um snapshot administrativo. A conversa
   // persistida continua destinatária quando seu titular comprovado é o dono
   // da ordem, mesmo que esse snapshot tenha outro telefone.
-  if (scope.contactId && saved.contact_id === scope.contactId && saved.conversation_id === c.id) return true;
+  if (recipient === "notice" && scope.contactId && saved.contact_id === scope.contactId && saved.conversation_id === c.id) return true;
   const snapshot = normalizeCustomerPhone(saved.phone, "international");
   if (snapshot === phone) return true;
+  if (recipient === true) return false;
   // Outro número só é destinatário se os dois vínculos persistidos concordam.
   return !!scope.contactId && !!await one(ctx.env,
     `SELECT 1 FROM customer_phones WHERE profile_id=? AND namespace='team'
@@ -128,7 +137,7 @@ export async function authorizedOrder(
   const row = (await loadOrder(ctx, id)) as WorkOrderRow;
   if (access.conversation_id) {
     const c = await ctx.conversation(access.conversation_id, actor);
-    if (!(await workCustomerAllows(ctx, c, row)))
+    if (!(await workCustomerAllows(ctx, c, row, access.recipient)))
       throw new ApiError(404, "not_found", "Ordem de serviço não encontrada.");
   }
   const type = snapshotType(row);

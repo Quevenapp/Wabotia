@@ -4,7 +4,7 @@ import { canProfile, seal, unseal } from "../security";
 import { boundAllows, isBound, visibleConversation } from "../visibility";
 import { moduleStates } from "../modules/registry";
 import { ApiError, type Actor, type Conversation, type Env, now } from "../types";
-import type { CustomerMemory, HistoryItem, HistoryPort, Statement } from "./contracts";
+import type { CustomerMemory, CustomerRef, HistoryItem, HistoryPort, Statement } from "./contracts";
 import type { CustomerModuleProvider } from "./profile-contracts";
 import { identityPort, installHistoryPort, registerCustomerProvider, resolveCustomer } from "./ports";
 
@@ -58,9 +58,13 @@ async function authorize(env: Env, actor: Actor, profile: string, target: { cont
     // Ambiguidade impede a leitura, mas continua sendo uma pendência de identidade.
     incomplete = c.chat_type !== "group" && (ref.state === "ambiguous" || c.customer_link_state === "ambiguous" || (ref.state !== "ready" && !excluded));
     // Um vínculo restrito não pode reaparecer como fallback legado.
-    const restricted = await one(env, `SELECT 1 FROM conversation_contacts l JOIN contacts p ON p.id=l.contact_id AND p.profile_id=l.profile_id WHERE l.profile_id=? AND l.conversation_id=? AND p.identity_state<>'active'`, profile, c.id);
-    excluded ||= !!restricted;
-    if (restricted) incomplete = false;
+    const historical = await customerTextScope(env, c, ref);
+    excluded ||= historical?.allowed === false;
+    if (historical?.restricted) incomplete = false;
+    if (!contactId && historical?.proven) {
+      contactId = historical.contactId;
+      incomplete = false;
+    }
   } else {
     if (isBound(actor) || actor.via || (collection && actor.kind !== "user")) fail(403, "forbidden");
     if (!permitted(actor, "contacts")) fail(403, "forbidden");
@@ -248,24 +252,32 @@ export function projectCustomerInput(input: string): string {
 }
 
 /** Releitura sem cache: associação e restrição podem mudar depois de criar um run. */
-export async function customerTextScope(env: Env, c: Pick<Conversation, "id" | "profile_id">) {
-  const row = await one(env, `SELECT c.*,l.contact_id linked_contact,l.created linked_at,p.identity_state,
+export async function customerTextScope(env: Env, c: Pick<Conversation, "id" | "profile_id">, resolved?: CustomerRef) {
+  const row = await one(env, `SELECT c.*,l.contact_id linked_contact,l.created linked_at,p.identity_state,p.namespace contact_namespace,
     s.contact_id session_contact,s.occurred_at session_at,s.valid session_valid,
     EXISTS(SELECT 1 FROM (${sessionRecords}) h WHERE h.profile_id=c.profile_id AND h.conversation_id=c.id) has_sessions,
     (${legacyHistoryProof("c", "c.created")}) legacy
     FROM conversations c LEFT JOIN conversation_contacts l ON l.profile_id=c.profile_id AND l.conversation_id=c.id
-    LEFT JOIN contacts p ON p.profile_id=c.profile_id AND p.id=l.contact_id
     LEFT JOIN (${sessionRecords}) s ON s.profile_id=c.profile_id AND s.record_id=c.id||':'||c.session
+    LEFT JOIN contacts p ON p.profile_id=c.profile_id AND p.id=coalesce(l.contact_id,c.customer_identity_proof,s.contact_id)
     WHERE c.profile_id=? AND c.id=?`, c.profile_id, c.id);
   if (!row) return null;
-  const ref = await identityPort.resolve(env, row);
+  const ref = resolved ?? await identityPort.resolve(env, row);
   // Grupos/aplicações sem cadastro continuam podendo fazer a interação atual.
   // "excluded" nesses canais significa que não participam da identidade pessoal.
   const nonCustomer = (row.chat_type === "group" || row.external_namespace.startsWith("app:")) && !row.linked_contact && !row.has_sessions;
   const denied = nonCustomer ? ["blocked", "ambiguous"] : ["blocked", "excluded", "ambiguous"];
+  // A recusa por ambiguidade conserva a pendência; restrição do titular a encerra.
+  const restricted = !!row.identity_state && row.identity_state !== "active";
   const allowed = ref.profileId === row.profile_id && ref.namespace === namespaceOf(row) &&
-    !denied.includes(row.customer_link_state) && !denied.includes(ref.state) && (!row.identity_state || row.identity_state === "active");
-  const contactId = ref.state === "ready" ? ref.contactId : null;
+    !denied.includes(row.customer_link_state) && !denied.includes(ref.state) && !restricted;
+  // Sessão persistida autoriza seu próprio histórico mesmo durante o backfill
+  // telefônico. Isso não promove a identidade nem concede acesso a outro canal.
+  const sessionOwner = row.session_valid && row.verified_phone && row.phone === row.verified_phone &&
+    row.connection_id && row.external_namespace === `channel:${row.connection_id}` &&
+    (!row.linked_contact || row.linked_contact === row.session_contact) && row.identity_state === "active" && row.contact_namespace === "team"
+    ? row.session_contact : null;
+  const contactId = ref.state === "ready" ? ref.contactId : sessionOwner;
   const proven = allowed && row.chat_type !== "group" && (row.session_contact
     ? !!row.session_valid && !!contactId && row.session_contact === contactId
     : !!row.legacy && !row.has_sessions && (!contactId || row.linked_contact === contactId));
@@ -273,7 +285,7 @@ export async function customerTextScope(env: Env, c: Pick<Conversation, "id" | "
   // Também fixa associação pendente; trocar A por B invalida um run da mesma época.
   const proof = JSON.stringify([row.session, contactId, row.linked_contact, row.linked_at, row.session_contact, row.session_valid, since,
     row.customer_link_state, ref.state, row.identity_state]);
-  return { allowed, proven, proof, since, conflict: !!row.session_contact && (!row.session_valid || row.session_contact !== contactId), conversation: row as Conversation };
+  return { allowed, proven, proof, since, contactId, restricted, conflict: !!row.session_contact && (!row.session_valid || row.session_contact !== contactId), conversation: row as Conversation };
 }
 
 /** Filtra procedência antes de selecionar texto e antes do LIMIT. */
@@ -281,7 +293,7 @@ export async function customerTextHistory(env: Env, c: Pick<Conversation, "id" |
   scope ??= await customerTextScope(env, c);
   if (!scope?.proven) return [];
   const rows = await all(env, `SELECT m.direction,m.text FROM messages m
-    WHERE m.profile_id=? AND m.conversation_id=? AND m.direction IN ('in','out') AND m.created>=? AND m.created<=?
+    WHERE m.profile_id=? AND m.conversation_id=? AND m.direction IN ('in','out','customer','agent','bot') AND m.created>=? AND m.created<=?
       AND (json_extract(m.content,'$.customerSession')=? OR (json_extract(m.content,'$.customerSession') IS NULL AND m.created>?))
       AND NOT EXISTS(SELECT 1 FROM json_tree(m.content) j WHERE j.key IN (SELECT value FROM json_each(?))
         OR (j.key IN ('module','module_id','automation','kind','type','source','origin') AND j.value IN ('saude','ensino','juridico','forms','form','flow_reply','web_step'))

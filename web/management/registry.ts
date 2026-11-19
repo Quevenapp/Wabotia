@@ -10,6 +10,7 @@ import { resourcesForRole } from "../../src/erp/role-resources";
 import { canOpenPage, type PageId } from "../workspace-navigation";
 import { href } from "../lib/routes";
 import { portedTargetState } from "./ported-policy";
+import { nativeReadAllows } from "./native-access";
 import type { ErpPermissions, PortedTargetState } from "./host-contract";
 import type { Api } from "../lib/api";
 
@@ -40,7 +41,8 @@ function permits(item: ManagementItem, c: ManagementContext): boolean {
   if (item.permission.kind === "page") {
     // Ignorar só a ativação, mantendo exclusividades administrativas.
     const modules = { ...c.modules, [item.module]: true };
-    return canOpenPage(item.permission.page, c.role, modules, c.access && [...c.access]);
+    return nativeReadAllows(item.permission.page, c.access) &&
+      canOpenPage(item.permission.page, c.role, modules, c.access && [...c.access]);
   }
   const { roles, resource } = item.permission;
   return !!c.erpRole && (!roles || roles.includes(c.erpRole)) &&

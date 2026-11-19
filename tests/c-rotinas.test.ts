@@ -1,9 +1,10 @@
 import { env as cloudEnv } from "cloudflare:test";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { all, batch, exec, one } from "../src/db";
 import { ApiError, defaults, now, uid, type Actor, type Conversation, type Env } from "../src/types";
 import type { CustomerRef, IdentityPort } from "../src/customer/contracts";
 import { installIdentityPort, resolveCustomer } from "../src/customer/ports";
+import { conversationIdentityStatements, customerIdentity } from "../src/customer/identity";
 import { modulesApi, type ModuleContext } from "../src/modules/api";
 import { agendaCustomerProvider, routineCustomer } from "../src/modules/agenda/customer-provider";
 import { pedidoCustomerProvider, pedidoCreationContext } from "../src/modules/pedido/customer-provider";
@@ -60,6 +61,7 @@ const identity: IdentityPort = {
   indexContact: async () => [], maintain: async () => ({ pending: false, statements: 0, items: 0 }),
 };
 beforeEach(() => { refs.clear(); installIdentityPort(identity); });
+afterEach(() => vi.restoreAllMocks());
 const tables = { agenda: "agenda_appointments", pedido: "pedido_orders", reserva: "reserva_bookings" };
 const providers = { agenda: agendaCustomerProvider, pedido: pedidoCustomerProvider, reserva: reservaCustomerProvider };
 type Routine = keyof typeof tables;
@@ -311,14 +313,35 @@ it("E2/M7/F4: Mensalidade usa proprietário em outra variante/linha e recusa con
 
 it("M10: duas linhas autorizadas compartilham uma senha sem mudar origem", async () => {
   const f = await fixture(), id = await f.contact(), a = await f.conversation(id), b = await f.conversation(id, "team", "551187654321"), queue = uid();
+  // A consulta em uma instrução relê a prova persistida. Ambas as linhas devem
+  // ser autorizadas pelo canal real, não só pelo resolvedor simulado das rotinas.
+  // A porta explícita é única; só este caso delega a resolução à implementação
+  // real. afterEach restaura o resolvedor simulado mesmo se uma asserção falhar.
+  vi.spyOn(identity, "resolve").mockImplementation(customerIdentity.resolve);
+  for (const c of [a, b]) {
+    const plan = await customerIdentity.prepareInbound(env, c, { provider: "qr", phone: c.phone, phoneJid: `${c.phone}@s.whatsapp.net` });
+    await batch(env, plan.statements);
+    expect(await resolveCustomer(env, c)).toMatchObject({ state: "ready", contactId: id, verifiedPhone: c.phone });
+  }
   await exec(env, "INSERT INTO queues(id,profile_id,name,created,updated) VALUES(?,?,'Fila',1,1)", queue, f.profile);
   const issue = (c: Conversation) => issueTicket(env, f.profile, { queueId: queue, preferential: false, source: "whatsapp", actorId: "customer", conversationId: c.id, sourceKey: uid() });
   const first = await issue(a), second = await issue(b);
   expect(second.created).toBe(false); expect(second.ticket.id).toBe(first.ticket.id);
   expect(second.ticket.conversation_id).toBe(a.id);
   expect((await activeTicketForConversation(env, f.profile, b.id))?.id).toBe(first.ticket.id);
-  refs.set(a.id, { ...refs.get(a.id)!, contactId: await f.contact("team", "5511990000000") });
+  // Simula a troca comprovada no banco; o recibo histórico da senha não muda.
+  const next = await f.contact("team", "5511990000000");
+  await batch(env, [
+    ["UPDATE customer_phone_proofs SET revoked=1 WHERE profile_id=? AND phone=? AND contact_id=?", [f.profile, a.phone, id]],
+    ["INSERT INTO customer_phone_proofs(profile_id,namespace,phone,contact_id,conversation_id,created) VALUES(?,'team',?,?,?,?)", [f.profile, a.phone, next, a.id, now()]],
+    ["UPDATE customer_phones SET contact_id=?,state='ready' WHERE profile_id=? AND namespace='team' AND phone=?", [next, f.profile, a.phone]],
+    ...conversationIdentityStatements(f.profile, [a.id]),
+  ]);
+  expect(await resolveCustomer(env, a)).toMatchObject({ state: "ready", contactId: next });
   expect(await activeTicketForConversation(env, f.profile, a.id)).toBeNull();
+  expect((await activeTicketForConversation(env, f.profile, b.id))?.id).toBe(first.ticket.id);
+  expect(await one(env, "SELECT contact_id,conversation_id FROM customer_records WHERE profile_id=? AND module_id='queue' AND kind='ticket' AND record_id=?", f.profile, first.ticket.id))
+    .toEqual({ contact_id: id, conversation_id: a.id });
 });
 
 it("M12: completa documento compatível; correção exige revisão auditada e concorrência", async () => {

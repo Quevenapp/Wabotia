@@ -6,10 +6,11 @@ import { identityPort, resolveCustomer } from "../src/customer/ports";
 import { CONTACT_TASK, inboundConnection, sessionStatement } from "../src/customer/identity";
 import { customerPhoneVariants } from "../src/customer/phone";
 import { now, uid, type Env } from "../src/types";
-import { fixture, type Fixture } from "./service-center-fixture";
+import { fixture, type Fixture as ServiceFixture } from "./service-center-fixture";
 import { measure } from "./d1-counter";
 
 const phone = "5511987654321", attacker = "5511987654322";
+type Fixture = Omit<ServiceFixture, "line"> & { line: string };
 afterEach(() => vi.restoreAllMocks());
 async function send(f: Fixture, value = phone, line = f.line, extra: Record<string, unknown> = {}, target = env) {
   const result = await inbound(target, f.profile, { external_id: value, phone: value, text: "Olá", message_id: uid(), ...extra }, `channel:${line}`, line);
@@ -138,7 +139,7 @@ describe("E2/E3/S7/M7 — compatibilidade com procedência", () => {
   });
 
   it.each([32, 36])("canal de %i caracteres recupera prova e rotas sem exceder o limite de padrão do D1", async length => {
-    const f = await fixture();
+    const f: Fixture = await fixture();
     const line = length === 32 ? f.line.replace(/-/g, "") : f.line;
     await exec(env, "UPDATE connections SET id=? WHERE id=?", line, f.line);
     f.line = line;
@@ -372,7 +373,7 @@ it.each([false, true])("E7 — checkpoint completo limita leituras em base grand
   const f = await fixture();
   await exec(env, `WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<1000)
     INSERT INTO contacts(id,profile_id,namespace,name,phone,search_text,source,created_by,updated_by,created,updated)
-    SELECT printf('complete-%04d',i),?,'team','Ana',printf('55119777%04d',i),'','import','test','test',1,1 FROM n`, f.profile);
+    SELECT ?||printf('-complete-%04d',i),?,'team','Ana',printf('55119777%04d',i),'','import','test','test',1,1 FROM n`, f.profile, f.profile);
   await exec(env, `INSERT INTO customer_phone_candidates(profile_id,namespace,phone,contact_id,origin)
     SELECT profile_id,namespace,phone,id,'local' FROM contacts WHERE profile_id=?`, f.profile);
   const candidate = hasCandidate ? await contact(f, phone, "team", "import") : null;

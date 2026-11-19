@@ -138,10 +138,11 @@ describe("A3 — leitura nativa explícita", () => {
   it.each([
     ["admin", null], ["admin", []], ["admin", ["*"]],
     ["agent", null], ["agent", ["*"]], ["agent", ["ensino"]],
-  ] as const)("Ensino recusa menu e abertura para %s com %j", (role, input) => {
+  ] as const)("Ensino conserva navegação legada e recusa leitura na casa para %s com %j", (role, input) => {
     const access = input && [...input], c = context(role, access);
-    expect(accessAllows("ensino", role, access)).toBe(false);
-    expect(canOpenPage("ensino", role, c.modules, access)).toBe(false);
+    // A navegação geral conserva o contrato legado; a casa aplica os papéis de leitura.
+    expect(accessAllows("ensino", role, access)).toBe(role === "admin" || !access);
+    expect(canOpenPage("ensino", role, c.modules, access)).toBe(role === "admin" || !access);
     expect(resolveManagement(native, c).some(item => item.module === "ensino")).toBe(false);
     expect(nativeTargetState("ensino", c)).toBe("denied");
   });
@@ -168,8 +169,8 @@ describe("A3 — leitura nativa explícita", () => {
   ])("Jurídico separa calendários e prazos para $access", ({ access, calendars, deadlines }) => {
     for (const role of ["admin", "agent"]) {
       const c = context(role, access);
-      expect(accessAllows("juridico", role, access)).toBe(calendars);
-      expect(canOpenPage("juridico", role, c.modules, access)).toBe(calendars);
+      expect(accessAllows("juridico", role, access)).toBe(role === "admin" || !access || calendars);
+      expect(canOpenPage("juridico", role, c.modules, access)).toBe(role === "admin" || !access || calendars);
       expect(resolveManagement(native, c).some(item => item.module === "juridico")).toBe(calendars);
       expect(nativeTargetState("juridico", c)).toBe(calendars ? "allowed" : "denied");
       expect(nativeReadAllows("juridico.deadlines", access)).toBe(deadlines);

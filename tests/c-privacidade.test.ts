@@ -26,7 +26,7 @@ async function setup(persisted = true) {
   return result;
 }
 type F = Awaited<ReturnType<typeof setup>>;
-async function sessionRecord(f: Pick<F, "profile" | "cid" | "session" | "at">, module: "core" | "conversations", owner: string, at = f.at) {
+async function sessionRecord(f: Pick<F, "profile" | "cid" | "at"> & { session: string }, module: "core" | "conversations", owner: string, at = f.at) {
   await exec(env, "INSERT INTO customer_records(profile_id,module_id,kind,record_id,contact_id,conversation_id,linked_by,occurred_at) VALUES(?,?,?,?,?,?,'origem-preservada',?)", f.profile, module, module === "core" ? "conversation" : "session", `${f.cid}:${f.session}`, owner, f.cid, at);
 }
 async function ticket(f: F, owner: string | null = f.a, at = f.at + 1, id = uid()) {
@@ -184,6 +184,28 @@ describe("E1 e E4 — sessões antigas e manutenção com pendências", () => {
 });
 
 describe("S4 — texto autorizado antes da máscara", () => {
+  it("conserva as direções publicadas do motor e exclui notas e formulários", async () => {
+    const f = await setup();
+    for (const [index, direction] of ["customer", "agent", "bot"].entries())
+      await message(f, `Texto ${direction}`, { customerSession: f.session }, f.at + 10 + index, direction);
+    await message(f, "Nota interna", {}, f.at + 20, "note");
+    await message(f, "Formulário privado", { module_id: "forms" }, f.at + 21, "customer");
+    expect(await customerTextHistory(env, { id: f.cid, profile_id: f.profile })).toEqual(
+      ["customer", "agent", "bot"].map(direction => ({ direction, text: `Texto ${direction}` })),
+    );
+  });
+
+  it("sessão sem vínculo explícito ainda respeita restrição e namespace do titular", async () => {
+    const f = await setup();
+    await exec(env, "DELETE FROM conversation_contacts WHERE conversation_id=?", f.cid);
+    await message(f, "Texto do titular", { customerSession: f.session });
+    expect(await customerTextHistory(env, { id: f.cid, profile_id: f.profile })).toHaveLength(1);
+    await exec(env, "UPDATE contacts SET namespace='app:isolado' WHERE id=?", f.a);
+    expect(await customerTextHistory(env, { id: f.cid, profile_id: f.profile })).toEqual([]);
+    await exec(env, "UPDATE contacts SET namespace='team',identity_state='restricted' WHERE id=?", f.a);
+    expect(await customerTextHistory(env, { id: f.cid, profile_id: f.profile })).toEqual([]);
+  });
+
   it("mantém apenas o intervalo comprovado e a marca da sessão atual", async () => {
     const f = await setup(), next = uid(), since = f.at + 100;
     await message(f, "SEGREDO A", { customerSession: f.session }, f.at + 10);

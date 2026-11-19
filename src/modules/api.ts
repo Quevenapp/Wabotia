@@ -778,11 +778,16 @@ export function modulesApi(
       if (ref.state !== "ready" || !ref.contactId) return null;
       return one<ContactSummary>(
         env,
-        "SELECT id,name,phone,email,company,notes FROM contacts WHERE id=? AND profile_id=? AND (namespace=? OR (?='team' AND namespace='panel')) AND identity_state='active' AND (source<>'automatic' OR name<>'')",
-        ref.contactId,
+        `SELECT id,name,phone,email,company,notes FROM contacts k WHERE profile_id=?
+          AND ((id=? AND namespace=?) OR (?='team' AND namespace='panel' AND EXISTS(
+            SELECT 1 FROM conversation_contacts l WHERE l.profile_id=k.profile_id AND l.contact_id=k.id AND l.conversation_id=?)))
+          AND identity_state='active' AND (source<>'automatic' OR name<>'')
+          ORDER BY CASE WHEN namespace='panel' THEN 0 ELSE 1 END LIMIT 1`,
         profile,
+        ref.contactId,
         ref.namespace,
         ref.namespace,
+        conv.id,
       );
     },
     customer(c) {

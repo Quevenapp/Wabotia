@@ -345,7 +345,7 @@ export async function conversationOf(ctx: ModuleContext, order: any) {
   try {
     const c = await ctx.conversation(order.conversation_id);
     // O vínculo histórico e o destinatário atual precisam concordar em cada envio.
-    return await workCustomerAllows(ctx, c, order, true) ? c : null;
+    return await workCustomerAllows(ctx, c, order, "notice") ? c : null;
   } catch {
     return null;
   }
@@ -376,7 +376,9 @@ export async function notify(
   const task = noticeTask(order.id, key);
   await batch(ctx.env, [noticeStatement(ctx.profile, order, textKey, key)]);
   const saved = await one(ctx.env, "SELECT complete FROM customer_progress WHERE profile_id=? AND namespace='team' AND task=?", ctx.profile, task);
-  if (saved?.complete) { order.notification = { state: "sent" }; return null; }
+  // O marcador da própria OS controla o lembrete periódico. Se foi limpo,
+  // revalide e repita a chave idempotente do transporte antes de marcá-lo.
+  if (saved?.complete && textKey !== "pickup_reminder") { order.notification = { state: "sent" }; return null; }
   const fresh = await loadOrder(ctx, order.id);
   const c = fresh.row_version === order.row_version ? await conversationOf(ctx, fresh) : null;
   if (!c || c.chat_type === "group") {

@@ -109,7 +109,7 @@ export async function runTaskDue(
       if (row.audience === "customer") {
         if (!projectChildForCustomer(taskView(row)) || !parent.conversation_id) { has_more = true; continue; }
         const c = await ctx.conversation(parent.conversation_id);
-        if (!(await workCustomerAllows(ctx, c, parent, true))) { has_more = true; continue; }
+        if (!(await workCustomerAllows(ctx, c, parent, "notice"))) { has_more = true; continue; }
         const task = projectChildForCustomer(taskView(row));
         if (!task) { has_more = true; continue; }
         // A rodada não bloqueia o Coordinator: um comando pode reclassificar,

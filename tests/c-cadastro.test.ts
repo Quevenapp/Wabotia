@@ -102,10 +102,12 @@ it("S1: escolha administrativa sem origem autenticada conserva revisão e nunca 
 
 it("S1: procedência observada e sessão persistida permitem conservar titularidade comprovada", async () => {
   const f = await fixture(), id = await contact(f, { phone: "5511999990000" }), c = await conversation(f);
-  await batch(env, await customerIdentity.indexContact(env, { profileId: f.profile, namespace: "team", contactId: id, phones: ["5511999990000"], origin: "observed" }));
-  await exec(env, "UPDATE conversations SET verified_phone=phone,customer_link_state='ready' WHERE id=?", c);
+  // A porta administrativa indexContact deliberadamente não fabrica observed.
+  // A prova desta fixture vem da entrada autenticada do canal.
+  const original = await one(env, "SELECT * FROM conversations WHERE id=?", c);
+  await batch(env, (await customerIdentity.prepareInbound(env, original, { provider: "zernio", phone: "5511999990000" })).statements);
   const v = await one(env, "SELECT * FROM conversations WHERE id=?", c);
-  await exec(env, "INSERT INTO customer_records(profile_id,module_id,kind,record_id,contact_id,conversation_id,linked_by,occurred_at) VALUES(?,'conversations','session',?,?,?,'identity',?)", f.profile, `${c}:${v.session}`, id, c, now());
+  expect(await one(env, "SELECT contact_id FROM customer_records WHERE record_id=?", `${c}:${v.session}`)).toEqual({ contact_id: id });
   const identity = await one(env, "SELECT * FROM customer_phones WHERE profile_id=?", f.profile);
   expect(await resolvePhone(env, f.admin, f.profile, { namespace: "team", phone: identity.phone, contactId: id, expectedVersion: identity.version, reason: "Continuidade do canal" }, uid())).toMatchObject({ state: "ready", contactId: id });
   expect((await one(env, "SELECT contact_id FROM customer_records WHERE conversation_id=?", c)).contact_id).toBe(id);

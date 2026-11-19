@@ -24,7 +24,7 @@ export async function documentOrder(
   id: string,
   access: DocumentAccess = {},
 ) {
-  const order = await authorizedOrder(ctx, actor, id, access);
+  const order = await authorizedOrder(ctx, actor, id, { ...access, recipient: true });
   if (access.conversation_id) {
     const c = await ctx.conversation(access.conversation_id, actor);
     if (!(await workCustomerAllows(ctx, c, order.row, true)))

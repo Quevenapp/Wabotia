@@ -2388,15 +2388,35 @@ function ticketCustomerScope(contactId: string | null, conversationId: string, p
 }
 
 export async function activeTicketForConversation(env: Env, profile: string, conversationId: string) {
-  const c = await conversation(env, conversationId, profile);
-  const ref = await resolveCustomer(env, c);
-  const phone = verifiedQueuePhone(c);
-  if (!phone || c.chat_type === "group" || ref.profileId !== profile || ref.namespace !== "team" ||
-      ["blocked", "excluded", "ambiguous"].includes(ref.state)) return null;
-  const scope = ticketCustomerScope(ref.state === "ready" ? ref.contactId : null, c.id, phone);
-  return one(env, `SELECT q.* FROM queue_tickets q WHERE q.profile_id=? AND q.service_day=?
-    AND q.status IN ('waiting','called','serving') AND ${scope.sql}
-    ORDER BY q.created_at DESC,q.id DESC LIMIT 1`, profile, serviceDay(), ...scope.params);
+  // A mesma leitura relê canal, titular e senha. Ausência da conversa é ausência
+  // de senha; não lança 404 nem acrescenta consultas ao caminho de mensagens.
+  const expressions = ["v.contact_id", "v.id", "v.phone", "v.contact_id", "v.contact_id", "v.contact_id", "v.contact_id"];
+  let index = 0;
+  const predicate = ticketCustomerScope(null, "", "").sql.replace(/\?/g, () => expressions[index++]);
+  const row = await one(env, `WITH channel AS (
+    SELECT c.*,replace(replace(replace(replace(replace(replace(trim(c.phone),' ',''),'.',''),'-',''),'(',''),')',''),'+','') normalized_phone
+      FROM conversations c WHERE c.profile_id=? AND c.id=?
+    ), viewer AS (
+    SELECT c.id,c.profile_id,c.normalized_phone phone,c.phone input_phone,CASE WHEN c.customer_link_state='ready' THEN k.id END contact_id
+      FROM channel c LEFT JOIN customer_phones p ON p.profile_id=c.profile_id AND p.namespace='team'
+        AND p.phone=c.verified_phone AND p.state='ready'
+      LEFT JOIN customer_phone_proofs proof ON proof.profile_id=p.profile_id AND proof.namespace=p.namespace
+        AND proof.phone=p.phone AND proof.contact_id=p.contact_id AND proof.revoked=0
+      LEFT JOIN contacts k ON k.id=proof.contact_id AND k.profile_id=c.profile_id AND k.namespace='team' AND k.identity_state='active'
+      WHERE c.chat_type='direct'
+        AND c.connection_id IS NOT NULL AND c.external_namespace='channel:'||c.connection_id
+        AND c.customer_link_state NOT IN ('blocked','excluded','ambiguous')
+        AND (c.verified_phone IS NULL OR c.verified_phone=c.normalized_phone)
+        AND (c.verified_phone IS NOT NULL OR (c.external_id NOT LIKE '%@lid' AND c.external_id NOT LIKE '%@g.us'))
+        AND length(c.normalized_phone) BETWEEN 8 AND 15 AND c.normalized_phone NOT GLOB '*[^0-9]*' AND substr(c.normalized_phone,1,1)<>'0'
+        AND NOT EXISTS(SELECT 1 FROM conversation_contacts l JOIN contacts linked ON linked.id=l.contact_id AND linked.profile_id=l.profile_id
+          WHERE l.profile_id=c.profile_id AND l.conversation_id=c.id AND linked.identity_state<>'active')
+    ) SELECT q.*,v.input_phone viewer_input_phone FROM queue_tickets q JOIN viewer v ON v.profile_id=q.profile_id WHERE q.service_day=?
+    AND q.status IN ('waiting','called','serving') AND ${predicate}
+    ORDER BY q.created_at DESC,q.id DESC LIMIT 1`, profile, conversationId, serviceDay());
+  if (!row || !normalizeCustomerPhone(row.viewer_input_phone, "international")) return null;
+  const { viewer_input_phone: _phone, ...ticket } = row;
+  return ticket;
 }
 
 /**
