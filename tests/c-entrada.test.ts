@@ -177,13 +177,17 @@ describe("A3 — leitura nativa explícita", () => {
     }
   });
 
-  it.each([["agenda", "agenda"], ["work", "os"], ["my-deadlines", "os:technician"]])(
-    "%s mantém acesso nativo %s sem papel ERP", (page, grant) => {
+  // "Meus prazos" deixou de ser item do menu (ordem de serviço, parte 1): abre
+  // de dentro da lista. A página continua permitida ao técnico; a entrada no
+  // menu que leva até ela é a da lista ("work").
+  it.each([["agenda", "agenda", "agenda"], ["work", "os", "work"], ["my-deadlines", "os:technician", "work"]])(
+    "%s mantém acesso nativo %s sem papel ERP", (page, grant, entry) => {
       const c = context("agent", [grant]);
       expect(c.erpRole).toBeNull();
       expect(canOpenPage(page, c.role, c.modules, [grant])).toBe(true);
+      expect(canOpenPage(entry, c.role, c.modules, [grant])).toBe(true);
       expect(nativeTargetState(page, c)).toBe("allowed");
-      expect(resolveManagement(native, c).some(item => item.target.kind === "native" && item.target.page === page)).toBe(true);
+      expect(resolveManagement(native, c).some(item => item.target.kind === "native" && item.target.page === entry)).toBe(true);
     },
   );
 
