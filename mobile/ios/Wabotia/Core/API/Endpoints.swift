@@ -27,14 +27,24 @@ extension APIClient {
     func events(_ p: String, after: Int64) async throws -> Events { try await request(.get, "api/v1/profiles/\(p)/events", query: ["after": String(after)]) }
 
     // MARK: Conversas
-    func conversations(_ p: String, state: String? = nil, q: String? = nil, cursor: String? = nil, limit: Int = 50) async throws -> Page<Conversation> {
-        try await request(.get, "api/v1/profiles/\(p)/conversations", query: ["state": state, "q": q, "cursor": cursor, "limit": String(limit)])
+    func conversations(_ p: String, state: String? = nil, q: String? = nil, cursor: String? = nil, limit: Int = 50, channel: ChannelID? = nil) async throws -> Page<Conversation> {
+        try await request(.get, "api/v1/profiles/\(p)/conversations", query: ["state": state, "q": q, "cursor": cursor, "limit": String(limit), "channel": channel?.rawValue])
     }
     func conversation(_ p: String, id: String) async throws -> ConversationDetail { try await request(.get, "api/v1/profiles/\(p)/conversations/\(id)") }
     func act(_ p: String, conversation id: String, _ body: ActionRequest, key: String) async throws -> JSONValue { try await request(.post, "api/v1/profiles/\(p)/conversations/\(id)/actions", body: body, key: key) }
     func messageAction(_ p: String, conversation id: String, _ body: MessageActionRequest, key: String = APIClient.newIdempotencyKey()) async throws -> JSONValue { try await request(.post, "api/v1/profiles/\(p)/conversations/\(id)/message-actions", body: body, key: key) }
     func groupPolicy(_ p: String, conversation id: String, policy: String, key: String = APIClient.newIdempotencyKey()) async throws -> JSONValue { try await request(.put, "api/v1/profiles/\(p)/groups/\(id)/policy", body: GroupPolicyRequest(bot_policy: policy), key: key) }
     func contact(_ p: String, id: String) async throws -> JSONValue { try await request(.get, "api/v1/profiles/\(p)/contacts/\(id)") }
+    func contactChannelProfile(_ p: String, id: String) async throws -> ContactChannelsProfile {
+        try await request(.get, "api/v1/profiles/\(p)/contacts/\(id)/profile")
+    }
+    func emailPreview(_ p: String, conversation id: String, _ body: TranscriptPreviewRequest, key: String) async throws -> TranscriptPreview {
+        try await request(.post, "api/v1/profiles/\(p)/conversations/\(id)/email/preview", body: body, key: key)
+    }
+    /// A chave pertence à tentativa confirmada; nunca gerar outra automaticamente após falha de rede.
+    func emailTranscript(_ p: String, conversation id: String, _ body: TranscriptSendRequest, key: String) async throws -> TranscriptSendResult {
+        try await request(.post, "api/v1/profiles/\(p)/conversations/\(id)/email", body: body, key: key)
+    }
     /// PUT /conversations/{id}/contact: cria/vincula o cliente na agenda do perfil (apenas conversas diretas).
     func saveConversationContact(_ p: String, conversation id: String, name: String, phone: String?, key: String = APIClient.newIdempotencyKey()) async throws -> JSONValue {
         var body: [String: String] = ["name": name]

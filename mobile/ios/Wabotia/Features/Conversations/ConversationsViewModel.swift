@@ -28,6 +28,7 @@ final class ConversationsViewModel: ObservableObject {
     }
 
     @Published var filter: Filter = .all { didSet { if oldValue != filter { load(reset: true) } } }
+    @Published var channel: ChannelID? { didSet { if oldValue != channel { load(reset: true) } } }
     @Published var query = ""
     @Published private(set) var items: [Conversation] = []
     @Published private(set) var loading = false
@@ -48,6 +49,9 @@ final class ConversationsViewModel: ObservableObject {
     private var loadedOnce = false
     private var visible = false
     private var stale = false
+    /// Identifica perfil, canal, estado e busca; uma resposta antiga nunca substitui outro filtro.
+    private var selectionKey = ""
+    private var loadGeneration = 0
     /// Chave por ação rápida pendente (conversa + ação), mantida até o servidor responder.
     private var actionKeys: [String: String] = [:]
 
@@ -96,13 +100,27 @@ final class ConversationsViewModel: ObservableObject {
 
     private func fetch(reset: Bool, silent: Bool) async {
         guard let p = profileId else { return }
+        loadGeneration += 1
+        let generation = loadGeneration
+        let selectedFilter = filter
+        let selectedChannel = channel
+        let selectedQuery = query.trimmingCharacters(in: .whitespaces)
+        let key = Self.cacheKey(profile: p, channel: selectedChannel, filter: selectedFilter, query: selectedQuery)
+        if selectionKey != key {
+            items = []
+            nextCursor = nil
+            hasMore = false
+            hasLoaded = false
+            loadingMore = false
+            selectionKey = key
+        }
         if reset {
             nextCursor = nil
             if !silent { loading = true }
         }
         stale = false
-        let state = filter.state
-        let q = query.trimmingCharacters(in: .whitespaces)
+        let state = selectedFilter.state
+        let q = selectedQuery
         let cursor = reset ? nil : nextCursor
         var collected: [Conversation] = reset ? [] : items
         var cursorToUse = cursor
@@ -110,23 +128,25 @@ final class ConversationsViewModel: ObservableObject {
         do {
             repeat {
                 rounds += 1
-                let page = try await container.api.conversations(p, state: state, q: q.isEmpty ? nil : q, cursor: cursorToUse, limit: 50)
-                if Task.isCancelled { return }
-                let filtered = filter == .mine ? page.data.filter { $0.owner == meId } : page.data
+                let page = try await container.api.conversations(p, state: state, q: q.isEmpty ? nil : q, cursor: cursorToUse, limit: 50, channel: selectedChannel)
+                guard !Task.isCancelled, generation == loadGeneration, p == profileId,
+                      selectedChannel == channel, selectedFilter == filter, selectedQuery == query.trimmingCharacters(in: .whitespaces) else { return }
+                let filtered = selectedFilter == .mine ? page.data.filter { $0.owner == meId } : page.data
                 for c in filtered where !collected.contains(where: { $0.id == c.id }) { collected.append(c) }
                 cursorToUse = page.next_cursor
                 // "Minhas" pode voltar páginas vazias após o filtro local; avança algumas páginas de uma vez.
-                if filter != .mine || !filtered.isEmpty || cursorToUse == nil { break }
+                if selectedFilter != .mine || !filtered.isEmpty || cursorToUse == nil { break }
             } while rounds < 4
             items = collected
             nextCursor = cursorToUse
             hasMore = cursorToUse != nil
             hasLoaded = true
             error = nil
-            if q.isEmpty, filter == .all || filter == .mine {
+            workspace.recordChannelClock(collected)
+            if q.isEmpty, selectedChannel == nil, selectedFilter == .all || selectedFilter == .mine {
                 // "Minhas" é contado nas conversas carregadas; a carga por pessoa alimenta a aba Equipe.
                 mineCount = collected.filter { $0.isOwned(by: meId) }.count
-                if filter == .all {
+                if selectedFilter == .all {
                     var load: [String: Int] = [:]
                     for c in collected where c.state == "human" { if let owner = c.owner { load[owner, default: 0] += 1 } }
                     workspace.ownerLoad = load
@@ -134,11 +154,26 @@ final class ConversationsViewModel: ObservableObject {
             }
             workspace.backfill(collected)
         } catch {
-            if Task.isCancelled { return }
+            guard !Task.isCancelled, generation == loadGeneration, p == profileId,
+                  selectedChannel == channel, selectedFilter == filter, selectedQuery == query.trimmingCharacters(in: .whitespaces) else { return }
             handle(error)
         }
         loading = false
         loadingMore = false
+    }
+
+    static func cacheKey(profile: String, channel: ChannelID?, filter: Filter, query: String) -> String {
+        // JSON elimina colisões por separadores em buscas e identificadores.
+        let parts = [profile, channel?.rawValue ?? "", filter.rawValue, query]
+        return String(data: (try? JSONEncoder().encode(parts)) ?? Data(), encoding: .utf8) ?? ""
+    }
+
+    func profileChanged() {
+        if channel != nil { channel = nil } else { load(reset: true) }
+    }
+
+    func reconcileChannels(_ options: [ChannelID]) {
+        if let channel, !options.contains(channel) || options.count < 2 { self.channel = nil }
     }
 
     func queryChanged() {

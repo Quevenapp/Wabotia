@@ -148,6 +148,8 @@ struct AvatarView: View {
     var badge: AvatarBadge? = nil
     /// Cor atrás do avatar, usada no contorno do selo.
     var ring: Color = Theme.background
+    var channel: ChannelID? = nil
+    var multichannel: Bool = false
 
     static func initials(_ name: String) -> String {
         let words = name.split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "." }).filter { $0.first?.isLetter == true }
@@ -173,7 +175,14 @@ struct AvatarView: View {
             }
         }
         .frame(width: size, height: size)
-        .overlay(alignment: .bottomTrailing) { badgeView }
+        .overlay(alignment: multichannel ? .topTrailing : .bottomTrailing) { badgeView }
+        .overlay(alignment: .bottomTrailing) {
+            if multichannel {
+                ChannelBadge(channel: channel, size: max(16, min(22, size * 0.4)))
+                    .overlay(Circle().stroke(ring, lineWidth: 2))
+                    .offset(x: 2, y: 2)
+            }
+        }
         .accessibilityHidden(true)
     }
 

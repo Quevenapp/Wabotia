@@ -19,6 +19,7 @@ struct ConversationsView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if workspace.showsChannelFilter { channelFilters }
             filters
             ThinDivider()
             content
@@ -28,9 +29,10 @@ struct ConversationsView: View {
         .onDisappear { vm.disappear() }
         .onChange(of: active) { now in if now { vm.appear() } else { vm.disappear() } }
         .onChange(of: vm.query) { _ in vm.queryChanged() }
-        .onChange(of: container.profileId) { _ in vm.load(reset: true) }
+        .onChange(of: container.profileId) { _ in vm.profileChanged() }
+        .onChange(of: workspace.channelFilterOptions) { options in vm.reconcileChannels(options) }
         .sheet(isPresented: $showPresence) { PresenceSheet() }
-        .sheet(item: $transferTarget) { c in ConversationSheetHost(conversationId: c.id) { TransferSheet(vm: $0) } }
+        .sheet(item: $transferTarget) { c in ConversationSheetHost(conversationId: c.id) { ChannelTransferSheet(vm: $0) } }
         .sheet(item: $tagsTarget) { c in ConversationSheetHost(conversationId: c.id) { TagsSheet(vm: $0) } }
         .confirmationDialog("Concluir este atendimento?", isPresented: Binding(get: { confirmResolve != nil }, set: { if !$0 { confirmResolve = nil } }), titleVisibility: .visible) {
             Button("Concluir", role: .destructive) {
@@ -56,7 +58,7 @@ struct ConversationsView: View {
 
     @ViewBuilder private var header: some View {
         if searching {
-            SearchField(placeholder: "Nome ou telefone", text: $vm.query, focused: $searchFocused) {
+            SearchField(placeholder: workspace.isMultichannel ? "Nome ou contato" : "Nome ou telefone", text: $vm.query, focused: $searchFocused) {
                 vm.query = ""
                 searching = false
             }
@@ -86,7 +88,22 @@ struct ConversationsView: View {
         }
     }
 
+    private var channelFilters: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                FilterChip(title: "Todos os canais", selected: vm.channel == nil) { vm.channel = nil }
+                ForEach(workspace.channelFilterOptions, id: \.rawValue) { channel in
+                    FilterChip(title: channel.label, selected: vm.channel == channel) { vm.channel = channel }
+                }
+            }
+            .padding(.horizontal, 16).padding(.vertical, 8)
+        }
+        .accessibilityLabel("Filtrar por canal")
+    }
+
     private func count(_ f: ConversationsViewModel.Filter) -> Int? {
+        // O status é global; não apresentar sua contagem como se fosse do canal filtrado.
+        if vm.channel != nil { return nil }
         switch f {
         case .all, .closed: return nil
         case .queue: return workspace.count("waiting")
@@ -200,7 +217,7 @@ struct ConversationRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            AvatarView(name: conversation.displayName, seed: conversation.id, kind: conversation.isGroup ? .group : .person, size: 50, badge: .role(role))
+            AvatarView(name: conversation.displayName, seed: conversation.id, kind: conversation.isGroup ? .group : .person, size: 50, badge: .role(role), channel: workspace.channel(for: conversation), multichannel: conversation.multichannel ?? workspace.isMultichannel)
                 .overlay { if busy { ProgressView().frame(width: 50, height: 50).background(Circle().fill(Theme.background.opacity(0.7))) } }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -221,7 +238,11 @@ struct ConversationRow: View {
                 HStack(alignment: .center, spacing: 6) {
                     previewLine
                     Spacer(minLength: 4)
-                    if let clock = workspace.window(for: conversation), conversation.state != "closed" {
+                    if let window = workspace.channelWindow(for: conversation), window.showsClock, conversation.state != "closed" {
+                        Text(window.label).font(Theme.font(11, .semibold))
+                            .foregroundStyle(window.canHumanText ? Theme.textSecondary : Theme.warn)
+                            .lineLimit(2)
+                    } else if let clock = workspace.window(for: conversation), conversation.state != "closed" {
                         HStack(spacing: 3) {
                             WindowRing(clock: clock, size: 20)
                             if !clock.compact.isEmpty {

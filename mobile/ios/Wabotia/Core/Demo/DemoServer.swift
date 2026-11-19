@@ -52,13 +52,26 @@ final class DemoServer {
     typealias Row = [String: Any]
     struct Reply { var status = 200; var data = Data(); var type = "application/json" }
 
+    /// Cenários sintéticos, sem conta real. O padrão conserva o servidor anterior aos canais.
+    /// Para inspeção no Xcode: WABOTIA_DEMO_CHANNELS=multichannel (ou outro rawValue).
+    enum ChannelScenario: String {
+        case legacy, whatsappOnly = "whatsapp", multichannel
+        case unavailableEmail = "email-unavailable", noEmailPermission = "email-forbidden"
+        case unknownEmailResult = "email-unknown"
+
+        static var environment: Self {
+            Self(rawValue: ProcessInfo.processInfo.environment["WABOTIA_DEMO_CHANNELS"] ?? "") ?? .legacy
+        }
+        var isMultichannel: Bool { self != .legacy && self != .whatsappOnly }
+    }
+
     /// Instância atual; `reset()` troca por uma nova (dados de exemplo do zero).
-    private(set) static var shared = DemoServer()
+    private(set) static var shared = DemoServer(channelScenario: .environment)
     static let queue = DispatchQueue(label: "br.com.queven.wabotia.demo")
 
     /// Recomeça os dados de exemplo (cada entrada na demonstração começa igual).
-    static func reset() {
-        queue.sync { shared = DemoServer() }
+    static func reset(channelScenario: ChannelScenario = .environment) {
+        queue.sync { shared = DemoServer(channelScenario: channelScenario) }
     }
 
     /// Arquivo local com os bytes de um anexo, para os players de áudio e vídeo: o AVPlayer não passa pela
@@ -69,6 +82,11 @@ final class DemoServer {
 
     var extraProfile = false
     var simulateOffline = false
+    private let channelScenario: ChannelScenario
+    private var channelEventIds: Set<String> = []
+    private var transcriptPreviews: [String: Row] = [:]
+    private var channelReceipts: [String: (fingerprint: Data, reply: Reply)] = [:]
+    private(set) var transcriptReservations = 0
 
     private let me = DemoMode.meId
     private let start = Int64(Date().timeIntervalSince1970 * 1000)
@@ -127,8 +145,10 @@ final class DemoServer {
             ["id": "nota", "type": "choice", "label": "Nota", "required": true], ["id": "comentario", "type": "text", "label": "Comentário", "required": false]]],
     ]
 
-    private init() {
+    private init(channelScenario: ChannelScenario = .legacy) {
+        self.channelScenario = channelScenario
         buildFixtures()
+        buildChannelFixtures()
         // Na conversa da Mariana: o formulário da coleta já respondido e o Pix do frete aguardando.
         let m = now - 50 * 60_000
         webSteps["c_rich"] = [["id": "ws_coleta", "conversation_id": "c_rich", "module_id": "forms", "kind": "form", "ref_id": "coleta", "title": "Dados para a coleta",
@@ -385,6 +405,143 @@ final class DemoServer {
         ]
     }
 
+    // MARK: - Canais sintéticos (campos do fornecedor: a conferir com a conta real)
+
+    private var channelSchema: Bool { channelScenario != .legacy }
+    private var demoChannels: [String] { channelScenario.isMultichannel ? ["whatsapp", "instagram", "facebook"] : ["whatsapp"] }
+    private let futureChannels = ["tiktok", "googlebusiness", "telegram", "email"]
+
+    private func buildChannelFixtures() {
+        guard channelSchema else { return }
+        for i in lines.indices {
+            lines[i]["channel"] = "whatsapp"
+            lines[i]["account_label"] = lines[i]["name"] ?? ""
+        }
+        for i in conversations.indices {
+            conversations[i]["channel"] = "whatsapp"
+            conversations[i]["multichannel"] = channelScenario.isMultichannel
+            conversations[i]["account_label"] = "WhatsApp Principal"
+        }
+        contacts["c_rich"]?["email"] = "mariana@cliente.example"
+        guard channelScenario.isMultichannel else { return }
+        for (channel, label) in [("instagram", "@loja_exemplo"), ("facebook", "Loja Exemplo")] {
+            lines.append(["id": "line_\(channel)", "name": label, "kind": "zernio", "channel": channel,
+                          "account_label": label, "status": "active", "mode": "direct",
+                          "number_policy": ["pool": false, "human": true, "bots": true, "menu": true, "api": false, "service": true, "templates": false],
+                          "service": ["mode": "human", "menu_mode": "manual"]])
+        }
+        for (id, channel, name, hours) in [("c_ig_open", "instagram", "Mariana Costa", 2),
+                                           ("c_ig_human", "instagram", "Alex Silva", 25),
+                                           ("c_fb_closed", "facebook", "Rafa Santos", 168)] {
+            let last = ago(Double(hours * 60))
+            let contactId = id == "c_ig_open" ? "ct_c_rich" : "ct_\(id)"
+            let account = channel == "instagram" ? "@loja_exemplo" : "Loja Exemplo"
+            conversations.append([
+                "id": id, "profile_id": "demo", "connection_id": "line_\(channel)",
+                "external_namespace": "channel:line_\(channel)", "external_id": "synthetic-subject-\(id)", "phone": NSNull(),
+                "channel": channel, "account_label": account, "multichannel": true,
+                "state": "human", "owner": me, "epoch": 1, "topic": NSNull(), "tags": "[]",
+                "last_customer": last, "created": last, "updated": last, "chat_type": "direct", "title": name,
+                "bot_policy": "mentions", "recipient_id": NSNull(), "contact_name": name, "contact_id": contactId,
+                "department_id": NSNull(), "assigned_bot_id": NSNull()
+            ])
+            contacts[id] = ["id": contactId, "name": name, "phone": NSNull(), "email": "mariana@cliente.example"]
+            messages[id] = [[
+                "id": "synthetic-message-\(id)", "profile_id": "demo", "conversation_id": id,
+                "direction": "customer", "author": "customer:demo", "text": id == "c_ig_human" ? "O anexo ficou indisponível. Ainda preciso de ajuda." : "Olá, gostaria de acompanhar meu atendimento.",
+                "attachments": "[]", "external_id": "synthetic-message-\(id)", "created": last,
+                "content": json(["type": "text", "customerSession": "session-\(id)", "mediaUnavailable": id == "c_ig_human"]),
+                "delivery_status": "", "status_at": 0
+            ], [
+                "id": "synthetic-note-\(id)", "profile_id": "demo", "conversation_id": id,
+                "direction": "note", "author": me, "text": "Nota interna que nunca entra na transcrição.",
+                "attachments": "[]", "external_id": NSNull(), "created": last + 1,
+                "content": "{}", "delivery_status": "", "status_at": 0
+            ]]
+        }
+    }
+
+    private func channelName(_ conversation: Row) -> String {
+        conversation["channel"] as? String ?? "whatsapp"
+    }
+
+    private func socialWindow(_ conversation: Row) -> Row {
+        let last = conversation["last_customer"] as? Int64 ?? 0
+        let valid = last > 0 && last <= now
+        let normal = valid && now - last < 24 * 3_600_000
+        let human = valid && now - last < 168 * 3_600_000
+        return ["kind": "customer", "state": normal ? "open" : human ? "human_text_only" : "closed", "serverNow": now,
+                "closesAt": valid ? last + 24 * 3_600_000 : NSNull() as Any,
+                "humanTextClosesAt": valid ? last + 168 * 3_600_000 : NSNull() as Any,
+                "remainingMessages": NSNull(), "canHumanText": human, "canAutomation": normal,
+                "reason": normal ? NSNull() as Any : human ? "human_only" : "window_closed"]
+    }
+
+    private func channelView(_ conversation: Row) -> Row {
+        let channel = channelName(conversation)
+        let social = channel != "whatsapp"
+        let group = conversation["chat_type"] as? String == "group"
+        let last = conversation["last_customer"] as? Int64 ?? 0
+        let whatsappWindow: Row = ["kind": group ? "none" : "customer", "state": windowOpen(conversation) ? "open" : "closed",
+                                   "serverNow": now, "closesAt": group || last <= 0 ? NSNull() as Any : last + 24 * 3_600_000,
+                                   "humanTextClosesAt": NSNull(), "remainingMessages": NSNull(),
+                                   "canHumanText": windowOpen(conversation), "canAutomation": windowOpen(conversation),
+                                   "reason": windowOpen(conversation) ? NSNull() as Any : "window_closed"]
+        return ["channel": channel, "account_label": conversation["account_label"] ?? "", "multichannel": channelScenario.isMultichannel,
+                "window": social ? socialWindow(conversation) : whatsappWindow, "templates": !social,
+                "menu": ["buttons": 3, "quickReplies": social ? 13 : 0, "listItems": social ? 0 : 10, "fallback": "numbered_text"],
+                "subject": false, "public_reply": false, "modules": !social, "can_initiate": !social]
+    }
+
+    private func transcriptOptions(_ conversation: Row? = nil) -> Row {
+        let permitted = channelScenario != .noEmailPermission
+        let configured = channelScenario != .unavailableEmail
+        let direct = conversation == nil || conversation?["chat_type"] as? String == "direct"
+        let reason: Any = !permitted ? "Sem permissão para enviar conversa por e-mail." : !configured ? "Configure em Gestão → Sistema → E-mail." : !direct ? "Disponível somente para conversas diretas." : NSNull() as Any
+        let session = conversation.map { channelName($0) != "whatsapp" } ?? false
+        return ["available": permitted && configured && direct, "reason": reason,
+                "destinations": permitted ? ["self", "contact", "custom"] : [String](),
+                "ranges": session ? ["session", "dates"] : ["dates"],
+                "limits": ["maxMessages": 2000, "maxTextChars": 50_000, "maxHtmlChars": 200_000,
+                           "actorPer24Hours": 10, "profilePer24Hours": 50, "previewTtlMs": 600_000]]
+    }
+
+    private func otherConversations(_ id: String, includeCurrent: Bool = false) -> [Row] {
+        guard let contact = contacts[id]?["id"] as? String else { return [] }
+        return conversations.compactMap { row -> Row? in
+            guard let other = row["id"] as? String, (includeCurrent || other != id), contacts[other]?["id"] as? String == contact else { return nil }
+            return ["id": other, "channel": channelName(row), "account_label": row["account_label"] ?? "",
+                    "title": contacts[other]?["name"] ?? "Contato", "state": row["state"] ?? "", "updated": row["updated"] ?? 0]
+        }
+    }
+
+    private func contactChannels(_ id: String) -> [Row] {
+        guard let contact = contacts[id]?["id"] as? String else { return [] }
+        return conversations.compactMap { row -> Row? in
+            guard let key = row["id"] as? String, contacts[key]?["id"] as? String == contact else { return nil }
+            return ["id": "identity-\(key)", "channel": channelName(row), "account_label": row["account_label"] ?? "",
+                    "display_name": contacts[key]?["name"] ?? "Contato", "username": channelName(row) == "instagram" ? "mariana_exemplo" : "",
+                    "state": "ready", "connection_id": row["connection_id"] ?? NSNull(), "subject_masked": "••••exemplo"]
+        }
+    }
+
+    /// Replay do mesmo evento/mensagem não altera a janela nem acrescenta balão/evento.
+    /// É chamado diretamente pelos XCTest; não cria webhook ou chamada externa na demonstração.
+    @discardableResult
+    func receiveChannelEvent(eventId: String, messageId: String, conversationId: String, text: String, occurredAt: Int64) -> Bool {
+        guard channelSchema, let i = index(ofConversation: conversationId), channelName(conversations[i]) != "whatsapp",
+              !channelEventIds.contains(eventId), !(messages[conversationId] ?? []).contains(where: { $0["external_id"] as? String == messageId }) else { return false }
+        channelEventIds.insert(eventId)
+        messages[conversationId, default: []].append([
+            "id": "event-message-\(messageId)", "profile_id": "demo", "conversation_id": conversationId, "direction": "customer",
+            "author": "customer:demo", "text": text, "attachments": "[]", "external_id": messageId, "created": occurredAt,
+            "content": json(["type": "text", "customerSession": "session-\(conversationId)"]), "delivery_status": "", "status_at": 0
+        ])
+        if occurredAt > 0 && occurredAt <= now { conversations[i]["last_customer"] = max(conversations[i]["last_customer"] as? Int64 ?? 0, occurredAt) }
+        emit("message.received", resource: messageId, ["conversation_id": conversationId, "message_id": messageId, "text": text, "attachments": [String]()])
+        return true
+    }
+
     // MARK: - Utilidades
 
     private func json(_ value: Any) -> String {
@@ -485,9 +642,16 @@ final class DemoServer {
 
     private func capabilities(_ conversation: Row) -> Row {
         let group = conversation["chat_type"] as? String == "group"
-        return ["text": true, "document": true, "image": true, "video": true, "audio": true, "voice": true, "sticker": true, "reply": true,
+        var result: Row = ["text": true, "document": true, "image": true, "video": true, "audio": true, "voice": true, "sticker": true, "reply": true,
                 "reaction": true, "location": !group, "contacts": !group, "edit": true, "delete": true, "read": true, "mentions": group,
                 "groups": true, "group_manage": false, "calls": false,"video_calls": false, "upgrade_required": false]
+        if channelSchema {
+            result.merge(channelView(conversation)) { _, new in new }
+            if channelName(conversation) != "whatsapp" {
+                for key in ["voice", "sticker", "reply", "reaction", "location", "contacts", "edit", "delete", "mentions", "groups"] { result[key] = false }
+            }
+        }
+        return result
     }
 
     // MARK: - Rotas
@@ -568,13 +732,25 @@ final class DemoServer {
         if get, m(base + "status") != nil {
             var counts: [String: Int] = [:]
             conversations.forEach { counts[$0["state"] as? String ?? "", default: 0] += 1 }
-            return ok([
+            var status: Row = [
                 "settings": ["departments": departments, "menus": menus, "apps": [Row](), "ticket_categories": ticketCategories] as Row,
                 "enabled": 1,
                 "conversations": counts.map { ["state": $0.key, "count": $0.value] as Row },
                 "deliveries": [Row](),
                 "connections": lines.map { ["id": $0["id"] ?? "", "name": $0["name"] ?? "", "kind": $0["kind"] ?? "", "status": $0["status"] ?? "", "last_seen": now] as Row },
-            ])
+            ]
+            if channelSchema {
+                status["connected_channels"] = demoChannels
+                status["conversation_channels"] = demoChannels
+                status["multichannel"] = channelScenario.isMultichannel
+                status["email_transcript"] = transcriptOptions()
+                status["connections"] = lines.map { line -> Row in
+                    ["id": line["id"] ?? "", "name": line["name"] ?? "", "kind": line["kind"] ?? "", "status": line["status"] ?? "",
+                     "channel": line["channel"] ?? "whatsapp", "account_label": line["account_label"] ?? "", "last_seen": now]
+                }
+                status["future_channels"] = futureChannels.map { ["channel": $0, "enabled": false] as Row }
+            }
+            return ok(status)
         }
         if get, m(base + "presence") != nil { return ok(presence) }
         if put, m(base + "presence") != nil {
@@ -615,6 +791,10 @@ final class DemoServer {
         // Conversas
         if get, m(base + "conversations") != nil {
             var list = conversations
+            if let channel = query["channel"] {
+                guard demoChannels.contains(channel) || futureChannels.contains(channel) else { return fail(400, "invalid_channel", "Canal desconhecido.") }
+                list = list.filter { channelName($0) == channel }
+            }
             if let state = query["state"], !state.isEmpty { list = list.filter { $0["state"] as? String == state } }
             if let q = query["q"]?.lowercased(), !q.isEmpty {
                 list = list.filter { c in
@@ -625,12 +805,23 @@ final class DemoServer {
             list = list.map { row in
                 var row = row
                 row["last_message"] = lastMessage(row["id"] as? String ?? "")
+                if channelSchema { row.merge(channelView(row)) { _, new in new } }
                 return row
             }
-            return ok(["data": list, "next_cursor": NSNull()])
+            let offset = max(0, Int(query["cursor"] ?? "0") ?? 0)
+            let limit = min(100, max(1, Int(query["limit"] ?? "100") ?? 100))
+            let page = Array(list.dropFirst(offset).prefix(limit))
+            return ok(["data": page, "next_cursor": offset + page.count < list.count ? String(offset + page.count) : NSNull() as Any])
         }
+        if post, let c = m(base + "conversations/*/email/preview"), channelSchema { return transcriptPreview(c[1], body, key: key) }
+        if post, let c = m(base + "conversations/*/email"), channelSchema { return transcriptSend(c[1], body, key: key) }
         if get, let c = m(base + "conversations/*") { return detail(c[1]) }
-        if post, let c = m(base + "conversations/*/actions") { return action(c[1], body) }
+        if post, let c = m(base + "conversations/*/actions") {
+            if channelSchema {
+                return channelMutation(scope: "action:\(c[1])", body: body, key: key) { self.action(c[1], body) }
+            }
+            return action(c[1], body)
+        }
         if post, let c = m(base + "conversations/*/message-actions") { return messageAction(c[1], body) }
         if put, let c = m(base + "conversations/*/contact") {
             guard let i = index(ofConversation: c[1]) else { return fail(404, "not_found", "Conversa não encontrada.") }
@@ -643,6 +834,12 @@ final class DemoServer {
             guard let i = index(ofConversation: c[1]) else { return fail(404, "not_found", "Grupo não encontrado.") }
             conversations[i]["bot_policy"] = body["bot_policy"] ?? "mentions"
             return ok(conversations[i])
+        }
+        if get, let c = m(base + "contacts/*/profile"), channelSchema {
+            guard let id = contacts.first(where: { $0.value["id"] as? String == c[1] })?.key else { return fail(404, "not_found", "Contato não encontrado.") }
+            return ok(["profileId": "demo", "contactId": c[1], "erpContactId": NSNull(), "depth": "simple",
+                       "vocabulary": ["singular": "Contato", "plural": "Contatos"], "writable": false, "readable": true,
+                       "contributions": [Row](), "channels": contactChannels(id), "other_conversations": otherConversations(id, includeCurrent: true)])
         }
         if get, let c = m(base + "contacts/*") { return ok(contacts.values.first { $0["id"] as? String == c[1] } ?? [:]) }
 
@@ -853,7 +1050,7 @@ final class DemoServer {
         }
         let group = conversation["chat_type"] as? String == "group"
         let line = lines.first { $0["id"] as? String == conversation["connection_id"] as? String }
-        return ok([
+        var result: Row = [
             "conversation": conversation,
             "connection_kind": line?["kind"] ?? NSNull(),
             "server_now": now,
@@ -866,7 +1063,114 @@ final class DemoServer {
             "handoff": suporte.handoff(id),
             "payments": Array((payments[id] ?? []).reversed()),
             "web_steps": Array((webSteps[id] ?? []).reversed()),
-        ])
+        ]
+        if channelSchema {
+            result.merge(channelView(conversation)) { _, new in new }
+            result["other_conversations"] = otherConversations(id)
+            result["email_transcript"] = transcriptOptions(conversation)
+            var contact = contacts[id] ?? [:]
+            contact["channels"] = contactChannels(id)
+            contact["other_conversations"] = otherConversations(id)
+            result["contact"] = contact.isEmpty ? NSNull() as Any : contact
+        }
+        return ok(result)
+    }
+
+    // MARK: Transcrição local; nenhum provedor é chamado e nenhum e-mail é entregue.
+
+    private func channelMutation(scope: String, body: Row, key: String?, run: () -> Reply) -> Reply {
+        guard let key, !key.isEmpty else { return fail(400, "idempotency_required", "A chave da tentativa é obrigatória.") }
+        let fingerprint = (try? JSONSerialization.data(withJSONObject: ["scope": scope, "body": body], options: [.sortedKeys])) ?? Data()
+        if let previous = channelReceipts[key] {
+            guard previous.fingerprint == fingerprint else { return fail(409, "idempotency_conflict", "Esta tentativa já foi usada com outro pedido.") }
+            if scope.hasPrefix("email:"), var row = (try? JSONSerialization.jsonObject(with: previous.reply.data)) as? Row {
+                row["duplicate"] = true
+                return ok(row)
+            }
+            return previous.reply
+        }
+        let reply = run()
+        if (200..<300).contains(reply.status) { channelReceipts[key] = (fingerprint, reply) }
+        return reply
+    }
+
+    private func transcriptAuthorization(_ id: String) -> Reply? {
+        guard let i = index(ofConversation: id) else { return fail(404, "not_found", "Conversa não encontrada.") }
+        let options = transcriptOptions(conversations[i])
+        guard options["available"] as? Bool == true else {
+            return fail(channelScenario == .noEmailPermission ? 403 : 409, "transcript_unavailable", options["reason"] as? String ?? "Transcrição indisponível.")
+        }
+        return nil
+    }
+
+    private func transcriptPreview(_ id: String, _ body: Row, key: String?) -> Reply {
+        if let denied = transcriptAuthorization(id) { return denied }
+        return channelMutation(scope: "preview:\(id)", body: body, key: key) {
+            guard let destination = body["destination"] as? Row, let kind = destination["kind"] as? String,
+                  let range = body["range"] as? Row, let rangeKind = range["kind"] as? String else {
+                return self.fail(400, "invalid_request", "Escolha destino e período.")
+            }
+            let recipient: String
+            switch kind {
+            case "self": recipient = DemoMode.meEmail
+            case "contact": recipient = self.contacts[id]?["email"] as? String ?? ""
+            case "custom": recipient = (destination["address"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            default: return self.fail(400, "invalid_destination", "Destino não permitido.")
+            }
+            guard recipient.contains("@"), !recipient.contains("\n"), !recipient.contains(","), !recipient.contains(";") else {
+                return self.fail(400, "invalid_recipient", "Informe um único endereço de e-mail válido.")
+            }
+            let publicMessages = (self.messages[id] ?? []).filter { ["customer", "outbound"].contains($0["direction"] as? String ?? "") }
+            var eligibleMessages = publicMessages
+            let from: Int64, to: Int64
+            if rangeKind == "session" {
+                guard let session = publicMessages.last.flatMap({ self.parse($0["content"]) as? Row })?["customerSession"] as? String else {
+                    return self.fail(409, "session_unavailable", "Escolha um intervalo de datas para este atendimento antigo.")
+                }
+                let sessionMessages = publicMessages.filter { (self.parse($0["content"]) as? Row)?["customerSession"] as? String == session }
+                eligibleMessages = sessionMessages
+                from = sessionMessages.compactMap { $0["created"] as? Int64 }.min() ?? self.now
+                to = self.now
+            } else if rangeKind == "dates", let first = (range["from"] as? NSNumber)?.int64Value, let last = (range["to"] as? NSNumber)?.int64Value,
+                      first > 0, last >= first {
+                from = first; to = last
+            } else { return self.fail(400, "invalid_range", "Informe um período válido.") }
+            let selected = eligibleMessages.filter { let created = $0["created"] as? Int64 ?? 0; return created >= from && created <= to }
+            let size = selected.reduce(0) { $0 + (($1["text"] as? String)?.count ?? 0) }
+            guard selected.count <= 2000, size <= 50_000 else { return self.fail(400, "transcript_too_large", "Escolha um intervalo menor.") }
+            // Token opaco somente da simulação, guardado em memória. Produção assina o token no servidor.
+            let token = self.nextId("demo-preview-")
+            let expires = self.now + 600_000
+            let preview: Row = ["recipient": recipient, "period": ["from": from, "to": to], "messageCount": selected.count,
+                                "size": ["textChars": size, "htmlChars": size + 200], "warnings": ["Demonstração: nenhum e-mail será enviado.", "Notas internas e arquivos não serão incluídos."],
+                                "requiresConfirmation": kind != "self", "requiresCustomerRequest": kind == "contact", "previewToken": token, "expiresAt": expires]
+            self.transcriptPreviews[token] = ["conversation": id, "recipient": recipient, "destination": kind, "expires": expires,
+                                             "upperBound": self.now, "messageIds": selected.compactMap { $0["id"] as? String }]
+            return self.ok(preview)
+        }
+    }
+
+    private func transcriptSend(_ id: String, _ body: Row, key: String?) -> Reply {
+        // Reautoriza também o replay, antes de consultar o recibo.
+        if let denied = transcriptAuthorization(id) { return denied }
+        return channelMutation(scope: "email:\(id)", body: body, key: key) {
+            guard let token = body["previewToken"] as? String, let preview = self.transcriptPreviews[token],
+                  preview["conversation"] as? String == id, (preview["expires"] as? Int64 ?? 0) > self.now,
+                  let recipient = preview["recipient"] as? String else { return self.fail(409, "preview_expired", "Faça uma nova prévia antes de enviar.") }
+            let destination = preview["destination"] as? String ?? ""
+            if destination != "self", body["confirmedRecipient"] as? String != recipient {
+                return self.fail(400, "confirmation_required", "Confirme o endereço completo exibido na prévia.")
+            }
+            if destination == "contact" {
+                guard body["customerRequested"] as? Bool == true else { return self.fail(400, "customer_request_required", "Confirme que o cliente pediu este envio.") }
+                guard self.contacts[id]?["email"] as? String == recipient else { return self.fail(409, "preview_changed", "O e-mail do contato mudou. Faça uma nova prévia.") }
+            }
+            guard self.transcriptReservations < 10 else { return self.fail(429, "transcript_quota", "Limite de 10 envios por pessoa em 24 horas.") }
+            self.transcriptReservations += 1
+            let result: Row = ["id": self.nextId("demo-email-"), "status": self.channelScenario == .unknownEmailResult ? "unknown" : "sent",
+                               "to_masked": String(recipient.prefix(1)) + "•••@" + (recipient.split(separator: "@").last.map(String.init) ?? ""), "duplicate": false]
+            return self.ok(result)
+        }
     }
 
     // MARK: Formulário e Cobrança
@@ -935,18 +1239,26 @@ final class DemoServer {
 
     private func touch(_ i: Int) { conversations[i]["updated"] = now }
 
-    private func appendOutbound(_ conversationId: String, author: String, text: String, attachments: [String] = [], content: Row = [:]) -> String {
+    private func appendOutbound(_ conversationId: String, author: String, text: String, attachments: [String] = [], content: Row = [:], humanText: Bool = false) -> String {
         let deliveryId = nextId("d")
         guard let i = index(ofConversation: conversationId) else { return deliveryId }
-        if !windowOpen(conversations[i]) {
+        let social = channelSchema && channelName(conversations[i]) != "whatsapp"
+        let maySend = social && humanText && attachments.isEmpty ? socialWindow(conversations[i])["canHumanText"] as? Bool == true : windowOpen(conversations[i])
+        if !maySend {
             // Fora da janela: o servidor guarda a entrega e envia quando o cliente escrever.
             deliveries[conversationId, default: []].append(["id": deliveryId, "status": "pending", "error": NSNull(), "created": now])
             return deliveryId
         }
         let id = "delivery:\(deliveryId)"
+        var storedContent = content
+        if social {
+            let latestCustomer = messages[conversationId]?.last { $0["direction"] as? String == "customer" }
+            let latestContent = parse(latestCustomer?["content"]) as? Row
+            storedContent["customerSession"] = latestContent?["customerSession"] ?? "session-\(conversationId)"
+        }
         messages[conversationId, default: []].append([
             "id": id, "profile_id": "demo", "conversation_id": conversationId, "direction": "outbound", "author": author, "text": text,
-            "attachments": json(attachments), "external_id": "wamid.\(deliveryId)", "created": now, "content": json(content), "delivery_status": "sent", "status_at": now,
+            "attachments": json(attachments), "external_id": "wamid.\(deliveryId)", "created": now, "content": json(storedContent), "delivery_status": "sent", "status_at": now,
         ])
         touch(i)
         emit("message.sent", resource: deliveryId, ["conversation_id": conversationId, "text": text, "attachments": attachments])
@@ -966,6 +1278,19 @@ final class DemoServer {
         let owner = conversations[i]["owner"] as? String
         let state = conversations[i]["state"] as? String ?? ""
         let mine = owner == me && state == "human"
+        if channelSchema, channelName(conversations[i]) != "whatsapp" {
+            if ["form", "charge", "pedido_link"].contains(action) { return fail(400, "unsupported_content", "Módulos disponíveis somente no WhatsApp.") }
+            let sending = ["reply", "menu", "protocols", "survey", "resume"].contains(action) || (action == "transfer" && (body["target"] as? String ?? "").hasPrefix("bot:"))
+            if sending {
+                let window = socialWindow(conversations[i])
+                guard window["canHumanText"] as? Bool == true else { return fail(409, "window_closed", "A janela de resposta deste canal terminou.") }
+                let content = body["content"] as? Row ?? [:]
+                let plainContent = content.isEmpty || (content.count == 1 && content["type"] as? String == "text")
+                let plain = action == "reply" && (body["attachments"] as? [String] ?? []).isEmpty && plainContent
+                if window["canAutomation"] as? Bool != true && !plain { return fail(409, "human_only", "Até 7 dias, envie somente texto escrito por uma pessoa.") }
+                if action == "reply", (body["content"] as? Row)?["reply_to"] != nil { return fail(400, "unsupported_content", "Respostas citadas não estão disponíveis neste canal.") }
+            }
+        }
         switch action {
         case "claim":
             if state == "human", let owner, owner != me { return fail(409, "already_claimed", "Outro atendente assumiu a conversa.") }
@@ -1031,7 +1356,7 @@ final class DemoServer {
                 content["reply_text"] = quoted["text"] as? String ?? ""
             }
             let wasOpen = windowOpen(conversations[i])
-            let deliveryId = appendOutbound(id, author: me, text: text, attachments: attachments, content: content)
+            let deliveryId = appendOutbound(id, author: me, text: text, attachments: attachments, content: content, humanText: true)
             if wasOpen, conversations[i]["chat_type"] as? String != "group" {
                 // O cliente responde alguns segundos depois, para a demonstração mostrar não lidas e o anel enchendo.
                 schedule(after: 9) { [weak self] in self?.customerReplies(id) }
@@ -1069,8 +1394,10 @@ final class DemoServer {
         guard let i = index(ofConversation: id) else { return }
         let messageId = nextId("in")
         let text = ["Perfeito, obrigada! 👍", "Entendi, muito obrigado.", "Ótimo, fico no aguardo."].randomElement() ?? "Obrigado!"
+        var content: Row = ["type": "text"]
+        if channelSchema, channelName(conversations[i]) != "whatsapp" { content["customerSession"] = "session-\(id)" }
         messages[id, default: []].append(["id": messageId, "profile_id": "demo", "conversation_id": id, "direction": "customer", "author": "customer:demo", "text": text,
-                                          "attachments": "[]", "external_id": "wamid.\(messageId)", "created": now, "content": json(["type": "text"]), "delivery_status": "", "status_at": 0])
+                                          "attachments": "[]", "external_id": "wamid.\(messageId)", "created": now, "content": json(content), "delivery_status": "", "status_at": 0])
         conversations[i]["last_customer"] = now
         touch(i)
         emit("message.received", resource: messageId, ["conversation_id": id, "message_id": messageId, "text": text, "attachments": [String]()])
@@ -1083,6 +1410,9 @@ final class DemoServer {
     }
 
     private func messageAction(_ id: String, _ body: Row) -> Reply {
+        if channelSchema, let i = index(ofConversation: id), channelName(conversations[i]) != "whatsapp", body["action"] as? String != "read" {
+            return fail(400, "unsupported_content", "Esta ação não está disponível neste canal.")
+        }
         let messageId = body["message_id"] as? String ?? ""
         guard let j = messages[id]?.firstIndex(where: { $0["id"] as? String == messageId }) else { return fail(404, "not_found", "Mensagem não encontrada.") }
         var content = parse(messages[id]?[j]["content"]) as? Row ?? [:]

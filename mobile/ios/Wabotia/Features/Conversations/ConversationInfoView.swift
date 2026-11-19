@@ -23,6 +23,7 @@ struct ConversationInfoView: View {
     @State private var showCourtesy = false
     @State private var showForms = false
     @State private var showCharge = false
+    @State private var showEmailTranscript = false
     @ObservedObject private var modules = ModuleFeature.shared
 
     init(conversationId: String) {
@@ -41,6 +42,10 @@ struct ConversationInfoView: View {
                             Group {
                                 identity(c)
                                 if let clock = vm.window { windowCard(clock, c) }
+                                if vm.channel?.isSocial == true, let window = vm.channelWindow, window.showsClock {
+                                    ChannelWindowSummary(window: window).card()
+                                }
+                                channelCard
                                 if let error = vm.actionError { InlineError(text: error) }
                                 statusCard(c)
                                 if vm.handoff != nil || vm.suporte != nil {
@@ -80,7 +85,12 @@ struct ConversationInfoView: View {
         .onAppear { vm.appear() }
         .onDisappear { vm.disappear() }
         .task { await vm.loadTickets() }
-        .task(id: vm.conversation?.id) { if vm.conversation != nil { await vm.loadSuporte() } }
+        .task(id: vm.conversation?.id) {
+            if vm.conversation != nil { await vm.loadSuporte() }
+        }
+        .sheet(isPresented: $showEmailTranscript) {
+            if let options = vm.detail?.email_transcript { EmailTranscriptSheet(conversationId: conversationId, options: options) }
+        }
         .sheet(isPresented: $showForms, onDismiss: { vm.actionError = nil }) { FormPickerSheet(vm: vm) }
         .sheet(isPresented: $showCharge, onDismiss: { vm.actionError = nil }) { ChargeSheet(vm: vm) }
         .sheet(isPresented: $showCourtesy) {
@@ -118,7 +128,7 @@ struct ConversationInfoView: View {
     /// Aparece com Formulários ou Cobrança ligados, ou quando a conversa já tem links ou cobranças.
     @ViewBuilder
     private func itemsCard(_ c: Conversation) -> some View {
-        let canAct = !c.isGroup && (vm.isOwned || vm.isAdmin) && c.state != "closed"
+        let canAct = vm.modulesAllowed && !c.isGroup && (vm.isOwned || vm.isAdmin) && c.state != "closed"
         let canForm = canAct && modules.isAvailable(ModuleId.forms, container.profileId)
         let canCharge = canAct && modules.isAvailable(ModuleId.payments, container.profileId)
         if canForm || canCharge || !vm.webSteps.isEmpty || !vm.payments.isEmpty {
@@ -132,11 +142,11 @@ struct ConversationInfoView: View {
 
     private func identity(_ c: Conversation) -> some View {
         VStack(spacing: 8) {
-            AvatarView(name: vm.displayName, seed: conversationId, kind: c.isGroup ? .group : .person, size: 88, badge: .role(c.role(me: vm.meId)))
+            AvatarView(name: vm.displayName, seed: conversationId, kind: c.isGroup ? .group : .person, size: 88, badge: .role(c.role(me: vm.meId)), channel: vm.channel, multichannel: vm.isMultichannel)
             Text(vm.displayName).font(Theme.font(22, .bold)).foregroundStyle(Theme.textPrimary).multilineTextAlignment(.center)
             if c.isGroup {
                 Text("Grupo · \(vm.groupParticipants) participantes").font(Theme.font(14)).foregroundStyle(Theme.textSecondary)
-            } else if let phone = c.phone, !phone.isEmpty {
+            } else if vm.channel == .whatsapp, let phone = c.phone, !phone.isEmpty {
                 Button {
                     UIPasteboard.general.string = phone
                     workspace.show("Telefone copiado")
@@ -151,12 +161,61 @@ struct ConversationInfoView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Telefone \(phone). Copiar")
             }
-            if let line = workspace.connectionName(c.connection_id) {
+            if vm.isMultichannel || vm.channel?.isSocial == true {
+                Pill(text: vm.channelAccount, color: Theme.brand, icon: "bubble.left.fill")
+            } else if let line = workspace.connectionName(c.connection_id) {
                 Pill(text: line, color: Theme.brand, icon: "phone.fill")
             }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 4)
+    }
+
+    /// A ficha e os atalhos são projeções autorizadas; junção e desfazer permanecem no painel web.
+    @ViewBuilder private var channelCard: some View {
+        if vm.isMultichannel || vm.channel?.isSocial == true {
+            SectionCard(title: "Canais") {
+                if let phone = vm.linkedContactPhone {
+                    CardRow(title: "Telefone cadastral", value: ConversationFormatting.phone(phone))
+                }
+                ForEach(vm.contactChannels?.channels ?? []) { item in
+                    HStack(alignment: .top, spacing: 10) {
+                        ChannelBadge(channel: item.channel, size: 22)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(item.channel.label + (item.account_label.isEmpty ? "" : " · \(item.account_label)"))
+                                .font(Theme.font(14, .semibold)).foregroundStyle(Theme.textPrimary)
+                            if !item.display_name.isEmpty { Text(item.display_name).font(Theme.font(13)) }
+                            if !item.username.isEmpty { Text(item.username).font(Theme.font(13)) }
+                            Text(channelState(item.state)).font(Theme.font(12))
+                        }.foregroundStyle(Theme.textSecondary)
+                        Spacer(minLength: 0)
+                    }.padding(.vertical, 8)
+                }
+                CardRow(title: "Módulos", value: vm.modulesAllowed ? "Disponíveis neste canal" : "Indisponíveis neste canal", divider: false)
+            }
+        }
+        if !vm.otherConversations.isEmpty {
+            SectionCard(title: "Outras conversas", footer: "Históricos autorizados deste contato. Cada conversa mantém suas próprias mensagens e janela.") {
+                ForEach(vm.otherConversations) { item in
+                    Button { push(.conversation(id: item.id)) } label: {
+                        CardRow(title: item.title.isEmpty ? (item.channel?.label ?? "Conversa") : item.title,
+                                subtitle: [item.channel?.label ?? "Canal desconhecido", item.account_label, ConversationFormatting.stateLabel(item.state)].filter { !$0.isEmpty }.joined(separator: " · "),
+                                chevron: true)
+                    }.buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func channelState(_ value: String) -> String {
+        switch value {
+        case "ready": return "Identidade verificada neste canal"
+        case "pending": return "Identificação pendente"
+        case "ambiguous": return "Identificação precisa de revisão"
+        case "blocked": return "Bloqueado"
+        case "erased": return "Indisponível"
+        default: return "Situação desconhecida"
+        }
     }
 
     // MARK: Janela
@@ -312,17 +371,23 @@ struct ConversationInfoView: View {
 
     private func actionsCard(_ c: Conversation) -> some View {
         SectionCard(title: "Ações") {
-            if !c.isGroup {
+            if !c.isGroup, vm.channel == .whatsapp {
                 if vm.hasLinkedContact {
                     CardRow(icon: "person.crop.circle.badge.checkmark", iconColor: Theme.muted, title: "Contato salvo", subtitle: "Edição e desvínculo ficam no painel")
                 } else {
                     actionRow("Salvar contato", "person.crop.circle.badge.plus", Theme.tickRead) { showSaveContact = true }
                 }
             }
-            actionRow("Consultar bot", "text.bubble.fill", Theme.bot) { showBots = true }
+            if let options = vm.detail?.email_transcript, options.available || !options.destinations.isEmpty {
+                actionRow("Enviar conversa por e-mail", "envelope", Theme.brand, disabled: !options.available) { showEmailTranscript = true }
+                if !options.available, let reason = options.reason {
+                    CardRow(title: "E-mail indisponível", subtitle: reason)
+                }
+            }
+            if vm.modulesAllowed { actionRow("Consultar bot", "text.bubble.fill", Theme.bot) { showBots = true } }
             if vm.isOwned {
-                if !c.isGroup { actionRow("Pesquisa de satisfação", "star.fill", Theme.warn) { confirmSurvey = true } }
-                actionRow("Devolver ao bot", "cpu", Theme.bot) { confirmResume = true }
+                if !c.isGroup, vm.automationAllowed { actionRow("Pesquisa de satisfação", "star.fill", Theme.warn) { confirmSurvey = true } }
+                if vm.automationAllowed { actionRow("Devolver ao bot", "cpu", Theme.bot) { confirmResume = true } }
                 actionRow("Concluir", "checkmark.circle.fill", Theme.danger, danger: true, divider: false) { confirmResolve = true }
             } else {
                 CardRow(icon: "lock.fill", iconColor: Theme.muted, title: "Assuma a conversa para mais ações", titleColor: Theme.textSecondary, divider: false)

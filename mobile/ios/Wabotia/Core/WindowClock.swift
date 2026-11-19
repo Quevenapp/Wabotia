@@ -97,4 +97,25 @@ struct WindowClock: Equatable {
         guard let kind = connectionKind, !kind.isEmpty else { return true }
         return kind == "meta" || kind == "zernio"
     }
+
+    /// Caminho de canais: não aplica o relógio legado a origem desconhecida, social ou sem prazo.
+    /// O overload anterior permanece compatível com os consumidores legados.
+    static func applies(chatType: String?, connectionKind: String?, channel: ChannelID?, window: ChannelWindowState?) -> Bool {
+        guard chatType != "group", channel == .whatsapp else { return false }
+        if let window { return window.kind == "customer" }
+        return connectionKind == "meta" || connectionKind == "zernio"
+    }
+
+    /// Texto atualizado sem usar o relógio do aparelho para renovar permissões do servidor.
+    static func channelLabel(_ window: ChannelWindowState, now: Int64) -> String {
+        let current = window.projected(at: now)
+        guard current.showsClock, current.state != "closed" else { return current.label }
+        let end = current.isHumanTextOnly ? current.humanTextClosesAt : current.closesAt
+        guard let end else { return current.label }
+        let left = max(0, end - max(now, current.serverNow))
+        let hours = left / hour
+        let minutes = (left % hour) / minute
+        let remaining = hours > 0 ? "\(hours)h \(String(format: "%02d", minutes))min" : "\(max(1, minutes)) min"
+        return current.isHumanTextOnly ? "Somente texto humano · \(remaining) restantes" : "Janela de 24h · \(remaining) restantes"
+    }
 }

@@ -19,5 +19,12 @@ extension ConversationDetail {
     var hasLinkedContact: Bool { contact?["id"]?.stringValue != nil }
 
     /// Nome a exibir: contato vinculado, senão o nome da conversa (contact_name, título, telefone ou external_id).
-    var displayName: String { linkedContactName ?? conversation.displayName }
+    var displayName: String {
+        if let linkedContactName { return linkedContactName }
+        if let name = conversation.contact_name, !name.isEmpty { return name }
+        if let title = conversation.title, !title.isEmpty { return title }
+        // O identificador opaco não é telefone nem nome público.
+        if let channel = resolvedChannel, channel != .whatsapp { return "Contato do \(channel.label)" }
+        return conversation.displayName
+    }
 }
