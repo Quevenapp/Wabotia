@@ -8,6 +8,7 @@ import type { ModuleDefinition } from "../types";
 
 export const reservaModule: ModuleDefinition = {
   id: "reserva",
+  integration: { route: "title", uses: ["customers", "products", "finance"], operations: ["recognize", "receive", "cancel", "reverse"], privacy: "adult_payer_only" },
   name: "Reserva e check-in",
   version: "1.0.0",
   description:

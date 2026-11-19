@@ -66,9 +66,12 @@ import {
 import { registerCustomerProvider } from "../../customer/ports";
 import { reservaCustomerProvider } from "./customer-provider";
 import { withCustomerConfirmation } from "../agenda/customer-provider";
+import { installReservaIntegration } from "./integration";
+import { bookingReceipts, manualBookingReceipt } from "../agenda/integration";
 
 const MODULE = "reserva";
 registerCustomerProvider(MODULE, reservaCustomerProvider);
+installReservaIntegration();
 // Toda resposta das rotas e comandos passa por visibleBookings (revisão M6).
 const { onRead, onCommand, onConversationAction } =
   filteredHandlers(visibleBookings);
@@ -79,6 +82,11 @@ export async function config(ctx: ModuleContext) {
 
 const read = (ctx: ModuleContext, actor: Actor) =>
   ctx.access(actor, "conversations:read");
+
+onRoute(MODULE, { method: "POST", path: "reserva/bookings/:id/receipts", op: "reserva.receipt" });
+onRead(MODULE, "reserva/bookings/:id/receipts", (ctx, actor, { params }) => bookingReceipts(ctx, actor, "reserva", params.id));
+onCommand(MODULE, "reserva.receipt", (ctx, actor, data, { requestId }) =>
+  manualBookingReceipt(ctx, actor, "reserva", data.id, data, requestId));
 
 /** Intervalo de datas (from_date..to_date, inclusive), padrão: 30 dias. */
 export function dateRange(query: Record<string, string>, at: number) {

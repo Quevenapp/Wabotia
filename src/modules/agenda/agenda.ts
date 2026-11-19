@@ -52,9 +52,11 @@ import {
 
 import { registerCustomerProvider } from "../../customer/ports";
 import { agendaCustomerProvider, withCustomerConfirmation } from "./customer-provider";
+import { agendaTrigger, bookingReceipts, installAgendaIntegration, manualBookingReceipt } from "./integration";
 
 const MODULE = "agenda";
 registerCustomerProvider(MODULE, agendaCustomerProvider);
+installAgendaIntegration();
 // Toda resposta das rotas e comandos passa por visibleAppointments (M6).
 const { onRead, onCommand, onConversationAction } =
   filteredHandlers(visibleAppointments);
@@ -511,6 +513,16 @@ onCommand(MODULE, "agenda.confirm", async (ctx, actor, data) => {
   ctx.access(actor, "conversations:write");
   return confirm(ctx, { id: data.id, actor: actor.id });
 });
+
+for (const action of ["charge", "complete"] as const) {
+  onRoute(MODULE, { method: "POST", path: `agenda/appointments/:id/${action}`, op: `agenda.${action}` });
+  onCommand(MODULE, `agenda.${action}`, (ctx, actor, data, { requestId }) =>
+    agendaTrigger(ctx, actor, data.id, action, { price_cents: data.price_cents }, requestId));
+}
+onRoute(MODULE, { method: "POST", path: "agenda/appointments/:id/receipts", op: "agenda.receipt" });
+onRead(MODULE, "agenda/appointments/:id/receipts", (ctx, actor, { params }) => bookingReceipts(ctx, actor, "agenda", params.id));
+onCommand(MODULE, "agenda.receipt", (ctx, actor, data, { requestId }) =>
+  manualBookingReceipt(ctx, actor, "agenda", data.id, data, requestId));
 
 onRoute(MODULE, {
   method: "POST",
