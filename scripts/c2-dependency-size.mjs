@@ -87,7 +87,12 @@ function configFor(directory, main, file, assetDirectory) {
   assert.ok(safeRelative(main), 'Entrada do Worker fora do snapshot.');
   // Assets não entram no orçamento de módulos; preserva o binding e usa pasta
   // vazia local. Todas as demais opções de empacotamento vêm do config real.
-  const measured = { ...config, main: resolve(directory, main), tsconfig: resolve(directory, config.tsconfig ?? 'tsconfig.json'),
+  // Só repassa `tsconfig` quando o config real o declara (hoje não declara):
+  // no Windows o dry-run do Wrangler não acha o arquivo informado por caminho
+  // absoluto ("Cannot find tsconfig file"), e sem a chave o empacotador o
+  // descobre a partir da entrada, exatamente como no release.
+  const measured = { ...config, main: resolve(directory, main),
+    ...(config.tsconfig ? { tsconfig: resolve(directory, config.tsconfig) } : {}),
     ...(config.assets ? { assets: { ...config.assets, directory: assetDirectory } } : {}),
     d1_databases: config.d1_databases?.map(database => ({ ...database,
       ...(database.migrations_dir ? { migrations_dir: resolve(directory, database.migrations_dir) } : {}) })) };

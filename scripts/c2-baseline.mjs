@@ -288,10 +288,26 @@ export function main() {
     originalToFirstWave: compareReports(base.legacy, firstWaveLegacy),
     firstWaveToCurrent: compareReports(firstWaveLegacy, current.legacy),
   };
+  // Decisão do orquestrador (19/11/2026): o legado é aprovado quando (1) nenhum
+  // custo AUMENTA em relação a 20e15da9 e (2) há igualdade estrita em relação à
+  // primeira leva fechada (13a9d9c3). As reduções contra 20e15da9 nasceram no
+  // aceite da primeira leva e ficam registradas, sem reprovar. Qualquer falha
+  // que não seja uma redução numérica (aumento, tabela c2, metadados) reprova.
+  {
+    const legacy = comparison.groups.legacy, reduction = /\(delta -\d+\)$/;
+    legacy.strictPassed = legacy.passed;
+    legacy.reductions = legacy.failures.filter(failure => reduction.test(failure));
+    const blocking = legacy.failures.filter(failure => !reduction.test(failure));
+    const sinceFirstWave = comparison.historicalLegacy.firstWaveToCurrent;
+    legacy.failures = [...blocking, ...sinceFirstWave.failures.map(failure => 'desde a primeira leva: ' + failure)];
+    legacy.passed = blocking.length === 0 && sinceFirstWave.passed;
+    legacy.rule = 'sem aumento contra 20e15da9 e igualdade estrita contra 13a9d9c3';
+  }
   comparison.passed = Object.values(comparison.groups).every(group => group.passed);
   json(path.join(output, 'comparison.json'), comparison);
   for (const [group, data] of Object.entries(comparison.groups)) {
-    console.log(group + ': ' + (data.passed ? 'delta zero' : 'FALHOU') + '; referência ' + data.reference);
+    console.log(group + ': ' + (!data.passed ? 'FALHOU' : data.reductions?.length
+      ? 'sem aumento (' + data.reductions.length + ' reduções registradas)' : 'delta zero') + '; referência ' + data.reference);
     for (const [name, phases] of Object.entries(data.outsideMessagePath.deltas))
       console.log(name + ' (fora da mensagem): ' + JSON.stringify(phases.aggregate));
   }
@@ -300,7 +316,7 @@ export function main() {
     '; referência ' + baselines.social.commit);
   assert.ok(comparison.passed, 'Custo incompatível:\n' +
     Object.values(comparison.groups).flatMap(group => group.failures).join('\n'));
-  console.log('c2-baseline: igualdade estrita e ausência de tabelas c2 conferidas; evidências em output/c2-aceite/.');
+  console.log('c2-baseline: nenhum aumento contra 20e15da9, igualdade estrita desde a primeira leva e ausência de tabelas c2 conferidas; evidências em output/c2-aceite/.');
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try { main(); } catch (error) { console.error(error.message); process.exitCode = 1; }
