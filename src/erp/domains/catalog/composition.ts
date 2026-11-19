@@ -5,11 +5,15 @@ import { type SqlDriver } from "../../engine/driver.ts";
 import type { RpcContext } from "../../engine/registry.ts";
 import * as stock from "../stock/public.ts";
 import { compareText } from "./fields.ts";
+import { requireErpParts } from "../../engine/parts-gate.ts";
+import { erpRequirement } from "../../parts.ts";
 
 /** erp_catalog.composition_sync_on(): fora de uma sincronização e com custo, peso ou preço ligado. */
 export function compositionSyncOn(ctx: RpcContext): boolean {
+  if (!ctx.parts.products || !ctx.parts.stock) return false;
   if (ctx.settings.get("erp_catalog.composition_sync") === "on") return false;
   const s = stock.compositionSettings(ctx.db) as { update_cost?: boolean; update_weight?: boolean; update_price?: boolean } | null;
+  if (!ctx.parts.purchases && s?.update_cost) return false;
   return !!(s && (s.update_cost || s.update_weight || s.update_price));
 }
 
@@ -31,6 +35,9 @@ export function compositionKits(db: SqlDriver, products: string[]): string[] {
 /** erp_catalog.composition_sync(p_user_id, p_command_id, p_kits): quantos kits mudaram. */
 export function compositionSync(ctx: RpcContext, user: string, command: string, kits: string[]): number {
   if (kits.length === 0) return 0;
+  requireErpParts(ctx, erpRequirement("erp-produtos", "erp-estoque"));
+  if (!ctx.parts.purchases && (stock.compositionSettings(ctx.db) as { update_cost?: boolean } | null)?.update_cost)
+    requireErpParts(ctx, erpRequirement("erp-compras"));
   ctx.settings.set("erp_catalog.composition_sync", "on");
   let count = 0;
   for (const kit of kits) {

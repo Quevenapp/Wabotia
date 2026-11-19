@@ -1,6 +1,7 @@
 // public.erp_catalog_payment_method_page: ordem created_at desc, id desc; a
 // busca (matches sobre fold(description)) fica em TS.
 import { raise } from "../../../engine/errors.ts";
+import { ErpPartDisabled } from "../../../engine/parts-gate.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { CNTRL, chars, matches, searchTerms } from "../fields.ts";
 import { fold } from "../internal.ts";
@@ -19,6 +20,7 @@ export function erpCatalogPaymentMethodPage(ctx: RpcContext, a: RpcArgs) {
   const query = ((a.p_query ?? null) as string | null);
   const applicable = ((a.p_applicable ?? null) as string | null);
   const account = ((a.p_account_id ?? null) as string | null);
+  if (!ctx.parts.finance && account !== null) throw new ErpPartDisabled();
   const active = ((a.p_active ?? null) as boolean | null);
   const role = paymentMethodAccess(ctx.db, user, false);
   if (

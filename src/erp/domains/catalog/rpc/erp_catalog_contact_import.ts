@@ -54,10 +54,10 @@ export function erpCatalogContactImport(ctx: RpcContext, a: RpcArgs) {
     let id: string | null = null;
     try {
       if ("situation" in r.data && str(r.data.situation) === "E") raise("22023", "erp_catalog_contact_invalid:situation");
-      let full = contactMerge(db, user, null, r.data, {});
+      let full = contactMerge(db, user, null, r.data, {}, ctx.parts);
       if (!dry && (str(full.code) ?? "") === "" && preferences.get(db, "contatos.codigo") === "sequencial")
         full = { ...full, code: contactTakeCode(ctx, user!) };
-      contactCheckFull(db, null, full, {}, null);
+      contactCheckFull(db, null, full, {}, null, ctx.parts);
       if (contactWarnings(db, null, full, {}).some((w) => w.blocked === true)) raise("23505", "erp_catalog_duplicate_document");
       const doc = compact(str(full.document)) || null;
       if (!allow && doc !== null && [...doc].length >= 5 && seen.includes(doc)) raise("23505", "erp_catalog_duplicate_document");

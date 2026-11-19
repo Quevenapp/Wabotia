@@ -4,6 +4,7 @@
 // em páginas de 100; a versão "tagged" filtra também etiqueta e lista de preço.
 // Mesmo filtro da lista (contactPage); itens são contact_dto sem persons e source.
 import { raise } from "../../../engine/errors.ts";
+import { ErpPartDisabled } from "../../../engine/parts-gate.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { requireAccess } from "../access.ts";
 import { auxiliaryAudit } from "../command.ts";
@@ -41,6 +42,7 @@ function run(ctx: RpcContext, a: RpcArgs, tagged: boolean) {
   const tag = tagged ? arg<string>("p_tag") : null;
   const priceList = tagged ? arg<string>("p_price_list_id") : null;
   const db = ctx.db;
+  if (!ctx.parts.sales && (period === "no_purchases" || statuses !== null)) throw new ErpPartDisabled();
   requireAccess(db, user, "contacts", false);
   if (
     kind === null || !["contacts", "birthdays"].includes(kind) || offset === null || offset < 0 || offset > 9999 ||
