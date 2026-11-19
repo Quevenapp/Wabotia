@@ -9,6 +9,7 @@ import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/regi
 import { contactRequireVisible } from "../contact.ts";
 import { contactDto } from "../contact-core.ts";
 import { sellerAccess, sellerDto, sellerUsers } from "../seller.ts";
+import { catalogUnavailable } from "../cost.ts";
 
 export function erpCatalogSellerGet(ctx: RpcContext, a: RpcArgs) {
   const user = (a.p_user_id ?? null) as string | null;
@@ -23,6 +24,7 @@ export function erpCatalogSellerGet(ctx: RpcContext, a: RpcArgs) {
     entity: "sellers",
     data_mode: "erp_native",
     can_write: role === "admin",
+    ...catalogUnavailable(ctx.parts, ["finance"]),
     seller: sellerDto(db, id!),
     contact: contactDto(db, contact),
     users: role === "admin" ? sellerUsers(db) : [],

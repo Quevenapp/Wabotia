@@ -4,9 +4,42 @@ import { one, type SqlDriver } from "../../engine/driver.ts";
 import { ErpError } from "../../engine/errors.ts";
 import { saoPauloMidnight } from "../../engine/time.ts";
 import * as stock from "../stock/public.ts";
+import { registerBeforeRpc } from "../../engine/registry.ts";
+import { normalizeErpParts, type ErpParts } from "../../parts.ts";
+import { ErpPartDisabled } from "../../engine/parts-gate.ts";
+import { jsonbText } from "../../engine/json.ts";
+
+// Os leitores legados recebem SqlDriver, como as restrições de contato.
+// Reiniciado antes de todo RPC (inclusive sem parts), sem alterar a identidade
+// do driver usada pelo cadastro único. invokeRpc herda a fotografia síncrona.
+const snapshots = new WeakMap<SqlDriver, Readonly<ErpParts>>();
+const allParts = normalizeErpParts();
+export const catalogParts = (db: SqlDriver) => snapshots.get(db) ?? allParts;
+registerBeforeRpc(ctx => snapshots.set(ctx.db, ctx.parts));
+
+/** Campos suspensos: omissão preserva; reenvio idêntico passa; limpeza não. */
+export function preserveCatalogFields(
+  enabled: boolean, input: Record<string, unknown>, before: Record<string, unknown>,
+  defaults: Record<string, unknown>,
+): Record<string, unknown> {
+  if (enabled) return input;
+  const out = { ...input };
+  for (const [key, fallback] of Object.entries(defaults)) {
+    const saved = before[key] === undefined ? fallback : before[key];
+    if (Object.hasOwn(input, key) && jsonbText(input[key]) !== jsonbText(saved)) throw new ErpPartDisabled();
+    out[key] = saved;
+  }
+  return out;
+}
+
+export const catalogUnavailable = (parts: Readonly<ErpParts>, keys: (keyof ErpParts)[]) => {
+  const unavailable = keys.filter(key => !parts[key]);
+  return unavailable.length ? { unavailable_parts: unavailable } : {};
+};
 
 /** erp_catalog.can_read_stock(p_user_id): o acesso de leitura do estoque, sem lançar. */
 export function canReadStock(db: SqlDriver, user: string | null): boolean {
+  if (!catalogParts(db).stock) return false;
   try {
     stock.requireAccess(db, user as string, false);
     return true;

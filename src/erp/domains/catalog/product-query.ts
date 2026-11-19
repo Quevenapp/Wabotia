@@ -23,6 +23,8 @@ import { requireAccess as stockAccess } from "../stock/public.ts";
 import { CNTRL, btrim, chars, compareText, matches } from "./fields.ts";
 import { fold, unitPriceNumeric } from "./internal.ts";
 import { compareNum, num } from "./pricing/money.ts";
+import { catalogParts } from "./cost.ts";
+import { ErpPartDisabled } from "../../engine/parts-gate.ts";
 
 const UUID_LOWER = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const STOCK_FILTERS = ["zero", "negative", "positive", "no_movements"];
@@ -120,6 +122,7 @@ export const componentValid = (db: SqlDriver, productType: string | null, compon
 
 /** erp_catalog.can_read_stock: erp_stock.require_access(p_user_id,false) sem 42501. */
 export function canReadStock(db: SqlDriver, user: string | null): boolean {
+  if (!catalogParts(db).stock) return false;
   try {
     stockAccess(db, user as string, false);
     return true;
@@ -140,6 +143,7 @@ export interface StockSummary {
 /** erp_catalog.stock_summary(p_ids, p_warehouse_id): por produto (null em p_ids = todos). */
 export function stockSummary(db: SqlDriver, ids: string[] | null, warehouse: string | null): Map<string, StockSummary> {
   const out = new Map<string, StockSummary>();
+  if (!catalogParts(db).stock) return out;
   if (ids !== null && ids.length === 0) return out;
   const scope = ids === null ? "" : "WHERE p.record_id IN (SELECT value FROM json_each(?))";
   const args = ids === null ? [] : [JSON.stringify(ids)];
@@ -228,6 +232,7 @@ export const quantityText = (q: bigint | null) => (q === null ? null : formatSca
 
 /** erp_catalog.product_stock_filter(p_stock, p_warehouse_id) */
 export function stockFilter(db: SqlDriver, stock: string | null, warehouse: string | null): string[] | null {
+  if (!catalogParts(db).stock && (stock !== null || warehouse !== null)) throw new ErpPartDisabled();
   if (stock === null) return null;
   if (ORIGIN_STOCK.includes(stock))
     return originStockStates(db, warehouse)
@@ -260,6 +265,7 @@ export function stockFilter(db: SqlDriver, stock: string | null, warehouse: stri
 /** erp_catalog.product_component_filter(p_component_id): compostos (formato E) que usam o componente. */
 export function componentFilter(db: SqlDriver, component: string | null): string[] | null {
   if (component === null) return null;
+  if (!catalogParts(db).stock) throw new ErpPartDisabled();
   return db
     .exec(
       `SELECT DISTINCT i.product_id FROM "erp_stock__composition" c
@@ -470,6 +476,7 @@ export interface FilterArgs {
 
 /** erp_catalog.product_filter_sql + page_sql: total e a página de ids. */
 export function filterProducts(db: SqlDriver, a: FilterArgs, sort: string, offset: number, limit: number) {
+  if (!catalogParts(db).stock && ["composition", "no_composition"].includes(a.productType ?? "")) throw new ErpPartDisabled();
   const children = new Set(db.exec('SELECT child_id FROM "erp_catalog__product_variation"').rows.map((r) => String(r.child_id)));
   const withImages = new Set(db.exec('SELECT DISTINCT record_id FROM "erp_catalog__product_image"').rows.map((r) => String(r.record_id)));
   const tags = new Map<string, Set<string>>();
@@ -587,7 +594,8 @@ export function productListItem(db: SqlDriver, id: string): Record<string, unkno
      FROM "erp_catalog__product" p LEFT JOIN "erp_catalog__product_detail" d ON d.record_id=p.record_id WHERE p.record_id=?`,
     id,
   )!;
-  const cost = one(db, 'SELECT cost_price FROM "erp_catalog__product_supplier" WHERE record_id=? AND is_default=1', id);
+  const cost = !catalogParts(db).purchases || !catalogParts(db).stock ? null
+    : one(db, 'SELECT cost_price FROM "erp_catalog__product_supplier" WHERE record_id=? AND is_default=1', id);
   const thumb = one(db, 'SELECT url FROM "erp_catalog__product_image" WHERE record_id=? ORDER BY position LIMIT 1', id);
   return {
     ...listItem(db, id),

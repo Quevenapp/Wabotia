@@ -10,6 +10,9 @@ import { jsonTimestamp } from "../../engine/time.ts";
 import { digits, moneyText, nativeVisible, preference, requireRead, ufs } from "../fiscal/public.ts";
 import { contactScope } from "./contact.ts";
 import { compareText } from "./fields.ts";
+import { catalogParts, catalogUnavailable } from "./cost.ts";
+import { erpEntityRequirement } from "../../parts-requirements.ts";
+import { erpRequirementMet } from "../../parts.ts";
 
 type Row = Record<string, unknown>;
 const obj = (v: unknown): Row => v == null ? {} : JSON.parse(String(v));
@@ -91,7 +94,7 @@ function originRow(db: SqlDriver, r: Row): Row {
   const listing = obj(r.listing);
   const contact = one(db, `SELECT payload FROM "origin_sync__raw_record" WHERE entity='contacts' AND source_id=?`, arrow(listing, "contact_source_id"));
   const ambiguous = one(db, `SELECT 1 x FROM "erp_fiscal_mirror__current" WHERE entity=? AND source_id=?`, r.entity === "nfe" ? "nfce" : "nfe", r.source_id);
-  const orders = ambiguous ? [] : db.exec(`SELECT order_source_id id, 'sales_orders' kind, order_number number,
+  const orders = ambiguous || !catalogParts(db).sales ? [] : db.exec(`SELECT order_source_id id, 'sales_orders' kind, order_number number,
     order_date date, contact_name FROM "erp_fiscal_invoices__origin_order_link"
     WHERE invoice_source_id=? AND order_number IS NOT NULL ORDER BY CAST(order_number AS INTEGER),order_source_id`, r.source_id).rows;
   return {
@@ -105,6 +108,8 @@ function originRow(db: SqlDriver, r: Row): Row {
 }
 
 function nativeRows(db: SqlDriver, model: string, direction: string): Row[] {
+  const parts = catalogParts(db);
+  const kinds = ["sales_orders", "sales_proposals", "service_orders", "purchase_orders"].filter(kind => erpRequirementMet(parts, erpEntityRequirement(kind)!));
   return db.exec(`SELECT v.*, c.trade_name, cr.code contact_code, ns.source_environment imported_environment
     FROM "erp_fiscal_invoices__invoice" v
     LEFT JOIN "erp_catalog__contact" c ON c.record_id=json_extract(v.recipient,'$.contact_id')
@@ -112,9 +117,11 @@ function nativeRows(db: SqlDriver, model: string, direction: string): Row[] {
     LEFT JOIN "erp_fiscal_invoices__invoice_source" ns ON ns.invoice_id=v.id
     WHERE v.deleted_at IS NULL AND v.model=? AND v.direction=?`, model, direction).rows.map((v) => {
     const recipient = obj(v.recipient), transport = obj(v.transport);
-    const orders = db.exec(`SELECT d.id,d.kind,CAST(d.number AS TEXT) number,json_extract(d.body,'$.date') date,c.name contact_name
+    const orders = kinds.length === 0 ? [] : db.exec(`SELECT d.id,d.kind,CAST(d.number AS TEXT) number,json_extract(d.body,'$.date') date,c.name contact_name
       FROM "erp_fiscal_invoices__invoice_order" o JOIN "erp_documents__document" d ON d.id=o.document_id
-      LEFT JOIN "erp_catalog__record" c ON c.id=d.contact_id WHERE o.invoice_id=? ORDER BY d.number,d.id`, v.id).rows;
+      LEFT JOIN "erp_catalog__record" c ON c.id=d.contact_id WHERE o.invoice_id=?
+      ${parts.sales && parts.purchases ? "" : "AND d.kind IN (SELECT value FROM json_each(?))"}
+      ORDER BY d.number,d.id`, v.id, ...(parts.sales && parts.purchases ? [] : [JSON.stringify(kinds)])).rows;
     return {
       ...v, ...Object.fromEntries(["name", "document", "person_type", "email", "phone", "state"].map((k) => [k, arrow(recipient, k)])),
       origin: "brufap", entry_date: v.exit_date, nature: v.nature_description, status_raw: null,
@@ -139,9 +146,13 @@ function categoryMatches(db: SqlDriver, id: unknown, category: string): boolean 
 
 /** Argumentos já convertidos pela assinatura do registro, inclusive defaults. */
 export function invoiceListTagged(ctx: RpcContext, a: RpcArgs): unknown {
+  if (!ctx.parts.finance && a.p_category_id != null)
+    raise("module_disabled", "Esta rotina depende de uma parte desligada.");
   const db = ctx.db, text = (key: string) => str(a[`p_${key}`]);
   const user = text("user_id"), role = requireRead(db, user), scope = contactScope(db, user);
   const origin = text("origin"), model = text("model"), direction = text("direction"), order = text("order"), dateType = text("date_type");
+  if (text("order_number") !== null && (!ctx.parts.sales || (origin === "brufap" && !ctx.parts.purchases)))
+    raise("module_disabled", "Esta rotina depende de uma parte desligada.");
   const page = a.p_page as number | null, limit = a.p_limit as number | null;
   const tag = text("tag"), category = text("category_id"), from = text("date_from"), to = text("date_to"), status = text("status");
   const state = text("state"), person = text("person_type"), series = a.p_series as number | null;
@@ -200,6 +211,7 @@ export function invoiceListTagged(ctx: RpcContext, a: RpcArgs): unknown {
     source_origin: origin === "origin" ? "origin" : ["S", "X"].includes(String(r.issue_type)) ? "xml_import" : r.issue_type === "T" ? "third_party" : "brufap_native",
   }));
   return jsonbOrder({
+    ...catalogUnavailable(ctx.parts, ["sales", "purchases"]),
     items, origin, model, direction, page, limit, order, has_more: kept.length > page! * limit!, total_count: kept.length,
     total_amount: formatScaled(rescale(kept.reduce((sum, r) => sum + exact(str(r.total) ?? "0"), 0n), 30, 2), 2),
     amount_unknown: kept.filter((r) => r.total == null).length, brufap_visible: ["admin", "fiscal"].includes(role),

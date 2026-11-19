@@ -18,6 +18,8 @@ import type { RpcContext } from "../../engine/registry.ts";
 import { jsonTimestamp, todaySaoPaulo } from "../../engine/time.ts";
 import { actorLabel } from "../access/public.ts";
 import * as finance from "../finance/public.ts";
+import { catalogParts, catalogUnavailable, preserveCatalogFields } from "./cost.ts";
+import type { ErpParts } from "../../parts.ts";
 import * as fiscal from "../fiscal/public.ts";
 import * as preferences from "../preferences/public.ts";
 import { contactRequireVisible, contactScope, contactSituation, contactSituationOf, contactSourceSituation, contactRequirePrivacy, contactPrivacyVisible } from "./contact.ts";
@@ -159,8 +161,11 @@ export function contactInput(db: SqlDriver, p: unknown, before: Json): Json {
 }
 
 /** erp_catalog.contact_merge(p_user_id, p_id, p_data, p_before) */
-export function contactMerge(db: SqlDriver, user: string | null, id: string | null, p: unknown, before: Json): Json {
-  const patch = contactInput(db, p, before);
+export function contactMerge(db: SqlDriver, user: string | null, id: string | null, p: unknown, before: Json, parts = catalogParts(db)): Json {
+  let patch = contactInput(db, p, before);
+  patch = preserveCatalogFields(parts.finance, patch, before,
+    { finance_category_id: null, credit_limit_mode: "unlimited", credit_limit: null });
+  patch = preserveCatalogFields(parts.fiscal, patch, before, { operation_nature_id: null });
   const scope = contactScope(db, user);
   const { roles: _roles, ...rest } = patch;
   const base: Json =
@@ -235,10 +240,12 @@ const REQUIRED: Record<string, string> = {
 export const contactRequiredField = (option: string | null) => (option === null ? null : (REQUIRED[option] ?? null));
 
 /** erp_catalog.contact_required_missing(p, p_fields): o primeiro campo obrigatório vazio. */
-export function contactRequiredMissing(db: SqlDriver, p: Json, fields: string[] | null): string | null {
+export function contactRequiredMissing(db: SqlDriver, p: Json, fields: string[] | null, parts = catalogParts(db)): string | null {
   const options = (preferences.get(db, "contatos.campos_obrigatorios") as unknown[] | null) ?? [];
   for (const option of options) {
     const field = contactRequiredField(str(option));
+    if (field === "credit_limit_mode" && !parts.finance) continue;
+    if (field === "operation_nature_id" && !parts.fiscal) continue;
     if (field === null || (fields !== null && !fields.includes(field))) continue;
     const only = contactFieldPersonType(field);
     if (only !== null && only !== str(p.person_type)) continue;
@@ -249,7 +256,7 @@ export function contactRequiredMissing(db: SqlDriver, p: Json, fields: string[] 
 }
 
 /** erp_catalog.contact_check_full(p_id, p, p_before, p_required) */
-export function contactCheckFull(db: SqlDriver, id: string | null, p: Json, before: Json, required: string[] | null) {
+export function contactCheckFull(db: SqlDriver, id: string | null, p: Json, before: Json, required: string[] | null, parts: Readonly<ErpParts> = catalogParts(db)) {
   if (empty(p.name)) raise("22023", "erp_catalog_name_required");
   for (const key of jsonbKeys(p)) {
     const only = contactFieldPersonType(key);
@@ -276,7 +283,7 @@ export function contactCheckFull(db: SqlDriver, id: string | null, p: Json, befo
   for (const x of ((p.persons as string[] | null | undefined) ?? []) as string[])
     if (x === id || (!previous.includes(x) && !one(db, `SELECT 1 x FROM "erp_catalog__record" WHERE id=? AND entity='contacts'`, x)))
       invalid("persons");
-  const missing = contactRequiredMissing(db, p, required);
+  const missing = contactRequiredMissing(db, p, required, parts);
   if (missing !== null) raise("22023", `erp_catalog_contact_required:${missing}`);
 }
 
@@ -447,8 +454,9 @@ export function contactDto(db: SqlDriver, id: string): Json | null {
     source: origin
       ? { system: "origin", source_id: origin.source_id, state: origin.state, applied_hash: origin.applied_hash, latest_hash: origin.latest_hash }
       : null,
-    finance_category_name: profile?.finance_category_id ? finance.categoryLabel(db, String(profile.finance_category_id)) : null,
-    operation_nature_name: profile?.operation_nature_id ? fiscal.natureDescription(db, String(profile.operation_nature_id)) : null,
+    ...catalogUnavailable(catalogParts(db), ["finance", "fiscal"]),
+    finance_category_name: catalogParts(db).finance && profile?.finance_category_id ? finance.categoryLabel(db, String(profile.finance_category_id)) : null,
+    operation_nature_name: catalogParts(db).fiscal && profile?.operation_nature_id ? fiscal.natureDescription(db, String(profile.operation_nature_id)) : null,
     seller_name: seller && contactPrivacyVisible(db, String(seller.id)) ? seller.name : null,
     seller_record_id: own ? own.id : null,
     persons: db
@@ -560,10 +568,10 @@ export function contactApply(
     // Excluído é só leitura: restaure antes de editar.
     if (before.situation === "E") raise("22023", "erp_catalog_contact_deleted");
   }
-  let full = contactMerge(db, user, id, p, before);
+  let full = contactMerge(db, user, id, p, before, ctx.parts);
   if (id === null && empty(full.code) && preferences.get(db, "contatos.codigo") === "sequencial")
     full = { ...full, code: contactTakeCode(ctx, user) };
-  contactCheckFull(db, id, full, before, required);
+  contactCheckFull(db, id, full, before, required, ctx.parts);
   const found = contactWarnings(db, id, full, before);
   if (found.some((w) => w.blocked === true)) raise("23505", "erp_catalog_duplicate_document");
   const codes = found.map((w) => w.code);

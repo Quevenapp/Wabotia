@@ -11,6 +11,8 @@ import { mirrorReportCoverage, requireAccess as documentAccess } from "../../doc
 import { requireAccess } from "../access.ts";
 import { contactRequireVisible } from "../contact.ts";
 import { compareText } from "../fields.ts";
+import { erpEntityRequirement } from "../../../parts-requirements.ts";
+import { erpRequirementMet } from "../../../parts.ts";
 
 function visibleKind(db: SqlDriver, user: string | null, kind: string): boolean {
   try {
@@ -58,7 +60,9 @@ function contactDocuments(ctx: RpcContext, user: string | null, contact: string 
   if (contact === null || !one(db, `SELECT 1 x FROM "erp_catalog__record" WHERE id=? AND entity='contacts'`, contact))
     raise("P0002", "erp_catalog_not_found");
   contactRequireVisible(db, user, contact);
-  const visible = visibleKind(db, user, kind);
+  const requirement = erpEntityRequirement(kind);
+  const enabled = requirement !== null && erpRequirementMet(ctx.parts, requirement);
+  const visible = enabled && visibleKind(db, user, kind);
   return {
     scope,
     data_mode: "erp_native",
@@ -66,7 +70,8 @@ function contactDocuments(ctx: RpcContext, user: string | null, contact: string 
     ...extra,
     visible,
     items: visible ? lastDocuments(db, contact, kind) : [],
-    ...mirrorReportCoverage(db, user, kind, null, null, contact),
+    ...(enabled ? mirrorReportCoverage(db, user, kind, null, null, contact)
+      : { unavailable_parts: [kind === "purchase_orders" ? "purchases" : "sales"] }),
   };
 }
 

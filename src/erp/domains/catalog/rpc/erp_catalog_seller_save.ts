@@ -13,6 +13,7 @@ import { jsonArg } from "../args.ts";
 import { auxiliaryAudit, requestHash, storeCommand } from "../command.ts";
 import { acknowledgedValid, contactApply, contactDto } from "../contact-core.ts";
 import { compareText } from "../fields.ts";
+import { preserveCatalogFields } from "../cost.ts";
 import {
   SELLER_CONTACT_FIELDS, sellerAccess, sellerAccessGates, sellerDto, sellerSettings, sellerValues, sellerWrite,
 } from "../seller.ts";
@@ -62,7 +63,12 @@ export function erpCatalogSellerSave(ctx: RpcContext, a: RpcArgs) {
     // 241: os portões de acesso são relidos em cada resposta.
     return { ...result, replayed: true, access_gates: sellerAccessGates(db, result.access_users) };
   }
-  const v = sellerSettings(settings);
+  const previous = id === null ? {} : sellerValues(db, id) ?? {};
+  const defaults = { commission_rule: "parcial", commission_mode: "fixa", commission_rate: null, commission_bands: [] };
+  const input = !ctx.parts.finance && settings !== null && typeof settings === "object" && !Array.isArray(settings)
+    ? { ...preserveCatalogFields(false, {}, previous, defaults), ...settings } : settings;
+  const v = sellerSettings(input);
+  preserveCatalogFields(ctx.parts.finance, v, previous, defaults);
   let seller: { contact_id: string; user_id: string | null } | null = null;
   if (id !== null) {
     const row = one(db, 'SELECT contact_id, user_id, CAST(version AS TEXT) version FROM "erp_catalog__seller" WHERE id=?', id);
