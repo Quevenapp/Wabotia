@@ -225,22 +225,25 @@ export function WorkPage() {
     app.status.settings_revision || "",
   );
   // A entrada antiga continua imediata e idêntica nas instalações sem tipos novos.
+  // Na casa de gestão o endereço antigo (/ordens-de-servico) cai em "work" sem
+  // tipo nem registro: vale a mesma regra, senão quem só usa a Ordem de
+  // Serviço perde a tela que tinha.
   const configured = (app.settings.os_work_types || []).length > 0;
-  if (
-    route.page === "service-orders" &&
-    !configured &&
-    (!catalog.data || !hasCustomTypes(catalog.data.data))
-  )
+  // Resposta sem lista (a vitrine não atende este caminho) conta como vazia.
+  const types = Array.isArray(catalog.data?.data) ? catalog.data.data : [];
+  const classicEntry =
+    route.page === "service-orders" ||
+    (route.page === "work" && !route.typeId && !route.id);
+  if (classicEntry && !configured && (!catalog.data || !hasCustomTypes(types)))
     return <ServiceOrdersPage />;
   if (!catalog.data) return <ResourceState resource={catalog} />;
   if (route.id)
     return <WorkDetailPage key={app.profile + route.id} workId={route.id} />;
   const type =
-    catalog.data.data.find((type) => type.id === route.typeId) ||
+    types.find((type) => type.id === route.typeId) ||
     (!route.typeId
-      ? catalog.data.data.find(
-          (type) => !type.archived && type.kind === "custom",
-        ) || catalog.data.data[0]
+      ? types.find((type) => !type.archived && type.kind === "custom") ||
+        types[0]
       : undefined);
   if (!type)
     return (

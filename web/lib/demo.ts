@@ -842,8 +842,12 @@ function read(path: string, query: URLSearchParams): any {
     return {
       settings,
       enabled: 0,
+      // Estado explícito de cada módulo da vitrine, como o servidor manda: a
+      // casa de gestão (web/management/registry.ts) só mostra módulo com
+      // `true`, e sem isto Agenda, Pedidos, Mesas e os outros somem do ERP.
       // ERP na vitrine: núcleo e Caixa/PDV ligados; os demais opcionais, não.
       modules: {
+        ...Object.fromEntries(demoModules.map((m) => [m.id, m.enabled !== false])),
         erp: true,
         "erp-pdv": true,
         "erp-fiscal": false,
