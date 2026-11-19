@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ERP_CORE_TEST_MODULES } from "./erp-module-helper";
 import { nanoid } from "nanoid/non-secure";
 import picocolors from "picocolors";
 import postcssPackage from "postcss/package.json";
@@ -152,7 +153,7 @@ const button = (view: View, label: string) => view.find(n => n.type === "button"
 const links = (tree: any) => nodes(tree).filter(n => n.type === "router-link").map(n => n.props.to);
 const section = (view: View, label: string) => view.find(n => n.props["aria-label"] === label);
 const id = (n: number) => `10000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
-const core = { erp: true, "erp-fiscal": false, "erp-cobranca": false, "erp-pdv": false };
+const core = { ...ERP_CORE_TEST_MODULES, "erp-fiscal": false, "erp-cobranca": false, "erp-pdv": false };
 const noAnswer = () => new Promise(() => {});
 function session(role = "admin", resources = ["contacts", "products", "warehouses"]) {
   let state = { phase: "ready", membership: { user_id: id(1), role, resources } };

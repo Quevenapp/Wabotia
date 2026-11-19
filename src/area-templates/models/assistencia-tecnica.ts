@@ -5,7 +5,7 @@ import type { AreaTemplate } from "../validation";
 export const assistenciaTecnicaTemplate: AreaTemplate = {
   "schema_version": 1,
   "id": "assistencia_tecnica",
-  "version": 1,
+  "version": 2,
   "name": "Assistência técnica",
   "description": "Assistência técnica com a Ordem de serviço embutida e tipos opcionais para eletrônicos, eletrodomésticos, veículos e peças de roupa.",
   "work_types": [

@@ -28,6 +28,7 @@ const pinned={fonte:'contrato A4 da fase 2',prefixos:{
   "erp-pdv": v1("frente-caixa", "preferencias/vendas-frente-caixa"),
   externo: ["/integracao-externa", "/admin", "/oauth", "/mcp", ...v1("system", "importacao-cadastros", "importacao-financeira-origin", "conferencia-financeira-origin", "importacao-orcamentos-origin", "importacao-orcamentos-origin-v2", "historico-vendas-origin", "vendas-origin-prontidao", "compras-origin-prontidao", "integracao-origin", "preparacao-virada", "depositos-origin", "estoque-origin-observado", "saldo-abertura-estoque", "sincronizacao-origin", "espelho-origin", "xmls-sincronizados", "cobrancas-legadas-itau", "backup-import", "history", "estoque/espelho", "notas-fiscais/origin")],
 }};
+pinned.prefixos["erp-fiscal"].push(...v1("a1", "fiscal-authorization", "fiscal-danfe", "fiscal-reconciliation", "fiscal-signed", "fiscal-unsigned", "fiscal-wsdl"));
 const motorFile = new URL("../../src/erp/blocks.ts", import.meta.url);
 const motor = existsSync(motorFile) ? await import(motorFile.href) : null;
 const PREFIXES = motor ? motor.ERP_BLOCK_PREFIXES : pinned.prefixos;
@@ -104,6 +105,7 @@ test("cada página de preferências fica no bloco da rota /v1/preferencias dela"
 // Arquivos de grupo do núcleo (web/erp/chunks.ts) com rota literal de um bloco
 // opcional: cada um só chama a rota com o bloco ligado.
 const GATED = {
+  "components/CertificateA1.tsx": "custódia antiga não é montada: RealAccess usa a configuração do cofre externo; suas rotas continuam exigindo Fiscal",
   "components/ContactEditor.tsx": "natureza de operação só com o Fiscal ligado",
   "components/FiscalOrderTaxEstimate.tsx":
     "RealDocuments só mostra com o Fiscal ligado",
@@ -145,9 +147,8 @@ const CONTROLLER_ONLY = [
 // Ajudantes desses clientes, sem rota literal (montam o caminho por expressão).
 const CONTROLLER_HELPERS = ["lib/backup-import-client.ts"];
 
-// Rotas fiscais do porte que a base ainda não incluiu no contrato A4.
-// Não herdam Base: o painel deve recusá-las, mesmo com todas as partes ligadas.
-const UNCLASSIFIED = new Set([
+// Famílias fiscais do porte classificadas na aceitação. Não herdam Base.
+const FISCAL_GATEWAYS = new Set([
   "/v1/a1", "/v1/a1/commands", "/v1/a1/configure", "/v1/a1/disable", "/v1/a1/rewrap",
   "/v1/fiscal-authorization", "/v1/fiscal-authorization/reviewed", "/v1/fiscal-danfe",
   "/v1/fiscal-reconciliation", "/v1/fiscal-signed", "/v1/fiscal-unsigned", "/v1/fiscal-wsdl",
@@ -172,16 +173,17 @@ const sources = ["components", "lib"].flatMap((folder) =>
 );
 
 test("rotas de bloco opcional ou externas só nos arquivos do bloco ou nos conferidos", () => {
-  const seen = new Set(), unclassified = new Set();
+  const seen = new Set(), gateways = new Set();
   for (const { file, id, source } of sources) {
     const blocks = new Set(
       [...source.matchAll(/['"`](\/v1\/[A-Za-z0-9_\-/.]+)/g)]
         .flatMap((match) => literalPaths(match[1]))
         .map((path) => {
           const block = motorBlockOf(path);
-          if (block === null) {
-            assert.ok(UNCLASSIFIED.has(path), `${file}: rota sem classificação ${path}`);
-            unclassified.add(path);
+          assert.notEqual(block, null, `${file}: rota sem classificação ${path}`);
+          if (FISCAL_GATEWAYS.has(path)) {
+            assert.equal(block, "erp-fiscal", path);
+            gateways.add(path);
           }
           return block;
         })
@@ -189,7 +191,6 @@ test("rotas de bloco opcional ou externas só nos arquivos do bloco ou nos confe
     );
     const chunk = erpChunk(id) ?? "";
     for (const block of blocks) {
-      if (block === null) continue; // Conferidas individualmente acima e recusadas no teste abaixo.
       if (block === "externo") {
         const allowed =
           EXTERNAL[file] ?? (CONTROLLER_ONLY.includes(file) && "controlador");
@@ -200,7 +201,7 @@ test("rotas de bloco opcional ou externas só nos arquivos do bloco ou nos confe
       seen.add(file);
     }
   }
-  assert.deepEqual(unclassified, UNCLASSIFIED, "a lista de pendências da base deve corresponder aos consumidores");
+  assert.deepEqual(gateways, FISCAL_GATEWAYS, "as famílias fiscais devem corresponder aos consumidores");
   for (const file of [
     ...Object.keys(GATED),
     ...Object.keys(EXTERNAL),
@@ -212,10 +213,10 @@ test("rotas de bloco opcional ou externas só nos arquivos do bloco ou nos confe
     );
 });
 
-test("rotas sem classificação da base não fazem chamadas no painel, nem com tudo ligado", async () => {
-  const modules = Object.fromEntries(ERP_MODULE_IDS.map(id => [id, true]));
-  for (const path of UNCLASSIFIED) {
-    assert.equal(motorBlockOf(path), null, path);
+test("famílias fiscais classificadas não fazem chamadas no painel com Fiscal desligado", async () => {
+  const modules = { ...Object.fromEntries(ERP_MODULE_IDS.map(id => [id, true])), "erp-fiscal": false };
+  for (const path of FISCAL_GATEWAYS) {
+    assert.equal(motorBlockOf(path), "erp-fiscal", path);
     for (const method of ["GET", "POST"])
       assert.equal(await panelRequestAllowed(path, method, undefined, modules), false, `${method} ${path}`);
   }

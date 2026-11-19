@@ -4,7 +4,8 @@ import type { ErpHostContext } from "../management/host-contract";
 import { portedPermissionAllowed, portedTargetState } from "../management/ported-policy";
 import { createAccessController, type AccessController, type AccessState } from "./app/lib/real-access";
 import { installErpPorts, type ErpPorts } from "./ports";
-import { createFetchPort, erpApiUrl, erpSimulated } from "./fetch-port";
+import { createFetchPort, erpApiUrl, erpSimulated, setPanelPartsContext } from "./fetch-port";
+import { ERP_MODULE_IDS } from "../../src/erp/parts.ts";
 import { createSessionPort, createChallengePort, createSimulatedChallengePort } from "./session-port";
 import { createPeoplePort } from "./people";
 import { createDemoEmissorPort, createEmissorPort } from "./emissor";
@@ -23,7 +24,7 @@ export function erpHostKey(context: ErpHostContext): string {
 function policyKey(context: ErpHostContext): string {
   const c = context.management;
   return JSON.stringify([context.suspended === true, c.statusLoaded, c.role, c.erpRole,
-    c.access && [...c.access].sort(), ["erp", "erp-fiscal", "erp-cobranca", "erp-pdv"].map(id => c.modules[id] === true)]);
+    c.access && [...c.access].sort(), ERP_MODULE_IDS.map(id => c.modules[id] === true)]);
 }
 
 export interface ErpHostRuntime {
@@ -51,6 +52,7 @@ export function acquireErpHost(context: ErpHostContext) {
   if (!active) {
     let stop: (() => void) | undefined, removePorts: (() => void) | undefined, removeAccess: (() => void) | undefined;
     let expire: (() => void) | undefined, observe: (() => void) | undefined;
+    let releaseParts: (() => void) | undefined;
     let controller: AccessController | undefined;
     let revision = new AbortController(), policy = policyKey(context);
     const lifetime = new AbortController();
@@ -59,7 +61,13 @@ export function acquireErpHost(context: ErpHostContext) {
       updatePolicy() {
         if (!entry.valid || !entry.owners.size) return;
         const next = current(), nextPolicy = policyKey(next);
-        setErpBlocks(Object.fromEntries(["erp", "erp-fiscal", "erp-cobranca", "erp-pdv"].map(id => [id, next.management.modules[id] === true])));
+        const modules = Object.fromEntries(ERP_MODULE_IDS.map(id => [id, next.management.modules[id] === true]));
+        setErpBlocks(modules);
+        // Instala a nova posse antes de liberar a antiga: montar o hospedeiro
+        // diretamente também renova um contexto que já havia sido encerrado.
+        const previous = releaseParts;
+        releaseParts = setPanelPartsContext(erpApiUrl(next.profile), modules);
+        previous?.();
         if (nextPolicy !== policy) {
           policy = nextPolicy;
           revision.abort(); revision = new AbortController();
@@ -74,7 +82,7 @@ export function acquireErpHost(context: ErpHostContext) {
         lifetime.abort();
         revision.abort();
         // Publica signed_out e cancela as leituras antes de descartar o store.
-        expire?.(); observe?.(); stop?.(); removePorts?.(); removeAccess?.();
+        expire?.(); observe?.(); stop?.(); removePorts?.(); removeAccess?.(); releaseParts?.();
         for (const owner of entry.owners.values()) owner.onPermissions?.(null);
         if (active === entry) {
           active = null;

@@ -15,11 +15,8 @@ export const ERP_PARTS_STATE_SQL = `SELECT m.module_id,m.enabled,m.updated,m.upd
   FROM (SELECT ? profile_id) p
   LEFT JOIN profile_erp_revision r ON r.profile_id=p.profile_id
   LEFT JOIN profile_modules m ON m.profile_id=p.profile_id`;
-export async function readErpPartsState(env: Env, profile: string) {
-  const readAt = Date.now();
-  const rows = await all(env, ERP_PARTS_STATE_SQL, profile).catch(() => {
-    throw new ApiError(503, "erp_parts_unavailable", "Estado das partes indisponível.");
-  });
+/** Também decodifica a leitura consistente adiantada no lote de autenticação. */
+export function erpPartsStateOf(profile: string, rows: any[], readAt: number) {
   const revision = String(rows[0]?.revision ?? "0");
   const delivered = String(rows[0]?.delivered_revision ?? "0");
   const states: ModuleStates = resolveStates(Object.fromEntries(rows.filter(r => r.module_id).map(r => [r.module_id, r.enabled])));
@@ -27,6 +24,13 @@ export async function readErpPartsState(env: Env, profile: string) {
   const parts = normalizeErpParts(Object.fromEntries(ERP_PART_KEYS.map(key => [key, revision !== "0" && states[ERP_PART_MODULES[key]] === true])));
   const snapshot: ErpPartsSnapshot = Object.freeze({ profile, revision, expires_at: readAt + ERP_PARTS_TTL_MS, parts });
   return { rows, states, snapshot, erp_sync: erpSyncState(revision, delivered) };
+}
+export async function readErpPartsState(env: Env, profile: string) {
+  const readAt = Date.now();
+  const rows = await all(env, ERP_PARTS_STATE_SQL, profile).catch(() => {
+    throw new ApiError(503, "erp_parts_unavailable", "Estado das partes indisponível.");
+  });
+  return erpPartsStateOf(profile, rows, readAt);
 }
 export const readErpPartsSnapshot = async (env: Env, profile: string): Promise<ErpPartsSnapshot> => (await readErpPartsState(env, profile)).snapshot;
 /** ACK antigo só confirma a própria revisão; nunca a revisão corrente por acidente. */
@@ -55,7 +59,9 @@ export async function syncErpParts(env: Env, profile: string): Promise<ErpSyncSt
 export async function erpPartsEnvelope(env: Env, profile: string, snapshot = undefined as ErpPartsSnapshot | undefined) {
   snapshot ??= await readErpPartsSnapshot(env, profile);
   if (!validateSnapshot(snapshot, profile)) throw new ApiError(503, "erp_parts_unavailable", "Estado das partes indisponível.");
-  await deliverErpParts(env, snapshot);
+  // O próprio RPC aplica a fotografia no KV antes de executar. A entrega
+  // separada e seu ACK ficam nos comandos/modelos/cron, sem duas idas ao
+  // objeto nem uma escrita D1 adicional em cada leitura autenticada.
   const { parts, ...partsControl } = snapshot;
   return { parts, partsControl };
 }

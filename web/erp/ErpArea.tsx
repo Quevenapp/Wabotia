@@ -2,7 +2,8 @@
 import React, { Activity, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ManagementRequestBoundary, useApp } from "../app/AppContext";
 import { href, navigate, navigationGuarded, setNavigationGuard, useRoute } from "../lib/routes";
-import { erpApiUrl, erpSimulated, prefetchErpMe, contextBoundResponse } from "./fetch-port";
+import { erpApiUrl, erpSimulated, prefetchErpMe } from "./fetch-port";
+import { contextBoundResponse } from "../management/context-response.ts";
 import { Empty, Spinner, Button } from "../ui";
 import { AccountDialog, MfaPrompt } from "../app/Account";
 import { ManagementShell, ManagementState } from "../management/ManagementShell";
@@ -119,7 +120,7 @@ export function installManagementCustomerHost(context: ErpHostContext, dependenc
   } };
 }
 
-export { contextBoundResponse } from "./fetch-port";
+export { contextBoundResponse } from "../management/context-response.ts";
 
 export function startAuthorizedPortedPrefetch(
   state: PortedTargetState,

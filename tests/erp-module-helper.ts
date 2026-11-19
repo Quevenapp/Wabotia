@@ -14,3 +14,13 @@ export async function setModule(profile: string, id: string, enabled: boolean, b
     by,
   );
 }
+
+/** Preparação equivalente à migração 0133 para testes do antigo núcleo completo. */
+export const ERP_CORE_TEST_MODULES: Readonly<Record<string, boolean>> = Object.freeze({
+  erp: true, "erp-produtos": true, "erp-vendas": true,
+  "erp-compras": true, "erp-estoque": true, "erp-financeiro": true,
+});
+export async function enableErpParts(profile: string, by: string) {
+  for (const id of Object.keys(ERP_CORE_TEST_MODULES))
+    await setModule(profile, id, true, by);
+}

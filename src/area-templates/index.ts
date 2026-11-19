@@ -28,7 +28,7 @@ export type { AreaTemplatePreview, AreaTemplateApplyResult } from "../modules/os
 // Um modelo por linha. Os demais arquivos são entregues por seus próprios donos.
 export const areaTemplates: readonly AreaTemplate[] = [
   // Versão publicada dos conjuntos da fase 2; preserva a procedência da v1.
-  { ...assistenciaTecnicaTemplate, version: 2 },
+  assistenciaTecnicaTemplate,
   // REGISTRO RESERVADO I — acrescentar aqui uma linha por modelo importado.
   servicosTemplate,
   oficinaMecanicaTemplate,

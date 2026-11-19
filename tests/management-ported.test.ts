@@ -1,4 +1,5 @@
 import React from "react";
+import { ERP_CORE_TEST_MODULES } from "./erp-module-helper";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter } from "react-router-dom";
 import { PREFERENCE_PAGES, preferencePageHref } from "../packages/erp-domain/src/preferences/catalog.mjs";
@@ -71,7 +72,7 @@ vi.mock("react", async original => {
 const leases: { dispose(): void }[] = [];
 const actor = "00000000-0000-4000-8000-000000000001";
 function context(change: Partial<ManagementContext> = {}): ManagementContext {
-  return { statusLoaded: true, modules: { erp: true }, role: "admin", access: null, erpRole: "admin", ...change };
+  return { statusLoaded: true, modules: { ...ERP_CORE_TEST_MODULES }, role: "admin", access: null, erpRole: "admin", ...change };
 }
 const host = (change: Record<string, unknown> = {}) => ({ profile: "area-a", actor, demo: false, management: context(),
   onModules: vi.fn(), onPeople: vi.fn(), onLeave: vi.fn(), onExpired: vi.fn(), ...change });
@@ -127,7 +128,7 @@ describe("política portada pura", () => {
     } finally { activation.mockRestore(); }
   });
   it("centraliza núcleo, opcionais e exceções por consulta", () => {
-    const modules = { erp: true, "erp-fiscal": false, "erp-cobranca": false, "erp-pdv": false };
+    const modules = { ...ERP_CORE_TEST_MODULES, "erp-fiscal": false, "erp-cobranca": false, "erp-pdv": false };
     for (const item of ERP_MANAGEMENT_ITEMS) expect(portedTargetState(item.target.to, context({ modules }), true)).toBe(erpPartEnabled(item.part, modules, item.target.to) ? "allowed" : "disabled");
     expect(erpPartEnabled("financeiro", modules, "/financeiro-empresa?area=borderos")).toBe(true);
     expect(erpPartEnabled("financeiro", modules, "/financeiro-empresa?area=remessas#arquivo")).toBe(false);
@@ -187,7 +188,7 @@ describe("política portada pura", () => {
     expect(portedTargetState("/tags?tipo=inventado", context())).toBe("not-found");
   });
   it("classifica preferências, ferramentas, ajuda, subseções e detalhes", () => {
-    const c = context({ modules: { erp: true, "erp-fiscal": true, "erp-pdv": true, "erp-cobranca": true } });
+    const c = context({ modules: { ...ERP_CORE_TEST_MODULES, "erp-fiscal": true, "erp-pdv": true, "erp-cobranca": true } });
     for (const to of ["/preferencias", "/preferencias/cadastros", "/preferencias/cadastros/clientes-fornecedores", "/preferencias/vendas/vendas/checkout", "/preferencias/notas-fiscais/nfe/preenchimento", "/preferencias/importacoes/contatos", "/preferencias/sistema/gestao-acoes", "/empresa-configuracoes?secao=armazenamento", "/ajuda/novidades", "/ajuda/primeiros-passos#conta", "/cadastros-reais?cadastro=contacts&id=erp-42", "/documentos-empresa?tipo=purchase_orders&id=42", "/financeiro-empresa?area=comissoes-relatorio"]) expect(portedTargetState(to, c)).toBe("allowed");
     expect(portedTarget("/cadastros-reais?cadastro=products")?.part).toBe("catalogo");
     expect(portedTarget("/cadastros-reais?cadastro=warehouses")?.part).toBe("estoque");

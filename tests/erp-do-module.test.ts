@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import worker from "../src/index";
 import { erpStub } from "../src/erp/hub";
 import { ERP_DDL_VERSION } from "../src/erp/schema/ddl";
-import { setModule } from "./erp-module-helper";
+import { enableErpParts, setModule } from "./erp-module-helper";
 import { bearer, fixture } from "./service-center-fixture";
 
 const erpExists = async (profile: string) => {
@@ -65,7 +65,7 @@ describe("ERP como módulo da área", () => {
     const token = await bearer(f.admin);
     const get = (path: string) =>
       SELF.fetch(`https://test/api/v1/profiles/${f.profile}/erp${path}`, { headers: { Authorization: "Bearer " + token } });
-    await setModule(f.profile, "erp", true, f.admin.id);
+    await enableErpParts(f.profile, f.admin.id);
     for (const [path, module] of [
       ["/v1/notas-fiscais", "erp-fiscal"],
       ["/v1/estoque/checkin", "erp-fiscal"],

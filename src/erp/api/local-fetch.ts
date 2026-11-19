@@ -1,6 +1,7 @@
 import { erpPartsEnvelope } from "../../modules/erp/parts-state";
 import { erpRequirementMet, readErpPartsSnapshot } from "../parts.ts";
 import { erpRouteRequirement } from "../parts-requirements.ts";
+import { ERP_ROUTE_ALIASES } from "../blocks.ts";
 import { ERP_PARTS_DENIED_HEADER, ERP_PARTS_REFERENCE_HEADER, readErpPartsReference, type ErpPartsReference } from "../parts.ts";
 import { ERP_MAINTENANCE_HEADER } from "../parts-requirements.ts";
 import { partsMaintenance } from "./parts-maintenance.ts";
@@ -16,7 +17,7 @@ import { ApiError, type Actor, type Env } from "../../types";
 import { admin } from "../../security";
 import { requireModule } from "../../modules/registry";
 import { FISCAL_MODULE_HEADER, type ErpModuleState } from "../engine/module-state.ts";
-import { GATE_DENIED_HEADER, GATE_HEADER, IDENTITY_HEADER, SYSTEM_HEADER, encodeIdentity, type IdentityPort } from "../engine/identity.ts";
+import { CUSTOMER_BRIDGE_USER_ID, GATE_DENIED_HEADER, GATE_HEADER, IDENTITY_HEADER, SYSTEM_HEADER, encodeIdentity, type IdentityPort } from "../engine/identity.ts";
 import { erpFetch } from "../hub.ts";
 import { erpStorage, publicSignedUrls } from "../../erp-storage";
 import { ErpUnavailable, rpcHasCommand, withStubRetry } from "./retry.ts";
@@ -169,7 +170,7 @@ export function localFetch(
                 ...(partsReference ? { [ERP_PARTS_REFERENCE_HEADER]: JSON.stringify(partsReference) } : {}),
                 ...(maintenance ? { [ERP_MAINTENANCE_HEADER]: maintenance } : {}),
                 [FISCAL_MODULE_HEADER]: state.fiscal ? "1" : "0",
-                ...(gate ? { [GATE_HEADER]: "1" } : {}),
+                ...(gate || identity.actor?.user_id === CUSTOMER_BRIDGE_USER_ID ? { [GATE_HEADER]: "1" } : {}),
               },
               body,
             });
@@ -293,7 +294,8 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
     throw new ApiError(403, "erp_user_required", "O ERP atende pessoas e aplicações com escopo do ERP.");
   const url = new URL(request.url);
   const prefix = `/api/v1/profiles/${encodeURIComponent(profile)}/erp`;
-  const path = url.pathname.startsWith(prefix) ? url.pathname.slice(prefix.length) || "/" : "/";
+  const originalPath = url.pathname.startsWith(prefix) ? url.pathname.slice(prefix.length) || "/" : "/";
+  const path = ERP_ROUTE_ALIASES[originalPath] ?? originalPath;
   // Portão dos blocos (src/erp/blocks.ts): opcional desligado → 409 antes do
   // objeto; o que saiu da instalação principal (Origin, MCP, autoatualização
   // do Fagoo) → 404. O módulo `erp` em si já passou pelo portão comum.
@@ -323,7 +325,10 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
   const requirement = erpRouteRequirement(request.method, innerUrl, routeBody);
   if (requirement === "externo") throw new ApiError(404, "erp_route_removed", "Esta rota do ERP não faz parte da instalação principal.");
   if (!requirement) throw new ApiError(404, "not_found", "Rota não encontrada.");
-  identity = { ...identity, ...await erpPartsEnvelope(env, profile) };
+  // O envelope autenticado já contém a leitura consistente do mesmo batch.
+  // Chamadores internos sem fotografia ainda precisam obtê-la no D1.
+  if (!readErpPartsSnapshot({ ...identity.partsControl, parts: identity.parts }, profile))
+    identity = { ...identity, ...await erpPartsEnvelope(env, profile) };
   if (!erpRequirementMet(identity.parts!, requirement)) throw new ApiError(409, "module_disabled", "Esta rotina depende de uma parte desligada.");
   const modules: ErpModuleState = { fiscal: identity.parts!.fiscal };
   if (path === "/v1/sistema/manutencao-efeitos") {

@@ -32,7 +32,6 @@ export function requirementOf(target: string) {
   try { url = new URL(target, "https://erp.invalid"); } catch { return null; }
   if (url.pathname.startsWith("/app/erp/")) url.pathname = url.pathname.slice(8);
   if (["cadastro", "tipo", "area", "painel", "acao", "relatorio"].some(key => url.searchParams.getAll(key).length > 1)) return null;
-  if (["/visao-geral", "/cadastros-empresa"].includes(url.pathname)) url.pathname = "/acesso";
   if (url.pathname === "/cadastros-reais" && !url.searchParams.has("cadastro")) url.searchParams.set("cadastro", "contacts");
   if (url.pathname === "/documentos-empresa" && !url.searchParams.has("tipo")) url.searchParams.set("tipo", "sales_proposals");
   if (["/preferencias/suprimentos/tags", "/preferencias/suprimentos/grupos-tags"].includes(url.pathname)) url.pathname = "/tags";
@@ -59,6 +58,7 @@ export const blockOf = (target: string): ErpBlock | null => requirementOf(target
 export function erpPartEnabled(part: ErpPart, modules: Readonly<Record<string, boolean>>, to: string): boolean {
   const resolved = requirementOf(to);
   // Resultados é apenas o nome legado de um grupo; nunca uma chave.
-  return !!resolved && (part === "resultados" || !!ERP_PART_OWNERS[part]) && requirementsEnabled(resolved.requirement, modules);
+  const owner = ERP_PART_OWNERS[part];
+  return !!resolved && (part === "resultados" || !!owner && requirementsEnabled(erpRequirement(owner), modules)) && requirementsEnabled(resolved.requirement, modules);
 }
 export { erpPreferenceRequirement, ERP_PREFERENCE_DESTINATIONS };

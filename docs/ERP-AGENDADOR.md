@@ -18,22 +18,32 @@ disparavam**. No Wabotia elas passam a rodar no alarme do próprio objeto.
 | Rotinas | `scheduler/routines.ts` | Lista em código: `platform.schedule` (hora cheia), `retention` (03:10 de São Paulo). Cada rotina tem bloco, próximo horário e passo (uma unidade). |
 | `wb_routine` | Criada pelo `schema/migrate.ts` (`WB_ROUTINE_DDL`, `CREATE TABLE IF NOT EXISTS`, como a `erp_meta`: vale também para instância que já existe); declarada em `schema/structural.ts` ("agendador") | Estado de cada rotina: `next_run_us`, `last_run_us`, `last_status` (`ok`, `partial`, `error`, `skipped`), `last_error`, `last_ms`, `runs`, `failures`. Fica fora do DDL gerado e do backup. Na restauração, as rotinas vencem e rodam uma vez, sem duplicar tarefas (teste "backup e restauração" em `tests/erp-do-scheduler.test.ts`). |
 | Despachante | `scheduler/dispatch.ts`, `runRound(db, opções)` | Roda as rotinas vencidas e depois drena a fila `erp_platform__task` com as funções da plataforma (domínio Preferências). Devolve a próxima acordada. |
-| Alarme | `src/erp/hub.ts`, `alarm()` | `migrate`, depois `runRound` com os blocos guardados (KV `erp_blocks`) e o relógio do objeto (`engineClock`, o mesmo dos RPCs), `last_alarm` na `erp_meta` e `setAlarm(próxima)`. |
-| Wake | `src/erp/hub.ts`, `/erp-wake` | Ganha o mais cedo e guarda os blocos (contrato abaixo). |
-| Cron | `scheduler/cron.ts`, `wakeErpAreas(env, scheduledTime)` | Rede de segurança de hora em hora. A A o liga no `scheduled`. |
+| Alarme | `src/erp/hub.ts`, `alarm()` | Valida o KV `erp_parts` antes de importar/migrar o motor; fornece partes explícitas a cada unidade e revalida após cada `await`. |
+| Estado/wake | `src/erp/hub.ts`, `/erp-parts` e `/erp-wake` | Persistência de fotografia completa revisionada e reconciliação do alarme; wake só antecipa uma autorização válida. |
+| Cron | `scheduler/cron.ts`, `wakeErpAreas(env, scheduledTime)` | Renova a autorização em toda passagem de cinco minutos e entrega desligamentos pendentes. |
 
-## Contrato do `/erp-wake`
+## Entrega de estado e `/erp-wake` (fase 2)
 
-1. `POST /erp-wake`, com corpo opcional
-   `{ blocks?: {"erp-fiscal"?, "erp-cobranca"?, "erp-pdv"?: boolean}, at?: ms }`.
-   Sem corpo vale como antes; corpo inválido dá 400 `erp_wake_invalid`.
-2. Quando `blocks` vem, vai para o KV do objeto em `erp_blocks = {blocks, at}`.
-   O objeto nunca lê o D1.
-3. Ganha o mais cedo: `target = max(now+1, at ?? now+1)`. Só agenda se não
-   houver alarme ou se o atual for mais tarde: o wake nunca adia. A resposta é
-   `{ok: true, alarm}`.
-4. No fim da rodada, o alarme também respeita um wake que chegou durante ela:
-   fica o mais cedo entre o que já está agendado e a próxima acordada.
+`POST /erp-parts` recebe `{profile, revision, expires_at, parts}`. Os nove
+booleanos são obrigatórios; a revisão é decimal não negativa e a validade
+não ultrapassa seis minutos desde a leitura confiável no D1. O objeto
+valida o vínculo à área e grava no KV antes de importar o motor.
+
+Revisão menor não substitui maior. A mesma revisão exige mapa idêntico e
+só pode renovar validade. O ACK identifica a área e a revisão entregues;
+`delivered_revision` confirma apenas esse número, sem encobrir revisão
+mais recente. Perda de entrega ou ACK mantém a pendência durável.
+
+`POST /erp-wake` aceita somente `{at?: ms}` e usa a fotografia já entregue.
+Mapa parcial `blocks` não autoriza mais produção. Ganha o alarme mais cedo;
+ausência, expiração ou Base desligada removem o alarme sem carregar o motor.
+Chamadas RPC autenticadas também renovam o KV pelo envelope, na própria
+ida ao objeto. Seu ACK administrativo é reconciliado por comando/modelo/cron,
+sem uma segunda ida ao D1 por leitura de metadados.
+
+`erp_sync.status=applied` confirma a entrega daquela revisão; não significa
+que alguma tarefa executou. O objeto nunca lê D1. A transação síncrona já
+iniciada termina com sua fotografia; não existe transação D1 + SQLite.
 
 **Acordar no pedido.** RPC registrado com `registerRpc(…, { wake: true })`
 cria trabalho para o agendador. Depois que ele dá certo, a rota `/erp-rpc`
@@ -90,8 +100,10 @@ objeto agendou, pede o link pela rota e baixa o
 - **Rotina que falha:** grava `error`, e a nova tentativa sai em
   `min(1 h, 1 min·2^falhas)`, sem passar do próximo horário. As outras rotinas
   e a fila seguem.
-- **Bloco desligado:** a rotina do bloco fica `skipped` e vai para o próximo
-  horário. Todas as rotinas do primeiro corte são do bloco `erp`.
+- **Parte desligada:** seleção, claim e próximo wake consideram os requisitos
+  do payload persistido. Tarefa bloqueada permanece pendente, sem consumir
+  tentativa, sem falha e sem ciclo de alarme vazio. Mudança após claim devolve
+  a posse à espera se ela ainda pertence ao executor. As rotinas comuns exigem Base.
 - **Próxima acordada** é o menor de:
   - a próxima rotina;
   - a próxima tentativa de tarefa com executor;
@@ -178,7 +190,7 @@ diferencial da G fecha. Consequências:
 - O fuso por área entra quando o núcleo tiver o fuso da área. Mudar as chaves
   quebra a idempotência com as tarefas já gravadas, então é preciso migrar.
 
-## Cron (para a A)
+## Cron
 
 No `scheduled` de `src/index.ts`:
 
@@ -188,12 +200,14 @@ import { wakeErpAreas } from "./erp/scheduler/cron";
 ctx.waitUntil(wakeErpAreas(env, event.scheduledTime));
 ```
 
-- Só age no primeiro disparo da hora (minuto 0 a 4 com o cron de 5 min).
-- Consulta as áreas pelos estados resolvidos dos módulos `erp` e opcionais.
-- Faz um `/erp-wake` por área com os blocos.
-- Área com o ERP desligado não acorda.
+- Age em toda passagem do cron de cinco minutos, sem filtro horário.
+- Seleciona Base ligada e revisões pendentes, inclusive após exclusão da
+  última linha de módulo. Faz leitura fresca consistente por área.
+- Entrega `/erp-parts`; a entrega reconcilia o alarme e confirma a revisão no D1.
+- Área desligada recebe o desligamento pendente, sem carregar seu motor.
 
-Teste: `tests/erp-do-scheduler.test.ts`, "cron".
+Testes: `tests/erp-do-scheduler.test.ts`, `tests/f2-fundo.test.ts` e
+`tests/erp/unico/f2-fundo.test.mjs`.
 
 ## Testes: relógio injetado
 
@@ -220,8 +234,17 @@ Teste que depende da hora em que a suíte roda é defeito do teste.
 - **Fila do ERP para os módulos** (`outbox` com `claim`/`ack`): vem depois. O
   agendador só cuidará dos claims vencidos e da retenção.
 - **Medição de CPU real** na instalação de teste: roteiro para a K.
-- **Notificações por pessoa:** a G vai publicar `notificationDigestFor` e
-  `notifyMember` em `preferences/shared.ts`. Com elas, o executor de
-  `notifications_generate` passa a ceder a vez entre lotes de membros, e o
-  `certificado_a1` só entra com o bloco `erp-fiscal` ligado. Isso vem num
-  commit seguinte; até lá, o `notifications_run` inteiro é uma unidade.
+
+## Partes das notificações
+
+`notificationDigestFor` e `notifyMember`, em
+`domains/preferences/notification-units.ts`, recebem estado explícito.
+O executor filtra antes de calcular, gravar e exibir. Financeiro controla
+atrasos e pagamentos; Estoque controla limites, saldo zerado e vencimento de
+lotes; Produtos controla validade; Vendas controla próximo contato; Fiscal
+controla certificado A1; Base controla cliente visitado. O mapa comum é
+`erpNotificationRequirement`, em `parts-requirements.ts`.
+
+Ao religar, alertas calculam a situação atual. Não há recuperação de rodadas
+históricas, recorrência financeira nova ou automação comercial compensatória.
+Demais limites da entrega: [ERP-FASE2.md](ERP-FASE2.md).

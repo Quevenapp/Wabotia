@@ -1,3 +1,4 @@
+import { ERP_CORE_TEST_MODULES } from "./erp-module-helper";
 import React from "react";
 import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -171,12 +172,12 @@ describe("elegibilidade, ativação e autorização independentes", () => {
   });
 
   it("valida consulta e financeiro e permite nativos com acesso somente a os", () => {
-    const consulta = resolveManagement(ERP_MANAGEMENT_ITEMS, context({ role: "agent", access: ["erp:consulta"], modules: { erp: true } }));
+    const consulta = resolveManagement(ERP_MANAGEMENT_ITEMS, context({ role: "agent", access: ["erp:consulta"], modules: { ...ERP_CORE_TEST_MODULES } }));
     expect(consulta.some((item) => item.id === "erp.customers")).toBe(true);
     expect(consulta.some((item) => item.id === "erp.products")).toBe(true);
     expect(consulta.some((item) => item.id === "erp.employees")).toBe(false);
     expect(managementLanding(consulta)).toBe("/app/erp/visao-geral");
-    const financeiro = resolveManagement(ERP_MANAGEMENT_ITEMS, context({ role: "agent", access: ["erp:financeiro"], modules: { erp: true } }));
+    const financeiro = resolveManagement(ERP_MANAGEMENT_ITEMS, context({ role: "agent", access: ["erp:financeiro"], modules: { ...ERP_CORE_TEST_MODULES } }));
     expect(financeiro.some((item) => item.id === "erp.payables")).toBe(true);
     expect(financeiro.some((item) => item.id === "erp.products")).toBe(false);
     const os = resolveManagement(MANAGEMENT_ITEMS, context({ role: "agent", access: ["os"], modules: { os: true, erp: true } }));

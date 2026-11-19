@@ -8,7 +8,7 @@ import worker from "../src/index";
 import { uid } from "../src/types";
 import { erpFetch, erpStub } from "../src/erp/hub";
 import { bearer, fixture } from "./service-center-fixture";
-import { setModule } from "./erp-module-helper";
+import { enableErpParts } from "./erp-module-helper";
 import { measure } from "./d1-counter";
 import { erpApi } from "../src/erp/api/local-fetch";
 
@@ -24,7 +24,7 @@ describe("ERP: uma ida ao objeto por requisição", () => {
   it("leitura, /v1/me e escrita: idas ao objeto e consultas ao D1; portão na mesma ida", async () => {
     const f = await fixture();
     const token = await bearer(f.admin);
-    await setModule(f.profile, "erp", true, f.admin.id);
+    await enableErpParts(f.profile, f.admin.id);
     await erpFetch(env, f.profile, "/erp-ping");
     const t = String(BigInt(Date.now()) * 1000n);
     const ids = { product: crypto.randomUUID(), warehouse: crypto.randomUUID() };

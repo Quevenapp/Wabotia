@@ -5,7 +5,7 @@
 import { env, runInDurableObject, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { erpFetch, erpStub } from "../src/erp/hub";
-import { setModule } from "./erp-module-helper";
+import { enableErpParts, setModule } from "./erp-module-helper";
 import { bearer, fixture } from "./service-center-fixture";
 
 const x = "00000000-0000-4000-8000-000000000001";
@@ -38,7 +38,7 @@ describe("CNAB atrás do módulo erp-cobranca", () => {
         headers: { Authorization: "Bearer " + token, ...(method === "POST" ? { "Content-Type": "application/json" } : {}) },
         body: method === "POST" ? JSON.stringify({ command_id: x, data: { id: x } }) : undefined,
       });
-    await setModule(f.profile, "erp", true, f.admin.id);
+    await enableErpParts(f.profile, f.admin.id);
     await erpFetch(env, f.profile, "/erp-ping");
     const t = String(BigInt(Date.now()) * 1000n);
     await runInDurableObject(erpStub(env, f.profile), (_i: any, state: DurableObjectState) => {

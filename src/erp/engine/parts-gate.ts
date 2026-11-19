@@ -429,7 +429,14 @@ export function inspectErpEffects(ctx: RpcContext): unknown {
   }
   if (s.invoice) {
     if (stock) links.stock = rows("erp_stock__invoice_posting", "invoice_id", s.invoice);
-    if (finance) { links.finance = rows("erp_finance__invoice_posting", "invoice_id", s.invoice); links.grouped_billing = rows("erp_finance__grouped_billing_invoice", "invoice_id", s.invoice); }
+    if (finance) {
+      links.finance = rows("erp_finance__invoice_posting", "invoice_id", s.invoice).map(posting => ({
+        ...posting,
+        titles: ctx.db.exec(`SELECT t.id,t.version FROM erp_finance__invoice_title l
+          JOIN erp_finance__title t ON t.id=l.title_id WHERE l.posting_id=? ORDER BY t.id`, posting.id).rows,
+      }));
+      links.grouped_billing = rows("erp_finance__grouped_billing_invoice", "invoice_id", s.invoice);
+    }
   }
   if (s.title && finance) { links.settlements = rows("erp_finance__settlement", "title_id", s.title); links.billing = rows("erp_cnab__billing_title", "title_id", s.title); }
   const operations: string[] = [];
@@ -445,7 +452,10 @@ export function inspectErpEffects(ctx: RpcContext): unknown {
   if (mayReverseFinance && links.settlements?.some(value => (value as Row).kind === "payment" && !one(ctx.db, "SELECT 1 FROM erp_finance__settlement WHERE reverses_id=?", (value as Row).id))) operations.push("settlement_reverse");
   if (s.sale && rowAt(ctx.db, "erp_pos__sale", s.sale)?.state !== "cancelled" && ["admin", "vendas"].includes(role ?? "")) operations.push("pos_sale_cancel");
   if (s.request.origin.type === "grouped_billing") operations.push("grouped_billing_delete");
-  if (s.request.origin.type === "remittance") operations.push("remittance_exclude");
+  if (s.request.origin.type === "remittance") {
+    links.remittances = ctx.db.exec("SELECT id,CAST(sequence AS TEXT) sequence FROM erp_cnab__remittance WHERE id=?", s.request.origin.id).rows;
+    if (links.remittances.length) operations.push("remittance_exclude");
+  }
   if (s.request.origin.type === "return_file") operations.push("return_exclude");
   const blocks = (kind: string, value: unknown) => {
     const row = value as Row;
@@ -458,5 +468,9 @@ export function inspectErpEffects(ctx: RpcContext): unknown {
     const current = values.filter(value => blocks(kind, value));
     return current.length ? [{ kind, count: current.length }] : [];
   });
-  return { origin: s.request.origin, links, operations, blockers };
+  const originTable = s.sale ? "erp_pos__sale" : s.document ? "erp_documents__document" :
+    s.invoice ? "erp_fiscal_invoices__invoice" : s.title ? "erp_finance__title" :
+      s.request.origin.type === "grouped_billing" ? "erp_finance__grouped_billing" : null;
+  const originVersion = originTable ? Number(rowAt(ctx.db, originTable, s.request.origin.id)?.version) : NaN;
+  return { origin: s.request.origin, ...(Number.isSafeInteger(originVersion) && originVersion > 0 ? { origin_version: originVersion } : {}), links, operations, blockers };
 }
