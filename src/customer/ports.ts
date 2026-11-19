@@ -40,6 +40,12 @@ const providers = new Map<string, CustomerModuleProvider>();
 let resolutions = new WeakMap<Env, Map<string, Promise<CustomerRef>>>();
 const invalidate = (env: Env) => resolutions.delete(env);
 
+/** Junção/desfazer e planos de identidade invalidam o escopo antes e depois do lote.
+ * Não consulta o D1 nem transfere prova entre conversas ou canais. */
+export function invalidateCustomerResolution(env: Env): void {
+  invalidate(env);
+}
+
 export function installIdentityPort(port: IdentityPort, options?: Installation): void {
   identity = install("identidade", port, options);
   resolutions = new WeakMap();
@@ -72,6 +78,10 @@ export const identityPort: IdentityPort = {
     };
   },
   async prepareInbound(env, conversation, evidence) {
+    // A porta legada é telefônica. A entrada social usa channelIdentityPort,
+    // cujo plano inclui contato, identidade e vínculo no lote da mensagem.
+    if (evidence.channel && evidence.channel !== "whatsapp")
+      throw new ApiError(503, "channel_not_ready", "Use a identidade autenticada do canal social.");
     invalidate(env);
     try {
       return identity ? await identity.prepareInbound(env, conversation, evidence)
@@ -138,7 +148,11 @@ export async function resolveCustomer(env: Env, conversation: Conversation): Pro
     result.catch(() => { if (cache.get(key) === captured) cache.delete(key); });
   }
   const ref = await result;
-  return { ...ref, erp: ref.erp ? { ...ref.erp } : null };
+  return { ...ref, erp: ref.erp ? { ...ref.erp } : null,
+    ...(ref.verifiedChannel === undefined ? {} : {
+      verifiedChannel: ref.verifiedChannel ? { ...ref.verifiedChannel } : null,
+    }),
+  };
 }
 
 export async function enrichCustomer(

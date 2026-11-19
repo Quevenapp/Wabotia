@@ -1,4 +1,5 @@
 import type { LinkState } from "./customer/contracts";
+import type { ChannelId } from "./channel-contracts";
 
 export interface Env {
   DB: D1Database;
@@ -90,6 +91,15 @@ export interface Profile {
   created: number;
 }
 export interface Conversation {
+  /** Ausente/nulo no legado; aplicação, conversa interna e kind=ai não viram WhatsApp. */
+  channel?: ChannelId | null;
+  account_label?: string;
+  /** Identificadores opacos autenticados pelo servidor; nunca telefone ou credencial. */
+  channel_account_id?: string | null;
+  channel_subject_id?: string | null;
+  channel_identity_id?: string | null;
+  /** JSON StoredChannelContext; legado '{}'. Metadados internos não aceitam escrita do cliente. */
+  channel_context?: string;
   verified_phone?: string | null;
   customer_link_state?: LinkState;
   /** JSON {module, summary, flags, at} da passagem feita por um módulo. */

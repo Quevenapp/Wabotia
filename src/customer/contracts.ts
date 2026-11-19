@@ -1,4 +1,5 @@
 import type { Actor, Conversation, Env } from "../types";
+import type { ChannelId } from "../channel-contracts";
 
 export type Namespace = "team" | `app:${string}`;
 export type Statement = [sql: string, params: unknown[]];
@@ -11,6 +12,9 @@ export interface CustomerRef {
   state: LinkState;
   contactId: string | null;
   verifiedPhone: string | null;
+  /** Prova da origem autenticada pelo servidor, nunca inferida da ficha juntada.
+   * Em canais sociais, verifiedPhone continua null. IDs e nomes são dados pessoais. */
+  verifiedChannel?: VerifiedChannel | null;
   version: number | null;
   erp: { id: string; version: number } | null;
 }
@@ -74,11 +78,38 @@ export interface CustomerJobView {
   progress?: { processed: number; imported: number; skipped: number; total: number };
 }
 
-export interface InboundEvidence {
+export interface VerifiedChannel {
+  readonly identityId: string;
+  readonly channel: ChannelId;
+  readonly accountId: string;
+  readonly subjectNamespace: string;
+  readonly subjectId: string;
+}
+
+/** Forma legada aceita sem channel; somente o ingresso autenticado produz evidência. */
+export interface WhatsAppInboundEvidence {
+  channel?: "whatsapp";
   provider: "zernio" | "qr" | "meta";
   phone: string | null;
   phoneJid?: string;
 }
+
+export interface SocialInboundEvidence {
+  channel: Exclude<ChannelId, "whatsapp">;
+  provider: "zernio" | "telegram_bot" | "email";
+  accountId: string;
+  /** dm nesta leva; comment-author, telegram-user e email-address são distintos. */
+  subjectNamespace: string;
+  /** Identificador opaco e pessoal; nunca é telefone, senha ou token. */
+  subjectId: string;
+  displayName?: string;
+  username?: string;
+  /** Preserva a leitura tipada do legado sem permitir telefone no ramo social. */
+  phone?: never;
+  phoneJid?: never;
+}
+
+export type InboundEvidence = WhatsAppInboundEvidence | SocialInboundEvidence;
 
 export interface IdentityPlan {
   statements: Statement[];

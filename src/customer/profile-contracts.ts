@@ -1,6 +1,9 @@
 import type { Actor, Env } from "../types";
 import type { ModuleContext } from "../modules/api";
 import type {
+  ContactMergeAvailability, CustomerChannelView, OtherChannelConversation,
+} from "../channel-contracts";
+import type {
   CustomerTarget, MaintenanceBudget, MaintenanceResult
 } from "./contracts";
 
@@ -46,6 +49,11 @@ export interface ContactProfileView {
   namespace?: string;
   /** Edição local é independente da autorização de escrita no ERP. */
   localWritable?: boolean;
+  /** Opcionais para compatibilidade com fichas/servidores anteriores à base de canais. */
+  channels?: readonly CustomerChannelView[];
+  /** Somente históricos que o ator pode ler; não amplia prova de identidade do cliente. */
+  other_conversations?: readonly OtherChannelConversation[];
+  merge?: ContactMergeAvailability;
   contributions: readonly (
     ContactContribution & { moduleId: string; writable: boolean }
   )[];
