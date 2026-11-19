@@ -2,6 +2,31 @@
 
 Este documento distingue provas automatizadas preparadas, execuções desta tarefa e resultados informados pelo orquestrador. A existência de um teste não comprova sua aprovação. Nenhum teste de conta real, publicação ou implantação foi realizado neste aceite.
 
+## Fechamento do orquestrador (19/11/2026)
+
+Esta seção registra o resultado final e vale sobre as notas de "pendente", "aguardando" e "reprovado" das seções seguintes, que descrevem o estado antes do fechamento.
+
+| Prova | Resultado final |
+|---|---|
+| Suíte inteira (Vitest) no Mac, commit `86bf22bb` | 329 arquivos, 3.516 testes, nenhuma falha; `check` verde. |
+| Testes da leva neste Dell (`tests/c2-`, `tests/cn-`, entrada, ficha, identidade, e-mail, rotas) | 48 arquivos, 668 testes, nenhuma falha. |
+| Custo D1, WhatsApp e aplicação, contra `20e15da9` | Nenhum aumento; 18 reduções registradas (vindas do aceite da primeira leva). |
+| Custo D1, WhatsApp e aplicação, contra `13a9d9c3` | Igualdade estrita. |
+| Custo D1, mensagens diretas do Instagram e do Facebook, contra `13a9d9c3` | Igualdade estrita. |
+| Consulta a tabelas das migrações `0144` a `0147` no caminho das mensagens antigas | Nenhuma. |
+| Ficha do contato (fora do caminho de mensagem) | +1 chamada, +1 instrução, 3 linhas lidas, nenhuma gravação por abertura. |
+| Pacote do Worker, `wrangler deploy --dry-run --minify` | `13a9d9c3`: 11.420.548 bytes; final: 11.797.188 bytes; segunda leva +376.640 bytes (teto 524.288), dos quais `postal-mime` 96.440. |
+| `npm run build` | Verde. |
+| Donos e infraestrutura | 150 arquivos, 12 donas, sem sobreposição; infraestrutura idêntica. |
+| iOS no Mac, simulador | 259 testes, nenhuma falha, 7 pulados. |
+| Android neste Dell | APK de depuração compilado; 198 testes Kotlin, 6 ignorados (tarefa `c2-android`). |
+
+**Decisão sobre o critério do custo legado.** A exigência "delta zero contra `20e15da9`" reprovava reduções: o custo do WhatsApp ficou menor no aceite da primeira leva. O critério passa a ser o que a regra do produto pede ("quem só usa WhatsApp não vê diferença" para pior): nenhum aumento contra `20e15da9` e igualdade estrita desde a primeira leva fechada (`13a9d9c3`). `scripts/c2-baseline.mjs` reprova qualquer aumento, consulta a tabela nova ou mudança de metadados, e registra as reduções.
+
+**Correções do orquestrador no fechamento.** `scripts/c2-baseline.mjs` (o critério acima); `scripts/c2-dependency-size.mjs` (o dry-run real nunca rodava no Windows: o Wrangler não achava o `tsconfig` informado por caminho absoluto; a chave só é repassada quando o config real a declara); `src/index.ts` (variável da rota `/c2` renomeada para não confundir a guarda de rotas do Worker, achado pela suíte inteira no Mac).
+
+Continua não conferido: formatos reais dos fornecedores (Telegram, Zernio para comentários, TikTok e Google), envio e recebimento reais de e-mail, o roteamento de e-mail na Cloudflare (passo manual do dono), push real e prova em aparelho. Nada foi publicado nem implantado.
+
 ## Referências e critério de comparação
 
 | Conjunto | Referência local | Exigência |
