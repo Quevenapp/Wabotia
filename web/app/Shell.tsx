@@ -36,15 +36,13 @@ import { useTheme } from "../lib/theme";
 import { sourceLinkLabel, useSourceLink } from "../lib/source";
 import {
   accessAllows,
-  canOpenPage,
   moduleAllows,
-  railPages,
   type PageId,
 } from "../workspace-navigation";
 import { useApp } from "./AppContext";
-import { useWorkNavigation } from "../modules/os/work-navigation";
+import { canEnterManagement, managementContext } from "../management/registry";
+import { isNativeManagementPage } from "../management/routes";
 import { AccountDialog } from "./Account";
-import { erpModuleOn } from "../erp/modules";
 import { PreferencesDialog, PresenceDialog, ShortcutsDialog } from "./chrome";
 
 type Item = {
@@ -60,7 +58,10 @@ type Item = {
 
 function useItems(): Item[] {
   const app = useApp();
-  const workNavigation = useWorkNavigation();
+  const management = managementContext({
+    statusLoaded: app.statusLoaded, modules: app.modules,
+    role: app.me.role, access: app.me.access ?? null,
+  });
   return [
     {
       area: "conversations",
@@ -92,32 +93,14 @@ function useItems(): Item[] {
       countLabel: "ligações tocando",
     },
     { area: "queue", label: "Fila", icon: Ticket },
-    // Módulos com lugar no trilho (web/workspace-navigation.ts, railPages).
-    ...railPages
-      .filter(
-        (item) =>
-          moduleAllows(item.page, app.modules) &&
-          canOpenPage(item.page, app.me.role, app.modules, app.me.access),
-      )
-      .map((item) => ({
-        area: "admin" as Area,
-        page: item.page,
-        label: item.page === "service-orders" ? workNavigation.railLabel : item.label,
-        icon: item.icon,
-      })),
     { area: "contacts", label: "Contatos", icon: Contact },
     { area: "erp", label: "ERP", icon: Building2 },
     { area: "admin", label: "Gestão", icon: Settings },
   ].filter(
     (item) =>
-      // ERP: desligado de fábrica, até o servidor declarar o módulo (web/erp/modules.ts).
-      (item.area === "erp"
-        ? erpModuleOn(app.modules, "erp")
-        : moduleAllows(item.area, app.modules)) &&
-      // Acesso por pessoa: some o que ela não acessa (Gestão fica, com o
-      // Início e as páginas de módulo que ela tem).
-      (item.area === "admin" ||
-        accessAllows(item.area, app.me.role, app.me.access)),
+      item.area === "erp" ? canEnterManagement(management) :
+        moduleAllows(item.area, app.modules) &&
+        (item.area === "admin" || accessAllows(item.area, app.me.role, app.me.access)),
   ) as Item[];
 }
 
@@ -126,14 +109,8 @@ const itemRoute = (item: Item): Route =>
     ? { area: "admin", page: item.page || "overview" }
     : { area: item.area };
 
-/** Item de módulo ativo na sua página; Gestão, nas demais páginas de Gestão. */
-const itemActive = (item: Item, route: Route) =>
-  item.page
-    ? route.area === "admin" && route.page === item.page
-    : item.area === "admin"
-      ? route.area === "admin" &&
-        !railPages.some((rail) => rail.page === route.page)
-      : route.area === item.area;
+/** Cada módulo de gestão pertence à entrada ERP. */
+const itemActive = (item: Item, route: Route) => route.area === item.area;
 
 function NavLink({
   item,
@@ -182,13 +159,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
   // toda, sem a barra de abas (como no aplicativo).
   const detail =
     !!route.id ||
-    (route.area === "admin" && !!route.page && route.page !== "overview");
+    (route.area === "admin" && !!route.page && route.page !== "overview") ||
+    (route.area === "erp" && !!route.page && isNativeManagementPage(route.page));
 
   // Acesso por pessoa: área que ela não acessa (a de entrada é Conversas)
   // leva ao primeiro item que ela tem.
-  const blocked =
-    route.area !== "admin" &&
-    !accessAllows(route.area, app.me.role, app.me.access);
+  const blocked = route.area === "erp"
+    ? !canEnterManagement(managementContext({ statusLoaded: app.statusLoaded,
+        modules: app.modules, role: app.me.role, access: app.me.access ?? null }))
+    : route.area !== "admin" && !accessAllows(route.area, app.me.role, app.me.access);
   useEffect(() => {
     if (blocked && items[0]) navigate(itemRoute(items[0]), { replace: true });
   }, [blocked, items[0]?.area, items[0]?.page]);
@@ -234,7 +213,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
     };
     window.addEventListener("keydown", keyboard);
     return () => window.removeEventListener("keydown", keyboard);
-  }, [items.length]);
+  }, [items.map((item) => item.area).join(",")]);
 
   const ringing = app.ringingCalls[0];
   const ThemeIcon = mode === "system" ? Monitor : theme === "dark" ? Moon : Sun;

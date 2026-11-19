@@ -1,0 +1,44 @@
+.management-shell {
+  flex: 1;
+  display: grid;
+  grid-template: auto minmax(0, 1fr) / 240px minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  color: var(--text);
+  background: var(--bg);
+}
+.management-header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 54px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--divider);
+}
+.management-tools { flex: 1; min-width: 0; }
+.management-menu { overflow: auto; padding: 12px; border-right: 1px solid var(--divider); background: var(--surface); }
+.management-menu h2 { margin: 20px 8px 6px; font-size: 12px; color: var(--text-2); }
+.management-menu a { display: block; padding: 9px 10px; color: var(--text); border-radius: 8px; text-decoration: none; }
+.management-menu a:hover { background: var(--hover); }
+.management-menu a[aria-current="page"] { background: var(--brand-soft); color: var(--brand-strong); font-weight: 600; }
+.management-menu a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.management-content { display: flex; flex-direction: column; overflow: auto; min-width: 0; min-height: 0; }
+.management-state { margin: auto; padding: 24px; width: 100%; }
+.management-home { padding: 24px; }
+.management-home > p { color: var(--text-2); }
+.management-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-top: 24px; }
+.management-cards section { border: 1px solid var(--divider); border-radius: 12px; padding: 16px; }
+.management-cards h2 { font-size: 17px; margin: 0 0 12px; }
+.management-cards a { display: block; padding: 6px 0; }
+.management-page { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
+.management-menu-toggle, .management-menu-close { display: none; }
+@media (max-width: 759px) {
+  .management-shell { grid-template-columns: minmax(0, 1fr); }
+  .management-menu-toggle, .management-menu-close { display: inline-flex; }
+  .management-menu { display: none; }
+  .management-menu.management-menu-open { display: block; position: fixed; inset: 0 auto 0 0; width: min(320px, 88vw); z-index: 81; box-shadow: var(--shadow-3); }
+  .management-backdrop { position: fixed; inset: 0; z-index: 80; background: var(--overlay); }
+  .management-menu-close { margin-left: auto; }
+  .management-home { padding: 16px; }
+}
