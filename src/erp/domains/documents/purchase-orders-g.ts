@@ -7,6 +7,9 @@ import type { SqlDriver } from "../../engine/driver.ts";
 import { formatScaled, fromColumn } from "../../engine/dec.ts";
 import { jsonbText } from "../../engine/json.ts";
 import { documentEligible } from "../stock/public.ts";
+import { normalizeErpParts, type ErpParts } from "../../parts.ts";
+import { erpOperationRequirement } from "../../parts-requirements.ts";
+import { requireErpParts } from "../../engine/parts-gate.ts";
 
 type Row = Record<string, unknown>;
 const parse = (v: unknown): Row | null => (v === null || v === undefined ? null : typeof v === "string" ? JSON.parse(v) : (v as Row));
@@ -24,7 +27,8 @@ export type OpenPurchaseOrder = {
 };
 
 /** Pedidos de compra do fornecedor que ainda podem receber nota, por data, número e id. */
-export function openPurchaseOrders(db: SqlDriver, supplierContactId: string | null): OpenPurchaseOrder[] {
+export function openPurchaseOrders(db: SqlDriver, supplierContactId: string | null, parts: Readonly<ErpParts> = normalizeErpParts()): OpenPurchaseOrder[] {
+  requireErpParts({ parts }, erpOperationRequirement("purchase_receipt"));
   if (supplierContactId === null) return [];
   const docs = db.exec(
     `SELECT d.id, CAST(d.number AS TEXT) number, d.version, d.status, d.body, CAST(d.total AS TEXT) total

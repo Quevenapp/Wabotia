@@ -11,6 +11,7 @@ import { fromSqlite, raise } from "../../../engine/errors.ts";
 import { jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { nextIdentity } from "../../../engine/sequence.ts";
+import { erpEntityRequirement, erpRequirementMet } from "../../../parts-requirements.ts";
 import { dto as catalogDto } from "../../catalog/public.ts";
 import * as finance from "../../finance/public.ts";
 import { approvalSituations, autoProducts, documentDto, documentSituationJson, documentView, preference, uuidValue } from "../internal.ts";
@@ -33,6 +34,9 @@ import {
   nextNumber,
   numberEditable,
   pathText,
+  preserveUnavailableFields,
+  restoreUnavailableFields,
+  withoutUnavailableLinks,
   proposalSuperseded,
   recordOccurrence,
   requireOsPermission,
@@ -132,6 +136,17 @@ export function autoFinance(ctx: RpcContext, user: string, id: string, command: 
   const db = ctx.db;
   const d = one(db, 'SELECT * FROM "erp_documents__document" WHERE id=?', id);
   if (!d) return null;
+  // Decidir antes de ler contas, categorias ou montar a prévia. Religamento não retoma comandos antigos.
+  const owner = erpEntityRequirement(d.kind);
+  if (!ctx.parts.finance || owner !== null && !erpRequirementMet(ctx.parts, owner)) {
+    const eligible = d.kind === "purchase_orders"
+      ? preference(db, "compras.automacao_contas_pagar") === true &&
+        !!one(db, `SELECT 1 x FROM "erp_documents__audit" WHERE document_id=? AND command_id=? AND action='create' LIMIT 1`, id, command) &&
+        ["open", "in_progress", "partially_fulfilled", "fulfilled"].includes(String(d.status))
+      : d.kind === "sales_orders" && preference(db, "vendas.contas_automaticas_pedido") === true &&
+        ["verified", "in_progress", "partially_fulfilled", "fulfilled"].includes(String(d.status));
+    return eligible ? { outcome: "skipped", reason: "part_disabled" } : null;
+  }
   const posted = () => !!one(db, `SELECT 1 x FROM "erp_finance__document_posting" WHERE document_id=? AND state='active' LIMIT 1`, id);
   if (d.kind === "purchase_orders") {
     if (
@@ -230,12 +245,23 @@ export function erpDocumentSave(ctx: RpcContext, a: RpcArgs) {
     sourceVersion = Number(evText);
     body = without(body, "source_proposal");
   }
-  let data = normalize(kind, body) as Data;
+  let savedFields: Data | null = null;
+  if (id !== null && (!ctx.parts.stock || !ctx.parts.finance)) {
+    const current = one(db, 'SELECT body, warehouse_id FROM "erp_documents__document" WHERE id=? AND kind=?', id, kind);
+    if (current) savedFields = {
+      ...JSON.parse(String(current.body)), warehouse_id: current.warehouse_id,
+      items: db.exec('SELECT data FROM "erp_documents__item" WHERE document_id=? ORDER BY position', id).rows.map(i => JSON.parse(String(i.data))),
+    };
+  }
+  body = preserveUnavailableFields(ctx, body, savedFields);
+  const suspended = !ctx.parts.stock || !ctx.parts.finance;
+  let data = normalize(kind, suspended ? withoutUnavailableLinks(ctx, body) : body) as Data;
+  if (suspended) data = restoreUnavailableFields(ctx, data, body);
   const contact = fieldText(data, "contact_id"),
     warehouse = fieldText(data, "warehouse_id"),
     seller = fieldText(data, "seller_id");
   data = { ...data, items: autoProducts(ctx, user, kind, command, data.items) };
-  checkPreferenceRules(db, kind!, data);
+  checkPreferenceRules(db, kind!, data, ctx.parts);
   // 239: as regras do vendedor com a aprovação do desconto.
   const approval = sellerRules(db, user, kind!, data);
   let row: Data | null = null,
@@ -253,19 +279,19 @@ export function erpDocumentSave(ctx: RpcContext, a: RpcArgs) {
     requireCommercialInput(before!, body);
     if (number !== null && number === Number(row.number)) number = null;
   }
-  const rowBody = row === null ? null : (JSON.parse(String(row.body)) as Data);
+  const rowBody = row === null ? null : { ...JSON.parse(String(row.body)), ...(savedFields ? { items: savedFields.items } : {}) } as Data;
   if (seller !== null && (id === null || fieldText(rowBody, "seller_id") !== seller)) requireSeller(db, seller);
-  checkLinks(db, kind!, data, rowBody);
+  checkLinks(db, kind!, data, rowBody, ctx.parts);
   // p_data->'custom_fields': chave ausente é NULL do SQL (undefined, na convenção do normalize.ts).
   if (kind === "service_orders") checkCustomFields(db, kind, data.custom_fields, id !== null ? rowBody : undefined);
-  checkPaymentLinks(db, kind!, data, rowBody);
+  checkPaymentLinks(db, kind!, data, rowBody, ctx.parts);
   // 239: a Forma que a OS ainda não tem pede "Alterar forma de pagamento".
   if (kind === "service_orders") {
     const old = new Set(elements(rowBody?.installments ?? null).map((o) => fieldText(o, "payment_method_id")));
     if (elements(data.installments ?? null).some((p) => fieldText(p, "payment_method_id") !== null && !old.has(fieldText(p, "payment_method_id"))))
       requireOsPermission(db, user, kind, "forma_pagamento");
   }
-  checkCreditLimit(db, user, kind!, data, rowBody === null ? null : { ...rowBody, contact_id: row!.contact_id });
+  checkCreditLimit(db, user, kind!, data, rowBody === null ? null : { ...rowBody, contact_id: row!.contact_id }, ctx.parts);
   let source: Data | null = null,
     sourceBefore: Data | null = null;
   if (sourceId !== null) {

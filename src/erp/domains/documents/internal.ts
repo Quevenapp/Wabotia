@@ -2,6 +2,7 @@
 // erp_documents.auto_products, a parte de erp_document_save que chama o
 // catálogo (outro domínio) com o comando do documento.
 import { one, type SqlDriver } from "../../engine/driver.ts";
+import { ERP_PART_KEYS, type ErpPartKey } from "../../parts.ts";
 import { intIn } from "../../engine/args.ts";
 import { pgBtrim, pgHasCntrl, pgLeft, pgLength } from "../../engine/text.ts";
 import { jsonTimestamp, validDate } from "../../engine/time.ts";
@@ -158,6 +159,12 @@ export function documentSituationJson(db: SqlDriver, id: string) {
   return situationJson(db, d.kind as string | null, d.status as string | null, (s?.situation_id as string | null | undefined) ?? null);
 }
 
+/** Metadados somente quando alguma capacidade está suspensa. */
+export function unavailableParts(ctx: Pick<RpcContext, "parts">, keys: readonly ErpPartKey[] = ERP_PART_KEYS) {
+  const unavailable = keys.filter(key => !ctx.parts[key]);
+  return unavailable.length ? { unavailable_parts: unavailable } : {};
+}
+
 /** erp_documents.effect_flags(id) */
 export function effectFlags(ctx: RpcContext, id: string) {
   const e = originEffects(ctx, id);
@@ -211,7 +218,7 @@ export function documentDto(ctx: RpcContext, id: string): Record<string, unknown
     id: d.id, kind: d.kind, number: d.number === null ? null : String(d.number), status: d.status, version: d.version,
     effect_flags: effectFlags(ctx, id), contact_snapshot: parse(d.contact_snapshot), source_proposal_id: d.source_proposal_id,
     created_at: d.created_at === null ? null : jsonTimestamp(d.created_at as bigint), updated_at: d.updated_at === null ? null : jsonTimestamp(d.updated_at as bigint),
-    items, origin: d.origin, authority: d.authority, readonly: false,
+    items, origin: d.origin, authority: d.authority, readonly: false, ...unavailableParts(ctx),
   });
 }
 
@@ -243,19 +250,19 @@ export function documentView(ctx: RpcContext, id: string): Record<string, unknow
   // p#>>'{details,account_id}'
   const details = (p: unknown) => (p !== null && typeof p === "object" && !Array.isArray(p) ? (p as Record<string, unknown>).details : null);
   const wantedAccounts = new Set(installments().map((p) => fieldText(details(p), "account_id")).filter((x) => x !== null));
-  for (const a of db.exec('SELECT id, name FROM "erp_finance__account"').rows)
+  if (ctx.parts.finance) for (const a of db.exec('SELECT id, name FROM "erp_finance__account"').rows)
     if (wantedAccounts.has(String(a.id))) accounts[String(a.id)] = pgLeft(String(a.name), 200);
   return Object.assign(
     dto,
     {
       situation: documentSituationJson(db, id),
       seller_name: name('SELECT r.name FROM "erp_catalog__seller" s JOIN "erp_catalog__record" r ON r.id=s.contact_id WHERE s.id=?', "seller_id", 200),
-      category_name: name('SELECT name FROM "erp_finance__category" WHERE id=?', "category_id", 200),
+      category_name: ctx.parts.finance ? name('SELECT name FROM "erp_finance__category" WHERE id=?', "category_id", 200) : null,
       carrier_name: name('SELECT name FROM "erp_catalog__record" WHERE id=?', "carrier_id", 200),
       price_list_name: name('SELECT name FROM "erp_pricing__price_list" WHERE id=?', "price_list_id", 120),
-      payment_account_name: name('SELECT name FROM "erp_finance__account" WHERE id=?', "payment_account_id", 200),
+      payment_account_name: ctx.parts.finance ? name('SELECT name FROM "erp_finance__account" WHERE id=?', "payment_account_id", 200) : null,
       payment_method_names: methods,
-      payment_account_names: accounts,
+      ...(ctx.parts.finance ? { payment_account_names: accounts } : {}),
     },
     d.kind === "sales_proposals" ? { proposal_version: proposalVersionJson(db, id) } : {},
     { origin: d.origin, authority: d.authority, readonly: false },

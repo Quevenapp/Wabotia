@@ -13,7 +13,9 @@ import { pgBtrim, pgCompareText, pgLeft, pgUpper } from "../../../engine/text.ts
 import { validCnpj, validCpf } from "../../catalog/public.ts";
 import { commissionOperationView, commissionPolicy } from "../../finance/public.ts";
 import { municipalityKnown } from "../../reference/public.ts";
-import { approvalSituations, discountApprover, preference, quantityDecimals } from "../internal.ts";
+import { approvalSituations, discountApprover, preference, quantityDecimals, unavailableParts } from "../internal.ts";
+import { erpEntityRequirement, erpRequirement, erpRequirementMet } from "../../../parts-requirements.ts";
+import { requireErpParts } from "../../../engine/parts-gate.ts";
 import { allowed, contactUsable, mirrorRequireVisible, osPermitted, requireAccess, transitions } from "../public.ts";
 import { bool } from "./reads-common.ts";
 
@@ -40,12 +42,12 @@ export function erpDocumentAccess(ctx: RpcContext, a: RpcArgs) {
   const m = user === null ? null : one(ctx.db, 'SELECT role FROM "erp_access__membership" WHERE user_id=? AND active=1', user);
   if (!m) raise("42501", "erp_document_access_denied");
   const role = str(m.role);
-  const kinds = Object.keys(transitions()).sort(pgCompareText);
+  const kinds = Object.keys(transitions()).filter(k => erpRequirementMet(ctx.parts, erpEntityRequirement(k)!)).sort(pgCompareText);
   const db = ctx.db;
-  const wh = one(
+  const wh = ctx.parts.stock ? one(
     db,
     'SELECT r.id, r.name FROM "erp_stock__warehouse_default" x JOIN "erp_catalog__record" r ON r.id=x.warehouse_id WHERE r.active=1',
-  );
+  ) : null;
   const seller = one(
     db,
     `SELECT s.id, r.name, s.allow_unregistered_products, s.view_stock, CAST(s.discount_limit AS TEXT) discount_limit
@@ -60,13 +62,13 @@ export function erpDocumentAccess(ctx: RpcContext, a: RpcArgs) {
       price_decimals_in: prefInt(db, "empresa.decimais_preco_entrada", 10),
       weight_decimals: Math.min(Math.max(prefInt(db, "empresa.decimais_peso", 3), 0), 5),
       quantity_decimals: quantityDecimals(db),
-      cross_docking_days: prefInt(db, "estoque.cross_docking_dias", 0),
+      ...(ctx.parts.stock ? { cross_docking_days: prefInt(db, "estoque.cross_docking_dias", 0) } : {}),
       occurrence_date_editable: preference(db, "empresa.editar_data_ocorrencia") === true,
-      stock_launch_date: preference(db, "estoque.data_lancamento") === "data_documento" ? "data_documento" : "data_atual",
+      ...(ctx.parts.stock ? { stock_launch_date: preference(db, "estoque.data_lancamento") === "data_documento" ? "data_documento" : "data_atual" } : {}),
       auto_products: {
-        sales: preference(db, "produtos.cadastro_auto_vendas") === true,
-        purchases: preference(db, "produtos.cadastro_auto_compras") === true,
-        services: preference(db, "produtos.cadastro_auto_os") === true,
+        ...(kinds.includes("sales_orders") ? { sales: preference(db, "produtos.cadastro_auto_vendas") === true } : {}),
+        ...(kinds.includes("purchase_orders") ? { purchases: preference(db, "produtos.cadastro_auto_compras") === true } : {}),
+        ...(kinds.includes("service_orders") ? { services: preference(db, "produtos.cadastro_auto_os") === true } : {}),
       },
       default_warehouse: wh ? { id: wh.id, name: pgLeft(String(wh.name), 200) } : null,
     },
@@ -75,22 +77,24 @@ export function erpDocumentAccess(ctx: RpcContext, a: RpcArgs) {
           id: seller.id,
           name: pgLeft(String(seller.name), 200),
           allow_unregistered_products: bool(seller.allow_unregistered_products),
-          view_stock: bool(seller.view_stock),
+          ...(ctx.parts.stock ? { view_stock: bool(seller.view_stock) } : {}),
           discount_limit: formatScaled(fromColumn(seller.discount_limit), 4),
         }
       : null,
     permissions: {
-      service_orders: {
-        situations: osPermitted(db, user!, "situacoes"),
-        stock: osPermitted(db, user!, "lancar_estoque"),
-        finance: osPermitted(db, user!, "lancar_contas"),
-        finance_history: osPermitted(db, user!, "historico_financeiro"),
-        payment_method: osPermitted(db, user!, "forma_pagamento"),
-      },
-      sales_orders: { discount_approver: discountApprover(db, user, "sales_orders"), approval_situations: approvalSituations(db) },
+      ...(kinds.includes("sales_orders") ? {
+        service_orders: {
+          situations: osPermitted(db, user!, "situacoes"),
+          ...(ctx.parts.stock ? { stock: osPermitted(db, user!, "lancar_estoque") } : {}),
+          ...(ctx.parts.finance ? { finance: osPermitted(db, user!, "lancar_contas"), finance_history: osPermitted(db, user!, "historico_financeiro") } : {}),
+          payment_method: osPermitted(db, user!, "forma_pagamento"),
+        },
+        sales_orders: { discount_approver: discountApprover(db, user, "sales_orders"), approval_situations: approvalSituations(db) },
+      } : {}),
     },
     ...NATIVE,
     mirror_available: true,
+    ...unavailableParts(ctx),
   };
 }
 
@@ -170,7 +174,8 @@ export function erpDocumentPendencies(ctx: RpcContext, a: RpcArgs) {
   return {
     kind,
     document: { id: v.id, kind: v.kind, number: v.number === null ? null : String(v.number), status: v.status, version: Number(v.version) },
-    pendencies: pendencies(ctx.db, id!),
+    ...(ctx.parts.fiscal ? { pendencies: pendencies(ctx.db, id!) } : {}),
+    ...unavailableParts(ctx, ["fiscal"]),
     ...NATIVE,
   };
 }
@@ -186,6 +191,7 @@ function roundDiv(n: bigint, d: bigint): bigint {
 
 /** public.erp_document_commission_operation(p_user_id, p_kind, p_document_id): a comissão ativa do documento, rateada pelos itens. */
 export function erpDocumentCommissionOperation(ctx: RpcContext, a: RpcArgs) {
+  requireErpParts(ctx, erpRequirement("erp-financeiro"));
   const user = str(a.p_user_id),
     kind = str(a.p_kind),
     id = str(a.p_document_id);
@@ -231,6 +237,7 @@ export function erpDocumentCommissionOperation(ctx: RpcContext, a: RpcArgs) {
 
 /** public.erp_document_seller_commission(p_user_id, p_kind, p_seller_id): regra de comissão do vendedor e as adições da política. */
 export function erpDocumentSellerCommission(ctx: RpcContext, a: RpcArgs) {
+  requireErpParts(ctx, erpRequirement("erp-financeiro"));
   const user = str(a.p_user_id),
     kind = str(a.p_kind),
     sellerId = str(a.p_seller_id);
