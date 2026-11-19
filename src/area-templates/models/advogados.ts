@@ -1,7 +1,7 @@
 // Modelo declarativo convertido de docs/areas/juridico.md.
 // Limitações do contrato ficam em manual_steps; nenhuma extensão é registrada.
 // Orçamento usa a política própria; as transições abaixo são apenas manuais.
-import type { AreaTemplate } from "../../modules/os/contracts";
+import type { AreaTemplate } from "../validation";
 
 export const advogadosTemplate: AreaTemplate = {
   schema_version: 1,
@@ -892,12 +892,21 @@ export const advogadosTemplate: AreaTemplate = {
   ],
   modules: {
     os: true,
-    agenda: true,
-    mensalidade: true,
-    forms: true,
-    payments: true,
+    juridico: true,
+    agenda: false,
+    mensalidade: false,
+    forms: false,
+    payments: false,
     reserva: false,
-    erp: false,
+    erp: true,
+    "erp-produtos": false,
+    "erp-vendas": false,
+    "erp-compras": false,
+    "erp-estoque": false,
+    "erp-financeiro": true,
+    "erp-fiscal": true,
+    "erp-cobranca": false,
+    "erp-pdv": false,
   },
   vocabulary: {
     collection_label: "Trabalhos jurídicos",
@@ -1061,6 +1070,11 @@ export const advogadosTemplate: AreaTemplate = {
     suggested_roles: [],
   },
   manual_steps: [
+    "Revisar na prévia Cadastro de clientes, Financeiro, Fiscal, Ordens de serviço e Jurídico. Jurídico exige os; os processos permanecem como tipos de trabalho. O modelo não concede papéis nem segundo fator de autenticação.",
+    "A ponte operacional dos trabalhos jurídicos em os para estoque, financeiro e fiscal ainda não está entregue por este modelo. Registrar e conferir manualmente honorários, despesas, títulos e documentos fiscais, evitando duplicidade. As ordens de serviço comerciais antigas continuam em Vendas e não são migradas para os.",
+    "Configurar empresa, certificado, emissor, numeração e tributos conforme as funcionalidades fiscais disponíveis. A emissão automática de notas a partir dos processos e trabalhos em os ainda não está entregue; ligar Fiscal não garante emissão para qualquer município ou capacidade fiscal ausente.",
+    "PDV e Cobrança bancária são opções explícitas, desligadas na proposta padrão. Para ativar PDV em Módulos ou num manifesto revisado, incluir Cadastro de clientes, Produtos e serviços, Vendas, Estoque e Financeiro; para Cobrança, incluir Cadastro de clientes e Financeiro. Rever a prévia completa antes de aplicar.",
+    "Agenda, Mensalidades, Formulários, Pagamentos, Reservas e outras partes ERP são independentes. Configurar os passos dessas extensões somente se forem ativadas. Selecionar uma opção false propõe desligá-la; ativá-la exige Módulos ou manifesto revisado. Escolhas não selecionadas e alterações locais nas reaplicações são preservadas.",
     "Profissional sozinho: atribuir os trabalhos ao próprio advogado e preencher os três setores, que podem ter a mesma pessoa. Não adotar registro de horas nesta variação; os demais lançamentos continuam disponíveis. O motor não impõe essa restrição por categoria.",
     "Informar nome profissional, identificação da OAB, horários e contatos oficiais. Revisar publicidade, textos e apresentação profissional.",
     "Revisar termos de abertura, contratos e procurações. O recebimento de uma solicitação e o aceite da proposta não formalizam, por si só, representação ou atendimento de prazo.",
@@ -1088,7 +1102,7 @@ export const advogadosTemplate: AreaTemplate = {
     "Os avisos automáticos de paralisação ficam desligados: o contrato oferece um prazo por tipo, não os intervalos por etapa do levantamento. Organizar revisões internas com tarefas e datas manuais, sem contagem forense.",
     "Processo: cadastrar manualmente as tarefas ao entrar nas etapas, sem duplicar tarefas da mesma entrada. Solicitação recebida: Conferir conflito de interesses e encaminhar ao advogado (no mesmo dia); Triagem e análise: Confirmar escopo, documentos necessários e existência de urgência (em 1 dia corrido); Proposta aceita; formalização: Conferir contrato, poderes de representação e início da atuação (no mesmo dia); Preparação da atuação: Conferir documentos e providência inicial (em 1 dia corrido); Em tramitação: Conferir a fonte oficial e registrar a próxima revisão (em 7 dias corridos); Decisão em análise: Ler a decisão e avaliar providências e prazos (no mesmo dia); Revisão ou recurso: Conferir estratégia, autorização e prazos aplicáveis (no mesmo dia); Cumprimento de providências: Registrar providências, dependências e próximos controles (em 1 dia corrido); Conferência de encerramento: Conferir prazos, documentos, comunicações e encerramento (em 1 dia corrido). Esses intervalos são organização interna, não prazos processuais.",
     "Consultivo: cadastrar manualmente as tarefas ao entrar nas etapas, sem duplicar tarefas da mesma entrada. Solicitação recebida: Conferir conflito de interesses e classificar a entrega (no mesmo dia); Proposta aceita; formalização: Confirmar escopo, documentos e data combinada (em 1 dia corrido); Em elaboração: Conferir informações e registrar plano de elaboração (em 1 dia corrido); Revisão jurídica: Revisar conteúdo, versão e destinatário (no mesmo dia); Entrega disponível: Conferir liberação e comunicar disponibilidade (no mesmo dia); Entrega concluída: Registrar entrega e condições de guarda (no mesmo dia). Esses intervalos são organização interna, não prazos processuais.",
-    "Controlar prazos jurídicos manualmente e conferir os ativos importados nas fontes oficiais. Calendários, regras de cálculo, confirmação de prazo, alertas fatais, auditoria de leitura, retenção automatizada e consulta aos tribunais dependem da futura extensão Jurídico.",
+    "Configurar calendários e regras no módulo Jurídico, conferir os prazos ativos nas fontes oficiais e revisar cada cálculo com o advogado antes de confirmar. Conceder os acessos de Advogado ou Curador de calendários e de dados sensíveis somente aos responsáveis. A ativação não configura calendários ou prazos, não importa processos e não entrega consulta automática aos tribunais nem retenção documental automatizada.",
     "Validar mensagens, menus, acesso e ações dos aplicativos antes do uso. O acompanhamento mostra a etapa do trabalho contratado, sem afirmar a situação oficial do processo. Alteração após entrega concluída exige novo Consultivo, com referência administrativa ao anterior.",
   ],
 };

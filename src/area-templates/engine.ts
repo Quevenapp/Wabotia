@@ -2,12 +2,12 @@ import { one, PROFILE_SETTINGS_SQL, seedRead, withReadCache } from "../db";
 import { admin, canonical, sha } from "../security";
 import { ApiError, json, now, type Actor, type Env } from "../types";
 import type { SettingsPlan } from "../service";
-import { configuredModuleStates, hiddenMenuTypes, planModuleStates } from "../modules/registry";
+import { configuredModuleStates, hiddenMenuTypes, moduleById, modules as registeredModules, planModuleStates } from "../modules/registry";
 import type {
-  AreaTemplate, AreaTemplateApplyResult, AreaTemplatePreview, AreaTemplateSelection,
+  AreaTemplateApplyResult, AreaTemplatePreview,
   AreaTemplateExportRequest, CustomWorkType, TemplateChange,
 } from "../modules/os/contracts";
-import { identifier, invalid, list, object, string, validateAreaSetup, validateAreaTemplate, validateSelection } from "./validation";
+import { identifier, invalid, list, object, string, validateAreaSetup, validateAreaTemplate, validateSelection, type AreaTemplate, type AreaTemplateSelection } from "./validation";
 
 type Settings = Record<string, any>;
 interface Application {
@@ -101,19 +101,37 @@ function compile(manifest: AreaTemplate, selection: AreaTemplateSelection, cfg: 
   }
   for (const id of selection.module_ids) {
     const path = `modules.${id}`;
-    if (seenPaths.has(path)) change(path, "keep", "Estado manual posterior do módulo preservado.");
+    const name = moduleById(id)!.name;
+    if (seenPaths.has(path)) change(path, "keep", `${name}: estado ${modules[id] ? "ligado" : "desligado"} preservado após aplicação anterior.`);
     else {
       const enabled = manifest.modules[id]!;
       moduleChanges[id] = enabled;
-      change(path, modules[id] === enabled ? "keep" : "set", modules[id] === enabled ? "Módulo já está no estado selecionado." : "Estado selecionado para a primeira aplicação deste caminho.");
+      change(path, modules[id] === enabled ? "keep" : "set", modules[id] === enabled
+        ? `${name}: já está ${enabled ? "ligado" : "desligado"}, conforme selecionado.`
+        : `${enabled ? "Ligar" : "Desligar"} ${name}, conforme selecionado para a primeira aplicação deste caminho.`);
     }
     seenPaths.add(path);
   }
   let finalModules = { ...modules, ...moduleChanges };
+  // Expõe cada dependência ausente, inclusive quando a seleção desliga um
+  // requisito de um módulo já ligado. Nunca acrescenta alterações à seleção.
+  const requirements = (id: string, found = new Set<string>()): Set<string> => {
+    for (const required of moduleById(id)?.requires || []) if (!found.has(required)) {
+      found.add(required);
+      requirements(required, found);
+    }
+    return found;
+  };
+  for (const definition of registeredModules) if (finalModules[definition.id]) {
+    const missing = [...requirements(definition.id)].filter((id) => !finalModules[id]);
+    if (missing.length) addConflict(`modules.${definition.id}`, "dependency_conflict",
+      `${definition.name} (${definition.id}) exige ${missing.map((id) => `${moduleById(id)!.name} (${id})`).join(", ")} ligado no estado final. Revise explicitamente as escolhas; dependências e dependentes não são alterados automaticamente.`);
+  }
   try { finalModules = planModuleStates(modules, moduleChanges); }
   catch (error) {
     if (!(error instanceof ApiError)) throw error;
-    addConflict("modules", "dependency_conflict", error.message);
+    if (!conflicts.some((entry) => entry.code === "dependency_conflict"))
+      addConflict("modules", "dependency_conflict", error.message);
   }
   if (selection.menus) for (const menu of manifest.menus) {
     const id = globalId(menu.id), path = `menus.${id}`;
