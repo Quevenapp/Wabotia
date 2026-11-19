@@ -1,11 +1,11 @@
-import type { AreaTemplate } from "../../modules/os/contracts";
+import type { AreaTemplate } from "../validation";
 
 // Adaptado do primeiro bloco JSON de docs/areas/servicos.md ao contrato da seção 7.
 // O embutido é apenas referenciado; as limitações do rascunho ficam nos passos manuais.
 export const assistenciaTecnicaTemplate: AreaTemplate = {
   "schema_version": 1,
   "id": "assistencia_tecnica",
-  "version": 1,
+  "version": 2,
   "name": "Assistência técnica",
   "description": "Assistência técnica com a Ordem de serviço embutida e tipos opcionais para eletrônicos, eletrodomésticos, veículos e peças de roupa.",
   "work_types": [
@@ -1058,12 +1058,20 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
   ],
   "modules": {
     "os": true,
-    "payments": true,
+    "payments": false,
     "agenda": false,
     "mensalidade": false,
     "forms": false,
     "reserva": false,
-    "erp": false
+    "erp": true,
+    "erp-produtos": true,
+    "erp-vendas": true,
+    "erp-compras": false,
+    "erp-estoque": true,
+    "erp-financeiro": true,
+    "erp-fiscal": true,
+    "erp-cobranca": false,
+    "erp-pdv": false
   },
   "vocabulary": {
     "collection_label": "Atendimentos",
@@ -1230,6 +1238,11 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
     ]
   },
   "manual_steps": [
+    "Revisar na prévia Cadastro de clientes, Produtos e serviços, Vendas, Estoque, Financeiro, Fiscal e Ordens de serviço. O modelo apenas configura módulos; não concede papéis nem segundo fator de autenticação.",
+    "A ponte operacional de Ordens de serviço (os) para estoque, financeiro e fiscal ainda não está entregue por este modelo. Conferir e registrar manualmente peças consumidas, títulos e documentos fiscais, evitando duplicidade. As ordens de serviço comerciais antigas continuam em Vendas; seus registros não são migrados para os.",
+    "Configurar empresa, certificado, emissor, numeração e tributos conforme as funcionalidades fiscais disponíveis. A emissão automática de notas a partir de os ainda não está entregue; ligar Fiscal não habilita capacidades ausentes nem substitui a conferência antes de emitir.",
+    "PDV e Cobrança bancária permanecem desligados na proposta padrão. Para ligá-los, escolher explicitamente em Módulos ou revisar um manifesto: PDV exige Cadastro de clientes, Produtos e serviços, Vendas, Estoque e Financeiro; Cobrança exige Cadastro de clientes e Financeiro. Conferir toda a seleção antes de aplicar.",
+    "Agenda, Formulários, Pagamentos, Mensalidades, Reservas e Compras são escolhas independentes. Uma opção com valor false propõe desligamento apenas se selecionada; para ativá-la, usar Módulos ou um manifesto revisado. Opções não selecionadas e escolhas locais de reaplicações são preservadas.",
     "Escolher os tipos adicionais que serão publicados.",
     "Revisar termos, taxas, validade do orçamento e garantia. Nos tipos de reparo, a garantia de 90 dias começa somente em Entregue após reparo. Após recusa, confirmar devolução ou encerramento no local e registrar motivo e destinação em lançamento antes de usar Devolvido sem reparo, que encerra sem iniciar garantia. Classificar dados pessoais como sensíveis.",
     "Enquanto aguarda devolução sem reparo, manter Recusado e acompanhar por tarefa manual, sem lembrete automático de retirada. Reservar Reparo concluído e Entregue após reparo ao serviço executado. Uma nova execução após recusa exige reavaliação e aprovação do orçamento.",

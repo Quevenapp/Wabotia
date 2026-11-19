@@ -14,6 +14,9 @@ import * as catalog from "../../catalog/public.ts";
 import * as stock from "../../stock/public.ts";
 import { contactUsable, mirrorRequireVisible, requireAccess } from "../public.ts";
 import { bool, by, cmpUuid } from "./reads-common.ts";
+import { unavailableParts } from "../internal.ts";
+import { erpRequirement } from "../../../parts-requirements.ts";
+import { requireErpParts } from "../../../engine/parts-gate.ts";
 
 type Row = Record<string, unknown>;
 const str = (v: unknown) => (v === null || v === undefined ? null : String(v));
@@ -23,6 +26,7 @@ const dec6 = (v: unknown) => (v === null || v === undefined ? null : formatScale
 
 /** public.erp_document_lot_options(p_user_id, p_kind, p_product_id, p_warehouse_id): lotes do produto com o saldo. */
 export function erpDocumentLotOptions(ctx: RpcContext, a: RpcArgs) {
+  requireErpParts(ctx, erpRequirement("erp-estoque"));
   const user = str(a.p_user_id),
     kind = str(a.p_kind),
     productId = str(a.p_product_id),
@@ -164,6 +168,7 @@ export function erpDocumentStructures(ctx: RpcContext, a: RpcArgs) {
   mirrorRequireVisible(ctx.db, user, id, false);
   requireAccess(ctx.db, user, kind, false);
   visibleDocument(ctx.db, user, kind, id);
+  if (!ctx.parts.stock || !ctx.parts.products) return { kind, document_id: id, ...unavailableParts(ctx, ["products", "stock"]), ...NATIVE };
   const items = ctx.db
     .exec(
       `SELECT i.id, i.position, i.product_id, CAST(i.quantity AS TEXT) quantity, p.production FROM "erp_documents__item" i
@@ -206,6 +211,7 @@ const arrowText = (o: Record<string, unknown>, k: string) => {
 
 /** public.erp_document_xml_match(p_user_id, p_kind, p_document, p_items): contato pelo CPF/CNPJ e produtos pelo GTIN ou código. */
 export function erpDocumentXmlMatch(ctx: RpcContext, a: RpcArgs) {
+  requireErpParts(ctx, erpRequirement("erp-fiscal", "erp-produtos"));
   const user = str(a.p_user_id),
     kind = str(a.p_kind),
     document = str(a.p_document),

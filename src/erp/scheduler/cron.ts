@@ -1,49 +1,78 @@
-// Rede de segurança do agendador do ERP no cron do Worker (docs/ERP-AGENDADOR.md).
-// O alarme do objeto erp:<área> se reagenda sozinho; o cron só acorda, de
-// hora em hora, as áreas com o ERP ligado (objeto novo, alarme perdido depois
-// das repetições do runtime). Área com o ERP desligado: nada acorda.
-//
-// A aplica no scheduled do src/index.ts:
-//   ctx.waitUntil(wakeErpAreas(env, event.scheduledTime));
-import { all } from "../../db";
-import { resolveStates } from "../../modules/registry";
+// Renova a autorização em cada cron de cinco minutos, inclusive desligamentos pendentes.
+import { all, exec } from "../../db";
 import type { Env } from "../../types";
-import { ERP_OPTIONAL_BLOCKS, erpFetch } from "../hub";
+import { deliverErpParts, readErpPartsState } from "../../modules/erp/parts-state";
+import type { ErpPartsSnapshot } from "../parts.ts";
 
-const ERP_MODULES = ["erp", ...ERP_OPTIONAL_BLOCKS];
+/** Mantido para consumidores antigos: todo disparo do cron renova. */
+export const isErpCronSlot = (_scheduledTime: number) => true;
 
-/** Só no primeiro disparo da hora (cron a cada 5 min: minuto 0 a 4). */
-export const isErpCronSlot = (scheduledTime: number) => new Date(scheduledTime).getUTCMinutes() < 5;
+export const ERP_CRON_MAX_AREAS = 100;
+export const ERP_CRON_CONCURRENCY = 4;
+export const ERP_CRON_BUDGET_MS = 45_000;
+const ATTEMPT_PREFIX = "erp_parts_attempt:";
 
-/** Áreas com o ERP ligado e os blocos de cada uma (estados resolvidos, com as dependências). */
-export async function erpAreas(env: Env): Promise<{ profile: string; blocks: Record<string, boolean> }[]> {
-  const rows = await all(
-    env,
-    "SELECT profile_id,module_id,enabled FROM profile_modules WHERE module_id IN (SELECT value FROM json_each(?))",
-    JSON.stringify(ERP_MODULES),
-  );
-  const saved = new Map<string, Record<string, unknown>>();
-  for (const r of rows) {
-    const id = String(r.profile_id);
-    saved.set(id, { ...(saved.get(id) ?? {}), [String(r.module_id)]: r.enabled });
-  }
-  const areas: { profile: string; blocks: Record<string, boolean> }[] = [];
-  for (const [profile, states] of saved) {
-    const resolved = resolveStates(states);
-    if (!resolved.erp) continue;
-    areas.push({ profile, blocks: Object.fromEntries(ERP_OPTIONAL_BLOCKS.map((b) => [b, !!resolved[b]])) });
+/**
+ * No máximo 1 + 3N instruções (seleção, tentativa, leitura e ACK), ou
+ * 2 + 4N contando a repetição única de SELECT do helper D1: até 402.
+ * Deixa orçamento para o restante de scheduled. A ordem durável inclui
+ * tentativas com erro, para que uma área defeituosa não monopolize o lote.
+ */
+async function pendingAreas(env: Env) {
+  return all<{ profile_id: string }>(env, `SELECT r.profile_id FROM profile_erp_revision r
+    LEFT JOIN instance_settings s ON s.key=?||r.profile_id
+    WHERE r.revision>r.delivered_revision OR r.profile_id IN
+      (SELECT profile_id FROM profile_modules WHERE module_id='erp' AND enabled=1)
+    ORDER BY COALESCE(s.updated,0),r.profile_id LIMIT ?`, ATTEMPT_PREFIX, ERP_CRON_MAX_AREAS);
+}
+
+/** Compatibilidade de inspeção; a passagem de produção entrega sem coletar fotografias. */
+export async function erpAreas(env: Env): Promise<ErpPartsSnapshot[]> {
+  const rows = await pendingAreas(env);
+  const areas: ErpPartsSnapshot[] = [];
+  for (const row of rows) {
+    // Leitura consistente e fresca por área; erro de uma não impede as demais.
+    try { areas.push((await readErpPartsState(env, String(row.profile_id))).snapshot); } catch { /* Próximo cron tenta de novo. */ }
   }
   return areas;
 }
 
-/** Acorda o alarme do ERP de cada área ligada; devolve quantas. Erro de uma área não para as outras. */
-export async function wakeErpAreas(env: Env, scheduledTime: number): Promise<number> {
-  if (!isErpCronSlot(scheduledTime)) return 0;
-  const areas = await erpAreas(env);
-  await Promise.allSettled(
-    areas.map(({ profile, blocks }) =>
-      erpFetch(env, profile, "/erp-wake", { method: "POST", body: JSON.stringify({ blocks }) }).then((r) => r.body?.cancel()),
-    ),
-  );
-  return areas.length;
+/** A entrega reconcilia o alarme no objeto; falhas de entrega/ACK ficam pendentes no D1. */
+export async function wakeErpAreas(env: Env, _scheduledTime: number): Promise<number> {
+  const controller = new AbortController();
+  const { signal } = controller;
+  let attempted = 0;
+  let timer: ReturnType<typeof setTimeout>;
+  const deadline = new Promise<void>(resolve => {
+    timer = setTimeout(() => { controller.abort(); resolve(); }, ERP_CRON_BUDGET_MS);
+  });
+  const run = async () => {
+    const rows = await pendingAreas(env);
+    let index = 0;
+    const worker = async () => {
+      while (!signal.aborted && index < rows.length) {
+        const profile = rows[index++].profile_id;
+        try {
+          // Avança somente quem começou. A próxima passagem retoma quem
+          // ficou de fora, inclusive se este Worker cair antes da entrega.
+          await exec(env, `INSERT INTO instance_settings(key,value,updated) VALUES(?,?,?)
+            ON CONFLICT(key) DO UPDATE SET updated=MAX(instance_settings.updated+1,excluded.updated)`,
+          ATTEMPT_PREFIX + profile, profile, Date.now());
+          if (signal.aborted) return;
+          const { snapshot } = await readErpPartsState(env, profile);
+          if (signal.aborted) return;
+          attempted++;
+          await deliverErpParts(env, snapshot, signal);
+        } catch { /* Uma leitura/tentativa com erro não segura as demais. */ }
+      }
+    };
+    await Promise.allSettled(Array.from({ length: ERP_CRON_CONCURRENCY }, worker));
+  };
+  try {
+    // D1 não oferece cancelamento. Uma operação que terminar após o prazo
+    // não inicia outra: no máximo quatro ficam em voo, sem iniciar entregas
+    // depois do prazo. Uma chamada já enviada pode ter sido aplicada no objeto.
+    await Promise.race([run(), deadline]);
+    return attempted;
+  } finally { clearTimeout(timer!); }
 }

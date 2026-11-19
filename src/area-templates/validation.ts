@@ -1,7 +1,18 @@
 import { ApiError } from "../types";
-import { moduleById } from "../modules/registry";
+import { moduleById, modules as registeredModules } from "../modules/registry";
 import { OS_STATUSES, QUOTABLE } from "../modules/os/model";
-import type { AreaTemplate, AreaTemplateSelection, AreaSetup, CustomWorkType } from "../modules/os/contracts";
+import type { AreaTemplate as WorkAreaTemplate, AreaTemplateSelection as WorkAreaTemplateSelection, AreaSetup, CustomWorkType } from "../modules/os/contracts";
+
+// O contrato compartilhado ainda enumera apenas os módulos anteriores à fase 2.
+// A lista aceita em runtime vem exclusivamente do registro de módulos embutidos.
+export type AreaTemplate = WorkAreaTemplate & { modules: Partial<Record<string, boolean>> };
+export type AreaTemplateSelection = Omit<WorkAreaTemplateSelection, "module_ids"> & { module_ids: string[] };
+const allowedModules = () => registeredModules.filter((module) => module.builtin).map((module) => module.id);
+function moduleIdentifier(value: unknown, path: string): string {
+  const id = string(value, 64, path);
+  invalid(/^[a-z][a-z0-9_-]*$/.test(id) && moduleById(id)?.builtin, path);
+  return id;
+}
 
 export const TEMPLATE_BYTES = 128 * 1024;
 const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).length;
@@ -228,8 +239,16 @@ export function validateAreaTemplate(input: unknown): AreaTemplate {
     invalid(`area_${v.id}__${type.id}`.length <= 64, `work_types.${type.id}.id`);
     invalid(bytes({ ...type, id: `area_${v.id}__${type.id}` }) <= 12 * 1024, `work_types.${type.id}`);
   }
-  object(v.modules, ["os", "queue", "forms", "agenda", "reserva", "pedido", "mensalidade", "suporte", "mesas", "entrega", "payments", "erp"], "modules");
-  for (const [id, enabled] of Object.entries(v.modules)) { invalid(moduleById(id), `modules.${id}`); boolean(enabled, `modules.${id}`); }
+  object(v.modules, allowedModules(), "modules");
+  for (const [id, enabled] of Object.entries(v.modules)) {
+    moduleIdentifier(id, `modules.${id}`);
+    boolean(enabled, `modules.${id}`);
+  }
+  // Cada módulo ligado declara seus requisitos ligados no próprio manifesto.
+  // Conferir todas as entradas também exige o fechamento transitivo completo.
+  for (const [id, enabled] of Object.entries(v.modules)) if (enabled)
+    for (const required of moduleById(id)!.requires || [])
+      invalid(v.modules[required] === true, `modules.${id}.requires.${required}`);
   v.vocabulary = vocabulary(v.vocabulary, "vocabulary");
   for (const key of ["departments", "ticket_categories"]) v[key] = unique(list(v[key], 100, key, (entry, p) => {
     const item = object(entry, ["id", "name", "enabled", ...(key === "departments" ? ["members"] : [])], p);
@@ -261,9 +280,10 @@ export function validateAreaTemplate(input: unknown): AreaTemplate {
 export function validateSelection(input: unknown, manifest: AreaTemplate): AreaTemplateSelection {
   const v = object(input, ["work_type_ids", "module_ids", "menus", "departments", "ticket_categories", "vocabulary", "texts", "bot_suggestions"], "selection");
   const work = ids(v.work_type_ids, 21, "selection.work_type_ids", 64).sort();
-  const modules = ids(v.module_ids, 12, "selection.module_ids").sort();
+  const modules = list(v.module_ids, allowedModules().length, "selection.module_ids", moduleIdentifier).sort();
+  invalid(new Set(modules).size === modules.length, "selection.module_ids");
   invalid(work.every((id) => id === "service_order" || manifest.work_types.some((t) => t.id === id)), "selection.work_type_ids");
-  invalid(modules.every((id) => Object.hasOwn(manifest.modules, id) && moduleById(id)), "selection.module_ids");
+  invalid(modules.every((id) => Object.hasOwn(manifest.modules, id)), "selection.module_ids");
   for (const key of ["menus", "departments", "ticket_categories", "vocabulary", "texts", "bot_suggestions"]) boolean(v[key], `selection.${key}`);
   return { ...v, work_type_ids: work, module_ids: modules } as AreaTemplateSelection;
 }

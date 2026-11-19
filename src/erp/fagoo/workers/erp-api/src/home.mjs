@@ -1,3 +1,6 @@
+import { responseParts, responsePartsMetadata, erpRequirementMet } from './preferences-kit.mjs';
+import { erpEntityRequirement, erpRequirement, erpDestinationRequirement } from '../../../../parts-requirements.ts';
+const partAvailable=(parts,requirement)=>requirement!==null&&erpRequirementMet(parts,requirement);
 /** Allowlisted, role-filtered aggregate projection. No payload, actor, or account identifiers. */
 import { documentNativeCoverage } from '../../../packages/erp-domain/src/document-mirror.mjs';
 const ROLES = ['admin','consulta','vendas','financeiro','estoque','fiscal'];
@@ -116,13 +119,13 @@ export function homeOperation(request,params){
   return {rpc:'erp_home_overview',args:{p_period:period,p_from:from,p_to:to}};
 }
 
-function periodResponse(value,args,role,businessDate){
+function periodResponse(value,args,role,businessDate,parts){
   if(!object(value)||value.key!==args.p_period)bad();
   const [from,to]=homePeriodRange(args.p_period,businessDate,args.p_from,args.p_to);
   if(value.from!==from||value.to!==to||!date(from)||!date(to)||from>to)bad();
   const days=dayCount(from,to);if(days>366||value.day_count!==days)bad();
   const {grain,buckets}=homePeriodBuckets(from,to);if(value.grain!==grain)bad();
-  const salesVisible=true,financeVisible=FINANCE_ROLES.includes(role),invoicesVisible=INVOICE_ROLES.includes(role);
+  const salesVisible=partAvailable(parts,erpEntityRequirement('sales_orders')),financeVisible=FINANCE_ROLES.includes(role)&&partAvailable(parts,erpRequirement('erp-financeiro')),invoicesVisible=INVOICE_ROLES.includes(role)&&partAvailable(parts,erpRequirement('erp-fiscal'));
   if(!Array.isArray(value.points)||value.points.length!==buckets.length)bad();
   const series=(point,key,visible)=>visible?cents(point[key]):(point[key]===null?null:bad());
   const points=value.points.map((point,index)=>{
@@ -130,11 +133,13 @@ function periodResponse(value,args,role,businessDate){
     return {bucket:point.bucket,sales_cents:series(point,'sales_cents',salesVisible),receivable_cents:series(point,'receivable_cents',financeVisible),payable_cents:series(point,'payable_cents',financeVisible)};
   });
   let sales=null,receivable=null,payable=null,invoices=null;
+  if(salesVisible){
   if(value.sales===null||!object(value.sales))bad();
   const statuses=unique(value.sales.statuses,'status',STATUSES.sales_orders).map(s=>({status:s.status,count:count(s.count),total_cents:cents(s.total_cents)}));
   if(!statusSet('sales_orders',statuses)||statuses.some(s=>s.count===0&&s.total_cents!=='0')||sum(statuses.map(s=>s.count))!==BigInt(count(value.sales.count))
     ||sum(statuses.filter(s=>s.status!=='cancelled').map(s=>s.total_cents))!==sum(points.map(p=>p.sales_cents)))bad();
   sales={count:value.sales.count,statuses};
+  }else if(value.sales!==null)bad();
   const titles=(source,fee)=>{
     if(!object(source))bad();const row={count:count(source.count),total_cents:cents(source.total_cents),open_cents:cents(source.open_cents)};
     if(fee)row.fee_cents=cents(source.fee_cents);
@@ -153,6 +158,7 @@ function periodResponse(value,args,role,businessDate){
 }
 
 export function homeResponse(value,operation={args:{}}){
+  const parts=responseParts(value,bad);
   if(!object(value)||value.data_mode!=='erp_native'||!ROLES.includes(value.role)||value.timezone!=='America/Sao_Paulo'
     ||typeof value.as_of!=='string'||value.as_of.length>80||!Number.isFinite(Date.parse(value.as_of))
     ||typeof value.business_date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value.business_date)
@@ -164,29 +170,29 @@ export function homeResponse(value,operation={args:{}}){
     if(!statusSet(row.kind,statuses)||statuses.reduce((sum,s)=>sum+BigInt(s.count),0n)!==BigInt(count(row.count)))bad();
     return {kind:row.kind,count:row.count,statuses};
   });
-  const expectedCatalog=value.role==='financeiro'?['contacts']:['contacts','products',...(['admin','consulta','estoque'].includes(value.role)?['warehouses']:[])];
-  const expectedDocuments=['admin','consulta','financeiro'].includes(value.role)?Object.keys(STATUSES):value.role==='vendas'?['sales_proposals','sales_orders','service_orders']:['sales_orders','purchase_orders'];
+  const expectedCatalog=(value.role==='financeiro'?['contacts']:['contacts','products',...(['admin','consulta','estoque'].includes(value.role)?['warehouses']:[])]).filter(entity=>partAvailable(parts,erpEntityRequirement(entity)));
+  const expectedDocuments=(['admin','consulta','financeiro'].includes(value.role)?Object.keys(STATUSES):value.role==='vendas'?['sales_proposals','sales_orders','service_orders']:['sales_orders','purchase_orders']).filter(kind=>partAvailable(parts,erpEntityRequirement(kind)));
   if(catalog.length!==expectedCatalog.length||catalog.some(row=>!expectedCatalog.includes(row.entity))
     ||documents.length!==expectedDocuments.length||documents.some(row=>!expectedDocuments.includes(row.kind)))bad();
   let stock=null,finance=null;
   if(value.stock!==null){
-    if(!object(value.stock)||value.role==='financeiro')bad();stock={};
+    if(!partAvailable(parts,erpRequirement('erp-estoque'))||!object(value.stock)||value.role==='financeiro')bad();stock={};
     for(const key of ['positions','positive_positions','zero_positions','products','warehouses'])stock[key]=count(value.stock[key]);
     // Positions that are neither positive nor zero are negative balances allowed by the company policy (migration100).
     if(BigInt(stock.positive_positions)+BigInt(stock.zero_positions)>BigInt(stock.positions)||stock.products>stock.positions||stock.warehouses>stock.positions)bad();
-  }else if(value.role!=='financeiro')bad();
+  }else if(value.role!=='financeiro'&&partAvailable(parts,erpRequirement('erp-estoque')))bad();
   if(value.finance!==null){
-    if(!object(value.finance)||!['admin','financeiro','consulta'].includes(value.role)||!object(value.finance.accounts))bad();
+    if(!partAvailable(parts,erpRequirement('erp-financeiro'))||!object(value.finance)||!['admin','financeiro','consulta'].includes(value.role)||!object(value.finance.accounts))bad();
     const titles=unique(value.finance.titles,'kind',['receivable','payable']).map(row=>{
       const buckets=unique(row.buckets,'bucket',BUCKETS).map(b=>({bucket:b.bucket,count:count(b.count),balance_cents:cents(b.balance_cents)}));
       if(buckets.length!==4||buckets.some(b=>(b.count===0)!==(b.balance_cents==='0')))bad();return {kind:row.kind,buckets};
     });if(titles.length!==2)bad();const source=value.finance.accounts;
     const accounts={active:count(source.active),archived:count(source.archived),opening_pending:count(source.opening_pending),recorded_balance_cents:cents(source.recorded_balance_cents,true)};
     if(accounts.opening_pending>accounts.active)bad();finance={titles,accounts};
-  }else if(['admin','financeiro','consulta'].includes(value.role))bad();
-  const result={data_mode:'erp_native',as_of:value.as_of,business_date:value.business_date,timezone:'America/Sao_Paulo',role:value.role,catalog,documents,stock,finance};
+  }else if(['admin','financeiro','consulta'].includes(value.role)&&partAvailable(parts,erpRequirement('erp-financeiro')))bad();
+  const result={...responsePartsMetadata(value),data_mode:'erp_native',as_of:value.as_of,business_date:value.business_date,timezone:'America/Sao_Paulo',role:value.role,catalog,documents,stock,finance};
   try{Object.assign(result,documentNativeCoverage(value));}catch{bad();}
-  if(operation?.args?.p_period!==undefined)result.period=periodResponse(value.period,operation.args,value.role,value.business_date);
+  if(operation?.args?.p_period!==undefined)result.period=periodResponse(value.period,operation.args,value.role,value.business_date,parts);
   return result;
 }
 
@@ -231,17 +237,18 @@ export async function homeShortcutsOperation(request,params){
   return {type:'save',rpc:'erp_home_shortcuts_save',args:{p_command_id:input.command_id.toLowerCase(),p_expected_version:input.expected_version,p_shortcuts:[...input.shortcuts],...(labels?{p_labels:labels}:{})}};
 }
 export function homeShortcutsResponse(value,operation){
+  const parts=responseParts(value,bad),available=path=>partAvailable(parts,erpDestinationRequirement(path)?.requirement??null);
   if(!object(value)||value.scope!=='home_shortcuts'||value.data_mode!=='erp_native'||!ROLES.includes(value.role)
     ||!Number.isInteger(value.version)||value.version<0||value.version>2147483647||typeof value.customized!=='boolean'
     ||value.customized!==(value.version>0)||!validShortcuts(value.shortcuts)||!Array.isArray(value.available))bad();
-  const allowed=SHORTCUT_PATHS.filter(path=>HOME_SHORTCUTS[path].includes(value.role));
+  const allowed=SHORTCUT_PATHS.filter(path=>HOME_SHORTCUTS[path].includes(value.role)&&available(path));
   if(value.available.length!==allowed.length||value.available.some((path,index)=>path!==allowed[index])||value.shortcuts.some(path=>!allowed.includes(homeShortcutBase(path))))bad();
   // Before 189 there are no names.
   const labels=value.labels===undefined?{}:value.labels;if(!validLabels(labels,value.shortcuts))bad();
-  const result={scope:'home_shortcuts',data_mode:'erp_native',role:value.role,version:value.version,customized:value.customized,shortcuts:[...value.shortcuts],labels:{...labels},available:[...allowed]};
+  const result={...responsePartsMetadata(value),scope:'home_shortcuts',data_mode:'erp_native',role:value.role,version:value.version,customized:value.customized,shortcuts:[...value.shortcuts],labels:{...labels},available:[...allowed]};
   if(operation?.type==='save'){
-    const requested=operation.args.p_shortcuts;
-    const names=operation.args.p_labels??{};
+    const requested=operation.args.p_shortcuts.filter(available);
+    const names=Object.fromEntries(Object.entries(operation.args.p_labels??{}).filter(([path])=>available(path)));
     if(typeof value.replayed!=='boolean'||!value.customized||value.version!==operation.args.p_expected_version+1
       ||value.shortcuts.length!==requested.length||value.shortcuts.some((path,index)=>path!==requested[index])
       ||Object.keys(labels).length!==Object.keys(names).length||Object.entries(names).some(([link,label])=>labels[link]!==label))bad();

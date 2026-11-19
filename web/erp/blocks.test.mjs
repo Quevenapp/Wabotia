@@ -6,15 +6,29 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { blockOf, hiddenInWabotia } from "./blocks.ts";
+import { panelRequestAllowed } from "./fetch-port.ts";
+import { ERP_MODULE_IDS } from "../../src/erp/parts.ts";
 import { erpChunk } from "./chunks.ts";
 import {
   PREFERENCE_PAGES,
   preferencePageHref,
 } from "../../packages/erp-domain/src/preferences/catalog.mjs";
 
-const pinned = JSON.parse(
-  readFileSync(new URL("./motor-blocks.json", import.meta.url), "utf8"),
-);
+// Fotografia aditiva do contrato A4. O JSON da fase anterior fica preservado.
+const v1=(...paths)=>paths.map(path=>`/v1/${path}`);
+const pinned={fonte:'contrato A4 da fase 2',prefixos:{
+  erp: v1("me", "cadastros", "empresa", "anexos-empresa", "anexos-cadastros/contatos", "anexos-cadastros/funcionarios", "usuarios", "seguranca", "registro-atividades", "gerenciador-arquivos", "inicio", "plataforma", "sistema", "preferencias", "preferencias-listas", "importacoes", "documentos", "duplicacao-documentos", "records"),
+  "erp-produtos": v1("cadastros/products", "cadastros/listas-precos", "cadastros/campos-customizados", "cadastros/taxonomias/categorias-produtos", "cadastros/taxonomias/grupos-produtos", "anexos-cadastros/produtos", "records/products", "preferencias/cadastros-produtos", "importacoes/produtos", "importacoes/campos-customizados", "importacoes/fornecedores-produtos", "importacoes/composicoes"),
+  "erp-vendas": v1("documentos/sales_orders", "documentos/sales_proposals", "documentos/service_orders", "documentos/sacola-vendas", "duplicacao-documentos/sales_orders", "duplicacao-documentos/sales_proposals", "duplicacao-documentos/service_orders", "ordens-servico", "records/sales_orders", "records/sales_proposals", "meu-negocio", "sistema/top-produtos", "preferencias/vendas-vendas", "preferencias/vendas-propostas", "preferencias/servicos-os", "preferencias/meu-negocio", "importacoes/vendas"),
+  "erp-compras": v1("documentos/purchase_orders", "duplicacao-documentos/purchase_orders", "records/purchase_orders", "recebimentos-compras", "preferencias/suprimentos-compras", "importacoes/pedidos-compra"),
+  "erp-estoque": v1("estoque", "documentos-estoque", "reservas-estoque", "posicoes-estoque", "politica-estoque", "cadastros/warehouses", "preferencias/cadastros-lotes", "preferencias/suprimentos-estoque", "importacoes/lotes", "importacoes/movimentacoes-estoque"),
+  "erp-financeiro": v1("financeiro", "anexos-financeiro", "transferencias-internas", "relatorios/vencimentos", "records/receivables", "records/payables", "preferencias/financas-pagar", "preferencias/financas-receber", "preferencias/contabilidade-contador", "importacoes/contas-pagar", "importacoes/contas-receber"),
+  "erp-fiscal": v1("notas-fiscais", "rascunhos-fiscais", "preparacao-itens-fiscais", "preparacao-tributaria", "numeracao-fiscal", "complemento-fiscal", "notas-recebidas", "documentos/sales_orders/notas-fiscais", "cadastros/notas-fiscais", "estoque/notas-fiscais", "estoque/checkin", "estoque/relatorios/notas-entrada", "financeiro/notas-contas", "financeiro/notas", "financeiro/actions/invoice_finance_post", "financeiro/actions/invoice_finance_reverse", "preferencias/notas-nfce", "preferencias/notas-nfe", "preferencias/certificado-digital", "importacoes/notas-fiscais", "sistema/etiquetas/nota", "plataforma/novas-nfes", "records/nfe", "records/nfce"),
+  "erp-cobranca": v1("cnab", "cobranca-operacional", "cobranca-operacional-v2", "retornos-operacionais", "conferencia-retornos", "boletos-itau", "retornos-itau109", "financeiro/remessa-candidatos", "financeiro/remessas", "financeiro/retornos", "financeiro/actions/remittance_exclude", "financeiro/actions/return_exclude"),
+  "erp-pdv": v1("frente-caixa", "preferencias/vendas-frente-caixa"),
+  externo: ["/integracao-externa", "/admin", "/oauth", "/mcp", ...v1("system", "importacao-cadastros", "importacao-financeira-origin", "conferencia-financeira-origin", "importacao-orcamentos-origin", "importacao-orcamentos-origin-v2", "historico-vendas-origin", "vendas-origin-prontidao", "compras-origin-prontidao", "integracao-origin", "preparacao-virada", "depositos-origin", "estoque-origin-observado", "saldo-abertura-estoque", "sincronizacao-origin", "espelho-origin", "xmls-sincronizados", "cobrancas-legadas-itau", "backup-import", "history", "estoque/espelho", "notas-fiscais/origin")],
+}};
+pinned.prefixos["erp-fiscal"].push(...v1("a1", "fiscal-authorization", "fiscal-danfe", "fiscal-reconciliation", "fiscal-signed", "fiscal-unsigned", "fiscal-wsdl"));
 const motorFile = new URL("../../src/erp/blocks.ts", import.meta.url);
 const motor = existsSync(motorFile) ? await import(motorFile.href) : null;
 const PREFIXES = motor ? motor.ERP_BLOCK_PREFIXES : pinned.prefixos;
@@ -26,14 +40,14 @@ const motorBlockOf = (path) =>
     ? motor.erpBlockOf(path)
     : (ORDERED.find(
         ({ prefix }) => path === prefix || path.startsWith(prefix + "/"),
-      )?.block ?? "erp");
+      )?.block ?? null);
 
 test("a cópia fixa da classificação do motor é igual à do motor, quando ele está aqui", (t) => {
   if (!motor) return t.skip(`motor ausente; cópia de ${pinned.fonte}`);
   assert.deepEqual(
     JSON.parse(JSON.stringify(motor.ERP_BLOCK_PREFIXES)),
     pinned.prefixos,
-    "src/erp/blocks.ts mudou: confira os pares abaixo e atualize web/erp/motor-blocks.json",
+    "src/erp/blocks.ts mudou: confira os pares abaixo e atualize a fotografia A4 neste teste",
   );
 });
 
@@ -78,7 +92,7 @@ test("cada página de preferências fica no bloco da rota /v1/preferencias dela"
       api = `/v1/preferencias/${page.id}`,
       expected = motorBlockOf(api);
     // Nenhuma página que ficou chama rota externa (o motor responde 404).
-    if (expected === "externo") {
+    if (expected === "externo" || hiddenInWabotia(screen)) {
       assert.ok(hiddenInWabotia(screen), `${screen} → ${api} é externo`);
       continue;
     }
@@ -86,9 +100,12 @@ test("cada página de preferências fica no bloco da rota /v1/preferencias dela"
   }
 });
 
+// As cinco partes novas compartilham os arquivos físicos legados do núcleo.
+// Seus nove portões operacionais são exercitados em test/f2-parts.test.mjs.
 // Arquivos de grupo do núcleo (web/erp/chunks.ts) com rota literal de um bloco
 // opcional: cada um só chama a rota com o bloco ligado.
 const GATED = {
+  "components/CertificateA1.tsx": "custódia antiga não é montada: RealAccess usa a configuração do cofre externo; suas rotas continuam exigindo Fiscal",
   "components/ContactEditor.tsx": "natureza de operação só com o Fiscal ligado",
   "components/FiscalOrderTaxEstimate.tsx":
     "RealDocuments só mostra com o Fiscal ligado",
@@ -130,6 +147,17 @@ const CONTROLLER_ONLY = [
 // Ajudantes desses clientes, sem rota literal (montam o caminho por expressão).
 const CONTROLLER_HELPERS = ["lib/backup-import-client.ts"];
 
+// Famílias fiscais do porte classificadas na aceitação. Não herdam Base.
+const FISCAL_GATEWAYS = new Set([
+  "/v1/a1", "/v1/a1/commands", "/v1/a1/configure", "/v1/a1/disable", "/v1/a1/rewrap",
+  "/v1/fiscal-authorization", "/v1/fiscal-authorization/reviewed", "/v1/fiscal-danfe",
+  "/v1/fiscal-reconciliation", "/v1/fiscal-signed", "/v1/fiscal-unsigned", "/v1/fiscal-wsdl",
+]);
+// Prefixo interpolado no cliente de anexos; conferir cada entidade concreta.
+const literalPaths = path => path.replace(/\/$/, "") === "/v1/anexos-cadastros"
+  ? ["contatos", "funcionarios", "produtos"].map(entity => `/v1/anexos-cadastros/${entity}`)
+  : [path.replace(/\/$/, "")];
+
 const APP = new URL("./app/", import.meta.url);
 const sources = ["components", "lib"].flatMap((folder) =>
   readdirSync(new URL(folder, APP))
@@ -145,12 +173,21 @@ const sources = ["components", "lib"].flatMap((folder) =>
 );
 
 test("rotas de bloco opcional ou externas só nos arquivos do bloco ou nos conferidos", () => {
-  const seen = new Set();
+  const seen = new Set(), gateways = new Set();
   for (const { file, id, source } of sources) {
     const blocks = new Set(
       [...source.matchAll(/['"`](\/v1\/[A-Za-z0-9_\-/.]+)/g)]
-        .map((match) => motorBlockOf(match[1]))
-        .filter((block) => block !== "erp"),
+        .flatMap((match) => literalPaths(match[1]))
+        .map((path) => {
+          const block = motorBlockOf(path);
+          assert.notEqual(block, null, `${file}: rota sem classificação ${path}`);
+          if (FISCAL_GATEWAYS.has(path)) {
+            assert.equal(block, "erp-fiscal", path);
+            gateways.add(path);
+          }
+          return block;
+        })
+        .filter((block) => block !== "erp" && !["erp-produtos", "erp-vendas", "erp-compras", "erp-estoque", "erp-financeiro"].includes(block)),
     );
     const chunk = erpChunk(id) ?? "";
     for (const block of blocks) {
@@ -164,6 +201,7 @@ test("rotas de bloco opcional ou externas só nos arquivos do bloco ou nos confe
       seen.add(file);
     }
   }
+  assert.deepEqual(gateways, FISCAL_GATEWAYS, "as famílias fiscais devem corresponder aos consumidores");
   for (const file of [
     ...Object.keys(GATED),
     ...Object.keys(EXTERNAL),
@@ -173,6 +211,15 @@ test("rotas de bloco opcional ou externas só nos arquivos do bloco ou nos confe
       seen.has(file),
       `${file} não chama mais rota opcional ou externa: tire da lista`,
     );
+});
+
+test("famílias fiscais classificadas não fazem chamadas no painel com Fiscal desligado", async () => {
+  const modules = { ...Object.fromEntries(ERP_MODULE_IDS.map(id => [id, true])), "erp-fiscal": false };
+  for (const path of FISCAL_GATEWAYS) {
+    assert.equal(motorBlockOf(path), "erp-fiscal", path);
+    for (const method of ["GET", "POST"])
+      assert.equal(await panelRequestAllowed(path, method, undefined, modules), false, `${method} ${path}`);
+  }
 });
 
 test("clientes de rota externa sem tela são importados só pelo controlador", () => {

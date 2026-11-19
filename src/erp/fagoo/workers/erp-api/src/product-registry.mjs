@@ -1,3 +1,5 @@
+import { parsePartRecord } from './preferences-kit.mjs';
+import { projectParts, responseParts, responsePartsMetadata, erpRequirementMet } from './preferences-kit.mjs';
 /** Produtos no padrão do Origin (migrations 202610200119-120), served under /v1/cadastros so the ERP keeps one catalog prefix:
  * - /v1/cadastros/taxonomias/:tipo (GET list, POST create), /:tipo/:id (PATCH rename), /:tipo/:id/excluir (POST delete), where :tipo is
  *   categorias-produtos | grupos-produtos | grupos-tags | tags;
@@ -241,7 +243,7 @@ const EXPORT_TEXT = { name: 200, code: 100, unit: 16, kind: 1, format: 1, descri
   volumes: 6, items_per_box: 6, gtin_tax: 14, location: 100, cest: 7, origin: 1, additional_info: 2000, net_weight: 19, gross_weight: 19, width: 19, height: 19, depth: 19,
   stock_min: 19, stock_max: 19, category: 100, product_group: 100, stock: 40, source_id: 200, created_at: 100, updated_at: 100 };
 const EXPORT_DETAIL = PRODUCT_DETAIL_KEYS.filter(key => !Object.hasOwn(PRODUCT_DETAIL_LISTS, key));
-function exportItem(value) {
+function exportItemBody(value) {
   if (!object(value) || !uuid(value.id) || !Number.isInteger(value.version) || typeof value.active !== 'boolean' || typeof value.name !== 'string' || !value.name) badResponse();
   const safe = { id: value.id, version: value.version, active: value.active };
   for (const [key, max] of Object.entries(EXPORT_TEXT)) { const field = value[key] ?? null; if (field !== null && (typeof field !== 'string' || field.length > max)) badResponse(); safe[key] = field; }
@@ -265,7 +267,7 @@ function exportItem(value) {
   safe.supplier = supplier && { name: supplier.name, description: supplier.description ?? null, code: supplier.code ?? null, purchase_price: supplier.purchase_price ?? null, cost_price: supplier.cost_price ?? null, warranty_months: supplier.warranty_months ?? null };
   return safe;
 }
-export function productResponse(value, route, operation, record) {
+function productResponseBody(value, route, operation, record) {
   if (route.product === 'price-lists') return viaPrice(() => priceListResponse(value, route, operation));
   if (route.product === 'contact-tags') return viaPrice(() => contactTagResponse(value, route, operation));
   if (route.product === 'prices') return viaPrice(() => productPricesResponse(value, route, operation));
@@ -323,3 +325,17 @@ export function productResponse(value, route, operation, record) {
   return { entity: 'products', record: row, data_mode: 'erp_native', ...replayed };
 }
 export { PRODUCT_DETAIL_KEYS, PRODUCT_DETAIL_DECIMALS };
+
+export function productResponse(value, route, operation, record) {
+ if(route.product==='prices')return viaPrice(()=>productPricesResponse(value,route,operation));
+ const parts=responseParts(value,badResponse);
+ if(!parts.stock&&(value.stock_visible===true||operation.type==='export'&&Array.isArray(value.items)&&value.items.some(item=>item.stock!==null)))badResponse();
+ return projectParts(value, body => productResponseBody(body, route, operation, record), badResponse);
+}
+
+function exportItem(value) {
+ return parsePartRecord(value,exportItemBody,[
+  [['stock'],{stock_min:null,stock_max:null,location:null,lot_control:false}],
+  [['stock','purchases'],{cost_price:null,suppliers:[],supplier:null}],
+ ],badResponse);
+}

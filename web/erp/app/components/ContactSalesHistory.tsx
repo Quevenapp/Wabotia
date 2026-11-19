@@ -1,3 +1,4 @@
+import { entityEnabled } from '../../blocks';
 import {nativeReportCoverageText,readNativeReportCoverage,type NativeReportCoverage} from '../lib/document-reports-model';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -17,7 +18,7 @@ export function ContactSalesHistory({ controller, contactId }: { controller: Acc
   const [open, setOpen] = useState(false), [sales, setSales] = useState<Sale[] | null>(null), [visible, setVisible] = useState(true), [error, setError] = useState('');
   const [coverage,setCoverage]=useState<NativeReportCoverage|null>(null);
   useEffect(() => {
-    if (!open) return;
+    if (!entityEnabled('sales_orders') || !open) return;
     const request = new AbortController(); setSales(null); setError(''); setCoverage(null);
     void controller.catalog(`/v1/cadastros/contatos/${contactId}/historico`, { signal: request.signal }).then(value => {
       if (request.signal.aborted) return; const result = value as { contact_id?: string; visible?: boolean; items?: Sale[] };
@@ -26,6 +27,7 @@ export function ContactSalesHistory({ controller, contactId }: { controller: Acc
     }).catch(failure => { if (!request.signal.aborted && !aborted(failure)) setError(errorText(failure)); });
     return () => request.abort();
   }, [controller, contactId, open]);
+  if (!entityEnabled('sales_orders')) return null;
   return <span className="contact-history">
     <button type="button" className="icon-button" title="Visualizar histórico do cliente" aria-label="Visualizar histórico do cliente" aria-expanded={open} onClick={() => setOpen(!open)}><Icon name="clock-rotate-left" size={13} /></button>
     {open && <><button type="button" className="origin-click-catcher" tabIndex={-1} aria-label="Fechar histórico" onClick={() => setOpen(false)} />

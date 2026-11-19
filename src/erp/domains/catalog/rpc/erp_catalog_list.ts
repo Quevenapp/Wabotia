@@ -4,6 +4,7 @@ import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/regi
 import { requireAccess } from "../access.ts";
 import { chars, lower, matches, searchTerms } from "../fields.ts";
 import { dto, fold } from "../internal.ts";
+import { projectCatalogResult } from "../part-projection.ts";
 
 const s = (v: unknown) => (v === null || v === undefined ? null : String(v));
 
@@ -38,14 +39,14 @@ export function erpCatalogList(ctx: RpcContext, a: RpcArgs) {
   }
   const visible = page.slice(0, limit);
   const more = page.length > limit;
-  return {
+  return projectCatalogResult(ctx.parts, {
     entity,
     items: visible.map((id) => dto(db, id)),
     has_more: more,
     next_cursor: more ? visible[visible.length - 1] : null,
     limit,
     data_mode: "erp_native",
-  };
+  });
 }
 
 registerRpc("erp_catalog_list", erpCatalogList);

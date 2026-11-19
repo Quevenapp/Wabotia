@@ -44,6 +44,7 @@ export const COMPANY_PREFERENCES: readonly PreferenceCategory[] = [
     { title: 'Manutenção da instalação', entries: [{label:'Atualizações do sistema',to:'/preferencias/sistema/atualizacoes',roles:ADMIN,description:'Versão instalada, novas versões e atualização completa da sua instalação.'},{label:'Wabotia',to:'/preferencias/sistema/wabotia',roles:ADMIN,description:'Conectar atendimento e bots por código, sem copiar credenciais.'}] },
     { title: 'Configurações do sistema', entries: [page('sistema-interface')] },
     { title: 'Tabelas e configurações adicionais', entries: [
+      { label: 'Manutenção de efeitos', to: '/manutencao-efeitos', description: 'Consultar e desfazer efeitos históricos com as permissões e confirmações originais.' },
       { label: 'Consulta de exclusões realizadas', to: '/preferencias/sistema/consulta-exclusoes', roles: ADMIN }, { label: 'Gerenciador de arquivos', to: '/preferencias/sistema/gerenciador-arquivos', roles: ADMIN }, { label: 'Relatórios customizados', to: '/preferencias/sistema/relatorios-customizados', description: 'Relatórios padrão e os customizados liberados para você.' },
       { label: 'Etiquetas customizadas', to: '/preferencias/sistema/etiquetas-customizadas', roles: ADMIN }, { label: 'Registro de atividades', to: '/preferencias/sistema/registro-atividades', roles: ADMIN }, { label: 'Permissões no ERP', to: '/preferencias/sistema/usuarios', roles: ADMIN },
       { label: 'Gerenciador de transições', to: '/preferencias/sistema/gerenciador-transicoes', roles: ADMIN, description: 'Situações personalizadas e transições de pedidos de venda, de compra e ordens de serviço.' }, { label: 'Campos customizados', to: '/campos-customizados', roles: PRODUCT_READERS, description: 'Campos próprios do cadastro de produtos, por categoria (aba Produtos).' },
@@ -165,11 +166,7 @@ export function resolvePreferences(access: CompanyAccess): ResolvedPreferenceCat
   const mine = (entry: PreferenceEntry) => (!entry.to || !isOriginIntegrationRoute(entry.to) || originHistoryAvailable(access)) && (!entry.roles || entry.roles.includes(access.role as CompanyRole))
     && (!entry.to || targetEnabled(entry.to));
   return COMPANY_PREFERENCES.map(category => {
-    // Wabotia: nas Importações, uma planilha de um bloco desligado (as notas fiscais em lote) aparece desabilitada com o motivo,
-    // porque o servidor a recusa com o Fiscal desligado; nas demais categorias, o item some.
-    const offered = (entry: PreferenceEntry): PreferenceEntry => category.id === 'importacoes' && entry.to && !hiddenInWabotia(entry.to) && !targetEnabled(entry.to)
-      ? { label: entry.label, ...(entry.roles ? { roles: entry.roles } : {}), disabledReason: `Requer o módulo ${ERP_BLOCK_LABELS[blockOf(entry.to)]} ligado em Gestão › Módulos.` } : entry;
-    const sections = category.sections.map(section => ({ title: section.title, entries: section.entries.map(offered).filter(mine) })).filter(section => section.entries.length > 0);
+    const sections = category.sections.map(section => ({ title: section.title, entries: section.entries.filter(mine) })).filter(section => section.entries.length > 0);
     return { id: category.id, label: category.label, icon: category.icon, ...(category.notice ? { notice: category.notice } : {}), sections, entries: sections.flatMap(section => section.entries.filter((entry): entry is LinkedPreferenceEntry => Boolean(entry.to))) };
   }).filter(category => category.sections.length > 0);
 }

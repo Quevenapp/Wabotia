@@ -3,6 +3,7 @@ import { one, type SqlDriver } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
 import { exact, formatScaled, rescale } from "../../engine/dec.ts";
 import type { RpcArgs, RpcContext } from "../../engine/registry.ts";
+import { requireRpcParts } from "../../engine/parts-gate.ts";
 import { pgBtrim, pgCompareText, pgHasCntrl, pgLength, pgLower } from "../../engine/text.ts";
 import { jsonTimestamp } from "../../engine/time.ts";
 import { contactScope } from "../catalog/public.ts";
@@ -188,6 +189,7 @@ export function listRows(db: SqlDriver, origin: string, model: string, direction
 }
 
 export function listQuery(ctx: RpcContext, a: RpcArgs) {
+  requireRpcParts(ctx, "erp_fiscal_invoice_list", a);
   const db = ctx.db,
     user = text(a.p_user_id),
     role = requireRead(db, user);

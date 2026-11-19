@@ -1,3 +1,4 @@
+import { responseParts, responsePartsMetadata } from './preferences-kit.mjs';
 /** Ferramentas de preço do cadastro de produtos (migration 202610200155), under /v1/cadastros/products:
  * - POST /reajuste/previa {rule, ids}: "Novo Preço" of up to 100 visible products (read only, no command);
  * - POST /reajuste {command_id, rule, items | filters}: Reajuste de preços of the selected (with versions, up to 100) or the
@@ -106,7 +107,7 @@ function supplierLink(value) {
   if (!exact(value, ['id', 'name']) || !uuid(value.id) || typeof value.name !== 'string' || !value.name || value.name.length > 200) bad();
   return { id: value.id, name: value.name };
 }
-export function productPricesResponse(value, route, operation) {
+function productPricesResponseBody(value, route, operation) {
   if (!object(value) || value.data_mode !== 'erp_native' || value.entity !== 'products') bad();
   if (operation.type === 'preview') {
     const wanted = operation.args.p_ids;
@@ -155,4 +156,24 @@ export function productPricesResponse(value, route, operation) {
     return { ...item };
   });
   return { entity: 'products', supplier_id: value.supplier_id, items, replayed: value.replayed, data_mode: 'erp_native' };
+}
+
+export function productPricesResponse(value,route,operation) {
+ const parts=responseParts(value,bad),input=structuredClone(value),hidden=!parts.stock||!parts.purchases;
+ delete input.unavailable_parts;
+ const update=!['preview','adjust','purchase'].includes(operation.type);
+ if(update&&hidden) {
+  if(!Object.hasOwn(input,'supplier_id'))input.supplier_id=operation.args.p_supplier_id;
+  if(Array.isArray(input.items))for(const item of input.items) {
+   responseParts(item,bad);delete item.unavailable_parts;
+   if(!Object.hasOwn(item,'cost_price'))item.cost_price=null;
+  }
+ }
+ const checked=update&&hidden?{...operation,args:{...operation.args,p_items:operation.args.p_items.map(({cost_price,...item})=>item)}}:operation;
+ const parsed=productPricesResponseBody(input,route,checked);
+ if(update&&hidden) {
+  delete parsed.supplier_id;
+  for(const item of parsed.items)delete item.cost_price;
+ }
+ return {...parsed,...responsePartsMetadata(value)};
 }

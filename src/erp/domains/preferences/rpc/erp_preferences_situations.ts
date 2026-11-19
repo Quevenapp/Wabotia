@@ -1,3 +1,7 @@
+import { erpFieldRequirement } from "../../../parts-requirements.ts";
+import { requireErpParts } from "../../../engine/parts-gate.ts";
+import { queryAvailable, unavailableParts } from "../business-rules.ts";
+const actionRequirement = (action: string) => erpFieldRequirement(action.endsWith("stock") ? "stock_action" : "finance_action");
 // Situações personalizadas e transições (migração 148): public.erp_preferences_situations,
 // _situation_save, _transition_save e _transitions_delete.
 // A sequência erp_preferences.transition_version (a única do Fagoo) não existe
@@ -35,7 +39,10 @@ export function erpPreferencesSituations(ctx: RpcContext, a: RpcArgs) {
   const kind = text(a, "p_kind");
   readAdmin(ctx.db, user);
   if (!kindOk(kind)) raise("22023", "erp_preferences_situation_kind_invalid");
-  return situationsPage(ctx.db, kind!);
+  const page = situationsPage(ctx.db, kind!);
+  return { ...page, ...unavailableParts(ctx.parts), transitions: page.transitions.map(t => ({ ...t,
+    actions: t.actions.filter(action => queryAvailable(ctx.parts, actionRequirement(action))),
+  })) };
 }
 
 const situationDto = (s: Record<string, unknown>) => ({
@@ -205,7 +212,7 @@ export function erpPreferencesTransitionSave(ctx: RpcContext, a: RpcArgs) {
   )
     invalid();
   const given = data!.actions as string[];
-  const actions = [...new Set(given)].sort(compareText);
+  let actions = [...new Set(given)].sort(compareText);
   const active = data!.active as boolean;
   if (
     actions.length !== given.length ||
@@ -225,6 +232,8 @@ export function erpPreferencesTransitionSave(ctx: RpcContext, a: RpcArgs) {
   const isDefault = vFrom.default && vTo.default;
   const row = one(db, 'SELECT * FROM "erp_preferences__transition" WHERE kind=? AND from_key=? AND to_key=?', kind, from, to);
   const rowActions = row ? (JSON.parse(String(row.actions)) as string[]) : [];
+  for (const action of actions) if (!queryAvailable(ctx.parts, actionRequirement(action)) && !rowActions.includes(action)) requireErpParts(ctx, actionRequirement(action));
+  actions = [...new Set([...actions, ...rowActions.filter(action => !queryAvailable(ctx.parts, actionRequirement(action)))])].sort(compareText);
   if ((row ? Number(row.version) : 0) !== expected) raise("40001", "erp_preferences_transition_version_conflict");
   if ((row || isDefault) && (row ? Number(row.active) === 1 : true) === active && jsonbText(rowActions) === jsonbText(actions))
     raise("22023", "erp_preferences_transition_unchanged");
@@ -350,6 +359,7 @@ export function erpPreferencesTransitionsDelete(ctx: RpcContext, a: RpcArgs) {
     const row = one(db, 'SELECT * FROM "erp_preferences__transition" WHERE kind=? AND from_key=? AND to_key=?', kind, i.from, i.to);
     if (!row) raise("P0002", "erp_preferences_transition_not_found");
     if (Number(row.version) !== frameworkVersion(i.expected_version)) raise("40001", "erp_preferences_transition_version_conflict");
+    for (const action of JSON.parse(String(row.actions)) as string[]) requireErpParts(ctx, actionRequirement(action));
     db.exec('DELETE FROM "erp_preferences__transition" WHERE kind=? AND from_key=? AND to_key=?', kind, row.from_key, row.to_key);
     db.exec(
       `INSERT INTO "erp_preferences__framework_audit"(created_at, actor, command_id, area, action, target, before_data, after_data)

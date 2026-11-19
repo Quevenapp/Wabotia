@@ -5,6 +5,7 @@ import { raise } from "../../../engine/errors.ts";
 import { jsonbText, jsonType } from "../../../engine/json.ts";
 import { replay } from "../../../engine/receipt.ts";
 import { invokeRpc, registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
+import { requireRpcParts } from "../../../engine/parts-gate.ts";
 import { nextIdentity } from "../../../engine/sequence.ts";
 import { pgLeft, pgLength } from "../../../engine/text.ts";
 import { documentTitleRows, titlesMarkReturned } from "../../finance/public.ts";
@@ -15,6 +16,7 @@ import {
 } from "../internal.ts";
 
 function erpPosReturnExecute(ctx: RpcContext, args: RpcArgs): Json {
+  requireRpcParts(ctx, "erp_pos_return_execute", args);
   const db = ctx.db, day = today(ctx), user = args.p_user_id as string | null;
   const a = access(db, user, true);
   const command = args.p_command_id as string | null, action = args.p_action, data = args.p_data as Json;

@@ -1,3 +1,4 @@
+import { projectCatalogRecord } from "./part-projection.ts";
 // Formas de pagamento (erp_catalog.payment_method): payment_method_access,
 // payment_method_input, payment_method_dto, payment_method_accounts,
 // payment_condition_valid e o gatilho payment_method_defaults_fit (camada de
@@ -11,7 +12,13 @@ import type { RpcContext } from "../../engine/registry.ts";
 import { jsonTimestamp } from "../../engine/time.ts";
 import { activeRole } from "../access/public.ts";
 import * as finance from "../finance/public.ts";
+import { catalogParts, catalogUnavailable, preserveCatalogFields } from "./cost.ts";
 import { btrim, chars, collapseSpaces, contactText, lower, percentValid, upper, validCnpj } from "./fields.ts";
+
+export const PAYMENT_FINANCE_DEFAULTS = {
+  account_id: null, interest_rate: null, fine_rate: null, auto_settle: false,
+  fee_type: "aliquota", fee_rate: null, fee_fixed: null, settlement_days: null,
+};
 
 /** erp_catalog.payment_method_access(p_user_id, p_write): o papel. */
 export function paymentMethodAccess(db: SqlDriver, user: string | null, write: boolean): string {
@@ -211,6 +218,7 @@ export function inputColumns(v: PaymentMethodInput): Row {
 }
 
 export function insertRow(ctx: RpcContext, user: string, v: PaymentMethodInput): string {
+  preserveCatalogFields(ctx.parts.finance, { ...v }, {}, PAYMENT_FINANCE_DEFAULTS);
   const id = crypto.randomUUID();
   const now = ctx.clock.next().toString();
   const row: Row = {
@@ -229,6 +237,8 @@ export function insertRow(ctx: RpcContext, user: string, v: PaymentMethodInput):
 /** UPDATE de uma linha: aplica as mudanças, o gatilho e grava. */
 export function updateRow(ctx: RpcContext, id: string, changes: Row) {
   const row = readRow(ctx.db, id, false)!;
+  changes = preserveCatalogFields(ctx.parts.finance, changes, row,
+    { ...PAYMENT_FINANCE_DEFAULTS, auto_settle: 0 }) as Row;
   Object.assign(row, changes);
   fit(row);
   ctx.db.exec(
@@ -241,7 +251,7 @@ export function updateRow(ctx: RpcContext, id: string, changes: Row) {
 export const accountActive = (db: SqlDriver, id: string) => finance.accountActive(db, id);
 
 /** erp_catalog.payment_method_dto (null se não existe ou foi excluída). */
-export function paymentMethodDto(db: SqlDriver, id: string): Record<string, unknown> | null {
+export function paymentMethodDto(db: SqlDriver, id: string, internal = false): Record<string, unknown> | null {
   const m = readRow(db, id);
   if (!m) return null;
   const out: Record<string, unknown> = {
@@ -252,7 +262,8 @@ export function paymentMethodDto(db: SqlDriver, id: string): Record<string, unkn
     condition: m.condition,
     destination: m.destination,
     account_id: m.account_id,
-    account_name: finance.accountName(db, m.account_id as string | null),
+    account_name: catalogParts(db).finance ? finance.accountName(db, m.account_id as string | null) : null,
+    ...catalogUnavailable(catalogParts(db), ["finance"]),
     applicable: m.applicable,
     card_brand: m.card_brand,
     card_integration: m.card_integration,
@@ -267,8 +278,8 @@ export function paymentMethodDto(db: SqlDriver, id: string): Record<string, unkn
   };
   for (const b of BOOLS) out[b] = !!Number(m[b]);
   for (const r of RATES) out[r] = m[r] === null ? null : formatScaled(fromColumn(m[r]), 4);
-  return out;
+  return internal ? out : projectCatalogRecord(catalogParts(db), "payment_methods", out);
 }
 
 /** erp_catalog.payment_method_accounts */
-export const paymentMethodAccounts = (db: SqlDriver) => finance.accountOptions(db);
+export const paymentMethodAccounts = (db: SqlDriver) => catalogParts(db).finance ? finance.accountOptions(db) : [];

@@ -12,6 +12,7 @@ import { unitPriceNumeric } from "../internal.ts";
 import { uuidArrayArg } from "../pricing/args.ts";
 import { requireAccess } from "../pricing/deps.ts";
 import { num } from "../pricing/money.ts";
+import { catalogUnavailable } from "../cost.ts";
 
 /** erp_catalog.purchase_price_mode() */
 export function purchasePriceMode(db: SqlDriver) {
@@ -33,7 +34,7 @@ registerRpc("erp_catalog_product_purchase_info", (ctx, a) => {
     raise("22023", "erp_catalog_invalid_query");
   // A última compra vem dos pedidos de compra: só quem os lê a vê (Vendas lê produtos, não compras).
   const role = user === null ? null : activeRole(db, user);
-  const orders = role !== null && allowed(role, "purchase_orders", false);
+  const orders = ctx.parts.purchases && role !== null && allowed(role, "purchase_orders", false);
   const items = [];
   for (const id of ids as string[]) {
     const r = one(
@@ -72,7 +73,7 @@ registerRpc("erp_catalog_product_purchase_info", (ctx, a) => {
           id,
         );
     const purchase = nonZero(sp?.purchase_price),
-      cost = nonZero(sp?.cost_price);
+      cost = ctx.parts.stock && ctx.parts.purchases ? nonZero(sp?.cost_price) : null;
     const last = lp ? ((lp.unit_price as string | null) ?? null) : null;
     const suggested = mode === "cost" ? (cost ?? purchase) : mode === "purchase" ? (purchase ?? cost) : (last ?? purchase ?? cost);
     items.push({
@@ -89,12 +90,13 @@ registerRpc("erp_catalog_product_purchase_info", (ctx, a) => {
             code: own.code ?? null,
             description: own.description ?? null,
             purchase_price: unitPriceNumeric(own.purchase_price, 14),
-            cost_price: unitPriceNumeric(own.cost_price, 14),
+            cost_price: ctx.parts.stock && ctx.parts.purchases ? unitPriceNumeric(own.cost_price, 14) : null,
           }
         : null,
       last_purchase_price: last === null ? null : unitPriceNumeric(last, 14),
       suggested_price: unitPriceNumeric(suggested, 14),
     });
   }
-  return { entity: "products", data_mode: "erp_native", supplier_id: supplier, mode, items };
+  return { entity: "products", data_mode: "erp_native", supplier_id: supplier, mode, items,
+    ...catalogUnavailable(ctx.parts, ["purchases", "stock"]) };
 });

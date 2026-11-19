@@ -11,6 +11,21 @@ import { json, text, uuid } from "../args.ts";
 import { definition, pageDefinitions, pageDto, pageRow, readerRole, storedValue, valueValid, writeAccess } from "../center.ts";
 import { compareText } from "../order.ts";
 
+import { erpPreferenceRequirement, erpPreferenceFieldRequirement, erpEntityRequirement } from "../../../parts-requirements.ts";
+import { requireErpParts } from "../../../engine/parts-gate.ts";
+import { queryAvailable, unavailableParts } from "../business-rules.ts";
+
+function visiblePage(ctx: RpcContext, page: Parameters<typeof pageDto>[1], role: string, user: string) {
+  requireErpParts(ctx, erpPreferenceRequirement(page.id));
+  const dto = pageDto(ctx, page, role, user);
+  const items = dto.items.filter(item => queryAvailable(ctx.parts, erpPreferenceFieldRequirement(page.id, item.key)));
+  const defs = pageDefinitions(ctx.db, page.id).filter(def => items.some(item => item.key === def.key));
+  return { ...dto, ...unavailableParts(ctx.parts), items,
+    directory: defs.some(def => def.kind === "users") ? dto.directory : null,
+    ...(dto.situations ? { situations: dto.situations.filter(s => queryAvailable(ctx.parts, erpEntityRequirement(s.kind))) } : {}),
+  };
+}
+
 const invalid = (): never => raise("22023", "erp_preferences_input_invalid");
 const parsed = (v: unknown) => JSON.parse(String(v)) as Record<string, unknown>;
 
@@ -22,7 +37,7 @@ export function erpPreferencesPage(ctx: RpcContext, a: RpcArgs) {
   const page = pageRow(ctx.db, id);
   if (!page) raise("P0002", "erp_preferences_page_not_found");
   if (!page.read_roles.includes(role)) raise("42501", "erp_preferences_access_denied");
-  return pageDto(ctx, page, role, user!);
+  return visiblePage(ctx, page, role, user!);
 }
 
 export function erpPreferencesCommand(ctx: RpcContext, a: RpcArgs) {
@@ -36,7 +51,7 @@ export function erpPreferencesCommand(ctx: RpcContext, a: RpcArgs) {
   if (c.actor !== user) raise("42501", "erp_preferences_access_denied");
   const page = pageRow(db, String(c.page_id))!;
   if (!page.read_roles.includes(role)) raise("42501", "erp_preferences_access_denied");
-  return { ...parsed(c.result), page: pageDto(ctx, page, role, user!), replayed: true };
+  return { ...parsed(c.result), page: visiblePage(ctx, page, role, user!), replayed: true };
 }
 
 interface Change {
@@ -56,6 +71,7 @@ export function erpPreferencesSave(ctx: RpcContext, a: RpcArgs) {
   const page = pageRow(db, id);
   if (!page) raise("P0002", "erp_preferences_page_not_found");
   if (!page.read_roles.includes(role) || (page.scope === "company" && role !== "admin")) raise("42501", "erp_preferences_access_denied");
+  requireErpParts(ctx, erpPreferenceRequirement(page.id));
   const defs = pageDefinitions(db, page.id);
   const bad = (c: Record<string, unknown>) =>
     jsonType(c) !== "object" ||
@@ -66,7 +82,7 @@ export function erpPreferencesSave(ctx: RpcContext, a: RpcArgs) {
     !/^(0|[1-9][0-9]{0,9})$/.test(jsonbText(c.expected_version)) ||
     BigInt(jsonbText(c.expected_version)) > 2147483646n ||
     !defs.some((d) => d.key === c.key) ||
-    !valueValid(definition(db, c.key as string), c.value);
+    (queryAvailable(ctx.parts, erpPreferenceFieldRequirement(page.id, c.key as string)) && !valueValid(definition(db, c.key as string), c.value));
   if (changes!.length > defs.length || changes!.some(bad) || new Set(changes!.map((c) => c.key)).size !== changes!.length) invalid();
   const owner = page.scope === "user" ? user : null;
   const canonical: Change[] = changes!
@@ -79,7 +95,7 @@ export function erpPreferencesSave(ctx: RpcContext, a: RpcArgs) {
   if (stored) {
     const r = writeAccess(db, user, page);
     if (stored.actor !== user || stored.request_hash !== hash) raise("40001", "erp_preferences_command_conflict");
-    return { ...parsed(stored.result), page: pageDto(ctx, page, r, user!), replayed: true };
+    return { ...parsed(stored.result), page: visiblePage(ctx, page, r, user!), replayed: true };
   }
   writeAccess(db, user, page);
   const receipt: { key: string; from_version: number; to_version: number; before: unknown; after: unknown }[] = [];
@@ -88,7 +104,11 @@ export function erpPreferencesSave(ctx: RpcContext, a: RpcArgs) {
     const v = storedValue(db, page, def.key, user!);
     const current = v ? v.value : def.default_value;
     const version = v ? v.version : 0;
+    const available = queryAvailable(ctx.parts, erpPreferenceFieldRequirement(page.id, def.key));
+    if (!available && jsonbText(current) !== jsonbText(change.value)) requireErpParts(ctx, erpPreferenceFieldRequirement(page.id, def.key));
+    if (!valueValid(def, change.value)) invalid();
     if (version !== change.expected_version) raise("40001", "erp_preferences_version_conflict");
+    if (!available) continue; // Reenvio idêntico conserva valor e versão ocultos.
     if (jsonbText(current) === jsonbText(change.value)) raise("22023", "erp_preferences_unchanged");
     const before = Array.isArray(current) ? (current as unknown[]) : [];
     // Campo "users": quem entra agora precisa ser membro ativo; quem já estava e foi desligado pode ficar.
@@ -114,6 +134,9 @@ export function erpPreferencesSave(ctx: RpcContext, a: RpcArgs) {
   }
   const at = ctx.clock.next();
   const result = {
+    // Um comando sem mudanças só existe por preservação de campos ocultos.
+    // Conserva a explicação no replay, inclusive depois de religar.
+    ...(receipt.length === 0 ? unavailableParts(ctx.parts) : {}),
     scope: "preferences_command",
     data_mode: "erp_native",
     receipt: { command_id: command, page: page.id, changed_at: jsonTimestamp(at.toString()), changes: receipt },
@@ -184,7 +207,7 @@ export function erpPreferencesSave(ctx: RpcContext, a: RpcArgs) {
     );
   }
   const r = writeAccess(db, user, page);
-  return { ...result, page: pageDto(ctx, page, r, user!), replayed: false };
+  return { ...result, page: visiblePage(ctx, page, r, user!), replayed: false };
 }
 
 registerRpc("erp_preferences_page", erpPreferencesPage);

@@ -1,3 +1,4 @@
+import { blockEnabled, operationEnabled, availablePayload } from '../../blocks';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import ProductVariations from './ProductVariations';
 import { Link } from 'react-router-dom';
@@ -200,13 +201,13 @@ function ProductForm(props: CatalogEditorProps & { taxonomies: Taxonomies; origi
       checkPrices(values, initial, lists, initialLists, places);
       if (eanWithoutPrefix && !(values.code ?? '').trim()) invalidField('code', 'Informe o código (SKU): o código Sequencial EAN precisa do Prefixo GS1 da empresa em Preferências › Configurações de produtos.');
       // Origin: "Não é possível criar um produto com variações quando possuir um lote preenchido." (migration 191 refuses it too).
-      if (values.lot_control === 'true' && values.format === 'V') invalidField('lot_control', 'Não é possível usar controle de lote em produto com variações. Desative o Controle de lote ou escolha outro formato.');
+      if (blockEnabled('erp-estoque') && values.lot_control === 'true' && values.format === 'V') invalidField('lot_control', 'Não é possível usar controle de lote em produto com variações. Desative o Controle de lote ou escolha outro formato.');
       // Itens p/ caixa (migration 191) travels in the detail payload as items_per_box_decimal.
       const detail = productDetailPayload(values, lists);
       const payload = Array.isArray(customFields) ? { ...detail, custom_values: customValuesPayload(visibleCustomFields(customFields, values.category_id, taxonomies.categories ?? []), lists.custom_values) } : detail;
       let structure: Record<string, unknown>;
       try { structure = compositionSavePayload(composition, values.format ?? '', !record); } catch (failure) { if (wizard) setWizard(false); setTab(STRUCTURE_TAB); throw failure; }
-      return { ...(record || !initialBalanceAllowed(values) ? payload : { ...payload, ...initialBalancePayload(initialBalance, values.unit ?? '') }), ...structure };
+      return availablePayload({ ...(record || !operationEnabled('product_opening') || !initialBalanceAllowed(values) ? payload : { ...payload, ...initialBalancePayload(initialBalance, values.unit ?? '') }), ...structure }, 'erp-produtos');
     },
     savePath: id => id ? `/v1/cadastros/products/${id}/completo` : '/v1/cadastros/products/completo',
     onInvalid: field => { if (wizard) { setStep(stepOf(field)); return; } const target = tabOf(field); if (target) setTab(target); },
@@ -214,8 +215,9 @@ function ProductForm(props: CatalogEditorProps & { taxonomies: Taxonomies; origi
   const { values, changeField } = editor;
   // Only Produtos tags belong to a product (migration 153); Contatos tags stay out of this form.
   const tags = ofTagType(taxonomies.tags ?? [], 'products'), tagGroups = ofTagType(taxonomies.tag_groups ?? [], 'products');
-  const tabs = withStructure(values.format);
-  useEffect(() => { if (values.format !== 'E' && tab === STRUCTURE_TAB) setTab('characteristics'); }, [values.format, tab]);
+  const tabs = withStructure(values.format).filter(item => !['stock', STRUCTURE_TAB].includes(item.key) || operationEnabled('composition'));
+  const wizardSteps = WIZARD_STEPS.filter(item => item.key !== 'stock' || blockEnabled('erp-estoque'));
+  useEffect(() => { if (!tabs.some(item=>item.key===tab)) setTab('characteristics'); if(!wizardSteps.some(item=>item.key===step))setStep('basic'); }, [values.format, tab, step, blockEnabled('erp-estoque')]);
   const selectTab = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     const next = (event.key === 'ArrowRight' || event.key === 'ArrowDown') ? (index + 1) % tabs.length : (event.key === 'ArrowLeft' || event.key === 'ArrowUp') ? (index + tabs.length - 1) % tabs.length : event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : null;
     if (next === null) return; event.preventDefault(); setTab(tabs[next].key); document.getElementById(`product-tab-${tabs[next].key}`)?.focus();
@@ -277,7 +279,7 @@ function ProductForm(props: CatalogEditorProps & { taxonomies: Taxonomies; origi
   // Leva H (PRD-109, 410): the variations of a saved product with Formato V (a new product saves first, then gets its variations).
   const formatNotice = <>{values.format === 'V' && (record?.id ? <ProductVariations controller={controller} productId={record.id} writable={Boolean(writable)} />
     : <p className="real-notice">Salve o produto com Formato Com variações para adicionar as variações (cada uma é um produto com código, preço e estoque próprios).</p>)}
-    {values.format === 'E' && <p className="real-notice">Composição: os componentes, o tipo de estoque (Físico ou Virtual) e como o estoque é lançado ficam na aba Estrutura.</p>}</>;
+    {operationEnabled('composition') && values.format === 'E' && <p className="real-notice">Composição: os componentes, o tipo de estoque (Físico ou Virtual) e como o estoque é lançado ficam na aba Estrutura.</p>}</>;
   // ---- Panels shared by the complete form (tabs) and the wizard (steps) ----
   const characteristics = (locked: boolean, withCategory: boolean) => <>
     {!values.dimension_unit && ['width', 'height', 'depth'].some(key => Boolean(values[key]?.trim())) && <p className="real-notice" role="status">Há medidas informadas sem unidade. Confira a unidade de medida; nenhuma unidade será presumida.</p>}
@@ -377,16 +379,16 @@ function ProductForm(props: CatalogEditorProps & { taxonomies: Taxonomies; origi
     <div className="fagoo-product-workspace"><aside className="fagoo-product-outline"><p className="fagoo-eyebrow">ORGANIZAR PRODUTO</p><div className="product-tabs" role="tablist" aria-orientation="vertical" aria-label="Detalhes do produto">{tabs.map((item, index) => <button key={item.key} type="button" role="tab" id={`product-tab-${item.key}`} aria-selected={tab === item.key} aria-controls={`product-panel-${item.key}`} tabIndex={tab === item.key ? 0 : -1} onClick={() => setTab(item.key)} onKeyDown={event => selectTab(event, index)}>{item.label}</button>)}</div>{writable && !locked && <ProductValidationPanel values={values} sequential={Boolean(props.sequential && !record)} onEdit={key => document.getElementById(`catalog-${key}`)?.focus()} />}</aside><div className="fagoo-product-panels">
     <section id="product-panel-characteristics" role="tabpanel" aria-labelledby="product-tab-characteristics" hidden={tab !== 'characteristics'} className="product-tab-panel">{characteristics(locked, true)}</section>
     <section id="product-panel-images" role="tabpanel" aria-labelledby="product-tab-images" hidden={tab !== 'images'} className="product-tab-panel">{images(locked)}</section>
-    <section id="product-panel-stock" role="tabpanel" aria-labelledby="product-tab-stock" hidden={tab !== 'stock'} className="product-tab-panel">{stock(locked)}</section>
+    <section id="product-panel-stock" role="tabpanel" aria-labelledby="product-tab-stock" hidden={tab !== 'stock'} className="product-tab-panel">{blockEnabled('erp-estoque') && stock(locked)}</section>
     <section id="product-panel-structure" role="tabpanel" aria-labelledby="product-tab-structure" hidden={tab !== STRUCTURE_TAB} className="product-tab-panel">
-      {values.format === 'E' && <ProductStructurePanel controller={controller} state={composition} productId={record?.id ?? null} locked={locked} invalid={editor.invalidField === 'composition'} />}
+      {operationEnabled('composition') && values.format === 'E' && <ProductStructurePanel controller={controller} state={composition} productId={record?.id ?? null} locked={locked} invalid={editor.invalidField === 'composition'} />}
     </section>
     <section id="product-panel-suppliers" role="tabpanel" aria-labelledby="product-tab-suppliers" hidden={tab !== 'suppliers'} className="product-tab-panel">{suppliers(locked)}</section>
     <section id="product-panel-tax" role="tabpanel" aria-labelledby="product-tab-tax" hidden={tab !== 'tax'} className="product-tab-panel">{tax(locked)}</section></div></div>
     {drawers}
   </div>;
   // ---- Wizard ----
-  const stepIndex = WIZARD_STEPS.findIndex(item => item.key === step);
+  const stepIndex = Math.max(0, wizardSteps.findIndex(item => item.key === step));
   const goTo = (next: WizardStep) => {
     if (next === step) return;
     // Origin: no step change without the Nome; the alert lists what is missing and the field is highlighted and focused.
@@ -394,27 +396,27 @@ function ProductForm(props: CatalogEditorProps & { taxonomies: Taxonomies; origi
     setStepAlert(null); setStep(next);
   };
   const wizardForm = (locked: boolean) => <div className="product-editor-fields product-wizard">
-    <nav className="product-wizard-steps" aria-label="Etapas do cadastro"><ol>{WIZARD_STEPS.map((item, index) => <li key={item.key}>
+    <nav className="product-wizard-steps" aria-label="Etapas do cadastro"><ol>{wizardSteps.map((item, index) => <li key={item.key}>
       <button type="button" id={`product-step-${item.key}`} aria-current={step === item.key ? 'step' : undefined} className={index < stepIndex ? 'is-done' : undefined} onClick={() => goTo(item.key)}>
         <span className="product-wizard-number" aria-hidden="true">{index + 1}</span><span>{item.label}{item.optional && <small> (opcional)</small>}</span></button></li>)}</ol></nav>
     {/* Narrow screens: the circular progress of the Origin mobile wizard replaces the step column. */}
-    <div className="product-wizard-progress" role="progressbar" aria-valuemin={1} aria-valuemax={WIZARD_STEPS.length} aria-valuenow={stepIndex + 1} aria-valuetext={`Etapa ${stepIndex + 1} de ${WIZARD_STEPS.length}: ${WIZARD_STEPS[stepIndex].label}`}
-      style={{ ['--product-wizard-progress' as string]: `${Math.round(((stepIndex + 1) / WIZARD_STEPS.length) * 360)}deg` }}>
-      <span className="product-wizard-circle" aria-hidden="true">{stepIndex + 1}/{WIZARD_STEPS.length}</span><span>Etapa {stepIndex + 1} de {WIZARD_STEPS.length}: <strong>{WIZARD_STEPS[stepIndex].label}</strong></span></div>
+    <div className="product-wizard-progress" role="progressbar" aria-valuemin={1} aria-valuemax={wizardSteps.length} aria-valuenow={stepIndex + 1} aria-valuetext={`Etapa ${stepIndex + 1} de ${wizardSteps.length}: ${wizardSteps[stepIndex].label}`}
+      style={{ ['--product-wizard-progress' as string]: `${Math.round(((stepIndex + 1) / wizardSteps.length) * 360)}deg` }}>
+      <span className="product-wizard-circle" aria-hidden="true">{stepIndex + 1}/{wizardSteps.length}</span><span>Etapa {stepIndex + 1} de {wizardSteps.length}: <strong>{wizardSteps[stepIndex].label}</strong></span></div>
     <div className="product-wizard-body">
       {stepAlert && <div className="product-wizard-alert" id="product-wizard-alert" role="alert"><strong>Não foi possível navegar para o passo desejado</strong><p>Verifique os campos destacados abaixo.</p><ul>{stepAlert.map(item => <li key={item}>{item}</li>)}</ul></div>}
-      <h3 className="product-wizard-title">{WIZARD_STEPS[stepIndex].label}</h3>
+      <h3 className="product-wizard-title">{wizardSteps[stepIndex].label}</h3>
       {step === 'basic' && <>{basicFields(locked)}{formatNotice}{customBlock(locked)}</>}
       {step === 'characteristics' && characteristics(locked, false)}
       {step === 'images' && images(locked)}
-      {step === 'stock' && <>{stock(locked)}<h4 className="product-wizard-subtitle">Fornecedores</h4>{suppliers(locked)}</>}
+      {step === 'stock' && <>{blockEnabled('erp-estoque') && stock(locked)}<h4 className="product-wizard-subtitle">Fornecedores</h4>{suppliers(locked)}</>}
       {step === 'tax' && tax(locked)}
       <div className="real-editor-actions product-wizard-actions">
         <button type="button" className="text-button" disabled={locked} onClick={() => { setStepAlert(null); setTab(step === 'basic' ? 'characteristics' : step === 'stock' ? 'stock' : step); setWizard(false); }}>Pular para versão completa</button>
         <span className="product-wizard-spacer" />
         {stepIndex === 0 ? <button type="button" className="secondary-button" onClick={() => editor.guard.confirmLeave(props.onClose)}>Cancelar</button>
-          : <button type="button" className="secondary-button" disabled={locked} onClick={() => goTo(WIZARD_STEPS[stepIndex - 1].key)}>Voltar</button>}
-        {stepIndex < WIZARD_STEPS.length - 1 && <button type="button" className={stepIndex === 0 ? 'primary-button' : 'secondary-button'} disabled={locked} onClick={() => goTo(WIZARD_STEPS[stepIndex + 1].key)}>Avançar</button>}
+          : <button type="button" className="secondary-button" disabled={locked} onClick={() => goTo(wizardSteps[stepIndex - 1].key)}>Voltar</button>}
+        {stepIndex < wizardSteps.length - 1 && <button type="button" className={stepIndex === 0 ? 'primary-button' : 'secondary-button'} disabled={locked} onClick={() => goTo(wizardSteps[stepIndex + 1].key)}>Avançar</button>}
         {stepIndex > 0 && writable && <button type="submit" className="primary-button" disabled={locked}>Salvar</button>}
       </div>
     </div>

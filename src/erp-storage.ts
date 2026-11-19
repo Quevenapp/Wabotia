@@ -1,3 +1,5 @@
+import type { IdentityPort } from "./erp/engine/identity.ts";
+import { erpRequirement, erpRequirementMet, readErpPartsSnapshot, type ErpModuleId, type ErpPartsSnapshot } from "./erp/parts.ts";
 // Armazenamento de arquivos do ERP no R2 (o bucket MEDIA que a instalação já
 // tem; nenhum recurso novo). É o `/storage/v1` do Supabase que a erp-api do
 // Fagoo chama (anexos, logotipo e arquivos da empresa, CNAB, exportação e
@@ -30,7 +32,7 @@ export interface ErpBucket {
    * Bloco do ERP que precisa estar ligado na área (src/erp/blocks.ts). O
    * `erp` já é conferido na rota; os opcionais são conferidos de novo aqui.
    */
-  module: "erp" | "erp-fiscal" | "erp-cobranca";
+  module: ErpModuleId;
   /**
    * Aceita URL assinada (/api/public/erp-storage/…). Só a exportação, que o
    * Fagoo entrega por link; o resto sai só pela rota, com o envelope.
@@ -120,6 +122,16 @@ export function validPath(path: string) {
   return path.split("/").every((s) => SEGMENT.test(s) && s !== "..");
 }
 
+
+/** Origem física, complementada pelo registro persistido para anexos de documentos. */
+export function erpFileRequirement(bucketName: string, path: string) {
+  const bucket = bucketOf(bucketName); if (!bucket) return null;
+  if (bucketName !== "erp-attachments") return erpRequirement(bucket.module);
+  const owner: Record<string, ErpModuleId> = { products: "erp-produtos", finance: "erp-financeiro", contacts: "erp", employees: "erp", company: "erp", documents: "erp" };
+  const module = owner[path.split("/")[0]];
+  return module ? erpRequirement(module) : null;
+}
+
 /** Resposta de erro no formato do Storage do Supabase. */
 const storageError = (status: number, error: string, message: string) =>
   Response.json({ statusCode: String(status), error, message }, { status });
@@ -142,10 +154,17 @@ const baseType = (value: string | null) =>
  * - DELETE /object/<bucket>/<caminho>
  * - POST   /object/sign/<bucket>/<caminho>           ({expiresIn} → signedURL)
  */
+export interface ErpStorageAuthorization {
+  snapshot: ErpPartsSnapshot;
+  /** Somente o executor administrativo: leitura histórica para backup/exportação. */
+  administrativeExport?: boolean;
+}
 export async function erpStorage(
   env: Env,
   profile: string,
   request: Request,
+  identity?: IdentityPort | ErpStorageAuthorization,
+  authorizedKeys?: ReadonlySet<string>,
 ): Promise<Response> {
   const url = new URL(request.url);
   const route =
@@ -158,16 +177,17 @@ export async function erpStorage(
   if (!bucket) return storageError(404, "not_found", "Bucket not found");
   if (!validPath(path))
     return storageError(400, "invalid_key", "Invalid object key");
-  // Bloco opcional desligado na área (cobrança, fiscal): nada sai nem entra,
-  // mesmo que a rota da erp-api tenha passado.
-  if (bucket.module !== "erp") {
-    try {
-      await requireModule(env, profile, bucket.module);
-    } catch (error) {
-      if (!(error instanceof ApiError)) throw error;
-      return storageError(403, "module_disabled", "Module disabled");
-    }
-  }
+  const administrativeExport = identity && "snapshot" in identity && identity.administrativeExport === true;
+  const input = identity && "snapshot" in identity ? identity.snapshot : identity ? { ...identity.partsControl, parts: identity.parts } : null;
+  const snapshot = readErpPartsSnapshot(input, profile);
+  if (!snapshot) return storageError(503, "erp_parts_unavailable", "Estado das partes indisponível.");
+  const requirement = administrativeExport ? erpRequirement("erp") : erpFileRequirement(bucketName, path);
+  if (!requirement) return notFound();
+  if (!erpRequirementMet(snapshot.parts, requirement)) return storageError(409, "module_disabled", "Esta rotina depende de uma parte desligada.");
+  // Anexos só são acessíveis após o RPC original autorizar este objeto exato.
+  // O caminho de documentos contém ID, não tipo; o RPC resolve o dono salvo.
+  if (bucketName === "erp-attachments" && !(administrativeExport && ["GET", "HEAD"].includes(request.method)) && !authorizedKeys?.has(`${bucketName}/${path}`))
+    return storageError(403, "access_denied", "Arquivo fora do acesso autorizado.");
   const key = erpStorageKey(profile, bucketName, path);
   const method = request.method.toUpperCase();
 

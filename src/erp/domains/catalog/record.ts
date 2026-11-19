@@ -1,3 +1,4 @@
+import { projectCatalogResult } from "./part-projection.ts";
 // Núcleo do cadastro (erp_catalog.record e as linhas de contato, produto e
 // depósito): erp_catalog.mutate, write_fields e os gatilhos dessas tabelas na
 // ordem do Postgres (BEFORE por nome, depois AFTER por nome).
@@ -12,6 +13,8 @@ import type { RpcContext } from "../../engine/registry.ts";
 import * as stock from "../stock/public.ts";
 import { requireAccess } from "./access.ts";
 import { replayCommand, requestHash, storeCommand } from "./command.ts";
+import { preserveCatalogFields } from "./cost.ts";
+import { ErpPartDisabled } from "../../engine/parts-gate.ts";
 import {
   COUNTS,
   CONTACT_COLUMNS,
@@ -173,6 +176,9 @@ function writeWarehouse(ctx: RpcContext, id: string, v: Record<string, unknown>)
 export function writeFields(ctx: RpcContext, id: string, entity: string, v: Record<string, unknown>) {
   if (entity === "contacts") writeContact(ctx, id, v);
   else if (entity === "products") {
+    const before = data(ctx.db, id) ?? {};
+    v = preserveCatalogFields(ctx.parts.stock, v, before, { stock_min: null, stock_max: null });
+    if (!ctx.parts.stock && v.format !== before.format && (v.format === "E" || before.format === "E")) throw new ErpPartDisabled();
     if (one(ctx.db, 'SELECT 1 x FROM "erp_catalog__product" WHERE record_id=?', id)) updateProduct(ctx, id, v);
     else insertProduct(ctx, id, v);
   } else if (entity === "warehouses") writeWarehouse(ctx, id, v);
@@ -264,5 +270,5 @@ export function mutate(ctx: RpcContext, p: MutateInput): Record<string, unknown>
     );
   }
   storeCommand(ctx, p.command, p.user!, hash, result);
-  return result;
+  return projectCatalogResult(ctx.parts, result);
 }

@@ -28,7 +28,7 @@ import type { CatalogEditorProps } from './CatalogEditor';
 import { aborted, errorText } from './catalog-shared';
 import ContactFiles, { ContactPhoto } from './ContactFiles';
 import './contacts.css';
-import { blockEnabled } from '../../blocks';
+import { blockEnabled, fieldEnabled, availablePayload } from '../../blocks';
 
 // Formulário de Cliente ou Fornecedor no padrão do Origin (lane contatos, CF-00 a CF-50): página única com Dados
 // cadastrais, Endereço (Geral | Cobrança), Contato, Dados adicionais (recolhível), Financeiro, Observações e Anexos
@@ -127,8 +127,9 @@ function ContactForm({ controller, record, writable, onClose, onSaved, embeddedP
     return () => request.abort();
   }, [controller]);
   // Categoria (Origin CF-42): the árvore com busca of the receitas and the despesas (Financeiro > Categorias, SQL 135).
-  const categories = useOptions<CategoryNode[]>(async signal => (await Promise.all((['receivable', 'payable'] as const).map(async kind => categoryTree(await controller.finance(`/v1/financeiro/categorias-arvore?kind=${kind}`, { signal }), kind).items))).flat(), [controller]);
-  const natures = useOptions<Nature[]>(async signal => !blockEnabled('erp-fiscal') ? [] : ((await controller.fiscalInvoices('/v1/notas-fiscais/naturezas?active=true&limit=100', { signal })) as { items: Nature[] }).items, [controller]);
+  const financeEnabled = blockEnabled('erp-financeiro'), fiscalEnabled = blockEnabled('erp-fiscal');
+  const categories = useOptions<CategoryNode[]>(async signal => !financeEnabled ? [] : (await Promise.all((['receivable', 'payable'] as const).map(async kind => categoryTree(await controller.finance(`/v1/financeiro/categorias-arvore?kind=${kind}`, { signal }), kind).items))).flat(), [controller, financeEnabled]);
+  const natures = useOptions<Nature[]>(async signal => !fiscalEnabled ? [] : ((await controller.fiscalInvoices('/v1/notas-fiscais/naturezas?active=true&limit=100', { signal })) as { items: Nature[] }).items, [controller, fiscalEnabled]);
   useEffect(() => {
     if (!personQuery.trim()) { setPersonOptions([]); return; }
     const request = new AbortController();
@@ -148,7 +149,7 @@ function ContactForm({ controller, record, writable, onClose, onSaved, embeddedP
     setValues(previous => ({ ...previous, [key]: value, ...(key === 'ie_exempt' ? { taxpayer: suggestedTaxpayer(value === 'true', previous.taxpayer ?? '9'), ...(value === 'true' ? { ie: '' } : {}) } : {}) }));
     saver.setWarnings(null); if (key === invalid) { setInvalid(null); saver.setError(''); }
   };
-  const isRequired = (key: string) => key === 'name' || (required.includes(key) && requiredApplies(key, values));
+  const isRequired = (key: string) => fieldEnabled(key) && (key === 'name' || (required.includes(key) && requiredApplies(key, values)));
   const field = (spec: ContactField, extra?: ReactNode) => {
     if (!fieldVisible(spec.key, person)) return null;
     const id = `contact-${spec.key}`, value = values[spec.key] ?? '', hintId = spec.hint ? `${id}-hint` : undefined;
@@ -169,7 +170,7 @@ function ContactForm({ controller, record, writable, onClose, onSaved, embeddedP
   };
   const submit = (event: FormEvent) => {
     event.preventDefault(); if (locked) return;
-    try { setInvalid(null); saver.save(contactPayload({ ...values, seller_id: seller?.id ?? '' }, types, persons.map(p => p.id), { required, previous: record, today })); }
+    try { setInvalid(null); saver.save(availablePayload(contactPayload(availablePayload({ ...values, seller_id: seller?.id ?? '' }), types, persons.map(p => p.id), { required: required.filter(fieldEnabled), previous: record, today }))); }
     catch (failure) { if (failure instanceof CatalogValidationError) { setInvalid(failure.field); saver.setError(failure.message); setFocusKey(n => n + 1); if (BILLING_KEYS.includes(failure.field)) setAddressTab('cobranca'); } else throw failure; }
   };
   const typesList: readonly ContactTypeItem[] = contactTypes?.items ?? [];
@@ -236,7 +237,7 @@ function ContactForm({ controller, record, writable, onClose, onSaved, embeddedP
             {/* 202610200170 (documentos lane): Foto in the private attachment storage. */}
             <ContactPhoto controller={controller} contactId={record?.id ?? null} writable={writable && !excluded} />
           </div>}</section>
-        <section className="contact-section" id="contact-section-finance" tabIndex={-1}><h3 className="catalog-group-title">Financeiro</h3>
+        {blockEnabled('erp-financeiro')&&<section className="contact-section" id="contact-section-finance" tabIndex={-1}><h3 className="catalog-group-title">Financeiro</h3>
           <div className="contact-grid">
             <fieldset className="contact-credit real-field-wide"><legend>Limite de crédito{isRequired('credit_limit_mode') ? ' *' : ''}</legend>
               <label className="contact-switch"><input type="checkbox" role="switch" id="contact-credit_unlimited" checked={values.credit_limit_mode === 'unlimited'} disabled={locked} onChange={event => change('credit_limit_mode', event.target.checked ? 'unlimited' : 'value')} />Ilimitado</label>
@@ -248,7 +249,7 @@ function ContactForm({ controller, record, writable, onClose, onSaved, embeddedP
             <div className="form-field"><label htmlFor="contact-finance_category_id">Categoria<span className="contact-hint" title="Categoria de receita/despesa" aria-hidden="true"><Icon name="circle-info" size={10} /></span></label>
               {categories.error ? <input id="contact-finance_category_id" value={record?.finance_category_name ?? 'Sem categoria'} readOnly disabled title="Seu perfil não consulta as categorias financeiras." />
                 : <CategoryTreePicker id="contact-finance_category_id" items={categoryList} value={values.finance_category_id ?? ''} currentName={record?.finance_category_name} disabled={locked} onChange={next => change('finance_category_id', next)} />}</div>
-          </div></section>
+          </div></section>}
         <section className="contact-section" id="contact-section-notes" tabIndex={-1}><h3 className="catalog-group-title">Observações</h3><div className="contact-grid">{field(SECTION_FIELDS.observacoes[0])}</div></section>
         {/* Wabotia: sem o painel do espelho do Origin (Leva H, 350) nem o complemento Transportador dele: Origin fora (motor 91213b8). */}
         <section className="contact-section" id="contact-section-files" tabIndex={-1}><button type="button" className="contact-collapse" aria-expanded={attachmentsOpen} onClick={() => setAttachmentsOpen(!attachmentsOpen)}><Icon name={attachmentsOpen ? 'chevron-down' : 'chevron-right'} size={11} /><h3 className="catalog-group-title">Anexos</h3></button>

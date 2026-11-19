@@ -7,6 +7,7 @@ import { decText, formatScaled } from "../../engine/dec.ts";
 import { one } from "../../engine/driver.ts";
 import { fromSqlite } from "../../engine/errors.ts";
 import type { RpcContext } from "../../engine/registry.ts";
+import { erpOperationRequirement, erpRequirementMet } from "../../parts-requirements.ts";
 import { todaySaoPaulo } from "../../engine/time.ts";
 import { commissionConfirmed } from "../finance/public.ts";
 import { bizUnitCost } from "../preferences/shared.ts";
@@ -14,6 +15,7 @@ import { averageCosts } from "../stock/public.ts";
 
 /** erp_documents.cost_apply(documento): quantos itens receberam custo. */
 export function costApply(ctx: RpcContext, document: string): number {
+  if (!erpRequirementMet(ctx.parts, erpOperationRequirement("margin"))) return 0;
   const db = ctx.db;
   const d = one(db, 'SELECT id, kind, status FROM "erp_documents__document" WHERE id=?', document);
   if (!d || d.kind !== "sales_orders" || !commissionConfirmed(d.kind, d.status)) return 0;
@@ -54,6 +56,7 @@ export function costApply(ctx: RpcContext, document: string): number {
  * data_exception e check_violation desfazendo o que a tentativa escreveu.
  */
 export function costApplyCapture(ctx: RpcContext, document: string) {
+  if (!erpRequirementMet(ctx.parts, erpOperationRequirement("margin"))) return;
   try {
     ctx.db.transaction(() => costApply(ctx, document));
   } catch (e) {

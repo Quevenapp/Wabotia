@@ -1,3 +1,4 @@
+import { targetEnabled } from '../../blocks';
 import {Link,Navigate,useLocation} from 'react-router-dom';
 import type {AccessState} from '../lib/real-access';
 import {COMPANY_PREFERENCES,resolvePreferences} from '../lib/origin-menu';
@@ -37,7 +38,8 @@ import type {NativeRequestOptions} from '../lib/real-access';
  * served by this same module, so the company router needs no new entry.
  */
 export default function CompanyPreferences({controller,state}:{controller:PreferencesController&UsersController&SystemLogController&BusinessController&{catalog?:(path:string,options?:NativeRequestOptions)=>Promise<unknown>};state:AccessState}){
- const {pathname}=useLocation();
+ const {pathname,search}=useLocation();
+ if(!targetEnabled(pathname+search))return <section className="real-state-panel"><h1>Rotina indisponível</h1><p>Esta preferência depende de uma parte desligada ou de um acesso não concedido.</p></section>;
  if(pathname==='/preferencias/sistema/wabotia')return <WabotiaPairing controller={controller as unknown as Parameters<typeof WabotiaPairing>[0]['controller']} state={state}/>;
  if(pathname==='/preferencias/sistema/atualizacoes')return <SystemUpdates controller={controller as unknown as Partial<UpdatePort>} state={state}/>;
  if(pathname==='/meu-negocio')return <BusinessDashboards key={state.membership!.user_id} controller={controller}/>;

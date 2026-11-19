@@ -29,6 +29,7 @@ import {
   productWarnings,
 } from "../product-detail.ts";
 import { updateRecord, writeFields } from "../record.ts";
+import { catalogUnavailable, preserveCatalogFields } from "../cost.ts";
 
 const MAX_VERSION = 2147483647;
 const invalidCommand = (): never => raise("22023", "erp_catalog_invalid_command");
@@ -74,6 +75,13 @@ export function erpCatalogProductSave(ctx: RpcContext, a: RpcArgs) {
   const hash = requestHash({ actor: user, entity: "products", id, version: expected, data: input, set_active: false, active: null });
   const replayed = replayCommand(ctx, command!, user!, hash);
   if (replayed) return replayed;
+  const savedDetail = id === null ? {} : productDetailData(db, id, false) ?? {};
+  detail = preserveCatalogFields(ctx.parts.stock, detail, savedDetail, { lot_control: false });
+  if (!ctx.parts.purchases || !ctx.parts.stock) {
+    preserveCatalogFields(false, detail, savedDetail, { suppliers: [] });
+    // Reenviar o mesmo fornecedor não recaptura custo nem recria vínculos.
+    delete detail.suppliers;
+  }
   const accepted = acknowledged as string[] | null;
   const confirm = (patch: Record<string, unknown>, target: string | null) => {
     if (accepted === null) return [];
@@ -161,7 +169,10 @@ export function erpCatalogProductSave(ctx: RpcContext, a: RpcArgs) {
       if (!isEmpty(detail)) productDetailWrite(ctx, id, detail);
     }
   }
-  const result = { entity: "products", record: productFull(db, target), replayed: false, data_mode: "erp_native" };
+  const full = productFull(db, target);
+  const record = full;
+  const result = { entity: "products", record, replayed: false, data_mode: "erp_native",
+    ...catalogUnavailable(ctx.parts, ["stock", "purchases"]) };
   const audit = (action: string, beforeData: unknown, afterData: unknown) =>
     db.exec(
       `INSERT INTO "erp_catalog__audit"(actor, command_id, entity, record_id, action, before_data, after_data, created_at)

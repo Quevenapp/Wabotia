@@ -1,3 +1,5 @@
+import { ERP_PARTS_STATE_SQL, erpPartsStateOf, erpPartsEnvelope, readErpPartsState } from "./parts-state";
+import { readErpPartsSnapshot } from "../../erp/parts.ts";
 // Lado do núcleo da porta de identidade do ERP (src/erp/engine/identity.ts):
 // o Worker monta o envelope com o que o Wabotia sabe da pessoa e da área, e o
 // motor nunca consulta o D1.
@@ -9,11 +11,10 @@
 // A lista de pessoas sai no mesmo lote do D1 antes da rota (src/security.ts,
 // authenticate com `prefetch`): não custa ida a mais ao banco.
 import { cachedAll } from "../../db";
-import { modules, moduleStates } from "../registry";
+import { modules, type ModuleStates } from "../registry";
 import { ApiError, type Actor, type Env } from "../../types";
 import { rolesOf } from "../../access";
 import { refuseEngineActor, storedAccess } from "../../security";
-import { isFullCustomerEnabled } from "../../customer/feature";
 import {
   ERP_ROLES,
   type ErpPerson,
@@ -27,7 +28,24 @@ import {
  * (erpRoleOf): o LIKE só poupa linhas.
  */
 export const ERP_PEOPLE_SQL =
-  "SELECT u.id,u.name,u.email,u.role,u.access,EXISTS(SELECT 1 FROM user_factors f WHERE f.user_id=u.id AND f.status='active') has_factor FROM users u WHERE u.disabled=0 AND (u.role='admin' OR (u.access LIKE '%\"erp:%' AND EXISTS(SELECT 1 FROM json_each(u.profiles) WHERE value=?)))";
+  "SELECT u.id,u.name,u.email,u.role,u.access,EXISTS(SELECT 1 FROM user_factors f WHERE f.user_id=u.id AND f.status='active') has_factor,NULL erp_parts_state,NULL erp_parts_read_at FROM users u WHERE u.disabled=0 AND (u.role='admin' OR (u.access LIKE '%\"erp:%' AND EXISTS(SELECT 1 FROM json_each(u.profiles) WHERE value=?1)))" +
+  // Uma linha de controle, inclusive sem pessoas: reaproveita a consulta
+  // já incluída no batch(4) de autenticação, sem modificar seu chamador.
+  ` UNION ALL SELECT NULL,NULL,NULL,NULL,NULL,0,
+    (SELECT json_group_array(json_object('module_id',module_id,'enabled',enabled,
+      'revision',revision,'delivered_revision',delivered_revision)) FROM (${ERP_PARTS_STATE_SQL.replace("?", "?1")})),
+    CAST(strftime('%s','now') AS INTEGER)*1000`;
+
+async function identityPartsState(env: Env, profile: string) {
+  // O cache é da requisição autenticada, invalidado por escrita em módulos.
+  // A validade começa no SELECT, nunca no momento de consumir seu resultado.
+  const row = (await cachedAll(env, ERP_PEOPLE_SQL, profile)).find(r => r.erp_parts_state != null);
+  if (row) {
+    const state = erpPartsStateOf(profile, JSON.parse(row.erp_parts_state), Number(row.erp_parts_read_at));
+    if (readErpPartsSnapshot(state.snapshot, profile)) return state;
+  }
+  return readErpPartsState(env, profile);
+}
 
 /**
  * Identidades de sistema: um módulo agindo no ERP sem pessoa nem chave (a
@@ -66,11 +84,12 @@ export function systemActorsOf(
 }
 
 /** Identidades de sistema ativas na área (módulos ligados com erp_role). */
-async function systemActors(env: Env, profile: string) {
-  const actors = systemActorsOf(modules, await moduleStates(env, profile));
+async function systemActors(env: Env, profile: string, states?: ModuleStates) {
+  states ??= (await readErpPartsState(env, profile)).states;
+  const actors = systemActorsOf(modules, states);
   // Registro real, presente também nos envelopes humanos. Não depende de
   // definition.ts, nem concede papel ERP ao atendente ou ao motor de IA.
-  if (await isFullCustomerEnabled(env, profile))
+  if (states.erp)
     actors.push(["contact-erp-link", { name: "Sistema · Cadastro", role: "vendas" }]);
   return actors;
 }
@@ -90,9 +109,9 @@ export async function systemUserId(id: string) {
 }
 
 /** As identidades de sistema como pessoas do envelope. */
-async function systemPeople(env: Env, profile: string): Promise<ErpPerson[]> {
+async function systemPeople(env: Env, profile: string, states?: ModuleStates): Promise<ErpPerson[]> {
   return Promise.all(
-    (await systemActors(env, profile)).map(async ([id, s]) => ({
+    (await systemActors(env, profile, states)).map(async ([id, s]) => ({
       user_id: await systemUserId(id),
       name: s.name,
       email: null,
@@ -196,6 +215,7 @@ export function erpRoleOf(actor: Actor): ErpRole | null {
 }
 
 function personOf(row: any): ErpPerson | null {
+  if (!row.id) return null; // Linha de controle das partes, não uma pessoa.
   const erp_role =
     row.role === "admin" ? "admin" : roleOfList(storedAccess(row.access));
   if (!erp_role) return null;
@@ -215,11 +235,11 @@ function personOf(row: any): ErpPerson | null {
  * (src/erp/domains/access/identity.ts): tirar o escopo ou desligar a
  * aplicação a desativa na requisição seguinte.
  */
-export async function erpPeople(env: Env, profile: string) {
+export async function erpPeople(env: Env, profile: string, states?: ModuleStates) {
   const [people, apps, system] = await Promise.all([
     cachedAll(env, ERP_PEOPLE_SQL, profile),
     cachedAll(env, ERP_APPS_SQL, profile),
-    systemPeople(env, profile),
+    systemPeople(env, profile, states),
   ]);
   return [...people.map(personOf), ...apps.map(appPersonOf), ...system].filter(
     (p): p is ErpPerson => p !== null,
@@ -252,7 +272,8 @@ export async function erpIdentity(
       "erp_role_required",
       "Seu acesso não inclui um papel no ERP. Peça ao administrador em Pessoas e acessos.",
     );
-  const people = await erpPeople(env, profile);
+  const state = await identityPartsState(env, profile);
+  const people = await erpPeople(env, profile, state.states);
   const self = people.find((p) => p.user_id === actor.id);
   return {
     actor: {
@@ -267,6 +288,7 @@ export async function erpIdentity(
       is_agent: !!actor.via,
     },
     people,
+    ...await erpPartsEnvelope(env, profile, state.snapshot),
   };
 }
 
@@ -288,7 +310,8 @@ async function appIdentity(
         ? "Esta chave precisa do escopo erp:write para alterar o ERP."
         : "Esta chave precisa do escopo erp:read ou erp:write para ler o ERP.",
     );
-  const people = await erpPeople(env, profile);
+  const state = await identityPartsState(env, profile);
+  const people = await erpPeople(env, profile, state.states);
   // O papel vem da linha da aplicação, lida no mesmo lote (ERP_APPS_SQL). O
   // ator da chave tem id "app:<uuid>"; no ERP vale o uuid da aplicação.
   const appId = appUserId(actor);
@@ -324,6 +347,7 @@ async function appIdentity(
       is_technical: true,
     },
     people,
+    ...await erpPartsEnvelope(env, profile, state.snapshot),
   };
 }
 
@@ -337,12 +361,13 @@ export async function erpSystemIdentity(
   profile: string,
   id: string,
 ): Promise<IdentityPort> {
-  const system = (await systemActors(env, profile)).find(
+  const state = await identityPartsState(env, profile);
+  const system = (await systemActors(env, profile, state.states)).find(
     ([k]) => k === id,
   )?.[1];
   // Desconhecida, ou módulo desligado na área: não age no ERP.
   if (!system) throw new Error(`erp_system_actor_unknown:${id}`);
-  const people = await erpPeople(env, profile);
+  const people = await erpPeople(env, profile, state.states);
   const user_id = await systemUserId(id);
   return {
     actor: {
@@ -357,5 +382,6 @@ export async function erpSystemIdentity(
       is_technical: true,
     },
     people,
+    ...await erpPartsEnvelope(env, profile, state.snapshot),
   };
 }

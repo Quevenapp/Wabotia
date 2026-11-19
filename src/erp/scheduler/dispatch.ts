@@ -10,6 +10,9 @@ import type { SqlDriver } from "../engine/driver.ts";
 import { ErpError } from "../engine/errors.ts";
 import { callRpc } from "../engine/registry.ts";
 import { Clock } from "../engine/time.ts";
+import { ERP_PART_MODULES, ERP_MODULE_IDS, erpRequirement, erpRequirementMet, normalizeErpParts, type ErpParts, type ErpModuleId } from "../parts.ts";
+import { erpTaskRequirement } from "../parts-requirements.ts";
+import { MINUTE, taskById, taskDto, tasksWhere, updateTask, type Task } from "../domains/preferences/platform.ts";
 import { HOUR_MS, ROUTINES, WB_ROUTINE_DDL, type Routine } from "./routines.ts";
 
 /** Tarefa tomada da fila (o que erp_platform_task_claim devolve e o executor usa). */
@@ -19,6 +22,8 @@ export interface ClaimedTask {
   purpose: string;
   payload: unknown;
   state: unknown;
+  /** Estado anterior ao claim, para devolver sem tentativa operacional. */
+  previous?: Task;
 }
 
 /**
@@ -26,7 +31,7 @@ export interface ClaimedTask {
  * tarefa (erp_platform_task_finish); o resultado é o p_result. Erro: a tarefa
  * volta à fila com backoff (ou falha, sem tentativas).
  */
-export type TaskHandler = (db: SqlDriver, task: ClaimedTask, clock: Clock) => Record<string, unknown>;
+export type TaskHandler = (db: SqlDriver, task: ClaimedTask, clock: Clock, parts: Readonly<ErpParts>) => Record<string, unknown>;
 
 /**
  * Finalidades com executor. company_export e export_cleanup dependem do
@@ -34,8 +39,8 @@ export type TaskHandler = (db: SqlDriver, task: ClaimedTask, clock: Clock) => Re
  * esperam na fila sem acordar o alarme (stub em docs/ERP-AGENDADOR.md).
  */
 export const TASK_HANDLERS: Readonly<Record<string, TaskHandler>> = {
-  notifications_generate: (db, task, clock) =>
-    callRpc(db, "erp_platform_notifications_run", { p_task: task.id, p_lease: task.lease }, clock) as Record<string, unknown>,
+  notifications_generate: (db, task, clock, parts) =>
+    callRpc(db, "erp_platform_notifications_run", { p_task: task.id, p_lease: task.lease }, clock, { parts }) as Record<string, unknown>,
 };
 
 export const WAKE_BUDGET_MS = 2_000;
@@ -52,7 +57,10 @@ export interface RoundOptions {
   elapsed?: () => number;
   /** Cede a vez entre unidades. Padrão: setTimeout 0. */
   yieldTurn?: () => Promise<void>;
-  /** Blocos do ERP ligados (vindos do wake); "erp" vale sempre. */
+  /** Fotografia explícita. Produção também fornece readParts, consultando o KV. */
+  parts?: Readonly<ErpParts>;
+  readParts?: () => Promise<Readonly<ErpParts> | null>;
+  /** Compatibilidade de chamada direta do motor; nunca usada pelo wake. */
   blocks?: Readonly<Record<string, boolean>>;
   routines?: readonly Routine[];
   handlers?: Readonly<Record<string, TaskHandler>>;
@@ -74,7 +82,7 @@ export interface RoundReport {
   /** Quando acordar de novo (ms); null só se nada estiver previsto (não ocorre com rotinas). */
   nextWake: number | null;
   routines: { id: string; status: "ok" | "partial" | "error" | "skipped"; error?: string }[];
-  tasks: { id: string; purpose: string; outcome: "done" | "retry" | "lost" }[];
+  tasks: { id: string; purpose: string; outcome: "done" | "retry" | "lost" | "waiting" }[];
   /** Há tarefa com arquivo vencida (ou posse dela vencida) para o executor de arquivos. */
   fileDue: boolean;
 }
@@ -98,14 +106,80 @@ export function ensureRoutines(db: SqlDriver, routines: readonly Routine[], now:
   for (const r of routines) db.exec("INSERT INTO wb_routine(id, next_run_us) VALUES (?, ?) ON CONFLICT(id) DO NOTHING", r.id, us(now));
 }
 
-const enabled = (r: Routine, blocks: Readonly<Record<string, boolean>>) => r.block === "erp" || blocks[r.block] === true;
+// A forma antiga é somente para chamadas diretas do motor (testes anteriores).
+const legacyParts = (blocks: Readonly<Record<string, boolean>> = {}) => normalizeErpParts({
+  ...Object.fromEntries(Object.entries(ERP_PART_MODULES).map(([key, id]) => [key, blocks[id] ?? !["erp-fiscal", "erp-cobranca", "erp-pdv"].includes(id)])),
+});
+const enabled = (r: Routine, parts: Readonly<ErpParts>) =>
+  (ERP_MODULE_IDS as readonly string[]).includes(r.block) && erpRequirementMet(parts, erpRequirement(r.block as ErpModuleId));
+
+export const taskEligible = (purpose: string, payload: unknown, parts: Readonly<ErpParts>) => {
+  const requirement = erpTaskRequirement(purpose, payload);
+  return !!requirement && erpRequirementMet(parts, requirement);
+};
+const eligibleTasks = (db: SqlDriver, purposes: readonly string[], parts: Readonly<ErpParts>) =>
+  !parts.customers || !purposes.length ? [] : tasksWhere(db,
+    `WHERE purpose IN (SELECT value FROM json_each(?)) AND ((status='queued' AND attempts<max_attempts) OR status='running')
+     ORDER BY next_attempt_at, created_at, id`, JSON.stringify(purposes))
+    .filter(t => taskEligible(t.purpose, t.payload, parts));
+
+/**
+ * Claim local do executor: mesmo protocolo da fila, mas seleção E expiração
+ * respeitam o requisito persistido. O RPC legado expira inclusive tarefas
+ * fora de p_purposes; por isso não serve para uma fila parcialmente suspensa.
+ */
+export function claimEligibleTask(db: SqlDriver, lease: string, purposes: readonly string[], clock: Clock, parts: Readonly<ErpParts>): ClaimedTask | null {
+  return db.transaction(() => {
+    const now = BigInt(Date.now()) * 1000n;
+    for (const t of eligibleTasks(db, purposes, parts)) {
+      if (t.status !== "running" || t.lease_until === null || t.lease_until >= now) continue;
+      const at = clock.next().toString();
+      db.exec(`UPDATE "erp_platform__task_attempt" SET finished_at=?, outcome='expired', error_code='ERP_TASK_LEASE_EXPIRED'
+        WHERE task_id=? AND attempt=? AND finished_at IS NULL`, at, t.id, t.attempts);
+      if (t.attempts >= t.max_attempts)
+        updateTask(db, t.id, { status: "failed", lease_token: null, lease_until: null, finished_at: at, error_code: "ERP_TASK_LEASE_EXPIRED" });
+      else updateTask(db, t.id, { status: "queued", lease_token: null, lease_until: null, next_attempt_at: at });
+    }
+    const due = eligibleTasks(db, purposes, parts).find(t => t.status === "queued" && t.next_attempt_at <= BigInt(Date.now()) * 1000n);
+    if (!due) return null;
+    const at = clock.next();
+    updateTask(db, due.id, { status: "running", attempts: due.attempts + 1, lease_token: lease,
+      lease_until: (at + 5n * MINUTE).toString(), started_at: due.started_at ?? at.toString() });
+    db.exec('INSERT INTO "erp_platform__task_attempt"(task_id, attempt, lease_token, started_at) VALUES (?,?,?,?)',
+      due.id, due.attempts + 1, lease, clock.next().toString());
+    return { id: due.id, purpose: due.purpose, lease, payload: due.payload, state: due.progress, previous: due };
+  });
+}
+
+export function claimedTaskDto(db: SqlDriver, task: ClaimedTask) {
+  return { ...taskDto(db, taskById(db, task.id)!), payload: task.payload, state: task.state };
+}
+
+/** Desfaz só a posse deste executor; não marca erro nem gasta tentativa. */
+export function releaseBlockedTask(db: SqlDriver, task: ClaimedTask): void {
+  db.transaction(() => {
+    const current = taskById(db, task.id);
+    if (!current || current.status !== "running" || current.lease_token !== task.lease || !task.previous) return;
+    db.exec('DELETE FROM "erp_platform__task_attempt" WHERE task_id=? AND attempt=? AND lease_token=? AND finished_at IS NULL',
+      task.id, current.attempts, task.lease);
+    updateTask(db, task.id, { status: "queued", attempts: current.attempts - 1, lease_token: null, lease_until: null,
+      started_at: task.previous.started_at, next_attempt_at: task.previous.next_attempt_at.toString(),
+      progress: JSON.stringify(task.previous.progress ?? {}), error_code: task.previous.error_code });
+  });
+}
 
 /** Uma rodada: rotinas vencidas, depois a fila de tarefas, até o orçamento. */
 export async function runRound(db: SqlDriver, options: RoundOptions = {}): Promise<RoundReport> {
   const now = options.now ?? Date.now;
   const elapsed = options.elapsed ?? (() => performance.now());
   const yieldTurn = options.yieldTurn ?? realYield;
-  const blocks = options.blocks ?? {};
+  let parts: Readonly<ErpParts> | null = options.parts ?? legacyParts(options.blocks);
+  const refresh = async () => {
+    if (options.readParts) {
+      try { parts = await options.readParts(); } catch { parts = null; }
+    }
+    return !!parts?.customers;
+  };
   const routines = options.routines ?? ROUTINES;
   const handlers = options.handlers ?? TASK_HANDLERS;
   const clock = options.clock ?? new Clock();
@@ -116,10 +190,12 @@ export async function runRound(db: SqlDriver, options: RoundOptions = {}): Promi
   const report: RoundReport = { units: 0, more: false, nextWake: null, routines: [], tasks: [], fileDue: false };
   const spent = () => elapsed() - started >= budget || report.units >= maxUnits;
 
+  if (!(await refresh())) return report;
   ensureRoutines(db, routines, now());
 
   // (a) Rotinas vencidas, na ordem do registro.
   for (const routine of routines) {
+    if (!(await refresh())) break;
     if (spent()) {
       report.more = true;
       break;
@@ -127,7 +203,7 @@ export async function runRound(db: SqlDriver, options: RoundOptions = {}): Promi
     const row = db.exec("SELECT CAST(next_run_us AS TEXT) next_run_us, failures FROM wb_routine WHERE id=?", routine.id).rows[0];
     const t0 = now();
     if (!row || ms(row.next_run_us)! > t0) continue;
-    if (!enabled(routine, blocks)) {
+    if (!enabled(routine, parts!)) {
       db.exec(
         "UPDATE wb_routine SET next_run_us=?, last_run_us=?, last_status='skipped', last_error=NULL, last_ms=0 WHERE id=?",
         us(routine.next(t0)),
@@ -140,10 +216,11 @@ export async function runRound(db: SqlDriver, options: RoundOptions = {}): Promi
     const w0 = elapsed();
     let status: "ok" | "partial" | "error" = "partial";
     for (;;) {
+      if (!(await refresh()) || !enabled(routine, parts!)) break;
       const at = now();
       try {
         const finished = db.transaction(() => {
-          const r = routine.step({ db, clock, now: at });
+          const r = routine.step({ db, clock, now: at, parts: parts! });
           if (r === "done")
             db.exec(
               `UPDATE wb_routine SET next_run_us=?, last_run_us=?, last_status='ok', last_error=NULL, last_ms=?,
@@ -153,6 +230,9 @@ export async function runRound(db: SqlDriver, options: RoundOptions = {}): Promi
               Math.round(elapsed() - w0),
               routine.id,
             );
+          else
+            db.exec("UPDATE wb_routine SET last_run_us=?, last_status='partial', last_ms=? WHERE id=?",
+              us(at), Math.round(elapsed() - w0), routine.id);
           return r === "done";
         });
         report.units++;
@@ -186,38 +266,39 @@ export async function runRound(db: SqlDriver, options: RoundOptions = {}): Promi
     }
     if (status === "ok") report.routines.push({ id: routine.id, status });
     if (status === "partial") {
-      // Fica vencida (next_run_us não mudou): a próxima acordada continua.
-      db.exec("UPDATE wb_routine SET last_run_us=?, last_status='partial', last_ms=? WHERE id=?", us(now()), Math.round(elapsed() - w0), routine.id);
+      // A última unidade já gravou seu progresso antes do yield. Não escreve
+      // depois de uma revalidação que pode ter encontrado a Base vencida.
       report.routines.push({ id: routine.id, status });
-      report.more = true;
+      report.more = !!parts?.customers && enabled(routine, parts);
     }
   }
 
-  // (b) Fila de tarefas: uma por vez (tomar; executar e concluir numa transação).
+  // (b) Fila: a seleção e o claim usam o mesmo requisito do próximo wake.
   const purposes = Object.keys(handlers);
   while (purposes.length && !report.more) {
-    if (spent()) {
-      report.more = Boolean(dueTask(db, purposes, now()));
-      break;
-    }
-    const lease = crypto.randomUUID();
-    const claimed = (callRpc(db, "erp_platform_task_claim", { p_lease: lease, p_purposes: purposes }, clock) as { task: Record<string, unknown> | null }).task;
+    if (!(await refresh())) break;
+    if (spent()) break;
+    if (!dueTask(db, purposes, now(), parts!)) break;
+    const task = claimEligibleTask(db, crypto.randomUUID(), purposes, clock, parts!);
+    if (!task) break;
     report.units++;
-    if (!claimed) break;
     await yieldTurn();
-    const task: ClaimedTask = { id: String(claimed.id), lease, purpose: String(claimed.purpose), payload: claimed.payload, state: claimed.state };
+    if (!(await refresh()) || !taskEligible(task.purpose, task.payload, parts!)) {
+      releaseBlockedTask(db, task);
+      report.tasks.push({ id: task.id, purpose: task.purpose, outcome: "waiting" });
+      continue;
+    }
     try {
       db.transaction(() => {
-        const result = handlers[task.purpose](db, task, clock);
-        callRpc(db, "erp_platform_task_finish", { p_task: task.id, p_lease: lease, p_ok: true, p_result: result ?? {}, p_error: null }, clock);
+        const result = handlers[task.purpose](db, task, clock, parts!);
+        callRpc(db, "erp_platform_task_finish", { p_task: task.id, p_lease: task.lease, p_ok: true, p_result: result ?? {}, p_error: null }, clock, { parts: parts! });
       });
       report.tasks.push({ id: task.id, purpose: task.purpose, outcome: "done" });
     } catch (error) {
       try {
-        callRpc(db, "erp_platform_task_finish", { p_task: task.id, p_lease: lease, p_ok: false, p_result: null, p_error: taskErrorCode(error) }, clock);
+        callRpc(db, "erp_platform_task_finish", { p_task: task.id, p_lease: task.lease, p_ok: false, p_result: null, p_error: taskErrorCode(error) }, clock, { parts: parts! });
         report.tasks.push({ id: task.id, purpose: task.purpose, outcome: "retry" });
       } catch {
-        // Posse perdida (venceu durante a execução): o próximo claim a expira.
         report.tasks.push({ id: task.id, purpose: task.purpose, outcome: "lost" });
       }
     }
@@ -225,63 +306,34 @@ export async function runRound(db: SqlDriver, options: RoundOptions = {}): Promi
     await yieldTurn();
   }
 
-  report.fileDue = filePurposes.length > 0 && Boolean(dueTask(db, filePurposes, now()));
-  report.nextWake = report.more
-    ? now() + CONTINUE_AFTER_MS
-    : nextWake(db, routines, blocks, [...purposes, ...filePurposes], now());
+  if (!(await refresh())) return { ...report, more: false, nextWake: null, fileDue: false };
+  report.fileDue = Boolean(dueTask(db, filePurposes, now(), parts!));
+  // Orçamento esgotado só implica continuação se ainda houver trabalho elegível.
+  report.more = routines.some(r => enabled(r, parts!) &&
+    ms(db.exec("SELECT CAST(next_run_us AS TEXT) v FROM wb_routine WHERE id=?", r.id).rows[0]?.v)! <= now()) ||
+    Boolean(dueTask(db, purposes, now(), parts!));
+  report.nextWake = report.more ? now() + CONTINUE_AFTER_MS : nextWake(db, routines, parts!, [...purposes, ...filePurposes], now());
   return report;
 }
 
-/**
- * Há tarefa vencida de uma finalidade com executor? Vencida no milissegundo
- * (a resolução do alarme): o relógio do motor é monotônico em µs e o Date do
- * workerd fica parado durante o código síncrono, então a tarefa criada nesta
- * rodada nasce alguns µs depois de `at` e já conta.
- */
-function dueTask(db: SqlDriver, purposes: string[], at: number) {
-  return db.exec(
-    `SELECT 1 x FROM "erp_platform__task" WHERE purpose IN (SELECT value FROM json_each(?))
-     AND ((status='queued' AND attempts<max_attempts AND next_attempt_at<?) OR (status='running' AND lease_until<?)) LIMIT 1`,
-    JSON.stringify(purposes),
-    us(at + 1),
-    us(at),
-  ).rows[0];
-}
+const dueTask = (db: SqlDriver, purposes: readonly string[], at: number, parts: Readonly<ErpParts>) =>
+  eligibleTasks(db, purposes, parts).some(t => t.status === "queued"
+    ? t.next_attempt_at < BigInt(at + 1) * 1000n : t.lease_until !== null && t.lease_until < BigInt(at) * 1000n);
 
-/**
- * Próxima acordada: a rotina ligada mais cedo, a próxima tentativa de tarefa
- * com executor e a posse que vence (para expirá-la); nunca mais de 1 h.
- */
-export function nextWake(
-  db: SqlDriver,
-  routines: readonly Routine[],
-  blocks: Readonly<Record<string, boolean>>,
-  purposes: string[],
-  at: number,
-): number {
-  let next = at + MAX_SLEEP_MS;
-  // Rotina de bloco desligado também conta: no horário dela o despachante
-  // confere os blocos de novo (skipped) e a empurra para o próximo horário.
-  const candidates = [
-    db.exec(
-      "SELECT CAST(min(next_run_us) AS TEXT) v FROM wb_routine WHERE id IN (SELECT value FROM json_each(?))",
-      JSON.stringify(routines.map((r) => r.id)),
-    ).rows[0]?.v,
-  ];
-  if (purposes.length)
-    candidates.push(
-      db.exec(
-        `SELECT CAST(min(CASE WHEN status='queued' THEN next_attempt_at ELSE lease_until END) AS TEXT) v FROM "erp_platform__task"
-         WHERE purpose IN (SELECT value FROM json_each(?)) AND ((status='queued' AND attempts<max_attempts) OR status='running')`,
-        JSON.stringify(purposes),
-      ).rows[0]?.v,
-    );
+/** Só trabalho elegível agenda alarme; fila inteiramente bloqueada fica sem wake. */
+export function nextWake(db: SqlDriver, routines: readonly Routine[], parts: Readonly<ErpParts>, purposes: string[], at: number): number | null {
+  if (!parts.customers) return null;
+  const ids = routines.filter(r => enabled(r, parts)).map(r => r.id);
+  const candidates: unknown[] = ids.length ? [db.exec(
+    "SELECT CAST(min(next_run_us) AS TEXT) v FROM wb_routine WHERE id IN (SELECT value FROM json_each(?))", JSON.stringify(ids),
+  ).rows[0]?.v] : [];
+  for (const task of eligibleTasks(db, purposes, parts))
+    candidates.push(task.status === "queued" ? task.next_attempt_at : task.lease_until === null ? null : task.lease_until + 1n);
+  let next: number | null = null;
   for (const c of candidates) {
     if (c === null || c === undefined) continue;
-    // Arredonda para cima: o relógio do motor é monotônico em µs (pode estar
-    // alguns µs à frente do ms), e acordar antes do vencimento é rodada vazia.
     const v = Number((BigInt(String(c)) + 999n) / 1000n);
-    if (v < next) next = v;
+    next = next === null ? v : Math.min(next, v);
   }
-  return Math.max(next, at + 1);
+  return next === null ? null : Math.max(Math.min(next, at + MAX_SLEEP_MS), at + 1);
 }

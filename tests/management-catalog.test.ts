@@ -6,6 +6,8 @@ import {
   ORIGIN_MENU,
 } from "../src/modules/erp/panel-menu";
 import { modules } from "../src/modules/registry";
+import { ERP_MODULE_IDS } from "../src/erp/parts";
+import { ERP_PART_OWNERS } from "../web/erp/modules";
 import { resourcesForRole } from "../src/erp/role-resources";
 import { pageModules, sections } from "../web/workspace-navigation";
 import { ORIGIN_MENU as legacyMenu } from "../web/erp/app/lib/origin-menu";
@@ -14,6 +16,7 @@ import { api, bearer, fixture } from "./service-center-fixture";
 
 const native: readonly ManagementItem[] = Object.values(NATIVE_MANAGEMENT_ITEMS).flat();
 const items = [...native, ...ERP_MANAGEMENT_ITEMS];
+const portedLegacy = ERP_MANAGEMENT_ITEMS.filter(item => item.id !== "erp.effect-maintenance");
 const originItems = ORIGIN_MENU.flatMap((group) => [
   ...group.columns.flatMap((column) => column.items),
   ...(group.footer ? [group.footer] : []),
@@ -30,7 +33,7 @@ describe("catálogo da casa de gestão", () => {
     });
     expect(new Set(destinations).size).toBe(items.length);
     for (const item of items) {
-      expect(item.id.startsWith(`${item.module}.`)).toBe(true);
+      expect(item.id.startsWith(`${item.target.kind === "ported" ? "erp" : item.module}.`)).toBe(true);
       expect(Number.isFinite(item.order)).toBe(true);
       expect(Number.isFinite(item.groupOrder)).toBe(true);
       expect(item.icon).not.toBe("");
@@ -64,13 +67,17 @@ describe("catálogo da casa de gestão", () => {
     expect(legacyMenu).toBe(ORIGIN_MENU);
     const linked = originItems.filter((item) => item.real);
     expect(linked).toHaveLength(43);
-    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(linked.length);
+    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(linked.length + 1);
+    expect(ERP_MANAGEMENT_ITEMS.find(item => item.id === "erp.effect-maintenance")).toMatchObject({
+      module: "erp", part: "sistema", groupLabel: "Sistema", order: 440,
+      target: { kind: "ported", to: "/manutencao-efeitos" }, permission: { kind: "erp" },
+    });
     const legacyTarget = (item: typeof ERP_MANAGEMENT_ITEMS[number]) => item.id === "erp.overview" ? "/acesso" : item.target.to;
     expect(ERP_MANAGEMENT_ITEMS.find(item => item.id === "erp.overview")?.target.to).toBe("/visao-geral");
-    expect(ERP_MANAGEMENT_ITEMS.map(legacyTarget)).toEqual(linked.map((item) => item.real!.to));
-    for (const item of ERP_MANAGEMENT_ITEMS) {
+    expect(portedLegacy.map(legacyTarget)).toEqual(linked.map((item) => item.real!.to));
+    for (const item of portedLegacy) {
       const old = linked.find((entry) => entry.real!.to === legacyTarget(item))!;
-      expect(item.module).toBe("erp");
+      expect(item.module).toBe(ERP_PART_OWNERS[item.part]);
       expect(item.label).toBe(old.label);
       expect(item.permission).toEqual({
         kind: "erp",
@@ -99,7 +106,7 @@ describe("catálogo da casa de gestão", () => {
     expect(menu.map((group) => group.name)).toEqual([
       "Resultados", "Comercial", "Compras", "Catálogo", "Estoque", "Financeiro", "Fiscal", "Pessoas",
     ]);
-    for (const item of ERP_MANAGEMENT_ITEMS) {
+    for (const item of portedLegacy) {
       const group = menu.find((group) => group.columns.some((column) => column.items.some((entry) => entry.to === (item.id === "erp.overview" ? "/acesso" : item.target.to))));
       expect(group?.name).toBe(item.groupLabel);
     }
@@ -107,7 +114,7 @@ describe("catálogo da casa de gestão", () => {
 
   it("vincula cada contribuição à declaração e tem exatamente um primary por módulo", () => {
     const contributed = modules.filter((module) => module.management?.length);
-    expect(contributed.map((module) => module.id).sort()).toEqual([...Object.keys(NATIVE_MANAGEMENT_ITEMS), "erp"].sort());
+    expect(contributed.map((module) => module.id).sort()).toEqual([...Object.keys(NATIVE_MANAGEMENT_ITEMS), ...ERP_MODULE_IDS].sort());
     for (const module of contributed) {
       const expected = items.filter((item) => item.module === module.id);
       expect(module.management).toEqual(expected);
@@ -145,7 +152,8 @@ describe("catálogo da casa de gestão", () => {
         management: module.management ?? [],
       });
     }
-    expect(data.find((entry) => entry.id === "erp")).toMatchObject({ enabled: false, management: ERP_MANAGEMENT_ITEMS });
+    for (const id of ERP_MODULE_IDS)
+      expect(data.find((entry) => entry.id === id)).toMatchObject({ enabled: false, management: ERP_MANAGEMENT_ITEMS.filter(item => item.module === id) });
     expect(data.find((entry) => entry.id === "queue")?.management).toEqual([]);
     const outsider = await fixture();
     expect((await api(await bearer(outsider.member), `/profiles/${f.profile}/modules`)).status).toBe(404);

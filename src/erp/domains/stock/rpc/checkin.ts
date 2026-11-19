@@ -7,6 +7,7 @@ import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { arrow, jsonbText } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
+import { requireRpcParts } from "../../../engine/parts-gate.ts";
 import { nextIdentity } from "../../../engine/sequence.ts";
 import { pgCompareText, pgLeft } from "../../../engine/text.ts";
 import { jsonTimestamp } from "../../../engine/time.ts";
@@ -128,6 +129,7 @@ function result(ctx: RpcContext, a: Row) {
   return { ...parse(one(ctx.db, 'SELECT result FROM "erp_stock__checkin_command" WHERE id=?', a.p_command_id)!.result), ...checkinDto(ctx.db, a.p_invoice_id), replayed: false };
 }
 export function checkinWrite(ctx: RpcContext, args: RpcArgs, action: string) {
+  requireRpcParts(ctx, `erp_stock_checkin_${action}`, args);
   const a: Row = { ...args }, db = ctx.db;
   checkinAccess(db, a.p_user_id, true);
   const min = ["restart", "finish"].includes(action) ? 1 : 0, max = action === "finish" ? 2147483645 : 2147483646;
@@ -208,6 +210,7 @@ function checkinPostBegin(db: SqlDriver, a: Row) {
   return c;
 }
 function checkinPost(ctx: RpcContext, a: Row, write: boolean) {
+  requireRpcParts(ctx, write ? "erp_stock_checkin_finish_post" : "erp_stock_checkin_post_preview", a);
   invoiceAccess(ctx.db, a.p_user_id, true);
   if (a.p_expected_version === null || a.p_expected_version < 1 || a.p_expected_version > 2147483645 || a.p_warehouse_id === null || (write && (a.p_preview_hash === null || !/^[a-f0-9]{64}$/.test(a.p_preview_hash)))) raise("22023", "erp_invoice_stock_invalid");
   const h = write ? hash({ profile: "stock-checkin-post-259", actor: a.p_user_id, invoice_id: a.p_invoice_id, version: a.p_expected_version, warehouse_id: a.p_warehouse_id, hash: a.p_preview_hash }) : "";

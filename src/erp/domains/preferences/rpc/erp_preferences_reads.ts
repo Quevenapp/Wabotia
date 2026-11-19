@@ -1,3 +1,6 @@
+import { erpEntityRequirement, ERP_ENTITY_PARTS, erpOperationRequirement } from "../../../parts-requirements.ts";
+import { requireErpParts } from "../../../engine/parts-gate.ts";
+import { queryAvailable } from "../business-rules.ts";
 // Leituras avulsas do domínio 11: public.erp_preferences_import_job e
 // _import_jobs (acompanhamento da importação de planilhas), erp_history_backups
 // e erp_read_records (cópias e espelho do Origin: as tabelas existem e ficam
@@ -61,6 +64,8 @@ export function erpPreferencesImportJob(ctx: RpcContext, a: RpcArgs) {
     raise("22023", "erp_preferences_import_invalid");
   if (!one(db, 'SELECT 1 x FROM "erp_preferences__import_job" WHERE id=? AND (? OR actor=?)', job, admin ? 1 : 0, user))
     raise("P0002", "erp_preferences_import_job_not_found");
+  const savedJob = importJobDto(db, job!);
+  requireErpParts(ctx, savedJob.kind === "compositions" ? erpOperationRequirement("composition") : erpEntityRequirement(savedJob.kind));
   const where = `job_id=? ${errors ? "AND status='invalid'" : ""}`;
   const total = Number(one(db, `SELECT count(*) n FROM "erp_preferences__import_row" WHERE ${where}`, job)!.n);
   const items = db
@@ -96,8 +101,10 @@ export function erpPreferencesImportJobs(ctx: RpcContext, a: RpcArgs) {
     offset > 100000
   )
     raise("22023", "erp_preferences_import_invalid");
-  const where = "(? OR actor=?) AND (? IS NULL OR status=?)";
-  const args = [admin ? 1 : 0, user, status, status];
+  const allowedKinds = Object.keys(ERP_ENTITY_PARTS).filter(kind => queryAvailable(ctx.parts, kind === "compositions" ? erpOperationRequirement("composition") : erpEntityRequirement(kind)));
+  const split = Object.values(ctx.parts).some(value => !value);
+  const where = "(? OR actor=?) AND (? IS NULL OR status=?)" + (split ? ` AND kind IN (${allowedKinds.map(() => "?").join(",")})` : "");
+  const args = [admin ? 1 : 0, user, status, status, ...(split ? allowedKinds : [])];
   const total = Number(one(db, `SELECT count(*) n FROM "erp_preferences__import_job" WHERE ${where}`, ...args)!.n);
   const ids = db
     .exec(`SELECT id, created_at FROM "erp_preferences__import_job" WHERE ${where}`, ...args)
@@ -226,6 +233,7 @@ export function erpReadRecords(ctx: RpcContext, a: RpcArgs) {
     (from !== null && to !== null && from > to)
   )
     raise("22023", "erp_invalid_query");
+  requireErpParts(ctx, erpEntityRequirement(entity));
   const contacts = new Map(
     db.exec(`SELECT source_id, payload FROM "origin_sync__raw_record" WHERE entity='contacts'`).rows.map((c) => [String(c.source_id), JSON.parse(String(c.payload))]),
   );
@@ -332,12 +340,14 @@ export function erpFilesListV2(ctx: RpcContext, a: RpcArgs) {
         ...map(r),
       });
   };
-  if (want("documentos"))
+  const kinds = ["sales_orders", "sales_proposals", "service_orders", "purchase_orders"].filter(kind => queryAvailable(ctx.parts, erpEntityRequirement(kind)));
+  if (want("documentos") && kinds.length)
     push(
       "documentos",
       db.exec(
         `SELECT ${base}, ${at}, d.kind, d.id doc_id, CAST(d.number AS TEXT) number, json_extract(d.contact_snapshot, '$.name') contact_name
-         FROM "erp_attachments__attachment" x JOIN "erp_documents__document" d ON d.id=x.document_id WHERE x.status='ready' AND x.deleted_at IS NULL`,
+         FROM "erp_attachments__attachment" x JOIN "erp_documents__document" d ON d.id=x.document_id WHERE x.status='ready' AND x.deleted_at IS NULL AND d.kind IN (${kinds.map(() => "?").join(",")})`,
+        ...kinds,
       ).rows,
       (r) => ({
         source_kind: String(r.kind),
@@ -360,7 +370,7 @@ export function erpFilesListV2(ctx: RpcContext, a: RpcArgs) {
         source_label: clean(r.name as string | null, 200),
       }),
     );
-  if (want("financeiro"))
+  if (want("financeiro") && queryAvailable(ctx.parts, erpEntityRequirement("receivables")))
     push(
       "financeiro",
       db.exec(
@@ -370,7 +380,7 @@ export function erpFilesListV2(ctx: RpcContext, a: RpcArgs) {
       ).rows,
       (r) => ({ source_kind: String(r.owner_kind), source_id: String(r.owner_id), source_code: null, source_label: clean(r.label as string | null, 200) }),
     );
-  if (want("produtos"))
+  if (want("produtos") && queryAvailable(ctx.parts, erpEntityRequirement("products")))
     push(
       "produtos",
       db.exec(

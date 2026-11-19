@@ -20,12 +20,15 @@ import {HomeProfileCard} from './CompanyChrome';
 import {HomeExpiring} from './HomeExpiring';
 import {Icon} from './Icon';
 import './real-home.css';
-import { blockEnabled, targetEnabled } from '../../blocks';
+import { blockEnabled, entityEnabled, targetEnabled } from '../../blocks';
 
 const count=(value:number)=>value.toLocaleString('pt-BR');
 const ORDER=['sales_orders','sales_proposals','purchase_orders','service_orders'];
 const PANEL_KEY='brufap.erp.home-panel',VALUES_KEY='brufap.erp.home-values';
 const noSubscription=()=>()=>{},noSnapshot=()=>null;
+// Fontes de erp_home_overview: Cobrança e PDV só alteram os atalhos desta tela.
+// A ordem fixa também evita recargas por reordenação das chaves do contexto.
+const summaryGeneration=()=>JSON.stringify((['erp','erp-produtos','erp-vendas','erp-compras','erp-estoque','erp-financeiro','erp-fiscal'] as const).map(blockEnabled));
 // Origin "Resumo diário": "Atualizado Hoje às 09:56" (horário de São Paulo).
 const updated=(asOf:string,businessDate:string)=>{const date=new Date(asOf),day=todaySP(date),time=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',hour:'2-digit',minute:'2-digit'}).format(date);return `${day===businessDate?'hoje':`em ${financeDate(day)}`} às ${time}`;};
 function readPanel(){try{return globalThis.localStorage?.getItem(PANEL_KEY)!=='closed';}catch{return true;}}
@@ -39,25 +42,37 @@ export default function RealHome({controller}:{controller:HomeController}){
   const access=homeSessionAccess(session);
   if(tracked&&!access)return <p className="real-result-status" role="status">Verificando permissões…</p>;
   const scope=access?`${access.user_id}:${access.role}:${(access.resources||[]).join(',')}`:'isolated';
-  return <HomeView key={scope} controller={controller} access={access}/>;
+  const partsGeneration=summaryGeneration();
+  return <HomeView key={scope} controller={controller} access={access} partsGeneration={partsGeneration}/>;
 }
 
-function HomeView({controller,access}:{controller:HomeController;access:CompanyAccess|null}){
+function HomeView({controller,access,partsGeneration}:{controller:HomeController;access:CompanyAccess|null;partsGeneration:string}){
   const location=useLocation(),navigate=useNavigate();
   const route=useMemo<{value:HomePeriodRoute|null;error:string}>(()=>{try{return {value:homePeriodRoute(location.search),error:''};}catch(failure){return {value:null,error:(failure as Error).message};}},[location.search]);
   const routeKey=route.value?homeSummaryPath(route.value):'';
-  const [summary,setSummary]=useState<HomeSummary|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[reload,setReload]=useState(0);
+  const [loadedSummary,setSummary]=useState<{generation:string;value:HomeSummary}|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[reload,setReload]=useState(0);
+  // A renderização já invalida a geração antiga, antes da limpeza do efeito.
+  const summary=loadedSummary?.generation===partsGeneration?loadedSummary.value:null;
+  const financeOn=blockEnabled('erp-financeiro'),stockOn=blockEnabled('erp-estoque'),salesOn=blockEnabled('erp-vendas');
   const [panel,setPanel]=useState(readPanel),[hidden,setHidden]=useState(readHidden),[customizing,setCustomizing]=useState(false),[periodError,setPeriodError]=useState(''),sideId=useId();
-  const documents=summary?.documents.slice().sort((a,b)=>ORDER.indexOf(a.kind)-ORDER.indexOf(b.kind))??[];
-  const financeTitles=summary?.finance?.titles.slice().sort((a,b)=>a.kind===b.kind?0:a.kind==='receivable'?-1:1)??[];
-  const period=summary?.period;
+  const documents=summary?.documents.filter(row=>entityEnabled(row.kind)).slice().sort((a,b)=>ORDER.indexOf(a.kind)-ORDER.indexOf(b.kind))??[];
+  const financeTitles=financeOn?summary?.finance?.titles.slice().sort((a,b)=>a.kind===b.kind?0:a.kind==='receivable'?-1:1)??[]:[];
+  const period=useMemo(()=>summary?.period?{
+    ...summary.period,
+    sales:salesOn?summary.period.sales:null,
+    receivable:financeOn?summary.period.receivable:null,
+    payable:financeOn?summary.period.payable:null,
+    invoices:blockEnabled('erp-fiscal')?summary.period.invoices:null,
+    points:summary.period.points.map(point=>({...point,sales_cents:salesOn?point.sales_cents:null,
+      receivable_cents:financeOn?point.receivable_cents:null,payable_cents:financeOn?point.payable_cents:null})),
+  }:undefined,[summary,partsGeneration,financeOn,salesOn]);
   const money=(cents:string)=>hidden?'R$ ••••':financeMoney(cents);
   const role=access?.role??summary?.role;
   // Wabotia: a contagem de novas NF-es sai no salto 1; o cartão continua dentro do detalhamento do período.
   const newInvoicesOn=Boolean(role&&blockEnabled('erp-fiscal')&&['admin','consulta','fiscal'].includes(role));
   const newInvoices=useNewInvoices(controller as unknown as Partial<PlatformPort>,newInvoicesOn);
   // Quick actions come from the destinations this access already has in the menu; nothing new is granted here.
-  const quick=access?workspaceActions(resolveMenu('real',access),access.role):[];
+  const quick=access?workspaceActions(resolveMenu('real',access),access.role).filter(action=>targetEnabled(action.to)):[];
   const togglePanel=()=>{const next=!panel;setPanel(next);try{globalThis.localStorage?.setItem(PANEL_KEY,next?'open':'closed');}catch{/* Visit only. */}};
   const toggleHidden=()=>{const next=!hidden;setHidden(next);try{globalThis.localStorage?.setItem(VALUES_KEY,next?'hidden':'visible');}catch{/* Visit only. */}};
   useEffect(()=>{
@@ -65,15 +80,15 @@ function HomeView({controller,access}:{controller:HomeController;access:CompanyA
     if(!route.value){setLoading(false);return;}
     const request=new AbortController(),expected=route.value;setLoading(true);
     void controller.home(homeSummaryPath(expected),{signal:request.signal}).then(value=>{
-      if(request.signal.aborted)return;
+      if(request.signal.aborted||partsGeneration!==summaryGeneration())return;
       const result=value as HomeSummary;
       if(!homePeriodMatches(result?.period,expected))throw new AccessError(502);
-      setSummary(result);setLoading(false);
+      setSummary({generation:partsGeneration,value:result});setLoading(false);
     }).catch(failure=>{
-      if(request.signal.aborted)return;
+      if(request.signal.aborted||partsGeneration!==summaryGeneration())return;
       setLoading(false);setError(failure instanceof AccessError&&failure.status===403?'Seu acesso ao painel precisa ser verificado.':'Não foi possível carregar o resumo. Tente novamente.');
     });return()=>request.abort();
-  },[controller,reload,routeKey]);
+  },[controller,reload,routeKey,partsGeneration]);
   // Back/forward changes the period from outside the selector: an open "Customizado" choice no longer applies.
   useEffect(()=>{setCustomizing(false);setPeriodError('');},[routeKey]);
   const go=(next:HomePeriodRoute)=>{setPeriodError('');navigate(`${location.pathname}${homePeriodSearch(next)}`);};
@@ -116,22 +131,22 @@ function HomeView({controller,access}:{controller:HomeController;access:CompanyA
         {/* Wabotia: os gráficos e as novas NF-es não dependem do resumo; montados fora do `period&&`, as leituras deles saem
             junto com o /v1/inicio (salto 1), e o cartão aparece quando o período chega. */}
         {period&&<div className="fagoo-metrics" aria-label="Indicadores do período">
-          <article className="fagoo-metric fagoo-metric-sales"><span><Icon name="chart-line" size={20}/>Vendas no período</span><strong>{money(homeSalesLines(period.sales)[0]?.total_cents??'0')}</strong><small>{count(homeSalesLines(period.sales)[0]?.count??0)} pedido(s), sem os cancelados</small></article>
-          {period.receivable&&<article className="fagoo-metric"><span><Icon name="arrow-down" size={20}/>A receber no período</span><strong>{money(period.receivable.open_cents)}</strong><small>Saldo em aberto dos títulos por vencimento</small></article>}
-          {period.payable&&<article className="fagoo-metric"><span><Icon name="arrow-up" size={20}/>A pagar no período</span><strong>{money(period.payable.open_cents)}</strong><small>Saldo em aberto dos títulos por vencimento</small></article>}
+          {blockEnabled('erp-vendas')&&period.sales&&<article className="fagoo-metric fagoo-metric-sales"><span><Icon name="chart-line" size={20}/>Vendas no período</span><strong>{money(homeSalesLines(period.sales)[0]?.total_cents??'0')}</strong><small>{count(homeSalesLines(period.sales)[0]?.count??0)} pedido(s), sem os cancelados</small></article>}
+          {blockEnabled('erp-financeiro')&&period.receivable&&<article className="fagoo-metric"><span><Icon name="arrow-down" size={20}/>A receber no período</span><strong>{money(period.receivable.open_cents)}</strong><small>Saldo em aberto dos títulos por vencimento</small></article>}
+          {blockEnabled('erp-financeiro')&&period.payable&&<article className="fagoo-metric"><span><Icon name="arrow-up" size={20}/>A pagar no período</span><strong>{money(period.payable.open_cents)}</strong><small>Saldo em aberto dos títulos por vencimento</small></article>}
         </div>}
-        <HomeChartCards controller={controller as Parameters<typeof HomeChartCards>[0]['controller']} role={role} period={period} hidden={hidden} asOf={summary?.as_of} resumo={period&&<HomeChart period={period} hidden={hidden} asOf={summary!.as_of}/>}/>
+        {blockEnabled('erp-vendas')&&<HomeChartCards key={partsGeneration} controller={controller as Parameters<typeof HomeChartCards>[0]['controller']} role={role} period={period} hidden={hidden} asOf={summary?.as_of} resumo={period&&<HomeChart period={period} hidden={hidden} asOf={summary!.as_of}/>}/>}
         {period&&<details className="fagoo-home-details"><summary>Detalhamento do período<Icon name="chevron-down" size={15}/></summary><div className="home-cards">
-          <article className="home-card"><header><h3><Link className="home-card-title" to="/documentos-empresa?tipo=sales_orders">Pedidos de venda<Icon name="right" size={11}/></Link></h3></header>
+          {blockEnabled('erp-vendas')&&period.sales&&<article className="home-card"><header><h3><Link className="home-card-title" to="/documentos-empresa?tipo=sales_orders">Pedidos de venda<Icon name="right" size={11}/></Link></h3></header>
             <ul className="home-dots home-sales">{homeSalesLines(period.sales).map(line=><li key={line.id} title={line.detail}><span className={`home-dot home-dot-${line.dot}`} aria-hidden="true"/><strong>{count(line.count)}</strong><span>{line.label}</span><em>{money(line.total_cents)}</em></li>)}</ul>
             <p className="home-card-note">Pedidos pela data do pedido no período.</p>
-          </article>
-          {period.receivable&&<article className="home-card"><header><h3><Link className="home-card-title" to={financeLink('receivable')}><Icon name="arrow-down" size={12} className="home-arrow-receivable"/><span className="home-card-count">{count(period.receivable.count)}</span>{' '}Contas a receber<Icon name="right" size={11}/></Link></h3></header>
+          </article>}
+          {blockEnabled('erp-financeiro')&&period.receivable&&<article className="home-card"><header><h3><Link className="home-card-title" to={financeLink('receivable')}><Icon name="arrow-down" size={12} className="home-arrow-receivable"/><span className="home-card-count">{count(period.receivable.count)}</span>{' '}Contas a receber<Icon name="right" size={11}/></Link></h3></header>
             <dl className="home-values"><div><dt>Total</dt><dd>{money(period.receivable.total_cents)}</dd></div><div className="home-muted"><dt>Taxas</dt><dd>{money(period.receivable.fee_cents)}</dd></div>
               <div className="home-net"><dt>Líquido</dt><dd>{money(homeNetCents(period.receivable))}</dd></div><div className="home-muted"><dt>Saldo em aberto</dt><dd>{money(period.receivable.open_cents)}</dd></div></dl>
             <p className="home-card-note">Títulos com vencimento no período, sem os cancelados. Taxas são as tarifas registradas nas baixas.</p>
           </article>}
-          {period.payable&&<article className="home-card"><header><h3><Link className="home-card-title" to={financeLink('payable')}><Icon name="arrow-up" size={12} className="home-arrow-payable"/><span className="home-card-count">{count(period.payable.count)}</span>{' '}Contas a pagar<Icon name="right" size={11}/></Link></h3></header>
+          {blockEnabled('erp-financeiro')&&period.payable&&<article className="home-card"><header><h3><Link className="home-card-title" to={financeLink('payable')}><Icon name="arrow-up" size={12} className="home-arrow-payable"/><span className="home-card-count">{count(period.payable.count)}</span>{' '}Contas a pagar<Icon name="right" size={11}/></Link></h3></header>
             <dl className="home-values"><div className="home-total"><dt>Valor total a pagar</dt><dd>{money(period.payable.total_cents)}</dd></div><div className="home-muted"><dt>Saldo em aberto</dt><dd>{money(period.payable.open_cents)}</dd></div></dl>
             <p className="home-card-note">Títulos com vencimento no período, sem os cancelados.</p>
           </article>}
@@ -139,7 +154,7 @@ function HomeView({controller,access}:{controller:HomeController;access:CompanyA
           {newInvoicesOn&&<HomeNewInvoices controller={controller as unknown as Partial<PlatformPort>} invoices={newInvoices}/>}
         </div></details>}
       </section>
-      {summary?.finance&&<section className="home-section" aria-labelledby="home-due-title"><h2 id="home-due-title">Contas em aberto por vencimento</h2><div className="home-cards">
+      {financeOn&&summary?.finance&&<section className="home-section" aria-labelledby="home-due-title"><h2 id="home-due-title">Contas em aberto por vencimento</h2><div className="home-cards">
         {financeTitles.map(row=>{const total=row.buckets.reduce((sum,bucket)=>sum+BigInt(bucket.balance_cents),0n).toString(),titles=row.buckets.reduce((sum,bucket)=>sum+bucket.count,0);return <article className="home-card" key={row.kind}>
           <header><h3><Link className="home-card-title" to={`/financeiro-empresa?area=${row.kind}`}><Icon name={row.kind==='receivable'?'arrow-down':'arrow-up'} size={12} className={`home-arrow-${row.kind}`}/><span className="home-card-count">{count(titles)}</span>{' '}{row.kind==='receivable'?'Contas a receber':'Contas a pagar'}<Icon name="right" size={11}/></Link></h3></header>
           <dl className="home-values"><div className="home-total"><dt>{row.kind==='receivable'?'Total':'Valor total a pagar'}</dt><dd>{money(total)}</dd></div>
@@ -153,15 +168,15 @@ function HomeView({controller,access}:{controller:HomeController;access:CompanyA
         </article>
       </div></section>}
       {summary&&<section className="home-section" aria-labelledby="home-documents-title"><h2 id="home-documents-title">Documentos por situação</h2><div className="home-cards">{documents.map(documentCard)}</div></section>}
-      {summary?.stock&&<section className="home-section" aria-labelledby="home-stock-title"><h2 id="home-stock-title">Estoque</h2><article className="home-card"><header><Link className="home-card-title" to="/estoque-empresa">Lançamentos de estoque<Icon name="right" size={11}/></Link></header><div className="home-stock-grid"><div><strong>{count(summary.stock.products)}</strong><span>Produtos com posição controlada</span></div><div><strong>{count(summary.stock.positive_positions)}</strong><span>Posições com saldo positivo</span></div><div><strong>{count(summary.stock.zero_positions)}</strong><span>Posições com saldo zero</span></div>{summary.stock.positions-summary.stock.positive_positions-summary.stock.zero_positions>0&&<div className="home-stock-negative"><strong>{count(summary.stock.positions-summary.stock.positive_positions-summary.stock.zero_positions)}</strong><span>Posições com saldo negativo</span></div>}</div><p className="home-card-note">Cada posição corresponde a um produto em um depósito. Produtos sem posição registrada não entram nessa contagem.</p></article></section>}
-      {summary&&<section className="home-section" aria-labelledby="home-catalog-title"><h2 id="home-catalog-title">Cadastros</h2><div className="home-catalog-grid">{summary.catalog.map(row=><Link className="home-card home-catalog-card" key={row.entity} to={`/cadastros-reais?cadastro=${row.entity}`}><h3 className="home-card-title">{HOME_CATALOG_LABELS[row.entity]}<Icon name="right" size={11}/></h3><strong>{count(row.active)}</strong><span>ativo(s) · {count(row.archived)} arquivado(s)</span></Link>)}</div></section>}
+      {stockOn&&summary?.stock&&<section className="home-section" aria-labelledby="home-stock-title"><h2 id="home-stock-title">Estoque</h2><article className="home-card"><header><Link className="home-card-title" to="/estoque-empresa">Lançamentos de estoque<Icon name="right" size={11}/></Link></header><div className="home-stock-grid"><div><strong>{count(summary.stock.products)}</strong><span>Produtos com posição controlada</span></div><div><strong>{count(summary.stock.positive_positions)}</strong><span>Posições com saldo positivo</span></div><div><strong>{count(summary.stock.zero_positions)}</strong><span>Posições com saldo zero</span></div>{summary.stock.positions-summary.stock.positive_positions-summary.stock.zero_positions>0&&<div className="home-stock-negative"><strong>{count(summary.stock.positions-summary.stock.positive_positions-summary.stock.zero_positions)}</strong><span>Posições com saldo negativo</span></div>}</div><p className="home-card-note">Cada posição corresponde a um produto em um depósito. Produtos sem posição registrada não entram nessa contagem.</p></article></section>}
+      {summary&&<section className="home-section" aria-labelledby="home-catalog-title"><h2 id="home-catalog-title">Cadastros</h2><div className="home-catalog-grid">{summary.catalog.filter(row=>entityEnabled(row.entity)).map(row=><Link className="home-card home-catalog-card" key={row.entity} to={`/cadastros-reais?cadastro=${row.entity}`}><h3 className="home-card-title">{HOME_CATALOG_LABELS[row.entity]}<Icon name="right" size={11}/></h3><strong>{count(row.active)}</strong><span>ativo(s) · {count(row.archived)} arquivado(s)</span></Link>)}</div></section>}
       <ReleaseNotesPanel/>
     </div>
     <aside className="home-side fagoo-overview-side" aria-label="Atalhos da empresa">
       <section className="fagoo-priorities" aria-labelledby="fagoo-priority-title"><p className="fagoo-eyebrow">ACOMPANHAMENTO</p><h2 id="fagoo-priority-title">Precisa de atenção</h2>
-        {summary?.finance&&financeTitles.map(row=>{const due=row.buckets.filter(bucket=>bucket.bucket==='overdue'||bucket.bucket==='today');const quantity=due.reduce((sum,bucket)=>sum+bucket.count,0);return <Link key={row.kind} to={`/financeiro-empresa?area=${row.kind}`}><span className="fagoo-priority-icon"><Icon name={row.kind==='payable'?'arrow-up':'arrow-down'} size={18}/></span><span><strong>{row.kind==='payable'?'Pagamentos':'Recebimentos'}</strong><small>{count(quantity)} título(s) vencido(s) ou para hoje</small></span><Icon name="chevron-right" size={13}/></Link>;})}
-        {summary?.stock&&<Link to="/estoque-empresa"><span className="fagoo-priority-icon"><Icon name="box" size={18}/></span><span><strong>Posições sem saldo</strong><small>{count(summary.stock.zero_positions)} posição(ões) com saldo zero</small></span><Icon name="chevron-right" size={13}/></Link>}
-        {summary&&!summary.finance&&!summary.stock&&<p className="real-help">Acompanhe seus documentos no resumo ao lado.</p>}
+        {financeOn&&summary?.finance&&financeTitles.map(row=>{const due=row.buckets.filter(bucket=>bucket.bucket==='overdue'||bucket.bucket==='today');const quantity=due.reduce((sum,bucket)=>sum+bucket.count,0);return <Link key={row.kind} to={`/financeiro-empresa?area=${row.kind}`}><span className="fagoo-priority-icon"><Icon name={row.kind==='payable'?'arrow-up':'arrow-down'} size={18}/></span><span><strong>{row.kind==='payable'?'Pagamentos':'Recebimentos'}</strong><small>{count(quantity)} título(s) vencido(s) ou para hoje</small></span><Icon name="chevron-right" size={13}/></Link>;})}
+        {stockOn&&summary?.stock&&<Link to="/estoque-empresa"><span className="fagoo-priority-icon"><Icon name="box" size={18}/></span><span><strong>Posições sem saldo</strong><small>{count(summary.stock.zero_positions)} posição(ões) com saldo zero</small></span><Icon name="chevron-right" size={13}/></Link>}
+        {summary&&(!financeOn||!summary.finance)&&(!stockOn||!summary.stock)&&<p className="real-help">Acompanhe seus documentos no resumo ao lado.</p>}
       </section>
       <button type="button" className="home-side-toggle" aria-expanded={panel} aria-controls={sideId} aria-label={panel?'Recolher painel lateral':'Expandir painel lateral'} title={panel?'Recolher painel lateral':'Expandir painel lateral'} onClick={togglePanel}><Icon name="bars" size={15}/></button>
       <div className="home-side-body" id={sideId} hidden={!panel}>

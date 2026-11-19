@@ -310,14 +310,14 @@ for (const template of templates) {
       }
     });
 
-    it("resolve referências locais dos menus sem registrar extensão ou permissões", () => {
+    it("resolve referências locais dos menus com OS e Jurídico, sem conceder permissões", () => {
       const types = new Map(template.work_types.map((type) => [type.id, type]));
       const departments = new Set(template.departments.map((department) => department.id));
       for (const records of [template.departments, template.ticket_categories, template.menus]) {
         uniqueIds(records.map((record) => record.id), 64);
       }
       expect(template.modules.os).toBe(true);
-      expect(template.modules).not.toHaveProperty("juridico");
+      expect(template.modules.juridico).toBe(true);
       for (const department of template.departments) {
         expect(department.members).toEqual([]);
         expect(department.enabled).toBe(true);

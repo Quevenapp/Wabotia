@@ -38,9 +38,10 @@ export function hiddenPortedTarget(to: string): boolean {
 // Inventário complementar a App.tsx/origin-menu.ts. Só metadados de roteamento;
 // não importar os schemas completos de preferências no pacote inicial.
 const extra: Readonly<Record<string, PortedTarget>> = {
-  "/acesso": rule("resultados"), // alias legado, redirecionado pelo roteador portado
+  "/acesso": rule("sistema"), // alias legado, redirecionado pelo roteador portado
   "/estoque-empresa": { ...rule("estoque", products), readPermission: "suprimentos.controle_estoque" },
   "/empresa-configuracoes": rule("sistema"),
+  "/manutencao-efeitos": rule("sistema"),
   "/estoque-abertura": rule("estoque", admin),
   "/cobranca-empresa": rule("cobranca", finance),
   "/cobranca-operacional": rule("cobranca", finance),
@@ -55,8 +56,8 @@ const extra: Readonly<Record<string, PortedTarget>> = {
   "/inutilizacoes-nfe": rule("fiscal", fiscalWriters),
   "/cartas-correcao": rule("fiscal", fiscalWriters),
   "/grupos-produtos": rule("catalogo", products, "products"),
-  "/tags": { part: "catalogo", anyResource: ["products", "contacts"] },
-  "/grupos-tags": { part: "catalogo", anyResource: ["products", "contacts"] },
+  "/tags": { part: "cadastro", anyResource: ["products", "contacts"] },
+  "/grupos-tags": { part: "cadastro", anyResource: ["products", "contacts"] },
   "/exportacao-produtos": rule("catalogo", products, "products"),
   "/campos-customizados": rule("catalogo", products, "products"),
   "/tipos-contatos-empresa": rule("cadastro", admin, "contacts"),
@@ -139,11 +140,11 @@ export function portedTarget(to: string): PortedTarget | null {
   }
   if (path === "/meu-negocio") {
     const panel = select("painel", businessPanels, "mensal");
-    return panel ? rule("resultados", panel === "margem-pedido" ? purchases : panel === "previsao-estoque" ? products : undefined) : null;
+    return panel ? rule("vendas", panel === "margem-pedido" ? purchases : panel === "previsao-estoque" ? products : undefined) : null;
   }
   if (path === "/painel-produtos-empresa") {
     const panel = select("painel", ["estoque", "sugestao", "sem-movimentacao"], "estoque");
-    return panel ? rule(panel === "sugestao" ? "compras" : "resultados", panel === "sugestao" ? ["admin", "consulta", "estoque", "fiscal"] : products) : null;
+    return panel ? rule(panel === "sugestao" ? "compras" : "estoque", panel === "sugestao" ? ["admin", "consulta", "estoque", "fiscal"] : products) : null;
   }
   if (["/historico-fiscal", "/emissor-fiscal"].includes(path) && select("modelo", ["", "55", "65"], "55") === null) return null;
   if (path === "/ajuda" || ["novidades", "primeiros-passos", "notas-fiscais", "naturezas-operacao", "exportacao"].some(topic => path === `/ajuda/${topic}`)) return rule("sistema");

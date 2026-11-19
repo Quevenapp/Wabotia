@@ -5,8 +5,19 @@ import { one, type SqlDriver } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
 import { jsonbText } from "../../engine/json.ts";
 import { toScaled } from "../../engine/dec.ts";
-import { allowed as documentsAllowed } from "../documents/public.ts";
+import { allowed as documentsAllowed, mirrorReportCoverage } from "../documents/public.ts";
 import { compareText } from "./order.ts";
+import { ERP_PART_KEYS, erpRequirement, erpRequirementMet, type ErpParts, type ErpRequirement } from "../../parts.ts";
+
+/** Leituras mistas consultam o resolvedor comum antes de abrir uma fonte. */
+export const queryAvailable = (parts: Readonly<ErpParts>, requirement: ErpRequirement | null) =>
+  requirement !== null && erpRequirementMet(parts, requirement);
+
+/** O DTO antigo continua idêntico quando todas as partes estão ligadas. */
+export function unavailableParts(parts: Readonly<ErpParts>) {
+  const unavailable_parts = ERP_PART_KEYS.filter(key => !parts[key]);
+  return unavailable_parts.length ? { unavailable_parts } : {};
+}
 
 /** erp_home.biz_role(user): papel do membro ativo que lê pedidos de venda; senão 42501. */
 export function bizRole(db: SqlDriver, user: string | null): string {
@@ -46,4 +57,9 @@ export function bizUnitCost(db: SqlDriver, product: string | null): string | nul
         a.position - b.position,
     );
   return rows.length ? rows[0].price : null;
+}
+
+/** A cobertura legada agrega todos os donos; só é completa com ambos disponíveis. */
+export function queryCoverage(ctx: import("../../engine/registry.ts").RpcContext, user: string | null, kind: string | null = null) {
+  return queryAvailable(ctx.parts, erpRequirement("erp-vendas", "erp-compras")) ? mirrorReportCoverage(ctx.db, user, kind) : {};
 }

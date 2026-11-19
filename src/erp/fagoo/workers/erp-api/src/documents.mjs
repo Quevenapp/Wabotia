@@ -1,3 +1,6 @@
+import { parsePartRecord } from './preferences-kit.mjs';
+import { erpEntityRequirement, erpFieldRequirement } from '../../../../parts-requirements.ts';
+import { projectParts, responseParts, responsePartsMetadata, erpRequirementMet } from './preferences-kit.mjs';
 import { CARD_BRANDS, EXTENSION_FIELDS, KINDS, PAYMENT_TYPES, STATES, documentNumber, normalizeDocument } from '../../../packages/erp-domain/src/index.mjs';
 import { DocumentMirrorError, documentMirrorSummary, documentMirrorRecord, documentOriginTotals } from '../../../packages/erp-domain/src/document-mirror.mjs';
 import {isCanonicalUnitPrice} from '../../../packages/erp-domain/src/unit-price.mjs';
@@ -318,7 +321,7 @@ export async function documentsOperation(request,route,params) {
   if(route.action==='proposal_version'){
     if(!only(input,['command_id','expected_version','data'])||!UUID.test(input.command_id||'')||!Number.isInteger(input.expected_version)||input.expected_version<1||input.expected_version>2147483647
       ||!object(input.data)||Object.hasOwn(input.data,'number')||input.data.template===true)invalid();
-    try{normalizeDocument('sales_proposals',input.data);}catch{return invalid();}
+    try{validateDocumentInput('sales_proposals',input.data);}catch{return invalid();}
     return {rpc:'erp_document_proposal_version',args:{p_id:route.id,p_expected_version:input.expected_version,p_command_id:input.command_id.toLowerCase(),p_body:input.data},type:'document'};
   }
   // 202610200196: a new pedido/OS may carry the proposta it comes from (Gerar venda / Gerar ordem de serviço opened prefilled).
@@ -331,7 +334,7 @@ export async function documentsOperation(request,route,params) {
     if(!situationKey(route.kind,input.status)|| (input.reason!==undefined && input.reason!==null && (typeof input.reason!=='string'||input.reason.length>1000||/[\x00-\x1f\x7f]/.test(input.reason))))invalid();
     return {rpc:'erp_document_transition',args:{...base,p_status:input.status,p_reason:input.reason??null},type:'document'};
   }
-  try{normalizeDocument(route.kind,input.data);}catch{return invalid();}
+  try{validateDocumentInput(route.kind,input.data);}catch{return invalid();}
   if(input.source_proposal!==undefined){
     const source=input.source_proposal;
     if(!only(source,['id','expected_version'])||!UUID.test(source.id||'')||!Number.isInteger(source.expected_version)||source.expected_version<1||source.expected_version>2147483647)invalid();
@@ -356,13 +359,15 @@ function categoriesPage(value,kind){
   return {kind,category_kind:expected,items,total_count:value.total_count,has_more:value.total_count>items.length,default:value.default===null?null:{id:value.default.id,name:value.default.name}};
 }
 // 202610200169: one history (items of pedidos and, for administrador and fiscal, of notas) and the open receivables of the cliente.
-function historyPage(value,kind,args){
+function historyPage(value,kind,args,parts){
   // 202610200239: the purchases of a product also list the manual stock entries (type stock, no number).
   const purchase=kind==='purchase_orders',types=purchase?['purchase','invoice','stock']:['sale','invoice'];
   const text=(v,max,empty=true)=>typeof v==='string'&&characters(v)<=max&&(empty||v.trim()!=='');
   if(!object(value)||value.kind!==kind||value.contact_id!==args.p_contact_id||value.product_id!==args.p_product_id||!Array.isArray(value.items)||value.items.length>args.p_limit
     ||typeof value.has_more!=='boolean'||typeof value.invoices_included!=='boolean')badResponse();
+  if(!parts.fiscal&&value.invoices_included)badResponse();
   const items=value.items.map(item=>{
+    if(!parts.stock&&item?.type==='stock')badResponse();
     if(!object(item)||!types.includes(item.type)||(item.type==='invoice'&&!value.invoices_included)||(item.type==='stock'&&(args.p_contact_id!==null||args.p_product_id===null))||!UUID.test(item.document_id||'')
       ||(item.type==='stock'?item.number!==null:!documentNumber(item.number))||!validDate(item.date)
       ||!Number.isInteger(item.position)||item.position<1||item.position>990||!text(item.description,200)||(item.code!==null&&!text(item.code,100))||!text(item.unit,16)
@@ -374,7 +379,7 @@ function historyPage(value,kind,args){
   // 202610200239: the Financeiro tab of the OS without "Histórico financeiro" comes hidden.
   const hidden=value.finance_hidden===true;
   if(value.finance_hidden!==undefined&&(!hidden||kind!=='service_orders'||args.p_product_id!==null||value.finance!==null))badResponse();
-  if(purchase||args.p_product_id!==null||hidden){if(value.finance!==null)badResponse();}
+  if(purchase||args.p_product_id!==null||hidden||!erpRequirementMet(parts,erpFieldRequirement('finance_action'))){if(value.finance!==null)badResponse();}
   else{
     const f=value.finance;
     if(!object(f)||!Number.isSafeInteger(f.open_count)||f.open_count<0||!money(f.open_amount)||!money(f.overdue_amount)||!Array.isArray(f.titles)||f.titles.length>20||f.titles.length>f.open_count)badResponse();
@@ -426,7 +431,7 @@ function accessSeller(value){
     ||typeof value.allow_unregistered_products!=='boolean'||typeof value.view_stock!=='boolean'||typeof value.discount_limit!=='string'||!/^(0|[1-9][0-9]{0,2})\.[0-9]{4}$/.test(value.discount_limit)||Number(value.discount_limit)>100)badResponse();
   return {id:value.id,name:value.name,allow_unregistered_products:value.allow_unregistered_products,view_stock:value.view_stock,discount_limit:value.discount_limit};
 }
-function snapshot(value,expectedId,contact) {
+function snapshotBody(value,expectedId,contact) {
   if(expectedId===null){if(value!==null&&value!==undefined)badResponse();return null;}
   if(!object(value)||value.id!==expectedId||!Number.isInteger(value.version)||value.version<1)badResponse();
   // 202610200129: GTIN, GTIN tributário, NCM, localização and peso bruto of the product, for the Preferências print options and "Somar peso bruto".
@@ -435,6 +440,10 @@ function snapshot(value,expectedId,contact) {
   for(const [key,max]of Object.entries(fields)){const v=value[key]??null;if(v!==null&&(typeof v!=='string'||v.length>max))badResponse();safe[key]=v;}
   if(typeof safe.name!=='string'||!safe.name||!contact&&safe.price!==null&&!isCanonicalUnitPrice(safe.price,14)||!contact&&safe.gross_weight!==null&&!/^(0|[1-9][0-9]{0,11})(\.[0-9]{1,6})?$/.test(safe.gross_weight))badResponse();return safe;
 }
+function snapshot(value,expectedId,contact) {
+  if(expectedId===null)return snapshotBody(value,expectedId,contact);
+  return parsePartRecord(value,body=>snapshotBody(body,expectedId,contact),contact?[]:[[['stock'],{location:null}]],badResponse);
+}
 function metadata(value,kind) {
   if(!object(value)||value.kind!==kind||!UUID.test(value.id||'')||!Number.isInteger(value.version)||value.version<1||value.version>2147483647
     ||typeof value.number!=='string'||!/^[1-9][0-9]{0,9}$/.test(value.number)||!Object.hasOwn(STATES[kind],value.status))badResponse();
@@ -442,7 +451,7 @@ function metadata(value,kind) {
   for(const key of ['created_at','updated_at']){if(typeof value[key]!=='string'||value[key].length>100||!Number.isFinite(Date.parse(value[key])))badResponse();meta[key]=value[key];}
   return meta;
 }
-function summary(value,kind) {
+function summaryBody(value,kind) {
   // 202610220009: a document of Origin origin converted to the native model (authority brufap) is read as a native one.
   if(value?.authority==='origin')return shape(()=>documentMirrorSummary(value,kind));
   const meta=metadata(value,kind);
@@ -506,7 +515,7 @@ export function proposalVersion(value){
     ||!only(value.latest,['id','label'])||!UUID.test(value.latest?.id||'')||!label(value.latest.label)||(value.superseded===(value.latest.label===value.label)))badResponse();
   return {base_id:value.base_id,base_number:value.base_number,seq:value.seq,label:value.label,versions:value.versions,superseded:value.superseded,latest:{id:value.latest.id,label:value.latest.label}};
 }
-function document(value,kind) {
+function documentBody(value,kind) {
   if(value?.authority==='origin')return shape(()=>documentMirrorRecord(value,kind));
   const meta=metadata(value,kind);if(!Array.isArray(value.items)||!Array.isArray(value.installments))badResponse();
   // 016: origin_finance/origin_invoice, the Origin effects (contas lançadas, nota gerada) that lock a converted document like the native ones.
@@ -549,11 +558,11 @@ function nameMap(value,ids,max){
 function autoFinance(value){
   if(!object(value)||!['done','skipped'].includes(value.outcome))badResponse();
   if(value.outcome==='done'){if(!only(value,['outcome','posting_id'])||!UUID.test(value.posting_id||''))badResponse();return {outcome:'done',posting_id:value.posting_id};}
-  if(!only(value,['outcome','reason'])||typeof value.reason!=='string'||!/^erp_[a-z0-9_]{1,80}$/.test(value.reason))badResponse();
+  if(!only(value,['outcome','reason'])||typeof value.reason!=='string'||!(value.reason==='part_disabled'||/^erp_[a-z0-9_]{1,80}$/.test(value.reason)))badResponse();
   return {outcome:'skipped',reason:value.reason};
 }
 const PAYMENT_DESTINATIONS=['contas','ficha','caixa'];
-function paymentOptions(value,kind){
+function paymentOptionsBody(value,kind){
   if(!object(value)||value.kind!==kind||!Array.isArray(value.methods)||value.methods.length>200||!Array.isArray(value.accounts)||value.accounts.length>200||(kind==='sales_proposals'&&value.accounts.length))badResponse();
   const methods=value.methods.map(m=>{
     if(!only(m,['id','description','payment_type','condition','destination','account_id','card_brand','card_integration','card_cnpj','is_default'])||Object.keys(m).length!==10||!UUID.test(m.id||'')
@@ -628,7 +637,7 @@ function supplierCodes(value,args){
   if(new Set(items.map(item=>item.product_id)).size!==items.length)badResponse();
   return {contact_id:value.contact_id,items};
 }
-export function documentsResponse(value,route,operation) {
+function documentsResponseBody(value,route,operation,parts) {
   if(operation.extra){try{return documentExtrasResponse(value,route,operation);}catch(error){if(error instanceof DocumentExtrasError)throw new DocumentsError(error.status,error.code);throw error;}}
   if(!object(value)||value.data_mode!=='erp_native'||value.operational_effects!==false)badResponse();
   const base={data_mode:'erp_native',operational_effects:false};
@@ -669,7 +678,7 @@ export function documentsResponse(value,route,operation) {
   }
   if(operation.type==='situations')return {...base,...shape(()=>situationsPage(value,route.kind))};
   if(operation.type==='categories')return {...base,...categoriesPage(value,route.kind)};
-  if(operation.type==='payment_options')return {...base,...paymentOptions(value,route.kind)};
+  if(operation.type==='payment_options')return {...base,...partPaymentOptions(value,route.kind,parts)};
   if(operation.type==='sales_bag')return {...base,...salesBag(value,operation)};
   if(operation.type==='signature'){
     const text=(v,max)=>v===null||(typeof v==='string'&&v.trim()!==''&&characters(v)<=max);
@@ -695,13 +704,13 @@ export function documentsResponse(value,route,operation) {
     const data=picked(value.data,INPUT_FIELDS);
     if(!Array.isArray(value.data.items)||!Array.isArray(value.data.installments??[]))badResponse();
     data.items=value.data.items.map(item=>object(item)?picked(item,ITEM_FIELDS):null);data.installments=(value.data.installments??[]).map(row=>object(row)?picked(row,INSTALLMENT_FIELDS):null);
-    let normalized;try{normalized=normalizeDocument(route.kind,data);}catch{return badResponse();}
+    let normalized;try{normalized=parts.finance?normalizeDocument(route.kind,data):validateDocumentInput(route.kind,data);}catch{return badResponse();}
     const contact=value.contact,listName=value.price_list_name;
     if(normalized.items.some(item=>item.id!==null)||normalized.template||!only(contact,['id','name'])||contact.id!==normalized.contact_id||typeof contact.name!=='string'||!contact.name||characters(contact.name)>200
       ||(listName!==null&&(normalized.price_list_id===undefined||normalized.price_list_id===null||typeof listName!=='string'||!listName||characters(listName)>120)))badResponse();
     return {...base,kind:route.kind,source:{id:source.id,kind:'sales_proposals',number:source.number,version:source.version},data,contact:{id:contact.id,name:contact.name},price_list_name:listName,persisted:false};
   }
-  if(operation.type==='history')return {...base,...historyPage(value,route.kind,operation.args)};
+  if(operation.type==='history')return {...base,...historyPage(value,route.kind,operation.args,parts)};
   if(operation.type==='export')return {...base,...exportPage(value,route.kind,operation.args)};
   if(operation.type==='xml_import')return {...base,...shape(()=>xmlImportResult(value,route.kind,operation.draft))};
   if(operation.type==='pendencies'){
@@ -726,8 +735,8 @@ export function documentsResponse(value,route,operation) {
     if(value.mirror_available!==undefined&&typeof value.mirror_available!=='boolean')badResponse();
     for(const key of ['read','write'])if(!Array.isArray(value[key])||value[key].some(kind=>!KINDS.includes(kind)))badResponse();
     // 202610200164: settings applied by the document screens and the vendedor linked to the user (absent before 164).
-    return {...base,read:[...new Set(value.read)],write:[...new Set(value.write)],...(value.mirror_available===undefined?{}:{mirror_available:value.mirror_available}),...(Object.hasOwn(value,'settings')?{settings:accessSettings(value.settings),seller:accessSeller(value.seller)}:{}),
-      ...(Object.hasOwn(value,'permissions')?{permissions:accessPermissions(value.permissions)}:{})};
+    return {...base,read:[...new Set(value.read)],write:[...new Set(value.write)],...(value.mirror_available===undefined?{}:{mirror_available:value.mirror_available}),...(Object.hasOwn(value,'settings')?{settings:partAccessSettings(value.settings,parts),seller:partAccessSeller(value.seller,parts)}:{}),
+      ...(Object.hasOwn(value,'permissions')?{permissions:partAccessPermissions(value.permissions,parts)}:{})};
   }
   if(value.replayed!==undefined&&typeof value.replayed!=='boolean')badResponse();
   const replay=value.replayed===undefined?{}:{replayed:value.replayed};
@@ -758,7 +767,7 @@ export function documentsResponse(value,route,operation) {
   // 202610200269: Salvar nova versão answers the new proposta (checked against the version below).
   const doc=document(value.document,route.kind);if(route.id&&doc.id!==route.id&&operation.rpc!=='erp_document_proposal_version')badResponse();
   // 202610200163: the transition reports the actions it ran (Estornar/Lançar estoque e contas).
-  const effects=operation.rpc==='erp_document_transition'&&value.effects!==undefined?{effects:shape(()=>transitionEffects(value.effects))}:{};
+  const effects=operation.rpc==='erp_document_transition'&&value.effects!==undefined?{effects:partTransitionEffects(value.effects)}:{};
   // 202610200196: automatic lançamento de contas (pedidos de venda) and the proposta concluded by the save of the new document.
   // 202610200267: also the contas a pagar of the pedido de compra, only in the save that creates it.
   const autoAllowed=route.kind==='sales_orders'||(route.kind==='purchase_orders'&&operation.rpc==='erp_document_save');
@@ -785,4 +794,107 @@ export function documentsResponse(value,route,operation) {
     version={proposal_version:v,source:{id:s.id,number:s.number,version:s.version}};
   }
   return {...base,...replay,kind:route.kind,document:doc,...effects,...auto,...approval,...source,...version};
+}
+
+export function documentsResponse(value,route,operation) {
+ const parts=responseParts(value,badResponse);
+ if(Object.hasOwn(value,'unavailable_parts')&&operation.type==='access')for(const key of ['read','write'])
+  if(!Array.isArray(value[key])||value[key].some(kind=>!erpEntityRequirement(kind)||!erpRequirementMet(parts,erpEntityRequirement(kind))))badResponse();
+ if(operation.type==='pendencies')return parsePartRecord(value,body=>documentsResponseBody(body,route,operation,parts),[[['fiscal'],{pendencies:[]}]],badResponse);
+ if(operation.type==='structures')return parsePartRecord(value,body=>documentsResponseBody(body,route,operation,parts),[[['stock','products'],{items:[]}]],badResponse);
+ return projectParts(value, body => documentsResponseBody(body,route,operation,parts), badResponse);
+}
+
+function document(value,kind) {
+ const parts=responseParts(value,badResponse),input=structuredClone(value);
+ if(!parts.finance&&Array.isArray(input.installments))for(const row of input.installments)if(object(row?.details))
+  for(const key of ['account_id','fee_amount','commission_fee_amount'])if(!Object.hasOwn(row.details,key))row.details[key]=null;
+ const parsed=parsePartRecord(input,body=>documentBody(body,kind),[
+  [['stock'],{warehouse_id:null}],
+  [['finance'],{category_id:null,payment_account_id:null}],
+ ],badResponse);
+ if(!parts.stock)for(const item of parsed.items??[])delete item.lots;
+ if(!parts.finance)for(const row of parsed.installments??[])if(object(row.details))
+  for(const key of ['account_id','fee_amount','commission_fee_amount'])delete row.details[key];
+ return parsed;
+}
+function partTransitionEffects(value) {
+ if(!Array.isArray(value))badResponse();
+ const reasons=value.map(item=>{
+  if(!object(item))badResponse();
+  if(!Object.hasOwn(item,'reason'))return null;
+  if(item.outcome!=='skipped'||item.reason!=='part_disabled'||!only(item,['action','outcome','reason'])||Object.keys(item).length!==3)badResponse();
+  return item.reason;
+ });
+ const parsed=shape(()=>transitionEffects(value.map(item=>{const {reason,...rest}=item;return rest;})));
+ return parsed.map((item,index)=>reasons[index]?{...item,reason:reasons[index]}:item);
+}
+
+// Missing capability keys are accepted only for their suspended owner/destination.
+function partAccessSettings(value,parts) {
+ if(!object(value))badResponse();
+ const input=structuredClone(value),removed=[];
+ const optional=(object,key,fallback,requirement,path)=>{
+  if(Object.hasOwn(object,key))return;
+  if(erpRequirementMet(parts,requirement))badResponse();
+  object[key]=fallback;removed.push(path);
+ };
+ for(const key of ['stock_launch_date','default_warehouse','cross_docking_days'])optional(input,key,key==='stock_launch_date'?'data_atual':key==='cross_docking_days'?0:null,erpFieldRequirement('stock_action'),[key]);
+ if(object(input.auto_products))for(const [key,entity] of [['sales','sales_orders'],['services','service_orders'],['purchases','purchase_orders']])optional(input.auto_products,key,false,erpEntityRequirement(entity),['auto_products',key]);
+ const parsed=accessSettings(input);
+ for(const path of removed){if(path.length===1)delete parsed[path[0]];else delete parsed[path[0]][path[1]];}
+ return parsed;
+}
+function partAccessPermissions(value,parts) {
+ if(!object(value))badResponse();
+ const input=structuredClone(value),removed=[],removedKinds=[];
+ for(const kind of ['sales_orders','service_orders'])if(!Object.hasOwn(input,kind)){
+  if(erpRequirementMet(parts,erpEntityRequirement(kind)))badResponse();
+  input[kind]=kind==='sales_orders'?{discount_approver:false,approval_situations:[]}:{situations:false,stock:false,finance:false,finance_history:false,payment_method:false};removedKinds.push(kind);
+ }
+ if(object(input.service_orders))for(const [key,field] of [['stock','stock_action'],['finance','finance_action'],['finance_history','finance_action']]){
+  if(Object.hasOwn(input.service_orders,key))continue;
+  if(erpRequirementMet(parts,erpFieldRequirement(field)))badResponse();
+  input.service_orders[key]=false;removed.push(key);
+ }
+ const parsed=accessPermissions(input);for(const key of removed)delete parsed.service_orders[key];for(const kind of removedKinds)delete parsed[kind];return parsed;
+}
+
+function partAccessSeller(value,parts) {
+ if(value===null)return null;
+ if(!object(value))badResponse();
+ const omitted=!Object.hasOwn(value,'view_stock');
+ if(omitted&&parts.stock)badResponse();
+ const parsed=accessSeller(omitted?{...value,view_stock:false}:value);
+ if(omitted)delete parsed.view_stock;
+ return parsed;
+}
+function partPaymentOptions(value,kind,parts) {
+ if(!object(value))badResponse();
+ const omitted=!Object.hasOwn(value,'accounts');
+ if(omitted&&erpRequirementMet(parts,erpFieldRequirement('finance_action')))badResponse();
+ if(!Array.isArray(value.methods))badResponse();
+ const methods=value.methods.map(m=>{
+  if(!object(m))badResponse();
+  if(Object.hasOwn(m,'account_id'))return m;
+  if(parts.finance)badResponse();
+  return {...m,account_id:null};
+ });
+ const parsed=paymentOptionsBody({...value,methods,...(omitted?{accounts:[]}:{})},kind);
+ parsed.methods.forEach((m,i)=>{if(!Object.hasOwn(value.methods[i],'account_id'))delete m.account_id;});
+ if(omitted)delete parsed.accounts;
+ return parsed;
+}
+
+// A omissão segue intacta para a guarda do motor; nunca vira uma limpeza no pedido.
+function validateDocumentInput(kind,value) {
+ if(!object(value))invalid();
+ const input=structuredClone(value);
+ if(Array.isArray(input.installments))for(const row of input.installments)if(object(row?.details))
+  for(const key of ['account_id','fee_amount','commission_fee_amount'])if(!Object.hasOwn(row.details,key))row.details[key]=null;
+ return normalizeDocument(kind,input);
+}
+
+function summary(value,kind) {
+ return parsePartRecord(value,body=>summaryBody(body,kind),[[['stock'],{warehouse_id:null,warehouse_name:null}]],badResponse);
 }

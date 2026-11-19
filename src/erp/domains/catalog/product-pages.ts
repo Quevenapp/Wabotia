@@ -1,3 +1,4 @@
+import { projectCatalogRecord } from "./part-projection.ts";
 // Páginas e exportação de produtos: public.erp_catalog_product_page,
 // _page_v2, _page_v3, _page_custom, _export e _export_v2 (o corpo comum das
 // cinco últimas é o mesmo no Fagoo, com filtros extras por versão).
@@ -11,6 +12,8 @@ import { dto, fold, productDetailData, unitPriceNumeric } from "./internal.ts";
 import { dateOrInfinity } from "./pricing/args.ts";
 import { requireAccess } from "./pricing/deps.ts";
 import { saoPauloMidnight } from "./pricing/pricing.ts";
+import { catalogParts, catalogUnavailable } from "./cost.ts";
+import { ErpPartDisabled } from "../../engine/parts-gate.ts";
 import {
   canReadStock,
   componentFilter,
@@ -39,6 +42,10 @@ const nullIfBlank = (v: string | null) => (v === null || btrim(v) === "" ? null 
 
 /** Acesso ao estoque e depósito do filtro (as mesmas recusas em todas as páginas). */
 function stockScope(db: SqlDriver, user: string | null, stock: string | null, warehouse: string | null) {
+  if (!catalogParts(db).stock) {
+    if (stock !== null || warehouse !== null) throw new ErpPartDisabled();
+    return false;
+  }
   const visible = canReadStock(db, user);
   if ((stock !== null || warehouse !== null) && !visible) raise("42501", "erp_catalog_stock_access_denied");
   if (warehouse !== null && !one(db, 'SELECT 1 x FROM "erp_catalog__warehouse" WHERE record_id=?', warehouse))
@@ -87,6 +94,8 @@ function run(db: SqlDriver, a: RpcArgs, variant: Variant) {
   const includeDeleted = exporting ? boolArg(a, "p_include_deleted", false) : false;
   const custom = variant === "v3" || variant === "custom" ? jsonArg(a, "p_custom") : null;
   const component = variant === "v3" || variant === "export" ? uuidArg(a, "p_component_id") : null;
+  if (!catalogParts(db).stock && (component !== null || ["composition", "no_composition"].includes(f.productType ?? "")))
+    throw new ErpPartDisabled();
   requireAccess(db, user, "products", false);
   const pageOk = exporting
     ? offsetArg !== null && offsetArg >= 0 && offsetArg <= 10000000 && limitArg !== null && limitArg >= 1 && limitArg <= 250 && includeDeleted !== null
@@ -147,6 +156,7 @@ function run(db: SqlDriver, a: RpcArgs, variant: Variant) {
     total: result.total,
     sort,
     stock_visible: visible,
+    ...catalogUnavailable(catalogParts(db), ["stock", "purchases"]),
     data_mode: "erp_native",
   };
 }
@@ -162,6 +172,7 @@ function exportResult(
   offset: number,
   limit: number,
 ) {
+  const parts = catalogParts(db);
   const summary = stockSummary(db, visible ? result.ids : [], defaultWarehouse);
   const taxonomy = (column: string, id: string) => {
     const r = one(
@@ -173,16 +184,17 @@ function exportResult(
   };
   const items = result.ids.map((id) => {
     const k = summary.get(id);
-    const supplier = one(
+    const supplier = !parts.purchases || !parts.stock ? null : one(
       db,
       `SELECT c.name, s.description, s.code, s.purchase_price, s.cost_price, s.warranty_months
        FROM "erp_catalog__product_supplier" s JOIN "erp_catalog__record" c ON c.id=s.supplier_id
        WHERE s.record_id=? ORDER BY s.is_default DESC, s.position LIMIT 1`,
       id,
     );
-    return {
+    return projectCatalogRecord(parts, "products", {
       ...omit(dto(db, id), ["source", "entity"]),
       ...omit(productDetailData(db, id, true), ["suppliers", "dun_codes", "images"]),
+      ...(!parts.purchases || !parts.stock ? { cost_price: null } : {}),
       category: taxonomy("category_id", id),
       product_group: taxonomy("product_group_id", id),
       tags: db
@@ -216,7 +228,7 @@ function exportResult(
             : null,
       // (select o.source_id from erp_catalog.origin o where o.record_id=u.id): leitura do espelho.
       source_id: one(db, 'SELECT source_id FROM "erp_catalog__origin" WHERE record_id=?', id)?.source_id ?? null,
-    };
+    });
   });
   const warehouseRow =
     defaultWarehouse === null ? null : one(db, 'SELECT id, name FROM "erp_catalog__record" WHERE id=?', defaultWarehouse);
@@ -227,6 +239,7 @@ function exportResult(
     limit,
     total: result.total,
     stock_visible: visible,
+    ...catalogUnavailable(parts, ["stock", "purchases"]),
     stock_scope: !visible ? null : defaultWarehouse === null ? "considered_warehouses" : "default_warehouse",
     stock_warehouse: warehouseRow ? { id: warehouseRow.id, name: warehouseRow.name } : null,
     data_mode: "erp_native",
@@ -256,6 +269,7 @@ export function productPage(db: SqlDriver, a: RpcArgs) {
   const period = textArg(a, "p_period");
   const from = dateOrInfinity(a, "p_from");
   const to = dateOrInfinity(a, "p_to");
+  if (!catalogParts(db).stock && format === "E") throw new ErpPartDisabled();
   requireAccess(db, user, "products", false);
   if (
     !pageValid(page, size, sort, query, period, from, to) ||
@@ -299,6 +313,7 @@ export function productPage(db: SqlDriver, a: RpcArgs) {
     total: rows.length,
     sort,
     stock_visible: visible,
+    ...catalogUnavailable(catalogParts(db), ["stock"]),
     data_mode: "erp_native",
   };
 }

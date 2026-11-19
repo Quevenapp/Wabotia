@@ -1,3 +1,4 @@
+import { projectParts, responseParts, responsePartsMetadata, erpRequirementMet } from './preferences-kit.mjs';
 // Documentos lane, wave G: the routes of the document editor added after 287, kept apart from documents.mjs (a shared hotspot).
 // 202610200288:
 // - GET  /v1/documentos/service_orders/campos-customizados: the campos customizados of the OS (readers of OS; can_manage = administrador);
@@ -238,7 +239,7 @@ function customField(value, admin) {
     || (admin ? !int(value.documents, 0, 2147483647) : value.documents !== null)) bad();
   return { ...Object.fromEntries(keys.map(key => [key, value[key]])), options: value.options.map(option => ({ id: option.id, label: option.label })) };
 }
-export function documentExtrasResponse(value, route, operation) {
+function documentExtrasResponseBody(value, route, operation) {
   const base = { data_mode: 'erp_native', operational_effects: false };
   if (!object(value) || value.data_mode !== 'erp_native') bad();
   if (operation.type === 'product_search') {
@@ -334,4 +335,8 @@ export function documentExtrasResponse(value, route, operation) {
     return { ...base, kind: route.kind, document_id: value.document_id, operation: frozen, items };
   }
   return bad();
+}
+
+export function documentExtrasResponse(value, route, operation) {
+ return projectParts(value, body => documentExtrasResponseBody(body, route, operation), bad);
 }

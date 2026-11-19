@@ -1,3 +1,4 @@
+import { targetEnabled } from '../../blocks.ts';
 import type {AccessRole,NativeRequestOptions} from './real-access';
 import type {CatalogEntity} from './catalog-model';
 import type {DocumentKind} from './real-documents-model';
@@ -10,7 +11,7 @@ export type HomeBucket='overdue'|'today'|'next_7_days'|'later';
 export interface HomePeriodPoint {bucket:string;sales_cents:string|null;receivable_cents:string|null;payable_cents:string|null}
 export interface HomePeriod {
   key:HomePeriodKey;from:string;to:string;day_count:number;grain:'day'|'month';points:HomePeriodPoint[];
-  sales:{count:number;statuses:{status:string;count:number;total_cents:string}[]};
+  sales:{count:number;statuses:{status:string;count:number;total_cents:string}[]}|null;
   receivable:{count:number;total_cents:string;open_cents:string;fee_cents:string}|null;
   payable:{count:number;total_cents:string;open_cents:string}|null;
   invoices:{count:number;total_cents:string}|null;
@@ -75,6 +76,7 @@ export const HOME_SALES_LINES:readonly HomeSalesLine[]=[
   {id:'cancelados',label:'Cancelados',dot:'danger',statuses:['cancelled'],detail:'Cancelado'},
 ];
 export function homeSalesLines(sales:HomePeriod['sales']){
+  if (!sales) return [];
   return HOME_SALES_LINES.map(line=>{
     const rows=sales.statuses.filter(row=>line.statuses.includes(row.status));
     return {...line,count:rows.reduce((total,row)=>total+row.count,0),total_cents:rows.reduce((total,row)=>total+BigInt(row.total_cents),0n).toString()};
@@ -83,7 +85,9 @@ export function homeSalesLines(sales:HomePeriod['sales']){
 /** Cards of "Incluir gráficos" (migration 189) from the period's sales, cancelled ones excluded: Quantidade de pedidos de venda,
  * Valor Faturado and Ticket Médio (value ÷ orders, exact cents, half up). */
 export function homeChartValues(period:HomePeriod){
-  const line=homeSalesLines(period.sales).find(item=>item.id==='total')!,cents=BigInt(line.total_cents),orders=BigInt(line.count);
+  const line=homeSalesLines(period.sales).find(item=>item.id==='total');
+  if(!line)return null;
+  const cents=BigInt(line.total_cents),orders=BigInt(line.count);
   return {orders:line.count,billed_cents:cents.toString(),ticket_cents:(orders>0n?(cents*2n+orders)/(2n*orders):0n).toString()};
 }
 /** The list with `key` moved to `index` (bounded); the other charts keep their order. */
@@ -124,9 +128,10 @@ export function homeChart(period:HomePeriod,width=640,height=220):HomeChartModel
   const inner=groupWidth*0.72,gap=series.length>1?Math.min(2,inner/(series.length*4)):0,barWidth=Math.max(1,Math.min(18,(inner-gap*(series.length-1))/Math.max(series.length,1)));
   const groups=period.points.map((point,index)=>{
     const x=left+groupWidth*index,start=x+(groupWidth-(barWidth*series.length+gap*(series.length-1)))/2;
-    const bars=series.map((item,position)=>{
+    const bars=series.flatMap((item,position)=>{
+      if(point[item.field]===null)return [];
       const cents=point[item.field]??'0',ratio=Number(BigInt(cents)*10000n/topValue)/10000,barHeight=cents==='0'?0:Math.max(1,plotHeight*ratio);
-      return {series:item.key,cents,x:start+position*(barWidth+gap),y:top+plotHeight-barHeight,width:barWidth,height:barHeight};
+      return [{series:item.key,cents,x:start+position*(barWidth+gap),y:top+plotHeight-barHeight,width:barWidth,height:barHeight}];
     });
     return {bucket:point.bucket,label:index%every===0?homeBucketLabel(point.bucket,period.grain):null,title:homeBucketLabel(point.bucket,period.grain,true),x,width:groupWidth,bars};
   });
@@ -147,7 +152,7 @@ export function homeShortcutsResult(value:unknown,expected?:{version:number;shor
   const item=value as HomeShortcuts;
   if(!item||typeof item!=='object'||item.scope!=='home_shortcuts'||item.data_mode!=='erp_native'||!ROLES.includes(item.role)
     ||!Number.isInteger(item.version)||item.version<0||typeof item.customized!=='boolean'||item.customized!==(item.version>0)
-    ||!validHomeShortcuts(item.shortcuts)||!validHomeAvailable(item.available)||item.shortcuts.some(path=>!item.available.includes(homeShortcutBase(path)??''))
+    ||!validHomeShortcuts(item.shortcuts)||!validHomeAvailable(item.available)
     ||item.labels!==undefined&&!validHomeLabels(item.labels,item.shortcuts))throw new Error('Resposta de atalhos inválida.');
   const labels=item.labels??{},names=expected?.labels??{};
   if(expected&&(typeof item.replayed!=='boolean'||item.version!==expected.version||item.shortcuts.length!==expected.shortcuts.length
@@ -169,7 +174,7 @@ export function homeShortcutOptions(available:readonly string[],access?:CompanyA
   const options:HomeShortcutOption[]=[];
   for(const group of ORIGIN_MENU)for(const item of [...group.columns.flatMap(column=>column.items),...(group.footer?[group.footer]:[])]){
     const to=item.real?.to;
-    if(!to||to==='/acesso'||options.some(option=>option.to===to)||!available.includes(to)||(menu&&!menu.has(to)))continue;
+    if(!to||!targetEnabled(to)||to==='/acesso'||options.some(option=>option.to===to)||!available.includes(to)||(menu&&!menu.has(to)))continue;
     options.push({to,label:HOME_SHORTCUT_LABELS[to]??item.label,group:group.name});
   }
   return options;

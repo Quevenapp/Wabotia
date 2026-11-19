@@ -1,3 +1,31 @@
+import { contextBoundResponse } from "../management/context-response.ts";
+export { contextBoundResponse } from "../management/context-response.ts";
+import { ERP_MODULE_IDS } from "../../src/erp/parts.ts";
+import { erpRouteRequirement } from "../../src/erp/parts-requirements.ts";
+import { setErpModuleContext } from "./blocks.ts";
+import { requirementsEnabled } from "./modules.ts";
+type PanelContext = { modules: Readonly<Record<string, boolean>>; lifetime: AbortController; owners: number };
+const panelContexts = new Map<string, PanelContext>();
+/** Fotografia explícita da área, compartilhada pela casa e pela ficha de cliente. */
+export function setPanelPartsContext(apiUrl: string, modules: Readonly<Record<string, boolean>>) {
+  const base=apiUrl.replace(/\/$/, ''),previous=panelContexts.get(base);
+  const same=previous&&!previous.lifetime.signal.aborted&&ERP_MODULE_IDS.every(id => (previous.modules[id] === true) === (modules[id] === true));
+  if(!same)previous?.lifetime.abort();
+  const entry: PanelContext=same?previous:{modules:Object.freeze({...modules}),lifetime:new AbortController(),owners:0};
+  entry.owners++;panelContexts.set(base,entry);setErpModuleContext(entry.modules);
+  let released=false;
+  return () => {
+    if(released)return;released=true;
+    if(--entry.owners>0)return;
+    entry.lifetime.abort();
+    // A lápide impede que callbacks da área anterior recuperem a compatibilidade "tudo ligado".
+    if(panelContexts.get(base)===entry)setErpModuleContext({});
+  };
+}
+export function panelRequestAllowed(path: string, method: string, body: unknown, modules: Readonly<Record<string, boolean>>) {
+  const requirement = erpRouteRequirement(method, new URL(path, "https://erp.invalid"), body);
+  return requirement !== "externo" && requirementsEnabled(requirement, modules);
+}
 // fetch do ERP: o controlador do Fagoo (app/lib/real-access.ts) chama
 // fetcher(`${apiUrl}${path}`, { headers: { Authorization: "Bearer …" },
 // credentials: "omit" }). Aqui a sessão é o cookie do Wabotia: o Bearer sai,
@@ -151,6 +179,15 @@ export function createFetchPort(options: FetchPortOptions): typeof fetch {
       credentials: "same-origin" as const,
     };
     const path = parsed.pathname.slice(base.length) + parsed.search;
+    const context = panelContexts.get(base);
+    if (context) {
+      // Captura e confere a geração antes de qualquer suspensão assíncrona.
+      request.signal = AbortSignal.any([context.lifetime.signal, ...(init.signal ? [init.signal] : [])]);
+      if (request.signal.aborted) throw new DOMException("Contexto alterado", "AbortError");
+      const body = typeof init.body === "string" ? JSON.parse(init.body) : undefined;
+      if (!panelRequestAllowed(path, method, body, context.modules))
+        return Response.json({ error: { code: "module_disabled", message: "Esta rotina depende de uma parte desligada." } }, { status: 409 });
+    }
     const simulated = options.simulate
       ? await options.simulate(path || "/", request)
       : null;
@@ -158,12 +195,13 @@ export function createFetchPort(options: FetchPortOptions): typeof fetch {
       !options.simulate && method === "GET" && path === "/v1/me"
         ? takeMePrefetch(parsed.pathname, options.actor)
         : null;
-    const handed = early ? await prefetchedResponse(early, init.signal) : null;
+    const handed = early ? await prefetchedResponse(early, request.signal) : null;
     const response =
       simulated ??
       handed ??
-      (await network(parsed.pathname + parsed.search, request));
+      (request.signal?.throwIfAborted(), await network(parsed.pathname + parsed.search, request));
+    request.signal?.throwIfAborted();
     if (response.status === 401) options.onUnauthorized?.();
-    return response;
+    return context ? contextBoundResponse(response, request.signal!) : response;
   };
 }

@@ -1,3 +1,4 @@
+import { operationEnabled } from '../../blocks';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { AccessError, type AccessController } from '../lib/real-access';
 import type { CatalogPage, CatalogRecord } from '../lib/catalog-model';
@@ -30,7 +31,7 @@ export default function ProductAdvancedSearch({ controller, initialQuery, onSele
   const actor = useRef(actorOf(controller));
   useEffect(() => {
     const request = new AbortController(); let path: string;
-    try { path = productSearchPath(filters, after); } catch (failure) { setError((failure as Error).message); setLoading(false); return; }
+    try { path = productSearchPath(operationEnabled('composition') ? filters : {...filters, format: filters.format === 'E' ? '' : filters.format}, after); } catch (failure) { setError((failure as Error).message); setLoading(false); return; }
     setLoading(true); setError('');
     void Promise.resolve().then(() => controller.catalog(path, { signal: request.signal })).then(value => {
       if (request.signal.aborted) return;
@@ -47,7 +48,7 @@ export default function ProductAdvancedSearch({ controller, initialQuery, onSele
       <div className="document-grid">
         <div className="form-field document-wide"><label htmlFor="product-search-q">Pesquise por código, descrição ou GTIN</label><input id="product-search-q" type="search" maxLength={120} value={draft.q} onChange={event => set('q', event.target.value)} /></div>
         <div className="form-field"><label htmlFor="product-search-kind">Tipo</label><select id="product-search-kind" value={draft.kind} onChange={event => set('kind', event.target.value as Filters['kind'])}><option value="">Todos</option><option value="P">Produto</option><option value="S">Serviço</option></select></div>
-        <div className="form-field"><label htmlFor="product-search-format">Formato</label><select id="product-search-format" value={draft.format} onChange={event => set('format', event.target.value as Filters['format'])}><option value="">Todos</option><option value="S">Simples</option><option value="V">Com variações</option><option value="E">Com composição</option></select></div>
+        <div className="form-field"><label htmlFor="product-search-format">Formato</label><select id="product-search-format" value={draft.format} onChange={event => set('format', event.target.value as Filters['format'])}><option value="">Todos</option><option value="S">Simples</option><option value="V">Com variações</option>{operationEnabled('composition') && <option value="E">Com composição</option>}</select></div>
         <div className="form-field"><label htmlFor="product-search-brand">Marca</label><input id="product-search-brand" maxLength={100} value={draft.brand} onChange={event => set('brand', event.target.value)} /></div>
       </div>
       <button type="submit" className="primary-button" disabled={loading}>Pesquisar</button>

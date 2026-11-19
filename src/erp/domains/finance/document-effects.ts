@@ -12,6 +12,9 @@ import { one, type SqlDriver } from "../../engine/driver.ts";
 import { fromSqlite, raise } from "../../engine/errors.ts";
 import { jsonbText } from "../../engine/json.ts";
 import type { RpcContext } from "../../engine/registry.ts";
+import { maintenanceAllows, requireRpcParts } from "../../engine/parts-gate.ts";
+import { erpRequirement, erpRequirementMet } from "../../parts.ts";
+import { erpEntityRequirement } from "../../parts-requirements.ts";
 import { rowJson } from "../../engine/row-json.ts";
 import { todaySaoPaulo } from "../../engine/time.ts";
 import { commissionPolicy, operationTitles } from "./commissions.ts";
@@ -229,6 +232,21 @@ export function commissionOperationSync(ctx: RpcContext, document: string): stri
   const d = one(db, 'SELECT * FROM "erp_documents__document" WHERE id=?', document);
   if (!d || !["sales_orders", "service_orders"].includes(String(d.kind))) return null;
   let o: Row | null = one(db, `SELECT * FROM "erp_finance__commission_operation" WHERE document_id=? AND state='active'`, d.id) ?? null;
+  const owner = erpEntityRequirement(d.kind)!;
+  const enabled = erpRequirementMet(ctx.parts, erpRequirement("erp-financeiro", ...owner.all));
+  if (!enabled) {
+    // Uma edição ou troca de vendedor não encerra nem recalcula a estimativa congelada.
+    if (!o || d.status !== "cancelled") return o ? String(o.id) : null;
+    // Cancelamento comercial explícito, ou a cadeia restrita do cancelamento do PDV.
+    if (!erpRequirementMet(ctx.parts, owner) && !maintenanceAllows(ctx, "erp_document_transition", {
+      p_id: d.id, p_kind: d.kind, p_status: "cancelled",
+    })) return String(o.id);
+  } else if (d.status !== "cancelled") {
+    requireRpcParts(ctx, "erp_document_commission_operation", { p_document_id: d.id, p_kind: d.kind });
+  }
+  if (o && d.status === "cancelled") requireRpcParts(ctx, "erp_document_transition", {
+    p_id: d.id, p_kind: d.kind, p_status: "cancelled",
+  });
   const seller = documentSeller(db, d);
   const confirmed = commissionConfirmed(d.kind, d.status);
   if (!confirmed || seller === null || (o !== null && o.seller_id !== seller)) {

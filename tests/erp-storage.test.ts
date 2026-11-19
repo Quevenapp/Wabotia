@@ -4,6 +4,8 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { localFetch } from "../src/erp/api/local-fetch";
+import { erpIdentity } from "../src/modules/erp/identity";
+import { readErpPartsState } from "../src/modules/erp/parts-state";
 import { erpObjectKey } from "../src/erp/engine/rpc-endpoint";
 import {
   createErpUpload,
@@ -24,7 +26,7 @@ import {
   createZip,
 } from "../src/erp/fagoo/workers/erp-api/src/platform.mjs";
 import { fixture } from "./service-center-fixture";
-import { setModule } from "./erp-module-helper";
+import { enableErpParts, setModule } from "./erp-module-helper";
 
 const LOCAL = "https://erp.wabotia.invalid";
 const hmacHex = async (secret: string, body: string) => {
@@ -54,8 +56,8 @@ const bytesOf = (n: number, seed = 7) => {
   for (let i = 0; i < n; i++) out[i] = x = (x * 1103515245 + 12345) & 0xff;
   return out;
 };
-const ports = (profile: string, actor: any) => {
-  const fetchImpl = localFetch(env, profile, actor);
+const ports = async (profile: string, actor: any) => {
+  const fetchImpl = localFetch(env, profile, actor, await erpIdentity(env, actor, profile), { trackCustomers: false });
   const base = {
     baseUrl: LOCAL,
     supabaseDeployment: "self-hosted",
@@ -64,21 +66,32 @@ const ports = (profile: string, actor: any) => {
   };
   return {
     fetchImpl,
+    async rpc(name: string, args: Record<string, unknown>) {
+      const response = await fetchImpl(`${LOCAL}/rest/v1/rpc/${name}`, {
+        method: "POST", body: JSON.stringify({ p_user_id: actor.id, ...args }),
+      });
+      const result = await response.json<any>();
+      expect(response.status, JSON.stringify(result)).toBe(200);
+      return result;
+    },
     attachments: createAttachmentStorage(base),
     cnab: createCnabStorage(base),
     exports: createExportStorage(base),
   };
 };
-const storage = (
+const storage = async (
   profile: string,
   method: string,
   path: string,
   init: RequestInit = {},
+  authorizedKeys?: ReadonlySet<string>,
 ) =>
   erpStorage(
     env,
     profile,
     new Request(LOCAL + "/storage/v1/object/" + path, { method, ...init }),
+    { snapshot: (await readErpPartsState(env, profile)).snapshot },
+    authorizedKeys,
   );
 
 afterEach(() => vi.restoreAllMocks());
@@ -87,10 +100,29 @@ describe("armazenamento do ERP no R2", () => {
   it("anexos e CNAB pelos adaptadores do Fagoo, separados por área", async () => {
     const a = await fixture();
     const b = await fixture();
-    const pa = ports(a.profile, a.admin);
-    const pb = ports(b.profile, b.admin);
+    await enableErpParts(a.profile, a.admin.id);
+    await enableErpParts(b.profile, b.admin.id);
+    let pa = await ports(a.profile, a.admin);
+    const pb = await ports(b.profile, b.admin);
     const bytes = bytesOf(3000);
-    const key = `documents/${crypto.randomUUID()}/${crypto.randomUUID()}/${await hex(bytes)}`;
+    const contact = await pa.rpc("erp_catalog_contact_save", {
+      p_id: null, p_expected_version: 0, p_command_id: crypto.randomUUID(),
+      p_data: { name: "Cliente dos anexos", roles: ["customer"] }, p_acknowledged: [],
+    });
+    const saved = await pa.rpc("erp_document_save", {
+      p_kind: "sales_orders", p_id: null, p_expected_version: 0, p_command_id: crypto.randomUUID(),
+      p_body: { date: "2026-11-19", contact_id: contact.record.id,
+        items: [{ description: "Serviço", unit: "UN", quantity: "1", unit_price: "10" }], installments: [] },
+    });
+    const args = { p_kind: "sales_orders", p_document_id: saved.document.id };
+    const reserved = await pa.rpc("erp_attachment_reserve", { ...args, p_command_id: crypto.randomUUID(),
+      p_filename: "anexo-teste.pdf", p_mime_type: "application/pdf", p_size_bytes: bytes.length, p_sha256: await hex(bytes) });
+    const key = `documents/${saved.document.id}/${reserved.attachment.id}/${await hex(bytes)}`;
+    // A fotografia não substitui a autorização do objeto exato pelo RPC.
+    expect(await pa.attachments.put(key, bytes, "application/pdf")).toBe(false);
+    expect(await env.MEDIA.head(erpStorageKey(a.profile, "erp-attachments", key))).toBeNull();
+    const authorized = await pa.rpc("erp_attachment_object", { ...args, p_id: reserved.attachment.id, p_write: true });
+    expect(authorized.object_key).toBe(key);
     expect(await pa.attachments.put(key, bytes, "application/pdf")).toBe(true);
     // A mesma chave não é regravada (x-upsert: false).
     expect(await pa.attachments.put(key, bytes, "application/pdf")).toBe(false);
@@ -107,7 +139,8 @@ describe("armazenamento do ERP no R2", () => {
       erpStorageKey(a.profile, "erp-attachments", key),
     );
     // Outra área não enxerga.
-    expect((await pb.attachments.get(key)).status).toBe(404);
+    expect((await pb.attachments.get(key)).status).toBe(403);
+    expect(await env.MEDIA.head(erpStorageKey(b.profile, "erp-attachments", key))).toBeNull();
 
     // CNAB: caminho da RPC sem mudança, prefixo da área posto pela camada,
     // e só com o bloco erp-cobranca ligado.
@@ -124,8 +157,9 @@ describe("armazenamento do ERP no R2", () => {
     expect(
       await env.MEDIA.head(erpStorageKey(a.profile, "brufap-cnab", path)),
     ).toBeNull();
-    await setModule(a.profile, "erp", true, a.admin.id);
+    await enableErpParts(a.profile, a.admin.id);
     await setModule(a.profile, "erp-cobranca", true, a.admin.id);
+    pa = await ports(a.profile, a.admin); // Nova requisição, fotografia atual.
     await pa.cnab.storeFile({
       bucket: "brufap-cnab",
       path,
@@ -164,19 +198,21 @@ describe("armazenamento do ERP no R2", () => {
     ).toBe(403);
     // Bloco desligado: a leitura para também.
     await setModule(a.profile, "erp-cobranca", false, a.admin.id);
+    pa = await ports(a.profile, a.admin);
     await expect(
       pa.cnab.getFile({ bucket: "brufap-cnab", path }),
     ).rejects.toThrow();
     expect(
       (await storage(a.profile, "GET", `authenticated/brufap-cnab/${path}`))
         .status,
-    ).toBe(403);
-  });
+    ).toBe(409);
+    expect(new Uint8Array(await (await env.MEDIA.get(erpStorageKey(a.profile, "brufap-cnab", path)))!.arrayBuffer())).toEqual(rem);
+  }, 60_000); // Inclui agora esquema e autorização real do documento no objeto.
 
   it("exportação: grava, assina, baixa pelo link público e apaga", async () => {
     const f = await fixture();
     await setModule(f.profile, "erp", true, f.admin.id);
-    const p = ports(f.profile, f.admin);
+    const p = await ports(f.profile, f.admin);
     const zip = bytesOf(5000, 3);
     const id = crypto.randomUUID();
     const objectKey = `exports/${id}/${await hex(zip)}.zip`;
@@ -264,6 +300,7 @@ describe("armazenamento do ERP no R2", () => {
 
   it("recusa bucket desconhecido, caminho inválido, tipo, tamanho, bloco desligado e link fora da exportação", async () => {
     const f = await fixture();
+    await setModule(f.profile, "erp", true, f.admin.id);
     const xml = {
       headers: { "Content-Type": "application/xml" },
       body: "<a/>",
@@ -292,13 +329,14 @@ describe("armazenamento do ERP no R2", () => {
     ).toBe(404);
     expect(
       (
-        await storage(f.profile, "POST", "erp-attachments/a.html", {
+        await storage(f.profile, "POST", "erp-attachments/company/a.html", {
           headers: { "Content-Type": "text/html" },
           body: "<p>",
-        })
+        }, new Set(["erp-attachments/company/a.html"]))
       ).status,
     ).toBe(415);
-    await setModule(f.profile, "erp", true, f.admin.id);
+    expect(await env.MEDIA.head(erpStorageKey(f.profile, "erp-attachments", "company/a.html"))).toBeNull();
+    await enableErpParts(f.profile, f.admin.id);
     await setModule(f.profile, "erp-cobranca", true, f.admin.id);
     expect(
       (
@@ -308,6 +346,7 @@ describe("armazenamento do ERP no R2", () => {
         })
       ).status,
     ).toBe(413);
+    expect(await env.MEDIA.head(erpStorageKey(f.profile, "brufap-cnab", "x.rem"))).toBeNull();
     // Fiscal (notas recebidas, artefatos, certificado A1) com erp-fiscal
     // desligado: nada entra nem sai.
     const octet = {
@@ -318,16 +357,27 @@ describe("armazenamento do ERP no R2", () => {
       expect(
         (await storage(f.profile, "POST", `${bucket}/objects/a`, octet)).status,
         bucket,
-      ).toBe(403);
+      ).toBe(409);
       expect(
         (await storage(f.profile, "GET", `authenticated/${bucket}/objects/a`))
           .status,
         bucket,
-      ).toBe(403);
+      ).toBe(409);
       expect(
         (await storage(f.profile, "DELETE", `${bucket}/objects/a`)).status,
         bucket,
-      ).toBe(403);
+      ).toBe(409);
+      expect(await env.MEDIA.head(erpStorageKey(f.profile, bucket, "objects/a"))).toBeNull();
+      // Também conserva um objeto histórico: DELETE/PUT não podem destruí-lo.
+      const key = erpStorageKey(f.profile, bucket, "objects/preserved");
+      const original = bytesOf(10);
+      await env.MEDIA.put(key, original, { httpMetadata: { contentType: "application/octet-stream" } });
+      for (const method of ["GET", "PUT", "DELETE"]) {
+        const response = await storage(f.profile, method, `${method === "GET" ? "authenticated/" : ""}${bucket}/objects/preserved`, method === "PUT" ? octet : {});
+        expect(response.status).toBe(409);
+        expect(await response.json()).toMatchObject({ error: "module_disabled" });
+        expect(new Uint8Array(await (await env.MEDIA.get(key))!.arrayBuffer())).toEqual(original);
+      }
     }
     await setModule(f.profile, "erp-fiscal", true, f.admin.id);
     expect(
@@ -382,10 +432,27 @@ describe("armazenamento do ERP no R2", () => {
         body: JSON.stringify({ expiresIn }),
       });
     expect((await sign("brufap-received-dfe/objects/a", 120)).status).toBe(403);
-    expect((await sign("erp-attachments/nada.pdf", 120)).status).toBe(403);
+    expect((await storage(f.profile, "POST", "sign/erp-attachments/company/nada.pdf", {
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ expiresIn: 120 }),
+    }, new Set(["erp-attachments/company/nada.pdf"]))).status).toBe(403);
     expect((await sign("brufap-exports/nada.zip", 120)).status).toBe(404);
     expect((await sign("brufap-exports/nada.zip", 0)).status).toBe(400);
     expect((await sign("brufap-exports/nada.zip", 3601)).status).toBe(400);
+  });
+
+  it("sem fotografia falha fechado antes de ler ou gravar qualquer objeto no R2", async () => {
+    const f = await fixture();
+    const head = vi.fn(), get = vi.fn(), put = vi.fn(), remove = vi.fn(), list = vi.fn();
+    const isolated = { ...env, MEDIA: { head, get, put, delete: remove, list } } as any;
+    for (const method of ["GET", "POST", "DELETE"]) {
+      const response = await erpStorage(isolated, f.profile, new Request(
+        `${LOCAL}/storage/v1/object/${method === "GET" ? "authenticated/" : ""}brufap-exports/exports/test.zip`,
+        { method, ...(method === "POST" ? { body: bytesOf(20), headers: { "Content-Type": "application/zip" } } : {}) },
+      ));
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ error: "erp_parts_unavailable" });
+    }
+    for (const call of [head, get, put, remove, list]) expect(call).not.toHaveBeenCalled();
   });
 });
 

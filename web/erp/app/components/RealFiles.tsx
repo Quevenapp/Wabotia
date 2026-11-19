@@ -1,3 +1,7 @@
+import { withoutUnavailableParts } from '../../blocks';
+import { erpRouteRequirement } from '../../../../src/erp/parts-requirements';
+import { requirementEnabled } from '../../blocks';
+import { targetEnabled } from '../../blocks';
 import {useEffect,useRef,useState,useSyncExternalStore} from 'react';
 import {Link} from 'react-router-dom';
 import {AccessError,type AccessState} from '../lib/real-access';
@@ -38,6 +42,7 @@ const insertMessage=(e:unknown)=>e instanceof AccessError?e.status===415?'O cont
  * Miniatura of the images, Baixar arquivo, Fazer download of the selected ones and Excluir anexo (the audited logical deletion of
  * the module that owns the file).
  */
+const fileAvailable=(file:FileEntry)=>{const requirement=erpRouteRequirement('GET',new URL(fileRoute(file,'download'),'https://erp.invalid'));return requirement!=='externo'&&requirementEnabled(requirement);};
 export default function RealFiles({controller}:{controller:SystemLogController}){
  const snapshot=useSyncExternalStore(controller.subscribe,controller.getSnapshot);
  const actor=useRef(snapshot.membership?.user_id??null);
@@ -53,16 +58,16 @@ export default function RealFiles({controller}:{controller:SystemLogController})
  useEffect(()=>{if(allowed)return;request.current?.abort();work.current?.abort();thumbs.current?.abort();request.current=null;setLoading(false);setPage(null);setBusy('');setImages({});},[allowed]);
  useEffect(()=>{if(!allowed||!may())return;const p=new AbortController();request.current=p;setLoading(true);setError('');void(async()=>{try{
   const raw=await controller.systemLog(filesPath(query),{method:'GET',signal:p.signal});if(!may()||p.signal.aborted||request.current!==p)return;
-  const next=parseFiles(raw,query);setPage(next);setSelected(current=>new Set([...current].filter(id=>next.items.some(f=>f.id===id))));
+  const next=parseFiles(withoutUnavailableParts(raw),query);setPage(next);setSelected(current=>new Set([...current].filter(id=>next.items.some(f=>f.id===id))));
  }catch(e){if(may()&&!p.signal.aborted&&request.current===p&&!aborted(e))setError(e instanceof AccessError&&e.status===403?'Somente administradores consultam os arquivos.':'Não foi possível carregar os arquivos. Tente novamente.');}
  finally{if(request.current===p){request.current=null;setLoading(false);}}})();return()=>{p.abort();if(request.current===p)request.current=null;};},[controller,query,reload,allowed]);
  // Bytes of one file through the route of its module, checked by size and SHA-256.
- const verified=async(f:FileEntry,signal:AbortSignal)=>{if(!controller.attachments)throw new AccessError(503);
+ const verified=async(f:FileEntry,signal:AbortSignal)=>{if(!fileAvailable(f))throw new AccessError(409);if(!controller.attachments)throw new AccessError(503);
   const blob=await controller.attachments(fileRoute(f,'download'),{download:true,signal}) as Blob;
   if(!(blob instanceof Blob)||blob.size!==f.size_bytes||await fileDigest(blob)!==f.sha256)throw new AccessError(502);return blob;};
  // Miniatura: the images of the page (PNG/JPEG up to 2 MB), one at a time; a page or user change discards what was still loading.
  useEffect(()=>{thumbs.current?.abort();setImages({});if(!page||!allowed||!controller.attachments)return;const p=new AbortController();thumbs.current=p;
-  void(async()=>{for(const f of page.items.filter(thumbnailable).slice(0,THUMBNAILS_PER_PAGE)){if(p.signal.aborted||!may())return;
+  void(async()=>{for(const f of page.items.filter(fileAvailable).filter(thumbnailable).slice(0,THUMBNAILS_PER_PAGE)){if(p.signal.aborted||!may())return;
    try{const url=await thumbnailUrl(await verified(f,p.signal),f.mime_type);if(!p.signal.aborted&&may())setImages(current=>({...current,[f.id]:url}));}catch{/* The row keeps its icon. */}}})();
   return()=>p.abort();},[page,allowed]);
  const act=async(label:string,run:(signal:AbortSignal)=>Promise<void>,describe?:(e:unknown)=>string)=>{if(work.current||!may())return;const p=new AbortController();work.current=p;setBusy(label);setError('');setNotice('');
@@ -112,7 +117,7 @@ export default function RealFiles({controller}:{controller:SystemLogController})
   setInsert(null);clearPicker();setNotice('Envio descartado. Nenhum arquivo foi incluído.');},
   e=>e instanceof AccessError&&e.status===403?'Somente administradores inserem arquivos.':'Não foi possível descartar o envio. Tente novamente.');
  if(!allowed)return <section className="real-state-panel"><h1>Gerenciador de arquivos não liberado</h1><p>Somente administradores consultam os arquivos da empresa.</p></section>;
- const items=page?.items??[],chosen=items.filter(f=>selected.has(f.id)),locked=Boolean(busy)||Boolean(deletion)||Boolean(insert)||!controller.attachments;
+ const items=(page?.items??[]).filter(fileAvailable),chosen=items.filter(f=>selected.has(f.id)),locked=Boolean(busy)||Boolean(deletion)||Boolean(insert)||!controller.attachments;
  const chips=[...(query.q?[{label:`Pesquisa: ${query.q}`,onRemove:()=>{setSearch('');setQuery(q=>({...q,q:null,offset:0}));}}]:[]),
   ...(query.order!=='data'?[{label:`Ordenação: ${ORDER_TEXT[query.order]}`,onRemove:()=>{setDraft(d=>({...d,order:'data'}));setQuery(q=>({...q,order:'data',offset:0}));}}]:[]),
   ...(query.origin?[{label:`Origem: ${ORIGIN_TEXT[query.origin]}`,onRemove:()=>{setDraft(d=>({...d,origin:''}));setQuery(q=>({...q,origin:null,offset:0}));}}]:[]),
@@ -147,7 +152,7 @@ export default function RealFiles({controller}:{controller:SystemLogController})
      <td><input type="checkbox" aria-label={`Selecionar ${f.filename}`} checked={selected.has(f.id)} disabled={locked} onChange={e=>toggle(f.id,e.target.checked)}/></td>
      <td><button type="button" className="text-button" disabled={locked} onClick={()=>void download([f])}>{f.filename}</button></td>
      <td><span className="real-files-lock" title="Arquivo privado: só usuários com acesso ao módulo de origem baixam"><Icon name="key" size={12}/><span className="sr-only">Privado</span></span></td><td>{f.owner.label}</td>
-     <td>{fileSize(f.size_bytes)}</td><td>{moment(f.created_at)}</td><td>{source.to?<Link to={source.to}>{source.text}</Link>:source.text}</td>
+     <td>{fileSize(f.size_bytes)}</td><td>{moment(f.created_at)}</td><td>{source.to&&targetEnabled(source.to)?<Link to={source.to}>{source.text}</Link>:source.text}</td>
      <td>{images[f.id]?<img className="real-files-thumb" src={images[f.id]} alt={`Miniatura de ${f.filename}`}/>:<span className="real-help" title={thumbnailable(f)?'Carregando a miniatura…':'Miniatura só para imagens PNG ou JPEG de até 2 MB.'}>—</span>}</td>
      <td><button type="button" className="text-button" disabled={locked} onClick={()=>void download([f])}>{busy===`Baixando ${f.filename}…`?'Baixando…':'Baixar arquivo'}</button>
       <button type="button" className="text-button" disabled={locked} onClick={()=>ask([f])}>Excluir anexo</button></td></tr>;})}</tbody></table></div>

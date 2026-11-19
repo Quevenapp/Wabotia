@@ -1,3 +1,4 @@
+import { operationEnabled } from '../../blocks';
 import { useEffect, useState } from 'react';
 import type { AccessController } from '../lib/real-access';
 import type { DocumentRecord } from '../lib/real-documents-model';
@@ -23,7 +24,7 @@ export interface StructuresState {
  */
 export function useDocumentStructures(controller: unknown, records: readonly DocumentRecord[], enabled: boolean): StructuresState {
   const [state, setState] = useState<{ key: string; structures: Record<string, StructureItem[]>; failed: number }>({ key: '', structures: {}, failed: 0 });
-  const wanted = enabled ? records.filter(record => record.items.some(item => item.product_id)) : [];
+  const wanted = enabled && operationEnabled('composition') ? records.filter(record => record.items.some(item => item.product_id)) : [];
   const key = `${enabled}|${wanted.map(record => `${record.id}:${record.version}`).join(',')}`;
   const port = controller as Partial<Pick<AccessController, 'documents'>> | null;
   const active = wanted.length > 0 && typeof port?.documents === 'function';

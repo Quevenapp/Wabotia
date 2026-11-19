@@ -16,6 +16,9 @@ import * as documents from "../../documents/public.ts";
 import * as preferences from "../../preferences/public.ts";
 import { commissionAmounts, commissionWeighted, documentSeller } from "../document-effects.ts";
 import { commissionPolicy } from "../commissions.ts";
+import { requireRpcParts } from "../../../engine/parts-gate.ts";
+import { erpRequirement, erpRequirementMet } from "../../../parts.ts";
+import { erpEntityRequirement } from "../../../parts-requirements.ts";
 import {
   cents,
   day,
@@ -204,6 +207,7 @@ function commissionDocument(db: SqlDriver, document: string, seller: string) {
 
 /** erp_finance.commission_capture_title(conta): a comissão de uma parcela do documento. */
 function commissionCaptureTitle(ctx: RpcContext, title: string) {
+  if (!erpRequirementMet(ctx.parts, erpRequirement("erp-financeiro"))) return;
   const db = ctx.db;
   const l = one(db, 'SELECT * FROM "erp_finance__document_title" WHERE title_id=?', title);
   const p = l ? one(db, 'SELECT * FROM "erp_finance__document_posting" WHERE id=?', l.posting_id) : undefined;
@@ -211,6 +215,8 @@ function commissionCaptureTitle(ctx: RpcContext, title: string) {
   if (!p || p.state !== "active" || !["sales_orders", "service_orders"].includes(fieldText(snap, "kind") ?? "")) return;
   if (one(db, 'SELECT 1 x FROM "erp_finance__commission" WHERE title_id=? LIMIT 1', title)) return;
   const d = one(db, 'SELECT * FROM "erp_documents__document" WHERE id=?', p.document_id)!;
+  if (!erpRequirementMet(ctx.parts, erpEntityRequirement(d.kind)!)) return;
+  requireRpcParts(ctx, "erp_document_finance_post", { p_document_id: d.id, p_kind: d.kind });
   // 210: o vendedor do pedido (164) ou, no pedido espelhado, o do Origin (171).
   const seller = documentSeller(db, d);
   if (seller === null) return;
@@ -273,6 +279,7 @@ function documentAudit(ctx: RpcContext, a: { actor: string; command: string; doc
 const jsonArg = (v: unknown) => (v === undefined ? null : typeof v === "string" ? JSON.parse(v) : v);
 
 export function erpDocumentFinancePreview(ctx: RpcContext, a: RpcArgs) {
+  requireRpcParts(ctx, "erp_document_finance_preview", a);
   const db = ctx.db;
   const user = a.p_user_id as string;
   const kind = (a.p_kind as string | null) ?? null;
@@ -285,6 +292,7 @@ export function erpDocumentFinancePreview(ctx: RpcContext, a: RpcArgs) {
 }
 
 export function erpDocumentFinancePost(ctx: RpcContext, a: RpcArgs) {
+  requireRpcParts(ctx, "erp_document_finance_post", a);
   const db = ctx.db;
   const user = a.p_user_id as string;
   const kind = (a.p_kind as string | null) ?? null;
@@ -350,6 +358,7 @@ export function documentReversePreviewData(db: SqlDriver, d: Row, posting: strin
 }
 
 export function erpDocumentFinanceReversePreview(ctx: RpcContext, a: RpcArgs) {
+  requireRpcParts(ctx, "erp_document_finance_reverse_preview", a);
   const db = ctx.db;
   const user = a.p_user_id as string;
   const kind = (a.p_kind as string | null) ?? null;
@@ -363,6 +372,7 @@ export function erpDocumentFinanceReversePreview(ctx: RpcContext, a: RpcArgs) {
 }
 
 export function erpDocumentFinanceReverse(ctx: RpcContext, a: RpcArgs) {
+  requireRpcParts(ctx, "erp_document_finance_reverse", a);
   const db = ctx.db;
   const user = a.p_user_id as string;
   const kind = (a.p_kind as string | null) ?? null;
@@ -412,6 +422,7 @@ export function erpDocumentFinanceReverse(ctx: RpcContext, a: RpcArgs) {
 }
 
 export function erpDocumentFinanceGet(ctx: RpcContext, a: RpcArgs) {
+  requireRpcParts(ctx, "erp_document_finance_get", a);
   const db = ctx.db;
   const user = a.p_user_id as string;
   const kind = (a.p_kind as string | null) ?? null;
@@ -425,6 +436,7 @@ export function erpDocumentFinanceGet(ctx: RpcContext, a: RpcArgs) {
 }
 
 export function erpDocumentFinanceList(ctx: RpcContext, a: RpcArgs) {
+  requireRpcParts(ctx, "erp_document_finance_list", a);
   const db = ctx.db;
   const user = a.p_user_id as string;
   const kind = (a.p_kind as string | null) ?? null;

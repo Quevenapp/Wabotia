@@ -20,7 +20,9 @@ import { ERP_TABLES } from "../../../schema/columns.generated.ts";
 import { contactScope, contactVisibleTo, unitPriceNumeric } from "../../catalog/public.ts";
 import { active as receiptActive } from "../../stock/public.ts";
 import { originEffects } from "../../sync/public.ts";
-import { dateValue, preference, situationAdopted, situationJson, situationKeyValid } from "../internal.ts";
+import { dateValue, preference, situationAdopted, situationJson, situationKeyValid, unavailableParts, projectDocument } from "../internal.ts";
+import { requireErpParts } from "../../../engine/parts-gate.ts";
+import { erpRequirement } from "../../../parts.ts";
 import { mirrorListRow, mirrorSource, mirrorSourceMatches } from "../mirror-reads.ts";
 import { mirrorMetadata } from "../mirror.ts";
 import { mirrorVisible, requireAccess, transitions } from "../public.ts";
@@ -148,7 +150,7 @@ export function listRow(ctx: RpcContext, id: string, fiscal: boolean, stock: boo
           ) === true,
       );
   }
-  const invoice = fiscal && ["sales_orders", "service_orders"].includes(kind) ? orderInvoice(db, id) : null;
+  const invoice = ctx.parts.fiscal && fiscal && ["sales_orders", "service_orders"].includes(kind) ? orderInvoice(db, id) : null;
   const so = one(
     db,
     'SELECT s.number FROM "erp_documents__sales_service_link" l JOIN "erp_documents__document" s ON s.id=l.service_order_id WHERE l.sales_order_id=?',
@@ -164,7 +166,7 @@ export function listRow(ctx: RpcContext, id: string, fiscal: boolean, stock: boo
   const effects = originEffects(ctx, id);
   const delivery = body.delivery_address === undefined || body.delivery_address === null ? null : body.delivery_address;
   const address = addressText(delivery) ?? addressText(snap);
-  return {
+  return projectDocument(ctx, {
     id: d.id,
     kind,
     number: number === null ? null : String(number),
@@ -178,7 +180,8 @@ export function listRow(ctx: RpcContext, id: string, fiscal: boolean, stock: boo
     contact_id: d.contact_id,
     contact_name: arrow(snap, "name"),
     warehouse_id: d.warehouse_id,
-    warehouse_name: stock ? d.warehouse_name : null,
+    warehouse_name: stock && ctx.parts.stock ? d.warehouse_name : null,
+    ...unavailableParts(ctx),
     source_proposal_id: d.source_proposal_id,
     source_proposal_number: str(d.source_number),
     finance_active: exists(`SELECT 1 x FROM "erp_finance__document_posting" WHERE document_id=? AND state='active'`, id),
@@ -214,7 +217,7 @@ export function listRow(ctx: RpcContext, id: string, fiscal: boolean, stock: boo
     readonly: false,
     origin_finance: effects.finance,
     origin_invoice: effects.invoice,
-  };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -389,6 +392,7 @@ function sumNum(list: Num[]): Num {
 
 /** public.erp_document_list(…): a listagem de documentos com filtros, busca, ordem, cursor ou página e totais. */
 export function erpDocumentList(ctx: RpcContext, a: RpcArgs) {
+  if ([a.p_warehouse_id, a.p_component_id, a.p_lots].some(v => v != null)) requireErpParts(ctx, erpRequirement("erp-estoque"));
   const db = ctx.db;
   const s = (k: string) => str(a[k]);
   const user = s("p_user_id"),

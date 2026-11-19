@@ -1,3 +1,19 @@
+import { ERP_PART_KEYS, normalizeErpParts, erpRequirementMet } from '../../../../parts.ts';
+export { erpRequirementMet };
+/** Metadata is an explanation of absence, never a general relaxation of a DTO. */
+export function responseParts(value, bad) {
+ if(!value || typeof value!=='object' || Array.isArray(value)) return bad();
+ if(!Object.hasOwn(value,'unavailable_parts')) return normalizeErpParts();
+ const list=value.unavailable_parts;
+ if(!Array.isArray(list)||!list.length||list.length>ERP_PART_KEYS.length||new Set(list).size!==list.length||list.some(key=>typeof key!=='string'||!ERP_PART_KEYS.includes(key))) return bad();
+ return normalizeErpParts(Object.fromEntries(list.map(key=>[key,false])));
+}
+export const responsePartsMetadata=value=>Object.hasOwn(value,'unavailable_parts')?{unavailable_parts:[...value.unavailable_parts]}:{};
+export function projectParts(value, parse, bad) {
+ responseParts(value,bad);
+ const {unavailable_parts,...body}=value;
+ return {...parse(body),...responsePartsMetadata(value)};
+}
 /** Shared request plumbing of the Preferências and Sistema routes (migrations 115-118): bounded JSON bodies, frozen route
  * objects and one execution path with timeout, cancellation and the uncertain-outcome rule for dispatched mutations. */
 export class PreferencesError extends Error{constructor(status,code){super(code);this.status=status;this.code=code;}}
@@ -29,7 +45,7 @@ export function baseChecks(request){
 }
 export function getWithoutBody(request){need(request.body===null&&(!request.headers.has('content-length')||request.headers.get('content-length')==='0'));}
 
-const KNOWN={42501:[403,'ERP_ACCESS_DENIED'],22023:[400,'ERP_INVALID_INPUT'],P0002:[404,'ERP_NOT_FOUND'],40001:[409,'ERP_CONFLICT'],23505:[409,'ERP_CONFLICT'],
+const KNOWN={module_disabled:[409,'module_disabled'],erp_parts_stale:[409,'erp_parts_stale'],erp_parts_unavailable:[503,'erp_parts_unavailable'],42501:[403,'ERP_ACCESS_DENIED'],22023:[400,'ERP_INVALID_INPUT'],P0002:[404,'ERP_NOT_FOUND'],40001:[409,'ERP_CONFLICT'],23505:[409,'ERP_CONFLICT'],
  ERP_ACCESS_DENIED:[403,'ERP_ACCESS_DENIED'],ERP_FORBIDDEN:[403,'ERP_ACCESS_DENIED'],ERP_NOT_FOUND:[404,'ERP_NOT_FOUND'],ERP_CONFLICT:[409,'ERP_CONFLICT'],
  ERP_INVALID_INPUT:[400,'ERP_INVALID_INPUT'],ERP_INVALID_QUERY:[400,'ERP_INVALID_INPUT'],ERP_USERS_INVITE_REFUSED:[422,'ERP_USERS_INVITE_REFUSED']};
 /**
@@ -58,4 +74,19 @@ export async function executeRoute(route,context,parse,{maxTimeoutMs=20000,extra
   if(e&&typeof e==='object'&&Number.isInteger(e.status)&&typeof e.code==='string'&&/^ERP_[A-Z_]+$/.test(e.code))throw new PreferencesError(e.status,e.code);
   throw new PreferencesError(502,'ERP_UPSTREAM_UNAVAILABLE');
  }finally{clearTimeout(timer);signal?.removeEventListener('abort',cancel);controller.abort();}
+}
+
+/** Completa só para validar o formato legado e remove os campos suspensos da resposta. */
+export function parsePartRecord(value, parse, groups, bad) {
+ const parts=responseParts(value,bad),input={...value},removed=[];
+ delete input.unavailable_parts;
+ for(const [owners,defaults] of groups)if(owners.some(part=>!parts[part])) {
+  for(const [key,fallback] of Object.entries(defaults)) {
+   if(!Object.hasOwn(input,key))input[key]=fallback;
+   removed.push(key);
+  }
+ }
+ const parsed=parse(input);
+ for(const key of removed)delete parsed[key];
+ return {...parsed,...responsePartsMetadata(value)};
 }

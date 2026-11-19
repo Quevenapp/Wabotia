@@ -1,3 +1,4 @@
+import { projectParts, responseParts, responsePartsMetadata, erpRequirementMet } from './preferences-kit.mjs';
 /** Financeiro > Faturamento agrupado (SQL 174): clientes com pedidos a faturar, seleção de pedidos, GERAR CONTAS e os gerados.
  * SQL 247: the NF-e de saída of the Brufap join the pedidos (invoice_ids, "Nota Fiscal nº"); older answers read as without notes. */
 import { FinanceError } from './finance.mjs';
@@ -89,7 +90,7 @@ function projectBilling(value) {
   if (documents !== BigInt(value.total_cents) || titles !== BigInt(value.total_cents)) upstreamInvalid();
   return { id: value.id, number: value.number, contact_id: value.contact_id, contact_name: value.contact_name, issued_on: value.issued_on, condition: value.condition, total_cents: value.total_cents, state: value.state, version: value.version, created_at: value.created_at, deletable: value.deletable, documents: docs, invoices, titles: parts };
 }
-export function projectGroupedBillingResult(route, value) {
+function projectGroupedBillingResultBody(route, value) {
   const a = route.args;
   if (route.kind === 'grouped_candidates') {
     if (value.entity !== 'grouped_billing_candidates' || value.from !== a.p_from || value.to !== a.p_to || value.selected !== (a.p_documents !== null) || value.page !== a.p_page || value.limit !== a.p_limit || !pageLength(value, a)) upstreamInvalid();
@@ -121,4 +122,11 @@ export function projectGroupedBillingResult(route, value) {
     if (record.contact_id !== sent.contact_id.toLowerCase() || record.total_cents !== sent.total_cents || record.titles.length !== sent.days.length || record.documents.length !== sent.document_ids.length
       || record.invoices.length !== (sent.invoice_ids ?? []).length) upstreamInvalid(); return record; });
   return { ...output, items };
+}
+
+export function projectGroupedBillingResult(route, value) {
+ const parts=responseParts(value,upstreamInvalid);
+ if(route.kind==='grouped_candidates'&&Array.isArray(value.items)&&value.items.some(item=>(!parts.sales&&item.documents!==0)||(!parts.fiscal&&(item.invoices??0)!==0)))upstreamInvalid();
+ if(route.kind==='grouped_documents'&&Array.isArray(value.items)&&value.items.some(item=>item.kind==='fiscal_invoices'?!parts.fiscal:!parts.sales))upstreamInvalid();
+ return projectParts(value, body => projectGroupedBillingResultBody(route, body), upstreamInvalid);
 }

@@ -1,3 +1,4 @@
+import { projectCatalogResult } from "../part-projection.ts";
 // Preços de venda e custo em massa: public.erp_catalog_product_price_adjust
 // (Reajustar preços: produtos selecionados com versão, ou o conjunto filtrado
 // da lista) e public.erp_catalog_product_prices_update (Atualizar preços:
@@ -6,6 +7,7 @@
 // O UPDATE de erp_catalog.origin ('local_modified') vai no updateRecord (record.ts).
 import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
+import { ErpPartDisabled } from "../../../engine/parts-gate.ts";
 import { arrow, jsonbKeys, jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { validDate } from "../../../engine/time.ts";
@@ -30,6 +32,7 @@ import {
   stockFilter,
 } from "../product-query.ts";
 import { updateRecord } from "../record.ts";
+import { catalogUnavailable } from "../cost.ts";
 import { priceRuleResult, priceRuleValid } from "./erp_catalog_product_price_preview.ts";
 
 const MAX_VERSION = 2147483647;
@@ -216,7 +219,7 @@ export function erpCatalogProductPriceAdjust(ctx: RpcContext, a: RpcArgs) {
     entity: "products", total: ids.length, applied, unchanged, skipped_total: skippedTotal, skipped, rule, replayed: false, data_mode: "erp_native",
   };
   storeCommand(ctx, command!, user!, hash, result);
-  return result;
+  return projectCatalogResult(ctx.parts, result);
 }
 
 export function erpCatalogProductPricesUpdate(ctx: RpcContext, a: RpcArgs) {
@@ -254,7 +257,7 @@ export function erpCatalogProductPricesUpdate(ctx: RpcContext, a: RpcArgs) {
   const ids = items!.map((x) => detailUuid(x.product_id)!);
   const sync = compositionSyncOn(ctx);
   const costOf = (id: string) =>
-    supplier === null
+    supplier === null || !ctx.parts.stock || !ctx.parts.purchases
       ? null
       : unitPriceNumeric(
           one(db, 'SELECT cost_price FROM "erp_catalog__product_supplier" WHERE record_id=? AND supplier_id=?', id, supplier)?.cost_price ?? null,
@@ -273,9 +276,14 @@ export function erpCatalogProductPricesUpdate(ctx: RpcContext, a: RpcArgs) {
     if (version === MAX_VERSION) raise("40001", "erp_catalog_version_exhausted");
     const price = "price" in item ? unitPrice(item.price, 14) : null;
     const cost = "cost_price" in item ? unitPrice(item.cost_price, 14) : null;
+    const costAvailable = ctx.parts.stock && ctx.parts.purchases;
+    if (cost !== null && !costAvailable) {
+      const saved = one(db, 'SELECT cost_price FROM "erp_catalog__product_supplier" WHERE record_id=? AND supplier_id=?', id, supplier);
+      if (unitPriceNumeric(saved?.cost_price, 14) !== unitPriceNumeric(cost, 14)) throw new ErpPartDisabled();
+    }
     const before = { price: priceOf(id), cost_price: costOf(id) };
     if (price !== null) setPrice(ctx, id, price);
-    if (cost !== null) {
+    if (cost !== null && costAvailable) {
       const existing = one(db, 'SELECT is_default, purchase_price FROM "erp_catalog__product_supplier" WHERE record_id=? AND supplier_id=?', id, supplier);
       if (existing) {
         db.exec('UPDATE "erp_catalog__product_supplier" SET cost_price=? WHERE record_id=? AND supplier_id=?', cost, id, supplier);
@@ -304,9 +312,10 @@ export function erpCatalogProductPricesUpdate(ctx: RpcContext, a: RpcArgs) {
     out.push({ product_id: id, version: version + 1, price: priceOf(id), cost_price: costOf(id) });
   }
   if (sync) compositionSync(ctx, user!, command!, compositionKits(db, ids));
-  const result = { entity: "products", supplier_id: supplier, items: out, replayed: false, data_mode: "erp_native" };
+  const result = { entity: "products", supplier_id: supplier, items: out, replayed: false, data_mode: "erp_native",
+    ...catalogUnavailable(ctx.parts, ["stock", "purchases"]) };
   storeCommand(ctx, command!, user!, hash, result);
-  return result;
+  return projectCatalogResult(ctx.parts, result);
 }
 
 registerRpc("erp_catalog_product_price_adjust", erpCatalogProductPriceAdjust);

@@ -14,6 +14,8 @@ import { pgBtrim, pgCompareText, pgHasCntrl, pgLeft, pgLength, pgLower } from ".
 import { todaySaoPaulo } from "../../../engine/time.ts";
 import { contactScope, contactVisibleTo, unitPriceNumeric } from "../../catalog/public.ts";
 import { osPermitted, requireAccess } from "../public.ts";
+import { unavailableParts } from "../internal.ts";
+import { erpEntityRequirement, erpRequirementMet } from "../../../parts-requirements.ts";
 
 const str = (v: unknown) => (v === null || v === undefined ? null : String(v));
 type Line = {
@@ -49,7 +51,7 @@ export function erpDocumentHistory(ctx: RpcContext, a: RpcArgs) {
   const scope = contactScope(db, user);
   requireAccess(db, user, kind, false);
   const m = user === null ? null : one(db, 'SELECT role FROM "erp_access__membership" WHERE user_id=? AND active=1', user);
-  const fiscal = m !== null && ["admin", "fiscal"].includes(String(m.role));
+  const fiscal = ctx.parts.fiscal && m !== null && ["admin", "fiscal"].includes(String(m.role));
   // v_purchase em três valores: p_kind nulo deixa nulo (venda nas linhas, sem estoque, sem financeiro).
   const purchase: boolean | null = kind === null ? null : kind === "purchase_orders";
   const bad =
@@ -64,7 +66,7 @@ export function erpDocumentHistory(ctx: RpcContext, a: RpcArgs) {
   const q = query === null || pgBtrim(query) === "" ? null : pgLower(pgBtrim(query));
   const lines: Line[] = [];
   const docKind = purchase === true ? "purchase_orders" : "sales_orders";
-  for (const r of db.exec(
+  if (erpRequirementMet(ctx.parts, erpEntityRequirement(docKind)!)) for (const r of db.exec(
     `SELECT d.id, d.number, d.body, d.contact_id, d.authority, i.position, i.data, i.product_id, CAST(i.quantity AS TEXT) quantity, i.unit_price
        FROM "erp_documents__document" d JOIN "erp_documents__item" i ON i.document_id=d.id
       WHERE d.kind=? AND d.status<>'cancelled'
@@ -124,7 +126,7 @@ export function erpDocumentHistory(ctx: RpcContext, a: RpcArgs) {
         unit_price: r.unit_price,
       });
     }
-  if (purchase === true && contact === null)
+  if (purchase === true && contact === null && ctx.parts.stock)
     for (const r of db.exec(
       `SELECT m.id, m.occurred_on, e.ordinal, r.name, r.code, e.product_id, e.unit, CAST(e.quantity AS TEXT) quantity,
           (SELECT coalesce(md.unit_price, md.unit_cost) FROM "erp_stock__movement_detail" md WHERE md.movement_id=m.id AND md.product_id=e.product_id ORDER BY md.revision DESC LIMIT 1) price
@@ -176,7 +178,7 @@ export function erpDocumentHistory(ctx: RpcContext, a: RpcArgs) {
     unit_price: l.origin === "origin" ? l.observed_price : unitPriceNumeric(l.unit_price, 14),
   }));
   let finance: Record<string, unknown> | null = null;
-  if (purchase === false && product === null && (kind !== "service_orders" || osPermitted(db, user!, "historico_financeiro"))) {
+  if (ctx.parts.finance && purchase === false && product === null && (kind !== "service_orders" || osPermitted(db, user!, "historico_financeiro"))) {
     const titles = db
       .exec(
         `SELECT id, due_on, description, installment, installments, CAST(amount_cents AS TEXT) amount_cents, CAST(settled_cents AS TEXT) settled_cents
@@ -213,6 +215,7 @@ export function erpDocumentHistory(ctx: RpcContext, a: RpcArgs) {
     items,
     has_more: page.length > limit!,
     invoices_included: fiscal,
+    ...unavailableParts(ctx, ["sales", "purchases", "stock", "finance", "fiscal"]),
     finance,
     data_mode: "erp_native",
     operational_effects: false,

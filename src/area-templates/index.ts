@@ -1,5 +1,5 @@
 import type { AdminExtension } from "../modules/api";
-import type { AreaTemplate } from "../modules/os/contracts";
+import type { AreaTemplate } from "./validation";
 import { ApiError } from "../types";
 import { applyAreaTemplate, exportAreaTemplate, previewAreaTemplate } from "./engine";
 import { validateAreaTemplate } from "./validation";
@@ -18,13 +18,16 @@ import { clinicaVeterinariaTemplate } from "./models/clinica-veterinaria";
 import { escolasTemplate } from "./models/escolas";
 import { professoresTemplate } from "./models/professores";
 import { condominiosTemplate } from "./models/condominios";
+import { restauranteTemplate } from "./models/restaurante";
 
 export { applyAreaTemplate, exportAreaTemplate, previewAreaTemplate } from "./engine";
 export { validateAreaTemplate, validateAreaSetup } from "./validation";
-export type { AreaTemplate, AreaTemplateSelection, AreaTemplatePreview, AreaTemplateApplyResult } from "../modules/os/contracts";
+export type { AreaTemplate, AreaTemplateSelection } from "./validation";
+export type { AreaTemplatePreview, AreaTemplateApplyResult } from "../modules/os/contracts";
 
 // Um modelo por linha. Os demais arquivos são entregues por seus próprios donos.
 export const areaTemplates: readonly AreaTemplate[] = [
+  // Versão publicada dos conjuntos da fase 2; preserva a procedência da v1.
   assistenciaTecnicaTemplate,
   // REGISTRO RESERVADO I — acrescentar aqui uma linha por modelo importado.
   servicosTemplate,
@@ -33,16 +36,17 @@ export const areaTemplates: readonly AreaTemplate[] = [
   graficaTemplate,
   despachanteTemplate,
   imobiliariaTemplate,
-  engenheirosTemplate,
+  { ...engenheirosTemplate, version: 2 },
   arquitetosTemplate,
   construtorasTemplate,
-  advogadosTemplate,
-  escritorioAdvocaciaTemplate,
+  { ...advogadosTemplate, version: 2 },
+  { ...escritorioAdvocaciaTemplate, version: 2 },
   clinicaMedicaTemplate,
   clinicaVeterinariaTemplate,
   escolasTemplate,
   professoresTemplate,
   condominiosTemplate,
+  restauranteTemplate,
 ];
 
 /** Somente I registra este descritor em runtime.ts. Importar não publica rotas. */

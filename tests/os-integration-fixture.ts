@@ -279,14 +279,26 @@ export async function applyRegisteredTemplate(
     (await one(h.env, "SELECT settings FROM profiles WHERE id=?", f.profile))!
       .settings,
   );
-  assert.equal(settings.os_work_types.length, model.work_types.length);
-  for (const type of settings.os_work_types)
-    assert.deepEqual(validateWorkType(type), type);
-  assert.equal(
-    settings.os_work_types.some((t: any) => t.id === "service_order"),
-    false,
-  );
-  assert.equal((await moduleStates(h.env, f.profile)).os, true);
+  const states = await moduleStates(h.env, f.profile);
+  for (const [module, enabled] of Object.entries(model.modules))
+    assert.equal(states[module], enabled, `${id}: módulo ${module}`);
+  if (model.modules.os) {
+    assert.equal(settings.os_work_types.length, model.work_types.length);
+    for (const type of settings.os_work_types)
+      assert.deepEqual(validateWorkType(type), type);
+    assert.equal(
+      settings.os_work_types.some((t: any) => t.id === "service_order"),
+      false,
+    );
+    assert.equal(states.os, true);
+  } else {
+    assert.equal(id, "restaurante");
+    assert.deepEqual(model.work_types, []);
+    assert.equal(settings.os_work_types, undefined);
+    assert.equal(states.os, false);
+    assert.equal(states.pedido, true);
+    assert.equal(states.queue, true);
+  }
   const again = await f.call("/area-templates/preview", "POST", source);
   assert.equal(
     (

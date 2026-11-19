@@ -1,5 +1,11 @@
 # ERP (Fagoo) no Wabotia — fase 0: as provas
 
+Este documento registra as provas históricas do porte. O contrato vigente
+de módulos, autorização e aceitação da fase 2 está em
+[ERP-FASE2.md](ERP-FASE2.md). O banco completo permanece; o diferencial agora
+envia as nove partes explicitamente ligadas. Comportamentos condicionais
+ficam em `ERP_PART_BEHAVIORS`, sem substituição de regras no Postgres.
+
 Portão do porte em massa (PLANO-FAGOO.md; roteiro em PLANO-FAGOO-MOTOR.md,
 seção 7). Branch `feat/erp-motor`, a partir do `origin/main` `4ea7864`.
 Ambiente das provas: Windows 11, Node 22.23, `@cloudflare/vitest-plugin`

@@ -8,7 +8,9 @@ import { pgBtrim, pgLeft, pgUpper } from "../../engine/text.ts";
 import { rowJson, valueJson } from "../../engine/row-json.ts";
 import { ERP_TABLES } from "../../schema/columns.generated.ts";
 import { dto as catalogDto } from "../catalog/public.ts";
-import { preference } from "./internal.ts";
+import { preference, unavailableParts } from "./internal.ts";
+import { normalizeErpParts, type ErpParts } from "../../parts.ts";
+import { withoutUnavailableLinks } from "./save-checks.ts";
 import { bool, isAdmin, jsonbHas, jsonPathText } from "./rpc/reads-common.ts";
 
 const col = (table: string, column: string) => ERP_TABLES[table].columns[column];
@@ -115,11 +117,11 @@ export function copySourceDto(db: SqlDriver, id: string | null) {
 }
 
 /** erp_documents.checkout_settings(): as preferências do checkout de pedidos. */
-export function checkoutSettings(db: SqlDriver) {
+export function checkoutSettings(db: SqlDriver, parts: Readonly<ErpParts> = normalizeErpParts()) {
   return {
     order: preference(db, "vendas.checkout_ordenar") === "crescente" ? "crescente" : "nao_ordenar",
-    split: preference(db, "vendas.checkout_desmembrar") === true,
-    picking: preference(db, "vendas.checkout_picking") === true,
+    split: parts.stock && preference(db, "vendas.checkout_desmembrar") === true,
+    picking: parts.stock && preference(db, "vendas.checkout_picking") === true,
     auto_save: preference(db, "vendas.checkout_salvar_auto") === true,
     quantity_input: preference(db, "vendas.checkout_quantidade") === true,
   };
@@ -129,7 +131,8 @@ export function checkoutSettings(db: SqlDriver) {
 const readableGtin = (v: string | null) => (v === null ? null : ["", "SEM GTIN"].includes(pgUpper(pgBtrim(v))) ? null : pgBtrim(v));
 
 /** erp_documents.checkout_lines(p_id, p_split): uma linha por item, ou por componente do item composto quando desmembra. */
-export function checkoutLines(db: SqlDriver, id: string, split: boolean) {
+export function checkoutLines(db: SqlDriver, id: string, split: boolean, parts: Readonly<ErpParts> = normalizeErpParts()) {
+  split = split && parts.stock;
   const items = db.exec(
     'SELECT id, position, product_id, data, CAST(quantity AS TEXT) quantity FROM "erp_documents__item" WHERE document_id=?',
     id,
@@ -179,19 +182,19 @@ export function checkoutLines(db: SqlDriver, id: string, split: boolean) {
     gtin: readableGtin(l.product === null ? null : arrow(l.product, "gtin")),
     gtin_tax: readableGtin(l.product === null ? null : arrow(l.product, "gtin_tax")),
     location: (() => {
-      const v = l.product === null ? null : arrow(l.product, "location");
+      const v = !parts.stock || l.product === null ? null : arrow(l.product, "location");
       return v === null || pgBtrim(v) === "" ? null : pgBtrim(v);
     })(),
   }));
 }
 
 /** erp_documents.checkout_view(p_id): o pedido, as linhas, as leituras salvas (limitadas à quantidade da linha) e as preferências. */
-export function checkoutView(db: SqlDriver, id: string) {
+export function checkoutView(db: SqlDriver, id: string, parts: Readonly<ErpParts> = normalizeErpParts()) {
   const d = one(db, 'SELECT id, number, version, status, contact_snapshot, body FROM "erp_documents__document" WHERE id=?', id);
   const c = one(db, 'SELECT reads, split, version FROM "erp_documents__checkout" WHERE document_id=?', id);
-  const settings = checkoutSettings(db);
-  const split = c ? bool(c.split) : settings.split;
-  const lines = checkoutLines(db, id, split);
+  const settings = checkoutSettings(db, parts);
+  const split = parts.stock && (c ? bool(c.split) : settings.split);
+  const lines = checkoutLines(db, id, split, parts);
   const byKey = new Map(lines.map((l) => [l.key, l]));
   const reads = (c ? (JSON.parse(String(c.reads)) as unknown[]) : []).flatMap((r) => {
     const key = arrow(r, "key");
@@ -219,6 +222,7 @@ export function checkoutView(db: SqlDriver, id: string) {
     lines,
     reads,
     checkout_version: c ? Number(c.version) : 0,
+    ...unavailableParts({ parts }, ["stock"]),
     settings,
     data_mode: "erp_native",
     operational_effects: false,
@@ -232,15 +236,15 @@ const addDays = (date: string, days: number) => {
 };
 
 /** erp_documents.sale_body_from_proposal(p_body): o corpo do pedido a partir da proposta (data prevista pelo prazo de entrega). */
-export function saleBodyFromProposal(db: SqlDriver, body: Record<string, unknown>) {
-  const out: Record<string, unknown> = { ...body };
+export function saleBodyFromProposal(db: SqlDriver, body: Record<string, unknown>, parts: Readonly<ErpParts> = normalizeErpParts()) {
+  const out: Record<string, unknown> = withoutUnavailableLinks({ parts }, body);
   delete out.other_items;
   delete out.commercial_conditions;
   out.template = false;
   if (preference(db, "propostas.data_prevista_prazo") === true) {
     const days = jsonPathText(body, ["commercial", "transport", "delivery_days"]);
     if (days !== null && /^(0|[1-9][0-9]{0,3})$/.test(days)) {
-      const cross = preference(db, "estoque.cross_docking_dias");
+      const cross = parts.stock ? preference(db, "estoque.cross_docking_dias") : null;
       const extra = cross === null || cross === undefined ? 0 : Number(typeof cross === "string" ? cross : JSON.stringify(cross));
       const date = String(body.date);
       const expected = addDays(date, Number(days) + extra);

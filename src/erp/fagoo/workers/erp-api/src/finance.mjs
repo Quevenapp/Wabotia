@@ -1,3 +1,4 @@
+import { parsePartRecord } from './preferences-kit.mjs';
 /** Financial API contract, independent from staging and bank APIs. SQL is the authority for RBAC/CAS/arithmetic. */
 import { BORDERO_ACTIONS, validateBorderoData, parseBorderoRead, projectBorderoResult } from './finance-borderos.mjs';
 import { registryAction, parseRegistryRead, projectRegistryResult } from './finance-registry.mjs';
@@ -288,7 +289,7 @@ const TITLE_108_FIELDS=['competence_on','account_id','bank_number','interest_mon
   'payment_type','seller_id','seller_name','seller_source','long_history','seller_cleared','returned'];
 const DETAIL_BILLING_STATES=['reserved','ready'];
 const isoDay=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value);
-function projectDetail(value){
+function projectDetailBody(value){
   if(!object(value))upstreamInvalid();
   const record=projectRecord('titles',value.record),account=value.account,billing=value.billing,original=value.original;
   if(account===null?record.account_id!==null:(!object(account)||account.id!==record.account_id||typeof account.name!=='string'||account.name.length>200||typeof account.active!=='boolean'))upstreamInvalid();
@@ -387,4 +388,8 @@ export async function executeFinanceRoute(route,{userId,rpc}){
   if(value.account!==undefined)output.account=projectRecord('accounts',value.account);
   if(value.note!==undefined){if(value.note!==null&&(typeof value.note!=='string'||value.note.length>500))upstreamInvalid();output.note=value.note;}
   return output;
+}
+
+function projectDetail(value) {
+ return parsePartRecord(value,projectDetailBody,[[['billing'],{billing:null}]],upstreamInvalid);
 }

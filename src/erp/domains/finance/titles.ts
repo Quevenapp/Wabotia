@@ -7,6 +7,7 @@ import { one, type Row, type SqlDriver } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
 import { jsonbText, jsonType } from "../../engine/json.ts";
 import type { RpcContext } from "../../engine/registry.ts";
+import { maintenanceAllows, requireRpcParts } from "../../engine/parts-gate.ts";
 import { todaySaoPaulo } from "../../engine/time.ts";
 import * as sync from "../sync/public.ts";
 import {
@@ -375,6 +376,13 @@ const TITLE_INSERT_COLS = [
 
 /** INSERT em title com title_defaults, guard_zero_title e zz_origin_sync. Devolve o id. */
 export function insertTitle(ctx: RpcContext, t: Record<string, unknown>) {
+  requireRpcParts(ctx, "erp_finance_execute", { p_action: "create", p_data: t });
+  // A nota e o documento inserem a postagem antes das parcelas. A origem vem
+  // dessa ligação persistida, inclusive quando o produtor é chamado diretamente.
+  const invoice = one(ctx.db, 'SELECT invoice_id FROM "erp_finance__invoice_posting" WHERE group_id=?', t.group_id ?? null);
+  const document = one(ctx.db, 'SELECT document_id FROM "erp_finance__document_posting" WHERE group_id=?', t.group_id ?? null);
+  if (invoice) requireRpcParts(ctx, "erp_finance_invoice_finance_post", { p_invoice_id: invoice.invoice_id });
+  if (document) requireRpcParts(ctx, "erp_document_finance_post", { p_document_id: document.document_id });
   const now = ctx.clock.next().toString();
   const row: Row = {
     id: crypto.randomUUID(),
@@ -408,6 +416,7 @@ export function insertTitle(ctx: RpcContext, t: Record<string, unknown>) {
 export function updateTitle(ctx: RpcContext, id: string, set: Record<string, unknown>) {
   const old = one(ctx.db, 'SELECT * FROM "erp_finance__title" WHERE id=?', id);
   if (!old) return;
+  requireTitleUpdate(ctx, old, set);
   const out = titleUpdateGuards(ctx, old, set);
   if ("amount_cents" in set || "settled_cents" in set || "origin_zero_source_id" in set) {
     const next = { ...old, ...out };
@@ -416,4 +425,47 @@ export function updateTitle(ctx: RpcContext, id: string, set: Record<string, unk
   }
   writeRow(ctx, "erp_finance__title", "id", id, out);
   captureFinance(ctx, "title", id);
+}
+
+/** Uma capacidade reversa não permite editar valor, origem ou reabrir a conta. */
+function requireTitleUpdate(ctx: RpcContext, old: Row, set: Record<string, unknown>) {
+  try {
+    requireRpcParts(ctx, "erp_finance_execute", { p_action: "update", p_data: { id: old.id } });
+    return;
+  } catch (denied) {
+    const allows = (name: string, data: Record<string, unknown>) => {
+      try { return maintenanceAllows(ctx, name, data); }
+      catch (error) {
+        if (error instanceof Error && error.message === "erp_maintenance_scope_denied") return false;
+        throw error;
+      }
+    };
+    const keys = Object.keys(set);
+    if (Number(set.version) !== Number(old.version) + 1) throw denied;
+    if (keys.every(k => ["settled_cents", "version", "updated_at"].includes(k)) && Number(set.settled_cents) < Number(old.settled_cents) && Number(set.settled_cents) >= 0) {
+      const delta = Number(old.settled_cents) - Number(set.settled_cents);
+      // A baixa insere a reversão antes de atualizar a conta e lançar o movimento.
+      // Um estorno já concluído não autoriza outra redução do saldo liquidado.
+      const reversals = ctx.db.exec(`SELECT s.reverses_id FROM erp_finance__settlement s
+        WHERE s.title_id=? AND s.kind='reversal' AND s.principal_cents=?
+        AND NOT EXISTS(SELECT 1 FROM erp_finance__movement m WHERE m.settlement_id=s.id)`, old.id, delta).rows;
+      if (reversals.some(s => allows("erp_finance_execute", { p_action: "reverse", p_data: { id: old.id, settlement_id: s.reverses_id } }))) return;
+    }
+    if (!(set.cancelled === true || set.cancelled === 1) || Number(old.settled_cents) !== 0 ||
+        one(ctx.db, 'SELECT 1 FROM erp_cnab__billing_title WHERE title_id=?', old.id)) throw denied;
+    if (keys.every(k => ["cancelled", "version", "updated_at"].includes(k))) {
+      const doc = one(ctx.db, `SELECT p.id,p.document_id FROM erp_finance__document_title t
+        JOIN erp_finance__document_posting p ON p.id=t.posting_id WHERE t.title_id=? AND p.state='active'`, old.id);
+      if (doc && allows("erp_document_finance_reverse", { p_document_id: doc.document_id, p_posting_id: doc.id })) return;
+      const invoice = one(ctx.db, `SELECT p.id,p.invoice_id FROM erp_finance__invoice_title t
+        JOIN erp_finance__invoice_posting p ON p.id=t.posting_id WHERE t.title_id=? AND p.state='active'`, old.id);
+      if (invoice && allows("erp_finance_invoice_finance_reverse", { p_data: { invoice_id: invoice.invoice_id, posting_id: invoice.id } })) return;
+    }
+    if (keys.every(k => ["cancelled", "deleted_at", "deleted_by", "deleted_note", "version", "updated_at"].includes(k))) {
+      const group = one(ctx.db, `SELECT t.billing_id FROM erp_finance__grouped_billing_title t
+        JOIN erp_finance__grouped_billing b ON b.id=t.billing_id WHERE t.title_id=? AND b.state='active'`, old.id);
+      if (group && allows("erp_finance_grouped_billing_execute", { p_action: "grouped_billing_delete", p_data: { id: group.billing_id } })) return;
+    }
+    throw denied;
+  }
 }

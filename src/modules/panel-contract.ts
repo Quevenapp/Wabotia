@@ -6,6 +6,8 @@ export type PanelErpRole =
 export interface ManagementItem {
   id: string;
   module: string;
+  /** Requisitos adicionais à parte proprietária, sem conceder papel. */
+  requires?: readonly import("../erp/parts.ts").ErpModuleId[];
   group: string;
   groupLabel: string;
   groupOrder: number;

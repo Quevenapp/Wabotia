@@ -1,3 +1,4 @@
+import { syncErpParts } from "./modules/erp/parts-state";
 import {
   all,
   one,
@@ -2260,6 +2261,9 @@ export async function commitSettingsPlan(
   const statements: [string, any[]][] = [[
     "UPDATE profiles SET settings=? WHERE id=?", [JSON.stringify(plan.settings), plan.profile],
   ]];
+  if (plan.module_changes.length) statements.push([
+    "INSERT OR IGNORE INTO profile_erp_parts_managed(profile_id) VALUES(?)", [plan.profile],
+  ]);
   for (const change of plan.module_changes) statements.push([
     "INSERT INTO profile_modules(profile_id,module_id,enabled,updated,updated_by) VALUES(?,?,?,?,?) ON CONFLICT(profile_id,module_id) DO UPDATE SET enabled=excluded.enabled,updated=excluded.updated,updated_by=excluded.updated_by",
     [plan.profile, change.id, change.enabled ? 1 : 0, now(), actor.id],
@@ -2279,7 +2283,14 @@ export async function commitSettingsPlan(
   await batch(env, [...statements, ...provenance]);
   if (recovery) await recoverSettingsApplication(env, actor, plan.profile, recovery.id);
   else for (const publication of publications) await event(env, plan.profile, publication.kind, publication.id, publication.payload);
-  return { ...plan.view, settings_revision: plan.settings_revision };
+  return { ...plan.view, settings_revision: plan.settings_revision, erp_sync: await (async () => {
+    // Mudanças de chaves ERP geram revisão pelos gatilhos D1. Configurações
+    // comuns só precisam de entrega quando uma revisão anterior ficou pendente.
+    const revision = await one(env, "SELECT CAST(revision AS TEXT) revision, CAST(delivered_revision AS TEXT) delivered_revision FROM profile_erp_revision WHERE profile_id=?", plan.profile);
+    return revision && revision.revision !== revision.delivered_revision
+      ? await syncErpParts(env, plan.profile)
+      : { revision: revision?.revision ?? "0", delivered_revision: revision?.delivered_revision ?? "0", status: "applied" as const };
+  })() };
 }
 
 /** Recupera antes de conferir a prévia, que já mudou pela própria aplicação. */

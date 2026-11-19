@@ -10,13 +10,130 @@ import { one, type SqlDriver } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
 import { jsonbText } from "../../engine/json.ts";
 import type { RpcContext } from "../../engine/registry.ts";
+import { requireErpParts } from "../../engine/parts-gate.ts";
+import { normalizeErpParts, type ErpParts } from "../../parts.ts";
+import { erpFieldRequirement, erpRequirementMet } from "../../parts-requirements.ts";
 import { saoPauloParts, todaySaoPaulo } from "../../engine/time.ts";
 import { validNow } from "../catalog/public.ts";
-import { approvalSituations, discountApprover, effectFlags, preference, priceDecimals, quantityDecimals } from "./internal.ts";
+import { approvalSituations, discountApprover, effectFlags, projectDocument, unavailableParts, preference, priceDecimals, quantityDecimals } from "./internal.ts";
 import { osPermitted } from "./reads-g.ts";
 
 type Row = Record<string, unknown>;
 type Data = Record<string, unknown>;
+
+const object = (v: unknown): Data => v && typeof v === "object" && !Array.isArray(v) ? v as Data : {};
+const own = (v: Data, key: string) => Object.hasOwn(v, key);
+const optionalFields = { warehouse_id: "warehouse_id", category_id: "category_id", payment_account_id: "account_id" };
+const paymentFields = { account_id: "account_id", fee_amount: "fee", commission_fee_amount: "commission" };
+const meaningful = (v: unknown): boolean => v != null && (!Array.isArray(v) || v.length > 0);
+const same = (a: unknown, b: unknown) => jsonbText(a ?? null) === jsonbText(b ?? null);
+const optionalValue = (field: string, value: unknown): unknown => {
+  if (value == null) return null;
+  if (["fee", "commission", "quantity"].includes(field) && typeof value === "string" && /^\d+(?:\.\d+)?$/.test(value)) return exact(value).toString();
+  if (field.endsWith("_id") && typeof value === "string") return value.toLowerCase();
+  if (field === "lots" && Array.isArray(value)) return value.map(v => ({ ...object(v), lot_id: optionalValue("lot_id", object(v).lot_id), quantity: optionalValue("quantity", object(v).quantity) }));
+  return value;
+};
+
+/** Campos suspensos: completar omissões antes do normalize, sem mudar o corpo usado no hash. */
+export function preserveUnavailableFields(ctx: Pick<RpcContext, "parts">, input: Data, before: Data | null): Data {
+  const fields = (next: Data, old: Data, map: Record<string, string>) => {
+    const out = { ...next };
+    for (const [key, field] of Object.entries(map)) {
+      const req = erpFieldRequirement(field);
+      if (erpRequirementMet(ctx.parts, req)) continue;
+      if (own(next, key) && !same(optionalValue(field, next[key]), optionalValue(field, old[key])) && (meaningful(next[key]) || meaningful(old[key]))) requireErpParts(ctx, req);
+      if (own(old, key)) out[key] = old[key];
+    }
+    return out;
+  };
+  const old = before ?? {};
+  const out = fields(input, old, optionalFields);
+  if (!ctx.parts.stock && own(input, "items") && !Array.isArray(input.items) && elements(old.items).some(i => meaningful(object(i).lots)))
+    requireErpParts(ctx, erpFieldRequirement("lots"));
+  if (!ctx.parts.stock && Array.isArray(input.items)) {
+    const previous = elements(old.items).map(object);
+    out.items = input.items.map(value => {
+      const item = object(value);
+      const prior = previous.find(i => i.id != null && same(i.id, optionalValue("item_id", item.id))) ?? {};
+      // Um lote continua pertencendo ao mesmo produto, mesmo sem movimentação ativa.
+      if (meaningful(prior.lots) && !same(optionalValue("product_id", item.product_id), prior.product_id)) requireErpParts(ctx, erpFieldRequirement("lots"));
+      return fields(item, prior, { lots: "lots" });
+    });
+    if (previous.some(i => meaningful(i.lots) && !(input.items as unknown[]).some(n => same(i.id, optionalValue("item_id", object(n).id)))))
+      requireErpParts(ctx, erpFieldRequirement("lots"));
+  }
+  if (!ctx.parts.finance) {
+    const previous = elements(old.installments).map(object);
+    const linked = (p: Data) => Object.keys(paymentFields).some(k => meaningful(object(p.details)[k]));
+    if (own(input, "installments") && !Array.isArray(input.installments) && previous.some(linked)) requireErpParts(ctx, erpFieldRequirement("account_id"));
+    if (!own(input, "installments") && previous.some(linked)) out.installments = previous.map(({ position: _position, ...p }) => p);
+    if (Array.isArray(input.installments)) {
+      out.installments = input.installments.map((value, index) => {
+        const p = object(value), prior = previous[index] ?? {};
+        const oldDetails = object(prior.details);
+        if (!own(p, "details")) return own(prior, "details") ? { ...p, details: prior.details } : p;
+        if (p.details === null) {
+          if (linked(prior)) requireErpParts(ctx, erpFieldRequirement("account_id"));
+          return p;
+        }
+        const details = fields(object(p.details), oldDetails, paymentFields);
+        // O normalizador exige as três chaves, inclusive quando não há vínculo.
+        for (const k of Object.keys(paymentFields)) if (!own(details, k)) details[k] = null;
+        return { ...p, details };
+      });
+      if (previous.slice(input.installments.length).some(linked)) requireErpParts(ctx, erpFieldRequirement("account_id"));
+    }
+  }
+  return out;
+}
+
+/** Um documento novo não herda vínculos indisponíveis de sua origem. */
+export function withoutUnavailableLinks(ctx: Pick<RpcContext, "parts">, input: Data): Data {
+  const out = { ...input };
+  for (const [key, field] of Object.entries(optionalFields)) if (!erpRequirementMet(ctx.parts, erpFieldRequirement(field))) out[key] = null;
+  if (!ctx.parts.stock && Array.isArray(out.items)) out.items = out.items.map(value => {
+    const item = { ...object(value) }; delete item.lots; return item;
+  });
+  if (!ctx.parts.finance && Array.isArray(out.installments)) out.installments = out.installments.map(value => {
+    const p = { ...object(value) };
+    if (p.details != null) {
+      p.details = { ...object(p.details) };
+      for (const k of Object.keys(paymentFields)) (p.details as Data)[k] = null;
+    }
+    return p;
+  });
+  return out;
+}
+
+/** Restaura somente campos já conferidos por preserveUnavailableFields, após normalizar o comercial. */
+export function restoreUnavailableFields(ctx: Pick<RpcContext, "parts">, normalized: Data, preserved: Data): Data {
+  const out = { ...normalized };
+  for (const [key, field] of Object.entries(optionalFields)) {
+    if (erpRequirementMet(ctx.parts, erpFieldRequirement(field))) continue;
+    if (own(preserved, key)) out[key] = preserved[key];
+    else if (key !== "warehouse_id") delete out[key];
+  }
+  if (!ctx.parts.stock && Array.isArray(out.items)) out.items = out.items.map((v, index) => {
+    const lots = object(elements(preserved.items)[index]).lots;
+    return Array.isArray(lots) && lots.length ? { ...object(v), lots } : v;
+  });
+  if (!ctx.parts.finance && Array.isArray(out.installments)) out.installments = out.installments.map((v, index) => {
+    const p = object(v);
+    if (p.details == null) return v;
+    const prior = object(object(elements(preserved.installments)[index]).details);
+    return { ...p, details: { ...object(p.details), ...Object.fromEntries(Object.keys(paymentFields).map(k => [k, prior[k] ?? null])) } };
+  });
+  return out;
+}
+
+/** Defesa para escritores comerciais que chegam diretamente à camada de linha. */
+export function guardUnavailableFields(ctx: Pick<RpcContext, "parts">, data: Data, before: Data | null) {
+  if (ctx.parts.stock && ctx.parts.finance) return;
+  const preserved = preserveUnavailableFields(ctx, data, before);
+  // Aqui o corpo já foi normalizado: uma omissão não pode apagar o valor anterior.
+  if (!same(preserved, data)) requireErpParts(ctx, erpFieldRequirement(!ctx.parts.finance ? "account_id" : "warehouse_id"));
+}
 
 /** ->> de um campo (texto; null quando falta, é null ou o pai não é objeto) */
 export const fieldText = (o: unknown, k: string): string | null => {
@@ -90,7 +207,7 @@ export const numberEditable = (db: SqlDriver, kind: string) => {
 };
 
 /** erp_documents.check_preference_rules(kind, dados) */
-export function checkPreferenceRules(db: SqlDriver, kind: string, data: Data) {
+export function checkPreferenceRules(db: SqlDriver, kind: string, data: Data, parts: Readonly<ErpParts> = normalizeErpParts()) {
   const list = items(data);
   if (kind === "sales_orders" && isFalse(preference(db, "vendas.produtos_nao_cadastrados")) && list.some((i) => fieldText(i, "product_id") === null))
     raise("22023", "erp_document_product_required");
@@ -119,7 +236,7 @@ export function checkPreferenceRules(db: SqlDriver, kind: string, data: Data) {
   const decimals = prefText === null ? 10 : intText(prefText);
   if (list.some((i) => priceDecimals(fieldText(i, "unit_price")) > decimals)) raise("22023", "erp_document_price_decimals");
   const q = quantityDecimals(db) as number;
-  if (list.some((i) => priceDecimals(fieldText(i, "quantity")) > q || elements((i as Data)?.lots ?? null).some((l) => priceDecimals(fieldText(l, "quantity")) > q)))
+  if (list.some((i) => priceDecimals(fieldText(i, "quantity")) > q || (parts.stock && elements((i as Data)?.lots ?? null).some((l) => priceDecimals(fieldText(l, "quantity")) > q))))
     raise("22023", "erp_document_quantity_decimals");
 }
 /** (texto)::integer do Postgres */
@@ -197,14 +314,15 @@ function uuidText(t: string): string {
  * erp_documents.check_links(kind, dados, corpo anterior), sem a última linha (o
  * check_custom_fields da OS), que o save chama logo depois.
  */
-export function checkLinks(db: SqlDriver, kind: string, data: Data, before: Data | null) {
+export function checkLinks(db: SqlDriver, kind: string, data: Data, before: Data | null, parts: Readonly<ErpParts> = normalizeErpParts()) {
+  guardUnavailableFields({ parts }, data, before);
   const category = fieldText(data, "category_id");
   if (kind === "sales_proposals" && category !== null) raise("22023", "erp_document_category_invalid");
   if (category !== null && (before === null || fieldText(before, "category_id") !== category) && !categoryUsable(db, kind, category))
     raise("22023", "erp_document_category_unavailable");
   const carrier = fieldText(data, "carrier_id");
   if (carrier !== null && (before === null || fieldText(before, "carrier_id") !== carrier) && !carrierUsable(db, carrier)) raise("22023", "erp_document_carrier_unavailable");
-  for (const i of elements(data.items ?? null))
+  if (parts.stock) for (const i of elements(data.items ?? null))
     for (const l of elements((i as Data | null)?.lots ?? null)) {
       const lot = fieldText(l, "lot_id"),
         product = fieldText(i, "product_id");
@@ -216,7 +334,8 @@ export function checkLinks(db: SqlDriver, kind: string, data: Data, before: Data
 }
 
 /** erp_documents.check_payment_links(kind, dados, corpo anterior) */
-export function checkPaymentLinks(db: SqlDriver, kind: string, data: Data, before: Data | null) {
+export function checkPaymentLinks(db: SqlDriver, kind: string, data: Data, before: Data | null, enabled: Readonly<ErpParts> = normalizeErpParts()) {
+  guardUnavailableFields({ parts: enabled }, data, before);
   const applicable = kind === "purchase_orders" ? "pagamentos" : "recebimentos";
   const list = fieldText(data, "price_list_id");
   if (list !== null && (before === null || fieldText(before, "price_list_id") !== list)) {
@@ -239,7 +358,7 @@ export function checkPaymentLinks(db: SqlDriver, kind: string, data: Data, befor
   if (pa !== null) accounts.add(uuidText(pa));
   const parts = elements(data.installments ?? null);
   const wanted = [fieldText(data, "payment_account_id"), ...parts.map((p) => pathText(p, ["details", "account_id"]))];
-  for (const x of wanted) {
+  if (enabled.finance) for (const x of wanted) {
     if (x === null) continue;
     const id = uuidText(x);
     if (!accounts.has(id) && !one(db, 'SELECT 1 x FROM "erp_finance__account" WHERE id=? AND active=1', id)) raise("22023", "erp_document_payment_account_unavailable");
@@ -265,7 +384,8 @@ export function requireOsPermission(db: SqlDriver, user: string, kind: string, k
 }
 
 /** erp_documents.check_credit_limit(usuário, kind, dados, corpo anterior com contact_id) */
-export function checkCreditLimit(db: SqlDriver, user: string, kind: string, data: Data, before: Data | null) {
+export function checkCreditLimit(db: SqlDriver, user: string, kind: string, data: Data, before: Data | null, parts: Readonly<ErpParts> = normalizeErpParts()) {
+  if (!parts.finance) return;
   if (kind !== "sales_proposals" || (boolText(fieldText(data, "template")) ?? false)) return;
   if (!isTrue(preference(db, "propostas.bloquear_limite_credito"))) return;
   if (one(db, `SELECT 1 x FROM "erp_access__membership" WHERE user_id=? AND active=1 AND role='admin'`, user)) return;
@@ -299,12 +419,12 @@ export function commandReplay(ctx: RpcContext, actor: string, command: string | 
 
 /** erp_documents.project_result_flags(resultado): effect_flags atual de cada documento do recibo. */
 export function projectResultFlags(ctx: RpcContext, result: Data): Data {
-  const out = { ...result };
+  const out: Data = { ...result, ...unavailableParts(ctx) };
   for (const key of ["document", "proposal", "sale", "service_order"]) {
     const v = out[key];
     if (v !== null && typeof v === "object" && !Array.isArray(v)) {
       const id = fieldText(v, "id");
-      out[key] = { ...(v as Data), effect_flags: effectFlags(ctx, id === null ? null! : uuidText(id)) };
+      out[key] = projectDocument(ctx, { ...(v as Data), effect_flags: effectFlags(ctx, id === null ? null! : uuidText(id)) });
     }
   }
   return out;

@@ -16,13 +16,22 @@ import { storageDriver } from "../src/erp/engine/driver";
 import "../src/erp/domains/index";
 import { callRpc } from "../src/erp/engine/registry";
 import { saoPauloParts } from "../src/erp/engine/time";
-import { SYSTEM_HEADER } from "../src/erp/engine/identity";
+import { SYSTEM_HEADER, IDENTITY_HEADER, encodeIdentity } from "../src/erp/engine/identity";
 import { runRound } from "../src/erp/scheduler/dispatch";
 import { erpAreas, isErpCronSlot, wakeErpAreas } from "../src/erp/scheduler/cron";
 import { DAY_MS, nextHour, nextLocalTime } from "../src/erp/scheduler/routines";
 import { exec } from "../src/db";
 import { bearer, fixture } from "./service-center-fixture";
 import { setModule } from "./erp-module-helper";
+import { deliverErpParts, readErpPartsState } from "../src/modules/erp/parts-state";
+import { type ErpPartsSnapshot } from "../src/erp/parts";
+
+async function prepare(profile: string) {
+  await setModule(profile, "erp", true, "teste");
+  const { snapshot } = await readErpPartsState(env, profile);
+  expect(await deliverErpParts(env, snapshot)).toBe(true);
+  return erpFetch(env, profile, "/erp-ping");
+}
 
 /** O Date.now nativo, guardado antes de qualquer relógio fixo. */
 const realNow = Date.now.bind(Date);
@@ -55,7 +64,8 @@ const wake = (profile: string, body?: unknown) =>
  */
 async function roundWithReads(yieldTurn?: () => Promise<void>) {
   const f = await fixture();
-  await erpFetch(env, f.profile, "/erp-ping");
+  await prepare(f.profile);
+  const { parts, ...partsControl } = (await readErpPartsState(env, f.profile)).snapshot;
   await clearAlarm(f.profile);
   const UNITS = 40;
   const log: string[] = [];
@@ -72,6 +82,7 @@ async function roundWithReads(yieldTurn?: () => Promise<void>) {
       },
     };
     const report = await runRound(storageDriver(s.storage), {
+      parts,
       routines: [heavy],
       handlers: {},
       budgetMs: 60_000,
@@ -85,12 +96,12 @@ async function roundWithReads(yieldTurn?: () => Promise<void>) {
   while (!log.length) await new Promise((r) => setTimeout(r, 1));
   const ping = await erpFetch(env, f.profile, "/erp-ping");
   log.push("leitura " + ping.status);
-  // O RPC mais barato que responde 200 sem identidade: nada a tomar para
+  // O RPC mais barato com envelope de sistema: nada a tomar para
   // company_export. É RPC do agendador: na rota, só com a marca de chamada
   // interna (rpc-endpoint.ts, SYSTEM_RPCS), como a costura põe.
   const rpc = await erpFetch(env, f.profile, "/erp-rpc/erp_platform_task_claim", {
     method: "POST",
-    headers: { [SYSTEM_HEADER]: "1" },
+    headers: { [SYSTEM_HEADER]: "1", [IDENTITY_HEADER]: encodeIdentity({ actor: null, people: null, parts, partsControl }) },
     body: JSON.stringify({ p_lease: crypto.randomUUID(), p_purposes: ["company_export"] }),
   });
   log.push("rpc " + rpc.status);
@@ -100,13 +111,13 @@ async function roundWithReads(yieldTurn?: () => Promise<void>) {
 }
 
 describe("agendador do ERP no objeto", () => {
-  it("o wake só antecipa (o mais cedo vence), grava os blocos e recusa corpo inválido", async () => {
+  it("o wake só antecipa com fotografia completa entregue e recusa mapas parciais", async () => {
     const f = await fixture();
-    await erpFetch(env, f.profile, "/erp-ping");
+    await prepare(f.profile);
     const base = far();
     await setAlarm(f.profile, base);
     // Mais tarde que o alarme atual: não adia.
-    const later = await (await wake(f.profile, { at: base + 60_000, blocks: { "erp-fiscal": true } })).json<any>();
+    const later = await (await wake(f.profile, { at: base + 60_000 })).json<any>();
     expect(later).toEqual({ ok: true, alarm: base });
     expect(await alarmOf(f.profile)).toBe(base);
     // Mais cedo: antecipa (longe o bastante para o runtime não rodar sozinho).
@@ -114,13 +125,15 @@ describe("agendador do ERP no objeto", () => {
     expect(await (await wake(f.profile, { at: sooner })).json<any>()).toEqual({ ok: true, alarm: sooner });
     expect(await alarmOf(f.profile)).toBe(sooner);
     const kept = await runInDurableObject(erpStub(env, f.profile), (_i: any, s: DurableObjectState) =>
-      s.storage.get<{ blocks: Record<string, boolean> }>("erp_blocks"),
+      s.storage.get<ErpPartsSnapshot>("erp_parts"),
     );
-    expect(kept?.blocks).toEqual({ "erp-fiscal": true });
+    expect(kept?.parts.customers).toBe(true);
+    expect(kept?.parts.fiscal).toBe(false);
     for (const bad of [
       "{",
       "[]",
       JSON.stringify({ at: "amanhã" }),
+      JSON.stringify({ blocks: { "erp-fiscal": true } }),
       JSON.stringify({ blocks: { "erp-x": true } }),
       JSON.stringify({ blocks: { "erp-pdv": 1 } }),
     ]) {
@@ -135,7 +148,7 @@ describe("agendador do ERP no objeto", () => {
     // 03:20 em São Paulo: longe da virada de hora e das 03:10.
     const t = at(upcoming("03:20"));
     const f = await fixture();
-    await erpFetch(env, f.profile, "/erp-ping");
+    await prepare(f.profile);
     await clearAlarm(f.profile);
     await setAlarm(f.profile, far());
     expect(await runDurableObjectAlarm(erpStub(env, f.profile))).toBe(true);
@@ -168,10 +181,7 @@ describe("agendador do ERP no objeto", () => {
     }));
     expect(after.cleanup.status).toBe("done");
     expect(JSON.parse(String(after.cleanup.result))).toEqual({ removed: 0 });
-    expect(after.alarm).toBe(t + 2_000);
-    at(t + 2_000);
-    expect(await runDurableObjectAlarm(erpStub(env, f.profile))).toBe(true);
-    expect(await alarmOf(f.profile)).toBe(nextHour(t));
+    expect(after.alarm).toBe(nextHour(t)); // sem acordada vazia após a última tarefa
     await clearAlarm(f.profile);
   }, 60_000);
 
@@ -183,7 +193,7 @@ describe("agendador do ERP no objeto", () => {
   async function window(edge: number) {
     const t = at(edge - 1_000);
     const f = await fixture();
-    await erpFetch(env, f.profile, "/erp-ping");
+    await prepare(f.profile);
     await clearAlarm(f.profile);
     await setAlarm(f.profile, far());
     expect(await runDurableObjectAlarm(erpStub(env, f.profile))).toBe(true);
@@ -242,7 +252,7 @@ describe("agendador do ERP no objeto", () => {
   it("exportação da empresa pelo alarme: sozinha numa acordada, em fatias no R2 da área, e a exportação fica pronta", async () => {
     const t = at(upcoming("03:20"));
     const f = await fixture();
-    await erpFetch(env, f.profile, "/erp-ping");
+    await prepare(f.profile);
     await clearAlarm(f.profile);
     const admin = crypto.randomUUID();
     const requested = await runInDurableObject(erpStub(env, f.profile), (_i: any, s: DurableObjectState) => {
@@ -302,7 +312,7 @@ describe("agendador do ERP no objeto", () => {
     const f = await fixture();
     const token = await bearer(f.admin);
     await setModule(f.profile, "erp", true, f.admin.id);
-    await erpFetch(env, f.profile, "/erp-ping");
+    await prepare(f.profile);
     await clearAlarm(f.profile);
     // Vínculo do administrador no ERP (como em tests/erp-do-api.test.ts).
     await runInDurableObject(erpStub(env, f.profile), (_i: any, s: DurableObjectState) => {
@@ -378,7 +388,7 @@ describe("agendador do ERP no objeto", () => {
     // A mesma hora nas duas instâncias (03:20 em São Paulo).
     at(upcoming("03:20"));
     const source = await fixture();
-    await erpFetch(env, source.profile, "/erp-ping");
+    await prepare(source.profile);
     await clearAlarm(source.profile);
     await setAlarm(source.profile, far());
     expect(await runDurableObjectAlarm(erpStub(env, source.profile))).toBe(true);
@@ -386,7 +396,7 @@ describe("agendador do ERP no objeto", () => {
     expect(backup.manifest.tables.map((t: any) => t.table)).not.toContain("wb_routine");
     expect(backup.manifest.tables.map((t: any) => t.table)).toContain("erp_platform__task");
     const target = await fixture();
-    await erpFetch(env, target.profile, "/erp-ping");
+    await prepare(target.profile);
     await clearAlarm(target.profile);
     await erpFetch(env, target.profile, "/erp-restore", { method: "POST", body: JSON.stringify({ prefix: backup.prefix }) });
     // A instância nova tem a wb_routine (criada pelo migrate), vazia.
@@ -411,37 +421,31 @@ describe("agendador do ERP no objeto", () => {
     await clearAlarm(target.profile);
   }, 120_000);
 
-  it("cron: só no primeiro disparo da hora, só as áreas com o ERP ligado, com os blocos", async () => {
+  it("cron: renova a cada cinco minutos, inclui desligamentos pendentes e resolve dependências", async () => {
+    at(upcoming("03:20"));
     const on = await fixture();
     const off = await fixture();
     const fiscalOnly = await fixture();
-    const save = (profile: string, module: string, enabled: number) =>
-      exec(
-        env,
-        "INSERT INTO profile_modules(profile_id,module_id,enabled,updated,updated_by) VALUES(?,?,?,?,?) ON CONFLICT(profile_id,module_id) DO UPDATE SET enabled=excluded.enabled",
-        profile,
-        module,
-        enabled,
-        Date.now(),
-        "teste",
-      );
+    const save = (profile: string, module: string, enabled: number) => exec(env,
+      "INSERT INTO profile_modules(profile_id,module_id,enabled,updated,updated_by) VALUES(?,?,?,?,?) ON CONFLICT(profile_id,module_id) DO UPDATE SET enabled=excluded.enabled",
+      profile, module, enabled, Date.now(), "teste");
     await save(on.profile, "erp", 1);
-    await save(on.profile, "erp-pdv", 1);
+    await save(on.profile, "erp-pdv", 1); // faltam dependências: PDV permanece desligado
     await save(off.profile, "erp", 0);
-    await save(fiscalOnly.profile, "erp-fiscal", 1); // sem o erp: o bloco não vale
+    await save(fiscalOnly.profile, "erp-fiscal", 1);
     const mine = [on.profile, off.profile, fiscalOnly.profile];
-    const areas = (await erpAreas(env)).filter((a) => mine.includes(a.profile));
-    expect(areas).toEqual([{ profile: on.profile, blocks: { "erp-fiscal": false, "erp-cobranca": false, "erp-pdv": true } }]);
+    const areas = (await erpAreas(env)).filter(a => mine.includes(a.profile));
+    expect(areas).toHaveLength(3);
+    expect(areas.find(a => a.profile === on.profile)?.parts).toMatchObject({ customers: true, pos: false });
+    expect(areas.filter(a => a.profile !== on.profile).every(a => !a.parts.customers && !a.parts.fiscal)).toBe(true);
     expect(isErpCronSlot(Date.parse("2026-11-16T15:04:59Z"))).toBe(true);
-    expect(isErpCronSlot(Date.parse("2026-11-16T15:05:00Z"))).toBe(false);
-    expect(await wakeErpAreas(env, Date.parse("2026-11-16T15:35:00Z"))).toBe(0);
-    await erpFetch(env, on.profile, "/erp-ping");
-    expect(await wakeErpAreas(env, Date.parse("2026-11-16T15:00:00Z"))).toBeGreaterThanOrEqual(1);
-    const blocks = await runInDurableObject(erpStub(env, on.profile), async (_i: any, s: DurableObjectState) => {
-      const b = await s.storage.get<{ blocks: Record<string, boolean> }>("erp_blocks");
-      return b?.blocks;
-    });
-    expect(blocks).toEqual({ "erp-fiscal": false, "erp-cobranca": false, "erp-pdv": true });
+    expect(isErpCronSlot(Date.parse("2026-11-16T15:05:00Z"))).toBe(true);
+    expect(await wakeErpAreas(env, Date.parse("2026-11-16T15:35:00Z"))).toBeGreaterThanOrEqual(3);
+    for (const profile of mine) expect((await readErpPartsState(env, profile)).erp_sync.status).toBe("applied");
+    const kept = await runInDurableObject(erpStub(env, on.profile), (_i: any, s: DurableObjectState) => s.storage.get<ErpPartsSnapshot>("erp_parts"));
+    expect(kept?.parts).toMatchObject({ customers: true, fiscal: false, billing: false, pos: false });
+    expect(await alarmOf(off.profile)).toBeNull();
+    expect(await alarmOf(fiscalOnly.profile)).toBeNull();
     await clearAlarm(on.profile);
   }, 60_000);
 });

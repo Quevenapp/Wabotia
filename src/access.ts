@@ -10,6 +10,7 @@
 // push, contadores) o que a pessoa não acessa. O administrador acessa tudo;
 // aplicações e aparelhos pareados seguem pelos escopos.
 import { ApiError, type Actor } from "./types";
+import { ERP_MODULE_IDS } from "./erp/parts";
 import {
   moduleForOperation,
   moduleForRoute,
@@ -260,7 +261,7 @@ const SEGMENTS: Record<string, string | null> = {
 /** Item exigido por uma rota (`undefined`: negado a quem é restrito). */
 export function routeAccess(segment: string): string | null | undefined {
   const owner = moduleForRoute(segment);
-  if (owner) return owner.id;
+  if (owner) return ERP_MODULE_IDS.some(id => id === owner.id) ? "erp" : owner.id;
   return segment in SEGMENTS ? SEGMENTS[segment] : undefined;
 }
 

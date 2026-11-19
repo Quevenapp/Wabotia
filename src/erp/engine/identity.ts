@@ -1,3 +1,4 @@
+import { readErpPartsSnapshot, type ErpParts, type ErpPartsControl } from "../parts.ts";
 // Porta de identidade: o que no Fagoo vinha de auth.* (Supabase Auth) e no
 // Wabotia vem do núcleo (Pessoas, login, MFA). O Worker preenche o envelope
 // antes da transação; o motor nunca consulta o D1. Fase 3: o lado do Worker
@@ -48,6 +49,8 @@ export interface IdentityPort {
   people: ErpPerson[] | null;
   /** Restrição D1 lida pelo Worker; o objeto recebe só IDs, sem acesso ao D1. */
   customer_privacy?: { restricted_contact_ids: string[] };
+  parts?: Readonly<ErpParts>;
+  partsControl?: ErpPartsControl;
 }
 
 export const NO_IDENTITY: IdentityPort = { actor: null, people: null };
@@ -69,7 +72,7 @@ function person(v: any): ErpPerson | null {
 /** Envelope recebido (JSON já decodificado) → porta validada; o que não confere vira ausente. */
 export function readIdentity(raw: unknown): IdentityPort {
   if (!raw || typeof raw !== "object") return NO_IDENTITY;
-  const r = raw as { actor?: any; people?: any; customer_privacy?: any };
+  const r = raw as { actor?: any; people?: any; customer_privacy?: any; parts?: unknown; partsControl?: any };
   const restricted = r.customer_privacy?.restricted_contact_ids;
   if (r.customer_privacy !== undefined && (!Array.isArray(restricted) ||
       restricted.length > 2000 || restricted.some((id: unknown) => typeof id !== "string" || !UUID.test(id)))) return NO_IDENTITY;
@@ -83,7 +86,13 @@ export function readIdentity(raw: unknown): IdentityPort {
       }
     : null;
   const people = Array.isArray(r.people) ? r.people.map(person).filter((p: ErpPerson | null): p is ErpPerson => p !== null) : null;
-  return { actor, people, ...(restricted ? { customer_privacy: { restricted_contact_ids: restricted } } : {}) };
+  // As duas extensões do envelope convivem: a restrição cadastral (fase 1) e
+  // o estado das partes do ERP (fase 2).
+  const privacy = restricted ? { customer_privacy: { restricted_contact_ids: restricted as string[] } } : {};
+  const snapshot = readErpPartsSnapshot({ ...r.partsControl, parts: r.parts });
+  if (!snapshot) return { actor, people, ...privacy };
+  const { parts, ...partsControl } = snapshot;
+  return { actor, people, parts, partsControl, ...privacy };
 }
 
 /** Também alcança IDs em recibos antigos, referências e snapshots aninhados. */

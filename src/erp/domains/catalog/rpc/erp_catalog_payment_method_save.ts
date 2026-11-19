@@ -4,8 +4,10 @@ import { jsonbText } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { jsonArg } from "../args.ts";
 import { auxiliaryAudit, replayCommand, requestHash, storeCommand } from "../command.ts";
+import { preserveCatalogFields } from "../cost.ts";
 import {
   accountActive,
+  PAYMENT_FINANCE_DEFAULTS,
   inputColumns,
   insertRow,
   paymentMethodAccess,
@@ -17,7 +19,7 @@ import {
 
 const MAX_VERSION = 2147483647;
 /** payment_method_dto - id - version - account_name - active - is_default - created_at - updated_at */
-const OMIT = ["id", "version", "account_name", "active", "is_default", "created_at", "updated_at"];
+const OMIT = ["id", "version", "account_name", "active", "is_default", "created_at", "updated_at", "unavailable_parts"];
 
 export function erpCatalogPaymentMethodSave(ctx: RpcContext, a: RpcArgs) {
   const user = ((a.p_user_id ?? null) as string | null);
@@ -35,7 +37,11 @@ export function erpCatalogPaymentMethodSave(ctx: RpcContext, a: RpcArgs) {
   const hash = requestHash({ profile: "erp-payment-method-save-v1", actor: user, id, version: expected, data });
   const replayed = replayCommand(ctx, command, user!, hash);
   if (replayed) return replayed;
-  const v = paymentMethodInput(data);
+  const previous = id === null ? {} : paymentMethodDto(db, id, true) ?? {};
+  const supplied = !ctx.parts.finance && data !== null && typeof data === "object" && !Array.isArray(data)
+    ? { ...preserveCatalogFields(false, {}, previous, PAYMENT_FINANCE_DEFAULTS), ...data } : data;
+  const v = paymentMethodInput(supplied);
+  preserveCatalogFields(ctx.parts.finance, { ...v }, previous, PAYMENT_FINANCE_DEFAULTS);
   const row = id === null ? null : readRow(db, id);
   if (id !== null) {
     if (!row) raise("P0002", "erp_catalog_not_found");
@@ -52,7 +58,7 @@ export function erpCatalogPaymentMethodSave(ctx: RpcContext, a: RpcArgs) {
     });
   } else {
     target = id;
-    const before = paymentMethodDto(db, id)!;
+    const before = paymentMethodDto(db, id, true)!;
     const form = Object.fromEntries(Object.entries(before).filter(([k]) => !OMIT.includes(k)));
     if (jsonbText(form) !== jsonbText(v)) {
       updateRow(ctx, id, {
@@ -62,7 +68,7 @@ export function erpCatalogPaymentMethodSave(ctx: RpcContext, a: RpcArgs) {
         updated_at: ctx.clock.next().toString(),
       });
       auxiliaryAudit(ctx, {
-        actor: user!, command, subject: "payment_method", subjectId: id, action: "update", before, after: paymentMethodDto(db, id),
+        actor: user!, command, subject: "payment_method", subjectId: id, action: "update", before, after: paymentMethodDto(db, id, true),
       });
     }
   }

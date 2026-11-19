@@ -2,7 +2,7 @@
 // atendimento (tabela profile_modules, migração 0020). Contrato:
 // docs/MODULOS.md. Este arquivo só depende do banco: service.ts, index.ts e o
 // motor o importam sem ciclos.
-import { all, cachedAll, exec, MODULE_STATES_SQL, one } from "../db";
+import { batch, cachedAll, MODULE_STATES_SQL, one } from "../db";
 import { ApiError, type Actor, type Env, now, requireValue } from "../types";
 import { admin, canProfile } from "../security";
 import { event } from "../events";
@@ -23,7 +23,9 @@ import { reservaModule } from "./reserva/definition";
 import { pedidoModule } from "./pedido/definition";
 import { mesasModule } from "./mesas/definition";
 import { entregaModule } from "./entrega/definition";
+import { readErpPartsState, syncErpParts } from "./erp/parts-state";
 import {
+  erpProdutosModule, erpVendasModule, erpComprasModule, erpEstoqueModule, erpFinanceiroModule,
   erpCobrancaModule,
   erpFiscalModule,
   erpModule,
@@ -51,6 +53,7 @@ export const modules: readonly ModuleDefinition[] = [
   mesasModule,
   entregaModule,
   erpModule,
+  erpProdutosModule, erpVendasModule, erpComprasModule, erpEstoqueModule, erpFinanceiroModule,
   erpFiscalModule,
   erpCobrancaModule,
   erpPdvModule,
@@ -235,15 +238,9 @@ export function moduleView(m: ModuleDefinition, enabled: boolean) {
 export async function listModules(env: Env, actor: Actor, profile: string) {
   if (!canProfile(actor, profile))
     throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
-  const rows = await all(
-    env,
-    "SELECT module_id,enabled,updated,updated_by FROM profile_modules WHERE profile_id=?",
-    profile,
-  );
-  const states = resolveStates(
-    Object.fromEntries(rows.map((r) => [r.module_id, r.enabled])),
-  );
+  const { rows, states, erp_sync } = await readErpPartsState(env, profile);
   return {
+    erp_sync,
     data: modules.map((m) => {
       const row = rows.find((r) => r.module_id === m.id);
       return {
@@ -277,7 +274,7 @@ export async function moduleCommand(
     await one(env, "SELECT id FROM profiles WHERE id=?", profile),
     "Área de atendimento não encontrada.",
   );
-  const states = await moduleStates(env, profile);
+  const { states } = await readErpPartsState(env, profile);
   const name = (id: string) => moduleById(id)?.name || id;
   // Dependências (requires): não liga sem os requeridos; ao desligar um
   // requerido, avisa quem depende dele e só desliga junto com cascade.
@@ -296,22 +293,34 @@ export async function moduleCommand(
       throw new ApiError(
         409,
         "module_required",
-        `${cascade.map(name).join(", ")} ${cascade.length > 1 ? "dependem" : "depende"} de ${definition.name} e ${cascade.length > 1 ? "serão desligados" : "será desligado"} junto. Confirme com cascade: true.`,
+        `${cascade.map(name).join(", ")} ${cascade.length > 1 ? "dependem" : "depende"} de ${definition.name} e ${cascade.length > 1 ? "serão desligados" : "será desligado"} junto. Confirme a lista de dependentes.`,
       );
+    if (data.cascade === true && data.confirmed_dependents !== undefined && (
+      !Array.isArray(data.confirmed_dependents) ||
+      data.confirmed_dependents.length !== cascade.length ||
+      new Set(data.confirmed_dependents).size !== cascade.length ||
+      cascade.some(id => !data.confirmed_dependents.includes(id))
+    )) throw new ApiError(409, "module_cascade_conflict", "Os módulos dependentes mudaram. Confira a nova lista antes de confirmar o desligamento.");
   }
-  for (const id of [definition.id, ...cascade]) {
+  const changes = [definition.id, ...cascade].map(id => ({ id, enabled: id === definition.id ? data.enabled : false }));
+  const updated = now();
+  const statements: [string, any[]][] = [
+    ["INSERT OR IGNORE INTO profile_erp_parts_managed(profile_id) VALUES(?)", [profile]],
+  ];
+  for (const { id, enabled } of changes) statements.push([
+    "INSERT INTO profile_modules(profile_id,module_id,enabled,updated,updated_by) VALUES(?,?,?,?,?) ON CONFLICT(profile_id,module_id) DO UPDATE SET enabled=excluded.enabled,updated=excluded.updated,updated_by=excluded.updated_by",
+    [profile, id, enabled ? 1 : 0, updated, actor.id],
+  ]);
+  await batch(env, statements);
+  // Os gatilhos registram toda mudança de chave ERP; uma revisão pendente
+  // também cobre a entrega que falhou numa alteração anterior.
+  const revision = await one(env, "SELECT CAST(revision AS TEXT) revision, CAST(delivered_revision AS TEXT) delivered_revision FROM profile_erp_revision WHERE profile_id=?", profile);
+  const erp_sync = revision && revision.revision !== revision.delivered_revision
+    ? await syncErpParts(env, profile)
+    : { revision: revision?.revision ?? "0", delivered_revision: revision?.delivered_revision ?? "0", status: "applied" as const };
+  for (const { id, enabled } of changes) {
     const target = moduleById(id)!;
     const before = states[id];
-    const enabled = id === definition.id ? data.enabled : false;
-    await exec(
-      env,
-      "INSERT INTO profile_modules(profile_id,module_id,enabled,updated,updated_by) VALUES(?,?,?,?,?) ON CONFLICT(profile_id,module_id) DO UPDATE SET enabled=excluded.enabled,updated=excluded.updated,updated_by=excluded.updated_by",
-      profile,
-      id,
-      enabled ? 1 : 0,
-      now(),
-      actor.id,
-    );
     if (before !== enabled)
       await event(env, profile, "module.changed", id, {
         module_id: id,
@@ -323,6 +332,7 @@ export async function moduleCommand(
   }
   return {
     ...moduleView(definition, data.enabled),
+    erp_sync,
     ...(cascade.length ? { also_disabled: cascade } : {}),
   };
 }

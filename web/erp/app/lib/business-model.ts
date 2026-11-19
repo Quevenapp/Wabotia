@@ -1,9 +1,32 @@
+import { targetEnabled, responseModules } from '../../blocks.ts';
 import type {AccessState,NativeRequestOptions} from './real-access';
-import {BUSINESS_BASE,BUSINESS_PANELS,BUSINESS_PANEL_ROLES,BUSINESS_STATUSES,BUSINESS_STATUS_LABELS,COST_ROLES,STOCK_ROLES,UFS,captureBusinessQuery,businessQuerySearch,parseBusinessPanel,
+import {BUSINESS_BASE,BUSINESS_PANELS,BUSINESS_PANEL_ROLES,BUSINESS_STATUSES,BUSINESS_STATUS_LABELS,COST_ROLES,STOCK_ROLES,UFS,captureBusinessQuery,businessQuerySearch,parseBusinessPanel as parseFullBusinessPanel,
  captureGoalsQuery,parseGoals,captureGoalSave,parseGoalResult,
  type BusinessPanel,type BusinessQuery,type BusinessStatus,type BusinessPanelView,type BusinessRole,type Goal,type GoalsView,type GoalData,type GoalSaveInput,type GoalResult,type MonthlyPanel} from '../../../../packages/erp-domain/src/business-dashboards.mjs';
-export {BUSINESS_BASE,BUSINESS_PANELS,BUSINESS_PANEL_ROLES,BUSINESS_STATUSES,BUSINESS_STATUS_LABELS,COST_ROLES,STOCK_ROLES,UFS,captureBusinessQuery,businessQuerySearch,parseBusinessPanel,
+export {BUSINESS_BASE,BUSINESS_PANELS,BUSINESS_PANEL_ROLES,BUSINESS_STATUSES,BUSINESS_STATUS_LABELS,COST_ROLES,STOCK_ROLES,UFS,captureBusinessQuery,businessQuerySearch,
  captureGoalsQuery,parseGoals,captureGoalSave,parseGoalResult};
+import { requirementsEnabled } from '../../modules.ts';
+import { erpEntityRequirement, erpOperationRequirement } from '../../../../src/erp/parts-requirements.ts';
+export function parseBusinessPanel(raw: unknown,query: BusinessQuery): BusinessPanelView {
+ const modules=responseModules(raw),source=raw as any;
+ if(!Object.hasOwn(source,'unavailable_parts'))return parseFullBusinessPanel(raw,query);
+ const available=(r:ReturnType<typeof erpEntityRequirement>)=>requirementsEnabled(r,modules),bad=()=>{throw new Error('Indicadores indisponíveis inválidos.');};
+ if(!available(erpEntityRequirement('sales_orders'))||query.panel==='margem-pedido'&&!available(erpOperationRequirement('margin'))||query.panel==='previsao-estoque'&&!available(erpOperationRequirement('forecast')))bad();
+ const costRole=(COST_ROLES as readonly string[]).includes(source.role),stockRole=(STOCK_ROLES as readonly string[]).includes(source.role);
+ const cost=costRole&&available(erpOperationRequirement('margin')),stock=stockRole&&available(erpOperationRequirement('forecast'));
+ if(source.cost_visible!==cost||source.stock_visible!==stock)bad();
+ const {unavailable_parts,...value}=structuredClone(source);
+ const walk=(v:any)=>{if(!v||typeof v!=='object')return;for(const [key,entry] of Object.entries(v)){
+  if(!cost&&['cost','gross_margin','gross_margin_pct','lines_without_cost','profit','margin_pct','contribution_pct'].includes(key)&&entry!==null)bad();
+  if(!stock&&['stock','forecast_days'].includes(key)&&entry!==null)bad();walk(entry);
+ }};walk(value);value.cost_visible=costRole;value.stock_visible=stockRole;
+ // O validador legado recebe apenas uma cópia. O resultado continua sem números para fontes suspensas.
+ const restore=!cost&&costRole&&['mensal','diario'].includes(query.panel);
+ if(restore)for(const key of ['cost','gross_margin','lines_without_cost']){if(value.indicators?.[key]!==null)bad();value.indicators[key]=key==='lines_without_cost'?0:'0.00';}
+ const parsed=parseFullBusinessPanel(value,query);
+ if(restore)for(const key of ['cost','gross_margin','lines_without_cost'])(parsed as any).indicators[key]=null;
+ return {...parsed,cost_visible:cost,stock_visible:stock};
+}
 export type {BusinessPanel,BusinessQuery,BusinessStatus,BusinessPanelView,BusinessRole,Goal,GoalsView,GoalData,GoalSaveInput,GoalResult};
 export type MonthlyPanelView=MonthlyPanel;
 export interface BusinessController{getSnapshot:()=>AccessState;subscribe:(fn:()=>void)=>()=>void;system:(path:string,options?:NativeRequestOptions)=>Promise<unknown>;preferences:(path:string,options?:NativeRequestOptions)=>Promise<unknown>}
@@ -28,7 +51,7 @@ export const BUSINESS_MENU:readonly{title:string;entries:readonly MenuEntry[]}[]
  {title:'Desempenho',entries:[{label:'Curva ABC',screen:'curva-abc',roles:ALL},{label:'Metas',screen:'metas',roles:ALL}]},
  {title:'WhatsApp',entries:[{label:'Acompanhe no WhatsApp',roles:ALL,disabledReason:'Depende de uma integração com o WhatsApp, que o ERP não tem.'}]},
 ];
-export const screenAllowed=(screen:BusinessScreen,role:string|undefined)=>Boolean(role)&&(screen==='metas'?(ALL as readonly string[]).includes(role!):(BUSINESS_PANEL_ROLES[screen] as readonly string[]).includes(role!));
+export const screenAllowed=(screen:BusinessScreen,role:string|undefined)=>targetEnabled(`/meu-negocio?painel=${screen}`)&&Boolean(role)&&(screen==='metas'?(ALL as readonly string[]).includes(role!):(BUSINESS_PANEL_ROLES[screen] as readonly string[]).includes(role!));
 export function businessScreen(search:string,role?:string):BusinessScreen{
  const value=new URLSearchParams(search).get('painel');
  const screen=(value==='metas'||(BUSINESS_PANELS as readonly string[]).includes(value??''))?value as BusinessScreen:'mensal';

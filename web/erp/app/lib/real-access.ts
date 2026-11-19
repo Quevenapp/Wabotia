@@ -1,3 +1,5 @@
+import { requirementEnabled, currentErpModules, hasErpModuleContext } from '../../blocks.ts';
+import { erpRouteRequirement } from '../../../../src/erp/parts-requirements.ts';
 import {captureStockObservationsRequest,STOCK_OBSERVATIONS_BASE,STOCK_OBSERVATIONS_MAX_BYTES} from './origin-stock-observations-request.ts';
 import {captureBackupRequest,fetchBackupRequest,BackupImportHttpError} from './backup-import-client.ts';
 import type {BackupRequestOptions} from './backup-import.ts';
@@ -95,7 +97,7 @@ async function limitedBytes(response: Response, limit: number) {
 async function refusalDetail(response: Response): Promise<{ code?: string; field?: string }> {
   try {
     const value = (JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await limitedBytes(response, 4096))) as { error?: { code?: unknown; field?: unknown } } | null)?.error;
-    return { ...(typeof value?.code === 'string' && /^ERP_[A-Z0-9_]{1,64}$/.test(value.code) ? { code: value.code } : {}),
+    return { ...(typeof value?.code === 'string' && (/^(?:ERP_[A-Z0-9_]{1,64}|module_disabled|erp_parts_stale|erp_parts_unavailable)$/.test(value.code)) ? { code: value.code } : {}),
       ...(typeof value?.field === 'string' && /^[a-z_]{1,40}$/.test(value.field) ? { field: value.field } : {}) };
   } catch { return {}; }
 }
@@ -150,7 +152,7 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
   // Wabotia: um cache por controlador (área/apiUrl); chave apiUrl+ator+papel+caminho. Só serve com a credencial já conferida pelo /v1/me.
   const sessionCache = createSessionCache();
   const cacheReady = () => !suspended&&!stopped&&!signingOut&&!!token&&state.phase==='ready'&&!!sessionActor&&state.membership?.user_id===sessionActor&&verifiedCredentialEpoch===credentialEpoch;
-  const cacheKey = (path: string) => JSON.stringify([apiUrl,sessionActor,state.membership?.role??null,path]);
+  const cacheKey = (path: string) => JSON.stringify([apiUrl,sessionActor,state.membership?.role??null,currentErpModules(),path]);
   const update = (patch: Partial<AccessState>) => { state = { ...state, ...patch }; listeners.forEach(listener => listener()); };
   // Wabotia: fim de sessão (401, logout, troca de sessão, parada do controlador) também esvazia o cache.
   const cancel = () => { generation++; listGeneration++; requests.forEach(request => request.abort()); requests.clear(); fineRequests.clear(); listRequest = null; permissionRecheck = null; permissionPromise = null; fineRequest = null; finePromise = null; sessionCache.clear(); };
@@ -334,6 +336,8 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
   };
   const nativeRequest = async (prefix: string, path: string, options: NativeRequestOptions = {}, responseLimit = 1024 * 1024, timeoutMs = 12000, beforeDispatch?:()=>void, shared = false): Promise<unknown> => {
     if (suspended) throw new DOMException('Contexto suspenso', 'AbortError');
+    const partsSnapshot = currentErpModules();
+    const sameParts = () => JSON.stringify(partsSnapshot) === JSON.stringify(currentErpModules());
     const controlled = fineEnabled && /^\/v1\/estoque(?:[?]|$|\/(?:saldos|totais|movimentos|reservas|sugestao|lancamentos)(?:[/?]|$))/.test(path);
     if (controlled) {
       const access = state.permissions;
@@ -344,6 +348,10 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
     if (path !== prefix && !path.startsWith(`${prefix}/`) && !path.startsWith(`${prefix}?`)) throw new AccessError(400);
     const pathname=path.split('?')[0];
     if (path.includes('#') || pathname.includes('\\') || /%(?:2e|2f|5c)/i.test(pathname) || pathname.split('/').some(part => part === '.' || part === '..')) throw new AccessError(400);
+    if (hasErpModuleContext()) {
+      const requirement = erpRouteRequirement(options.method ?? 'GET', new URL(path, 'https://erp.invalid'), options.body);
+      if (requirement === 'externo' || !requirementEnabled(requirement)) throw new AccessError(409, 'module_disabled');
+    }
     // Wabotia: GET da lista estável passa pelo cache de sessão (o pedido compartilhado volta aqui com shared=true);
     // escrita invalida antes de sair e de novo ao terminar (com ou sem sucesso), para nenhum GET em voo guardar o estado anterior.
     // Wabotia: leitura auxiliar ainda sem motor (web/erp/motor.ts): responde aqui, sem ir à rede, como o motor responderia.
@@ -357,12 +365,13 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
     let bearer=token,credential=credentialEpoch;
     try {
       const authorized=authorizedBearer(controller.signal);bearer=typeof authorized==='string'?authorized:await authorized;assertDispatch(current,controller,bearer);credential=credentialEpoch;
+      if(!sameParts())throw new DOMException('Contexto alterado','AbortError');
       beforeDispatch?.();
       const result = await request(path, bearer, controller, { ...options, responseLimit, timeoutMs });
-      if (stopped || current !== generation || controller.signal.aborted) throw new DOMException('Request cancelled', 'AbortError');
+      if (!sameParts() || stopped || current !== generation || controller.signal.aborted) throw new DOMException('Request cancelled', 'AbortError');
       return result;
     } catch (error) {
-      if (stopped || current !== generation || controller.signal.aborted) throw new DOMException('Request cancelled', 'AbortError');
+      if (!sameParts() || stopped || current !== generation || controller.signal.aborted) throw new DOMException('Request cancelled', 'AbortError');
       const failure=handleAccessFailure(error,bearer,credential);
       // Wabotia: escrita sem motor ainda (502 ERP_UPSTREAM_UNAVAILABLE): a casca avisa que a ação está em implantação (web/erp/motor.ts).
       if(write&&failure instanceof AccessError)writeRefused(failure.status,failure.code);
@@ -887,6 +896,7 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
       return nativeRequest(captured.base,captured.path,captured.options,ACTIVITY_RESPONSE_BYTES,25000,requireAdmin);
     },
     // Preferências and Sistema, wave B (148-152): Meu Negócio and the Sistema frameworks; the server checks every role again.
+    maintenance: (path: string, options: NativeRequestOptions = {}) => nativeRequest('/v1/sistema/manutencao-efeitos', path, options),
     system: (path: string, options: NativeRequestOptions = {}) => {
       let captured;try{captured=captureSystemPortRequest(path,options);}catch{return Promise.reject(new AccessError(400));}
       return nativeRequest(captured.base,captured.path,captured.options,SYSTEM_RESPONSE_BYTES,25000);
