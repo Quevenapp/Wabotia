@@ -1,0 +1,64 @@
+{
+  "date": "2026-11-19",
+  "environment": "https://wabotia.queven.app",
+  "version": "0.23.0",
+  "commit": "1650bf8a1cb7f3b7e2f2f84eb0a786b928d03f99",
+  "previous_version": "0.22.0",
+  "composition": {
+    "main": "90c17da1 (0.22.0)",
+    "integra/unico": "20e15da9 (nome Fagoo fora das telas, casa única e fase 1: cadastro único)",
+    "integra/f2": "af66673f (fase 2: ERP em nove partes, com as correções das revisões e o fechamento f2-fecha a6ca36ba)"
+  },
+  "not_included": "fase 3 (módulos lançando no financeiro, estoque e vendas; integra/f3) e os canais além do WhatsApp (integra/canais)",
+  "backup_complete": true,
+  "backup_folder": "backup-seguro/release-0.23.0-distribution-20261119 (fora do Git)",
+  "migrations": ["0130_customer_identity.sql", "0131_customer_workflow.sql", "0132_customer_relations.sql", "0133_customer_identity_proof.sql", "0133_erp_parts.sql"],
+  "pending_migrations": 0,
+  "durable_object_migrations_changed": false,
+  "package_format": 2,
+  "package": {
+    "manifest_sha256": "7437dca6c053873ad4210ea5f6affe3f56ff715beb172e6cadeb450e3c807f03",
+    "manifest_bytes": 33479,
+    "unique_files": 203,
+    "total_bytes": 19980032,
+    "worker_bytes": 11439983,
+    "migrations_in_manifest": 91,
+    "signed_by": "principal",
+    "index_expires": "2027-02-17",
+    "min_version": "0.21.1",
+    "workers_paid_probe": false
+  },
+  "legacy_latest_json": "continua em 0.21.1 (formato 1 congelado)",
+  "updater_checks": "scripts/erp/check-candidate.mjs public/releases/0.23.0",
+  "previous_versions_intact": 42,
+  "tests": {
+    "host": "Mac M4, Node 22, no commit publicado",
+    "erp": { "tests": 1067, "passed": 1066, "failed": 0, "todo": 1 },
+    "vitest": { "files": 295, "passed": 3027 },
+    "erp_panel_and_build": "npm run build e npm run test:erp:painel passaram no Linux sobre a6ca36ba, a mesma árvore antes do commit de versão (que só muda README, docs/ATUALIZACOES.md e a versão)"
+  },
+  "typescript_check": true,
+  "web_build": true,
+  "how_it_was_written": "as fases 1 e 2 foram escritas por agentes de código em paralelo em 18 e 19/11/2026, um dono por arquivo, com contrato único, junção por merge, tarefa de aceite com a suíte inteira como critério, revisões independentes e uma rodada de correções fechada com a suíte inteira verde",
+  "not_verified": [
+    "atualização pelo painel de uma instalação 0.22.0 com este pacote",
+    "telas novas contra um servidor real (foram abertas no navegador só no modo de demonstração: entrada do ERP, tela Módulos, lista e detalhe de ordem de serviço, visão geral)",
+    "uso em atendimento real do cadastro único (todo número que fala vira contato salvo) e das nove partes do ERP",
+    "segunda revisão independente da fase 2 depois das correções",
+    "aplicativos Android e iOS com esta versão do servidor",
+    "sonda do plano pago numa conta gratuita real (a versão saiu sem --workers-paid)",
+    "provedores reais: WhatsApp, Mercado Pago, e-mail"
+  ],
+  "operational_installation_updated": false,
+  "checks": [
+    { "route": "/api/health", "status": 200, "version": "0.23.0", "commit": "1650bf8a1cb7f3b7e2f2f84eb0a786b928d03f99" },
+    { "route": "/releases/latest.json", "status": 200, "version": "0.21.1", "format": 1 },
+    { "route": "/releases/v2/latest.json", "status": 200, "matches_local": true, "version": "0.23.0" },
+    { "route": "/releases/v2/latest.sig", "status": 200, "matches_local": true },
+    { "route": "/releases/0.23.0/manifest.json", "status": 200, "matches_local": true },
+    { "route": "/releases/0.23.0/manifest.sig", "status": 200, "matches_local": true },
+    { "route": "/releases/0.23.0/release-v2.json", "status": 200, "matches_local": true },
+    { "route": "/releases/0.23.0/release-v2.sig", "status": 200, "matches_local": true },
+    { "route": "/releases/blobs/<sha256>", "method": "HEAD", "checked": 203, "status_200": 203 }
+  ]
+}
