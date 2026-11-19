@@ -208,6 +208,7 @@ export async function customerRetention(env: Env, profileId: string, contactId: 
  */
 export async function maintainCustomers(
   env: Env, profileId: string, budget: MaintenanceBudget, startAt = 0,
+  options?: { fair?: boolean; check?: () => void; onProgress?: () => void },
 ): Promise<MaintenanceResult> {
   if (![budget.remainingStatements, budget.remainingItems].every((n) => Number.isSafeInteger(n) && n >= 0))
     throw new ApiError(400, "invalid_request", "Orçamento de manutenção inválido.");
@@ -229,11 +230,32 @@ export async function maintainCustomers(
       result.pending = true;
       break;
     }
-    const consumed = await participant.maintain!(env, profileId, { ...remaining });
+    // O primeiro participante recebe saldo para uma etapa completa. Na via
+    // dedicada reservamos um item para o seguinte, inclusive se houver falha.
+    // A rotação persistida pelo chamador garante a vez com saldo cheio.
+    const allowance = { ...remaining, remainingItems: options?.fair
+      ? Math.max(1, remaining.remainingItems - 1) : remaining.remainingItems };
+    const meter = customerMaintenanceEnv(env, allowance.remainingStatements, options?.check);
+    let consumed: MaintenanceResult;
+    let completed = false;
+    try {
+      options?.check?.();
+      consumed = await participant.maintain!(meter.env, profileId, { ...allowance });
+      completed = true;
+    } catch {
+      // Mesmo uma exceção depois de uma escrita consome o orçamento. Itens
+      // sem retorno têm consumo conservador; o checkpoint pertence à porta.
+      consumed = { pending: true, statements: meter.count(), items: allowance.remainingItems };
+    }
     if (!Number.isSafeInteger(consumed.statements) || consumed.statements < 0 ||
         !Number.isSafeInteger(consumed.items) || consumed.items < 0 ||
-        consumed.statements > remaining.remainingStatements || consumed.items > remaining.remainingItems)
-      throw new Error("Participante excedeu o orçamento de manutenção cadastral.");
+        consumed.statements > allowance.remainingStatements || consumed.items > allowance.remainingItems) {
+      if (!options?.fair) throw new Error("Participante excedeu o orçamento de manutenção cadastral.");
+      completed = false;
+      consumed = { pending: true, statements: meter.count(), items: allowance.remainingItems };
+    }
+    if (completed && consumed.items > 0) options?.onProgress?.();
+    consumed = { ...consumed, statements: Math.max(consumed.statements, meter.count()) };
     remaining.remainingStatements -= consumed.statements;
     remaining.remainingItems -= consumed.items;
     result.statements += consumed.statements;
@@ -241,4 +263,64 @@ export async function maintainCustomers(
     result.pending ||= consumed.pending;
   }
   return result;
+}
+
+/** Inclui consultas, lotes, retries e controle dos participantes, até em erro. */
+export function customerMaintenanceEnv(env: Env, maximum: number, check?: () => void) {
+  let count = 0;
+  const spend = (n: number) => {
+    check?.();
+    if (count + n > maximum) throw new Error("Orçamento cadastral esgotado.");
+    count += n;
+  };
+  const originals = new WeakMap<object, D1PreparedStatement>();
+  const wrap = (statement: D1PreparedStatement): D1PreparedStatement => {
+    const proxy = new Proxy(statement, { get(target, key) {
+      if (key === "bind") return (...args: any[]) => wrap(target.bind(...args));
+      if (["first", "all", "run", "raw"].includes(String(key)))
+        return (...args: any[]) => { spend(1); return (target as any)[key](...args); };
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    } });
+    originals.set(proxy, statement);
+    return proxy;
+  };
+  const DB = new Proxy(env.DB, { get(target, key) {
+    if (key === "prepare") return (sql: string) => wrap(target.prepare(sql));
+    if (key === "batch") return (statements: D1PreparedStatement[]) => {
+      spend(statements.length);
+      return target.batch(statements.map(s => originals.get(s) ?? s));
+    };
+    // Manutenção usa prepared statements; exec não permite contar o lote.
+    if (key === "exec") return () => { throw new Error("Use instruções preparadas na manutenção."); };
+    const value = Reflect.get(target, key);
+    return typeof value === "function" ? value.bind(target) : value;
+  } });
+  return { env: { ...env, DB }, count: () => count };
+}
+
+export const CUSTOMER_TICK_ROUNDS = 128;
+export const CUSTOMER_TICK_WINDOW_MS = 20_000;
+
+/** Retomadas curtas e dedicadas; cron recupera queda, lease e prazo esgotado. */
+export async function resumeCustomerMaintenance(env: Env, profile: string) {
+  const deadline = Date.now() + CUSTOMER_TICK_WINDOW_MS;
+  const stub = env.COORDINATOR.get(env.COORDINATOR.idFromName(profile));
+  for (let round = 0; round < CUSTOMER_TICK_ROUNDS && Date.now() < deadline; round++) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      // O prazo limita o encadeamento mesmo se uma invocação estiver esperando
+      // ERP. Ela conserva sua lease e pode concluir; não iniciamos outra.
+      const result = await Promise.race([
+        stub.fetch("https://coordinator/customer-tick", {
+          method: "POST", body: JSON.stringify({ profile }),
+        }).then(async response => {
+          if (!response.ok) throw new Error(`Manutenção cadastral: ${response.status}`);
+          return response.json<{ pending: boolean; progress: boolean; leased?: boolean }>();
+        }),
+        new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), Math.max(0, deadline - Date.now())); }),
+      ]);
+      if (!result || result.leased || !result.pending || !result.progress) break;
+    } finally { clearTimeout(timer); }
+  }
 }
