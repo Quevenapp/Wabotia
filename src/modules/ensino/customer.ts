@@ -2,7 +2,7 @@ import { studentNameSql } from "./access";
 import { all, exec, one } from "../../db";
 import { ApiError, now, uid, type Actor, type Conversation } from "../../types";
 import type { ModuleContext } from "../api";
-import { guardianOrders, notFound, phoneHash, type ClassRow, type Enrollment } from "./access";
+import { guardianOrders, notFound, type ClassRow, type Enrollment } from "./access";
 import { studentFrequency } from "./diary";
 import { id, object, page } from "./model";
 
@@ -48,9 +48,9 @@ async function session(ctx: ModuleContext, subject: string) {
     "SELECT id,conversation_id,session,phone_hash,expires FROM ensino_access WHERE profile_id=? AND id=? AND expires>?", ctx.profile, subject, now());
   if (!access) notFound();
   const c = await one<Conversation>(ctx.env, "SELECT * FROM conversations WHERE profile_id=? AND id=?", ctx.profile, access.conversation_id);
-  if (!c || c.session !== access.session || !ctx.verifiedPhone(c) || await phoneHash(ctx, ctx.verifiedPhone(c)!) !== access.phone_hash) notFound();
+  if (!c || c.session !== access.session) notFound();
   const identity = await guardianOrders(ctx, c);
-  if (!identity.orderIds.length) notFound();
+  if (identity.hash !== access.phone_hash || !identity.orderIds.length) notFound();
   return { access, identity };
 }
 export async function claimAccess(ctx: ModuleContext, credential: { subject: string }) {

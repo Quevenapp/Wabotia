@@ -1,4 +1,6 @@
-// Descritor sem efeitos de importação. Somente o integrador registra as rotas.
+// O descritor instala seu provedor cadastral; somente o integrador registra rotas.
+import { registerCustomerProvider } from "../../customer/ports";
+import { linkSaudeCustomer, saudeCustomerProvider } from "./customer-provider";
 import type { BinaryReadHandler, BinaryUploadHandler, onCommand, onRoute } from "../api";
 import { audit, auditPage, responsible } from "./access";
 import { attachmentUpload, beginUpload, completeUpload, downloadAttachment, listAttachments } from "./documents";
@@ -13,6 +15,7 @@ const jsonRead = (handler: (...args: JsonRead) => Promise<unknown>): BinaryReadH
     "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store",
   } });
 const base = "saude/subjects/:subject_id";
+registerCustomerProvider("saude", saudeCustomerProvider);
 export const saudeExtension: {
   binaryReads: { path: string; handler: BinaryReadHandler }[];
   binaryUploads: { path: string; handler: BinaryUploadHandler }[];
@@ -38,6 +41,7 @@ export const saudeExtension: {
   ],
   binaryUploads: [{ path: `${base}/attachments/:document_id/content`, handler: attachmentUpload }],
   writes: [], commands: [
+    { op: "saude.customer.link", handler: (ctx, actor, data, { requestId }) => linkSaudeCustomer(ctx, actor, data, requestId) },
     { op: "saude.attachment.upload.begin", handler: (ctx, actor, data) => beginUpload(ctx, actor, data.subject_id, data.document_id, data.version, data.upload_key) },
     { op: "saude.attachment.upload.complete", handler: (ctx, actor, data) => completeUpload(ctx, actor, data.subject_id, data.document_id, data.version, data.attempt) },
     { op: "saude.subject.purge", handler: (ctx, actor, data) => purge(ctx, actor, data.subject_id, data.confirm) },
@@ -58,3 +62,4 @@ for (const [method, path, op] of routes) {
   saudeExtension.commands.push({ op: `saude.${op}`, handler: (ctx, actor, data, { requestId }) => command(ctx, actor, op, data, requestId) });
 }
 saudeExtension.writes.push({ method: "POST", path: `${base}/purge`, op: "saude.subject.purge" });
+saudeExtension.writes.push({ method: "POST", path: `${base}/contacts`, op: "saude.customer.link" });
