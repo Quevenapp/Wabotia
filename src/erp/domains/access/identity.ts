@@ -9,13 +9,13 @@
 // mudou, e pula tudo quando o diretório é o mesmo da última vez.
 import { createHash } from "node:crypto";
 import { one, type SqlDriver } from "../../engine/driver.ts";
-import type { ErpPerson } from "../../engine/identity.ts";
+import { CUSTOMER_BRIDGE_USER_ID, type ErpPerson } from "../../engine/identity.ts";
 import { registerBeforeRpc, type RpcContext } from "../../engine/registry.ts";
 import { pgBtrim, pgHasCntrl, pgLeft } from "../../engine/text.ts";
 
 const hashOf = (people: ErpPerson[]) =>
   createHash("sha256")
-    .update(JSON.stringify([...people].sort((a, b) => (a.user_id < b.user_id ? -1 : 1)).map((p) => [p.user_id, p.erp_role, p.name])))
+    .update(JSON.stringify([...people].sort((a, b) => (a.user_id < b.user_id ? -1 : 1)).map((p) => [p.user_id, p.erp_role, p.name, p.is_technical === true])))
     .digest("hex");
 
 /** Nome aceito pelo CHECK de erp_access.profile (1–120, sem espaço nas pontas, sem controle), ou null. */
@@ -26,6 +26,13 @@ function profileName(name: string | null): string | null {
 }
 
 export function projectPeople(ctx: RpcContext) {
+  // Metadado já existente; conserva a natureza técnica mesmo quando a
+  // identidade deixa de integrar o diretório ativo. O ID da ponte é registrado.
+  const technical = [...(ctx.identity.people ?? []), ...(ctx.identity.actor ? [ctx.identity.actor] : [])]
+    .filter((p) => p.is_technical === true);
+  if (technical.length) ctx.db.exec("CREATE TABLE IF NOT EXISTS erp_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT");
+  for (const p of technical)
+    ctx.db.exec("INSERT OR IGNORE INTO erp_meta(key,value) VALUES(?,'1')", `technical_user:${p.user_id}`);
   const people = ctx.identity.people;
   if (!people) return;
   const db = ctx.db;
@@ -55,6 +62,12 @@ export function projectPeople(ctx: RpcContext) {
 }
 
 registerBeforeRpc(projectPeople);
+
+export function isTechnicalUser(db: SqlDriver, id: string | null): boolean {
+  return id !== null && (id === CUSTOMER_BRIDGE_USER_ID ||
+    (!!one(db, "SELECT 1 x FROM sqlite_master WHERE type='table' AND name='erp_meta'") &&
+      !!one(db, "SELECT 1 x FROM erp_meta WHERE key=?", `technical_user:${id}`)));
+}
 
 /** A pessoa existe? (auth.users no Fagoo). Sem diretório no envelope: quem já está em membership ou profile. */
 export function personExists(ctx: RpcContext, id: string | null): boolean {

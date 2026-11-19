@@ -7,6 +7,7 @@ import { raise } from "../../engine/errors.ts";
 import { jsonbText } from "../../engine/json.ts";
 import type { RpcContext } from "../../engine/registry.ts";
 import { jsonTimestamp } from "../../engine/time.ts";
+import { isTechnicalUser } from "../access/identity.ts";
 
 /**
  * erp_catalog.seller_access_allowed(p_user_id, p_at): o usuário vinculado a
@@ -15,7 +16,7 @@ import { jsonTimestamp } from "../../engine/time.ts";
  * ligado ou sem janelas: liberado.
  */
 export function sellerAccessAllowed(db: SqlDriver, user: string | null, at: bigint): boolean {
-  if (user === null) return true;
+  if (user === null || isTechnicalUser(db, user)) return true;
   const s = one(db, 'SELECT access_hours_enabled, access_windows FROM "erp_catalog__seller" WHERE user_id=?', user);
   if (!s) return true;
   const windows = JSON.parse(String(s.access_windows));
@@ -30,7 +31,7 @@ export function sellerAccessAllowed(db: SqlDriver, user: string | null, at: bigi
 export function sellerUsers(db: SqlDriver): Record<string, unknown>[] {
   return db
     .exec('SELECT user_id, role, CAST(created_at AS TEXT) created_at FROM "erp_access__membership" WHERE active=1')
-    .rows.sort((a, b) => {
+    .rows.filter((m) => !isTechnicalUser(db, String(m.user_id))).sort((a, b) => {
       const x = BigInt(String(a.created_at)),
         y = BigInt(String(b.created_at));
       return x < y ? -1 : x > y ? 1 : compareText(String(a.user_id), String(b.user_id));
@@ -64,12 +65,13 @@ export function sellerDto(db: SqlDriver, id: string): Record<string, unknown> | 
   );
   if (!s) return null;
   const dec = (v: unknown) => (v === null ? null : formatScaled(fromColumn(v), 4));
+  const linked = s.user_id === null || isTechnicalUser(db, String(s.user_id)) ? null : s.user_id;
   return {
     id: s.id,
     contact_id: s.contact_id,
     version: Number(s.version),
-    user_id: s.user_id,
-    user_name: s.user_id === null ? null : actorLabel(db, String(s.user_id)),
+    user_id: linked,
+    user_name: linked === null ? null : actorLabel(db, String(linked)),
     allow_unregistered_products: !!Number(s.allow_unregistered_products),
     view_stock: !!Number(s.view_stock),
     access_hours_enabled: !!Number(s.access_hours_enabled),
@@ -207,6 +209,7 @@ export function sellerWrite(ctx: RpcContext, user: string, sellerId: string | nu
   const db = ctx.db;
   const linked = p.user_id as string | null;
   if (linked !== null) {
+    if (isTechnicalUser(db, linked)) raise("22023", "erp_catalog_seller_invalid:user_id");
     if (!one(db, 'SELECT 1 x FROM "erp_access__membership" WHERE user_id=? AND active=1', linked)) raise("22023", "erp_catalog_seller_invalid:user_id");
     if (one(db, 'SELECT 1 x FROM "erp_catalog__seller" WHERE user_id=? AND id IS NOT ?', linked, sellerId)) raise("23505", "erp_catalog_seller_user_taken");
   }

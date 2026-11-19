@@ -98,6 +98,7 @@ async function systemPeople(env: Env, profile: string): Promise<ErpPerson[]> {
       email: null,
       erp_role: s.role,
       verified_factor: false,
+      is_technical: true,
     })),
   );
 }
@@ -172,6 +173,7 @@ function appPersonOf(row: any): ErpPerson | null {
     email: null,
     erp_role,
     verified_factor: false,
+    is_technical: true,
   };
 }
 
@@ -319,6 +321,7 @@ async function appIdentity(
       session_id: null,
       aal: "aal1",
       is_agent: true,
+      is_technical: true,
     },
     people,
   };
@@ -351,6 +354,7 @@ export async function erpSystemIdentity(
       session_id: null,
       aal: "aal1",
       is_agent: true,
+      is_technical: true,
     },
     people,
   };

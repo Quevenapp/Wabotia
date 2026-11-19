@@ -18,6 +18,7 @@ import { installErpBridge, registerCustomerProvider } from "../../customer/ports
 import { customerErpBridge, snapshotOf } from "../../customer/erp-bridge";
 import { markCustomerReconciliation, mirrorErpContact } from "../../customer/sync";
 import { erpCustomerProvider } from "../../modules/erp/customer-provider";
+import { erpPrivacy, erpPrivacyChanged, erpPrivacyDenied, erpPrivacyDenies, type ErpPrivacy } from "../../customer/erp-privacy";
 
 // Registro sem I/O nem abertura do objeto. Encaminhadores evitam dependência
 // da ordem de avaliação entre a ponte e esta costura.
@@ -88,7 +89,12 @@ export function localFetch(
   profile: string,
   actor: Actor,
   identity: IdentityPort = identityFor(actor),
-  { read = false, hops, gate, trackCustomers = true }: { read?: boolean; hops?: ErpHop[]; gate?: { denied: string | null }; trackCustomers?: boolean } = {},
+  { read = false, hops, gate, trackCustomers = true, privacyState, metadataGate = false }: {
+    read?: boolean; hops?: ErpHop[]; gate?: { denied: string | null }; trackCustomers?: boolean;
+    privacyState?: { initial?: ErpPrivacy };
+    /** Só /me e referências públicas, com ativação já lida na autenticação. */
+    metadataGate?: boolean;
+  } = {},
 ) {
   return async (input: string | URL | Request, init: RequestInit = {}) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
@@ -101,10 +107,14 @@ export function localFetch(
       // Corpo em texto: a nova tentativa manda o mesmo de novo.
       const body = init.body == null ? undefined : typeof init.body === "string" ? init.body : await new Response(init.body).text();
       const route = `/erp-rpc/${rpc[1]}` as const;
+      const args = body === undefined ? null : JSON.parse(body);
       // Erro de stub sai como ErpUnavailable; a erp-api do Fagoo responde 503
       // ERP_UPSTREAM_UNAVAILABLE para qualquer exceção do fetch (upstream()).
       const started = Date.now();
       try {
+        let privacy: ErpPrivacy;
+        const metadata = metadataGate && read && ["erp_access_me", "erp_reference_search"].includes(rpc[1]);
+        let attempts = 0;
         // Conservador: toda requisição externa de escrita pode alterar contatos,
         // inclusive importações e RPCs ainda desconhecidos da leitura direcionada.
         const tracking = trackCustomers && !read;
@@ -112,27 +122,55 @@ export function localFetch(
         // O portão (horário, segundo fator) roda no objeto antes do RPC, na
         // mesma ida: a erp-api não chama mais o erp_access_gate_v2 à parte
         // (o /auth/v1/user responde sem a marca brufap_access_gate).
+        let boundaryError: unknown;
         const response = await withStubRetry(
-          () =>
-            erpFetch(env, profile, route, {
+          async () => {
+            // Dados cadastrais e qualquer retry exigem leitura sem cache.
+            // Corpo e command_id permanecem idênticos.
+            try {
+              privacy = metadata && attempts++ === 0 ? { restricted_contact_ids: [] } : await erpPrivacy(env, profile);
+            }
+            catch (error) { boundaryError = error; throw error; }
+            if (!metadata && privacyState) {
+              // Uma resposta pode reunir vários RPCs. Se um ID ficou liberado
+              // em qualquer um deles, uma nova restrição invalida o artefato.
+              privacyState.initial = privacyState.initial
+                ? { restricted_contact_ids: privacyState.initial.restricted_contact_ids.filter((id) => privacy.restricted_contact_ids.includes(id)) }
+                : privacy;
+            }
+            if (erpPrivacyDenies(privacy, rpc[1], args)) return erpPrivacyDenied();
+            const envelope = encodeIdentity({ ...identity, customer_privacy: privacy });
+            if (envelope.length > 200_000) return erpPrivacyDenied();
+            return erpFetch(env, profile, route, {
               method: "POST",
               // SYSTEM_HEADER: a costura é chamada interna (a rota da erp-api escolheu o RPC; rpc-endpoint.ts, SYSTEM_RPCS).
               headers: {
                 "Content-Type": "application/json",
-                [IDENTITY_HEADER]: encodeIdentity(identity),
+                [IDENTITY_HEADER]: envelope,
                 [SYSTEM_HEADER]: "1",
                 ...(gate ? { [GATE_HEADER]: "1" } : {}),
               },
               body,
-            }),
+            });
+          },
           { idempotent: read || rpcHasCommand(body), route },
-        );
+        ).catch((error) => { throw boundaryError ?? error; });
         const denied = response.headers.get(GATE_DENIED_HEADER);
         if (gate && denied) gate.denied = denied;
+        // Materializar antes de revalidar: também cobre corpos atrasados e
+        // recibos antigos. Não se filtra uma página pronta com total incorreto.
+        const text = await response.text();
+        const result = (() => { try { return JSON.parse(text); } catch { return null; } })();
+        const validate = async () => {
+          if (metadata) return true;
+          const current = await erpPrivacy(env, profile);
+          return !erpPrivacyDenies(current, rpc[1], args, result) &&
+            !erpPrivacyChanged(privacy, current);
+        };
+        if (!await validate()) return erpPrivacyDenied();
         if (tracking && response.ok) {
           try {
-            const result = await response.clone().json<any>();
-            if (result.entity === "contacts" && typeof result.record?.id === "string") {
+            if (result?.entity === "contacts" && typeof result.record?.id === "string") {
               const current = await localFetch(env, profile, actor, identity, { read: true, gate, hops, trackCustomers: false })(
                 `${LOCAL}/rest/v1/rpc/erp_catalog_contact_get`, { method: "POST", body: JSON.stringify({ p_user_id: identity.actor?.user_id, p_id: result.record.id }) });
               if (current.ok) await mirrorErpContact(env, profile, snapshotOf((await current.json<any>()).record));
@@ -141,14 +179,26 @@ export function localFetch(
             // O ERP já confirmou. Falha de leitura/espelho não muda seu sucesso;
             // a marca anterior ao envio continua durável para a varredura.
           }
+          if (!await validate()) return erpPrivacyDenied();
         }
-        return response;
+        return new Response(text, response);
       } finally {
         hops?.push({ rpc: rpc[1], ms: Date.now() - started });
       }
     }
     // Arquivos no R2 (MEDIA), por área: src/erp-storage.ts.
-    if (url.pathname.startsWith("/storage/v1/")) return erpStorage(env, profile, new Request(input, init));
+    if (url.pathname.startsWith("/storage/v1/")) {
+      // ZIP integral já gerado não permite retirar uma pessoa com segurança.
+      if (url.pathname.includes("/brufap-exports/") && (init.method ?? "GET") !== "DELETE") {
+        const before = await erpPrivacy(env, profile);
+        if (before.restricted_contact_ids.length) return erpPrivacyDenied();
+        const response = await erpStorage(env, profile, new Request(input, init));
+        const bytes = await response.arrayBuffer();
+        if ((await erpPrivacy(env, profile)).restricted_contact_ids.length) return erpPrivacyDenied();
+        return new Response(bytes, response);
+      }
+      return erpStorage(env, profile, new Request(input, init));
+    }
     return Response.json({ message: "not found" }, { status: 404 });
   };
 }
@@ -234,7 +284,12 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
   const hops: ErpHop[] = [];
   const gate = { denied: null as string | null };
   const started = Date.now();
-  const handler = createHandler({ fetchImpl: localFetch(env, profile, actor, identity, { read, hops, gate }) });
+  const privacyState: { initial?: ErpPrivacy } = {};
+  const metadataGate = read && (path === "/v1/me" || /^\/v1\/plataforma\/referencias\//.test(path));
+  // Estas duas leituras sem dados cadastrais conservam o lote de autenticação
+  // publicado (sessão, módulos e diretório); qualquer retry reabre o portão.
+  if (metadataGate) await requireModule(env, profile, "erp");
+  const handler = createHandler({ fetchImpl: localFetch(env, profile, actor, identity, { read, hops, gate, privacyState, metadataGate }) });
   let response = (await handler(inner, CONFIG)) as Response;
   // Portão fechado no objeto: o erro que o accessGate da erp-api daria, no formato dela.
   if (gate.denied) {
@@ -256,6 +311,12 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
     if (rewritten !== text) headers.delete("content-length");
     response = new Response(rewritten, { status: response.status, headers });
   }
+  // O handler pode gerar CSV/etiquetas ou fazer várias idas ao objeto. A
+  // última revalidação vem depois de terminar de construir esse artefato.
+  const bytes = await response.arrayBuffer();
+  if (privacyState.initial && erpPrivacyChanged(privacyState.initial, await erpPrivacy(env, profile))) {
+    response = Response.json({ error: { code: "ERP_CUSTOMER_RESTRICTED" } }, { status: 403 });
+  } else response = new Response([204, 205, 304].includes(response.status) ? null : bytes, response);
   // Idas ao objeto erp: nesta requisição, para medir no navegador e na
   // Observabilidade: Server-Timing: erp;desc="hops=N";dur=…, erp-rpc-1;desc="<rpc>";dur=…
   const out = new Response(response.body, response);
