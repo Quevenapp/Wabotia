@@ -2,6 +2,7 @@ export interface FullCustomerHostInput {
   profileId: string;
   contactId: string;
   erpContactId: string;
+  vocabulary?: { singular: string; plural: string };
   onSaved(): void;
   onClose(): void;
 }
@@ -25,7 +26,7 @@ export function installFullCustomerHost(next: (() => Promise<FullCustomerHost>) 
 export async function loadFullCustomerHost(): Promise<FullCustomerHost> {
   if (!loader)
     throw Object.assign(new Error("Ficha completa indisponível."), {
-      code: "dependency_unavailable", status: 503,
+      code: "dependency_unavailable", status: 503, reason: "host_not_installed",
     });
   if (!loaded) {
     const current = loaded = Promise.resolve().then(loader);

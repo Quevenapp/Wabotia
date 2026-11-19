@@ -24,10 +24,13 @@ export function targetHref(target: CustomerTarget): string | null {
   if (target.module === "conversations") return "/app/conversas/" + encodeURIComponent(target.id);
   if (target.module === "tickets") return "/app/protocolos/" + encodeURIComponent(target.id);
   if (target.module === "erp") {
-    const paths: Record<string, string> = { sales: "/app/erp/documentos-empresa?tipo=sales_orders", sales_orders: "/app/erp/documentos-empresa?tipo=sales_orders",
-      open_titles: "/app/erp/financeiro-empresa?area=receivable", receivables: "/app/erp/financeiro-empresa?area=receivable" };
-    if (target.resource === "ledger") return "/app/erp/financeiro-empresa?area=ficha&contato=" + encodeURIComponent(target.id);
-    return Object.hasOwn(paths, target.resource) ? paths[target.resource] + "&registro=" + encodeURIComponent(target.id) : null;
+    const paths: Record<string, string> = {
+      sales: "/app/erp/documentos-empresa?tipo=sales_orders&documento=", sales_orders: "/app/erp/documentos-empresa?tipo=sales_orders&documento=",
+      open_titles: "/app/erp/financeiro-empresa?area=receivable&titulo=", receivables: "/app/erp/financeiro-empresa?area=receivable&titulo=",
+      titles: "/app/erp/financeiro-empresa?area=receivable&titulo=",
+      ledger: "/app/erp/financeiro-empresa?area=ficha&contato=", contact_ledger: "/app/erp/financeiro-empresa?area=ficha&contato=",
+    };
+    return Object.hasOwn(paths, target.resource) ? paths[target.resource] + encodeURIComponent(target.id) : null;
   }
   return Object.hasOwn(destinations, target.module) ? destinations[target.module] : null;
 }
@@ -36,18 +39,28 @@ export function privateTarget(data: Json): CustomerTarget | null {
   const target = (data as { target?: CustomerTarget } | null)?.target;
   return target && ["saude", "ensino", "juridico"].includes(target.module) && targetHref(target) ? target : null;
 }
-export function cellText(value: string | number | null, format: string): string {
+export function cellText(value: string | number | null | undefined, format: string): string {
   if (value == null || value === "") return "—";
   if (format === "status") {
     const states: Record<string, string> = { open: "Em aberto", pending: "Pendente", closed: "Encerrado", done: "Concluído", completed: "Concluído",
       ready: "Pronto", active: "Ativo", inactive: "Inativo", paid: "Pago", cancelled: "Cancelado", scheduled: "Agendado", confirmed: "Confirmado",
       waiting: "Aguardando", checked_in: "Check-in realizado", missed: "Não compareceu", expired: "Expirado", running: "Em andamento",
+      draft: "Em digitação", verified: "Verificado", in_progress: "Em andamento", partially_fulfilled: "Atendido parcialmente", fulfilled: "Atendido", overdue: "Em atraso",
       conflict: "Em revisão", paused: "Pausado", retained: "Retido", blocked: "Bloqueado", ambiguous: "Vínculo ambíguo", excluded: "Excluído" };
     return Object.hasOwn(states, String(value)) ? states[String(value)] : String(value);
   }
-  if (format === "money" && typeof value === "number") return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+  if (format === "moneyCents" && /^-?\d+$/.test(String(value))) {
+    const cents = BigInt(value), amount = cents < 0n ? -cents : cents;
+    return cellText(`${cents < 0n ? "-" : ""}${amount / 100n}.${String(amount % 100n).padStart(2, "0")}`, "money");
+  }
+  // O ERP entrega decimais como texto: não passar por Number nem arredondar.
+  if (format === "money" && typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value)) {
+    const [integer, decimal = ""] = value.split(".");
+    return `R$ ${integer.replace(/\B(?=(\d{3})+(?!\d))/g, ".")},${decimal.padEnd(2, "0")}`;
+  }
+  if (format === "money" && typeof value === "number" && Number.isFinite(value)) return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
   if (format === "date" || format === "datetime") {
-    const date = new Date(value);
+    const date = new Date(typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value + "T12:00:00Z" : value);
     if (!Number.isNaN(date.valueOf())) return format === "date" ? date.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" }) : date.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
   }
   return String(value);

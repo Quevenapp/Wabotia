@@ -15,6 +15,16 @@ const cell = (v: unknown): string | number | null => typeof v === "string" || ty
 
 export const erpCustomerProvider: CustomerModuleProvider = {
   maintain: maintainErpCustomers,
+  async authorizeProfile(ctx, actor, contactId) {
+    requireCustomerPerson(actor);
+    access(actor, ctx.profile, "contacts:read"); // Somente a área; papel e carteira vêm do ERP.
+    if (!await customerEnabled(ctx.env, ctx.profile)) throw new ApiError(409, "module_disabled", "Cadastro completo desligado nesta área.");
+    const contact = await one<{ erp_contact_id: string | null }>(ctx.env,
+      "SELECT erp_contact_id FROM contacts WHERE profile_id=? AND id=? AND namespace='team' AND identity_state='active'", ctx.profile, contactId);
+    if (!contact?.erp_contact_id) throw new ApiError(404, "not_found", "Contato não encontrado.");
+    const identity = await erpIdentity(freshCustomerEnv(ctx.env), actor, ctx.profile);
+    await customerRpc(ctx.env, ctx.profile, actor, identity, "erp_catalog_contact_get", { p_id: contact.erp_contact_id });
+  },
   async list(ctx, actor, contactId, collectionId, query): Promise<ContactPage> {
     requireCustomerPerson(actor);
     access(actor, ctx.profile, "contacts:read");
@@ -54,7 +64,9 @@ export const erpCustomerProvider: CustomerModuleProvider = {
       const id = collectionId === "ledger" ? `${row.line_kind}:${row.ref_id}:${row.kind}:${row.day}` : String(row.id);
       const date = row.date ?? row.due_on ?? row.day;
       return { id, cells: { id: cell(row.number ?? row.ref_id ?? row.id), status: cell(row.status ?? row.situation ?? (row.overdue ? "overdue" : "open")),
-        occurredAt: typeof date === "string" && Number.isFinite(Date.parse(date)) ? Date.parse(date) : null },
+        ...(collectionId === "sales" ? { total: cell(row.total) } : {}),
+        occurredAt: typeof date === "string" && Number.isFinite(Date.parse(date))
+          ? /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : Date.parse(date) : null },
       target: { module: "erp", resource: collectionId === "sales" ? "sales_orders" : collectionId === "ledger" ? "contact_ledger" : "titles",
         id: collectionId === "ledger" ? contact.erp_contact_id! : String(row.id) } };
     });

@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ContactPage, ContactProfileView, Json, SectionView } from "../../src/customer/profile-contracts";
-import type { CustomerJobView, HistoryPage } from "../../src/customer/contracts";
+import type { HistoryPage } from "../../src/customer/contracts";
 import type { Api, Row } from "../lib/api";
 import { onApiState } from "../lib/api";
 import { navigationGuarded } from "../lib/routes";
 import { Dialog, SimpleContactBody } from "../ContactsPanel";
-import { bindErpContact, mountProfileHost, profileMessage, profileMode, ProfileRequests, readContactJob, sectionWriter } from "./model";
+import { bindErpContact, cancelContactJob, jobBlocksEditing, jobMessage, mountProfileHost, profileMessage, profileMode, ProfileRequests, readContactJob, replaceSectionRole, sectionWriter, synchronizationJob, watchContactJob, writeFeedback, type ProfileJob, type ProfileVocabulary } from "./model";
 import { cellText, privateTarget, registeredComponent, targetHref } from "./registry";
 import "./profile.css";
 
@@ -20,8 +20,9 @@ export type ContactProfileProps = {
   demo?: boolean;
   initialContact?: Row;
   conversation?: Row;
+  vocabulary?: ProfileVocabulary;
   onClose(): void;
-  onSaved?(): void;
+  onSaved?(message?: string): void;
   openConversation?(row: Row): void;
 };
 
@@ -62,19 +63,27 @@ function ProfileSession(props: ContactProfileProps) {
   const [revision, setRevision] = useState(0), [contactRevision, setContactRevision] = useState(0);
   const [notice, setNotice] = useState("");
   const [jobId, setJobId] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState(false), [editRevision, setEditRevision] = useState(0);
+  const finishedJobs = useRef(new Set<string>());
   const base = root + "/contacts/" + encodeURIComponent(contactId);
   const profile = useResource<ContactProfileView>(api, demo ? null : base + "/profile", revision);
-  const detail = useResource<{ contact: Row; conversations?: Row[] }>(api, demo || profile.loading || profile.value?.readable === false ? null : base, contactRevision);
+  const detail = useResource<{ contact: Row; conversations?: Row[]; synchronization?: Partial<ProfileJob> & { jobId?: string } }>(api,
+    demo || profile.loading || !profile.value || profile.value.readable === false ? null : base, contactRevision);
+  useEffect(() => {
+    const id = synchronizationJob(detail.value);
+    if (id && !finishedJobs.current.has(id)) { setJobId(id); setBlocked(jobBlocksEditing(detail.value?.synchronization ?? null)); }
+  }, [detail.value]);
   const view: ContactProfileView | null = demo ? {
     profileId: decodeURIComponent(root.split("/").at(-1)!), contactId, erpContactId: null, depth: "simple",
-    vocabulary: { singular: "Cliente", plural: "Clientes" }, writable: false, contributions: [],
+    vocabulary: props.vocabulary ?? { singular: "Cliente", plural: "Clientes" }, writable: false, contributions: [],
   } : profile.value;
   const row = demo ? props.initialContact : detail.value?.contact;
   const valid = view?.contactId === contactId && view.profileId === decodeURIComponent(root.split("/").at(-1)!);
   const saved = (message = "Cadastro salvo.", result?: Row) => {
-    setNotice(message); setContactRevision(value => value + 1); props.onSaved?.();
-    const id = result?.jobId ?? result?.customer?.jobId;
-    if (typeof id === "string") setJobId(id);
+    const feedback = writeFeedback(result, message);
+    setNotice(feedback.message); setContactRevision(value => value + 1); props.onSaved?.(feedback.message);
+    if (feedback.jobId) { setJobId(feedback.jobId); setBlocked(!feedback.completed); }
+    if (feedback.completed) setRevision(value => value + 1);
   };
   const closeDialog = () => {
     if (navigationGuarded()) { setNotice("Há alterações não salvas. Salve ou use Cancelar no cadastro completo antes de fechar."); return; }
@@ -83,7 +92,14 @@ function ProfileSession(props: ContactProfileProps) {
   return <Dialog title={valid ? `${view.vocabulary.singular} · ${row?.name || row?.phone || "Ficha"}` : "Ficha do contato"} close={closeDialog} busy={false} wide>
     <div className="customer-profile">
       {notice && <p role="status" className="notice">{notice}</p>}
-      {jobId && <ContactJob key={jobId} api={api} root={root} id={jobId} done={() => { setJobId(null); setNotice("Cadastro sincronizado."); setContactRevision(n => n + 1); }} />}
+      {jobId && <ContactJob key={jobId} api={api} root={root} id={jobId} expectedVersion={row?.version}
+        writable={view?.readable !== false && (view?.localWritable ?? view?.writable) === true}
+        changed={job => { setBlocked(jobBlocksEditing(job)); if (job.state === "cancelled") {
+          finishedJobs.current.add(job.id); setEditRevision(n => n + 1); setContactRevision(n => n + 1);
+          setNotice(jobMessage(job)); props.onSaved?.(jobMessage(job));
+        } }}
+        done={() => { finishedJobs.current.add(jobId); setJobId(null); setBlocked(false); setNotice("Atualização concluída.");
+          setContactRevision(n => n + 1); setRevision(n => n + 1); props.onSaved?.("Atualização concluída."); }} />}
       {!demo && profile.loading && <p role="status">Carregando ficha…</p>}
       {profile.error && <Failure error={profile.error} retry={() => setRevision(n => n + 1)} />}
       {view && !valid && <p role="alert">Esta ficha não pertence ao contato e à área selecionados.</p>}
@@ -93,8 +109,8 @@ function ProfileSession(props: ContactProfileProps) {
             <FullBody view={view} saved={() => saved()} close={onClose} />
             {detail.error && <Failure error={detail.error} retry={() => setContactRevision(n => n + 1)} />}
             {row?.id === contactId && <div className="customer-profile-local"><h3>Dados do atendimento</h3>
-              <SimpleContactBody key={`${row.id}:${row.version}`} api={api} root={root} demo={!!demo} contact={row} conversation={props.conversation}
-                embedded localOnly writable={view.writable} close={closeDialog} saved={saved} /></div>}
+              <SimpleContactBody key={`${row.id}:${row.version}:${editRevision}`} api={api} root={root} demo={!!demo} contact={row} conversation={props.conversation}
+                embedded localOnly vocabulary={view.vocabulary} blocked={blocked} writable={view.localWritable ?? view.writable} close={closeDialog} saved={saved} /></div>}
           </> : <>
             <p className="muted">Cadastro simples{view.erpContactId ? " · Últimos dados sincronizados" : ""}</p>
             {view.erpContactId && <p>O cadastro completo está indisponível neste acesso. Alterações locais aguardam reconciliação.</p>}
@@ -102,13 +118,13 @@ function ProfileSession(props: ContactProfileProps) {
               <p role="status">{linkStateText(props.conversation.customer_link_state)}</p>}
             {!demo && detail.loading && <p role="status">Carregando cadastro…</p>}
             {detail.error && <Failure error={detail.error} retry={() => setContactRevision(n => n + 1)} />}
-            {row && row.id === contactId && <SimpleContactBody key={`${row.id}:${row.version}`} api={api} root={root} demo={!!demo}
+            {row && row.id === contactId && <SimpleContactBody key={`${row.id}:${row.version}:${editRevision}`} api={api} root={root} demo={!!demo}
               contact={row} conversation={props.conversation} conversations={detail.value?.conversations}
-              embedded writable={view.writable} close={closeDialog} saved={saved} openConversation={props.openConversation} />}
+              embedded vocabulary={view.vocabulary} blocked={blocked} writable={view.localWritable ?? view.writable} close={closeDialog} saved={saved} openConversation={props.openConversation} />}
           </>}
         </section>}
         {!demo && <>
-          {view.readable !== false && <History api={api} base={base} />}
+          {view.readable !== false && !view.namespace?.startsWith("app:") && <History api={api} base={base} />}
           {view.contributions.map(item => <ContributionCard key={`${item.moduleId}:${item.id}`} item={item} api={api} base={base} />)}
         </>}
       </>}
@@ -121,28 +137,52 @@ function linkStateText(state: string) {
     blocked: "O vínculo desta conversa foi desfeito.", excluded: "Esta conversa não libera acesso ao cadastro." } as Record<string, string>)[state] ?? "";
 }
 
-function ContactJob({ api, root, id, done }: { api: Api; root: string; id: string; done(): void }) {
-  const callback = useRef(done); callback.current = done;
-  const [job, setJob] = useState<CustomerJobView | null>(null), [error, setError] = useState(""), [revision, setRevision] = useState(0);
+export function ContactJob({ api, root, id, done, changed, writable = false, expectedVersion }: {
+  api: Api; root: string; id: string; done?(): void; changed?(job: ProfileJob): void; writable?: boolean; expectedVersion?: number;
+}) {
+  const callback = useRef({ done, changed }); callback.current = { done, changed };
+  const [job, setJob] = useState<ProfileJob | null>(null), [error, setError] = useState(""), [revision, setRevision] = useState(0);
+  const [reason, setReason] = useState(""), [busy, setBusy] = useState(false);
+  const stopReading = useRef<() => void>(() => {});
+  const writes = useRef(new ProfileRequests()), command = useRef<{ body: string; id: string } | null>(null);
+  useEffect(() => { const scope = new ProfileRequests(); writes.current = scope; return () => scope.dispose(); }, []);
   useEffect(() => {
-    const request = new AbortController(); let timer: ReturnType<typeof setTimeout> | undefined;
-    const poll = async () => {
-      try {
-        const result = await readContactJob(api, root, id, request.signal);
-        if (request.signal.aborted) return;
-        setJob(result); setError("");
-        if (result.state === "done") { callback.current(); return; }
-        if (result.state === "pending" || result.state === "running") timer = setTimeout(() => void poll(), 1500);
-      } catch (failure) { if (!request.signal.aborted) setError(profileMessage(failure)); }
-    };
-    void poll(); return () => { request.abort(); clearTimeout(timer); };
+    const request = new AbortController();
+    const stop = watchContactJob(api, root, id, request.signal, result => {
+      setJob(result); setError(""); callback.current.changed?.(result);
+      if (result.state === "done") callback.current.done?.();
+    }, failure => setError(profileMessage(failure)));
+    stopReading.current = stop;
+    return () => { request.abort(); stop(); };
   }, [api, root, id, revision]);
-  if (error) return <Failure error={error} retry={() => setRevision(n => n + 1)} />;
-  const messages = { pending: "Atualização aguardando sincronização.", running: "Sincronizando cadastro…", paused: "Sincronização pausada. Os dados enviados continuam salvos.",
-    conflict: "A atualização precisa de revisão por conflito de dados.", retained: "A solicitação foi retida para revisão.", cancelled: "Solicitação cancelada.", done: "Cadastro sincronizado." };
-  return <p role="status">{job ? messages[job.state] : "Conferindo atualização…"}
-    {job && ["paused", "conflict"].includes(job.state) && <> <button type="button" onClick={() => setRevision(n => n + 1)}>Conferir novamente</button></>}
-  </p>;
+  const cancel = async () => {
+    if (!job || busy || !writable) return;
+    stopReading.current();
+    const request = writes.current.begin("cancel"); setBusy(true); setError("");
+    try {
+      const version = expectedVersion ?? (job.contactId ? (await api(root + "/contacts/" + encodeURIComponent(job.contactId), "GET", undefined, request.signal)).contact?.version : undefined);
+      if (!request.current()) return;
+      const signature = JSON.stringify([job.id, job.updated, version, reason.trim()]);
+      if (command.current?.body !== signature) command.current = { body: signature, id: crypto.randomUUID() };
+      const result = await cancelContactJob(api, root, job, version, reason, request.signal, command.current.id);
+      if (!request.current()) return;
+      setJob(result); callback.current.changed?.(result);
+      if (result.state === "done") callback.current.done?.();
+      if (result.state !== "cancelled") setError("O cancelamento ainda não foi confirmado. Confira o resultado antes de editar.");
+    } catch (failure) { if (request.current()) setError(profileMessage(failure)); }
+    finally { if (request.current()) setBusy(false); }
+  };
+  return <div className="customer-profile-job">
+    <p role="status">{job ? jobMessage(job) : "Conferindo atualização…"}</p>
+    {error && <Failure error={error} retry={() => setRevision(n => n + 1)} />}
+    {job && !["done", "cancelled"].includes(job.state) && <button type="button" disabled={busy} onClick={() => setRevision(n => n + 1)}>Conferir novamente</button>}
+    {job && writable && ["paused", "conflict", "failed"].includes(job.state) && <>
+      <p>Para corrigir os dados, cancele esta intenção e inicie uma nova edição. Um envio de resultado desconhecido precisa ser conferido pelo servidor antes do cancelamento.</p>
+      <label>Motivo do cancelamento<input value={reason} maxLength={500} disabled={busy} onChange={event => setReason(event.target.value)} /></label>
+      <button type="button" disabled={busy || !reason.trim() || !Number.isSafeInteger(job.updated)} onClick={() => void cancel()}>Cancelar solicitação</button>
+      {!Number.isSafeInteger(job.updated) && <p role="status">A versão para cancelamento ainda não está disponível. Recarregue a solicitação.</p>}
+    </>}
+  </div>;
 }
 
 function FullBody({ view, saved, close }: { view: ContactProfileView; saved(): void; close(): void }) {
@@ -154,6 +194,7 @@ function FullBody({ view, saved, close }: { view: ContactProfileView; saved(): v
     setError(""); setLoading(true);
     void mountProfileHost(element.current!, view, {
       profileId: view.profileId, contactId: view.contactId, erpContactId: view.erpContactId!,
+      vocabulary: view.vocabulary,
       onSaved: () => callbacks.current.saved(), onClose: () => callbacks.current.close(),
     }, controller.signal).then(result => { mounted = result; if (!controller.signal.aborted) setLoading(false); })
       .catch(failure => { if (!controller.signal.aborted) { setError(profileMessage(failure)); setLoading(false); } });
@@ -234,7 +275,7 @@ function SectionBody({ item, initial, api, path, reload }: { item: Contribution;
   };
   // Formulário irmão do cadastro: versão, comando e salvamento exclusivos da seção.
   return <form onSubmit={save} aria-label={item.title}>
-    <fieldset disabled={busy || !writable}><PublicFields data={draft} change={setDraft} /></fieldset>
+    <fieldset disabled={busy || !writable}><PublicFields data={draft} change={setDraft} writable={writable} /></fieldset>
     {error && <p role="alert" className="notice error">{error} <button type="button" onClick={reload}>Recarregar seção</button></p>}
     {notice && <p role="status">{notice}</p>}
     {writable && <button type="submit" disabled={busy || JSON.stringify(draft) === JSON.stringify(section.data)}>{busy ? "Salvando…" : "Salvar seção"}</button>}
@@ -248,18 +289,43 @@ const publicLabels: Record<string, string> = { units: "Unidades", memberships: "
   startsAt: "Início", endsAt: "Fim", starts_at: "Início", ends_at: "Fim" };
 const roleLabels: Record<string, string> = { morador: "Morador", proprietario: "Proprietário", inquilino: "Inquilino", sindico: "Síndico", zelador: "Zelador",
   porteiro: "Porteiro", prestador: "Prestador", funcionario: "Empregado da unidade", empregado_unidade: "Empregado da unidade", visitante_recorrente: "Visitante recorrente" };
-function PublicFields({ data, change }: { data: Json; change(value: Json): void }) {
+function PublicFields({ data, change, writable = false }: { data: Json; change(value: Json): void; writable?: boolean }) {
+  if (data && typeof data === "object" && !Array.isArray(data) && Array.isArray(data.memberships)) return <div className="customer-profile-fields">
+    {(["memberships", "functions", "subscriptions"] as const).map(kind => Array.isArray(data[kind]) && <section key={kind}><h4>{publicLabels[kind]}</h4>
+      {(data[kind] as Json[]).length ? (data[kind] as Json[]).map((value, index) => {
+        const row = value as Record<string, Json>;
+        return <div key={String(row.id ?? `${row.unitId}:${row.subscriptionId}`)} className="customer-profile-relation">
+          <PublicFields data={value} writable={writable} change={next => change({ ...data, [kind]: (data[kind] as Json[]).map((entry, i) => i === index ? next : entry) })} />
+          {writable && kind !== "subscriptions" && row.endsAt == null && <RoleChange kind={kind} row={row} change={(role, at) => change(replaceSectionRole(data, kind, String(row.id), role, at, crypto.randomUUID()))} />}
+        </div>;
+      }) : <p>Nenhum vínculo disponível.</p>}
+    </section>)}
+  </div>;
   if (Array.isArray(data)) return <div className="customer-profile-fields">{data.length ? data.map((value, index) => <PublicFields key={index} data={value}
-    change={next => change(data.map((entry, i) => i === index ? next : entry))} />) : <p>Nenhum vínculo disponível.</p>}</div>;
+    writable={writable} change={next => change(data.map((entry, i) => i === index ? next : entry))} />) : <p>Nenhum vínculo disponível.</p>}</div>;
   if (!data || typeof data !== "object") return null;
   const entries = Object.entries(data).filter(([key]) => Object.hasOwn(publicLabels, key));
   return <div className="customer-profile-fields">{entries.length ? entries.map(([key, value]) => <div key={key}>
-    {value && typeof value === "object" ? <><h4>{publicLabels[key]}</h4><PublicFields data={value} change={next => change({ ...data, [key]: next })} /></>
+    {value && typeof value === "object" ? <><h4>{publicLabels[key]}</h4><PublicFields data={value} writable={writable} change={next => change({ ...data, [key]: next })} /></>
       : key === "notices" || key === "linked" ? <label><input type="checkbox" checked={value === true} onChange={event => change({ ...data, [key]: event.target.checked })} />{publicLabels[key]}</label>
       : key === "endsAt" ? <label>{publicLabels[key]}<input type="datetime-local" value={typeof value === "number" ? new Date(value - new Date(value).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : ""}
         onChange={event => change({ ...data, [key]: event.target.value ? new Date(event.target.value).getTime() : null })} /></label>
       : <p><strong>{publicLabels[key]}: </strong>{value == null ? "—" : key === "role" ? roleLabels[String(value)] ?? String(value) : String(value)}</p>}
   </div>) : <p>Os vínculos são administrados no módulo Condomínio.</p>}</div>;
+}
+
+function RoleChange({ kind, row, change }: { kind: "memberships" | "functions"; row: Record<string, Json>; change(role: string, at: number): void }) {
+  const [role, setRole] = useState(""), [at, setAt] = useState("");
+  const roles = kind === "memberships" ? ["proprietario", "inquilino", "empregado_unidade"] : ["sindico", "zelador", "porteiro", "prestador", "visitante_recorrente"];
+  const timestamp = new Date(at).getTime();
+  return <div className="customer-profile-role-change">
+    <p>Para mudar o papel, encerre este vínculo e crie outro. A pessoa e a unidade serão preservadas.</p>
+    <label>Novo papel<select value={role} onChange={event => setRole(event.target.value)}><option value="">Escolha</option>
+      {roles.filter(value => value !== row.role).map(value => <option key={value} value={value}>{roleLabels[value]}</option>)}
+    </select></label>
+    <label>Data da troca<input type="datetime-local" value={at} onChange={event => setAt(event.target.value)} /></label>
+    <button type="button" disabled={!role || !Number.isFinite(timestamp) || timestamp < Number(row.startsAt)} onClick={() => change(role, timestamp)}>Encerrar e criar vínculo</button>
+  </div>;
 }
 
 function History({ api, base }: { api: Api; base: string }) {
@@ -296,8 +362,8 @@ function ErpBindingSession(props: React.ComponentProps<typeof ErpProfileEntry>) 
         const job = await readContactJob(props.api, props.root, jobId, controller.signal);
         if (controller.signal.aborted) return;
         if (job.state === "done" && job.contactId) { open(job.contactId); return; }
-        if (["conflict", "paused", "cancelled", "retained"].includes(job.state)) {
-          setError(job.state === "conflict" ? "O vínculo precisa de revisão antes de abrir a ficha." : "A associação está pendente. Confira o cadastro e tente novamente."); return;
+        if (!["pending", "running"].includes(job.state)) {
+          setError(jobMessage(job)); return;
         }
         timer = setTimeout(() => void poll(jobId), 1500);
       } catch (failure) { if (!controller.signal.aborted) setError(profileMessage(failure)); }

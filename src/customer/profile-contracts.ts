@@ -20,7 +20,7 @@ export interface ContactContribution {
   columns?: readonly {
     key: string;
     label: string;
-    format: "text" | "date" | "datetime" | "money" | "status";
+    format: "text" | "date" | "datetime" | "money" | "moneyCents" | "status";
   }[];
 }
 
@@ -42,6 +42,10 @@ export interface ContactProfileView {
   writable: boolean;
   /** false: acesso somente pelas contribuições autorizadas da extensão. */
   readable?: boolean;
+  /** Namespace de integrações; ausência conserva o contrato team anterior. */
+  namespace?: string;
+  /** Edição local é independente da autorização de escrita no ERP. */
+  localWritable?: boolean;
   contributions: readonly (
     ContactContribution & { moduleId: string; writable: boolean }
   )[];
@@ -75,6 +79,8 @@ export interface SectionWrite {
 }
 
 export interface CustomerModuleProvider {
+  /** Valida acesso ao registro, sem devolver dados do domínio ao cadastro local. */
+  authorizeProfile?(ctx: ModuleContext, actor: Actor, contactId: string): Promise<void>;
   /** Consulta de impedimentos sem conteúdo privado, inclusive com módulo desligado. */
   erasure?(env: Env, profileId: string, contactId: string): Promise<{ state: "retained"; reason: string } | null>;
   list?(

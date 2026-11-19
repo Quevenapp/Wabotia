@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type
 import { erpPorts } from '../../ports';
 import { api } from '../../../lib/api';
 import { ErpProfileEntry } from '../../../contact-profile/ContactProfile';
+import { contactVocabulary, type ProfileVocabulary } from '../../../contact-profile/model';
 import { useReferenceOptions } from '../hooks/useReferenceOptions';
 import type { PlatformPort } from '../lib/platform-model';
 import { AccessError, type AccessController } from '../lib/real-access';
@@ -48,7 +49,7 @@ function useOptions<T>(load: (signal: AbortSignal) => Promise<T>, deps: unknown[
   return state;
 }
 
-export function ContactEditor(props: CatalogEditorProps) {
+export function ContactEditor(props: CatalogEditorProps & { vocabulary?: ProfileVocabulary }) {
   const snapshot = useSyncExternalStore(props.controller.subscribe, props.controller.getSnapshot, props.controller.getSnapshot);
   const changed = useRef(false);
   const ports = erpPorts();
@@ -69,7 +70,11 @@ export function ContactEditor(props: CatalogEditorProps) {
     onClose={() => { if (changed.current) props.onSaved(props.record!); props.onClose(); }} />;
 }
 
-export type RawContactEditorProps = CatalogEditorProps & { embeddedProfile?: boolean };
+export type RawContactEditorProps = CatalogEditorProps & { embeddedProfile?: boolean; vocabulary?: ProfileVocabulary };
+export function contactEditorTitle(vocabulary?: ProfileVocabulary, types: readonly string[] = []) {
+  if (types.includes('supplier') && !types.includes('customer')) return 'Fornecedor';
+  return `${contactVocabulary(vocabulary).singular} ou Fornecedor`;
+}
 /** Corpo bruto: o hospedeiro usa esta entrada e nunca reabre ContactProfile. */
 export function RawContactEditor(props: RawContactEditorProps) {
   return <LoadedContactEditor key={`${props.record?.id ?? 'new'}:${props.record?.version ?? 0}`} {...props} />;
@@ -90,12 +95,12 @@ function LoadedContactEditor(props: RawContactEditorProps) {
     }).catch(failure => { if (!request.signal.aborted && !aborted(failure)) setLoadError(errorText(failure)); });
     return () => request.abort();
   }, [controller, props.record?.id]);
-  if (props.record && !record) return <section className="real-editor catalog-editor"><h2>Cliente ou Fornecedor</h2>
+  if (props.record && !record) return <section className="real-editor catalog-editor"><h2>{contactEditorTitle(props.vocabulary, props.record.types as string[] | undefined)}</h2>
     {loadError ? <p className="real-alert" role="alert">{loadError}<button type="button" className="text-button" onClick={props.onClose}>Voltar à listagem</button></p> : <p role="status">Carregando cadastro…</p>}</section>;
   return <ContactForm {...props} record={record} writable={writable} />;
 }
 
-function ContactForm({ controller, record, writable, onClose, onSaved, embeddedProfile }: RawContactEditorProps & { record: ContactRecord | null }) {
+function ContactForm({ controller, record, writable, onClose, onSaved, embeddedProfile, vocabulary }: RawContactEditorProps & { record: ContactRecord | null }) {
   const today = saoPauloToday();
   const [values, setValues] = useState<Record<string, string>>(() => contactFormValues(record, today));
   const [types, setTypes] = useState<string[]>(() => record?.types ?? []);
@@ -184,7 +189,7 @@ function ContactForm({ controller, record, writable, onClose, onSaved, embeddedP
   const changed = changedAt(record?.updated_at);
   const categoryList = categories.value ?? [], natureList = natures.value ?? [];
   return <section className="real-editor catalog-editor contact-editor" aria-labelledby="catalog-edit-title">
-    <header className="real-editor-heading catalog-editor-heading contact-editor-heading"><div><div className="catalog-editor-title"><h2 id="catalog-edit-title" ref={heading} tabIndex={-1}>Cliente ou Fornecedor</h2>
+    <header className="real-editor-heading catalog-editor-heading contact-editor-heading"><div><div className="catalog-editor-title"><h2 id="catalog-edit-title" ref={heading} tabIndex={-1}>{contactEditorTitle(vocabulary, types)}</h2>
       {record && <span className={badgeClass(SITUATION_LABELS[record.situation])}>{SITUATION_LABELS[record.situation]}</span>}{!writable && <span className="real-mode">Somente consulta</span>}</div></div>
       <div className="catalog-editor-buttons"><button type="button" className="secondary-button" onClick={() => guard.confirmLeave(onClose)} disabled={saver.busy}>{writable ? 'Cancelar' : 'Voltar'}</button>
         {writable && !excluded && <button className="primary-button" disabled={locked} type="submit" form="catalog-editor-form">{saver.busy ? 'Salvando…' : 'Salvar'}</button>}</div>
@@ -239,7 +244,7 @@ function ContactForm({ controller, record, writable, onClose, onSaved, embeddedP
                 : <select id="contact-operation_nature_id" value={values.operation_nature_id ?? ''} disabled={locked} onChange={event => change('operation_nature_id', event.target.value)}><option value="">Selecione</option>
                   {values.operation_nature_id && !natureList.some(n => n.id === values.operation_nature_id) && <option value={values.operation_nature_id}>{record?.operation_nature_name ?? 'Natureza atual'}</option>}
                   {natureList.map(nature => <option key={nature.id} value={nature.id}>{nature.description}</option>)}</select>}
-              <small className="real-help">Usada como sugestão nas notas do cliente quando a emissão adotar o cadastro.</small></div>}
+              <small className="real-help">Usada como sugestão nas notas de {contactVocabulary(vocabulary, types.includes('supplier') && !types.includes('customer')).singular.toLocaleLowerCase('pt-BR')} quando a emissão adotar o cadastro.</small></div>}
             {field(SECTION_FIELDS.adicionais.find(spec => spec.key === 'suframa')!)}
             {/* 202610200170 (documentos lane): Foto in the private attachment storage. */}
             <ContactPhoto controller={controller} contactId={record?.id ?? null} writable={writable && !excluded} />

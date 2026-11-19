@@ -10,6 +10,9 @@ const tableColumns: NonNullable<ContactContribution["columns"]> = [
 const relationColumns: NonNullable<ContactContribution["columns"]> = [
   ...tableColumns, { key: "relation", label: "Vínculo", format: "text" },
 ];
+const unitColumns: NonNullable<ContactContribution["columns"]> = [
+  ...tableColumns, { key: "unit", label: "Unidade", format: "text" }, { key: "block", label: "Bloco", format: "text" },
+];
 const collection = (
   moduleId: string, id: string, title: string,
   extra: Partial<ContactContribution> = {},
@@ -46,11 +49,12 @@ export const customerProfileDeclarations: Readonly<Record<string, ContactProfile
     contributions: [
       { id: "units", kind: "section", title: "Unidades e vínculos", component: "condominio.units",
         source: "condominio.units", policy: "module" },
-      collection("condominio", "deliveries", "Encomendas"),
-      collection("condominio", "visits", "Visitas"),
-      collection("condominio", "occurrences", "Ocorrências"),
+      collection("condominio", "deliveries", "Encomendas", { columns: unitColumns }),
+      collection("condominio", "visits", "Visitas", { columns: unitColumns }),
+      collection("condominio", "occurrences", "Ocorrências", { columns: unitColumns }),
       collection("condominio", "dues", "Mensalidades", {
         enabledWith: ["mensalidade"], policy: "condominio.dues",
+        columns: [...tableColumns, { key: "dueDate", label: "Vencimento", format: "date" }, { key: "amountCents", label: "Valor", format: "moneyCents" }],
       }),
     ],
     personTypes: [
@@ -70,7 +74,10 @@ export const customerProfileDeclarations: Readonly<Record<string, ContactProfile
   ensino: privateSection("ensino"),
   juridico: privateSection("juridico"),
   erp: { contributions: [
-    collection("erp", "sales", "Vendas", { component: "erp", policy: "erp" }),
+    collection("erp", "sales", "Vendas", { component: "erp", policy: "erp", columns: [
+      ...tableColumns.map(column => column.key === "occurredAt" ? { ...column, format: "date" as const } : column),
+      { key: "total", label: "Total", format: "money" },
+    ] }),
     collection("erp", "open_titles", "Títulos em aberto", { component: "erp", policy: "erp" }),
     collection("erp", "ledger", "Extrato", { component: "erp", policy: "erp" }),
   ] },
