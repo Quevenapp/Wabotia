@@ -8,6 +8,8 @@ import type { ModuleDefinition } from "../types";
 
 export const entregaModule: ModuleDefinition = {
   id: "entrega",
+  erp_role: "vendas",
+  integration: { route: "sale", uses: ["customers", "products", "stock", "finance"], operations: ["prepare", "execute", "lifecycle", "receive", "cancel", "reverse"], privacy: "commercial" },
   name: "Entrega",
   version: "1.0.0",
   description:

@@ -1,8 +1,9 @@
+import { commerceGuard } from "../pedido/public";
 // Ganchos do Pedido (src/modules/pedido/public.ts) registrados pela Entrega.
 // O Pedido só os chama com a Entrega ligada na área, então a Entrega não
 // declara `requires: ["pedido"]` e segue servindo entregas avulsas. Todos
 // aguentam repetição: o Pedido pode anunciar a mesma mudança de novo.
-import { all, exec, one } from "../../db";
+import { all, batch, exec, one } from "../../db";
 import { now } from "../../types";
 import { modulesApi } from "../api";
 import {
@@ -49,21 +50,13 @@ onOrderStatusChanged(MODULE, async (env, profile, { order, to, actor }) => {
   const at = now();
   const delivered = to === "delivered";
   const reason = "Pedido cancelado no Pedido.";
-  const done = await exec(
-    env,
-    delivered
-      ? "UPDATE entrega_deliveries SET status='delivered',delivered_at=?,ended_at=?,updated=? WHERE id=? AND status IN ('pending','assigned','en_route')"
-      : "UPDATE entrega_deliveries SET status='cancelled',cancelled_at=?,ended_at=?,updated=?,cancel_reason=? WHERE id=? AND status IN ('pending','assigned','en_route')",
-    ...(delivered ? [at, at, at, row.id] : [at, at, at, reason, row.id]),
-  );
-  if (!done.meta?.changes) return;
-  await history(
-    ctx,
-    row.id,
-    to,
-    actor || "system",
-    delivered ? "Marcado como entregue no Pedido." : reason,
-  );
+  await batch(env, [
+    [delivered
+      ? "UPDATE entrega_deliveries SET status='delivered',delivered_at=?,ended_at=?,updated=? WHERE id=? AND profile_id=? AND status=?"
+      : "UPDATE entrega_deliveries SET status='cancelled',cancelled_at=?,ended_at=?,updated=?,cancel_reason=? WHERE id=? AND profile_id=? AND status=?",
+      delivered ? [at, at, at, row.id, profile, row.status] : [at, at, at, reason, row.id, profile, row.status]], commerceGuard,
+    ["INSERT INTO entrega_history(id,profile_id,delivery_id,status,actor,note,created) VALUES(?,?,?,?,?,?,?)", [crypto.randomUUID(), profile, row.id, to, actor || "system", delivered ? "Marcado como entregue no Pedido." : reason, at]],
+  ]);
   // O acesso do entregador pelo QR fecha junto.
   await endAccess(
     ctx,
