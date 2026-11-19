@@ -70,15 +70,22 @@ export async function verifiedCustomer(ctx: ModuleContext, c: Conversation) {
   return { contactId: ref.contactId, phone };
 }
 
+/** A prova especializada continua válida enquanto a manutenção grava contact_id.
+ * A busca conta também pessoas de outro contato: filtrar antes esconderia conflito. */
+export async function verifiedPerson(ctx: ModuleContext, identity: { contactId: string; phone: string }) {
+  const at = now();
+  const rows = await all(ctx.env, `SELECT DISTINCT ph.person_id,p.contact_id FROM cond_phones ph
+    JOIN cond_people p ON p.profile_id=ph.profile_id AND p.id=ph.person_id
+    WHERE ph.profile_id=? AND ph.phone=? AND ph.starts_at<=? AND (ph.ends_at IS NULL OR ph.ends_at>?)
+    AND ph.verified_by<>'' LIMIT 2`, ctx.profile, identity.phone, at, at);
+  if (rows.length !== 1 || (rows[0].contact_id !== null && rows[0].contact_id !== identity.contactId)) return null;
+  return rows[0].person_id as string;
+}
+
 /** Cadastro canônico sozinho nunca substitui o telefone confirmado da extensão. */
 export async function personIdentity(ctx: ModuleContext, c: Conversation, personId: string) {
   const identity = await verifiedCustomer(ctx, c);
-  const at = now();
-  const rows = await all(ctx.env, `SELECT ph.person_id FROM cond_phones ph
-    JOIN cond_people p ON p.profile_id=ph.profile_id AND p.id=ph.person_id
-    WHERE ph.profile_id=? AND ph.phone=? AND ph.starts_at<=? AND (ph.ends_at IS NULL OR ph.ends_at>?)
-    AND p.contact_id=?`, ctx.profile, identity.phone, at, at, identity.contactId);
-  if (rows.length !== 1 || rows[0].person_id !== personId) fail();
+  if (await verifiedPerson(ctx, identity) !== personId) fail();
   return identity;
 }
 

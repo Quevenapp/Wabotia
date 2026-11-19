@@ -1,12 +1,12 @@
 import { z } from "zod";
 import { all, batch, one } from "../../db";
 import { canonical, seal, sha, unseal } from "../../security";
-import { requireAccess } from "../../access";
-import { now, type Actor } from "../../types";
+import { allows, requireAccess } from "../../access";
+import { ApiError, now, type Actor, type Conversation } from "../../types";
 import type { Statement } from "../../customer/contracts";
 import type { CustomerModuleProvider, Json, SectionView, SectionWrite } from "../../customer/profile-contracts";
 import { modulesApi, type ModuleContext } from "../api";
-import { fail, id, instant, parse, publicPerson, staff } from "./common";
+import { fail, id, instant, parse, publicPerson, staff, touchUnits, verifiedCustomer, verifiedPerson } from "./common";
 
 const functionRole = z.enum(["sindico", "zelador", "porteiro", "prestador", "visitante_recorrente"]);
 const period = { startsAt: instant, endsAt: instant.nullable() };
@@ -52,7 +52,10 @@ async function sectionVersion(ctx: ModuleContext, contactId: string) {
   return (await one(ctx.env, `SELECT version FROM customer_sections WHERE profile_id=?
     AND contact_id=? AND module_id='condominio' AND section_id='units'`, ctx.profile, contactId))?.version ?? 1;
 }
-async function snapshot(ctx: ModuleContext, contactId: string): Promise<Snapshot> {
+async function mayReadSubscriptions(ctx: ModuleContext, actor: Actor) {
+  return allows(actor, "mensalidade") && await modulesApi(ctx.env, ctx.profile, "mensalidade").enabled();
+}
+async function snapshot(ctx: ModuleContext, contactId: string, subscriptionsAllowed: boolean): Promise<Snapshot> {
   const people = await all(ctx.env, `SELECT p.id FROM cond_people p WHERE p.profile_id=? AND p.contact_id=? AND ${publicPerson} ORDER BY p.id LIMIT 201`, ctx.profile, contactId);
   const memberships = await all<Membership>(ctx.env, `SELECT m.id,m.person_id AS personId,m.unit_id AS unitId,m.role,
     m.starts_at AS startsAt,m.ends_at AS endsAt,m.notices,b.name AS block,u.number
@@ -64,12 +67,12 @@ async function snapshot(ctx: ModuleContext, contactId: string): Promise<Snapshot
     f.starts_at AS startsAt,f.ends_at AS endsAt,f.version FROM cond_person_functions f
     JOIN cond_people p ON p.profile_id=f.profile_id AND p.id=f.person_id
     WHERE p.profile_id=? AND p.contact_id=? AND ${publicPerson} ORDER BY f.id LIMIT 201`, ctx.profile, contactId);
-  const subscriptions = await all<Subscription>(ctx.env, `SELECT us.unit_id AS unitId,us.subscription_id AS subscriptionId
+  const subscriptions = subscriptionsAllowed ? await all<Subscription>(ctx.env, `SELECT us.unit_id AS unitId,us.subscription_id AS subscriptionId
     FROM cond_unit_subscriptions us JOIN mensalidade_subscriptions s ON s.profile_id=us.profile_id AND s.id=us.subscription_id
     WHERE us.profile_id=? AND EXISTS(SELECT 1 FROM cond_memberships m
       JOIN cond_people p ON p.profile_id=m.profile_id AND p.id=m.person_id
       WHERE m.profile_id=us.profile_id AND m.unit_id=us.unit_id AND p.contact_id=? AND ${publicPerson})
-    ORDER BY us.unit_id,us.subscription_id LIMIT 201`, ctx.profile, contactId);
+    ORDER BY us.unit_id,us.subscription_id LIMIT 201`, ctx.profile, contactId) : [];
   if ([people, memberships, functions, subscriptions].some(rows => rows.length > 200))
     fail("contact_conflict", 409, "Revise a quantidade de vínculos na administração.");
   return { people, memberships, functions, subscriptions };
@@ -99,7 +102,7 @@ async function section(ctx: ModuleContext, actor: Actor, contactId: string, sect
   if (sectionId !== "units") fail();
   await contact(ctx, contactId);
   const version = await sectionVersion(ctx, contactId);
-  const data = await snapshot(ctx, contactId);
+  const data = await snapshot(ctx, contactId, await mayReadSubscriptions(ctx, actor));
   if (version !== await sectionVersion(ctx, contactId)) fail("contact_conflict", 409);
   return view(data, version, now());
 }
@@ -130,12 +133,15 @@ async function saveSection(ctx: ModuleContext, actor: Actor, contactId: string, 
     if (job.request_hash !== requestHash || job.kind !== "section" || job.contact_id !== contactId) fail("idempotency_conflict", 409);
     if (job.state !== "done" || !job.result_cipher) fail("sync_pending", 409);
     const result = await unseal(ctx.env, job.result_cipher) as SectionView;
+    // O recibo conserva a operação, mas nunca uma autorização já revogada.
+    if (!await mayReadSubscriptions(ctx, actor))
+      result.data = { ...(result.data as Record<string, Json>), subscriptions: [] };
     return { ...result, replayed: true };
   }
   const prior = await receipt();
   if (prior) return replay(prior);
   if (await sectionVersion(ctx, contactId) !== command.expectedVersion) fail("contact_conflict", 409);
-  const data = await snapshot(ctx, contactId), at = now();
+  const data = await snapshot(ctx, contactId, await mayReadSubscriptions(ctx, actor)), at = now();
   // Validação em conjuntos, sem uma viagem ao D1 para cada unidade/vínculo.
   const unitIds = [...new Set([...d.memberships, ...d.functions, ...d.subscriptions].map(r => r.unitId).filter((value): value is string => value !== null))];
   const units = new Map((unitIds.length ? await all(ctx.env, `SELECT u.id,u.number,b.name AS block
@@ -261,10 +267,11 @@ async function list(ctx: ModuleContext, actor: Actor, contactId: string, collect
   }
   const at = now();
   // Autorização e vínculo são filtrados antes do LIMIT; nenhum fallback telefônico.
-  const rows = kind ? await all(ctx.env, `SELECT w.id,w.created_at AS occurredAt,w.kind,u.number AS unit,b.name AS block
+  const rows = kind ? await all(ctx.env, `SELECT w.id,w.created_at AS occurredAt,w.kind,u.number AS unit,b.name AS block,o.status
     FROM cond_works w JOIN cond_units u ON u.profile_id=w.profile_id AND u.id=w.unit_id
     JOIN cond_blocks b ON b.profile_id=u.profile_id AND b.id=u.block_id
     JOIN cond_people p ON p.profile_id=w.profile_id AND p.id=w.person_id
+    LEFT JOIN os_orders o ON o.profile_id=w.profile_id AND o.id=w.id
     WHERE w.profile_id=? AND p.contact_id=? AND ${publicPerson} AND w.kind=? AND w.created_at<=?
     AND (?=0 OR w.created_at<? OR (w.created_at=? AND w.id<?))
     ORDER BY w.created_at DESC,w.id DESC LIMIT ?`, ctx.profile, contactId, kind, cutoff, +hasLast, lastAt, lastAt, lastId, limit + 1)
@@ -279,8 +286,9 @@ async function list(ctx: ModuleContext, actor: Actor, contactId: string, collect
       ctx.profile, cutoff, contactId, at, at, +hasLast, lastAt, lastAt, lastId, limit + 1);
   const items = rows.slice(0, limit).map(row => ({
     id: row.id as string,
-    cells: (kind ? { unit: row.unit, block: row.block, createdAt: row.occurredAt }
-      : { dueDate: row.dueDate, amountCents: row.amountCents, status: row.status }) as Record<string, string | number | null>,
+    cells: { id: row.id, status: row.status ?? null, occurredAt: row.occurredAt,
+      ...(kind ? { unit: row.unit, block: row.block, createdAt: row.occurredAt }
+        : { dueDate: row.dueDate, amountCents: row.amountCents }) } as Record<string, string | number | null>,
     target: { module: kind ? "condominio" : "mensalidade", resource: kind ? "works" : "installments", id: row.id as string },
   }));
   const last = rows[Math.min(rows.length, limit) - 1];
@@ -288,4 +296,75 @@ async function list(ctx: ModuleContext, actor: Actor, contactId: string, collect
     ? await seal(ctx.env, { scope, cutoff, at: last.occurredAt, id: last.id }) : null };
 }
 
-export const condominioCustomerProvider: CustomerModuleProvider = { section, saveSection, list };
+// Telefone confirmado na extensão + canal atualmente confirmado pelo núcleo.
+// Não usa telefone editável do contato nem infere situação eleitoral/financeira.
+const legacySource = `FROM cond_people p
+  JOIN cond_phones ph ON ph.profile_id=p.profile_id AND ph.person_id=p.id
+  JOIN conversations c ON c.profile_id=p.profile_id AND c.verified_phone=ph.phone
+  JOIN customer_phones cp ON cp.profile_id=p.profile_id AND cp.namespace='team' AND cp.phone=ph.phone
+  JOIN contacts ct ON ct.profile_id=p.profile_id AND ct.id=cp.contact_id
+  WHERE p.profile_id=? AND p.contact_id IS NULL AND ${publicPerson}
+  AND ct.namespace='team' AND ct.identity_state='active' AND cp.state='ready'
+  AND ph.verified_by<>'' AND ph.starts_at<=? AND (ph.ends_at IS NULL OR ph.ends_at>?)
+  AND c.chat_type<>'group' AND c.external_namespace='channel:'||c.connection_id
+  AND c.phone=c.verified_phone AND c.customer_link_state='ready'
+  AND NOT EXISTS(SELECT 1 FROM conversation_contacts cc WHERE cc.profile_id=c.profile_id
+    AND cc.conversation_id=c.id AND cc.contact_id<>ct.id)
+  AND NOT EXISTS(SELECT 1 FROM cond_phones other WHERE other.profile_id=p.profile_id
+    AND other.phone=ph.phone AND other.person_id<>p.id
+    AND other.starts_at<=? AND (other.ends_at IS NULL OR other.ends_at>?))
+  AND NOT EXISTS(SELECT 1 FROM cond_phones other JOIN customer_phones op
+    ON op.profile_id=other.profile_id AND op.namespace='team' AND op.phone=other.phone
+    WHERE other.profile_id=p.profile_id AND other.person_id=p.id
+    AND other.starts_at<=? AND (other.ends_at IS NULL OR other.ends_at>?)
+    AND (op.state<>'ready' OR op.contact_id IS NOT ct.id))`;
+
+const maintain: NonNullable<CustomerModuleProvider["maintain"]> = async (env, profileId, budget) => {
+  // Duas leituras e checkpoint; por pessoa: resolvedor, contato, prova e duas escritas.
+  const limit = Math.min(3, budget.remainingItems, Math.floor((budget.remainingStatements - 3) / 5));
+  if (limit < 1) return { pending: true, statements: 0, items: 0 };
+  const task = "condominio:people";
+  const progress = await one(env, "SELECT cursor_json FROM customer_progress WHERE profile_id=? AND namespace='team' AND task=?", profileId, task);
+  const cursor = progress ? JSON.parse(progress.cursor_json).id ?? "" : "";
+  const at = now(), args = [profileId, at, at, at, at, at, at];
+  const rows = await all<Conversation & { personId: string; candidateContact: string }>(env,
+    `SELECT c.*,p.id AS personId,ct.id AS candidateContact ${legacySource}
+      AND p.id>? GROUP BY p.id ORDER BY p.id LIMIT ?`, ...args, cursor, limit);
+  const ctx = modulesApi(env, profileId, "condominio");
+  let statements = 2;
+  for (const row of rows) {
+    try {
+      // A porta central decide a identidade; os joins só localizam candidatos.
+      statements++;
+      const ref = await ctx.customer(row);
+      const proofCtx = { ...ctx, customer: async () => ref };
+      // verifiedCustomer lê o contato apenas após validar a referência.
+      if (ref.state !== "ready" || ref.contactId !== row.candidateContact || ref.namespace !== "team" ||
+          ref.profileId !== profileId || ref.verifiedPhone !== row.verified_phone) continue;
+      statements++;
+      const identity = await verifiedCustomer(proofCtx, row);
+      statements++;
+      if (await verifiedPerson(ctx, identity) !== row.personId) continue;
+      const guardAt = now();
+      await batch(env, [
+        [`UPDATE cond_people SET contact_id=? WHERE profile_id=? AND id=? AND contact_id IS NULL
+          AND id IN (SELECT p.id ${legacySource} AND p.id=? AND c.id=? AND ct.id=?)`,
+          [identity.contactId, profileId, row.personId, profileId, guardAt, guardAt, guardAt, guardAt, guardAt, guardAt,
+            row.personId, row.id, identity.contactId]],
+        touchUnits(profileId, row.personId),
+      ]);
+      statements += 2;
+    } catch (error) {
+      // Restrição atual conserva o legado sem associá-lo; falha de banco deve reaparecer.
+      if (!(error instanceof ApiError)) throw error;
+    }
+  }
+  const next = rows.length === limit ? rows.at(-1)!.personId : "";
+  await batch(env, [[`INSERT INTO customer_progress(profile_id,namespace,task,cursor_json,complete,updated)
+    VALUES(?,'team',?,?,?,?) ON CONFLICT(profile_id,namespace,task) DO UPDATE SET
+    cursor_json=excluded.cursor_json,complete=excluded.complete,updated=excluded.updated`,
+    [profileId, task, JSON.stringify({ id: next }), +(!rows.length && !cursor), now()]]]);
+  return { pending: rows.length > 0 || !!cursor, statements: statements + 1, items: rows.length };
+};
+
+export const condominioCustomerProvider: CustomerModuleProvider = { section, saveSection, list, maintain };
