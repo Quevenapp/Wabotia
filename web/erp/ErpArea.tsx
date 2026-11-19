@@ -11,7 +11,8 @@ import { isNativeManagementPage } from "../management/routes";
 import { portedTargetState } from "../management/ported-policy";
 import { MANAGEMENT_ITEMS, canEnterManagement, managementContext, nativeTargetState, normalizedManagementHref, resolveManagement } from "../management/registry";
 import { useWorkNavigation } from "../modules/os/work-navigation";
-import type { Disposable, ErpMountProps, PortedTargetState } from "../management/host-contract";
+import type { Disposable, ErpHostContext, ErpMountProps, MountCustomerProfile, PortedTargetState } from "../management/host-contract";
+import type { FullCustomerHost } from "../contact-profile/host-port";
 
 /** Testável por injeção: estado leve não inicia import nem prefetch. */
 export function loadAuthorizedPorted<T>(state: PortedTargetState, load: () => Promise<T>, prefetch: () => void): Promise<T> | null {
@@ -21,10 +22,7 @@ export function loadAuthorizedPorted<T>(state: PortedTargetState, load: () => Pr
 }
 
 /**
- * Encaixe local da fase 1. Não é uma assinatura de host-port.ts.
- * Quando publicada, a instalação dinâmica ficará aqui, acionada somente pela
- * abertura autorizada da ficha completa, capturando área e identidade. Até lá
- * não há instalador nem openContactProfile nos props do hospedeiro.
+ * Instalação adiada com limpeza inclusive quando o import termina após a saída.
  */
 export function createDeferredHostSlot(authorized: () => boolean, install?: () => Promise<Disposable>) {
   let disposed = false, installed: Disposable | undefined, pending: Promise<void> | undefined;
@@ -46,28 +44,87 @@ export function createDeferredHostSlot(authorized: () => boolean, install?: () =
   };
 }
 
+/** Adapta a porta publicada pela fase 1 sem confundir ID D1 com ID ERP.
+ * Registrar a porta leve não baixa o ERP; somente mount, com vínculo já
+ * resolvido e autorização, carrega o hospedeiro completo.
+ */
+export function installManagementCustomerHost(context: ErpHostContext, dependencies: {
+  port?: () => Promise<typeof import("../contact-profile/host-port")>;
+  mount?: () => Promise<{ mountCustomerProfile: MountCustomerProfile }>;
+} = {}) {
+  let live = true, unregister: (() => void) | undefined;
+  const mounted = new Set<Disposable>();
+  const check = () => {
+    if (!live || portedTargetState("/cadastros-reais?cadastro=contacts", context.management, erpSimulated(context.demo)) !== "allowed")
+      throw new DOMException("Ficha completa indisponível neste contexto", "AbortError");
+  };
+  const host: FullCustomerHost = {
+    async mount(element, input) {
+      check();
+      if (input.profileId !== context.profile || !input.contactId || !input.erpContactId)
+        throw new Error("ERP_CUSTOMER_CONTEXT");
+      const module = await (dependencies.mount ?? (() => import("./mount")))();
+      check();
+      const instance = await module.mountCustomerProfile(element, {
+        context, erpContactId: input.erpContactId,
+        onSaved: () => { if (live) input.onSaved(); },
+        onClose: () => { if (live) input.onClose(); },
+      });
+      if (!live) { instance.dispose(); check(); }
+      let disposed = false;
+      const owner = { dispose() {
+        if (disposed) return;
+        disposed = true; mounted.delete(owner); instance.dispose();
+      } };
+      mounted.add(owner);
+      return owner;
+    },
+  };
+  const ready = (async () => {
+    check();
+    const port = await (dependencies.port ?? (() => import("../contact-profile/host-port")))();
+    if (!live) return;
+    const loader = async () => { check(); return host; };
+    // A porta recusa outro dono simultâneo; só removemos nosso registro aceito.
+    port.installFullCustomerHost(loader);
+    unregister = () => port.installFullCustomerHost(null);
+  })();
+  return { ready, dispose() {
+    if (!live) return;
+    live = false;
+    unregister?.(); unregister = undefined;
+    for (const owner of mounted) owner.dispose();
+  } };
+}
+
 /** Mesmo um prefetch já respondido perde seu corpo quando a autorização muda. */
 export async function contextBoundResponse(response: Response, signal: AbortSignal): Promise<Response> {
   if (signal.aborted) throw new DOMException("Contexto alterado", "AbortError");
   if (!response.body) return response;
   const reader = response.body.getReader();
+  let active = true, stop = () => {};
+  const finish = () => { active = false; stop(); };
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
       const abort = () => {
+        if (!active) return;
+        finish();
         controller.error(new DOMException("Contexto alterado", "AbortError"));
         void reader.cancel().catch(() => {});
       };
       signal.addEventListener("abort", abort, { once: true });
+      stop = () => signal.removeEventListener("abort", abort);
     },
     async pull(controller) {
       try {
         if (signal.aborted) throw new DOMException("Contexto alterado", "AbortError");
         const next = await reader.read();
         if (signal.aborted) throw new DOMException("Contexto alterado", "AbortError");
-        if (next.done) controller.close(); else controller.enqueue(next.value);
-      } catch (error) { controller.error(error); }
+        if (!active) return;
+        if (next.done) { finish(); controller.close(); } else controller.enqueue(next.value);
+      } catch (error) { if (active) { finish(); controller.error(error); } }
     },
-    cancel() { return reader.cancel(); },
+    cancel() { finish(); return reader.cancel(); },
   });
   const guarded = new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
   // fetch-port descarta antecipações não utilizáveis e refaz /v1/me. Isso
@@ -173,13 +230,6 @@ export function ErpArea() {
   }, [heldGuard]);
   const actor = String(app.me.id);
   const authorized = !entry && !!ported && state === "allowed";
-  // A fase 1 preencherá este slot apenas ao abrir uma ficha completa autorizada.
-  // Nenhum import de host-port.ts nem callback é instalado enquanto faltar o contrato.
-  const contactProfileHost = useRef<ReturnType<typeof createDeferredHostSlot> | null>(null);
-  useEffect(() => () => {
-    contactProfileHost.current?.dispose();
-    contactProfileHost.current = null;
-  }, [app.identityKey, app.contextGeneration]);
   useEffect(() => {
     const prefetch = startAuthorizedPortedPrefetch(authorized ? "allowed" : "denied", {
       actor, profile: app.profile, simulated: erpSimulated(app.demo),
@@ -208,7 +258,10 @@ export function ErpArea() {
     onAccount: () => setDialog({ kind: "account" }),
   };
   if (!canEnterManagement(context)) return <ManagementState state="denied" admin={false} />;
-  return <ManagementShell context={context} items={menu} entry={entry} chromeRef={setChromeTarget}>
+  const failedStatus = !app.statusLoaded && app.statusError;
+  return <ManagementShell context={context} items={menu} entry={entry && !failedStatus} chromeRef={setChromeTarget}>
+    {failedStatus && <Empty title="Não foi possível abrir a gestão" description={app.statusError}
+      action={<Button onClick={() => void app.refresh().catch(() => {})}>Tentar novamente</Button>} />}
     {!entry && state !== "allowed" && <ManagementState state={state} admin={app.isAdmin} retained={!!retained} />}
     {!entry && (state === "allowed" || retained) && <ManagementRequestBoundary enabled={state === "allowed"}>
       <Activity mode={state === "allowed" ? "visible" : "hidden"}>

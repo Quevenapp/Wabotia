@@ -8,7 +8,7 @@ import { bindManagementRouter, setNavigationGuard, navigate, parseRoute } from "
 import type { BindManagementRouter, ErpMountProps, MountCustomerProfile, CustomerProfileHostOptions } from "../management/host-contract";
 import type { ManagementRouterBridge } from "../../src/modules/panel-contract";
 import { portedTargetState, portedUrl } from "../management/ported-policy";
-import { acquireErpHost, ErpHostProvider, useErpHost, TargetNotice, type ErpHostRuntime } from "./host-runtime";
+import { acquireErpHost, ErpHostProvider, ErpToolsScope, useErpHost, TargetNotice, type ErpHostRuntime } from "./host-runtime";
 import { erpSimulated } from "./fetch-port";
 import type { AccessController, AccessState } from "./app/lib/real-access";
 import type { CatalogAccess, CatalogRecord } from "./app/lib/catalog-base";
@@ -54,7 +54,7 @@ export function connectErpRouter(router: MemoryRouter, bind: BindManagementRoute
   let disposed = false, last = localUrl(router.state.location);
   let pending: { resolve(): void; reject(error: unknown): void; blocked: boolean; started: boolean } | null = null;
   let connection: ReturnType<BindManagementRouter> | undefined;
-  let queue = Promise.resolve();
+  let inFlight: Promise<void> | null = null;
   const settled = () => router.state.navigation.state === "idle" && [...router.state.blockers.values()].every(blocker => blocker.state === "unblocked");
   const inspect = () => {
     if (disposed) return;
@@ -73,6 +73,9 @@ export function connectErpRouter(router: MemoryRouter, bind: BindManagementRoute
     navigate(to, options) {
       let target: string;
       try { target = publicTarget(to); } catch (error) { return Promise.reject(error); }
+      // Cliques enquanto a decisão está aberta pertencem à mesma transação.
+      // Enfileirá-los reabria a confirmação depois de um cancelamento.
+      if (inFlight) return inFlight;
       const run = () => new Promise<void>((resolve, reject) => {
         if (disposed) { reject(new Error("ERP_ROUTER_DISPOSED")); return; }
         if (!settled()) { reject(new Error("ERP_ROUTER_BUSY")); return; }
@@ -83,8 +86,10 @@ export function connectErpRouter(router: MemoryRouter, bind: BindManagementRoute
           void router.navigate(relative, options).then(inspect, error => { pending?.reject(error); pending = null; });
         } catch (error) { pending?.reject(error); pending = null; }
       });
-      const result = queue.then(run);
-      queue = result.catch(() => undefined);
+      const result = Promise.resolve().then(run).finally(() => {
+        if (inFlight === result) inFlight = null;
+      });
+      inFlight = result;
       return result;
     },
     dispose() {
@@ -109,7 +114,9 @@ function TargetGate({ runtime }: { runtime: ErpHostRuntime }) {
 function HostTree({ runtime, props }: { runtime: ErpHostRuntime; props: ErpMountProps }) {
   const [router, setRouter] = useState<MemoryRouter | null>(null);
   // Atualizações do portal/callbacks não recriam o roteador nem descartam edições.
-  const view = useMemo(() => ({ runtime, embedded: true, chromeTarget: props.chromeTarget, router }), [runtime, props.chromeTarget, router]);
+  const view = useMemo(() => ({ runtime, embedded: true, chromeTarget: props.chromeTarget, router, ToolsScope: ErpToolsScope,
+    bindLinks: (element: HTMLElement | null) => keepLinksInside(element, router),
+  }), [runtime, props.chromeTarget, router]);
   useEffect(() => {
     const initial = publicTarget(location.pathname + location.search + location.hash);
     const next = createMemoryRouter([{ path: "*", element: <UnsavedChangesProvider><GuardBridge /><TargetGate runtime={runtime} /></UnsavedChangesProvider> }],
@@ -173,7 +180,7 @@ export const mountCustomerProfile: MountCustomerProfile = async (element: HTMLEl
     element.appendChild(scope);
     root = createRoot(scope);
     const body = (_controller: AccessController, state: AccessState) => <CustomerBody runtime={runtime} options={options} state={state} />;
-    router = createMemoryRouter([{ path: "*", element: <UnsavedChangesProvider><GuardBridge /><Suspense fallback={<TargetNotice state="loading" />}><RealAccess /></Suspense></UnsavedChangesProvider> }],
+    router = createMemoryRouter([{ path: "*", element: <UnsavedChangesProvider><GuardBridge /><Suspense fallback={<TargetNotice state="loading" />}><RealAccess host={{ runtime, embedded: true, chromeTarget: null, body }} /></Suspense></UnsavedChangesProvider> }],
       { basename: ERP_BASENAME, initialEntries: [ERP_BASENAME + CONTACT_TARGET] });
     stopLinks = keepLinksInside(scope, router);
     // Links do histórico do cliente deixam a ficha após sua guarda. Não instalar

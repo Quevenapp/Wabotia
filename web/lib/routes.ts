@@ -14,6 +14,7 @@ import {
   nativePageSlugs,
 } from "../management/routes";
 import type { ManagementRouterBridge } from "../../src/modules/panel-contract";
+import type { BindManagementRouter } from "../management/host-contract";
 
 export type Area = AreaId | "more";
 export type Route = {
@@ -334,6 +335,7 @@ function write(url: string, replace: boolean) {
 
 type Connection = { bridge: ManagementRouterBridge; last: string };
 let connection: Connection | null = null;
+let delegation: { owner: Connection } | null = null;
 type Travel = {
   entry: Entry;
   phase: "restoring" | "asking" | "replaying";
@@ -376,6 +378,8 @@ function replay(displacement: Travel) {
 }
 function delegate(url: string, replace: boolean, displacement: Travel | null) {
   const owner = connection!;
+  const request = { owner };
+  delegation = request;
   if (displacement) displacement.owner = owner;
   // Uma promessa resolvida sem publish é cancelamento. Falhas também conservam a tela.
   void Promise.resolve()
@@ -387,6 +391,7 @@ function delegate(url: string, replace: boolean, displacement: Travel | null) {
       console.error("Não foi possível concluir a navegação do ERP.", error);
     })
     .finally(() => {
+      if (delegation === request) delegation = null;
       if (
         connection === owner &&
         displacement &&
@@ -398,6 +403,8 @@ function delegate(url: string, replace: boolean, displacement: Travel | null) {
 }
 function decideTravel(displacement: Travel) {
   displacement.phase = "asking";
+  // Uma confirmação portada já aberta conserva a intenção e a posição atuais.
+  if (delegation) { travel = null; return; }
   const { route, url } = displacement.entry;
   if (canDelegate(route)) delegate(url, true, displacement);
   else if (leaving(committed!.route, route) && guard?.())
@@ -447,13 +454,17 @@ export function onBlocked(listener: (target: Route) => void) {
   };
 }
 
-// O retorno é inferido como ManagementRouterConnection (Parte A), sem depender
-// do arquivo de tipos que a Casca entrega na junção dos ramos.
-export const bindManagementRouter = (bridge: ManagementRouterBridge) => {
+export function cancelBlockedNavigation() {
+  if (blocked?.travel === travel && travel?.phase === "asking") travel = null;
+  blocked = null;
+}
+
+export const bindManagementRouter: BindManagementRouter = (bridge) => {
   read();
   const owner: Connection = { bridge, last: committed!.url };
   if (travel?.phase === "asking" && travel.owner === connection) travel = null;
   connection = owner;
+  delegation = null;
   return {
     publish(to: string, action: "push" | "replace") {
       if (connection !== owner || !isPorted(committed!.route)) return;
@@ -491,6 +502,7 @@ export const bindManagementRouter = (bridge: ManagementRouterBridge) => {
     },
     dispose() {
       if (connection === owner) connection = null;
+      if (delegation?.owner === owner) delegation = null;
       if (travel?.phase === "asking" && travel.owner === owner) travel = null;
     },
   };
@@ -505,6 +517,7 @@ export function navigate(
     target = normalizeRoute(input),
     url = href(target);
   if (sameRoute(current, target) || url === committed!.url) return true;
+  if (delegation) return false;
   if (travel && travel.phase !== "asking") return false;
   if (options.force && blocked && blocked.url === url) {
     const accepted = blocked;
@@ -516,6 +529,7 @@ export function navigate(
     }
     return true;
   }
+  if (!options.force && blocked?.url === url) return false;
   // Uma nova intenção encerra qualquer confirmação cancelada (onClose não precisa navegar).
   travel = null;
   blocked = null;
@@ -539,7 +553,7 @@ function subscribe(listener: () => void) {
 }
 export const currentRoute = read;
 export function useRoute() {
-  return useSyncExternalStore(subscribe, read);
+  return useSyncExternalStore(subscribe, read, read);
 }
 
 /** onClick para <a href>: navegação interna sem recarregar; Ctrl/⌘+clique abre nova aba. */

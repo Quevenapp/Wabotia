@@ -7,27 +7,17 @@ import type { Route } from "../web/lib/routes";
 import { NATIVE_MANAGEMENT_ITEMS } from "../src/modules/panel-navigation";
 import { ERP_MANAGEMENT_ITEMS } from "../src/modules/erp/panel-menu";
 
-// Interfaces das frentes paralelas: implementações simuladas só neste teste.
+// Catálogo e endereços reais da junção; somente estado e bordas de carga simulados.
 const mocks = vi.hoisted(() => ({
   route: { area: "erp" } as Route,
   app: {} as Record<string, any>,
   portedImport: vi.fn(), prefetch: vi.fn(), nativeRender: vi.fn(), policy: vi.fn(),
   types: vi.fn(), resource: vi.fn(), catalog: [] as WorkTypeView[], navigate: vi.fn(),
 }));
-vi.mock("../web/lib/routes", () => {
-  const slugs: Record<string, string> = { work: "trabalhos", "agenda-settings": "servicos-e-horarios" };
-  const href = (route: any) => "/app/" + (route.area === "admin" ? "gestao" : "erp") +
-    (route.page ? "/modulos/" + (slugs[route.page] || route.page) + (route.typeId ? "/" + encodeURIComponent(route.typeId) : "") : route.erpPath || route.nativePath || "") +
-    (route.search || "") + (route.hash || "");
-  return {
-    href, useRoute: () => mocks.route, navigate: mocks.navigate,
-    navigationGuarded: () => false, setNavigationGuard: vi.fn(),
-    parseRoute: (path: string, search = "", hash = "") => ({ area: "erp", erpPath: path.slice(8) || undefined, search, hash }),
-    linkProps: (route: any) => ({ href: href(route), onClick: vi.fn() }),
-  };
-});
-vi.mock("../web/management/routes", () => ({
-  isNativeManagementPage: (page: string) => Object.values(NATIVE_MANAGEMENT_ITEMS).flat().some((item) => item.target.page === page),
+vi.mock("../web/lib/routes", async original => ({
+  ...await original<typeof import("../web/lib/routes")>(),
+  useRoute: () => mocks.route, navigate: mocks.navigate,
+  navigationGuarded: () => false, setNavigationGuard: vi.fn(),
 }));
 vi.mock("../web/management/pages", () => ({
   ManagementPage: ({ page }: { page: string }) => { mocks.nativeRender(page); return React.createElement("p", null, "Página nativa"); },

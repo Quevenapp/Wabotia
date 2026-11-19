@@ -44,6 +44,8 @@ export const agendaModule: ModuleDefinition = {
   description: "Serviços, profissionais, horários e lembretes.",
   builtin: true,
   default_enabled: false,       // áreas existentes não ganham nada sozinhas
+  management: NATIVE_MANAGEMENT_ITEMS.agenda, // catálogo puro de panel-navigation.ts
+  // Campos antigos publicados para compatibilidade; não definem mais o trilho.
   navigation: [
     { id: "agenda", label: "Agenda", place: "rail", admin: false },
     { id: "agenda-settings", label: "Serviços e horários", place: "admin", admin: true },
@@ -70,7 +72,8 @@ O que o núcleo faz com cada campo:
 | Campo | Efeito |
 |---|---|
 | `default_enabled` | Estado de uma área sem registro em `profile_modules` |
-| `navigation` | Tela Módulos e `GET /modules`; o painel esconde as páginas listadas em `pageModules` (`web/workspace-navigation.ts`) com o módulo desligado |
+| `navigation` | Metadados legados de Tela Módulos e `GET /modules`; `place: "rail"`/`"admin"` permanecem compatíveis, mas não criam atalhos operacionais fora da casa ERP |
+| `management` | Contribuições puras da casa ERP: módulo, grupo, ordenação, destino nativo/portado, autorização, apresentação e `primary`; `moduleView` publica o catálogo sem conceder acesso |
 | `menu_item_types` | Tipos aceitos em `PUT /settings` (`menus`); desligado, os itens somem do WhatsApp e do editor, ficam guardados e voltam ao religar |
 | `events` | Únicos tipos que `ctx.publish` aceita; entram nos webhooks com a permissão `conversations:read` |
 | `settings` | Chaves das configurações da área que o módulo valida (`onSettingsSave`) |
@@ -78,6 +81,121 @@ O que o núcleo faz com cada campo:
 | `operations` | Com o módulo desligado, os comandos com esses prefixos respondem `409 module_disabled` |
 | `requires` | Opcional: ids dos módulos dos quais este depende (veja abaixo) |
 | `grants` | Opcional: papéis que o administrador marca no acesso de cada pessoa (veja "Acessos e papéis", seção 3) |
+
+### Casa única de gestão
+
+O botão **ERP** é a entrada de toda a gestão, inclusive Agenda, Trabalhos,
+Mensalidade e Pedido. Gestão continua com administração, Módulos, Pessoas,
+filas e modelos de área. `web/management/host-contract.ts` contém somente tipos;
+`registry.ts` resolve o catálogo da Base e `managementContext` deriva o papel
+ERP: administrador vale `admin`; nos demais casos é necessário um `erp:<papel>`
+válido. `null`, `"*"` e acesso a um módulo não inventam esse papel.
+
+A elegibilidade do botão independe de ativação: administrador ou pessoa com
+permissão para alguma contribuição pode entrar. Destinos nativos exigem status
+carregado, módulo explicitamente ligado e `canOpenPage`, incluindo as
+exclusividades administrativas. Não se alterou a compatibilidade de
+`moduleAllows` nas demais áreas. Vocabulário e tipos de trabalho só mudam a
+apresentação; não criam módulos nem acesso.
+
+Na entrada `/app/erp`, status pendente não presume destino. Tudo desligado
+mostra “Nenhum módulo de gestão ligado”, com **Abrir Módulos** para administrador
+ou orientação para pedir ao administrador. Módulos ligados sem destino
+acessível mostram negativa. Um único módulo acessível abre seu `primary`
+autorizado (ou primeiro destino) por `replace`; vários mostram uma entrada leve.
+A contagem usa módulos distintos, não grupos, itens ou tipos de trabalho.
+IDs repetidos são erro; destinos completos normalizados são deduplicados.
+
+As páginas nativas ficam em `/app/erp/modulos/<slug>`. Os aliases
+`/app/gestao/{agenda,servicos-e-horarios,mensalidades,mensalidade,pedidos,
+cardapio-e-loja,mesas,reservas,unidades-e-regras,suporte-pago,regras-do-suporte,
+condominio,prazos-juridicos,prontuarios,ensino,trabalhos,meus-prazos,
+tipos-de-trabalho,ordem-de-servico,formularios,cobranca}` são **permanentes nesta
+versão**: trocam apenas o prefixo por `replace`, conservando detalhes aceitos,
+consulta integral (inclusive repetições e escapes) e fragmento.
+`ordens-de-servico` aponta para `modulos/trabalhos`. Objetos antigos com
+`area: "admin"` e página migrada são normalizados em `navigate`, `href` e
+`pageRoute`, inclusive links dos trabalhos. A ordem nativa não é o documento
+portado `/app/erp/documentos-empresa?tipo=service_orders`.
+Destinos desconhecidos, desligados e negados são estados da SPA, não códigos
+HTTP enviados pelo servidor.
+
+`pages.tsx` carrega somente a página nativa autorizada. A própria área ERP é
+carregada sob demanda, com repetição de falha de chunk. Trilho, Mais, entrada,
+catálogo, negativas e páginas nativas não importam o pacote portado nem chamam
+a erp-api. Só destino portado autorizado importa `mount.tsx` e antecipa
+`/v1/me`. Falhas de status, chunk ou acesso permitem repetir; montar não executa
+comandos de negócio. Nativos e menu permanecem fora de `.fagoo-root`; somente
+conteúdo e ferramentas portados recebem esse escopo. As exceções existentes de
+impressão em `web/erp/css-scope.ts` permanecem intactas.
+
+A política leve `ported-policy.ts` classifica destinos completos, papéis e
+recursos. **`erpPartEnabled` em `web/erp/modules.ts` é o único ponto de decisão
+de ativação das partes portadas**, usado por menu, URLs, busca e ações. O núcleo
+`erp` ainda é indivisível, com Fiscal, Cobrança e PDV opcionais. “Só Cadastro” é
+um contrato futuro verificável com contribuição isolada; não é configuração de
+produto disponível nesta versão. Não há chaves novas de módulo.
+
+O portado usa roteador em memória e publica pela ponte registrada em
+`bindManagementRouter`. O roteador principal é o único escritor do histórico.
+Portado→portado usa a confirmação portada; entrada, saída e nativos usam a
+guarda principal. Voltar/avançar restauram posição e conteúdo enquanto aguardam
+a decisão e reaplicam somente o deslocamento aceito. Cliques durante a decisão
+portada compartilham a transação; cancelamento não publica. Descartes são
+idempotentes e não removem outra conexão. Troca de área/pessoa/permissão e eventos
+de módulos invalidam leituras anteriores e suspendem novas ações indisponíveis.
+
+### Cadastro único e dependência da fase 1
+
+Ver [FASE1-CONTRATO.md](FASE1-CONTRATO.md): **declarações cadastrais não ligam
+módulos nem concedem acesso**. O contrato, anteriormente “a conferir quando
+publicado”, e a assinatura de `web/contact-profile/host-port.ts` já estão nesta
+base e foram conferidos. O restante da entrega externa continua a conferir.
+
+O adaptador da casa registra dinamicamente o carregador leve na sessão
+validada; somente `mount` com área correspondente e IDs D1/ERP presentes importa
+o hospedeiro completo. O ID ERP resolvido vai ao editor; o callback opcional
+`openContactProfile` recebe o ID D1 sem conversão. Limpeza retira o registro e
+as fichas da instância, inclusive montagens tardias. Registro e consulta da porta
+não importam o ERP nem promovem/sincronizam contatos.
+
+Nesta junção ainda faltam `web/contact-profile/ContactProfile.tsx` e
+`ErpContactBody.tsx`. O hospedeiro usa o editor ERP existente; não inventa o
+callback de abertura da ficha unificada. Registro/adaptação e montagem estão
+implementados; a integração visual e o callback real da fase 1 **permanecem
+pendentes** desses componentes. Ficha simples e contato sem vínculo ERP não
+podem solicitar a montagem completa.
+
+A suíte integrada está em `tests/management-lifecycle.test.ts`. Histórico,
+políticas, rede controlada e descarte não substituem a inspeção real: foco,
+teclado, gaveta em desktop/celular, tema e impressão ficam **a conferir no
+navegador**. A execução de Vitest pertence à verificação externa desta máquina.
+Cada alias tem um caso independente de entrada, atualização e nova aba simulada,
+com o prazo padrão da suíte. Desligamento e negativa por papel são verificados
+separadamente, ambos sem importação de página nem chamadas ao ERP.
+O teste de favoritos das extensões renderiza a casca real com `matchMedia`
+controlado em desktop e celular: mantém URL e conteúdo de espera antes de
+`/status`, sem carregar páginas nem consultar a API, e confere a instalação e
+remoção do observador de viewport. Esse ambiente simulado não comprova layout
+ou interação real no navegador.
+
+Orçamento: soma do grafo de chunks iniciais, com os limites originais de
+1.208 KiB de caracteres, 352 KiB gzip e 8 KiB de `renderedLength` ERP.
+
+| Estado | Inicial (KiB) | Gzip (KiB) | ERP inicial (KiB) | Evidência |
+| --- | ---: | ---: | ---: | --- |
+| Base `e2694542` | 1.326,6 | 388,5 | 7,44 | Relato de Rotas, não repetido na integração |
+| Rotas isoladas | 1.028,9 | 312,8 | 7,44 | Relato de Rotas |
+| Junção recebida | 1.070,4 | 323,6 | 17,2 | Build local: falhava o limite ERP |
+| Integração | 1.058,5 | 319,4 | 4,78 | Build local: nove chunks iniciais, limites preservados |
+
+A medição final repetida soma 1.083.920 caracteres e 327.050 bytes gzip nos
+nove chunks iniciais, com 4.893 caracteres ERP de `renderedLength`; o portado
+fica em 33 chunks próprios.
+
+O grafo inicial não inclui o portado nem as páginas operacionais da casa.
+As páginas públicas de morador e responsável continuam na entrada pública já
+existente em `web/main.tsx`; não foram migradas por esta tarefa.
 
 ### Dependência entre módulos (`requires`)
 
@@ -1026,20 +1144,22 @@ onPaymentUpdated("pedido", async (ctx, payment, { previous }) => {
 
 ## 5. Painel web
 
-- Telas do módulo em `web/modules/<id>/`. Para uma página de Gestão: inclua
-  o id em `sections`, num grupo de `workspaceGroups`, em `adminPages` (se for
-  só de administrador) e em `pageModules` (`web/workspace-navigation.ts`); o
-  endereço em `pageSlugs` (`web/lib/routes.ts`); e o `case` em
-  `web/admin/AdminArea.tsx`. Siga `web/DESIGN.md` e as páginas de
-  `web/admin/` (ex.: `FormsPage.tsx`).
+- Telas do módulo em `web/modules/<id>/`. Para uma página operacional da casa
+  ERP: declare a contribuição `management` no catálogo puro da Base, o id em
+  `sections` e `pageModules` e, se exclusiva de administrador, em `adminPages`
+  (`web/workspace-navigation.ts`); registre o endereço em `nativePageSlugs`
+  (`web/management/routes.ts`) e o import sob demanda em
+  `web/management/pages.tsx`. A casca autoriza antes de carregar a página.
+  `workspaceGroups` e `web/admin/AdminArea.tsx` ficam com as páginas
+  administrativas que continuam em Gestão. Siga `web/DESIGN.md`.
 - `useApp().moduleOn("<id>")` diz se o módulo está ligado na área (vem de
   `GET /status`, campo `modules`).
 - A demonstração (`web/lib/demo.ts`) responde `GET /modules`; acrescente o
   módulo para as telas de referência.
-- **Trilho principal:** uma linha em `railPages`
-  (`web/workspace-navigation.ts`) põe a página do módulo no trilho do
-  computador e em Mais no celular, além de Gestão (`{ page, label, icon }`).
-  Some com o módulo desligado ou sem permissão, como a própria página.
+- **Trilho principal e Mais:** o botão ERP reúne as contribuições operacionais
+  e aparece para quem pode entrar, independentemente de ativação. `railPages`
+  permanece vazio; os campos antigos de `navigation` são metadados de
+  compatibilidade. Os destinos dentro da casa exigem módulo ligado e acesso.
 - **Painel da conversa:** uma linha em `conversationExtensions`
   (`web/modules/conversation.tsx`) mostra o seu componente em Dados da
   conversa, com o módulo ligado e fora de grupos. Recebe

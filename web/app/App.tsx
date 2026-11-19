@@ -1,8 +1,8 @@
 // Entrada do painel em /app: sessão, área de atendimento e as áreas da casca.
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { api, onApiState, type Row } from "../lib/api";
 import { demoApi, demoMe, demoProfile } from "../lib/demo";
-import { navigate, onBlocked, useRoute, type Route } from "../lib/routes";
+import { cancelBlockedNavigation, navigate, onBlocked, useRoute, type Route } from "../lib/routes";
 import { applyTheme } from "../lib/theme";
 import { Button, Confirm, Empty, Spinner, ToastHost } from "../ui";
 import { Login } from "../site/Login";
@@ -17,16 +17,41 @@ import { AdminArea } from "../admin/AdminArea";
 import { ContactsArea } from "../admin/ContactsArea";
 import { QueueArea } from "../queue/QueueArea";
 import { MfaGate, MfaPrompt, mfaNeeded } from "./Account";
-import { ErpArea } from "../erp/ErpArea";
+import { lazyWithRecovery } from "../management/pages";
+import { managementContext } from "../management/registry";
+import { portedTargetState } from "../management/ported-policy";
+import type { Disposable } from "../management/host-contract";
+
+const ErpArea = lazyWithRecovery<object>(() => import("../erp/ErpArea").then(module => ({ default: module.ErpArea })));
 
 function Areas() {
   const app = useApp();
   const route = useRoute();
+  // A porta leve fica disponível também na área Contatos. O ERP só será
+  // importado quando a fase 1 pedir mount com um vínculo completo autorizado.
+  useEffect(() => {
+    const management = managementContext({ statusLoaded: app.statusLoaded, modules: app.modules, role: app.me.role, access: app.me.access ?? null });
+    if (!app.profile || portedTargetState("/cadastros-reais?cadastro=contacts", management, app.demo) !== "allowed") return;
+    let live = true, registration: Disposable | undefined;
+    void import("../erp/ErpArea").then(module => {
+      if (!live) return;
+      const installed = module.installManagementCustomerHost({
+        profile: app.profile, actor: String(app.me.id), demo: app.demo, management,
+        onModules: () => navigate({ area: "admin", page: "modules" }),
+        onPeople: () => navigate({ area: "admin", page: "users" }),
+        onLeave: () => navigate({ area: "conversations" }),
+        onExpired: () => void app.reloadSession(),
+      });
+      registration = installed;
+      return installed.ready;
+    }).catch(() => { registration?.dispose(); });
+    return () => { live = false; registration?.dispose(); };
+  }, [app.identityKey, app.contextGeneration, app.statusLoaded]);
   const [blocked, setBlocked] = useState<{ target: Route; identity: string } | null>(null);
   // Rotas decide se delega à ponte portada. Só onBlocked abre esta confirmação;
   // o menu nunca pergunta antes de encaminhar uma navegação interna portada.
   useEffect(() => onBlocked((target) => setBlocked({ target, identity: app.identityKey })), [app.identityKey]);
-  useEffect(() => setBlocked(null), [app.identityKey, route]);
+  useEffect(() => { setBlocked(null); cancelBlockedNavigation(); }, [app.identityKey, route]);
   const needsProfile = route.area !== "admin" && route.area !== "more";
   return (
     <Shell>
@@ -83,7 +108,7 @@ function Areas() {
       ) : route.area === "contacts" ? (
         <ContactsArea key={app.profile} />
       ) : route.area === "erp" ? (
-        <ErpArea key={app.identityKey} />
+        <Suspense fallback={<Spinner label="Abrindo a gestão…" />}><ErpArea key={app.identityKey} /></Suspense>
       ) : route.area === "more" ? (
         <MoreArea />
       ) : (
@@ -94,7 +119,7 @@ function Areas() {
           title="Alterações ainda não salvas"
           confirmLabel="Descartar e continuar"
           cancelLabel="Continuar editando"
-          onClose={() => setBlocked(null)}
+          onClose={() => { setBlocked(null); cancelBlockedNavigation(); }}
           onConfirm={() => {
             const target = blocked.target;
             setBlocked(null);

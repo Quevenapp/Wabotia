@@ -307,12 +307,12 @@ describe("hospedeiros autorizados", () => {
     const original = runtime.controller.getSnapshot;
     for (const [phase, message, expected] of [["mfa", null, "Confirme que é você"], ["pending", "Horário restrito", "Acesso fora do horário permitido"], ["pending", null, "Acesso aguardando liberação"], ["error", "Falha", "Tentar novamente"]] as const) {
       runtime.controller.getSnapshot = () => ({ ...original(), phase, message });
-      const outer = render(() => RealAccess()); const connected = render(() => (outer.type as any)(outer.props));
+      const outer = render(() => RealAccess({ host: testRuntime.view })); const connected = render(() => (outer.type as any)(outer.props));
       expect(text(connected)).toContain(expected); expect(body).not.toHaveBeenCalled();
       expect(nodes(connected).some(node => node.type === CompanyNavigation)).toBe(false);
     }
     runtime.controller.getSnapshot = original;
-    const outer = render(() => RealAccess()); render(() => (outer.type as any)(outer.props)); expect(body).toHaveBeenCalledTimes(1);
+    const outer = render(() => RealAccess({ host: testRuntime.view })); render(() => (outer.type as any)(outer.props)); expect(body).toHaveBeenCalledTimes(1);
   });
 });
 

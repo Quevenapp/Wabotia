@@ -1,8 +1,7 @@
 import { originIntegrationEnabled, originHistoryAvailable, isOriginIntegrationRoute } from '../lib/integration-capabilities';
 import { useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { ErpToolsScope, useErpHostView } from '../../host-runtime';
-import { keepLinksInside } from '../../mount';
+import type { ErpHostView } from '../../host-runtime';
 import { targetEnabled } from '../../blocks';
 import { portedPermissionAllowed } from '../../../management/ported-policy';
 import { Link, useLocation } from 'react-router-dom';
@@ -23,11 +22,12 @@ const COMPANY_HELP_LINKS = [{ label: 'Central de ajuda do ERP', to: '/ajuda', ic
 // Company area navigation: the Origin top bar (same menu as the demo) plus the location trail.
 // Brufap-only tools live in Preferências (gear), like Origin's own settings. With a controller that offers the Sistema port,
 // the bar shows the user's name, the razão social, Armazenamento and the live notifications (migration 151).
-export default function CompanyNavigation({ state, onLogout, controller, embedded = false, chromeTarget = null }: { embedded?: boolean; chromeTarget?: HTMLElement | null; state: AccessState; onLogout: () => void; controller?: Partial<SystemController> & { preferences?: (path: string, options?: { method?: 'GET'; signal?: AbortSignal }) => Promise<unknown> } }) {
+export default function CompanyNavigation({ host, state, onLogout, controller, embedded = false, chromeTarget = null }: { host?: ErpHostView | null; embedded?: boolean; chromeTarget?: HTMLElement | null; state: AccessState; onLogout: () => void; controller?: Partial<SystemController> & { preferences?: (path: string, options?: { method?: 'GET'; signal?: AbortSignal }) => Promise<unknown> } }) {
   const location = useLocation();
-  const host = useErpHostView();
+  embedded = host?.embedded ?? embedded;
+  chromeTarget = host?.chromeTarget ?? chromeTarget;
   const tools = useRef<HTMLDivElement>(null);
-  useEffect(() => keepLinksInside(tools.current, host?.router ?? null), [host?.router, chromeTarget, embedded]);
+  useEffect(() => host?.bindLinks?.(tools.current), [host?.bindLinks, chromeTarget, embedded]);
   const { theme, toggle } = useTheme();
   const ready = state.phase === 'ready';
   const role = state.membership?.role;
@@ -67,6 +67,7 @@ export default function CompanyNavigation({ state, onLogout, controller, embedde
       notificationCount={ready ? chrome.unread : null} notificationsPanel={system && chrome.actor ? close => <NotificationsPanel controller={system} actor={chrome.actor!} onUnread={chrome.setUnread} onNavigate={close} /> : undefined}
       onLogout={authenticated ? onLogout : undefined} actionsTo={allows('/preferencias/sistema/gestao-acoes') ? '/preferencias/sistema/gestao-acoes' : undefined} helpLinks={ready ? COMPANY_HELP_LINKS.filter(link => allows(link.to) && (originHistory || !isOriginIntegrationRoute(link.to))) : []} userLinks={allows('/empresa-configuracoes') ? [{ label: 'Dados da empresa', to: '/empresa-configuracoes', icon: 'building' }] : []} searchLinks={preferenceLinks} />
   </>;
-  if (embedded) return chromeTarget ? createPortal(<ErpToolsScope scopeRef={tools}>{bar}</ErpToolsScope>, chromeTarget) : null;
+  const ErpToolsScope = host?.ToolsScope;
+  if (embedded) return chromeTarget && ErpToolsScope ? createPortal(<ErpToolsScope scopeRef={tools}>{bar}</ErpToolsScope>, chromeTarget) : null;
   return bar;
 }

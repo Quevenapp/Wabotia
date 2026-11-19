@@ -50,6 +50,7 @@ export type AppState = {
   /** O módulo não está desligado na área. */
   moduleOn: (id: string) => boolean;
   statusLoaded: boolean;
+  statusError?: string;
   /** Invalida respostas de módulos, pessoa, permissões e área anteriores. */
   contextGeneration: number;
   identityKey: string;
@@ -145,6 +146,7 @@ export function AppProvider({
   const [statusSnapshot, setStatusSnapshot] = useState<{ key: string; value: Row; loaded: boolean }>({ key: "", value: {}, loaded: false });
   const status = statusSnapshot.key === identityKey ? statusSnapshot.value : {};
   const statusLoaded = statusSnapshot.key === identityKey && statusSnapshot.loaded;
+  const [statusFailure, setStatusFailure] = useState<{ key: string; message: string } | null>(null);
   const setStatus = (value: Row) => setStatusSnapshot({ key: identityKey, value, loaded: true });
   const lastModules = useRef("");
   const refreshSequence = useRef(0);
@@ -197,8 +199,13 @@ export function AppProvider({
         ? api(root + "/team").catch(() => ({ data: [] }))
         : { data: [] },
       api(root + "/presence").catch(() => []),
-    ]);
+    ]).catch((error) => {
+      if (scope.current.current(current) && sequence === refreshSequence.current)
+        setStatusFailure({ key: identityKey, message: "Não foi possível consultar os módulos desta área." });
+      throw error;
+    });
     if (!scope.current.current(current) || sequence !== refreshSequence.current) return;
+    setStatusFailure(null);
     const modulesKey = JSON.stringify(Object.entries(nextStatus.modules || {}).sort());
     if (lastModules.current !== modulesKey) {
       lastModules.current = modulesKey;
@@ -705,6 +712,7 @@ export function AppProvider({
     modules: status.modules,
     moduleOn: (id: string) => status.modules?.[id] !== false,
     statusLoaded,
+    statusError: statusFailure?.key === identityKey ? statusFailure.message : undefined,
     contextGeneration,
     identityKey,
     bots: statusLoaded ? bots : [],
