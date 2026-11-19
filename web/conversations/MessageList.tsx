@@ -18,6 +18,7 @@ import {
 import { useApp } from "../app/AppContext";
 import type { Row } from "../lib/api";
 import { avatarIndex, dayDiff, dayLabel, parse } from "../lib/format";
+import { ChannelMessageMetadata } from "../channel-extensions";
 import { Confirm, MenuList, toast, type MenuAction } from "../ui";
 import { Bubble, DayChip, EventChip, deliveryLabel } from "../ui/chat";
 import {
@@ -95,6 +96,7 @@ function quoteOf(message: Row, content: Row, messages: Row[], app: ReturnType<ty
 }
 
 function MessageBubble({
+  conversation,
   message,
   messages,
   media,
@@ -106,6 +108,7 @@ function MessageBubble({
   highlighted,
   onJump,
 }: {
+  conversation: Row;
   message: Row;
   messages: Row[];
   media: Row[];
@@ -231,6 +234,8 @@ function MessageBubble({
 
   return (
     <>
+      <ChannelMessageMetadata conversation={conversation} message={message} content={content}
+        previousMessage={messages[messages.indexOf(message) - 1] ?? null} api={app.api} root={root} now={app.now} />
       <Bubble
         id={"message-" + message.id}
         side={side}
@@ -505,6 +510,7 @@ export function MessageList({
         ) : (
           <MessageBubble
             key={item.key}
+            conversation={conversation}
             message={item.message}
             messages={messages}
             media={detail.media || []}

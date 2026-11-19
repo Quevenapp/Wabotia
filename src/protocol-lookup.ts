@@ -105,6 +105,9 @@ export async function lookupProtocols(
   );
   const current = await one<Conversation>(env, "SELECT * FROM conversations WHERE profile_id=? AND id=?", c.profile_id, c.id);
   if (!current || ["blocked", "excluded", "ambiguous"].includes(current.customer_link_state ?? "pending")) return [];
+  // E-mail agrupa remetentes operacionalmente; nem a própria conversa prova uma pessoa.
+  if (current.channel === "email" || current.channel === "googlebusiness" || current.chat_type === "comment" ||
+      JSON.parse(current.channel_context || "{}").context === "comment") return [];
   const customer = await resolveCustomer(env, current);
   if (customer.profileId !== c.profile_id || customer.namespace !== (current.external_namespace.startsWith("app:") ? current.external_namespace : "team")) return [];
   if (["blocked", "excluded", "ambiguous"].includes(customer.state)) return [];
@@ -118,9 +121,9 @@ export async function lookupProtocols(
   const origin = social ? `EXISTS(SELECT 1 FROM customer_channel_ids i
     WHERE i.profile_id=v.profile_id AND i.namespace=? AND i.state='ready' AND i.proof_conversation_id IS NOT NULL
       AND i.id=v.channel_identity_id AND i.id=original.channel_identity_id
-      AND i.channel=v.channel AND i.channel=original.channel AND i.channel IN ('instagram','facebook')
+      AND i.channel=v.channel AND i.channel=original.channel AND i.channel IN ('instagram','facebook','telegram','tiktok')
       AND i.account_id=v.channel_account_id AND i.account_id=original.channel_account_id
-      AND i.subject_namespace='dm' AND i.subject_id=v.channel_subject_id AND i.subject_id=original.channel_subject_id
+      AND i.subject_namespace=${current.channel === "telegram" ? "'telegram-user'" : "'dm'"} AND i.subject_id=v.channel_subject_id AND i.subject_id=original.channel_subject_id
       AND v.external_namespace='channel:'||v.connection_id AND original.external_namespace='channel:'||original.connection_id)`
     : `((v.channel IS NULL OR v.channel='whatsapp') AND (original.channel IS NULL OR original.channel='whatsapp')
       AND v.verified_phone=v.phone AND original.verified_phone=original.phone

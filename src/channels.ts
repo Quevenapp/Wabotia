@@ -1,5 +1,6 @@
 import { ApiError } from "./types";
 import { channelImplementationReady } from "./channel-ports";
+import { channelExtension, channelExtensionReady, extensionKey } from "./channel-extension-registry";
 import type {
   ChannelCapabilities, ChannelConnection, ChannelContext, ChannelId,
   ChannelSpec, MediaKind, SendOrigin, WindowState,
@@ -165,6 +166,18 @@ export function conversationChannel(conversation: {
 export function channelRules(connection: ChannelConnection | null, context: ChannelContext = "direct"): ChannelSpec | null {
   const channel = connectionChannel(connection);
   if (!channel || !connection) return null;
+  const key = extensionKey(channel, context);
+  if (key) {
+    const extension = channelExtension(key);
+    const spec = structuredClone(extension.spec);
+    spec.context = context;
+    spec.enabled = channelExtensionReady(key) && spec.enabled && extension.enabled?.(connection) === true && spec.contexts[context]?.enabled === true;
+    if (context === "comment" || context === "review") {
+      spec.contexts[context] = { ...spec.contexts[context]!, bot: false };
+      spec.menu = { ...noMenu }; spec.window = { kind: "none" };
+    }
+    return spec;
+  }
   const rules: ChannelSpec = structuredClone(CHANNEL_REGISTRY[channel]);
   rules.context = context;
   if (channel === "whatsapp") {

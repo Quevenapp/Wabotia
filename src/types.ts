@@ -1,5 +1,17 @@
 import type { LinkState } from "./customer/contracts";
 import type { ChannelId } from "./channel-contracts";
+import type { ChannelAction, ChannelExtensionView, ExtensionKey } from "./channel-c2-contracts";
+
+/** DTO público: origem, ator e prova só existem no contexto interno do servidor. */
+export interface ChannelMessageActionRequest {
+  action: "channel";
+  channel_action: ChannelAction;
+}
+export interface ConversationExtensionProjection {
+  key: ExtensionKey;
+  capabilities: ChannelExtensionView["capabilities"];
+  metadata: ChannelExtensionView["metadata"];
+}
 
 export interface Env {
   DB: D1Database;

@@ -12,6 +12,10 @@ import { zernioAccountList } from "./zernio-accounts";
 import { probeZernioChannelAccount } from "./channel-accounts";
 import { secret } from "./security";
 import { aiProbe } from "./ai-provider";
+import type { Actor } from "./types";
+import { channelConnectionDriver } from "./channel-extension-registry";
+import { channelNotReady } from "./channel-extension-stubs";
+import { assertPublicChannelData } from "./channel-extension-kernel";
 /** The Telegram team channel no longer exists; old connections can only be deleted. */
 export const telegramRemoved = () =>
   new ApiError(
@@ -24,6 +28,7 @@ export async function probe(
   id: string,
   profile: string,
   origin: string,
+  actor?: Actor,
 ) {
   const c = await one(
     env,
@@ -32,6 +37,15 @@ export async function probe(
     profile,
   );
   requireValue(c, "Conexão não encontrada.");
+  if (c.kind === "telegram_bot" || c.kind === "email") {
+    const driver = channelConnectionDriver(c.channel);
+    if (!driver) channelNotReady();
+    if (!actor || actor.kind !== "user" || actor.via || actor.role !== "admin")
+      throw new ApiError(403, "admin_required", "Somente administradores.");
+    const result = await driver.probe({ env, actor, profileId: profile, connection: c, input: { origin }, commandId: `probe:${id}`, now: now() });
+    assertPublicChannelData(result);
+    return { ok: result.status === "active", ...result };
+  }
   requireValue(!(await one(env, "SELECT 1 FROM connections WHERE id=? AND kind IN ('hermes','hermes-whatsapp')", id)), "Hermes retirado: escolha um bot interno.");
   const cfg = json(c.config),
     keys = await secret(env, `connection:${id}`);

@@ -266,10 +266,14 @@ export async function customerTextScope(env: Env, c: Pick<Conversation, "id" | "
   if (!row) return null;
   const ref = resolved ?? await identityPort.resolve(env, row);
   const social = row.channel != null && row.channel !== "whatsapp";
+  const directNamespace = row.channel === "telegram" ? "telegram-user" : "dm";
   const channelProof = social && ref.state === "ready" && !!ref.verifiedChannel &&
+    ["instagram", "facebook", "telegram", "tiktok"].includes(row.channel) &&
+    row.chat_type !== "comment" &&
+    !["comment", "review"].includes(JSON.parse(row.channel_context || "{}").context) &&
     ref.verifiedPhone === null && ref.verifiedChannel.identityId === row.channel_identity_id &&
     ref.verifiedChannel.channel === row.channel && ref.verifiedChannel.accountId === row.channel_account_id &&
-    ref.verifiedChannel.subjectNamespace === "dm" && ref.verifiedChannel.subjectId === row.channel_subject_id;
+    ref.verifiedChannel.subjectNamespace === directNamespace && ref.verifiedChannel.subjectId === row.channel_subject_id;
   // Grupos/aplicações sem cadastro continuam podendo fazer a interação atual.
   // "excluded" nesses canais significa que não participam da identidade pessoal.
   const nonCustomer = (row.chat_type === "group" || row.external_namespace.startsWith("app:")) && !row.linked_contact && !row.has_sessions;

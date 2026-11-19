@@ -1,6 +1,8 @@
 import { all, batch, one } from "./db";
 import { access, admin } from "./security";
 import { refreshChannelSummaryStatements } from "./channel-accounts";
+import { channelConnectionDriver } from "./channel-extension-registry";
+import { channelNotReady } from "./channel-extension-stubs";
 import {
   ApiError,
   type Actor,
@@ -43,8 +45,17 @@ export async function removeConnection(
     ]);
     return { id, deleted: true, conversations_preserved: 0 };
   }
+  const ownChannel = connection.kind === "telegram_bot" || connection.kind === "email";
+  if (ownChannel) {
+    const driver = channelConnectionDriver(connection.channel);
+    if (!driver) channelNotReady();
+    // Pausa persiste antes da limpeza remota. Falha conserva credencial no cofre para retomar.
+    await batch(env, [["UPDATE connections SET status='paused',config=json_set(config,'$.remove_pending',1) WHERE id=? AND profile_id=?", [id, profile]]]);
+    const result = await driver.remove({ env, actor, profileId: profile, connection: { ...connection, status: "paused" }, input: {}, commandId: `remove:${id}`, now: now() });
+    if (result.status === "removal_pending") return { id, deleted: false, pending: true };
+  }
   requireValue(
-    ["meta", "zernio", "qr"].includes(connection.kind) || connection.retired_kind,
+    ["meta", "zernio", "qr"].includes(connection.kind) || connection.retired_kind || ownChannel,
     "A exclusão está disponível somente para conexões de telefone WhatsApp.",
   );
   const social = connection.channel && connection.channel !== "whatsapp";
@@ -174,6 +185,11 @@ export async function removeConnection(
     ],
     ["DELETE FROM call_permissions WHERE connection_id=?", [id]],
     ["DELETE FROM team_connection_presence WHERE connection_id=?", [id]],
+    ...(ownChannel ? [
+      ["DELETE FROM email_channel_addresses WHERE connection_id=? AND profile_id=?", [id, profile]],
+      ["DELETE FROM email_channel_probes WHERE connection_id=? AND profile_id=?", [id, profile]],
+      ["DELETE FROM telegram_callbacks WHERE connection_id=? AND profile_id=?", [id, profile]],
+    ] as [string, unknown[]][] : []),
     ["DELETE FROM secrets WHERE id=?", [`connection:${id}`]],
     [
       "UPDATE conversations SET connection_id=NULL,state='closed',owner=NULL,assigned_bot_id=NULL,epoch=epoch+1,menu_active=0,menu_manual=0,menu_token=NULL,menu_expires_at=NULL,menu_items='[]',updated=? WHERE connection_id=?",

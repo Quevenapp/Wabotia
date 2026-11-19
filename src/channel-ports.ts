@@ -1,6 +1,7 @@
 import { ApiError, type Actor, type Conversation, type Env } from "./types";
 import type { CustomerRef, InboundEvidence, Statement } from "./customer/contracts";
 import { invalidateCustomerResolution } from "./customer/ports";
+import { channelExtensionReady, extensionKey } from "./channel-extension-registry";
 import type {
   ChannelAccountDiscovery, ChannelAccountImport, ChannelAccountImportResult,
   ChannelAccountRemoval, ChannelAccountRemovalResult, ChannelConfigurationInput,
@@ -13,7 +14,7 @@ import type {
 
 export interface ChannelAccountsPort {
   readonly channels: readonly ChannelId[];
-  discover(env: Env, actor: Actor, profileId: string, integrationId: string): Promise<ChannelAccountDiscovery>;
+  discover(env: Env, actor: Actor, profileId: string, integrationId: string, options?: { c2?: boolean }): Promise<ChannelAccountDiscovery>;
   importAccount(env: Env, actor: Actor, profileId: string, input: ChannelAccountImport): Promise<ChannelAccountImportResult>;
   validateConfiguration(env: Env, actor: Actor, profileId: string, input: ChannelConfigurationInput): Promise<ChannelConfigurationResult>;
   removeLink(env: Env, actor: Actor, profileId: string, input: ChannelAccountRemoval): Promise<ChannelAccountRemovalResult>;
@@ -65,15 +66,17 @@ export function createChannelPorts() {
   let transcript: ChannelTranscriptPort | null = null;
   let transport: SocialTransportPort | null = null;
 
-  function channelImplementationReady(channel: ChannelId): boolean {
+  function channelImplementationReady(channel: ChannelId, context: import("./channel-contracts").ChannelContext = "direct"): boolean {
     if (channel === "whatsapp") return true;
+    const key = extensionKey(channel, context);
+    if (key) return channelExtensionReady(key);
     if (channel !== "instagram" && channel !== "facebook") return false;
     return !!accounts?.channels.includes(channel) && !!identity?.channels.includes(channel)
       && !!transport?.channels.includes(channel);
   }
-  const requireReady = (channel: ChannelId): void => {
+  const requireReady = (channel: ChannelId, context: import("./channel-contracts").ChannelContext = "direct"): void => {
     // O caminho WhatsApp é independente e nunca usa os adaptadores sociais.
-    if ((channel !== "instagram" && channel !== "facebook") || !channelImplementationReady(channel))
+    if (channel === "whatsapp" || !channelImplementationReady(channel, channel === "googlebusiness" ? "review" : context))
       unavailable();
   };
 
@@ -94,7 +97,7 @@ export function createChannelPorts() {
   const channelIdentityPort: ChannelIdentityPort = {
     get channels() { return identity?.channels ?? []; },
     async prepareInbound(env, conversation, evidence) {
-      requireReady(evidence.channel);
+      requireReady(evidence.channel, evidence.subjectNamespace === "comment-author" ? "comment" : "direct");
       if (!identity) return unavailable();
       invalidateCustomerResolution(env);
       try { return await identity.prepareInbound(env, conversation, evidence); }

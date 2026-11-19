@@ -37,6 +37,7 @@ import { navigate } from "../lib/routes";
 import { readText, writeText } from "../lib/storage";
 import { windowInfo } from "../lib/window";
 import { channelLabel, channelPresentation } from "../channels";
+import { ChannelConversationHeader, channelUiKey } from "../channel-extensions";
 import {
   Avatar,
   Button,
@@ -659,7 +660,8 @@ export const ChatView = React.forwardRef<
             </MenuButton>
           </div>
         </header>
-        {windowState && (
+        <ChannelConversationHeader conversation={c} detail={detail} api={app.api} root={app.root} now={app.now} refresh={load} />
+        {windowState && !channelUiKey(c) && (
           <button
             type="button"
             className={
@@ -817,7 +819,7 @@ export const ChatView = React.forwardRef<
           onClose={() => setViewer(null)}
         />
       )}
-      {windowOpen && windowState && (
+      {windowOpen && windowState && !channelUiKey(c) && (
         <WindowDialog
           info={windowState}
           clockOffset={clockOffset}

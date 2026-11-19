@@ -2,6 +2,7 @@ import { all, batch, one } from "./db";
 import { access, admin } from "./security";
 import { ApiError, type Actor, type Env, json, now, requireValue, uid } from "./types";
 import { zernioRequest } from "./zernio";
+import { channelConnectionDriver, channelExtension, channelExtensionReady, extensionKey, registeredChannelExtensions } from "./channel-extension-registry";
 import type { ChannelAccountsPort } from "./channel-ports";
 import type {
   ChannelAccountDiscovery, ChannelAccountImport, ChannelAccountImportResult,
@@ -16,6 +17,11 @@ const objectId = (value: unknown): value is string =>
   typeof value === "string" && /^[a-f0-9]{24}$/i.test(value);
 const directChannel = (value: unknown): value is DirectSocialChannelId =>
   value === "instagram" || value === "facebook";
+const importedChannel = (value: unknown): value is DiscoveredChannel => {
+  if (directChannel(value)) return true;
+  const key = extensionKey(value, value === "googlebusiness" ? "review" : "direct");
+  return !!key && channelExtensionReady(key) && channelExtension(key).account?.importable === true;
+};
 const label = (value: unknown) => typeof value === "string"
   ? value.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, " ").trim().slice(0, 100) : "";
 const record = (value: unknown): Record<string, unknown> =>
@@ -120,7 +126,7 @@ async function remoteAccounts(env: Env, account: any, channel: DiscoveredChannel
 
 function accountView(account: any, remote: RemoteAccount, linked?: any): ChannelAccountView {
   const conflict = linked && (linked.profile_id !== account.profile_id || linked.integration_id !== account.id);
-  const reason = !directChannel(remote.channel) ? "channel_not_ready" : conflict ? "account_already_imported"
+  const reason = !importedChannel(remote.channel) ? "channel_not_ready" : conflict ? "account_already_imported"
     : !remote.inbox ? "inbox_required" : !remote.available ? "account_disconnected" : null;
   return {
     integrationId: account.id, channel: remote.channel, accountId: remote.accountId,
@@ -130,14 +136,17 @@ function accountView(account: any, remote: RemoteAccount, linked?: any): Channel
   };
 }
 
-export async function discoverChannelAccounts(env: Env, actor: Actor, profileId: string, integrationId: string): Promise<ChannelAccountDiscovery> {
+export async function discoverChannelAccounts(env: Env, actor: Actor, profileId: string, integrationId: string, options?: { c2?: boolean }): Promise<ChannelAccountDiscovery> {
   authorize(actor, profileId);
   const account = await integration(env, profileId, integrationId);
   const linked = await all(env, "SELECT * FROM zernio_channel_accounts");
   const accounts: ChannelAccountView[] = [];
   // Descoberta não altera o cache de telefones de meta_accounts.discovered.
   // Permissões/planos de canais futuros não bloqueiam a primeira leva.
-  for (const channel of directChannels)
+  const channels: DiscoveredChannel[] = [...directChannels];
+  if (options?.c2) for (const channel of ["tiktok", "googlebusiness"] as const)
+    if (importedChannel(channel)) channels.push(channel);
+  for (const channel of channels)
     for (const remote of await remoteAccounts(env, account, channel))
       accounts.push(accountView(account, remote, linked.find(row => row.channel === channel && row.account_id === remote.accountId)));
   return { accounts, warnings: [
@@ -151,11 +160,17 @@ export async function discoverChannelAccounts(env: Env, actor: Actor, profileId:
  * contagem de canais. Conversas arquivadas continuam identificáveis no resumo.
  */
 export function refreshChannelSummaryStatements(profileId: string): [string, any[]][] {
+  // A lista depende apenas do registro. Sem descritores, até o SQL é o mesmo da primeira leva.
+  const extra = [...new Set(registeredChannelExtensions().map(extension => extension.spec.id))]
+    .filter(channel => !["instagram", "facebook"].includes(channel));
+  const kinds = extra.length ? "'zernio','qr','meta','telegram_bot','email'" : "'zernio','qr','meta'";
+  const connectedChannels = ["whatsapp", "instagram", "facebook", ...extra].map(channel => `'${channel}'`).join(",");
+  const conversationChannels = ["whatsapp", "instagram", "facebook", ...extra.filter(channel => channel !== "googlebusiness")].map(channel => `'${channel}'`).join(",");
   const summary = `WITH connected AS (
-    SELECT DISTINCT channel FROM connections WHERE profile_id=? AND kind IN ('zernio','qr','meta') AND channel IN ('whatsapp','instagram','facebook')
+    SELECT DISTINCT channel FROM connections WHERE profile_id=? AND kind IN (${kinds}) AND channel IN (${connectedChannels})
   ), conversation_channels AS (
-    SELECT channel FROM connected
-    UNION SELECT DISTINCT channel FROM conversations WHERE profile_id=? AND channel IN ('whatsapp','instagram','facebook')
+    SELECT channel FROM connected${extra.includes("googlebusiness") ? " WHERE channel<>'googlebusiness'" : ""}
+    UNION SELECT DISTINCT channel FROM conversations WHERE profile_id=? AND channel IN (${conversationChannels})
       AND external_namespace NOT LIKE 'app:%' AND chat_type NOT IN ('team','internal')
     UNION SELECT 'whatsapp' FROM conversations c JOIN connections n ON n.id=c.connection_id
       WHERE c.profile_id=? AND c.channel IS NULL AND n.kind IN ('zernio','qr','meta') AND n.channel='whatsapp'
@@ -163,19 +178,19 @@ export function refreshChannelSummaryStatements(profileId: string): [string, any
   ), summary AS (SELECT json_object(
     'connected_channels',json((SELECT json_group_array(channel) FROM (SELECT channel FROM connected ORDER BY channel))),
     'conversation_channels',json((SELECT json_group_array(channel) FROM (SELECT channel FROM conversation_channels ORDER BY channel))),
-    'multichannel',json(CASE WHEN EXISTS(SELECT 1 FROM connected WHERE channel!='whatsapp')
+    'multichannel',json(CASE WHEN EXISTS(SELECT 1 FROM connected WHERE channel!='whatsapp'${extra.includes("googlebusiness") ? " AND channel!='googlebusiness'" : ""})
       OR EXISTS(SELECT 1 FROM conversation_channels WHERE channel!='whatsapp') THEN 'true' ELSE 'false' END)) AS value)
   `;
   return [
     [summary + `UPDATE connections SET config=json_set(config,'$._channel_summary',json((SELECT value FROM summary)))
-      WHERE profile_id=? AND kind IN ('zernio','qr','meta')
-      AND (json_extract((SELECT value FROM summary),'$.multichannel')=1 OR json_type(config,'$._channel_summary') IS NOT NULL)
+      WHERE profile_id=? AND kind IN (${kinds})
+      AND (json_extract((SELECT value FROM summary),'$.multichannel')=1 OR json_type(config,'$._channel_summary') IS NOT NULL${extra.length ? ` OR channel IN (${extra.map(channel => `'${channel}'`).join(",")})` : ""})
       AND COALESCE(json_extract(config,'$._channel_summary'),'')!=(SELECT value FROM summary)`, [profileId, profileId, profileId, profileId]],
     [summary + `UPDATE conversations SET channel_context=json_set(channel_context,
       '$.version',COALESCE(json_extract(channel_context,'$.version'),1),
       '$.context',COALESCE(json_extract(channel_context,'$.context'),CASE WHEN chat_type='group' THEN 'group' ELSE 'direct' END),
       '$.multichannel',json(CASE WHEN json_extract((SELECT value FROM summary),'$.multichannel')=1 THEN 'true' ELSE 'false' END))
-      WHERE profile_id=? AND (channel IN ('whatsapp','instagram','facebook') OR (channel IS NULL AND external_namespace LIKE 'channel:%'))
+      WHERE profile_id=? AND (channel IN (${conversationChannels}) OR (channel IS NULL AND external_namespace LIKE 'channel:%'))
       AND external_namespace NOT LIKE 'app:%' AND chat_type NOT IN ('team','internal')
       AND (json_extract((SELECT value FROM summary),'$.multichannel')=1 OR json_type(channel_context,'$.multichannel') IS NOT NULL)
       AND (json_type(channel_context,'$.multichannel') IS NULL OR json_extract(channel_context,'$.multichannel')!=json_extract((SELECT value FROM summary),'$.multichannel'))`, [profileId, profileId, profileId, profileId]],
@@ -206,7 +221,7 @@ async function importedResult(env: Env, account: any, link: any, duplicate: bool
 export async function importChannelAccount(env: Env, actor: Actor, profileId: string, input: ChannelAccountImport): Promise<ChannelAccountImportResult> {
   authorize(actor, profileId);
   requireValue(typeof input.commandId === "string" && input.commandId.trim().length > 0, "Informe a chave idempotente.");
-  if (!directChannel(input.channel)) notReady();
+  if (!importedChannel(input.channel)) notReady();
   requireValue(objectId(input.accountId), "Informe um ID de conta válido da Zernio.");
   const account = await integration(env, profileId, input.integrationId);
   const existing = await linkedAccount(env, input.channel, input.accountId);
@@ -250,7 +265,7 @@ export async function validateChannelConfiguration(env: Env, actor: Actor, profi
     if (previous._channel_summary) config._channel_summary = previous._channel_summary;
     return { channel: input.channel, config };
   }
-  if (!directChannel(input.channel)) notReady();
+  if (!importedChannel(input.channel)) notReady();
   requireValue(input.kind === "zernio" && (!old || old.kind === "zernio"), "Este canal exige a integração Zernio.");
   if (!old) throw new ApiError(409, "channel_import_required", "Use Buscar contas na Zernio para importar esta conexão.");
   const link = await one(env, "SELECT * FROM zernio_channel_accounts WHERE connection_id=? AND profile_id=? AND channel=?", old.id, profileId, input.channel);
@@ -266,6 +281,11 @@ export async function validateChannelConfiguration(env: Env, actor: Actor, profi
   // A edição de credenciais não altera a linha nem permite forjar o resumo.
   for (const key of ["service", "bot_options", "_channel_summary"])
     if (previous[key] !== undefined) config[key] = previous[key];
+  const extension = extensionKey(input.channel, "comment");
+  if (extension && channelExtensionReady(extension)) {
+    const driver = channelConnectionDriver(input.channel);
+    if (driver) Object.assign(config, driver.validate(input).config);
+  }
   return { channel: input.channel, config };
 }
 
@@ -274,7 +294,7 @@ export async function validateChannelConfiguration(env: Env, actor: Actor, profi
 export async function resolveZernioChannelConnection(env: Env, scope: {
   profileId: string; integrationId: string; channel: ChannelId; accountId: string; providerProfileId?: string | null;
 }): Promise<ChannelConnection | null> {
-  if (!directChannel(scope.channel) || !objectId(scope.accountId) ||
+  if (!importedChannel(scope.channel) || !objectId(scope.accountId) ||
       (scope.providerProfileId != null && !objectId(scope.providerProfileId))) return null;
   return one(env, `SELECT c.* FROM zernio_channel_accounts a
     JOIN connections c ON c.id=a.connection_id AND c.profile_id=a.profile_id AND c.channel=a.channel
@@ -290,7 +310,7 @@ export async function resolveZernioChannelConnection(env: Env, scope: {
 }
 
 export async function probeZernioChannelAccount(env: Env, connection: ChannelConnection) {
-  if (!directChannel(connection.channel)) notReady();
+  if (!importedChannel(connection.channel)) notReady();
   const link = await one(env, "SELECT * FROM zernio_channel_accounts WHERE connection_id=? AND profile_id=? AND channel=?", connection.id, connection.profile_id, connection.channel);
   requireValue(link, "Importe esta conta pela integração Zernio antes de testar.");
   const account = await integration(env, connection.profile_id, link.integration_id);
@@ -305,7 +325,7 @@ export async function probeZernioChannelAccount(env: Env, connection: ChannelCon
 }
 
 export const channelAccountsHandlers: ChannelAccountsPort = {
-  channels: directChannels,
+  get channels() { return discoveryChannels.filter(importedChannel); },
   discover: discoverChannelAccounts,
   importAccount: importChannelAccount,
   validateConfiguration: validateChannelConfiguration,

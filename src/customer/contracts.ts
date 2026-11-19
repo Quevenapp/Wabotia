@@ -1,5 +1,6 @@
 import type { Actor, Conversation, Env } from "../types";
 import type { ChannelId } from "../channel-contracts";
+import type { IdentityTrust, VerifiedIngress } from "../channel-c2-contracts";
 
 export type Namespace = "team" | `app:${string}`;
 export type Statement = [sql: string, params: unknown[]];
@@ -15,6 +16,8 @@ export interface CustomerRef {
   /** Prova da origem autenticada pelo servidor, nunca inferida da ficha juntada.
    * Em canais sociais, verifiedPhone continua null. IDs e nomes são dados pessoais. */
   verifiedChannel?: VerifiedChannel | null;
+  /** Vínculo cadastral não autentica o remetente de um e-mail. */
+  identityTrust?: IdentityTrust;
   version: number | null;
   erp: { id: string; version: number } | null;
 }
@@ -104,6 +107,8 @@ export interface SocialInboundEvidence {
   subjectId: string;
   displayName?: string;
   username?: string;
+  /** Obrigatório nos canais/contextos c2; produzido após autenticação no servidor. */
+  ingress?: VerifiedIngress;
   /** Preserva a leitura tipada do legado sem permitir telefone no ramo social. */
   phone?: never;
   phoneJid?: never;

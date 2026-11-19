@@ -13,6 +13,12 @@ const clean = (name: unknown) =>
         .trim()
     : "";
 
+/** Texto puro, antes de contar tamanho/quota; o adaptador faz seu próprio escaping. */
+export function channelSignatureText(text: string, signature: string): string {
+  const value = clean(signature);
+  return value ? `${value}\n${text}` : text;
+}
+
 /** Label of the author of an outbox row, or "" for automatic messages. */
 export async function senderSignature(env: Env, cfg: any, actor: string) {
   if (cfg?.sender_signature === false || typeof actor !== "string") return "";

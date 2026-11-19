@@ -16,6 +16,14 @@ import { sha } from "./security";
 import { departmentFor } from "./departments";
 import { allowsModules, assertChannelSend, channelRules, channelWindow } from "./channels";
 import type { ChannelId } from "./channel-contracts";
+import { channelExtension, extensionKey, registeredChannelExtensions } from "./channel-extension-registry";
+import { loadChannelOperationContext, prepareChannelAction } from "./channel-extension-kernel";
+
+function extensionLinesSql() {
+  const channels = [...new Set(registeredChannelExtensions().filter(extension => extension.spec.serviceLine).map(extension => extension.spec.id))]
+    .filter(channel => !["instagram", "facebook"].includes(channel));
+  return channels.length ? ` AND channel IN ('whatsapp','instagram','facebook',${channels.map(channel => `'${channel}'`).join(",")})` : "";
+}
 import {
   type InteractiveSpec,
   buildInteractive,
@@ -89,7 +97,7 @@ export async function validateLineIds(
     requireValue(
       await one(
         env,
-        "SELECT id FROM connections WHERE id=? AND profile_id=? AND kind IN ('zernio','qr')",
+        extensionLinesSql() ? "SELECT id FROM connections WHERE id=? AND profile_id=? AND kind IN ('zernio','qr','telegram_bot','email')" + extensionLinesSql() : "SELECT id FROM connections WHERE id=? AND profile_id=? AND kind IN ('zernio','qr') AND channel<>'googlebusiness'",
         id,
         profile,
       ),
@@ -104,7 +112,7 @@ export async function listLines(env: Env, actor: Actor, profile: string) {
   );
   const rows = await all(
     env,
-    "SELECT id,name,kind,channel,account_label,mode,status,config,last_seen FROM connections WHERE profile_id=? AND kind IN ('zernio','qr') AND channel IN ('whatsapp','instagram','facebook') ORDER BY name,id",
+    extensionLinesSql() ? "SELECT id,name,kind,channel,account_label,mode,status,config,last_seen FROM connections WHERE profile_id=? AND kind IN ('zernio','qr','telegram_bot','email')" + extensionLinesSql() + " ORDER BY name,id" : "SELECT id,name,kind,channel,account_label,mode,status,config,last_seen FROM connections WHERE profile_id=? AND kind IN ('zernio','qr') AND channel IN ('whatsapp','instagram','facebook') ORDER BY name,id",
     profile,
   );
   return {
@@ -126,7 +134,7 @@ export async function saveLine(
   access(actor, profile, "conversations:write");
   const row = await one(
     env,
-    "SELECT * FROM connections WHERE id=? AND profile_id=? AND kind IN ('zernio','qr')",
+    extensionLinesSql() ? "SELECT * FROM connections WHERE id=? AND profile_id=? AND kind IN ('zernio','qr','telegram_bot','email')" + extensionLinesSql() : "SELECT * FROM connections WHERE id=? AND profile_id=? AND kind IN ('zernio','qr') AND channel<>'googlebusiness'",
     data.id,
     profile,
   );
@@ -321,6 +329,7 @@ export function menuPayload(
     ? "\nEnvie VOLTAR para subir um nível ou MENU para voltar ao menu principal."
     : "";
   const text = `${title}\n${items.map((item, index) => `${index + 1}. ${item.label}`).join("\n")}${navigation}`;
+  if (extensionKey(channel)) return { text, automation: "menu" };
   if (channel === "instagram" || channel === "facebook") {
     const options = items.map((item) => ({ id: `wmenu:${token}:${item.id}`, title: item.label }));
     // Limites locais conservadores; formato de opção a conferir com a conta real.
@@ -551,6 +560,7 @@ export async function sendMenu(
   manual = true,
 ) {
   const social = c.channel != null && c.channel !== "whatsapp";
+  requireValue(c.chat_type !== "comment" && json(c.channel_context).context !== "comment" && c.channel !== "googlebusiness", "Este contexto não permite menus.");
   if (social) {
     const connection = c.connection_id
       ? await cachedOne(env, "SELECT * FROM connections WHERE id=?", c.connection_id) : null;
@@ -625,7 +635,19 @@ export async function sendMenu(
     ? [payload.text]
     : payload.text.match(/[\s\S]{1,3800}/g) || [payload.text];
   const deliveries = [];
-  if (social) {
+  const extension = extensionKey(c.channel);
+  if (extension) {
+    const ctx = await loadChannelOperationContext(env, actor, c.profile_id, { kind: "conversation", id: c.id }, key, manual ? "human" : "bot");
+    const descriptor = channelExtension(extension);
+    const { enqueueChannelPlan } = await import("./engine");
+    if (descriptor.prepareMenu) {
+      const plan = await descriptor.prepareMenu(ctx, { token, title: payload.text, items: items.map(item => ({ id: item.id, title: item.label })), expiresAt: now() + 15 * 60_000 });
+      deliveries.push(await enqueueChannelPlan(ctx, plan, { type: "message.send", text: payload.text }));
+    } else {
+      const action = { type: "message.send" as const, text: payload.text };
+      deliveries.push(await enqueueChannelPlan(ctx, await prepareChannelAction(ctx, action), action));
+    }
+  } else if (social) {
     const { enqueueSocialDeliveries } = await import("./engine");
     deliveries.push(await enqueueSocialDeliveries(env, c, actor.id, "text", payload, key));
   } else for (const [index, part] of parts.entries())

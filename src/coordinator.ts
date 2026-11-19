@@ -21,7 +21,9 @@ import { contactRow, customerAccess, human, namespaceFor, validateCustomerSelfAc
 import { requireCustomerModule } from "./customer/http";
 import { visibleConversation } from "./visibility";
 import { REVOKED_CLOSE } from "./sockets";
-import { perform, inbound } from "./service";
+import { perform, inbound, receiveExtensionIngress, authorizeChannelDeliveryReconciliation } from "./service";
+import { channelMaintenance, registeredChannelMaintenance } from "./channel-extension-registry";
+import { authorizeChannelActionReplay, authorizeExtensionReplay, performExtensionRoute, verifyIngressTicket } from "./channel-extension-kernel";
 import { customerMaintenanceEnv, maintainCustomers, profilePort, erpBridge } from "./customer/ports";
 import { finishDelivery } from "./delivery";
 import { channelEvent } from "./whatsapp";
@@ -61,6 +63,10 @@ import {
   deliver,
   deliverWebhook,
   importDocument,
+  listReadyChannelDeliveries,
+  nextChannelDeliveryAt,
+  recoverChannelDeliveries,
+  withChannelDeliveryWake,
 } from "./engine";
 
 /** Recibos, inclusive os anteriores a esta versão, não são credenciais. */
@@ -157,6 +163,8 @@ export class Coordinator extends DurableObject<Env> {
   private profile = "";
   private busy = false;
   private customerMaintenanceRunning = false;
+  private channelWork: Record<string, number> | null = null;
+  private channelTickRunning = false;
   /**
    * Gravações da resposta exata no recibo em andamento (/command), por
    * "escopo\nchave": a repetição com a mesma Idempotency-Key espera antes do
@@ -179,6 +187,22 @@ export class Coordinator extends DurableObject<Env> {
       return new Response("Hermes retirado: escolha um bot interno.", { status: 410 });
     if (linkPath === "/queue-ws") return this.acceptQueueSocket(request);
     const body = await request.json<any>();
+    if (linkPath === "/c2-inbound") {
+      try {
+        const verified = await verifyIngressTicket(this.env, body.ticket);
+        if (request.method !== "POST" || verified.scope.profileId !== body.profile)
+          throw new ApiError(403, "invalid_channel_evidence", "Origem da entrada inválida.");
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error;
+        return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
+      }
+    }
+    // A rota interna antiga não é uma alternativa ao ticket autenticado.
+    if ((linkPath === "/inbound" || linkPath === "/channel-event" ||
+        linkPath === "/command" && body.operation === "inbound") &&
+        (["telegram", "email", "tiktok", "googlebusiness"].includes(body.data?.channel) ||
+          ["comment", "review"].includes(body.data?.channel_context?.context)))
+      return Response.json({ error: { code: "invalid_channel_evidence", message: "Este canal exige entrada autenticada." } }, { status: 403 });
     // Credencial revogada: fecha os sockets dela nesta área (src/sockets.ts).
     if (linkPath === "/close-sockets") {
       let closed = 0;
@@ -197,6 +221,28 @@ export class Coordinator extends DurableObject<Env> {
       return Response.json({ error: { code: "invalid_request" } }, { status: 400 });
     this.profile = body.profile;
     await this.ctx.storage.put("profile", this.profile);
+    if (linkPath === "/c2-inbound") {
+      try {
+        const result = await this.ctx.blockConcurrencyWhile(() => receiveExtensionIngress(this.env, this.profile, body.ticket));
+        if (result.wake || result.maintenance?.length) {
+          await this.markChannelWork(result.maintenance ?? [], now(), result.wake);
+          await this.schedule();
+        }
+        return Response.json(result, { status: 202 });
+      } catch (error) {
+        if (!(error instanceof ApiError)) throw error;
+        return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
+      }
+    }
+    if (linkPath === "/c2-wake") {
+      await this.markChannelWork(Array.isArray(body.keys) ? body.keys : [],
+        Number.isFinite(body.at) ? Math.max(now(), body.at) : now(), true);
+      return Response.json({ scheduled: true });
+    }
+    if (linkPath === "/c2-recover") {
+      await this.recoverChannelWork();
+      return Response.json({ scheduled: true });
+    }
     // Também o comando legado passa pela reserva dedicada. Nunca deixe
     // contact.maintain chegar ao perform dentro da fila do atendimento.
     if (linkPath === "/customer-tick" || (linkPath === "/command" && body.operation === "contact.maintain")) {
@@ -242,7 +288,10 @@ export class Coordinator extends DurableObject<Env> {
         // Idas ao D1 deste comando (Server-Timing) e o cache de leituras dele
         // inteiro (perform reaproveita o escopo).
         const { env: timed, timing } = timedEnv(this.env);
-        const env = withReadCache(withLocalModuleWake(timed, this.profile, (options) => this.wakeModules(options)));
+        const env = withReadCache(withChannelDeliveryWake(
+          withLocalModuleWake(timed, this.profile, (options) => this.wakeModules(options)),
+          this.profile, () => this.markChannelWork([], now(), true),
+        ));
         // Abertura numa ida só (docs/LIMITES.md): o recibo anterior, a
         // reserva do recibo (INSERT OR IGNORE: só a primeira grava) e as
         // leituras de configuração que quase todo comando faz.
@@ -359,7 +408,43 @@ export class Coordinator extends DurableObject<Env> {
             );
           } else {
             let response = old.response;
-            if (isChannelOperation(body.operation)) {
+            if (body.operation === "conversation.action" && body.data.action === "reply") {
+              const value = old.response.startsWith("sealed:") ? await unseal(this.env, old.response.slice(7)) : JSON.parse(old.response);
+              if (value?.channel_extension) {
+                try {
+                  await authorizeChannelActionReplay(this.env, actor, this.profile, body.data.id,
+                    { type: "message.send", text: String(body.data.text || "").trim() });
+                  return Response.json(value, { status: old.status, headers: { "Idempotency-Replayed": "true" } });
+                } catch (error) {
+                  if (!(error instanceof ApiError)) throw error;
+                  return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
+                }
+              }
+            }
+            if (body.operation === "delivery.reconcile") {
+              const value = old.response.startsWith("sealed:") ? await unseal(this.env, old.response.slice(7)) : JSON.parse(old.response);
+              if (value?.channel_extension) {
+                try {
+                  await authorizeChannelDeliveryReconciliation(this.env, actor, this.profile, body.data.id);
+                  return Response.json(value, { status: old.status, headers: { "Idempotency-Replayed": "true" } });
+                } catch (error) {
+                  if (!(error instanceof ApiError)) throw error;
+                  return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
+                }
+              }
+            }
+            if (body.operation === "c2.route" || body.operation === "message.action" && body.data.action === "channel") {
+              try {
+                if (body.operation === "c2.route") await authorizeExtensionReplay(this.env, actor, this.profile,
+                  body.data.method, body.data.path, body.data.input);
+                else await authorizeChannelActionReplay(this.env, actor, this.profile, body.data.id, body.data.channel_action);
+                const value = old.response.startsWith("sealed:") ? await unseal(this.env, old.response.slice(7)) : JSON.parse(old.response);
+                return Response.json(value, { status: old.status, headers: { "Idempotency-Replayed": "true" } });
+              } catch (error) {
+                if (!(error instanceof ApiError)) throw error;
+                return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
+              }
+            } else if (isChannelOperation(body.operation)) {
               try {
                 const value = await authorizeChannelReplay(this.env, actor, this.profile, body.operation, body.data,
                   old.response.startsWith("sealed:") ? await unseal(this.env, old.response.slice(7)) : JSON.parse(old.response));
@@ -428,7 +513,8 @@ export class Coordinator extends DurableObject<Env> {
             },
           });
         try {
-          value = await (isChannelOperation(body.operation) ? performChannelOperation : perform)(
+          value = body.operation === "c2.route" ? await performExtensionRoute(env, actor, this.profile,
+            body.data.method, body.data.path, body.data.input, operationId) : await (isChannelOperation(body.operation) ? performChannelOperation : perform)(
             env,
             actor,
             this.profile,
@@ -436,6 +522,11 @@ export class Coordinator extends DurableObject<Env> {
             body.data,
             operationId,
           );
+          if (body.operation === "c2.route" || body.operation === "message.action" && body.data.action === "channel" ||
+              body.operation === "connection.save" && ["telegram_bot", "email"].includes(body.data.kind) ||
+              body.operation === "channel.import" && ["tiktok", "googlebusiness"].includes(body.data.channel) ||
+              value?.channel_extension || value?.channel_extensions?.length)
+            await this.markChannelWork(registeredChannelMaintenance().map(item => item.key), now(), true);
           // Auditoria no mesmo lote do fechamento do recibo (abaixo).
           audited = auditStatement(
             actor,
@@ -832,6 +923,72 @@ export class Coordinator extends DurableObject<Env> {
     if (scheduled === null || scheduled > at)
       await this.ctx.storage.setAlarm(at);
   }
+  private async loadChannelWork() {
+    return this.channelWork ??= await this.ctx.storage.get<Record<string, number>>("c2_pending") ?? {};
+  }
+  private async markChannelWork(keys: readonly string[], at: number, deliveries = false) {
+    const pending = await this.loadChannelWork();
+    for (const key of keys) if (channelMaintenance(key)) pending[key] = Math.min(pending[key] ?? Infinity, at);
+    if (deliveries) pending.$deliveries = Math.min(pending.$deliveries ?? Infinity, at);
+    await this.ctx.storage.put("c2_pending", pending);
+    if (Object.keys(pending).length) await this.schedule(Math.max(now() + 1000, Math.min(...Object.values(pending))));
+  }
+  /** Só cron invoca recover: perda de marcador não acrescenta consultas às
+   * mensagens antigas. Os descritores limitam a rodada de recuperação. */
+  private async recoverChannelWork() {
+    const time = now();
+    for (const item of registeredChannelMaintenance()) {
+      if (!item.recover) continue;
+      const result = await item.recover({ env: this.env, profileId: this.profile, now: time });
+      if (result.pending || result.nextAt !== null)
+        await this.markChannelWork([item.key], result.nextAt ?? time + 5000);
+    }
+    await recoverChannelDeliveries(this.env, this.profile);
+    const due = await nextChannelDeliveryAt(this.env, this.profile);
+    if (due !== null) await this.markChannelWork([], due, true);
+  }
+  private async runChannelWork() {
+    if (this.channelTickRunning) return;
+    const pending = await this.loadChannelWork();
+    const due = Object.entries(pending).filter(([, at]) => at <= now());
+    if (!due.length) return;
+    this.channelTickRunning = true;
+    try {
+      for (const [key, at] of due) {
+        // Reserva antes da chamada. Uma queda conserva o marcador durável;
+        // uma nova ativação durante a espera remota antecipa a próxima rodada.
+        if (pending[key] !== at) continue;
+        const reservedUntil = now() + 30000;
+        pending[key] = reservedUntil;
+        await this.ctx.storage.put("c2_pending", pending);
+        try {
+          let nextAt: number | null = null;
+          if (key === "$deliveries") {
+            await recoverChannelDeliveries(this.env, this.profile);
+            for (const row of await listReadyChannelDeliveries(this.env, this.profile, 10)) await deliver(this.env, row);
+            nextAt = await nextChannelDeliveryAt(this.env, this.profile);
+          } else {
+            const task = channelMaintenance(key);
+            if (task) {
+              const result = await task.run({
+                env: withChannelDeliveryWake(this.env, this.profile, () => this.markChannelWork([], now(), true)),
+                profileId: this.profile, now: now(),
+              });
+              nextAt = result.nextAt ?? (result.pending ? now() + 5000 : null);
+            }
+          }
+          if (pending[key] === reservedUntil) delete pending[key];
+          if (nextAt !== null) pending[key] = Math.min(pending[key] ?? Infinity, Math.max(now() + 1000, nextAt));
+        } catch {
+          pending[key] = Math.min(pending[key] ?? Infinity, now() + 30000);
+          // Erros remotos não passam pela saída de console nem contêm segredo.
+        }
+        await this.ctx.storage.put("c2_pending", pending);
+      }
+    } finally {
+      this.channelTickRunning = false;
+    }
+  }
   async alarm() {
     installChannelRuntime();
     // Instância do ERP: alarme próprio, nunca o pipeline da área.
@@ -847,7 +1004,7 @@ export class Coordinator extends DurableObject<Env> {
       }
       // Uma invocação: leituras de configuração lembradas no alarme inteiro
       // (as entregas releem a área a cada linha; docs/LIMITES.md).
-      const env = withReadCache(this.env);
+      const env = withReadCache(withChannelDeliveryWake(this.env, this.profile, () => this.markChannelWork([], now(), true)));
       await exec(
         env,
         "UPDATE outbox SET status='unknown',error='Processo interrompido durante envio; reconcilie antes de repetir.' WHERE profile_id=? AND status='sending' AND updated<?",
@@ -899,6 +1056,7 @@ export class Coordinator extends DurableObject<Env> {
           throw error;
         }
       }
+      await this.runChannelWork();
       await processInbox(env, this.profile);
       await this.broadcastQueueSoon();
       for (const run of await all<Run>(
@@ -907,9 +1065,10 @@ export class Coordinator extends DurableObject<Env> {
         this.profile,
       ))
         await processRun(env, run);
+      const channelQueueFilter = Object.keys(await this.loadChannelWork()).length ? " AND kind<>'channel'" : "";
       for (const row of await all(
         env,
-        "SELECT * FROM outbox o WHERE profile_id=? AND status='pending' AND NOT EXISTS (SELECT 1 FROM outbox p WHERE p.conversation_id=o.conversation_id AND (p.kind='team')=(o.kind='team') AND (p.created<o.created OR (p.created=o.created AND p.rowid<o.rowid)) AND p.status IN ('pending','sending','unknown')) ORDER BY created,rowid LIMIT 10",
+        `SELECT * FROM outbox o WHERE profile_id=? AND status='pending'${channelQueueFilter} AND NOT EXISTS (SELECT 1 FROM outbox p WHERE p.conversation_id=o.conversation_id AND (p.kind='team')=(o.kind='team') AND (p.created<o.created OR (p.created=o.created AND p.rowid<o.rowid)) AND p.status IN ('pending','sending','unknown')) ORDER BY created,rowid LIMIT 10`,
         this.profile,
       ))
         await deliver(env, row);
@@ -937,12 +1096,13 @@ export class Coordinator extends DurableObject<Env> {
       );
     } finally {
       this.busy = false;
+      const channelQueueFilter = Object.keys(await this.loadChannelWork()).length ? " AND kind<>'channel'" : "";
       const pending =
         this.profile === "_admin"
           ? { n: 0 }
           : await one(
               this.env,
-              "SELECT (SELECT count(*) FROM inbox WHERE profile_id=? AND status='pending')+(SELECT count(*) FROM bot_runs WHERE profile_id=? AND (status IN ('queued','starting','running','cancelling') OR (status='completed' AND completion_handled=0)))+(SELECT count(*) FROM outbox WHERE profile_id=? AND status IN ('pending','sending'))+(SELECT count(*) FROM documents WHERE profile_id=? AND status='pending')+(SELECT count(*) FROM webhook_deliveries d JOIN webhook_subscriptions s ON s.id=d.subscription_id WHERE s.profile_id=? AND d.status='pending')+(SELECT count(*) FROM group_operations WHERE profile_id=? AND status IN ('pending','sending'))+(SELECT count(*) FROM events WHERE profile_id=? AND id>coalesce((SELECT last_event_id FROM push_cursors WHERE profile_id=?),0)) n",
+              `SELECT (SELECT count(*) FROM inbox WHERE profile_id=? AND status='pending')+(SELECT count(*) FROM bot_runs WHERE profile_id=? AND (status IN ('queued','starting','running','cancelling') OR (status='completed' AND completion_handled=0)))+(SELECT count(*) FROM outbox WHERE profile_id=? AND status IN ('pending','sending')${channelQueueFilter})+(SELECT count(*) FROM documents WHERE profile_id=? AND status='pending')+(SELECT count(*) FROM webhook_deliveries d JOIN webhook_subscriptions s ON s.id=d.subscription_id WHERE s.profile_id=? AND d.status='pending')+(SELECT count(*) FROM group_operations WHERE profile_id=? AND status IN ('pending','sending'))+(SELECT count(*) FROM events WHERE profile_id=? AND id>coalesce((SELECT last_event_id FROM push_cursors WHERE profile_id=?),0)) n`,
               this.profile,
               this.profile,
               this.profile,
@@ -967,6 +1127,9 @@ export class Coordinator extends DurableObject<Env> {
         const last = (await this.ctx.storage.get<number>("modules_tick")) || 0;
         await this.schedule(Math.max(now() + 1000, last + SCHEDULE_INTERVAL_MS));
       }
+      const channelPending = await this.loadChannelWork();
+      if (Object.keys(channelPending).length)
+        await this.schedule(Math.max(now() + 1000, Math.min(...Object.values(channelPending))));
     }
   }
 }

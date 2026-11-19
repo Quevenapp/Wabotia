@@ -5,6 +5,7 @@ import type {
   TranscriptPreviewRequest, TranscriptSendRequest, TranscriptSendResult, WindowState,
 } from "../../src/channel-contracts";
 import type { Row } from "./api";
+import { dispatchChannelDemo } from "../channel-extensions";
 
 export const CHANNEL_DEMO_SCENARIOS = [
   "whatsapp", "multichannel", "legacy", "email-unavailable", "email-forbidden",
@@ -319,6 +320,9 @@ export function createChannelDemo(
 const browserDemos = new Map<ChannelDemoScenario, ReturnType<typeof createChannelDemo>>();
 /** Encaixe único em demo.ts; cenários dos módulos passam pelo leitor original. */
 export function demoChannelRequest(path: string, method: string, body: any, key: string | undefined, legacy: LegacyRead): DemoReply {
+  const extension = dispatchChannelDemo({ path, method, body, key, legacy,
+    query: new URLSearchParams(typeof location === "undefined" ? "" : location.search) });
+  if (extension.handled) return extension;
   const selected = typeof location === "undefined" ? null : new URLSearchParams(location.search).get("channels");
   if (!CHANNEL_DEMO_SCENARIOS.includes(selected as ChannelDemoScenario)) return { handled: false };
   const scenario = selected as ChannelDemoScenario;

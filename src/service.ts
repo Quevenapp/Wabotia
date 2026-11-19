@@ -44,9 +44,14 @@ import { customerIdentity, inboundConnection, evidencePhone } from "./customer/i
 import { normalizeCustomerPhone, customerPhoneVariants, customerPhoneInputMode } from "./customer/phone";
 import type { InboundEvidence, SocialInboundEvidence } from "./customer/contracts";
 import { channelIdentityPort } from "./channel-ports";
+import { currentActor } from "./channel-runtime";
+import { completeChannelDelivery, loadChannelDeliveryContext } from "./delivery";
+import { channelExtension, extensionKey, registeredChannelExtensions, registeredChannelMaintenance } from "./channel-extension-registry";
+import { configureChannelConnection, ingressOperationContext, performChannelAction, validateChannelWritePlan, verifyIngressTicket } from "./channel-extension-kernel";
+import type { ChannelOutboxRow, ChannelWritePlan, ExtensionConnection } from "./channel-c2-contracts";
 import { allowsModules, channelRules, channelWindow, conversationChannel, isChannelId } from "./channels";
 import { refreshChannelSummaryStatements, validateChannelConfiguration } from "./channel-accounts";
-import { enqueueSocialDeliveries } from "./engine";
+import { enqueueChannelAutomation, enqueueSocialDeliveries } from "./engine";
 import { socialExternalId, type SocialSendProvenance } from "./zernio-social";
 installIdentityPort(customerIdentity, { default: true });
 import { authorizedMedia, mediaKind, uploadCommand } from "./media";
@@ -103,7 +108,7 @@ import {
 import { applyServiceTemplate } from "./service-templates";
 import { queueCommand, validateQueueSettings } from "./queue";
 import { validateEstablishment } from "./establishment";
-import { requireOperationAccess, validateAccess } from "./access";
+import { requireAccess, requireOperationAccess, validateAccess } from "./access";
 import { requireFinancialAal, validateSchedule } from "./mfa";
 import { issueAccountLink } from "./auth-tokens";
 import { alertAccount, mailAccountLink } from "./email";
@@ -322,6 +327,9 @@ export async function enqueue(
   payload: any,
   dedupe: string,
 ) {
+  const context = c.chat_type === "comment" || json(c.channel_context).context === "comment" ? "comment"
+    : c.chat_type === "review" || json(c.channel_context).context === "review" ? "review" : "direct";
+  if (extensionKey(c.channel, context)) return enqueueChannelAutomation(env, c, actor, kind, payload, dedupe);
   if (c.channel === "instagram" || c.channel === "facebook")
     return enqueueSocialDeliveries(env, c, actor, kind, payload, dedupe);
   await assertNumberDelivery(env, c.connection_id, actor, kind, payload);
@@ -1257,6 +1265,113 @@ export async function conversationByPhone(
   return c;
 }
 
+/** Acorda somente o trabalho novo. O marcador durável pertence ao Coordinator
+ * existente; não há consulta às tabelas da segunda leva na mensagem antiga. */
+export async function wakeChannelExtensions(env: Env, profileId: string, keys?: readonly string[], at = now()) {
+  return env.COORDINATOR.get(env.COORDINATOR.idFromName(profileId)).fetch("https://coordinator/c2-wake", {
+    method: "POST", body: JSON.stringify({ profile: profileId,
+      keys: keys ?? registeredChannelMaintenance().map(item => item.key), at }),
+  });
+}
+
+/** A recuperação completa é exclusiva do cron, nunca da entrada antiga. */
+export async function resumeChannelExtensions(env: Env, profileId: string) {
+  return env.COORDINATOR.get(env.COORDINATOR.idFromName(profileId)).fetch("https://coordinator/c2-recover", {
+    method: "POST", body: JSON.stringify({ profile: profileId }),
+  });
+}
+
+/** Reconciliar não é uma autorização de reenvio. A publicação indeterminada
+ * continua contando na reserva do descritor, inclusive após confirmação humana. */
+export async function authorizeChannelDeliveryReconciliation(env: Env, actor: Actor, profileId: string, id: string) {
+  const current = await currentActor(env, actor);
+  if (current.kind !== "user" || current.via)
+    throw new ApiError(403, "human_only", "A reconciliação exige uma pessoa autenticada.");
+  admin(current);
+  const row = await one<ChannelOutboxRow>(env, "SELECT * FROM outbox WHERE id=? AND profile_id=? AND kind='channel'", id, profileId);
+  if (!row) throw new ApiError(404, "not_found", "Entrega não encontrada.");
+  const { context } = await loadChannelDeliveryContext(env, row, false);
+  if (context.resource.kind === "review") {
+    access(current, profileId, "reports:read"); requireAccess(current, "reports");
+  } else {
+    access(current, profileId, "conversations:write"); requireAccess(current, "conversations");
+    const conv = await conversation(env, context.resource.id, profileId, current);
+    await assertDepartmentAccess(env, current, conv);
+  }
+  return row;
+}
+async function reconcileExtensionDelivery(env: Env, actor: Actor, profileId: string, id: string, status: string) {
+  const row = await authorizeChannelDeliveryReconciliation(env, actor, profileId, id);
+  if (status === "pending")
+    throw new ApiError(409, "provider_contract_unverified", "O canal exige reconciliação própria; uma tentativa indeterminada não pode ser repetida.");
+  requireValue(row.status === "unknown" || row.status === status, "Entrega não está indeterminada.");
+  if (row.status === "unknown") await exec(env,
+    "UPDATE outbox SET status=?,completion_handled=0,error=NULL,updated=? WHERE id=? AND profile_id=? AND kind='channel' AND status='unknown'",
+    status, now(), id, profileId);
+  await completeChannelDelivery(env, { ...row, status, completion_handled: 0 });
+  return { id, status, channel_extension: true };
+}
+
+/** Só o ticket cifrado/assinado do Worker atravessa a fronteira com o DO.
+ * O lote usa a fila existente de eventos e sua unicidade entre isolates. */
+export async function receiveExtensionIngress(env: Env, profileId: string, ticket: unknown) {
+  const { scope, input } = await verifyIngressTicket(env, ticket);
+  if (scope.profileId !== profileId)
+    throw new ApiError(403, "invalid_channel_evidence", "A entrada pertence a outra área.");
+  const key = extensionKey(scope.channel, scope.context);
+  if (!key) throw new ApiError(503, "channel_not_ready", "Este canal ainda não está disponível.");
+  const extension = channelExtension(key);
+  const connection = await one<ExtensionConnection>(env,
+    "SELECT * FROM connections WHERE id=? AND profile_id=? AND channel=?", scope.connectionId, profileId, scope.channel);
+  if (!connection || connection.status !== "active" || !extension.enabled?.(connection))
+    return { received: true, ignored: true, reason: "channel_not_ready", wake: false };
+  const ctx = await ingressOperationContext(env, scope);
+  const normalized = await extension.normalize(input, scope);
+  if (!normalized) return { received: true, ignored: true, reason: "unsupported_event", wake: false };
+  requireValue(typeof normalized.key === "string" && normalized.key.length > 0 && normalized.key.length <= 2048 &&
+    typeof normalized.remoteId === "string" && normalized.remoteId.length > 0 && normalized.remoteId.length <= 2048 &&
+    typeof normalized.kind === "string" && normalized.kind.length > 0 && normalized.kind.length <= 100,
+    "Evento de canal inválido.");
+  const eventKey = `c2:${await sha(JSON.stringify([profileId, scope.connectionId, key, normalized.key]))}`;
+  const previous = await one(env, "SELECT payload FROM channel_events WHERE event_key=?", eventKey);
+  if (extension.acknowledge) await extension.acknowledge(ctx, normalized, !!previous);
+  if (previous) return { received: true, duplicate: true, ...json(previous.payload), wake: false };
+  const event = { ...normalized, occurredAt: normalized.occurredAt !== null &&
+    Number.isFinite(normalized.occurredAt) && normalized.occurredAt > 0 && normalized.occurredAt <= ctx.now + 300000
+      ? normalized.occurredAt : null };
+  const plan: ChannelWritePlan = await extension.prepareInbound(ctx, event);
+  await validateChannelWritePlan(ctx, plan);
+  const resource = plan.resource ?? (plan.conversationId ? { kind: "conversation" as const, id: plan.conversationId } : undefined);
+  requireValue(!plan.conversationId || resource?.kind === "conversation" && resource.id === plan.conversationId,
+    "Recurso de entrada inválido.");
+  const result = { ...(plan.conversationId ? { conversation_id: plan.conversationId } : {}), ...(resource ? { resource } : {}) };
+  const guard: [string, unknown[]] = [
+    `INSERT INTO customer_assert(id,ok) SELECT ?,CASE WHEN EXISTS(SELECT 1 FROM connections
+      WHERE id=? AND profile_id=? AND channel=? AND status='active' AND config=?) THEN 1 ELSE 0 END
+      ON CONFLICT(id) DO UPDATE SET ok=excluded.ok`,
+    [eventKey, scope.connectionId, profileId, scope.channel, ctx.connection.config],
+  ];
+  const resourceGuard: [string, unknown[]][] = resource ? [[
+    `INSERT INTO customer_assert(id,ok) SELECT ?,CASE WHEN EXISTS(SELECT 1 FROM ${resource.kind === "review" ? "reviews" : "conversations"}
+      WHERE id=? AND profile_id=? AND connection_id=?) THEN 1 ELSE 0 END
+      ON CONFLICT(id) DO UPDATE SET ok=excluded.ok`,
+    [`${eventKey}:resource`, resource.id, profileId, scope.connectionId],
+  ]] : [];
+  try {
+    await batch(env, [guard,
+      ["INSERT INTO channel_events(event_key,connection_id,chat,external_id,kind,payload,applied,created) VALUES(?,?,?,?,?,?,1,?)",
+        [eventKey, scope.connectionId, key, event.remoteId, event.kind, JSON.stringify(result), ctx.now]],
+      ...plan.statements, ...resourceGuard,
+    ]);
+  } catch (error) {
+    const duplicate = await one(env, "SELECT payload FROM channel_events WHERE event_key=?", eventKey);
+    if (duplicate) return { received: true, duplicate: true, ...json(duplicate.payload), wake: false };
+    throw error;
+  }
+  return { received: true, ...result, wake: plan.wake,
+    maintenance: extension.maintenance?.map(item => item.key) ?? [] };
+}
+
 /** O ingresso social não passa por telefone, afinidade ou escolha cadastral.
  * A conversa nova também faz parte do lote: falha nunca deixa identidade,
  * vínculo de thread, inbox ou mensagem parcialmente confirmados. */
@@ -1372,6 +1487,12 @@ export async function inbound(
   namespace: string,
   connectionId: string | null,
 ) {
+  // A API administrativa é uma entrada de aplicação. Campos autodeclarados
+  // nunca transformam essa entrada em webhook autenticado de um canal.
+  if (["telegram", "email", "tiktok", "googlebusiness"].includes(data.channel) ||
+      ["comment", "review"].includes(data.channel_context?.context) ||
+      !connectionId && (data.channel && data.channel !== "whatsapp" || data.evidence || data.verified === true))
+    throw new ApiError(403, "invalid_channel_evidence", "A entrada deste canal exige seu transporte autenticado.");
   env = withReadCache(env);
   // O DTO autenticado do leitor social transporta IDs opacos maiores. A
   // conexão é reconferida abaixo; esse indício só escolhe o limite inicial.
@@ -2214,7 +2335,9 @@ export async function perform(
   if (op.startsWith("group."))
     return groupCommand(env, actor, profile, op, data, requestId);
   if (op === "message.action")
-    return messageAction(env, actor, profile, data, requestId);
+    return data.action === "channel"
+      ? performChannelAction(env, actor, profile, data.id, data.channel_action, requestId)
+      : messageAction(env, actor, profile, data, requestId);
   if (op.startsWith("queue.") || op.startsWith("counter."))
     return queueCommand(env, actor, profile, op, data, requestId);
   if (op.startsWith("module."))
@@ -2235,7 +2358,7 @@ export async function perform(
   ) {
     admin(actor);
     if (op === "connection.test")
-      return probe(env, data.id, profile, data.origin);
+      return probe(env, data.id, profile, data.origin, actor);
     const conn = await one(
       env,
       "SELECT id FROM connections WHERE id=? AND profile_id=? AND kind='qr'",
@@ -2557,6 +2680,8 @@ export async function perform(
     return { enabled: op === "activate" };
   }
   if (op === "connection.save") {
+    if (data.kind === "telegram_bot" || data.kind === "email")
+      return configureChannelConnection(env, actor, profile, data, requestId);
     admin(actor);
     if (data.kind === "telegram") throw telegramRemoved();
     const existing = data.id ? await one(env, "SELECT * FROM connections WHERE id=? AND profile_id=?", data.id, profile) : null;
@@ -2753,7 +2878,9 @@ export async function perform(
       ["UPDATE connections SET status=? WHERE id=?", [data.status, row.id]],
       ...refreshChannelSummaryStatements(profile),
     ]);
-    return { id: row.id, status: data.status };
+    const extensions = registeredChannelExtensions().filter(extension => extension.spec.id === row.channel &&
+      data.status === "active" && extension.enabled?.(row)).map(extension => extension.key);
+    return { id: row.id, status: data.status, ...(extensions.length ? { channel_extensions: extensions } : {}) };
   }
   if (op === "bot.update") {
     admin(actor);
@@ -2852,6 +2979,11 @@ export async function perform(
     access(actor, profile, "conversations:write");
     let c = await conversation(env, data.id, profile, actor);
     const action = data.action;
+    const channelContext = c.chat_type === "comment" || json(c.channel_context).context === "comment" ? "comment"
+      : c.chat_type === "review" || json(c.channel_context).context === "review" ? "review" : "direct";
+    if (channelContext !== "direct" && (["reply", "menu", "resume", "protocols", "survey"].includes(action) ||
+        action === "transfer" && String(data.target).startsWith("bot:")))
+      throw new ApiError(422, "human_only", "Use a ação explícita do comentário para responder. Este contexto não executa bot.");
     // Ações registradas pelos módulos (src/modules/api.ts).
     const moduleAction =
       typeof action === "string" ? conversationAction(action) : undefined;
@@ -2972,6 +3104,19 @@ export async function perform(
           c.state === "human",
           "A conversa não está em atendimento humano.",
         );
+        const extension = extensionKey(c.channel, channelContext);
+        if (extension) {
+          if (extension === "email/direct")
+            throw new ApiError(422, "subject_invalid", "Use a ação de e-mail com o assunto confirmado.");
+          const ids = await mediaIds(env, profile, data.attachments || []);
+          const attachments = await Promise.all(ids.map(async (mediaId: string) => {
+            const row = await one(env, "SELECT type,size,name FROM media WHERE id=? AND profile_id=?", mediaId, profile);
+            requireValue(row, "Anexo não encontrado nesta área.");
+            return { mediaId, kind: mediaKind(row.type), mimeType: row.type, bytes: row.size, name: row.name };
+          }));
+          return performChannelAction(env, actor, profile, c.id,
+            { type: "message.send", text: String(data.text || "").trim(), attachments }, requestId);
+        }
         const content = await outgoingContent(env, actor, c, data);
         const value = String(data.text || "").trim(),
           attachments = await mediaIds(env, profile, data.attachments || []);
@@ -3573,6 +3718,7 @@ export async function perform(
         profile,
       );
       requireValue(old, "Entrega não encontrada ou já reconciliada.");
+      if (old.kind === "channel") return reconcileExtensionDelivery(env, actor, profile, old.id, data.status);
       requireValue(
         !json(old.payload).template_message || data.allow_paid === true,
         "Reenviar um modelo exige nova autorização explícita de cobrança (allow_paid: true).",
@@ -3599,14 +3745,17 @@ export async function perform(
       );
       return { id, status: "pending" };
     }
-    await exec(
+    const reconciled = await exec(
       env,
-      "UPDATE outbox SET status=?,updated=? WHERE id=? AND profile_id=? AND status='unknown'",
+      "UPDATE outbox SET status=?,updated=? WHERE id=? AND profile_id=? AND status='unknown' AND kind<>'channel'",
       data.status,
       now(),
       data.id,
       profile,
     );
+    if (!reconciled.meta.changes && await one(env,
+      "SELECT 1 FROM outbox WHERE id=? AND profile_id=? AND kind='channel'", data.id, profile))
+      return reconcileExtensionDelivery(env, actor, profile, data.id, data.status);
     return { status: data.status };
   }
   throw new ApiError(404, "not_found", "Operação não encontrada.");

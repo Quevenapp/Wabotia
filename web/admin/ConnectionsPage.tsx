@@ -18,6 +18,7 @@ import {
 import { ConnectionDiagnostics } from "../ConnectionDiagnostics";
 import { ConnectionDialog, connectionChannelPresentation } from "./ConnectionDialog";
 import { SecretDialog, useList } from "./shared";
+import { channelConnectionChoices, channelUiKey } from "../channel-extensions";
 
 const aiProviderText: Row = {
   anthropic: "Anthropic",
@@ -156,6 +157,11 @@ export function ConnectionsPage() {
           Nova conexão
         </Button>
       </div>
+      {channelConnectionChoices({ ...app.status, connections: list.rows }).map(choice => (
+        <Button key={choice.kind} secondary onClick={() => setEditing({ kind: choice.kind, channel: choice.channel })}>
+          {choice.label}
+        </Button>
+      ))}
       {list.error && (
         <Notice tone="error" onRetry={() => void list.reload()}>
           {list.error}
@@ -189,7 +195,7 @@ export function ConnectionsPage() {
               </button>
             )}
             <p>{connectionKindLabel(row)}</p>
-            {connectionChannelPresentation(row).social && (
+            {connectionChannelPresentation(row).social && !channelUiKey(row) && (
               <p className="notice">
                 {connectionChannelPresentation(row).available
                   ? "Conta importada. Requer Inbox no plano da Zernio e permissões de mensagens. O cliente inicia a conversa; teste a conexão antes de ativar."

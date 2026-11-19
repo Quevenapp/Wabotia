@@ -4,6 +4,9 @@ export interface SocialPiiValues {
   subjectId?: string | null;
   username?: string | null;
   displayName?: string | null;
+  emailAddress?: string | null;
+  authorName?: string | null;
+  telegramUserId?: string | null;
 }
 const socialFields: Record<string, PiiKind> = {
   subjectid: "SOCIAL_ID", subject_id: "SOCIAL_ID", channel_subject_id: "SOCIAL_ID",
@@ -11,6 +14,11 @@ const socialFields: Record<string, PiiKind> = {
   social_user_id: "SOCIAL_ID", scoped_user_id: "SOCIAL_ID",
   username: "HANDLE", handle: "HANDLE", social_username: "HANDLE",
   displayname: "NAME", display_name: "NAME", social_display_name: "NAME",
+  telegram_user_id: "SOCIAL_ID", telegramuserid: "SOCIAL_ID", chat_id: "SOCIAL_ID",
+  author_id: "SOCIAL_ID", authorid: "SOCIAL_ID", reviewer_id: "SOCIAL_ID",
+  author_name: "NAME", authorname: "NAME", reviewer_name: "NAME", sender_name: "NAME",
+  email_address: "EMAIL", emailaddress: "EMAIL", sender: "EMAIL", recipient: "EMAIL",
+  envelope_from: "EMAIL", envelope_to: "EMAIL", reply_to: "EMAIL",
 };
 export interface PiiMatch {
   kind: PiiKind;
@@ -159,6 +167,7 @@ export function createPiiMask(enabled = true, knownSocial?: SocialPiiValues) {
   const rememberSocial = (input: SocialPiiValues) => {
     for (const [value, kind] of [
       [input.subjectId, "SOCIAL_ID"], [input.username, "HANDLE"], [input.displayName, "NAME"],
+      [input.emailAddress, "EMAIL"], [input.authorName, "NAME"], [input.telegramUserId, "SOCIAL_ID"],
     ] as const) {
       if (typeof value !== "string" || !value.trim()) continue;
       known.set(value, kind);

@@ -11,6 +11,7 @@ import { navigate } from "../lib/routes";
 import { usageText } from "../lib/usage";
 import { FormDialog, Pager, useList } from "./shared";
 import { channelLabel, conversationChannels, isMultichannel } from "../channels";
+import { ChannelReviewsPage, channelReviewsAvailable } from "../channel-extensions";
 
 const reportSections: [string, string][] = [
   ["tickets", "Protocolos"],
@@ -22,6 +23,21 @@ const reportSections: [string, string][] = [
 ];
 
 export function ReportsPage() {
+  const app = useApp();
+  const [selected, setSelected] = useState<"service" | "google">("service");
+  const available = channelReviewsAvailable(app.status);
+  return <>
+    {available && <nav aria-label="Origem do relatório">
+      <Button secondary={selected !== "service"} onClick={() => setSelected("service")}>Atendimento</Button>
+      <Button secondary={selected !== "google"} onClick={() => setSelected("google")}>Google</Button>
+    </nav>}
+    {available && selected === "google"
+      ? <ChannelReviewsPage api={app.api} root={app.root} status={app.status} now={app.now} mode="report" />
+      : <ConversationReportsPage />}
+  </>;
+}
+
+function ConversationReportsPage() {
   const app = useApp();
   const [section, setSection] = useState("tickets");
   const [selectedChannel, setChannel] = useState("");
@@ -284,6 +300,21 @@ export function LogsPage({
 
 /** Avaliações e consentimentos: listas de consulta. */
 export function SimpleListPage({ page }: { page: "surveys" | "consents" }) {
+  const app = useApp();
+  const [selected, setSelected] = useState<"service" | "google">("service");
+  const available = page === "surveys" && channelReviewsAvailable(app.status);
+  return <>
+    {available && <nav aria-label="Origem das avaliações">
+      <Button secondary={selected !== "service"} onClick={() => setSelected("service")}>Atendimento</Button>
+      <Button secondary={selected !== "google"} onClick={() => setSelected("google")}>Google</Button>
+    </nav>}
+    {available && selected === "google"
+      ? <ChannelReviewsPage api={app.api} root={app.root} status={app.status} now={app.now} mode="reviews" />
+      : <ServiceRecordsListPage page={page} />}
+  </>;
+}
+
+function ServiceRecordsListPage({ page }: { page: "surveys" | "consents" }) {
   const app = useApp();
   const list = useList(app.root + "/" + page);
   return (

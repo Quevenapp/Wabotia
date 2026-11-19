@@ -48,6 +48,7 @@ import { conversationExtensions } from "../modules/conversation";
 import { ContactProfile } from "../contact-profile/ContactProfile";
 import { profileScopeKey } from "../contact-profile/model";
 import { channelPresentation } from "../channels";
+import { ChannelConversationInfo, channelUiKey } from "../channel-extensions";
 import { EmailTranscriptDialog, transcriptAction } from "./EmailTranscriptDialog";
 
 export type InfoActions = {
@@ -167,7 +168,8 @@ export function InfoPanel({
         </p>
       </section>
 
-      {info && (
+      <ChannelConversationInfo conversation={c} detail={detail} api={app.api} root={app.root} now={app.now} refresh={refresh} />
+      {info && !channelUiKey(c) && (
         <section className="info-section info-window">
           <button
             type="button"
@@ -443,7 +445,7 @@ export function InfoPanel({
         )}
       </section>
       {emailOpen && email.enabled && <EmailTranscriptDialog conversationId={c.id} options={detail.email_transcript} onClose={() => setEmailOpen(false)} />}
-      {profileContact?.scope === contactScope && <ContactProfile api={app.api} root={app.root}
+      {profileContact?.scope === contactScope && <ContactProfile api={app.api} root={app.root} channelExtensions={app.status.channel_extensions || []}
         contactId={profileContact.id} scopeKey={contactScope} demo={app.demo} initialContact={detail.contact}
         conversation={c} onClose={() => setProfileContact(null)} onSaved={() => { void refresh(); }} />}
     </SidePanel>

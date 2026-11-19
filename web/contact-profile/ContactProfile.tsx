@@ -10,6 +10,8 @@ import { Dialog, SimpleContactBody } from "../ContactsPanel";
 import { bindErpContact, cancelContactJob, contactMergeWriter, jobBlocksEditing, jobMessage, mountProfileHost, profileMessage, profileMode, ProfileRequests, readContactJob, replaceSectionRole, sectionWriter, synchronizationJob, watchContactJob, writeFeedback, type ProfileJob, type ProfileVocabulary } from "./model";
 import { cellText, privateTarget, registeredComponent, targetHref } from "./registry";
 import { ChannelsSection } from "./ChannelsSection";
+import { ChannelContactActions } from "../channel-extensions";
+import type { ExtensionKey } from "../../src/channel-c2-contracts";
 import { MergeContactsDialog } from "./MergeContactsDialog";
 import "./profile.css";
 
@@ -23,6 +25,7 @@ export type ContactProfileProps = {
   demo?: boolean;
   initialContact?: Row;
   conversation?: Row;
+  channelExtensions?: readonly ExtensionKey[];
   vocabulary?: ProfileVocabulary;
   onClose(): void;
   onSaved?(message?: string): void;
@@ -134,6 +137,9 @@ function ProfileSession(props: ContactProfileProps) {
         {!demo && <>
           {view.readable !== false && <>
             <ChannelsSection channels={view.channels} conversations={view.other_conversations} />
+            <ChannelContactActions contactId={canonicalId} contact={row || {}} conversation={props.conversation}
+              channels={view.channels || []} extensionKeys={props.channelExtensions ?? (view as ContactProfileView & { channel_extensions?: readonly ExtensionKey[] }).channel_extensions}
+              api={api} root={root} refresh={async () => { setContactRevision(n => n + 1); setRevision(n => n + 1); }} />
             {view.merge && <MergeControls api={api} root={root} requestedId={contactId} view={view}
               changed={message => { mergeNotice.current = message; setNotice(message); setContactRevision(n => n + 1); setRevision(n => n + 1); }} />}
           </>}

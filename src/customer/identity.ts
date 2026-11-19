@@ -397,6 +397,8 @@ async function indexContact(env: Env, input: Parameters<IdentityPort["indexConta
 function recordLink(c: Conversation, link: Parameters<NonNullable<IdentityPort["recordLink"]>>[1]): Statement[] {
   if (c.profile_id !== link.profileId || c.id !== link.conversationId || c.chat_type === "group" || namespaceOf(c) !== "team") return [];
   if (c.channel && c.channel !== "whatsapp") {
+    if (c.channel === "email" || c.channel === "googlebusiness" || c.chat_type === "comment" ||
+        JSON.parse(c.channel_context || "{}").context === "comment") return [];
     // Protocolos próprios continuam disponíveis em DM. Nenhum módulo recebe
     // uma ligação por telefone cadastral de uma ficha juntada.
     if (!["tickets", "conversations"].includes(link.moduleId)) return [];
@@ -404,7 +406,7 @@ function recordLink(c: Conversation, link: Parameters<NonNullable<IdentityPort["
       `INSERT INTO customer_records(profile_id,module_id,kind,record_id,contact_id,conversation_id,linked_by,occurred_at)
        SELECT v.profile_id,?,?,?,k.id,v.id,?,? FROM conversations v
        JOIN customer_channel_ids i ON i.id=v.channel_identity_id AND i.profile_id=v.profile_id AND i.namespace='team'
-         AND i.channel=v.channel AND i.account_id=v.channel_account_id AND i.subject_namespace='dm' AND i.subject_id=v.channel_subject_id AND i.state='ready'
+         AND i.channel=v.channel AND i.account_id=v.channel_account_id AND i.subject_namespace=${c.channel === "telegram" ? "'telegram-user'" : "'dm'"} AND i.subject_id=v.channel_subject_id AND i.state='ready'
        JOIN contacts k ON k.id=i.contact_id AND k.profile_id=i.profile_id AND k.namespace=i.namespace AND k.identity_state='active' AND k.merged_into IS NULL
        WHERE v.profile_id=? AND v.id=? AND v.session=? AND v.customer_link_state='ready' AND v.chat_type='direct'
          AND v.external_namespace='channel:'||v.connection_id

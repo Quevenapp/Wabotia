@@ -13,6 +13,8 @@ import { all, batch, exec, one } from "./db";
 import { ApiError, type Actor, type Env, now, uid } from "./types";
 import { admin, safeFetch, secret, setSecret, sha } from "./security";
 import type { TranscriptEmailSettings, TranscriptSendResult } from "./channel-contracts";
+import type { ChannelConnection } from "./channel-contracts";
+import type { ChannelDeliveryResult } from "./channel-c2-contracts";
 
 const CONFIG_ID = "email:config";
 const API = "https://api.cloudflare.com/client/v4";
@@ -36,6 +38,74 @@ export interface EmailMessage {
   subject: string;
   text: string;
   html?: string;
+}
+
+/** Fachada exclusiva da outbox do canal. Módulos e transcrição não a utilizam. */
+export interface ChannelEmailMessage {
+  to: string;
+  subject: string;
+  text: string;
+  messageId: string;
+  inReplyTo?: string;
+  references?: readonly string[];
+  automatic?: boolean;
+  attachments?: readonly { name: string; mimeType: string; bytes: Uint8Array }[];
+}
+export interface ChannelEmailTransport {
+  /** Campos REST de anexos/cabeçalhos: formato do plano; a conferir com a conta real.
+   * Sem confirmação do contrato, deve devolver provider_contract_unverified antes da rede. */
+  prepare(message: ChannelEmailMessage & { from: string }): Promise<{
+    body: Readonly<Record<string, unknown>>;
+    /** Mensagem efetivamente codificada, incluindo cabeçalhos e anexos. */
+    encodedMessage: Uint8Array;
+  }>;
+  read(response: Response): Promise<ChannelDeliveryResult>;
+}
+let channelEmailTransport: ChannelEmailTransport | null = null;
+export function registerChannelEmailTransport(transport: ChannelEmailTransport): void {
+  if (channelEmailTransport && channelEmailTransport !== transport) throw new Error("Transporte de e-mail já registrado.");
+  channelEmailTransport = transport;
+}
+const channelMessageId = (value: string) => value.length <= 998 && /^<[^<>\s\u0000-\u001f\u007f]+@[^<>\s\u0000-\u001f\u007f]+>$/.test(value);
+export async function sendChannelEmail(env: Env, connection: ChannelConnection, input: ChannelEmailMessage,
+  beforeFetch: () => Promise<void>, adapter?: ChannelEmailTransport): Promise<ChannelDeliveryResult> {
+  // Stub não lê cofre, D1 nem R2.
+  const transport = adapter ?? channelEmailTransport;
+  if (!transport) throw new ApiError(503, "channel_not_ready", "O envio do canal de e-mail ainda não está disponível.");
+  if (connection.channel !== "email" || connection.kind !== "email") throw new ApiError(400, "invalid_channel", "Conexão de e-mail obrigatória.");
+  let config: Record<string, unknown>;
+  try { config = JSON.parse(connection.config) as Record<string, unknown>; }
+  catch { throw new ApiError(400, "invalid_request", "Configuração do canal inválida."); }
+  const from = normalizeEmailAddress(config.address);
+  const to = normalizeEmailAddress(input.to);
+  if (typeof input.subject !== "string" || input.subject.length > 200 || /[\r\n\u0000]/.test(input.subject))
+    throw new ApiError(400, "subject_invalid", "O assunto aceita até 200 caracteres, sem quebras de linha.");
+  if (typeof input.text !== "string" || input.text.length > 50_000 || (!input.text.trim() && !input.attachments?.length))
+    throw new ApiError(400, "invalid_request", "Informe texto de até 50.000 caracteres.");
+  const references = input.references ?? [];
+  const ids = [input.messageId, ...(input.inReplyTo ? [input.inReplyTo] : []), ...references];
+  if (references.length > 50 || !ids.every(value => typeof value === "string" && channelMessageId(value)) ||
+      new TextEncoder().encode(ids.join("\r\n")).byteLength > 8192)
+    throw new ApiError(400, "invalid_request", "Cabeçalhos de encadeamento inválidos.");
+  if ((input.attachments?.length ?? 0) > 32 || input.attachments?.some(attachment =>
+    !attachment.name || attachment.name.length > 200 || /[\r\n\u0000/\\]/.test(attachment.name) ||
+    !/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(attachment.mimeType) || !(attachment.bytes instanceof Uint8Array)))
+    throw new ApiError(400, "unsupported_content", "Anexo inválido.");
+  const prepared = await transport.prepare({ ...input, to, from, references });
+  const body = JSON.stringify(prepared.body);
+  const maxBytes = 26_214_400;
+  if (!(prepared.encodedMessage instanceof Uint8Array) || prepared.encodedMessage.byteLength > maxBytes ||
+      new TextEncoder().encode(body).byteLength > maxBytes)
+    throw new ApiError(413, "attachment_too_large", "O e-mail codificado excede 25 MiB.");
+  const cfg = await emailConfig(env);
+  if (!configured(cfg)) throw new ApiError(409, "email_unavailable", "Configure o envio de e-mail do Sistema.");
+  await beforeFetch();
+  try {
+    const response = await emailProviderRequest(cfg, body);
+    return await transport.read(response);
+  } catch {
+    return { kind: "unknown", code: "provider_unknown" };
+  }
 }
 
 export interface EmailMeta {
@@ -284,6 +354,13 @@ class ProviderError extends ApiError {
   }
 }
 
+/** Transporte comum, mantendo o contrato de módulos e transcrição. */
+function emailProviderRequest(cfg: EmailConfig, body: string): Promise<Response> {
+  return safeFetch(`${API}/accounts/${cfg.account_id}/email/sending/send`, {
+    method: "POST", headers: { Authorization: `Bearer ${cfg.token}`, "Content-Type": "application/json" }, body,
+  });
+}
+
 async function deliver(
   cfg: EmailConfig,
   msg: EmailMessage,
@@ -291,15 +368,7 @@ async function deliver(
 ): Promise<EmailStatus> {
   let response: Response;
   try {
-    response = await safeFetch(
-      `${API}/accounts/${cfg.account_id}/email/sending/send`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${cfg.token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+    response = await emailProviderRequest(cfg, JSON.stringify({
           to: msg.to,
           from: cfg.from_name
             ? { address: cfg.from_address, name: cfg.from_name }
@@ -307,9 +376,7 @@ async function deliver(
           subject: msg.subject,
           text: msg.text,
           ...(msg.html ? { html: msg.html } : {}),
-        }),
-      },
-    );
+        }));
   } catch (e) {
     if (e instanceof ApiError) throw e;
     throw new ProviderError(

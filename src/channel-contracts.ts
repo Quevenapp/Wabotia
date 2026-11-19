@@ -10,7 +10,9 @@ export type SendOrigin = "manual_text" | "human_media" | "bot" | "automation";
 export type MediaKind = "image" | "video" | "audio" | "document" | "sticker";
 export type ChannelErrorCode =
   | "window_closed" | "human_only" | "cannot_initiate" | "unsupported_content"
-  | "inbox_required" | "channel_not_ready" | "provider_unknown";
+  | "inbox_required" | "channel_not_ready" | "provider_unknown"
+  | "private_reply_used" | "private_reply_expired" | "quota_exhausted" | "rate_limited"
+  | "sender_unverified" | "subject_invalid" | "attachment_too_large" | "provider_contract_unverified";
 
 export interface ChannelSpec {
   id: ChannelId;
@@ -184,7 +186,7 @@ export interface ChannelAccountImport {
   commandId: string;
   integrationId: string;
   accountId: string;
-  channel: DirectSocialChannelId;
+  channel: DirectSocialChannelId | "tiktok" | "googlebusiness";
 }
 export interface ChannelAccountImportResult {
   connection: ChannelConnection;
