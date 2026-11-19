@@ -1,0 +1,29 @@
+.c2-panel, .c2-composer-fields, .c2-contact-actions, .c2-connection-fields, .c2-reviews {
+  box-sizing: border-box;
+  color: inherit;
+  font: inherit;
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 0.65rem;
+  margin-block: 0.5rem;
+}
+.c2-panel p, .c2-composer-fields p, .c2-message-meta p, .c2-contact-actions p, .c2-connection-fields p, .c2-reviews p { margin-block: 0.4rem; }
+.c2-help { font-size: 0.875rem; opacity: 0.8; line-height: 1.5; }
+.c2-notice { border-inline-start: 3px solid #ad7c20; padding-inline-start: 0.65rem; line-height: 1.5; }
+.c2-mark { display: inline-block; border: 1px solid currentColor; border-radius: 1rem; padding: 0.1rem 0.5rem; font-size: 0.75rem; }
+.c2-message-meta { margin-block: 0.35rem; padding-inline: 0.6rem; font-size: 0.85rem; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; }
+.c2-subject { font-size: 0.95rem; }
+.c2-fields, .c2-actions, .c2-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 0.65rem; }
+.c2-panel label, .c2-composer-fields label, .c2-connection-fields label, .c2-contact-actions label, .c2-reviews label { display: block; margin-block: 0.5rem; }
+.c2-panel input, .c2-panel select, .c2-panel textarea,
+.c2-composer-fields input, .c2-composer-fields select,
+.c2-connection-fields input, .c2-connection-fields select, .c2-connection-fields textarea,
+.c2-contact-actions input, .c2-contact-actions select,
+.c2-reviews input, .c2-reviews textarea, .c2-reviews select { font: inherit; color: inherit; max-width: 100%; box-sizing: border-box; }
+.c2-panel button, .c2-composer-fields button, .c2-connection-fields button, .c2-contact-actions button, .c2-reviews button { font: inherit; cursor: pointer; }
+.c2-panel button:disabled, .c2-composer-fields button:disabled, .c2-connection-fields button:disabled, .c2-contact-actions button:disabled, .c2-reviews button:disabled { cursor: default; opacity: 0.55; }
+.c2-panel :focus-visible, .c2-composer-fields :focus-visible, .c2-connection-fields :focus-visible, .c2-contact-actions :focus-visible, .c2-reviews :focus-visible { outline: 2px solid #4279bd; outline-offset: 2px; }
+.c2-review { padding-block: 0.8rem; border-block-end: 1px solid color-mix(in srgb, currentColor 15%, transparent); overflow-wrap: anywhere; }
+.c2-review-text, .c2-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.c2-quota strong { font-variant-numeric: tabular-nums; }
