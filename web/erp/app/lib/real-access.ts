@@ -32,6 +32,8 @@ import type {UpdateAction,UpdateOptions} from './system-updates.ts';
 // Wabotia: cache de sessão dos GETs estáveis (lista explícita e regras em web/erp/session-cache.ts).
 import {createSessionCache,cachePolicy} from '../../session-cache.ts';
 import {readPendingInMotor,writeRefused} from '../../motor.ts';
+import {parseMyPermissions} from '../../../../packages/erp-domain/src/user-permissions.mjs';
+import type {ErpPermissions} from '../../../management/host-contract';
 
 export const RESOURCE_LABELS = {
   contacts: 'Clientes e fornecedores', products: 'Produtos', sales_orders: 'Pedidos de venda',
@@ -55,6 +57,7 @@ export interface AccessState {
   membership: Membership | null; records: RecordPage | null; listPending: boolean;
   loginPending: boolean; message: string | null; logoutFailed: boolean;
   permissionMessage?: string | null;
+  permissions?: ErpPermissions | null;
 }
 interface SessionLike { access_token: string; user: { id: string } }
 interface AuthResult { data: { session: SessionLike | null }; error: unknown }
@@ -64,7 +67,7 @@ export interface AuthPort {
   signInWithPassword(credentials: { email: string; password: string }): Promise<AuthResult>;
   signOut(options: { scope: 'local' }): Promise<{ error: unknown }>;
 }
-const initial: AccessState = { phase: 'loading', membership: null, records: null, listPending: false, loginPending: false, message: null, logoutFailed: false, permissionMessage: null };
+const initial: AccessState = { phase: 'loading', membership: null, records: null, listPending: false, loginPending: false, message: null, logoutFailed: false, permissionMessage: null, permissions: null };
 export class AccessError extends Error {
   status: number;
   code?: string;
@@ -133,19 +136,24 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
   let listGeneration = 0;
   let stopped = true;
   let signingOut = false;
+  let suspended = false;
+  let fineEnabled = false;
+  let fineRequest: AbortController | null = null;
+  let finePromise: Promise<void> | null = null;
   let subscription: { unsubscribe(): void } | null = null;
   const listeners = new Set<() => void>();
   const requests = new Set<AbortController>();
+  const fineRequests = new Set<AbortController>();
   let listRequest: AbortController | null = null;
   let permissionRecheck: AbortController | null = null;
   let permissionPromise: Promise<void> | null = null;
   // Wabotia: um cache por controlador (área/apiUrl); chave apiUrl+ator+papel+caminho. Só serve com a credencial já conferida pelo /v1/me.
   const sessionCache = createSessionCache();
-  const cacheReady = () => !stopped&&!signingOut&&!!token&&state.phase==='ready'&&!!sessionActor&&state.membership?.user_id===sessionActor&&verifiedCredentialEpoch===credentialEpoch;
+  const cacheReady = () => !suspended&&!stopped&&!signingOut&&!!token&&state.phase==='ready'&&!!sessionActor&&state.membership?.user_id===sessionActor&&verifiedCredentialEpoch===credentialEpoch;
   const cacheKey = (path: string) => JSON.stringify([apiUrl,sessionActor,state.membership?.role??null,path]);
   const update = (patch: Partial<AccessState>) => { state = { ...state, ...patch }; listeners.forEach(listener => listener()); };
   // Wabotia: fim de sessão (401, logout, troca de sessão, parada do controlador) também esvazia o cache.
-  const cancel = () => { generation++; listGeneration++; requests.forEach(request => request.abort()); requests.clear(); listRequest = null; permissionRecheck = null; permissionPromise = null; sessionCache.clear(); };
+  const cancel = () => { generation++; listGeneration++; requests.forEach(request => request.abort()); requests.clear(); fineRequests.clear(); listRequest = null; permissionRecheck = null; permissionPromise = null; fineRequest = null; finePromise = null; sessionCache.clear(); };
   const request = async (path: string, bearer: string, controller: AbortController, options: { method?: 'GET' | 'POST' | 'PATCH'; body?: unknown; responseLimit?: number; timeoutMs?: number } = {}): Promise<unknown> => {
     requests.add(controller);
     const timeout = new AbortController();
@@ -164,21 +172,51 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
   // Preferências lane (229): outside the access windows of Sistema › Usuários the session ends with its own message.
   const denyAccess = (status: 401 | 403, code?: string) => {
     cancel();verifiedCredentialEpoch=-1;
+    update({permissions:null});
     if(status===401){token=null;sessionActor=null;}
     // Leva H (310): the company requires a second factor of this user; the session stays and the screen asks for the code.
     if(status===403&&code==='ERP_MFA_REQUIRED'){update({membership:null,records:null,listPending:false,phase:'mfa',message:null,permissionMessage:null});return;}
     update({membership:null,records:null,listPending:false,phase:status===401?'signed_out':'pending',message:status===401?'Sua sessão expirou. Entre novamente.'
       :code==='ERP_ACCESS_OUTSIDE_SCHEDULE'?'Você não pode acessar o ERP neste horário. Os horários de acesso são definidos pelo administrador em Preferências › Sistema › Permissões no ERP.':null,permissionMessage:null});
   };
+  const checkPermissions = (afterMembership = false) => {
+    if (fineRequest) return finePromise;
+    if (!fineEnabled || suspended || stopped || signingOut || !token || state.phase !== 'ready' || !state.membership) return null;
+    if (verifiedCredentialEpoch !== credentialEpoch || permissionRecheck && !afterMembership) return null;
+    const current = generation, credential = credentialEpoch, bearer = token, me = state.membership;
+    const controller = new AbortController(); fineRequest = controller;
+    const active = () => !suspended && !stopped && !controller.signal.aborted && current === generation && credential === credentialEpoch &&
+      bearer === token && me.user_id === sessionActor && state.phase === 'ready' && state.membership?.role === me.role;
+    const base = {userId:me.user_id,role:me.role,resources:me.resources,apiUrl,permissions:null};
+    update({permissions:{...base,phase:'checking',message:'Verificando suas permissões individuais…'}});
+    finePromise = (async () => {
+      try {
+        const value = parseMyPermissions(await request('/v1/sistema/permissoes', bearer, controller));
+        if (!active()) return;
+        if (value.user_id !== me.user_id || value.role !== me.role) throw new AccessError(502);
+        if (!value.access.open) { denyAccess(403, 'ERP_ACCESS_OUTSIDE_SCHEDULE'); return; }
+        update({permissions:{...base,phase:'ready',permissions:value.permissions,message:null}});
+      } catch (error) {
+        if (!active()) return;
+        if (error instanceof AccessError && error.status === 401) denyAccess(401);
+        else update({permissions:{...base,phase:'error',message:'Não foi possível verificar suas permissões individuais. Tente novamente.'}});
+      } finally { if (fineRequest === controller) { fineRequest = null; finePromise = null; } }
+    })();
+    return finePromise;
+  };
   // An operation-level403 is not proof that company membership was revoked.
   // Keep this actor's mounted editor and command while /me checks membership.
   // The server continues to authorize every individual request independently.
   const revalidateMembership = () => {
     if(permissionRecheck)return permissionPromise;
-    if(stopped||signingOut||!token||state.phase!=='ready'||!state.membership)return null;
+    if(suspended||stopped||signingOut||!token||state.phase!=='ready'||!state.membership)return null;
+    fineRequests.forEach(request => request.abort()); fineRequests.clear();
+    if(fineEnabled)verifiedCredentialEpoch=-1;
     const current=generation,credential=credentialEpoch,bearer=token,actor=state.membership.user_id,controller=new AbortController();
     if(actor!==sessionActor){denyAccess(401);return null;}
     permissionRecheck=controller;
+    fineRequest?.abort(); fineRequest=null; finePromise=null;
+    if(fineEnabled)update({permissions:{userId:actor,role:state.membership.role,apiUrl,permissions:null,phase:'checking',message:'Verificando suas permissões individuais…'}});
     const active=()=>!stopped&&!signingOut&&!controller.signal.aborted&&current===generation&&credential===credentialEpoch&&bearer===token&&actor===sessionActor&&state.phase==='ready'&&state.membership?.user_id===actor;
     update({permissionMessage:'Conferindo suas permissões. A tentativa em andamento permanece nesta tela.'});
     permissionPromise=(async()=>{
@@ -191,15 +229,18 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
         // Wabotia: papel ou recursos mudaram: nada do cache do papel anterior é servido.
         if(changed){listGeneration++;listRequest?.abort();listRequest=null;sessionCache.clear();}
         update({membership:me,permissionMessage:null,...(changed?{records:null,listPending:false}:{})});
+        await checkPermissions(true);
       }catch(error){
         if(!active())return;
         if(error instanceof AccessError&&(error.status===401||error.status===403))denyAccess(error.status,error.code);
-        else update({permissionMessage:'Não foi possível reconfirmar seu acesso. Sua tentativa foi preservada; tente verificar as permissões novamente.'});
+        else update({permissionMessage:'Não foi possível reconfirmar seu acesso. Sua tentativa foi preservada; tente verificar as permissões novamente.',
+          ...(fineEnabled ? {permissions:{userId:actor,role:state.membership!.role,apiUrl,permissions:null,phase:'error' as const,message:'Não foi possível verificar suas permissões individuais. Tente novamente.'}} : {})});
       }finally{if(permissionRecheck===controller){permissionRecheck=null;permissionPromise=null;}}
     })();
     return permissionPromise;
   };
   const authorizedBearer = (signal?: AbortSignal): string | Promise<string> => {
+    if (suspended) throw new DOMException('Contexto suspenso', 'AbortError');
     const current = generation, actor = sessionActor;
     if (stopped || signingOut || !token || state.phase !== 'ready' || !actor || state.membership?.user_id !== actor) throw new AccessError(401);
     if (signal?.aborted) throw new DOMException('Request cancelled', 'AbortError');
@@ -245,6 +286,7 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
       if(!actor||me.user_id!==actor){denyAccess(401);return;}
       verifiedCredentialEpoch=credential;
       update({ phase: 'ready', membership: me, message: null, permissionMessage:null });
+      void checkPermissions();
     } catch (error) {
       if (stopped || current !== generation) return;
       const status = error instanceof AccessError ? error.status : 503;
@@ -291,6 +333,13 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
     } finally { clearTimeout(timer); requests.delete(controller); signal?.removeEventListener('abort', abort); }
   };
   const nativeRequest = async (prefix: string, path: string, options: NativeRequestOptions = {}, responseLimit = 1024 * 1024, timeoutMs = 12000, beforeDispatch?:()=>void, shared = false): Promise<unknown> => {
+    if (suspended) throw new DOMException('Contexto suspenso', 'AbortError');
+    const controlled = fineEnabled && /^\/v1\/estoque(?:[?]|$|\/(?:saldos|totais|movimentos|reservas|sugestao|lancamentos)(?:[/?]|$))/.test(path);
+    if (controlled) {
+      const access = state.permissions;
+      if (!access || access.phase !== 'ready') throw new AccessError(503);
+      if (access.permissions !== null && !access.permissions.includes('suprimentos.controle_estoque')) throw new AccessError(403);
+    }
     if (!token || state.phase !== 'ready' || stopped) throw new AccessError(401);
     if (path !== prefix && !path.startsWith(`${prefix}/`) && !path.startsWith(`${prefix}?`)) throw new AccessError(400);
     const pathname=path.split('?')[0];
@@ -304,6 +353,7 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
     if(write)sessionCache.invalidateWrite(path);
     const current = generation; const controller = new AbortController(); const abort = () => controller.abort();
     options.signal?.addEventListener('abort', abort, { once: true }); if (options.signal?.aborted) controller.abort();requests.add(controller);
+    if (controlled) fineRequests.add(controller);
     let bearer=token,credential=credentialEpoch;
     try {
       const authorized=authorizedBearer(controller.signal);bearer=typeof authorized==='string'?authorized:await authorized;assertDispatch(current,controller,bearer);credential=credentialEpoch;
@@ -317,7 +367,7 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
       // Wabotia: escrita sem motor ainda (502 ERP_UPSTREAM_UNAVAILABLE): a casca avisa que a ação está em implantação (web/erp/motor.ts).
       if(write&&failure instanceof AccessError)writeRefused(failure.status,failure.code);
       throw failure;
-    } finally { requests.delete(controller);options.signal?.removeEventListener('abort', abort);if(write)sessionCache.invalidateWrite(path); }
+    } finally { requests.delete(controller);fineRequests.delete(controller);options.signal?.removeEventListener('abort', abort);if(write)sessionCache.invalidateWrite(path); }
   };
   const a1Request = async (path: string, options: A1RequestOptions = {}): Promise<unknown> => {
     if (!token || state.phase !== 'ready' || stopped) throw new AccessError(401);
@@ -657,6 +707,21 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
       finally{options.signal?.removeEventListener('abort',abort);controller.abort();if(action!=='status')sessionCache.clear();}
     },
     getSnapshot: () => state,
+    /** O hospedeiro só ativa esta leitura depois da entrada portada autorizada. */
+    verifyPermissions() {
+      if (fineEnabled && state.permissions?.phase === 'ready') return null;
+      fineEnabled = true; return checkPermissions();
+    },
+    setSuspended(value: boolean) {
+      if (suspended === value) return;
+      suspended = value;
+      cancel(); verifiedCredentialEpoch = -1;
+      update({permissions:null});
+      if (!value && token && !stopped) {
+        if (state.phase === 'ready') void revalidateMembership();
+        else void checkMembership(token);
+      }
+    },
     backupImport: backupImportRequest,
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     start() {

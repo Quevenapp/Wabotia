@@ -2,7 +2,7 @@
 import { ERP_MANAGEMENT_ITEMS, type ErpPart } from "../../src/modules/erp/panel-menu.ts";
 import { ROLE_RESOURCES } from "../../src/erp/role-resources.ts";
 import type { ManagementContext, PanelErpRole } from "../../src/modules/panel-contract.ts";
-import type { PortedTargetState } from "./host-contract";
+import type { ErpPermissions, PortedTargetState } from "./host-contract";
 import { erpPartEnabled } from "../erp/modules.ts";
 import { MOTOR_PENDING } from "../erp/motor.ts";
 
@@ -11,6 +11,7 @@ export interface PortedTarget {
   roles?: readonly PanelErpRole[];
   resource?: string;
   anyResource?: readonly string[];
+  readPermission?: string;
 }
 const admin = ["admin"] as const;
 const finance = ["admin", "consulta", "financeiro"] as const;
@@ -37,6 +38,7 @@ export function hiddenPortedTarget(to: string): boolean {
 // Inventário complementar a App.tsx/origin-menu.ts. Só metadados de roteamento;
 // não importar os schemas completos de preferências no pacote inicial.
 const extra: Readonly<Record<string, PortedTarget>> = {
+  "/estoque-empresa": { ...rule("estoque", products), readPermission: "suprimentos.controle_estoque" },
   "/empresa-configuracoes": rule("sistema"),
   "/estoque-abertura": rule("estoque", admin),
   "/cobranca-empresa": rule("cobranca", finance),
@@ -124,8 +126,10 @@ export function portedTarget(to: string): PortedTarget | null {
     if (!kind) return null;
     const action = params.get("acao");
     const base = kind === "purchase_orders" ? rule("compras", purchases) : kind === "service_orders" ? rule("servicos", sales) : rule("vendas", kind === "sales_orders" ? undefined : sales);
-    if (["numeracao", "cabecalho", "aprovacao-descontos"].includes(action ?? "")) return { ...base, roles: admin };
-    if (action === "checkout") return { ...base, roles: ["admin", "vendas"] };
+    if (action === "numeracao") return { ...base, roles: admin };
+    if (action === "cabecalho") return base;
+    if (action === "aprovacao-descontos") return kind === "sales_orders" ? base : null;
+    if (action === "checkout") return kind === "sales_orders" ? { ...base, roles: ["admin", "vendas"] } : null;
     return base;
   }
   if (path === "/financeiro-empresa") {
@@ -163,22 +167,40 @@ export function portedTarget(to: string): PortedTarget | null {
 }
 
 /** Acesso efetivo reutilizado pelas ferramentas, depois da confirmação do /v1/me. */
-export function portedPermissionAllowed(to: string, role: string | null | undefined, resources: readonly string[]): boolean {
+function roleAllowed(to: string, role: string | null | undefined, resources: readonly string[]): boolean {
   const target = portedTarget(to);
   return !!target && !!role && Object.hasOwn(ROLE_RESOURCES, role) &&
     (!target.roles || target.roles.includes(role as PanelErpRole)) && (!target.resource || resources.includes(target.resource)) &&
     (!target.anyResource || target.anyResource.some(resource => resources.includes(resource)));
 }
 
-export function portedTargetState(to: string, c: ManagementContext, simulated = false): PortedTargetState {
+export function portedPermissionState(to: string, permissions?: ErpPermissions | null): PortedTargetState {
+  const target = portedTarget(to);
+  if (!target) return "not-found";
+  if (!target.readPermission) return "allowed";
+  if (!permissions || permissions.phase === "checking") return "loading";
+  if (permissions.phase === "error") return "unavailable";
+  return permissions.permissions === null || permissions.permissions.includes(target.readPermission) ? "allowed" : "denied";
+}
+
+export function portedPermissionAllowed(to: string, role: string | null | undefined, resources: readonly string[], permissions?: ErpPermissions | null): boolean {
+  return roleAllowed(to, role, resources) && (!permissions || permissions.role === role) && portedPermissionState(to, permissions) === "allowed";
+}
+
+/** O quarto argumento acrescenta a verificação efetiva sem mudar a entrada básica existente. */
+export function portedTargetState(to: string, c: ManagementContext, simulated = false, permissions?: ErpPermissions | null): PortedTargetState {
   if (!c.statusLoaded) return "loading";
   if (hiddenPortedTarget(to)) return "unavailable";
   const target = portedTarget(to), url = portedUrl(to);
   if (!target || !url) return "not-found";
   if (!erpPartEnabled(target.part, c.modules, to)) return "disabled";
-  if (!portedPermissionAllowed(to, c.erpRole, ROLE_RESOURCES[c.erpRole ?? ""] ?? [])) return "denied";
+  if (!roleAllowed(to, c.erpRole, ROLE_RESOURCES[c.erpRole ?? ""] ?? [])) return "denied";
   if (!simulated && MOTOR_PENDING.some(item =>
     (url.pathname === item.path || item.under && url.pathname.startsWith(item.path + "/")) &&
     (!item.query || item.query[1].includes(url.searchParams.get(item.query[0]) ?? "")))) return "unavailable";
+  if (permissions !== undefined) {
+    if (permissions && !roleAllowed(to, permissions.role, permissions.resources ?? ROLE_RESOURCES[permissions.role] ?? [])) return "denied";
+    return portedPermissionState(to, permissions);
+  }
   return "allowed";
 }

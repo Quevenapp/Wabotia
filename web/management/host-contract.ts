@@ -23,11 +23,27 @@ export type BindManagementRouter = (
   bridge: ManagementRouterBridge,
 ) => ManagementRouterConnection;
 
+/** Resultado conferido pelo controlador da área, nunca inferido do papel. */
+export interface ErpPermissions {
+  phase: "checking" | "ready" | "error";
+  userId: string;
+  role: string;
+  resources?: readonly string[];
+  apiUrl: string;
+  permissions: readonly string[] | null;
+  message: string | null;
+}
+
 export interface ErpHostContext {
   profile: string;
   actor: string;
   demo: boolean;
   management: ManagementContext;
+  /** Distingue também uma nova sessão da mesma pessoa e área. */
+  sessionKey?: string;
+  suspended?: boolean;
+  onPermissions?: (permissions: ErpPermissions | null) => void;
+  subscribePermissions?: (recheck: () => void) => () => void;
   onModules(): void;
   onPeople(): void;
   onLeave(): void;

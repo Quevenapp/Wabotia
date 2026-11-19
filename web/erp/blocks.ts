@@ -47,5 +47,5 @@ export const targetEnabled = (target: string) => {
   const url = portedUrl(target);
   return !!known && !hiddenInWabotia(target) &&
     !!url && erpPartEnabled(known.part, legacyModules(), target) && !pendingInMotor(url.pathname + url.search) &&
-    ([...accessChecks.values()].at(-1)?.(target) ?? true);
+    ([...accessChecks.values()].at(-1)?.(target) ?? (!enabled || !known.readPermission));
 };
