@@ -14,7 +14,9 @@ import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { arrow, jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
-import { requireRpcParts } from "../../../engine/parts-gate.ts";
+import { requireRpcParts } from "../../../engine/registry.ts";
+import { driverContext, originScope, requireOriginOperation, assertOwnEffect } from "../../../engine/module-origin.ts";
+import { linkedDocumentGuard } from "../../documents/module-policy.ts";
 import { nextIdentity } from "../../../engine/sequence.ts";
 import { pgBtrim, pgCompareText, pgHasCntrl, pgLength, pgLower } from "../../../engine/text.ts";
 import { jsonTimestamp, todaySaoPaulo, validDate } from "../../../engine/time.ts";
@@ -133,6 +135,9 @@ export function documentCommandFinish(ctx: RpcContext, actor: string, id: string
 
 /** erp_stock.document_lock: o documento na versão esperada. */
 export function documentLock(db: SqlDriver, actor: string, kind: string | null, id: string | null, version: number | null): Row {
+  const ctx = driverContext(db);
+  linkedDocumentGuard(db, id, ctx);
+  if (ctx && id) requireOriginOperation(ctx, originScope(ctx)!.operation, id);
   documentAccess(db, actor, kind);
   if (id === null || version === null || version < 1) raise("22023", "erp_document_stock_invalid_version");
   const d = one(db, `SELECT * FROM "${DOC}" WHERE id=? AND kind=?`, id, kind);
@@ -636,7 +641,7 @@ export function erpDocumentStockPreview(ctx: RpcContext, a: RpcArgs) {
   requireRpcParts(ctx, "erp_document_stock_preview", a);
   const user = a.p_user_id as string;
   documents.mirrorRequireVisible(ctx.db, user, str(a.p_document_id), true);
-  requireOsPermission(ctx.db, user, str(a.p_kind));
+  if (!originScope(ctx)) requireOsPermission(ctx.db, user, str(a.p_kind));
   const d = documentLock(ctx.db, user, str(a.p_kind), str(a.p_document_id), int(a.p_expected_version));
   return { preview: documentPreviewData(ctx, d, str(a.p_occurred_on), str(a.p_reason)), data_mode: "erp_native" };
 }
@@ -655,7 +660,7 @@ export function erpDocumentStockPost(ctx: RpcContext, a: RpcArgs) {
     reason = str(a.p_reason);
   const acknowledged = a.p_ignored_item_ids === undefined ? null : jsonbArg(a.p_ignored_item_ids);
   documents.mirrorRequireVisible(db, user, id, true);
-  requireOsPermission(db, user, kind);
+  if (!originScope(ctx)) requireOsPermission(db, user, kind);
   const data = { kind, id, version, hash, date: day, reason, ignored: acknowledged };
   const replayed = documentCommandStart(db, user, command, "post", data);
   if (replayed) return replayed;
@@ -704,7 +709,8 @@ export function erpDocumentStockReversePreview(ctx: RpcContext, a: RpcArgs) {
   requireRpcParts(ctx, "erp_document_stock_reverse_preview", a);
   const user = a.p_user_id as string;
   documents.mirrorRequireVisible(ctx.db, user, str(a.p_document_id), true);
-  requireOsPermission(ctx.db, user, str(a.p_kind));
+  if (!originScope(ctx)) requireOsPermission(ctx.db, user, str(a.p_kind));
+  if (originScope(ctx)) assertOwnEffect(ctx, "stock_posting", String(a.p_posting_id));
   const d = documentLock(ctx.db, user, str(a.p_kind), str(a.p_document_id), int(a.p_expected_version));
   return {
     preview: documentReversePreviewData(ctx, d, str(a.p_posting_id), int(a.p_posting_version), str(a.p_occurred_on), str(a.p_reason)),
@@ -727,7 +733,8 @@ export function erpDocumentStockReverse(ctx: RpcContext, a: RpcArgs) {
     day = str(a.p_occurred_on),
     reason = str(a.p_reason);
   documents.mirrorRequireVisible(db, user, id, true);
-  requireOsPermission(db, user, kind);
+  if (!originScope(ctx)) requireOsPermission(db, user, kind);
+  if (originScope(ctx)) assertOwnEffect(ctx, "stock_posting", String(a.p_posting_id));
   const data = { kind, id, version, posting: postingId, posting_version: postingVersion, hash, date: day, reason };
   const replayed = documentCommandStart(db, user, command, "reverse", data);
   if (replayed) return replayed;

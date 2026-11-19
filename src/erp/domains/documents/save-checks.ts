@@ -6,6 +6,7 @@
 // project_result_flags, next_number, initial_status, current_version, record_occurrence,
 // record_situation_occurrence e situation_snapshot.
 import { exact } from "../../engine/dec.ts";
+import { driverContext } from "../../engine/module-origin.ts";
 import { one, type SqlDriver } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
 import { jsonbText } from "../../engine/json.ts";
@@ -209,7 +210,7 @@ export const numberEditable = (db: SqlDriver, kind: string) => {
 /** erp_documents.check_preference_rules(kind, dados) */
 export function checkPreferenceRules(db: SqlDriver, kind: string, data: Data, parts: Readonly<ErpParts> = normalizeErpParts()) {
   const list = items(data);
-  if (kind === "sales_orders" && isFalse(preference(db, "vendas.produtos_nao_cadastrados")) && list.some((i) => fieldText(i, "product_id") === null))
+  if (kind === "sales_orders" && !driverContext(db) && isFalse(preference(db, "vendas.produtos_nao_cadastrados")) && list.some((i) => fieldText(i, "product_id") === null))
     raise("22023", "erp_document_product_required");
   if (kind === "service_orders" && isFalse(preference(db, "os.itens_repetidos"))) {
     const seen = new Set<string>();

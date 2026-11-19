@@ -2,6 +2,7 @@
 // grupo de contas, alterar, cancelar, baixar, estornar e saldo inicial).
 // Continua em uso: a gaveta e o borderô não cobrem tudo, e a erp-api chama.
 import { one } from "../../../engine/driver.ts";
+import { moduleFinanceAudit as insertAudit, moduleFinancialGuard, moduleUpdateTitle as updateTitle } from "../module-posting.ts";
 import { raise } from "../../../engine/errors.ts";
 import { jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
@@ -15,7 +16,6 @@ import {
   field,
   hasKey,
   insertAccount,
-  insertAudit,
   insertCategory,
   insertCommand,
   insertMovement,
@@ -32,7 +32,7 @@ import {
   isReserved,
 } from "../internal.ts";
 import { insertSettlement, postSettlementMovements } from "../settlements.ts";
-import { activeContact, dto, insertTitle, projectResultLink, updateTitle } from "../titles.ts";
+import { activeContact, dto, insertTitle, projectResultLink } from "../titles.ts";
 
 const ACTIONS = ["account_save", "category_save", "title_create_group", "title_update", "title_cancel", "settle", "reverse", "opening"];
 const ZERO = "0";
@@ -43,6 +43,7 @@ export function erpFinanceExecute(ctx: RpcContext, a: RpcArgs) {
   const command = uuidArg(a.p_command_id);
   const action = (a.p_action as string | null) ?? null;
   const data = a.p_data === undefined || a.p_data === null ? null : jsonArg(a.p_data);
+  moduleFinancialGuard(ctx, action, data);
 
   requireAccess(db, user, true);
   if (command === null || action === null || !ACTIONS.includes(action)) raise("22023", "erp_finance_invalid_action");

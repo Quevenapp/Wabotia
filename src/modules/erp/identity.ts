@@ -1,4 +1,5 @@
 import { erpPartsEnvelope, readErpPartsState } from "./parts-state";
+import { INTEGRATION_MODULES } from "../../erp/engine/module-origin.ts";
 // Lado do núcleo da porta de identidade do ERP (src/erp/engine/identity.ts):
 // o Worker monta o envelope com o que o Wabotia sabe da pessoa e da área, e o
 // motor nunca consulta o D1.
@@ -52,8 +53,9 @@ export function systemActorsOf(
   states: Record<string, boolean>,
 ): [string, { name: string; role: ErpRole }][] {
   return list
-    .filter((m) => m.erp_role && states[m.id])
+    .filter((m) => INTEGRATION_MODULES.includes(m.id as any) ? states.erp || states[m.id] : m.erp_role && states[m.id])
     .map((m) => {
+      if (INTEGRATION_MODULES.includes(m.id as any)) return [m.id, { name: `Sistema · ${m.name}`, role: "vendas" as const }];
       if (!ERP_AGENT_ROLES.includes(m.erp_role as ErpRole))
         throw new Error(
           `erp_system_role_not_allowed:${m.id}:${m.erp_role} (só consulta, vendas, estoque ou fiscal)`,

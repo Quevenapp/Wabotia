@@ -18,6 +18,7 @@ import { erpEntityRequirement } from "../../parts-requirements.ts";
 import { rowJson } from "../../engine/row-json.ts";
 import { todaySaoPaulo } from "../../engine/time.ts";
 import { commissionPolicy, operationTitles } from "./commissions.ts";
+import { operationalChangeAllowed } from "../documents/module-policy.ts";
 
 type Row = Record<string, unknown>;
 type Op = "INSERT" | "UPDATE" | "DELETE";
@@ -85,7 +86,8 @@ const financeLocked = (db: SqlDriver, ids: unknown[]) =>
   );
 
 /** erp_finance.guard_posted_document (protect_document_finance, BEFORE UPDATE OR DELETE) */
-export function guardPostedDocument(db: SqlDriver, op: Op, o: Row, n: Row | null) {
+export function guardPostedDocument(db: SqlDriver, op: Op, o: Row, n: Row | null, ctx?: RpcContext) {
+  if (op === "UPDATE" && n && operationalChangeAllowed(ctx, o, n)) return;
   if (!financeLocked(db, [o.id])) return;
   if (op === "DELETE") raise("40001", "erp_document_active_finance");
   // 303: só as observações passam (erp_document_notes_save).

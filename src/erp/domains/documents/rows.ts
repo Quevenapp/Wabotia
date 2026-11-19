@@ -31,6 +31,8 @@ import { guardDocument, guardItem } from "./mirror.ts";
 import { guardTrashChild } from "./public.ts";
 import { guardUnavailableFields } from "./save-checks.ts";
 import { erpOperationRequirement, erpRequirementMet } from "../../parts-requirements.ts";
+import { guardModuleRow, guardModuleItem } from "./module-policy.ts";
+import { originScope, targetOrigin } from "../../engine/module-origin.ts";
 
 export type Row = Record<string, unknown>;
 const DOC = "erp_documents__document",
@@ -49,6 +51,7 @@ function change(db: SqlDriver, table: string, id: unknown, set: Row) {
 
 /** Os dois gatilhos adiados do documento, por evento de linha. */
 function deferCaptures(ctx: RpcContext, n: Row) {
+  if (originScope(ctx) || targetOrigin(ctx.db, "document", String(n.id))) return;
   const id = String(n.id);
   if (n.kind === "sales_orders" || n.kind === "service_orders") {
     if ((ctx.parts.finance && ctx.parts.sales) || n.status === "cancelled") defer(ctx, () => {
@@ -86,6 +89,7 @@ function guardTrash(o: Row, n: Row) {
 /** INSERT em document com os gatilhos. `row` traz todas as colunas (forma do SQLite). */
 export function insertDocument(ctx: RpcContext, row: Row) {
   const db = ctx.db;
+  guardModuleRow(ctx, null, row);
   guardDocument(ctx, "INSERT", null, row); // aa_mirror_authority
   if (!ctx.parts.stock || !ctx.parts.finance) guardUnavailableFields(ctx, { ...JSON.parse(String(row.body)), warehouse_id: row.warehouse_id }, null);
   write(db, DOC, row);
@@ -100,12 +104,13 @@ export function updateDocument(ctx: RpcContext, id: string, set: Row) {
   const o = one(db, `SELECT * FROM "${DOC}" WHERE id=?`, id);
   if (!o) return;
   const n: Row = { ...o, ...set };
+  guardModuleRow(ctx, o, n);
   // BEFORE, na ordem do nome.
   guardDocument(ctx, "UPDATE", o, n); // aa_mirror_authority
   sync.guardOriginEffectsDocument(ctx, id); // ab_origin_effects
   guardTrash(o, n); // guard_trash
-  finance.guardPostedDocument(db, "UPDATE", o, n); // protect_document_finance
-  stock.guardPostedDocument(db, "UPDATE", o, n); // protect_document_stock
+  finance.guardPostedDocument(db, "UPDATE", o, n, ctx); // protect_document_finance
+  stock.guardPostedDocument(db, "UPDATE", o, n, ctx); // protect_document_stock
   stock.guardDocument(db, "UPDATE", o, n); // protect_purchase_receipt_document
   stock.guardReservedDocument(db, "UPDATE", o, n); // protect_reserved_document
   if (!ctx.parts.stock || !ctx.parts.finance)
@@ -123,6 +128,8 @@ export function updateDocument(ctx: RpcContext, id: string, set: Row) {
 function itemBefore(ctx: RpcContext, op: "INSERT" | "UPDATE" | "DELETE", o: Row | null, n: Row | null) {
   const db = ctx.db;
   const documentId = String(op === "INSERT" ? n!.document_id : o!.document_id);
+  guardModuleItem(ctx, documentId);
+  if (n && n.document_id !== documentId) guardModuleItem(ctx, String(n.document_id));
   guardItem(ctx, op, o, n); // aa_mirror_authority
   sync.guardOriginEffectsItem(ctx, documentId); // ab_origin_effects
   if (op !== "DELETE") {

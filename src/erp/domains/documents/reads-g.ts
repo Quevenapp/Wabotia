@@ -11,6 +11,7 @@ import { raise } from "../../engine/errors.ts";
 import { permitted } from "../access/public.ts";
 import { contactScope, contactVisibleTo } from "../catalog/public.ts";
 import { allowed } from "./public.ts";
+import { scopeDocumentAccess } from "./module-policy.ts";
 
 /** erp_documents.os_permitted(user, key): o cartão de Ordem de serviço (e o sufixo pedido). */
 export const osPermitted = (db: SqlDriver, user: string, key: string | null = null) =>
@@ -18,6 +19,7 @@ export const osPermitted = (db: SqlDriver, user: string, key: string | null = nu
 
 /** erp_documents.require_role(user, kind, write) */
 export function requireRole(db: SqlDriver, user: string | null, kind: string | null, write: boolean) {
+  if (scopeDocumentAccess(db, user, kind)) return;
   const r = user === null ? undefined : one(db, 'SELECT role FROM "erp_access__membership" WHERE user_id=? AND active=1', user);
   if (!r || !allowed(String(r.role), kind, write)) raise("42501", "erp_document_access_denied");
 }
@@ -30,6 +32,7 @@ const CARDS: Record<string, string> = {
 
 /** erp_documents.require_access(user, kind, write): papel, cartão da ordem de serviço e cartão do documento (.ie para gravar). */
 export function requireAccess(db: SqlDriver, user: string | null, kind: string | null, write: boolean) {
+  if (scopeDocumentAccess(db, user, kind)) return;
   requireRole(db, user, kind, write);
   if (kind === "service_orders" && !osPermitted(db, user!, write ? "ie" : null)) raise("42501", "erp_document_access_denied");
   const card = kind === null ? undefined : CARDS[kind];

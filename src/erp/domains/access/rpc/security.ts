@@ -4,6 +4,7 @@
 // erp_access_user_controls_get/save, erp_access_profile_me, erp_access_storage.
 // Identidade (auth.*) pela porta do envelope: access/identity.ts.
 import { createHash } from "node:crypto";
+import { systemScope } from "../../../engine/module-origin.ts";
 import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { jsonbKeys, jsonbText, jsonType } from "../../../engine/json.ts";
@@ -45,6 +46,7 @@ registerRpc("erp_access_gate_v2", (ctx: RpcContext, a: RpcArgs) => {
  * política de MFA) e é membro ativo; o resto o próprio RPC decide.
  */
 registerGate((ctx) => {
+  if (systemScope(ctx)) return null;
   const user = ctx.identity.actor?.user_id ?? null;
   if (!user || !one(ctx.db, 'SELECT 1 x FROM "erp_access__membership" WHERE user_id=? AND active=1', user)) return null;
   // erp_access.agent_allowed: agente (aplicação) com papel admin/financeiro ou

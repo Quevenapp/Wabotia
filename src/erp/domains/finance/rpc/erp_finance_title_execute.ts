@@ -2,6 +2,7 @@
 // (criar em parcelas, editar com as travas do documento, da importação, do
 // boleto e das baixas, e excluir logicamente).
 import { one } from "../../../engine/driver.ts";
+import { moduleFinanceAudit as insertAudit, moduleFinancialGuard } from "../module-posting.ts";
 import { raise } from "../../../engine/errors.ts";
 import { jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
@@ -12,7 +13,6 @@ import {
   expected,
   field,
   hasKey,
-  insertAudit,
   insertCommand,
   jsonArg,
   jsonBytes,
@@ -47,6 +47,7 @@ export function erpFinanceTitleExecute(ctx: RpcContext, a: RpcArgs) {
   const command = uuidArg(a.p_command_id);
   const action = (a.p_action as string | null) ?? null;
   const data = a.p_data === undefined || a.p_data === null ? null : jsonArg(a.p_data);
+  moduleFinancialGuard(ctx, action, data);
 
   requireAccess(db, user, true);
   if (command === null || action === null || !ACTIONS.includes(action)) raise("22023", "erp_finance_invalid_action");
