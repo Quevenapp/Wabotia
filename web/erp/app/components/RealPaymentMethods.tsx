@@ -66,7 +66,7 @@ export default function RealPaymentMethods({ controller }: { controller: AccessC
   return <section className="contact-aux">
     <header className="real-heading catalog-heading"><div className="catalog-title"><h1>Formas de pagamento</h1></div>
       <div className="catalog-heading-actions">{page && !writable && <span className="real-mode">Somente consulta</span>}{writable && <button type="button" className="primary-button" onClick={() => setEditing({ item: null })}><Icon name="plus" size={12} />Incluir forma</button>}</div></header>
-    <div className="contact-tabs" role="tablist"><button type="button" role="tab" aria-selected>Formas de Pagamento</button><button type="button" role="tab" aria-selected={false} disabled title="Máquinas POS dependem de integração com a credenciadora, que o FAGOO ainda não tem.">Máquinas POS</button></div>
+    <div className="contact-tabs" role="tablist"><button type="button" role="tab" aria-selected>Formas de Pagamento</button><button type="button" role="tab" aria-selected={false} disabled title="Máquinas POS dependem de integração com a credenciadora, que o ERP ainda não tem.">Máquinas POS</button></div>
     <p className="real-help">{PAYMENT_USAGE}</p>
     {notice && <p className="real-success" role="status">{notice}</p>}
     {error && <p className="real-alert" role="alert">{error}<button type="button" className="text-button" onClick={() => setReload(n => n + 1)}>Tentar novamente</button></p>}
@@ -163,7 +163,7 @@ function PaymentMethodEditor({ controller, item, copy, accounts, writable, onClo
         <label className="contact-switch"><input type="checkbox" role="switch" checked={form.auto_settle} onChange={event => set('auto_settle', event.target.checked)} />Liquidação automática dos recebíveis</label>
         <p className="contact-not-applied real-field-wide">Guardado. A liquidação automática depende dos títulos com forma de pagamento (área financeiro) e ainda não baixa nada.</p></div></section>}
       {sections.pix && <section className="contact-section"><h3 className="catalog-group-title">Informações de PIX</h3><div className="contact-grid">
-        <div className="form-field"><label htmlFor="payment-pix_integration">Tipo de integração</label><select id="payment-pix_integration" value="sem" disabled title="A integração de Pix com banco está fora do escopo do FAGOO."><option value="sem">Sem integração</option></select></div>
+        <div className="form-field"><label htmlFor="payment-pix_integration">Tipo de integração</label><select id="payment-pix_integration" value="sem" disabled title="A integração de Pix com banco está fora do escopo do ERP."><option value="sem">Sem integração</option></select></div>
         {text('pix_cnpj', 'CNPJ da instituição de pagamento responsável', 20)}</div></section>}
       <section className="contact-section"><h3 className="catalog-group-title">Informações de taxas</h3><div className="contact-grid">
         <fieldset className="contact-radio real-field-wide"><legend>Tipo da taxa</legend>{FEE_TYPES.map(([v, l]) => <label key={v}><input type="radio" name="payment-fee-type" checked={form.fee_type === v} onChange={() => set('fee_type', v)} />{l}</label>)}</fieldset>

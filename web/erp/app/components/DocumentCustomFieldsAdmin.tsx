@@ -35,7 +35,7 @@ export function customFieldBody(draft: Draft): { data: Record<string, unknown> }
 const refusal = (failure: unknown) => failure instanceof AccessError ? failure.code === 'ERP_DOCUMENT_CUSTOM_FIELD_DUPLICATE' ? 'Já existe um campo customizado da OS com este nome.'
   : failure.code === 'ERP_DOCUMENT_CUSTOM_FIELD_OPTION_IN_USE' ? 'Uma opção removida é usada em ordens de serviço: troque o valor dessas OS antes de remover a opção.'
     : failure.code === 'ERP_DOCUMENT_CUSTOM_FIELD_IN_USE' ? 'O campo tem valores gravados em ordens de serviço e não pode ser excluído; inative-o.'
-      : failure.code === 'ERP_DOCUMENT_CUSTOM_FIELD_LIMIT' ? `O FAGOO aceita até ${DOCUMENT_CUSTOM_FIELDS_LIMIT} campos customizados da OS.`
+      : failure.code === 'ERP_DOCUMENT_CUSTOM_FIELD_LIMIT' ? `O ERP aceita até ${DOCUMENT_CUSTOM_FIELDS_LIMIT} campos customizados da OS.`
         : failure.status === 403 ? 'Somente o administrador altera os campos customizados.' : failure.status === 409 ? 'O campo mudou em outra tela. Atualize a lista e tente de novo.'
           : failure.status === 400 ? 'Confira os dados do campo.' : 'Não foi possível concluir. Tente de novo.' : 'Não foi possível concluir. Tente de novo.';
 type Pending = { id: string; path: string; body: Record<string, unknown>; label: string; uncertain: boolean };

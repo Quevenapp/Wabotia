@@ -34,7 +34,7 @@ test('PRF-287, NFE-187, NFE-222: the Central de ajuda is an internal route with 
  }
  assert.equal(helpTopic('convivencia'),null);
  const index=await mountComponent('HelpCenter.tsx',{},{location:'/ajuda'});
- assert.match(index.text(),/Central de ajuda do FAGOO/);assert.match(index.text(),/Manual de notas fiscais/);assert.match(index.text(),/Novidades/);
+ assert.match(index.text(),/Central de ajuda do ERP/);assert.match(index.text(),/Manual de notas fiscais/);assert.match(index.text(),/Novidades/);
  const notes=await mountComponent('HelpCenter.tsx',{},{location:'/ajuda/notas-fiscais'});
  /* Wabotia: o manual fala das notas do ERP e do emissor externo, sem o Origin (item 17). */assert.match(notes.text(),/emissor externo/);assert.doesNotMatch(notes.text(),/Origin/);assert.match(notes.text(),/Portal Nacional da NF-e/);
  const natures=await mountComponent('HelpCenter.tsx',{},{location:'/ajuda/naturezas-operacao'});assert.match(natures.text(),/Manual de operações fiscais/);

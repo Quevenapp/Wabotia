@@ -28,7 +28,7 @@ test('150 Dashboard Mensal opens with the Ajustes statuses, the current month an
   assert.equal(v.button('Previsão Inteligente').disabled,false);
   // Side menu in Origin order; Produtos opens the estoque lane dashboards.
   assert.match(text,/DashboardMensalDiárioVendasPedidos de VendaVenda por VendedorVenda Canal \(24 meses\)Previsão de EstoqueGestão de MarketplacesMargem por PedidoProdutosEstoque de ProdutosSugestão de ComprasSem MovimentaçãoClientesNovo x RecorrentesAtividade da CarteiraDesempenhoCurva ABCMetas/);
-  await v.click('Como funciona');assert.match(v.text(),/preço da última compra registrada no FAGOO/);
+  await v.click('Como funciona');assert.match(v.text(),/preço da última compra registrada no ERP/);
  }finally{v.unmount();}
 });
 
@@ -133,5 +133,5 @@ test('business indicators identify native coverage after the shared parser', asy
  const f=createBusinessFixture(),read=f.controller.system;
  f.controller.system=async(...args)=>{const raw=await read(...args);return args[0].startsWith('/v1/meu-negocio/')?{...raw,origin:'brufap',mirror_excluded_count:17,coverage:{partial:true,reason:'native_effects_only'}}:raw;};
  const view=await mount(f);
- try { assert.match(view.text(),/Indicadores operacionais do FAGOO; 17 documentos Origin não entram neste cálculo/); } finally { view.unmount(); }
+ try { assert.match(view.text(),/Indicadores operacionais do ERP; 17 documentos Origin não entram neste cálculo/); } finally { view.unmount(); }
 });

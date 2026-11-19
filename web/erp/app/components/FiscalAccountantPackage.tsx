@@ -35,7 +35,7 @@ export default function FiscalAccountantPackage({ controller, writable, onClose 
         { origin: 'brufap', model: config.model, direction: config.direction, page, limit: FISCAL_PAGE_SIZE, order: 'date_desc' });
       rows.push(...value.items.filter(isImported));
       if (!value.has_more) break;
-      if (page === Math.ceil(MAX_PER_TYPE / FISCAL_PAGE_SIZE)) beyond.push(`${TYPE_LABELS[screen]} (FAGOO): ${value.total_count - MAX_PER_TYPE} nota(s) além das ${MAX_PER_TYPE} primeiras.`);
+      if (page === Math.ceil(MAX_PER_TYPE / FISCAL_PAGE_SIZE)) beyond.push(`${TYPE_LABELS[screen]} (ERP): ${value.total_count - MAX_PER_TYPE} nota(s) além das ${MAX_PER_TYPE} primeiras.`);
     }
     return rows;
   };
@@ -76,8 +76,8 @@ export default function FiscalAccountantPackage({ controller, writable, onClose 
       <div className="form-field"><label htmlFor="fiscal-accountant-month">Competência</label><input id="fiscal-accountant-month" type="month" min="1900-01" max="2099-12" disabled={running} value={competence} onChange={event => setCompetence(event.target.value)} /></div>
       <fieldset className="fiscal-group"><legend>Notas</legend>{(['nfe', 'nfce', 'entrada'] as const).map(screen => <label key={screen} htmlFor={`fiscal-accountant-${screen}`}><input id={`fiscal-accountant-${screen}`} type="checkbox" disabled={running} checked={types[screen]}
         onChange={event => { const checked = event.target.checked; setTypes(t => ({ ...t, [screen]: checked })); }} /> {TYPE_LABELS[screen]}</label>)}
-        <label htmlFor="fiscal-accountant-letters"><input id="fiscal-accountant-letters" type="checkbox" disabled title="As cartas de correção do FAGOO ainda não foram transmitidas." checked={false} readOnly /> Cartas de correção</label></fieldset>
-      <p className="real-help">O pacote leva os XMLs autorizados das notas da competência (data de emissão na saída e na NFC-e, data de entrada nas notas de entrada), conferidos por tamanho e SHA-256, e um resumo.csv. Até {MAX_PER_TYPE.toLocaleString('pt-BR')} notas por tipo e origem. SPED e Sintegra não são gerados pelo FAGOO.</p>
+        <label htmlFor="fiscal-accountant-letters"><input id="fiscal-accountant-letters" type="checkbox" disabled title="As cartas de correção do ERP ainda não foram transmitidas." checked={false} readOnly /> Cartas de correção</label></fieldset>
+      <p className="real-help">O pacote leva os XMLs autorizados das notas da competência (data de emissão na saída e na NFC-e, data de entrada nas notas de entrada), conferidos por tamanho e SHA-256, e um resumo.csv. Até {MAX_PER_TYPE.toLocaleString('pt-BR')} notas por tipo e origem. SPED e Sintegra não são gerados pelo ERP.</p>
       {progress && <p role="status">{progress.done} de {progress.total} notas · {progress.files} arquivo(s)</p>}
       {progress && progress.beyond.length > 0 && <div className="real-notice" role="status"><p>Ficaram de fora:</p><ul>{progress.beyond.map(text => <li key={text}>{text}</li>)}</ul></div>}
       {progress && progress.skipped.length > 0 && <details><summary>{progress.skipped.length} nota(s) sem XML no pacote</summary><ul>{progress.skipped.slice(0, 100).map(text => <li key={text}>{text}</li>)}</ul></details>}

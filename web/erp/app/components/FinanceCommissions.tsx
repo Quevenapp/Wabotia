@@ -125,7 +125,7 @@ export default function FinanceCommissions({ controller }: { controller: AccessC
           <section className="finance-commission-summary" aria-label="Resumo"><h3>Resumo</h3><dl>
             <dt>Saldo anterior</dt><dd>{signedMoney(s.summary.previous_cents)}</dd><dt>(+) Comissões do mês</dt><dd>{financeMoney(s.summary.commission_cents)}</dd><dt>(+) Créditos</dt><dd>{financeMoney(s.summary.credit_cents)}</dd>
             <dt>(-) Débitos</dt><dd>{financeMoney(s.summary.debit_cents)}</dd><dt>(-) Pagamentos</dt><dd>{financeMoney(s.summary.payment_cents)}</dd><dt>Saldo</dt><dd><strong>{signedMoney(s.summary.balance_cents)}</strong></dd></dl></section>
-          <p className="real-help">As comissões nascem das contas lançadas pelos pedidos de venda e ordens de serviço do FAGOO, com o vendedor do documento ligado a um vendedor cadastrado. A liberação segue a regra do vendedor e a parcela conta como paga quando o saldo dela chega a zero.</p></>)}
+          <p className="real-help">As comissões nascem das contas lançadas pelos pedidos de venda e ordens de serviço do ERP, com o vendedor do documento ligado a um vendedor cadastrado. A liberação segue a regra do vendedor e a parcela conta como paga quando o saldo dela chega a zero.</p></>)}
       </>}
       {panelVisible?.kind === 'payment' && s && <PaymentModal statement={s} accounts={accounts} tree={payableTree} send={send} mayWrite={mayWrite} onClose={() => setPanel(null)} onSaved={saved} />}
       {panelVisible?.kind === 'entry' && s && <EntryModal statement={s} send={send} mayWrite={mayWrite} onClose={() => setPanel(null)} onSaved={saved} />}

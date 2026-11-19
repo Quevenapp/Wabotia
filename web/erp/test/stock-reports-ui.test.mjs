@@ -39,7 +39,7 @@ test('146 catalog: the Origin report names by group, each available only to the 
  // The native entry notes are read by administrador and fiscal only (113): consulta sees the notes reports disabled.
  const reader=server({role:'consulta'}),catalog=await mount(reader);
  try{
-  assert.match(catalog.text(),/Relatório de Notas de Entrada por OperaçãoSomente administrador e fiscal veem as notas de entrada do FAGOO\./);
+  assert.match(catalog.text(),/Relatório de Notas de Entrada por OperaçãoSomente administrador e fiscal veem as notas de entrada do ERP\./);
   assert.ok(catalog.find(n=>n.type==='a'&&textOf(n)==='Visão Financeira do Estoque'),'consulta reads purchase prices');
   assert.equal(catalog.nodes().some(n=>n.type==='a'&&textOf(n)==='Relatório de Notas de Entrada por Operação'),false);
  }finally{catalog.unmount();}
@@ -112,7 +112,7 @@ test('purchase report preserves mirror exclusion coverage in display, print and 
  const create=URL.createObjectURL,element=globalThis.document.createElement;let downloaded;
  URL.createObjectURL=blob=>{downloaded=blob;return create(blob);};globalThis.document.createElement=()=>({click(){}});
  try{
-  await view.submit(0);assert.match(view.text(),/Relatório de registros do FAGOO; 17 documentos Origin não entram neste cálculo/);
+  await view.submit(0);assert.match(view.text(),/Relatório de registros do ERP; 17 documentos Origin não entram neste cálculo/);
   await view.click('Imprimir');assert.match(textOf(component(view,'StockPrintPreview').props.children),/17 documentos Origin não entram neste cálculo/);
   await view.click('CSV');assert.ok(downloaded);assert.match(await downloaded.text(),/17 documentos Origin não entram neste cálculo/);
   await view.click('XLSX');assert.ok(downloaded);assert.match(await downloaded.text(),/17 documentos Origin não entram neste cálculo/);

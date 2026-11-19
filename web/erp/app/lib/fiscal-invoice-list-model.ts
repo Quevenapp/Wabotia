@@ -19,7 +19,7 @@ export interface ScreenConfig {
   categoryFilter?: boolean;
 }
 /** NFE-024/172: Loja and Filial of the Origin search are not applicable, with the reason shown in "Adicionar filtros". */
-export const NOT_APPLICABLE_FILTERS = 'Loja e Filial não se aplicam: o FAGOO atende uma empresa com uma loja (multiloja e multiempresa estão fora do escopo).';
+export const NOT_APPLICABLE_FILTERS = 'Loja e Filial não se aplicam: o ERP atende uma empresa com uma loja (multiloja e multiempresa estão fora do escopo).';
 export type CustomFilter = 'nature' | 'carrier' | 'trade_name' | 'person_type' | 'document' | 'email' | 'phone' | 'series' | 'contact_code' | 'order_number';
 export const CUSTOM_FILTER_LABELS: Record<CustomFilter, string> = { nature: 'Natureza', carrier: 'Transportador', trade_name: 'Fantasia', person_type: 'Tipo da Pessoa', document: 'CNPJ / CPF',
   email: 'E-mail', phone: 'Fone/Fax', series: 'Série', contact_code: 'Código do contato', order_number: 'Nº pedido de venda' };
@@ -124,7 +124,7 @@ export function fiscalStateText(row: Pick<ListRow, 'fiscal_status' | 'danfe_emit
   const state = row.fiscal_status === 6 ? 'Autorizada' : row.fiscal_status === null ? 'Situação não mapeada' : INVOICE_STATUS[row.fiscal_status] ?? `Situação ${row.fiscal_status}`;
   return `Situação fiscal: ${state}${row.fiscal_status === 6 ? ` · DANFE ${row.danfe_emitted ? 'emitida' : 'não emitida'}` : ''}`;
 }
-const SOURCE_ORIGIN: Record<ListRow['source_origin'], string> = { origin: 'Nota do Origin', brufap_native: 'Nota do FAGOO', third_party: 'Nota de terceiros registrada no FAGOO', xml_import: 'XML importado' };
+const SOURCE_ORIGIN: Record<ListRow['source_origin'], string> = { origin: 'Nota do Origin', brufap_native: 'Nota do ERP', third_party: 'Nota de terceiros registrada no ERP', xml_import: 'XML importado' };
 /** NFE-063/185: origin and environment of the source, apart from the model (NF-e or NFC-e) and the emission environment. */
 export function sourceLabel(row: Pick<ListRow, 'source_origin' | 'source_environment'>): string {
   const environment = row.source_environment === '1' ? 'produção' : row.source_environment === '2' ? 'homologação' : 'ambiente não informado';
@@ -134,16 +134,16 @@ export const EDITABLE = [1, 5, 8, 12];
 export type RowActionId = 'edit' | 'view' | 'send' | 'receipt' | 'cancel' | 'other' | 'correction' | 'complementary' | 'pdf' | 'boleto' | 'finance' | 'stock' | 'return'
   | 'clone' | 'clone_invert' | 'danfe' | 'danfe_simple' | 'labels' | 'mirror' | 'transport_label' | 'xml' | 'copy_key' | 'delete' | 'nfe_from_nfce' | 'pricing' | 'checkin' | 'stock_reverse' | 'support_xml';
 export interface RowAction { id: RowActionId; label: string; enabled: boolean; reason?: string; separatorBefore?: boolean; icon?: string }
-const EFFECTS_OFF = 'Lançamentos de estoque pela nota ficam desligados enquanto as notas do FAGOO forem de homologação.';
+const EFFECTS_OFF = 'Lançamentos de estoque pela nota ficam desligados enquanto as notas do ERP forem de homologação.';
 // Financeiro lane (SQL 247): contas lançadas pela nota of the Brufap.
 const FINANCE_UNREAD = 'Conferindo as contas da nota…';
 const FINANCE_ROLE = 'Somente administrador e financeiro lançam contas pela nota.';
 const FINANCE_GROUPED = 'A nota está num Faturamento agrupado: as contas são do faturamento.';
 /** Contas of a note of the Brufap (letra C): null while not read; writable for the profiles that lançam contas. */
 export type InvoiceFinanceState = { writable: boolean; posted: boolean; grouped: boolean } | null;
-const SEND_OFF = 'O envio à SEFAZ desta nota ainda não está ligado no FAGOO; use Preferências › Emissor de NF-e para os testes de homologação.';
+const SEND_OFF = 'O envio à SEFAZ desta nota ainda não está ligado no ERP; use Preferências › Emissor de NF-e para os testes de homologação.';
 // During coexistence, the DANFE is available only for the authorized XML of a Brufap record.
-const DANFE_NATIVE_OFF = 'A nota do FAGOO ainda não tem XML autorizado (o envio à SEFAZ não está ligado). Use Imprimir espelho NF.';
+const DANFE_NATIVE_OFF = 'A nota do ERP ainda não tem XML autorizado (o envio à SEFAZ não está ligado). Use Imprimir espelho NF.';
 /** The note has a checked XML to print the DANFE from. */
 // Wabotia: Origin fora (motor 91213b8): o xml_id era só do acervo do Origin (nulo nos registros do FAGOO); fica o XML importado.
 export const danfeReady = (row: Pick<ListRow, 'issue_type'>) => isImported(row);
@@ -198,10 +198,10 @@ export function rowActions(config: ScreenConfig, row: ListRow, { writable, check
     // Preferências lane (230): the product labels of a Brufap note open in Etiquetas customizadas (administrador, like the models).
     actions.push({ id: 'labels', label: 'Imprimir etiquetas', ...(labels ? { enabled: true } : off('Somente administradores imprimem as Etiquetas customizadas.')) });
     actions.push({ id: 'mirror', label: 'Imprimir espelho NF', enabled: true });
-    if (config.direction === '1') actions.push({ id: 'transport_label', label: 'Imprimir etiqueta de transporte', ...off('A etiqueta de transporte das transportadoras é logística, fora do escopo do FAGOO. As etiquetas de endereço ficam em Mais ações › Imprimir › Etiquetas selecionadas.') });
+    if (config.direction === '1') actions.push({ id: 'transport_label', label: 'Imprimir etiqueta de transporte', ...off('A etiqueta de transporte das transportadoras é logística, fora do escopo do ERP. As etiquetas de endereço ficam em Mais ações › Imprimir › Etiquetas selecionadas.') });
   }
   // An imported NFC-e (S, wave F) keeps its authorized XML in Brufap, like the imported NF-e (Baixar XML).
-  if (nfce) actions.push({ id: 'xml', label: 'Exportar XML', ...(isImported(row) ? { enabled: true } : off('Nota do FAGOO sem XML autorizado.')) });
+  if (nfce) actions.push({ id: 'xml', label: 'Exportar XML', ...(isImported(row) ? { enabled: true } : off('Nota do ERP sem XML autorizado.')) });
   // Notas lane (wave F, 202610200273): "Gerar XML (suporte)" shows the native XML of a Brufap NFC-e, built from the saved note (not signed).
   if (nfce) { const block = nativeXmlBlock(row, writable); actions.push({ id: 'support_xml', label: 'Gerar XML (suporte)', ...(block ? off(block) : { enabled: true }) }); }
   return actions;
@@ -273,13 +273,13 @@ export function importRefusalText(value: { refused: string; field?: string; comp
   switch (value.refused) {
     case 'xml_invalid': return 'O arquivo não é um XML de NF-e válido. Nada foi importado.';
     case 'xml_too_large': return 'O XML pode ter até 1 MB. Nada foi importado.';
-    case 'xml_unsupported': return `O FAGOO importa NF-e (modelo 55) e NFC-e (modelo 65) 4.00 de mercadorias, nos formatos do cadastro da nota${value.field ? ` (campo ${value.field})` : ''}. Nada foi importado.`;
+    case 'xml_unsupported': return `O ERP importa NF-e (modelo 55) e NFC-e (modelo 65) 4.00 de mercadorias, nos formatos do cadastro da nota${value.field ? ` (campo ${value.field})` : ''}. Nada foi importado.`;
     case 'xml_signature_missing': return 'O XML não tem a assinatura digital do emitente. Nada foi importado.';
     case 'xml_signature_invalid': return `A assinatura digital do XML não confere${value.field ? ` (${value.field})` : ''}: o arquivo foi alterado depois de assinado, o protocolo é de outro XML ou o certificado não é do emitente. Nada foi importado.`;
     case 'nfce_recipient': return 'A NFC-e é importada só quando a empresa é a emitente: a NFC-e em que a empresa é consumidora não é uma nota de compra. Nada foi importado.';
     case 'xml_not_authorized': return 'O XML não traz a autorização de uso da SEFAZ (protocolo 100 ou 150). Nada foi importado.';
     case 'xml_homologation': return 'XML de homologação, sem valor fiscal, não é importado.';
-    case 'xml_total_mismatch': return `O total calculado pelo FAGOO (R$ ${brAmount(value.computed_total)}) é diferente do total do XML (R$ ${brAmount(value.xml_total)}). Nada foi importado.`;
+    case 'xml_total_mismatch': return `O total calculado pelo ERP (R$ ${brAmount(value.computed_total)}) é diferente do total do XML (R$ ${brAmount(value.xml_total)}). Nada foi importado.`;
     case 'company_missing': return 'Informe o CNPJ da empresa em Dados da empresa antes de importar notas.';
     case 'other_company': return 'A empresa não é a emitente nem a destinatária deste XML. Nada foi importado.';
     case 'duplicate': return 'Esta nota já foi importada (mesma chave de acesso).';
@@ -295,8 +295,8 @@ export function keyParts(key: string | null): { number: string; series: string; 
 export const isImported = (row: Pick<ListRow, 'issue_type'>) => row.issue_type === 'S' || row.issue_type === 'X';
 /** Notas lane (wave F): why the native XML of a row ("Validar", "Gerar XML (suporte)") cannot be built; null when it can. */
 export function nativeXmlBlock(row: Pick<ListRow, 'issue_type'>, writable: boolean): string | null {
-  if (isImported(row) || row.issue_type === 'T') return 'Nota registrada (emitida por terceiros ou importada do XML): o XML dela não é gerado pelo FAGOO.';
-  if (!writable) return 'Somente administrador e fiscal geram o XML das notas do FAGOO.';
+  if (isImported(row) || row.issue_type === 'T') return 'Nota registrada (emitida por terceiros ou importada do XML): o XML dela não é gerado pelo ERP.';
+  if (!writable) return 'Somente administrador e fiscal geram o XML das notas do ERP.';
   return null;
 }
 // ---- "Vincular à pedido de compra": summary of the items already in the note and the ones of the order ----

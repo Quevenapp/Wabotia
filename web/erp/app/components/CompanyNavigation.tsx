@@ -12,8 +12,8 @@ import { storageSummary, type SystemController } from '../lib/system-model';
 import './company-navigation.css';
 
 // Leva H (PRF-287, PRF-255): the help of the Brufap itself, inside the app; no external help domain.
-const COMPANY_HELP_LINKS = [{ label: 'Central de ajuda do FAGOO', to: '/ajuda', icon: 'circle-question' },
-  { label: 'Novidades no FAGOO', to: '/ajuda/novidades', icon: 'star' }];
+const COMPANY_HELP_LINKS = [{ label: 'Central de ajuda do ERP', to: '/ajuda', icon: 'circle-question' },
+  { label: 'Novidades no ERP', to: '/ajuda/novidades', icon: 'star' }];
 
 // Company area navigation: the Origin top bar (same menu as the demo) plus the location trail.
 // Brufap-only tools live in Preferências (gear), like Origin's own settings. With a controller that offers the Sistema port,
@@ -40,7 +40,7 @@ export default function CompanyNavigation({ state, onLogout, controller }: { sta
   const chrome = useCompanyChrome(controller, state);
   useStoredThemeAtLogin(controller as Parameters<typeof useStoredThemeAtLogin>[0], state);
   const person = chrome.profile?.name ?? chrome.profile?.email ?? null;
-  const user = { name: ready && role ? person ?? ROLE_LABELS[role] : authenticated ? 'Verificando acesso' : 'Visitante', company: chrome.profile?.company?.legal_name ?? 'FAGOO', detail: ready ? person && role ? `Perfil: ${ROLE_LABELS[role]}` : 'Área da empresa' : undefined };
+  const user = { name: ready && role ? person ?? ROLE_LABELS[role] : authenticated ? 'Verificando acesso' : 'Visitante', company: chrome.profile?.company?.legal_name ?? 'ERP', detail: ready ? person && role ? `Perfil: ${ROLE_LABELS[role]}` : 'Área da empresa' : undefined };
   const system = ready && typeof controller?.system === 'function' ? controller as SystemController : null;
   // Wabotia: o botão de sincronizar com o Origin saiu; a capacidade originIntegration nunca vem (Origin fora, motor 91213b8).
   // The trail names the same module the sidebar shows (Comercial, Catálogo…), so both read alike.

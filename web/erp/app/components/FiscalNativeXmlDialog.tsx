@@ -20,7 +20,7 @@ export default function FiscalNativeXmlDialog({ mode, result, onClose }: { mode:
         <ul>{result.schema.errors.map((e, i) => <li key={`s${i}`}>{e.message}</li>)}</ul>{result.schema.truncated && <p className="real-help">Há mais erros além dos 100 primeiros.</p>}</section>}
       {mode === 'validate' && errors.length > 0 && <section aria-label="Erros de regra"><h3>Erros de regra</h3><ul>{errors.map((e, i) => <li key={`r${i}`}>{e.message}</li>)}</ul></section>}
       {warnings.length > 0 && <section aria-label="Avisos"><h3>Avisos</h3><ul>{warnings.map((e, i) => <li key={`w${i}`}>{e.message}</li>)}</ul></section>}
-      <p className="real-help">{nativeXmlNote(result)} As regras conferidas pelo FAGOO são uma parte das validações da SEFAZ; a autorização só existe depois do envio.</p>
+      <p className="real-help">{nativeXmlNote(result)} As regras conferidas pelo ERP são uma parte das validações da SEFAZ; a autorização só existe depois do envio.</p>
       {saved && <p className="real-success">XML baixado.</p>}
       {failed && <p className="real-alert" role="alert">Não foi possível baixar o XML.</p>}
       {showXml && <pre className="fiscal-xml-view" tabIndex={0}>{result.xml}</pre>}

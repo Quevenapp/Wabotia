@@ -11,7 +11,7 @@ export interface ReportGroup { title: string; cards: ReportCard[] }
 export const REPORT_CATALOG: Record<'sales_orders' | 'service_orders', ReportGroup[]> = {
   sales_orders: [
     { title: 'Checkout de Pedidos de Venda', cards: [{ id: null, title: 'Relatório de Separação (Picking)', description: 'Itens a separar dos pedidos.', reason: 'O relatório consolidado de separação ainda não está disponível. Para conferir um pedido, acesse Comercial > Checkout de pedidos.' }] },
-    { title: 'Comissões', cards: [{ id: null, title: 'Relatório Complementar de Comissões', description: 'Comissões dos vendedores.', reason: 'O relatório ainda não existe no FAGOO; as comissões de cada vendedor estão em Financeiro > Comissões.' }] },
+    { title: 'Comissões', cards: [{ id: null, title: 'Relatório Complementar de Comissões', description: 'Comissões dos vendedores.', reason: 'O relatório ainda não existe no ERP; as comissões de cada vendedor estão em Financeiro > Comissões.' }] },
     { title: 'Notas Fiscais', cards: [{ id: 'nf-difal', title: 'Notas Fiscais ICMS DIFAL', description: 'Diferencial de alíquota das notas autorizadas, por UF de destino, com a cobertura do detalhamento.' }] },
     { title: 'Relatórios de Notas Fiscais', cards: [
       { id: 'nf-operacao', title: 'Notas Fiscais por Operação', description: 'Faturamento das notas autorizadas por natureza de operação.' },
@@ -25,11 +25,11 @@ export const REPORT_CATALOG: Record<'sales_orders' | 'service_orders', ReportGro
     { title: 'Pedidos de Venda', cards: [{ id: 'curva-abc', title: 'Relatório de curva ABC de itens de vendas (últimos 30 dias)', description: 'Itens mais vendidos e a classificação A, B e C.' }] },
   ],
   service_orders: [
-    { title: 'Contratos', cards: [{ id: null, title: 'Relatório de Início e Término de Contratos', description: 'Contratos por período.', reason: 'Os contratos ainda não existem no FAGOO.' }, { id: null, title: 'Relatório de Início e Término de Contratos Agrupados por Mês', description: 'Contratos agrupados por mês.', reason: 'Os contratos ainda não existem no FAGOO.' }] },
+    { title: 'Contratos', cards: [{ id: null, title: 'Relatório de Início e Término de Contratos', description: 'Contratos por período.', reason: 'Os contratos ainda não existem no ERP.' }, { id: null, title: 'Relatório de Início e Término de Contratos Agrupados por Mês', description: 'Contratos agrupados por mês.', reason: 'Os contratos ainda não existem no ERP.' }] },
     { title: 'Customizáveis', cards: [
-      { id: null, title: 'Relatório de Contratos (Visão de Contratos)', description: 'Visão de contratos.', reason: 'Os contratos ainda não existem no FAGOO.' },
-      { id: null, title: 'Relatório de Nota Serviço Parcela', description: 'Parcelas das notas de serviço.', reason: 'A NFS-e está fora do escopo do FAGOO.' },
-      { id: null, title: 'Relatório de NFS-e', description: 'Notas fiscais de serviço.', reason: 'A NFS-e está fora do escopo do FAGOO.' },
+      { id: null, title: 'Relatório de Contratos (Visão de Contratos)', description: 'Visão de contratos.', reason: 'Os contratos ainda não existem no ERP.' },
+      { id: null, title: 'Relatório de Nota Serviço Parcela', description: 'Parcelas das notas de serviço.', reason: 'A NFS-e está fora do escopo do ERP.' },
+      { id: null, title: 'Relatório de NFS-e', description: 'Notas fiscais de serviço.', reason: 'A NFS-e está fora do escopo do ERP.' },
       { id: 'ocorrencias', title: 'Relatório de Ocorrências por Ordem de Serviço (Visão de Ocorrências)', description: 'Ocorrências das ordens de serviço no período.' },
       { id: 'os', title: 'Relatório de Ordem de Serviço (Visão de Ordem de Serviço)', description: 'Ordens de serviço com peças, serviços e total.' }] },
   ],
@@ -180,9 +180,9 @@ export const reportKindOf = (kind: DocumentKind) => kind === 'sales_orders' || k
 export interface NativeReportCoverage { origin?: 'brufap'; mirror_excluded_count?: number; coverage?: { partial: boolean; reason: 'native_effects_only' } }
 export function nativeReportCoverageText(report: NativeReportCoverage | null): string | null {
   return report?.origin === 'brufap' && (report.mirror_excluded_count ?? 0) > 0
-    ? `Relatório de registros do FAGOO; ${report.mirror_excluded_count!.toLocaleString('pt-BR')} documentos Origin não entram neste cálculo. Consulte-os nas listas com origem Origin.` : null;
+    ? `Relatório de registros do ERP; ${report.mirror_excluded_count!.toLocaleString('pt-BR')} documentos Origin não entram neste cálculo. Consulte-os nas listas com origem Origin.` : null;
 }
-export const nativeIndicatorCoverageText = (report: NativeReportCoverage | null) => nativeReportCoverageText(report)?.replace('Relatório de registros do FAGOO', 'Indicadores operacionais do FAGOO') ?? null;
+export const nativeIndicatorCoverageText = (report: NativeReportCoverage | null) => nativeReportCoverageText(report)?.replace('Relatório de registros do ERP', 'Indicadores operacionais do ERP') ?? null;
 export function readNativeReportCoverage(value: Record<string, unknown>): NativeReportCoverage {
   if (value.origin !== 'brufap' || !Number.isSafeInteger(value.mirror_excluded_count) || (value.mirror_excluded_count as number) < 0) return {};
   return { origin: 'brufap', mirror_excluded_count: value.mirror_excluded_count as number, coverage: { partial: (value.mirror_excluded_count as number) > 0, reason: 'native_effects_only' } };

@@ -28,7 +28,7 @@ export function PrintSheet({ title, subtitle, filters, columns, rows, progress, 
     {error && <p className="document-print-error" role="alert">{error}</p>}
     <div className="document-print-scroll" tabIndex={0} aria-label={`${title} para impressão`}>
       {rows && <article className="commercial-sheet document-list-sheet" aria-label={title}>
-        <header className="commercial-heading"><div><p className="commercial-brand">FAGOO</p><h2>{title}</h2>
+        <header className="commercial-heading"><div><h2>{title}</h2>
           <p className="commercial-footnote">{filters ? `${filters} · ` : ''}Emitido em {stamp}</p></div></header>
         {rows.length ? <table><thead><tr>{columns.map(column => <th scope="col" key={column.key} className={column.numeric ? 'numeric' : undefined}>{column.label}</th>)}</tr></thead>
           <tbody>{rows.map((row, index) => <tr key={index}>{columns.map(column => <td key={column.key} className={column.numeric ? 'numeric' : undefined}>{row[column.key] || '—'}</td>)}</tr>)}</tbody></table>

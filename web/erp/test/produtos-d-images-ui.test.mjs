@@ -78,7 +78,7 @@ test('stored images: previews, upload with "Conferir resultado", order and remov
 
 test('stored images: a new product asks to save first; read-only profiles see the images without the controls', async () => {
   const fresh = await mountComponent('ProductStoredImages.tsx', { controller: server().controller, productId: null, writable: true }, {});
-  try { assert.match(fresh.text(), /Salve o produto para enviar imagens armazenadas no FAGOO\./); } finally { fresh.unmount(); }
+  try { assert.match(fresh.text(), /Salve o produto para enviar imagens armazenadas no ERP\./); } finally { fresh.unmount(); }
   const view = await mountComponent('ProductStoredImages.tsx', { controller: server().controller, productId: product, writable: false }, {});
   try {
     await view.flush();

@@ -72,7 +72,7 @@ const fiscalInvoiceRoute = (pathname: string) => FISCAL_INVOICE_PATHS.includes(p
 function FiscalInvoiceRoutes({ controller, pathname, model, role }: { controller: AccessController; pathname: string; model: '' | '55' | '65'; role: string }) {
   const reader = ['admin', 'consulta', 'fiscal'].includes(role), writer = ['admin', 'fiscal'].includes(role);
   if (pathname === '/inutilizacoes-nfe' || pathname === '/cartas-correcao') return writer ? <FiscalEventList key={pathname} controller={controller} kind={pathname === '/cartas-correcao' ? 'correction' : 'inutilization'} />
-    : <section className="real-state-panel"><h1>Consulta não liberada</h1><p>Somente administrador e fiscal consultam os eventos fiscais do FAGOO.</p></section>;
+    : <section className="real-state-panel"><h1>Consulta não liberada</h1><p>Somente administrador e fiscal consultam os eventos fiscais do ERP.</p></section>;
   if (!reader) return <section className="real-state-panel"><h1>Notas fiscais não liberadas</h1><p>Seu perfil não possui acesso às notas fiscais.</p></section>;
   if (pathname === '/naturezas-operacao') return <RealOperationNatures controller={controller} />;
   const screen = pathname === '/notas-entrada' ? 'entrada' : model === '65' ? 'nfce' : 'nfe';

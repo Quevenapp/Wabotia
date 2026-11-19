@@ -21,12 +21,12 @@ export default function HelpCenter({originIntegration=false}:{originIntegration?
   const trail = <nav className="preferences-breadcrumb" aria-label="Localização"><Link to="/acesso">Home</Link> › <Link to={HELP_ROOT}>Central de ajuda</Link>{topic || news ? <> › <span aria-current="page">{topic?.title ?? 'Novidades'}</span></> : null}</nav>;
   if (slug && !topic && !news) return <section className="real-state-panel">{trail}<h1>Tema não encontrado</h1><p>Este tema não existe na Central de ajuda.</p><Link className="primary-button" to={HELP_ROOT}>Ver os temas</Link></section>;
   return <div className="help-center">{trail}
-    <header className="real-heading"><div><h1>{topic?.title ?? (news ? 'Novidades no FAGOO' : 'Central de ajuda do FAGOO')}</h1>
-      <p>{topic?.summary ?? (news ? 'O que mudou em cada versão publicada.' : 'Como usar os cadastros, as operações e os recursos fiscais do FAGOO.')}</p></div></header>
+    <header className="real-heading"><div><h1>{topic?.title ?? (news ? 'Novidades no ERP' : 'Central de ajuda do ERP')}</h1>
+      <p>{topic?.summary ?? (news ? 'O que mudou em cada versão publicada.' : 'Como usar os cadastros, as operações e os recursos fiscais do ERP.')}</p></div></header>
     {news ? <ReleaseNotesList originHistory={originIntegration} /> : topic ? topic.sections.map(section => <section key={section.title} className="help-section"><h2>{section.title}</h2>
       {section.paragraphs.map(text => <p key={text}>{text}</p>)}
       {section.links?.length ? <p className="help-links">{section.links.map(linkOf)}</p> : null}</section>)
       : <ul className="help-topics">{HELP_TOPICS.filter(t=>originIntegration||t.slug!=='convivencia').map(t => <li key={t.slug}><Link to={helpHref(t.slug)}><strong>{t.title}</strong><span>{t.summary}</span></Link></li>)}
-        <li><Link to={helpHref('novidades')}><strong>Novidades</strong><span>As mudanças de cada versão do FAGOO.</span></Link></li></ul>}
+        <li><Link to={helpHref('novidades')}><strong>Novidades</strong><span>As mudanças de cada versão do ERP.</span></Link></li></ul>}
   </div>;
 }

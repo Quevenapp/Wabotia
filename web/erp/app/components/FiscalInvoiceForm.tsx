@@ -401,8 +401,8 @@ export default function FiscalInvoiceForm({ controller, config, id, opening, tod
     const found = lookups[key];
     if (found === undefined) return null;
     if (found === 'error') return <small className="real-help"> · não foi possível conferir a chave.</small>;
-    if (!found.length) return <small className="real-help"> · chave não encontrada nas notas do FAGOO nem no acervo de XML do Origin.</small>;
-    return <small className="real-help">{found.map(n => ` · ${n.model === '65' ? 'NFC-e' : 'NF-e'} ${n.number === null ? 'sem número' : `nº ${String(n.number).padStart(6, '0')}`}${n.issue_date ? ` de ${n.issue_date.split('-').reverse().join('/')}` : ''}${n.name ? ` · ${n.name}` : ''}${n.total ? ` · ${decimalMoney(n.total)}` : ''} (${n.origin === 'origin' ? 'nota do Origin' : 'nota do FAGOO'})`).join('')}</small>;
+    if (!found.length) return <small className="real-help"> · chave não encontrada nas notas do ERP nem no acervo de XML do Origin.</small>;
+    return <small className="real-help">{found.map(n => ` · ${n.model === '65' ? 'NFC-e' : 'NF-e'} ${n.number === null ? 'sem número' : `nº ${String(n.number).padStart(6, '0')}`}${n.issue_date ? ` de ${n.issue_date.split('-').reverse().join('/')}` : ''}${n.name ? ` · ${n.name}` : ''}${n.total ? ` · ${decimalMoney(n.total)}` : ''} (${n.origin === 'origin' ? 'nota do Origin' : 'nota do ERP'})`).join('')}</small>;
   };
   const referenceTab = <>
     <div className="document-grid">
@@ -565,7 +565,7 @@ export default function FiscalInvoiceForm({ controller, config, id, opening, tod
   const transportTab = <>
     <div className="document-grid">
       {field('fiscal-transport-mode', 'Transporte', <select id="fiscal-transport-mode" value={t.mode} disabled={locked} onChange={event => setTransport(event.target.value === 'none' ? { mode: 'none', freight_by: '9', carrier: {}, vehicle: {} } : { mode: 'manual', freight_by: t.freight_by === '9' ? '0' : t.freight_by })}>
-        {TRANSPORT_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}<option value="logistics" disabled title="Integrações logísticas estão fora do escopo do FAGOO.">Transporte com logística cadastrada</option></select>)}
+        {TRANSPORT_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}<option value="logistics" disabled title="Integrações logísticas estão fora do escopo do ERP.">Transporte com logística cadastrada</option></select>)}
       {field('fiscal-freight-by', 'Frete por conta', select('fiscal-freight-by', t.freight_by, FREIGHT_OPTIONS, value => setTransport({ freight_by: value })))}
       {field('fiscal-tracking', 'Código de rastreio', text('fiscal-tracking', t.tracking_code, value => setTransport({ tracking_code: value })))}
     </div>
@@ -647,7 +647,7 @@ export default function FiscalInvoiceForm({ controller, config, id, opening, tod
   const labels = { ...Object.fromEntries(TABS), destinatario: draft.direction === '0' ? 'Remetente' : 'Destinatário' } as Record<Tab, string>;
   return <section className="fiscal-invoice-form" ref={sectionRoot}>
     <header className="real-heading"><div><h1>{kind} - {titleNumber}</h1>
-      <p>{record ? <><span className={statusClass(record, draft.model)}>{statusLabel({ status: record.status, status_raw: null }, draft.model)}</span> · versão {record.version} · </> : null}{REGISTERED.includes(draft.issue_type) ? 'Nota de terceiros registrada no FAGOO, sem transmissão.' : 'Homologação · sem valor fiscal. Salvar não envia a nota.'}</p></div>
+      <p>{record ? <><span className={statusClass(record, draft.model)}>{statusLabel({ status: record.status, status_raw: null }, draft.model)}</span> · versão {record.version} · </> : null}{REGISTERED.includes(draft.issue_type) ? 'Nota de terceiros registrada no ERP, sem transmissão.' : 'Homologação · sem valor fiscal. Salvar não envia a nota.'}</p></div>
       <div className="real-editor-actions"><button type="button" className="secondary-button" disabled={busy} onClick={cancel}>Cancelar</button>
         {uncertain ? <button type="button" className="primary-button" disabled={busy} onClick={() => void send()}>{busy ? 'Conferindo…' : 'Conferir resultado'}</button>
           : <button type="button" className="primary-button" disabled={!editable || busy} onClick={() => void save()}>{busy ? 'Salvando…' : 'Salvar'}</button>}</div></header>

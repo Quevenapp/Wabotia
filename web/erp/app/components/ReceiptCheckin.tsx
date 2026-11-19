@@ -136,7 +136,7 @@ export default function ReceiptCheckin({ controller }: { controller: AccessContr
   const historyBody = view && (view.events.length ? <table className="stock-balances"><thead><tr><th>Produto</th><th>Ação</th><th>Quando</th></tr></thead><tbody>{view.events.map(event => <tr key={event.id}><td>{event.description ?? '—'}</td><td>{EVENT_LABELS[event.action] ?? event.action}{event.action === 'received' && event.quantity ? `: ${quantityText(event.previous ?? '0')} → ${quantityText(event.quantity)}` : event.quantity && event.action !== 'batch' ? `: ${quantityText(event.quantity)}` : ''}</td><td>{localDateTime(event.at)}</td></tr>)}</tbody></table> : <p className="real-help">Nenhuma ação de conferência registrada.</p>);
   return <>
     <header className="real-heading"><div className="stock-title"><h1>Check-in de Recebimentos</h1></div><span className="real-mode">{writable ? 'Conferência autorizada' : 'Somente consulta'}</span></header>
-    <p className="real-notice">A conferência fica registrada no FAGOO e não altera a nota. Ao finalizar, “Lançar estoque ao finalizar Check-in” lança a entrada da Qtde Recebida no depósito escolhido; contas, crédito e devolução não são gerados.</p>
+    <p className="real-notice">A conferência fica registrada no ERP e não altera a nota. Ao finalizar, “Lançar estoque ao finalizar Check-in” lança a entrada da Qtde Recebida no depósito escolhido; contas, crédito e devolução não são gerados.</p>
     {notice && <p className="real-success" role="status">{notice}</p>}{message && <p className="real-alert" role="alert">{message}</p>}
     {command.error && <p className="real-alert" role="alert">{command.error}{command.uncertain ? <button type="button" className="text-button" disabled={command.busy} onClick={() => run(pending ?? 'save', null)}>Conferir resultado</button>
       : noteId && <button type="button" className="text-button" disabled={command.busy} onClick={() => { command.setError(''); setReload(value => value + 1); }}>Recarregar a nota</button>}</p>}
@@ -193,8 +193,8 @@ export default function ReceiptCheckin({ controller }: { controller: AccessContr
         <fieldset disabled={frozen}><legend>Tipo</legend>{(['missing', 'damaged', 'incorrect', 'refused'] as IssueKind[]).map(kind => <label key={kind}><input type="radio" name="checkin-issue-kind" value={kind} checked={issueKind === kind} onChange={() => setIssueKind(kind)} />{ISSUE_LABELS[kind]}</label>)}</fieldset>
         {issueKind !== 'refused' && <div className="form-field"><label htmlFor="checkin-issue-quantity">{ISSUE_QUANTITY_LABELS[issueKind]}</label><input id="checkin-issue-quantity" inputMode="decimal" maxLength={16} value={issueQuantity} disabled={frozen} onChange={event => setIssueQuantity(event.target.value)} /></div>}
         <fieldset disabled={frozen}><legend>Ação para o item</legend>
-          <label title="O FAGOO ainda não gera crédito para o fornecedor."><input type="radio" name="checkin-issue-action" disabled checked={false} onChange={() => {}} />Gerar crédito para o fornecedor</label>
-          <label title="O FAGOO ainda não gera nota de devolução pelo check-in."><input type="radio" name="checkin-issue-action" disabled checked={false} onChange={() => {}} />Gerar nota de devolução</label>
+          <label title="O ERP ainda não gera crédito para o fornecedor."><input type="radio" name="checkin-issue-action" disabled checked={false} onChange={() => {}} />Gerar crédito para o fornecedor</label>
+          <label title="O ERP ainda não gera nota de devolução pelo check-in."><input type="radio" name="checkin-issue-action" disabled checked={false} onChange={() => {}} />Gerar nota de devolução</label>
           <label><input type="radio" name="checkin-issue-action" checked readOnly />Não aplicar nenhuma ação</label></fieldset>
         {issueError && <p className="real-alert" role="alert">{issueError}</p>}</form>
     </Modal>}

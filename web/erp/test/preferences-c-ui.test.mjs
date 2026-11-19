@@ -233,7 +233,7 @@ test('PRF-251 Adicionar atalho with Nome and Link: a screen with filters needs a
   // A screen the role does not open is refused before any command; removing the named favorite drops its name.
   v.find(n=>n.type==='button'&&n.props['aria-label']==='Adicionar atalho').props.onClick();await v.flush();
   v.nodes().find(n=>n.type==='input'&&n.props.placeholder==='URL do destino').props.onChange({target:{value:'/financeiro-empresa?area=payable'}});await v.flush();
-  assert.match(v.text(),/Informe uma tela do FAGOO que o seu perfil abre/);assert.equal(v.button('Adicionar').disabled,true);await v.click('Cancelar');
+  assert.match(v.text(),/Informe uma tela do ERP que o seu perfil abre/);assert.equal(v.button('Adicionar').disabled,true);await v.click('Cancelar');
   v.find(n=>n.type==='button'&&n.props['aria-label']==='Remover atalho Vendas em aberto').props.onClick();await v.flush();
   assert.deepEqual(calls.filter(c=>c.method==='POST').at(-1).body,{command_id:calls.filter(c=>c.method==='POST').at(-1).body.command_id,expected_version:1,shortcuts:['/estoque-empresa']});
  }finally{v.unmount();}

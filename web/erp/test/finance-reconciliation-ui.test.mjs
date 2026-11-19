@@ -76,7 +76,7 @@ test('137 without extrato: Bem-vindo a conciliação bancária and the .OFX uplo
 test('137 queue: cards of the bank and of the FAGOO, Conciliar a sugestão, Ocultar, and CONCILIAR TODOS skips lines without suggestion', async () => {
   const source = server(), view = await mount(source);
   try {
-    assert.match(view.text(), /Extrato do BancoMovimentações no FAGOO/); assert.match(view.text(), /TARIFA 1- R\$ 150,0005\/03\/2026Detalhamento: F1/);
+    assert.match(view.text(), /Extrato do BancoMovimentações no ERP/); assert.match(view.text(), /TARIFA 1- R\$ 150,0005\/03\/2026Detalhamento: F1/);
     assert.match(view.text(), /Caixas e banco- R\$ 150,0004\/03\/2026Lançamento 1/); assert.match(view.text(), /Nenhuma sugestão com o mesmo valor/);
     await lastButton(view, 'Conciliar');
     assert.deepEqual(source.posts()[0].body.data, { line_id: id(101), expected_version: 1, links: [{ kind: 'entry', id: id(201) }] });

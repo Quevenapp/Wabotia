@@ -87,7 +87,7 @@ function HomeView({controller,access}:{controller:HomeController;access:CompanyA
     <ul className="home-dots"><li><span className="home-dot home-dot-total" aria-hidden="true"/><span>Total</span><strong>{count(row.count)}</strong></li>
       {row.statuses.filter(status=>status.count>0).map(status=>{const label=(STATES[row.kind] as Record<string,string>)[status.status]||status.status;return <li key={status.status}><span className={`home-dot ${badgeClass(label)}`} aria-hidden="true"/><span>{label}</span><strong>{count(status.count)}</strong></li>;})}</ul>
     {row.count===0&&<p className="real-help">Nenhum documento registrado.</p>}
-    <p className="home-card-note">Todo o histórico registrado no FAGOO.</p>
+    <p className="home-card-note">Todo o histórico registrado no ERP.</p>
   </article>;
   const financeLink=(kind:'receivable'|'payable')=>period?`/financeiro-empresa?${new URLSearchParams({area:kind,from:period.from,to:period.to})}`:`/financeiro-empresa?area=${kind}`;
   return <div className="home-page fagoo-overview">
@@ -97,7 +97,7 @@ function HomeView({controller,access}:{controller:HomeController;access:CompanyA
       <span className="fagoo-quick-keys"><span className="sr-only">Atalho:</span>{action.keys.map(key=><kbd key={key}>{key}</kbd>)}</span></Link>)}</nav>}
     <div className="home-main">
 
-      <p className="home-alert"><Icon name="circle-info" size={16}/><span>{nativeIndicatorCoverageText(summary) ?? 'Este resumo considera os registros da sua empresa no FAGOO. Os indicadores serão preenchidos conforme os cadastros e movimentações forem registrados.'}</span></p>
+      <p className="home-alert"><Icon name="circle-info" size={16}/><span>{nativeIndicatorCoverageText(summary) ?? 'Este resumo considera os registros da sua empresa no ERP. Os indicadores serão preenchidos conforme os cadastros e movimentações forem registrados.'}</span></p>
       <HomeExpiring controller={controller as Parameters<typeof HomeExpiring>[0]['controller']} role={role}/>
 
       <section className="home-daily" aria-labelledby="home-daily-title">

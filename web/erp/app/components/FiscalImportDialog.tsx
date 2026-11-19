@@ -89,7 +89,7 @@ export default function FiscalImportDialog({ controller, initial = null, model =
           <span>Arraste o .xml aqui ou</span> <strong>Clique para selecionar um arquivo</strong>
           <input id="fiscal-import-file" type="file" accept=".xml,application/xml,text/xml" disabled={busy || Boolean(command.current)} onChange={event => void choose(event.target.files?.[0])} /></label>
         {file && <p className="real-help">Arquivo escolhido: {file.name}</p>}
-        <p className="real-help">{model === '65' ? 'NFC-e 4.00 autorizada (modelo 65) emitida pela empresa.' : 'NF-e 4.00 autorizada (modelo 55); a NFC-e da empresa é importada na lista de NFC-e.'} A assinatura digital do XML é conferida (a cadeia ICP-Brasil não). A nota fica registrada no FAGOO com a chave e o protocolo do XML, sem transmissão; o XML fica guardado para "Baixar XML".</p></>}
+        <p className="real-help">{model === '65' ? 'NFC-e 4.00 autorizada (modelo 65) emitida pela empresa.' : 'NF-e 4.00 autorizada (modelo 55); a NFC-e da empresa é importada na lista de NFC-e.'} A assinatura digital do XML é conferida (a cadeia ICP-Brasil não). A nota fica registrada no ERP com a chave e o protocolo do XML, sem transmissão; o XML fica guardado para "Baixar XML".</p></>}
       {error && <p className="real-alert" role="alert">{error}</p>}
       {outcome?.kind === 'refused' && <div className="real-alert" role="alert"><p>{outcome.text}</p>{outcome.invoiceId && <button type="button" className="text-button" onClick={() => onOpen(outcome.invoiceId!)}>Visualizar nota</button>}</div>}
       {imported && <div className="real-success" role="status"><p>Sua nota foi importada com sucesso.</p>

@@ -250,10 +250,10 @@ test('a same-actor role loss hides the open FAGOO note but keeps it mounted; con
     assert.ok(form(), 'still mounted'); assert.match(view.text(), /Uma confirmação pendente fica preservada/);
     assert.equal(view.nodes().find(n => n.type === 'div' && n.props.hidden === true && n.props.inert === true) !== undefined, true);
     srv.become({ phase: 'ready', membership: { user_id: admin, role: 'fiscal' } }); await view.updateProps({});
-    assert.equal(view.text().includes('Nota do FAGOO não liberada'), false); assert.ok(form());
+    assert.equal(view.text().includes('Nota do ERP não liberada'), false); assert.ok(form());
   } finally { view.unmount(); }
   const reader = server({ role: 'consulta' }), direct = await mountComponent('RealFiscalInvoices.tsx', { controller: reader.controller, screen: 'nfe' }, { location: `/historico-fiscal?modelo=55&nota=${id(1)}` });
-  try { assert.equal(component(direct, 'FiscalInvoiceForm'), undefined); assert.match(direct.text(), /Nota do FAGOO não liberada/); } finally { direct.unmount(); }
+  try { assert.equal(component(direct, 'FiscalInvoiceForm'), undefined); assert.match(direct.text(), /Nota do ERP não liberada/); } finally { direct.unmount(); }
 });
 
 // ---- Review fixes (synthetic data only) ----
@@ -352,7 +352,7 @@ test('the FAGOO source keeps imported production XML distinct from marked homolo
   try {
     assert.equal(component(view, 'OriginListHeader').props.selector, undefined);
     assert.deepEqual(srv.lists(), ['/v1/notas-fiscais?model=55&origin=brufap&page=1']);
-    for (const text of ['Homologação · sem valor fiscal', 'Origem FAGOO', 'XML importado', 'produção']) assert.ok(view.text().includes(text), text);
+    for (const text of ['Homologação · sem valor fiscal', 'Origem ERP', 'XML importado', 'produção']) assert.ok(view.text().includes(text), text);
     for (const text of ['Origin · somente leitura', 'Notas do Origin', 'Cobertura']) assert.equal(view.text().includes(text), false, text);
   } finally { view.unmount(); }
 });

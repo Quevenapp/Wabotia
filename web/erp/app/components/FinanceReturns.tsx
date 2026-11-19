@@ -115,7 +115,7 @@ export default function FinanceReturns({ controller }: { controller: AccessContr
     </section>;
   }
   return <section className="finance-returns">
-    <header className="real-heading"><div><h1>Retornos</h1><p className="real-help">Arquivos .RET lidos pelo FAGOO. Nenhuma baixa é feita automaticamente: as ocorrências são conferidas nos retornos operacionais.</p></div></header>
+    <header className="real-heading"><div><h1>Retornos</h1><p className="real-help">Arquivos .RET lidos pelo ERP. Nenhuma baixa é feita automaticamente: as ocorrências são conferidas nos retornos operacionais.</p></div></header>
     {(parsed.error || error) && <p className="real-alert" role="alert">{parsed.error || error}</p>}
     <NativeListLayout filters={<form onSubmit={apply} aria-label="Filtros dos retornos">
       <div className="form-field"><label htmlFor="return-search">Pesquisar</label><input id="return-search" type="search" maxLength={120} placeholder="Pesquisar" value={draft.q} onChange={event => { const value = event.target.value; setDraft(previous => ({ ...previous, q: value })); }} /></div>

@@ -3,7 +3,7 @@ export const DFE_BASE='/v1/notas-recebidas',MAX_DFE_BYTES=8388608;
 export type DfeEnvironment='1'|'2';
 export type DfeKind='invoice_summary'|'invoice'|'event_summary'|'event'|'unsupported';
 export const DFE_KIND_LABELS:Record<DfeKind,string>={invoice_summary:'Resumo de NF-e',invoice:'XML de NF-e',event_summary:'Resumo de evento',event:'Evento',unsupported:'Quarentena'};
-export const DFE_COORDINATORS={unconfirmed:'Coordenação não confirmada',external:'Outro sistema ou contador',brufap:'FAGOO (preparação)'} as const;
+export const DFE_COORDINATORS={unconfirmed:'Coordenação não confirmada',external:'Outro sistema ou contador',brufap:'ERP (preparação)'} as const;
 export interface ReceivedDfeController {dfeDistribution:(path:string,options?:NativeRequestOptions)=>Promise<unknown>;dfeDistributionDownload:(path:string,signal?:AbortSignal)=>Promise<Blob>;company:(path:string,options?:NativeRequestOptions)=>Promise<unknown>;}
 export interface DfeChannel {id:string;environment:DfeEnvironment;identity_version:number;version:number;coordinator:keyof typeof DFE_COORDINATORS;other_consumers_reviewed:boolean;checkpoint:string|null;checkpoint_confirmed:boolean;collection_requested:boolean;paused:boolean;has_active_attempt:boolean;not_before:string|null;updated_at:string;company_changed:boolean;}
 export interface DfeDocument {id:string;channel_id:string;nsu:string|null;kind:DfeKind;schema:string;model:'55'|null;access_key:string|null;recipient_match:boolean|null;quarantined:boolean;xml_hash:string;size_bytes:number;collected_at:string;is_complete_invoice:boolean;}

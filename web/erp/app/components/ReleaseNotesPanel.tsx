@@ -11,7 +11,7 @@ export default function ReleaseNotesPanel() {
   const [open, setOpen] = useState(() => !releaseSeen(storage()));
   if (!open) return null;
   return <section className="release-panel" aria-labelledby="release-panel-title">
-    <header><h2 id="release-panel-title">Novidades no FAGOO! Versão {LATEST_RELEASE.version}</h2>
+    <header><h2 id="release-panel-title">Novidades no ERP! Versão {LATEST_RELEASE.version}</h2>
       <button type="button" className="text-button" onClick={() => { markReleaseSeen(storage()); setOpen(false); }}>Fechar</button></header>
     <p>{LATEST_RELEASE.title}</p>
     <ul>{LATEST_RELEASE.items.slice(0, 4).map(item => <li key={item}>{item}</li>)}</ul>

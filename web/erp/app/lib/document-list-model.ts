@@ -250,7 +250,7 @@ export const statusLabel = (kind: DocumentKind, status: string, model?: Situatio
 
 export type RowActionKind = 'edit' | 'clone' | 'create_model' | 'clone_model' | 'convert_sale' | 'convert_service' | 'sales_to_service' | 'clear_warnings' | 'stock' | 'finance' | 'print' | 'print_receipt' | 'print_detailed' | 'print_carne' | 'print_production' | 'print_product_labels' | 'print_technician' | 'print_label' | 'fiscal55' | 'fiscal65' | 'fiscal_partial' | 'whatsapp' | 'status' | 'unavailable';
 export interface RowAction { key: string; action: RowActionKind; label: string; letter?: { text: string; color: string; struck?: boolean }; icon?: string; enabled: boolean; title?: string; separatorBefore?: boolean; target?: string }
-const soon = (what: string) => `${what} ainda não está disponível no FAGOO.`;
+const soon = (what: string) => `${what} ainda não está disponível no ERP.`;
 // Origin hides (instead of disaorigin) these actions for the seller profile; in the Brufap that is the vendas role.
 const HIDDEN_FOR_SELLER: readonly RowActionKind[] = ['fiscal55', 'fiscal65', 'stock', 'finance'];
 /**

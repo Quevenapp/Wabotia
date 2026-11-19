@@ -816,7 +816,7 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
       }
       // Origin #add-fisica ("Registrar vendas físicas"): the venda de balcão is the Frente de caixa (202610200204-206).
       if(action==='venda-fisica'&&kind==='sales_orders'){navigate('/frente-caixa-empresa',{replace:true});return;}
-      if(!['incluir','clonar'].includes(action)){setDetailError('Esta ação ainda não está disponível no FAGOO. Volte à listagem.');return;}
+      if(!['incluir','clonar'].includes(action)){setDetailError('Esta ação ainda não está disponível no ERP. Volte à listagem.');return;}
       if(!access.write.includes(kind)){setDetailError('Seu perfil não permite incluir este documento.');return;}
       if(action==='incluir'){setRecord(null);setEditing(true);setEditorEpoch(value=>value+1);return;}
       const origin=params.get('origem')??'';

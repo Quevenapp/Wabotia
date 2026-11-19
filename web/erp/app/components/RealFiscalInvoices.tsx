@@ -266,7 +266,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
         .filter(row => !note || (digits.length === 44 ? row.access_key === digits : row.number === Number(digits)));
       if (request.signal.aborted) return null;
       const row = found.find(r => r.access_key && (r.status === 6 || r.status === 7 || r.status === 8));
-      if (!row) return found.length ? 'A nota encontrada não tem chave de acesso autorizada para a devolução.' : `Nenhuma nota encontrada em Registros do FAGOO com ${note ? 'esse número ou chave' : 'esse número de pedido'}.`;
+      if (!row) return found.length ? 'A nota encontrada não tem chave de acesso autorizada para a devolução.' : `Nenhuma nota encontrada em Registros do ERP com ${note ? 'esse número ou chave' : 'esse número de pedido'}.`;
       const record = await readRecord(row.id, request.signal); if (!request.signal.aborted) setDialog({ type: 'return', record });
       return null;
     } catch (problem) { return request.signal.aborted || aborted(problem) ? null : problem instanceof AccessError ? failureText(problem) : 'Não foi possível buscar a nota.'; }
@@ -442,7 +442,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
     const back = () => { setOpening(null); setParam({ nota: null, pedido: null, secao: null }); setReload(n => n + 1); };
     if (opened !== 'nova' && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(opened)) return <section className="real-state-panel"><h1>Nota não encontrada</h1><button type="button" className="secondary-button" onClick={back}>Voltar à listagem</button></section>;
     // Like the emitter: a same-actor role loss hides the form but keeps a pending command for when access returns.
-    const denied = <section className="real-state-panel"><h1>Nota do FAGOO não liberada</h1><p>Somente administradores e o perfil fiscal abrem as notas de homologação do FAGOO. Uma confirmação pendente fica preservada até o acesso voltar.</p><button type="button" className="secondary-button" onClick={back}>Voltar à listagem</button></section>;
+    const denied = <section className="real-state-panel"><h1>Nota do ERP não liberada</h1><p>Somente administradores e o perfil fiscal abrem as notas de homologação do ERP. Uma confirmação pendente fica preservada até o acesso voltar.</p><button type="button" className="secondary-button" onClick={back}>Voltar à listagem</button></section>;
     if (!writable && !formHeld) return denied;
     return <>{!writable && denied}<div hidden={!writable} inert={!writable} aria-hidden={!writable}><FiscalInvoiceForm key={`${opened}:${opening ? 'copy' : fromOrder ? `pedido:${fromOrder}` : fromGroup ? `grupo:${fromGroup.join(',')}` : 'plain'}`} controller={controller} config={config} id={opened === 'nova' ? null : opened}
       opening={opened === 'nova' ? opening ?? (fromOrder ? { kind: 'order', documentId: fromOrder } : fromGroup ? { kind: 'order', documentId: fromGroup[0]!, documentIds: fromGroup } : { kind: 'new' }) : null} today={today()} initialTab={section}
@@ -482,12 +482,12 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
       case 'status': return config.plainStatus ? <span className="fiscal-plain-status" title={fiscalStateText(row)}>{statusLabel(row, config.model)}</span> : <span className={statusClass(row, config.model)} title={fiscalStateText(row)}>{statusLabel(row, config.model)}</span>;
     }
   };
-  const homologationNotice = <p className="real-notice fiscal-homologation-notice">Registros próprios e XMLs importados no FAGOO. Os testes marcados como Homologação são sem valor fiscal. O ambiente de cada documento aparece na linha. Salvar um rascunho não envia, não lança estoque nem contas.</p>;
+  const homologationNotice = <p className="real-notice fiscal-homologation-notice">Registros próprios e XMLs importados no ERP. Os testes marcados como Homologação são sem valor fiscal. O ambiente de cada documento aparece na linha. Salvar um rascunho não envia, não lança estoque nem contas.</p>;
   return <section className="fiscal-invoices">
     {backupTabs}
     {screen === 'entrada' && <nav className="origin-list-tabs fiscal-entry-tabs" role="tablist" aria-label="Notas fiscais de entrada"><button type="button" role="tab" aria-selected={true}>Notas de compra</button><button type="button" role="tab" aria-selected={false} onClick={() => guard.confirmLeave(() => navigate('/notas-recebidas'))}>Notas recebidas</button></nav>}
     <OriginListHeader title={config.title}
-      primary={writable ? <button type="button" className="primary-button" title="Abre um rascunho técnico em homologação, sem valor fiscal, na área do FAGOO." onClick={() => void addNote()}><Icon name="plus" size={12} /> {config.addLabel}</button> : undefined} />
+      primary={writable ? <button type="button" className="primary-button" title="Abre um rascunho técnico em homologação, sem valor fiscal, na área do ERP." onClick={() => void addNote()}><Icon name="plus" size={12} /> {config.addLabel}</button> : undefined} />
     {homologationNotice}
     <form onSubmit={submit} aria-label="Filtros das notas fiscais">
       <NativeListLayout filters={<>
@@ -512,8 +512,8 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
         <button type="submit" className="primary-button" disabled={loading}>Filtrar</button>
       </>} actions={<>
         <div className="documents-panel-actions">
-          {writable && <button type="button" className="origin-action" title="Rascunho do FAGOO, sem valor fiscal." onClick={() => void addNote()}><Icon name="plus" size={15} /><span>{config.addLabel}</span></button>}
-          <button type="button" className="origin-action" disabled title="O envio à SEFAZ das notas do FAGOO ainda não está ligado nesta tela."><Icon name="paper-plane" size={15} /><span>{config.model === '65' ? 'Autorizar NFC-es selecionadas' : 'Enviar NF-es selecionadas'}</span></button>
+          {writable && <button type="button" className="origin-action" title="Rascunho do ERP, sem valor fiscal." onClick={() => void addNote()}><Icon name="plus" size={15} /><span>{config.addLabel}</span></button>}
+          <button type="button" className="origin-action" disabled title="O envio à SEFAZ das notas do ERP ainda não está ligado nesta tela."><Icon name="paper-plane" size={15} /><span>{config.model === '65' ? 'Autorizar NFC-es selecionadas' : 'Enviar NF-es selecionadas'}</span></button>
           {config.model === '55' && <button type="button" className="origin-action" disabled={!selectedRows.length || printing} title={selectedRows.length ? 'DANFE das notas selecionadas com XML autorizado (até 50).' : 'Selecione as notas.'} onClick={() => void printDanfe(selectedRows.slice(), 'a4')}><Icon name="print" size={15} /><span>Imprimir NF-es selecionadas</span></button>}
           {config.model === '55' && <button type="button" className="origin-action" disabled={!page || printing || Boolean(pdfJob?.running)} title={pdfJob?.running ? 'Um PDF DANFE já está sendo gerado.' : undefined} onClick={() => { setPdfMode(selectedRows.length ? 'selected' : 'period'); setPdfFrom(filters.from); setPdfTo(filters.to); setDialog({ type: 'danfe_pdf' }); }}><Icon name="file-pdf" size={15} /><span>Gerar PDF DANFE</span></button>}
           <button type="button" className="origin-action" disabled={!page} onClick={() => setDialog({ type: 'export', rows: selectedRows.slice() })}><Icon name="file-export" size={15} /><span>Exportar XML</span></button>
@@ -529,13 +529,13 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
           {config.model === '55' ? <button type="button" disabled={!writable} title={writable ? undefined : 'Somente administrador e fiscal importam XML.'} onClick={() => setDialog({ type: 'import' })}>Importar XML NF-e</button>
             : <button type="button" disabled={!writable} title={writable ? 'NFC-e autorizada emitida pela empresa (202610200274).' : 'Somente administrador e fiscal importam XML.'} onClick={() => setDialog({ type: 'import' })}>Importar XML</button>}
           <button type="button" disabled={!writable} title={!writable ? 'Somente administrador e fiscal.' : undefined} onClick={() => setDialog({ type: 'inutilization' })}>Inutilizar numeração</button>
-          {config.model === '55' && <button type="button" disabled title="A emissão em produção continua desligada no FAGOO.">Mover para ambiente de produção</button>}
+          {config.model === '55' && <button type="button" disabled title="A emissão em produção continua desligada no ERP.">Mover para ambiente de produção</button>}
           {screen === 'nfe' && <><h4>Imprimir</h4>
-            <button type="button" disabled title="As etiquetas de transporte das transportadoras são logística, fora do escopo do FAGOO.">Etiquetas de transporte</button>
-            <button type="button" disabled title="A etiqueta de transporte é logística, fora do escopo do FAGOO. O DANFE Simplificado sozinho fica em Imprimir DANFE Simplificado em lote.">DANFE Simplificado + Etiqueta de transporte</button>
+            <button type="button" disabled title="As etiquetas de transporte das transportadoras são logística, fora do escopo do ERP.">Etiquetas de transporte</button>
+            <button type="button" disabled title="A etiqueta de transporte é logística, fora do escopo do ERP. O DANFE Simplificado sozinho fica em Imprimir DANFE Simplificado em lote.">DANFE Simplificado + Etiqueta de transporte</button>
             <button type="button" disabled={!selectedRows.length || printing} title={selectedRows.length ? 'Etiquetas de endereço das notas selecionadas (o endereço de entrega tem prioridade).' : 'Selecione as notas.'} onClick={() => void printLabels()}>Etiquetas selecionadas</button></>}
           {/* Leva H (NFE-209): the product labels of the selected FAGOO entry notes (Cadastros › Produtos labels). */}
-          {screen === 'entrada' && <><h4>Imprimir</h4><button type="button" disabled={!selectedRows.length || printing} title={selectedRows.length ? 'Etiquetas dos produtos das notas de entrada do FAGOO selecionadas (uma por quantidade).' : 'Selecione notas de entrada do FAGOO.'} onClick={() => void printProductLabels()}>Imprimir etiquetas selecionadas</button></>}
+          {screen === 'entrada' && <><h4>Imprimir</h4><button type="button" disabled={!selectedRows.length || printing} title={selectedRows.length ? 'Etiquetas dos produtos das notas de entrada do ERP selecionadas (uma por quantidade).' : 'Selecione notas de entrada do ERP.'} onClick={() => void printProductLabels()}>Imprimir etiquetas selecionadas</button></>}
           {screen === 'entrada' && (['link', 'unlink'] as const).map(mode => {
             // "Vincular à pedido de compra" works on one note of Brufap at a time.
             const one = selectedRows.length === 1 ? selectedRows[0]! : null, reason = !writable ? 'Somente administrador e fiscal.' : !one ? 'Selecione uma nota por vez.'
@@ -576,7 +576,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
           <th><span className="sr-only">Marcadores</span></th>{linkLast && <th>{columnCatalog.find(c => c.id === 'link')?.label}</th>}<th className="row-actions"><span className="sr-only">Ações</span></th></tr></thead>
           <tbody>{rows.map(row => { const key = keyOf(row), priced = pricing[row.id], letter = invoiceStockLetter(stockFlags.flags?.get(row.id)), indicators = [...orderIndicators(row), ...financeIndicator(flags?.get(row.id)?.posted), ...(letter ? [letter] : []), ...(priced ? [{ text: 'P', color: 'red', title: pricingTitle(priced) }] : [])]; return <tr key={key} className={`fiscal-row${selected.has(key) ? ' selected' : ''}`} onClick={event => open(row, event)} onAuxClick={event => { if (event.button === 1) open(row, event); }}>
             <td className="checkbox-cell" onClick={event => event.stopPropagation?.()}><input type="checkbox" aria-label={`Selecionar nota ${invoiceNumber(row)}`} checked={selected.has(key)} onClick={event => { const result = selectRange(ids, selected, anchor, key, Boolean(event.shiftKey)); setSelected(result.selected); setAnchor(result.anchor); }} onChange={() => undefined} /></td>
-            <td title={sourceLabel(row)}>{invoiceNumber(row)}<span className="origin-tag fiscal-homologation-tag">{row.source_environment === '2' ? 'Homologação · sem valor fiscal' : 'Origem FAGOO'}</span><small className="fiscal-source-line">{sourceLabel(row)}</small></td>
+            <td title={sourceLabel(row)}>{invoiceNumber(row)}<span className="origin-tag fiscal-homologation-tag">{row.source_environment === '2' ? 'Homologação · sem valor fiscal' : 'Origem ERP'}</span><small className="fiscal-source-line">{sourceLabel(row)}</small></td>
             {layout.map(column => <td key={column} className={column === 'total' ? 'numeric' : undefined}>{cell(row, column)}</td>)}
             <td><span className="origin-indicators">{indicators.map(indicator => <IndicatorLetter key={indicator.text} text={indicator.text} color={indicator.color} title={indicator.title} />)}</span><InvoiceTagCell state={invoiceTags} row={row} label={invoiceNumber(row)} /></td>
             {linkLast && <td>{cell(row, 'link')}</td>}
@@ -589,9 +589,9 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
     {dialog?.type === 'delete' && <BatchDialog title={config.deleteLabel} confirmLabel="Excluir" plan={deletePlan(dialog.rows, deleteEffects)} canConfirm={reason.trim().length >= 3} run={runDelete} onClose={closeDelete}
       description={<div className="fiscal-delete"><p className="real-notice">{config.deleteWarning}</p><div className="form-field"><label htmlFor="fiscal-delete-reason">Motivo da exclusão</label><input id="fiscal-delete-reason" maxLength={1000} value={reason} onChange={event => setReason(event.target.value)} /></div>
         <p className="real-help">A exclusão é lógica: a nota sai da listagem, mas a versão, o motivo e o usuário ficam no histórico.</p></div>} />}
-    {dialog?.type === 'inutilization' && <InutilizationDialog controller={controller} model={config.model} onClose={done => { setDialog(null); if (done) setNotice('Pedido de inutilização registrado em homologação. A transmissão à SEFAZ ainda não está disponível no FAGOO.'); }} />}
-    {dialog?.type === 'cancel' && <CancelDialog controller={controller} record={dialog.record} onClose={done => { setDialog(null); if (done) { setNotice('Pedido de cancelamento registrado em homologação. A transmissão à SEFAZ ainda não está disponível no FAGOO.'); setReload(n => n + 1); } }} />}
-    {dialog?.type === 'correction' && <CorrectionDialog controller={controller} record={dialog.record} onClose={done => { setDialog(null); if (done) setNotice('Carta de correção registrada em homologação. A transmissão à SEFAZ ainda não está disponível no FAGOO.'); }} />}
+    {dialog?.type === 'inutilization' && <InutilizationDialog controller={controller} model={config.model} onClose={done => { setDialog(null); if (done) setNotice('Pedido de inutilização registrado em homologação. A transmissão à SEFAZ ainda não está disponível no ERP.'); }} />}
+    {dialog?.type === 'cancel' && <CancelDialog controller={controller} record={dialog.record} onClose={done => { setDialog(null); if (done) { setNotice('Pedido de cancelamento registrado em homologação. A transmissão à SEFAZ ainda não está disponível no ERP.'); setReload(n => n + 1); } }} />}
+    {dialog?.type === 'correction' && <CorrectionDialog controller={controller} record={dialog.record} onClose={done => { setDialog(null); if (done) setNotice('Carta de correção registrada em homologação. A transmissão à SEFAZ ainda não está disponível no ERP.'); }} />}
     {dialog?.type === 'other' && <Modal title="O que deseja fazer com essa nota" onClose={() => setDialog(null)} actions={<button type="button" className="secondary-button" onClick={() => setDialog(null)}>Fechar</button>}>
       <div className="fiscal-other-options">
         <button type="button" className="secondary-button" disabled={Boolean(nativeXmlBlock(dialog.row, writable))} title={nativeXmlBlock(dialog.row, writable) ?? 'Gera o XML da nota com o número previsto (sem reservar) e confere o leiaute e as regras.'}
@@ -599,7 +599,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
         <button type="button" className="secondary-button" disabled={!hasXml(dialog.row)} title={hasXml(dialog.row) ? undefined : 'Sem XML coletado para esta nota.'} onClick={() => void showXml(dialog.row, false)}>Ver o XML da nota</button>
         <button type="button" className="secondary-button" disabled={!hasXml(dialog.row)} title={hasXml(dialog.row) ? undefined : 'Sem XML coletado para esta nota.'} onClick={() => void showXml(dialog.row, true)}>Baixar XML</button>
         <button type="button" className="secondary-button" disabled={!dialog.row.access_key} title={dialog.row.access_key ? undefined : 'A nota ainda não tem chave de acesso.'} onClick={() => void copyKey(dialog.row.access_key!)}>Copiar chave de acesso</button>
-        <button type="button" className="secondary-button" disabled title="As cartas de correção do FAGOO ainda não foram transmitidas.">Baixar XML carta de correção</button>
+        <button type="button" className="secondary-button" disabled title="As cartas de correção do ERP ainda não foram transmitidas.">Baixar XML carta de correção</button>
       </div></Modal>}
     {dialog?.type === 'native' && <FiscalNativeXmlDialog mode={dialog.mode} result={dialog.result} onClose={() => setDialog(null)} />}
     {dialog?.type === 'xml' && <Modal title={`XML da nota ${invoiceNumber(dialog.row)}`} onClose={() => setDialog(null)} actions={<button type="button" className="secondary-button" onClick={() => setDialog(null)}>Fechar</button>}>
@@ -634,7 +634,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
     {dialog?.type === 'export' && <FiscalXmlExportDialog controller={controller} config={config} filters={filters} order={order} selected={dialog.rows} onClose={() => setDialog(null)} />}
     {dialog?.type === 'certificate' && <Modal title="Certificado digital" onClose={() => setDialog(null)} actions={<><button type="button" className="primary-button" onClick={() => { setDialog(null); startForm({ kind: 'new' }); }}>Prosseguir</button>
       <button type="button" className="secondary-button" onClick={() => { setDialog(null); guard.confirmLeave(() => navigate('/certificado-a1')); }}>Configurar certificado digital</button></>}>
-      <p>{dialog.text}</p><p className="real-help">As NFC-e do FAGOO ficam em homologação, sem valor fiscal; a emissão com o certificado ainda não está ligada nesta tela.</p></Modal>}
+      <p>{dialog.text}</p><p className="real-help">As NFC-e do ERP ficam em homologação, sem valor fiscal; a emissão com o certificado ainda não está ligada nesta tela.</p></Modal>}
     {dialog?.type === 'import' && <FiscalImportDialog controller={controller} model={config.model} onClose={changed => { setDialog(null); if (changed) { setReload(n => n + 1); setFinanceReload(n => n + 1); } }}
       onOpen={(noteId, direction, reconcile, noteModel) => { setDialog(null);
         // An imported note opens in the list where Origin shows it: entry notes in Notas de entrada, exit notes in Notas fiscais de saída

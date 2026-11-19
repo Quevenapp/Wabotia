@@ -62,7 +62,7 @@ async function prepareProfile(view){
  for(const[label,value]of[
   ['Nome no arquivo · maiúsculas sem acento *','EMPRESA FICTICIA'],['CNPJ numérico do beneficiário *','00000000000000'],
   ['Agência · 4 dígitos *','0000'],['Conta · 5 dígitos *','00000'],['Dígito da conta *','0'],
-  ['Sequência interna inicial FAGOO *','1'],['Próximo nosso número · 8 dígitos sem DV *','00000001'],['Referência da conferência / contrato *','FIXTURE SEM CONTRATO REAL'],
+  ['Sequência interna inicial ERP *','1'],['Próximo nosso número · 8 dígitos sem DV *','00000001'],['Referência da conferência / contrato *','FIXTURE SEM CONTRATO REAL'],
  ])await change(view,label,value);
  await view.submit();
 }
@@ -86,7 +86,7 @@ test('new profiles expose only Itaú109 and reject an injected Inter bank or wal
   const option=view.find(n=>n.type==='option'&&n.props.value==='077');assert.equal(option.props.disabled,true);assert.match(text(option),/indisponível por enquanto/);
   await prepareProfile(view);await view.click('Voltar e conferir');
   await change(view,'Banco *','077');assert.equal(inputFor(view,'Banco *').props.value,'341');assert.equal(inputFor(view,'Carteira *').props.value,'109');
-  assert.equal(inputFor(view,'Conta · 5 dígitos *').props.value,'00000');assert.equal(inputFor(view,'Sequência interna inicial FAGOO *').props.value,'1');assert.match(view.text(),/somente para Itaú/);
+  assert.equal(inputFor(view,'Conta · 5 dígitos *').props.value,'00000');assert.equal(inputFor(view,'Sequência interna inicial ERP *').props.value,'1');assert.match(view.text(),/somente para Itaú/);
   await change(view,'Carteira *','110');assert.equal(inputFor(view,'Carteira *').props.value,'109');assert.equal(writes(service).length,0);
   await view.submit();await view.click('Salvar perfil');assert.equal(writes(service).length,1);assert.equal(writes(service)[0].body.data.bank,'341');assert.equal(writes(service)[0].body.data.wallet,'109');
  }finally{view.unmount();}

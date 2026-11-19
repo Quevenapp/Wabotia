@@ -182,4 +182,4 @@ export const PREFERENCE_READERS=Object.freeze({
 // Reusable option lists (Origin labels).
 export const BOOLEAN_YES_NO=[['sim','Sim'],['nao','Não']];
 export const HEADER_TYPES=[['padrao','Padrão do Sistema'],['personalizado','Personalizado']];
-export const NOT_APPLIED='Guardado. O FAGOO ainda não segue esta opção; ela passa a valer quando a função correspondente existir.';
+export const NOT_APPLIED='Guardado. O ERP ainda não segue esta opção; ela passa a valer quando a função correspondente existir.';

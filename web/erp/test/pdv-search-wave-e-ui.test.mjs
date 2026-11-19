@@ -51,13 +51,17 @@ test('search path: active products, 10 a time, with Tipo, Formato, Marca and the
   assert.throws(() => productSearchPath({ q: 'a\nb', kind: '', format: '', brand: '' }, null));
 });
 
-test('Pesquisa avançada (Alt+A) of the product: filters, Mais resultados and Selecionar fill the Produto panel', async () => {
+for (const [platform, modifier] of [['Win32', 'Alt'], ['MacIntel', 'Ctrl+Shift']])
+test(`Pesquisa avançada of the product (${platform}): filters, Mais resultados and Selecionar fill the Produto panel`, async t => {
+  const navigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { platform } });
+  t.after(() => { if (navigator) Object.defineProperty(globalThis, 'navigator', navigator); else delete globalThis.navigator; });
   const source = server({ catalog: path => path.includes('after=') ? page([record(OTHER, 'Lápis sintético')]) : page([record(PRODUCT, 'Caneta sintética', { gtin: '7891234567895' })], PRODUCT) });
   const view = await mountComponent('RealPdv.tsx', { controller: source.controller }, { location: '/frente-caixa-empresa', expandChildren: ['ProductAdvancedSearch'] });
   try {
     await settle(view);
-    assert.ok(button(view, 'Pesquisa avançada (Alt+A)'), 'the button shows the configured key');
-    await press(view, 'Pesquisa avançada (Alt+A)');
+    assert.ok(button(view, `Pesquisa avançada (${modifier}+A)`), 'the button shows the configured key');
+    await press(view, `Pesquisa avançada (${modifier}+A)`);
     assert.match(view.text(), /Pesquise por código, descrição ou GTIN.*Tipo.*Formato.*Marca/s); assert.match(view.text(), /Caneta sintética.*7891234567895.*R\$ 10,00/s);
     await view.change('product-search-kind', 'S');
     view.nodes().find(node => node.type === 'form' && node.props.className === 'document-contact-search').props.onSubmit({ preventDefault() {}, stopPropagation() {} }); await settle(view);
@@ -81,13 +85,17 @@ test('Pesquisa avançada of the product: a late answer after a session change is
   } finally { view.unmount(); }
 });
 
-test('Pesquisa avançada of the cliente: Tipo, CNPJ/CPF, Código and Fantasia come from the chosen row', async () => {
+for (const [platform, modifier] of [['Win32', 'Alt'], ['MacIntel', 'Ctrl+Shift']])
+test(`Pesquisa avançada of the cliente (${platform}): Tipo, CNPJ/CPF, Código and Fantasia come from the chosen row`, async t => {
+  const navigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { platform } });
+  t.after(() => { if (navigator) Object.defineProperty(globalThis, 'navigator', navigator); else delete globalThis.navigator; });
   const source = server({ catalog: path => path.startsWith('/v1/cadastros/contatos?') ? { items: [{ id: CLIENT, name: 'Cliente Sintético Ltda', trade_name: 'Sintético', code: 'CLI-9', document: '11222333000181', person_type: 'J', city: 'Piracicaba', state: 'SP', situation: 'A' }], total: 1 }
     : path.startsWith('/v1/cadastros/tipos-contato') ? { items: [] } : page([]) });
   const view = await mountComponent('RealPdv.tsx', { controller: source.controller }, { location: '/frente-caixa-empresa', expandChildren: ['DocumentContactSearch'] });
   try {
     await settle(view);
-    await press(view, 'Cliente (Alt+C)');
+    await press(view, `Cliente (${modifier}+C)`);
     await press(view, 'Pesquisa avançada');
     const select = view.nodes().filter(node => node.type === 'button' && text(node) === 'Selecionar')[0];
     assert.ok(select); select.props.onClick({ preventDefault() {} }); await settle(view);

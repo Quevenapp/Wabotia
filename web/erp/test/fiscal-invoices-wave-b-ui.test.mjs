@@ -400,7 +400,7 @@ test('Exportação de XML NFe: selected notes go into one ZIP after each XML is 
     assert.equal(component(view, 'Modal').props.title, 'Exportação de XML NFe'); assert.equal(view.input('fiscal-export-selected').props.checked, true);
     await modalAction(view, 'Exportar'); await new Promise(r => setTimeout(r, 50)); await view.flush();
     assert.match(view.text(), /3 de 3 notas exportadas · 1 arquivo\(s\)/); assert.match(view.text(), /2 nota\(s\) não exportada\(s\)/);
-    assert.match(view.text(), /Nota 000122: o XML não pôde ser conferido/); assert.match(view.text(), /Nota 000123: sem XML guardado no FAGOO/);
+    assert.match(view.text(), /Nota 000122: o XML não pôde ser conferido/); assert.match(view.text(), /Nota 000123: sem XML guardado no ERP/);
     assert.equal(saved.length, 1); const zip = new Uint8Array(await saved[0].arrayBuffer());
     assert.deepEqual([...zip.slice(0, 4)], [0x50, 0x4b, 0x03, 0x04]); assert.ok(new TextDecoder().decode(zip).includes('NFe35261012345678000195550010000001211123456781.xml'));
     assert.ok(new TextDecoder().decode(zip).includes(good));
@@ -516,7 +516,7 @@ test('Outras opções › Baixar XML carta de correção stays disabled with the
   try {
     component(view, 'RowMenu').props.items.find(i => i.label === 'Outras opções de NF-e').onClick(); await view.flush();
     const letters = button(view, 'Baixar XML carta de correção');
-    assert.equal(letters.props.disabled, true); assert.match(letters.props.title, /cartas de correção do FAGOO ainda não foram transmitidas/);
+    assert.equal(letters.props.disabled, true); assert.match(letters.props.title, /cartas de correção do ERP ainda não foram transmitidas/);
     assert.equal(srv.calls.some(c => c.path.startsWith('/v1/notas-fiscais/origin/')), false);
   } finally { view.unmount(); }
 });

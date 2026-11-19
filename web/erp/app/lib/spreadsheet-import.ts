@@ -188,7 +188,7 @@ const REASONS:Record<string,string>={erp_catalog_name_required:'obrigatório par
 /** Portuguese text of one refused line: the field when the server names it, then the reason. */
 export function reasonText(kind:ImportKind,result:Pick<ImportResult,'reason'|'field'>){
  const reason=result.reason??'',[base]=reason.split(':'),label=fieldLabel(kind,result.field);
- if(base==='erp_preferences_import_not_found')return `${label}: não encontrado no FAGOO`;
+ if(base==='erp_preferences_import_not_found')return `${label}: não encontrado no ERP`;
  if(base==='erp_preferences_import_ambiguous')return `${label}: há mais de um cadastro com esse valor`;
  if(base==='erp_preferences_import_required')return label==='Depósito'?'Depósito: informe o depósito (não há depósito padrão)':label==='Natureza de operação'?'Natureza de operação: informe a natureza ou defina a padrão em Naturezas de operação':`${label}: obrigatório`;
  if(base==='erp_preferences_import_company_regime')return 'Confirme o regime tributário em Alterar dados da empresa antes de importar notas';
@@ -197,7 +197,7 @@ export function reasonText(kind:ImportKind,result:Pick<ImportResult,'reason'|'fi
  if(base==='erp_catalog_contact_invalid')return `Confira ${label}`;
  if(base==='erp_catalog_name_required')return `${label??(kind==='products'?'Descrição':'Nome')}: ${REASONS[base]}`;
  const text=REASONS[base!];if(text)return label?`${label}: ${text}`:text;
- return `Linha recusada pelo FAGOO (${reason})`;
+ return `Linha recusada pelo ERP (${reason})`;
 }
 export const STATUS_TEXT:Record<ImportResult['status'],string>={valid:'Válido',created:'Incluído',updated:'Atualizado',unchanged:'Sem alteração',invalid:'Com erro'};
 export const ACTION_TEXT:Record<'create'|'update',string>={create:'Incluir',update:'Atualizar'};

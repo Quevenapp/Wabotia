@@ -10,10 +10,24 @@ const withWindow = async run => {
 };
 const links = view => view.nodes().filter(node => node.props?.to).map(node => node.props.to);
 
+test('a marca mostra somente ERP, inclusive no modo compacto', async () => {
+  for (const compact of [false, true]) {
+    const view = await mountComponent('FagooBrand.tsx', { compact }, { componentName: 'FagooBrand' });
+    try {
+      assert.equal(view.text(), 'ERP');
+      assert.equal(view.nodes().some(node => node.type === 'svg'), false);
+    } finally { view.unmount(); }
+  }
+});
+
 test('sidebar groups company destinations and toggles the selected section', () => withWindow(async () => {
-  const view = await mountComponent('OriginTopBar.tsx', { groups: resolveMenu('real', {role:'admin',resources:['products','contacts']}), homeTo: '/acesso', preferencesTo: '/preferencias', user: { name: 'Administrador', company: 'Empresa' }, theme: 'dark', onTheme() {} }, { location: '/acesso' });
+  const view = await mountComponent('OriginTopBar.tsx', { groups: resolveMenu('real', {role:'admin',resources:['products','contacts']}), homeTo: '/acesso', preferencesTo: '/preferencias', user: { name: 'Administrador', company: 'Empresa' }, theme: 'dark', onTheme() {}, helpLinks: [{ to: '/ajuda', label: 'Central de ajuda' }] }, { location: '/acesso' });
   try {
-    assert.ok(view.find(node => node.type === 'aside' && node.props['aria-label'] === 'Navegação do FAGOO'));
+    assert.ok(view.find(node => node.type === 'aside' && node.props['aria-label'] === 'Navegação do ERP'));
+    assert.ok(view.find(node => node.props['aria-label'] === 'ERP, página inicial'));
+    view.find(node => node.props['aria-label'] === 'Central de ajuda').props.onClick(); await view.flush();
+    assert.ok(view.find(node => node.props['aria-label'] === 'Ajuda do ERP'));
+    view.find(node => node.props['aria-label'] === 'Fechar ajuda').props.onClick(); await view.flush();
     assert.match(view.text(), /Resultados.*Comercial.*Compras.*Catálogo.*Estoque.*Financeiro.*Fiscal.*Pessoas/s);
     const panel = () => view.find(node => node.props.id === view.button('Catálogo').props['aria-controls']);
     assert.equal(panel().props.hidden, true);

@@ -204,5 +204,5 @@ test('home identifies native indicators and the number of excluded Origin docume
  const s=server(),read=s.controller.home;
  s.controller.home=async(...args)=>{const raw=await read(...args);return args[0].startsWith('/v1/inicio?')?{...raw,origin:'brufap',mirror_excluded_count:17,coverage:{partial:true,reason:'native_effects_only'}}:raw;};
  const view=await mount(s);
- try { assert.match(view.text(),/Indicadores operacionais do FAGOO; 17 documentos Origin não entram neste cálculo/); } finally { view.unmount(); }
+ try { assert.match(view.text(),/Indicadores operacionais do ERP; 17 documentos Origin não entram neste cálculo/); } finally { view.unmount(); }
 });

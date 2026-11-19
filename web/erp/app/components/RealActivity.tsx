@@ -75,7 +75,7 @@ export default function RealActivity({controller,mode='activity'}:{controller:Sy
    <OriginToolbar searchValue={filters.q} searchPlaceholder="Pesquisar" onSearchChange={q=>setFilters({...filters,q})} onSearch={()=>search()}
     period={<span className="real-activity-period"><label>Início<input type="date" id="deletions-from" value={filters.from} max={today} onChange={e=>setFilters({...filters,period:'periodo',from:e.target.value})}/></label><label>Fim<input type="date" id="deletions-to" value={filters.to} max={today} onChange={e=>setFilters({...filters,period:'periodo',to:e.target.value})}/></label></span>}
     tools={<button type="button" className="origin-refresh" title="Recarregar" aria-label="Recarregar" onClick={()=>setReload(n=>n+1)}><Icon name="rotate-right" size={12}/></button>}/>
-   <p className="real-help">No FAGOO nada é apagado: esta consulta mostra arquivamentos de cadastros, rascunhos fiscais arquivados, anexos descartados e usuários desativados, com quem fez e quando.</p>
+   <p className="real-help">No ERP nada é apagado: esta consulta mostra arquivamentos de cadastros, rascunhos fiscais arquivados, anexos descartados e usuários desativados, com quem fez e quando.</p>
   </>:<section className="real-activity-filters" aria-label="Filtrar resultados"><h2>Filtrar resultados</h2>
    <div className="real-activity-grid">
     <label className="form-field">Período<select id="activity-period" value={filters.period} onChange={e=>setFilters({...filters,period:e.target.value as PeriodKind})}>{(Object.keys(PERIOD_TEXT) as PeriodKind[]).map(k=><option key={k} value={k}>{PERIOD_TEXT[k]}</option>)}</select></label>

@@ -164,7 +164,7 @@ export function OriginActionsPanel({ primary, actions = [], more = [], info = []
       {more.length > 0 && <div className="origin-more"><button type="button" className="origin-more-toggle" aria-expanded={moreOpen} title="Mais ações" onClick={() => setMoreOpen(!moreOpen)}><Icon name={moreOpen ? 'square-minus' : 'square-plus'} size={13} />Mais ações</button>
         {moreOpen && more.map(group => <div className="origin-more-group" key={group.title}><h3>{group.title}</h3>{group.items.map(item => <button type="button" key={item.label} disabled={item.disabled} title={item.disabled ? item.disabledReason : item.label} onClick={item.onClick}>{item.label}</button>)}</div>)}</div>}
       {info.length > 0 && <section className="origin-info"><h2>Informações</h2><dl>{info.map(item => <div key={item.label}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl></section>}
-      {support.length > 0 && <section className="origin-support"><h2>Ferramentas de apoio</h2>{support.map(link => link.to ? <Link key={link.label} to={link.to}>{link.label}</Link> : <span key={link.label} title="Ainda não disponível no FAGOO">{link.label}</span>)}</section>}
+      {support.length > 0 && <section className="origin-support"><h2>Ferramentas de apoio</h2>{support.map(link => link.to ? <Link key={link.label} to={link.to}>{link.label}</Link> : <span key={link.label} title="Ainda não disponível no ERP">{link.label}</span>)}</section>}
       {notice}
     </div>
     <button type="button" className="origin-collapse" title="Minimizar barra de ações" aria-label="Minimizar barra de ações" onClick={onCollapse}><Icon name="chevron-right" size={12} /></button>

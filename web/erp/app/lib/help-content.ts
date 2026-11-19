@@ -16,7 +16,7 @@ export const HELP_TOPICS: readonly HelpTopic[] = [
   { slug: 'primeiros-passos', title: 'Primeiros passos', summary: 'Como entrar, encontrar as telas e o que cada perfil pode fazer.', sections: [
     { title: 'Entrar e sair', paragraphs: [
       'Entre com o e-mail e a senha do convite. Esqueceu a senha? Use "Esqueci minha senha" na tela de acesso: o e-mail de recuperação abre a página de definir uma senha nova.',
-      'Se a empresa exigir o segundo fator, o FAGOO pede o código do aplicativo autenticador depois da senha. Perdeu o celular? O administrador redefine o seu segundo fator em Preferências › Sistema › Usuários.',
+      'Se a empresa exigir o segundo fator, o ERP pede o código do aplicativo autenticador depois da senha. Perdeu o celular? O administrador redefine o seu segundo fator em Preferências › Sistema › Usuários.',
     ], links: [{ label: 'Minha conta e segurança', to: '/empresa-configuracoes' }] },
     { title: 'Encontrar uma tela', paragraphs: [
       'O menu do topo segue a organização do Origin: Cadastros, Suprimentos, Vendas, Finanças, Serviços e Notas Fiscais. A busca "Pesquisar" encontra qualquer tela pelo nome.',
@@ -43,13 +43,13 @@ export const HELP_TOPICS: readonly HelpTopic[] = [
     { title: 'Referências oficiais', paragraphs: ['O leiaute, as regras de validação e as tabelas da NF-e são os publicados no Portal Nacional da NF-e.'],
       links: [OFFICIAL_LINKS.portalNfe, OFFICIAL_LINKS.nfeDocs] },
   ] },
-  { slug: 'naturezas-operacao', title: 'Manual de operações fiscais', summary: 'Como as naturezas de operação definem CFOP e tributação das notas do FAGOO.', sections: [
+  { slug: 'naturezas-operacao', title: 'Manual de operações fiscais', summary: 'Como as naturezas de operação definem CFOP e tributação das notas do ERP.', sections: [
     { title: 'O que é uma natureza', paragraphs: [
       'A natureza de operação descreve a operação da nota (venda, devolução, remessa) e guarda as regras que preenchem CFOP, situação tributária e alíquotas dos itens.',
       'Cada nota usa a natureza escolhida ou a padrão das preferências. Alterar uma natureza não muda notas já gravadas.',
     ], links: [{ label: 'Naturezas de operação', to: '/naturezas-operacao' }] },
     { title: 'Regras e revisão', paragraphs: [
-      'As regras tributárias ficam para a revisão do contador antes de qualquer emissão em produção. Enquanto isso, as notas do FAGOO seguem em homologação.',
+      'As regras tributárias ficam para a revisão do contador antes de qualquer emissão em produção. Enquanto isso, as notas do ERP seguem em homologação.',
       'O CFOP deve existir na tabela oficial vigente; a escolha entre operação interna (5xxx), interestadual (6xxx) e exterior (7xxx) depende da UF do destinatário.',
     ], links: [{ label: 'Parâmetros de operações fiscais', to: '/preferencias/notas-fiscais/nfe' }, OFFICIAL_LINKS.cfop] },
   ] },

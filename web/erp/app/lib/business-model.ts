@@ -26,7 +26,7 @@ export const BUSINESS_MENU:readonly{title:string;entries:readonly MenuEntry[]}[]
   {label:'Sem Movimentação',to:'/painel-produtos-empresa?painel=sem-movimentacao',roles:STOCK_ROLES}]},
  {title:'Clientes',entries:[{label:'Novo x Recorrentes',screen:'novos-recorrentes',roles:ALL},{label:'Atividade da Carteira',screen:'atividade-carteira',roles:ALL}]},
  {title:'Desempenho',entries:[{label:'Curva ABC',screen:'curva-abc',roles:ALL},{label:'Metas',screen:'metas',roles:ALL}]},
- {title:'WhatsApp',entries:[{label:'Acompanhe no WhatsApp',roles:ALL,disabledReason:'Depende de uma integração com o WhatsApp, que o FAGOO não tem.'}]},
+ {title:'WhatsApp',entries:[{label:'Acompanhe no WhatsApp',roles:ALL,disabledReason:'Depende de uma integração com o WhatsApp, que o ERP não tem.'}]},
 ];
 export const screenAllowed=(screen:BusinessScreen,role:string|undefined)=>Boolean(role)&&(screen==='metas'?(ALL as readonly string[]).includes(role!):(BUSINESS_PANEL_ROLES[screen] as readonly string[]).includes(role!));
 export function businessScreen(search:string,role?:string):BusinessScreen{

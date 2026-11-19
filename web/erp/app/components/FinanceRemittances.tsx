@@ -91,7 +91,7 @@ export default function FinanceRemittances({ controller }: { controller: AccessC
   const plan = batchVisible ? planBatch(batchVisible.items, ({ row }) => row.excludable ? null : 'Remessa com arquivo gerado não é excluída: o banco pode tê-la registrado.') : null;
   const rows = page?.items ?? [], pages = page ? Math.max(1, Math.ceil(page.total / CNAB_LIST_PAGE)) : 1, allSelected = rows.length > 0 && rows.every(row => selected.includes(row.id));
   if (!allowed) return <section className="real-state-panel"><h1>Remessas indisponíveis</h1><p>Confirme sua sessão e seu acesso ao financeiro para continuar.</p></section>;
-  const guide = <p className="real-help">O FAGOO prepara o arquivo para envio manual ao banco; não o transmite nem registra baixas.</p>;
+  const guide = <p className="real-help">O ERP prepara o arquivo para envio manual ao banco; não o transmite nem registra baixas.</p>;
   if (route.id) return <section className="finance-remittance-detail">
     <header className="real-heading"><div><h1>Remessa {detail ? `nº ${detail.record.sequence}` : ''}</h1>{guide}</div><div className="real-editor-actions">
       <button type="button" className="secondary-button" onClick={() => go({ ...route, id: null, page: 1 })}>Voltar</button>

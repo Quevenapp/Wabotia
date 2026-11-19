@@ -29,7 +29,7 @@ type Toggle = { id: string; name: string; command: string; body: { command_id: s
 const PERMISSION_DENIED = 'Seu usuário não tem a permissão Campos Customizados (Produtos) em Sistema › Usuários › Permissões › Preferências.';
 const SAVE_REFUSED: Record<string, (products?: number) => string> = {
   duplicate_name: () => 'Já existe um campo customizado com este nome.',
-  limit: () => `O FAGOO aceita até ${CUSTOM_FIELDS_LIMIT} campos customizados de produtos.`,
+  limit: () => `O ERP aceita até ${CUSTOM_FIELDS_LIMIT} campos customizados de produtos.`,
   option_in_use: products => `Não é possível remover opções usadas em ${products ?? 0} produto(s). Troque o valor desses produtos antes de remover a opção.`,
 };
 
@@ -113,7 +113,7 @@ export default function CustomFields({ controller }: { controller: AccessControl
     <div className="product-tabs" role="tablist" aria-label="Módulos dos campos customizados">
       <button type="button" role="tab" id="custom-fields-tab-products" aria-selected={tab === 'products'} aria-controls="custom-fields-panel" onClick={() => setTab('products')}>Produtos</button>
       <button type="button" role="tab" id="custom-fields-tab-os" aria-selected={tab === 'service_orders'} aria-controls="custom-fields-panel-os" onClick={() => setTab('service_orders')}>Ordem de Serviço</button>
-      <button type="button" role="tab" aria-selected="false" disabled title="Os clientes e fornecedores ainda não usam campos customizados no FAGOO.">Clientes e Fornecedores</button></div>
+      <button type="button" role="tab" aria-selected="false" disabled title="Os clientes e fornecedores ainda não usam campos customizados no ERP.">Clientes e Fornecedores</button></div>
     {tab === 'service_orders' && <div id="custom-fields-panel-os" role="tabpanel" aria-labelledby="custom-fields-tab-os"><DocumentCustomFieldsAdmin controller={controller} /></div>}
     {tab === 'products' && <>
     {notice && <p className="real-success" role="status">{notice}</p>}

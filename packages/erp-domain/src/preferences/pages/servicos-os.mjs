@@ -2,7 +2,7 @@
 import{definePage,PREFERENCE_READERS,HEADER_TYPES}from'../core.mjs';
 import{applied,area,choice,emailBlock,radio,text,toggle}from'../fields.mjs';
 const C='configuracoes',L='rotulos',I='impressao',M='email';
-const print='Guardado. A impressão da OS ainda usa o modelo padrão do FAGOO.';
+const print='Guardado. A impressão da OS ainda usa o modelo padrão do ERP.';
 const labels='Guardado. Em branco, o editor e a impressão mantêm o rótulo padrão.';
 // 202610200129: Dados Gerais and Peças labels are used by the editor and the print; 202610200268: also the Serviços ones (Serviços
 // executados grid; Quantidade is the Horas column, Valor the Preço and Observações the Observações do Serviço).
@@ -38,6 +38,6 @@ export default definePage({id:'servicos-os',category:'servicos',path:'ordens-ser
   toggle('os.imprimir_desconto_lista',I,'Exibir descontos e preço lista dos itens',false,{status:'applied',note:'Aplicada: a impressão mostra o preço de lista (preço do cadastro guardado no item).'}),
   radio('os.tipo_cabecalho',I,'Exibir tipo de cabeçalho',HEADER_TYPES,'padrao',{status:'applied',note:'Aplicada (migração 270): Personalizado imprime a OS com o cabeçalho personalizado (texto formatado editado pelo administrador); Padrão do Sistema, o logotipo e a identificação da empresa. Sem texto personalizado, vale o padrão.'}),
   applied('os.cabecalho_personalizado',I,'Cabeçalho personalizado','Texto do cabeçalho impresso quando “Exibir tipo de cabeçalho” é Personalizado.',{link:{label:'Editar cabeçalho personalizado',to:'/documentos-empresa?tipo=service_orders&acao=cabecalho',roles:['admin']}}),
-  toggle('os.email_anexos',M,'Enviar anexos por e-mail',false,{note:'Guardado. O FAGOO ainda não envia e-mails.'}),
+  toggle('os.email_anexos',M,'Enviar anexos por e-mail',false,{note:'Guardado. O ERP ainda não envia e-mails.'}),
   ...emailBlock('os',M),
  ]});

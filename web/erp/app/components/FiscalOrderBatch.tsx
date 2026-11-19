@@ -71,6 +71,6 @@ export default function FiscalOrderBatch({ controller, model, rows, today, onClo
     onRetry={ids => setRound(current => ({ count: current.count + 1, ids }))}
     progressLabel={(current, count) => `Gerando notas fiscais… ${current} de ${count}`}
     description={<><p>Deseja realmente gerar {kind} de {plan.eligible.length} venda(s) selecionada(s)?</p>
-      <p className="real-help">Cada nota é montada como "Gerar nota fiscal" do pedido, com o cálculo automático dos impostos, e fica em Testes de homologação do FAGOO, sem número e sem envio à SEFAZ.
+      <p className="real-help">Cada nota é montada como "Gerar nota fiscal" do pedido, com o cálculo automático dos impostos, e fica em Testes de homologação do ERP, sem número e sem envio à SEFAZ.
         A emissão automática depois da geração em lote fica desligada. Nenhum estoque ou conta é lançado.</p></>} />;
 }

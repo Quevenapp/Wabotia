@@ -25,8 +25,8 @@ test('NFE-069/063/185: fiscal state apart from the DANFE, and the source origin 
   assert.equal(fiscalStateText(row({ status: 6, status_raw: '5', danfe_emitted: false })), 'Situação fiscal: Autorizada · DANFE não emitida');
   assert.equal(fiscalStateText(row({ status: null, fiscal_status: null, status_raw: '12', danfe_emitted: false })), 'Situação fiscal: Situação não mapeada');
   assert.equal(sourceLabel(row({ origin: 'brufap', source_origin: 'xml_import', source_environment: '1' })), 'XML importado · produção');
-  assert.equal(sourceLabel(row({ origin: 'brufap', source_origin: 'brufap_native', source_environment: '2' })), 'Nota do FAGOO · homologação');
-  assert.equal(sourceLabel(row({ origin: 'brufap', source_origin: 'third_party', source_environment: null })), 'Nota de terceiros registrada no FAGOO · ambiente não informado');
+  assert.equal(sourceLabel(row({ origin: 'brufap', source_origin: 'brufap_native', source_environment: '2' })), 'Nota do ERP · homologação');
+  assert.equal(sourceLabel(row({ origin: 'brufap', source_origin: 'third_party', source_environment: null })), 'Nota de terceiros registrada no ERP · ambiente não informado');
 });
 
 test('NFE-024/172: Categoria is sent with the notes of the FAGOO; Loja and Filial are explained as not applicable', () => {

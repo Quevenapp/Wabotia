@@ -82,7 +82,7 @@ export class PdfPage {
   }
 }
 /** The PDF file of the pages (catalog, page tree, the three fonts and one content stream per page; byte offsets in the xref table). */
-export function pdfDocument(pages: readonly PdfPage[], { title = 'DANFE', producer = 'FAGOO' } = {}): Uint8Array {
+export function pdfDocument(pages: readonly PdfPage[], { title = 'DANFE', producer = 'Wabotia' } = {}): Uint8Array {
   const objects: string[] = [];
   const add = (body: string) => { objects.push(body); return objects.length; };
   const catalog = add(''), tree = add('');

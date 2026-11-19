@@ -18,7 +18,7 @@ export function cnabProfileData(values: Record<string,string>, checks: Record<st
   if(bank==='077'&&agency!=='0001')throw new Error('A agência Inter deste leiaute deve ser 0001; confirme no contrato.');
   if(!/^[A-Z0-9 .&/-]{1,30}$/.test(values.companyName||''))throw new Error('O nome no arquivo deve ter até 30 caracteres maiúsculos sem acentos.');
   if(!values.agreementReference?.trim()||values.agreementReference.length>120)throw new Error('Informe a referência da conferência do contrato.');
-  if(!/^[1-9]\d{0,6}$/.test(values.remittanceSequenceStart||''))throw new Error(bank==='341'?'Informe a sequência interna inicial FAGOO, de 1 a 9999999.':'Informe a próxima sequência confirmada, de 1 a 9999999.');
+  if(!/^[1-9]\d{0,6}$/.test(values.remittanceSequenceStart||''))throw new Error(bank==='341'?'Informe a sequência interna inicial ERP, de 1 a 9999999.':'Informe a próxima sequência confirmada, de 1 a 9999999.');
   const ourNumberStart=wallet==='112'?null:values.ourNumberStart;
   if(ourNumberStart!==null&&(!(new RegExp(`^\\d{${bank==='341'?8:10}}$`)).test(ourNumberStart||'')||BigInt(ourNumberStart)===0n))throw new Error('Confira o próximo nosso número, com todos os zeros à esquerda e sem dígito verificador.');
   let reservedRange;

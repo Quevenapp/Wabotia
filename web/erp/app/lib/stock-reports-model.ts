@@ -32,26 +32,26 @@ export const REPORTS:ReportDefinition[]=[
     help:'Produtos ativos com estoque menor que o estoque mínimo do cadastro.'},
   {id:'visao-financeira',group:'Controle de Estoque',label:'Visão Financeira do Estoque',api:'visao-financeira',filters:['warehouse'],roles:COST,
     columns:[...product,{key:'quantity',label:'Estoque',kind:'quantity'},{key:'average_cost',label:'Custo médio',kind:'price'},{key:'cost_value',label:'Valor de custo',kind:'money'},{key:'sale_price',label:'Preço de venda',kind:'price'},{key:'sale_value',label:'Valor de venda',kind:'money'},{key:'margin',label:'Diferença',kind:'money'}],
-    totals:['quantity','cost_value','sale_value','margin'],help:'Custo médio do FAGOO (Preferências › Suprimentos › Estoque) e preço de venda do cadastro. Usa preços de compra.'},
+    totals:['quantity','cost_value','sale_value','margin'],help:'Custo médio do ERP (Preferências › Suprimentos › Estoque) e preço de venda do cadastro. Usa preços de compra.'},
   {id:'movimentacao-produto',group:'Controle de Estoque',label:'Movimentação de um Produto',api:'movimentacao-produto',filters:['productRequired','period','warehouse'],roles:STOCK,
     columns:[{key:'date',label:'Data',kind:'date'},{key:'entries',label:'Entradas',kind:'quantity'},{key:'exits',label:'Saídas',kind:'quantity'},{key:'balance',label:'Saldo',kind:'quantity'}],totals:['entries','exits'],
     help:'Saldo antes do período, entradas, saídas e saldo ao fim de cada dia com lançamento, com o gráfico do saldo.'},
   {id:'notas-operacao',group:'Notas de Entrada',label:'Relatório de Notas de Entrada por Operação',api:'notas-entrada',fixed:{agrupar:'operacao'},filters:['period'],roles:NOTES,
-    columns:grouped('Natureza de operação',[{key:'notes',label:'Notas',kind:'count'},{key:'value',label:'Valor',kind:'money'}]),totals:['notes','value'],help:'Notas de entrada do FAGOO pela data de emissão, sem as excluídas, canceladas e denegadas.'},
+    columns:grouped('Natureza de operação',[{key:'notes',label:'Notas',kind:'count'},{key:'value',label:'Valor',kind:'money'}]),totals:['notes','value'],help:'Notas de entrada do ERP pela data de emissão, sem as excluídas, canceladas e denegadas.'},
   {id:'notas-fornecedor',group:'Notas de Entrada',label:'Relatório de Notas de Entrada por Fornecedor',api:'notas-entrada',fixed:{agrupar:'fornecedor'},filters:['period'],roles:NOTES,
-    columns:grouped('Fornecedor',[{key:'code',label:'CNPJ/CPF',kind:'text'},{key:'notes',label:'Notas',kind:'count'},{key:'value',label:'Valor',kind:'money'}]),totals:['notes','value'],help:'Notas de entrada do FAGOO pela data de emissão, por fornecedor.'},
+    columns:grouped('Fornecedor',[{key:'code',label:'CNPJ/CPF',kind:'text'},{key:'notes',label:'Notas',kind:'count'},{key:'value',label:'Valor',kind:'money'}]),totals:['notes','value'],help:'Notas de entrada do ERP pela data de emissão, por fornecedor.'},
   {id:'notas-produto',group:'Notas de Entrada',label:'Relatório de Notas de Entrada por Produto',api:'notas-entrada',fixed:{agrupar:'produto'},filters:['period'],roles:NOTES,
-    columns:grouped('Produto',[{key:'code',label:'Código',kind:'text'},{key:'notes',label:'Notas',kind:'count'},{key:'quantity',label:'Quantidade',kind:'quantity4'},{key:'value',label:'Valor',kind:'money'}]),help:'Itens das notas de entrada do FAGOO pela data de emissão, por produto.'},
+    columns:grouped('Produto',[{key:'code',label:'Código',kind:'text'},{key:'notes',label:'Notas',kind:'count'},{key:'quantity',label:'Quantidade',kind:'quantity4'},{key:'value',label:'Valor',kind:'money'}]),help:'Itens das notas de entrada do ERP pela data de emissão, por produto.'},
   {id:'notas-evolucao',group:'Notas de Entrada',label:'Evolução de Notas Fiscais de Compra',api:'notas-entrada',fixed:{agrupar:'evolucao'},filters:['period'],roles:NOTES,
-    columns:grouped('Mês',[{key:'notes',label:'Notas',kind:'count'},{key:'value',label:'Valor',kind:'money'}]),totals:['notes','value'],help:'Quantidade e valor das notas de entrada do FAGOO mês a mês.'},
+    columns:grouped('Mês',[{key:'notes',label:'Notas',kind:'count'},{key:'value',label:'Valor',kind:'money'}]),totals:['notes','value'],help:'Quantidade e valor das notas de entrada do ERP mês a mês.'},
   {id:'pedidos-compra',group:'Pedidos de Compra',label:'Relatório de Pedidos de Compras',api:'pedidos-compra',filters:['period','statuses','poGroup'],roles:PURCHASE,
     columns:grouped('Fornecedor / Produto',[{key:'code',label:'Código',kind:'text'},{key:'orders',label:'Pedidos',kind:'count'},{key:'quantity',label:'Quantidade',kind:'quantity'},{key:'value',label:'Valor',kind:'money'}]),totals:['orders','quantity','value'],
-    help:'Pedidos de compra do FAGOO pela data do pedido, agrupados por fornecedor ou por produto.'},
+    help:'Pedidos de compra do ERP pela data do pedido, agrupados por fornecedor ou por produto.'},
 ];
 export const reportById=(id:string|null)=>REPORTS.find(report=>report.id===id)??null;
 export const reportParam=(search:string)=>reportById(new URLSearchParams(search).get('relatorio'));
 export const reportAllowed=(report:ReportDefinition,role:string|undefined)=>report.roles.includes(role??'');
-export const reportBlockReason=(report:ReportDefinition)=>report.roles===COST?'Usa preços de compra, que seu perfil não consulta.':report.roles===NOTES?'Somente administrador e fiscal veem as notas de entrada do FAGOO.':report.roles===PURCHASE?'Somente quem consulta pedidos de compra vê este relatório.':'Seu perfil não consulta o estoque.';
+export const reportBlockReason=(report:ReportDefinition)=>report.roles===COST?'Usa preços de compra, que seu perfil não consulta.':report.roles===NOTES?'Somente administrador e fiscal veem as notas de entrada do ERP.':report.roles===PURCHASE?'Somente quem consulta pedidos de compra vê este relatório.':'Seu perfil não consulta o estoque.';
 export const PURCHASE_STATUSES:[string,string][]=[['open','Em aberto'],['in_progress','Em andamento'],['partially_fulfilled','Atendido parcialmente'],['fulfilled','Atendido'],['cancelled','Cancelado']];
 export interface ReportFilters {from:string;to:string;date:string;warehouse:string;productId:string;limit:string;statuses:string[];poGroup:'fornecedor'|'produto'}
 export function defaultReportFilters(today:string):ReportFilters {return {from:`${today.slice(0,8)}01`,to:today,date:today,warehouse:'',productId:'',limit:'50',statuses:['open','in_progress','partially_fulfilled','fulfilled'],poGroup:'fornecedor'};}
