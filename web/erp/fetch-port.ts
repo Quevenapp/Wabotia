@@ -1,3 +1,28 @@
+import { setErpModuleContext } from "./blocks.ts";
+import { requirementsEnabled } from "./modules.ts";
+type PanelContext = { modules: Readonly<Record<string, boolean>>; lifetime: AbortController; owners: number };
+const panelContexts = new Map<string, PanelContext>();
+/** Fotografia explícita da área, compartilhada pela casa e pela ficha de cliente. */
+export function setPanelPartsContext(apiUrl: string, modules: Readonly<Record<string, boolean>>) {
+  const base=apiUrl.replace(/\/$/, ''),previous=panelContexts.get(base);
+  const same=previous&&!previous.lifetime.signal.aborted&&JSON.stringify(previous.modules)===JSON.stringify(modules);
+  if(!same)previous?.lifetime.abort();
+  const entry: PanelContext=same?previous:{modules:Object.freeze({...modules}),lifetime:new AbortController(),owners:0};
+  entry.owners++;panelContexts.set(base,entry);setErpModuleContext(entry.modules);
+  let released=false;
+  return () => {
+    if(released)return;released=true;
+    if(--entry.owners>0)return;
+    entry.lifetime.abort();
+    // A lápide impede que callbacks da área anterior recuperem a compatibilidade "tudo ligado".
+    if(panelContexts.get(base)===entry)setErpModuleContext({});
+  };
+}
+export async function panelRequestAllowed(path: string, method: string, body: unknown, modules: Readonly<Record<string, boolean>>) {
+  const { erpRouteRequirement } = await import("../../src/erp/parts-requirements.ts");
+  const requirement = erpRouteRequirement(method, new URL(path, "https://erp.invalid"), body);
+  return requirement !== "externo" && requirementsEnabled(requirement, modules);
+}
 // fetch do ERP: o controlador do Fagoo (app/lib/real-access.ts) chama
 // fetcher(`${apiUrl}${path}`, { headers: { Authorization: "Bearer …" },
 // credentials: "omit" }). Aqui a sessão é o cookie do Wabotia: o Bearer sai,
@@ -151,6 +176,14 @@ export function createFetchPort(options: FetchPortOptions): typeof fetch {
       credentials: "same-origin" as const,
     };
     const path = parsed.pathname.slice(base.length) + parsed.search;
+    const context = panelContexts.get(base);
+    if (context) {
+      const body = typeof init.body === "string" ? JSON.parse(init.body) : undefined;
+      if (!await panelRequestAllowed(path, method, body, context.modules))
+        return Response.json({ error: { code: "module_disabled", message: "Esta rotina depende de uma parte desligada." } }, { status: 409 });
+      request.signal = AbortSignal.any([context.lifetime.signal, ...(init.signal ? [init.signal] : [])]);
+      if (request.signal.aborted) throw new DOMException("Contexto alterado", "AbortError");
+    }
     const simulated = options.simulate
       ? await options.simulate(path || "/", request)
       : null;
@@ -158,12 +191,49 @@ export function createFetchPort(options: FetchPortOptions): typeof fetch {
       !options.simulate && method === "GET" && path === "/v1/me"
         ? takeMePrefetch(parsed.pathname, options.actor)
         : null;
-    const handed = early ? await prefetchedResponse(early, init.signal) : null;
+    const handed = early ? await prefetchedResponse(early, request.signal) : null;
     const response =
       simulated ??
       handed ??
       (await network(parsed.pathname + parsed.search, request));
+    if (context?.lifetime.signal.aborted) throw new DOMException("Contexto alterado", "AbortError");
     if (response.status === 401) options.onUnauthorized?.();
-    return response;
+    return context ? contextBoundResponse(response, context.lifetime.signal) : response;
   };
+}
+
+/** Mesmo um prefetch já respondido perde seu corpo quando a autorização muda. */
+export async function contextBoundResponse(response: Response, signal: AbortSignal): Promise<Response> {
+  if (signal.aborted) throw new DOMException("Contexto alterado", "AbortError");
+  if (!response.body) return response;
+  const reader = response.body.getReader();
+  let active = true, stop = () => {};
+  const finish = () => { active = false; stop(); };
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const abort = () => {
+        if (!active) return;
+        finish();
+        controller.error(new DOMException("Contexto alterado", "AbortError"));
+        void reader.cancel().catch(() => {});
+      };
+      signal.addEventListener("abort", abort, { once: true });
+      stop = () => signal.removeEventListener("abort", abort);
+    },
+    async pull(controller) {
+      try {
+        if (signal.aborted) throw new DOMException("Contexto alterado", "AbortError");
+        const next = await reader.read();
+        if (signal.aborted) throw new DOMException("Contexto alterado", "AbortError");
+        if (!active) return;
+        if (next.done) { finish(); controller.close(); } else controller.enqueue(next.value);
+      } catch (error) { if (active) { finish(); controller.error(error); } }
+    },
+    cancel() { finish(); return reader.cancel(); },
+  });
+  const guarded = new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+  // fetch-port descarta antecipações não utilizáveis e refaz /v1/me. Isso
+  // também vale se o cache já recebeu os cabeçalhos antes da revogação.
+  Object.defineProperty(guarded, "ok", { get: () => !signal.aborted && response.ok });
+  return guarded;
 }

@@ -165,11 +165,7 @@ export function resolvePreferences(access: CompanyAccess): ResolvedPreferenceCat
   const mine = (entry: PreferenceEntry) => (!entry.to || !isOriginIntegrationRoute(entry.to) || originHistoryAvailable(access)) && (!entry.roles || entry.roles.includes(access.role as CompanyRole))
     && (!entry.to || targetEnabled(entry.to));
   return COMPANY_PREFERENCES.map(category => {
-    // Wabotia: nas Importações, uma planilha de um bloco desligado (as notas fiscais em lote) aparece desabilitada com o motivo,
-    // porque o servidor a recusa com o Fiscal desligado; nas demais categorias, o item some.
-    const offered = (entry: PreferenceEntry): PreferenceEntry => category.id === 'importacoes' && entry.to && !hiddenInWabotia(entry.to) && !targetEnabled(entry.to)
-      ? { label: entry.label, ...(entry.roles ? { roles: entry.roles } : {}), disabledReason: `Requer o módulo ${ERP_BLOCK_LABELS[blockOf(entry.to)]} ligado em Gestão › Módulos.` } : entry;
-    const sections = category.sections.map(section => ({ title: section.title, entries: section.entries.map(offered).filter(mine) })).filter(section => section.entries.length > 0);
+    const sections = category.sections.map(section => ({ title: section.title, entries: section.entries.filter(mine) })).filter(section => section.entries.length > 0);
     return { id: category.id, label: category.label, icon: category.icon, ...(category.notice ? { notice: category.notice } : {}), sections, entries: sections.flatMap(section => section.entries.filter((entry): entry is LinkedPreferenceEntry => Boolean(entry.to))) };
   }).filter(category => category.sections.length > 0);
 }

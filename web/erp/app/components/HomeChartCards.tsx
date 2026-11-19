@@ -1,3 +1,5 @@
+import { withoutUnavailableParts } from '../../blocks';
+import { blockEnabled } from '../../blocks';
 import { nativeIndicatorCoverageText } from '../lib/document-reports-model';
 import {useEffect,useRef,useState,type ReactNode} from 'react';
 import {AccessError} from '../lib/real-access';
@@ -30,15 +32,15 @@ export function HomeChartCards({controller,role,period,hidden,resumo,asOf}:{cont
  const attempt=useRef<Attempt|null>(null),alive=useRef(true),system=typeof controller.system==='function'?controller.system:null;
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;};},[]);
  useEffect(()=>{if(!system)return;const p=new AbortController();setLoadFailed(false);
-  void system(CHARTS_PATH,{method:'GET',signal:p.signal}).then(raw=>{if(!p.signal.aborted)setView(parseHomeCharts(raw));}).catch(()=>{if(!p.signal.aborted){setView(null);setLoadFailed(true);}});return()=>p.abort();},[system,reload]);
+  void system(CHARTS_PATH,{method:'GET',signal:p.signal}).then(raw=>{if(!p.signal.aborted)setView(parseHomeCharts(withoutUnavailableParts(raw)));}).catch(()=>{if(!p.signal.aborted){setView(null);setLoadFailed(true);}});return()=>p.abort();},[system,reload]);
  const charts:HomeChart[]=view?view.charts:['resumo'];
- const wantsTop=Boolean(system&&role&&TOP_PRODUCT_ROLES.includes(role as never)&&charts.includes('top_skus'));
+ const wantsTop=blockEnabled('erp-vendas')&&blockEnabled('erp-produtos')&&Boolean(system&&role&&TOP_PRODUCT_ROLES.includes(role as never)&&charts.includes('top_skus'));
  const topKey=period?`${period.key}:${period.from}:${period.to}`:'';
  useEffect(()=>{setTop(null);setTopFailed(false);if(!wantsTop||!system||!period)return;const p=new AbortController();
   const q=captureTopProductsQuery({periodo:period.key,...(period.key==='customizado'?{de:period.from,ate:period.to}:{})});
-  void system(topProductsPath(q.key,q.from,q.to),{method:'GET',signal:p.signal}).then(raw=>{if(!p.signal.aborted)setTop(parseTopProducts(raw,q));}).catch(()=>{if(!p.signal.aborted)setTopFailed(true);});return()=>p.abort();},[system,wantsTop,topKey]);
+  void system(topProductsPath(q.key,q.from,q.to),{method:'GET',signal:p.signal}).then(raw=>{if(!p.signal.aborted)setTop(parseTopProducts(withoutUnavailableParts(raw),q));}).catch(()=>{if(!p.signal.aborted)setTopFailed(true);});return()=>p.abort();},[system,wantsTop,topKey]);
  const run=async(a:Attempt)=>{if(!system||busy||attempt.current!==a)return;setBusy(true);setMessage('');try{
-  const r=parseHomeChartsResult(await system(CHARTS_PATH,{method:'POST',body:a.body}),a.body);if(!alive.current||attempt.current!==a)return;
+  const r=parseHomeChartsResult(withoutUnavailableParts(await system(CHARTS_PATH,{method:'POST',body:a.body})),a.body);if(!alive.current||attempt.current!==a)return;
   attempt.current=null;setPending(false);setView({scope:r.scope,data_mode:r.data_mode,role:r.role,version:r.version,customized:r.customized,charts:r.charts,available:r.available});
   setMessage(r.replayed?'Resultado conferido: os gráficos já estavam salvos.':'Gráficos salvos.');
  }catch(e){if(!alive.current||attempt.current!==a)return;
@@ -51,8 +53,8 @@ export function HomeChartCards({controller,role,period,hidden,resumo,asOf}:{cont
  const save=(next:HomeChart[])=>{if(!view||busy||attempt.current)return;const a:Attempt={body:captureHomeChartsSave({command_id:crypto.randomUUID(),expected_version:view.version,charts:next}),uncertain:false};
   attempt.current=a;setMenu(null);void run(a);};
  const locked=!view||busy||pending;
- if(!period)return null;
- const values=homeChartValues(period),money=(cents:string)=>hidden?'R$ ••••':financeMoney(cents);
+ if(!period||!period.sales)return null;
+ const values=homeChartValues(period);if(!values)return null;const money=(cents:string)=>hidden?'R$ ••••':financeMoney(cents);
  const body=(key:HomeChart)=>{switch(key){
   case'resumo':return resumo;
   case'ticket_medio':return <strong className="home-chart-card-value">{money(values.ticket_cents)}</strong>;

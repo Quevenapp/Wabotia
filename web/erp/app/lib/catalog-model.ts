@@ -1,3 +1,4 @@
+import { blockEnabled, availablePayload } from '../../blocks.ts';
 import { normalizeUnitPrice } from '../../../../packages/erp-domain/src/unit-price.mjs';
 import { COMMON_FIELDS, invalidField, type CatalogEntity, type CatalogField, type CatalogRecord } from './catalog-base.ts';
 import { CONTACT_FIELDS, contactFieldValue, contactPageParams, type ContactFilters, type ContactRoleFilter } from './contact-model.ts';
@@ -17,6 +18,7 @@ export const CATALOG_FIELDS: Record<CatalogEntity, CatalogField[]> = {
 export function catalogData(entity: CatalogEntity, values: Record<string, string>, roles: string[], record?: CatalogRecord | null) {
   const data: Record<string, string | string[] | null> = {};
   for (const field of CATALOG_FIELDS[entity]) {
+    if(!Object.hasOwn(availablePayload({[field.key]:values[field.key]},entity==='products'?'erp-produtos':undefined),field.key))continue;
     let value = (values[field.key] || '').trim();
     if (field.decimal) value = value.replace(',', '.');
     if (entity === 'contacts') value = contactFieldValue(field.key, value);
@@ -36,7 +38,7 @@ export function catalogData(entity: CatalogEntity, values: Record<string, string
   }
   if (entity === 'products') checkProductData(data);
   if (entity === 'contacts') data.roles = [...roles];
-  return data;
+  return availablePayload(data, entity === 'products' ? 'erp-produtos' : undefined);
 }
 
 export function catalogListParams(entity: CatalogEntity, query: string, active: string, after: string | null, products = EMPTY_PRODUCT_FILTERS) {
@@ -71,6 +73,10 @@ export function catalogPageParams(entity: CatalogEntity, state: CatalogListState
     params.set('period', state.period.field);
     if (state.period.from) params.set('from', state.period.from);
     if (state.period.to) params.set('to', state.period.to);
+  }
+  if (!blockEnabled('erp-estoque')) {
+    for (const key of ['stock', 'warehouse_id', 'component_id']) params.delete(key);
+    if (['composition', 'no_composition'].includes(params.get('type') ?? '')) params.delete('type');
   }
   return params;
 }

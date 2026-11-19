@@ -12,6 +12,8 @@ import { href } from "../lib/routes";
 import { portedTargetState } from "./ported-policy";
 import { nativeReadAllows } from "./native-access";
 import type { ErpPermissions, PortedTargetState } from "./host-contract";
+import { requirementsEnabled } from "../erp/modules";
+import { erpRequirement } from "../../src/erp/parts";
 import type { Api } from "../lib/api";
 
 export const MANAGEMENT_ITEMS: readonly ManagementItem[] = [
@@ -91,7 +93,8 @@ export function resolveManagement(
     .filter((item) => permits(item, c) && (item.target.kind === "native"
       ? c.modules[item.module] === true &&
         canOpenPage(item.target.page, c.role, c.modules, c.access && [...c.access])
-      : portedTargetState(item.target.to, c, simulated, permissions) === "allowed"))
+      : requirementsEnabled(erpRequirement(...(item.requires ?? [])), c.modules) && c.modules[item.module] === true &&
+        portedTargetState(item.target.to, c, simulated, permissions) === "allowed"))
     .flatMap((item) => {
       const destination = managementItemHref(item);
       const key = normalizedManagementHref(destination);
@@ -104,6 +107,11 @@ export function resolveManagement(
 }
 
 export function managementLanding(items: readonly ResolvedManagementItem[]): string | null {
+  const ported = items.filter(item => item.target.kind === "ported");
+  if (ported.length && items.every(item => item.module === "erp"))
+    return items.find(item => item.id === "erp.customers")?.href ?? null;
+  if (!ported.length) return (items.find(item => item.primary) || items[0])?.href ?? null;
+  if (ported.length === items.length) return items.find(item => item.id === "erp.overview")?.href ?? null;
   if (new Set(items.map((item) => item.module)).size !== 1) return null;
   return (items.find((item) => item.primary) || items[0])?.href ?? null;
 }

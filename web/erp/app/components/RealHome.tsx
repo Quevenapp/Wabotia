@@ -20,7 +20,7 @@ import {HomeProfileCard} from './CompanyChrome';
 import {HomeExpiring} from './HomeExpiring';
 import {Icon} from './Icon';
 import './real-home.css';
-import { blockEnabled, targetEnabled } from '../../blocks';
+import { blockEnabled, entityEnabled, targetEnabled } from '../../blocks';
 
 const count=(value:number)=>value.toLocaleString('pt-BR');
 const ORDER=['sales_orders','sales_proposals','purchase_orders','service_orders'];
@@ -48,7 +48,7 @@ function HomeView({controller,access}:{controller:HomeController;access:CompanyA
   const routeKey=route.value?homeSummaryPath(route.value):'';
   const [summary,setSummary]=useState<HomeSummary|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[reload,setReload]=useState(0);
   const [panel,setPanel]=useState(readPanel),[hidden,setHidden]=useState(readHidden),[customizing,setCustomizing]=useState(false),[periodError,setPeriodError]=useState(''),sideId=useId();
-  const documents=summary?.documents.slice().sort((a,b)=>ORDER.indexOf(a.kind)-ORDER.indexOf(b.kind))??[];
+  const documents=summary?.documents.filter(row=>entityEnabled(row.kind)).slice().sort((a,b)=>ORDER.indexOf(a.kind)-ORDER.indexOf(b.kind))??[];
   const financeTitles=summary?.finance?.titles.slice().sort((a,b)=>a.kind===b.kind?0:a.kind==='receivable'?-1:1)??[];
   const period=summary?.period;
   const money=(cents:string)=>hidden?'R$ ••••':financeMoney(cents);
@@ -116,22 +116,22 @@ function HomeView({controller,access}:{controller:HomeController;access:CompanyA
         {/* Wabotia: os gráficos e as novas NF-es não dependem do resumo; montados fora do `period&&`, as leituras deles saem
             junto com o /v1/inicio (salto 1), e o cartão aparece quando o período chega. */}
         {period&&<div className="fagoo-metrics" aria-label="Indicadores do período">
-          <article className="fagoo-metric fagoo-metric-sales"><span><Icon name="chart-line" size={20}/>Vendas no período</span><strong>{money(homeSalesLines(period.sales)[0]?.total_cents??'0')}</strong><small>{count(homeSalesLines(period.sales)[0]?.count??0)} pedido(s), sem os cancelados</small></article>
-          {period.receivable&&<article className="fagoo-metric"><span><Icon name="arrow-down" size={20}/>A receber no período</span><strong>{money(period.receivable.open_cents)}</strong><small>Saldo em aberto dos títulos por vencimento</small></article>}
-          {period.payable&&<article className="fagoo-metric"><span><Icon name="arrow-up" size={20}/>A pagar no período</span><strong>{money(period.payable.open_cents)}</strong><small>Saldo em aberto dos títulos por vencimento</small></article>}
+          {blockEnabled('erp-vendas')&&period.sales&&<article className="fagoo-metric fagoo-metric-sales"><span><Icon name="chart-line" size={20}/>Vendas no período</span><strong>{money(homeSalesLines(period.sales)[0]?.total_cents??'0')}</strong><small>{count(homeSalesLines(period.sales)[0]?.count??0)} pedido(s), sem os cancelados</small></article>}
+          {blockEnabled('erp-financeiro')&&period.receivable&&<article className="fagoo-metric"><span><Icon name="arrow-down" size={20}/>A receber no período</span><strong>{money(period.receivable.open_cents)}</strong><small>Saldo em aberto dos títulos por vencimento</small></article>}
+          {blockEnabled('erp-financeiro')&&period.payable&&<article className="fagoo-metric"><span><Icon name="arrow-up" size={20}/>A pagar no período</span><strong>{money(period.payable.open_cents)}</strong><small>Saldo em aberto dos títulos por vencimento</small></article>}
         </div>}
-        <HomeChartCards controller={controller as Parameters<typeof HomeChartCards>[0]['controller']} role={role} period={period} hidden={hidden} asOf={summary?.as_of} resumo={period&&<HomeChart period={period} hidden={hidden} asOf={summary!.as_of}/>}/>
+        {blockEnabled('erp-vendas')&&<HomeChartCards controller={controller as Parameters<typeof HomeChartCards>[0]['controller']} role={role} period={period} hidden={hidden} asOf={summary?.as_of} resumo={period&&<HomeChart period={period} hidden={hidden} asOf={summary!.as_of}/>}/>}
         {period&&<details className="fagoo-home-details"><summary>Detalhamento do período<Icon name="chevron-down" size={15}/></summary><div className="home-cards">
-          <article className="home-card"><header><h3><Link className="home-card-title" to="/documentos-empresa?tipo=sales_orders">Pedidos de venda<Icon name="right" size={11}/></Link></h3></header>
+          {blockEnabled('erp-vendas')&&period.sales&&<article className="home-card"><header><h3><Link className="home-card-title" to="/documentos-empresa?tipo=sales_orders">Pedidos de venda<Icon name="right" size={11}/></Link></h3></header>
             <ul className="home-dots home-sales">{homeSalesLines(period.sales).map(line=><li key={line.id} title={line.detail}><span className={`home-dot home-dot-${line.dot}`} aria-hidden="true"/><strong>{count(line.count)}</strong><span>{line.label}</span><em>{money(line.total_cents)}</em></li>)}</ul>
             <p className="home-card-note">Pedidos pela data do pedido no período.</p>
-          </article>
-          {period.receivable&&<article className="home-card"><header><h3><Link className="home-card-title" to={financeLink('receivable')}><Icon name="arrow-down" size={12} className="home-arrow-receivable"/><span className="home-card-count">{count(period.receivable.count)}</span>{' '}Contas a receber<Icon name="right" size={11}/></Link></h3></header>
+          </article>}
+          {blockEnabled('erp-financeiro')&&period.receivable&&<article className="home-card"><header><h3><Link className="home-card-title" to={financeLink('receivable')}><Icon name="arrow-down" size={12} className="home-arrow-receivable"/><span className="home-card-count">{count(period.receivable.count)}</span>{' '}Contas a receber<Icon name="right" size={11}/></Link></h3></header>
             <dl className="home-values"><div><dt>Total</dt><dd>{money(period.receivable.total_cents)}</dd></div><div className="home-muted"><dt>Taxas</dt><dd>{money(period.receivable.fee_cents)}</dd></div>
               <div className="home-net"><dt>Líquido</dt><dd>{money(homeNetCents(period.receivable))}</dd></div><div className="home-muted"><dt>Saldo em aberto</dt><dd>{money(period.receivable.open_cents)}</dd></div></dl>
             <p className="home-card-note">Títulos com vencimento no período, sem os cancelados. Taxas são as tarifas registradas nas baixas.</p>
           </article>}
-          {period.payable&&<article className="home-card"><header><h3><Link className="home-card-title" to={financeLink('payable')}><Icon name="arrow-up" size={12} className="home-arrow-payable"/><span className="home-card-count">{count(period.payable.count)}</span>{' '}Contas a pagar<Icon name="right" size={11}/></Link></h3></header>
+          {blockEnabled('erp-financeiro')&&period.payable&&<article className="home-card"><header><h3><Link className="home-card-title" to={financeLink('payable')}><Icon name="arrow-up" size={12} className="home-arrow-payable"/><span className="home-card-count">{count(period.payable.count)}</span>{' '}Contas a pagar<Icon name="right" size={11}/></Link></h3></header>
             <dl className="home-values"><div className="home-total"><dt>Valor total a pagar</dt><dd>{money(period.payable.total_cents)}</dd></div><div className="home-muted"><dt>Saldo em aberto</dt><dd>{money(period.payable.open_cents)}</dd></div></dl>
             <p className="home-card-note">Títulos com vencimento no período, sem os cancelados.</p>
           </article>}
@@ -154,7 +154,7 @@ function HomeView({controller,access}:{controller:HomeController;access:CompanyA
       </div></section>}
       {summary&&<section className="home-section" aria-labelledby="home-documents-title"><h2 id="home-documents-title">Documentos por situação</h2><div className="home-cards">{documents.map(documentCard)}</div></section>}
       {summary?.stock&&<section className="home-section" aria-labelledby="home-stock-title"><h2 id="home-stock-title">Estoque</h2><article className="home-card"><header><Link className="home-card-title" to="/estoque-empresa">Lançamentos de estoque<Icon name="right" size={11}/></Link></header><div className="home-stock-grid"><div><strong>{count(summary.stock.products)}</strong><span>Produtos com posição controlada</span></div><div><strong>{count(summary.stock.positive_positions)}</strong><span>Posições com saldo positivo</span></div><div><strong>{count(summary.stock.zero_positions)}</strong><span>Posições com saldo zero</span></div>{summary.stock.positions-summary.stock.positive_positions-summary.stock.zero_positions>0&&<div className="home-stock-negative"><strong>{count(summary.stock.positions-summary.stock.positive_positions-summary.stock.zero_positions)}</strong><span>Posições com saldo negativo</span></div>}</div><p className="home-card-note">Cada posição corresponde a um produto em um depósito. Produtos sem posição registrada não entram nessa contagem.</p></article></section>}
-      {summary&&<section className="home-section" aria-labelledby="home-catalog-title"><h2 id="home-catalog-title">Cadastros</h2><div className="home-catalog-grid">{summary.catalog.map(row=><Link className="home-card home-catalog-card" key={row.entity} to={`/cadastros-reais?cadastro=${row.entity}`}><h3 className="home-card-title">{HOME_CATALOG_LABELS[row.entity]}<Icon name="right" size={11}/></h3><strong>{count(row.active)}</strong><span>ativo(s) · {count(row.archived)} arquivado(s)</span></Link>)}</div></section>}
+      {summary&&<section className="home-section" aria-labelledby="home-catalog-title"><h2 id="home-catalog-title">Cadastros</h2><div className="home-catalog-grid">{summary.catalog.filter(row=>entityEnabled(row.entity)).map(row=><Link className="home-card home-catalog-card" key={row.entity} to={`/cadastros-reais?cadastro=${row.entity}`}><h3 className="home-card-title">{HOME_CATALOG_LABELS[row.entity]}<Icon name="right" size={11}/></h3><strong>{count(row.active)}</strong><span>ativo(s) · {count(row.archived)} arquivado(s)</span></Link>)}</div></section>}
       <ReleaseNotesPanel/>
     </div>
     <aside className="home-side fagoo-overview-side" aria-label="Atalhos da empresa">

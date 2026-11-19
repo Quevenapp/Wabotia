@@ -1,3 +1,4 @@
+import { entityEnabled } from '../../blocks';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from 'react';
 import { AccessError, type AccessController } from '../lib/real-access';
@@ -38,6 +39,8 @@ export default function FinanceGroupedBilling({ controller }: { controller: Acce
   let parsed: { route: GroupedRoute; error: string };
   try { parsed = { route: groupedRoute(new URLSearchParams(location.search), today), error: '' }; } catch (failure) { parsed = { route: { periodo: 'mes', mes: today.slice(0, 7), dia: today, from: today, to: today, q: '', page: 1, pedidos: null, aba: 'agrupar' }, error: (failure as Error).message }; }
   const route = parsed.route;
+  const newOrigins = entityEnabled('sales_orders') || entityEnabled('nfe');
+  const documentAvailable = (item: GroupedDocument) => entityEnabled(item.kind === 'fiscal_invoices' ? 'nfe' : 'sales_orders');
   const tracked = typeof controller.getSnapshot === 'function', session = useSyncExternalStore(controller.subscribe ?? noSubscription, controller.getSnapshot ?? noSnapshot);
   const actor = financeLinkActor(session), allowed = !tracked || actor !== null, scope = tracked ? `${actor ?? ''}:${session?.phase ?? ''}:${session?.membership?.role ?? ''}` : 'isolated';
   const routeKey = `${location.key}:${location.search}:${scope}`, current = useRef(routeKey); current.current = routeKey;
@@ -54,7 +57,7 @@ export default function FinanceGroupedBilling({ controller }: { controller: Acce
   const [modal, setModal] = useState<{ key: string; contact: GroupedCandidate } | null>(null), [removal, setRemoval] = useState<{ plan: BatchPlan<DeleteItem>; recovery: boolean } | null>(null);
   const sent = useRef(new Map<string, { id: string; data: Record<string, unknown> }>());
   // Sistema › Usuários › Permissões › Finanças (SQL 246): the server refuses without the key; the screen does not offer it.
-  const writable = Boolean(access?.write) && financePermitted(access, 'financas.faturamento_agrupado');
+  const writable = (route.aba === 'gerados' || newOrigins) && Boolean(access?.write) && financePermitted(access, 'financas.faturamento_agrupado');
   // A Condição typed and not generated yet is guarded like an unsaved form.
   useUnsavedChanges(Object.values(condition).some(text => text.trim() !== ''), false);
   const command = useFinanceCommand(next => controller.finance(next.path, { method: 'POST', body: { command_id: next.id, data: structuredClone(next.data) } } as never), mayWrite, failureText);
@@ -66,7 +69,8 @@ export default function FinanceGroupedBilling({ controller }: { controller: Acce
     return () => request.abort();
   }, [controller, scope]);
   useEffect(() => {
-    if (!access || parsed.error || !mayRead()) return; const request = new AbortController();
+    if (!access || parsed.error || !mayRead()) return;
+    if(route.aba !== 'gerados' && !newOrigins) { setData({key:listKey,candidates:null,generated:null,error:'Ligue Vendas ou Fiscal para criar um faturamento agrupado. Os faturamentos históricos continuam disponíveis.'}); return; } const request = new AbortController();
     void controller.finance(groupedApiPath(route), { signal: request.signal }).then(value => {
       if (request.signal.aborted || !mayRead()) return;
       setData(route.aba === 'gerados' ? { key: listKey, candidates: null, generated: groupedPage(value, route), error: '' } : { key: listKey, candidates: groupedCandidates(value, route), generated: null, error: '' });
@@ -78,12 +82,14 @@ export default function FinanceGroupedBilling({ controller }: { controller: Acce
   const loadDocuments = async (contact: GroupedCandidate): Promise<Chosen> => {
     const known = chosenDocs[contact.contact_id]; if (known) return known;
     const value = groupedDocuments(await controller.finance(groupedDocumentsPath(route, contact.contact_id)), contact.contact_id);
-    const chosen = { items: value.items, total: value.total, chosen: groupedDefaultChoice(value.items) };
+    if(value.items.some(item=>!documentAvailable(item)))throw new Error('A lista contém uma origem suspensa. Atualize a consulta antes de agrupar.');
+    const eligible = value.items.filter(documentAvailable);
+    const chosen = { items: eligible, total: value.total, chosen: groupedDefaultChoice(eligible) };
     if (mayRead()) setDocuments(previous => ({ key: listKey, values: { ...(previous.key === listKey ? previous.values : {}), [contact.contact_id]: chosen } }));
     return chosen;
   };
   const prepareAndGenerate = async () => {
-    if (!mayWrite() || command.busy) return; setNotice('');
+    if (!mayWrite() || command.busy || (!newOrigins && !command.uncertain)) return; setNotice('');
     // Conferir resultado: the pending command is sent again as is (useFinanceCommand keeps its id and body).
     if (command.uncertain) { void command.run(() => { throw new Error('Repita a operação.'); }, done); return; }
     const rows = (candidates?.items ?? []).filter(row => selected.includes(row.contact_id));
@@ -93,7 +99,7 @@ export default function FinanceGroupedBilling({ controller }: { controller: Acce
       for (const row of rows) {
         const text = (condition[row.contact_id] ?? '').trim(); if (!text) throw new Error(`Informe a condição de pagamento de ${row.contact_name}.`);
         let days: number[]; try { days = conditionDays(text); } catch (failure) { throw new Error(`${row.contact_name}: ${(failure as Error).message}`); }
-        const docs = await loadDocuments(row); const chosen = docs.items.filter(item => docs.chosen.includes(item.id));
+        const docs = await loadDocuments(row); const chosen = docs.items.filter(item => documentAvailable(item) && docs.chosen.includes(item.id));
         if (!chosen.length) throw new Error(`Selecione ao menos uma venda ou nota fiscal de ${row.contact_name}.`);
         const total = sumCents(chosen.map(item => item.total_cents)); if (BigInt(total) < BigInt(days.length)) throw new Error(`${row.contact_name}: cada conta precisa ter pelo menos R$ 0,01.`);
         // SQL 247: the notas fiscais go apart (invoice_ids), only when chosen, so an older API keeps receiving the pedidos alone.
@@ -133,7 +139,7 @@ export default function FinanceGroupedBilling({ controller }: { controller: Acce
       {route.aba === 'gerados' && writable && <button type="button" className="danger-button" disabled={!selected.length || Boolean(removal)} onClick={() => { if (!mayWrite()) return; sent.current = new Map(); const items = (generated?.items ?? []).filter(item => selected.includes(item.id)).map(record => ({ id: record.id, label: `${record.contact_name} · ${financeMoney(record.total_cents)}`, record }));
         setRemoval({ plan: planBatch(items, item => item.record.deletable ? null : 'Tem conta com baixa ou boleto: estorne ou desvincule antes.'), recovery: false }); }}>Excluir selecionados</button>}
       <div className="native-list-summary"><h3>Outras ações</h3>{route.aba === 'agrupar' ? <button type="button" className="text-button" onClick={() => go({ aba: 'gerados', pedidos: null, q: '' })}>Listar Faturamentos Gerados</button> : <button type="button" className="text-button" onClick={() => go({ aba: 'agrupar', q: '' })}>Voltar ao faturamento agrupado</button>}</div>
-      <div className="finance-support"><h3>Ferramentas de apoio</h3><Link to="/financeiro-empresa?area=receivable">Contas a receber</Link><Link to="/documentos-empresa?tipo=sales_orders">Pedidos de venda</Link></div>
+      <div className="finance-support"><h3>Ferramentas de apoio</h3><Link to="/financeiro-empresa?area=receivable">Contas a receber</Link>{entityEnabled('sales_orders')&&<Link to="/documentos-empresa?tipo=sales_orders">Pedidos de venda</Link>}</div>
     </>}>
       <div className="native-list-toolbar"><div className="form-field"><label htmlFor="grouped-search">Pesquisar na listagem</label><input id="grouped-search" type="search" maxLength={120} placeholder="Pesquisar" value={query} onChange={event => setQuery(event.target.value)} /></div><button type="submit" className="secondary-button" disabled={loading || !access}>Pesquisar</button>
         {route.aba === 'agrupar' && !route.pedidos && route.periodo === 'mes' && <div className="finance-month-nav" role="group" aria-label="Mês"><button type="button" className="icon-button" aria-label="Mês anterior" onClick={() => go({ mes: shiftMonth(route.mes, -1) })}><Icon name="chevron-left" size={12} /></button><strong>{monthLabel(route.mes)}</strong><button type="button" className="icon-button" aria-label="Próximo mês" onClick={() => go({ mes: shiftMonth(route.mes, 1) })}><Icon name="chevron-right" size={12} /></button></div>}
@@ -141,7 +147,7 @@ export default function FinanceGroupedBilling({ controller }: { controller: Acce
         {route.aba === 'agrupar' && !route.pedidos && route.periodo === 'periodo' && <PeriodPicker from={route.from} to={route.to} today={today} onApply={next => { if (next.from && next.to) go({ from: next.from, to: next.to }); }} />}
         <div className="origin-toolbar-tools"><ToolButton icon="rotate-right" title="Recarregar" disabled={loading || !access} onClick={() => setReload(value => value + 1)} /></div></div>
       <AppliedChips chips={chips} onClear={() => go({ q: '', pedidos: null })} />
-      <div className="real-result-status" role="status">{loading ? 'Carregando…' : rangeLabel(route.page, GROUPED_PAGE_SIZE, total)}{route.aba === 'agrupar' && !route.pedidos && !loading ? ` · pedidos de ${financeDate(range.from)} a ${financeDate(range.to)}` : ''}</div>
+      <div className="real-result-status" role="status">{loading ? 'Carregando…' : !candidates&&!generated ? 'Consulta indisponível' : rangeLabel(route.page, GROUPED_PAGE_SIZE, total)}{route.aba === 'agrupar' && !route.pedidos && !loading ? ` · pedidos de ${financeDate(range.from)} a ${financeDate(range.to)}` : ''}</div>
       {errorBox}
       {route.aba === 'agrupar' && candidates && <><div className="table-scroll" tabIndex={0} role="region" aria-label="Clientes a faturar"><table className="data-table finance-table"><thead><tr>{writable && <th className="checkbox-cell"><span className="real-sr-only">Seleção</span></th>}<th>Cliente</th><th>Itens</th><th className="numeric">Valor Total</th><th>Condição</th></tr></thead>
         <tbody>{candidates.items.map(row => { const docs = chosenDocs[row.contact_id], chosen = docs ? docs.items.filter(item => docs.chosen.includes(item.id)) : null;

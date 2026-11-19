@@ -1,3 +1,4 @@
+import { targetEnabled } from '../../blocks';
 import {useEffect,useId,useMemo,useRef,useState} from 'react';
 import {Link} from 'react-router-dom';
 import {AccessError} from '../lib/real-access';
@@ -34,10 +35,10 @@ export function HomeFavorites({controller,access}:{controller:HomeController;acc
   useEffect(()=>()=>save.current?.abort(),[]);
   const options=useMemo(()=>state?homeShortcutOptions(state.available,access):[],[state,access]);
   const labels=state?.labels??{};
-  const favorites=state?state.shortcuts.flatMap(to=>{const label=homeFavoriteLabel(to,labels,options);return label?[{to,label}]:[];}):[];
+  const favorites=state?state.shortcuts.flatMap(to=>{const label=targetEnabled(to)?homeFavoriteLabel(to,labels,options):null;return label?[{to,label}]:[];}):[];
   const addable=options.filter(option=>!state?.shortcuts.includes(option.to));
   const target=favoriteTarget(link),base=homeShortcutBase(target),baseOption=options.find(option=>option.to===base),typedName=name.trim();
-  const linkProblem=!link.trim()?'':!baseOption?'Informe uma tela do ERP que o seu perfil abre (por exemplo, /documentos-empresa?tipo=sales_orders).':state?.shortcuts.includes(target)?'Este atalho já está nos favoritos.'
+  const linkProblem=!link.trim()?'':(!baseOption||!targetEnabled(target))?'Informe uma tela do ERP que o seu perfil abre (por exemplo, /documentos-empresa?tipo=sales_orders).':state?.shortcuts.includes(target)?'Este atalho já está nos favoritos.'
    :target!==base&&!typedName?'Dê um nome ao atalho com filtros.':'';
   const canAdd=Boolean(baseOption)&&!linkProblem&&[...typedName].length<=HOME_LABEL_MAX;
   // While the list reloads no command is sent: a read started before a save could otherwise replace the newer list.
