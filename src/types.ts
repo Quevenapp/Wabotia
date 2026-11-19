@@ -1,3 +1,5 @@
+import type { LinkState } from "./customer/contracts";
+
 export interface Env {
   DB: D1Database;
   MEDIA: R2Bucket;
@@ -88,6 +90,8 @@ export interface Profile {
   created: number;
 }
 export interface Conversation {
+  verified_phone?: string | null;
+  customer_link_state?: LinkState;
   /** JSON {module, summary, flags, at} da passagem feita por um módulo. */
   handoff?: string | null;
   department_id?: string | null;
