@@ -1,6 +1,7 @@
 import { all } from "./db";
 import { access } from "./security";
 import { type Actor, type Env, requireValue, ApiError } from "./types";
+import { isChannelId } from "./channels";
 export async function report(
   env: Env,
   actor: Actor,
@@ -21,6 +22,22 @@ export async function report(
   const section = query.get("section") || "tickets",
     table = tables[section];
   requireValue(table, "Seção inválida.");
+  const channel = query.get("channel");
+  if (channel !== null && !isChannelId(channel))
+    throw new ApiError(400, "invalid_channel", "Canal inválido.");
+  const conversational = section !== "knowledge";
+  const conversation = section === "conversations" ? "r" : "c";
+  // Mesma regra das leituras do painel: somente origem reconhecida pode
+  // preencher o canal legado; aplicações e conexões de IA permanecem nulas.
+  const channelSql = conversational ? `CASE
+    WHEN ${conversation}.external_namespace LIKE 'app:%' OR ${conversation}.chat_type IN ('team','internal') OR n.kind='ai' THEN NULL
+    WHEN ${conversation}.channel IS NOT NULL THEN ${conversation}.channel
+    WHEN ${conversation}.external_namespace='channel:'||n.id AND n.kind IN ('zernio','qr','meta') THEN n.channel
+    ELSE NULL END` : "NULL";
+  const joins = conversational
+    ? `${section === "conversations" ? "" : " LEFT JOIN conversations c ON c.id=r.conversation_id AND c.profile_id=r.profile_id"}
+       LEFT JOIN connections n ON n.id=${conversation}.connection_id AND n.profile_id=${conversation}.profile_id`
+    : "";
   const start = Date.parse(
       (query.get("start") || "1970-01-01") + "T00:00:00-03:00",
     ),
@@ -35,20 +52,20 @@ export async function report(
     params: any[] = [profile, start, end];
   if (section === "runs") {
     filter +=
-      " AND (json_extract(context,'$.internal_chat_id') IS NULL OR actor=?)";
+      " AND (json_extract(r.context,'$.internal_chat_id') IS NULL OR r.actor=?)";
     params.push(actor.id);
   }
   if (actor.kind === "app") {
     if (section === "runs") {
       access(actor, profile, "bots:invoke");
-      filter += " AND actor=?";
+      filter += " AND r.actor=?";
       params.push(actor.id);
     }
     if (section === "messages" && !actor.scopes.includes("notes:read"))
-      filter += " AND direction!='note'";
+      filter += " AND r.direction!='note'";
     if (section === "conversations") {
       filter +=
-        " AND (external_namespace NOT LIKE 'app:%' OR external_namespace=?)";
+        " AND (r.external_namespace NOT LIKE 'app:%' OR r.external_namespace=?)";
       params.push("app:" + actor.id);
     } else if (
       ["tickets", "messages", "deliveries", "surveys", "consents"].includes(
@@ -56,19 +73,25 @@ export async function report(
       )
     ) {
       filter +=
-        " AND conversation_id IN (SELECT id FROM conversations WHERE external_namespace NOT LIKE 'app:%' OR external_namespace=?)";
+        " AND r.conversation_id IN (SELECT id FROM conversations WHERE profile_id=r.profile_id AND (external_namespace NOT LIKE 'app:%' OR external_namespace=?))";
       params.push("app:" + actor.id);
     }
+  }
+  if (channel !== null) {
+    filter += ` AND (${channelSql})=?`;
+    params.push(channel);
   }
   async function page(cursor: string, limit: number) {
     const rows = await all(
       env,
-      `SELECT * FROM ${table} WHERE profile_id=? AND created BETWEEN ? AND ? ${filter} AND id>? ORDER BY id LIMIT ?`,
+      `SELECT r.*,${channelSql} AS resolved_channel FROM ${table} r ${joins} WHERE r.profile_id=? AND r.created BETWEEN ? AND ? ${filter} AND r.id>? ORDER BY r.id LIMIT ?`,
       ...params,
       cursor,
       limit,
     );
     return rows.map((r) => {
+      r.channel = r.resolved_channel;
+      delete r.resolved_channel;
       delete r.input;
       delete r.context;
       delete r.request_body;

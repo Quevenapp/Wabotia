@@ -2,6 +2,11 @@ import { resumeCustomerMaintenance } from "./customer/ports";
 import { ensinoNoStore } from "./modules/ensino/http";
 import { mountInternalApi, takeInternalActor } from "./internal-api";
 import { capabilities } from "./whatsapp";
+import { installChannelRuntime } from "./channel-runtime";
+import { channelRules, channelWindow, conversationChannel, isChannelId } from "./channels";
+import { channelIdentityPort, channelTranscriptPort } from "./channel-ports";
+import { resolveZernioChannelConnection } from "./channel-accounts";
+import type { ChannelId, ChannelView } from "./channel-contracts";
 import { authorizedMedia, mediaResponse, uploadPart, mediaKind } from "./media";
 import { callView, callPermission } from "./calls";
 import {
@@ -153,7 +158,7 @@ import {
   webStepView,
   whatsappReturnLink,
 } from "./web-steps";
-import { emailReady } from "./email";
+import { emailReady, getTranscriptEmailConfig } from "./email";
 import { trackPage } from "./web-track";
 import {
   CLAIM_PATH,
@@ -233,6 +238,7 @@ export { Coordinator } from "./coordinator";
 const app = new Hono<Bindings>();
 app.use("/api/v1/profiles/:profile/ensino/*", ensinoNoStore);
 app.use("*", async (c, next) => {
+  installChannelRuntime();
   if (/^\/internal\/v1\/connectors\/[^/]+\/media-content$/.test(c.req.path))
     return next();
   return bodyLimit({
@@ -1696,6 +1702,8 @@ const commands = [
   ["POST", "router/accounts", "zernio-account.save"],
   ["DELETE", "router/accounts/:id", "integration.delete"],
   ["POST", "router/accounts/:id/discover", "zernio-account.discover"],
+  ["POST", "router/accounts/:id/discover-channels", "channel.discover"],
+  ["POST", "router/accounts/:id/channel-connections", "channel.import"],
   ["POST", "router/accounts/:id/resolve", "zernio-account.resolve"],
   ["POST", "router/numbers", "zernio-number.save"],
   ["PUT", "router/numbers/:id/policy", "router.number.policy"],
@@ -1732,6 +1740,8 @@ const commands = [
   ["POST", "calls/:id/reconcile", "call.reconcile"],
   ["PUT", "connections/:id/calling", "call.configure"],
   ["POST", "conversations/:id/actions", "conversation.action"],
+  ["POST", "conversations/:id/email/preview", "conversation.email.preview"],
+  ["POST", "conversations/:id/email", "conversation.email"],
   ["POST", "contacts", "contact.create"],
   ["PATCH", "contacts/:id", "contact.update"],
   ["POST", "contacts/import", "contact.import"],
@@ -1741,6 +1751,9 @@ const commands = [
   ["POST", "contact-jobs/:id/resolve", "contact.resolve-job"],
   ["POST", "contact-jobs/:id/cancel", "contact.job-cancel"],
   ["POST", "contacts/:id/erasure", "contact.erasure"],
+  ["POST", "contacts/:id/merge-preview", "contact.merge-preview"],
+  ["POST", "contacts/:id/merge", "contact.merge"],
+  ["POST", "contacts/:id/merges/:mergeId/undo", "contact.merge.undo"],
   ["PUT", "contacts/:id/modules/:module/sections/:section", "contact.section"],
   ["PUT", "conversations/:id/contact", "contact.from-conversation"],
   ["DELETE", "conversations/:id/contact", "contact.unlink"],
@@ -1788,6 +1801,8 @@ for (const [method, path, op] of commands)
         ? {}
         : await c.req.json().catch(() => ({}))),
       ...(c.req.param("id") ? { id: c.req.param("id") } : {}),
+      ...(op.startsWith("channel.") ? { integrationId: c.req.param("id") } : {}),
+      ...(op === "contact.merge.undo" ? { mergeId: c.req.param("mergeId") } : {}),
       ...(op === "contact.section" ? { module: c.req.param("module"), section: c.req.param("section") } : {}),
     });
     // Painel de TV revogado: a tela cai na hora.
@@ -1914,6 +1929,33 @@ app.use("/api/v1/profiles/:profile/*", async (c, next) => {
     throw new ApiError(404, "not_found", "Perfil não encontrado.");
   await next();
 });
+// A origem explícita prevalece; aplicação, equipe e conexão de IA não viram
+// WhatsApp pelo valor padrão da coluna de connections.
+const conversationChannelSql = `CASE
+  WHEN c.external_namespace LIKE 'app:%' OR c.chat_type IN ('team','internal') OR k.kind='ai' THEN NULL
+  WHEN c.channel IS NOT NULL THEN c.channel
+  WHEN c.external_namespace='channel:'||k.id AND k.kind IN ('zernio','qr','meta') THEN k.channel
+  ELSE NULL END`;
+
+function channelResponse(connection: any, conv?: any) {
+  const channel = conv ? conversationChannel(conv, connection) : channelRules(connection)?.id ?? null;
+  const resolved = channel && connection ? { ...connection, channel } : null;
+  const context = conv?.chat_type === "group" ? "group" : conv?.chat_type === "comment" ? "comment"
+    : conv?.chat_type === "review" ? "review" : "direct";
+  const rules = channelRules(resolved, context);
+  const caps = capabilities(resolved, context);
+  const view: ChannelView = {
+    channel,
+    account_label: conv?.account_label || connection?.account_label || "",
+    multichannel: json(conv?.channel_context).multichannel === true ||
+      json(connection?.config)._channel_summary?.multichannel === true,
+    window: rules && conv ? channelWindow(rules, conv.last_customer, now()) : null,
+    templates: caps.templates, menu: caps.menu, subject: caps.subject,
+    public_reply: caps.public_reply, modules: caps.modules, can_initiate: caps.can_initiate,
+  };
+  return { ...caps, ...view, media_limits: rules?.media ?? {}, text_limit: rules?.text.maxChars ?? null };
+}
+
 app.get("/api/v1/profiles/:profile/status", async (c) => {
   const p = c.req.param("profile");
   if (c.get("actor").kind === "app")
@@ -1922,7 +1964,26 @@ app.get("/api/v1/profiles/:profile/status", async (c) => {
       "panel_only",
       "Use os recursos autorizados da API.",
     );
+  const connections = await all(c.env,
+    "SELECT id,profile_id,name,kind,channel,account_label,status,last_seen,config FROM connections WHERE profile_id=?", p);
+  const connectedChannels = [...new Set(connections.map(conn => {
+    const rules = channelRules(conn);
+    return rules?.enabled ? rules.id : null;
+  }).filter(isChannelId))];
+  const conversationChannels: ChannelId[] = allows(c.get("actor"), "conversations")
+    ? [...new Set([...connectedChannels, ...(await all(c.env,
+      `SELECT DISTINCT ${conversationChannelSql} channel FROM conversations c
+       LEFT JOIN connections k ON k.id=c.connection_id AND k.profile_id=c.profile_id WHERE c.profile_id=?`, p))
+      .map(row => row.channel).filter(isChannelId)])] : [];
+  const mayEmail = allows(c.get("actor"), "conversations") && allows(c.get("actor"), "conversations:email");
+  const emailConfigured = mayEmail && (await getTranscriptEmailConfig(c.env)).configured;
   return c.json({
+    connected_channels: connectedChannels,
+    conversation_channels: conversationChannels,
+    multichannel: conversationChannels.some(channel => channel !== "whatsapp"),
+    email_transcript: { available: !!emailConfigured,
+      reason: !mayEmail ? "Seu acesso não permite enviar conversas por e-mail."
+        : !emailConfigured ? "Configure o envio em Gestão → Sistema → E-mail." : null },
     settings: await settings(c.env, p),
     settings_revision: await settingsRevision(c.env, p),
     enabled: (await one(c.env, "SELECT enabled FROM profiles WHERE id=?", p))
@@ -1940,11 +2001,7 @@ app.get("/api/v1/profiles/:profile/status", async (c) => {
       "SELECT status,count(*) count FROM outbox WHERE profile_id=? GROUP BY status",
       p,
     ),
-    connections: await all(
-      c.env,
-      "SELECT id,name,kind,status,last_seen FROM connections WHERE profile_id=?",
-      p,
-    ),
+    connections: connections.map(({ config, profile_id, ...row }) => row),
     // Módulos ligados (true) e desligados (false): o painel esconde telas.
     modules: await moduleStates(c.env, p),
   });
@@ -2384,11 +2441,17 @@ app.get("/api/v1/profiles/:profile/conversations", async (c) => {
   const p = c.req.param("profile");
   access(c.get("actor"), p, "conversations:read");
   const limit = Math.min(100, Math.max(1, Number(c.req.query("limit")) || 50));
+  const channel = c.req.query("channel") ?? "";
+  if (channel && !isChannelId(channel))
+    throw new ApiError(400, "invalid_channel", "Filtro de canal inválido.");
   let after: any = null;
   try {
     after = c.req.query("cursor")
       ? JSON.parse(atob(c.req.query("cursor")!))
       : null;
+    if (after !== null && (!Array.isArray(after) || ![2, 3].includes(after.length) ||
+      !Number.isSafeInteger(after[0]) || typeof after[1] !== "string" || !after[1] ||
+      (after[2] ?? "") !== channel)) throw new Error("cursor");
   } catch {
     throw new ApiError(400, "invalid_cursor", "Cursor inválido.");
   }
@@ -2403,7 +2466,15 @@ app.get("/api/v1/profiles/:profile/conversations", async (c) => {
     c.get("actor").scopes.includes("notes:read");
   const rows = await all(
     c.env,
-    "SELECT p.*,substr(lm.text,1,300) lm_text,lm.direction lm_direction,lm.created lm_created,lm.delivery_status lm_delivery_status,lm.attachments lm_attachments,lm.content lm_content,(SELECT a.type FROM media a WHERE a.id=json_extract(lm.attachments,'$[0]')) lm_media_type FROM (SELECT c.*,ct.name contact_name,ct.id contact_id FROM conversations c LEFT JOIN conversation_contacts l ON l.conversation_id=c.id AND l.profile_id=c.profile_id LEFT JOIN contacts ct ON ct.id=l.contact_id AND ct.profile_id=c.profile_id AND ct.identity_state='active' AND ?=1 AND (?=1 OR ct.namespace=?) WHERE c.profile_id=? AND (?='' OR c.state=?) AND (?='' OR c.department_id=?) AND (c.external_id LIKE ? OR c.phone LIKE ? OR ct.name LIKE ?) AND (?=1 OR c.external_namespace NOT LIKE 'app:%' OR c.external_namespace=?) AND (? IS NULL OR c.updated<? OR (c.updated=? AND c.id<?)) ORDER BY c.updated DESC,c.id DESC LIMIT ?) p LEFT JOIN messages lm ON lm.id=(SELECT m.id FROM messages m WHERE m.conversation_id=p.id AND (?=1 OR m.direction!='note') ORDER BY m.created DESC,m.id DESC LIMIT 1) ORDER BY p.updated DESC,p.id DESC",
+    `SELECT p.*,substr(lm.text,1,300) lm_text,lm.direction lm_direction,lm.created lm_created,lm.delivery_status lm_delivery_status,lm.attachments lm_attachments,lm.content lm_content,(SELECT a.type FROM media a WHERE a.id=json_extract(lm.attachments,'$[0]')) lm_media_type
+     FROM (SELECT c.*,ct.name contact_name,ct.id contact_id,k.kind _connection_kind,k.channel _connection_channel,k.account_label _connection_label,k.config _connection_config
+       FROM conversations c LEFT JOIN connections k ON k.id=c.connection_id AND k.profile_id=c.profile_id
+       LEFT JOIN conversation_contacts l ON l.conversation_id=c.id AND l.profile_id=c.profile_id LEFT JOIN contacts ct ON ct.id=l.contact_id AND ct.profile_id=c.profile_id AND ct.identity_state='active' AND ?=1 AND (?=1 OR ct.namespace=?)
+       WHERE c.profile_id=? AND (?='' OR c.state=?) AND (?='' OR c.department_id=?) AND (c.external_id LIKE ? OR c.phone LIKE ? OR ct.name LIKE ?)
+       AND (?=1 OR c.external_namespace NOT LIKE 'app:%' OR c.external_namespace=?)
+       AND (?='' OR (${conversationChannelSql})=?)
+       AND (? IS NULL OR c.updated<? OR (c.updated=? AND c.id<?)) ORDER BY c.updated DESC,c.id DESC LIMIT ?) p
+     LEFT JOIN messages lm ON lm.id=(SELECT m.id FROM messages m WHERE m.conversation_id=p.id AND (?=1 OR m.direction!='note') ORDER BY m.created DESC,m.id DESC LIMIT 1) ORDER BY p.updated DESC,p.id DESC`,
     c.get("actor").kind === "user" ||
       c.get("actor").scopes.includes("contacts:read")
       ? 1
@@ -2420,6 +2491,8 @@ app.get("/api/v1/profiles/:profile/conversations", async (c) => {
     `%${q}%`,
     c.get("actor").kind !== "app" ? 1 : 0,
     "app:" + c.get("actor").id,
+    channel,
+    channel,
     after?.[0] ?? null,
     after?.[0] ?? 0,
     after?.[0] ?? 0,
@@ -2431,9 +2504,16 @@ app.get("/api/v1/profiles/:profile/conversations", async (c) => {
   rows.splice(limit);
   const last = rows.at(-1);
   return c.json({
-    data: rows.map(lastMessageView),
+    data: rows.map(({ _connection_kind, _connection_channel, _connection_label, _connection_config, ...row }) => {
+      const view = channelResponse(row.connection_id && _connection_kind ? {
+        id: row.connection_id, profile_id: p, kind: _connection_kind, channel: _connection_channel,
+        account_label: _connection_label, config: _connection_config,
+      } : null, row);
+      return { ...lastMessageView(row), channel: view.channel, account_label: view.account_label,
+        multichannel: view.multichannel, window: view.window };
+    }),
     next_cursor:
-      more && last ? btoa(JSON.stringify([last.updated, last.id])) : null,
+      more && last ? btoa(JSON.stringify(channel ? [last.updated, last.id, channel] : [last.updated, last.id])) : null,
   });
 });
 app.get("/api/v1/profiles/:profile/conversations/:id", async (c) => {
@@ -2445,8 +2525,9 @@ app.get("/api/v1/profiles/:profile/conversations/:id", async (c) => {
   const conn = conv.connection_id
     ? await one(
         c.env,
-        "SELECT * FROM connections WHERE id=?",
+        "SELECT * FROM connections WHERE id=? AND profile_id=?",
         conv.connection_id,
+        p,
       )
     : null;
   const media = await all(
@@ -2455,15 +2536,25 @@ app.get("/api/v1/profiles/:profile/conversations/:id", async (c) => {
     conv.id,
     notes ? 1 : 0,
   );
+  const view = channelResponse(conn, conv);
+  const contact = await conversationContact(c.env, actor, p, conv.id);
+  const related = contact && actor.kind === "user" && !actor.via && allows(actor, "contacts")
+    ? await channelIdentityPort.readChannels(c.env, actor, p, contact.id) : null;
   return c.json({
     conversation: conv,
+    channel: view.channel,
+    account_label: view.account_label,
+    multichannel: view.multichannel,
+    window: view.window,
+    other_conversations: related?.other_conversations.filter(item => item.id !== conv.id) ?? [],
+    email_transcript: await channelTranscriptPort.options(c.env, actor, conv),
     // Passagem feita por um módulo: resumo e marcadores para o atendente
     // (interno, como as notas).
     handoff: notes ? json(conv.handoff, null) : null,
     connection_kind: conn?.kind || null,
     server_now: now(),
     media,
-    capabilities: conn ? capabilities(conn, conv.chat_type) : {},
+    capabilities: view,
     group:
       conv.chat_type === "group"
         ? await one(
@@ -2472,7 +2563,7 @@ app.get("/api/v1/profiles/:profile/conversations/:id", async (c) => {
             conv.id,
           )
         : null,
-    contact: await conversationContact(c.env, actor, p, conv.id),
+    contact,
     messages: await all(
       c.env,
       "SELECT * FROM messages WHERE conversation_id=? AND (?=1 OR direction!='note') ORDER BY created,id",
@@ -2700,8 +2791,8 @@ app.get("/api/v1/profiles/:profile/connections/:id/capabilities", async (c) => {
     c.req.param("id"),
     c.req.param("profile"),
   );
-  requireValue(row, "Conexão não encontrada.");
-  return c.json(capabilities(row));
+  if (!row) throw new ApiError(404, "not_found", "Conexão não encontrada.");
+  return c.json(channelResponse(row));
 });
 app.get("/api/v1/profiles/:profile/calls", async (c) => {
   const actor = c.get("actor"),
@@ -2849,6 +2940,18 @@ app.post("/webhooks/zernio/:id", async (c) => {
     throw new ApiError(403, "invalid_signature", "Assinatura inválida.");
   const body = json(raw, null);
   requireValue(body && typeof body === "object", "Webhook Zernio inválido.");
+  if (conn.channel && conn.channel !== "whatsapp") {
+    if (conn.channel !== "instagram" && conn.channel !== "facebook")
+      return c.json({ received: true, ignored: true, reason: "channel_not_ready" });
+    const cfg = json(conn.config);
+    const resolved = await resolveZernioChannelConnection(c.env, {
+      profileId: conn.profile_id, integrationId: cfg.zernio_workspace_id || "",
+      channel: conn.channel, accountId: body.account?.accountId ?? body.account?.id ?? "",
+      providerProfileId: body.account?.profileId ?? null,
+    });
+    if (!resolved || resolved.id !== conn.id || body.account?.platform !== conn.channel)
+      return c.json({ received: true, ignored: true, reason: "scope_mismatch" });
+  }
   return zernioInbound(c.env, conn, body, (data) => ingest(c.env, conn, data));
 });
 app.post("/webhooks/zernio-accounts/:id", async (c) => {
@@ -2870,6 +2973,20 @@ app.post("/webhooks/zernio-accounts/:id", async (c) => {
     throw new ApiError(403, "invalid_signature", "Assinatura inválida.");
   const body = json(raw, null);
   requireValue(body && typeof body === "object", "Webhook Zernio inválido.");
+  // Só o seletor de conta é lido aqui, depois da assinatura. O leitor único
+  // zernio-social valida e normaliza o evento inteiro antes de qualquer efeito.
+  const platform = body.account?.platform;
+  if (platform === "instagram" || platform === "facebook") {
+    const conn = await resolveZernioChannelConnection(c.env, {
+      profileId: account.profile_id, integrationId: account.id, channel: platform,
+      accountId: body.account?.accountId ?? body.account?.id ?? "",
+      providerProfileId: body.account?.profileId ?? null,
+    });
+    if (!conn) return c.json({ received: true, ignored: true, reason: "scope_mismatch" });
+    return zernioInbound(c.env, conn, body, data => ingest(c.env, conn, data));
+  }
+  if (platform && platform !== "whatsapp")
+    return c.json({ received: true, ignored: true, reason: "channel_not_ready" });
   const connections = await all(
     c.env,
     "SELECT c.* FROM connections c JOIN meta_numbers n ON n.connection_id=c.id WHERE n.account_id=? AND c.profile_id=? AND c.kind='zernio'",
@@ -3113,6 +3230,7 @@ mountInternalApi(app);
 export default {
   fetch: app.fetch,
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    installChannelRuntime();
     ctx.waitUntil(wake(env, "_admin"));
     // Limpeza da migração no cron, sem uma consulta extra a cada alarme de atendimento.
     ctx.waitUntil(removePendingConnections(env));

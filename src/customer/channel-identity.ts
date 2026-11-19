@@ -15,7 +15,9 @@ const emptyRef = (c: Conversation): CustomerRef & { verifiedPhone: null } => ({
   verifiedPhone: null, verifiedChannel: null, version: null, erp: null,
 });
 const denied = () => new ApiError(403, "invalid_channel_evidence", "A origem desta identidade não foi confirmada.");
-const opaque = (s: unknown): s is string => typeof s === "string" && s.length > 0 && s.length <= 512 && !/[\u0000-\u001f\u007f]/.test(s);
+// Mesmo limite do leitor social: a composição não pode rejeitar um sujeito
+// autenticado que o transporte acabou de normalizar.
+const opaque = (s: unknown): s is string => typeof s === "string" && s.length > 0 && s.length <= 1024 && !/[\u0000-\u001f\u007f]/.test(s);
 const presentation = (s: unknown) => typeof s === "string" ? s.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 200) : "";
 
 /** Somente entrada autenticada chama este adaptador. O lote deve inserir a

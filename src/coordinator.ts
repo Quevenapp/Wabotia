@@ -44,6 +44,7 @@ import {
 } from "./queue";
 import { withCommandClosing } from "./command-context";
 import { completeWebStep, expireWebSteps } from "./web-steps";
+import { authorizeChannelReplay, installChannelRuntime, isChannelOperation, performChannelOperation } from "./channel-runtime";
 import {
   expirePayments,
   refreshFromProvider,
@@ -164,6 +165,7 @@ export class Coordinator extends DurableObject<Env> {
   private closing = new Map<string, Promise<void>>();
   private erp = new ErpHub(this.env, this.ctx);
   async fetch(request: Request) {
+    installChannelRuntime();
     // Instâncias "erp:<área>" (src/erp/hub.ts): só "/erp-*", antes de ler o
     // corpo e de gravar o perfil da área.
     const erpPath = new URL(request.url).pathname;
@@ -335,7 +337,7 @@ export class Coordinator extends DurableObject<Env> {
           }
           const recoverableWork = /^(area-template\.apply|os\.(?:private\.)?(?:task|person|entry)\.(?:create|update|archive|revise)|os\.(?:private\.)?document\.(?:reserve|complete|archive)|os\.stage(?:\.approval|\.decision)?|os\.private\.update)$/.test(body.operation);
           const recoverableCustomer = body.operation.startsWith("contact.") && body.operation !== "contact.maintain";
-          if (!old.response && (closingOp || recoverableWork || recoverableCustomer)) {
+          if (!old.response && (closingOp || recoverableWork || recoverableCustomer || isChannelOperation(body.operation))) {
             // Sem a marca, a escrita não gravou (o lote é atômico): a
             // operação roda de novo, abaixo. Na emissão, a chave de origem
             // ainda devolve a senha de antes, se houver.
@@ -357,7 +359,16 @@ export class Coordinator extends DurableObject<Env> {
             );
           } else {
             let response = old.response;
-            if (body.operation.startsWith("contact.") || body.operation.endsWith(".customer-section")) {
+            if (isChannelOperation(body.operation)) {
+              try {
+                const value = await authorizeChannelReplay(this.env, actor, this.profile, body.operation, body.data,
+                  old.response.startsWith("sealed:") ? await unseal(this.env, old.response.slice(7)) : JSON.parse(old.response));
+                return Response.json(value, { status: old.status, headers: { "Idempotency-Replayed": "true" } });
+              } catch (error) {
+                if (!(error instanceof ApiError)) throw error;
+                return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
+              }
+            } else if (body.operation.startsWith("contact.") || body.operation.endsWith(".customer-section")) {
               return { customerReplay: old.response.startsWith("sealed:")
                 ? await unseal(this.env, old.response.slice(7)) : JSON.parse(old.response), status: old.status };
             } else if (old.response.startsWith("sealed:")) response = JSON.stringify(await unseal(this.env, old.response.slice(7)));
@@ -417,7 +428,7 @@ export class Coordinator extends DurableObject<Env> {
             },
           });
         try {
-          value = await perform(
+          value = await (isChannelOperation(body.operation) ? performChannelOperation : perform)(
             env,
             actor,
             this.profile,
@@ -822,6 +833,7 @@ export class Coordinator extends DurableObject<Env> {
       await this.ctx.storage.setAlarm(at);
   }
   async alarm() {
+    installChannelRuntime();
     // Instância do ERP: alarme próprio, nunca o pipeline da área.
     if (await this.erp.isErp()) return this.erp.alarm();
     if (this.busy) return;

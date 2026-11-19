@@ -29,6 +29,7 @@ import {
   setSecret,
   publicUrl,
   passwordHash,
+  storedAccess,
 } from "./security";
 import { event, audit, eventStatement, fanOut } from "./events";
 import { appErpRoleInput } from "./modules/erp/identity";
@@ -41,7 +42,12 @@ import { contactCommand } from "./contacts";
 import { installIdentityPort, identityPort } from "./customer/ports";
 import { customerIdentity, inboundConnection, evidencePhone } from "./customer/identity";
 import { normalizeCustomerPhone, customerPhoneVariants, customerPhoneInputMode } from "./customer/phone";
-import type { InboundEvidence } from "./customer/contracts";
+import type { InboundEvidence, SocialInboundEvidence } from "./customer/contracts";
+import { channelIdentityPort } from "./channel-ports";
+import { allowsModules, channelRules, channelWindow, conversationChannel, isChannelId } from "./channels";
+import { refreshChannelSummaryStatements, validateChannelConfiguration } from "./channel-accounts";
+import { enqueueSocialDeliveries } from "./engine";
+import { socialExternalId, type SocialSendProvenance } from "./zernio-social";
 installIdentityPort(customerIdentity, { default: true });
 import { authorizedMedia, mediaKind, uploadCommand } from "./media";
 import {
@@ -155,6 +161,7 @@ export const scopes = [
   "groups:manage",
   "conversations:read",
   "conversations:write",
+  "conversations:email",
   "contacts:read",
   "contacts:write",
   "notes:read",
@@ -315,6 +322,8 @@ export async function enqueue(
   payload: any,
   dedupe: string,
 ) {
+  if (c.channel === "instagram" || c.channel === "facebook")
+    return enqueueSocialDeliveries(env, c, actor, kind, payload, dedupe);
   await assertNumberDelivery(env, c.connection_id, actor, kind, payload);
   if (
     kind !== "team" &&
@@ -842,6 +851,35 @@ export interface HandoffMeta {
   at: number;
 }
 
+/** A passagem interna continua possível fora da janela; avisos automáticos e
+ * devolução ao bot não usam a extensão reservada a texto escrito por pessoa. */
+async function socialAutomationBlock(env: Env, c: Conversation) {
+  if (c.channel !== "instagram" && c.channel !== "facebook") return null;
+  const rules = channelRules(c.connection_id ? await inboundConnection(env, c.connection_id) : null);
+  const window = rules && channelWindow(rules, c.last_customer, now());
+  if (rules?.enabled && window?.canAutomation) return null;
+  return {
+    code: !rules?.enabled ? "channel_not_ready" : window?.state === "human_text_only" ? "human_only" : "window_closed",
+    reason: !rules?.enabled ? "Este canal ainda não está disponível."
+      : window?.state === "human_text_only" ? "Somente uma pessoa pode responder por texto; a janela de automação terminou."
+      : "A janela deste canal terminou. Aguarde uma nova mensagem do contato.",
+  };
+}
+
+async function finishHandoffWithoutNotice(env: Env, c: Conversation, payload: Record<string, unknown>) {
+  const blocked = await socialAutomationBlock(env, c);
+  if (!blocked) return false;
+  const key = `handoff-window:${c.id}:${c.epoch}`;
+  const committed = await batch(env, [
+    ["INSERT OR IGNORE INTO messages(id,profile_id,conversation_id,direction,author,text,attachments,created,source_key,content) VALUES(?,?,?,'note','system',?,'[]',?,?,'{}')",
+      [key, c.profile_id, c.id, blocked.reason, now(), key]],
+    eventStatement(c.profile_id, "conversation.updated", c.id,
+      { ...payload, handoff_reason: payload.reason, reason: blocked.reason, channel_error: blocked.code }, key),
+  ]);
+  await fanOut(env, c.profile_id, "conversation.updated", (committed[1].results[0] as { id: number }).id);
+  return true;
+}
+
 export async function handoff(
   env: Env,
   c: Conversation,
@@ -912,6 +950,7 @@ export async function handoff(
     ],
   ]);
   c = await conversation(env, c.id, c.profile_id);
+  if (await finishHandoffWithoutNotice(env, c, { state: "waiting", department_id: departmentId, reason })) return;
   const present = await presentInDepartment(env, c.profile_id, departmentId);
   const cfg = await settings(env, c.profile_id);
   let reply = department
@@ -1079,6 +1118,7 @@ export async function handoffToPerson(
   );
   await clearTicketPrompt(env, c.id);
   c = await conversation(env, c.id, c.profile_id);
+  if (await finishHandoffWithoutNotice(env, c, { state: "human", owner: target.id, reason })) return;
   const policy = await getNumberPolicy(env, c.connection_id);
   if (policy.human && policy.service && (policy.menu || policy.bots))
     await enqueue(
@@ -1099,6 +1139,7 @@ export async function handoffToPerson(
 /** The line's attendant bot can take the conversation back right now. */
 async function attendantAvailable(env: Env, c: Conversation, cfg: any) {
   if (c.chat_type === "group") return false;
+  if (await socialAutomationBlock(env, c)) return false;
   const line = await serviceForLine(env, c.connection_id);
   if (line.mode === "human") return false;
   const botId = line.mode === "bot" ? line.bot_id : cfg.attendant_bot;
@@ -1140,6 +1181,9 @@ export async function conversationByPhone(
     env,
     `SELECT c.* FROM conversations c
       WHERE c.profile_id=? AND c.chat_type='direct'
+        AND (c.channel='whatsapp' OR (c.channel IS NULL AND EXISTS
+          (SELECT 1 FROM connections k WHERE k.id=c.connection_id AND k.profile_id=c.profile_id
+            AND k.kind IN ('zernio','qr','meta') AND k.channel='whatsapp')))
         AND c.customer_link_state NOT IN ('blocked','excluded','ambiguous')
         AND c.phone IN (SELECT value FROM json_each(?))
         AND (c.last_customer=0 OR c.customer_identity_proof IS NOT NULL OR EXISTS
@@ -1157,8 +1201,8 @@ export async function conversationByPhone(
   const line = await one(
     env,
     options.connectionId
-      ? "SELECT * FROM connections WHERE id=? AND profile_id=? AND status='active'"
-      : "SELECT * FROM connections WHERE profile_id=? AND status='active' AND kind='zernio' ORDER BY created,rowid LIMIT 1",
+      ? "SELECT * FROM connections WHERE id=? AND profile_id=? AND status='active' AND channel='whatsapp' AND kind='zernio'"
+      : "SELECT * FROM connections WHERE profile_id=? AND status='active' AND kind='zernio' AND channel='whatsapp' ORDER BY created,rowid LIMIT 1",
     ...(options.connectionId ? [options.connectionId, profile] : [profile]),
   );
   requireValue(
@@ -1173,7 +1217,7 @@ export async function conversationByPhone(
   const id = uid();
   const created = await exec(
     env,
-    "INSERT OR IGNORE INTO conversations(id,profile_id,connection_id,external_namespace,external_id,phone,session,last_customer,created,updated) VALUES(?,?,?,?,?,?,?,0,?,?)",
+    "INSERT OR IGNORE INTO conversations(id,profile_id,connection_id,external_namespace,external_id,phone,session,last_customer,created,updated,channel,account_label,channel_context) VALUES(?,?,?,?,?,?,?,0,?,?,'whatsapp',?,?)",
     id,
     profile,
     line.id,
@@ -1183,6 +1227,9 @@ export async function conversationByPhone(
     uid(),
     now(),
     now(),
+    line.account_label || "",
+    JSON.stringify(json(line.config)._channel_summary?.multichannel === true
+      ? { version: 1, context: "direct", multichannel: true } : {}),
   );
   const c = await one<Conversation>(
     env,
@@ -1210,6 +1257,114 @@ export async function conversationByPhone(
   return c;
 }
 
+/** O ingresso social não passa por telefone, afinidade ou escolha cadastral.
+ * A conversa nova também faz parte do lote: falha nunca deixa identidade,
+ * vínculo de thread, inbox ou mensagem parcialmente confirmados. */
+async function inboundSocial(
+  env: Env, profile: string, data: any, namespace: string, channel: any,
+  key: string, attachments: string[], content: any, receivedAt: number, customerAt: number,
+) {
+  const evidence = data.evidence as SocialInboundEvidence | undefined;
+  const cfg = json(channel.config);
+  const thread = data.channel_thread;
+  requireValue(
+    evidence && evidence.channel === channel.channel && evidence.provider === "zernio" &&
+      ["instagram", "facebook"].includes(evidence.channel) && evidence.subjectNamespace === "dm" &&
+      evidence.accountId === cfg.account_id && evidence.accountId === data.channel_account_id &&
+      evidence.subjectId === data.channel_subject_id && typeof evidence.subjectId === "string" &&
+      data.external_id === socialExternalId(evidence.subjectId) && data.chat_type === "direct" &&
+      data.phone == null && evidence.phone === undefined && evidence.phoneJid === undefined &&
+      thread?.connectionId === channel.id && thread?.externalId === data.external_id &&
+      typeof thread.threadId === "string" && thread.threadId.length > 0 && thread.threadId.length <= 1024,
+    "Origem da mensagem social inválida.",
+  );
+  // Não conservar metadados arbitrários nem o resumo informado pelo cliente.
+  const context = {
+    version: 1, context: "direct", multichannel: cfg._channel_summary?.multichannel === true,
+    ...(typeof data.channel_context?.story?.id === "string" ? { story: {
+      id: data.channel_context.story.id.slice(0, 512),
+      ...(typeof data.channel_context.story.title === "string" ? { title: data.channel_context.story.title.slice(0, 200) } : {}),
+    } } : {}),
+  };
+  let c = await one<Conversation>(env,
+    "SELECT * FROM conversations WHERE profile_id=? AND connection_id=? AND external_namespace=? AND external_id=?",
+    profile, channel.id, namespace, data.external_id);
+  const createdConversation = !c;
+  if (!c) c = {
+    id: `social:${await sha(JSON.stringify([profile, channel.id, evidence.subjectId]))}`,
+    profile_id: profile, connection_id: channel.id, external_namespace: namespace, external_id: data.external_id,
+    channel: evidence.channel, channel_account_id: evidence.accountId, channel_subject_id: evidence.subjectId,
+    channel_context: JSON.stringify(context), account_label: channel.account_label || "",
+    title: String(evidence.displayName || "Contato").slice(0, 200), phone: null, verified_phone: null,
+    customer_link_state: "pending", chat_type: "direct", bot_policy: "mentions", state: "ai", owner: null,
+    epoch: 1, session: uid(), topic: null, tags: "[]", last_customer: 0, created: receivedAt, updated: receivedAt,
+  };
+  requireValue(c.channel === evidence.channel && c.channel_account_id === evidence.accountId &&
+    c.channel_subject_id === evidence.subjectId && c.chat_type === "direct", "A conversa pertence a outra origem.");
+  const initial = c;
+  const ratingReply = /^[1-5](?:\s|$)/.test(data.text) && !createdConversation && await one(env,
+    "SELECT id FROM surveys WHERE conversation_id=? AND status='pending' AND created>?", c.id, receivedAt - 86400000);
+  if (c.state === "closed" && !ratingReply)
+    c = { ...c, state: "ai", owner: null, session: uid(), epoch: c.epoch + 1 };
+  const line = lineService(cfg);
+  // Módulos não seguram a porta de entrada de um perfil social.
+  const queuedByLine = line.mode === "human" && c.state === "ai" && !c.assigned_bot_id;
+  if (queuedByLine) c = { ...c, state: "waiting", owner: null, epoch: c.epoch + 1 };
+  if (c.state === "ai") c = { ...c, epoch: c.epoch + 1 };
+  const identity = await channelIdentityPort.prepareInbound(env, c, evidence);
+  const resumed = createdConversation ? [] : (await all(env,
+    "SELECT id FROM tickets WHERE conversation_id=? AND status='waiting_customer'", c.id)).map(row => row.id);
+  const msgId = uid();
+  content.customerSession = c.session;
+  const entryEvents = [
+    ...(createdConversation ? [{ kind: "conversation.created", id: c.id, payload: { id: c.id, external_id: c.external_id } }] : []),
+    ...(queuedByLine ? [{ kind: "conversation.updated", id: c.id, payload: { action: "waiting", state: "waiting" } }] : []),
+    { kind: "message.received", id: msgId, payload: { conversation_id: c.id, message_id: msgId, text: data.text, attachments } },
+  ];
+  const writes: [string, any[]][] = [];
+  if (createdConversation) writes.push([
+    `INSERT INTO conversations(id,profile_id,connection_id,external_namespace,external_id,phone,epoch,session,last_customer,
+      created,updated,channel,account_label,channel_account_id,channel_subject_id,channel_context,title)
+      VALUES(?,?,?,?,?,NULL,1,?,0,?,?,?,?,?,?,?,?)`,
+    [initial.id, profile, channel.id, namespace, data.external_id, initial.session, receivedAt, receivedAt,
+      evidence.channel, initial.account_label, evidence.accountId, evidence.subjectId, initial.channel_context, initial.title],
+  ]);
+  writes.push(
+    ["UPDATE conversations SET state=?,owner=?,epoch=?,session=?,last_customer=max(last_customer,?),channel_context=?,updated=? WHERE id=? AND profile_id=?",
+      [c.state, c.owner, c.epoch, c.session, customerAt, JSON.stringify(context), receivedAt, c.id, profile]],
+    ...identity.statements,
+    [`INSERT INTO customer_assert(id,ok) SELECT ?,CASE WHEN NOT EXISTS(
+      SELECT 1 FROM zernio_conversations WHERE connection_id=? AND conversation_id=? AND external_id<>?)
+      THEN 1 ELSE 0 END ON CONFLICT(id) DO UPDATE SET ok=excluded.ok`,
+      [`channel-thread:${c.id}`, channel.id, thread.threadId, data.external_id]],
+    ["INSERT INTO zernio_conversations(connection_id,external_id,conversation_id) VALUES(?,?,?) ON CONFLICT(connection_id,external_id) DO UPDATE SET conversation_id=excluded.conversation_id",
+      [channel.id, data.external_id, thread.threadId]],
+    ["INSERT INTO inbox(id,profile_id,event_key,conversation_id,payload,created) VALUES(?,?,?,?,?,?)",
+      [uid(), profile, key, c.id, JSON.stringify({ ...data, content, attachments, message_record_id: msgId,
+        epoch: c.epoch, session: c.session, ...(queuedByLine ? { queued_by_line: true } : {}),
+        ...(resumed.length ? { resumed_tickets: resumed } : {}) }), receivedAt]],
+    ...(resumed.length ? [["UPDATE tickets SET status='in_progress',updated=? WHERE status='waiting_customer' AND id IN (SELECT value FROM json_each(?))",
+      [receivedAt, JSON.stringify(resumed)]] as [string, any[]]] : []),
+    ["INSERT INTO messages(id,profile_id,conversation_id,direction,author,text,attachments,external_id,created,content) VALUES(?,?,?,'customer',?,?,?,?,?,?)",
+      [msgId, profile, c.id, `customer:${namespace}:${evidence.subjectId}`, data.text, JSON.stringify(attachments), data.message_id, receivedAt, JSON.stringify(content)]],
+    ...entryEvents.map(e => eventStatement(profile, e.kind, e.id, e.payload)),
+  );
+  let committed;
+  try { committed = await batch(env, writes); }
+  catch (error) {
+    // Outro ingresso idêntico pode ter vencido antes deste lote. A falha de
+    // unicidade reverte todo o lote perdedor; só a inbox confirmada prova replay.
+    const duplicate = await one(env, "SELECT conversation_id FROM inbox WHERE event_key=?", key);
+    if (duplicate) return { conversation_id: duplicate.conversation_id, duplicate: true };
+    throw error;
+  }
+  for (let i = 0; i < entryEvents.length; i++)
+    await fanOut(env, profile, entryEvents[i].kind, (committed[committed.length - entryEvents.length + i].results[0] as { id: number }).id);
+  for (const ticketId of resumed) await ticketResumedEvent(env, profile, ticketId, msgId);
+  await applyChannelEvents(env, channel.id, data.message_id);
+  return { conversation_id: c.id, message_id: msgId };
+}
+
 export async function inbound(
   env: Env,
   profile: string,
@@ -1218,12 +1373,15 @@ export async function inbound(
   connectionId: string | null,
 ) {
   env = withReadCache(env);
+  // O DTO autenticado do leitor social transporta IDs opacos maiores. A
+  // conexão é reconferida abaixo; esse indício só escolhe o limite inicial.
+  const socialInput = !!connectionId && ["instagram", "facebook"].includes(data.channel);
   requireValue(
-    typeof data.external_id === "string" && data.external_id.length <= 200,
+    typeof data.external_id === "string" && data.external_id.length <= (socialInput ? 12291 : 200),
     "Informe o identificador externo.",
   );
   requireValue(
-    typeof data.message_id === "string" && data.message_id.length <= 250,
+    typeof data.message_id === "string" && data.message_id.length <= (socialInput ? 1024 : 250),
     "Informe message_id.",
   );
   requireValue(
@@ -1266,6 +1424,14 @@ export async function inbound(
       ["qr", "zernio", "meta"].includes(channel.kind)),
     "Origem do canal inválida.",
   );
+  if (channel && channel.channel !== undefined && channel.channel !== null && channel.channel !== "whatsapp") {
+    if (!["instagram", "facebook"].includes(channel.channel) || !channelRules(channel)?.enabled)
+      throw new ApiError(503, "channel_not_ready", "Este canal ainda não está disponível.");
+    return inboundSocial(env, profile, data, namespace, channel, key, attachments, content, receivedAt,
+      Number.isSafeInteger(data.customer_at) && data.customer_at > 0 && data.customer_at <= receivedAt ? data.customer_at : 0);
+  }
+  if (socialInput)
+    requireValue(data.external_id.length <= 200 && data.message_id.length <= 250, "Identificador inválido para este canal.");
   // Entradas legadas sem conexão podem manter uma conversa e associação humana.
   // Sem canal autenticado, prepareInbound não lhes concede prova telefônica.
   // Compatibilidade do transporte anterior: QR já normalizado (somente dígitos)
@@ -1333,7 +1499,7 @@ export async function inbound(
     // no lote da inbox: repetir após uma queda não avança a criação de novo.
     c = await one<Conversation & { inbound_match: number }>(
       env,
-      "INSERT INTO conversations(id,profile_id,connection_id,external_namespace,external_id,phone,epoch,session,last_customer,created,updated) VALUES(?,?,?,?,?,?,1,?,?,?,?) RETURNING *,1 AS inbound_match",
+      "INSERT INTO conversations(id,profile_id,connection_id,external_namespace,external_id,phone,epoch,session,last_customer,created,updated,channel,account_label,channel_context) VALUES(?,?,?,?,?,?,1,?,?,?,?,?,?,?) RETURNING *,1 AS inbound_match",
       id,
       profile,
       connectionId,
@@ -1344,6 +1510,10 @@ export async function inbound(
       0,
       now(),
       now(),
+      channel ? "whatsapp" : null,
+      channel?.account_label || "",
+      JSON.stringify(json(channel?.config)._channel_summary?.multichannel === true
+        ? { version: 1, context: isGroup ? "group" : "direct", multichannel: true } : {}),
     );
   }
   requireValue(c, "Conversa não encontrada.");
@@ -2397,10 +2567,12 @@ export async function perform(
     );
     const id = data.id || uid();
     const old = await one(env, "SELECT * FROM connections WHERE id=?", id);
-    requireValue(
-      !old || old.profile_id === profile,
-      "Conexão de outra área de atendimento.",
-    );
+    if (old && old.profile_id !== profile)
+      throw new ApiError(404, "not_found", "Conexão não encontrada.");
+    const channelId = data.channel ?? old?.channel ?? "whatsapp";
+    requireValue(isChannelId(channelId), "Canal inválido.");
+    if (old && (old.channel ?? "whatsapp") !== channelId)
+      throw new ApiError(409, "channel_immutable", "O canal de uma conexão existente não pode ser alterado.");
     if (old) {
       requireValue(
         old.kind === data.kind,
@@ -2416,7 +2588,7 @@ export async function perform(
         "Pause e reconcilie as entregas antes de alterar a conexão.",
       );
     }
-    let cfg = data.config || {};
+    let cfg = { ...(data.config || {}) };
     requireValue(
       cfg.remove_pending === undefined,
       "A marca de remoção da conexão é interna e não pode ser definida pela API.",
@@ -2440,8 +2612,13 @@ export async function perform(
       cfg.number_policy = previous.number_policy;
       cfg.bot_options = previous.bot_options;
     }
+    cfg = (await validateChannelConfiguration(env, actor, profile, {
+      channel: channelId, kind: data.kind, config: cfg, ...(old ? { existingConnectionId: old.id } : {}),
+    })).config;
+    if (channelId !== "whatsapp")
+      requireValue(!Object.keys(data.secrets || {}).length, "Edite as credenciais na integração Zernio.");
     const managed =
-      old &&
+      old && channelId === "whatsapp" &&
       (await one(
         env,
         "SELECT connection_id FROM meta_numbers WHERE connection_id=?",
@@ -2466,12 +2643,12 @@ export async function perform(
     }
     if (cfg.url) cfg.url = publicUrl(cfg.url);
     if (cfg.api_url) cfg.api_url = publicUrl(cfg.api_url);
-    if (["qr", "zernio"].includes(data.kind))
+    if (channelId === "whatsapp" && ["qr", "zernio"].includes(data.kind))
       requireValue(
         /^\d{8,16}$/.test(cfg.number || ""),
         "Informe o número completo com DDI, somente dígitos.",
       );
-    if (data.kind === "zernio") {
+    if (data.kind === "zernio" && channelId === "whatsapp") {
       requireValue(
         /^[a-f0-9]{24}$/i.test(cfg.account_id || "") &&
           /^[a-f0-9]{24}$/i.test(cfg.zernio_profile_id || ""),
@@ -2510,18 +2687,12 @@ export async function perform(
       }
       delete cfg.verified_at;
     }
-    await exec(
-      env,
-      "INSERT INTO connections(id,profile_id,name,kind,mode,config,created) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,config=excluded.config,kind=excluded.kind,mode=excluded.mode",
-      id,
-      profile,
-      text(data.name, 100),
-      data.kind,
-      data.mode || "direct",
-      JSON.stringify(cfg),
-      now(),
-    );
-    if (data.secrets) {
+    await batch(env, [
+      ["INSERT INTO connections(id,profile_id,name,kind,mode,config,created,channel) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,config=excluded.config,kind=excluded.kind,mode=excluded.mode",
+        [id, profile, text(data.name, 100), data.kind, data.mode || "direct", JSON.stringify(cfg), now(), channelId]],
+      ...refreshChannelSummaryStatements(profile),
+    ]);
+    if (data.secrets && channelId === "whatsapp") {
       const previous = await secret(env, `connection:${id}`);
       const supplied = { ...data.secrets };
       if (data.kind === "ai") {
@@ -2578,12 +2749,10 @@ export async function perform(
         );
       }
     }
-    await exec(
-      env,
-      "UPDATE connections SET status=? WHERE id=?",
-      data.status,
-      row.id,
-    );
+    await batch(env, [
+      ["UPDATE connections SET status=? WHERE id=?", [data.status, row.id]],
+      ...refreshChannelSummaryStatements(profile),
+    ]);
     return { id: row.id, status: data.status };
   }
   if (op === "bot.update") {
@@ -2686,6 +2855,9 @@ export async function perform(
     // Ações registradas pelos módulos (src/modules/api.ts).
     const moduleAction =
       typeof action === "string" ? conversationAction(action) : undefined;
+    if (moduleAction && !allowsModules(conversationChannel(c,
+      c.connection_id ? await inboundConnection(env, c.connection_id) : null)))
+      throw new ApiError(422, "unsupported_content", "Os módulos estão disponíveis somente em conversas do WhatsApp.");
     if (moduleAction) return moduleAction(env, actor, c, data, requestId);
     if (
       [
@@ -2803,6 +2975,21 @@ export async function perform(
         const content = await outgoingContent(env, actor, c, data);
         const value = String(data.text || "").trim(),
           attachments = await mediaIds(env, profile, data.attachments || []);
+        // A requisição só fornece texto/anexos já validados. Nenhum campo
+        // origin/human/messageTag/social_provenance enviado por ela é copiado.
+        let provenance: SocialSendProvenance | undefined;
+        if ((c.channel === "instagram" || c.channel === "facebook") && c.connection_id &&
+          actor.kind === "user" && actor.role !== "service" && !actor.via && !actor.module && !actor.credential && !isEngineActor(actor)) {
+          const human = await one(env, "SELECT role,profiles,access FROM users WHERE id=? AND disabled=0", actor.id);
+          if (!human || !["admin", "operator"].includes(human.role))
+            throw new ApiError(403, "forbidden", "A resposta humana exige uma pessoa autenticada e ativa.");
+          const current: Actor = { ...actor, role: human.role, profiles: json(human.profiles, []), access: storedAccess(human.access) };
+          access(current, profile, "conversations:write");
+          requireOperationAccess(current, "conversation.action");
+          await conversation(env, c.id, profile, current);
+          provenance = { version: 1, origin: attachments.length ? "human_media" : "manual_text", actorId: actor.id,
+            conversationId: c.id, connectionId: c.connection_id, commandId: requestId };
+        }
         if (c.chat_type === "group") {
           const group = await one(
             env,
@@ -2819,7 +3006,7 @@ export async function perform(
           c,
           actor.id,
           "text",
-          { text: value, attachments, content },
+          { text: value, attachments, content, ...(provenance ? { social_provenance: provenance } : {}) },
           `reply:${actor.id}:${requestId}`,
         );
 
@@ -2856,6 +3043,24 @@ export async function perform(
             await botAllowsLine(env, botId, profile, c.connection_id),
             "Bot não autorizado para esta linha.",
           );
+          if (c.channel === "instagram" || c.channel === "facebook") {
+            const rules = channelRules(await inboundConnection(env, c.connection_id!));
+            const window = rules && channelWindow(rules, c.last_customer, now());
+            if (!rules?.enabled || !window?.canAutomation) {
+              const reason = !rules?.enabled ? "Este canal ainda não está disponível."
+                : window?.state === "human_text_only" ? "Somente uma pessoa pode responder por texto; a janela de automação terminou."
+                : "A janela deste canal terminou. Aguarde uma nova mensagem do contato.";
+              await batch(env, [
+                ["UPDATE conversations SET owner=NULL,state='waiting',assigned_bot_id=NULL,menu_active=0,epoch=epoch+1,updated=? WHERE id=? AND profile_id=?",
+                  [now(), c.id, profile]],
+                ["INSERT OR IGNORE INTO messages(id,profile_id,conversation_id,direction,author,text,attachments,created,source_key,content) VALUES(?,?,?,'note','system',?,'[]',?,?,'{}')",
+                  [`transfer-window:${actor.id}:${requestId}`, profile, c.id, reason, now(), `transfer-window:${actor.id}:${requestId}`]],
+              ]);
+              await event(env, profile, "conversation.updated", c.id, { action: "waiting", reason });
+              return { ...await conversation(env, c.id, profile, actor), reason,
+                channel_error: window?.state === "human_text_only" ? "human_only" : "window_closed" };
+            }
+          }
           if (now() - c.last_customer < 86400000) {
             const history = await all(
               env,
@@ -2888,7 +3093,7 @@ export async function perform(
                   history: history.reverse(),
                   sources,
                   menus,
-                  actions: (cfg.capabilities || []).filter(
+                  actions: ((c.channel === "instagram" || c.channel === "facebook") ? [] : cfg.capabilities || []).filter(
                     (a: any) => a.enabled !== false,
                   ),
                   categories: (cfg.ticket_categories || [])
@@ -2952,6 +3157,8 @@ export async function perform(
           action === "resolve" &&
           policy.service &&
           (policy.menu || policy.bots) &&
+          (!(c.channel === "instagram" || c.channel === "facebook") ||
+            (c.last_customer > 0 && now() - c.last_customer < 86400000)) &&
           (await settings(env, profile)).surveys_enabled
         ) {
           const id = uid();
