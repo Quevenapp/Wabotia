@@ -17,6 +17,8 @@ export type ErpPartKey = keyof ErpParts;
 export interface ErpPartsSnapshot {
   profile: string;
   revision: string;
+  /** Origem temporal da concessão; ausente apenas em entregas legadas. */
+  issued_at?: number;
   expires_at: number;
   parts: Readonly<ErpParts>;
 }
@@ -49,15 +51,25 @@ export function erpRequirementMet(parts: Readonly<ErpParts>, requirement: ErpReq
   return requirement.all.every(id => ERP_PART_KEYS.some(key => ERP_PART_MODULES[key] === id && partOn(parts, key)));
 }
 export const ERP_PARTS_TTL_MS = 6 * 60_000;
+export const ERP_PARTS_CLOCK_SKEW_MS = 5_000;
 export function readErpPartsSnapshot(value: unknown, profile?: string, now = Date.now()): ErpPartsSnapshot | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const s = value as ErpPartsSnapshot;
+  // A concessão nova informa sua duração no relógio de origem. Reservamos
+  // cinco segundos NO FIM, em vez de estender a autorização: mesmo com o
+  // emissor adiantado pela margem inteira, o uso termina em até seis minutos.
+  // O formato legado continua estrito, sem ganhar tolerância nem validade.
+  const timed = s.issued_at !== undefined;
+  if (timed && (!Number.isSafeInteger(s.issued_at) || s.issued_at! > now + ERP_PARTS_CLOCK_SKEW_MS ||
+      s.expires_at <= s.issued_at! || s.expires_at - s.issued_at! > ERP_PARTS_TTL_MS)) return null;
   if (typeof s.profile !== "string" || !s.profile || (profile !== undefined && s.profile !== profile) ||
       typeof s.revision !== "string" || !/^(0|[1-9][0-9]*)$/.test(s.revision) ||
-      !Number.isSafeInteger(s.expires_at) || s.expires_at <= now || s.expires_at > now + ERP_PARTS_TTL_MS ||
+      !Number.isSafeInteger(s.expires_at) || s.expires_at - (timed ? ERP_PARTS_CLOCK_SKEW_MS : 0) <= now ||
+      (!timed && s.expires_at > now + ERP_PARTS_TTL_MS) ||
       !s.parts || typeof s.parts !== "object" || Array.isArray(s.parts) ||
       Object.keys(s.parts).length !== ERP_PART_KEYS.length || ERP_PART_KEYS.some(k => typeof s.parts[k] !== "boolean")) return null;
-  return Object.freeze({ profile: s.profile, revision: s.revision, expires_at: s.expires_at, parts: normalizeErpParts(s.parts) });
+  return Object.freeze({ profile: s.profile, revision: s.revision, ...(timed ? { issued_at: s.issued_at } : {}),
+    expires_at: s.expires_at, parts: normalizeErpParts(s.parts) });
 }
 export const sameErpParts = (a: Readonly<ErpParts>, b: Readonly<ErpParts>) => ERP_PART_KEYS.every(key => a[key] === b[key]);
 
