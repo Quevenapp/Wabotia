@@ -12,6 +12,7 @@ import { access, admin } from "./security";
 import { numberPolicy, numberPolicyFlags } from "./number-policy";
 import { getNumberPolicy, numberPolicyError } from "./number-permissions";
 import { settings, enqueue } from "./service";
+import { enqueueChannelPlan, enqueueSocialDeliveries } from "./channel-enqueue";
 import { sha } from "./security";
 import { departmentFor } from "./departments";
 import { allowsModules, assertChannelSend, channelRules, channelWindow } from "./channels";
@@ -444,7 +445,6 @@ export async function sendInteractive(
     const context = c.chat_type === "comment" || json(c.channel_context).context === "comment" ? "comment"
       : c.chat_type === "review" || json(c.channel_context).context === "review" ? "review" : "direct";
     if (extensionKey(c.channel, context)) return enqueue(env, c, actor, "text", payload, key);
-    const { enqueueSocialDeliveries } = await import("./engine");
     return enqueueSocialDeliveries(env, c, actor, "text", payload, key);
   }
   const payload = interactivePayload(
@@ -642,7 +642,6 @@ export async function sendMenu(
   if (extension) {
     const ctx = await loadChannelOperationContext(env, actor, c.profile_id, { kind: "conversation", id: c.id }, key, manual ? "human" : "bot");
     const descriptor = channelExtension(extension);
-    const { enqueueChannelPlan } = await import("./engine");
     if (descriptor.prepareMenu) {
       const plan = await descriptor.prepareMenu(ctx, { token, title: payload.text, items: items.map(item => ({ id: item.id, title: item.label })), expiresAt: now() + 15 * 60_000 });
       deliveries.push(await enqueueChannelPlan(ctx, plan, { type: "message.send", text: payload.text }));
@@ -651,7 +650,6 @@ export async function sendMenu(
       deliveries.push(await enqueueChannelPlan(ctx, await prepareChannelAction(ctx, action), action));
     }
   } else if (social) {
-    const { enqueueSocialDeliveries } = await import("./engine");
     deliveries.push(await enqueueSocialDeliveries(env, c, actor.id, "text", payload, key));
   } else for (const [index, part] of parts.entries())
     deliveries.push(

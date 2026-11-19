@@ -8,6 +8,7 @@ import { ApiError, json, now, requireValue, type Actor, type Conversation, type 
 import type { ChannelAction, ChannelOperationContext, ChannelReview, ChannelRoute, ChannelRouteContext, ChannelWritePlan, ExtensionConnection, LoadedChannelResource, Resource, ServerChannelAction, VerifiedIngress } from "./channel-c2-contracts";
 import type { ChannelContext, ChannelId } from "./channel-contracts";
 import { channelConnectionDriver, channelExtension, channelExtensionReady, extensionKey, findChannelRoute, registeredChannelExtensions } from "./channel-extension-registry";
+import { enqueueChannelPlan } from "./channel-enqueue";
 import { channelNotReady } from "./channel-extension-stubs";
 import { refreshChannelSummaryStatements } from "./channel-accounts";
 import { signedPayload } from "./signature";
@@ -225,7 +226,6 @@ export async function performChannelAction(env: Env, actor: Actor, profile: stri
     requireValue(typeof plan.suggestion === "string" && plan.suggestion.length <= 50_000 && !plan.deliveries.length && !plan.statements?.length && !plan.reservations, "Sugestão inválida.");
     return { status: "suggestion", suggestion: plan.suggestion };
   }
-  const { enqueueChannelPlan } = await import("./engine");
   return { delivery_id: await enqueueChannelPlan(ctx, plan, action), status: "pending", channel_extension: ctx.connection.channel };
 }
 export async function authorizeChannelActionReplay(env: Env, actor: Actor, profile: string, id: string, input: unknown): Promise<void> {

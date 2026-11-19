@@ -52,7 +52,7 @@ import { channelAutomationBlock, configureChannelConnection, ingressOperationCon
 import type { ChannelOutboxRow, ChannelWritePlan, ExtensionConnection } from "./channel-c2-contracts";
 import { allowsModules, channelRules, channelWindow, conversationChannel, isChannelId } from "./channels";
 import { refreshChannelSummaryStatements, validateChannelConfiguration } from "./channel-accounts";
-import { enqueueChannelAutomation, enqueueSocialDeliveries } from "./engine";
+import { enqueueChannelAutomation, enqueueSocialDeliveries } from "./channel-enqueue";
 import { socialExternalId, type SocialSendProvenance } from "./zernio-social";
 installIdentityPort(customerIdentity, { default: true });
 import { authorizedMedia, mediaKind, uploadCommand } from "./media";

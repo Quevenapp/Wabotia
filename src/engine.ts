@@ -87,6 +87,7 @@ import {
   CONSENT_GRANT_REPLY,
   CONSENT_DENY_REPLY,
 } from "./service";
+import { installChannelEnqueue } from "./channel-enqueue";
 import {
   BOT_TOOLS,
   botActionContext,
@@ -100,6 +101,10 @@ import {
   handleCustomerProposalTurn,
   runCustomerTool,
 } from "./bot-actions/customer";
+
+// Declarações de função são içadas: o registro pode acontecer aqui, na carga
+// do módulo. Veja src/channel-enqueue.ts para o motivo de existir.
+installChannelEnqueue({ social: enqueueSocialDeliveries, automation: enqueueChannelAutomation, plan: enqueueChannelPlan });
 
 /** Instruções a mais quando o bot age pela pessoa na conversa interna. */
 const TEAM_TOOL_INSTRUCTIONS =
