@@ -97,3 +97,21 @@ Há cota própria de **10 reservas por ator e 50 por área em 24 horas móveis**
 A chave idempotente é mantida enquanto a intenção de envio não muda; corpo diferente com a mesma chave dá conflito. Permissão e seleção são conferidas novamente no envio e no replay. O log, auditoria e nota interna usam destinatário mascarado e não guardam corpo ou endereço integral. O resultado pode ser enviado, na fila, devolvido, falhou ou **indeterminado**. Se houver queda após reserva/envio e antes da confirmação, o sistema não reenvia automaticamente: confira o resultado antes de criar outra intenção. Não há promessa de entrega remota exatamente uma vez.
 
 O formato real de confirmação do provedor permanece registrado em [CANAIS-ZERNIO.md](CANAIS-ZERNIO.md). `provider_message_id` só será preenchido com campo documentado confirmado; não é inventado. O estado das provas está em [CANAIS-ACEITE.md](CANAIS-ACEITE.md).
+
+## E-mail como canal de atendimento
+
+A segunda leva acrescenta uma conexão própria de **E-mail**, mostrada pelo catálogo em `/app?canais=2` ou pela ativação na área. É diferente de **Enviar conversa por e-mail**: recebe mensagens como atendimento e oferece resposta com assunto e encadeamento, sem anexar transcrição automaticamente. Transcrição, módulos e avisos do Sistema conservam suas permissões, contratos e cotas.
+
+O recebimento exige configuração manual **Email Routing → endereço exato → Worker desta instalação**, além do mesmo endereço na conexão Wabotia. O instalador e o atualizador não configuram domínio, DNS/MX ou regra de recebimento, não pedem token de zona e não criam recurso Cloudflare adicional. Preserve os MX de Google, Microsoft ou outro provedor existente e valide o uso de subdomínio antes de alterá-los. Mantenha o nome do Worker; mudança exige revisar a regra.
+
+Siga [CANAIS-EMAIL-RECEBIMENTO.md](CANAIS-EMAIL-RECEBIMENTO.md) para escolher domínio/endereço, configurar a regra, conferir o envio do Sistema e executar **Testar recebimento**. O desafio vale dez minutos e não abre atendimento. Teste expirado é inconclusivo; não ativa o canal. A conexão reutiliza o envio do Sistema e não recebe credencial SMTP ou token próprio.
+
+**Limite atual:** o contrato REST de MIME, anexos, cabeçalhos e ID retornado ainda não foi confirmado com uma conta real. O transporte de produção do canal retorna `provider_contract_unverified`; envio do canal e entrega do desafio de recebimento ficam pendentes. O teste de envio do Sistema ou uma transcrição bem-sucedida não confirma esse contrato. A interface não pode habilitar essa hipótese.
+
+Remetente de e-mail nunca prova identidade de cliente, mesmo com SPF/DKIM/DMARC recebidos, endereço cadastral ou junção humana. A equipe vê **Remetente não confirmado**; o bot, desligado por padrão, não recebe ficha, histórico privado ou dados de módulos. A confirmação automática é separada, desligada por padrão, e usa texto fixo sem dados de cliente. Automáticos, listas, devoluções, bloqueados e testes não abrem conversa nem disparam bot.
+
+HTML vira texto por parser e não carrega recursos remotos. Bruto privado: até 25 MiB no runtime; parsing MIME: até 8 MiB, com quarentena acima disso. Anexos: até 32, sujeitos à política local de tipo/tamanho. Brutos processados são elegíveis à limpeza após sete dias; automático, bloqueado, quarentena ou erro, após trinta. Não há promessa de antivírus ou reentrega automática da Cloudflare após falha.
+
+A finalidade `channel.email` tem 200 reservas por área em 24 horas móveis, dez por remetente/hora e, adicionalmente, uma confirmação automática por remetente/hora. Replay não reserva de novo. O assunto do canal aceita até 200 caracteres, incluindo número de pedido e URL, sem CR/LF/NUL; texto até 50.000. A restrição de assunto dos avisos de segurança descrita acima continua própria desses avisos. Resultado indeterminado não é reenviado automaticamente e aceitação HTTP não comprova entrega na caixa postal.
+
+Confira os [formatos pendentes](CANAIS-FORMATOS-PENDENTES.md) e o [estado real do aceite da segunda leva](CANAIS-SEGUNDA-LEVA-ACEITE.md) antes de considerar a conexão operacional.
