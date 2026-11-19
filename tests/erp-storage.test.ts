@@ -24,7 +24,7 @@ import {
   createZip,
 } from "../src/erp/fagoo/workers/erp-api/src/platform.mjs";
 import { fixture } from "./service-center-fixture";
-import { setModule } from "./erp-module-helper";
+import { enableErpParts, setModule } from "./erp-module-helper";
 
 const LOCAL = "https://erp.wabotia.invalid";
 const hmacHex = async (secret: string, body: string) => {
@@ -124,7 +124,7 @@ describe("armazenamento do ERP no R2", () => {
     expect(
       await env.MEDIA.head(erpStorageKey(a.profile, "brufap-cnab", path)),
     ).toBeNull();
-    await setModule(a.profile, "erp", true, a.admin.id);
+    await enableErpParts(a.profile, a.admin.id);
     await setModule(a.profile, "erp-cobranca", true, a.admin.id);
     await pa.cnab.storeFile({
       bucket: "brufap-cnab",
@@ -298,7 +298,7 @@ describe("armazenamento do ERP no R2", () => {
         })
       ).status,
     ).toBe(415);
-    await setModule(f.profile, "erp", true, f.admin.id);
+    await enableErpParts(f.profile, f.admin.id);
     await setModule(f.profile, "erp-cobranca", true, f.admin.id);
     expect(
       (

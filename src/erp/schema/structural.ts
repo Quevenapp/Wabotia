@@ -17,6 +17,13 @@ export interface StructuralDifference {
 
 export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
   {
+    id: "erp-partes",
+    oracle: "Núcleo único com todas as rotinas disponíveis pelo papel, sem chaves por parte.",
+    reason: "Fase 2: partes ligadas independentemente pela área, preservando o banco completo e o modo diferencial todo ligado.",
+    replaced_by: "Nove módulos; migração D1 0133; fotografia revisionada no envelope e KV do Coordinator existente; requisitos compartilhados entre rotas, RPCs, painel e agendador. Nenhuma alteração no esquema ERP. Os comportamentos condicionais estão em ERP_PART_BEHAVIORS, separados das substituições aplicadas ao oráculo. Limites e manutenção: docs/ERP-FASE2.md.",
+    routes: ["GET /v1/sistema/manutencao-efeitos", "POST /v1/sistema/manutencao-efeitos"],
+  },
+  {
     id: "auth",
     oracle: "schema auth do Supabase: users, sessions, mfa_factors, mfa_challenges",
     reason: "Login, sessão e segundo fator são do núcleo do Wabotia, não do ERP.",

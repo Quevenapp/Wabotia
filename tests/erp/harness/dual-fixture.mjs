@@ -17,6 +17,7 @@ import "../../../src/erp/domains/index.ts";
 import { callRpc, isPorted, rpcWantsListing } from "../../../src/erp/engine/registry.ts";
 import { Clock } from "../../../src/erp/engine/time.ts";
 import { ERP_DEVIATIONS } from "../../../src/erp/schema/deviations.ts";
+import { normalizeErpParts } from "../../../src/erp/parts.ts";
 import { derivedIds } from "./derived-ids.mjs";
 import { pgIdentity, pgListing } from "./identity.mjs";
 import { freshLite, nodeDriver } from "./node-driver.mjs";
@@ -172,7 +173,9 @@ export async function dualFixture({
       if (!r.ok) throw r.raw;
       return r.value;
     }
-    const env = { objects: objectLookup };
+    // O diferencial sempre confere o contrato completo. Modos desligados
+    // têm fixtures próprias e nunca alteram o negócio no Postgres.
+    const env = { objects: objectLookup, parts: normalizeErpParts() };
     if (as || rpcWantsListing(name)) env.listing = await pgListing(pg);
     if (as) {
       const who = as === true ? {} : as;

@@ -22,7 +22,7 @@ import { describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
 import { exec } from "../src/db";
 import { bearer, fixture } from "./service-center-fixture";
-import { setModule } from "./erp-module-helper";
+import { enableErpParts, setModule } from "./erp-module-helper";
 import {
   MOTOR_PENDING_READS,
   pendingInMotor,
@@ -201,7 +201,7 @@ const OPEN_READS: [string, string][] = [
 ];
 async function setup() {
   const f = await fixture();
-  await setModule(f.profile, "erp", true, f.admin.id);
+  await enableErpParts(f.profile, f.admin.id);
   for (const id of ["erp-fiscal", "erp-cobranca", "erp-pdv"])
     await setModule(f.profile, id, true, f.admin.id);
   const send = async (request: Request) => {

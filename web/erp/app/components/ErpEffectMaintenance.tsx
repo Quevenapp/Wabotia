@@ -30,7 +30,7 @@ const LABELS: Partial<Record<ErpMaintenanceAction, string>> = {
   settlement_reverse: 'Estornar baixa', remittance_exclude: 'Excluir remessa', return_exclude: 'Excluir retorno', pos_sale_cancel: 'Cancelar venda do PDV',
 };
 const FAMILIES: Record<string, string> = { stock: 'Estoque', finance: 'Financeiro', reservations: 'Reservas', receipts: 'Recebimentos',
-  grouped_billing: 'Faturamentos agrupados', settlements: 'Baixas', billing: 'Cobrança bancária' };
+  grouped_billing: 'Faturamentos agrupados', settlements: 'Baixas', billing: 'Cobrança bancária', remittances: 'Remessas' };
 export function readMaintenance(value: unknown, origin: Origin): MaintenanceView {
   if (!object(value) || !object(value.origin) || value.origin.type !== origin.type || value.origin.id !== origin.id ||
     !object(value.links) || Object.values(value.links).some(rows => !Array.isArray(rows) || rows.some(row => !object(row))) ||
@@ -43,7 +43,7 @@ export type MaintenanceChoice = { action: ErpMaintenanceAction; target: Row; lab
 export function maintenanceChoices(view: MaintenanceView): MaintenanceChoice[] {
   const family: Partial<Record<ErpMaintenanceAction, string>> = {
     document_stock_reverse: 'stock', document_finance_reverse: 'finance', invoice_stock_reverse: 'stock', invoice_finance_reverse: 'finance',
-    reservation_release: 'reservations', purchase_receipt_reverse: 'receipts', settlement_reverse: 'settlements',
+    reservation_release: 'reservations', purchase_receipt_reverse: 'receipts', settlement_reverse: 'settlements', remittance_exclude: 'remittances',
   };
   return view.operations.flatMap(action => {
     const label = LABELS[action]; if (!label) return [];

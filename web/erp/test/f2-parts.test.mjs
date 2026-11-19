@@ -8,6 +8,7 @@ import {mountComponent} from './helpers/component-recovery-harness.mjs';
 const result=await build({stdin:{contents:`
  export * from './web/erp/blocks.ts';
  export * from './web/erp/fetch-port.ts';
+ export {acquireErpHost} from './web/erp/host-runtime.tsx';
  export {createAccessController,AccessError} from './web/erp/app/lib/real-access.ts';
  export * from './web/erp/app/lib/home-model.ts';
  export * from './web/erp/app/lib/preferences-model.ts';
@@ -17,6 +18,7 @@ const result=await build({stdin:{contents:`
  export {ERP_MANAGEMENT_ITEMS} from './src/modules/erp/panel-menu.ts';
  export {MANAGEMENT_ITEMS,managementContext,managementEntryState,managementLanding,resolveManagement} from './web/management/registry.ts';
  export {portedTargetState} from './web/management/ported-policy.ts';
+ export {resolvePreferences} from './web/erp/app/lib/origin-menu.ts';
  export {storedPreferencePage} from './packages/erp-domain/src/preferences/catalog.mjs';
  export {storedFields} from './packages/erp-domain/src/preferences/core.mjs';
  export {pageSituationKinds} from './packages/erp-domain/src/preferences/dto.mjs';
@@ -28,6 +30,143 @@ const blocks=['blockEnabled','entityEnabled','operationEnabled','fieldEnabled','
 const replacement=blocks.map(name=>`export const ${name}=r.parts.${name};`).join('\n');
 const harness={ports:{parts:m},modules:{'../../blocks':replacement,'../../blocks.ts':replacement}};
 test.afterEach(()=>{m.setErpModuleContext(null);m.setErpBlocks(null);});
+
+test('hospedeiro renova contexto encerrado e revoga pedidos ao mudar uma das nove partes',async()=>{
+ const previous=Object.fromEntries(['location','window','document','fetch'].map(key=>[key,Object.getOwnPropertyDescriptor(globalThis,key)]));
+ const leases=[];
+ try {
+  globalThis.location=new URL('https://painel.invalid/app/erp/acesso');
+  globalThis.window=new EventTarget();globalThis.document=Object.assign(new EventTarget(),{hidden:false});
+  let reads=0,finish;
+  globalThis.fetch=async(path)=>{
+   reads++;
+   if(String(path).endsWith('/v1/me'))return Response.json({user_id:id,role:'consulta',resources:['contacts','products'],data_mode:'staging_readonly'});
+   if(String(path).endsWith('/v1/sistema/permissoes'))return Response.json({scope:'access_permissions',data_mode:'erp_native',user_id:id,role:'consulta',user_type:'normal',permissions:['suprimentos.controle_estoque'],access:{open:true,until:null}});
+   return new Promise(resolve=>{finish=resolve;});
+  };
+  const context=modules=>({profile:'aceite-runtime',actor:id,demo:false,management:m.managementContext({statusLoaded:true,modules,role:'operator',access:['erp:consulta']}),onModules(){},onPeople(){},onLeave(){},onExpired(){}});
+  // A casca anterior já saiu: o runtime deve estabelecer sua própria posse.
+  m.setPanelPartsContext('/api/v1/profiles/aceite-runtime/erp',all)();
+  const lease=m.acquireErpHost(context(all));leases.push(lease);
+  const runtime=await lease.ready;
+  const ready=async()=>{for(let attempt=0;attempt<100&&runtime.controller.getSnapshot().phase!=='ready';attempt++)await new Promise(resolve=>setTimeout(resolve,2));assert.equal(runtime.controller.getSnapshot().phase,'ready');};
+  await ready();await runtime.controller.verifyPermissions();
+  assert.equal(runtime.controller.getSnapshot().permissions.phase,'ready');
+  assert.equal(runtime.allowed('/estoque-empresa'),true);
+  let responsePending=runtime.ports.fetch('/api/v1/profiles/aceite-runtime/erp/v1/estoque/saldos');
+  const rejected=assert.rejects(responsePending,{name:'AbortError'});
+  for(let attempt=0;attempt<100&&!finish;attempt++)await new Promise(resolve=>setTimeout(resolve,2));
+  assert.equal(typeof finish,'function');
+  lease.update(context({...all,'erp-estoque':false}));finish(Response.json({items:[]}));await rejected;
+  await ready();
+  for(let attempt=0;attempt<100&&runtime.controller.getSnapshot().permissions?.phase!=='ready';attempt++)await new Promise(resolve=>setTimeout(resolve,2));
+  assert.equal(runtime.controller.getSnapshot().permissions.phase,'ready');assert.equal(runtime.allowed('/estoque-empresa'),false);
+  const before=reads,denied=await runtime.ports.fetch('/api/v1/profiles/aceite-runtime/erp/v1/estoque/saldos');
+  assert.equal(denied.status,409);assert.equal(reads,before);
+  lease.update(context(all));await ready();await runtime.controller.verifyPermissions();
+  for(let attempt=0;attempt<100&&runtime.controller.getSnapshot().permissions?.phase==='checking';attempt++)await new Promise(resolve=>setTimeout(resolve,2));
+  assert.equal(runtime.controller.getSnapshot().permissions.phase,'ready');assert.equal(runtime.allowed('/estoque-empresa'),true);
+ } finally {
+  leases.reverse().forEach(lease=>lease.dispose());
+  for(const [key,descriptor] of Object.entries(previous)){if(descriptor)Object.defineProperty(globalThis,key,descriptor);else delete globalThis[key];}
+ }
+});
+
+test('hospedeiro despacha antes de suspender e ignora 401 da geração anterior',async()=>{
+ const previous=Object.fromEntries(['location','window','document','fetch'].map(key=>[key,Object.getOwnPropertyDescriptor(globalThis,key)]));
+ let lease,late,lateSignal,permissionSignal,delayPermission=false,finishPermission,expired=0;
+ const calls=[];
+ try {
+  globalThis.location=new URL('https://painel.invalid/app/erp/acesso');
+  globalThis.window=new EventTarget();globalThis.document=Object.assign(new EventTarget(),{hidden:false});
+  const permissions=()=>Response.json({scope:'access_permissions',data_mode:'erp_native',user_id:id,role:'consulta',user_type:'normal',permissions:[],access:{open:true,until:null}});
+  globalThis.fetch=(path,init)=>{
+   calls.push(path);
+   if(String(path).endsWith('/v1/me'))return Promise.resolve(Response.json({user_id:id,role:'consulta',resources:['contacts'],data_mode:'staging_readonly'}));
+   if(String(path).endsWith('/v1/sistema/permissoes')){
+    permissionSignal=init.signal;
+    return delayPermission?new Promise(resolve=>{finishPermission=resolve;}):Promise.resolve(permissions());
+   }
+   lateSignal=init.signal;return new Promise(resolve=>{late=resolve;});
+  };
+  const context={profile:'aceite-suspensao',actor:id,demo:false,management:m.managementContext({statusLoaded:true,modules:all,role:'operator',access:['erp:consulta']}),onModules(){},onPeople(){},onLeave(){},onExpired(){expired++;}};
+  lease=m.acquireErpHost(context);const runtime=await lease.ready;
+  const ready=async()=>{for(let attempt=0;attempt<100&&runtime.controller.getSnapshot().phase!=='ready';attempt++)await new Promise(resolve=>setTimeout(resolve,2));assert.equal(runtime.controller.getSnapshot().phase,'ready');};
+  await ready();
+  const read=runtime.controller.catalog('/v1/cadastros/contatos/antigo');
+  const rejected=assert.rejects(read,{name:'AbortError'});
+  assert.ok(lateSignal,'a requisição chega ao transporte antes de devolver controle');
+  delayPermission=true;permissionSignal=undefined;
+  const check=runtime.controller.verifyPermissions();
+  assert.ok(permissionSignal,'a verificação fina também despacha sem esperar import');
+  lease.update({...context,suspended:true});
+  assert.equal(lateSignal.aborted,true);assert.equal(permissionSignal.aborted,true);
+  const before=calls.length;
+  await assert.rejects(runtime.ports.fetch('/api/v1/profiles/aceite-suspensao/erp/v1/me'),{name:'AbortError'});
+  assert.equal(calls.length,before);
+  delayPermission=false;lease.update(context);
+  for(let attempt=0;attempt<100&&runtime.controller.getSnapshot().permissions?.phase!=='ready';attempt++)await new Promise(resolve=>setTimeout(resolve,2));
+  assert.equal(runtime.controller.getSnapshot().permissions.phase,'ready');
+  late(Response.json({},{status:401}));finishPermission(permissions());await rejected;await check;
+  assert.equal(expired,0);assert.equal(runtime.controller.getSnapshot().phase,'ready');assert.equal(runtime.allowed('/acesso'),true);
+ } finally {
+  late?.(Response.json({}));finishPermission?.(Response.json({}));
+  lease?.dispose();
+  for(const [key,descriptor] of Object.entries(previous)){if(descriptor)Object.defineProperty(globalThis,key,descriptor);else delete globalThis[key];}
+ }
+});
+
+test('resposta antecipada perde corpo e sucesso após revogação',async()=>{
+ const controller=new AbortController();
+ const response=await m.contextBoundResponse(Response.json({private:'anterior'}),controller.signal);
+ assert.equal(response.ok,true);controller.abort();assert.equal(response.ok,false);
+ await assert.rejects(response.json(),{name:'AbortError'});
+});
+
+test('nova identidade assume o hospedeiro sem aceitar a resposta ou o descarte anteriores',async()=>{
+ const previous=Object.fromEntries(['location','fetch'].map(key=>[key,Object.getOwnPropertyDescriptor(globalThis,key)]));
+ const leases=[];let person=id,finish,signal;
+ try {
+  globalThis.location=new URL('https://painel.invalid/app/erp/acesso');
+  globalThis.fetch=(path,init)=>String(path).endsWith('/v1/me')
+   ?Promise.resolve(Response.json({user_id:person,role:'admin',resources:['contacts'],data_mode:'staging_readonly'}))
+   :new Promise(resolve=>{finish=resolve;signal=init.signal;});
+  const host=()=>({profile:'aceite-identidade',actor:person,demo:false,management:m.managementContext({statusLoaded:true,modules:all,role:'admin',access:null}),onModules(){},onPeople(){},onLeave(){},onExpired(){}});
+  const ready=async runtime=>{for(let attempt=0;attempt<100&&runtime.controller.getSnapshot().phase!=='ready';attempt++)await new Promise(resolve=>setTimeout(resolve,2));assert.equal(runtime.controller.getSnapshot().phase,'ready');};
+  const a=m.acquireErpHost(host());leases.push(a);const old=await a.ready;await ready(old);
+  const pending=old.controller.catalog('/v1/cadastros/contatos/erp-42'),rejected=assert.rejects(pending,{name:'AbortError'});
+  assert.ok(signal);person=posting;
+  const b=m.acquireErpHost(host());leases.push(b);const current=await b.ready;await ready(current);
+  assert.equal(signal.aborted,true);finish(Response.json({record:{id:'erp-42'}}));await rejected;
+  assert.equal(old.controller.getSnapshot().membership,null);assert.equal(old.allowed('/acesso'),false);
+  a.dispose();assert.equal(current.controller.getSnapshot().membership.user_id,posting);assert.equal(current.allowed('/acesso'),true);
+  const c=m.acquireErpHost(host());leases.push(c);assert.equal(await c.ready,current);
+  b.dispose();assert.equal(current.allowed('/acesso'),true);
+  c.dispose();assert.equal(current.allowed('/acesso'),false);
+ } finally {
+  finish?.(Response.json({}));leases.reverse().forEach(lease=>lease.dispose());
+  for(const [key,descriptor] of Object.entries(previous)){if(descriptor)Object.defineProperty(globalThis,key,descriptor);else delete globalThis[key];}
+ }
+});
+
+test('suspensão após cabeçalhos revoga também o corpo da resposta',async()=>{
+ const previous=globalThis.location;globalThis.location=new URL('https://painel.invalid');
+ const api='/api/v1/profiles/f2-response-generation/erp',release=m.setPanelPartsContext(api,all),generation=new AbortController();
+ try {
+  const fetcher=m.createFetchPort({apiUrl:api,fetchImpl:async()=>Response.json({private:'anterior'})});
+  const response=await fetcher(api+'/v1/cadastros/contacts',{signal:generation.signal});
+  assert.equal(response.ok,true);generation.abort();assert.equal(response.ok,false);
+  await assert.rejects(response.json(),{name:'AbortError'});
+ } finally {release();globalThis.location=previous;}
+});
+
+test('Base oferece manutenção nas preferências mesmo com origens desligadas',()=>{
+ m.setErpModuleContext({erp:true});
+ const entries=m.resolvePreferences({role:'admin',resources:['contacts']}).flatMap(category=>category.sections.flatMap(section=>section.entries));
+ assert.ok(entries.some(entry=>entry.to==='/manutencao-efeitos'));
+ m.setErpModuleContext({});
+ assert.equal(m.targetEnabled('/manutencao-efeitos'),false);
+});
 
 test('todos os destinos e nove partes: desligar qualquer requisito impede o destino',()=>{
  for(const item of m.ERP_MANAGEMENT_ITEMS){
@@ -231,6 +370,17 @@ test('manutenção só prepara ações liberadas, exige versões e reaproveita a
  assert.throws(()=>m.maintenanceArgs(view,choices[0],input,{preview_hash:'inventado'}),/Prévia/);
  assert.throws(()=>m.readMaintenance({...view,operations:['erp_document_stock_post']},origin));
  assert.deepEqual(m.maintenanceChoices({...view,operations:[]}),[]);
+});
+
+test('manutenção usa versões dos títulos da nota e a sequência da remessa consultada',()=>{
+ const input={reason:'Compensação solicitada',day:'2026-11-19'};
+ const invoice=m.readMaintenance({origin:{type:'nfe',id},origin_version:3,links:{finance:[{id:posting,version:2,state:'active',titles:[{id,version:7}]}]},blockers:[],operations:['invoice_finance_reverse']},{type:'nfe',id});
+ const invoiceChoice=m.maintenanceChoices(invoice)[0];
+ assert.deepEqual(m.maintenanceArgs(invoice,invoiceChoice,input).p_data,{invoice_id:id,posting_id:posting,expected_version:2,titles:[{id,version:7}],reason:input.reason});
+ assert.throws(()=>m.maintenanceArgs(invoice,{...invoiceChoice,target:{...invoiceChoice.target,titles:[]}},input),/versões/);
+ const remittance=m.readMaintenance({origin:{type:'remittance',id},links:{remittances:[{id,sequence:'42'}]},blockers:[],operations:['remittance_exclude']},{type:'remittance',id});
+ assert.deepEqual(m.maintenanceArgs(remittance,m.maintenanceChoices(remittance)[0],input),{p_data:{id,sequence:'42'}});
+ assert.deepEqual(m.maintenanceChoices({...remittance,links:{remittances:[]}}),[]);
 });
 
 test('manutenção pede prévia, apresenta alvo e bloqueadores e só escreve após confirmação concreta',async()=>{

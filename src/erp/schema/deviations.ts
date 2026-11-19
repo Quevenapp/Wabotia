@@ -168,6 +168,91 @@ export const ERP_DEVIATIONS: readonly Deviation[] = [
   },
 ];
 
+/**
+ * Contrato condicional da fase 2, exclusivamente informativo. Não é Deviation:
+ * nem o gerador de SQLite nem applyDeviationsBoth o aplicam ao Postgres.
+ * O diferencial continua comparando as nove partes explicitamente ligadas.
+ */
+export interface ErpPartBehavior {
+  id: string;
+  rule: string;
+  disabled_when: string;
+  reason: string;
+  tests: readonly { file: string; test: string }[];
+}
+export const ERP_PART_BEHAVIORS: readonly ErpPartBehavior[] = [
+  {
+    id: "parts-posting", rule: "Pular nova postagem e autoFinance antes de validar depósito, categoria ou prévia.",
+    disabled_when: "Estoque ou Financeiro desligado.", reason: "A venda e a compra continuam comerciais sem suas integrações opcionais (A1.1).",
+    tests: [{ file: "tests/erp/unico/f2-documentos.test.mjs", test: "proposta, compra e OS nascem sem depósito/categoria; compra automática pula antes da prévia" }],
+  },
+  {
+    id: "parts-maintenance", rule: "Conservar flags e guardas históricas; permitir somente compensações vinculadas, com prévia, versão, papel e recibo originais.",
+    disabled_when: "Destino ou origem do efeito histórico desligado.", reason: "Desligar não deve impedir desfazer; liquidação, reserva e saldo continuam bloqueadores reais (A1.1/A4).",
+    tests: [{ file: "tests/erp/unico/f2-integracoes.test.mjs", test: "baixa histórica bloqueia estorno; manutenção desfaz baixa e postagem sem reabrir criação" }],
+  },
+  {
+    id: "parts-commission", rule: "Congelar comissão anterior e impedir criação/recálculo por produtores diretos ou adiados; cancelamento compensa a anterior.",
+    disabled_when: "Financeiro ou origem comercial desligado.", reason: "A guarda deve alcançar confirmação, edição, vendedor, título, nota e devolução (A1.2).",
+    tests: [{ file: "tests/erp/unico/f2-documentos.test.mjs", test: "comissão congelada na confirmação, edição e troca de vendedor; cancelamento compensa a anterior" },
+      { file: "tests/erp/unico/f2-integracoes.test.mjs", test: "comissão por nota e títulos históricos: estorno desligado conserva os vínculos" }],
+  },
+  {
+    id: "parts-reenable", rule: "Religar e ler não recompõem efeitos; replay conserva a decisão anterior; uma ação nova usa estado e preferências atuais.",
+    disabled_when: "Uma ação anterior pulou integração que foi religada.", reason: "parts não integra o hash do comando; nenhuma varredura comercial compensatória (A1.3).",
+    tests: [{ file: "tests/erp/unico/f2-documentos.test.mjs", test: "religar não recompõe; nova edição elegível lança contas e replay conserva a decisão" }],
+  },
+  {
+    id: "parts-composed", rule: "Exigir todos os domínios da operação e resolver referências persistidas no motor, inclusive em chamadas internas.",
+    disabled_when: "Qualquer requisito de A1.4/A4 desligado.", reason: "Uma rota ou corpo genérico não pode trocar o dono nem abrir efeitos indiretos.",
+    tests: [{ file: "tests/erp/unico/f2-base.test.mjs", test: "resolução persistida não deixa parâmetro trocar o dono" },
+      { file: "tests/erp/unico/f2-integracoes.test.mjs", test: "produtores diretos recusam criação antes de validar ou gravar efeitos" }],
+  },
+  {
+    id: "parts-fields", rule: "Preservar campo omitido ou idêntico; recusar alteração e null; cópia não leva vínculos operacionais indisponíveis.",
+    disabled_when: "Parte responsável pelo campo desligada.", reason: "Ocultar um campo não autoriza apagá-lo; parcelas e condições comerciais continuam (A1.5).",
+    tests: [{ file: "tests/erp/unico/f2-documentos.test.mjs", test: "campos suspensos omitidos e iguais são preservados; troca e limpeza são recusadas" },
+      { file: "tests/erp/unico/f2-catalogo.test.mjs", test: "contato comum e importação isolados; vínculos anteriores preservados em gravação completa" }],
+  },
+  {
+    id: "parts-credit-cost", rule: "Suspender limite operacional de crédito e captura de custo fora de Vendas + Compras + Estoque; preservar histórico sem margem corrente.",
+    disabled_when: "Financeiro suspenso para crédito; Compras, Vendas ou Estoque suspenso para custo.", reason: "Fonte indisponível não representa dívida ou custo zero (A1.4–6).",
+    tests: [{ file: "tests/erp/unico/f2-documentos.test.mjs", test: "custo exige Vendas, Compras e Estoque, sem consultar fonte suspensa e sem apagar histórico" },
+      { file: "tests/erp/unico/f2-documentos.test.mjs", test: "limite operacional de crédito suspenso antes de qualquer consulta" }],
+  },
+  {
+    id: "parts-dtos", rule: "Omitir capacidades e retornar null nas seções permitidas pelo DTO; unavailable_parts só no modo dividido; preservar flags históricas.",
+    disabled_when: "Domínio consultado desligado.", reason: "Ausência não é zero nem inexistência de lançamento (A1.6).",
+    tests: [{ file: "tests/f2-dtos.test.ts", test: "home preserva o DTO completo e diferencia ausência de zero" },
+      { file: "tests/erp/unico/f2-consultas.test.mjs", test: "parser comercial: histórico financeiro ausente, flags históricas e recibos part_disabled" }],
+  },
+  {
+    id: "parts-settings", rule: "Filtrar fontes de relatórios e notificações; conservar definições, favoritos e campos ocultos salvos.",
+    disabled_when: "Fonte da definição ou preferência desligada.", reason: "As escolhas reaparecem ao religar; a execução verifica a parte antes da preferência (A5/A6).",
+    tests: [{ file: "tests/erp/unico/f2-consultas.test.mjs", test: "relatório salvo prevalece sobre corpo e verifica base, colunas e filtros persistidos" },
+      { file: "tests/erp/unico/f2-consultas.test.mjs", test: "favoritos ocultos e rótulos sobrevivem a edição e replay; religamento só lê" }],
+  },
+  {
+    id: "parts-envelope", rule: "Produção exige fotografia completa, válida e vinculada à área; revisão antiga falha antes de efeitos. Ausência = ligado apenas no motor direto.",
+    disabled_when: "Fotografia ausente, expirada, superada ou parte requerida desligada.", reason: "O objeto não lê D1; o Worker transporta a autorização sem confiar no corpo comercial (A6).",
+    tests: [{ file: "tests/f2-base.test.ts", test: "entrada de produção exige mapa completo; revisão antiga falha antes do motor comercial" },
+      { file: "tests/erp/unico/f2-paridade.test.mjs", test: "ausência e nove partes ligadas produzem os mesmos DTOs, erros e tabelas" }],
+  },
+  {
+    id: "parts-background", rule: "Revalidar KV entre unidades e após awaits; tarefa suspensa fica pendente sem tentativa ou alarme contínuo.",
+    disabled_when: "Autorização expirada, Base desligada ou requisito da tarefa desligado.", reason: "A transação síncrona iniciada termina com sua fotografia; não há transação D1 + SQLite (A7).",
+    tests: [{ file: "tests/f2-fundo.test.ts", test: "desligamento durante yield termina unidade síncrona, devolve claim sem tentativa e não agenda ciclo vazio" },
+      { file: "tests/f2-fundo.test.ts", test: "perda de entrega e de ACK ficam pendentes; repetição confirma sem duplicar ou regredir" }],
+  },
+  {
+    id: "parts-navigation-models", rule: "Somente Base abre Clientes; navegação e modelos usam dependências explícitas sem conceder papéis ou integrar módulos nativos automaticamente.",
+    disabled_when: "Parte do destino ou dependência de uma seleção desligada.", reason: "Dividir operação e exposição, mantendo tabelas e escolhas existentes (A2/A3/A5/A8).",
+    tests: [{ file: "tests/f2-painel.test.ts", test: "abre Clientes com Base, visão geral com outras partes e destinos nativos isolados" },
+      { file: "tests/f2-modelos.test.ts", test: "seleção incompleta do PDV mostra requisitos transitivos, não escreve nem liga ocultamente" },
+      { file: "tests/erp/unico/f2-base.test.mjs", test: "migração aditiva preserva escolhas e revisões na reexecução, triggers e ACK antigo" }],
+  },
+];
+
 interface SeedTable {
   table: string;
   columns: string[];

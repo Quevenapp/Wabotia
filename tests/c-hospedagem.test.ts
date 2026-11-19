@@ -11,6 +11,7 @@ import { targetEnabled } from "../web/erp/blocks";
 import { createUnsavedChangesStore } from "../web/erp/app/lib/unsaved-changes-store";
 import { financeListRoute } from "../web/erp/app/lib/finance-list-route";
 import { borderoRoute } from "../web/erp/app/lib/finance-bordero-route";
+import { ERP_CORE_TEST_MODULES } from "./erp-module-helper";
 import { ROLE_RESOURCES } from "../src/erp/role-resources";
 import { portedPermissionAllowed, portedPermissionState, portedTargetState } from "../web/management/ported-policy";
 import { MANAGEMENT_ITEMS, managementContext, resolveManagement } from "../web/management/registry";
@@ -77,7 +78,7 @@ const own = <T extends { dispose(): void }>(value: T): T => { cleanup.push(() =>
 const frame = () => { const value = new Frame(); cleanup.push(() => value.suspend()); return value; };
 const actor = "00000000-0000-4000-8000-000000000001", other = "00000000-0000-4000-8000-000000000002";
 const stock = "/estoque-empresa", permission = "suprimentos.controle_estoque";
-const context = (modules = { erp: true, agenda: true }, role = "consulta") => managementContext({ statusLoaded: true, modules, role: "operator", access: [`erp:${role}`] });
+const context = (modules: Record<string, boolean> = { ...ERP_CORE_TEST_MODULES, agenda: true }, role = "consulta") => managementContext({ statusLoaded: true, modules, role: "operator", access: [`erp:${role}`] });
 const host = (change: Partial<ErpHostContext> = {}): ErpHostContext => ({ profile: "area-a", actor, demo: false, management: context(), onModules() {}, onPeople() {}, onLeave() {}, onExpired() {}, ...change });
 const member = (user_id = actor, role = "consulta") => ({ user_id, role, resources: ROLE_RESOURCES[role], data_mode: "staging_readonly" });
 const permissions = (keys: string[] | null = [permission], user_id = actor, role = "consulta") => ({ scope: "access_permissions", data_mode: "erp_native", user_id, role, user_type: "normal", permissions: keys, access: { open: true, until: null } });
@@ -93,7 +94,7 @@ beforeEach(() => {
   vi.stubGlobal("window", new EventTarget()); vi.stubGlobal("document", Object.assign(new EventTarget(), { hidden: false }));
   fetcher = vi.fn(async (input: unknown) => String(input).endsWith("/v1/me") ? Response.json(member()) : String(input).endsWith("/v1/sistema/permissoes") ? Response.json(permissions()) : Response.json({ ok: true }));
   vi.stubGlobal("fetch", fetcher);
-  env.app = { profile: "area-a", identityKey: "legacy", contextGeneration: 1, me: { id: actor, role: "operator", access: ["erp:consulta"] }, demo: false, modules: { erp: true, agenda: true }, statusLoaded: true, settings: {}, onEvents: () => () => {}, reloadSession: vi.fn() };
+  env.app = { profile: "area-a", identityKey: "legacy", contextGeneration: 1, me: { id: actor, role: "operator", access: ["erp:consulta"] }, demo: false, modules: { ...ERP_CORE_TEST_MODULES, agenda: true }, statusLoaded: true, settings: {}, onEvents: () => () => {}, reloadSession: vi.fn() };
   env.route = parseRoute(location.pathname, location.search);
 });
 afterEach(() => { cleanup.splice(0).reverse().forEach(stop => stop()); vi.unstubAllGlobals(); });
@@ -113,7 +114,7 @@ describe("A1/R1 — identidade e suspensão", () => {
     const initialEditor = editor.render(Editor); editor.commit(); initialEditor.setDraft("Alterado"); editor.render(Editor); editor.commit(); expect(env.guard?.()).toBe(true);
     const key = erpHostKey(props);
     const reads = fetcher.mock.calls.length;
-    props = { ...props, management: context({ erp: true, agenda: false }) };
+    props = { ...props, management: context({ ...ERP_CORE_TEST_MODULES, agenda: false }) };
     const updated: any = mounting.render(() => ErpMount(props)); mounting.commit();
     const same: any = tree.render(() => updated.type(updated.props)); tree.commit();
     expect(erpHostKey(props)).toBe(key); expect(updated.type).toBe(mounted.type); expect(updated.props.runtime).toBe(runtime);
@@ -211,7 +212,7 @@ describe("R2 — guarda do rascunho suspenso", () => {
     env.app = { ...env.app, modules: { erp: false, agenda: true } };
     f.render(ErpArea); f.commit();
     const unload = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(unload); expect(unload.defaultPrevented).toBe(true);
-    env.app = { ...env.app, modules: { erp: true, agenda: true } }; f.render(ErpArea); f.commit();
+    env.app = { ...env.app, modules: { ...ERP_CORE_TEST_MODULES, agenda: true } }; f.render(ErpArea); f.commit();
     const resumed = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(resumed); expect(resumed.defaultPrevented).toBe(false);
     env.app = { ...env.app, profile: "area-b" }; f.render(ErpArea); f.commit(); expect(env.guard?.()).not.toBe(true);
   });
@@ -221,7 +222,7 @@ describe("R2 — guarda do rascunho suspenso", () => {
     env.app = { ...env.app, modules: { erp: false, agenda: true } }; f.render(ErpArea); f.commit();
     const blocked = () => { const event = new Event("beforeunload", { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; };
     expect(blocked()).toBe(true);
-    env.app = { ...env.app, modules: { erp: true, agenda: true } };
+    env.app = { ...env.app, modules: { ...ERP_CORE_TEST_MODULES, agenda: true } };
     const pending = f.render(ErpArea); f.commit(); expect(blocked()).toBe(true);
     const content = nodes(pending).find(node => node.props.target === stock && node.props.props?.onPermissions);
     expect(content).toBeTruthy();

@@ -2,6 +2,7 @@
 // fictícios, respondidas aqui mesmo. Nenhuma chamada sai do navegador e
 // nenhuma escrita é aceita.
 import type { Api, Row } from "./api";
+import * as erpDefinitions from "../../src/modules/erp/definition";
 import { agendaDemo, agendaDemoModule } from "../modules/agenda/demo";
 import { reservaDemo, reservaDemoModule } from "../modules/reserva/demo";
 import {
@@ -428,6 +429,11 @@ const page = (data: Row[]) => ({ data, next_cursor: null });
 
 // Gestão → Módulos (src/modules: a mesma declaração do servidor, resumida).
 const demoModules: Row[] = [
+  ...Object.values(erpDefinitions).map(({ id, name, description, requires, navigation, version }) => ({
+    id, name, description, requires, navigation, version,
+    builtin: true, default_enabled: false, menu_item_types: [],
+    enabled: !["erp-fiscal", "erp-cobranca"].includes(id),
+  })),
   {
     id: "queue",
     name: "Fila presencial",
@@ -845,15 +851,9 @@ function read(path: string, query: URLSearchParams): any {
       // Estado explícito de cada módulo da vitrine, como o servidor manda: a
       // casa de gestão (web/management/registry.ts) só mostra módulo com
       // `true`, e sem isto Agenda, Pedidos, Mesas e os outros somem do ERP.
-      // ERP na vitrine: núcleo e Caixa/PDV ligados; os demais opcionais, não.
-      modules: {
-        ...Object.fromEntries(demoModules.map((m) => [m.id, m.enabled !== false])),
-        erp: true,
-        "erp-produtos": true, "erp-vendas": true, "erp-compras": true, "erp-estoque": true, "erp-financeiro": true,
-        "erp-pdv": true,
-        "erp-fiscal": false,
-        "erp-cobranca": false,
-      },
+      // A mesma lista alimenta Módulos e o menu: ERP completo com PDV,
+      // mantendo Fiscal e Cobrança desligados na vitrine.
+      modules: Object.fromEntries(demoModules.map((m) => [m.id, m.enabled !== false])),
       conversations: ["waiting", "ai", "human", "closed"].map((state) => ({
         state,
         count: conversations.filter((item) => item.state === state).length,

@@ -8,7 +8,7 @@ export const ERP_BLOCK_PREFIXES = {
   "erp-compras": v1("documentos/purchase_orders", "duplicacao-documentos/purchase_orders", "records/purchase_orders", "recebimentos-compras", "preferencias/suprimentos-compras", "importacoes/pedidos-compra"),
   "erp-estoque": v1("estoque", "documentos-estoque", "reservas-estoque", "posicoes-estoque", "politica-estoque", "cadastros/warehouses", "preferencias/cadastros-lotes", "preferencias/suprimentos-estoque", "importacoes/lotes", "importacoes/movimentacoes-estoque"),
   "erp-financeiro": v1("financeiro", "anexos-financeiro", "transferencias-internas", "relatorios/vencimentos", "records/receivables", "records/payables", "preferencias/financas-pagar", "preferencias/financas-receber", "preferencias/contabilidade-contador", "importacoes/contas-pagar", "importacoes/contas-receber"),
-  "erp-fiscal": v1("notas-fiscais", "rascunhos-fiscais", "preparacao-itens-fiscais", "preparacao-tributaria", "numeracao-fiscal", "complemento-fiscal", "notas-recebidas", "documentos/sales_orders/notas-fiscais", "cadastros/notas-fiscais", "estoque/notas-fiscais", "estoque/checkin", "estoque/relatorios/notas-entrada", "financeiro/notas-contas", "financeiro/notas", "financeiro/actions/invoice_finance_post", "financeiro/actions/invoice_finance_reverse", "preferencias/notas-nfce", "preferencias/notas-nfe", "preferencias/certificado-digital", "importacoes/notas-fiscais", "sistema/etiquetas/nota", "plataforma/novas-nfes", "records/nfe", "records/nfce"),
+  "erp-fiscal": v1("notas-fiscais", "rascunhos-fiscais", "preparacao-itens-fiscais", "preparacao-tributaria", "numeracao-fiscal", "complemento-fiscal", "notas-recebidas", "documentos/sales_orders/notas-fiscais", "cadastros/notas-fiscais", "estoque/notas-fiscais", "estoque/checkin", "estoque/relatorios/notas-entrada", "financeiro/notas-contas", "financeiro/notas", "financeiro/actions/invoice_finance_post", "financeiro/actions/invoice_finance_reverse", "preferencias/notas-nfce", "preferencias/notas-nfe", "preferencias/certificado-digital", "importacoes/notas-fiscais", "sistema/etiquetas/nota", "plataforma/novas-nfes", "records/nfe", "records/nfce", "a1", "fiscal-authorization", "fiscal-danfe", "fiscal-reconciliation", "fiscal-signed", "fiscal-unsigned", "fiscal-wsdl"),
   "erp-cobranca": v1("cnab", "cobranca-operacional", "cobranca-operacional-v2", "retornos-operacionais", "conferencia-retornos", "boletos-itau", "retornos-itau109", "financeiro/remessa-candidatos", "financeiro/remessas", "financeiro/retornos", "financeiro/actions/remittance_exclude", "financeiro/actions/return_exclude"),
   "erp-pdv": v1("frente-caixa", "preferencias/vendas-frente-caixa"),
   externo: ["/integracao-externa", "/admin", "/oauth", "/mcp", ...v1("system", "importacao-cadastros", "importacao-financeira-origin", "conferencia-financeira-origin", "importacao-orcamentos-origin", "importacao-orcamentos-origin-v2", "historico-vendas-origin", "vendas-origin-prontidao", "compras-origin-prontidao", "integracao-origin", "preparacao-virada", "depositos-origin", "estoque-origin-observado", "saldo-abertura-estoque", "sincronizacao-origin", "espelho-origin", "xmls-sincronizados", "cobrancas-legadas-itau", "backup-import", "history", "estoque/espelho", "notas-fiscais/origin")],
@@ -19,6 +19,12 @@ export function erpBlockOf(path: string): ErpBlock | null {
   return prefixes.find(p => path === p.path || path.startsWith(p.path + "/"))?.block ?? null;
 }
 export { erpRouteRequirement } from "./parts-requirements.ts";
+
+/** Endereços antigos de contexto continuam sujeitos aos requisitos do destino. */
+export const ERP_ROUTE_ALIASES: Readonly<Record<string, string>> = {
+  "/v1/estoque/checkin": "/v1/estoque/checkin/notas",
+  "/v1/frente-caixa/contexto": "/v1/frente-caixa",
+};
 
 /** Rotas existentes, não apenas famílias. Inventário expandido é testado em blocks.test.mjs. */
 export const ERP_ROUTE_PATTERNS: readonly [string, string][] = [
@@ -654,11 +660,41 @@ export const ERP_ROUTE_PATTERNS: readonly [string, string][] = [
   ["GET|POST", "/admin/oauth/start"],
   ["GET|POST", "/oauth/callback"],
   ["GET|POST", "/v1/sistema/manutencao-efeitos"],
+  // Consumidores fiscais do painel portado. Classificar não instala emissor
+  // nem cofre: com Fiscal ligado a costura ainda pode responder 404/501.
+  ["GET", "/v1/a1"],
+  ["GET", "/v1/a1/commands/:id"],
+  ["POST", "/v1/a1/(configure|disable|rewrap)"],
+  ["POST", "/v1/fiscal-wsdl/run"],
+  ["GET", "/v1/fiscal-wsdl/commands/:id"],
+  ["POST", "/v1/fiscal-unsigned/(preview|generate|history)"],
+  ["GET", "/v1/fiscal-unsigned/(jobs|commands)/:id"],
+  ["POST", "/v1/fiscal-signed/run"],
+  ["POST", "/v1/fiscal-signed/jobs/:id/history"],
+  ["GET", "/v1/fiscal-signed/(candidates|commands)/:id"],
+  ["POST", "/v1/fiscal-authorization/(preview|recover)"],
+  ["GET", "/v1/fiscal-authorization/commands/:id"],
+  ["POST", "/v1/fiscal-authorization/candidates/:id/history"],
+  ["GET|POST", "/v1/fiscal-authorization/candidates/:id/review"],
+  ["GET", "/v1/fiscal-authorization/review-commands/:id"],
+  ["GET", "/v1/fiscal-authorization/reviewed/status"],
+  ["POST", "/v1/fiscal-authorization/reviewed/(preflight|run|recover|close-expired|revalidations|receipt-query-context|receipt-query-history|receipt-queries)"],
+  ["GET", "/v1/fiscal-authorization/reviewed/(commands|closure-commands|revalidation-commands|receipt-query-commands)/:id"],
+  ["POST", "/v1/fiscal-authorization/reviewed/receipt-query-commands/:id/recover"],
+  ["POST", "/v1/fiscal-authorization/reviewed/candidates/:id/history"],
+  ["GET", "/v1/fiscal-authorization/reviewed/commands/:id/attempts/:attempt/closure"],
+  ["GET", "/v1/fiscal-authorization/reviewed/commands/:id/revalidation-context/:attempt"],
+  ["POST", "/v1/fiscal-reconciliation/(run|recover)"],
+  ["GET", "/v1/fiscal-reconciliation/commands/:id"],
+  ["POST", "/v1/fiscal-reconciliation/candidates/:id/history"],
+  ["GET", "/v1/fiscal-danfe/candidates/:id/preview"],
+  ["GET", "/v1/fiscal-danfe/(authorizations|revalidations|receipt-queries)/:id/(xml|print)"],
  ];
 const routeMatchers = ERP_ROUTE_PATTERNS.map(([methods, pattern]) => ({
   methods: methods.split("|"),
-  path: new RegExp("^" + pattern.replaceAll(".", "\\.").replace(/:[a-z_]+/g, "[^/]+") + "/?$"),
+  path: new RegExp("^" + pattern.replaceAll(".", "\\.").replace(/:[a-zA-Z_][a-zA-Z0-9_]*/g, "[^/]+") + "/?$"),
 }));
 export function erpRouteExists(method: string, path: string): boolean {
+  path = ERP_ROUTE_ALIASES[path] ?? path;
   return routeMatchers.some(r => r.methods.includes(method.toUpperCase() === "HEAD" ? "GET" : method.toUpperCase()) && r.path.test(path));
 }

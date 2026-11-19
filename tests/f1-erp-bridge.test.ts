@@ -4,7 +4,7 @@ import { all, exec, one, withReadCache } from "../src/db";
 import { now, uid, type Env } from "../src/types";
 import { seal, unseal } from "../src/security";
 import { fixture, type Fixture } from "./service-center-fixture";
-import { setModule } from "./erp-module-helper";
+import { enableErpParts, setModule } from "./erp-module-helper";
 import { countingEnv } from "./d1-counter";
 import { customerErpBridge } from "../src/customer/erp-bridge";
 import { maintainErpCustomers, markCustomerReconciliation, mirrorErpContact, SCAN_TASK } from "../src/customer/sync";
@@ -378,6 +378,7 @@ describe("ponte administrativa comprovada", () => {
 
   it("listas exigem pessoa/ERP, ocultam conteúdo e declaram histórico incompleto", async () => {
     const f = await setup(), id = await create(f);
+    await enableErpParts(f.profile, f.admin.id);
     applied(await customerErpBridge.apply(env, command(f, id)));
     const ctx = { env, profile: f.profile } as any;
     expect(await erpCustomerProvider.list!(ctx, f.admin, id, "sales", { limit: 25 })).toEqual({ items: [], nextCursor: null, incomplete: true });
