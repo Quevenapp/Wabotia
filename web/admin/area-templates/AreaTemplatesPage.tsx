@@ -33,9 +33,10 @@ export function templateSelection(
       ...template.work_types.map((type) => type.id),
     ],
     // Por padrão o modelo só liga módulos. Desligar um módulo já ligado é
-    // escolha explícita na revisão.
+    // escolha explícita na revisão. Fiscal permanece disponível para ligar,
+    // mas exige seleção explícita enquanto não há emissor.
     module_ids: Object.entries(template.modules)
-      .filter(([, enabled]) => enabled)
+      .filter(([id, enabled]) => enabled && id !== "erp-fiscal")
       .map(([id]) => id) as AreaModuleId[],
     menus: true,
     departments: true,
@@ -58,6 +59,7 @@ const MODULE_NAMES: Record<string, string> = {
   entrega: "Entrega",
   payments: "Cobrança",
   erp: "ERP",
+  "erp-fiscal": "Fiscal",
 };
 /** Texto da linha do módulo na revisão do modelo. */
 export function moduleLabel(
@@ -69,7 +71,9 @@ export function moduleLabel(
   const name = MODULE_NAMES[id] || id;
   const now = current ? "ligado" : "desligado";
   if (!!current === proposed) return `${name}: ${now}, sem mudança`;
-  if (proposed) return `${name}: ${now} → ligar`;
+  if (proposed) return selected
+    ? `${name}: ${now} → ligar`
+    : `${name}: ${now}, continua desligado (marque para ligar)`;
   return selected
     ? `${name}: ligado → será DESLIGADO`
     : `${name}: ligado, continua ligado (marque para desligar como o modelo sugere)`;
@@ -164,6 +168,7 @@ function Preview({
       ))}
       <fieldset>
         <legend>Módulos</legend>
+        {Object.entries(template.modules).some(([id, enabled]) => id === "erp-fiscal" && enabled) && <p>Fiscal começa desmarcado porque a emissão fiscal ainda não está disponível. Você pode selecionar essa parte.</p>}
         {Object.entries(template.modules).map(([id, enabled]) => (
           <label key={id} className="os-work-check">
             <input

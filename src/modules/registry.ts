@@ -293,8 +293,14 @@ export async function moduleCommand(
       throw new ApiError(
         409,
         "module_required",
-        `${cascade.map(name).join(", ")} ${cascade.length > 1 ? "dependem" : "depende"} de ${definition.name} e ${cascade.length > 1 ? "serão desligados" : "será desligado"} junto. Confirme com cascade: true.`,
+        `${cascade.map(name).join(", ")} ${cascade.length > 1 ? "dependem" : "depende"} de ${definition.name} e ${cascade.length > 1 ? "serão desligados" : "será desligado"} junto. Confirme a lista de dependentes.`,
       );
+    if (data.cascade === true && (
+      !Array.isArray(data.confirmed_dependents) ||
+      data.confirmed_dependents.length !== cascade.length ||
+      new Set(data.confirmed_dependents).size !== cascade.length ||
+      cascade.some(id => !data.confirmed_dependents.includes(id))
+    )) throw new ApiError(409, "module_cascade_conflict", "Os módulos dependentes mudaram. Confira a nova lista antes de confirmar o desligamento.");
   }
   const changes = [definition.id, ...cascade].map(id => ({ id, enabled: id === definition.id ? data.enabled : false }));
   const updated = now();
@@ -302,7 +308,12 @@ export async function moduleCommand(
     "INSERT INTO profile_modules(profile_id,module_id,enabled,updated,updated_by) VALUES(?,?,?,?,?) ON CONFLICT(profile_id,module_id) DO UPDATE SET enabled=excluded.enabled,updated=excluded.updated,updated_by=excluded.updated_by",
     [profile, id, enabled ? 1 : 0, updated, actor.id],
   ]));
-  const erp_sync = await syncErpParts(env, profile);
+  // Os gatilhos registram toda mudança de chave ERP; uma revisão pendente
+  // também cobre a entrega que falhou numa alteração anterior.
+  const revision = await one(env, "SELECT CAST(revision AS TEXT) revision, CAST(delivered_revision AS TEXT) delivered_revision FROM profile_erp_revision WHERE profile_id=?", profile);
+  const erp_sync = revision && revision.revision !== revision.delivered_revision
+    ? await syncErpParts(env, profile)
+    : { revision: revision?.revision ?? "0", delivered_revision: revision?.delivered_revision ?? "0", status: "applied" as const };
   for (const { id, enabled } of changes) {
     const target = moduleById(id)!;
     const before = states[id];
