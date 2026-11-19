@@ -6,17 +6,23 @@ import { CUSTOMER_BRIDGE_SCAN, type IdentityPort as ErpIdentity } from "../erp/e
 import { localFetch } from "../erp/api/local-fetch";
 import type { BridgeCommand, BridgeResult, BridgeSnapshot, CustomerErpBridge, CustomerPatch } from "./contracts";
 import { normalizeCustomerPhone } from "./phone";
-import { isCustomerSelfActor, validateCustomerSelfActor } from "./local";
+import { customerAccess, isCustomerSelfActor, validateCustomerSelfActor } from "./local";
 import { bridgeConflict, confirmBridgeSnapshot, contactForBridge, customerEnabled, freshCustomerEnv,
-  markCustomerReconciliation, type BridgeContact, type BridgeJob } from "./sync";
+  markCustomerReconciliation, confirmBridgeBinding, type BridgeContact, type BridgeJob } from "./sync";
 
 const SYSTEM = "contact-erp-link";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const invalid = () => new ApiError(400, "invalid_customer_patch", "Informe somente dados administrativos válidos.");
-async function erpCommandId(value: string) {
+async function legacyCommandId(value: string) {
   if (UUID.test(value)) return value;
   const hash = await sha(`customer-erp:${value}`);
   return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+}
+export async function customerRpcCommandId(profile: string, namespace: string, value: string) {
+  if (UUID.test(value)) return value;
+  const hash = await sha(JSON.stringify(["wabotia-customer-command-v1", profile, namespace, value]));
+  const variant = ((parseInt(hash[16], 16) & 3) | 8).toString(16);
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-${variant}${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
 }
 export function requireCustomerPerson(actor: Actor): void {
   if (actor.kind !== "user" || actor.via || actor.credential || actor.module || actor.id.startsWith("bot:"))
@@ -33,7 +39,7 @@ export function snapshotOf(record: any): BridgeSnapshot {
     email: typeof record.email === "string" ? record.email : "", document: typeof record.document === "string" ? record.document : null,
     personType: ["F", "J", "E"].includes(record.person_type) ? record.person_type : null } };
 }
-function dataOf(patch: CustomerPatch): Record<string, unknown> {
+export function dataOf(patch: CustomerPatch): Record<string, unknown> {
   if (!patch || typeof patch !== "object" || Array.isArray(patch) ||
       Object.keys(patch).some((k) => !["name", "phones", "email", "document", "personType", "address"].includes(k))) throw invalid();
   const data: Record<string, unknown> = {};
@@ -43,6 +49,7 @@ function dataOf(patch: CustomerPatch): Record<string, unknown> {
     if (!(key === "document" && value === null) && (typeof value !== "string" || value.length > limit || /[\u0000-\u001f]/.test(value))) throw invalid();
     data[key] = value;
   }
+  if (typeof data.email === "string" && data.email && data.email.split(/[;,]/).some(value => !/^[^\s@;,]+@[^\s@;,]+\.[^\s@;,]+$/.test(value.trim()))) throw invalid();
   if (patch.personType !== undefined) {
     if (patch.personType !== null && !["F", "J", "E"].includes(patch.personType)) throw invalid();
     data.person_type = patch.personType;
@@ -102,12 +109,12 @@ interface Intent {
   data: Record<string, unknown>;
   source: { version: number; localPatch: string | null };
 }
-interface Metadata { fingerprint: string; intent?: string; sent?: boolean; done?: boolean; result?: BridgeResult }
+interface Metadata { fingerprint: string; intent?: string; rpcCommandId?: string; sent?: boolean; done?: boolean; outcome?: "applied" | "rejected"; remote?: { erpId: string; erpVersion: number }; result?: BridgeResult }
 const metadata = (job: BridgeJob): Metadata | undefined => JSON.parse(job.cursor_json).customerErp;
 async function updateJob(env: Env, job: BridgeJob, value: Metadata, state = job.state, code: string | null = null) {
   const cursor = { ...JSON.parse(job.cursor_json), customerErp: value };
   const next = JSON.stringify(cursor);
-  const result = await exec(env, `UPDATE customer_jobs SET cursor_json=?,state=?,error_code=?,updated=?,retry_at=?,lease_until=NULL
+  const result = await exec(env, `UPDATE customer_jobs SET cursor_json=?,state=?,error_code=?,updated=max(updated+1,?),retry_at=?,lease_until=NULL
     WHERE profile_id=? AND id=? AND cursor_json=? AND state NOT IN ('done','cancelled','retained')`,
   next, state, code, now(), now() + 1000, job.profile_id, job.id, job.cursor_json);
   if (result.meta.changes !== 1) throw bridgeConflict("sync_pending");
@@ -170,13 +177,13 @@ async function deliver(env: Env, job: BridgeJob, intent: Intent): Promise<Bridge
     return { status: "paused", reason: "module_disabled" };
   }
   const contact = await contactForBridge(env, command.profileId, command.contactId);
-  if (!contact || contact.namespace !== "team" || contact.identity_state !== "active") throw bridgeConflict("customer_erasing");
+  if ((!contact && command.operation !== "bind") || (contact && (contact.namespace !== "team" || contact.identity_state !== "active"))) throw bridgeConflict("customer_erasing");
   if (isCustomerSelfActor(command.actor)) await validateCustomerSelfActor(env, command.actor, command.profileId, command.contactId);
   const finish = async (result: BridgeResult, state: string, code: string) => {
     await updateJob(env, job, { ...m, result }, state, code); return result;
   };
   try {
-    if (contact.version !== intent.source.version || contact.local_patch_cipher !== intent.source.localPatch)
+    if (!m.sent && contact && (contact.version !== intent.source.version || contact.local_patch_cipher !== intent.source.localPatch))
       return finish({ status: "conflict", candidateIds: [] }, "conflict", "contact_conflict");
     if (command.operation === "promote" && !String(intent.data.name ?? "").trim())
       return finish({ status: "needs_data", fields: ["name"] }, "paused", "contact_required");
@@ -184,17 +191,23 @@ async function deliver(env: Env, job: BridgeJob, intent: Intent): Promise<Bridge
       AND state IN ('pending','running','paused','conflict') AND (created<? OR (created=? AND id<?)) LIMIT 1`,
     job.profile_id, job.contact_id, job.id, job.created, job.created, job.id);
     if (earlier) throw bridgeConflict("sync_pending");
-    const rpc = await systemRpc(env, command.profileId, command.actor);
     let snapshot: BridgeSnapshot;
     let replayed = !!m.sent;
     if (command.operation === "bind") {
-      // Associação explícita sempre teve sua leitura humana autorizada no prepare.
-      snapshot = snapshotOf((await rpc("erp_catalog_contact_get", { p_id: command.erpId })).record);
+      // Cada retomada reaplica o acesso humano ao registro no ERP.
+      snapshot = await customerErpBridge.read(env, command.actor, command.profileId, command.erpId!);
       if (command.expectedErpVersion !== null && snapshot.erpVersion !== command.expectedErpVersion)
         return finish({ status: "conflict", candidateIds: [] }, "conflict", "contact_conflict");
     } else {
+      const rpc = await systemRpc(env, command.profileId, command.actor);
+      if (!m.rpcCommandId) {
+        // Formato antigo enviado conserva exatamente a chave já usada no ERP.
+        m.rpcCommandId = m.sent ? await legacyCommandId(command.commandId)
+          : await customerRpcCommandId(command.profileId, command.namespace, command.commandId);
+        await updateJob(env, job, m);
+      }
       if (!m.sent) {
-        const found = await duplicateCandidates(env, contact, intent.data, rpc, command.erpId);
+        const found = await duplicateCandidates(env, contact!, intent.data, rpc, command.erpId);
         if (found.conflict) return finish({ status: "conflict", candidateIds: found.candidateIds }, "conflict", "possible_duplicate");
         // sent é durável ANTES da chamada: a recuperação não refaz preflight de criação.
         m.sent = true;
@@ -203,17 +216,24 @@ async function deliver(env: Env, job: BridgeJob, intent: Intent): Promise<Bridge
       await markCustomerReconciliation(env, command.profileId);
       const saved = await rpc("erp_catalog_contact_save", { p_id: command.erpId,
         p_expected_version: command.operation === "promote" ? 0 : command.expectedErpVersion,
-        p_command_id: await erpCommandId(command.commandId), p_data: intent.data, p_acknowledged: [] });
+        p_command_id: m.rpcCommandId, p_data: intent.data, p_acknowledged: [] });
+      m.outcome = "applied";
+      if (saved.record?.id && Number.isSafeInteger(saved.record.version)) m.remote = { erpId: saved.record.id, erpVersion: saved.record.version };
       replayed ||= saved.replayed === true;
       // Recibo do comando é antigo. Só GET atual pode produzir o espelho.
       snapshot = snapshotOf((await rpc("erp_catalog_contact_get", { p_id: saved.record.id })).record);
+      m.remote = { erpId: snapshot.erpId, erpVersion: snapshot.erpVersion };
       // Preflight + save não são transação. Detecta a janela sem fundir nem apagar.
       if (command.operation === "promote") {
-        const found = await duplicateCandidates(env, contact, intent.data, rpc, snapshot.erpId);
+        const found = await duplicateCandidates(env, contact!, intent.data, rpc, snapshot.erpId);
         if (found.conflict) return finish({ status: "conflict", candidateIds: found.candidateIds }, "conflict", "possible_duplicate_after_save");
       }
     }
     if (!await customerEnabled(env, command.profileId)) return finish({ status: "paused", reason: "module_disabled" }, "paused", "module_disabled");
+    if (!contact && command.operation === "bind") {
+      await confirmBridgeBinding(env, command.contactId, snapshot, job, command.actor);
+      return { status: "applied", snapshot, replayed };
+    }
     const current = await contactForBridge(env, command.profileId, command.contactId);
     if (!current || current.version !== intent.source.version || current.local_patch_cipher !== intent.source.localPatch)
       return finish({ status: "conflict", candidateIds: [] }, "conflict", "contact_conflict");
@@ -222,15 +242,21 @@ async function deliver(env: Env, job: BridgeJob, intent: Intent): Promise<Bridge
     return { status: "applied", snapshot, replayed };
   } catch (error) {
     if (error instanceof RpcFailure) {
+      if (!m.outcome) m.outcome = "rejected";
       const missing = /^erp_catalog_contact_required:(.+)$/.exec(error.code)?.[1] ?? (error.code === "erp_catalog_name_required" ? "name" : null);
       if (missing) return finish({ status: "needs_data", fields: [missing] }, "paused", "contact_required");
       if (/version_conflict|command_conflict|warning_unacknowledged/.test(error.code))
         return finish({ status: "conflict", candidateIds: [] }, "conflict", error.code);
+      return finish({ status: "conflict", candidateIds: [] }, "conflict", "invalid_customer_patch");
     }
     if (error instanceof ApiError && error.code === "module_disabled")
       return finish({ status: "paused", reason: "module_disabled" }, "paused", "module_disabled");
     if (error instanceof ApiError && ["contact_conflict", "namespace_conflict", "customer_erasing"].includes(error.code))
       return finish({ status: "conflict", candidateIds: [] }, "conflict", error.code);
+    if (error instanceof ApiError && error.status >= 400 && error.status < 500 && !["sync_pending", "module_disabled"].includes(error.code)) {
+      if (!m.outcome) m.outcome = "rejected";
+      return finish({ status: "conflict", candidateIds: [] }, "conflict", error.code);
+    }
     // Não armazena erro arbitrário, que pode conter dados pessoais de validação.
     // A intenção e o comando sobrevivem inclusive a falha deste UPDATE.
     if (!(error instanceof ApiError && error.code === "sync_pending"))
@@ -248,35 +274,38 @@ export async function resumeBridgeJob(env: Env, job: BridgeJob): Promise<BridgeR
 export const customerErpBridge: CustomerErpBridge = {
   async apply(env, command) {
     if (!await customerEnabled(env, command.profileId)) {
-      await exec(env, `UPDATE customer_jobs SET state='paused',error_code='module_disabled',lease_until=NULL,updated=?
+      await exec(env, `UPDATE customer_jobs SET state='paused',error_code='module_disabled',lease_until=NULL,updated=max(updated+1,?)
         WHERE profile_id=? AND command_id=? AND state IN ('pending','running') AND json_extract(cursor_json,'$.customerErp.intent') IS NOT NULL`,
       now(), command.profileId, command.commandId);
       return { status: "paused", reason: "module_disabled" };
     }
     if (command.namespace !== "team" || command.actor.kind === "app") return { status: "paused", reason: "awaiting_proof" };
-    access(command.actor, command.profileId, "contacts:write");
+    customerAccess(command.actor, command.profileId, command.operation !== "bind", command.operation === "bind" ? "erp" : "contacts");
     if (!command.commandId || command.commandId.length > 200 || !command.requestHash || !["promote", "patch", "bind"].includes(command.operation)) throw invalid();
     const patch = dataOf(command.patch);
     const fingerprint = await sha(canonical({ ...command, actor: { id: command.actor.id, kind: command.actor.kind } }));
     let job = await one<BridgeJob>(env, "SELECT * FROM customer_jobs WHERE profile_id=? AND command_id=?", command.profileId, command.commandId);
-    if (job && (job.request_hash !== command.requestHash || job.contact_id !== command.contactId || job.namespace !== command.namespace)) throw bridgeConflict("idempotency_conflict");
+    if (job && (job.request_hash !== command.requestHash || (job.contact_id !== command.contactId && !(command.operation === "bind" && (!job.contact_id || metadata(job)?.done))) || job.namespace !== command.namespace)) throw bridgeConflict("idempotency_conflict");
+    if (job && (job as any).error_code === "customer_queue_full") throw new ApiError(429, "customer_queue_full", "Há solicitações pendentes demais para este cadastro.");
     if (job && metadata(job)) {
       const m = metadata(job)!;
       if (m.fingerprint !== fingerprint) throw bridgeConflict("idempotency_conflict");
       if (job.state === "cancelled" || job.state === "retained") throw bridgeConflict("customer_erasing");
       if (m.done) {
-        const contact = await contactForBridge(env, command.profileId, command.contactId);
+        const contact = await contactForBridge(env, command.profileId, job.contact_id ?? command.contactId);
         if (!contact || contact.identity_state !== "active" || !contact.erp_contact_id || !contact.mirror_json) throw bridgeConflict();
         return { status: "applied", replayed: true, snapshot: { erpId: contact.erp_contact_id, erpVersion: contact.erp_version!, mirror: JSON.parse(contact.mirror_json) } };
       }
-      if (job.state === "conflict" || (job.state === "paused" && m.result?.status === "needs_data")) return m.result!;
+      if ((job.state === "conflict" && (!m.sent || m.outcome)) || (job.state === "paused" && m.result?.status === "needs_data"))
+        return m.result ?? { status: "conflict", candidateIds: [] };
       return resumeBridgeJob(env, job);
     }
     const contact = await contactForBridge(env, command.profileId, command.contactId);
-    if (!contact || contact.namespace !== "team" || contact.identity_state !== "active") throw new ApiError(404, "not_found", "Contato não encontrado.");
-    if (command.operation === "promote" ? command.erpId !== null || contact.erp_contact_id !== null :
-      !command.erpId || !UUID.test(command.erpId) || (contact.erp_contact_id !== null && contact.erp_contact_id !== command.erpId) ||
-      (command.operation === "patch" && (contact.erp_contact_id !== command.erpId || command.expectedErpVersion !== contact.erp_version))) throw bridgeConflict();
+    if ((!contact && command.operation !== "bind") || (contact && (contact.namespace !== "team" || contact.identity_state !== "active"))) throw new ApiError(404, "not_found", "Contato não encontrado.");
+    if (command.operation === "promote" ? command.erpId !== null || contact!.erp_contact_id !== null :
+      !command.erpId || !UUID.test(command.erpId) || (contact?.erp_contact_id != null && contact.erp_contact_id !== command.erpId) ||
+      (command.operation === "patch" && (contact!.erp_contact_id !== command.erpId || (command.baseErpVersion ?? command.expectedErpVersion) !== contact!.erp_version ||
+        (command.expectedVersion !== undefined && command.expectedVersion !== contact!.version)))) throw bridgeConflict();
     if (command.operation === "bind") {
       requireCustomerPerson(command.actor);
       await this.read(env, command.actor, command.profileId, command.erpId!);
@@ -289,20 +318,21 @@ export const customerErpBridge: CustomerErpBridge = {
       const identity = isCustomerSelfActor(command.actor)
         ? await erpSystemIdentity(freshCustomerEnv(env), command.profileId, SYSTEM)
         : await erpIdentity(freshCustomerEnv(env), command.actor, command.profileId, "POST");
-      await customerRpc(env, command.profileId, command.actor, identity, "erp_catalog_contact_check", { p_id: command.erpId, p_data: patch });
+      try { await customerRpc(env, command.profileId, command.actor, identity, "erp_catalog_contact_check", { p_id: command.erpId, p_data: patch }); }
+      catch (error) { if (error instanceof RpcFailure) throw invalid(); throw error; }
     }
-    const data = command.operation === "promote" ? { name: contact.name, phone: contact.phone, email: contact.email,
-      document: contact.document, person_type: contact.person_type, ...patch, roles: ["customer"] } : patch;
+    const data = command.operation === "promote" ? { name: contact!.name, phone: contact!.phone, email: contact!.email,
+      document: contact!.document, person_type: contact!.person_type, ...patch, roles: ["customer"] } : patch;
     const safeActor = { id: command.actor.id, kind: command.actor.kind, profiles: [command.profileId], role: command.actor.role,
       name: "Solicitante do cadastro", scopes: isCustomerSelfActor(command.actor) ? ["contacts:self"] : [], bots: [], rate: 0, runLimit: 0 } as Actor;
-    const intent: Intent = { command: { ...command, actor: safeActor }, fingerprint, data, source: { version: contact.version, localPatch: contact.local_patch_cipher } };
-    const m: Metadata = { fingerprint, intent: await seal(env, intent) };
+    const intent: Intent = { command: { ...command, actor: command.operation === "bind" ? command.actor : safeActor }, fingerprint, data, source: { version: contact?.version ?? 0, localPatch: contact?.local_patch_cipher ?? null } };
+    const m: Metadata = { fingerprint, intent: await seal(env, intent), rpcCommandId: await customerRpcCommandId(command.profileId, command.namespace, command.commandId) };
     if (!job) {
-      const at = now();
-      await exec(env, `INSERT OR IGNORE INTO customer_jobs(profile_id,id,namespace,contact_id,kind,command_id,request_hash,
-        expected_version,expected_erp_version,cursor_json,retry_at,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      command.profileId, uid(), "team", command.contactId, command.operation === "patch" ? "sync" : command.operation,
-      command.commandId, command.requestHash, contact.version, command.expectedErpVersion, JSON.stringify({ customerErp: m }), at, at, at);
+      const { jobInsert } = await import("./jobs");
+      const next = jobInsert(command.profileId, "team", contact?.id ?? null, command.operation === "patch" ? "sync" : command.operation,
+        command.commandId, command.requestHash, null, contact?.version ?? null, command.expectedErpVersion, uid(), { customerErp: m });
+      next.statement[0] = next.statement[0].replace("INSERT INTO", "INSERT OR IGNORE INTO");
+      await exec(env, next.statement[0], ...next.statement[1]);
       // Concorrência reservou o mesmo comando? Nunca enviar o corpo desta chamada sem reler.
       return this.apply(env, command);
     }
@@ -312,13 +342,15 @@ export const customerErpBridge: CustomerErpBridge = {
   async read(env, actor, profileId, erpId) {
     if (!await customerEnabled(env, profileId)) throw new ApiError(409, "module_disabled", "Cadastro completo desligado nesta área.");
     if (!isCustomerSelfActor(actor)) requireCustomerPerson(actor);
-    access(actor, profileId, "contacts:read");
+    if (isCustomerSelfActor(actor)) access(actor, profileId, "contacts:read");
+    else customerAccess(actor, profileId, false, "erp");
     const link = await one<{ id: string; namespace: string; identity_state: string }>(env,
       "SELECT id,namespace,identity_state FROM contacts WHERE profile_id=? AND erp_contact_id=?", profileId, erpId);
     if (link && (link.namespace !== "team" || link.identity_state !== "active")) throw new ApiError(404, "not_found", "Contato não encontrado.");
     if (isCustomerSelfActor(actor)) await validateCustomerSelfActor(env, actor, profileId, link?.id ?? "");
     const identity = isCustomerSelfActor(actor) ? await erpSystemIdentity(freshCustomerEnv(env), profileId, SYSTEM) : await erpIdentity(freshCustomerEnv(env), actor, profileId);
-    return snapshotOf((await customerRpc(env, profileId, actor, identity, "erp_catalog_contact_get", { p_id: erpId })).record);
+    try { return snapshotOf((await customerRpc(env, profileId, actor, identity, "erp_catalog_contact_get", { p_id: erpId })).record); }
+    catch (error) { if (error instanceof RpcFailure) throw invalid(); throw error; }
   },
   async scan(env, profileId, cursor, limit) {
     if (!await customerEnabled(env, profileId)) throw new ApiError(409, "module_disabled", "Cadastro completo desligado nesta área.");

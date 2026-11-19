@@ -10,16 +10,18 @@ import {
 } from "./types";
 import {
   contactValues,
+  contactChanges,
   parseContactCsv,
   searchText,
   type ContactValues,
 } from "./contact-csv";
 import { visibleConversation } from "./visibility";
-import { stepFor } from "./web-steps";
+import { allows, requireAccess } from "./access";
+import { moduleEnabled } from "./modules/registry";
 import { identityPort, installWritePort } from "./customer/ports";
 import { registerCommand } from "./modules/hooks";
 import { customerProfileDeclarations } from "./customer/declarations";
-import { enrichLocal, maintainJobs, bindFromErp, dispatchCustomerMaintenance, jobInsert, replayJob, requestHash, writeResult, resolveCustomerJob } from "./customer/jobs";
+import { enrichLocal, maintainJobs, bindFromErp, dispatchCustomerMaintenance, jobInsert, jobView, replayJob, requestHash, writeResult, resolveCustomerJob, cancelCustomerJob, enqueueImport, importResult } from "./customer/jobs";
 import { customerAccess, activeContact, contactRow, namespaceFor, phoneSafetyStatements, guardedBatch } from "./customer/local";
 import { eraseContact, resolvePhone, saveCustomerSection, requireCustomerModule } from "./customer/http";
 import type { CustomerWrite, Namespace, Statement } from "./customer/contracts";
@@ -142,8 +144,10 @@ export async function contactDetail(
 ) {
   customerAccess(actor, profile);
   const contact = await getContact(env, actor, profile, id);
+  const canReadConversations = allows(actor, "conversations") &&
+    (actor.kind !== "app" || actor.scopes.includes("conversations:read"));
   const conversations =
-    actor.kind === "app" && !actor.scopes.includes("conversations:read")
+    !canReadConversations
       ? []
       : await all(
           env,
@@ -153,18 +157,22 @@ export async function contactDetail(
           actor.kind === "user" ? 1 : 0,
           contactNamespace(actor),
         );
-  // Respostas de passos web (formulários) das conversas vinculadas ao
-  // contato, inclusive as respondidas antes do vínculo.
-  const answers = conversations.length
-    ? (
-        await all(
-          env,
-          "SELECT * FROM web_steps WHERE profile_id=? AND status='completed' AND conversation_id IN (SELECT value FROM json_each(?)) ORDER BY completed_at DESC,id DESC LIMIT 50",
-          profile,
-          JSON.stringify(conversations.map((c) => c.id)),
-        )
-      ).map((row) => stepFor(actor, row))
-    : [];
+  // Dono histórico prevalece. Sem proprietário persistido não há fallback
+  // pela associação atual da conversa, mesmo que o telefone coincida.
+  const forms = canReadConversations ? await all(env,
+    `SELECT w.id,w.conversation_id,w.module_id,w.kind,w.status,w.created,w.completed_at,w.updated
+     FROM web_steps w WHERE w.profile_id=? AND w.status='completed'
+       AND coalesce(w.contact_id,(SELECT r.contact_id FROM customer_records r
+         WHERE r.profile_id=w.profile_id AND r.module_id=w.module_id AND r.kind=w.kind AND r.record_id=w.id))=?
+       AND EXISTS(SELECT 1 FROM conversations c WHERE c.profile_id=w.profile_id AND c.id=w.conversation_id
+         AND (?=1 OR c.external_namespace=?)) ORDER BY w.completed_at DESC,w.id DESC LIMIT 50`,
+    profile, id, actor.kind === "user" ? 1 : 0, contactNamespace(actor)) : [];
+  const allowedModules = new Set<string>();
+  for (const module of new Set<string>(forms.map(row => row.module_id))) {
+    if (["saude", "ensino", "juridico"].includes(module)) continue;
+    if (allows(actor, module) && await moduleEnabled(env, profile, module)) allowedModules.add(module);
+  }
+  const answers = forms.filter(row => allowedModules.has(row.module_id));
   const identity = contact.phone ? await one(env, "SELECT state,contact_id FROM customer_phones WHERE profile_id=? AND namespace=? AND phone=?", profile, contact.namespace, contact.phone) : null;
   const linkState = identity?.state === "ambiguous" ? "ambiguous" : identity?.state === "ready" && identity.contact_id === id ? "ready" : "pending";
   const synchronization = await one(env, "SELECT id,state,error_code FROM customer_jobs WHERE profile_id=? AND contact_id=? ORDER BY created DESC,id DESC LIMIT 1", profile, id);
@@ -270,15 +278,16 @@ export async function contactCommand(
   commandId: string = uid(),
 ) {
   if (operation === "contact.section") return saveCustomerSection(env, actor, profile, data, commandId);
+  if (operation === "contact.from-erp") {
+    await requireCustomerModule(env, actor, profile, "erp");
+    return bindFromErp(env, actor, profile, data.erpId, commandId);
+  }
   customerAccess(actor, profile, true);
   if (operation === "contact.promote") {
     await requireCustomerModule(env, actor, profile, "erp");
     return enrichLocal(env, actor, profile, data.id, { ...data, commandId }, "promote");
   }
-  if (operation === "contact.from-erp") {
-    await requireCustomerModule(env, actor, profile, "erp");
-    return bindFromErp(env, actor, profile, data.erpId, commandId);
-  }
+  if (operation === "contact.job-cancel") return cancelCustomerJob(env, actor, profile, data.id, data, commandId);
   if (operation === "contact.resolve-phone") return resolvePhone(env, actor, profile, data, commandId);
   if (operation === "contact.resolve-job") return resolveCustomerJob(env, actor, profile, data.id, data, commandId);
   if (operation === "contact.erasure") return eraseContact(env, actor, profile, data.id, data, commandId);
@@ -286,6 +295,7 @@ export async function contactCommand(
   if (["contact.create", "contact.import", "contact.from-conversation", "contact.unlink"].includes(operation)) {
     const replay = await replayJob(env, profile, commandId, legacyHash);
     if (replay) {
+      if (operation === "contact.import") return importResult(env, replay);
       const result = await unseal(env, replay.result_cipher);
       return result.contactId ? getContact(env, actor, profile, result.contactId) : result;
     }
@@ -316,7 +326,7 @@ export async function contactCommand(
     if (replay) return { ...await getContact(env, actor, profile, data.id), result: await writeResult(env, replay) };
     const old = await contactRow(env, actor, profile, data.id, true);
     activeContact(old);
-    const values = contactValues({ ...old, ...data }, { phoneOnly: !old.name && !!old.phone });
+    const values = { ...old, ...contactChanges(data, old.source === "automatic", old.phone) };
     const patch: CustomerWrite["patch"] = {};
     if ("name" in data) patch.name = values.name;
     if ("phone" in data) patch.phones = values.phone ? [values.phone] : [];
@@ -328,7 +338,7 @@ export async function contactCommand(
     };
     if (data.customer && ["name", "phone", "email", "document"].some(k => k in data))
       throw new ApiError(400, "invalid_request", "Envie os campos cadastrais em customer.patch.");
-    const local = "company" in data || "notes" in data ? { company: values.company, notes: values.notes } : undefined;
+    const local = "company" in data || "notes" in data ? { ...("company" in data ? { company: values.company } : {}), ...("notes" in data ? { notes: values.notes } : {}) } : undefined;
     const result = await enrichLocal(env, actor, profile, old.id, input, "enrich", local, !data.customer, { operation, data });
     return { ...await getContact(env, actor, profile, old.id), result };
   }
@@ -340,21 +350,12 @@ export async function contactCommand(
         "invalid_csv",
         `Nenhum contato foi importado. Corrija ${plan.errors.length} linha(s): linha ${plan.errors[0].line}, ${plan.errors[0].message}`,
       );
-    const additions = plan.rows.filter(row => !row.duplicate).map(row => ({
-      ...insertContact(actor, profile, contactNamespace(actor), row.values, "csv", row.fingerprint), values: row.values,
-    }));
-    const statements: Statement[] = phoneSafetyStatements(profile, contactNamespace(actor), additions.map(row => row.values.phone).filter(Boolean), commandId);
-    for (const row of additions) statements.push(row.statement, ...await identityPort.indexContact(env, {
-      profileId: profile, namespace: contactNamespace(actor), contactId: row.id,
-      phones: row.values.phone ? [row.values.phone] : [], origin: "local",
-    }));
-    // One D1 batch is atomic: a failed import cannot leave a partially imported file.
-    const result = { imported: additions.length, skipped: plan.skipped_count, total: plan.total };
-    await commitLocal(statements, null, contactNamespace(actor), result);
-    return result;
+    return enqueueImport(env, actor, profile, contactNamespace(actor), commandId, legacyHash,
+      plan.rows.filter(row => !row.duplicate), plan.skipped_count, plan.total);
   }
   if (["contact.from-conversation", "contact.unlink"].includes(operation)) {
     access(actor, profile, "conversations:read");
+    requireAccess(actor, "conversations");
     const conv = await one(
       env,
       "SELECT * FROM conversations WHERE id=? AND profile_id=?",
@@ -464,7 +465,7 @@ export async function contactCommand(
 
 // O registro recebe o operationId estável de perform, nunca o X-Request-Id.
 installWritePort({ enrich: enrichLocal, maintain: maintainJobs }, { default: true });
-for (const operation of ["contact.create", "contact.update", "contact.import", "contact.from-conversation", "contact.unlink", "contact.promote", "contact.from-erp", "contact.resolve-phone", "contact.erasure", "contact.section"])
+for (const operation of ["contact.create", "contact.update", "contact.import", "contact.from-conversation", "contact.unlink", "contact.promote", "contact.from-erp", "contact.resolve-phone", "contact.resolve-job", "contact.job-cancel", "contact.erasure", "contact.section"])
   registerCommand(operation, (env, actor, profile, data, operationId) => contactCommand(env, actor, profile, operation, data, operationId));
 for (const moduleId of Object.keys(customerProfileDeclarations))
   registerCommand(`${moduleId}.customer-section`, (env, actor, profile, data, operationId) =>
@@ -478,13 +479,18 @@ registerCommand("contact.maintain", async (env, actor, profile) => {
 
 /** Recupera intenção já gravada quando o recibo externo ficou sem resposta. */
 export async function recoverContactCommand(env: Env, actor: Actor, profile: string, operation: string, key: string) {
-  customerAccess(actor, profile, operation !== "contact.erasure");
+  customerAccess(actor, profile, operation !== "contact.erasure" && operation !== "contact.from-erp", operation === "contact.from-erp" ? "erp" : "contacts");
   const commandId = (await sha(`${actor.id}:${profile}:${operation}\n${key}`)).slice(0, 32);
+  if (operation === "contact.job-cancel") {
+    const cancelled = await one(env, "SELECT * FROM customer_jobs WHERE profile_id=? AND json_extract(cursor_json,'$.cancel.command')=?", profile, commandId);
+    return cancelled ? jobView(cancelled) : null;
+  }
   const job = await one(env, "SELECT * FROM customer_jobs WHERE profile_id=? AND command_id=? AND (?=1 OR namespace=?)", profile, commandId, actor.kind === "user" ? 1 : 0, contactNamespace(actor));
   if (!job) return null;
+  if (operation === "contact.import") return importResult(env, job);
   if (operation === "contact.erasure") {
     if (actor.kind !== "user" || actor.role !== "admin" || actor.via) throw new ApiError(403, "forbidden", "A exclusão exige um administrador.");
-    return { id: job.id, contactId: job.contact_id, state: job.state, errorCode: job.error_code, missingFields: [] };
+    return jobView(job);
   }
   const receipt = JSON.parse(job.cursor_json || "{}").receipt;
   if (receipt || operation === "contact.resolve-phone") {
