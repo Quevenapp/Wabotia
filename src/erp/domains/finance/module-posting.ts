@@ -3,7 +3,7 @@ import { raise } from "../../engine/errors.ts";
 import type { RpcArgs, RpcContext } from "../../engine/registry.ts";
 import { assertOwnEffect, execution, internalCommand, originScope, previousReceipt, requireOriginOperation, systemScope, targetOrigin, withOriginOperation, writeOriginAnchor, type ComponentState } from "../../engine/module-origin.ts";
 import { permitted } from "../access/public.ts";
-import { insertAudit, titleUpdateGuards, writeRow, captureFinance } from "./internal.ts";
+import { insertAudit, titleUpdateGuards, writeRow, captureFinance, linkedTitleGuard } from "./internal.ts";
 import { updateTitle } from "./titles.ts";
 import { canonical } from "../../../integrations/keys.ts";
 import { erpFinanceTitleExecute } from "./rpc/erp_finance_title_execute.ts";
@@ -50,7 +50,10 @@ export function moduleFinancePreviewGuard(ctx: RpcContext, preview: Data) {
 }
 export function moduleFinancialGuard(ctx: RpcContext, action: string | null, data: any) {
   const scope = originScope(ctx);
-  if (!scope) return;
+  if (!scope) {
+    if (["title_edit", "title_update", "title_delete", "title_cancel", "settle", "reverse"].includes(action ?? "")) linkedTitleGuard(ctx.db, data?.id);
+    return;
+  }
   const operations = { title_create: "title_create", settle: "title_settle", title_cancel: "title_cancel", reverse: "settlement_reverse" } as const;
   if (!action || !(action in operations) || scope.operation !== operations[action as keyof typeof operations]) raise("42501", "module_origin_denied");
   if (action === "title_create") {

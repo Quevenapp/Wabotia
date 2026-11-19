@@ -5,7 +5,7 @@ import { nextIdentity } from "../../../engine/sequence.ts";
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { execution, internalCommand, moduleReceipt, originAnchor, previousReceipt, writeModuleReceipt, writeOriginAnchor, withOriginOperation, type ComponentState } from "../../../engine/module-origin.ts";
-import { moduleDocumentBody, moduleStatus, nextComponent, requestedDestinations, validateModuleBody } from "../module-policy.ts";
+import { moduleCancellationBlocked, moduleDocumentBody, moduleStatus, nextComponent, requestedDestinations, validateModuleBody } from "../module-policy.ts";
 import { updateDocument } from "../rows.ts";
 import { erpDocumentSave } from "./erp_document_save.ts";
 import { cancelModuleTitles, createModuleTitles, postModuleDocument, requireManualDestinations, reverseModuleSettlements, settleModuleTitles } from "../../finance/module-posting.ts";
@@ -89,18 +89,31 @@ export function erpModuleApply(ctx: RpcContext) {
   if (document && Number(one(ctx.db, "SELECT total FROM erp_documents__document WHERE id=?", document)?.total) !== b.snapshot.total_cents)
     raise("40001", "module_total_mismatch");
   // Cancelar primeiro reverte os efeitos. Qualquer bloqueador desfaz toda a chamada.
+  let cancellationPending = false;
   if (b.operation === "cancel") {
+    // O sistema segue o histórico. A pessoa pode estornar só seu destino,
+    // mas esse estorno parcial jamais confirma o cancelamento do documento.
+    const mayReverse = (part: "stock" | "finance") => execution(ctx).evidence.mode === "system" || b.requested[part];
     if (document) {
-      if (destinations.finance && state.effects.some(e => e.kind === "finance_posting")) {
-        postModuleDocument(ctx, b, state, document, "finance", true); out.effects.finance = "reversed";
+      for (const part of ["finance", "stock"] as const) {
+        const posting = one(ctx.db, `SELECT id FROM erp_${part}__document_posting WHERE document_id=? AND state='active'`, document);
+        if (!posting) continue;
+        if (!state.effects.some(e => e.kind === `${part}_posting` && e.id === posting.id)) raise("42501", "module_origin_denied");
+        if (!mayReverse(part)) { cancellationPending = true; continue; }
+        postModuleDocument(ctx, b, state, document, part, true); out.effects[part] = "reversed";
       }
-      if (destinations.stock && state.effects.some(e => e.kind === "stock_posting")) {
-        postModuleDocument(ctx, b, state, document, "stock", true); out.effects.stock = "reversed";
-      }
-    } else if (destinations.finance && state.finance_posted) { cancelModuleTitles(ctx, b, state); out.effects.finance = "reversed"; }
+      if (!cancellationPending && moduleCancellationBlocked(ctx.db, document)) raise("40001", "module_cancellation_blocked");
+    } else if (state.effects.some(e => e.kind === "title")) {
+      if (mayReverse("finance")) { cancelModuleTitles(ctx, b, state); out.effects.finance = "reversed"; }
+      else cancellationPending = true;
+    }
+    if (cancellationPending) {
+      state.base_status = previous!.base_status;
+      out.outcome = "skipped"; out.reason_code = "module_cancellation_pending";
+    }
   }
-  if (document && ["prepare", "execute", "lifecycle", "cancel"].includes(b.operation)) {
-    const status = moduleStatus(b);
+  if (document && !cancellationPending && ["prepare", "execute", "lifecycle", "cancel"].includes(b.operation)) {
+    const status = moduleStatus(b, String(one(ctx.db, "SELECT status FROM erp_documents__document WHERE id=?", document)!.status));
     if (!status) raise("22023", "module_transition_invalid");
     withOriginOperation(ctx, "document_transition", [document], [], inner => {
       const row = one(inner.db, "SELECT * FROM erp_documents__document WHERE id=?", document)!;
@@ -136,7 +149,7 @@ export function erpModuleApply(ctx: RpcContext) {
     if (destinations.finance) { if (settleModuleTitles(ctx, b, state)) out.effects.finance = "settled"; }
     else out.effects.finance = ctx.parts.finance && execution(ctx).open.finance && !b.requested.finance ? "not_requested" : "skipped";
   }
-  if (b.operation === "reverse" && destinations.finance && reverseModuleSettlements(ctx, b, state)) out.effects.finance = "reversed";
+  if (b.operation === "reverse" && (execution(ctx).evidence.mode === "system" || destinations.finance) && reverseModuleSettlements(ctx, b, state)) out.effects.finance = "reversed";
   if (b.operation === "execute") state.executed = true;
   out.links = links(ctx, components);
   if (Object.values(out.effects).includes("skipped")) out.reason_code =

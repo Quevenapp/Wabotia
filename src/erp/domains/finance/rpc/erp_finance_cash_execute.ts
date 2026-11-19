@@ -5,6 +5,7 @@ import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
+import { linkedTitleGuard } from "../internal.ts";
 import {
   cents,
   day,
@@ -292,6 +293,7 @@ export function erpFinanceCashExecute(ctx: RpcContext, a: RpcArgs) {
       if (!m) raise("P0002", "erp_finance_not_found");
       if (["bank_fee", "bank_fee_reversal"].includes(String(m.kind))) raise("22023", "erp_finance_invalid_data");
       const s = one(db, 'SELECT id, title_id, reverses_id FROM "erp_finance__settlement" WHERE id=?', m.settlement_id)!;
+      linkedTitleGuard(db, s.title_id);
       const kind = String(one(db, 'SELECT kind FROM "erp_finance__title" WHERE id=?', s.title_id)!.kind);
       category = cashCategory(db, field(data, "category_id"), kind);
       const target = String(s.reverses_id ?? s.id);

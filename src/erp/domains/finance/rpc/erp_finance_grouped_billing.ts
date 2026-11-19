@@ -14,6 +14,7 @@ import { erpEntityRequirement } from "../../../parts-requirements.ts";
 import { nextIdentity } from "../../../engine/sequence.ts";
 import { todaySaoPaulo } from "../../../engine/time.ts";
 import { guardTrashChild, mirrorRequireVisible as documentsMirrorRequireVisible, requireAccess as documentsAccess } from "../../documents/public.ts";
+import { linkedDocumentGuard } from "../../documents/module-policy.ts";
 import { uuidIn } from "../../../engine/args.ts";
 import {
   bool,
@@ -141,6 +142,7 @@ function generate(ctx: RpcContext, data: unknown, user: string, command: string)
   for (const inv of invoiceIds)
     for (const o of db.exec('SELECT document_id FROM "erp_fiscal_invoices__invoice_order" WHERE invoice_id=?', inv).rows) documentIds.add(String(o.document_id));
   if (documentIds.size + invoiceIds.length > 500) raise("22023", "erp_finance_invalid_items");
+  for (const id of documentIds) linkedDocumentGuard(db, id);
   const created: unknown[] = [];
   for (const item of items as unknown[]) {
     const contact = uuidValue(field(item, "contact_id"))!;

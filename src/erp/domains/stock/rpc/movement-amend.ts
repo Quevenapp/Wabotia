@@ -7,6 +7,7 @@ import { registerRpc } from "../../../engine/registry.ts";
 import { pgBtrim, pgHasCntrl, pgLength } from "../../../engine/text.ts";
 import { jsonTimestamp } from "../../../engine/time.ts";
 import { allowed } from "../../documents/public.ts";
+import { linkedDocumentGuard } from "../../documents/module-policy.ts";
 import { commandTaken, requireAccess, reservationWriteAccess, sha256 } from "../internal.ts";
 import { ledgerDocumentPrice, ledgerOrigin, priceText } from "../ledger.ts";
 import { entryPriceCheck, price105 } from "./launch.ts";
@@ -30,7 +31,8 @@ registerRpc("erp_stock_movement_amend", (ctx, a) => {
   if (commandTaken(db, command)) raise("40001", "erp_stock_amend_conflict");
   if (!one(db, 'SELECT 1 x FROM "erp_stock__entry" WHERE movement_id=? AND product_id=?', movement, product))
     raise("P0002", "erp_stock_movement_not_found");
-  const kind = ledgerOrigin(db, movement).document_kind;
+  const origin = ledgerOrigin(db, movement), kind = origin.document_kind;
+  if (origin.via === "document_stock") linkedDocumentGuard(db, origin.document_id);
   if (kind !== null && !allowed(String(one(db, 'SELECT role FROM "erp_access__membership" WHERE user_id=? AND active=1', user)?.role), kind, false))
     raise("42501", "erp_stock_amend_access_denied");
   const d = one(db, 'SELECT * FROM "erp_stock__movement_detail" WHERE movement_id=? AND product_id=? ORDER BY revision DESC LIMIT 1', movement, product);

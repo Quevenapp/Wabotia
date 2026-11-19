@@ -3,7 +3,7 @@ import { canonical, hash } from "../../../integrations/keys.ts";
 import { one, type SqlDriver } from "../../engine/driver.ts";
 import { raise, ErpError } from "../../engine/errors.ts";
 import type { RpcArgs, RpcContext } from "../../engine/registry.ts";
-import { execution, originScope, targetOrigin, requireOriginOperation, previousReceipt, driverContext, type ComponentState } from "../../engine/module-origin.ts";
+import { execution, originAnchor, originScope, targetOrigin, requireOriginOperation, previousReceipt, driverContext, type ComponentState } from "../../engine/module-origin.ts";
 
 export interface ModuleBody {
   operation: IntegrationOperation; route: "work" | "sale" | "title"; snapshot: CommercialSnapshot; policy: CommercialPolicy;
@@ -24,9 +24,10 @@ const WORK_NEXT: Record<string, string[]> = {
 function keys(value: unknown, allowed: string[]) {
   if (!own(value) || Object.keys(value).some(k => !allowed.includes(k))) invalid();
 }
-export const moduleStatus = (b: ModuleBody) => b.route === "work" ? WORK[b.snapshot.lifecycle.base_status] : b.operation === "cancel" ? "cancelled" : b.operation === "execute" ? "in_progress" : "open";
+export const moduleStatus = (b: ModuleBody, current?: string) => b.route === "work" ? WORK[b.snapshot.lifecycle.base_status] :
+  b.operation === "cancel" ? "cancelled" : b.operation === "execute" ? "in_progress" : current ?? "open";
 export function validateModuleBody(ctx: RpcContext): ModuleBody {
-  const { request: r, event } = execution(ctx), b = r.body as unknown as ModuleBody, s = b.snapshot;
+  const { request: r, event } = execution(ctx), b = structuredClone(r.body) as unknown as ModuleBody, s = b.snapshot;
   if (Object.keys(r.body).some(k => !["operation", "route", "snapshot", "policy", "eligible", "requested", "epochs", "occurred_ms", "receipt", "reason_code", "mode"].includes(k))) invalid();
   keys(s, ["schema", "source", "source_revision", "contact_id", "customer_ref", "privacy", "description", "issued_on", "items", "total_cents", "freight_cents", "discount_cents", "installments", "policy_version", "lifecycle", "technical"]);
   keys(s.lifecycle, ["base_status", "stage_id", "quote_version", "authorization", "authorized_at", "first_execution_at", "delivered_at", "warranty_until"]);
@@ -44,12 +45,34 @@ export function validateModuleBody(ctx: RpcContext): ModuleBody {
     if (!original || !same(item, original) && !(item.product_id === null && item.kind === "free" && same({ ...item, kind: original.kind, product_id: original.product_id }, original))) invalid();
     return original;
   }) };
-  if (!same(projected, event.snapshot) || !s.contact_id || !/^[0-9a-f-]{36}$/.test(s.contact_id) ||
+  if (!same(projected, event.snapshot)) invalid();
+  const previous = previousReceipt(ctx)?.components[r.source.component];
+  const document = originAnchor(ctx.db, r.source, "document");
+  const linked = document ? one(ctx.db, "SELECT contact_id,warehouse_id FROM erp_documents__document WHERE id=?", document.target.id) : null;
+  const titles = (previous?.effects ?? []).filter(e => e.kind === "title").map(e => {
+    if (!same(targetOrigin(ctx.db, "title", e.id)?.source, r.source)) raise("42501", "module_origin_denied");
+    return one(ctx.db, "SELECT contact_id,category_id,payment_method_id FROM erp_finance__title WHERE id=?", e.id);
+  });
+  if (["cancel", "reverse", "lifecycle"].includes(b.operation) && previous) {
+    const contact = linked?.contact_id ?? titles[0]?.contact_id;
+    if (!contact || titles.some(t => t?.contact_id !== contact) || s.contact_id !== null && s.contact_id !== contact) invalid();
+    s.contact_id = String(contact);
+  }
+  // Padrões pertencem ao componente criado, não à política vigente. Recibos
+  // anteriores a esta guarda recuperam os parâmetros que existem nas linhas.
+  if (previous) b.policy = { ...b.policy,
+    warehouse_id: previous.parameters ? previous.parameters.warehouse_id : linked ? linked.warehouse_id as string | null : b.policy.warehouse_id,
+    // Financeiro ainda não lançado pode receber seus primeiros padrões válidos.
+    ...(previous.finance_posted ? {
+      revenue_category_id: previous.parameters ? previous.parameters.revenue_category_id : titles[0]?.category_id as string | null,
+      payment_method_id: previous.parameters ? previous.parameters.payment_method_id : titles[0]?.payment_method_id as string | null,
+    } : {}),
+  };
+  if (!s.contact_id || !/^[0-9a-f-]{36}$/.test(s.contact_id) ||
       s.privacy === "adult_payer_only" && (s.technical !== null || s.description !== "Serviço contratado" || s.items.some(i => i.description !== "Serviço contratado"))) invalid();
   for (const value of [s.total_cents, s.freight_cents, s.discount_cents, ...s.items.map(i => i.unit_cents), ...s.installments.map(i => i.amount_cents)])
     if (!Number.isSafeInteger(value) || value < 0) invalid();
   let total = 0n;
-  const previous = previousReceipt(ctx)?.components[r.source.component];
   const ids = new Set<string>();
   for (const item of s.items) {
     keys(item, ["id", "description", "quantity", "unit_cents", "unit", "kind", "product_id"]);
@@ -93,12 +116,15 @@ export function validateModuleBody(ctx: RpcContext): ModuleBody {
 export function commercialHash(b: ModuleBody): string {
   const s = b.snapshot;
   return hash({ contact_id: s.contact_id, items: s.items, total: s.total_cents, freight: s.freight_cents, discount: s.discount_cents,
-    installments: s.installments, issued_on: s.issued_on, warehouse: b.policy.warehouse_id, description: s.description, technical: s.technical });
+    installments: s.installments, issued_on: s.issued_on, ...(b.route !== "title" ? { warehouse: b.policy.warehouse_id } : {}), description: s.description, technical: s.technical });
 }
 export function nextComponent(b: ModuleBody, previous?: ComponentState): ComponentState {
   const lifecycle = b.snapshot.lifecycle;
-  if (previous && (previous.stock_posted || previous.finance_posted) && previous.commercial_hash !== commercialHash(b)) raise("40001", "module_commercial_frozen");
-  return { snapshot: b.snapshot, executed: previous?.executed ?? false, commercial_hash: commercialHash(b), first_execution_at: previous?.first_execution_at ?? lifecycle.first_execution_at,
+  const priorHash = previous && (previous.parameters ? previous.commercial_hash : commercialHash({ ...b, snapshot: previous.snapshot }));
+  if (previous && (previous.stock_posted || previous.finance_posted) && priorHash !== commercialHash(b)) raise("40001", "module_commercial_frozen");
+  const { warehouse_id, revenue_category_id, payment_method_id } = b.policy;
+  return { snapshot: b.snapshot, parameters: { warehouse_id: b.route === "title" ? null : warehouse_id, revenue_category_id, payment_method_id },
+    executed: previous?.executed ?? false, commercial_hash: commercialHash(b), first_execution_at: previous?.first_execution_at ?? lifecycle.first_execution_at,
     delivered_at: previous?.delivered_at ?? lifecycle.delivered_at, warranty_until: lifecycle.warranty_until,
     stock_posted: previous?.stock_posted ?? false, finance_posted: previous?.finance_posted ?? false,
     effects: previous?.effects.map(e => ({ ...e })) ?? [], base_status: lifecycle.base_status, source_revision: b.snapshot.source_revision };
@@ -132,6 +158,24 @@ export function linkedDocumentGuard(db: SqlDriver, id: unknown, ctx?: RpcContext
   if (!scope) raise("42501", "module_document_read_only");
   requireOriginOperation(ctx!, scope.operation, id);
 }
+/** Uma nota vinculada não cria uma segunda autoridade sobre os efeitos da venda. */
+export function linkedInvoiceDocumentsGuard(db: SqlDriver, invoice: unknown): void {
+  if (typeof invoice !== "string") return;
+  for (const row of db.exec("SELECT document_id FROM erp_fiscal_invoices__invoice_order WHERE invoice_id=?", invoice.toLowerCase()).rows)
+    linkedDocumentGuard(db, row.document_id);
+}
+/** Inclui efeitos históricos que o executor não pode adotar nem estornar. */
+export function moduleCancellationBlocked(db: SqlDriver, document: string): boolean {
+  return !!one(db, `SELECT 1 FROM erp_stock__document_posting WHERE document_id=? AND state='active'
+    UNION ALL SELECT 1 FROM erp_finance__document_posting WHERE document_id=? AND state='active'
+    UNION ALL SELECT 1 FROM erp_finance__grouped_billing_document WHERE document_id=? AND active=1
+    UNION ALL SELECT 1 FROM erp_stock__reservation WHERE document_id=? AND state='active'
+    UNION ALL SELECT 1 FROM erp_fiscal_invoices__invoice_order o WHERE o.document_id=? AND (
+      EXISTS(SELECT 1 FROM erp_finance__invoice_posting p WHERE p.invoice_id=o.invoice_id AND p.state='active') OR
+      EXISTS(SELECT 1 FROM erp_stock__invoice_posting p WHERE p.invoice_id=o.invoice_id AND p.state='active') OR
+      EXISTS(SELECT 1 FROM erp_finance__grouped_billing_invoice g WHERE g.invoice_id=o.invoice_id AND g.active=1)) LIMIT 1`,
+    document, document, document, document, document);
+}
 export function operationalChangeAllowed(ctx: RpcContext | undefined, o: Record<string, unknown>, n: Record<string, unknown>): boolean {
   if (!ctx || !originScope(ctx) || !targetOrigin(ctx.db, "document", String(o.id))) return false;
   requireOriginOperation(ctx, originScope(ctx)!.operation, String(o.id));
@@ -140,7 +184,8 @@ export function operationalChangeAllowed(ctx: RpcContext | undefined, o: Record<
   if (o.status === n.status) return true;
   if (originScope(ctx)!.operation !== "document_transition") return false;
   const b = execution(ctx).request.body as unknown as ModuleBody;
-  return n.status === moduleStatus(b);
+  if (n.status === "cancelled" && moduleCancellationBlocked(ctx.db, String(o.id))) return false;
+  return n.status === moduleStatus(b, String(o.status));
 }
 export function guardModuleRow(ctx: RpcContext, old: Record<string, unknown> | null, row: Record<string, unknown>) {
   if (!old) {
