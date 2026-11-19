@@ -4,6 +4,8 @@ export type PanelErpRole =
   | "vendas" | "estoque" | "fiscal";
 
 export interface ManagementItem {
+  /** Exclusão pela casa única e pela entrada portável; não concede acesso. */
+  hidden_when_modules_enabled?: readonly string[];
   id: string;
   module: string;
   /** Requisitos adicionais à parte proprietária, sem conceder papel. */

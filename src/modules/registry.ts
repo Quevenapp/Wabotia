@@ -1,3 +1,5 @@
+import { activationStatements } from "../integrations/activation";
+import { INTEGRATION_MENU_EXCLUSIONS } from "../integrations/registry";
 // Registro dos módulos embutidos e estado ligado/desligado por área de
 // atendimento (tabela profile_modules, migração 0020). Contrato:
 // docs/MODULOS.md. Este arquivo só depende do banco: service.ts, index.ts e o
@@ -222,7 +224,10 @@ export function moduleView(m: ModuleDefinition, enabled: boolean) {
     builtin: m.builtin,
     enabled,
     navigation: m.navigation,
-    management: m.management ?? [],
+    management: (m.management ?? []).map(item => ({ ...item,
+      ...(INTEGRATION_MENU_EXCLUSIONS[item.id] ? { hidden_when_modules_enabled: INTEGRATION_MENU_EXCLUSIONS[item.id] } : {}),
+    })),
+    integration: m.integration ?? null,
     customer_profile: m.customer_profile ?? customerProfileDeclarations[m.id] ?? null,
     menu_item_types: m.menu_item_types,
     events: m.events,
@@ -298,10 +303,10 @@ export async function moduleCommand(
   }
   const changes = [definition.id, ...cascade].map(id => ({ id, enabled: id === definition.id ? data.enabled : false }));
   const updated = now();
-  await batch(env, changes.map(({ id, enabled }) => [
+  await batch(env, [...changes.map(({ id, enabled }): [string, unknown[]] => [
     "INSERT INTO profile_modules(profile_id,module_id,enabled,updated,updated_by) VALUES(?,?,?,?,?) ON CONFLICT(profile_id,module_id) DO UPDATE SET enabled=excluded.enabled,updated=excluded.updated,updated_by=excluded.updated_by",
     [profile, id, enabled ? 1 : 0, updated, actor.id],
-  ]));
+  ]), ...activationStatements(profile, changes.map(change => ({ module_id: change.id, enabled: change.enabled })), updated)]);
   const erp_sync = await syncErpParts(env, profile);
   for (const { id, enabled } of changes) {
     const target = moduleById(id)!;

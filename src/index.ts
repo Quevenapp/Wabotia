@@ -1,3 +1,6 @@
+import { integrationCommand, registerIntegrationRoutes } from "./integrations/routes";
+import { drainIntegrationOutbox } from "./integrations/consumer";
+import { logIntegrationError } from "./integrations/privacy";
 import { resumeCustomerMaintenance } from "./customer/ports";
 import { ensinoNoStore } from "./modules/ensino/http";
 import { mountInternalApi, takeInternalActor } from "./internal-api";
@@ -1518,6 +1521,13 @@ async function mutate(c: any, op: string, profile: string, data: any) {
   );
   if (profile !== "_admin" && !canProfile(c.get("actor"), profile))
     throw new ApiError(404, "not_found", "Perfil não encontrado.");
+  // Operações comuns têm CAS/recibo próprios. O eventual RPC humano fica fora
+  // do bloqueio do Coordinator que atende as conversas da área.
+  if (op.startsWith("integration.")) {
+    const result = await integrationCommand(c.env, c.get("actor"), profile, op, data, key);
+    c.executionCtx.waitUntil(drainIntegrationOutbox(c.env, profile).catch(logIntegrationError));
+    return Response.json(result, { status: ["integration.retry", "integration.replace", "integration.post"].includes(op) ? 202 : 200, headers: { "Cache-Control": "no-store" } });
+  }
   const response = await c.env.COORDINATOR.get(c.env.COORDINATOR.idFromName(profile)).fetch(
     "https://coordinator/command",
     {
@@ -1541,6 +1551,7 @@ async function mutate(c: any, op: string, profile: string, data: any) {
   }
   return response;
 }
+registerIntegrationRoutes(app, mutate);
 app.get("/api/v1/system", async (c) => {
   admin(c.get("actor"));
   return c.json({

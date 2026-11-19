@@ -1,3 +1,4 @@
+import { activationStatements } from "./integrations/activation";
 import { syncErpParts } from "./modules/erp/parts-state";
 import {
   all,
@@ -1964,6 +1965,7 @@ export async function commitSettingsPlan(
     "INSERT INTO profile_modules(profile_id,module_id,enabled,updated,updated_by) VALUES(?,?,?,?,?) ON CONFLICT(profile_id,module_id) DO UPDATE SET enabled=excluded.enabled,updated=excluded.updated,updated_by=excluded.updated_by",
     [plan.profile, change.id, change.enabled ? 1 : 0, now(), actor.id],
   ]);
+  statements.push(...activationStatements(plan.profile, plan.module_changes.map(change => ({ module_id: change.id, enabled: change.enabled })), now()));
   if (plan.removed_departments.length && !plan.keep_department_conversations) statements.push([
     `UPDATE conversations SET department_id=NULL,updated=? WHERE profile_id=? AND state!='closed' AND department_id IN (${plan.removed_departments.map(() => "?").join(",")})`,
     [now(), plan.profile, ...plan.removed_departments],

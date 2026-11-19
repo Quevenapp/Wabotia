@@ -1,3 +1,5 @@
+import { drainIntegrationOutbox } from "../integrations/consumer";
+import { logIntegrationError } from "../integrations/privacy";
 // Rodada periódica dos módulos (docs/MODULOS.md, onSchedule). Chamada pelo
 // alarme do Coordinator de cada área; o cron de 5 minutos do Worker acorda
 // todas as áreas, então cada módulo ligado roda ao menos a cada 5 minutos.
@@ -25,6 +27,10 @@ export async function runModuleSchedules(
   profile: string,
   now: number,
 ): Promise<ScheduleOutcome[]> {
+  // Independente de produtores/agendadores instalados; recupera concessões e
+  // resultados cuja resposta se perdeu sem bloquear atendimento do WhatsApp.
+  try { await drainIntegrationOutbox(env, profile); }
+  catch (error) { logIntegrationError(error); }
   // Pedidos de aprovação vencidos (src/approvals.ts): o módulo decide ou o
   // cliente é avisado e vai para a equipe. Uma consulta por rodada. As
   // propostas do bot vencem na leitura e na confirmação, sem rodada.

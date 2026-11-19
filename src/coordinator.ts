@@ -1,3 +1,5 @@
+import { drainIntegrationOutbox } from "./integrations/consumer";
+import { logIntegrationError } from "./integrations/privacy";
 import { DurableObject } from "cloudflare:workers";
 import { type Env, type Actor, type Run, ApiError, now, json } from "./types";
 import {
@@ -487,7 +489,10 @@ export class Coordinator extends DurableObject<Env> {
           headers: { "Server-Timing": serverTiming(timing) },
         });
       });
-      if (commandResult instanceof Response) return commandResult;
+      if (commandResult instanceof Response) {
+        this.ctx.waitUntil(drainIntegrationOutbox(this.env, this.profile).catch(logIntegrationError));
+        return commandResult;
+      }
       try {
         let authorization = "";
         // A política do registro ERP pode exigir RPC: também fora do bloqueio.
