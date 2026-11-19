@@ -18,9 +18,7 @@ export function integrationAccess(context: ManagementContext) {
   const moduleAllowed = (module: IntegrationModule) => base && localModule(module);
   const localWrite = (module: IntegrationModule) => localModule(module) &&
     (context.role === "admin" || context.access === null || context.access.includes("*") || context.access.some(grant => grant === module || grant.startsWith(module + ":")));
-  // A9 retorna a política inteira, inclusive referências de contas. Até existir
-  // uma projeção por destino, Estoque sem Financeiro não carrega esse DTO.
-  return { base, finance, products, stock, documents, localWrite, localFinance: role === "admin" || role === "financeiro", policy: base && (finance || context.role === "admin" && stock), configure: base && context.role === "admin", postStock: stock && (role === "admin" || role === "estoque"),
+  return { base, finance, products, stock, documents, localWrite, localFinance: role === "admin" || role === "financeiro", policy: base && (finance || stock && (role === "admin" || role === "estoque")), configure: base && context.role === "admin", postStock: stock && (role === "admin" || role === "estoque"),
     module: (module: IntegrationModule) => moduleAllowed(module),
     write: (module: IntegrationModule) => moduleAllowed(module) &&
       (context.role === "admin" || context.access === null || context.access.includes("*") || context.access.some(grant => grant === module || grant.startsWith(module + ":"))),

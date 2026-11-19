@@ -321,8 +321,17 @@ Desligado por padrão; uso em [ORDEM-DE-SERVICO.md](ORDEM-DE-SERVICO.md). Rotas 
 | `PUT /service-orders/{id}/quote` | `{"items":[{"description","quantity","unit_cents"}],"valid_days","note"}`; orçamento já enviado volta para `analyzing` |
 | `POST /service-orders/{id}/quote/send` | Envia ao cliente e passa a `quoted`; `{"notify":false}` só registra (sem conversa: `409 no_conversation`) |
 | `POST /service-orders/{id}/decision` | `{"decision":"approve"\|"decline"}` em nome do cliente; vencido: `409 quote_expired`; fora de `quoted`: `409 quote_not_pending` |
+| `GET /service-orders/{id}/commercial` | Parte comercial: `version` pública, `revision` comercial, `frozen`, `items`, `installments`, `total_cents`, `authorization`, situação e confirmação. Respeita a autorização do trabalho. |
+| `PATCH /service-orders/{id}/commercial` | `version` pública obrigatória; campos comerciais explícitos antes dos efeitos. Preço fixo: `{"version":3,"authorize_fixed_price":true}`. `409 commercial_frozen` após efeitos ou durante execução incerta. |
 
 Também pela conversa: `POST /profiles/{perfil}/conversations/{id}/actions` com `{"action":"service_order","item":"…","problem":"…"}` abre ligada à conversa, e `{"action":"service_order","send_form":true}` manda ao cliente o link para ele preencher (conversa assumida). Estados: `received`, `analyzing`, `quoted`, `approved`, `declined`, `in_progress`, `ready`, `delivered`, `cancelled`; cada ordem traz `next_statuses`. Valores em centavos e datas em milissegundos. Eventos: `os.opened`, `os.quoted`, `os.approved`, `os.declined` (com `by` e `via`), `os.status_changed` (`from`, `to`, `actor`), `os.delivered` (`warranty_until`) e `os.stale` (ordem parada), entregues aos webhooks com `conversations:read`.
+
+Na fase 3, aprovação prepara o documento; a primeira execução autorizada pode
+lançar Estoque/Financeiro conforme partes, época e automação. O atendimento
+grava saída no D1 e não espera o ERP. Regressão de pronta para execução não
+relança; entrega não é pagamento. As rotas comuns em `/integrations` tratam
+pendência, repetição, fechamento, lançamento manual e catálogo. Contratos,
+evidências e pendências de liberação em [FASE-3-INTEGRACOES.md](FASE-3-INTEGRACOES.md).
 
 ### Motor de trabalhos
 

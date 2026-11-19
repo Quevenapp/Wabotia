@@ -17,27 +17,38 @@ export function commercialReceiptStatements(receipt: CommercialReceipt): Stateme
   [receipt.profile_id, receipt.receipt_key, receipt.source_id, receipt.evidence_hash].forEach(opaque);
   if ((receipt.kind === "reverse") !== !!receipt.reverses_key || (receipt.evidence === "manual" && !receipt.actor_id)) throw new IntegrationError("invalid_request", 400);
   const fields = Object.keys(receipt), values = Object.values(receipt);
-  const statements: Statement[] = [];
-  if (receipt.kind === "reverse") statements.push([
-    `SELECT CASE WHEN EXISTS(SELECT 1 FROM module_commercial_receipts WHERE profile_id=? AND receipt_key=? AND kind='receive' AND owner_module=? AND source_id=? AND amount_cents=?) THEN 1 ELSE json('integration_receipt_conflict') END`,
-    [receipt.profile_id, receipt.reverses_key, receipt.owner_module, receipt.source_id, receipt.amount_cents],
-  ]);
-  statements.push([
-    `INSERT INTO module_commercial_receipts(${fields.join(",")}) VALUES(${fields.map(() => "?").join(",")}) ON CONFLICT(profile_id,receipt_key) DO NOTHING`, values,
-  ], [
-    `SELECT CASE WHEN EXISTS(SELECT 1 FROM module_commercial_receipts WHERE ${fields.map(f => `${f} IS ?`).join(" AND ")}) THEN 1 ELSE json('integration_receipt_conflict') END`, values,
-  ]);
-  return statements;
+  // O UPSERT compara todo o fato e falha dentro da própria escrita. Mesmo
+  // número de linhas não é prova de replay: nenhum campo pode divergir.
+  // Replay usa WHERE falso: os triggers imutáveis nunca recebem UPDATE.
+  const reverse = receipt.kind === "reverse";
+  return [[
+    `INSERT INTO module_commercial_receipts(${fields.join(",")})
+     SELECT ${fields.map(f => reverse && f === "amount_cents"
+       ? "CASE WHEN EXISTS(SELECT 1 FROM module_commercial_receipts WHERE profile_id=? AND receipt_key=? AND kind='receive' AND owner_module=? AND source_id=? AND amount_cents=?) THEN ? ELSE json('integration_receipt_conflict') END" : "?").join(",")} WHERE 1
+     ON CONFLICT(profile_id,receipt_key) DO UPDATE SET evidence_hash=excluded.evidence_hash
+       WHERE CASE WHEN ${fields.map(f => `module_commercial_receipts.${f} IS excluded.${f}`).join(" AND ")}
+       THEN 0 ELSE json('integration_receipt_conflict') END`,
+    fields.flatMap((f, i) => reverse && f === "amount_cents"
+      ? [receipt.profile_id, receipt.reverses_key, receipt.owner_module, receipt.source_id, receipt.amount_cents, receipt.amount_cents] : [values[i]]),
+  ]];
 }
 export function allocationStatements(source: SourceRef, receiptKey: string, allocationKey: string, cents: number): Statement[] {
   integer(cents, 1);
-  const values = [source.profile, receiptKey, allocationKey, source.module, source.source_id, source.component, cents];
-  return [
-    [`INSERT INTO module_erp_allocations(profile_id,receipt_key,allocation_key,module_id,source_id,component,amount_cents) VALUES(?,?,?,?,?,?,?) ON CONFLICT(profile_id,receipt_key,allocation_key) DO NOTHING`, values],
-    [`SELECT CASE WHEN EXISTS(SELECT 1 FROM module_erp_allocations WHERE profile_id=? AND receipt_key=? AND allocation_key=? AND module_id=? AND source_id=? AND component=? AND amount_cents=?) THEN 1 ELSE json('integration_allocation_conflict') END`, values],
-    [`SELECT CASE WHEN (SELECT COALESCE(sum(amount_cents),0) FROM module_erp_allocations WHERE profile_id=? AND receipt_key=?) <= (SELECT amount_cents FROM module_commercial_receipts WHERE profile_id=? AND receipt_key=?) THEN 1 ELSE json('integration_allocation_excess') END`, [source.profile, receiptKey, source.profile, receiptKey]],
-  ];
+  return [[
+    `INSERT INTO module_erp_allocations(profile_id,receipt_key,allocation_key,module_id,source_id,component,amount_cents)
+     VALUES(?,?,?,?,?,?,CASE WHEN
+       ?+(SELECT COALESCE(sum(amount_cents),0) FROM module_erp_allocations WHERE profile_id=? AND receipt_key=? AND allocation_key<>?)
+       <=(SELECT amount_cents FROM module_commercial_receipts WHERE profile_id=? AND receipt_key=?)
+       THEN ? ELSE json('integration_allocation_excess') END)
+     ON CONFLICT(profile_id,receipt_key,allocation_key) DO UPDATE SET amount_cents=excluded.amount_cents
+       WHERE CASE WHEN module_erp_allocations.module_id=excluded.module_id AND module_erp_allocations.source_id=excluded.source_id
+         AND module_erp_allocations.component=excluded.component AND module_erp_allocations.amount_cents=excluded.amount_cents
+       THEN 0 ELSE json('integration_allocation_conflict') END`,
+    [source.profile, receiptKey, allocationKey, source.module, source.source_id, source.component,
+      cents, source.profile, receiptKey, allocationKey, source.profile, receiptKey, cents],
+  ]];
 }
+
 export async function allocatedReceipt(env: Env, source: SourceRef, key: string) {
   const receipt = await one<CommercialReceipt>(env, "SELECT * FROM module_commercial_receipts WHERE profile_id=? AND receipt_key=?", source.profile, key);
   const allocated = await one(env, "SELECT sum(amount_cents) amount_cents FROM module_erp_allocations WHERE profile_id=? AND receipt_key=? AND module_id=? AND source_id=? AND component=?", source.profile, key, source.module, source.source_id, source.component);

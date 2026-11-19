@@ -31,5 +31,5 @@ export function useDocumentOrigins(ids: readonly string[]) {
     protectedIds: host ? ids.filter(id => knownLinked.has(JSON.stringify([host.root, id]))) : [], error: current?.error ?? "" };
 }
 export function DocumentOriginNotice({ origin }: { origin: DocumentOrigin }) {
-  return <p>Documento vinculado · somente leitura. <a href={sourceHref(origin.source)}>{origin.source.module === "os" ? "Abrir trabalho" : origin.source.module === "mesas" ? "Abrir conta" : origin.source.module === "pedido" ? "Abrir pedido" : "Abrir origem"}</a></p>;
+  return <p>Documento vinculado · somente leitura. {origin.source && <a href={sourceHref(origin.source)}>{origin.source.module === "os" ? "Abrir trabalho" : origin.source.module === "mesas" ? "Abrir conta" : origin.source.module === "pedido" ? "Abrir pedido" : "Abrir origem"}</a>}</p>;
 }

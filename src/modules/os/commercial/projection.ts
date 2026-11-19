@@ -69,10 +69,15 @@ export async function workPrivacy(ctx: ModuleContext, row: any): Promise<Commerc
   return sensitiveArea ? "adult_payer_only" : "commercial";
 }
 export async function readWorkIntegration(ctx: ModuleContext, row: any) {
-  const source = await one(ctx.env, "SELECT * FROM module_erp_sources WHERE profile_id=? AND module_id='os' AND source_id=?", ctx.profile, row.id);
-  const events = await all(ctx.env, `SELECT e.seq,e.payload_json,d.state,d.receipt_json,r.body_json FROM module_erp_events e
-    JOIN module_erp_delivery d ON d.event_id=e.id LEFT JOIN module_erp_requests r ON r.event_id=e.id
-    WHERE e.profile_id=? AND e.module_id='os' AND e.source_id=? ORDER BY e.seq`, ctx.profile, row.id);
+  const stored = await one(ctx.env, `SELECT s.*,(SELECT json_group_array(json_object('seq',seq,'payload_json',payload_json,
+    'state',state,'receipt_json',receipt_json,'body_json',body_json)) FROM (
+      SELECT e.seq,e.payload_json,d.state,d.receipt_json,r.body_json FROM module_erp_events e
+      JOIN module_erp_delivery d ON d.event_id=e.id LEFT JOIN module_erp_requests r ON r.event_id=e.id
+      WHERE e.profile_id=s.profile_id AND e.module_id=s.module_id AND e.source_id=s.source_id ORDER BY e.seq
+    )) events_json FROM module_erp_sources s WHERE s.profile_id=? AND s.module_id='os' AND s.source_id=?`, ctx.profile, row.id);
+  const { events_json, ...sourceData } = stored ?? {};
+  const source = stored ? sourceData : null;
+  const events: any[] = JSON.parse(events_json ?? "[]");
   const active = { stock: false, finance: false };
   let uncertain = false;
   for (const event of events) {
@@ -90,12 +95,13 @@ export async function readWorkIntegration(ctx: ModuleContext, row: any) {
   };
 }
 export type WorkIntegration = Awaited<ReturnType<typeof readWorkIntegration>>;
+export interface WorkCatalogChange { component: string; product_id: string | null }
 export async function projectWork(ctx: ModuleContext, row: any, revision: number,
-  options: { products: boolean; policy: Awaited<ReturnType<typeof ensureCommercialPolicy>>; integration: WorkIntegration; privacy: CommercialSnapshot["privacy"] },
+  options: { products: boolean; policy: Awaited<ReturnType<typeof ensureCommercialPolicy>>; integration: WorkIntegration; privacy: CommercialSnapshot["privacy"]; catalogChange?: WorkCatalogChange },
 ): Promise<CommercialSnapshot> {
   const local = commercialOf(row), { policy, integration, privacy } = options;
   const sensitive = privacy === "adult_payer_only", items = stableQuoteItems(row);
-  const links = options.products && !integration.frozen ? await all(ctx.env,
+  const links = items.length && options.products && !integration.frozen ? await all(ctx.env,
     "SELECT component,erp_item_id FROM module_erp_catalog_links WHERE profile_id=? AND module_id='os' AND record_kind='quote_item' AND record_id=?", ctx.profile, row.id) : [];
   let customer_ref: string | null = local.customer_ref ?? row.contact_id ?? null, contact_id: string | null = null;
   if (sensitive) customer_ref = local.adult_payer_confirmed ? local.customer_ref ?? null : null;
@@ -121,7 +127,8 @@ export async function projectWork(ctx: ModuleContext, row: any, revision: number
     issued_on: saoPauloDate(row.created),
     items: items.map(i => ({ id: i.id!, description: sensitive ? "Serviço contratado" : i.description,
       quantity: String(i.quantity), unit_cents: i.unit_cents, unit: sensitive ? "UN" : i.unit!,
-      kind: options.products ? i.kind! : "free", product_id: options.products && i.kind !== "free" ? links.find(l => l.component === i.id)?.erp_item_id ?? null : null })),
+      kind: options.products ? i.kind! : "free", product_id: options.products && i.kind !== "free"
+        ? options.catalogChange && options.catalogChange.component === i.id ? options.catalogChange.product_id : links.find(l => l.component === i.id)?.erp_item_id ?? null : null })),
     total_cents: total, freight_cents: 0, discount_cents: 0,
     installments: local.installments?.length ? local.installments.map(i => ({ ...i,
       key: sensitive ? uuid5(LINE_NAMESPACE, canonical([row.id, "installment", i.key])) : i.key,

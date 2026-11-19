@@ -27,9 +27,11 @@ export async function runModuleSchedules(
   profile: string,
   now: number,
 ): Promise<ScheduleOutcome[]> {
+  env = withReadCache(env);
+  const states = await moduleStates(env, profile);
   // Independente de produtores/agendadores instalados; recupera concessões e
   // resultados cuja resposta se perdeu sem bloquear atendimento do WhatsApp.
-  try { await drainIntegrationOutbox(env, profile); }
+  try { if (states.erp) await drainIntegrationOutbox(env, profile); }
   catch (error) { logIntegrationError(error); }
   // Pedidos de aprovação vencidos (src/approvals.ts): o módulo decide ou o
   // cliente é avisado e vai para a equipe. Uma consulta por rodada. As
@@ -47,8 +49,6 @@ export async function runModuleSchedules(
   }
   const registered = scheduledModules();
   if (!registered.length) return [];
-  env = withReadCache(env);
-  const states = await moduleStates(env, profile);
   const outcomes: ScheduleOutcome[] = [];
   for (const [module, handler] of registered) {
     if (!states[module]) continue;

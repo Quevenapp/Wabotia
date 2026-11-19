@@ -6,7 +6,7 @@ import * as definitions from "../../src/modules/registry";
 import * as adapter from "../../src/integrations/erp-adapter";
 import { activationStatements, readIntegrationActivation } from "../../src/integrations/activation";
 import { ensureCommercialPolicy } from "../../src/integrations/policy";
-import { registerIntegrationProducer } from "../../src/integrations/registry";
+import * as producers from "../../src/integrations/registry";
 import { integrationStatements, sourceBindings } from "../../src/integrations/outbox";
 import { canonical, commandId, eventKey, hash, uuid5, F3_NAMESPACES } from "../../src/integrations/keys";
 import { IntegrationError } from "../../src/integrations/privacy";
@@ -27,7 +27,10 @@ const producer: IntegrationProducer = {
   },
 };
 export function installFixtureProducer() {
-  registerIntegrationProducer(producer);
+  // A junção já registra o produtor real da OS; simular a porta sem disputar
+  // seu registro global e sem afetar os testes integrados que não usam esta função.
+  const installed = producers.integrationProducer;
+  vi.spyOn(producers, "integrationProducer").mockImplementation(module => module === "os" ? producer : installed(module));
   const original = definitions.moduleById;
   vi.spyOn(definitions, "moduleById").mockImplementation(id => {
     const definition = original(id);

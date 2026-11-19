@@ -8,7 +8,8 @@ import { IntegrationStatus, actionableEvent } from "../web/modules/integrations/
 import { CatalogLinkPicker, stockAvailable } from "../web/modules/integrations/CatalogLinkPicker";
 import { CommercialPolicyPanel, missingDefaults } from "../web/modules/integrations/CommercialPolicyPanel";
 import { ReceiptForm, receiptCents } from "../web/modules/integrations/ReceiptForm";
-import { LegacyServiceOrders } from "../web/modules/integrations/LegacyServiceOrders";
+import { DocumentOriginNotice, LegacyServiceOrders } from "../web/modules/integrations/LegacyServiceOrders";
+import { WorkCommercialPanel } from "../web/modules/os/work/WorkCommercialPanel";
 import { Editor } from "../web/erp/app/components/RealDocuments";
 import { setMotorWorkEnabled, MOTOR_READY } from "../web/erp/motor";
 import { loadAuthorizedPorted, startAuthorizedPortedPrefetch } from "../web/erp/ErpArea";
@@ -287,6 +288,32 @@ describe("f3-painel: casa única, legado e origem", () => {
 });
 
 describe("f3-painel: padrões, estoque e dinheiro", () => {
+  it("consome o DTO real do trabalho e envia versão pública na autorização de preço fixo", async () => {
+    const view = { id: "work-1", version: 11, revision: 7, frozen: false, total_cents: 1000, authorization: null,
+      items: [{ id: "line", description: "Reparo", quantity: "1", unit: "UN", unit_cents: 1000, product_id: null }], installments: [] };
+    const request = vi.fn(async (..._args: any[]) => view); host(context(), request);
+    const screen = mount(() => WorkCommercialPanel({ workId: "work-1" }));
+    button(screen.draw(), "Conferir dados comerciais").props.onClick();
+    let tree = await screen.settle();
+    expect(text(tree)).toContain("Reparo"); expect(text(tree)).toContain("Sem autorização comercial");
+    nodes(tree).find(node => node.type === "input" && node.props.type === "checkbox")!.props.onChange({ target: { checked: true } });
+    tree = screen.draw(); button(tree, "Confirmar autorização de preço fixo").props.onClick(); await ticks();
+    expect(request.mock.calls.find(call => call[1] === "PATCH")?.slice(0, 3)).toEqual([
+      "v1/profiles/area/service-orders/work-1/commercial", "PATCH", { version: 11, authorize_fixed_price: true },
+    ]);
+  });
+  it("mantém somente leitura quando o servidor oculta a origem", () => {
+    const tree = DocumentOriginNotice({ origin: { document_id: "doc", source: null, readonly: true } });
+    expect(text(tree)).toContain("somente leitura"); expect(nodes(tree).some(node => node.type === "a")).toBe(false);
+  });
+  it("Estoque lê apenas sua projeção da política, sem acesso a Financeiro", async () => {
+    const c = context({ role: "operator", erpRole: "estoque", access: ["erp:estoque"] });
+    const request = vi.fn(async (..._args: any[]) => ({ profile: "area", version: 1, installment_rule: "single_on_trigger", auto_post: { stock: true }, warehouse_id: "warehouse" }));
+    const api = host(c, request), result = await api.policy();
+    expect(integrationAccess(c)).toMatchObject({ policy: true, finance: false, configure: false });
+    expect(result.warehouse_id).toBe("warehouse"); expect(result.settlement_accounts).toEqual({});
+    expect(await api.policy()).not.toHaveProperty("revenue_category_id", "private-category");
+  });
   it("mostra padrões ausentes sem inventar referências", async () => {
     const policy: CommercialPolicy = { profile: "area", version: 1, auto_post: { stock: true, finance: true }, warehouse_id: null, revenue_category_id: null, payment_method_id: null, settlement_accounts: {}, consumer_contact_id: null, installment_rule: "single_on_trigger" };
     expect(missingDefaults(policy, true, true)).toHaveLength(4); expect(missingDefaults(policy, true, false)).toEqual(["Depósito para baixa física"]);

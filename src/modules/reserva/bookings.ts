@@ -713,7 +713,7 @@ export async function cancelBooking(
   requireValue(Array.from(reason).length <= 300, "Motivo até 300 caracteres.");
   const current = await getBooking(ctx, input.id);
   if (current.status === "cancelled") {
-    if (current.cancel_reason !== reason) throw new ApiError(409, "version_conflict", "O cancelamento já foi registrado com outro motivo.");
+    if (current.cancel_reason !== reason) throw new ApiError(409, "booking_closed", "Esta reserva já foi cancelada com outro motivo.");
     if (current.payment_id && current.payment_status === "created") {
       try { await ctx.cancelCharge(current.payment_id); } catch (error) { if (!(error instanceof ApiError)) throw error; }
     }

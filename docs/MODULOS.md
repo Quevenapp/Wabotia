@@ -9,6 +9,20 @@ no mesmo banco do atendimento, é ligado e desligado por área de atendimento em
 **Formulários** (`src/modules/forms/`), escrito do jeito que a onda 2 deve
 escrever.
 
+A fase 3 acrescenta integração comercial opcional por
+`src/integrations/ports.ts`. A declaração `integration` informa rota, destinos,
+operações e privacidade; o produtor registra autorização da origem e projeção
+sanitizada. Declaração sem produtor falha com `integration_not_implemented`.
+Usar o cadastro único da fase 1, sem outro resolvedor por telefone.
+
+A alteração operacional, histórico, CAS comercial, aliases e eventos pertencem
+ao mesmo lote D1. O consumidor chama o ERP depois da resposta; o módulo não
+espera documento, saldo ou título para responder ao WhatsApp. Identidade de
+sistema continua com `vendas` e só opera os próprios alvos por capacidade
+verificada. Pedido/pagamento não podem ser derivados de texto de IA.
+As regras, provas executadas, pendências e três marcos de liberação estão em
+[FASE-3-INTEGRACOES.md](FASE-3-INTEGRACOES.md).
+
 ## Regras que não mudam
 
 - Sem Worker, banco, bucket ou classe de Durable Object novos. Tempo real

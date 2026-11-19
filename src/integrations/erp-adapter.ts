@@ -104,6 +104,9 @@ async function moduleRpc(env: Env, request: PreparedErpRequest, rpc: ModuleRpc, 
     });
     const body = await response.json<any>().catch(() => null);
     if (!response.ok) {
+      // Lista fechada de códigos do motor; nunca propagar exceção bruta.
+      if (body?.code === "22023" && ["erp_stock_insufficient_or_excess_quantity", "erp_stock_lot_insufficient"].includes(body.message))
+        throw new IntegrationError("stock_unavailable", 422);
       const codes: Record<string, string> = { PGRST202: "integration_not_implemented", "40001": "version_conflict", "42501": "forbidden" };
       const known = ["part_disabled", "epoch_closed", "waiting_manual", "historical_origin_unlinked", "default_inactive", "erp_parts_unavailable"];
       throw new IntegrationError(known.includes(body?.code) ? body.code : codes[body?.code] ?? (response.status >= 500 || response.status === 429 ? "integration_unavailable" : "invalid_request"), response.status === 404 ? 422 : response.status);

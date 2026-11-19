@@ -218,7 +218,7 @@ export async function chargeContract(
     );
     return contract;
   }
-  if (contract.payment_id && contract.payment_status === "created")
+  if (contract.payment_id && contract.payment_status === "created") {
     try {
       await ctx.cancelCharge(contract.payment_id);
     } catch (error) {
@@ -231,6 +231,13 @@ export async function chargeContract(
           "O pagamento anterior já foi concluído; aguarde a confirmação.",
         );
     }
+    // Cancelar a cobrança entrega seu gancho e pode mudar o contrato. Releia
+    // antes do próximo CAS, sem sobrescrever pagamento ou troca concorrente.
+    const fresh = await loadContract(ctx, contract.id);
+    if (fresh.status === "paid" || fresh.charge_seq !== contract.charge_seq || fresh.payment_id !== contract.payment_id)
+      throw new ApiError(409, "payment_closed", "O pagamento anterior mudou; aguarde a confirmação.");
+    contract = fresh;
+  }
   const seq = contract.charge_seq + 1;
   const payment = await ctx.charge(c, {
     method,

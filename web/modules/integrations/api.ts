@@ -15,6 +15,7 @@ export const integrationError = (error: unknown): string => {
     default_missing: "Falta um padrão comercial. Confira os padrões da área.", default_inactive: "Um padrão comercial está ausente ou inativo.",
     warehouse_required: "Defina um depósito ativo.", revenue_category_required: "Defina uma categoria de receita ativa.", category_required: "Defina uma categoria de receita ativa.",
     settlement_account_required: "Defina uma conta de baixa ativa.", customer_required: "Complete o cadastro do responsável financeiro.",
+    stock_unavailable: "Confira o saldo, os lotes e as quantidades no estoque.",
     historical_origin_unlinked: "A obrigação antiga não tem vínculo ERP. Precisa de análise humana.",
     integration_not_implemented: "Integração em implantação nesta instalação.", not_found: "Registro não encontrado ou indisponível para seu perfil.",
     lease_lost: "Outra tentativa está em andamento. Atualize a confirmação antes de repetir.",
@@ -95,7 +96,14 @@ export function createIntegrationApi(api: Api, root: string, context: () => Mana
       if (action === "post") { const body = pending.body as { destinations: Destination[] }; require(body.destinations.every(d => d === "finance" ? access().finance : access().postStock)); }
       return commands.resume(`${module}:${id}`);
     },
-    async policy(signal?: AbortSignal): Promise<CommercialPolicy> { require(access().policy); return get(base + "/commercial-policy", signal); },
+    async policy(signal?: AbortSignal): Promise<CommercialPolicy> {
+      require(access().policy);
+      const value = await get<Partial<CommercialPolicy>>(base + "/commercial-policy", signal);
+      // Destinos ocultos não são apresentados nem enviados no PATCH. Estes
+      // valores vazios servem apenas ao estado local dos campos não montados.
+      return { warehouse_id: null, revenue_category_id: null, payment_method_id: null, settlement_accounts: {}, consumer_contact_id: null,
+        ...value, auto_post: { stock: false, finance: false, ...value.auto_post } } as CommercialPolicy;
+    },
     async policyReferences(kind: "warehouse" | "category" | "method" | "account", query: string, after?: string) {
       require(kind === "warehouse" ? access().stock : access().finance);
       const params = new URLSearchParams({ q: query, limit: "25", ...(after ? { after } : {}) });

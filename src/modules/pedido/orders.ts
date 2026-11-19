@@ -1,3 +1,4 @@
+import { compactReceiptWrites } from "../../integrations/outbox";
 import { canonical, hash } from "../../integrations/keys";
 // Pedido: pedidos (criar com número sequencial, ler, mudar estado), forma de
 // pagamento, cobrança online pela Cobrança do núcleo e avisos ao cliente.
@@ -563,12 +564,12 @@ export async function createOrder(ctx: ModuleContext, input: NewOrder) {
     at = now();
   const commercialRow = { ...input, number: counter!.last, id, profile_id: ctx.profile, created: at, confirmed_at: tab ? at : null, status, tab_id: tab?.id ?? null, contact_id: contact?.ref.contactId ?? null };
   const source = saleSource(ctx.profile, tab ? "mesas" : "pedido", tab?.id ?? id, tab ? `order:${id}` : "main");
-  const commerce = tab ? await buildOrderCommerce(ctx, commercialRow, input.actor, "received", at) : null;
+  const commerce = tab ? await buildOrderCommerce(ctx, commercialRow, input.actor, "received", at, source) : null;
   const additional = input.commit ? await input.commit(commercialRow, commerce) : [];
   const commercial = commerce ? commerce.statements() : [...integrationStatements({ source, expected_revision: 0, events: [], next_state: {} }), ...aliasStatements(source, "order", id)];
-  const [inserted] = await batch(ctx.env, [
+  const [inserted] = await batch(ctx.env, compactReceiptWrites([
     [
-      "INSERT INTO pedido_orders(id,profile_id,number,status,status_at,conversation_id,contact_id,customer_name,phone,source,source_key,web_step_id,lines,item_count,subtotal_cents,delivery_fee_cents,total_cents,fulfillment,address,note,notes,eta_minutes,payment_status,tab_id,table_label,confirmed_at,created_by,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source_key) DO NOTHING",
+      "INSERT INTO pedido_orders(id,profile_id,number,status,status_at,conversation_id,contact_id,customer_name,phone,source,source_key,web_step_id,lines,item_count,subtotal_cents,delivery_fee_cents,total_cents,fulfillment,address,note,notes,eta_minutes,payment_status,tab_id,table_label,confirmed_at,created_by,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source_key) DO NOTHING RETURNING *",
       [
         id,
         ctx.profile,
@@ -601,9 +602,8 @@ export async function createOrder(ctx: ModuleContext, input: NewOrder) {
         at,
       ],
     ],
-    commerceGuard,
     [
-      "INSERT INTO pedido_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) SELECT ?,?,?,'created',NULL,?,?,?,? WHERE changes()=1",
+      "INSERT INTO pedido_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) SELECT CASE WHEN changes()=1 THEN ? ELSE json('integration_version_conflict') END,?,?,'created',NULL,?,?,?,?",
       [
         uid(),
         ctx.profile,
@@ -621,7 +621,7 @@ export async function createOrder(ctx: ModuleContext, input: NewOrder) {
     ["INSERT INTO receipts(scope,key,fingerprint,response,status,created) VALUES(?,?,?,?,200,?)", [creationScope, input.sourceKey, creationHash, JSON.stringify({ id }), at]],
     ...(c && contact && input.source === "cart" && input.actor === "customer"
       ? await selfCustomerStatements(ctx, c, contact, input.sourceKey, input.customer_name || "") : []),
-  ]);
+  ]));
   if (!inserted.meta.changes) {
     const previous = await one(
       ctx.env,
@@ -632,7 +632,7 @@ export async function createOrder(ctx: ModuleContext, input: NewOrder) {
     if (!previous) throw new ApiError(409, "idempotency_conflict", "Esta origem já pertence a outro pedido.");
     return { order: previous, created: false };
   }
-  const order = await loadOrder(ctx, id);
+  const order = inserted.results[0] as any;
   // O cliente pediu pelo WhatsApp (carrinho ou catálogo): consentimento para
   // os avisos deste pedido fora da janela de 24 horas.
   if (
@@ -769,9 +769,9 @@ async function announceMove(
   actor: string,
   note: string,
   historyId: string,
-  options: { notify?: boolean } = {},
+  options: { notify?: boolean; current?: any } = {},
 ) {
-  const next = await loadOrder(ctx, orderId);
+  const next = options.current ?? await loadOrder(ctx, orderId);
   await ctx.publish(
     "pedido.status_changed",
     orderId,
@@ -819,8 +819,9 @@ async function reannounceMove(
   orderId: string,
   from: OrderStatus,
   to: OrderStatus,
+  current?: any,
 ) {
-  const row = await one(
+  const row = current ? json(current.status_history_json, null) : await one(
     ctx.env,
     "SELECT id,actor,note FROM pedido_history WHERE order_id=? AND profile_id=? AND kind='status' AND from_status=? AND to_status=? ORDER BY created DESC LIMIT 1",
     orderId,
@@ -829,7 +830,7 @@ async function reannounceMove(
     to,
   );
   if (row)
-    await announceMove(ctx, orderId, from, to, row.actor, row.note, row.id);
+    await announceMove(ctx, orderId, from, to, row.actor, row.note, row.id, { current });
 }
 
 /** POST pedido/orders/:id/status {status, note?, reason?}: transições da equipe. */
@@ -1315,17 +1316,19 @@ export async function paymentUpdated(
   const at = now();
   if (payment.status === "paid") {
     const entering = order.status === "awaiting_payment";
-    if (order.payment_status === "paid" && order.paid_by === "provider") await providerOrderStatements(ctx, order, payment.id, false, true);
+    if (order.payment_status === "paid" && order.paid_by === "provider") await providerOrderStatements(ctx, order, payment.id, false, true, payment.evidence?.receipt_key);
     let claimed = { meta: { changes: 0 } };
     if (order.payment_status !== "paid") {
       const next = { ...order, payment_status: "paid", paid_at: payment.paid_at || at,
         status: entering ? "received" : order.status, confirmed_at: entering ? at : order.confirmed_at };
-      const statements = await providerOrderStatements(ctx, next, payment.id);
+      const statements = await providerOrderStatements(ctx, next, payment.id, false, false, payment.evidence?.receipt_key);
       [claimed] = await batch(ctx.env, [
         ["UPDATE pedido_orders SET payment_status='paid',paid_at=?,paid_by='provider',payment_id=coalesce(payment_id,?),payment_error=NULL,needs_refund=CASE WHEN status='cancelled' OR ?>total_cents THEN 1 ELSE needs_refund END,status=?,confirmed_at=?,status_at=?,updated=? WHERE id=? AND profile_id=? AND payment_status=? AND status=? AND updated=?",
-          [next.paid_at, payment.id, payment.amount_cents, next.status, next.confirmed_at, entering ? at : order.status_at, at, order.id, ctx.profile, order.payment_status, order.status, order.updated]], commerceGuard,
-        ["INSERT INTO pedido_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) VALUES(?,?,?,'payment',?,?,'provider','Pagamento confirmado pelo provedor.',?)", [uid(), ctx.profile, order.id, order.status, next.status, at]],
-        ...(entering ? [["INSERT INTO pedido_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) VALUES(?,?,?,'status',?,'received','provider','Pagamento confirmado.',?)", [uid(), ctx.profile, order.id, order.status, at]] as Statement] : []),
+          [next.paid_at, payment.id, payment.amount_cents, next.status, next.confirmed_at, entering ? at : order.status_at, at, order.id, ctx.profile, order.payment_status, order.status, order.updated]],
+        [`INSERT INTO pedido_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created)
+          VALUES(CASE WHEN changes()=1 THEN ? ELSE json('integration_version_conflict') END,?,?,'payment',?,?,'provider','Pagamento confirmado pelo provedor.',?)
+          ${entering ? ",(?,?,?,'status',?,'received','provider','Pagamento confirmado.',?)" : ""}`,
+          [uid(), ctx.profile, order.id, order.status, next.status, at, ...(entering ? [uid(), ctx.profile, order.id, order.status, at] : [])]],
         ...statements,
       ]);
     }
@@ -1389,7 +1392,11 @@ export async function paymentUpdated(
       },
       { key: `paid:${order.id}` },
     );
-    const fresh = await loadOrder(ctx, order.id);
+    const fresh = await one(ctx.env, `SELECT o.*,
+      (SELECT json_object('id',id,'actor',actor,'note',note) FROM pedido_history WHERE order_id=o.id AND profile_id=o.profile_id
+        AND kind='status' AND from_status='awaiting_payment' AND to_status='received' ORDER BY created DESC LIMIT 1) status_history_json
+      FROM pedido_orders o WHERE o.id=? AND o.profile_id=?`, order.id, ctx.profile);
+    if (!fresh) throw notFound();
     if (fresh.status === "awaiting_payment")
       await moveOrder(
         ctx,
@@ -1399,7 +1406,7 @@ export async function paymentUpdated(
         "Pagamento confirmado.",
       );
     else if ((repeat || entering) && fresh.status === "received")
-      await reannounceMove(ctx, order.id, "awaiting_payment", "received");
+      await reannounceMove(ctx, order.id, "awaiting_payment", "received", fresh);
     else if (fresh.status === "cancelled") {
       await ctx.publish(
         "pedido.payment_late",

@@ -1,6 +1,6 @@
 import { batch, one } from "../db";
 import type { Actor, Env } from "../types";
-import type { SourceRef } from "./contracts";
+import type { SourceRef, Statement } from "./contracts";
 import { humanReferenceRpc, requireIntegrationHuman } from "./policy";
 import { integer, IntegrationError, opaque } from "./privacy";
 import { integrationCasGuard } from "./outbox";
@@ -26,13 +26,19 @@ export async function saveCatalogLink(env: Env, actor: Actor, source: SourceRef,
   }
   const key = [source.profile, source.module, kind, record, component];
   const result = { erp_item_id: product, version: product ? version + 1 : 0 };
-  await batch(env, [
+  const statements: Statement[] = [
     product ? version === 0
       ? ["INSERT INTO module_erp_catalog_links(profile_id,module_id,record_kind,record_id,component,erp_item_id,updated_ms,updated_by) VALUES(?,?,?,?,?,?,?,?)", [...key, product, Date.now(), actor.id]]
       : ["UPDATE module_erp_catalog_links SET erp_item_id=?,version=version+1,updated_ms=?,updated_by=? WHERE profile_id=? AND module_id=? AND record_kind=? AND record_id=? AND component=? AND version=?", [product, Date.now(), actor.id, ...key, version]]
       : ["DELETE FROM module_erp_catalog_links WHERE profile_id=? AND module_id=? AND record_kind=? AND record_id=? AND component=? AND version=?", [...key, version]],
     integrationCasGuard,
     ["INSERT INTO receipts(scope,key,fingerprint,response,status,created) VALUES(?,?,?,?,200,?)", [scope, command, fingerprint, canonical(result), Date.now()]],
-  ]);
+  ];
+  if (source.module === "os") {
+    if (kind !== "quote_item") throw new IntegrationError("invalid_request", 400);
+    const { modulesApi } = await import("../modules/api");
+    const { commitWorkCatalogLink } = await import("../modules/os/commercial/routes");
+    await commitWorkCatalogLink(modulesApi(env, source.profile, "os"), actor, record, component, product, statements);
+  } else await batch(env, statements);
   return result;
 }

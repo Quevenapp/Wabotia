@@ -71,6 +71,24 @@ balcão, use *Cliente aprovou* ou *Cliente recusou*.
 Rotas, formatos e eventos em [API.md](API.md#ordem-de-serviço-módulo-os) e no
 OpenAPI (`/api/openapi.json`, tag Módulos).
 
+**Parte comercial da fase 3.** O trabalho continua no atendimento e sua parte
+comercial usa um documento protegido do ERP. Aprovação isolada não lança;
+a primeira execução exige orçamento vigente aprovado ou preço fixo autorizado.
+Pronta pode voltar à execução com motivo, sem nova postagem. Entrega registra
+entrega/garantia e não confirma pagamento. Cancelamento não inventa estorno.
+
+Os dados comerciais ficam congelados após efeito ou durante envio incerto.
+Antes disso, o vínculo explícito de peça é gravado com a revisão e a saída
+comercial no mesmo lote. Material sem vínculo não baixa estoque. Parte desligada
+não impede o trabalho local nem autoriza lançamento retroativo ao religar.
+“Tentar novamente” conserva a identidade do pedido; correção de corpo precisa
+fechar o comando anterior. Uma falha no ERP permanece pendência, sem mudar o
+estado operacional silenciosamente.
+
+O aceite integrado ainda depende da verificação externa. Consulte
+[FASE-3-INTEGRACOES.md](FASE-3-INTEGRACOES.md) para a ordem de liberação,
+permissões, configuração, recuperação e campos ainda não exportados ao ERP.
+
 **Contagem por estado.** `GET /profiles/{perfil}/service-orders` traz, além
 de `data` e `next_cursor`, o mapa `counts`: número de ordens da área em cada
 estado, para os chips de filtro e os totais das telas.

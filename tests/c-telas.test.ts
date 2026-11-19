@@ -105,7 +105,7 @@ const disposers: (() => void)[] = [];
 const text = (value: any): string => Array.isArray(value) ? value.map(text).join("") : React.isValidElement(value)
   ? text((value.props as any).children) : value == null || typeof value === "boolean" ? "" : String(value);
 const nodes = (tree: any): any[] => Array.isArray(tree) ? tree.flatMap(nodes) : React.isValidElement(tree) ? [tree, ...nodes((tree.props as any).children)] : [];
-function mount(Component: any, props: any, path = "/acesso", expand = ["HomeView", "DocumentList", "NativeListLayout", "PdvReceiptSheet"]) {
+function mount(Component: any, props: any, path = "/acesso", expand = ["HomeView", "DocumentList", "DocumentListBody", "NativeListLayout", "PdvReceiptSheet"]) {
   const frames = new Map<string, any>();
   const owner: any = { dirty: true, effects: [], location: null, tree: null, disposed: false };
   const locate = (to: string) => { const url = new URL(to, "https://painel.example"); owner.location = { pathname: url.pathname, search: url.search, hash: url.hash, key: to }; };

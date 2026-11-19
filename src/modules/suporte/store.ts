@@ -694,11 +694,15 @@ export async function buyPackage(
   );
   for (const other of others)
     if (await cancelPurchaseCharge(ctx, other)) {
-      const commercialStatements = await supportIntegrationStatements(ctx, { ...other, status: "cancelled" }, "cancel", at,
+      const current = await one(ctx.env, "SELECT * FROM suporte_purchases WHERE profile_id=? AND id=?", ctx.profile, other.id);
+      if (!current) throw new IntegrationError("version_conflict", 409);
+      if (!["pending", "cancelled", "expired"].includes(current.status)) continue;
+      if (current.payment_id !== other.payment_id || current.charge_seq !== other.charge_seq) throw new IntegrationError("version_conflict", 409);
+      const commercialStatements = await supportIntegrationStatements(ctx, { ...current, status: "cancelled" }, "cancel", at,
         { reason: "purchase_replaced" });
       await batch(ctx.env, [
-        ["UPDATE suporte_purchases SET status='cancelled',updated=? WHERE id=? AND profile_id=? AND status='pending' AND payment_id IS ? AND charge_seq=?",
-          [at, other.id, ctx.profile, other.payment_id, other.charge_seq]],
+        ["UPDATE suporte_purchases SET status='cancelled',updated=? WHERE id=? AND profile_id=? AND status=? AND payment_id IS ? AND charge_seq=?",
+          [at, other.id, ctx.profile, current.status, other.payment_id, other.charge_seq]],
         integrationCasGuard,
         eventStatement(ctx.profile, "suporte.purchase_expired", other.id,
           { module_id: "suporte", purchase_id: other.id, conversation_id: other.conversation_id, status: "cancelled" },

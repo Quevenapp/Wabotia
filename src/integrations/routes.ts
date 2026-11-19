@@ -7,7 +7,7 @@ import { modulesApi } from "../modules/api";
 import { erpRoleOf } from "../modules/erp/identity";
 import type { Destination, IntegrationEvent, IntegrationModule, SourceRef, Statement } from "./contracts";
 import { INTEGRATION_MODULES, integrationProducer } from "./registry";
-import { ensureCommercialPolicy, initializeCommercialPolicy, patchCommercialPolicy, requireIntegrationHuman, requirePolicyAccess, humanReferenceRpc } from "./policy";
+import { commercialPolicyView, ensureCommercialPolicy, initializeCommercialPolicy, patchCommercialPolicy, requireIntegrationHuman, requirePolicyAccess, humanReferenceRpc } from "./policy";
 import { readIntegrationActivation } from "./activation";
 import { acquireIntegrationLease, confirmIntegrationResult, integrationStatements, persistPreparedRequest, readPreparedRequest, sourceBindings } from "./outbox";
 import { authorizeManual, closeErpCommand, getErpOrigin, manualApplyErpRequest, prepareManualErpRequest } from "./erp-adapter";
@@ -16,6 +16,20 @@ import { saveCatalogLink } from "./catalog";
 import { canonical, commandId, hash, uuid5, F3_NAMESPACES } from "./keys";
 import { exactKeys, integer, IntegrationError, opaque, sanitizedError, validateSnapshot } from "./privacy";
 import { reverseCommercialReceipt } from "./receipts";
+
+const writes = [
+  ["PATCH", "/commercial-policy", "policy.patch"], ["POST", "/commercial-policy/initialize", "policy.initialize"],
+  ["POST", "/:module/sources/:id/retry", "retry"], ["POST", "/:module/sources/:id/replace", "replace"], ["POST", "/:module/sources/:id/post", "post"],
+  ["PUT", "/:module/catalog/:kind/:id/:component", "catalog.put"], ["DELETE", "/:module/catalog/:kind/:id/:component", "catalog.delete"],
+  ["POST", "/receipts/:id/reverse", "receipt.reverse"],
+] as const;
+const resourceRoutes = [
+  ["GET", "/commercial-policy"], ["GET", "/document-origins"],
+  ["GET", "/:module/status"], ["GET", "/:module/sources/:id"], ...writes,
+].map(([method, path]) => ({ method, pattern: new RegExp(`^integrations${path.replace(/:[a-z]+/g, "[^/]+")}$`) }));
+/** Só estas rotas delegam ao autorizador de recurso/destino da F3. */
+export const integrationResourceRoute = (method: string, path: string) => resourceRoutes.some(route => route.method === method && route.pattern.test(path));
+export const integrationOperation = (operation: string) => writes.some(([, , op]) => operation === `integration.${op}`);
 
 export async function authorizeIntegrationSource(env: Env, actor: Actor, source: SourceRef, write = false) {
   if (!canProfile(actor, source.profile)) throw new IntegrationError("not_found", 404);
@@ -31,29 +45,37 @@ async function sourceEvent(env: Env, source: SourceRef, id: unknown): Promise<In
 }
 export async function integrationSourceView(env: Env, actor: Actor, source: SourceRef) {
   await authorizeIntegrationSource(env, actor, source);
+  requireAccess(actor, source.module);
   const row = await one(env, "SELECT * FROM module_erp_sources WHERE profile_id=? AND module_id=? AND source_id=?", ...sourceBindings(source));
   if (!row) throw new IntegrationError("not_found", 404);
   const rows = await all(env, `SELECT e.id,e.seq,d.state,d.error_code,d.completed_ms,d.receipt_json,
-    json_extract(e.payload_json,'$.eligible') eligible,json_extract(e.payload_json,'$.operation') operation
+    json_extract(e.payload_json,'$.eligible') eligible,json_extract(e.payload_json,'$.operation') operation,
+    json_extract(e.payload_json,'$.source.component') component
     FROM module_erp_events e JOIN module_erp_delivery d ON d.event_id=e.id WHERE e.profile_id=? AND e.module_id=? AND e.source_id=? ORDER BY e.seq`, ...sourceBindings(source));
-  // O transporte pode estar concluído e um destino ainda aguardar uma pessoa.
-  // O recibo posterior de postagem/reversão resolve a pendência desse destino.
-  const manual = new Set<Destination>();
-  let review = false;
-  for (const d of rows) if (d.receipt_json) {
-    const result = JSON.parse(d.receipt_json), eligible = JSON.parse(d.eligible);
-    review = result.outcome === "closed";
-    for (const destination of ["stock", "finance"] as const) {
-      if (["posted", "settled", "reversed"].includes(result.effects[destination])) manual.delete(destination);
-      else if (eligible[destination] && ["execute", "recognize", "receive"].includes(d.operation) && result.outcome !== "closed") manual.add(destination);
-    }
-  }
-  const deliveries = rows.map(({ receipt_json, eligible, operation, ...d }) => d);
-  const state = deliveries.some(d => d.state !== "done") ? deliveries.find(d => d.state !== "done")!.state : review ? "blocked" : manual.size ? "waiting_manual" : "done";
+  const { state, manual } = effectiveSourceState(rows);
+  const deliveries = rows.map(({ receipt_json, eligible, operation, component, ...d }) => d);
   return { source, revision: row.revision, confirmed_ms: row.confirmed_ms, state, pending: state !== "done",
     manual_destinations: [...manual].filter(d => d === "finance" ? financiallyVisible(actor) : ["admin", "estoque"].includes(erpRoleOf(actor) ?? "")),
     deliveries: financiallyVisible(actor) ? deliveries : deliveries.map(d => ({ id: d.id, state: d.state, completed_ms: d.completed_ms })),
     links: (JSON.parse(row.links_json) as any[]).filter(l => financiallyVisible(actor) || l.kind === "document") };
+}
+function effectiveSourceState(rows: any[]) {
+  // O transporte pode estar concluído e um destino ainda aguardar uma pessoa.
+  // O recibo posterior de postagem/reversão resolve a pendência desse destino.
+  const pending = new Map<string, Set<Destination>>(), review = new Set<string>();
+  for (const d of rows) if (d.receipt_json) {
+    const result = JSON.parse(d.receipt_json), eligible = JSON.parse(d.eligible);
+    const manual = pending.get(d.component) ?? new Set<Destination>();
+    pending.set(d.component, manual);
+    if (result.outcome === "closed") review.add(d.component); else review.delete(d.component);
+    for (const destination of ["stock", "finance"] as const) {
+      if (["posted", "settled", "reversed"].includes(result.effects[destination])) manual.delete(destination);
+      else if (eligible[destination] && ["execute", "recognize", "receive"].includes(d.operation) && result.outcome === "applied" && result.effects[destination] === "not_requested") manual.add(destination);
+    }
+  }
+  const manual = new Set([...pending.values()].flatMap(destinations => [...destinations]));
+  const state = rows.find(d => d.state !== "done")?.state ?? (review.size ? "blocked" : manual.size ? "waiting_manual" : "done");
+  return { state: String(state), manual };
 }
 function receiptScope(profile: string, actor: Actor, operation: string) { return `f3:${profile}:${actor.id}:${operation}`; }
 async function reserve(env: Env, profile: string, actor: Actor, op: string, key: string, data: unknown) {
@@ -146,11 +168,15 @@ export async function integrationCommand(env: Env, actor: Actor, profile: string
   if (op === "integration.policy.initialize") return initializeCommercialPolicy(env, actor, profile, data, key);
   if (op === "integration.receipt.reverse") return reverseCommercialReceipt(env, actor, profile, data, key);
   if (!INTEGRATION_MODULES.includes(data.module)) throw new IntegrationError("not_found", 404);
+  if (op !== "integration.post") requireAccess(actor, data.module);
   const source: SourceRef = { profile, module: data.module, source_id: opaque(data.id),
     component: op.startsWith("integration.catalog.") ? `catalog:${opaque(data.kind)}:${opaque(data.component)}` : "main" };
   if (["integration.retry", "integration.replace", "integration.post"].includes(op)) exactKeys(data,
     ["module", "id", "event_id", ...(op === "integration.replace" ? ["reason_code"] : op === "integration.post" ? ["destinations", "version"] : [])]);
-  await authorizeIntegrationSource(env, actor, source, op !== "integration.post");
+  // A OS revalida a escrita no lote do vínculo. O replay já confirmado é
+  // autorizado para leitura, mesmo que o trabalho tenha congelado depois.
+  const workCatalog = source.module === "os" && op.startsWith("integration.catalog.");
+  await authorizeIntegrationSource(env, actor, source, op !== "integration.post" && !workCatalog);
   if (op === "integration.retry") return retry(env, actor, source, data, key);
   if (op === "integration.replace" || op === "integration.post") return replace(env, actor, source, data, key, op === "integration.post");
   if (op === "integration.catalog.put" || op === "integration.catalog.delete") return saveCatalogLink(env, actor, source, data.kind, data.id, data.component, op.endsWith("delete") ? null : data.erp_item_id, data.version, key);
@@ -165,7 +191,7 @@ export function registerIntegrationRoutes(app: Hono<any>, mutate: (c: any, op: s
   // Nomes estáticos precedem :module; as rotas comuns não exigem módulo novo.
   app.get(`${prefix}/commercial-policy`, async c => {
     const profile = c.req.param("profile")!; requirePolicyAccess(c.get("actor"), profile);
-    return c.json(await ensureCommercialPolicy(c.env, profile));
+    return c.json(commercialPolicyView(await ensureCommercialPolicy(c.env, profile), c.get("actor")));
   });
   app.get(`${prefix}/document-origins`, async c => {
     const profile = c.req.param("profile")!, actor = c.get("actor") as Actor;
@@ -178,10 +204,16 @@ export function registerIntegrationRoutes(app: Hono<any>, mutate: (c: any, op: s
     for (const link of links) {
       const source: SourceRef = { profile, module: link.module_id, source_id: link.source_id, component: "main" }, document = JSON.parse(link.link);
       try {
-        await authorizeIntegrationSource(c.env, actor, source);
         await humanReferenceRpc(c.env, actor, profile, "erp_document_get", { p_kind: source.module === "os" ? "service_orders" : "sales_orders", p_id: document.id });
+      } catch { continue; /* Nem o documento é visível para esta pessoa. */ }
+      try {
+        requireAccess(actor, source.module);
+        await authorizeIntegrationSource(c.env, actor, source);
         data.push({ document_id: document.id, source, readonly: true });
-      } catch { /* Não revelar origem de documento que a pessoa não pode ler. */ }
+      } catch {
+        // A pessoa pode ler o documento, mas não a origem operacional.
+        data.push({ document_id: document.id, source: null, readonly: true });
+      }
     }
     return c.json({ data });
   });
@@ -190,16 +222,19 @@ export function registerIntegrationRoutes(app: Hono<any>, mutate: (c: any, op: s
     requireIntegrationHuman(actor, profile); requireAccess(actor, module);
     if (!INTEGRATION_MODULES.includes(module)) throw new IntegrationError("not_found", 404);
     const activation = await readIntegrationActivation(c.env, profile, module);
-    const counters = await all(c.env, "SELECT d.state,count(*) count FROM module_erp_delivery d JOIN module_erp_events e ON e.id=d.event_id WHERE e.profile_id=? AND e.module_id=? GROUP BY d.state", profile, module);
+    const rows = await all(c.env, `SELECT e.source_id,d.state,d.receipt_json,
+      json_extract(e.payload_json,'$.eligible') eligible,json_extract(e.payload_json,'$.operation') operation,
+      json_extract(e.payload_json,'$.source.component') component
+      FROM module_erp_delivery d JOIN module_erp_events e ON e.id=d.event_id
+      WHERE e.profile_id=? AND e.module_id=? ORDER BY e.source_id,e.seq`, profile, module);
+    const sources = new Map<string, any[]>();
+    for (const row of rows) { const values = sources.get(row.source_id) ?? []; values.push(row); sources.set(row.source_id, values); }
+    const counts = new Map<string, number>();
+    for (const rows of sources.values()) { const { state } = effectiveSourceState(rows); counts.set(state, (counts.get(state) ?? 0) + 1); }
+    const counters = [...counts].map(([state, count]) => ({ state, count }));
     return c.json({ module, activations: activation.activations, counters });
   });
   app.get(`${prefix}/:module/sources/:id`, async c => c.json(await integrationSourceView(c.env, c.get("actor"), { profile: c.req.param("profile")!, module: c.req.param("module") as IntegrationModule, source_id: c.req.param("id"), component: "main" })));
-  const writes = [
-    ["PATCH", "/commercial-policy", "policy.patch"], ["POST", "/commercial-policy/initialize", "policy.initialize"],
-    ["POST", "/:module/sources/:id/retry", "retry"], ["POST", "/:module/sources/:id/replace", "replace"], ["POST", "/:module/sources/:id/post", "post"],
-    ["PUT", "/:module/catalog/:kind/:id/:component", "catalog.put"], ["DELETE", "/:module/catalog/:kind/:id/:component", "catalog.delete"],
-    ["POST", "/receipts/:id/reverse", "receipt.reverse"],
-  ];
   for (const [method, path, op] of writes) app.on(method, `${prefix}${path}`, async c => {
     try {
       const data = await c.req.json().catch(() => ({}));

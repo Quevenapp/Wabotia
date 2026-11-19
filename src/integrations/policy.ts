@@ -18,13 +18,24 @@ export function requirePolicyAccess(actor: Actor, profile: string, write = false
   if (write ? actor.role !== "admin" : !["admin", "financeiro", "estoque"].includes(erpRoleOf(actor) ?? "")) throw new IntegrationError("forbidden", 403);
   if (write) requireFinancialAal(actor);
 }
+/** DTO de leitura por destino; referências financeiras não saem para Estoque. */
+export function commercialPolicyView(policy: CommercialPolicy, actor: Actor) {
+  requirePolicyAccess(actor, policy.profile);
+  const role = erpRoleOf(actor), stock = role === "admin" || role === "estoque", finance = role === "admin" || role === "financeiro";
+  return { profile: policy.profile, version: policy.version, installment_rule: policy.installment_rule,
+    auto_post: { ...(stock ? { stock: policy.auto_post.stock } : {}), ...(finance ? { finance: policy.auto_post.finance } : {}) },
+    ...(stock ? { warehouse_id: policy.warehouse_id } : {}),
+    ...(finance ? { revenue_category_id: policy.revenue_category_id, payment_method_id: policy.payment_method_id,
+      settlement_accounts: policy.settlement_accounts, consumer_contact_id: policy.consumer_contact_id } : {}),
+  };
+}
 export async function ensureCommercialPolicy(env: Env, profile: string): Promise<CommercialPolicy> {
   const defaults = { auto_post: { stock: true, finance: true }, warehouse_id: null, revenue_category_id: null, payment_method_id: null, settlement_accounts: {}, consumer_contact_id: null, installment_rule: "single_on_trigger" };
-  const results = await batch(env, [
-    ["INSERT OR IGNORE INTO module_erp_policy(profile_id,config_json,updated_ms,updated_by) SELECT ?,?,?,'system:integration' WHERE EXISTS(SELECT 1 FROM profiles WHERE id=?)", [profile, canonical(defaults), Date.now(), profile]],
-    ["SELECT * FROM module_erp_policy WHERE profile_id=?", [profile]],
-  ]);
-  const row = results[1].results[0] as any;
+  // Só escreve a política. A referência de leitura a profiles não deve
+  // invalidar o cache de configuração da invocação inteira.
+  const result = await env.DB.prepare("INSERT INTO module_erp_policy(profile_id,config_json,updated_ms,updated_by) SELECT ?,?,?,'system:integration' WHERE EXISTS(SELECT 1 FROM profiles WHERE id=?) ON CONFLICT(profile_id) DO UPDATE SET profile_id=excluded.profile_id RETURNING *")
+    .bind(profile, canonical(defaults), Date.now(), profile).all();
+  const row = result.results[0] as any;
   if (!row) throw new IntegrationError("not_found", 404);
   return { ...JSON.parse(row.config_json), profile, version: row.version };
 }

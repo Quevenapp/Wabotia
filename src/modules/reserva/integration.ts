@@ -1,5 +1,5 @@
 import { one } from "../../db";
-import type { Actor } from "../../types";
+import { ApiError, type Actor } from "../../types";
 import type { ModuleContext } from "../api";
 import type { Payment } from "../../payments";
 import type { Statement } from "../../integrations/contracts";
@@ -31,7 +31,11 @@ export function installReservaIntegration() {
 /** Reserva aceita reconhece o contrato inteiro; sinal não é outra venda. */
 export async function insertCommercialBooking(ctx: ModuleContext, row: any, sql: string, ...bindings: unknown[]) {
   const plan = await titlePlan(ctx, "reserva", row, { recognize: true, actor: row.created_by });
-  const results = await commercialAtomic(ctx, [[sql, bindings], integrationCasGuard, ...plan.statements]);
+  const results = await commercialAtomic(ctx, [[sql, bindings], integrationCasGuard, ...plan.statements]).catch(error => {
+    if (error instanceof IntegrationError && error.code === "version_conflict")
+      throw new ApiError(409, "unit_unavailable", "Esta unidade acabou de ser ocupada. Escolha outro período.");
+    throw error;
+  });
   return results[0];
 }
 

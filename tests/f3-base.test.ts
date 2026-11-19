@@ -9,6 +9,10 @@ import { applyErpRequest, closeErpCommand, prepareErpRequest } from "../src/inte
 import { closureRequest, drainIntegrationOutbox, retryDelay } from "../src/integrations/consumer";
 import { canonical, commandId, hash, uuid5 } from "../src/integrations/keys";
 import { integrationProducer } from "../src/integrations/registry";
+import * as producerRegistry from "../src/integrations/registry";
+// Instância vazia do registro: todos os módulos reais já têm produtores.
+// O sufixo mantém este módulo isolado no Vite, sem limpar os registros reais.
+import { integrationProducer as uninstalledProducer } from "../src/integrations/registry?uninstalled";
 import { IntegrationError, logIntegrationError, validateEvent } from "../src/integrations/privacy";
 import { ensureCommercialPolicy, patchCommercialPolicy, validatePolicyReferences } from "../src/integrations/policy";
 import * as policy from "../src/integrations/policy";
@@ -83,6 +87,9 @@ describe("F3: contratos, lote indivisível e identidade", () => {
     await expect(batch(f.env, aliasStatements({ ...f.source, component: "different" }, "order", "record"))).rejects.toThrow();
   });
   it("um módulo sem produtor falha fechado", async () => {
+    const installed = vi.mocked(producerRegistry.integrationProducer).getMockImplementation()!;
+    vi.spyOn(producerRegistry, "integrationProducer").mockImplementation(module =>
+      module === "suporte" ? uninstalledProducer(module) : installed(module));
     expect(() => integrationProducer("suporte")).toThrowError(expect.objectContaining({ code: "integration_not_implemented" }));
     const f = await f3Fixture(), remote = installFakeErp();
     const source = { ...f.source, module: "suporte" as const };
@@ -410,6 +417,28 @@ describe("F3: correção segura, configuração e adaptador HTTP", () => {
 });
 
 describe("F3: pendências por destino", () => {
+  it("postagem de outro componente não esconde espera manual e salto não cria espera", async () => {
+    const f = await f3Fixture();
+    const first = { ...f.event, eligible: { document: true, stock: false, finance: true } };
+    await enqueue(f, first);
+    const confirm = async (event: IntegrationEvent, finance: "posted" | "not_requested", skipped = false) => {
+      const token = await acquireIntegrationLease(f.env, event.id);
+      expect(token).not.toBeNull();
+      await confirmIntegrationResult(f.env, event, token!, { command_id: event.command_id, seq: event.seq, replayed: false,
+        outcome: skipped ? "skipped" : "applied", links: [], effects: { stock: "not_requested", finance }, reason_code: skipped ? "part_disabled" : null });
+    };
+    await confirm(first, "not_requested");
+    const source = { ...f.source, component: "other" };
+    const second = { ...first, id: crypto.randomUUID(), source, command_id: commandId(source, 2), event_key: first.event_key + ":other",
+      seq: 2, source_revision: 2, snapshot: { ...first.snapshot, source, source_revision: 2 } };
+    await enqueue(f, second); await confirm(second, "posted");
+    expect(await integrationSourceView(f.env, f.actor, f.source)).toMatchObject({ state: "waiting_manual", manual_destinations: ["finance"] });
+    const off = await f3Fixture(); await enqueue(off);
+    const token = await acquireIntegrationLease(off.env, off.event.id);
+    await confirmIntegrationResult(off.env, off.event, token!, { command_id: off.event.command_id, seq: 1, replayed: false, outcome: "applied", links: [],
+      effects: { stock: "skipped", finance: "skipped" }, reason_code: "part_disabled" });
+    expect(await integrationSourceView(off.env, off.actor, off.source)).toMatchObject({ state: "done", manual_destinations: [] });
+  });
   it("postagem automática de um destino conserva ação manual do outro", async () => {
     const f = await f3Fixture(), remote = installFakeErp();
     await patchCommercialPolicy(f.env, f.actor, f.profile, { version: 1, auto_post: { finance: false } }, "manual-finance");

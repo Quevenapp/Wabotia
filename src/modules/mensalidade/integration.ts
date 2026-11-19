@@ -159,7 +159,10 @@ function blocked(event: IntegrationEvent, code: string): Statement {
 export async function mensalidadePaymentEvidence(ctx: ModuleContext, payment: Payment) {
   const row = await one(ctx.env, "SELECT * FROM payments WHERE id=? AND profile_id=? AND module_id='mensalidade' AND ref_id=?", payment.id, ctx.profile, payment.ref_id);
   if (!row || !row.provider_payment_id) return { receipt: null, receiptKey: null };
-  if (row.amount_cents !== payment.amount_cents || row.status !== payment.status) throw new IntegrationError("idempotency_conflict", 409);
+  // Um gancho pago pode estar pendente quando o estorno já foi persistido.
+  // A evidência imutável do recebimento continua obrigatória nesse replay.
+  if (row.amount_cents !== payment.amount_cents ||
+    !(row.status === payment.status || payment.status === "paid" && row.status === "refunded")) throw new IntegrationError("idempotency_conflict", 409);
   const originalKey = providerReceiptKey(ctx.profile, row.provider, row.account_id, String(row.provider_payment_id));
   const receiptKey = payment.status === "refunded" ? reverseReceiptKey(originalKey) : originalKey;
   const receipt = await one<CommercialReceipt>(ctx.env, "SELECT * FROM module_commercial_receipts WHERE profile_id=? AND receipt_key=?", ctx.profile, receiptKey);

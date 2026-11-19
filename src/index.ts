@@ -1,4 +1,4 @@
-import { integrationCommand, registerIntegrationRoutes } from "./integrations/routes";
+import { integrationCommand, integrationOperation, integrationResourceRoute, registerIntegrationRoutes } from "./integrations/routes";
 import { drainIntegrationOutbox } from "./integrations/consumer";
 import { logIntegrationError } from "./integrations/privacy";
 import { resumeCustomerMaintenance } from "./customer/ports";
@@ -1091,6 +1091,7 @@ app.use("/api/v1/profiles/*", async (c, next) => {
   const contribution = c.req.path.match(/\/contacts\/[^/]+\/modules\/([^/]+)\/(?:sections|collections)\/[^/]+$/);
   if (contribution) requireAccess(c.get("actor"), decodeURIComponent(contribution[1]));
   else if (customerResourceRoute(c.req.method, c.req.path.split("/").slice(5).join("/"))) { /* O handler autoriza a pessoa e o recurso. */ }
+  else if (integrationResourceRoute(c.req.method, c.req.path.split("/").slice(5).join("/"))) { /* F3 confere pessoa, origem e destino; não concede acesso geral ao módulo. */ }
   else if (segment) requireRouteAccess(c.get("actor"), ["contact-conflicts", "contact-identities", "contact-jobs"].includes(segment) ? "contacts" : segment);
   await next();
 });
@@ -1523,7 +1524,7 @@ async function mutate(c: any, op: string, profile: string, data: any) {
     throw new ApiError(404, "not_found", "Perfil não encontrado.");
   // Operações comuns têm CAS/recibo próprios. O eventual RPC humano fica fora
   // do bloqueio do Coordinator que atende as conversas da área.
-  if (op.startsWith("integration.")) {
+  if (integrationOperation(op)) {
     const result = await integrationCommand(c.env, c.get("actor"), profile, op, data, key);
     c.executionCtx.waitUntil(drainIntegrationOutbox(c.env, profile).catch(logIntegrationError));
     return Response.json(result, { status: ["integration.retry", "integration.replace", "integration.post"].includes(op) ? 202 : 200, headers: { "Cache-Control": "no-store" } });

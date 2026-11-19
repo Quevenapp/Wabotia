@@ -4,7 +4,8 @@ import type { ModuleContext } from "../../api";
 import type { IntegrationEvent, IntegrationOperation, IntegrationResult, Statement } from "../../../integrations/contracts";
 import { aliasStatements, commandId, ensureCommercialPolicy, eventKey, integrationStatements, readIntegrationActivation } from "../../../integrations/ports";
 import { canonical, hash } from "../../../integrations/keys";
-import { commercialFingerprint, commercialOf, projectWork, readWorkIntegration, saoPauloDate, stableQuoteItems, workPrivacy, workSource } from "./projection";
+import { commercialFingerprint, commercialOf, projectWork, readWorkIntegration, saoPauloDate, stableQuoteItems, workPrivacy, workSource, type WorkCatalogChange } from "./projection";
+import { mutationHistory, publishMutation } from "../mutations";
 
 const relevant = new Set(["status", "stage", "quote_items", "quote_total_cents", "quote_version", "quote_valid_until", "quote_valid_days", "decision", "stage_approval_json", "commercial_json", "customer_name", "phone", "contact_id", "conversation_id", "item", "problem", "assignee", "due_at", "delivered_at", "warranty_until"]);
 const protectedFields = ["quote_items", "quote_total_cents", "quote_valid_days", "customer_name", "phone", "contact_id", "conversation_id", "item", "problem", "assignee", "due_at"];
@@ -14,6 +15,8 @@ export async function replayWorkWrite(ctx: ModuleContext, row: any, key: string 
   const receipt = await one(ctx.env, "SELECT fingerprint FROM receipts WHERE scope=? AND key=?", `os-commercial:${ctx.profile}:${row.id}`, key);
   if (!receipt) return null;
   if (receipt.fingerprint !== hash(intent)) throw conflict();
+  const history = await mutationHistory(ctx, key);
+  if (history?.order_id === row.id) await publishMutation(ctx, history);
   return one(ctx.env, "SELECT * FROM os_orders WHERE profile_id=? AND id=?", ctx.profile, row.id);
 }
 export function workWriteReceipt(ctx: ModuleContext, row: any, key: string | undefined, intent: unknown, at: number): Statement[] {
@@ -23,7 +26,7 @@ export function requireCommercialReason(note: string) {
   if (!note.trim()) throw new ApiError(422, "reason_required", "Informe o motivo da mudança comercial.");
 }
 /** Só monta SQL. Nenhuma chamada ao ERP: o chamador junta o plano ao lote nativo. */
-export async function prepareWorkMutation(ctx: ModuleContext, row: any, input: Record<string, unknown>, actor: string, at: number, note = "", opening = false) {
+export async function prepareWorkMutation(ctx: ModuleContext, row: any, input: Record<string, unknown>, actor: string, at: number, note = "", opening = false, catalogChange?: WorkCatalogChange) {
   const sets = { ...input };
   if (!opening && !Object.keys(sets).some(k => relevant.has(k))) return { sets, statements: [] as Statement[], note };
   const integration = await readWorkIntegration(ctx, row);
@@ -48,7 +51,7 @@ export async function prepareWorkMutation(ctx: ModuleContext, row: any, input: R
     const changed = protectedFields.some(k => sets[k] !== undefined && canonical(sets[k]) !== canonical(row[k] ?? null));
     const configChanged = ["customer_ref", "adult_payer_confirmed", "installments", "technical"].some(k =>
       canonical((local as any)[k] ?? null) !== canonical((current as any)[k] ?? null));
-    if (changed || configChanged) throw new ApiError(409, "commercial_frozen", "O documento possui efeitos confirmados ou em envio. Os dados comerciais estão congelados.");
+    if (changed || configChanged || catalogChange) throw new ApiError(409, "commercial_frozen", "O documento possui efeitos confirmados ou em envio. Os dados comerciais estão congelados.");
   }
   // Detecta execução anterior inclusive em registros legados ainda sem JSON.
   if (!current.first_execution_at && !opening) {
@@ -99,7 +102,7 @@ export async function prepareWorkMutation(ctx: ModuleContext, row: any, input: R
   if (operation === "cancel") local.cancellation_pending = !!(maintenance || integration.frozen);
   sets.commercial_json = next.commercial_json = JSON.stringify(local);
   const source = workSource(ctx.profile, row.id), revision = (integration.source?.revision ?? 0) + 1, seq = (integration.source?.enqueued_seq ?? 0) + 1;
-  const snapshot = await projectWork(ctx, next, revision, { integration, privacy, policy, products: parts.products });
+  const snapshot = await projectWork(ctx, next, revision, { integration, privacy, policy, products: parts.products, catalogChange });
   const event: IntegrationEvent = { id: commandId(source, seq), command_id: commandId(source, seq), event_key: eventKey(source, operation, revision),
     source, seq, source_revision: revision, operation, occurred_ms: occurred,
     epochs: state.epochs, eligible, snapshot, receipt_key: null, reverses_receipt_key: null,
@@ -107,9 +110,10 @@ export async function prepareWorkMutation(ctx: ModuleContext, row: any, input: R
     actor_id: /^[0-9a-f-]{36}$/i.test(actor) ? actor : null };
   const statements: Statement[] = [
     // Nenhuma confirmação concorrente pode passar entre a comparação e o lote.
-    ["SELECT CASE WHEN COALESCE((SELECT applied_seq FROM module_erp_sources WHERE profile_id=? AND module_id='os' AND source_id=?),0)=? THEN 1 ELSE json('os_version_conflict') END", [ctx.profile, row.id, integration.source?.applied_seq ?? 0]],
-    ["SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM json_each(?) j LEFT JOIN module_erp_activation a ON a.profile_id=? AND a.module_id=j.key WHERE a.epoch IS NULL OR a.epoch<>j.value) THEN 1 ELSE json('os_version_conflict') END", [canonical(state.epochs), ctx.profile]],
-    ["SELECT CASE WHEN (SELECT version FROM module_erp_policy WHERE profile_id=?)=? THEN 1 ELSE json('os_version_conflict') END", [ctx.profile, policy.version]],
+    [`SELECT CASE WHEN COALESCE((SELECT applied_seq FROM module_erp_sources WHERE profile_id=? AND module_id='os' AND source_id=?),0)=?
+      AND NOT EXISTS(SELECT 1 FROM json_each(?) j LEFT JOIN module_erp_activation a ON a.profile_id=? AND a.module_id=j.key WHERE a.epoch IS NULL OR a.epoch<>j.value)
+      AND (SELECT version FROM module_erp_policy WHERE profile_id=?)=? THEN 1 ELSE json('os_version_conflict') END`,
+      [ctx.profile, row.id, integration.source?.applied_seq ?? 0, canonical(state.epochs), ctx.profile, ctx.profile, policy.version]],
     ...(parts.products && !integration.frozen ? [[`SELECT CASE WHEN NOT EXISTS(
       SELECT 1 FROM json_each(?) i LEFT JOIN module_erp_catalog_links l ON l.profile_id=? AND l.module_id='os'
         AND l.record_kind='quote_item' AND l.record_id=? AND l.component=json_extract(i.value,'$.id')

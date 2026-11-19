@@ -8,9 +8,19 @@ import { checkVersion, commitOrderMutation } from "../mutations";
 import { quoteTotal, validateQuoteItems } from "../model";
 import { commercialFingerprint, commercialOf, documentStatus, getWorkProducer, readWorkIntegration, stableQuoteItems, workPrivacy, type WorkCommercial } from "./projection";
 import { replayWorkWrite, workWriteReceipt } from "./mutations";
+import type { Statement } from "../../../integrations/contracts";
 
 export function requireCommercialWriter(actor: Actor) {
   if (actor.via || actor.module || actor.credential || actor.id.startsWith("bot:")) throw new ApiError(403, "forbidden", "Dados comerciais exigem autoria explícita da equipe ou de uma aplicação autorizada.");
+}
+/** O vínculo, o recibo, a revisão da OS e sua projeção são um único lote. */
+export async function commitWorkCatalogLink(ctx: ModuleContext, actor: Actor, id: string, component: string, product_id: string | null, statements: Statement[]) {
+  requireCommercialWriter(actor);
+  const { row } = await authorizedOrder(ctx, actor, id, { write: true });
+  if (["delivered", "cancelled"].includes(row.status)) throw new ApiError(409, "commercial_closed", "Trabalho encerrado.");
+  if (!stableQuoteItems(row).some(item => item.id === component)) throw new ApiError(404, "not_found", "Item não encontrado.");
+  await commitOrderMutation(ctx, row, { commercial_json: row.commercial_json }, actor.id, "os.updated", ["catalog"], undefined, "", [],
+    { change: { component, product_id }, statements });
 }
 export async function workCommercialView(ctx: ModuleContext, actor: Actor, id: string) {
   const { row } = await authorizedOrder(ctx, actor, id);

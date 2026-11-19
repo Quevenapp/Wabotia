@@ -13,6 +13,7 @@ const messages: Record<string, string> = {
   settlement_account_required: "Configure uma conta de baixa ativa.",
   default_inactive: "O padrão comercial não está ativo.",
   total_mismatch: "Os valores comerciais não conferem.",
+  stock_unavailable: "Confira o saldo, os lotes e as quantidades no estoque.",
   part_disabled: "Esta parte está desligada.",
   epoch_closed: "A época deste comando foi encerrada.",
   erp_parts_unavailable: "Estado das partes indisponível.",

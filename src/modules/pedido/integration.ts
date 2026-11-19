@@ -42,11 +42,11 @@ export function saleSnapshot(source: SourceRef, amount: number, at: number, item
   };
 }
 
-export async function projectOrder(ctx: ModuleContext, row: any, source: SourceRef): Promise<CommercialSnapshot> {
-  const saved = await savedSale(ctx.env, source);
+export async function projectOrder(ctx: ModuleContext, row: any, source: SourceRef, plan = new CommercePlan(ctx, null)): Promise<CommercialSnapshot> {
+  const saved = (await plan.inspect(source)).snapshot;
   if (saved) return { ...saved, lifecycle: { ...saved.lifecycle, base_status: row.status, delivered_at: row.delivered_at ?? saved.lifecycle.delivered_at } };
-  const activation = await readIntegrationActivation(ctx.env, ctx.profile, source.module);
-  const policy = await ensureCommercialPolicy(ctx.env, ctx.profile);
+  const activation = await plan.activation(source.module);
+  const policy = await plan.policy();
   const links = activation.snapshot.parts.products ? await all(ctx.env,
     "SELECT record_kind,record_id,component,erp_item_id FROM module_erp_catalog_links WHERE profile_id=? AND module_id='pedido'", ctx.profile) : [];
   const linked = (kind: string, id: string, component = "") => links.find(l => l.record_kind === kind && l.record_id === id && l.component === component)?.erp_item_id ?? null;
@@ -81,20 +81,53 @@ type PlannedSource = { source: SourceRef; revision: number; seq: number; events:
 export class CommercePlan {
   private sources = new Map<string, PlannedSource>();
   private extras: Statement[] = [];
+  // Só durante a preparação deste lote: não reutiliza leituras após escrever.
+  private readings = new Map<string, any>();
+  private activations = new Map<IntegrationModule, ReturnType<typeof readIntegrationActivation>>();
+  private policyPromise?: ReturnType<typeof ensureCommercialPolicy>;
+  activation(module: IntegrationModule) {
+    let value = this.activations.get(module);
+    if (!value) { value = readIntegrationActivation(this.ctx.env, this.ctx.profile, module); this.activations.set(module, value); }
+    return value;
+  }
+  policy() { return this.policyPromise ??= ensureCommercialPolicy(this.ctx.env, this.ctx.profile); }
+  async inspectMany(sources: SourceRef[]) {
+    const missing = sources.filter(source => !this.readings.has(canonical(source)));
+    if (!missing.length) return;
+    const rows = await all(this.ctx.env, `WITH inputs AS (
+      SELECT value ->> '$.profile' profile,value ->> '$.module' module,value ->> '$.source_id' source_id,
+        value ->> '$.component' component,value ->> '$.scope' scope FROM json_each(?)
+    ) SELECT i.*,s.revision,s.enqueued_seq,
+      (SELECT response FROM receipts WHERE scope=i.scope ORDER BY CAST(key AS INTEGER) DESC LIMIT 1) snapshot_json,
+      (SELECT COALESCE(sum(CASE WHEN r.kind='receive' THEN a.amount_cents ELSE -a.amount_cents END),0)
+        FROM module_erp_allocations a JOIN module_commercial_receipts r ON r.profile_id=a.profile_id AND r.receipt_key=a.receipt_key
+        WHERE a.profile_id=i.profile AND a.module_id=i.module AND a.source_id=i.source_id AND a.component=i.component) allocated,
+      (SELECT j.value ->> '$.id' FROM module_erp_events e JOIN module_erp_delivery d ON d.event_id=e.id,json_each(d.receipt_json,'$.links') j
+        WHERE e.profile_id=i.profile AND e.module_id=i.module AND e.source_id=i.source_id
+          AND e.payload_json ->> '$.source.component'=i.component AND j.value ->> '$.kind'='title'
+        ORDER BY e.seq DESC,j.value ->> '$.id' LIMIT 1) title
+      FROM inputs i LEFT JOIN module_erp_sources s ON s.profile_id=i.profile AND s.module_id=i.module AND s.source_id=i.source_id`,
+      canonical(missing.map(source => ({ ...source, scope: snapshotScope(source) }))));
+    for (const row of rows) {
+      const source: SourceRef = { profile: row.profile, module: row.module, source_id: row.source_id, component: row.component };
+      this.readings.set(canonical(source), { ...row, snapshot: row.snapshot_json ? JSON.parse(row.snapshot_json) as CommercialSnapshot : null });
+    }
+  }
+  async inspect(source: SourceRef) { await this.inspectMany([source]); return this.readings.get(canonical(source))!; }
   constructor(readonly ctx: ModuleContext, readonly actor: string | null, readonly at = Date.now()) {}
   async add(snapshot: CommercialSnapshot, operations: EventInput[] = []) {
     const source = snapshot.source;
     const key = canonical([source.profile, source.module, source.source_id]);
     let plan = this.sources.get(key);
     if (!plan) {
-      const row = await one(this.ctx.env, "SELECT revision,enqueued_seq FROM module_erp_sources WHERE profile_id=? AND module_id=? AND source_id=?", source.profile, source.module, source.source_id);
+      const row = await this.inspect(source);
       plan = { source, revision: row?.revision ?? 0, seq: row?.enqueued_seq ?? 0, events: [], snapshot, snapshots: new Map() };
       this.sources.set(key, plan);
     }
     const next = { ...snapshot, source_revision: plan.revision + 1 };
     plan.snapshot = next; plan.snapshots.set(source.component, next);
     if (!operations.length) return;
-    const state = await readIntegrationActivation(this.ctx.env, source.profile, source.module);
+    const state = await this.activation(source.module);
     for (const input of operations) {
       const occurred = input.at ?? Math.max(this.at, Date.now());
       const eligible = { document: false, stock: false, finance: false };
@@ -132,20 +165,22 @@ export class CommercePlan {
     for (const plan of this.sources.values()) {
       // state_json segue o último componente; os DTOs locais preservam todos.
       out.push(...integrationStatements({ source: plan.snapshot.source, expected_revision: plan.revision, events: plan.events, next_state: { snapshot: plan.snapshot } }));
-      for (const snapshot of plan.snapshots.values()) out.push([
-        "INSERT INTO receipts(scope,key,fingerprint,response,status,created) VALUES(?,?,?,?,200,?)",
-        [snapshotScope(snapshot.source), String(snapshot.source_revision), hash(snapshot), canonical(snapshot), this.at],
-      ]);
+      const snapshots = [...plan.snapshots.values()];
+      for (let i = 0; i < snapshots.length; i += 20) {
+        const part = snapshots.slice(i, i + 20);
+        out.push([`INSERT INTO receipts(scope,key,fingerprint,response,status,created) VALUES ${part.map(() => "(?,?,?,?,200,?)").join(",")}`,
+          part.flatMap(snapshot => [snapshotScope(snapshot.source), String(snapshot.source_revision), hash(snapshot), canonical(snapshot), this.at])]);
+      }
     }
     return [...out, ...this.extras];
   }
 }
 
-export async function buildOrderCommerce(ctx: ModuleContext, row: any, actor: string, operation: "received" | "lifecycle" | "cancel", at = Date.now()): Promise<CommercePlan> {
-  const source = await orderOwner(ctx.env, ctx.profile, row);
+export async function buildOrderCommerce(ctx: ModuleContext, row: any, actor: string, operation: "received" | "lifecycle" | "cancel", at = Date.now(), newSource?: SourceRef): Promise<CommercePlan> {
+  const source = newSource ?? await orderOwner(ctx.env, ctx.profile, row);
   const plan = new CommercePlan(ctx, actor, at);
-  const snapshot = await projectOrder(ctx, row, source);
-  const existing = await savedSale(ctx.env, source);
+  const snapshot = await projectOrder(ctx, row, source, plan);
+  const existing = (await plan.inspect(source)).snapshot;
   const consumed = !!row.preparing_at || ["preparing", "ready", "out_for_delivery", "delivered"].includes(row.status);
   let operations: EventInput[] = [];
   if (operation === "received" && !existing) operations = [{ operation: "prepare" }, { operation: "execute" }];
@@ -207,23 +242,34 @@ export async function reverseReceiptStatements(ctx: ModuleContext, original: Com
 }
 
 /** Evidência lida do núcleo, nunca de campos alegados pelo cliente. */
-export async function providerOrderStatements(ctx: ModuleContext, row: any, paymentId: string, reverse = false, validateOnly = false): Promise<Statement[]> {
+export async function providerOrderStatements(ctx: ModuleContext, row: any, paymentId: string, reverse = false, validateOnly = false, receiptKey?: string): Promise<Statement[]> {
   if (row.tab_id) throw new IntegrationError("invalid_request", 409);
-  const payment = await one(ctx.env, "SELECT * FROM payments WHERE id=? AND profile_id=? AND module_id='pedido' AND ref_id=?", paymentId, ctx.profile, row.id);
+  const receiptFields = "profile_id,receipt_key,owner_module,source_id,kind,evidence,reverses_key,amount_cents,method,occurred_ms,actor_id,evidence_hash".split(",");
+  const payment = await one(ctx.env, `SELECT p.*,
+    (SELECT json_object('module_id',module_id,'source_id',source_id,'component',component) FROM module_erp_aliases
+      WHERE profile_id=p.profile_id AND record_kind='order' AND record_id=p.ref_id AND module_id IN ('pedido','mesas')) source_json,
+    (SELECT json_object(${receiptFields.map(f => `'${f}',${f}`).join(",")}) FROM module_commercial_receipts
+      WHERE profile_id=p.profile_id AND receipt_key=?) receipt_json
+    FROM payments p WHERE p.id=? AND p.profile_id=? AND p.module_id='pedido' AND p.ref_id=?`, receiptKey ?? null, paymentId, ctx.profile, row.id);
   if (!payment || !payment.provider_payment_id || payment.status !== (reverse ? "refunded" : "paid")) throw new IntegrationError("invalid_request", 422);
-  const source = await orderOwner(ctx.env, ctx.profile, row);
+  const alias = payment.source_json ? JSON.parse(payment.source_json) : null;
+  const source = alias ? saleSource(ctx.profile, alias.module_id, alias.source_id, alias.component) : saleSource(ctx.profile, "pedido", row.id);
   const key = providerReceiptKey(ctx.profile, payment.provider, payment.account_id, payment.provider_payment_id);
-  const old = await one<CommercialReceipt>(ctx.env, "SELECT * FROM module_commercial_receipts WHERE profile_id=? AND receipt_key=?", ctx.profile, key);
+  if (receiptKey && receiptKey !== key) throw new IntegrationError("idempotency_conflict", 409);
+  const old: CommercialReceipt | null = receiptKey
+    ? payment.receipt_json ? JSON.parse(payment.receipt_json) : null
+    : await one<CommercialReceipt>(ctx.env, "SELECT * FROM module_commercial_receipts WHERE profile_id=? AND receipt_key=?", ctx.profile, key);
   if (old && (old.owner_module !== "pedido" || old.source_id !== row.id || old.amount_cents !== payment.amount_cents || old.evidence !== "provider" || old.kind !== "receive" || old.method !== (payment.method === "pix" ? "pix" : "card"))) throw new IntegrationError("idempotency_conflict", 409);
   if (validateOnly) return [];
   if (reverse) return old ? reverseReceiptStatements(ctx, old, null, "provider_refund") : [];
   if (old && (row.status === "cancelled" || await netAllocated(ctx.env, source) >= row.total_cents || await one(ctx.env, "SELECT 1 FROM module_erp_allocations WHERE profile_id=? AND receipt_key=?", ctx.profile, key))) return [];
   const receipt: CommercialReceipt = old ?? { profile_id: ctx.profile, receipt_key: key, owner_module: "pedido", source_id: row.id, kind: "receive", evidence: "provider", reverses_key: null, amount_cents: payment.amount_cents, method: payment.method === "pix" ? "pix" : "card", occurred_ms: payment.paid_at ?? Date.now(), actor_id: null, evidence_hash: hash([key, payment.amount_cents, payment.method]) };
-  const snapshot = await projectOrder(ctx, row, source);
   const plan = new CommercePlan(ctx, row.created_by ?? null);
-  if (!await savedSale(ctx.env, source) && row.status === "received") await plan.add(snapshot, [{ operation: "prepare" }, { operation: "execute" }]);
+  const snapshot = await projectOrder(ctx, row, source, plan);
+  const state = await plan.inspect(source);
+  if (!state.snapshot && row.status === "received") await plan.add(snapshot, [{ operation: "prepare" }, { operation: "execute" }]);
   plan.append(...commercialReceiptStatements(receipt));
-  const amount = row.status === "cancelled" ? 0 : Math.min(receipt.amount_cents, Math.max(0, snapshot.total_cents - await netAllocated(ctx.env, source)));
+  const amount = row.status === "cancelled" ? 0 : Math.min(receipt.amount_cents, Math.max(0, snapshot.total_cents - state.allocated));
   if (amount) await allocateSale(plan, snapshot, receipt, amount, 0);
   else await plan.add(snapshot);
   plan.append(...aliasStatements(source, "order", row.id));

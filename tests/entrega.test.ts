@@ -1544,7 +1544,7 @@ describe("entrega: contrato da API", () => {
         .telemetry.filter((r) => r.path.startsWith("entrega"))
         .map((r) => ["post", r.path]),
     ];
-    expect(routes.length).toBe(16);
+    expect(routes.length).toBe(18); // A9: preço comercial e recebimento avulso.
     for (const [method, path] of routes) {
       const entry = spec.paths[toSpec(path)]?.[method];
       expect(entry, `${method} ${path}`).toBeTruthy();

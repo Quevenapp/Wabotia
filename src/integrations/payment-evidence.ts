@@ -93,9 +93,14 @@ export async function readPaymentEvidence(
   const stored = await one(env,
     "SELECT payload FROM events WHERE profile_id=? AND kind='payment.evidence' AND source_key=?",
     profile, evidenceEventKey(receiptKey));
-  if (!stored) return null;
+  return parsePaymentEvidence(stored?.payload, profile, receiptKey);
+}
+
+/** Mesma validação para evidência lida junto da reserva do gancho. */
+export function parsePaymentEvidence(payload: string | null | undefined, profile: string, receiptKey: string): PaymentEvidence | null {
+  if (!payload) return null;
   try {
-    const value: PaymentEvidence = JSON.parse(stored.payload);
+    const value: PaymentEvidence = JSON.parse(payload);
     const { original, ...current } = value;
     checkFact(current);
     if (original) checkFact(original);
@@ -115,6 +120,7 @@ export async function preparePaymentEvidence(
   row: { id: string; profile_id: string; provider: string; account_id: string; module_id: string | null; ref_id: string | null; amount_cents: number; currency: string },
   remote: VerifiedProviderPayment,
   observedMs: number,
+  loadedOriginal?: PaymentEvidence | null,
 ): Promise<PaymentEvidence> {
   if (remote.state !== "paid" && remote.state !== "refunded") invalid();
   const profile = identifier(row.profile_id), provider = identifier(row.provider);
@@ -124,7 +130,7 @@ export async function preparePaymentEvidence(
   const method = verifiedPaymentMethod(remote.verified_method);
   const paidAt = remote.paid_at == null ? null : instant(remote.paid_at);
   const observed = instant(observedMs);
-  let original = await readPaymentEvidence(env, profile, key);
+  let original = loadedOriginal === undefined ? await readPaymentEvidence(env, profile, key) : loadedOriginal;
   if (original) {
     if (original.kind !== "receive" || original.amount_cents !== remote.amount_cents || original.currency !== remote.currency ||
         (remote.verified_method !== undefined && original.method !== method) ||
@@ -162,16 +168,14 @@ export async function preparePaymentEvidence(
  * ao núcleo de pagamentos. Estes eventos internos não disparam webhooks.
  * A guarda também impede que duas tentativas locais adotem o mesmo fato.
  */
-export function paymentEvidenceStatements(evidence: PaymentEvidence): Statement[] {
+export function paymentEvidenceStatements(evidence: PaymentEvidence, requireTransition = false): Statement[] {
   const values: PaymentEvidence[] = evidence.original
     ? [{ ...evidence.original, original: null }, evidence] : [evidence];
-  return values.flatMap(value => {
+  return values.flatMap((value, index) => {
     const payload = canonical(value);
     return [
-      ["INSERT INTO events(profile_id,kind,resource_id,payload,created,source_key) VALUES(?,'payment.evidence',?,?,?,?) ON CONFLICT(source_key) WHERE source_key IS NOT NULL DO NOTHING",
+      [`INSERT INTO events(profile_id,kind,resource_id,payload,created,source_key) VALUES(?,'payment.evidence',${requireTransition && index === 0 ? "CASE WHEN changes()=1 THEN ? ELSE json('payment_state_conflict') END" : "?"},?,?,?) ON CONFLICT(source_key) WHERE source_key IS NOT NULL DO UPDATE SET payload=CASE WHEN events.profile_id=excluded.profile_id AND events.kind=excluded.kind AND events.resource_id=excluded.resource_id AND events.payload=excluded.payload THEN events.payload ELSE json('payment_evidence_conflict') END`,
         [value.profile_id, value.payment_id, payload, value.observed_ms, value.event_key]],
-      ["SELECT CASE WHEN EXISTS(SELECT 1 FROM events WHERE profile_id=? AND kind='payment.evidence' AND source_key=? AND payload=?) THEN 1 ELSE json('payment_evidence_conflict') END",
-        [value.profile_id, value.event_key, payload]],
     ] as Statement[];
   });
 }

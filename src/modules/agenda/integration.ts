@@ -190,8 +190,14 @@ export async function agendaNative(ctx: ModuleContext, before: any | null, after
     ]);
     return results[before ? 1 : 0];
   } catch (error) {
-    if (!before && error instanceof IntegrationError && error.code === "version_conflict")
-      throw new ApiError(409, "slot_taken", "Este horário acabou de ser ocupado. Escolha outro.");
+    if (error instanceof IntegrationError && error.code === "version_conflict") {
+      if (!before || sql.startsWith("UPDATE agenda_appointments SET professional_id"))
+        throw new ApiError(409, "slot_taken", "Este horário acabou de ser ocupado. Escolha outro.");
+      const current = await commercialRow(ctx, "agenda", before.id);
+      if (!["booked", "confirmed"].includes(current.status))
+        throw new ApiError(409, "appointment_closed", "Este agendamento já foi encerrado.");
+      throw new ApiError(409, "appointment_changed", "Este agendamento acabou de mudar. Atualize e tente de novo.");
+    }
     throw error;
   }
 }

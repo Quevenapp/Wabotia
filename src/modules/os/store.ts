@@ -720,7 +720,11 @@ export async function moveOrder(
     ...(options.notify !== false && order.status !== to && (TEXT_KEYS as readonly string[]).includes(to) && cfg.texts[to as TextKey]
       ? [noticeStatement(ctx.profile, { ...order, row_version: sets.row_version }, to as TextKey, `status:${order.id}:${historyId}`, historyId)] : []),
     ...commercial.statements, ...workWriteReceipt(ctx, order, mutationKey, intent, at),
-  ]);
+  ]).catch(error => {
+    if (error instanceof ApiError && error.code === "version_conflict")
+      throw new ApiError(409, "os_conflict", "A ordem de serviço mudou enquanto isso. Atualize e tente de novo.");
+    throw error;
+  });
   if (!update.meta.changes)
     throw new ApiError(
       409,
@@ -1271,6 +1275,9 @@ export async function trackText(ctx: ModuleContext, c: Conversation, typeId?: st
             [c.id, scope.contactId, commercial.sets.commercial_json, ctx.profile, row.id, row.contact_id, row.row_version, ...scope.params,
             scope.contactId, ctx.profile, scope.contactId, 'ref' in scope ? scope.ref.version : null, ctx.profile, c.id]], casGuard,
             ["INSERT INTO os_history(id,profile_id,order_id,kind,actor,created,entity_version,changed_fields_json) VALUES(?,?,?,'os.updated','customer',?,?,?)", [uid(), ctx.profile, row.id, at, row.row_version + 1, JSON.stringify(["customer_link"])]],
+            // A vinculação não muda o conteúdo do aviso. Move apenas a
+            // intenção da versão corrente, no mesmo CAS do proprietário.
+            ["UPDATE customer_progress SET cursor_json=json_set(cursor_json,'$.version',?) WHERE profile_id=? AND namespace='team' AND task LIKE 'os:notice:%' AND complete=0 AND json_extract(cursor_json,'$.orderId')=? AND json_extract(cursor_json,'$.version')=?", [row.row_version + 1, ctx.profile, row.id, row.row_version]],
             ...commercial.statements,
           ]);
         } catch (error) { if (!(error instanceof ApiError) || error.code !== "version_conflict") throw error; }

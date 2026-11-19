@@ -5,6 +5,7 @@ import type { AuthorizedOrder, ChildMutation, ChildStatement } from "./public";
 import type { MutationRef } from "./contracts";
 import { prepareWorkMutation } from "./commercial/mutations";
 import { hash, canonical } from "../../integrations/keys";
+import type { WorkCatalogChange } from "./commercial/projection";
 
 export const versionConflict = () => new ApiError(409, "version_conflict", "O registro mudou. Atualize e tente novamente.");
 // SELECT também pertence à transação D1. A expressão só falha quando o CAS
@@ -61,7 +62,7 @@ export async function commitChildMutation(ctx: ModuleContext, actor: Actor, orde
 }
 
 /** Alteração do pai: CAS, histórico sem valores e publicação recuperável. */
-export async function commitOrderMutation(ctx: ModuleContext, row: any, sets: Record<string, unknown>, actor: string, event: string, changed: string[], key?: string, note = "", extraStatements: ChildStatement[] = []) {
+export async function commitOrderMutation(ctx: ModuleContext, row: any, sets: Record<string, unknown>, actor: string, event: string, changed: string[], key?: string, note = "", extraStatements: ChildStatement[] = [], catalog?: { change: WorkCatalogChange; statements: ChildStatement[] }) {
   const scope = `os-parent:${ctx.profile}:${row.id}`;
   const fingerprint = key ? hash({ sets, actor, event, changed, note }) : null;
   const previous = await mutationHistory(ctx, key);
@@ -73,14 +74,14 @@ export async function commitOrderMutation(ctx: ModuleContext, row: any, sets: Re
     return one(ctx.env, "SELECT * FROM os_orders WHERE profile_id=? AND id=?", ctx.profile, row.id);
   }
   const at = now(), version = (row.row_version ?? 1) + 1, id = uid();
-  const commercial = await prepareWorkMutation(ctx, row, sets, actor, at, note);
+  const commercial = await prepareWorkMutation(ctx, row, sets, actor, at, note, false, catalog?.change);
   const values = { ...commercial.sets, row_version: version, updated: at, stale_notified_at: null };
   const keys = Object.keys(values);
   const h = { id, order_id: row.id, kind: event, entity_version: version, from_stage: row.stage || row.status, to_stage: sets.stage ?? row.stage ?? row.status };
   await atomic(ctx, [
     [`UPDATE os_orders SET ${keys.map(k => k + "=?").join(",")} WHERE profile_id=? AND id=? AND row_version=?`, [...Object.values(values), ctx.profile, row.id, row.row_version ?? 1]], casGuard,
     ["INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,from_stage,to_stage,actor,created,entity_version,mutation_key,changed_fields_json,note) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", [id, ctx.profile, row.id, event, row.status, sets.status ?? row.status, h.from_stage, h.to_stage, actor, at, version, key ?? null, JSON.stringify(changed), commercial.note]],
-    ...commercial.statements, ...extraStatements,
+    ...(catalog?.statements ?? []), ...commercial.statements, ...extraStatements,
     ...(key ? [["INSERT INTO receipts(scope,key,fingerprint,response,status,created) VALUES(?,?,?,?,200,?)", [scope, key, fingerprint, canonical({ id: row.id, version }), at]]] as ChildStatement[] : []),
   ]);
   await publishMutation(ctx, h);

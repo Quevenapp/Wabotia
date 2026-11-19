@@ -23,6 +23,7 @@ import {
 export { dateTimeOf, money } from "./model";
 export { center, pair, wrap, TICKET_COLUMNS } from "./ticket";
 export type { OrderLine, OrderView };
+export { orderView };
 
 const ctxOf = (env: Env, profile: string) => modulesApi(env, profile, "pedido");
 
@@ -125,6 +126,13 @@ export async function createTableOrder(
     ],
   });
   return { order: orderView(order), created };
+}
+
+/** Subconsulta da fotografia de pedidos para um lote de leitura do módulo
+ * dependente. O Pedido conserva a propriedade do SQL e do DTO. */
+export function tabOrdersSnapshotSql(profile: string, tabId: string): Statement {
+  return [`SELECT json_group_array(json_object('status',status,'address',address,'payment_method',payment_method,'id',id,'number',number,'fulfillment',fulfillment,'status_at',status_at,'customer_name',customer_name,'phone',phone,'contact_id',contact_id,'conversation_id',conversation_id,'source',source,'web_step_id',web_step_id,'table_label',table_label,'tab_id',tab_id,'lines',lines,'item_count',item_count,'subtotal_cents',subtotal_cents,'delivery_fee_cents',delivery_fee_cents,'discount_cents',discount_cents,'total_cents',total_cents,'note',note,'notes',notes,'eta_minutes',eta_minutes,'confirmed_at',confirmed_at,'payment_status',payment_status,'payment_id',payment_id,'payment_due_at',payment_due_at,'paid_at',paid_at,'paid_by',paid_by,'payment_error',payment_error,'change_for_cents',change_for_cents,'needs_refund',needs_refund,'cancel_reason',cancel_reason,'cancelled_by',cancelled_by,'preparing_at',preparing_at,'ready_at',ready_at,'dispatched_at',dispatched_at,'delivered_at',delivered_at,'cancelled_at',cancelled_at,'created_by',created_by,'created',created,'updated',updated))
+    FROM (SELECT * FROM pedido_orders WHERE profile_id=? AND tab_id=? ORDER BY number LIMIT 500)`, [profile, tabId]];
 }
 
 /** Pedidos de uma conta de mesa (inclusive cancelados), do mais antigo. */
@@ -237,8 +245,10 @@ export { orderOwner, projectOrder, savedSale, saleSource, saleSnapshot, Commerce
 export type { CommercialSnapshot, SourceRef, Statement, CommercialReceipt } from "./integration";
 
 export function settleTabOrderStatements(profile: string, tabId: string, actor: string, at = Date.now()): Statement[] {
-  return [["UPDATE pedido_orders SET payment_status='paid',paid_at=?,paid_by=?,updated=? WHERE profile_id=? AND tab_id=? AND payment_status='tab' AND status<>'cancelled'", [at, actor, at, profile, tabId]],
-    ["UPDATE pedido_orders SET payment_status='cancelled',updated=? WHERE profile_id=? AND tab_id=? AND payment_status='tab'", [at, profile, tabId]]];
+  return [[`UPDATE pedido_orders SET payment_status=CASE WHEN status='cancelled' THEN 'cancelled' ELSE 'paid' END,
+    paid_at=CASE WHEN status='cancelled' THEN paid_at ELSE ? END,
+    paid_by=CASE WHEN status='cancelled' THEN paid_by ELSE ? END,updated=?
+    WHERE profile_id=? AND tab_id=? AND payment_status='tab'`, [at, actor, at, profile, tabId]]];
 }
 
 export async function orderSourceForId(env: Env, profile: string, id: string) {

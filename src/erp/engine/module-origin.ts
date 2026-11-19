@@ -42,6 +42,8 @@ export interface ModuleTransportProof {
   readonly rpc: string; readonly identity_hash: string;
   readonly evidence: ModuleExecutionEvidence; readonly request: PreparedErpRequest; readonly event: IntegrationEvent;
   readonly open: { document: boolean; stock: boolean; finance: boolean };
+  /** Predecessor remoto após os saltos locais sem pedido nem efeito. */
+  readonly previous_seq: number;
 }
 const proofs = new WeakSet<object>();
 const scopes = new WeakMap<RpcContext, { proof: ModuleTransportProof; scope: VerifiedOriginScope; previous: OriginReceipt | null }>();
@@ -127,7 +129,27 @@ export async function verifyModuleTransport(db: D1Database | undefined, profile:
     const factAt = event!.operation === "execute" && e!.module === "os" && request!.body.mode === "system" ? event!.snapshot.lifecycle.first_execution_at : event!.occurred_ms;
     return a?.enabled === 1 && a.epoch === event!.epochs[id] && a.enabled_since_ms !== null && factAt !== null && factAt >= a.enabled_since_ms;
   });
-  const proof = freeze({ rpc, identity_hash: hash(identity), evidence: e!, request: request!, event: event!, open: {
+  let previousSeq = e!.seq - 1;
+  if (previousSeq > 0) {
+    const previous = await db!.prepare(`SELECT e.seq,e.command_id,e.event_hash,e.payload_json,d.state,d.receipt_json,r.event_id prepared
+      FROM module_erp_events e JOIN module_erp_delivery d ON d.event_id=e.id
+      LEFT JOIN module_erp_requests r ON r.event_id=e.id
+      WHERE e.profile_id=? AND e.module_id=? AND e.source_id=? AND e.seq<? ORDER BY e.seq DESC`)
+      .bind(profile, e!.module, e!.source_id, e!.seq).all<any>();
+    for (const row of previous.results) {
+      if (row.seq !== previousSeq || row.prepared || row.state !== "done" || !row.receipt_json) break;
+      let fact: IntegrationEvent, result: IntegrationResult;
+      try { fact = JSON.parse(row.payload_json); result = JSON.parse(row.receipt_json); } catch { break; }
+      if (hash(fact) !== row.event_hash || fact.seq !== previousSeq || fact.command_id !== row.command_id ||
+          fact.source.profile !== profile || fact.source.module !== e!.module || fact.source.source_id !== e!.source_id ||
+          fact.command_id !== commandId(request!.source, previousSeq) ||
+          !same(fact.eligible, { document: false, stock: false, finance: false }) ||
+          !same(result, { command_id: fact.command_id, seq: previousSeq, replayed: false, outcome: "skipped", links: [],
+            effects: { stock: "not_requested", finance: "not_requested" }, reason_code: "part_disabled" })) break;
+      previousSeq--;
+    }
+  }
+  const proof = freeze({ rpc, identity_hash: hash(identity), evidence: e!, request: request!, event: event!, previous_seq: previousSeq, open: {
     document: event!.eligible.document && (open(["erp-vendas"]) || event!.eligible.finance && open(["erp-financeiro"]) || event!.eligible.stock && open(["erp-produtos", "erp-estoque"])),
     stock: event!.eligible.stock && open(["erp-produtos", "erp-estoque"]), finance: event!.eligible.finance && open(["erp-financeiro"]),
   } });
@@ -181,10 +203,14 @@ export function withModuleExecution<T>(ctx: RpcContext, name: string, args: RpcA
   if (!ctx.parts.customers) throw new ErpError("part_disabled", "part_disabled");
   if (!one(ctx.db, "SELECT 1 FROM erp_access__membership WHERE user_id=? AND active=1", ctx.identity.actor?.user_id ?? null)) denied();
   const r = proof!.request;
-  const prior = r.seq > 1 ? saved(ctx.db, commandId(r.source, r.seq - 1)) : null;
+  const priorSeq = proof!.previous_seq;
+  // Um retrato D1 incompatível não pode ocultar um recibo que existe no ERP.
+  for (let seq = priorSeq + 1; seq < r.seq; seq++)
+    if (saved(ctx.db, commandId(r.source, seq))) raise("40001", "module_sequence_conflict");
+  const prior = priorSeq > 0 ? saved(ctx.db, commandId(r.source, priorSeq)) : null;
   // Leitura e fechamento podem reconciliar um comando ainda sem predecessor.
-  if (["erp_module_apply", "erp_module_manual_apply"].includes(name) && r.seq > 1 &&
-      (!prior || prior.policy !== ORIGIN_POLICY || prior.type !== "receipt" || prior.result.seq !== r.seq - 1 ||
+  if (["erp_module_apply", "erp_module_manual_apply"].includes(name) && priorSeq > 0 &&
+      (!prior || prior.policy !== ORIGIN_POLICY || prior.type !== "receipt" || prior.result.seq !== priorSeq ||
        !same([prior.source.profile, prior.source.module, prior.source.source_id], [r.source.profile, r.source.module, r.source.source_id])))
     raise("40001", "module_sequence_conflict");
   const operation = name === "erp_module_command_close" ? "command_close" : "receipt_read";

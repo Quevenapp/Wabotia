@@ -12,6 +12,7 @@ registerReceiptReverser("mensalidade", reverseMensalidadeReceipt);
 // ./store.ts; regras puras em ./model.ts. Carregado por
 // src/modules/runtime.ts. Uso: docs/MENSALIDADE.md.
 import { type Actor, now, requireValue } from "../../types";
+import { moduleEnabled } from "../registry";
 import {
   filteredHandlers,
   moduleError,
@@ -144,7 +145,10 @@ function teamConsent(actor: Actor, data: any) {
 
 // Parcelas, vencidas e avisos (gancho periódico do núcleo).
 onSchedule("mensalidade", async (ctx, tick) => {
-  await reconcileMensalidadeContracts(ctx);
+  // Contratos cancelados continuam persistidos enquanto a Base está desligada.
+  // A próxima rodada com Base ligada retoma a conciliação, sem varrer a ponte
+  // em cada alarme de uma área que só usa a Mensalidade local.
+  if (await moduleEnabled(ctx.env, ctx.profile, "erp")) await reconcileMensalidadeContracts(ctx);
   await runDue(ctx, tick.now);
 });
 

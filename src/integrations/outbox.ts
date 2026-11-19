@@ -28,11 +28,16 @@ export function integrationStatements(input: {
   }
   const key = sourceBindings(source);
   const statements: Statement[] = [
-    ["INSERT OR IGNORE INTO module_erp_sources(profile_id,module_id,source_id) VALUES(?,?,?)", key],
-    [`UPDATE module_erp_sources SET revision=revision+1,state_json=?,enqueued_seq=enqueued_seq+?
-      WHERE profile_id=? AND module_id=? AND source_id=? AND revision=?${events.length ? " AND enqueued_seq=?" : ""}`,
-    [canonical(next_state), events.length, ...key, expected_revision, ...(events.length ? [events[0].seq - 1] : [])]],
-    integrationCasGuard,
+    [`INSERT INTO module_erp_sources(profile_id,module_id,source_id,revision,state_json,enqueued_seq)
+      VALUES(?,?,?,CASE WHEN (?=0 AND ?=0)
+        OR EXISTS(SELECT 1 FROM module_erp_sources WHERE profile_id=? AND module_id=? AND source_id=?)
+        THEN 1 ELSE json('integration_version_conflict') END,?,?)
+      ON CONFLICT(profile_id,module_id,source_id) DO UPDATE SET
+        revision=CASE WHEN module_erp_sources.revision=?${events.length ? " AND module_erp_sources.enqueued_seq=?" : ""}
+          THEN module_erp_sources.revision+1 ELSE json('integration_version_conflict') END,
+        state_json=excluded.state_json,enqueued_seq=module_erp_sources.enqueued_seq+?`,
+    [...key, expected_revision, events.length ? events[0].seq - 1 : 0, ...key, canonical(next_state), events.length,
+      expected_revision, ...(events.length ? [events[0].seq - 1] : []), events.length]],
   ];
   for (const event of events) {
     statements.push([
@@ -52,9 +57,25 @@ export async function findIntegrationEvent(env: Env, profile: string, eventKey: 
 export function aliasStatements(source: SourceRef, kind: string, recordId: string): Statement[] {
   validateSource(source);
   return [
-    ["INSERT OR IGNORE INTO module_erp_aliases(profile_id,module_id,record_kind,record_id,source_id,component) VALUES(?,?,?,?,?,?)", [source.profile, source.module, kind, recordId, source.source_id, source.component]],
-    [`SELECT CASE WHEN EXISTS(SELECT 1 FROM module_erp_aliases WHERE profile_id=? AND module_id=? AND record_kind=? AND record_id=? AND source_id=? AND component=?) THEN 1 ELSE json('integration_alias_conflict') END`, [source.profile, source.module, kind, recordId, source.source_id, source.component]],
+    [`INSERT INTO module_erp_aliases(profile_id,module_id,record_kind,record_id,source_id,component) VALUES(?,?,?,?,?,?)
+      ON CONFLICT(profile_id,module_id,record_kind,record_id) DO UPDATE SET component=
+      CASE WHEN module_erp_aliases.source_id=excluded.source_id AND module_erp_aliases.component=excluded.component
+        THEN module_erp_aliases.component ELSE json('integration_alias_conflict') END`,
+      [source.profile, source.module, kind, recordId, source.source_id, source.component]],
   ];
+}
+/** Recibos locais independentes entre si, juntos na mesma escrita do lote sem ultrapassar o
+ * limite de parâmetros D1. Conflito em qualquer chave desfaz o lote inteiro. */
+export function compactReceiptWrites(statements: Statement[]): Statement[] {
+  const receiptSql = /^INSERT INTO receipts\(scope,key,fingerprint,response,status,created\) VALUES\s*\(\?,\?,\?,\?,200,\?\)(?:,\(\?,\?,\?,\?,200,\?\))*$/;
+  const receipts: unknown[][] = [], rest: Statement[] = [];
+  for (const statement of statements) {
+    if (!receiptSql.test(statement[0])) { rest.push(statement); continue; }
+    for (let i = 0; i < statement[1].length; i += 5) receipts.push(statement[1].slice(i, i + 5));
+  }
+  if (receipts.length) rest.push([`INSERT INTO receipts(scope,key,fingerprint,response,status,created)
+    SELECT value ->> '$[0]',value ->> '$[1]',value ->> '$[2]',value ->> '$[3]',200,value ->> '$[4]' FROM json_each(?)`, [canonical(receipts)]]);
+  return rest;
 }
 export async function readPreparedRequest(env: Env, event: IntegrationEvent): Promise<PreparedErpRequest | null> {
   const row = await one(env, "SELECT * FROM module_erp_requests WHERE event_id=?", event.id);

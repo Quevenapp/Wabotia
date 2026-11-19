@@ -6,7 +6,7 @@
 // Estados: created → paid | expired | cancelled; paid → refunded. Dinheiro
 // confirmado vence: um pagamento aprovado depois de expirar ou de cancelado
 // localmente passa a paid. Nenhuma mensagem do cliente muda o estado.
-import { all, batch, exec, one, cachedOne, withReadCache } from "./db";
+import { all, batch, exec, one, cachedOne, withReadCache, seedRead, MODULE_STATES_SQL, PROFILE_SETTINGS_SQL } from "./db";
 import {
   ApiError,
   type Actor,
@@ -17,7 +17,7 @@ import {
   requireValue,
   uid,
 } from "./types";
-import { access, admin, secret, setSecret } from "./security";
+import { access, admin, secret, setSecret, unseal } from "./security";
 import { event } from "./events";
 import { conversation, enqueue, message } from "./service";
 import { interactiveLine, sendInteractive } from "./line-service";
@@ -40,6 +40,7 @@ import {
   paymentEvidenceStatements,
   paymentHookFailure,
   preparePaymentEvidence,
+  parsePaymentEvidence,
   providerReceiptKey,
   readPaymentEvidence,
   type PaymentEvidence,
@@ -674,14 +675,16 @@ async function transition(
     evidence_key: evidence?.receipt_key ?? null,
   });
   const paidAt = evidence?.original?.occurred_ms ?? evidence?.occurred_ms ?? extra.paid_at;
+  let fresh: any;
   try {
-    await batch(env, [
-      ["UPDATE payments SET status=?,provider_status=coalesce(?,provider_status),provider_payment_id=coalesce(?,provider_payment_id),paid_at=coalesce(paid_at,?),updated=?,hook_pending=CASE WHEN module_id IS NULL THEN NULL ELSE json_insert(coalesce(hook_pending,'[]'),'$[' || json_array_length(coalesce(hook_pending,'[]')) || ']',json(?)) END,hook_next_at=NULL WHERE id=? AND status=? AND provider_payment_id IS ?",
+    const results = await batch(env, [
+      ["UPDATE payments SET status=?,provider_status=coalesce(?,provider_status),provider_payment_id=coalesce(?,provider_payment_id),paid_at=coalesce(paid_at,?),updated=?,hook_pending=CASE WHEN module_id IS NULL THEN NULL ELSE json_insert(coalesce(hook_pending,'[]'),'$[' || json_array_length(coalesce(hook_pending,'[]')) || ']',json(?)) END,hook_next_at=NULL WHERE id=? AND status=? AND provider_payment_id IS ? RETURNING *",
         [next, extra.provider_status ?? null, extra.provider_payment_id ?? null,
           evidence ? paidAt : null, at, pending, row.id, row.status, row.provider_payment_id ?? null]],
-      ["SELECT CASE WHEN changes()=1 THEN 1 ELSE json('payment_state_conflict') END", []],
-      ...(evidence ? [...paymentEvidenceStatements(evidence), attachHookEvidence(row.id, evidence)] : []),
+      ...(!evidence ? [["SELECT CASE WHEN changes()=1 THEN 1 ELSE json('payment_state_conflict') END", []] as Statement] : []),
+      ...(evidence ? [...paymentEvidenceStatements(evidence, true), ...(json(row.hook_pending, []).some((entry: any) => !entry.evidence_key) ? [attachHookEvidence(row.id, evidence)] : [])] : []),
     ]);
+    fresh = results[0].results[0];
   } catch (error) {
     // D1 não fornece o literal de json inválido em todas as versões.
     if (!evidence && /malformed JSON|payment_state_conflict/i.test(String(error))) return false;
@@ -689,7 +692,6 @@ async function transition(
       throw new PaymentEvidenceError("payment_state_conflict");
     throw error;
   }
-  const fresh = await one(env, "SELECT * FROM payments WHERE id=?", row.id);
   await event(
     env,
     fresh.profile_id,
@@ -700,7 +702,29 @@ async function transition(
   );
   let c: Conversation | null = null;
   try {
-    c = await conversation(env, fresh.conversation_id, fresh.profile_id);
+    const row = await one(env, `SELECT c.*,
+      (SELECT json_object('id',p.id,'name',p.name,'settings',p.settings,'enabled',p.enabled,'created',p.created,
+        'module_states',(SELECT json_group_object(module_id,enabled) FROM profile_modules WHERE profile_id=p.id)) FROM profiles p WHERE p.id=c.profile_id) profile_json,
+      (SELECT json_object('config',config) FROM connections WHERE id=c.connection_id) connection_json,
+      (SELECT json_object('connection_id',connection_id) FROM meta_numbers WHERE connection_id=c.connection_id) number_json,
+      (SELECT json_object('timezone',a.timezone) FROM meta_numbers n JOIN meta_accounts a ON a.id=n.account_id WHERE n.connection_id=c.connection_id) timezone_json
+      FROM conversations c WHERE c.id=? AND c.profile_id=?`, fresh.conversation_id, fresh.profile_id);
+    if (row) {
+      const { profile_json, connection_json, number_json, timezone_json, ...record } = row;
+      c = record as Conversation;
+      const profile = json(profile_json, null);
+      if (profile) {
+        const states = typeof profile.module_states === "string" ? json(profile.module_states, {}) : profile.module_states ?? {};
+        profile.module_states = JSON.stringify(states);
+        seedRead(env, { sql: PROFILE_SETTINGS_SQL, args: [fresh.profile_id], first: true }, [profile]);
+        seedRead(env, { sql: MODULE_STATES_SQL, args: [fresh.profile_id] }, Object.entries(states).map(([module_id, enabled]) => ({ module_id, enabled })));
+      }
+      for (const [sql, payload] of [
+        ["SELECT config FROM connections WHERE id=?", connection_json],
+        ["SELECT connection_id FROM meta_numbers WHERE connection_id=?", number_json],
+        ["SELECT a.timezone FROM meta_numbers n JOIN meta_accounts a ON a.id=n.account_id WHERE n.connection_id=?", timezone_json],
+      ]) seedRead(env, { sql, args: [c.connection_id], first: true }, payload ? [JSON.parse(payload)] : []);
+    }
   } catch {
     c = null;
   }
@@ -839,25 +863,23 @@ const hookDelay = (attempts: number) =>
  */
 export async function deliverPaymentHooks(env: Env, paymentId: string) {
   for (let step = 0; step < 10; step++) {
-    const row = await one(env, "SELECT * FROM payments WHERE id=?", paymentId);
-    const queue: (PaymentHookEvent & { evidence_key?: string })[] = json(
-      row?.hook_pending,
-      [],
-    );
-    if (!row || !queue.length) return true;
-    const entry = queue[0];
-    // Uma concessão limita concorrência; perda de resposta ainda exige replay
-    // idempotente no produtor. Só o detentor remove a cabeça desta fila.
     const token = uid();
-    const acquired = await exec(env,
-      "UPDATE payments SET hook_pending=json_set(hook_pending,'$[0].lease_token',?,'$[0].lease_until_ms',?) WHERE id=? AND json_extract(hook_pending,'$[0].id')=? AND coalesce(json_extract(hook_pending,'$[0].lease_until_ms'),0)<=?",
-      token, now() + 60_000, paymentId, entry.id, now());
-    if (!acquired.meta?.changes) return false;
+    const row = await one(env, `UPDATE payments SET hook_pending=json_set(hook_pending,'$[0].lease_token',?,'$[0].lease_until_ms',?)
+      WHERE id=? AND json_array_length(hook_pending)>0 AND coalesce(json_extract(hook_pending,'$[0].lease_until_ms'),0)<=?
+      RETURNING *, (SELECT payload FROM events WHERE profile_id=payments.profile_id AND kind='payment.evidence'
+        AND source_key='payment.evidence:' || json_extract(payments.hook_pending,'$[0].evidence_key')) hook_evidence_json`,
+      token, now() + 60_000, paymentId, now());
+    if (!row) {
+      const current = await one(env, "SELECT hook_pending FROM payments WHERE id=?", paymentId);
+      return !json(current?.hook_pending, []).length;
+    }
+    const queue: (PaymentHookEvent & { evidence_key?: string })[] = json(row.hook_pending, []);
+    const entry = queue[0];
     const hook = row.module_id ? paymentHook(row.module_id) : undefined;
     try {
       if (!hook) throw new PaymentEvidenceError("payment_hook_missing");
       const evidence = entry.evidence_key
-        ? await readPaymentEvidence(env, row.profile_id, entry.evidence_key) : null;
+        ? parsePaymentEvidence(row.hook_evidence_json, row.profile_id, entry.evidence_key) : null;
       if ((entry.status === "paid" || entry.status === "refunded") && !evidence)
         throw new PaymentEvidenceError("payment_evidence_missing");
       if (evidence && (evidence.payment_id !== row.id || evidence.module_id !== row.module_id || evidence.ref_id !== row.ref_id ||
@@ -900,13 +922,15 @@ export async function deliverPaymentHooks(env: Env, paymentId: string) {
         await hookExhausted(env, row, entry.status, safe.message);
       return false;
     }
-    await exec(
+    const finished = await one(
       env,
-      "UPDATE payments SET hook_pending=CASE WHEN json_array_length(hook_pending)<=1 THEN NULL ELSE json_remove(hook_pending,'$[0]') END,hook_attempts=0,hook_next_at=NULL,hook_error=NULL WHERE id=? AND json_extract(hook_pending,'$[0].id')=? AND json_extract(hook_pending,'$[0].lease_token')=?",
+      "UPDATE payments SET hook_pending=CASE WHEN json_array_length(hook_pending)<=1 THEN NULL ELSE json_remove(hook_pending,'$[0]') END,hook_attempts=0,hook_next_at=NULL,hook_error=NULL WHERE id=? AND json_extract(hook_pending,'$[0].id')=? AND json_extract(hook_pending,'$[0].lease_token')=? RETURNING hook_pending",
       paymentId,
       entry.id,
       token,
     );
+    if (!finished) return false;
+    if (!json(finished.hook_pending, []).length) return true;
   }
   return false;
 }
@@ -967,31 +991,29 @@ export async function refreshFromProvider(
   env = withReadCache(env);
   const account = await one(
     env,
-    "SELECT * FROM payment_accounts WHERE id=?",
-    accountId,
+    "SELECT a.*,(SELECT value FROM secrets WHERE id=?) credentials_cipher FROM payment_accounts a WHERE a.id=?",
+    secretId(accountId), accountId,
   );
   if (!account) return { ignored: "account" };
   let remote: VerifiedProviderPayment;
   try {
-    remote = await providers[account.provider].getPayment(
-      await accountCredentials(env, account.id), providerPaymentId);
+    const keys = account.credentials_cipher ? await unseal(env, account.credentials_cipher) : {};
+    remote = await providers[account.provider].getPayment({
+      access_token: String(keys.access_token || ""), webhook_secret: String(keys.webhook_secret || ""),
+    }, providerPaymentId);
   } catch {
     // O erro do adaptador pode incluir resposta bruta, credencial ou texto privado.
     throw new PaymentEvidenceError("provider_unavailable");
   }
   if (remote.id !== providerPaymentId || !["paid", "refunded", "pending", "rejected", "expired", "cancelled"].includes(remote.state))
     throw new PaymentEvidenceError("payment_evidence_invalid");
-  const known = await readPaymentEvidence(env, account.profile_id,
-    providerReceiptKey(account.profile_id, account.provider, account.id, remote.id));
+  const receiptKey = providerReceiptKey(account.profile_id, account.provider, account.id, remote.id);
+  let known = remote.external_reference ? undefined : await readPaymentEvidence(env, account.profile_id, receiptKey);
   const reference = remote.external_reference ?? known?.payment_id;
   const referenced = reference
-    ? await one(
-        env,
-        "SELECT * FROM payments WHERE id=? AND account_id=?",
-        reference,
-        account.id,
-      )
-    : null;
+    ? await one(env, `SELECT p.*,(SELECT payload FROM events WHERE profile_id=p.profile_id AND kind='payment.evidence' AND source_key=?) evidence_json
+      FROM payments p WHERE p.id=? AND p.account_id=?`, `payment.evidence:${receiptKey}`, reference, account.id) : null;
+  known ??= parsePaymentEvidence(referenced?.evidence_json, account.profile_id, receiptKey);
   if (!referenced) return { ignored: "unknown_payment" };
   if (referenced.profile_id !== account.profile_id || referenced.provider !== account.provider)
     throw new PaymentEvidenceError("payment_evidence_conflict");
@@ -1030,10 +1052,10 @@ export async function refreshFromProvider(
   // o vencedor e retoma seu gancho, sem outra evidência nem outro proprietário.
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      let row = await one(env, "SELECT * FROM payments WHERE id=?", referenced.id);
+      let row = attempt === 0 ? referenced : await one(env, "SELECT * FROM payments WHERE id=?", referenced.id);
       if (!row) return { ignored: "unknown_payment" };
       const evidence = next === "paid" || next === "refunded"
-        ? await preparePaymentEvidence(env, row, remote, now()) : null;
+        ? await preparePaymentEvidence(env, row, remote, now(), attempt === 0 ? known : undefined) : null;
       if (evidence && evidence.payment_id !== row.id) {
         row = await one(env, "SELECT * FROM payments WHERE id=? AND profile_id=? AND account_id=? AND provider=?",
           evidence.payment_id, account.profile_id, account.id, account.provider);

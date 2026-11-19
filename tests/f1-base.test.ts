@@ -130,12 +130,17 @@ describe("catálogo e ativação", () => {
       const definition = moduleById(moduleId)!;
       const declaration = customerProfileDeclarations[moduleId];
       expect(declaration.contributions.map((c) => c.id)).toEqual(ids);
-      const { customer_profile, ...view } = moduleView(definition, false);
+      const { customer_profile, integration, management, ...view } = moduleView(definition, false);
       expect(customer_profile).toBe(declaration);
+      expect(integration).toEqual(definition.integration ?? null);
+      expect(management.map(({ hidden_when_modules_enabled, ...item }) => {
+        expect(hidden_when_modules_enabled).toEqual(item.id === "erp.service-orders" ? ["os"] : undefined);
+        return item;
+      })).toEqual(definition.management ?? []);
       expect(view).toEqual({
         id: definition.id, name: definition.name, version: definition.version,
         description: definition.description, builtin: definition.builtin, enabled: false,
-        navigation: definition.navigation, management: definition.management ?? [],
+        navigation: definition.navigation,
         menu_item_types: definition.menu_item_types, events: definition.events,
         settings: definition.settings, scopes: definition.scopes, requires: definition.requires ?? [],
         erp_role: definition.erp_role ?? null,

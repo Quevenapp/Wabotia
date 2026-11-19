@@ -55,7 +55,7 @@ export function erpModuleCommandClose(ctx: RpcContext, a: RpcArgs) {
   const reason = a.p_reason_code;
   if (typeof reason !== "string" || !/^[a-z][a-z0-9_]{0,79}$/.test(reason)) raise("22023", "module_reason_required");
   const r = execution(ctx).request;
-  if (r.seq > 1 && !previousReceipt(ctx)) raise("40001", "module_sequence_conflict");
+  if (execution(ctx).previous_seq > 0 && !previousReceipt(ctx)) raise("40001", "module_sequence_conflict");
   return writeModuleReceipt(ctx, result(ctx, "closed", reason), previousReceipt(ctx)?.components ?? {});
 }
 export function erpModuleApply(ctx: RpcContext) {
@@ -132,14 +132,16 @@ export function erpModuleApply(ctx: RpcContext) {
     else out.effects.finance = "skipped";
   }
   if (b.operation === "receive") {
-    if (!state.effects.some(e => e.kind === "title")) raise("40001", "historical_origin_unlinked");
+    if (destinations.finance && !state.effects.some(e => e.kind === "title")) raise("40001", "historical_origin_unlinked");
     if (destinations.finance) { if (settleModuleTitles(ctx, b, state)) out.effects.finance = "settled"; }
-    else out.effects.finance = "skipped";
+    else out.effects.finance = ctx.parts.finance && execution(ctx).open.finance && !b.requested.finance ? "not_requested" : "skipped";
   }
   if (b.operation === "reverse" && destinations.finance && reverseModuleSettlements(ctx, b, state)) out.effects.finance = "reversed";
   if (b.operation === "execute") state.executed = true;
   out.links = links(ctx, components);
-  if (Object.values(out.effects).includes("skipped")) out.reason_code = !ctx.parts.stock && b.requested.stock || !ctx.parts.finance && b.requested.finance ? "part_disabled" : "unlinked_item";
+  if (Object.values(out.effects).includes("skipped")) out.reason_code =
+    out.effects.stock === "skipped" && (!ctx.parts.stock || !execution(ctx).open.stock) ||
+    out.effects.finance === "skipped" && (!ctx.parts.finance || !execution(ctx).open.finance) ? "part_disabled" : "unlinked_item";
   return writeModuleReceipt(ctx, out, components);
 }
 registerRpc("erp_module_apply", erpModuleApply);

@@ -3,37 +3,37 @@ import type { Actor } from "../../types";
 import type { ModuleContext } from "../api";
 import { registerIntegrationProducer } from "../../integrations/registry";
 import { aliasStatements } from "../../integrations/outbox";
-import { ensureCommercialPolicy } from "../../integrations/policy";
 import { commercialReceiptStatements } from "../../integrations/receipts";
 import { IntegrationError } from "../../integrations/privacy";
 import { hash } from "../../integrations/keys";
-import { CommercePlan, allocateSale, commercialId, manualReceipt, netAllocated, orderOwner, projectOrder, receiptReplay, saleSnapshot, saleSource, savedSale, tabOrders, type CommercialReceipt, type CommercialSnapshot, type SourceRef } from "../pedido/public";
+import { CommercePlan, allocateSale, commercialId, manualReceipt, projectOrder, receiptReplay, saleSnapshot, saleSource, savedSale, tabOrders, type CommercialReceipt, type CommercialSnapshot, type SourceRef } from "../pedido/public";
 
 export function requireReceiptPerson(actor: Actor) {
   if (actor.kind !== "user" || actor.via || actor.credential) throw new IntegrationError("forbidden", 403);
 }
-export async function tableReceipt(ctx: ModuleContext, tabId: string, input: any, request: string, actor: Actor) {
+export function tableReceiptData(ctx: ModuleContext, tabId: string, input: any, request: string, actor: Actor) {
   requireReceiptPerson(actor);
   const receipt = manualReceipt(saleSource(ctx.profile, "mesas", tabId), request, input.amount_cents, input.method, actor.id);
   receipt.evidence_hash = hash([receipt.evidence_hash, input.tendered_cents ?? null]);
+  return receipt;
+}
+export async function tableReceipt(ctx: ModuleContext, tabId: string, input: any, request: string, actor: Actor) {
+  const receipt = tableReceiptData(ctx, tabId, input, request, actor);
   const previous = await receiptReplay(ctx.env, receipt);
   return { receipt: previous ?? receipt, repeated: !!previous };
-}
-
-async function members(ctx: ModuleContext, tab: string): Promise<string[]> {
-  const rows = await all(ctx.env, `WITH RECURSIVE members(id) AS (SELECT id FROM mesas_tabs WHERE profile_id=? AND id=? UNION SELECT t.id FROM mesas_tabs t JOIN members m ON t.merged_into=m.id WHERE t.profile_id=?) SELECT id FROM members`, ctx.profile, tab, ctx.profile);
-  return rows.map(r => r.id);
 }
 
 /** Revisão explícita da taxa; acréscimos são novos documentos de serviço.
  * Cancelamento e substituto compartilham a sequência e nunca ultrapassam
  * um comando anterior incerto. Reduzir componente pago exige correção humana. */
-export async function serviceComponents(ctx: ModuleContext, tab: any, desired: number, plan: CommercePlan, priorAmount?: number): Promise<CommercialSnapshot[]> {
-  const owners = await members(ctx, tab.id);
-  const aliases = await all(ctx.env, "SELECT source_id,component FROM module_erp_aliases WHERE profile_id=? AND module_id='mesas' AND record_kind='service'", ctx.profile);
+export async function serviceComponents(ctx: ModuleContext, tab: any, desired: number, plan: CommercePlan, priorAmount?: number, additionalSources: SourceRef[] = [], knownAliases?: any[]): Promise<CommercialSnapshot[]> {
+  const aliases = knownAliases ?? await all(ctx.env, `WITH RECURSIVE members(id) AS (
+    SELECT id FROM mesas_tabs WHERE profile_id=? AND id=? UNION SELECT t.id FROM mesas_tabs t JOIN members m ON t.merged_into=m.id WHERE t.profile_id=?
+  ) SELECT source_id,component FROM module_erp_aliases WHERE profile_id=? AND module_id='mesas' AND record_kind='service' AND source_id IN (SELECT id FROM members)`, ctx.profile, tab.id, ctx.profile, ctx.profile);
+  await plan.inspectMany([...additionalSources, ...aliases.map(alias => saleSource(ctx.profile, "mesas", alias.source_id, alias.component))]);
   let active: CommercialSnapshot[] = [];
-  for (const alias of aliases.filter(a => owners.includes(a.source_id))) {
-    const snapshot = await savedSale(ctx.env, saleSource(ctx.profile, "mesas", alias.source_id, alias.component));
+  for (const alias of aliases) {
+    const snapshot = (await plan.inspect(saleSource(ctx.profile, "mesas", alias.source_id, alias.component))).snapshot;
     if (snapshot && snapshot.lifecycle.base_status !== "cancelled") active.push(snapshot);
   }
   const current = active.reduce((n, s) => n + s.total_cents, 0);
@@ -41,7 +41,7 @@ export async function serviceComponents(ctx: ModuleContext, tab: any, desired: n
   let retained = current;
   if (desired < current) {
     const unpaid: CommercialSnapshot[] = [], paid: CommercialSnapshot[] = [];
-    for (const snapshot of active) (await netAllocated(ctx.env, snapshot.source) ? paid : unpaid).push(snapshot);
+    for (const snapshot of active) ((await plan.inspect(snapshot.source)).allocated ? paid : unpaid).push(snapshot);
     retained = paid.reduce((n, s) => n + s.total_cents, 0);
     if (desired < retained) throw new IntegrationError("service_paid_correction_required", 409);
     for (const snapshot of unpaid) await plan.add({ ...snapshot, lifecycle: { ...snapshot.lifecycle, base_status: "cancelled" } }, [{ operation: "cancel", stock: false, reason: "service_revised" }]);
@@ -49,7 +49,7 @@ export async function serviceComponents(ctx: ModuleContext, tab: any, desired: n
   }
   const amount = desired - retained;
   if (amount > 0) {
-    const policy = await ensureCommercialPolicy(ctx.env, ctx.profile);
+    const policy = await plan.policy();
     let revision = aliases.filter(a => a.source_id === tab.id).length;
     const create = async (cents: number, at: number) => {
       if (!cents) return;
@@ -59,7 +59,7 @@ export async function serviceComponents(ctx: ModuleContext, tab: any, desired: n
       plan.append(...aliasStatements(source, "service", `${tab.id}:${revision}`));
       active.push(snapshot);
     };
-    const historical = !aliases.some(a => owners.includes(a.source_id));
+    const historical = !aliases.length;
     const prior = historical ? Math.min(amount, priorAmount ?? amount) : 0;
     await create(prior, tab.opened_at);
     await create(amount - prior, Math.max(plan.at, Date.now()));
@@ -67,18 +67,34 @@ export async function serviceComponents(ctx: ModuleContext, tab: any, desired: n
   return active;
 }
 
-export async function tablePaymentPlan(ctx: ModuleContext, tab: any, serviceCents: number, receipts: CommercialReceipt[], actor: string) {
+export async function tablePaymentPlan(ctx: ModuleContext, tab: any, serviceCents: number, receipts: CommercialReceipt[], actor: string, orders?: Awaited<ReturnType<typeof tabOrders>>) {
   const plan = new CommercePlan(ctx, actor);
-  const services = await serviceComponents(ctx, tab, serviceCents, plan);
   const obligations: { snapshot: CommercialSnapshot; balance: number; title: string }[] = [];
-  for (const order of await tabOrders(ctx.env, ctx.profile, tab.id)) {
+  const currentOrders = orders ?? await tabOrders(ctx.env, ctx.profile, tab.id);
+  const aliases = await all(ctx.env, `WITH RECURSIVE members(id) AS (
+    SELECT id FROM mesas_tabs WHERE profile_id=? AND id=? UNION SELECT t.id FROM mesas_tabs t JOIN members m ON t.merged_into=m.id WHERE t.profile_id=?
+  ) SELECT module_id,record_kind,record_id,source_id,component FROM module_erp_aliases WHERE profile_id=? AND
+    ((module_id='mesas' AND record_kind='service' AND source_id IN (SELECT id FROM members)) OR
+     (module_id IN ('mesas','pedido') AND record_kind='order' AND record_id IN (SELECT value FROM json_each(?))))`,
+    ctx.profile, tab.id, ctx.profile, ctx.profile, JSON.stringify(currentOrders.map(order => order.id)));
+  const sources = currentOrders.map(order => {
+    const alias = aliases.find(a => a.record_kind === "order" && a.record_id === order.id);
+    return alias ? saleSource(ctx.profile, alias.module_id, alias.source_id, alias.component)
+      : saleSource(ctx.profile, "mesas", order.table!.tab_id, `order:${order.id}`);
+  });
+  const services = await serviceComponents(ctx, tab, serviceCents, plan, undefined, sources, aliases.filter(a => a.record_kind === "service"));
+  for (const [index, order] of currentOrders.entries()) {
     if (order.status === "cancelled") continue;
-    const source = await orderOwner(ctx.env, ctx.profile, order);
+    const source = sources[index];
     // A ausência do DTO identifica origem histórica: não cria venda retroativa.
-    const snapshot = await savedSale(ctx.env, source) ?? await projectOrder(ctx, order, source);
-    obligations.push({ snapshot, balance: snapshot.total_cents - await netAllocated(ctx.env, source), title: await titleKey(ctx, source) });
+    const state = await plan.inspect(source);
+    const snapshot = state.snapshot ?? await projectOrder(ctx, order, source, plan);
+    obligations.push({ snapshot, balance: snapshot.total_cents - state.allocated, title: state.title ?? commercialId(source, "title") });
   }
-  for (const snapshot of services) obligations.push({ snapshot, balance: snapshot.total_cents - await netAllocated(ctx.env, snapshot.source), title: await titleKey(ctx, snapshot.source) });
+  for (const snapshot of services) {
+    const state = await plan.inspect(snapshot.source);
+    obligations.push({ snapshot, balance: snapshot.total_cents - state.allocated, title: state.title ?? commercialId(snapshot.source, "title") });
+  }
   obligations.sort((a, b) => (a.snapshot.installments[0]?.due_on ?? a.snapshot.issued_on).localeCompare(b.snapshot.installments[0]?.due_on ?? b.snapshot.issued_on) || a.title.localeCompare(b.title));
   for (const receipt of receipts) {
     plan.append(...commercialReceiptStatements(receipt));
@@ -91,18 +107,12 @@ export async function tablePaymentPlan(ctx: ModuleContext, tab: any, serviceCent
     }
     // Excedente não vira receita; recibo conserva a evidência e o restante.
     if (left && !obligations.length) {
-      const policy = await ensureCommercialPolicy(ctx.env, ctx.profile);
+      const policy = await plan.policy();
       await plan.add(saleSnapshot(saleSource(ctx.profile, "mesas", tab.id), 0, plan.at, [], policy.version));
     }
   }
   return plan;
 }
-async function titleKey(ctx: ModuleContext, source: SourceRef) {
-  const row = await one(ctx.env, `SELECT j.value ->> '$.id' id FROM module_erp_events e JOIN module_erp_delivery d ON d.event_id=e.id, json_each(d.receipt_json,'$.links') j WHERE e.profile_id=? AND e.module_id=? AND e.source_id=? AND json_extract(e.payload_json,'$.source.component')=? AND j.value ->> '$.kind'='title' ORDER BY e.seq DESC,j.value ->> '$.id' LIMIT 1`, source.profile, source.module, source.source_id, source.component);
-  // Antes da resposta ERP só existe a identidade imutável do componente.
-  return row?.id ?? commercialId(source, "title");
-}
-
 export async function authorizeTableSource(ctx: ModuleContext, actor: Actor, source: SourceRef, write: boolean) {
   if (source.profile !== ctx.profile || source.module !== "mesas") throw new IntegrationError("not_found", 404);
   ctx.access(actor, write ? "conversations:write" : "conversations:read");
@@ -122,7 +132,7 @@ export async function touchTableOrigin(ctx: ModuleContext, tab: any, plan: Comme
   const snapshot = row ? JSON.parse(row.state_json).snapshot as CommercialSnapshot | undefined : undefined;
   if (snapshot) await plan.add(snapshot);
   else {
-    const policy = await ensureCommercialPolicy(ctx.env, ctx.profile);
+    const policy = await plan.policy();
     await plan.add(saleSnapshot(saleSource(ctx.profile, "mesas", tab.id), 0, tab.opened_at, [], policy.version));
   }
 }
