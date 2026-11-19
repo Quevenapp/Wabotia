@@ -18,6 +18,15 @@
 export type ErpRole = "admin" | "consulta" | "vendas" | "financeiro" | "estoque" | "fiscal";
 export const ERP_ROLES: readonly ErpRole[] = ["admin", "consulta", "vendas", "financeiro", "estoque", "fiscal"];
 
+// systemUserId("contact-erp-link"). Capacidade administrativa comprovada;
+// rpc-endpoint limita este ator mesmo se o envelope omitir qualquer marca.
+export const CUSTOMER_BRIDGE_USER_ID = "a20b5668-6799-547a-9d10-5166158359b5";
+export const CUSTOMER_BRIDGE_SCAN = "erp_customer_bridge_scan";
+export const CUSTOMER_BRIDGE_FIELDS: readonly string[] = [
+  "name", "phone", "mobile", "email", "document", "person_type",
+  "street", "number", "complement", "district", "city", "state", "postal_code", "country",
+];
+
 export interface ErpPerson {
   user_id: string;
   name: string | null;

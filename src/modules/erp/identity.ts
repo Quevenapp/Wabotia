@@ -13,6 +13,7 @@ import { modules, moduleStates } from "../registry";
 import { ApiError, type Actor, type Env } from "../../types";
 import { rolesOf } from "../../access";
 import { refuseEngineActor, storedAccess } from "../../security";
+import { isFullCustomerEnabled } from "../../customer/feature";
 import {
   ERP_ROLES,
   type ErpPerson,
@@ -66,7 +67,12 @@ export function systemActorsOf(
 
 /** Identidades de sistema ativas na área (módulos ligados com erp_role). */
 async function systemActors(env: Env, profile: string) {
-  return systemActorsOf(modules, await moduleStates(env, profile));
+  const actors = systemActorsOf(modules, await moduleStates(env, profile));
+  // Registro real, presente também nos envelopes humanos. Não depende de
+  // definition.ts, nem concede papel ERP ao atendente ou ao motor de IA.
+  if (await isFullCustomerEnabled(env, profile))
+    actors.push(["contact-erp-link", { name: "Sistema · Cadastro", role: "vendas" }]);
+  return actors;
 }
 
 /** UUID fixo de uma identidade de sistema (SHA-256 do nome, formato v5). */
