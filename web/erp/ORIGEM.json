@@ -455,7 +455,9 @@
   "web/erp/test/stock-lots-ui.test.mjs": "alterado: nome Fagoo retirado da tela (o ERP chama-se só ERP)",
   "web/erp/test/stock-reports-ui.test.mjs": "alterado: nome Fagoo retirado da tela (o ERP chama-se só ERP)",
   "web/erp/test/stock-supply-ui.test.mjs": "alterado: nome Fagoo retirado da tela (o ERP chama-se só ERP)",
-  "web/erp/app/lib/fagoo-menu.ts": "alterado: catálogo de destinos e classificação extraídos para src/modules/erp/panel-menu.ts, preservando itens, ordem, papéis, recursos e filtros; preferências permanecem locais; integração: alias /acesso permanece no grupo Resultados do menu legado"
+  "web/erp/app/lib/fagoo-menu.ts": "alterado: catálogo de destinos e classificação extraídos para src/modules/erp/panel-menu.ts, preservando itens, ordem, papéis, recursos e filtros; preferências permanecem locais; integração: alias /acesso permanece no grupo Resultados do menu legado",
+  "web/erp/app/components/DocumentSalesToService.tsx": "alterado: fase 3 impede conversão avulsa para OS quando Trabalho está ligado e aponta para criar trabalho; proteção equivalente no servidor",
+  "web/erp/test/helpers/component-recovery-harness.mjs": "alterado: preparação de testes suporta forwardRef/createElement da dependência de ícones e renderiza os corpos internos de Editor e DocumentList introduzidos pela fase 3; asserções preservadas"
  },
  "files": {
   "packages/backend-config/src/origin.d.mts": {
