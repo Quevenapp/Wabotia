@@ -17,6 +17,7 @@ import { WorkFormDialog } from "./WorkFormDialog";
 import { WorkDetailPage } from "./WorkDetailPage";
 import { workCollectionLabel, hasCustomTypes } from "../work-vocabulary";
 import "../work.css";
+import { LegacyServiceOrders } from "../../integrations/LegacyServiceOrders";
 
 function dateFilterValue(value?: string) {
   if (!value) return "";
@@ -68,6 +69,7 @@ function WorkList({
   return (
     <div className="os-work">
       <div className="os-work-toolbar">
+        <LegacyServiceOrders />
         <h2>{type.labels.plural}</h2>
         {catalog.data.length > 1 && (
           <Field
@@ -235,7 +237,7 @@ export function WorkPage() {
     route.page === "service-orders" ||
     (route.page === "work" && !route.typeId && !route.id);
   if (classicEntry && !configured && (!catalog.data || !hasCustomTypes(types)))
-    return <ServiceOrdersPage />;
+    return <><LegacyServiceOrders /><ServiceOrdersPage /></>;
   if (!catalog.data) return <ResourceState resource={catalog} />;
   if (route.id)
     return <WorkDetailPage key={app.profile + route.id} workId={route.id} />;
@@ -272,7 +274,7 @@ export function WorkPage() {
             }
           />
         )}
-        <ServiceOrdersPage typeId="service_order" />
+        <LegacyServiceOrders /><ServiceOrdersPage typeId="service_order" />
       </div>
     );
   return (

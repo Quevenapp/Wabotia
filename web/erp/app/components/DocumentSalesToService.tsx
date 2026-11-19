@@ -1,3 +1,4 @@
+import { useIntegrationHost } from '../../../modules/integrations/visibility';
 import { useEffect, useRef, useState } from 'react';
 import { AccessError, decimalMoney, type AccessController } from '../lib/real-access';
 import type { DocumentRecord } from '../lib/real-documents-model';
@@ -21,6 +22,7 @@ export default function DocumentSalesToService({ controller, record, blocked, ca
   controller: Controller; record: Pick<DocumentRecord, 'id' | 'kind' | 'number' | 'version' | 'status' | 'contact_snapshot' | 'totals'>; blocked: boolean; canWrite: boolean;
   onCreated: (serviceOrder: { id: string; number: string }) => void;
 }) {
+  const integration = useIntegrationHost();
   const [review, setReview] = useState(false), [busy, setBusy] = useState(false), [uncertain, setUncertain] = useState(false), [error, setError] = useState('');
   const command = useRef<{ id: string; actor: string | null; version: number; uncertain: boolean } | null>(null), pending = useRef<AbortController | null>(null), mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; pending.current?.abort(); }; }, []);
@@ -44,6 +46,7 @@ export default function DocumentSalesToService({ controller, record, blocked, ca
     } finally { if (pending.current === request) pending.current = null; if (mounted.current && !request.signal.aborted) setBusy(false); }
   };
   const confirm = () => { if (reason || busy || uncertain || command.current) return; command.current = { id: crypto.randomUUID(), actor: actorOf(controller), version: record.version, uncertain: false }; void execute(); };
+  if (integration?.context.modules.os) return <p><a href="/app/erp/modulos/trabalhos">Criar trabalho</a></p>;
   return <div className="document-sales-to-service">
     <button type="button" className="secondary-button" disabled={Boolean(reason) || busy || uncertain || review} title={reason || 'Abre a conferência da ordem de serviço antes de criar.'} onClick={() => { if (!reason) { setError(''); setReview(true); } }}>
       <IndicatorLetter text="O" color="midgreen" title="Gerar ordem serviço" /> Gerar ordem serviço</button>

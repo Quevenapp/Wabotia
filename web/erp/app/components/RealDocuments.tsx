@@ -1,7 +1,10 @@
+import { DocumentOriginNotice, useDocumentOrigins } from '../../../modules/integrations/LegacyServiceOrders';
+import { integrationAccess, useIntegrationHost } from '../../../modules/integrations/visibility';
+import { useIntegrationApi } from '../../../modules/integrations/api';
 import { availableTransitionActions } from '../lib/real-documents-model';
 import './document-layout.css';
 import { erpPublicHref } from '../../public-url';
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ComponentProps } from 'react';
 import { TechnicianOptions } from './TechnicianOptions';
 import { DocumentStepNav, useDocumentSteps } from './DocumentSteps';
 import { documentSteps, isSalesFlow } from '../lib/document-steps';
@@ -153,9 +156,31 @@ const VIEW_FIELDS=['situation','seller_name','category_name','carrier_name','pri
 const viewIds=(value:DocumentRecord)=>JSON.stringify([value.status,value.seller_id??null,value.category_id??null,value.carrier_id??null,value.price_list_id??null,value.payment_account_id??null,(value.installments??[]).map(row=>[row.payment_method_id??null,row.details?.account_id??null])]);
 const savedView=(previous:DocumentRecord,saved:DocumentRecord):DocumentRecord|null=>viewIds(previous)!==viewIds(saved)?null:{...Object.fromEntries(VIEW_FIELDS.filter(key=>key in previous).map(key=>[key,(previous as unknown as Record<string,unknown>)[key]])),...saved} as DocumentRecord;
 
-export function Editor({controller,kind,record,writable,onClose,onSaved,onConverted,copyDraft=null,onCopyPrepared,onCopied,preferences,situations=null,access=null,importDraft=null}:{controller:AccessController;kind:DocumentKind;record:DocumentRecord|null;writable:boolean;onClose:()=>void;onSaved:(record:DocumentRecord,message?:string,inPlace?:boolean)=>void;onConverted:(result:ConversionEnvelope)=>void;copyDraft?:DocumentCopyDraft|null;onCopyPrepared?:(draft:DocumentCopyDraft)=>void;onCopied?:(record:DocumentRecord)=>void;preferences?:DocumentPreferences;situations?:SituationModel|null;access?:DocumentAccess|null;
+export function Editor(props: ComponentProps<typeof DocumentEditorBody>) {
+  const originState = useDocumentOrigins(props.record ? [props.record.id] : []);
+  const legacy = props.kind === 'service_orders' && originState.host?.context.modules.os === true;
+  const origin = originState.origins.find(item => item.document_id === props.record?.id);
+  if (!originState.ready) return <section role="status"><p>{originState.error || 'Conferindo origem do documento…'}</p><button type="button" onClick={props.onClose}>Voltar à lista</button></section>;
+  const linked = !!origin || originState.protectedIds.includes(props.record?.id ?? '');
+  if (legacy || linked) {
+    const record = props.record;
+    return <section className="real-editor" aria-label="Documento somente leitura"><h2>{record ? `Documento ${record.number}` : 'Crie um trabalho'}</h2>
+      {origin ? <DocumentOriginNotice origin={origin} /> : linked ? <p>Documento vinculado · somente leitura. A origem está indisponível neste contexto.</p> : <p>Documentos anteriores à integração · somente leitura. <a href="/app/erp/modulos/trabalhos">Abrir trabalhos</a></p>}
+      {record && <><p>{record.date} · {record.status} · {record.contact_snapshot.name}</p>
+        <table><thead><tr><th>Item</th><th>Quantidade</th><th>Unidade</th><th>Preço</th></tr></thead><tbody>{record.items.map(item => <tr key={item.id}><td>{item.description}</td><td>{item.quantity}</td><td>{item.unit}</td><td>{decimalMoney(item.unit_price)}</td></tr>)}</tbody></table>
+        <p>Total comercial: {decimalMoney(record.totals.total)}</p>
+        {originState.host && integrationAccess(originState.host.context).finance && <ul>{record.installments.map((item, index) => <li key={index}>{item.due_date}: {decimalMoney(item.amount)}</li>)}</ul>}
+      </>}
+      <button type="button" className="secondary-button" onClick={props.onClose}>Voltar à lista</button>
+    </section>;
+  }
+  return <DocumentEditorBody {...props} />;
+}
+
+function DocumentEditorBody({controller,kind,record,writable,onClose,onSaved,onConverted,copyDraft=null,onCopyPrepared,onCopied,preferences,situations=null,access=null,importDraft=null}:{controller:AccessController;kind:DocumentKind;record:DocumentRecord|null;writable:boolean;onClose:()=>void;onSaved:(record:DocumentRecord,message?:string,inPlace?:boolean)=>void;onConverted:(result:ConversionEnvelope)=>void;copyDraft?:DocumentCopyDraft|null;onCopyPrepared?:(draft:DocumentCopyDraft)=>void;onCopied?:(record:DocumentRecord)=>void;preferences?:DocumentPreferences;situations?:SituationModel|null;access?:DocumentAccess|null;
   /** 202610200167 "Importar › Pedido XML": a new pedido prefilled from the XML (nothing saved yet). */
   importDraft?:ImportDraft|null}){
+  const integration = useIntegrationHost();
   const imported=!record&&!copyDraft&&importDraft?.kind===kind?importDraft:null;
   // 202610200164: company settings of the document screens and the vendedor linked to the user (absent before 164).
   const settings=access?.settings??null,mySeller=access?.seller??null,sellerKind=kind!=='purchase_orders';
@@ -706,13 +731,14 @@ export function Editor({controller,kind,record,writable,onClose,onSaved,onConver
     {record&&eventsEnabled&&<><div className="document-preview-actions"><button type="button" className="secondary-button" disabled={busy||uncertain||dirty||childDraft||Boolean(nextStatus||reason||conversionReview)} onClick={()=>void refreshForJournal()}>Atualizar OS salva</button><p>Use após descartar alterações locais para conferir mudanças feitas por outra pessoa. Os registros abaixo não alteram a OS.</p></div><ServiceOrderEvents key={`${record.id}:${controller.getSnapshot().membership?.user_id||''}`} controller={controller} document={{id:record.id,version:record.version}} blocked={receiptBusy||receiptDraft||reservationBusy||reservationDraft||installmentDraft||dirty||documentBusy||uncertain||financeBusy||financeDraft||stockBusy||stockDraft||attachmentBusy||attachmentDraft||journalBusy||journalDraft||Boolean(nextStatus||reason||conversionReview)} onBusy={childCallbacks.event.onBusy} onDraft={childCallbacks.event.onDraft}/></>}
     {record&&(record.effect_flags.finance_active||record.effect_flags.stock_active)&&<p className="real-notice">Este documento tem efeitos históricos. <Link to={`/manutencao-efeitos?${new URLSearchParams({tipo:kind,id:record.id,versao:String(record.version)})}`}>Consultar manutenção de efeitos</Link></p>}
     <p className="real-help">{REENABLED_AUTOMATION_NOTICE}</p>
-    {record&&writable&&<section className="document-section"><h3>Andamento do documento</h3><p className="real-notice" role="note">{REENABLED_AUTOMATION_NOTICE}</p><p className="real-help">{model?transitionNote(nextActions):'Alterar a situação registra o andamento. Estoque, financeiro e emissão fiscal não são lançados por esta ação.'}</p>{nextBlocked&&<p className="real-notice" role="note">A transição para {situationName(model,kind,nextStatus)} lança ou estorna estoque ou contas, e seu perfil não faz esses lançamentos.</p>}{dirty&&<p className="real-notice">Salve as alterações do formulário antes de mudar a situação ou converter.</p>}{situationNote&&<p className="real-notice" role="note">{situationNote}</p>}<div className="document-grid"><div className="form-field"><label htmlFor="doc-next-status">Nova situação</label><select id="doc-next-status" value={nextStatus} disabled={busy||uncertain||dirty||childDraft||Boolean(conversionReview)} onChange={event=>{if(mayAct()&&!live.current.dirty&&!live.current.conversionReview){live.current.nextStatus=event.target.value;setNextStatus(event.target.value);}}}><option value="">Selecione uma transição</option>{transitions.map(status=><option key={status} value={status}>{situationName(model,kind,status)}</option>)}</select></div><div className="form-field"><label htmlFor="doc-reason">Motivo (obrigatório ao cancelar ou reabrir)</label><input id="doc-reason" maxLength={1000} value={reason} disabled={busy||uncertain||dirty||childDraft||Boolean(conversionReview)} onChange={event=>{if(mayAct()&&!live.current.dirty&&!live.current.conversionReview){live.current.reason=event.target.value;setReason(event.target.value);}}}/></div></div><div className="real-editor-actions"><button className="secondary-button" disabled={busy||uncertain||dirty||childDraft||Boolean(conversionReview)||!nextStatus||nextBlocked} onClick={changeStatus}>Alterar situação</button>{kind==='sales_proposals'&&!['completed','cancelled'].includes(record.status)&&!record.template&&<>{(['sales_orders','service_orders'] as const).map(target=><button key={target} className="primary-button" disabled={busy||uncertain||dirty||childDraft||Boolean(nextStatus||reason||conversionReview)} onClick={()=>reviewConversion(target)}>{target==='service_orders'?'Gerar ordem de serviço':'Gerar pedido de venda'}</button>)}</>}</div>{kind==='sales_orders'&&<DocumentSalesToService controller={controller} record={record} canWrite={Boolean(access?.write.includes('service_orders'))} blocked={busy||uncertain||dirty||childDraft||Boolean(nextStatus||reason||conversionReview)}
+    {record&&writable&&<section className="document-section"><h3>Andamento do documento</h3><p className="real-notice" role="note">{REENABLED_AUTOMATION_NOTICE}</p><p className="real-help">{model?transitionNote(nextActions):'Alterar a situação registra o andamento. Estoque, financeiro e emissão fiscal não são lançados por esta ação.'}</p>{nextBlocked&&<p className="real-notice" role="note">A transição para {situationName(model,kind,nextStatus)} lança ou estorna estoque ou contas, e seu perfil não faz esses lançamentos.</p>}{dirty&&<p className="real-notice">Salve as alterações do formulário antes de mudar a situação ou converter.</p>}{situationNote&&<p className="real-notice" role="note">{situationNote}</p>}<div className="document-grid"><div className="form-field"><label htmlFor="doc-next-status">Nova situação</label><select id="doc-next-status" value={nextStatus} disabled={busy||uncertain||dirty||childDraft||Boolean(conversionReview)} onChange={event=>{if(mayAct()&&!live.current.dirty&&!live.current.conversionReview){live.current.nextStatus=event.target.value;setNextStatus(event.target.value);}}}><option value="">Selecione uma transição</option>{transitions.map(status=><option key={status} value={status}>{situationName(model,kind,status)}</option>)}</select></div><div className="form-field"><label htmlFor="doc-reason">Motivo (obrigatório ao cancelar ou reabrir)</label><input id="doc-reason" maxLength={1000} value={reason} disabled={busy||uncertain||dirty||childDraft||Boolean(conversionReview)} onChange={event=>{if(mayAct()&&!live.current.dirty&&!live.current.conversionReview){live.current.reason=event.target.value;setReason(event.target.value);}}}/></div></div><div className="real-editor-actions"><button className="secondary-button" disabled={busy||uncertain||dirty||childDraft||Boolean(conversionReview)||!nextStatus||nextBlocked} onClick={changeStatus}>Alterar situação</button>{kind==='sales_proposals'&&!['completed','cancelled'].includes(record.status)&&!record.template&&<>{(['sales_orders','service_orders'] as const).filter(target=>target!=='service_orders'||!integration?.context.modules.os).map(target=><button key={target} className="primary-button" disabled={busy||uncertain||dirty||childDraft||Boolean(nextStatus||reason||conversionReview)} onClick={()=>reviewConversion(target)}>{target==='service_orders'?'Gerar ordem de serviço':'Gerar pedido de venda'}</button>)}</>}</div>{kind==='sales_orders'&&<DocumentSalesToService controller={controller} record={record} canWrite={Boolean(access?.write.includes('service_orders'))} blocked={busy||uncertain||dirty||childDraft||Boolean(nextStatus||reason||conversionReview)}
         onCreated={os=>{if(isLocked())return;guard.store.runConfirmed(()=>navigate(`/documentos-empresa?${new URLSearchParams({tipo:'service_orders',documento:os.id})}`));}}/>}{record.source_proposal_id&&<p className="real-help">Documento criado a partir de uma proposta aprovada. <button type="button" className="text-button" disabled={busy||uncertain} onClick={()=>{if(isLocked())return;guard.confirmLeave(()=>navigate(`/documentos-empresa?${new URLSearchParams({tipo:'sales_proposals',documento:record.source_proposal_id!})}`));}}>Abrir proposta de origem</button></p>}</section>}
   </section>;
 }
 
 export default function RealDocuments({controller,initialKind='sales_proposals'}:{controller:AccessController;initialKind?:DocumentKind}){
   const location=useLocation();const navigate=useNavigate();
+  const integration = useIntegrationHost(), integrationApi = useIntegrationApi();
   // The list keeps an uncertain status command in the shared guard; leaving it for Incluir asks first.
   const listGuard=useUnsavedChangesGuard();
   const [access,setAccess]=useState<DocumentAccess|null>(null);const [kind,setKind]=useState<DocumentKind>(initialKind);const [listPage,setListPage]=useState(1);const [order,setOrder]=useState<DocumentListOrder>('date_desc');
@@ -781,6 +807,7 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
     const action=params.get('acao')??(params.has('proposta')?'proposta':null);
     if(action&&!params.has('documento')){
       if(!access)return;
+      if(kind==='service_orders' && integration?.context.modules.os && !['relatorios','cabecalho'].includes(action)) { setDetailError('Crie um trabalho para esta operação.'); return; }
       // Preferências "Próximo número" (acao=numeracao): administrador only, as the server enforces.
       // Origin "Relatórios de vendas" / "Relatórios de serviço" (acao=relatorios[&relatorio=<id>]), for readers of the kind.
       if(action==='relatorios'){const report=params.get('relatorio');if(kind!=='sales_orders'&&kind!=='service_orders'||!access.read.includes(kind)){setDetailError('Seu perfil não permite consultar estes relatórios.');return;}
@@ -857,7 +884,7 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
   };
   const applyFilters=(next:DocumentListFilters)=>{try{documentListQuery(kind,next,{page:1,order,...situationQuery});}catch(failure){setFilterError((failure as Error).message);return false;}setFilters(next);setFilterError('');setNotice('');reset();return true;};
   const open=async(id:string)=>{if(location.pathname==='/documentos-empresa'){const params=new URLSearchParams(location.search);params.set('documento',id);navigate(`${location.pathname}?${params}`);return;}detail.current?.abort();const request=new AbortController();detail.current=request;setError('');try{const response=await controller.documents(`/v1/documentos/${kind}/${id}`,{signal:request.signal}) as {document:DocumentRecord};if(!request.signal.aborted&&detail.current===request){setRecord(response.document);setEditing(true);}}catch(failure){if(!request.signal.aborted&&!aborted(failure))setError(errorText(failure));}finally{if(detail.current===request)detail.current=null;}};
-  const writable=Boolean(access?.write.includes(kind));
+  const writable=Boolean(access?.write.includes(kind)) && !(kind==='service_orders' && integration?.context.modules.os);
   // Origin opens a record by clicking its row; Ctrl/Cmd or middle click opens the same deep link in a new tab.
   const deepLinked=location.pathname==='/documentos-empresa';
   const openRow=(id:string,event:{ctrlKey?:boolean;metaKey?:boolean;button?:number})=>{if(deepLinked&&opensInNewTab(event)){const params=new URLSearchParams(location.search);params.set('tipo',kind);params.set('documento',id);window.open(erpPublicHref(`${location.pathname}?${params}${location.hash}`),'_blank','noopener');return;}void open(id);};
@@ -867,6 +894,7 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
   const cloneRow=async(row:Pick<DocumentListRow,'id'>,mode:'copy'|'model'|'model_copy'='copy')=>{
     if(!writable)return;detail.current?.abort();const request=new AbortController();detail.current=request;setError('');setNotice('');
     try{
+      if (integrationApi && (await integrationApi.origins([row.id], request.signal)).length) { setError('Documento vinculado: abra a origem para fazer alterações.'); return; }
       const response=await controller.documents(`/v1/documentos/${kind}/${row.id}`,{signal:request.signal}) as DocumentEnvelope;if(request.signal.aborted||detail.current!==request)return;
       const source=response?.document;if(!source||source.id!==row.id||source.kind!==kind)throw new AccessError(502);
       const preview=readCopyPreview(await controller.documentCopy(`/v1/duplicacao-documentos/${kind}/${source.id}/preview`,{signal:request.signal}),source);if(request.signal.aborted||detail.current!==request)return;

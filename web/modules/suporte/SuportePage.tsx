@@ -1,3 +1,5 @@
+import { CatalogRecordLinks } from '../integrations/CatalogLinkPicker';
+import { IntegrationStatus } from '../integrations/IntegrationStatus';
 // Gestão → Suporte pago: liberações (quem, como, por qual pagador, até
 // quando) e compras avulsas com filtro, e busca de pagador (Mensalidade).
 import React, { useEffect, useState } from "react";
@@ -350,11 +352,14 @@ function PayersTab() {
 }
 
 export function SuportePage() {
+  const app = useApp();
   const [tab, setTab] = useState<
     "releases" | "pending" | "purchases" | "payers"
   >("releases");
   return (
     <>
+      <IntegrationStatus module="suporte" compact />
+      <CatalogRecordLinks module="suporte" kind="package" records={app.settings.suporte?.packages || []} />
       <Segmented
         label="Visão"
         value={tab}

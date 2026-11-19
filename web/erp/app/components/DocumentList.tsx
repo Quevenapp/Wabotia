@@ -1,3 +1,5 @@
+import { DocumentOriginNotice, useDocumentOrigins } from '../../../modules/integrations/LegacyServiceOrders';
+import { useIntegrationHost } from '../../../modules/integrations/visibility';
 import { availableTransitionActions } from '../lib/real-documents-model';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { erpPublicHref } from '../../public-url';
@@ -122,6 +124,22 @@ const onlyStatuses = (filters: DocumentListFilters) => filters.statuses.length >
 
 /** Origin list for propostas, pedidos de venda, OS and pedidos de compra: filters, ⋮ actions, selection and batch actions. */
 export default function DocumentList(props: DocumentListProps) {
+  const origins = useDocumentOrigins((props.page?.items ?? []).map(row => row.id));
+  const legacy = props.kind === 'service_orders' && origins.host?.context.modules.os === true;
+  if (!origins.ready) return <p role="status">{origins.error || 'Conferindo origens dos documentos…'}</p>;
+  if (legacy) return <section><h2>Documentos anteriores à integração</h2><p>Somente leitura. Nenhum documento será convertido automaticamente.</p>
+    <a href="/app/erp/modulos/trabalhos">Abrir trabalhos</a>
+    <button type="button" className="secondary-button" onClick={() => props.onNavigate('/documentos-empresa?tipo=service_orders&acao=relatorios')}>Relatórios de serviço</button>
+    <button type="button" className="secondary-button" onClick={() => props.onApply({ ...EMPTY_LIST_FILTERS })}>Consultar todas as situações</button>
+    <ul>{props.page?.items.map(row => <li key={row.id}><button type="button" className="text-button" onClick={() => props.onOpen(row.id, {})}>{row.number} · {row.date} · {row.status}</button>{origins.origins.filter(origin => origin.document_id === row.id).map(origin => <DocumentOriginNotice key={origin.document_id} origin={origin} />)}</li>)}</ul>
+    {props.loading && <p>Consultando documentos…</p>}
+    <button type="button" disabled={props.listPage <= 1 || props.loading} onClick={() => props.onPage(props.listPage - 1)}>Anterior</button>
+    <button type="button" disabled={!props.page || props.listPage >= pageCount(props.page.total_count) || props.loading} onClick={() => props.onPage(props.listPage + 1)}>Próxima</button>
+  </section>;
+  return <DocumentListBody {...props} readonlyIds={origins.protectedIds} />;
+}
+function DocumentListBody(props: DocumentListProps & { readonlyIds: string[] }) {
+  const integration = useIntegrationHost();
   const { controller, kind, access, writable, page, loading, filters, order, listPage } = props;
   const model = managed(props.situations, kind) ? props.situations : null, situationQuery = { situations: Boolean(model) };
   // Preferências › Empresa "Permite a edição da data e hora das ocorrências" (163): off, the server records the current moment.
@@ -207,8 +225,8 @@ export default function DocumentList(props: DocumentListProps) {
 
   const rows = page?.items ?? [];
   const linkStates = useOrderLinkStates(controller, blockEnabled('erp-fiscal') ? kind : '',rows.map(row => row.id));
-  const ids = rows.map(row => row.id);
-  const selectedRows = rows.filter(row => selected.has(row.id));
+  const ids = rows.filter(row => !props.readonlyIds.includes(row.id)).map(row => row.id);
+  const selectedRows = rows.filter(row => selected.has(row.id) && !props.readonlyIds.includes(row.id));
   const selectedNativeRows = selectedRows.filter((row): row is DocumentListRow & { number: string } => typeof row.number === 'string');
   const inTrash = props.filters.statuses.length === 1 && props.filters.statuses[0] === TRASH_STATUS;
   const allSelected = rows.length > 0 && rows.every(row => selected.has(row.id));
@@ -394,6 +412,8 @@ export default function DocumentList(props: DocumentListProps) {
   const runAction = (row: DocumentListRow, action: RowAction) => {
     setMenu(null);
     if (!action.enabled) return;
+    if (props.readonlyIds.includes(row.id) && action.action !== 'edit') return;
+    if (integration?.context.modules.os && ['convert_service','sales_to_service'].includes(action.action)) return;
     if (action.action === 'edit') { open(row.id, {}); return; }
     if (action.action === 'print') { void printOne(row); return; }
     if (action.action === 'print_receipt') { void printOne(row, 'receipt'); return; }
@@ -426,7 +446,7 @@ export default function DocumentList(props: DocumentListProps) {
       else changeStatus(row, action.target, null);
     }
   };
-  const menuItems = (row: DocumentListRow): RowMenuItem[] => documentRowActions(kind, row, { role, writable, serviceWritable: Boolean(access?.write.includes('service_orders')), situations: model, permissions: access?.permissions ?? null }).filter(action => (blockEnabled('erp-fiscal') || !action.key.startsWith('fiscal_')) && (action.action !== 'stock' || blockEnabled('erp-estoque')) && (action.action !== 'finance' || blockEnabled('erp-financeiro'))).map(action => {
+  const menuItems = (row: DocumentListRow): RowMenuItem[] => documentRowActions(kind, row, { role, writable, serviceWritable: Boolean(access?.write.includes('service_orders')) && !integration?.context.modules.os, situations: model, permissions: access?.permissions ?? null }).filter(action => (!props.readonlyIds.includes(row.id) || action.action === 'edit') && (!integration?.context.modules.os || !['convert_service','sales_to_service'].includes(action.action))).filter(action => (blockEnabled('erp-fiscal') || !action.key.startsWith('fiscal_')) && (action.action !== 'stock' || blockEnabled('erp-estoque')) && (action.action !== 'finance' || blockEnabled('erp-financeiro'))).map(action => {
     const mutation = !['edit', 'clear_warnings', 'print', 'print_receipt', 'print_detailed', 'print_carne', 'print_production', 'print_technician', 'print_label', 'print_product_labels', 'fiscal55', 'fiscal65', 'fiscal_partial', 'whatsapp', 'unavailable'].includes(action.action);
     const blocked = mutation && locked;
     return { label: action.label, ...(action.letter ? { letter: action.letter } : {}), ...(action.icon ? { icon: action.icon } : {}), separatorBefore: action.separatorBefore,
@@ -599,7 +619,7 @@ export default function DocumentList(props: DocumentListProps) {
         onScroll={kind === 'purchase_orders' ? event => { const box = event.currentTarget; if (!loading && rows.length < total && box.scrollTop + box.clientHeight >= box.scrollHeight - 120) props.onPage(listPage + 1); } : undefined}><table className="data-table real-table documents-table origin-table"><thead><tr><th className="checkbox-cell"><span className="sr-only">Seleção</span></th>{sortHeader('number', 'Número')}{custom ? customColumns.map(column => column === 'date' ? sortHeader('date', 'Data') : <th key={column} className={column === 'total' ? 'numeric' : undefined}>{COLUMN_LABELS[column]}</th>) : <>{sortHeader('date', 'Data')}
         {kind === 'sales_proposals' && <th>Próx. Contato</th>}{kind === 'service_orders' && <th>Data prevista</th>}<th>{contactHeader}</th>{kind === 'purchase_orders' && <th className="documents-note">Observação interna</th>}<th className="numeric">{TOTAL_HEADERS[kind]}</th></>}<th>Situação</th>{kind === 'purchase_orders' && blockEnabled('erp-fiscal') && <th>Vinculação</th>}<th><span className="sr-only">Indicadores</span></th><th className="row-actions"><span className="sr-only">Ações</span></th></tr></thead>
         <tbody>{rows.map(row => <tr key={row.id} className={`documents-row${selected.has(row.id) ? ' selected' : ''}`} onClick={event => open(row.id, event)} onAuxClick={event => { if (event.button === 1) open(row.id, event); }}>
-          <td className="checkbox-cell" onClick={event => event.stopPropagation?.()}><input type="checkbox" aria-label={`Selecionar ${rowLabel(kind, row)}`} checked={selected.has(row.id)} onClick={event => toggleRow(row.id, Boolean(event.shiftKey))} onChange={() => undefined} /></td>
+          <td className="checkbox-cell" onClick={event => event.stopPropagation?.()}><input type="checkbox" aria-label={`Selecionar ${rowLabel(kind, row)}`} disabled={props.readonlyIds.includes(row.id)} checked={selected.has(row.id)} onClick={event => toggleRow(row.id, Boolean(event.shiftKey))} onChange={() => undefined} /></td>
           <td><button type="button" className="text-button" onClick={event => { event.stopPropagation?.(); open(row.id, event); }}>{row.version_label ?? row.number ?? 'Não informado'}</button></td>
           {custom ? customColumns.map(column => <td key={column} className={column === 'total' ? 'numeric' : column === 'address' ? 'documents-note' : undefined} title={column === 'address' ? row.address ?? undefined : undefined}>{column === 'total' ? decimalMoney(row.total) : <>{columnText(column, row)}{column === 'date' && row.expected_date && <small className="documents-expected"> (prevista até: {brDay(row.expected_date)})</small>}</>}</td>) : <>
           <td>{brDay(row.date) || 'Não informada'}{kind === 'sales_orders' && row.expected_date && <small className="documents-expected"> (prevista até: {brDay(row.expected_date)})</small>}</td>

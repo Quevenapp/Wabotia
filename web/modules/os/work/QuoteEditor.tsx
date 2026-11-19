@@ -1,3 +1,5 @@
+import { CatalogLinkPicker } from '../../integrations/CatalogLinkPicker';
+import type { CommercialItem } from '../../integrations/contracts';
 import React, { useState } from "react";
 import { FormDialog } from "../../../admin/shared";
 import { Button, Field } from "../../../ui";
@@ -19,10 +21,14 @@ export function QuoteEditor({
   const recovery = useConflictRecovery(order, async () => ({ record: await api.order(order.id) }));
   const [lines, setLines] = useState(
     order.quote?.items.map((item) => ({
+      id: (item as typeof item & Partial<CommercialItem>).id || crypto.randomUUID(),
+      product_id: (item as typeof item & Partial<CommercialItem>).product_id || null,
+      unit: (item as typeof item & Partial<CommercialItem>).unit || "UN",
+      kind: (item as typeof item & Partial<CommercialItem>).kind || "free",
       description: item.description,
       quantity: String(item.quantity),
       price: String(item.unit_cents / 100),
-    })) || [{ description: "", quantity: "1", price: "" }],
+    })) || [{ id: crypto.randomUUID(), product_id: null as string | null, unit: "UN", kind: "free" as CommercialItem["kind"], description: "", quantity: "1", price: "" }],
   );
   const [note, setNote] = useState(order.quote?.note || ""),
     [days, setDays] = useState(order.quote?.valid_days == null ? "" : String(order.quote.valid_days)),
@@ -39,7 +45,7 @@ export function QuoteEditor({
             quantity = Number(line.quantity);
           if (unit_cents == null || !Number.isFinite(quantity) || quantity <= 0)
             throw new Error("Confira preço e quantidade dos itens.");
-          return { description: line.description, quantity, unit_cents };
+          return { id: line.id, product_id: line.product_id, unit: line.unit, kind: line.kind, description: line.description, quantity, unit_cents };
         });
         await recovery.run(() => api.quote(order.id, {
           items, note, version: recovery.base!.version,
@@ -56,7 +62,7 @@ export function QuoteEditor({
         </>}
       </ConflictRecovery>
       {lines.map((line, index) => (
-        <fieldset key={index}>
+        <fieldset key={line.id}>
           <legend>Item {index + 1}</legend>
           {(["description", "quantity", "price"] as const).map((key) => (
             <Field
@@ -80,6 +86,10 @@ export function QuoteEditor({
               }}
             />
           ))}
+          <CatalogLinkPicker value={{ erp_item_id: line.product_id, version: 0 }} onChange={(value, item) => {
+            setDirty(true);
+            setLines(lines.map((row, i) => i === index ? { ...row, product_id: value.erp_item_id, unit: item?.unit || row.unit, kind: item ? (item.kind === 'S' ? 'service' : 'material') : 'free' } : row));
+          }} />
           <Button
             secondary
             onClick={() => {
@@ -96,7 +106,7 @@ export function QuoteEditor({
         secondary
         onClick={() => {
           setDirty(true);
-          setLines([...lines, { description: "", quantity: "1", price: "" }]);
+          setLines([...lines, { id: crypto.randomUUID(), product_id: null as string | null, unit: "UN", kind: "free" as CommercialItem["kind"], description: "", quantity: "1", price: "" }]);
         }}
       >
         Adicionar item

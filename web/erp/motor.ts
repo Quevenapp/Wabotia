@@ -35,7 +35,7 @@ export const MOTOR_PENDING: readonly Pending[] = [
 ];
 
 /** Telas que já funcionam contra o motor, para a tela de "em implantação". */
-export const MOTOR_READY: readonly { label: string; to: string }[] = [
+const ALL_MOTOR_READY: readonly { label: string; to: string }[] = [
   { label: "Início", to: "/acesso" },
   { label: "Produtos", to: "/cadastros-reais?cadastro=products" },
   { label: "Clientes e fornecedores", to: "/cadastros-reais?cadastro=contacts" },
@@ -57,6 +57,11 @@ export const MOTOR_READY: readonly { label: string; to: string }[] = [
   { label: "Conferência de estoque", to: "/conferencia-estoque-empresa" },
   { label: "Preferências", to: "/preferencias" },
 ];
+
+export let MOTOR_READY = ALL_MOTOR_READY;
+export function setMotorWorkEnabled(enabled: boolean) {
+  MOTOR_READY = enabled ? ALL_MOTOR_READY.filter(item => item.to !== "/documentos-empresa?tipo=service_orders") : ALL_MOTOR_READY;
+}
 
 /**
  * Leituras auxiliares sem motor ainda, em telas que já funcionam (a sonda

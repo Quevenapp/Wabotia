@@ -1,3 +1,5 @@
+import { integrationAccess, useIntegrationHost } from '../integrations/visibility';
+import { CatalogLinkPicker } from '../integrations/CatalogLinkPicker';
 // Gestão → Cardápio e loja (módulo "pedido", docs/PEDIDO.md): categorias,
 // itens com foto e adicionais, grupos de adicionais com mínimo e máximo,
 // imagens do cardápio enviadas no WhatsApp, regras da loja (horário, retirada
@@ -1387,6 +1389,8 @@ function StoreRules() {
 
 export function MenuPage() {
   const app = useApp();
+  const integration = useIntegrationHost();
+  const [catalogRecord, setCatalogRecord] = useState("");
   const [tab, setTab] = useState<"menu" | "groups" | "images" | "store">(
     "menu",
   );
@@ -1395,6 +1399,14 @@ export function MenuPage() {
   const reload = () => void resource.reload();
   return (
     <>
+      {menu && integration && integrationAccess(integration.context).products && integrationAccess(integration.context).write("pedido") && <section className="card"><h3>Catálogo ERP opcional</h3>
+        <Field label="Item ou opção de adicional" value={catalogRecord} onChange={setCatalogRecord} options={[
+          ...(menu.categories || []).flatMap((category: Row) => category.items || []).map((item: Row) => ({ id: `item:${item.id}`, name: item.name })),
+          ...(menu.groups || []).flatMap((group: Row) => group.options.map((option: Row) => ({ id: `option:${group.id}:${option.id}`, name: `${group.name} · ${option.name}` }))),
+        ]} />
+        {catalogRecord && (() => { const [kind, id, component = 'main'] = catalogRecord.split(':'); const record = kind === 'item' ? menu.categories?.flatMap((category: Row) => category.items || []).find((item: Row) => item.id === id) : menu.groups?.find((group: Row) => group.id === id)?.options.find((option: Row) => option.id === component);
+          return <CatalogLinkPicker key={catalogRecord} module="pedido" recordKind={kind} recordId={id} component={component} value={record?.catalog_link} onChange={reload} />; })()}
+      </section>}
       <div className="toolbar">
         <Segmented
           label="Cardápio e loja"
