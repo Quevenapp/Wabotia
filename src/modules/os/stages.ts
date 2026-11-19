@@ -5,6 +5,7 @@ import { endOfDayAfter, type OsStatus } from "./model";
 import { checkVersion, commitOrderMutation } from "./mutations";
 import { builtinWorkType, effectiveStage, snapshotType } from "./work-types";
 import { changeStatus, customMessage, notify, conversationOf } from "./store";
+import { replayWorkWrite, workWriteReceipt } from "./commercial/mutations";
 
 function stageNote(value: unknown): string {
   if (value === undefined || value === null) return "";
@@ -22,14 +23,17 @@ export function customQuotePolicy(row: any) {
   if (type && !type.features.quote) throw stageError("feature_disabled");
   return type?.features.quote ?? null;
 }
-export async function customStatus(ctx: ModuleContext, row: any, status: OsStatus, actor: string, options: { notify?: boolean; mutationKey?: string; note?: string }) {
+export async function customStatus(ctx: ModuleContext, row: any, status: OsStatus, actor: string, options: { notify?: boolean; mutationKey?: string; note?: string; writeIntent?: unknown }) {
   const type = snapshotType(row)!;
   const choices = type.transitions.filter(t => t.from === effectiveStage(row) && type.stages.find(s => s.id === t.to)?.base_status === status);
   if (!choices.length) throw stageError();
   if (choices.length !== 1 || status === row.status || choices[0].kind !== "manual") throw stageError("stage_required");
   return customMove(ctx, row, status, actor, {}, "status", { ...options, stage: choices[0].to });
 }
-export async function customMove(ctx: ModuleContext, row: any, to: OsStatus, actor: string, extra: Record<string, any>, kind: "status" | "quote", options: { notify?: boolean; mutationKey?: string; stage?: string; note?: string }) {
+export async function customMove(ctx: ModuleContext, row: any, to: OsStatus, actor: string, extra: Record<string, any>, kind: "status" | "quote", options: { notify?: boolean; mutationKey?: string; stage?: string; note?: string; writeIntent?: unknown }) {
+  const intent = options.writeIntent ?? ["custom_move", to, extra, kind, options.stage ?? null, options.note ?? null];
+  const replay = await replayWorkWrite(ctx, row, options.mutationKey, intent);
+  if (replay) return replay;
   const type = snapshotType(row)!;
   const policy = type.features.quote;
   const dest = options.stage ?? (kind === "quote" && to === "analyzing" ? policy?.edited_stage : to === "quoted" ? policy?.sent_stage : to === "approved" ? policy?.approved_stage : to === "declined" ? policy?.declined_stage : undefined);
@@ -45,7 +49,7 @@ export async function customMove(ctx: ModuleContext, row: any, to: OsStatus, act
       sets.warranty_until = type.features.warranty_days ? endOfDayAfter(at, type.features.warranty_days) : null;
     }
   }
-  const next = await commitOrderMutation(ctx, row, sets, actor, kind === "quote" ? "os.quote_saved" : "os.stage_changed", ["stage", ...Object.keys(extra).filter(k => k !== "stage_approval_json")], options.mutationKey, stageNote(options.note));
+  const next = await commitOrderMutation(ctx, row, sets, actor, kind === "quote" ? "os.quote_saved" : "os.stage_changed", ["stage", ...Object.keys(extra).filter(k => k !== "stage_approval_json")], options.mutationKey, stageNote(options.note), workWriteReceipt(ctx, row, options.mutationKey, intent, at));
   if (row.status !== to)
     await ctx.publish("os.status_changed", row.id, { order_id: row.id, version: next.row_version, from: row.status, to }, { key: `status:${row.id}:${next.row_version}` });
   // O protocolo de orçamento produz a sua própria notificação.
@@ -56,17 +60,20 @@ export async function customMove(ctx: ModuleContext, row: any, to: OsStatus, act
   return next;
 }
 export async function changeStage(ctx: ModuleContext, row: any, data: any, actor: string, options: { notify?: boolean; mutationKey?: string } = {}) {
+  const intent = ["stage", data];
+  const replay = await replayWorkWrite(ctx, row, options.mutationKey, intent);
+  if (replay) return replay;
   checkVersion(row, data.version);
   const type = snapshotType(row);
   if (!type) {
     const transition = builtinWorkType().transitions.find(t => t.id === data.transition_id && t.from === effectiveStage(row));
     if (!transition) throw stageError();
-    return changeStatus(ctx, row, transition.to, actor, data.note, { ...options, stage: transition.to });
+    return changeStatus(ctx, row, transition.to, actor, data.note, { ...options, stage: transition.to, writeIntent: intent });
   }
   const transition = type.transitions.find(t => t.id === data.transition_id && t.from === effectiveStage(row));
   if (!transition) throw stageError();
   if (transition.kind !== "manual") throw stageError("approval_required");
-  return customMove(ctx, row, type.stages.find(s => s.id === transition.to)!.base_status, actor, {}, "status", { ...options, stage: transition.to, note: stageNote(data.note) });
+  return customMove(ctx, row, type.stages.find(s => s.id === transition.to)!.base_status, actor, {}, "status", { ...options, stage: transition.to, note: stageNote(data.note), writeIntent: intent });
 }
 export async function requestStageApproval(ctx: ModuleContext, row: any, data: any, actor: string, key?: string) {
   checkVersion(row, data.version);

@@ -41,9 +41,12 @@ import { resolveCustomer } from "../../customer/ports";
 import { normalizeCustomerPhone } from "../../customer/phone";
 import { validateExtra } from "./validation";
 import { resumeOrderEffects } from "./motor-routes";
-import { atomic, casGuard, checkVersion, commitOrderMutation, mutationHistory } from "./mutations";
+import { atomic, casGuard, checkVersion, commitOrderMutation, mutationHistory, versionConflict } from "./mutations";
 import { customerProjection, mayReadSensitive } from "./privacy";
 import { customStatus, customMove, customQuotePolicy, cancelApproval } from "./stages";
+import { prepareWorkMutation, replayWorkWrite, workWriteReceipt } from "./commercial/mutations";
+import { commercialOf, readWorkIntegration, stableQuoteItems } from "./commercial/projection";
+import { hash as commercialHash } from "../../integrations/keys";
 
 export type OrderSource = "agent" | "panel" | "customer" | "api";
 
@@ -103,7 +106,7 @@ async function assignee(ctx: ModuleContext, value: unknown) {
 export function orderView(row: any, history?: any[]) {
   const status = row.status as OsStatus;
   const items: QuoteItem[] | null = row.quote_items
-    ? json(row.quote_items, [])
+    ? stableQuoteItems(row)
     : null;
   return {
     ...workOrderAdditions(row),
@@ -456,12 +459,23 @@ export interface CreateInput {
  */
 export async function createOrder(ctx: ModuleContext, input: CreateInput) {
   const sourceKey = `motor:${ctx.profile}:${input.sourceKey}`;
+  const openingScope = `os-open:${ctx.profile}`;
+  const openingHash = commercialHash({ conversation_id: input.conversation?.id ?? null, type_id: input.type_id ?? "service_order",
+    snapshot: input.snapshot ?? null, extra: input.extra ?? null, customer_name: input.customer_name ?? null,
+    phone: input.phone ?? null, item: input.item ?? null, problem: input.problem ?? null, notes: input.notes ?? null,
+    assignee: input.assignee ?? null, due_at: input.due_at ?? null, source: input.source, actor: input.actor,
+    terms: input.terms ?? null, notify: input.notify ?? true });
+  const checkOpeningReplay = async () => {
+    const receipt = await one(ctx.env, "SELECT fingerprint FROM receipts WHERE scope=? AND key=?", openingScope, sourceKey);
+    if (receipt && receipt.fingerprint !== openingHash) throw new ApiError(409, "idempotency_conflict", "Esta chave já identifica outra abertura.");
+  };
   const existing = await one(
     ctx.env,
     "SELECT * FROM os_orders WHERE profile_id=? AND source_key IN (?,?)",
     ctx.profile, sourceKey, input.sourceKey,
   );
   if (existing) {
+    await checkOpeningReplay();
     await publishOpened(ctx, existing, input);
     return { order: existing, created: false };
   }
@@ -497,6 +511,9 @@ export async function createOrder(ctx: ModuleContext, input: CreateInput) {
   requireValue(c || phone, "Informe a conversa ou o telefone do cliente.");
   const name = text(input.customer_name, 120, "o nome do cliente") || contact?.name || "";
   const id = uid(), at = now();
+  const commercial = await prepareWorkMutation(ctx, { id, profile_id: ctx.profile, number: null, status: "received",
+    stage: type.initial_stage, type_id: type.id, type_snapshot_json: snapshot, contact_id: contact ? contactId : null,
+    conversation_id: c?.id ?? null, item, created: at, updated: at, quote_items: null, quote_version: 0 }, {}, input.actor, at, "", true);
   // Inicializa o embutido antes de qualquer incremento, inclusive se o
   // primeiro trabalho novo for personalizado. Todos os efeitos são atômicos.
   let inserted: D1Result;
@@ -508,11 +525,19 @@ export async function createOrder(ctx: ModuleContext, input: CreateInput) {
       ["SELECT CASE WHEN (SELECT last FROM os_counters WHERE profile_id=?)<=2147483647 THEN 1 ELSE json('sequence_exhausted') END", [ctx.profile]],
       ["INSERT INTO os_orders(id,profile_id,number,status,conversation_id,contact_id,customer_name,phone,item,problem,notes,assignee,due_at,source,source_key,terms_text,terms_accepted_at,created_by,created,updated,type_id,stage,type_number,extra_json,type_snapshot_json) SELECT ?,?,(SELECT last FROM os_counters WHERE profile_id=?),'received',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,(SELECT last FROM os_type_counters WHERE profile_id=? AND type_id=?),?,? WHERE NOT EXISTS(SELECT 1 FROM os_orders WHERE profile_id=? AND source_key=?)",
         [id, ctx.profile, ctx.profile, c?.id || null, contact ? contactId : null, name, phone, item, problem, notes, owner, due, input.source, sourceKey, input.terms || null, input.terms ? at : null, input.actor, at, at, type.id, type.initial_stage, ctx.profile, type.id, JSON.stringify(extra), snapshot, ctx.profile, sourceKey]],
+      casGuard,
       ["INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created,from_stage,to_stage,entity_version,mutation_key) SELECT ?,?,?,'opened',NULL,'received',?,?,?,NULL,?,1,? WHERE changes()=1", [uid(), ctx.profile, id, input.actor, "", at, type.kind === "custom" ? type.initial_stage : null, `open:${sourceKey}`]],
+      ["UPDATE os_orders SET commercial_json=? WHERE profile_id=? AND id=?", [commercial.sets.commercial_json, ctx.profile, id]], casGuard,
+      ...commercial.statements,
+      ["INSERT INTO receipts(scope,key,fingerprint,response,status,created) VALUES(?,?,?,?,200,?)", [openingScope, sourceKey, openingHash, JSON.stringify({ id, version: 1 }), at]],
     ]);
     inserted = results[4];
   } catch (error) {
-    if (/sequence_exhausted|malformed JSON|last BETWEEN 0 AND 2147483647/i.test(String(error))) throw new ApiError(409, "sequence_exhausted", "Sequência de trabalhos esgotada.");
+    const concurrent = await one(ctx.env, "SELECT * FROM os_orders WHERE profile_id=? AND source_key=?", ctx.profile, sourceKey);
+    if (concurrent) { await checkOpeningReplay(); await publishOpened(ctx, concurrent, input); return { order: concurrent, created: false }; }
+    const counter = await one(ctx.env, "SELECT last FROM os_counters WHERE profile_id=?", ctx.profile);
+    if (/sequence_exhausted|last BETWEEN 0 AND 2147483647/i.test(String(error)) || counter?.last >= 2147483647) throw new ApiError(409, "sequence_exhausted", "Sequência de trabalhos esgotada.");
+    if (/malformed JSON|os_version_conflict/i.test(String(error))) throw versionConflict();
     throw error;
   }
   if (!inserted.meta.changes) {
@@ -529,7 +554,7 @@ async function publishOpened(ctx: ModuleContext, order: any, input: CreateInput)
   await ctx.publish(
     "os.opened",
     order.id,
-    snapshotType(order) ? { order_id: order.id, id: order.id, version: 1, type_id: order.type_id } : {
+    snapshotType(order) || commercialOf(order).privacy === "adult_payer_only" ? { order_id: order.id, id: order.id, version: 1, type_id: order.type_id } : {
       order_id: order.id,
       number: order.number,
       source: order.source,
@@ -553,6 +578,9 @@ export async function updateOrder(
   actor: string,
   mutationKey?: string,
 ) {
+  const intent = ["update", data];
+  const replay = await replayWorkWrite(ctx, order, mutationKey, intent);
+  if (replay) return replay;
   checkVersion(order, data.version, false);
   for (const key of ["type_id", "stage", "status", "type_snapshot_json", "type_number"]) if (Object.hasOwn(data, key)) throw new ApiError(400, "immutable_field", "Campo imutável: " + key);
   const closed = CLOSED.includes(order.status);
@@ -587,12 +615,14 @@ export async function updateOrder(
   if (has("extra")) sets.extra_json = JSON.stringify(validateExtra((snapshotType(order)?.fields ?? []), data.extra, { previous: json(order.extra_json, {}) }));
   const changed = Object.keys(sets).filter((key) => sets[key] !== order[key]);
   if (!changed.length) return order;
-  if (snapshotType(order)) return commitOrderMutation(ctx, order, { ...sets, stage_approval_json: cancelApproval(order) }, actor, "os.updated", changed.flatMap(k => k === "extra_json" ? Object.keys(data.extra) : [k]), mutationKey);
+  if (snapshotType(order)) return commitOrderMutation(ctx, order, { ...sets, stage_approval_json: cancelApproval(order) }, actor, "os.updated", changed.flatMap(k => k === "extra_json" ? Object.keys(data.extra) : [k]), mutationKey, "", workWriteReceipt(ctx, order, mutationKey, intent, now()));
   const at = now();
+  const commercial = await prepareWorkMutation(ctx, order, sets, actor, at);
+  const fields = Object.keys(commercial.sets);
   await atomic(ctx, [
     [
-      `UPDATE os_orders SET ${changed.map((k) => k + "=?").join(",")},updated=?,stale_notified_at=NULL,row_version=row_version+1 WHERE id=? AND profile_id=? AND row_version=?`,
-      [...changed.map((k) => sets[k]), at, order.id, ctx.profile, order.row_version ?? 1],
+      `UPDATE os_orders SET ${fields.map((k) => k + "=?").join(",")},updated=?,stale_notified_at=NULL,row_version=row_version+1 WHERE id=? AND profile_id=? AND row_version=?`,
+      [...Object.values(commercial.sets), at, order.id, ctx.profile, order.row_version ?? 1],
     ], casGuard,
     [
       "INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) VALUES(?,?,?,'edit',?,?,?,?,?)",
@@ -607,6 +637,7 @@ export async function updateOrder(
         at,
       ],
     ],
+    ...commercial.statements, ...workWriteReceipt(ctx, order, mutationKey, intent, at),
   ]);
   return loadOrder(ctx, order.id);
 }
@@ -627,9 +658,12 @@ export async function moveOrder(
   note = "",
   extra: Record<string, any> = {},
   kind: "status" | "quote" = "status",
-  options: { notify?: boolean; mutationKey?: string; stage?: string } = {},
+  options: { notify?: boolean; mutationKey?: string; stage?: string; writeIntent?: unknown } = {},
 ) {
-  if (snapshotType(order)) return customMove(ctx, order, to, actor, extra, kind, { ...options, note });
+  const intent = options.writeIntent ?? ["move", to, note, extra, kind, options.stage ?? null];
+  const replay = await replayWorkWrite(ctx, order, options.mutationKey, intent);
+  if (replay) return replay;
+  if (snapshotType(order)) return customMove(ctx, order, to, actor, extra, kind, { ...options, note, writeIntent: intent });
   const at = now();
   const cfg = osSettings(await ctx.settings());
   const sets: Record<string, any> = {
@@ -648,12 +682,13 @@ export async function moveOrder(
       ? endOfDayAfter(at, cfg.warranty_days)
       : null;
   }
+  const commercial = await prepareWorkMutation(ctx, order, sets, actor, at, note);
+  Object.assign(sets, commercial.sets);
+  note = commercial.note;
   const keys = Object.keys(sets);
   const historyId = uid();
-  // Apenas /stage acrescenta a marca recuperável; os comandos legados
-  // conservam o histórico e os efeitos anteriores.
-  const mutationKey = options.stage ? options.mutationKey : undefined;
-  const [update] = await batch(ctx.env, [
+  const mutationKey = options.mutationKey;
+  const [update] = await atomic(ctx, [
     [
       `UPDATE os_orders SET ${keys.map((k) => k + "=?").join(",")} WHERE id=? AND profile_id=? AND status=? AND quote_version=? AND row_version=?`,
       [
@@ -664,10 +699,10 @@ export async function moveOrder(
         order.quote_version,
         order.row_version ?? 1,
       ],
-    ],
+    ], casGuard,
     [
       mutationKey
-        ? "INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created,from_stage,to_stage,entity_version,mutation_key) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? WHERE changes()=1"
+        ? "INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created,from_stage,to_stage,entity_version,mutation_key,changed_fields_json) SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,? WHERE changes()=1"
         : "INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) SELECT ?,?,?,?,?,?,?,?,? WHERE changes()=1",
       [
         historyId,
@@ -679,11 +714,12 @@ export async function moveOrder(
         actor,
         note,
         at,
-        ...(mutationKey ? [effectiveStage(order), to, sets.row_version, mutationKey] : []),
+        ...(mutationKey ? [effectiveStage(order), to, sets.row_version, mutationKey, JSON.stringify(Object.keys(extra))] : []),
       ],
     ],
     ...(options.notify !== false && order.status !== to && (TEXT_KEYS as readonly string[]).includes(to) && cfg.texts[to as TextKey]
       ? [noticeStatement(ctx.profile, { ...order, row_version: sets.row_version }, to as TextKey, `status:${order.id}:${historyId}`, historyId)] : []),
+    ...commercial.statements, ...workWriteReceipt(ctx, order, mutationKey, intent, at),
   ]);
   if (!update.meta.changes)
     throw new ApiError(
@@ -692,13 +728,18 @@ export async function moveOrder(
       "A ordem de serviço mudou enquanto isso. Atualize e tente de novo.",
     );
   const next = await loadOrder(ctx, order.id);
-  await resumeBuiltinStatus(ctx, { id: historyId, from_status: order.status, to_status: to, actor, note, mutation_key: mutationKey, entity_version: sets.row_version }, next, options.notify !== false);
+  await resumeBuiltinStatus(ctx, { id: historyId, from_status: order.status, to_status: to, actor, note, mutation_key: mutationKey, entity_version: sets.row_version, changed_fields_json: JSON.stringify(Object.keys(extra)) }, next, options.notify !== false);
   return next;
 }
 
 /** Efeitos legados também usados pela retomada da rota de etapa virtual. */
 export async function resumeBuiltinStatus(ctx: ModuleContext, history: any, row: any, notifyCustomer = true) {
   const to = history.to_status, actor = history.actor, note = history.note;
+  if ((json(history.changed_fields_json, []) as string[]).includes("decision") && ["approved", "declined"].includes(to))
+    await ctx.publish(to === "approved" ? "os.approved" : "os.declined", row.id, {
+      order_id: row.id, number: row.number, total_cents: row.quote_total_cents, version: row.quote_version,
+      by: row.decided_by, via: row.decided_via, at: row.decided_at,
+    }, { key: `decision:${row.id}:${history.entity_version}` });
   if (history.from_status !== to)
     await ctx.publish("os.status_changed", row.id, {
       order_id: row.id,
@@ -733,11 +774,14 @@ export async function changeStatus(
   to: unknown,
   actor: string,
   note: unknown,
-  options: { notify?: boolean; mutationKey?: string; stage?: string } = {},
+  options: { notify?: boolean; mutationKey?: string; stage?: string; writeIntent?: unknown } = {},
 ) {
+  const intent = options.writeIntent ?? ["status", to, note ?? null, options.stage ?? null];
+  const replay = await replayWorkWrite(ctx, order, options.mutationKey, intent);
+  if (replay) return replay;
   requireValue(isStatus(to), "Estado desconhecido.");
   const memo = text(note, 500, "a nota");
-  if (snapshotType(order)) return customStatus(ctx, order, to, actor, { ...options, note: memo });
+  if (snapshotType(order)) return customStatus(ctx, order, to, actor, { ...options, note: memo, writeIntent: intent });
   if (to === "quoted")
     throw new ApiError(
       409,
@@ -756,7 +800,7 @@ export async function changeStatus(
       "invalid_transition",
       `Não é possível passar de "${STATUS_LABELS[order.status as OsStatus]}" para "${STATUS_LABELS[to]}".`,
     );
-  return moveOrder(ctx, order, to, actor, memo, {}, "status", options);
+  return moveOrder(ctx, order, to, actor, memo, {}, "status", { ...options, writeIntent: intent });
 }
 
 // ---------------------------------------------------------------------------
@@ -771,6 +815,9 @@ export async function saveQuote(
   mutationKey?: string,
   options: { notify?: boolean } = {},
 ) {
+  const intent = ["quote", data];
+  const replay = await replayWorkWrite(ctx, order, mutationKey, intent);
+  if (replay) return replay;
   checkVersion(order, data.version, false);
   const policy = customQuotePolicy(order);
   if (policy && effectiveStage(order) !== policy.sent_stage && !policy.source_stages.includes(effectiveStage(order))) throw new ApiError(409, "invalid_transition", "Etapa não permite orçamento.");
@@ -792,7 +839,7 @@ export async function saveQuote(
     );
   const note = text(data.note, 600, "a observação do orçamento");
   const total = quoteTotal(items);
-  const sets = {
+  const sets: Record<string, any> = {
     quote_items: JSON.stringify(items),
     quote_total_cents: total,
     quote_valid_days: validDays,
@@ -810,16 +857,18 @@ export async function saveQuote(
       memo + " (alterado depois do envio: envie de novo)",
       sets,
       "quote",
-      { ...options, mutationKey },
+      { ...options, mutationKey, writeIntent: intent },
     );
-  if (snapshotType(order)) return commitOrderMutation(ctx, order, { ...sets, stage_approval_json: cancelApproval(order) }, actor, "os.quote_saved", ["quote"], mutationKey);
+  if (snapshotType(order)) return commitOrderMutation(ctx, order, { ...sets, stage_approval_json: cancelApproval(order) }, actor, "os.quote_saved", ["quote"], mutationKey, "", workWriteReceipt(ctx, order, mutationKey, intent, now()));
   const at = now();
+  const commercial = await prepareWorkMutation(ctx, order, sets, actor, at);
+  Object.assign(sets, commercial.sets);
   const keys = Object.keys(sets) as (keyof typeof sets)[];
-  const [update] = await batch(ctx.env, [
+  const [update] = await atomic(ctx, [
     [
       `UPDATE os_orders SET ${keys.map((k) => k + "=?").join(",")},updated=?,row_version=row_version+1 WHERE id=? AND profile_id=? AND status=? AND row_version=?`,
       [...keys.map((k) => sets[k]), at, order.id, ctx.profile, order.status, order.row_version ?? 1],
-    ],
+    ], casGuard,
     [
       "INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) SELECT ?,?,?,'quote',?,?,?,?,? WHERE changes()=1",
       [
@@ -833,6 +882,7 @@ export async function saveQuote(
         at,
       ],
     ],
+    ...commercial.statements, ...workWriteReceipt(ctx, order, mutationKey, intent, at),
   ]);
   if (!update.meta.changes)
     throw new ApiError(
@@ -847,8 +897,8 @@ export async function saveQuote(
 export function quoteSummary(order: any) {
   const items: QuoteItem[] = json(order.quote_items, []);
   const lines = items.map((item) =>
-    item.quantity > 1
-      ? `• ${item.quantity} x ${item.description}: ${money(item.quantity * item.unit_cents)} (${money(item.unit_cents)} cada)`
+    item.quantity !== 1
+      ? `• ${item.quantity} x ${item.description}: ${money(quoteTotal([item]))} (${money(item.unit_cents)} cada)`
       : `• ${item.description}: ${money(item.unit_cents)}`,
   );
   return [
@@ -900,6 +950,13 @@ export async function sendQuote(
   actor: string,
   options: { notify?: boolean; mutationKey?: string; stage?: string } = {},
 ) {
+  const intent = ["send_quote", options.notify !== false];
+  const replay = await replayWorkWrite(ctx, order, options.mutationKey, intent);
+  if (replay) {
+    const history = await mutationHistory(ctx, options.mutationKey);
+    if (history) await resumeOrderEffects(ctx, history, replay, options.notify !== false);
+    return replay;
+  }
   const policy = customQuotePolicy(order);
   if (policy && !policy.source_stages.includes(effectiveStage(order))) throw new ApiError(409, "invalid_transition", "Etapa não permite orçamento.");
   if (!QUOTABLE.includes(order.status))
@@ -936,7 +993,7 @@ export async function sendQuote(
       decided_via: null,
     },
     "quote",
-    { ...options, notify: false },
+    { ...options, notify: false, writeIntent: intent },
   );
   await ctx.publish("os.quoted", order.id, snapshotType(order) ? { order_id: order.id, version: next.row_version } : {
     order_id: order.id,
@@ -946,7 +1003,7 @@ export async function sendQuote(
     version: next.quote_version,
     sent: send,
     actor,
-  }, snapshotType(order) ? { key: `quoted:${order.id}:${next.row_version}` } : undefined);
+  }, { key: `quoted:${order.id}:${next.row_version}` });
   const recipient = c ? await conversationOf(ctx, next) : null;
   if (recipient)
     await ctx.sendInteractive(recipient, quoteSpec(next), {
@@ -967,8 +1024,16 @@ export async function decide(
   by: string,
   via: "whatsapp" | "panel" | "api",
   note: unknown = "",
-  options: { mutationKey?: string; notify?: boolean } = {},
+  options: { mutationKey?: string; notify?: boolean; quote_version?: number } = {},
 ) {
+  const intent = ["decide", decision, via, note, options.quote_version ?? null];
+  const replay = await replayWorkWrite(ctx, order, options.mutationKey, intent);
+  if (replay) {
+    const history = await mutationHistory(ctx, options.mutationKey);
+    if (history) await resumeOrderEffects(ctx, history, replay, options.notify !== false);
+    return replay;
+  }
+  if (options.quote_version !== undefined && options.quote_version !== order.quote_version) throw new ApiError(409, "quote_version_conflict", "Esta resposta pertence a uma versão anterior do orçamento.");
   requireValue(
     decision === "approve" || decision === "decline",
     "Informe decision como approve ou decline.",
@@ -997,7 +1062,7 @@ export async function decide(
     memo || (via === "whatsapp" ? "Resposta do cliente pelo WhatsApp" : ""),
     { decision: to, decided_at: at, decided_by: by, decided_via: via },
     "status",
-    snapshotType(order) ? options : {},
+    { ...options, writeIntent: intent },
   );
   await ctx.publish(
     to === "approved" ? "os.approved" : "os.declined",
@@ -1011,7 +1076,7 @@ export async function decide(
       via,
       at,
     },
-    snapshotType(order) ? { key: `decision:${order.id}:${next.row_version}` } : undefined,
+    { key: `decision:${order.id}:${next.row_version}` },
   );
   return next;
 }
@@ -1136,7 +1201,7 @@ export async function handleQuoteReply(
       order = pending[0];
     }
   }
-  const mutationKey = snapshotType(order) ? `quote-reply:${c.id}:${turn.rowId}` : undefined;
+  const mutationKey = `quote-reply:${c.id}:${turn.rowId}`;
   const previous = await mutationHistory(ctx, mutationKey);
   if (previous) { await resumeOrderEffects(ctx, previous, order); return true; }
   try {
@@ -1148,7 +1213,7 @@ export async function handleQuoteReply(
       `customer:${c.id}`,
       "whatsapp",
       "",
-      { mutationKey },
+      { mutationKey, quote_version: button ? Number(button[2]) : order.quote_version },
     );
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
@@ -1193,14 +1258,25 @@ export async function trackText(ctx: ModuleContext, c: Conversation, typeId?: st
   for (const row of authorized) {
     if (!row.conversation_id && await workCustomerAllows(ctx, c, row, true)) {
       const scope = await workCustomerScope(ctx, c);
-      await exec(ctx.env, `UPDATE os_orders SET conversation_id=?,contact_id=coalesce(contact_id,?)
-        WHERE profile_id=? AND id=? AND conversation_id IS NULL AND contact_id IS ? AND row_version=? AND ${scope.sql}
-          AND (? IS NULL OR EXISTS(SELECT 1 FROM contacts WHERE profile_id=? AND id=? AND version=? AND identity_state='active'))
-          AND NOT EXISTS(SELECT 1 FROM conversations WHERE profile_id=? AND id=? AND customer_link_state IN ('blocked','excluded','ambiguous'))`,
-        c.id, scope.contactId, ctx.profile, row.id, row.contact_id, row.row_version, ...scope.params,
-        scope.contactId, ctx.profile, scope.contactId, 'ref' in scope ? scope.ref.version : null, ctx.profile, c.id);
-      const fresh = await loadOrder(ctx, row.id);
-      Object.assign(row, fresh);
+      // Vinculação legada também altera o cliente comercial. Se já há efeito,
+      // o acompanhamento continua, preservando o proprietário congelado.
+      if (!(await readWorkIntegration(ctx, row)).frozen) {
+        const at = now();
+        const commercial = await prepareWorkMutation(ctx, row, { conversation_id: c.id, contact_id: row.contact_id ?? scope.contactId }, "customer", at);
+        try {
+          await atomic(ctx, [[`UPDATE os_orders SET conversation_id=?,contact_id=coalesce(contact_id,?),commercial_json=?,row_version=row_version+1
+            WHERE profile_id=? AND id=? AND conversation_id IS NULL AND contact_id IS ? AND row_version=? AND ${scope.sql}
+              AND (? IS NULL OR EXISTS(SELECT 1 FROM contacts WHERE profile_id=? AND id=? AND version=? AND identity_state='active'))
+              AND NOT EXISTS(SELECT 1 FROM conversations WHERE profile_id=? AND id=? AND customer_link_state IN ('blocked','excluded','ambiguous'))`,
+            [c.id, scope.contactId, commercial.sets.commercial_json, ctx.profile, row.id, row.contact_id, row.row_version, ...scope.params,
+            scope.contactId, ctx.profile, scope.contactId, 'ref' in scope ? scope.ref.version : null, ctx.profile, c.id]], casGuard,
+            ["INSERT INTO os_history(id,profile_id,order_id,kind,actor,created,entity_version,changed_fields_json) VALUES(?,?,?,'os.updated','customer',?,?,?)", [uid(), ctx.profile, row.id, at, row.row_version + 1, JSON.stringify(["customer_link"])]],
+            ...commercial.statements,
+          ]);
+        } catch (error) { if (!(error instanceof ApiError) || error.code !== "version_conflict") throw error; }
+        const fresh = await loadOrder(ctx, row.id);
+        Object.assign(row, fresh);
+      }
     }
     try { await resumePendingNotices(ctx, row); }
     catch { row.notification = { state: "failed", reason: "Aviso pendente de nova tentativa." }; }

@@ -177,9 +177,15 @@ export interface PageQuery {
   limit?: number;
 }
 export interface QuoteItem {
+  /** Omitido por clientes legados; atribuído uma vez ao persistir a linha. */
+  id?: string;
   description: string;
   quantity: number;
   unit_cents: number;
+  unit?: string;
+  kind?: "material" | "service" | "free";
+  /** Associação explícita já existente na tabela auxiliar de catálogo. */
+  product_id?: string | null;
 }
 export interface OrderHistory {
   id: string;
@@ -292,6 +298,7 @@ export interface QuoteSendRequest {
 export interface DecisionRequest {
   decision: "approve" | "decline";
   note?: string;
+  quote_version?: number;
 }
 export interface StageApprovalRequest extends VersionRequest {
   transition_id: string;
