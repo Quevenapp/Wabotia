@@ -1,4 +1,5 @@
 import { ApiError, requireValue } from "./types";
+import { normalizeCustomerPhone } from "./customer/phone";
 
 export const CONTACT_CSV_BYTES = 1024 * 1024;
 export const CONTACT_CSV_ROWS = 500;
@@ -15,7 +16,7 @@ export function searchText(value: string) {
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase();
 }
-export function contactValues(data: any): ContactValues {
+export function contactValues(data: any, options: { phoneOnly?: boolean; phoneMode?: "international" | "human_br" } = {}): ContactValues {
   requireValue(
     data && typeof data === "object" && !Array.isArray(data),
     "Informe os dados do contato.",
@@ -32,18 +33,13 @@ export function contactValues(data: any): ContactValues {
     );
     return value.trim();
   };
-  const name = field("name", "Nome", 120);
-  requireValue(name, "Informe o nome do contato.");
+  const name = field("name", "Nome", 200);
   const rawPhone = field("phone", "Telefone", 40);
-  requireValue(
-    !rawPhone || /^[+\d\s().-]+$/.test(rawPhone),
-    "Telefone: use números, incluindo DDI e DDD.",
-  );
-  const phone = rawPhone.replace(/\D/g, "");
-  requireValue(
-    !rawPhone || /^\d{8,15}$/.test(phone),
-    "Telefone: informe de 8 a 15 dígitos, incluindo DDI e DDD.",
-  );
+  const phoneMode = options.phoneMode ?? data.phone_mode ?? "international";
+  requireValue(phoneMode === "international" || phoneMode === "human_br", "Convenção de telefone inválida.");
+  const phone = rawPhone ? normalizeCustomerPhone(rawPhone, phoneMode) : "";
+  requireValue(phone !== null, "Telefone: informe de 8 a 15 dígitos, incluindo DDI e DDD.");
+  requireValue(name || (options.phoneOnly && phone), "Informe o nome do contato.");
   const email = field("email", "E-mail", 254).toLowerCase();
   requireValue(
     !email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email),
@@ -122,7 +118,7 @@ function records(csv: string, delimiter: string) {
   return rows;
 }
 
-export function parseContactCsv(input: unknown) {
+export function parseContactCsv(input: unknown, options: { phoneMode?: "international" | "human_br" } = {}) {
   requireValue(
     typeof input === "string" &&
       new TextEncoder().encode(input).length <= CONTACT_CSV_BYTES,
@@ -198,7 +194,7 @@ export function parseContactCsv(input: unknown) {
       });
       rows.push({
         line: row.line + (separator ? 1 : 0),
-        values: contactValues(data),
+        values: contactValues(data, options),
       });
     } catch (error) {
       if (!(error instanceof ApiError)) throw error;
