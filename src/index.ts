@@ -1705,18 +1705,21 @@ app.put("/api/v1/profiles/:profile/router/numbers/:id/limit", async (c) =>
 // O registro é consultado dentro do handler: a integração instala descritores
 // depois de importar este módulo, antes de entregar a primeira requisição.
 app.all("/api/v1/profiles/:profile/c2/*", async (c) => {
-  const path = "/" + c.req.path.split("/").slice(6).join("/");
-  if (!findChannelServerRoute(c.req.method, path)) {
-    if (/^\/(?:connections\/[^/]+\/(?:setup|email-test|email-inbox|email-blocks)|conversations\/email|reviews(?:\/[^/]+(?:\/(?:reply|suggestion))?)?|review-publishers\/[^/]+)$/.test(path))
+  // Nome próprio de propósito: `tests/worker-routes.test.ts` lê toda constante
+  // de texto iniciada por "/" como caminho de rota; uma chamada `path` aqui
+  // faria as rotas registradas com a variável `path` parecerem "/".
+  const extensionPath = `/${c.req.path.split("/").slice(6).join("/")}`;
+  if (!findChannelServerRoute(c.req.method, extensionPath)) {
+    if (/^\/(?:connections\/[^/]+\/(?:setup|email-test|email-inbox|email-blocks)|conversations\/email|reviews(?:\/[^/]+(?:\/(?:reply|suggestion))?)?|review-publishers\/[^/]+)$/.test(extensionPath))
       throw new ApiError(503, "channel_not_ready", "Este recurso de canal ainda não está disponível.");
     throw new ApiError(404, "not_found", "Operação de canal não encontrada.");
   }
   const profile = c.req.param("profile");
   if (c.req.method === "GET") return Response.json(await performExtensionRoute(
-    c.env, c.get("actor"), profile, "GET", path, Object.fromEntries(new URL(c.req.url).searchParams), "",
+    c.env, c.get("actor"), profile, "GET", extensionPath, Object.fromEntries(new URL(c.req.url).searchParams), "",
   ));
   const input: unknown = await c.req.json().catch(() => ({}));
-  return mutate(c, "c2.route", profile, { method: c.req.method, path, input });
+  return mutate(c, "c2.route", profile, { method: c.req.method, path: extensionPath, input });
 });
 const commands = [
   ["PUT", "lines/:id", "line.save"],
