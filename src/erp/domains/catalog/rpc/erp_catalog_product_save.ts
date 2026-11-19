@@ -170,7 +170,7 @@ export function erpCatalogProductSave(ctx: RpcContext, a: RpcArgs) {
     }
   }
   const full = productFull(db, target);
-  const record = full && (!ctx.parts.purchases || !ctx.parts.stock) ? { ...full, cost_price: null } : full;
+  const record = full;
   const result = { entity: "products", record, replayed: false, data_mode: "erp_native",
     ...catalogUnavailable(ctx.parts, ["stock", "purchases"]) };
   const audit = (action: string, beforeData: unknown, afterData: unknown) =>

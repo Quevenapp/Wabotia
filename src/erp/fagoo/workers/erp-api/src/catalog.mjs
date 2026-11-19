@@ -1,3 +1,4 @@
+import { parsePartRecord } from './preferences-kit.mjs';
 import { erpEntityRequirement } from '../../../../parts-requirements.ts';
 import { projectParts, responseParts, responsePartsMetadata, erpRequirementMet } from './preferences-kit.mjs';
 import {normalizeUnitPrice,isCanonicalUnitPrice,UNIT_PRICE_INPUT_LIMIT} from '../../../packages/erp-domain/src/unit-price.mjs';
@@ -194,7 +195,7 @@ function pageOperation(entity, params) {
   }
   return { rpc: 'erp_catalog_page', args: { p_entity: entity, ...args }, type: 'page' };
 }
-function record(value, entity, detail = false) {
+function recordBody(value, entity, detail = false) {
   if (!object(value) || !UUID.test(value.id || '') || value.entity !== entity || !Number.isInteger(value.version) || value.version < 1 || typeof value.active !== 'boolean') badResponse();
   const safe = { id: value.id, entity, version: value.version, active: value.active };
   for (const [key, max] of Object.entries({ ...FIELDS[entity], created_at: 100, updated_at: 100 })) {
@@ -308,7 +309,10 @@ function pageResponse(value, entity, args) {
     seen.add(safe.id);
     if (entity === 'products') safe.stock = value.stock_visible ? stock(item.stock, args.p_warehouse_id) : item.stock === null ? null : badResponse();
     if (entity === 'products' && args.p_situation !== undefined) Object.assign(safe, viaProduct(() => productListExtras(item)));
-    return safe;
+    return entity==='products'?parsePartRecord(item,()=>safe,[
+      [['stock'],{stock_min:null,stock_max:null,location:null,lot_control:false}],
+      [['purchases','stock'],{cost_price:null}],
+    ],badResponse):safe;
   });
   return result;
 }
@@ -330,9 +334,17 @@ function warning(value, entity) {
 }
 
 export function catalogResponse(value, route, operation) {
+ if(route.product)return viaProduct(()=>productResponse(value,route,operation,item=>record(item,'products',true)));
  const parts=responseParts(value,badResponse);
  if(!parts.stock&&value.stock_visible===true)badResponse();
  if(Object.hasOwn(value,'unavailable_parts')&&operation.type==='access')for(const key of ['read','write'])
   if(!Array.isArray(value[key])||value[key].some(entity=>!erpEntityRequirement(entity)||!erpRequirementMet(parts,erpEntityRequirement(entity))))badResponse();
  return projectParts(value, body => catalogResponseBody(body, route, operation), badResponse);
+}
+
+function record(value, entity, detail = false) {
+ return parsePartRecord(value,v=>recordBody(v,entity,detail),entity==='products'?[
+  [['stock'],{stock_min:null,stock_max:null,location:null,lot_control:false}],
+  [['purchases','stock'],{suppliers:[],cost_price:null}],
+ ]:[],badResponse);
 }

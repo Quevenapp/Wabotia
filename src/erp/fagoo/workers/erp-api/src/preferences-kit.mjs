@@ -75,3 +75,18 @@ export async function executeRoute(route,context,parse,{maxTimeoutMs=20000,extra
   throw new PreferencesError(502,'ERP_UPSTREAM_UNAVAILABLE');
  }finally{clearTimeout(timer);signal?.removeEventListener('abort',cancel);controller.abort();}
 }
+
+/** Completa só para validar o formato legado e remove os campos suspensos da resposta. */
+export function parsePartRecord(value, parse, groups, bad) {
+ const parts=responseParts(value,bad),input={...value},removed=[];
+ delete input.unavailable_parts;
+ for(const [owners,defaults] of groups)if(owners.some(part=>!parts[part])) {
+  for(const [key,fallback] of Object.entries(defaults)) {
+   if(!Object.hasOwn(input,key))input[key]=fallback;
+   removed.push(key);
+  }
+ }
+ const parsed=parse(input);
+ for(const key of removed)delete parsed[key];
+ return {...parsed,...responsePartsMetadata(value)};
+}

@@ -5,6 +5,7 @@ import { registerRpc } from "../../../engine/registry.ts";
 import { boolArg, intArg, textArg, uuidArg } from "../pricing/args.ts";
 import { CNTRL, btrim, chars, compareText, searchTerms } from "../fields.ts";
 import { dto } from "../internal.ts";
+import { projectCatalogResult } from "../part-projection.ts";
 import { requireAccess } from "../pricing/deps.ts";
 import { ncmPresent, pgLower, productRows, searchHit } from "../product-query.ts";
 
@@ -51,12 +52,12 @@ registerRpc("erp_catalog_product_list", (ctx, a) => {
     .slice(0, limit + 1);
   const visible = page.slice(0, limit);
   const more = page.length > limit;
-  return {
+  return projectCatalogResult(ctx.parts, {
     entity: "products",
     items: visible.map((id) => dto(db, id)),
     has_more: more,
     next_cursor: more ? visible[visible.length - 1] : null,
     limit,
     data_mode: "erp_native",
-  };
+  });
 });

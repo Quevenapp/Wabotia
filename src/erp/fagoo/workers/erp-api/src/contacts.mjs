@@ -1,3 +1,4 @@
+import { parsePartRecord } from './preferences-kit.mjs';
 // Clientes e fornecedores no padrão do Origin (lane contatos, migrações 202610200124-128): formulário completo, situação,
 // tipos de contato, listagem com os filtros do Origin, exportação, comentários, histórico, importação, vendedores, formas
 // de pagamento e funcionários. Rotas em /v1/cadastros/{contatos,tipos-contato,vendedores,formas-pagamento,funcionarios}.
@@ -304,7 +305,7 @@ export async function contactOperation(request, route, params) {
     keys(kind === 'seller' ? ['command_id', 'expected_version', 'contact_expected_version', 'contact', 'settings', 'acknowledged_warnings'] : ['command_id', 'contact', 'settings', 'acknowledged_warnings']);
     if (kind === 'seller' && (!version(input.expected_version) || !version(input.contact_expected_version))) invalid();
     return read('erp_catalog_seller_save', { p_id: route.id, p_expected_version: route.id ? input.expected_version : 0, p_contact_expected_version: route.id ? input.contact_expected_version : 0,
-      p_command_id: command(input.command_id), p_contact: contactData(input.contact, !route.id), p_settings: sellerSettings(input.settings),
+      p_command_id: command(input.command_id), p_contact: contactData(input.contact, !route.id), p_settings: omittedInput(input.settings,sellerSettings,{commission_rule:'parcial',commission_mode:'fixa',commission_rate:null,commission_bands:[]}),
       p_acknowledged: Object.hasOwn(input, 'acknowledged_warnings') ? acknowledged(input.acknowledged_warnings) : null }, 'seller');
   }
   if (kind === 'seller-from-contact') {
@@ -314,7 +315,7 @@ export async function contactOperation(request, route, params) {
   if (kind === 'payment-methods' || kind === 'payment-method') {
     keys(kind === 'payment-method' ? ['command_id', 'expected_version', 'data'] : ['command_id', 'data']);
     if (kind === 'payment-method' && !version(input.expected_version)) invalid();
-    return read('erp_catalog_payment_method_save', { p_id: route.id, p_expected_version: route.id ? input.expected_version : 0, p_command_id: command(input.command_id), p_data: paymentMethodData(input.data) }, 'payment-method-save');
+    return read('erp_catalog_payment_method_save', { p_id: route.id, p_expected_version: route.id ? input.expected_version : 0, p_command_id: command(input.command_id), p_data: omittedInput(input.data,paymentMethodData,{account_id:null,interest_rate:null,fine_rate:null,auto_settle:false,fee_type:'aliquota',fee_rate:null,fee_fixed:null,settlement_days:null}) }, 'payment-method-save');
   }
   if (kind === 'payment-method-action') {
     // 371: the default of each purpose (recebimentos, pagamentos, devoluções) besides the legacy "default".
@@ -395,7 +396,7 @@ const typeList = value => { if (!Array.isArray(value) || value.length > 40 || va
 const roleList = value => { if (!Array.isArray(value) || value.length > 3 || value.some(role => !ROLES.includes(role)) || new Set(value).size !== value.length) bad(); return [...value]; };
 const situationOf = value => { if (!['A', 'I', 'S', 'E'].includes(value)) bad(); return value; };
 /** Full contact (form): every field typed and bounded; decimals exact; dates ISO. `exported` rows carry no persons/source. */
-export function contactRecord(value, { exported = false } = {}) {
+function contactRecordBody(value, { exported = false } = {}) {
   if (!object(value) || typeof value.id !== 'string' || !UUID.test(value.id) || value.entity !== 'contacts' || !version(value.version) || typeof value.active !== 'boolean'
     || !STAMP(value.created_at) || !STAMP(value.updated_at)) bad();
   const safe = { id: value.id, entity: 'contacts', version: value.version, active: value.active, created_at: value.created_at, updated_at: value.updated_at };
@@ -474,7 +475,7 @@ const TYPE_ITEM = item => {
     || !int(item.position, 1, 100000) || !int(item.contacts, 0, 100000000)) bad();
   return { ...item };
 };
-function sellerDto(value) {
+function sellerDtoBody(value) {
   if (!object(value) || typeof value.id !== 'string' || !UUID.test(value.id) || typeof value.contact_id !== 'string' || !UUID.test(value.contact_id) || !version(value.version)
     || !STAMP(value.created_at) || !STAMP(value.updated_at)) bad();
   const settings = sellerSettings({ user_id: value.user_id ?? null, allow_unregistered_products: value.allow_unregistered_products, view_stock: value.view_stock, access_hours_enabled: value.access_hours_enabled,
@@ -488,7 +489,7 @@ const usersList = value => {
 };
 const PAYMENT_ACTIONS = ['default', 'default_recebimentos', 'default_pagamentos', 'default_devolucoes', 'clear_devolucoes', 'activate', 'inactivate', 'delete'];
 const PAYMENT_DEFAULTS = ['default_receipt', 'default_payment', 'default_return'];
-function paymentMethod(value) {
+function paymentMethodBody(value) {
   if (value === null) return null;
   if (!object(value) || typeof value.id !== 'string' || !UUID.test(value.id) || !version(value.version) || typeof value.active !== 'boolean' || typeof value.is_default !== 'boolean'
     || !STAMP(value.created_at) || !STAMP(value.updated_at)) bad();
@@ -730,4 +731,29 @@ export function sellerAccessGates(value) {
   });
   if (new Set(out.map(gate => gate.user_id)).size !== out.length) bad();
   return out;
+}
+
+export function contactRecord(value, options) {
+ return parsePartRecord(value,v=>contactRecordBody(v,options),[
+  [['finance'],{credit_limit:null,credit_limit_mode:'unlimited',finance_category_id:null,finance_category_name:null}],
+  [['fiscal'],{operation_nature_id:null,operation_nature_name:null}],
+ ],bad);
+}
+function sellerDto(value) {
+ return parsePartRecord(value,sellerDtoBody,[
+  [['finance'],{commission_rule:'parcial',commission_mode:'fixa',commission_rate:null,commission_bands:[]}],
+ ],bad);
+}
+function paymentMethod(value) {
+ if(value===null)return null;
+ return parsePartRecord(value,paymentMethodBody,[
+  [['finance'],{account_id:null,account_name:null,interest_rate:null,fine_rate:null,auto_settle:false,fee_type:'aliquota',fee_rate:null,fee_fixed:null,settlement_days:null}],
+ ],bad);
+}
+
+function omittedInput(value,parse,defaults) {
+ if(!object(value))invalid();
+ const parsed=parse({...defaults,...value});
+ for(const key of Object.keys(defaults))if(!Object.hasOwn(value,key))delete parsed[key];
+ return parsed;
 }

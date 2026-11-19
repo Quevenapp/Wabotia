@@ -15,7 +15,7 @@ import { normalizeErpParts, type ErpParts } from "../../parts.ts";
 import { erpFieldRequirement, erpRequirementMet } from "../../parts-requirements.ts";
 import { saoPauloParts, todaySaoPaulo } from "../../engine/time.ts";
 import { validNow } from "../catalog/public.ts";
-import { approvalSituations, discountApprover, effectFlags, preference, priceDecimals, quantityDecimals } from "./internal.ts";
+import { approvalSituations, discountApprover, effectFlags, projectDocument, unavailableParts, preference, priceDecimals, quantityDecimals } from "./internal.ts";
 import { osPermitted } from "./reads-g.ts";
 
 type Row = Record<string, unknown>;
@@ -419,12 +419,12 @@ export function commandReplay(ctx: RpcContext, actor: string, command: string | 
 
 /** erp_documents.project_result_flags(resultado): effect_flags atual de cada documento do recibo. */
 export function projectResultFlags(ctx: RpcContext, result: Data): Data {
-  const out = { ...result };
+  const out: Data = { ...result, ...unavailableParts(ctx) };
   for (const key of ["document", "proposal", "sale", "service_order"]) {
     const v = out[key];
     if (v !== null && typeof v === "object" && !Array.isArray(v)) {
       const id = fieldText(v, "id");
-      out[key] = { ...(v as Data), effect_flags: effectFlags(ctx, id === null ? null! : uuidText(id)) };
+      out[key] = projectDocument(ctx, { ...(v as Data), effect_flags: effectFlags(ctx, id === null ? null! : uuidText(id)) });
     }
   }
   return out;
