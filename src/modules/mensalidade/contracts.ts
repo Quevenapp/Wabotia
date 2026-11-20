@@ -4,7 +4,7 @@
 // primeira parcela só nascem com o pagamento confirmado pelo provedor, e
 // nenhum telefone é vinculado a um pagador que já existia a partir de um
 // documento digitado.
-import { all, exec, one } from "../../db";
+import { exec, one } from "../../db";
 import { ApiError, type Conversation, now, uid } from "../../types";
 import type { ModuleContext } from "../api";
 import type { Payment } from "../../payments";
@@ -21,7 +21,7 @@ import { announcePaid } from "./listeners";
 import { sendReceipt } from "./billing";
 import { sendPayMessage } from "./pay-message";
 import { mensalidadeCurrentlyRefunded } from "./integration";
-import { commitMensalidade as batch, mensalidadeCasGuard, mensalidadeHistory, mensalidadePaymentEvidence, mensalidadeSource, mensalidadeStatements, reconcileMensalidadeContracts, recoverMensalidadePayment } from "./integration";
+import { commitMensalidade as batch, finishReplacedContracts, mensalidadeCasGuard, mensalidadeHistory, mensalidadePaymentEvidence, mensalidadeSource, mensalidadeStatements, reconcileMensalidadeContracts, recoverMensalidadePayment } from "./integration";
 
 const BILLING = { notification: true, purpose: "billing" as const };
 
@@ -92,29 +92,26 @@ export async function createContract(
     "SELECT * FROM mensalidade_contracts WHERE source_key=?",
     input.sourceKey,
   );
-  if (found) return found;
+  if (found) {
+    // Retomada: a substituição gravada com esta contratação pode ter caído
+    // antes de cancelar a cobrança da anterior. Concluir antes de cobrar esta.
+    await finishReplacedContracts(ctx, found.conversation_id);
+    return found;
+  }
   const id = uid(),
     at = now();
-  await exec(
-    ctx.env,
-    "INSERT INTO mensalidade_contracts(id,profile_id,plan_id,plan_name,conversation_id,phone,payer_id,document,document_type,name,amount_cents,method,status,actor,source_key,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?,?,?) ON CONFLICT(source_key) DO NOTHING",
-    id,
-    ctx.profile,
-    input.plan.id,
-    input.plan.name,
-    input.c.id,
-    input.phone,
-    input.payer_id,
-    input.document?.document ?? null,
-    input.document?.type ?? null,
-    input.name,
-    input.plan.amount_cents,
-    input.method,
-    input.actor,
-    input.sourceKey,
-    at,
-    at,
-  );
+  // A nova contratação e o cancelamento das outras abertas nesta conversa
+  // (outra sessão ou plano) vão no mesmo lote: uma queda depois do INSERT não
+  // deixa a anterior pendente e pagável. A cobrança aberta dela fica marcada
+  // (status cancelado com payment_status 'created') e é cancelada logo abaixo,
+  // na retomada ou pela reconciliação, para o cliente não pagar as duas.
+  await batch(ctx.env, [
+    ["INSERT INTO mensalidade_contracts(id,profile_id,plan_id,plan_name,conversation_id,phone,payer_id,document,document_type,name,amount_cents,method,status,actor,source_key,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?,?,?) ON CONFLICT(source_key) DO NOTHING",
+      [id, ctx.profile, input.plan.id, input.plan.name, input.c.id, input.phone, input.payer_id, input.document?.document ?? null,
+        input.document?.type ?? null, input.name, input.plan.amount_cents, input.method, input.actor, input.sourceKey, at, at]],
+    ["UPDATE mensalidade_contracts SET status='cancelled',updated=? WHERE conversation_id=? AND profile_id=? AND status='pending' AND id<>? AND EXISTS(SELECT 1 FROM mensalidade_contracts n WHERE n.id=? AND n.source_key=?)",
+      [at, input.c.id, ctx.profile, id, id, input.sourceKey]],
+  ]);
   const row = await one(
     ctx.env,
     "SELECT * FROM mensalidade_contracts WHERE source_key=?",
@@ -132,30 +129,9 @@ export async function createContract(
       at - CONTRACT_DOCUMENT_RETENTION_MS,
       at,
     );
-    // Outra contratação aberta nesta conversa (outra sessão ou plano): a
-    // cobrança dela é cancelada, para o cliente não pagar as duas.
-    const others = await all(
-      ctx.env,
-      "SELECT * FROM mensalidade_contracts WHERE conversation_id=? AND profile_id=? AND status='pending' AND id<>?",
-      input.c.id,
-      ctx.profile,
-      id,
-    );
-    for (const other of others) {
-      if (other.payment_id && other.payment_status === "created")
-        try {
-          await ctx.cancelCharge(other.payment_id);
-        } catch (error) {
-          if (!(error instanceof ApiError)) throw error;
-          if (error.code === "payment_closed") continue;
-        }
-      await exec(
-        ctx.env,
-        "UPDATE mensalidade_contracts SET status='cancelled',updated=? WHERE id=? AND status='pending'",
-        at,
-        other.id,
-      );
-    }
+    // Outra contratação aberta nesta conversa: já cancelada no lote acima;
+    // aqui a cobrança dela é cancelada no provedor.
+    await finishReplacedContracts(ctx, input.c.id);
     await ctx.publish(
       "mensalidade.contract_created",
       id,

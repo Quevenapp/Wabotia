@@ -70,10 +70,37 @@ export function getCommand(ctx: RpcContext, id: string): CommandReceipt | null {
   const row = one(ctx.db, `${commandSelect} WHERE id=?`, id);
   return row ? commandRow(row) : null;
 }
+/** A coluna conserva o CHECK da versão 10; a transferência para outra emissão
+ * fica em compensation_result.state e aparece na visão como "transferido". */
+const transferred = (result: JsonObject | null): boolean => result?.state === "transferido";
 export function getEffects(ctx: RpcContext, id: string): EffectView[] {
-  return ctx.db.exec(`SELECT *,CAST(updated_at AS TEXT) AS updated_at FROM ${T.effect} WHERE emission_id=? ORDER BY axis`, id).rows.map(row => ({
-    ...row, ids: parse(row.ids), result: parse(row.result), compensation_result: parse(row.compensation_result),
-  }) as EffectView);
+  return ctx.db.exec(`SELECT *,CAST(updated_at AS TEXT) AS updated_at FROM ${T.effect} WHERE emission_id=? ORDER BY axis`, id).rows.map(row => {
+    const compensation = parse<JsonObject | null>(row.compensation_result);
+    return { ...row, ids: parse(row.ids), result: parse(row.result), compensation_result: compensation,
+      compensation_state: transferred(compensation) ? "transferido" : row.compensation_state } as EffectView;
+  });
+}
+
+/** A emissão nova reconheceu o mesmo lançamento: ela passa a responder por
+ * ele. A antiga fecha a compensação como transferida (de qual, para qual,
+ * quando e por qual comando) e perde o poder de estorná-lo. Mesma transação
+ * do reconhecimento; o comando é o da emissão nova. */
+export function transferEffect(ctx: RpcContext, from: EffectView, to: { emission_id: string; command_id: string }): EffectView {
+  const fromEmission = getStoredEmission(ctx, from.emission_id), toEmission = getStoredEmission(ctx, to.emission_id);
+  const command = getCommand(ctx, to.command_id);
+  if (!command || command.emission_id !== toEmission.id || fromEmission.document_id !== toEmission.document_id || fromEmission.id === toEmission.id ||
+      fromEmission.status !== "cancelada" || !from.fingerprint || !["aplicado", "reconhecido"].includes(from.state) ||
+      ["revertido", "transferido"].includes(String(from.compensation_state))) raise("40001", "com1_effect_transfer_invalid");
+  const at = String(ctx.clock.next());
+  const result: JsonObject = { state: "transferido", axis: from.axis, from_emission_id: fromEmission.id, from_fiscal_version: fromEmission.fiscal_version,
+    to_emission_id: toEmission.id, to_fiscal_version: toEmission.fiscal_version, command_id: command.id, person_id: command.person_id,
+    transferred_at: at, ids: from.ids, fingerprint: from.fingerprint,
+    previous_compensation: { state: from.compensation_state, command_id: from.compensation_command_id, result: from.compensation_result } };
+  ctx.db.exec(`UPDATE ${T.effect} SET compensation_state=NULL,compensation_command_id=?,compensation_result=?,updated_at=? WHERE emission_id=? AND axis=?`,
+    command.id, com1Json(result), at, fromEmission.id, from.axis);
+  appendCom1Audit(ctx, { command, emission: fromEmission, action: "effect_transfer", before: { axis: from.axis, state: from.compensation_state ?? from.state },
+    after: { axis: from.axis, state: "transferido", command_id: command.id } });
+  return getEffects(ctx, fromEmission.id).find(e => e.axis === from.axis)!;
 }
 export function getEmissionView(ctx: RpcContext, id: string): EmissionView {
   const emission = getStoredEmission(ctx, id);
@@ -275,6 +302,9 @@ export function recordExternalEvidence(ctx: RpcContext, input: RecordInput): Emi
       else if (result!.status === "rejected") next = "rejeitada";
       else if (result!.status === "denied") next = "denegada";
       else if (result!.status === "processing") next = "processando";
+      // Cancelada diretamente no cofre antes da retomada: o resultado é
+      // conclusivo. Registra a autorização e o cancelamento, sem novo pedido.
+      else if (result!.status === "cancelled") { next = complete ? "cancelada" : "incerta"; if (!complete) reason = "com1_authorization_incomplete"; }
       else { next = "incerta"; reason = "fiscal_no_conclusive_answer"; }
     } else if (!identityMatches || (result?.status !== "authorized" && result?.status !== "cancelled")) reason = "com1_late_conflicting_evidence";
     const receiptResult = JSON.parse(com1Json({ evidence: entries, status: next })) as JsonObject;
@@ -288,10 +318,24 @@ export function recordExternalEvidence(ctx: RpcContext, input: RecordInput): Emi
         usable && complete ? usable.access_key : emission.access_key, usable && complete ? usable.protocol : emission.protocol,
         usable ? micros(usable.issued_at) : emission.issued_at, usable && complete ? micros(usable.authorized_at) : emission.authorized_at,
         usable?.total != null && Number.isFinite(usable.total) && usable.total >= 0 ? String(Math.round(usable.total * 100)) : emission.total, String(ctx.clock.next()), emission.id);
+      if (next === "cancelada") recordExternalCancellation(ctx, command, getStoredEmission(ctx, emission.id), result!.messages);
     }
     appendCom1Audit(ctx, { command, emission, action: "record", before: { status: emission.status }, after: { status: next, evidence_hash: evidenceHash, ...(reason ? { reason } : {}) } });
     return getEmissionView(ctx, emission.id);
   });
+}
+
+/** Justificativa local do evento feito fora do ERP: a original fica no cofre. */
+export const COM1_EXTERNAL_CANCELLATION_JUSTIFICATION = "Cancelamento feito diretamente no cofre; evento recuperado pela retomada.";
+/** A nota foi cancelada no cofre antes de o ERP registrar a autorização. O
+ * evento fica "incerto" (sem protocolo/data do evento) e a retomada do
+ * cancelamento consulta o cofre pelo mesmo corpo, sem pedir outro cancelamento. */
+function recordExternalCancellation(ctx: RpcContext, command: CommandReceipt, emission: StoredEmission, messages: unknown): void {
+  if (cancellationRow(ctx, emission.id)) return;
+  const body = com1Json({ justificativa: COM1_EXTERNAL_CANCELLATION_JUSTIFICATION }), at = String(ctx.clock.next());
+  ctx.db.exec(`INSERT INTO ${T.cancel} (emission_id,justification,body,body_hash,command_id,state,messages,created_at,updated_at) VALUES (?,?,?,?,?,'incerto',?,?,?)`,
+    emission.id, COM1_EXTERNAL_CANCELLATION_JUSTIFICATION, body, com1Sha256(body), command.id, com1Json(Array.isArray(messages) ? messages : []), at, at);
+  appendCom1Audit(ctx, { command, emission, action: "cancel_external", after: { state: "incerto", status: "cancelada", reason: "com1_cancelled_in_vault" } });
 }
 
 /** Único registro por eixo. A implementação de efeitos chama isto na MESMA
@@ -302,6 +346,7 @@ export function saveEffect(ctx: RpcContext, effect: EffectView, options: { apply
     const emission = getStoredEmission(ctx, effect.emission_id);
     if (!["autorizada", "cancelada"].includes(emission.status)) raise("55000", "com1_effect_requires_authorization");
     const old = getEffects(ctx, effect.emission_id).find(e => e.axis === effect.axis);
+    if (old?.compensation_state === "transferido" || effect.compensation_state === "transferido") raise("55000", "com1_effect_transferred");
     if (!["aplicado", "reconhecido", "pendente", "pulado"].includes(effect.state)) raise("22023", "com1_effect_state_invalid");
     const alreadyApplied = !!old && ["aplicado", "reconhecido"].includes(old.state);
     if (old?.state === "pulado" && effect.state !== "pulado" && !options.apply_skipped) raise("40001", "com1_effect_explicit_retry_required");

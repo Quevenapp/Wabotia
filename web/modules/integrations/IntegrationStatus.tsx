@@ -11,7 +11,7 @@ export function integrationReason(reason: string | null | undefined) {
   const reasons: Record<string, string> = {
     part_disabled: "A parte necessária estava desligada. O administrador pode revisar as partes habilitadas; religar não lança dívidas antigas automaticamente.",
     automation_off: "A automação estava desligada. O administrador pode revisar a política e os destinos disponíveis para lançamento manual.",
-    awaiting_fiscal_authorization: "O pedido foi registrado sem lançar estoque ou contas: a política exige autorização fiscal. A emissão de NF-e para pedidos de módulos ainda não está disponível; o administrador deve revisar a política antes de um lançamento manual.",
+    awaiting_fiscal_authorization: "O pedido foi registrado sem lançar estoque ou contas porque uma versão anterior aplicava aos módulos a política de autorização fiscal. Essa política vale só para pedidos de venda do próprio ERP: uma pessoa autorizada pode concluir pelo lançamento manual.",
     fiscal_order_transition_locked: "Há uma emissão fiscal enviada para este pedido. Confira a emissão antes de cancelar a origem.",
     fiscal_order_compensation_required: "O cancelamento fiscal exige conferência dos efeitos antes de cancelar a origem.",
     historical_origin_unlinked: "A obrigação não tem vínculo no ERP. A equipe financeira deve conferir a origem, sem criar dívida retroativa.",

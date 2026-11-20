@@ -1,7 +1,7 @@
 // Projeção comercial por lista permitida. Nunca exportar o interlocutor,
 // nome do plano, observações, documento digitado ou conteúdo de atendimento.
-import { all, batch as d1Batch, one } from "../../db";
-import { type Actor, type Env } from "../../types";
+import { all, batch as d1Batch, exec, one } from "../../db";
+import { ApiError, type Actor, type Env } from "../../types";
 import { canProfile } from "../../security";
 import { requireAccess } from "../../access";
 import { modulesApi, type ModuleContext } from "../api";
@@ -324,14 +324,48 @@ export async function recoverMensalidadePayment(ctx: ModuleContext, kind: Record
   await commitMensalidade(ctx.env, plan.statements);
 }
 
-/** createContract (fora do trecho B5) já cancela a contratação substituída.
- * Reconciliar somente esse cancelamento persistido; expirar um Pix sozinho
- * não extingue a obrigação. O gancho periódico cobre queda antes do reenvio.
+/**
+ * createContract cancela a contratação substituída no mesmo lote da nova; a
+ * cobrança aberta dela (status 'cancelled' com payment_status 'created') é
+ * a pendência que sobra. Cancela no provedor de forma retomável: repetir
+ * depois de uma queda só chama de novo o cancelamento (idempotente). Paga
+ * enquanto trocava: volta a pendente e a confirmação do provedor conclui.
+ */
+export async function finishReplacedContracts(ctx: ModuleContext, conversationId?: string) {
+  const rows = await all(ctx.env, `SELECT c.* FROM mensalidade_contracts c
+    WHERE c.profile_id=? AND c.status='cancelled' AND c.installment_id IS NULL AND c.payment_id IS NOT NULL AND c.payment_status='created'
+      ${conversationId ? "AND c.conversation_id=?" : ""}
+      AND EXISTS(SELECT 1 FROM mensalidade_contracts n WHERE n.profile_id=c.profile_id AND n.conversation_id=c.conversation_id AND n.id<>c.id AND n.created>=c.created)
+    ORDER BY c.id LIMIT 50`, ...(conversationId ? [ctx.profile, conversationId] : [ctx.profile]));
+  for (const row of rows) {
+    let status = "cancelled";
+    try {
+      const payment = await ctx.cancelCharge(row.payment_id);
+      if (payment?.status && payment.status !== "created") status = payment.status;
+    } catch (error) {
+      if (!(error instanceof ApiError)) throw error;
+      if (error.code === "payment_closed") {
+        await exec(ctx.env, "UPDATE mensalidade_contracts SET status='pending',updated=? WHERE id=? AND profile_id=? AND status='cancelled' AND payment_id=? AND payment_status='created'",
+          Date.now(), row.id, ctx.profile, row.payment_id);
+        continue;
+      }
+    }
+    // O gancho da cobrança normalmente já gravou; sem ele, conclui a pendência.
+    await exec(ctx.env, "UPDATE mensalidade_contracts SET payment_status=? WHERE id=? AND profile_id=? AND status='cancelled' AND payment_id=? AND payment_status='created'",
+      status, row.id, ctx.profile, row.payment_id);
+  }
+}
+
+/** Reconciliar somente o cancelamento persistido por createContract; expirar
+ * um Pix sozinho não extingue a obrigação. A cobrança aberta da substituída é
+ * cancelada antes do título. O gancho periódico cobre queda antes do reenvio.
  */
 export async function reconcileMensalidadeContracts(ctx: ModuleContext) {
+  await finishReplacedContracts(ctx);
   const rows = await all(ctx.env, `SELECT c.* FROM mensalidade_contracts c JOIN module_erp_sources s
     ON s.profile_id=c.profile_id AND s.module_id='mensalidade' AND s.source_id='contract:'||c.id
     WHERE c.profile_id=? AND c.status='cancelled' AND c.installment_id IS NULL
+      AND (c.payment_id IS NULL OR c.payment_status IS NOT 'created')
       AND NOT EXISTS(SELECT 1 FROM module_erp_events e WHERE e.profile_id=s.profile_id AND e.module_id=s.module_id AND e.source_id=s.source_id AND json_extract(e.payload_json,'$.reason_code')='contract_replaced')
       AND EXISTS(SELECT 1 FROM mensalidade_contracts n WHERE n.profile_id=c.profile_id AND n.conversation_id=c.conversation_id AND n.id<>c.id AND n.created>=c.created)
     ORDER BY c.id LIMIT 50`, ctx.profile);

@@ -331,6 +331,7 @@
   "web/erp/app/lib/platform-model.ts": "alterado: parseExportLink aceita o pacote wabotia-exportacao-… (desvio exportacao-wabotia do motor; o nome do Fagoo segue aceito) e o link assinado pela rota pública do Worker (/api/public/erp-storage/<área>/exportacoes/…) na origem do painel",
   "web/erp/app/components/CompanyExport.tsx": "alterado: com uma exportação na fila ou em geração, um aviso diz por que o botão está desligado; a lista confere de novo a cada 5 s (o agendador do Wabotia começa em 1 s), não 15 s",
   "packages/erp-domain/src/preferences/core.mjs": "alterado: nome Fagoo retirado da tela (o ERP chama-se só ERP)",
+  "packages/erp-domain/src/spreadsheet-import.mjs": "alterado: CPF/CNPJ do contato (vendas, compras, notas, contas a receber/pagar e fornecedores de produto) aceita também o CNPJ alfanumérico do cadastro (12 [0-9A-Z] + 2 dígitos, maiúsculas, dígitos verificadores de validCnpj), na prévia do navegador e na captura do Worker; mesma alteração na cópia do motor (src/erp/fagoo/packages)",
   "packages/erp-domain/src/preferences/fields.mjs": "alterado: nome Fagoo retirado da tela (o ERP chama-se só ERP)",
   "packages/erp-domain/src/preferences/pages/cadastros-produtos.mjs": "alterado: nome Fagoo retirado da tela (o ERP chama-se só ERP)",
   "packages/erp-domain/src/preferences/pages/certificado-digital.mjs": "alterado: nome Fagoo retirado da tela (o ERP chama-se só ERP)",

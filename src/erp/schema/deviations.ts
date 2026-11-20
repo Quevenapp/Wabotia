@@ -65,6 +65,40 @@ export const MODULE_ORIGIN_DEVIATIONS = Object.freeze([{
   behavior: "Execução comercial enumerada, efeitos conjuntos, recibos permanentes, documento vinculado protegido e exceção operacional de retorno à execução.",
   oracle: "Inalterado fora do escopo F3; não é FunctionDeviation.",
 }]);
+/**
+ * Desvios deliberados de regra de negócio, como MODULE_ORIGIN_DEVIATIONS:
+ * informativos, nunca aplicados ao oráculo, aos gerados nem ao esquema (não
+ * são FunctionDeviation, que só vale para texto visível). O diferencial não
+ * exercita o caso; o teste citado prova a regra e confere que o trecho do
+ * oráculo continua o mesmo.
+ */
+export interface RuleDeviation {
+  id: string;
+  /** Função do oráculo e migração onde está a definição vigente. */
+  fn: string;
+  oracle_file: string;
+  /** Trecho do Fagoo que mostra a regra original. */
+  oracle: string;
+  behavior: string;
+  reason: string;
+  decided: string;
+  tests: readonly { file: string; test: string }[];
+}
+export const ERP_RULE_DEVIATIONS: readonly RuleDeviation[] = Object.freeze([{
+  id: "titulo-cobranca-bancaria",
+  fn: "public.erp_finance_execute",
+  oracle_file: "202610160058_itau_net_credit.sql",
+  oracle: "if v_title.settled_cents<>0 then raise exception 'erp_finance_active_payments' using errcode='40001'; end if;",
+  behavior:
+    "Cancelar conta (title_cancel e todo escritor que marca cancelled) é recusado com erp_finance_billed_locked quando a conta tem " +
+    "vínculo de cobrança bancária (erp_cnab.billing_title). A guarda fica em titleUpdateGuards (domains/finance/internal.ts), ponto único " +
+    "de todos os escritores. O vínculo só se encerra pela exclusão da remessa (apaga o vínculo) ou pela baixa (settled_cents).",
+  reason:
+    "No Fagoo o title_cancel só confere settled_cents: a dívida some do ERP enquanto o boleto continua no banco, e o pagamento depois " +
+    "cai em conta não aberta na conciliação (revisão de dinheiro, estoque e nota, achado 3).",
+  decided: "orquestração, 20/11/2026 (junção candidata, correções da revisão)",
+  tests: [{ file: "tests/erp/comnfe/revisao-dinheiro.test.mjs", test: "achado 3: title_cancel recusa título com cobrança bancária, de pedido ou avulso" }],
+}]);
 export const isFunctionDeviation = (d: Deviation): d is FunctionDeviation => d.kind === "function";
 const seedOnly = (list: readonly Deviation[]) => list.filter((d): d is SeedDeviation => !isFunctionDeviation(d));
 

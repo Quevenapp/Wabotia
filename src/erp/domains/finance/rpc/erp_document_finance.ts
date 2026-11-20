@@ -10,7 +10,7 @@ import { one, type Row, type SqlDriver } from "../../../engine/driver.ts";
 import { fromSqlite, raise } from "../../../engine/errors.ts";
 import { jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
-import { requireCom1Posting } from "../../fiscal/comnfe/effect-policy.ts";
+import { guardCom1DirectReverse, requireCom1Posting } from "../../fiscal/comnfe/effect-policy.ts";
 import { nextIdentity } from "../../../engine/sequence.ts";
 import { jsonTimestamp, todaySaoPaulo } from "../../../engine/time.ts";
 import * as documents from "../../documents/public.ts";
@@ -404,6 +404,7 @@ export function erpDocumentFinanceReverse(ctx: RpcContext, a: RpcArgs) {
   const data = { kind, document_id: documentId, version, posting_id: postingId, posting_version: postingVersion, preview_hash: hash, title_versions: titles, reason };
   const replay = documentCommandStart(db, user, command, "reverse", data);
   if (replay) return replay;
+  guardCom1DirectReverse(ctx, documentId, "finance");
   const d = documentLock(db, user, kind, documentId, version);
   const preview = documentReversePreviewData(db, d, postingId, postingVersion);
   const note = documents.textValue(reason, 1000, true) as string;

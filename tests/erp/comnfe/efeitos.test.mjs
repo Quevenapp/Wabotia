@@ -5,6 +5,7 @@ import { com1Fixture, COM1_DATE, COM1_PEOPLE } from "./fixtures.mjs";
 import { installCommercialNfeSlots } from "../../../src/erp/commercial-nfe/slots.ts";
 import { invokeRpc } from "../../../src/erp/engine/registry.ts";
 import { runWithCom1Authority } from "../../../src/erp/domains/fiscal/comnfe/access.ts";
+import { withCom1Compensation } from "../../../src/erp/domains/fiscal/comnfe/effect-policy.ts";
 import { applyEffects, reverseEffects, createCom1EffectHandlers } from "../../../src/erp/domains/fiscal/comnfe/effects.ts";
 import {
   COM1_TABLES as T, com1Hash, com1Reference, savePreparation, claimStoredOperation,
@@ -345,7 +346,9 @@ test("troca de posting depois da aplicação deixa reconciliação pendente e pr
   const args = { p_kind: "sales_orders", p_document_id: f.order.id, p_expected_version: version(f), p_posting_id: posting.id,
     p_posting_version: posting.version, p_occurred_on: COM1_DATE, p_reason: "Reversão operacional explícita" };
   const p = f.rpc("erp_document_stock_reverse_preview", args).preview;
-  f.rpc("erp_document_stock_reverse", { ...args, p_command_id: randomUUID(), p_preview_hash: p.preview_hash });
+  // Histórico simulado: com a nota autorizada, o estorno direto agora é recusado (fiscal_order_effect_locked).
+  f.transaction(ctx => withCom1Compensation(ctx, f.order.id, () => invokeRpc(ctx, "erp_document_stock_reverse",
+    { p_user_id: COM1_PEOPLE.admin.user_id, ...args, p_command_id: randomUUID(), p_preview_hash: p.preview_hash })));
   const replacement = f.rpc("erp_document_stock_post", stockArgs(f));
   assert.notEqual(replacement.posting.id, posting.id);
   const reconciled = effect(f, a, "stock", { intent: "reconcile" });

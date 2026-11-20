@@ -157,7 +157,8 @@ export interface EffectView {
   command_id: string | null;
   result: JsonObject | null;
   /** Aplicação não é apagada pela compensação. */
-  compensation_state: "pendente" | "revertido" | "compensacao_pendente" | null;
+  /** "transferido": outra emissão do pedido reconheceu o lançamento e responde por ele. */
+  compensation_state: "pendente" | "revertido" | "compensacao_pendente" | "transferido" | null;
   compensation_command_id: string | null;
   compensation_result: JsonObject | null;
   updated_at: Timestamp;

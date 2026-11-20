@@ -148,6 +148,9 @@ onSchedule("mensalidade", async (ctx, tick) => {
   // Contratos cancelados continuam persistidos enquanto a Base está desligada.
   // A próxima rodada com Base ligada retoma a conciliação, sem varrer a ponte
   // em cada alarme de uma área que só usa a Mensalidade local.
+  // A reconciliação começa cancelando a cobrança aberta de uma contratação
+  // substituída (queda antes de cancelá-la); sem a Base, a retomada da mesma
+  // contratação conclui esse cancelamento antes de cobrar a nova.
   if (await moduleEnabled(ctx.env, ctx.profile, "erp")) await reconcileMensalidadeContracts(ctx);
   await runDue(ctx, tick.now);
 });

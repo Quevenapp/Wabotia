@@ -105,7 +105,7 @@ export function createCommercialNfeService(_context: CommercialNfeHttpContext, d
     for (const axis of ["stock", "finance"] as const) {
       const existing = emission.effects.find(effect => effect.axis === axis);
       if (emission.status === "autorizada" && existing && ["aplicado", "reconhecido", "pulado"].includes(existing.state)) continue;
-      if (emission.status === "cancelada" && existing?.compensation_state === "revertido") continue;
+      if (emission.status === "cancelada" && ["revertido", "transferido"].includes(existing?.compensation_state ?? "")) continue;
       try {
         const current = await read({ emission_id: emission.id });
         const input: EffectInput = { emission_id: emission.id, command_id: uuid(), expected_version: current.version, axis,
@@ -158,6 +158,16 @@ export function createCommercialNfeService(_context: CommercialNfeHttpContext, d
           : await vault.provider.reconcile(vault.context, "nfe", record.result!.provider_ref, commercialLookupIdentity(claim.emission)) }; }
       catch (error) { record = { ...cap, connection_fingerprint: vault.fingerprint, ...externalFailure(error) }; }
       persisted = await bridge.call("erp_com1_record", record);
+    }
+    // Cancelada diretamente no cofre: o motor já registrou o cancelamento com
+    // evento incerto. A retomada desse evento só consulta o cofre (mesmo corpo)
+    // para recuperar protocolo e XML; nunca pede outro cancelamento.
+    if (claim.disposition === "resume" && persisted.status === "cancelada" && persisted.cancellation?.state === "incerto" &&
+        record.result?.status === "cancelled" && matchesCommercialResult(persisted, record.result)) {
+      try {
+        return await cancel({ emission_id: persisted.id, command_id: uuid(), expected_version: persisted.version,
+          justification: persisted.cancellation.justification });
+      } catch { /* Evento e XML pendentes; "Retomar cancelamento" usa a mesma justificativa. */ }
     }
     return effectsAfterEvidence(persisted);
   }

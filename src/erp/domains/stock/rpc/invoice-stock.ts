@@ -8,6 +8,7 @@ import { raise } from "../../../engine/errors.ts";
 import { arrow, jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcContext } from "../../../engine/registry.ts";
 import { linkedInvoiceDocumentsGuard } from "../../documents/module-policy.ts";
+import { guardCom1InvoiceReverse } from "../../fiscal/comnfe/effect-policy.ts";
 import { requireRpcParts } from "../../../engine/parts-gate.ts";
 import { pgBtrim, pgCompareText, pgHasCntrl, pgLeft, pgLength, pgUpper } from "../../../engine/text.ts";
 import { jsonTimestamp, todaySaoPaulo } from "../../../engine/time.ts";
@@ -209,7 +210,7 @@ function invoiceReverse(ctx: RpcContext, a: Row, write: boolean) {
   invoiceAccess(db, a.p_user_id, true);
   if (a.p_posting_id === null || a.p_posting_version === null || a.p_posting_version < 1 || (write && (a.p_preview_hash === null || !/^[a-f0-9]{64}$/.test(a.p_preview_hash)))) raise("22023", "erp_invoice_stock_invalid");
   const h = write ? hash({ profile: "stock-invoice-reverse-259", actor: a.p_user_id, invoice_id: a.p_invoice_id, posting_id: a.p_posting_id, posting_version: a.p_posting_version, hash: a.p_preview_hash }) : "";
-  if (write) { const replay = invoiceReplay(db, a, "reverse", h); if (replay) return replay; }
+  if (write) { const replay = invoiceReplay(db, a, "reverse", h); if (replay) return replay; guardCom1InvoiceReverse(ctx, a.p_invoice_id, "stock"); }
   const v = invoiceLock(db, a.p_user_id, a.p_invoice_id, null), p = one(db, 'SELECT * FROM "erp_stock__invoice_posting" WHERE id=? AND invoice_id=?', a.p_posting_id, v.id) as Row | null;
   if (!p) raise("P0002", "erp_invoice_stock_not_found");
   if (p.state !== "active" || p.version !== a.p_posting_version) raise("40001", "erp_invoice_stock_version_conflict");

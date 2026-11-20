@@ -84,12 +84,13 @@ Esses são os caminhos implementados; a tabela de evidências distingue o que j�
 foi executado daquilo que aguarda aceite. Cancelamento operacional não confirma
 devolução de dinheiro. Baixa e estorno exigem evidência persistida e alocação.
 
-Na junção com a NF-e, a política `on_authorization` adia estoque e títulos dos
-pedidos de venda de módulo, mesmo com seu lançamento automático habilitado.
-A projeção e o recibo continuam gravados, com efeitos `skipped` e motivo
-`awaiting_fiscal_authorization`; não há nova postagem no replay nem após mera
-troca da política. A intenção manual existente continua disponível quando a
-política permite. Pedido vinculado a módulo não recebe preparo/acompanhamento
+Na junção com a NF-e, a opção "lançar só quando a nota for autorizada"
+(`on_authorization`) vale para pedidos de venda do próprio ERP. Fato vindo de
+módulo (Pedido, Mesas, Entrega e os demais) ainda não emite NF-e por aqui e é
+venda já acontecida: segue a automação da fase 3 e a intenção manual, sem
+ficar preso em `awaiting_fiscal_authorization`. Recibo antigo que ficou nesse
+estado conserva o replay (não há nova postagem nele nem após troca da
+política) e ganha saída pela intenção manual. Pedido vinculado a módulo não recebe preparo/acompanhamento
 de NF-e nesta junção, inclusive pelo RPC; emitir para essa origem e retomar
 seus efeitos fiscais permanece decisão pendente. Uma emissão já enviada não
 pode ter seus efeitos estornados por um cancelamento do módulo, mesmo com a

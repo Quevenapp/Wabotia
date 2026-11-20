@@ -8,6 +8,7 @@
  * - the database runs each item through the module's own RPC (the same rules as its screen) and answers one result per item.
  * Another lane adopts the framework by adding a template here, its row handler in erp_preferences.import_item (SQL) and the
  * hub entry. Synthetic examples only in tests. */
+import{validCnpj}from'./preferences/core.mjs';
 export const IMPORT_BASE='/v1/importacoes';
 export const IMPORT_BODY_BYTES=262144;
 export const IMPORT_MAX_BYTES=262144;
@@ -39,7 +40,11 @@ export const foldHeader=value=>String(value??'').normalize('NFD').replace(/[̀-�
 
 // ---- Column grammar ----
 // t: text (max, multiline), digits (lengths), decimal (int digits, scale, signed), integer (max), date, bool, option (values).
+// Wabotia (alteração local, web/erp/ORIGEM.json): CPF/CNPJ of a contato: 11 or 14 digits as before, or the CNPJ alfanumérico (12 [0-9A-Z] + 2 digits) of the contact
+// registry, upper-cased and checked with its check digits (validCnpj, erp_catalog.valid_cnpj).
 const text=(max,extra={})=>({t:'text',max,...extra}),area=max=>({t:'text',max,multiline:true}),digits=(...lengths)=>({t:'digits',lengths}),
+ personDocument=()=>({t:'digits',lengths:[11,14],cnpj:true}),
+ alnumCnpj=v=>typeof v==='string'&&/[A-Z]/.test(v)&&validCnpj(v),
  decimal=(intDigits,scale,extra={})=>({t:'decimal',int:intDigits,scale,...extra}),integer=max=>({t:'integer',max}),DATE={t:'date'},BOOL={t:'bool'},
  option=(...values)=>({t:'option',options:values.map(([value,label,...aliases])=>({value,label,aliases}))});
 const col=(label,key,grammar,extra={})=>Object.freeze({label,key,...grammar,...extra});
@@ -66,16 +71,16 @@ const PRODUCT_COLUMNS=[
 // images from the product form): they are reported as ignored, never guessed.
 const PRODUCT_READ_ONLY=['ID','Estoque','Preço de custo','Cód no fornecedor','Fornecedor','Descrição do Produto no Fornecedor','Meses Garantia no Fornecedor','Preço de compra','Tags','URL Imagens Externas','Formato'];
 const contactColumns=role=>[col('Número do pedido','number',text(30),{group:true,required:true}),col('Data','date',DATE,{required:true}),
- col(role==='supplier'?'Fornecedor':'Cliente','contact_name',text(200)),col(role==='supplier'?'CPF/CNPJ do fornecedor':'CPF/CNPJ do cliente','contact_document',digits(11,14)),
+ col(role==='supplier'?'Fornecedor':'Cliente','contact_name',text(200)),col(role==='supplier'?'CPF/CNPJ do fornecedor':'CPF/CNPJ do cliente','contact_document',personDocument()),
  col('Data prevista','expected_date',DATE),col('Frete','freight',decimal(12,2)),col('Observações','notes',area(4000)),col('Observações internas','internal_notes',area(4000)),
  col('Código do produto','item_code',text(100),{line:true}),col('Descrição do produto','item_description',text(200),{line:true}),col('Unidade','item_unit',text(16),{line:true}),
  col('Quantidade','item_quantity',decimal(9,6,{positive:true}),{line:true,required:true}),col('Valor unitário','item_unit_price',decimal(14,10),{line:true}),col('Desconto (%)','item_discount_percent',decimal(3,4),{line:true})];
 // Notas fiscais em lote: one NF-e de saída (rascunho em homologação) per Número da nota, items as in the pedidos.
 const invoiceColumns=()=>[col('Número da nota','number',text(30),{group:true,required:true}),col('Data de emissão','date',DATE),col('Natureza de operação','nature',text(60)),
- col('Cliente','contact_name',text(200)),col('CPF/CNPJ do cliente','contact_document',digits(11,14)),col('Informações complementares','notes',area(4000)),
+ col('Cliente','contact_name',text(200)),col('CPF/CNPJ do cliente','contact_document',personDocument()),col('Informações complementares','notes',area(4000)),
  col('Código do produto','item_code',text(100),{line:true}),col('Descrição do produto','item_description',text(120),{line:true}),col('Unidade','item_unit',text(6),{line:true}),
  col('Quantidade','item_quantity',decimal(11,4,{positive:true}),{line:true,required:true}),col('Valor unitário','item_unit_price',decimal(11,10),{line:true})];
-const financeColumns=role=>[col(role==='supplier'?'Fornecedor':'Cliente','contact_name',text(200)),col('CPF/CNPJ','contact_document',digits(11,14)),col('Histórico','description',text(240),{required:true}),
+const financeColumns=role=>[col(role==='supplier'?'Fornecedor':'Cliente','contact_name',text(200)),col('CPF/CNPJ','contact_document',personDocument()),col('Histórico','description',text(240),{required:true}),
  col('Data de emissão','issued_on',DATE,{required:true}),col('Data de vencimento','due_on',DATE,{required:true}),col('Valor','amount',decimal(13,2,{positive:true}),{required:true}),
  col('Nº documento','source_reference',text(200)),col('Competência','competence_on',DATE),col('Categoria','category',text(200)),col('Conta financeira','account',text(200)),
  col('Forma de pagamento','payment_method',text(200))];
@@ -118,7 +123,7 @@ export const IMPORT_TEMPLATES=Object.freeze({
   rule:'Uma linha por campo. As linhas com o mesmo Código do produto gravam os campos customizados desse produto, encontrados pelo nome (Preferências › Campos customizados); os demais campos do produto não mudam. Listas usam o texto da opção, campos de marcar Sim ou Não, datas dd/mm/aaaa e números com vírgula ou ponto.'}),
  product_suppliers:Object.freeze({kind:'product_suppliers',title:'Importar fornecedores de produto',noun:['fornecedor de produto','fornecedores de produto'],file:'modelo-fornecedores-produtos',readOnly:Object.freeze(['Descrição']),
   oneOf:Object.freeze(['supplier_name','supplier_document']),
-  columns:Object.freeze([col('Código do produto','code',text(100),{required:true}),col('Fornecedor','supplier_name',text(200)),col('CPF/CNPJ do fornecedor','supplier_document',digits(11,14)),
+  columns:Object.freeze([col('Código do produto','code',text(100),{required:true}),col('Fornecedor','supplier_name',text(200)),col('CPF/CNPJ do fornecedor','supplier_document',personDocument()),
    col('Código no fornecedor','supplier_code',text(60)),col('Descrição do produto no fornecedor','description',text(120)),col('Preço de compra','purchase_price',decimal(14,10)),
    col('Preço de custo','cost_price',decimal(14,10)),col('Meses de garantia no fornecedor','warranty_months',integer(999)),col('Fornecedor padrão','is_default',BOOL)]),
   rule:'Um fornecedor por linha. O produto é encontrado pelo Código e o fornecedor pelo CPF/CNPJ ou, sem ele, pelo nome. A linha inclui o fornecedor no produto (até 20) ou atualiza só as colunas preenchidas do fornecedor que o produto já tem; Fornecedor padrão Sim o torna o padrão do produto.'}),
@@ -144,7 +149,8 @@ export function normalizeCell(column,raw){
    if(len(value)>column.max)return{problem:`até ${column.max} caracteres`};
    if((column.multiline?AREA_CONTROL:CONTROL).test(value))return{problem:column.multiline?'sem caracteres de controle':'em uma linha, sem caracteres de controle'};
    return{value};}
-  case'digits':{const d=value.replace(/[\s./-]/g,'');if(!/^\d+$/.test(d)||!column.lengths.includes(d.length))return{problem:`${column.lengths.join(' ou ')} dígitos`};return{value:d};}
+  case'digits':{const d=value.replace(/[\s./-]/g,''),u=column.cnpj?d.toUpperCase():d;if(column.cnpj&&alnumCnpj(u))return{value:u};
+   if(!/^\d+$/.test(d)||!column.lengths.includes(d.length))return{problem:column.cnpj&&/[A-Za-z]/.test(d)?'CNPJ alfanumérico inválido':`${column.lengths.join(' ou ')} dígitos`};return{value:d};}
   case'decimal':{
    const t=value.replace(/\s/g,'').replace(/^R\$/i,''),dot=/,/.test(t)?t.replace(/\./g,'').replace(',','.'):t,n=dot.replace(/^(-?)0+(?=\d)/,'$1').replace(/(\.\d*?)0+$/,'$1').replace(/\.$/,'');
    if(!decimalRe(column).test(n)||n==='-0')return{problem:`número com até ${column.int} dígitos inteiros e ${column.scale} casas decimais${column.signed?'':', sem sinal'}`};
@@ -165,7 +171,7 @@ export function normalizeCell(column,raw){
 function canonical(column,value){
  switch(column.t){
   case'text':return typeof value==='string'&&value.trim()===value&&value!==''&&len(value)<=column.max&&!(column.multiline?AREA_CONTROL:CONTROL).test(value);
-  case'digits':return typeof value==='string'&&/^\d+$/.test(value)&&column.lengths.includes(value.length);
+  case'digits':return typeof value==='string'&&(/^\d+$/.test(value)&&column.lengths.includes(value.length)||Boolean(column.cnpj)&&alnumCnpj(value));
   case'decimal':return typeof value==='string'&&decimalRe(column).test(value)&&value!=='-0'&&(!column.positive||/[1-9]/.test(value));
   case'integer':return typeof value==='string'&&/^(0|[1-9]\d*)$/.test(value)&&Number(value)<=column.max;
   case'date':return isoDay(value);
