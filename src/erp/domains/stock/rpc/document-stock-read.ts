@@ -7,6 +7,7 @@ import { arrow, jsonbText } from "../../../engine/json.ts";
 import { registerRpc } from "../../../engine/registry.ts";
 import { pgBtrim, pgCompareText, pgHasCntrl, pgLength } from "../../../engine/text.ts";
 import * as documents from "../../documents/public.ts";
+import { requireCom1Posting } from "../../fiscal/comnfe/effect-policy.ts";
 import {
   audit,
   bumpDocumentVersion,
@@ -116,6 +117,7 @@ registerRpc("erp_stock_document_warehouse_post", (ctx, a) => {
   const data = { kind, id, version, warehouse_id: warehouse, hash, date: day, reason, ignored };
   const replay = documentCommandStart(db, user, command, "post", data);
   if (replay) return replay;
+  requireCom1Posting(ctx, id, "stock");
   if (warehouse === null) raise("22023", "erp_document_stock_warehouse_required");
   const d: Record<string, unknown> = { ...documentLock(db, user, kind, id, version), warehouse_id: warehouse };
   const preview = documentPreviewData(ctx, d, day, reason);
