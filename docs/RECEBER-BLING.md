@@ -218,36 +218,47 @@ backup lógico do SQLite não substitui a preservação dos objetos XML em R2.
 
 **Até onde o backup lógico cobre.** O backup e a restauração das rotas
 internas são em páginas (formato 2; [ERP-PORTE.md](ERP-PORTE.md), "Backup
-lógico em páginas"): nenhuma tabela é montada inteira na memória, e a memória
-usada não depende do tamanho do banco (pico de 10 a 15 MB de heap acima da
-base de 16 MiB a 1 GiB de dados, medido com o heap do processo travado em
-48 MB).
+lógico em páginas"): nenhuma tabela é montada inteira na memória do Worker,
+e essa memória não depende do tamanho do banco (pico de 10 a 15 MB de heap
+acima da base de 16 MiB a 1 GiB de dados, medido localmente, no Node, com o
+heap do processo travado em 48 MB).
 O teto provisório de 16 MiB (`erp_backup_too_large`) saiu dessas rotas; ele
 vale só para as funções na memória (`dumpAll`/`readBackup`), usadas por
 testes.
 
-- **Backup:** o mesmo teto da restauração, medido do mesmo jeito (bytes UTF-8
-  dos dados exportados, somados por parte): acima dele o backup falha com
-  `erp_backup_too_large` antes de publicar e limpa as partes enviadas, em vez
-  de gravar algo que a restauração recusaria. Enquanto ele lê o banco, as alterações do
-  ERP da área ficam suspensas (503 `erp_backup_running`, com `Retry-After`);
-  consultas continuam. Medido no Node: ~35 s por GiB de dados exportados. A
-  barreira cai no fim da leitura, em qualquer falha, sem progresso por 2 min
-  ou ao fim do prazo absoluto de 60 min. A coleta não roda enquanto ela dura
-  e volta na acordada seguinte.
+Os números abaixo são da Cloudflare (20/11/2026, instalação de teste, massa
+sintética de uma tabela com linhas de ~1,1 KB). A medição local, no Node e no
+workerd, não mostra o limite de memória do objeto e dava tempos bem menores.
+
+| dados exportados (bytes) | backup | escritas suspensas | restauração |
+|---|---|---|---|
+| 65.044.677 (62 MiB) | 27 s, 3 invocações | 24 s | concluída |
+| 129.808.795 (124 MiB) | 62 s, 7 invocações | 59 s | concluída |
+| 259.736.747 (248 MiB) | 84 s, 9 invocações | 83 s | falhou: sem memória na troca |
+| 519.594.139 (496 MiB) | 165 s, 17 invocações | 164 s | falhou: sem memória na troca; o banco ficou como estava |
+
+- **Backup:** sai inteiro em qualquer tamanho. Enquanto ele lê o banco, as
+  alterações do ERP da área ficam suspensas (503 `erp_backup_running`, com
+  `Retry-After`); consultas continuam. Medido na Cloudflare: **cerca de
+  5 min por GiB** de dados exportados. A barreira cai no fim da leitura, em
+  qualquer falha, sem progresso por 2 min ou ao fim do prazo absoluto de
+  60 min. A coleta não roda enquanto ela dura e volta na acordada seguinte.
+  O manifesto e o estado do trabalho declaram
+  `logical_restore: { limit_bytes, exceeds_limit }`; quando o backup passa do
+  teto da restauração, o estado traz também um aviso: o backup foi gravado
+  inteiro, mas para voltar a ele use a recuperação no tempo.
 - **Restauração:** confere cada parte (tamanho, hash e linhas) e o hash de
   cada tabela antes de mexer no banco, e troca o conteúdo numa transação só:
-  ou o banco fica igual ao backup, ou fica como estava. A troca é o teto
-  real: medida em 17,9 s para 1 GiB no Node e ~19 s por GiB no workerd local,
-  numa invocação com 30 s de CPU. Por isso a restauração lógica cobre até
-  **1 GiB de dados exportados** (1.073.741.824 bytes); acima disso recusa
-  começar, com o código `erp_restore_too_large`, sem barreira e sem tocar o
-  banco. Para um banco maior, a cópia para restaurar é a da plataforma: a
-  recuperação no tempo do Durable Object da área (até 30 dias). O backup
-  desse banco continua sendo feito; restaurá-lo pelo caminho lógico exige
-  aumentar juntos o limite de CPU do Worker (`limits.cpu_ms`, até 5 min) e
-  o teto da troca (`ERP_RESTORE_SWAP_LIMIT_BYTES`), decisão de implantação
-  fora desta fatia.
+  ou o banco fica igual ao backup, ou fica como estava. O que limita a troca
+  na Cloudflare é a **memória** do objeto durante essa transação, não o tempo
+  de CPU: com a massa acima, 124 MiB restauraram e 248 MiB falharam. Por
+  isso, nesta versão, a restauração lógica cobre até **64 MiB de dados
+  exportados** (67.108.864 bytes), metade do maior que restaurou, já que um
+  banco real tem mais índices. Acima disso recusa começar, com o código
+  `erp_restore_too_large`, sem barreira e sem tocar o banco. Para voltar a um
+  backup maior, use a recuperação no tempo do Durable Object da área (até
+  30 dias). A restauração de backups maiores, em etapas, virá numa próxima
+  versão; o formato do backup não muda.
 
 Os bytes dos XML e dos anexos continuam no armazenamento de arquivos (R2) e
 não entram no backup lógico. O manifesto diz isso e conta as linhas que os

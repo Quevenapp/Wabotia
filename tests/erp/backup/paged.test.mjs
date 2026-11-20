@@ -337,15 +337,72 @@ test("um trabalho por área: backup e restauração não se sobrepõem; o mesmo 
   assert.equal(manifestOf(bucket, first.prefix).format, 2);
 });
 
-test("teto real da restauração: medido, acima do provisório, e recusado antes da barreira", async () => {
-  assert.ok(ERP_RESTORE_SWAP_LIMIT_BYTES >= 64 * ERP_LOGICAL_BACKUP_LIMIT_BYTES);
+test("teto real da restauração: medido na Cloudflare (64 MiB), acima do provisório, e recusado antes da barreira", async () => {
+  // Medição de 20/11/2026: 124 MiB restauraram, 248 MiB falharam com SQLITE_NOMEM; o teto é metade do maior que restaurou.
+  assert.equal(ERP_RESTORE_SWAP_LIMIT_BYTES, 64 * 1024 * 1024);
+  assert.ok(ERP_RESTORE_SWAP_LIMIT_BYTES >= 4 * ERP_LOGICAL_BACKUP_LIMIT_BYTES);
   const clock = fakeClock(), source = freshDatabase(), bucket = memoryBucket();
   seedRaw(source.db, { rows: 500 });
   const done = await backupOf(source, bucket, clock);
+  // Abaixo do teto padrão: declara que a restauração lógica cobre, sem aviso.
+  assert.deepEqual(manifestOf(bucket, done.job.prefix).logical_restore, { limit_bytes: ERP_RESTORE_SWAP_LIMIT_BYTES, exceeds_limit: false });
+  assert.deepEqual(done.job.result.logical_restore, { limit_bytes: ERP_RESTORE_SWAP_LIMIT_BYTES, exceeds_limit: false });
+  assert.equal(done.job.result.warning, undefined);
   const target = freshDatabase();
-  await assert.rejects(startRestore(target.storage, bucket, "area-destino", done.job.prefix, { now: clock.now, swapLimitBytes: 1024 }), error => error.code === "erp_restore_too_large" && error.status === 413);
+  await assert.rejects(startRestore(target.storage, bucket, "area-destino", done.job.prefix, { now: clock.now, swapLimitBytes: 1024 }), error => {
+    assert.equal(error.code, "erp_restore_too_large");
+    assert.equal(error.status, 413);
+    assert.match(error.message, /esta versão restaura pelo caminho lógico até 1024 bytes/);
+    assert.match(error.message, /recuperação no tempo do objeto da área/);
+    assert.doesNotMatch(error.message, /CPU/);
+    return true;
+  });
   assert.equal(readBackupJob(target.storage), null);
   assert.equal(backupFence(target.storage, clock.now()), null);
+});
+
+test("backup acima do teto da restauração: conclui inteiro, declara exceeds_limit com o aviso, e a restauração dele é recusada sem barreira", async () => {
+  const clock = fakeClock(), source = freshDatabase(), bucket = memoryBucket();
+  seedRaw(source.db, { rows: 3_000, payload: 1_000 });
+  const limit = 64 * 1024;
+  const done = await backupOf(source, bucket, clock, { swapLimitBytes: limit });
+  const total = done.job.result.text_bytes;
+  assert.ok(total > limit, `exportou ${total} bytes`);
+  assert.ok(done.job.progress.parts_done > 1, "várias partes");
+  const manifest = manifestOf(bucket, done.job.prefix);
+  assert.equal(manifest.totals.text_bytes, total);
+  assert.deepEqual(manifest.logical_restore, { limit_bytes: limit, exceeds_limit: true });
+  assert.deepEqual(keysUnder(bucket, done.job.prefix), [...manifest.parts.map(p => done.job.prefix + p.key), done.job.prefix + "manifest.json"].sort(), "backup inteiro");
+  assert.deepEqual(done.job.result.logical_restore, { limit_bytes: limit, exceeds_limit: true });
+  assert.match(done.job.result.warning, /gravado inteiro/);
+  assert.match(done.job.result.warning, new RegExp(`cobre até ${limit} bytes`));
+  assert.match(done.job.result.warning, /recuperação no tempo/);
+  assert.match(done.job.result.warning, /próxima versão/);
+  assert.deepEqual(backupJobStatus(readBackupJob(source.storage), clock.now()).job.result, done.job.result, "quem pede o estado vê o aviso");
+  const target = freshDatabase();
+  const before = snapshot(target.db, ALL_TABLES);
+  await assert.rejects(startRestore(target.storage, bucket, "area-destino", done.job.prefix, { now: clock.now, swapLimitBytes: limit }), error => error.code === "erp_restore_too_large" && error.status === 413);
+  assert.equal(readBackupJob(target.storage), null, "nenhum trabalho");
+  assert.equal(backupFence(target.storage, clock.now()), null, "nenhuma barreira");
+  assert.deepEqual(snapshot(target.db, ALL_TABLES), before);
+  // Com o teto padrão (64 MiB) o mesmo backup restaura: o formato não muda com o aviso.
+  const restored = await restoreInto(target, bucket, done.job.prefix, clock);
+  assert.equal(restored.job.phase, "done", JSON.stringify(restored.job.error));
+  assert.deepEqual(snapshot(target.db, COMPARED), snapshot(source.db, COMPARED));
+});
+
+test("manifesto antigo, sem logical_restore, continua valendo para a restauração", async () => {
+  const clock = fakeClock(), source = freshDatabase(), bucket = memoryBucket();
+  seedRaw(source.db, { rows: 300 });
+  const done = await backupOf(source, bucket, clock);
+  const manifest = manifestOf(bucket, done.job.prefix);
+  delete manifest.logical_restore;
+  await bucket.put(done.job.prefix + "manifest.json", JSON.stringify(manifest));
+  assert.equal(readManifest(JSON.stringify(manifest)).parts.length, manifest.parts.length);
+  const target = freshDatabase();
+  const restored = await restoreInto(target, bucket, done.job.prefix, clock);
+  assert.equal(restored.job.phase, "done", JSON.stringify(restored.job.error));
+  assert.deepEqual(snapshot(target.db, COMPARED), snapshot(source.db, COMPARED));
 });
 
 test("operações novas: nomes estáveis, descrição, categoria sensível (bot propõe, pessoa confirma)", () => {

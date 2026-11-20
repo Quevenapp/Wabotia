@@ -7,8 +7,9 @@
 // numa invocação só e é um retrato consistente. Serve aos testes e a bancos
 // pequenos. As rotas /erp-backup e /erp-restore usam o caminho em páginas
 // (engine/backup-pages.ts, formato 2), que lê, grava e restaura em partes,
-// com barreira de escrita e checkpoint durável, sem o teto de 16 MiB (com o
-// teto da troca, ERP_RESTORE_SWAP_LIMIT_BYTES, igual no backup e na restauração).
+// com barreira de escrita e checkpoint durável, sem o teto de 16 MiB (a
+// restauração tem o teto da troca, ERP_RESTORE_SWAP_LIMIT_BYTES; o backup sai
+// em qualquer tamanho e declara se passa dele).
 import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import { ERP_TABLES } from "../schema/columns.generated.ts";

@@ -2,8 +2,9 @@
 // M5: a restauração só é recusada por I/O de XML de fato no ar (marca na
 // memória, ou unidade com dono e posse viva, com margem); unidade em espera
 // com progresso ou erro gravado não trava. M6: backup e restauração medem em
-// bytes UTF-8 e pelo mesmo teto; nunca sai um backup que a restauração recusa
-// por tamanho. Relógio simulado; R2 em memória; nenhuma rede.
+// bytes UTF-8 e pelo mesmo teto; o backup em páginas sai em qualquer tamanho e
+// declara se passa do teto da restauração (logical_restore). Relógio simulado;
+// R2 em memória; nenhuma rede.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { freshDatabase, memoryBucket, fakeClock, seedRaw, snapshot, runToEnd } from "./helpers.mjs";
@@ -143,25 +144,35 @@ test("M6 (formato 1): acentos e caracteres de controle perto do teto; mede em by
   await assert.rejects(readBackup(bucket, saved.prefix, real - 1), ErpBackupTooLargeError);
 });
 
-test("M6 (em páginas): o backup confere o teto da restauração em bytes UTF-8 e falha antes de publicar; no teto exato, ida e volta", async () => {
+test("M6 (em páginas): o backup mede o teto da restauração em bytes UTF-8; um byte acima ele sai inteiro e declara exceeds_limit, e a restauração recusa; no teto exato, ida e volta", async () => {
   const clock = fakeClock(), source = freshDatabase(), bucket = memoryBucket();
   seedTricky(source.db, 2_000);
   const first = await backupOf(source, bucket, clock);
   assert.equal(first.job.phase, "done");
   const total = first.job.result.text_bytes;
   assert.ok(first.job.progress.parts_done > 1, "várias partes");
-  // Um byte abaixo: o trabalho falha com erro claro, sem manifesto e sem partes.
+  // Teto um byte abaixo: o backup conclui inteiro e declara que passa do teto, com o aviso.
   clock.advance(60_000);
   const over = await backupOf(source, bucket, clock, { swapLimitBytes: total - 1 });
-  assert.equal(over.job.phase, "failed");
-  assert.equal(over.job.error.code, "erp_backup_too_large");
-  assert.match(over.job.error.message, /teto que a restauração lógica aceita/);
-  assert.deepEqual(keysUnder(bucket, over.job.prefix), [], "nenhuma parte nem manifesto");
-  // No teto exato: sai, e a restauração com o mesmo teto aceita.
+  assert.equal(over.job.phase, "done", JSON.stringify(over.job.error));
+  assert.equal(over.job.result.text_bytes, total);
+  assert.deepEqual(over.job.result.logical_restore, { limit_bytes: total - 1, exceeds_limit: true });
+  assert.match(over.job.result.warning, /gravado inteiro/);
+  assert.match(over.job.result.warning, /recuperação no tempo/);
+  const overManifest = JSON.parse(new TextDecoder().decode(bucket.stored.get(over.job.prefix + "manifest.json").bytes));
+  assert.deepEqual(overManifest.logical_restore, { limit_bytes: total - 1, exceeds_limit: true });
+  assert.equal(keysUnder(bucket, over.job.prefix).length, overManifest.parts.length + 1, "todas as partes e o manifesto");
+  // A restauração com o mesmo teto recusa antes de começar, na mesma soma de bytes UTF-8.
+  const refusedTarget = freshDatabase();
+  await assert.rejects(startRestore(refusedTarget.storage, bucket, TARGET, over.job.prefix, { now: clock.now, swapLimitBytes: total - 1 }), error => error.code === "erp_restore_too_large" && error.status === 413);
+  assert.equal(readBackupJob(refusedTarget.storage), null, "nenhum trabalho nem barreira");
+  // No teto exato: sai declarando que cabe, e a restauração com o mesmo teto aceita.
   clock.advance(60_000);
   const exact = await backupOf(source, bucket, clock, { swapLimitBytes: total });
   assert.equal(exact.job.phase, "done", JSON.stringify(exact.job.error));
   assert.equal(exact.job.result.text_bytes, total);
+  assert.deepEqual(exact.job.result.logical_restore, { limit_bytes: total, exceeds_limit: false });
+  assert.equal(exact.job.result.warning, undefined);
   const target = freshDatabase();
   await startRestore(target.storage, bucket, TARGET, exact.job.prefix, { now: clock.now, swapLimitBytes: total });
   const end = await runToEnd(runBackupJob, target.storage, bucket, { now: clock.now });

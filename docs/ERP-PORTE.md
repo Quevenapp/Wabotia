@@ -451,7 +451,13 @@ publicado no fim e traz:
   `rows`, `bytes` (gzip), `text_bytes` e `sha256` do NDJSON da parte;
 - `totals`, `job` (barreira e invocações) e `external_objects`: os bytes dos
   XML e dos anexos ficam no R2, fora do backup, com a contagem das linhas que
-  os referenciam.
+  os referenciam;
+- `logical_restore`: `{ "limit_bytes": <teto da restauração lógica desta
+  versão>, "exceeds_limit": <true se text_bytes passa dele> }`. O mesmo campo
+  sai em `result.logical_restore` no estado do trabalho, e, quando
+  `exceeds_limit` é `true`, `result.warning` traz o aviso em português.
+  Manifesto antigo sem o campo continua válido (a restauração soma
+  `text_bytes` das partes).
 
 **Restauração tudo ou nada.** Fase 1 (várias invocações, banco intacto): lê
 cada parte em fluxo, confere tamanho, hash, linhas, cabeçalho e o hash de
@@ -472,9 +478,28 @@ não trava), com
 outro trabalho ativo (`erp_backup_job_running`) ou com backup de outro
 esquema. Backups do formato 1 entram pelo mesmo caminho, um arquivo por parte.
 
-**Medições** (`node scripts/erp-backup-measure.mjs`; Node 22, SQLite em
+**Medição na Cloudflare** (20/11/2026, instalação de teste, massa sintética
+de uma tabela com linhas de ~1,1 KB; "escritas suspensas" é o tempo da
+barreira):
+
+| dados exportados (bytes de NDJSON) | backup: parede | invocações | escritas suspensas | restauração |
+|---|---|---|---|---|
+| 65.044.677 (62 MiB) | 27 s | 3 | 24 s | concluída; 5,5 s de CPU e 15,4 s de parede numa invocação |
+| 129.808.795 (124 MiB) | 62 s | 7 | 59 s | concluída; 43 s de parede, a invocação da troca gastou 8,8 s de CPU |
+| 259.736.747 (248 MiB) | 84 s | 9 | 83 s | **falhou**: `out of memory: SQLITE_NOMEM` na invocação da troca |
+| 519.594.139 (496 MiB) | 165 s | 17 | 164 s | **falhou**: `SQLITE_NOMEM` depois de ~6,3 s de CPU; o alarme repetiu e falhou igual até o prazo da barreira (`erp_backup_expired`); o banco ficou como estava |
+
+Na Cloudflare o backup leva cerca de 5 min por GiB de dados exportados, com
+as escritas do ERP da área suspensas nesse tempo. A restauração esbarra na
+**memória** do objeto durante a transação única da troca, não no tempo de
+CPU: o teto fica entre 124 e 248 MiB com essa massa, que é favorável (uma
+tabela, poucos índices).
+
+**Medições locais** (`node scripts/erp-backup-measure.mjs`; Node 22, SQLite em
 arquivo, R2 simulado em arquivo, heap do processo travado em 48 MB,
-orçamento de 10 s ou 128 unidades por invocação como no alarme):
+orçamento de 10 s ou 128 unidades por invocação como no alarme). Servem para
+o formato e a memória do Worker; não mostram o limite de memória do SQLite
+do objeto, nem o tempo da Cloudflare:
 
 | dados | NDJSON (bytes) | partes | backup | invocações | escritas retidas | restauração | invocações | troca | pico de heap acima da base |
 |---|---|---|---|---|---|---|---|---|---|
@@ -483,20 +508,23 @@ orçamento de 10 s ou 128 unidades por invocação como no alarme):
 | 1 GiB | 1.051.115.687 | 1.032 | 36,0 s | 9 | 36,0 s | 30,4 s | 9 | 17,9 s | 15,4 MB |
 
 No workerd local (teste `tests/erp-do-backup-pages.test.ts`, 22 MB de
-NDJSON): backup 0,6 s, restauração 0,8 s, troca 0,4 s (~19 s por GiB). O
-caminho antigo precisava de ~3,6 × o NDJSON + 12 MB de heap.
+NDJSON): backup 0,6 s, restauração 0,8 s, troca 0,4 s. Também local, sem o
+limite de memória da Cloudflare. O caminho antigo precisava de ~3,6 × o
+NDJSON + 12 MB de heap.
 
-**Tetos reais.** Backup: o mesmo da restauração, na mesma unidade (bytes
-UTF-8 do NDJSON, somados por parte); acima dele falha com
-`erp_backup_too_large` antes de enviar a parte e não publica manifesto, para
-nunca sair um backup que a restauração recusa. Restauração: a troca roda
-numa invocação, e o limite de CPU padrão do objeto é 30 s; por isso ela
-cobre até 1 GiB de dados exportados (1.073.741.824 bytes,
-`ERP_RESTORE_SWAP_LIMIT_BYTES`) e recusa acima disso
-(`erp_restore_too_large`), antes da barreira. Acima, a cópia para restaurar é
-a recuperação no tempo da plataforma, ou aumentar juntos `limits.cpu_ms` do
-Worker (até 5 min) e `ERP_RESTORE_SWAP_LIMIT_BYTES` (decisão de implantação,
-não feita aqui).
+**Tetos reais.** Restauração: nesta versão cobre até 64 MiB de dados
+exportados (67.108.864 bytes, `ERP_RESTORE_SWAP_LIMIT_BYTES`, em bytes UTF-8
+do NDJSON somados por parte), metade do maior tamanho que restaurou na
+medição da Cloudflare, porque um banco real tem mais índices que aquela
+massa. Acima disso recusa começar (`erp_restore_too_large`, 413), antes da
+barreira e sem tocar o banco; para voltar a esse ponto, use a recuperação no
+tempo do objeto da área. Aumentar o limite de CPU não resolve: o que falha é
+a memória da troca. A restauração em etapas, sem transação única, fica para
+uma próxima versão, sem mudar o formato do backup. Backup: sai inteiro em
+qualquer tamanho (não há mais `erp_backup_too_large` no caminho em páginas) e
+declara `logical_restore` no manifesto e no estado; acima do teto, o estado
+traz o aviso. O teto de 16 MiB do caminho na memória (`dumpAll`/`readBackup`)
+não muda.
 
 **Para quem porta.** RPC que grava passa pela barreira sem mudança; RPC de
 leitura que grava algo (contador, recibo) é recusado durante o backup. Escrita

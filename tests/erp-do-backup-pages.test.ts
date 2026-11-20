@@ -8,7 +8,7 @@ import { uid } from "../src/types";
 import { erpFetch, erpStub } from "../src/erp/hub";
 import { encodeIdentity, IDENTITY_HEADER, SYSTEM_HEADER } from "../src/erp/engine/identity";
 import { normalizeErpParts } from "../src/erp/parts";
-import { startBackup, startRestore, runBackupJob } from "../src/erp/engine/backup-pages";
+import { startBackup, startRestore, runBackupJob, ERP_RESTORE_SWAP_LIMIT_BYTES } from "../src/erp/engine/backup-pages";
 import { BACKUP_ACTIVE_KV, backupFence, fencedWrite, ErpBackupFencedError, readBackupJob } from "../src/erp/engine/backup-state";
 
 const inside = <T>(profile: string, fn: (state: DurableObjectState) => T | Promise<T>) =>
@@ -112,6 +112,10 @@ describe("ERP: backup e restauração em páginas pelas rotas internas", () => {
     expect(manifest.format).toBe(2);
     expect(manifest.totals.text_bytes).toBe(job.progress.text_bytes);
     expect(manifest.external_objects.included).toBe(false);
+    // Abaixo do teto da restauração (64 MiB): declara que cabe, sem aviso.
+    expect(manifest.logical_restore).toEqual({ limit_bytes: ERP_RESTORE_SWAP_LIMIT_BYTES, exceeds_limit: false });
+    expect(job.result.logical_restore).toEqual({ limit_bytes: ERP_RESTORE_SWAP_LIMIT_BYTES, exceeds_limit: false });
+    expect(job.result.warning).toBeUndefined();
     const listed = await env.MEDIA.list({ prefix: job.prefix });
     expect(listed.objects.length).toBe(manifest.parts.length + 1);
 
@@ -137,6 +141,36 @@ describe("ERP: backup e restauração em páginas pelas rotas internas", () => {
     console.log("ERP_BACKUP_PAGES " + JSON.stringify({ rows, text_bytes: job.progress.text_bytes, gzip_bytes: job.progress.bytes, parts: job.progress.parts_done,
       backup_ms: backupMs, backup_invocations: job.invocations, writes_held_ms: job.barrier.held_ms, restore_ms: restoreMs, restore_invocations: restored.invocations, swap_ms: Math.round(swap.ms) }));
   }, 300_000);
+
+  it("backup acima do teto da restauração: sai inteiro, declara exceeds_limit com o aviso no estado; a restauração recusa sem barreira", async () => {
+    const source = uid(), target = uid();
+    expect((await erpFetch(env, source, "/erp-ping")).status).toBe(200);
+    expect((await erpFetch(env, target, "/erp-ping")).status).toBe(200);
+    await seed(source, 2_000);
+    // Teto menor só neste teste (o padrão é 64 MiB): o mesmo caminho, sem gerar centenas de MB.
+    const limit = 64 * 1024;
+    const prefix = await inside(source, async state => {
+      const job = startBackup(state.storage, source);
+      let more = true;
+      while (more) more = (await runBackupJob(state.storage, env.MEDIA, { swapLimitBytes: limit })).more;
+      return job.prefix;
+    });
+    const job = await status(source);
+    expect(job.phase).toBe("done");
+    expect(job.progress.text_bytes).toBeGreaterThan(limit);
+    expect(job.result.logical_restore).toEqual({ limit_bytes: limit, exceeds_limit: true });
+    expect(job.result.warning).toMatch(/gravado inteiro/);
+    expect(job.result.warning).toMatch(/recuperação no tempo/);
+    const manifest = await (await env.MEDIA.get(prefix + "manifest.json"))!.json<any>();
+    expect(manifest.logical_restore).toEqual({ limit_bytes: limit, exceeds_limit: true });
+    expect((await env.MEDIA.list({ prefix })).objects.length).toBe(manifest.parts.length + 1);
+
+    const refused = await inside(target, async state => {
+      try { await startRestore(state.storage, env.MEDIA, target, prefix, { swapLimitBytes: limit }); return null; }
+      catch (error: any) { return { code: error.code, status: error.status, job: readBackupJob(state.storage), fence: backupFence(state.storage) }; }
+    });
+    expect(refused).toEqual({ code: "erp_restore_too_large", status: 413, job: null, fence: null });
+  });
 
   it("restauração pela rota: prefixo inválido 400, backup inexistente 404, trabalho em andamento 409", async () => {
     const profile = uid();

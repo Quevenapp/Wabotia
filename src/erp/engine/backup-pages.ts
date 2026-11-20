@@ -37,16 +37,26 @@ export const BACKUP_PAGE_ROWS = 256;
 /** Caracteres por pedaço do estágio da restauração (cabe no limite de 2 MB por linha do SQLite do objeto). */
 export const RESTORE_STAGE_CHUNK_CHARS = 256 * 1024;
 /**
- * Teto real da restauração: a troca é uma transação só, numa invocação, e o
- * tempo dela cresce com o banco (medido: 17,9 s para 1 GiB de NDJSON no Node
- * e ~19 s por GiB no workerd local; docs/ERP-PORTE.md). Com o limite de CPU
- * padrão do objeto (30 s), 1 GiB de dados exportados deixa ~1/3 de folga.
- * Acima disto a restauração recusa começar (antes da barreira e de qualquer
- * leitura de parte), com código próprio. O backup confere o mesmo teto, na
- * mesma unidade (bytes UTF-8 do NDJSON, somados por parte), antes de enviar
- * cada parte: nunca publica um backup que a restauração recusaria.
+ * Teto real da restauração lógica nesta versão, em bytes UTF-8 do NDJSON
+ * (somados por parte). A troca é uma transação só, numa invocação, e o que a
+ * limita na Cloudflare é a memória do objeto durante essa transação, não o
+ * tempo de CPU: medido em 20/11/2026 com uma tabela de linhas de ~1,1 KB,
+ * 124 MiB restauraram e 248 MiB falharam com SQLITE_NOMEM na troca
+ * (docs/ERP-PORTE.md). 64 MiB é metade do maior que restaurou, porque um banco
+ * real tem mais índices que essa massa. A medição local (Node, workerd) não
+ * mostra esse limite. Acima disto a restauração recusa começar (antes da
+ * barreira e de qualquer leitura de parte), com código próprio. O backup em
+ * páginas não para neste teto: sai inteiro e declara no manifesto e no estado
+ * se passa dele (logical_restore).
  */
-export const ERP_RESTORE_SWAP_LIMIT_BYTES = 1024 * 1024 * 1024;
+export const ERP_RESTORE_SWAP_LIMIT_BYTES = 64 * 1024 * 1024;
+/** Cobertura da restauração lógica desta versão, declarada pelo backup em páginas. */
+export interface LogicalRestoreCoverage { limit_bytes: number; exceeds_limit: boolean }
+export const logicalRestoreCoverage = (textBytes: number, limit = ERP_RESTORE_SWAP_LIMIT_BYTES): LogicalRestoreCoverage =>
+  ({ limit_bytes: limit, exceeds_limit: textBytes > limit });
+/** Aviso do backup que passa do teto da restauração lógica desta versão. */
+export const logicalRestoreWarning = (textBytes: number, limit = ERP_RESTORE_SWAP_LIMIT_BYTES) =>
+  `O backup foi gravado inteiro (${textBytes} bytes de dados exportados), mas a restauração lógica desta versão cobre até ${limit} bytes. Para voltar a este ponto, use a recuperação no tempo do objeto da área. A restauração de backups maiores virá numa próxima versão; o formato deste backup não muda.`;
 const PART_KEY = "wb_backup_part:";
 const TABLE_KEY = "wb_backup_table:";
 const STAGE_KEY = "wb_restore_chunk:";
@@ -93,6 +103,8 @@ export interface PagedManifest {
   totals: { tables: number; rows: number; parts: number; bytes: number; text_bytes: number };
   external_objects: Record<string, unknown>;
   job: { id: string; started_at: number; barrier_held_ms: number; invocations: number };
+  /** Se a restauração lógica desta versão cobre o backup. Manifesto antigo pode não ter; a restauração confere text_bytes. */
+  logical_restore?: LogicalRestoreCoverage;
 }
 
 export class ErpBackupJobError extends Error {
@@ -121,7 +133,10 @@ export interface BackupRunOptions {
   /** Teto de unidades desta invocação (protege quando o relógio não anda). */
   maxUnits?: number;
   hooks?: BackupHooks;
-  /** Teto do backup: o mesmo da restauração (ERP_RESTORE_SWAP_LIMIT_BYTES); nos testes, menor. */
+  /**
+   * Teto da restauração lógica que o backup declara (logical_restore); o
+   * backup não para nele. Padrão ERP_RESTORE_SWAP_LIMIT_BYTES; nos testes, menor.
+   */
   swapLimitBytes?: number;
 }
 
@@ -290,7 +305,7 @@ export async function startRestore(storage: DurableObjectStorage, bucket: R2Buck
   const textBytes = manifest.view.parts.reduce((sum, part) => sum + (part.text_bytes ?? 0), 0);
   const limit = options.swapLimitBytes ?? ERP_RESTORE_SWAP_LIMIT_BYTES;
   if (textBytes > limit)
-    throw new ErpBackupJobError("erp_restore_too_large", `O backup tem ${textBytes} bytes de dados exportados; a restauração lógica cobre até ${limit} bytes numa troca. Use a recuperação no tempo da plataforma.`, 413);
+    throw new ErpBackupJobError("erp_restore_too_large", `O backup tem ${textBytes} bytes de dados exportados; esta versão restaura pelo caminho lógico até ${limit} bytes. Acima disso, use a recuperação no tempo do objeto da área. Nada foi alterado.`, 413);
   const now = (options.now ?? Date.now)();
   // Síncrono do teste ao registro: um XML que começasse entre os dois passaria.
   if (!beginArchiveRestore(profile)) throw archiveMemoryBusyError(profile);
@@ -342,7 +357,7 @@ function fail(storage: DurableObjectStorage, job: BackupJob, now: number, error:
 }
 
 /** Uma parte do backup: lê páginas da tabela atual até ~1 MiB, comprime, envia e confirma. */
-async function exportUnit(storage: DurableObjectStorage, bucket: R2Bucket, job: BackupJob, now: () => number, hooks: BackupHooks, swapLimit: number): Promise<BackupJob> {
+async function exportUnit(storage: DurableObjectStorage, bucket: R2Bucket, job: BackupJob, now: () => number, hooks: BackupHooks): Promise<BackupJob> {
   const c = job.cursor;
   // Tabelas que terminam nesta unidade sem parte nova (vazias, ou no fim de
   // uma página cheia): fecham no mesmo commit da próxima parte.
@@ -397,11 +412,6 @@ async function exportUnit(storage: DurableObjectStorage, bucket: R2Bucket, job: 
     table, seq: c.part_seq, index: tablePart, key: `${table}.${pad(tablePart, 5)}.ndjson.gz`,
     rows: lines.length, bytes: 0, text_bytes: utf8Length(body), sha256: sha256Text(body),
   };
-  // O mesmo teto e a mesma soma que startRestore confere (bytes UTF-8 das
-  // partes): acima dele o trabalho falha antes de enviar a parte e limpa as
-  // já enviadas, sem publicar manifesto.
-  if (job.progress.text_bytes + part.text_bytes > swapLimit)
-    throw new ErpBackupJobError("erp_backup_too_large", `O backup passaria de ${swapLimit} bytes de dados exportados (UTF-8), o teto que a restauração lógica aceita numa troca. Nenhum backup foi publicado; use a recuperação no tempo da plataforma.`, 413);
   const gz = await gzipText(body);
   part.bytes = gz.byteLength;
   // Mesma chave na retomada: uma parte órfã de uma queda é sobrescrita, não duplicada.
@@ -432,27 +442,33 @@ function rowsWithPrefix<T>(storage: DurableObjectStorage, prefix: string): T[] {
     .map(row => JSON.parse(row.value) as T);
 }
 
-function buildManifest(storage: DurableObjectStorage, job: BackupJob): PagedManifest {
+function buildManifest(storage: DurableObjectStorage, job: BackupJob, restoreLimit: number): PagedManifest {
   const tables = rowsWithPrefix<PagedManifest["tables"][number]>(storage, TABLE_KEY);
   const parts = rowsWithPrefix<PagedPart>(storage, PART_KEY);
+  const textBytes = parts.reduce((s, p) => s + p.text_bytes, 0);
   return {
     format: 2, schema_version: ERP_DDL_VERSION, schema_hash: job.schema_hash, created_at: job.created_at,
     tables, parts,
     totals: { tables: tables.length, rows: tables.reduce((s, t) => s + t.rows, 0), parts: parts.length,
-      bytes: parts.reduce((s, p) => s + p.bytes, 0), text_bytes: parts.reduce((s, p) => s + p.text_bytes, 0) },
+      bytes: parts.reduce((s, p) => s + p.bytes, 0), text_bytes: textBytes },
     external_objects: job.external_objects ?? externalObjects(storage),
     job: { id: job.id, started_at: job.started_at, barrier_held_ms: Math.max(0, (job.barrier_released_at ?? job.updated_at) - job.started_at), invocations: job.invocations },
+    logical_restore: logicalRestoreCoverage(textBytes, restoreLimit),
   };
 }
 
-async function publishUnit(storage: DurableObjectStorage, bucket: R2Bucket, job: BackupJob, now: () => number, hooks: BackupHooks) {
-  const manifest = buildManifest(storage, job);
+async function publishUnit(storage: DurableObjectStorage, bucket: R2Bucket, job: BackupJob, now: () => number, hooks: BackupHooks, restoreLimit: number) {
+  const manifest = buildManifest(storage, job, restoreLimit);
+  const coverage = manifest.logical_restore!;
   await bucket.put(job.prefix + "manifest.json", JSON.stringify(manifest), { httpMetadata: { contentType: "application/json" } });
   await hooks.at?.("publish:after-put", job);
   const done = commit(storage, job, now(), next => {
     next.phase = "done"; next.finished_at = now();
-    next.result = { prefix: job.prefix, bytes: manifest.totals.bytes, text_bytes: manifest.totals.text_bytes,
-      tables: manifest.totals.tables, rows: manifest.totals.rows, parts: manifest.totals.parts };
+    const result: Record<string, unknown> = { prefix: job.prefix, bytes: manifest.totals.bytes, text_bytes: manifest.totals.text_bytes,
+      tables: manifest.totals.tables, rows: manifest.totals.rows, parts: manifest.totals.parts, logical_restore: coverage };
+    // O backup sai em qualquer tamanho; acima do teto, quem pediu fica sabendo como voltar a este ponto.
+    if (coverage.exceeds_limit) result.warning = logicalRestoreWarning(manifest.totals.text_bytes, coverage.limit_bytes);
+    next.result = result;
     clearJobRows(storage);
   });
   return { job: done, manifest };
@@ -633,8 +649,8 @@ async function drive(storage: DurableObjectStorage, bucket: R2Bucket, options: B
       continue;
     }
     try {
-      if (job.phase === "export") job = await exportUnit(storage, bucket, job, now, hooks, options.swapLimitBytes ?? ERP_RESTORE_SWAP_LIMIT_BYTES);
-      else if (job.phase === "publish") ({ job, manifest } = await publishUnit(storage, bucket, job, now, hooks));
+      if (job.phase === "export") job = await exportUnit(storage, bucket, job, now, hooks);
+      else if (job.phase === "publish") ({ job, manifest } = await publishUnit(storage, bucket, job, now, hooks, options.swapLimitBytes ?? ERP_RESTORE_SWAP_LIMIT_BYTES));
       else if (job.phase === "stage") job = await stageUnit(storage, bucket, job, await restoreManifest(job), now, hooks);
       else if (job.phase === "swap") {
         const parts = await restoreManifest(job);

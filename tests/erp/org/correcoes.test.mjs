@@ -229,7 +229,12 @@ test("achado 3: backup e restauração medem antes de materializar e falham cedo
     // A tela e o documento dizem a partir de que tamanho o backup lógico deixa de cobrir.
     const screen = readFileSync(new URL("../../../web/erp/app/components/ReceiveBling.tsx", import.meta.url), "utf8");
     const doc = readFileSync(new URL("../../../docs/RECEBER-BLING.md", import.meta.url), "utf8");
-    for (const text of [screen, doc]) { assert.match(text, /1\.073\.741\.824 bytes/); assert.match(text, /recuperação no tempo/); }
+    for (const text of [screen, doc]) {
+      assert.match(text, /67\.108\.864 bytes/);
+      assert.match(text, /recuperação no tempo/);
+      assert.match(text, /5 min por GiB/);
+      assert.doesNotMatch(text, /1\.073\.741\.824/);
+    }
   } finally { f.verify(); }
 });
 

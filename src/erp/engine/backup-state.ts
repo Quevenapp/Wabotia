@@ -19,10 +19,11 @@ export const BACKUP_ACTIVE_KV = "erp_backup_active";
 /** Sem progresso por este tempo, a barreira cai sozinha (queda sem retomada). */
 export const BACKUP_BARRIER_LEASE_MS = 120_000;
 /**
- * Prazo absoluto da barreira desde o início do trabalho. Medido: o backup em
- * páginas lê e grava ~29 MB/s de NDJSON no Node (1 GiB em 36 s; ver
- * docs/ERP-PORTE.md, "Backup lógico em páginas"); 60 min equivalem a ~100 GiB,
- * muito acima do teto de 10 GB da área, com folga para a latência do R2.
+ * Prazo absoluto da barreira desde o início do trabalho. Medido na Cloudflare
+ * (20/11/2026): o backup em páginas leva cerca de 5 min por GiB de NDJSON
+ * (496 MiB em 165 s; no Node, 1 GiB em 36 s; ver docs/ERP-PORTE.md, "Backup
+ * lógico em páginas"); 60 min equivalem a ~10 GiB de NDJSON, perto do teto de
+ * 10 GB da área (antes, no Node, pareciam ~100 GiB).
  * Passou do prazo, o trabalho falha, as partes são limpas e as escritas voltam.
  */
 export const BACKUP_BARRIER_MAX_MS = 60 * 60_000;
