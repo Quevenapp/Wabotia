@@ -29,6 +29,21 @@ export function commonExtra(
       .map((field) => [field.id, extra[field.id]]),
   );
 }
+/** Rótulos podem mudar; significado, validação e privacidade não podem. */
+export function compatibleWorkField(current: WorkField, captured: WorkField) {
+  const signature = (field: WorkField) => {
+    const { label: _label, help: _help, required: _required, ...definition } = field;
+    if (definition.kind === "choice") definition.options = definition.options.map(option => ({ ...option, label: "" }));
+    return JSON.stringify(Object.entries(definition).sort(([a], [b]) => a.localeCompare(b)));
+  };
+  return !current.sensitive && !captured.sensitive && signature(current) === signature(captured);
+}
+export function displayFieldValue(field: WorkField, value: FieldValue | undefined) {
+  if (field.sensitive || value == null) return "—";
+  if (field.kind === "boolean") return value ? "Sim" : "Não";
+  if (field.kind === "choice") return field.options.find(option => option.id === value)?.label || String(value);
+  return String(value);
+}
 export function ExtraFields({
   fields,
   values,
@@ -49,16 +64,7 @@ export function ExtraFields({
             <div key={field.id}>
               <dt>{field.label}</dt>
               <dd>
-                {value == null
-                  ? "—"
-                  : field.kind === "boolean"
-                    ? value
-                      ? "Sim"
-                      : "Não"
-                    : field.kind === "choice"
-                      ? field.options.find((option) => option.id === value)
-                          ?.label || String(value)
-                      : String(value)}
+                {displayFieldValue(field, value)}
               </dd>
             </div>
           );

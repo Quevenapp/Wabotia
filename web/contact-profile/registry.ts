@@ -1,5 +1,6 @@
 import type { ContactContribution, Json } from "../../src/customer/profile-contracts";
 import type { CustomerTarget } from "../../src/customer/contracts";
+import { href } from "../lib/routes";
 
 // Catálogo compilado. Nenhum caminho, HTML, script ou import vem da API.
 export const profileComponents = Object.freeze({
@@ -23,6 +24,14 @@ export function targetHref(target: CustomerTarget): string | null {
   if (!target || typeof target.id !== "string" || typeof target.resource !== "string") return null;
   if (target.module === "conversations") return "/app/conversas/" + encodeURIComponent(target.id);
   if (target.module === "tickets") return "/app/protocolos/" + encodeURIComponent(target.id);
+  if (target.module === "os") {
+    if (target.resource === "objects") return href({ area: "erp", page: "service-objects", id: target.id });
+    // O provedor não envia o modelo no destino. O detalhe resolve a ordem por
+    // ID autorizado e usa o snapshot devolvido, sem adivinhar seu modelo.
+    if (["service-orders", "works", "orders"].includes(target.resource))
+      return href({ area: "erp", page: "work", typeId: "_", id: target.id });
+    return destinations.os;
+  }
   if (target.module === "erp") {
     const paths: Record<string, string> = {
       sales: "/app/erp/documentos-empresa?tipo=sales_orders&documento=", sales_orders: "/app/erp/documentos-empresa?tipo=sales_orders&documento=",

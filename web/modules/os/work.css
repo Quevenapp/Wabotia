@@ -79,6 +79,45 @@
 .os-work .os-work-check input {
   width: auto;
 }
+.os-object-snapshot,
+.os-object-preview {
+  padding: 1rem;
+  margin: 1rem 0;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius, 12px);
+  overflow-wrap: anywhere;
+}
+.os-object-snapshot {
+  border-inline-start: 3px solid var(--brand);
+}
+.os-work-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 1rem;
+}
+.os-work-fields dd {
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.os-object-picker {
+  min-width: 0;
+}
+.os-object-confirm {
+  display: flex;
+  align-items: start;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+.os-object-confirm input {
+  width: auto;
+  flex: 0 0 auto;
+}
+.os-work-field-filter {
+  padding: 1rem;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius, 12px);
+}
 @media (max-width: 560px) {
   .os-work .os-work-toolbar {
     display: grid;
