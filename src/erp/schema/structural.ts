@@ -174,4 +174,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Receber e preservar os dados no Coordinator da área, com precisão e histórico, sem produzir registros operacionais ou habilitar envio.",
     replaced_by: "Versão 11 aditiva (10→11, também na subida desde 9): wb_bling_control, wb_bling_unit, wb_bling_receipt, wb_bling_extra_raw, wb_bling_record_version e wb_bling_audit. As 18 entidades conservam raw_record/batch_inbox e os CHECKs legados; source_version guarda versões anteriores. Credenciais ficam somente no cofre do núcleo. Backup exclui credenciais e OAuth e restaura a coleta desligada, sem posses ou aprovação de instalação. Montagem inicial indisponível; a sincronização operacional permanece desligada.",
   },
+  {
+    id: "adotar-bling",
+    oracle: "Importações revisadas do coletor externo (erp_catalog.origin, taxonomy_source, erp_warehouse_import.binding) com estados e candidatos próprios de cada domínio.",
+    reason: "Fatia B1: a pessoa transforma os cadastros do acervo em cadastros do ERP, com revisão, pelas mesmas RPCs das telas; nada é escrito no Bling e erp_sync__settings continua desligado.",
+    replaced_by: "Versão 12 aditiva (11→12): wb_bling_adoption_link (vínculo entidade/id no Bling → cadastro, com versão e hash coletados), wb_bling_adoption_review (pendências e ignorados, com motivo e candidatos), wb_bling_adoption_job (trabalho em lote retomável pelo alarme) e wb_bling_adoption_command (recibos imutáveis dos comandos). Desligar do Bling apaga só o vínculo; o cadastro do ERP fica.",
+  },
 ];

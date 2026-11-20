@@ -303,7 +303,8 @@ for (const version of [9, 10]) test(`migração aditiva v${version}→11 preserv
     assert.throws(() => migrate(failing), /interrupted_v11/);
     assert.deepEqual(tableSnapshot(db), before);
     assert.deepEqual(sqliteSchema(db), oldSchema);
-    assert.equal(migrate(storage).version, 11);
+    // A subida segue até a versão atual (12 acrescenta as 4 tabelas da adoção).
+    assert.equal(migrate(storage).version, 12);
     assert.deepEqual(tableSnapshot(db, oldTables.filter(table => table !== "erp_meta")), Object.fromEntries(Object.entries(before).filter(([table]) => table !== "erp_meta")));
     const upgradedSchema = sqliteSchema(db);
     for (const object of oldSchema) assert.ok(upgradedSchema.some(after => JSON.stringify(after) === JSON.stringify(object)), object.name);
@@ -311,7 +312,7 @@ for (const version of [9, 10]) test(`migração aditiva v${version}→11 preserv
     const upgraded = tableSnapshot(db);
     assert.equal(migrate(storage).status, "current");
     assert.deepEqual(tableSnapshot(db), upgraded);
-    assert.equal(db.prepare("SELECT count(*) n FROM sqlite_master WHERE type='table' AND name LIKE 'wb_bling_%'").get().n, 6);
+    assert.equal(db.prepare("SELECT count(*) n FROM sqlite_master WHERE type='table' AND name LIKE 'wb_bling_%' AND name NOT LIKE 'wb_bling_adoption_%'").get().n, 6);
     assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
   } finally { db.close(); }
 });

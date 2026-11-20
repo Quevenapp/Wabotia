@@ -212,7 +212,7 @@ export const BLING_OPERATIONS = {
  * gravadas, a resposta é o próprio recibo: a fotografia de partes conferida no
  * começo autoriza o efeito, e uma revisão que chega depois só impede trabalho
  * novo (repetir o comando devolve o mesmo recibo, sem executar de novo). */
-export const BLING_RECEIPTED_OPERATIONS: ReadonlySet<BlingOperationName> = new Set<BlingOperationName>([
+export const BLING_RECEIPTED_OPERATIONS: ReadonlySet<string> = new Set<BlingOperationName>([
   "erp_bling_configure", "erp_bling_app_save", "erp_bling_enable", "erp_bling_disable",
   "erp_bling_disconnect", "erp_bling_collect_request", "erp_bling_purge_apply",
 ]);

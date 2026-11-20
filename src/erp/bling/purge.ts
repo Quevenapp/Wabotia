@@ -72,7 +72,7 @@ function selected(scope: BlingPurgeScope): BlingEntity[] {
 /** Referências de adoção não possuem todas FK para o bruto. Esta lista é
  * deliberadamente explícita; as FKs restantes são verificadas antes de remover. */
 function references(db: SqlDriver, entities: string): number {
-  const entityTables = ["erp_sync__link", "erp_catalog__origin", "erp_catalog__origin_mirror", "erp_catalog__product_source_deletion", "erp_documents__origin_import_origin", "erp_documents__origin_mirror", "erp_finance__origin_import_origin", "erp_warehouse_import__binding", "erp_document_mirror__revision"];
+  const entityTables = ["erp_sync__link", "erp_catalog__origin", "erp_catalog__origin_mirror", "erp_catalog__product_source_deletion", "erp_documents__origin_import_origin", "erp_documents__origin_mirror", "erp_finance__origin_import_origin", "erp_warehouse_import__binding", "erp_document_mirror__revision", "wb_bling_adoption_link"];
   let count = 0;
   for (const table of entityTables) count += Number(one(db, `SELECT count(*) AS n FROM ${quote(table)} WHERE ${affected}`, entities)?.n ?? 0);
   count += Number(one(db, `SELECT count(*) AS n FROM erp_sync__outbox WHERE ${affected} AND (review_required=1 OR state IN ('pending','sending','failed'))`, entities)?.n ?? 0);

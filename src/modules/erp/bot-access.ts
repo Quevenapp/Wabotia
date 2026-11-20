@@ -4,6 +4,7 @@ import { one } from "../../db";
 import { ApiError, json, type Actor, type Env } from "../../types";
 import { COM1_OPERATIONS } from "../../erp/commercial-nfe/metadata.ts";
 import { BLING_OPERATIONS } from "../../erp/bling/schema.ts";
+import { BLING_ADOPTION_OPERATIONS } from "../../erp/bling/adoption-contracts.ts";
 import { erpCommercialOperations } from "./commercial-operations.ts";
 
 /** `sensitive` vem da definição de cada operação: leitura sensível (arquivo de
@@ -11,6 +12,10 @@ import { erpCommercialOperations } from "./commercial-operations.ts";
 export const ERP_BOT_OPERATIONS: readonly { id: string; method: string; path: string; summary: string; sensitive: boolean }[] = [
   ...Object.values(BLING_OPERATIONS).filter(op => op.name !== "erp_bling_oauth_callback").map(op => ({
     id: op.name, method: op.method, path: `erp/v1/receber-bling${op.path === "/" ? "" : op.path}`, summary: op.summary, sensitive: op.sensitive,
+  })),
+  // Adoção dos cadastros do Bling (fatia B1): o bot propõe, a pessoa confirma.
+  ...Object.values(BLING_ADOPTION_OPERATIONS).map(op => ({
+    id: op.name, method: op.method, path: `erp/v1/receber-bling${op.path}`, summary: op.summary, sensitive: op.sensitive,
   })),
   ...erpCommercialOperations.map(op => ({ id: op.id, method: op.method, path: `erp${op.path}`, summary: op.summary, sensitive: op.sensitive })),
   ...COM1_OPERATIONS.map(op => ({ id: op.name, method: op.method, path: `erp-comercial-nfe/${op.path}`, summary: op.summary, sensitive: op.sensitive })),

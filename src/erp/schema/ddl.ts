@@ -13,11 +13,12 @@
 // 10: contratos comerciais do pedido de NF-e, comandos, revisões imutáveis,
 //     efeitos e auditoria (passo 9→10, somente tabelas novas do motor).
 // 11: seis tabelas da coleta e do acervo do Bling (10→11, somente adição).
+// 12: quatro tabelas da adoção dos cadastros do Bling (11→12, somente adição).
 import { createHash } from "node:crypto";
 import { ERP_DDL_GENERATED, ERP_DDL_HASH as GENERATED_HASH } from "./ddl.generated.ts";
 import { ERP_ENGINE_DDL } from "./engine-tables.ts";
 
-export const ERP_DDL_VERSION = 11;
+export const ERP_DDL_VERSION = 12;
 export const ERP_DDL: readonly string[] = [...ERP_DDL_GENERATED, ...ERP_ENGINE_DDL];
 /** Hash do esquema: o do gerado; com tabelas do motor, o do gerado mais o DDL delas. */
 export const ERP_DDL_HASH: string = ERP_ENGINE_DDL.length
