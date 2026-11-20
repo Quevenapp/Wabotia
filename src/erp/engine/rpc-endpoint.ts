@@ -21,6 +21,7 @@ import { COM1_CONNECTION_HEADER, readCommercialConnectionCheck, runWithCommercia
 // SYSTEM_RPCS e COM1_INTERNAL_RPCS: inventário em system-rpcs.ts (sem
 // dependências), compartilhado com a costura da erp-api.
 import { SYSTEM_RPCS, COM1_INTERNAL_RPCS } from "./system-rpcs.ts";
+import { backupFence, ErpBackupFencedError, fencedResponse, fencedWrite } from "./backup-state.ts";
 export { SYSTEM_RPCS, COM1_INTERNAL_RPCS };
 import { Clock } from "./time.ts";
 
@@ -187,11 +188,12 @@ export async function handleRpc(
       // emissão, comando e token persistidos. Nenhuma identidade ou parte da
       // chamada externa autoriza outro envio ou efeito neste commit estreito.
       // Não reabrir o portão: a pessoa pode ter perdido acesso durante o I/O.
-      const result = callRpc(storageDriver(ctx.storage), name, a, clock, {
+      // Barreira do backup: a evidência espera (a mesma emissão é retomada depois).
+      const result = fencedWrite(ctx.storage, backupFence(ctx.storage), () => callRpc(storageDriver(ctx.storage), name, a, clock, {
         identity: { actor: null, people: null },
         parts: { customers: false, products: false, sales: false, purchases: false,
           stock: false, finance: false, fiscal: false, billing: false, pos: false },
-      });
+      }));
       if (containsRestrictedContact(result, restricted)) return privacyDenied();
       return Response.json(result);
     }
@@ -230,8 +232,9 @@ export async function handleRpc(
           !Number.isInteger(limit) || Number(limit) < 1 || Number(limit) > 20)
         return Response.json({ code: "22023", message: "invalid_cursor" }, { status: 400 });
       const db = storageDriver(ctx.storage);
-      const call = (rpc: string, input: Record<string, unknown>) => callRpc(db, rpc,
-        { ...input, p_user_id: a.p_user_id }, clock, { identity, parts: snapshot.parts, gate: true });
+      const fence = backupFence(ctx.storage);
+      const call = (rpc: string, input: Record<string, unknown>) => fencedWrite(ctx.storage, fence, () => callRpc(db, rpc,
+        { ...input, p_user_id: a.p_user_id }, clock, { identity, parts: snapshot.parts, gate: true }));
       const rows = db.exec("SELECT id FROM erp_catalog__record WHERE entity='contacts' AND id>? AND id NOT IN (SELECT value FROM json_each(?)) ORDER BY id LIMIT ?",
         after, JSON.stringify([...restricted]), Number(limit) + 1).rows;
       // Cada GET aplica autorização/portão antes de devolver qualquer dado.
@@ -263,7 +266,10 @@ export async function handleRpc(
       gate: request.headers.get(GATE_HEADER) === "1",
     });
     const withConnection = () => runWithCommercialConnection(commercialConnection ?? null, invoke);
-    const result = com1Authority ? runWithCom1Authority(com1Authority, withConnection) : withConnection();
+    // Backup ou restauração em andamento: leitura passa; escrita é desfeita e
+    // volta 503 com código próprio (engine/backup-state.ts).
+    const fence = backupFence(ctx.storage);
+    const result = fencedWrite(ctx.storage, fence, () => com1Authority ? runWithCom1Authority(com1Authority, withConnection) : withConnection());
     // Recibos podem anteceder a restrição e não passam novamente pelo DTO.
     if (containsRestrictedContact(result, restricted)) return privacyDenied();
     // RPC que cria tarefa da plataforma (exportação pedida no painel): o
@@ -271,6 +277,7 @@ export async function handleRpc(
     if (rpcWakes(name)) await wakeSoon(ctx);
     return Response.json(bridge ? bridgeResponse(name, result) : result);
   } catch (error) {
+    if (error instanceof ErpBackupFencedError) return fencedResponse(error);
     if (error instanceof ErpPartDisabled || error instanceof ErpPartsControlError) {
       const status = error instanceof ErpPartDisabled ? 409 : error.status;
       return Response.json({ code: error.code, message: error.message, error: { code: error.code, message: error.message } },

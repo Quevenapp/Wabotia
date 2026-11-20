@@ -216,30 +216,49 @@ exclui credenciais e estados OAuth transitórios. Restauração mantém a coleta
 desligada, invalida posses e requer nova validação de conta/credencial. O
 backup lógico do SQLite não substitui a preservação dos objetos XML em R2.
 
-**Até onde o backup lógico cobre.** O retrato ainda é montado inteiro na
-memória do isolado (128 MB). Por isso o backup e a restauração medem o
-tamanho antes de materializar: o backup soma, no próprio SQLite, o texto que
-seria exportado (NDJSON, antes do gzip); a restauração confere o tamanho
-compactado de cada arquivo e conta os bytes enquanto descompacta. Acima de
-**16 MiB de dados exportados** (16.777.216 bytes) os dois falham cedo, com o
-código `erp_backup_too_large`, sem gravar arquivo nem manifesto e sem trocar
-o banco. Como referência, o acervo do Bling ocupa no banco um pouco mais que
-o seu texto; um banco de cerca de 16 MB já pode passar do limite. Acima disso
-a cópia do banco é a da plataforma: a recuperação no tempo do Durable Object
-da área (até 30 dias). Exportar e restaurar em páginas, em fluxo, é uma tarefa
-própria, posterior.
+**Até onde o backup lógico cobre.** O backup e a restauração das rotas
+internas são em páginas (formato 2; [ERP-PORTE.md](ERP-PORTE.md), "Backup
+lógico em páginas"): nenhuma tabela é montada inteira na memória, e a memória
+usada não depende do tamanho do banco (pico de 10 a 15 MB de heap acima da
+base de 16 MiB a 1 GiB de dados, medido com o heap do processo travado em
+48 MB).
+O teto provisório de 16 MiB (`erp_backup_too_large`) saiu dessas rotas; ele
+vale só para as funções na memória (`dumpAll`/`readBackup`), usadas por
+testes.
 
-O teto veio de uma medição em Node do heap mínimo em que backup e restauração
-completam: cerca de 3,6 vezes o NDJSON mais 12 MB (17 MB → 72 MB; 25 MB →
-96 MB; 34 MB → 128 MB). Com 16 MiB, metade do isolado fica para o restante do
-Worker.
+- **Backup:** sem teto de tamanho. Enquanto ele lê o banco, as alterações do
+  ERP da área ficam suspensas (503 `erp_backup_running`, com `Retry-After`);
+  consultas continuam. Medido no Node: ~35 s por GiB de dados exportados. A
+  barreira cai no fim da leitura, em qualquer falha, sem progresso por 2 min
+  ou ao fim do prazo absoluto de 60 min. A coleta não roda enquanto ela dura
+  e volta na acordada seguinte.
+- **Restauração:** confere cada parte (tamanho, hash e linhas) e o hash de
+  cada tabela antes de mexer no banco, e troca o conteúdo numa transação só:
+  ou o banco fica igual ao backup, ou fica como estava. A troca é o teto
+  real: medida em 17,9 s para 1 GiB no Node e ~19 s por GiB no workerd local,
+  numa invocação com 30 s de CPU. Por isso a restauração lógica cobre até
+  **1 GiB de dados exportados** (1.073.741.824 bytes); acima disso recusa
+  começar, com o código `erp_restore_too_large`, sem barreira e sem tocar o
+  banco. Para um banco maior, a cópia para restaurar é a da plataforma: a
+  recuperação no tempo do Durable Object da área (até 30 dias). O backup
+  desse banco continua sendo feito; restaurá-lo pelo caminho lógico exige
+  aumentar juntos o limite de CPU do Worker (`limits.cpu_ms`, até 5 min) e
+  o teto da troca (`ERP_RESTORE_SWAP_LIMIT_BYTES`), decisão de implantação
+  fora desta fatia.
+
+Os bytes dos XML e dos anexos continuam no armazenamento de arquivos (R2) e
+não entram no backup lógico. O manifesto diz isso e conta as linhas que os
+referenciam (`external_objects.xml_objects` e `attachment_rows`).
 
 **Restauração e arquivos XML.** A restauração recusa começar, com o código
 `erp_restore_archive_busy`, enquanto houver exclusão ou gravação de XML em
 voo nesta instância (inclusive a que passou do prazo da acordada) ou ainda
 não conferida no banco. Depois de começar, nenhuma gravação, leitura de
 conferência ou exclusão de XML, nem passo do apagamento, inicia até ela
-terminar. Um apagamento em curso dentro do backup restaurado é aposentado: a
+terminar: a barreira recusa as operações de escrita da coleta e o alarme não
+roda a coleta enquanto há trabalho de backup. Se mesmo assim houver XML em
+voo na hora da troca, ela não começa e a restauração falha sem mudar o
+banco. Um apagamento em curso dentro do backup restaurado é aposentado: a
 coleta fica desligada e um novo apagamento exige nova prévia e confirmação;
 as exclusões R2 que ele já tinha enfileirado passam à limpeza de órfãos da
 área, que só apaga objeto que nenhum item restaurado referencia.

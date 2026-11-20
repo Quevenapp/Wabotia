@@ -17,6 +17,8 @@ const messages: Record<string, string> = {
   part_disabled: "Esta parte está desligada.",
   epoch_closed: "A época deste comando foi encerrada.",
   erp_parts_unavailable: "Estado das partes indisponível.",
+  erp_backup_running: "Backup do ERP em andamento; o envio continua depois dele.",
+  erp_restore_running: "Restauração do ERP em andamento; o envio continua depois dela.",
   waiting_manual: "Aguardando lançamento manual.",
   historical_origin_unlinked: "A obrigação anterior não possui vínculo no ERP.",
   payment_evidence_required: "Aguardando consulta da evidência do pagamento; a operação local foi concluída.",

@@ -25,6 +25,14 @@ export async function releaseIntegrationLease(env: Env, eventId: string, token: 
   const safe = sanitizedError(error);
   const row = await one(env, "SELECT * FROM module_erp_delivery WHERE event_id=? AND lease_token=?", eventId, token);
   if (!row) return;
+  // Barreira do backup/restauração do ERP: o motor desfez a escrita (nada
+  // aplicado). Espera como suspensão e devolve a tentativa contada antes da ida.
+  if (safe.code === "erp_backup_running" || safe.code === "erp_restore_running") {
+    await env.DB.prepare(`UPDATE module_erp_delivery SET state='pending',next_attempt_ms=?,error_code=?,error_message=?,attempts=max(attempts-1,0),lease_token=NULL,lease_until_ms=NULL
+      WHERE event_id=? AND lease_token=? AND lease_until_ms>? AND state='sending'`)
+      .bind(Date.now() + 60_000, safe.code, safe.message, eventId, token, Date.now()).run();
+    return;
+  }
   const suspension = safe.code === "part_disabled" || safe.code === "erp_parts_unavailable";
   const retryable = safe.status >= 500 || safe.status === 429;
   const uncertain = !!row.unresolved && (retryable || safe.code === "waiting_manual");

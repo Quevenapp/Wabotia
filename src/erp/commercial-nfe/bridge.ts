@@ -66,6 +66,8 @@ const PUBLIC_MESSAGES: Record<string, string> = {
   fiscal_command_conflict: "Este comando já foi usado com outros dados. Atualize a tela.",
   com1_version_conflict: "A emissão foi atualizada em outra operação. Consulte a situação atual antes de continuar.",
   module_disabled: "Esta operação depende de uma parte desligada.",
+  erp_backup_running: "Backup do ERP em andamento: a emissão continua igual. Retome a mesma emissão em alguns minutos.",
+  erp_restore_running: "Restauração do ERP em andamento: a emissão continua igual. Retome a mesma emissão depois que ela terminar.",
 };
 
 /** A cópia sem símbolos não herda o cache da autenticação anterior ao I/O. */
@@ -90,6 +92,8 @@ function upstreamError(status: number, value: unknown, gate: string | null): Api
   if (gate || ["42501", "28000"].includes(sql))
     return new ApiError(403, gate === "mfa_required" ? "ERP_MFA_REQUIRED" : code, "Seu acesso não permite esta operação fiscal.");
   if (sql === "P0002" || status === 404) return new ApiError(404, code, "Emissão não encontrada ou não visível.");
+  // Barreira do backup/restauração: nada foi gravado; a mesma emissão é retomada depois.
+  if (status === 503 && (sql === "erp_backup_running" || sql === "erp_restore_running")) return new ApiError(503, sql, PUBLIC_MESSAGES[sql]);
   if (sql === "22023") return new ApiError(400, code, "Confira os dados informados para a operação.");
   if (["fiscal_blocked", "com1_emission_blocked", "com1_preparation_blocked"].includes(code)) return new ApiError(422, code, "Corrija os bloqueios fiscais antes de emitir.");
   if (["40001", "23505", "55000", "0A000"].includes(sql) || status === 409)

@@ -3,30 +3,32 @@
 // gzip, no R2 em erp-backups/<área>/<instante>/, e um manifesto com a versão
 // do esquema e, por tabela, linhas e SHA-256 do NDJSON. Fase 0, prova 8.
 //
-// O dump é lido de forma síncrona numa invocação só: é um retrato
-// consistente (nenhuma escrita entra no meio). Para bancos grandes, em
-// fatias por alarme, com manutenção ligada (escritas 503) — fase 3.
+// Este é o caminho na memória (formato 1): o dump é lido de forma síncrona
+// numa invocação só e é um retrato consistente. Serve aos testes e a bancos
+// pequenos. As rotas /erp-backup e /erp-restore usam o caminho em páginas
+// (engine/backup-pages.ts, formato 2), que lê, grava e restaura em partes,
+// com barreira de escrita e checkpoint durável, sem o teto de 16 MiB.
 import { createHash } from "node:crypto";
 import { ERP_TABLES } from "../schema/columns.generated.ts";
 import { ERP_ENGINE_TABLES } from "../schema/engine-tables.ts";
 
 /** Tabelas do retrato: as do esquema gerado e as só do motor (schema/engine-tables.ts). */
-const ALL_TABLES: readonly string[] = [...Object.keys(ERP_TABLES), ...ERP_ENGINE_TABLES.map((t) => t.table)];
+export const ALL_TABLES: readonly string[] = [...Object.keys(ERP_TABLES), ...ERP_ENGINE_TABLES.map((t) => t.table)];
 /** Nunca exportar o cofre legado ou um estado transitório de autorização. */
 const AUTHORIZATION_TABLES = new Set(["origin_sync__credentials", "origin_sync__oauth_state"]);
-const DUMP_TABLES = ALL_TABLES.filter(table => !AUTHORIZATION_TABLES.has(table));
+export const DUMP_TABLES = ALL_TABLES.filter(table => !AUTHORIZATION_TABLES.has(table));
 import { ERP_DDL_HASH, ERP_DDL_VERSION } from "../schema/ddl.ts";
 
-const q = (id: string) => `"${id.replace(/"/g, '""')}"`;
+export const q = (id: string) => `"${id.replace(/"/g, '""')}"`;
 const sha = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
 
 /**
- * Teto do backup lógico, em bytes de NDJSON (o texto exportado, antes do
- * gzip). O retrato inteiro é materializado no isolado de 128 MB: as linhas da
- * maior tabela, todos os corpos NDJSON e o gzip de um arquivo coexistem. Acima
- * disto o backup e a restauração falham cedo, antes de materializar ou de
- * publicar manifesto; a cópia do banco passa a ser a da plataforma
- * (recuperação no tempo do Durable Object). docs/RECEBER-BLING.md.
+ * Teto do caminho na memória (dumpAll/readBackup), em bytes de NDJSON (o texto
+ * exportado, antes do gzip). Nesse caminho o retrato inteiro é materializado
+ * no isolado de 128 MB: as linhas da maior tabela, todos os corpos NDJSON e o
+ * gzip de um arquivo coexistem; acima disto ele falha cedo, antes de
+ * materializar ou de publicar manifesto. As rotas não usam mais este caminho:
+ * o backup em páginas (engine/backup-pages.ts) não tem este teto.
  * Medição (Node, heap mínimo em que backup + restauração completam): cerca de
  * 3,6 × o NDJSON + 12 MB; 17 MB → 72 MB, 25 MB → 96 MB, 34 MB → 128 MB.
  * 16 MiB deixa por volta de metade do isolado para o restante do Worker.
@@ -51,7 +53,7 @@ export class ErpRestoreBusyError extends Error {
 }
 /** Durável: o que sobrevive a uma queda do isolado. O que está só na memória
  * (chamada viva além do prazo da acordada) é conferido pela instância. */
-const ARCHIVE_IO_UNRECONCILED = `SELECT 1 AS busy FROM wb_bling_unit WHERE phase NOT IN ('committed','superseded') AND (
+export const ARCHIVE_IO_UNRECONCILED = `SELECT 1 AS busy FROM wb_bling_unit WHERE phase NOT IN ('committed','superseded') AND (
   (kind='r2_delete' AND (owner IS NOT NULL OR error_code IS NOT NULL OR json_extract(progress,'$.deleted') IS NOT NULL))
   OR (substr(kind,1,4)='xml_' AND (phase='fetching' OR json_type(progress,'$.xml') IS NOT NULL))) LIMIT 1`;
 
@@ -64,7 +66,7 @@ export interface DumpManifest {
 }
 
 /** Colunas da tabela no objeto (inclusive as normalizadas pelo motor). */
-function columns(sql: SqlStorage, table: string) {
+export function columns(sql: SqlStorage, table: string) {
   return (sql.exec(`PRAGMA table_info(${q(table)})`).toArray() as { name: string; type: string }[]).map((c) => ({
     name: c.name,
     integer: c.type === "INTEGER",
@@ -90,7 +92,7 @@ function backupExpression(table: string, column: string): string {
 }
 
 /** Expressões exportadas de uma tabela: as mesmas na medição e no retrato. */
-function tablePlan(sql: SqlStorage, table: string) {
+export function tablePlan(sql: SqlStorage, table: string) {
   const cols = columns(sql, table);
   const values = cols.map(c => {
     const expression = backupExpression(table, c.name);
@@ -170,9 +172,41 @@ export function restoreAll(
     if (!allowed.has(entry.table) || seen.has(entry.table)) throw new Error("Tabela não permitida no backup.");
     seen.add(entry.table);
   }
-  const sql = storage.sql;
   let rows = 0;
   storage.transactionSync(() => {
+    rows = applyRestoreInTransaction(storage, manifest.tables.map(t => ({
+      table: t.table,
+      lines: () => {
+        const body = files.get(t.table);
+        if (body === undefined || sha(body) !== t.sha256) throw new Error(`Arquivo do backup corrompido: ${t.table}`);
+        return body.trimEnd().split("\n");
+      },
+    })), options);
+  });
+  return { tables: manifest.tables.length, rows };
+}
+
+/** Linhas por INSERT na troca, e caracteres de JSON por parâmetro (abaixo do limite de 2 MB por valor do SQLite do objeto). */
+const RESTORE_BATCH_ROWS = 500;
+const RESTORE_BATCH_CHARS = 512 * 1024;
+
+/** Uma tabela do retrato lida em fluxo: a primeira linha é o cabeçalho (colunas JSON). */
+export interface RestoreTableSource {
+  table: string;
+  lines: () => Iterable<string>;
+}
+
+/**
+ * A troca do conteúdo, comum ao caminho na memória (restoreAll) e ao em
+ * páginas (backup-pages.ts). Tem de rodar dentro de storage.transactionSync:
+ * qualquer erro desfaz tudo (o banco fica como estava). As linhas chegam por
+ * iterador, em lotes de até 100 parâmetros; nada exige o retrato inteiro na
+ * memória. Devolve o número de linhas inseridas.
+ */
+export function applyRestoreInTransaction(storage: DurableObjectStorage, tables: Iterable<RestoreTableSource>, options: { profile?: string } = {}): number {
+  const sql = storage.sql;
+  let rows = 0;
+  {
     // Um DELETE/PUT de XML enviado e não conferido pode terminar depois da troca
     // e apagar um arquivo que o retrato volta a referenciar: não começar.
     if (sql.exec(ARCHIVE_IO_UNRECONCILED).toArray().length) throw new ErpRestoreBusyError();
@@ -184,19 +218,47 @@ export function restoreAll(
     for (const g of triggers) sql.exec(`DROP TRIGGER ${q(g.name)}`);
     // Tabelas que já têm linhas (semeadura) e não estão no backup ficam vazias.
     for (const table of ALL_TABLES) sql.exec(`DELETE FROM ${q(table)}`);
-    for (const t of manifest.tables) {
-      const body = files.get(t.table);
-      if (body === undefined || sha(body) !== t.sha256) throw new Error(`Arquivo do backup corrompido: ${t.table}`);
-      const [head, ...lines] = body.trimEnd().split("\n");
-      const cols: string[] = JSON.parse(head);
-      const blobs = new Set(columns(sql, t.table).filter((c) => c.blob).map((c) => c.name));
-      const per = Math.max(1, Math.floor(100 / cols.length));
-      for (let i = 0; i < lines.length; i += per) {
-        const part = lines.slice(i, i + per).map((l) => JSON.parse(l) as unknown[]);
-        const values = part.map(() => `(${cols.map((c) => (blobs.has(c) ? "unhex(?)" : "?")).join(",")})`).join(",");
-        sql.exec(`INSERT INTO ${q(t.table)} (${cols.map(q).join(",")}) VALUES ${values}`, ...part.flat());
-        rows += part.length;
+    for (const t of tables) {
+      let cols: string[] | null = null, blobs = new Set<string>(), fromJson = "";
+      // As linhas vão ao SQLite como um arranjo JSON (json_each): o parse é do
+      // SQLite, não do isolado. Os valores exportados são texto ou nulo (todo
+      // inteiro sai como texto exato), e o json_extract devolve o mesmo texto
+      // que o bind devolveria; a coluna STRICT converte como antes. Cada linha
+      // precisa ter exatamente uma posição por coluna.
+      let batch: string[] = [], batchChars = 0;
+      const flush = () => {
+        if (!batch.length || !cols) return;
+        sql.exec(fromJson, "[" + batch.join(",") + "]");
+        const inserted = Number((sql.exec("SELECT changes() AS n").toArray()[0] as { n: unknown }).n);
+        if (inserted !== batch.length) throw new Error(`Linha do backup com colunas a mais ou a menos: ${t.table}`);
+        rows += batch.length;
+        batch = []; batchChars = 0;
+      };
+      for (const line of t.lines()) {
+        if (!cols) {
+          cols = JSON.parse(line) as string[];
+          if (!Array.isArray(cols) || !cols.length || cols.some(c => typeof c !== "string")) throw new Error(`Cabeçalho inválido no backup: ${t.table}`);
+          blobs = new Set(columns(sql, t.table).filter((c) => c.blob).map((c) => c.name));
+          const header = cols;
+          const select = header.map((c, i) => blobs.has(c) ? `unhex(json_extract(value,'$[${i}]'))` : `json_extract(value,'$[${i}]')`).join(",");
+          fromJson = `INSERT INTO ${q(t.table)} (${header.map(q).join(",")}) SELECT ${select} FROM json_each(?) WHERE json_type(value)='array' AND json_array_length(value)=${header.length} ORDER BY key`;
+          continue;
+        }
+        if (line.length > RESTORE_BATCH_CHARS) {
+          // Linha enorme (perto do limite de 2 MB por linha): valores por bind, um a um.
+          flush();
+          const values = JSON.parse(line) as unknown[];
+          if (!Array.isArray(values) || values.length !== cols.length) throw new Error(`Linha do backup com colunas a mais ou a menos: ${t.table}`);
+          const header = cols;
+          sql.exec(`INSERT INTO ${q(t.table)} (${header.map(q).join(",")}) VALUES (${header.map(c => blobs.has(c) ? "unhex(?)" : "?").join(",")})`, ...values);
+          rows++;
+          continue;
+        }
+        batch.push(line);
+        batchChars += line.length + 1;
+        if (batch.length >= RESTORE_BATCH_ROWS || batchChars >= RESTORE_BATCH_CHARS) flush();
       }
+      flush();
     }
     // Mesmo um backup fabricado com o hash atual não reativa uma autorização.
     // As revisões avançam; resultados de I/O anteriores não podem ressuscitá-la.
@@ -220,8 +282,8 @@ export function restoreAll(
     for (const g of triggers) sql.exec(g.sql);
     const broken = sql.exec("PRAGMA foreign_key_check").toArray();
     if (broken.length) throw new Error("Backup com FK quebrada: " + JSON.stringify(broken[0]));
-  });
-  return { tables: manifest.tables.length, rows };
+  }
+  return rows;
 }
 
 const gzip = async (text: string) =>

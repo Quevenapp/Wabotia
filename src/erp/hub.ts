@@ -14,7 +14,15 @@ import { applyErpPartsSnapshot, requireCurrentErpParts, ErpPartsControlError, cu
 import { ERP_PARTS_DENIED_HEADER, ERP_PARTS_TTL_MS, readErpPartsSnapshot } from "./parts.ts";
 import { decodeIdentity, IDENTITY_HEADER, SYSTEM_HEADER } from "./engine/identity.ts";
 import { prepareBlingDispatch, blingFailureResponse } from "./bling/assembly.ts";
-import { BLING_RECEIPTED_OPERATIONS } from "./bling/schema.ts";
+import { BLING_RECEIPTED_OPERATIONS, getBlingOperation } from "./bling/schema.ts";
+import { BACKUP_ACTIVE_KV, backupFence, backupJobActive, backupJobStatus, fencedResponse, readBackupJob } from "./engine/backup-state.ts";
+
+/** Backup/restauração em páginas: quanto uma rota avança antes de responder 202 e deixar o resto ao alarme. */
+const BACKUP_INLINE = { budgetMs: 10_000, maxUnits: 128 };
+/** Cada acordada do alarme com trabalho de backup: orçamento e intervalo até a próxima. */
+const BACKUP_ALARM = { budgetMs: 10_000, maxUnits: 128 };
+const BACKUP_CONTINUE_MS = 100;
+const BACKUP_RETRY_MS = 5_000;
 
 /**
  * Motor e esquema por import dinâmico: o bundle os traz, mas só são avaliados
@@ -186,8 +194,8 @@ export class ErpHub {
       try { blingCall = await prepareBlingDispatch(profile, path, request, identity!); }
       catch (error) { return blingFailureResponse(error); }
     }
-    const { ERP_SCHEMA_VERSION, migrate, backupToR2, dumpAll, handleRpc, readBackup, restoreAll, handleBlingOperation,
-      ErpBackupTooLargeError, ErpRestoreBusyError, beginArchiveRestore, endArchiveRestore } = await engine();
+    const { ERP_SCHEMA_VERSION, migrate, handleRpc, handleBlingOperation, ErpRestoreBusyError,
+      startBackup, startRestore, runBackupJob, ErpBackupJobError } = await engine();
     if (gated) {
       // O import cede a vez: expiração ou revisão nova também bloqueiam a migração.
       const denied = await authorize(false);
@@ -196,6 +204,12 @@ export class ErpHub {
     const applied = migrate(this.ctx.storage);
     if (applied.status === "newer")
       return fail(503, "erp_schema_newer", `O esquema gravado (${applied.version}) é mais novo que o do código (${ERP_SCHEMA_VERSION}).`);
+    // Barreira do backup/restauração em páginas: escritas da coleta (POST e
+    // retorno do OAuth) e sondas esperam; consultas do acervo continuam.
+    const fence = backupFence(this.ctx.storage);
+    if (fence && blingCall && (getBlingOperation(blingCall.name)?.method !== "GET" || blingCall.name === "erp_bling_oauth_callback"))
+      return fencedResponse(fence);
+    if (fence && path.startsWith("/erp-probe/")) return fencedResponse(fence);
     if (blingCall) {
       const response = await handleBlingOperation(blingCall, { env: this.env, storage: this.ctx.storage,
         readParts: async () => (await currentErpParts(this.ctx.storage, profile))?.parts ?? null,
@@ -221,30 +235,49 @@ export class ErpHub {
     // encaminhamento no Worker nem em api/local-fetch.ts. Precisam funcionar
     // sem fotografia, inclusive em instância nova ou com ERP suspenso.
     // Restaurar troca o conteúdo inteiro. Não expor estas rotas na API pública.
-    if (path === "/erp-backup") {
-      let dump;
-      // Mede antes de materializar; acima do teto, nenhum arquivo nem manifesto.
-      try { dump = dumpAll(this.ctx.storage); }
-      catch (error) { if (error instanceof ErpBackupTooLargeError) return fail(413, error.code, error.message); throw error; }
-      const saved = await backupToR2(this.env.MEDIA, profile, dump);
-      return Response.json({ ...saved, manifest: dump.manifest });
-    }
-    if (path === "/erp-restore") {
-      const { prefix } = await request.json<{ prefix: string }>();
-      if (typeof prefix !== "string" || !prefix.startsWith("erp-backups/"))
-        return fail(400, "erp_backup_invalid", "Informe o prefixo do backup.");
-      // Exclusão/gravação de XML viva recusa o início; depois de começar,
-      // nenhum novo I/O de XML ou de apagamento inicia até o fim da troca.
-      const busy = new ErpRestoreBusyError();
-      if (!beginArchiveRestore(profile)) return fail(409, busy.code, busy.message);
+    // Operações: engine/backup-operations.ts (nomes estáveis, sensíveis).
+    // Em páginas (engine/backup-pages.ts): a rota avança o que cabe e devolve
+    // 200 com o resultado; se não terminar, 202 com o progresso, e o alarme
+    // continua. /erp-backup-status mostra o progresso a quem pediu.
+    if (path === "/erp-backup-status") return Response.json(backupJobStatus(readBackupJob(this.ctx.storage)));
+    if (path === "/erp-backup" || path === "/erp-restore") {
+      if (request.method !== "POST") return fail(405, "method_not_allowed", "Use POST.");
+      const storage = this.ctx.storage;
+      let job;
       try {
-        const { manifest, files } = await readBackup(this.env.MEDIA, prefix);
-        return Response.json(restoreAll(this.ctx.storage, manifest, files, { profile }));
+        if (path === "/erp-backup") job = startBackup(storage, profile);
+        else {
+          const body = await request.json<{ prefix?: unknown }>().catch(() => ({ prefix: undefined }));
+          // Exclusão/gravação de XML viva ou sem conferência recusa o início;
+          // depois de começar, a barreira e o alarme impedem I/O novo de XML.
+          job = await startRestore(storage, this.env.MEDIA, profile, body?.prefix as string);
+        }
       } catch (error) {
-        if (error instanceof ErpRestoreBusyError || error instanceof ErpBackupTooLargeError)
-          return fail(error instanceof ErpRestoreBusyError ? 409 : 413, error.code, error.message);
+        if (error instanceof ErpRestoreBusyError) return fail(409, error.code, error.message);
+        if (error instanceof ErpBackupJobError) return fail(error.status, error.code, error.message);
         throw error;
-      } finally { endArchiveRestore(profile); }
+      }
+      // A marca no KV leva o alarme e o schedule() a conferir o trabalho.
+      await storage.put(BACKUP_ACTIVE_KV, true);
+      let run;
+      try { run = await runBackupJob(storage, this.env.MEDIA, BACKUP_INLINE); }
+      catch { run = { job: readBackupJob(storage), more: true, manifest: undefined }; }
+      const current = run.job?.id === job.id ? run.job : readBackupJob(storage);
+      const status = backupJobStatus(current);
+      if (current?.id === job.id && current.phase === "done") {
+        await this.backupFinished(profile);
+        if (current.kind === "restore") return Response.json({ ...current.result, ...status });
+        let manifest = run.manifest;
+        if (!manifest) manifest = await (await this.env.MEDIA.get(current.prefix + "manifest.json"))?.json();
+        return Response.json({ prefix: current.prefix, bytes: current.result?.bytes ?? 0, manifest, ...status });
+      }
+      if (current?.id === job.id && current.phase === "failed") {
+        await this.backupFinished(profile);
+        const error = current.error ?? { code: "erp_backup_failed", message: "O trabalho de backup falhou." };
+        return Response.json({ error, ...status }, { status: error.code === "erp_restore_archive_busy" ? 409 : 422 });
+      }
+      await this.continueBackup();
+      return Response.json(status, { status: 202 });
     }
     // Sondas da instalação de teste (src/erp/probe.ts); o Worker só encaminha
     // com ERP_PROBES=1 e administrador (src/erp/api/local-fetch.ts).
@@ -258,11 +291,57 @@ export class ErpHub {
     return fail(404, "not_found", "Rota do ERP desconhecida.");
   }
 
+  /** Trabalho de backup/restauração ativo: o alarme volta logo (nunca é apagado nem adiado). */
+  private async continueBackup(delay = BACKUP_CONTINUE_MS) {
+    const storage = this.ctx.storage, target = Date.now() + delay;
+    const current = await storage.getAlarm();
+    if (current === null || current > target) await storage.setAlarm(target);
+  }
+
+  /** Uma acordada com trabalho de backup: só ele roda; coleta, fila e arquivos esperam a barreira. */
+  private async backupAlarm(profile: string) {
+    const { migrate, runBackupJob } = await engine();
+    // Código mais antigo que o esquema (volta de versão): não mexe; a barreira
+    // cai pelo prazo e o código novo, quando voltar, descarta o trabalho.
+    if (migrate(this.ctx.storage).status === "newer") { await this.continueBackup(60_000); return; }
+    let more = true;
+    try { more = (await runBackupJob(this.ctx.storage, this.env.MEDIA, BACKUP_ALARM)).more; }
+    catch {
+      // R2 ou SQLite indisponível: o checkpoint durável fica; tenta de novo.
+      // Sem progresso, a barreira cai pelo prazo e o trabalho é descartado.
+      await this.continueBackup(BACKUP_RETRY_MS);
+      return;
+    }
+    if (more) await this.continueBackup();
+    else await this.backupFinished(profile);
+  }
+
+  /** Há trabalho de backup ativo? Sem a marca no KV, nem consulta o SQL. */
+  private async backupActive(): Promise<boolean> {
+    const storage = this.ctx.storage;
+    if (!(await storage.get(BACKUP_ACTIVE_KV))) return false;
+    if (backupJobActive(readBackupJob(storage))) return true;
+    await storage.delete(BACKUP_ACTIVE_KV);
+    return false;
+  }
+
+  /** Fim do trabalho: solta a marca e devolve o alarme às rotinas e à coleta. */
+  private async backupFinished(profile: string) {
+    if (await this.backupActive()) { await this.continueBackup(); return; }
+    await this.schedule(profile, Date.now() + 1_000);
+  }
+
   /** Serializa a decisão de alarme com as entregas: desligamento nunca perde para um wake antigo. */
   private schedule(profile: string, target: number | null, previousRevision?: string) {
     return this.ctx.storage.transaction(async tx => {
       const saved = await tx.get(ERP_PARTS_KEY);
       const current = await tx.getAlarm();
+      // Backup/restauração em andamento não depende das partes: o alarme fica.
+      if (await tx.get(BACKUP_ACTIVE_KV) && backupJobActive(readBackupJob(this.ctx.storage))) {
+        const soon = Date.now() + 1_000;
+        if (current === null || current > soon) await tx.setAlarm(soon);
+        return current === null ? soon : Math.min(current, soon);
+      }
       const snapshot = readErpPartsSnapshot(saved, profile);
       if (!snapshot?.parts.customers) {
         await tx.deleteAlarm();
@@ -296,6 +375,10 @@ export class ErpHub {
     if ((await storage.get<string>("kind")) === ERP_CRON_KIND) return this.cronAlarm();
     const profile = await storage.get<string>("erp_profile");
     if (!profile) { await storage.deleteAlarm(); return; }
+    // Backup ou restauração em páginas: roda antes de tudo e sem depender das
+    // partes (como as rotas internas). A coleta do Bling, os arquivos e as
+    // rotinas não rodam enquanto ele está ativo; voltam na acordada seguinte.
+    if (await this.backupActive()) return this.backupAlarm(profile);
     const readParts = async () => {
       const snapshot = await currentErpParts(storage, profile);
       return snapshot?.parts.customers ? snapshot.parts : null;
