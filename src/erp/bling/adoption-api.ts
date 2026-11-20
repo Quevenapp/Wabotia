@@ -10,7 +10,8 @@ import {
   type BlingAdoptionAuthorization, type BlingAdoptionOperationName,
 } from "./adoption-contracts.ts";
 import {
-  adoptionLinks, adoptionPause, adoptionResolve, adoptionReviews, adoptionStart, adoptionStatus, adoptionUnlink, runAdoptionUnit, type AdoptionCall,
+  adoptionAdoptOne, adoptionHistory, adoptionHistoryGet, adoptionLinks, adoptionPause, adoptionResolve, adoptionReviews, adoptionStart, adoptionStatus, adoptionUnlink,
+  runAdoptionUnit, type AdoptionCall,
 } from "./adoption.ts";
 
 const privateHeaders = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
@@ -74,6 +75,9 @@ export async function handleAdoptionOperation(call: AdoptionDispatch, dependenci
       case "erp_bling_adoption_pause": result = adoptionPause(context, input as never); break;
       case "erp_bling_adoption_resolve": result = adoptionResolve(context, input as never); break;
       case "erp_bling_adoption_unlink": result = adoptionUnlink(context, input as never); break;
+      case "erp_bling_adoption_adopt_one": result = adoptionAdoptOne(context, input as never); break;
+      case "erp_bling_adoption_history": result = adoptionHistory(context, input as never); break;
+      case "erp_bling_adoption_history_get": result = adoptionHistoryGet(context, input as never); break;
     }
     const output = adoptionOutputs[call.name].safeParse(result);
     if (!output.success) throw new BlingAdoptionError("BLING_ADOPTION_UNAVAILABLE");

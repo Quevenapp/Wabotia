@@ -28,9 +28,9 @@ cadastros do ERP, com revisão. Nada é escrito no Bling.
 **Entidades, na ordem do lote:** categorias de produtos, contatos (clientes,
 fornecedores e transportadoras), vendedores, produtos e serviços (com as
 variações que vierem em `variacoes`), depósitos, formas de pagamento,
-categorias financeiras e contas financeiras (`ledger_accounts`). Pedidos,
-propostas, notas, títulos, lançamentos, saldos de estoque e ordens de serviço
-ficam para as próximas fatias.
+categorias financeiras e contas financeiras (`ledger_accounts`). Propostas,
+pedidos e contas entram na fatia B2 (abaixo); notas, lançamentos de caixa,
+saldos de estoque e ordens de serviço ficam para as próximas fatias.
 
 **Três estados, por entidade:** *coletado* (no acervo, ainda não virou
 cadastro), *adotado* (virou cadastro do ERP e fica ligado ao id do Bling, com
@@ -103,6 +103,101 @@ Bots usam os mesmos nomes pela concessão nominal em
 roda com a proposta confirmada pela própria pessoa (sem a liberação
 autônoma da política do Bling). Testes: `tests/erp/org/adocao.test.mjs` e
 `tests/erp/org/adocao-painel.test.mjs`.
+
+## Documentos e contas em aberto; histórico (fatia B2)
+
+Mesma aba **Adotar cadastros**, mesma tabela e mesmo lote da B1, com mais
+cinco entidades depois dos cadastros: propostas comerciais, pedidos de venda,
+pedidos de compra, contas a receber e contas a pagar. A tabela ganha a coluna
+**No histórico (só consulta)** e, nas contas e documentos, os totais do que
+ficou de fora e por quê. A nova aba **Histórico do Bling** lista o que já está
+encerrado no Bling.
+
+**Em aberto ou encerrado: um mapa só**, com teste, em
+`src/erp/bling/adoption-situations.ts` (regras do sistema original anotadas
+no arquivo):
+
+| Entidade | Em aberto (vira documento ou título do ERP) | Encerrado (histórico) |
+|---|---|---|
+| Propostas | Rascunho, Em aberto, Pendente, Aguardando, Em andamento | Aprovado, Concluído, Faturado (atendido); Não aprovado, Cancelado |
+| Pedidos de venda | Em aberto (id 6, valor 0), Em andamento (15, 3), Em digitação (21), Verificado (24) | Atendido (9, 1), Atendido/Faturado parcialmente, Faturado, Venda agenciada (18); Cancelado (12, 2) |
+| Pedidos de compra | valor 0 Em aberto, 3 Em andamento | 1 Atendido, 2 Cancelado |
+| Contas | situação 1 com saldo igual ao valor (inteira) | 2 paga, 3 e 6 parcial, 1 com saldo menor que o valor (parcial), 4 devolvida, 5 cancelada, 7 confirmada |
+
+Situação fora do mapa não é adivinhada: vira pendência "situação
+desconhecida". Registro excluído no Bling vai para o histórico como
+"excluído".
+
+**Adotar sem efeitos.** Em aberto vira documento ou título pelas RPCs das
+telas, por `invokeRpc`: `erp_document_save` (propostas, pedidos de venda e de
+compra), `erp_document_transition` só na proposta (Pendente, Aguardando e Em
+aberto; a proposta não tem efeito de estoque nem de contas) e
+`erp_finance_title_execute` (`title_create`). Pedidos de venda e de compra
+entram sempre **Em aberto** no ERP, porque as outras situações do ERP disparam
+lançamentos configurados de estoque e contas; a situação do Bling fica escrita
+nas observações internas. Depois de criar, o motor confere que não há
+lançamento de contas a partir do documento, lançamento ou reserva de estoque,
+nem baixa da conta; se houver, desfaz e o registro vira pendência ("efeitos").
+Pedido de compra com **Contas a pagar automáticas** ligada em Preferências →
+Compras não é adotado (pendência dizendo o que desligar). Adotar não emite
+nota, não cria movimento de caixa e não mexe em saldo de conta financeira.
+
+**O que vai no documento.** Contato (ou fornecedor), itens com produto
+adotado, quantidade, valor, desconto do item, código e código do fornecedor;
+desconto, frete e outras despesas; data e data prevista; vendedor adotado;
+parcelas com forma de pagamento adotada; observações; nas observações
+internas, "Adotado do Bling: pedido de venda nº X (id Y), situação no Bling: Z"
+e os avisos (vendedor ou forma de pagamento ainda não adotados, parcelas que
+não fecham com o total calculado — saem e a pessoa refaz no ERP —, diferença
+entre o total do Bling e o calculado pelo ERP). O número do Bling é usado se as
+Preferências permitem editar o número e ele está livre. **Na conta:** contato,
+categoria e forma de pagamento adotados, vencimento, emissão, competência,
+valor, histórico como descrição, "número do documento (Bling id)" na
+referência, portador e vendedor quando adotados.
+
+**Falta um cadastro.** Contato ou produto do documento (e categoria ou forma
+de pagamento da conta) sem vínculo de adoção: pendência "falta adotar"
+dizendo qual (`wb_bling_adoption_doc_review.missing`), com o atalho **Adotar
+agora** (`erp_bling_adoption_adopt_one`, que adota só aquele cadastro pelas
+regras do lote) ou o caminho para as pendências daquele cadastro. Depois,
+**Tentar adotar de novo** (resolver com `use_bling`). Vendedor e forma de
+pagamento do documento não bloqueiam: ficam de fora com aviso.
+
+**Possível duplicado.** Documento com mesmo número e contato, ou conta com
+mesmo contato, vencimento e valor já no ERP: pendência com as duas versões;
+**manter a do ERP e ligar** ou **adotar como novo mesmo assim**.
+
+**Histórico (espelho).** Encerrados ficam só como índice em
+`wb_bling_adoption_history` (número, contato, data, situação, motivo e total);
+o documento como veio continua no acervo. Busca por número ou contato (sem
+acento) e período, mais recentes primeiro; abrir mostra cabeçalho, itens,
+parcelas e o registro recebido, com o aviso "Já encerrado no Bling (só
+consulta). Este registro não pode ser faturado, cancelado nem editado no ERP".
+Não há botão de operar. Apagar o acervo tira o registro do histórico.
+
+**Partes.** Propostas e pedidos de venda exigem **Vendas** (e Produtos e
+serviços); pedidos de compra, **Compras** (e Produtos e serviços); contas,
+**Financeiro**. Desligada, a entidade mostra quais módulos ligar e as
+operações dela (lote, resolver, adotar um, histórico) recusam com
+`BLING_ADOPTION_PART_DISABLED`.
+
+**Esquema versão 13** (12→13, só tabelas novas, porque o CHECK de entidade da
+versão 12 não se reescreve): `wb_bling_adoption_doc_link`,
+`wb_bling_adoption_doc_review` e `wb_bling_adoption_history`. O vínculo de
+documento também impede apagar o acervo daquela entidade.
+
+**Operações novas** (mesmas regras da B1; bots pela concessão nominal, com
+parâmetros no inventário):
+
+| Nome | Método e caminho | Sensível |
+|---|---|---|
+| `erp_bling_adoption_adopt_one` | POST `/adotar/um` | sim |
+| `erp_bling_adoption_history` | GET `/adotar/historico` | sim (nomes de contatos) |
+| `erp_bling_adoption_history_get` | GET `/adotar/historico/documento` | sim |
+
+Testes: `tests/erp/org/adocao-b2.test.mjs`,
+`tests/erp/org/adocao-situacoes.test.mjs` e
+`tests/erp/org/adocao-b2-painel.test.mjs`.
 
 ## Antes de usar uma conta real
 

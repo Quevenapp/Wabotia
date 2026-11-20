@@ -6,7 +6,7 @@ import { COM1_OPERATIONS } from "../../erp/commercial-nfe/metadata.ts";
 import { BLING_MODULE_CONTRACT, BLING_OPERATIONS } from "../../erp/bling/schema.ts";
 import { ERP_IMPORT_KINDS, erpRouteRequirement } from "../../erp/parts-requirements.ts";
 import { ERP_PART_NAMES, erpRequirement, type ErpModuleId } from "../../erp/parts.ts";
-import { BLING_ADOPTION_OPERATIONS } from "../../erp/bling/adoption-contracts.ts";
+import { BLING_ADOPTION_OPERATIONS, BLING_ADOPTION_PARAMS } from "../../erp/bling/adoption-contracts.ts";
 import { erpCommercialOperations } from "./commercial-operations.ts";
 import { ERP_BACKUP_OPERATIONS } from "../../erp/engine/backup-operations.ts";
 
@@ -61,10 +61,10 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
     id: op.name, method: op.method, path: `erp/v1/receber-bling${op.path === "/" ? "" : op.path}`, summary: op.summary, sensitive: op.sensitive,
     group: "bling", description: op.description, params: blingParams(op.name),
   })),
-  // Adoção dos cadastros do Bling (fatia B1): o bot propõe, a pessoa confirma.
+  // Adoção do Bling (cadastros, documentos, contas e histórico): o bot propõe, a pessoa confirma.
   ...Object.values(BLING_ADOPTION_OPERATIONS).map(op => ({
     id: op.name, method: op.method, path: `erp/v1/receber-bling${op.path}`, summary: op.summary, sensitive: op.sensitive,
-    group: "bling", description: op.description, params: { type: "object" as const, properties: {}, required: [] },
+    group: "bling", description: op.description, params: { type: "object" as const, properties: { ...BLING_ADOPTION_PARAMS[op.name].properties }, required: [...BLING_ADOPTION_PARAMS[op.name].required] },
   })),
   ...erpCommercialOperations.map(op => ({ id: op.id, method: op.method, path: `erp${op.path}`, summary: op.summary, sensitive: op.sensitive,
     group: commercialGroup(op.id), description: plain(op.description), params: op.params })),

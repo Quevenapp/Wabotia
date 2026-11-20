@@ -232,13 +232,13 @@ function commercialRows(db) {
   return { emission, command, document, person };
 }
 
-test("v12 vazia tem 1064 instruções e 454 tabelas; repetição e restrições comerciais preservadas", () => {
+test("v13 vazia tem 1069 instruções e 457 tabelas; repetição e restrições comerciais preservadas", () => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys=ON");
   const first = migrate(storage(db));
   assert.equal(first.version, ERP_DDL_VERSION);
-  assert.equal(first.statements, 1064);
-  assert.equal(tablesOf(db).length, 454);
+  assert.equal(first.statements, 1069);
+  assert.equal(tablesOf(db).length, 457);
   assert.equal(migrate(storage(db)).status, "current");
   assert.equal(commercialTables.length, 7);
   for (const table of commercialTables) {
@@ -346,8 +346,8 @@ for (const from of [9, 10]) test(`v${from} sobe à v11 sem tocar conteúdo prév
   assert.deepEqual(meta(db), before.meta);
   assert.deepEqual(schema(db), before.schema);
   assert.deepEqual(content(db), before.content);
-  // A subida segue até a versão atual (12: tabelas da adoção, também vazias).
-  assert.equal(migrate(storage(db)).version, 12);
+  // A subida segue até a versão atual (12 e 13: tabelas da adoção, também vazias).
+  assert.equal(migrate(storage(db)).version, 13);
   assert.equal(blingTables.length, 6);
   assert.deepEqual(content(db, Object.keys(before.content)), before.content);
   for (const table of blingTables) {

@@ -180,4 +180,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Fatia B1: a pessoa transforma os cadastros do acervo em cadastros do ERP, com revisão, pelas mesmas RPCs das telas; nada é escrito no Bling e erp_sync__settings continua desligado.",
     replaced_by: "Versão 12 aditiva (11→12): wb_bling_adoption_link (vínculo entidade/id no Bling → cadastro, com versão e hash coletados), wb_bling_adoption_review (pendências e ignorados, com motivo e candidatos), wb_bling_adoption_job (trabalho em lote retomável pelo alarme) e wb_bling_adoption_command (recibos imutáveis dos comandos). Desligar do Bling apaga só o vínculo; o cadastro do ERP fica.",
   },
+  {
+    id: "adotar-bling-b2",
+    oracle: "Importações do coletor externo para propostas (origin_proposal_import), pedidos (origin_*_readiness), contas (origin_financial_import) e o espelho de documentos (document_origin_mirror, authority 'origin').",
+    reason: "Fatia B2: documentos e contas em aberto no Bling viram documentos e títulos do ERP pelas mesmas RPCs das telas, sem efeitos de estoque, contas ou nota; os encerrados ficam só para consulta, fora das tabelas de documento e de título.",
+    replaced_by: "Versão 13 aditiva (12→13): wb_bling_adoption_doc_link (vínculo de proposta, pedido de venda, pedido de compra, conta a receber e a pagar ao documento ou título do ERP), wb_bling_adoption_doc_review (pendências com o cadastro que falta adotar) e wb_bling_adoption_history (índice do espelho histórico: número, contato, data, situação e total do que já está encerrado no Bling; o documento como veio continua no acervo). Desligar do Bling apaga só o vínculo.",
+  },
 ];

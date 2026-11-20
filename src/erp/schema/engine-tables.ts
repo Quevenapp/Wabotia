@@ -68,6 +68,11 @@ const blingImmutable = (table: string) => [
 // continua nas tabelas do domínio, escrito pelas mesmas RPCs das telas.
 const adoption = (table: string, ddl: readonly string[]): EngineTable => ({ table, ddl, since: 12, owner: "bling-adota", structural: "adotar-bling" });
 const ADOPTION_ENTITIES = "'contacts','sellers','product_categories','products','warehouses','payment_methods','financial_categories','ledger_accounts'";
+// Fatia B2: documentos e contas em aberto viram documentos e títulos do ERP; os
+// encerrados ficam no espelho histórico (só consulta). Tabelas novas porque o
+// CHECK de entidade da versão 12 não se reescreve (migração só aditiva).
+const adoptionB2 = (table: string, ddl: readonly string[]): EngineTable => ({ table, ddl, since: 13, owner: "bling-adota2", structural: "adotar-bling-b2" });
+const ADOPTION_B2_ENTITIES = "'sales_proposals','sales_orders','purchase_orders','receivables','payables'";
 
 export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   {
@@ -814,6 +819,56 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   created_at INTEGER NOT NULL
 ) STRICT`,
     ...blingImmutable("wb_bling_adoption_command"),
+  ]),
+  // Versão 13: vínculo, pendências e espelho histórico de documentos e contas.
+  adoptionB2("wb_bling_adoption_doc_link", [
+    `CREATE TABLE "wb_bling_adoption_doc_link" (
+  entity TEXT NOT NULL CHECK (entity IN (${ADOPTION_B2_ENTITIES})),
+  source_id TEXT NOT NULL CHECK (${BLING_ID("source_id")}),
+  record_id TEXT NOT NULL CHECK (${BLING_ID("record_id")}),
+  source_version INTEGER NOT NULL CHECK (${BLING_COUNT("source_version", 1)}),
+  source_hash TEXT NOT NULL CHECK (${BLING_HASH("source_hash")}),
+  mode TEXT NOT NULL CHECK (mode IN ('created','linked','updated')),
+  adopted_by TEXT NOT NULL CHECK (${BLING_ID("adopted_by")}),
+  adopted_at INTEGER NOT NULL,
+  PRIMARY KEY (entity, source_id),
+  CONSTRAINT wb_bling_adoption_doc_link_record_unique UNIQUE (entity, record_id)
+) STRICT`,
+  ]),
+  adoptionB2("wb_bling_adoption_doc_review", [
+    `CREATE TABLE "wb_bling_adoption_doc_review" (
+  entity TEXT NOT NULL CHECK (entity IN (${ADOPTION_B2_ENTITIES})),
+  source_id TEXT NOT NULL CHECK (${BLING_ID("source_id")}),
+  state TEXT NOT NULL CHECK (state IN ('pending','ignored')),
+  reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 60 AND reason NOT GLOB '*[^a-z_]*'),
+  detail TEXT CHECK (detail IS NULL OR length(detail) <= 200),
+  candidates TEXT NOT NULL DEFAULT '[]' CHECK (${BLING_JSON("candidates", "array", 8192)}),
+  missing TEXT NOT NULL DEFAULT '[]' CHECK (${BLING_JSON("missing", "array", 16384)}),
+  source_version INTEGER NOT NULL CHECK (${BLING_COUNT("source_version", 1)}),
+  source_hash TEXT NOT NULL CHECK (${BLING_HASH("source_hash")}),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (entity, source_id)
+) STRICT`,
+    `CREATE INDEX wb_bling_adoption_doc_review_state ON wb_bling_adoption_doc_review(entity, state, source_id)`,
+  ]),
+  adoptionB2("wb_bling_adoption_history", [
+    `CREATE TABLE "wb_bling_adoption_history" (
+  entity TEXT NOT NULL CHECK (entity IN (${ADOPTION_B2_ENTITIES})),
+  source_id TEXT NOT NULL CHECK (${BLING_ID("source_id")}),
+  scope TEXT NOT NULL CHECK (scope IN ('fulfilled','cancelled','paid','partial','returned','deleted','other')),
+  situation TEXT CHECK (situation IS NULL OR length(situation) <= 120),
+  number TEXT CHECK (number IS NULL OR length(number) <= 80),
+  contact_name TEXT CHECK (contact_name IS NULL OR length(contact_name) <= 200),
+  issued_on TEXT CHECK (issued_on IS NULL OR (length(issued_on) = 10 AND issued_on GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')),
+  total_cents INTEGER CHECK (total_cents IS NULL OR total_cents BETWEEN -999999999999999 AND 999999999999999),
+  search TEXT NOT NULL DEFAULT '' CHECK (length(search) <= 400),
+  source_version INTEGER NOT NULL CHECK (${BLING_COUNT("source_version", 1)}),
+  source_hash TEXT NOT NULL CHECK (${BLING_HASH("source_hash")}),
+  recorded_at INTEGER NOT NULL,
+  PRIMARY KEY (entity, source_id)
+) STRICT`,
+    `CREATE INDEX wb_bling_adoption_history_date ON wb_bling_adoption_history(entity, issued_on, source_id)`,
   ]),
 ];
 
