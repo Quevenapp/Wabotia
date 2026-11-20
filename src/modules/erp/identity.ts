@@ -292,6 +292,11 @@ export async function erpIdentity(
   // NF-e não pode retirar novamente a marca conservadora do envelope.
   if (actor.via && path?.includes("/erp-comercial-nfe/") && !delegated)
     throw new ApiError(403, "erp_bot_grant_required", "Libere esta operação para o bot na área e confirme a proposta de escrita.");
+  // Leitura sensível pelo bot sem concessão, proposta confirmada ou opção
+  // autônoma: recusa explícita, ao lado do portão antigo (que só pega quem
+  // está no escopo de segundo fator).
+  if (actor.via && !delegated && isRead(method.toUpperCase()) && erpBotOperation(profile, method, path)?.sensitive)
+    throw new ApiError(403, "erp_bot_proposal_required", "Leitura sensível: proponha a consulta para a pessoa confirmar, ou peça ao administrador para liberá-la para o bot.");
   return {
     actor: {
       user_id: actor.id,

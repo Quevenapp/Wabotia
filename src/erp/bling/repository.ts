@@ -8,7 +8,7 @@ import {
   type BlingReceipt, type BlingUnit, type JsonObject, type RecordIdentity,
 } from "./contracts.ts";
 import type { BlingCommitInput, BlingReserveInput, CollectionStore } from "./ports.ts";
-import { authorizeBlingOperation, BLING_OPERATIONS, commitInputSchema, rawRecordSchema, reserveInputSchema, unitSchema } from "./schema.ts";
+import { authorizeBlingOperation, blingConfirmedByPerson, BLING_OPERATIONS, commitInputSchema, rawRecordSchema, reserveInputSchema, unitSchema } from "./schema.ts";
 import { BLING_XML_RESOURCE, getBlingResource, resourceVariants } from "./resources.ts";
 
 const encoder = new TextEncoder();
@@ -596,8 +596,12 @@ export class SqliteCollectionStore implements CollectionStore {
       const existing = requestedResources.length ? one(this.db, "SELECT id,cursor FROM erp_sync__run WHERE state IN ('queued','running')") : null;
       const runId = existing ? String(existing.id) : this.options.randomId(), now = ctx.clock.now();
       // Retomada explícita do administrador: notas bloqueadas por 403 de XML
-      // voltam a ser tentadas uma vez; outro 403 as bloqueia de novo.
-      if (xmlRequested) this.db.exec("UPDATE origin_fiscal__source SET state='retry',next_attempt_at=? WHERE state='blocked' AND entity IN ('nfe','nfce')", now);
+      // voltam a ser tentadas uma vez; outro 403 as bloqueia de novo. Só
+      // quando quem pede é administrador: a pessoa, ou o bot agindo por ela
+      // com proposta confirmada. Outro pedido vale como coleta, sem destravar.
+      const actor = ctx.identity.actor!;
+      const adminResume = actor.erp_role === "admin" && (!actor.is_agent || blingConfirmedByPerson(ctx, "erp_bling_collect_request", input.command_id));
+      if (xmlRequested && adminResume) this.db.exec("UPDATE origin_fiscal__source SET state='retry',next_attempt_at=? WHERE state='blocked' AND entity IN ('nfe','nfce')", now);
       if (!requestedResources.length) {
         // Pedido apenas de XML não inventa uma passagem paginada nem prova
         // que seus arquivos estejam prontos; o manifesto informa esse estado.

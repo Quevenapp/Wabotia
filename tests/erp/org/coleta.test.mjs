@@ -489,6 +489,34 @@ test("pedido administrativo aplica pessoa ∩ bot e teto da origem externa", () 
   } finally { f.close(); }
 });
 
+test("B6 (segunda revisão): só o pedido de administrador destrava XML bloqueado por 403; outro pedido vale só como coleta", () => {
+  const f = storeFixture();
+  try {
+    f.db.prepare("UPDATE wb_bling_control SET selection=?,permissions=?").run(JSON.stringify([{ key: "fiscal_xml", selected: true }]),
+      JSON.stringify({ bots: [{ bot_id: "bot", operations: [], entities: ["nfe"], allow_sensitive: true }] }));
+    f.db.prepare("INSERT INTO origin_fiscal__source(id,entity,source_id,access_key) VALUES('fonte-bloqueada','nfe','1',?)").run("3".repeat(20) + "55" + "3".repeat(22));
+    const block = () => f.db.prepare("UPDATE origin_fiscal__source SET state='blocked',next_attempt_at=NULL").run();
+    const state = () => f.db.prepare("SELECT state FROM origin_fiscal__source").get().state;
+    const app = { ...f.ctx, origin: "app", identity: { ...f.ctx.identity, actor } };
+    const grant = { id: "bot", allowed_operations: ["erp_bling_collect_request"], allowed_entities: ["nfe"], data_scopes: [], allow_sensitive: true };
+    const byBot = authorization => ({ ...app, identity: { ...app.identity, actor: { ...actor, is_agent: true } }, authorization });
+    const input = command => ({ command_id: command, expected_revision: "1", resource_keys: ["fiscal_xml"] });
+    block();
+    // Bot com a opção autônoma, agindo por administrador, sem proposta: coleta sim, destravar não.
+    assert.equal(f.store.requestCollection(byBot({ bot: grant }), input("xml-autonomo")).receipt.state, "committed");
+    assert.equal(state(), "blocked");
+    // Bot agindo por administrador com a proposta confirmada pela própria pessoa: destrava.
+    const confirmed = input("xml-confirmado"), request_hash = digest(JSON.stringify(confirmed));
+    f.store.requestCollection(byBot({ bot: { ...grant, allow_sensitive: false }, request_hash,
+      confirmation: { operation: "erp_bling_collect_request", command_id: confirmed.command_id, request_hash, confirmed_by: actor.user_id, expires_at: f.clock.now() + 60_000 } }), confirmed);
+    assert.equal(state(), "retry");
+    // Administrador sem bot: destrava.
+    block();
+    f.store.requestCollection(app, input("xml-administrador"));
+    assert.equal(state(), "retry");
+  } finally { f.close(); }
+});
+
 test("pedido manual separa passagens de entidade do trabalho XML e mantém replay integral", () => {
   const f = storeFixture();
   try {

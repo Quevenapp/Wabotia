@@ -480,6 +480,8 @@ export function createHandler({ fetchImpl = globalThis.fetch, timeoutMs = 8000, 
           const parsed=await parsePlatformRoute(request);
           return respond(200,await executePlatformRoute(parsed,{userId:user.id.toLowerCase(),rpc,sign:exportStorage.sign,cep:cepLookup,
             // A new export starts right away in the background; the cron picks it up anyway if this run is cut short.
+            // Wabotia: desvio intencional. Aqui a costura recusa erp_platform_* (403, SYSTEM_RPCS) e este disparo não faz nada;
+            // a exportação começa pelo alarme do objeto. Não reabra a costura para "consertar" isto.
             kick:()=>{if(typeof ctx?.waitUntil==='function')ctx.waitUntil(runPlatformTasks({rpc:createServiceRpc({baseUrl:settings.baseUrl,key:settings.key,fetchImpl}),exportStorage,
               attachments:createAttachmentStorage({supabaseDeployment:env.SUPABASE_DEPLOYMENT,baseUrl:settings.baseUrl,key:settings.key,fetchImpl}),purposes:['company_export'],maxTasks:1}).catch(()=>{}));}}));
         }catch(error){if(error instanceof PlatformError)throw new ApiError(error.status,error.code);
