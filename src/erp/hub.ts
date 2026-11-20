@@ -13,6 +13,7 @@ import type { Env } from "../types";
 import { applyErpPartsSnapshot, requireCurrentErpParts, ErpPartsControlError, currentErpParts, handleErpParts, ERP_PARTS_KEY } from "./parts-control.ts";
 import { ERP_PARTS_DENIED_HEADER, readErpPartsSnapshot } from "./parts.ts";
 import { decodeIdentity, IDENTITY_HEADER, SYSTEM_HEADER } from "./engine/identity.ts";
+import { prepareBlingDispatch, blingFailureResponse } from "./bling/assembly.ts";
 
 /**
  * Motor e esquema por import dinâmico: o bundle os traz, mas só são avaliados
@@ -112,7 +113,10 @@ export class ErpHub {
     // migração pode preceder a recusa de uma fotografia ausente ou superada.
     const rpc = path.startsWith("/erp-rpc/");
     const evidence = rpc && isCommercialNfeEvidenceRequest(path, request);
-    const identity = rpc ? decodeIdentity(request.headers.get(IDENTITY_HEADER)) : null;
+    const bling = path.startsWith("/erp-bling/");
+    const identity = rpc || bling ? decodeIdentity(request.headers.get(IDENTITY_HEADER)) : null;
+    // Só a evidência fiscal já reivindicada (NF-e) dispensa a fotografia de partes; o Bling sempre confere.
+    const gated = (rpc && !evidence) || bling;
     const input = identity && { ...identity.partsControl, parts: identity.parts };
     const authorize = async (apply: boolean) => {
       try {
@@ -130,12 +134,19 @@ export class ErpHub {
           { status: error.status, headers: { [ERP_PARTS_DENIED_HEADER]: error.code } });
       }
     };
-    if (rpc && !evidence) {
+    if (gated) {
       const denied = await authorize(true);
       if (denied) return denied;
     }
-    const { ERP_SCHEMA_VERSION, migrate, backupToR2, dumpAll, handleRpc, readBackup, restoreAll } = await engine();
-    if (rpc && !evidence) {
+    // O despachante administrativo valida identidade e entrada antes do motor.
+    // Reserva/commit nunca são nomes públicos aceitos por esta costura.
+    let blingCall;
+    if (bling) {
+      try { blingCall = await prepareBlingDispatch(profile, path, request, identity!); }
+      catch (error) { return blingFailureResponse(error); }
+    }
+    const { ERP_SCHEMA_VERSION, migrate, backupToR2, dumpAll, handleRpc, readBackup, restoreAll, handleBlingOperation } = await engine();
+    if (gated) {
       // O import cede a vez: expiração ou revisão nova também bloqueiam a migração.
       const denied = await authorize(false);
       if (denied) return denied;
@@ -143,6 +154,14 @@ export class ErpHub {
     const applied = migrate(this.ctx.storage);
     if (applied.status === "newer")
       return fail(503, "erp_schema_newer", `O esquema gravado (${applied.version}) é mais novo que o do código (${ERP_SCHEMA_VERSION}).`);
+    if (blingCall) {
+      const response = await handleBlingOperation(blingCall, { env: this.env, storage: this.ctx.storage,
+        readParts: async () => (await currentErpParts(this.ctx.storage, profile))?.parts ?? null,
+        readSnapshot: () => currentErpParts(this.ctx.storage, profile), profile });
+      if (response.ok) await this.schedule(profile, Date.now() + 1_000);
+      const denied = await authorize(false);
+      return denied ?? response;
+    }
     if (path === "/erp-ping")
       return Response.json({
         kind: ERP_KIND,
@@ -222,7 +241,7 @@ export class ErpHub {
     };
     let parts = await readParts();
     if (!parts) { await this.schedule(profile, null); return; }
-    const { CONTINUE_AFTER_MS, FILE_PURPOSES, ROUTINES, TASK_HANDLERS, nextWake, engineClock, migrate, runFileTasks, runRound, storageDriver } = await engine();
+    const { CONTINUE_AFTER_MS, FILE_PURPOSES, ROUTINES, TASK_HANDLERS, nextWake, engineClock, migrate, runFileTasks, runRound, storageDriver, runBlingWake, nextBlingWake } = await engine();
     parts = await readParts();
     if (!parts) { await this.schedule(profile, null); return; }
     if (migrate(storage).status === "newer") return;
@@ -241,6 +260,22 @@ export class ErpHub {
         if (next !== null && next <= Date.now() + 1) next = Date.now() + CONTINUE_AFTER_MS;
       } else next = Date.now() + CONTINUE_AFTER_MS;
     }
+    // Uma unidade externa só cabe numa acordada sem trabalho operacional.
+    // O executor recebe o vencimento existente e preserva 250 ms de margem.
+    const blingDependencies = { env: this.env, storage, readParts, profile, readSnapshot: () => currentErpParts(storage, profile) };
+    let blingNext: number | null;
+    try {
+      blingNext = !report.more && !report.fileDue && !report.routines.length && !report.tasks.length
+        ? (await runBlingWake(profile, blingDependencies, { eligible: true, nextOperationalAt: next, clock: { now: () => Date.now() } })).nextWake
+        : await nextBlingWake(profile, blingDependencies, Date.now() + CONTINUE_AFTER_MS);
+    } catch {
+      // Falha de infraestrutura da coleta não pode apagar/adiar o vencimento
+      // operacional. Não registrar exceção de cofre/HTTP nos logs do alarme.
+      blingNext = Date.now() + 60_000;
+    }
+    parts = await readParts();
+    if (!parts) { await this.schedule(profile, null); return; }
+    if (blingNext !== null) next = next === null ? blingNext : Math.min(next, blingNext);
     storage.sql.exec(
       "INSERT INTO erp_meta(key,value) VALUES('last_alarm',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
       String(Date.now()),

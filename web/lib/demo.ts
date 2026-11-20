@@ -4,6 +4,8 @@
 import type { Api, Row } from "./api";
 import { demoChannelRequest } from "./demo-channels";
 import type { BaseStatus, CustomWorkType, ExtraValues, FieldFilteredOrderList, ObjectOpeningRequest, Order, OrderFieldFilter, OrderHistory, OrderList, OrderRequirements, Page, PrivateFields, ServiceObjectSnapshotView, ServiceObjectType, ServiceObjectView, WorkField, WorkTypeCatalog, WorkTypeView } from "../modules/os/work-contracts";
+import { demoMe, demoProfile } from "./demo-entry";
+export { demoMe, demoProfile } from "./demo-entry";
 import * as erpDefinitions from "../../src/modules/erp/definition";
 import { oficinaMecanicaTemplate } from "../../src/area-templates/models/oficina-mecanica";
 import { agendaDemo, agendaDemoModule } from "../modules/agenda/demo";
@@ -70,12 +72,6 @@ function demoServiceType(id: string, event: boolean): CustomWorkType {
 }
 const eventType = demoServiceType("demo_festas_eventos", true);
 const consultancyType = demoServiceType("demo_consultoria", false);
-
-export const demoMe = { id: "demo-user", name: "Administrador", role: "admin" };
-export const demoProfile = {
-  id: "demo",
-  name: "Atendimento Queven",
-};
 
 const settings: Row = {
   os_work_types: [workshopType, eventType, consultancyType],

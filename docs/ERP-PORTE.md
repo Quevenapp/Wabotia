@@ -90,13 +90,15 @@ Contrato das operações para a futura entrada no catálogo dos bots (mesmo serv
 Os campos canônicos por família, modelos e mensagens públicas continuam centralizados em
 `packages/erp-domain/src/spreadsheet-import.mjs`; o adaptador HTTP existente continua validando
 o mesmo contrato. Nenhum importador separado de contatos, CSV financeiro ou lista de preços foi alterado.
-Ainda falta publicar as rotas ERP no OpenAPI/registro de módulos consumido por
-`src/bot-actions/catalog.ts`, conectar autorização por bot/área e a confirmação sensível ao
-envelope de identidade. Hoje o portão existente trata a pessoa via bot como agente e recusa
-admin/financeiro; esta tarefa não introduz esse bloqueio nem o contorna. A integração deverá
-oferecer liberação configurável pelo administrador, preservar pessoa ∩ bot e impedir que a
-origem externa alcance estas operações administrativas. O teste positivo de bot configurado
-depende dessa integração; não é coberto por um teste que finja uma identidade humana.
+Ainda falta publicar as rotas de importação no OpenAPI/registro de módulos consumido por
+`src/bot-actions/catalog.ts`. Na junção candidata, `bot.update` aceita os três nomes HTTP
+acima em `erp_operations`, por bot e área, com aviso `erp_data_acknowledged=true`.
+Sem concessão, a pessoa via bot conserva a marca de agente e a recusa de admin/financeiro.
+Com concessão, o envelope confere a conversa interna e a operação; a escrita exige proposta
+em confirmação pela sessão humana. Partes, papel e MFA continuam valendo e origem externa
+não recebe esse contexto. `tests/erp-commercial-bot.test.ts` prova a importação configurada
+pela rota real; `tests/erp-planilha-importacao.test.ts` conserva a recusa sem concessão.
+O editor de concessões no painel e a descoberta destas operações pelo catálogo seguem pendentes.
 
 Base: `feat/erp-motor`. Provas e números: `docs/ERP-FASE0.md`. Mapa de fechos:
 `docs/erp-closure-map.json`. Dono de cada RPC e das funções compartilhadas:
@@ -305,7 +307,7 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
 ## Regras que valem para todos
 
 - **Origin fora não é "sem efeito"** (orquestração, 17/11/2026; achado da O no `commission_seller`, que virou constante e só divergiu quando o `transition` passou a rodar nos dois motores).
-  - "Origin fora" (`sync/origin-off.ts`, desvio `origin-fora`) vale só para o que precisa do Origin vivo: sincronização, papel do Postgres, chamada à API do Bling.
+  - "Origin fora" (`sync/origin-off.ts`, desvio `origin-fora`) mantém a sincronização operacional, aplicação e envio legados desligados. A função interna [Receber dados do Bling](RECEBER-BLING.md), acrescentada na versão 11 do esquema, tem interruptor independente e coleta somente para acervo no `Coordinator`; não reativa esses executores nem o papel PostgreSQL.
   - Leitura de linha espelhada ou de tabela do Origin se porta como leitura: `origin_sync.*`, `erp_catalog.origin*`, `authority='origin'`, `erp_document_mirror.visible`. Sem dado, ela devolve o mesmo que a constante devolveria; com dado, o harness compara.
   - Guarda sobre registro espelhado (`authority='origin'`) se porta como guarda: `erp_document_mirror.guard_document`, `guard_item`, `guard_effect`, `require_visible`.
   - O que precisa do Origin vivo pode sair 0A000 visível (`notPorted`). Valor inventado ou "nada acontece" silencioso, não.
@@ -353,6 +355,7 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
       | `brufap-fiscal-artifacts` | `fiscal` | XML assinado, recibos e respostas da SEFAZ | `erp-fiscal` | não |
 
       Ficam de fora (404, como qualquer bucket fora da tabela): `origin-backups` e `origin-fiscal-xml` (Origin, bloco "externo") e `brufap-a1-vault`. O certificado A1 nunca fica no Wabotia: mora no cofre da NFapi, separado do sistema que tem bots e integrações (decisão do usuário). Gravar ou ler nele dá 404 mesmo com `erp-fiscal` ligado.
+      O novo [acervo recebido do Bling](RECEBER-BLING.md) usa prefixo privado por área no `MEDIA` existente e download autenticado próprio; não abre esses buckets lógicos legados.
 
       O caminho é o que a RPC registra, e o prefixo (área e bucket) é posto pela camada. Por dentro (chave no R2, `ctx.objects` e o diferencial) vale o nome do Fagoo, por exemplo `ctx.objects("brufap-cnab/" + caminho)`; o apelido só aparece no endereço público.
     - Rotas: enviar (`POST`, `x-upsert`; chave repetida → 409, que os adaptadores do Fagoo já aceitam), substituir (`PUT`), baixar (`GET …/authenticated/…`), apagar (`DELETE`) e assinar (`POST …/sign/…`).
@@ -382,7 +385,7 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
   - **Colunas de proveniência que ficam como constante:** `document.origin`/`authority` = 'brufap', `title.origin_zero_source_id` = NULL.
   - **Nomes com "origin" que são nativos e ficam:** `stock-origin.mjs`, `erp_document_copy_origin`, `product.origin` (ICMS).
   - **Mapa completo:** `sessao-N-origin-poda.md`, na pasta de notas.
-  - **Origin vivo, 0A000 visível (`rpc_not_ported`), Catálogo** (orquestração, 17/11/2026): são etapas da sincronização. Revisam e aplicam o que o coletor do Bling deixou em `origin_sync.raw_record`. A convivência com o Bling vira um componente externo que escreve pela API do ERP, e a funcionalidade equivalente fica com ele. O que cada um fazia, para o contrato de integração:
+  - **Origin vivo, 0A000 visível (`rpc_not_ported`), Catálogo** (orquestração, 17/11/2026): são etapas da sincronização. Revisam e aplicam o que o coletor do Bling deixou em `origin_sync.raw_record`. A decisão posterior mantém a coleta dentro do `Coordinator`, como acervo histórico; adoção revisada e escrita contínua de volta são etapas futuras separadas, sem liberar estes aplicadores. O que cada um fazia, para o contrato de integração:
     - `erp_catalog_import_sources`: lista paginada (cursor por `source_id`, busca em nome/código) dos registros de contatos ou produtos em `raw_record`.
       Para cada um, traz o plano de revisão (`import_review_plan`) sem as mudanças campo a campo; só administrador (`require_import_admin`).
     - `erp_catalog_import_preview`: para os `source_id` escolhidos, calcula o plano de importação (`import_review_plan`/`import_changes`, mapeamento `map_origin` do payload Bling para o cadastro).

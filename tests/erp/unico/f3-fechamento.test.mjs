@@ -5,6 +5,31 @@ import { api, fixture } from "../harness/f3-local.mjs";
 
 const rules = api.reservaConfig({ deposit_type: "percent", deposit_percent: 30 });
 
+test("junção: documento confirmado não esconde efeitos aguardando NF-e; intenção manual resolve cada eixo", () => {
+  const entry = (operation, effects, reason_code = null) => ({ state: "done", operation, component: "main",
+    eligible: { document: true, stock: true, finance: true }, receipt_json: JSON.stringify({
+      outcome: "applied", links: [{ kind: "document", id: "pedido" }], effects, reason_code,
+    }) });
+  const deferred = entry("execute", { stock: "skipped", finance: "skipped" }, "awaiting_fiscal_authorization");
+  const lifecycle = entry("lifecycle", { stock: "not_requested", finance: "not_requested" });
+  const stock = entry("lifecycle", { stock: "posted", finance: "not_requested" });
+  const finance = entry("lifecycle", { stock: "not_requested", finance: "posted" });
+  for (const rows of [[deferred], [deferred, lifecycle]]) {
+    const view = api.effectiveSourceState(rows);
+    assert.equal(view.state, "skipped"); assert.equal(view.pending, true);
+    assert.equal(view.skipped_reason, "awaiting_fiscal_authorization");
+    assert.deepEqual([...view.manual].sort(), ["finance", "stock"]);
+    assert.deepEqual(view.applied, ["document"]);
+  }
+  const partial = api.effectiveSourceState([deferred, lifecycle, stock]);
+  assert.equal(partial.skipped_reason, "awaiting_fiscal_authorization");
+  assert.deepEqual([...partial.manual], ["finance"]);
+  const done = api.effectiveSourceState([deferred, lifecycle, stock, finance]);
+  assert.equal(done.state, "done"); assert.equal(done.pending, false); assert.equal(done.skipped_reason, null);
+  const cancelled = api.effectiveSourceState([deferred, entry("cancel", { stock: "not_requested", finance: "not_requested" })]);
+  assert.equal(cancelled.state, "done"); assert.equal(cancelled.pending, false); assert.equal(cancelled.manual.size, 0);
+});
+
 test("Trabalho sem material e automação desligada conserva só Financeiro manual", async t => {
   const f = await fixture(t);
   f.local.prepare("UPDATE module_erp_policy SET config_json=json_set(config_json,'$.auto_post.finance',json('false'),'$.auto_post.stock',json('false')) WHERE profile_id=?").run(f.profile);

@@ -1,3 +1,5 @@
+import { ERP_BOT_OPERATIONS } from "./modules/erp/bot-access";
+
 const id = { type: "string", minLength: 1 };
 const lineIds = { type: "array", maxItems: 200, uniqueItems: true, items: id };
 export const serviceSchemas = {
@@ -288,6 +290,9 @@ export const serviceSchemas = {
     properties: {
       enabled: { type: "boolean" },
       name: { type: "string" },
+      erp_operations: { type: "array", uniqueItems: true, default: [], items: { type: "string", enum: ERP_BOT_OPERATIONS.map(op => op.id) },
+        description: "Concessões nominais do ERP para este bot nesta área. Lista vazia revoga. Conserva papel, partes, horário e MFA da pessoa; escritas exigem proposta confirmada. Não publica rotas de repasse no catálogo." },
+      erp_data_acknowledged: { type: "boolean", description: "Obrigatório true ao liberar operações: seus dados poderão ser enviados ao provedor de IA. Dados pessoais continuam mascarados por padrão." },
       line_ids: {
         ...lineIds,
         type: ["array", "null"],

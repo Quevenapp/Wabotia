@@ -37,6 +37,7 @@ export const EMBEDDED = new Set([
  * que quem não liga um bloco nunca baixe as telas dele.
  */
 const groups: [string, RegExp][] = [
+  ["receber-bling", /^(ReceiveBling|receive-bling)$/],
   ["pdv", /pdv|(^|[-_/])pos([-_.]|$)|cash-register/i],
   ["cobranca", /cnab|boleto|remittance|net-credit|FinanceReturns/i],
   ["financeiro", /^finance/i],

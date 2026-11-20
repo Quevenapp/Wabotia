@@ -149,6 +149,7 @@ const SCREENS: [string, string][] = [
   ["/preferencias/backup/exportacao", "/v1/plataforma/exportacoes"],
   ["/preferencias/sistema/gestao-acoes", "/v1/importacoes"],
   ["/empresa-configuracoes", "/v1/empresa"],
+  ["/receber-bling", "/v1/receber-bling"],
   [
     "/preferencias/sistema/registro-atividades",
     "/v1/registro-atividades?de=2026-11-01&ate=2026-11-16",
@@ -175,6 +176,8 @@ const SCREENS: [string, string][] = [
  * responde 2xx ou está em MOTOR_PENDING_READS (web/erp/motor.ts).
  */
 const OPEN_READS: [string, string][] = [
+  ["Receber dados do Bling", "/v1/receber-bling"],
+  ["Receber dados do Bling", "/v1/receber-bling/recursos"],
   ["Meu negócio", "/v1/preferencias/meu-negocio"],
   ["Meu negócio", "/v1/sistema/permissoes"],
   ["Meu negócio", "/v1/meu-negocio/mensal?de=2026-11-01&ate=2026-11-19&situacoes=fulfilled"],

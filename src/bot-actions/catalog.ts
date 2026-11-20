@@ -7,6 +7,7 @@ import { moduleRoutes } from "../modules/hooks";
 import { moduleForRoute, moduleStates } from "../modules/registry";
 import { requireOperationAccess, requireRouteAccess } from "../access";
 import { ApiError, type Actor, type Env } from "../types";
+import { ERP_BOT_OPERATIONS, erpBotGrantedOperations } from "../modules/erp/bot-access";
 
 export interface CatalogOperation {
   /** Nome usado nas ferramentas: a op da escrita ("os.create") ou "consulta:<caminho>". */
@@ -128,7 +129,7 @@ export function fullCatalog(): CatalogOperation[] {
 /** Operações que a pessoa alcança agora na área: módulo ligado e acesso dela. */
 export async function catalogFor(env: Env, actor: Actor, profile: string) {
   const states = await moduleStates(env, profile);
-  return fullCatalog().filter((op) => {
+  const available = fullCatalog().filter((op) => {
     if (!states[op.module]) return false;
     try {
       requireRouteAccess(actor, op.path.split("/")[0]);
@@ -138,6 +139,13 @@ export async function catalogFor(env: Env, actor: Actor, profile: string) {
       if (error instanceof ApiError) return false;
       throw error;
     }
+  });
+  if (!actor.via || !available.some(op => op.path.startsWith("erp-comercial-nfe/"))) return available;
+  const granted = await erpBotGrantedOperations(env, actor, profile);
+  return available.filter(op => {
+    if (!op.path.startsWith("erp-comercial-nfe/")) return true;
+    const contract = ERP_BOT_OPERATIONS.find(entry => entry.method === op.method && entry.path === op.path);
+    return !!contract && granted.includes(contract.id);
   });
 }
 

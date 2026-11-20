@@ -232,10 +232,13 @@ function commercialRows(db) {
   return { emission, command, document, person };
 }
 
-test("v10 vazia é repetível; sete tabelas STRICT, restrições antigas preservadas", () => {
+test("v11 vazia tem 1057 instruções e 450 tabelas; repetição e restrições comerciais preservadas", () => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys=ON");
-  assert.equal(migrate(storage(db)).version, 10);
+  const first = migrate(storage(db));
+  assert.equal(first.version, ERP_DDL_VERSION);
+  assert.equal(first.statements, 1057);
+  assert.equal(tablesOf(db).length, 450);
   assert.equal(migrate(storage(db)).status, "current");
   assert.equal(commercialTables.length, 7);
   for (const table of commercialTables) {
@@ -255,7 +258,7 @@ test("v9 populada sobe aditivamente, falha no 9→10 é atômica e repetição c
   assert.deepEqual(meta(db), before.meta);
   assert.deepEqual(schema(db), before.schema);
   assert.deepEqual(content(db), before.content);
-  assert.equal(migrate(storage(db)).version, 10);
+  assert.equal(migrate(storage(db)).version, ERP_DDL_VERSION);
   assert.deepEqual(content(db, Object.keys(before.content)), before.content);
   const oldObjects = new Set(before.schema.objects);
   for (const object of oldObjects) assert.ok(schema(db).objects.includes(object), object);
@@ -320,4 +323,113 @@ test("fixture comercial entrega fontes persistidas, papéis e relógio sem esper
   const time = fixture.clock.now();
   fixture.clock.advance(60_000);
   assert.equal(fixture.clock.now(), time + 60_000);
+});
+
+
+const blingTables = ERP_ENGINE_TABLES.filter(t => t.since === 11).map(t => t.table);
+
+function versionTenObject() {
+  const db = versionNineObject();
+  const s = storage(db);
+  s.transactionSync(() => {
+    createEngineTables(s.sql, 10);
+    db.prepare("UPDATE erp_meta SET value='10' WHERE key='schema_version'").run();
+  });
+  commercialRows(db);
+  return db;
+}
+
+for (const from of [9, 10]) test(`v${from} sobe à v11 sem tocar conteúdo prévio; interrupção no 10→11 desfaz tudo`, () => {
+  const db = from === 9 ? versionNineObject() : versionTenObject();
+  const before = { meta: meta(db), schema: schema(db), content: content(db) };
+  assert.throws(() => migrate(storage(db, sql => sql.startsWith('CREATE TABLE "wb_bling_audit"'))), /interrompido/);
+  assert.deepEqual(meta(db), before.meta);
+  assert.deepEqual(schema(db), before.schema);
+  assert.deepEqual(content(db), before.content);
+  assert.equal(migrate(storage(db)).version, 11);
+  assert.equal(blingTables.length, 6);
+  assert.deepEqual(content(db, Object.keys(before.content)), before.content);
+  for (const table of blingTables) {
+    assert.equal(db.prepare(`SELECT count(*) n FROM ${q(table)}`).get().n, 0);
+    assert.match(db.prepare("SELECT sql FROM sqlite_master WHERE name=?").get(table).sql, /\) STRICT$/);
+  }
+  const after = { meta: meta(db), schema: schema(db), content: content(db) };
+  assert.equal(migrate(storage(db)).status, "current");
+  assert.deepEqual({ meta: meta(db), schema: schema(db), content: content(db) }, after);
+  assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+  db.close();
+});
+
+for (const from of [9, 10]) test(`backup após v${from}→11 conserva NF-e e dados operacionais; restauração suspende coleta, credenciais e posses`, () => {
+  const db = from === 9 ? versionNineObject() : versionTenObject();
+  migrate(storage(db));
+  if (from === 9) commercialRows(db);
+  const instant = 1_795_089_600_000;
+  const credential = randomUUID(); // Só material sintético gerado em memória, nunca gravado em arquivo.
+  // A migração já semeia a conta legada única; a credencial usa essa mesma FK.
+  assert.equal(db.prepare("SELECT count(*) n FROM origin_sync__account WHERE id=1").get().n, 1);
+  db.prepare("INSERT INTO origin_sync__credentials(account_id,ciphertext,expires_at,revision,updated_at) VALUES(1,?,?,1,?)")
+    .run(JSON.stringify({ synthetic: credential }), instant + 10000, instant);
+  const oauthHash = "b".repeat(64), browserHash = "c".repeat(64);
+  db.prepare("INSERT INTO origin_sync__oauth_state(state_hash,browser_hash,created_at,expires_at) VALUES(?,?,?,?)")
+    .run(oauthHash, browserHash, instant, instant + 600000);
+  db.prepare("INSERT INTO origin_sync__resource_state(resource,lease_owner,lease_token,lease_expires_at,updated_at) VALUES('contracts','old-worker','old-fence',?,?)")
+    .run(instant + 5000, instant);
+  db.prepare(`INSERT INTO wb_bling_control(revision,generation,authorization_revision,credential_revision,collect_enabled,state,account_id,approved_by,approved_at,approval_hash,app_configured,credential_status,updated_at)
+    VALUES(4,2,3,2,1,'running','company','administrator',?,?,1,'ready',?)`).run(instant, hash, instant);
+  db.prepare(`INSERT INTO wb_bling_unit(id,attempt_id,command_id,request_hash,generation,authorization_revision,credential_revision,kind,phase,owner,fence,lease_until,not_before,created_at,updated_at,account_id,parts_revision)
+    VALUES('work','attempt','command',?,2,3,2,'detail','fetching','old-worker','old-fence',?,?,?,?,'company','1')`).run(hash, instant + 5000, instant, instant, instant);
+  db.prepare(`INSERT INTO wb_bling_unit(id,attempt_id,command_id,request_hash,generation,authorization_revision,credential_revision,kind,not_before,state_hash,browser_hash,profile,session_id,actor_id,configuration_revision,expires_at,created_at,updated_at)
+    VALUES('oauth','oauth-attempt','oauth-command',?,2,3,2,'oauth_state',?,?,?,'area','session','administrator',4,?,?,?)`)
+    .run(hash, instant, oauthHash, browserHash, instant + 600000, instant, instant);
+  db.prepare(`INSERT INTO wb_bling_extra_raw(entity,source_id,generation,last_resource,payload,version_hash,first_seen_at,last_seen_at,changed_at)
+    VALUES('contracts','900719925474099312345',2,'contracts','{"total":"123.4500"}',?,?,?,?)`).run(hash, instant, instant, instant);
+  const snapshot = dumpAll(storage(db));
+  for (const table of commercialTables) assert.ok(snapshot.manifest.tables.some(t => t.table === table), table);
+  const text = JSON.stringify(snapshot);
+  for (const excluded of [credential, oauthHash, browserHash, "old-fence", "origin_sync__credentials", "origin_sync__oauth_state"])
+    assert.equal(text.includes(excluded), false, "backup não pode conter material privado nem posses reutilizáveis");
+  const unitFile = snapshot.files.find(f => f.table === "wb_bling_unit").body;
+  assert.equal(unitFile.trimEnd().split("\n").length, 2, "só a unidade de coleta é exportada");
+  const restored = new DatabaseSync(":memory:");
+  restored.exec("PRAGMA foreign_keys=ON");
+  migrate(storage(restored));
+  restoreAll(storage(restored), snapshot.manifest, new Map(snapshot.files.map(f => [f.table, f.body])));
+  const control = restored.prepare("SELECT * FROM wb_bling_control").get();
+  assert.equal(control.collect_enabled, 0);
+  assert.equal(control.state, "off");
+  assert.equal(control.generation, 2, "geração mantém o vínculo do acervo");
+  assert.equal(control.revision, 5);
+  assert.equal(control.authorization_revision, 4);
+  assert.equal(control.credential_revision, 3);
+  assert.equal(control.approved_by, null);
+  assert.equal(control.approval_hash, null);
+  assert.equal(control.credential_status, "missing");
+  const unit = restored.prepare("SELECT * FROM wb_bling_unit").get();
+  assert.equal(unit.id, "work");
+  assert.equal(unit.phase, "waiting");
+  assert.equal(unit.owner, null);
+  assert.equal(unit.fence, null);
+  assert.equal(unit.lease_until, null);
+  const resource = restored.prepare("SELECT * FROM origin_sync__resource_state WHERE resource='contracts'").get();
+  assert.equal(resource.lease_owner, null);
+  assert.equal(resource.lease_token, null);
+  assert.equal(resource.lease_expires_at, null);
+  for (const table of ["origin_sync__credentials", "origin_sync__oauth_state"])
+    assert.equal(restored.prepare(`SELECT count(*) n FROM ${q(table)}`).get().n, 0);
+  assert.deepEqual(content(restored, ["wb_bling_extra_raw"]), content(db, ["wb_bling_extra_raw"]));
+  const operationalTables = tablesOf(db).filter(table => table.startsWith("erp_"));
+  assert.deepEqual(content(restored, operationalTables), content(db, operationalTables));
+  assert.deepEqual(schema(restored), schema(db));
+  assert.throws(() => restored.exec("DELETE FROM erp_fiscal_vault__order_revision"), /com1_history_immutable/);
+  // Restaurar de novo nunca faz a revisão regredir ao valor do backup.
+  restored.exec("UPDATE wb_bling_control SET revision=20,authorization_revision=20,credential_revision=20");
+  restoreAll(storage(restored), snapshot.manifest, new Map(snapshot.files.map(f => [f.table, f.body])));
+  assert.deepEqual({ ...restored.prepare("SELECT revision,authorization_revision,credential_revision FROM wb_bling_control").get() },
+    { revision: 21, authorization_revision: 21, credential_revision: 21 });
+  assert.deepEqual(restored.prepare("PRAGMA foreign_key_check").all(), []);
+  const forbidden = { ...snapshot.manifest, tables: [...snapshot.manifest.tables, { table: "origin_sync__credentials", rows: 0, sha256: hash }] };
+  assert.throws(() => restoreAll(storage(restored), forbidden, new Map()), /Tabela não permitida/);
+  db.close();
+  restored.close();
 });

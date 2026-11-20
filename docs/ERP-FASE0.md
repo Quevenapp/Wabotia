@@ -678,6 +678,16 @@ na primeira chamada do ERP. Medida local (`wrangler check startup`, CPU ativa,
 
 ## Origin fora: poda e linha de corte (PLANO-FAGOO.md, item 17)
 
+**Ressalva de 19/11/2026:** a proposta de externalizar o coletor, descrita
+abaixo como histórico do porte, foi substituída por
+[Receber dados do Bling](RECEBER-BLING.md). A coleta e o acervo são internos
+ao `Coordinator`, somente GET de dados, com interruptor próprio inicialmente
+desligado e esquema aditivo na versão 11 (depois da versão 10 da NF-e).
+`erp_sync__settings.enabled=false` e as guardas operacionais permanecem.
+Nada desta entrega adota dados, abre financeiro/estoque ou envia alterações;
+adoção e mão dupla futura terão autorização e revisão próprias. Conferência
+oficial e uso real seguem o [roteiro exclusivo do dono](RECEBER-BLING-PRIMEIRA-COLETA.md).
+
 Detalhe em `sessao-N-origin-poda.md` (pasta de notas da orquestração).
 
 **Premissa corrigida:** no oráculo o Origin está **ligado**.

@@ -9,10 +9,50 @@ import "../src/erp/domains/index";
 import { storageDriver } from "../src/erp/engine/driver";
 import { callRpc } from "../src/erp/engine/registry";
 import { dumpAll } from "../src/erp/engine/dump";
+import { createBlingVault } from "../src/erp/bling/vault";
+import { emissorConnection } from "../src/erp/emissor/config";
+import { setSecret } from "../src/security";
 
 const micros = () => String(BigInt(Date.now()) * 1000n);
 
 describe("ERP fase 0: backup e restauração", () => {
+  it("backup não leva credenciais do Bling/emissor nem as ressuscita após desconexão", async () => {
+    const source = uid(), target = uid(), instant = Date.UTC(2026, 10, 19, 15);
+    const vault = createBlingVault(env);
+    const application = { client_id: crypto.randomUUID(), client_secret: crypto.randomUUID() };
+    const credential = { ...application, access_token: crypto.randomUUID(), refresh_token: crypto.randomUUID(), expires_at: instant + 3_600_000, scopes: [] };
+    const emitterKey = crypto.randomUUID();
+    const connected = await vault.compareAndSwap(source, await vault.read(source), { revision: "1", application, credential, disconnected: false });
+    await setSecret(env, `erp-emissor:${source}`, { provider: "nfapi", url: "https://cofre.invalid", api_key: emitterKey });
+    await erpFetch(env, source, "/erp-ping");
+    const dumpText = await runInDurableObject(erpStub(env, source), (_i: any, state: DurableObjectState) => {
+      state.storage.sql.exec(`INSERT INTO wb_bling_control(revision,credential_revision,collect_enabled,state,approved_by,approved_at,approval_hash,app_configured,credential_status,updated_at)
+        VALUES(1,1,1,'running','administrator',?,?,1,'ready',?)`, instant, "a".repeat(64), instant);
+      return JSON.stringify(dumpAll(state.storage));
+    });
+    for (const secret of [application.client_id, application.client_secret, credential.access_token, credential.refresh_token, emitterKey, connected.ciphertext!])
+      expect(dumpText.includes(secret)).toBe(false);
+    const backup = await (await erpFetch(env, source, "/erp-backup", { method: "POST" })).json<any>();
+    expect(backup.manifest.tables.some((entry: { table: string }) => ["secrets", "origin_sync__credentials", "origin_sync__oauth_state"].includes(entry.table))).toBe(false);
+
+    // Desconexão posterior ao backup: restaurar na mesma área não desfaz o tombstone.
+    await vault.compareAndSwap(source, connected, { revision: "2", application: null, credential: null, disconnected: true });
+    await env.DB.prepare("DELETE FROM secrets WHERE id=?").bind(`erp-emissor:${source}`).run();
+    for (const profile of [source, target]) {
+      const response = await erpFetch(env, profile, "/erp-restore", { method: "POST", body: JSON.stringify({ prefix: backup.prefix }) });
+      expect(response.status).toBe(200);
+      expect(await emissorConnection(env, profile)).toBeNull();
+      const restoredCredential = await vault.read(profile);
+      expect(restoredCredential.value.application).toBeNull();
+      expect(restoredCredential.value.credential).toBeNull();
+      expect(restoredCredential.revision).toBe(profile === source ? "2" : "0");
+      expect(restoredCredential.value.disconnected).toBe(profile === source);
+      const control = await runInDurableObject(erpStub(env, profile), (_i: any, state: DurableObjectState) =>
+        state.storage.sql.exec("SELECT collect_enabled,state,credential_status,approved_by FROM wb_bling_control").toArray()[0]);
+      expect(control).toEqual({ collect_enabled: 0, state: "off", credential_status: "missing", approved_by: null });
+    }
+  }, 120_000);
+
   it("dump no R2 e restauração numa instância nova batem tabela por tabela", async () => {
     const source = uid(),
       target = uid();

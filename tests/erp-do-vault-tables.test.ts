@@ -43,17 +43,23 @@ describe("ERP: tabelas do cofre (notas recebidas e emissão)", () => {
       const triggers = () =>
         sql.exec("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='erp_fiscal_vault__received_change' ORDER BY name").toArray().map((r: any) => r.name);
       const fresh = { tables: tables(), triggers: triggers() };
-      // Como um objeto criado na versão 8: sem as tabelas do cofre (filhas antes das mães).
-      for (const t of [...VAULT].reverse()) sql.exec(`DROP TABLE "${t}"`);
+      // Como um objeto criado na versão 8: sem as tabelas do cofre nem as
+      // comerciais da versão 10 e do Bling da 11 (filhas antes das mães).
+      for (const t of ERP_ENGINE_TABLES.filter((t) => t.since > 8).reverse()) sql.exec(`DROP TABLE "${t.table}"`);
       sql.exec("UPDATE erp_meta SET value='8' WHERE key='schema_version'");
       const dropped = { tables: tables(), triggers: triggers() };
+      const laterTables = () => ERP_ENGINE_TABLES.filter((t) => t.since > 8).map((t) => ({ table: t.table,
+        count: Number(sql.exec("SELECT count(*) n FROM sqlite_master WHERE type='table' AND name=?", t.table).toArray()[0].n) }));
+      const laterDropped = laterTables();
       const step = migrate(state.storage);
       const meta = Object.fromEntries(sql.exec("SELECT key, value FROM erp_meta WHERE key IN ('schema_version','schema_hash')").toArray().map((r: any) => [r.key, r.value]));
-      return { fresh, dropped, step, after: { tables: tables(), triggers: triggers() }, meta, again: migrate(state.storage) };
+      return { fresh, dropped, laterDropped, laterRestored: laterTables(), step, after: { tables: tables(), triggers: triggers() }, meta, again: migrate(state.storage) };
     });
     expect(ERP_DDL_VERSION).toBeGreaterThanOrEqual(9);
     expect(out.fresh).toEqual({ tables: [1, 1, 1, 1, 1], triggers: CHANGE_TRIGGERS });
     expect(out.dropped).toEqual({ tables: [0, 0, 0, 0, 0], triggers: [] });
+    expect(out.laterDropped).toEqual(ERP_ENGINE_TABLES.filter((t) => t.since > 8).map((t) => ({ table: t.table, count: 0 })));
+    expect(out.laterRestored).toEqual(out.laterDropped.map((t) => ({ ...t, count: 1 })));
     expect(out.step).toMatchObject({ status: "applied", version: ERP_DDL_VERSION });
     expect(out.after).toEqual(out.fresh);
     expect(out.meta).toEqual({ schema_version: String(ERP_DDL_VERSION), schema_hash: ERP_DDL_HASH });

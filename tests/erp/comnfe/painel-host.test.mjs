@@ -88,6 +88,32 @@ test('menu comercial prepara somente NF-e integral e fecha NFC-e, parcial e lote
   }
 });
 
+test('junção: pedido vindo de módulo permanece somente para abrir, sem preparar ou acompanhar NF-e', async () => {
+  const row = { id, kind: 'sales_orders', number: '7', version: 3, status: 'in_progress', date: '2026-11-19', total: '51.00',
+    contact_id: actor, contact_name: 'Cliente do módulo', created_at: '2026-11-19T12:00:00Z', updated_at: '2026-11-19T12:00:00Z',
+    template: false, finance_active: false, stock_active: false, receipt_active: false, reservation_active: false };
+  const opened = [];
+  const view = await mountComponent('DocumentList.tsx', { controller: controller(), kind: 'sales_orders',
+    access: { read: ['sales_orders'], write: ['sales_orders'] }, writable: true, today: '2026-11-19',
+    page: { items: [row], total_count: 1, total_amount: '51.00' }, loading: false,
+    filters: { ...EMPTY_LIST_FILTERS }, order: 'date_desc', listPage: 1, filterError: '',
+    onApply() {}, onPage() {}, onOrder() {}, onReload() {}, onKind() {}, onOpen: value => opened.push(value),
+    onClone() {}, onConverted() {}, onNavigate() {},
+  }, { modules: { ...modules, '../../../modules/integrations/LegacyServiceOrders': `
+    export const useDocumentOrigins = ids => ({ ready: true, protectedIds: ids, origins: [], host: null });
+    export const DocumentOriginNotice = () => null;
+  ` }, expandChildren: ['NativeListLayout'] });
+  try {
+    const items = component(view, 'RowMenu').props.items;
+    assert.equal(items.length, 1);
+    assert.equal(items[0].disabled, false);
+    assert.doesNotMatch(items[0].label, /NF-e/);
+    items[0].onClick(); await view.flush();
+    assert.deepEqual(opened, [id]);
+    assert.equal(view.nodes().find(node => node.type === 'input' && node.props.type === 'checkbox' && node.props['aria-label']?.includes('7')).props.disabled, true);
+  } finally { view.unmount(); }
+});
+
 test('Compras no host bloqueia clonagem para saída e devolução inclusive em handler antigo', async () => {
   const calls = [], c = controller();
   c.fiscalInvoices = async path => {

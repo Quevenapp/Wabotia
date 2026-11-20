@@ -5,7 +5,7 @@ import { ORIGIN_MENU, COMPANY_PREFERENCES, activeGroupFor, matchesLocation, reso
 const labels = group => group.columns.map(column => `${column.title}: ${column.items.map(item => item.label).join(', ')}`);
 
 test('access catalog groups the available resources and operations', () => {
-  assert.deepEqual(ORIGIN_MENU.map(group => group.name), ['Meu Negócio', 'Cadastros', 'Vendas', 'Estoque', 'Financeiro']);
+  assert.deepEqual(ORIGIN_MENU.map(group => group.name), ['Meu Negócio', 'Cadastros', 'Vendas', 'Estoque', 'Financeiro', 'Sistema']);
   const byName = Object.fromEntries(ORIGIN_MENU.map(group => [group.name, group]));
   assert.deepEqual(labels(byName.Cadastros), [
     'Cadastros: Produtos, Clientes e fornecedores, Vendedores, Funcionários, Contas Financeiras, Categorias Financeiras, Formas de pagamento',
@@ -20,7 +20,8 @@ test('access catalog groups the available resources and operations', () => {
     'Compras: Pedidos de compra, Notas fiscais de entrada, Fornecedores, Sugestão de Compras, Check-in de Recebimentos',
     'Estoque: Lançamentos de estoque, Conferência de estoque, Depósitos',
   ]);
-  assert.deepEqual(labels(byName.Financeiro), ['Gestão financeira: Caixas e bancos, Contas a pagar, Contas a receber, Remessas e retornos, Ficha Financeira, Comissões, Controle de caixa, Faturamento agrupado']);
+  assert.deepEqual(labels(byName.Financeiro), ['Gestão financeira: Caixas e bancos, Contas a pagar, Contas a receber, Remessas e retornos, Cobrança operacional, Retornos operacionais, Ficha Financeira, Comissões, Controle de caixa, Faturamento agrupado']);
+  assert.deepEqual(labels(byName.Sistema), ['Auditoria: Registro de atividades, Consulta de exclusões', 'Integrações: Receber dados do Bling']);
   assert.deepEqual(['Cadastros', 'Vendas', 'Estoque', 'Financeiro'].map(name => byName[name].footer.label), ['Ver relatórios de cadastros', 'Ver relatórios de vendas', 'Ver relatórios de compras e estoque', 'Ver relatórios financeiros']);
 });
 
@@ -33,7 +34,7 @@ test('real area respects roles and resources and hides groups with nothing enabl
   const none = resolveMenu('real', {});
   assert.deepEqual(none, []);
   const sales = resolveMenu('real', { role: 'vendas', resources: ['contacts'] });
-  assert.deepEqual(sales.map(group => group.name), ['Meu Negócio', 'Cadastros', 'Vendas', 'Estoque']);
+  assert.deepEqual(sales.map(group => group.name), ['Meu Negócio', 'Cadastros', 'Vendas', 'Estoque', 'Sistema']);
   const cadastros = sales.find(group => group.name === 'Cadastros');
   assert.equal(cadastros.columns[0].items.find(item => item.label === 'Produtos').disabled, true);
   assert.equal(cadastros.columns[0].items.find(item => item.label === 'Clientes e fornecedores').to, '/cadastros-reais?cadastro=contacts');

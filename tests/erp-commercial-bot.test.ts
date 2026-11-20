@@ -9,7 +9,7 @@ import { authenticate, sha } from "../src/security";
 import { setMfaPolicy } from "../src/mfa";
 import { perform } from "../src/service";
 import { botActionContext, createProposal, confirmProposal } from "../src/bot-actions/actions";
-import { fullCatalog, type CatalogOperation } from "../src/bot-actions/catalog";
+import { catalogFor, fullCatalog, type CatalogOperation } from "../src/bot-actions/catalog";
 import { erpCommercialOperations } from "../src/modules/erp/commercial-operations";
 import { bearer, bot, fixture } from "./service-center-fixture";
 import { enableErpParts, setModule } from "./erp-module-helper";
@@ -36,13 +36,17 @@ async function confirmingSession(actor: Actor) {
   };
 }
 
-async function setup() {
+async function setup(configured = true) {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-11-19T15:00:00Z"));
   const f = await fixture();
   await enableErpParts(f.profile, f.admin.id);
   await setModule(f.profile, "erp-cobranca", true, f.admin.id);
   const botId = await bot(f);
+  if (configured) await perform(env, f.admin, f.profile, "bot.update", {
+    id: botId, erp_operations: ["erp_cnab_operational_index", "erp_cnab_operational_index_v2", "erp_cnab_operational_returns_index",
+      "erp.business.goals", "erp.business.goal.save", "erp_cnab_operational_generate_v2"], erp_data_acknowledged: true,
+  }, uid());
   const chat = await perform(env, f.admin, f.profile, "internal.create", { peer_id: `bot:${botId}` }, uid());
   const sent = await perform(env, f.admin, f.profile, "internal.send", { id: chat.id, text: "Consultar ERP" }, uid());
   const run = await one(env, "SELECT * FROM bot_runs WHERE id=?", sent.run_id);
@@ -62,7 +66,7 @@ describe("contratos ERP prontos para o catálogo do bot", () => {
     expect(fullCatalog().some(op => op.path.startsWith("erp/v1/"))).toBe(false);
   });
 
-  it("bot escolhido na conversa interna alcança as três consultas novas pela identidade da pessoa", { timeout: 120_000 }, async () => {
+  it("bot configurado na área alcança as três consultas novas pela identidade da pessoa", { timeout: 120_000 }, async () => {
     const { f, run } = await setup();
     const ctx = await botActionContext(env, run);
     expect(ctx).not.toBeNull();
@@ -76,6 +80,87 @@ describe("contratos ERP prontos para o catálogo do bot", () => {
       // A origem externa mantém o teto de cliente, mesmo informando o ator admin.
       expect(await botActionContext(env, { ...run, conversation_id: uid(), actor: f.admin.id })).toBeNull();
     }
+  });
+
+  it("concessão é nominal, por bot/área e relida; origem externa e pessoa sem papel não ganham acesso", { timeout: 120_000 }, async () => {
+    const { f, run, botId } = await setup(false);
+    const ctx = (await botActionContext(env, run))!;
+    const read = (path = "cobranca-operacional", actor = ctx.actor) =>
+      internalCall(env, actor, { path: `/profiles/${f.profile}/erp/v1/${path}` });
+    expect((await read()).status).toBe(403);
+    await perform(env, f.admin, f.profile, "bot.update", {
+      id: botId, erp_operations: ["erp_cnab_operational_index"], erp_data_acknowledged: true,
+    }, uid());
+    expect((await read()).status).toBe(200);
+    expect((await read("retornos-operacionais")).status).toBe(403);
+    expect((await read("cobranca-operacional", { ...ctx.actor, via: { ...ctx.actor.via!, bot_id: uid() } })).status).toBe(403);
+    expect(await botActionContext(env, { ...run, conversation_id: uid() })).toBeNull();
+    const another = await fixture();
+    expect((await internalCall(env, ctx.actor, { path: `/profiles/${another.profile}/erp/v1/me` })).status).not.toBe(200);
+    await exec(env, "UPDATE users SET role='operator',access=? WHERE id=?", JSON.stringify(["erp:vendas", "team"]), f.admin.id);
+    const sales = (await botActionContext(env, run))!;
+    expect((await read("cobranca-operacional", sales.actor)).status).toBe(403);
+    await exec(env, "UPDATE users SET role='admin' WHERE id=?", f.admin.id);
+    await perform(env, f.admin, f.profile, "bot.update", { id: botId, erp_operations: [] }, uid());
+    expect((await read()).status).toBe(403);
+  });
+
+  it("concessão exige administrador e aviso; marca de confirmação não substitui proposta nem concessão atual", { timeout: 120_000 }, async () => {
+    const { f, run, chat, botId } = await setup(false);
+    const grant = { id: botId, erp_operations: ["erp.business.goal.save"], erp_data_acknowledged: true };
+    await expect(perform(env, f.member, f.profile, "bot.update", grant, uid())).rejects.toMatchObject({ code: "admin_required" });
+    await expect(perform(env, f.admin, f.profile, "bot.update", { ...grant, erp_data_acknowledged: false }, uid())).rejects.toMatchObject({ code: "invalid_request" });
+    await expect(perform(env, f.admin, f.profile, "bot.update", { ...grant, erp_operations: ["*"] }, uid())).rejects.toMatchObject({ code: "invalid_request" });
+    const ctx = (await botActionContext(env, run))!;
+    const spec = erpCommercialOperations.find(op => op.id === "erp.business.goal.save")!;
+    const op: CatalogOperation = { name: spec.id, kind: "write", method: spec.method, path: "erp" + spec.path,
+      module: "erp", summary: spec.summary, description: spec.description, params: spec.params, sensitive: true, scope: "erp:write" };
+    const params = { command_id: uid(), goal_id: null, expected_version: 0,
+      data: { name: "Meta com concessão", start_on: "2026-11-01", end_on: "2026-11-30", segment: "geral", seller: null, target: "100.00", active: true } };
+    await expect(createProposal(ctx, op, params, "Salvar meta")).rejects.toMatchObject({ code: "erp_bot_grant_required" });
+    await perform(env, f.admin, f.profile, "bot.update", grant, uid());
+    const proposal = await createProposal(ctx, op, params, "Salvar meta");
+    const session = await confirmingSession(f.admin), person = await session.withSecondFactor();
+    const forged = await internalCall(env, { ...person, via: { ...ctx.actor.via!, proposal_id: proposal.id } },
+      { method: "POST", path: `/profiles/${f.profile}/erp/v1/meu-negocio/metas`, body: params });
+    expect(forged.status).toBe(403);
+    await perform(env, f.admin, f.profile, "bot.update", { id: botId, erp_operations: [] }, uid());
+    expect((await confirmProposal(env, person, f.profile, chat.id, proposal.id)).status).toBe("failed");
+    const response = await internalCall(env, person, { path: `/profiles/${f.profile}/erp/v1/meu-negocio/metas` });
+    expect((await response.json<any>()).items).toEqual([]);
+  });
+
+  it("importação configurada usa proposta e confirmação; NF-e revalida concessão antes de normalizar agente", { timeout: 120_000 }, async () => {
+    const { f, run, chat, botId } = await setup(false);
+    // O núcleo do ERP não liga Fiscal: sem esta parte a rota é recusada
+    // por module_disabled antes de chegar à política nominal do bot.
+    await setModule(f.profile, "erp-fiscal", true, f.admin.id);
+    const ctx = (await botActionContext(env, run))!;
+    const fiscal = () => internalCall(env, ctx.actor, { path: `/profiles/${f.profile}/erp-comercial-nfe/config` });
+    const unconfigured = await fiscal();
+    expect(unconfigured.status).toBe(403);
+    expect(await unconfigured.json<any>()).toMatchObject({ code: "erp_bot_grant_required" });
+    const fiscalCatalog = async () => (await catalogFor(env, ctx.actor, f.profile)).filter(op => op.path.startsWith("erp-comercial-nfe/"));
+    expect(await fiscalCatalog()).toEqual([]);
+    await perform(env, f.admin, f.profile, "bot.update", {
+      id: botId, erp_operations: ["erp_preferences_import_batch", "com1.config.get"], erp_data_acknowledged: true,
+    }, uid());
+    const configured = await fiscal();
+    expect(configured.status).toBe(200);
+    expect(await configured.json<any>()).toMatchObject({ environment: "homologacao", stock_timing: "existing", finance_timing: "existing" });
+    expect((await fiscalCatalog()).map(op => op.name)).toEqual(["consulta:erp-comercial-nfe/config"]);
+    const session = await confirmingSession(f.admin);
+    const op: CatalogOperation = { name: "erp_preferences_import_batch", kind: "write", method: "POST", path: "erp/v1/importacoes/:tipo/lote",
+      module: "erp", summary: "Importar produtos", description: "Importação confirmada", params: { type: "object", properties: {}, required: [] }, sensitive: true, scope: "erp:write" };
+    const proposal = await createProposal(ctx, op, { tipo: "produtos", command_id: uid(), job_id: uid(), file_name: "bot.csv", total_rows: 1, dry_run: false,
+      items: [{ row: 2, lines: [2], data: { name: "Produto via concessão" } }] }, "Importar produto");
+    const result = await confirmProposal(env, await session.withSecondFactor(), f.profile, chat.id, proposal.id);
+    expect(result.status, JSON.stringify(result)).toBe("done");
+    expect(result.result.items[0].status).toBe("created");
+    await exec(env, "UPDATE bots SET enabled=0 WHERE id=?", botId);
+    const disabled = await fiscal();
+    expect(disabled.status).toBe(403);
+    expect(await disabled.json<any>()).toMatchObject({ code: "erp_bot_grant_required" });
   });
 
   it("meta usa a proposta e confirmação existentes, pela mesma rota e papel humano", { timeout: 120_000 }, async () => {

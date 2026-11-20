@@ -1167,6 +1167,7 @@ app.all("/api/v1/profiles/:profile/erp/*", async (c) => {
     c.get("actor"),
     profile,
     c.req.method,
+    c.req.path,
   );
   return erpApi(c.env, c.req.raw, profile, c.get("actor"), identity);
 });
@@ -1205,6 +1206,11 @@ app.all("/api/v1/profiles/:profile/erp-fiscal-cofre/*", async (c: any) => {
 app.get("/api/public/erp-storage/*", (c) =>
   erpSignedDownload(c.env, c.req.raw),
 );
+// Retorno OAuth exclusivo; sessão, área e estado são revalidados no Coordinator.
+app.get("/api/public/erp-bling/:profile/callback", async (c) => {
+  const { handleBlingCallback } = await import("./erp/bling/assembly.ts");
+  return handleBlingCallback(c.env, c.req.param("profile"), c.req.raw);
+});
 // Sondas do ERP para a instalação de teste (só com ERP_PROBES=1 no deploy).
 app.post("/api/v1/profiles/:profile/erp-probe/:name", async (c) => {
   const profile = c.req.param("profile");
@@ -2355,6 +2361,7 @@ for (const [path, [table, scope]] of Object.entries(readLists))
           row.mask_personal = cfg.bot_options?.[row.remote_profile]?.mask_personal !== false;
           row.pdf_raw_fallback = cfg.bot_options?.[row.remote_profile]?.pdf_raw_fallback === true;
           row.image_to_team = cfg.bot_options?.[row.remote_profile]?.image_to_team === true;
+          row.erp_operations = cfg.bot_options?.[row.remote_profile]?.erp_operations ?? [];
           row.provider = cfg.provider;
           row.model = cfg.model;
           // O provedor recusou as ferramentas numa execução (até salvar a

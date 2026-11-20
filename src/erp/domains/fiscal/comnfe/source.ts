@@ -18,6 +18,7 @@ import { contactSnapshot, invoicePreferences } from "../rpc/erp_fiscal_invoice_s
 import { taxSettingsInput } from "../rpc/erp_fiscal_tax_settings.ts";
 import { com1Hash } from "./store.ts";
 import { readCommercialSettings } from "./settings.ts";
+import { linkedDocumentGuard } from "../../documents/module-policy.ts";
 
 export interface PreparationSources {
   snapshot: CommercialSnapshot;
@@ -65,6 +66,9 @@ export function capturePreparationSources(ctx: RpcContext, input: PrepareInput):
   const db = ctx.db;
   const row = one(db, 'SELECT *,CAST(total AS TEXT) stored_total FROM "erp_documents__document" WHERE id=?', input.document_id);
   if (!row) raise("P0002", "fiscal_order_unavailable");
+  // A junção mantém pedidos de módulo somente para consulta, inclusive por
+  // URL/RPC direto. A política fiscal dessa origem ainda precisa ser definida.
+  linkedDocumentGuard(db, input.document_id);
   const blockers: FiscalBlocker[] = [];
   const sources: CommercialSnapshot["sources"] = [];
   const recordSource = (entity: string, id: string, version: unknown, fields: string[]) => {
