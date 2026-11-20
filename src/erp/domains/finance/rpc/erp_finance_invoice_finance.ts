@@ -40,6 +40,7 @@ import {
 } from "../invoices.ts";
 import { insertTitle, left, updateTitle } from "../titles.ts";
 import { linkedInvoiceDocumentsGuard } from "../../documents/module-policy.ts";
+import { guardCom1InvoiceReverse } from "../../fiscal/comnfe/effect-policy.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -279,6 +280,7 @@ function reverse(ctx: RpcContext, a: RpcArgs) {
   linkedInvoiceDocumentsGuard(db, field(data, "invoice_id"));
   const replay = documentCommandStart(db, user, command, "invoice_reverse", data);
   if (replay) return replay;
+  guardCom1InvoiceReverse(ctx, field(data, "invoice_id"), "finance");
   const v = one(db, 'SELECT * FROM "erp_fiscal_invoices__invoice" WHERE id=?', uuidValue(field(data, "invoice_id")));
   if (!v) raise("P0002", "erp_finance_not_found");
   const p = one(db, 'SELECT * FROM "erp_finance__invoice_posting" WHERE id=? AND invoice_id=?', uuidValue(field(data, "posting_id")), v.id);

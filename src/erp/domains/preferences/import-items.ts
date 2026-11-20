@@ -69,7 +69,10 @@ function contacts(db: SqlDriver) {
 }
 
 export function importContact(db: SqlDriver, name: string | null, document: string | null, fieldName: string, fieldDocument: string): string {
-  return unique(contacts(db).filter((r) => document !== null ? compact(value(r.document)) === document : lowerName(r.name) === lowerName(name) && name !== null),
+  // Os dois lados com a mesma normalização (compact: sem pontuação, minúsculas):
+  // o CNPJ alfanumérico chega em maiúsculas da planilha e pode estar salvo com máscara.
+  const wanted = document === null ? null : compact(document);
+  return unique(contacts(db).filter((r) => wanted !== null ? compact(value(r.document)) === wanted : lowerName(r.name) === lowerName(name) && name !== null),
     document === null ? fieldName : fieldDocument)!;
 }
 

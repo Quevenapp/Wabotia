@@ -119,7 +119,8 @@ function initializeEffectPendencies(ctx: RpcContext, input: RecordInput | Cancel
     } });
     if (view.status === "cancelada") {
       const updated = ctx.db.exec(`UPDATE ${T.effect} SET compensation_state='compensacao_pendente',
-      compensation_result=?,updated_at=? WHERE emission_id=? AND axis=? AND compensation_state IS NULL`,
+      compensation_result=?,updated_at=? WHERE emission_id=? AND axis=? AND compensation_state IS NULL
+      AND (compensation_result IS NULL OR json_extract(compensation_result,'$.state') IS NOT 'transferido')`,
       com1Json({ reason: axis === "stock" ? "physical_return_confirmation_required" : "awaiting_financial_reconciliation" }), at, view.id, axis);
       if (updated.rowsWritten) appendCom1Audit(ctx, { command, emission: view, action: "compensation_pending", after: { axis, state: "compensacao_pendente" } });
     }
@@ -176,7 +177,8 @@ export function createCommercialNfeLifecycle(options: CommercialNfeLifecycleOpti
       const view = getEmissionView(ctx, input.emission_id);
       const safe = safeInput(input), result = safe.result;
       const body = getStoredRevision(ctx, view.id, command.body_revision ?? undefined).body;
-      if (result?.status === "authorized" && result.access_key &&
+      // A nota cancelada direto no cofre também traz a identidade da autorização.
+      if ((result?.status === "authorized" || result?.status === "cancelled") && result.access_key &&
           ((body?.emitente?.cnpj && result.access_key.slice(6, 20) !== body.emitente.cnpj) ||
            Number(result.series) > 889 || (body?.serie != null && Number(result.series) !== body.serie))) {
         safe.evidence = { ...safe.evidence, inconsistent_result: safeEvidence(result) };

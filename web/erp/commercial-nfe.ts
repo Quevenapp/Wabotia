@@ -88,7 +88,7 @@ function checkEffect(value: unknown, emissionId?: string): EffectView {
   if (!object(value) || !uuid(value.emission_id) || emissionId && value.emission_id !== emissionId ||
     !["stock", "finance"].includes(value.axis) || !["aplicado", "reconhecido", "pendente", "pulado"].includes(value.state) ||
     !["estoque", "financeiro", "admin"].includes(value.responsible_role) || !object(value.ids) ||
-    ![null, "pendente", "revertido", "compensacao_pendente"].includes(value.compensation_state)) throw invalidResponse();
+    ![null, "pendente", "revertido", "compensacao_pendente", "transferido"].includes(value.compensation_state)) throw invalidResponse();
   return value as EffectView;
 }
 function validateEmission(value: unknown, emissionId?: string, summary = false): Record<string, any> {

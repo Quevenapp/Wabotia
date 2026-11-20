@@ -81,7 +81,7 @@ export const COM1_RESPONSE_SCHEMAS: Record<string, unknown> = {
     state: { type: "string", enum: ["aplicado", "reconhecido", "pendente", "pulado"] }, origin: nullableText, ids: outputJson,
     fingerprint: nullableText, reason: nullableText, responsible_role: { type: "string", enum: ["estoque", "financeiro", "admin"] },
     person_id: nullableText, command_id: nullableText, result: { type: ["object", "null"] },
-    compensation_state: { type: ["string", "null"], enum: ["pendente", "revertido", "compensacao_pendente", null] },
+    compensation_state: { type: ["string", "null"], enum: ["pendente", "revertido", "compensacao_pendente", "transferido", null] },
     compensation_command_id: nullableText, compensation_result: { type: ["object", "null"] }, updated_at: timestamp }),
   Com1CancellationView: outputObject({ emission_id: { type: "string", format: "uuid" }, justification: propertySchemas.justification,
     command_id: propertySchemas.command_id, state: { type: "string", enum: ["pedido", "enviando", "incerto", "recusado", "registrado"] },

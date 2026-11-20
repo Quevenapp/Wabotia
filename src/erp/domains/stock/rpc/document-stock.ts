@@ -23,7 +23,7 @@ import { jsonTimestamp, todaySaoPaulo, validDate } from "../../../engine/time.ts
 import * as documents from "../../documents/public.ts";
 import { updateDocument } from "../../documents/public.ts";
 import * as preferences from "../../preferences/public.ts";
-import { requireCom1Posting } from "../../fiscal/comnfe/effect-policy.ts";
+import { guardCom1DirectReverse, requireCom1Posting } from "../../fiscal/comnfe/effect-policy.ts";
 import type { Row } from "../document-guards.ts";
 import { QTY, QTY_MAX, balanceKept as balanceKeptAt, lotApply, negativeAllowed, requireAccess, sha256 } from "../internal.ts";
 import { COMPOSITION_CURRENT, EXACT, invoicePostedForDocument, itemComponentRows, q6to30 } from "../read.ts";
@@ -740,6 +740,7 @@ export function erpDocumentStockReverse(ctx: RpcContext, a: RpcArgs) {
   const data = { kind, id, version, posting: postingId, posting_version: postingVersion, hash, date: day, reason };
   const replayed = documentCommandStart(db, user, command, "reverse", data);
   if (replayed) return replayed;
+  guardCom1DirectReverse(ctx, id, "stock");
   const d = documentLock(db, user, kind, id, version);
   const preview = documentReversePreviewData(ctx, d, postingId, postingVersion, day, reason);
   if (hash === null || !/^[a-f0-9]{64}$/.test(hash) || hash !== preview.preview_hash) raise("40001", "erp_document_stock_preview_conflict");

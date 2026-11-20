@@ -7,6 +7,7 @@
  * se aplica apenas a sales_orders; OS/NFS-e exigem política e vínculo próprios.
  */
 import { one } from "../../../engine/driver.ts";
+import { targetOrigin } from "../../../engine/module-origin.ts";
 import { raise } from "../../../engine/errors.ts";
 import type { RpcContext } from "../../../engine/registry.ts";
 import type { EffectAxis } from "../../../commercial-nfe/contracts.ts";
@@ -26,6 +27,10 @@ export function deferredCom1Effect(ctx: RpcContext, documentId: string | null, a
   if (!ctx.parts.fiscal || !documentId) return null;
   const document = one(ctx.db, "SELECT kind FROM erp_documents__document WHERE id=?", documentId);
   if (document?.kind !== "sales_orders") return null;
+  // "Só na autorização" vale para pedidos de venda do próprio ERP. Fato vindo
+  // de módulo (Pedido, Mesas, Entrega...) ainda não emite NF-e por aqui e é
+  // venda já acontecida: segue a automação e a intenção manual da fase 3.
+  if (targetOrigin(ctx.db, "document", documentId)) return null;
   const settings = one(ctx.db, "SELECT stock_timing,finance_timing FROM erp_fiscal_vault__commercial_settings WHERE id=1");
   if (settings?.[`${axis}_timing`] !== "on_authorization") return null;
   const emission = one(ctx.db, `SELECT status FROM erp_fiscal_vault__order_emission
@@ -40,6 +45,45 @@ export function requireCom1Posting(ctx: RpcContext, documentId: string | null, a
 
 const protectedEmission = (ctx: RpcContext, documentId: string) => one(ctx.db, `SELECT id,status FROM erp_fiscal_vault__order_emission
   WHERE document_id=? AND status IN ('enviando','processando','incerta','autorizada') ORDER BY fiscal_version DESC LIMIT 1`, documentId);
+
+/** Capacidade só da compensação Com1 (effects.ts), que já conferiu
+ * cancelamento, responsabilidade pelo lançamento e retorno físico. Vale só
+ * durante a pilha síncrona e só para o pedido indicado. */
+const compensation = new WeakMap<RpcContext, string>();
+export function withCom1Compensation<T>(ctx: RpcContext, documentId: string, run: () => T): T {
+  if (compensation.has(ctx)) raise("42501", "erp_maintenance_scope_denied");
+  compensation.set(ctx, documentId);
+  try { return run(); } finally { compensation.delete(ctx); }
+}
+
+/** Estorno ou cancelamento direto de um efeito do pedido (estoque, títulos,
+ * nota legada vinculada). Com emissão vigente, o caminho é a compensação da
+ * nota depois do cancelamento fiscal; depois dele, o estoque continua exigindo
+ * a confirmação de retorno físico daquele comando. Não depende de partes.
+ * Chamar após o replay e antes de alterar dados. */
+export function guardCom1DirectReverse(ctx: RpcContext, documentId: unknown, axis: EffectAxis): void {
+  if (typeof documentId !== "string" || compensation.get(ctx) === documentId) return;
+  if (protectedEmission(ctx, documentId)) raise("40001", "fiscal_order_effect_locked");
+  if (axis === "stock" && one(ctx.db, `SELECT 1 FROM erp_fiscal_vault__order_emission WHERE document_id=? AND status='cancelada' LIMIT 1`, documentId))
+    raise("40001", "fiscal_order_compensation_required");
+}
+/** Mesma guarda para a nota legada: alcança os pedidos vinculados a ela. */
+export function guardCom1InvoiceReverse(ctx: RpcContext, invoiceId: unknown, axis: EffectAxis): void {
+  if (typeof invoiceId !== "string") return;
+  for (const row of ctx.db.exec("SELECT document_id FROM erp_fiscal_invoices__invoice_order WHERE invoice_id=?", invoiceId.toLowerCase()).rows)
+    guardCom1DirectReverse(ctx, row.document_id, axis);
+}
+/** Ponto único de cancelamento de título: o pedido de origem (lançamento do
+ * pedido, nota legada ou faturamento agrupado ativo) recebe a mesma guarda. */
+export function guardCom1TitleCancel(ctx: RpcContext, titleId: string): void {
+  const rows = ctx.db.exec(`SELECT p.document_id FROM erp_finance__document_title t JOIN erp_finance__document_posting p ON p.id=t.posting_id WHERE t.title_id=?
+    UNION SELECT o.document_id FROM erp_finance__invoice_title t JOIN erp_finance__invoice_posting p ON p.id=t.posting_id
+      JOIN erp_fiscal_invoices__invoice_order o ON o.invoice_id=p.invoice_id WHERE t.title_id=?
+    UNION SELECT g.document_id FROM erp_finance__grouped_billing_title t JOIN erp_finance__grouped_billing_document g ON g.billing_id=t.billing_id AND g.active=1 WHERE t.title_id=?
+    UNION SELECT o.document_id FROM erp_finance__grouped_billing_title t JOIN erp_finance__grouped_billing_invoice g ON g.billing_id=t.billing_id AND g.active=1
+      JOIN erp_fiscal_invoices__invoice_order o ON o.invoice_id=g.invoice_id WHERE t.title_id=?`, titleId, titleId, titleId, titleId).rows;
+  for (const row of rows) guardCom1DirectReverse(ctx, row.document_id, "finance");
+}
 
 /** Observações públicas compõem informacoesComplementares no PedidoNfe.
  * Anotações internas não são enviadas ao cofre e continuam operacionais. */

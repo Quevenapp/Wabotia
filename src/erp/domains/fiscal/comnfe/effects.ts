@@ -12,9 +12,10 @@ import { withErpMaintenance, type ErpMaintenanceAction } from "../../../engine/p
 import type { EffectAxis, EffectInput, EffectView, ImmutableRevision, JsonObject, StoredEmission } from "../../../commercial-nfe/contracts.ts";
 import { com1Authority, requireCom1Access, requireCom1SensitivePolicy } from "./access.ts";
 import {
-  com1Hash, com1Uuid, finishCommand, getEffects,
-  getStoredEmission, getStoredRevision, replayCommand, saveEffect, startCommand,
+  COM1_TABLES, com1Hash, com1Uuid, finishCommand, getEffects,
+  getStoredEmission, getStoredRevision, replayCommand, saveEffect, startCommand, transferEffect,
 } from "./store.ts";
+import { withCom1Compensation } from "./effect-policy.ts";
 
 export interface Com1EffectPorts {
   /** Porta síncrona: usa as mesmas RPCs, permissões, previews e comandos locais. */
@@ -165,6 +166,17 @@ function financeFound(ctx: RpcContext, emission: StoredEmission, revision: Immut
   return { origin, ids, posting: p, fingerprint: com1Hash({ ids, installments: rows.map(t => ({ id:t.id, amount_cents:String(t.amount_cents), due_on:t.due_on, contact_id:t.contact_id, payment_method_id:t.payment_method_id ?? null, account_id:t.account_id ?? null })) }), result: { proof: origin === "grouped_billing" ? "group_allocation_and_titles" : "posting_and_titles", document_version: Number(currentDocument(ctx, emission.document_id).version) } };
 }
 const find = (ctx: RpcContext, emission: StoredEmission, revision: ImmutableRevision, axis: EffectAxis): Found | null => axis === "stock" ? stockFound(ctx,emission,revision) : financeFound(ctx,emission,revision);
+/** Outra emissão do mesmo pedido que responde pelo mesmo lançamento. */
+function otherOwner(ctx: RpcContext, emission: StoredEmission, axis: EffectAxis, ids: JsonObject): EffectView | null {
+  const key = com1Hash(ids);
+  for (const row of ctx.db.exec(`SELECT id FROM ${COM1_TABLES.emission} WHERE document_id=? AND id<>? ORDER BY fiscal_version DESC`, emission.document_id, emission.id).rows) {
+    const other = getEffects(ctx, String(row.id)).find(e => e.axis === axis);
+    if (other?.fingerprint && ["aplicado","reconhecido"].includes(other.state) && !["revertido","transferido"].includes(String(other.compensation_state)) &&
+        com1Hash(other.ids) === key) return other;
+  }
+  return null;
+}
+const TRANSFERRED = "com1_effect_transferred";
 function localAccess(ctx: RpcContext, axis: EffectAxis): boolean {
   try { requireCom1Access(ctx, axis === "stock" ? "effect_stock" : "effect_finance"); return true; }
   catch (e) {
@@ -210,6 +222,8 @@ export function createCom1EffectHandlers(ports: Partial<Com1EffectPorts> = {}) {
       if (emission.version !== input.expected_version) raise("40001","com1_version_conflict");
       if (reverse ? emission.status !== "cancelada" : emission.status !== "autorizada") raise("55000",reverse ? "com1_effect_requires_cancellation" : "com1_effect_requires_authorization");
       const revision = getStoredRevision(ctx,emission.id), old = getEffects(ctx,emission.id).find(e => e.axis === input.axis);
+      // A nova emissão do pedido adotou o lançamento: esta não o estorna.
+      if (reverse && old?.compensation_state === "transferido") raise("55000",TRANSFERRED);
       const allowed = localAccess(ctx,input.axis);
       const command = { id:input.command_id };
       let started = false;
@@ -251,6 +265,8 @@ export function createCom1EffectHandlers(ports: Partial<Com1EffectPorts> = {}) {
         if (!reverse) assertSource(ctx,emission,revision);
         const found = find(ctx,emission,revision,input.axis);
         if (reverse) {
+          // Também sem registro anterior do efeito: quem reconheceu o lançamento responde por ele.
+          if (found && otherOwner(ctx,emission,input.axis,found.ids)) raise("55000",TRANSFERRED);
           if (!found) {
             // Só reconhece reversão anterior com prova no posting exato.
             if (old?.ids.posting_id && ["document","legacy_invoice"].includes(old.origin ?? "")) {
@@ -272,7 +288,14 @@ export function createCom1EffectHandlers(ports: Partial<Com1EffectPorts> = {}) {
           }
         } else if (found) {
           if (old?.fingerprint && (old.fingerprint !== found.fingerprint || com1Hash(old.ids) !== com1Hash(found.ids))) return fail("com1_effect_reconciliation_required");
-          return finish(old?.fingerprint ? { ...old,reason:null,result:{...old.result,...found.result,reconciliation:null} } : { ...effect,state:"reconhecido",origin:found.origin,ids:found.ids,fingerprint:found.fingerprint,reason:null,result:found.result,command_id:command.id });
+          if (old?.fingerprint) return finish({ ...old,reason:null,result:{...old.result,...found.result,reconciliation:null} });
+          // Nova versão fiscal sem retorno da mercadoria: a emissão cancelada
+          // transfere a responsabilidade pelo lançamento a esta emissão.
+          const previous = otherOwner(ctx,emission,input.axis,found.ids);
+          if (previous) { ensureCommand(); transferEffect(ctx,previous,{ emission_id:emission.id,command_id:command.id }); }
+          return finish({ ...effect,state:"reconhecido",origin:found.origin,ids:found.ids,fingerprint:found.fingerprint,reason:null,command_id:command.id,
+            result:previous ? { ...found.result,transferred_from:{ emission_id:previous.emission_id,
+              application_command_id:String(previous.result?.application_command_id ?? previous.command_id) } } : found.result });
         } else if (old?.fingerprint) return fail("com1_effect_reconciliation_required");
         else if (input.intent === "reconcile") return fail("local_effect_not_found");
         if (!reverse && !ctx.parts[input.axis]) return fail("part_disabled");
@@ -289,7 +312,8 @@ export function createCom1EffectHandlers(ports: Partial<Com1EffectPorts> = {}) {
           };
           const action = invoiceActions[name] ?? name.replace(/^erp_/,"") as ErpMaintenanceAction;
           const origin = found?.origin === "legacy_invoice" ? {type:"nfe",id:String(found.ids.invoice_id)} : {type:"sales_orders",id:emission.document_id};
-          return withErpMaintenance(ctx,{origin,action},fn);
+          // A compensação já conferiu cancelamento, responsável e retorno físico.
+          return withErpMaintenance(ctx,{origin,action},() => withCom1Compensation(ctx,emission.document_id,fn));
         };
         if (reverse && found!.origin === "legacy_invoice") {
           if (input.axis === "stock") {
@@ -337,7 +361,10 @@ export function createCom1EffectHandlers(ports: Partial<Com1EffectPorts> = {}) {
           return finish({ ...effect,state:"aplicado",origin:applied.origin,ids:applied.ids,fingerprint:applied.fingerprint,
             reason:null,command_id:command.id,person_id:ctx.identity.actor!.user_id,result:{...applied.result,local_command_id:localCommand,result} });
         });
-      } catch(error) { return fail(codeOf(error)); }
+      } catch(error) {
+        if (error instanceof ErpError && error.message === TRANSFERRED) throw error;
+        return fail(codeOf(error));
+      }
     });
   }
   return { applyEffects:(ctx:RpcContext,input:EffectInput) => execute(ctx,input,false),reverseEffects:(ctx:RpcContext,input:EffectInput) => execute(ctx,input,true) };

@@ -21,6 +21,7 @@ import { defer, type RpcContext } from "../../engine/registry.ts";
 import { jsonTimestamp, todaySaoPaulo, validDate } from "../../engine/time.ts";
 import { activeRole, permitted } from "../access/public.ts";
 import * as sync from "../sync/public.ts";
+import { guardCom1TitleCancel } from "../fiscal/comnfe/effect-policy.ts";
 
 // ---------------------------------------------------------------------------
 // Texto, ordem e tipos
@@ -857,6 +858,14 @@ export function titleUpdateGuards(ctx: RpcContext, old: Row, set: Record<string,
   const lifecycle = () =>
     (next.cancelled !== old.cancelled && bool(next.cancelled) !== bool(old.cancelled)) ||
     (next.deleted_at === null) !== (old.deleted_at === null);
+  // Desvio deliberado "titulo-cobranca-bancaria" (schema/deviations.ts): ponto
+  // único de todo escritor que cancela uma conta. Com vínculo de cobrança
+  // bancária a dívida continua no banco; o Fagoo só confere settled_cents.
+  if (!bool(old.cancelled) && bool(next.cancelled)) {
+    if (one(db, 'SELECT 1 x FROM "erp_cnab__billing_title" WHERE title_id=? LIMIT 1', old.id)) raise("40001", "erp_finance_billed_locked");
+    // Título de pedido com NF-e comercial vigente: só a compensação da nota.
+    guardCom1TitleCancel(ctx, String(old.id));
+  }
   // protect_finance_document_source
   if (one(db, 'SELECT 1 x FROM "erp_finance__document_title" WHERE title_id=? LIMIT 1', old.id))
     if (changed(["id", "group_id", "installment", "installments", "kind", "contact_id", "issued_on", "amount_cents"]))

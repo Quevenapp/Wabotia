@@ -164,34 +164,41 @@ const fiscalTiming = (f, timing) => f.rpc("erp_com1_config_save", { p_input: {
   environment: "homologacao", stock_timing: timing, finance_timing: timing,
 } });
 
-test("junção: automatismo do módulo e autorização fiscal preservam o pedido sem lançar nem repetir efeitos", async t => {
+test("junção: automatismo do módulo lança com a política só na autorização (vale só para pedido do ERP) sem repetir efeitos", async t => {
   const f = fixture(t, "pedido");
   assert.deepEqual(f.policy.auto_post, { stock: true, finance: true });
   fiscalTiming(f, "on_authorization");
   const input = f.enqueue(), result = await f.run(input), id = result.links.find(l => l.kind === "document").id;
   assert.equal(result.outcome, "applied");
-  assert.deepEqual(result.effects, { stock: "skipped", finance: "skipped" });
-  assert.equal(result.reason_code, "awaiting_fiscal_authorization");
+  // Decisão da junção (achado 5): venda vinda de módulo ainda não emite NF-e
+  // por aqui e já aconteceu; não fica presa em awaiting_fiscal_authorization.
+  assert.deepEqual(result.effects, { stock: "posted", finance: "posted" });
+  assert.notEqual(result.reason_code, "awaiting_fiscal_authorization");
   assert.equal(f.lite.prepare("SELECT status FROM erp_documents__document WHERE id=?").get(id).status, "in_progress");
-  assert.equal(f.count("erp_stock__document_posting"), 0);
-  assert.equal(f.count("erp_finance__document_posting"), 0);
-  assert.equal(f.count("erp_finance__title"), 0);
   assert.deepEqual(await f.run(input), { ...result, replayed: true });
-  // Alterar a política não dispara efeitos históricos: só a intenção manual
-  // existente pode aplicá-los, e seu replay conserva a mesma origem.
-  fiscalTiming(f, "existing");
-  await f.run(f.enqueue({ operation: "lifecycle", lifecycle: { base_status: "preparing" } }));
-  assert.equal(f.count("erp_finance__title"), 0);
-  const manual = f.enqueue({ operation: "lifecycle", human }), posted = await f.run(manual);
-  assert.deepEqual(posted.effects, { stock: "posted", finance: "posted" });
-  fiscalTiming(f, "on_authorization");
-  assert.deepEqual(await f.run(manual), { ...posted, replayed: true });
   await f.run(f.enqueue({ operation: "lifecycle", lifecycle: { base_status: "ready" } }));
   assert.equal(f.count("erp_stock__document_posting"), 1);
   assert.equal(f.count("erp_finance__document_posting"), 1);
   assert.equal(f.count("erp_finance__title"), 1);
   assert.equal(f.lite.prepare("SELECT state FROM erp_stock__document_posting").get().state, "active");
   assert.equal(f.lite.prepare("SELECT cancelled FROM erp_finance__title").get().cancelled, 0);
+});
+
+test("achado 5: com lançamento só na autorização, a intenção manual conclui a venda de módulo que esperava lançamento", async t => {
+  const f = fixture(t, "pedido");
+  fiscalTiming(f, "on_authorization");
+  const off = { ...f.policy, auto_post: { stock: false, finance: false } };
+  const first = await f.run(f.enqueue({ policy: off }));
+  assert.deepEqual(first.effects, { stock: "skipped", finance: "skipped" });
+  assert.equal(f.count("erp_finance__title"), 0);
+  const manual = f.enqueue({ operation: "lifecycle", human, policy: off }), posted = await f.run(manual);
+  assert.deepEqual(posted.effects, { stock: "posted", finance: "posted" });
+  assert.notEqual(posted.reason_code, "awaiting_fiscal_authorization");
+  assert.deepEqual(await f.run(manual), { ...posted, replayed: true });
+  assert.equal(f.count("erp_stock__document_posting"), 1);
+  assert.equal(f.count("erp_finance__title"), 1);
+  // A política continua valendo para o pedido de venda do próprio ERP: ver
+  // "junção: as duas guardas de faturamento agrupado valem no mesmo motor".
 });
 
 test("junção: preparo por RPC também conserva somente leitura do pedido de módulo", async t => {
@@ -221,12 +228,13 @@ test("junção: as duas guardas de faturamento agrupado valem no mesmo motor", a
   assert.throws(() => f.rpc("erp_finance_grouped_billing_execute", grouped(id)), /module_document_read_only/);
   assert.throws(() => f.rpc("erp_finance_grouped_billing_execute", grouped(native.id)), /awaiting_fiscal_authorization/);
   assert.equal(f.count("erp_finance__grouped_billing"), 0);
-  assert.equal(f.count("erp_finance__title"), 0);
+  // O título do fato de módulo já foi lançado pela fase 3 (achado 5); nenhum do agrupamento.
+  assert.equal(f.count("erp_finance__title"), 1);
   fiscalTiming(f, "existing");
   assert.throws(() => f.rpc("erp_finance_grouped_billing_execute", grouped(id)), /module_document_read_only/);
   f.rpc("erp_finance_grouped_billing_execute", grouped(native.id));
   assert.equal(f.count("erp_finance__grouped_billing"), 1);
-  assert.equal(f.count("erp_finance__title"), 1);
+  assert.equal(f.count("erp_finance__title"), 2);
 });
 
 test("junção: módulo e NF-e não duplicam nem estornam os efeitos um do outro", async t => {
