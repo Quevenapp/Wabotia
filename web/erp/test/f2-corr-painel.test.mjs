@@ -8,7 +8,7 @@ const root=fileURLToPath(new URL('../../../',import.meta.url));
 const bundle=await build({stdin:{contents:`
  export * from './web/erp/blocks.ts';
  export {ERP_MODULE_IDS} from './src/erp/parts.ts';
- export {demoApi} from './web/lib/demo.ts';
+ export {demoApi,DEMO_SIMULATED_WRITES} from './web/lib/demo.ts';
  export {createWorkApi} from './web/modules/os/work-api.ts';
  export {assistenciaTecnicaTemplate} from './src/area-templates/models/assistencia-tecnica.ts';
  `,resolveDir:root,loader:'ts'},bundle:true,write:false,platform:'node',format:'esm',jsx:'automatic',loader:{'.css':'empty'},define:{'import.meta.env':'{}'},logLevel:'silent'});
@@ -100,22 +100,31 @@ for(const part of ['erp-cobranca','erp-pdv']) test(`visão geral atualiza atalho
 
 const work=m.createWorkApi(m.demoApi,'v1/profiles/demo');
 test('demonstração: catálogo e detalhe usam o contrato consumido por Trabalhos',async()=>{
- const catalog=await work.types(true);assert.ok(catalog.settings_revision);assert.equal(catalog.data.length,2);
- const type=await work.type('service_order');assert.deepEqual(catalog.data[0],type);
- const allModels=await work.orders({facets:'1'});assert.equal(allModels.data.length,7);
+ // A parte 2 da ordem de serviço mostra quatro modelos: a OS clássica, a oficina
+ // (com objeto veículo), festas e eventos (com objeto evento) e a consultoria.
+ const models={service_order:5,area_oficina_mecanica__at_veiculos:3,demo_festas_eventos:1,demo_consultoria:1};
+ const catalog=await work.types(true);assert.ok(catalog.settings_revision);assert.equal(catalog.data.length,4);
+ assert.deepEqual(catalog.data.map(type=>type.id),Object.keys(models));
+ const allModels=await work.orders({facets:'1'});assert.equal(allModels.data.length,10);
  assert.deepEqual([...new Set(allModels.data.map(row=>row.type_id))].sort(),catalog.data.map(type=>type.id).sort());
- const list=await work.orders({type_id:'service_order',facets:'1'});assert.equal(list.data.length,5);assert.equal(list.facets.types.service_order,5);
+ for(const [id,count] of Object.entries(models)) {
+ const type=await work.type(id);assert.deepEqual(catalog.data.find(entry=>entry.id===id),type);
+ const list=await work.orders({type_id:id,facets:'1'});assert.equal(list.data.length,count);assert.equal(list.facets.types[id],count);
  for(const row of list.data) {
   const order=await work.order(row.id);assert.deepEqual(order,row);
   assert.equal(order.type_id,type.id);assert.deepEqual(order.labels,type.labels);assert.deepEqual(order.features,type.features);
-  assert.ok(Array.isArray(order.fields));assert.deepEqual(order.extra,{});assert.equal(order.stage_approval,null);
-  assert.equal(typeof order.version,'number');assert.equal(order.display_number,String(order.number));
+  assert.ok(Array.isArray(order.fields));assert.equal(order.stage_approval,null);
+  if(id==='service_order')assert.deepEqual(order.extra,{});else assert.equal(typeof order.extra,'object');
+  assert.equal(typeof order.version,'number');
+  if(id==='service_order')assert.equal(order.display_number,String(order.number));else assert.equal(order.display_number,type.number_prefix+order.type_number);
   assert.equal(type.stages.find(stage=>stage.id===order.stage).label,order.stage_label);
   for(const next of order.next_stages) {
    const transition=type.transitions.find(transition=>transition.id===next.transition_id);
    assert.equal(transition.from,order.stage);assert.equal(transition.to,next.stage);assert.ok(next.stage_label);
   }
  }
+ }
+ const type=await work.type('service_order');assert.deepEqual(catalog.data[0],type);
  const order=await work.order('os-14');assert.equal(order.customer.name,'Mariana Costa');assert.equal(order.quote.total_cents,40500);
  assert.equal(order.history,undefined);
  const legacy=await m.demoApi('v1/profiles/demo/service-orders/os-14');assert.ok(legacy.history.length>0);
@@ -150,6 +159,21 @@ test('demonstração: desconhecidos dão 404 e escritas continuam bloqueadas',as
  for(const path of ['types/desconhecido','os-99','os-99/entries','os-99/people','os-99/documents','os-99/history','os-14/inexistente','os-14/documents/desconhecido/content'])
   await assert.rejects(m.demoApi('v1/profiles/demo/service-orders/'+path),{status:404,code:'demo_not_found'});
  await assert.rejects(work.stage('os-14',{version:1,transition_id:'quoted_analyzing'}),{status:400,code:'demo'});
+ // Só objetos do serviço e a abertura com objeto são simulados em memória (lista fechada).
+ assert.deepEqual(m.DEMO_SIMULATED_WRITES.map(write=>write.method+' '+write.name),[
+  'POST abrir ordem com objeto','POST cadastrar objeto','PATCH editar objeto','POST arquivar objeto',
+  'PATCH campos privados do objeto','POST vincular objeto a ordem antiga']);
+ const root='v1/profiles/demo/';
+ const object=await m.demoApi(root+'service-orders/objects','POST',{contact_id:'contact-demo-2',type_id:'demo_veiculo',values:{placa:'DEM0A12'}},undefined,'demo-objeto');
+ assert.equal(object.contact_id,'contact-demo-2');
+ const opened=await m.demoApi(root+'service-orders','POST',{type_id:'area_oficina_mecanica__at_veiculos',contact_id:'contact-demo-2',item:'Carro',problem:'Revisão',object:{mode:'existing',id:object.id,version:object.version}},undefined,'demo-abertura');
+ assert.equal(opened.object.object_id,object.id);
+ for(const [path,method,body] of [
+  ['service-orders','POST',{type_id:'service_order',item:'Celular',problem:'Tela'}],
+  ['service-orders/os-14','PATCH',{version:1,notes:'x'}],['service-orders/os-14/stage-approval','POST',{version:1}],
+  ['service-orders/types/service_order/field-index/rebuild','POST',{}],['contacts/contact-demo-1','PATCH',{name:'x'}],
+  ['settings','PUT',{}],['service-orders/objects/'+object.id,'DELETE',{}],
+ ]) await assert.rejects(m.demoApi(root+path,method,body),{status:400,code:'demo'});
 });
 
 test('Módulos envia a lista exibida mesmo após atualização e reabre confirmação em conflito',async()=>{

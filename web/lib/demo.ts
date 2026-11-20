@@ -852,7 +852,7 @@ export function createOs2DemoApi(): Api {
     { id: "contact-demo-2", name: "Pedro Santos", phone: "5511987650011", namespace: "team", active: true, version: 1 },
   ];
   const fail = (code: string, message: string, status = 409): never => { throw Object.assign(new Error(message), { code, status }); };
-  const notFound = (): never => fail("not_found", "Registro não encontrado nesta área ou para este cliente.", 404);
+  const notFound = (): never => fail("demo_not_found", "Registro não encontrado nesta área ou para este cliente.", 404);
   const contact = (id: unknown) => contacts.find(row => row.id === id) || notFound();
   const objectType = (id: string) => objectTypes.find(row => row.id === id) || notFound();
   const type = (id: string) => types.find(row => row.id === id) || notFound();
@@ -1606,9 +1606,26 @@ function read(path: string, query: URLSearchParams): any {
 }
 
 const os2DemoApi = createOs2DemoApi();
+/** Únicas escritas da ordem de serviço simuladas em memória na demonstração:
+ *  objetos do serviço e a abertura com objeto. As demais continuam recusadas. */
+export const DEMO_SIMULATED_WRITES = [
+  { name: "abrir ordem com objeto", method: "POST", path: /^service-orders$/, object: true },
+  { name: "cadastrar objeto", method: "POST", path: /^service-orders\/objects$/ },
+  { name: "editar objeto", method: "PATCH", path: /^service-orders\/objects\/[^/]+$/ },
+  { name: "arquivar objeto", method: "POST", path: /^service-orders\/objects\/[^/]+\/archive$/ },
+  { name: "campos privados do objeto", method: "PATCH", path: /^service-orders\/objects\/[^/]+\/private-fields$/ },
+  { name: "vincular objeto a ordem antiga", method: "POST", path: /^service-orders\/[^/]+\/object-link$/ },
+] as const;
+const simulatedWrite = (path: string, method: string, body: unknown) => {
+  const rest = path.split("?")[0].match(/^v1\/profiles\/demo\/(.*)$/)?.[1];
+  return rest !== undefined && DEMO_SIMULATED_WRITES.some(write => write.method === method && write.path.test(rest) &&
+    (!("object" in write) || !!(body as { object?: unknown } | undefined)?.object));
+};
 /** API de demonstração: OS2 e canais simulam operações somente em memória. */
 export const demoApi: Api = async (path, method = "GET", body, _signal, idempotencyKey) => {
   const channel = demoChannelRequest(path, method, body, idempotencyKey, read);
   if (channel.handled) return channel.data;
+  if (method !== "GET" && !simulatedWrite(path, method, body))
+    throw Object.assign(new Error("Estas são telas de referência com dados fictícios. Entre na sua instalação para salvar alterações."), { status: 400, code: "demo" });
   return os2DemoApi(path, method, body, _signal, idempotencyKey);
 };

@@ -29,8 +29,8 @@ import { ApplicationsPage } from "./ApplicationsPage";
 import { TemplatesPage } from "./TemplatesPage";
 import { QueueSettingsPage } from "../queue/QueueSettingsPage";
 import { ModulesPage } from "./ModulesPage";
-import { AreaTemplatesPage } from "./area-templates/AreaTemplatesPage";
 import { EstablishmentPage } from "./EstablishmentPage";
+import { lazyWithRecovery } from "../management/pages";
 import {
   GroupsPage,
   LogsPage,
@@ -38,6 +38,11 @@ import {
   SimpleListPage,
 } from "./RecordsPages";
 import "../styles/admin.css";
+
+// Modelos de área levam o editor e a validação de modelos: só ao abrir a página.
+const AreaTemplatesPage = lazyWithRecovery<object>(() =>
+  import("./area-templates/AreaTemplatesPage").then((m) => ({ default: m.AreaTemplatesPage })),
+);
 
 const SETUP_FLAG = "wabotia:setup-active";
 const readFlag = () => {
