@@ -18,7 +18,7 @@ export interface VaultSnapshot {
 
 export interface BlingVault {
   read(profile: string): Promise<VaultSnapshot>;
-  compareAndSwap(profile: string, previous: VaultSnapshot, next: VaultValue): Promise<VaultSnapshot>;
+  compareAndSwap(profile: string, previous: VaultSnapshot, next: VaultValue, restoredRevisionFloor?: string): Promise<VaultSnapshot>;
 }
 
 /** Injeção para provas sem rede; a montagem usa as primitivas AES-GCM do núcleo. */
@@ -117,13 +117,18 @@ export function createBlingVault(env: VaultEnvironment, injectedCipher?: VaultCi
       return { revision: value.revision, ciphertext: row.value, value };
     },
 
-    async compareAndSwap(profile, previous, proposed) {
+    async compareAndSwap(profile, previous, proposed, restoredRevisionFloor) {
       const id = secretId(profile);
       const previousRevision = previous.revision;
       const previousCiphertext = previous.ciphertext;
       const beforeRevision = revision(previousRevision);
       const value = checkedValue(proposed);
-      if (revision(value.revision) !== beforeRevision + 1n || previous.value.revision !== previousRevision)
+      const floor = restoredRevisionFloor === undefined ? beforeRevision : revision(restoredRevisionFloor);
+      // Só um tombstone sem material secreto pode reconciliar o contador de
+      // um backup restaurado. Credenciais normais sempre incrementam um CAS.
+      if (restoredRevisionFloor !== undefined && (!value.disconnected || value.application || value.credential))
+        throw new BlingError("BLING_REVISION_CONFLICT");
+      if (revision(value.revision) !== (floor > beforeRevision ? floor : beforeRevision) + 1n || previous.value.revision !== previousRevision)
         throw new BlingError("BLING_REVISION_CONFLICT");
       if (previousCiphertext === null) {
         if (beforeRevision !== 0n) throw new BlingError("BLING_REVISION_CONFLICT");

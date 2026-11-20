@@ -8,8 +8,10 @@ import {
   type BlingAdminResult, type BlingCommand, type BlingContext, type BlingCredentialPublic,
   type BlingErrorCode, type BlingExpectedState, type BlingOperationMap,
   type BlingOperationName, type BlingPublicConfiguration, type BlingReceipt,
-  type BlingStatus, type JsonObject, type ResourceDescriptor, type Sha256,
+  type BlingStatus, type BlingCheckpoint, type JsonObject, type ResourceDescriptor, type Sha256,
 } from "./contracts.ts";
+import { collectionFreshness } from "./planner.ts";
+import { resourceVariants } from "./resources.ts";
 import {
   credentialPublicSchema, metadataSchema, parseBlingOperationInput,
   publicConfigurationSchema, receiptSchema, resourceDescriptorSchema,
@@ -22,6 +24,7 @@ export interface BlingControlDependencies {
   db: SqlDriver;
   databaseSize(): number;
   randomId(): string;
+  resources?: readonly ResourceDescriptor[];
 }
 export interface BlingControlAudit {
   command_id?: string | null;
@@ -144,6 +147,20 @@ export function createBlingControl(dependencies: BlingControlDependencies) {
       const error = one(db, "SELECT code FROM wb_bling_audit WHERE generation=? AND code IS NOT NULL ORDER BY created_at DESC,id DESC LIMIT 1", config.generation);
       const errorCode = BLING_ERROR_CODES.includes(error?.code as BlingErrorCode) ? error!.code as BlingErrorCode : null;
       const pending = pendingRows.length;
+      const lanes: { resource: ResourceDescriptor; checkpoint: BlingCheckpoint }[] = [];
+      for (const selected of config.selections.filter(selection => selection.selected)) {
+        if (!dependencies.resources?.some(resource => resource.key === selected.key)) continue;
+        for (const resource of resourceVariants(selected.key, dependencies.resources)) {
+          const saved = one(db, "SELECT checkpoint,checkpoint_version FROM origin_sync__resource_state WHERE resource=?", resource.key);
+          const cursor = saved ? json(saved.checkpoint) as JsonObject : {};
+          lanes.push({ resource, checkpoint: { revision: saved ? revision(saved.checkpoint_version) : "0", cursor,
+            pass_started_at: typeof cursor.pass_started_at === "string" ? cursor.pass_started_at : null,
+            pass_completed_at: typeof cursor.pass_completed_at === "string" ? cursor.pass_completed_at : null } });
+        }
+      }
+      const completed = lanes.map(lane => lane.checkpoint.pass_completed_at).filter((value): value is string => value !== null).sort();
+      const started = lanes.map(lane => lane.checkpoint.pass_started_at).filter((value): value is string => value !== null).sort();
+      const countersKnown = lanes.length > 0 && lanes.every(lane => typeof lane.checkpoint.cursor.changed_count === "number");
       const nextAllowed = stored.next_allowed_at === null ? null : number(stored.next_allowed_at);
       let state = stored.state as BlingStatus["state"];
       if (state !== "purging") {
@@ -157,10 +174,16 @@ export function createBlingControl(dependencies: BlingControlDependencies) {
       const admin = ctx.identity.actor?.erp_role === "admin";
       const value: BlingStatus = {
         state, configuration: config, next_wake: nextWake,
+        progress: { calls_day: typeof stored.calls_day === "string" ? stored.calls_day : null, calls_today: stored.calls_today === undefined ? 0 : number(stored.calls_today),
+          lanes: lanes.map(({ resource, checkpoint }) => ({ resource_key: resource.key, entity: resource.entity, checkpoint_revision: checkpoint.revision,
+            observed: typeof checkpoint.cursor.observed_count === "number" ? number(checkpoint.cursor.observed_count) : null,
+            changed: typeof checkpoint.cursor.changed_count === "number" ? number(checkpoint.cursor.changed_count) : null,
+            pass_started_at: checkpoint.pass_started_at, pass_completed_at: checkpoint.pass_completed_at,
+            freshness_at: collectionFreshness([{ resource, checkpoint }]), next_attempt_at: typeof checkpoint.cursor.not_before === "number" ? number(checkpoint.cursor.not_before) : null })) },
         capabilities: { configured: config.credential.configured, collect: admin && config.collect_enabled && config.credential.authorized && !!config.account?.confirmed_at && !["purging", "blocked_scope", "blocked_capacity"].includes(state), archive: true, xml: true, purge: admin && state !== "purging" },
-        coverage: { complete: false, observed: number(stored.observed_count), changed: 0, pending,
-          last_pass_started_at: null, last_pass_completed_at: null, freshness_at: null,
-          limitations: ["Uma passagem concluída não certifica a cobertura da conta.", "Datas de passagem, frescor, alterações e crescimento ainda dependem da consolidação das pistas; zero alterações não comprova ausência de mudanças.", "URLs de imagens e anexos são referências; seus bytes não estão arquivados.", "A projeção de volume é desconhecida até haver amostras suficientes.",
+        coverage: { complete: false, observed: number(stored.observed_count), changed: lanes.reduce((total, lane) => total + number(lane.checkpoint.cursor.changed_count ?? 0), 0), pending,
+          last_pass_started_at: started[0] ?? null, last_pass_completed_at: completed.at(-1) ?? null, freshness_at: collectionFreshness(lanes),
+          limitations: ["Uma passagem concluída não certifica a cobertura da conta.", ...(!countersKnown ? ["Pistas sem contadores têm alterações desconhecidas; zero agregado não comprova ausência de mudanças."] : []), "URLs de imagens e anexos são referências; seus bytes não estão arquivados.", "Crescimento diário e projeção de volume permanecem desconhecidos até haver amostras comparáveis suficientes.",
             ...(pending === 1000 ? ["A contagem de pendências informa pelo menos mil unidades; o total depende da reconciliação paginada."] : [])] },
         occupancy: { database_bytes: occupancy, archive_estimated_bytes: number(stored.archive_bytes), xml_bytes: number(stored.xml_bytes),
           ceiling_bytes: 10000000000, warning_ratio: 0.7, stop_ratio: 0.8, projected_bytes: null },
@@ -213,7 +236,9 @@ export function createBlingControl(dependencies: BlingControlDependencies) {
       // mapeamentos inequívocos; todas as demais exigem nome explícito.
       const pendingOperation = plan.operation ?? (pending.kind === "oauth_state" ? "erp_bling_oauth_start" : pending.kind === "purge" ? "erp_bling_purge_apply" : null);
       if (pending.request_hash !== requestHash || pendingOperation !== name) throw new BlingError("BLING_COMMAND_CONFLICT");
-      if (revision(pending.generation) !== config.generation) throw new BlingError("BLING_GENERATION_RETIRED");
+      const activePurge = name === "erp_bling_purge_apply" && pending.kind === "purge" && plan.next_generation === config.generation &&
+        number(pending.generation) < number(config.generation);
+      if (revision(pending.generation) !== config.generation && !activePurge) throw new BlingError("BLING_GENERATION_RETIRED");
       if (pending.phase === "superseded") throw new BlingError("BLING_LEASE_LOST");
       if (pending.phase === "committed") throw new BlingError("BLING_RESPONSE_INVALID");
       return null; // A reserva durável é revalidada pela porta dona antes do I/O.
@@ -250,6 +275,12 @@ export function createBlingControl(dependencies: BlingControlDependencies) {
   }
 
   function invalidate(ctx: BlingContext): void {
+    // Libera só a posse da unidade aposentada. Uma retomada pode ligar a
+    // coleta imediatamente; o recurso não deve conservar um fence sem dono.
+    db.exec(`UPDATE origin_sync__resource_state SET lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL
+      WHERE EXISTS (SELECT 1 FROM wb_bling_unit u WHERE u.resource=origin_sync__resource_state.resource
+        AND u.generation=? AND u.phase NOT IN ('committed','superseded') AND u.kind NOT IN ('r2_delete','purge')
+        AND u.owner=origin_sync__resource_state.lease_owner AND u.fence=origin_sync__resource_state.lease_token)`, configuration(ctx).generation);
     db.exec(`UPDATE wb_bling_unit SET phase='superseded',owner=NULL,fence=NULL,lease_until=NULL,finished_at=?,updated_at=?
       WHERE generation=? AND phase NOT IN ('committed','superseded') AND kind NOT IN ('r2_delete','purge')`, ctx.clock.now(), ctx.clock.now(), configuration(ctx).generation);
   }
@@ -340,11 +371,10 @@ export function createBlingControl(dependencies: BlingControlDependencies) {
     return db.transaction(() => {
       const prior = checkCommand(ctx, "erp_bling_disconnect", input, hash);
       let config = configuration(ctx);
-      // A porta de autorização da base exige texto mesmo sem conta vinculada.
-      // "unbound" é apenas o marcador privado dessa ausência; não é gravado
-      // como account_id e nunca identifica uma conta do acervo.
+      // Ausência de conta usa a mesma representação privada do AuthStore;
+      // nunca fabricar uma identidade para permitir desconectar aplicativo.
       const expectation = (): BlingExpectedState => ({ generation: config.generation, authorization_revision: config.authorization_revision,
-        credential_revision: config.credential.revision, configuration_revision: config.revision, account_id: config.account?.id ?? "unbound", parts_revision: ctx.identity.partsControl!.revision });
+        credential_revision: config.credential.revision, configuration_revision: config.revision, account_id: config.account?.id ?? "", parts_revision: ctx.identity.partsControl!.revision });
       if (prior) return { receipt: prior, expected: expectation() };
       const pending = one(db, "SELECT * FROM wb_bling_unit WHERE command_id=?", input.command_id);
       if (pending) {
@@ -363,7 +393,7 @@ export function createBlingControl(dependencies: BlingControlDependencies) {
       initialize(ctx);
       const before = config;
       invalidate(ctx);
-      db.exec("UPDATE wb_bling_control SET revision=?,authorization_revision=?,collect_enabled=0,state='off',updated_at=? WHERE id=1 AND revision=?",
+      db.exec("UPDATE wb_bling_control SET revision=?,authorization_revision=?,collect_enabled=0,state='off',credential_status='disconnected',app_configured=0,credential_expires_at=NULL,credential_scopes='[]',updated_at=? WHERE id=1 AND revision=?",
         bump(before.revision), bump(before.authorization_revision), ctx.clock.now(), before.revision);
       config = configuration(ctx);
       const target = expectation();
@@ -408,6 +438,7 @@ export function createBlingControl(dependencies: BlingControlDependencies) {
     const prior = receipt(ctx, commandId);
     if (prior) return { phase: prior.state === "committed" ? "committed" : prior.state === "superseded" ? "superseded" : "blocked", receipt: prior };
     const pending = one(db, "SELECT phase FROM wb_bling_unit WHERE command_id=?", commandId);
+    if (!pending) return { phase: "absent", receipt: null };
     const phase = unitPhaseSchema.safeParse(pending?.phase);
     if (!phase.success) throw new BlingError("BLING_RESPONSE_INVALID");
     return { phase: phase.data, receipt: null };

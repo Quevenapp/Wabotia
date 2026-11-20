@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { BlingAuthStore } from "../../../src/erp/bling/auth-store.ts";
 import { createBlingAuthorization, createBlingOAuthProvider, oauthHash, blingCallbackUrl } from "../../../src/erp/bling/oauth.ts";
 import { createBlingVault } from "../../../src/erp/bling/vault.ts";
+import { createBlingApi } from "../../../src/erp/bling/operations.ts";
 import { normalizeErpParts } from "../../../src/erp/parts.ts";
 import { freshLite, nodeDriver } from "../harness/node-driver.mjs";
 import { FakeClock, FakeBling } from "./fake-bling.mjs";
@@ -15,6 +16,79 @@ import { assertNoSecrets, assertOperationalUnchanged, guardCollectionDriver, ope
 const opaque = () => randomBytes(32).toString("base64url");
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 const hasCode = code => error => error?.code === code;
+
+function mountedApi(f) {
+  f.session.identity.partsControl.expires_at = f.ctx.identity.partsControl.expires_at = f.clock.now() + 120000;
+  const unavailable = () => { throw new Error("Porta fora deste cenário de autorização."); };
+  return createBlingApi({ db: nodeDriver(f.db), databaseSize: () => 4096, randomId: () => crypto.randomUUID(),
+    hash: async bytes => oauthHash(new TextDecoder().decode(bytes)), authorization: f.auth,
+    readParts: async () => ({ ...f.ctx.identity.partsControl, parts: f.ctx.identity.parts }), revalidate: async () => {},
+    data: { get: unavailable }, collection: {}, archive: {},
+  }, { profile: f.ctx.profile, resources: [], resource_version: "auth-integration",
+    callback_url: blingCallbackUrl(f.deps.publicOrigin, f.ctx.profile), session: f.deps.session,
+    beforeApplicationSave: f.auth.recoverRestoredApplication });
+}
+
+test("API e OAuth reais compartilham comando, callback, revisão e desconexão retomável", async () => {
+  const f = await fixture(), api = mountedApi(f);
+  const input = { command_id: crypto.randomUUID(), expected_revision: "0", ...f.app() };
+  const saved = await api.execute(f.ctx, "erp_bling_app_save", input);
+  assert.equal(saved.receipt.request_hash, await oauthHash(JSON.stringify(input)));
+  assert.deepEqual((await api.execute(f.ctx, "erp_bling_app_save", input)).receipt, saved.receipt);
+  assert.equal((await api.execute(f.ctx, "erp_bling_status", {})).callback_url, saved.callback_url);
+  assert.deepEqual(await api.execute(f.ctx, "erp_bling_command_get", { id: crypto.randomUUID() }), { phase: "absent", receipt: null });
+  // Configurar e autorizar são passos distintos; a prova de seleção oficial
+  // pertence ao cenário do coletor, sem um endpoint inventado neste teste.
+  f.enable();
+  const started = await f.start();
+  const callback = await api.callback(f.ctx, started.input);
+  assert.equal(callback.state, "authorized"); assert.equal(callback.redirect, "/receber-bling");
+  const before = f.expected(), disconnect = { command_id: crypto.randomUUID(), expected_revision: before.configuration_revision };
+  f.hooks.afterCas = () => { throw new Error(opaque()); };
+  await assert.rejects(api.execute(f.ctx, "erp_bling_disconnect", disconnect), hasCode("BLING_AUTH_REQUIRED"));
+  delete f.hooks.afterCas;
+  const stopped = await api.execute(f.ctx, "erp_bling_disconnect", disconnect);
+  assert.equal(stopped.configuration.credential.configured, false);
+  assert.equal(stopped.configuration.revision, String(Number(before.configuration_revision) + 1));
+  assert.equal(stopped.configuration.authorization_revision, String(Number(before.authorization_revision) + 1));
+  assert.deepEqual((await api.execute(f.ctx, "erp_bling_disconnect", disconnect)).receipt, stopped.receipt);
+  assert.equal((await f.coreVault.read(f.ctx.profile)).value.disconnected, true);
+  await f.verify();
+});
+
+test("API desconecta aplicativo sem conta e sem fabricar identidade", async () => {
+  const f = await fixture(), api = mountedApi(f);
+  await api.execute(f.ctx, "erp_bling_app_save", { command_id: crypto.randomUUID(), expected_revision: "0", ...f.app() });
+  const stopped = await api.execute(f.ctx, "erp_bling_disconnect", { command_id: crypto.randomUUID(), expected_revision: f.expected().configuration_revision });
+  assert.equal(stopped.configuration.account, null); assert.equal(stopped.configuration.credential.configured, false);
+  assert.equal(f.db.prepare("SELECT account_id FROM wb_bling_unit WHERE json_extract(plan,'$.operation')='erp_bling_disconnect'").get().account_id, null);
+  await f.verify();
+});
+
+test("aplicativo sem retorno público canônico falha antes de reservar ou custodiar", async () => {
+  const f = await fixture();
+  const auth = createBlingAuthorization({ ...f.deps, publicOrigin: "" });
+  const baseline = await f.coreVault.read(f.ctx.profile);
+  await assert.rejects(auth.saveApplication(f.ctx, { command_id: crypto.randomUUID(), expected_revision: "0", ...f.app() }), hasCode("BLING_RESPONSE_INVALID"));
+  assert.equal((await f.coreVault.read(f.ctx.profile)).ciphertext, baseline.ciphertext);
+  assert.equal(f.db.prepare("SELECT count(*) AS n FROM wb_bling_unit").get().n, 0);
+  await f.verify();
+});
+
+test("reconfiguração administrativa após restore alinha cofre por tombstone e exige nova autorização", async () => {
+  const f = await fixture(); await f.connect();
+  f.db.exec("UPDATE wb_bling_control SET credential_revision=credential_revision+5,app_configured=0,credential_status='missing',collect_enabled=0,state='off',approved_by=NULL,approved_at=NULL,approval_hash=NULL");
+  const api = mountedApi(f), before = f.expected();
+  await assert.rejects(f.auth.privateCredential(f.internal(), before), hasCode("BLING_DISABLED"));
+  const saved = await api.execute(f.ctx, "erp_bling_app_save", { command_id: crypto.randomUUID(), expected_revision: before.configuration_revision, ...f.app() });
+  assert.equal(saved.configured, true);
+  const snapshot = await f.coreVault.read(f.ctx.profile), state = f.store.control(f.ctx);
+  assert.equal(state.credential.revision, snapshot.revision);
+  assert.equal(snapshot.value.credential, null); assert.equal(state.enabled, false); assert.equal(state.approved, false);
+  assert.equal(state.credential.authorized, false); assert.equal(f.oauth.callCount, 1);
+  assert.equal(f.db.prepare("SELECT count(*) AS n FROM wb_bling_audit WHERE operation='erp_bling_restore_credential_reset'").get().n, 1);
+  await f.verify();
+});
 
 async function fixture() {
   const clock = new FakeClock(), db = freshLite(), d1 = new DatabaseSync(":memory:");

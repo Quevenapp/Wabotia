@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { gzipSync } from "node:zlib";
 import { test } from "node:test";
 import { ERP_DDL } from "../../../src/erp/schema/ddl.ts";
 import { nodeDriver } from "../harness/node-driver.mjs";
@@ -13,6 +14,103 @@ import { FakeBling, FakeClock } from "./fake-bling.mjs";
 import { observedDecimal, unknownValue, projectRecord, parseHistoricalPayload, validateCapture, explicitOrderReference, resolveOrderReference, coverageFromPasses, fiscalIndex } from "../../../src/erp/bling/projection.ts";
 import { createXmlArchive, xmlFingerprint, validateXmlBytes, selectXmlCandidates, blingXmlObjectKey, hasPendingXmlWrite } from "../../../src/erp/bling/xml.ts";
 import { createArchivePurge, archiveDeleteTransaction, ARCHIVE_PURGE_DELETE_TRIGGERS } from "../../../src/erp/bling/purge.ts";
+import { createBlingArchiveWake, createBlingWake } from "../../../src/erp/bling/wake.ts";
+import { createCollectionStore } from "../../../src/erp/bling/repository.ts";
+import { BLING_RESOURCES, BLING_XML_RESOURCE } from "../../../src/erp/bling/resources.ts";
+import { parseBlingResponse } from "../../../src/erp/bling/client.ts";
+
+test("captura produzida pelo cliente real é aceita para JSON genérico e estoque individual", async () => {
+  for (const [entity,path,payload] of [
+    ["contacts","/contatos/1",'{"data":{"id":"1","numero":9007199254740993123,"credito":1.2300}}'],
+    ["stock_balances","/estoques/saldos",'{"data":[{"produto":{"id":"1"},"saldoFisicoTotal":1.2300,"saldoVirtualTotal":2,"depositos":[]}]}'],
+  ]) {
+    const bytes = new TextEncoder().encode(payload), item = (await parseBlingResponse(entity,path,bytes)).items[0];
+    const record = raw(entity,item.payload_text);
+    record.capture = { ...item.capture, revision:"1", semantic_hash:record.semantic_hash,semantic_version:record.version };
+    assert.deepEqual(validateCapture(record,entity==="stock_balances"?new TextEncoder().encode(item.payload_text):bytes),record.capture);
+    assert.throws(()=>validateCapture({...record,capture:{...record.capture,values:record.capture.values.slice(1)}},entity==="stock_balances"?new TextEncoder().encode(item.payload_text):bytes),{code:"BLING_RESPONSE_INVALID"});
+  }
+});
+
+test("alarme montado reserva XML, retoma PUT, confirma manifesto e apaga SQL/R2 sem coleta ligada", async () => {
+  const f=fixture(),clock=new FakeClock(now),media=mediaStore(),doc=xmlDocument(),fake=new FakeBling({clock});
+  let sequence=0;
+  const randomId=()=>`bridge-${++sequence}`,checked=guardCollectionDriver(f.db),hash=async bytes=>sha(bytes);
+  const ctx={...f.ctx,clock,origin:"internal"};
+  const readParts=async()=>({profile,revision:"1",expires_at:clock.now()+300000,parts:ctx.identity.parts});
+  const revalidate=async(ctx,expected)=>{store.assertExpected(ctx,expected,"fiscal_xml");};
+  const store=createCollectionStore({db:checked,randomId,databaseSize:()=>1000});
+  const xml=createXmlArchive({db:checked,profile,media,hash,randomId,revalidate});
+  const purge=purgeHarness(f,media).purge;
+  const resources=[...BLING_RESOURCES,BLING_XML_RESOURCE].map(resource=>({...resource,confirmation:resource.path?"oficial_confirmado":"nao_confirmado",officialEvidence:resource.path?{url:"https://official.invalid/simulado",checked_at:new Date(now).toISOString(),scopes_checked:true,identity_checked:true,limits_checked:true}:null}));
+  const data={get:async(_ctx,request)=>{
+    assert.equal(request.method,"GET");const response=await fake.fetch(fake.baseUrl+request.path+"?formato=xml");
+    return {kind:"success",status:200,bytes:new Uint8Array(await response.arrayBuffer()),received_at:clock.now()};
+  }};
+  const authorization={renew:async()=>{assert.fail("OAuth não esperado");}};
+  const archiveWake=createBlingArchiveWake({db:checked,profile,collection:store,data,authorization,xml,purge,readParts,revalidate,randomId,hash,resources,media});
+  try {
+    f.seed("nfe","1",1,{id:"1",chaveAcesso:doc.key,situacao:"6",valorNota:"10"});
+    f.db.exec("UPDATE wb_bling_control SET selection=?,collect_enabled=1,state='ready',credential_status='ready',approved_by='pessoa',approved_at=?,approval_hash=? WHERE id=1",JSON.stringify(["nfe","fiscal_xml"]),now,sha("aprovação"));
+    const baseline=operationalSnapshot(f.sqlite);
+    fake.queue({path:`/nfe/documento/${doc.key}`,data:{data:[{nome:"nota.xml",conteudo:gzipSync(doc.bytes).toString("base64")}]}});
+    const run=()=>archiveWake.runOne(ctx,{deadline:clock.now()+4000,nextOperationalAt:null,maxGets:1});
+    const first=await run();assert.equal(first.requests,1,JSON.stringify(first));assert.equal(fake.callCount,1);assert.equal(media.objects.size,1,JSON.stringify(first));
+    assert.equal(f.db.exec("SELECT count(*) AS n FROM origin_fiscal__object").rows[0].n,0);
+    clock.advance(700);
+    const second=await run();assert.equal(second.requests,0);assert.equal(fake.callCount,1);assert.equal(second.error,undefined);
+    assert.equal(f.db.exec("SELECT count(*) AS n FROM origin_fiscal__item").rows[0].n,1);
+    const preview=purge.purgePreview({...ctx,origin:"app"},{scope:{all:true,entities:[]},generation:"1"});
+    const work=await purge.purge({...ctx,origin:"app"},{command_id:"bridge-purge",expected_revision:"0",scope:{all:true,entities:[]},generation:"1",preview_hash:preview.preview_hash,confirmed:true});
+    const wake=createBlingWake({collection:store,data,authorization,archive:{},readParts,revalidate,randomId,resources,archiveWake});
+    for(let i=0;i<100&&!f.db.exec("SELECT command_id FROM wb_bling_receipt WHERE command_id='bridge-purge'").rows.length;i++) {
+      clock.advance(700);const before=media.calls.length,result=await wake.runOne(ctx,{deadline:clock.now()+4000,nextOperationalAt:null,maxGets:1});
+      assert.equal(result.error,undefined,JSON.stringify(result));
+      assert.equal(result.requests,0);assert.ok(media.calls.length-before<=1);
+      if(result.nextWake!==null&&result.nextWake>clock.now())clock.set(result.nextWake);
+    }
+    assert.equal(f.db.exec("SELECT phase FROM wb_bling_unit WHERE id=?",work.work_id).rows[0].phase,"committed");
+    assert.equal(media.objects.size,0);assert.equal(fake.mutationAttempts,0);assert.equal(fake.callCount,1);
+    assertOperationalUnchanged(f.sqlite,baseline);
+  } finally { f.sqlite.close(); }
+});
+
+test("desligar após PUT remove órfão em passos R2 sem novo GET nem manifesto tardio", async () => {
+  const f=fixture(),clock=new FakeClock(now),media=mediaStore(),doc=xmlDocument();
+  let id=0,calls=0;const randomId=()=>`orphan-test-${++id}`,hash=async bytes=>sha(bytes),ctx={...f.ctx,clock,origin:"internal"};
+  const db=guardCollectionDriver(f.db),readParts=async()=>({profile,revision:"1",expires_at:clock.now()+300000,parts:ctx.identity.parts});
+  const collection=createCollectionStore({db,randomId,databaseSize:()=>1000});
+  const revalidate=async(ctx,expected)=>collection.assertExpected(ctx,expected,"fiscal_xml");
+  const xml=createXmlArchive({db,profile,media,hash,randomId,revalidate}),purge=purgeHarness(f,media).purge;
+  const resources=[...BLING_RESOURCES,BLING_XML_RESOURCE].map(r=>({...r,confirmation:r.path?"oficial_confirmado":"nao_confirmado",officialEvidence:r.path?{url:"https://official.invalid/simulado",checked_at:clock.iso(),scopes_checked:true,identity_checked:true,limits_checked:true}:null}));
+  const data={get:async(_ctx,request)=>{calls++;assert.equal(request.method,"GET");return {kind:"success",status:200,received_at:clock.now(),bytes:new TextEncoder().encode(JSON.stringify({data:[{nome:"nota.xml",conteudo:gzipSync(doc.bytes).toString("base64")}]}))};}};
+  const archiveWake=createBlingArchiveWake({db,profile,collection,data,authorization:{},xml,purge,readParts,revalidate,randomId,hash,resources,media});
+  try {
+    f.seed("nfe","1",1,{id:"1",chaveAcesso:doc.key});
+    f.db.exec("UPDATE wb_bling_control SET collect_enabled=1,state='ready',credential_status='ready',selection=?,approved_by='pessoa',approved_at=?,approval_hash=? WHERE id=1",JSON.stringify(["nfe","fiscal_xml"]),now,sha("aprovação"));
+    const run=()=>archiveWake.runOne(ctx,{deadline:clock.now()+4000,nextOperationalAt:null,maxGets:1});
+    assert.equal((await run()).requests,1);assert.equal(media.objects.size,1);
+    f.db.exec("UPDATE wb_bling_control SET collect_enabled=0,state='off',authorization_revision=authorization_revision+1,revision=revision+1 WHERE id=1");
+    // A operação administrativa aposenta a unidade antes de o alarme limpar R2.
+    f.db.exec("UPDATE wb_bling_unit SET phase='superseded',finished_at=?,owner=NULL,fence=NULL,lease_until=NULL WHERE resource='fiscal_xml' AND phase NOT IN ('committed','superseded')",clock.now());
+    for(let i=0;i<6;i++){clock.advance(700);const before=media.calls.length,result=await run();assert.equal(result.requests,0);assert.equal(result.error,undefined,JSON.stringify(result));assert.ok(media.calls.length-before<=1);}
+    assert.equal(calls,1);assert.equal(media.objects.size,0);assert.equal(f.db.exec("SELECT count(*) AS n FROM origin_fiscal__object").rows[0].n,0);
+    assert.equal(f.db.exec("SELECT count(*) AS n FROM wb_bling_unit WHERE kind='r2_delete' AND phase='committed'").rows[0].n,1);
+  }finally{f.sqlite.close();}
+});
+
+test("bridge fiscal limita espera de partes ao deadline simulado e não inicia I/O tardio", async t => {
+  t.mock.timers.enable({apis:["setTimeout"]});
+  const clock=new FakeClock(now),ctx={...context(),clock,origin:"internal"};let release,calls=0;
+  const pending=new Promise(resolve=>{release=resolve;});
+  const unused=()=>{calls++;assert.fail("Nenhuma porta é acessível antes de validar partes");};
+  const wake=createBlingArchiveWake({profile,db:{exec:unused},collection:{},data:{get:unused},authorization:{},xml:{},purge:{},media:{get:unused,delete:unused},resources:[],randomId:()=>"deadline-bridge",hash:unused,readParts:()=>pending,revalidate:unused});
+  const running=wake.runOne(ctx,{deadline:clock.now()+4000,nextOperationalAt:null,maxGets:1});
+  clock.advance(4000);t.mock.timers.tick(4000);
+  const result=await running;assert.equal(result.requests,0);assert.equal(result.error.code,"BLING_RETRY_WAIT");
+  release({profile,revision:"1",expires_at:clock.now()+300000,parts:ctx.identity.parts});await new Promise(setImmediate);
+  assert.equal(calls,0);
+});
 
 const now = Date.UTC(2026,10,19,15), profile = "area-acervo";
 const sha = value => createHash("sha256").update(value).digest("hex");
@@ -533,7 +631,15 @@ test("ficha resolve pedido–nota sem vínculo nativo e projeção aceita fonte 
     const bytes=new TextEncoder().encode(large.payload_text);
     large.capture={revision:"1",profile:"origin-sales-price-json-v1",source:"detail",bytes_sha256:sha(bytes),semantic_hash:large.semantic_hash,semantic_version:large.version,values:Array.from({length:1800},(_,i)=>({path:`/itens/${i}/valor`,lexeme:"1"}))};
     assert.ok(validateCapture(large,bytes));
-    assert.throws(()=>archive.validateCapture({...f.ctx,origin:"internal"},{record:large,bytes}),{code:"BLING_CAPACITY_STOP"});
+    assert.ok(new TextEncoder().encode(JSON.stringify(large.capture)).length>65536);
+    assert.ok(archive.validateCapture({...f.ctx,origin:"internal"},{record:large,bytes}));
+    f.db.exec("INSERT INTO wb_bling_record_version(entity,source_id,version,generation,semantic_hash,size_bytes,first_seen_at,last_seen_at,capture_revision,capture) VALUES('sales_orders','200',1,1,?,1,?,?,1,?)",large.semantic_hash,now,now,JSON.stringify(large.capture));
+    const oversized=raw("sales_orders",JSON.stringify({id:"1",itens:Array.from({length:3800},()=>({valor:1}))}));
+    const oversizedBytes=new TextEncoder().encode(oversized.payload_text);
+    oversized.capture={...large.capture,bytes_sha256:sha(oversizedBytes),semantic_hash:oversized.semantic_hash,values:Array.from({length:3800},(_,i)=>({path:`/itens/${i}/valor`,lexeme:"1"}))};
+    assert.ok(new TextEncoder().encode(JSON.stringify(oversized.capture)).length>131072);
+    assert.throws(()=>archive.validateCapture({...f.ctx,origin:"internal"},{record:oversized,bytes:oversizedBytes}),{code:"BLING_CAPACITY_STOP"});
+    assert.throws(()=>f.db.exec("INSERT INTO wb_bling_record_version(entity,source_id,version,generation,semantic_hash,size_bytes,first_seen_at,last_seen_at,capture_revision,capture) VALUES('sales_orders','201',1,1,?,1,?,?,1,?)",oversized.semantic_hash,now,now,JSON.stringify(oversized.capture)),/CHECK constraint failed/);
   }finally{f.sqlite.close();}
 });
 
@@ -576,6 +682,59 @@ test("DELETE R2 vencido não permite finalizar purge enquanto a exclusão antiga
     await assert.rejects(purge.purge.runPurgeStep(purge.internal,work.work_id),{code:"BLING_RETRY_WAIT"});
     assert.equal(f.db.exec("SELECT state FROM wb_bling_control").rows[0].state,"purging");
     release();await new Promise(setImmediate);
+    assert.equal((await purge.finish(work.work_id)).state,"committed");assert.equal(media.objects.size,0);
+  }finally{release?.();f.sqlite.close();}
+});
+
+for (const stage of ["sql", "r2"]) test(`purge não continua ${stage} quando a Base responde após o deadline`, async () => {
+  const f=fixture(),clock=new FakeClock(now);f.ctx.clock=clock;
+  const media=mediaStore(),xml=xmlHarness(f,media),h=purgeHarness(f,media);let release;
+  try {
+    const input=await xml.prepare();await assert.rejects(xml.xml.archiveXml(f.ctx,input),{code:"BLING_RETRY_WAIT"});await xml.xml.resumeXml(f.ctx,input.unit);
+    const scope={all:true,entities:[]},preview=h.purge.purgePreview(f.ctx,{scope,generation:"1"});
+    const work=await h.purge.purge(f.ctx,{scope,generation:"1",expected_revision:"0",command_id:`purge-late-base-${stage}`,preview_hash:preview.preview_hash,confirmed:true});
+    if(stage==="r2")for(let i=0;i<100;i++){
+      if(JSON.parse(f.db.exec("SELECT progress FROM wb_bling_unit WHERE id=?",work.work_id).rows[0].progress).stage===14)break;
+      await h.purge.runPurgeStep(h.internal,work.work_id);
+    }
+    const before=f.db.exec("SELECT progress FROM wb_bling_unit WHERE id=?",work.work_id).rows[0].progress,calls=media.calls.length,statements=[];
+    if(stage==="r2")assert.equal(JSON.parse(before).stage,14);
+    const pending=new Promise(resolve=>{release=resolve;});
+    const delayed=createArchivePurge({db:{transaction:fn=>f.db.transaction(fn),exec(sql,...params){statements.push(sql);return f.db.exec(sql,...params);}},profile,media,randomId:()=>"late-base-unused",requireBase:()=>pending});
+    const running=assert.rejects(delayed.runPurgeStep(h.internal,work.work_id,{deadline:clock.now()+4000}),{code:"BLING_RETRY_WAIT"});
+    clock.advance(4000);release();await running;
+    assert.deepEqual(statements,[]);assert.equal(media.calls.length,calls);
+    assert.equal(f.db.exec("SELECT progress FROM wb_bling_unit WHERE id=?",work.work_id).rows[0].progress,before);
+  }finally{release?.();f.sqlite.close();}
+});
+
+test("reserva XML não grava tentativa quando a revalidação responde após o deadline",async()=>{
+  const f=fixture(),clock=new FakeClock(now);f.ctx.clock=clock;
+  const h=xmlHarness(f);let release;
+  try{
+    const input=await h.prepare(),statements=[],pending=new Promise(resolve=>{release=resolve;});
+    const xml=createXmlArchive({profile,db:{transaction:fn=>f.db.transaction(fn),exec(sql,...params){statements.push(sql);return f.db.exec(sql,...params);}},media:h.media,hash:async bytes=>sha(bytes),randomId:h.randomId,revalidate:()=>pending});
+    const running=assert.rejects(xml.beginXml(f.ctx,input,{deadline:clock.now()+4000}),{code:"BLING_RETRY_WAIT"});
+    const before=statements.length;clock.advance(4000);release();await running;
+    assert.equal(statements.length,before);assert.equal(h.media.calls.length,0);
+    assert.equal(f.db.exec("SELECT count(*) AS n FROM origin_fiscal__attempt").rows[0].n,0);
+  }finally{release?.();f.sqlite.close();}
+});
+
+test("desligar durante PUT não permite ao purge remover o journal ainda em voo",async()=>{
+  const f=fixture(),clock=new FakeClock(now);f.ctx.clock=clock;
+  const media=mediaStore(),h=xmlHarness(f,media),purge=purgeHarness(f,media);let release;
+  try{
+    const input=await h.prepare(),started=new Promise(resolve=>{media.put=async(key,bytes)=>{media.calls.push({kind:"put",key});resolve();await new Promise(done=>{release=done;});media.objects.set(key,Uint8Array.from(bytes));};});
+    const writing=assert.rejects(h.xml.archiveXml(f.ctx,input),{code:"BLING_GENERATION_RETIRED"});await started;
+    f.db.exec("UPDATE wb_bling_control SET collect_enabled=0,state='off',revision=revision+1,authorization_revision=authorization_revision+1 WHERE id=1");
+    f.db.exec("UPDATE wb_bling_unit SET phase='superseded',finished_at=?,owner=NULL,fence=NULL,lease_until=NULL WHERE id=?",clock.now(),input.unit.work_id);
+    const scope={all:true,entities:[]},preview=purge.purge.purgePreview(f.ctx,{scope,generation:"1"});
+    const work=await purge.purge.purge(f.ctx,{scope,generation:"1",expected_revision:"1",command_id:"purge-disabled-live-put",preview_hash:preview.preview_hash,confirmed:true});
+    await assert.rejects(purge.purge.runPurgeStep(purge.internal,work.work_id),{code:"BLING_RETRY_WAIT"});
+    assert.ok(f.db.exec("SELECT progress FROM wb_bling_unit WHERE id=?",input.unit.work_id).rows[0]);
+    assert.equal(media.calls.filter(call=>call.kind==="delete").length,0);
+    release();await writing;
     assert.equal((await purge.finish(work.work_id)).state,"committed");assert.equal(media.objects.size,0);
   }finally{release?.();f.sqlite.close();}
 });

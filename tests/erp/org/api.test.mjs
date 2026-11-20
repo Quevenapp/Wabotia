@@ -76,6 +76,25 @@ function fixture({ ready = true, access = emptyAccess(), resources = [resource()
 const command = (id = "command-1", revision = "1") => ({ command_id: id, expected_revision: revision });
 const rejectsCode = (promise, code) => assert.rejects(promise, error => error instanceof BlingError && error.code === code);
 
+test("status usa contadores e passagens duráveis; último GET não fabrica frescor", async () => {
+  const f = fixture();
+  try {
+    const started = "2026-11-18T12:00:00.000Z", completed = "2026-11-19T12:00:00.000Z";
+    const checkpoint = { observed_count: 7, changed_count: 3, pass_started_at: started, pass_completed_at: completed,
+      recentPassStartedAt: completed, recentPassCompletedAt: completed, historyPassStartedAt: started, historyPassCompletedAt: completed };
+    f.db.prepare("UPDATE origin_sync__resource_state SET checkpoint=?,checkpoint_version=4 WHERE resource='products'").run(JSON.stringify(checkpoint));
+    f.db.prepare("UPDATE wb_bling_control SET calls_day='2026-11-19',calls_today=9").run();
+    const status = await f.api.execute(f.ctx, "erp_bling_status", {});
+    assert.equal(status.progress.calls_today, 9); assert.equal(status.coverage.changed, 3);
+    assert.equal(status.progress.lanes[0].observed, 7); assert.equal(status.progress.lanes[0].checkpoint_revision, "4");
+    assert.equal(status.coverage.freshness_at, started);
+    delete checkpoint.historyPassCompletedAt;
+    f.db.prepare("UPDATE origin_sync__resource_state SET checkpoint=? WHERE resource='products'").run(JSON.stringify(checkpoint));
+    assert.equal((await f.api.execute(f.ctx, "erp_bling_status", {})).coverage.freshness_at, null);
+    f.verify();
+  } finally { f.close(); }
+});
+
 test("configuração inicia desligada, CAS/recibo são atômicos e replay precede revisão antiga", async () => {
   const f = fixture({ ready: false });
   try {
@@ -128,11 +147,13 @@ test("desligar invalida posse em curso e impede novos pedidos; acervo continua c
   try {
     f.db.prepare(`INSERT INTO wb_bling_unit(id,attempt_id,command_id,request_hash,generation,authorization_revision,credential_revision,configuration_revision,account_id,parts_revision,kind,resource,entity,phase,owner,fence,lease_until,not_before,created_at,updated_at)
       VALUES('work','attempt','unit-command',?,1,1,1,1,'company','1','detail','products','products','fetching','worker','fence',?,?,?,?)`).run(hashA, f.clock.now() + 60000, f.clock.now(), f.clock.now(), f.clock.now());
+    f.db.prepare("UPDATE origin_sync__resource_state SET lease_owner='worker',lease_token='fence',lease_expires_at=? WHERE resource='products'").run(f.clock.now() + 60000);
     const disabled = await f.api.execute(f.ctx, "erp_bling_disable", command());
     assert.equal(disabled.configuration.collect_enabled, false); assert.equal(disabled.configuration.generation, "1");
     assert.notEqual(disabled.configuration.authorization_revision, "1");
     const unit = f.db.prepare("SELECT phase,owner,fence FROM wb_bling_unit WHERE id='work'").get();
     assert.equal(unit.phase, "superseded"); assert.equal(unit.fence, null);
+    assert.deepEqual({ ...f.db.prepare("SELECT lease_owner,lease_token,lease_expires_at FROM origin_sync__resource_state WHERE resource='products'").get() }, { lease_owner: null, lease_token: null, lease_expires_at: null });
     await rejectsCode(f.api.execute(f.ctx, "erp_bling_collect_request", { ...command("after", disabled.configuration.revision), resource_keys: ["products"] }), "BLING_DISABLED");
     assert.match((await f.api.execute(f.ctx, "erp_bling_record_get", { entity: "products", id: "1" })).raw.payload_text, /12345678901234567890\.123456789/);
     assert.equal(f.calls.disconnect, 0); f.verify();
@@ -217,6 +238,76 @@ test("consulta detecta resposta de outra área/conta e revogação durante I/O",
     await rejectsCode(f.api.execute(f.ctx, "erp_bling_xml_get", { object_id: "xml-1" }), "BLING_GENERATION_RETIRED"); f.verify();
   } finally { f.close(); }
 });
+
+for (const [name, port, method] of [
+  ["erp_bling_app_save", "authorization", "saveApplication"],
+  ["erp_bling_oauth_start", "authorization", "authorize"],
+  ["erp_bling_disconnect", "authorization", "disconnect"],
+  ["erp_bling_xml_get", "archive", "readXml"],
+  ["erp_bling_purge_apply", "archive", "purge"],
+  ["erp_bling_oauth_callback", "authorization", "callback"],
+]) {
+  test(`${name}: sessão rebaixada durante I/O não entrega resultado com a identidade anterior`, async () => {
+    const f = fixture();
+    try {
+      let role = "admin", sessionChecks = 0, reached = 0;
+      const api = createBlingApi(f.deps, { profile: area, resources: [resource()], resource_version: "test-v1",
+        session: async ctx => {
+          sessionChecks++;
+          return { ...ctx.identity, actor: { ...ctx.identity.actor, erp_role: role } };
+        } });
+      const original = f.deps[port][method];
+      f.deps[port][method] = async (...args) => {
+        reached++;
+        const result = await original(...args);
+        role = "consulta";
+        return result;
+      };
+      const inputs = {
+        erp_bling_app_save: { ...command(), client_id: randomBytes(20).toString("hex"), client_secret: randomBytes(32).toString("hex") },
+        erp_bling_oauth_start: command(), erp_bling_disconnect: command(),
+        erp_bling_xml_get: { object_id: "xml-1" },
+        erp_bling_purge_apply: { ...command(), scope: { all: true, entities: [] }, generation: "1", preview_hash: hashA, confirmed: true },
+        erp_bling_oauth_callback: { state: randomBytes(32).toString("hex"), code: randomBytes(32).toString("hex"), callback_url: `https://installation.invalid/api/public/erp-bling/${area}/callback` },
+      };
+      const pending = name === "erp_bling_oauth_callback" ? api.callback(f.ctx, inputs[name]) : api.execute(f.ctx, name, inputs[name]);
+      await rejectsCode(pending, name === "erp_bling_xml_get" ? "BLING_SCOPE_REQUIRED" : "BLING_ADMIN_REQUIRED");
+      assert.equal(reached, 1, "a sessão muda somente depois da operação assíncrona");
+      assert.equal(sessionChecks, 2, "a leitura da sessão inicial não substitui a revalidação final");
+      assert.equal(f.ctx.identity.actor.erp_role, "admin", "a fotografia original permanece distinta da sessão rebaixada");
+      f.verify();
+    } finally { f.close(); }
+  });
+}
+
+for (const revoked of ["pessoa", "bot", "sessão"]) {
+  test(`XML: revogar ${revoked} durante I/O impede a entrega dos bytes`, async () => {
+    const access = allAccess(); access.reader_user_ids = [actorId];
+    const f = fixture({ access });
+    try {
+      let active = true, reads = 0;
+      const ctx = { ...f.ctx, identity: { ...f.ctx.identity, actor: { ...f.ctx.identity.actor, erp_role: "consulta", is_agent: revoked === "bot" } },
+        ...(revoked === "bot" ? { authorization: { bot: { id: "bot-1", allowed_operations: ["erp_bling_xml_get"], allowed_entities: [...BLING_ENTITIES], data_scopes: ["public", "personal", "sensitive", "raw", "xml"], allow_sensitive: true } } } : {}) };
+      const api = createBlingApi(f.deps, { profile: area, resources: [resource()], resource_version: "test-v1",
+        session: async context => active ? structuredClone(context.identity) : { ...context.identity, actor: null } });
+      const original = f.deps.archive.readXml;
+      f.deps.archive.readXml = async (...args) => {
+        reads++;
+        const result = await original(...args);
+        if (revoked === "sessão") active = false;
+        else {
+          if (revoked === "pessoa") access.reader_user_ids = [];
+          else access.bots[0].operations = [];
+          f.db.prepare("UPDATE wb_bling_control SET permissions=?").run(JSON.stringify(access));
+        }
+        return result;
+      };
+      await rejectsCode(api.execute(ctx, "erp_bling_xml_get", { object_id: "xml-1" }), revoked === "sessão" ? "BLING_ADMIN_REQUIRED" : "BLING_SCOPE_REQUIRED");
+      assert.equal(reads, 1, "a concessão existe no início e é revogada durante a leitura");
+      f.verify();
+    } finally { f.close(); }
+  });
+}
 
 test("segredos gerados só em memória não saem de exceções, DTO inválido, recibo nem auditoria", async () => {
   const f = fixture(), secret = randomBytes(32).toString("base64url");

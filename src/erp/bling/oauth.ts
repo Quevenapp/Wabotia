@@ -116,7 +116,9 @@ export function createBlingOAuthProvider(options: {
 }
 
 /** Portas privadas não são rotas. Descritores públicos/política bot vêm só de schema.ts. */
-export function createBlingAuthorization(deps: BlingAuthorizationDependencies): AuthorizationPort {
+export function createBlingAuthorization(deps: BlingAuthorizationDependencies): AuthorizationPort & {
+  recoverRestoredApplication(ctx: BlingContext, input: Parameters<AuthorizationPort["saveApplication"]>[1]): Promise<void>;
+} {
   const { store, vault } = deps;
   const authorizationEndpoint = httpsUrl(deps.authorizationEndpoint).href;
   const callbackUrl = (ctx: BlingContext) => blingCallbackUrl(deps.publicOrigin, ctx.profile);
@@ -160,7 +162,8 @@ export function createBlingAuthorization(deps: BlingAuthorizationDependencies): 
     if (reauthorize) await reauthorize();
     store.assertAttempt(ctx, attempt, enabled);
     const credential = credentialPublic(saved);
-    const receipt = store.finish(ctx, attempt, { credential, account: boundAccount, appChanged });
+    const receipt = store.finish(ctx, attempt, { credential, account: boundAccount, appChanged,
+      ...(appChanged ? { references: { callback_url: callbackUrl(ctx) } } : {}) });
     return { credential, receipt };
   }
   async function privateCredential(ctx: BlingContext, expected: BlingExpectedState) {
@@ -186,7 +189,12 @@ export function createBlingAuthorization(deps: BlingAuthorizationDependencies): 
       try {
         const input = parseBlingOperationInput("erp_bling_app_save", rawInput);
         await admin(ctx, "erp_bling_app_save", input);
-        const requestHash = await oauthHash(JSON.stringify([ctx.profile, ctx.identity.actor!.user_id, ctx.identity.actor!.session_id, input]));
+        // O retorno faz parte da configuração revisável antes de qualquer
+        // custódia; uma instalação sem origem canônica não grava meio fluxo.
+        callbackUrl(ctx);
+        // A API já autenticou o hash do envelope completo. A mesma identidade
+        // de comando deve atravessar a reserva OAuth e o recibo administrativo.
+        const requestHash = ctx.authorization?.request_hash ?? await oauthHash(JSON.stringify(rawInput));
         const replay = store.receipt(ctx, input.command_id, requestHash);
         if (replay) {
           if (replay.state !== "committed") throw new BlingError("BLING_AUTH_REQUIRED");
@@ -332,13 +340,18 @@ export function createBlingAuthorization(deps: BlingAuthorizationDependencies): 
         // credential_status=disconnected é a intenção durável. Uma queda antes
         // do tombstone pode retomar com o expected original, sem nova revisão.
         const retry = state.disconnected && state.expected.generation === expected.generation && state.expected.account_id === expected.account_id &&
-          state.expected.authorization_revision === nextRevision(expected.authorization_revision) && state.expected.configuration_revision === nextRevision(expected.configuration_revision);
+          ((state.expected.authorization_revision === expected.authorization_revision && state.expected.configuration_revision === expected.configuration_revision) ||
+           (state.expected.authorization_revision === nextRevision(expected.authorization_revision) && state.expected.configuration_revision === nextRevision(expected.configuration_revision)));
         await current(ctx, retry ? state.expected : expected, false);
         const invalidated = retry ? state : store.invalidate(ctx, expected);
         for (let remaining = 3; remaining > 0; remaining--) {
           const previous = await vault.read(ctx.profile);
           if (store.control(ctx).expected.authorization_revision !== invalidated.expected.authorization_revision) throw new BlingError("BLING_REVISION_CONFLICT");
           try {
+            if (previous.value.disconnected && Number(previous.revision) > Number(invalidated.expected.credential_revision)) {
+              store.finalizeDisconnect(ctx, invalidated.expected.authorization_revision, previous.revision);
+              return credentialPublic(previous);
+            }
             const saved = await vault.compareAndSwap(ctx.profile, previous, { revision: nextRevision(previous.revision), application: null, credential: null, disconnected: true });
             store.finalizeDisconnect(ctx, invalidated.expected.authorization_revision, saved.revision);
             return credentialPublic(saved);
@@ -350,12 +363,32 @@ export function createBlingAuthorization(deps: BlingAuthorizationDependencies): 
   };
   // A porta inteira saneia falhas de cofre, sessão, prova de conta e driver;
   // consumidores internos também nunca recebem exceção remota ou SQL bruto.
-  return Object.fromEntries(Object.entries(implementation).map(([key, method]) => [key, (...args: unknown[]) => {
+  const recoverRestoredApplication = async (ctx: BlingContext, input: Parameters<AuthorizationPort["saveApplication"]>[1]) => {
+    try {
+      await admin(ctx, "erp_bling_app_save", input);
+      callbackUrl(ctx);
+      const state = store.control(ctx);
+      if (input.expected_revision !== state.expected.configuration_revision) throw new BlingError("BLING_REVISION_CONFLICT");
+      if (state.enabled || state.approved || state.credential.configured) return;
+      await current(ctx, state.expected, false);
+      const previous = await vault.read(ctx.profile);
+      if (Number(previous.revision) === Number(state.expected.credential_revision)) return;
+      if (Number(previous.revision) > Number(state.expected.credential_revision) && !previous.value.disconnected) return;
+      await admin(ctx, "erp_bling_app_save", input);
+      await current(ctx, state.expected, false);
+      const saved = previous.value.disconnected && Number(previous.revision) > Number(state.expected.credential_revision) ? previous
+        : await vault.compareAndSwap(ctx.profile, previous, { revision: nextRevision(String(Math.max(Number(previous.revision), Number(state.expected.credential_revision)))), application: null, credential: null, disconnected: true }, state.expected.credential_revision);
+      await admin(ctx, "erp_bling_app_save", input);
+      await current(ctx, state.expected, false);
+      store.reconcileRestoredRevision(ctx, state.expected, saved.revision);
+    } catch (error) { throw safeError(error); }
+  };
+  return { recoverRestoredApplication, ...Object.fromEntries(Object.entries(implementation).map(([key, method]) => [key, (...args: unknown[]) => {
     try {
       const result = Reflect.apply(method, undefined, args);
       return result instanceof Promise ? result.catch(error => { throw safeError(error); }) : result;
     } catch (error) { throw safeError(error); }
-  }])) as unknown as AuthorizationPort;
+  }])) } as unknown as AuthorizationPort & { recoverRestoredApplication: typeof recoverRestoredApplication };
 }
 
 /** Desligar é operação de control.ts: não apaga acervo/cofre. Revogar é ato no provedor. */

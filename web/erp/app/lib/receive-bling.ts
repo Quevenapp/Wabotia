@@ -168,6 +168,10 @@ export function createReceiveBlingClient(options: {
         const parsed = definition.output.safeParse(value);
         if (!parsed.success) throw invalid();
         if (name === 'erp_bling_app_save' && !publicCallback((parsed.data as BlingOperationMap['erp_bling_app_save']['output']).callback_url, base.split('/')[4])) throw invalid();
+        if (name === 'erp_bling_status') {
+          const callback = (parsed.data as BlingOperationMap['erp_bling_status']['output']).callback_url;
+          if (callback && !publicCallback(callback, base.split('/')[4])) throw invalid();
+        }
         if (name === 'erp_bling_oauth_start' && !authorizationUrl((parsed.data as BlingOperationMap['erp_bling_oauth_start']['output']).authorization_url)) throw invalid();
         check(); return parsed.data as BlingOperationMap[K]['output'];
       } catch (error) {

@@ -149,9 +149,9 @@ export class BlingAuthStore {
          configuration_revision, account_id, parts_revision, kind, phase, plan, not_before,
          state_hash, browser_hash, profile, session_id, actor_id, expires_at, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'oauth_state', 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      crypto.randomUUID(), crypto.randomUUID(), input.command_id, input.state_hash, input.generation,
+      crypto.randomUUID(), crypto.randomUUID(), input.command_id, ctx.authorization?.request_hash ?? input.state_hash, input.generation,
       current.expected.authorization_revision, current.expected.credential_revision, input.config_revision,
-      current.account?.id ?? null, current.expected.parts_revision, JSON.stringify({ callback_url: callbackUrl }), now,
+      current.account?.id ?? null, current.expected.parts_revision, JSON.stringify({ operation: "erp_bling_oauth_start", callback_url: callbackUrl }), now,
       input.state_hash, input.browser_hash, this.profile, input.session_id, input.actor_id, input.expires_at, now, now);
       this.audit(ctx, "erp_bling_oauth_start", input.command_id, current.expected, current.expected.configuration_revision, null);
     });
@@ -270,7 +270,7 @@ export class BlingAuthStore {
     });
   }
 
-  finish(ctx: BlingContext, attempt: AuthAttempt, input: { credential: BlingCredentialPublic; account: BlingPublicAccount | null; appChanged?: boolean }): BlingReceipt {
+  finish(ctx: BlingContext, attempt: AuthAttempt, input: { credential: BlingCredentialPublic; account: BlingPublicAccount | null; appChanged?: boolean; references?: Record<string, string> }): BlingReceipt {
     return this.db.transaction(() => {
       const replay = this.receipt(ctx, attempt.command_id, attempt.request_hash);
       if (replay) return replay;
@@ -298,7 +298,8 @@ export class BlingAuthStore {
         state = CASE WHEN collect_enabled = 0 THEN 'off' WHEN ? = 1 THEN 'ready' ELSE 'needs_authorization' END, updated_at = ? WHERE id = 1`,
       configRevision, authRevision, credential.revision, credential.configured ? 1 : 0, credential.authorized ? "ready" : "missing",
       credential.expires_at, JSON.stringify(credential.scopes), account?.id ?? null, JSON.stringify(account ?? {}), credential.authorized ? 1 : 0, now);
-      const receipt = this.writeReceipt(ctx, attempt, "committed", null, { credential_revision: credential.revision, configuration_revision: configRevision });
+      const receipt = this.writeReceipt(ctx, attempt, "committed", null, { ...input.references, credential_revision: credential.revision, configuration_revision: configRevision,
+        ...(input.appChanged ? { revision: configRevision } : {}) });
       this.db.exec("UPDATE wb_bling_unit SET phase = 'committed', finished_at = ?, updated_at = ? WHERE id = ?", now, now, attempt.id);
       this.audit(ctx, attempt.operation, attempt.command_id, attempt.expected, configRevision, null);
       return receipt;
@@ -355,6 +356,18 @@ export class BlingAuthStore {
       if (current.expected.authorization_revision !== authorizationRevision || current.state !== "off" || current.credential.configured ||
         !revision.test(credentialRevision) || integer(credentialRevision) <= integer(current.expected.credential_revision)) throw new BlingError("BLING_REVISION_CONFLICT");
       this.db.exec("UPDATE wb_bling_control SET credential_revision = ?, updated_at = ? WHERE id = 1", credentialRevision, ctx.clock.now());
+    });
+  }
+
+  /** Apenas a reconfiguração administrativa pode reconciliar um restore.
+   * Não preserva aprovação, acesso ou escopos da credencial anterior. */
+  reconcileRestoredRevision(ctx: BlingContext, expected: BlingExpectedState, credentialRevision: string): void {
+    this.db.transaction(() => {
+      const state = this.assert(ctx, expected, { enabled: false });
+      if (state.enabled || state.approved || state.credential.configured || integer(credentialRevision) <= integer(expected.credential_revision))
+        throw new BlingError("BLING_REVISION_CONFLICT");
+      this.db.exec("UPDATE wb_bling_control SET credential_revision=?,credential_status='disconnected',app_configured=0,credential_expires_at=NULL,credential_scopes='[]',updated_at=? WHERE id=1", credentialRevision, ctx.clock.now());
+      this.audit(ctx, "erp_bling_restore_credential_reset", null, expected, expected.configuration_revision, null);
     });
   }
 

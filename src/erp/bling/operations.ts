@@ -9,6 +9,7 @@ import { createBlingControl } from "./control.ts";
 import { authorizeOperation, protectOperationOutput, sanitizeBlingError } from "./permissions.ts";
 import { BLING_OPERATIONS, getBlingOperation, parseBlingOperationInput, resourceDescriptorSchema } from "./schema.ts";
 import { readErpPartsSnapshot } from "../parts.ts";
+import type { IdentityPort } from "../engine/identity.ts";
 
 export interface BlingApiOptions {
   /** Área da instância Coordinator, nunca extraída dos argumentos públicos. */
@@ -16,10 +17,13 @@ export interface BlingApiOptions {
   /** Tabela declarativa de org-coleta, injetada por org-fecha. */
   resources: readonly ResourceDescriptor[];
   resource_version: string;
+  callback_url?: string;
+  session?: (ctx: BlingContext) => Promise<IdentityPort>;
+  beforeApplicationSave?: (ctx: BlingContext, input: BlingOperationMap["erp_bling_app_save"]["input"]) => Promise<void>;
 }
 
 export function createBlingApi(deps: BlingDependencies, options: BlingApiOptions): BlingApiPort {
-  const control = createBlingControl({ db: deps.db, databaseSize: deps.databaseSize, randomId: deps.randomId, profile: options.profile });
+  const control = createBlingControl({ db: deps.db, databaseSize: deps.databaseSize, randomId: deps.randomId, profile: options.profile, resources: options.resources });
   const resources = options.resources.map(resource => resourceDescriptorSchema.parse(resource));
   if (new Set(resources.map(resource => resource.key)).size !== resources.length) throw new BlingError("BLING_RESPONSE_INVALID");
   const resourceMap = new Map(resources.map(resource => [resource.key, resource]));
@@ -31,6 +35,12 @@ export function createBlingApi(deps: BlingDependencies, options: BlingApiOptions
   }
 
   async function parts(ctx: BlingContext) {
+    if (options.session) {
+      const fresh = await options.session(ctx), prior = ctx.identity.actor;
+      if (!prior || !fresh.actor || fresh.actor.user_id !== prior.user_id || fresh.actor.session_id !== prior.session_id || fresh.actor.is_agent !== prior.is_agent)
+        throw new BlingError("BLING_ADMIN_REQUIRED");
+      ctx.identity = fresh;
+    }
     if (ctx.profile !== options.profile || ctx.identity.partsControl?.profile !== options.profile) throw new BlingError("BLING_SCOPE_REQUIRED");
     const snapshot = readErpPartsSnapshot(await deps.readParts(), options.profile, ctx.clock.now());
     if (!snapshot?.parts.customers) throw new BlingError("BLING_DISABLED");
@@ -100,7 +110,7 @@ export function createBlingApi(deps: BlingDependencies, options: BlingApiOptions
       switch (name) {
         case "erp_bling_status": {
           const admin = ctx.identity.actor?.erp_role === "admin";
-          result = { ...status, capabilities: { ...status.capabilities, collect: admin && status.capabilities.collect, purge: admin && status.capabilities.purge } };
+          result = { ...status, ...(options.callback_url ? { callback_url: callbackUrl(options.callback_url) } : {}), capabilities: { ...status.capabilities, collect: admin && status.capabilities.collect, purge: admin && status.capabilities.purge } };
           break;
         }
         case "erp_bling_resources":
@@ -116,12 +126,13 @@ export function createBlingApi(deps: BlingDependencies, options: BlingApiOptions
           }
           if (status.state === "purging") throw new BlingError("BLING_GENERATION_RETIRED");
           audit();
+          await options.beforeApplicationSave?.(ctx, input as BlingOperationMap["erp_bling_app_save"]["input"]);
           const saved = output(ctx, name, await deps.authorization.saveApplication(ctx, input as BlingOperationMap["erp_bling_app_save"]["input"])) as BlingOperationMap["erp_bling_app_save"]["output"];
           callbackUrl(saved.callback_url);
           receiptMatches(saved.receipt, name, command!, hash, before.generation);
           await parts(ctx);
           const after = control.read(ctx).configuration;
-          authorizeOperation(original, name, input, after, hash);
+          ctx.authorization = authorizeOperation(ctx, name, input, after, hash).authorization;
           if (after.generation !== before.generation) throw new BlingError("BLING_GENERATION_RETIRED");
           const receipt = control.finish(ctx, name, command!, hash, { references: { callback_url: saved.callback_url, revision: saved.revision } });
           receiptMatches(receipt, name, command!, hash, before.generation);
@@ -135,7 +146,7 @@ export function createBlingApi(deps: BlingDependencies, options: BlingApiOptions
           result = await deps.authorization.authorize(ctx, input as BlingCommand);
           await parts(ctx);
           const after = control.read(ctx).configuration;
-          authorizeOperation(original, name, input, after, hash);
+          ctx.authorization = authorizeOperation(ctx, name, input, after, hash).authorization;
           if (after.generation !== before.generation || after.authorization_revision !== before.authorization_revision || !after.collect_enabled) throw new BlingError("BLING_GENERATION_RETIRED");
           break;
         }
@@ -146,7 +157,7 @@ export function createBlingApi(deps: BlingDependencies, options: BlingApiOptions
           }
           const credential = await deps.authorization.disconnect(ctx, pending.expected!);
           await parts(ctx);
-          authorizeOperation(original, name, input, control.read(ctx).configuration, hash);
+          ctx.authorization = authorizeOperation(ctx, name, input, control.read(ctx).configuration, hash).authorization;
           result = { ...control.finishDisconnect(ctx, input as BlingCommand, hash, credential), revocation_guidance: "Revogue o acesso também no aplicativo autorizado do Bling." }; break;
         }
         case "erp_bling_collect_request": {
@@ -208,7 +219,9 @@ export function createBlingApi(deps: BlingDependencies, options: BlingApiOptions
           result = await deps.archive.readXml(ctx, (input as BlingOperationMap["erp_bling_xml_get"]["input"]).object_id);
           await parts(ctx);
           const after = control.read(ctx).configuration;
-          authorizeOperation(original, name, input, after, hash);
+          // parts atualizou a sessão em ctx; a fotografia inicial não concede
+          // acesso depois de um rebaixamento enquanto os bytes eram lidos.
+          ctx.authorization = authorizeOperation(ctx, name, input, after, hash).authorization;
           if (after.generation !== before.generation || after.authorization_revision !== before.authorization_revision) throw new BlingError("BLING_GENERATION_RETIRED");
           break;
         }
@@ -223,8 +236,14 @@ export function createBlingApi(deps: BlingDependencies, options: BlingApiOptions
         case "erp_bling_purge_apply": {
           const request = input as BlingOperationMap["erp_bling_purge_apply"]["input"];
           if (replay) { result = { work_id: replay.references.work_id, receipt: replay }; break; }
+          const pending = deps.db.exec("SELECT id,generation FROM wb_bling_unit WHERE command_id=? AND kind='purge'", request.command_id).rows[0];
+          // checkCommand já provou hash/operação e a geração sucessora. Uma
+          // resposta perdida da reserva retorna o trabalho, sem nova prévia.
+          if (pending && String(pending.generation) === request.generation) {
+            result = { work_id: String(pending.id), receipt: null }; break;
+          }
           if (request.generation !== before.generation) throw new BlingError("BLING_GENERATION_RETIRED");
-          const preview = output(ctx, "erp_bling_purge_preview", deps.archive.purgePreview(ctx, request));
+          const preview = output(ctx, "erp_bling_purge_preview", deps.archive.purgePreview(ctx, { scope: request.scope, generation: request.generation }));
           if (preview.generation !== request.generation || preview.preview_hash !== request.preview_hash) throw new BlingError("BLING_REVISION_CONFLICT");
           if (preview.blocked_references) throw new BlingError("BLING_ARCHIVE_REFERENCED");
           audit({ preview_hash: request.preview_hash });
@@ -234,7 +253,7 @@ export function createBlingApi(deps: BlingDependencies, options: BlingApiOptions
           if (purged.receipt) receiptMatches(purged.receipt, name, request, hash, request.generation);
           result = purged;
           await parts(ctx);
-          authorizeOperation(original, name, input, control.read(ctx).configuration, hash);
+          ctx.authorization = authorizeOperation(ctx, name, input, control.read(ctx).configuration, hash).authorization;
           break;
         }
         case "erp_bling_command_get": result = control.commandGet(ctx, (input as BlingOperationMap["erp_bling_command_get"]["input"]).id); break;
@@ -263,10 +282,14 @@ export function createBlingApi(deps: BlingDependencies, options: BlingApiOptions
         control.audit(ctx, "erp_bling_oauth_callback", {});
         const result = await deps.authorization.callback(ctx, input);
         await parts(ctx);
-          const after = control.read(ctx).configuration;
-          authorizeOperation(original, "erp_bling_oauth_callback", input, after, hash);
-          if (after.generation !== before.configuration.generation || !after.collect_enabled) throw new BlingError("BLING_GENERATION_RETIRED");
-        return output(ctx, "erp_bling_oauth_callback", result);
+        const after = control.read(ctx).configuration;
+        ctx.authorization = authorizeOperation(ctx, "erp_bling_oauth_callback", input, after, hash).authorization;
+        if (after.generation !== before.configuration.generation || !after.collect_enabled) throw new BlingError("BLING_GENERATION_RETIRED");
+        // A porta OAuth usa a origem canônica para seu retorno. A fronteira
+        // HTTP só admite o destino fixo local e nunca propaga origem/query.
+        const target = new URL(result.redirect, "https://callback.invalid");
+        if (target.pathname !== "/receber-bling" || target.search || target.hash) throw new BlingError("BLING_RESPONSE_INVALID");
+        return output(ctx, "erp_bling_oauth_callback", { ...result, redirect: "/receber-bling" });
       } catch (error) { throw sanitizeBlingError(error); }
     },
   };

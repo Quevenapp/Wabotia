@@ -85,7 +85,12 @@ export interface BlingPublicConfiguration {
 }
 export interface BlingCoverage { complete: false; observed: number; changed: number; pending: number; last_pass_started_at: Timestamp | null; last_pass_completed_at: Timestamp | null; freshness_at: Timestamp | null; limitations: string[] }
 export interface BlingOccupancy { database_bytes: number; archive_estimated_bytes: number; xml_bytes: number; ceiling_bytes: 10000000000; warning_ratio: 0.7; stop_ratio: 0.8; projected_bytes: number | null }
-export interface BlingStatus { state: BlingGlobalState; configuration: BlingPublicConfiguration; next_wake: number | null; capabilities: { configured: boolean; collect: boolean; archive: boolean; xml: boolean; purge: boolean }; coverage: BlingCoverage; occupancy: BlingOccupancy; last_error: BlingFailure | null }
+export interface BlingProgress {
+  calls_day: string | null; calls_today: number;
+  lanes: { resource_key: string; entity: BlingEntity; checkpoint_revision: Revision; observed: number | null; changed: number | null;
+    pass_started_at: Timestamp | null; pass_completed_at: Timestamp | null; freshness_at: Timestamp | null; next_attempt_at: number | null }[];
+}
+export interface BlingStatus { state: BlingGlobalState; configuration: BlingPublicConfiguration; callback_url?: string; progress?: BlingProgress; next_wake: number | null; capabilities: { configured: boolean; collect: boolean; archive: boolean; xml: boolean; purge: boolean }; coverage: BlingCoverage; occupancy: BlingOccupancy; last_error: BlingFailure | null }
 export interface ResourceDescriptor {
   key: string; entity: BlingEntity; path: string | null;
   pagination: { strategy: "page" | "source_page" | "stock" | "source"; page_size: number; limit_parameter: boolean; short_page_ends: boolean } | null;
@@ -145,7 +150,7 @@ export interface BlingOperationMap {
   erp_bling_xml_get: { input: { object_id: string }; output: BlingXmlDownload };
   erp_bling_purge_preview: { input: { scope: BlingPurgeScope; generation: Generation }; output: BlingPurgePreview };
   erp_bling_purge_apply: { input: BlingCommand & { scope: BlingPurgeScope; generation: Generation; preview_hash: Sha256; confirmed: true }; output: { work_id: string; receipt: BlingReceipt | null } };
-  erp_bling_command_get: { input: { id: string }; output: { phase: BlingUnitPhase; receipt: BlingReceipt | null } };
+  erp_bling_command_get: { input: { id: string }; output: { phase: BlingUnitPhase | "absent"; receipt: BlingReceipt | null } };
 }
 export interface BlingWakeResult { worked: boolean; nextWake: number | null; requests: 0 | 1; error?: BlingFailure }
 export const BLING_BUDGET = Object.freeze({ max_units: 1, max_gets: 1, wall_ms: 4000, http_ms: 3000, operational_reserve_ms: 250, minimum_available_ms: 1000, sql_batch: 10, stock_ids: 25, sql_parameters: 100, daily_calls: 20000, min_interval_ms: 700, database_ceiling_bytes: 10000000000, warning_ratio: 0.7, stop_ratio: 0.8 });

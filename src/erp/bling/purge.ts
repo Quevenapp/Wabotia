@@ -4,7 +4,7 @@ import { BLING_ENTITIES, BlingError, type BlingContext, type BlingEntity, type B
 import { authorizeBlingOperation, parseBlingOperationInput } from "./schema.ts";
 import type { ArchivePort } from "./ports.ts";
 import { one, type Row, type SqlDriver } from "../engine/driver.ts";
-import { hasPendingXmlWrite, waitArchiveIo } from "./xml.ts";
+import { hasPendingXmlObjectDelete, hasPendingXmlWrite, waitArchiveIo } from "./xml.ts";
 
 export interface ArchivePurgeDependencies {
   db: SqlDriver;
@@ -17,7 +17,7 @@ export interface ArchivePurgeDependencies {
 }
 export interface ArchivePurge extends Pick<ArchivePort, "purgePreview" | "purge"> {
   /** Uma transação limitada OU uma operação R2 por chamada do alarme. */
-  runPurgeStep(ctx: BlingContext, workId: string): Promise<{ done: boolean; receipt: BlingReceipt | null }>;
+  runPurgeStep(ctx: BlingContext, workId: string, options?: { deadline?: number }): Promise<{ done: boolean; receipt: BlingReceipt | null }>;
 }
 
 /** Só estes DELETE imutáveis do acervo podem ser suspensos. UPDATE permanece. */
@@ -197,7 +197,7 @@ export function createArchivePurge(deps: ArchivePurgeDependencies): ArchivePurge
       return db.transaction(() => {
         area(ctx); authorizeBlingOperation(ctx, "erp_bling_purge_apply", parsed);
         authorizeScope(ctx, parsed.scope);
-        const requestHash = hash({ ...parsed, scope: { all: parsed.scope.all, entities: selected(parsed.scope) }, profile: ctx.profile });
+        const requestHash = ctx.authorization?.request_hash ?? hash({ ...parsed, scope: { all: parsed.scope.all, entities: selected(parsed.scope) }, profile: ctx.profile });
         const existing = one(db, "SELECT * FROM wb_bling_unit WHERE command_id=?", parsed.command_id);
         if (existing) {
           if (existing.request_hash !== requestHash || existing.kind !== "purge" || existing.profile !== ctx.profile) throw new BlingError("BLING_COMMAND_CONFLICT");
@@ -216,13 +216,18 @@ export function createArchivePurge(deps: ArchivePurgeDependencies): ArchivePurge
         return { work_id: id, receipt: null };
       });
     },
-    async runPurgeStep(ctx, workId) {
+    async runPurgeStep(ctx, workId, options = {}) {
+      const deadline = Math.min(ctx.clock.now() + 4_000, options.deadline ?? Infinity);
+      const budget = () => { if (ctx.clock.now() >= deadline) throw new BlingError("BLING_RETRY_WAIT", { retry_at: ctx.clock.now() + 700 }); };
+      budget();
       area(ctx);
       if (ctx.origin !== "internal") throw new BlingError("BLING_ADMIN_REQUIRED");
       await deps.requireBase(ctx);
+      budget();
       const prior = one(db, "SELECT r.* FROM wb_bling_receipt r JOIN wb_bling_unit u ON u.command_id=r.command_id WHERE u.id=? AND u.profile=? AND u.kind='purge'", workId, ctx.profile);
       if (prior) return { done: true, receipt: receipt(prior) };
       const snapshot = db.transaction(() => assertJob(ctx, workId));
+      if (hasPendingXmlObjectDelete(deps.profile)) throw new BlingError("BLING_RETRY_WAIT", { retry_at: ctx.clock.now() + 700 });
       const stages = 14;
       if (Number(snapshot.progress.stage) < stages) {
         return archiveDeleteTransaction(db, () => {
@@ -248,6 +253,9 @@ export function createArchivePurge(deps: ArchivePurgeDependencies): ArchivePurge
             }
             const journals = db.exec(`SELECT id,progress FROM wb_bling_unit WHERE ${affected} AND kind IN ('xml_fetch','xml_store','xml_verify','xml_commit') AND coalesce(json_extract(progress,'$.purge_queued'),0)=0 ORDER BY id LIMIT 1`, entities).rows;
             for (const journal of journals) {
+              // Desligar pode ter aposentado a unidade e retirado seu lease
+              // enquanto o PUT continua vivo. O journal ainda é sua custódia.
+              if (hasPendingXmlWrite(deps.profile, String(journal.id))) throw new BlingError("BLING_RETRY_WAIT", { retry_at: ctx.clock.now() + 700 });
               const hashes = journalHashes(journal.progress);
               const offset = progress.journal?.id === journal.id ? Number(progress.journal.offset) : 0;
               for (const sha of hashes.slice(offset, offset + 10)) queueObject(ctx, job, sha);
@@ -312,19 +320,22 @@ export function createArchivePurge(deps: ArchivePurgeDependencies): ArchivePurge
         }
         const fence = deps.randomId();
         db.transaction(() => {
+          budget();
           assertJob(ctx, workId);
           const live = one(db, "SELECT * FROM wb_bling_unit WHERE id=?", deletion.id);
           if (!live || live.phase === "committed" || live.phase === "superseded") throw new BlingError("BLING_LEASE_LOST");
           if (live.lease_until !== null && Number(live.lease_until) > ctx.clock.now()) throw new BlingError("BLING_RETRY_WAIT", { retry_at: Number(live.lease_until) });
           if (Number(live.not_before) > ctx.clock.now()) throw new BlingError("BLING_RETRY_WAIT", { retry_at: Number(live.not_before) });
-          db.exec("UPDATE wb_bling_unit SET phase='waiting',owner=?,fence=?,lease_until=?,updated_at=? WHERE id=?", workId, fence, ctx.clock.now() + 4_000, ctx.clock.now(), deletion.id);
+          db.exec("UPDATE wb_bling_unit SET phase='waiting',owner=?,fence=?,lease_until=?,updated_at=? WHERE id=?", workId, fence, deadline, ctx.clock.now(), deletion.id);
         });
         try {
+          budget();
           pendingR2Deletions.add(pendingKey);
           const io=Promise.resolve().then(()=>progress.deleted!==true?deps.media.delete(plan.key):deps.media.get(plan.key)).finally(()=>pendingR2Deletions.delete(pendingKey));
-          const result=await waitArchiveIo(ctx,ctx.clock.now()+4_000,io);
+          const result=await waitArchiveIo(ctx,deadline,io);
           if(progress.deleted===true&&result!==null)throw new BlingError("BLING_RETRY_WAIT");
           await deps.requireBase(ctx);
+          budget();
           db.transaction(() => {
             const current = assertJob(ctx, workId);
             const live = one(db, "SELECT fence,lease_until FROM wb_bling_unit WHERE id=?", deletion.id);

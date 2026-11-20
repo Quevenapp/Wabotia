@@ -55,6 +55,7 @@ export function getBlingResource(key: string, catalog: readonly ResourceDescript
 
 export function resourceVariants(key: string, catalog: readonly ResourceDescriptor[] = BLING_RESOURCES): ResourceDescriptor[] {
   const resource = getBlingResource(key, catalog);
+  if (!resource.variants.length) return [resource];
   return resource.variants.map(variant => {
     const lane = BLING_RESOURCE_LANES.find(candidate => candidate.key === variant.key);
     return lane ? { ...lane, confirmation: resource.confirmation, officialEvidence: resource.officialEvidence, scopeRequirements: resource.scopeRequirements } : { ...resource, key: variant.key, variants: [variant] };
@@ -77,10 +78,21 @@ export function exactSourceId(value: unknown): string {
   } catch { throw new BlingError("BLING_RESPONSE_INVALID"); }
 }
 
-export function buildBlingListQuery(key: string, input: { from?: string; to?: string; page?: number; limit?: number } = {}): Record<string, string | string[]> {
+export function buildBlingListQuery(key: string, input: { from?: string; to?: string; page?: number; limit?: number } = {}, confirmed?: ResourceDescriptor): Record<string, string | string[]> {
   try {
     const original = originals.find(resource => resource.id === key) ?? originals.find(resource => resource.entity === key);
-    if (!original || (input.limit !== undefined && (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 10))) throw new Error();
+    if (input.limit !== undefined && (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 10)) throw new Error();
+    if (!original) {
+      if (!confirmed || confirmed.key !== key || confirmed.parser === "xml") throw new Error();
+      assertResourceConfirmed(confirmed);
+      const query: Record<string, string | string[]> = { pagina: String(input.page ?? 1) };
+      if (confirmed.pagination!.limit_parameter) query.limite = String(input.limit ?? 10);
+      for (const [name, value] of Object.entries(confirmed.variants.find(variant => variant.key === key)?.params ?? {}))
+        query[name] = Array.isArray(value) ? value.map(String) : String(value);
+      if (confirmed.dateFilter!.from && input.from) query[confirmed.dateFilter!.from] = input.from;
+      if (confirmed.dateFilter!.to && input.to) query[confirmed.dateFilter!.to] = input.to;
+      return query;
+    }
     const params = buildListParams(original, { ...input, limit: input.limit ?? 10 }) as Record<string, string | number | boolean | (string | number)[]>;
     return Object.fromEntries(Object.entries(params).map(([name, value]) => [name, Array.isArray(value) ? value.map(String) : String(value)]));
   } catch { throw new BlingError("BLING_RESPONSE_INVALID"); }

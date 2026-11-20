@@ -32,12 +32,10 @@ export function createArchive(deps: ArchiveDependencies): ArchivePort & {
     validateCapture(ctx, input) {
       if (ctx.profile !== deps.profile || input.record.identity.profile !== deps.profile) throw new BlingError("BLING_ACCOUNT_MISMATCH");
       if (!ctx.identity.parts?.customers) throw new BlingError("BLING_DISABLED");
-      const capture=validateCapture(input.record,input.bytes);
-      // A base limita capture a 64 KiB; o parser original admite até 128 KiB.
-      // Conservar o limite original no validador puro e parar antes do SQL,
-      // sem truncar evidência, até a base alinhar a capacidade da coluna.
-      if(capture&&new TextEncoder().encode(JSON.stringify(capture)).byteLength>65_536)throw new BlingError("BLING_CAPACITY_STOP");
-      return capture;
+      // A coluna e o parser compartilham 128 KiB. Parar antes do SQL preserva
+      // o checkpoint e nunca trunca uma evidência lexical extensa.
+      if(input.record.capture&&new TextEncoder().encode(JSON.stringify(input.record.capture)).byteLength>131_072)throw new BlingError("BLING_CAPACITY_STOP");
+      return validateCapture(input.record,input.bytes);
     },
     project,
     getRecord(ctx,input) {

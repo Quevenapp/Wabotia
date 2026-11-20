@@ -31,6 +31,15 @@ const pendingWriteKey = (profile: string, workId: string) => JSON.stringify([pro
 export function hasPendingXmlWrite(profile: string, workId: string): boolean {
   return (pendingXmlWrites.get(pendingWriteKey(profile, workId)) ?? 0) > 0;
 }
+/** Uma exclusão órfã pode ultrapassar seu lease; purgar/confirmar deve esperá-la. */
+const pendingObjectDeletes = new Set<string>();
+export function markXmlObjectDelete(profile: string, key: string, pending: boolean): void {
+  const marker = JSON.stringify([profile, key]);
+  if (pending) pendingObjectDeletes.add(marker); else pendingObjectDeletes.delete(marker);
+}
+export function hasPendingXmlObjectDelete(profile: string, key?: string): boolean {
+  return key === undefined ? [...pendingObjectDeletes].some(marker => JSON.parse(marker)[0] === profile) : pendingObjectDeletes.has(JSON.stringify([profile, key]));
+}
 /** Libera a acordada no deadline sem fingir que um PUT remoto foi cancelado.
  * O chamador conserva a barreira até a Promise original efetivamente terminar. */
 export async function waitArchiveIo<T>(ctx: BlingContext, deadline: number, pending: Promise<T>): Promise<T> {
@@ -119,6 +128,9 @@ export function createXmlArchive(deps: BlingXmlDependencies) {
   const { db } = deps;
   const area = (ctx: BlingContext) => { if (ctx.profile !== deps.profile) throw new BlingError("BLING_SCOPE_REQUIRED"); };
   const control = () => one(db, "SELECT * FROM wb_bling_control WHERE id=1");
+  function requireObjectAvailable(sha256: string) {
+    if (hasPendingXmlObjectDelete(deps.profile, blingXmlObjectKey(deps.profile, sha256)) || one(db,"SELECT id FROM wb_bling_unit WHERE kind='r2_delete' AND profile=? AND phase NOT IN ('committed','superseded') AND json_extract(plan,'$.sha256')=? LIMIT 1",deps.profile,sha256)) throw new BlingError("BLING_RETRY_WAIT");
+  }
   function guard(ctx: BlingContext, unit: BlingUnit): Row {
     area(ctx);
     if (ctx.origin === "external" || !ctx.identity.parts?.customers) throw new BlingError("BLING_DISABLED");
@@ -165,7 +177,10 @@ export function createXmlArchive(deps: BlingXmlDependencies) {
     return { object_id: objectId, entity: j.entity, source_id: j.source_id, access_key: j.access_key, model: j.entity === "nfe" ? "55" : "65", environment: j.metadata.environment === "1" ? "production" : j.metadata.environment === "2" ? "test" : "unknown", version: String(revision), sha256: j.sha256, bytes: j.size, available: true, coverage: [...(Array.isArray(j.metadata.issues) ? j.metadata.issues.map(String) : []), "Estrutura e integridade verificadas; assinatura criptográfica e autorização fiscal não certificadas."] };
   }
   /** Reserva fiscal antes do GET de dados. Nenhum token, URL ou XML entra no journal. */
-  async function beginXml(ctx: BlingContext, input: Omit<BlingXmlArchiveInput, "bytes" | "expected_sha256">) {
+  async function beginXml(ctx: BlingContext, input: Omit<BlingXmlArchiveInput, "bytes" | "expected_sha256">, options: { deadline?: number } = {}) {
+    const deadline = Math.min(ctx.clock.now() + 4_000, options.deadline ?? Infinity);
+    const budget = () => { if (ctx.clock.now() >= deadline) throw new BlingError("BLING_RETRY_WAIT", { retry_at: ctx.clock.now() + 700 }); };
+    budget();
     area(ctx);
     if (!unitSchema.safeParse(input.unit).success || input.identity.profile !== deps.profile || input.identity.account_id !== input.unit.expected.account_id || !["nfe", "nfce"].includes(input.identity.entity) || input.unit.entity !== input.identity.entity || input.unit.source_id !== input.identity.source_id || !input.unit.kind.startsWith("xml_") || input.model !== (input.identity.entity === "nfe" ? "55" : "65")) return invalid();
     const replay = receipt(ctx, input.unit);
@@ -174,11 +189,13 @@ export function createXmlArchive(deps: BlingXmlDependencies) {
       if (saved.fingerprint!==input.fingerprint || replay.entity!==input.identity.entity || replay.source_id!==input.identity.source_id || replay.access_key!==input.access_key || replay.model!==input.model) throw new BlingError("BLING_COMMAND_CONFLICT");
       return { attempt_id: input.unit.attempt_id, stored: true };
     }
-    await deps.revalidate(ctx, input.unit.expected); guard(ctx, input.unit);
+    await deps.revalidate(ctx, input.unit.expected); budget(); guard(ctx, input.unit);
     try { archiveKey(input.access_key, input.identity.entity); } catch { return invalid(); }
     const raw = sourceRaw(input.identity.entity, input.identity.source_id);
     if (json(raw.payload).chaveAcesso !== input.access_key || await xmlFingerprint(String(raw.payload), deps.hash) !== input.fingerprint) throw new BlingError("BLING_REVISION_CONFLICT");
+    budget();
     await deps.revalidate(ctx, input.unit.expected);
+    budget();
     return db.transaction(() => {
       const row = guard(ctx, input.unit), latest = sourceRaw(input.identity.entity, input.identity.source_id);
       if (latest.version_hash !== raw.version_hash || latest.version !== raw.version) throw new BlingError("BLING_REVISION_CONFLICT");
@@ -282,6 +299,7 @@ export function createXmlArchive(deps: BlingXmlDependencies) {
     });
     const pending = journal.documents.find(d => d.phase === "put_pending" || d.phase === "needs_fetch");
     if (!pending) throw new BlingError("BLING_RETRY_WAIT", { retry_at: ctx.clock.now() + 700 });
+    requireObjectAvailable(pending.sha256);
     await deps.revalidate(ctx, input.unit.expected); budget(); guard(ctx, input.unit);
     // Nenhum await separa a marca durável do início do PUT. O purge conserva
     // este journal enquanto fetching: o objeto pode aparecer mesmo após revogação.
@@ -362,6 +380,7 @@ export function createXmlArchive(deps: BlingXmlDependencies) {
       const attempt = one(db, "SELECT * FROM origin_fiscal__attempt WHERE id=?", j.attempt);
       if (!attempt || attempt.state !== "pending" || attempt.fingerprint !== j.fingerprint || attempt.source_hash !== j.source_hash || attempt.owner !== unit.lease!.owner || attempt.fence !== unit.lease!.fence) throw new BlingError("BLING_REVISION_CONFLICT");
       for (const d of j.documents) {
+        requireObjectAvailable(d.sha256);
         const object = one(db, "SELECT * FROM origin_fiscal__object WHERE hash=?", d.sha256);
         if (object && (object.size !== d.size || json(object.metadata).profile !== deps.profile || json(object.metadata).key !== j.access_key)) return invalid();
         if (!object) {

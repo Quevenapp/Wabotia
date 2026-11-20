@@ -4,9 +4,10 @@ import { decodeIdentity, encodeIdentity, IDENTITY_HEADER, type IdentityPort } fr
 import { normalizeErpParts } from "../src/erp/parts.ts";
 import { erpDestinationRequirement, erpRouteRequirement } from "../src/erp/parts-requirements.ts";
 import { erpBlockOf, erpRouteExists } from "../src/erp/blocks.ts";
-import { forwardBlingOperation, prepareBlingDispatch, handleBlingCallback, handleBlingOperation, runBlingWake, blingFailureResponse, matchBlingOperation } from "../src/erp/bling/assembly.ts";
+import { createBlingAssembly, forwardBlingOperation, prepareBlingDispatch, handleBlingCallback, handleBlingOperation, runBlingWake, blingFailureResponse, matchBlingOperation } from "../src/erp/bling/assembly.ts";
 import { BLING_OPERATIONS, authorizeBlingOperation } from "../src/erp/bling/schema.ts";
-import type { BlingContext } from "../src/erp/bling/contracts.ts";
+import { BLING_ENTITIES, BlingError, type BlingContext, type BlingPublicConfiguration } from "../src/erp/bling/contracts.ts";
+import { authorizeOperation } from "../src/erp/bling/permissions.ts";
 import type { BlingWakePort } from "../src/erp/bling/ports.ts";
 // @ts-ignore Parser original puro, inclusive JSON.rawJSON no workerd.
 import { parsePriceJson } from "../src/erp/fagoo/workers/origin-sync/src/price-json.mjs";
@@ -20,7 +21,7 @@ const identity = (admin = true, bot = false): IdentityPort => ({
   actor: { user_id: person, name: "Pessoa", email: null, erp_role: admin ? "admin" : "consulta", verified_factor: true, session_id: session, aal: "aal2", is_agent: bot },
   people: [], parts, partsControl: { profile: area, revision: "1", expires_at: fixedNow + 120_000 },
 });
-const noIo = new Proxy({}, { get() { throw new Error("I/O não autorizado no stub."); } });
+const noIo = new Proxy({}, { get() { throw new Error("I/O não autorizado neste teste de fronteira."); } });
 const dependencies = { env: noIo as any, storage: noIo as any, readParts: async () => parts };
 const context = (bot = false): BlingContext => ({ profile: area, identity: identity(true, bot), origin: "app", clock: { now: () => fixedNow } });
 
@@ -75,7 +76,9 @@ describe("base Receber dados do Bling", () => {
     expect(erpRouteRequirement("GET", new URL("https://local/v1/sincronizacao-origin"))).toBe("externo");
   });
 
-  it("stubs e callback devolvem indisponibilidade sem ler segredos nem chamar dependências", async () => {
+  it("montagem incompleta é indisponível; callback e erros nunca devolvem material recebido", async () => {
+    await expect(createBlingAssembly()).rejects.toMatchObject({ code: "BLING_DISABLED", status: 503 });
+    await expect(createBlingAssembly(dependencies)).rejects.toMatchObject({ code: "BLING_DISABLED", status: 503 });
     const response = await handleBlingOperation({ context: context(), name: "erp_bling_status", input: {} }, dependencies);
     expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({ error: { code: "BLING_DISABLED" } });
@@ -85,19 +88,30 @@ describe("base Receber dados do Bling", () => {
     expect(await callback.text()).not.toContain(opaque);
     const error = blingFailureResponse(new Error(opaque));
     expect(await error.text()).not.toContain(opaque);
-    expect(await runBlingWake(area, dependencies, { eligible: true, nextOperationalAt: null, clock: { now: () => fixedNow } })).toEqual({ worked: false, requests: 0, nextWake: null });
+    await expect(runBlingWake(area, dependencies, { eligible: true, nextOperationalAt: null, clock: { now: () => fixedNow } })).rejects.toMatchObject({ code: "BLING_DISABLED", status: 503 });
   });
 
-  it("proposta confirmada da prévia sem comando alcança o mesmo stub, com confirmação pelo hash", async () => {
+  it("prévia encaminha confirmação pelo hash; sem confirmação a política no servidor recusa", async () => {
     vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(fixedNow);
     const actor: any = { id: person, kind: "user", role: "admin", scopes: [], via: { bot_id: "bot-equipe", proposal_id: "proposta-confirmada" } };
+    const persisted = { access: { reader_user_ids: [], bots: [{ bot_id: "bot-equipe", operations: ["erp_bling_purge_preview"],
+      entities: [...BLING_ENTITIES], data_scopes: ["public", "personal", "sensitive", "raw", "xml"], allow_sensitive: false, mask_personal: true }],
+      customer_delivery: { enabled: false, entities: [], require_verified_identity: true } } } as BlingPublicConfiguration;
     let forwarded = 0;
     const env: any = { COORDINATOR: { idFromName: (name: string) => name, get: () => ({ fetch: async (url: string, init: RequestInit) => {
       forwarded++;
       const request = new Request(url, init);
       const call = await prepareBlingDispatch(area, new URL(url).pathname, request, decodeIdentity(request.headers.get(IDENTITY_HEADER)));
-      expect(call.context.authorization?.confirmation?.command_id).toBe(call.context.authorization?.request_hash);
-      return handleBlingOperation(call, dependencies);
+      if (forwarded === 1) {
+        expect(call.context.authorization?.confirmation?.command_id).toBe(call.context.authorization?.request_hash);
+        expect(call.context.authorization?.confirmation?.command_id).toMatch(/^[a-f0-9]{64}$/);
+      } else expect(call.context.authorization?.confirmation).toBeUndefined();
+      return handleBlingOperation(call, dependencies, { execute: async (ctx, name, input) => {
+        // A fronteira não presume a política persistida. A porta verifica a
+        // interseção: a concessão do núcleo não supera allow_sensitive=false.
+        authorizeOperation(ctx, name, input, persisted, ctx.authorization?.request_hash ?? "b".repeat(64));
+        throw new BlingError("BLING_DISABLED", { status: 503 });
+      }, callback: async () => { throw new Error("Callback não pertence à prévia."); } });
     } }) } };
     const req = () => new Request(`https://local/api/v1/profiles/${area}/erp/v1/receber-bling/apagar/previa`, {
       method: "POST", body: JSON.stringify({ scope: { all: true, entities: [] }, generation: "1" }),
@@ -108,7 +122,7 @@ describe("base Receber dados do Bling", () => {
     expect(forwarded).toBe(1);
     delete actor.via.proposal_id;
     expect((await forwardBlingOperation(env, area, actor, identity(true, true), req())).status).toBe(403);
-    expect(forwarded).toBe(1);
+    expect(forwarded).toBe(2);
   });
 
   it("transporte mantém cookie OAuth protegido fora do JSON e serve XML como bytes", async () => {

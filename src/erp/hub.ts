@@ -146,7 +146,9 @@ export class ErpHub {
       return fail(503, "erp_schema_newer", `O esquema gravado (${applied.version}) é mais novo que o do código (${ERP_SCHEMA_VERSION}).`);
     if (blingCall) {
       const response = await handleBlingOperation(blingCall, { env: this.env, storage: this.ctx.storage,
-        readParts: async () => (await currentErpParts(this.ctx.storage, profile))?.parts ?? null });
+        readParts: async () => (await currentErpParts(this.ctx.storage, profile))?.parts ?? null,
+        readSnapshot: () => currentErpParts(this.ctx.storage, profile), profile });
+      if (response.ok) await this.schedule(profile, Date.now() + 1_000);
       const denied = await authorize(false);
       return denied ?? response;
     }
@@ -250,10 +252,17 @@ export class ErpHub {
     }
     // Uma unidade externa só cabe numa acordada sem trabalho operacional.
     // O executor recebe o vencimento existente e preserva 250 ms de margem.
-    const blingDependencies = { env: this.env, storage, readParts };
-    const blingNext = !report.more && !report.fileDue && !report.routines.length && !report.tasks.length
-      ? (await runBlingWake(profile, blingDependencies, { eligible: true, nextOperationalAt: next, clock: { now: () => Date.now() } })).nextWake
-      : await nextBlingWake(profile, blingDependencies, Date.now() + CONTINUE_AFTER_MS);
+    const blingDependencies = { env: this.env, storage, readParts, profile, readSnapshot: () => currentErpParts(storage, profile) };
+    let blingNext: number | null;
+    try {
+      blingNext = !report.more && !report.fileDue && !report.routines.length && !report.tasks.length
+        ? (await runBlingWake(profile, blingDependencies, { eligible: true, nextOperationalAt: next, clock: { now: () => Date.now() } })).nextWake
+        : await nextBlingWake(profile, blingDependencies, Date.now() + CONTINUE_AFTER_MS);
+    } catch {
+      // Falha de infraestrutura da coleta não pode apagar/adiar o vencimento
+      // operacional. Não registrar exceção de cofre/HTTP nos logs do alarme.
+      blingNext = Date.now() + 60_000;
+    }
     parts = await readParts();
     if (!parts) { await this.schedule(profile, null); return; }
     if (blingNext !== null) next = next === null ? blingNext : Math.min(next, blingNext);

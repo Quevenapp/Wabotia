@@ -56,6 +56,15 @@ test("A4 mantém as 18 identidades, todas as variantes e recursos adicionais sem
   assert.equal(String(cash.situacaoConciliacao), "3");
 });
 
+test("recurso adicional só monta paginação pelo descritor completo oficialmente conferido", () => {
+  const extra = { ...getBlingResource("contracts"), key: "contracts", path: "/recurso-simulado", detail: { path: "/recurso-simulado/{id}", required: true },
+    pagination: { strategy: "page", page_size: 10, limit_parameter: true, short_page_ends: true }, dateFilter: { kind: "U", from: null, to: null, time_zone: "America/Sao_Paulo", overlap_minutes: 15 },
+    identityRule: { kind: "global", parent_entity: null }, parser: "json", confirmation: "oficial_confirmado", officialEvidence: officialResources()[0].officialEvidence };
+  assert.deepEqual(buildBlingListQuery("contracts", { page: 2 }, extra), { pagina: "2", limite: "10" });
+  assert.throws(() => buildBlingListQuery("contracts", { page: 2 }, { ...extra, confirmation: "nao_confirmado" }), BlingError);
+  assert.equal(getBlingResource("contracts").path, null);
+});
+
 test("cliente faz uma tentativa GET e não entrega credenciais em URL, retorno ou erro", async () => {
   const f = clientFixture();
   f.fake.resource("/contatos", [{ id: "9007199254740993123", nome: "Contato" }]);
@@ -258,6 +267,7 @@ test("A→B→A são três versões; replay consulta recibo antes do checkpoint 
     const first = f.reserve(), a = f.record("A");
     const receipt = f.commit(first, a);
     const checkpoint = f.store.checkpoint("contacts");
+    assert.equal(checkpoint.cursor.observed_count, 1); assert.equal(checkpoint.cursor.changed_count, 1);
     const counts = f.db.prepare("SELECT observed_count, archive_bytes FROM wb_bling_control").get();
     assert.deepEqual(f.commit(first, a, { source_expectations: [{ identity: f.identity, version: null, semantic_hash: null }] }), receipt);
     assert.deepEqual(f.store.checkpoint("contacts"), checkpoint);
@@ -267,10 +277,34 @@ test("A→B→A são três versões; replay consulta recibo antes do checkpoint 
     f.clock.advance(1000);
     f.commit(f.reserve(), f.record("A"));
     assert.equal(f.store.readCurrent(f.ctx, f.identity).version, "3");
+    assert.equal(f.store.checkpoint("contacts").cursor.observed_count, 3);
+    assert.equal(f.store.checkpoint("contacts").cursor.changed_count, 3);
     const history = f.db.prepare("SELECT source_version,payload FROM erp_document_mirror__source_version WHERE entity='contacts' AND source_id='1' ORDER BY source_version").all();
     assert.deepEqual(history.map(row => row.source_version), [1, 2]);
     assert.deepEqual(history.map(row => JSON.parse(row.payload).nome), ["A", "B"]);
     assert.equal(f.db.prepare("SELECT COUNT(*) AS n FROM erp_sync__inbox WHERE entity='contacts' AND source_id='1'").get().n, 1);
+    assertOperationalUnchanged(f.db, f.baseline);
+  } finally { f.close(); }
+});
+
+test("bruto adicional preservado por purge parcial continua na geração nova sem reescrever identidade", () => {
+  const f = storeFixture(), key = { ...f.identity, entity: "contracts" };
+  try {
+    f.db.prepare("UPDATE wb_bling_control SET selection=?").run(JSON.stringify([{ key: "contracts", selected: true, from: null, to: null }]));
+    const collect = (name, generation) => {
+      const previous = f.store.readCurrent(f.ctx, key), payload_text = JSON.stringify({ id: "1", nome: name });
+      const work = f.reserve(f.makeUnit({ entity: "contracts", resource_key: "contracts", expected: { ...expected, generation }, checkpoint: f.store.checkpoint("contracts") }));
+      const record = f.record(name, { identity: key, payload_text, semantic_hash: semanticHash(payload_text, []), version: previous ? previous.payload_text === payload_text ? previous.version : String(Number(previous.version) + 1) : "1" });
+      return f.commit(work, record, { source_expectations: [{ identity: key, version: previous?.version ?? null, semantic_hash: previous?.semantic_hash ?? null }] });
+    };
+    collect("A", "1");
+    // Estado final do purge de outra entidade: a geração ativa avança, mas
+    // a identidade imutável do conteúdo que permaneceu não é adulterada.
+    f.db.exec("UPDATE wb_bling_control SET generation=2");
+    collect("A", "2"); collect("B", "2");
+    assert.equal(f.store.readCurrent(f.ctx, key).version, "2");
+    assert.equal(f.db.prepare("SELECT generation FROM wb_bling_extra_raw WHERE entity='contracts'").get().generation, 1);
+    assert.deepEqual(f.db.prepare("SELECT version,generation FROM wb_bling_record_version WHERE entity='contracts' ORDER BY version").all().map(row => ({ ...row })), [{ version: 1, generation: 1 }, { version: 2, generation: 2 }]);
     assertOperationalUnchanged(f.db, f.baseline);
   } finally { f.close(); }
 });
@@ -282,6 +316,43 @@ test("mesmo comando com conteúdo diferente é conflito e não altera o recibo t
     assert.throws(() => f.commit(unit, f.record("B")), error => error.code === "BLING_COMMAND_CONFLICT");
     assert.equal(f.store.readCurrent(f.ctx, f.identity).version, "1");
     assert.deepEqual(f.store.receipt(f.ctx, { command_id: unit.command_id, request_hash: unit.request_hash, generation: "1" }), receipt);
+  } finally { f.close(); }
+});
+
+test("manutenção vazia de produto avança cursor sem exigir testemunha e não permite injetar fonte", () => {
+  const f = storeFixture();
+  try {
+    f.db.prepare("UPDATE wb_bling_control SET selection=?").run(JSON.stringify([{ key: "products", selected: true, from: null, to: null }]));
+    const unit = f.reserve(f.makeUnit({ entity: "products", source_id: null, resource_key: "products", kind: "capture_repair", plan: { local_only: true }, checkpoint: f.store.checkpoint("products") }));
+    const identity = { ...f.identity, entity: "products" };
+    assert.throws(() => f.commit(unit, f.record("Injetado", { identity }), { source_expectations: [{ identity, version: null, semantic_hash: null }] }), error => error.code === "BLING_RESPONSE_INVALID");
+    assert.equal(f.store.readCurrent(f.ctx, identity), null);
+    const receipt = f.commit(unit, null, { next_checkpoint: { ...unit.checkpoint, revision: "1", cursor: { turn: 4 } } });
+    assert.equal(receipt.state, "committed"); assert.equal(f.store.checkpoint("products").cursor.turn, 4);
+    const refused = f.reserve(f.makeUnit({ entity: "products", source_id: "1", resource_key: "products", kind: "capture_repair", plan: { local_only: true }, checkpoint: f.store.checkpoint("products") }));
+    assert.throws(() => f.commit(refused, null), error => error.code === "BLING_RESPONSE_INVALID");
+    assert.equal(f.store.checkpoint("products").cursor.turn, 4); assertOperationalUnchanged(f.db, f.baseline);
+  } finally { f.close(); }
+});
+
+test("início, fim e cobertura da passagem são auditados no commit sem duplicar por replay", () => {
+  const f = storeFixture();
+  try {
+    const unit = f.reserve(), incoming = f.record("A"), start = f.clock.iso();
+    const envelope = { next_checkpoint: { ...unit.checkpoint, revision: "1", pass_started_at: start }, source_expectations: [{ identity: f.identity, version: null, semantic_hash: null }] };
+    const receipt = f.commit(unit, incoming, envelope);
+    assert.deepEqual(f.commit(unit, incoming, envelope), receipt);
+    f.commit(f.reserve(), f.record("A"));
+    assert.equal(f.db.prepare("SELECT count(*) AS n FROM wb_bling_audit WHERE operation='erp_bling_pass_start'").get().n, 1);
+    f.clock.advance(1000);
+    const next = f.reserve(), completed = f.clock.iso();
+    f.commit(next, f.record("B"), { next_checkpoint: { ...next.checkpoint, revision: String(Number(next.checkpoint.revision) + 1), pass_started_at: completed, pass_completed_at: completed } });
+    const audits = f.db.prepare("SELECT operation,references_json FROM wb_bling_audit WHERE operation IN ('erp_bling_pass_start','erp_bling_pass_complete','erp_bling_coverage_changed') ORDER BY created_at,id").all();
+    assert.equal(audits.filter(row => row.operation === "erp_bling_pass_start").length, 2);
+    assert.equal(audits.filter(row => row.operation === "erp_bling_pass_complete").length, 1);
+    assert.equal(audits.filter(row => row.operation === "erp_bling_coverage_changed").length, 1);
+    assert.equal(JSON.parse(audits.find(row => row.operation === "erp_bling_coverage_changed").references_json).coverage_complete, false);
+    assertOperationalUnchanged(f.db, f.baseline);
   } finally { f.close(); }
 });
 
@@ -413,6 +484,27 @@ test("pedido administrativo aplica pessoa ∩ bot e teto da origem externa", () 
     const result = f.store.requestCollection(enabled, input);
     assert.equal(result.receipt.state, "committed");
     assert.deepEqual(f.store.requestCollection(enabled, input), result);
+    assertOperationalUnchanged(f.db, f.baseline);
+  } finally { f.close(); }
+});
+
+test("pedido manual separa passagens de entidade do trabalho XML e mantém replay integral", () => {
+  const f = storeFixture();
+  try {
+    f.db.prepare("UPDATE wb_bling_control SET selection=?,permissions=?").run(JSON.stringify([{ key: "contacts", selected: true }, { key: "fiscal_xml", selected: true }]),
+      JSON.stringify({ bots: [{ bot_id: "bot", operations: ["erp_bling_collect_request"], entities: ["nfe"] }] }));
+    const app = { ...f.ctx, origin: "app", identity: { ...f.ctx.identity, actor } };
+    const input = { command_id: "manual-with-xml", expected_revision: "1", resource_keys: ["contacts", "fiscal_xml"] };
+    const result = f.store.requestCollection(app, input);
+    assert.deepEqual(f.store.requestCollection(app, input), result);
+    assert.equal(result.receipt.request_hash, digest(JSON.stringify(input))); assert.equal(result.receipt.references.xml_requested, true);
+    assert.deepEqual(JSON.parse(f.db.prepare("SELECT cursor FROM erp_sync__run WHERE id=?").get(result.run_id).cursor).resources, ["contacts"]);
+    const bot = { ...app, identity: { ...app.identity, actor: { ...actor, is_agent: true } }, authorization: { bot: { id: "bot", allowed_operations: ["erp_bling_collect_request"], allowed_entities: ["nfe"], data_scopes: [], allow_sensitive: true } } };
+    const xmlInput = { command_id: "manual-only-xml", expected_revision: "1", resource_keys: ["fiscal_xml"] };
+    const xml = f.store.requestCollection(bot, xmlInput), run = f.db.prepare("SELECT state,cursor FROM erp_sync__run WHERE id=?").get(xml.run_id);
+    assert.equal(run.state, "done"); assert.deepEqual(JSON.parse(run.cursor), { resources: [], xml_requested: true, xml_complete: false });
+    assert.deepEqual(f.store.requestCollection(bot, xmlInput), xml);
+    assert.equal(f.db.prepare("SELECT count(*) AS n FROM erp_sync__run WHERE state IN ('queued','running')").get().n, 1);
     assertOperationalUnchanged(f.db, f.baseline);
   } finally { f.close(); }
 });

@@ -352,11 +352,12 @@ test("dump exclui credencial/estados OAuth, suspende coleta e restaura sem posse
 import { BLING_ENTITIES, BlingError, DEFAULT_BLING_ACCESS_POLICY } from "../../../src/erp/bling/contracts.ts";
 import { BLING_MODULE_CONTRACT, BLING_OPERATIONS, authorizeBlingOperation, dataRequestSchema, decimalSchema, exactDecimalEqual, generationSchema, metadataSchema, parseOAuthReservation, resourceDescriptorSchema, revisionSchema, sourceIdSchema, wakeBudgetSchema } from "../../../src/erp/bling/schema.ts";
 import { blingFailureResponse, createBlingAssembly, handleBlingOperation, runBlingWake } from "../../../src/erp/bling/assembly.ts";
+import { normalizeErpParts } from "../../../src/erp/parts.ts";
 
 function appContext({ agent = false, role = "admin", origin = "app" } = {}) {
   return {
     profile: "area", clock: new FakeClock(), origin,
-    identity: { people: null, parts: { customers: true }, actor: {
+    identity: { people: null, parts: normalizeErpParts({}), partsControl: { profile: "area", revision: "1", expires_at: new FakeClock().now() + 120000 }, actor: {
       user_id: "12345678-1234-1234-1234-123456789012", name: null, email: null,
       session_id: "12345678-1234-1234-1234-123456789013", erp_role: role,
       verified_factor: true, aal: "aal2", is_agent: agent,
@@ -470,19 +471,18 @@ test("envelopes privados limitam transporte a GET, margem operacional e estado O
   assert.throws(() => parseOAuthReservation(bot, reservation), error => error.code === "BLING_SCOPE_REQUIRED");
 });
 
-test("montagem inativa recusa todas portas sem acessar dependências, chamar rede ou fingir sucesso", async () => {
+test("montagem incompleta recusa explicitamente, sem portas de sucesso simulado nem acesso a I/O", async () => {
   const forbidden = new Proxy({}, { get() { throw new Error("dependência não deveria ser acessada"); } });
-  const assembly = createBlingAssembly(forbidden), context = appContext();
-  for (const name of ["authorization", "collection", "archive", "api", "data"])
-    for (const method of Object.values(assembly[name]))
-      await assert.rejects(async () => method(context, {}), error => error.code === "BLING_DISABLED" && error.status === 503);
-  assert.equal(await assembly.wake.nextWake(context), null);
-  assert.deepEqual(await assembly.wake.runOne(context, {}), { worked: false, requests: 0, nextWake: null });
+  const context = appContext();
   const dependencies = { env: forbidden, storage: forbidden, readParts: async () => ({ customers: true }) };
+  // Os stubs foram substituídos: configuração incompleta falha na criação,
+  // em vez de entregar portas que ocultem ausência de implementação.
+  await assert.rejects(createBlingAssembly(), error => error.code === "BLING_DISABLED" && error.status === 503);
+  await assert.rejects(createBlingAssembly(dependencies), error => error.code === "BLING_DISABLED" && error.status === 503);
   const response = await handleBlingOperation({ context, name: "erp_bling_status", input: {} }, dependencies);
   assert.equal(response.status, 503);
   assert.equal((await response.json()).error.code, "BLING_DISABLED");
-  assert.deepEqual(await runBlingWake("area", dependencies, { eligible: true, nextOperationalAt: null, clock: context.clock }), { worked: false, requests: 0, nextWake: null });
+  await assert.rejects(runBlingWake("area", dependencies, { eligible: true, nextOperationalAt: null, clock: context.clock }), error => error.code === "BLING_DISABLED" && error.status === 503);
   const privateValue = randomBytes(32).toString("base64url");
   assertNoSecrets(await blingFailureResponse(new Error(privateValue)).text(), [privateValue]);
   const mislabeled = new BlingError("BLING_AUTH_REQUIRED");

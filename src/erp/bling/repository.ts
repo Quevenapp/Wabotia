@@ -9,7 +9,7 @@ import {
 } from "./contracts.ts";
 import type { BlingCommitInput, BlingReserveInput, CollectionStore } from "./ports.ts";
 import { authorizeBlingOperation, BLING_OPERATIONS, commitInputSchema, rawRecordSchema, reserveInputSchema, unitSchema } from "./schema.ts";
-import { getBlingResource, resourceVariants } from "./resources.ts";
+import { BLING_XML_RESOURCE, getBlingResource, resourceVariants } from "./resources.ts";
 
 const encoder = new TextEncoder();
 const hash = (value: string) => createHash("sha256").update(value, "utf8").digest("hex");
@@ -285,10 +285,14 @@ export class SqliteCollectionStore implements CollectionStore {
       this.db.exec("UPDATE wb_bling_unit SET phase='reserved',owner=?,fence=?,lease_until=?,updated_at=? WHERE id=?", input.owner, fence, input.lease_until, now, stored.work_id);
       this.db.exec("UPDATE origin_sync__resource_state SET lease_owner=?,lease_token=?,lease_expires_at=?,updated_at=? WHERE resource=?", input.owner, fence, input.lease_until, now, stored.resource_key);
       if (!one(this.db, "SELECT id FROM erp_sync__run WHERE state IN ('queued','running')")) {
-        const control = this.control(ctx)!, resources = json<Array<string | { key: string; selected: boolean }>>(control.selection, []).flatMap(selection => typeof selection === "string" ? [selection] : selection.selected ? [selection.key] : []);
-        const runId = this.options.randomId();
-        this.db.exec("INSERT INTO erp_sync__run(id,requested_by,requested_at,started_at,state,phase,cursor) VALUES(?,?,?,?,'running','fetch',?)", runId, ctx.identity.actor?.user_id ?? null, now, now, JSON.stringify({ resources }));
-        this.audit(ctx, "erp_bling_run_start", stored.command_id, stored.expected.generation, {});
+        // XML conserva trabalho/manifesto próprios. A rodada mede passagens
+        // das entidades; um descritor de arquivo não é uma pista paginada.
+        const control = this.control(ctx)!, resources = json<Array<string | { key: string; selected: boolean }>>(control.selection, []).flatMap(selection => typeof selection === "string" ? [selection] : selection.selected ? [selection.key] : []).filter(key => key !== "fiscal_xml");
+        if (resources.length) {
+          const runId = this.options.randomId();
+          this.db.exec("INSERT INTO erp_sync__run(id,requested_by,requested_at,started_at,state,phase,cursor) VALUES(?,?,?,?,'running','fetch',?)", runId, ctx.identity.actor?.user_id ?? null, now, now, JSON.stringify({ resources }));
+          this.audit(ctx, "erp_bling_run_start", stored.command_id, stored.expected.generation, {});
+        }
       }
       return { unit: { ...stored, phase: "reserved", lease: { owner: input.owner, fence, expires_at: input.lease_until } }, receipt: null };
     });
@@ -429,7 +433,8 @@ export class SqliteCollectionStore implements CollectionStore {
         if ((current?.version ?? null) !== expected.version || (current?.semantic_hash ?? null) !== expected.semantic_hash) fail("BLING_REVISION_CONFLICT");
         if (expected.identity.entity === unit.entity && expected.identity.source_id === unit.source_id && unit.plan.source_seen_at && current?.observed_at !== unit.plan.source_seen_at) fail("BLING_REVISION_CONFLICT");
       }
-      if (unit.kind === "reference" || unit.kind === "capture_repair" && unit.entity === "products") {
+      if (unit.plan.local_only === true && (unit.source_id !== null || input.records.length || input.source_expectations.length)) fail("BLING_RESPONSE_INVALID");
+      if (unit.kind === "reference" || unit.kind === "capture_repair" && unit.entity === "products" && unit.plan.local_only !== true) {
         const proof = input.source_expectations.find(source => source.identity.entity === "sales_proposals");
         const witness = proof && this.readCurrent(ctx, proof.identity);
         if (!witness || !this.isReferenceWitnessAllowed(ctx, witness) || encoder.encode(witness.payload_text).byteLength > 524288 || unit.plan.witness_seen_at && unit.plan.witness_seen_at !== witness.observed_at) fail("BLING_REVISION_CONFLICT");
@@ -455,7 +460,8 @@ export class SqliteCollectionStore implements CollectionStore {
       for (const incoming of input.records) {
         const result = this.stage(ctx, unit, incoming); changed += result.changed; observed += result.observed;
       }
-      const nextCursor = { ...input.next_checkpoint.cursor, pass_started_at: input.next_checkpoint.pass_started_at, pass_completed_at: input.next_checkpoint.pass_completed_at };
+      const nextCursor = { ...input.next_checkpoint.cursor, pass_started_at: input.next_checkpoint.pass_started_at, pass_completed_at: input.next_checkpoint.pass_completed_at,
+        observed_count: numeric(checkpoint.cursor.observed_count) + observed, changed_count: numeric(checkpoint.cursor.changed_count) + changed };
       this.db.exec("UPDATE origin_sync__resource_state SET checkpoint=?,checkpoint_version=?,lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,updated_at=? WHERE resource=? AND checkpoint_version=?", JSON.stringify(nextCursor), input.next_checkpoint.revision, now, unit.resource_key, checkpoint.revision);
       const counts = { ...input.counts, observed, changed };
       const receipt: BlingReceipt = { command_id: unit.command_id, request_hash: unit.request_hash, generation: unit.expected.generation, operation: "erp_bling_collect_unit", state: "committed", committed_at: new Date(now).toISOString(), references: { work_id: unit.work_id, attempt_id: unit.attempt_id, checkpoint_revision: input.next_checkpoint.revision }, counts, error: null };
@@ -472,7 +478,16 @@ export class SqliteCollectionStore implements CollectionStore {
         this.db.exec("UPDATE erp_sync__run SET state=?,phase=?,started_at=coalesce(started_at,?),finished_at=?,stats=?,cursor=? WHERE id=?", completedRun ? "done" : "running", completedRun ? "done" : "fetch", now, completedRun ? now : null, JSON.stringify(stats), JSON.stringify(runCursor), run.id);
         if (completedRun) this.audit(ctx, "erp_bling_run_complete", unit.command_id, unit.expected.generation, stats);
       }
-      if (input.next_checkpoint.pass_completed_at && input.next_checkpoint.pass_completed_at !== unit.checkpoint.pass_completed_at) this.audit(ctx, "erp_bling_pass_complete", unit.command_id, unit.expected.generation, counts);
+      const passReferences = { resource: unit.resource_key, checkpoint_revision: input.next_checkpoint.revision };
+      if (input.next_checkpoint.pass_started_at && input.next_checkpoint.pass_started_at !== unit.checkpoint.pass_started_at)
+        this.audit(ctx, "erp_bling_pass_start", unit.command_id, unit.expected.generation, counts, null,
+          { ...passReferences, pass_started_at: input.next_checkpoint.pass_started_at });
+      if (input.next_checkpoint.pass_completed_at && input.next_checkpoint.pass_completed_at !== unit.checkpoint.pass_completed_at) {
+        this.audit(ctx, "erp_bling_pass_complete", unit.command_id, unit.expected.generation, counts, null,
+          { ...passReferences, pass_completed_at: input.next_checkpoint.pass_completed_at });
+        this.audit(ctx, "erp_bling_coverage_changed", unit.command_id, unit.expected.generation, counts, null,
+          { ...passReferences, pass_completed_at: input.next_checkpoint.pass_completed_at, coverage_complete: false });
+      }
       return receipt;
     });
   }
@@ -569,31 +584,38 @@ export class SqliteCollectionStore implements CollectionStore {
       if (ctx.identity.actor?.is_agent) {
         const policy = json<{ bots?: { bot_id: string; operations: string[]; entities: string[] }[] }>(control.permissions, {});
         const bot = policy.bots?.find(entry => entry.bot_id === ctx.authorization?.bot?.id);
-        if (!bot?.operations.includes("erp_bling_collect_request") || input.resource_keys.some(key => !bot.entities.includes(getBlingResource(key).entity))) fail("BLING_SCOPE_REQUIRED");
+        if (!bot?.operations.includes("erp_bling_collect_request") || input.resource_keys.some(key => !bot.entities.includes(key === BLING_XML_RESOURCE.key ? BLING_XML_RESOURCE.entity : getBlingResource(key).entity))) fail("BLING_SCOPE_REQUIRED");
       }
-      const requestHash = hash(canonical({ ...input, actor: ctx.identity.actor!.user_id }));
+      const requestHash = ctx.authorization?.request_hash ?? hash(JSON.stringify(input));
       const previous = this.receipt(ctx, { command_id: input.command_id, request_hash: requestHash, generation: String(control.generation) });
       if (previous) return { run_id: String(previous.references.run_id), next_wake: previous.references.next_wake as number | null, receipt: previous };
       if (String(control.revision) !== input.expected_revision) fail("BLING_REVISION_CONFLICT");
       if (!input.resource_keys.length || input.resource_keys.some(key => !this.selected(control, key))) fail("BLING_DISABLED");
-      const existing = one(this.db, "SELECT id,cursor FROM erp_sync__run WHERE state IN ('queued','running')"), runId = existing ? String(existing.id) : this.options.randomId(), now = ctx.clock.now();
-      if (!existing) this.db.exec("INSERT INTO erp_sync__run(id,requested_by,requested_at,state,phase,cursor) VALUES(?,?,?,'queued','fetch',?)", runId, ctx.identity.actor!.user_id, now, JSON.stringify({ resources: input.resource_keys }));
+      const requestedResources = input.resource_keys.filter(key => key !== BLING_XML_RESOURCE.key), xmlRequested = input.resource_keys.includes(BLING_XML_RESOURCE.key);
+      const existing = requestedResources.length ? one(this.db, "SELECT id,cursor FROM erp_sync__run WHERE state IN ('queued','running')") : null;
+      const runId = existing ? String(existing.id) : this.options.randomId(), now = ctx.clock.now();
+      if (!requestedResources.length) {
+        // Pedido apenas de XML não inventa uma passagem paginada nem prova
+        // que seus arquivos estejam prontos; o manifesto informa esse estado.
+        this.db.exec("INSERT INTO erp_sync__run(id,requested_by,requested_at,started_at,finished_at,state,phase,cursor) VALUES(?,?,?,?,?,'done','done',?)", runId, ctx.identity.actor!.user_id, now, now, now, JSON.stringify({ resources: [], xml_requested: true, xml_complete: false }));
+      }
+      else if (!existing) this.db.exec("INSERT INTO erp_sync__run(id,requested_by,requested_at,state,phase,cursor) VALUES(?,?,?,'queued','fetch',?)", runId, ctx.identity.actor!.user_id, now, JSON.stringify({ resources: requestedResources, xml_requested: xmlRequested }));
       else {
         const cursor = json<JsonObject>(existing.cursor, {}), since = (cursor.requested_since ?? {}) as JsonObject;
-        const resources = new Set(Array.isArray(cursor.resources) ? cursor.resources : []);
-        for (const resource of input.resource_keys) { resources.add(resource); since[resource] = now; }
-        this.db.exec("UPDATE erp_sync__run SET cursor=? WHERE id=?", JSON.stringify({ ...cursor, resources: [...resources], requested_since: since }), runId);
+        const resources = new Set((Array.isArray(cursor.resources) ? cursor.resources : []).filter(key => key !== BLING_XML_RESOURCE.key));
+        for (const resource of requestedResources) { resources.add(resource); since[resource] = now; }
+        this.db.exec("UPDATE erp_sync__run SET cursor=? WHERE id=?", JSON.stringify({ ...cursor, resources: [...resources], requested_since: since, xml_requested: xmlRequested || cursor.xml_requested === true }), runId);
       }
       const nextWake = Math.max(now, numeric(control.next_allowed_at));
-      const receipt: BlingReceipt = { command_id: input.command_id, request_hash: requestHash, generation: String(control.generation), operation: "erp_bling_collect_request", state: "committed", committed_at: new Date(now).toISOString(), references: { run_id: runId, next_wake: nextWake }, counts: {}, error: null };
+      const receipt: BlingReceipt = { command_id: input.command_id, request_hash: requestHash, generation: String(control.generation), operation: "erp_bling_collect_request", state: "committed", committed_at: new Date(now).toISOString(), references: { run_id: runId, next_wake: nextWake, xml_requested: xmlRequested }, counts: {}, error: null };
       this.writeReceipt(receipt); this.audit(ctx, receipt.operation, input.command_id, receipt.generation, {}); return { run_id: runId, next_wake: nextWake, receipt };
     });
   }
   private writeReceipt(receipt: BlingReceipt, unit?: BlingUnit): void {
     this.db.exec("INSERT INTO wb_bling_receipt(command_id,operation,request_hash,generation,unit_id,attempt_id,state,result,references_json,error_code,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)", receipt.command_id, receipt.operation, receipt.request_hash, receipt.generation, unit?.work_id ?? null, unit?.attempt_id ?? null, receipt.state, JSON.stringify(receipt), JSON.stringify(receipt.references), receipt.error?.code ?? null, Date.parse(receipt.committed_at));
   }
-  private audit(ctx: BlingContext, operation: string, command: string, generation: string, counts: Record<string, number>, code: string | null = null): void {
-    this.db.exec("INSERT INTO wb_bling_audit(id,actor_id,operation,command_id,generation,counts,references_json,code,created_at) VALUES(?,?,?,?,?,?,'{}',?,?)", this.options.randomId(), ctx.identity.actor?.user_id ?? "collector", operation, command, generation, JSON.stringify(counts), code, ctx.clock.now());
+  private audit(ctx: BlingContext, operation: string, command: string, generation: string, counts: Record<string, number>, code: string | null = null, references: JsonObject = {}): void {
+    this.db.exec("INSERT INTO wb_bling_audit(id,actor_id,operation,command_id,generation,counts,references_json,code,created_at) VALUES(?,?,?,?,?,?,?,?,?)", this.options.randomId(), ctx.identity.actor?.user_id ?? "collector", operation, command, generation, JSON.stringify(counts), JSON.stringify(references), code, ctx.clock.now());
   }
 }
 

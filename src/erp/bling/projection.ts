@@ -130,13 +130,14 @@ function capturePath(entity: string, path: string): boolean {
 export function validateCapture(record: BlingRawRecord, bytes?: Uint8Array): BlingCapture | null {
   if (record.capture === null) return null;
   const capture = record.capture, parsed = parseHistoricalPayload(record.payload_text), entity = record.identity.entity;
-  if (!capture || !captureProfiles[entity] || capture.profile !== captureProfiles[entity] || !/^(0|[1-9][0-9]{0,15})$/.test(capture.revision) || BigInt(capture.revision) > 9_007_199_254_740_991n || !/^[a-f0-9]{64}$/.test(capture.bytes_sha256) || capture.semantic_hash !== record.semantic_hash || capture.semantic_version !== record.version || !Array.isArray(capture.values) || capture.values.length > 4_096 || new TextEncoder().encode(JSON.stringify(capture)).byteLength > 131_072) throw INVALID();
+  const profile = captureProfiles[entity] ?? "bling-lexical-json-v1";
+  if (!capture || capture.profile !== profile || !/^(0|[1-9][0-9]{0,15})$/.test(capture.revision) || BigInt(capture.revision) > 9_007_199_254_740_991n || !/^[a-f0-9]{64}$/.test(capture.bytes_sha256) || capture.semantic_hash !== record.semantic_hash || capture.semantic_version !== record.version || !Array.isArray(capture.values) || capture.values.length > 4_096 || new TextEncoder().encode(JSON.stringify(capture)).byteLength > 131_072) throw INVALID();
   if (exactSourceId(entity === "stock_balances" ? atPath(parsed.payload, ["produto", "id"]) : parsed.payload.id) !== record.identity.source_id) throw INVALID();
   if (entity === "stock_balances" ? capture.source !== "stock_product" : capture.source !== "detail") {
     const marker = parsed.payload._brufap_source;
     if (entity !== "products" || capture.source !== "deleted_without_detail" || !record.deleted || !record.deletion_evidence || !object(marker) || marker.deleted !== true || marker.detail_available !== false) throw INVALID();
   }
-  const expected = new Map([...parsed.numeric_paths].filter(([path]) => capturePath(entity, path)));
+  const expected = new Map([...parsed.numeric_paths].filter(([path]) => profile === "bling-lexical-json-v1" || capturePath(entity, path)));
   const seen = new Set<string>();
   for (const token of capture.values) {
     if (!token || typeof token.path !== "string" || typeof token.lexeme !== "string" || seen.has(token.path) || !expected.has(token.path)) throw INVALID();
@@ -156,7 +157,14 @@ export function validateCapture(record: BlingRawRecord, bytes?: Uint8Array): Bli
       responsePayload = matching[0].item; prefix = "/data/" + matching[0].index;
     }
     if (exactSourceId(entity === "stock_balances" ? atPath(responsePayload, ["produto", "id"]) : responsePayload.id) !== record.identity.source_id) throw INVALID();
-    for (const token of capture.values) if (response.numeric_paths.get(prefix + token.path) !== token.lexeme) throw INVALID();
+    for (const token of capture.values) {
+      const observed = response.numeric_paths.get(prefix + token.path);
+      // O perfil de estoque vincula o SHA ao produto canônico individual;
+      // zeros finais podem diferir do lexema original, sem arredondamento.
+      if (capture.source === "stock_product") {
+        try { if (observed === undefined || canonicalPriceToken(observed) !== canonicalPriceToken(token.lexeme)) throw INVALID(); } catch { throw INVALID(); }
+      } else if (observed !== token.lexeme) throw INVALID();
+    }
   }
   return capture;
 }

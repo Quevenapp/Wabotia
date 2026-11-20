@@ -724,7 +724,7 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   deletion_evidence TEXT CHECK (deletion_evidence IS NULL OR ${BLING_JSON("deletion_evidence", "object")}),
   references_json TEXT NOT NULL DEFAULT '[]' CHECK (${BLING_JSON("references_json", "array")}),
   capture_revision INTEGER NOT NULL DEFAULT 0 CHECK (${BLING_COUNT("capture_revision")}),
-  capture TEXT CHECK (capture IS NULL OR ${BLING_JSON("capture", "object")}),
+  capture TEXT CHECK (capture IS NULL OR ${BLING_JSON("capture", "object", 131072)}),
   metadata TEXT NOT NULL DEFAULT '{}' CHECK (${BLING_JSON("metadata", "object")}),
   PRIMARY KEY (entity, source_id, version),
   CONSTRAINT wb_bling_record_version_deletion_check CHECK (deleted_observed = 0 OR deletion_evidence IS NOT NULL),
