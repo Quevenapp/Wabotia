@@ -7,7 +7,7 @@ import { canonicalJson, parseBlingResponse, parseLexicalJson, type BlingClientTi
 import { remoteTimestampMillis, semanticHash, type SqliteCollectionStore } from "./repository.ts";
 import { COLLECTION_POLICY, advanceWindow, captureRepairEligible, chooseFair, collectionBackoff, financeRefreshEligible, finishPageItem, nextCheckpoint, nextWindow, pageSlice, type PageCursor, type WindowState } from "./planner.ts";
 import { one, type Row, type SqlDriver } from "../engine/driver.ts";
-import { blingXmlObjectKey, decodeXmlDocuments, hasPendingXmlWrite, markXmlObjectDelete, waitArchiveIo, xmlFingerprint, type createXmlArchive } from "./xml.ts";
+import { archiveRestoreActive, assertNoArchiveRestore, blingXmlObjectKey, decodeXmlDocuments, hasPendingXmlWrite, markXmlObjectDelete, waitArchiveIo, xmlFingerprint, type createXmlArchive } from "./xml.ts";
 import type { ArchivePurge } from "./purge.ts";
 
 export interface BlingWakeDependencies {
@@ -358,6 +358,11 @@ export interface BlingArchiveWakeDependencies {
 }
 
 const pendingOrphanDeletes = new Set<string>();
+/** Revisão da credencial produzida pela última reautorização (callback OAuth
+ * confirmado). Renovação de token não conta: o 403 depende dos escopos
+ * concedidos, que só mudam ao autorizar de novo. Faixa do índice primário. */
+const REAUTHORIZED_REVISION = `SELECT coalesce(max(CAST(json_extract(references_json,'$.credential_revision') AS INTEGER)),-1) FROM wb_bling_receipt
+  WHERE command_id>='exchange:' AND command_id<'exchange;' AND operation='erp_bling_oauth_callback' AND state='committed'`;
 
 /** Etapas fiscais e exclusão duráveis; não chama o executor síncrono do ERP. */
 export function createBlingArchiveWake(deps: BlingArchiveWakeDependencies): BlingWakePort {
@@ -391,6 +396,8 @@ export function createBlingArchiveWake(deps: BlingArchiveWakeDependencies): Blin
   async function cleanOrphan(ctx: BlingContext, row: Row, deadline: number) {
     const plan=json(row.plan), marker=JSON.stringify([deps.profile,row.id]);
     if(plan.profile!==deps.profile||plan.key!==blingXmlObjectKey(deps.profile,plan.sha256))throw fail();
+    // Restauração em curso: nenhum DELETE começa (sem await até o envio).
+    assertNoArchiveRestore(ctx,deps.profile);
     if(pendingOrphanDeletes.has(marker))throw new BlingError("BLING_RETRY_WAIT",{retry_at:ctx.clock.now()+700});
     const due=Math.max(Number(row.not_before),Number(row.lease_until??0));
     if(due>ctx.clock.now())throw new BlingError("BLING_RETRY_WAIT",{retry_at:due});
@@ -430,7 +437,7 @@ export function createBlingArchiveWake(deps: BlingArchiveWakeDependencies): Blin
       LEFT JOIN origin_fiscal__attempt a ON a.id=s.current_attempt
       WHERE r.entity IN ('nfe','nfce') AND length(json_extract(r.payload,'$.chaveAcesso'))=44
         AND json_extract(r.payload,'$.chaveAcesso') NOT GLOB '*[^0-9]*'
-        AND (s.state IS NULL OR s.state<>'blocked')
+        AND (s.state IS NULL OR s.state<>'blocked' OR coalesce(CAST(json_extract(a.result,'$.blocked_credential_revision') AS INTEGER),-1)<(${REAUTHORIZED_REVISION}))
         AND (s.next_attempt_at IS NULL OR s.next_attempt_at<=? OR (s.state='stored' AND a.source_hash<>r.version_hash))
     ) WHERE position=1 ORDER BY coalesce(last_checked_at,0),entity,source_id LIMIT 1`, c.updated_at);
   }
@@ -480,6 +487,8 @@ export function createBlingArchiveWake(deps: BlingArchiveWakeDependencies): Blin
   }
   return { nextWake, async runOne(raw, budget) {
     const deadline = Math.min(budget.deadline, raw.clock.now() + 4000, budget.nextOperationalAt === null ? Infinity : budget.nextOperationalAt - 250);
+    // A restauração troca o banco inteiro: XML e apagamento esperam o fim dela.
+    if (archiveRestoreActive(deps.profile)) return { worked: false, requests: 0, nextWake: raw.clock.now() + 1000 };
     let ctx: BlingContext | null;
     try { ctx = await refresh(raw, deadline); } catch { return { worked: false, requests: 0, nextWake: raw.clock.now() + 1000, error: new BlingError("BLING_RETRY_WAIT").toJSON() }; }
     if (!ctx) return { worked: false, requests: 0, nextWake: null };

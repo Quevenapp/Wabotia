@@ -278,6 +278,17 @@ export class BlingCommandSession {
         return value;
       } catch (error) {
         if (!dispatched || error instanceof BlingRequestError && error.definitive) this.setPending(null);
+        // A recusa por revisão antiga grava um recibo terminal no servidor.
+        // Só esse recibo, conferido pelo comando e operação, encerra a pendência;
+        // outro erro HTTP ou um "absent" continuam exigindo a consulta manual.
+        else if (!isAbort(error) && safeBlingFailure(error).code === 'BLING_REVISION_CONFLICT' && !signal?.aborted) {
+          try {
+            const found = await this.client.execute('erp_bling_command_get', { id: selected.command_id }, signal);
+            const terminal = found.receipt;
+            if (terminal && terminal.state === 'rejected' && terminal.command_id === selected.command_id && terminal.operation === name &&
+                this.current?.command_id === selected.command_id) this.setPending(null);
+          } catch { /* A pendência permanece; a consulta manual continua disponível. */ }
+        }
         throw error;
       } finally { this.flight = null; }
     });

@@ -11,7 +11,7 @@
 // - nunca chama a instância da área de forma síncrona.
 import type { Env } from "../types";
 import { applyErpPartsSnapshot, requireCurrentErpParts, ErpPartsControlError, currentErpParts, handleErpParts, ERP_PARTS_KEY } from "./parts-control.ts";
-import { ERP_PARTS_DENIED_HEADER, readErpPartsSnapshot } from "./parts.ts";
+import { ERP_PARTS_DENIED_HEADER, ERP_PARTS_TTL_MS, readErpPartsSnapshot } from "./parts.ts";
 import { decodeIdentity, IDENTITY_HEADER, SYSTEM_HEADER } from "./engine/identity.ts";
 import { prepareBlingDispatch, blingFailureResponse } from "./bling/assembly.ts";
 
@@ -24,6 +24,10 @@ let engineModule: Promise<typeof import("./hub-engine.ts")> | null = null;
 const engine = () => (engineModule ??= import("./hub-engine.ts"));
 
 export const ERP_KIND = "erp";
+/** Instância "erp-cron" do Coordinator: só continua os lotes do cron (src/erp/scheduler/cron.ts). */
+const ERP_CRON_KIND = "erp-cron";
+const ERP_CRON_INSTANCE_NAME = "erp-cron";
+const ERP_CRON_CONTINUE_DELAY_MS = 1_000;
 export const ERP_PROFILE_HEADER = "x-erp-profile";
 /** Compatibilidade de imports antigos; o wake não recebe autorização por blocos. */
 export const ERP_OPTIONAL_BLOCKS = ["erp-fiscal", "erp-cobranca", "erp-pdv"] as const;
@@ -66,9 +70,44 @@ export class ErpHub {
     private ctx: DurableObjectState,
   ) {}
 
-  /** Esta instância é do ERP? (lido do KV do objeto; barato e em memória) */
+  /** Esta instância é do ERP (ou a da continuação do cron)? KV do objeto; barato e em memória. */
   async isErp() {
-    return (await this.ctx.storage.get<string>("kind")) === ERP_KIND;
+    const kind = await this.ctx.storage.get<string>("kind");
+    return kind === ERP_KIND || kind === ERP_CRON_KIND;
+  }
+
+  /**
+   * POST /erp-cron-continue?window=<início>: só a instância "erp-cron" aceita.
+   * Guarda a janela mais recente e agenda o próximo lote. Cada alarme é uma
+   * invocação própria com o mesmo limite de áreas do cron.
+   */
+  private async cronContinue(request: Request) {
+    const name = (this.ctx.id as { name?: string }).name;
+    if (request.method !== "POST" || name !== undefined && name !== ERP_CRON_INSTANCE_NAME)
+      return fail(409, "erp_wrong_instance", "Esta instância não continua o cron do ERP.");
+    const window = Number(new URL(request.url).searchParams.get("window"));
+    if (!Number.isSafeInteger(window) || window <= 0) return fail(400, "erp_cron_invalid", "Janela inválida.");
+    const storage = this.ctx.storage;
+    return storage.transaction(async tx => {
+      const [kind, profile] = await Promise.all([tx.get<string>("kind"), tx.get("profile")]);
+      if (profile || kind !== undefined && kind !== ERP_CRON_KIND) return fail(409, "erp_wrong_instance", "Instância de outro uso.");
+      const saved = await tx.get<number>("cron_window");
+      await tx.put({ kind: ERP_CRON_KIND, cron_window: Math.max(saved ?? 0, window) });
+      const current = await tx.getAlarm(), target = Date.now() + ERP_CRON_CONTINUE_DELAY_MS;
+      if (current === null || current > target) await tx.setAlarm(target);
+      return Response.json({ ok: true });
+    });
+  }
+
+  /** Um lote da continuação; reagenda enquanto houver áreas não tentadas na janela. */
+  private async cronAlarm() {
+    const storage = this.ctx.storage;
+    const window = await storage.get<number>("cron_window");
+    // Janela além da validade da fotografia: o próximo cron recomeça.
+    if (!window || Date.now() - window > ERP_PARTS_TTL_MS) return;
+    const { continueErpAreas } = await import("./scheduler/cron.ts");
+    const { more } = await continueErpAreas(this.env, window);
+    if (more) await storage.setAlarm(Date.now() + ERP_CRON_CONTINUE_DELAY_MS);
   }
 
   /**
@@ -97,6 +136,7 @@ export class ErpHub {
   }
 
   async handle(path: string, request: Request): Promise<Response> {
+    if (path === "/erp-cron-continue") return this.cronContinue(request);
     const profile = request.headers.get(ERP_PROFILE_HEADER) || "";
     if (!profile) return fail(400, "erp_profile_required", "Área ausente.");
     const refused = await this.bind(profile);
@@ -145,7 +185,8 @@ export class ErpHub {
       try { blingCall = await prepareBlingDispatch(profile, path, request, identity!); }
       catch (error) { return blingFailureResponse(error); }
     }
-    const { ERP_SCHEMA_VERSION, migrate, backupToR2, dumpAll, handleRpc, readBackup, restoreAll, handleBlingOperation } = await engine();
+    const { ERP_SCHEMA_VERSION, migrate, backupToR2, dumpAll, handleRpc, readBackup, restoreAll, handleBlingOperation,
+      ErpBackupTooLargeError, ErpRestoreBusyError, beginArchiveRestore, endArchiveRestore } = await engine();
     if (gated) {
       // O import cede a vez: expiração ou revisão nova também bloqueiam a migração.
       const denied = await authorize(false);
@@ -175,7 +216,10 @@ export class ErpHub {
     // sem fotografia, inclusive em instância nova ou com ERP suspenso.
     // Restaurar troca o conteúdo inteiro. Não expor estas rotas na API pública.
     if (path === "/erp-backup") {
-      const dump = dumpAll(this.ctx.storage);
+      let dump;
+      // Mede antes de materializar; acima do teto, nenhum arquivo nem manifesto.
+      try { dump = dumpAll(this.ctx.storage); }
+      catch (error) { if (error instanceof ErpBackupTooLargeError) return fail(413, error.code, error.message); throw error; }
       const saved = await backupToR2(this.env.MEDIA, profile, dump);
       return Response.json({ ...saved, manifest: dump.manifest });
     }
@@ -183,8 +227,18 @@ export class ErpHub {
       const { prefix } = await request.json<{ prefix: string }>();
       if (typeof prefix !== "string" || !prefix.startsWith("erp-backups/"))
         return fail(400, "erp_backup_invalid", "Informe o prefixo do backup.");
-      const { manifest, files } = await readBackup(this.env.MEDIA, prefix);
-      return Response.json(restoreAll(this.ctx.storage, manifest, files));
+      // Exclusão/gravação de XML viva recusa o início; depois de começar,
+      // nenhum novo I/O de XML ou de apagamento inicia até o fim da troca.
+      const busy = new ErpRestoreBusyError();
+      if (!beginArchiveRestore(profile)) return fail(409, busy.code, busy.message);
+      try {
+        const { manifest, files } = await readBackup(this.env.MEDIA, prefix);
+        return Response.json(restoreAll(this.ctx.storage, manifest, files, { profile }));
+      } catch (error) {
+        if (error instanceof ErpRestoreBusyError || error instanceof ErpBackupTooLargeError)
+          return fail(error instanceof ErpRestoreBusyError ? 409 : 413, error.code, error.message);
+        throw error;
+      } finally { endArchiveRestore(profile); }
     }
     // Sondas da instalação de teste (src/erp/probe.ts); o Worker só encaminha
     // com ERP_PROBES=1 e administrador (src/erp/api/local-fetch.ts).
@@ -233,6 +287,7 @@ export class ErpHub {
   /** Uma rodada, com KV revalidado antes do motor, depois de I/O e entre unidades. */
   async alarm() {
     const storage = this.ctx.storage;
+    if ((await storage.get<string>("kind")) === ERP_CRON_KIND) return this.cronAlarm();
     const profile = await storage.get<string>("erp_profile");
     if (!profile) { await storage.deleteAlarm(); return; }
     const readParts = async () => {

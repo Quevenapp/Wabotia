@@ -223,3 +223,69 @@ test('salvar aplicativo limpa os campos privados e apresenta somente o retorno p
   assert.equal(server.calls.filter(call=>call.name==='erp_bling_app_save').length,1);
  }finally{view.unmount();}
 });
+
+// Achado 5: o formulário do aplicativo produz "configurado"; não pode exigi-lo.
+const unconfigured=({account=null,revision='0'}={})=>{const s=copy(status);s.configuration={...s.configuration,revision,authorization_revision:revision,collect_enabled:false,account,selections:[],approval:null,credential:{configured:false,authorized:false,revision,expires_at:null,scopes:[],uncertain:false}};s.capabilities={configured:false,collect:false,archive:true,xml:true,purge:true};return statusSchema.parse(s);};
+for(const [scenario,initial] of [['área nova',unconfigured()],['depois de desconectar',unconfigured({account:configuration.account,revision:'4'})],['depois de restaurar',unconfigured({account:configuration.account,revision:'7'})]]){
+ test(`achado 5: administrador cadastra o aplicativo ${scenario}, sem aplicativo já configurado`,{timeout:120000},async()=>{
+  const server=service({initial}),view=await mount(server),clientId=globalThis.crypto.randomUUID(),clientSecret=globalThis.crypto.randomUUID();
+  try{
+   assert.match(view.text(),/Ainda não configurado/);
+   assert.equal(view.input('bling-client-id').disabled,false);assert.equal(view.input('bling-client-secret').disabled,false);
+   await view.change('bling-client-id',clientId);await view.change('bling-client-secret',clientSecret);
+   assert.equal(view.button('Salvar aplicativo').disabled,false);
+   await view.submit();await server.when('erp_bling_app_save');await view.flush();
+   const saved=server.calls.filter(call=>call.name==='erp_bling_app_save');
+   assert.equal(saved.length,1);assert.equal(saved[0].input.expected_revision,initial.configuration.revision);
+   assert.equal(view.input('bling-callback').props.value,'https://instalacao.invalid/api/public/erp-bling/area-teste/callback');
+   assert.ok(!view.text().includes(clientId));assert.ok(!view.text().includes(clientSecret));
+  }finally{view.unmount();}
+ });
+}
+test('achado 5: o formulário do aplicativo continua bloqueado com operação pendente ou apagamento em curso',async()=>{
+ const purging=service({initial:{...unconfigured(),state:'purging'}}),view=await mount(purging);
+ try{assert.equal(view.input('bling-client-id').disabled,true);assert.equal(view.input('bling-client-secret').disabled,true);}finally{view.unmount();}
+ const pending=service({initial:unconfigured()});
+ pending.client.journal={read:()=>({operation:'erp_bling_disable',command_id:'comando-pendente',expected_revision:'0'}),write(){}};
+ const other=await mount(pending);
+ try{assert.match(other.text(),/Há uma solicitação sem resultado confirmado/);assert.equal(other.input('bling-client-id').disabled,true);}finally{other.unmount();}
+ assert.equal([...purging.calls,...pending.calls].filter(call=>call.name==='erp_bling_app_save').length,0);
+});
+
+// Achado 6: recusa por revisão antiga tem recibo terminal; a aba sai do pendente e recarrega.
+test('achado 6: recusa por revisão antiga sai do estado pendente, recarrega o estado e libera os comandos',{timeout:120000},async()=>{
+ const enabled={...copy(status),configuration:{...copy(configuration),collect_enabled:true}};
+ const server=service({initial:enabled}),execute=server.client.execute.bind(server.client),refused=new Map();
+ server.client.execute=async(name,input,signal)=>{
+  if(name==='erp_bling_disable'){server.calls.push({name,input:copy(input)});refused.set(input.command_id,{command_id:input.command_id,request_hash:hash,generation:'1',operation:name,state:'rejected',committed_at:now,references:{},counts:{},error:new BlingError('BLING_REVISION_CONFLICT').toJSON()});throw new BlingError('BLING_REVISION_CONFLICT');}
+  if(name==='erp_bling_command_get'){server.calls.push({name,input:copy(input)});return BLING_OPERATIONS[name].output.parse(refused.has(input.id)?{phase:'blocked',receipt:refused.get(input.id)}:{phase:'absent',receipt:null});}
+  return execute(name,input,signal);
+ };
+ const view=await mount(server);
+ try{
+  const loads=()=>server.calls.filter(call=>call.name==='erp_bling_status').length,before=loads();
+  await view.click('Desligar recebimento');await view.flush();
+  assert.equal(server.calls.filter(call=>call.name==='erp_bling_disable').length,1);
+  assert.ok(server.calls.some(call=>call.name==='erp_bling_command_get'),'consulta o recibo do próprio comando');
+  assert.doesNotMatch(view.text(),/Há uma solicitação sem resultado confirmado/);
+  assert.ok(loads()>before,'recarrega o estado atual');
+  assert.ok(view.nodes().some(node=>node.props.role==='alert'));
+  assert.equal(view.button('Desligar recebimento').disabled,false);assert.equal(view.button('Desconectar conta').disabled,false);
+ }finally{view.unmount();}
+});
+
+test('achado 6: outra falha HTTP sem recibo terminal conserva a pendência',{timeout:120000},async()=>{
+ const enabled={...copy(status),configuration:{...copy(configuration),collect_enabled:true}};
+ const server=service({initial:enabled}),execute=server.client.execute.bind(server.client);
+ server.client.execute=async(name,input,signal)=>{
+  if(name==='erp_bling_disable'){server.calls.push({name,input:copy(input)});throw new BlingError('BLING_REVISION_CONFLICT');}
+  if(name==='erp_bling_command_get'){server.calls.push({name,input:copy(input)});return BLING_OPERATIONS[name].output.parse({phase:'absent',receipt:null});}
+  return execute(name,input,signal);
+ };
+ const view=await mount(server);
+ try{
+  await view.click('Desligar recebimento');await view.flush();
+  assert.match(view.text(),/Há uma solicitação sem resultado confirmado/);
+  assert.equal(view.button('Desconectar conta').disabled,true);
+ }finally{view.unmount();}
+});

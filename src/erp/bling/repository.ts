@@ -595,6 +595,9 @@ export class SqliteCollectionStore implements CollectionStore {
       const requestedResources = input.resource_keys.filter(key => key !== BLING_XML_RESOURCE.key), xmlRequested = input.resource_keys.includes(BLING_XML_RESOURCE.key);
       const existing = requestedResources.length ? one(this.db, "SELECT id,cursor FROM erp_sync__run WHERE state IN ('queued','running')") : null;
       const runId = existing ? String(existing.id) : this.options.randomId(), now = ctx.clock.now();
+      // Retomada explícita do administrador: notas bloqueadas por 403 de XML
+      // voltam a ser tentadas uma vez; outro 403 as bloqueia de novo.
+      if (xmlRequested) this.db.exec("UPDATE origin_fiscal__source SET state='retry',next_attempt_at=? WHERE state='blocked' AND entity IN ('nfe','nfce')", now);
       if (!requestedResources.length) {
         // Pedido apenas de XML não inventa uma passagem paginada nem prova
         // que seus arquivos estejam prontos; o manifesto informa esse estado.

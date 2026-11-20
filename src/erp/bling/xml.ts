@@ -31,14 +31,32 @@ const pendingWriteKey = (profile: string, workId: string) => JSON.stringify([pro
 export function hasPendingXmlWrite(profile: string, workId: string): boolean {
   return (pendingXmlWrites.get(pendingWriteKey(profile, workId)) ?? 0) > 0;
 }
-/** Uma exclusão órfã pode ultrapassar seu lease; purgar/confirmar deve esperá-la. */
-const pendingObjectDeletes = new Set<string>();
+/** Uma exclusão (órfã ou do apagamento) pode ultrapassar seu lease; purgar,
+ * confirmar e restaurar devem esperá-la. Contagem: duas exclusões da mesma chave. */
+const pendingObjectDeletes = new Map<string, number>();
 export function markXmlObjectDelete(profile: string, key: string, pending: boolean): void {
-  const marker = JSON.stringify([profile, key]);
-  if (pending) pendingObjectDeletes.add(marker); else pendingObjectDeletes.delete(marker);
+  const marker = JSON.stringify([profile, key]), count = (pendingObjectDeletes.get(marker) ?? 0) + (pending ? 1 : -1);
+  if (count > 0) pendingObjectDeletes.set(marker, count); else pendingObjectDeletes.delete(marker);
 }
 export function hasPendingXmlObjectDelete(profile: string, key?: string): boolean {
-  return key === undefined ? [...pendingObjectDeletes].some(marker => JSON.parse(marker)[0] === profile) : pendingObjectDeletes.has(JSON.stringify([profile, key]));
+  return key === undefined ? [...pendingObjectDeletes.keys()].some(marker => JSON.parse(marker)[0] === profile) : pendingObjectDeletes.has(JSON.stringify([profile, key]));
+}
+/** Restauração em curso por área: nenhum PUT, GET ou DELETE de XML começa. */
+const restoringProfiles = new Set<string>();
+export function archiveRestoreActive(profile: string): boolean { return restoringProfiles.has(profile); }
+/** Gravação ou exclusão de XML viva nesta instância, inclusive além do prazo da acordada. */
+export function archiveIoInFlight(profile: string): boolean {
+  return [...pendingXmlWrites.keys()].some(marker => JSON.parse(marker)[0] === profile) || hasPendingXmlObjectDelete(profile);
+}
+/** Síncrono: conferir e marcar não têm await entre si, nem com o início de cada I/O. */
+export function beginArchiveRestore(profile: string): boolean {
+  if (restoringProfiles.has(profile) || archiveIoInFlight(profile)) return false;
+  restoringProfiles.add(profile);
+  return true;
+}
+export function endArchiveRestore(profile: string): void { restoringProfiles.delete(profile); }
+export function assertNoArchiveRestore(ctx: BlingContext, profile: string): void {
+  if (restoringProfiles.has(profile)) throw new BlingError("BLING_RETRY_WAIT", { retry_at: ctx.clock.now() + 1000 });
 }
 /** Libera a acordada no deadline sem fingir que um PUT remoto foi cancelado.
  * O chamador conserva a barreira até a Promise original efetivamente terminar. */
@@ -237,6 +255,20 @@ export function createXmlArchive(deps: BlingXmlDependencies) {
       db.exec("UPDATE wb_bling_unit SET phase='waiting',not_before=?,updated_at=? WHERE id=? AND fence=? AND phase='fetching'", ctx.clock.now() + 700, ctx.clock.now(), unit.work_id, unit.lease!.fence);
     });
   }
+  /** O conjunto de documentos mudou entre a primeira leitura e a retomada.
+   * A tentativa e a unidade terminam como superadas, conservando o journal:
+   * a limpeza de órfãos reconcilia os objetos já gravados (só apaga o que
+   * nenhum manifesto confirmado referencia) e a pista cria outra unidade
+   * para o conjunto novo. */
+  function retireDivergent(ctx: BlingContext, unit: BlingUnit): void {
+    if (hasPendingXmlWrite(deps.profile, unit.work_id)) throw new BlingError("BLING_RETRY_WAIT", { retry_at: ctx.clock.now() + 700 });
+    db.transaction(() => {
+      const row = guard(ctx, unit), prior = journalOf(row);
+      db.exec("UPDATE origin_fiscal__attempt SET state='superseded',finished_at=? WHERE id=? AND state='pending'", ctx.clock.now(), prior.attempt);
+      db.exec("UPDATE wb_bling_unit SET phase='superseded',error_code='BLING_REVISION_CONFLICT',finished_at=?,updated_at=?,owner=NULL,fence=NULL,lease_until=NULL WHERE id=? AND phase NOT IN ('committed','superseded')", ctx.clock.now(), ctx.clock.now(), unit.work_id);
+      db.exec("UPDATE origin_sync__resource_state SET lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,updated_at=? WHERE resource='fiscal_xml' AND lease_token=?", ctx.clock.now(), unit.lease!.fence);
+    });
+  }
   /** Até dez arquivos. Cada chamada grava no máximo um; o mesmo envelope retoma os demais. */
   async function archiveXmlManifest(ctx: BlingContext, input: BlingXmlManifestInput, options: { deadline?: number } = {}): Promise<BlingXmlSummary[]> {
     const deadline = Math.min(ctx.clock.now() + 4_000, options.deadline ?? Infinity);
@@ -267,12 +299,15 @@ export function createXmlArchive(deps: BlingXmlDependencies) {
     if (payload.chaveAcesso !== input.access_key) throw new BlingError("BLING_REVISION_CONFLICT");
     const manifestHash = await deps.hash(encoder.encode(JSON.stringify(validated.map(d => ({ hash: d.sha256, size: d.bytes.length })))));
     budget();
-    const journal = db.transaction((): XmlJournal => {
+    const journal = db.transaction((): XmlJournal | null => {
       const row = guard(ctx, input.unit), current = sourceRaw(entity, input.identity.source_id);
       if (current.version_hash !== raw.version_hash || current.version !== raw.version) throw new BlingError("BLING_REVISION_CONFLICT");
       if (json(row.progress).xml) {
         const prior = journalOf(row);
-        if (prior.manifest_hash !== manifestHash || prior.fingerprint !== input.fingerprint || prior.source_hash !== raw.version_hash) throw new BlingError("BLING_COMMAND_CONFLICT");
+        if (prior.fingerprint !== input.fingerprint || prior.source_hash !== raw.version_hash) throw new BlingError("BLING_COMMAND_CONFLICT");
+        // Mesma fonte, outro conjunto de documentos: esta tentativa não pode
+        // mais terminar. Aposentá-la abaixo; repetir a mesma unidade prende a pista.
+        if (prior.manifest_hash !== manifestHash) return null;
         return prior;
       }
       let source = one(db, "SELECT * FROM origin_fiscal__source WHERE entity=? AND source_id=? AND access_key=?", entity, input.identity.source_id, input.access_key);
@@ -297,10 +332,15 @@ export function createXmlArchive(deps: BlingXmlDependencies) {
       db.exec("UPDATE wb_bling_unit SET phase='waiting',progress=?,updated_at=? WHERE id=?", JSON.stringify({ ...json(row.progress), xml: j }), ctx.clock.now(), input.unit.work_id);
       return j;
     });
+    if (!journal) {
+      retireDivergent(ctx, input.unit);
+      throw new BlingError("BLING_REVISION_CONFLICT", { retry_at: ctx.clock.now() + 700 });
+    }
     const pending = journal.documents.find(d => d.phase === "put_pending" || d.phase === "needs_fetch");
     if (!pending) throw new BlingError("BLING_RETRY_WAIT", { retry_at: ctx.clock.now() + 700 });
     requireObjectAvailable(pending.sha256);
     await deps.revalidate(ctx, input.unit.expected); budget(); guard(ctx, input.unit);
+    assertNoArchiveRestore(ctx, deps.profile);
     // Nenhum await separa a marca durável do início do PUT. O purge conserva
     // este journal enquanto fetching: o objeto pode aparecer mesmo após revogação.
     db.transaction(() => {
@@ -346,6 +386,7 @@ export function createXmlArchive(deps: BlingXmlDependencies) {
     });
     const document = j.documents.find(d => d.phase === "stored" || d.phase === "put_pending");
     if (document) {
+      assertNoArchiveRestore(ctx, deps.profile);
       let stored: Awaited<ReturnType<BlingXmlMedia["get"]>>;
       try { stored = await waitArchiveIo(ctx,deadline,deps.media.get(document.key)); } catch { throw new BlingError("BLING_RETRY_WAIT", { retry_at: ctx.clock.now() + 700 }); }
       await deps.revalidate(ctx, unit.expected); budget(); guard(ctx, unit);
@@ -428,7 +469,9 @@ export function createXmlArchive(deps: BlingXmlDependencies) {
       const attempt = one(db, "SELECT state,owner,fence FROM origin_fiscal__attempt WHERE id=?", j.attempt);
       if (attempt?.state !== "pending") return;
       if (attempt.owner !== unit.lease!.owner || attempt.fence !== unit.lease!.fence) throw new BlingError("BLING_LEASE_LOST");
-      db.exec("UPDATE origin_fiscal__attempt SET state=?,finished_at=?,error_code=? WHERE id=? AND state='pending'", options.blocked ? "blocked" : "retry", ctx.clock.now(), options.code, j.attempt);
+      // O bloqueio fica vinculado à credencial vigente: uma reautorização
+      // posterior (nova revisão de credencial) libera uma nova tentativa.
+      db.exec("UPDATE origin_fiscal__attempt SET state=?,finished_at=?,error_code=?,result=CASE WHEN ?=1 THEN json_set(coalesce(result,'{}'),'$.blocked_credential_revision',CAST(? AS INTEGER)) ELSE result END WHERE id=? AND state='pending'", options.blocked ? "blocked" : "retry", ctx.clock.now(), options.code, options.blocked ? 1 : 0, unit.expected.credential_revision, j.attempt);
       db.exec("UPDATE origin_fiscal__source SET state=?,next_attempt_at=?,last_error=?,failures=failures+1,last_checked_at=? WHERE id=? AND current_attempt=?", options.blocked ? "blocked" : "retry", options.retry_at, options.code, ctx.clock.now(), j.source, j.attempt);
       // A observação fiscal é terminal. A pista reserva outro comando quando vencer
       // next_attempt_at; a unidade antiga conserva seu journal para limpeza R2.
