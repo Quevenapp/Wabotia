@@ -151,7 +151,8 @@ describe("páginas nativas sob demanda", () => {
       const element = ManagementPage({ page });
       if (
         allowed.includes(page as (typeof allowed)[number]) ||
-        ["service-orders", "service-orders-settings", "my-deadlines"].includes(page)
+        // service-objects: rota interna da parte 2, sem item lateral próprio.
+        ["service-orders", "service-orders-settings", "my-deadlines", "service-objects"].includes(page)
       )
         expect(element.props).not.toHaveProperty("title");
       else

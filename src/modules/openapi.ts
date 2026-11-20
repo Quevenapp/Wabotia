@@ -3767,7 +3767,7 @@ function workMotorContract(): WorkOperation[] {
       "Não grava. Exporta configuração declarativa dos type_ids, sem dados pessoais de ordens, filhos, membros ou segredos.",
     ],
   ];
-  const objectErrors = "400 invalid_fields;409 customer_required;409 object_required;409 object_archived;409 object_definition_conflict;409 object_limit;409 idempotency_conflict;501 not_implemented";
+  const objectErrors = "400 invalid_fields;409 customer_required;409 object_required;409 object_archived;409 object_definition_conflict;409 object_limit;409 idempotency_conflict";
   const ownerAccess = "Exige acesso ao módulo, à área e ao contato canônico ativo no namespace team. Identificador nunca concede acesso. A configuração administrativa delimita o acesso de IA, desligado por padrão. ";
   const objectRoutes: WorkOperation[] = [
     ["get", `${b}/object-types`, "Objetos: tipos autorizados", null, "ObjectTypeCatalog", objectErrors, ["include_archived"], "Retorna a revisão dos settings e definições autorizadas. Salvar os_object_types, os_work_types e settings_revision juntos no PUT /settings existente.", "os.object_types.list"],
@@ -3780,19 +3780,19 @@ function workMotorContract(): WorkOperation[] {
     ["patch", `${b}/objects/{object_id}/private-fields`, "Objetos: alterar campos privados", "ObjectPrivateFieldsRequest", "PrivateFieldsResult", objectErrors, [], ownerAccess + "Escrita privada separada, com versão esperada; devolve somente IDs de campos alterados.", "os.objects.private.update"],
     ["get", `${b}/objects/{object_id}/orders`, "Objetos: histórico de ordens", null, "OrderHistoryObjectsPage", objectErrors, page, ownerAccess + "Até 50 ordens por abertura decrescente. Campos desta ordem vêm dos snapshots históricos autorizados; sem lookup de objeto por linha.", "os.objects.orders"],
     ["post", `${o}/object-link`, "Objetos: vincular ordem antiga", "LegacyObjectLinkRequest", "ServiceOrder", objectErrors, [], ownerAccess + "Somente personalizada sem vínculo, inclusive encerrada; criação opcional, vínculo e recibo atômicos. Captura legacy_link na data atual. Não move valores históricos nem copia campos sensíveis para públicos.", "os.object.link"],
-    ["get", `${o}/requirements`, "Trabalhos: requisitos da etapa", null, "OrderRequirements", "400 invalid_fields;409 missing_fields;501 not_implemented", ["transition_id"], "Usa a ordem e seus snapshots. Expõe somente rótulos autorizados e a versão observada; pendências internas do cliente são genéricas. Não consulta o cadastro atual do objeto.", "os.requirements"],
-    ["get", `${b}/types/{type_id}/field-index`, "Trabalhos: estado do índice de campos", null, "FieldIndexState", "409 field_index_building;501 not_implemented", [], "Administrador consulta geração, progresso e versões excluídas. A lista comum continua funcionando durante a construção.", "os.field_index.get"],
-    ["post", `${b}/types/{type_id}/field-index/rebuild`, "Trabalhos: construir índice de campos", "FieldIndexRebuildRequest", "FieldIndexState", "409 field_index_building;409 idempotency_conflict;501 not_implemented", [], "Comando administrativo explícito com geração/cursor esperados; até cinco ordens e 50 instruções por invocação. Não há construção síncrona em consultas ou novo agendador.", "os.field_index.rebuild"],
+    ["get", `${o}/requirements`, "Trabalhos: requisitos da etapa", null, "OrderRequirements", "400 invalid_fields;409 missing_fields", ["transition_id"], "Usa a ordem e seus snapshots. Expõe somente rótulos autorizados e a versão observada; pendências internas do cliente são genéricas. Não consulta o cadastro atual do objeto.", "os.requirements"],
+    ["get", `${b}/types/{type_id}/field-index`, "Trabalhos: estado do índice de campos", null, "FieldIndexState", "409 field_index_building", [], "Administrador consulta geração, progresso e versões excluídas. A lista comum continua funcionando durante a construção.", "os.field_index.get"],
+    ["post", `${b}/types/{type_id}/field-index/rebuild`, "Trabalhos: construir índice de campos", "FieldIndexRebuildRequest", "FieldIndexState", "409 field_index_building;409 idempotency_conflict", [], "Comando administrativo explícito com geração/cursor esperados; até cinco ordens e 50 instruções por invocação. Não há construção síncrona em consultas ou novo agendador.", "os.field_index.rebuild"],
     ["get", `${b}/conversation/{id}/objects`, "Objetos: consultar titular da conversa", null, "ServiceObjectPage", objectErrors, ["type_id", ...page], "Resolve o titular autorizado da conversa antes de consultar. Somente objetos próprios e campos públicos, até 50; contact_id, telefone e identificador enviados no corpo não autorizam acesso.", "os.conversation.objects.list"],
     ["get", `${b}/conversation/{id}/objects/{object_id}`, "Objetos: ficha do titular da conversa", null, "ConversationObjectDetail", objectErrors, page, "Reautoriza área e titular canônico confirmado; devolve ficha e histórico público paginado, exclusivamente do titular. Conhecer object_id não concede acesso.", "os.conversation.objects.get"],
   ];
   routes.push(...objectRoutes);
   for (const route of routes) {
     if (route[1] === b && route[0] === "post") {
-      route[5] += ";409 customer_required;409 object_required;409 object_archived;409 object_definition_conflict;409 idempotency_conflict;409 object_limit;501 not_implemented";
+      route[5] += ";409 customer_required;409 object_required;409 object_archived;409 object_definition_conflict;409 idempotency_conflict;409 object_limit";
       route[7] += " Em modelo com objeto, exige seleção existente com versão ou cadastro inline. Objeto, contadores, ordem, índices, históricos e recibo confirmam no mesmo lote; extra guarda somente campos desta ordem.";
     }
-    if (route[1] === b && route[0] === "get") route[5] += ";409 field_index_building;400 invalid_fields;501 not_implemented";
+    if (route[1] === b && route[0] === "get") route[5] += ";409 field_index_building;400 invalid_fields";
     if (route[0] !== "get" && (route[1] === o || /\/(status|stage|quote|quote\/send|decision|stage-approval|stage-approval\/decision|private-fields)$/.test(route[1]))) {
       route[5] += ";409 missing_fields";
       route[7] += " Regras por etapa validam os valores resultantes antes de qualquer efeito; exigências ativadas persistem em retornos. Cancelamento não exige completar campos. Pendência interna tem mensagem genérica ao cliente; requirements fornece rótulos autorizados.";

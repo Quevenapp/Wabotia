@@ -1,6 +1,6 @@
 import React, { useSyncExternalStore } from "react";
 import { useRoute } from "../../lib/routes";
-import { Empty } from "../../ui";
+import { os2OperationalPages } from "./objects/ServiceObjectsPage";
 
 export interface Os2ObjectPageProps { objectId?: string }
 export interface Os2Pages {
@@ -8,13 +8,16 @@ export interface Os2Pages {
 }
 const listeners = new Set<() => void>();
 const installations = new Map<symbol, Partial<Os2Pages>>();
-let pages: Partial<Os2Pages> = {};
+// Páginas de produção conectadas estaticamente. Este arquivo só é baixado pela
+// rota interna (importação sob demanda no registro), fora do pacote inicial.
+const production: Os2Pages = { ...os2OperationalPages };
+let pages: Os2Pages = production;
 const refresh = () => {
-  pages = Object.assign({}, ...installations.values());
+  pages = Object.assign({}, production, ...installations.values());
   listeners.forEach((listener) => listener());
 };
 
-/** A junção final instala a página da folha; testes removem apenas sua própria instalação. */
+/** Substituição explícita (testes/demonstração); remove apenas a própria instalação. */
 export function installOs2Pages(next: Partial<Os2Pages>) {
   const owner = Symbol("os2-pages");
   installations.set(owner, { ...next });
@@ -31,8 +34,5 @@ export function Os2ObjectPage() {
     () => pages,
   );
   const Page = installed.ServiceObjectsPage;
-  return Page ? <Page objectId={route.id} /> : <Empty
-    title="Objetos do cliente ainda indisponíveis"
-    description="Este recurso ainda não está disponível nesta instalação."
-  />;
+  return <Page objectId={route.id} />;
 }

@@ -276,17 +276,21 @@ describe("modelos de área: preservação e reaplicação", () => {
   it("reaplicar oficina atualizada não acrescenta campos nem desclassifica a placa existente", async () => {
     const f = await fixture();
     const previous = structuredClone(assistenciaTecnicaTemplate);
-    previous.version = 2;
+    previous.version = 3;
+    // Versão anterior à parte 2: placa sensível no próprio modelo, sem objeto.
     const vehicle = previous.work_types.find((type) => type.id === "at_veiculos")!;
-    vehicle.fields = vehicle.fields.filter((field) => !["marca_modelo", "ano", "cor", "ultima_manutencao"].includes(field.id));
-    const plate = vehicle.fields.find((field) => field.id === "placa")!;
-    plate.client_visible = false;
-    plate.sensitive = true;
+    const object = previous.object_types!.find((entry) => entry.id === vehicle.object_type_id)!;
+    const plate = { ...structuredClone(object.fields.find((field) => field.id === "placa")!), client_visible: false, sensitive: true };
+    vehicle.fields = [plate, ...vehicle.fields.filter((field) => !["ultima_manutencao", "servico_executado"].includes(field.id))];
+    vehicle.retired_field_ids = [];
+    // Nenhum modelo do manifesto anterior conhecia objetos nem regras por etapa.
+    for (const type of previous.work_types) { delete type.object_type_id; delete type.stage_field_rules; delete type.list_fields; }
+    delete previous.object_types;
     await apply(f, { manifest: previous, selection: vehicleSelection() });
     const original = (await cfg(f)).os_work_types;
     await apply(f, { manifest: assistenciaTecnicaTemplate, selection: vehicleSelection() });
     expect((await cfg(f)).os_work_types).toEqual(original);
-    expect((await application(f, "assistencia_tecnica"))!.template_version).toBe(3);
+    expect((await application(f, "assistencia_tecnica"))!.template_version).toBe(4);
   });
 
   it("segunda aplicação idêntica não grava nem publica eventos", async () => {

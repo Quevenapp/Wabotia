@@ -36,9 +36,14 @@ async function create(h: IntegrationHarness, f: IntegrationFixture, typeId?: str
   const c = await customerConversation(h, f);
   const types = (await f.call("/service-orders/types")).data;
   const type = typeId ? types.find((t: any) => t.id === typeId) : types.find((t: any) => t.kind === "custom" && !t.archived);
-  const values = Object.fromEntries((type?.fields || []).filter((x: any) => x.required && !x.sensitive).map((x: any) => [x.id,
+  const sample = (fields: any[]) => Object.fromEntries(fields.filter((x: any) => x.required && !x.sensitive).map((x: any) => [x.id,
     x.kind === "choice" ? x.options[0].id : x.kind === "boolean" ? false : x.kind === "date" ? "2026-11-18" : x.kind === "integer" || x.kind === "decimal" ? (x.min ?? 1) : "Referência"]));
-  const order = await f.call("/service-orders", "POST", { type_id: type?.id, conversation_id: c, customer_name: "Responsável", item: "Pedido administrativo", problem: "Atendimento", extra: { ...values, ...extra }, notify: false });
+  const values = sample(type?.fields || []);
+  // Parte 2: modelo com objeto do serviço exige a seleção ou o cadastro do objeto na abertura.
+  const objectType = type?.object_type_id
+    ? (await f.call("/service-orders/object-types")).data.find((entry: any) => entry.id === type.object_type_id) : undefined;
+  const object = objectType ? { object: { mode: "new", type_id: objectType.id, values: sample(objectType.fields) } } : {};
+  const order = await f.call("/service-orders", "POST", { type_id: type?.id, conversation_id: c, customer_name: "Responsável", item: "Pedido administrativo", problem: "Atendimento", extra: { ...values, ...extra }, notify: false, ...object });
   return { order, c, type, path: `/service-orders/${order.id}` };
 }
 async function noCommonSecret(h: IntegrationHarness, f: IntegrationFixture, orderId: string, secret = SECRET) {

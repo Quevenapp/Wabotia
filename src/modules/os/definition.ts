@@ -3,6 +3,7 @@ import { NATIVE_MANAGEMENT_ITEMS } from "../panel-navigation";
 // parecidos. Declaração só com dados, lida pelo registro
 // (src/modules/registry.ts). Código em ./os.ts; uso em docs/ORDEM-DE-SERVICO.md.
 import type { ModuleDefinition } from "../types";
+import { customerProfileDeclarations } from "../../customer/declarations";
 
 export const osModule: ModuleDefinition = {
   id: "os",
@@ -19,28 +20,9 @@ export const osModule: ModuleDefinition = {
     privacy: "commercial",
   },
   management: NATIVE_MANAGEMENT_ITEMS.os,
-  customer_profile: {
-    contributions: [
-      {
-        id: "works", kind: "collection", title: "Trabalhos", titleKey: "works",
-        component: "table", source: "os.works", policy: "module",
-        columns: [
-          { key: "id", label: "Referência", format: "text" },
-          { key: "status", label: "Situação", format: "status" },
-          { key: "occurredAt", label: "Data", format: "datetime" },
-        ],
-      },
-      {
-        id: "objects", kind: "collection", title: "Objetos do cliente",
-        component: "table", source: "os.objects", policy: "module",
-        columns: [
-          { key: "identifier", label: "Identificação", format: "text" },
-          { key: "type", label: "Tipo", format: "text" },
-          { key: "status", label: "Situação", format: "status" },
-        ],
-      },
-    ],
-  },
+  // Trabalhos e "Objetos do cliente": a mesma declaração do catálogo central,
+  // para a ficha e o registro de módulos verem uma só fonte.
+  customer_profile: customerProfileDeclarations.os,
   navigation: [
     {
       id: "service-orders",
@@ -141,7 +123,7 @@ export const osModule: ModuleDefinition = {
       description: "Permite acesso humano explícito aos dados sensíveis do motor.",
     },
   ],
-  bot: { deny: ["os.private", "service-orders/:id/private-fields", "os.document.upload", "service-orders/:id/private-tasks", "service-orders/:id/private-documents", "os.person.", "os.entry."] },
+  bot: { deny: ["os.private", "service-orders/:id/private-fields", "os.document.upload", "service-orders/:id/private-tasks", "service-orders/:id/private-documents", "os.person.", "os.entry.", "service-orders/objects/:object_id/private-fields", "os.objects.private."] },
 };
 
 // REGISTRO RESERVADO F0/I — acrescentar eventos, grants e bot.deny das filhas.

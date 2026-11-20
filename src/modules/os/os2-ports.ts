@@ -1,7 +1,8 @@
 // Portas da parte 2. Os adaptadores planejam SQL; só o chamador confirma o lote.
-// Os stubs recusam recursos novos e não consultam D1 no caminho legado.
+// Modelo sem objeto nem regras novas não consulta D1 por estas portas.
 import { AsyncLocalStorage } from "node:async_hooks";
-import { ApiError, type Actor, type Conversation } from "../../types";
+import type { Actor, Conversation } from "../../types";
+import { createProductionOs2Adapters } from "./os2-production";
 import type { ModuleContext, WebStep } from "../api";
 import type { Answers } from "../../web-steps";
 import type { ContactPage } from "../../customer/profile-contracts";
@@ -121,42 +122,17 @@ export interface Os2Adapters {
   read(ctx: ModuleContext, actor: Actor, operation: Os2ReadOperation, input: Os2RouteInput): Promise<unknown>;
   command(ctx: ModuleContext, actor: Actor, operation: Os2CommandOperation, data: Record<string, unknown>, meta: { requestId: string }): Promise<unknown>;
 }
-const unavailable = (): never => { throw new ApiError(501, "not_implemented", "Recurso de objetos e formulários por etapa ainda não disponível."); };
-const emptyPlan = (): AtomicPlan => ({ before: [], after: [] });
-const stubs: Os2Adapters = {
-  openObjectForm: async () => unavailable(),
-  prepareObjectOpening: async () => unavailable(),
-  reauthorizeObjectOpening: async () => unavailable(),
-  prepareLegacyObjectLink: async () => unavailable(),
-  projectObjectSnapshot: row => row.object_id ? unavailable() : undefined,
-  projectObjectForActor: async (_ctx, _actor, row) => row.object_id ? unavailable() : undefined,
-  projectObjectPage: async (_ctx, _actor, rows) => rows.some(row => row.object_id) ? unavailable() : new Map(),
-  prepareOrderRulesMutation: async (_ctx, input) => {
-    if ((input.type.stage_field_rules?.length ?? 0) || (input.row.stage_required_json && input.row.stage_required_json !== "[]")) unavailable();
-    return emptyPlan();
-  },
-  planOrderFieldIndex: async (_ctx, input) => {
-    if (input.type.list_fields?.some(rule => rule.filter)) unavailable();
-    return [];
-  },
-  queryOrdersByField: async () => unavailable(),
-  objectCustomerContribution: async () => unavailable(),
-  prepareObjectWebStepCompletion: async () => unavailable(),
-  resumeObjectWebStepCompletion: async () => unavailable(),
-  publicObjectLabel: row => row.object_id ? unavailable() : "",
-  getWorkObjectContext: row => row.object_id ? unavailable() : undefined,
-  planObjectContactMerge: async () => unavailable(),
-  planStageTasks: async () => unavailable(),
-  read: async () => unavailable(),
-  command: async () => unavailable(),
-};
-// Escopo assíncrono: um teste/invocação nunca substitui adaptadores de outro.
-// A integração final conecta os adaptadores de produção neste arquivo.
+// Adaptadores de produção conectados estaticamente (os2-production.ts), sem
+// stubs: objetos, requisitos/índices e canais respondem em todos os caminhos.
+let production: Os2Adapters | undefined;
+const productionAdapters = () => production ??= createProductionOs2Adapters();
+// Escopo assíncrono: um teste/invocação substitui só as portas que simula,
+// sem afetar outra invocação; as demais continuam sendo as de produção.
 const installed = new AsyncLocalStorage<Os2Adapters>();
 export function withOs2Adapters<T>(adapters: Partial<Os2Adapters>, run: () => T): T {
-  return installed.run({ ...stubs, ...adapters }, run);
+  return installed.run({ ...productionAdapters(), ...adapters }, run);
 }
-const adapters = () => installed.getStore() ?? stubs;
+const adapters = () => installed.getStore() ?? productionAdapters();
 export const openObjectForm: Os2Adapters["openObjectForm"] = (...args) => adapters().openObjectForm(...args);
 export const prepareObjectOpening: Os2Adapters["prepareObjectOpening"] = (...args) => adapters().prepareObjectOpening(...args);
 export const reauthorizeObjectOpening: Os2Adapters["reauthorizeObjectOpening"] = (...args) => adapters().reauthorizeObjectOpening(...args);

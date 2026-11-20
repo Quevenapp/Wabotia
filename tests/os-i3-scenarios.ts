@@ -9,7 +9,7 @@ import { handleStageReply } from "../src/modules/os/stage-replies";
 import { catalogFor, resetCatalogCache, searchCatalog } from "../src/bot-actions/catalog";
 import { authorizedOrder } from "../src/modules/os/public";
 import { projectOrderForBot, projectOrderForCustomer } from "../src/modules/os/privacy";
-import { validateExtra, validateWorkType } from "../src/modules/os/validation";
+import { validateExtra, validateObjectValues, validateWorkType } from "../src/modules/os/validation";
 import { workOrderAdditions } from "../src/modules/os/work-types";
 import { condominiosTemplate } from "../src/area-templates/models/condominios";
 import { construtorasTemplate } from "../src/area-templates/models/construtoras";
@@ -239,8 +239,21 @@ export async function literalStageFilters(h: IntegrationHarness) {
 }
 
 export async function residentialFields(h: IntegrationHarness) {
-  const types = [...condominiosTemplate.work_types, construtorasTemplate.work_types.find(t => t.id === "construtora_pos_obra")!];
+  const types = [...condominiosTemplate.work_types];
   const value = "Bloco B, unidade 302";
+  // Parte 2: no pós-obra da construtora, a unidade pertence ao objeto Imóvel,
+  // com a mesma classificação pública; o endereço do imóvel continua sensível.
+  const postWork = construtorasTemplate.work_types.find(t => t.id === "construtora_pos_obra")!;
+  assert.deepEqual(validateWorkType(postWork), postWork);
+  assert.equal(postWork.fields.some(f => f.id === "unidade"), false);
+  assert(postWork.retired_field_ids.includes("unidade"));
+  const property = construtorasTemplate.object_types!.find(o => o.id === postWork.object_type_id)!;
+  const propertyUnit = property.fields.find(f => f.id === "unidade")!;
+  assert.equal(propertyUnit.sensitive, false);
+  assert.equal(propertyUnit.client_visible, true);
+  for (const mode of ["staff", "customer"] as const)
+    assert.deepEqual(validateObjectValues(property, { unidade: value, municipio: "Campinas/SP" }, { mode }), { unidade: value, municipio: "Campinas/SP" });
+  assert(property.fields.some(f => f.sensitive && !f.client_visible));
   for (const type of types) {
     assert.deepEqual(validateWorkType(type), type);
     const field = type.fields.find(f => f.id === "unidade")!;

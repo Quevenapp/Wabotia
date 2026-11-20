@@ -16,6 +16,7 @@ import { escolasTemplate } from "./models/escolas";
 import { professoresTemplate } from "./models/professores";
 import { condominiosTemplate } from "./models/condominios";
 import { restauranteTemplate } from "./models/restaurante";
+import { festasEventosTemplate } from "./models/festas-eventos";
 
 export const areaTemplates: readonly AreaTemplate[] = [
   assistenciaTecnicaTemplate,
@@ -25,7 +26,8 @@ export const areaTemplates: readonly AreaTemplate[] = [
   graficaTemplate,
   despachanteTemplate,
   imobiliariaTemplate,
-  { ...engenheirosTemplate, version: 2 },
+  // A parte 2 publicou Engenharia 3 (objeto Imóvel); o manifesto já traz a versão.
+  engenheirosTemplate,
   arquitetosTemplate,
   construtorasTemplate,
   { ...advogadosTemplate, version: 2 },
@@ -36,4 +38,5 @@ export const areaTemplates: readonly AreaTemplate[] = [
   professoresTemplate,
   condominiosTemplate,
   restauranteTemplate,
+  festasEventosTemplate,
 ];

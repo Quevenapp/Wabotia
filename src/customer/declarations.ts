@@ -28,7 +28,15 @@ const privateSection = (moduleId: string): ContactProfileDeclaration => ({
 });
 
 export const customerProfileDeclarations: Readonly<Record<string, ContactProfileDeclaration>> = {
-  os: { contributions: [collection("os", "works", "Trabalhos", { titleKey: "works" })] },
+  os: { contributions: [
+    collection("os", "works", "Trabalhos", { titleKey: "works" }),
+    // Parte 2: objetos do serviço (veículo, equipamento, evento) do contato.
+    collection("os", "objects", "Objetos do cliente", { columns: [
+      { key: "identifier", label: "Identificação", format: "text" },
+      { key: "type", label: "Tipo", format: "text" },
+      { key: "status", label: "Situação", format: "status" },
+    ] }),
+  ] },
   agenda: { contributions: [collection("agenda", "appointments", "Agendamentos")] },
   pedido: { contributions: [collection("pedido", "orders", "Pedidos")] },
   reserva: { contributions: [collection("reserva", "bookings", "Reservas", {

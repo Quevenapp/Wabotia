@@ -85,10 +85,15 @@ describe("modelos de obras: manifesto declarativo", () => {
     const type = construtorasTemplate.work_types.find((type) => type.id === "construtora_pos_obra")!;
     expect(type.labels.item).toBe("Referência administrativa (sem endereço)");
     expect(type.labels.problem).toBe("Problema observado (sem endereço ou unidade)");
-    expect(type.fields.find((field) => field.id === "unidade")).toMatchObject({
+    // Parte 2: a identificação passou ao objeto Imóvel, com a mesma visibilidade.
+    expect(type.object_type_id).toBe("imovel");
+    expect(type.retired_field_ids).toContain("unidade");
+    expect(construtorasTemplate.object_types!.find((object) => object.id === type.object_type_id)!
+      .fields.find((field) => field.id === "unidade")).toMatchObject({
       kind: "text", required: false, client_visible: true, sensitive: false,
     });
-    expect(construtorasTemplate.texts.instructions).toContain("identificação do imóvel");
+    expect(type.list_fields).toContainEqual({ ref: { scope: "object", field_id: "unidade" }, column: true, filter: true });
+    expect(construtorasTemplate.texts.instructions).toContain("registre a identificação no cadastro do Imóvel");
     expect(construtorasTemplate.bot.instructions).toContain("pode pedir e citar a identificação do imóvel do próprio solicitante");
     expect(construtorasTemplate.manual_steps.join(" ")).not.toContain("Qual é o empreendimento e a unidade? Obrigatória.");
   });
@@ -100,7 +105,8 @@ describe("modelos de obras: manifesto declarativo", () => {
   for (const template of templates) {
     it(`${template.name}: respeita limites e referências do manifesto`, () => {
       expect(template.schema_version).toBe(1);
-      expect(template.version).toBe(1);
+      // Versões publicadas pela parte 2 (objeto Imóvel).
+      expect(template.version).toBe(({ engenharia: 3, arquitetura: 2, construtora: 2 } as Record<string, number>)[template.id]);
       expect(bytes(template)).toBeLessThanOrEqual(128 * 1024);
       expect(template.work_types.length).toBeGreaterThan(0);
       expect(template.work_types.length).toBeLessThanOrEqual(20);

@@ -1,10 +1,10 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "base_commit": "93b9f08855f0a636e8d98e647ff79191ec907b69",
-  "status": "pending_external_runtime",
-  "reason": "A máquina de implementação proíbe Vitest e Wrangler. Nenhuma medição anterior às alterações foi executada; os valores não foram estimados.",
+  "status": "in_test_neutral_ports",
+  "reason": "A máquina de implementação proíbe Vitest e Wrangler, e o commit anterior à parte 2 não pode ser executado na mesma suíte. A linha de base comparável é medida a cada execução: os mesmos cenários rodam com as portas OS2 neutralizadas (sem D1) e com os adaptadores de produção. Nenhum valor foi estimado ou copiado para este arquivo.",
   "runtime": "Cloudflare Worker e Coordinator reais, D1 metadata rows_read e rows_written",
-  "report": "task.meta.os2Budget no reporter JSON do Vitest",
+  "report": "task.meta.os2Budget no reporter JSON do Vitest (tests/os2-budget.test.ts: neutral, production e deltas por cenário)",
   "scenarios": [
     { "id": "common_message", "worker": null, "coordinators": null },
     { "id": "classic_opening", "worker": null, "coordinators": null },
@@ -13,5 +13,5 @@
     { "id": "stage_reply", "worker": null, "coordinators": null },
     { "id": "configured_objects_unused", "worker": null, "coordinators": null }
   ],
-  "acceptance": "O integrador precisa executar os mesmos cenários no commit base e na junção, registrar Worker e cada Coordinator e conferir delta zero no caminho sem objeto. O teste atual comprova ausência de acesso às novas tabelas; não substitui a medição anterior."
+  "acceptance": "Delta zero no caminho sem objeto: mesmas instruções SQL, na mesma ordem, e mesmas gravações no Worker e em cada Coordinator, entre portas neutras e de produção; nenhuma instrução nas tabelas os_objects, os_object_history, os2_receipts, os_field_index_state e os_order_field_index. O custo das mudanças centrais da base (colunas novas lidas pela mesma consulta) não é isolado por este método; a comparação com o commit anterior continua sendo uma medição externa."
 }

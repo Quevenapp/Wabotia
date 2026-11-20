@@ -57,8 +57,8 @@ async function typeView(ctx: ModuleContext, actor: Actor, type: WorkTypeView) {
   return { ...type, fields: type.fields.filter(f => f.sensitive ? sensitive : !bot || f.client_visible) };
 }
 export function registerMotorRoutes() {
-  // Rotas estáveis, com autorização final de contato/objeto no adaptador.
-  // Até sua instalação, toda funcionalidade nova falha fechada (501).
+  // Rotas estáveis, com autorização final de contato/objeto no adaptador de
+  // produção conectado em os2-production.ts.
   const reads: Array<[string, Os2ReadOperation]> = [
     ["service-orders/object-types", "os.object_types.list"],
     ["service-orders/objects", "os.objects.list"],

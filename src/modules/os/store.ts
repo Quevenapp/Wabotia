@@ -1404,12 +1404,13 @@ export async function trackText(ctx: ModuleContext, c: Conversation, typeId?: st
 
 /** Lista explícita de substituições; extras privados nunca entram no texto. */
 export function publicOrderValues(row: any): Record<string, string> {
-  const values = { ...orderValues(row), objeto: publicObjectLabel(row) };
+  // A ordem clássica conserva exatamente as substituições anteriores à parte 2.
+  const values = orderValues(row);
   const type = snapshotType(row);
   if (!type) return values;
   const view = workOrderAdditions(row, type);
   const extra: ExtraValues = json(row.extra_json, {});
-  return { ...values, tipo: type.labels.singular, etapa: view.stage_label,
+  return { ...values, objeto: publicObjectLabel(row), tipo: type.labels.singular, etapa: view.stage_label,
     numero_tipo: String(view.type_number), identificador: view.display_number,
     ...Object.fromEntries(type.fields.filter(f => f.client_visible && !f.sensitive).map(f => {
       const value = extra[f.id];

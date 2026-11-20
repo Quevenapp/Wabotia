@@ -41,13 +41,45 @@ um exemplo dos modelos de área, sem aplicar a área inteira. Campos e etapas
 recebem IDs a partir do rótulo; a edição desses identificadores fica em
 **Avançado**. Na tela usamos “modelo”; os nomes internos e as APIs permanecem.
 
-Os exemplos de oficina incluem Placa (opcional, pública, até 10 caracteres),
-Marca e modelo, Ano (1900 a 2100), Cor, Última manutenção informada pelo cliente,
-Quilometragem, Combustível, Peças previstas e Avarias na entrada. Quem já aplicou
-um desses modelos recebe um aviso e pode **Adicionar** somente os campos que
-faltam. Campos existentes e ordens abertas ficam preservados; as alterações
-valem para novas ordens. A placa antiga sensível não muda de classificação:
-o painel oferece um novo campo público vazio, sem transferir os valores privados.
+Os exemplos de oficina cadastram o **Veículo** uma vez (placa opcional e
+pública de até 10 caracteres, marca e modelo, ano, cor e tipo de combustível) e
+registram em cada ordem quilometragem, nível de combustível na entrada, última
+manutenção informada pelo cliente, peças previstas, avarias e serviço executado.
+Quem já aplicou um desses modelos recebe o aviso **O modelo padrão mudou:
+revisar e aplicar**, com prévia do que passa ao objeto e do que fica na ordem.
+Ordens existentes não mudam. A placa antiga sensível não muda de classificação
+nem é copiada para o cadastro do veículo: a placa pública é informada de novo.
+
+## Objeto do serviço
+
+Em **Configurar → Modelos**, o campo **Objeto do serviço** liga o modelo a um
+tipo de objeto (veículo, equipamento, imóvel, animal, evento), cadastrado ali
+mesmo. O editor mostra numa lista só os campos “Do objeto” e os “Desta ordem”,
+e permite exigir um campo a partir de uma etapa ou ao sair dela, além de marcar
+até quatro colunas e filtros da lista.
+
+- **Nova ordem**: escolha o contato; aparecem os objetos ativos dele daquele
+  tipo e a opção **Cadastrar outro** no mesmo diálogo. Os dados do objeto ficam
+  separados dos desta ordem. Trocar o contato pede confirmação.
+- **Detalhe**: o bloco “Veículo na abertura” (ou o rótulo do tipo) mostra a
+  cópia gravada naquela ordem, só para leitura, com o link **Ver cadastro atual
+  e histórico**. Uma etapa com campos pendentes abre o preenchimento antes de
+  tentar de novo.
+- **Tela do objeto**: dono, campos, arquivamento, revisão adotada, **Nova ordem
+  para este objeto**, histórico de ordens com os campos de cada visita e
+  **Último atendimento** (última ordem entregue).
+- **Ficha do contato**: a coleção **Objetos do cliente** abre a tela do objeto.
+- **WhatsApp**: o link de abertura pergunta “Qual veículo?” com os objetos do
+  próprio cliente e **Informar outro**. Cada cliente só vê os próprios objetos.
+- **Ordens antigas**: nada é convertido sozinho. Numa ordem personalizada sem
+  objeto, a ação de vínculo cria ou associa um objeto do mesmo cliente, sem
+  copiar quilometragem nem campos privados; a cópia aparece como “Vinculado
+  posteriormente”.
+
+Editar o cadastro do veículo não muda as visitas anteriores: uma visita com
+60.000 km continua com 60.000 km e com a cor capturada naquela abertura. Quem
+não usa objeto não vê diferença. Regras, rotas, limites e custos estão em
+[TRABALHOS.md](TRABALHOS.md#objeto-do-serviço).
 
 Modelos de mesmo nome mostram a origem, e a prévia de aplicação de área avisa
 quando já existe um equivalente. Para detalhes, consulte [TRABALHOS.md](TRABALHOS.md).
@@ -85,7 +117,8 @@ balcão, use *Cliente aprovou* ou *Cliente recusou*.
   ordem aberta, orçamento aprovado ou recusado, serviço iniciado, pronta para
   retirada, entregue (com a garantia) e cancelada. Em branco, não envia.
   Marcadores: `{numero}`, `{item}`, `{estado}`, `{total}`, `{validade}`,
-  `{garantia}`, `{pronto}`, `{previsao}`.
+  `{garantia}`, `{pronto}`, `{previsao}`. Nos modelos personalizados com
+  objeto, `{objeto}` traz a identificação pública da cópia da ordem.
 - Fora da janela de 24 horas da linha oficial, os avisos saem pelo modelo de
   notificação de Regras de atendimento.
 - **Lembrete de retirada**: uma mensagem quando a ordem está pronta há mais

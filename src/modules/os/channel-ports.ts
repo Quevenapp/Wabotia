@@ -25,7 +25,3 @@ export function createChannelAdapters(adapters: Partial<Os2Adapters> = {}): Part
     },
   };
 }
-
-/** Para testes de consultas/formulário sem escrita. Aberturas exigem compor o
- * planejador de objetos pela factory, que inclui o recibo no lote da ordem. */
-export const channelAdapters = createChannelAdapters();

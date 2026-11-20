@@ -173,7 +173,7 @@ describe("OS2: migrations e planos no D1 real", () => {
     await expect(env.DB.prepare(`INSERT INTO ${table("os_orders")}(id,profile_id,created,number,object_id,object_snapshot_json) VALUES('classica','area',1,2,'objeto','{}')`).run()).rejects.toThrow();
   });
 
-  it("settings aplica tipos e objetos no mesmo CAS e stubs recusam aberturas incompletas", async () => {
+  it("settings aplica tipos e objetos no mesmo CAS e adaptadores de produção recusam aberturas incompletas", async () => {
     const f = await setup(), revision = await settingsRevision(env, f.profile);
     const response = await f.call("/settings", "PUT", { os_object_types: [objectType()], settings_revision: revision });
     expect(response).toBeTruthy();
@@ -183,7 +183,8 @@ describe("OS2: migrations e planos no D1 real", () => {
     const updated = { ...f.type, revision: 2, object_type_id: "veiculo" };
     await f.call("/settings", "PUT", { os_work_types: [updated], settings_revision: await settingsRevision(env, f.profile) });
     await f.call("/service-orders", "POST", opening(), uid(), 409);
-    await f.call("/service-orders", "POST", { ...opening(), object: { mode: "new", type_id: "veiculo", values: {} } }, uid(), 501);
+    // Sem stubs: sem contato confirmado, a folha de objetos recusa antes de gravar.
+    await f.call("/service-orders", "POST", { ...opening(), object: { mode: "new", type_id: "veiculo", values: {} } }, uid(), 409);
     expect(await one(env, "SELECT id FROM os_orders WHERE profile_id=?", f.profile)).toBeNull();
     expect(await one(env, "SELECT id FROM os_objects WHERE profile_id=?", f.profile)).toBeNull();
   }, 60000);
