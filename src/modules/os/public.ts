@@ -28,8 +28,27 @@ export interface WorkOrderRow {
   type_number?: number | null;
   row_version?: number;
   extra_json?: string;
+  object_id?: string | null;
+  object_snapshot_json?: string | null;
+  stage_required_json?: string;
   // Colunas legadas e futuras: somente uso interno, nunca serializar a linha.
   [column: string]: unknown;
+}
+/** Linha de persistência interna; projetar explicitamente antes de devolver. */
+export interface ServiceObjectRow {
+  id: string;
+  profile_id: string;
+  contact_id: string;
+  type_id: string;
+  type_revision: number;
+  type_snapshot_json: string;
+  values_json: string;
+  archived: 0 | 1;
+  row_version: number;
+  created_by: string;
+  updated_by: string;
+  created: number;
+  updated: number;
 }
 export interface AuthorizedOrder {
   row: WorkOrderRow;

@@ -19,6 +19,28 @@ export const osModule: ModuleDefinition = {
     privacy: "commercial",
   },
   management: NATIVE_MANAGEMENT_ITEMS.os,
+  customer_profile: {
+    contributions: [
+      {
+        id: "works", kind: "collection", title: "Trabalhos", titleKey: "works",
+        component: "table", source: "os.works", policy: "module",
+        columns: [
+          { key: "id", label: "Referência", format: "text" },
+          { key: "status", label: "Situação", format: "status" },
+          { key: "occurredAt", label: "Data", format: "datetime" },
+        ],
+      },
+      {
+        id: "objects", kind: "collection", title: "Objetos do cliente",
+        component: "table", source: "os.objects", policy: "module",
+        columns: [
+          { key: "identifier", label: "Identificação", format: "text" },
+          { key: "type", label: "Tipo", format: "text" },
+          { key: "status", label: "Situação", format: "status" },
+        ],
+      },
+    ],
+  },
   navigation: [
     {
       id: "service-orders",
@@ -85,9 +107,16 @@ export const osModule: ModuleDefinition = {
     "os.entry.created",
     "os.entry.revised",
     "os.entry.archived",
+    "os.object.created",
+    "os.object.updated",
+    "os.object.archived",
+    "os.object.private_fields_changed",
+    "os.object.linked",
   ],
   settings: [
     { key: "os_work_types", description: "Tipos personalizados de trabalho." },
+    { key: "os_object_types", description: "Tipos de objeto do serviço e suas revisões." },
+    { key: "os2_ai_access", description: "Acesso de IA aos objetos, incluindo dados internos e sensíveis quando autorizado; desligado por padrão. Não amplia o acesso do titular externo." },
     { key: "os_vocabulary", description: "Vocabulário da área." },
     { key: "os_area_setup", description: "Sugestões e pendências dos modelos de área." },
     {

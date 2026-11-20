@@ -25,7 +25,7 @@ export interface DueResult {
   has_more: boolean;
 }
 export interface OsExtension {
-  id: "tasks" | "people" | "documents" | "entries";
+  id: "tasks" | "people" | "documents" | "entries" | "objects" | "field-rules";
   reads: Array<{ path: string; handler: Parameters<typeof onRead>[2] }>;
   writes: ModuleWriteRoute[];
   commands: Array<{ op: string; handler: Parameters<typeof onCommand>[2] }>;

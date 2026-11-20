@@ -1877,8 +1877,8 @@ export async function planSettings(
   const { row, states } = await profileWithModules(env, profile);
   const baseRevision = await sha(canonical(json(row.settings)));
   const expected = options.expected_revision ?? data.settings_revision;
-  if (data.os_work_types !== undefined || data.os_vocabulary !== undefined)
-    requireValue(typeof expected === "string", "Informe settings_revision para alterar os tipos ou vocabulário.");
+  if (data.os_work_types !== undefined || data.os_object_types !== undefined || data.os2_ai_access !== undefined || data.os_vocabulary !== undefined)
+    requireValue(typeof expected === "string", "Informe settings_revision para alterar os modelos, tipos de objeto ou vocabulário.");
   if (expected !== undefined) {
     requireValue(typeof expected === "string" && /^[a-f0-9]{64}$/i.test(expected), "Revisão de configuração inválida.");
     if (expected.toLowerCase() !== baseRevision)

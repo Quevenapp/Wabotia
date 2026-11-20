@@ -1,6 +1,6 @@
 // Validação declarativa do motor. Erros identificam caminhos, nunca valores.
 import { ApiError } from "../../types";
-import type { CustomWorkType, ExtraValues, OsVocabulary, WorkField } from "./contracts";
+import type { CustomWorkType, ExtraValues, Os2AiAccess, OsVocabulary, ServiceObjectType, WorkField, WorkTypeView } from "./contracts";
 import { CLOSED, isStatus, QUOTABLE } from "./model";
 
 function check(ok: unknown, path: string, code = "invalid_request"): asserts ok {
@@ -47,7 +47,7 @@ function scaleFits(value: number, scale: number) {
   const [mantissa, exp = "0"] = String(value).toLowerCase().split("e");
   return Math.max(0, (mantissa.split(".")[1]?.length ?? 0) - Number(exp)) <= scale;
 }
-function field(raw: any, path: string): WorkField {
+export function validateField(raw: any, path = "field"): WorkField {
   const variants: Record<string, string[]> = { text: ["multiline", "max_length"], integer: ["min", "max"], decimal: ["min", "max", "scale"], boolean: [], date: ["min", "max"], choice: ["options"] };
   check(raw && Object.hasOwn(variants, raw.kind), path);
   object(raw, ["id", "label", "help", "required", "client_visible", "sensitive", "kind", ...variants[raw.kind]], path);
@@ -76,7 +76,7 @@ function field(raw: any, path: string): WorkField {
   }
   return out;
 }
-const markers = ["numero", "item", "estado", "total", "validade", "garantia", "pronto", "previsao", "tipo", "etapa", "numero_tipo", "identificador"];
+const markers = ["numero", "item", "estado", "total", "validade", "garantia", "pronto", "previsao", "tipo", "etapa", "numero_tipo", "identificador", "objeto"];
 function message(raw: any, fields: WorkField[], path: string) {
   const value = text(raw, 900, path, true);
   const allowed = new Set([...markers, ...fields.filter(f => f.client_visible && !f.sensitive).map(f => `campo_${f.id}`)]);
@@ -84,12 +84,12 @@ function message(raw: any, fields: WorkField[], path: string) {
   return value;
 }
 export function validateWorkType(raw: unknown): CustomWorkType {
-  const r = object(raw, ["schema_version", "kind", "id", "revision", "archived", "labels", "number_prefix", "terms", "fields", "retired_field_ids", "stages", "retired_stage_ids", "initial_stage", "transitions", "features", "pickup_reminder_text"], "type");
+  const r = object(raw, ["schema_version", "kind", "id", "revision", "archived", "labels", "number_prefix", "terms", "fields", "retired_field_ids", "stages", "retired_stage_ids", "initial_stage", "transitions", "features", "pickup_reminder_text", "object_type_id", "stage_field_rules", "list_fields"], "type");
   check(r.schema_version === 1 && r.kind === "custom", "type.schema_version");
   const labels = object(r.labels, ["singular", "plural", "item", "problem", "customer_singular", "customer_plural"], "labels");
   const normalizedLabels: any = {};
   for (const key of ["singular", "plural", "item", "problem", "customer_singular", "customer_plural"]) normalizedLabels[key] = text(labels[key], 80, `labels.${key}`);
-  const fields = array(r.fields, 24, "fields").map((f, i) => field(f, `fields.${i}`));
+  const fields = array(r.fields, 24, "fields").map((f, i) => validateField(f, `fields.${i}`));
   unique(fields.map(f => f.id), "fields");
   const retired = (value: any, active: string[], path: string) => {
     const ids = array(value, 4096, path).map(v => id(v, path, 32, path === "retired_field_ids"));
@@ -139,6 +139,49 @@ export function validateWorkType(raw: unknown): CustomWorkType {
     for (const end of CLOSED) check(stages.some(t => t.base_status === end && seen.has(t.id)), "stages.termination");
   }
   const out: CustomWorkType = { ...r, id: id(r.id, "type.id", 64), revision: integer(r.revision, 1, Number.MAX_SAFE_INTEGER, "revision"), archived: bool(r.archived, "archived"), labels: normalizedLabels, number_prefix: text(r.number_prefix, 12, "number_prefix", true), terms: r.terms === null ? null : text(r.terms, 1400, "terms", true), fields, stages, transitions, features: features as CustomWorkType["features"], initial_stage: initial, retired_field_ids: retired(r.retired_field_ids, fields.map(f => f.id), "retired_field_ids"), retired_stage_ids: retired(r.retired_stage_ids, stages.map(s => s.id), "retired_stage_ids"), pickup_reminder_text: message(r.pickup_reminder_text, fields, "pickup_reminder_text") };
+  if (r.object_type_id !== undefined) out.object_type_id = id(r.object_type_id, "object_type_id", 64);
+  if (r.stage_field_rules !== undefined) {
+    out.stage_field_rules = array(r.stage_field_rules, 24, "stage_field_rules").map(rule => {
+      object(rule, ["field_id", "required_from_stage", "required_on_exit"], "stage_field_rules");
+      const fieldId = id(rule.field_id, "stage_field_rules.field_id", 32, true);
+      const target = fields.find(f => f.id === fieldId);
+      check(target && !target.sensitive, "stage_field_rules.field_id", "invalid_fields");
+      check(rule.required_from_stage !== undefined || rule.required_on_exit?.length, "stage_field_rules.requirement", "invalid_fields");
+      const normalized: NonNullable<CustomWorkType["stage_field_rules"]>[number] = { field_id: fieldId };
+      if (rule.required_from_stage !== undefined) {
+        check(stage(rule.required_from_stage), "stage_field_rules.required_from_stage", "invalid_fields");
+        check(!features.customer_open || rule.required_from_stage !== initial || target.client_visible, "stage_field_rules.customer_open", "invalid_fields");
+        normalized.required_from_stage = rule.required_from_stage;
+      }
+      if (rule.required_on_exit !== undefined) {
+        const exits = array(rule.required_on_exit, 32, "stage_field_rules.required_on_exit").map(value => id(value, "stage_field_rules.required_on_exit"));
+        unique(exits, "stage_field_rules.required_on_exit");
+        check(exits.every(value => stage(value)), "stage_field_rules.required_on_exit", "invalid_fields");
+        normalized.required_on_exit = exits;
+      }
+      return normalized;
+    });
+    unique(out.stage_field_rules.map(rule => rule.field_id), "stage_field_rules");
+  }
+  if (r.list_fields !== undefined) {
+    out.list_fields = array(r.list_fields, 8, "list_fields").map(rule => {
+      object(rule, ["ref", "column", "filter"], "list_fields");
+      object(rule.ref, ["scope", "field_id"], "list_fields.ref");
+      check(["order", "object"].includes(rule.ref.scope), "list_fields.ref.scope", "invalid_fields");
+      const normalized: NonNullable<CustomWorkType["list_fields"]>[number] = { ref: { scope: rule.ref.scope, field_id: id(rule.ref.field_id, "list_fields.ref.field_id", 32, true) } };
+      if (rule.column !== undefined) normalized.column = bool(rule.column, "list_fields.column");
+      if (rule.filter !== undefined) normalized.filter = bool(rule.filter, "list_fields.filter");
+      check(normalized.column || normalized.filter, "list_fields.usage", "invalid_fields");
+      return normalized;
+    });
+    unique(out.list_fields.map(rule => `${rule.ref.scope}:${rule.ref.field_id}`), "list_fields");
+    check(out.list_fields.filter(rule => rule.column).length <= 4, "list_fields.columns_limit", "invalid_fields");
+    check(out.list_fields.filter(rule => rule.filter).length <= 4, "list_fields.filters_limit", "invalid_fields");
+    for (const rule of out.list_fields) {
+      if (rule.ref.scope === "object") check(out.object_type_id, "list_fields.object_type_id", "invalid_fields");
+      else validateListField(fields.find(f => f.id === rule.ref.field_id), rule.filter === true);
+    }
+  }
   if (jsonBytes(out) > 12 * 1024) throw new ApiError(413, "payload_too_large", "Definição de tipo excede 12 KiB.");
   return out;
 }
@@ -146,13 +189,97 @@ export function validateWorkTypes(raw: unknown): CustomWorkType[] {
   const out = array(raw, 20, "os_work_types").map(validateWorkType);
   unique(out.map(t => t.id), "os_work_types"); return out;
 }
+function validateListField(field: WorkField | undefined, filter: boolean) {
+  check(field && !field.sensitive, "list_fields.ref", "invalid_fields");
+  if (filter && field.kind === "text") check(!field.multiline && field.max_length <= 240, "list_fields.text_filter", "invalid_fields");
+}
+
+export function validateObjectType(raw: unknown): ServiceObjectType {
+  const r = object(raw, ["schema_version", "id", "revision", "archived", "labels", "identifier_field_id", "fields", "retired_field_ids"], "object_type");
+  check(r.schema_version === 1, "object_type.schema_version", "invalid_fields");
+  const labels = object(r.labels, ["singular", "plural"], "object_type.labels");
+  const fields = array(r.fields, 24, "object_type.fields").map((value, index) => validateField(value, `object_type.fields.${index}`));
+  unique(fields.map(f => f.id), "object_type.fields");
+  const identifier = id(r.identifier_field_id, "object_type.identifier_field_id", 32, true);
+  const f = fields.find(field => field.id === identifier);
+  check(f && f.kind === "text" && !f.multiline && !f.sensitive && f.max_length <= 120, "object_type.identifier_field_id", "invalid_fields");
+  const retired = array(r.retired_field_ids, 4096, "object_type.retired_field_ids").map(value => id(value, "object_type.retired_field_ids", 32, true));
+  unique(retired, "object_type.retired_field_ids");
+  check(retired.every(value => !fields.some(field => field.id === value)), "object_type.retired_field_ids", "invalid_fields");
+  const out: ServiceObjectType = {
+    schema_version: 1, id: id(r.id, "object_type.id", 64),
+    revision: integer(r.revision, 1, Number.MAX_SAFE_INTEGER, "object_type.revision"),
+    archived: bool(r.archived, "object_type.archived"),
+    labels: { singular: text(labels.singular, 80, "object_type.labels.singular"), plural: text(labels.plural, 80, "object_type.labels.plural") },
+    identifier_field_id: identifier, fields, retired_field_ids: retired,
+  };
+  check(out.id !== "service_order", "object_type.id", "invalid_fields");
+  if (jsonBytes(out) > 8 * 1024) throw new ApiError(413, "payload_too_large", "Definição do objeto excede 8 KiB. Reduza os campos e textos.");
+  return out;
+}
+export function validateObjectTypes(raw: unknown): ServiceObjectType[] {
+  const out = array(raw, 20, "os_object_types").map(validateObjectType);
+  unique(out.map(type => type.id), "os_object_types");
+  return out;
+}
+export const validateServiceObjectType = validateObjectType;
+export const validateServiceObjectTypes = validateObjectTypes;
+
+/** A definição adotada pelo objeto pode ser antiga; não substituir pela atual. */
+export function validateWorkObjectCombination(type: WorkTypeView, objectType?: ServiceObjectType) {
+  if (type.kind === "builtin") {
+    check(!objectType && !type.object_type_id && type.stage_field_rules === undefined && type.list_fields === undefined, "service_order.object", "invalid_fields");
+    return;
+  }
+  if (!type.object_type_id) {
+    check(!objectType, "object_type_id", "invalid_fields");
+    return;
+  }
+  check(objectType?.id === type.object_type_id, "object_type_id", "invalid_fields");
+  check(type.fields.length + objectType.fields.length <= 24, "object_and_order.fields_limit", "invalid_fields");
+  for (const rule of type.list_fields ?? []) if (rule.ref.scope === "object")
+    validateListField(objectType.fields.find(f => f.id === rule.ref.field_id), rule.filter === true);
+  check(!type.features.customer_open || objectType.fields.every(f => !f.required || (f.client_visible && !f.sensitive)), "object_type.customer_open", "invalid_fields");
+}
 export function validateVocabulary(raw: unknown): OsVocabulary {
   const r = object(raw, ["collection_label", "customer_singular", "customer_plural"], "os_vocabulary");
   return { collection_label: text(r.collection_label, 80, "collection_label"), customer_singular: text(r.customer_singular, 80, "customer_singular"), customer_plural: text(r.customer_plural, 80, "customer_plural") };
 }
+export function validateOs2AiAccess(raw: unknown): Os2AiAccess {
+  const value = object(raw, ["enabled", "internal", "sensitive"], "os2_ai_access");
+  return { enabled: bool(value.enabled, "os2_ai_access.enabled"), internal: bool(value.internal, "os2_ai_access.internal"), sensitive: bool(value.sensitive, "os2_ai_access.sensitive") };
+}
 const canonical = (v: any): string => JSON.stringify(v && typeof v === "object" ? Array.isArray(v) ? v.map(x => JSON.parse(canonical(x))) : Object.fromEntries(Object.keys(v).sort().map(k => [k, JSON.parse(canonical(v[k]))])) : v);
+function validateFieldChanges(previous: WorkField[], next: WorkField[], path: string) {
+  for (const old of previous) {
+    const current = next.find(field => field.id === old.id);
+    if (!current) continue;
+    check(!old.sensitive || current.sensitive, `${path}.sensitive`, "invalid_fields");
+    check(current.kind === old.kind, `${path}.kind_requires_new_id`, "invalid_fields");
+  }
+}
+export function validateObjectTypeChanges(previous: Readonly<Record<string, any>>, next: Readonly<Record<string, any>>): ServiceObjectType[] {
+  const types = validateObjectTypes(next.os_object_types ?? []);
+  for (const old of (previous.os_object_types ?? []) as ServiceObjectType[])
+    check(types.some(type => type.id === old.id), "os_object_types.archive_required", "invalid_fields");
+  for (const type of types) {
+    const old: ServiceObjectType | undefined = previous.os_object_types?.find((entry: ServiceObjectType) => entry.id === type.id);
+    if (!old) { check(type.revision === 1, "object_type.revision", "invalid_fields"); continue; }
+    const same = canonical({ ...old, revision: 0 }) === canonical({ ...type, revision: 0 });
+    if (type.revision !== old.revision + (same ? 0 : 1)) throw new ApiError(409, "settings_conflict", "Revisão do tipo de objeto desatualizada. Releia a configuração.");
+    check(old.retired_field_ids.every(value => type.retired_field_ids.includes(value)), "object_type.retired_field_ids", "invalid_fields");
+    for (const field of old.fields)
+      check(type.fields.some(entry => entry.id === field.id) || type.retired_field_ids.includes(field.id), "object_type.retired_field_ids", "invalid_fields");
+    check(type.fields.every(field => !old.retired_field_ids.includes(field.id)), "object_type.retired_field_ids", "invalid_fields");
+    validateFieldChanges(old.fields, type.fields, "object_type.fields");
+  }
+  return types;
+}
 export function validateWorkTypeChanges(previous: Readonly<Record<string, any>>, next: Readonly<Record<string, any>>, context?: { modules: Readonly<Record<string, boolean>> }) {
   const types = validateWorkTypes(next.os_work_types ?? []);
+  const objectTypes = validateObjectTypeChanges(previous, next);
+  for (const type of types)
+    validateWorkObjectCombination(type, objectTypes.find(objectType => objectType.id === type.object_type_id));
   for (const old of (previous.os_work_types ?? []) as CustomWorkType[]) check(types.some(t => t.id === old.id), "os_work_types.archive_required");
   for (const type of types) {
     const old: CustomWorkType | undefined = previous.os_work_types?.find((t: CustomWorkType) => t.id === type.id);
@@ -164,9 +291,10 @@ export function validateWorkTypeChanges(previous: Readonly<Record<string, any>>,
       for (const entry of old[active]) check(type[active].some(e => e.id === entry.id) || type[retired].includes(entry.id), retired);
       check(type[active].every(e => !old[retired].includes(e.id)), retired);
     }
-    for (const f of old.fields.filter(f => f.sensitive)) check(!type.fields.some(n => n.id === f.id && !n.sensitive), "fields.sensitive");
+    validateFieldChanges(old.fields, type.fields, "fields");
   }
   if (next.os_vocabulary !== undefined) validateVocabulary(next.os_vocabulary);
+  if (next.os2_ai_access !== undefined) validateOs2AiAccess(next.os2_ai_access);
   for (const m of next.menus ?? []) {
     if (!["os_open", "os_track"].includes(m.type) || (m.type_id ?? "service_order") === "service_order") continue;
     const type = types.find(t => t.id === m.type_id);
@@ -200,7 +328,15 @@ export function validateExtra(fields: WorkField[], value: unknown, options: { mo
     }
     out[key] = v as ExtraValues[string];
   }
-  if (!options.partial) for (const f of fields.filter(f => f.required)) check(Object.hasOwn(out, f.id) && out[f.id] !== null && out[f.id] !== "", `extra.${f.id}`, "invalid_fields");
+  if (!options.partial) for (const f of fields.filter(f => f.required)) check(isFieldFilled(out, f.id), `extra.${f.id}`, "invalid_fields");
   if (jsonBytes(out) > 16 * 1024) throw new ApiError(413, "payload_too_large", "Valores extras excedem 16 KiB.");
   return out;
+}
+/** Mesma definição de preenchimento usada na abertura e nas exigências tardias. */
+export function isFieldFilled(values: ExtraValues, fieldId: string): boolean {
+  return Object.hasOwn(values, fieldId) && values[fieldId] !== null && values[fieldId] !== "" && values[fieldId] !== undefined;
+}
+/** Objeto usa os seis tipos e a mesma validação de valores da ordem. */
+export function validateObjectValues(type: ServiceObjectType, value: unknown, options: Parameters<typeof validateExtra>[2] = {}): ExtraValues {
+  return validateExtra(type.fields, value, options);
 }

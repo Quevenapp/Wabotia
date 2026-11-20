@@ -4,10 +4,11 @@ import { ApiError, json, type Actor } from "../../types";
 import { rolesOf } from "../../access";
 import { canProfile } from "../../security";
 import type { ModuleContext } from "../api";
-import type { ChildRecord, Order, PrivateFields } from "./contracts";
+import type { ChildRecord, Order, PrivateFields, ServiceObjectSnapshotView } from "./contracts";
 import type { AuthorizedOrder } from "./public";
 import { orderView, visibleOrder } from "./store";
 import { workOrderAdditions } from "./work-types";
+import { projectObjectSnapshot } from "./os2-ports";
 
 /** Projeção baseada no snapshot e nos campos extras autorizados. */
 export function projectOrderForStaff(
@@ -18,6 +19,10 @@ export function projectOrderForStaff(
   const view = visibleOrder(ctx, actor, {
     ...orderView(order.row), ...workOrderAdditions(order.row, order.type),
   });
+  if (ctx.mayRead(actor, "contacts")) {
+    const object = projectObjectSnapshot(order.row, { kind: "staff" });
+    if (object) view.object = object;
+  }
   return actor.via || actor.id.startsWith("bot:") || actor.module
     ? customerProjection(view) : view;
 }
@@ -124,9 +129,31 @@ export function customerProjection<T extends Order>(input: T): T {
   delete view.next_task;
   view.fields = input.fields.filter(f => f.client_visible && !f.sensitive);
   view.extra = Object.fromEntries(view.fields.filter(f => Object.hasOwn(input.extra, f.id)).map(f => [f.id, input.extra[f.id]]));
+  if (input.object) view.object = projectObjectViewForCustomer(input.object);
   view.next_stages = [];
   view.next_statuses = [];
   if (view.decision) view.decision = { ...view.decision, by: "customer" };
   if (view.stage_approval) view.stage_approval = { ...view.stage_approval, decided_by: view.stage_approval.decided_by ? "customer" : null };
   return view;
+}
+
+/** Reprojeta somente um DTO autorizado; não acessa o cadastro atual do objeto. */
+export function projectObjectViewForCustomer(input: ServiceObjectSnapshotView): ServiceObjectSnapshotView {
+  const fields = input.type.fields.filter(field => field.client_visible && !field.sensitive);
+  const identifierField = fields.find(field => field.id === input.type.identifier_field_id);
+  return {
+    schema_version: 1,
+    object_id: input.object_id,
+    object_version: input.object_version,
+    captured_at: input.captured_at,
+    origin: input.origin,
+    type: {
+      schema_version: 1, id: input.type.id, revision: input.type.revision,
+      labels: { singular: input.type.labels.singular, plural: input.type.labels.plural },
+      fields: structuredClone(fields),
+      ...(identifierField ? { identifier_field_id: identifierField.id } : {}),
+    },
+    values: Object.fromEntries(fields.filter(field => Object.hasOwn(input.values, field.id)).map(field => [field.id, input.values[field.id]])),
+    identifier: identifierField ? input.identifier : `${input.type.labels.singular} · ${input.object_id.slice(-6).toUpperCase()}`,
+  };
 }

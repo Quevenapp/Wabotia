@@ -65,6 +65,7 @@ export function createWorkApi(api: Api, root: string) {
   const write = createIntents(api);
   const base = root + "/service-orders";
   const order = (id: string) => base + "/" + encodeURIComponent(id);
+  const serviceObject = (id: string) => base + "/objects/" + encodeURIComponent(id);
   const child = (id: string, collection: string, childId?: string) =>
     order(id) +
     "/" +
@@ -89,6 +90,29 @@ export function createWorkApi(api: Api, root: string) {
     type: (id: string) =>
       get<C.WorkTypeView>(base + "/types/" + encodeURIComponent(id)),
     orders: (query: C.OrderQuery) => get<C.OrderList>(base, query),
+    filteredOrders: (query: Omit<C.OrderQuery, "field_filter"> & { field_filter: C.OrderFieldFilter }) =>
+      get<C.FieldFilteredOrderList>(base, { ...query, field_filter: JSON.stringify(query.field_filter) }),
+    objectTypes: (archived = false) => get<C.ObjectTypeCatalog>(base + "/object-types", {
+      include_archived: archived ? "1" : undefined,
+    }),
+    objects: (query: C.ObjectQuery) => get<C.Page<C.ServiceObjectView>>(base + "/objects", query),
+    object: (id: string) => get<C.ServiceObjectView>(serviceObject(id)),
+    createObject: (body: C.CreateServiceObjectRequest) => send<C.ServiceObjectView>(base + "/objects", "POST", body),
+    updateObject: (id: string, body: C.UpdateServiceObjectRequest) => send<C.ServiceObjectView>(serviceObject(id), "PATCH", body),
+    archiveObject: (id: string, body: C.ArchiveServiceObjectRequest) => send<C.ServiceObjectView>(serviceObject(id) + "/archive", "POST", body),
+    objectPrivateFields: (id: string) => get<C.ObjectPrivateFields>(serviceObject(id) + "/private-fields"),
+    updateObjectPrivateFields: (id: string, body: C.ObjectPrivateFieldsRequest) =>
+      send<C.PrivateFieldsResult>(serviceObject(id) + "/private-fields", "PATCH", body),
+    objectOrders: (id: string, query: C.PageQuery = {}) => get<C.Page<C.Order>>(serviceObject(id) + "/orders", query),
+    linkObject: (id: string, body: C.LegacyObjectLinkRequest) => send<C.Order>(order(id) + "/object-link", "POST", body),
+    requirements: (id: string, transition_id?: string) => get<C.OrderRequirements>(order(id) + "/requirements", { transition_id }),
+    fieldIndex: (typeId: string) => get<C.FieldIndexState>(base + "/types/" + encodeURIComponent(typeId) + "/field-index"),
+    rebuildFieldIndex: (typeId: string, body: C.FieldIndexRebuildRequest) =>
+      send<C.FieldIndexState>(base + "/types/" + encodeURIComponent(typeId) + "/field-index/rebuild", "POST", body),
+    conversationObjects: (conversationId: string, query: C.PageQuery = {}) =>
+      get<C.Page<C.ServiceObjectView>>(base + "/conversation/" + encodeURIComponent(conversationId) + "/objects", query),
+    conversationObject: (conversationId: string, objectId: string, query: C.PageQuery = {}) =>
+      get<C.ServiceObjectView & { orders: C.Page<C.Order> }>(base + "/conversation/" + encodeURIComponent(conversationId) + "/objects/" + encodeURIComponent(objectId), query),
     order: (id: string) => get<C.Order>(order(id), { history: "none" }),
     create: (body: C.CreateOrderRequest) => send<C.Order>(base, "POST", body),
     update: (id: string, body: C.UpdateOrderRequest) =>
@@ -170,9 +194,16 @@ export function createWorkApi(api: Api, root: string) {
       get<C.Page<C.OrderHistory>>(order(id) + "/history", query),
     deadlines: (query: C.DeadlineQuery) =>
       get<C.Page<C.Deadline>>(root + "/service-orders/my-tasks", query),
-    saveTypes: (types: C.CustomWorkType[], settings_revision: string) =>
+    saveTypes: (types: C.CustomWorkType[], settings_revision: string, objectTypes?: C.ServiceObjectType[]) =>
       send<{ settings_revision: string }>(root + "/settings", "PUT", {
         os_work_types: types,
+        ...(objectTypes === undefined ? {} : { os_object_types: objectTypes }),
+        settings_revision,
+      }),
+    saveObjectTypes: (types: C.ServiceObjectType[], settings_revision: string, workTypes?: C.CustomWorkType[]) =>
+      send<{ settings_revision: string }>(root + "/settings", "PUT", {
+        os_object_types: types,
+        ...(workTypes === undefined ? {} : { os_work_types: workTypes }),
         settings_revision,
       }),
     templates: () => get<C.AreaTemplateCatalog>(root + "/area-templates"),

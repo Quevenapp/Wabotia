@@ -1206,6 +1206,8 @@ function serviceOrderSchemas() {
         },
         type_id: { type: "string", default: "service_order" },
         extra: { $ref: "#/components/schemas/ExtraValues" },
+        contact_id: { type: "string", description: "Contato canônico autorizado; obrigatório quando o modelo usa objeto e não há conversa confirmada." },
+        object: workRef("ObjectOpeningRequest"),
       },
     },
     ServiceOrderUpdate: {
@@ -2400,6 +2402,7 @@ function workOrderProperties() {
   const text = { type: "string" };
   const version = { type: "integer", minimum: 1 };
   return {
+    object: workRef("ServiceObjectSnapshotView"),
     type_id: text,
     type_revision: version,
     type_number: { type: "integer", minimum: 1, maximum: 2147483647 },
@@ -2826,7 +2829,12 @@ function workMotorSchemas(): Record<string, any> {
       stale_days: { type: "integer", minimum: 0, maximum: 365 },
     }),
     CustomWorkType: {
-      ...workObject(typeProperties),
+      ...workObject({
+        ...typeProperties,
+        object_type_id: id(64),
+        stage_field_rules: array(workRef("StageFieldRule"), 24),
+        list_fields: array(workRef("ListFieldRule"), 8),
+      }, Object.keys(typeProperties)),
       description:
         "Até 12 KiB UTF-8. Novo tipo tem revisão 1; alteração incrementa uma vez. Não excluir: arquivar. IDs aposentados não são reutilizados; sigilo não pode ser reduzido. Etapa inicial received; delivered/cancelled terminais. quoted/approved/declined reservados ao orçamento.",
     },
@@ -2851,6 +2859,8 @@ function workMotorSchemas(): Record<string, any> {
     WorkTypeSettings: workObject(
       {
         os_work_types: array(workRef("CustomWorkType"), 20),
+        os_object_types: array(workRef("ServiceObjectType"), 20),
+        os2_ai_access: workRef("Os2AiAccess"),
         os_vocabulary: workRef("OsVocabulary"),
         settings_revision: text,
       },
@@ -2859,6 +2869,77 @@ function workMotorSchemas(): Record<string, any> {
     WorkTypeCatalog: workObject({
       data: array(workRef("WorkTypeView")),
       settings_revision: text,
+    }),
+    Os2AiAccess: {
+      ...workObject({ enabled: { ...bool, default: false }, internal: { ...bool, default: false }, sensitive: { ...bool, default: false } }),
+      description: "Configuração administrativa com settings_revision. Ausência equivale a três false. Flags não concedem escopos nem ampliam propriedade: WhatsApp e cliente só alcançam dados próprios autorizados.",
+    },
+    FieldRef: workObject({ scope: { enum: ["order", "object"] }, field_id: id() }),
+    StageFieldRule: workObject({ field_id: id(), required_from_stage: id(), required_on_exit: array(id(), 32) }, ["field_id"]),
+    ListFieldRule: workObject({ ref: workRef("FieldRef"), column: bool, filter: bool }, ["ref"]),
+    ServiceObjectType: {
+      ...workObject({
+        schema_version: { enum: [1] }, id: id(64), revision: version, archived: bool,
+        labels: workObject({ singular: label, plural: label }), identifier_field_id: id(),
+        fields: array(workRef("WorkField"), 24), retired_field_ids: array(id()),
+      }),
+      description: "Até 8 KiB UTF-8. Identificador aponta para texto de uma linha não sensível com até 120 caracteres. Identificador não é único, autorização ou prova de propriedade. Arquivar em vez de excluir; IDs e classificação sensível são preservados.",
+    },
+    ServiceObjectTypeView: workObject({
+      schema_version: { enum: [1] }, id: id(64), revision: version,
+      labels: workObject({ singular: label, plural: label }), identifier_field_id: id(),
+      fields: array(workRef("WorkField"), 24),
+    }, ["schema_version", "id", "revision", "labels", "fields"]),
+    ObjectTypeCatalog: workObject({ data: array(workRef("ServiceObjectType"), 20), settings_revision: text }),
+    ServiceObjectSnapshotView: {
+      ...workObject({
+        schema_version: { enum: [1] }, object_id: text, object_version: version,
+        captured_at: date, origin: { enum: ["opening", "legacy_link"] },
+        type: workRef("ServiceObjectTypeView"), values: workRef("ExtraValues"), identifier: text,
+      }),
+      description: "Cópia autorizada capturada na abertura ou no vínculo posterior; nunca consulta o cadastro atual. Campos privados e internos não autorizados são omitidos. Sem vínculo, a propriedade object não existe na ordem.",
+    },
+    ServiceObjectView: workObject({
+      id: text, contact_id: text, type_id: text, type_revision: version,
+      type: workRef("ServiceObjectTypeView"), values: workRef("ExtraValues"),
+      archived: bool, version, identifier: text, created: date, updated: date,
+      latest_completed: { anyOf: [workObject({ id: text, number: version, delivered_at: nullableDate }), { type: "null" }] },
+    }, ["id", "type_id", "type_revision", "type", "values", "archived", "version", "identifier", "created", "updated"]),
+    ServiceObjectPage: page("ServiceObjectView"),
+    OrderHistoryObjectsPage: page("ServiceOrder"),
+    ConversationObjectDetail: workObject({ object: workRef("ServiceObjectView"), orders: workRef("OrderHistoryObjectsPage") }),
+    ObjectOpeningRequest: {
+      oneOf: [
+        workObject({ mode: { enum: ["existing"] }, id: text, version }),
+        workObject({ mode: { enum: ["new"] }, type_id: text, values: workRef("ExtraValues") }),
+      ],
+      description: "Seleção obrigatória em modelo com objeto. Cadastro inline e ordem são confirmados juntos. Modelo sem objeto rejeita este campo.",
+    },
+    CreateServiceObjectRequest: workObject({ contact_id: text, type_id: text, values: workRef("ExtraValues") }),
+    UpdateServiceObjectRequest: workObject({ version, values: workRef("ExtraValues"), adopt_revision: version }, ["version"]),
+    ArchiveServiceObjectRequest: workObject({ version, archived: bool }),
+    LegacyObjectLinkRequest: workObject({ version, object: workRef("ObjectOpeningRequest") }),
+    ObjectPrivateFields: workObject({ id: text, version, fields: array(workRef("WorkField"), 24), values: workRef("ExtraValues") }),
+    ObjectPrivateFieldsRequest: workObject({ version, values: workRef("ExtraValues") }),
+    OrderRequirements: workObject({
+      id: text, version, transition_id: text,
+      required: array(workObject({ field_id: id(), label })),
+      missing: array(workObject({ field_id: id(), label })), internal_missing: bool,
+    }, ["id", "version", "required", "missing", "internal_missing"]),
+    OrderFieldFilter: { oneOf: [
+      workObject({ ref: workRef("FieldRef"), operator: { enum: ["eq"] }, value: { type: ["string", "number", "boolean"] } }),
+      workObject({ ref: workRef("FieldRef"), operator: { enum: ["range"] }, from: { type: ["string", "number"] }, to: { type: ["string", "number"] } }),
+    ] },
+    FieldIndexState: workObject({
+      type_id: text, generation: text, status: { enum: ["building", "ready"] },
+      cursor_number: { type: "integer", minimum: 0 }, ceiling_number: { type: "integer", minimum: 0 },
+      excluded_count: { type: "integer", minimum: 0 }, updated: date,
+    }),
+    FieldIndexRebuildRequest: workObject({ generation: text, cursor_number: { type: "integer", minimum: 0 } }, []),
+    FieldFilteredOrderList: workObject({
+      data: array(workRef("ServiceOrder"), 50), next_cursor: nullableText,
+      counts: { type: "null" }, counts_scope: { enum: ["not_computed"] },
+      order_by: { enum: ["number_desc", "field_value_asc"] },
     }),
     PendingStageApproval: workObject({
       version,
@@ -3116,6 +3197,7 @@ function workMotorSchemas(): Record<string, any> {
         name: text,
         description: text,
         work_types: array(workRef("CustomWorkType"), 20),
+        object_types: array(workRef("ServiceObjectType"), 20),
         modules: workObject(
           Object.fromEntries(modules.map((name) => [name, bool])),
           [],
@@ -3143,7 +3225,7 @@ function workMotorSchemas(): Record<string, any> {
         ),
         bot: workRef("AreaBotSuggestion"),
         manual_steps: strings,
-      }),
+      }, ["schema_version", "id", "version", "name", "description", "work_types", "modules", "vocabulary", "departments", "ticket_categories", "menus", "texts", "bot", "manual_steps"]),
       description:
         "Manifesto declarativo até 128 KiB UTF-8, sem código ou dados pessoais de ordens. message é convertido em content pelo compilador; sugestões não concedem papéis nem permissões.",
     },
@@ -3197,6 +3279,7 @@ type WorkOperation = [
   errors: string,
   query: string[],
   description: string,
+  operation?: string,
 ];
 
 function workMotorContract(): WorkOperation[] {
@@ -3239,8 +3322,9 @@ function workMotorContract(): WorkOperation[] {
         "assignee",
         "due_from",
         "due_to",
+        "field_filter",
       ],
-      "Ordena pelo número global decrescente; cursor continua texto. stage exige type_id. type_ids aceita até 21 IDs separados por vírgula para filtrar vários modelos sem alterar a paginação; omitir conserva a consulta legada. assignee aceita ID, me ou unassigned; due_from/due_to são limites inclusivos do prazo geral, em milissegundos Unix. Tipos personalizados incluem next_task, a próxima tarefa aberta autorizada, ou null. counts é esparso e sempre da área inteira, independente de filtros. facets=1 acrescenta types e, com type_id, stages; não substitui counts. Busca não pesquisa valores sensíveis.",
+      "Ordena pelo número global decrescente; cursor continua texto. stage exige type_id. type_ids aceita até 21 IDs separados por vírgula para filtrar vários modelos sem alterar a paginação; omitir conserva a consulta legada. assignee aceita ID, me ou unassigned; due_from/due_to são limites inclusivos do prazo geral, em milissegundos Unix. Tipos personalizados incluem next_task, a próxima tarefa aberta autorizada, ou null. counts é esparso e sempre da área inteira, independente de filtros. facets=1 acrescenta types e, com type_id, stages; não substitui counts. Busca não pesquisa valores sensíveis. field_filter é JSON de OrderFieldFilter: exige um modelo e uma geração ready, examina no máximo 200 candidatos e devolve até 50 ordens, counts=null e counts_scope=not_computed. Igualdade ordena por número decrescente; intervalo por valor crescente, número/ID decrescente. Cursor preserva candidatos ainda não consumidos.",
     ],
     [
       "get",
@@ -3683,6 +3767,37 @@ function workMotorContract(): WorkOperation[] {
       "Não grava. Exporta configuração declarativa dos type_ids, sem dados pessoais de ordens, filhos, membros ou segredos.",
     ],
   ];
+  const objectErrors = "400 invalid_fields;409 customer_required;409 object_required;409 object_archived;409 object_definition_conflict;409 object_limit;409 idempotency_conflict;501 not_implemented";
+  const ownerAccess = "Exige acesso ao módulo, à área e ao contato canônico ativo no namespace team. Identificador nunca concede acesso. A configuração administrativa delimita o acesso de IA, desligado por padrão. ";
+  const objectRoutes: WorkOperation[] = [
+    ["get", `${b}/object-types`, "Objetos: tipos autorizados", null, "ObjectTypeCatalog", objectErrors, ["include_archived"], "Retorna a revisão dos settings e definições autorizadas. Salvar os_object_types, os_work_types e settings_revision juntos no PUT /settings existente.", "os.object_types.list"],
+    ["get", `${b}/objects`, "Objetos: listar do contato", null, "ServiceObjectPage", objectErrors, ["contact_id", "type_id", "include_archived", ...page], ownerAccess + "Página de até 50 objetos, com arquivados somente quando solicitado e autorizado.", "os.objects.list"],
+    ["post", `${b}/objects`, "Objetos: cadastrar", "CreateServiceObjectRequest", "ServiceObjectView", objectErrors, [], ownerAccess + "Até 100 objetos por contato incluindo arquivados e 30 ativos por contato/tipo; contagem conferida na transação. Recibo delimitado por área, ator, operação e Idempotency-Key.", "os.objects.create"],
+    ["get", `${b}/objects/{object_id}`, "Objetos: consultar ficha", null, "ServiceObjectView", objectErrors, [], ownerAccess + "Definição adotada, valores autorizados, versão e último atendimento delivered por delivered_at, número/ID. Data legada ausente permanece indisponível.", "os.objects.get"],
+    ["patch", `${b}/objects/{object_id}`, "Objetos: alterar ficha", "UpdateServiceObjectRequest", "ServiceObjectView", objectErrors, [], ownerAccess + "Não modifica cópias em ordens. adopt_revision é explícito e valida os valores pela nova definição; requer versão esperada.", "os.objects.update"],
+    ["post", `${b}/objects/{object_id}/archive`, "Objetos: arquivar ou reativar", "ArchiveServiceObjectRequest", "ServiceObjectView", objectErrors, [], ownerAccess + "Não há DELETE público. Arquivamento impede novas seleções; reativação confere os limites na transação.", "os.objects.archive"],
+    ["get", `${b}/objects/{object_id}/private-fields`, "Objetos: ler campos privados", null, "ObjectPrivateFields", objectErrors, [], ownerAccess + "Requer autorização específica para dados sensíveis. A projeção comum nunca os inclui.", "os.objects.private.read"],
+    ["patch", `${b}/objects/{object_id}/private-fields`, "Objetos: alterar campos privados", "ObjectPrivateFieldsRequest", "PrivateFieldsResult", objectErrors, [], ownerAccess + "Escrita privada separada, com versão esperada; devolve somente IDs de campos alterados.", "os.objects.private.update"],
+    ["get", `${b}/objects/{object_id}/orders`, "Objetos: histórico de ordens", null, "OrderHistoryObjectsPage", objectErrors, page, ownerAccess + "Até 50 ordens por abertura decrescente. Campos desta ordem vêm dos snapshots históricos autorizados; sem lookup de objeto por linha.", "os.objects.orders"],
+    ["post", `${o}/object-link`, "Objetos: vincular ordem antiga", "LegacyObjectLinkRequest", "ServiceOrder", objectErrors, [], ownerAccess + "Somente personalizada sem vínculo, inclusive encerrada; criação opcional, vínculo e recibo atômicos. Captura legacy_link na data atual. Não move valores históricos nem copia campos sensíveis para públicos.", "os.object.link"],
+    ["get", `${o}/requirements`, "Trabalhos: requisitos da etapa", null, "OrderRequirements", "400 invalid_fields;409 missing_fields;501 not_implemented", ["transition_id"], "Usa a ordem e seus snapshots. Expõe somente rótulos autorizados e a versão observada; pendências internas do cliente são genéricas. Não consulta o cadastro atual do objeto.", "os.requirements"],
+    ["get", `${b}/types/{type_id}/field-index`, "Trabalhos: estado do índice de campos", null, "FieldIndexState", "409 field_index_building;501 not_implemented", [], "Administrador consulta geração, progresso e versões excluídas. A lista comum continua funcionando durante a construção.", "os.field_index.get"],
+    ["post", `${b}/types/{type_id}/field-index/rebuild`, "Trabalhos: construir índice de campos", "FieldIndexRebuildRequest", "FieldIndexState", "409 field_index_building;409 idempotency_conflict;501 not_implemented", [], "Comando administrativo explícito com geração/cursor esperados; até cinco ordens e 50 instruções por invocação. Não há construção síncrona em consultas ou novo agendador.", "os.field_index.rebuild"],
+    ["get", `${b}/conversation/{id}/objects`, "Objetos: consultar titular da conversa", null, "ServiceObjectPage", objectErrors, ["type_id", ...page], "Resolve o titular autorizado da conversa antes de consultar. Somente objetos próprios e campos públicos, até 50; contact_id, telefone e identificador enviados no corpo não autorizam acesso.", "os.conversation.objects.list"],
+    ["get", `${b}/conversation/{id}/objects/{object_id}`, "Objetos: ficha do titular da conversa", null, "ConversationObjectDetail", objectErrors, page, "Reautoriza área e titular canônico confirmado; devolve ficha e histórico público paginado, exclusivamente do titular. Conhecer object_id não concede acesso.", "os.conversation.objects.get"],
+  ];
+  routes.push(...objectRoutes);
+  for (const route of routes) {
+    if (route[1] === b && route[0] === "post") {
+      route[5] += ";409 customer_required;409 object_required;409 object_archived;409 object_definition_conflict;409 idempotency_conflict;409 object_limit;501 not_implemented";
+      route[7] += " Em modelo com objeto, exige seleção existente com versão ou cadastro inline. Objeto, contadores, ordem, índices, históricos e recibo confirmam no mesmo lote; extra guarda somente campos desta ordem.";
+    }
+    if (route[1] === b && route[0] === "get") route[5] += ";409 field_index_building;400 invalid_fields;501 not_implemented";
+    if (route[0] !== "get" && (route[1] === o || /\/(status|stage|quote|quote\/send|decision|stage-approval|stage-approval\/decision|private-fields)$/.test(route[1]))) {
+      route[5] += ";409 missing_fields";
+      route[7] += " Regras por etapa validam os valores resultantes antes de qualquer efeito; exigências ativadas persistem em retornos. Cancelamento não exige completar campos. Pendência interna tem mensagem genérica ao cliente; requirements fornece rótulos autorizados.";
+    }
+  }
   // As famílias privadas compartilham transporte e versões, mas nunca /send.
   const privateAccess = "Exige pessoa autenticada com papel explícito os:sensitive e sem via; administrador não substitui o papel. Fora do catálogo de IA e negado ao bot. ";
   for (const route of [...routes]) {
@@ -3734,7 +3849,8 @@ function describeWorkMotorOperation(
     ([m, p]) => m === method && p === path,
   );
   if (!route) return;
-  const [, , , , output, specificErrors, queries, description] = route;
+  const [, , , , output, specificErrors, queries, description, operation] = route;
+  if (operation) entry.operationId = operation;
   const admin = path.includes("/area-templates");
   const base = "/profiles/{profile}/service-orders";
   const legacy = [base, `${base}/{id}`, `${base}/{id}/status`, `${base}/{id}/quote`,
@@ -3746,9 +3862,12 @@ function describeWorkMotorOperation(
     description;
   entry.description +=
     " Datas de instantes em milissegundos Unix. Parâmetros do caminho prevalecem sobre o corpo; profile não vem do corpo.";
-  if (!admin)
+  if (!admin && !operation)
     entry.description +=
       " Restrições de contatos e notas continuam valendo. Dados sensíveis exigem pessoa com os:sensitive explícito e sem via; administrador não substitui o papel. Filhos ocultos são omitidos inclusive de contagens; vínculo de pessoa não concede acesso.";
+  if (operation)
+    entry.description += " Acesso de IA segue os2_ai_access e os escopos autorizados, com padrão conservador. A configuração não amplia os dados próprios acessíveis ao titular externo. Dados sensíveis não integram projeções comuns.";
+  const objectOperation = operation?.startsWith("os.objects.") || operation?.startsWith("os.conversation.objects.");
   if (method !== "get")
     entry.description +=
       " Escrita com Idempotency-Key; repetir a chave recupera o resultado sem repetir efeitos.";
@@ -3770,6 +3889,7 @@ function describeWorkMotorOperation(
     facets: { enum: ["1", "0"] },
     type_ids: { type: "string", pattern: "^[a-z][a-z0-9_]{0,63}(,[a-z][a-z0-9_]{0,63}){0,20}$" },
     include_archived: { enum: ["1", "0"] },
+    field_filter: { type: "string", contentMediaType: "application/json", description: "JSON validado de OrderFieldFilter; um filtro próprio por consulta." },
     history: { enum: ["legacy", "none"], default: "legacy" },
     state: { enum: ["open", "done", "cancelled"], ...(path.endsWith("/my-tasks") ? { default: "open" } : {}) },
     assignee: path.endsWith("/my-tasks") ? { enum: ["me"], default: "me" } : { type: "string", description: "ID da pessoa, me ou unassigned." },
@@ -3779,7 +3899,7 @@ function describeWorkMotorOperation(
     limit: {
       type: "integer",
       minimum: 1,
-      maximum: paged ? 100 : 200,
+      maximum: objectOperation ? 50 : paged ? 100 : 200,
       ...(childPage ? { default: 50 } : {}),
     },
   };
@@ -3866,7 +3986,7 @@ function describeWorkMotorOperation(
       "application/json": {
         schema:
           output === "ServiceOrderList"
-            ? workMotorSchemas().ServiceOrderList
+            ? { oneOf: [workRef("ServiceOrderList"), workRef("FieldFilteredOrderList")] }
             : workRef(output),
       },
     };
@@ -3933,6 +4053,15 @@ function workErrorMessage(code: string) {
     not_found: "Registro não encontrado.",
     preview_stale: "A configuração mudou; gere outra prévia.",
     upload_busy: "Há outra tentativa de envio ativa.",
+    customer_required: "Confirme o contato do cliente antes de continuar.",
+    object_required: "Selecione ou cadastre o objeto deste serviço.",
+    object_archived: "Este objeto está arquivado. Reative o cadastro ou selecione outro.",
+    object_definition_conflict: "As definições não são compatíveis. Revise a atualização do cadastro.",
+    object_limit: "O limite de objetos foi atingido. Arquive um cadastro ativo antes de adicionar outro.",
+    idempotency_conflict: "Esta chave já foi usada com outro conteúdo. Envie uma nova intenção.",
+    missing_fields: "A equipe precisa completar os dados desta etapa.",
+    field_index_building: "O índice está sendo construído. Retome a construção para usar este filtro.",
+    not_implemented: "Este recurso ainda não está disponível.",
   };
   return messages[code] ?? `Operação recusada: ${code}.`;
 }

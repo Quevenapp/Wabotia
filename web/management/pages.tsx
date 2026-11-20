@@ -83,6 +83,9 @@ const WorkSettings = lazyWithRecovery<object>(() =>
 );
 const pages = {
   work: Work,
+  "service-objects": lazyWithRecovery(() =>
+    import("../modules/os/os2-pages").then((m) => ({ default: m.Os2ObjectPage })),
+  ),
   "service-orders": Work,
   "my-deadlines": lazyWithRecovery(() =>
     import("../modules/os/tasks/MyDeadlinesPage").then((m) => ({

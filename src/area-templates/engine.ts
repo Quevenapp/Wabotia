@@ -5,7 +5,7 @@ import type { SettingsPlan } from "../service";
 import { configuredModuleStates, hiddenMenuTypes, moduleById, modules as registeredModules, planModuleStates } from "../modules/registry";
 import type {
   AreaTemplateApplyResult, AreaTemplatePreview,
-  AreaTemplateExportRequest, CustomWorkType, TemplateChange,
+  AreaTemplateExportRequest, CustomWorkType, ServiceObjectType, TemplateChange,
 } from "../modules/os/contracts";
 import { identifier, invalid, list, object, string, validateAreaSetup, validateAreaTemplate, validateSelection, type AreaTemplate, type AreaTemplateSelection } from "./validation";
 import { equivalentWorkTypes } from "./equivalent-types";
@@ -21,7 +21,7 @@ interface Application {
   applied_by: string;
   applied_at: number;
 }
-const collections = ["os_work_types", "departments", "ticket_categories", "menus"] as const;
+const collections = ["os_work_types", "os_object_types", "departments", "ticket_categories", "menus"] as const;
 const applicationSql = "SELECT * FROM os_area_template_applications WHERE profile_id=? AND template_id=?";
 const prefix = (id: string) => `area_${id}__`;
 const conflict = (code: string, message: string) => new ApiError(409, code, message);
@@ -83,12 +83,19 @@ function compile(manifest: AreaTemplate, selection: AreaTemplateSelection, cfg: 
     else { write(); change(path, "set", "Preenche um caminho ainda não tratado."); }
     seenPaths.add(path);
   };
-  for (const type of manifest.work_types) if (selection.work_type_ids.includes(type.id)) {
+  const selectedWorkTypes = manifest.work_types.filter((type) => selection.work_type_ids.includes(type.id));
+  const neededObjects = new Set(selectedWorkTypes.flatMap((type) => type.object_type_id ? [type.object_type_id] : []));
+  for (const type of manifest.object_types ?? []) if (neededObjects.has(type.id))
+    add("os_object_types", globalId(type.id), { ...type, id: globalId(type.id) }, "Tipo de objeto compartilhado pelos modelos selecionados.");
+  for (const type of selectedWorkTypes) {
     const equivalent = equivalentWorkTypes(type, savedList(cfg, "os_work_types"), manifest.id);
     const reason = equivalent.length
       ? `Já existe um modelo equivalente: ${equivalent.map((candidate) => candidate.labels.plural).join(", ")}. Aplicar criará outro modelo; os existentes serão preservados.`
       : "Novo cadastro do modelo.";
-    add("os_work_types", globalId(type.id), { ...type, id: globalId(type.id) }, reason);
+    add("os_work_types", globalId(type.id), { ...type, id: globalId(type.id), ...(type.object_type_id ? { object_type_id: globalId(type.object_type_id) } : {}) }, reason);
+    const resulting = (settings.os_work_types || savedList(cfg, "os_work_types")).find((entry: CustomWorkType) => entry.id === globalId(type.id));
+    if (resulting?.object_type_id && !(settings.os_object_types || savedList(cfg, "os_object_types")).some((entry: ServiceObjectType) => entry.id === resulting.object_type_id))
+      addConflict(`os_work_types.${globalId(type.id)}.object_type_id`, "reference_conflict", "O tipo de objeto referenciado foi removido e não será recriado. Revise a configuração do modelo.");
   }
   if (selection.work_type_ids.includes("service_order"))
     change("os_work_types.service_order", "keep", "Tipo embutido virtual; definição e configurações permanecem intactas.");
@@ -171,6 +178,8 @@ function compile(manifest: AreaTemplate, selection: AreaTemplateSelection, cfg: 
   }
   if (settings.os_work_types && settings.os_work_types.length > 20)
     addConflict("os_work_types", "collection_limit", "A área admite até 20 tipos personalizados, incluindo arquivados.");
+  if (settings.os_object_types && settings.os_object_types.length > 20)
+    addConflict("os_object_types", "collection_limit", "A área admite até 20 tipos de objeto, incluindo arquivados.");
   return { changes, conflicts, settings, modules: finalModules, seenIds: [...seenIds].sort(), seenPaths: [...seenPaths].sort() };
 }
 
@@ -260,6 +269,8 @@ export async function exportAreaTemplate(env: Env, actor: Actor, profile: string
   }
   const current = await state(env, actor, profile);
   const workTypes: CustomWorkType[] = [];
+  const objectTypes: ServiceObjectType[] = [];
+  const objectIds = new Map<string, string>();
   const menus: AreaTemplate["menus"] = [];
   for (const [i, id] of data.type_ids.entries()) {
     const localId = id === "service_order" ? id : `tipo_${i + 1}`;
@@ -267,7 +278,19 @@ export async function exportAreaTemplate(env: Env, actor: Actor, profile: string
       const type = savedList(current.settings, "os_work_types").find((t) => t.id === id);
       if (!type) throw new ApiError(404, "type_not_found", "Tipo de trabalho não encontrado nesta área.");
       // A validação estrita abaixo recusa propriedades de runtime ou valores extras.
-      workTypes.push({ ...structuredClone(type), id: localId, revision: 1 });
+      const exported = { ...structuredClone(type), id: localId, revision: 1 } as CustomWorkType;
+      if (type.object_type_id) {
+        let objectId = objectIds.get(type.object_type_id);
+        if (!objectId) {
+          const objectType = savedList(current.settings, "os_object_types").find((entry: ServiceObjectType) => entry.id === type.object_type_id);
+          if (!objectType) throw new ApiError(409, "object_definition_conflict", "O tipo de objeto do modelo não está disponível. Revise a configuração antes de exportar.");
+          objectId = `objeto_${objectIds.size + 1}`;
+          objectIds.set(type.object_type_id, objectId);
+          objectTypes.push({ ...structuredClone(objectType), id: objectId, revision: 1 });
+        }
+        exported.object_type_id = objectId;
+      }
+      workTypes.push(exported);
     }
     const type = workTypes.find((t) => t.id === localId);
     if (!type?.archived && (id === "service_order" || type?.features.customer_open))
@@ -276,7 +299,7 @@ export async function exportAreaTemplate(env: Env, actor: Actor, profile: string
   }
   return validateAreaTemplate({
     schema_version: 1, id: data.id, version: 1, name: data.name, description: "Definições de tipos de trabalho exportadas, sem registros de atendimento.",
-    work_types: workTypes, modules: { os: true },
+    work_types: workTypes, ...(objectTypes.length ? { object_types: objectTypes } : {}), modules: { os: true },
     vocabulary: { collection_label: workTypes.length ? "Trabalhos" : "Ordens de serviço", customer_singular: "Cliente", customer_plural: "Clientes" },
     departments: [], ticket_categories: [], menus, texts: {},
     bot: { instructions: "", allowed_operations: [], denied_operations: [], suggested_roles: [] }, manual_steps: [],

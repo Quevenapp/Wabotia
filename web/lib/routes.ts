@@ -52,6 +52,7 @@ const pageSlugs: Partial<Record<PageId, string>> = {
   saude: "prontuarios",
   ensino: "ensino",
   work: "trabalhos",
+  "service-objects": "objetos-de-servico",
   "my-deadlines": "meus-prazos",
   "work-types": "tipos-de-trabalho",
   "area-templates": "modelos-de-area",
@@ -124,6 +125,7 @@ const filterKeys = [
   "state",
   "due_from",
   "due_to",
+  "field_filter",
 ];
 const isWorkPage = (page?: PageId) =>
   page === "work" || page === "work-types" || page === "my-deadlines" || page === "service-orders-settings";
@@ -170,9 +172,10 @@ export function parseRoute(pathname: string, search = "", hash = ""): Route {
     const page = (
       Object.keys(nativePageSlugs) as (keyof typeof nativePageSlugs)[]
     ).find((key) => nativePageSlugs[key] === third);
-    const maxParts = page === "work" ? 5 : isWorkPage(page) ? 4 : 3;
+    const maxParts = page === "work" ? 5 : page === "service-objects" || isWorkPage(page) ? 4 : 3;
     if (!page || parts.length > maxParts)
       return { area, nativePath: pathname.slice("/app/erp".length), ...extras };
+    if (page === "service-objects") return { area, page, id: decode(parts[3]), ...extras };
     if (isWorkPage(page)) {
       const query = new URLSearchParams(search);
       const filters: Record<string, string> = {};
@@ -259,6 +262,8 @@ export function href(input: Route) {
     if (route.page === "work" && route.id)
       path += "/" + encodeURIComponent(route.id);
   }
+  if (route.area === "erp" && route.page === "service-objects" && route.id)
+    path += "/" + encodeURIComponent(route.id);
   return path + routeSearch(route, true) + (route.hash || "");
 }
 

@@ -36,7 +36,7 @@ import {
 import { activeTicketSql } from "./protocols";
 import { isBound } from "./visibility";
 import { LICENSE_NAME, sourceInfo } from "./source";
-import { webStepHook, webStepValidator } from "./modules/hooks";
+import { webStepHook, webStepValidator, webStepBeforeCompleteHook, isObjectOpeningWebStep } from "./modules/hooks";
 import type { Establishment } from "./establishment";
 import { interactiveLine, sendInteractive } from "./line-service";
 import { flowToken } from "./whatsapp-interactive";
@@ -419,6 +419,17 @@ export function stepFor(actor: Actor, row: any) {
     return { ...view, answers: null };
   return view;
 }
+/** Referência pública do fluxo novo contém só metadados, nunca valores. */
+function publicStepRef(row: { module_id?: string; kind?: string; ref_id?: string | null }) {
+  const ref = json(row.ref_id, null);
+  if (row.module_id !== "os" || row.kind !== "open" || ref?.schema_version !== 2) return row.ref_id ?? null;
+  return JSON.stringify({
+    schema_version: 2,
+    definition_id: typeof ref.definition_id === "string" ? ref.definition_id : undefined,
+    type_id: typeof ref.type_id === "string" ? ref.type_id : undefined,
+    revision: Number.isSafeInteger(ref.revision) ? ref.revision : undefined,
+  });
+}
 export function webStepView(row: any) {
   if (!row) return null;
   return {
@@ -426,7 +437,7 @@ export function webStepView(row: any) {
     conversation_id: row.conversation_id,
     module_id: row.module_id,
     kind: row.kind,
-    ref_id: row.ref_id,
+    ref_id: publicStepRef(row),
     title: row.title,
     status: row.status as WebStepStatus,
     trigger: row.trigger,
@@ -475,6 +486,17 @@ const clip = (value: string, max: number) =>
  */
 export async function openWebStep(env: Env, input: OpenWebStepInput) {
   const c = input.conversation;
+  const objectRef = input.module === "os" && input.kind === "open" ? json(input.ref, null) : null;
+  if (objectRef?.schema_version === 2) {
+    requireValue(
+      !Array.isArray(objectRef) &&
+      Object.keys(objectRef).every(key => ["schema_version", "definition_id", "type_id", "revision"].includes(key)) &&
+      typeof objectRef.definition_id === "string" && objectRef.definition_id.length > 0 && objectRef.definition_id.length <= 200 &&
+      typeof objectRef.type_id === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(objectRef.type_id) &&
+      Number.isSafeInteger(objectRef.revision) && objectRef.revision > 0,
+      "Referência da abertura com objeto deve conter somente definição, modelo e revisão.",
+    );
+  }
   if (c.channel != null && c.channel !== "whatsapp")
     throw new ApiError(422, "unsupported_content", "Passos de módulos estão disponíveis somente no WhatsApp.");
   const old = await one(
@@ -610,7 +632,7 @@ export async function openWebStep(env: Env, input: OpenWebStepInput) {
     conversation_id: c.id,
     module_id: input.module,
     kind: input.kind,
-    ref_id: input.ref || null,
+    ref_id: publicStepRef({ module_id: input.module, kind: input.kind, ref_id: input.ref || null }),
     title: spec.title,
     trigger: input.trigger,
     expires_at: row.expires_at,
@@ -639,7 +661,7 @@ async function markExpired(env: Env, row: any) {
       conversation_id: row.conversation_id,
       module_id: row.module_id,
       kind: row.kind,
-      ref_id: row.ref_id,
+      ref_id: publicStepRef(row),
     });
   return { ...row, status: "expired" };
 }
@@ -663,7 +685,7 @@ export async function touchWebStep(env: Env, row: any) {
       conversation_id: row.conversation_id,
       module_id: row.module_id,
       kind: row.kind,
-      ref_id: row.ref_id,
+      ref_id: publicStepRef(row),
     });
   return { ...row, status: "opened", opened_at: at };
 }
@@ -750,7 +772,7 @@ export async function cancelWebStep(
     conversation_id: row.conversation_id,
     module_id: row.module_id,
     kind: row.kind,
-    ref_id: row.ref_id,
+    ref_id: publicStepRef(row),
     actor: actor.id,
   });
   return webStepView(await one(env, "SELECT * FROM web_steps WHERE id=?", id));
@@ -794,7 +816,7 @@ export async function cancelModuleWebSteps(
       conversation_id: row.conversation_id,
       module_id: row.module_id,
       kind: row.kind,
-      ref_id: row.ref_id,
+      ref_id: publicStepRef(row),
       actor: `module:${module}`,
     });
   return rows.map((row) => row.id as string);
@@ -857,7 +879,43 @@ export async function completeWebStep(
   const whatsapp = c ? await whatsappReturnLink(env, c) : null;
   if (row.status === "completed")
     return { ok: false, reason: "used", whatsapp };
-  if (!ACTIVE.includes(row.status) || row.expires_at <= now()) {
+  const objectOpening = isObjectOpeningWebStep(row);
+  const beforeComplete = objectOpening ? webStepBeforeCompleteHook(row.module_id) : undefined;
+  let fixedDefinition: unknown;
+  let acceptedAnswers: Answers | undefined;
+  const rejected = (error: unknown): CompleteResult => ({
+    ok: false, reason: "rejected", whatsapp,
+    message: error instanceof ApiError ? error.message : "Não foi possível concluir agora. Tente novamente.",
+  });
+  if (objectOpening) {
+    // O marcador vem da linha persistida. A versão do envelope também precisa
+    // coincidir; o pedido não pode promover um formulário antigo a v2.
+    try {
+      if (!beforeComplete) throw new ApiError(501, "not_implemented", "A abertura com objeto ainda não está disponível.");
+      const ref = json(row.ref_id, null);
+      const fixed = await one(env,
+        "SELECT snapshot_json FROM os_open_definitions WHERE profile_id=? AND id=? AND type_id=? AND type_revision=?",
+        row.profile_id, ref.definition_id, ref.type_id, ref.revision);
+      fixedDefinition = fixed ? json(fixed.snapshot_json, null) : null;
+      if (!fixedDefinition || (fixedDefinition as { schema_version?: number }).schema_version !== 2)
+        throw new ApiError(409, "object_definition_conflict", "A definição deste formulário está indisponível. Solicite um novo link.");
+      if (!c) throw new ApiError(404, "not_found", "Conversa não disponível.");
+      if (ACTIVE.includes(row.status) || row.status === "expired") {
+        const recovered = await beforeComplete(env, row.profile_id, webStepView(row), input as Answers,
+          { resumeOnly: true, definition: fixedDefinition });
+        if (recovered !== null) {
+          if (!recovered || recovered.replayed !== true || !recovered.answers || typeof recovered.answers !== "object" || Array.isArray(recovered.answers))
+            throw new ApiError(409, "object_definition_conflict", "Não foi possível recuperar as respostas aceitas.");
+          // Conferir apenas a forma HTML persistida não reabre o comando nem
+          // revalida modelo, objeto ou configuração atual. Descarta chaves extras.
+          const recoveredInput = validateAnswers(json(row.spec).fields || [], recovered.answers);
+          if (!recoveredInput.ok) throw new ApiError(409, "object_definition_conflict", "As respostas aceitas não correspondem ao formulário.");
+          acceptedAnswers = recoveredInput.answers;
+        }
+      }
+    } catch (error) { return rejected(error); }
+  }
+  if (!acceptedAnswers && (!ACTIVE.includes(row.status) || row.expires_at <= now())) {
     if (ACTIVE.includes(row.status)) await markExpired(env, row);
     return { ok: false, reason: "expired", whatsapp };
   }
@@ -865,8 +923,9 @@ export async function completeWebStep(
   // Página de acompanhamento só se lê: nada a concluir.
   if (spec.page === "track") return { ok: false, reason: "not_found" };
   // Carrinho: valores recalculados a partir do catálogo guardado no passo.
-  const { answers, errors, ok } =
-    spec.page === "cart"
+  let { answers, errors, ok } = acceptedAnswers
+    ? { answers: acceptedAnswers, errors: {}, ok: true }
+    : spec.page === "cart"
       ? (() => {
           const v = validateCartOrder(spec.cart!, input as CartInput);
           return { answers: v.order as Answers, errors: v.errors, ok: v.ok };
@@ -877,7 +936,7 @@ export async function completeWebStep(
   // abrir o link): a página mostra o motivo e o link continua aberto. Erro
   // no gancho também recusa, para não aceitar o que o módulo não conferiu.
   const validator = webStepValidator(row.module_id);
-  if (validator) {
+  if (validator && !acceptedAnswers) {
     let refusal: string | null | void;
     try {
       refusal = await validator(env, row.profile_id, webStepView(row), answers);
@@ -900,6 +959,22 @@ export async function completeWebStep(
         whatsapp,
       };
   }
+  if (objectOpening && !acceptedAnswers) {
+    try {
+      const committed = await beforeComplete!(env, row.profile_id, webStepView(row), answers,
+        { resumeOnly: false, definition: fixedDefinition });
+      if (!committed || typeof committed !== "object" || Array.isArray(committed) || typeof committed.replayed !== "boolean" ||
+          ("committed" in committed && committed.committed !== true))
+        throw new ApiError(501, "not_implemented", "A abertura com objeto ainda não está disponível.");
+      if (committed.replayed) {
+        if (!committed.answers || typeof committed.answers !== "object" || Array.isArray(committed.answers))
+          throw new ApiError(409, "object_definition_conflict", "Não foi possível recuperar as respostas aceitas.");
+        const replayedInput = validateAnswers(spec.fields || [], committed.answers);
+        if (!replayedInput.ok) throw new ApiError(409, "object_definition_conflict", "As respostas aceitas não correspondem ao formulário.");
+        answers = replayedInput.answers;
+      }
+    } catch (error) { return rejected(error); }
+  }
   const at = now();
   const claimed = await exec(
     env,
@@ -918,13 +993,13 @@ export async function completeWebStep(
              AND p.identity_state='active' AND c.customer_link_state NOT IN ('blocked','excluded','ambiguous')
            ORDER BY r.occurred_at DESC,r.record_id DESC LIMIT 1))
         ELSE contact_id END
-      WHERE id=? AND status IN ('sent','opened') AND expires_at>?`,
+      WHERE id=? AND ${acceptedAnswers ? "status IN ('sent','opened','expired')" : "status IN ('sent','opened') AND expires_at>?"}`,
     JSON.stringify(answers),
     at,
     at,
     at,
     id,
-    at,
+    ...(acceptedAnswers ? [] : [at]),
   );
   if (!claimed.meta?.changes) return { ok: false, reason: "used", whatsapp };
   const after = c ? await afterCompletion(env, c, row, spec, answers) : null;
@@ -936,10 +1011,10 @@ export async function completeWebStep(
     conversation_id: row.conversation_id,
     module_id: row.module_id,
     kind: row.kind,
-    ref_id: row.ref_id,
+    ref_id: publicStepRef(row),
     ticket_id: done.ticket_id,
     contact_id: done.contact_id,
-    answers,
+    ...(objectOpening ? { field_ids: Object.keys(answers) } : { answers }),
   });
   // Retorno padrão antes das mensagens do módulo. Com return_message
   // "module", o módulo responde: a string devolvida pelo gancho vira o

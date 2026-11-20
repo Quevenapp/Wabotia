@@ -273,7 +273,7 @@ export function ErpArea() {
       {integrations ? <IntegrationsPage key={selection + identity} search={route.search} /> : ported ? <div className="management-page erp-area"><PortedContent target={ported} props={mountProps} /></div> : <Activity mode={state === "allowed" ? "visible" : "hidden"}>
         <div className={"management-page" + (ported ? " erp-area" : "")}>
           {route.page && isNativeManagementPage(route.page)
-            ? <ManagementPage page={route.page} />
+            ? <ManagementPage key={route.page === "service-objects" ? route.id : route.page} page={route.page} />
             : null}
         </div>
       </Activity>}

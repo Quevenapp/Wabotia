@@ -6,6 +6,7 @@ import { checkVersion, commitOrderMutation } from "./mutations";
 import { builtinWorkType, effectiveStage, snapshotType } from "./work-types";
 import { changeStatus, customMessage, notify, conversationOf } from "./store";
 import { replayWorkWrite, workWriteReceipt } from "./commercial/mutations";
+import { prepareOrderRulesMutation } from "./os2-ports";
 
 function stageNote(value: unknown): string {
   if (value === undefined || value === null) return "";
@@ -80,6 +81,8 @@ export async function requestStageApproval(ctx: ModuleContext, row: any, data: a
   const type = snapshotType(row);
   const transition = type?.transitions.find(t => t.id === data.transition_id && t.from === effectiveStage(row));
   if (!transition || transition.kind !== "customer_approval") throw stageError();
+  const target = type!.stages.find(s => s.id === transition.to)!;
+  await prepareOrderRulesMutation(ctx, { row, type: type!, sets: { stage: target.id, status: target.base_status }, actor, preview: true });
   const old = json(row.stage_approval_json, null) as PendingStageApproval | null;
   if (old?.state === "pending" && old.expires_at > now()) throw stageError("approval_pending");
   if (!row.conversation_id) throw stageError("no_conversation");

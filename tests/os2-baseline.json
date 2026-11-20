@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "base_commit": "93b9f08855f0a636e8d98e647ff79191ec907b69",
+  "status": "pending_external_runtime",
+  "reason": "A máquina de implementação proíbe Vitest e Wrangler. Nenhuma medição anterior às alterações foi executada; os valores não foram estimados.",
+  "runtime": "Cloudflare Worker e Coordinator reais, D1 metadata rows_read e rows_written",
+  "report": "task.meta.os2Budget no reporter JSON do Vitest",
+  "scenarios": [
+    { "id": "common_message", "worker": null, "coordinators": null },
+    { "id": "classic_opening", "worker": null, "coordinators": null },
+    { "id": "custom_opening_without_object", "worker": null, "coordinators": null },
+    { "id": "tracking", "worker": null, "coordinators": null },
+    { "id": "stage_reply", "worker": null, "coordinators": null },
+    { "id": "configured_objects_unused", "worker": null, "coordinators": null }
+  ],
+  "acceptance": "O integrador precisa executar os mesmos cenários no commit base e na junção, registrar Worker e cada Coordinator e conferir delta zero no caminho sem objeto. O teste atual comprova ausência de acesso às novas tabelas; não substitui a medição anterior."
+}

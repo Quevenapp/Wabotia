@@ -23,6 +23,9 @@ import {
   type ModuleMcpTool,
   registerSettingsValidator,
   registerWebStepHook,
+  registerWebStepBeforeComplete,
+  type WebStepBeforeCompleteOptions,
+  type WebStepBeforeCompleteResult,
   registerWebStepPage,
   registerWebStepValidator,
   registerWriteRoute,
@@ -1157,6 +1160,19 @@ export function onWebStepCompleted(
 ) {
   registerWebStepHook(moduleId, (env, profile, step, answers) =>
     hook(modulesApi(env, profile, moduleId), step, answers),
+  );
+}
+
+/** Confirma os/open v2 antes do consumo; falha mantém o link disponível. */
+export function onWebStepBeforeComplete(
+  moduleId: "os",
+  hook: (
+    ctx: ModuleContext, step: WebStep, answers: Answers,
+    options: WebStepBeforeCompleteOptions,
+  ) => Promise<WebStepBeforeCompleteResult | null>,
+) {
+  registerWebStepBeforeComplete(moduleId, (env, profile, step, answers, options) =>
+    hook(modulesApi(env, profile, moduleId), step, answers, options),
   );
 }
 

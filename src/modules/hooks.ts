@@ -28,6 +28,39 @@ export function registerWebStepHook(
 }
 export const webStepHook = (module: string) => webStepHooks.get(module);
 
+/** Efeito recuperável anterior ao consumo, exclusivo da abertura OS v2. */
+export interface WebStepBeforeCompleteOptions {
+  resumeOnly: boolean;
+  /** Envelope lido da definição persistida, nunca do corpo do pedido. */
+  definition: unknown;
+}
+export interface WebStepBeforeCompleteResult {
+  /** Retornar este resultado confirma commit durável (novo ou recuperado).
+   * Em resumeOnly, ausência de recibo retorna null; não retorna replayed:false. */
+  replayed: boolean;
+  /** Respostas já aceitas, obrigatórias para recuperar um comando anterior. */
+  answers?: Answers;
+}
+type BeforeCompleteHook = (
+  env: Env, profile: string, step: any, answers: Answers,
+  options: WebStepBeforeCompleteOptions,
+) => Promise<WebStepBeforeCompleteResult | null>;
+const webStepBeforeCompleteHooks = new Map<string, BeforeCompleteHook>();
+export function registerWebStepBeforeComplete(module: string, hook: BeforeCompleteHook) {
+  if (module !== "os") throw new Error("O gancho pré-conclusão está reservado ao fluxo os/open v2.");
+  webStepBeforeCompleteHooks.set(module, hook);
+}
+export const webStepBeforeCompleteHook = (module: string) => webStepBeforeCompleteHooks.get(module);
+
+/** Marcador persistido; o núcleo ainda confere o envelope no D1 antes do efeito. */
+export function isObjectOpeningWebStep(step: { module_id?: string; kind?: string; ref_id?: string | null }) {
+  if (step.module_id !== "os" || step.kind !== "open" || !step.ref_id) return false;
+  try {
+    const ref = JSON.parse(step.ref_id);
+    return ref?.schema_version === 2 && typeof ref.definition_id === "string" && !!ref.definition_id;
+  } catch { return false; }
+}
+
 /**
  * Antes de concluir um passo web do módulo: (env, profile, step, answers) →
  * texto do motivo para recusar (loja fechou, item esgotou) ou nada.
