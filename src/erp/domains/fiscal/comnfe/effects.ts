@@ -16,6 +16,7 @@ import {
   getStoredEmission, getStoredRevision, replayCommand, saveEffect, startCommand, transferEffect,
 } from "./store.ts";
 import { withCom1Compensation } from "./effect-policy.ts";
+import { BANK_WRITEOFF_ACTION, liveBankCollection } from "../../finance/internal.ts";
 
 export interface Com1EffectPorts {
   /** Porta síncrona: usa as mesmas RPCs, permissões, previews e comandos locais. */
@@ -140,7 +141,11 @@ function titles(ctx: RpcContext, origin: Found["origin"], id: unknown): Row[] {
   const key = origin === "grouped_billing" ? "billing_id" : "posting_id";
   return ctx.db.exec(`SELECT t.*,l.position,CAST(t.amount_cents AS TEXT) amount_cents,CAST(t.settled_cents AS TEXT) settled_cents FROM ${table} l JOIN erp_finance__title t ON t.id=l.title_id WHERE l.${key}=? ORDER BY l.position`, id).rows;
 }
-function financeFound(ctx: RpcContext, emission: StoredEmission, revision: ImmutableRevision): Found | null {
+/** Título cancelado pela declaração de boleto baixado no banco: na
+ * compensação ele já está encerrado e não desfaz a prova do lançamento. */
+const writtenOff = (ctx: RpcContext, title: Row): boolean => !!Number(title.cancelled) && Number(title.settled_cents) === 0 &&
+  !!one(ctx.db,`SELECT 1 FROM erp_cnab__billing_title b JOIN erp_cnab__audit a ON a.record_id=b.id AND a.action=? WHERE b.title_id=? LIMIT 1`,BANK_WRITEOFF_ACTION,title.id);
+function financeFound(ctx: RpcContext, emission: StoredEmission, revision: ImmutableRevision, reverse = false): Found | null {
   const own = ctx.db.exec(`SELECT p.*,NULL AS invoice_id,'document' AS origin FROM erp_finance__document_posting p WHERE document_id=? AND state='active'`, emission.document_id).rows;
   const legacy = ctx.db.exec(`SELECT p.*,'legacy_invoice' AS origin FROM erp_finance__invoice_posting p JOIN erp_fiscal_invoices__invoice_order o ON o.invoice_id=p.invoice_id WHERE o.document_id=? AND p.state='active'`, emission.document_id).rows;
   const grouped = ctx.db.exec(`SELECT b.*,'grouped_billing' AS origin,CAST(g.total_cents AS TEXT) allocated FROM erp_finance__grouped_billing b JOIN erp_finance__grouped_billing_document g ON g.billing_id=b.id WHERE g.document_id=? AND g.active=1 AND b.state='active'`, emission.document_id).rows;
@@ -149,7 +154,8 @@ function financeFound(ctx: RpcContext, emission: StoredEmission, revision: Immut
   if (all.length > 1) pending("com1_effect_multiple_origins");
   if (!all.length) return null;
   const p = all[0], origin = p.origin as Found["origin"], rows = titles(ctx, origin, p.id), contact = bodyOf(revision).contact_id ?? revision.snapshot.document.contact_id;
-  if (!rows.length || rows.some(t => t.kind !== "receivable" || t.contact_id !== contact || !!Number(t.cancelled))) pending("com1_effect_finance_content_mismatch");
+  if (!rows.length || rows.some(t => t.kind !== "receivable" || t.contact_id !== contact || !!Number(t.cancelled) && !(reverse && writtenOff(ctx,t))))
+    pending("com1_effect_finance_content_mismatch");
   if (p.invoice_id && Number(one(ctx.db, 'SELECT COUNT(*) n FROM erp_fiscal_invoices__invoice_order WHERE invoice_id=?', p.invoice_id)!.n) !== 1) pending("com1_effect_legacy_grouped");
   if (origin === "grouped_billing") {
     const allocations = ctx.db.exec(`SELECT CAST(total_cents AS TEXT) amount FROM erp_finance__grouped_billing_document WHERE billing_id=? AND active=1 UNION ALL SELECT CAST(total_cents AS TEXT) amount FROM erp_finance__grouped_billing_invoice WHERE billing_id=? AND active=1`, p.id, p.id).rows;
@@ -165,7 +171,8 @@ function financeFound(ctx: RpcContext, emission: StoredEmission, revision: Immut
   const ids: JsonObject = { [origin === "grouped_billing" ? "billing_id" : "posting_id"]: String(p.id), title_ids: rows.map(t => String(t.id)), ...(p.invoice_id ? { invoice_id: String(p.invoice_id) } : {}) };
   return { origin, ids, posting: p, fingerprint: com1Hash({ ids, installments: rows.map(t => ({ id:t.id, amount_cents:String(t.amount_cents), due_on:t.due_on, contact_id:t.contact_id, payment_method_id:t.payment_method_id ?? null, account_id:t.account_id ?? null })) }), result: { proof: origin === "grouped_billing" ? "group_allocation_and_titles" : "posting_and_titles", document_version: Number(currentDocument(ctx, emission.document_id).version) } };
 }
-const find = (ctx: RpcContext, emission: StoredEmission, revision: ImmutableRevision, axis: EffectAxis): Found | null => axis === "stock" ? stockFound(ctx,emission,revision) : financeFound(ctx,emission,revision);
+const find = (ctx: RpcContext, emission: StoredEmission, revision: ImmutableRevision, axis: EffectAxis, reverse = false): Found | null =>
+  axis === "stock" ? stockFound(ctx,emission,revision) : financeFound(ctx,emission,revision,reverse);
 /** Outra emissão do mesmo pedido que responde pelo mesmo lançamento. */
 function otherOwner(ctx: RpcContext, emission: StoredEmission, axis: EffectAxis, ids: JsonObject): EffectView | null {
   const key = com1Hash(ids);
@@ -263,10 +270,19 @@ export function createCom1EffectHandlers(ports: Partial<Com1EffectPorts> = {}) {
       if (reverse && old?.compensation_state === "revertido") return finish(old);
       try {
         if (!reverse) assertSource(ctx,emission,revision);
-        const found = find(ctx,emission,revision,input.axis);
+        const found = find(ctx,emission,revision,input.axis,reverse);
         if (reverse) {
           // Também sem registro anterior do efeito: quem reconheceu o lançamento responde por ele.
-          if (found && otherOwner(ctx,emission,input.axis,found.ids)) raise("55000",TRANSFERRED);
+          const owner = found ? otherOwner(ctx,emission,input.axis,found.ids) : null;
+          if (owner) {
+            // Reconhecimento sem transferência registrada (efeito anterior a
+            // ela ou atalho do fingerprint): registra agora, pelo comando que
+            // reconheceu, para a pendência desta versão sair da tela.
+            if (old?.fingerprint && ["aplicado","reconhecido"].includes(old.state) && old.compensation_state !== "revertido" &&
+                com1Hash(old.ids) === com1Hash(found!.ids) && owner.command_id)
+              return transferEffect(ctx,old,{ emission_id:owner.emission_id,command_id:owner.command_id });
+            raise("55000",TRANSFERRED);
+          }
           if (!found) {
             // Só reconhece reversão anterior com prova no posting exato.
             if (old?.ids.posting_id && ["document","legacy_invoice"].includes(old.origin ?? "")) {
@@ -284,7 +300,8 @@ export function createCom1EffectHandlers(ports: Partial<Com1EffectPorts> = {}) {
           if (input.axis === "finance") {
             const rows = titles(ctx,found.origin,found.posting!.id);
             if (rows.some(t => BigInt(String(t.settled_cents)) !== 0n)) return fail("received_title_requires_manual_review");
-            if (rows.some(t => !!one(ctx.db,'SELECT 1 FROM erp_cnab__billing_title WHERE title_id=? LIMIT 1',t.id))) return fail("bank_collection_requires_manual_review");
+            // Boleto vivo: a revisão manual é declarar a baixa no banco (title_bank_writeoff).
+            if (rows.some(t => liveBankCollection(ctx.db,t.id))) return fail("bank_collection_requires_manual_review");
           }
         } else if (found) {
           if (old?.fingerprint && (old.fingerprint !== found.fingerprint || com1Hash(old.ids) !== com1Hash(found.ids))) return fail("com1_effect_reconciliation_required");

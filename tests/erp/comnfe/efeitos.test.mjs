@@ -535,7 +535,7 @@ test("cobrança CNAB impede compensação sem tocar banco ou recebimento", t => 
   const title = row(f, "SELECT id FROM erp_finance__title"), profile = randomUUID(), remittance = randomUUID(), billing = randomUUID();
   const at = String(f.clock.next());
   f.db.exec("INSERT INTO erp_cnab__profile(id,account_id,identity,settings,account_scope,next_sequence,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)", profile, f.account.id, "{}", "{}", "ensaio", 2, at, at);
-  f.db.exec("INSERT INTO erp_cnab__remittance(id,profile_id,sequence,generated_on,state,snapshot,actor,created_at) VALUES(?,?,?,?,?,?,?,?)", remittance, profile, 1, COM1_DATE, "reserved", "{}", COM1_PEOPLE.admin.user_id, at);
+  f.db.exec("INSERT INTO erp_cnab__remittance(id,profile_id,sequence,generated_on,state,snapshot,actor,created_at,purpose) VALUES(?,?,?,?,?,?,?,?,?)", remittance, profile, 1, COM1_DATE, "reserved", "{}", COM1_PEOPLE.admin.user_id, at, "operational");
   f.db.exec("INSERT INTO erp_cnab__billing_title(id,title_id,profile_id,remittance_id,control,document_number,our_number,snapshot) VALUES(?,?,?,?,?,?,?,?)", billing, title.id, profile, remittance, "controle", "DOC-1", "123456", "{}");
   const before = row(f, "SELECT * FROM erp_cnab__billing_title");
   assert.equal(reverse(f, cancelled(f, a), "finance").compensation_state, "compensacao_pendente");

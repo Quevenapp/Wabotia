@@ -30,6 +30,7 @@ const messages: Record<string, string> = {
   module_cancellation_blocked: "Confira e estorne os efeitos vinculados antes de cancelar.",
   fiscal_order_transition_locked: "Há uma emissão fiscal enviada para este pedido. Confira a emissão antes de cancelar a origem.",
   fiscal_order_compensation_required: "O cancelamento fiscal exige conferência dos efeitos antes de cancelar a origem.",
+  fiscal_compensation_requires_fiscal_part: "Ligue a parte Fiscal para compensar a nota cancelada deste pedido (ou concluir a emissão em andamento). Desligar a Fiscal não desfaz a nota.",
   module_receipt_excess: "O recebimento excede o saldo da obrigação. Confira a conciliação.",
   module_commercial_frozen: "Os dados comerciais já lançados exigem correção pela origem.",
   module_transition_invalid: "A etapa comercial exige revisão pela origem.",

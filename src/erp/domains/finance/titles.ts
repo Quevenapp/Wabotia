@@ -16,6 +16,7 @@ import {
   CNTRL,
   field,
   hasKey,
+  liveBankCollection,
   titleUpdateGuards,
   toJsonb,
   txt,
@@ -452,7 +453,7 @@ function requireTitleUpdate(ctx: RpcContext, old: Row, set: Record<string, unkno
       if (reversals.some(s => allows("erp_finance_execute", { p_action: "reverse", p_data: { id: old.id, settlement_id: s.reverses_id } }))) return;
     }
     if (!(set.cancelled === true || set.cancelled === 1) || Number(old.settled_cents) !== 0 ||
-        one(ctx.db, 'SELECT 1 FROM erp_cnab__billing_title WHERE title_id=?', old.id)) throw denied;
+        liveBankCollection(ctx.db, old.id)) throw denied;
     if (keys.every(k => ["cancelled", "version", "updated_at"].includes(k))) {
       const doc = one(ctx.db, `SELECT p.id,p.document_id FROM erp_finance__document_title t
         JOIN erp_finance__document_posting p ON p.id=t.posting_id WHERE t.title_id=? AND p.state='active'`, old.id);

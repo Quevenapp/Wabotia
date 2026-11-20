@@ -91,13 +91,20 @@ export const ERP_RULE_DEVIATIONS: readonly RuleDeviation[] = Object.freeze([{
   oracle: "if v_title.settled_cents<>0 then raise exception 'erp_finance_active_payments' using errcode='40001'; end if;",
   behavior:
     "Cancelar conta (title_cancel e todo escritor que marca cancelled) é recusado com erp_finance_billed_locked quando a conta tem " +
-    "vínculo de cobrança bancária (erp_cnab.billing_title). A guarda fica em titleUpdateGuards (domains/finance/internal.ts), ponto único " +
-    "de todos os escritores. O vínculo só se encerra pela exclusão da remessa (apaga o vínculo) ou pela baixa (settled_cents).",
+    "vínculo de cobrança bancária viva (erp_cnab.billing_title de remessa operacional sem declaração de baixa). A guarda fica em " +
+    "titleUpdateGuards (domains/finance/internal.ts), ponto único de todos os escritores. Remessa de homologação não trava (nem o " +
+    "cancelamento nem o estorno de lançamento de documento ou nota, que no Fagoo recusam qualquer vínculo). O vínculo se encerra pela " +
+    "exclusão da remessa, pela baixa (settled_cents) ou pela ação local title_bank_writeoff de erp_finance_execute: a pessoa declara o " +
+    "boleto baixado no banco, com motivo; a conta é cancelada e a declaração fica em erp_finance.audit e erp_cnab.audit.",
   reason:
     "No Fagoo o title_cancel só confere settled_cents: a dívida some do ERP enquanto o boleto continua no banco, e o pagamento depois " +
     "cai em conta não aberta na conciliação (revisão de dinheiro, estoque e nota, achado 3).",
   decided: "orquestração, 20/11/2026 (junção candidata, correções da revisão)",
-  tests: [{ file: "tests/erp/comnfe/revisao-dinheiro.test.mjs", test: "achado 3: title_cancel recusa título com cobrança bancária, de pedido ou avulso" }],
+  tests: [
+    { file: "tests/erp/comnfe/revisao-dinheiro.test.mjs", test: "achado 3: title_cancel recusa título com cobrança bancária, de pedido ou avulso" },
+    { file: "tests/erp/comnfe/revisao-dinheiro-2.test.mjs", test: "M3: remessa de homologação não trava o cancelamento nem a compensação do título" },
+    { file: "tests/erp/comnfe/revisao-dinheiro-2.test.mjs", test: "M3: declarar o boleto baixado no banco cancela a conta, audita e libera a compensação da NF-e" },
+  ],
 }]);
 export const isFunctionDeviation = (d: Deviation): d is FunctionDeviation => d.kind === "function";
 const seedOnly = (list: readonly Deviation[]) => list.filter((d): d is SeedDeviation => !isFunctionDeviation(d));

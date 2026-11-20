@@ -294,6 +294,8 @@ export const ERP_ROUTE_PATTERNS: readonly [string, string][] = [
   ["POST", "/v1/financeiro/actions/title_create"],
   ["POST", "/v1/financeiro/actions/title_edit"],
   ["POST", "/v1/financeiro/actions/title_delete"],
+  // Local (segunda revisão, M3): cancelar conta declarando o boleto baixado no banco.
+  ["POST", "/v1/financeiro/actions/title_bank_writeoff"],
   ["GET", "/v1/financeiro/borderos"],
   ["GET", "/v1/financeiro/borderos/:id"],
   ["POST", "/v1/financeiro/actions/settle_batch"],

@@ -62,6 +62,20 @@ export const activityOperations: ErpCommercialOperation[] = [
   read("erp.activity.detail", "/v1/registro-atividades/detalhe", "Abrir antes e depois de uma atividade", { origem: string, id: string }, ["origem", "id"],
     "Administrador, Base ligada. Fonte e identificador vêm da listagem. Contrato activity.mjs: captureActivityDetailQuery/parseActivityDetail; retorna available=false quando a origem não conserva detalhe.", "activity_detail com available, truncated, before e after.", true),
 ];
+export const financeOperations: ErpCommercialOperation[] = [{
+  id: "erp_finance_title_bank_writeoff", method: "POST", path: "/v1/financeiro/actions/title_bank_writeoff",
+  summary: "Cancelar conta declarando o boleto baixado no banco",
+  description: "Encerra a cobrança de uma conta a receber que está em remessa operacional: a pessoa declara que já baixou o boleto no banco (o sistema não gera instrução de baixa por arquivo) e a conta é cancelada. Motivo obrigatório; quem declarou, quando e o motivo ficam na auditoria do Financeiro. Exige papel administrador ou financeiro com a permissão de cancelar conta e o segundo fator da política financeira. Recusa conta com baixa, sem boleto operacional vivo ou de pedido com NF-e vigente. Depois dela, a compensação financeira da NF-e cancelada conclui. Comando idempotente pelo command_id.",
+  sensitive: true,
+  params: { type: "object", additionalProperties: false, required: ["command_id", "data"], properties: {
+    command_id: uuid,
+    data: { type: "object", additionalProperties: false, required: ["id", "expected_version", "reason"], properties: {
+      id: uuid, expected_version: { type: "integer", minimum: 1, maximum: 2147483647 },
+      reason: { type: "string", minLength: 3, maxLength: 500, description: "Por que o boleto foi baixado no banco (protocolo, data, quem baixou)." },
+    } },
+  } },
+  result: "titles: conta cancelada, recibo do comando e bank_writeoff (vínculo de cobrança encerrado, motivo, quem e quando).",
+}];
 export const erpCommercialOperations: readonly ErpCommercialOperation[] = [
-  ...businessOperations, ...activityOperations, ...ERP_CNAB_OPERATIONS,
+  ...businessOperations, ...activityOperations, ...ERP_CNAB_OPERATIONS, ...financeOperations,
 ];

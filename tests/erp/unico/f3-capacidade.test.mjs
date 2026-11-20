@@ -469,7 +469,7 @@ test("cobrança bancária mantém o bloqueio de reversão e o estoque ativo", as
   const profile = randomUUID(), remittance = randomUUID(), title = result.links.find(l => l.kind === "title").id;
   // Cobrança existente é uma dependência externa ao executor; sem desativar FKs.
   f.lite.prepare("INSERT INTO erp_cnab__profile(id,account_id,identity,settings,account_scope,next_sequence,created_at,updated_at) VALUES(?,?,'{}','{}','f3-billing',1,0,0)").run(profile, f.account.id);
-  f.lite.prepare("INSERT INTO erp_cnab__remittance(id,profile_id,sequence,generated_on,snapshot,actor,created_at) VALUES(?,?,1,'2026-11-18','{}',?,0)").run(remittance, profile, ADMIN);
+  f.lite.prepare("INSERT INTO erp_cnab__remittance(id,profile_id,sequence,generated_on,snapshot,actor,created_at,purpose) VALUES(?,?,1,'2026-11-18','{}',?,0,'operational')").run(remittance, profile, ADMIN);
   f.lite.prepare("INSERT INTO erp_cnab__billing_title(id,title_id,profile_id,remittance_id,control,document_number,snapshot) VALUES(?,?,?,?,'f3-control','f3-document','{}')").run(randomUUID(), title, profile, remittance);
   await assert.rejects(f.run(f.enqueue({ operation: "cancel", lifecycle: { base_status: "cancelled" }, reason: "work_cancelled" })), /reverse_blocked/);
   assert.equal(f.lite.prepare("SELECT state FROM erp_stock__document_posting").get().state, "active");
