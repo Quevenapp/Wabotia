@@ -349,6 +349,34 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     label: "Manutenção de efeitos",
     target: { kind: "ported", to: "/manutencao-efeitos" }, permission: { kind: "erp" },
   },
+  {
+    id: "erp.operational-billing", module: "erp-cobranca", part: "cobranca",
+    ...ERP_MENU_GROUPS.financeiro, order: 381,
+    label: "Cobrança operacional",
+    target: { kind: "ported", to: "/cobranca-operacional" },
+    permission: { kind: "erp", roles: ["admin", "consulta", "financeiro"] },
+  },
+  {
+    id: "erp.operational-returns", module: "erp-cobranca", part: "cobranca",
+    ...ERP_MENU_GROUPS.financeiro, order: 382,
+    label: "Retornos operacionais",
+    target: { kind: "ported", to: "/retornos-operacionais" },
+    permission: { kind: "erp", roles: ["admin", "consulta", "financeiro"] },
+  },
+  {
+    id: "erp.activity", module: "erp", part: "sistema",
+    group: "sistema", groupLabel: "Sistema", groupOrder: 90, icon: "list", order: 450,
+    label: "Registro de atividades",
+    target: { kind: "ported", to: "/preferencias/sistema/registro-atividades" },
+    permission: { kind: "erp", roles: ["admin"] },
+  },
+  {
+    id: "erp.deletions", module: "erp", part: "sistema",
+    group: "sistema", groupLabel: "Sistema", groupOrder: 90, icon: "list", order: 460,
+    label: "Consulta de exclusões",
+    target: { kind: "ported", to: "/preferencias/sistema/consulta-exclusoes" },
+    permission: { kind: "erp", roles: ["admin"] },
+  },
 ];
 
 // Projeção de compatibilidade: conserva forma, rótulos, ordem, colunas e rodapés.

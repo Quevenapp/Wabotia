@@ -87,10 +87,12 @@ const UUID_GLOB = `'${H.repeat(8)}-${H.repeat(4)}-${H.repeat(4)}-${H.repeat(4)}-
 /** erp_activity.uuid_or_null: uuid em minúsculas, senão null. */
 const uuidOrNull = (x: string) => `(CASE WHEN ${x} GLOB ${UUID_GLOB} THEN ${x} END)`;
 const T = (schema: string, table: string) => `"${schema}__${table}"`;
-const range = (col: string) => `${col}>=?1 AND ${col}<?2`;
+// O SqlStorage recebe parâmetros posicionais anônimos. Cada origem mantém
+// seu próprio intervalo indexável; as 36 origens usam 72 posições (< 100).
+const range = (col: string) => `${col}>=? AND ${col}<?`;
 
 /** erp_activity.entries(p_from, p_to): (source, entry_id, created_at, actor, module, operation, code, description). */
-export const ENTRIES_SQL = [
+const entries = [
   `SELECT 'catalog' AS source,CAST(a.id AS TEXT) AS entry_id,a.created_at AS created_at,a.actor AS actor,
     CASE a.entity WHEN 'contacts' THEN 'clientes_fornecedores' WHEN 'products' THEN 'produtos' ELSE 'depositos' END AS module,
     ${OPERATION("a.action")} AS operation,r.code AS code,${left("r.name", 200)} AS description
@@ -259,4 +261,26 @@ export const ENTRIES_SQL = [
   `SELECT 'company_files',CAST(a.id AS TEXT),a.created_at,a.actor,'anexos',CASE a.action WHEN 'finalize' THEN 'criacao' ELSE 'exclusao' END,NULL,
     ${left(`CASE a.action WHEN 'finalize' THEN 'Arquivo da empresa incluído' ELSE 'Arquivo da empresa excluído' END||' · '||f.filename`, 200)}
    FROM ${T("erp_company", "file_audit")} a JOIN ${T("erp_company", "file")} f ON f.id=a.file_id WHERE a.action IN ('finalize','delete') AND ${range("a.created_at")}`,
-].join("\nUNION ALL\n");
+];
+// O SqlStorage limita cada SELECT composto a cinco termos (o SQLite do
+// Node aceita mais). A árvore mantém as 36 fontes e seus filtros de período
+// em uma só consulta, sem tabelas temporárias nem paginação por fonte.
+function compoundEntries(queries: readonly string[]): string {
+  if (queries.length <= 5) return queries.join("\nUNION ALL\n");
+  const groups: string[] = [];
+  for (let i = 0; i < queries.length; i += 5)
+    groups.push(`SELECT * FROM (${queries.slice(i, i + 5).join("\nUNION ALL\n")})`);
+  return compoundEntries(groups);
+}
+export const ENTRIES_SQL = compoundEntries(entries);
+export const entriesBindings = (from: string, to: string): string[] => entries.flatMap(() => [from, to]);
+
+// O detalhe conhece a fonte e o id. Reutiliza a mesma descrição/projeção,
+// mas busca uma chave primária; nunca abre a linha do tempo de todos os anos.
+const entrySql = new Map(entries.map(sql => {
+  const source = /^SELECT '([^']+)'/.exec(sql)![1];
+  const rangeMatch = /([a-z])\.created_at>=\? AND \1\.created_at<\?/.exec(sql)!;
+  const lookup = sql.replace(rangeMatch[0], `${rangeMatch[1]}.id=?`);
+  return [source, `WITH activity_entry(source,entry_id,created_at,actor,module,operation,code,description) AS (${lookup}) SELECT * FROM activity_entry`];
+}));
+export const activityEntrySql = (source: string): string | undefined => entrySql.get(source);

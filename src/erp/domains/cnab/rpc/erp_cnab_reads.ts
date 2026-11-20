@@ -130,10 +130,13 @@ export function erpCnabOperationalFilesV2(ctx: RpcContext, a: RpcArgs) {
   access(ctx.db, uuid(a, "p_user_id"));
   if (limit === null || limit < 1 || limit > 100) invalidQuery();
   const rows = ctx.db
-    .exec(`SELECT ${REMITTANCE_COLUMNS} FROM "erp_cnab__remittance" WHERE purpose='operational' AND (? IS NULL OR id>?) ORDER BY id`, after, after)
-    .rows.map(toRemittance)
-    .filter((r) => txt(r.snapshot, "profile", "bank") === "341" && txt(r.snapshot, "profile", "wallet") === "109")
-    .slice(0, limit! + 1);
+    // Migração 067: selecionar o banco/carteira antes do LIMIT. A página
+    // traz no máximo limit+1 snapshots; o cursor usa o índice primário.
+    .exec(`SELECT ${REMITTANCE_COLUMNS} FROM "erp_cnab__remittance"
+      WHERE purpose='operational' AND json_extract(snapshot,'$.profile.bank')='341'
+        AND json_extract(snapshot,'$.profile.wallet')='109' ${after === null ? "" : "AND id>?"}
+      ORDER BY id LIMIT ?`, ...(after === null ? [] : [after]), limit! + 1)
+    .rows.map(toRemittance);
   const more = rows.length > limit!;
   const page = rows.slice(0, limit!);
   return {

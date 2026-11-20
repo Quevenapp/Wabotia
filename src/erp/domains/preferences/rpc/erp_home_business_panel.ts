@@ -214,9 +214,10 @@ class Panel {
     for (const d of this.db.exec(
       `SELECT d.id, d.number, d.status, d.contact_id, d.contact_snapshot, d.body, CAST(d.total AS TEXT) total, d.warehouse_id,
         (SELECT CAST(coalesce(sum(i.quantity),0) AS TEXT) FROM "erp_documents__item" i WHERE i.document_id=d.id) units
-       FROM "erp_documents__document" d WHERE d.authority='brufap' AND d.kind='sales_orders' AND d.deleted_at IS NULL`,
+       FROM "erp_documents__document" d WHERE d.authority='brufap' AND d.kind='sales_orders' AND d.deleted_at IS NULL
+        AND (d.body ->> 'date') BETWEEN ? AND ? AND d.status IN (${statuses.map(() => "?").join(",")})`,
+      from, to, ...statuses,
     ).rows) {
-      if (!statuses.includes(String(d.status))) continue;
       const body = parse(d.body);
       const date = jp(body, "date");
       if (date === null || !/^\d{4}-\d{2}-\d{2}$/.test(date) || date < from || date > to) continue;
@@ -408,17 +409,23 @@ class Panel {
   goalsJson(running: boolean, limit: number) {
     const t = today();
     return this.db
-      .exec('SELECT id, name, start_on, end_on, segment, seller, CAST(target AS TEXT) target, active, version, CAST(updated_at AS TEXT) updated_at FROM "erp_home__goal"')
-      .rows.filter((g) => (Number(g.active) === 1 && String(g.end_on) >= t) === running)
-      .sort(
-        (x, y) =>
-          compareText(String(x.end_on), String(y.end_on)) ||
-          compareText(String(x.start_on), String(y.start_on)) ||
-          compareText(String(x.name), String(y.name)) ||
-          compareText(String(x.id), String(y.id)),
-      )
-      .slice(0, limit)
+      .exec(`SELECT id, name, start_on, end_on, segment, seller, CAST(target AS TEXT) target, active, version, CAST(updated_at AS TEXT) updated_at
+        FROM "erp_home__goal" WHERE (active=1 AND end_on>=?)=? ORDER BY end_on,start_on,name,id LIMIT ?`, t, running ? 1 : 0, limit)
+      .rows
       .map((g) => this.goalDto(g));
+  }
+  /** A existência anterior só consulta os clientes presentes no período. */
+  earlierContacts(from: string, statuses: string[], orders: Order[]) {
+    const before = new Set<string | null>();
+    for (const contact of new Set(orders.map(o => o.contact_id))) {
+      const hit = one(this.db, `SELECT 1 found FROM "erp_documents__document" d
+        WHERE d.authority='brufap' AND d.kind='sales_orders' AND d.contact_id IS ?
+          ${statuses.includes("cancelled") ? "" : "AND d.status<>'cancelled'"}
+          AND (d.body ->> 'date') < ? AND (d.body ->> 'date') GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+          AND d.status IN (${statuses.map(() => "?").join(",")}) LIMIT 1`, contact, from, ...statuses);
+      if (hit) before.add(contact);
+    }
+    return before;
   }
 }
 
@@ -523,16 +530,8 @@ function daily(pn: Panel, user: string | null, statuses: unknown, day: string | 
   bizPeriod(day, day, 1);
   if (compare !== null) bizPeriod(compare, compare, 1);
   const newCustomers = (d: string) => {
-    const before = new Set(
-      pn.db
-        .exec(`SELECT contact_id, status, body FROM "erp_documents__document" WHERE authority='brufap' AND kind='sales_orders'`)
-        .rows.filter((x) => {
-          const date = jp(parse(x.body), "date");
-          return s.includes(String(x.status)) && date !== null && /^\d{4}-\d{2}-\d{2}$/.test(date) && date < d;
-        })
-        .map((x) => x.contact_id),
-    );
-    return new Set(pn.orders(d, d, s).filter((o) => !before.has(o.contact_id)).map((o) => o.contact_id)).size;
+    const orders = pn.orders(d, d, s), before = pn.earlierContacts(d, s, orders);
+    return new Set(orders.filter((o) => !before.has(o.contact_id)).map((o) => o.contact_id)).size;
   };
   return {
     ...pn.envelope("diario", role, { statuses: s, day, compare_day: compare }),
@@ -867,16 +866,8 @@ function customers(pn: Panel, user: string | null, statuses: unknown, from: stri
   const s = statusesJson(statuses);
   bizPeriod(from, to);
   const cost = pn.costVisible(role);
-  const earlier = new Set(
-    pn.db
-      .exec(`SELECT contact_id, status, body FROM "erp_documents__document" WHERE authority='brufap' AND kind='sales_orders'`)
-      .rows.filter((x) => {
-        const date = jp(parse(x.body), "date");
-        return s.includes(String(x.status)) && date !== null && /^\d{4}-\d{2}-\d{2}$/.test(date) && date < from!;
-      })
-      .map((x) => x.contact_id as string | null),
-  );
-  const o = pn.orders(from!, to!, s).map((x) => ({ ...x, is_new: !earlier.has(x.contact_id) }));
+  const periodOrders = pn.orders(from!, to!, s), earlier = pn.earlierContacts(from!, s, periodOrders);
+  const o = periodOrders.map((x) => ({ ...x, is_new: !earlier.has(x.contact_id) }));
   const lines = pn.lines(from!, to!, s);
   const cu = new Map<string | null, (typeof o)[number][]>();
   for (const x of o) cu.set(x.contact_id, [...(cu.get(x.contact_id) ?? []), x]);
@@ -1070,16 +1061,14 @@ function goals(pn: Panel, user: string | null, tab: string | null) {
   if (tab === null || !["andamento", "inativas"].includes(tab)) invalid();
   const t = today();
   const running = tab === "andamento";
-  const sellersList = [
-    ...new Set(
-      pn.db
-        .exec(`SELECT body FROM "erp_documents__document" WHERE authority='brufap' AND kind='sales_orders'`)
-        .rows.map((d) => bizSeller(parse(d.body)))
-        .filter((x): x is string => x !== null),
-    ),
-  ]
-    .sort(compareText)
-    .slice(0, 200);
+  // commercial_reference já valida label sem controles e source_id como
+  // texto decimal (documents/normalize.ts). Projeta biz_seller no SQL, como
+  // a migração 150: DISTINCT + ordem C + LIMIT antes de materializar a lista.
+  const sellersList = pn.db.exec(`SELECT DISTINCT coalesce(
+      nullif(trim(substr(trim(body ->> '$.commercial.seller_reference.label',' '),1,80),' '),''),
+      'Vendedor ' || substr(body ->> '$.commercial.seller_reference.source_id',1,40)) seller
+    FROM "erp_documents__document" WHERE authority='brufap' AND kind='sales_orders'
+    AND seller IS NOT NULL ORDER BY seller LIMIT 200`).rows.map(r => String(r.seller));
   return {
     scope: "business_goals",
     data_mode: "erp_native",
@@ -1088,7 +1077,7 @@ function goals(pn: Panel, user: string | null, tab: string | null) {
     can_manage: role === "admin",
     business_date: t,
     statuses: bizFinished(pn.db),
-    total: pn.db.exec('SELECT active, end_on FROM "erp_home__goal"').rows.filter((g) => (Number(g.active) === 1 && String(g.end_on) >= t) === running).length,
+    total: Number(one(pn.db, 'SELECT count(*) total FROM "erp_home__goal" WHERE (active=1 AND end_on>=?)=?', t, running ? 1 : 0)!.total),
     items: pn.goalsJson(running, 200),
     sellers: sellersList,
     ...queryCoverage(pn.ctx, user),

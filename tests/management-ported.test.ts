@@ -161,19 +161,44 @@ describe("política portada pura", () => {
     expect(portedPermissionAllowed("/cadastros-reais?cadastro=contacts", "admin", [])).toBe(false);
     for (const target of ["/nao-existe", "/preferencias/sistema/inventada", "/ajuda/inventada", "/cadastros-reais?cadastro=secrets", "/cadastros-reais?cadastro=contacts&cadastro=products", "//exemplo/acesso", "/x/../acesso"]) expect(portedTargetState(target, context())).toBe("not-found");
     expect(portedTargetState("/preferencias/sistema/atualizacoes", context())).toBe("unavailable");
-    expect(portedTargetState("/meu-negocio?painel=mensal", context())).toBe("unavailable");
-    expect(portedTargetState("/meu-negocio?painel=mensal", context(), true)).toBe("allowed");
+    const fiscalContext = context({ modules: { ...ERP_CORE_TEST_MODULES, "erp-fiscal": true } });
+    expect(portedTargetState("/notas-recebidas", fiscalContext)).toBe("unavailable");
+    expect(portedTargetState("/notas-recebidas", fiscalContext, true)).toBe("allowed");
+    expect(portedTargetState("/meu-negocio?painel=mensal", context())).toBe("allowed");
   });
   it("fragmentos não liberam páginas indisponíveis no adaptador legado", () => {
     setMotorReal(true);
-    for (const target of ["/meu-negocio", "/notas-recebidas", "/preferencias/sistema/registro-atividades"]) {
+    for (const target of ["/notas-entrada", "/notas-recebidas", "/inutilizacoes-nfe", "/cartas-correcao", "/numeracao-fiscal", "/emissor-fiscal", "/preferencias/certificado/configuracoes", "/preferencias/importacoes/notas-fiscais"]) {
       for (const suffix of ["", "#detalhe", "?filtro=ativo#detalhe"]) {
         expect(targetEnabled(target + suffix), target + suffix).toBe(false);
       }
     }
     expect(targetEnabled("/acesso#inicio")).toBe(true);
     setMotorReal(false);
-    expect(targetEnabled("/meu-negocio#mensal")).toBe(true);
+    expect(targetEnabled("/notas-recebidas#detalhe")).toBe(true);
+  });
+  it("abre as cinco telas comerciais com consulta e fragmento e conserva a recusa por parte e papel", () => {
+    setMotorReal(true);
+    const modules = { ...ERP_CORE_TEST_MODULES, "erp-cobranca": true };
+    for (const [target, owner] of [
+      ["/meu-negocio", "erp-vendas"],
+      ["/preferencias/sistema/registro-atividades", "erp"],
+      ["/preferencias/sistema/consulta-exclusoes", "erp"],
+      ["/cobranca-operacional", "erp-cobranca"],
+      ["/retornos-operacionais", "erp-cobranca"],
+    ]) {
+      for (const suffix of ["", "#detalhe", "?filtro=ativo#detalhe"]) {
+        const to = target + suffix;
+        setErpBlocks(modules);
+        expect(targetEnabled(to), to).toBe(true);
+        expect(portedTargetState(to, context({ modules })), to).toBe("allowed");
+        expect(portedTargetState(to, context({ modules, erpRole: null })), to).toBe("denied");
+        const disabled = { ...modules, [owner]: false };
+        setErpBlocks(disabled);
+        expect(targetEnabled(to), to).toBe(false);
+        expect(portedTargetState(to, context({ modules: disabled })), to).toBe("disabled");
+      }
+    }
   });
   it("mantém o inventário de rotas e schemas sem levar seus imports para a política", () => {
     for (const match of appSource.matchAll(/['"](\/[a-z-]+)['"]/g)) expect(portedTarget(match[1]), match[1]).not.toBeNull();

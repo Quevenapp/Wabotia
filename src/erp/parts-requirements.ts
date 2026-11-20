@@ -100,6 +100,8 @@ export function erpRouteRequirement(method: string, url: URL, body?: unknown): E
   }
   if (input.section || input.history_type) if (!add(erpEntityRequirement(input.section ?? input.history_type))) return null;
   if (/margem|margin/.test(String(input.painel ?? input.panel ?? ""))) ids.push(S, C, E);
+  if (path === "/v1/meu-negocio/margem-pedido") ids.push(S, C, E);
+  if (path === "/v1/meu-negocio/previsao-estoque") ids.push(S, E);
   if (/previsao|cobertura/.test(String(input.painel ?? ""))) ids.push(S, E);
   if (/\/sistema\/(situacoes|transicoes)(\/|$)/.test(path) && input.kind !== undefined && !add(erpEntityRequirement(input.kind))) return null;
   if (/\/sistema\/etiquetas(?:\/registros)?$/.test(path) && (input.type ?? input.data?.type) !== undefined && !add(erpEntityRequirement(input.type ?? input.data?.type))) return null;
@@ -138,6 +140,7 @@ export function erpDestinationRequirement(value: URL | string): ErpDestinationRe
   let owner: ErpModuleId | undefined; const extra: ErpModuleId[] = [];
   const preference = Object.keys(ERP_PREFERENCE_DESTINATIONS).find(prefix => path === prefix || path.startsWith(prefix + "/"));
   if (preference) owner = ERP_PREFERENCE_PARTS[ERP_PREFERENCE_DESTINATIONS[preference]];
+  else if (["/preferencias/sistema/registro-atividades", "/preferencias/sistema/consulta-exclusoes"].includes(path)) owner = B;
   else if (path.startsWith("/ajuda/")) owner = B;
   else if (["/acesso", "/visao-geral", "/cadastros-empresa", "/preferencias", "/empresa-configuracoes", "/ajuda", "/importacoes", "/relatorios-customizados", "/etiquetas", "/transicoes", "/arquivos", "/manutencao-efeitos"].includes(path)) owner = B;
   else if (path === "/cadastros-reais") owner = ERP_ENTITY_PARTS[q.get("cadastro") ?? ""];

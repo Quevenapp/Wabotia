@@ -284,8 +284,13 @@ export async function erpIdentity(
       verified_factor: !!actor.mfa?.factor,
       session_id: actor.sessionId ?? null,
       aal: actor.aal === 2 ? "aal2" : "aal1",
-      // Bot agindo pela pessoa (via): agente, com o papel da pessoa.
-      is_agent: !!actor.via,
+      // A chamada via proposta/consulta interna continua sendo da pessoa.
+      // is_agent identifica a aplicação com credencial própria (appIdentity),
+      // sujeita ao portão de agentes do original. Marcar o representante da
+      // pessoa como aplicação recusava admin/financeiro até após confirmação.
+      // Papel, sessão, MFA e horário da pessoa continuam valendo; via fica no
+      // ator do núcleo e no recibo da proposta para auditoria.
+      is_agent: false,
     },
     people,
     ...await erpPartsEnvelope(env, profile, state.snapshot),
