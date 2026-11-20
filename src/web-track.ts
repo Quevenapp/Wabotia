@@ -34,6 +34,12 @@ export interface TrackView {
    * pelo provedor. Sem isso (ou inválido), o OpenStreetMap público.
    */
   tiles?: { url: string; attribution: string } | null;
+  /**
+   * Arquivos do próprio passo para baixar (documento do ERP enviado pela
+   * conversa): só caminhos /api/w/{code}/…; o núcleo troca {code} pelo código
+   * da página. Outro endereço é ignorado.
+   */
+  links?: { label: string; href: string }[] | null;
 }
 
 /**
@@ -169,7 +175,11 @@ export function trackPage(
     lines.length
       ? `<ul class="lines">${lines.map((l) => `<li>${escape(l)}</li>`).join("")}</ul>`
       : ""
-  }${mapHtml(view)}${
+  }${mapHtml(view)}${(view.links || [])
+    .filter((l) => l && /^\/api\/w\/[A-Za-z0-9_-]+\/[A-Za-z0-9/_-]+$/.test(l.href))
+    .slice(0, 4)
+    .map((l) => `<a class="button" href="${escape(l.href)}">${escape(l.label)}</a>`)
+    .join("")}${
     whatsapp
       ? `<a class="button secondary" href="${escape(whatsapp)}">Voltar ao WhatsApp</a>`
       : ""

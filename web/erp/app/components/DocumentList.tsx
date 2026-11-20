@@ -48,6 +48,8 @@ import PurchaseStockLaunch, { PurchaseStockReverse } from './PurchaseStockLaunch
 // Estoque lane, onda F (EST-024): Lançar/Estornar estoque and contas of the selected pedidos de compra.
 import PurchaseEffectsBatch, { PURCHASE_EFFECT_LABELS, PURCHASE_EFFECT_ROLES, type PurchaseEffectAction } from './PurchaseEffectsBatch';
 import DocumentPrintPreview from './DocumentPrintPreview';
+import { WhatsappSendDialog } from './WhatsappSend';
+import { useWhatsappLines, whatsappButtonState, type WhatsappDocType } from '../lib/whatsapp-send';
 import DocumentBatchPrint from './DocumentBatchPrint';
 import { Icon } from './Icon';
 import { CatalogPicker } from './DocumentCatalogPicker';
@@ -181,6 +183,7 @@ function DocumentListBody(props: DocumentListProps & { readonlyIds: string[] }) 
   // Leva H (392): Excluir selecionados / Restaurar selecionados and the lixeira (situação Excluídos).
   const [trashAction, setTrashAction] = useState<'delete' | 'restore' | null>(null);
   const [printOptions, setPrintOptions] = useState<{ detailed: boolean; order: PrintItemOrder; explode: boolean; hideThirdParty: boolean }>({ detailed: false, order: 'insertion', explode: false, hideThirdParty: false }); const [labels, setLabels] = useState<AddressLabel[] | null>(null), [labelReading, setLabelReading] = useState(false);
+  const whatsappLines = useWhatsappLines(); const [whatsappSend, setWhatsappSend] = useState<{ type: WhatsappDocType; id: string } | null>(null);
   const [busy, setBusy] = useState(false); const [uncertain, setUncertain] = useState(false); const [actionError, setActionError] = useState(''); const [actionNotice, setActionNotice] = useState('');
   const [catalogRead, setCatalogRead] = useState<string[]>([]); const [warehouses, setWarehouses] = useState<CatalogRecord[]>([]);
   const [productQuery, setProductQuery] = useState(''); const [products, setProducts] = useState<CatalogRecord[]>([]); const [productSearching, setProductSearching] = useState(false);
@@ -458,7 +461,7 @@ function DocumentListBody(props: DocumentListProps & { readonlyIds: string[] }) 
     // O vínculo fiscal antigo não pode esconder o acompanhamento comercial novo.
     if (commercial && !readonly && kind === 'sales_orders' && !actions.some(action => action.action === 'fiscal55') && ['admin', 'fiscal'].includes(role ?? ''))
       actions.push({ key: 'fiscal55', action: 'fiscal55', label: 'Acompanhar NF-e', enabled: true });
-    return actions.filter(action => (blockEnabled('erp-fiscal') || !['fiscal55', 'fiscal65', 'fiscal_partial'].includes(action.action)) && (action.action !== 'stock' || blockEnabled('erp-estoque')) && (action.action !== 'finance' || blockEnabled('erp-financeiro'))).map(action => {
+    const items: RowMenuItem[] = actions.filter(action => (blockEnabled('erp-fiscal') || !['fiscal55', 'fiscal65', 'fiscal_partial'].includes(action.action)) && (action.action !== 'stock' || blockEnabled('erp-estoque')) && (action.action !== 'finance' || blockEnabled('erp-financeiro'))).map(action => {
     if (commercial && ['fiscal55', 'fiscal65', 'fiscal_partial'].includes(action.action)) {
       const supported = kind === 'sales_orders' && action.action === 'fiscal55';
       return { label: supported ? (row.invoice || row.invoice_linked ? 'Acompanhar NF-e' : 'Preparar NF-e') : action.label,
@@ -471,6 +474,16 @@ function DocumentListBody(props: DocumentListProps & { readonlyIds: string[] }) 
     return { label: action.label, ...(action.letter ? { letter: action.letter } : {}), ...(action.icon ? { icon: action.icon } : {}), separatorBefore: action.separatorBefore,
       disabled: !action.enabled || blocked, title: blocked ? 'Aguarde a conclusão da operação em andamento.' : action.title, onClick: () => runAction(row, action) };
     });
+    // ERP pela conversa: proposta e pedido pela linha de WhatsApp da área (src/erp/conversa), ao lado do "Enviar por WhatsApp" (wa.me).
+    const sendType = kind === 'sales_proposals' ? 'proposta' : kind === 'sales_orders' ? 'pedido' : null;
+    const send = sendType && !readonly ? whatsappButtonState(sendType, whatsappLines, row.status === 'draft' || row.status === 'cancelled' || row.template
+      ? `${sendType === 'proposta' ? 'Proposta' : 'Pedido'} ${row.template ? 'modelo' : row.status === 'draft' ? 'em digitação' : 'cancelado'} não vai ao cliente.` : null) : null;
+    if (sendType && send) {
+      const at = items.findIndex(item => item.label === 'Enviar por WhatsApp');
+      items.splice(at < 0 ? items.length : at + 1, 0, { label: 'Enviar pelo WhatsApp', icon: 'whatsapp', disabled: send.disabled, title: send.title,
+        onClick: () => setWhatsappSend({ type: sendType, id: row.id }) });
+    }
+    return items;
   };
 
   const openBatch = (type: 'batch-status' | 'batch-print', receipt = false) => {
@@ -705,6 +718,7 @@ function DocumentListBody(props: DocumentListProps & { readonlyIds: string[] }) 
         <label className="document-check" htmlFor="documents-print-explode" title="Lista os componentes da estrutura (Estoque › composições) sob cada produto com composição."><input id="documents-print-explode" type="checkbox" checked={printOptions.explode} onChange={event => { const explode = event.target.checked; setPrintOptions(previous => ({ ...previous, explode })); }} />Desmembrar produtos da estrutura</label>
         <label className="document-check" htmlFor="documents-print-third" title="Não imprime os itens cujo produto tem Produção: Terceiros no cadastro (os totais do pedido continuam os mesmos)."><input id="documents-print-third" type="checkbox" checked={printOptions.hideThirdParty} onChange={event => { const hideThirdParty = event.target.checked; setPrintOptions(previous => ({ ...previous, hideThirdParty })); }} />Ocultar itens produzidos por terceiros</label></fieldset>}
       <p className="real-help">Lê a versão salva de cada documento selecionado. A prévia abre ao fechar este resumo.</p></>} />}
+    {whatsappSend && <WhatsappSendDialog type={whatsappSend.type} id={whatsappSend.id} onClose={() => setWhatsappSend(null)} />}
     {printRecord && <DocumentPrintPreview record={printRecord.record} variant={printRecord.variant} options={printRecord.options} controller={controller} onClose={() => setPrintRecord(null)} />}
     {printQuestion && <CustomFieldsPrintQuestion onCancel={() => setPrintQuestion(null)} onPrint={include => { const asked = printQuestion; setPrintQuestion(null);
       setPrintRecord({ record: asked.record, variant: asked.variant, options: include ? { ...asked.options, customFields: asked.fields } : asked.options }); }} />}

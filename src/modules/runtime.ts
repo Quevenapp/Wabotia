@@ -68,6 +68,10 @@ for (const operation of ERP_BACKUP_OPERATIONS) {
   } });
 }
 
+// ERP pela conversa: o comando do Coordinator (erp.conversa.enviar) e a
+// página do link do documento (src/erp/conversa/command.ts).
+import "../erp/conversa/command.ts";
+
 // NF-e comercial usa a mesma rota HTTP para a tela e para a proposta do bot.
 // O recibo durável pertence ao ERP; o Coordinator da área não chama o cofre.
 import { COM1_OPERATIONS } from "../erp/commercial-nfe/metadata.ts";

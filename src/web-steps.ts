@@ -401,6 +401,13 @@ export interface OpenWebStepInput {
    * nomes dos campos do Flow precisam ser os ids dos campos de `spec`.
    */
   flow?: { flow_id: string; flow_cta?: string; screen?: string } | null;
+  /**
+   * false: só cria o passo e devolve o link, sem enviar nada na conversa (o
+   * módulo põe o link no próprio texto, pelo modelo aprovado, ou a pessoa o
+   * copia). Sem envio, a janela de 24 horas não se aplica aqui: quem enviar
+   * o texto depois passa pelas regras de entrega de sempre. Padrão: envia.
+   */
+  deliver?: boolean;
 }
 
 /**
@@ -528,6 +535,7 @@ export async function openWebStep(env: Env, input: OpenWebStepInput) {
   // Erro próprio, como na Cobrança: o módulo pode trocar por um convite
   // pelo modelo de notificação ("responda CHECKIN").
   if (
+    input.deliver !== false &&
     input.trigger !== "menu" &&
     ["meta", "zernio"].includes(kind || "") &&
     now() - c.last_customer >= 86400000
@@ -596,13 +604,14 @@ export async function openWebStep(env: Env, input: OpenWebStepInput) {
   // Flow, botão com URL; em linha QR, o texto com o link (sendInteractive).
   // Flow só para formulários: o carrinho é sempre a página.
   const flow =
+    input.deliver !== false &&
     (!spec.page || spec.page === "form") &&
     input.flow?.flow_id &&
     (await interactiveLine(env, c));
   const token = flow ? flowToken(input.flow!.flow_id, id) : null;
   if (token)
     await exec(env, "UPDATE web_steps SET flow_token=? WHERE id=?", token, id);
-  await sendInteractive(
+  if (input.deliver !== false) await sendInteractive(
     env,
     input.actor,
     c,

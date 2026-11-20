@@ -1,0 +1,15 @@
+/* "Enviar pelo WhatsApp" dos documentos do ERP (WhatsappSend.tsx). */
+.whatsapp-send { display: flex; flex-direction: column; gap: 12px; min-width: min(520px, 80vw); }
+.whatsapp-send label { display: flex; flex-direction: column; gap: 4px; }
+.whatsapp-send-phones { display: flex; flex-direction: column; gap: 6px; border: 0; padding: 0; margin: 0; }
+.whatsapp-send-phones > label, .whatsapp-send-check { flex-direction: row !important; align-items: center; gap: 8px !important; }
+.whatsapp-send-typed { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
+.whatsapp-send-typed input { min-width: 180px; }
+.whatsapp-send-preview pre { white-space: pre-wrap; word-break: break-word; margin: 0; padding: 10px; border-radius: 6px; background: rgba(0, 0, 0, 0.04); font: inherit; }
+.whatsapp-send-preview h3, .whatsapp-send-history h3 { margin: 0 0 6px; font-size: 0.95em; }
+.whatsapp-send-link { display: flex; gap: 8px; }
+.whatsapp-send-link input { flex: 1; }
+.whatsapp-send-history ul { margin: 0; padding-left: 18px; }
+.whatsapp-send-entry { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.whatsapp-send-state.is-falhou { color: #b42318; font-weight: 600; }
+.whatsapp-send-state.is-lido, .whatsapp-send-state.is-entregue { color: #067647; }
