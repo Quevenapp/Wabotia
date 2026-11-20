@@ -212,7 +212,8 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
   // An operation-level403 is not proof that company membership was revoked.
   // Keep this actor's mounted editor and command while /me checks membership.
   // The server continues to authorize every individual request independently.
-  const revalidateMembership = () => {
+  // Wabotia: `quiet` é a reconferência de fundo (a janela voltou ao foco): mesma conferência, sem aviso na tela.
+  const revalidateMembership = (quiet = false) => {
     if(permissionRecheck)return permissionPromise;
     if(suspended||stopped||signingOut||!token||state.phase!=='ready'||!state.membership)return null;
     fineRequests.forEach(request => request.abort()); fineRequests.clear();
@@ -223,7 +224,8 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
     fineRequest?.abort(); fineRequest=null; finePromise=null;
     if(fineEnabled&&!lastChecked(actor,state.membership.role))update({permissions:{userId:actor,role:state.membership.role,apiUrl,permissions:null,phase:'checking',message:'Verificando suas permissões individuais…'}});
     const active=()=>!stopped&&!signingOut&&!controller.signal.aborted&&current===generation&&credential===credentialEpoch&&bearer===token&&actor===sessionActor&&state.phase==='ready'&&state.membership?.user_id===actor;
-    update({permissionMessage:'Conferindo suas permissões. A tentativa em andamento permanece nesta tela.'});
+    const silent=quiet&&!!lastChecked(actor,state.membership.role);
+    if(!silent)update({permissionMessage:'Conferindo suas permissões. A tentativa em andamento permanece nesta tela.'});
     permissionPromise=(async()=>{
       try{
         const me=membership(await request('/v1/me',bearer,controller));
@@ -238,6 +240,8 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
       }catch(error){
         if(!active())return;
         if(error instanceof AccessError&&(error.status===401||error.status===403))denyAccess(error.status,error.code);
+        // Wabotia: falha passageira da conferência de fundo não vira aviso; o próximo pedido reconfere (a credencial segue sem conferir).
+        else if(silent)return;
         else update({permissionMessage:'Não foi possível reconfirmar seu acesso. Sua tentativa foi preservada; tente verificar as permissões novamente.',
           ...(fineEnabled ? {permissions:{userId:actor,role:state.membership!.role,apiUrl,permissions:null,phase:'error' as const,message:'Não foi possível verificar suas permissões individuais. Tente novamente.'}} : {})});
       }finally{if(permissionRecheck===controller){permissionRecheck=null;permissionPromise=null;}}
@@ -768,9 +772,9 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
       } catch { if (!stopped) update({ logoutFailed: true, message: 'Não foi possível confirmar a saída. Tente encerrar a sessão novamente.' }); }
       finally { signingOut = false; }
     },
-    retry() {
+    retry(quiet = false) {
       if (!token || stopped) return;
-      if(state.phase==='ready'){revalidateMembership();return;}
+      if(state.phase==='ready'){revalidateMembership(quiet);return;}
       cancel(); update({ membership: null, records: null, phase: 'checking', listPending: false, message: null });
       void checkMembership(token);
     },

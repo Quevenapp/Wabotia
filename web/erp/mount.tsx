@@ -173,13 +173,15 @@ function HostTree({ runtime, props }: { runtime: ErpHostRuntime; props: ErpMount
     if (props.suspended) return;
     runtime.controller.verifyPermissions();
     const recheck = () => { if (!document.hidden) runtime.controller.retry(); };
-    window.addEventListener("focus", recheck);
+    // Voltar à janela reconfere o acesso em silêncio: o aviso fica para quando há o que dizer.
+    const background = () => { if (!document.hidden) runtime.controller.retry(true); };
+    window.addEventListener("focus", background);
     window.addEventListener("erp:permissions-changed", recheck);
-    document.addEventListener("visibilitychange", recheck);
+    document.addEventListener("visibilitychange", background);
     const stop = runtime.context().subscribePermissions?.(() => runtime.controller.retry());
     return () => {
-      stop?.(); window.removeEventListener("focus", recheck); window.removeEventListener("erp:permissions-changed", recheck);
-      document.removeEventListener("visibilitychange", recheck);
+      stop?.(); window.removeEventListener("focus", background); window.removeEventListener("erp:permissions-changed", recheck);
+      document.removeEventListener("visibilitychange", background);
     };
   }, [runtime, props.suspended]);
   const root = useRef<HTMLDivElement>(null);
