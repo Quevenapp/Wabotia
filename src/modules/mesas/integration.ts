@@ -1,5 +1,6 @@
 import { all, one } from "../../db";
 import type { Actor } from "../../types";
+import { requireFinancialAal } from "../../mfa";
 import type { ModuleContext } from "../api";
 import { registerIntegrationProducer } from "../../integrations/registry";
 import { aliasStatements } from "../../integrations/outbox";
@@ -11,6 +12,7 @@ import { CommercePlan, allocateSale, commercialId, manualReceipt, projectOrder, 
 
 export function requireReceiptPerson(actor: Actor) {
   if (actor.kind !== "user" || actor.via || actor.credential) throw new IntegrationError("forbidden", 403);
+  requireFinancialAal(actor);
 }
 export function tableReceiptData(ctx: ModuleContext, tabId: string, input: any, request: string, actor: Actor) {
   requireReceiptPerson(actor);

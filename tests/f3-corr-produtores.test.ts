@@ -33,6 +33,10 @@ import { purchasePaymentUpdated } from "../src/modules/suporte/store";
 import { supportIntegrationStatements } from "../src/modules/suporte/integration";
 import { createDelivery, deliveryView } from "../src/modules/entrega/store";
 import { receiveDelivery, updateDeliveryCommercial } from "../src/modules/entrega/integration";
+import { markPaid } from "../src/modules/pedido/manage";
+import { voidPayment, closeTab } from "../src/modules/mesas/tabs";
+import { requestDecided } from "../src/modules/mensalidade/requests";
+import { requireMensalidadeChargeReconciled } from "../src/modules/mensalidade/integration";
 import { f3Fixture, setParts } from "./helpers/f3-fixtures";
 
 const providerId = "corr_produtores";
@@ -53,6 +57,49 @@ async function fixture() {
   return { ...f, ctx };
 }
 type F = Awaited<ReturnType<typeof fixture>>;
+
+describe("Segunda revisão dos produtores", () => {
+  it("Pedido, Mesas, anulação e fechamento exigem MFA antes da persistência financeira", async () => {
+    const f = await fixture(), row = await order(f), weak = { ...f.actor, sessionId: uid(), aal: 1 as const };
+    await expect(markPaid(f.ctx("pedido"), weak, { id: row.id }, uid())).rejects.toMatchObject({ code: "mfa_required" });
+    const table = uid(), tab = uid(), at = Date.now();
+    await batch(f.env, [
+      ["INSERT INTO mesas_tables(id,profile_id,name,created,updated) VALUES(?,?,'Mesa',?,?)", [table,f.profile,at,at]],
+      ["INSERT INTO mesas_tabs(id,profile_id,number,table_id,table_name,status,service,service_permille,opened_by,opened_at,created,updated) VALUES(?,?,1,?,'Mesa','open',0,100,?,?,?,?)", [tab,f.profile,table,f.actor.id,at,at,at]],
+    ]);
+    await expect(addPayment(f.ctx("mesas"), weak, { id: tab, amount_cents: 100, method: "cash" }, uid())).rejects.toMatchObject({ code: "mfa_required" });
+    await expect(voidPayment(f.ctx("mesas"), weak, { id: uid(), reason: "Anulação" })).rejects.toMatchObject({ code: "mfa_required" });
+    // A guarda do fechamento precede a gravação dos recebimentos.
+    await expect(closeTab(f.ctx("mesas"), weak, { id: tab, payments: [{ amount_cents: 100, method: "cash" }] }, uid())).rejects.toMatchObject({ code: "mfa_required" });
+    expect(await receipts(f)).toHaveLength(0);
+    expect(await all(f.env,"SELECT * FROM mesas_payments WHERE profile_id=?",f.profile)).toHaveLength(0);
+  });
+
+  it("Mensalidade histórica paga após reembolso não anuncia liberação; falha de aviso não segura revogação", async () => {
+    const f = await fixture(), local = await monthly(f), p = await payment(f,"mensalidade",local.row.id,1000);
+    const paid = await p.fact("paid"), refunded = await p.fact("refunded");
+    // As publicações da criação do pagador/assinatura/parcela são preparação.
+    vi.mocked(local.ctx.publish).mockClear().mockRejectedValue(new Error("notificação indisponível"));
+    await mensalidadePaid(local.ctx, paid, "created");
+    expect(listeners.announcePaid).not.toHaveBeenCalled(); expect(local.ctx.publish).not.toHaveBeenCalled();
+    await expect(mensalidadePaid(local.ctx, refunded, "paid")).rejects.toThrow("notificação indisponível");
+    expect(listeners.notifyInstallmentRefunded).toHaveBeenCalledOnce();
+    expect(await one(f.env,"SELECT payment_status FROM mensalidade_installments WHERE id=?",local.row.id)).toEqual({payment_status:"refunded"});
+  });
+
+  it("desconto autorizado registra bloqueio durável antes de permitir cobrança reduzida", async () => {
+    const f=await fixture(), local=await monthly(f);
+    local.ctx.conversation=vi.fn(async()=>({id:uid(),profile_id:f.profile}) as Conversation);
+    local.ctx.cancelCharge=vi.fn(async()=>({}) as any);
+    const approval={id:uid(),ref_id:local.row.id,conversation_id:uid(),kind:"desconto"};
+    await requestDecided(local.ctx,approval,{status:"approved",actor:f.actor,value:2} as any);
+    const fresh=await one(f.env,"SELECT * FROM mensalidade_installments WHERE id=?",local.row.id);
+    expect(fresh.amount_cents).toBe(800);
+    const pending=await one(f.env,"SELECT e.seq,d.state,d.error_code FROM module_erp_events e JOIN module_erp_delivery d ON d.event_id=e.id WHERE e.profile_id=? AND d.error_code='commercial_correction_required'",f.profile);
+    expect(pending).toEqual({seq:null,state:"blocked",error_code:"commercial_correction_required"});
+    await expect(requireMensalidadeChargeReconciled(local.ctx,fresh)).rejects.toMatchObject({code:"commercial_correction_required"});
+  });
+});
 const events = async (f: F, module?: string) => (await all(f.env, `SELECT payload_json FROM module_erp_events WHERE profile_id=?${module ? " AND module_id=?" : ""} ORDER BY source_id,source_revision,seq`, f.profile, ...(module ? [module] : []))).map(r => JSON.parse(r.payload_json));
 const receipts = (f: F) => all(f.env, "SELECT * FROM module_commercial_receipts WHERE profile_id=? ORDER BY kind", f.profile);
 async function payment(f: F, module: string, ref: string, amount: number, conversation = uid()) {

@@ -78,7 +78,7 @@ export function createIntegrationApi(api: Api, root: string, context: () => Mana
   };
   return {
     pending: commands.pending,
-    async status(module: IntegrationModule, signal?: AbortSignal): Promise<ModuleStatus> { checkModule(module); return get(`${base}/${module}/status`, signal); },
+    async status(module: IntegrationModule, signal?: AbortSignal, after?: string): Promise<ModuleStatus> { checkModule(module); return get(`${base}/${module}/status${after ? `?after=${encodeURIComponent(after)}` : ""}`, signal); },
     async source(module: IntegrationModule, id: string, signal?: AbortSignal): Promise<SourceView> {
       checkModule(module); const view = await get<SourceView>(sourcePath(module, id), signal); checkModule(module); return visibleSource(view, context());
     },

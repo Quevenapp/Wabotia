@@ -5,7 +5,7 @@ import type { Actor, Env } from "../types";
 import { canProfile } from "../security";
 import { requireAccess } from "../access";
 import { modulesApi } from "../modules/api";
-import { erpRoleOf } from "../modules/erp/identity";
+import { erpIdentity, erpRoleOf } from "../modules/erp/identity";
 import type { Destination, IntegrationEvent, IntegrationModule, SourceRef, Statement } from "./contracts";
 import { INTEGRATION_MODULES, integrationProducer } from "./registry";
 import { commercialPolicyView, ensureCommercialPolicy, initializeCommercialPolicy, patchCommercialPolicy, requireIntegrationHuman, requirePolicyAccess, humanReferenceRpc } from "./policy";
@@ -71,6 +71,10 @@ async function reserve(env: Env, profile: string, actor: Actor, op: string, key:
 }
 async function retry(env: Env, actor: Actor, source: SourceRef, data: any, key: string) {
   const event = await sourceEvent(env, source, data.event_id);
+  if (event.seq === null) {
+    const local = await one(env, "SELECT error_code FROM module_erp_delivery WHERE event_id=?", event.id);
+    throw new IntegrationError(local?.error_code ?? "local_resolution_required", 409);
+  }
   const receipt = await reserve(env, source.profile, actor, "retry", key, { source, event_id: event.id });
   if (receipt.previous) return receipt.previous;
   const delivery = await one(env, "SELECT error_code FROM module_erp_delivery WHERE event_id=?", event.id);
@@ -87,9 +91,13 @@ async function retry(env: Env, actor: Actor, source: SourceRef, data: any, key: 
 async function replace(env: Env, actor: Actor, source: SourceRef, data: any, key: string, manual = false) {
   const { producer, ctx } = await authorizeIntegrationSource(env, actor, source, !manual);
   const old = await sourceEvent(env, source, data.event_id);
+  // Identidade/capacidade é validada antes de qualquer reserva da origem.
+  await erpIdentity(env, actor, source.profile, "POST");
   const destinations: Destination[] = manual ? data.destinations : [];
   if (manual && (!Array.isArray(destinations) || !destinations.length || destinations.some(d => d !== "stock" && d !== "finance"))) throw new IntegrationError("invalid_request", 400);
   if (manual) authorizeManual(actor, source.profile, destinations);
+  if (manual && destinations.includes("stock") && ["consumption_requires_classification", "refund_confirmed_review_stock"].includes(old.reason_code ?? ""))
+    throw new IntegrationError(old.reason_code!, 409);
   if (!manual && (typeof data.reason_code !== "string" || !/^[a-z][a-z0-9_]{0,79}$/.test(data.reason_code))) throw new IntegrationError("invalid_request", 400);
   const receipt = await reserve(env, source.profile, actor, manual ? "post" : "replace", key, { source, data });
   if (receipt.previous) return receipt.previous;
@@ -117,9 +125,12 @@ async function replace(env: Env, actor: Actor, source: SourceRef, data: any, key
       const seq = row.enqueued_seq + 1, revision = row.revision + 1;
       next = { ...old, id: uuid5(F3_NAMESPACES.internal, newKey), command_id: commandId(source, seq), event_key: newKey,
         seq, source_revision: revision, snapshot: { ...snapshot, source_revision: revision },
-        actor_id: actor.id, reason_code: manual ? "manual_requested" : data.reason_code,
+        actor_id: actor.id, reason_code: ["consumption_requires_classification", "refund_confirmed_review_stock"].includes(old.reason_code ?? "")
+          ? old.reason_code : manual ? "manual_requested" : data.reason_code,
         ...(manual ? { occurred_ms: Date.now(), epochs: state.epochs,
-          eligible: { document: old.eligible.document, stock: destinations.includes("stock") && state.snapshot.parts.stock, finance: destinations.includes("finance") && state.snapshot.parts.finance } } : {}),
+          eligible: { document: old.eligible.document,
+            stock: destinations.includes("stock") && state.snapshot.parts.stock && !["consumption_requires_classification", "refund_confirmed_review_stock"].includes(old.reason_code ?? ""),
+            finance: destinations.includes("finance") && state.snapshot.parts.finance } } : {}),
       };
       if (manual && destinations.some(d => !next.eligible[d])) throw new IntegrationError("part_disabled", 409);
       // Valida também o SQL/plano antes da reserva durável.
@@ -134,17 +145,22 @@ async function replace(env: Env, actor: Actor, source: SourceRef, data: any, key
     if (delivery.state !== "done") {
       const lease = await acquireIntegrationLease(env, old.id, Date.now(), true, newKey);
       if (!lease) throw new IntegrationError("lease_lost", 409);
+      let remoteCalled = false;
       try {
         const request = await readPreparedRequest(env, old) ?? await persistPreparedRequest(env, old, await closureRequest(env, old), lease);
         const deadline = Date.now() + 25_000;
         await countIntegrationAttempt(env, old, lease, "lookup_attempts", deadline);
-        const recovered = await getErpOrigin(env, request, actor, deadline);
+        const recovered = await getErpOrigin(env, request, actor, deadline, () => { remoteCalled = true; });
         if (!recovered.receipt) await countIntegrationAttempt(env, old, lease, "attempts", deadline);
         const result = recovered.receipt ?? await closeErpCommand(env, request, manual ? "manual_requested" : data.reason_code, actor, deadline);
         const canReplace = manual || result.outcome === "closed";
         await confirmIntegrationResult(env, old, lease, result, canReplace ? install : [clear, integrationCasGuard]);
         if (!canReplace) throw new IntegrationError("version_conflict", 409);
-      } catch (error) { await releaseIntegrationLease(env, old.id, lease, error); throw error; }
+      } catch (error) {
+        await releaseIntegrationLease(env, old.id, lease, error);
+        if (!remoteCalled && [400, 403, 404, 422].includes(sanitizedError(error).status)) await batch(env, [clear]);
+        throw error;
+      }
     } else await batch(env, install);
   }
   if (manual) {
@@ -227,18 +243,23 @@ export function registerIntegrationRoutes(app: Hono<any>, mutate: (c: any, op: s
     requireIntegrationHuman(actor, profile); requireAccess(actor, module);
     if (!INTEGRATION_MODULES.includes(module)) throw new IntegrationError("not_found", 404);
     const activation = await readIntegrationActivation(c.env, profile, module);
+    const limit = Math.min(100, integer(Number(c.req.query("limit") ?? 50), 1)), after = c.req.query("after") ?? "";
+    const page = await all(c.env, `SELECT source_id FROM module_erp_sources
+      WHERE profile_id=? AND module_id=? AND source_id>? ORDER BY source_id LIMIT ?`, profile, module, after, limit + 1);
+    const ids = page.slice(0, limit).map(s => s.source_id);
     const rows = await all(c.env, `SELECT e.source_id,s.replacement_key,d.state,d.unresolved,d.error_code,d.receipt_json,
       json_extract(e.payload_json,'$.eligible') eligible,json_extract(e.payload_json,'$.operation') operation,
       json_extract(e.payload_json,'$.source.component') component
       FROM module_erp_delivery d JOIN module_erp_events e ON e.id=d.event_id
       JOIN module_erp_sources s ON s.profile_id=e.profile_id AND s.module_id=e.module_id AND s.source_id=e.source_id
-      WHERE e.profile_id=? AND e.module_id=? ORDER BY e.source_id,e.source_revision,e.seq`, profile, module);
+      WHERE e.profile_id=? AND e.module_id=? AND e.source_id IN (SELECT value FROM json_each(?))
+      ORDER BY e.source_id,e.source_revision,e.seq`, profile, module, JSON.stringify(ids));
     const sources = new Map<string, any[]>();
     for (const row of rows) { const values = sources.get(row.source_id) ?? []; values.push(row); sources.set(row.source_id, values); }
     const counts = new Map<string, number>();
     for (const rows of sources.values()) { const { state } = effectiveSourceState(rows, !!rows[0].replacement_key); counts.set(state, (counts.get(state) ?? 0) + 1); }
     const counters = [...counts].map(([state, count]) => ({ state, count }));
-    return c.json({ module, activations: activation.activations, counters });
+    return c.json({ module, activations: activation.activations, counters, next_cursor: page.length > limit ? ids.at(-1) : null, limit, scope: "page" });
   });
   app.get(`${prefix}/:module/sources/:id`, async c => c.json(await integrationSourceView(c.env, c.get("actor"), { profile: c.req.param("profile")!, module: c.req.param("module") as IntegrationModule, source_id: c.req.param("id"), component: "main" })));
   for (const [method, path, op] of writes) app.on(method, `${prefix}${path}`, async c => {

@@ -92,6 +92,7 @@ export interface MensalidadeMutation {
   originalReceipt?: CommercialReceipt | null;
   receiptKey?: string | null;
   aliases?: { kind: RecordKind; id: string }[];
+  correction?: boolean;
 }
 
 /** Apenas D1. O chamador junta a mutação nativa e suas guardas ao retorno. */
@@ -121,8 +122,9 @@ export async function mensalidadeStatements(ctx: ModuleContext, input: Mensalida
   const recognized = await one(ctx.env, `SELECT 1 FROM module_erp_events WHERE profile_id=? AND module_id='mensalidade' AND source_id=?
     AND json_extract(payload_json,'$.operation')='recognize' AND json_extract(payload_json,'$.eligible.finance')=1 LIMIT 1`, ctx.profile, source.source_id);
   const historical = !recognized && !input.newObligation;
+  if (input.correction && recognized) operation = "recognize";
   const maintenance = operation === "cancel" || operation === "reverse";
-  const eligible = operation === "recognize" ? active && !!input.newObligation && !input.record.retroactive
+  const eligible = input.correction ? false : operation === "recognize" ? active && !!input.newObligation && !input.record.retroactive
     : maintenance ? !!before || !!row?.links_json && row.links_json !== "[]" : !!recognized;
   if (operation) {
     const seq = (row?.enqueued_seq ?? 0) + 1;
@@ -161,12 +163,28 @@ export async function mensalidadeStatements(ctx: ModuleContext, input: Mensalida
   // A base mantém fatos inelegíveis pendentes. Eles não podem impedir a
   // visualização explícita de pagamento de uma obrigação histórica.
   if (events[0] && historical && operation === "receive") statements.push(blocked(events[0], "historical_origin_unlinked"));
+  if (events[0] && input.correction) statements.push(blocked(events[0], "commercial_correction_required"));
   return { source, snapshot, events, statements, replayed: !!receiptEvent };
 }
 
 function blocked(event: IntegrationEvent, code: string): Statement {
   return ["UPDATE module_erp_delivery SET state='blocked',error_code=?,error_message=? WHERE event_id=?", [code,
-    code === "historical_origin_unlinked" ? "A obrigação anterior não possui vínculo no ERP." : code === "total_mismatch" ? "Os valores comerciais não conferem." : "Aguardando evidência comum de pagamento.", Object.values(event.eligible).some(Boolean) ? event.id : localEventId(event.source, event.event_key)]];
+    new IntegrationError(code).message, Object.values(event.eligible).some(Boolean) ? event.id : localEventId(event.source, event.event_key)]];
+}
+
+export async function requireMensalidadeChargeReconciled(ctx: ModuleContext, inst: any) {
+  if (!inst.discount_ref) return;
+  const source = await mensalidadeSource(ctx, "installment", inst);
+  if (await one(ctx.env, `SELECT 1 FROM module_erp_events e JOIN module_erp_delivery d ON d.event_id=e.id
+    WHERE e.profile_id=? AND e.module_id='mensalidade' AND e.source_id=? AND d.state='blocked'
+      AND d.error_code='commercial_correction_required' LIMIT 1`, ctx.profile, source.source_id))
+    throw new IntegrationError("commercial_correction_required", 409);
+}
+
+/** O gancho paid histórico reconcilia dinheiro, mas não libera um serviço devolvido. */
+export async function mensalidadeCurrentlyRefunded(ctx: ModuleContext, payment: Payment) {
+  const row = await one(ctx.env, "SELECT * FROM payments WHERE profile_id=? AND id=? AND module_id='mensalidade'", ctx.profile, payment.id);
+  return row?.status === "refunded";
 }
 
 /** A frente de pagamentos é a única escritora da evidência de provedor. */

@@ -10,10 +10,100 @@ import { canonical, commandId, eventKey, hash, F3_NAMESPACES, uuid5 } from "../.
 import { commercialHash } from "../../../src/erp/domains/documents/module-policy.ts";
 import { verifyModuleTransport, moduleSystemUser, targetOrigin } from "../../../src/erp/engine/module-origin.ts";
 import { documentCopyResponse, parseDocumentCopyRoute } from "../../../src/erp/fagoo/workers/erp-api/src/document-copy.mjs";
+import { handleRpc } from "../../../src/erp/engine/rpc-endpoint.ts";
+import { GATE_HEADER, IDENTITY_HEADER, SYSTEM_HEADER, encodeIdentity } from "../../../src/erp/engine/identity.ts";
+import { normalizeErpParts } from "../../../src/erp/parts.ts";
+import { applyErpPartsSnapshot } from "../../../src/erp/parts-control.ts";
 
 const ADMIN = "11111111-1111-4111-8111-111111111111";
 const human = { user_id: ADMIN, erp_role: "admin", name: "Pessoa", email: null, is_agent: false, verified_factor: true, session_id: "22222222-2222-4222-8222-222222222222", aal: "aal2" };
 const at = Date.UTC(2026, 10, 18, 15);
+
+test("segunda revisão: revalida a parte depois da última espera na prova D1", async t => {
+  const f = fixture(t, "mensalidade"); await f.run(f.enqueue());
+  const input = f.enqueue({ operation: "receive", receipt: f.payment("paid") });
+  const parts = normalizeErpParts(), control = { profile: f.source.profile, revision: "1", issued_at: Date.now(), expires_at: Date.now() + 60000 };
+  const identity = { ...input.identity, parts, partsControl: control };
+  const values = new Map(), storage = { async get(k) { return values.get(k); }, async put(k,v) { values.set(k,v); }, async transaction(fn) { return fn(storage); },
+    transactionSync: fn => f.db.transaction(fn), sql: { exec(sql,...args) { const result = f.db.exec(sql,...args); return { ...result, toArray: () => result.rows }; } } };
+  let checks = 0;
+  const d1 = { prepare(sql) { const stmt = f.d1.prepare(sql); return { bind(...args) { const bound = stmt.bind(...args); return { ...bound, async all() {
+    if (sql.includes("module_erp_activation") && ++checks === 2) {
+      await applyErpPartsSnapshot(storage, f.source.profile, { ...control, revision: "2", parts: { ...parts, finance: false } });
+      f.local.prepare("UPDATE module_erp_activation SET enabled=0,enabled_since_ms=NULL,epoch=epoch+1 WHERE module_id='erp-financeiro'").run();
+    }
+    return bound.all();
+  } }; } }; } };
+  const response = await handleRpc({ storage }, f.source.profile, "erp_module_apply", new Request("https://erp.invalid", { method: "POST",
+    headers: { [GATE_HEADER]: "1", [SYSTEM_HEADER]: "1", [IDENTITY_HEADER]: encodeIdentity(identity) }, body: JSON.stringify(input.args) }), undefined, d1);
+  assert.equal(response.status, 409); assert.equal((await response.json()).code, "erp_parts_stale");
+  assert.equal(f.count("erp_finance__settlement"), 0);
+});
+
+test("segunda revisão: CNAB recusa título de módulo antes de reservar ou emitir", async t => {
+  const f = fixture(t, "mensalidade"), result = await f.run(f.enqueue());
+  const title = result.links.find(l => l.kind === "title").id;
+  for (const preview of [true, false]) assert.throws(() => f.rpc("erp_cnab_reserve", {
+    p_command_id: randomUUID(), p_profile_id: randomUUID(), p_expected_version: 1, p_generated_on: "2026-11-18",
+    p_titles: [{ title_id: title, expected_version: 1, document_number: "1" }], p_preview: preview,
+  }), /module_bank_collection_unavailable/);
+  assert.equal(f.count("erp_cnab__billing_title"), 0); assert.equal(f.count("erp_cnab__remittance"), 0);
+  // Reserva legada anterior à guarda também não pode emitir arquivo.
+  const profile = randomUUID(), remittance = randomUUID(), digest = "a".repeat(64);
+  f.lite.prepare("INSERT INTO erp_cnab__profile(id,account_id,identity,settings,account_scope,next_sequence,created_at,updated_at) VALUES(?,?,'{}','{}','test',1,0,0)").run(profile, f.account.id);
+  f.lite.prepare("INSERT INTO erp_cnab__remittance(id,profile_id,sequence,generated_on,snapshot,actor,created_at) VALUES(?,?,1,'2026-11-18','{}',?,0)").run(remittance, profile, ADMIN);
+  f.lite.prepare("INSERT INTO erp_cnab__billing_title(id,title_id,profile_id,remittance_id,control,document_number,snapshot) VALUES(?,?,?,?,'control','document','{}')").run(randomUUID(), title, profile, remittance);
+  assert.throws(() => f.rpc("erp_cnab_finalize", { p_command_id: randomUUID(), p_id: remittance, p_hash: digest, p_size: 100,
+    p_path: `profiles/${profile}/remittances/${digest}.rem`, p_manifest: [] }, { objects: () => ({ size: 100, mimetype: "application/octet-stream" }) }), /module_bank_collection_unavailable/);
+  assert.equal(f.lite.prepare("SELECT state FROM erp_cnab__remittance WHERE id=?").get(remittance).state, "reserved");
+});
+
+test("segunda revisão: predecessor preparado usa busca indexada e retorna uma linha", async t => {
+  const f = fixture(t, "mensalidade");
+  for (let n = 0; n < 1000; n++) {
+    const input = f.enqueue();
+    f.local.prepare("INSERT INTO module_erp_delivery(event_id,next_attempt_ms) VALUES(?,0)").run(input.event.id);
+  }
+  const input = f.enqueue(), queries = [], prepare = f.d1.prepare;
+  f.d1.prepare = sql => {
+    if (!sql.includes("e.seq,e.command_id")) return prepare(sql);
+    return { bind(...args) { const bound = prepare(sql).bind(...args); return { async all() {
+      const result = await bound.all(); queries.push({ sql, args, count: result.results.length }); return result;
+    } }; } };
+  };
+  await f.proof(input);
+  assert.equal(queries.length, 1); assert.equal(queries[0].count, 1);
+  const plan = f.local.prepare(`EXPLAIN QUERY PLAN ${queries[0].sql}`).all(...queries[0].args).map(r => r.detail).join("; ");
+  assert.match(plan, /SEARCH e USING INDEX/); assert.doesNotMatch(plan, /SCAN e/);
+  t.diagnostic(plan);
+});
+
+for (const reason of ["consumption_requires_classification", "refund_confirmed_review_stock"]) test(`segunda revisão: ${reason} conserva o estoque consumido`, async t => {
+  const f = fixture(t, "pedido"); await f.run(f.enqueue());
+  const before = f.lite.prepare("SELECT quantity FROM erp_stock__balance").get().quantity;
+  const input = f.enqueue({ operation: "cancel", reason, lifecycle: { base_status: "cancelled" },
+    eligible: { document: true, stock: false, finance: true }, requested: { document: true, stock: false, finance: true } });
+  const result = await f.run(input);
+  assert.equal(result.reason_code, reason); assert.equal(result.outcome, "skipped");
+  assert.equal(f.lite.prepare("SELECT quantity FROM erp_stock__balance").get().quantity, before);
+  assert.equal(f.lite.prepare("SELECT state FROM erp_stock__document_posting").get().state, "active");
+  assert.equal(f.lite.prepare("SELECT status FROM erp_documents__document").get().status, "in_progress");
+  assert.deepEqual(await f.run(input), { ...result, replayed: true });
+});
+
+test("segunda revisão: Estoque ativado após preparação preenche o depósito antes de postar", async t => {
+  for (const change of [false, true]) {
+    const f = fixture(t);
+    await f.run(f.enqueue({ operation: "prepare", lifecycle: { base_status: "approved" }, requested: { document: true, stock: false, finance: false } }), { stock: false });
+    assert.equal(f.lite.prepare("SELECT warehouse_id FROM erp_documents__document").get().warehouse_id, null);
+    const warehouse = change ? f.rpc("erp_catalog_save", { p_entity: "warehouses", p_id: null, p_expected_version: 0, p_command_id: randomUUID(), p_data: { name: "Novo depósito" } }).record : f.warehouse;
+    if (change) f.rpc("erp_stock_post", { p_command_id: randomUUID(), p_kind: "receipt", p_occurred_on: "2026-11-17", p_reason: "Saldo", p_reference: null,
+      p_items: [{ product_id: f.product.id, warehouse_id: warehouse.id, quantity: "100", expected_version: 0 }] });
+    const result = await f.run(f.enqueue({ operation: "execute", lifecycle: { base_status: "in_progress" }, policy: { ...f.policy, warehouse_id: warehouse.id } }));
+    assert.equal(result.effects.stock, "posted");
+    assert.equal(f.lite.prepare("SELECT warehouse_id FROM erp_documents__document").get().warehouse_id, warehouse.id);
+  }
+});
 
 test("cancelamento usa efeitos históricos mesmo com automação e destinos desligados", async t => {
   for (const module of ["os", "pedido", "mensalidade"]) {

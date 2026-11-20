@@ -117,7 +117,7 @@ export async function persistPreparedRequest(env: Env, event: IntegrationEvent, 
   exactKeys(request, ["schema", "command_id", "actor_id", "source", "seq", "event_hash", "expected", "body"]);
   if (request.schema !== 1 || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(request.actor_id)) throw new IntegrationError("invalid_request", 400);
   exactKeys(request.body, request.body.close_only === true ? ["mode", "operation", "close_only"] :
-    ["operation", "route", "snapshot", "policy", "eligible", "requested", "epochs", "occurred_ms", "receipt", "reason_code", "mode"]);
+    ["operation", "route", "snapshot", "policy", "eligible", "requested", "epochs", "occurred_ms", "receipt", "reason_code", "mode", "stock_reversal"]);
   if (!["system", "human"].includes(String(request.body.mode)) || request.body.operation !== event.operation) throw new IntegrationError("invalid_request", 400);
   if (!request.body.close_only) validateSnapshot(request.body.snapshot as IntegrationEvent["snapshot"]);
   for (const [key, value] of Object.entries(request.expected)) {

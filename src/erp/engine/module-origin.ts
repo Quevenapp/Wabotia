@@ -131,24 +131,24 @@ export async function verifyModuleTransport(db: D1Database | undefined, profile:
     return a?.enabled === 1 && a.epoch === event!.epochs[id] && a.enabled_since_ms !== null && factAt !== null && factAt >= a.enabled_since_ms;
   });
   let previousSeq = e!.seq - 1;
-  if (previousSeq > 0) {
+  while (previousSeq > 0) {
     const previous = await db!.prepare(`SELECT e.seq,e.command_id,e.event_hash,e.payload_json,d.state,d.receipt_json,r.event_id prepared
       FROM module_erp_events e JOIN module_erp_delivery d ON d.event_id=e.id
       LEFT JOIN module_erp_requests r ON r.event_id=e.id
-      WHERE e.profile_id=? AND e.module_id=? AND e.source_id=? AND e.seq<? ORDER BY e.seq DESC`)
-      .bind(profile, e!.module, e!.source_id, e!.seq).all<any>();
-    for (const row of previous.results) {
-      if (row.seq !== previousSeq || row.prepared || row.state !== "done" || !row.receipt_json) break;
-      let fact: IntegrationEvent, result: IntegrationResult;
-      try { fact = JSON.parse(row.payload_json); result = JSON.parse(row.receipt_json); } catch { break; }
-      if (hash(fact) !== row.event_hash || fact.seq !== previousSeq || fact.command_id !== row.command_id ||
-          fact.source.profile !== profile || fact.source.module !== e!.module || fact.source.source_id !== e!.source_id ||
-          fact.command_id !== commandId(request!.source, previousSeq) ||
-          !same(fact.eligible, { document: false, stock: false, finance: false }) ||
-          !same(result, { command_id: fact.command_id, seq: previousSeq, replayed: false, outcome: "skipped", links: [],
-            effects: { stock: "not_requested", finance: "not_requested" }, reason_code: "part_disabled" })) break;
-      previousSeq--;
-    }
+      WHERE e.profile_id=? AND e.module_id=? AND e.source_id=? AND e.seq=? LIMIT 1`)
+      .bind(profile, e!.module, e!.source_id, previousSeq).all<any>();
+    const row = previous.results[0];
+    if (!row) break;
+    if (row.seq !== previousSeq || row.prepared || row.state !== "done" || !row.receipt_json) break;
+    let fact: IntegrationEvent, result: IntegrationResult;
+    try { fact = JSON.parse(row.payload_json); result = JSON.parse(row.receipt_json); } catch { break; }
+    if (hash(fact) !== row.event_hash || fact.seq !== previousSeq || fact.command_id !== row.command_id ||
+        fact.source.profile !== profile || fact.source.module !== e!.module || fact.source.source_id !== e!.source_id ||
+        fact.command_id !== commandId(request!.source, previousSeq) ||
+        !same(fact.eligible, { document: false, stock: false, finance: false }) ||
+        !same(result, { command_id: fact.command_id, seq: previousSeq, replayed: false, outcome: "skipped", links: [],
+          effects: { stock: "not_requested", finance: "not_requested" }, reason_code: "part_disabled" })) break;
+    previousSeq--;
   }
   const proof = freeze({ rpc, identity_hash: hash(identity), evidence: e!, request: request!, event: event!, previous_seq: previousSeq, open: {
     document: event!.eligible.document && (open(["erp-vendas"]) || event!.eligible.finance && open(["erp-financeiro"]) || event!.eligible.stock && open(["erp-produtos", "erp-estoque"])),

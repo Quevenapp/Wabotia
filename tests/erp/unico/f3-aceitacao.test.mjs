@@ -218,7 +218,7 @@ test("A4/A8: cortes, política e agendador preservam religamento sem consultas c
     false,
   );
   const policy = await ensureCommercialPolicy(env, profile);
-  assert.deepEqual(policy.auto_post, { stock: true, finance: true });
+  assert.deepEqual(policy.auto_post, { stock: false, finance: false });
   local
     .prepare(
       "UPDATE module_erp_policy SET version=version+1,config_json=json_set(config_json,'$.auto_post.finance',json('false')),updated_by='person' WHERE profile_id=?",

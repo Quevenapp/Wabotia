@@ -30,7 +30,7 @@ export function commercialPolicyView(policy: CommercialPolicy, actor: Actor) {
   };
 }
 export async function ensureCommercialPolicy(env: Env, profile: string): Promise<CommercialPolicy> {
-  const defaults = { auto_post: { stock: true, finance: true }, warehouse_id: null, revenue_category_id: null, payment_method_id: null, settlement_accounts: {}, consumer_contact_id: null, installment_rule: "single_on_trigger" };
+  const defaults = { auto_post: { stock: false, finance: false }, warehouse_id: null, revenue_category_id: null, payment_method_id: null, settlement_accounts: {}, consumer_contact_id: null, installment_rule: "single_on_trigger" };
   // Só escreve a política. A referência de leitura a profiles não deve
   // invalidar o cache de configuração da invocação inteira.
   const result = await env.DB.prepare("INSERT INTO module_erp_policy(profile_id,config_json,updated_ms,updated_by) SELECT ?,?,?,'system:integration' WHERE EXISTS(SELECT 1 FROM profiles WHERE id=?) ON CONFLICT(profile_id) DO UPDATE SET profile_id=excluded.profile_id RETURNING *")

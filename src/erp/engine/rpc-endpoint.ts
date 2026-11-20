@@ -223,12 +223,13 @@ export async function handleRpc(
       ? (await d1.prepare("SELECT enabled FROM profile_modules WHERE profile_id=? AND module_id='os'").bind(profile).first<{ enabled: number }>())?.enabled === 1 : false;
     // Revalidar depois de qualquer I/O; o motor segue síncrono até o commit.
     if (moduleRpc) moduleProof = await verifyModuleTransport(d1, profile, name, a, identity);
+    const currentParts = await requireCurrentErpParts(ctx.storage, profile, input);
     const result = callRpc(storageDriver(ctx.storage, profile), name, args as Record<string, unknown>, clock, {
       ...storage,
       identity,
       moduleProof,
       workEnabled,
-      parts: snapshot.parts,
+      parts: currentParts.parts,
       partsReference,
       maintenance: maintenance ?? undefined,
       modules: requestModuleState(request.headers, request.headers.get(SYSTEM_HEADER) === "1"),

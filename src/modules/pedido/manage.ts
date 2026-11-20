@@ -4,6 +4,7 @@ import { manualReceipt, orderOwner, projectOrder, receiptReplay, singleReceiptSt
 // pagamento escolhida pela equipe. Escritas rodam como comandos (Coordinator,
 // Idempotency-Key) registrados em ./pedido.ts.
 import { all, batch, exec, one } from "../../db";
+import { requireFinancialAal } from "../../mfa";
 import { ApiError, type Actor, json, now, requireValue } from "../../types";
 import type { ModuleContext } from "../api";
 import {
@@ -300,6 +301,7 @@ export async function updateOrder(ctx: ModuleContext, actor: Actor, data: any) {
  * não gerada. Cobrança online aberta só é confirmada pelo provedor.
  */
 export async function markPaid(ctx: ModuleContext, actor: Actor, data: any, requestId = `paid:${data.id}`) {
+  requireFinancialAal(actor);
   ctx.access(actor, "conversations:write");
   const order = await loadOrder(ctx, data.id);
   refuseTabOrder(order);

@@ -57,13 +57,28 @@ async function countInitialAttempt(env: Env, event: IntegrationEvent, token: str
       preparation_attempts=preparation_attempts+CASE WHEN ${prepared} THEN 0 ELSE 1 END,
       lookup_attempts=lookup_attempts+CASE WHEN ${prepared} THEN 1 ELSE 0 END
     WHERE event_id=? AND lease_token=? AND lease_until_ms>? AND state='sending'
-      AND CASE WHEN ${prepared} THEN lookup_attempts ELSE preparation_attempts END<12`)
-    .bind(event.id, token, Date.now()).run();
+      AND CASE WHEN ${prepared} THEN lookup_attempts ELSE preparation_attempts END<12
+    RETURNING ${prepared} AS prepared`)
+    .bind(event.id, token, Date.now()).all<{ prepared: number }>();
   if (result.meta.changes !== 1) throw new IntegrationError("integration_unavailable", 503);
+  return result.results[0].prepared ? "lookup_attempts" : "preparation_attempts";
 }
 
 async function attempt(env: Env, event: IntegrationEvent, token: string, deadline: number): Promise<void> {
-  await countInitialAttempt(env, event, token, deadline);
+  const counts = { preparation_attempts: 0, lookup_attempts: 0 };
+  counts[await countInitialAttempt(env, event, token, deadline)]++;
+  try { await attemptCounted(env, event, token, deadline, counts); }
+  catch (error) {
+    // Só suspensão confirmada devolve o crédito desta passagem. Nenhum envio
+    // incerto é zerado, e indisponibilidade de leitura continua sendo falha.
+    if (sanitizedError(error).code === "part_disabled") await env.DB.prepare(`UPDATE module_erp_delivery
+      SET preparation_attempts=preparation_attempts-?,lookup_attempts=lookup_attempts-CASE WHEN unresolved=0 THEN ? ELSE 0 END
+      WHERE event_id=? AND lease_token=? AND state='sending' AND lease_until_ms>?`)
+      .bind(counts.preparation_attempts, counts.lookup_attempts, event.id, token, Date.now()).run();
+    throw error;
+  }
+}
+async function attemptCounted(env: Env, event: IntegrationEvent, token: string, deadline: number, counts: { preparation_attempts: number; lookup_attempts: number }): Promise<void> {
   integrationProducer(event.source.module);
   let request = await readPreparedRequest(env, event);
   const source = ["receive", "lifecycle"].includes(event.operation) ? await one(env, "SELECT links_json FROM module_erp_sources WHERE profile_id=? AND module_id=? AND source_id=?", event.source.profile, event.source.module, event.source.source_id) : null;
@@ -86,8 +101,10 @@ async function attempt(env: Env, event: IntegrationEvent, token: string, deadlin
     if (sent.attempts >= 12 || sent.preparation_attempts >= 12) throw new IntegrationError("integration_unavailable", 503);
     if (request.body.mode === "human" && sent.unresolved) throw new IntegrationError("integration_unavailable", 503);
     await env.DB.prepare("UPDATE module_erp_delivery SET lookup_attempts=0 WHERE event_id=? AND lease_token=?").bind(event.id, token).run();
+    counts.lookup_attempts = 0; // Consulta concluída: esse crédito já foi devolvido.
     if (request.body.mode === "human") throw new IntegrationError("waiting_manual", 409);
     await countIntegrationAttempt(env, event, token, "preparation_attempts", deadline);
+    counts.preparation_attempts++;
   }
   const state = await readIntegrationActivation(env, event.source.profile, event.source.module);
   if (!state.snapshot.parts.customers) throw new IntegrationError("part_disabled", 409);

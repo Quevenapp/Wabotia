@@ -8,7 +8,7 @@ import type { CommercialItem, CommercialSnapshot, IntegrationEvent, IntegrationM
 import { aliasStatements, integrationStatements, integrationCasGuard } from "../../integrations/outbox";
 import { readIntegrationActivation, eventEpochOpen } from "../../integrations/activation";
 import { ensureCommercialPolicy } from "../../integrations/policy";
-import { canonical, commandId, eventKey, F3_NAMESPACES, hash, uuid5 } from "../../integrations/keys";
+import { canonical, commandId, eventKey, F3_NAMESPACES, hash, uuid5, localEventId } from "../../integrations/keys";
 import { IntegrationError, integer, validateSnapshot } from "../../integrations/privacy";
 import { registerIntegrationProducer } from "../../integrations/registry";
 import { allocationKey, allocationStatements, commercialReceiptStatements, registerReceiptReverser, manualReceiptKey, providerReceiptKey, reverseReceiptKey, type CommercialReceipt } from "../../integrations/receipts";
@@ -76,7 +76,7 @@ export async function projectOrder(ctx: ModuleContext, row: any, source: SourceR
   return snapshot;
 }
 
-type EventInput = { operation: IntegrationOperation; receipt?: CommercialReceipt; reason?: string; stock?: boolean; at?: number };
+type EventInput = { operation: IntegrationOperation; receipt?: CommercialReceipt; reason?: string; stock?: boolean; at?: number; local?: boolean };
 type PlannedSource = { source: SourceRef; revision: number; seq: number; events: IntegrationEvent[]; snapshot: CommercialSnapshot; snapshots: Map<string, CommercialSnapshot> };
 /** Um CAS por origem, mesmo quando o pagamento alcança vários componentes. */
 export class CommercePlan {
@@ -150,7 +150,8 @@ export class CommercePlan {
           eligible.stock ||= input.operation !== "receive" && input.stock !== false && old.eligible.stock;
         }
       }
-      if (!eligible.document && !eligible.stock && !eligible.finance) continue;
+      if (input.local) Object.assign(eligible, { document: false, stock: false, finance: false });
+      if (!input.local && !eligible.document && !eligible.stock && !eligible.finance) continue;
       const seq = ++plan.seq;
       const event: IntegrationEvent = { id: commandId(source, seq), command_id: commandId(source, seq), event_key: eventKey(source, input.operation, next.source_revision), source, seq, source_revision: next.source_revision,
         operation: input.operation, occurred_ms: occurred, epochs: state.epochs, eligible, snapshot: next,
@@ -160,6 +161,11 @@ export class CommercePlan {
       // faz a chave de order:<UUID> ultrapassar o limite de 200 da base.
       if (input.receipt) event.event_key += `:${Buffer.from(hash(input.receipt.receipt_key), "hex").toString("base64url")}`;
       plan.events.push(event);
+      if (input.local) this.append(["UPDATE module_erp_delivery SET state='blocked',completed_ms=NULL,error_code=?,error_message=? WHERE event_id=?",
+        [input.reason, new IntegrationError(input.reason!).message, localEventId(source, event.event_key)]]);
+      else if (input.operation === "cancel") this.append([`UPDATE module_erp_delivery SET state='done',completed_ms=?,error_code='cancellation_resolved',error_message=NULL
+        WHERE error_code='refund_required' AND event_id IN (SELECT id FROM module_erp_events WHERE profile_id=? AND module_id=? AND source_id=? AND seq IS NULL)`,
+        [this.at, source.profile, source.module, source.source_id]]);
     }
   }
   append(...statements: Statement[]) { this.extras.push(...statements); }
@@ -244,7 +250,8 @@ export async function reverseReceiptStatements(ctx: ModuleContext, original: Com
     const snapshot = await savedSale(ctx.env, saleSource(ctx.profile, a.module_id, a.source_id, a.component));
     if (!snapshot) throw new IntegrationError("historical_origin_unlinked");
     await allocateSale(plan, snapshot, receipt, a.amount_cents, i);
-    if (snapshot.lifecycle.base_status === "cancelled" && await netAllocated(ctx.env, snapshot.source) === a.amount_cents) await plan.add(snapshot, [{ operation: "cancel", stock: false, reason: "refund_confirmed_review_stock" }]);
+    if (snapshot.lifecycle.base_status === "cancelled" && await netAllocated(ctx.env, snapshot.source) === a.amount_cents) await plan.add(snapshot, [{ operation: "cancel", stock: false,
+      reason: snapshot.source.module === "entrega" ? "delivery_cancelled" : "refund_confirmed_review_stock" }]);
   }
   return plan.statements();
 }

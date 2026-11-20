@@ -15,6 +15,10 @@ export function integrationReason(reason: string | null | undefined) {
     obligation_reactivation_required: "Recebimento depois do cancelamento: recompor a obrigação. A equipe financeira deve conferir a obrigação e conciliar o recebimento; a operação local foi concluída.",
     payment_evidence_required: "A operação local foi concluída. Consulte novamente a confirmação do provedor para conciliar o recebimento no ERP.",
     module_cancellation_pending: "Cancelamento pendente: a equipe autorizada deve estornar os efeitos restantes pela origem.",
+    refund_required: "Devolva o valor recebido e confirme o estorno pela origem para concluir o cancelamento.",
+    consumption_requires_classification: "Classifique o material consumido como perda ou devolução ao estoque para concluir o cancelamento.",
+    refund_confirmed_review_stock: "O valor foi devolvido. Classifique o material como perda ou devolução ao estoque para concluir o cancelamento.",
+    commercial_correction_required: "Confira e corrija a obrigação no ERP antes de emitir a cobrança com desconto.",
     waiting_manual: "Aguardando uma pessoa autorizada lançar os destinos disponíveis.",
   };
   return reason ? reasons[reason] ?? integrationError({ code: reason }) : "A equipe autorizada deve conferir a pendência na origem.";
@@ -44,9 +48,9 @@ export function IntegrationStatus({ module, sourceId, compact = false }: { modul
     ? ((pending.body as { destinations?: string[] }).destinations ?? []).every(d => d === "finance" ? access.finance : access.postStock)
     : access.write(module) && (access.documents || access.stock || access.finance);
   const event = view && actionableEvent(view);
-  const run = async (operation: () => Promise<unknown>, correction = false) => {
+  const run = async (operation: () => Promise<unknown>, correction = false, refresh = true) => {
     setBusy(true); setError("");
-    try { await operation(); setReview(false); setReload(n => n + 1); }
+    try { await operation(); setReview(false); if (refresh) setReload(n => n + 1); }
     catch (e) { setError(integrationError(e)); if (correction) setReview(true); }
     finally { setBusy(false); }
   };
@@ -66,9 +70,9 @@ export function IntegrationStatus({ module, sourceId, compact = false }: { modul
       {view.links.filter(l => l.kind === "document").map(link => <p key={link.id}><a href={`/app/erp/documentos-empresa?${new URLSearchParams({ tipo: module === "os" ? "service_orders" : "sales_orders", documento: link.id })}`}>Abrir documento ERP · somente leitura</a></p>)}
       {access.finance && view.links.filter(l => l.kind === "title").map(link => <p key={link.id}>Título confirmado: {link.id}</p>)}
       {pending ? <><p role="status">A confirmação da ação anterior não foi recebida. A retomada desta tela não enviou nenhum comando.</p>{canResume && <Button disabled={busy} onClick={() => void run(() => api.resumeSource(module, sourceId!))}>Repetir a mesma ação</Button>}</> : <>
-        {event && view.pending && (access.documents || access.stock || access.finance) && access.write(module) && <Button disabled={busy} onClick={() => void run(() => api.sourceAction(module, sourceId!, "retry", { event_id: event.id }))}>Tentar novamente</Button>}
+        {event && typeof event.seq === "number" && view.pending && (access.documents || access.stock || access.finance) && access.write(module) && <Button disabled={busy} onClick={() => void run(() => api.sourceAction(module, sourceId!, "retry", { event_id: event.id }))}>Tentar novamente</Button>}
         {event && view.manual_destinations.map(destination => <Button key={destination} disabled={busy} onClick={() => void run(() => api.sourceAction(module, sourceId!, "post", { event_id: event.id, version: view.revision, destinations: [destination] }))}>{`Lançar ${destination === "stock" ? "estoque" : "financeiro"} manualmente`}</Button>)}
-        {event && view.pending && (access.documents || access.stock || access.finance) && access.write(module) && <Button secondary disabled={busy} onClick={() => setReview(true)}>Corrigir pendência</Button>}
+        {event && typeof event.seq === "number" && view.pending && (access.documents || access.stock || access.finance) && access.write(module) && <Button secondary disabled={busy} onClick={() => setReview(true)}>Corrigir pendência</Button>}
       </>}
       {review && !pending && <div role="group" aria-label="Confirmar correção">
         <p>O servidor validará a correção, reservará a mesma solicitação e consultará o recibo antes de fechar o comando anterior. Se ele já foi aplicado, a correção será interrompida para revisão.</p>
@@ -78,6 +82,10 @@ export function IntegrationStatus({ module, sourceId, compact = false }: { modul
       </div>}
     </>}
     {status && <><ul>{status.counters.map(c => <li key={c.state}>{STATE_LABELS[c.state]}: {c.count}</li>)}</ul>{!compact && <ul>{Object.values(status.activations).map(a => <li key={a.module_id}>{a.module_id} · época {a.epoch} · corte: {confirmationTime(a.enabled_since_ms)}</li>)}</ul>}</>}
+    {status?.scope === "page" && <p>Contadores das origens desta página.</p>}
+    {status?.next_cursor && <Button secondary disabled={busy} onClick={() => void run(async () => {
+      const next = await api.status(module, undefined, status.next_cursor!); setData({ api, key, status: next });
+    }, false, false)}>Próximas origens</Button>}
     <Button secondary disabled={busy} onClick={() => setReload(n => n + 1)}>Atualizar confirmação</Button>
     {compact && <a href={sourceHref({ profile: "", module, source_id: sourceId ?? "", component: "main" })}>Abrir integrações</a>}
   </section>;

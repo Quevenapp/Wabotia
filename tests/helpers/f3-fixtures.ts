@@ -37,7 +37,7 @@ export function installFixtureProducer() {
     return definition && id === "os" ? { ...definition, integration: { route: "work", privacy: "commercial", uses: ["customers", "products", "stock", "finance"], operations: ["prepare", "recognize", "execute", "lifecycle", "receive", "cancel", "reverse"] } } : definition;
   });
 }
-export async function f3Fixture() {
+export async function f3Fixture(automation = true) {
   const profile = uid(), local = uid(), customer = uid(), actorId = uid();
   await exec(env, "INSERT INTO profiles(id,name,settings,enabled,created) VALUES(?,'Área F3',?,1,?)", profile, JSON.stringify(defaults), Date.now());
   await exec(env, "INSERT INTO users(id,email,name,password,role,profiles,created) VALUES(?,?,?,'test','admin',?,?)", actorId, `${actorId}@example.test`, "Pessoa", JSON.stringify([profile]), Date.now());
@@ -46,6 +46,7 @@ export async function f3Fixture() {
     VALUES(?,?,'team','Cliente','cliente','manual',?,1,?,?,?,?)`, local, profile, customer, actorId, actorId, Date.now(), Date.now());
   await setParts(profile, { os: true, erp: true, "erp-produtos": true, "erp-vendas": true, "erp-estoque": true, "erp-financeiro": true }, Date.now() - 1000);
   const policy = await ensureCommercialPolicy(env, profile);
+  if (automation) policy.auto_post = { stock: true, finance: true }; // Escolha explícita desta preparação.
   policy.revenue_category_id = uid(); policy.warehouse_id = uid(); policy.settlement_accounts.cash = uid();
   const { profile: _, version: __, ...config } = policy;
   await exec(env, "UPDATE module_erp_policy SET config_json=? WHERE profile_id=?", canonical(config), profile);

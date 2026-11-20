@@ -40,6 +40,17 @@ vi.mock("react", async original => {
     useSyncExternalStore: (_subscribe: unknown, snapshot: () => unknown) => snapshot(), useMemo: (fn: () => unknown) => fn(), useCallback: (fn: unknown) => fn };
 });
 const cleanups: (() => void)[] = [];
+
+it.each(["payment_evidence_required", "obligation_reactivation_required", "refund_required", "consumption_requires_classification"])("pendência local %s orienta a resolução sem retry genérico", async reason => {
+  const request = vi.fn(async () => source({ state: "blocked", reason_code: reason, skipped_reason: null, manual_destinations: [],
+    deliveries: [{ id: "local", seq: null, state: "blocked", error_code: reason, completed_ms: null }] }));
+  host(context(), request);
+  const mounted = mount(() => IntegrationStatus({ module: "os", sourceId: "work-1" })), tree = await mounted.settle();
+  expect(button(tree, "Tentar novamente")).toBeUndefined(); expect(button(tree, "Corrigir pendência")).toBeUndefined();
+  expect(text(tree)).toContain(reason === "payment_evidence_required" ? "provedor" : reason === "obligation_reactivation_required" ? "recompor" : reason === "refund_required" ? "Devolva" : "Classifique");
+  expect(request).toHaveBeenCalledOnce();
+  expect(request.mock.calls.every(call => (call as any[])[1] !== "POST")).toBe(true);
+});
 afterEach(() => { while (cleanups.length) cleanups.pop()!(); runtime.api = null; runtime.owner = null; setMotorWorkEnabled(false); vi.restoreAllMocks(); });
 const context = (patch: Partial<ManagementContext> = {}): ManagementContext => ({ statusLoaded: true, role: "admin", erpRole: "admin", access: null,
   modules: Object.fromEntries(["erp", "erp-produtos", "erp-vendas", "erp-estoque", "erp-financeiro", "os", "pedido", "mesas", "agenda", "mensalidade", "reserva", "suporte", "entrega"].map(id => [id, true])), ...patch });

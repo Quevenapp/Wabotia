@@ -54,6 +54,7 @@ function PolicyForm({ policy, busy, onSave }: { policy: CommercialPolicy; busy: 
     setInitialization(body); setReview(true);
   };
   return <div><h3>Padrões e lançamento automático</h3>
+    <p>As duas opções vêm desligadas. Ao ligar um destino, os módulos passam a lançar sozinhos no Financeiro ou no Estoque, com autoria Sistema · módulo. A escolha vale somente para fatos novos; não lança o passado.</p>
     <ul>{missingDefaults(policy, access.stock, access.finance).map(label => <li key={label}>Ausente: {label}</li>)}</ul>
     <p>Referências devem existir e estar ativas. Nenhum cadastro é escolhido automaticamente. A conta é necessária para confirmar uma baixa.</p>
     <fieldset disabled={disabled}>

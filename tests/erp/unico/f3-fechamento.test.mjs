@@ -59,7 +59,7 @@ for (const module of ["agenda", "reserva"]) test(`${module}: recebimento sem obr
   assert.equal(f.lite.prepare("SELECT count(*) n FROM erp_finance__settlement").get().n, 0);
 });
 
-async function localFixture(t, module, paymentAmount) {
+async function localFixture(t, module, paymentAmount, linkedPayer = false) {
   const f = await fixture(t), at = Date.now();
   await api.batch(f.env, [
     ...[module, "payments", "mensalidade"].map(id => ["INSERT INTO profile_modules(profile_id,module_id,enabled,updated) VALUES(?,?,1,?) ON CONFLICT(profile_id,module_id) DO UPDATE SET enabled=1,updated=excluded.updated", [f.profile, id, at - 1000]]),
@@ -89,7 +89,10 @@ async function localFixture(t, module, paymentAmount) {
   }
   if (module === "mensalidade") {
     const day = api.today(at), plan = await api.createPlan(ctx, { name: "Plano", amount_cents: 1000, due_day: Number(day.slice(-2)) }, f.actor.id);
-    const sub = await api.createSubscription(ctx, { plan_id: plan.id, phone: "5511999998888", customer_name: "Cliente", start_date: day, end_date: day }, f.actor.id);
+    const payer = linkedPayer ? uid() : undefined;
+    if (payer) f.local.prepare("INSERT INTO mensalidade_payers(id,profile_id,name,contact_id,created_by,created,updated) VALUES(?,?,'Cliente',?,?,?,?)")
+      .run(payer,f.profile,f.localId,f.actor.id,at,at);
+    const sub = await api.createSubscription(ctx, { plan_id: plan.id, payer_id: payer, phone: "5511999998888", customer_name: "Cliente", start_date: day, end_date: day }, f.actor.id);
     await api.generateInstallments(ctx, at, sub.id);
     row = await api.one(f.env, "SELECT * FROM mensalidade_installments WHERE subscription_id=?", sub.id);
   }
@@ -115,6 +118,68 @@ async function localFixture(t, module, paymentAmount) {
     events: () => f.local.prepare("SELECT payload_json FROM module_erp_events WHERE profile_id=? AND module_id=? ORDER BY source_revision,seq").all(f.profile, module).map(r => JSON.parse(r.payload_json)),
     pending: () => f.local.prepare("SELECT d.* FROM module_erp_delivery d JOIN module_erp_events e ON e.id=d.event_id WHERE e.profile_id=? AND e.module_id=? AND d.state='blocked'").all(f.profile, module) };
 }
+
+test("segunda revisão: paid histórico de Mensalidade já estornada não depende de notificações", async t => {
+  const f = await localFixture(t, "mensalidade");
+  await f.evidence("paid"); await f.evidence("refunded");
+  let notices = 0;
+  f.ctx.publish = async () => { notices++; throw new Error("aviso indisponível"); };
+  f.ctx.sendMessage = async () => { notices++; throw new Error("comprovante indisponível"); };
+  await f.apply("paid");
+  assert.equal(notices, 0); assert.equal(f.receipts().length, 1);
+  // O fato seguinte já pode revogar; falha posterior do aviso não reabre o paid.
+  await assert.rejects(f.apply("refunded"), /aviso indisponível/);
+  assert.equal(f.current().payment_status, "refunded");
+  assert.deepEqual(f.receipts().map(r => r.kind), ["receive", "reverse"]);
+});
+
+test("segunda revisão: Mensalidade revoga Suporte real antes do aviso e concilia os dois fatos no motor", async t => {
+  const f = await localFixture(t, "mensalidade", undefined, true), at = Date.now();
+  await api.batch(f.env, [
+    ["INSERT INTO profile_modules(profile_id,module_id,enabled,updated) VALUES(?,'suporte',1,?) ON CONFLICT(profile_id,module_id) DO UPDATE SET enabled=1,updated=excluded.updated", [f.profile,at]],
+    ...api.activationStatements(f.profile,[{module_id:"suporte",enabled:true}],at),
+  ]);
+  const account = f.rpc("erp_finance_account_execute", { p_command_id: uid(), p_action: "account_create", p_data: { account_type: "cash", name: "Caixa", start_on: "2020-01-01", opening_cents: "0" } }).record;
+  f.local.prepare("UPDATE module_erp_policy SET config_json=json_set(config_json,'$.settlement_accounts.pix',?) WHERE profile_id=?").run(account.id,f.profile);
+  await f.pump();
+  const payment = await f.payment();
+  f.local.prepare("INSERT INTO suporte_sessions(id,profile_id,conversation_id,step,offer_kind,installment_id,expires_at,created,updated) VALUES(?,?,?,'awaiting_payment','installment',?,?,?,?)")
+    .run(uid(),f.profile,payment.conversation_id,f.row.id,at+60000,at,at);
+  await f.evidence("paid"); await f.evidence("refunded");
+  let notices = 0;
+  f.ctx.publish = async () => { notices++; throw new Error("aviso indisponível"); };
+  f.ctx.sendMessage = async () => { notices++; throw new Error("comprovante indisponível"); };
+  await f.apply("paid");
+  assert.equal(notices,0);
+  assert.equal(f.local.prepare("SELECT count(*) n FROM suporte_releases WHERE profile_id=?").get(f.profile).n,0);
+  const release = uid();
+  f.local.prepare("INSERT INTO suporte_releases(id,profile_id,conversation_id,kind,ref_id,actor,source_key,created) VALUES(?,?,?,'installment',?,'provider',?,?)")
+    .run(release,f.profile,payment.conversation_id,f.row.id,uid(),at);
+  await assert.rejects(f.apply("refunded"), /aviso indisponível/);
+  assert.equal(f.local.prepare("SELECT status FROM suporte_releases WHERE id=?").get(release).status,"ended");
+  await f.pump();
+  assert.equal(f.lite.prepare("SELECT settled_cents FROM erp_finance__title").get().settled_cents,0);
+  assert.equal(f.lite.prepare("SELECT count(*) n FROM erp_finance__settlement").get().n,2);
+});
+
+test("segunda revisão: reembolso de Suporte avulso cancela a obrigação após reversão", async t => {
+  const f = await localFixture(t, "suporte");
+  await f.evidence("paid"); await f.apply("paid");
+  await f.evidence("refunded"); await f.apply("refunded"); await f.apply("refunded");
+  assert.equal(f.local.prepare("SELECT count(*) n FROM suporte_releases WHERE profile_id=? AND status='active'").get(f.profile).n, 0);
+  assert.deepEqual(f.events().filter(e=>e.seq!==null).map(e=>e.operation), ["recognize", "receive", "reverse", "cancel"]);
+});
+
+test("segunda revisão: desconto cria pendência e recusa emissão reduzida antes da conciliação", async t => {
+  const f = await localFixture(t, "mensalidade");
+  f.ctx.cancelCharge = async () => {};
+  await api.requestDecided(f.ctx, { id: uid(), ref_id: f.row.id, conversation_id: (await f.payment()).conversation_id, kind: "desconto" },
+    { status: "approved", actor: f.actor, value: 2 });
+  const inst = f.current(); assert.equal(inst.amount_cents, 800);
+  assert.deepEqual(f.pending().map(d=>d.error_code), ["commercial_correction_required"]);
+  assert.equal(f.events().at(-1).seq, null);
+  await assert.rejects(api.requireMensalidadeChargeReconciled(f.ctx, inst), e=>e.code==="commercial_correction_required");
+});
 
 for (const module of ["pedido", "reserva", "suporte", "mensalidade"]) {
   test(`${module}: legado conclui localmente, recupera evidência e não duplica baixa`, async t => {

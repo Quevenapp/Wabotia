@@ -1,6 +1,9 @@
 import { SELF, runInDurableObject } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import "../src/modules/runtime";
+// O motor é real. Carregar o grafo pesado na coleta evita cobrar a compilação
+// inicial do Vite apenas do primeiro cenário; cada área ainda migra seu SQLite.
+import "../src/erp/hub-engine";
 import { all, batch, exec, one } from "../src/db";
 import * as database from "../src/db";
 import { uid, type Actor, type Conversation } from "../src/types";
@@ -26,9 +29,19 @@ import { agendaTrigger, manualBookingReceipt } from "../src/modules/agenda/integ
 import { createBooking } from "../src/modules/reserva/bookings";
 import { saveUnit } from "../src/modules/reserva/units";
 import { addDays, atClock, brasiliaDate, reservaConfig } from "../src/modules/reserva/config";
-import { createDelivery } from "../src/modules/entrega/store";
+import { createDelivery, cancel as cancelDelivery } from "../src/modules/entrega/store";
+import { reverseCommercialReceipt } from "../src/integrations/receipts";
 import { updateDeliveryCommercial } from "../src/modules/entrega/integration";
+import { receiveDelivery } from "../src/modules/entrega/integration";
+import { patchCommercialPolicy } from "../src/integrations/policy";
+import { pendingPaymentStatements } from "../src/payments-commercial-evidence";
 import { supportIntegrationStatements } from "../src/modules/suporte/integration";
+import { purchasePaymentUpdated } from "../src/modules/suporte/store";
+import { paymentView } from "../src/payments";
+import { preparePaymentEvidence, paymentEvidenceStatements } from "../src/integrations/payment-evidence";
+import { requestDecided } from "../src/modules/mensalidade/requests";
+import { ensureCharge, paymentUpdated as mensalidadePaymentUpdated } from "../src/modules/mensalidade/billing";
+import { mensalidadeSettings } from "../src/modules/mensalidade/model";
 import { bearer } from "./service-center-fixture";
 import { due, f3Fixture, setParts } from "./helpers/f3-fixtures";
 
@@ -37,8 +50,8 @@ import { due, f3Fixture, setParts } from "./helpers/f3-fixtures";
 // pontos explícitos de queda são substituídos.
 afterEach(() => vi.restoreAllMocks());
 const quiet = { notify: false };
-async function setup() {
-  const f = await f3Fixture();
+async function setup(automation = true) {
+  const f = await f3Fixture(automation);
   f.actor.sessionId = uid();
   await setParts(f.profile, { pedido: true, mesas: true, entrega: true, mensalidade: true, agenda: true, reserva: true, suporte: true }, Date.now() - 1000);
   const rpc = async (name: string, args: Record<string, unknown>) => {
@@ -72,6 +85,227 @@ async function setup() {
   return { ...f, customer: customer.id as string, policy, product, warehouse, account, category, rpc, ctx, sql, count };
 }
 type Fixture = Awaited<ReturnType<typeof setup>>;
+
+describe("Segunda revisão — Worker, produtores e Coordinator reais", () => {
+  it("Mensalidade reconcilia paid histórico reembolsado sem liberar Suporte e revoga antes de avisar", async () => {
+    const f = await setup(), ctx = f.ctx("mensalidade"), payer = uid(), at = Date.now(), day = today(at), c = await conversation(f);
+    await exec(f.env, "INSERT INTO mensalidade_payers(id,profile_id,name,contact_id,created_by,created,updated) VALUES(?,?,'Responsável',?,?,?,?)", payer, f.profile, f.local, f.actor.id, at, at);
+    const plan = await createPlan(ctx, { name: "Plano", amount_cents: 1000, due_day: Number(day.slice(-2)) }, f.actor.id);
+    const sub = await createSubscription(ctx, { plan_id: plan.id, payer_id: payer, phone: "5511999998888", customer_name: "Cliente", start_date: day, end_date: day }, f.actor.id);
+    await generateInstallments(ctx, at, sub.id); await pump(f);
+    const inst = await one(f.env, "SELECT * FROM mensalidade_installments WHERE subscription_id=?", sub.id), id = uid(), remote = uid();
+    await exec(f.env, "INSERT INTO suporte_sessions(id,profile_id,conversation_id,step,offer_kind,installment_id,expires_at,created,updated) VALUES(?,?,?,'awaiting_payment','installment',?,?,?,?)", uid(), f.profile, c.id, inst.id, at + 60000, at, at);
+    await exec(f.env, "INSERT INTO payments(id,profile_id,conversation_id,account_id,provider,method,module_id,ref_id,description,amount_cents,status,provider_payment_id,trigger,actor,expires_at,paid_at,created,updated) VALUES(?,?,?,?,'fake','link','mensalidade',?,'Serviço',1000,'paid',?,'module','system',?,?,?,?)", id, f.profile, c.id, uid(), inst.id, remote, at + 60000, at, at, at);
+    for (const state of ["paid", "refunded"] as const) {
+      const evidence = await preparePaymentEvidence(f.env, await one(f.env, "SELECT * FROM payments WHERE id=?", id), { id: remote, state, amount_cents: 1000, currency: "BRL", paid_at: at, verified_method: "pix", refunded_at: state === "refunded" ? at + 1 : null }, at + 1);
+      await batch(f.env, [["UPDATE payments SET status=? WHERE id=?", [state, id]], ...paymentEvidenceStatements(evidence)]);
+    }
+    ctx.publish.mockClear(); ctx.sendMessage.mockClear();
+    ctx.publish.mockRejectedValue(new Error("aviso indisponível")); ctx.sendMessage.mockRejectedValue(new Error("comprovante indisponível"));
+    const payment = paymentView(await one(f.env, "SELECT * FROM payments WHERE id=?", id))!;
+    await mensalidadePaymentUpdated(ctx, { ...payment, status: "paid" }, "created");
+    expect(ctx.publish).not.toHaveBeenCalled(); expect(ctx.sendMessage).not.toHaveBeenCalled();
+    expect(await all(f.env, "SELECT * FROM suporte_releases WHERE profile_id=?", f.profile)).toEqual([]);
+    // Liberação que já tivesse sido entregue antes da queda também é revogada.
+    const release = uid();
+    await exec(f.env, "INSERT INTO suporte_releases(id,profile_id,conversation_id,kind,ref_id,actor,source_key,created) VALUES(?,?,?,'installment',?,'provider',?,?)", release, f.profile, c.id, inst.id, uid(), at);
+    await expect(mensalidadePaymentUpdated(ctx, payment, "paid")).rejects.toThrow("aviso indisponível");
+    expect((await one(f.env, "SELECT status FROM suporte_releases WHERE id=?", release)).status).toBe("ended");
+    await pump(f);
+    expect((await f.sql("SELECT settled_cents FROM erp_finance__title"))[0].settled_cents).toBe(0);
+    expect(await f.count("erp_finance__settlement")).toBe(2);
+  });
+  it("Entrega parcialmente recebida cancela no ERP somente após a devolução", async () => {
+    const f = await setup(), ctx = f.ctx("entrega");
+    const row = await createDelivery(ctx, f.actor, { label: "Entrega", source: "manual" }, uid());
+    await updateDeliveryCommercial(ctx, f.actor, { id: row.id, version: 0, price_cents: 1000, authorize: true }, uid()); await pump(f);
+    const receipt = await receiveDelivery(ctx, f.actor, { id: row.id, amount_cents: 400, method: "cash" }, uid()); await pump(f);
+    await cancelDelivery(ctx, f.actor, { id: row.id, reason: "Cancelamento" });
+    const source = { profile: f.profile, module: "entrega" as const, source_id: row.id, component: "main" };
+    expect((await events(f, row.id)).at(-1)!.seq).toBeNull();
+    expect(await integrationSourceView(f.env, f.actor, source)).toMatchObject({ state: "blocked", reason_code: "refund_required", pending: true });
+    expect((await f.sql("SELECT cancelled,settled_cents FROM erp_finance__title"))[0]).toMatchObject({ cancelled: 0, settled_cents: 400 });
+    await reverseCommercialReceipt(f.env, f.actor, f.profile, { id: receipt.receipt_key, reason_code: "refund_confirmed" }, uid()); await pump(f);
+    expect((await f.sql("SELECT cancelled,settled_cents FROM erp_finance__title"))[0]).toMatchObject({ cancelled: 1, settled_cents: 0 });
+    expect((await f.sql("SELECT status FROM erp_documents__document"))[0].status).toBe("cancelled");
+    expect(await integrationSourceView(f.env, f.actor, source)).toMatchObject({ state: "done", pending: false });
+    expect((await events(f, row.id)).filter(e => e.seq !== null).map(e => e.operation)).toEqual(["prepare", "execute", "receive", "reverse", "cancel"]);
+  });
+  it("Worker pagina o estado por origem e informa o alcance dos contadores", async () => {
+    const f = await setup(); await work(f); await work(f); await work(f); await pump(f);
+    const token = await bearer(f.actor); let cursor: string | null = "", pages = 0;
+    do {
+      const response = await SELF.fetch(`https://test/api/v1/profiles/${f.profile}/integrations/os/status?limit=1&after=${encodeURIComponent(cursor ?? "")}`, { headers: { Authorization: `Bearer ${token}` } });
+      expect(response.status).toBe(200); const page = await response.json<any>();
+      expect(page.scope).toBe("page"); expect(page.counters.reduce((n: number, c: any) => n + c.count, 0)).toBe(1);
+      expect(page.next_cursor).not.toBe(cursor); cursor = page.next_cursor; expect(++pages).toBeLessThanOrEqual(3);
+    } while (cursor);
+    expect(pages).toBe(3);
+  });
+  it("desconto sobre título reconhecido bloqueia cobrança reduzida e permanece visível", async () => {
+    const f = await setup(), ctx = f.ctx("mensalidade"), payer = uid(), day = today(Date.now()), c = await conversation(f);
+    await exec(f.env, "INSERT INTO mensalidade_payers(id,profile_id,name,contact_id,created_by,created,updated) VALUES(?,?,'Responsável',?,?,?,?)", payer,f.profile,f.local,f.actor.id,Date.now(),Date.now());
+    const plan = await createPlan(ctx,{name:"Plano",amount_cents:1000,due_day:Number(day.slice(-2))},f.actor.id);
+    const sub = await createSubscription(ctx,{plan_id:plan.id,payer_id:payer,phone:"5511999998888",customer_name:"Cliente",start_date:day,end_date:day},f.actor.id);
+    await generateInstallments(ctx,Date.now(),sub.id); await pump(f);
+    const inst = await one(f.env,"SELECT * FROM mensalidade_installments WHERE subscription_id=?",sub.id);
+    await requestDecided(ctx,{id:uid(),ref_id:inst.id,conversation_id:c.id,kind:"desconto"},{status:"approved",actor:f.actor,value:2} as any);
+    const fresh=await one(f.env,"SELECT * FROM mensalidade_installments WHERE id=?",inst.id), charge=vi.spyOn(ctx,"charge");
+    expect(fresh.amount_cents).toBe(800);
+    await expect(ensureCharge(ctx,fresh,c,mensalidadeSettings({}),"manual",Date.now())).rejects.toMatchObject({code:"commercial_correction_required"});
+    expect(charge).not.toHaveBeenCalled(); expect((await f.sql("SELECT amount_cents FROM erp_finance__title"))[0].amount_cents).toBe(1000);
+    expect(await integrationSourceView(f.env,f.actor,{profile:f.profile,module:"mensalidade",source_id:inst.id,component:"main"})).toMatchObject({state:"blocked",reason_code:"commercial_correction_required",pending:true});
+  });
+
+  it("Suporte reembolsado antes do gancho pago reverte e cancela a obrigação no motor", async () => {
+    const f=await setup(), ctx=f.ctx("suporte"), c=await conversation(f), at=Date.now(), payer=uid();
+    await exec(f.env,"INSERT INTO mensalidade_payers(id,profile_id,name,contact_id,created_by,created,updated) VALUES(?,?,'Responsável',?,?,?,?)",payer,f.profile,f.local,f.actor.id,at,at);
+    const row={id:uid(),profile_id:f.profile,conversation_id:c.id,payer_id:payer,session_id:null,package_id:"avulso",price_cents:1000,status:"pending",created:at};
+    await batch(f.env,[["INSERT INTO suporte_purchases(id,profile_id,conversation_id,payer_id,package_id,package_name,price_cents,mode,method,status,created,updated) VALUES(?,?,?,?,'avulso','Suporte',1000,'ticket','link','pending',?,?)",[row.id,f.profile,c.id,payer,at,at]],...await supportIntegrationStatements(ctx,row,"recognize",at)]);
+    await pump(f);
+    const id=uid(), account=uid(), remote=uid();
+    await exec(f.env,"INSERT INTO payments(id,profile_id,conversation_id,account_id,provider,method,module_id,ref_id,description,amount_cents,status,provider_payment_id,trigger,actor,expires_at,paid_at,created,updated) VALUES(?,?,?,?,'fake','link','suporte',?,'Serviço',1000,'paid',?,'module','system',?,?,?,?)",id,f.profile,c.id,account,row.id,remote,at+60000,at,at,at);
+    await exec(f.env,"UPDATE suporte_purchases SET payment_id=? WHERE id=?",id,row.id);
+    for(const state of ["paid","refunded"] as const){
+      const evidence=await preparePaymentEvidence(f.env,await one(f.env,"SELECT * FROM payments WHERE id=?",id),{id:remote,state,amount_cents:1000,currency:"BRL",paid_at:at,verified_method:"pix",refunded_at:state==="refunded"?at+1:null},at+1);
+      await batch(f.env,[["UPDATE payments SET status=? WHERE id=?",[state,id]],...paymentEvidenceStatements(evidence)]);
+    }
+    const payment=paymentView(await one(f.env,"SELECT * FROM payments WHERE id=?",id))!;
+    await purchasePaymentUpdated(ctx,payment); await purchasePaymentUpdated(ctx,payment); await pump(f);
+    expect(await all(f.env,"SELECT * FROM suporte_releases WHERE profile_id=? AND status='active'",f.profile)).toEqual([]);
+    expect((await f.sql("SELECT cancelled,settled_cents FROM erp_finance__title"))[0]).toMatchObject({cancelled:1,settled_cents:0});
+    expect((await events(f,row.id)).map(e=>e.operation)).toEqual(["recognize","receive","reverse","cancel"]);
+    expect(await f.count("erp_finance__settlement")).toBe(2);
+  });
+  it("Worker exige MFA financeiro no recebimento manual e mantém instalação sem exigência", async () => {
+    const f = await setup(), ctx = f.ctx("entrega"), token = await bearer(f.actor);
+    const row = await createDelivery(ctx, f.actor, { label: "Entrega", source: "manual" }, uid());
+    await updateDeliveryCommercial(ctx, f.actor, { id: row.id, version: 0, price_cents: 1000, authorize: true }, uid()); await pump(f);
+    const receive = () => SELF.fetch(`https://test/api/v1/profiles/${f.profile}/entrega/deliveries/${row.id}/receipts`, { method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "Idempotency-Key": uid() }, body: JSON.stringify({ amount_cents: 400, method: "cash" }) });
+    // A resposta HTTP precede o consumidor do Coordinator. Aguardar o trabalho
+    // real antes de bombear evita gastar 30 rodadas disputando sua concessão.
+    const background: Promise<unknown>[] = [];
+    await runInDurableObject(f.env.COORDINATOR.get(f.env.COORDINATOR.idFromName(f.profile)), (_instance: unknown, state: DurableObjectState) => {
+      const waitUntil = state.waitUntil.bind(state);
+      vi.spyOn(state, "waitUntil").mockImplementation(work => { background.push(work); waitUntil(work); });
+    });
+    const finishBackground = async () => {
+      while (background.length) await Promise.all(background.splice(0));
+    };
+    try {
+      await exec(f.env, "INSERT INTO instance_settings(key,value,updated) VALUES('mfa_policy','financial',?) ON CONFLICT(key) DO UPDATE SET value='financial'", Date.now());
+      const denied = await receive(); expect(denied.status).toBe(403); expect(await denied.json()).toMatchObject({ error: { code: "mfa_required" } });
+      await finishBackground();
+      expect(await all(f.env, "SELECT * FROM module_commercial_receipts WHERE profile_id=?", f.profile)).toEqual([]);
+      await exec(f.env, "UPDATE instance_settings SET value='off' WHERE key='mfa_policy'");
+      const allowed = await receive(); expect(allowed.status).toBe(200); await allowed.json();
+      expect(background.length).toBeGreaterThan(0);
+      await finishBackground(); await pump(f);
+      expect(await f.count("erp_finance__settlement")).toBe(1);
+      expect((await f.sql("SELECT settled_cents FROM erp_finance__title"))[0].settled_cents).toBe(400);
+    } finally {
+      try { await finishBackground(); }
+      finally { await exec(f.env, "UPDATE instance_settings SET value='off' WHERE key='mfa_policy'"); }
+    }
+  });
+  it("área nova não lança sozinha; habilitar Financeiro só lança fatos novos desse destino", async () => {
+    const f = await setup(false), w = await work(f, false, true);
+    expect(f.policy.auto_post).toEqual({ stock: false, finance: false });
+    await integrationCommand(f.env, f.actor, f.profile, "integration.catalog.put", { module: "os", id: w.row.id, kind: "quote_item", component: JSON.parse(w.row.quote_items)[0].id, erp_item_id: f.product.id, version: 0 }, uid());
+    await changeStatus(w.ctx, await loadWork(w.ctx, w.row.id), "in_progress", f.actor.id, "", quiet);
+    await pump(f);
+    expect(await f.count("erp_finance__title")).toBe(0); expect(await f.count("erp_stock__document_posting")).toBe(0);
+    expect(await integrationSourceView(f.env, f.actor, w.source)).toMatchObject({ state: "skipped", skipped_reason: "automation_off", manual_destinations: ["stock", "finance"] });
+    await patchCommercialPolicy(f.env, f.actor, f.profile, { version: 1, auto_post: { finance: true } }, uid());
+    await pump(f);
+    expect(await f.count("erp_finance__title")).toBe(0);
+    const fresh = await work(f);
+    await changeStatus(fresh.ctx, fresh.row, "in_progress", f.actor.id, "", quiet); await pump(f);
+    expect(await f.count("erp_finance__title")).toBe(1); expect(await f.count("erp_stock__document_posting")).toBe(0);
+    expect(await integrationSourceView(f.env, f.actor, w.source)).toMatchObject({ state: "skipped", pending: true });
+  });
+
+  it.each([false, true])("suspensão não gasta preparação e retoma recebimento vinculado (pedido preparado: %s)", async prepared => {
+    const f = await setup(), ctx = f.ctx("entrega");
+    const row = await createDelivery(ctx, f.actor, { label: "Entrega", source: "manual" }, uid());
+    await updateDeliveryCommercial(ctx, f.actor, { id: row.id, version: 0, price_cents: 1000, authorize: true }, uid()); await pump(f);
+    if (!prepared) await setParts(f.profile, { "erp-financeiro": false });
+    await receiveDelivery(ctx, f.actor, { id: row.id, amount_cents: 400, method: "cash" }, uid());
+    const event = (await events(f, row.id)).at(-1)!;
+    if (prepared) {
+      const token = await acquireIntegrationLease(f.env, event.id);
+      await persistPreparedRequest(f.env, event, await prepareErpRequest(f.env, event), token!);
+      await exec(f.env, "UPDATE module_erp_delivery SET state='pending',lease_token=NULL,lease_until_ms=NULL WHERE event_id=?", event.id);
+      await setParts(f.profile, { "erp-financeiro": false });
+    }
+    for (let n = 0; n < 15; n++) { await due(f); await drainIntegrationOutbox(f.env, f.profile); }
+    expect(await one(f.env, "SELECT state,error_code,preparation_attempts,attempts,lookup_attempts FROM module_erp_delivery WHERE event_id=?", event.id))
+      .toEqual({ state: "pending", error_code: "part_disabled", preparation_attempts: 0, attempts: 0, lookup_attempts: 0 });
+    await setParts(f.profile, { "erp-financeiro": true }); await pump(f); await pump(f);
+    expect(await f.count("erp_finance__settlement")).toBe(1);
+    expect((await f.sql("SELECT settled_cents FROM erp_finance__title"))[0].settled_cents).toBe(400);
+  });
+
+  it("lifecycle de venda não resolve execução fechada sem efeito financeiro", async () => {
+    const f = await setup(), ctx = f.ctx("entrega");
+    const row = await createDelivery(ctx, f.actor, { label: "Entrega", source: "manual" }, uid());
+    await updateDeliveryCommercial(ctx, f.actor, { id: row.id, version: 0, price_cents: 1000, authorize: true }, uid());
+    await drainIntegrationOutbox(f.env, f.profile); // prepare, sem execute
+    await setParts(f.profile, { "erp-financeiro": false }); await setParts(f.profile, { "erp-financeiro": true });
+    await due(f); await drainIntegrationOutbox(f.env, f.profile);
+    const { deliveryLifecycleStatements } = await import("../src/modules/entrega/integration");
+    await batch(f.env, await deliveryLifecycleStatements(ctx, await one(f.env, "SELECT * FROM entrega_deliveries WHERE id=?", row.id), f.actor.id, false));
+    await due(f); await drainIntegrationOutbox(f.env, f.profile);
+    const source = { profile: f.profile, module: "entrega" as const, source_id: row.id, component: "main" };
+    expect(await integrationSourceView(f.env, f.actor, source)).toMatchObject({ state: "blocked", pending: true, reason_code: "epoch_closed", manual_destinations: ["finance"] });
+    expect(await f.count("erp_finance__title")).toBe(0);
+  });
+
+  it.each(["payment_evidence_required", "obligation_reactivation_required", "refund_required"])("retry local preserva %s e não chama ERP", async reason => {
+    const f = await setup(), w = await work(f);
+    await pump(f);
+    const snapshot = (await events(f, w.row.id)).at(-1)!.snapshot;
+    await batch(f.env, await pendingPaymentStatements(f.env, snapshot, uid(), "paid", reason));
+    const event = (await events(f, w.row.id)).at(-1)!;
+    expect(event.seq).toBeNull();
+    const before = await one(f.env, "SELECT * FROM module_erp_delivery WHERE event_id=?", event.id), remote = vi.spyOn(hub, "erpFetch");
+    await expect(integrationCommand(f.env, f.actor, f.profile, "integration.retry", { module: "os", id: w.row.id, event_id: event.id }, uid())).rejects.toMatchObject({ status: 409, code: reason });
+    expect(await one(f.env, "SELECT * FROM module_erp_delivery WHERE event_id=?", event.id)).toEqual(before);
+    expect(remote).not.toHaveBeenCalled();
+  });
+
+  it("sem papel ERP não reserva substituição e Estoque recebe projeção sem valores financeiros", async () => {
+    const f = await setup(), w = await work(f), actor = await person(f, ["*"]);
+    const event = (await events(f, w.row.id)).at(-1)!;
+    await expect(integrationCommand(f.env, actor, f.profile, "integration.replace", { module: "os", id: w.row.id, event_id: event.id, reason_code: "commercial_correction" }, uid())).rejects.toMatchObject({ status: 403 });
+    expect(await one(f.env, "SELECT replacement_key,replacement_json FROM module_erp_sources WHERE profile_id=? AND source_id=?", f.profile, w.row.id)).toEqual({ replacement_key: null, replacement_json: null });
+    const stock = await person(f, ["*", "erp:estoque"]), view = await workCommercialView(w.ctx, stock, w.row.id);
+    expect(view).not.toHaveProperty("installments"); expect(view).not.toHaveProperty("total_cents");
+    expect(view.items.length).toBeGreaterThan(0); expect(view.items[0]).not.toHaveProperty("unit_cents");
+    expect(view.manual_destinations).not.toContain("finance"); expect(view.applied).not.toContain("finance");
+    expect(view.reason_code).toBeNull();
+  });
+  it("recusa definitiva entre reserva e transporte desfaz a reserva por CAS", async () => {
+    const f = await setup(), w = await work(f), event = (await events(f, w.row.id)).at(-1)!;
+    for (let n = 0; n < event.seq! - 1; n++) {
+      await due(f); await drainIntegrationOutbox(f.env, f.profile);
+    }
+    expect((await one(f.env, "SELECT applied_seq FROM module_erp_sources WHERE source_id=?", w.row.id)).applied_seq).toBe(event.seq! - 1);
+    const original = f.env.DB.batch.bind(f.env.DB), transport = vi.spyOn(hub, "erpFetch");
+    const writer = vi.spyOn(f.env.DB, "batch").mockImplementation(async statements => {
+      const result = await original(statements);
+      if ((await one(f.env, "SELECT replacement_key FROM module_erp_sources WHERE source_id=?", w.row.id))?.replacement_key) f.actor.role = "operator";
+      return result;
+    });
+    await expect(integrationCommand(f.env, f.actor, f.profile, "integration.replace", { module: "os", id: w.row.id, event_id: event.id, reason_code: "commercial_correction" }, uid())).rejects.toMatchObject({ status: 403 });
+    expect(transport).not.toHaveBeenCalled();
+    expect((await one(f.env, "SELECT replacement_key FROM module_erp_sources WHERE source_id=?", w.row.id)).replacement_key).toBeNull();
+    writer.mockRestore(); f.actor.role = "admin";
+    await integrationCommand(f.env, f.actor, f.profile, "integration.replace", { module: "os", id: w.row.id, event_id: event.id, reason_code: "commercial_correction" }, uid());
+    await pump(f); expect(await f.count("erp_documents__document")).toBe(1);
+  });
+});
 async function events(f: Fixture, id?: string): Promise<IntegrationEvent[]> {
   return (await all(f.env, `SELECT payload_json FROM module_erp_events WHERE profile_id=?${id ? " AND source_id=?" : ""} ORDER BY module_id,source_id,source_revision,seq`, f.profile, ...(id ? [id] : []))).map(row => JSON.parse(row.payload_json));
 }

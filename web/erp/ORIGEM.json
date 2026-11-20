@@ -197,7 +197,7 @@
   "web/erp/app/lib/cutover-model.ts": "removido: modelo da preparação da virada do Origin, sem uso depois do item 17",
   "web/erp/test/itau-cutover-guide.test.mjs": "removido: testa o guia da virada Itaú, que saiu (item 17)",
   "web/erp/test/cutover-model.test.mjs": "removido: testa o modelo da virada do Origin, que saiu (item 17)",
-  "web/erp/app/components/RealCnab.tsx": "alterado: sai o guia da virada da carteira Itaú (ItauCutoverGuide), que era do Origin (item 17); nome Fagoo retirado da tela",
+  "web/erp/app/components/RealCnab.tsx": "alterado: sai o guia da virada da carteira Itaú (ItauCutoverGuide), que era do Origin (item 17); nome Fagoo retirado da tela; F3: aviso explícito da recusa de cobrança bancária de títulos de módulos até conciliação integrada à origem.",
   "web/erp/app/lib/help-content.ts": "alterado: sai o tópico 'Convivência com o Origin' (/ajuda/convivencia; a convivência com o Bling terá a ajuda do componente externo) e o 'Manual de notas fiscais' deixa de comparar com o Origin: as notas são do ERP e a emissão com valor fiscal vai para um emissor externo ainda não ligado (item 17); nome Fagoo retirado da tela",
   "web/erp/app/components/CompanyNavigation.tsx": "alterado: sai o atalho de ajuda 'Convivência com o Origin' (item 17); sai o botão de sincronizar com o Origin (OriginSyncButton), a capacidade originIntegration nunca vem (Origin fora, motor 91213b8); nome Fagoo retirado da tela; casa única: ferramentas em portal sob escopo próprio, com contexto recebido do hospedeiro e links internos coordenados; filtra busca, preferências e ações pelo acesso efetivo, sem menu paralelo",
   "web/erp/app/components/RealStockOpening.tsx": "alterado: sai a adoção do saldo vindo do Origin (depósitos vinculados, data de corte da virada, lotes; item 17 e Origin fora, motor 91213b8: os opening_* saem do motor); a tela fica só com a política de estoque negativo, sem o ramo ORIGIN_ADOPTION",
@@ -339,7 +339,7 @@
   "web/erp/app/components/BusinessWidgets.tsx": "alterado: nome Fagoo retirado da tela (o ERP chama-se só ERP)",
   "web/erp/app/components/CatalogEditor.tsx": "alterado: nome Fagoo retirado da tela (o ERP chama-se só ERP)",
   "web/erp/app/components/CertificateA1.tsx": "alterado: nome Fagoo retirado da tela (o ERP chama-se só ERP)",
-  "web/erp/app/components/CnabOperationalV2.tsx": "alterado: nome Fagoo retirado da tela (o ERP chama-se só ERP)",
+  "web/erp/app/components/CnabOperationalV2.tsx": "alterado: nome Fagoo retirado da tela (o ERP chama-se só ERP); F3: aviso explícito da recusa de cobrança bancária de títulos de módulos até conciliação integrada à origem.",
   "web/erp/app/components/CnabReturnAmounts.tsx": "alterado: nome Fagoo retirado da tela (o ERP chama-se só ERP)",
   "web/erp/app/components/ContactExportDialog.tsx": "alterado: nome Fagoo retirado da tela (o ERP chama-se só ERP)",
   "web/erp/app/components/ContactList.tsx": "alterado: nome Fagoo retirado da tela (o ERP chama-se só ERP); fase 1: registros existentes abrem ProfileEditor e a ficha única por ID D1; inclusão, clonagem, seleção, lotes, exportação, impressão e ficha financeira preservados",
@@ -458,7 +458,8 @@
   "web/erp/test/stock-supply-ui.test.mjs": "alterado: nome Fagoo retirado da tela (o ERP chama-se só ERP)",
   "web/erp/app/lib/fagoo-menu.ts": "alterado: catálogo de destinos e classificação extraídos para src/modules/erp/panel-menu.ts, preservando itens, ordem, papéis, recursos e filtros; preferências permanecem locais; integração: alias /acesso permanece no grupo Resultados do menu legado",
   "web/erp/app/components/DocumentSalesToService.tsx": "alterado: fase 3 impede conversão avulsa para OS quando Trabalho está ligado e aponta para criar trabalho; proteção equivalente no servidor",
-  "web/erp/test/helpers/component-recovery-harness.mjs": "alterado: preparação de testes suporta forwardRef/createElement da dependência de ícones e renderiza os corpos internos de Editor e DocumentList introduzidos pela fase 3; asserções preservadas"
+  "web/erp/test/helpers/component-recovery-harness.mjs": "alterado: preparação de testes suporta forwardRef/createElement da dependência de ícones e renderiza os corpos internos de Editor e DocumentList introduzidos pela fase 3; asserções preservadas",
+  "web/erp/app/components/RealCnabOperational.tsx": "alterado: F3: aviso explícito da recusa de cobrança bancária de títulos de módulos até conciliação integrada à origem."
  },
  "files": {
   "packages/backend-config/src/origin.d.mts": {

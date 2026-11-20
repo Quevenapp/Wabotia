@@ -26,7 +26,7 @@ import { announcePaid, notifyInstallmentRefunded } from "./listeners";
 import { contractPaymentUpdated } from "./contracts";
 import { cancelOpenCharge } from "./store";
 import { sendPayMessage } from "./pay-message";
-import { commitMensalidade as batch, mensalidadeCasGuard, mensalidadeHistory, mensalidadePaymentEvidence, mensalidadeStatements, recoverMensalidadePayment, refundStatus } from "./integration";
+import { commitMensalidade as batch, mensalidadeCasGuard, mensalidadeHistory, mensalidadePaymentEvidence, mensalidadeStatements, recoverMensalidadePayment, refundStatus, mensalidadeCurrentlyRefunded, requireMensalidadeChargeReconciled } from "./integration";
 
 const BATCH = 50;
 /** Erros da cobrança que significam "não dá para cobrar por aqui agora". */
@@ -218,6 +218,7 @@ export async function ensureCharge(
   at: number,
   method: "pix" | "link" = cfg.method,
 ): Promise<ChargeResult> {
+  await requireMensalidadeChargeReconciled(ctx, inst);
   if (
     inst.payment_id &&
     inst.payment_status === "created" &&
@@ -652,6 +653,7 @@ export async function paymentUpdated(
       inst.payment_status === "paid" &&
       inst.payment_id === payment.id;
     if (retry) await recoverMensalidadePayment(ctx, "installment", inst, payment);
+    if (await mensalidadeCurrentlyRefunded(ctx, payment)) return;
     if (!changed && !retry) {
       // Já paga (baixa manual ou outra cobrança): dinheiro em dobro.
       await ctx.publish(
@@ -720,6 +722,10 @@ export async function paymentUpdated(
       inst.payment_id === payment.id;
     if (retry) await recoverMensalidadePayment(ctx, "installment", inst, payment);
     if (changed || retry) {
+      // A revogação precede notificações que podem falhar.
+      await notifyInstallmentRefunded(ctx.env, ctx.profile, {
+        id: inst.id, subscription_id: inst.subscription_id, payment_id: payment.id, amount_cents: payment.amount_cents,
+      }, { rethrow: true });
       await ctx.publish(
         "mensalidade.refunded",
         inst.id,
@@ -730,18 +736,6 @@ export async function paymentUpdated(
           amount_cents: payment.amount_cents,
         },
         { key: `${inst.id}:refunded:${payment.id}` },
-      );
-      // Quem foi liberado por esta parcela (Suporte pago) perde a liberação.
-      await notifyInstallmentRefunded(
-        ctx.env,
-        ctx.profile,
-        {
-          id: inst.id,
-          subscription_id: inst.subscription_id,
-          payment_id: payment.id,
-          amount_cents: payment.amount_cents,
-        },
-        { rethrow: true },
       );
     }
     return;

@@ -1,4 +1,5 @@
 import { effectiveSourceState } from "../../../integrations/state";
+import { erpRoleOf } from "../../erp/identity";
 import { one } from "../../../db";
 import { ApiError, type Actor, now } from "../../../types";
 import { onCommand, onRead, onRoute, type ModuleContext } from "../../api";
@@ -27,15 +28,19 @@ export async function workCommercialView(ctx: ModuleContext, actor: Actor, id: s
   const { row } = await authorizedOrder(ctx, actor, id);
   const state = await readWorkIntegration(ctx, row), local = commercialOf(row);
   const pending = state.events.find(e => e.state !== "done");
+  const role = erpRoleOf(actor), finance = role === "admin" || role === "financeiro", stock = role === "admin" || role === "estoque";
+  const { manual, ...status } = effectiveSourceState(state.events, !!state.source?.replacement_key);
   return { id, version: row.row_version ?? 1, revision: state.source?.revision ?? 0,
     document_status: documentStatus[row.status], frozen: state.frozen,
     privacy: local.privacy ?? "commercial", first_execution_at: local.first_execution_at ?? null,
     authorization: local.authorization ? { kind: local.authorization.kind, quote_version: local.authorization.quote_version, at: local.authorization.at, channel: local.authorization.channel } : null,
     customer_ref: ctx.mayRead(actor, "contacts") ? state.snapshot?.customer_ref ?? null : null,
-    items: state.snapshot?.items ?? [], installments: state.snapshot?.installments ?? [],
-    total_cents: state.snapshot?.total_cents ?? 0,
+    items: (state.snapshot?.items ?? []).map(item => finance ? item : (({ unit_cents, ...visible }) => visible)(item)),
+    ...(finance ? { installments: state.snapshot?.installments ?? [], total_cents: state.snapshot?.total_cents ?? 0 } : {}),
     technical: state.snapshot?.technical ?? null,
-    ...(({ manual, ...view }) => ({ ...view, manual_destinations: [...manual] }))(effectiveSourceState(state.events, !!state.source?.replacement_key)),
+    ...status, applied: status.applied.filter(d => d !== "finance" || finance),
+    manual_destinations: [...manual].filter(d => d === "finance" ? finance : stock),
+    ...(!finance ? { reason_code: null, blocked_reason: status.pending ? "Há uma pendência na origem." : null, skipped_reason: null } : {}),
     confirmed_ms: state.source?.confirmed_ms ?? null,
     cancellation_pending: row.status === "cancelled" && !!(pending || state.active.stock || state.active.finance),
     warnings: state.snapshot?.items.some(i => i.kind === "material" && !i.product_id) ? ["Material sem vínculo não baixa estoque."] : [],

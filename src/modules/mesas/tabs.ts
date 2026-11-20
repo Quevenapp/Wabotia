@@ -1102,6 +1102,7 @@ export async function voidPayment(ctx: ModuleContext, actor: Actor, data: any) {
  */
 export async function closeTab(ctx: ModuleContext, actor: Actor, data: any, requestId: string = uid()) {
   await requireWaiter(ctx, actor);
+  if (Array.isArray(data.payments) && data.payments.length) requireReceiptPerson(actor);
   const closeScope = `f3-mesas-close:${ctx.profile}:${actor.id}`;
   const closeFingerprint = hash(data);
   const state = await currentTabState(ctx, data.id, { scope: closeScope, key: requestId });

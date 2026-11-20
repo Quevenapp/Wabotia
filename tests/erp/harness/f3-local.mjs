@@ -45,6 +45,14 @@ const built = await build({ stdin: { resolveDir: root, contents: `
   export {generateInstallments} from './src/modules/mensalidade/installments.ts';
   export {paymentUpdated as mensalidadePaid} from './src/modules/mensalidade/billing.ts';
   export {today} from './src/modules/mensalidade/model.ts';
+  export {createDelivery,cancel as cancelDelivery} from './src/modules/entrega/store.ts';
+  export {updateDeliveryCommercial,receiveDelivery,deliveryLifecycleStatements} from './src/modules/entrega/integration.ts';
+  export {reverseCommercialReceipt} from './src/integrations/receipts.ts';
+  export {pendingPaymentStatements} from './src/payments-commercial-evidence.ts';
+  export {requestDecided,validateRequest} from './src/modules/mensalidade/requests.ts';
+  export {requireMensalidadeChargeReconciled} from './src/modules/mensalidade/integration.ts';
+  export {markPaid} from './src/modules/pedido/manage.ts';
+  export {addPayment,voidPayment,closeTab} from './src/modules/mesas/tabs.ts';
 
 ` }, bundle: true, write: false, format: "esm", platform: "node", logLevel: "silent", plugins: [{ name: "offline-runtime", setup(b) {
   b.onResolve({ filter: /^cloudflare:workers$/ }, () => ({ path: "runtime", namespace: "offline" }));
@@ -56,7 +64,7 @@ process.on("exit", () => rmSync(runtimeDir, { recursive: true, force: true }));
 writeFileSync(runtimeDir + "/runtime.mjs", built.outputFiles[0].text);
 export const api = await import(runtimeDir + "/runtime.mjs");
 export const quiet = { notify: false };
-export async function fixture(t) {
+export async function fixture(t, automation = true) {
   const local = new DatabaseSync(":memory:"), lite = freshLite(), driver = nodeDriver(lite);
   t.after(() => { local.close(); lite.close(); });
   for (const name of readdirSync(root + "migrations").filter(n => n.endsWith(".sql")).sort()) local.exec(readFileSync(root + "migrations/" + name, "utf8"));
@@ -89,6 +97,7 @@ export async function fixture(t) {
   const localId = uid();
   local.prepare("INSERT INTO contacts(id,profile_id,namespace,name,search_text,source,erp_contact_id,erp_version,created_by,updated_by,created,updated) VALUES(?,?,'team','Cliente','cliente','manual',?,1,?,?,?,?)").run(localId,profile,customer.id,actor.id,actor.id,Date.now(),Date.now());
   const policy = await api.ensureCommercialPolicy(env,profile); policy.revenue_category_id=category.id;
+  if (automation) policy.auto_post = { stock: true, finance: true }; // Fixture de automação autorizada.
   const {profile:_,version:__,...config}=policy;
   local.prepare("UPDATE module_erp_policy SET config_json=? WHERE profile_id=?").run(api.canonical(config),profile);
   const ctx = {...api.modulesApi(env,profile,"os"),publish:async()=>1,sendMessage:async()=>"sent",sendInteractive:async()=>"sent",note:async()=>undefined};

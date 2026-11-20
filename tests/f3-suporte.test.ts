@@ -270,7 +270,7 @@ describe("F3 Suporte: expiração, cancelamento e estorno", () => {
     await f.hooks(purchase.payment_id, "paid"); await f.flush();
     await setParts(f.profile, { "erp-financeiro": false });
     await f.hooks(purchase.payment_id, "refunded", 2); await f.flush();
-    expect((await f.events()).map(e => e.operation)).toEqual(["recognize", "receive", "reverse"]);
+    expect((await f.events()).map(e => e.operation)).toEqual(["recognize", "receive", "reverse", "cancel"]);
     expect((await f.releases())[0].status).toBe("ended");
     expect([...remote.titles.values()][0].paid).toBe(0);
     const receipt = await all(f.env, "SELECT * FROM module_commercial_receipts WHERE profile_id=? ORDER BY kind", f.profile);
@@ -280,7 +280,7 @@ describe("F3 Suporte: expiração, cancelamento e estorno", () => {
   it("estorno recebido antes do gancho pago conserva ambos os fatos sem liberar atendimento", async () => {
     const f = await fixture(), remote = fakeTitles(); const purchase = await f.buy();
     await f.hooks(purchase.payment_id, "refunded", 2); await f.flush();
-    expect((await f.events()).map(e => e.operation)).toEqual(["recognize", "receive", "reverse"]);
+    expect((await f.events()).map(e => e.operation)).toEqual(["recognize", "receive", "reverse", "cancel"]);
     expect(await f.releases()).toHaveLength(0);
     expect([...remote.titles.values()][0].paid).toBe(0);
   });

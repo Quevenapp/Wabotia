@@ -32,6 +32,27 @@ D1 Time Travel é uma recuperação adicional conforme o plano Cloudflare; não 
 4. Configure a MASTER_KEY original nos secrets do Worker restaurado. Publique a mesma versão do código e teste a leitura de dados/arquivos antes de apontar o domínio.
 5. Desative a instalação antiga antes de ligar os mesmos canais na restaurada. Revogue tokens de canal que não serão mais usados.
 
+### Restauração de apenas um banco com fase 3
+
+A fila dos módulos fica no D1; os efeitos e recibos ERP ficam no SQLite do
+Coordinator de cada área. Não há transação nem restauração conjunta automática.
+O backup D1/R2 acima não substitui a cópia do ERP. Preserve cópias compatíveis
+dos dois lados antes de restaurar.
+
+Se restaurar só D1 ou só ERP, mantenha a retomada da integração e do atendimento
+suspensa até conferir as origens do período entre os backups e a interrupção.
+Compare eventos, sequências, chaves e recibos D1 com documentos, títulos,
+baixas e movimentos de estoque ERP; procure também origens existentes somente
+em um lado. A equipe técnica e financeira precisa conciliar as diferenças ou
+restaurar um par compatível antes de confiar em “Confirmado no ERP”.
+
+Um comando posterior pode detectar divergência e bloquear sua origem. Sem
+novo comando, a fase 3 não detecta automaticamente efeitos perdidos no ERP ou
+efeitos órfãos após restauração do D1. Não apagar recibos, forçar retry ou criar
+novas chaves para esconder a diferença. Preserve os dois conjuntos de evidências
+e registre a conferência antes da retomada. Consulte os
+[limites da segunda revisão](FASE-3-INTEGRACOES.md#segunda-revisão).
+
 ## Administrador sem acesso
 
 Quando uma pessoa esquece a senha ou perde o celular do segundo fator, outro administrador resolve em Pessoas e acessos:

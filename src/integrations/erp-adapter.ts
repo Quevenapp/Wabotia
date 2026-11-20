@@ -88,9 +88,11 @@ async function prepare(env: Env, event: IntegrationEvent, actor?: Actor, destina
   const snapshot = { ...event.snapshot, contact_id: contact, items: event.snapshot.items.map(i => state.snapshot.parts.products || links.length ? i : { ...i, product_id: null, kind: "free" as const }) };
   const { auto_post: _, ...maintenancePolicy } = policy;
   return { schema: 1, command_id: event.command_id, actor_id: actor?.id ?? await systemUserId(event.source.module), source: event.source, seq: event.seq, event_hash: hash(event), expected,
-    body: { operation: event.operation, route: declaration.route, snapshot, policy: maintenance ? maintenancePolicy : policy, eligible: event.eligible, requested, epochs: event.epochs, occurred_ms: event.occurred_ms, receipt, reason_code: event.reason_code, mode: actor ? "human" : "system" } };
+    body: { operation: event.operation, route: declaration.route, snapshot, policy: maintenance ? maintenancePolicy : policy, eligible: event.eligible, requested, epochs: event.epochs, occurred_ms: event.occurred_ms, receipt, reason_code: event.reason_code,
+      stock_reversal: event.operation === "cancel" && !event.eligible.stock && ["consumption_requires_classification", "refund_confirmed_review_stock"].includes(event.reason_code ?? "") ? event.reason_code : null,
+      mode: actor ? "human" : "system" } };
 }
-async function moduleRpc(env: Env, request: PreparedErpRequest, rpc: ModuleRpc, actor?: Actor, reason?: string, deadline = Date.now() + 25_000): Promise<any> {
+async function moduleRpc(env: Env, request: PreparedErpRequest, rpc: ModuleRpc, actor?: Actor, reason?: string, deadline = Date.now() + 25_000, onRemoteCall?: () => void): Promise<any> {
   checkDeadline(deadline);
   const state = await readErpPartsState(env, request.source.profile);
   if (!state.snapshot.parts.customers) throw new IntegrationError("part_disabled", 409);
@@ -110,6 +112,7 @@ async function moduleRpc(env: Env, request: PreparedErpRequest, rpc: ModuleRpc, 
   // Marca não confere poder: o motor precisa comparar a evidência com o D1.
   const envelope = { ...identity, module_execution: evidence };
   try { return await withinDeadline(deadline, async signal => {
+    onRemoteCall?.();
     const response = await erpFetch(env, request.source.profile, `/erp-rpc/${rpc}`, {
       method: "POST", signal,
       headers: { "Content-Type": "application/json", [IDENTITY_HEADER]: encodeIdentity(envelope), [SYSTEM_HEADER]: "1", [GATE_HEADER]: "1" },
@@ -141,8 +144,8 @@ async function moduleRpc(env: Env, request: PreparedErpRequest, rpc: ModuleRpc, 
 export async function applyErpRequest(env: Env, request: PreparedErpRequest, deadline?: number): Promise<IntegrationResult> {
   return remoteResult(await moduleRpc(env, request, "erp_module_apply", undefined, undefined, deadline), request);
 }
-export async function getErpOrigin(env: Env, request: PreparedErpRequest, actor?: Actor, deadline?: number): Promise<ErpOriginResult> {
-  const result = await moduleRpc(env, request, "erp_module_origin_get", actor, undefined, deadline);
+export async function getErpOrigin(env: Env, request: PreparedErpRequest, actor?: Actor, deadline?: number, onRemoteCall?: () => void): Promise<ErpOriginResult> {
+  const result = await moduleRpc(env, request, "erp_module_origin_get", actor, undefined, deadline, onRemoteCall);
   if (!result || !Object.hasOwn(result, "receipt")) throw new IntegrationError("integration_unavailable", 503);
   return { receipt: result.receipt === null ? null : remoteResult(result.receipt, request) };
 }

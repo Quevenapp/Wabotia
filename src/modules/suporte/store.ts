@@ -921,6 +921,8 @@ export async function purchasePaymentUpdated(
     }
     // Sem "já estornada, sai": a repetição do gancho refaz o encerramento e o
     // aviso, que têm chave.
+    const rel = await one(ctx.env, "SELECT id FROM suporte_releases WHERE source_key=? AND status='active'", `compra:${purchase.id}`);
+    if (rel) await endRelease(ctx, rel.id, "provider", "Pagamento estornado.");
     if (purchase.status !== "refunded") {
       const commercialStatements = await supportIntegrationStatements(ctx, { ...purchase, status: "refunded" }, "reverse", evidence.updated,
         { payment: evidence, reason: purchase.attention === "late_payment_refund_required" || ["expired", "cancelled"].includes(purchase.status) ? "late_payment_refund_required" : "payment_refunded" });
@@ -936,12 +938,6 @@ export async function purchasePaymentUpdated(
     }
     if (purchase.status === "refunded") await batch(ctx.env,
       await supportIntegrationStatements(ctx, purchase, "reverse", evidence.updated, { payment: evidence, reason: "payment_refunded" }));
-    const rel = await one(
-      ctx.env,
-      "SELECT id FROM suporte_releases WHERE source_key=? AND status='active'",
-      `compra:${purchase.id}`,
-    );
-    if (rel) await endRelease(ctx, rel.id, "provider", "Pagamento estornado.");
     await purchaseAttention(ctx, purchase, "refunded", payment);
     return;
   }

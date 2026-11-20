@@ -1,12 +1,18 @@
 # Fase 3 — integração dos módulos com o ERP
 
-Estado em 19/11/2026: **fechamento integrado corrigido, aceite externo pendente**.
-O resumo externo mais recente registra 15 falhas e 3.352 aprovações no Vitest
-(8 arquivos com falha, 299 aprovados). As causas e o tratamento estão em
-“Correções das revisões”, que prevalece sobre os registros históricos abaixo.
+Estado em 19/11/2026: **correções da segunda revisão implementadas; `check`,
+`build`, painel (2.247/2.247) e Vitest externo (3.390/3.390) aprovados**.
+O motor externo teve um falso positivo de privacidade no teste protegido de
+contatos (1.214 aprovações, duas falhas contando o subteste e seu pai, um TODO).
+A causa foi reproduzida e a correção validada em cópia temporária; aplicá-la
+depende da exceção à regra que proíbe editar o diferencial. O aceite completo
+permanece pendente; ver a última retomada na seção “Segunda revisão”.
+A base desta segunda revisão tinha a verificação externa inteira verde,
+conforme o orquestrador. A seção “Segunda revisão” registra as novas correções
+e prevalece sobre “Correções das revisões” e os registros históricos abaixo.
 O fechamento já inclui a F2 e permite integrar os arquivos da F3; as antigas
 pendências de autorização entre donos não se aplicam a esta tarefa.
-A verificação externa recebida falhou; esta revisão não declara os três marcos aprovados. O verificador externo precisa concluir
+Esta rodada não declara os três marcos aprovados. O verificador externo precisa concluir
 `check`, `build`, `test:erp`, `test:erp:painel` e o Vitest integrado com
 **TUDO VERDE**. Os adiamentos funcionais permanecem explícitos na seção final.
 
@@ -93,9 +99,12 @@ preço e acrescentar seu conteúdo comercial depois, sem ignorar efeito incerto.
 ## Configuração e permissões
 
 A política comercial é por área, versionada, com `auto_post.stock` e
-`auto_post.finance` inicialmente ligados. Cada opção só tem efeito se sua parte
-estiver ligada. Uma escolha explícita de desligar a automação permanece nos
-religamentos. Não se escolhe o primeiro depósito, categoria, forma ou conta:
+`auto_post.finance` inicialmente **desligados**. Cada opção só tem efeito se sua parte
+estiver ligada e se um administrador autorizar a automação. O painel explica a
+autoria “Sistema · módulo” e que a escolha vale somente para fatos novos, por
+destino. Fatos anteriores permanecem `skipped/automation_off`, com indicação do
+lançamento manual. A escolha explícita permanece nos religamentos.
+Não se escolhe o primeiro depósito, categoria, forma ou conta:
 os padrões precisam ser explicitamente válidos. Financeiro exige categoria
 para reconhecer e conta ativa para baixar; Estoque físico exige depósito.
 
@@ -125,9 +134,9 @@ para o navegador montar evidência ou escolher RPC arbitrário.
 
 | Método e caminho após P | Corpo/resultado principal |
 |---|---|
-| `GET /integrations/:module/status` | Épocas, cortes e contadores por **origem** com eventos; inclui espera manual efetiva |
+| `GET /integrations/:module/status?limit=50&after=…` | Página de origens, até 100; épocas, cortes e contadores da página (`scope:page`), `next_cursor`; inclui espera manual efetiva |
 | `GET /integrations/:module/sources/:id` | Estado, revisão, confirmação, entregas e vínculos permitidos ao solicitante |
-| `POST /integrations/:module/sources/:id/retry` | `{event_id}`; preserva pedido e comando |
+| `POST /integrations/:module/sources/:id/retry` | `{event_id}` remoto (`seq` numérico); preserva pedido e comando; fato local é recusado sem apagar seu motivo |
 | `POST /integrations/:module/sources/:id/replace` | `{event_id,reason_code}`; recupera/fecha antes de nova projeção |
 | `POST /integrations/:module/sources/:id/post` | `{event_id,version,destinations:["finance"]}` ou Estoque/ambos; versão é revisão comercial |
 | `GET/PATCH /integrations/commercial-policy` | Leitura por permissão; patch com `version` e campos explícitos |
@@ -585,3 +594,257 @@ não se acrescentou entrada de adaptação local em `web/erp/ORIGEM.json`.
   exclusivo do verificador externo. Resultados e limites desta sessão são
   entregues no relato final, fora do repositório. Nenhum teto, tempo-limite ou
   teste diferencial foi alterado; não houve execução de Vitest/Wrangler.
+
+## Segunda revisão
+
+Esta seção aplica as decisões do orquestrador aos três anexos da segunda
+revisão. **C** identifica Capacidade (Anexo 1), **F** identifica Fila (Anexo 2)
+e **P** identifica Produtores (Anexo 3). Os achados fechados da primeira revisão
+continuam cobertos; nenhum teste foi removido ou dispensado.
+
+| Achado / decisão | Correção e evidência de regressão |
+|---|---|
+| Decisão 1 — automação optativa | `policy.ts` nasce com ambos os destinos desligados. Fixtures de automação autorizam ambos explicitamente. `f3-segunda-revisao.test.mjs` e `f3-aceitacao.test.ts` verificam área nova, destino independente e ausência de retroatividade. A tela explica autoria e alcance temporal. |
+| C1 / P2 — estoque consumido | O comando distingue `stock_reversal` de automação desligada, validado contra o fato imutável. `consumption_requires_classification` e `refund_confirmed_review_stock` impedem reposição e conservam o cancelamento bloqueado, inclusive em repetição. A substituição genérica não remove a restrição. Os dois motivos têm provas no motor real em `f3-corr-motor.test.mjs`; a reversão histórica por simples automação desligada continua coberta. |
+| C2 — parte desligada durante a prova | O endpoint revalida revisão/validade depois da última consulta assíncrona, imediatamente antes da chamada síncrona ao motor. `f3-corr-motor.test.mjs` desliga Financeiro na segunda prova D1 e exige nenhuma baixa. |
+| C3 — CNAB incompatível com origem | Reserva/prévia e emissão recusam títulos ancorados em módulo (`module_bank_collection_unavailable`); a guarda genérica financeira permanece fechada. Teste de reserva/prévia e emissão de reserva legada no motor real; os três formulários CNAB explicam o motivo e constam em `web/erp/ORIGEM.json`. |
+| C4 / F2 — lifecycle apaga bloqueio | Projeção conserva pendências por operação e destino. Vínculo de documento não resolve `execute/epoch_closed` sem título. Um efeito correspondente ou resolução explícita é necessário. Provas Node e Coordinator em `f3-segunda-revisao.test.mjs` e `f3-aceitacao.test.ts`. |
+| C5 — depósito antes do primeiro efeito | Preparação sem efeitos pode adotar o depósito atual; documento é salvo/validado antes da postagem mesmo sem mudança do hash comercial. Parâmetros de efeitos existentes permanecem históricos. `f3-corr-motor.test.mjs` cobre depósito igual e alterado após habilitar Estoque. |
+| C6 / F4 / P8 — suspensão consome tentativas | `part_disabled` devolve apenas créditos desta passagem; conserva identidade, incerteza e limites de falhas reais. Testes Node/Coordinator drenam 15 vezes com e sem pedido persistido e exigem retomada única. |
+| F1 / P3 — retry destrói fato local | `seq:null` é recusado antes da reserva, com motivo e estado intactos. Interface orienta consultar provedor, recompor obrigação, classificar estoque ou devolver valor; não oferece retry/correção genérica para fatos locais. Testes Node, Worker/Coordinator e `f3-painel.test.ts`. |
+| F5 — reserva sem papel ERP | Identidade ERP é conferida antes de reservar; recusa definitiva local anterior a chamada remota libera a reserva por CAS. Reservas com resultado remoto incerto continuam preservadas. Provas Node/Coordinator verificam pessoa sem papel, recusa entre reserva e transporte e retomada autorizada após liberar a origem. |
+| P1 — decisão financeira sem MFA | Pedido, Entrega e Mesas (receber, anular e pagamentos no fechamento) chamam `requireFinancialAal` antes de gravar. Aprovação financeira de Mensalidade também verifica o fator. Agenda/Reserva, anulação compartilhada, gestão financeira de Mensalidade e compra de Suporte já tinham a guarda; Trabalho usa a postagem humana compartilhada. Política `off` continua permitindo a operação. Provas em `f3-segunda-revisao.test.mjs`, `f3-corr-produtores.test.ts` e HTTP real em `f3-aceitacao.test.ts`. |
+| P4 — paid histórico depois de refunded | Mensalidade reconcilia o fato histórico, mas consulta o estado corrente antes de anunciar, liberar Suporte ou enviar comprovante (inclusive contrato). No reembolso a revogação precede notificações posteriores. `f3-fechamento.test.mjs`, `f3-corr-produtores.test.ts` e `f3-aceitacao.test.ts` cobrem reembolso já conhecido e falha de publicação posterior, inclusive revogação real de Suporte e reversão no Coordinator. |
+| P5 — desconto deixa título antigo | Escolhida a alternativa de bloqueio explícito: desconto local e `commercial_correction_required` são atômicos; cobrança reduzida é recusada antes de emissão/reenvio até conciliação. Não se reescreve silenciosamente o título nem se impede a concessão local. Provas Node, produtor e Coordinator (`f3-fechamento`, `f3-corr-produtores`, `f3-aceitacao`). Não foi implementada correção automática da obrigação. |
+| P6 — comercial da OS expõe finanças | Servidor remove parcelas, preços, total e destinos/detalhes financeiros para papel Estoque. Provas Node e Coordinator consultam a projeção real e verificam ausência dos campos. |
+| P7 — cancelamento parcial de Entrega | Cancelamento local produz `blocked/refund_required`, sem sequência remota. A última devolução enfileira reversão antes do cancelamento e resolve a pendência local. `f3-segunda-revisao.test.mjs` e `f3-aceitacao.test.ts` acompanham título, documento e sequência no motor real/Coordinator. |
+| Suporte avulso — decisão 8 | Reembolso confirmado com liberação revogada enfileira cancelamento da obrigação depois das reversões, sem nova liberação ou dívida aberta. Cobertura Node em `f3-fechamento`, Coordinator em `f3-aceitacao` e produtor em `f3-suporte`. |
+| Histórico acumulado — três “a conferir” | Prova lê somente o predecessor necessário por consulta indexada; status pagina origens. Testes com mil predecessores e paginação real em `f3-corr-motor` e `f3-segunda-revisao`. Detalhes abaixo. |
+| F3 — restauração unilateral | **Adiado por decisão 9.** Não há geração de restauração nem varredura automática de origens concluídas/efeitos órfãos. Procedimento obrigatório de conferência manual abaixo e no guia de operação. |
+
+### Consulta e paginação
+
+A prova busca `seq = sequência_anterior LIMIT 1`, junta entrega e pedido e para
+no primeiro predecessor preparado. Só fatos locais legados com salto validado
+exigem recuar outra sequência; não carrega de antemão o histórico da origem.
+As duas verificações de transporte continuam necessárias. Em SQLite com mil
+eventos, `EXPLAIN QUERY PLAN` usa
+`sqlite_autoindex_module_erp_events_3 (profile_id, module_id, source_id, seq)`,
+`sqlite_autoindex_module_erp_delivery_1 (event_id)` e o índice de cobertura
+`sqlite_autoindex_module_erp_requests_1 (event_id)`, sem varredura de eventos.
+Não há índice ou esquema novo. Isso comprova o plano local, não mede orçamento
+nem latência do D1 de produção.
+
+O status usa cursor por `source_id`, padrão de 50 origens e máximo de 100.
+Carrega o histórico completo somente das origens da página para não produzir
+confirmação falsa por truncamento. Os contadores são da página (`scope:page`),
+e `next_cursor` permite avançar; o painel informa esse alcance. Uma origem
+individual muito longa ainda exige sua projeção completa.
+
+### Recuperação e limites assumidos
+
+Depois de restaurar **só D1 ou só ERP**, não confiar em “Confirmado no ERP” sem
+conferir as origens do período entre os backups e a interrupção. Sem comando
+novo, recibo `done` no D1 não detecta efeito perdido no ERP; no sentido inverso,
+efeito órfão do ERP não possui evento que provoque a conferência. Suspender a
+retomada da integração/atendimento e preservar ambas as cópias; comparar
+sequências, chaves, recibos, documentos, títulos, baixas e estoque, incluindo
+origens presentes só em um lado. Preferir um par compatível de backups; a
+equipe técnica e financeira reconcilia diferenças antes de retomar. Não apagar
+recibos, forçar retry ou trocar chaves para ocultar a divergência. Ver
+[Operação e recuperação](OPERACAO.md#restauração-de-apenas-um-banco-com-fase-3).
+
+Continuam adiadas a substituição automática com sucessores e a recomposição
+automática da obrigação após pagamento tardio. Classificação de material e
+conciliação de desconto exigem tratamento humano; repetição genérica não é
+classificação nem correção financeira. Não houve medição de vazão, custo de
+alarmes/filas vazias, migração em D1 grande ou comparação com respostas reais
+do provedor para reembolso parcial. Esses pontos “a conferir” permanecem
+limitações de validação, sem mudança de contrato.
+
+Nesta rodada não se alteram migrações, esquema ERP, classes de Durable Object,
+recursos Cloudflare, dependências ou testes protegidos das fases anteriores.
+Os testes F3 preservam as asserções existentes, exceto o novo padrão desligado
+e as duas sequências de reembolso de Suporte, que agora incluem `cancel`.
+A primeira verificação externa desta revisão aprovou `check`, `build`, motor
+e painel, mas terminou com quatro falhas no Vitest. A retomada abaixo registra
+o tratamento. A execução externa seguinte aprovou todos os 3.390 casos Vitest;
+o impedimento atual é o falso positivo do teste de contatos descrito na última
+retomada, e não os quatro casos anteriores.
+
+### Retomada após as quatro falhas externas
+
+O resumo em `.codex-verificacao.log` foi confrontado com o log completo externo.
+Os quatro casos continuam presentes, com todas as expectativas anteriores.
+Não se aumentou o timeout de 5 segundos, o limite de 30 sequências, os tetos D1
+ou qualquer limite de tentativas de produção.
+
+| Caso | Causa e tratamento na preparação/sincronização |
+|---|---|
+| Produtores: Pedido, Mesas, anulação e fechamento exigem MFA | O ator `aal1` tinha política `financial`, mas faltava `sessionId`. `requireFinancialAal` distingue uma pessoa com sessão de atores internos. O caso agora informa a sessão, como a autenticação real; as quatro recusas e as tabelas financeiras vazias continuam exigidas. Não se mudou a guarda central. |
+| Produtores: Mensalidade histórica não anuncia liberação | O espião acumulava três publicações da preparação: pagador, assinatura e parcela criados. Seu histórico é limpo imediatamente antes do gancho sob teste. A ausência de publicação/liberação no `paid` histórico e a revogação antes da falha de aviso continuam obrigatórias. |
+| Aceitação: recebimento HTTP fica na fila | A resposta HTTP chega antes da drenagem real iniciada pelo Coordinator em `waitUntil`. O bombeamento do teste podia gastar suas 30 rodadas enquanto a outra execução detinha a concessão. O teste observa e aguarda as promessas reais de `waitUntil`, preservando a chamada original, antes de bombear. Também exige que esse trabalho tenha sido iniciado, uma única baixa e saldo recebido de 400 centavos. |
+| Aceitação: primeiro caso de Mensalidade excede 5 segundos | O primeiro cenário incluía a carga/transformação inicial do grafo pesado do motor via import dinâmico. O arquivo passa a carregar esse mesmo motor durante a coleta; cada área continua migrando seu SQLite e todos os produtores, transportes e efeitos continuam reais. O cenário completo também passou em Node com revogação real de Suporte, nenhuma nova liberação, falha de aviso e duas movimentações financeiras. A confirmação do timeout no runtime Cloudflare ainda depende da reexecução externa. |
+
+### Arquivos da segunda revisão (consolidado)
+
+As referências abaixo são relativas à raiz do repositório e incluem a rodada
+anterior e esta retomada.
+
+| Arquivo(s) | Alteração |
+|---|---|
+| `src/erp/domains/cnab/reserve.ts`, `src/erp/domains/cnab/finalize.ts` | Recusa de reserva/prévia e emissão bancária de título de módulo. |
+| `src/erp/domains/documents/module-policy.ts` | Restrição de reposição validada contra o fato; padrões de preparação podem mudar antes de haver efeito. |
+| `src/erp/domains/documents/rpc/erp_module_apply.ts` | Conserva estoque consumido e pendência; preenche depósito antes da primeira postagem. |
+| `src/erp/engine/module-origin.ts` | Busca indexada do predecessor necessário, com validação dos saltos legados. |
+| `src/erp/engine/rpc-endpoint.ts` | Revalidação de partes após a última espera e antes da transação. |
+| `src/integrations/consumer.ts` | Suspensão confirmada devolve apenas os créditos desta tentativa, preservando incerteza. |
+| `src/integrations/erp-adapter.ts` | Transporta restrição de estoque, informa início da chamada remota e documenta limite de restauração. |
+| `src/integrations/outbox.ts` | Contrato persistido admite a restrição explícita de reposição. |
+| `src/integrations/policy.ts` | Automação desligada por padrão nos dois destinos. |
+| `src/integrations/privacy.ts` | Mensagens públicas enumeradas para classificação, devolução e correção comercial. |
+| `src/integrations/routes.ts` | Recusa retry local, protege reservas, conserva restrição de estoque e pagina status. |
+| `src/integrations/state.ts` | Pendências por operação/destino; lifecycle não oculta efeito ausente. |
+| `src/modules/entrega/integration.ts` | MFA no recebimento e cancelamento parcial local pendente. |
+| `src/modules/pedido/manage.ts`, `src/modules/mesas/integration.ts`, `src/modules/mesas/tabs.ts` | MFA antes de recebimento/anulação e recebimentos no fechamento. |
+| `src/modules/pedido/integration.ts` | Plano admite pendência local; última devolução resolve o cancelamento de Entrega em ordem. |
+| `src/modules/mensalidade/billing.ts`, `src/modules/mensalidade/contracts.ts` | Não anuncia/libera pagamento já reembolsado; revogação antecede aviso; cobrança respeita bloqueio comercial. |
+| `src/modules/mensalidade/integration.ts`, `src/modules/mensalidade/requests.ts` | Desconto e bloqueio atômicos, recusa de cobrança divergente, consulta do reembolso corrente e MFA na decisão humana. |
+| `src/modules/os/commercial/routes.ts` | Projeção no servidor retira finanças do papel Estoque. |
+| `src/modules/suporte/integration.ts`, `src/modules/suporte/store.ts` | Revoga liberação e enfileira reversão/cancelamento da obrigação avulsa. |
+| `web/modules/integrations/CommercialPolicyPanel.tsx` | Explica padrão desligado, autoria e alcance somente para fatos novos. |
+| `web/modules/integrations/IntegrationStatus.tsx`, `web/modules/integrations/api.ts`, `web/modules/integrations/contracts.ts` | Ações específicas para fatos locais, cursor de status e alcance dos contadores. |
+| `web/erp/app/components/CnabOperationalV2.tsx`, `web/erp/app/components/RealCnab.tsx`, `web/erp/app/components/RealCnabOperational.tsx`, `web/erp/ORIGEM.json` | Motivo explícito da recusa CNAB e registro de cada adaptação em `local`. |
+| `tests/helpers/f3-fixtures.ts`, `tests/erp/harness/f3-local.mjs` | Automação explicitamente autorizada na preparação; acesso aos caminhos reais novos. |
+| `tests/erp/unico/f3-aceitacao.test.mjs` | Expectativa do novo padrão desligado; demais provas mantidas. |
+| `tests/erp/unico/f3-corr-motor.test.mjs` | Regressões de estoque, partes, CNAB e plano de consulta. |
+| `tests/erp/unico/f3-fechamento.test.mjs` | Mensalidade/reembolso, desconto e cancelamento avulso; nova prova da revogação real do Suporte e conciliação no motor. |
+| `tests/erp/unico/f3-segunda-revisao.test.mjs` | Novo arquivo: automação, MFA, suspensão, estado, retry, reserva, projeção, cancelamento e paginação. |
+| `tests/f3-aceitacao.test.ts` | Regressões com Worker/Coordinator reais; carga do motor e espera observável do trabalho assíncrono na retomada. |
+| `tests/f3-corr-produtores.test.ts` | Regressões de MFA, reembolso histórico e desconto; sessão e espião preparados corretamente. |
+| `tests/f3-painel.test.ts` | Fatos locais orientam a resolução específica e não exibem retry genérico. |
+| `tests/f3-suporte.test.ts` | Duas sequências de estorno agora exigem também cancelamento. |
+| `docs/FASE-3-INTEGRACOES.md`, `docs/OPERACAO.md` | Achados, decisões, evidências, retomada e procedimento para restauração unilateral. |
+
+### Asserções alteradas nesta segunda revisão
+
+| Arquivo / caso | Antes | Agora | Decisão |
+|---|---|---|---|
+| `tests/erp/unico/f3-aceitacao.test.mjs` — A4/A8, cortes/política/agendador | Padrão `{stock:true,finance:true}` | Padrão `{stock:false,finance:false}` | 1: automação optativa. |
+| `tests/f3-suporte.test.ts` — estorno confirmado encerra liberação e reverte a baixa própria uma vez, mesmo com Financeiro desligado | Sequência exata `recognize, receive, reverse` | Sequência exata `recognize, receive, reverse, cancel` | 8: reembolso extingue obrigação avulsa. |
+| `tests/f3-suporte.test.ts` — estorno antes do gancho pago | Sequência exata `recognize, receive, reverse` | Sequência exata `recognize, receive, reverse, cancel` | 8: mesma regra, sem liberar atendimento. |
+
+As demais diferenças nos testes são preparação ou provas adicionais. Nesta
+retomada nenhuma expectativa existente foi substituída. Não houve edição em
+testes protegidos, diferencial, migrações 0130–0133 ou 0135.
+
+### Evidência de regressão e verificações da retomada
+
+O log externo anterior aprovou `check`, `build`, **1.215 testes ERP** (um TODO
+preexistente) e **2.247 testes de painel**. O Vitest terminou com **3.386
+aprovações e quatro falhas**, em dois dos 307 arquivos. Esses números descrevem
+a árvore recebida, antes das correções de preparação desta retomada.
+
+Localmente, sem Vitest nem rede:
+
+- Os quatro arquivos Node F3 (`f3-aceitacao`, `f3-corr-motor`, `f3-fechamento`,
+  `f3-segunda-revisao`) passaram inicialmente **83/83**, sem pulados ou TODO.
+  A prova adicional da revogação real passou, incluindo baixa e estorno no motor.
+  Após acrescentá-la, `f3-fechamento` foi reexecutado inteiro: **24/24**.
+  São **84 casos distintos** verificados na árvore final, sem falha.
+- Controle negativo em cópia temporária: os **23 casos “segunda revisão”**
+  existentes falharam com os caminhos anteriores de produção; os mesmos casos
+  estão entre os 83 aprovados. Os novos exports de Mensalidade foram conservados
+  apenas para carregar o harness; os chamadores anteriores não usavam as guardas.
+  As falhas conferidas incluem reposição indevida, partes obsoletas, CNAB sem
+  recusa específica, 1.000 predecessores em vez de um, depósito ausente,
+  notificação de pagamento devolvido, obrigação avulsa sem cancelamento,
+  desconto sem bloqueio, MFA ausente, padrão ligado, suspensão em `failed`,
+  lifecycle em `done`, cancelamento parcial sem fato local, retry destrutivo,
+  reserva retida, classificação contornada e status sem paginação.
+- A projeção de Estoque também falhou isoladamente no controle negativo: ao
+  restaurar só as guardas de reserva, o caso alcança a resposta comercial e
+  encontra `installments`. A nova prova completa de revogação igualmente falha
+  no caminho anterior em `aviso indisponível` durante o `paid` histórico.
+- `npm run build`, `tsc --noEmit`, marcadores de conflito, escopo CSS e
+  `git diff --check` passaram. O manifesto ORIGEM passou **4/4**.
+- `npm run check` não concluiu: `spawnSync git EPERM` em `check-encoding.mjs`
+  nesta área restrita. A mesma guarda de UTF-8 passou nos **4.397 arquivos**
+  recebendo a lista obtida por `git ls-files` diretamente, em cópia temporária
+  do script; o script versionado não foi alterado. Não se declara sucesso do
+  comando completo com base nessa execução separada.
+- A sintaxe dos dois arquivos Vitest alterados na retomada foi compilada com
+  esbuild, sem executar o runner. O timeout e a sincronização em Cloudflare
+  continuam sujeitos à nova verificação externa; não há declaração `TUDO VERDE`.
+
+As alterações da retomada das quatro falhas não mudaram código de produção. Não houve commit,
+acesso à rede, migração aplicada em instalação, dependência nova, classe de
+Durable Object nova nem enfraquecimento de testes. Os adiamentos e as medições
+pendentes descritos acima continuam válidos.
+
+### Retomada do falso positivo no diferencial de contatos
+
+O resumo recebido em `.codex-verificacao.log` contém apenas o resultado do
+motor. A leitura dos logs completos já produzidos pelo verificador em
+`/tmp/tmp.2q4O5smBa1` confirmou o resultado da execução seguinte:
+
+| Verificação externa | Resultado |
+|---|---|
+| `check` | Aprovado; 4.397 arquivos na guarda de codificação. |
+| `build` | Aprovado. |
+| `test:erp` | 1.217 casos: 1.214 aprovados, duas falhas, um TODO preexistente, nenhum pulado. As duas falhas são o subteste de funcionários e seu teste pai, não dois defeitos distintos. |
+| `test:erp:painel` | 2.247/2.247 aprovados; nenhum pulado. |
+| Vitest completo | 3.390/3.390 aprovados, nos 307 arquivos. As quatro falhas da rodada anterior passaram. Vitest não foi executado localmente nesta retomada. |
+
+**Causa:** `tests/erp/fagoo/catalog-contacts-lane.test.mjs`, no subteste de
+funcionários, serializa o recibo e exige ausência de `529`, os três primeiros
+dígitos do CPF sintético. O recibo contém um UUID aleatório, que também pode
+conter essa sequência. A asserção não distingue um identificador legítimo de
+dado pessoal. O log não registra o UUID sorteado naquela execução, mas a
+reprodução controlada confirma exatamente a mesma falha.
+
+O RPC real, tanto no oráculo quanto no SQLite, grava somente
+`{entity:"employees",data_mode:"erp_native",replayed:false,item:{id,version}}`.
+Isso foi conferido no código e nos dois bancos, sem identidade de sistema.
+Não foi encontrado vazamento de CPF nem divergência de produção nesta falha.
+O teste dedicado `catalog-employees.test.mjs` já descreve e evita o mesmo
+problema de procurar apenas três dígitos; não foi alterado nesta tarefa.
+
+**Correção preparada:** substituir a busca textual por igualdade profunda do
+recibo inteiro com os únicos campos permitidos, mantendo a versão esperada
+igual a 1 e o identificador retornado pela criação. Assim, qualquer campo
+pessoal adicional, inclusive parcial, continua sendo recusado. Todos os outros
+casos e asserções do arquivo permanecem. O patch revisável está em
+`/tmp/f3-corr2-contacts-privacy.patch`, ainda fora da árvore: a regra da tarefa
+proíbe editar testes do diferencial, e foi solicitada uma exceção específica.
+Não se altera a geração de UUIDs nem o contrato do motor para acomodar o teste.
+
+**Evidência desta retomada, sem rede e sem Vitest:**
+
+- O arquivo original intacto passou isoladamente: **15/15**. Esse resultado
+  confirma que a falha é intermitente; não é usado para declará-la resolvida.
+- No banco efêmero do oráculo, forçar o UUID
+  `00000529-0000-4000-8000-000000000001` reproduziu a asserção original:
+  **13 aprovações e duas falhas**, contando o subteste e o pai. O diferencial
+  continuou comparando RPC, respostas e tabelas reais dos dois motores.
+- Com o mesmo UUID e somente a asserção proposta, a cópia completa do arquivo
+  passou em **15/15**, sem pular casos ou mudar limites.
+- Dois controles de recibo real (UUID com e sem `529`) passaram. A igualdade
+  exata recusou os oito mutantes de vazamento por controle: CPF/PIS completos,
+  com e sem pontuação, em campo extra da raiz ou do item.
+- Os quatro arquivos Node F3 foram reexecutados juntos, com o runner no
+  próprio processo (`--experimental-test-isolation=none`): **84/84 aprovados**,
+  sem falhas, pulados ou TODO. `git diff --check` e a leitura UTF-8 da
+  documentação também passaram.
+
+Logs: `/tmp/f3-corr2-contacts-direct-before.log`,
+`/tmp/f3-corr2-contacts-controlled-before.log`,
+`/tmp/f3-corr2-contacts-controlled-after.log` e
+`/tmp/f3-corr2-uuid-privacy.log`; a confirmação F3 está em
+`/tmp/f3-corr2-atual-node-f3.log`. Os logs externos foram preservados como
+`/tmp/f3-corr2-externo-{erp,painel,vitest}.log`.
+
+Nesta retomada, o único arquivo versionado alterado é esta documentação;
+o patch do teste protegido permanece uma proposta. Nenhum teste foi
+enfraquecido, removido ou pulado, e não houve mudança de produção, migração,
+dependência, esquema ou commit.

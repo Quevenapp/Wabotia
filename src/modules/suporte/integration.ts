@@ -172,6 +172,9 @@ export async function supportIntegrationStatements(
       const already = reversed && await one(ctx.env, `SELECT 1 FROM module_erp_events WHERE profile_id=? AND module_id='suporte'
         AND source_id=? AND json_extract(payload_json,'$.receipt_key')=?`, ctx.profile, purchase.id, reversed.receipt_key);
       if (!already) append("reverse", blocked === "total_mismatch" ? null : reversed || null);
+      if (!blocked && recognized && purchase.status === "refunded" &&
+          !await one(ctx.env, "SELECT 1 FROM suporte_releases WHERE profile_id=? AND source_key=? AND status='active'", ctx.profile, `compra:${purchase.id}`) &&
+          !await one(ctx.env, "SELECT 1 FROM module_erp_events WHERE profile_id=? AND module_id='suporte' AND source_id=? AND json_extract(payload_json,'$.operation')='cancel'", ctx.profile, purchase.id)) append("cancel");
     }
   }
   const statements = [

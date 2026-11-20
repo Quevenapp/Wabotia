@@ -1,5 +1,6 @@
 import { batch, one } from "../../db";
 import type { Actor } from "../../types";
+import { requireFinancialAal } from "../../mfa";
 import { modulesApi, type ModuleContext } from "../api";
 import { registerIntegrationProducer } from "../../integrations/registry";
 import { aliasStatements, integrationStatements } from "../../integrations/outbox";
@@ -80,6 +81,7 @@ export async function updateDeliveryCommercial(ctx: ModuleContext, actor: Actor,
 }
 export async function receiveDelivery(ctx: ModuleContext, actor: Actor, data: any, request: string) {
   requirePerson(ctx, actor);
+  requireFinancialAal(actor);
   const row = await load(ctx, data.id);
   if (row.source === "pedido") throw new IntegrationError("delegated_origin", 409);
   const source = sourceOf(ctx, row);
@@ -100,7 +102,9 @@ export async function deliveryLifecycleStatements(ctx: ModuleContext, row: any, 
   if (row.source === "pedido" || !deliveryCommercial(row).authorized_at) return [];
   const plan = new CommercePlan(ctx, actor);
   const snapshot = await projectDelivery(ctx, row);
-  await plan.add(snapshot, cancel && await netAllocated(ctx.env, snapshot.source) > 0 ? [] : [{ operation: cancel ? "cancel" : "lifecycle", stock: false, reason: cancel ? "delivery_cancelled" : undefined }]);
+  await plan.add(snapshot, cancel && await netAllocated(ctx.env, snapshot.source) > 0
+    ? [{ operation: "cancel", stock: false, local: true, reason: "refund_required" }]
+    : [{ operation: cancel ? "cancel" : "lifecycle", stock: false, reason: cancel ? "delivery_cancelled" : undefined }]);
   return plan.statements();
 }
 registerIntegrationProducer({ module: "entrega", async authorizeSource(ctx, actor, source, write) {

@@ -19,6 +19,8 @@ export interface SourceView {
   links: { slot: string; kind: "document" | "title" | "settlement" | "stock_posting"; id: string; version: number | null }[];
 }
 export interface ModuleStatus {
+  next_cursor?: string | null;
+  scope?: "page";
   module: IntegrationModule;
   activations: Record<string, { module_id: string; epoch: number; enabled: boolean | number; first_enabled_ms: number | null; enabled_since_ms: number | null }>;
   counters: { state: SourceIntegrationState; count: number }[];

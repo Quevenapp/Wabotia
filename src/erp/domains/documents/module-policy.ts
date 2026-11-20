@@ -8,6 +8,7 @@ import { execution, originAnchor, originScope, targetOrigin, requireOriginOperat
 export interface ModuleBody {
   operation: IntegrationOperation; route: "work" | "sale" | "title"; snapshot: CommercialSnapshot; policy: CommercialPolicy;
   requested: { document: boolean; stock: boolean; finance: boolean }; reason_code: string | null;
+  stock_reversal?: string | null;
   receipt: { receipt: { receipt_key: string; kind: string; reverses_key: string | null; method: keyof CommercialPolicy["settlement_accounts"]; occurred_ms: number }; amount_cents: number } | null;
 }
 const own = (v: unknown): v is Record<string, any> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -28,7 +29,12 @@ export const moduleStatus = (b: ModuleBody, current?: string) => b.route === "wo
   b.operation === "cancel" ? "cancelled" : b.operation === "execute" ? "in_progress" : current ?? "open";
 export function validateModuleBody(ctx: RpcContext): ModuleBody {
   const { request: r, event } = execution(ctx), b = structuredClone(r.body) as unknown as ModuleBody, s = b.snapshot;
-  if (Object.keys(r.body).some(k => !["operation", "route", "snapshot", "policy", "eligible", "requested", "epochs", "occurred_ms", "receipt", "reason_code", "mode"].includes(k))) invalid();
+  if (Object.keys(r.body).some(k => !["operation", "route", "snapshot", "policy", "eligible", "requested", "epochs", "occurred_ms", "receipt", "reason_code", "mode", "stock_reversal"].includes(k))) invalid();
+  // Restrição comercial vem do fato imutável; não se confunde com auto_post.
+  const restriction = event.operation === "cancel" && !event.eligible.stock &&
+    ["consumption_requires_classification", "refund_confirmed_review_stock"].includes(event.reason_code ?? "") ? event.reason_code : null;
+  if (b.stock_reversal !== undefined && b.stock_reversal !== restriction) invalid();
+  b.stock_reversal = restriction;
   keys(s, ["schema", "source", "source_revision", "contact_id", "customer_ref", "privacy", "description", "issued_on", "items", "total_cents", "freight_cents", "discount_cents", "installments", "policy_version", "lifecycle", "technical"]);
   keys(s.lifecycle, ["base_status", "stage_id", "quote_version", "authorization", "authorized_at", "first_execution_at", "delivered_at", "warranty_until"]);
   if (s.technical !== null) keys(s.technical, ["equipment", "serial_number", "technician", "defect", "solution"]);
@@ -61,7 +67,9 @@ export function validateModuleBody(ctx: RpcContext): ModuleBody {
   // Padrões pertencem ao componente criado, não à política vigente. Recibos
   // anteriores a esta guarda recuperam os parâmetros que existem nas linhas.
   if (previous) b.policy = { ...b.policy,
-    warehouse_id: previous.parameters ? previous.parameters.warehouse_id : linked ? linked.warehouse_id as string | null : b.policy.warehouse_id,
+    ...(previous.stock_posted || previous.finance_posted ? {
+      warehouse_id: previous.parameters ? previous.parameters.warehouse_id : linked ? linked.warehouse_id as string | null : b.policy.warehouse_id,
+    } : {}),
     // Financeiro ainda não lançado pode receber seus primeiros padrões válidos.
     ...(previous.finance_posted ? {
       revenue_category_id: previous.parameters ? previous.parameters.revenue_category_id : titles[0]?.category_id as string | null,

@@ -20,6 +20,7 @@ import { createSubscription } from "./store";
 import { announcePaid } from "./listeners";
 import { sendReceipt } from "./billing";
 import { sendPayMessage } from "./pay-message";
+import { mensalidadeCurrentlyRefunded } from "./integration";
 import { commitMensalidade as batch, mensalidadeCasGuard, mensalidadeHistory, mensalidadePaymentEvidence, mensalidadeSource, mensalidadeStatements, reconcileMensalidadeContracts, recoverMensalidadePayment } from "./integration";
 
 const BILLING = { notification: true, purpose: "billing" as const };
@@ -397,6 +398,7 @@ async function contractAnnounce(
   contract: any,
   payment: Payment,
 ) {
+  if (await mensalidadeCurrentlyRefunded(ctx, payment)) return;
   const inst = await one(
     ctx.env,
     "SELECT * FROM mensalidade_installments WHERE id=? AND profile_id=?",

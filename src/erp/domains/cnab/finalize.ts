@@ -8,6 +8,7 @@ import { raise } from "../../engine/errors.ts";
 import { jsonbText, jsonType } from "../../engine/json.ts";
 import type { RpcContext } from "../../engine/registry.ts";
 import { keys, uuidValue } from "../finance/public.ts";
+import { guardModuleBilling } from "./reserve.ts";
 import { encodingTerms, get, parse, profileRow, txt, type Json, type Remittance } from "./core.ts";
 
 const OBSERVED = "itau109-origin-observed-v1";
@@ -128,6 +129,8 @@ export interface FinalizeArgs {
 /** O ramo do finalize depois do storage_check: confere a remessa pronta ou grava o arquivo. */
 export function finalizeRemittance(ctx: RpcContext, r: Remittance, f: FinalizeArgs) {
   const db = ctx.db;
+  for (const row of db.exec("SELECT title_id FROM erp_cnab__billing_title WHERE remittance_id=?", r.id).rows)
+    guardModuleBilling(ctx, String(row.title_id));
   if (r.state === "ready") {
     // file_hash<>hash or byte_size<>size or manifest<>p_manifest: manifesto nulo não recusa.
     const manifestDiffers = f.manifest === null || f.stored === null ? false : jsonbText(parse(f.stored)) !== jsonbText(f.manifest);

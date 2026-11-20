@@ -78,7 +78,9 @@ export function erpModuleApply(ctx: RpcContext) {
     })) as { document: { id: string } };
     document = saved.document.id;
     writeOriginAnchor(ctx, "document", "document", document);
-  } else if (prepare && document && previous && !previous.stock_posted && !previous.finance_posted && previous.commercial_hash !== state.commercial_hash) {
+  } else if (prepare && document && previous && !previous.stock_posted && !previous.finance_posted &&
+      (previous.commercial_hash !== state.commercial_hash || destinations.stock &&
+        one(ctx.db, "SELECT warehouse_id FROM erp_documents__document WHERE id=?", document)?.warehouse_id !== b.policy.warehouse_id)) {
     withOriginOperation(ctx, "document_prepare", [document], [], inner => erpDocumentSave(inner, {
       p_user_id: r.actor_id, p_kind: b.route === "work" ? "service_orders" : "sales_orders", p_id: document,
       p_expected_version: Number(one(ctx.db, "SELECT version FROM erp_documents__document WHERE id=?", document)?.version),
@@ -93,7 +95,8 @@ export function erpModuleApply(ctx: RpcContext) {
   if (b.operation === "cancel") {
     // O sistema segue o histórico. A pessoa pode estornar só seu destino,
     // mas esse estorno parcial jamais confirma o cancelamento do documento.
-    const mayReverse = (part: "stock" | "finance") => execution(ctx).evidence.mode === "system" || b.requested[part];
+    const mayReverse = (part: "stock" | "finance") => !(part === "stock" && b.stock_reversal) &&
+      (execution(ctx).evidence.mode === "system" || b.requested[part]);
     if (document) {
       for (const part of ["finance", "stock"] as const) {
         const posting = one(ctx.db, `SELECT id FROM erp_${part}__document_posting WHERE document_id=? AND state='active'`, document);
@@ -109,7 +112,7 @@ export function erpModuleApply(ctx: RpcContext) {
     }
     if (cancellationPending) {
       state.base_status = previous!.base_status;
-      out.outcome = "skipped"; out.reason_code = "module_cancellation_pending";
+      out.outcome = "skipped"; out.reason_code = b.stock_reversal ?? "module_cancellation_pending";
     }
   }
   if (document && !cancellationPending && ["prepare", "execute", "lifecycle", "cancel"].includes(b.operation)) {
