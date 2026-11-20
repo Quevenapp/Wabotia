@@ -1,10 +1,12 @@
 import { ApiError, type Env } from "../../types";
+import { erpPartsEnvelope } from "../../modules/erp/parts-state";
+import { COM1_CONNECTION_HEADER, type CommercialConnectionCheck } from "../domains/fiscal/comnfe/settings.ts";
 import { erpIdentity } from "../../modules/erp/identity";
 import { erpPrivacy, erpPrivacyChanged, erpPrivacyDenies, type ErpPrivacy } from "../../customer/erp-privacy";
 import { erpFetch } from "../hub.ts";
 import { encodeIdentity, GATE_HEADER, GATE_DENIED_HEADER, IDENTITY_HEADER, SYSTEM_HEADER, type IdentityPort } from "../engine/identity.ts";
 import { FISCAL_MODULE_HEADER } from "../engine/module-state.ts";
-import { COM1_AUTHORITY_HEADER } from "../domains/fiscal/comnfe/access.ts";
+import { COM1_AUTHORITY_HEADER, com1ActionForRpc, com1ExecutionActor } from "../domains/fiscal/comnfe/access.ts";
 import type { CommercialNfeHttpContext } from "./routes.ts";
 import type {
   CancelClaimInput, CancelClaimResult, CancelRecordInput, CancellationView, CancellationXmlInput,
@@ -38,6 +40,10 @@ export interface CommercialNfeBridgeDependencies {
   privacy?: typeof erpPrivacy;
   /** Releitura autenticada antes de novos comandos e efeitos. Nunca é fornecida pelo HTTP. */
   resolveIdentity?: (context: CommercialNfeHttpContext) => Promise<IdentityPort>;
+  /** Renova a fotografia após o I/O; não concede identidade ao commit de evidência. */
+  partsEnvelope?: typeof erpPartsEnvelope;
+  /** Estado público conferido do cofre, exclusivamente na gravação da configuração. */
+  connection?: (context: CommercialNfeHttpContext) => Promise<CommercialConnectionCheck | null>;
 }
 
 const RPC_NAMES = new Set<keyof CommercialNfeRpcMap>([
@@ -68,12 +74,9 @@ async function currentIdentity(context: CommercialNfeHttpContext): Promise<Ident
   return erpIdentity(env, context.actor, context.profile, context.request.method);
 }
 
-function confirmedIdentity(context: CommercialNfeHttpContext, identity: IdentityPort): IdentityPort {
-  const actor = identity.actor, authority = context.authority;
-  if (actor && actor.session_id && !actor.is_technical && authority.origin === "application" &&
-      authority.confirmation_id && authority.confirmed_by === actor.user_id)
-    return { ...identity, actor: { ...actor, is_agent: false } };
-  return identity;
+function executionIdentity(context: CommercialNfeHttpContext, identity: IdentityPort, name: string, input: unknown): IdentityPort {
+  const action = com1ActionForRpc(name, input);
+  return identity.actor && action ? { ...identity, actor: com1ExecutionActor(identity.actor, action, context.authority) } : identity;
 }
 
 function upstreamError(status: number, value: unknown, gate: string | null): ApiError {
@@ -102,10 +105,15 @@ export function createCommercialNfeBridge(context: CommercialNfeHttpContext, dep
     async call<K extends keyof CommercialNfeRpcMap>(name: K, input: CommercialNfeRpcMap[K]["input"]): Promise<CommercialNfeRpcMap[K]["output"]> {
       if (!RPC_NAMES.has(name)) throw new ApiError(400, "fiscal_invalid_operation", "Operação fiscal desconhecida.");
       const evidence = EVIDENCE_NAMES.has(name);
-      // Persistir evidência já reivindicada não reabre o portão, nem projeta uma
-      // identidade revogada. O token durável é conferido de novo no motor.
-      const identity = evidence ? context.identity
-        : confirmedIdentity(context, await (dependencies.resolveIdentity ?? currentIdentity)(context));
+      // Evidência reivindicada não reabre o portão nem projeta uma identidade
+      // revogada. Usa o token persistido, nunca o papel nem a fotografia
+      // anteriores ao cofre. Renovar partes não pode impedir seu arquivamento
+      // se o D1 estiver temporariamente indisponível (o hub valida o token).
+      const identity: IdentityPort = evidence ? { actor: null, people: null,
+        ...await (dependencies.partsEnvelope ?? erpPartsEnvelope)(context.env, context.profile).catch(() => ({})) }
+        : executionIdentity(context, await (dependencies.resolveIdentity ?? currentIdentity)(context), name, input);
+      const connection: Record<string, string> = name === "erp_com1_config_save" && dependencies.connection
+        ? { [COM1_CONNECTION_HEADER]: JSON.stringify(await dependencies.connection(context)) } : {};
       const policy: ErpPrivacy = evidence ? { restricted_contact_ids: [] } : await privacy(context.env, context.profile);
       const args = {
         ...(evidence ? {} : { p_user_id: identity.actor?.user_id }),
@@ -119,6 +127,7 @@ export function createCommercialNfeBridge(context: CommercialNfeHttpContext, dep
         headers: {
           "Content-Type": "application/json", [IDENTITY_HEADER]: envelope, [SYSTEM_HEADER]: "1",
           [COM1_AUTHORITY_HEADER]: JSON.stringify(context.authority),
+          ...connection,
           [FISCAL_MODULE_HEADER]: identity.parts?.fiscal ? "1" : "0",
           ...(!evidence ? { [GATE_HEADER]: "1" } : {}),
         },

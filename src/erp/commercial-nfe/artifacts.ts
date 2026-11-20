@@ -1,5 +1,5 @@
 import { DOMParser } from "@xmldom/xmldom";
-import type { FiscalContext, FiscalProvider, FiscalResult } from "../emissor/provider.ts";
+import type { FiscalContext, FiscalProvider, FiscalResult, FiscalLookupIdentity } from "../emissor/provider.ts";
 import type { StoredEmission } from "./contracts.ts";
 
 export const COMMERCIAL_FILE_LIMIT = 10 * 1024 * 1024;
@@ -32,6 +32,11 @@ export function matchesCommercialResult(emission: StoredEmission, result: Fiscal
     result.reference === emission.reference && typeof result.provider_ref === "string" && !!result.provider_ref &&
     (!emission.provider_id || result.provider_ref === emission.provider_id) &&
     (!emission.access_key || result.access_key === emission.access_key);
+}
+
+export function commercialLookupIdentity(emission: StoredEmission): FiscalLookupIdentity {
+  return { environment: emission.environment, reference: emission.reference,
+    ...(emission.access_key ? { access_key: emission.access_key } : {}) };
 }
 
 function parseXml(xml: string) {
@@ -76,7 +81,7 @@ export async function commercialArtifact(emission: StoredEmission, vault: Commer
   requireVaultBinding(emission, vault);
   if (!emission.provider_id || !emission.environment_confirmed || !["autorizada", "cancelada"].includes(emission.status))
     throw new CommercialNfeError(409, "fiscal_artifact_unavailable", "O arquivo aguarda a confirmação da emissão no cofre.");
-  const current = await vault.provider.get(vault.context, "nfe", emission.provider_id);
+  const current = await vault.provider.get(vault.context, "nfe", emission.provider_id, commercialLookupIdentity(emission));
   if (!matchesCommercialResult(emission, current) || !["authorized", "cancelled"].includes(current.status)) invalidFile();
   if (kind === "danfe") {
     const file = await vault.provider.danfe(vault.context, emission.provider_id);

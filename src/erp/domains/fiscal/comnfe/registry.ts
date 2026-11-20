@@ -5,7 +5,7 @@
  */
 import { registerRpc, type RpcArgs } from "../../../engine/registry.ts";
 import { ErpError } from "../../../engine/errors.ts";
-import { commercialNfeSlots } from "../../../commercial-nfe/slots.ts";
+import { commercialNfeSlots, installCommercialNfeSlots } from "../../../commercial-nfe/slots.ts";
 import type {
   ConfigSaveInput, PrepareInput, ReadInput, ListInput, ClaimInput, RecordInput,
   CancelClaimInput, CancelRecordInput, CancellationXmlInput, EffectInput,
@@ -13,6 +13,19 @@ import type {
 import { requireCom1Access } from "./access.ts";
 import { getCommercialSettings, saveCommercialSettings } from "./settings.ts";
 import { requireClaimedCommand } from "./store.ts";
+import { commercialNfePreparationSlots } from "./prepare.ts";
+import { commercialNfeReadSlots } from "./reads.ts";
+import { createCommercialNfeLifecycle } from "./lifecycle.ts";
+import { recapturePreparationFingerprint } from "./source.ts";
+import { applyEffects, reverseEffects } from "./effects.ts";
+
+// Encaixe único do motor. Cada chamada continua dentro de sua própria
+// transação local; o serviço HTTP faz todo I/O externo entre essas chamadas.
+installCommercialNfeSlots({
+  ...commercialNfePreparationSlots, ...commercialNfeReadSlots,
+  ...createCommercialNfeLifecycle({ sourceFingerprint: recapturePreparationFingerprint }),
+  applyEffects, reverseEffects,
+});
 
 const invalid = (): never => { throw new ErpError("22023", "com1_input_invalid"); };
 function input<T>(args: RpcArgs, allowed: readonly string[], required: readonly string[] = allowed): T {
@@ -25,6 +38,16 @@ function input<T>(args: RpcArgs, allowed: readonly string[], required: readonly 
 const expectedPerson = (args: RpcArgs): string => typeof args.p_user_id === "string" ? args.p_user_id : invalid();
 const evidenceFields = ["emission_id", "command_id", "claim_token"] as const;
 const effectFields = ["emission_id", "command_id", "expected_version", "axis", "intent", "physical_return_confirmed"] as const;
+
+function effectAttemptAccess(ctx: Parameters<typeof requireCom1Access>[0], value: EffectInput, person: string): void {
+  try { requireCom1Access(ctx, value.axis === "stock" ? "effect_stock" : "effect_finance", person); }
+  catch (error) {
+    if (!(error instanceof ErpError) || error.code !== "42501") throw error;
+    // O slot registra falta de papel como pendência. A escrita comercial
+    // continua exigindo o papel local e nunca herda privilégios do Fiscal.
+    requireCom1Access(ctx, "emit", person);
+  }
+}
 
 registerRpc("erp_com1_config_get", (ctx, a) => {
   requireCom1Access(ctx, "read", expectedPerson(a));
@@ -90,12 +113,12 @@ registerRpc("erp_com1_cancel_xml_record", (ctx, a) => {
 registerRpc("erp_com1_effect_apply", (ctx, a) => {
   const value = input<EffectInput>(a, effectFields, effectFields.slice(0, 5));
   if (!["stock", "finance"].includes(value.axis) || !["reconcile", "apply", "apply_skipped"].includes(value.intent)) return invalid();
-  requireCom1Access(ctx, value.axis === "stock" ? "effect_stock" : "effect_finance", expectedPerson(a));
+  effectAttemptAccess(ctx, value, expectedPerson(a));
   return commercialNfeSlots().applyEffects(ctx, value);
 });
 registerRpc("erp_com1_effect_reverse", (ctx, a) => {
   const value = input<EffectInput>(a, effectFields, effectFields.slice(0, 5));
   if (!["stock", "finance"].includes(value.axis) || value.intent !== "reverse") return invalid();
-  requireCom1Access(ctx, value.axis === "stock" ? "effect_stock" : "effect_finance", expectedPerson(a));
+  effectAttemptAccess(ctx, value, expectedPerson(a));
   return commercialNfeSlots().reverseEffects(ctx, value);
 });

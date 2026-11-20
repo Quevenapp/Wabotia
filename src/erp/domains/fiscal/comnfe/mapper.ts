@@ -12,6 +12,8 @@ const object = (v: unknown): Obj => v !== null && typeof v === "object" && !Arra
 const present = (v: unknown): boolean => v !== undefined && v !== null && v !== "";
 const text = (v: unknown): string => typeof v === "string" || typeof v === "number" ? String(v) : "";
 const digits = (v: unknown): string => text(v).replace(/[ ()./+\-]/g, "");
+/** Cadastros preservam a máscara e a caixa originais; o PedidoNfe usa A–Z. */
+const documentText = (v: unknown): string => digits(v).toUpperCase();
 const UF = /^(AC|AL|AM|AP|BA|CE|DF|ES|GO|MA|MG|MS|MT|PA|PB|PE|PI|PR|RJ|RN|RO|RR|RS|SC|SE|SP|TO)$/;
 const UF_CODE: Record<string, string> = { RO: "11", AC: "12", AM: "13", RR: "14", PA: "15", AP: "16", TO: "17", MA: "21", PI: "22", CE: "23", RN: "24", PB: "25", PE: "26", AL: "27", SE: "28", BA: "29", MG: "31", ES: "32", RJ: "33", SP: "35", PR: "41", SC: "42", RS: "43", MS: "50", MT: "51", GO: "52", DF: "53" };
 const EMAIL = /^(?:[A-Za-z0-9_'+\-]+\.)*[A-Za-z0-9_'+\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$/;
@@ -83,7 +85,7 @@ export function mapPreparation(sources: PreparationSources, taxes: TaxPreparatio
     const output: Obj = {}, address: Obj = {};
     const name = data.legal_name ?? data.name;
     if (!validText(name, 2, 60)) incomplete("nome", "nome (2 a 60 caracteres)"); else output.nome = name;
-    const doc = digits(issuer ? data.cnpj : data.document);
+    const doc = documentText(issuer ? data.cnpj : data.document);
     if (issuer || data.person_type === "J") { if (!validCnpj(doc)) incomplete("cnpj", "CNPJ"); else output.cnpj = doc; }
     else if (data.person_type === "F") { if (!cpfValid(doc)) incomplete("cpf", "CPF"); else output.cpf = doc; }
     else unsupported(`${prefix}.documento`, "destinatário estrangeiro ou tipo de pessoa não definido", entity);
@@ -237,7 +239,7 @@ export function mapPreparation(sources: PreparationSources, taxes: TaxPreparatio
       if (!["03", "04"].includes(form)) unsupported(`${prefix}.cartao`, "detalhes de cartão em outra forma de pagamento");
       const card: Obj = {}, integration = text(cardValues.integracao);
       if (!["1", "2"].includes(integration)) problem("cartao.integracao", "integração do cartão"); else card.integracao = integration === "1" ? "integrado" : "nao_integrado";
-      if (present(cardValues.cnpjCredenciadora)) { const c = digits(cardValues.cnpjCredenciadora); if (!validCnpj(c)) problem("cartao.cnpjCredenciadora", "CNPJ da credenciadora"); else card.cnpjCredenciadora = c; }
+      if (present(cardValues.cnpjCredenciadora)) { const c = documentText(cardValues.cnpjCredenciadora); if (!validCnpj(c)) problem("cartao.cnpjCredenciadora", "CNPJ da credenciadora"); else card.cnpjCredenciadora = c; }
       if (present(cardValues.bandeira)) { if (!/^\d{2}$/.test(text(cardValues.bandeira))) problem("cartao.bandeira", "bandeira"); else card.bandeira = cardValues.bandeira; }
       if (present(cardValues.autorizacao)) { if (!validText(cardValues.autorizacao, 1, 128)) problem("cartao.autorizacao", "autorização"); else card.autorizacao = cardValues.autorizacao; }
       if (integration === "1") for (const key of ["cnpjCredenciadora", "bandeira", "autorizacao"]) if (!present(card[key])) problem(`cartao.${key}`, key);
@@ -272,7 +274,7 @@ export function mapPreparation(sources: PreparationSources, taxes: TaxPreparatio
   if (!["0", "1", "2", "3", "4", "9"].includes(mode)) transportProblem("modalidade", "modalidade salva"); else outTransport.modalidade = Number(mode);
   if (mode === "9" && ((cents(d.freight) ?? 0n) !== 0n || Object.keys(carrier).length || present(transport.vehicle) || present(transport.volume_count) || present(transport.gross_weight))) transportProblem("modalidade", "coerência entre sem frete e os dados informados");
   if (Object.keys(carrier).length) {
-    const out: Obj = {}, document = digits(carrier.document);
+    const out: Obj = {}, document = documentText(carrier.document);
     if (carrier.person_type === "J" && validCnpj(document)) out.cnpj = document;
     else if (carrier.person_type === "F" && cpfValid(document)) out.cpf = document;
     else transportProblem("transportadora.documento", "CPF/CNPJ da transportadora");
@@ -330,7 +332,7 @@ export function mapPreparation(sources: PreparationSources, taxes: TaxPreparatio
   }
   const responsible = object(company.technical_responsible ?? object(sources.tax_sources.settings).technical_responsible);
   if (Object.keys(responsible).length) {
-    const value = { cnpj: digits(responsible.cnpj), contato: responsible.contact ?? responsible.contato, email: responsible.email, telefone: digits(responsible.phone ?? responsible.telefone) };
+    const value = { cnpj: documentText(responsible.cnpj), contato: responsible.contact ?? responsible.contato, email: responsible.email, telefone: digits(responsible.phone ?? responsible.telefone) };
     for (const [field, valid] of [["cnpj", validCnpj(value.cnpj)], ["contato", validText(value.contato, 2, 60)], ["email", validText(value.email, 6, 60) && EMAIL.test(text(value.email))], ["telefone", /^\d{6,14}$/.test(value.telefone)]] as const) {
       if (!valid) add("fiscal_issuer_incomplete", `responsavelTecnico.${field}`, `Complete ${field} do responsável técnico em Dados da empresa antes de emitir.`, "company", "1");
     }

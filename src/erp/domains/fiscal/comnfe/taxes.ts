@@ -105,7 +105,7 @@ export function calculatePreparationTaxes(sources: PreparationTaxSources): TaxPr
   const destination = string(recipient.state), interstate = destination !== string(company.state);
   const difalTarget = choices.final_consumer && recipient.taxpayer === "9" && interstate && destination !== "EX";
   const difalMode = difalByState[destination] ?? settings.difal_default;
-  if (difalTarget && !present(difalMode)) block("fiscal_tax_data_missing", "settings.difal_default", "Configure a forma de cálculo do DIFAL antes de emitir.", undefined, "fiscal_settings");
+  if (difalTarget && !present(difalMode)) block("fiscal_tax_data_missing", "settings.difal_default", "Configure a forma de cálculo do DIFAL antes de emitir.", undefined, "fiscal_parameters");
   if (difalTarget && present(difalMode) && !["none", "inside", "goods"].includes(String(difalMode))) unsupported("settings.difal_default", `DIFAL ${difalMode}`);
 
   const lineAmounts: bigint[] = [], lineDiscounts: bigint[] = [];

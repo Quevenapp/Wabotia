@@ -41,12 +41,27 @@ export function requireCom1Posting(ctx: RpcContext, documentId: string | null, a
 const protectedEmission = (ctx: RpcContext, documentId: string) => one(ctx.db, `SELECT id,status FROM erp_fiscal_vault__order_emission
   WHERE document_id=? AND status IN ('enviando','processando','incerta','autorizada') ORDER BY fiscal_version DESC LIMIT 1`, documentId);
 
+/** Observações públicas compõem informacoesComplementares no PedidoNfe.
+ * Anotações internas não são enviadas ao cofre e continuam operacionais. */
+export function guardCom1NotesSave(ctx: RpcContext, documentId: string, currentNotes: string | null, nextNotes: string | null): void {
+  if (currentNotes !== nextNotes && protectedEmission(ctx, documentId)) raise("40001", "fiscal_order_commercial_locked");
+}
+
+/** A lixeira não pode ocultar um pedido com emissão enviada ou histórica,
+ * inclusive quando Estoque/Financeiro foram pulados. Não depende de partes. */
+export function com1TrashBlocker(ctx: RpcContext, documentId: string): "invoice_linked" | null {
+  return one(ctx.db, `SELECT 1 FROM erp_fiscal_vault__order_emission e WHERE e.document_id=? AND
+    (e.status NOT IN ('bloqueada','preparada','arquivada') OR e.provider_id IS NOT NULL OR EXISTS (
+      SELECT 1 FROM erp_fiscal_vault__order_command c WHERE c.emission_id=e.id
+      AND c.action IN ('emit','resume') AND c.token IS NOT NULL)) LIMIT 1`, documentId) ? "invoice_linked" : null;
+}
+
 // Não são campos fiscais/comerciais: IDs e versões de leitura, saldos técnicos,
 // seleção de depósito/lote e classificação/conta local para resolver pendências.
 const technicalFields = new Set([
   "id", "kind", "number", "version", "status", "created_at", "updated_at", "created_by", "updated_by",
   "effect_flags", "contact_snapshot", "source_proposal_id", "origin", "authority", "readonly", "unavailable_parts",
-  "warehouse_id", "category_id", "payment_account_id",
+  "warehouse_id", "category_id", "payment_account_id", "internal_notes",
 ]);
 const object = (value: unknown): value is Data => value !== null && typeof value === "object" && !Array.isArray(value);
 const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical) : object(value)

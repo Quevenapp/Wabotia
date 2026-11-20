@@ -2,6 +2,11 @@ import { ApiError } from "../../types";
 import { createPiiMask } from "../../pii-mask";
 import { ErpError } from "../engine/errors.ts";
 import { CommercialNfeError } from "./artifacts.ts";
+import { createCommercialNfeBridge } from "./bridge.ts";
+import { createCommercialNfeService, freezeCommercialVaultSession } from "./service.ts";
+import { emissorConnection, emissorView, fiscalConnectionFingerprint } from "../emissor/config.ts";
+import { fiscalProviderFor } from "../emissor/index.ts";
+import type { CommercialConnectionCheck } from "../domains/fiscal/comnfe/settings.ts";
 import type { CommercialNfeHttpContext } from "./routes.ts";
 import type { CommercialNfeHttpHandler } from "./slots.ts";
 import type {
@@ -38,6 +43,44 @@ export interface CommercialNfeHttpDependencies {
   service(context: CommercialNfeHttpContext): CommercialNfeService | Promise<CommercialNfeService>;
 }
 
+/** Prova pública do último Testar conexão; nenhuma chamada ao cofre na transação. */
+export async function commercialConnectionCheck(context: CommercialNfeHttpContext): Promise<CommercialConnectionCheck | null> {
+  const view = await emissorView(context.env, context.profile), checked = view.checked;
+  const certificate = checked?.state?.certificate;
+  if (!view.configured || view.provider !== "nfapi" || !view.url || !checked?.ok || !checked.state ||
+      certificate?.document?.kind !== "cnpj" || !checked.contract?.vault) return null;
+  const issuer = certificate.document.id.replace(/[.\/\-\s]/g, "").toUpperCase();
+  return { fingerprint: await fiscalConnectionFingerprint({ provider: "nfapi", url: view.url, issuer_document: issuer }),
+    provider: "nfapi", origin: view.url, issuer_cnpj: issuer, version: checked.contract.vault,
+    checked_at: String(BigInt(checked.at) * 1000n), compatible: checked.contract.compatible === true,
+    // O motor confere os dados atuais da empresa sob a mesma transação da configuração.
+    company_matches: false, company_complete: false,
+    environments: [...checked.state.key.environments],
+    series: (checked.series ?? []).filter(series => series.kind === "nfe" && (!series.cnpj || series.cnpj === issuer))
+      .map(series => ({ environment: series.environment, series: series.series })) };
+}
+
+/** Montagem de produção; testes podem substituir somente as portas de I/O. */
+export function createDefaultCommercialNfeHttp(): CommercialNfeHttpHandler {
+  return createCommercialNfeHttp({ service: context => createCommercialNfeService(context, {
+    bridge: createCommercialNfeBridge(context, { connection: commercialConnectionCheck }),
+    vault: async emission => {
+      const connection = await emissorConnection(context.env, context.profile);
+      const checked = await commercialConnectionCheck(context);
+      if (!connection || !checked) throw new CommercialNfeError(409, "fiscal_provider_not_configured", "Teste e confira a conexão do cofre antes de continuar.");
+      if (!checked.compatible) throw new CommercialNfeError(409, "fiscal_provider_incompatible", "A versão do cofre não é compatível com esta integração.");
+      if (!checked.environments.includes(emission.environment))
+        throw new CommercialNfeError(409, "fiscal_environment_not_allowed", "A chave do cofre não permite o ambiente desta emissão.");
+      if (connection.url !== checked.origin || connection.provider !== checked.provider)
+        throw new CommercialNfeError(409, "fiscal_connection_changed", "Confira a conexão original desta emissão.");
+      return freezeCommercialVaultSession(context, emission, {
+        provider: await fiscalProviderFor({ env: context.env, profile: context.profile }),
+        fingerprint: checked.fingerprint, connection,
+      });
+    },
+  }) });
+}
+
 const PRIVATE_HEADERS = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
 const EMISSION_FIELDS = ["id", "document_id", "fiscal_version", "environment", "environment_confirmed", "connection_fingerprint", "reference",
   "current_body_revision", "status", "version", "provider_id", "provider_status", "messages", "series", "number", "access_key", "protocol",
@@ -50,7 +93,41 @@ const CANCEL_FIELDS = ["emission_id", "justification", "command_id", "state", "m
 const CONFIG_FIELDS = ["id", "version", "environment", "stock_timing", "finance_timing", "series_homologacao", "series_producao", "connection_fingerprint",
   "connection_public", "production_enabled_at", "production_enabled_by", "tax_limits_acknowledged_at", "tax_limits_acknowledged_by", "updated_at", "updated_by", "checklist"];
 const secretKey = /^(?:token|claim_token|lease_until|request|evidence|cancellation_xml|archived_xml|xml|xml_text|body_text|secret|password|senha|certificate|certificado|api_key|apikey|access_token|refresh_token|authorization|key_hash|code_hash)$/i;
-const personalKey = /^(?:nome|name|fantasia|email|phone|mobile|telefone|celular|cpf|cnpj|document|issuer_cnpj|endereco|endereço|address|street|logradouro|bairro|district|complement|complemento|postal_code|cep|inscricaoEstadual|inscricaoMunicipal|contact_name|recipient_name)$/i;
+const personalKey = /^(?:nome|name|legal_name|trade_name|fantasia|email|nfe_email|phone|mobile|telefone|celular|cpf|cnpj|tax_id|document|issuer_cnpj|endereco|endereço|address|street|logradouro|bairro|district|complement|complemento|postal_code|cep|ie|state_registration|inscricaoEstadual|inscricaoMunicipal|contact_name|recipient_name|carrier_name)$/i;
+const addressKey = /^(?:endereco|endereço|address)$/i;
+const technicalKey = /^(?:id|.*_id|.*_ids|.*_hash|.*_fingerprint|reference|protocol|access_key|code|field|screen|entity|source|status|state|environment|.*_at)$/i;
+const PRIVATE_VALUE = "[dado pessoal oculto]";
+
+/** Mensagens e observações podem repetir dados de cadastros. Recolher antes
+ * da projeção também protege a listagem, que não leva o snapshot ao cliente. */
+function knownPersonalTextMask(value: unknown): (text: string) => string {
+  const patterns = new Set<string>();
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const remember = (raw: string) => {
+    const text = raw.trim();
+    // Números curtos de endereço não viram regras globais para valores fiscais.
+    if (text.length < 2 || /^\d{1,3}$/.test(text)) return;
+    patterns.add(escape(text).replace(/\s+/g, "\\s+"));
+    const document = text.toUpperCase().replace(/[.\-/\s]/g, "");
+    if (/^[A-Z0-9]{12}\d{2}$/.test(document)) {
+      patterns.add(escape(document));
+      patterns.add(`${escape(document.slice(0, 2))}\\.\\s*${escape(document.slice(2, 5))}\\.\\s*${escape(document.slice(5, 8))}\\/\\s*${escape(document.slice(8, 12))}-\\s*${document.slice(12)}`);
+    }
+  };
+  const visit = (item: unknown, depth = 0, privateAddress = false): void => {
+    if (depth > 24 || !item || typeof item !== "object") return;
+    if (Array.isArray(item)) { item.forEach(entry => visit(entry, depth + 1, privateAddress)); return; }
+    for (const [key, entry] of Object.entries(item)) {
+      if (secretKey.test(key)) continue;
+      if (typeof entry === "string" && (privateAddress || personalKey.test(key))) remember(entry);
+      else visit(entry, depth + 1, privateAddress || addressKey.test(key));
+    }
+  };
+  visit(value);
+  if (!patterns.size) return text => text;
+  const pattern = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${[...patterns].sort((a, b) => b.length - a.length).join("|")})(?![\\p{L}\\p{N}_])`, "giu");
+  return text => text.replace(pattern, PRIVATE_VALUE);
+}
 const pick = (value: unknown, fields: readonly string[]): Record<string, unknown> => {
   const record = value && typeof value === "object" ? value as Record<string, unknown> : {};
   return Object.fromEntries(fields.filter(key => Object.hasOwn(record, key)).map(key => [key, record[key]]));
@@ -79,13 +156,18 @@ export function commercialNfePublicDto(context: CommercialNfeHttpContext, value:
   else if (name === "com1.effects") dto = pick(value, EFFECT_FIELDS);
   else dto = emissionDto(value as EmissionView);
   const masked = !!(context.actor.via || context.identity.actor?.is_agent || context.identity.actor?.is_technical) && context.actor.via?.masked !== false;
-  const clean = (item: unknown, depth = 0): unknown => {
+  const maskKnown = masked ? knownPersonalTextMask(value) : (text: string) => text;
+  const clean = (item: unknown, depth = 0, key = "", privateAddress = false): unknown => {
     if (depth > 24) return null;
-    if (typeof item === "string") return item.replace(/\b(?:wab[ul]?_[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9_-]{8,})/g, "[oculto]");
-    if (Array.isArray(item)) return item.map(entry => clean(entry, depth + 1));
+    if (typeof item === "string") {
+      if (masked && (privateAddress || personalKey.test(key))) return PRIVATE_VALUE;
+      const text = item.replace(/\b(?:wab[ul]?_[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9_-]{8,})/g, "[oculto]");
+      return technicalKey.test(key) ? text : maskKnown(text);
+    }
+    if (Array.isArray(item)) return item.map(entry => clean(entry, depth + 1, key, privateAddress));
     if (!item || typeof item !== "object") return item;
-    return Object.fromEntries(Object.entries(item).filter(([key]) => !secretKey.test(key)).map(([key, entry]) =>
-      [key, masked && personalKey.test(key) ? "[dado pessoal oculto]" : clean(entry, depth + 1)]));
+    return Object.fromEntries(Object.entries(item).filter(([childKey]) => !secretKey.test(childKey)).map(([childKey, entry]) =>
+      [childKey, clean(entry, depth + 1, childKey, privateAddress || addressKey.test(childKey))]));
   };
   return createPiiMask(masked).maskValue(clean(dto));
 }

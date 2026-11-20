@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { com1Fixture, COM1_PEOPLE } from "./fixtures.mjs";
 import { callRpc, inTransaction } from "../../../src/erp/engine/registry.ts";
-import { installCommercialNfeSlots } from "../../../src/erp/commercial-nfe/slots.ts";
-import { bindCom1Authority, requireCom1Access } from "../../../src/erp/domains/fiscal/comnfe/access.ts";
+import { commercialNfeSlots, com1NotReady, installCommercialNfeSlots } from "../../../src/erp/commercial-nfe/slots.ts";
+import { bindCom1Authority, requireCom1Access, com1ExecutionActor, com1ActionForRpc, runWithCom1Authority } from "../../../src/erp/domains/fiscal/comnfe/access.ts";
 import { installCommercialConnectionResolver } from "../../../src/erp/domains/fiscal/comnfe/settings.ts";
 import {
   COM1_TABLES as T, com1Hash, com1Reference, com1Sha256, savePreparation, claimStoredOperation,
@@ -66,7 +66,9 @@ function authorized(f) {
 }
 const count = (f, table) => f.lite.prepare(`SELECT count(*) n FROM ${table}`).get().n;
 
-test("contratos: defaults conservadores e nenhum slot emite ou conclui efeito", t => {
+test("contratos: instalação incompleta falha fechada e preserva defaults conservadores", t => {
+  const restore = installCommercialNfeSlots(Object.fromEntries(Object.keys(commercialNfeSlots()).map(name => [name, com1NotReady])));
+  t.after(restore);
   const f = com1Fixture(t), settings = f.rpc("erp_com1_config_get");
   assert.equal(settings.environment, "homologacao");
   assert.equal(settings.stock_timing, "existing");
@@ -203,7 +205,50 @@ test("bot confirmado e concessão futura usam a mesma política; origem externa 
   assert.throws(() => run({ origin: "external", autonomous: true }), error("fiscal_external_origin_forbidden"));
 });
 
+test("delegação autorizada atravessa o portão real sem remover MFA, horário ou papel", t => {
+  const f = com1Fixture(t);
+  const plain = { origin: "application", proposed_by: "bot-de-ensaio" };
+  const autonomous = { ...plain, autonomous: true };
+  const invoke = (name, input, authority = plain, overrides = {}) => {
+    const env = f.env({ ...overrides, actor: { is_agent: true, ...overrides.actor } });
+    const original = env.identity.actor;
+    env.identity.actor = com1ExecutionActor(original, com1ActionForRpc(name, input), authority);
+    assert.deepEqual({ ...env.identity.actor, is_agent: original.is_agent }, original);
+    return runWithCom1Authority(authority, () => callRpc(f.db, name,
+      { p_user_id: original.user_id, ...(input ? { p_input: input } : {}) }, f.clock, { ...env, gate: true }));
+  };
+  // O legado continua recusando o agente bruto; só a costura comercial autorizada normaliza.
+  const raw = f.env({ actor: { is_agent: true } });
+  assert.throws(() => callRpc(f.db, "erp_com1_config_get", { p_user_id: raw.identity.actor.user_id }, f.clock,
+    { ...raw, gate: true }), error("erp_gate_agent_out_of_scope"));
+  assert.equal(invoke("erp_com1_config_get").environment, "homologacao");
+  assert.equal(invoke("erp_com1_config_get", undefined, plain, { actor: { session_id: null, aal: "aal1" } }).environment, "homologacao");
+  assert.throws(() => invoke("erp_com1_config_get", undefined, plain,
+    { actor: { user_id: "90000000-0000-4000-8000-000000000001", session_id: null } }), error("fiscal_forbidden"));
+  const save = () => ({ command_id: randomUUID(), expected_version: 1, environment: "homologacao", stock_timing: "existing", finance_timing: "existing" });
+  assert.throws(() => invoke("erp_com1_config_save", save()), error("fiscal_confirmation_required"));
+  assert.equal(invoke("erp_com1_config_save", save(), autonomous).version, 2);
+  assert.throws(() => invoke("erp_com1_config_get", undefined, { ...autonomous, origin: "external" }), error("fiscal_external_origin_forbidden"));
+  assert.throws(() => invoke("erp_com1_config_get", undefined, autonomous, { role: "vendas" }), error("fiscal_forbidden"));
+  // Nenhuma sessão sintética é criada para uma concessão autônoma.
+  f.rpc("erp_access_security_policy_save", { p_command_id: randomUUID(), p_expected_version: 0,
+    p_session_id: COM1_PEOPLE.admin.session_id, p_mfa_required: true });
+  assert.throws(() => invoke("erp_com1_config_get", undefined, autonomous, { actor: { session_id: null, aal: "aal1" } }), error("erp_gate_mfa_required"));
+  assert.throws(() => invoke("erp_com1_config_get", undefined, plain, { actor: { aal: "aal1" } }), error("erp_gate_mfa_required"));
+  assert.throws(() => invoke("erp_com1_config_get", undefined, plain, { actor: { session_id: null, aal: "aal1" } }), error("erp_gate_mfa_required"));
+  assert.equal(invoke("erp_com1_config_get").version, 2);
+  f.rpc("erp_access_user_controls_save", { p_command_id: randomUUID(), p_target: COM1_PEOPLE.fiscal.user_id, p_expected_version: 0,
+    p_data: { user_type: "normal", schedule: { enabled: true, windows: [{ start: "00:00", end: "01:00", days: [0] }] }, permissions: null } });
+  assert.throws(() => invoke("erp_com1_config_get", undefined, autonomous, { role: "fiscal" }), error("erp_gate_outside_schedule"));
+  const technical = { ...COM1_PEOPLE.admin, is_agent: true, is_technical: true, session_id: null };
+  assert.equal(com1ExecutionActor(technical, "read", plain).is_agent, true);
+  assert.equal(com1ExecutionActor(technical, "read", autonomous).session_id, null);
+  assert.equal(com1ExecutionActor(technical, "read", autonomous).is_technical, true);
+});
+
 test("partes para primeiro envio e histórico têm exigências distintas", t => {
+  const restore = installCommercialNfeSlots(Object.fromEntries(Object.keys(commercialNfeSlots()).map(name => [name, com1NotReady])));
+  t.after(restore);
   const f = com1Fixture(t), p = prepared(f), input = claimInput(p.view);
   for (const part of ["customers", "products", "sales", "fiscal"]) {
     assert.throws(() => f.rpc("erp_com1_claim", { p_input: input }, { parts: { [part]: false } }), e => e.code === "module_disabled", part);

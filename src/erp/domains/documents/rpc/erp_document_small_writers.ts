@@ -17,6 +17,7 @@ import { contactUsable, requireAccess } from "../reads-g.ts";
 import { updateDocument } from "../rows.ts";
 import { commandReplay, editable, fieldText, proposalSuperseded, withoutUnavailableLinks } from "../save-checks.ts";
 import { erpDocumentSave, transitionCommand } from "./erp_document_save.ts";
+import { com1TrashBlocker, guardCom1NotesSave } from "../../fiscal/comnfe/effect-policy.ts";
 
 type Data = Record<string, unknown>;
 const sha256 = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
@@ -113,6 +114,7 @@ export function erpDocumentNotesSave(ctx: RpcContext, a: RpcArgs) {
   if (row.version !== expected || row.version === 2147483647) raise("40001", "erp_document_version_conflict");
   if (!editable(row.status) && !effectsActive(db, id)) raise("40001", "erp_document_state_locked");
   const body = JSON.parse(String(row.body)) as Data;
+  guardCom1NotesSave(ctx, id, fieldText(body, "notes"), notes);
   if (fieldText(body, "notes") !== notes || fieldText(body, "internal_notes") !== internal) {
     const before = documentDto(ctx, id);
     updateDocument(ctx, id, { body: JSON.stringify({ ...body, notes, internal_notes: internal }), version: Number(row.version) + 1, updated_by: user, updated_at: ctx.clock.next().toString() });
@@ -133,6 +135,8 @@ export function trashBlocker(ctx: RpcContext, id: string): string | null {
   const f = effectFlags(ctx, id);
   if (f.stock_active) return "stock_posted";
   if (f.finance_active) return "finance_posted";
+  const commercialNfe = com1TrashBlocker(ctx, id);
+  if (commercialNfe) return commercialNfe;
   if (one(db, 'SELECT 1 x FROM "erp_fiscal_invoices__invoice_order" o JOIN "erp_fiscal_invoices__invoice" n ON n.id=o.invoice_id WHERE o.document_id=? AND n.deleted_at IS NULL LIMIT 1', id)) return "invoice_linked";
   if (one(db, `SELECT 1 x FROM "erp_stock__reservation" WHERE document_id=? AND state='active' LIMIT 1`, id)) return "stock_reserved";
   if (one(db, 'SELECT 1 x FROM "erp_finance__grouped_billing_document" WHERE document_id=? AND active=1 LIMIT 1', id)) return "grouped_billing";

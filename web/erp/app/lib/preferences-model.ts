@@ -1,4 +1,5 @@
 import {storedPreferencePage} from '../../../../packages/erp-domain/src/preferences/catalog.mjs';
+import { erpPorts } from '../../ports.ts';
 import { requirementEnabled, responseModules } from '../../blocks.ts';
 import { erpPreferenceFieldRequirement, erpPreferenceRequirement, erpEntityRequirement } from '../../../../src/erp/parts-requirements.ts';
 export const preferenceFieldEnabled = (page: string, key: string) => requirementEnabled(erpPreferenceFieldRequirement(page, key));
@@ -73,7 +74,37 @@ export function visible(entry:PreferenceField|PreferenceInfo,draft:Draft){
  if(entry.info||!entry.showIf)return true;
  return preferenceValueEqual(draft[entry.showIf.key],entry.showIf.equals);
 }
-export const sectionEntries=(page:PreferencePageSchema,section:string)=>page.fields.filter(entry=>entry.section===section);
+// Apresentação do percurso comercial; os valores e o contrato legado continuam intactos.
+const commercialFiscalInfo:Record<string,string>={
+ 'certificado.a1_servidor':'Certificado e senha são configurados diretamente no cofre NFapi. O ERP guarda somente a conexão com o cofre; não recebe o certificado nem assina notas.',
+ 'nfe.ambiente':'A NF-e do pedido usa o ambiente escolhido no Emissor de notas. Homologação fica separada de produção; habilitar produção exige confirmação de administrador.',
+ 'nfe.disponibilidade':'Teste a conexão com o cofre NFapi no Emissor de notas. A consulta confere versão, emitente e ambientes permitidos; não representa homologação com a SEFAZ.',
+ 'nfe.numeracao':'Série e número da NF-e pertencem ao cofre NFapi. O ERP permite escolher apenas séries informadas pelo cofre para o ambiente; não mantém próximo número fiscal.',
+ 'nfce.ambiente':'A emissão de NFC-e está fora deste percurso. A NF-e de pedido, modelo 55, tem ambiente e habilitação próprios no Emissor de notas.',
+ 'nfce.disponibilidade':'A conexão fiscal é com o cofre NFapi. A emissão e a homologação de NFC-e ainda não estão disponíveis neste percurso.',
+ 'nfce.numeracao':'A NFC-e está fora deste percurso. Não há numeração fiscal local; séries e números de NF-e são mantidos pelo cofre NFapi.',
+ 'nfce.csc':'CSC e identificador de CSC são configurados diretamente no cofre quando o percurso de NFC-e estiver disponível. Nunca informe esses segredos nesta página.',
+};
+const commercialFiscalNotes:Record<string,string>={
+ 'nfe.lancar_estoque':'Preferência legada. No pedido com NF-e, o momento do estoque é escolhido por área no Emissor de notas. Cancelamento fiscal exige avaliação da compensação e confirmação do retorno físico.',
+ 'nfe.lancar_contas':'Preferência legada. No pedido com NF-e, o momento dos títulos é escolhido por área no Emissor de notas. Cancelamento não apaga recebimentos nem cancela cobranças.',
+ 'nfe.emitir_lote':'Emissão em lote está fora deste percurso. Prepare e revise uma NF-e por pedido salvo; a emissão usa o comando confirmado no acompanhamento.',
+ 'nfe.consulta_automatica':'A retomada é explícita: use Consultar / retomar no acompanhamento da mesma emissão. Esta preferência não agenda chamadas ao cofre.',
+ 'nfe.itens_primeira_pagina':'O DANFE comercial é fornecido pelo cofre NFapi. Esta preferência legada não altera o PDF do cofre.',
+ 'nfe.itens_demais_paginas':'O DANFE comercial é fornecido pelo cofre NFapi. Esta preferência legada não altera o PDF do cofre.',
+ 'nfe.danfe_simplificado_produtos':'DANFE simplificado está fora deste percurso. O DANFE da NF-e comercial é obtido no cofre.',
+ 'nfe.danfe_simplificado_total':'DANFE simplificado está fora deste percurso. O DANFE da NF-e comercial é obtido no cofre.',
+ 'vendas.gerar_nfe':'Preparação e emissão não são automáticas ao salvar. No pedido de venda salvo, use Preparar NF-e para revisar dados e emitir pelo cofre.',
+ 'vendas.contas_automaticas_nota':'A NF-e comercial reutiliza os títulos do pedido conforme a política da área no Emissor de notas. A emissão não cria uma segunda origem financeira e não recebe parcelas automaticamente.',
+};
+export const sectionEntries=(page:PreferencePageSchema,section:string)=>(page.fields.filter(entry=>entry.section===section)).map(entry=>{
+ // Montagens legadas de consulta conservam sua apresentação; a porta marca o percurso comercial ativo.
+ if(!erpPorts()?.commercialNfe)return entry;
+ if(entry.info&&commercialFiscalInfo[entry.id])return {...entry,text:commercialFiscalInfo[entry.id],source:undefined,
+  ...(entry.id==='nfce.csc'?{}:{link:{label:'Abrir emissor de notas',to:'/certificado-a1',roles:['admin','fiscal'] as const}})};
+ if(!entry.info&&commercialFiscalNotes[entry.key])return {...entry,note:commercialFiscalNotes[entry.key],status:'stored' as const};
+ return entry;
+});
 export function choiceOptions(field:PreferenceField){return(field.options??[]) as readonly(readonly[string,string])[];}
 export function integerOptions(field:PreferenceField){const out:string[]=[];for(let n=field.min!;n<=field.max!;n++)out.push(String(n));return out;}
 export function invalidText(field:PreferenceField){

@@ -58,14 +58,18 @@ function assertSource(ctx: RpcContext, emission: StoredEmission, revision: Immut
   const d = currentDocument(ctx, emission.document_id), body = object(d.body), frozen = bodyOf(revision);
   const contact = frozen.contact_id ?? revision.snapshot.document.contact_id;
   if (!contact || contact !== d.contact_id || String(d.total) !== emission.total) pending("com1_effect_source_changed");
-  const technical = new Set(["id", "version", "status", "updated_at", "updated_by", "created_at", "created_by", "warehouse_id", "category_id", "payment_account_id", "items"]);
+  const technical = new Set(["id", "version", "status", "updated_at", "updated_by", "created_at", "created_by", "warehouse_id", "category_id", "payment_account_id", "internal_notes", "items"]);
   const commercialBody = (value:Row) => Object.fromEntries(Object.entries(value).filter(([key]) =>
-    !technical.has(key) && !["kind", "authority", "number", "body", "total", "contact_snapshot", "deleted_at"].includes(key)));
+    !technical.has(key) && !["kind", "authority", "number", "body", "total", "stored_total", "origin", "contact_snapshot", "deleted_at"].includes(key)));
   if (com1Hash(commercialBody(frozen)) !== com1Hash(commercialBody(body))) pending("com1_effect_source_changed");
-  const items = bodyItems(revision), actual = ctx.db.exec('SELECT data FROM erp_documents__item WHERE document_id=? ORDER BY position', d.id).rows.map(row => object(row.data));
+  const items = bodyItems(revision), actual = ctx.db.exec('SELECT data,product_snapshot,product_id,position FROM erp_documents__item WHERE document_id=? ORDER BY position', d.id).rows.map(row => {
+    const data = object(row.data), product = object(row.product_snapshot);
+    return { ...data, product_id: row.product_id, position: row.position,
+      code: Object.hasOwn(data, "code") ? data.code : product.code ?? null };
+  });
   if (!items.length || items.length !== actual.length) pending("com1_effect_source_changed");
   for (let n = 0; n < items.length; n++) {
-    const commercialItem = (value:Row) => Object.fromEntries(Object.entries(value).filter(([key]) =>
+    const commercialItem = (value:Row) => Object.fromEntries(Object.entries({ ...value, code: value.code ?? null }).filter(([key]) =>
       !["id","document_id","data","product_snapshot","lots","created_at","updated_at","version"].includes(key)));
     // Compare the entire normalized commercial item, including the ten-digit
     // unit price and conditional fields; never round a mismatch into equality.

@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { AccessError, type AccessController } from '../lib/real-access';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import { invoiceRecord, type InvoiceRecord } from '../../../../packages/erp-domain/src/fiscal-invoice-contract.mjs';
+import { normalizeCompanyDocument } from '../../../../packages/erp-domain/src/company.mjs';
+import { danfeData } from '../lib/danfe';
+import type { CompanyEnvelope, CompanyRecord } from '../lib/company-model';
 import { FISCAL_BASE, IMPORT_REFUSALS, importRefusalText } from '../lib/fiscal-invoice-list-model';
 import { Modal } from './Modal';
 // Notas lane (wave F): "Lançar Contas" / "Lançar Estoque" of the import go on with the flows of the note (247 and 259), each with its prévia and command.
@@ -23,7 +26,7 @@ type Phase = 'import' | 'finance' | 'stock';
  * signature checked. The note is registered in Brufap (Importação de XML de entrada ou de saída, situação Registrada). "Lançar Contas" and
  * "Lançar Estoque" open, right after the import, the Lançar contas (247) and Lançar estoque (259) of the note, with their prévia.
  */
-export default function FiscalImportDialog({ controller, initial = null, model = '55', onClose, onOpen }: { controller: AccessController; initial?: { name: string; xml: string } | null; model?: '55' | '65'; onClose: (changed: boolean) => void; onOpen: (id: string, direction?: '0' | '1', reconcile?: boolean, model?: '55' | '65') => void }) {
+export default function FiscalImportDialog({ controller, initial = null, model = '55', entryOnly = false, onClose, onOpen }: { controller: AccessController; initial?: { name: string; xml: string } | null; model?: '55' | '65'; entryOnly?: boolean; onClose: (changed: boolean) => void; onOpen: (id: string, direction?: '0' | '1', reconcile?: boolean, model?: '55' | '65') => void }) {
   // "Notas recebidas" hands over the XML it already checked by size and SHA-256.
   const [file, setFile] = useState<{ name: string; xml: string } | null>(initial), [error, setError] = useState(''), [busy, setBusy] = useState(false), [uncertain, setUncertain] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -44,16 +47,41 @@ export default function FiscalImportDialog({ controller, initial = null, model =
     const op = command.current; if (!op || busy) return;
     if (actorOf(controller) !== op.actor || !['admin', 'fiscal'].includes(roleOf(controller))) { command.current = null; setUncertain(false); setError('A sessão ou o perfil mudou. Nada foi enviado.'); return; }
     setBusy(true); setError('');
+    let submitted = false, entryKey: string | null = null;
     try {
+      if (entryOnly) {
+        // A saída do fornecedor é uma entrada da empresa. Quando a própria
+        // empresa emite, prevalece o tpNF, como na escolha do importador.
+        // Esta conferência só lê; assinatura e autorização seguem no servidor.
+        if (new TextEncoder().encode(op.xml).byteLength > MAX_BYTES) throw new AccessError(400);
+        const note = danfeData(op.xml);
+        const identity = await controller.company('/v1/empresa/identidade', { signal: life.current.signal }) as CompanyEnvelope<CompanyRecord>;
+        if (life.current.signal.aborted) return;
+        if (identity?.section !== 'identity' || identity.data_mode !== 'erp_native' || !identity.record?.data) throw new AccessError(502);
+        const company = normalizeCompanyDocument(identity.record.data.cnpj, 'any');
+        const issuer = note.issuer.document?.trim().toUpperCase() ?? null;
+        const recipient = note.recipient?.document?.trim().toUpperCase() ?? null;
+        const direction = issuer === company ? note.operation : recipient === company ? '0' : null;
+        if (note.model !== '55' || direction !== '0') {
+          if (!op.uncertain) command.current = null;
+          setError('Importe aqui somente notas de entrada da empresa. Notas de saída usam o acompanhamento comercial.');
+          return;
+        }
+        entryKey = note.key;
+        if (actorOf(controller) !== op.actor || !['admin', 'fiscal'].includes(roleOf(controller))) throw new AccessError(403);
+      }
+      submitted = true;
       const value = await controller.fiscalInvoices(`${FISCAL_BASE}/importar`, { method: 'POST', body: { command_id: op.id, xml: op.xml }, signal: life.current.signal }) as Record<string, unknown>;
       if (life.current.signal.aborted) return;
-      command.current = null; setUncertain(false);
       if (value?.imported === false && typeof value.refused === 'string' && (IMPORT_REFUSALS as readonly string[]).includes(value.refused)) {
+        command.current = null; setUncertain(false);
         setOutcome({ kind: 'refused', text: importRefusalText(value as { refused: string; field?: string; computed_total?: string; xml_total?: string | null }), invoiceId: typeof value.invoice_id === 'string' ? value.invoice_id : null }); return;
       }
       if (value?.imported !== true || !Number.isInteger(value.matched_items)) throw new AccessError(502);
       const record = invoiceRecord(value.invoice);
       if (!['S', 'X'].includes(record.issue_type)) throw new AccessError(502);
+      if (entryOnly && (record.model !== '55' || record.direction !== '0' || record.access_key !== entryKey)) throw new AccessError(502);
+      command.current = null; setUncertain(false);
       // 202610200217: products created / updated in the cadastro by the entry note (Preferências › Produtos and › Configurações de NF-e).
       const created = count(value.created_products), updated = count(value.updated_products), failures = count(value.product_failures);
       setOutcome({ kind: 'imported', record, matched: value.matched_items as number, contact: value.contact_matched === true,
@@ -62,7 +90,8 @@ export default function FiscalImportDialog({ controller, initial = null, model =
       if (postFinance && canFinance && actorOf(controller) === op.actor) setPhase('finance'); else if (postStock && canStock && actorOf(controller) === op.actor) setPhase('stock');
     } catch (problem) {
       if (life.current.signal.aborted || aborted(problem)) return;
-      if (!op.uncertain && problem instanceof AccessError && [400, 403, 409].includes(problem.status)) { command.current = null; setError(problem.status === 403 ? 'Seu perfil não importa notas fiscais.' : 'O servidor recusou o arquivo.'); }
+      if (!submitted && !op.uncertain) { command.current = null; setError(problem instanceof AccessError && problem.status === 403 ? 'Seu perfil não importa notas fiscais.' : 'Não foi possível conferir o XML e a identidade da empresa. Nenhuma importação foi enviada.'); }
+      else if (!op.uncertain && problem instanceof AccessError && [400, 403, 409].includes(problem.status)) { command.current = null; setError(problem.status === 403 ? 'Seu perfil não importa notas fiscais.' : 'O servidor recusou o arquivo.'); }
       else { op.uncertain = true; setUncertain(true); setError('Não foi possível confirmar a importação. Use "Conferir resultado" para repetir o mesmo comando sem duplicar a nota.'); }
     } finally { if (!life.current.signal.aborted) setBusy(false); }
   };

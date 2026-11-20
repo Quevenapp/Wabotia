@@ -55,7 +55,8 @@ const PRODUCT_FISCAL_FIELDS = [
   "anp_code", "anp_description", "glp_percent", "glgnn_percent", "glgni_percent", "starting_value",
 ] as const;
 const PAYMENT_FIELDS = ["id", "description", "payment_type", "card_brand", "card_integration", "card_cnpj", "pix_integration", "pix_cnpj", "active", "applicable", "version", "deleted_at"] as const;
-const TECHNICAL_DOCUMENT_FIELDS = ["version", "updated_at", "updated_by", "created_at", "created_by", "effect_flags", "unavailable_parts"];
+const TECHNICAL_DOCUMENT_FIELDS = ["version", "updated_at", "updated_by", "created_at", "created_by", "effect_flags", "unavailable_parts",
+  "internal_notes", "warehouse_id", "category_id", "payment_account_id"];
 
 /** Sem números fiscais nem impostos confiados ao navegador. `choices` é a única
  * contribuição fiscal de entrada; o chamador valida seu formato e autorização.
@@ -170,7 +171,7 @@ export function capturePreparationSources(ctx: RpcContext, input: PrepareInput):
     municipality_dataset: municipalityDataset ? json(municipalityDataset) : null,
     versions: { tax_settings: (taxRow?.version ?? 0) as JsonValue, nature: nature.version ?? null, preferences: preferenceVersions } };
   const snapshot: CommercialSnapshot = { document, items, company, recipient, products, nature, payments, transport, sources };
-  const commercial = { document: omit(document, TECHNICAL_DOCUMENT_FIELDS), items };
+  const commercial = { document: omit(document, TECHNICAL_DOCUMENT_FIELDS), items: items.map(item => omit(item, ["lots"])) };
   const commercialHash = com1Hash(commercial);
   const config = readCommercialSettings(ctx);
   const publicConnection = config.connection_public ?? {};

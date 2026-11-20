@@ -1,7 +1,7 @@
 /** Cliente do percurso comercial. O corpo fiscal e seus resultados vêm do servidor. */
 import type {
-  CommercialSettings, ConfigSaveInput, EffectInput, EffectView, EmissionPage,
-  EmissionView, FiscalBlocker, ListInput, PreparationResult, PrepareInput,
+  CommercialSettings, ConfigSaveInput, EffectInput, EffectView, PublicEmissionPage,
+  EmissionView, PublicEmissionSummary, FiscalBlocker, ListInput, PreparationResult, PrepareInput,
 } from "../../src/erp/commercial-nfe/contracts.ts";
 
 export type { ConfigSaveInput, EffectInput, EffectView, EmissionView, FiscalBlocker, PrepareInput };
@@ -25,7 +25,7 @@ export interface CommercialNfePort {
   config(signal?: AbortSignal): Promise<CommercialNfeConfig>;
   saveConfig(input: ConfigSaveInput, signal?: AbortSignal): Promise<CommercialNfeConfig>;
   prepare(input: PrepareInput, signal?: AbortSignal): Promise<PreparationResult>;
-  list(input: ListInput, signal?: AbortSignal): Promise<EmissionPage>;
+  list(input: ListInput, signal?: AbortSignal): Promise<PublicEmissionPage>;
   read(emissionId: string, signal?: AbortSignal): Promise<EmissionView>;
   emit(input: EmitInput, signal?: AbortSignal): Promise<EmissionView>;
   resume(input: ResumeInput, signal?: AbortSignal): Promise<EmissionView>;
@@ -91,17 +91,20 @@ function checkEffect(value: unknown, emissionId?: string): EffectView {
     ![null, "pendente", "revertido", "compensacao_pendente"].includes(value.compensation_state)) throw invalidResponse();
   return value as EffectView;
 }
-export function checkEmission(value: unknown, emissionId?: string): EmissionView {
+function validateEmission(value: unknown, emissionId?: string, summary = false): Record<string, any> {
   if (!object(value) || !uuid(value.id) || emissionId && value.id !== emissionId || !uuid(value.document_id) ||
     !positiveInteger(value.version) || !positiveInteger(value.fiscal_version) || value.fiscal_version > 9999 ||
     !states.includes(value.status) || !environments.includes(value.environment) ||
     value.reference !== `wb.${value.document_id}.v${value.fiscal_version}` || !positiveInteger(value.current_body_revision) ||
     !object(value.revision) || value.revision.emission_id !== value.id || value.revision.body_revision !== value.current_body_revision ||
     !positiveInteger(value.revision.source_document_version) || !blockers(value.revision.blockers) ||
-    !object(value.revision.calculation) || !object(value.revision.snapshot) || !Array.isArray(value.effects) || !messages(value.messages)) throw invalidResponse();
-  const snapshot = value.revision.snapshot;
-  if (!["document", "company", "recipient", "nature", "transport"].every(key => object(snapshot[key])) ||
-    !["items", "products", "payments", "sources"].every(key => Array.isArray(snapshot[key]))) throw invalidResponse();
+    !Array.isArray(value.effects) || !messages(value.messages)) throw invalidResponse();
+  if (!summary) {
+    const snapshot = value.revision.snapshot;
+    if (!object(value.revision.calculation) || !object(snapshot) ||
+      !["document", "company", "recipient", "nature", "transport"].every(key => object(snapshot[key])) ||
+      !["items", "products", "payments", "sources"].every(key => Array.isArray(snapshot[key]))) throw invalidResponse();
+  }
   if (["autorizada", "cancelada"].includes(value.status) && (value.environment_confirmed !== true ||
     typeof value.provider_id !== "string" || !value.provider_id || !/^\d{44}$/.test(value.access_key ?? "") ||
     typeof value.protocol !== "string" || !value.protocol || !positiveInteger(value.number) ||
@@ -111,8 +114,10 @@ export function checkEmission(value: unknown, emissionId?: string): EmissionView
     !["pedido", "enviando", "incerto", "recusado", "registrado"].includes(value.cancellation.state) ||
     !["pendente", "disponivel"].includes(value.cancellation.xml_status) || typeof value.cancellation.justification !== "string" ||
     !messages(value.cancellation.messages))) throw invalidResponse();
-  return value as EmissionView;
+  return value;
 }
+export const checkEmission = (value: unknown, emissionId?: string): EmissionView => validateEmission(value, emissionId) as EmissionView;
+export const checkEmissionSummary = (value: unknown): PublicEmissionSummary => validateEmission(value, undefined, true) as PublicEmissionSummary;
 function checkConfig(value: unknown): CommercialNfeConfig {
   if (!object(value) || value.id !== 1 || !positiveInteger(value.version) || !environments.includes(value.environment) ||
     !["existing", "on_authorization"].includes(value.stock_timing) || !["existing", "on_authorization"].includes(value.finance_timing) ||
@@ -157,8 +162,9 @@ export function correctionTarget(blocker: FiscalBlocker, documentId?: string): s
     documents: "/documentos-empresa?tipo=sales_orders", order: "/documentos-empresa?tipo=sales_orders", sales_orders: "/documentos-empresa?tipo=sales_orders",
     payments: "/documentos-empresa?tipo=sales_orders", transport: "/documentos-empresa?tipo=sales_orders",
   };
-  // A base deixa screen aberto; códigos estáveis fornecem um destino seguro
-  // enquanto a integração final fecha o vocabulário das correções.
+  // As fontes usam company, contacts, products, sales_orders, fiscal_natures,
+  // fiscal_parameters e fiscal_settings; aliases preservam revisões anteriores.
+  // Códigos conhecidos oferecem um destino seguro para revisões mais antigas.
   const fallback = /issuer|company/.test(blocker.code) || /municipality/.test(blocker.code) && /company|issuer|emitente/.test(blocker.field) ? "company"
     : /recipient|municipality/.test(blocker.code) ? "contacts"
     : /cfop|nature|tax_data|operation_unsupported|reform/.test(blocker.code) ? "natures"
@@ -216,7 +222,9 @@ export function createCommercialNfePort(profile: string, options: CommercialNfeP
     let value: unknown;
     try { value = await response.json(); } catch { assertCurrent(); throw invalidResponse(); }
     assertCurrent();
-    if (!response.ok || file) {
+    const blockedPreparation = action === "prepare" && response.status === 422 && object(value) &&
+      object(value.emission) && blockers(value.blockers) && Array.isArray(value.effects_preview);
+    if ((!response.ok && !blockedPreparation) || file) {
       const detail = object(value) && object(value.error) ? value.error : object(value) ? value : {};
       throw new CommercialNfeError(typeof detail.message === "string" ? detail.message : "Não foi possível concluir a operação fiscal.", {
         status: response.status, code: typeof detail.code === "string" ? detail.code : "fiscal_request_failed",
@@ -247,8 +255,8 @@ export function createCommercialNfePort(profile: string, options: CommercialNfeP
         .filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)]));
       const value = await request("read", `emissoes?${query}`, "GET", undefined, signal);
       if (!object(value) || !Array.isArray(value.items) || !positiveInteger(value.page) || !positiveInteger(value.per_page) || !Number.isSafeInteger(value.total) || value.total < 0) throw invalidResponse();
-      for (const item of value.items) { const emission = checkEmission(item); if (emission.environment !== input.environment || input.document_id && emission.document_id !== input.document_id) throw invalidResponse(); }
-      return value as EmissionPage;
+      for (const item of value.items) { const emission = checkEmissionSummary(item); if (emission.environment !== input.environment || input.document_id && emission.document_id !== input.document_id) throw invalidResponse(); }
+      return value as PublicEmissionPage;
     },
     read: async (id, signal) => checkEmission(await request("read", `emissoes/${pathId(id)}`, "GET", undefined, signal), id),
     emit: async (input, signal) => checkEmission(await request("emit", `emissoes/${pathId(input.emission_id)}/emitir`, "POST",

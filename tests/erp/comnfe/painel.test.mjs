@@ -1,5 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { orderRecipient, carrierValues, parcelCard, withForma } from "../../../web/erp/app/lib/fiscal-invoice-form-model.ts";
+import { sectionEntries } from "../../../web/erp/app/lib/preferences-model.ts";
+import { preferencePage } from "../../../packages/erp-domain/src/preferences/catalog.mjs";
+import { installErpPorts } from "../../../web/erp/ports.ts";
 import {
   createCommercialNfePort, createCommandIntent, canCommercialNfe, checkEmission,
   emissionCanEmit, correctionTarget, CommercialNfeError,
@@ -47,6 +51,65 @@ function authorized(changes = {}) {
 const emitInput = () => ({ emission_id: emissionId, expected_version: 1, body_revision: 1, body_hash: bodyHash });
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const portWith = (fetch, options = {}) => createCommercialNfePort("area-de-ensaio", { fetch, access: () => access(), ...options });
+
+test("Preferências explicam o cofre sem alterar valores legados ou consultar numeração local", t => {
+  t.after(installErpPorts({ commercialNfe: {} }));
+  const page = preferencePage("notas-nfe"), original = structuredClone(page);
+  const numbering = sectionEntries(page, "numeracao").find(entry => entry.id === "nfe.numeracao");
+  assert.equal(numbering.source, undefined);
+  assert.equal(numbering.link.to, "/certificado-a1");
+  assert.match(numbering.text, /não mantém próximo número fiscal/);
+  assert.match(sectionEntries(page, "emissao").find(entry => entry.id === "nfe.ambiente").text, /habilitar produção exige confirmação de administrador/);
+  const stock = sectionEntries(page, "gerais").find(entry => entry.key === "nfe.lancar_estoque");
+  assert.match(stock.note, /confirmação do retorno físico/);
+  assert.equal(stock.default, page.fields.find(entry => entry.key === stock.key).default);
+  assert.deepEqual(page, original);
+  const certificate = sectionEntries(preferencePage("certificado-digital"), "tipos").find(entry => entry.id === "certificado.a1_servidor");
+  assert.match(certificate.text, /diretamente no cofre NFapi/);
+  assert.match(certificate.text, /não recebe o certificado nem assina/);
+});
+
+test("formulário preserva CNPJ alfanumérico do cadastro e valida seus dígitos verificadores", () => {
+  const formatted = "12.abc.345/01de-35", normalized = "12ABC34501DE35";
+  const contact = { contact_id: personId, name: "Cliente transportador", document: formatted, person_type: "J" };
+  assert.equal(orderRecipient(contact).document, normalized);
+  assert.equal(carrierValues(contact).document, normalized);
+  assert.equal(parcelCard({ details: { acquirer_cnpj: formatted } }).cnpj, normalized);
+  const method = { id: "forma", description: "Cartão", payment_type: "03", card_brand: "01", card_integration: "2", card_cnpj: formatted };
+  assert.equal(withForma({}, "pm:forma", [method]).card.cnpj, normalized);
+  for (const document of ["12ABC34501DE34", "12ABC34501DEAA", "00000000000000", "19131243000196"]) {
+    assert.equal(orderRecipient({ ...contact, document }).document, undefined);
+    assert.equal(carrierValues({ ...contact, document }).document, undefined);
+    assert.equal(parcelCard({ details: { acquirer_cnpj: document } }), null);
+    assert.equal(withForma({}, "pm:forma", [{ ...method, card_cnpj: document }]).card.cnpj, undefined);
+  }
+  assert.equal(orderRecipient({ ...contact, document: "19.131.243/0001-97" }).document, "19131243000197");
+  assert.equal(orderRecipient({ ...contact, person_type: "F", document: "529.982.247-25" }).document, "52998224725");
+});
+
+test("listagem aceita o resumo público sem snapshot e exige detalhe completo para revisão", async () => {
+  const summary = emission();
+  for (const field of ["snapshot", "tax_sources", "body", "calculation"]) delete summary.revision[field];
+  const port = portWith(async () => Response.json({ items: [summary], page: 1, per_page: 25, total: 1 }));
+  const listed = await port.list({ environment: "homologacao" });
+  assert.equal(listed.items[0].id, emissionId);
+  assert.equal(Object.hasOwn(listed.items[0].revision, "snapshot"), false);
+  assert.throws(() => checkEmission(summary), { code: "fiscal_invalid_response" });
+  await assert.rejects(port.list({ environment: "producao" }), { code: "fiscal_invalid_response" });
+});
+
+test("preparação bloqueada HTTP 422 preserva revisão, correções e prévia dos efeitos", async () => {
+  const blocked = emission({ status: "bloqueada" });
+  Object.assign(blocked.revision, { body: null, body_hash: null, blockers: [blocker] });
+  const result = { emission: blocked, blockers: [blocker], effects_preview: blocked.effects, replayed: false };
+  const port = portWith(async () => Response.json(result, { status: 422 }));
+  const prepared = await port.prepare({ document_id: orderId, expected_document_version: 1, command_id: commandId,
+    choices: { nature_id: natureId, presence: "presencial", final_consumer: true } });
+  assert.equal(prepared.emission.status, "bloqueada");
+  assert.deepEqual(prepared.blockers, [blocker]);
+  assert.equal(prepared.effects_preview.length, 2);
+  assert.equal(emissionCanEmit(prepared.emission, access()), false);
+});
 
 test("o mesmo comando compartilha chamada e conserva UUID e argumentos após resposta perdida", async () => {
   const wait = deferred(), received = [];
@@ -224,6 +287,10 @@ test("links de correção mantêm entidade/campo e recusam destinos externos", (
   assert.equal(correctionTarget(blocker), "/cadastros-reais?cadastro=products&registro=produto-1&campo=ncm");
   assert.equal(correctionTarget({ ...blocker, correction: { screen: "documents", id: orderId } }), `/documentos-empresa?tipo=sales_orders&documento=${orderId}`);
   assert.equal(correctionTarget({ ...blocker, correction: { screen: "natures", id: natureId } }), `/naturezas-operacao?natureza=${natureId}`);
+  assert.equal(correctionTarget({ ...blocker, correction: { screen: "fiscal_natures", id: natureId } }), `/naturezas-operacao?natureza=${natureId}`);
+  assert.equal(correctionTarget({ ...blocker, entity_id: undefined, correction: { screen: "fiscal_parameters", field: "settings.difal_default" } }), "/naturezas-operacao?tela=impostos&campo=settings.difal_default");
+  assert.equal(correctionTarget({ ...blocker, entity_id: undefined, correction: { screen: "fiscal_settings" } }), "/certificado-a1");
+  assert.equal(correctionTarget({ ...blocker, correction: { screen: "sales_orders", id: orderId } }), `/documentos-empresa?tipo=sales_orders&documento=${orderId}`);
   assert.equal(correctionTarget({ ...blocker, correction: { screen: "https://externo.invalid" } }), "/cadastros-reais?cadastro=products&registro=produto-1");
   assert.equal(correctionTarget({ ...blocker, code: "desconhecido", correction: { screen: "https://externo.invalid" } }), "/certificado-a1?registro=produto-1");
 });
@@ -273,6 +340,22 @@ async function choosePreparation(screen) {
   await screen.change("commercial-presence", "presencial");
   await screen.change("commercial-consumer", "yes");
 }
+
+test("painel: pedido localizado pelo resumo carrega o detalhe antes de mostrar revisão", async () => {
+  const summary = emission(), reads = [];
+  for (const field of ["snapshot", "tax_sources", "body", "calculation"]) delete summary.revision[field];
+  const port = simulatedUiPort({ list: async input => ({ items: input.environment === "homologacao" ? [summary] : [], page: 1, per_page: 100, total: input.environment === "homologacao" ? 1 : 0 }),
+    read: async id => { reads.push(id); return emission(); } });
+  const screen = await mountCommercial(port, `pedido=${orderId}`);
+  try {
+    assert.deepEqual(reads, [emissionId]);
+    assert.match(screen.text(), /Preparada para revisão/);
+    assert.match(screen.text(), /Mercadoria/);
+  } finally { screen.unmount(); }
+  const history = await mountCommercial(port, "");
+  try { assert.match(history.text(), new RegExp(`Pedido ${orderId}`)); }
+  finally { history.unmount(); }
+});
 
 test("configuração: produção exige administrador, conexão conferida e confirmação explícita", async () => {
   const writes = [], port = simulatedUiPort({ saveConfig: async input => { writes.push(structuredClone(input)); return settingsFixture({ ...input, version: 2, production_enabled_at: timestamp, production_enabled_by: personId }); } });

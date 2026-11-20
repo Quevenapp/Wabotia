@@ -14,7 +14,8 @@ import { CUSTOMER_BRIDGE_FIELDS, CUSTOMER_BRIDGE_SCAN, CUSTOMER_BRIDGE_USER_ID, 
 import { SIGNATURES } from "./signatures.generated.ts";
 import { ENGINE_SIGNATURES } from "./signatures-engine.ts";
 import { requestModuleState } from "./module-state.ts";
-import { COM1_AUTHORITY_HEADER, readCom1Authority, runWithCom1Authority, type Com1Authority } from "../domains/fiscal/comnfe/access.ts";
+import { COM1_AUTHORITY_HEADER, com1ActionForRpc, com1ExecutionActor, readCom1Authority, runWithCom1Authority, type Com1Authority } from "../domains/fiscal/comnfe/access.ts";
+import { COM1_CONNECTION_HEADER, readCommercialConnectionCheck, runWithCommercialConnection } from "../domains/fiscal/comnfe/settings.ts";
 
 /**
  * RPCs do agendador e da plataforma, sem checagem de quem chama (no Fagoo só
@@ -144,6 +145,15 @@ export async function handleRpc(
     return Response.json({ code: "22023", message: "erp_rpc_body_invalid" }, { status: 400 });
   const identity = decodeIdentity(request.headers.get(IDENTITY_HEADER));
   const a = args as Record<string, unknown>;
+  const connectionHeader = request.headers.get(COM1_CONNECTION_HEADER);
+  let commercialConnection: ReturnType<typeof readCommercialConnectionCheck>;
+  if (connectionHeader !== null) {
+    if (name !== "erp_com1_config_save" || request.headers.get(SYSTEM_HEADER) !== "1")
+      return Response.json({ code: "42501", message: "com1_connection_internal_only" }, { status: 403 });
+    try { commercialConnection = readCommercialConnectionCheck(JSON.parse(connectionHeader)); } catch { /* Recusa abaixo. */ }
+    if (commercialConnection === undefined)
+      return Response.json({ code: "22023", message: "com1_connection_invalid" }, { status: 400 });
+  }
   const authorityHeader = request.headers.get(COM1_AUTHORITY_HEADER);
   let com1Authority: Com1Authority | undefined;
   if (authorityHeader !== null) {
@@ -152,15 +162,17 @@ export async function handleRpc(
     try { com1Authority = readCom1Authority(JSON.parse(authorityHeader)) ?? undefined; } catch { /* Recusa abaixo. */ }
     if (!com1Authority)
       return Response.json({ code: "42501", message: "com1_authority_invalid" }, { status: 403 });
-    const actor = identity.actor;
-    if (actor && actor.session_id && !actor.is_technical && com1Authority.origin === "application" &&
-        com1Authority.confirmation_id && com1Authority.confirmed_by === actor.user_id) {
-      // A costura comprovou a proposta e resolveu a identidade da pessoa que
-      // confirmou. O portão segue exigindo horário/MFA dessa pessoa; apenas a
-      // marca de delegação deixa de tratá-la como execução autônoma do bot.
-      identity.actor = { ...actor, is_agent: false };
+    const actor = identity.actor, action = com1ActionForRpc(name, a.p_input);
+    if (actor && action) {
+      // SYSTEM_HEADER e o inventário acima limitam a normalização à fatia.
+      // O portão continua conferindo horário/MFA e o motor revalida o papel.
+      try { identity.actor = com1ExecutionActor(actor, action, com1Authority); }
+      catch (error) {
+        return Response.json({ code: "42501", message: error instanceof ErpError ? error.message : "fiscal_forbidden" }, { status: 403 });
+      }
     }
   }
+
   const restricted = new Set(identity.customer_privacy?.restricted_contact_ids ?? []);
   const privacyDenied = () => Response.json({ code: "42501", message: "erp_customer_restricted" }, { status: 403 });
   const references = name === CUSTOMER_BRIDGE_SCAN ? { ...a, p_after: null } : a;
@@ -258,7 +270,8 @@ export async function handleRpc(
       modules: requestModuleState(request.headers, request.headers.get(SYSTEM_HEADER) === "1"),
       gate: request.headers.get(GATE_HEADER) === "1",
     });
-    const result = com1Authority ? runWithCom1Authority(com1Authority, invoke) : invoke();
+    const withConnection = () => runWithCommercialConnection(commercialConnection ?? null, invoke);
+    const result = com1Authority ? runWithCom1Authority(com1Authority, withConnection) : withConnection();
     // Recibos podem anteceder a restrição e não passam novamente pelo DTO.
     if (containsRestrictedContact(result, restricted)) return privacyDenied();
     // RPC que cria tarefa da plataforma (exportação pedida no painel): o

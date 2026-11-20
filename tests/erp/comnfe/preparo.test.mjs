@@ -49,6 +49,24 @@ function mapped(f, change = () => {}) {
   return mapPreparation(sources, calculatePreparationTaxes(sources), { environment: "homologacao", reference: `wb.${f.order.id}.v1` });
 }
 
+test("cliente e transportadora conservam CNPJ alfanumérico do cadastro ao PedidoNfe", t => {
+  const f = fixture(t, { customer: { document: "12.abc.345/01de-35" } });
+  f.order = f.rpc("erp_document_save", { p_kind: "sales_orders", p_id: f.order.id, p_expected_version: f.order.version,
+    p_command_id: randomUUID(), p_body: { ...f.orderBody, payment_means: "15", payment_indicator: "1", carrier_id: f.customer.id,
+      commercial: { ...commercial, transport: { ...commercial.transport, freight_mode: "0" } },
+      items: f.orderBody.items.map((item, index) => ({ ...item, code: `P${index + 1}`, detailed_description: null })),
+      installments: f.orderBody.installments.map(item => ({ ...item, note: null, payment_reference: null })) } }).document;
+  const prepared = ready(f.prepare());
+  assert.equal(prepared.revision.snapshot.recipient.document, "12.abc.345/01de-35");
+  assert.equal(prepared.revision.snapshot.transport.carrier.document, "12.abc.345/01de-35");
+  assert.equal(prepared.revision.body.destinatario.cnpj, "12ABC34501DE35");
+  assert.equal(prepared.revision.body.transporte.transportadora.cnpj, "12ABC34501DE35");
+  const invalid = mapped(f, sources => { sources.snapshot.recipient.document = "12ABC34501DE34"; sources.snapshot.transport.carrier.document = "12ABC34501DEAA"; });
+  assert.equal(invalid.body, null);
+  assert.ok(invalid.blockers.some(blocker => blocker.field === "destinatario.cnpj"));
+  assert.ok(invalid.blockers.some(blocker => blocker.field === "transporte.transportadora.documento"));
+});
+
 test("pagamentos conservam valor bruto e agrupam apenas os mesmos detalhes fiscais", t => {
   const f = fixture(t);
   const withCards = (sources, distinct) => {
@@ -431,6 +449,20 @@ test("motor cobre CRT 1, 2, 3 e 4 com grupo próprio e zero explícito distinto 
   result = calculatePreparationTaxes(zero);
   assert.ok(result.blockers.some(b => b.field === "items.0.icms.rate"));
   assert.ok(result.blockers.some(b => b.field === "items.0.pis.rate"));
+});
+
+test("CRT 2 com CSOSN legado e retenção sem percentual da base ficam bloqueados", t => {
+  const f = fixture(t, { nature: { crt: "2" } });
+  f.rpc("erp_company_confirm_fiscal", { p_expected_version: 2, p_expected_identity_version: 1,
+    p_command_id: randomUUID(), p_crt: "2", p_confirmed: true, p_reason: "Conferência de CRT 2 no ensaio" });
+  const prepared = f.prepare();
+  assert.equal(prepared.emission.status, "bloqueada");
+  assert.equal(prepared.emission.revision.body, null);
+  assert.ok(prepared.blockers.some(blocker => blocker.code === "fiscal_tax_data_missing" && blocker.field === "items.0.icms.CST compatível com CRT"));
+  const retained = taxSources(f, "3", { situation: "60", retained_rate: "18.0000" });
+  retained.tax_sources.settings.st_retained_from_sale = true;
+  const result = calculatePreparationTaxes(retained);
+  assert.ok(result.blockers.some(blocker => blocker.code === "fiscal_tax_data_missing" && blocker.field === "items.0.icms.retained_base_rate"));
 });
 
 test("IPI, PIS, COFINS e FCP mapeiam bases e valores calculados no servidor", t => {

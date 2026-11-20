@@ -21,7 +21,38 @@ export interface CommercialConnectionCheck {
   series: { environment: "homologacao" | "producao"; series: number }[];
 }
 
-let connectionFor: (ctx: RpcContext) => CommercialConnectionCheck | null = () => null;
+export const COM1_CONNECTION_HEADER = "x-erp-com1-connection";
+let currentConnection: CommercialConnectionCheck | null = null;
+
+/** Somente o transporte interno fornece a prova pública, sem chave ou senha. */
+export function readCommercialConnectionCheck(value: unknown): CommercialConnectionCheck | null | undefined {
+  if (value === null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const check = value as Record<string, unknown>;
+  if (Object.keys(check).some(key => !["fingerprint", "provider", "origin", "issuer_cnpj", "version", "checked_at", "compatible",
+    "company_matches", "company_complete", "environments", "series"].includes(key)) ||
+    ["fingerprint", "origin", "issuer_cnpj", "version", "checked_at"].some(key => typeof check[key] !== "string") ||
+    check.provider !== "nfapi" || typeof check.compatible !== "boolean" ||
+    !Array.isArray(check.environments) || !Array.isArray(check.series)) return undefined;
+  return check as unknown as CommercialConnectionCheck;
+}
+
+/** Escopo síncrono do RPC: nenhuma Promise nem credencial atravessa o motor. */
+export function runWithCommercialConnection<T>(connection: CommercialConnectionCheck | null, run: () => T): T {
+  const previous = currentConnection;
+  currentConnection = connection;
+  try { return run(); } finally { currentConnection = previous; }
+}
+
+let connectionFor: (ctx: RpcContext) => CommercialConnectionCheck | null = ctx => {
+  if (!currentConnection) return null;
+  const row = one(ctx.db, 'SELECT data FROM erp_company__identity WHERE singleton=1');
+  const company = row ? JSON.parse(String(row.data)) as Record<string, unknown> : {};
+  const fiscal = one(ctx.db, 'SELECT crt FROM erp_company__fiscal WHERE singleton=1');
+  return { ...currentConnection, company_matches: company.cnpj === currentConnection.issuer_cnpj,
+    company_complete: ["cnpj", "legal_name", "ie", "street", "number", "district", "city", "municipality_code", "state", "postal_code"]
+      .every(field => typeof company[field] === "string" && String(company[field]).trim().length > 0) && ["1", "2", "3", "4"].includes(String(fiscal?.crt)) };
+};
 
 /** Instalar na costura com prova já obtida do cofre. Não faz I/O na transação. */
 export function installCommercialConnectionResolver(resolver: typeof connectionFor): () => void {
@@ -103,6 +134,7 @@ export function saveCommercialSettings(ctx: RpcContext, input: ConfigSaveInput):
   const after: CommercialSettings = {
     ...before, version: before.version + 1, environment: input.environment, stock_timing: input.stock_timing,
     finance_timing: input.finance_timing, updated_at: time, updated_by: actor.user_id,
+    connection_fingerprint: null, connection_public: null,
     series_homologacao: input.series_homologacao === undefined ? before.series_homologacao : input.series_homologacao,
     series_producao: input.series_producao === undefined ? before.series_producao : input.series_producao,
   };
@@ -142,7 +174,7 @@ export function saveCommercialSettings(ctx: RpcContext, input: ConfigSaveInput):
     after.production_enabled_at = time;
     after.production_enabled_by = actor.user_id;
   }
-  if (connection && before.connection_fingerprint && before.connection_fingerprint !== connection.fingerprint && !input.enable_production) {
+  if (before.connection_fingerprint && before.connection_fingerprint !== connection?.fingerprint && !input.enable_production) {
     after.production_enabled_at = null;
     after.production_enabled_by = null;
   }

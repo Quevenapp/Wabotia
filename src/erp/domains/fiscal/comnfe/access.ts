@@ -70,6 +70,33 @@ export function requireCom1SensitivePolicy(actor: ErpActor, action: Com1Action, 
   }
 }
 
+/** Identidade executora desta fatia após a política de delegação. Não inventa
+ * sessão, fator, papel ou permissões e não altera a natureza técnica do ator.
+ * Remove apenas o veto legado por agente quando a delegação foi autorizada. */
+export function com1ExecutionActor(actor: ErpActor, action: Com1Action, authority: Readonly<Com1Authority>): ErpActor {
+  requireCom1SensitivePolicy(actor, action, authority);
+  const confirmed = !!authority.confirmation_id && authority.confirmed_by === actor.user_id && !!actor.session_id;
+  // Consulta pessoal não é ação sensível. O portão decide se a política
+  // exige sessão/MFA; o contexto do bot não recebe sessão inventada.
+  const delegatedRead = action === "read" && !actor.is_technical;
+  return actor.is_agent && (confirmed || authority.autonomous === true || delegatedRead)
+    ? { ...actor, is_agent: false } : actor;
+}
+
+/** Inventário fechado para a ponte e o endpoint interno aplicarem a mesma
+ * política. Evidências usam a capacidade durável e não normalizam identidade. */
+export function com1ActionForRpc(name: string, value?: unknown): Com1Action | null {
+  const input = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  if (["erp_com1_config_get", "erp_com1_get", "erp_com1_list"].includes(name)) return "read";
+  if (name === "erp_com1_config_save") return "configure";
+  if (name === "erp_com1_prepare") return "prepare";
+  if (name === "erp_com1_claim") return input.action === "emit" || input.action === "resume" ? input.action : null;
+  if (name === "erp_com1_cancel_claim") return "cancel";
+  if (["erp_com1_effect_apply", "erp_com1_effect_reverse"].includes(name))
+    return input.axis === "stock" ? "effect_stock" : input.axis === "finance" ? "effect_finance" : null;
+  return null;
+}
+
 /** Defesa local: identidade, papel atual e permissão são revalidados na transação. */
 export function requireCom1Access(ctx: RpcContext, action: Com1Action, expectedUser?: string): ErpActor {
   const actor = ctx.identity.actor;

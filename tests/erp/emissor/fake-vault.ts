@@ -36,6 +36,7 @@ import { expect } from "vitest";
 import contract from "../../../src/erp/emissor/contract/openapi.json";
 import { OPERATION_MIN_VERSION, olderThan } from "../../../src/erp/emissor/nfapi.ts";
 import { operation, responseSchema, validate, requestSchema } from "./schema";
+import { fakeNfeValue } from "./fake-vault-value.ts";
 
 export type Behavior =
   | "ok"
@@ -136,6 +137,8 @@ function contractPath(path: string) {
 }
 
 export interface FakeVaultOptions {
+  /** Emitente do ensaio integrado; padrão preserva as fixtures anteriores. */
+  issuerCnpj?: string;
   apiKey?: string;
   scope?: "completo" | "homologacao";
   /** Versão do cofre instalado (padrão: a do contrato). */
@@ -167,6 +170,7 @@ export const sefazKey = (kind: Doc, environment: Env, reference: string) =>
   `${kind}:${environment}:${reference}`;
 
 export function createFakeVault(options: FakeVaultOptions = {}) {
+  const issuerCnpj = options.issuerCnpj ?? FAKE_CNPJ;
   let apiKey = options.apiKey ?? "nfapi_teste_0123456789";
   const version = options.version ?? LATEST;
   const emissions = new Map<string, Emission>();
@@ -257,7 +261,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
     if (!e || !event) return null;
     if (e.doc === "nfse")
       return `<evento><chNFSe>${e.chaveAcesso}</chNFSe><tpAmb>${e.ambiente === "producao" ? "1" : "2"}</tpAmb><nProt>${event.protocol}</nProt><dhRegEvento>${event.registeredAt}</dhRegEvento></evento>`;
-    return `<procEventoNFe><evento tpEvento="110111"><chNFe>${e.chaveAcesso}</chNFe><tpAmb>${e.ambiente === "producao" ? "1" : "2"}</tpAmb></evento><retEvento><nProt>${event.protocol}</nProt><dhRegEvento>${event.registeredAt}</dhRegEvento></retEvento></procEventoNFe>`;
+    return `<procEventoNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.00"><evento><infEvento><tpAmb>${e.ambiente === "producao" ? "1" : "2"}</tpAmb><chNFe>${e.chaveAcesso}</chNFe><tpEvento>110111</tpEvento><nSeqEvento>1</nSeqEvento></infEvento></evento><retEvento><infEvento><tpAmb>${e.ambiente === "producao" ? "1" : "2"}</tpAmb><chNFe>${e.chaveAcesso}</chNFe><tpEvento>110111</tpEvento><nSeqEvento>1</nSeqEvento><cStat>135</cStat><nProt>${event.protocol}</nProt><dhRegEvento>${event.registeredAt}</dhRegEvento></infEvento></retEvento></procEventoNFe>`;
   }
 
   const view = (e: Emission) =>
@@ -403,7 +407,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
   }
 
   const accessKey = (e: Emission, tpEmis = "1") =>
-    `35261199888777000166${e.doc === "nfce" ? "65" : "55"}${String(e.serie).padStart(3, "0")}${String(e.numero).padStart(9, "0")}${tpEmis}${String(seq).padStart(8, "0")}`
+    `352611${issuerCnpj}${e.doc === "nfce" ? "65" : "55"}${String(e.serie).padStart(3, "0")}${String(e.numero).padStart(9, "0")}${tpEmis}${String(seq).padStart(8, "0")}`
       .padEnd(44, "0")
       .slice(0, 44);
 
@@ -446,7 +450,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
       return { status: 422, body: erro("nfe_denegada", "Uso denegado.", { mensagens: e.mensagens, [doc]: view(e) }) };
     if (e?.situacao === "indefinida") {
       resume(e);
-      if (e.situacao === "autorizada") return { status: 201, body: view(e) };
+      if ((e as Emission).situacao === "autorizada") return { status: 201, body: view(e) };
       if (e.situacao === "indefinida")
         return {
           status: 502,
@@ -481,6 +485,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
       numero = s.proximoNumero++;
     }
     const now = iso();
+    const valor = doc === "nfse" ? 100 : fakeNfeValue(body);
     if (!e) {
       e = {
         id: `${doc === "nfce" ? "nfc" : doc === "nfse" ? "nfs" : "nfe"}_${(++seq).toString(16).padStart(20, "0")}`,
@@ -495,7 +500,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
         protocolo: null,
         mensagens: [],
         uf,
-        valor: 100,
+        valor,
         cartas: 0,
         contingencia: null,
         waiting: false,
@@ -503,7 +508,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
         atualizadaEm: now,
       };
       emissions.set(e.id, e);
-    } else Object.assign(e, { hash, serie, numero, situacao: "processando", mensagens: [], atualizadaEm: now });
+    } else Object.assign(e, { hash, serie, numero, valor, situacao: "processando", mensagens: [], atualizadaEm: now });
     e.chaveAcesso = accessKey(e);
     const contingencia = doc === "nfce" ? (body.contingencia ?? "nunca") : "nunca";
     if (contingencia === "forcada") {
@@ -616,7 +621,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
           certificado: until
             ? {
                 titular: "EMPRESA EXEMPLO LTDA",
-                documento: { kind: "cnpj", id: FAKE_CNPJ },
+                documento: { kind: "cnpj", id: issuerCnpj },
                 validoAte: until,
                 diasRestantes: Math.floor((Date.parse(until) - now()) / 86_400_000),
               }
@@ -637,7 +642,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
       return { status: 200, bytes: FAKE_PNG, type: logo === "png" ? "image/png" : "image/jpeg" };
     }
     if (method === "GET" && path === "/v1/series")
-      return { status: 200, body: { series: series.map((s) => ({ ...s, descricao: null, cnpj: FAKE_CNPJ })) } };
+      return { status: 200, body: { series: series.map((s) => ({ ...s, descricao: null, cnpj: issuerCnpj })) } };
     if (method === "GET" && path === "/v1/sefaz/status") {
       const uf = query.get("uf") || "";
       if (!/^[A-Z]{2}$/.test(uf)) return { status: 400, body: erro("requisicao_invalida", "uf: informe a UF.") };
@@ -707,7 +712,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
               ? []
               : [
                   {
-                    cnpj: FAKE_CNPJ,
+                    cnpj: issuerCnpj,
                     ambiente: "homologacao",
                     uf: "SP",
                     consultaAutomatica: false,
@@ -923,7 +928,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
     if (!action && method === "GET") return { status: 200, body: view(e) };
     if (action === "xml" && method === "GET")
       return e.situacao === "autorizada" || e.situacao === "cancelada" || e.situacao === "contingencia"
-        ? { status: 200, text: `<nfeProc><NFe Id="NFe${e.chaveAcesso}"/></nfeProc>`, type: "application/xml" }
+        ? { status: 200, text: `<nfeProc><NFe xmlns="http://www.portalfiscal.inf.br/nfe"><infNFe Id="NFe${e.chaveAcesso}"><ide><tpAmb>${e.ambiente === "producao" ? "1" : "2"}</tpAmb></ide></infNFe></NFe></nfeProc>`, type: "application/xml" }
         : notFound("XML indisponível.");
     if (action === "cancelamento/xml" && method === "GET") {
       const xml = e.situacao === "cancelada" ? cancellationXml(e.id) : null;
@@ -1090,7 +1095,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
     const n: Received = {
       id: `rec_${(++seq).toString(16).padStart(20, "0")}`,
       ambiente: "homologacao",
-      cnpj: FAKE_CNPJ,
+      cnpj: issuerCnpj,
       chaveAcesso: input.chaveAcesso ?? `3526111122233300018155001${String(seq).padStart(9, "0")}1${String(seq).padStart(8, "0")}`.padEnd(44, "0"),
       sequencia: ++state.receivedSeq,
       papel: input.papel ?? "destinatario",
@@ -1108,11 +1113,13 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
 
   const fetcher = async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
-    const method = (init.method || "GET").toUpperCase();
-    const auth = new Headers(init.headers).get("Authorization");
-    const body = typeof init.body === "string" ? JSON.parse(init.body) : undefined;
+    const request = new Request(input, init);
+    const method = request.method.toUpperCase();
+    const auth = request.headers.get("Authorization");
+    const bodyText = typeof init.body === "string" ? init.body : input instanceof Request ? await request.clone().text() : undefined;
+    const body = bodyText ? JSON.parse(bodyText) : undefined;
     calls.push({ method, path: url.pathname, body, auth, query: url.search });
-    await pause("before", method, url.pathname, init.signal);
+    await pause("before", method, url.pathname, request.signal);
     currentOrigin = url.origin;
     if (plan[0] === "same-zone" && method === "POST") {
       plan.shift();
@@ -1134,14 +1141,14 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
         out = { status: 400, body: erro("requisicao_invalida", `${campo}: inválido.`, { campo }) };
       } else out = route(method, url.pathname, body, url.searchParams);
     }
-    await pause("after", method, url.pathname, init.signal);
+    await pause("after", method, url.pathname, request.signal);
     if (out.bytes !== undefined || out.text !== undefined) {
       if (out.status === 200 && out.type && opPath !== "/v1/openapi.json" && !(min && olderThan(version, min))) {
         const declared = Object.keys(spec.paths[opPath]?.[method.toLowerCase()]?.responses?.["200"]?.content ?? {});
         if (out.type !== "text/html") expect(declared, `${method} ${opPath} não declara ${out.type}`).toContain(out.type);
       }
       if (out.lose) throw new TypeError("network connection lost");
-      return new Response(out.bytes ?? out.text!, {
+      return new Response(out.bytes ? new Uint8Array(out.bytes).buffer : out.text!, {
         status: out.status,
         headers: { "Content-Type": out.type || "text/plain", ...(out.bytes ? { "Content-Length": String(out.bytes.byteLength) } : {}) },
       });

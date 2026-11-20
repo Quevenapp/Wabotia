@@ -194,6 +194,11 @@ export interface ListInput {
   per_page?: number;
 }
 export interface EmissionPage { items: EmissionView[]; page: number; per_page: number; total: number }
+/** A listagem HTTP não multiplica snapshots nem corpos fiscais por página. */
+export interface PublicEmissionSummary extends Omit<EmissionView, "revision"> {
+  revision: Omit<ImmutableRevision, "snapshot" | "tax_sources" | "body" | "calculation">;
+}
+export interface PublicEmissionPage extends Omit<EmissionPage, "items"> { items: PublicEmissionSummary[] }
 export interface CommandReceipt {
   id: string;
   action: CommandAction;

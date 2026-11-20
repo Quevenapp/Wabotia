@@ -1,4 +1,5 @@
 import './document-layout.css';
+import { erpPorts } from '../../ports';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AccessError, decimalMoney, type AccessController } from '../lib/real-access';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
@@ -92,8 +93,8 @@ const weight3 = (value: unknown) => {
 type Command = { id: string; actor: string | null; body: Record<string, unknown>; path: string; method: 'POST' | 'PATCH'; uncertain: boolean; expectedVersion: number | null };
 
 /** Formulário "Nota fiscal" (Incluir / editar / clonar) no padrão Origin, com um único Salvar. */
-export default function FiscalInvoiceForm({ controller, config, id, opening, today, initialTab = 'cabecalho', onBack, onSaved }: {
-  controller: AccessController; config: ScreenConfig; id: string | null; opening: FormOpening | null; today: string; initialTab?: Tab; onBack: () => void; onSaved: (record: InvoiceRecord) => void;
+export default function FiscalInvoiceForm({ controller, config, directionOnly, id, opening, today, initialTab = 'cabecalho', onBack, onSaved }: {
+  controller: AccessController; config: ScreenConfig; directionOnly?: '0' | '1'; id: string | null; opening: FormOpening | null; today: string; initialTab?: Tab; onBack: () => void; onSaved: (record: InvoiceRecord) => void;
 }) {
   const [context, setContext] = useState<FormContext | null>(null), [record, setRecord] = useState<InvoiceRecord | null>(null);
   const [draft, setDraft] = useState<InvoiceDraft | null>(null), [baseline, setBaseline] = useState('');
@@ -164,7 +165,7 @@ export default function FiscalInvoiceForm({ controller, config, id, opening, tod
             if (!source.eligible || source.direction !== config.direction) { setRefusal(source); return; }
             sources.push(source);
           }
-          const grouped = groupedOrderDraft(sources, config, ctx, today);
+          const grouped = groupedOrderDraft(sources, config, ctx, today, !erpPorts()?.commercialNfe);
           if (grouped.problem) { setLoadError(grouped.problem); return; }
           next = withNatureSummary(grouped.draft, (natureList?.items ?? []).map(natureSummary).find(n => n.id === grouped.draft.nature_id) ?? null);
           setOrigin(sources[0]!); setGroup(sources);
@@ -174,7 +175,7 @@ export default function FiscalInvoiceForm({ controller, config, id, opening, tod
           if (signal.aborted) return;
           if (source.document.id !== opening.documentId || source.model !== config.model) throw new AccessError(502);
           if (!source.eligible || source.direction !== config.direction) { setRefusal(source); return; }
-          next = orderDraft(source, config, ctx, today);
+          next = orderDraft(source, config, ctx, today, !erpPorts()?.commercialNfe);
           // Like picking the natureza by hand: its presence, consumidor final and série follow it.
           next = withNatureSummary(next, (natureList?.items ?? []).map(natureSummary).find(n => n.id === next.nature_id) ?? null);
           setOrigin(source); setLocks(orderLocks(source, ctx.preferences));
@@ -199,11 +200,12 @@ export default function FiscalInvoiceForm({ controller, config, id, opening, tod
         if (opening && opening.kind === 'return' && opening.quantities) next = withReturnQuantities(next, opening.quantities);
         // "Informar desconto individualmente nos itens": the opened note follows the preference without changing its totals.
         if (!(opening?.kind === 'order')) next = applyDiscountMode(next, ctx.item_discount === true);
+        if (directionOnly && next.direction !== directionOnly) { setLoadError('Esta nota pertence ao histórico de saída. Abra o acompanhamento comercial; a edição legada de saída está fechada.'); return; }
         setDraft(next); setBaseline(id ? JSON.stringify(next) : JSON.stringify(newDraft(config, ctx, today)));
       } catch (problem) { if (!signal.aborted && !aborted(problem)) setLoadError(problem instanceof AccessError && problem.status === 404 ? opening?.kind === 'order' ? 'Pedido não encontrado.' : 'Nota não encontrada.' : 'Não foi possível carregar ou conferir a nota. Volte à listagem e tente novamente.'); }
     })();
     return () => request.abort();
-  }, [controller, config.model, id]);
+  }, [controller, config.model, id, directionOnly]);
   // Nature details feed "Cálculo automático"; each is read once and validated.
   const natureIds = useMemo(() => draft ? [...new Set([draft.nature_id, ...draft.items.map(i => typeof i.nature_id === 'string' ? i.nature_id : '')].filter(Boolean))] : [], [draft]);
   useEffect(() => {
@@ -321,6 +323,7 @@ export default function FiscalInvoiceForm({ controller, config, id, opening, tod
     const base = effective ?? draft;
     if (draft.auto_tax) { if (!computed) { const checked = checkDraft(base); setError('error' in checked ? checked.error : 'Confira os campos da nota.'); return; } input = computed.input; }
     else { const checked = checkDraft(base); if ('error' in checked) { setError(checked.error); return; } input = checked.input; }
+    if (directionOnly && input.direction !== directionOnly) { setError('A direção fiscal não corresponde a esta tela. Abra o acompanhamento comercial.'); return; }
     // Parcels locked by the contas already posted by the pedido cannot change, so their sum never blocks the save (the database agrees).
     const mismatch = locks.installments ? null : installmentsMismatch(draft, centsOf(invoiceTotals(input).totals.total), prefs);
     if (mismatch) { setError(mismatch); setTab('pagamento'); return; }
@@ -336,6 +339,7 @@ export default function FiscalInvoiceForm({ controller, config, id, opening, tod
       const value = await controller.fiscalInvoices(op.path, { method: op.method, body: { ...op.body, command_id: op.id }, signal: AbortSignal.any([request.signal, life.current.signal]) }) as { invoice: unknown };
       if (request.signal.aborted || life.current.signal.aborted) return;
       const saved = invoiceRecord(value?.invoice);
+      if (directionOnly && saved.direction !== directionOnly) throw new AccessError(502);
       if (op.expectedVersion === null ? saved.version !== 1 : saved.id !== record?.id || saved.version !== op.expectedVersion + 1) throw new AccessError(502);
       command.current = null; setUncertain(false);
       const next = recordToDraft(saved); setRecord(saved); setDraft(next); setBaseline(JSON.stringify(next)); setNotice('Nota salva. Nenhuma emissão, estoque ou conta foi lançado.');
@@ -445,7 +449,7 @@ export default function FiscalInvoiceForm({ controller, config, id, opening, tod
         if (!d) return d;
         if (target === 'carrier') {
           if (d.transport.carrier.contact_id !== contactId) return d;
-          return { ...d, transport: { ...d.transport, carrier: { ...d.transport.carrier, ...carrierValues(c) } } };
+          return { ...d, transport: { ...d.transport, carrier: { ...d.transport.carrier, ...carrierValues(c, !erpPorts()?.commercialNfe) } } };
         }
         if (d.recipient.contact_id !== contactId) return d;
         const email = c.nfe_email && /^[^\s@]+@[^\s@]+$/.test(c.nfe_email.trim()) && c.nfe_email.trim().length <= 60 ? c.nfe_email.trim() : null;

@@ -4,10 +4,10 @@ import type { CommercialNfeHttpContext } from "./routes.ts";
 import type { CommercialNfeBridge } from "./bridge.ts";
 import type {
   CancelRecordInput, ClaimResult, CommandReceipt, ConfigSaveInput, EffectInput, EmissionView,
-  JsonObject, ListInput, PrepareInput, ReadInput, RecordInput,
+  JsonObject, JsonValue, ListInput, PrepareInput, ReadInput, RecordInput,
 } from "./contracts.ts";
 import {
-  commercialArtifact, matchesCommercialResult, parseCancellationXml, privateFiscalFile,
+  commercialArtifact, commercialLookupIdentity, matchesCommercialResult, parseCancellationXml, privateFiscalFile,
   requireVaultBinding, CommercialNfeError as ApiError, type CommercialVaultSession,
 } from "./artifacts.ts";
 
@@ -52,7 +52,7 @@ export function freezeCommercialVaultSession(context: CommercialNfeHttpContext, 
     return response;
   };
   const vault: CommercialVaultSession = { provider: options.provider, fingerprint: options.fingerprint,
-    context: { env: context.env, profile: context.profile, fetch: pinnedFetch } };
+    context: { env: context.env, profile: context.profile, fetch: pinnedFetch, connection_fingerprint: options.fingerprint } };
   requireVaultBinding(emission, vault);
   return vault;
 }
@@ -64,7 +64,11 @@ function externalFailure(error: unknown): { result: FiscalResult | null; error: 
   const code = typeof object.code === "string" && /^fiscal_[a-z0-9_]{1,100}$/.test(object.code) ? object.code : "fiscal_no_conclusive_answer";
   return { result: details.emission && typeof details.emission === "object" ? details.emission as FiscalResult : null,
     error: { code, message: "O resultado da operação precisa ser conferido no cofre pela mesma referência." },
-    evidence: { transport_error: code, retryable: details.retryable === true } };
+    // Identidade divergente nunca vira resultado autorizado. Conservar a
+    // evidência bruta no recibo restrito permite conciliar o retorno; o motor
+    // sanitiza suas chaves antes de persistir, sem publicá-la no DTO/auditoria.
+    evidence: { transport_error: code, retryable: details.retryable === true,
+      ...(details.unverified_emission != null ? { unverified_emission: details.unverified_emission as JsonValue } : {}) } };
 }
 
 function capability(emissionId: string, command: CommandReceipt) {
@@ -135,8 +139,8 @@ export function createCommercialNfeService(_context: CommercialNfeHttpContext, d
         record.result = await vault.provider.emit(vault.context, "nfe", body, key, { keep_issue_date: true });
       } else {
         record.result = claim.emission.provider_id
-          ? await vault.provider.get(vault.context, "nfe", claim.emission.provider_id)
-          : await vault.provider.find(vault.context, "nfe", key);
+          ? await vault.provider.get(vault.context, "nfe", claim.emission.provider_id, commercialLookupIdentity(claim.emission))
+          : await vault.provider.find(vault.context, "nfe", key, claim.emission.environment);
         foundAbsent = !record.result && !claim.emission.provider_id;
       }
     } catch (error) { record = { ...record, ...externalFailure(error) }; }
@@ -151,7 +155,7 @@ export function createCommercialNfeService(_context: CommercialNfeHttpContext, d
       try { record = { ...cap, connection_fingerprint: vault.fingerprint,
         result: foundAbsent
           ? await vault.provider.emit(vault.context, "nfe", body, key, { keep_issue_date: true })
-          : await vault.provider.reconcile(vault.context, "nfe", record.result!.provider_ref) }; }
+          : await vault.provider.reconcile(vault.context, "nfe", record.result!.provider_ref, commercialLookupIdentity(claim.emission)) }; }
       catch (error) { record = { ...cap, connection_fingerprint: vault.fingerprint, ...externalFailure(error) }; }
       persisted = await bridge.call("erp_com1_record", record);
     }
@@ -194,9 +198,9 @@ export function createCommercialNfeService(_context: CommercialNfeHttpContext, d
         JSON.parse(request.body_text).justificativa !== claim.cancellation.justification)
         fail("com1_persisted_request_invalid", "A intenção de cancelamento precisa ser reconciliada.");
       if (claim.disposition === "send") {
-        record.result = await vault.provider.cancel(vault.context, "nfe", claim.emission.provider_id!, { justification: claim.cancellation.justification });
+        record.result = await vault.provider.cancel(vault.context, "nfe", claim.emission.provider_id!, { justification: claim.cancellation.justification }, commercialLookupIdentity(claim.emission));
       } else {
-        record.result = await vault.provider.get(vault.context, "nfe", claim.emission.provider_id!);
+        record.result = await vault.provider.get(vault.context, "nfe", claim.emission.provider_id!, commercialLookupIdentity(claim.emission));
         retryCancellation = matchesCommercialResult(claim.emission, record.result) && record.result!.status === "authorized";
       }
       record.state = record.result?.status === "cancelled" ? "registrado" : !retryCancellation && record.result?.status === "authorized" ? "recusado" : "incerto";
@@ -210,7 +214,7 @@ export function createCommercialNfeService(_context: CommercialNfeHttpContext, d
       await bridge.call("erp_com1_cancel_claim", claimInput);
       try {
         record = { ...cap, connection_fingerprint: vault.fingerprint, state: "incerto",
-          result: await vault.provider.cancel(vault.context, "nfe", claim.emission.provider_id!, { justification: claim.cancellation.justification }) };
+          result: await vault.provider.cancel(vault.context, "nfe", claim.emission.provider_id!, { justification: claim.cancellation.justification }, commercialLookupIdentity(claim.emission)) };
         record.state = record.result?.status === "cancelled" ? "registrado" : record.result?.status === "authorized" ? "recusado" : "incerto";
       } catch (error) {
         record = { ...cap, connection_fingerprint: vault.fingerprint, state: "incerto", ...externalFailure(error) };

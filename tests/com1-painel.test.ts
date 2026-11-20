@@ -3,6 +3,7 @@ import type { Actor } from "../src/types";
 import type { CommercialSettings, EffectView, EmissionView, FiscalBlocker, PedidoNfe } from "../src/erp/commercial-nfe/contracts.ts";
 import { COM1_OPERATIONS, commercialNfeRoute, type CommercialNfeHttpContext, type CommercialNfeRouteDependencies } from "../src/erp/commercial-nfe/routes.ts";
 import { installCommercialNfeHttp } from "../src/erp/commercial-nfe/slots.ts";
+import { commercialNfePublicDto } from "../src/erp/commercial-nfe/http.ts";
 import { engineActor } from "../src/security";
 import {
   CommercialNfeError, createCommercialNfePort, createCommandIntent, emissionCanEmit,
@@ -109,6 +110,64 @@ function linkedPort(actor: Actor = com1Actor(), dependencies: CommercialNfeRoute
   // revalida a identidade mesmo diante de uma tela desatualizada ou manipulada.
   return createCommercialNfePort("com1", { access: () => access, fetch: transport });
 }
+
+describe("privacidade do DTO fiscal comercial", () => {
+  const customerName = "Álvaro & Filhos (Matriz)", customerCnpj = "12ABC34501DE35";
+  function privateView() {
+    const view = emission("bloqueada");
+    const note = `Conferir ${customerName}, CNPJ 12.abc.345/01de-35 (${customerCnpj}).`;
+    view.revision.snapshot.recipient = { name: customerName, document: customerCnpj, nfe_email: "fiscal@cliente.invalid" };
+    view.revision.snapshot.company = { legal_name: "Emitente Privado Ltda.", trade_name: "Loja Privada" };
+    view.revision.snapshot.document.notes = note;
+    view.revision.body!.destinatario!.nome = customerName;
+    view.revision.body!.destinatario!.cnpj = customerCnpj;
+    view.revision.body!.informacoesComplementares = note;
+    view.messages = [{ code: "cadastro_incompleto", description: note }];
+    view.revision.blockers = [{ code: "fiscal_recipient_incomplete", field: "recipient.document", entity_id: ids.user,
+      message: `O cliente ${customerName}, CNPJ ${customerCnpj}, está sem endereço.`, correction: { screen: "contacts", id: ids.user, field: "document" } }];
+    return view;
+  }
+  const context = (actor: Actor, name = "com1.get"): CommercialNfeHttpContext => ({
+    env: com1NoIoEnv, request: new Request("https://wabotia.invalid/api/v1/profiles/ensaio/erp-comercial-nfe/emissoes"),
+    profile: "ensaio", actor, identity: com1Identity(actor), operation: COM1_OPERATIONS.find(op => op.name === name)!,
+    params: { id: ids.emission }, input: {}, authority: { origin: "application" }, fetch: globalThis.fetch,
+  });
+  const bot = (masked = true) => com1Actor({ via: { kind: "bot", bot_id: "bot-fiscal", run_id: "privacidade", proposal_id: "proposta-confirmada", masked } });
+
+  it("mascara nomes e CNPJ alfanumérico em bloqueios, mensagens e observações, inclusive na lista", () => {
+    const view = privateView(), projected = commercialNfePublicDto(context(bot()), view) as EmissionView;
+    const serialized = JSON.stringify(projected);
+    expect(serialized).not.toContain(customerName);
+    expect(serialized).not.toContain(customerCnpj);
+    expect(serialized).not.toContain("12.abc.345/01de-35");
+    expect(serialized).not.toContain("Emitente Privado Ltda.");
+    expect(serialized).not.toContain("Loja Privada");
+    expect(projected.revision.blockers[0].message).toContain("[dado pessoal oculto]");
+    expect(projected.revision.snapshot.document).toMatchObject({ id: ids.document });
+    expect(projected.revision.body!.destinatario!.endereco).toEqual(expect.objectContaining({ logradouro: "[dado pessoal oculto]" }));
+    expect(projected.reference).toBe(view.reference);
+    expect(projected.revision.body_hash).toBe(view.revision.body_hash);
+    expect(projected.revision.blockers[0]).toMatchObject({ code: "fiscal_recipient_incomplete", field: "recipient.document", entity_id: ids.user,
+      correction: { screen: "contacts", id: ids.user, field: "document" } });
+    const listed = commercialNfePublicDto(context(bot(true), "com1.list"), { items: [view], page: 1, per_page: 25, total: 1 });
+    expect(JSON.stringify(listed)).not.toContain(customerName);
+    expect(JSON.stringify(listed)).not.toContain(customerCnpj);
+    expect(JSON.stringify(listed)).not.toContain("12.abc.345/01de-35");
+  });
+
+  it("preserva dados para pessoa e concessão explícita sem máscara, sem alterar o original", () => {
+    const view = privateView(), before = structuredClone(view);
+    for (const actor of [com1Actor(), bot(false)]) {
+      const projected = commercialNfePublicDto(context(actor), view) as EmissionView;
+      expect(projected.revision.snapshot.recipient.name).toBe(customerName);
+      expect(projected.revision.body!.destinatario!.cnpj).toBe(customerCnpj);
+      expect(projected.revision.blockers[0].message).toContain(customerName);
+      expect(projected.revision.body!.informacoesComplementares).toContain("12.abc.345/01de-35");
+    }
+    commercialNfePublicDto(context(bot()), view);
+    expect(view).toEqual(before);
+  });
+});
 
 describe("painel comercial: porta ligada à fronteira HTTP real, com servidor simulado", () => {
   for (const operation of COM1_OPERATIONS) {

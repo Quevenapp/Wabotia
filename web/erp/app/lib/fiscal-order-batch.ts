@@ -7,6 +7,7 @@ import { ORDER_REASONS, orderSourceRecord, type OrderSource } from '../../../../
 import { calculateInvoiceTaxes } from '../../../../packages/fiscal-core/src/tax-engine.mjs';
 import { draftToInput, installmentsMismatch, isServiceItem, orderDraft, orderLocks, orderOrigin, preferencesOf, withItemDiscounts, withNatureSummary, withPreferenceVolumes, type FormContext } from './fiscal-invoice-form-model';
 import { FISCAL_BASE } from './fiscal-invoice-list-model';
+import { erpPorts } from '../../ports';
 
 type Fetch = (path: string, options?: { method?: string; body?: unknown; signal?: AbortSignal }) => Promise<unknown>;
 export interface BatchBasis { context: FormContext; natures: NatureSummary[]; details: Record<string, NatureRecord>; settings: Partial<TaxSettingsValues>; difalByState: Record<string, string>; groups: Record<string, string | null> }
@@ -44,7 +45,7 @@ export async function readOrderSource(fetch: Fetch, documentId: string, model: '
 /** The note of a pedido source (whole or cut by "Gerar nota fiscal parcial"), with the taxes of "Cálculo automático". */
 export async function invoiceFromSource(fetch: Fetch, basis: BatchBasis, source: OrderSource, model: '55' | '65', today: string, signal?: AbortSignal) {
   const config = { model, direction: '1' as const };
-  let draft = orderDraft(source, config, basis.context, today);
+  let draft = orderDraft(source, config, basis.context, today, !erpPorts()?.commercialNfe);
   draft = withNatureSummary(draft, basis.natures.find(n => n.id === draft.nature_id) ?? null);
   if (!draft.nature_id) throw new OrderBatchRefusal('Sem natureza de operação: defina a natureza do contato ou a "Padrão venda" em Naturezas de operação.');
   const prefs = preferencesOf(basis.context);

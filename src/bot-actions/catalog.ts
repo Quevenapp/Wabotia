@@ -70,7 +70,7 @@ export function fullCatalog(): CatalogOperation[] {
       let name: string;
       let kind: CatalogOperation["kind"];
       if (upper === "GET") {
-        if (!routes.read.some((r) => r.path === route)) continue;
+        if (!routes.read.some((r) => r.path === route) && !routes.binary.some((r) => r.method === "GET" && r.path === route)) continue;
         kind = "read";
         name = `consulta:${route}`;
       } else {

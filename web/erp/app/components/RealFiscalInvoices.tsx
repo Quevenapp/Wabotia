@@ -3,6 +3,7 @@ import { invoiceLabelProducts, type PurchaseLabels } from '../lib/document-label
 import { ProductLabels } from './ProductLabels';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import CommercialNfe from '../../CommercialNfe';
+import { erpPorts } from '../../ports';
 import { AccessError, decimalMoney, type AccessController } from '../lib/real-access';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import { listPage as checkListPage, invoiceRecord, type InvoiceRecord } from '../../../../packages/erp-domain/src/fiscal-invoice-contract.mjs';
@@ -76,7 +77,12 @@ type Dialog = { type: 'delete'; rows: ListRow[] } | { type: 'inutilization' } | 
   | { type: 'return'; record: InvoiceRecord } | null;
 
 /** O percurso comercial e o acervo anterior nunca compartilham o formulário fiscal. */
-export default function RealFiscalInvoices({ controller, screen, backup }: { controller: AccessController; screen: FiscalScreen; backup?: ReactNode }) {
+export function HostedFiscalInvoices(props: { controller: AccessController; screen: FiscalScreen; backup?: ReactNode }) {
+  return erpPorts()?.commercialNfe && props.screen !== 'entrada'
+    ? <CommercialFiscalInvoices {...props} /> : <RealFiscalInvoices {...props} />;
+}
+
+function CommercialFiscalInvoices({ controller, screen, backup }: { controller: AccessController; screen: FiscalScreen; backup?: ReactNode }) {
   const location = useLocation(), params = new URLSearchParams(location.search);
   const archive = params.get('acervo') === 'legado' || (params.has('nota') && params.get('nota') !== 'nova');
   const unsupported = (params.get('pedido') ?? '').includes(',') || params.has('parcial');
@@ -150,12 +156,15 @@ function LegacyFiscalArchive({ controller, screen }: { controller: AccessControl
   </section>;
 }
 
-/** Cópia preservada para referência; os percursos públicos usam os componentes acima. */
-function OriginalFiscalInvoices({ controller, screen, backup }: { controller: AccessController; screen: FiscalScreen; backup?: ReactNode }) {
+/** Componente portado: usado por Compras e hospedeiros sem o percurso comercial. */
+export default function RealFiscalInvoices({ controller, screen, backup }: { controller: AccessController; screen: FiscalScreen; backup?: ReactNode }) {
   const config = SCREENS[screen];
   const location = useLocation(), navigate = useNavigate();
   const params = new URLSearchParams(location.search);
   const role = roleOf(controller), writable = ['admin', 'fiscal'].includes(role);
+  const entryOnly = Boolean(erpPorts()?.commercialNfe) && screen === 'entrada';
+  const closedExit = 'Notas de saída usam o acompanhamento comercial. Conversão de entrada para saída e devolução fiscal ainda não são atendidas.';
+  const exitAction = (id: string) => entryOnly && ['clone_invert', 'return', 'nfe_from_nfce'].includes(id);
   // Wabotia: Origin fora (motor 91213b8): a lista mostra sempre os registros do FAGOO; saíram o seletor "Notas do Origin" × "Registros do
   // FAGOO", o parâmetro ?origem= e a nota do Origin aberta em leitura.
   const opened = params.get('nota'), backupTab = Boolean(backup) && params.get('aba') === 'backup';
@@ -290,7 +299,7 @@ function OriginalFiscalInvoices({ controller, screen, backup }: { controller: Ac
   const readRecord = async (id: string, signal: AbortSignal) => {
     const value = await controller.fiscalInvoices(`${FISCAL_BASE}/${id}`, { signal }) as { invoice: unknown };
     const record = invoiceRecord(value?.invoice);
-    if (record.id !== id) throw new AccessError(502);
+    if (record.id !== id || entryOnly && record.direction !== '0') throw new AccessError(502);
     return record;
   };
   const withRecord = (row: ListRow, then: (record: InvoiceRecord) => void) => {
@@ -298,7 +307,10 @@ function OriginalFiscalInvoices({ controller, screen, backup }: { controller: Ac
     void readRecord(row.id, request.signal).then(record => { if (!request.signal.aborted && detail.current === request) then(record); })
       .catch(problem => { if (!request.signal.aborted && !aborted(problem)) setActionError(failureText(problem)); }).finally(() => { if (detail.current === request) detail.current = null; });
   };
-  const startForm = (value: FormOpening) => guard.confirmLeave(() => { setOpening(value); setParam({ nota: 'nova' }); });
+  const startForm = (value: FormOpening) => {
+    if (exitAction(value.kind)) { setActionError(closedExit); return; }
+    guard.confirmLeave(() => { setOpening(value); setParam({ nota: 'nova' }); });
+  };
   // "Incluir NFC-e" without an active A1 asks first, like Origin: "Sem a configuração do certificado não é possível emitir a NFC-e".
   const addNote = async () => {
     if (config.model !== '65') { startForm({ kind: 'new' }); return; }
@@ -313,6 +325,7 @@ function OriginalFiscalInvoices({ controller, screen, backup }: { controller: Ac
   const runAction = (row: ListRow, action: RowAction) => {
     setMenu(null);
     if (!action.enabled) return;
+    if (exitAction(action.id)) { setActionError(closedExit); return; }
     if (action.id === 'edit' || action.id === 'view') { open(row); return; }
     if (action.id === 'other') { setDialog({ type: 'other', row }); return; }
     if (action.id === 'xml') { void showXml(row, true); return; }
@@ -349,7 +362,7 @@ function OriginalFiscalInvoices({ controller, screen, backup }: { controller: Ac
     finally { if (detail.current === request) detail.current = null; }
   };
   const menuItems = (row: ListRow): RowMenuItem[] => rowActions(config, row, { writable, checkin: CHECKIN_READERS.includes(role), labels: role === 'admin', finance: financeState(row), stock: rowStock(row) }).map(action => ({ label: action.label, icon: action.icon, separatorBefore: action.separatorBefore,
-    disabled: !action.enabled, title: action.enabled ? undefined : action.reason, onClick: () => runAction(row, action) }));
+    disabled: !action.enabled || exitAction(action.id), title: exitAction(action.id) ? closedExit : action.enabled ? undefined : action.reason, onClick: () => runAction(row, action) }));
   // Wabotia: Origin fora (motor 91213b8): o XML de uma nota do FAGOO é o importado; o acervo sincronizado do Origin (xml_id) saiu.
   const hasXml = (row: ListRow) => isImported(row);
   const showXml = async (row: ListRow, download: boolean) => {
@@ -520,7 +533,7 @@ function OriginalFiscalInvoices({ controller, screen, backup }: { controller: Ac
     // Like the emitter: a same-actor role loss hides the form but keeps a pending command for when access returns.
     const denied = <section className="real-state-panel"><h1>Nota do ERP não liberada</h1><p>Somente administradores e o perfil fiscal abrem as notas de homologação do ERP. Uma confirmação pendente fica preservada até o acesso voltar.</p><button type="button" className="secondary-button" onClick={back}>Voltar à listagem</button></section>;
     if (!writable && !formHeld) return denied;
-    return <>{!writable && denied}<div hidden={!writable} inert={!writable} aria-hidden={!writable}><FiscalInvoiceForm key={`${opened}:${opening ? 'copy' : fromOrder ? `pedido:${fromOrder}` : fromGroup ? `grupo:${fromGroup.join(',')}` : 'plain'}`} controller={controller} config={config} id={opened === 'nova' ? null : opened}
+    return <>{!writable && denied}<div hidden={!writable} inert={!writable} aria-hidden={!writable}><FiscalInvoiceForm key={`${opened}:${opening ? 'copy' : fromOrder ? `pedido:${fromOrder}` : fromGroup ? `grupo:${fromGroup.join(',')}` : 'plain'}`} controller={controller} config={config} directionOnly={entryOnly ? '0' : undefined} id={opened === 'nova' ? null : opened}
       opening={opened === 'nova' ? opening ?? (fromOrder ? { kind: 'order', documentId: fromOrder } : fromGroup ? { kind: 'order', documentId: fromGroup[0]!, documentIds: fromGroup } : { kind: 'new' }) : null} today={today()} initialTab={section}
       onBack={back} onSaved={record => {
         setOpening(null);
@@ -711,7 +724,7 @@ function OriginalFiscalInvoices({ controller, screen, backup }: { controller: Ac
     {dialog?.type === 'certificate' && <Modal title="Certificado digital" onClose={() => setDialog(null)} actions={<><button type="button" className="primary-button" onClick={() => { setDialog(null); startForm({ kind: 'new' }); }}>Prosseguir</button>
       <button type="button" className="secondary-button" onClick={() => { setDialog(null); guard.confirmLeave(() => navigate('/certificado-a1')); }}>Configurar certificado digital</button></>}>
       <p>{dialog.text}</p><p className="real-help">As NFC-e do ERP ficam em homologação, sem valor fiscal; a emissão com o certificado ainda não está ligada nesta tela.</p></Modal>}
-    {dialog?.type === 'import' && <FiscalImportDialog controller={controller} model={config.model} onClose={changed => { setDialog(null); if (changed) { setReload(n => n + 1); setFinanceReload(n => n + 1); } }}
+    {dialog?.type === 'import' && <FiscalImportDialog controller={controller} model={config.model} entryOnly={entryOnly} onClose={changed => { setDialog(null); if (changed) { setReload(n => n + 1); setFinanceReload(n => n + 1); } }}
       onOpen={(noteId, direction, reconcile, noteModel) => { setDialog(null);
         // An imported note opens in the list where Origin shows it: entry notes in Notas de entrada, exit notes in Notas fiscais de saída
         // (an imported NFC-e in NFC-e); "Conciliar produtos" opens it on the Itens tab, where the reconciliation panel is.

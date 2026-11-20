@@ -1,3 +1,4 @@
+import { COM1_MODULE_CONTRACT } from "./erp/commercial-nfe/metadata.ts";
 import { routerOperations, routerSchemas } from "./router-openapi";
 import { ticketStatuses } from "./protocols";
 import {
@@ -1935,6 +1936,7 @@ export function openapi(origin: string) {
       },
     };
   }
+  Object.assign(paths, COM1_MODULE_CONTRACT.openapi.paths);
   return {
     openapi: "3.1.0",
     info: {
@@ -1946,7 +1948,7 @@ export function openapi(origin: string) {
     servers: [{ url: origin + "/api/v1" }],
     components: {
       securitySchemes: { BearerAuth: { type: "http", scheme: "bearer" } },
-      schemas,
+      schemas: { ...schemas, ...COM1_MODULE_CONTRACT.openapi.components.schemas },
     },
     paths,
   };
