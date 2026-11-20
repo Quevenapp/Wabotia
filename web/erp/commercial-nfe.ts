@@ -1,4 +1,5 @@
 /** Cliente do percurso comercial. O corpo fiscal e seus resultados vêm do servidor. */
+import type { NfceSaleRow } from "../../src/erp/commercial-nfe/bridge.ts";
 import type {
   CommercialSettings, ConfigSaveInput, EffectInput, EffectView, PublicEmissionPage,
   EmissionView, PublicEmissionSummary, FiscalBlocker, ListInput, PreparationResult, PrepareInput,
@@ -17,8 +18,20 @@ export interface CommercialNfeAccess {
   /** Null significa todas as permissões do papel, conforme o contrato do ERP. */
   permissions: readonly string[] | null;
   demo?: boolean;
-  parts: { base: boolean; products: boolean; sales: boolean; fiscal: boolean; stock: boolean; finance: boolean };
+  parts: { base: boolean; products: boolean; sales: boolean; fiscal: boolean; stock: boolean; finance: boolean; pos?: boolean };
 }
+/** Cupom fiscal do balcão (NFC-e), na mesma porta: venda do caixa e situação do cupom. */
+export type { NfceAction } from "./nfce-access.ts";
+import type { NfceAction } from "./nfce-access.ts";
+export type NfceSituation = NfceSaleRow & { reason: { code: string; text: string } | null; cancel_until: string | null; actions: string[] };
+export interface NfceSalesView { items: NfceSituation[]; total: number; page: number; per_page: number; counts: { autorizado: number; pendente: number; cancelado: number } }
+export interface NfceConfigView {
+  nature: { version: number; nature_id: string | null; resolved_nature_id: string | null; natures: { id: string; description: string }[] };
+  vault: { configured: boolean; checked_at: number | null; ufs: string[] | null; series: { environment: string; series: number; next_number: number | null }[];
+    contingency_pending: number | null; certificate_days_left: number | null; environments: string[] };
+  environment: "homologacao" | "producao"; production_enabled: boolean; missing: string[];
+}
+export interface NfceSalesQuery { cash_session_id?: string; from?: string; to?: string; pending_only?: boolean; page?: number; per_page?: number }
 export interface CommercialNfePort {
   readonly scopeKey: string;
   access(): CommercialNfeAccess;
@@ -33,7 +46,18 @@ export interface CommercialNfePort {
   effects(input: EffectInput, signal?: AbortSignal): Promise<EffectView>;
   /** Blob obtido pelo vínculo da emissão; nunca renderização local de DANFE. */
   artifact(emissionId: string, kind: CommercialNfeArtifact, signal?: AbortSignal): Promise<Blob>;
+  nfceConfig?(signal?: AbortSignal): Promise<NfceConfigView>;
+  nfceSaveConfig?(input: { command_id: string; expected_version: number; nature_id: string | null }, signal?: AbortSignal): Promise<NfceConfigView["nature"]>;
+  nfceSales?(query: NfceSalesQuery, signal?: AbortSignal): Promise<NfceSalesView>;
+  nfceSale?(saleId: string, signal?: AbortSignal): Promise<NfceSituation>;
+  nfceEmit?(input: { sale_id: string; command_id: string; consumer_document?: string | null }, signal?: AbortSignal): Promise<NfceSituation>;
+  nfceConsult?(input: { sale_id: string; command_id: string }, signal?: AbortSignal): Promise<NfceSituation>;
+  nfceCancel?(input: { sale_id: string; command_id: string; justification: string; physical_return_confirmed: boolean }, signal?: AbortSignal): Promise<NfceSituation>;
+  /** DANFCE (80 mm) do cofre; nunca montado no navegador. */
+  nfceCoupon?(saleId: string, via?: "consumidor" | "estabelecimento", signal?: AbortSignal): Promise<Blob>;
 }
+export { canNfce } from "./nfce-access.ts";
+import { canNfce } from "./nfce-access.ts";
 
 const closedAccess: CommercialNfeAccess = { ready: false, role: null, permissions: [],
   parts: { base: false, products: false, sales: false, fiscal: false, stock: false, finance: false } };
@@ -118,6 +142,13 @@ function validateEmission(value: unknown, emissionId?: string, summary = false):
 }
 export const checkEmission = (value: unknown, emissionId?: string): EmissionView => validateEmission(value, emissionId) as EmissionView;
 export const checkEmissionSummary = (value: unknown): PublicEmissionSummary => validateEmission(value, undefined, true) as PublicEmissionSummary;
+const nfceObject = (value: unknown): Record<string, any> => { if (!object(value)) throw invalidResponse(); return value; };
+const situations = ["autorizado", "pendente", "cancelado", "sem_cupom"];
+function nfceRow(value: unknown, saleId?: string): NfceSituation {
+  if (!object(value) || !uuid(value.sale_id) || saleId && value.sale_id !== saleId || !situations.includes(value.situation) || !Array.isArray(value.actions) ||
+    (value.coupon !== null && (!object(value.coupon) || !uuid(value.coupon.emission_id) || !states.includes(value.coupon.status)))) throw invalidResponse();
+  return value as NfceSituation;
+}
 function checkConfig(value: unknown): CommercialNfeConfig {
   if (!object(value) || value.id !== 1 || !positiveInteger(value.version) || !environments.includes(value.environment) ||
     !["existing", "on_authorization"].includes(value.stock_timing) || !["existing", "on_authorization"].includes(value.finance_timing) ||
@@ -190,12 +221,12 @@ export function createCommercialNfePort(profile: string, options: CommercialNfeP
   const access = options.access ?? (() => closedAccess);
   const transport = options.fetch ?? globalThis.fetch.bind(globalThis);
   const pathId = (id: string) => { if (!uuid(id)) throw new CommercialNfeError("Identificador fiscal inválido.", { status: 400, code: "fiscal_invalid_request" }); return encodeURIComponent(id); };
-  async function request(action: CommercialNfeAction, path: string, method: "GET" | "POST" | "PUT", body: object | undefined, caller?: AbortSignal, file?: CommercialNfeArtifact): Promise<unknown> {
+  async function request(action: CommercialNfeAction, path: string, method: "GET" | "POST" | "PUT", body: object | undefined, caller?: AbortSignal, file?: CommercialNfeArtifact, counter = false): Promise<unknown> {
     const scope = options.scope?.(), before = access();
     const signal = AbortSignal.any([...(scope ? [scope] : []), ...(caller ? [caller] : [])]);
     const ensure = () => { if (signal.aborted) throw aborted(); };
     ensure();
-    if (!canCommercialNfe(before, action)) throw new CommercialNfeError(before.demo ? "A demonstração não emite notas nem grava configurações." : "Seu acesso ou as partes ligadas não permitem esta operação fiscal.", { status: 403, code: "fiscal_forbidden" });
+    if (!(counter ? canNfce(before, action as NfceAction) : canCommercialNfe(before, action))) throw new CommercialNfeError(before.demo ? "A demonstração não emite notas nem grava configurações." : counter ? "Seu acesso ou as partes ligadas (Caixa / PDV e Fiscal) não permitem esta operação do cupom fiscal." : "Seu acesso ou as partes ligadas não permitem esta operação fiscal.", { status: 403, code: "fiscal_forbidden" });
     const authority = JSON.stringify(before);
     const assertCurrent = () => { ensure(); if (authority !== JSON.stringify(access())) throw aborted(); };
     let response: Response;
@@ -268,6 +299,22 @@ export function createCommercialNfePort(profile: string, options: CommercialNfeP
     effects: async (input, signal) => checkEffect(await request(input.axis === "stock" ? "effect_stock" : "effect_finance", `emissoes/${pathId(input.emission_id)}/efeitos`, "POST",
       pick(input, ["command_id", "expected_version", "axis", "intent", "physical_return_confirmed"]), signal), input.emission_id),
     artifact: async (id, kind, signal) => request("read", `emissoes/${pathId(id)}/${kind === "cancellation_xml" ? "cancelamento/xml" : kind}`, "GET", undefined, signal, kind) as Promise<Blob>,
+    nfceConfig: async signal => nfceObject(await request("read", "nfce/config", "GET", undefined, signal, undefined, true)) as NfceConfigView,
+    nfceSaveConfig: async (input, signal) => nfceObject(await request("configure", "nfce/config", "PUT", pick(input, ["command_id", "expected_version", "nature_id"]), signal, undefined, true)) as NfceConfigView["nature"],
+    async nfceSales(query, signal) {
+      const params = new URLSearchParams(Object.entries(query).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)]));
+      const value = nfceObject(await request("read", `nfce/vendas${params.size ? `?${params}` : ""}`, "GET", undefined, signal, undefined, true));
+      if (!Array.isArray(value.items) || !object(value.counts)) throw invalidResponse();
+      value.items.forEach((item: unknown) => nfceRow(item));
+      return value as NfceSalesView;
+    },
+    nfceSale: async (id, signal) => nfceRow(await request("read", `nfce/vendas/${pathId(id)}`, "GET", undefined, signal, undefined, true), id),
+    nfceEmit: async (input, signal) => nfceRow(await request("emit", `nfce/vendas/${pathId(input.sale_id)}/emitir`, "POST",
+      { command_id: input.command_id, ...(input.consumer_document ? { consumer_document: input.consumer_document } : {}) }, signal, undefined, true), input.sale_id),
+    nfceConsult: async (input, signal) => nfceRow(await request("resume", `nfce/vendas/${pathId(input.sale_id)}/consultar`, "POST", { command_id: input.command_id }, signal, undefined, true), input.sale_id),
+    nfceCancel: async (input, signal) => nfceRow(await request("cancel", `nfce/vendas/${pathId(input.sale_id)}/cancelar`, "POST",
+      pick(input, ["command_id", "justification", "physical_return_confirmed"]), signal, undefined, true), input.sale_id),
+    nfceCoupon: async (id, via = "consumidor", signal) => request("read", `nfce/vendas/${pathId(id)}/cupom${via === "estabelecimento" ? "?via=estabelecimento" : ""}`, "GET", undefined, signal, "danfe", true) as Promise<Blob>,
   };
 }
 

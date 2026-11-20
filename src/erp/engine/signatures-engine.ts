@@ -25,6 +25,12 @@ export const ENGINE_SIGNATURES: Record<string, ArgSpec[]> = {
   erp_com1_cancel_xml_record: [["p_input", "j"]],
   erp_com1_effect_apply: [["p_user_id", "u"], ["p_input", "j"]],
   erp_com1_effect_reverse: [["p_user_id", "u"], ["p_input", "j"]],
+  // Balcão com NFC-e: src/erp/domains/fiscal/comnfe/nfce.ts.
+  erp_com1_nfce_prepare: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_nfce_sales: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_nfce_config_get: [["p_user_id", "u"]],
+  erp_com1_nfce_config_save: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_nfce_sale_cancel: [["p_user_id", "u"], ["p_input", "j"]],
   // src/erp/domains/fiscal/reform.ts (sessão G; structural.ts, reforma-classificacao)
   erp_fiscal_reform_nature_class_get: [
     ["p_user_id", "u"],

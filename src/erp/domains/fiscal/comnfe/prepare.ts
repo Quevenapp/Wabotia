@@ -14,6 +14,7 @@ import { com1Reference, com1Uuid, findOrderEmission, getEmissionView, replayComm
 import { capturePreparationSources } from "./source.ts";
 import { calculatePreparationTaxes } from "./taxes.ts";
 import { mapPreparation } from "./mapper.ts";
+import { withCom1Model } from "./model.ts";
 
 const presence = new Set(["nao_se_aplica", "presencial", "internet", "teleatendimento", "entrega_domicilio", "presencial_fora", "outros"]);
 function validate(input: PrepareInput): void {
@@ -89,6 +90,9 @@ export function prepareCommercialNfe(ctx: RpcContext, input: PrepareInput): Prep
       }
       return { emission, blockers: emission.revision.blockers, effects_preview: preparationEffectsPreview(ctx, emission.id), replayed: true };
     }
+    // A venda do balcão com cupom (NFC-e) vigente ou em andamento não ganha NF-e por cima.
+    const counter = withCom1Model("nfce", () => findOrderEmission(ctx, input.document_id));
+    if (counter && !["bloqueada", "preparada", "rejeitada", "cancelada", "denegada", "arquivada"].includes(counter.status)) raise("40001", "fiscal_emission_open");
     const settings = readCommercialSettings(ctx);
     const previous = findOrderEmission(ctx, input.document_id);
     if (previous && previous.environment !== settings.environment) raise("40001", "fiscal_environment_conflict");

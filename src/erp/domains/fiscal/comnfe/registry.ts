@@ -18,6 +18,8 @@ import { commercialNfeReadSlots } from "./reads.ts";
 import { createCommercialNfeLifecycle } from "./lifecycle.ts";
 import { recapturePreparationFingerprint } from "./source.ts";
 import { applyEffects, reverseEffects } from "./effects.ts";
+import { withCom1Model, withEmissionModel } from "./model.ts";
+import "./nfce.ts";
 
 // Encaixe único do motor. Cada chamada continua dentro de sua própria
 // transação local; o serviço HTTP faz todo I/O externo entre essas chamadas.
@@ -71,54 +73,76 @@ registerRpc("erp_com1_prepare", (ctx, a) => {
   return commercialNfeSlots().prepare(ctx, value);
 });
 registerRpc("erp_com1_get", (ctx, a) => {
-  requireCom1Access(ctx, "read", expectedPerson(a));
-  return commercialNfeSlots().read(ctx, input<ReadInput>(a, ["emission_id"]));
+  const value = input<ReadInput>(a, ["emission_id"]);
+  return withEmissionModel(ctx.db, value.emission_id, () => {
+    requireCom1Access(ctx, "read", expectedPerson(a));
+    return commercialNfeSlots().read(ctx, value);
+  });
 });
 registerRpc("erp_com1_list", (ctx, a) => {
-  requireCom1Access(ctx, "read", expectedPerson(a));
-  const value = input<ListInput>(a, ["environment", "document_id", "status", "page", "per_page"], ["environment"]);
-  if (value.environment !== "homologacao" && value.environment !== "producao") return invalid();
-  return commercialNfeSlots().list(ctx, value);
+  const requested = (a.p_input as { model?: unknown } | null)?.model;
+  return withCom1Model(requested === "nfce" ? "nfce" : "nfe", () => {
+    requireCom1Access(ctx, "read", expectedPerson(a));
+    const raw = input<ListInput & { model?: string }>(a, ["environment", "document_id", "status", "page", "per_page", "model"], ["environment"]);
+    if (raw.environment !== "homologacao" && raw.environment !== "producao") return invalid();
+    if (raw.model !== undefined && raw.model !== "nfe" && raw.model !== "nfce") return invalid();
+    const { model: _model, ...value } = raw;
+    return commercialNfeSlots().list(ctx, value);
+  });
 });
 registerRpc("erp_com1_claim", (ctx, a) => {
   const value = input<ClaimInput>(a,
     ["emission_id", "command_id", "action", "expected_version", "body_revision", "body_hash", "connection_fingerprint", "source_fingerprint"],
     ["emission_id", "command_id", "action", "expected_version", "body_revision", "body_hash", "connection_fingerprint"]);
   if (value.action !== "emit" && value.action !== "resume") return invalid();
-  requireCom1Access(ctx, value.action, expectedPerson(a));
-  return commercialNfeSlots().claim(ctx, value);
+  return withEmissionModel(ctx.db, value.emission_id, () => {
+    requireCom1Access(ctx, value.action, expectedPerson(a));
+    return commercialNfeSlots().claim(ctx, value);
+  });
 });
 registerRpc("erp_com1_record", (ctx, a) => {
   const value = input<RecordInput>(a, [...evidenceFields, "connection_fingerprint", "result", "evidence", "error"],
     [...evidenceFields, "connection_fingerprint", "result"]);
-  requireClaimedCommand(ctx, value, ["emit", "resume"]);
-  return commercialNfeSlots().record(ctx, value);
+  return withEmissionModel(ctx.db, value.emission_id, () => {
+    requireClaimedCommand(ctx, value, ["emit", "resume"]);
+    return commercialNfeSlots().record(ctx, value);
+  });
 });
 registerRpc("erp_com1_cancel_claim", (ctx, a) => {
-  requireCom1Access(ctx, "cancel", expectedPerson(a));
-  return commercialNfeSlots().cancelClaim(ctx, input<CancelClaimInput>(a,
-    ["emission_id", "command_id", "expected_version", "justification", "connection_fingerprint"]));
+  const value = input<CancelClaimInput>(a, ["emission_id", "command_id", "expected_version", "justification", "connection_fingerprint"]);
+  return withEmissionModel(ctx.db, value.emission_id, () => {
+    requireCom1Access(ctx, "cancel", expectedPerson(a));
+    return commercialNfeSlots().cancelClaim(ctx, value);
+  });
 });
 registerRpc("erp_com1_cancel_record", (ctx, a) => {
   const value = input<CancelRecordInput>(a, [...evidenceFields, "connection_fingerprint", "state", "result", "event_protocol", "event_at", "evidence", "error"],
     [...evidenceFields, "connection_fingerprint", "state", "result"]);
-  requireClaimedCommand(ctx, value, ["cancel"]);
-  return commercialNfeSlots().cancelRecord(ctx, value);
+  return withEmissionModel(ctx.db, value.emission_id, () => {
+    requireClaimedCommand(ctx, value, ["cancel"]);
+    return commercialNfeSlots().cancelRecord(ctx, value);
+  });
 });
 registerRpc("erp_com1_cancel_xml_record", (ctx, a) => {
   const value = input<CancellationXmlInput>(a, [...evidenceFields, "xml", "xml_hash"]);
-  requireClaimedCommand(ctx, value, ["cancel"]);
-  return commercialNfeSlots().recordCancellationXml(ctx, value);
+  return withEmissionModel(ctx.db, value.emission_id, () => {
+    requireClaimedCommand(ctx, value, ["cancel"]);
+    return commercialNfeSlots().recordCancellationXml(ctx, value);
+  });
 });
 registerRpc("erp_com1_effect_apply", (ctx, a) => {
   const value = input<EffectInput>(a, effectFields, effectFields.slice(0, 5));
   if (!["stock", "finance"].includes(value.axis) || !["reconcile", "apply", "apply_skipped"].includes(value.intent)) return invalid();
-  effectAttemptAccess(ctx, value, expectedPerson(a));
-  return commercialNfeSlots().applyEffects(ctx, value);
+  return withEmissionModel(ctx.db, value.emission_id, () => {
+    effectAttemptAccess(ctx, value, expectedPerson(a));
+    return commercialNfeSlots().applyEffects(ctx, value);
+  });
 });
 registerRpc("erp_com1_effect_reverse", (ctx, a) => {
   const value = input<EffectInput>(a, effectFields, effectFields.slice(0, 5));
   if (!["stock", "finance"].includes(value.axis) || value.intent !== "reverse") return invalid();
-  effectAttemptAccess(ctx, value, expectedPerson(a));
-  return commercialNfeSlots().reverseEffects(ctx, value);
+  return withEmissionModel(ctx.db, value.emission_id, () => {
+    effectAttemptAccess(ctx, value, expectedPerson(a));
+    return commercialNfeSlots().reverseEffects(ctx, value);
+  });
 });

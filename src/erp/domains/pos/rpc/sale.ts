@@ -11,6 +11,7 @@ import { commissionOperationSync } from "../../finance/document-effects.ts";
 import { nextIdentity } from "../../../engine/sequence.ts";
 import { pgLeft, pgLength } from "../../../engine/text.ts";
 import { documentTitleRows } from "../../finance/public.ts";
+import { com1EmissionInForce } from "../../fiscal/comnfe/effect-policy.ts";
 import {
   access, arrowText, bool, dec, decAdd, decCmp, decColumn, decFixed, decRound,
   flag, int, json, keys, nfce, prefFlag, saleView, step, today, txt, uid, usableSession,
@@ -264,6 +265,9 @@ function saleCancel(ctx: RpcContext, user: string, command: string, data: Json, 
   const reason = txt(data, "reason", 1000, true)!;
   if (pgLength(reason) < 3) raise("22023", "erp_pos_reason_required");
   if (nfce(db, String(s.document_id)) !== null) raise("40001", "erp_pos_sale_invoice_linked");
+  // Cupom do cofre (NFC-e comercial) autorizado ou em andamento: primeiro o
+  // cancelamento fiscal, depois a venda (erp_com1_nfce_sale_cancel).
+  if (com1EmissionInForce(ctx, String(s.document_id))) raise("40001", "erp_pos_sale_invoice_linked");
   if (one(db, 'SELECT 1 FROM "erp_pos__sale_return" WHERE sale_id=?', s.id)) raise("40001", "erp_pos_sale_has_returns");
   if (activePosting(db, "stock", s.document_id) && !["admin", "estoque"].includes(a.role)) raise("42501", "erp_pos_reverse_stock_denied");
   if (activePosting(db, "finance", s.document_id) && !["admin", "financeiro"].includes(a.role)) raise("42501", "erp_pos_reverse_finance_denied");

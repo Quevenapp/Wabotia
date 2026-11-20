@@ -23,6 +23,8 @@ export interface CommercialNfeServiceDependencies {
   uuid?: () => string;
 }
 
+/** Documento do cofre da emissão: NFC-e no balcão, NF-e no pedido. */
+export const commercialKind = (emission: { model?: string }): "nfe" | "nfce" => emission.model === "nfce" ? "nfce" : "nfe";
 const hash = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
 const fail = (code: string, message: string): never => { throw new ApiError(409, code, message); };
 
@@ -43,7 +45,7 @@ export function freezeCommercialVaultSession(context: CommercialNfeHttpContext, 
     const request = new Request(resource, init), target = new URL(request.url);
     if (target.origin !== origin) fail("fiscal_connection_changed", "Restabeleça a conexão original desta emissão.");
     // Também isola versões antigas do provedor cujo find não recebia ambiente.
-    if (target.pathname === "/v1/nfe" && request.method === "GET") target.searchParams.set("ambiente", environment);
+    if ((target.pathname === "/v1/nfe" || target.pathname === "/v1/nfce") && request.method === "GET") target.searchParams.set("ambiente", environment);
     const headers = new Headers(request.headers);
     headers.set("Authorization", `Bearer ${credential}`);
     const response = await transport(new Request(target, new Request(request, { headers, redirect: "manual" })));
@@ -100,9 +102,9 @@ export function createCommercialNfeService(_context: CommercialNfeHttpContext, d
   /** DANFE e XML: a ida ao cofre é uma espera. Antes de entregar os bytes, a
    * ponte confere de novo identidade, papel atual, permissão e partes (como o
    * resto da fatia); quem perdeu o papel nesse meio não recebe o arquivo. */
-  const artifact = async (input: ReadInput, kind: "danfe" | "xml") => {
+  const artifact = async (input: ReadInput, kind: "danfe" | "xml", copy?: "consumer" | "establishment") => {
     const emission = await read(input);
-    const file = await commercialArtifact(emission, await vaultFor(emission), kind);
+    const file = await commercialArtifact(emission, await vaultFor(emission), kind, copy);
     try {
       const after = await read(input);
       if (after.id !== emission.id) fail("com1_version_conflict", "A emissão mudou durante a leitura. Tente de novo.");
@@ -146,22 +148,25 @@ export function createCommercialNfeService(_context: CommercialNfeHttpContext, d
     const claim = await bridge.call("erp_com1_claim", claimInput);
     if (claim.disposition === "replay" || claim.disposition === "busy") return read({ emission_id: input.emission_id });
     const cap = capability(claim.emission.id, claim.command), key = { document_id: claim.emission.document_id, version: claim.emission.fiscal_version };
+    // Modelo 65: o cofre emite em contingência offline quando a SEFAZ não
+    // responde (o próprio cofre transmite depois); nunca reenvia às cegas.
+    const kind = commercialKind(before), options = kind === "nfce" ? { keep_issue_date: true, contingency: "automatic" as const } : { keep_issue_date: true };
     const body = persistedBody(claim);
     let foundAbsent = false;
     let record: RecordInput = { ...cap, connection_fingerprint: vault.fingerprint, result: null };
     try {
       if (claim.disposition === "send") {
-        record.result = await vault.provider.emit(vault.context, "nfe", body, key, { keep_issue_date: true });
+        record.result = await vault.provider.emit(vault.context, kind, body, key, options);
       } else {
         record.result = claim.emission.provider_id
-          ? await vault.provider.get(vault.context, "nfe", claim.emission.provider_id, commercialLookupIdentity(claim.emission))
-          : await vault.provider.find(vault.context, "nfe", key, claim.emission.environment);
+          ? await vault.provider.get(vault.context, kind, claim.emission.provider_id, commercialLookupIdentity(claim.emission))
+          : await vault.provider.find(vault.context, kind, key, claim.emission.environment);
         foundAbsent = !record.result && !claim.emission.provider_id;
       }
     } catch (error) { record = { ...record, ...externalFailure(error) }; }
     let persisted = await bridge.call("erp_com1_record", record);
     const reconcile = matchesCommercialResult(claim.emission, record.result) && record.result &&
-      persisted.provider_id === record.result.provider_ref && ["processing", "undetermined"].includes(record.result.status);
+      persisted.provider_id === record.result.provider_ref && ["processing", "undetermined", "contingency"].includes(record.result.status);
     if (claim.disposition === "resume" && (foundAbsent || reconcile)) {
       // O commit fica fora do catch de transporte. Se falhar, a evidência
       // recebida não pode ser substituída por um erro fictício do provedor.
@@ -169,8 +174,8 @@ export function createCommercialNfeService(_context: CommercialNfeHttpContext, d
       await bridge.call("erp_com1_claim", claimInput);
       try { record = { ...cap, connection_fingerprint: vault.fingerprint,
         result: foundAbsent
-          ? await vault.provider.emit(vault.context, "nfe", body, key, { keep_issue_date: true })
-          : await vault.provider.reconcile(vault.context, "nfe", record.result!.provider_ref, commercialLookupIdentity(claim.emission)) }; }
+          ? await vault.provider.emit(vault.context, kind, body, key, options)
+          : await vault.provider.reconcile(vault.context, kind, record.result!.provider_ref, commercialLookupIdentity(claim.emission)) }; }
       catch (error) { record = { ...cap, connection_fingerprint: vault.fingerprint, ...externalFailure(error) }; }
       persisted = await bridge.call("erp_com1_record", record);
     }
@@ -188,7 +193,7 @@ export function createCommercialNfeService(_context: CommercialNfeHttpContext, d
   }
 
   async function cancel(input: CommercialCancelInput): Promise<EmissionView> {
-    const before = await read({ emission_id: input.emission_id }), vault = await vaultFor(before);
+    const before = await read({ emission_id: input.emission_id }), vault = await vaultFor(before), kind = commercialKind(before);
     const claimInput = { ...input, connection_fingerprint: vault.fingerprint };
     const claim = await bridge.call("erp_com1_cancel_claim", claimInput);
     if (claim.disposition === "busy") return read({ emission_id: input.emission_id });
@@ -202,7 +207,7 @@ export function createCommercialNfeService(_context: CommercialNfeHttpContext, d
       let archived = before;
       try {
         if (!claim.emission.provider_id) fail("com1_cancellation_requires_authorization", "Confira o vínculo da emissão no cofre.");
-        const xml = await vault.provider.cancellationXml(vault.context, "nfe", claim.emission.provider_id!);
+        const xml = await vault.provider.cancellationXml(vault.context, kind, claim.emission.provider_id!);
         const event = parseCancellationXml(xml, claim.emission);
         if (event.protocol !== claim.cancellation.protocol || event.event_at !== claim.cancellation.event_at)
           fail("com1_cancellation_xml_conflict", "O XML difere do evento de cancelamento registrado.");
@@ -223,9 +228,9 @@ export function createCommercialNfeService(_context: CommercialNfeHttpContext, d
         JSON.parse(request.body_text).justificativa !== claim.cancellation.justification)
         fail("com1_persisted_request_invalid", "A intenção de cancelamento precisa ser reconciliada.");
       if (claim.disposition === "send") {
-        record.result = await vault.provider.cancel(vault.context, "nfe", claim.emission.provider_id!, { justification: claim.cancellation.justification }, commercialLookupIdentity(claim.emission));
+        record.result = await vault.provider.cancel(vault.context, kind, claim.emission.provider_id!, { justification: claim.cancellation.justification }, commercialLookupIdentity(claim.emission));
       } else {
-        record.result = await vault.provider.get(vault.context, "nfe", claim.emission.provider_id!, commercialLookupIdentity(claim.emission));
+        record.result = await vault.provider.get(vault.context, kind, claim.emission.provider_id!, commercialLookupIdentity(claim.emission));
         retryCancellation = matchesCommercialResult(claim.emission, record.result) && record.result!.status === "authorized";
       }
       record.state = record.result?.status === "cancelled" ? "registrado" : !retryCancellation && record.result?.status === "authorized" ? "recusado" : "incerto";
@@ -239,7 +244,7 @@ export function createCommercialNfeService(_context: CommercialNfeHttpContext, d
       await bridge.call("erp_com1_cancel_claim", claimInput);
       try {
         record = { ...cap, connection_fingerprint: vault.fingerprint, state: "incerto",
-          result: await vault.provider.cancel(vault.context, "nfe", claim.emission.provider_id!, { justification: claim.cancellation.justification }, commercialLookupIdentity(claim.emission)) };
+          result: await vault.provider.cancel(vault.context, kind, claim.emission.provider_id!, { justification: claim.cancellation.justification }, commercialLookupIdentity(claim.emission)) };
         record.state = record.result?.status === "cancelled" ? "registrado" : record.result?.status === "authorized" ? "recusado" : "incerto";
       } catch (error) {
         record = { ...cap, connection_fingerprint: vault.fingerprint, state: "incerto", ...externalFailure(error) };
@@ -249,7 +254,7 @@ export function createCommercialNfeService(_context: CommercialNfeHttpContext, d
     }
     if (persisted.status === "cancelada" && matchesCommercialResult(claim.emission, record.result) && record.result?.status === "cancelled") {
       try {
-        const xml = await vault.provider.cancellationXml(vault.context, "nfe", claim.emission.provider_id!);
+        const xml = await vault.provider.cancellationXml(vault.context, kind, claim.emission.provider_id!);
         const event = parseCancellationXml(xml, persisted);
         persisted = await bridge.call("erp_com1_cancel_record", { ...record, state: "registrado", event_protocol: event.protocol, event_at: event.event_at });
         await bridge.call("erp_com1_cancel_xml_record", { ...cap, xml, xml_hash: hash(xml) });
@@ -267,7 +272,7 @@ export function createCommercialNfeService(_context: CommercialNfeHttpContext, d
     emit: (input: CommercialEmitInput) => operate(input, "emit"),
     resume: (input: CommercialResumeInput) => operate(input, "resume"), cancel,
     effects: (input: EffectInput) => bridge.call(input.intent === "reverse" ? "erp_com1_effect_reverse" : "erp_com1_effect_apply", input),
-    danfe: (input: ReadInput) => artifact(input, "danfe"),
+    danfe: (input: ReadInput, copy?: "consumer" | "establishment") => artifact(input, "danfe", copy),
     xml: (input: ReadInput) => artifact(input, "xml"),
     cancellationXml: async (input: ReadInput) => {
       const emission = await read(input) as EmissionView & { cancellation_xml?: string | null };

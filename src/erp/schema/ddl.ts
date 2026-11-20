@@ -16,11 +16,13 @@
 // 12: quatro tabelas da adoção dos cadastros do Bling (11→12, somente adição).
 // 13: três tabelas da adoção de documentos e contas do Bling e do espelho
 //     histórico dos encerrados (12→13, somente adição).
+// 14: sete tabelas do balcão com NFC-e (counter_*: as irmãs do modelo 65 e a
+//     natureza do cupom; 13→14, somente adição).
 import { createHash } from "node:crypto";
 import { ERP_DDL_GENERATED, ERP_DDL_HASH as GENERATED_HASH } from "./ddl.generated.ts";
 import { ERP_ENGINE_DDL } from "./engine-tables.ts";
 
-export const ERP_DDL_VERSION = 13;
+export const ERP_DDL_VERSION = 14;
 export const ERP_DDL: readonly string[] = [...ERP_DDL_GENERATED, ...ERP_ENGINE_DDL];
 /** Hash do esquema: o do gerado; com tabelas do motor, o do gerado mais o DDL delas. */
 export const ERP_DDL_HASH: string = ERP_ENGINE_DDL.length

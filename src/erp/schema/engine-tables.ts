@@ -74,7 +74,7 @@ const ADOPTION_ENTITIES = "'contacts','sellers','product_categories','products',
 const adoptionB2 = (table: string, ddl: readonly string[]): EngineTable => ({ table, ddl, since: 13, owner: "bling-adota2", structural: "adotar-bling-b2" });
 const ADOPTION_B2_ENTITIES = "'sales_proposals','sales_orders','purchase_orders','receivables','payables'";
 
-export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
+const BASE_ENGINE_TABLES: readonly EngineTable[] = [
   {
     // Classificação de IBS/CBS por natureza de operação: o padrão (escopo any)
     // e as exceções por NCM, produto ou grupo, como as regras da natureza.
@@ -870,6 +870,44 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
 ) STRICT`,
     `CREATE INDEX wb_bling_adoption_history_date ON wb_bling_adoption_history(entity, issued_on, source_id)`,
   ]),
+];
+
+// Balcão com NFC-e (modelo 65): a mesma máquina da NF-e comercial, em tabelas
+// irmãs. O CHECK de autorização da v10 exige o modelo 55 na chave de acesso e
+// não pode mudar sem reescrever a tabela; as irmãs nascem do mesmo DDL, só com
+// o nome e o modelo trocados. A conexão com o cofre continua única
+// (commercial_settings); counter_settings guarda só a natureza do cupom.
+const COUNTER_PREFIX = "erp_fiscal_vault__counter_";
+const counterTables: readonly EngineTable[] = BASE_ENGINE_TABLES
+  .filter((t) => t.structural === "comercial-nfe" && t.table !== C_SETTINGS)
+  .map((t) => ({
+    table: t.table.replace("erp_fiscal_vault__order_", COUNTER_PREFIX),
+    ddl: t.ddl.map((statement) => {
+      const renamed = statement.replaceAll("erp_fiscal_vault__order_", COUNTER_PREFIX);
+      return t.table === C_EMISSION ? renamed.replace("substr(access_key,21,2) = '55'", "substr(access_key,21,2) = '65'") : renamed;
+    }),
+    since: 14, owner: "nfce-balcao", structural: "cupom-nfce",
+  }));
+const C_COUNTER_SETTINGS = `${COUNTER_PREFIX}settings`;
+export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
+  ...BASE_ENGINE_TABLES,
+  ...counterTables,
+  {
+    table: C_COUNTER_SETTINGS,
+    ddl: [
+      `CREATE TABLE "${C_COUNTER_SETTINGS}" (
+  "id" INTEGER NOT NULL PRIMARY KEY DEFAULT 1,
+  "version" INTEGER NOT NULL DEFAULT 1,
+  "nature_id" TEXT,
+  "updated_at" INTEGER NOT NULL,
+  "updated_by" TEXT NOT NULL,
+  CONSTRAINT "${C_COUNTER_SETTINGS}_singleton_check" CHECK (id = 1),
+  CONSTRAINT "${C_COUNTER_SETTINGS}_version_check" CHECK (version BETWEEN 1 AND 2147483647),
+  CONSTRAINT "${C_COUNTER_SETTINGS}_nature_fkey" FOREIGN KEY (nature_id) REFERENCES "erp_fiscal_invoices__nature" (id)
+) STRICT`,
+    ],
+    since: 14, owner: "nfce-balcao", structural: "cupom-nfce",
+  },
 ];
 
 export const ERP_ENGINE_DDL: readonly string[] = ERP_ENGINE_TABLES.flatMap((t) => t.ddl);

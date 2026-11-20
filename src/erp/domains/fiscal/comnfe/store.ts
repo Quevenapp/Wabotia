@@ -8,6 +8,7 @@ import { one, type Row } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import type { RpcContext } from "../../../engine/registry.ts";
 import { com1Authority } from "./access.ts";
+import { COM1_MODEL_CODE, com1Model, com1Tables, type Com1Tables } from "./model.ts";
 import type {
   ClaimInput, ClaimResult, CommandAction, CommandReceipt, CommandState, CommercialSnapshot,
   EffectAxis, EffectView, EmissionView, EvidenceCapability, FiscalBlocker, FiscalEnvironment,
@@ -15,10 +16,11 @@ import type {
   CancelClaimInput, CancelClaimResult, CancelRecordInput, CancellationXmlInput, CancellationView,
 } from "../../../commercial-nfe/contracts.ts";
 
-export const COM1_TABLES = Object.freeze({
-  settings: "erp_fiscal_vault__commercial_settings", emission: "erp_fiscal_vault__order_emission",
-  revision: "erp_fiscal_vault__order_revision", command: "erp_fiscal_vault__order_command",
-  cancel: "erp_fiscal_vault__order_cancel", effect: "erp_fiscal_vault__order_effect", audit: "erp_fiscal_vault__order_audit",
+/** Tabelas do modelo em curso (model.ts): as da NF-e fora de um escopo NFC-e. */
+export const COM1_TABLES: Com1Tables = Object.freeze({
+  get settings() { return com1Tables().settings; }, get emission() { return com1Tables().emission; },
+  get revision() { return com1Tables().revision; }, get command() { return com1Tables().command; },
+  get cancel() { return com1Tables().cancel; }, get effect() { return com1Tables().effect; }, get audit() { return com1Tables().audit; },
 });
 const T = COM1_TABLES;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -47,17 +49,18 @@ export function com1Reference(documentId: string, fiscalVersion: number): string
 }
 const parse = <T>(value: unknown): T => value === null ? null as T : JSON.parse(String(value)) as T;
 const instantColumns = (columns: string[]): string => columns.map(c => `CAST(${c} AS TEXT) AS ${c}`).join(",");
-const emissionSelect = `SELECT *,${instantColumns(["issued_at", "authorized_at", "total", "created_at", "updated_at"])} FROM ${T.emission}`;
-const commandSelect = `SELECT *,${instantColumns(["lease_until", "created_at", "updated_at"])} FROM ${T.command}`;
-const emissionRow = (row: Row): StoredEmission => ({ ...row, environment_confirmed: row.environment_confirmed === 1, messages: parse(row.messages) }) as StoredEmission;
+const emissionSelect = () => `SELECT *,${instantColumns(["issued_at", "authorized_at", "total", "created_at", "updated_at"])} FROM ${T.emission}`;
+const commandSelect = () => `SELECT *,${instantColumns(["lease_until", "created_at", "updated_at"])} FROM ${T.command}`;
+const emissionRow = (row: Row): StoredEmission => ({ ...row, environment_confirmed: row.environment_confirmed === 1, messages: parse(row.messages),
+  ...(com1Model() === "nfce" ? { model: "nfce" } : {}) }) as StoredEmission;
 const commandRow = (row: Row): CommandReceipt => ({ ...row, request: parse(row.request), result: parse(row.result), error: parse(row.error) }) as CommandReceipt;
 export function getStoredEmission(ctx: RpcContext, id: string): StoredEmission {
-  const row = one(ctx.db, `${emissionSelect} WHERE id=?`, id);
+  const row = one(ctx.db, `${emissionSelect()} WHERE id=?`, id);
   if (!row) raise("P0002", "com1_emission_not_found");
   return emissionRow(row);
 }
 export function findOrderEmission(ctx: RpcContext, documentId: string): StoredEmission | null {
-  const row = one(ctx.db, `${emissionSelect} WHERE document_id=? ORDER BY fiscal_version DESC LIMIT 1`, documentId);
+  const row = one(ctx.db, `${emissionSelect()} WHERE document_id=? ORDER BY fiscal_version DESC LIMIT 1`, documentId);
   return row ? emissionRow(row) : null;
 }
 export function getStoredRevision(ctx: RpcContext, id: string, revision?: number): ImmutableRevision {
@@ -67,7 +70,7 @@ export function getStoredRevision(ctx: RpcContext, id: string, revision?: number
   return { ...row, snapshot: parse(row.snapshot), tax_sources: parse(row.tax_sources), body: parse(row.body), calculation: parse(row.calculation), blockers: parse(row.blockers) } as ImmutableRevision;
 }
 export function getCommand(ctx: RpcContext, id: string): CommandReceipt | null {
-  const row = one(ctx.db, `${commandSelect} WHERE id=?`, id);
+  const row = one(ctx.db, `${commandSelect()} WHERE id=?`, id);
   return row ? commandRow(row) : null;
 }
 /** A coluna conserva o CHECK da versão 10; a transferência para outra emissão
@@ -119,7 +122,7 @@ export function listStoredEmissions(ctx: RpcContext, input: ListInput) {
   if (input.document_id) { clauses.push("document_id=?"); values.push(input.document_id); }
   if (input.status) { clauses.push("status=?"); values.push(input.status); }
   const where = clauses.join(" AND ");
-  const rows = ctx.db.exec(`${emissionSelect} WHERE ${where} ORDER BY updated_at DESC,id LIMIT ? OFFSET ?`, ...values, per, (page - 1) * per).rows;
+  const rows = ctx.db.exec(`${emissionSelect()} WHERE ${where} ORDER BY updated_at DESC,id LIMIT ? OFFSET ?`, ...values, per, (page - 1) * per).rows;
   return { items: rows.map(emissionRow), total: Number(one(ctx.db, `SELECT count(*) AS n FROM ${T.emission} WHERE ${where}`, ...values)!.n), page, per_page: per };
 }
 
@@ -261,11 +264,11 @@ export function claimStoredOperation(ctx: RpcContext, input: ClaimInput, leaseMi
     if (input.action === "resume" && !["enviando", "processando", "incerta"].includes(emission.status)) raise("40001", "com1_resume_unavailable");
     if (input.action === "emit" && revision.source_fingerprint !== input.source_fingerprint) raise("40001", "fiscal_source_changed");
     const at = ctx.clock.next();
-    const active = one(ctx.db, `${commandSelect} WHERE emission_id=? AND action IN ('emit','resume') AND state IN ('claimed','pending') AND lease_until>? ORDER BY created_at DESC LIMIT 1`, emission.id, String(at));
+    const active = one(ctx.db, `${commandSelect()} WHERE emission_id=? AND action IN ('emit','resume') AND state IN ('claimed','pending') AND lease_until>? ORDER BY created_at DESC LIMIT 1`, emission.id, String(at));
     if (active) return { emission, revision, command: commandRow(active), disposition: "busy" };
     // A revisão é imutável; ler o texto persistido evita reserializar a recuperação.
     const bodyText = String(one(ctx.db, `SELECT body FROM ${T.revision} WHERE emission_id=? AND body_revision=?`, emission.id, revision.body_revision)!.body);
-    const request: JsonObject = { kind: "nfe", environment: emission.environment, reference: emission.reference, connection_fingerprint: emission.connection_fingerprint,
+    const request: JsonObject = { kind: com1Model(), environment: emission.environment, reference: emission.reference, connection_fingerprint: emission.connection_fingerprint,
       body_text: bodyText, body_hash: revision.body_hash, provider_id: emission.provider_id, fiscal_version: emission.fiscal_version, document_id: emission.document_id };
     const command = startCommand(ctx, { command_id: input.command_id, action: input.action, args: input, emission_id: emission.id, body_revision: revision.body_revision, request,
       claim: { token: randomUUID(), lease_until: String(at + leaseMicros) } });
@@ -289,12 +292,12 @@ export function recordExternalEvidence(ctx: RpcContext, input: RecordInput): Emi
     const previous = Array.isArray(command.result?.evidence) ? command.result!.evidence : [];
     const entries = previous.some(v => v && typeof v === "object" && !Array.isArray(v) && v.hash === evidenceHash)
       ? previous : [...previous, { hash: evidenceHash, ...evidence }];
-    const identityMatches = !!result && input.connection_fingerprint === emission.connection_fingerprint && result.kind === "nfe" && result.environment === emission.environment && result.reference === emission.reference &&
+    const identityMatches = !!result && input.connection_fingerprint === emission.connection_fingerprint && result.kind === com1Model() && result.environment === emission.environment && result.reference === emission.reference &&
       (!emission.provider_id || emission.provider_id === result.provider_ref) && (!emission.access_key || !result.access_key || emission.access_key === result.access_key);
     let next = emission.status, reason: string | null = null;
     const series = result && /^\d{1,3}$/.test(result.series) ? Number(result.series) : null;
     const complete = !!result && !!result.provider_ref.trim() && !!result.access_key && /^[0-9A-Z]{44}$/.test(result.access_key) && !!result.protocol?.trim() && series !== null && Number.isInteger(result.number) && result.number > 0 && result.number <= 999999999 && !!micros(result.authorized_at) &&
-      result.access_key.slice(20, 22) === "55" && Number(result.access_key.slice(22, 25)) === series && Number(result.access_key.slice(25, 34)) === result.number;
+      result.access_key.slice(20, 22) === COM1_MODEL_CODE[com1Model()] && Number(result.access_key.slice(22, 25)) === series && Number(result.access_key.slice(25, 34)) === result.number;
     if (!["autorizada", "cancelada", "denegada"].includes(emission.status)) {
       if (!identityMatches) { next = "incerta"; reason = result ? "com1_evidence_identity_mismatch" : input.error?.code ?? "fiscal_no_conclusive_answer"; }
       else if (command.body_revision !== emission.current_body_revision) { next = "incerta"; reason = "com1_late_revision_evidence"; }
@@ -302,6 +305,9 @@ export function recordExternalEvidence(ctx: RpcContext, input: RecordInput): Emi
       else if (result!.status === "rejected") next = "rejeitada";
       else if (result!.status === "denied") next = "denegada";
       else if (result!.status === "processing") next = "processando";
+      // NFC-e em contingência offline: vale para o consumidor e o cofre a
+      // transmite sozinho; fica em processamento até a SEFAZ autorizar.
+      else if (result!.status === "contingency" && com1Model() === "nfce") { next = "processando"; reason = "fiscal_contingency_pending"; }
       // Cancelada diretamente no cofre antes da retomada: o resultado é
       // conclusivo. Registra a autorização e o cancelamento, sem novo pedido.
       else if (result!.status === "cancelled") { next = complete ? "cancelada" : "incerta"; if (!complete) reason = "com1_authorization_incomplete"; }
@@ -367,9 +373,9 @@ export function saveEffect(ctx: RpcContext, effect: EffectView, options: { apply
   });
 }
 
-const cancellationSelect = `SELECT *,${instantColumns(["event_at", "created_at", "updated_at"])} FROM ${T.cancel}`;
+const cancellationSelect = () => `SELECT *,${instantColumns(["event_at", "created_at", "updated_at"])} FROM ${T.cancel}`;
 function cancellationRow(ctx: RpcContext, emissionId: string): Row | null {
-  return one(ctx.db, `${cancellationSelect} WHERE emission_id=?`, emissionId);
+  return one(ctx.db, `${cancellationSelect()} WHERE emission_id=?`, emissionId);
 }
 function cancellationView(row: Row): CancellationView {
   return {
@@ -413,14 +419,14 @@ export function claimStoredCancellation(ctx: RpcContext, input: CancelClaimInput
     const resuming = !!stored && ["enviando", "incerto"].includes(String(stored.state));
     if (resuming && stored!.justification !== input.justification) raise("40001", "com1_cancellation_resume_required");
     const at = ctx.clock.next();
-    const active = one(ctx.db, `${commandSelect} WHERE emission_id=? AND action='cancel' AND state IN ('claimed','pending') AND token IS NOT NULL AND lease_until>? ORDER BY created_at DESC LIMIT 1`, emission.id, String(at));
+    const active = one(ctx.db, `${commandSelect()} WHERE emission_id=? AND action='cancel' AND state IN ('claimed','pending') AND token IS NOT NULL AND lease_until>? ORDER BY created_at DESC LIMIT 1`, emission.id, String(at));
     if (active) {
       if (!stored) raise("55000", "com1_cancellation_missing");
       return { emission, cancellation: cancellationView(stored), command: commandRow(active), disposition: "busy" };
     }
     const body = resuming ? String(stored!.body) : com1Json({ justificativa: input.justification });
     const bodyHash = com1Sha256(body);
-    const request: JsonObject = { kind: "nfe", environment: emission.environment, reference: emission.reference,
+    const request: JsonObject = { kind: com1Model(), environment: emission.environment, reference: emission.reference,
       connection_fingerprint: emission.connection_fingerprint, provider_id: emission.provider_id, access_key: emission.access_key,
       body_text: body, body_hash: bodyHash };
     const command = startCommand(ctx, { command_id: input.command_id, action: "cancel", args: input, emission_id: emission.id,
@@ -480,7 +486,7 @@ export function recordCancellationEvidence(ctx: RpcContext, input: CancelRecordI
     const entries = previous.some(v => v && typeof v === "object" && !Array.isArray(v) && v.hash === evidenceHash)
       ? previous : [...previous, { hash: evidenceHash, ...evidence }];
     const identityMatches = !!result && input.connection_fingerprint === emission.connection_fingerprint &&
-      result.kind === "nfe" && result.environment === emission.environment && result.reference === emission.reference &&
+      result.kind === com1Model() && result.environment === emission.environment && result.reference === emission.reference &&
       result.provider_ref === emission.provider_id && result.access_key === emission.access_key;
     const cancelled = identityMatches && result!.status === "cancelled";
     const sameBody = command.request?.body_hash === stored.body_hash;

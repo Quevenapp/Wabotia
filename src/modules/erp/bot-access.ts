@@ -3,6 +3,7 @@
 import { one } from "../../db";
 import { ApiError, json, type Actor, type Env } from "../../types";
 import { COM1_OPERATIONS } from "../../erp/commercial-nfe/metadata.ts";
+import { NFCE_OPERATIONS } from "../../erp/commercial-nfe/nfce-metadata.ts";
 import { BLING_MODULE_CONTRACT, BLING_OPERATIONS } from "../../erp/bling/schema.ts";
 import { ERP_IMPORT_KINDS, erpRouteRequirement } from "../../erp/parts-requirements.ts";
 import { ERP_PART_NAMES, erpRequirement, type ErpModuleId } from "../../erp/parts.ts";
@@ -73,6 +74,10 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
   ...COM1_OPERATIONS.map(op => ({ id: op.name, method: op.method, path: `erp-comercial-nfe/${op.path}`, summary: op.summary, sensitive: op.sensitive,
     group: "nfe", description: `${op.summary}.${op.sensitive ? " Mexe na nota fiscal: a pessoa com o papel fiscal confirma." : " Só consulta, sem mudar a nota."}`,
     params: { type: "object" as const, properties: {}, required: [] } })),
+  // Cupom fiscal do balcão (NFC-e): emitir, consultar e cancelar mexem na nota (sensíveis).
+  ...NFCE_OPERATIONS.map(op => ({ id: op.name, method: op.method, path: `erp-comercial-nfe/${op.path}`, summary: op.summary, sensitive: op.sensitive,
+    group: "nfe", description: `${op.summary}. Exige Caixa / PDV e Fiscal ligados.${op.sensitive ? " Mexe no cupom fiscal: a pessoa com o papel confirma." : " Só consulta, sem mudar o cupom."}`,
+    params: { type: "object" as const, properties: {}, required: [] } })),
   { id: "erp_preferences_import_jobs", method: "GET", path: "erp/v1/importacoes", summary: "Consultar importações por planilha", sensitive: false, group: "importacao",
     description: "Lista as importações por planilha da área, com situação e contagem de linhas criadas, alteradas e recusadas. Só consulta.",
     params: { type: "object", properties: {}, required: [] } },
@@ -100,6 +105,7 @@ export const ERP_BOT_SENSITIVE_READS: readonly string[] = ERP_BOT_OPERATIONS.fil
 
 /** Partes do ERP que a rota exige antes do objeto (o motor revalida). */
 export function erpBotModules(op: Pick<ErpBotOperation, "method" | "path">): readonly ErpModuleId[] {
+  if (op.path.startsWith("erp-comercial-nfe/nfce/")) return erpRequirement("erp-fiscal", "erp-pdv").all;
   if (op.path.startsWith("erp-comercial-nfe/")) return erpRequirement("erp-fiscal").all;
   // A parte de cada documento é conferida na rota (proposta e pedido: Vendas; nota: Fiscal; conta: Financeiro).
   if (op.path === ERP_CONVERSA_ROUTE || op.path.startsWith(`${ERP_CONVERSA_ROUTE}/`)) return erpRequirement("erp").all;

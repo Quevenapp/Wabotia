@@ -2,6 +2,8 @@ import type { ErpActor } from "../../../engine/identity.ts";
 import { raise } from "../../../engine/errors.ts";
 import type { RpcContext } from "../../../engine/registry.ts";
 import { activeRole, permitted } from "../../access/public.ts";
+import { access as posAccess } from "../../pos/internal.ts";
+import { com1Model } from "./model.ts";
 
 export type Com1Action = "read" | "configure" | "prepare" | "emit" | "resume" | "cancel" | "effect_stock" | "effect_finance";
 
@@ -87,9 +89,10 @@ export function com1ExecutionActor(actor: ErpActor, action: Com1Action, authorit
  * política. Evidências usam a capacidade durável e não normalizam identidade. */
 export function com1ActionForRpc(name: string, value?: unknown): Com1Action | null {
   const input = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-  if (["erp_com1_config_get", "erp_com1_get", "erp_com1_list"].includes(name)) return "read";
-  if (name === "erp_com1_config_save") return "configure";
-  if (name === "erp_com1_prepare") return "prepare";
+  if (["erp_com1_config_get", "erp_com1_get", "erp_com1_list", "erp_com1_nfce_config_get", "erp_com1_nfce_sales"].includes(name)) return "read";
+  if (name === "erp_com1_config_save" || name === "erp_com1_nfce_config_save") return "configure";
+  if (name === "erp_com1_prepare" || name === "erp_com1_nfce_prepare") return "prepare";
+  if (name === "erp_com1_nfce_sale_cancel") return "cancel";
   if (name === "erp_com1_claim") return input.action === "emit" || input.action === "resume" ? input.action : null;
   if (name === "erp_com1_cancel_claim") return "cancel";
   if (["erp_com1_effect_apply", "erp_com1_effect_reverse"].includes(name))
@@ -104,6 +107,14 @@ export function requireCom1Access(ctx: RpcContext, action: Com1Action, expectedU
   requireCom1SensitivePolicy(actor, action, com1Authority(ctx));
   const role = activeRole(ctx.db, actor.user_id);
   if (!role || role !== actor.erp_role) raise("42501", "fiscal_forbidden");
+  // NFC-e do balcão: quem fecha a venda no caixa pede, consulta e cancela o
+  // cupom dela pelas permissões do PDV; fiscal e administrador, pelas da nota.
+  if (com1Model() === "nfce" && ["read", "prepare", "emit", "resume", "cancel"].includes(action) &&
+      (action === "read" ? ["vendas", "financeiro"] : ["vendas"]).includes(role)) {
+    const pdv = posAccess(ctx.db, actor.user_id, action !== "read");
+    if (action !== "read" && !pdv.finish) raise("42501", "fiscal_forbidden");
+    return actor;
+  }
   const allowed = action === "configure" ? ["admin"]
     : action === "read" ? ["admin", "consulta", "fiscal"]
     : action === "effect_stock" ? ["admin", "estoque"]

@@ -186,4 +186,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Fatia B2: documentos e contas em aberto no Bling viram documentos e títulos do ERP pelas mesmas RPCs das telas, sem efeitos de estoque, contas ou nota; os encerrados ficam só para consulta, fora das tabelas de documento e de título.",
     replaced_by: "Versão 13 aditiva (12→13): wb_bling_adoption_doc_link (vínculo de proposta, pedido de venda, pedido de compra, conta a receber e a pagar ao documento ou título do ERP), wb_bling_adoption_doc_review (pendências com o cadastro que falta adotar) e wb_bling_adoption_history (índice do espelho histórico: número, contato, data, situação e total do que já está encerrado no Bling; o documento como veio continua no acervo). Desligar do Bling apaga só o vínculo.",
   },
+  {
+    id: "cupom-nfce",
+    oracle: "A NFC-e do PDV é preparada pela tela de notas fiscais legada (homologação), a partir do pedido, com certificado no ERP.",
+    reason: "Fatia balcão com NFC-e: a venda do caixa pede o cupom ao cofre da NFapi pela mesma máquina da NF-e comercial (revisão imutável, reivindicação durável, retomada por consulta, cancelamento, efeitos e auditoria), sem a venda esperar a nota.",
+    replaced_by: "Versão 14 aditiva (13→14): counter_emission, counter_revision, counter_command, counter_cancel, counter_effect e counter_audit em erp_fiscal_vault, com o DDL da versão 10 e a chave de acesso do modelo 65, e counter_settings (natureza do cupom). A conexão, o ambiente e a habilitação de produção são os de commercial_settings. Série, CSC e contingência ficam no cofre.",
+  },
 ];
