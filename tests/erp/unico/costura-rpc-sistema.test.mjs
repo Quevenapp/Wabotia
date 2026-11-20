@@ -45,6 +45,20 @@ test("B2: nomes só do sistema são recusados na costura, sem ir ao objeto nem a
   assert.deepEqual(touched, []);
 });
 
+test("B4 (segunda revisão): as erp_sync_* do service_role não passam da costura a partir de pessoa", async () => {
+  const env = new Proxy({}, { get(_target, key) { throw new Error(`acesso inesperado: ${String(key)}`); } });
+  const serviceOnly = ["erp_sync_ack", "erp_sync_census_add", "erp_sync_census_diff", "erp_sync_claim", "erp_sync_indicator_observe",
+    "erp_sync_pull", "erp_sync_remote_deleted", "erp_sync_run_get", "erp_sync_run_update", "erp_sync_stage"];
+  for (const name of serviceOnly) {
+    assert.ok(SYSTEM_RPCS.has(name), name);
+    const response = await seam.localFetch(env, profile, actor, identity())(`https://erp.wabotia.invalid/rest/v1/rpc/${name}`, { method: "POST", body: "{}" });
+    assert.equal(response.status, 403, name);
+    assert.deepEqual(await response.json(), { code: "42501", message: "erp_rpc_system_only" }, name);
+  }
+  // As da pessoa (com p_user_id) continuam fora do inventário do sistema.
+  for (const name of ["erp_sync_request", "erp_sync_status", "erp_sync_browser", "erp_sync_request_without_browser"]) assert.ok(!SYSTEM_RPCS.has(name), name);
+});
+
 test("B2: a rota /erp-rpc e a costura usam o mesmo inventário", () => {
   const endpoint = readFileSync("src/erp/engine/rpc-endpoint.ts", "utf8");
   assert.match(endpoint, /import \{ SYSTEM_RPCS, COM1_INTERNAL_RPCS \} from "\.\/system-rpcs\.ts";/);

@@ -234,6 +234,8 @@ export const eventTypes = [
   "payment.duplicate_refunded",
   "payment.hook_failed",
 ];
+/** Concessões do bot e opções do que vai para a IA (bot_options da conexão). */
+const BOT_GRANT_OPTIONS = ["mask_personal", "pdf_raw_fallback", "image_to_team", "erp_operations", "erp_autonomous_operations"];
 const text = (value: any, max = 3800) => {
   requireValue(
     typeof value === "string" && value.trim().length > 0 && value.length <= max,
@@ -2923,6 +2925,16 @@ export async function perform(
       profile,
     );
     requireValue(bot, "Bot não encontrado.");
+    // Concessões do bot e opções do que vai para a IA são administração: pela
+    // pessoa agindo por um bot, só com proposta confirmada por ela; nunca
+    // autônomo, nem que a opção autônoma liste outras leituras.
+    if (actor.via && BOT_GRANT_OPTIONS.some((key) => data[key] !== undefined)) {
+      const proposal = actor.via.proposal_id && await one(env,
+        "SELECT id FROM bot_proposals WHERE id=? AND profile_id=? AND actor=? AND bot_id=? AND run_id=? AND status='running' AND decided_at IS NOT NULL",
+        actor.via.proposal_id, profile, actor.id, actor.via.bot_id, actor.via.run_id);
+      if (!proposal)
+        throw new ApiError(403, "proposal_required", "Mudar as concessões do bot exige proposta confirmada pela pessoa.");
+    }
     if (data.erp_operations !== undefined) {
       data.erp_operations = erpBotOperationsInput(data.erp_operations);
       requireValue(!data.erp_operations.length || data.erp_data_acknowledged === true,
@@ -2988,7 +3000,7 @@ export async function perform(
         [JSON.stringify({ [bot.remote_profile]: data.name }), bot.connection_id],
       ]);
     const personalOptions = Object.fromEntries(
-      ["mask_personal", "pdf_raw_fallback", "image_to_team", "erp_operations", "erp_autonomous_operations"]
+      BOT_GRANT_OPTIONS
         .filter((key) => data[key] !== undefined)
         .map((key) => [key, data[key]]),
     );

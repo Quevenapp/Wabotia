@@ -254,8 +254,15 @@ export function authorizeBlingOperation<K extends BlingOperationName>(ctx: Bling
     // Prévia não cria comando durável: a confirmação fica vinculada ao hash
     // integral do pedido, além de operação, pessoa e prazo da confirmação.
     const command = typeof body.command_id === "string" ? body.command_id : name === "erp_bling_purge_preview" ? authorization.request_hash : undefined;
-    if (!confirmation || !command || confirmation.command_id !== command || confirmation.operation !== name || !authorization?.request_hash || confirmation.request_hash !== authorization.request_hash || confirmation.expires_at <= ctx.clock.now() || confirmation.confirmed_by !== actor.user_id) throw new BlingError("BLING_SCOPE_REQUIRED");
+    if (!blingConfirmedByPerson(ctx, name, command)) throw new BlingError("BLING_SCOPE_REQUIRED");
   }
+}
+
+/** Proposta confirmada pela própria pessoa para este comando, este pedido e dentro do prazo. */
+export function blingConfirmedByPerson(ctx: BlingContext, name: BlingOperationName, command: string | undefined): boolean {
+  const authorization = ctx.authorization, confirmation = authorization?.confirmation;
+  return !!confirmation && !!command && confirmation.command_id === command && confirmation.operation === name && !!authorization?.request_hash &&
+    confirmation.request_hash === authorization.request_hash && confirmation.expires_at > ctx.clock.now() && confirmation.confirmed_by === ctx.identity.actor?.user_id;
 }
 
 /** Contrato do módulo pronto para o catálogo. Nenhuma rota é instalada aqui. */

@@ -165,7 +165,7 @@ export const BOT_TOOLS: BotTool[] = [
   {
     name: "propor_acao",
     description:
-      "Prepara uma operação de ação (tipo acao) para a PESSOA confirmar com um toque. Não executa nada: a pessoa vê a proposta com Confirmar e Cancelar. Você nunca confirma; diga à pessoa que confirme.",
+      "Prepara uma operação de ação (tipo acao), ou uma consulta marcada exige_proposta, para a PESSOA confirmar com um toque. Não executa nada: a pessoa vê a proposta com Confirmar e Cancelar. Você nunca confirma; diga à pessoa que confirme.",
     schema: {
       type: "object",
       properties: {
@@ -315,7 +315,8 @@ export async function runBotTool(
       if (state.proposals >= MAX_PROPOSALS)
         return toolError(`Limite de ${MAX_PROPOSALS} propostas por resposta.`);
       const op = await findOperation(ctx, input.operacao);
-      if (!op || op.kind !== "write")
+      // Leitura sensível também se propõe: a pessoa confirma e recebe o resultado.
+      if (!op || (op.kind !== "write" && !op.sensitive))
         return toolError(
           "Ação desconhecida ou fora do acesso da pessoa. Use buscar_operacoes.",
         );
@@ -606,9 +607,10 @@ export async function confirmProposal(
         mfa: actor.mfa ?? person.mfa,
         via,
       } as Actor,
+      // GET continua GET (leitura sensível proposta): parâmetros na consulta.
       buildCall(
         profile,
-        { path: row.path, kind: "write", method: row.method },
+        { path: row.path, kind: row.method === "GET" ? "read" : "write", method: row.method },
         json(row.params, {}),
       ),
       // Uma chave por tentativa: um 403 mfa_required não roda nada e devolve

@@ -54,6 +54,10 @@ function resolve(schema: any, components: any, depth = 0): any {
   return out;
 }
 
+/** Leitura do ERP marcada como sensível: entra no catálogo como "exige proposta". */
+export const erpSensitiveRead = (route: string) =>
+  ERP_BOT_OPERATIONS.some((op) => op.sensitive && op.method === "GET" && op.path === route);
+
 /** Todas as operações das rotas de módulos, uma vez por isolado. */
 export function fullCatalog(): CatalogOperation[] {
   if (built) return built;
@@ -102,10 +106,13 @@ export function fullCatalog(): CatalogOperation[] {
       const scope = /Permissão: ([\w:]+)/.exec(entry.description || "")?.[1] || "";
       const bot = owner.bot || {};
       const hint = bot.hints?.[name] ?? bot.hints?.[route];
+      // Leitura sensível do ERP (arquivo de cobrança, registro de atividades)
+      // exige proposta, salvo a opção autônoma do administrador.
       const sensitive =
-        kind === "write" &&
-        (scope === "billing:write" ||
-          (bot.sensitive || []).some((p) => name.startsWith(p)));
+        (kind === "write" &&
+          (scope === "billing:write" ||
+            (bot.sensitive || []).some((p) => name.startsWith(p)))) ||
+        (kind === "read" && erpSensitiveRead(route));
       if ((bot.deny || []).some((p) => name.startsWith(p) || route.startsWith(p)))
         continue;
       out.push({
@@ -192,6 +199,7 @@ export function operationView(op: CatalogOperation) {
     modulo: op.module,
     resumo: op.summary,
     ...(op.sensitive ? { exige_segundo_fator: true } : {}),
+    ...(op.kind === "read" && op.sensitive ? { exige_proposta: true } : {}),
     parametros: params.length <= 2500 ? op.params : compactParams(op),
   };
 }

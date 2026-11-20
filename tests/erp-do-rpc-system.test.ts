@@ -19,8 +19,10 @@ const post = (profile: string, name: string, body: unknown, headers: Record<stri
 
 describe("ERP: rota /erp-rpc com as RPCs do agendador", () => {
   it("as 11 RPCs do agendador estão registradas", () => {
-    expect(SYSTEM_RPCS.size).toBe(11);
-    for (const name of SYSTEM_RPCS) expect(isPorted(name), name).toBe(true);
+    // As erp_sync_* (só do sistema no Fagoo) entram antes de portadas.
+    const scheduler = [...SYSTEM_RPCS].filter(name => !name.startsWith("erp_sync_"));
+    expect(scheduler.length).toBe(11);
+    for (const name of scheduler) expect(isPorted(name), name).toBe(true);
   });
 
   it("task_claim e export_chunk sem a marca interna são recusados; com a marca, passam; o agendador segue passando", async () => {

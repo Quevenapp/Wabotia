@@ -24,6 +24,19 @@ export const SYSTEM_RPCS: ReadonlySet<string> = new Set([
   "erp_platform_export_expired",
   "erp_platform_export_removed",
   "erp_wabotia_state",
+  // Sincronização com a origem (erp-api, origin-two-way.mjs): no Fagoo só o
+  // service_role as chama (sem p_user_id). Ainda não portadas; ficam aqui
+  // desde já para que, portadas, não sejam alcançáveis por pessoa.
+  "erp_sync_ack",
+  "erp_sync_census_add",
+  "erp_sync_census_diff",
+  "erp_sync_claim",
+  "erp_sync_indicator_observe",
+  "erp_sync_pull",
+  "erp_sync_remote_deleted",
+  "erp_sync_run_get",
+  "erp_sync_run_update",
+  "erp_sync_stage",
 ]);
 /** Operações fiscais internas; preserva o inventário legado do agendador. */
 export const COM1_INTERNAL_RPCS: ReadonlySet<string> = new Set([
