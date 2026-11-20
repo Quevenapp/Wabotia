@@ -28,7 +28,7 @@ export function requireVaultBinding(emission: StoredEmission, vault: CommercialV
 
 /** Verifica a identidade também nas leituras: nunca usar a referência como ID do provedor. */
 export function matchesCommercialResult(emission: StoredEmission, result: FiscalResult | null): boolean {
-  return !!result && result.kind === "nfe" && result.environment === emission.environment &&
+  return !!result && result.kind === (emission.model === "nfce" ? "nfce" : "nfe") && result.environment === emission.environment &&
     result.reference === emission.reference && typeof result.provider_ref === "string" && !!result.provider_ref &&
     (!emission.provider_id || result.provider_ref === emission.provider_id) &&
     (!emission.access_key || result.access_key === emission.access_key);
@@ -77,22 +77,28 @@ export function privateFiscalFile(emissionId: string, kind: "danfe" | "xml" | "c
   } });
 }
 
-export async function commercialArtifact(emission: StoredEmission, vault: CommercialVaultSession, kind: "danfe" | "xml"): Promise<Response> {
+/** DANFE da NF-e ou DANFCE (cupom de 80 mm) da NFC-e, sempre o arquivo do cofre.
+ * O cupom em contingência offline (ainda sem protocolo) também sai: vale para o consumidor. */
+export async function commercialArtifact(emission: StoredEmission, vault: CommercialVaultSession, kind: "danfe" | "xml",
+  copy?: "consumer" | "establishment"): Promise<Response> {
   requireVaultBinding(emission, vault);
-  if (!emission.provider_id || !emission.environment_confirmed || !["autorizada", "cancelada"].includes(emission.status))
+  const counter = emission.model === "nfce", document = counter ? "nfce" : "nfe";
+  const contingency = counter && emission.status === "processando" && emission.provider_status === "contingency";
+  if (!emission.provider_id || (!emission.environment_confirmed && !contingency) || (!["autorizada", "cancelada"].includes(emission.status) && !contingency))
     throw new CommercialNfeError(409, "fiscal_artifact_unavailable", "O arquivo aguarda a confirmação da emissão no cofre.");
-  const current = await vault.provider.get(vault.context, "nfe", emission.provider_id, commercialLookupIdentity(emission));
-  if (!matchesCommercialResult(emission, current) || !["authorized", "cancelled"].includes(current.status)) invalidFile();
+  const current = await vault.provider.get(vault.context, document, emission.provider_id, commercialLookupIdentity(emission));
+  if (!matchesCommercialResult(emission, current) || !["authorized", "cancelled", ...(contingency ? ["contingency"] : [])].includes(current.status)) invalidFile();
   if (kind === "danfe") {
-    const file = await vault.provider.danfe(vault.context, emission.provider_id);
+    const file = counter ? await vault.provider.danfce(vault.context, emission.provider_id, { width: "80", ...(copy ? { copy } : {}) })
+      : await vault.provider.danfe(vault.context, emission.provider_id);
     if (!(file.body instanceof Uint8Array) || file.size !== file.body.byteLength || !/^application\/pdf(?:\s*;|$)/i.test(file.content_type) ||
       new TextDecoder().decode(file.body.subarray(0, 5)) !== "%PDF-") invalidFile();
     return privateFiscalFile(emission.id, kind, file.body);
   }
-  const xml = await vault.provider.xml(vault.context, "nfe", emission.provider_id);
+  const xml = await vault.provider.xml(vault.context, document, emission.provider_id);
   const doc = parseXml(xml), ns = "http://www.portalfiscal.inf.br/nfe";
   const invoices = doc.getElementsByTagNameNS(ns, "infNFe"), environments = doc.getElementsByTagNameNS(ns, "tpAmb");
-  if (invoices.length !== 1 || invoices.item(0)!.getAttribute("Id") !== `NFe${emission.access_key}` || !environments.length) invalidFile();
+  if (invoices.length !== 1 || (!contingency && invoices.item(0)!.getAttribute("Id") !== `NFe${emission.access_key}`) || !environments.length) invalidFile();
   for (let i = 0; i < environments.length; i++)
     if (environments.item(i)!.textContent?.trim() !== (emission.environment === "producao" ? "1" : "2")) invalidFile();
   return privateFiscalFile(emission.id, kind, new TextEncoder().encode(xml));

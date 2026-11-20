@@ -33,9 +33,10 @@ export function deferredCom1Effect(ctx: RpcContext, documentId: string | null, a
   if (targetOrigin(ctx.db, "document", documentId)) return null;
   const settings = one(ctx.db, "SELECT stock_timing,finance_timing FROM erp_fiscal_vault__commercial_settings WHERE id=1");
   if (settings?.[`${axis}_timing`] !== "on_authorization") return null;
-  const emission = one(ctx.db, `SELECT status FROM erp_fiscal_vault__order_emission
-    WHERE document_id=? ORDER BY fiscal_version DESC LIMIT 1`, documentId);
-  return emission?.status === "autorizada" ? null : { outcome: "deferred", reason: "awaiting_fiscal_authorization" };
+  // A NFC-e do balcão (counter_emission) autoriza o mesmo pedido que a NF-e.
+  const authorized = [ORDER_EMISSION, COUNTER_EMISSION].some(table => one(ctx.db, `SELECT status FROM ${table}
+    WHERE document_id=? ORDER BY fiscal_version DESC LIMIT 1`, documentId)?.status === "autorizada");
+  return authorized ? null : { outcome: "deferred", reason: "awaiting_fiscal_authorization" };
 }
 
 /** Somente caminhos de postagem; replay permanece anterior à guarda. */
@@ -43,8 +44,14 @@ export function requireCom1Posting(ctx: RpcContext, documentId: string | null, a
   if (deferredCom1Effect(ctx, documentId, axis)) raise("40001", "awaiting_fiscal_authorization");
 }
 
-const protectedEmission = (ctx: RpcContext, documentId: string) => one(ctx.db, `SELECT id,status FROM erp_fiscal_vault__order_emission
-  WHERE document_id=? AND status IN ('enviando','processando','incerta','autorizada') ORDER BY fiscal_version DESC LIMIT 1`, documentId);
+const ORDER_EMISSION = "erp_fiscal_vault__order_emission", COUNTER_EMISSION = "erp_fiscal_vault__counter_emission";
+/** Emissão vigente do pedido em qualquer modelo (NF-e ou NFC-e do balcão). */
+const protectedEmission = (ctx: RpcContext, documentId: string) => [ORDER_EMISSION, COUNTER_EMISSION].map(table => one(ctx.db, `SELECT id,status FROM ${table}
+  WHERE document_id=? AND status IN ('enviando','processando','incerta','autorizada') ORDER BY fiscal_version DESC LIMIT 1`, documentId)).find(row => row) ?? null;
+
+/** O pedido tem nota vigente ou em andamento (NF-e ou NFC-e): o cancelamento
+ * comercial direto não substitui o cancelamento fiscal (PDV, sale_cancel). */
+export const com1EmissionInForce = (ctx: RpcContext, documentId: string): boolean => !!protectedEmission(ctx, documentId);
 
 /** Capacidade só da compensação Com1 (effects.ts), que já conferiu
  * cancelamento, responsabilidade pelo lançamento e retorno físico. Vale só
@@ -66,12 +73,12 @@ function openCompensation(ctx: RpcContext, documentId: string, axis: EffectAxis)
     UNION SELECT p.id FROM erp_${axis}__invoice_posting p JOIN erp_fiscal_invoices__invoice_order o ON o.invoice_id=p.invoice_id
       WHERE o.document_id=? AND p.state='active'`, documentId, documentId).rows.map(row => String(row.id)));
   if (!active.size) return false;
-  return ctx.db.exec(`SELECT json_extract(f.ids,'$.posting_id') AS posting_id,f.compensation_state,
-      json_extract(f.compensation_result,'$.reason') AS reason FROM erp_fiscal_vault__order_effect f
-    JOIN erp_fiscal_vault__order_emission e ON e.id=f.emission_id
+  return ["order", "counter"].flatMap(family => ctx.db.exec(`SELECT json_extract(f.ids,'$.posting_id') AS posting_id,f.compensation_state,
+      json_extract(f.compensation_result,'$.reason') AS reason FROM erp_fiscal_vault__${family}_effect f
+    JOIN erp_fiscal_vault__${family}_emission e ON e.id=f.emission_id
     WHERE e.document_id=? AND e.status='cancelada' AND f.axis=? AND f.fingerprint IS NOT NULL
       AND COALESCE(f.compensation_state,'')<>'revertido'
-      AND COALESCE(json_extract(f.compensation_result,'$.state'),'')<>'transferido'`, documentId, axis).rows
+      AND COALESCE(json_extract(f.compensation_result,'$.state'),'')<>'transferido'`, documentId, axis).rows)
     .some(row => active.has(String(row.posting_id)) &&
       !(axis === "finance" && row.compensation_state === "compensacao_pendente" && FINANCE_MANUAL_REVIEW.has(String(row.reason))));
 }
@@ -145,10 +152,10 @@ export function guardCom1NotesSave(ctx: RpcContext, documentId: string, currentN
 /** A lixeira não pode ocultar um pedido com emissão enviada ou histórica,
  * inclusive quando Estoque/Financeiro foram pulados. Não depende de partes. */
 export function com1TrashBlocker(ctx: RpcContext, documentId: string): "invoice_linked" | null {
-  return one(ctx.db, `SELECT 1 FROM erp_fiscal_vault__order_emission e WHERE e.document_id=? AND
+  return ["order", "counter"].some(family => one(ctx.db, `SELECT 1 FROM erp_fiscal_vault__${family}_emission e WHERE e.document_id=? AND
     (e.status NOT IN ('bloqueada','preparada','arquivada') OR e.provider_id IS NOT NULL OR EXISTS (
-      SELECT 1 FROM erp_fiscal_vault__order_command c WHERE c.emission_id=e.id
-      AND c.action IN ('emit','resume') AND c.token IS NOT NULL)) LIMIT 1`, documentId) ? "invoice_linked" : null;
+      SELECT 1 FROM erp_fiscal_vault__${family}_command c WHERE c.emission_id=e.id
+      AND c.action IN ('emit','resume') AND c.token IS NOT NULL)) LIMIT 1`, documentId)) ? "invoice_linked" : null;
 }
 
 // Não são campos fiscais/comerciais: IDs e versões de leitura, saldos técnicos,

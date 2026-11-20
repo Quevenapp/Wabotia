@@ -6,6 +6,7 @@ import type {
 } from "../../../commercial-nfe/contracts.ts";
 import { parseCancellationXml } from "../../../commercial-nfe/artifacts.ts";
 import { requireCom1Access } from "./access.ts";
+import { com1Model } from "./model.ts";
 import { requireCommercialEmissionVisible, requireCommercialReadParts } from "./reads.ts";
 import { readCommercialSettings } from "./settings.ts";
 import {
@@ -31,7 +32,7 @@ const positive = (v: unknown): boolean => Number.isSafeInteger(v) && Number(v) >
 export function normalizeCommercialResult(value: unknown): FiscalResult | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const r = value as Record<string, unknown>;
-  if (r.kind !== "nfe" || !["authorized", "rejected", "denied", "processing", "error", "undetermined", "cancelled"].includes(String(r.status)) ||
+  if (r.kind !== com1Model() || !["authorized", "rejected", "denied", "processing", "error", "undetermined", "cancelled", ...(com1Model() === "nfce" ? ["contingency"] : [])].includes(String(r.status)) ||
       typeof r.provider_ref !== "string" || !/^[A-Za-z0-9_-]{1,200}$/.test(r.provider_ref) ||
       typeof r.reference !== "string" || !r.reference || !["homologacao", "producao"].includes(String(r.environment)) ||
       typeof r.series !== "string" || !/^\d{0,3}$/.test(r.series) || !Number.isInteger(r.number) || Number(r.number) < 0 || Number(r.number) > 999999999 ||
@@ -42,7 +43,7 @@ export function normalizeCommercialResult(value: unknown): FiscalResult | null {
       ["issued_at", "authorized_at"].some(field => r[field] != null && (typeof r[field] !== "string" || !Number.isFinite(Date.parse(String(r[field]))))) ||
       (r.total != null && (typeof r.total !== "number" || !Number.isFinite(r.total) || r.total < 0 || !Number.isSafeInteger(Math.round(r.total * 100))))) return null;
   return {
-    kind: "nfe", status: r.status as FiscalResult["status"], provider_ref: r.provider_ref,
+    kind: com1Model(), status: r.status as FiscalResult["status"], provider_ref: r.provider_ref,
     reference: r.reference, environment: r.environment as FiscalResult["environment"], series: r.series, number: Number(r.number),
     access_key: r.access_key as string | null ?? null, protocol: r.protocol as string | null ?? null,
     nfse_number: null, issued_at: r.issued_at as string | null ?? null, authorized_at: r.authorized_at as string | null ?? null,
@@ -96,7 +97,7 @@ function preserveParts(ctx: RpcContext, commandId: string, parts: JsonValue | un
 }
 
 function receiptRequest(view: EmissionView): JsonObject {
-  return { kind: "nfe", environment: view.environment, reference: view.reference, connection_fingerprint: view.connection_fingerprint,
+  return { kind: com1Model(), environment: view.environment, reference: view.reference, connection_fingerprint: view.connection_fingerprint,
     body_text: view.revision.body ? com1Json(view.revision.body) : null, body_hash: view.revision.body_hash,
     provider_id: view.provider_id, fiscal_version: view.fiscal_version, document_id: view.document_id };
 }
@@ -154,7 +155,7 @@ export function createCommercialNfeLifecycle(options: CommercialNfeLifecycleOpti
         return { emission: view, revision: view.revision, command: receipt, disposition: completed ? "replay" : "busy" };
       }
       if (input.action === "emit") {
-        if (!ctx.parts.sales || !ctx.parts.products) raise("55000", "module_disabled");
+        if (!ctx.parts.sales || !ctx.parts.products || (com1Model() === "nfce" && !ctx.parts.pos)) raise("55000", "module_disabled");
         if (view.status !== "preparada" || !view.revision.body || view.revision.blockers.length) raise("55000", "com1_preparation_blocked");
         firstSendConfiguration(ctx, view);
         if (!options.sourceFingerprint) raise("0A000", "com1_not_ready");

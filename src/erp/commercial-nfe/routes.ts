@@ -11,6 +11,8 @@ import { commercialNfeHttp, type CommercialNfeHttpHandler } from "./slots.ts";
 export { COM1_MODULE_CONTRACT, COM1_OPERATIONS, COM1_RESPONSE_SCHEMAS } from "./metadata.ts";
 export type { CommercialNfeOperation } from "./metadata.ts";
 import { COM1_OPERATIONS, type CommercialNfeOperation } from "./metadata.ts";
+import { NFCE_OPERATIONS, NFCE_ROLES } from "./nfce-metadata.ts";
+export { NFCE_OPERATIONS } from "./nfce-metadata.ts";
 
 export interface CommercialNfeHttpContext {
   env: Env;
@@ -75,6 +77,15 @@ function validateInput(operation: CommercialNfeOperation, input: Record<string, 
   }
   for (const key of ["page", "per_page"])
     if (input[key] !== undefined && (!/^\d+$/.test(String(input[key])) || !Number.isSafeInteger(Number(input[key])) || Number(input[key]) < 1 || (key === "per_page" && Number(input[key]) > 100))) invalid(key);
+  if (operation.name.startsWith("nfce.")) {
+    if (input.consumer_document !== undefined && input.consumer_document !== null && (typeof input.consumer_document !== "string" || input.consumer_document.length > 24 ||
+      !/^[0-9A-Za-z .\-/]*$/.test(input.consumer_document))) invalid("consumer_document");
+    if (input.nature_id !== undefined && input.nature_id !== null && (typeof input.nature_id !== "string" || !UUID.test(input.nature_id))) invalid("nature_id");
+    if (input.cash_session_id !== undefined && (typeof input.cash_session_id !== "string" || !UUID.test(input.cash_session_id))) invalid("cash_session_id");
+    for (const key of ["from", "to"]) if (input[key] !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(String(input[key]))) invalid(key);
+    if (input.pending_only !== undefined && !["true", "false"].includes(String(input.pending_only))) invalid("pending_only");
+    if (input.via !== undefined && !["consumidor", "estabelecimento"].includes(String(input.via))) invalid("via");
+  }
   if (input.status !== undefined && !["bloqueada", "preparada", "enviando", "processando", "incerta", "rejeitada", "autorizada", "denegada", "cancelada", "arquivada"].includes(String(input.status))) invalid("status");
 }
 
@@ -92,9 +103,9 @@ export async function commercialNfeRoute(env: Env, request: Request, profile: st
     const prefix = `/api/v1/profiles/${encodeURIComponent(profile)}/erp-comercial-nfe/`;
     if (!url.pathname.startsWith(prefix)) throw new ApiError(404, "not_found", "Operação não encontrada.");
     const path = url.pathname.slice(prefix.length).replace(/\/+$/, "");
-    const operation = COM1_OPERATIONS.find(op => op.method === request.method.toUpperCase() && new RegExp(`^${op.path.replace(":id", "[^/]+")}$`).test(path));
+    const operation = [...COM1_OPERATIONS, ...NFCE_OPERATIONS].find(op => op.method === request.method.toUpperCase() && new RegExp(`^${op.path.replace(":id", "[^/]+")}$`).test(path));
     if (!operation) throw new ApiError(404, "not_found", "Operação não encontrada.");
-    const id = operation.path.includes(":id") ? path.split("/")[1] : undefined;
+    const id = operation.path.includes(":id") ? path.split("/")[operation.path.split("/").indexOf(":id")] : undefined;
     if (id !== undefined && !UUID.test(id)) invalid("id");
     const input: Record<string, unknown> = {};
     if (operation.method === "GET") {
@@ -125,11 +136,14 @@ export async function commercialNfeRoute(env: Env, request: Request, profile: st
     };
     const action = operation.name === "com1.effects" && input.axis === "finance" ? "effect_finance" : operation.action;
     identity.actor = com1ExecutionActor(person, action, authority);
-    const allowed = action === "configure" ? ["admin"] : action === "read" ? ["admin", "consulta", "fiscal"]
+    const counter = operation.name.startsWith("nfce.");
+    const allowed = counter ? NFCE_ROLES[action] ?? ["admin"] : action === "configure" ? ["admin"] : action === "read" ? ["admin", "consulta", "fiscal"]
       : action === "effect_stock" ? ["admin", "estoque"] : action === "effect_finance" ? ["admin", "financeiro"] : ["admin", "fiscal"];
     if (!person.erp_role || !allowed.includes(person.erp_role)) throw new ApiError(403, "fiscal_forbidden", "Seu papel não permite esta operação.");
     if (!identity.parts?.customers || !identity.parts.fiscal || (["prepare", "emit"].includes(action) && (!identity.parts.products || !identity.parts.sales)))
-      throw new ApiError(409, "module_disabled", "Esta operação depende de uma parte desligada.");
+      throw new ApiError(409, "module_disabled", counter ? "O cupom fiscal depende das partes Caixa / PDV e Fiscal ligadas. Peça ao administrador para ligá-las em Gestão → Módulos." : "Esta operação depende de uma parte desligada.");
+    if (counter && !identity.parts.pos)
+      throw new ApiError(409, "module_disabled", "O cupom fiscal depende das partes Caixa / PDV e Fiscal ligadas. Peça ao administrador para ligá-las em Gestão → Módulos.");
     const privacy = await (dependencies.privacy ?? erpPrivacy)(env, profile);
     identity.customer_privacy = privacy;
     await (dependencies.checkGate ?? checkGate)(env, profile, identity);
@@ -146,12 +160,12 @@ export async function commercialNfeRoute(env: Env, request: Request, profile: st
     // devolve um vínculo autenticado à pessoa, sem bytes fiscais para a IA.
     // A navegação/download continua exigindo sessão, papel e privacidade.
     if (actor.via && request.headers.get("Accept")?.split(",").some(type => type.trim().split(";")[0] === "application/json") &&
-        result.status === 200 && ["com1.danfe", "com1.xml", "com1.cancel.xml"].includes(operation.name) &&
+        result.status === 200 && ["com1.danfe", "com1.xml", "com1.cancel.xml", "nfce.coupon"].includes(operation.name) &&
         /^(?:application\/pdf|application\/xml)(?:;|$)/i.test(headers.get("Content-Type") ?? "")) {
       const contentType = headers.get("Content-Type")!.split(";")[0];
       const rawSize = headers.get("Content-Length"), size = rawSize !== null && /^\d+$/.test(rawSize) ? Number(rawSize) : null;
       await result.body?.cancel();
-      return Response.json({ emission_id: id, artifact: operation.name === "com1.danfe" ? "danfe" : operation.name === "com1.xml" ? "xml" : "cancellation_xml",
+      return Response.json({ emission_id: id, artifact: operation.name === "com1.danfe" ? "danfe" : operation.name === "nfce.coupon" ? "danfce" : operation.name === "com1.xml" ? "xml" : "cancellation_xml",
         content_type: contentType, size_bytes: size, download_url: url.pathname, authentication_required: true },
         { headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
     }

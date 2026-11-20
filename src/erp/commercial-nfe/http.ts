@@ -9,6 +9,7 @@ import { fiscalProviderFor } from "../emissor/index.ts";
 import type { CommercialConnectionCheck } from "../domains/fiscal/comnfe/settings.ts";
 import type { CommercialNfeHttpContext } from "./routes.ts";
 import type { CommercialNfeHttpHandler } from "./slots.ts";
+import { createNfceService, type NfceService, type NfceVaultStatus } from "./nfce-service.ts";
 import type {
   CommercialSettings, ConfigSaveInput, EffectInput, EffectView, EmissionPage, EmissionView,
   ListInput, PreparationResult, PrepareInput, ReadInput,
@@ -41,6 +42,20 @@ export interface CommercialNfeService {
 
 export interface CommercialNfeHttpDependencies {
   service(context: CommercialNfeHttpContext): CommercialNfeService | Promise<CommercialNfeService>;
+  /** Cupom do balcão (NFC-e); ausente, as operações nfce.* recusam como não habilitadas. */
+  nfce?(context: CommercialNfeHttpContext): NfceService | Promise<NfceService>;
+}
+
+/** O que o último "Testar conexão" trouxe do cofre para a NFC-e (sem nova ida ao cofre). */
+export async function nfceVaultStatus(context: CommercialNfeHttpContext): Promise<NfceVaultStatus> {
+  const view = await emissorView(context.env, context.profile), checked = view.checked;
+  const state = checked?.ok ? checked.state : null;
+  const issuer = state?.certificate?.document?.kind === "cnpj" ? state.certificate.document.id.replace(/[.\/\-\s]/g, "").toUpperCase() : null;
+  return { configured: !!view.configured && !!checked?.ok, checked_at: checked?.at ?? null, ufs: state ? state.documents.nfce : null,
+    series: (checked?.ok ? checked.series ?? [] : []).filter(item => item.kind === "nfce" && (!item.cnpj || !issuer || item.cnpj === issuer))
+      .map(item => ({ environment: item.environment, series: item.series, next_number: (item as { next_number?: number }).next_number ?? null })),
+    contingency_pending: state?.contingency?.pending_notes ?? null, certificate_days_left: state?.certificate?.days_left ?? null,
+    environments: state ? [...state.key.environments] : [] };
 }
 
 /** Prova pública do último Testar conexão; nenhuma chamada ao cofre na transação. */
@@ -62,8 +77,19 @@ export async function commercialConnectionCheck(context: CommercialNfeHttpContex
 
 /** Montagem de produção; testes podem substituir somente as portas de I/O. */
 export function createDefaultCommercialNfeHttp(): CommercialNfeHttpHandler {
-  return createCommercialNfeHttp({ service: context => createCommercialNfeService(context, {
-    bridge: createCommercialNfeBridge(context, { connection: commercialConnectionCheck }),
+  const services = new WeakMap<CommercialNfeHttpContext, ReturnType<typeof build>>();
+  const build = (context: CommercialNfeHttpContext) => {
+    const bridge = createCommercialNfeBridge(context, { connection: commercialConnectionCheck });
+    return { bridge, service: defaultService(context, bridge) };
+  };
+  const once = (context: CommercialNfeHttpContext) => { let built = services.get(context); if (!built) { built = build(context); services.set(context, built); } return built; };
+  return createCommercialNfeHttp({ service: context => once(context).service,
+    nfce: context => { const { bridge, service } = once(context); return createNfceService({ bridge, base: service, vaultStatus: () => nfceVaultStatus(context) }); } });
+}
+
+function defaultService(context: CommercialNfeHttpContext, bridge: ReturnType<typeof createCommercialNfeBridge>) {
+  return createCommercialNfeService(context, {
+    bridge,
     vault: async emission => {
       const connection = await emissorConnection(context.env, context.profile);
       const checked = await commercialConnectionCheck(context);
@@ -78,7 +104,7 @@ export function createDefaultCommercialNfeHttp(): CommercialNfeHttpHandler {
         fingerprint: checked.fingerprint, connection,
       });
     },
-  }) });
+  });
 }
 
 const PRIVATE_HEADERS = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
@@ -178,10 +204,66 @@ const awaiting = (value: unknown): boolean => {
     !!result.cancellation && ["pedido", "enviando", "incerto"].includes(result.cancellation.state));
 };
 
+/** Causas conhecidas do cupom, em palavras: o que aconteceu e o que fazer. */
+export const NFCE_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
+  com1_not_ready: "O cupom fiscal ainda não está habilitado nesta instalação. A venda continua sem cupom.",
+  module_disabled: "O cupom fiscal depende das partes Caixa / PDV e Fiscal ligadas. Peça ao administrador para ligá-las em Gestão → Módulos.",
+  fiscal_forbidden: "Seu papel não permite esta operação do cupom fiscal.",
+  erp_pos_access_denied: "Seu vendedor não tem o módulo Frente de Caixa.",
+  erp_pos_not_found: "Venda do caixa não encontrada ou sem acesso.",
+  nfce_sale_not_finished: "Só a venda finalizada no caixa recebe cupom fiscal.",
+  fiscal_consumer_document_invalid: "O CPF ou CNPJ do consumidor não confere. Confira os dígitos ou deixe em branco.",
+  fiscal_emission_open: "A venda já tem nota fiscal emitida ou em andamento. Consulte a nota antes de pedir outra.",
+  fiscal_environment_conflict: "Esta venda já foi usada em outro ambiente fiscal. Faça uma venda nova.",
+  com1_version_conflict: "O cupom foi atualizado em outra tela. Atualize a lista e tente de novo.",
+  com1_physical_return_required: "Confirme que a mercadoria voltou para a loja: só assim o estoque da venda é estornado.",
+  com1_effect_requires_cancellation: "O cupom ainda não foi cancelado no cofre. Cancele o cupom antes da venda.",
+  erp_pos_reverse_stock_denied: "O cupom foi cancelado, mas seu papel não estorna o estoque. Peça ao administrador ou ao estoque para cancelar a venda.",
+  erp_pos_reverse_finance_denied: "O cupom foi cancelado, mas seu papel não estorna as contas. Peça ao administrador ou ao financeiro para cancelar a venda.",
+  erp_pos_finish_denied: "O cupom foi cancelado, mas seu vendedor não pode cancelar venda finalizada.",
+  erp_pos_sale_has_returns: "O cupom foi cancelado, mas a venda tem devolução registrada e não pode ser cancelada.",
+  erp_pos_sale_invoice_linked: "A venda tem nota fiscal vigente: cancele a nota primeiro.",
+  fiscal_config_conflict: "A configuração do cupom mudou em outra tela. Atualize e salve de novo.",
+  fiscal_nature_missing: "Escolha uma natureza de operação de venda ativa para o cupom.",
+  fiscal_provider_not_configured: "Configure o endereço e a chave do cofre e use Testar conexão.",
+});
+
+async function handleNfce(context: CommercialNfeHttpContext, nfce: NfceService): Promise<unknown> {
+  const input = context.input, id = context.params.id!;
+  switch (context.operation.name) {
+    case "nfce.config.get": return nfce.config();
+    case "nfce.config.save": return nfce.saveConfig(input as { command_id: string; expected_version: number; nature_id: string | null });
+    case "nfce.sales": return nfce.sales({
+      ...(input.environment === undefined ? {} : { environment: input.environment as "homologacao" | "producao" }),
+      ...(input.cash_session_id === undefined ? {} : { cash_session_id: String(input.cash_session_id) }),
+      ...(input.from === undefined ? {} : { from: String(input.from) }), ...(input.to === undefined ? {} : { to: String(input.to) }),
+      ...(input.pending_only === undefined ? {} : { pending_only: input.pending_only === "true" }),
+      ...(input.page === undefined ? {} : { page: Number(input.page) }), ...(input.per_page === undefined ? {} : { per_page: Number(input.per_page) }) });
+    case "nfce.get": return nfce.get(id);
+    case "nfce.emit": return nfce.emit(id, String(input.command_id), typeof input.consumer_document === "string" && input.consumer_document.trim() ? input.consumer_document.trim() : null);
+    case "nfce.consult": return nfce.consult(id, String(input.command_id));
+    case "nfce.cancel": return nfce.cancel(id, String(input.command_id), String(input.justification).trim(), input.physical_return_confirmed === true);
+    case "nfce.coupon": return nfce.coupon(id, input.via === "estabelecimento" ? "establishment" : "consumer");
+    default: throw new ApiError(404, "not_found", "Operação do cupom fiscal não encontrada.");
+  }
+}
+
 /** Instalar com installCommercialNfeHttp; não altera registros de produção ao importar. */
 export function createCommercialNfeHttp(dependencies: CommercialNfeHttpDependencies): CommercialNfeHttpHandler {
   return async context => {
+    const counter = context.operation.name.startsWith("nfce.");
     try {
+      if (counter) {
+        if (!dependencies.nfce) throw new ErpError("0A000", "com1_not_ready");
+        const result = await handleNfce(context, await dependencies.nfce(context));
+        if (result instanceof Response) {
+          const headers = new Headers(result.headers);
+          for (const [key, value] of Object.entries(PRIVATE_HEADERS)) headers.set(key, value);
+          return new Response(result.body, { status: result.status, headers });
+        }
+        const masked = !!(context.actor.via || context.identity.actor?.is_agent || context.identity.actor?.is_technical) && context.actor.via?.masked !== false;
+        return Response.json(createPiiMask(masked).maskValue(result), { headers: PRIVATE_HEADERS });
+      }
       const service = await dependencies.service(context);
       const input = context.input;
       const identified = { ...input, emission_id: context.params.id! };
@@ -214,6 +296,12 @@ export function createCommercialNfeHttp(dependencies: CommercialNfeHttpDependenc
         context.operation.name === "com1.prepare" && (result as PreparationResult).blockers.length > 0;
       return Response.json(dto, { status: blocked ? 422 : awaiting(result) ? 202 : 200, headers: PRIVATE_HEADERS });
     } catch (error) {
+      if (counter && (error instanceof ApiError || error instanceof CommercialNfeError || error instanceof ErpError)) {
+        const code = error instanceof ErpError ? (/^[a-z][a-z0-9_]{1,100}$/.test(error.message) ? error.message : "fiscal_operation_failed") : error.code;
+        const status = error instanceof ErpError ? (error.code === "42501" ? 403 : error.code === "22023" ? 400 : error.code === "P0002" ? 404 : 409) : error.status;
+        return Response.json({ code, message: NFCE_MESSAGES[code] ?? (error instanceof ErpError ? "O cupom fiscal não pôde ser concluído. Consulte a venda na lista de cupons pendentes." : error.message) },
+          { status, headers: PRIVATE_HEADERS });
+      }
       if (error instanceof ApiError || error instanceof CommercialNfeError) return Response.json({ code: error.code, message: error.message }, { status: error.status, headers: PRIVATE_HEADERS });
       if (error instanceof ErpError) {
         const status = ["fiscal_blocked", "com1_emission_blocked", "com1_preparation_blocked"].includes(error.message) ? 422

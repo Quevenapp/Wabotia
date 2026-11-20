@@ -46,6 +46,9 @@ export interface PreparationMapping {
   calculation: JsonObject;
   blockers: FiscalBlocker[];
   total_cents: string | null;
+  /** Corpo montado mesmo com bloqueios: a NFC-e (nfce.ts) reaproveita emitente,
+   * itens e impostos e descarta os grupos que o modelo 65 não tem. */
+  draft?: Record<string, unknown>;
 }
 
 /** Nunca recebe corpo fiscal do navegador. options contém identidade atribuída pelo store. */
@@ -346,5 +349,5 @@ export function mapPreparation(sources: PreparationSources, taxes: TaxPreparatio
   const calculation = { ...taxes.calculation, commercial_total_cents: commercialTotal?.toString() ?? null, installment_total_cents: parcelSum.toString(),
     fiscal_total_cents: total?.toString() ?? null, payments, transport: outTransport } as JsonObject;
   const sorted = [...new Map(blockers.map(b => [`${b.field}\u0000${b.code}\u0000${b.item_id ?? ""}`, b])).values()].sort((a, b) => a.field < b.field ? -1 : a.field > b.field ? 1 : a.code < b.code ? -1 : a.code > b.code ? 1 : 0);
-  return { body: sorted.length ? null : body as PedidoNfe, calculation, blockers: sorted, total_cents: taxes.total_cents };
+  return { body: sorted.length ? null : body as PedidoNfe, calculation, blockers: sorted, total_cents: taxes.total_cents, draft: body };
 }

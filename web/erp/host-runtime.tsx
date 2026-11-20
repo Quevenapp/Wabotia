@@ -148,6 +148,7 @@ export function acquireErpHost(context: ErpHostContext) {
               base: c?.management.modules.erp === true, products: c?.management.modules["erp-produtos"] === true,
               sales: c?.management.modules["erp-vendas"] === true, fiscal: c?.management.modules["erp-fiscal"] === true,
               stock: c?.management.modules["erp-estoque"] === true, finance: c?.management.modules["erp-financeiro"] === true,
+              pos: c?.management.modules["erp-pdv"] === true,
             },
           };
         },

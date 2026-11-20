@@ -33,6 +33,7 @@ import { Icon } from './Icon';
 import { fitDecimal, loadDecimalPlaces, type DecimalPlaces } from '../../decimals';
 import { emissorBadge, useEmissorView } from '../../emissor';
 import { erpPorts } from '../../ports';
+import { NfcePendingList, NfceSaleCoupon, NfceShiftSummary, nfceCanEmit, nfceDocumentProblem, useNfcePort } from '../../NfceBalcao';
 import './pdv.css';
 import './real-pdv.css';
 
@@ -80,8 +81,9 @@ function adjustments(draft: Draft) {
 /**
  * Vendas › Frente de caixa (Origin pdv.php) com dados reais: tela cheia, abas Produto (Alt+Z), Cliente (Alt+C) e Pagamento (Alt+B),
  * coluna dos pedidos do caixa, Operações (Abrir caixa, Sangria, Suprimento, Fechar caixa, Imprimir, Reimprimir última operação,
- * Gerar devolução, QR code fixo) e os atalhos configurados em Preferências. A venda finalizada é um pedido de venda Atendido; a
- * NFC-e é preparada pela tela de notas fiscais (homologação), a partir do pedido.
+ * Gerar devolução, QR code fixo) e os atalhos configurados em Preferências. A venda finalizada é um pedido de venda Atendido.
+ * Wabotia: com Fiscal e Caixa / PDV ligados, o cupom fiscal (NFC-e) é pedido ao cofre logo depois da venda (web/erp/NfceBalcao.tsx),
+ * sem a venda esperar a nota; sem eles, a NFC-e segue pela tela de notas fiscais, a partir do pedido.
  */
 export default function RealPdv({ controller }: { controller: AccessController }) {
   const tracked = typeof controller.getSnapshot === 'function';
@@ -116,6 +118,10 @@ export default function RealPdv({ controller }: { controller: AccessController }
   const [print, setPrint] = useState<PdvPrintJob | null>(null), [last, setLast] = useState<PdvPrintJob | null>(null), [pixConfirmed, setPixConfirmed] = useState(false);
   const [condition, setCondition] = useState(''), [method, setMethod] = useState('');
   const salesSearch = useRef<HTMLInputElement>(null);
+  // Wabotia: cupom fiscal do balcão. CPF/CNPJ opcional do fechamento, venda cujo cupom está sendo pedido e situação por venda.
+  const nfce = useNfcePort(), nfceEmitter = nfceCanEmit(nfce);
+  const [consumerDoc, setConsumerDoc] = useState(''), [coupon, setCoupon] = useState<{ saleId: string; document: string | null } | null>(null);
+  const [couponOf, setCouponOf] = useState<Record<string, string>>({});
   const mac = isMac(globalThis.navigator?.platform || '');
   const shortcuts = useMemo(() => pdvShortcuts(context?.settings.shortcuts), [context]);
   const hint = (action: PdvAction) => shortcutHint(shortcuts.find(item => item.action === action)?.key ?? '', mac);
@@ -204,7 +210,7 @@ export default function RealPdv({ controller }: { controller: AccessController }
   const fail = (message: string) => { if (mayRead()) { setError(message); setNotice(''); } };
   // Wabotia: venda nova, abas novas (Cliente e Pagamento voltam a montar na primeira visita, como antes).
   const freshTabs = () => { opened.current = new Set<Tab>(['produto']); };
-  const newSale = (kind: 'balcao' | 'mesa' = 'balcao', table: number | null = null) => guard.confirmLeave(() => { freshTabs(); setDraft(emptyDraft(context, kind, table)); setProduct(emptyProduct(Boolean(context?.settings.percent_discount))); setTab('produto'); setPixConfirmed(false); setCondition(''); setError(''); });
+  const newSale = (kind: 'balcao' | 'mesa' = 'balcao', table: number | null = null) => guard.confirmLeave(() => { freshTabs(); setConsumerDoc(''); setDraft(emptyDraft(context, kind, table)); setProduct(emptyProduct(Boolean(context?.settings.percent_discount))); setTab('produto'); setPixConfirmed(false); setCondition(''); setError(''); });
   const selectProduct = async (record: CatalogRecord | null) => {
     if (!record) { setProduct(previous => ({ ...previous, record: null, price: '', listPrice: null })); return; }
     const cadastro = shownPrice(text(record.price) ?? '0');
@@ -307,6 +313,7 @@ export default function RealPdv({ controller }: { controller: AccessController }
     if (context.settings.cash_control && finishing && !store?.session) throw new Error('Para habilitar as funcionalidades do frente de caixa, o caixa deve ser aberto.');
     if (draft.destination === 'ficha' && !draft.contact) throw new Error('O destino Ficha Financeira precisa do cliente identificado.');
     if (!draft.contact && !context.consumer) throw new Error('Informe o cliente ou defina o cliente padrão (Consumidor final) nas configurações da frente de caixa.');
+    if (finishing && nfceEmitter && nfceDocumentProblem(consumerDoc)) throw new Error(nfceDocumentProblem(consumerDoc)!);
     // document_version: the pedido as the screen read it; a change in Pedidos de venda meanwhile is refused (the sale is reopened).
     return { sale_id: draft.saleId, expected_version: draft.version, document_version: draft.saleId ? draft.record?.document_version ?? null : null, kind: draft.kind, table_number: draft.table, account_id: store?.store.id ?? null, cash_session_id: store?.session?.id ?? null,
       contact_id: draft.contact?.id ?? null, price_list_id: draft.priceList?.id ?? null,
@@ -328,9 +335,11 @@ export default function RealPdv({ controller }: { controller: AccessController }
     if (!finishing) { say(record.kind === 'mesa' ? `Comanda da mesa ${record.table_number} guardada (pedido nº ${record.number}).` : `Pré-venda nº ${record.number} enviada para o caixa.`); return; }
     // 202610200267: a refused Lançar estoque / Lançar contas / baixa à vista no longer refuses the sale; the message says why it stayed pending.
     say(`Venda nº ${record.number} finalizada.${record.effects ? finishNotice(record.effects) : ''}`);
+    // Wabotia: a venda já está feita; o cupom é pedido em seguida e, se o cofre demorar ou falhar, fica pendente.
+    if (nfce && nfceEmitter) { setCoupon({ saleId: record.id, document: consumerDoc.trim() || null }); setConsumerDoc(''); }
     const operation = context?.settings.default_operation;
     if (operation === 'comprovante') setPrint(job);
-    if ((operation === 'gerar_nfce' || operation === 'nfe_simplificada') && context?.effects.fiscal) { try { globalThis.window?.open(fiscalHref(record, operation === 'gerar_nfce' ? '65' : '55'), '_blank', 'noopener'); } catch { /* The link stays in the pedido panel. */ } }
+    if ((operation === 'gerar_nfce' || operation === 'nfe_simplificada') && context?.effects.fiscal && !(nfce && operation === 'gerar_nfce')) { try { globalThis.window?.open(fiscalHref(record, operation === 'gerar_nfce' ? '65' : '55'), '_blank', 'noopener'); } catch { /* The link stays in the pedido panel. */ } }
   };
   const fiscalHref = (record: PdvSaleSummary, model: '55' | '65') => `/historico-fiscal?${new URLSearchParams({ modelo: model, origem: 'brufap', nota: 'nova', pedido: record.document_id })}`;
   const submit = (requested: 'finish' | 'save') => {
@@ -508,6 +517,8 @@ export default function RealPdv({ controller }: { controller: AccessController }
                 <div className="is-total"><dt>Total da venda</dt><dd>{money(total)}</dd></div></dl>
               {totalsError && <p className="real-alert" role="alert">{totalsError}</p>}{receivedError && <p className="real-alert" role="alert">{receivedError}</p>}
               {received !== null && change.change < 0n && <p className="real-alert" role="alert">O valor recebido não cobre as parcelas em dinheiro ou cheque ({money(change.cash)}).</p>}
+              {nfce && nfceEmitter && <label className="pdv-nfce-document" htmlFor="pdv-nfce-document">CPF/CNPJ no cupom fiscal (opcional)<input id="pdv-nfce-document" maxLength={20} autoComplete="off" value={consumerDoc} onChange={event => setConsumerDoc(event.target.value)} /></label>}
+              {nfce && nfceEmitter && nfceDocumentProblem(consumerDoc) && <p className="real-alert" role="alert">{nfceDocumentProblem(consumerDoc)}</p>}
               <div className="pdv-grid">
                 <label htmlFor="pdv-method">Forma de pagamento<select id="pdv-method" value={method || defaultMethod?.id || ''} disabled={!context.permissions.payments} onChange={event => { const value = event.target.value; setMethod(value); const chosen = methods.find(item => item.id === value); if (chosen?.condition) setCondition(chosen.condition); }}>
                   {!methods.length && <option value="">Cadastre as formas de pagamento</option>}{methods.map(item => <option key={item.id} value={item.id}>{item.description}</option>)}</select></label>
@@ -560,20 +571,24 @@ export default function RealPdv({ controller }: { controller: AccessController }
             <strong>{row.kind === 'mesa' ? `Mesa ${row.table_number}` : `Pré-venda ${row.number}`}</strong><span>{row.contact_name}</span><span>{money(row.total_cents)}</span></button></li>)}</ul></section>}
           {!salesState.items.length ? <p>Nenhum pedido cadastrado</p> : <ul>{salesState.items.map(row => <li key={row.id}><button type="button" className={selected?.id === row.id ? 'is-selected' : ''} onClick={() => setSelected({ id: row.id, record: null, error: '' })}>
             <strong>{row.number}</strong><span>{row.contact_name}</span><span>{money(row.total_cents)} · {SALE_STATES[row.state]}</span></button></li>)}</ul>}</>}
+          {nfce && <NfcePendingList port={nfce} query={store?.session ? { cash_session_id: store.session.id } : { from: context.today, to: context.today }} reload={salesReload} />}
           <section className="pdv-order-detail" aria-label="Detalhes do pedido">{!selected ? <p className="real-help">Selecione um pedido ao lado para ver mais detalhes.</p> : selected.error ? <p className="real-alert" role="alert">{selected.error}</p> : !detail ? <p role="status">Carregando o pedido…</p> : <>
             <h3>Venda nº {detail.number}{detail.kind === 'mesa' ? ` · Mesa ${detail.table_number}` : ''}</h3>
             <dl><dt>Situação</dt><dd>{SALE_STATES[detail.state]}</dd><dt>Data</dt><dd>{dateTimeSP(detail.finished_at ?? detail.created_at)}</dd><dt>Cliente</dt><dd>{detail.contact_name}</dd><dt>Operador</dt><dd>{detail.operator_name}</dd>
               <dt>Total</dt><dd>{money(detail.total_cents)}</dd>{'stock' in detail.effects && <><dt>Estoque</dt><dd>{EFFECT_LABELS[detail.effects.stock]}{detail.effects.stock_reason ? ` — ${effectReasonText(detail.effects.stock_reason)}` : ''}</dd>
                 <dt>Contas</dt><dd>{EFFECT_LABELS[detail.effects.finance]}{detail.effects.finance_reason ? ` — ${effectReasonText(detail.effects.finance_reason)}` : ''}{detail.effects.settle_reason ? ` (baixa à vista não feita: ${effectReasonText(detail.effects.settle_reason)})` : ''}</dd></>}
               {detail.invoice && <><dt>{detail.invoice.model === '65' ? 'NFC-e' : 'NF-e'}</dt><dd>{detail.invoice.number ? `nº ${detail.invoice.number} · ` : ''}{INVOICE_STATUS[detail.invoice.status as keyof typeof INVOICE_STATUS] ?? `Situação ${detail.invoice.status}`}</dd></>}</dl>
+            {nfce && detail.state !== 'open' && <NfceSaleCoupon key={detail.id} port={nfce} saleId={detail.id} number={detail.number} emitting={coupon?.saleId === detail.id}
+              consumerDocument={coupon?.saleId === detail.id ? coupon.document : null}
+              onChange={row => { const id = row.sale_id; setCouponOf(previous => ({ ...previous, [id]: `${row.situation}:${row.coupon?.status ?? ''}` })); setCoupon(previous => previous?.saleId === id ? null : previous); if (row.situation === 'cancelado' && row.sale_state === 'cancelled') setSalesReload(value => value + 1); }} />}
             <ul className="pdv-detail-payments">{detail.payments.map(row => <li key={row.position}>{row.method_name}{row.days ? ` (${row.days} dias)` : ''}: {money(row.amount_cents)}</li>)}</ul>
             {detail.returns && detail.returns.length > 0 && <p className="real-help">Devoluções: {detail.returns.map(row => `${money(row.value_cents)}${row.refund_cents !== '0' ? ` (${money(row.refund_cents)} em dinheiro)` : ''} em ${dateTimeSP(row.created_at)}`).join('; ')}</p>}
             <div className="pdv-detail-actions">
               {detail.state === 'open' && operate && <button type="button" className="primary-button" disabled={sale.locked} onClick={() => loadSale(detail)}>Abrir na venda</button>}
               {detail.state !== 'open' && <button type="button" className="secondary-button" onClick={() => setPrint({ kind: 'sale', sale: detail, pix: pixFor(detail) })}><Icon name="print" size={12} />Imprimir</button>}
-              {detail.state === 'finished' && !detail.invoice && context.effects.fiscal && <a className="secondary-button" href={fiscalHref(detail, '65')} target="_blank" rel="noopener">Gerar NFC-e</a>}
-              {detail.state === 'finished' && !detail.invoice && !context.effects.fiscal && <button type="button" className="secondary-button" disabled title="Somente administrador e fiscal preparam a NFC-e.">Gerar NFC-e</button>}
-              {detail.state !== 'cancelled' && operate && <button type="button" className="secondary-button" disabled={sale.locked || Boolean(detail.invoice) || Boolean(detail.returns?.length) || (detail.state === 'finished' && !context.permissions.finish)} title={detail.invoice ? 'A venda tem nota fiscal vinculada.' : detail.returns?.length ? 'A venda tem devolução registrada.' : undefined} onClick={() => setDialog({ kind: 'cancel', sale: detail })}>Cancelar venda</button>}
+              {detail.state === 'finished' && !detail.invoice && context.effects.fiscal && !nfce && <a className="secondary-button" href={fiscalHref(detail, '65')} target="_blank" rel="noopener">Gerar NFC-e</a>}
+              {detail.state === 'finished' && !detail.invoice && !context.effects.fiscal && !nfce && <button type="button" className="secondary-button" disabled title="Somente administrador e fiscal preparam a NFC-e.">Gerar NFC-e</button>}
+              {detail.state !== 'cancelled' && operate && <button type="button" className="secondary-button" disabled={sale.locked || Boolean(detail.invoice) || Boolean(detail.returns?.length) || (detail.state === 'finished' && !context.permissions.finish) || /^(autorizado|pendente:(enviando|processando|incerta))/.test(couponOf[detail.id] ?? '')} title={detail.invoice ? 'A venda tem nota fiscal vinculada.' : detail.returns?.length ? 'A venda tem devolução registrada.' : /^(autorizado|pendente:)/.test(couponOf[detail.id] ?? '') ? 'A venda tem cupom fiscal: use Cancelar cupom e venda (ou consulte o cupom pendente).' : undefined} onClick={() => setDialog({ kind: 'cancel', sale: detail })}>Cancelar venda</button>}
               {detail.state === 'finished' && operate && <button type="button" className="secondary-button" disabled={sale.locked || !context.permissions.finish} onClick={() => setDialog({ kind: 'return', sale: detail })}>Gerar devolução</button>}
               <Link className="text-button" to={`/documentos-empresa?${new URLSearchParams({ tipo: 'sales_orders', documento: detail.document_id })}`}>Abrir pedido nº {detail.number}</Link>
             </div></>}</section></>}
@@ -584,6 +599,7 @@ export default function RealPdv({ controller }: { controller: AccessController }
     {dialog?.kind === 'move' && store?.session && <PdvMoveDialog controller={controller} session={store.session} move={dialog.move} sendFinance={sendFinance} mayWrite={mayCash} onClose={() => setDialog(null)}
       onDone={(amount, note) => { const job: PdvPrintJob = { kind: 'move', move: dialog.move, store: store.store.name, operator: store.session!.operator_name, amount_cents: amount, note, at: new Date().toISOString() }; setLast(job); setDialog(null); setReload(value => value + 1); say(dialog.move === 'supply' ? 'Suprimento registrado no caixa.' : 'Sangria registrada no caixa.'); }} />}
     {dialog?.kind === 'close' && store?.session && <PdvCloseDialog controller={controller} context={context} session={store.session} sendFinance={sendFinance} mayWrite={mayCash} onClose={() => setDialog(null)}
+      extra={nfce ? <NfceShiftSummary port={nfce} cashSessionId={store.session.id} /> : undefined}
       onDone={() => { setHeld({ context, store: store ? { ...store, session: null } : null }); setDialog(null); setReload(value => value + 1); say('Caixa fechado.'); }} />}
     {dialog?.kind === 'settings' && <PdvSettingsDialog controller={controller} context={context} sendPos={sendPos} mayWrite={() => mayWrite() && role === 'admin'} onClose={() => setDialog(null)} onDone={() => { setDialog(null); setReload(value => value + 1); say('Configurações da frente de caixa salvas.'); }} />}
     {dialog?.kind === 'table' && <PdvTableDialog mode={dialog.mode} open={(salesState?.open ?? []).filter(row => row.kind === 'mesa')} onClose={() => setDialog(null)}

@@ -180,4 +180,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Fatia B1: a pessoa transforma os cadastros do acervo em cadastros do ERP, com revisão, pelas mesmas RPCs das telas; nada é escrito no Bling e erp_sync__settings continua desligado.",
     replaced_by: "Versão 12 aditiva (11→12): wb_bling_adoption_link (vínculo entidade/id no Bling → cadastro, com versão e hash coletados), wb_bling_adoption_review (pendências e ignorados, com motivo e candidatos), wb_bling_adoption_job (trabalho em lote retomável pelo alarme) e wb_bling_adoption_command (recibos imutáveis dos comandos). Desligar do Bling apaga só o vínculo; o cadastro do ERP fica.",
   },
+  {
+    id: "cupom-nfce",
+    oracle: "A NFC-e do PDV é preparada pela tela de notas fiscais legada (homologação), a partir do pedido, com certificado no ERP.",
+    reason: "Fatia balcão com NFC-e: a venda do caixa pede o cupom ao cofre da NFapi pela mesma máquina da NF-e comercial (revisão imutável, reivindicação durável, retomada por consulta, cancelamento, efeitos e auditoria), sem a venda esperar a nota.",
+    replaced_by: "Versão 13 aditiva (12→13): counter_emission, counter_revision, counter_command, counter_cancel, counter_effect e counter_audit em erp_fiscal_vault, com o DDL da versão 10 e a chave de acesso do modelo 65, e counter_settings (natureza do cupom). A conexão, o ambiente e a habilitação de produção são os de commercial_settings. Série, CSC e contingência ficam no cofre.",
+  },
 ];

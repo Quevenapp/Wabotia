@@ -1,4 +1,4 @@
-/** Contrato comum da fatia comercial, modelo 55. Nenhuma operação aqui chama o cofre.
+/** Contrato comum da fatia comercial, modelo 55 e, no balcão, 65. Nenhuma operação aqui chama o cofre.
  *
  * Instalação em testes (restaurar no finally/t.after):
  *   installCommercialNfeSlots({ prepare: (ctx, input) => ... })
@@ -140,6 +140,8 @@ export interface StoredEmission {
   authorized_at: Timestamp | null;
   /** Centavos exatos como texto. */
   total: string | null;
+  /** Só no cupom do balcão (NFC-e, modelo 65); ausente na NF-e do pedido. */
+  model?: "nfce";
   created_at: Timestamp;
   created_by: string;
   updated_at: Timestamp;

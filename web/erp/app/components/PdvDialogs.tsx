@@ -72,8 +72,8 @@ export function PdvMoveDialog({ controller, session, move, sendFinance, mayWrite
 }
 
 /** Operações › Fechar caixa: Total registrado pelas vendas da frente de caixa por forma, o valor informado (contado) e as diferenças. */
-export function PdvCloseDialog({ controller, context, session, sendFinance, mayWrite, onDone, onClose }: { controller: Controller; context: PdvContext; session: PdvSession; sendFinance: Send; mayWrite: () => boolean;
-  onDone: () => void; onClose: () => void }) {
+export function PdvCloseDialog({ controller, context, session, sendFinance, mayWrite, onDone, onClose, extra }: { controller: Controller; context: PdvContext; session: PdvSession; sendFinance: Send; mayWrite: () => boolean;
+  onDone: () => void; onClose: () => void; /** Wabotia: resumo dos cupons fiscais do turno (só com Fiscal e PDV ligados). */ extra?: import("react").ReactNode }) {
   const [record, setRecord] = useState<SessionRecord | null>(null), [summary, setSummary] = useState<PdvSummary | null>(null), [error, setError] = useState('');
   const [informed, setInformed] = useState<Record<string, string>>({});
   const command = useFinanceCommand(sendFinance, mayWrite, pdvFailure), guard = useUnsavedForm(informed, command.locked);
@@ -100,6 +100,7 @@ export function PdvCloseDialog({ controller, context, session, sendFinance, mayW
       <dl className="pdv-close-head"><div><dt>Loja</dt><dd>{session.account_name}</dd></div><div><dt>Operador</dt><dd>{session.operator_name}</dd></div><div><dt>Vendas consideradas</dt><dd>{summary.sales_count}</dd></div>
         <div><dt>Troco</dt><dd>{money(record.change_cents)}</dd></div><div><dt>Suprimentos</dt><dd>{money(record.supply_cents)}</dd></div><div><dt>Sangrias</dt><dd>{money(record.withdrawal_cents)}</dd></div>
         {summary.returns_cents !== '0' && <div><dt>Devoluções</dt><dd>{money(summary.returns_cents)}</dd></div>}<div><dt>Dinheiro esperado</dt><dd><strong>{expected === null ? '—' : money(expected)}</strong></dd></div></dl>
+      {extra}
       <fieldset className="finance-drawer-fields" disabled={command.locked}><legend className="real-sr-only">Formas de pagamento</legend>
         <table className="data-table pdv-close-table"><thead><tr><th>Forma de pagamento</th><th className="numeric">Total registrado</th><th className="numeric">Total informado</th><th className="numeric">Diferenças</th></tr></thead>
           <tbody>{rows.map(row => { let difference = '—'; try { difference = informed[row.id]?.trim() ? money(BigInt(moneyCents(informed[row.id]!)) - BigInt(row.registered)) : '—'; } catch { difference = '—'; }

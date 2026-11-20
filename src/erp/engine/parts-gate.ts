@@ -22,10 +22,11 @@ export const requireErpParts = (ctx: Pick<RpcContext, "parts">, requirement: Erp
 
 /** Inventário explícito dos RPCs registrados. Novos nomes exigem classificação. */
 const RPC_GROUPS = {
-  com1_prepare: `erp_com1_prepare`,
+  com1_prepare: `erp_com1_prepare erp_com1_nfce_prepare`,
   com1_claim: `erp_com1_claim`,
-  com1_read: `erp_com1_config_get erp_com1_config_save erp_com1_get erp_com1_list erp_com1_cancel_claim`,
-  com1_effect: `erp_com1_effect_apply erp_com1_effect_reverse`,
+  com1_read: `erp_com1_config_get erp_com1_config_save erp_com1_get erp_com1_list erp_com1_cancel_claim
+    erp_com1_nfce_config_get erp_com1_nfce_config_save erp_com1_nfce_sales`,
+  com1_effect: `erp_com1_effect_apply erp_com1_effect_reverse erp_com1_nfce_sale_cancel`,
   com1_evidence: `erp_com1_record erp_com1_cancel_record erp_com1_cancel_xml_record`,
   base: `erp_access_storage erp_access_gate_v2 erp_access_me erp_access_permissions_me erp_access_profile_me erp_access_security_policy_get
     erp_access_security_policy_save erp_access_user_controls_get erp_access_user_controls_save erp_activity_detail erp_activity_list
@@ -355,7 +356,9 @@ export function requireRpcParts(ctx: RpcContext, name: string, args: RpcArgs): v
       throw new ErpError("42501", "com1_claim_required");
     // Sem importar domínios aqui: seus registros criariam ciclo com registry.
     // Repete a capacidade do store, inclusive para evidência tardia após lease.
-    const command = one(ctx.db, "SELECT emission_id,action,token FROM erp_fiscal_vault__order_command WHERE id=?", input.command_id);
+    // O cupom do balcão (NFC-e) usa a mesma máquina em tabelas irmãs (counter_*).
+    const command = one(ctx.db, "SELECT emission_id,action,token FROM erp_fiscal_vault__order_command WHERE id=?", input.command_id)
+      ?? one(ctx.db, "SELECT emission_id,action,token FROM erp_fiscal_vault__counter_command WHERE id=?", input.command_id);
     const actions = name === "erp_com1_record" ? ["emit", "resume"] : ["cancel"];
     if (!command || !command.token || command.token !== input.claim_token || command.emission_id !== input.emission_id || !actions.includes(String(command.action)))
       throw new ErpError("42501", "com1_claim_required");
