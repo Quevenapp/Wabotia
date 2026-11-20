@@ -6,7 +6,6 @@
  * avisos e partes); esta camada só escreve as próprias tabelas de vínculo,
  * revisão, trabalho e recibo. Nada é escrito no Bling. */
 import "../domains/index.ts";
-import { createHash } from "node:crypto";
 import { formatScaled, fromColumn } from "../engine/dec.ts";
 import type { Row, SqlDriver } from "../engine/driver.ts";
 import { ErpError } from "../engine/errors.ts";
@@ -18,58 +17,26 @@ import { documentIssue } from "../domains/catalog/contact-core.ts";
 import { ERP_PART_NAMES, type ErpParts } from "../parts.ts";
 import {
   BLING_ADOPTION_ENTITIES, BLING_ADOPTION_LABELS, BLING_ADOPTION_REASONS, BLING_ADOPTION_STOPS, BLING_ADOPTION_UPDATABLE,
-  BlingAdoptionError, adoptionEnabled, adoptionModule, adoptionPartOffMessage,
-  type BlingAdoptionEntity, type BlingAdoptionJob, type BlingAdoptionLink, type BlingAdoptionOperationMap,
-  type BlingAdoptionReason, type BlingAdoptionReview, type BlingAdoptionStatus, type BlingAdoptionStop, type BlingAdoptionSummary,
+  BlingAdoptionError, adoptionEnabled, adoptionModule, adoptionPartOffMessage, isAdoptionB2,
+  type BlingAdoptionB2Entity, type BlingAdoptionEntity, type BlingAdoptionJob, type BlingAdoptionLink, type BlingAdoptionMissing, type BlingAdoptionOperationMap,
+  type BlingAdoptionReason, type BlingAdoptionRecordEntity, type BlingAdoptionReview, type BlingAdoptionStatus, type BlingAdoptionStop, type BlingAdoptionSummary,
 } from "./adoption-contracts.ts";
-import { parseHistoricalPayload } from "./projection.ts";
+import { adoptB2Record, blingSummaryB2, erpSummaryB2, historyDocument, historyList, historyOutside, recordExistsB2, type B2Outcome } from "./adoption-documents.ts";
+import {
+  adoptionTables, archiveAvailable, at, clip, commandUuid, deleteLink, fold, ignoreReview, linkOf, linkedTo, object, readRaw, reviewOf, text, writeLink, writeReview,
+  type AdoptionRaw, type Json,
+} from "./adoption-store.ts";
 import { exactDecimalEqual } from "./schema.ts";
 
-type Json = Record<string, unknown>;
-type Outcome = "adopted" | "linked" | "pending" | "skipped";
+export type { AdoptionRaw } from "./adoption-store.ts";
+type Outcome = "adopted" | "linked" | "pending" | "skipped" | "history";
 /** Limites de uma unidade do alarme: poucos registros e pouco tempo. */
 export const ADOPTION_UNIT = Object.freeze({ records: 25, wall_ms: 1500 });
 
 const clocks = new Map<string, Clock>();
 const clockOf = (profile: string) => { let c = clocks.get(profile); if (!c) clocks.set(profile, c = new Clock()); return c; };
-const sha = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
-/** UUID determinístico: repetir a mesma adoção reaproveita o comando do domínio. */
-function commandUuid(...parts: string[]): string {
-  const h = sha(parts.join("\u0000"));
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-${(8 | (parseInt(h[16], 16) & 3)).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
-}
-const object = (v: unknown): v is Json => !!v && typeof v === "object" && !Array.isArray(v);
-const at = (v: unknown, ...path: string[]): unknown => { for (const p of path) { if (!object(v)) return undefined; v = v[p]; } return v; };
-/** Texto limpo; vazio vira null. Números do acervo chegam lexicais (string). */
-const text = (v: unknown): string | null => {
-  if (typeof v === "number" || typeof v === "boolean") v = String(v);
-  if (typeof v !== "string") return null;
-  const t = v.replace(/\s+/g, " ").trim();
-  return t ? t : null;
-};
-const fold = (v: unknown) => text(v)?.toLocaleLowerCase("pt-BR").normalize("NFD").replace(/[̀-ͯ]/g, "") ?? null;
 const digitsAndLetters = (v: unknown) => text(v)?.toUpperCase().replace(/[^0-9A-Z]/g, "") || null;
 const sameText = (a: unknown, b: unknown) => fold(a) === fold(b);
-const clip = (v: string | null, n = 200) => v === null ? null : v.length > n ? v.slice(0, n - 1) + "…" : v;
-
-// ---------------------------------------------------------------------------
-// Acervo
-
-export interface AdoptionRaw { source_id: string; version: number; hash: string; payload: Json; deleted: boolean }
-function readRaw(db: SqlDriver, entity: BlingAdoptionEntity, source: string): AdoptionRaw | null {
-  const row = db.exec(`SELECT r.source_id, r.version, r.version_hash, r.payload,
-      CASE WHEN json_type(r.payload,'$._brufap_source.deleted')='true' OR coalesce(m.deleted_observed,0)=1 THEN 1 ELSE 0 END AS deleted
-    FROM origin_sync__raw_record r LEFT JOIN wb_bling_record_version m ON m.entity=r.entity AND m.source_id=r.source_id AND m.version=r.version
-    WHERE r.entity=? AND r.source_id=?`, entity, source).rows[0];
-  if (!row) return null;
-  let payload: Json;
-  try { payload = parseHistoricalPayload(String(row.payload)).payload as Json; } catch { payload = {}; }
-  return { source_id: String(row.source_id), version: Number(row.version), hash: String(row.version_hash), payload, deleted: Number(row.deleted) === 1 };
-}
-function archiveAvailable(db: SqlDriver): boolean {
-  const control = db.exec("SELECT account_id, state FROM wb_bling_control WHERE id=1").rows[0];
-  return !!control?.account_id && control.state !== "purging";
-}
 
 // ---------------------------------------------------------------------------
 // Do Bling para os dados das RPCs do ERP
@@ -137,7 +104,7 @@ const PAYMENT_TYPES = ["01", "02", "03", "04", "05", "10", "11", "12", "13", "14
 // ---------------------------------------------------------------------------
 // Cadastros do ERP
 
-const RECORD_SQL: Record<BlingAdoptionEntity, string> = {
+const RECORD_SQL: Record<BlingAdoptionRecordEntity, string> = {
   contacts: `SELECT r.id FROM erp_catalog__record r LEFT JOIN erp_catalog__contact_profile p ON p.record_id=r.id WHERE r.id=? AND r.entity='contacts' AND coalesce(p.situation,'A')<>'E'`,
   products: `SELECT r.id FROM erp_catalog__record r WHERE r.id=? AND r.entity='products' AND NOT EXISTS(SELECT 1 FROM erp_catalog__product_detail d WHERE d.record_id=r.id AND d.deleted_at IS NOT NULL)`,
   warehouses: `SELECT id FROM erp_catalog__record WHERE id=? AND entity='warehouses'`,
@@ -147,7 +114,8 @@ const RECORD_SQL: Record<BlingAdoptionEntity, string> = {
   financial_categories: `SELECT id FROM erp_finance__category WHERE id=? AND deleted_at IS NULL`,
   ledger_accounts: `SELECT id FROM erp_finance__account WHERE id=? AND deleted_at IS NULL`,
 };
-const recordExists = (db: SqlDriver, entity: BlingAdoptionEntity, id: string) => db.exec(RECORD_SQL[entity], id).rows.length > 0;
+const recordExists = (db: SqlDriver, entity: BlingAdoptionEntity, id: string) =>
+  isAdoptionB2(entity) ? recordExistsB2(db, entity, id) : db.exec(RECORD_SQL[entity], id).rows.length > 0;
 /** Preço como o ERP mostra: texto decimal sem zeros à direita. */
 const price10 = (v: unknown) => {
   if (v === null || v === undefined) return null;
@@ -157,6 +125,7 @@ const price10 = (v: unknown) => {
 
 /** Resumo do cadastro do ERP com as mesmas chaves do resumo do Bling. */
 export function erpSummary(db: SqlDriver, entity: BlingAdoptionEntity, id: string): BlingAdoptionSummary | null {
+  if (isAdoptionB2(entity)) return erpSummaryB2(db, entity, id);
   const row = (sql: string) => db.exec(sql, id).rows[0] as Row | undefined;
   const s = (v: unknown) => v === null || v === undefined ? null : clip(String(v), 400);
   if (entity === "contacts") {
@@ -179,34 +148,6 @@ export function erpSummary(db: SqlDriver, entity: BlingAdoptionEntity, id: strin
   const r = row(sql[entity]);
   if (!r) return null;
   return entity === "financial_categories" ? { "Nome": s(r.name), "Tipo": r.kind === "receivable" ? "Receita" : r.kind === "payable" ? "Despesa" : s(r.kind) } : { "Nome": s(r.name) };
-}
-
-// ---------------------------------------------------------------------------
-// Vínculos e revisões
-
-interface LinkRow { record_id: string; source_version: number; mode: string }
-function linkOf(db: SqlDriver, entity: BlingAdoptionEntity, source: string): LinkRow | null {
-  const r = db.exec("SELECT record_id, source_version, mode FROM wb_bling_adoption_link WHERE entity=? AND source_id=?", entity, source).rows[0];
-  return r ? { record_id: String(r.record_id), source_version: Number(r.source_version), mode: String(r.mode) } : null;
-}
-const linkedTo = (db: SqlDriver, entity: BlingAdoptionEntity, record: string) =>
-  (db.exec("SELECT source_id FROM wb_bling_adoption_link WHERE entity=? AND record_id=?", entity, record).rows[0]?.source_id as string | undefined) ?? null;
-function writeLink(db: SqlDriver, entity: BlingAdoptionEntity, raw: Pick<AdoptionRaw, "source_id" | "version" | "hash">, record: string, mode: "created" | "linked" | "updated", actor: string, now: number) {
-  const other = linkedTo(db, entity, record);
-  if (other !== null && other !== raw.source_id) throw new BlingAdoptionError("BLING_ADOPTION_CONFLICT", "O cadastro do ERP já está ligado a outro registro do Bling.");
-  db.exec(`INSERT INTO wb_bling_adoption_link(entity,source_id,record_id,source_version,source_hash,mode,adopted_by,adopted_at) VALUES(?,?,?,?,?,?,?,?)
-    ON CONFLICT(entity,source_id) DO UPDATE SET record_id=excluded.record_id, source_version=excluded.source_version, source_hash=excluded.source_hash, mode=excluded.mode, adopted_by=excluded.adopted_by, adopted_at=excluded.adopted_at`,
-    entity, raw.source_id, record, raw.version, raw.hash, mode, actor, now);
-  db.exec("DELETE FROM wb_bling_adoption_review WHERE entity=? AND source_id=?", entity, raw.source_id);
-}
-function writeReview(db: SqlDriver, entity: BlingAdoptionEntity, raw: Pick<AdoptionRaw, "source_id" | "version" | "hash">, reason: BlingAdoptionReason, candidates: string[], now: number, detail?: string | null) {
-  db.exec(`INSERT INTO wb_bling_adoption_review(entity,source_id,state,reason,detail,candidates,source_version,source_hash,created_at,updated_at) VALUES(?,?,'pending',?,?,?,?,?,?,?)
-    ON CONFLICT(entity,source_id) DO UPDATE SET state='pending', reason=excluded.reason, detail=excluded.detail, candidates=excluded.candidates, source_version=excluded.source_version, source_hash=excluded.source_hash, updated_at=excluded.updated_at`,
-    entity, raw.source_id, reason, clip(detail ?? null), JSON.stringify(candidates.slice(0, 5)), raw.version, raw.hash, now, now);
-}
-function reviewOf(db: SqlDriver, entity: BlingAdoptionEntity, source: string) {
-  const r = db.exec("SELECT state, source_version, source_hash, candidates FROM wb_bling_adoption_review WHERE entity=? AND source_id=?", entity, source).rows[0];
-  return r ? { state: String(r.state), source_version: Number(r.source_version), source_hash: String(r.source_hash), candidates: JSON.parse(String(r.candidates)) as string[] } : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -267,7 +208,7 @@ function matches(db: SqlDriver, entity: BlingAdoptionEntity, m: Mapped, id: stri
 // Execução de um registro (sempre dentro de uma transação do motor)
 
 export interface AdoptionActor { user_id: string }
-interface Step { entity: BlingAdoptionEntity; raw: AdoptionRaw; actor: string; now: number }
+interface Step { entity: BlingAdoptionRecordEntity; raw: AdoptionRaw; actor: string; now: number }
 const resultId = (value: unknown, ...paths: string[][]): string => {
   for (const path of paths) { const v = at(value, ...path); if (typeof v === "string" && v) return v; }
   throw new ErpError("XX000", "erp_bling_adoption_result_without_id");
@@ -279,7 +220,7 @@ function linkedRecord(db: SqlDriver, entity: BlingAdoptionEntity, source: unknow
   const id = text(source);
   return id && /^[1-9]\d{0,39}$/.test(id) ? linkOf(db, entity, id)?.record_id ?? null : null;
 }
-function map(db: SqlDriver, entity: BlingAdoptionEntity, p: Json): Mapped {
+function map(db: SqlDriver, entity: BlingAdoptionRecordEntity, p: Json): Mapped {
   switch (entity) {
     case "contacts": return mapContact(p);
     case "products": return mapProduct(p, linkedRecord(db, "product_categories", at(p, "categoria", "id")));
@@ -476,8 +417,31 @@ const DOMAIN_WORDS: Record<string, string> = {
   erp_catalog_payment_method_invalid: "A forma de pagamento tem um dado que o ERP não aceita.",
   erp_stock_warehouse_input_invalid: "O nome do depósito é inválido.",
   erp_catalog_variation_duplicate: "Já existe uma variação com estes atributos.",
+  // Documentos e contas (fatia B2).
+  erp_document_text_invalid: "Um texto do documento passa do tamanho permitido ou tem caracteres que o ERP não aceita.",
+  erp_document_item_value_invalid: "Um item tem quantidade zero ou desconto acima de 100%.",
+  erp_document_item_invalid: "Um item do documento tem um dado que o ERP não aceita.",
+  erp_document_total_limit: "O total passa do limite do ERP.",
+  erp_document_discount_exceeds_subtotal: "O desconto é maior que o subtotal.",
+  erp_document_installment_invalid: "Uma parcela tem valor ou data que o ERP não aceita.",
+  erp_document_installment_total_mismatch: "A soma das parcelas não fecha com o total.",
+  erp_document_contact_unavailable: "O contato do documento está inativo no ERP.",
+  erp_document_product_unavailable: "Um produto do documento está inativo no ERP.",
+  erp_document_seller_unavailable: "O vendedor do documento está inativo no ERP.",
+  erp_document_unregistered_product: "Um item não tem produto cadastrado e as Preferências de Vendas não aceitam item sem cadastro.",
+  erp_document_credit_limit: "O cliente passou do limite de crédito definido no ERP.",
+  erp_document_seller_discount_limit: "O desconto passa do limite do vendedor.",
+  erp_document_date_invalid: "Uma data do documento não é válida.",
+  erp_finance_invalid_due_date: "O vencimento é anterior à emissão.",
+  erp_finance_invalid_contact: "O contato da conta está inativo no ERP.",
+  erp_finance_invalid_category: "A categoria financeira está inativa ou é do tipo errado (receita ou despesa).",
+  erp_finance_invalid_payment_method: "A forma de pagamento está inativa ou não serve para este tipo de conta.",
+  erp_finance_invalid_account: "A conta financeira (portador) está inativa no ERP.",
+  erp_finance_invalid_date: "Uma data da conta não é válida.",
+  erp_finance_invalid_cents: "O valor da conta não é válido.",
 };
 export function domainFailure(error: unknown): { reason: BlingAdoptionReason; detail: string | null; stop: BlingAdoptionStop | null } {
+  if (error instanceof BlingAdoptionError && error.detail?.startsWith("Adotar agora geraria efeitos")) return { reason: "effects_blocked", detail: clip(error.detail, 200), stop: null };
   if (error instanceof BlingAdoptionError) return { reason: "failed", detail: error.detail ?? error.message, stop: null };
   const code = error instanceof ErpError ? error.code : "";
   const message = error instanceof ErpError ? error.message : "";
@@ -564,13 +528,15 @@ export function runAdoptionUnit(options: AdoptionEngineOptions): { worked: boole
     const advance = (outcome: Outcome) => {
       job!.cursor[entity] = { after: source, done: false };
       job!.counts.processed++;
-      job!.counts[outcome === "adopted" ? "adopted" : outcome === "linked" ? "linked" : outcome === "pending" ? "pending" : "skipped"]++;
+      if (outcome === "history") job!.counts.history = (job!.counts.history ?? 0) + 1;
+      else job!.counts[outcome === "adopted" ? "adopted" : outcome === "linked" ? "linked" : outcome === "pending" ? "pending" : "skipped"]++;
       saveJob(db, job!, at);
     };
     try {
       transaction(db, profile, ctx => {
         const raw = readRaw(db, entity, source);
-        const outcome = raw ? adoptRecord(ctx, { entity, raw, actor: job!.actor_id, now: at }) : "skipped";
+        const outcome: Outcome = !raw ? "skipped" : isAdoptionB2(entity) ? adoptB2Record(ctx, { entity, raw, actor: job!.actor_id, now: at }).outcome
+          : adoptRecord(ctx, { entity, raw, actor: job!.actor_id, now: at });
         advance(outcome);
       }, { identity: systemIdentity(job.actor_id), parts });
     } catch (error) {
@@ -622,40 +588,57 @@ export function adoptionStatus(call: Pick<AdoptionCall, "db" | "parts">): BlingA
     available, unavailable_message: available ? null : "O acervo do Bling ainda não tem conta vinculada ou está sendo apagado. Colete os dados antes de adotar.",
     job: publicJob(readJob(db)),
     entities: BLING_ADOPTION_ENTITIES.map(entity => {
+      const t = adoptionTables(entity);
       const collected = count("SELECT count(*) AS n FROM origin_sync__raw_record WHERE entity=?", entity);
-      const adopted = count("SELECT count(*) AS n FROM wb_bling_adoption_link l JOIN origin_sync__raw_record r ON r.entity=l.entity AND r.source_id=l.source_id WHERE l.entity=?", entity);
+      const adopted = count(`SELECT count(*) AS n FROM ${t.link} l JOIN origin_sync__raw_record r ON r.entity=l.entity AND r.source_id=l.source_id WHERE l.entity=?`, entity);
       // Pendências e ignorados incluem variações (sem registro próprio no
       // acervo); "aguardando" desconta só os que estão no acervo.
-      const reviewed = count("SELECT count(*) AS n FROM wb_bling_adoption_review v JOIN origin_sync__raw_record r ON r.entity=v.entity AND r.source_id=v.source_id WHERE v.entity=?", entity);
-      const pending = count("SELECT count(*) AS n FROM wb_bling_adoption_review WHERE entity=? AND state='pending'", entity);
-      const ignored = count("SELECT count(*) AS n FROM wb_bling_adoption_review WHERE entity=? AND state='ignored'", entity);
+      const reviewed = count(`SELECT count(*) AS n FROM ${t.review} v JOIN origin_sync__raw_record r ON r.entity=v.entity AND r.source_id=v.source_id WHERE v.entity=?`, entity);
+      const pending = count(`SELECT count(*) AS n FROM ${t.review} WHERE entity=? AND state='pending'`, entity);
+      const ignored = count(`SELECT count(*) AS n FROM ${t.review} WHERE entity=? AND state='ignored'`, entity);
       const enabled = adoptionEnabled(entity, parts), module = adoptionModule(entity);
-      return { entity, label: BLING_ADOPTION_LABELS[entity], module, module_name: ERP_PART_NAMES[module], enabled,
-        part_off_message: enabled ? null : adoptionPartOffMessage(entity), updatable: BLING_ADOPTION_UPDATABLE.has(entity),
-        collected, waiting: Math.max(0, collected - adopted - reviewed), adopted, pending, ignored };
+      const base = { entity, label: BLING_ADOPTION_LABELS[entity], module, module_name: ERP_PART_NAMES[module], enabled,
+        part_off_message: enabled ? null : adoptionPartOffMessage(entity, parts), updatable: BLING_ADOPTION_UPDATABLE.has(entity), adopted, pending, ignored, collected };
+      if (!isAdoptionB2(entity)) return { ...base, waiting: Math.max(0, collected - adopted - reviewed) };
+      // Documentos e contas: o que já está encerrado no Bling fica no histórico.
+      const outside = historyOutside(db, entity);
+      const history = outside.reduce((sum, item) => sum + item.count, 0);
+      return { ...base, waiting: Math.max(0, collected - adopted - reviewed - history), history, outside };
     }),
   };
 }
 
 function blingSummary(db: SqlDriver, entity: BlingAdoptionEntity, source: string): BlingAdoptionSummary | null {
   const raw = readRaw(db, entity, source);
-  return raw ? map(db, entity, raw.payload).summary : null;
+  if (!raw) return null;
+  return isAdoptionB2(entity) ? blingSummaryB2(entity, raw) : map(db, entity, raw.payload).summary;
+}
+/** Estado atual de cada cadastro que faltava (pode ter sido adotado depois). */
+function missingNow(db: SqlDriver, list: BlingAdoptionMissing[]): BlingAdoptionMissing[] {
+  return list.filter(item => !linkOf(db, item.entity, item.source_id)).map(item => {
+    const review = reviewOf(db, item.entity, item.source_id);
+    const state = review ? (review.state === "ignored" ? "ignored" : "pending")
+      : db.exec("SELECT 1 AS x FROM origin_sync__raw_record WHERE entity=? AND source_id=?", item.entity, item.source_id).rows.length ? "waiting" : "absent";
+    return { ...item, state };
+  });
 }
 export function adoptionReviews(call: Pick<AdoptionCall, "db">, input: BlingAdoptionOperationMap["erp_bling_adoption_reviews"]["input"]): BlingAdoptionOperationMap["erp_bling_adoption_reviews"]["output"] {
   const { db } = call, limit = input.limit ?? 20;
-  const rows = db.exec(`SELECT * FROM wb_bling_adoption_review WHERE entity=? AND state=? AND (? IS NULL OR source_id>?) ORDER BY source_id LIMIT ?`,
+  const rows = db.exec(`SELECT * FROM ${adoptionTables(input.entity).review} WHERE entity=? AND state=? AND (? IS NULL OR source_id>?) ORDER BY source_id LIMIT ?`,
     input.entity, input.state ?? "pending", input.cursor ?? null, input.cursor ?? null, limit + 1).rows;
   const items: BlingAdoptionReview[] = rows.slice(0, limit).map(r => {
     const reason = String(r.reason) as BlingAdoptionReason;
     const candidates = (JSON.parse(String(r.candidates)) as string[]).flatMap(id => { const summary = erpSummary(db, input.entity, id); return summary ? [{ record_id: id, summary }] : []; });
-    return { entity: input.entity, source_id: String(r.source_id), state: r.state as "pending" | "ignored", reason, reason_text: BLING_ADOPTION_REASONS[reason],
+    const review: BlingAdoptionReview = { entity: input.entity, source_id: String(r.source_id), state: r.state as "pending" | "ignored", reason, reason_text: BLING_ADOPTION_REASONS[reason],
       detail: r.detail == null ? null : String(r.detail), source_version: String(r.source_version), bling: blingSummary(db, input.entity, String(r.source_id)), erp: candidates };
+    if (isAdoptionB2(input.entity)) review.missing = missingNow(db, JSON.parse(String(r.missing ?? "[]")) as BlingAdoptionMissing[]);
+    return review;
   });
   return { items, next_cursor: rows.length > limit ? items[items.length - 1].source_id : null };
 }
 export function adoptionLinks(call: Pick<AdoptionCall, "db">, input: BlingAdoptionOperationMap["erp_bling_adoption_links"]["input"]): BlingAdoptionOperationMap["erp_bling_adoption_links"]["output"] {
   const { db } = call, limit = input.limit ?? 20;
-  const rows = db.exec(`SELECT * FROM wb_bling_adoption_link WHERE entity=? AND (? IS NULL OR source_id>?) ORDER BY source_id LIMIT ?`, input.entity, input.cursor ?? null, input.cursor ?? null, limit + 1).rows;
+  const rows = db.exec(`SELECT * FROM ${adoptionTables(input.entity).link} WHERE entity=? AND (? IS NULL OR source_id>?) ORDER BY source_id LIMIT ?`, input.entity, input.cursor ?? null, input.cursor ?? null, limit + 1).rows;
   const items: BlingAdoptionLink[] = rows.slice(0, limit).map(r => ({ entity: input.entity, source_id: String(r.source_id), record_id: String(r.record_id),
     mode: r.mode as BlingAdoptionLink["mode"], source_version: String(r.source_version), adopted_at: new Date(Number(r.adopted_at)).toISOString(), summary: erpSummary(db, input.entity, String(r.record_id)) }));
   return { items, next_cursor: rows.length > limit ? items[items.length - 1].source_id : null };
@@ -665,7 +648,7 @@ export function adoptionStart(call: AdoptionCall, input: BlingAdoptionOperationM
   return command(call, "erp_bling_adoption_start", input.command_id, ctx => {
     if (!archiveAvailable(ctx.db)) throw new BlingAdoptionError("BLING_ADOPTION_UNAVAILABLE");
     const off = input.entities.find(e => !adoptionEnabled(e, call.parts));
-    if (off) throw new BlingAdoptionError("BLING_ADOPTION_PART_DISABLED", adoptionPartOffMessage(off));
+    if (off) throw new BlingAdoptionError("BLING_ADOPTION_PART_DISABLED", adoptionPartOffMessage(off, call.parts));
     const now = call.now(), previous = readJob(ctx.db);
     const entities = BLING_ADOPTION_ENTITIES.filter(e => input.entities.includes(e));
     const resume = previous?.state === "paused" || previous?.state === "running";
@@ -687,8 +670,8 @@ export function adoptionPause(call: AdoptionCall, input: BlingAdoptionOperationM
 export function adoptionResolve(call: AdoptionCall, input: BlingAdoptionOperationMap["erp_bling_adoption_resolve"]["input"]) {
   return command(call, "erp_bling_adoption_resolve", input.command_id, ctx => {
     const { entity } = input, db = ctx.db, now = call.now(), actor = call.identity.actor!.user_id;
-    if (!adoptionEnabled(entity, call.parts)) throw new BlingAdoptionError("BLING_ADOPTION_PART_DISABLED", adoptionPartOffMessage(entity));
-    if (linkOf(db, entity, input.source_id)) throw new BlingAdoptionError("BLING_ADOPTION_CONFLICT", "Este registro já está ligado a um cadastro do ERP.");
+    if (!adoptionEnabled(entity, call.parts)) throw new BlingAdoptionError("BLING_ADOPTION_PART_DISABLED", adoptionPartOffMessage(entity, call.parts));
+    if (linkOf(db, entity, input.source_id)) throw new BlingAdoptionError("BLING_ADOPTION_CONFLICT", isAdoptionB2(entity) ? "Este registro já está ligado a um documento ou conta do ERP." : "Este registro já está ligado a um cadastro do ERP.");
     const review = reviewOf(db, entity, input.source_id);
     if (!review) throw new BlingAdoptionError("BLING_ADOPTION_NOT_FOUND");
     // Variação de produto (ou registro que saiu do acervo): sem dados próprios,
@@ -697,12 +680,13 @@ export function adoptionResolve(call: AdoptionCall, input: BlingAdoptionOperatio
     const raw: AdoptionRaw = stored ?? { source_id: input.source_id, version: review.source_version, hash: review.source_hash, payload: {}, deleted: false };
     if (!stored && input.action === "use_bling") throw new BlingAdoptionError("BLING_ADOPTION_RECORD_REFUSED", "Os dados deste registro não estão no acervo como registro próprio. Ignore ou ligue a um cadastro do ERP.");
     if (input.action === "ignore") {
-      db.exec("UPDATE wb_bling_adoption_review SET state='ignored', updated_at=? WHERE entity=? AND source_id=?", now, entity, raw.source_id);
+      ignoreReview(db, entity, raw.source_id, now);
       return { outcome: "ignored" as const, record_id: null };
     }
+    if (input.record_id && !recordExists(db, entity, input.record_id)) throw new BlingAdoptionError("BLING_ADOPTION_NOT_FOUND", isAdoptionB2(entity) ? "O documento ou a conta escolhida não existe mais no ERP." : "O cadastro escolhido não existe mais no ERP.");
+    if (isAdoptionB2(entity)) return resolveB2(ctx, call, entity, raw, input.action, input.record_id ?? null, input.command_id);
     const step: Step = { entity, raw, actor, now };
     const m = map(db, entity, raw.payload);
-    if (input.record_id && !recordExists(db, entity, input.record_id)) throw new BlingAdoptionError("BLING_ADOPTION_NOT_FOUND", "O cadastro escolhido não existe mais no ERP.");
     try {
       if (input.action === "keep_erp") {
         writeLink(db, entity, raw, input.record_id!, "linked", actor, now);
@@ -740,11 +724,84 @@ export function adoptionUnlink(call: AdoptionCall, input: BlingAdoptionOperation
     // O registro fica entre os ignorados para o lote não religar sozinho; a
     // pessoa pode ligar de novo pelas pendências ignoradas.
     const raw = readRaw(ctx.db, input.entity, input.source_id);
-    ctx.db.exec("DELETE FROM wb_bling_adoption_link WHERE entity=? AND source_id=?", input.entity, input.source_id);
+    deleteLink(ctx.db, input.entity, input.source_id);
     if (raw) {
       writeReview(ctx.db, input.entity, raw, "unlinked", [link.record_id], call.now());
-      ctx.db.exec("UPDATE wb_bling_adoption_review SET state='ignored' WHERE entity=? AND source_id=?", input.entity, input.source_id);
+      ignoreReview(ctx.db, input.entity, input.source_id, call.now());
     }
     return { record_id: link.record_id };
   });
+}
+
+/** Erro do domínio dito para a pessoa (resolver e adotar um). */
+function refused(error: unknown, entity: BlingAdoptionEntity, parts: Readonly<ErpParts>): never {
+  if (error instanceof BlingAdoptionError) throw error;
+  const failure = domainFailure(error);
+  if (failure.stop === "permission") throw new BlingAdoptionError("BLING_ADOPTION_ADMIN_REQUIRED");
+  if (failure.stop === "module_disabled") throw new BlingAdoptionError("BLING_ADOPTION_PART_DISABLED", adoptionPartOffMessage(entity, parts));
+  throw new BlingAdoptionError("BLING_ADOPTION_RECORD_REFUSED", [BLING_ADOPTION_REASONS[failure.reason], failure.detail].filter(Boolean).join(" "));
+}
+
+/** Pendência de documento ou conta: tentar de novo (depois de adotar o que
+ * faltava), ligar a um documento ou conta que já existe no ERP, ou ignorar. */
+function resolveB2(ctx: RpcContext, call: AdoptionCall, entity: BlingAdoptionB2Entity, raw: AdoptionRaw, action: "use_bling" | "keep_erp" | "ignore", record: string | null, commandId: string) {
+  const db = ctx.db, now = call.now(), actor = call.identity.actor!.user_id;
+  if (action === "keep_erp") {
+    writeLink(db, entity, raw, record!, "linked", actor, now);
+    db.exec("DELETE FROM wb_bling_adoption_history WHERE entity=? AND source_id=?", entity, raw.source_id);
+    return { outcome: "linked" as const, record_id: record! };
+  }
+  if (record) throw new BlingAdoptionError("BLING_ADOPTION_INVALID", "Documentos e contas não são atualizados com a do Bling: escolha manter a do ERP e ligar, ou adotar como novo.");
+  let result: { outcome: B2Outcome; record_id: string | null };
+  try { result = adoptB2Record(ctx, { entity, raw, actor, now }, { force: true, salt: "resolve:" + commandId }); }
+  catch (error) { refused(error, entity, call.parts); }
+  if (result.outcome === "adopted") return { outcome: "adopted" as const, record_id: result.record_id };
+  if (result.outcome === "history") throw new BlingAdoptionError("BLING_ADOPTION_CONFLICT", "Este registro já está encerrado no Bling: foi para o Histórico do Bling, só para consulta.");
+  // Continua pendente (ainda falta cadastro, por exemplo): a transação grava a
+  // pendência atualizada e a pessoa vê o motivo.
+  const now2 = db.exec(`SELECT reason, detail FROM wb_bling_adoption_doc_review WHERE entity=? AND source_id=?`, entity, raw.source_id).rows[0];
+  const reason = (now2?.reason ?? "failed") as BlingAdoptionReason;
+  throw new BlingAdoptionError("BLING_ADOPTION_RECORD_REFUSED", [BLING_ADOPTION_REASONS[reason], now2?.detail ? String(now2.detail) : null].filter(Boolean).join(" "));
+}
+
+/** Adota na hora um único registro (o atalho do cadastro que falta). */
+export function adoptionAdoptOne(call: AdoptionCall, input: BlingAdoptionOperationMap["erp_bling_adoption_adopt_one"]["input"]) {
+  return command(call, "erp_bling_adoption_adopt_one", input.command_id, ctx => {
+    const { entity } = input, db = ctx.db, now = call.now(), actor = call.identity.actor!.user_id;
+    if (!archiveAvailable(db)) throw new BlingAdoptionError("BLING_ADOPTION_UNAVAILABLE");
+    if (!adoptionEnabled(entity, call.parts)) throw new BlingAdoptionError("BLING_ADOPTION_PART_DISABLED", adoptionPartOffMessage(entity, call.parts));
+    const link = linkOf(db, entity, input.source_id);
+    if (link) return { outcome: "skipped" as const, record_id: link.record_id, message: "Este registro já estava adotado. Nada mudou." };
+    const raw = readRaw(db, entity, input.source_id);
+    if (!raw) throw new BlingAdoptionError("BLING_ADOPTION_NOT_FOUND", "Este registro ainda não foi coletado do Bling. Peça uma nova coleta e tente de novo.");
+    if (reviewOf(db, entity, input.source_id)?.state === "ignored") throw new BlingAdoptionError("BLING_ADOPTION_CONFLICT", "Este registro está entre os ignorados. Decida pelas pendências ignoradas.");
+    let outcome: Outcome, record: string | null = null;
+    try {
+      if (isAdoptionB2(entity)) ({ outcome, record_id: record } = adoptB2Record(ctx, { entity, raw, actor, now }, { force: true, salt: "one:" + input.command_id }));
+      else {
+        // Revisa de novo mesmo que já esteja pendente na mesma versão.
+        db.exec(`DELETE FROM ${adoptionTables(entity).review} WHERE entity=? AND source_id=? AND state='pending'`, entity, input.source_id);
+        outcome = adoptRecord(ctx, { entity, raw, actor, now });
+        record = linkOf(db, entity, input.source_id)?.record_id ?? null;
+      }
+    } catch (error) { refused(error, entity, call.parts); }
+    const message = outcome === "adopted" ? "Adotado: criado no ERP a partir do Bling."
+      : outcome === "linked" ? "Ligado a um cadastro que já existia no ERP."
+      : outcome === "history" ? "Já está encerrado no Bling: foi para o Histórico do Bling, só para consulta."
+      : outcome === "pending" ? "Não deu para adotar sozinho: ficou nas pendências de revisão, com o motivo."
+      : "Nada a fazer com este registro agora.";
+    return { outcome, record_id: record, message };
+  });
+}
+
+function requireHistoryPart(call: Pick<AdoptionCall, "parts">, entity: BlingAdoptionB2Entity) {
+  if (!adoptionEnabled(entity, call.parts)) throw new BlingAdoptionError("BLING_ADOPTION_PART_DISABLED", adoptionPartOffMessage(entity, call.parts));
+}
+export function adoptionHistory(call: Pick<AdoptionCall, "db" | "parts">, input: BlingAdoptionOperationMap["erp_bling_adoption_history"]["input"]) {
+  requireHistoryPart(call, input.entity);
+  return historyList(call.db, input);
+}
+export function adoptionHistoryGet(call: Pick<AdoptionCall, "db" | "parts">, input: BlingAdoptionOperationMap["erp_bling_adoption_history_get"]["input"]) {
+  requireHistoryPart(call, input.entity);
+  return historyDocument(call.db, input);
 }
