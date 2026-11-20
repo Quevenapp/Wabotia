@@ -12,6 +12,7 @@ import { jobInsert, jobView, replayJob, requestHash } from "./jobs";
 import type { Namespace, Statement } from "./contracts";
 import type { SectionWrite } from "./profile-contracts";
 import { registeredChannelExtensions } from "../channel-extension-registry";
+import { customerTimeline } from "./timeline";
 
 export function pageQuery(query: Record<string, string | undefined>, fallback: number, maximum: number) {
   if (query.limit !== undefined && (!/^\d+$/.test(query.limit) || Number(query.limit) < 1))
@@ -34,6 +35,12 @@ export async function customerRead(env: Env, actor: Actor, profile: string, id: 
   // A ficha autoriza cada contribuição: um papel de extensão não precisa do
   // cadastro comum para chegar à própria seção.
   if (kind === "profile") return profilePort.view(env, actor, profile, id);
+  if (kind === "timeline") {
+    // Carregada à parte da ficha; cada fonte reaplica módulo e permissão.
+    customerAccess(actor, profile);
+    const row = await contactRow(env, actor, profile, id);
+    return customerTimeline(env, actor, profile, { id: row.id, namespace: row.namespace, erp_contact_id: row.erp_contact_id ?? null }, query);
+  }
   if (kind === "history") customerAccess(actor, profile);
   else await requireCustomerModule(env, actor, profile, module);
   id = (await contactRow(env, actor, profile, id)).id;

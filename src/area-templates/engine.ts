@@ -7,8 +7,9 @@ import type {
   AreaTemplateApplyResult, AreaTemplatePreview,
   AreaTemplateExportRequest, CustomWorkType, ServiceObjectType, TemplateChange,
 } from "../modules/os/contracts";
-import { identifier, invalid, list, object, string, validateAreaSetup, validateAreaTemplate, validateSelection, type AreaTemplate, type AreaTemplateSelection } from "./validation";
+import { identifier, invalid, isModuleMenuType, list, moduleOfMenuType, object, string, validateAreaSetup, validateAreaTemplate, validateSelection, type AreaTemplate, type AreaTemplateSelection } from "./validation";
 import { equivalentWorkTypes } from "./equivalent-types";
+import { footprintStatements, planExamples, readFootprint, restorablePaths } from "./footprint";
 
 type Settings = Record<string, any>;
 interface Application {
@@ -52,7 +53,7 @@ function request(input: unknown, catalog: readonly AreaTemplate[], apply: boolea
   return { manifest, selection, previewHash: data.preview_hash as string | undefined };
 }
 
-function compile(manifest: AreaTemplate, selection: AreaTemplateSelection, cfg: Settings, modules: Record<string, boolean>, previous: Application | null) {
+function compile(manifest: AreaTemplate, selection: AreaTemplateSelection, cfg: Settings, modules: Record<string, boolean>, previous: Application | null, restorable: ReadonlySet<string> = new Set()) {
   const changes: TemplateChange[] = [];
   const conflicts: AreaTemplatePreview["conflicts"] = [];
   const settings: Settings = {};
@@ -71,7 +72,12 @@ function compile(manifest: AreaTemplate, selection: AreaTemplateSelection, cfg: 
   const add = (key: string, id: string, value: unknown, reason = "Novo cadastro do modelo.") => {
     const path = `${key}.${id}`;
     const current = settings[key] || savedList(cfg, key);
-    if (current.some((entry: any) => (key === "os_area_setup" ? entry.template_id : entry.id) === id))
+    const existing = current.find((entry: any) => (key === "os_area_setup" ? entry.template_id : entry.id) === id);
+    // Arquivado por "Desfazer este modelo" e intocado desde então: volta a valer.
+    if (existing?.archived && restorable.has(path)) {
+      settings[key] = current.map((entry: any) => entry === existing ? { ...entry, archived: false, revision: Number(entry.revision) + 1 } : entry);
+      change(path, "set", "Volta a valer: tinha sido arquivado ao desfazer este modelo.");
+    } else if (existing)
       change(path, "keep", "Cadastro existente preservado, inclusive edições manuais.");
     else if (seenIds.has(path)) change(path, "skip", "Item já tratado e removido; não será recriado.");
     else { settings[key] = [...current, value]; change(path, "add", reason); }
@@ -152,7 +158,13 @@ function compile(manifest: AreaTemplate, selection: AreaTemplateSelection, cfg: 
     const exists = savedList(cfg, "menus").some((entry) => entry.id === id);
     if (exists || seenIds.has(path)) { add("menus", id, menu); continue; }
     const compiled: Settings = { ...menu, id, enabled: true, parent_id: null };
-    if (menu.type === "os_open" || menu.type === "os_track") {
+    if (isModuleMenuType(menu.type)) {
+      const owner = moduleOfMenuType(menu.type);
+      if (!owner || !finalModules[owner]) {
+        change(path, "skip", `Menu de ${moduleById(owner)?.name ?? "um módulo"}, que ficará desligado; poderá ser incluído quando o módulo for ligado.`);
+        continue;
+      }
+    } else if (menu.type === "os_open" || menu.type === "os_track") {
       const builtin = menu.type_id === "service_order";
       const typeId = builtin ? "service_order" : globalId(menu.type_id);
       const type = (settings.os_work_types || savedList(cfg, "os_work_types")).find((t: CustomWorkType) => t.id === typeId);
@@ -192,7 +204,14 @@ async function prepare(env: Env, actor: Actor, profile: string, input: unknown, 
   const baseRevision = await sha(canonical(current.settings));
   const modulesRevision = await sha(canonical(current.rawModules));
   const manifestHash = await sha(canonical(parsed.manifest));
-  const result = compile(parsed.manifest, parsed.selection, current.settings, configuredModuleStates(current.rawModules), previous);
+  const modulesBefore = configuredModuleStates(current.rawModules);
+  const footprint = await readFootprint(env, profile, parsed.manifest.id);
+  const restorable = await restorablePaths(footprint, current.settings);
+  const result = compile(parsed.manifest, parsed.selection, current.settings, modulesBefore, previous, restorable);
+  // Exemplos da Agenda e da Mensalidade (examples.ts): entram na prévia e no hash.
+  const examples = await planExamples(env, profile, parsed.manifest, result.modules, new Set(result.seenPaths));
+  result.changes.push(...examples.changes);
+  result.seenPaths = [...new Set([...result.seenPaths, ...examples.seen])].sort();
   if (previous && (parsed.manifest.version < previous.template_version ||
     (parsed.manifest.version === previous.template_version && manifestHash !== previous.manifest_hash)))
     result.conflicts.push({ path: "version", code: "template_version_conflict", message: "Altere a versão ao modificar o manifesto; não reaplique uma versão anterior." });
@@ -215,7 +234,7 @@ async function prepare(env: Env, actor: Actor, profile: string, input: unknown, 
     changes: result.changes, conflicts: result.conflicts,
     manual_steps: parsed.manifest.manual_steps, can_apply: result.conflicts.length === 0,
   };
-  return { env, parsed, previous, baseRevision, manifestHash, result, plan, preview };
+  return { env, parsed, previous, baseRevision, manifestHash, result, plan, preview, examples, modulesBefore, footprint, catalogTemplate: Object.hasOwn(input as object, "template_id") };
 }
 
 export async function previewAreaTemplate(env: Env, actor: Actor, profile: string, input: unknown, catalog: readonly AreaTemplate[] = []): Promise<AreaTemplatePreview> {
@@ -240,11 +259,18 @@ export async function applyAreaTemplate(env: Env, actor: Actor, profile: string,
     !same(json(p.previous.seen_ids_json, []), p.result.seenIds) || !same(json(p.previous.seen_paths_json, []), p.result.seenPaths);
   let revision = p.baseRevision;
   if (changed || provenanceChanged || requestId) {
+    // Exemplos e pegada (footprint.ts) vão no MESMO lote da configuração.
+    const built = p.examples.build(actor);
+    const footprint = changed ? await footprintStatements({
+      profile, actor, manifest: p.parsed.manifest, catalogTemplate: p.catalogTemplate,
+      previous: p.footprint, modulesBefore: p.modulesBefore,
+      plan: p.plan, changes: p.result.changes, examples: built.examples,
+    }) : [];
     try {
       const saved = await commitSettingsPlan(p.env, actor, p.plan, [[
         "INSERT INTO os_area_template_applications(profile_id,template_id,template_version,manifest_hash,seen_ids_json,seen_paths_json,applied_by,applied_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(profile_id,template_id) DO UPDATE SET template_version=excluded.template_version,manifest_hash=excluded.manifest_hash,seen_ids_json=excluded.seen_ids_json,seen_paths_json=excluded.seen_paths_json,applied_by=excluded.applied_by,applied_at=excluded.applied_at",
         [profile, p.parsed.manifest.id, p.parsed.manifest.version, p.manifestHash, JSON.stringify(p.result.seenIds), JSON.stringify(p.result.seenPaths), actor.id, now()],
-      ]], requestId ? { id: requestId, result: { applied: changed, changes: p.preview.changes, manual_steps: p.preview.manual_steps, settings_revision: p.plan.settings_revision } } : undefined);
+      ], ...built.statements, ...footprint], requestId ? { id: requestId, result: { applied: changed, changes: p.preview.changes, manual_steps: p.preview.manual_steps, settings_revision: p.plan.settings_revision } } : undefined);
       revision = saved.settings_revision;
     } catch (error) {
       if (error instanceof ApiError && error.code === "settings_conflict") throw conflict("preview_stale", "A configuração mudou durante a aplicação. Refaça a prévia.");

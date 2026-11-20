@@ -1,4 +1,5 @@
-import type { ContactProfileView, Json, SectionView } from "../../src/customer/profile-contracts";
+import type { ContactProfileView, Json, SectionView, TimelineItem, TimelinePage } from "../../src/customer/profile-contracts";
+import { cellText } from "./registry";
 import type { CustomerJobView } from "../../src/customer/contracts";
 import type { ContactMergePreview, ContactMergeRequest, ContactMergeResult, ContactMergeUndoRequest } from "../../src/channel-contracts";
 import type { Api } from "../lib/api";
@@ -108,6 +109,18 @@ export function profileMessage(error: unknown): string {
     idempotency_conflict: "Esta solicitação já foi usada com outros dados. Reabra a operação para conferir o resultado.",
   };
   return messages[e?.code ?? ""] ?? (e?.status === 403 ? messages.forbidden : e?.message || "Não foi possível carregar. Tente novamente.");
+}
+
+/** Página da linha do tempo: a primeira sem corte; as seguintes pelo último item. */
+export function timelinePath(base: string, cursor: TimelinePage["nextCursor"], limit = 20) {
+  return `${base}/timeline?limit=${limit}` + (cursor ? `&before=${cursor.before}&key=${encodeURIComponent(cursor.key)}` : "");
+}
+/** Uma linha legível: o que aconteceu, quando, situação e valor. */
+export function timelineText(item: TimelineItem): string {
+  const when = cellText(item.occurredAt, item.dateOnly ? "date" : "datetime");
+  const title = item.scheduledAt != null ? `${item.title} para ${cellText(item.scheduledAt, "datetime")}` : item.title;
+  const status = item.statusLabel ?? (item.status ? cellText(item.status, "status") : null);
+  return [when, title, status && status !== "—" ? status : null, item.amount ? cellText(item.amount, "money") : null].filter(Boolean).join(" · ");
 }
 
 /** A resposta só pode confirmar o par escolhido; o ERP pode inverter o sobrevivente. */

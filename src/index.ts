@@ -2462,6 +2462,7 @@ app.get("/api/v1/profiles/:profile/contacts/:id", async (c) =>
 );
 for (const [path, kind] of [
   ["contacts/:id/history", "history"],
+  ["contacts/:id/timeline", "timeline"],
   ["conversations/:id/customer-history", "conversation-history"],
   ["contacts/:id/profile", "profile"],
   ["contacts/:id/modules/:module/collections/:collection", "collection"],

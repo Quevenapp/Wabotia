@@ -91,6 +91,23 @@ async function policy(ctx: ModuleContext, actor: Actor, item: ContactContributio
   if (item.policy !== "module" || write) forbidden();
 }
 
+/**
+ * Mesma barreira de leitura dos cartões separados (módulos ligados, dependências
+ * e política da contribuição), sem consultar o provedor. Recusa vira false.
+ */
+export async function contributionReadable(env: Env, actor: Actor, profileId: string, moduleId: string, id: string): Promise<boolean> {
+  const item = moduleById(moduleId) && declaration(moduleId)?.contributions.find(c => c.id === id && c.kind === "collection");
+  if (!item) return false;
+  try {
+    await requireEnabled(env, profileId, moduleId, item);
+    await policy(modulesApi(env, profileId, moduleId, { worker: true }), actor, item);
+    return true;
+  } catch (e) {
+    if (e instanceof ApiError && [403, 409].includes(e.status)) return false;
+    throw e;
+  }
+}
+
 async function contribution(env: Env, actor: Actor, profileId: string, contactId: string,
   moduleId: string, id: string, kind: ContactContribution["kind"], write = false) {
   const row = await contact(env, actor, profileId, contactId);

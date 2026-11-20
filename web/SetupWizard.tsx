@@ -11,7 +11,9 @@ import {
   RefreshCw,
   Settings,
   ShieldCheck,
+  Store,
 } from "lucide-react";
+import { SegmentPicker } from "./admin/area-templates/SegmentPicker";
 import "./setup-wizard.css";
 
 type Row = Record<string, any>;
@@ -49,7 +51,9 @@ type Rules = {
   surveys_enabled: boolean;
   jev_enabled: boolean;
 };
+// A pergunta do ramo vem antes de tudo: o resto da configuração parte do sistema já montado.
 const steps = [
+  { title: "Seu negócio", caption: "Ramo e sistema", icon: Store },
   { title: "WhatsApp", caption: "Integração e telefones", icon: MessageCircle },
   { title: "Atendimento", caption: "Bots e especialistas", icon: Bot },
   { title: "Equipe humana", caption: "Pessoas e presença", icon: Headphones },
@@ -458,6 +462,13 @@ export function SetupWizard({
               </div>
             </header>
             {step === 0 && (
+              <SegmentPicker
+                heading={false}
+                onDone={() => go(1)}
+                onSkip={() => go(1)}
+              />
+            )}
+            {step === 1 && (
               <>
                 <h3>Importe seus telefones da Zernio</h3>
                 <p>
@@ -518,7 +529,7 @@ export function SetupWizard({
                 </details>
               </>
             )}
-            {step === 1 && (
+            {step === 2 && (
               <>
                 <h3>
                   Um bot conversa com o cliente. Especialistas ajudam por
@@ -573,7 +584,7 @@ export function SetupWizard({
                 </p>
               </>
             )}
-            {step === 2 && (
+            {step === 3 && (
               <>
                 <h3>Escolha como a equipe recebe as conversas</h3>
                 <p>
@@ -602,7 +613,7 @@ export function SetupWizard({
                 </p>
               </>
             )}
-            {step === 3 && (
+            {step === 4 && (
               <>
                 <h3>Como o atendimento deve funcionar?</h3>
                 <p>
@@ -743,7 +754,7 @@ export function SetupWizard({
                 </form>
               </>
             )}
-            {step === 4 && (
+            {step === 5 && (
               <>
                 <h3>Mostre ao cliente os caminhos disponíveis</h3>
                 <div className="setup-option-grid">
@@ -803,7 +814,7 @@ export function SetupWizard({
                 </p>
               </>
             )}
-            {step === 5 && (
+            {step === 6 && (
               <>
                 <h3>Confira a configuração antes de começar</h3>
                 <p>

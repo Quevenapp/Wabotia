@@ -69,6 +69,38 @@ export interface ContactPage {
   incomplete: boolean;
 }
 
+/** Linha do tempo da ficha: GET contacts/:id/timeline?limit=20&before=<ms>&key=<chave>. */
+export type TimelineSource =
+  | "conversation" | "ticket" | "queue" | "form" | "checkin"
+  | "os" | "agenda" | "pedido" | "mensalidade" | "payment" | "erp";
+export type TimelineFailureSource = "history" | "os" | "agenda" | "pedido" | "mensalidade" | "payment" | "erp";
+export interface TimelineItem {
+  source: TimelineSource;
+  /** opened | stage | delivered | appointment | order | subscription | installment_paid | charge | paid | sale | kind do histórico. */
+  event: string;
+  /** Única e estável entre fontes; desempate do cursor. */
+  key: string;
+  occurredAt: number;
+  /** Fonte com data sem hora (ERP): mostrar só o dia. */
+  dateOnly?: boolean;
+  title: string;
+  status: string | null;
+  statusLabel: string | null;
+  /** Decimal em texto ("123.45"), nunca arredondado. */
+  amount?: string | null;
+  /** Horário marcado do agendamento. */
+  scheduledAt?: number | null;
+  target: CustomerTarget | null;
+}
+export interface TimelinePage {
+  items: TimelineItem[];
+  /** Próxima página: before=<ms>&key=<chave> do último item. */
+  nextCursor: { before: number; key: string } | null;
+  incomplete: boolean;
+  /** Fontes que falharam agora; as demais vieram normalmente. */
+  unavailable: { source: TimelineFailureSource; message: string }[];
+}
+
 export interface SectionView {
   version: number;
   writable: boolean;

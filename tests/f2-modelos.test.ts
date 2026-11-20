@@ -120,9 +120,10 @@ describe("fase 2: validação de módulos nos modelos", () => {
     expect(JSON.stringify(model)).not.toMatch(/fagoo/i);
     const published = areaTemplates.find((template) => template.id === model.id)!;
     expect(published).toBeDefined();
-    expect(published.modules).toEqual(model.modules);
-    // Parte 2 publicou Assistência técnica 4 e Engenharia 3 (objetos do serviço).
-    expect(published.version).toBe(({ restaurante: 1, assistencia_tecnica: 4, engenharia: 3 } as Record<string, number>)[model.id] ?? 2);
+    // O segmento primeiro (revisions.ts) só acrescenta módulos ao arquivo base: Agenda/Mensalidade nos menus que já os prometiam.
+    for (const [id, enabled] of Object.entries(model.modules)) if (enabled) expect(published.modules[id], id).toBe(true);
+    // Parte 2 publicou Assistência técnica 4 e Engenharia 3 (objetos do serviço); a revisão do segmento primeiro sobe advocacia e engenharia.
+    expect(published.version).toBe(({ restaurante: 1, assistencia_tecnica: 4, engenharia: 4, advogados: 3, escritorio_advocacia: 3 } as Record<string, number>)[model.id] ?? 2);
   });
 
   it("mantém processos e projetos como tipos existentes e Mesas como opção", () => {
