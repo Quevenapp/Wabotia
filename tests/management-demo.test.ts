@@ -37,7 +37,8 @@ it("demonstra lista única, modelo de oficina, filtros e exemplos para Configura
   expect(status.settings.os_work_types).toHaveLength(3);
   const examples = await demoApi(root + "/area-templates");
   expect(examples.data.length).toBeGreaterThan(1);
-  expect(examples.data).toContainEqual(expect.objectContaining({ id: "festas_eventos", version: 1 }));
+  // O segmento primeiro revisou Festas e eventos (Cadastros e Financeiro): versão 2.
+  expect(examples.data).toContainEqual(expect.objectContaining({ id: "festas_eventos", version: 2 }));
   const example = await demoApi(root + "/area-templates/oficina_mecanica");
   // Placa, marca/modelo, ano e cor passaram ao objeto Veículo; a visita guarda o resto.
   expect(example.work_types[0].object_type_id).toBe("veiculo");

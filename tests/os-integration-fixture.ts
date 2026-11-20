@@ -292,12 +292,15 @@ export async function applyRegisteredTemplate(
     );
     assert.equal(states.os, true);
   } else {
-    assert.equal(id, "restaurante");
+    // Sem Ordem de Serviço: restaurante e, desde O segmento primeiro, comércio.
+    assert.ok(["restaurante", "comercio"].includes(id), id);
     assert.deepEqual(model.work_types, []);
     assert.equal(settings.os_work_types, undefined);
     assert.equal(states.os, false);
-    assert.equal(states.pedido, true);
-    assert.equal(states.queue, true);
+    if (id === "restaurante") {
+      assert.equal(states.pedido, true);
+      assert.equal(states.queue, true);
+    }
   }
   const again = await f.call("/area-templates/preview", "POST", source);
   assert.equal(

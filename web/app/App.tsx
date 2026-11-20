@@ -14,6 +14,7 @@ import { TicketsArea } from "../tickets/TicketsArea";
 import { TeamArea } from "../team/TeamArea";
 import { CallsArea } from "../calls/CallsArea";
 import { AdminArea } from "../admin/AdminArea";
+import { SegmentFirstVisit } from "../admin/area-templates/SegmentPicker";
 import { ContactsArea } from "../admin/ContactsArea";
 import { QueueArea } from "../queue/QueueArea";
 import { MfaGate, MfaPrompt, mfaNeeded } from "./Account";
@@ -55,6 +56,8 @@ function Areas() {
   const needsProfile = route.area !== "admin" && route.area !== "more";
   return (
     <Shell>
+      {/* Primeiro acesso do administrador: "Qual é o seu negócio?" antes de Conversas. */}
+      <SegmentFirstVisit />
       {!app.profile && needsProfile ? (
         <div className="area">
           <Empty

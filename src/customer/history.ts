@@ -202,6 +202,23 @@ async function page(env: Env, actor: Actor, profile: string, target: { contactId
   return { items, nextCursor: rows.length > limit && tail ? btoa(await seal(env, { v: 1, binding, cut, last: { at: tail.occurredAt, key: tail.sourceKey } })) : null, incomplete };
 }
 
+/**
+ * Fatia da linha do tempo da ficha: as mesmas cinco fontes, autorização e
+ * filtros do histórico, numa única consulta, com corte explícito por data e
+ * chave (sem cursor selado). Devolve até limit+1 itens para a junção.
+ */
+export async function historyTimelineSlice(env: Env, actor: Actor, profile: string, contactId: string,
+  cursor: { before: number; key: string | null }, limit: number) {
+  const scope = await authorize(env, actor, profile, { contactId });
+  const sources = await sourcesFor(env, actor, profile, scope);
+  if (scope.excluded || !sources.length) return { items: [] as HistoryItem[], incomplete: scope.incomplete };
+  const incomplete = scope.incomplete || await pending(env, profile, scope, sources, now());
+  const [sql, args] = sourceQuery(profile, scope, sources);
+  const rows = await all(env, `SELECT * FROM (${sql}) WHERE ${cursor.key === null ? "occurredAt<?" : "(occurredAt<? OR (occurredAt=? AND sourceKey<?))"}
+    ORDER BY occurredAt DESC,sourceKey DESC LIMIT ?`, ...args, ...(cursor.key === null ? [cursor.before] : [cursor.before, cursor.before, cursor.key]), limit + 1);
+  return { items: rows.map(itemOf), incomplete };
+}
+
 /** Whitelist também na fronteira da IA: nunca espalhar objetos de fornecedores. */
 export function projectCustomerMemory(value: unknown): CustomerMemory {
   const data = value && typeof value === "object" ? value as Record<string, unknown> : {};

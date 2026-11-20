@@ -14,6 +14,7 @@ import {
   type PageId,
 } from "../workspace-navigation";
 import { SetupWizard } from "../SetupWizard";
+import { SegmentReminder } from "./area-templates/SegmentPicker";
 import { SourceFooterLink } from "../ui/SourceLink";
 import { SystemPanel } from "../SystemPanel";
 import { NumberRouter } from "../NumberRouter";
@@ -373,6 +374,7 @@ export function AdminArea({ page: requested }: { page: PageId | string }) {
                 </button>
               </div>
             )}
+            {page !== "setup" && page !== "area-templates" && <SegmentReminder />}
             {needsProfile ? (
               <div className="card">
                 <Empty

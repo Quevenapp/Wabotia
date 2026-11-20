@@ -6,7 +6,23 @@ import type { AreaTemplate as WorkAreaTemplate, AreaTemplateSelection as WorkAre
 
 // O contrato compartilhado ainda enumera apenas os módulos anteriores à fase 2.
 // A lista aceita em runtime vem exclusivamente do registro de módulos embutidos.
-export type AreaTemplate = WorkAreaTemplate & { modules: Partial<Record<string, boolean>> };
+/**
+ * Itens de menu que abrem a tela real de um módulo pelo WhatsApp (sem campos
+ * extras). Só entram quando o módulo dono está ligado no próprio manifesto:
+ * nenhum menu promete o que o modelo não liga.
+ */
+export const TEMPLATE_MODULE_MENU_TYPES = [
+  "agenda", "agenda_mine", "mensalidade_list", "mensalidade_copy", "reserva", "reserva_mine",
+  "pedido_cardapio", "pedido_acompanhar", "ensino_boletim", "cond_unit", "entrega_onde", "queue",
+] as const;
+export type TemplateModuleMenuType = typeof TEMPLATE_MODULE_MENU_TYPES[number];
+export type AreaTemplateMenu = WorkAreaTemplate["menus"][number] | { id: string; label: string; type: TemplateModuleMenuType };
+export const isModuleMenuType = (type: unknown): type is TemplateModuleMenuType =>
+  (TEMPLATE_MODULE_MENU_TYPES as readonly unknown[]).includes(type);
+/** Módulo dono de um tipo de menu de módulo. */
+export const moduleOfMenuType = (type: string) =>
+  registeredModules.find((module) => module.menu_item_types.some((item) => item.type === type))?.id ?? null;
+export type AreaTemplate = Omit<WorkAreaTemplate, "modules" | "menus"> & { modules: Partial<Record<string, boolean>>; menus: AreaTemplateMenu[] };
 export type AreaTemplateSelection = Omit<WorkAreaTemplateSelection, "module_ids"> & { module_ids: string[] };
 const allowedModules = () => registeredModules.filter((module) => module.builtin).map((module) => module.id);
 function moduleIdentifier(value: unknown, path: string): string {
@@ -249,12 +265,14 @@ export function validateAreaTemplate(input: unknown): AreaTemplate {
     return { ...item, id: identifier(item.id, 64, `${p}.id`), name: string(item.name, 80, `${p}.name`) };
   }), key);
   v.menus = unique(list(v.menus, 200, "menus", (entry, p) => {
-    const extra: Record<string, string[]> = { os_open: ["type_id"], os_track: ["type_id"], human: ["department_id"], message: ["content"] };
-    invalid(entry && Object.hasOwn(extra, entry.type), `${p}.type`);
+    const extra: Record<string, string[]> = { os_open: ["type_id"], os_track: ["type_id"], human: ["department_id"], message: ["content"],
+      ...Object.fromEntries(TEMPLATE_MODULE_MENU_TYPES.map((type) => [type, []])) };
+    invalid(entry && typeof entry.type === "string" && Object.hasOwn(extra, entry.type), `${p}.type`);
     const menu = object(entry, ["id", "label", "type", ...extra[entry.type]], p);
     menu.id = identifier(menu.id, 64, `${p}.id`);
     menu.label = string(menu.label, 80, `${p}.label`);
-    if (menu.type === "message") menu.content = string(menu.content, 3500, `${p}.content`);
+    if (isModuleMenuType(menu.type)) invalid(v.modules[moduleOfMenuType(menu.type) ?? ""] === true, `${p}.type`);
+    else if (menu.type === "message") menu.content = string(menu.content, 3500, `${p}.content`);
     else if (menu.type === "human") invalid(menu.department_id === null || v.departments.some((d: any) => d.id === menu.department_id), `${p}.department_id`);
     else invalid(menu.type_id === "service_order" || v.work_types.some((t: CustomWorkType) => t.id === menu.type_id), `${p}.type_id`);
     return menu as AreaTemplate["menus"][number];

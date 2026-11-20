@@ -20,33 +20,9 @@ import type {
 import { downloadJson } from "../../modules/os/types/type-draft";
 import { equivalentWorkTypes } from "../../../src/area-templates/equivalent-types";
 import "../../modules/os/work.css";
-/** O modelo traz menus da Ordem de serviço embutida (type_id service_order). */
-export const usesBuiltin = (template: AreaTemplate) =>
-  template.menus.some(
-    (menu) => "type_id" in menu && menu.type_id === "service_order",
-  );
-export function templateSelection(
-  template: AreaTemplate,
-): AreaTemplateSelection {
-  return {
-    work_type_ids: [
-      ...(usesBuiltin(template) ? ["service_order"] : []),
-      ...template.work_types.map((type) => type.id),
-    ],
-    // Por padrão o modelo só liga módulos. Desligar um módulo já ligado é
-    // escolha explícita na revisão. Fiscal permanece disponível para ligar,
-    // mas exige seleção explícita enquanto não há emissor.
-    module_ids: Object.entries(template.modules)
-      .filter(([id, enabled]) => enabled && id !== "erp-fiscal")
-      .map(([id]) => id) as AreaModuleId[],
-    menus: true,
-    departments: true,
-    ticket_categories: true,
-    vocabulary: true,
-    texts: true,
-    bot_suggestions: true,
-  };
-}
+import { templateSelection, usesBuiltin } from "./selection";
+import { SegmentPicker } from "./SegmentPicker";
+export { templateSelection, usesBuiltin } from "./selection";
 const MODULE_NAMES: Record<string, string> = {
   os: "Ordem de serviço",
   queue: "Fila presencial",
@@ -61,6 +37,16 @@ const MODULE_NAMES: Record<string, string> = {
   payments: "Cobrança",
   erp: "ERP",
   "erp-fiscal": "Fiscal",
+  // Nomes das partes que os modelos revisados passaram a ligar.
+  "erp-produtos": "Produtos e serviços",
+  "erp-vendas": "Vendas",
+  "erp-estoque": "Estoque",
+  "erp-financeiro": "Financeiro",
+  "erp-pdv": "Caixa / PDV",
+  juridico: "Jurídico",
+  condominio: "Condomínio",
+  saude: "Saúde (prontuário)",
+  ensino: "Ensino",
 };
 /** Texto da linha do módulo na revisão do modelo. */
 export function moduleLabel(
@@ -380,6 +366,9 @@ export function AreaTemplatesPage() {
     );
   return (
     <div className="os-work">
+      <SegmentPicker />
+      <h2 className="segment-advanced-title">Todos os modelos, com revisão detalhada</h2>
+      <p>Para escolher item por item o que entra (modelos de ordem, módulos, menus e textos).</p>
       <ResourceState resource={catalog} />
       {catalog.data?.data.map((item) => (
         <section className="os-work-record" key={item.id}>

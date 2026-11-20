@@ -1,13 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { ContactPage, ContactProfileView, Json, SectionView } from "../../src/customer/profile-contracts";
-import type { HistoryPage } from "../../src/customer/contracts";
+import type { ContactPage, ContactProfileView, Json, SectionView, TimelinePage } from "../../src/customer/profile-contracts";
 import type { ContactMergeResult } from "../../src/channel-contracts";
 import type { Api, Row } from "../lib/api";
 import { onApiState } from "../lib/api";
 import { navigationGuarded } from "../lib/routes";
 import { Dialog, SimpleContactBody } from "../ContactsPanel";
-import { bindErpContact, cancelContactJob, contactMergeWriter, jobBlocksEditing, jobMessage, mountProfileHost, profileMessage, profileMode, ProfileRequests, readContactJob, replaceSectionRole, sectionWriter, synchronizationJob, watchContactJob, writeFeedback, type ProfileJob, type ProfileVocabulary } from "./model";
+import { bindErpContact, cancelContactJob, contactMergeWriter, jobBlocksEditing, jobMessage, mountProfileHost, profileMessage, profileMode, ProfileRequests, readContactJob, replaceSectionRole, sectionWriter, synchronizationJob, timelinePath, timelineText, watchContactJob, writeFeedback, type ProfileJob, type ProfileVocabulary } from "./model";
 import { cellText, privateTarget, registeredComponent, targetHref } from "./registry";
 import { ChannelsSection } from "./ChannelsSection";
 import { ChannelContactActions } from "../channel-extensions";
@@ -391,19 +390,23 @@ function RoleChange({ kind, row, change }: { kind: "memberships" | "functions"; 
   </div>;
 }
 
+/** Linha do tempo única: carregada à parte, depois da ficha, página a página. */
 function History({ api, base }: { api: Api; base: string }) {
-  const [cursor, setCursor] = useState<string | null>(null), [revision, setRevision] = useState(0);
-  const state = useResource<HistoryPage>(api, base + "/history?limit=20" + (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""), revision);
-  const names = { conversation: "Atendimento", ticket: "Protocolo", queue: "Fila", form: "Formulário concluído", checkin: "Check-in" };
-  return <section className="customer-profile-card" aria-label="Histórico de atendimento"><h3>Histórico de atendimento</h3>
+  const [cursor, setCursor] = useState<TimelinePage["nextCursor"]>(null), [revision, setRevision] = useState(0);
+  const state = useResource<TimelinePage>(api, timelinePath(base, cursor), revision);
+  return <section className="customer-profile-card" aria-label="Histórico do cliente"><h3>Histórico do cliente</h3>
     {state.loading && <p role="status">Carregando histórico…</p>}
     {state.error && <Failure error={state.error} retry={() => setRevision(n => n + 1)} />}
-    {state.value && <>{state.value.items.length ? <ul>{state.value.items.map(item => <li key={item.sourceKey}>
-      {names[item.kind]} · {cellText(item.occurredAt, "datetime")} · {cellText(item.status, "status")}{item.target && targetHref(item.target) && <> · <a href={targetHref(item.target)!}>Abrir</a></>}
-    </li>)}</ul> : <p>Nenhuma interação disponível.</p>}
+    {state.value && <>
+      {state.value.unavailable.map(failure => <p key={failure.source} role="status" className="notice muted">{failure.message} <button type="button" onClick={() => setRevision(n => n + 1)}>Tentar novamente</button></p>)}
+      {state.value.items.length ? <ul className="customer-profile-timeline">{state.value.items.map(item => <li key={item.key}>
+        {timelineText(item)}{item.target && targetHref(item.target) && <> · <a href={targetHref(item.target)!}>Abrir</a></>}
+      </li>)}</ul> : <p>{cursor ? "Não há registros mais antigos." : "Nenhum registro disponível para este cliente."}</p>}
       {state.value.incomplete && <p role="status">Parte do histórico ainda está sendo preparada.</p>}
-      {cursor && <button type="button" onClick={() => setCursor(null)}>Mais recentes</button>}
-      {state.value.nextCursor && <button type="button" onClick={() => setCursor(state.value!.nextCursor)}>Interações anteriores</button>}
+      <div className="customer-profile-actions">
+        {cursor && <button type="button" onClick={() => setCursor(null)}>Mais recentes</button>}
+        {state.value.nextCursor && <button type="button" onClick={() => setCursor(state.value!.nextCursor)}>Registros anteriores</button>}
+      </div>
     </>}
   </section>;
 }
