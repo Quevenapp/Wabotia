@@ -74,7 +74,8 @@ export async function requestErpCronContinuation(env: Env, windowStart: number):
 async function deliverBatch(env: Env, before: number | null): Promise<{ attempted: number; full: boolean }> {
   const controller = new AbortController();
   const { signal } = controller;
-  let attempted = 0, full = false;
+  // `marked`: marcas de tentativa gravadas no D1 (o progresso durável do lote).
+  let attempted = 0, marked = 0, full = false;
   let timer: ReturnType<typeof setTimeout>;
   const deadline = new Promise<void>(resolve => {
     timer = setTimeout(() => { controller.abort(); resolve(); }, ERP_CRON_BUDGET_MS);
@@ -92,6 +93,7 @@ async function deliverBatch(env: Env, before: number | null): Promise<{ attempte
           await exec(env, `INSERT INTO instance_settings(key,value,updated) VALUES(?,?,?)
             ON CONFLICT(key) DO UPDATE SET updated=MAX(instance_settings.updated+1,excluded.updated)`,
           ATTEMPT_PREFIX + profile, profile, Date.now());
+          marked++;
           if (signal.aborted) return;
           const { snapshot } = await readErpPartsState(env, profile);
           if (signal.aborted) return;
@@ -108,6 +110,10 @@ async function deliverBatch(env: Env, before: number | null): Promise<{ attempte
     // depois do prazo. Uma chamada já enviada pode ter sido aplicada no objeto.
     await Promise.race([run(), deadline]);
     // Prazo encerrado no meio do lote: as que ficaram de fora seguem na continuação.
-    return { attempted, full: full || signal.aborted };
+    // Só continua com progresso gravado (ao menos uma marca, contada até
+    // aqui): cada continuação tira áreas da fila da janela. Sem marca (D1
+    // recusando escrita, ou prazo estourado antes de qualquer marca), o mesmo
+    // lote voltaria igual: a rodada termina e o próximo cron recomeça.
+    return { attempted, full: (full || signal.aborted) && marked > 0 };
   } finally { clearTimeout(timer!); }
 }

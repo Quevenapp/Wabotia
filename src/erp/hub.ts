@@ -248,7 +248,7 @@ export class ErpHub {
         if (path === "/erp-backup") job = startBackup(storage, profile);
         else {
           const body = await request.json<{ prefix?: unknown }>().catch(() => ({ prefix: undefined }));
-          // Exclusão/gravação de XML viva ou sem conferência recusa o início;
+          // Exclusão/gravação de XML de fato no ar recusa o início, com o motivo;
           // depois de começar, a barreira e o alarme impedem I/O novo de XML.
           job = await startRestore(storage, this.env.MEDIA, profile, body?.prefix as string);
         }

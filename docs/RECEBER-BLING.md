@@ -226,7 +226,10 @@ O teto provisório de 16 MiB (`erp_backup_too_large`) saiu dessas rotas; ele
 vale só para as funções na memória (`dumpAll`/`readBackup`), usadas por
 testes.
 
-- **Backup:** sem teto de tamanho. Enquanto ele lê o banco, as alterações do
+- **Backup:** o mesmo teto da restauração, medido do mesmo jeito (bytes UTF-8
+  dos dados exportados, somados por parte): acima dele o backup falha com
+  `erp_backup_too_large` antes de publicar e limpa as partes enviadas, em vez
+  de gravar algo que a restauração recusaria. Enquanto ele lê o banco, as alterações do
   ERP da área ficam suspensas (503 `erp_backup_running`, com `Retry-After`);
   consultas continuam. Medido no Node: ~35 s por GiB de dados exportados. A
   barreira cai no fim da leitura, em qualquer falha, sem progresso por 2 min

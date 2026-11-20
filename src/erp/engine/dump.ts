@@ -7,7 +7,9 @@
 // numa invocação só e é um retrato consistente. Serve aos testes e a bancos
 // pequenos. As rotas /erp-backup e /erp-restore usam o caminho em páginas
 // (engine/backup-pages.ts, formato 2), que lê, grava e restaura em partes,
-// com barreira de escrita e checkpoint durável, sem o teto de 16 MiB.
+// com barreira de escrita e checkpoint durável, sem o teto de 16 MiB (com o
+// teto da troca, ERP_RESTORE_SWAP_LIMIT_BYTES, igual no backup e na restauração).
+import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import { ERP_TABLES } from "../schema/columns.generated.ts";
 import { ERP_ENGINE_TABLES } from "../schema/engine-tables.ts";
@@ -18,9 +20,12 @@ export const ALL_TABLES: readonly string[] = [...Object.keys(ERP_TABLES), ...ERP
 const AUTHORIZATION_TABLES = new Set(["origin_sync__credentials", "origin_sync__oauth_state"]);
 export const DUMP_TABLES = ALL_TABLES.filter(table => !AUTHORIZATION_TABLES.has(table));
 import { ERP_DDL_HASH, ERP_DDL_VERSION } from "../schema/ddl.ts";
+import { archiveRestoreActive, hasPendingXmlObjectDelete } from "../bling/xml.ts";
 
 export const q = (id: string) => `"${id.replace(/"/g, '""')}"`;
 const sha = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
+/** Bytes UTF-8 sem copiar o texto (o retrato inteiro já está na memória). */
+const utf8Bytes = (text: string) => Buffer.byteLength(text, "utf8");
 
 /**
  * Teto do caminho na memória (dumpAll/readBackup), em bytes de NDJSON (o texto
@@ -28,7 +33,8 @@ const sha = (text: string) => createHash("sha256").update(text, "utf8").digest("
  * no isolado de 128 MB: as linhas da maior tabela, todos os corpos NDJSON e o
  * gzip de um arquivo coexistem; acima disto ele falha cedo, antes de
  * materializar ou de publicar manifesto. As rotas não usam mais este caminho:
- * o backup em páginas (engine/backup-pages.ts) não tem este teto.
+ * o backup em páginas (engine/backup-pages.ts) não tem este teto. Backup e
+ * leitura medem em bytes UTF-8 do NDJSON: dumpAll confere os bytes reais.
  * Medição (Node, heap mínimo em que backup + restauração completam): cerca de
  * 3,6 × o NDJSON + 12 MB; 17 MB → 72 MB, 25 MB → 96 MB, 34 MB → 128 MB.
  * 16 MiB deixa por volta de metade do isolado para o restante do Worker.
@@ -43,19 +49,53 @@ export class ErpBackupTooLargeError extends Error {
     this.limit = limit;
   }
 }
-/** Exclusão ou gravação externa de XML em voo ou ainda não reconciliada. */
+/** O que ocupa o acervo de XML da área e impede a restauração de começar. */
+export type ErpRestoreBusyReason = "delete" | "xml" | "restore";
+const BUSY_TEXT: Record<ErpRestoreBusyReason, { what: string; wait: string }> = {
+  delete: { what: "uma exclusão de XML do acervo no armazenamento de arquivos", wait: "Espere a coleta do Bling em curso terminar esse passo (leva segundos; no máximo, o prazo de posse do passo mais um minuto)" },
+  xml: { what: "uma busca ou gravação de XML do acervo pela coleta do Bling", wait: "Espere a coleta do Bling em curso terminar esse passo (leva segundos; no máximo, o prazo de posse do passo mais um minuto)" },
+  restore: { what: "outra restauração", wait: "Espere a restauração em curso terminar" },
+};
+/** Exclusão ou gravação de XML do acervo de fato no ar (ou outra restauração). */
 export class ErpRestoreBusyError extends Error {
   readonly code = "erp_restore_archive_busy";
-  constructor() {
-    super("Há exclusão ou gravação de XML do acervo em andamento ou sem conferência. A restauração não começou; tente de novo depois que terminar.");
+  readonly reason: ErpRestoreBusyReason;
+  constructor(reason: ErpRestoreBusyReason = "xml") {
+    const text = BUSY_TEXT[reason];
+    super(`A restauração não começou: há ${text.what} em andamento nesta área. ${text.wait} e tente de novo; nada foi alterado.`);
     this.name = "ErpRestoreBusyError";
+    this.reason = reason;
   }
 }
-/** Durável: o que sobrevive a uma queda do isolado. O que está só na memória
- * (chamada viva além do prazo da acordada) é conferido pela instância. */
-export const ARCHIVE_IO_UNRECONCILED = `SELECT 1 AS busy FROM wb_bling_unit WHERE phase NOT IN ('committed','superseded') AND (
-  (kind='r2_delete' AND (owner IS NOT NULL OR error_code IS NOT NULL OR json_extract(progress,'$.deleted') IS NOT NULL))
-  OR (substr(kind,1,4)='xml_' AND (phase='fetching' OR json_type(progress,'$.xml') IS NOT NULL))) LIMIT 1`;
+/** A recusa por I/O vivo na memória desta instância (ou por outra restauração). */
+export function archiveMemoryBusyError(profile: string): ErpRestoreBusyError {
+  if (archiveRestoreActive(profile)) return new ErpRestoreBusyError("restore");
+  return new ErpRestoreBusyError(hasPendingXmlObjectDelete(profile) ? "delete" : "xml");
+}
+/**
+ * Margem sobre o prazo de posse gravado: uma unidade cuja posse venceu há
+ * menos que isto ainda conta como no ar (relógio e término tardio do passo).
+ */
+export const ARCHIVE_IO_LEASE_MARGIN_MS = 60_000;
+/**
+ * Durável: o I/O de arquivo que pode estar de fato no ar, isto é, uma unidade
+ * com dono e posse ainda viva (com a margem): exclusão no R2 (r2_delete) ou
+ * passo de XML na fase de busca/gravação (xml_* em 'fetching'). Unidade em
+ * espera, com progresso ou erro gravados, não tem envio em curso e não trava:
+ * a troca de revisão da restauração a aposenta. Quem caiu no meio deixa a
+ * posse vencer e deixa de travar. O que está só na memória (chamada viva além
+ * do prazo da posse) é conferido pela instância (beginArchiveRestore).
+ * Parâmetro: o instante de agora (ms).
+ */
+export const ARCHIVE_IO_LIVE = `SELECT CASE WHEN kind='r2_delete' THEN 'delete' ELSE 'xml' END AS reason FROM wb_bling_unit
+  WHERE phase NOT IN ('committed','superseded') AND owner IS NOT NULL AND lease_until > ?
+    AND (kind='r2_delete' OR (substr(kind,1,4)='xml_' AND phase='fetching'))
+  ORDER BY kind='r2_delete' DESC LIMIT 1`;
+/** I/O de XML no ar segundo o banco, ou nulo. */
+export function archiveIoLiveError(sql: SqlStorage, now: number): ErpRestoreBusyError | null {
+  const row = sql.exec(ARCHIVE_IO_LIVE, now - ARCHIVE_IO_LEASE_MARGIN_MS).toArray()[0] as { reason?: ErpRestoreBusyReason } | undefined;
+  return row ? new ErpRestoreBusyError(row.reason === "delete" ? "delete" : "xml") : null;
+}
 
 export interface DumpManifest {
   format: 1;
@@ -104,19 +144,22 @@ export function tablePlan(sql: SqlStorage, table: string) {
 }
 
 /**
- * Tamanho do NDJSON do retrato, somado pelo SQLite tabela a tabela, sem trazer
- * linhas ao isolado. Conta o texto de cada valor (nulo como "null"), aspas,
+ * Tamanho do NDJSON do retrato em bytes UTF-8 (a mesma unidade de
+ * readBackup), somado pelo SQLite tabela a tabela, sem trazer linhas ao
+ * isolado. Conta os bytes de cada valor (nulo como "null"), aspas,
  * separadores e o escape de aspas e barras; não conta escape de caracteres de
- * controle. Para no primeiro total acima do teto.
+ * controle, por isso é só a recusa cedo: dumpAll confere os bytes reais antes
+ * de devolver o retrato. Para no primeiro total acima do teto.
  */
 export function measureDump(storage: DurableObjectStorage, limit = ERP_LOGICAL_BACKUP_LIMIT_BYTES): number {
   const sql = storage.sql;
   let total = 0;
   for (const table of DUMP_TABLES) {
     const { cols, values, filter } = tablePlan(sql, table);
+    const bytes = (text: string) => `length(CAST(${text} AS BLOB))`;
     const sizes = values.map(value => {
       const text = `CAST(${value} AS TEXT)`;
-      return `coalesce(2*length(${text})-length(replace(replace(${text},'"',''),'\\','')),4)`;
+      return `coalesce(2*${bytes(text)}-${bytes(`replace(replace(${text},'"',''),'\\','')`)},4)`;
     }).join("+");
     const row = sql.exec(`SELECT coalesce(sum(${sizes}),0) AS chars,count(*) AS n FROM ${q(table)}${filter}`).toArray()[0] as { chars: unknown; n: unknown };
     const n = Number(row.n);
@@ -140,12 +183,17 @@ export function dumpAll(storage: DurableObjectStorage, limit = ERP_LOGICAL_BACKU
     created_at: new Date().toISOString(),
     tables: [],
   };
+  // Bytes reais (UTF-8, com todo escape), contados como readBackup conta:
+  // nunca sai um retrato que a restauração recusaria por tamanho.
+  let bytes = 0;
   for (const table of DUMP_TABLES) {
     const { cols, values, filter } = tablePlan(sql, table);
     const select = values.map((value, index) => `${value} AS ${q(cols[index].name)}`).join(",");
     const rows: unknown[][] = Array.from(sql.exec(`SELECT ${select} FROM ${q(table)}${filter} ORDER BY rowid`).raw());
     if (!rows.length) continue;
     const body = [JSON.stringify(cols.map((c) => c.name)), ...rows.map((r) => JSON.stringify(r))].join("\n") + "\n";
+    bytes += utf8Bytes(body);
+    if (bytes > limit) throw new ErpBackupTooLargeError(limit);
     files.push({ table, body });
     manifest.tables.push({ table, rows: rows.length, sha256: sha(body) });
   }
@@ -162,7 +210,7 @@ export function restoreAll(
   storage: DurableObjectStorage,
   manifest: DumpManifest,
   files: Map<string, string>,
-  options: { profile?: string } = {},
+  options: { profile?: string; now?: number } = {},
 ) {
   if (manifest.schema_hash !== ERP_DDL_HASH)
     throw new Error(`Backup de outro esquema (${manifest.schema_hash}); este é ${ERP_DDL_HASH}.`);
@@ -203,13 +251,14 @@ export interface RestoreTableSource {
  * iterador, em lotes de até 100 parâmetros; nada exige o retrato inteiro na
  * memória. Devolve o número de linhas inseridas.
  */
-export function applyRestoreInTransaction(storage: DurableObjectStorage, tables: Iterable<RestoreTableSource>, options: { profile?: string } = {}): number {
+export function applyRestoreInTransaction(storage: DurableObjectStorage, tables: Iterable<RestoreTableSource>, options: { profile?: string; now?: number } = {}): number {
   const sql = storage.sql;
   let rows = 0;
   {
-    // Um DELETE/PUT de XML enviado e não conferido pode terminar depois da troca
-    // e apagar um arquivo que o retrato volta a referenciar: não começar.
-    if (sql.exec(ARCHIVE_IO_UNRECONCILED).toArray().length) throw new ErpRestoreBusyError();
+    // Um DELETE/PUT de XML no ar pode terminar depois da troca e apagar um
+    // arquivo que o retrato volta a referenciar: não começar.
+    const busy = archiveIoLiveError(sql, options.now ?? Date.now());
+    if (busy) throw busy;
     sql.exec("PRAGMA defer_foreign_keys = ON");
     const previousControl = sql.exec("SELECT revision,authorization_revision,credential_revision,updated_at FROM wb_bling_control WHERE id=1").toArray()[0];
     const triggers = sql
