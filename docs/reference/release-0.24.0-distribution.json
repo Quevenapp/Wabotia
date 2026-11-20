@@ -1,0 +1,95 @@
+{
+  "date": "2026-11-20",
+  "environment": "https://wabotia.queven.app",
+  "version": "0.24.0",
+  "commit": "ae17f4cfdccc732f125db977a8aef44f0e1633b7",
+  "previous_version": "0.23.0",
+  "composition": {
+    "main": "7b84a3c2 (0.23.0)",
+    "integra/canais": "canais além do WhatsApp, primeira e segunda levas",
+    "integra/f3": "372f33e0 (fase 3 do sistema único, com as correções das duas revisões; lançamento automático desligado de fábrica)",
+    "ordem de serviço": "partes 1 (0a5bc83c) e 2 (ff411c58)",
+    "integra/comercial": "14bfaac6 (venda com NF-e pela NFapi), telas reabertas (342f4fd1) e importação por planilha (4fd32bec)",
+    "integra/bling": "2fce8f9e (receber dados do Bling, só leitura)",
+    "correções": "três revisões independentes da junção e uma segunda revisão das correções, todas corrigidas (ac8302f6, 1e6f27ce, 2c0ef75a, d00d89ea)",
+    "backup do ERP": "0a54a720 (em partes) e c329f180 (teto real da restauração, medido na Cloudflare)",
+    "ensaio": "10e9762b (módulos de volta nas conversas de aplicação de integração, regressão achada pelo teste de fumaça na instalação de teste)"
+  },
+  "backup_complete": true,
+  "backup_folder": "backup-seguro/release-0.24.0-distribution-20261120 (fora do Git)",
+  "migrations": ["0135_module_erp_integration.sql", "0140_channels.sql", "0141_zernio_channel_accounts.sql", "0142_customer_channels_and_merges.sql", "0143_conversation_email.sql", "0144_channel_extensions.sql", "0145_comments_telegram_tiktok.sql", "0146_google_reviews.sql", "0147_email_channel.sql", "0150_os_service_objects.sql", "0151_os_stage_fields_and_indexes.sql"],
+  "pending_migrations": 0,
+  "durable_object_migrations_changed": false,
+  "erp_schema": "9 → 11 (comercial-nfe e receber-bling), só tabelas novas",
+  "package_format": 2,
+  "package": {
+    "manifest_sha256": "364804a3026925244afe34e4b5db268429d44d5c2fde69ac3bace9028e06f3b0",
+    "manifest_bytes": 39417,
+    "unique_files": 239,
+    "total_bytes": 22516925,
+    "worker_bytes": 12974375,
+    "migrations_in_manifest": 102,
+    "signed_by": "principal",
+    "index_expires": "2027-02-18",
+    "min_version": "0.21.1",
+    "workers_paid_probe": false
+  },
+  "legacy_latest_json": "continua em 0.21.1 (formato 1 congelado)",
+  "updater_checks": "scripts/erp/check-candidate.mjs public/releases/0.24.0",
+  "previous_versions_intact": 43,
+  "tests": {
+    "host": "Mac M4, Node 22, no commit publicado",
+    "erp": { "tests": 1770, "passed": 1769, "failed": 0, "todo": 1 },
+    "vitest": { "files": 388, "passed": 4473 },
+    "erp_panel": { "tests": 2278, "passed": 2278 },
+    "build": true
+  },
+  "typescript_check": true,
+  "web_build": true,
+  "staging_rehearsal": {
+    "installation": "instalação de teste na Cloudflare, dados fictícios",
+    "migrations_applied_without_error": true,
+    "smoke": "47 de 53 itens no commit 10e9762b; os 6 que falham esperam o servidor MCP do Hermes e um aviso do painel que já não existiam na 0.23.0",
+    "regression_found_and_fixed": "ações de módulo recusadas em conversas de aplicação de integração (corrigido em 10e9762b)",
+    "backup_measurement": "restauração lógica concluída com 62 e 124 MiB de dados exportados e recusada por memória (SQLITE_NOMEM) com 248 e 496 MiB; backup a cerca de 5 min por GiB; massa sintética de uma tabela"
+  },
+  "how_it_was_written": "escrita por agentes de código em paralelo entre 19 e 20/11/2026, um dono por arquivo, com contrato por frente, junção por merge, tarefas de fechamento com a suíte inteira como critério, três revisões independentes por leitura do código, uma segunda revisão das correções e um ensaio numa instalação de teste",
+  "born_disabled": [
+    "lançamento automático dos módulos no financeiro e no estoque do ERP",
+    "receber dados do Bling",
+    "NF-e em produção (começa em homologação)",
+    "operações do ERP liberadas a bots e a leitura sensível autônoma",
+    "catálogo dos canais da segunda leva (só em /app?canais=2)"
+  ],
+  "not_verified": [
+    "atualização pelo painel de uma instalação 0.23.0 com este pacote",
+    "provedores reais dos canais: Zernio, Meta, Telegram, Google, TikTok, envio e recebimento de e-mail",
+    "cofre real da NFapi e homologação na SEFAZ (só cofre simulado)",
+    "conta real do Bling",
+    "arquivo de remessa e retorno contra um banco",
+    "uso em atendimento real",
+    "aplicativos Android e iOS com esta versão do servidor",
+    "sonda do plano pago numa conta gratuita real (a versão saiu sem --workers-paid)",
+    "os testes novos das correções de dinheiro da segunda revisão foram conferidos por leitura, não por falha demonstrada antes da correção"
+  ],
+  "known_limits": [
+    "o canal de e-mail não pode ser ativado: o envio espera a confirmação do formato do provedor",
+    "backup e restauração do ERP em partes sem botão no painel nem rota de administrador; restauração lógica até 64 MiB de dados exportados",
+    "sem tela para a declaração de boleto baixado, para as liberações de operações do ERP por bot e para a leitura autônoma do bot",
+    "pedidos vindos dos módulos não emitem NF-e",
+    "o catálogo de ações dos bots não alcança as rotas do ERP"
+  ],
+  "operational_installation_updated": false,
+  "checks": [
+    { "route": "/api/health", "status": 200, "version": "0.24.0", "commit": "ae17f4cfdccc732f125db977a8aef44f0e1633b7" },
+    { "route": "/releases/latest.json", "status": 200, "version": "0.21.1", "format": 1 },
+    { "route": "/releases/v2/latest.json", "status": 200, "matches_local": true, "version": "0.24.0" },
+    { "route": "/releases/v2/latest.sig", "status": 200, "matches_local": true },
+    { "route": "/releases/v2/bridge.json", "status": 200, "matches_local": true },
+    { "route": "/releases/0.24.0/manifest.json", "status": 200, "matches_local": true },
+    { "route": "/releases/0.24.0/manifest.sig", "status": 200, "matches_local": true },
+    { "route": "/releases/0.24.0/release-v2.json", "status": 200, "matches_local": true },
+    { "route": "/releases/0.24.0/release-v2.sig", "status": 200, "matches_local": true },
+    { "route": "/releases/blobs/<sha256>", "method": "HEAD", "checked": 239, "status_200": 239 }
+  ]
+}
