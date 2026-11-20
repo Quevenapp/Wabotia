@@ -14,6 +14,7 @@ import { applyErpPartsSnapshot, requireCurrentErpParts, ErpPartsControlError, cu
 import { ERP_PARTS_DENIED_HEADER, ERP_PARTS_TTL_MS, readErpPartsSnapshot } from "./parts.ts";
 import { decodeIdentity, IDENTITY_HEADER, SYSTEM_HEADER } from "./engine/identity.ts";
 import { prepareBlingDispatch, blingFailureResponse } from "./bling/assembly.ts";
+import { BLING_RECEIPTED_OPERATIONS } from "./bling/schema.ts";
 
 /**
  * Motor e esquema por import dinâmico: o bundle os traz, mas só são avaliados
@@ -200,6 +201,11 @@ export class ErpHub {
         readParts: async () => (await currentErpParts(this.ctx.storage, profile))?.parts ?? null,
         readSnapshot: () => currentErpParts(this.ctx.storage, profile), profile });
       if (response.ok) await this.schedule(profile, Date.now() + 1_000);
+      // Escrita com recibo já gravada: devolve o feito, com o recibo. Uma
+      // revisão de partes que chegou durante a operação só impede trabalho
+      // novo (o próximo pedido é conferido no começo). Leitura continua
+      // reconferida antes de entregar o que leu.
+      if (BLING_RECEIPTED_OPERATIONS.has(blingCall.name)) return response;
       const denied = await authorize(false);
       return denied ?? response;
     }

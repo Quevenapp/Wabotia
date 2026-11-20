@@ -303,62 +303,40 @@ describe("rotas /erp-emissor", () => {
     expect(removed.configured).toBe(false);
   });
 
-  it("PDF, cupom, logotipo e XML dos eventos: leitura de qualquer papel erp:*, repassados como vieram", { timeout: 20_000 }, async () => {
+  // Revisão de acesso (M2): estas leituras entregavam DANFE e XML a qualquer
+  // papel erp:*, sem privacidade de cadastro nem portão. O painel usa a nota
+  // em /erp-comercial-nfe; a rota antiga recusa com 410 antes do cofre.
+  it("PDF, cupom, logotipo e XML dos eventos: rota antiga fechada para todo papel, sem ir ao cofre", { timeout: 20_000 }, async () => {
     const { vault, profile } = await vaultArea({ apiKey: KEY });
     await setModule(profile, "erp", true, "teste");
     await setModule(profile, "erp-fiscal", true, "teste");
     const api = new NfapiClient({ url: VAULT_URL, apiKey: KEY, fetch: vault.fetch });
     const nfe = (await api.emitir("nfe", requestExample("POST", "/v1/nfe"))).body;
     const nfce = (await api.emitir("nfce", requestExample("POST", "/v1/nfce"))).body;
-    await api.cartaCorrecao(nfe.id, requestExample("POST", "/v1/nfe/{id}/carta-correcao"));
-    await api.cancelar("nfe", nfe.id, requestExample("POST", "/v1/nfe/{id}/cancelar"));
-    vault.plan.push("reject");
-    const rejected = await api.emitir("nfe", { ...requestExample("POST", "/v1/nfe"), referencia: "outra-1" }).catch((e) => e.emissao);
     const consulta = await member("operator", profile, ["erp:consulta"]);
     const vendas = await member("operator", profile, ["erp:vendas"]);
+    const estoque = await member("operator", profile, ["erp:estoque"]);
+    const fiscal = await member("operator", profile, ["erp:fiscal"]);
+    const admin = await member("admin", profile);
     const get = (sub: string, who = consulta) =>
       erpEmissorRoute(env, new Request(url(profile, sub)), profile, who, { fetch: vault.fetch });
 
-    for (const who of [consulta, vendas]) {
-      const danfe = await get(`/nfe/${nfe.id}/danfe`, who);
-      expect(danfe.status).toBe(200);
-      expect(danfe.headers.get("Content-Type")).toBe("application/pdf");
-      expect(danfe.headers.get("Content-Length")).toBe(String(FAKE_PDF.byteLength));
-      expect(danfe.headers.get("Cache-Control")).toBe("private, no-store");
-      expect(new Uint8Array(await danfe.arrayBuffer())).toEqual(FAKE_PDF);
-    }
-    const danfce = await get(`/nfce/${nfce.id}/danfce?largura=58&via=estabelecimento`);
-    expect(danfce.headers.get("Content-Type")).toBe("application/pdf");
-    expect(vault.calls.at(-1)).toMatchObject({ path: `/v1/nfce/${nfce.id}/danfce`, query: "?largura=58&via=estabelecimento" });
     const before = vault.calls.length;
-    for (const bad of ["?largura=99", "?via=cozinha"]) {
-      const r = await get(`/nfce/${nfce.id}/danfce${bad}`);
-      expect(r.status, bad).toBe(400);
-      expect(await r.json(), bad).toMatchObject({ error: { code: "fiscal_invalid_request" } });
+    for (const who of [consulta, vendas, estoque, fiscal, admin]) {
+      for (const sub of [`/nfe/${nfe.id}/danfe`, `/nfce/${nfce.id}/danfce?largura=58&via=estabelecimento`, `/nfce/${nfce.id}/cupom`,
+        "/logotipo", `/nfe/${nfe.id}/cancelamento/xml`, `/nfe/${nfe.id}/carta-correcao/1/xml`, `/inutilizacoes/${nfe.id}/xml`]) {
+        expect(await get(sub, who).catch((e) => e), sub).toMatchObject({ status: 410, code: "fiscal_document_route_closed" });
+      }
     }
-    expect(vault.calls.length, "largura ou via desconhecida não chega ao cofre").toBe(before);
-    expect(await (await get(`/nfce/${nfce.id}/cupom`)).json()).toMatchObject({ modelo: "nfce", via: "consumidor", contingencia: false });
-    const logo = await get("/logotipo");
-    expect(logo.headers.get("Content-Type")).toBe("image/png");
-    expect(new Uint8Array(await logo.arrayBuffer())).toEqual(FAKE_PNG);
-    const cancel = await get(`/nfe/${nfe.id}/cancelamento/xml`);
-    expect(cancel.headers.get("Content-Type")).toBe("application/xml; charset=utf-8");
-    expect(await cancel.text()).toContain("110111");
-    expect(await (await get(`/nfe/${nfe.id}/carta-correcao/1/xml`)).text()).toContain('nSeqEvento="1"');
-
-    // Erros do 0.8.0: id de outro modelo, nota sem XML autorizado.
-    const otherModel = await get(`/nfe/${nfce.id}/danfe`);
-    expect(otherModel.status).toBe(404);
-    expect(await otherModel.json()).toMatchObject({ error: { code: "fiscal_document_not_found", provider_code: "nao_encontrado" } });
-    const notAuthorized = await get(`/nfe/${rejected.id}/danfe`);
-    expect(notAuthorized.status).toBe(409);
-    expect(await notAuthorized.json()).toMatchObject({ error: { code: "fiscal_not_authorized", provider_code: "nfe_nao_autorizada" } });
+    expect(vault.calls.length, "nenhuma leitura de documento chega ao cofre").toBe(before);
+    // A configuração e as consultas sem documento continuam.
+    expect((await (await get("/series", fiscal)).json<any>()).series).toHaveLength(2);
 
     // Sem papel no ERP: nada.
     expect(await get(`/nfe/${nfe.id}/danfe`, actor("operator", [profile])).catch((e) => e)).toMatchObject({ status: 403, code: "erp_role_required" });
   });
 
-  it("cofre antigo: vault_outdated com a versão mínima, nunca o 404 cru; sem logotipo: 404 próprio", { timeout: 20_000 }, async () => {
+  it("cofre antigo ou sem logotipo: a rota antiga recusa igual, sem chamar o cofre", { timeout: 20_000 }, async () => {
     const { vault, profile } = await vaultArea({ apiKey: KEY, version: "0.7.0", logo: null });
     await setModule(profile, "erp", true, "teste");
     await setModule(profile, "erp-fiscal", true, "teste");
@@ -367,23 +345,9 @@ describe("rotas /erp-emissor", () => {
     const nfce = (await api.emitir("nfce", requestExample("POST", "/v1/nfce"))).body;
     const consulta = await member("operator", profile, ["erp:consulta"]);
     const get = (sub: string) => erpEmissorRoute(env, new Request(url(profile, sub)), profile, consulta, { fetch: vault.fetch });
-    const outdated = await get(`/nfe/${nfe.id}/danfe`);
-    expect(outdated.status).toBe(409);
-    expect(await outdated.json()).toMatchObject({
-      error: { code: "vault_outdated", provider_code: "vault_outdated", min_version: "0.8.0", message: expect.stringContaining("0.7.0") },
-    });
-    // O cupom (0.7.0) esse cofre tem.
-    expect((await get(`/nfce/${nfce.id}/cupom`)).status).toBe(200);
-    const noLogo = await get("/logotipo");
-    expect(noLogo.status).toBe(409);
-    expect(await noLogo.json()).toMatchObject({ error: { code: "vault_outdated", min_version: "0.8.0" } });
-
-    const current = await vaultArea({ apiKey: KEY, logo: null });
-    await setModule(current.profile, "erp", true, "teste");
-    await setModule(current.profile, "erp-fiscal", true, "teste");
-    const reader = await member("operator", current.profile, ["erp:consulta"]);
-    const missing = await erpEmissorRoute(env, new Request(url(current.profile, "/logotipo")), current.profile, reader, { fetch: current.vault.fetch });
-    expect(missing.status).toBe(404);
-    expect(await missing.json()).toMatchObject({ error: { code: "fiscal_logo_missing" } });
+    const before = vault.calls.length;
+    for (const sub of [`/nfe/${nfe.id}/danfe`, `/nfce/${nfce.id}/cupom`, "/logotipo"])
+      expect(await get(sub).catch((e) => e), sub).toMatchObject({ status: 410, code: "fiscal_document_route_closed" });
+    expect(vault.calls.length).toBe(before);
   });
 });

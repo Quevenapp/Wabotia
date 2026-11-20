@@ -2362,6 +2362,7 @@ for (const [path, [table, scope]] of Object.entries(readLists))
           row.pdf_raw_fallback = cfg.bot_options?.[row.remote_profile]?.pdf_raw_fallback === true;
           row.image_to_team = cfg.bot_options?.[row.remote_profile]?.image_to_team === true;
           row.erp_operations = cfg.bot_options?.[row.remote_profile]?.erp_operations ?? [];
+          row.erp_autonomous_operations = cfg.bot_options?.[row.remote_profile]?.erp_autonomous_operations ?? [];
           row.provider = cfg.provider;
           row.model = cfg.model;
           // O provedor recusou as ferramentas numa execução (até salvar a

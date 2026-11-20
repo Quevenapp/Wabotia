@@ -4,7 +4,7 @@ import { encodeIdentity, IDENTITY_HEADER, type IdentityPort } from "../engine/id
 import { readErpPartsSnapshot, type ErpPartsSnapshot, type ErpParts } from "../parts.ts";
 import { BLING_ENTITIES, BLING_ERROR_CODES, BlingError, type BlingContext, type BlingOperationName, type BlingExpectedState, type ResourceDescriptor } from "./contracts.ts";
 import type { AuthorizationPort, CollectionStore, ArchivePort, BlingApiPort, BlingWakePort, BlingDataPort } from "./ports.ts";
-import { BLING_OPERATIONS, BlingAuthorizationContextSchema, getBlingOperation, parseBlingOperationInput, xmlDownloadSchema } from "./schema.ts";
+import { BLING_OPERATIONS, BLING_RECEIPTED_OPERATIONS, BlingAuthorizationContextSchema, getBlingOperation, parseBlingOperationInput, xmlDownloadSchema } from "./schema.ts";
 
 import { storageDriver, type SqlDriver } from "../engine/driver.ts";
 import { BlingAuthStore } from "./auth-store.ts";
@@ -215,7 +215,9 @@ export async function handleBlingOperation(call: BlingDispatch, dependencies: Bl
       cookies.push(`${cookie.name}=${cookie.value}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${cookie.max_age}`);
     } } } satisfies BlingContext;
     const result = call.name === "erp_bling_oauth_callback" ? await api.callback(operationContext, input as never) : await api.execute(operationContext, call.name, input as never);
-    if (!(await dependencies.readParts())?.customers) throw new BlingError("BLING_DISABLED");
+    // Escrita com recibo já gravada sai como feita; a reconferência tardia só
+    // protege o que é lido e o que ainda começaria trabalho.
+    if (!BLING_RECEIPTED_OPERATIONS.has(call.name) && !(await dependencies.readParts())?.customers) throw new BlingError("BLING_DISABLED");
     // Inclui saída em esquema: o adaptador não pode devolver campos secretos.
     const output = getBlingOperation(call.name)!.output.parse(result);
     if (call.name === "erp_bling_xml_get") {

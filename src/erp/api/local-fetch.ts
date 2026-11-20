@@ -19,6 +19,7 @@ import { requireModule } from "../../modules/registry";
 import { FISCAL_MODULE_HEADER, type ErpModuleState } from "../engine/module-state.ts";
 import { CUSTOMER_BRIDGE_USER_ID, GATE_DENIED_HEADER, GATE_HEADER, IDENTITY_HEADER, SYSTEM_HEADER, encodeIdentity, type IdentityPort } from "../engine/identity.ts";
 import { erpFetch } from "../hub.ts";
+import { SYSTEM_RPCS, COM1_INTERNAL_RPCS } from "../engine/system-rpcs.ts";
 import { erpStorage, publicSignedUrls } from "../../erp-storage";
 import { ErpUnavailable, rpcHasCommand, withStubRetry } from "./retry.ts";
 import { installErpBridge, registerCustomerProvider } from "../../customer/ports";
@@ -123,6 +124,11 @@ export function localFetch(
       // A API humana não encaminha o executor da fila nem sua marca interna.
       if (rpc[1].startsWith("erp_module_") || identity.module_execution)
         return Response.json({ code: "42501", message: "module_origin_denied" }, { status: 403 });
+      // A marca interna abaixo não pode levar uma requisição de pessoa ou de
+      // aplicação aos RPCs só do sistema (agendador, plataforma, evidência da
+      // NF-e): esses têm chamadores próprios, fora desta costura.
+      if (SYSTEM_RPCS.has(rpc[1]) || COM1_INTERNAL_RPCS.has(rpc[1]))
+        return Response.json({ code: "42501", message: "erp_rpc_system_only" }, { status: 403 });
       identity = await trustedIdentity();
       const state = { fiscal: identity.parts!.fiscal };
       const maintenance = new Headers(init.headers).get(ERP_MAINTENANCE_HEADER);
@@ -165,7 +171,8 @@ export function localFetch(
             if (envelope.length > 200_000) return erpPrivacyDenied();
             return erpFetch(env, profile, route, {
               method: "POST",
-              // SYSTEM_HEADER: a costura é chamada interna (a rota da erp-api escolheu o RPC; rpc-endpoint.ts, SYSTEM_RPCS).
+              // SYSTEM_HEADER: a costura é chamada interna (a rota da erp-api escolheu o RPC).
+              // Os nomes só do sistema já foram recusados acima (system-rpcs.ts).
               headers: {
                 "Content-Type": "application/json",
                 [IDENTITY_HEADER]: envelope,

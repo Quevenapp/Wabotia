@@ -97,6 +97,21 @@ export function createCommercialNfeService(_context: CommercialNfeHttpContext, d
     requireVaultBinding(emission, vault);
     return vault;
   };
+  /** DANFE e XML: a ida ao cofre é uma espera. Antes de entregar os bytes, a
+   * ponte confere de novo identidade, papel atual, permissão e partes (como o
+   * resto da fatia); quem perdeu o papel nesse meio não recebe o arquivo. */
+  const artifact = async (input: ReadInput, kind: "danfe" | "xml") => {
+    const emission = await read(input);
+    const file = await commercialArtifact(emission, await vaultFor(emission), kind);
+    try {
+      const after = await read(input);
+      if (after.id !== emission.id) fail("com1_version_conflict", "A emissão mudou durante a leitura. Tente de novo.");
+    } catch (error) {
+      await file.body?.cancel().catch(() => {});
+      throw error;
+    }
+    return file;
+  };
 
   async function effectsAfterEvidence(emission: EmissionView): Promise<EmissionView> {
     if (!["autorizada", "cancelada"].includes(emission.status)) return emission;
@@ -252,8 +267,8 @@ export function createCommercialNfeService(_context: CommercialNfeHttpContext, d
     emit: (input: CommercialEmitInput) => operate(input, "emit"),
     resume: (input: CommercialResumeInput) => operate(input, "resume"), cancel,
     effects: (input: EffectInput) => bridge.call(input.intent === "reverse" ? "erp_com1_effect_reverse" : "erp_com1_effect_apply", input),
-    danfe: async (input: ReadInput) => { const emission = await read(input); return commercialArtifact(emission, await vaultFor(emission), "danfe"); },
-    xml: async (input: ReadInput) => { const emission = await read(input); return commercialArtifact(emission, await vaultFor(emission), "xml"); },
+    danfe: (input: ReadInput) => artifact(input, "danfe"),
+    xml: (input: ReadInput) => artifact(input, "xml"),
     cancellationXml: async (input: ReadInput) => {
       const emission = await read(input) as EmissionView & { cancellation_xml?: string | null };
       if (emission.cancellation?.xml_status !== "disponivel" || !emission.cancellation_xml)

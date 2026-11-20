@@ -34,7 +34,10 @@ export function createBlingApi(deps: BlingDependencies, options: BlingApiOptions
     return value;
   }
 
-  async function parts(ctx: BlingContext) {
+  /** `afterEffect`: a escrita com recibo já foi gravada. A sessão e a área
+   * continuam conferidas, mas uma revisão de partes que chegou depois não
+   * transforma o efeito feito em erro (ela só impede trabalho novo). */
+  async function parts(ctx: BlingContext, afterEffect = false) {
     if (options.session) {
       const fresh = await options.session(ctx), prior = ctx.identity.actor;
       if (!prior || !fresh.actor || fresh.actor.user_id !== prior.user_id || fresh.actor.session_id !== prior.session_id || fresh.actor.is_agent !== prior.is_agent)
@@ -42,6 +45,7 @@ export function createBlingApi(deps: BlingDependencies, options: BlingApiOptions
       ctx.identity = fresh;
     }
     if (ctx.profile !== options.profile || ctx.identity.partsControl?.profile !== options.profile) throw new BlingError("BLING_SCOPE_REQUIRED");
+    if (afterEffect) return;
     const snapshot = readErpPartsSnapshot(await deps.readParts(), options.profile, ctx.clock.now());
     if (!snapshot?.parts.customers) throw new BlingError("BLING_DISABLED");
     if (snapshot.revision !== ctx.identity.partsControl.revision) throw new BlingError("BLING_REVISION_CONFLICT");
@@ -132,7 +136,7 @@ export function createBlingApi(deps: BlingDependencies, options: BlingApiOptions
           const saved = output(ctx, name, await deps.authorization.saveApplication(ctx, input as BlingOperationMap["erp_bling_app_save"]["input"])) as BlingOperationMap["erp_bling_app_save"]["output"];
           callbackUrl(saved.callback_url);
           receiptMatches(saved.receipt, name, command!, hash, before.generation);
-          await parts(ctx);
+          await parts(ctx, true);
           const after = control.read(ctx).configuration;
           ctx.authorization = authorizeOperation(ctx, name, input, after, hash).authorization;
           if (after.generation !== before.generation) throw new BlingError("BLING_GENERATION_RETIRED");
@@ -158,7 +162,7 @@ export function createBlingApi(deps: BlingDependencies, options: BlingApiOptions
             result = { configuration: control.read(ctx).configuration, receipt: pending.receipt, revocation_guidance: "Revogue o acesso também no aplicativo autorizado do Bling." }; break;
           }
           const credential = await deps.authorization.disconnect(ctx, pending.expected!);
-          await parts(ctx);
+          await parts(ctx, true);
           ctx.authorization = authorizeOperation(ctx, name, input, control.read(ctx).configuration, hash).authorization;
           result = { ...control.finishDisconnect(ctx, input as BlingCommand, hash, credential), revocation_guidance: "Revogue o acesso também no aplicativo autorizado do Bling." }; break;
         }
@@ -254,7 +258,7 @@ export function createBlingApi(deps: BlingDependencies, options: BlingApiOptions
           const purged = output(ctx, name, await deps.archive.purge(ctx, request)) as BlingOperationMap["erp_bling_purge_apply"]["output"];
           if (purged.receipt) receiptMatches(purged.receipt, name, request, hash, request.generation);
           result = purged;
-          await parts(ctx);
+          await parts(ctx, true);
           ctx.authorization = authorizeOperation(ctx, name, input, control.read(ctx).configuration, hash).authorization;
           break;
         }

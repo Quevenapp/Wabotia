@@ -318,18 +318,14 @@ Escrita só com administrador. Em caso de erro fiscal, a resposta é `{ error:
 | `POST /erp-emissor/test` | admin | "Testar conexão": chama `GET /v1/cofre`, `/v1/series` e `/v1/openapi.json`, guarda e devolve o estado. |
 | `GET /erp-emissor/series` | quem tem acesso | Séries ao vivo do cofre. |
 | `GET /erp-emissor/sefaz?uf=SP&modelo=nfce&ambiente=homologacao` | quem tem acesso | Status da SEFAZ: `{in_operation, authorizer, message, average_seconds}`. |
-| `GET /erp-emissor/nfe/{ref}/danfe` | quem tem acesso | DANFE em PDF. |
-| `GET /erp-emissor/nfce/{ref}/danfce?largura=80\|58&via=consumidor\|estabelecimento` | quem tem acesso | DANFE NFC-e em PDF. Largura ou via desconhecida: 400 sem chamar o cofre. |
-| `GET /erp-emissor/nfce/{ref}/cupom?via=` | quem tem acesso | Cupom em JSON (`Cupom` do contrato), para a impressora do caixa. |
-| `GET /erp-emissor/logotipo` | quem tem acesso | Logotipo (PNG ou JPEG); sem logotipo: 404 `fiscal_logo_missing`. |
-| `GET /erp-emissor/{nfe\|nfce\|nfse}/{ref}/cancelamento/xml` | quem tem acesso | XML do cancelamento. |
-| `GET /erp-emissor/nfe/{ref}/carta-correcao/{n}/xml` | quem tem acesso | XML da carta de correção `n`. |
-| `GET /erp-emissor/inutilizacoes/{ref}/xml` | quem tem acesso | XML da inutilização. |
+| `GET /erp-emissor/nfe/{ref}/danfe`, `/nfce/{ref}/danfce`, `/nfce/{ref}/cupom`, `/logotipo`, `/{nfe\|nfce\|nfse}/{ref}/cancelamento/xml`, `/nfe/{ref}/carta-correcao/{n}/xml`, `/inutilizacoes/{ref}/xml` | ninguém | Fechadas: 410 `fiscal_document_route_closed`, sem chamar o cofre. |
 
-"Quem tem acesso" é qualquer papel `erp:*`. Os arquivos vão com o tipo e o
-tamanho que o cofre mandou, sem transformação, `Cache-Control: private,
-no-store` e `X-Content-Type-Options: nosniff`. O cofre gera os PDFs na hora:
-nada fica guardado no Wabotia, e nenhum conteúdo de nota vai para log.
+"Quem tem acesso" é qualquer papel `erp:*`. As leituras de documento eram
+entregues a qualquer papel, sem a privacidade de cadastro nem o portão de
+horário e segundo fator; o painel não as chamava mais. DANFE e XML saem pela
+nota, em `/erp-comercial-nfe/emissoes/:id/(danfe|xml)`, com a regra da fatia
+fiscal. Os métodos do provedor (`danfe`, `danfce`, `receipt`, `logo` e os XML
+dos eventos) continuam no cliente para quem os chamar com essa regra.
 Caractere fora do Latin-1 sai como "?" no PDF (limite do cofre).
 Erros do 0.8.0: 409 `fiscal_not_authorized` para nota sem XML autorizado
 arquivado; 404 `fiscal_document_not_found` para id inexistente ou de outro

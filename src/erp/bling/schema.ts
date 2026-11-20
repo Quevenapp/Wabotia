@@ -208,6 +208,14 @@ export const BLING_OPERATIONS = {
   erp_bling_purge_apply: operation("erp_bling_purge_apply", "POST", "/apagar", "Apagar o acervo recebido após confirmação", "Confere hash da prévia, recusa referências operacionais, aposenta geração e agenda exclusão SQL/R2 limitada e retomável.", "admin", true, commandSchema.extend({ scope: purgeScopeSchema, generation: generationSchema, preview_hash: sha, confirmed: z.literal(true) }).strict(), z.object({ work_id: id, receipt: receiptSchema.nullable() }).strict()),
   erp_bling_command_get: operation("erp_bling_command_get", "GET", "/comandos/:id", "Consultar o resultado de um comando de coleta", "Retorna fase e recibo saneado; absent indica comando sem reserva nem recibo. Consultar não repete chamada externa nem avança checkpoint.", "archive_read", false, z.object({ id }).strict(), z.object({ phase: unitPhaseSchema.or(z.literal("absent")), receipt: receiptSchema.nullable() }).strict()),
 } as const;
+/** Escritas administrativas que gravam recibo por command_id. Depois de
+ * gravadas, a resposta é o próprio recibo: a fotografia de partes conferida no
+ * começo autoriza o efeito, e uma revisão que chega depois só impede trabalho
+ * novo (repetir o comando devolve o mesmo recibo, sem executar de novo). */
+export const BLING_RECEIPTED_OPERATIONS: ReadonlySet<BlingOperationName> = new Set<BlingOperationName>([
+  "erp_bling_configure", "erp_bling_app_save", "erp_bling_enable", "erp_bling_disable",
+  "erp_bling_disconnect", "erp_bling_collect_request", "erp_bling_purge_apply",
+]);
 export function getBlingOperation(name: string): BlingOperationDescriptor | null { return Object.hasOwn(BLING_OPERATIONS, name) ? BLING_OPERATIONS[name as BlingOperationName] as BlingOperationDescriptor : null; }
 export function parseBlingOperationInput<K extends BlingOperationName>(name: K, input: unknown): BlingOperationMap[K]["input"] {
   const parsed = BLING_OPERATIONS[name].input.safeParse(input);
