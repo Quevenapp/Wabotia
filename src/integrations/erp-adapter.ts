@@ -135,7 +135,7 @@ async function moduleRpc(env: Env, request: PreparedErpRequest, rpc: ModuleRpc, 
       if (typeof body?.message === "string" && ["historical_origin_unlinked", "module_cancellation_pending", "module_cancellation_blocked", "module_receipt_excess", "module_commercial_frozen", "module_transition_invalid", "module_title_settled", "module_settlement_missing", "module_finance_blocked", "erp_document_finance_reverse_blocked", "erp_stock_reverse_blocked", "erp_finance_active_payments", "erp_finance_billed_locked", "fiscal_order_transition_locked", "fiscal_order_compensation_required"].includes(body.message))
         throw new IntegrationError(body.message, 422);
       const codes: Record<string, string> = { PGRST202: "integration_not_implemented", "40001": "version_conflict", "42501": "forbidden" };
-      const known = ["part_disabled", "epoch_closed", "waiting_manual", "historical_origin_unlinked", "default_inactive", "erp_parts_unavailable"];
+      const known = ["part_disabled", "epoch_closed", "waiting_manual", "historical_origin_unlinked", "default_inactive", "erp_parts_unavailable", "erp_backup_running", "erp_restore_running"];
       throw new IntegrationError(known.includes(body?.code) ? body.code : codes[body?.code] ?? (response.status >= 500 || response.status === 429 ? "integration_unavailable" : "invalid_request"), response.status === 404 ? 422 : response.status);
     }
     return body;

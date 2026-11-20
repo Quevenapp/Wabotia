@@ -57,6 +57,30 @@ consulta histórica. Religar parte não adota dados. O guia da função
 descreve os limites e o [roteiro do dono](RECEBER-BLING-PRIMEIRA-COLETA.md)
 separa aceite simulado de conferência oficial e coleta real.
 
+## Backup e restauração em páginas no alarme
+
+O backup lógico e a restauração (rotas internas `/erp-backup`,
+`/erp-restore` e `/erp-backup-status`; [ERP-PORTE.md](ERP-PORTE.md), "Backup
+lógico em páginas") são trabalho longo: a rota avança o que cabe em 10 s e
+responde 202 com o progresso, e o alarme continua. Enquanto há trabalho
+ativo (estado na `erp_meta`, chave `wb_backup_job`):
+
+- o alarme roda **só** o trabalho de backup, antes de conferir as partes (como
+  as rotas internas, funciona com a Base suspensa), em acordadas de até 10 s
+  ou 128 unidades, e volta em 100 ms; erro de R2 ou SQLite volta em 5 s;
+- rotinas, fila da plataforma, arquivos (`runFileTasks`) e a coleta do Bling
+  não rodam: retomam na acordada seguinte ao fim, que o próprio trabalho
+  agenda;
+- `schedule()` nunca apaga nem adia o alarme enquanto o trabalho existe,
+  mesmo com a fotografia de partes ausente ou desligada.
+
+A barreira de escrita do backup vale também fora do alarme: escrita pela
+rota `/erp-rpc` volta 503 (`erp_backup_running` ou `erp_restore_running`),
+desfeita; operações de escrita da coleta e o retorno do OAuth também. A fila
+de integração da fase 3 trata essa recusa como suspensão (tenta de novo em
+60 s, sem gastar tentativa) e a NF-e comercial recebe mensagem própria para
+retomar a mesma emissão depois.
+
 ## Entrega de estado e `/erp-wake` (fase 2)
 
 `POST /erp-parts` recebe `{profile, revision, expires_at, parts}`. Os nove

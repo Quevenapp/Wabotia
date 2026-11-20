@@ -403,3 +403,97 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
   - Guardas sobre dados de um bloco desligado continuam valendo; desligar não apaga dados.
   - Leitura de tabela de bloco desligado retorna o que houver, ou nada.
 - Commits pequenos, push sem PR, nada de publicar nem implantar.
+
+## Backup lógico em páginas
+
+Código: `src/erp/engine/backup-pages.ts` (trabalho), `backup-state.ts`
+(estado, barreira, cerca de escrita), `sha256-state.ts` (hash retomável) e
+`backup-operations.ts` (operações para o catálogo dos bots). Rotas internas do
+objeto `erp:<área>` em `src/erp/hub.ts`: `POST /erp-backup`, `POST
+/erp-restore {prefix}` e `GET /erp-backup-status`. Continuam fora do Worker e
+da API pública. As funções na memória do formato 1 (`dumpAll`, `restoreAll`,
+`readBackup`, `backupToR2` em `dump.ts`) ficam para testes e com o teto de
+16 MiB delas; as rotas não as usam.
+
+**Retrato de um instante: barreira de escrita.** O backup abre um trabalho
+(`erp_meta`, chave `wb_backup_job`) e, na mesma transação, a barreira. Da
+abertura até a última parte lida, escritas do ERP da área voltam 503 com
+`erp_backup_running` (na restauração, `erp_restore_running`) e `Retry-After`;
+leituras continuam. Na rota `/erp-rpc` o RPC roda dentro de uma transação e,
+se gravou alguma linha (`total_changes()`, que conta inclusive gatilhos), é
+desfeito: não é preciso classificar cada RPC como leitura ou escrita. As
+operações de escrita da coleta (POST e retorno do OAuth) e as sondas são
+recusadas antes; consultas da coleta passam (a única gravação delas é a
+auditoria de uma consulta recusada, uma linha numa tabela só, que não rasga o
+retrato). O alarme não roda rotinas, arquivos nem coleta enquanto há trabalho.
+A barreira tem prazo renovável de 2 min (só progresso renova) e absoluto de
+60 min; cai no fim da leitura, em qualquer falha, sem progresso ou no prazo.
+Passado o prazo, o trabalho falha (`erp_backup_expired`) e limpa as partes.
+
+Por que barreira e não cópia: uma cópia do banco no próprio SQLite dobraria o
+disco (o acervo para perto de 8 GB num teto de 10 GB) e não caberia numa
+invocação; ler tudo num instante também não. A barreira custa escritas
+suspensas pelo tempo da leitura, medido abaixo.
+
+**Partes e manifesto (formato 2).** Tabela por tabela (a mesma lista do
+formato 1, sem credenciais nem estados OAuth), páginas de 256 linhas por
+`rowid` e partes de ~1 MiB de NDJSON (primeira linha: colunas JSON; depois
+uma linha por registro, inteiros como texto exato), comprimidas com gzip e
+gravadas em `erp-backups/<área>/<instante>/<tabela>.<n>.ndjson.gz`. Cada parte
+confirmada grava, numa transação, a entrada da parte e o checkpoint (último
+`rowid`, hash retomável da tabela). Queda: a retomada refaz só a parte sem
+confirmação, com a mesma chave (sobrescreve a órfã). O `manifest.json` só é
+publicado no fim e traz:
+
+- `tables`: por tabela, `rows` e `sha256` do NDJSON inteiro da tabela, iguais
+  aos do formato 1;
+- `parts`: `table`, `seq` (ordem global), `index` (ordem na tabela), `key`,
+  `rows`, `bytes` (gzip), `text_bytes` e `sha256` do NDJSON da parte;
+- `totals`, `job` (barreira e invocações) e `external_objects`: os bytes dos
+  XML e dos anexos ficam no R2, fora do backup, com a contagem das linhas que
+  os referenciam.
+
+**Restauração tudo ou nada.** Fase 1 (várias invocações, banco intacto): lê
+cada parte em fluxo, confere tamanho, hash, linhas, cabeçalho e o hash de
+cada tabela, e guarda o texto conferido na `erp_meta` em pedaços de 256 K
+caracteres (estágio); o checkpoint anda junto. Fase 2: a troca é uma
+transação só (`applyRestoreInTransaction`, a mesma da restauração na
+memória): apaga as tabelas, insere as linhas do estágio por `json_each`,
+reaplica as regras de sempre (coleta desligada, credencial não volta,
+apagamentos pendentes aposentados) e confere FKs. Qualquer erro desfaz tudo:
+o banco fica como estava e o estágio é limpo. Não usamos "restaurar ao lado e
+trocar" com tabelas paralelas porque isso dobraria o disco e exigiria renomear
+tabelas com FKs; o estágio guarda só o texto conferido. A restauração recusa
+começar com XML em voo ou sem conferência (`erp_restore_archive_busy`), com
+outro trabalho ativo (`erp_backup_job_running`) ou com backup de outro
+esquema. Backups do formato 1 entram pelo mesmo caminho, um arquivo por parte.
+
+**Medições** (`node scripts/erp-backup-measure.mjs`; Node 22, SQLite em
+arquivo, R2 simulado em arquivo, heap do processo travado em 48 MB,
+orçamento de 10 s ou 128 unidades por invocação como no alarme):
+
+| dados | NDJSON (bytes) | partes | backup | invocações | escritas retidas | restauração | invocações | troca | pico de heap acima da base |
+|---|---|---|---|---|---|---|---|---|---|
+| 16 MiB | 16.746.226 | 46 | 0,6 s | 1 | 0,6 s | 0,5 s | 1 | 0,3 s | 9,6 MB |
+| 256 MiB | 262.726.052 | 280 | 8,9 s | 3 | 8,9 s | 6,7 s | 3 | 3,8 s | 9,7 MB |
+| 1 GiB | 1.051.115.687 | 1.032 | 36,0 s | 9 | 36,0 s | 30,4 s | 9 | 17,9 s | 15,4 MB |
+
+No workerd local (teste `tests/erp-do-backup-pages.test.ts`, 22 MB de
+NDJSON): backup 0,6 s, restauração 0,8 s, troca 0,4 s (~19 s por GiB). O
+caminho antigo precisava de ~3,6 × o NDJSON + 12 MB de heap.
+
+**Tetos reais.** Backup: nenhum de tamanho; o prazo absoluto da barreira
+(60 min) corresponde a ~100 GiB no ritmo medido. Restauração: a troca roda
+numa invocação, e o limite de CPU padrão do objeto é 30 s; por isso ela
+cobre até 1 GiB de dados exportados (1.073.741.824 bytes,
+`ERP_RESTORE_SWAP_LIMIT_BYTES`) e recusa acima disso
+(`erp_restore_too_large`), antes da barreira. Acima, a cópia para restaurar é
+a recuperação no tempo da plataforma, ou aumentar juntos `limits.cpu_ms` do
+Worker (até 5 min) e `ERP_RESTORE_SWAP_LIMIT_BYTES` (decisão de implantação,
+não feita aqui).
+
+**Para quem porta.** RPC que grava passa pela barreira sem mudança; RPC de
+leitura que grava algo (contador, recibo) é recusado durante o backup. Escrita
+no SQLite do ERP fora de `/erp-rpc` e do alarme precisa conferir
+`backupFence` antes. Tabela nova entra no backup sozinha (lista de
+`dump.ts`).
