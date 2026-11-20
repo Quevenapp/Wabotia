@@ -5,13 +5,36 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import "../src/index";
 import { exec, one } from "../src/db";
 import { internalCall } from "../src/internal-api";
+import { authenticate, sha } from "../src/security";
+import { setMfaPolicy } from "../src/mfa";
 import { perform } from "../src/service";
 import { botActionContext, createProposal, confirmProposal } from "../src/bot-actions/actions";
 import { fullCatalog, type CatalogOperation } from "../src/bot-actions/catalog";
 import { erpCommercialOperations } from "../src/modules/erp/commercial-operations";
-import { bot, fixture } from "./service-center-fixture";
+import { bearer, bot, fixture } from "./service-center-fixture";
 import { enableErpParts, setModule } from "./erp-module-helper";
-import { uid } from "../src/types";
+import { now, uid, type Actor } from "../src/types";
+
+async function confirmingSession(actor: Actor) {
+  await setMfaPolicy(env, "financial");
+  const token = await bearer(actor);
+  const request = new Request("https://test/api/v1/me", { headers: { Authorization: "Bearer " + token } });
+  const person = await authenticate(env, request);
+  // A fixture de serviço não tem sessão; o guarda financeiro só trata como
+  // pessoa quem tem sessionId (ou via). Aqui usamos a mesma autenticação da API.
+  expect(person.sessionId).toBeTruthy();
+  expect(person).toMatchObject({ aal: 1, mfa: { factor: false, policy: "financial" } });
+  return {
+    person,
+    async withSecondFactor() {
+      // Como nos testes de MFA do núcleo, simula o desafio concluído na sessão.
+      await exec(env, "UPDATE sessions SET aal=2,mfa_at=? WHERE hash=?", now(), await sha(token));
+      const confirmed = await authenticate(env, request);
+      expect(confirmed).toMatchObject({ sessionId: person.sessionId, aal: 2 });
+      return confirmed;
+    },
+  };
+}
 
 async function setup() {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -25,7 +48,13 @@ async function setup() {
   const run = await one(env, "SELECT * FROM bot_runs WHERE id=?", sent.run_id);
   return { f, chat, run, botId };
 }
-afterEach(() => vi.useRealTimers());
+afterEach(async () => {
+  try {
+    await setMfaPolicy(env, "off");
+  } finally {
+    vi.useRealTimers();
+  }
+});
 
 describe("contratos ERP prontos para o catálogo do bot", () => {
   it("expõe contratos sem fingir que o repasse já tem registro onRead/onRoute", () => {
@@ -51,23 +80,56 @@ describe("contratos ERP prontos para o catálogo do bot", () => {
 
   it("meta usa a proposta e confirmação existentes, pela mesma rota e papel humano", { timeout: 120_000 }, async () => {
     const { f, chat, run } = await setup();
+    const session = await confirmingSession(f.admin);
     const ctx = await botActionContext(env, run);
     const spec = erpCommercialOperations.find(op => op.id === "erp.business.goal.save")!;
+    // O contrato já é sensível: a política existente pede MFA ao confirmar,
+    // mesmo que salvar uma meta não movimente dinheiro.
+    expect(spec.sensitive).toBe(true);
     const op: CatalogOperation = { name: spec.id, kind: "write", method: spec.method, path: "erp" + spec.path,
       module: "erp", summary: spec.summary, description: spec.description, params: spec.params, sensitive: spec.sensitive, scope: "erp:write" };
     const proposal = await createProposal(ctx!, op, { command_id: uid(), goal_id: null, expected_version: 0,
       data: { name: "Meta via proposta", start_on: "2026-11-01", end_on: "2026-11-30", segment: "geral", seller: null, target: "500.00", active: true } }, "Salvar meta comercial de R$ 500,00");
     expect(proposal.status).toBe("pending");
     await expect(confirmProposal(env, ctx!.actor, f.profile, chat.id, proposal.id)).rejects.toMatchObject({ code: "person_required" });
-    await expect(confirmProposal(env, { ...f.admin, aal: 1, mfa: { factor: false, policy: "financial" } }, f.profile, chat.id, proposal.id))
+    expect(await one(env, "SELECT status,decided_at,result FROM bot_proposals WHERE id=?", proposal.id))
+      .toMatchObject({ status: "pending", decided_at: null, result: null });
+    await expect(confirmProposal(env, session.person, f.profile, chat.id, proposal.id))
       .rejects.toMatchObject({ code: "mfa_required" });
-    expect((await one(env, "SELECT status FROM bot_proposals WHERE id=?", proposal.id)).status).toBe("pending");
+    expect(await one(env, "SELECT status,decided_at,result FROM bot_proposals WHERE id=?", proposal.id))
+      .toMatchObject({ status: "pending", decided_at: null, result: null });
     const before = await internalCall(env, f.admin, { path: `/profiles/${f.profile}/erp/v1/meu-negocio/metas` });
     expect((await before.json<any>()).items).toEqual([]);
-    const result = await confirmProposal(env, f.admin, f.profile, chat.id, proposal.id);
+    const result = await confirmProposal(env, await session.withSecondFactor(), f.profile, chat.id, proposal.id);
     expect(result.status, JSON.stringify(result)).toBe("done");
     const response = await internalCall(env, f.admin, { path: `/profiles/${f.profile}/erp/v1/meu-negocio/metas` });
     expect((await response.json<any>()).items).toEqual(expect.arrayContaining([expect.objectContaining({ name: "Meta via proposta", target: "500.00" })]));
+  });
+
+  it("remessa financeira recusa o próprio bot e a sessão humana sem segundo fator", { timeout: 120_000 }, async () => {
+    const { f, chat, run } = await setup();
+    const session = await confirmingSession(f.admin);
+    const ctx = await botActionContext(env, run);
+    const spec = erpCommercialOperations.find(op => op.id === "erp_cnab_operational_generate_v2")!;
+    expect(spec.sensitive).toBe(true);
+    const op: CatalogOperation = { name: spec.id, kind: "write", method: spec.method, path: "erp" + spec.path,
+      module: "erp", summary: spec.summary, description: spec.description, params: spec.params, sensitive: spec.sensitive, scope: "erp:write" };
+    // A recusa deve ocorrer antes da execução e da busca de perfil/título.
+    // O fluxo financeiro válido completo está em erp-cnab-operacional-rotas.
+    const proposal = await createProposal(ctx!, op, {
+      command_id: uid(), profile_id: uid(), expected_version: 1, expected_approval_version: 1,
+      generated_on: "2026-11-19", titles: [{ title_id: uid(), expected_version: 1, document_number: "TESTE001" }],
+      confirm_operational: true, preview_hash: "0".repeat(64), encoding_profile: "itau109-no-charges-v1",
+      confirm_encoding_profile: true, zero_daily_title_ids: [],
+    }, "Gerar remessa operacional de cobrança");
+    for (const [actor, code] of [[ctx!.actor, "person_required"], [session.person, "mfa_required"]] as const) {
+      await expect(confirmProposal(env, actor, f.profile, chat.id, proposal.id)).rejects.toMatchObject({ code });
+      expect(await one(env, "SELECT status,decided_at,result FROM bot_proposals WHERE id=?", proposal.id))
+        .toMatchObject({ status: "pending", decided_at: null, result: null });
+    }
+    const response = await internalCall(env, session.person, { path: `/profiles/${f.profile}/erp/v1/cobranca-operacional-v2/remittances` });
+    expect(response.status).toBe(200);
+    expect((await response.json<any>()).items).toEqual([]);
   });
 
   it("perda de papel da pessoa entre proposta e confirmação recusa a escrita", { timeout: 120_000 }, async () => {

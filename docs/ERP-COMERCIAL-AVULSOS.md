@@ -4,10 +4,82 @@ Relato completo atualizado em 19/11/2026. As cinco telas estão habilitadas e
 saíram de `MOTOR_PENDING`. A validação usa a erp-api original
 (`createHandler`/adaptadores), SQLite Node, diferenciais contra o PostgreSQL
 embarcado e, para atividades, o **SqlStorage real em Workerd offline**.
-O fluxo completo Worker → Coordinator → D1/R2 ainda precisa de nova execução
-externa depois desta correção; não foi declarado verde.
+O fluxo completo Worker → Coordinator → D1/R2 passou na verificação externa
+da abertura. A execução adicional dos quatro testes Worker novos revelou
+uma falha no preparo do teste de confirmação; a nova execução após o ajuste
+descrito abaixo permanece pendente, sem declaração de aprovação.
 
-## Causa da verificação externa e correção
+## Verificação complementar da confirmação pelo bot
+
+A execução externa adicional informou **18 testes aprovados e 1 falha** nos
+quatro arquivos novos. Passaram `erp-activity-routes`,
+`erp-cnab-operacional-rotas` e `erp-meu-negocio-rotas`; a falha ficou em
+`erp-commercial-bot`, na **segunda expectativa**, de `mfa_required`.
+
+O primeiro pedido, feito pelo próprio bot, continua recusado com
+`person_required`: `confirmProposal` verifica `actor.via` antes de ler ou
+executar a proposta. `src/approvals.ts` usa a mesma restrição para decisões.
+O ajuste anterior de identidade no ERP preserva a pessoa representada e
+não interfere nessa recusa, que ocorre antes da chamada ao ERP.
+
+O defeito era **do preparo do teste**, não uma permissão de autoconfirmação:
+`f.admin` em `tests/service-center-fixture.ts` é um ator de serviço sem
+`sessionId`. Acrescentar somente `aal: 1` e `mfa.policy: "financial"` não
+o transforma numa sessão. `requireFinancialAal` (`src/mfa.ts`) dispensa
+atores sem sessão e sem `via`; por isso aquela chamada direta resolveu e
+salvou a meta. O portão do ERP tem política própria, desligada nesse preparo,
+e não exigiu um segundo fator na rota.
+
+Salvar meta não movimenta dinheiro, mas o contrato existente de
+`erp.business.goal.save` está marcado **`sensitive: true`**. O mecanismo de
+propostas atual não distingue categorias dentro dessa marca: com política
+`financial` ou `all`, exige MFA para toda proposta sensível confirmada por
+sessão humana (`src/bot-actions/actions.ts`, `docs/MODULOS.md`, seção
+“Ações pelo bot”, e `docs/API.md`, seção de mesmo nome). Portanto, a recusa
+da meta foi mantida; não se retirou sensibilidade nem se criou uma isenção.
+
+Alterações desta verificação:
+
+- `tests/erp-commercial-bot.test.ts`: cria uma sessão bearer no D1 e obtém
+  o ator por `authenticate`, com política `financial`. A meta conserva as
+  recusas do bot e da sessão `aal1`; após cada tentativa, confere proposta
+  pendente, sem decisão nem resultado. Só a mesma sessão elevada a `aal2`
+  confirma e salva a meta. O novo caso de geração de remessa v2, categoria
+  documentada como documento financeiro e também sensível, conserva as duas
+  recusas, a proposta pendente e a lista de remessas vazia. Esse caso testa
+  o guarda antes da execução; o fluxo CNAB válido completo continua no teste
+  de rotas existente.
+- `docs/ERP-COMERCIAL-AVULSOS.md`: registra a causa, a política existente e
+  o alcance da validação. Nenhum arquivo de produto executável foi alterado.
+
+Os outros três testes Worker e a sonda `tests/erp-painel-rotas.test.ts`
+foram conferidos contra a implementação e permanecem válidos, sem mudanças.
+Continuam cobrindo abertura e corpo, papel humano, partes desligadas,
+paginação, metas, atividades e o fluxo de remessa/retorno. A configuração
+delimita o acesso dos bots; sensibilidade mantém proposta e confirmação
+humana, sem proibição fixa da operação para bots. Origem externa não ganha
+contexto interno, e a pessoa não ganha papel ou acesso por usar o bot.
+
+Validação local desta verificação, sem rede:
+
+- **16 testes Node aprovados**, sem falhas ou testes ignorados:
+  `node --no-warnings --test tests/erp/commercial-contract.test.mjs tests/erp/commercial-navigation.test.mjs`
+  (5),
+  `node --no-warnings --test tests/erp/access/activity-routes.test.mjs tests/erp/preferences/business-open.test.mjs`
+  (8) e
+  `node --no-warnings --test tests/erp/cnab/panel-opening.test.mjs` (3).
+- `npx tsc --noEmit`, `node scripts/check-encoding.mjs`,
+  `node scripts/check-conflict-markers.mjs` e `git diff --check` aprovados.
+  O TypeScript do projeto não inclui os arquivos de `tests/`.
+- **Pendente do script externo:** executar novamente os quatro testes Worker
+  novos e a sonda `erp-painel-rotas`. Os resultados locais não substituem essa
+  execução. Vitest e Wrangler não foram executados nesta verificação.
+- Nenhuma alteração em testes diferenciais, áreas excluídas, dependências,
+  migrações, recursos Cloudflare ou classes de Durable Object. Sem commit,
+  push ou troca de branch. Não há dúvida sobre a causa identificada; resta
+  confirmar o resultado do teste corrigido no Worker.
+
+## Causa da verificação externa anterior e correção
 
 O `.codex-verificacao.log` registrou `check` aprovado e 33 testes aprovados,
 com quatro falhas em dois arquivos:
@@ -128,8 +200,9 @@ Somente três caminhos HTTP são novos: aliases GET/HEAD de
 
 A infraestrutura de proposta/confirmação é exercitada por teste de meta;
 cada alias é exercitado com contexto de conversa interna, com recusas sem
-vínculo do bot e com origem externa. Há testes de MFA e perda do papel humano
-antes de confirmar (`tests/erp-commercial-bot.test.ts:43`, `:60`, `:89`).
+vínculo do bot e com origem externa. Há testes de MFA em sessão humana para
+meta e remessa, de recusa do próprio bot e de perda do papel humano antes de
+confirmar (`tests/erp-commercial-bot.test.ts`).
 
 **Ainda falta a descoberta pelo catálogo.** `src/bot-actions/catalog.ts`
 exige rotas registradas em `onRead/onRoute` (`:72`); `/erp/*` continua sendo repasse.
@@ -146,7 +219,7 @@ Os 45 contratos não pretendem cobrir toda rota histórica: o subfluxo anterior
 de crédito líquido Itaú, `/v1/retornos-itau109`, não foi criado nesta tarefa e
 fica fora desse inventário (`web/erp/app/components/ItauNetCredit.tsx:47`).
 
-## Validação
+## Validação da abertura das telas (rodada anterior)
 
 - **104 testes Node distintos aprovados nesta rodada**: atividades 9;
   Meu negócio 8; CNAB 69; navegação/contratos/manifesto/classificação/textos 18.
@@ -165,7 +238,7 @@ fica fora desse inventário (`web/erp/app/components/ItauNetCredit.tsx:47`).
 - O log externo anterior aprovou `f2-painel`, `erp-do-cnab-gate` e
   `worker-routes`, mas falhou nas quatro asserções descritas acima. Não se
   trata de resultado posterior à correção.
-- **Pendente de execução externa:** repetir `erp-painel-rotas` e
+- **Pendência registrada naquela rodada:** repetir `erp-painel-rotas` e
   `management-ported`; incluir também `erp-meu-negocio-rotas`,
   `erp-activity-routes`, `erp-cnab-operacional-rotas` e `erp-commercial-bot`.
   Os quatro arquivos novos não estavam no comando do log fornecido. Cobrem
@@ -176,6 +249,6 @@ fica fora desse inventário (`web/erp/app/components/ItauNetCredit.tsx:47`).
   classe de Durable Object de produção, recurso Cloudflare, dependência,
   migração D1 ou mudança de esquema SQLite foi criada.
 
-Pendências finais: validação completa no Worker após o reparo e ligação dos
+Pendências finais: nova validação Worker após o ajuste do teste e ligação dos
 contratos ao catálogo de bots. Não há mais dúvida residual sobre a causa do
 SQL de atividades: ela foi reproduzida e o reparo confirmado no SqlStorage.
