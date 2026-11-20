@@ -89,6 +89,16 @@ export function normalizeVaultUrl(value: unknown): string {
   return url.origin;
 }
 
+/** Identidade pública da conexão: rotação de chave não muda o cofre nem o emitente. */
+export async function fiscalConnectionFingerprint(input: { provider: string; url: string; issuer_document: string }): Promise<string> {
+  const issuer = input.issuer_document.replace(/[.\/\-\s]/g, "").toUpperCase();
+  if (!input.provider || !issuer)
+    throw new FiscalError(409, "fiscal_provider_not_configured", "Confira o provedor e o emitente do cofre antes de continuar.");
+  const publicIdentity = JSON.stringify([input.provider, normalizeVaultUrl(input.url), issuer]);
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(publicIdentity)));
+  return [...digest].map(byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
 const API_KEY = /^nfapi_[A-Za-z0-9_-]{8,200}$/;
 
 const DAY = 86_400_000;
@@ -131,6 +141,7 @@ export const FEATURE_MIN_VERSION = [
   { feature: "documents", label: "DANFE, DANFE NFC-e, cupom e contingência da NFC-e", version: "0.8.0" },
   { feature: "received", label: "NF-e recebidas e manifestação", version: "0.9.0" },
   { feature: "reports", label: "relatórios e exportação dos XML", version: "0.11.0" },
+  { feature: "nfse_cancellation_check", label: "conferência de cancelamento externo de NFS-e", version: "0.12.0" },
 ] as const;
 
 /**
@@ -307,12 +318,11 @@ export async function removeEmissor(env: Env, actor: Actor, profile: string) {
 /**
  * O cliente atende o contrato fixado e os cofres mais antigos desde
  * OLDEST_SUPPORTED_VAULT (as operações novas respondem vault_outdated e o
- * painel mostra vault_feature_outdated). Cofre de minor mais nova que a
- * fixada segue a regra de antes: incompatível até o Wabotia acompanhar.
+ * painel mostra vault_feature_outdated). Minor mais nova da mesma major
+ * continua compatível; outra major ou versão ilegível é recusada.
  */
 function servedCompatible(vault: string) {
-  if (/^\d+\.\d+\.\d+/.test(vault) && olderThan(vault, CONTRACT_VERSION)) return !olderThan(vault, OLDEST_SUPPORTED_VAULT);
-  return compatibleVersion(CONTRACT_VERSION, vault);
+  return compatibleVersion(CONTRACT_VERSION, vault) && !olderThan(vault, OLDEST_SUPPORTED_VAULT);
 }
 
 /**
@@ -357,7 +367,7 @@ export async function testEmissor(
         contract = {
           pinned: CONTRACT_VERSION,
           vault,
-          compatible: servedCompatible(vault),
+          compatible: servedCompatible(state.version) && servedCompatible(vault),
           differences: differences.slice(0, 50),
         };
       }

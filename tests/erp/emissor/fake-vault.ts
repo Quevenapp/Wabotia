@@ -24,6 +24,10 @@
 //   "gateway"           o cofre processa e a Cloudflare devolve HTML 502
 //   "same-zone"         página "error code: 1042" (não chega ao cofre)
 //   "internal"          o cofre emite e responde 500 erro_interno
+//   "internal-evidence" idem, preservando a emissão dentro do erro
+//   "error"             estado erro inconclusivo, sem liberar outro corpo
+// `pauseNext` segura uma requisição antes ou depois de processar, até release;
+// nenhum cenário precisa de espera de relógio real.
 // `sefaz.get(referencia)` decide o que o governo sabe de uma emissão indefinida:
 //   "authorized" (padrão), "absent" (nunca recebeu) ou "unknown".
 // `sefazSends` conta o que saiu para o governo (emissão, transmissão de
@@ -44,7 +48,9 @@ export type Behavior =
   | "deny"
   | "gateway"
   | "same-zone"
-  | "internal";
+  | "internal"
+  | "internal-evidence"
+  | "error";
 
 /** cStat e xMotivo das rejeições simuladas (245 e 181 como relatados pela NFapi). */
 const REJECTIONS = {
@@ -76,6 +82,7 @@ interface Emission {
   waiting: boolean;
   criadaEm: string;
   atualizadaEm: string;
+  autorizadaEm?: string | null;
 }
 
 interface Received {
@@ -143,10 +150,24 @@ export interface FakeVaultOptions {
   distribution?: boolean;
   /** documentosARecuperar da distribuição (0.9.1). Ausente: o campo não vem, como num cofre 0.9.0. */
   recovering?: number;
+  /** Relógio injetável, em milissegundos desde a época; padrão determinístico. */
+  now?: () => number;
 }
 
+export interface FakeVaultPause {
+  method?: string;
+  /** Caminho exato, sem query string. Ausente: a próxima requisição. */
+  path?: string;
+  /** after: o cofre já aceitou, mas o cliente ainda não recebeu a resposta. */
+  phase?: "before" | "after";
+}
+
+/** Chave de simulação que não mistura modelo nem ambiente. */
+export const sefazKey = (kind: Doc, environment: Env, reference: string) =>
+  `${kind}:${environment}:${reference}`;
+
 export function createFakeVault(options: FakeVaultOptions = {}) {
-  const apiKey = options.apiKey ?? "nfapi_teste_0123456789";
+  let apiKey = options.apiKey ?? "nfapi_teste_0123456789";
   const version = options.version ?? LATEST;
   const emissions = new Map<string, Emission>();
   const received = new Map<string, Received>();
@@ -158,12 +179,23 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
     ]
   ).map((s) => ({ ...s }));
   const plan: Behavior[] = [];
+  const pauses: (FakeVaultPause & { reached(): void; released: Promise<void> })[] = [];
+  const cancellations = new Map<string, { protocol: string; registeredAt: string; justification: string | null }>();
+  // Evento já registrado fora do cofre; só `conferir` o arquiva localmente.
+  const externalCancellations = new Map<string, { protocol: string; registeredAt: string; justification: string | null }>();
   const sefaz = new Map<string, "authorized" | "absent" | "unknown">();
   /** Notas que o governo autorizou de fato (inclui as que o cofre não soube). */
   const authorizedAtSefaz: string[] = [];
   /** O que saiu para o governo, por chave (referência, nota recebida ou chave consultada). */
   const sefazSends = new Map<string, number>();
+  /** Contagem de emissões isolada por modelo/ambiente/referência. */
+  const emissionSends = new Map<string, number>();
   const sent = (key: string) => sefazSends.set(key, (sefazSends.get(key) ?? 0) + 1);
+  const sentEmission = (e: Emission) => {
+    sent(e.referencia || e.id);
+    const key = sefazKey(e.doc, e.ambiente, e.referencia || e.id);
+    emissionSends.set(key, (emissionSends.get(key) ?? 0) + 1);
+  };
   const calls: { method: string; path: string; body: any; auth: string | null; query: string }[] = [];
   const keyQueries: number[] = [];
   const state = {
@@ -181,8 +213,52 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
   const exports = new Map<string, { id: string; ambiente: Env; de: string; ate: string; incluir: string[]; polls: number; criadaEm: string }>();
   let currentOrigin = "";
   let seq = 0;
-  const iso = () => new Date(Date.UTC(2026, 10, 16, 12, 0, seq)).toISOString();
+  const now = options.now ?? (() => Date.UTC(2026, 10, 16, 12, 0, seq));
+  const iso = () => new Date(now()).toISOString();
   const has = (min: string) => !olderThan(version, min);
+  const truthAtSefaz = (e: Emission) =>
+    sefaz.get(sefazKey(e.doc, e.ambiente, e.referencia || e.id)) ?? sefaz.get(e.referencia || e.id) ?? "authorized";
+
+  function pauseNext(input: FakeVaultPause = {}) {
+    let reached!: () => void;
+    let release!: () => void;
+    let fail!: (error?: unknown) => void;
+    const reachedPromise = new Promise<void>(resolve => { reached = resolve; });
+    const released = new Promise<void>((resolve, reject) => {
+      release = resolve;
+      fail = (error = new DOMException("Tempo esgotado no cofre simulado.", "TimeoutError")) => reject(error);
+    });
+    // Pode falhar antes de a chamada alcançar a pausa, sem rejeição solta.
+    void released.catch(() => {});
+    pauses.push({ ...input, reached, released });
+    return { reached: reachedPromise, release, fail };
+  }
+
+  async function pause(phase: "before" | "after", method: string, path: string, signal?: AbortSignal | null) {
+    const index = pauses.findIndex(p => (p.phase ?? "after") === phase &&
+      (!p.method || p.method.toUpperCase() === method) && (!p.path || p.path === path));
+    if (index < 0) return;
+    const gate = pauses.splice(index, 1)[0];
+    gate.reached();
+    if (!signal) return gate.released;
+    if (signal.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
+    let aborted!: () => void;
+    const rejection = new Promise<never>((_resolve, reject) => {
+      aborted = () => reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+      signal.addEventListener("abort", aborted, { once: true });
+    });
+    try { await Promise.race([gate.released, rejection]); }
+    finally { signal.removeEventListener("abort", aborted); }
+  }
+
+  function cancellationXml(id: string) {
+    const e = emissions.get(id);
+    const event = cancellations.get(id);
+    if (!e || !event) return null;
+    if (e.doc === "nfse")
+      return `<evento><chNFSe>${e.chaveAcesso}</chNFSe><tpAmb>${e.ambiente === "producao" ? "1" : "2"}</tpAmb><nProt>${event.protocol}</nProt><dhRegEvento>${event.registeredAt}</dhRegEvento></evento>`;
+    return `<procEventoNFe><evento tpEvento="110111"><chNFe>${e.chaveAcesso}</chNFe><tpAmb>${e.ambiente === "producao" ? "1" : "2"}</tpAmb></evento><retEvento><nProt>${event.protocol}</nProt><dhRegEvento>${event.registeredAt}</dhRegEvento></retEvento></procEventoNFe>`;
+  }
 
   const view = (e: Emission) =>
     e.doc === "nfse"
@@ -212,7 +288,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
           chaveAcesso: e.chaveAcesso,
           protocolo: e.protocolo,
           emitidaEm: e.criadaEm,
-          autorizadaEm: e.situacao === "autorizada" || e.situacao === "cancelada" ? e.atualizadaEm : null,
+          autorizadaEm: e.situacao === "autorizada" || e.situacao === "cancelada" ? e.autorizadaEm ?? e.atualizadaEm : null,
           valor: e.valor,
           qrCode: e.doc === "nfce" ? `https://www.homologacao.nfce.fazenda.sp.gov.br/qrcode?p=${e.chaveAcesso}|2|2|1|X` : null,
           urlConsulta: e.doc === "nfce" ? "https://www.homologacao.nfce.fazenda.sp.gov.br/consulta" : null,
@@ -278,6 +354,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
     e.protocolo = `1352600000${String(++seq).padStart(5, "0")}`;
     e.mensagens = [{ codigo: "100", descricao: "Autorizado o uso da NF-e" }];
     e.atualizadaEm = iso();
+    e.autorizadaEm = e.atualizadaEm;
     authorizedAtSefaz.push(e.id);
   }
 
@@ -299,7 +376,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
     if (!e.contingencia?.pendente) return;
     e.contingencia.tentativas++;
     e.contingencia.ultima = iso();
-    sent(e.referencia || e.id);
+    sentEmission(e);
     if (!state.sefazOnline) return;
     e.contingencia.pendente = false;
     authorize(e);
@@ -307,7 +384,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
 
   /** O que o governo sabe de uma emissão indefinida (retomada do cofre). */
   function resume(e: Emission) {
-    const truth = sefaz.get(e.referencia || e.id) ?? "authorized";
+    const truth = truthAtSefaz(e);
     if (truth === "unknown") return;
     if (truth === "authorized") {
       // Já foi autorizada no governo quando ficou indefinida: só registra.
@@ -315,6 +392,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
       e.protocolo = `1352600000${String(++seq).padStart(5, "0")}`;
       e.mensagens = [{ codigo: "100", descricao: "Autorizado o uso da NF-e" }];
       e.atualizadaEm = iso();
+      e.autorizadaEm = e.atualizadaEm;
       if (!authorizedAtSefaz.includes(e.id)) authorizedAtSefaz.push(e.id);
       return;
     }
@@ -350,7 +428,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
     let e = referencia
       ? [...emissions.values()].find((x) => x.doc === doc && x.ambiente === ambiente && x.referencia === referencia)
       : undefined;
-    if (e && e.hash !== hash && e.situacao !== "rejeitada" && e.situacao !== "erro")
+    if (e && e.hash !== hash && e.situacao !== "rejeitada")
       return {
         status: 409,
         body: erro(
@@ -362,6 +440,8 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
       return { status: 200, body: view(e) };
     if (e?.situacao === "processando")
       return { status: 409, body: erro("emissao_em_andamento", "Já existe uma emissão em andamento para esta referência.") };
+    if (e?.situacao === "erro")
+      return { status: 500, body: erro("erro_interno", "A emissão precisa de conferência antes de outro envio.", { [doc]: view(e) }) };
     if (e?.situacao === "denegada")
       return { status: 422, body: erro("nfe_denegada", "Uso denegado.", { mensagens: e.mensagens, [doc]: view(e) }) };
     if (e?.situacao === "indefinida") {
@@ -430,7 +510,11 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
       toContingency(e, "Contingência pedida pelo sistema emissor");
       return { status: 201, body: view(e) };
     }
-    sent(referencia || e.id);
+    sentEmission(e);
+    if (behavior === "error") {
+      e.situacao = "erro";
+      return { status: 500, body: erro("erro_interno", "Resultado da emissão ainda desconhecido.", { [doc]: view(e) }) };
+    }
     if (behavior === "reject" || behavior.startsWith("reject:")) {
       const cstat = (behavior.split(":")[1] ?? "539") as keyof typeof REJECTIONS;
       e.situacao = "rejeitada";
@@ -458,7 +542,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
       // O governo pode ter autorizado (sefaz.get decide na retomada).
       e.situacao = "indefinida";
       e.mensagens = [{ codigo: "sem_resposta_conclusiva", descricao: "O governo não respondeu." }];
-      if ((sefaz.get(e.referencia || e.id) ?? "authorized") === "authorized") authorizedAtSefaz.push(e.id);
+      if (truthAtSefaz(e) === "authorized") authorizedAtSefaz.push(e.id);
       return {
         status: 502,
         body: erro("sem_resposta_conclusiva", "O governo não respondeu. Repita o pedido com a mesma referência.", {
@@ -470,6 +554,8 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
     authorize(e);
     if (behavior === "lose") return { status: 201, body: view(e), lose: true };
     if (behavior === "internal") return { status: 500, body: erro("erro_interno", "Falha inesperada do cofre.") };
+    if (behavior === "internal-evidence")
+      return { status: 500, body: erro("erro_interno", "Falha depois do aceite.", { [doc]: view(e) }) };
     if (behavior === "gateway") return { status: 502, text: "<html>502 Bad Gateway</html>", type: "text/html" };
     return { status: 201, body: view(e) };
   }
@@ -532,7 +618,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
                 titular: "EMPRESA EXEMPLO LTDA",
                 documento: { kind: "cnpj", id: FAKE_CNPJ },
                 validoAte: until,
-                diasRestantes: Math.floor((Date.parse(until) - Date.parse("2026-11-16T12:00:00Z")) / 86_400_000),
+                diasRestantes: Math.floor((Date.parse(until) - now()) / 86_400_000),
               }
             : null,
           producaoLiberada: false,
@@ -655,7 +741,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
         return { status: 429, body: erro("consumo_indevido", `O Ambiente Nacional bloqueou as consultas deste CNPJ por uma hora. Tente depois de ${state.blockedUntil}.`) };
       if (keyQueries.length >= 18)
         return { status: 429, body: erro("limite_de_consultas", `Limite de 18 consultas por chave em uma hora. Tente depois de 2026-11-16T13:00:00.000Z.`) };
-      keyQueries.push(Date.now());
+      keyQueries.push(now());
       sent(`chave:${body.chaveAcesso}`);
       const found = [...received.values()].find((n) => n.chaveAcesso === body.chaveAcesso);
       if (!found) return { status: 422, body: erro("nota_nao_localizada", "O Ambiente Nacional não tem esta nota disponível para este CNPJ.", { mensagens: [{ codigo: "137", descricao: "Nenhum documento localizado" }] }) };
@@ -814,7 +900,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
     }
 
     // ----- Emissões -----
-    const m = /^\/v1\/(nfe|nfce|nfse)(?:\/([^/]+)(?:\/(xml|cancelar|consultar|carta-correcao|danfe|danfce|cupom|cancelamento\/xml|carta-correcao\/(\d+)\/xml))?)?$/.exec(path);
+    const m = /^\/v1\/(nfe|nfce|nfse)(?:\/([^/]+)(?:\/(xml|cancelar|consultar|conferir|carta-correcao|danfe|danfce|cupom|cancelamento\/xml|carta-correcao\/(\d+)\/xml))?)?$/.exec(path);
     if (!m) return notFound("Rota desconhecida.");
     const [, doc, id, action, sequencia] = m as unknown as [string, Doc, string | undefined, string | undefined, string | undefined];
     if (!id) {
@@ -839,10 +925,12 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
       return e.situacao === "autorizada" || e.situacao === "cancelada" || e.situacao === "contingencia"
         ? { status: 200, text: `<nfeProc><NFe Id="NFe${e.chaveAcesso}"/></nfeProc>`, type: "application/xml" }
         : notFound("XML indisponível.");
-    if (action === "cancelamento/xml" && method === "GET")
-      return e.situacao === "cancelada"
-        ? { status: 200, text: `<procEventoNFe><evento tpEvento="110111"/></procEventoNFe>`, type: "application/xml" }
-        : notFound("A nota não tem cancelamento.");
+    if (action === "cancelamento/xml" && method === "GET") {
+      const xml = e.situacao === "cancelada" ? cancellationXml(e.id) : null;
+      return xml
+        ? { status: 200, text: xml, type: "application/xml" }
+        : notFound("XML do cancelamento indisponível.");
+    }
     if (action?.startsWith("carta-correcao/") && method === "GET")
       return Number(sequencia) <= e.cartas
         ? { status: 200, text: `<procEventoNFe><evento tpEvento="110110" nSeqEvento="${sequencia}"/></procEventoNFe>`, type: "application/xml" }
@@ -875,7 +963,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
           serie: Number(e.serie),
           emitidaEm: e.criadaEm,
           protocolo: e.protocolo,
-          autorizadaEm: e.situacao === "autorizada" ? e.atualizadaEm : null,
+          autorizadaEm: e.situacao === "autorizada" ? e.autorizadaEm ?? e.atualizadaEm : null,
           valorAPagar: e.valor,
           qrCode: `https://www.homologacao.nfce.fazenda.sp.gov.br/qrcode?p=${e.chaveAcesso}|2|2|1|X`,
           urlConsulta: "https://www.homologacao.nfce.fazenda.sp.gov.br/consulta",
@@ -892,6 +980,25 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
       if (e.situacao === "contingencia") transmit(e);
       return { status: 200, body: view(e) };
     }
+    if (action === "conferir" && method === "POST" && doc === "nfse") {
+      const behavior = plan.shift() ?? "ok";
+      if (behavior === "drop") throw new TypeError("network connection lost");
+      if (options.scope === "homologacao" && e.ambiente === "producao")
+        return { status: 403, body: erro("chave_somente_homologacao", "Esta chave só opera em homologação.") };
+      if (e.situacao === "cancelada") return { status: 200, body: { ...view(e), alterada: false } };
+      if (e.situacao !== "autorizada")
+        return { status: 409, body: erro("nfse_nao_autorizada", "Só é possível conferir cancelamento de uma NFS-e autorizada.") };
+      sent(`conferir:${e.id}`);
+      if (behavior === "inconclusive")
+        return { status: 502, body: erro("sem_resposta_conclusiva", "Sem resposta da SEFIN.", { nfse: view(e) }) };
+      const external = externalCancellations.get(e.id);
+      if (external) {
+        cancellations.set(e.id, { ...external });
+        e.situacao = "cancelada";
+        e.atualizadaEm = iso();
+      }
+      return { status: 200, body: { ...view(e), alterada: !!external }, lose: behavior === "lose" };
+    }
     if (action === "cancelar" && method === "POST") {
       const behavior = plan.shift() ?? "ok";
       if (behavior === "drop") throw new TypeError("network connection lost");
@@ -901,7 +1008,13 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
       sent(`cancelar:${e.id}`);
       if (behavior === "inconclusive")
         return { status: 502, body: erro("sem_resposta_conclusiva", "Sem resposta.", { mensagens: [{ codigo: "sem_resposta_conclusiva", descricao: "Sem resposta." }] }) };
+      if (behavior === "reject" || behavior.startsWith("reject:"))
+        return { status: 422, body: erro("cancelamento_rejeitado", "Cancelamento recusado pelo governo.", {
+          mensagens: [{ codigo: "573", descricao: "Rejeição: prazo de cancelamento excedido." }],
+        }) };
       e.situacao = "cancelada";
+      cancellations.set(e.id, { protocol: `1352600001${String(++seq).padStart(5, "0")}`, registeredAt: iso(), justification: body?.justificativa ?? null });
+      e.atualizadaEm = cancellations.get(e.id)!.registeredAt;
       e.mensagens = [{ codigo: "135", descricao: "Evento registrado e vinculado a NF-e" }];
       return { status: 200, body: { ...view(e), repetido: false }, lose: behavior === "lose" };
     }
@@ -999,6 +1112,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
     const auth = new Headers(init.headers).get("Authorization");
     const body = typeof init.body === "string" ? JSON.parse(init.body) : undefined;
     calls.push({ method, path: url.pathname, body, auth, query: url.search });
+    await pause("before", method, url.pathname, init.signal);
     currentOrigin = url.origin;
     if (plan[0] === "same-zone" && method === "POST") {
       plan.shift();
@@ -1020,6 +1134,7 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
         out = { status: 400, body: erro("requisicao_invalida", `${campo}: inválido.`, { campo }) };
       } else out = route(method, url.pathname, body, url.searchParams);
     }
+    await pause("after", method, url.pathname, init.signal);
     if (out.bytes !== undefined || out.text !== undefined) {
       if (out.status === 200 && out.type && opPath !== "/v1/openapi.json" && !(min && olderThan(version, min))) {
         const declared = Object.keys(spec.paths[opPath]?.[method.toLowerCase()]?.responses?.["200"]?.content ?? {});
@@ -1042,12 +1157,28 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
   };
 
   return {
-    apiKey,
+    get apiKey() { return apiKey; },
+    /** Rotação na mesma instância preserva emissões, referências e eventos. */
+    rotateApiKey(next: string) { apiKey = next; },
     version,
     fetch: fetcher as typeof fetch,
     plan,
+    pauseNext,
+    cancellationXml,
+    cancellations,
+    /** Registra só na SEFIN simulada; a emissão no cofre continua autorizada. */
+    cancelNfseExternally(id: string) {
+      const e = emissions.get(id);
+      if (!e || e.doc !== "nfse" || e.situacao !== "autorizada")
+        throw new Error("O ensaio exige uma NFS-e autorizada.");
+      if (!externalCancellations.has(id)) externalCancellations.set(id, {
+        protocol: `1352600001${String(++seq).padStart(5, "0")}`, registeredAt: iso(), justification: null,
+      });
+    },
+    sefazKey,
     sefaz,
     sefazSends,
+    emissionSends,
     calls,
     emissions,
     received,
@@ -1074,9 +1205,10 @@ export function createFakeVault(options: FakeVaultOptions = {}) {
       for (const e of emissions.values()) if (e.contingencia?.pendente) transmit(e);
     },
     /** Emissões com nota válida (autorizada ou em contingência) por referência que começa com o prefixo. */
-    validNotes(prefix: string) {
+    validNotes(prefix: string, environment?: Env, kind?: Doc) {
       return [...emissions.values()].filter(
-        (e) => e.referencia?.startsWith(prefix) && (e.situacao === "autorizada" || e.situacao === "contingencia"),
+        (e) => e.referencia?.startsWith(prefix) && (!environment || e.ambiente === environment) && (!kind || e.doc === kind) &&
+          (e.situacao === "autorizada" || e.situacao === "contingencia"),
       );
     },
   };

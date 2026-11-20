@@ -7,6 +7,7 @@ import {
   certificateDaysLeft,
   emissorAlerts,
   emissorView,
+  fiscalConnectionFingerprint,
   normalizeVaultUrl,
   saveEmissor,
   testEmissor,
@@ -41,6 +42,19 @@ describe("endereço do cofre", () => {
 });
 
 describe("configuração", () => {
+  it("identidade pública conserva rotação da chave e distingue origem e emitente", async () => {
+    const input = { provider: "nfapi", url: VAULT_URL, issuer_document: "99.888.777/0001-66" };
+    const before = await fiscalConnectionFingerprint(input);
+    expect(before).toMatch(/^[a-f0-9]{64}$/);
+    expect(await fiscalConnectionFingerprint({ ...input, url: VAULT_URL.toUpperCase() + "/", issuer_document: "99888777000166" })).toBe(before);
+    expect(await fiscalConnectionFingerprint({ ...input, url: "https://outro-cofre.test" })).not.toBe(before);
+    expect(await fiscalConnectionFingerprint({ ...input, issuer_document: "11222333000181" })).not.toBe(before);
+    const profile = uid();
+    await saveEmissor(env, actor(), profile, { url: VAULT_URL, api_key: KEY });
+    await saveEmissor(env, actor(), profile, { url: VAULT_URL, api_key: "nfapi_chave_rotacionada_000000" });
+    expect(await fiscalConnectionFingerprint(input)).toBe(before);
+  });
+
   it("guarda a chave cifrada e nunca a devolve", async () => {
     const profile = uid();
     const view = await saveEmissor(env, actor(), profile, { url: VAULT_URL, api_key: KEY });
@@ -79,50 +93,65 @@ describe("configuração", () => {
 describe("Testar conexão", () => {
   it("mostra versão, atualização, certificado, ambiente e séries", async () => {
     const profile = uid();
-    const vault = createFakeVault({ apiKey: KEY, published: "0.11.1", certificateUntil: "2026-12-01T03:00:00.000Z", openapi: contract });
+    const vault = createFakeVault({ apiKey: KEY, published: "0.12.1", certificateUntil: "2026-12-01T03:00:00.000Z", openapi: contract });
     await saveEmissor(env, actor(), profile, { url: VAULT_URL, api_key: KEY });
     const view = await testEmissor(env, actor(), profile, { fetch: vault.fetch });
     expect(vault.calls.map((c) => c.path)).toEqual(["/v1/cofre", "/v1/series", "/v1/openapi.json"]);
     expect(view.checked).toMatchObject({
       ok: true,
       state: {
-        version: "0.11.0",
-        update: { published: "0.11.1", pending: true },
+        version: "0.12.0",
+        update: { published: "0.12.1", pending: true },
         certificate: { holder: "EMPRESA EXEMPLO LTDA", valid_until: "2026-12-01T03:00:00.000Z" },
         production_released: false,
         key: { scope: "completo", environments: ["homologacao", "producao"] },
         contingency: { pending_notes: 0 },
         logo: true,
       },
-      contract: { pinned: "0.11.0", vault: "0.11.0", compatible: true, differences: [] },
+      contract: { pinned: "0.12.0", vault: "0.12.0", compatible: true, differences: [] },
     });
     expect(view.checked!.series).toHaveLength(2);
     expect(view.alerts.map((a) => a.code)).toEqual(expect.arrayContaining(["vault_outdated", "certificate_expiring", "production_blocked"]));
     expect(JSON.stringify(view)).not.toContain(KEY);
   });
 
-  it("contrato de minor mais nova no cofre vira alerta de incompatível", async () => {
+  it("contrato de minor mais nova é compatível e diferenças continuam visíveis", async () => {
     const profile = uid();
     const changed = structuredClone(contract) as any;
-    changed.info.version = "0.12.0";
+    changed.info.version = "0.13.0";
     delete changed.paths["/v1/inutilizacoes"];
-    const vault = createFakeVault({ apiKey: KEY, openapi: changed });
+    const vault = createFakeVault({ apiKey: KEY, version: "0.13.0", openapi: changed });
     await saveEmissor(env, actor(), profile, { url: VAULT_URL, api_key: KEY });
     const view = await testEmissor(env, actor(), profile, { fetch: vault.fetch });
     expect(view.checked!.contract).toMatchObject({
-      vault: "0.12.0",
-      compatible: false,
+      vault: "0.13.0",
+      compatible: true,
       differences: ["operação removida: GET /v1/inutilizacoes", "operação removida: POST /v1/inutilizacoes"],
     });
-    expect(view.alerts.find((a) => a.code === "contract_incompatible")).toMatchObject({ level: "error", version: "0.12.0" });
+    expect(view.alerts.find((a) => a.code === "contract_incompatible")).toBeUndefined();
+    expect(view.alerts.find((a) => a.code === "contract_changed")).toBeDefined();
+  });
+
+  it("outra major e versão ilegível são incompatíveis no estado ou contrato servido", async () => {
+    for (const [version, contractVersion] of [["1.0.0", "1.0.0"], ["0.12.0lixo", "0.12.0"], ["0.12.0", "ilegível"]]) {
+      const profile = uid();
+      const served = structuredClone(contract);
+      served.info.version = contractVersion;
+      const vault = createFakeVault({ apiKey: KEY, version, openapi: served });
+      await saveEmissor(env, actor(), profile, { url: VAULT_URL, api_key: KEY });
+      const view = await testEmissor(env, actor(), profile, { fetch: vault.fetch });
+      expect(view.checked!.contract).toMatchObject({ compatible: false });
+      expect(view.alerts.find(a => a.code === "contract_incompatible")).toBeDefined();
+    }
   });
 
   it("cofre mais antigo: a partir de 0.8.0 atendido, com o alerta de desatualizado por recurso", async () => {
     for (const [version, compatible, features] of [
-      ["0.7.0", false, ["emission", "documents", "received", "reports"]],
-      ["0.8.0", true, ["received", "reports"]],
-      ["0.9.0", true, ["reports"]],
-      ["0.11.0", true, []],
+      ["0.7.0", false, ["emission", "documents", "received", "reports", "nfse_cancellation_check"]],
+      ["0.8.0", true, ["received", "reports", "nfse_cancellation_check"]],
+      ["0.9.0", true, ["reports", "nfse_cancellation_check"]],
+      ["0.11.0", true, ["nfse_cancellation_check"]],
+      ["0.12.0", true, []],
     ] as const) {
       const profile = uid();
       const served = structuredClone(contract) as any;
@@ -135,7 +164,7 @@ describe("Testar conexão", () => {
       const outdated = view.alerts.filter((a) => a.code === "vault_feature_outdated");
       expect(outdated.map((a) => a.feature), version).toEqual(features);
       for (const a of outdated) {
-        expect(a.message).toMatch(new RegExp(`^Cofre desatualizado para .+: precisa da versão 0\\.(8|9|11)\\.0 \\(instalada: ${version.replace(/\./g, "\\.")}\\)`));
+        expect(a.message).toMatch(new RegExp(`^Cofre desatualizado para .+: precisa da versão 0\\.(8|9|11|12)\\.0 \\(instalada: ${version.replace(/\./g, "\\.")}\\)`));
         expect(a.level).toBe(a.feature === "emission" ? "error" : "warning");
       }
     }
@@ -187,8 +216,8 @@ describe("alertas", () => {
     contract: null,
     state: {
       provider: "nfapi",
-      version: "0.11.0",
-      update: { published: "0.11.0", pending: false },
+      version: "0.12.0",
+      update: { published: "0.12.0", pending: false },
       certificate: certificate ? { holder: "X", document: null, valid_until: certificate, days_left: 999 } : null,
       production_released: true,
       key: { scope: "completo" as const, environments: ["homologacao" as const, "producao" as const] },
@@ -254,7 +283,7 @@ describe("rotas /erp-emissor", () => {
     expect(await call("GET", "", undefined, actor("operator", [profile])).catch((e) => e)).toMatchObject({ status: 403, code: "erp_role_required" });
     const operator = await member("operator", profile, ["erp:consulta"]);
     const state = await (await call("GET", "", undefined, operator)).json<any>();
-    expect(state).toMatchObject({ configured: true, contract_version: "0.11.0", checked: { ok: true } });
+    expect(state).toMatchObject({ configured: true, contract_version: "0.12.0", checked: { ok: true } });
     expect(await call("PUT", "", { url: VAULT_URL }, operator).catch((e) => e)).toMatchObject({ status: 403 });
     expect(await call("POST", "/test", undefined, operator).catch((e) => e)).toMatchObject({ status: 403 });
 

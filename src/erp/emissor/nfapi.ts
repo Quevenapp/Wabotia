@@ -14,6 +14,8 @@
 //   tamanho. Nada do conteúdo de uma nota vai para log.
 // - Em processo de teste, nenhum POST sai para um cofre que não seja o
 //   simulado (host .test ou .invalid): veja TEST_PROCESS abaixo.
+import { compatibleVersion, parseContractVersion } from "./contract/generate.ts";
+import { CONTRACT_VERSION } from "./contract/types.generated.ts";
 import type {
   CancelamentoNfe,
   CancelamentoNfse,
@@ -45,6 +47,8 @@ export type NfapiDocNfe = "nfe" | "nfce";
 export type Mensagem = { codigo: string; descricao: string };
 export type Emissao<K extends NfapiDoc> = K extends "nfse" ? EmissaoNfse : EmissaoNfe;
 export type Pedido<K extends NfapiDoc> = K extends "nfse" ? PedidoNfse : K extends "nfce" ? PedidoNfce : PedidoNfe;
+/** Conferência de cancelamento externo; `alterada` é opcional no contrato 0.12.0. */
+export type ConferenciaNfse = EmissaoNfse & { alterada?: boolean };
 
 export interface NfapiConnection {
   /** Origem https do cofre, sem barra no fim. */
@@ -55,6 +59,8 @@ export interface NfapiConnection {
   writeTimeoutMs?: number;
   /** Tempo máximo de uma leitura (ms). */
   readTimeoutMs?: number;
+  /** Relógio de timeout injetável para testes determinísticos, sem esperas reais. */
+  timeoutSignal?: (milliseconds: number) => AbortSignal;
 }
 
 export interface NfapiResponse<T> {
@@ -71,6 +77,8 @@ export class NfapiError extends Error {
   readonly mensagens: Mensagem[];
   /** Emissão que o cofre mandou junto (rejeição, sem resposta conclusiva). */
   readonly emissao: EmissaoNfe | EmissaoNfse | null;
+  /** Campo que trouxe a evidência; permite conferir o modelo sem inferi-lo do pedido. */
+  readonly emissionKind: NfapiDoc | null;
   constructor(status: number, body: Erro) {
     super(body.erro.mensagem);
     this.name = "NfapiError";
@@ -79,6 +87,7 @@ export class NfapiError extends Error {
     this.campo = body.campo ?? null;
     this.mensagens = Array.isArray(body.mensagens) ? body.mensagens : [];
     this.emissao = body.nfe ?? body.nfce ?? body.nfse ?? null;
+    this.emissionKind = body.nfe ? "nfe" : body.nfce ? "nfce" : body.nfse ? "nfse" : null;
   }
 }
 
@@ -120,8 +129,9 @@ export class NfapiOutdatedError extends Error {
  * Versão mínima do cofre por operação, pelo histórico do canal estável da
  * NFapi (as que não estão aqui existem desde a 0.3.2, a mais antiga aceita):
  * 0.4.1 XML dos eventos e consulta de inutilizações; 0.7.0 cupom da NFC-e;
- * 0.8.0 DANFE, DANFE NFC-e e logotipo; 0.9.0 NF-e recebidas. O pedido de
- * NFC-e com `contingencia` diferente de "nunca" precisa da 0.4.0.
+ * 0.8.0 DANFE, DANFE NFC-e e logotipo; 0.9.0 NF-e recebidas;
+ * 0.11.0 relatórios/exportação; 0.12.0 conferência de cancelamento externo
+ * de NFS-e. NFC-e com `contingencia` diferente de "nunca" precisa da 0.4.0.
  */
 export const OPERATION_MIN_VERSION: Partial<Record<ContractOperation, string>> = {
   "GET /v1/nfe/{id}/cancelamento/xml": "0.4.1",
@@ -152,6 +162,7 @@ export const OPERATION_MIN_VERSION: Partial<Record<ContractOperation, string>> =
   "POST /v1/exportacoes": "0.11.0",
   "GET /v1/exportacoes/{id}": "0.11.0",
   "GET /v1/exportacoes": "0.11.0",
+  "POST /v1/nfse/{id}/conferir": "0.12.0",
 };
 export const CONTINGENCY_MIN_VERSION = "0.4.0";
 /**
@@ -164,8 +175,7 @@ export const EMISSION_MIN_VERSION = "0.8.0";
 
 /** a < b, em versões x.y.z (texto fora do formato conta como 0.0.0). */
 export function olderThan(a: string, b: string) {
-  const parse = (v: string) => (/^(\d+)\.(\d+)\.(\d+)/.exec(v) ?? ["", "0", "0", "0"]).slice(1).map(Number);
-  const [x, y] = [parse(a), parse(b)];
+  const [x, y] = [parseContractVersion(a) ?? [0, 0, 0], parseContractVersion(b) ?? [0, 0, 0]];
   for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i];
   return false;
 }
@@ -371,7 +381,7 @@ export class NfapiClient {
    */
   async exigirVersao(operation: string, minVersion: string) {
     const version = (await this.cofre()).body?.versao;
-    if (typeof version !== "string" || !/^\d+\.\d+\.\d+/.test(version) || olderThan(version, minVersion))
+    if (typeof version !== "string" || !compatibleVersion(CONTRACT_VERSION, version) || olderThan(version, minVersion))
       throw new NfapiOutdatedError(operation, minVersion, typeof version === "string" ? version : "desconhecida");
     return version;
   }
@@ -405,7 +415,7 @@ export class NfapiClient {
         headers,
         body: options.body === undefined ? undefined : JSON.stringify(options.body),
         redirect: "manual",
-        signal: AbortSignal.timeout(timeout),
+        signal: this.connection.timeoutSignal?.(timeout) ?? AbortSignal.timeout(timeout),
       });
     } catch (error) {
       const name = (error as { name?: string })?.name;
@@ -481,7 +491,9 @@ export class NfapiClient {
     const r = await this.call<Record<string, Emissao<K>[]>>(`GET /v1/${doc}` as ContractOperation, {
       query: { referencia: filtro.referencia, ambiente: filtro.ambiente, limite: filtro.limite },
     });
-    return { status: r.status, body: Array.isArray(r.body?.[doc]) ? r.body[doc] : [] };
+    if (!Array.isArray(r.body?.[doc]))
+      throw new NfapiTransportError("bad_response", "O cofre respondeu uma listagem fora do contrato.", r.status);
+    return { status: r.status, body: r.body[doc] };
   }
   obter<K extends NfapiDoc>(doc: K, id: string) {
     return this.call<Emissao<K>>(`GET /v1/${doc}/{id}` as ContractOperation, { params: { id } });
@@ -492,6 +504,15 @@ export class NfapiClient {
   /** NF-e e NFC-e: consulta a SEFAZ e fecha uma emissão `indefinida`. */
   consultar(doc: NfapiDocNfe, id: string) {
     return this.call<EmissaoNfe>(`POST /v1/${doc}/{id}/consultar` as ContractOperation, { params: { id } });
+  }
+  /**
+   * Confere cancelamento externo de NFS-e na SEFIN e arquiva o evento no
+   * cofre. Não emite, não cancela no governo nem retoma emissão incerta.
+   */
+  async conferir(id: string) {
+    const operation = "POST /v1/nfse/{id}/conferir";
+    await this.exigirVersao(operation, OPERATION_MIN_VERSION[operation]!);
+    return this.call<ConferenciaNfse>(operation, { params: { id } });
   }
   cancelar<K extends NfapiDoc>(doc: K, id: string, pedido: K extends "nfse" ? CancelamentoNfse : CancelamentoNfe) {
     return this.call<ComRepetido<Emissao<K>>>(`POST /v1/${doc}/{id}/cancelar` as ContractOperation, {
@@ -719,6 +740,7 @@ export const CLIENT_OPERATIONS: readonly ContractOperation[] = [
       ] as ContractOperation[],
   ),
   "POST /v1/nfe/{id}/carta-correcao",
+  "POST /v1/nfse/{id}/conferir",
   "GET /v1/nfe/{id}/carta-correcao/{sequencia}/xml",
   "GET /v1/nfe/{id}/danfe",
   "GET /v1/nfce/{id}/danfce",
