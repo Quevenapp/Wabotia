@@ -44,6 +44,7 @@ import {
 import "./os.css";
 import type { Order } from "./work-contracts";
 import { DecisionDialog, ReasonDialog, WorkQuoteCommercial, needsReason, reasonTitle } from "./work/WorkQuoteCommercial";
+import { OrderContractPanel, OrderSchedulePanel } from "./maintenance/OrderPanels";
 
 const StatusPill = ({ status }: { status: string }) => (
   <Pill tone={statusTones[status] || "muted"}>
@@ -320,6 +321,9 @@ export function OrderDetail({
             </>
           )}
         </dl>
+        {/* OS4: contrato que cobre a ordem e execução agendada. */}
+        <OrderContractPanel order={order as Order} onChanged={() => { void resource.reload(); onChanged(); }} />
+        <OrderSchedulePanel order={order as Order} onChanged={onChanged} />
 
         <section className="card">
           <div className="section-heading">

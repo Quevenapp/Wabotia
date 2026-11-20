@@ -126,6 +126,9 @@ const filterKeys = [
   "due_from",
   "due_to",
   "field_filter",
+  // OS4: filtro "Agendado para" da lista de ordens.
+  "scheduled_from",
+  "scheduled_to",
 ];
 const isWorkPage = (page?: PageId) =>
   page === "work" || page === "work-types" || page === "my-deadlines" || page === "service-orders-settings";

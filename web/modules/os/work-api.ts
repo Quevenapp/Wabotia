@@ -1,5 +1,6 @@
 import { createIntents, type Api, type ApiFailure } from "../../lib/api";
 import type * as C from "./work-contracts";
+import { createMaintenanceApi } from "./maintenance/types";
 
 export function queryString(query: object = {}) {
   const params = new URLSearchParams();
@@ -81,6 +82,8 @@ export function createWorkApi(api: Api, root: string) {
       });
     });
   return {
+    // OS4: contrato de manutenção e execução agendada.
+    ...createMaintenanceApi(get, send, base),
     commercial: (id: string) => get<import("../integrations/contracts").WorkCommercialView>(order(id) + "/commercial"),
     saveCommercial: (id: string, body: object) => send<import("../integrations/contracts").WorkCommercialView>(order(id) + "/commercial", "PATCH", body),
     types: (archived = false) =>

@@ -9,6 +9,32 @@ import type { Deadline, TaskState } from "../work-contracts";
 import { taskStateLabel } from "./WorkTasksTab";
 import { TaskDialog } from "./TaskDialog";
 import "../work.css";
+
+/** OS4: execuções agendadas das ordens da pessoa (responsável ou profissional da Agenda). */
+function MyScheduleSection() {
+  const api = useWorkApi(), app = useApp();
+  const schedule = useWorkResource(app.root + "/os4-my-schedule", () => api.mySchedule());
+  const items = schedule.data?.data || [];
+  if (schedule.error || !items.length) return null;
+  return (
+    <section className="os-work-section">
+      <h3>Execuções agendadas</h3>
+      <ul className="os-work-records">
+        {items.map((item) => (
+          <li key={item.id} className="os-work-record">
+            <strong>{item.when_text}{item.overdue ? " · já passou" : ""}</strong>{" "}
+            <a {...linkProps({ area: "admin", page: "work", typeId: item.type_id, id: item.id })}>
+              {item.display_number} · {item.item}
+            </a>
+            {item.customer_name && <span> · {item.customer_name}</span>}
+            <span className="muted"> · {item.mode === "agenda" ? "pela Agenda" : "data combinada"} · {item.status_label}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export function MyDeadlinesPage() {
   const api = useWorkApi(),
     app = useApp(),
@@ -28,6 +54,7 @@ export function MyDeadlinesPage() {
   };
   return (
     <div className="os-work">
+      <MyScheduleSection />
       <p>Suas tarefas em {app.profileName}. Datas e horários de Brasília.</p>
       <div className="os-work-toolbar">
         <Field

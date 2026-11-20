@@ -55,6 +55,7 @@ import { readIntegrationActivation } from "../../integrations/ports";
 import { hash as commercialHash } from "../../integrations/keys";
 import { prepareObjectOpening, reauthorizeObjectOpening, prepareOrderRulesMutation, planOrderFieldIndex, queryOrdersByField, publicObjectLabel, projectObjectSnapshot, projectObjectForActor, projectObjectPage } from "./os2-ports";
 import type { WorkOrderRow } from "./public";
+import { ORDER_SCHEDULED_AT_SQL } from "./maintenance/model";
 
 export type OrderSource = "agent" | "panel" | "customer" | "api";
 
@@ -135,6 +136,8 @@ export function orderView(row: any, history?: any[]) {
     notes: row.notes,
     assignee: row.assignee,
     due_at: row.due_at,
+    // OS4: na lista, o horário efetivo da execução agendada (ou null).
+    ...(row.scheduled_at !== undefined ? { scheduled_at: row.scheduled_at ?? null } : {}),
     source: row.source,
     terms: row.terms_accepted_at
       ? { text: row.terms_text, accepted_at: row.terms_accepted_at }
@@ -305,6 +308,14 @@ export async function listOrders(
     where.push(`due_at${comparison}?`); args.push(at);
   }
   if (query.due_from && query.due_to && Number(query.due_from) > Number(query.due_to)) throw new ApiError(400, "invalid_filter", "Intervalo de prazo inválido.");
+  // OS4: "Agendado para" (horário efetivo: o da Agenda, ou a data combinada).
+  for (const [key, comparison] of [["scheduled_from", ">="], ["scheduled_to", "<="]] as const) {
+    if (!query[key]) continue;
+    const at = Number(query[key]);
+    if (!Number.isSafeInteger(at) || at < 0) throw new ApiError(400, "invalid_filter", "Agendado para: use milissegundos Unix.");
+    where.push(`${ORDER_SCHEDULED_AT_SQL}${comparison}?`); args.push(at);
+  }
+  if (query.scheduled === "1") where.push(`${ORDER_SCHEDULED_AT_SQL} IS NOT NULL`);
   // Sem repetição: a lista IN fica dentro do limite do D1 (conferência B10).
   const statuses = [
     ...new Set((query.status || "").split(",").filter(Boolean)),
@@ -365,7 +376,8 @@ export async function listOrders(
     ctx.env,
     `SELECT os_orders.*,CASE WHEN object_id IS NOT NULL THEN EXISTS(
       SELECT 1 FROM contacts c WHERE c.profile_id=os_orders.profile_id AND c.id=os_orders.contact_id
-        AND c.namespace='team' AND c.identity_state='active') ELSE NULL END AS os2_contact_active
+        AND c.namespace='team' AND c.identity_state='active') ELSE NULL END AS os2_contact_active,
+      ${ORDER_SCHEDULED_AT_SQL} AS scheduled_at
       FROM os_orders WHERE ${where.join(" AND ")} ORDER BY number DESC LIMIT ?`,
     ...args,
     limit + 1,

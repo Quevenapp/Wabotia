@@ -65,7 +65,8 @@ export function buildPrintHtml(input: PrintInput, kind: PrintKind, format: Print
   const labels = order.labels ?? { singular: "Ordem de serviço", item: "Item", problem: "Problema", customer_singular: "Cliente" } as Order["labels"];
   const title = kind === "quote" ? `Orçamento · ${labels.singular} ${order.display_number ?? order.number}` : `${labels.singular} ${order.display_number ?? order.number}`;
   const items = (quote?.items ?? []).map(item => ({
-    description: reserved ? "Serviço contratado" : item.description,
+    // OS4: item coberto pelo contrato de manutenção sai com a indicação.
+    description: (reserved ? "Serviço contratado" : item.description) + (item.covered && !/coberta?s? pelo contrato/i.test(item.description) ? " (coberto pelo contrato)" : ""),
     code: reserved ? "" : item.code ?? "",
     quantity: quantity(item.quantity), unit: item.unit_cents, discount: item.discount_cents ?? 0, total: lineGross(item) - (item.discount_cents ?? 0),
   }));

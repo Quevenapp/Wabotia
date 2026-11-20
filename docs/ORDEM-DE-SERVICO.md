@@ -169,6 +169,95 @@ modelo, recebido e saldo (na ordem) e campo de assinatura. Campos sensíveis do
 modelo nunca saem; nas áreas reservadas (saúde, ensino, jurídico) os itens
 saem como "Serviço contratado". Permita janelas pop-up no endereço do painel.
 
+## Contrato de manutenção
+
+Para quem atende o mesmo cliente todo mês (assistência técnica, decorador,
+escritório): **Ordens de serviço → Contratos**. Exige os módulos **Ordem de
+Serviço** e **Mensalidade** ligados; com a Mensalidade desligada, a aba diz
+qual módulo ligar e nada mais muda.
+
+- **Novo contrato**: escolha o cliente (e, se quiser, os objetos do serviço
+  dele: equipamentos, veículos, imóveis), o **plano da Mensalidade**, a
+  vigência (início e fim, ou indeterminado) e **o que cobre**: modelos de
+  ordem incluídos (nenhum marcado: todos), serviços em texto, limite por
+  período (por exemplo 2 visitas por mês, ou 5 horas), o que fazer com o
+  **excedente** (entra no orçamento normal da ordem, ou avisa e pede a
+  aprovação do cliente) e o preço da visita ou hora excedente.
+- **Cobrança**: é a da assinatura da Mensalidade. Criar o contrato cria a
+  assinatura pelo fluxo da Mensalidade (valor e dia do plano); também dá para
+  criar sem assinatura. Não existe outro motor de cobrança.
+- **Reajuste anual informado**: percentual e data (padrão: um ano após o
+  início). Na data, o contrato avisa ("aplique o novo valor na assinatura");
+  o valor nunca muda sozinho.
+- **Assinatura em atraso** (parcela vencida além da carência da Mensalidade):
+  o contrato escolhe **só avisar** ou **bloquear a cobertura** até o
+  pagamento.
+- A lista mostra situação, cliente, plano, próximos vencimentos e o uso no
+  período. **Editar**, **Suspender** e **Encerrar** (com motivo; a assinatura
+  pode acompanhar: pausa, retoma ou encerra) e **Imprimir** (A4 com os dados
+  do Estabelecimento, cliente, objetos, cobertura, valores, vigência,
+  condições e campo de assinatura).
+- O contrato vigente aparece na **tela do objeto** e no topo da coleção
+  **Trabalhos** da ficha do cliente.
+
+**A ordem conhece o contrato.** No detalhe de uma ordem de cliente (ou objeto)
+com contrato vigente aparece "Coberto pelo contrato nº 3: 1 de 2 visitas
+usadas neste mês" e **Marcar como coberta** (em contratos por horas, informe
+as horas). A marcação consome o limite do período e, com o orçamento ainda
+editável, coloca a linha "Visita coberta pelo contrato" com valor zero
+(marcada como coberta). O que passar do limite entra como **excedente**, com o
+preço do contrato, e segue o fluxo comercial normal (com "pede aprovação", a
+tela lembra de enviar o orçamento antes de executar). **Cancelar a ordem
+devolve o limite**; **Desmarcar cobertura** também, com motivo. No editor do
+orçamento, cada item pode ser marcado como coberto (valor zero), e o
+orçamento impresso mostra "(coberto pelo contrato)".
+
+**Visitas programadas.** O contrato pode ter recorrência (a cada N dias, ou
+todo dia D) com antecedência configurável. A aba **Manutenções a abrir** lista
+as visitas que entraram na antecedência: **Abrir ordem de manutenção** abre a
+ordem do modelo escolhido, já coberta, e leva até ela para agendar; **Pular
+esta data** passa para a próxima. Nada é aberto sozinho.
+
+## Agendar a execução
+
+No detalhe da ordem, o bloco **Execução agendada** tem **Agendar**:
+
+- **Com a Agenda ligada**: escolha o serviço e o profissional da Agenda e um
+  dos horários livres. O agendamento nasce na Agenda ligado à ordem; o cliente
+  recebe a confirmação e o lembrete da própria Agenda. **Reagendar** remarca
+  o mesmo agendamento e **Cancelar agendamento** cancela na Agenda. Mexer pela
+  Agenda (remarcar, cancelar) aparece na ordem. Cancelar a ordem cancela o
+  agendamento.
+- **Sem a Agenda**: a ordem aceita só a data e a hora combinadas, digitadas,
+  sem conferência de conflito. A confirmação sai pela conversa da ordem e o
+  lembrete, 24 horas antes, pelo mesmo aviso da ordem.
+- Sem conversa do WhatsApp ligada à ordem, nada é enviado e a tela diz.
+
+A lista de ordens ganha a coluna e o filtro **Agendado para**, e **Meus
+prazos** mostra no topo as **Execuções agendadas** das ordens em que a pessoa
+é responsável (ou é o profissional da Agenda).
+
+**Rotas e bots (OS4).** Nomes estáveis no OpenAPI do módulo:
+
+| Operação | Rota | Bot |
+| --- | --- | --- |
+| `os.contracts.list` / `os.contracts.get` | `GET …/service-orders/contracts`, `…/contracts/{contract_id}` | leitura |
+| `os.contract.create` | `POST …/service-orders/contracts` | proposta |
+| `os.contract.update` | `PATCH …/contracts/{contract_id}` | proposta |
+| `os.contract.status` | `POST …/contracts/{contract_id}/situation` (`status`, `reason`, `subscription`) | proposta |
+| `os.maintenance.due` / `os.contract.visit` | `GET …/maintenance-due`, `POST …/contracts/{contract_id}/visits` | leitura / proposta |
+| `os.order.contract` | `GET …/service-orders/{id}/contract` | leitura |
+| `os.contract.cover` / `os.contract.release` | `POST …/{id}/contract-coverage`, `…/contract-coverage/release` | proposta |
+| `os.schedule.get` / `os.schedule.set` / `os.schedule.cancel` | `GET`/`PUT …/{id}/schedule`, `POST …/{id}/schedule/cancel` | leitura / livre |
+| `os.schedule.options` / `os.schedule.slots` / `os.my_schedule` | `GET …/schedule-options`, `…/schedule-slots`, `…/my-schedule` | leitura |
+
+A lista de ordens aceita `scheduled_from`, `scheduled_to` e `scheduled=1` e
+traz `scheduled_at`. Erros novos: `contract_not_covering`,
+`contract_suspended`, `contract_overdue`, `already_covered`, `order_closed`,
+`contract_ended`, `reason_required`, `no_visit_due`. As migrações
+`0153_os_maintenance_contracts.sql` e `0154_os_order_schedule.sql` só criam
+tabelas novas.
+
 ## Acompanhamento e avisos
 
 - Item de menu **Acompanhar ordem de serviço**: o cliente vê as ordens abertas

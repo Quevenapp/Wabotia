@@ -374,6 +374,11 @@ autorizada continua em `GET …/tasks`; não existe lista `private-tasks`.
 Retorna também tipo, número exibido e rótulo da etapa do pai; usa cursor,
 limite padrão 50 e máximo 100. Bots e aplicações não podem usar essa consulta.
 
+`GET /service-orders/my-schedule` (OS4) completa **Meus prazos** com as
+execuções agendadas das ordens abertas em que a pessoa é responsável ou é o
+profissional da Agenda (`from`/`to` em milissegundos; padrão de ontem a 30
+dias). Também é só da pessoa autenticada.
+
 ## Pessoas ligadas
 
 Com `features.people`, cadastre papel, nome e, opcionalmente, contato da área,
@@ -614,11 +619,22 @@ mesmos comandos de abertura e transição; escrever direto em `os_orders`,
   usa o identificador como cliente, pagador, catálogo ou credencial. O contrato
   `planStageTasks()` está reservado para o checklist automático: responde
   `501 not_implemented` e não é chamado nesta parte.
-- **Mensalidade e Agenda (parte 4).** Leitura autorizada de objeto por
-  ID/área/contato e o mesmo contexto acima. Cobertura poderá referenciar
-  área, contato, objeto, modelo e vigência; a assinatura não concede acesso ao
-  objeto. Data do evento e prazo da ordem são declarativos: não reservam
-  horário, profissional ou material.
+- **Mensalidade e Agenda (parte 4, entregue).** O contrato de manutenção
+  (`os_contracts`, [ORDEM-DE-SERVICO.md](ORDEM-DE-SERVICO.md#contrato-de-manutenção))
+  referencia área, contato, objetos, modelos incluídos e vigência, e aponta
+  para a assinatura da Mensalidade; a assinatura não concede acesso ao objeto.
+  A Mensalidade expõe só leitura e o fluxo de assinatura que já tinha
+  (`src/modules/mensalidade/public.ts`); a Agenda, uma fachada para os mesmos
+  `book`/`move`/`cancel` (`src/modules/agenda/public.ts`). A execução agendada
+  fica em `os_order_schedules`: com a Agenda, o horário efetivo é sempre o do
+  agendamento, lido na hora; sem ela, a data combinada. Prazo da ordem
+  (`due_at`) continua declarativo e separado do agendamento.
+- **Contrato nos modelos.** A cobertura vale para qualquer modelo listado em
+  `coverage.type_ids` (vazio: todos). Marcar a ordem como coberta grava o uso
+  em `os_contract_usage` (uma linha por ordem); a ordem cancelada deixa de
+  contar sem apagar nada. A linha coberta do orçamento é um `QuoteItem` com
+  `covered: true` e `unit_cents: 0`; o documento comercial do ERP recebe a
+  linha normalmente, com valor zero.
 - **Junção de contatos.** `planObjectContactMerge()` devolve, para o lote da
   junção, as instruções que reatribuem os objetos do contato de origem ao de
   destino, com guardas de área, namespace e limites e referências de auditoria,

@@ -2,6 +2,7 @@ import { all } from "../../db";
 import { ApiError, json, type Actor } from "../../types";
 import { settingsRevision } from "../../service";
 import { onCommand, onRead, onRoute, type ModuleContext } from "../api";
+import { orderCancelled } from "./maintenance/schedule";
 import { authorizedOrder, resolveWorkType } from "./public";
 import { mayReadSensitive, projectOrderForCustomer, projectOrderForStaff, projectPrivateFields } from "./privacy";
 import { checkVersion, commitOrderMutation, mutationHistory, publishMutation, versionConflict } from "./mutations";
@@ -133,7 +134,11 @@ export function registerMotorRoutes() {
         return { id: data.id, version: history.entity_version, changed_fields: json(history.changed_fields_json, []) };
       }
       let row: any;
-      if (path === "stage") row = await changeStage(ctx, order.row, data, actor.id, { notify: notifyCustomer, mutationKey: key });
+      if (path === "stage") {
+        row = await changeStage(ctx, order.row, data, actor.id, { notify: notifyCustomer, mutationKey: key });
+        // OS4: ordem cancelada cancela o agendamento na Agenda.
+        if (row?.status === "cancelled") await orderCancelled(ctx, row.id, actor.id).catch(error => console.warn("os4: cancelar agendamento", error));
+      }
       else if (path === "stage-approval") {
         if (!notifyCustomer) throw new ApiError(403, "forbidden", "Assuma a conversa antes de solicitar aprovação.");
         row = await requestStageApproval(ctx, order.row, data, actor.id, key);

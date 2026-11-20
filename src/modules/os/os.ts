@@ -59,6 +59,9 @@ import { workCustomerProvider, enrichConfirmedWorkCustomer } from "./customer-pr
 import { registerWorkCommercial, requireCommercialWriter } from "./commercial/routes";
 import { isObjectOpeningWebStep } from "../hooks";
 import { openObjectForm, prepareObjectWebStepCompletion, resumeObjectWebStepCompletion } from "./os2-ports";
+import { registerMaintenance } from "./maintenance/routes";
+import { runContractsDue } from "./maintenance/store";
+import { orderCancelled, runScheduleDue } from "./maintenance/schedule";
 
 registerCustomerProvider("os", workCustomerProvider);
 registerWorkCommercial();
@@ -154,6 +157,8 @@ onSettingsSave("os", "os2_ai_access", validateOs2AiAccess);
 onSettingsSave("os", "os_vocabulary", validateVocabulary);
 onSettingsChange("os", validateWorkTypeChanges);
 registerMotorRoutes();
+// OS4: contrato de manutenção e execução agendada, antes de service-orders/:id.
+registerMaintenance();
 
 // Item de menu "Abrir ordem de serviço": link do passo web.
 onMenuChoice("os_open", async (ctx, c, item, { rowId }) => {
@@ -264,6 +269,10 @@ onWebStepCompleted("os", async (ctx, step, answers) => {
 // Lembrete de retirada e ordens paradas (gancho periódico do núcleo).
 onSchedule("os", async (ctx, { now }) => {
   await runDue(ctx, now);
+  // OS4: aviso do reajuste anual, lembrete da data combinada e agendamentos
+  // de ordens canceladas. Falha aqui não derruba os avisos da ordem.
+  for (const due of [runContractsDue, runScheduleDue])
+    await due(ctx, now).catch(error => console.warn("os4: rodada periódica", error));
 });
 
 // ---------------------------------------------------------------------------
@@ -356,10 +365,12 @@ onCommand("os", "os.status", async (ctx, actor, data, { requestId }) => {
   const notify = await ctx.mayNotify(actor, order.conversation_id ?? null);
   const replay = await replayOrderMutation(ctx, actor, data.id, key, notify);
   if (replay) return orderViewForActor(ctx, actor, replay.row);
-  return orderViewForActor(ctx, actor,
-    await changeStatus(ctx, order, data.status, actor.id, data.note, {
-      notify, mutationKey: key,
-    }));
+  const changed = await changeStatus(ctx, order, data.status, actor.id, data.note, {
+    notify, mutationKey: key,
+  });
+  // OS4: ordem cancelada cancela o agendamento na Agenda (o limite do contrato volta sozinho).
+  if (changed.status === "cancelled") await orderCancelled(ctx, changed.id, actor.id).catch(error => console.warn("os4: cancelar agendamento", error));
+  return orderViewForActor(ctx, actor, changed);
 });
 
 onRoute("os", {

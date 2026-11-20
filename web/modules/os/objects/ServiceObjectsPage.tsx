@@ -9,6 +9,7 @@ import { StagePill } from "../components/StagePill";
 import { WorkFormDialog, useWorkOperationAction, useWorkOperationDialog } from "../work/WorkFormDialog";
 import { ResourceState, instantLabel, useDraftGuard, useWorkApi, useWorkResource } from "../work-hooks";
 import type { ObjectPrivateFields, ServiceObjectType, ServiceObjectView, WorkField, WorkTypeView } from "../work-contracts";
+import { ContractsInForce } from "../maintenance/ContractsPage";
 import "../work.css";
 
 export function ObjectLastCompleted({ completed }: { completed: ServiceObjectView["latest_completed"] }) {
@@ -132,6 +133,8 @@ function ObjectDetail({ object, reload }: { object: ServiceObjectView; reload: (
     <ResourceState resource={definitions} />
     {currentType && currentType.revision > object.type_revision && <Notice>Há uma revisão mais nova da definição. <Button secondary onClick={() => setAdopting(true)}>Revisar atualização da definição</Button></Notice>}
     <ObjectLastCompleted completed={object.latest_completed} />
+    {/* OS4: contrato de manutenção vigente que cobre este objeto. */}
+    <ContractsInForce objectId={object.id} />
     <section aria-label="Histórico das ordens"><h3>Histórico das ordens</h3><p>Por data de abertura, da mais recente para a mais antiga. Os campos abaixo pertencem a cada atendimento.</p>
       <ResourceState resource={orders} />
       {orders.data && <>

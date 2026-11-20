@@ -26,6 +26,7 @@ import { PrivateFieldsDialog } from "./PrivateFieldsDialog";
 import { money } from "../shared";
 import { WorkCommercialPanel } from "./WorkCommercialPanel";
 import { DecisionDialog, ReasonDialog, WorkQuoteCommercial, needsReason, reasonTitle } from "./WorkQuoteCommercial";
+import { OrderContractPanel, OrderSchedulePanel } from "../maintenance/OrderPanels";
 import "../work.css";
 export const workTabs = [
   { id: "resumo", label: "Resumo" },
@@ -318,6 +319,9 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
             {!order.object && order.type_id !== "service_order" && definition.data?.object_type_id && (
               <Button secondary onClick={() => setLegacyLink(true)}>Vincular objeto à ordem antiga</Button>
             )}
+            {/* OS4: contrato que cobre a ordem e execução agendada. */}
+            <OrderContractPanel order={order} onChanged={changed} />
+            <OrderSchedulePanel order={order} onChanged={changed} />
             {(order.quote || features?.quote) && (
               <section>
                 <h3>Orçamento</h3>

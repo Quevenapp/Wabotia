@@ -95,6 +95,13 @@ export const osModule: ModuleDefinition = {
     "os.object.private_fields_changed",
     "os.object.linked",
     "os.receipt_recorded",
+    // OS4: contrato de manutenção e execução agendada.
+    "os.contract.created",
+    "os.contract.updated",
+    "os.contract.ended",
+    "os.contract.covered",
+    "os.contract.adjustment_due",
+    "os.scheduled",
   ],
   settings: [
     { key: "os_work_types", description: "Tipos personalizados de trabalho." },
@@ -125,7 +132,9 @@ export const osModule: ModuleDefinition = {
     },
   ],
   // OS3: dinheiro e aprovação só por proposta que a pessoa confirma.
-  bot: { sensitive: ["os.quote.save", "os.quote.reopen", "os.decide", "os.receipt.create", "os.charge.create", "os.commercial.update"], deny: ["os.private", "service-orders/:id/private-fields", "os.document.upload", "service-orders/:id/private-tasks", "service-orders/:id/private-documents", "os.person.", "os.entry.", "service-orders/objects/:object_id/private-fields", "os.objects.private."] },
+  // OS4: criar, editar e encerrar contrato, abrir a visita e marcar/desmarcar a ordem coberta também.
+  bot: { sensitive: ["os.quote.save", "os.quote.reopen", "os.decide", "os.receipt.create", "os.charge.create", "os.commercial.update",
+    "os.contract.create", "os.contract.update", "os.contract.status", "os.contract.visit", "os.contract.cover", "os.contract.release"], deny: ["os.private", "service-orders/:id/private-fields", "os.document.upload", "service-orders/:id/private-tasks", "service-orders/:id/private-documents", "os.person.", "os.entry.", "service-orders/objects/:object_id/private-fields", "os.objects.private."] },
 };
 
 // REGISTRO RESERVADO F0/I — acrescentar eventos, grants e bot.deny das filhas.

@@ -11,6 +11,17 @@ import { projectOrderForStaff } from "./privacy";
 import { resolveWorkType, type WorkOrderRow } from "./public";
 import { snapshotType } from "./work-types";
 import { objectCustomerContribution } from "./os2-ports";
+import { contractsAvailable, contractsInForce, contractViews } from "./maintenance/store";
+
+/** Ficha do cliente: contratos vigentes (ou suspensos na vigência), com o uso do período. */
+async function contractCustomerRows(ctx: ModuleContext, contactId: string) {
+  if (!(await contractsAvailable(ctx))) return [];
+  const views = await contractViews(ctx, await contractsInForce(ctx, { contact_id: contactId }));
+  return views.map(view => ({ id: view.id, cells: {
+    id: view.display_number, status: `${view.status_label} · ${view.usage.text}`,
+    occurredAt: view.created, typeId: "maintenance_contract", type: `Contrato de manutenção${view.plan ? ` · ${view.plan.name}` : ""}`,
+  }, target: { module: "os", resource: "contracts", id: view.id } }));
+}
 
 const task = "os:works:v1";
 const missing = () => new ApiError(404, "not_found", "Trabalhos não encontrados.");
@@ -76,6 +87,10 @@ export const workCustomerProvider: CustomerModuleProvider = {
         cut = saved.cut; last = saved.last;
       } catch { throw invalidCursor(); }
     }
+    // OS4: contrato de manutenção vigente no topo da primeira página, dentro do limite.
+    const contracts = !query.cursor && contact.namespace === "team" && query.limit > 1
+      ? (await contractCustomerRows(ctx, contactId)).slice(0, query.limit - 1) : [];
+    const limit = query.limit - contracts.length;
     // Autoriza antes do LIMIT. A coleção permanece no namespace do contato.
     const rows = await all<WorkOrderRow>(ctx.env,
       `SELECT o.* FROM os_orders o WHERE o.profile_id=? AND o.contact_id=? AND o.created<=?
@@ -83,9 +98,9 @@ export const workCustomerProvider: CustomerModuleProvider = {
          AND (CASE WHEN c.external_namespace LIKE 'app:%' THEN c.external_namespace ELSE 'team' END)<>?)
        ${last ? "AND (o.created<? OR (o.created=? AND o.id<?))" : ""}
        ORDER BY o.created DESC,o.id DESC LIMIT ?`,
-      ctx.profile, contactId, cut, contact.namespace, ...(last ? [last[0], last[0], last[1]] : []), query.limit + 1);
-    const page = rows.slice(0, query.limit);
-    const items = [];
+      ctx.profile, contactId, cut, contact.namespace, ...(last ? [last[0], last[0], last[1]] : []), limit + 1);
+    const page = rows.slice(0, limit);
+    const items: import("../../customer/profile-contracts").ContactPage["items"] = [...contracts];
     for (const row of page) {
       const type = snapshotType(row) ?? await resolveWorkType(ctx, row.type_id);
       const view = projectOrderForStaff(ctx, actor, { row, type });
@@ -101,7 +116,7 @@ export const workCustomerProvider: CustomerModuleProvider = {
        WHERE o.profile_id=? AND o.contact_id IS NULL
        AND (CASE WHEN c.external_namespace LIKE 'app:%' THEN c.external_namespace ELSE 'team' END)=? LIMIT 1`,
       ctx.profile, contact.namespace);
-    return { items, incomplete: !!pending, nextCursor: rows.length > query.limit && tail
+    return { items, incomplete: !!pending, nextCursor: rows.length > limit && tail
       ? btoa(await seal(ctx.env, { scope, cut, last: [tail.created, tail.id] })) : null };
   },
 

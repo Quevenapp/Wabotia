@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { useApp } from "../../../app/AppContext";
 import { Pager } from "../../../admin/shared";
-import { Button, Dialog, Field, Empty, Notice } from "../../../ui";
+import { Button, Dialog, Field, Empty, Notice, Segmented } from "../../../ui";
+import { ContractsView, MaintenanceDueView } from "../maintenance/ContractsPage";
 import { linkProps, navigate, useRoute } from "../../../lib/routes";
 import { date } from "../../../lib/format";
 import { ResourceState, useWorkApi, useWorkResource, instantLabel } from "../work-hooks";
@@ -126,6 +127,8 @@ function WorkList({ catalog }: { catalog: WorkTypeCatalog }) {
       assignee: filters.assignee,
       due_from: filters.due_from,
       due_to: filters.due_to,
+      scheduled_from: filters.scheduled_from,
+      scheduled_to: filters.scheduled_to,
       status: filters.status,
       open: filters.stage || filters.status || filters.open === "0" ? undefined : "1",
       cursor,
@@ -151,11 +154,12 @@ function WorkList({ catalog }: { catalog: WorkTypeCatalog }) {
   const itemLabel = type?.labels.item || "Item";
   const customerLabel = type?.labels.customer_singular || "Cliente";
   const routedClassicId = route.typeId === "service_order" ? route.id : undefined;
-  const headers = ["Número", ...(showModel ? ["Modelo"] : []), customerLabel, itemLabel, ...columns.map(column => column.field.label), "Etapa", "Responsável", "Prazo", "Orçamento", "Atualizada"];
+  const headers = ["Número", ...(showModel ? ["Modelo"] : []), customerLabel, itemLabel, ...columns.map(column => column.field.label), "Etapa", "Responsável", "Prazo", "Agendado para", "Orçamento", "Atualizada"];
 
   if (selected && !type) return <Empty title="Modelo não disponível" description="Este modelo não está disponível para seu acesso." />;
   return (
     <div className="os-work">
+      <WorkTabs tab="ordens" />
       <div className="os-work-toolbar">
         <LegacyServiceOrders />
         <h2>{workCollectionLabel(types, app.settings.os_vocabulary)}</h2>
@@ -176,7 +180,9 @@ function WorkList({ catalog }: { catalog: WorkTypeCatalog }) {
         <Field label="Responsável" value={filters.assignee || ""} options={[{ id: "me", name: "Eu" }, { id: "unassigned", name: "Sem responsável" }, ...Object.entries(app.names).map(([id, name]) => ({ id, name: String(name) }))]} onChange={assignee => filter({ assignee })} />
         <Field label="Prazo de (data)" type="date" value={dateFilterValue(filters.due_from)} onChange={value => filter({ due_from: value ? String(Date.parse(value + "T00:00:00-03:00")) : "" })} />
         <Field label="Prazo até (data)" type="date" value={dateFilterValue(filters.due_to)} onChange={value => filter({ due_to: value ? String(Date.parse(value + "T23:59:59.999-03:00")) : "" })} />
-        <Button secondary onClick={() => { setSearch(""); filter({ q: "", stage: "", status: "", open: "1", assignee: "", due_from: "", due_to: "", field_filter: "" }); }}>Limpar filtros</Button>
+        <Field label="Agendado de (data)" type="date" value={dateFilterValue(filters.scheduled_from)} onChange={value => filter({ scheduled_from: value ? String(Date.parse(value + "T00:00:00-03:00")) : "" })} />
+        <Field label="Agendado até (data)" type="date" value={dateFilterValue(filters.scheduled_to)} onChange={value => filter({ scheduled_to: value ? String(Date.parse(value + "T23:59:59.999-03:00")) : "" })} />
+        <Button secondary onClick={() => { setSearch(""); filter({ q: "", stage: "", status: "", open: "1", assignee: "", due_from: "", due_to: "", scheduled_from: "", scheduled_to: "", field_filter: "" }); }}>Limpar filtros</Button>
       </form>
       {!!filterFields.length && <WorkFieldFilter fields={filterFields} value={fieldFilter} onApply={value => filter({ field_filter: value ? JSON.stringify(value) : "" })} />}
       {!hasCustom && app.isAdmin && <Notice>Seu serviço tem informações próprias? <a {...linkProps({ area: "admin", page: "work-types", filters: { tab: "modelos" } })}>Crie um modelo</a>.</Notice>}
@@ -196,6 +202,7 @@ function WorkList({ catalog }: { catalog: WorkTypeCatalog }) {
             <td data-label="Etapa"><StagePill status={order.status} label={order.stage_label} /></td>
             <td data-label="Responsável">{order.assignee ? app.names[order.assignee] || order.assignee : "Sem responsável"}</td>
             <td data-label="Prazo">{instantLabel(order.due_at)}{order.due_at && order.due_at < app.now && !["delivered", "cancelled"].includes(order.status) ? " · Atrasado" : ""}</td>
+            <td data-label="Agendado para">{order.scheduled_at ? instantLabel(order.scheduled_at) : "—"}</td>
             <td data-label="Orçamento">{order.quote ? money(order.quote.total_cents) : "—"}</td>
             <td data-label="Atualizada">{date(order.updated)}</td>
           </tr>)}</tbody>
@@ -228,7 +235,21 @@ export function WorkPage() {
   // OS3: o documento do ERP leva à ordem nova correspondente (?origem=<id da ordem>).
   const origin = !route.id ? new URLSearchParams(route.search || "").get("origem") : null;
   if (origin) return <WorkDetailPage key={app.profile + origin} workId={origin} />;
+  // OS4: abas da lista (?aba=contratos, ?aba=manutencoes).
+  if (route.tab === "contratos" || route.tab === "manutencoes") return <MaintenanceTab key={app.root + route.tab} tab={route.tab} />;
   if (!catalog.data) return <ResourceState resource={catalog} />;
   if (!Array.isArray(catalog.data.data)) return <Notice>Catálogo de modelos indisponível. <Button secondary onClick={catalog.reload}>Tentar novamente</Button></Notice>;
   return <WorkList key={app.root + (route.typeId || "") + JSON.stringify(route.filters)} catalog={catalog.data} />;
+}
+
+/** OS4: Ordens · Contratos · Manutenções a abrir. */
+function WorkTabs({ tab }: { tab: "ordens" | "contratos" | "manutencoes" }) {
+  return <Segmented label="Ordens e contratos" value={tab} onChange={next => navigate({ area: "admin", page: "work", tab: next === "ordens" ? undefined : next })}
+    options={[{ value: "ordens", label: "Ordens" }, { value: "contratos", label: "Contratos" }, { value: "manutencoes", label: "Manutenções a abrir" }]} />;
+}
+function MaintenanceTab({ tab }: { tab: "contratos" | "manutencoes" }) {
+  return <div className="os-work">
+    <WorkTabs tab={tab} />
+    {tab === "contratos" ? <ContractsView /> : <MaintenanceDueView />}
+  </div>;
 }
