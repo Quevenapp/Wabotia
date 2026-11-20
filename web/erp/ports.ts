@@ -6,6 +6,7 @@ import type { AuthPort } from "./app/lib/real-access";
 import type { ChallengePort } from "./session-port";
 import type { PeoplePort } from "./people";
 import type { EmissorPort } from "./emissor";
+import type { CommercialNfePort } from "./commercial-nfe";
 
 export type ErpPorts = {
   /** Controlador iniciado pelo hospedeiro; telas legadas criam o próprio quando ausente. */
@@ -57,6 +58,8 @@ export type ErpPorts = {
   openModules?: () => void;
   /** Emissor de notas (cofre NFapi): estado e configuração (web/erp/emissor.ts). */
   emissor?: EmissorPort;
+  /** Preparação e acompanhamento de NF-e modelo 55, isolados por área e sessão. */
+  commercialNfe?: CommercialNfePort;
 };
 
 let current: ErpPorts | null = null;

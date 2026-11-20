@@ -55,8 +55,6 @@ import type { ImportDraft } from '../lib/document-xml-import-model';
 import { autoFinanceMessage } from '../lib/document-pricing-model';
 // Notas lane (202610200176): Vinculação of the pedidos de compra with the entry notes.
 import { LINK_STATE_BADGES, useOrderLinkStates } from '../lib/fiscal-order-link-states';
-import FiscalOrderBatch, { ORDER_BATCH_ROLES, groupedInvoiceReason } from './FiscalOrderBatch';
-import PartialInvoiceDialog from './PartialInvoiceDialog';
 import DocumentTrashDialog from './DocumentTrashDialog';
 // 202610200288/289: Lote and Busca customizada filters; the OS print asks "Imprimir campos customizados na ordem de serviço?".
 import DocumentListSearch, { canonicalSearch } from './DocumentListSearch';
@@ -144,8 +142,6 @@ export default function DocumentList(props: DocumentListProps) {
     return () => request.abort();
   }, [controller, kind, page, loading, applied]);
   const [dialog, setDialog] = useState<Dialog>(null); const [reason, setReason] = useState('');
-  // Notas lane (202610200215+): "Gerar NF-e dos pedidos selecionados" / "Gerar: NFC-es selecionadas", one homologation note per pedido.
-  const [fiscalBatch, setFiscalBatch] = useState<'55' | '65' | null>(null);
   const [purchaseBatch, setPurchaseBatch] = useState<PurchaseEffectAction | null>(null);
   // Origin "Alterando situação para …": Data, Hora and the occurrence text (also the reason) of one ⋮ change.
   const [situation, setSituation] = useState({ date: '', time: '', text: '' });
@@ -157,8 +153,6 @@ export default function DocumentList(props: DocumentListProps) {
   // Origin "Opções de impressão" of Imprimir selecionados, and the address labels of the selected rows.
   // 202610200240: "Desmembrar produtos da estrutura" and "Ocultar itens produzidos por terceiros" read the structure of each pedido.
   const [productLabels, setProductLabels] = useState<PurchaseLabels | null>(null);
-  // Leva H (391): Gerar nota fiscal parcial of one pedido de venda.
-  const [partialInvoice, setPartialInvoice] = useState<{ id: string; number: string } | null>(null);
   // Leva H (392): Excluir selecionados / Restaurar selecionados and the lixeira (situação Excluídos).
   const [trashAction, setTrashAction] = useState<'delete' | 'restore' | null>(null);
   const [printOptions, setPrintOptions] = useState<{ detailed: boolean; order: PrintItemOrder; explode: boolean; hideThirdParty: boolean }>({ detailed: false, order: 'insertion', explode: false, hideThirdParty: false }); const [labels, setLabels] = useState<AddressLabel[] | null>(null), [labelReading, setLabelReading] = useState(false);
@@ -209,7 +203,6 @@ export default function DocumentList(props: DocumentListProps) {
   const linkStates = useOrderLinkStates(controller, blockEnabled('erp-fiscal') ? kind : '',rows.map(row => row.id));
   const ids = rows.map(row => row.id);
   const selectedRows = rows.filter(row => selected.has(row.id));
-  const selectedNativeRows = selectedRows.filter((row): row is DocumentListRow & { number: string } => typeof row.number === 'string');
   const inTrash = props.filters.statuses.length === 1 && props.filters.statuses[0] === TRASH_STATUS;
   const allSelected = rows.length > 0 && rows.every(row => selected.has(row.id));
   const locked = busy || uncertain;
@@ -403,11 +396,11 @@ export default function DocumentList(props: DocumentListProps) {
     if (action.action === 'print_technician') { void printOne(row, 'normal', { technician: true }); return; }
     if (action.action === 'print_label') { void printServiceLabels([row]); return; }
     if (action.action === 'print_product_labels') { void printProductLabels([row]); return; }
-    // Origin "Gerar nota fiscal" opens the note form in a new tab, filled from the pedido (notas lane, 202610200176); the pedido de compra
-    // opens the entry note. The note is saved only by its Salvar (homologação).
-    if (action.action === 'fiscal_partial') { setPartialInvoice({ id: row.id, number: String(row.number) }); return; }
-    if (action.action === 'fiscal55' || action.action === 'fiscal65') { window.open(erpPublicHref(kind === 'purchase_orders' ? `/notas-entrada?${new URLSearchParams({ origem: 'brufap', nota: 'nova', pedido: row.id })}`
-      : `/historico-fiscal?${new URLSearchParams({ modelo: action.action === 'fiscal55' ? '55' : '65', origem: 'brufap', nota: 'nova', pedido: row.id })}`), '_blank', 'noopener'); return; }
+    // A preparação integral lê o pedido salvo no servidor; nenhuma nota é montada nesta tela.
+    if (['fiscal55', 'fiscal65', 'fiscal_partial'].includes(action.action)) {
+      if (action.action !== 'fiscal55' || kind !== 'sales_orders' || !blockEnabled('erp-fiscal') || !['admin', 'fiscal'].includes(role ?? '')) return;
+      window.open(erpPublicHref(`/historico-fiscal?${new URLSearchParams({ modelo: '55', pedido: row.id, versao: String(row.version) })}`), '_blank', 'noopener'); return;
+    }
     if (action.action === 'whatsapp') { void sendWhatsapp(row); return; }
     if (locked) return;
     if (action.action === 'clone') { guard.confirmLeave(() => props.onClone(row)); return; }
@@ -426,12 +419,25 @@ export default function DocumentList(props: DocumentListProps) {
       else changeStatus(row, action.target, null);
     }
   };
-  const menuItems = (row: DocumentListRow): RowMenuItem[] => documentRowActions(kind, row, { role, writable, serviceWritable: Boolean(access?.write.includes('service_orders')), situations: model, permissions: access?.permissions ?? null }).filter(action => (blockEnabled('erp-fiscal') || !action.key.startsWith('fiscal_')) && (action.action !== 'stock' || blockEnabled('erp-estoque')) && (action.action !== 'finance' || blockEnabled('erp-financeiro'))).map(action => {
+  const menuItems = (row: DocumentListRow): RowMenuItem[] => {
+    const actions = documentRowActions(kind, row, { role, writable, serviceWritable: Boolean(access?.write.includes('service_orders')), situations: model, permissions: access?.permissions ?? null });
+    // O vínculo fiscal antigo não pode esconder o acompanhamento comercial novo.
+    if (kind === 'sales_orders' && !actions.some(action => action.action === 'fiscal55') && ['admin', 'fiscal'].includes(role ?? ''))
+      actions.push({ key: 'fiscal55', action: 'fiscal55', label: 'Acompanhar NF-e', enabled: true });
+    return actions.filter(action => (blockEnabled('erp-fiscal') || !['fiscal55', 'fiscal65', 'fiscal_partial'].includes(action.action)) && (action.action !== 'stock' || blockEnabled('erp-estoque')) && (action.action !== 'finance' || blockEnabled('erp-financeiro'))).map(action => {
+    if (['fiscal55', 'fiscal65', 'fiscal_partial'].includes(action.action)) {
+      const supported = kind === 'sales_orders' && action.action === 'fiscal55';
+      return { label: supported ? (row.invoice || row.invoice_linked ? 'Acompanhar NF-e' : 'Preparar NF-e') : action.label,
+        disabled: !supported || !['admin', 'fiscal'].includes(role ?? ''),
+        title: !supported ? 'Esta etapa atende somente a NF-e integral de um pedido de venda. Emissão parcial, NFC-e, compras e OS ainda não são atendidas.' : !['admin', 'fiscal'].includes(role ?? '') ? 'Seu perfil não permite preparar ou emitir NF-e.' : 'Abre a preparação ou o acompanhamento deste pedido, com cálculo no servidor.',
+        onClick: () => runAction(row, { ...action, enabled: supported && ['admin', 'fiscal'].includes(role ?? '') }) };
+    }
     const mutation = !['edit', 'clear_warnings', 'print', 'print_receipt', 'print_detailed', 'print_carne', 'print_production', 'print_technician', 'print_label', 'print_product_labels', 'fiscal55', 'fiscal65', 'fiscal_partial', 'whatsapp', 'unavailable'].includes(action.action);
     const blocked = mutation && locked;
     return { label: action.label, ...(action.letter ? { letter: action.letter } : {}), ...(action.icon ? { icon: action.icon } : {}), separatorBefore: action.separatorBefore,
       disabled: !action.enabled || blocked, title: blocked ? 'Aguarde a conclusão da operação em andamento.' : action.title, onClick: () => runAction(row, action) };
-  });
+    });
+  };
 
   const openBatch = (type: 'batch-status' | 'batch-print', receipt = false) => {
     if (!selectedRows.length || locked) return;
@@ -542,7 +548,7 @@ export default function DocumentList(props: DocumentListProps) {
       <div className="documents-panel-actions">
         <button type="button" className="origin-action" disabled={!writable || !selectedRows.length || locked} title={writable ? batchTitle('Altera a situação de cada documento selecionado, um por vez') : 'Seu perfil permite apenas consultar.'} onClick={() => openBatch('batch-status')}><Icon name="circle-half-stroke" size={15} /><span>{PANEL[kind].status}</span></button>
         <button type="button" className="origin-action" disabled={!selectedRows.length || locked} title={batchTitle('Imprime a versão salva de cada documento selecionado')} onClick={() => openBatch('batch-print')}><Icon name={kind === 'service_orders' ? 'file-lines' : 'square-check'} size={15} /><span>{PANEL[kind].print}</span></button>
-        {PANEL[kind].nfe && !seller && blockEnabled('erp-fiscal') && <button type="button" className="origin-action" disabled={!ORDER_BATCH_ROLES.includes(role) || !selectedRows.length || locked} title={!ORDER_BATCH_ROLES.includes(role) ? 'As notas fiscais são geradas pelo administrador e pelo fiscal.' : batchTitle('Gera uma nota de homologação de cada pedido selecionado, como Gerar nota fiscal do menu ⋮')} onClick={() => setFiscalBatch('55')}><Icon name="file-invoice-dollar" size={15} /><span>{PANEL[kind].nfe}</span></button>}
+        {PANEL[kind].nfe && !seller && blockEnabled('erp-fiscal') && <button type="button" className="origin-action" disabled title="A emissão em lote ainda não é atendida. Use Preparar NF-e no menu de um pedido por vez."><Icon name="file-invoice-dollar" size={15} /><span>{PANEL[kind].nfe}</span></button>}
         {kind === 'purchase_orders' && (Object.keys(PURCHASE_EFFECT_LABELS) as PurchaseEffectAction[]).filter(action => blockEnabled(action.startsWith("stock") ? "erp-estoque" : "erp-financeiro")).map(action => <button key={action} type="button" className="origin-action" disabled={!PURCHASE_EFFECT_ROLES[action].includes(role) || !selectedRows.length || locked}
           title={!PURCHASE_EFFECT_ROLES[action].includes(role) ? (action.startsWith('stock') ? 'O estoque é lançado pelo administrador e pelo estoque.' : 'As contas são lançadas pelo administrador e pelo financeiro.') : batchTitle(`${PURCHASE_EFFECT_LABELS[action]} de cada pedido selecionado, um por vez`)}
           onClick={() => { setActionError(''); setPurchaseBatch(action); }}><Icon name={action.startsWith('stock') ? 'boxes-stacked' : 'file-invoice-dollar'} size={15} /><span>{PURCHASE_EFFECT_LABELS[action]}</span></button>)}
@@ -552,7 +558,7 @@ export default function DocumentList(props: DocumentListProps) {
       </div>
       {kind === 'sales_orders' && <div className="documents-more"><h3>Mais ações</h3>
         <h4>Gerar</h4><button type="button" className="origin-action" disabled={!selectedRows.length || locked} title={batchTitle('Comprovante não fiscal da versão salva de cada pedido selecionado')} onClick={() => openBatch('batch-print', true)}><Icon name="receipt" size={15} /><span>Comprovantes selecionados</span></button>
-        {blockEnabled('erp-fiscal') && <button type="button" className="origin-action" disabled={!ORDER_BATCH_ROLES.includes(role) || !selectedRows.length || locked} title={!ORDER_BATCH_ROLES.includes(role) ? 'As notas fiscais são geradas pelo administrador e pelo fiscal.' : batchTitle('Gera uma NFC-e de homologação de cada pedido selecionado')} onClick={() => setFiscalBatch('65')}><Icon name="receipt" size={15} /><span>NFC-es selecionadas</span></button>}
+        {blockEnabled('erp-fiscal') && <button type="button" className="origin-action" disabled title="A emissão de NFC-e ainda não é atendida. Esta etapa atende somente NF-e integral de um pedido de venda."><Icon name="receipt" size={15} /><span>NFC-es selecionadas</span></button>}
         <h4>Exportar</h4><button type="button" className="origin-action" disabled={listToolDisabled} title={listToolTitle('Exporta todos os pedidos do filtro aplicado para uma planilha (CSV)')} onClick={() => void readAll('export')}><Icon name="file-excel" size={15} /><span>{LIST_EXPORT_LABEL.sales_orders}</span></button>
         <button type="button" className="origin-action" disabled={!selectedRows.length} title={selectedRows.length ? 'Exporta nome e endereço (de entrega ou do contato) dos pedidos selecionados (CSV)' : 'Selecione os pedidos na listagem.'} onClick={exportAddresses}><Icon name="file-export" size={15} /><span>Endereços selecionados</span></button>
         <h4>Imprimir</h4><button type="button" className="origin-action" disabled={!selectedRows.length} title={selectedRows.length ? 'Etiquetas de endereçamento A4 dos pedidos selecionados' : 'Selecione os pedidos na listagem.'} onClick={() => setLabels(addressLabels(kind, selectedRows))}><Icon name="tag" size={15} /><span>Etiquetas selecionadas</span></button>
@@ -562,10 +568,7 @@ export default function DocumentList(props: DocumentListProps) {
           onClick={() => guard.confirmLeave(() => props.onNavigate('/financeiro-empresa?' + new URLSearchParams({ area: 'faturamento-agrupado', pedidos: selectedRows.map(row => row.id).join(',') })))}><Icon name="file-invoice-dollar" size={15} /><span>Faturar pedidos selecionados</span></button>}</div>}
       {kind === 'service_orders' && <div className="documents-more"><h3>Mais ações</h3>
         <h4>Imprimir</h4><button type="button" className="origin-action" disabled={!selectedRows.length || labelReading} title={selectedRows.length ? 'Etiquetas de identificação das ordens de serviço selecionadas' : 'Selecione as ordens de serviço na listagem.'} onClick={() => void printServiceLabels(selectedRows)}><Icon name="tag" size={15} /><span>{labelReading ? 'Lendo as ordens…' : 'Etiquetas selecionadas'}</span></button>
-        {/* Notas lane: Origin "Gerar nota fiscal agrupando", one NF-e with the parts of several OS of the same cliente (homologação). */}
-        {(() => { const reason = groupedInvoiceReason(role, selectedNativeRows);
-          return <><h4>Gerar</h4><button type="button" className="origin-action" disabled={Boolean(reason) || locked} title={reason ?? 'Abre em nova aba uma nota com as peças das ordens de serviço selecionadas, para conferir e salvar'}
-            onClick={() => window.open(erpPublicHref(`/historico-fiscal?${new URLSearchParams({ modelo: '55', origem: 'brufap', nota: 'nova', pedido: selectedRows.map(r => r.id).join(',') })}`), '_blank', 'noopener')}><Icon name="file-invoice-dollar" size={15} /><span>Gerar nota fiscal agrupando</span></button></>; })()}</div>}
+        {blockEnabled('erp-fiscal') && <><h4>Gerar</h4><button type="button" className="origin-action" disabled title="A emissão fiscal de OS e o agrupamento ainda não são atendidos. Esta etapa atende somente NF-e integral de um pedido de venda."><Icon name="file-invoice-dollar" size={15} /><span>Gerar nota fiscal agrupando</span></button></>}</div>}
       {kind === 'purchase_orders' && <div className="documents-more"><h3>Mais ações</h3>
         <h4>Imprimir</h4><button type="button" className="origin-action" disabled={!selectedRows.length || labelReading} title={selectedRows.length ? 'Etiquetas dos produtos dos pedidos de compra selecionados' : 'Selecione os pedidos na listagem.'} onClick={() => void printProductLabels(selectedRows)}><Icon name="note-sticky" size={15} /><span>{labelReading ? 'Lendo os pedidos…' : 'Imprimir etiquetas'}</span></button></div>}
       {kind === 'purchase_orders' && selectedRows.length > 0 ? <div className="native-list-summary"><h3>Informações</h3><dl className="native-list-stat"><dt>Valor</dt><dd>{decimalMoney(selectedTotal(selectedRows))}</dd></dl><dl className="native-list-stat"><dt>Selecionados</dt><dd>{selectedRows.length.toLocaleString('pt-BR')}</dd></dl><p className="real-help">Informações baseadas nos registros selecionados.</p></div>
@@ -653,8 +656,6 @@ export default function DocumentList(props: DocumentListProps) {
         <p className="real-help">Cada documento é alterado com a própria versão e um comando próprio. {model ? 'Se a transição de um documento tiver ações no Gerenciador de transições (lançar ou estornar estoque e contas), elas rodam na mesma mudança.' : 'Estoque, contas e nota fiscal não são lançados por esta ação.'}</p></div>} />}
     {purchaseBatch && kind === 'purchase_orders' && <PurchaseEffectsBatch key={purchaseBatch} controller={controller} action={purchaseBatch} rows={selectedRows} onClose={changed => { setPurchaseBatch(null); if (changed) { setSelected(new Set()); props.onReload(); } }} />}
     {trashAction && <DocumentTrashDialog controller={controller} kind={kind} action={trashAction} rows={selectedRows.map(r => ({ id: r.id, number: String(r.number) }))} onClose={changed => { setTrashAction(null); if (changed) { setSelected(new Set()); props.onReload(); } }} />}
-    {partialInvoice && <PartialInvoiceDialog controller={controller} documentId={partialInvoice.id} number={partialInvoice.number} today={props.today} onClose={changed => { setPartialInvoice(null); if (changed) props.onReload(); }} />}
-    {fiscalBatch && <FiscalOrderBatch controller={controller} model={fiscalBatch} rows={selectedNativeRows} today={props.today} onClose={changed => { setFiscalBatch(null); if (changed) { setSelected(new Set()); props.onReload(); } }} />}
     {dialog?.type === 'batch-print' && printPlan && <BatchDialog title={dialog.receipt ? 'Comprovantes selecionados' : PANEL[kind].print} confirmLabel="Preparar impressão" plan={printPlan} run={runPrintItem} onClose={closeBatch} description={<>
       {kind === 'purchase_orders' && <fieldset className="documents-print-options"><legend>Opções de impressão</legend>
         <div className="form-field"><label htmlFor="documents-print-order">Ordem dos itens</label><select id="documents-print-order" value={printOptions.order} onChange={event => { const order = event.target.value as PrintItemOrder; setPrintOptions(previous => ({ ...previous, order })); }}>{(Object.keys(PRINT_ORDER_LABELS) as PrintItemOrder[]).map(order => <option key={order} value={order}>{PRINT_ORDER_LABELS[order]}</option>)}</select></div></fieldset>}
