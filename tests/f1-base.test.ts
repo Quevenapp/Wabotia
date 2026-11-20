@@ -119,7 +119,7 @@ describe("telefone canônico", () => {
 describe("catálogo e ativação", () => {
   it("declara todos os IDs locais e preserva os campos anteriores de moduleView", () => {
     const expected = {
-      os: ["works"], agenda: ["appointments"], pedido: ["orders"], reserva: ["bookings"],
+      os: ["works", "objects"], agenda: ["appointments"], pedido: ["orders"], reserva: ["bookings"],
       mensalidade: ["subscriptions", "installments"], suporte: ["sessions", "purchases", "releases"],
       queue: ["tickets"], forms: ["submissions"],
       condominio: ["units", "deliveries", "visits", "occurrences", "dues"],

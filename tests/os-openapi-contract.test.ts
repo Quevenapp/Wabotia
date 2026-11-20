@@ -248,7 +248,11 @@ describe("OpenAPI do contrato do motor de trabalhos", () => {
     expect(schemas.ServiceOrderStatus.properties.status.description).toContain("Embutido");
     for (const status of ["quoted", "approved", "declined", "ajustes"])
       expect(accepts(schemas.ServiceOrderStatus, { status })).toBe(false);
-    const list = responseSchema(base);
+    // Parte 2: a lista com field_filter (opt-in) responde FieldFilteredOrderList;
+    // sem filtro próprio, o contrato anterior continua em ServiceOrderList.
+    const listResponse = responseSchema(base);
+    expect(listResponse.oneOf.map((s: any) => s.$ref.split("/").at(-1))).toEqual(["ServiceOrderList", "FieldFilteredOrderList"]);
+    const list = resolve(listResponse.oneOf[0]);
     expect(Object.keys(list.properties.counts.properties)).toEqual(statuses);
     expect(list.properties.counts.additionalProperties).toBe(false);
     expect(list.properties.counts.required).toBeUndefined();

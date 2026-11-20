@@ -121,7 +121,8 @@ describe("fase 2: validação de módulos nos modelos", () => {
     const published = areaTemplates.find((template) => template.id === model.id)!;
     expect(published).toBeDefined();
     expect(published.modules).toEqual(model.modules);
-    expect(published.version).toBe(model.id === "restaurante" ? 1 : model.id === "assistencia_tecnica" ? 3 : 2);
+    // Parte 2 publicou Assistência técnica 4 e Engenharia 3 (objetos do serviço).
+    expect(published.version).toBe(({ restaurante: 1, assistencia_tecnica: 4, engenharia: 3 } as Record<string, number>)[model.id] ?? 2);
   });
 
   it("mantém processos e projetos como tipos existentes e Mesas como opção", () => {
@@ -228,7 +229,7 @@ describe("fase 2: prévia e aplicação revisável", () => {
     expect(saved).not.toContain("modules.agenda");
   });
 
-  it("publicação da versão 3 atualiza a versão 1 sem perder os caminhos já tratados", async () => {
+  it("publicação da versão 4 atualiza a versão 1 sem perder os caminhos já tratados", async () => {
     const f = await fixture();
     const published = areaTemplates.find((model) => model.id === assistenciaTecnicaTemplate.id)!;
     const legacy = { ...published, version: 1, modules: { os: true, payments: true, erp: false } };
@@ -245,7 +246,7 @@ describe("fase 2: prévia e aplicação revisável", () => {
     const settings = await configured(f);
     expect(settings.service_orders).toEqual(local.service_orders);
     expect(settings.menu_greeting).toBe(local.menu_greeting);
-    expect((await snapshot(f)).provenance[0].template_version).toBe(3);
+    expect((await snapshot(f)).provenance[0].template_version).toBe(4);
   });
 
   it("um novo dependente não religa um requisito desligado manualmente após a aplicação", async () => {

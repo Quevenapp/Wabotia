@@ -2,7 +2,7 @@ import React from "react";
 import { Button, Field } from "../../../ui";
 import type { CustomWorkType, BaseStatus } from "../work-contracts";
 import { statusOrder, statusLabels } from "../shared";
-import { labelIdentifier, renameStage } from "./type-draft";
+import { labelIdentifier, messagePreview, renameStage } from "./type-draft";
 export function StagesEditor({
   type,
   onChange,
@@ -18,6 +18,8 @@ export function StagesEditor({
   }));
   return (
     <>
+      <p>Configure as exigências de preenchimento em Campos extras: na abertura, a partir de uma etapa ou ao sair dela. Depois de ativada, a exigência continua valendo nos retornos. Cancelar continua possível sem completar o formulário.</p>
+      <p>Rascunho significa salvar o preenchimento parcial de uma ordem já aberta, sem avançar a etapa. A abertura continua exigindo os campos obrigatórios iniciais.</p>
       <Field
         label="Etapa inicial"
         value={type.initial_stage}
@@ -86,6 +88,7 @@ export function StagesEditor({
             </Button>
             <Button
               secondary
+              disabled={type.stage_field_rules?.some((rule) => rule.required_from_stage === stage.id || rule.required_on_exit?.includes(stage.id))}
               onClick={() =>
                 onChange({
                   ...type,
@@ -95,6 +98,7 @@ export function StagesEditor({
             >
               Aposentar etapa
             </Button>
+            {type.stage_field_rules?.some((rule) => rule.required_from_stage === stage.id || rule.required_on_exit?.includes(stage.id)) && <small>Remova ou altere as exigências desta etapa em Campos extras antes de aposentá-la.</small>}
           </div>
         </fieldset>
       ))}
@@ -202,6 +206,7 @@ export function StagesEditor({
                   onChange={(request_text) => update({ request_text })}
                   maxLength={900}
                 />
+                <small>Use {"{objeto}"} para a identificação pública capturada na ordem. Prévia fictícia: {messagePreview(transition.request_text, type) || "Sem mensagem"}</small>
               </>
             )}
             <Button

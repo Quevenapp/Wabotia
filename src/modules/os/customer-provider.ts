@@ -10,6 +10,7 @@ import type { ModuleContext } from "../api";
 import { projectOrderForStaff } from "./privacy";
 import { resolveWorkType, type WorkOrderRow } from "./public";
 import { snapshotType } from "./work-types";
+import { objectCustomerContribution } from "./os2-ports";
 
 const task = "os:works:v1";
 const missing = () => new ApiError(404, "not_found", "Trabalhos não encontrados.");
@@ -51,6 +52,7 @@ export const workCustomerProvider: CustomerModuleProvider = {
     ctx.access(actor, "conversations:read");
     if (!allows(actor, "os")) throw new ApiError(403, "forbidden", "Sem acesso aos trabalhos.");
     await ctx.requireEnabled();
+    if (collectionId === "objects") return objectCustomerContribution(ctx, actor, contactId, query);
     if (actor.kind !== "user" || actor.via || actor.module || actor.credential || actor.id.startsWith("bot:"))
       throw new ApiError(403, "forbidden", "A ficha exige uma pessoa autenticada.");
     if (collectionId !== "works") throw missing();

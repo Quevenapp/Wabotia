@@ -1,9 +1,9 @@
 // Modo de demonstração (/app?demo=1): telas de referência com dados
 // fictícios, respondidas aqui mesmo. Nenhuma chamada sai do navegador e
-// nenhuma escrita é aceita.
+// operações da OS2 são simuladas em memória; nenhuma escrita chega ao servidor.
 import type { Api, Row } from "./api";
 import { demoChannelRequest } from "./demo-channels";
-import type { BaseStatus, Order, OrderHistory, OrderList, Page, PrivateFields, WorkTypeCatalog, WorkTypeView } from "../modules/os/work-contracts";
+import type { BaseStatus, CustomWorkType, ExtraValues, FieldFilteredOrderList, ObjectOpeningRequest, Order, OrderFieldFilter, OrderHistory, OrderList, OrderRequirements, Page, PrivateFields, ServiceObjectSnapshotView, ServiceObjectType, ServiceObjectView, WorkField, WorkTypeCatalog, WorkTypeView } from "../modules/os/work-contracts";
 import { demoMe, demoProfile } from "./demo-entry";
 export { demoMe, demoProfile } from "./demo-entry";
 import * as erpDefinitions from "../../src/modules/erp/definition";
@@ -24,13 +24,58 @@ import {
 const M = 60_000,
   H = 60 * M;
 const t = (ago: number) => Date.now() - ago;
-const workshopType = {
+const workshopType: CustomWorkType = {
   ...structuredClone(oficinaMecanicaTemplate.work_types[0]),
   id: "area_oficina_mecanica__at_veiculos",
+  object_type_id: "demo_veiculo",
+  revision: 2,
+  fields: [...oficinaMecanicaTemplate.work_types[0].fields.filter(field => !["placa", "marca_modelo", "ano", "cor", "servico_executado"].includes(field.id)),
+    { id: "servico_executado", label: "Serviço executado", help: "Descreva o que foi realizado antes de concluir.", kind: "text", multiline: true, max_length: 2000, required: false, sensitive: false, client_visible: true }],
+  retired_field_ids: ["placa", "marca_modelo", "ano", "cor"],
+  stage_field_rules: [{ field_id: "quilometragem", required_on_exit: ["recebido"] }, { field_id: "servico_executado", required_from_stage: "pronto" }],
+  list_fields: [{ ref: { scope: "object", field_id: "placa" }, column: true, filter: true }, { ref: { scope: "order", field_id: "quilometragem" }, column: true, filter: true }],
 };
+const demoObjectTypes: ServiceObjectType[] = [{
+  schema_version: 1, id: "demo_veiculo", revision: 2, archived: false,
+  labels: { singular: "Veículo", plural: "Veículos" }, identifier_field_id: "placa", retired_field_ids: [],
+  fields: [
+    { id: "placa", label: "Placa", help: "Identificação do veículo; não comprova propriedade.", kind: "text", multiline: false, max_length: 10, required: false, sensitive: false, client_visible: true },
+    { id: "marca_modelo", label: "Marca e modelo", help: "", kind: "text", multiline: false, max_length: 240, required: false, sensitive: false, client_visible: true },
+    { id: "ano", label: "Ano", help: "", kind: "integer", min: 1900, max: 2100, required: false, sensitive: false, client_visible: true },
+    { id: "cor", label: "Cor", help: "", kind: "text", multiline: false, max_length: 80, required: false, sensitive: false, client_visible: true },
+    { id: "tipo_combustivel", label: "Tipo de combustível", help: "", kind: "choice", options: [{ id: "flex", label: "Flex" }, { id: "diesel", label: "Diesel" }, { id: "eletrico", label: "Elétrico" }], required: false, sensitive: false, client_visible: true }],
+}, {
+  schema_version: 1, id: "demo_evento", revision: 1, archived: false,
+  labels: { singular: "Evento", plural: "Eventos" }, identifier_field_id: "nome", retired_field_ids: [],
+  fields: [
+    { id: "nome", label: "Identificação administrativa", help: "Não precisa conter o nome de uma criança.", kind: "text", max_length: 120, multiline: false, required: true, sensitive: false, client_visible: true },
+    { id: "data", label: "Data da festa", help: "Data declarada; não reserva agenda.", kind: "date", min: null, max: null, required: true, sensitive: false, client_visible: true },
+    { id: "tema", label: "Tema", help: "", kind: "text", max_length: 120, multiline: false, required: false, sensitive: false, client_visible: true },
+    { id: "local", label: "Local", help: "", kind: "text", max_length: 240, multiline: false, required: false, sensitive: false, client_visible: true },
+  ],
+}];
+function demoServiceType(id: string, event: boolean): CustomWorkType {
+  return {
+    schema_version: 1, kind: "custom", id, revision: 1, archived: false,
+    labels: { singular: event ? "Decoração de evento" : "Consultoria", plural: event ? "Decorações de eventos" : "Consultorias", item: event ? "Serviço contratado" : "Assunto", problem: "Solicitação", customer_singular: "Cliente", customer_plural: "Clientes" },
+    number_prefix: event ? "FES-" : "CONSU-", terms: null,
+    fields: [{ id: "escopo", label: "Escopo solicitado", help: "", kind: "text", multiline: true, max_length: 2000, required: false, sensitive: false, client_visible: true },
+      ...(event ? ["objetos_extras", "decoracao_extra"].map((id, index) => ({ id, label: index ? "Decoração extra" : "Objetos extras", help: "Não reserva materiais.", kind: "text" as const, multiline: true, max_length: 2000, required: false, sensitive: false, client_visible: true })) : []),
+      { id: "servico_executado", label: "Serviço executado", help: "", kind: "text", multiline: true, max_length: 2000, required: false, sensitive: false, client_visible: true }],
+    retired_field_ids: [], retired_stage_ids: [], initial_stage: "solicitacao",
+    stages: [{ id: "solicitacao", label: "Solicitação", base_status: "received", message: "" }, { id: "definicao", label: "Definição", base_status: "analyzing", message: "" }, { id: "execucao", label: "Execução", base_status: "in_progress", message: "" }, { id: "conclusao", label: "Conclusão", base_status: "delivered", message: "" }, { id: "cancelamento", label: "Cancelamento", base_status: "cancelled", message: "" }],
+    transitions: [{ id: "definir", from: "solicitacao", to: "definicao", label: "Definir escopo", kind: "manual" }, { id: "executar", from: "definicao", to: "execucao", label: "Iniciar execução", kind: "manual" }, { id: "concluir", from: "execucao", to: "conclusao", label: "Concluir serviço", kind: "manual" },
+      ...["solicitacao", "definicao", "execucao"].map(from => ({ id: "cancelar_" + from, from, to: "cancelamento", label: "Cancelar", kind: "manual" as const }))],
+    features: { customer_open: true, tasks: true, people: false, documents: false, entries: false, quote: null, warranty_days: 0, pickup_reminder_days: 0, stale_days: 0 }, pickup_reminder_text: "",
+    ...(event ? { object_type_id: "demo_evento", stage_field_rules: [{ field_id: "servico_executado", required_from_stage: "conclusao" }] } : {}),
+  };
+}
+const eventType = demoServiceType("demo_festas_eventos", true);
+const consultancyType = demoServiceType("demo_consultoria", false);
 
 const settings: Row = {
-  os_work_types: [workshopType],
+  os_work_types: [workshopType, eventType, consultancyType],
+  os_object_types: demoObjectTypes,
   os_vocabulary: { collection_label: "Ordens de serviço", customer_singular: "Cliente", customer_plural: "Clientes" },
   attendant_bot: "demo-bot",
   instructions: "Acolha o cliente e responda com clareza.",
@@ -798,6 +843,292 @@ function workDemo(rest: string, query: URLSearchParams) {
   return workNotFound();
 }
 
+/** Cenário operacional isolado: somente dados fictícios, perdidos ao recarregar. */
+export function createOs2DemoApi(): Api {
+  const types: WorkTypeView[] = structuredClone([osType, workshopType, eventType, consultancyType]);
+  const objectTypes = structuredClone(demoObjectTypes);
+  const contacts = [
+    { id: "contact-demo-1", name: "Fernanda Alves", phone: "5511987650010", namespace: "team", active: true, version: 1 },
+    { id: "contact-demo-2", name: "Pedro Santos", phone: "5511987650011", namespace: "team", active: true, version: 1 },
+  ];
+  const fail = (code: string, message: string, status = 409): never => { throw Object.assign(new Error(message), { code, status }); };
+  const notFound = (): never => fail("demo_not_found", "Registro não encontrado nesta área ou para este cliente.", 404);
+  const contact = (id: unknown) => contacts.find(row => row.id === id) || notFound();
+  const objectType = (id: string) => objectTypes.find(row => row.id === id) || notFound();
+  const type = (id: string) => types.find(row => row.id === id) || notFound();
+  const objects: ServiceObjectView[] = [{
+    id: "demo-vehicle-1", contact_id: contacts[0].id, type_id: "demo_veiculo", type_revision: 1,
+    type: { ...structuredClone(objectType("demo_veiculo")), revision: 1 },
+    values: { placa: "ABC1D23", marca_modelo: "Fiat Argo 1.0", ano: 2021, cor: "Azul", tipo_combustivel: "flex" },
+    archived: false, version: 2, identifier: "ABC1D23", created: t(120 * 24 * H), updated: t(H),
+  }, {
+    id: "demo-vehicle-archived", contact_id: contacts[0].id, type_id: "demo_veiculo", type_revision: 2,
+    type: structuredClone(objectType("demo_veiculo")), values: { placa: "XYZ9A87", marca_modelo: "Veículo anterior", cor: "Branco" },
+    archived: true, version: 2, identifier: "XYZ9A87", created: t(200 * 24 * H), updated: t(90 * 24 * H),
+  }, {
+    id: "demo-event-1", contact_id: contacts[1].id, type_id: "demo_evento", type_revision: 1,
+    type: structuredClone(objectType("demo_evento")), values: { nome: "Festa de primavera", data: "2026-12-12", tema: "Jardim", local: "Salão Primavera" },
+    archived: false, version: 1, identifier: "Festa de primavera", created: t(5 * 24 * H), updated: t(5 * 24 * H),
+  }];
+  const snapshot = (row: ServiceObjectView, origin: ServiceObjectSnapshotView["origin"] = "opening"): ServiceObjectSnapshotView => ({
+    schema_version: 1, object_id: row.id, object_version: row.version, captured_at: Date.now(), origin,
+    type: structuredClone(row.type), values: structuredClone(row.values), identifier: row.identifier,
+  });
+  const setStage = (order: Order, stageId: string) => {
+    const current = type(order.type_id), stage = current.stages.find(row => row.id === stageId) || notFound();
+    order.stage = stage.id; order.stage_label = stage.label; order.status = stage.base_status; order.status_label = osLabels[stage.base_status];
+    order.next_stages = current.transitions.filter(row => row.from === stage.id).map(row => {
+      const target = current.stages.find(stage => stage.id === row.to)!;
+      return { transition_id: row.id, stage: target.id, stage_label: target.label, base_status: target.base_status, kind: row.kind };
+    });
+    order.next_statuses = order.next_stages.map(row => row.base_status);
+  };
+  const custom = (number: number, model: WorkTypeView, owner = contacts[0]): Order => {
+    const result: Order = { ...osOrder(number, "received", owner.name, owner.phone, model.labels.item, "Atendimento demonstrativo", 3 * 24 * H),
+      type_id: model.id, type_revision: model.revision, type_number: number, type_label: model.labels.singular,
+      type_plural_label: model.labels.plural, display_number: model.number_prefix + number, labels: structuredClone(model.labels),
+      fields: structuredClone(model.fields), features: structuredClone(model.features), extra: {},
+      customer: { name: owner.name, phone: owner.phone, contact_id: owner.id, conversation_id: owner.id === contacts[0].id ? "demo-1" : "demo-2" } };
+    setStage(result, model.initial_stage);
+    return result;
+  };
+  const visit = custom(17, workshopType); setStage(visit, "execucao");
+  visit.item = "Fiat Argo 1.0"; visit.extra = { quilometragem: 65000, combustivel: "metade", ultima_manutencao: "2026-05-15" };
+  visit.object = { ...snapshot(objects[0]), object_version: 1, captured_at: visit.created, values: { ...objects[0].values, cor: "Prata" } };
+  const previous = custom(18, workshopType); setStage(previous, "entregue");
+  previous.created = t(60 * 24 * H); previous.delivered_at = t(58 * 24 * H); previous.updated = previous.delivered_at;
+  previous.item = "Fiat Argo 1.0"; previous.extra = { quilometragem: 60000, combustivel: "um_quarto", servico_executado: "Troca de óleo e filtros." };
+  previous.object = { ...snapshot(objects[0]), object_version: 1, captured_at: previous.created, values: { ...objects[0].values, cor: "Prata" } };
+  const decoration = custom(19, eventType, contacts[1]); setStage(decoration, "execucao");
+  decoration.item = "Decoração do salão"; decoration.extra = { escopo: "Mesa principal e painel floral.", objetos_extras: "Dois vasos", decoracao_extra: "Iluminação do painel" }; decoration.object = snapshot(objects[2]);
+  const consultancy = custom(20, consultancyType); consultancy.extra = { escopo: "Revisão dos processos de atendimento." };
+  const legacy = workshopOrder(16, "recebido", contacts[0].name, "Fiat Argo 1.0");
+  legacy.type_revision = 1; legacy.fields = structuredClone([...workshopType.fields.filter(field => field.id !== "servico_executado"), ...demoObjectTypes[0].fields.filter(field => field.id !== "tipo_combustivel")]);
+  legacy.customer.contact_id = contacts[0].id;
+  const orders = [consultancy, decoration, visit, previous, legacy, ...structuredClone(osOrders.filter(row => row.type_id === osType.id))];
+  const activeRequirements = new Map<string, Set<string>>();
+  const receipts = new Map<string, { payload: string; result: unknown }>();
+  const privateValues = new Map<string, ExtraValues>();
+  const history = new Map(orders.map(row => [row.id, osHistory(row)]));
+  const object = (id: string) => objects.find(row => row.id === id) || notFound();
+  const order = (id: string) => orders.find(row => row.id === id) || notFound();
+  const latestObject = (row: ServiceObjectView): ServiceObjectView => {
+    const completed = orders.filter(entry => entry.object?.object_id === row.id && entry.status === "delivered")
+      .sort((a, b) => (b.delivered_at ?? -Infinity) - (a.delivered_at ?? -Infinity) || b.number - a.number || b.id.localeCompare(a.id))[0];
+    return { ...row, latest_completed: completed ? { id: completed.id, number: completed.number, delivered_at: completed.delivered_at } : null };
+  };
+  const publicFields = (fields: WorkField[], values: ExtraValues) => {
+    const visible = fields.filter(field => field.client_visible && !field.sensitive);
+    return { fields: visible, values: Object.fromEntries(visible.filter(field => values[field.id] !== undefined).map(field => [field.id, values[field.id]])) };
+  };
+  const publicObject = (row: ServiceObjectView): ServiceObjectView => {
+    const result = structuredClone(latestObject(row)), visible = publicFields(result.type.fields, result.values);
+    delete result.contact_id; result.type.fields = visible.fields; result.values = visible.values;
+    if (!visible.fields.some(field => field.id === result.type.identifier_field_id)) { delete result.type.identifier_field_id; result.identifier = result.type.labels.singular + " · " + result.id.slice(-6).toUpperCase(); }
+    return result;
+  };
+  const publicOrder = (row: Order): Order => {
+    const result = structuredClone(row), visible = publicFields(row.fields, row.extra);
+    delete result.notes; delete result.assignee; delete result.created_by; result.fields = visible.fields; result.extra = visible.values;
+    if (result.object) { const captured = publicFields(result.object.type.fields, result.object.values); result.object.type.fields = captured.fields; result.object.values = captured.values;
+      if (!captured.fields.some(field => field.id === result.object!.type.identifier_field_id)) { delete result.object.type.identifier_field_id; result.object.identifier = result.object.type.labels.singular + " · " + result.object.object_id.slice(-6).toUpperCase(); }
+    }
+    return result;
+  };
+  const filled = (value: unknown) => value !== undefined && value !== null && (typeof value !== "string" || value.trim() !== "");
+  const validate = (fields: WorkField[], values: ExtraValues): ExtraValues => {
+    for (const key of Object.keys(values)) if (!fields.some(field => field.id === key && !field.sensitive)) fail("invalid_fields", "Há campos indisponíveis neste formulário.", 400);
+    for (const field of fields.filter(field => !field.sensitive)) {
+      const value = values[field.id];
+      if (!filled(value)) { if (field.required) fail("invalid_fields", "Preencha " + field.label + ".", 400); continue; }
+      const valid = field.kind === "text" ? typeof value === "string" && value.length <= field.max_length && (field.multiline || !/[\r\n]/.test(value))
+        : field.kind === "choice" ? field.options.some(option => option.id === value)
+          : field.kind === "boolean" ? typeof value === "boolean"
+            : field.kind === "date" ? typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && (!field.min || value >= field.min) && (!field.max || value <= field.max)
+              : typeof value === "number" && Number.isFinite(value) && value >= field.min && value <= field.max && (field.kind !== "integer" || Number.isInteger(value));
+      if (!valid) fail("invalid_fields", "Confira " + field.label + ".", 400);
+    }
+    return structuredClone(values);
+  };
+  const version = (actual: number, expected: unknown) => { if (actual !== expected) fail("version_conflict", "O registro mudou. Recarregue a versão atual e revise o preenchimento."); };
+  const requirements = (row: Order, transitionId?: string, values = row.extra): OrderRequirements => {
+    const model = type(row.type_id), transition = transitionId ? model.transitions.find(entry => entry.id === transitionId && entry.from === row.stage) : undefined;
+    if (transitionId && !transition) fail("invalid_fields", "A transição não está disponível nesta etapa.", 400);
+    const cancelled = transition && model.stages.find(stage => stage.id === transition.to)?.base_status === "cancelled";
+    const ids = cancelled ? new Set<string>() : new Set(activeRequirements.get(row.id) || []);
+    if (!cancelled) for (const rule of model.stage_field_rules || []) if (rule.required_from_stage === row.stage || transition && (rule.required_from_stage === transition.to || rule.required_on_exit?.includes(row.stage))) ids.add(rule.field_id);
+    const required = row.fields.filter(field => !field.sensitive && (field.required || ids.has(field.id))).map(field => ({ field_id: field.id, label: field.label }));
+    return { id: row.id, version: row.version, ...(transitionId ? { transition_id: transitionId } : {}), required: cancelled ? [] : required, missing: cancelled ? [] : required.filter(field => !filled(values[field.field_id])), internal_missing: false };
+  };
+  const assertRequirements = (result: OrderRequirements) => { if (result.missing.length) fail("missing_fields", "Complete os campos necessários antes de avançar."); };
+  const prepareObject = (ownerId: string, expectedType: string, input: ObjectOpeningRequest | undefined) => {
+    contact(ownerId);
+    if (!input) fail("object_required", "Selecione ou cadastre o objeto do serviço.");
+    if (input!.mode === "existing") {
+      const row = object(input!.id);
+      if (row.contact_id !== ownerId || row.type_id !== expectedType) notFound();
+      if (row.archived) fail("object_archived", "Este objeto está arquivado. Escolha outro cadastro ativo.");
+      version(row.version, input!.version);
+      return { row, isNew: false };
+    }
+    if (input!.mode !== "new" || input!.type_id !== expectedType) fail("invalid_fields", "O tipo do objeto não corresponde ao modelo.", 400);
+    const definition = objectType(expectedType);
+    if (definition.archived) fail("object_archived", "O tipo de objeto está arquivado.");
+    if (objects.filter(row => row.contact_id === ownerId).length >= 100 || objects.filter(row => row.contact_id === ownerId && row.type_id === expectedType && !row.archived).length >= 30) fail("object_limit", "Este cliente atingiu o limite de objetos. Arquive um cadastro ativo antes de adicionar outro.");
+    const values = validate(definition.fields, input!.values), id = "demo-object-" + crypto.randomUUID();
+    const row: ServiceObjectView = { id, contact_id: ownerId, type_id: definition.id, type_revision: definition.revision, type: structuredClone(definition), values, archived: false, version: 1,
+      identifier: String(values[definition.identifier_field_id] || definition.labels.singular + " · " + id.slice(-6).toUpperCase()), created: Date.now(), updated: Date.now() };
+    return { row, isNew: true };
+  };
+  const canonical = (value: unknown): string => JSON.stringify(value && typeof value === "object" ? Array.isArray(value) ? value.map(entry => JSON.parse(canonical(entry))) : Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, entry]) => [key, JSON.parse(canonical(entry))])) : value ?? null);
+  const paged = <T,>(rows: T[], query: URLSearchParams, context: string): Page<T> => {
+    const encoded = query.get("cursor"); let start = 0;
+    if (encoded) { try { const cursor = JSON.parse(decodeURIComponent(encoded)); if (cursor.context !== context || !Number.isInteger(cursor.start) || cursor.start < 0) throw new Error(); start = cursor.start; } catch { fail("invalid_fields", "A página não pertence a esta consulta. Reinicie a lista.", 400); } }
+    const limit = Math.min(50, Math.max(1, Number(query.get("limit")) || 50));
+    return { data: rows.slice(start, start + limit), next_cursor: start + limit < rows.length ? encodeURIComponent(JSON.stringify({ context, start: start + limit })) : null };
+  };
+  const commonFilter = (rows: Order[], query: URLSearchParams) => rows.filter(row =>
+    (!query.get("type_id") || row.type_id === query.get("type_id")) && (!query.get("type_ids") || query.get("type_ids")!.split(",").includes(row.type_id)) &&
+    (!query.get("status") || query.get("status")!.split(",").includes(row.status)) && (!query.get("stage") || query.get("stage")!.split(",").includes(row.stage)) &&
+    (!query.get("contact_id") || row.customer.contact_id === query.get("contact_id")) && (!query.get("conversation_id") || row.customer.conversation_id === query.get("conversation_id")) &&
+    (!query.get("phone") || row.customer.phone === query.get("phone")) && (query.get("open") !== "1" || !["delivered", "cancelled"].includes(row.status)) &&
+    (!query.get("assignee") || row.assignee === (query.get("assignee") === "me" ? demoMe.id : query.get("assignee") === "unassigned" ? null : query.get("assignee"))) &&
+    (!query.get("due_from") || row.due_at !== null && row.due_at >= Number(query.get("due_from"))) && (!query.get("due_to") || row.due_at !== null && row.due_at <= Number(query.get("due_to"))) &&
+    (!query.get("q") || `${row.display_number} ${row.item} ${row.customer.name} ${row.customer.phone || ""}`.toLocaleLowerCase("pt-BR").includes(query.get("q")!.toLocaleLowerCase("pt-BR"))));
+  const normalized = (value: unknown) => typeof value === "string" ? value.trim().normalize("NFC").toLocaleLowerCase("pt-BR") : value;
+  const readWork = (rest: string, query: URLSearchParams): unknown => {
+    const context = rest + "?" + [...query.entries()].filter(([key]) => key !== "cursor").sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => key + "=" + value).join("&");
+    if (rest === "service-orders/types") return { data: types, settings_revision: "demo" } satisfies WorkTypeCatalog;
+    if (rest === "service-orders/object-types") return { data: objectTypes.filter(row => !row.archived || query.get("include_archived") === "1"), settings_revision: "demo" };
+    const typeMatch = rest.match(/^service-orders\/types\/([^/]+)(?:\/(field-index))?$/);
+    if (typeMatch) { const model = type(decodeURIComponent(typeMatch[1])); return typeMatch[2] ? { type_id: model.id, generation: "demo-ready", status: "ready", cursor_number: 20, ceiling_number: 20, excluded_count: 1, updated: Date.now() } : model; }
+    if (rest === "service-orders/objects") { const owner = contact(query.get("contact_id")); return paged(objects.filter(row => row.contact_id === owner.id && (!query.get("type_id") || row.type_id === query.get("type_id")) && (!row.archived || query.get("include_archived") === "1")).map(latestObject), query, context); }
+    const objectMatch = rest.match(/^service-orders\/objects\/([^/]+)(?:\/(orders|private-fields))?$/);
+    if (objectMatch) { const row = object(decodeURIComponent(objectMatch[1]));
+      if (objectMatch[2] === "orders") return paged(orders.filter(entry => entry.object?.object_id === row.id).sort((a, b) => b.created - a.created || b.number - a.number), query, context);
+      if (objectMatch[2] === "private-fields") return { id: row.id, version: row.version, fields: row.type.fields.filter(field => field.sensitive), values: privateValues.get(row.id) || {} };
+      return latestObject(row);
+    }
+    const conversationMatch = rest.match(/^service-orders\/conversation\/([^/]+)(?:\/objects(?:\/([^/]+))?)?$/);
+    if (conversationMatch) { const owner = contacts.find((_row, index) => conversationMatch[1] === "demo-" + (index + 1)); if (!owner) return notFound();
+      if (!rest.includes("/objects")) return paged(orders.filter(row => row.customer.contact_id === owner.id).map(publicOrder), query, context);
+      if (conversationMatch[2]) { const row = object(conversationMatch[2]); if (row.contact_id !== owner.id) notFound(); return { ...publicObject(row), orders: paged(orders.filter(entry => entry.object?.object_id === row.id).sort((a, b) => b.created - a.created || b.number - a.number).map(publicOrder), query, context) }; }
+      return paged(objects.filter(row => row.contact_id === owner.id && !row.archived).map(publicObject), query, context);
+    }
+    if (rest === "service-orders/my-tasks") return { data: [], next_cursor: null };
+    if (rest === "service-orders") {
+      let rows = commonFilter(orders, query).sort((a, b) => b.number - a.number);
+      if (query.has("field_filter")) {
+        let filter: OrderFieldFilter; try { filter = JSON.parse(query.get("field_filter")!); } catch { return fail("invalid_fields", "Filtro inválido.", 400); }
+        const model = type(query.get("type_id") || ""), rule = model.list_fields?.find(row => row.filter && row.ref.scope === filter?.ref?.scope && row.ref.field_id === filter?.ref?.field_id);
+        if (!rule) return fail("invalid_fields", "Escolha um filtro publicado neste modelo.", 400);
+        const definition = (rule.ref.scope === "order" ? model.fields : objectType(model.object_type_id!).fields).find(field => field.id === rule.ref.field_id);
+        if (!definition || definition.sensitive || !["eq", "range"].includes(filter.operator) || filter.operator === "range" && !["integer", "decimal", "date"].includes(definition.kind)) return fail("invalid_fields", "Este campo não permite o filtro solicitado.", 400);
+        const value = (row: Order) => { const captured = (rule.ref.scope === "order" ? row.fields : row.object?.type.fields)?.find(field => field.id === rule.ref.field_id); return captured && !captured.sensitive && captured.kind === definition.kind ? rule.ref.scope === "order" ? row.extra[rule.ref.field_id] : row.object?.values[rule.ref.field_id] : undefined; };
+        rows = rows.filter(row => { const actual = value(row); return filled(actual) && (filter.operator === "eq" ? normalized(actual) === normalized(filter.value) : actual! >= filter.from && actual! <= filter.to); });
+        if (filter.operator === "range") rows.sort((a, b) => { const x = value(a)!, y = value(b)!; return (x < y ? -1 : x > y ? 1 : 0) || b.number - a.number; });
+        return { ...paged(rows, query, context), counts: null, counts_scope: "not_computed", order_by: filter.operator === "range" ? "field_value_asc" : "number_desc" } satisfies FieldFilteredOrderList;
+      }
+      const counts: OrderList["counts"] = {}, facets = { types: {} as Record<string, number>, stages: {} as Record<string, number> };
+      for (const row of orders) counts[row.status] = (counts[row.status] || 0) + 1;
+      for (const row of rows) { facets.types[row.type_id] = (facets.types[row.type_id] || 0) + 1; facets.stages[row.stage] = (facets.stages[row.stage] || 0) + 1; }
+      return { ...paged(rows, query, context), counts, ...(query.get("facets") === "1" ? { facets } : {}) } satisfies OrderList;
+    }
+    const match = rest.match(/^service-orders\/([^/]+)(?:\/([^/]+))?$/); if (!match) return notFound();
+    const row = order(decodeURIComponent(match[1]));
+    if (!match[2]) return { ...row, ...(query.get("history") === "none" ? {} : { history: history.get(row.id) }) };
+    if (match[2] === "requirements") return requirements(row, query.get("transition_id") || undefined);
+    if (match[2] === "history") return paged(history.get(row.id) || [], query, context);
+    if (match[2] === "private-fields") return { id: row.id, version: row.version, fields: [], extra: {} };
+    if (["tasks", "private-tasks", "people", "documents", "private-documents", "entries"].includes(match[2])) return { data: [], next_cursor: null };
+    return notFound();
+  };
+  const mutate = (rest: string, method: string, body: Row): unknown => {
+    if (rest === "service-orders" && method === "POST") {
+      const model = type(body.type_id || "service_order");
+      if (model.archived) fail("invalid_fields", "O modelo está arquivado.", 400);
+      if (!filled(body.item) || !filled(body.problem)) fail("invalid_fields", "Informe o item e a solicitação.", 400);
+      if (model.object_type_id && !body.contact_id) fail("customer_required", "Selecione um contato cadastrado para o objeto.");
+      if (!model.object_type_id && body.object) fail("invalid_fields", "Este modelo não usa objeto do serviço.", 400);
+      const owner = body.contact_id ? contact(body.contact_id) : undefined;
+      const prepared = model.object_type_id ? prepareObject(owner!.id, model.object_type_id, body.object) : undefined;
+      const result = custom(Math.max(...orders.map(row => row.number)) + 1, model, owner);
+      result.id = "os-demo-" + crypto.randomUUID(); result.item = body.item; result.problem = body.problem; result.notes = body.notes || "";
+      result.extra = validate(model.fields, body.extra || {}); result.assignee = body.assignee ?? null; result.due_at = body.due_at ?? null; result.created = result.updated = Date.now();
+      result.customer = owner ? { name: owner.name, phone: owner.phone, contact_id: owner.id, conversation_id: body.conversation_id || null } : { name: body.customer_name || "", phone: body.phone || "", contact_id: null, conversation_id: body.conversation_id || null };
+      assertRequirements(requirements(result));
+      if (prepared) { result.object = snapshot(prepared.row); if (prepared.isNew) objects.push(prepared.row); }
+      orders.unshift(result); history.set(result.id, osHistory(result)); return result;
+    }
+    if (rest === "service-orders/objects" && method === "POST") { const prepared = prepareObject(body.contact_id, body.type_id, { mode: "new", type_id: body.type_id, values: body.values || {} }); objects.push(prepared.row); return latestObject(prepared.row); }
+    const objectMatch = rest.match(/^service-orders\/objects\/([^/]+)(?:\/(archive|private-fields))?$/);
+    if (objectMatch) {
+      const row = object(objectMatch[1]); version(row.version, body.version);
+      if (!objectMatch[2] && method === "PATCH") {
+        const definition = body.adopt_revision ? objectType(row.type_id) : row.type;
+        if (body.adopt_revision && definition.revision !== body.adopt_revision) fail("object_definition_conflict", "A definição mudou. Confira a nova revisão.");
+        const values = validate(definition.fields, { ...row.values, ...(body.values || {}) });
+        row.type = structuredClone(definition); row.type_revision = definition.revision; row.values = values;
+        row.identifier = String(values[definition.identifier_field_id || ""] || definition.labels.singular + " · " + row.id.slice(-6).toUpperCase());
+      } else if (objectMatch[2] === "archive" && method === "POST") {
+        if (typeof body.archived !== "boolean") fail("invalid_fields", "Informe a situação de arquivamento.", 400);
+        if (!body.archived && row.archived && objects.filter(entry => entry.contact_id === row.contact_id && entry.type_id === row.type_id && !entry.archived).length >= 30) fail("object_limit", "Arquive outro cadastro antes de reativar este objeto.");
+        row.archived = body.archived;
+      } else if (objectMatch[2] === "private-fields" && method === "PATCH") { if (Object.keys(body.values || {}).length) fail("invalid_fields", "Não há campos privados configurados neste objeto.", 400); privateValues.set(row.id, {}); }
+      else return notFound();
+      row.version++; row.updated = Date.now(); return objectMatch[2] === "private-fields" ? { id: row.id, version: row.version } : latestObject(row);
+    }
+    if (/^service-orders\/types\/[^/]+\/field-index\/rebuild$/.test(rest) && method === "POST") return readWork(rest.replace(/\/rebuild$/, ""), new URLSearchParams());
+    const match = rest.match(/^service-orders\/([^/]+)(?:\/(object-link|stage|stage-approval))?$/); if (!match) return notFound();
+    const row = order(match[1]); version(row.version, body.version);
+    if (match[2] === "object-link" && method === "POST") {
+      if (row.type_id === "service_order" || row.object) fail("object_definition_conflict", "Esta ordem não permite outro vínculo.");
+      const model = type(row.type_id); if (!model.object_type_id) fail("object_definition_conflict", "O modelo atual não usa objeto.");
+      if (!row.customer.contact_id) fail("customer_required", "Confirme o contato canônico antes de vincular.");
+      const prepared = prepareObject(row.customer.contact_id!, model.object_type_id!, body.object);
+      if (prepared.isNew) objects.push(prepared.row); row.object = snapshot(prepared.row, "legacy_link");
+    } else if (!match[2] && method === "PATCH") {
+      const closed = ["delivered", "cancelled"].includes(row.status);
+      if (closed && Object.keys(body).some(key => !["version", "notes"].includes(key))) fail("invalid_fields", "A ordem encerrada aceita somente observações.", 400);
+      const extra = body.extra ? validate(row.fields, { ...row.extra, ...body.extra }) : row.extra; assertRequirements(requirements(row, undefined, extra));
+      for (const key of ["item", "problem", "notes", "assignee", "due_at"] as const) if (body[key] !== undefined) Object.assign(row, { [key]: body[key] }); row.extra = extra;
+    } else if (["stage", "stage-approval"].includes(match[2]) && method === "POST") {
+      const result = requirements(row, body.transition_id); assertRequirements(result);
+      const transition = type(row.type_id).transitions.find(entry => entry.id === body.transition_id && entry.from === row.stage)!;
+      activeRequirements.set(row.id, new Set(result.required.map(field => field.field_id))); setStage(row, transition.to);
+      if (row.status === "delivered") row.delivered_at = Date.now();
+    } else return notFound();
+    row.version++; row.updated = Date.now(); history.set(row.id, [...(history.get(row.id) || []), { id: crypto.randomUUID(), kind: match[2] || "updated", from_status: null, to_status: row.status, from_stage: null, to_stage: row.stage, actor: demoMe.id, note: "Demonstração", created: row.updated }]); return row;
+  };
+  return async (path, method = "GET", body, _signal, key) => {
+    const [pathname, search = ""] = path.split("?"), query = new URLSearchParams(search);
+    const match = pathname.match(/^v1\/profiles\/([^/]+)\/(.*)$/), rest = match?.[2] || "";
+    if (rest.startsWith("service-orders") || rest === "contacts" || rest.startsWith("contacts/")) {
+      if (match?.[1] !== "demo") return notFound();
+      if (method === "GET" && rest === "contacts") { const q = (query.get("q") || query.get("search") || "").toLocaleLowerCase("pt-BR"); return structuredClone(paged(contacts.filter(row => (!query.get("namespace") || query.get("namespace") === "team") && `${row.name} ${row.phone}`.toLocaleLowerCase("pt-BR").includes(q)), query, "contacts:" + q)); }
+      const contactMatch = rest.match(/^contacts\/([^/]+)(?:\/(profile|modules\/os\/collections\/(?:objects|orders|works)))?$/);
+      if (method === "GET" && contactMatch) {
+        const owner = contact(contactMatch[1]);
+        if (!contactMatch[2]) return { contact: structuredClone(owner), phones: [{ phone: owner.phone, label: "WhatsApp" }] };
+        if (contactMatch[2] === "profile") return { profileId: "demo", contactId: owner.id, erpContactId: null, depth: "simple", vocabulary: { singular: "Cliente", plural: "Clientes" }, writable: false, namespace: "team", contributions: [
+          { id: "objects", kind: "collection", title: "Objetos do cliente", component: "table", source: "os", policy: "contacts:read", moduleId: "os", writable: false, columns: [{ key: "identifier", label: "Identificação", format: "text" }, { key: "type", label: "Tipo", format: "text" }, { key: "status", label: "Situação", format: "status" }] },
+          { id: "orders", kind: "collection", title: "Ordens de serviço", component: "table", source: "os", policy: "contacts:read", moduleId: "os", writable: false, columns: [{ key: "number", label: "Número", format: "text" }, { key: "stage", label: "Etapa", format: "text" }] },
+        ] };
+        const rows = contactMatch[2].endsWith("objects") ? objects.filter(row => row.contact_id === owner.id).map(row => ({ id: row.id, cells: { identifier: row.identifier, type: row.type.labels.singular, status: row.archived ? "Arquivado" : "Ativo" }, target: { module: "os", resource: "objects", id: row.id } }))
+          : orders.filter(row => row.customer.contact_id === owner.id).map(row => ({ id: row.id, cells: { number: row.display_number, stage: row.stage_label }, target: { module: "os", resource: "orders", id: row.id } }));
+        const page = paged<import("../../src/customer/profile-contracts").ContactPage["items"][number]>(rows, query, rest); return { items: page.data, nextCursor: page.next_cursor, incomplete: false };
+      }
+      if (rest.startsWith("contacts")) return notFound();
+      if (method === "GET") return structuredClone(readWork(rest, query));
+      const receiptId = method + ":" + rest + ":" + (key || crypto.randomUUID()), payload = canonical(body || {}), receipt = receipts.get(receiptId);
+      if (receipt) { if (receipt.payload !== payload) fail("idempotency_conflict", "Esta intenção já foi usada com outro preenchimento."); return structuredClone(receipt.result); }
+      const result = structuredClone(mutate(rest, method, body || {})); receipts.set(receiptId, { payload, result }); return structuredClone(result);
+    }
+    if (method !== "GET") fail("demo", "Estas são telas de referência com dados fictícios. Entre na sua instalação para salvar alterações.", 400);
+    return read(pathname, query);
+  };
+}
+
 // Mensalidade (módulo "mensalidade"): escola de idiomas, nos formatos de
 // GET /mensalidade/plans, /subscriptions, /installments, /summary e /delinquents.
 const msPlans: Row[] = [
@@ -1274,17 +1605,27 @@ function read(path: string, query: URLSearchParams): any {
   return page([]);
 }
 
-/** API de demonstração: leituras com dados fictícios; escritas são recusadas. */
+const os2DemoApi = createOs2DemoApi();
+/** Únicas escritas da ordem de serviço simuladas em memória na demonstração:
+ *  objetos do serviço e a abertura com objeto. As demais continuam recusadas. */
+export const DEMO_SIMULATED_WRITES = [
+  { name: "abrir ordem com objeto", method: "POST", path: /^service-orders$/, object: true },
+  { name: "cadastrar objeto", method: "POST", path: /^service-orders\/objects$/ },
+  { name: "editar objeto", method: "PATCH", path: /^service-orders\/objects\/[^/]+$/ },
+  { name: "arquivar objeto", method: "POST", path: /^service-orders\/objects\/[^/]+\/archive$/ },
+  { name: "campos privados do objeto", method: "PATCH", path: /^service-orders\/objects\/[^/]+\/private-fields$/ },
+  { name: "vincular objeto a ordem antiga", method: "POST", path: /^service-orders\/[^/]+\/object-link$/ },
+] as const;
+const simulatedWrite = (path: string, method: string, body: unknown) => {
+  const rest = path.split("?")[0].match(/^v1\/profiles\/demo\/(.*)$/)?.[1];
+  return rest !== undefined && DEMO_SIMULATED_WRITES.some(write => write.method === method && write.path.test(rest) &&
+    (!("object" in write) || !!(body as { object?: unknown } | undefined)?.object));
+};
+/** API de demonstração: OS2 e canais simulam operações somente em memória. */
 export const demoApi: Api = async (path, method = "GET", body, _signal, idempotencyKey) => {
   const channel = demoChannelRequest(path, method, body, idempotencyKey, read);
   if (channel.handled) return channel.data;
-  const [pathname, search = ""] = path.split("?");
-  if (method !== "GET")
-    throw Object.assign(
-      new Error(
-        "Estas são telas de referência com dados fictícios. Entre na sua instalação para salvar alterações.",
-      ),
-      { status: 400, code: "demo" },
-    );
-  return read(pathname, new URLSearchParams(search));
+  if (method !== "GET" && !simulatedWrite(path, method, body))
+    throw Object.assign(new Error("Estas são telas de referência com dados fictícios. Entre na sua instalação para salvar alterações."), { status: 400, code: "demo" });
+  return os2DemoApi(path, method, body, _signal, idempotencyKey);
 };

@@ -4,7 +4,7 @@ import { servicosTemplate } from "../src/area-templates/models/servicos";
 import { oficinaMecanicaTemplate } from "../src/area-templates/models/oficina-mecanica";
 import { lavanderiaCosturaTemplate } from "../src/area-templates/models/lavanderia-costura";
 import { assistenciaTecnicaTemplate } from "../src/area-templates/models/assistencia-tecnica";
-import { validateExtra, validateWorkType } from "../src/modules/os/validation";
+import { validateExtra, validateObjectValues, validateWorkType } from "../src/modules/os/validation";
 import { despachanteTemplate, graficaTemplate, imobiliariaTemplate } from "../src/area-templates/models/exemplos";
 
 // Conferências declarativas e regressões com os validadores reais do motor.
@@ -87,21 +87,28 @@ describe("modelos de serviços: catálogo declarativo", () => {
     it(`${template.id}: oficina identifica o veículo com campos públicos e limites`, () => {
       const type = template.work_types.find((type) => type.id === "at_veiculos")!;
       expect(validateWorkType(type)).toEqual(type);
+      // Parte 2: identificação no objeto Veículo; a visita guarda o que é do atendimento.
       expect(type.fields.map((field) => field.id)).toEqual([
-        "placa", "marca_modelo", "ano", "cor", "ultima_manutencao",
-        "quilometragem", "combustivel", "pecas_previstas", "avarias_entrada",
+        "ultima_manutencao", "quilometragem", "combustivel", "pecas_previstas", "avarias_entrada", "servico_executado",
       ]);
-      expect(type.fields.find((field) => field.id === "placa"))
+      expect(type.retired_field_ids).toEqual(expect.arrayContaining(["placa", "marca_modelo", "ano", "cor"]));
+      const vehicle = template.object_types!.find((object) => object.id === type.object_type_id)!;
+      expect(vehicle.fields.map((field) => field.id)).toEqual(expect.arrayContaining(["placa", "marca_modelo", "ano", "cor"]));
+      expect(vehicle.fields.find((field) => field.id === "placa"))
         .toMatchObject({ kind: "text", required: false, sensitive: false, client_visible: true, max_length: 10 });
-      expect(type.fields.find((field) => field.id === "ano")).toMatchObject({ kind: "integer", min: 1900, max: 2100 });
+      expect(vehicle.fields.find((field) => field.id === "ano")).toMatchObject({ kind: "integer", min: 1900, max: 2100 });
       expect(type.fields.find((field) => field.id === "ultima_manutencao"))
-        .toMatchObject({ kind: "date", help: "Data informada pelo cliente." });
-      const extra = { placa: "ABC1D23", marca_modelo: "Marca Modelo", ano: 2020, cor: "Prata", ultima_manutencao: "2026-05-12" };
+        .toMatchObject({ kind: "date", help: expect.stringContaining("Data informada pelo cliente") });
+      const values = { placa: "ABC1D23", marca_modelo: "Marca Modelo", ano: 2020, cor: "Prata" };
+      expect(validateObjectValues(vehicle, values, { mode: "customer" })).toEqual(values);
+      for (const invalid of [{ placa: "A".repeat(11) }, { ano: 1899 }, { ano: 2101 }, { ano: 2020.5 }])
+        expect(() => validateObjectValues(vehicle, invalid, { mode: "customer" })).toThrow();
+      const extra = { ultima_manutencao: "2026-05-12" };
       expect(validateExtra(type.fields, extra, { mode: "customer" })).toEqual(extra);
-      for (const invalid of [{ placa: "A".repeat(11) }, { ano: 1899 }, { ano: 2101 }, { ano: 2020.5 }, { ultima_manutencao: "2026-02-30" }])
-        expect(() => validateExtra(type.fields, invalid, { mode: "customer" })).toThrow();
-      expect(type.fields.length).toBeLessThanOrEqual(24);
-      expect(size({ ...type, id: `area_${template.id}__${type.id}` })).toBeLessThanOrEqual(12 * 1024);
+      expect(() => validateExtra(type.fields, { ultima_manutencao: "2026-02-30" }, { mode: "customer" })).toThrow();
+      expect(() => validateExtra(type.fields, { placa: "ABC1D23" }, { mode: "customer" })).toThrow();
+      expect(type.fields.length + vehicle.fields.length).toBeLessThanOrEqual(24);
+      expect(size({ ...type, id: `area_${template.id}__${type.id}`, object_type_id: `area_${template.id}__${type.object_type_id}` })).toBeLessThanOrEqual(12 * 1024);
     });
   }
 
@@ -168,13 +175,13 @@ describe("modelos de serviços: catálogo declarativo", () => {
     describe(template.name, () => {
       it("respeita o manifesto, os limites de tamanho e as referências de menu", () => {
         expect(template.schema_version).toBe(1);
-        expect(template.version).toBe(template.id === "oficina_mecanica" ? 2 : 1);
+        expect(template.version).toBe(template.id === "oficina_mecanica" ? 3 : 1);
         expect(template.modules.os).toBe(true);
         expect(size(template)).toBeLessThanOrEqual(128 * 1024);
         expect(template.work_types.length).toBeGreaterThan(0);
         expect(template.work_types.length).toBeLessThanOrEqual(20);
         expect(JSON.stringify({ os_work_types: template.work_types, os_vocabulary: template.vocabulary }).length).toBeLessThanOrEqual(150000);
-        keys(template, ["schema_version", "id", "version", "name", "description", "work_types", "modules", "vocabulary", "departments", "ticket_categories", "menus", "texts", "bot", "manual_steps"]);
+        keys(template, ["schema_version", "id", "version", "name", "description", "work_types", "modules", "vocabulary", "departments", "ticket_categories", "menus", "texts", "bot", "manual_steps", "object_types"]);
         ids(template.work_types.map((type) => type.id), 64);
         ids(template.menus.map((menu) => menu.id), 64);
         ids(template.departments.map((department) => department.id), 64);
@@ -213,7 +220,7 @@ describe("modelos de serviços: catálogo declarativo", () => {
           expect(type.fields.length).toBeLessThanOrEqual(24);
           expect(type.stages.length).toBeLessThanOrEqual(32);
           expect(type.transitions.length).toBeLessThanOrEqual(128);
-          keys(type, ["schema_version", "kind", "id", "revision", "archived", "labels", "number_prefix", "terms", "fields", "retired_field_ids", "stages", "retired_stage_ids", "initial_stage", "transitions", "features", "pickup_reminder_text"]);
+          keys(type, ["schema_version", "kind", "id", "revision", "archived", "labels", "number_prefix", "terms", "fields", "retired_field_ids", "stages", "retired_stage_ids", "initial_stage", "transitions", "features", "pickup_reminder_text", "object_type_id", "stage_field_rules", "list_fields"]);
           for (const value of Object.values(type.labels)) text(value, 80);
           text(type.number_prefix, 12);
           if (type.terms !== null) text(type.terms, 1400);

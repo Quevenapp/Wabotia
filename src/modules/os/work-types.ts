@@ -1,8 +1,14 @@
 import { ApiError, json } from "../../types";
-import type { CustomWorkType, WorkOrderAdditions, WorkTypeSnapshot, WorkTypeView } from "./contracts";
+import type { CustomWorkType, ServiceObjectType, WorkField, WorkOrderAdditions, WorkTypeSnapshot, WorkTypeView } from "./contracts";
 import { BUILTIN_WORK_TYPE } from "./contracts";
 import { MANUAL_TRANSITIONS, OS_STATUSES, QUOTABLE, STATUS_LABELS, osSettings } from "./model";
-import { jsonBytes, validateWorkType } from "./validation";
+import { jsonBytes, validateWorkObjectCombination, validateWorkType } from "./validation";
+
+/** Os namespaces permanecem separados, inclusive quando repetem o mesmo ID. */
+export function resolveWorkFields(type: WorkTypeView, objectType?: ServiceObjectType): { order: WorkField[]; object: WorkField[] } {
+  validateWorkObjectCombination(type, objectType);
+  return { order: type.fields, object: objectType?.fields ?? [] };
+}
 
 export function builtinWorkType(settings: unknown = {}): WorkTypeView {
   const cfg = osSettings(settings);

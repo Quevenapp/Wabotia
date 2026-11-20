@@ -25,7 +25,7 @@ import {
 } from "../types";
 import {
   catalogFor,
-  operationView,
+  operationViews,
   searchCatalog,
   type CatalogOperation,
 } from "./catalog";
@@ -283,7 +283,8 @@ export async function runBotTool(
             : undefined;
       const found = searchCatalog(ops, String(input.texto || ""), { kind });
       return clip({
-        operacoes: found.map(operationView),
+        // Folga para o aviso e a chave operacoes dentro de MAX_RESULT.
+        operacoes: operationViews(found, MAX_RESULT - 200),
         ...(found.length
           ? {}
           : {

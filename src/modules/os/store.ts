@@ -34,12 +34,12 @@ import {
   type TextKey,
 } from "./model";
 
-import type { ExtraValues, WorkTypeSnapshot } from "./contracts";
+import type { ExtraValues, Order, WorkTypeSnapshot } from "./contracts";
 import { effectiveStage, legacyCustomStatuses, makeSnapshot, snapshotType, workOrderAdditions } from "./work-types";
 import { resolveWorkType, workCustomerScope, workCustomerAllows } from "./public";
 import { resolveCustomer } from "../../customer/ports";
 import { normalizeCustomerPhone } from "../../customer/phone";
-import { validateExtra } from "./validation";
+import { jsonBytes, validateExtra } from "./validation";
 import { resumeOrderEffects } from "./motor-routes";
 import { atomic, casGuard, checkVersion, commitOrderMutation, mutationHistory, versionConflict } from "./mutations";
 import { customerProjection, mayReadSensitive } from "./privacy";
@@ -47,6 +47,8 @@ import { customStatus, customMove, customQuotePolicy, cancelApproval } from "./s
 import { prepareWorkMutation, replayWorkWrite, workWriteReceipt } from "./commercial/mutations";
 import { commercialOf, readWorkIntegration, stableQuoteItems } from "./commercial/projection";
 import { hash as commercialHash } from "../../integrations/keys";
+import { prepareObjectOpening, reauthorizeObjectOpening, prepareOrderRulesMutation, planOrderFieldIndex, queryOrdersByField, publicObjectLabel, projectObjectSnapshot, projectObjectForActor, projectObjectPage } from "./os2-ports";
+import type { WorkOrderRow } from "./public";
 
 export type OrderSource = "agent" | "panel" | "customer" | "api";
 
@@ -110,6 +112,7 @@ export function orderView(row: any, history?: any[]) {
     : null;
   return {
     ...workOrderAdditions(row),
+    ...(row.object_id ? { object: projectObjectSnapshot(row, { kind: "staff" }) } : {}),
     id: row.id,
     number: row.number,
     status,
@@ -173,19 +176,19 @@ export function orderView(row: any, history?: any[]) {
   };
 }
 
-type OrderView = ReturnType<typeof orderView>;
 /**
  * Visão para o ator (revisão M6): aplicação sem contacts:read não vê o
  * telefone do cliente; sem notes:read, não vê as observações internas nem as
  * notas do histórico. Pessoas da equipe veem tudo.
  */
-export function visibleOrder(
+export function visibleOrder<T extends Order>(
   ctx: ModuleContext,
   actor: Actor,
-  view: OrderView,
-): OrderView {
+  view: T,
+): T {
   const out: any = { ...view };
   if (!ctx.mayRead(actor, "contacts")) {
+    delete out.object;
     const { phone: _phone, ...customer } = view.customer;
     out.customer = customer;
     // Registros antigos guardavam "customer:<telefone>" (conferência N-9).
@@ -205,6 +208,17 @@ export function visibleOrder(
       out.history = out.history.map(({ note: _note, ...h }: any) => h);
   }
   return view.type_id !== "service_order" && (actor.via || actor.id.startsWith("bot:") || actor.module) ? customerProjection(out) : out;
+}
+
+/** A projeção nova resolve política e contato; nenhuma consulta sem objeto. */
+export async function orderViewForActor(ctx: ModuleContext, actor: Actor, row: WorkOrderRow, history?: any[]) {
+  const view = visibleOrder(ctx, actor, orderView(row, history));
+  if (row.object_id) {
+    const object = await projectObjectForActor(ctx, actor, row);
+    if (object) view.object = object;
+    else delete view.object;
+  }
+  return view;
 }
 
 export async function loadOrder(ctx: ModuleContext, id: unknown) {
@@ -238,6 +252,10 @@ export async function listOrders(
   query: Record<string, string>,
   actor?: Actor,
 ) {
+  if (Object.hasOwn(query, "field_filter")) {
+    if (!actor) throw new ApiError(403, "forbidden", "Autentique-se para consultar campos da ordem.");
+    return queryOrdersByField(ctx, query, actor);
+  }
   const where = ["profile_id=?"],
     args: any[] = [ctx.profile];
   if (query.stage && !query.type_id) throw new ApiError(400, "invalid_filter", "Etapa exige type_id.");
@@ -318,7 +336,10 @@ export async function listOrders(
   );
   const rows = await all(
     ctx.env,
-    `SELECT * FROM os_orders WHERE ${where.join(" AND ")} ORDER BY number DESC LIMIT ?`,
+    `SELECT os_orders.*,CASE WHEN object_id IS NOT NULL THEN EXISTS(
+      SELECT 1 FROM contacts c WHERE c.profile_id=os_orders.profile_id AND c.id=os_orders.contact_id
+        AND c.namespace='team' AND c.identity_state='active') ELSE NULL END AS os2_contact_active
+      FROM os_orders WHERE ${where.join(" AND ")} ORDER BY number DESC LIMIT ?`,
     ...args,
     limit + 1,
   );
@@ -335,11 +356,18 @@ export async function listOrders(
     ${sensitive ? "" : "AND sensitive=0"} ${human ? "" : "AND client_visible=1"}
   ) WHERE position=1`, ctx.profile, JSON.stringify(custom.map(row => row.id))) : [];
   const nextTasks = new Map(tasks.map(task => [task.order_id, { id: task.id, title: task.title, due_at: task.due_at }]));
+  const objects = actor && page.some(row => row.object_id) ? await projectObjectPage(ctx, actor, page) : new Map();
   return {
-    data: page.map(row => ({
-      ...orderView(row),
-      ...(row.type_id !== "service_order" ? { next_task: nextTasks.get(row.id) ?? null } : {}),
-    })),
+    data: page.map(row => {
+      const view = { ...orderView(row), ...(row.type_id !== "service_order" ? { next_task: nextTasks.get(row.id) ?? null } : {}) };
+      const projected = actor ? visibleOrder(ctx, actor, view) : view;
+      if (row.object_id && actor) {
+        const object = objects.get(row.id);
+        if (object) projected.object = object;
+        else delete projected.object;
+      }
+      return projected;
+    }),
     next_cursor: more ? String(page.at(-1)!.number) : null,
     counts,
     ...(query.facets === "1" ? { facets: await orderFacets(ctx, query.type_id) } : {}),
@@ -439,6 +467,10 @@ export interface CreateInput {
   conversation?: Conversation | null;
   type_id?: string;
   extra?: unknown;
+  object?: import("./contracts").CreateOrderRequest["object"];
+  contact_id?: string;
+  /** Ator efetivo, preservando escopos e atuação via integração/bot. */
+  authority?: Actor;
   /** Somente o passo web autenticado fornece a definição fixada. */
   snapshot?: WorkTypeSnapshot;
   customer_name?: unknown;
@@ -466,11 +498,24 @@ export interface CreateInput {
 export async function createOrder(ctx: ModuleContext, input: CreateInput) {
   const sourceKey = `motor:${ctx.profile}:${input.sourceKey}`;
   const openingScope = `os-open:${ctx.profile}`;
-  const openingHash = commercialHash({ conversation_id: input.conversation?.id ?? null, type_id: input.type_id ?? "service_order",
+  const openingIntent: Record<string, unknown> = { conversation_id: input.conversation?.id ?? null, type_id: input.type_id ?? "service_order",
     snapshot: input.snapshot ?? null, extra: input.extra ?? null, customer_name: input.customer_name ?? null,
     phone: input.phone ?? null, item: input.item ?? null, problem: input.problem ?? null, notes: input.notes ?? null,
     assignee: input.assignee ?? null, due_at: input.due_at ?? null, source: input.source, actor: input.actor,
-    terms: input.terms ?? null, notify: input.notify ?? true });
+    terms: input.terms ?? null, notify: input.notify ?? true,
+    ...(input.object !== undefined ? { object: input.object, contact_id: input.contact_id ?? null } : {}) };
+  // A semântica antiga do recibo permanece intacta. Novas aberturas com objeto
+  // comparam o pedido normalizado sem consultar a definição atual no replay.
+  if (input.object !== undefined) {
+    const normalizedValues = (values: unknown) => values && typeof values === "object" && !Array.isArray(values)
+      ? Object.fromEntries(Object.entries(values).map(([key, value]) => [key, typeof value === "string" ? value.trim() : value])) : values;
+    for (const key of ["item", "problem", "notes", "customer_name"] as const)
+      openingIntent[key] = typeof openingIntent[key] === "string" ? openingIntent[key].trim() : openingIntent[key];
+    openingIntent.extra = normalizedValues(input.extra ?? {});
+    if (input.object?.mode === "new") openingIntent.object = { ...input.object, values: normalizedValues(input.object.values) as ExtraValues };
+    if (typeof input.phone === "string") openingIntent.phone = normalizeCustomerPhone(input.phone.trim(), "human_br") || input.phone.trim();
+  }
+  const openingHash = commercialHash(openingIntent);
   const checkOpeningReplay = async () => {
     const receipt = await one(ctx.env, "SELECT fingerprint FROM receipts WHERE scope=? AND key=?", openingScope, sourceKey);
     if (receipt && receipt.fingerprint !== openingHash) throw new ApiError(409, "idempotency_conflict", "Esta chave já identifica outra abertura.");
@@ -482,12 +527,15 @@ export async function createOrder(ctx: ModuleContext, input: CreateInput) {
   );
   if (existing) {
     await checkOpeningReplay();
+    if (existing.object_id || input.object !== undefined) await reauthorizeObjectOpening(ctx, existing, input);
     await publishOpened(ctx, existing, input);
     return { order: existing, created: false };
   }
   const current = await resolveWorkType(ctx, input.type_id);
   if (current.archived) throw new ApiError(409, "type_archived", "Tipo arquivado para novas aberturas.");
   const type = input.snapshot ? await resolveWorkType(ctx, current.id, input.snapshot) : current;
+  if (!type.object_type_id && input.object !== undefined) throw new ApiError(400, "invalid_fields", "Este modelo não utiliza objeto do serviço.");
+  if (type.object_type_id && !input.object) throw new ApiError(409, "object_required", "Selecione ou cadastre o objeto do serviço.");
   if (input.source === "customer" && !type.features.customer_open) throw new ApiError(409, "feature_disabled", "Abertura pelo cliente desativada.");
   const extra = validateExtra(type.fields, input.extra ?? {}, { mode: input.source === "customer" ? "customer" : "staff" });
   const snapshot = type.kind === "custom" ? JSON.stringify(makeSnapshot(type)) : null;
@@ -505,53 +553,78 @@ export async function createOrder(ctx: ModuleContext, input: CreateInput) {
   if (c && c.profile_id !== ctx.profile) throw notFound();
   const ref = c ? await resolveCustomer(ctx.env, c) : null;
   const namespace = c?.external_namespace.startsWith("app:") ? c.external_namespace : "team";
-  const contactId = ref?.state === "ready" && ref.profileId === ctx.profile && ref.namespace === namespace
+  if (type.object_type_id && (namespace !== "team" || (c && (ref?.state !== "ready" || ref.namespace !== "team"))))
+    throw new ApiError(409, "customer_required", "Confirme o contato do cliente no cadastro compartilhado antes de selecionar o objeto.");
+  let contactId = ref?.state === "ready" && ref.profileId === ctx.profile && ref.namespace === namespace
     ? ref.contactId : null;
+  const id = uid(), at = now();
+  const objectPlan = type.object_type_id ? await prepareObjectOpening(ctx, { input, type, order_id: id, at, contact_id: contactId }) : null;
+  if (objectPlan) {
+    if (!objectPlan.contact_id || (contactId && contactId !== objectPlan.contact_id) ||
+      objectPlan.snapshot.object_id !== objectPlan.object_id || objectPlan.snapshot.type.id !== type.object_type_id ||
+      objectPlan.snapshot.schema_version !== 1 || objectPlan.snapshot.origin !== "opening" ||
+      !Number.isSafeInteger(objectPlan.snapshot.object_version) || objectPlan.snapshot.object_version < 1)
+      throw new ApiError(409, "object_definition_conflict", "O objeto não corresponde ao cliente e ao modelo desta abertura. Atualize a seleção.");
+    if (jsonBytes(objectPlan.snapshot) > 32 * 1024) throw new ApiError(413, "payload_too_large", "A cópia do objeto excede 32 KiB. Reduza os dados antes de abrir a ordem.");
+    contactId = objectPlan.contact_id;
+  }
   const contact = contactId ? await one<{ name: string; phone: string }>(ctx.env,
     "SELECT name,phone FROM contacts WHERE id=? AND profile_id=? AND namespace=? AND identity_state='active'",
     contactId, ctx.profile, namespace) : null;
+  if (objectPlan && !contact) throw new ApiError(404, "not_found", "Cliente não encontrado ou não acessível.");
   const suppliedPhone = text(input.phone, 40, "o telefone");
   const phone = suppliedPhone ? normalizeCustomerPhone(suppliedPhone, "human_br") || ""
     : ref?.verifiedPhone || (namespace.startsWith("app:") ? contact?.phone : null) || (c ? ctx.verifiedPhone(c) : null) || "";
   requireValue(!suppliedPhone || normalizeCustomerPhone(phone, "international"), "Informe um telefone válido com DDD ou com + e o código do país.");
-  requireValue(c || phone, "Informe a conversa ou o telefone do cliente.");
+  requireValue(c || phone || (objectPlan && contact), "Informe a conversa ou o telefone do cliente.");
   const name = text(input.customer_name, 120, "o nome do cliente") || contact?.name || "";
-  const id = uid(), at = now();
-  const commercial = await prepareWorkMutation(ctx, { id, profile_id: ctx.profile, number: null, status: "received",
+  const openingRow: WorkOrderRow = { id, profile_id: ctx.profile, number: 0, status: "received", phone,
     stage: type.initial_stage, type_id: type.id, type_snapshot_json: snapshot, contact_id: contact ? contactId : null,
-    conversation_id: c?.id ?? null, item, created: at, updated: at, quote_items: null, quote_version: 0 }, {}, input.actor, at, "", true);
+    conversation_id: c?.id ?? null, item, created: at, updated: at, quote_items: null, quote_version: 0,
+    row_version: 1, extra_json: JSON.stringify(extra),
+    ...(objectPlan ? { object_id: objectPlan.object_id, object_snapshot_json: JSON.stringify(objectPlan.snapshot) } : {}) };
+  const rules = await prepareOrderRulesMutation(ctx, { row: openingRow, type, sets: {}, actor: input.actor, authority: input.authority, opening: true });
+  if (rules.stage_required) openingRow.stage_required_json = JSON.stringify(rules.stage_required);
+  const index = await planOrderFieldIndex(ctx, { row: openingRow, type, opening: true });
+  const commercial = await prepareWorkMutation(ctx, { ...openingRow, number: null }, {}, input.actor, at, "", true);
+  const extraColumns = [
+    ...(objectPlan ? ["object_id", "object_snapshot_json"] : []),
+    ...(rules.stage_required ? ["stage_required_json"] : []),
+  ];
   // Inicializa o embutido antes de qualquer incremento, inclusive se o
   // primeiro trabalho novo for personalizado. Todos os efeitos são atômicos.
-  let inserted: D1Result;
   try {
-    const results = await batch(ctx.env, [
+    await batch(ctx.env, [
+      ...(objectPlan?.before ?? []),
+      ...(objectPlan ? [[`SELECT CASE WHEN EXISTS(SELECT 1 FROM os_objects o JOIN contacts c ON c.profile_id=o.profile_id AND c.id=o.contact_id
+        WHERE o.profile_id=? AND o.id=? AND o.contact_id=? AND o.type_id=? AND o.type_revision=?
+          AND o.archived=0 AND o.row_version=? AND c.namespace='team' AND c.identity_state='active')
+        THEN 1 ELSE json('os_version_conflict') END`,
+        [ctx.profile, objectPlan.object_id, contactId, type.object_type_id, objectPlan.snapshot.type.revision, objectPlan.snapshot.object_version]]] as import("./public").ChildStatement[] : []),
+      ...rules.before,
       ["INSERT INTO os_type_counters(profile_id,type_id,last) SELECT ?,'service_order',COALESCE((SELECT last FROM os_counters WHERE profile_id=?),0) WHERE true ON CONFLICT(profile_id,type_id) DO NOTHING", [ctx.profile, ctx.profile]],
       ["INSERT INTO os_counters(profile_id,last) SELECT ?,1 WHERE NOT EXISTS(SELECT 1 FROM os_orders WHERE profile_id=? AND source_key=?) ON CONFLICT(profile_id) DO UPDATE SET last=last+1", [ctx.profile, ctx.profile, sourceKey]],
       ["INSERT INTO os_type_counters(profile_id,type_id,last) SELECT ?,?,1 WHERE NOT EXISTS(SELECT 1 FROM os_orders WHERE profile_id=? AND source_key=?) ON CONFLICT(profile_id,type_id) DO UPDATE SET last=last+1", [ctx.profile, type.id, ctx.profile, sourceKey]],
       ["SELECT CASE WHEN (SELECT last FROM os_counters WHERE profile_id=?)<=2147483647 THEN 1 ELSE json('sequence_exhausted') END", [ctx.profile]],
-      ["INSERT INTO os_orders(id,profile_id,number,status,conversation_id,contact_id,customer_name,phone,item,problem,notes,assignee,due_at,source,source_key,terms_text,terms_accepted_at,created_by,created,updated,type_id,stage,type_number,extra_json,type_snapshot_json) SELECT ?,?,(SELECT last FROM os_counters WHERE profile_id=?),'received',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,(SELECT last FROM os_type_counters WHERE profile_id=? AND type_id=?),?,? WHERE NOT EXISTS(SELECT 1 FROM os_orders WHERE profile_id=? AND source_key=?)",
-        [id, ctx.profile, ctx.profile, c?.id || null, contact ? contactId : null, name, phone, item, problem, notes, owner, due, input.source, sourceKey, input.terms || null, input.terms ? at : null, input.actor, at, at, type.id, type.initial_stage, ctx.profile, type.id, JSON.stringify(extra), snapshot, ctx.profile, sourceKey]],
+      [`INSERT INTO os_orders(id,profile_id,number,status,conversation_id,contact_id,customer_name,phone,item,problem,notes,assignee,due_at,source,source_key,terms_text,terms_accepted_at,created_by,created,updated,type_id,stage,type_number,extra_json,type_snapshot_json${extraColumns.map(k => "," + k).join("")}) SELECT ?,?,(SELECT last FROM os_counters WHERE profile_id=?),'received',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,(SELECT last FROM os_type_counters WHERE profile_id=? AND type_id=?),?,?${extraColumns.map(() => ",?").join("")} WHERE NOT EXISTS(SELECT 1 FROM os_orders WHERE profile_id=? AND source_key=?)`,
+        [id, ctx.profile, ctx.profile, c?.id || null, contact ? contactId : null, name, phone, item, problem, notes, owner, due, input.source, sourceKey, input.terms || null, input.terms ? at : null, input.actor, at, at, type.id, type.initial_stage, ctx.profile, type.id, JSON.stringify(extra), snapshot, ...extraColumns.map(k => openingRow[k]), ctx.profile, sourceKey]],
       casGuard,
       ["INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created,from_stage,to_stage,entity_version,mutation_key) SELECT ?,?,?,'opened',NULL,'received',?,?,?,NULL,?,1,? WHERE changes()=1", [uid(), ctx.profile, id, input.actor, "", at, type.kind === "custom" ? type.initial_stage : null, `open:${sourceKey}`]],
       ["UPDATE os_orders SET commercial_json=? WHERE profile_id=? AND id=?", [commercial.sets.commercial_json, ctx.profile, id]], casGuard,
       ...commercial.statements,
+      ...index, ...rules.after, ...(objectPlan?.after ?? []),
       ["INSERT INTO receipts(scope,key,fingerprint,response,status,created) VALUES(?,?,?,?,200,?)", [openingScope, sourceKey, openingHash, JSON.stringify({ id, version: 1 }), at]],
     ]);
-    inserted = results[4];
   } catch (error) {
     const concurrent = await one(ctx.env, "SELECT * FROM os_orders WHERE profile_id=? AND source_key=?", ctx.profile, sourceKey);
-    if (concurrent) { await checkOpeningReplay(); await publishOpened(ctx, concurrent, input); return { order: concurrent, created: false }; }
+    if (concurrent) { await checkOpeningReplay(); if (concurrent.object_id || input.object !== undefined) await reauthorizeObjectOpening(ctx, concurrent, input); await publishOpened(ctx, concurrent, input); return { order: concurrent, created: false }; }
     const counter = await one(ctx.env, "SELECT last FROM os_counters WHERE profile_id=?", ctx.profile);
     if (/sequence_exhausted|last BETWEEN 0 AND 2147483647/i.test(String(error)) || counter?.last >= 2147483647) throw new ApiError(409, "sequence_exhausted", "Sequência de trabalhos esgotada.");
     if (/malformed JSON|os_version_conflict/i.test(String(error))) throw versionConflict();
     throw error;
   }
-  if (!inserted.meta.changes) {
-    const order = await one(ctx.env, "SELECT * FROM os_orders WHERE profile_id=? AND source_key=?", ctx.profile, sourceKey);
-    if (!order) throw new ApiError(409, "os_conflict", "Chave de abertura indisponível.");
-    await publishOpened(ctx, order, input);
-    return { order, created: false };
-  }
+  // O casGuard após INSERT exige uma linha: nenhuma posição fixa do resultado
+  // depende da quantidade de instruções dos adaptadores.
   const order = await loadOrder(ctx, id);
   await publishOpened(ctx, order, input);
   return { order, created: true };
@@ -588,7 +661,7 @@ export async function updateOrder(
   const replay = await replayWorkWrite(ctx, order, mutationKey, intent);
   if (replay) return replay;
   checkVersion(order, data.version, false);
-  for (const key of ["type_id", "stage", "status", "type_snapshot_json", "type_number"]) if (Object.hasOwn(data, key)) throw new ApiError(400, "immutable_field", "Campo imutável: " + key);
+  for (const key of ["type_id", "stage", "status", "type_snapshot_json", "type_number", "object", "object_id", "object_snapshot_json", "stage_required_json", "contact_id"]) if (Object.hasOwn(data, key)) throw new ApiError(400, "immutable_field", "Campo imutável: " + key);
   const closed = CLOSED.includes(order.status);
   const sets: Record<string, any> = {};
   const has = (key: string) => Object.hasOwn(data, key);
@@ -1331,12 +1404,13 @@ export async function trackText(ctx: ModuleContext, c: Conversation, typeId?: st
 
 /** Lista explícita de substituições; extras privados nunca entram no texto. */
 export function publicOrderValues(row: any): Record<string, string> {
+  // A ordem clássica conserva exatamente as substituições anteriores à parte 2.
   const values = orderValues(row);
   const type = snapshotType(row);
   if (!type) return values;
   const view = workOrderAdditions(row, type);
   const extra: ExtraValues = json(row.extra_json, {});
-  return { ...values, tipo: type.labels.singular, etapa: view.stage_label,
+  return { ...values, objeto: publicObjectLabel(row), tipo: type.labels.singular, etapa: view.stage_label,
     numero_tipo: String(view.type_number), identificador: view.display_number,
     ...Object.fromEntries(type.fields.filter(f => f.client_visible && !f.sensitive).map(f => {
       const value = extra[f.id];

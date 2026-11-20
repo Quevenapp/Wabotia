@@ -30,6 +30,130 @@ export type WorkField =
       kind: "choice";
       options: Array<{ id: string; label: string }>;
     });
+export interface ServiceObjectType {
+  schema_version: 1;
+  id: string;
+  revision: number;
+  archived: boolean;
+  labels: { singular: string; plural: string };
+  identifier_field_id: string;
+  fields: WorkField[];
+  retired_field_ids: string[];
+}
+export interface FieldRef {
+  scope: "order" | "object";
+  field_id: string;
+}
+export interface StageFieldRule {
+  field_id: string;
+  required_from_stage?: string;
+  required_on_exit?: string[];
+}
+export interface ListFieldRule {
+  ref: FieldRef;
+  column?: boolean;
+  filter?: boolean;
+}
+export interface Os2WorkTypeAdditions {
+  object_type_id?: string;
+  stage_field_rules?: StageFieldRule[];
+  list_fields?: ListFieldRule[];
+}
+export interface ServiceObjectSnapshot {
+  schema_version: 1;
+  object_id: string;
+  object_version: number;
+  captured_at: number;
+  origin: "opening" | "legacy_link";
+  type: ServiceObjectType;
+  values: ExtraValues;
+}
+/** Definição e valores já filtrados para a audiência; nunca uma linha D1. */
+export interface ServiceObjectSnapshotView {
+  schema_version: 1;
+  object_id: string;
+  object_version: number;
+  captured_at: number;
+  origin: "opening" | "legacy_link";
+  type: Pick<ServiceObjectType, "schema_version" | "id" | "revision" | "labels" | "fields"> & { identifier_field_id?: string };
+  values: ExtraValues;
+  identifier: string;
+}
+export interface ServiceObject {
+  id: string;
+  profile_id: string;
+  contact_id: string;
+  type_id: string;
+  type_revision: number;
+  type: ServiceObjectType;
+  values: ExtraValues;
+  archived: boolean;
+  version: number;
+  identifier: string;
+  created_by: string;
+  updated_by: string;
+  created: number;
+  updated: number;
+}
+export interface ServiceObjectView {
+  id: string;
+  contact_id?: string;
+  type_id: string;
+  type_revision: number;
+  type: ServiceObjectSnapshotView["type"];
+  values: ExtraValues;
+  archived: boolean;
+  version: number;
+  identifier: string;
+  created: number;
+  updated: number;
+  latest_completed?: { id: string; number: number; delivered_at: number | null } | null;
+}
+export type ObjectOpeningRequest =
+  | { mode: "existing"; id: string; version: number }
+  | { mode: "new"; type_id: string; values: ExtraValues };
+export interface CreateServiceObjectRequest {
+  contact_id: string;
+  type_id: string;
+  values: ExtraValues;
+}
+export interface UpdateServiceObjectRequest {
+  version: number;
+  values?: ExtraValues;
+  /** Adoção explícita da revisão atual, com validação dos valores resultantes. */
+  adopt_revision?: number;
+}
+export interface ArchiveServiceObjectRequest { version: number; archived: boolean }
+export interface LegacyObjectLinkRequest { version: number; object: ObjectOpeningRequest }
+export interface ObjectTypeCatalog { data: ServiceObjectType[]; settings_revision: string }
+export interface ObjectQuery extends PageQuery {
+  contact_id: string;
+  type_id?: string;
+  include_archived?: "1" | "0";
+}
+export interface ObjectPrivateFields { id: string; version: number; fields: WorkField[]; values: ExtraValues }
+export interface ObjectPrivateFieldsRequest { version: number; values: ExtraValues }
+export interface OrderRequirements {
+  id: string;
+  version: number;
+  transition_id?: string;
+  required: Array<{ field_id: string; label: string }>;
+  missing: Array<{ field_id: string; label: string }>;
+  internal_missing: boolean;
+}
+export type OrderFieldFilter =
+  | { ref: FieldRef; operator: "eq"; value: Exclude<FieldValue, null> }
+  | { ref: FieldRef; operator: "range"; from: string | number; to: string | number };
+export interface FieldIndexState {
+  type_id: string;
+  generation: string;
+  status: "building" | "ready";
+  cursor_number: number;
+  ceiling_number: number;
+  excluded_count: number;
+  updated: number;
+}
+export interface FieldIndexRebuildRequest { generation?: string; cursor_number?: number }
 export interface WorkStage {
   id: string;
   label: string;
@@ -76,7 +200,7 @@ export interface WorkLabels {
   customer_singular: string;
   customer_plural: string;
 }
-export interface CustomWorkType {
+export interface CustomWorkType extends Os2WorkTypeAdditions {
   schema_version: 1;
   kind: "custom";
   id: string;
@@ -118,8 +242,12 @@ export interface OsVocabulary {
 }
 export interface WorkTypeSettings {
   os_work_types?: CustomWorkType[];
+  os_object_types?: ServiceObjectType[];
+  os2_ai_access?: Os2AiAccess;
   os_vocabulary?: OsVocabulary;
 }
+/** Concessão administrativa explícita; todas as opções começam desligadas. */
+export interface Os2AiAccess { enabled: boolean; internal: boolean; sensitive: boolean }
 export interface PendingStageApproval {
   version: number;
   transition_id: string;
@@ -132,6 +260,7 @@ export interface PendingStageApproval {
   decided_by: string | null;
 }
 export interface WorkOrderAdditions {
+  object?: ServiceObjectSnapshotView;
   type_id: string;
   type_revision: number;
   type_number: number;
@@ -250,11 +379,19 @@ export interface OrderList extends Page<Order> {
   counts: Partial<Record<BaseStatus, number>>;
   facets?: { types: Record<string, number>; stages?: Record<string, number> };
 }
+/** Opt-in: somente consultas com field_filter recebem contagem não calculada. */
+export interface FieldFilteredOrderList extends Page<Order> {
+  counts: null;
+  counts_scope: "not_computed";
+  order_by: "number_desc" | "field_value_asc";
+}
 export interface WorkTypeCatalog {
   data: WorkTypeView[];
   settings_revision: string;
 }
 export interface CreateOrderRequest {
+  contact_id?: string;
+  object?: ObjectOpeningRequest;
   conversation_id?: string | null;
   customer_name?: string;
   phone?: string;
@@ -430,6 +567,8 @@ export interface EntryQuery extends PageQuery {
 }
 /** Query HTTP: flags 1/0 e filtros de estado separados por vírgulas. */
 export interface OrderQuery {
+  /** JSON de OrderFieldFilter, validado pelo servidor. */
+  field_filter?: string;
   assignee?: string;
   due_from?: string;
   due_to?: string;
@@ -501,6 +640,7 @@ export interface AreaTemplate {
   name: string;
   description: string;
   work_types: CustomWorkType[];
+  object_types?: ServiceObjectType[];
   modules: Partial<Record<AreaModuleId, boolean>>;
   vocabulary: OsVocabulary;
   departments: Array<{ id: string; name: string; members: []; enabled: true }>;

@@ -2,14 +2,15 @@ import type { AdminExtension } from "../modules/api";
 import { ApiError } from "../types";
 import { applyAreaTemplate, exportAreaTemplate, previewAreaTemplate } from "./engine";
 import { validateAreaTemplate } from "./validation";
-import { areaTemplates } from "./catalog";
+import { areaTemplates as sharedAreaTemplates } from "./catalog";
 
 export { applyAreaTemplate, exportAreaTemplate, previewAreaTemplate } from "./engine";
 export { validateAreaTemplate, validateAreaSetup } from "./validation";
 export type { AreaTemplate, AreaTemplateSelection } from "./validation";
 export type { AreaTemplatePreview, AreaTemplateApplyResult } from "../modules/os/contracts";
 
-export { areaTemplates } from "./catalog";
+// Servidor e demonstração usam o mesmo catálogo (Engenharia 3 e Festas e eventos).
+export const areaTemplates: typeof sharedAreaTemplates = sharedAreaTemplates;
 
 /** Somente I registra este descritor em runtime.ts. Importar não publica rotas. */
 // A fábrica evita ler uma constante ainda em inicialização no ciclo

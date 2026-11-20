@@ -180,6 +180,9 @@ export function searchCatalog(
   return scored.slice(0, options.limit ?? 10).map((s) => s.op);
 }
 
+const compactParams = (op: CatalogOperation) =>
+  ({ type: "object", description: "Esquema grande: informe só os campos citados no resumo.", required: op.params.required });
+
 /** Visão de uma operação para o modelo (sem o que não ajuda a chamar). */
 export function operationView(op: CatalogOperation) {
   const params = JSON.stringify(op.params);
@@ -189,9 +192,21 @@ export function operationView(op: CatalogOperation) {
     modulo: op.module,
     resumo: op.summary,
     ...(op.sensitive ? { exige_segundo_fator: true } : {}),
-    parametros:
-      params.length <= 2500
-        ? op.params
-        : { type: "object", description: "Esquema grande: informe só os campos citados no resumo.", required: op.params.required },
+    parametros: params.length <= 2500 ? op.params : compactParams(op),
   };
+}
+
+/** Visões que cabem juntas em `budget` caracteres: compacta primeiro os
+ * esquemas maiores, para a resposta nunca sair cortada (JSON inválido). */
+export function operationViews(ops: CatalogOperation[], budget: number) {
+  const views = ops.map(operationView);
+  const size = () => JSON.stringify(views).length;
+  const largest = views
+    .map((view, i) => ({ i, length: JSON.stringify(view.parametros).length }))
+    .sort((a, b) => b.length - a.length);
+  for (const { i } of largest) {
+    if (size() <= budget) break;
+    views[i] = { ...views[i], parametros: compactParams(ops[i]) };
+  }
+  return views;
 }

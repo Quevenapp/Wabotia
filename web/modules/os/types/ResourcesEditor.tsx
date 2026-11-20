@@ -1,18 +1,37 @@
 import React from "react";
 import { Field } from "../../../ui";
-import type { CustomWorkType } from "../work-contracts";
+import type { CustomWorkType, Os2AiAccess } from "../work-contracts";
+import "../object-types/object-types.css";
 export function ResourcesEditor({
   type,
   onChange,
+  aiAccess,
+  onAiAccessChange,
 }: {
   type: CustomWorkType;
   onChange: (type: CustomWorkType) => void;
+  aiAccess?: Os2AiAccess;
+  onAiAccessChange?: (value: Os2AiAccess) => void;
 }) {
   const update = (features: Partial<CustomWorkType["features"]>) =>
     onChange({ ...type, features: { ...type.features, ...features } });
   const quote = type.features.quote;
+  const access = aiAccess ?? { enabled: false, internal: false, sensitive: false };
   return (
     <>
+      {onAiAccessChange && <fieldset className="os2-ai-access">
+        <legend>Acesso da IA aos objetos — configuração da área</legend>
+        <p>Estas permissões valem para todos os modelos desta área. Começam desligadas; o administrador define o acesso, validado pelo servidor.</p>
+        <label className="os2-config-check"><input type="checkbox" checked={access.enabled}
+          onChange={(event) => onAiAccessChange(event.target.checked
+            ? { ...access, enabled: true }
+            : { enabled: false, internal: false, sensitive: false })} />Permitir acesso da IA aos dados dos objetos</label>
+        <label className="os2-config-check"><input type="checkbox" checked={access.internal} disabled={!access.enabled}
+          onChange={(event) => onAiAccessChange({ ...access, internal: event.target.checked })} />Incluir campos internos</label>
+        <label className="os2-config-check"><input type="checkbox" checked={access.sensitive} disabled={!access.enabled}
+          onChange={(event) => onAiAccessChange({ ...access, sensitive: event.target.checked })} />Incluir campos sensíveis</label>
+        <p>O acesso externo, inclusive pelo WhatsApp, continua limitado aos dados autorizados do próprio cliente. Identificadores de objetos não comprovam propriedade. Desligar o acesso também desliga a inclusão de campos internos e sensíveis.</p>
+      </fieldset>}
       {(
         [
           ["customer_open", "Abertura pelo cliente"],

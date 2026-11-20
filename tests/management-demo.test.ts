@@ -19,9 +19,10 @@ it("o status real da demonstração libera os módulos nativos da casa", async (
 it("demonstra lista única, modelo de oficina, filtros e exemplos para Configurar", async () => {
   const root = "v1/profiles/demo";
   const catalog = await demoApi(root + "/service-orders/types");
-  expect(catalog.data.map((type: { id: string }) => type.id)).toEqual(["service_order", "area_oficina_mecanica__at_veiculos"]);
+  // Parte 2: a demonstração acrescenta Evento (com objeto) e consultoria (sem objeto).
+  expect(catalog.data.map((type: { id: string }) => type.id)).toEqual(["service_order", "area_oficina_mecanica__at_veiculos", "demo_festas_eventos", "demo_consultoria"]);
   const all = await demoApi(root + "/service-orders");
-  expect(new Set(all.data.map((order: { type_id: string }) => order.type_id)).size).toBe(2);
+  expect(new Set(all.data.map((order: { type_id: string }) => order.type_id)).size).toBe(4);
   for (const type of catalog.data) {
     const filtered = await demoApi(root + "/service-orders?type_id=" + type.id);
     expect(filtered.data.length).toBeGreaterThan(0);
@@ -33,9 +34,13 @@ it("demonstra lista única, modelo de oficina, filtros e exemplos para Configura
   const active = await demoApi(root + "/service-orders?type_ids=service_order");
   expect(active.data.every((order: { type_id: string }) => order.type_id === "service_order")).toBe(true);
   const status = await demoApi(root + "/status");
-  expect(status.settings.os_work_types).toHaveLength(1);
+  expect(status.settings.os_work_types).toHaveLength(3);
   const examples = await demoApi(root + "/area-templates");
   expect(examples.data.length).toBeGreaterThan(1);
+  expect(examples.data).toContainEqual(expect.objectContaining({ id: "festas_eventos", version: 1 }));
   const example = await demoApi(root + "/area-templates/oficina_mecanica");
-  expect(example.work_types[0].fields.map((field: { id: string }) => field.id)).toEqual(expect.arrayContaining(["placa", "marca_modelo", "ano", "cor", "ultima_manutencao"]));
+  // Placa, marca/modelo, ano e cor passaram ao objeto Veículo; a visita guarda o resto.
+  expect(example.work_types[0].object_type_id).toBe("veiculo");
+  expect(example.object_types[0].fields.map((field: { id: string }) => field.id)).toEqual(expect.arrayContaining(["placa", "marca_modelo", "ano", "cor"]));
+  expect(example.work_types[0].fields.map((field: { id: string }) => field.id)).toEqual(expect.arrayContaining(["ultima_manutencao", "quilometragem", "combustivel"]));
 });

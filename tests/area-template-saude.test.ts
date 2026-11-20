@@ -110,7 +110,8 @@ describe("modelos de saúde: contrato declarativo", () => {
     describe(template.name, () => {
       it("respeita limites de manifesto, referências e IDs em cada escopo", () => {
         expect(template.schema_version).toBe(1);
-        expect(template.version).toBe(1);
+        // A veterinária foi publicada de novo na parte 2 (objeto Animal).
+        expect(template.version).toBe(template.id === "clinica_veterinaria" ? 2 : 1);
         expect(jsonBytes(template)).toBeLessThanOrEqual(128 * 1024);
         expect(template.work_types.length).toBeLessThanOrEqual(20);
         expect(JSON.stringify(template).length).toBeLessThanOrEqual(150_000);
@@ -146,14 +147,21 @@ describe("modelos de saúde: contrato declarativo", () => {
 
       it("proíbe orientação clínica e deixa explícito que o bloqueio de IA é manual", () => {
         expect(template.bot.instructions).toContain("Não forneça orientação clínica");
-        expect(template.bot.instructions).toContain("IA generativa desligada");
         expect(template.bot.instructions).toContain("Não registre dados clínicos");
         expect(template.bot.allowed_operations).toEqual([]);
         expect(template.bot.suggested_roles).toEqual([]);
         expect(template.bot.denied_operations).toContain("os.private");
-        expect(template.manual_steps.some((step) =>
-          step.includes("não configura nem garante esse bloqueio técnico"),
-        )).toBe(true);
+        if (template.id === "clinica_veterinaria") {
+          // Parte 2 (regra do dono): IA desligada por padrão e delimitada pela
+          // configuração do administrador; o manifesto não ativa IA nem concede papéis.
+          expect(template.bot.instructions).toContain("A IA começa desligada");
+          expect(template.manual_steps.some((step) => step.includes("o manifesto não ativa IA nem concede papéis"))).toBe(true);
+        } else {
+          expect(template.bot.instructions).toContain("IA generativa desligada");
+          expect(template.manual_steps.some((step) =>
+            step.includes("não configura nem garante esse bloqueio técnico"),
+          )).toBe(true);
+        }
         expect(template.manual_steps.some((step) => step.includes("os:sensitive"))).toBe(true);
       });
 

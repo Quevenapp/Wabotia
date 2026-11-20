@@ -45,6 +45,23 @@ const component = (tree: any, type: any) => elements(tree).find((node) => node.t
 const button = (tree: any, label: string) => elements(tree).find((node) => node.type === Button && text(node) === label);
 const field = (tree: any, label: string) => elements(tree).find((node) => node.type === Field && node.props.label === label);
 const standard = () => structuredClone(assistenciaTecnicaTemplate.work_types.find((type) => type.id === "at_veiculos")!);
+// Padrão anterior à parte 2 (sem objeto): placa, marca/modelo, ano e cor ainda na ordem.
+// Com objeto, a revisão do padrão é coberta por tests/os2-configuracao.test.ts.
+const legacyStandard = () => {
+  const type = standard();
+  const vehicle = assistenciaTecnicaTemplate.object_types!.find((object) => object.id === type.object_type_id)!;
+  const moved = vehicle.fields.filter((field) => ["placa", "marca_modelo", "ano", "cor"].includes(field.id));
+  type.fields = [...structuredClone(moved), ...type.fields];
+  type.retired_field_ids = type.retired_field_ids.filter((id) => !moved.some((field) => field.id === id));
+  delete type.object_type_id; delete type.stage_field_rules; delete type.list_fields;
+  return type;
+};
+const legacyTemplate = (type: ReturnType<typeof standard>) => {
+  const template = structuredClone(assistenciaTecnicaTemplate);
+  template.work_types = [type];
+  delete template.object_types;
+  return template;
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -107,18 +124,20 @@ describe("Configurar ordens de serviço", () => {
     expect(text(tree)).toContain("Assistência técnica");
     expect(button(tree, "Serviços de oficina")).toBeDefined();
     button(tree, "Serviços de oficina").props.onClick();
-    expect(onChoose).toHaveBeenCalledWith(expect.objectContaining({ id: "at_veiculos" }));
+    // Parte 2: o exemplo leva junto os tipos de objeto do modelo de área (Veículo).
+    expect(onChoose).toHaveBeenCalledWith(expect.objectContaining({ id: "at_veiculos" }), expect.arrayContaining([expect.objectContaining({ id: "veiculo" })]));
     field(tree, "Buscar exemplos").props.onChange("inexistente");
     expect(text(render(owner, draw))).toContain("Nenhum exemplo encontrado.");
   });
 
   it("adiciona só os campos novos do padrão e conserva placa sensível e revisão", async () => {
-    const source = standard();
+    const source = legacyStandard();
+    runtime.templates = [legacyTemplate(source)];
     const old = { ...source, id: "area_assistencia_tecnica__at_veiculos", revision: 3,
       fields: source.fields.filter((field) => !["marca_modelo", "ano", "cor", "ultima_manutencao"].includes(field.id)).map((field) => field.id === "placa" ? { ...field, sensitive: true, client_visible: false } : field) };
     runtime.settings.settings.os_work_types = [old];
     const tree = render(instance(), WorkTypesPage);
-    expect(text(tree)).toContain("O modelo padrão ganhou campos: Marca e modelo, Ano, Cor, Última manutenção.");
+    expect(text(tree)).toContain("O modelo padrão ganhou campos: Marca e modelo, Ano, Cor, Última manutenção informada pelo cliente.");
     expect(text(tree)).toContain("As ordens abertas guardam a definição com que nasceram.");
     await button(tree, "Adicionar").props.onClick();
     const [saved] = runtime.saveTypes.mock.calls[0][0];
@@ -143,9 +162,9 @@ describe("Configurar ordens de serviço", () => {
   });
 
   it("não oferece expor placa quando o padrão de origem também a mantém sensível", () => {
-    const type = standard();
+    const type = legacyStandard();
     type.fields = type.fields.map((field) => field.id === "placa" ? { ...field, sensitive: true, client_visible: false } : field);
-    runtime.templates = [{ ...assistenciaTecnicaTemplate, work_types: [type] }];
+    runtime.templates = [legacyTemplate(type)];
     runtime.settings.settings.os_work_types = [{ ...type, id: "area_assistencia_tecnica__at_veiculos" }];
     const tree = render(instance(), WorkTypesPage);
     expect(button(tree, "Criar nova Placa visível")).toBeUndefined();

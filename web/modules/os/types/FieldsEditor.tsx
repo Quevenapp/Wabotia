@@ -7,11 +7,23 @@ export function FieldsEditor({
   onChange,
   locked = [],
   retired = [],
+  sensitiveLocked = [],
+  sensitiveDisabled = [],
+  requiredLabel = "Obrigatório na abertura",
+  location,
+  limit = 24,
+  renderField,
 }: {
   fields: WorkFieldDraft[];
   onChange: (fields: WorkField[]) => void;
   locked?: string[];
   retired?: string[];
+  sensitiveLocked?: string[];
+  sensitiveDisabled?: string[];
+  requiredLabel?: string;
+  location?: string;
+  limit?: number;
+  renderField?: (field: WorkFieldDraft, index: number) => React.ReactNode;
 }) {
   const update = (index: number, field: WorkFieldDraft) =>
     onChange(fields.map((old, i) => (i === index ? field : old)));
@@ -19,7 +31,7 @@ export function FieldsEditor({
     <>
       {fields.map((field, index) => (
         <fieldset key={index}>
-          <legend>Campo {index + 1}</legend>
+          <legend>Campo {index + 1}{location ? ` · ${location}` : ""}</legend>
           <details>
             <summary>Avançado</summary>
             <Field
@@ -51,6 +63,7 @@ export function FieldsEditor({
           <Field
             label="Formato"
             value={field.kind}
+            disabled={locked.includes(field.id)}
             emptyOption={null}
             options={[
               ["text", "Texto"],
@@ -77,17 +90,23 @@ export function FieldsEditor({
               <input
                 type="checkbox"
                 checked={field[key]}
+                disabled={key === "sensitive"
+                  ? sensitiveLocked.includes(field.id) || sensitiveDisabled.includes(field.id)
+                  : field.sensitive}
                 onChange={(event) =>
-                  update(index, { ...field, [key]: event.target.checked })
+                  update(index, key === "sensitive" && event.target.checked
+                    ? { ...field, sensitive: true, required: false, client_visible: false }
+                    : { ...field, [key]: event.target.checked })
                 }
               />
               {key === "required"
-                ? "Obrigatório"
+                ? requiredLabel
                 : key === "client_visible"
                   ? "Visível ao cliente"
                   : "Sensível"}
             </label>
           ))}
+          {field.sensitive && <p className="os2-field-help">Campo sensível: não pode ser obrigatório, coluna ou filtro. A classificação de um ID salvo não pode ser retirada.</p>}
           {field.kind === "text" && (
             <>
               <label className="os-work-check">
@@ -181,6 +200,7 @@ export function FieldsEditor({
               />
             </>
           )}
+          {renderField?.(field, index)}
           <div className="card-actions">
             <Button
               secondary
@@ -215,11 +235,13 @@ export function FieldsEditor({
       ))}
       <Button
         secondary
-        disabled={fields.length >= 24}
+        disabled={fields.length >= limit}
         onClick={() => onChange([...fields, newField()])}
       >
         Adicionar campo
       </Button>
+      <p className="os2-field-help">{fields.length} de {limit} campos disponíveis nesta localização. Mudar o significado ou formato exige outro identificador; rótulo e ajuda podem ser ajustados.</p>
+      {retired.length > 0 && <p className="os2-field-help">IDs aposentados (não podem ser reutilizados): {retired.join(", ")}.</p>}
     </>
   );
 }

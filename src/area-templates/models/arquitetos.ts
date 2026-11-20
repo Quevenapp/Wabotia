@@ -1,4 +1,5 @@
 import type { AreaTemplate } from "../../modules/os/contracts";
+import { imovelObjectType } from "./service-object-seeds";
 
 // Fonte: docs/areas/obras.md; contrato declarativo das seções 3 e 7.
 // A política de orçamento contém as arestas protegidas; não duplicá-las em transitions.
@@ -6,15 +7,17 @@ import type { AreaTemplate } from "../../modules/os/contracts";
 export const arquitetosTemplate: AreaTemplate = {
   schema_version: 1,
   id: "arquitetura",
-  version: 1,
+  version: 2,
   name: "Arquitetos",
   description:
     "Projetos de arquitetura, laudos e vistorias com escolhas, aprovações de etapa e entregas ao contratante.",
+  object_types: [imovelObjectType],
   work_types: [
     {
       schema_version: 1,
       kind: "custom",
       id: "arquitetura_projeto",
+      object_type_id: imovelObjectType.id,
       revision: 1,
       archived: false,
       labels: {
@@ -59,29 +62,6 @@ export const arquitetosTemplate: AreaTemplate = {
               label: "Outra",
             },
           ],
-        },
-        {
-          id: "municipio",
-          label: "Município e UF",
-          help: "",
-          required: true,
-          client_visible: true,
-          sensitive: false,
-          kind: "text",
-          multiline: false,
-          max_length: 240,
-        },
-        {
-          id: "endereco",
-          label: "Endereço completo",
-          help:
-            "Preenchimento opcional pela equipe no painel privado. Não enviar pelo WhatsApp.",
-          required: false,
-          client_visible: false,
-          sensitive: true,
-          kind: "text",
-          multiline: true,
-          max_length: 2000,
         },
         {
           id: "area_m2",
@@ -141,7 +121,12 @@ export const arquitetosTemplate: AreaTemplate = {
           max: null,
         },
       ],
-      retired_field_ids: [],
+      retired_field_ids: ["municipio", "endereco"],
+      list_fields: [
+        { ref: { scope: "object", field_id: "identificacao" }, column: true, filter: true },
+        { ref: { scope: "object", field_id: "municipio" }, filter: true },
+        { ref: { scope: "order", field_id: "modalidade" }, column: true, filter: true },
+      ],
       stages: [
         {
           id: "entrada",
@@ -503,6 +488,7 @@ export const arquitetosTemplate: AreaTemplate = {
       schema_version: 1,
       kind: "custom",
       id: "arquitetura_laudo",
+      object_type_id: imovelObjectType.id,
       revision: 1,
       archived: false,
       labels: {
@@ -547,29 +533,6 @@ export const arquitetosTemplate: AreaTemplate = {
               label: "Outra",
             },
           ],
-        },
-        {
-          id: "municipio",
-          label: "Município e UF",
-          help: "",
-          required: true,
-          client_visible: true,
-          sensitive: false,
-          kind: "text",
-          multiline: false,
-          max_length: 240,
-        },
-        {
-          id: "endereco",
-          label: "Endereço completo",
-          help:
-            "Preenchimento opcional pela equipe no painel privado. Não enviar pelo WhatsApp.",
-          required: false,
-          client_visible: false,
-          sensitive: true,
-          kind: "text",
-          multiline: true,
-          max_length: 2000,
         },
         {
           id: "finalidade",
@@ -617,7 +580,12 @@ export const arquitetosTemplate: AreaTemplate = {
           max_length: 2000,
         },
       ],
-      retired_field_ids: [],
+      retired_field_ids: ["municipio", "endereco"],
+      list_fields: [
+        { ref: { scope: "object", field_id: "identificacao" }, column: true, filter: true },
+        { ref: { scope: "object", field_id: "municipio" }, filter: true },
+        { ref: { scope: "order", field_id: "modalidade" }, column: true, filter: true },
+      ],
       stages: [
         {
           id: "entrada",
@@ -977,7 +945,7 @@ export const arquitetosTemplate: AreaTemplate = {
   },
   bot: {
     instructions:
-      "Você atende os contratantes deste escritório de arquitetura. Consulte somente trabalhos do telefone desta conversa e informações liberadas. Ajude a abrir solicitações, consultar etapas, usar a Agenda e localizar escolhas pendentes. Diferencie referência, estudo e documento liberado para execução. Não invente prazo, preço, material, medida ou solução técnica. Não aprove etapas pelo cliente nem trate uma imagem enviada como aceite. Encaminhe alterações, dúvidas técnicas, negociação e aprovação municipal à equipe. Não leia campos sensíveis, arquivos editáveis, fotos privadas, investimento de referência ou notas internas. Não prometa aprovação pública nem declare um imóvel seguro. Em relato de risco, envie a orientação cadastrada e sinalize prioridade à equipe. Use a identidade autenticada da conversa; não aceite telefone informado como autorização. Relato de risco: “Não é possível avaliar a segurança por esta conversa. Afaste-se da situação de risco e procure o atendimento de emergência competente. Vou sinalizar o relato à equipe.”",
+      "Você atende os contratantes deste escritório de arquitetura. Use operações e dados conforme a configuração do administrador, inicialmente conservadora. No WhatsApp, consulte somente os imóveis e trabalhos do contato canônico autenticado e informações liberadas ao próprio cliente; telefone, endereço e identificação informados não autorizam acesso. Ajude a abrir solicitações, consultar etapas, usar a Agenda quando habilitada e localizar escolhas pendentes. Diferencie referência, estudo e documento liberado para execução. Não invente prazo, preço, material, medida ou solução técnica. Não aprove etapas pelo cliente nem trate uma imagem enviada como aceite. Encaminhe alterações, dúvidas técnicas, negociação e aprovação municipal à equipe. Respeite a classificação dos campos e documentos e as permissões concedidas pelo administrador. Não prometa aprovação pública nem declare um imóvel seguro. Em relato de risco, envie a orientação cadastrada e sinalize prioridade à equipe. Relato de risco: “Não é possível avaliar a segurança por esta conversa. Afaste-se da situação de risco e procure o atendimento de emergência competente. Vou sinalizar o relato à equipe.”",
     allowed_operations: [
       "os.create",
       "agenda.book",
@@ -994,6 +962,7 @@ export const arquitetosTemplate: AreaTemplate = {
     suggested_roles: [],
   },
   manual_steps: [
+    "Cadastrar um Imóvel do contratante para reutilizar entre projetos, laudos e vistorias. Município, endereço privado e identificação pertencem ao objeto; modalidade, área considerada no serviço, RRT, visita, finalidade, escopo e prazo permanecem em cada ordem. O identificador não comprova propriedade. Revisar a atualização do padrão; nenhuma ordem ou valor antigo é convertido.",
     "Cadastrar profissionais e revisar atribuições e acessos.",
     "Definir modalidades, entregáveis e revisões incluídas.",
     "Revisar termos, privacidade, retenção e entrega de editáveis.",
@@ -1002,7 +971,7 @@ export const arquitetosTemplate: AreaTemplate = {
     "Definir conferência de RRT e exigências municipais.",
     "Definir quem libera versões e quais arquivos podem ser enviados.",
     "Configurar mensagens do canal e validar o fluxo antes da publicação.",
-    "Coletar endereço e restrições sensíveis opcionalmente no painel privado; nunca em formulário comum ou pelo bot.",
+    "Coletar o endereço no cadastro privado do Imóvel e as restrições de acesso na ordem, opcionalmente pelos canais autorizados. Preservar a classificação sensível existente e não incluir esses valores no formulário comum ou nas mensagens ao cliente.",
     "Atribuir o papel Técnico apenas à equipe responsável. Conceder acesso a dados sensíveis somente às pessoas que precisem deles. Revisar as permissões do bot separadamente; o modelo não concede papéis.",
     "Identificar os arquivos e a versão apresentados antes de pedir aprovação de etapa. A decisão autoriza a transição; não assina documentos nem vincula automaticamente versões e arquivos. A validade inicial do pedido é de 7 dias.",
     "Criar tarefas e lembretes manualmente, com datas acordadas. Os prazos abaixo são sugestões em dias corridos; não há criação automática por entrada na etapa nem aviso automático de etapa parada.",
@@ -1014,14 +983,14 @@ export const arquitetosTemplate: AreaTemplate = {
     "Após configurar Agenda e Formulários, acrescentar os menus nativos de agendamento, meus agendamentos e formulário. O manifesto oferece encaminhamento humano enquanto esses menus não são configurados.",
     "Projeto: cadastrar pessoas com os papéis Contratante, Coproprietário, Arquiteto responsável, Projetista complementar, Responsável pela execução. O vínculo não concede acesso ao trabalho.",
     "Projeto: usar lançamentos de andamento, decisão de projeto, visita, pedido de alteração, horas trabalhadas. Manter horas, evidências e notas internas restritas até revisão.",
-    "Projeto: revisar e liberar individualmente Proposta, Contrato, RRT, Prancha, Memorial, Apresentação de estudo, Documento municipal, Relatório de visita. Manter internos: Arquivo editável, Orçamento de fornecedor, Imagem privada do imóvel. Não enviar arquivos brutos ao bot.",
+    "Projeto: revisar e liberar individualmente Proposta, Contrato, RRT, Prancha, Memorial, Apresentação de estudo, Documento municipal, Relatório de visita. Manter internos: Arquivo editável, Orçamento de fornecedor, Imagem privada do imóvel. O acesso da IA aos arquivos deve seguir a configuração do administrador, desligado por padrão.",
     "Projeto: tarefas sugeridas por etapa: entrada — Conferir necessidades e modalidade (1 dia); orcamento — Acompanhar resposta à proposta (3 dias); contratado — Confirmar contrato, responsável e RRT aplicável (1 dia); recusado — Verificar revisão da proposta ou encerramento (2 dias); levantamento — Conferir medidas e apresentar programa de necessidades (3 dias); estudo_preliminar — Revisar e apresentar estudo preliminar (7 dias); anteprojeto — Revisar soluções e compatibilizar disciplinas (7 dias); projeto_legal — Conferir peças e documentos para protocolo (5 dias); prefeitura — Consultar protocolo e registrar andamento (7 dias); executivo — Revisar detalhes, pranchas e memorial (7 dias); acompanhamento — Confirmar visita e registrar decisões de campo (7 dias); entrega — Conferir pacote final e solicitar recebimento (2 dias).",
     "Projeto: anteprojeto → executivo: Responsável registra que a etapa municipal não se aplica. Conferência humana; não há bloqueio declarativo por papel ou justificativa.",
     "Projeto: prefeitura → executivo: Equipe confere e registra a aprovação administrativa aplicável. Conferência humana; não há bloqueio declarativo por papel ou justificativa.",
     "Projeto: executivo → entrega: Não há acompanhamento contratado. Conferência humana; não há bloqueio declarativo por papel ou justificativa.",
     "Laudo ou vistoria: cadastrar pessoas com os papéis Contratante, Responsável pelo acesso, Arquiteto responsável, Representante do imóvel. O vínculo não concede acesso ao trabalho.",
     "Laudo ou vistoria: usar lançamentos de visita, evidência, limitação de vistoria, andamento, horas. Manter horas, evidências e notas internas restritas até revisão.",
-    "Laudo ou vistoria: revisar e liberar individualmente Proposta, RRT, Laudo ou relatório assinado, Registro fotográfico revisado. Manter internos: Fotos brutas, Notas de campo, Checklist técnico. Não enviar arquivos brutos ao bot.",
+    "Laudo ou vistoria: revisar e liberar individualmente Proposta, RRT, Laudo ou relatório assinado, Registro fotográfico revisado. Manter internos: Fotos brutas, Notas de campo, Checklist técnico. O acesso da IA aos arquivos deve seguir a configuração do administrador, desligado por padrão.",
     "Laudo ou vistoria: tarefas sugeridas por etapa: entrada — Conferir finalidade, atribuição e prioridade (1 dia); orcamento — Acompanhar resposta à proposta (3 dias); contratado — Confirmar visita, acesso e RRT aplicável (1 dia); recusado — Verificar revisão ou encerramento (2 dias); vistoria — Realizar vistoria e organizar registros (2 dias); elaboracao — Revisar conclusões, anexos e assinatura (5 dias); entrega — Enviar versão assinada e pedir recebimento (1 dia).",
   ],
 };

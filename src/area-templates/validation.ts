@@ -1,6 +1,7 @@
 import { ApiError } from "../types";
 import { moduleById, modules as registeredModules } from "../modules/registry";
 import { OS_STATUSES, QUOTABLE } from "../modules/os/model";
+import { validateField, validateObjectTypes, validateWorkType, validateWorkTypeChanges } from "../modules/os/validation";
 import type { AreaTemplate as WorkAreaTemplate, AreaTemplateSelection as WorkAreaTemplateSelection, AreaSetup, CustomWorkType } from "../modules/os/contracts";
 
 // O contrato compartilhado ainda enumera apenas os módulos anteriores à fase 2.
@@ -62,17 +63,9 @@ const ids = (value: unknown, max: number, path: string, length = 32) => {
 const statuses: readonly string[] = OS_STATUSES;
 const quotable: readonly string[] = QUOTABLE;
 const terminal = (status: string) => status === "delivered" || status === "cancelled";
-function date(value: unknown, path: string): string | null {
-  if (value === null) return null;
-  invalid(typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value), path);
-  const parsed = new Date(`${value}T00:00:00Z`);
-  invalid(Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value, path);
-  return value;
-}
-
 /** Validação do manifesto isolado; revisões contra a área passam também pelo planejador de M/F0. */
 export function validateTemplateWorkType(value: unknown, path = "work_type"): CustomWorkType {
-  const v = object(value, ["schema_version", "kind", "id", "revision", "archived", "labels", "number_prefix", "terms", "fields", "retired_field_ids", "stages", "retired_stage_ids", "initial_stage", "transitions", "features", "pickup_reminder_text"], path);
+  const v = object(value, ["schema_version", "kind", "id", "revision", "archived", "labels", "number_prefix", "terms", "fields", "retired_field_ids", "stages", "retired_stage_ids", "initial_stage", "transitions", "features", "pickup_reminder_text", "object_type_id", "stage_field_rules", "list_fields"], path);
   invalid(v.schema_version === 1 && v.kind === "custom", path);
   v.id = identifier(v.id, 64, `${path}.id`);
   invalid(v.id !== "service_order", `${path}.id`);
@@ -84,33 +77,11 @@ export function validateTemplateWorkType(value: unknown, path = "work_type"): Cu
   v.number_prefix = string(v.number_prefix, 12, `${path}.number_prefix`, true);
   if (v.terms !== null) v.terms = string(v.terms, 1400, `${path}.terms`, true);
   v.fields = unique(list(v.fields, 24, `${path}.fields`, (field, p) => {
-    const common = ["id", "label", "help", "required", "client_visible", "sensitive", "kind"];
-    const variants: Record<string, string[]> = { text: ["multiline", "max_length"], integer: ["min", "max"], decimal: ["min", "max", "scale"], boolean: [], date: ["min", "max"], choice: ["options"] };
-    invalid(field && Object.hasOwn(variants, field.kind), `${p}.kind`);
-    const f = object(field, [...common, ...variants[field.kind]], p);
-    f.id = identifier(f.id, 32, `${p}.id`);
-    f.label = string(f.label, 80, `${p}.label`);
-    f.help = string(f.help, 240, `${p}.help`, true);
-    for (const key of ["required", "client_visible", "sensitive"]) boolean(f[key], `${p}.${key}`);
-    invalid(!f.sensitive || (!f.required && !f.client_visible), p);
-    if (f.kind === "text") {
-      boolean(f.multiline, `${p}.multiline`);
-      integer(f.max_length, 1, 2000, `${p}.max_length`);
-    } else if (f.kind === "integer" || f.kind === "decimal") {
-      invalid(typeof f.min === "number" && typeof f.max === "number" && Number.isFinite(f.min) && Number.isFinite(f.max) && f.min <= f.max, p);
-      if (f.kind === "integer") invalid(Number.isSafeInteger(f.min) && Number.isSafeInteger(f.max), p);
-      else integer(f.scale, 0, 6, `${p}.scale`);
-    } else if (f.kind === "date") {
-      f.min = date(f.min, `${p}.min`); f.max = date(f.max, `${p}.max`);
-      invalid(f.min === null || f.max === null || f.min <= f.max, p);
-    } else if (f.kind === "choice") {
-      f.options = unique(list(f.options, 32, `${p}.options`, (option, q) => {
-        const o = object(option, ["id", "label"], q);
-        return { id: identifier(o.id, 32, `${q}.id`), label: string(o.label, 80, `${q}.label`) };
-      }), `${p}.options`);
-      invalid(f.options.length > 0, `${p}.options`);
+    try { return validateField(field, p); }
+    catch (error) {
+      if (!(error instanceof ApiError)) throw error;
+      throw new ApiError(error.status, "invalid_template", `Modelo inválido em ${p}. ${error.message}`);
     }
-    return f as CustomWorkType["fields"][number];
   }), `${path}.fields`);
   v.retired_field_ids = ids(v.retired_field_ids, 12 * 1024, `${path}.retired_field_ids`);
   v.retired_stage_ids = ids(v.retired_stage_ids, 12 * 1024, `${path}.retired_stage_ids`);
@@ -169,13 +140,17 @@ export function validateTemplateWorkType(value: unknown, path = "work_type"): Cu
     invalid(["delivered", "cancelled"].every((status) => t.stages.some((end) => end.base_status === status && exits.has(end.id))), `${path}.stages`);
   }
   v.pickup_reminder_text = string(v.pickup_reminder_text, 900, `${path}.pickup_reminder_text`, true);
-  const markers = new Set(["numero", "item", "estado", "total", "validade", "garantia", "pronto", "previsao", "tipo", "etapa", "numero_tipo", "identificador",
+  const markers = new Set(["numero", "item", "estado", "total", "validade", "garantia", "pronto", "previsao", "tipo", "etapa", "numero_tipo", "identificador", "objeto",
     ...t.fields.filter((field) => field.client_visible && !field.sensitive).map((field) => `campo_${field.id}`)]);
   for (const message of [t.pickup_reminder_text, ...t.stages.map((s) => s.message), ...t.transitions.flatMap((tr) => tr.kind === "customer_approval" ? [tr.request_text] : [])]) {
     invalid([...message.matchAll(/\{([^{}]*)\}/g)].every((match) => markers.has(match[1])) && !/[{}]/.test(message.replace(/\{[^{}]*\}/g, "")), `${path}.messages`);
   }
   invalid(bytes(t) <= 12 * 1024, path);
-  return t;
+  try { return validateWorkType(t); }
+  catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    throw new ApiError(error.status, "invalid_template", `Modelo inválido em ${path}. ${error.message}`);
+  }
 }
 
 function vocabulary(value: unknown, path: string) {
@@ -227,17 +202,34 @@ export function validateAreaTemplate(input: unknown): AreaTemplate {
   invalid(typeof raw === "string", "manifest");
   if (new TextEncoder().encode(raw).length > TEMPLATE_BYTES)
     throw new ApiError(413, "template_too_large", "O manifesto deve ter até 128 KiB em UTF-8.");
-  const v = object(JSON.parse(raw), ["schema_version", "id", "version", "name", "description", "work_types", "modules", "vocabulary", "departments", "ticket_categories", "menus", "texts", "bot", "manual_steps"], "manifest");
+  const v = object(JSON.parse(raw), ["schema_version", "id", "version", "name", "description", "work_types", "object_types", "modules", "vocabulary", "departments", "ticket_categories", "menus", "texts", "bot", "manual_steps"], "manifest");
   invalid(v.schema_version === 1, "schema_version");
   v.id = identifier(v.id, 32, "id");
   v.version = integer(v.version, 1, Number.MAX_SAFE_INTEGER, "version");
   v.name = string(v.name, 80, "name");
   v.description = string(v.description, 2000, "description", true);
   v.work_types = unique(list(v.work_types, 20, "work_types", validateTemplateWorkType), "work_types");
+  if (Object.hasOwn(v, "object_types")) {
+    try { v.object_types = validateObjectTypes(v.object_types); }
+    catch (error) {
+      if (!(error instanceof ApiError)) throw error;
+      throw new ApiError(error.status, "invalid_template", `Tipos de objeto inválidos. ${error.message}`);
+    }
+    for (const type of v.object_types) {
+      invalid(type.revision === 1, `object_types.${type.id}.revision`);
+      invalid(`area_${v.id}__${type.id}`.length <= 64, `object_types.${type.id}.id`);
+      invalid(bytes({ ...type, id: `area_${v.id}__${type.id}` }) <= 8 * 1024, `object_types.${type.id}`);
+    }
+  }
+  try { validateWorkTypeChanges({}, { os_work_types: v.work_types, os_object_types: v.object_types ?? [] }); }
+  catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    throw new ApiError(error.status, "invalid_template", `Referências de campos inválidas. ${error.message}`);
+  }
   for (const type of v.work_types) {
     invalid(type.revision === 1, `work_types.${type.id}.revision`);
     invalid(`area_${v.id}__${type.id}`.length <= 64, `work_types.${type.id}.id`);
-    invalid(bytes({ ...type, id: `area_${v.id}__${type.id}` }) <= 12 * 1024, `work_types.${type.id}`);
+    invalid(bytes({ ...type, id: `area_${v.id}__${type.id}`, ...(type.object_type_id ? { object_type_id: `area_${v.id}__${type.object_type_id}` } : {}) }) <= 12 * 1024, `work_types.${type.id}`);
   }
   object(v.modules, allowedModules(), "modules");
   for (const [id, enabled] of Object.entries(v.modules)) {

@@ -1,4 +1,5 @@
 import type { AreaTemplate } from "../../modules/os/contracts";
+import { imovelObjectType } from "./service-object-seeds";
 
 // Fonte: docs/areas/obras.md; contrato declarativo das seções 3 e 7.
 // A política de orçamento contém as arestas protegidas; não duplicá-las em transitions.
@@ -6,15 +7,33 @@ import type { AreaTemplate } from "../../modules/os/contracts";
 export const construtorasTemplate: AreaTemplate = {
   schema_version: 1,
   id: "construtora",
-  version: 1,
+  version: 2,
   name: "Construtoras",
   description:
     "Obras e chamados de pós-obra com etapas, diário, medições em lançamentos e atendimento ao solicitante.",
+  object_types: [{
+    ...imovelObjectType,
+    fields: [
+      ...imovelObjectType.fields,
+      {
+        id: "unidade",
+        label: "Empreendimento, unidade ou local afetado",
+        help: "Informe a identificação do imóvel. As mensagens ao próprio solicitante podem citá-la após conferir o vínculo; a identificação não comprova propriedade.",
+        required: false,
+        client_visible: true,
+        sensitive: false,
+        kind: "text",
+        multiline: false,
+        max_length: 240,
+      },
+    ],
+  }],
   work_types: [
     {
       schema_version: 1,
       kind: "custom",
       id: "construtora_obra",
+      object_type_id: imovelObjectType.id,
       revision: 1,
       archived: false,
       labels: {
@@ -59,29 +78,6 @@ export const construtorasTemplate: AreaTemplate = {
               label: "Outra",
             },
           ],
-        },
-        {
-          id: "municipio",
-          label: "Município e UF",
-          help: "",
-          required: true,
-          client_visible: true,
-          sensitive: false,
-          kind: "text",
-          multiline: false,
-          max_length: 240,
-        },
-        {
-          id: "endereco",
-          label: "Endereço completo da obra",
-          help:
-            "Preenchimento opcional pela equipe no painel privado. Não enviar pelo WhatsApp.",
-          required: false,
-          client_visible: false,
-          sensitive: true,
-          kind: "text",
-          multiline: true,
-          max_length: 2000,
         },
         {
           id: "area_m2",
@@ -162,7 +158,12 @@ export const construtorasTemplate: AreaTemplate = {
           max: 9007199254740991,
         },
       ],
-      retired_field_ids: [],
+      retired_field_ids: ["municipio", "endereco"],
+      list_fields: [
+        { ref: { scope: "object", field_id: "identificacao" }, column: true, filter: true },
+        { ref: { scope: "object", field_id: "municipio" }, filter: true },
+        { ref: { scope: "order", field_id: "modalidade" }, column: true, filter: true },
+      ],
       stages: [
         {
           id: "entrada",
@@ -509,6 +510,7 @@ export const construtorasTemplate: AreaTemplate = {
       schema_version: 1,
       kind: "custom",
       id: "construtora_pos_obra",
+      object_type_id: imovelObjectType.id,
       revision: 1,
       archived: false,
       labels: {
@@ -527,17 +529,6 @@ export const construtorasTemplate: AreaTemplate = {
           id: "obra_origem",
           label: "Referência da obra de origem",
           help: "Use somente o número administrativo da obra, sem endereço, bloco ou unidade.",
-          required: false,
-          client_visible: true,
-          sensitive: false,
-          kind: "text",
-          multiline: false,
-          max_length: 240,
-        },
-        {
-          id: "unidade",
-          label: "Empreendimento, unidade ou local afetado",
-          help: "Informe a identificação do imóvel. A equipe e o bot podem citá-la nas mensagens ao próprio solicitante, após conferir o vínculo.",
           required: false,
           client_visible: true,
           sensitive: false,
@@ -658,7 +649,11 @@ export const construtorasTemplate: AreaTemplate = {
           max_length: 2000,
         },
       ],
-      retired_field_ids: [],
+      retired_field_ids: ["unidade"],
+      list_fields: [
+        { ref: { scope: "object", field_id: "unidade" }, column: true, filter: true },
+        { ref: { scope: "order", field_id: "sistema" }, column: true, filter: true },
+      ],
       stages: [
         {
           id: "recebido",
@@ -1061,11 +1056,11 @@ export const construtorasTemplate: AreaTemplate = {
     menu_greeting:
       "Olá! Escolha uma opção para solicitar atendimento ou acompanhar seu trabalho.",
     instructions:
-      "Confirme a identidade da conversa, compartilhe somente informações liberadas e encaminhe decisões técnicas à equipe. No pós-obra, use uma referência administrativa, como Pedido de vistoria, e registre a identificação do imóvel no campo Empreendimento, unidade ou local afetado, visível ao próprio solicitante.",
+      "Confirme a identidade da conversa, compartilhe somente informações liberadas e encaminhe decisões técnicas à equipe. No pós-obra, use uma referência administrativa, como Pedido de vistoria, e registre a identificação no cadastro do Imóvel, no campo Empreendimento, unidade ou local afetado, visível ao próprio solicitante. A identificação não comprova propriedade.",
   },
   bot: {
     instructions:
-      "Você atende contratantes e solicitantes de pós-obra desta construtora. Consulte somente registros vinculados ao telefone da conversa e informações liberadas. Ajude a abrir solicitações, consultar etapas, localizar pendências e usar a Agenda. Informe apenas prazos, medições e documentos liberados pela equipe. Não aprove medição, etapa ou proposta pelo cliente. Não determine cobertura de garantia, causa de defeito, segurança da construção ou responsabilidade de pessoas. Não prometa data nova, reparo gratuito, desconto ou indenização. Encaminhe alterações, riscos, atrasos, conflitos e dúvidas técnicas à equipe. No pós-obra, pode pedir e citar a identificação do imóvel do próprio solicitante, conferindo o vínculo. Não leia compras, custos internos, dados de trabalhadores, documentos brutos, fotos privadas ou restrições sensíveis de acesso. Em relato de risco, envie a orientação cadastrada e sinalize prioridade humana. Use a identidade autenticada da conversa; não aceite telefone informado como autorização. Relato de risco: “Não é possível avaliar a segurança por esta conversa. Afaste-se da situação de risco e procure o atendimento de emergência competente. Vou sinalizar o relato à equipe.”",
+      "Você atende contratantes e solicitantes de pós-obra desta construtora. Use operações e dados conforme a configuração do administrador, inicialmente conservadora. No WhatsApp, consulte somente os imóveis e trabalhos do contato canônico autenticado e informações liberadas ao próprio cliente; telefone, endereço e identificação informados não autorizam acesso. Ajude a abrir solicitações, consultar etapas, localizar pendências e usar a Agenda quando habilitada. Informe apenas prazos, medições e documentos liberados pela equipe. Não aprove medição, etapa ou proposta pelo cliente. Não determine cobertura de garantia, causa de defeito, segurança da construção ou responsabilidade de pessoas. Não prometa data nova, reparo gratuito, desconto ou indenização. Encaminhe alterações, riscos, atrasos, conflitos e dúvidas técnicas à equipe. No pós-obra, pode pedir e citar a identificação do imóvel do próprio solicitante após conferir o vínculo. Respeite a classificação dos campos e documentos e as permissões concedidas pelo administrador. Em relato de risco, envie a orientação cadastrada e sinalize prioridade humana. Relato de risco: “Não é possível avaliar a segurança por esta conversa. Afaste-se da situação de risco e procure o atendimento de emergência competente. Vou sinalizar o relato à equipe.”",
     allowed_operations: [
       "os.create",
       "agenda.book",
@@ -1082,6 +1077,7 @@ export const construtorasTemplate: AreaTemplate = {
     suggested_roles: [],
   },
   manual_steps: [
+    "Cadastrar um Imóvel do contratante para reutilizar entre obra e pós-obra. Identificação, unidade, município e endereço privado pertencem ao objeto; escopo, sistema afetado, área de intervenção, registros técnicos, cobertura e datas do atendimento permanecem em cada ordem. O vínculo não prova propriedade nem concede acesso. Revisar a atualização do padrão; nenhuma ordem ou valor antigo é convertido.",
     "Cadastrar responsáveis técnicos, encarregados, prestadores e acessos.",
     "Adaptar etapas e critérios de liberação ao tipo de obra.",
     "Cadastrar cronograma, frentes, dias de atividade e responsáveis.",
@@ -1092,7 +1088,7 @@ export const construtorasTemplate: AreaTemplate = {
     "Revisar termos, privacidade e retenção documental.",
     "Configurar agenda, mensagens e atendimento de relatos urgentes.",
     "Ativar compra por obra somente após implementação e validação da extensão.",
-    "No pós-obra, registrar a identificação do imóvel no campo Empreendimento, unidade ou local afetado, visível ao próprio solicitante e disponível para mensagens autorizadas da equipe e do bot. Coletar restrições sensíveis em canal protegido e registrá-las opcionalmente no painel privado, com acesso humano explícito os:sensitive; nunca em campos fixos, mensagens, formulário comum ou pelo bot.",
+    "No pós-obra, registrar a identificação no cadastro do Imóvel, no campo Empreendimento, unidade ou local afetado, visível ao próprio solicitante e disponível para mensagens autorizadas. Coletar restrições sensíveis da visita em canal protegido e registrá-las opcionalmente na ordem pelo painel privado, preservando os:sensitive e a classificação existente; não incluir os valores no formulário comum ou nas mensagens ao cliente.",
     "Atribuir o papel Técnico apenas à equipe responsável. Conceder acesso a dados sensíveis somente às pessoas que precisem deles. Revisar as permissões do bot separadamente; o modelo não concede papéis.",
     "Identificar os arquivos e a versão apresentados antes de pedir aprovação de etapa. A decisão autoriza a transição; não assina documentos nem vincula automaticamente versões e arquivos. A validade inicial do pedido é de 7 dias.",
     "Criar tarefas e lembretes manualmente, com datas acordadas. Os prazos abaixo são sugestões em dias corridos; não há criação automática por entrada na etapa nem aviso automático de etapa parada.",
@@ -1104,7 +1100,7 @@ export const construtorasTemplate: AreaTemplate = {
     "Após configurar Agenda e Formulários, acrescentar os menus nativos de agendamento, meus agendamentos e formulário. O manifesto oferece encaminhamento humano enquanto esses menus não são configurados.",
     "Obra: cadastrar pessoas com os papéis Contratante, Responsável técnico, Encarregado, Líder de equipe, Prestador, Fiscal do contratante. O vínculo não concede acesso ao trabalho.",
     "Obra: usar lançamentos de diário de obra, medição, andamento, ocorrência, horas, decisão de alteração. Manter horas, evidências e notas internas restritas até revisão.",
-    "Obra: revisar e liberar individualmente Proposta, Contrato, ART, RRT, Licença, Prancha liberada, Memorial, Relatório de medição, Relatório de vistoria, Manual de entrega. Manter internos: Diário bruto, Cotação, Documentação de pessoal, Segurança e acesso. Não enviar arquivos brutos ao bot.",
+    "Obra: revisar e liberar individualmente Proposta, Contrato, ART, RRT, Licença, Prancha liberada, Memorial, Relatório de medição, Relatório de vistoria, Manual de entrega. Manter internos: Diário bruto, Cotação, Documentação de pessoal, Segurança e acesso. O acesso da IA aos arquivos deve seguir a configuração do administrador, desligado por padrão.",
     "Obra: tarefas sugeridas por etapa: entrada — Conferir escopo e documentos iniciais (1 dia); orcamento — Acompanhar resposta à proposta (3 dias); contratada — Conferir contrato, projetos e registros profissionais (2 dias); recusada — Verificar revisão ou encerramento (2 dias); licencas — Conferir protocolo municipal e pendências (7 dias); mobilizacao — Confirmar equipe, acesso e cronograma de frentes (2 dias); fundacoes — Conferir execução, registros e medição da etapa (7 dias); estrutura — Conferir frentes, registros e medição da etapa (7 dias); instalacoes — Conferir instalações, testes previstos e medição (7 dias); acabamentos — Conferir acabamentos e preparar lista de pendências (7 dias); vistoria_entrega — Agendar vistoria e conferir pacote de entrega (2 dias).",
     "Obra: contratada → mobilizacao: Responsável registra conferência das autorizações aplicáveis ou sua não aplicação. Conferência humana; não há bloqueio declarativo por papel ou justificativa.",
     "Obra: licencas → mobilizacao: Responsável confere e registra liberações aplicáveis. Conferência humana; não há bloqueio declarativo por papel ou justificativa.",
@@ -1113,7 +1109,7 @@ export const construtorasTemplate: AreaTemplate = {
     "Obra: mobilizacao → acabamentos: Responsável registra as etapas anteriores fora do escopo. Conferência humana; não há bloqueio declarativo por papel ou justificativa.",
     "Chamado de pós-obra: cadastrar pessoas com os papéis Solicitante, Comprador, Responsável pelo acesso, Técnico responsável, Prestador. O vínculo não concede acesso ao trabalho.",
     "Chamado de pós-obra: usar lançamentos de relato, vistoria, análise de cobertura, execução, retorno, pendência. Manter horas, evidências e notas internas restritas até revisão.",
-    "Chamado de pós-obra: revisar e liberar individualmente Relatório de vistoria, Parecer de atendimento, Proposta, Relatório do serviço, Orientação de uso revisada. Manter internos: Fotos brutas, Parecer jurídico, Notas de cobertura, Registros de acesso. Não enviar arquivos brutos ao bot.",
+    "Chamado de pós-obra: revisar e liberar individualmente Relatório de vistoria, Parecer de atendimento, Proposta, Relatório do serviço, Orientação de uso revisada. Manter internos: Fotos brutas, Parecer jurídico, Notas de cobertura, Registros de acesso. O acesso da IA aos arquivos deve seguir a configuração do administrador, desligado por padrão.",
     "Chamado de pós-obra: tarefas sugeridas por etapa: recebido — Conferir contato, unidade e prioridade (1 dia); triagem — Conferir relato e necessidade de visita (1 dia); vistoria — Realizar vistoria e registrar evidências (2 dias); analise — Revisar parecer e condições de atendimento (2 dias); orcamento — Acompanhar resposta à proposta (3 dias); autorizado — Confirmar equipe, materiais e visita (2 dias); recusado — Verificar revisão solicitada ou encerramento (2 dias); execucao — Executar atendimento e registrar serviço realizado (3 dias); conferencia — Solicitar conferência e registrar pendências (2 dias).",
     "Chamado de pós-obra: analise → execucao: Equipe registra atendimento autorizado sem proposta paga pendente. Conferência humana; não há bloqueio declarativo por papel ou justificativa.",
     "Chamado de pós-obra: analise → orcamento: Equipe registra análise e explica as condições do serviço pago. Conferência humana; não há bloqueio declarativo por papel ou justificativa.",

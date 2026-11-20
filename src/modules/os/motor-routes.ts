@@ -6,9 +6,10 @@ import { authorizedOrder, resolveWorkType } from "./public";
 import { mayReadSensitive, projectOrderForCustomer, projectOrderForStaff, projectPrivateFields } from "./privacy";
 import { checkVersion, commitOrderMutation, mutationHistory, publishMutation, versionConflict } from "./mutations";
 import { cancelApproval, changeStage, decideStageApproval, requestStageApproval, sendStageApproval } from "./stages";
-import { notify, quoteSpec, resumeBuiltinStatus, conversationOf } from "./store";
+import { notify, quoteSpec, resumeBuiltinStatus, conversationOf, orderViewForActor } from "./store";
 import { validateExtra } from "./validation";
 import type { WorkTypeView } from "./contracts";
+import { os2Read, os2Command, type Os2ReadOperation, type Os2CommandOperation } from "./os2-ports";
 
 // I acrescenta estes códigos a definition.ts; o núcleo valida publicações.
 export const MOTOR_EVENTS = ["os.updated", "os.stage_changed", "os.quote_saved", "os.stage_approval_requested", "os.stage_approval_decided", "os.private_fields_changed"] as const;
@@ -56,6 +57,40 @@ async function typeView(ctx: ModuleContext, actor: Actor, type: WorkTypeView) {
   return { ...type, fields: type.fields.filter(f => f.sensitive ? sensitive : !bot || f.client_visible) };
 }
 export function registerMotorRoutes() {
+  // Rotas estáveis, com autorização final de contato/objeto no adaptador de
+  // produção conectado em os2-production.ts.
+  const reads: Array<[string, Os2ReadOperation]> = [
+    ["service-orders/object-types", "os.object_types.list"],
+    ["service-orders/objects", "os.objects.list"],
+    ["service-orders/objects/:object_id", "os.objects.get"],
+    ["service-orders/objects/:object_id/private-fields", "os.objects.private.read"],
+    ["service-orders/objects/:object_id/orders", "os.objects.orders"],
+    ["service-orders/:id/requirements", "os.requirements"],
+    ["service-orders/types/:type_id/field-index", "os.field_index.get"],
+    ["service-orders/conversation/:id/objects", "os.conversation.objects.list"],
+    ["service-orders/conversation/:id/objects/:object_id", "os.conversation.objects.get"],
+  ];
+  for (const [path, operation] of reads) onRead("os", path, async (ctx, actor, input) => {
+    ctx.access(actor, "conversations:read");
+    await ctx.requireEnabled();
+    return os2Read(ctx, actor, operation, input);
+  });
+  const writes: Array<["POST" | "PATCH", string, Os2CommandOperation]> = [
+    ["POST", "service-orders/objects", "os.objects.create"],
+    ["PATCH", "service-orders/objects/:object_id", "os.objects.update"],
+    ["POST", "service-orders/objects/:object_id/archive", "os.objects.archive"],
+    ["PATCH", "service-orders/objects/:object_id/private-fields", "os.objects.private.update"],
+    ["POST", "service-orders/:id/object-link", "os.object.link"],
+    ["POST", "service-orders/types/:type_id/field-index/rebuild", "os.field_index.rebuild"],
+  ];
+  for (const [method, path, op] of writes) {
+    onRoute("os", { method, path, op });
+    onCommand("os", op, async (ctx, actor, data, meta) => {
+      ctx.access(actor, "conversations:write");
+      await ctx.requireEnabled();
+      return os2Command(ctx, actor, op, data, meta);
+    });
+  }
   onRead("os", "service-orders/types", async (ctx, actor, { query }) => {
     ctx.access(actor, "conversations:read");
     if (query.include_archived === "1" && (actor.kind !== "user" || actor.via || actor.id.startsWith("bot:") || actor.module)) throw new ApiError(403, "forbidden", "Catálogo arquivado restrito à equipe.");
@@ -93,7 +128,7 @@ export function registerMotorRoutes() {
       const key = motorMutationKey(actor, op, requestId);
       const replay = await replayOrderMutation(ctx, actor, data.id, key, notifyCustomer);
       if (replay) {
-        if (path !== "private-fields") return projectOrderForStaff(ctx, actor, replay);
+        if (path !== "private-fields") return orderViewForActor(ctx, actor, replay.row);
         const history = (await mutationHistory(ctx, key))!;
         return { id: data.id, version: history.entity_version, changed_fields: json(history.changed_fields_json, []) };
       }
@@ -111,7 +146,7 @@ export function registerMotorRoutes() {
         row = await commitOrderMutation(ctx, order.row, { extra_json: JSON.stringify(values), stage_approval_json: cancelApproval(order.row) }, actor.id, "os.private_fields_changed", changed, key);
         return { id: row.id, version: row.row_version, changed_fields: changed };
       }
-      return projectOrderForStaff(ctx, actor, { row, type: order.type });
+      return orderViewForActor(ctx, actor, row);
     });
   }
 }

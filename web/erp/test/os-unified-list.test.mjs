@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { mountComponent } from "./helpers/component-recovery-harness.mjs";
@@ -137,8 +137,11 @@ test("linhas mantêm detalhe clássico em diálogo e personalizado em página", 
 async function database(t) {
   const db = new DatabaseSync(":memory:");
   t.after(() => db.close());
-  for (const migration of ["0035_os_orders.sql", "0100_os_work_types.sql", "0101_os_tasks.sql"])
-    db.exec(await readFile(new URL("../../../migrations/" + migration, import.meta.url), "utf8"));
+  // Esquema real: a lista confere na mesma leitura o contato das ordens com
+  // objeto (contacts, 0005/0130; object_id, 0150).
+  const migrations = new URL("../../../migrations/", import.meta.url);
+  for (const migration of (await readdir(migrations)).filter(name => name.endsWith(".sql")).sort())
+    db.exec(await readFile(new URL(migration, migrations), "utf8"));
   const calls = [], ctx = {
     profile: "area", mayRead: actor => actor.kind === "user" && !actor.id.startsWith("bot:"),
     env: { DB: { prepare(sql) { return { bind(...args) { return { async all() {
@@ -167,7 +170,7 @@ test("consulta SQL unificada pagina todos os modelos com índice existente e med
   assert.deepEqual(first.data.map(row => row.number), [4, 2]);
   assert.equal(first.next_cursor, "2");
   assert.equal(f.calls.length, 3);
-  const select = f.calls.find(call => call.sql.startsWith("SELECT * FROM os_orders"));
+  const select = f.calls.find(call => call.sql.startsWith("SELECT os_orders.*"));
   const plan = f.db.prepare("EXPLAIN QUERY PLAN " + select.sql).all(...select.args).map(row => row.detail).join(" ");
   assert.match(plan, /USING INDEX (?:os_orders_type_list|sqlite_autoindex_os_orders_\d+)/);
   f.insert(5);

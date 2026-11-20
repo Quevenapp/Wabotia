@@ -6,6 +6,8 @@ import type { MutationRef } from "./contracts";
 import { prepareWorkMutation } from "./commercial/mutations";
 import { hash, canonical } from "../../integrations/keys";
 import type { WorkCatalogChange } from "./commercial/projection";
+import { prepareOrderRulesMutation, planOrderFieldIndex } from "./os2-ports";
+import { builtinWorkType, snapshotType } from "./work-types";
 
 export const versionConflict = () => new ApiError(409, "version_conflict", "O registro mudou. Atualize e tente novamente.");
 // SELECT também pertence à transação D1. A expressão só falha quando o CAS
@@ -74,14 +76,19 @@ export async function commitOrderMutation(ctx: ModuleContext, row: any, sets: Re
     return one(ctx.env, "SELECT * FROM os_orders WHERE profile_id=? AND id=?", ctx.profile, row.id);
   }
   const at = now(), version = (row.row_version ?? 1) + 1, id = uid();
-  const commercial = await prepareWorkMutation(ctx, row, sets, actor, at, note, false, catalog?.change);
+  const type = snapshotType(row) ?? builtinWorkType();
+  const rules = await prepareOrderRulesMutation(ctx, { row, type, sets, actor });
+  const ruledSets = { ...sets, ...(rules.stage_required ? { stage_required_json: JSON.stringify(rules.stage_required) } : {}) };
+  const commercial = await prepareWorkMutation(ctx, row, ruledSets, actor, at, note, false, catalog?.change);
   const values = { ...commercial.sets, row_version: version, updated: at, stale_notified_at: null };
+  const index = await planOrderFieldIndex(ctx, { row: { ...row, ...values }, previous: row, type });
   const keys = Object.keys(values);
   const h = { id, order_id: row.id, kind: event, entity_version: version, from_stage: row.stage || row.status, to_stage: sets.stage ?? row.stage ?? row.status };
   await atomic(ctx, [
+    ...rules.before,
     [`UPDATE os_orders SET ${keys.map(k => k + "=?").join(",")} WHERE profile_id=? AND id=? AND row_version=?`, [...Object.values(values), ctx.profile, row.id, row.row_version ?? 1]], casGuard,
     ["INSERT INTO os_history(id,profile_id,order_id,kind,from_status,to_status,from_stage,to_stage,actor,created,entity_version,mutation_key,changed_fields_json,note) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", [id, ctx.profile, row.id, event, row.status, sets.status ?? row.status, h.from_stage, h.to_stage, actor, at, version, key ?? null, JSON.stringify(changed), commercial.note]],
-    ...(catalog?.statements ?? []), ...commercial.statements, ...extraStatements,
+    ...(catalog?.statements ?? []), ...commercial.statements, ...extraStatements, ...index, ...rules.after,
     ...(key ? [["INSERT INTO receipts(scope,key,fingerprint,response,status,created) VALUES(?,?,?,?,200,?)", [scope, key, fingerprint, canonical({ id: row.id, version }), at]]] as ChildStatement[] : []),
   ]);
   await publishMutation(ctx, h);

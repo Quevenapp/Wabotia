@@ -1,23 +1,27 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { useApp } from "../../../app/AppContext";
-import { useAction } from "../../../app/hooks";
 import { Button, Notice } from "../../../ui";
 import { linkProps, navigate, useRoute } from "../../../lib/routes";
-import type { Order } from "../work-contracts";
+import type { Order, OrderRequirements } from "../work-contracts";
+import type { WorkApi } from "../work-api";
 import {
   ResourceState,
   instantLabel,
   useWorkApi,
   useWorkResource,
+  useDraftGuard,
 } from "../work-hooks";
 import { StagePill } from "../components/StagePill";
-import { ExtraFields } from "../components/ExtraFields";
+import { OrderDetail } from "../ServiceOrdersPage";
+import { ExtraFields, commonExtra, parseExtra } from "../components/ExtraFields";
+import { ObjectSnapshot } from "../objects/ObjectSnapshot";
+import { LegacyObjectLinkDialog } from "../objects/LegacyObjectLinkDialog";
 import { WorkTasksTab } from "../tasks/WorkTasksTab";
 import { WorkPeopleTab } from "../people/WorkPeopleTab";
 import { WorkDocumentsTab } from "../documents/WorkDocumentsTab";
 import { WorkEntriesTab } from "../entries/WorkEntriesTab";
 import { WorkHistoryTab } from "../history/WorkHistoryTab";
-import { WorkFormDialog } from "./WorkFormDialog";
+import { WorkFormDialog, useWorkOperationAction, useWorkOperationDialog } from "./WorkFormDialog";
 import { QuoteEditor } from "./QuoteEditor";
 import { PrivateFieldsDialog } from "./PrivateFieldsDialog";
 import { money } from "../shared";
@@ -35,17 +39,65 @@ export const stageIntent = (
   order: Order,
   transition: Order["next_stages"][number],
 ) => ({ transition_id: transition.transition_id, version: order.version });
+type PendingWorkAction = { transitionId?: string; run: (order: Order) => Promise<unknown> };
+export async function loadWorkRequirements(api: WorkApi, id: string, transitionId?: string) {
+  const requirements = await api.requirements(id, transitionId);
+  const order = await api.order(id);
+  if (order.version !== requirements.version) throw new Error("A ordem mudou durante a conferência. Consulte os requisitos novamente.");
+  return { order, requirements };
+}
+function RequirementsDialog({ initial, pending, onClose, onSaved }: {
+  initial: { order: Order; requirements: OrderRequirements }; pending: PendingWorkAction;
+  onClose: () => void; onSaved: () => void;
+}) {
+  const api = useWorkApi();
+  const OperationDialog = useWorkOperationDialog();
+  const [base, setBase] = useState(initial), [values, setValues] = useState(commonExtra(initial.order.fields, initial.order.extra));
+  const [dirty, setDirty] = useState(false), [error, setError] = useState(""), [conflict, setConflict] = useState(false);
+  const busy = useRef(false), close = useDraftGuard(dirty, onClose);
+  const save = async (retry: boolean) => {
+    if (busy.current) return;
+    busy.current = true; setError("");
+    try {
+      const saved = await api.update(base.order.id, { version: base.requirements.version, extra: parseExtra(base.order.fields, values) });
+      setBase({ ...base, order: saved, requirements: { ...base.requirements, version: saved.version } });
+      setDirty(false);
+      if (retry) await pending.run(saved);
+      close.release(); onSaved();
+    } catch (failure) {
+      const code = (failure as { code?: string }).code;
+      if (code === "missing_fields") setBase(await loadWorkRequirements(api, base.order.id, pending.transitionId));
+      if (code === "version_conflict") setConflict(true);
+      throw failure;
+    } finally { busy.current = false; }
+  };
+  return <OperationDialog title="Complete os dados desta etapa" onClose={close} disabled={conflict} submitLabel="Salvar e tentar novamente" onSubmit={() => save(true)}>
+    <Notice>Salvar preenchimento parcial mantém a etapa atual. Para avançar, complete os requisitos abaixo.</Notice>
+    {!pending.transitionId && <Notice>A lista de pendências desta ação de orçamento ainda não está disponível. Os requisitos abaixo correspondem à etapa atual. Revise os campos desta ordem antes de tentar novamente.</Notice>}
+    {base.requirements.missing.length > 0 && <ul>{base.requirements.missing.map(field => <li key={field.field_id}>{field.label}</li>)}</ul>}
+    {base.requirements.internal_missing && <Notice>A equipe precisa completar os dados desta etapa.</Notice>}
+    <ExtraFields fields={base.order.fields} values={values} onChange={value => { setDirty(true); setValues(value); }} />
+    {error && <Notice tone="error">{error}</Notice>}
+    {conflict && <Notice>Rascunho preservado. <Button secondary onClick={async () => {
+      try { setBase(await loadWorkRequirements(api, base.order.id, pending.transitionId)); setConflict(false); }
+      catch (error) { setError((error as Error).message); }
+    }}>Recarregar versão e revisar</Button></Notice>}
+    <Button secondary disabled={conflict} onClick={() => { void save(false).catch(error => setError(error.message)); }}>Salvar preenchimento parcial</Button>
+  </OperationDialog>;
+}
 function Detail({ order, reload }: { order: Order; reload: () => void }) {
   const app = useApp(),
     api = useWorkApi(),
     route = useRoute(),
-    action = useAction();
+    action = useWorkOperationAction();
   const definition = useWorkResource(`${app.root}/type/${order.type_id}`, () =>
     api.type(order.type_id),
   );
   const [editing, setEditing] = useState(false),
     [quote, setQuote] = useState(false),
-    [privateOpen, setPrivateOpen] = useState(false);
+    [privateOpen, setPrivateOpen] = useState(false),
+    [legacyLink, setLegacyLink] = useState(false);
+  const [requirements, setRequirements] = useState<{ order: Order; requirements: OrderRequirements; pending: PendingWorkAction }>();
   // Uma definição atual diferente nunca reinterpreta campos/etapas de uma ordem antiga.
   const features = order.features;
   const tabs = workTabs.filter(
@@ -56,8 +108,17 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
     setEditing(false);
     setQuote(false);
     setPrivateOpen(false);
+    setLegacyLink(false);
+    setRequirements(undefined);
     reload();
   };
+  const execute = (pending: PendingWorkAction) => action.run(async () => {
+    try { await pending.run(order); changed(); }
+    catch (error) {
+      if ((error as { code?: string }).code !== "missing_fields") throw error;
+      setRequirements({ ...await loadWorkRequirements(api, order.id, pending.transitionId), pending });
+    }
+  });
   const move = (value: string) =>
     navigate({
       ...route,
@@ -97,14 +158,7 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
             key={transition.transition_id}
             disabled={action.busy}
             onClick={() =>
-              void action.run(async () => {
-                await api.stage(
-                  order.id,
-                  stageIntent(order, transition),
-                  transition.kind === "customer_approval",
-                );
-                changed();
-              })
+              void execute({ transitionId: transition.transition_id, run: current => api.stage(current.id, stageIntent(current, transition), transition.kind === "customer_approval") })
             }
           >
             {transition.kind === "customer_approval"
@@ -136,14 +190,11 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
                 secondary
                 disabled={action.busy}
                 onClick={() =>
-                  void action.run(async () => {
-                    await api.stageDecision(order.id, {
+                  void execute({ transitionId: order.stage_approval!.transition_id, run: current => api.stageDecision(current.id, {
                       decision,
-                      version: order.version,
-                      approval_version: order.stage_approval!.version,
-                    });
-                    changed();
-                  })
+                      version: current.version,
+                      approval_version: current.stage_approval!.version,
+                    }) })
                 }
               >
                 {decision === "approve"
@@ -199,6 +250,7 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
       >
         {tab === "resumo" && (
           <>
+            {order.object && <ObjectSnapshot snapshot={order.object} />}
             <dl className="os-work-facts">
               <div>
                 <dt>{order.labels.customer_singular}</dt>
@@ -257,6 +309,9 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
                 Editar: {order.labels.singular}
               </Button>
             )}
+            {!order.object && order.type_id !== "service_order" && definition.data?.object_type_id && (
+              <Button secondary onClick={() => setLegacyLink(true)}>Vincular objeto à ordem antiga</Button>
+            )}
             {(order.quote || features?.quote) && (
               <section>
                 <h3>Orçamento</h3>
@@ -274,10 +329,7 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
                       secondary
                       disabled={action.busy}
                       onClick={() =>
-                        void action.run(async () => {
-                          await api.sendQuote(order.id, { notify: !!order.customer.conversation_id });
-                          changed();
-                        })
+                        void execute({ transitionId: order.next_stages.find(next => next.stage === features?.quote?.sent_stage)?.transition_id, run: current => api.sendQuote(current.id, { notify: !!current.customer.conversation_id }) })
                       }
                     >
                       {order.customer.conversation_id ? "Enviar orçamento" : "Registrar orçamento sem envio pelo WhatsApp"}
@@ -289,12 +341,10 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
                         secondary
                         disabled={action.busy}
                         onClick={() =>
-                          void action.run(async () => {
-                            await api.decision(order.id, {
+                          void execute({ transitionId: order.next_stages.find(next => next.stage === features?.quote?.approved_stage)?.transition_id, run: current => api.decision(current.id, {
                               decision: "approve",
-                            });
-                            changed();
-                          })
+                              quote_version: current.quote?.version,
+                            }) })
                         }
                       >
                         Registrar aprovação do orçamento
@@ -306,12 +356,10 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
                         secondary
                         disabled={action.busy}
                         onClick={() =>
-                          void action.run(async () => {
-                            await api.decision(order.id, {
+                          void execute({ transitionId: order.next_stages.find(next => next.stage === features?.quote?.declined_stage)?.transition_id, run: current => api.decision(current.id, {
                               decision: "decline",
-                            });
-                            changed();
-                          })
+                              quote_version: current.quote?.version,
+                            }) })
                         }
                       >
                         Registrar recusa do orçamento
@@ -344,6 +392,8 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
           onSaved={changed}
         />
       )}
+      {legacyLink && definition.data && <LegacyObjectLinkDialog order={order} type={definition.data} onClose={() => setLegacyLink(false)} onSaved={changed} />}
+      {requirements && <RequirementsDialog initial={requirements} pending={requirements.pending} onClose={() => setRequirements(undefined)} onSaved={changed} />}
       {privateOpen && (
         <PrivateFieldsDialog
           order={order}
@@ -367,6 +417,8 @@ export function WorkDetailPage({ workId }: { workId: string }) {
   const resource = useWorkResource(root + "/order/" + workId, () =>
     api.order(workId),
   );
+  if (resource.data?.type_id === "service_order") return <OrderDetail id={workId} onChanged={resource.reload}
+    onClose={() => { navigate({ area: "admin", page: "work", typeId: "service_order" }); }} />;
   return resource.data ? (
     <Detail order={resource.data} reload={resource.reload} />
   ) : (

@@ -18,6 +18,7 @@ export const nativePageSlugs = {
   saude: "prontuarios",
   ensino: "ensino",
   work: "trabalhos",
+  "service-objects": "objetos-de-servico",
   "service-orders": "trabalhos",
   "my-deadlines": "meus-prazos",
   "work-types": "tipos-de-trabalho",
