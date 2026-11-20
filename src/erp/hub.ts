@@ -15,7 +15,10 @@ import { ERP_PARTS_DENIED_HEADER, ERP_PARTS_TTL_MS, readErpPartsSnapshot } from 
 import { decodeIdentity, IDENTITY_HEADER, SYSTEM_HEADER } from "./engine/identity.ts";
 import { prepareBlingDispatch, blingFailureResponse } from "./bling/assembly.ts";
 import { BLING_RECEIPTED_OPERATIONS, getBlingOperation } from "./bling/schema.ts";
-import { BACKUP_ACTIVE_KV, backupFence, backupJobActive, backupJobStatus, fencedResponse, readBackupJob } from "./engine/backup-state.ts";
+import { BACKUP_ACTIVE_KV, backupFence, backupJobActive, backupJobStatus, fencedResponse, readBackupJob, restoreSwapping, restoreSwappingResponse } from "./engine/backup-state.ts";
+
+/** A troca da restauração pediu a volta à marca: o objeto reinicia para a volta valer (backup-swap.ts). */
+const isRestoreRestart = (error: unknown) => (error as { code?: unknown } | null)?.code === "erp_restore_restart";
 
 /** Backup/restauração em páginas: quanto uma rota avança antes de responder 202 e deixar o resto ao alarme. */
 const BACKUP_INLINE = { budgetMs: 10_000, maxUnits: 128 };
@@ -201,6 +204,12 @@ export class ErpHub {
       const denied = await authorize(false);
       if (denied) return denied;
     }
+    // Troca da restauração em curso: o banco pode estar pela metade, e a área
+    // fica inteira parada para o ERP (leituras e escritas), sem migração.
+    if ((rpc || bling || path.startsWith("/erp-probe/")) && restoreSwapping(readBackupJob(this.ctx.storage))) {
+      await this.continueBackup();
+      return restoreSwappingResponse();
+    }
     const applied = migrate(this.ctx.storage);
     if (applied.status === "newer")
       return fail(503, "erp_schema_newer", `O esquema gravado (${applied.version}) é mais novo que o do código (${ERP_SCHEMA_VERSION}).`);
@@ -230,16 +239,24 @@ export class ErpHub {
         schema_version: ERP_SCHEMA_VERSION,
         database_size: this.ctx.storage.sql.databaseSize,
       });
-    // Exceção deliberada de recuperação: /erp-backup e /erp-restore só têm
-    // chamadores internos pelo binding do Coordinator (e testes); não há
-    // encaminhamento no Worker nem em api/local-fetch.ts. Precisam funcionar
-    // sem fotografia, inclusive em instância nova ou com ERP suspenso.
-    // Restaurar troca o conteúdo inteiro. Não expor estas rotas na API pública.
+    // Exceção deliberada de recuperação: /erp-backup e /erp-restore precisam
+    // funcionar sem fotografia, inclusive em instância nova ou com ERP
+    // suspenso. Chamadores: o binding do Coordinator, e o Worker só pelas
+    // rotas de administrador de src/erp/api/backup-routes.ts (papel, segundo
+    // fator e módulo conferidos lá). Restaurar troca o conteúdo inteiro.
     // Operações: engine/backup-operations.ts (nomes estáveis, sensíveis).
     // Em páginas (engine/backup-pages.ts): a rota avança o que cabe e devolve
     // 200 com o resultado; se não terminar, 202 com o progresso, e o alarme
     // continua. /erp-backup-status mostra o progresso a quem pediu.
-    if (path === "/erp-backup-status") return Response.json(backupJobStatus(readBackupJob(this.ctx.storage)));
+    if (path === "/erp-backup-status") {
+      const job = readBackupJob(this.ctx.storage);
+      // Depois de uma volta à marca o alarme pode ter voltado junto: quem acompanha o progresso o reagenda.
+      if (backupJobActive(job)) {
+        if (!(await this.ctx.storage.get(BACKUP_ACTIVE_KV))) await this.ctx.storage.put(BACKUP_ACTIVE_KV, true);
+        await this.continueBackup();
+      }
+      return Response.json(backupJobStatus(job));
+    }
     if (path === "/erp-backup" || path === "/erp-restore") {
       if (request.method !== "POST") return fail(405, "method_not_allowed", "Use POST.");
       const storage = this.ctx.storage;
@@ -261,7 +278,10 @@ export class ErpHub {
       await storage.put(BACKUP_ACTIVE_KV, true);
       let run;
       try { run = await runBackupJob(storage, this.env.MEDIA, BACKUP_INLINE); }
-      catch { run = { job: readBackupJob(storage), more: true, manifest: undefined }; }
+      catch (error) {
+        if (isRestoreRestart(error)) { await this.continueBackup(1_000); this.restartSoon(); }
+        run = { job: readBackupJob(storage), more: true, manifest: undefined };
+      }
       const current = run.job?.id === job.id ? run.job : readBackupJob(storage);
       const status = backupJobStatus(current);
       if (current?.id === job.id && current.phase === "done") {
@@ -291,6 +311,11 @@ export class ErpHub {
     return fail(404, "not_found", "Rota do ERP desconhecida.");
   }
 
+  /** Reinicia o objeto logo depois de responder: a volta à marca pedida vale na próxima sessão. */
+  private restartSoon() {
+    setTimeout(() => this.ctx.abort("restauração do ERP voltando à marca"), 50);
+  }
+
   /** Trabalho de backup/restauração ativo: o alarme volta logo (nunca é apagado nem adiado). */
   private async continueBackup(delay = BACKUP_CONTINUE_MS) {
     const storage = this.ctx.storage, target = Date.now() + delay;
@@ -306,10 +331,12 @@ export class ErpHub {
     if (migrate(this.ctx.storage).status === "newer") { await this.continueBackup(60_000); return; }
     let more = true;
     try { more = (await runBackupJob(this.ctx.storage, this.env.MEDIA, BACKUP_ALARM)).more; }
-    catch {
+    catch (error) {
       // R2 ou SQLite indisponível: o checkpoint durável fica; tenta de novo.
-      // Sem progresso, a barreira cai pelo prazo e o trabalho é descartado.
+      // Sem progresso, a barreira cai pelo prazo e o trabalho é descartado
+      // (na troca da restauração, volta à marca).
       await this.continueBackup(BACKUP_RETRY_MS);
+      if (isRestoreRestart(error)) this.ctx.abort("restauração do ERP voltando à marca");
       return;
     }
     if (more) await this.continueBackup();

@@ -301,9 +301,12 @@ exclui credenciais e estados OAuth transitórios. Restauração mantém a coleta
 desligada, invalida posses e requer nova validação de conta/credencial. O
 backup lógico do SQLite não substitui a preservação dos objetos XML em R2.
 
-**Até onde o backup lógico cobre.** O backup e a restauração das rotas
-internas são em páginas (formato 2; [ERP-PORTE.md](ERP-PORTE.md), "Backup
-lógico em páginas"): nenhuma tabela é montada inteira na memória do Worker,
+**Até onde o backup lógico cobre.** O backup e a restauração são em páginas
+(formato 2; [ERP-PORTE.md](ERP-PORTE.md), "Backup lógico em páginas"). O
+administrador os faz em Gestão → Sistema → Backup do ERP (rotas
+`/profiles/:p/erp-backup`, com segundo fator para fazer, restaurar e apagar;
+operações `erp.backup.*` para os bots, sensíveis). Nenhuma tabela é montada
+inteira na memória do Worker,
 e essa memória não depende do tamanho do banco (pico de 10 a 15 MB de heap
 acima da base de 16 MiB a 1 GiB de dados, medido localmente, no Node, com o
 heap do processo travado em 48 MB).
@@ -312,10 +315,12 @@ vale só para as funções na memória (`dumpAll`/`readBackup`), usadas por
 testes.
 
 Os números abaixo são da Cloudflare (20/11/2026, instalação de teste, massa
-sintética de uma tabela com linhas de ~1,1 KB). A medição local, no Node e no
+sintética de uma tabela com linhas de ~1,1 KB). A coluna "restauração" é da
+**restauração antiga**, com a troca numa transação só; a restauração em
+etapas desta versão ainda vai ser medida. A medição local, no Node e no
 workerd, não mostra o limite de memória do objeto e dava tempos bem menores.
 
-| dados exportados (bytes) | backup | escritas suspensas | restauração |
+| dados exportados (bytes) | backup | escritas suspensas | restauração antiga (troca numa transação) |
 |---|---|---|---|
 | 65.044.677 (62 MiB) | 27 s, 3 invocações | 24 s | concluída |
 | 129.808.795 (124 MiB) | 62 s, 7 invocações | 59 s | concluída |
@@ -329,21 +334,28 @@ workerd, não mostra o limite de memória do objeto e dava tempos bem menores.
   qualquer falha, sem progresso por 2 min ou ao fim do prazo absoluto de
   60 min. A coleta não roda enquanto ela dura e volta na acordada seguinte.
   O manifesto e o estado do trabalho declaram
-  `logical_restore: { limit_bytes, exceeds_limit }`; quando o backup passa do
-  teto da restauração, o estado traz também um aviso: o backup foi gravado
-  inteiro, mas para voltar a ele use a recuperação no tempo.
+  `logical_restore: { limit_bytes, exceeds_limit }` (o teto agora é o que
+  cabe no disco do objeto); quando o backup passa dele, o estado traz também
+  um aviso: o backup foi gravado inteiro, mas para voltar a ele use a
+  recuperação no tempo.
 - **Restauração:** confere cada parte (tamanho, hash e linhas) e o hash de
-  cada tabela antes de mexer no banco, e troca o conteúdo numa transação só:
-  ou o banco fica igual ao backup, ou fica como estava. O que limita a troca
-  na Cloudflare é a **memória** do objeto durante essa transação, não o tempo
-  de CPU: com a massa acima, 124 MiB restauraram e 248 MiB falharam. Por
-  isso, nesta versão, a restauração lógica cobre até **64 MiB de dados
-  exportados** (67.108.864 bytes), metade do maior que restaurou, já que um
-  banco real tem mais índices. Acima disso recusa começar, com o código
-  `erp_restore_too_large`, sem barreira e sem tocar o banco. Para voltar a um
-  backup maior, use a recuperação no tempo do Durable Object da área (até
-  30 dias). A restauração de backups maiores, em etapas, virá numa próxima
-  versão; o formato do backup não muda.
+  cada tabela antes de mexer no banco (as alterações ficam suspensas, as
+  consultas continuam). Depois troca o conteúdo **em etapas**: transações
+  pequenas (até ~8 MiB de texto), retomáveis, em várias invocações. Durante
+  a troca o ERP da área fica **inteiro parado**, consultas inclusive (503
+  `erp_restore_swapping`, "O ERP desta área está sendo restaurado. Volte em
+  alguns minutos."). Antes da primeira transação o objeto grava a marca da
+  recuperação no tempo; se a troca não puder terminar (erro de dado, erro que
+  se repete, prazo de 60 min da troca, conferência final de linhas, hashes ou
+  FKs), ele volta à marca e reinicia, e o trabalho termina como falho com o
+  banco como estava. Ou o banco fica igual ao backup, ou fica como estava.
+  Na restauração antiga (troca numa transação só) o limite era a **memória**
+  do objeto: 124 MiB restauraram e 248 MiB falharam (tabela acima), e o teto
+  era 64 MiB. Agora o limite é o **disco** do objeto (10 GB): os dados
+  atuais mais o estágio têm de caber; senão recusa começar, com
+  `erp_restore_too_large`, sem barreira e sem tocar o banco. Para voltar a
+  um ponto que não cabe, use a recuperação no tempo do Durable Object da área
+  (até 30 dias).
 
 Os bytes dos XML e dos anexos continuam no armazenamento de arquivos (R2) e
 não entram no backup lógico. O manifesto diz isso e conta as linhas que os
@@ -355,9 +367,9 @@ voo nesta instância (inclusive a que passou do prazo da acordada) ou ainda
 não conferida no banco. Depois de começar, nenhuma gravação, leitura de
 conferência ou exclusão de XML, nem passo do apagamento, inicia até ela
 terminar: a barreira recusa as operações de escrita da coleta e o alarme não
-roda a coleta enquanto há trabalho de backup. Se mesmo assim houver XML em
-voo na hora da troca, ela não começa e a restauração falha sem mudar o
-banco. Um apagamento em curso dentro do backup restaurado é aposentado: a
+roda a coleta enquanto há trabalho de backup; durante a troca, nenhuma rota
+do ERP da área atende. Se mesmo assim houver XML em voo na hora da troca,
+ela não começa e a restauração falha sem mudar o banco. Um apagamento em curso dentro do backup restaurado é aposentado: a
 coleta fica desligada e um novo apagamento exige nova prévia e confirmação;
 as exclusões R2 que ele já tinha enfileirado passam à limpeza de órfãos da
 área, que só apaga objeto que nenhum item restaurado referencia.

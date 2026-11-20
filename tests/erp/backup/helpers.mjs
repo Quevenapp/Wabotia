@@ -2,13 +2,78 @@
 // preguiçoso (como o do objeto: SELECT não materializa a tabela), R2 em
 // memória com o contrato usado (put/get/list/delete) e massa sintética.
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { migrate } from "../../../src/erp/schema/migrate.ts";
 
-/** ctx.storage mínimo: sql.exec (cursor preguiçoso), transactionSync aninhável e databaseSize. */
+let bookmarkDir = null;
+/**
+ * Recuperação no tempo falsa: a marca é uma cópia do banco (VACUUM INTO num
+ * arquivo temporário); a volta, pedida para a próxima sessão, só acontece
+ * quando o teste reinicia o objeto (restartSession), como na plataforma.
+ */
+export function fakeBookmarks(db) {
+  const saved = new Map();
+  let pending = null, next = 0;
+  return {
+    taken: [], restored: [],
+    async getCurrentBookmark() {
+      bookmarkDir ??= mkdtempSync(join(tmpdir(), "wb-bookmark-"));
+      const id = `marca-${++next}`, file = join(bookmarkDir, `${process.pid}-${Date.now()}-${next}-${Math.random().toString(36).slice(2)}.sqlite`);
+      db.exec(`VACUUM INTO '${file}'`);
+      saved.set(id, file);
+      this.taken.push(id);
+      return id;
+    },
+    async onNextSessionRestoreBookmark(id) {
+      if (!saved.has(id)) throw new Error("marca desconhecida");
+      pending = id;
+    },
+    /** Reinício do objeto: aplica a volta pedida, se houver. */
+    restartSession() {
+      if (!pending) return false;
+      restoreInPlace(db, saved.get(pending));
+      this.restored.push(pending);
+      pending = null;
+      return true;
+    },
+  };
+}
+
+/** Troca o conteúdo do banco pelo da cópia, no lugar (as referências ao banco continuam valendo). */
+function restoreInPlace(db, file) {
+  db.exec("PRAGMA foreign_keys=OFF");
+  db.exec(`ATTACH '${file}' AS marca`);
+  try {
+    db.exec("BEGIN");
+    for (const { name } of db.prepare("SELECT name FROM main.sqlite_master WHERE type='trigger'").all()) db.exec(`DROP TRIGGER main."${name}"`);
+    const tables = db.prepare("SELECT name FROM main.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all().map(r => r.name);
+    for (const table of tables) {
+      const cols = db.prepare(`PRAGMA main.table_xinfo("${table}")`).all().filter(c => !c.hidden).map(c => `"${c.name}"`).join(",");
+      db.exec(`DELETE FROM main."${table}"`);
+      db.exec(`INSERT INTO main."${table}"(rowid,${cols}) SELECT rowid,${cols} FROM marca."${table}" ORDER BY rowid`);
+    }
+    if (db.prepare("SELECT 1 FROM main.sqlite_master WHERE name='sqlite_sequence'").get()) {
+      db.exec("DELETE FROM main.sqlite_sequence");
+      db.exec("INSERT INTO main.sqlite_sequence SELECT * FROM marca.sqlite_sequence");
+    }
+    for (const { sql } of db.prepare("SELECT sql FROM marca.sqlite_master WHERE type='trigger' ORDER BY rowid").all()) db.exec(sql);
+    db.exec("COMMIT");
+  } catch (error) { db.exec("ROLLBACK"); throw error; }
+  finally { db.exec("DETACH marca"); db.exec("PRAGMA foreign_keys=ON"); }
+}
+
+/** ctx.storage mínimo: sql.exec (cursor preguiçoso), transactionSync aninhável, databaseSize e a marca falsa. */
 export function lazyStorage(db) {
   let depth = 0;
+  const bookmarks = fakeBookmarks(db);
   return {
+    bookmarks,
+    getCurrentBookmark: () => bookmarks.getCurrentBookmark(),
+    onNextSessionRestoreBookmark: id => bookmarks.onNextSessionRestoreBookmark(id),
+    restartSession: () => bookmarks.restartSession(),
     sql: {
       get databaseSize() { return Number(db.prepare("PRAGMA page_count").get().page_count) * Number(db.prepare("PRAGMA page_size").get().page_size); },
       exec(sql, ...params) {
@@ -131,13 +196,23 @@ export function tableDigest(db, table) {
   return { n: Number(row.n), bytes: Number(row.bytes ?? 0), first: row.first, last: row.last };
 }
 
-/** Roda o trabalho até terminar, como o alarme faria: uma invocação por chamada. */
+/**
+ * Roda o trabalho até terminar, como o alarme faria: uma invocação por
+ * chamada. Se a troca pede a volta à marca, reinicia o objeto (a marca falsa
+ * aplica a volta) e continua, como a plataforma faria.
+ */
 export async function runToEnd(runBackupJob, storage, bucket, options = {}, maxInvocations = 10_000) {
-  let result, invocations = 0;
+  let result, invocations = 0, restarts = 0;
   do {
-    result = await runBackupJob(storage, bucket, options);
+    try { result = await runBackupJob(storage, bucket, options); }
+    catch (error) {
+      if (error?.code !== "erp_restore_restart") throw error;
+      storage.restartSession?.();
+      restarts++;
+      result = { more: true };
+    }
     invocations++;
     assert.ok(invocations < maxInvocations, "o trabalho não terminou");
   } while (result.more);
-  return { ...result, invocations };
+  return { ...result, invocations, restarts };
 }

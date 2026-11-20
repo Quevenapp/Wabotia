@@ -406,14 +406,35 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
 
 ## Backup lógico em páginas
 
-Código: `src/erp/engine/backup-pages.ts` (trabalho), `backup-state.ts`
-(estado, barreira, cerca de escrita), `sha256-state.ts` (hash retomável) e
-`backup-operations.ts` (operações para o catálogo dos bots). Rotas internas do
-objeto `erp:<área>` em `src/erp/hub.ts`: `POST /erp-backup`, `POST
-/erp-restore {prefix}` e `GET /erp-backup-status`. Continuam fora do Worker e
-da API pública. As funções na memória do formato 1 (`dumpAll`, `restoreAll`,
-`readBackup`, `backupToR2` em `dump.ts`) ficam para testes e com o teto de
-16 MiB delas; as rotas não as usam.
+Código: `src/erp/engine/backup-pages.ts` (trabalho), `backup-swap.ts` (troca
+da restauração em etapas), `backup-state.ts` (estado, barreira, cerca de
+escrita, bloqueio da troca), `sha256-state.ts` (hash retomável) e
+`backup-operations.ts` (operações, com o contrato do módulo para o catálogo
+dos bots e o OpenAPI). Rotas internas do objeto `erp:<área>` em
+`src/erp/hub.ts`: `POST /erp-backup`, `POST /erp-restore {prefix}` e `GET
+/erp-backup-status`. As funções na memória do formato 1 (`dumpAll`,
+`restoreAll`, `readBackup`, `backupToR2` em `dump.ts`) ficam para testes e
+com o teto de 16 MiB delas; as rotas não as usam.
+
+**Entrada no produto.** Tela Gestão → Sistema → Backup do ERP
+(`web/admin/ErpBackupPage.tsx`; some com o módulo ERP desligado). Rotas de
+administrador no Worker (`src/erp/api/backup-routes.ts`), em
+`/api/v1/profiles/:p/erp-backup`:
+
+| operação | método e caminho | o que faz |
+|---|---|---|
+| `erp.backup.list` | `GET erp-backup` | backups guardados em `erp-backups/<área>/` (data, tamanho, linhas; lê os metadados do manifesto) e o trabalho atual |
+| `erp.backup.status` | `GET erp-backup/progresso` | progresso (encaminha a `/erp-backup-status`) |
+| `erp.backup.start` | `POST erp-backup` | fazer backup agora (`/erp-backup`) |
+| `erp.backup.restore` | `POST erp-backup/restaurar {prefix, confirmacao}` | restaurar um backup desta área; `confirmacao` é o nome da área (`/erp-restore`) |
+| `erp.backup.delete` | `POST erp-backup/apagar {prefix, confirmado: true}` | apagar um backup guardado (recusa o que está em uso) |
+
+Todas: pessoa da área, administrador, módulo ERP ligado (409
+`module_disabled`). Fazer, restaurar e apagar pedem o segundo fator
+(`requireStepUp`) e são sensíveis no catálogo dos bots (o bot propõe, a
+pessoa confirma); listar e ver o progresso são leitura comum. Pelo bot, só
+com a operação concedida (`erp_operations`) e, nas sensíveis, a proposta
+confirmada.
 
 **Retrato de um instante: barreira de escrita.** O backup abre um trabalho
 (`erp_meta`, chave `wb_backup_job`) e, na mesma transação, a barreira. Da
@@ -459,17 +480,65 @@ publicado no fim e traz:
   Manifesto antigo sem o campo continua válido (a restauração soma
   `text_bytes` das partes).
 
-**Restauração tudo ou nada.** Fase 1 (várias invocações, banco intacto): lê
-cada parte em fluxo, confere tamanho, hash, linhas, cabeçalho e o hash de
-cada tabela, e guarda o texto conferido na `erp_meta` em pedaços de 256 K
-caracteres (estágio); o checkpoint anda junto. Fase 2: a troca é uma
-transação só (`applyRestoreInTransaction`, a mesma da restauração na
-memória): apaga as tabelas, insere as linhas do estágio por `json_each`,
-reaplica as regras de sempre (coleta desligada, credencial não volta,
-apagamentos pendentes aposentados) e confere FKs. Qualquer erro desfaz tudo:
-o banco fica como estava e o estágio é limpo. Não usamos "restaurar ao lado e
-trocar" com tabelas paralelas porque isso dobraria o disco e exigiria renomear
-tabelas com FKs; o estágio guarda só o texto conferido. A restauração recusa
+**Restauração tudo ou nada, em etapas.** Fase 1 (`stage`, várias
+invocações, banco intacto, escritas suspensas e leituras liberadas): lê cada
+parte em fluxo, confere tamanho, hash, linhas, cabeçalho e o hash de cada
+tabela, e guarda o texto conferido na `erp_meta` em pedaços de 256 K
+caracteres (estágio); o checkpoint anda junto. Fase 2 (`swap`, em
+`backup-swap.ts`): a troca em **transações pequenas**, cada uma com no
+máximo ~8 MiB de texto (`RESTORE_SWAP_TXN_BYTES`), apagando e inserindo por
+faixas de `rowid`, com o próximo ponto gravado na mesma transação; várias
+invocações, retomável pelo alarme. Etapas:
+
+1. antes da primeira transação, a marca da recuperação no tempo
+   (`ctx.storage.getCurrentBookmark()`, atrás de `RestoreBookmarks`); na
+   primeira, a conferência de XML no ar, o controle da coleta e os gatilhos
+   guardados (`wb_restore_trigger:*`) e tirados;
+2. `delete`: apaga todas as tabelas, dos filhos para os pais;
+3. `insert`: insere o estágio por `json_each`, dos pais para os filhos,
+   apagando cada pedaço do estágio já gravado (o disco não dobra);
+4. `verify`: relê cada tabela como o backup a exporta e confere linhas e o
+   hash do manifesto; tabela fora do manifesto tem de estar vazia;
+5. `check`: `PRAGMA foreign_key_check` tabela por tabela;
+6. `finish`: as regras de sempre (coleta desligada, credencial não volta,
+   posses soltas, apagamentos pendentes aposentados), os gatilhos de volta e
+   as FKs das tabelas que as regras tocam; só então a área é liberada.
+
+Chaves estrangeiras valem por transação, então a ordem vem do grafo das FKs
+(`restorePlan`, componentes fortemente conexos): tabela que aponta para si
+mesma vai em ordem de `rowid` e, se uma referência cair fora da faixa, a
+mesma transação cresce até fechá-la (até 256 MiB); ciclo entre tabelas com
+coluna anulável fora de CHECK (a tentativa atual de uma origem) entra com a
+coluna nula e é completado numa segunda passada, pela chave primária; ciclo
+com as duas pontas obrigatórias (`erp_sales_history__*`,
+`erp_fiscal_vault__order_*`) vai numa transação só, de propósito.
+
+Durante a troca a área fica **inteira parada para o ERP**: `/erp-rpc`,
+`/erp-bling` e as sondas respondem 503 `erp_restore_swapping` ("O ERP desta
+área está sendo restaurado. Volte em alguns minutos."), leituras inclusive,
+sem depender do prazo da barreira; o alarme só roda o trabalho. Queda no
+meio: ao acordar, continua do último ponto gravado.
+
+**Volta atrás pela recuperação no tempo.** Se a troca não pode terminar
+(erro numa transação, conferência que não bate, prazo de 60 min da troca
+estourado, `RESTORE_SWAP_MAX_STALLS` invocações seguidas sem progresso ou
+esquema novo no meio), o trabalho passa a `rollback`, grava o motivo no R2
+(`erp-backups/<área>/_restauracoes/<trabalho>.json`, porque a volta desfaz
+também o estado do trabalho no objeto), chama
+`onNextSessionRestoreBookmark(marca)` e reinicia o objeto (`ctx.abort`). Ao
+acordar na marca, o trabalho está de novo no começo da troca, encontra o
+registro e termina como falho, com o banco como antes. Se a volta não se
+confirmar (o trabalho acorda ainda em `rollback`), pede de novo; a área
+continua parada, nunca atende meio restaurada. Depois de uma volta o alarme
+pode ter voltado junto: a consulta de progresso (a tela a faz a cada 3 s) o
+reagenda. Sem a API de marca no ambiente, a troca não começa
+(`erp_restore_no_rollback`). O workerd local oferece `getCurrentBookmark`; a
+volta de verdade se confere numa instalação de teste. Nos testes do Node a
+marca é uma cópia do banco (`tests/erp/backup/helpers.mjs`).
+
+Não usamos "restaurar ao lado e trocar" com tabelas paralelas porque isso
+dobraria o disco e exigiria renomear tabelas com FKs; o estágio guarda só o
+texto conferido. A restauração recusa
 começar com I/O de XML de fato no ar (`erp_restore_archive_busy`: marca na
 memória da instância, ou exclusão no R2 ou passo de XML em busca com dono e
 posse viva, com 1 min de margem; a mensagem diz o que ocupa e manda esperar
@@ -480,9 +549,10 @@ esquema. Backups do formato 1 entram pelo mesmo caminho, um arquivo por parte.
 
 **Medição na Cloudflare** (20/11/2026, instalação de teste, massa sintética
 de uma tabela com linhas de ~1,1 KB; "escritas suspensas" é o tempo da
-barreira):
+barreira). A coluna da restauração é da **restauração antiga**, com a troca
+numa transação só; a restauração em etapas ainda vai ser medida:
 
-| dados exportados (bytes de NDJSON) | backup: parede | invocações | escritas suspensas | restauração |
+| dados exportados (bytes de NDJSON) | backup: parede | invocações | escritas suspensas | restauração antiga (troca numa transação) |
 |---|---|---|---|---|
 | 65.044.677 (62 MiB) | 27 s | 3 | 24 s | concluída; 5,5 s de CPU e 15,4 s de parede numa invocação |
 | 129.808.795 (124 MiB) | 62 s | 7 | 59 s | concluída; 43 s de parede, a invocação da troca gastou 8,8 s de CPU |
@@ -490,37 +560,43 @@ barreira):
 | 519.594.139 (496 MiB) | 165 s | 17 | 164 s | **falhou**: `SQLITE_NOMEM` depois de ~6,3 s de CPU; o alarme repetiu e falhou igual até o prazo da barreira (`erp_backup_expired`); o banco ficou como estava |
 
 Na Cloudflare o backup leva cerca de 5 min por GiB de dados exportados, com
-as escritas do ERP da área suspensas nesse tempo. A restauração esbarra na
-**memória** do objeto durante a transação única da troca, não no tempo de
-CPU: o teto fica entre 124 e 248 MiB com essa massa, que é favorável (uma
-tabela, poucos índices).
+as escritas do ERP da área suspensas nesse tempo. A restauração antiga
+esbarrava na **memória** do objeto durante a transação única da troca, não
+no tempo de CPU: o teto ficava entre 124 e 248 MiB com essa massa, que é
+favorável (uma tabela, poucos índices). Foi isso que levou à troca em etapas.
 
 **Medições locais** (`node scripts/erp-backup-measure.mjs`; Node 22, SQLite em
 arquivo, R2 simulado em arquivo, heap do processo travado em 48 MB,
 orçamento de 10 s ou 128 unidades por invocação como no alarme). Servem para
 o formato e a memória do Worker; não mostram o limite de memória do SQLite
-do objeto, nem o tempo da Cloudflare:
+do objeto, nem o tempo da Cloudflare. As colunas de restauração e troca são
+da restauração antiga (troca numa transação só):
 
-| dados | NDJSON (bytes) | partes | backup | invocações | escritas retidas | restauração | invocações | troca | pico de heap acima da base |
+| dados | NDJSON (bytes) | partes | backup | invocações | escritas retidas | restauração antiga | invocações | troca antiga | pico de heap acima da base |
 |---|---|---|---|---|---|---|---|---|---|
 | 16 MiB | 16.746.226 | 46 | 0,6 s | 1 | 0,6 s | 0,5 s | 1 | 0,3 s | 9,6 MB |
 | 256 MiB | 262.726.052 | 280 | 8,9 s | 3 | 8,9 s | 6,7 s | 3 | 3,8 s | 9,7 MB |
 | 1 GiB | 1.051.115.687 | 1.032 | 36,0 s | 9 | 36,0 s | 30,4 s | 9 | 17,9 s | 15,4 MB |
 
 No workerd local (teste `tests/erp-do-backup-pages.test.ts`, 22 MB de
-NDJSON): backup 0,6 s, restauração 0,8 s, troca 0,4 s. Também local, sem o
-limite de memória da Cloudflare. O caminho antigo precisava de ~3,6 × o
-NDJSON + 12 MB de heap.
+NDJSON), restauração antiga: backup 0,6 s, restauração 0,8 s, troca 0,4 s.
+Também local, sem o limite de memória da Cloudflare. O caminho na memória
+precisava de ~3,6 × o NDJSON + 12 MB de heap.
 
-**Tetos reais.** Restauração: nesta versão cobre até 64 MiB de dados
-exportados (67.108.864 bytes, `ERP_RESTORE_SWAP_LIMIT_BYTES`, em bytes UTF-8
-do NDJSON somados por parte), metade do maior tamanho que restaurou na
-medição da Cloudflare, porque um banco real tem mais índices que aquela
-massa. Acima disso recusa começar (`erp_restore_too_large`, 413), antes da
-barreira e sem tocar o banco; para voltar a esse ponto, use a recuperação no
-tempo do objeto da área. Aumentar o limite de CPU não resolve: o que falha é
-a memória da troca. A restauração em etapas, sem transação única, fica para
-uma próxima versão, sem mudar o formato do backup. Backup: sai inteiro em
+**Tetos reais.** Restauração: não há mais teto de memória; o limite é o
+**disco** do objeto (`ERP_OBJECT_DISK_LIMIT_BYTES`, 10 GB). Antes de começar
+(antes da barreira e sem tocar o banco) ela calcula o que precisa:
+`max(banco atual + texto do backup, 1,5 × texto) + 64 MiB` de folga
+(`restoreDiskNeeded`; o estágio fica ao lado dos dados atuais até a troca, e
+os dados restaurados com índices podem passar do texto). Não cabe: recusa
+com `erp_restore_too_large` (413) e a mensagem com os números; para voltar
+a esse ponto, use a recuperação no tempo do objeto da área.
+`ERP_RESTORE_SWAP_LIMIT_BYTES` passa a ser o maior backup que cabe num
+objeto vazio (`(10 GB − 64 MiB) / 1,5`, ~6,6 GB de texto) e é o teto que o
+backup declara em `logical_restore`; `swapLimitBytes` nas opções troca esse
+valor (testes e o arnês de medição), e `swapTxnBytes`, o texto por
+transação da troca. Antes desta versão o teto era 64 MiB (67.108.864 bytes),
+metade do maior que restaurou na medição antiga. Backup: sai inteiro em
 qualquer tamanho (não há mais `erp_backup_too_large` no caminho em páginas) e
 declara `logical_restore` no manifesto e no estado; acima do teto, o estado
 traz o aviso. O teto de 16 MiB do caminho na memória (`dumpAll`/`readBackup`)
@@ -529,5 +605,8 @@ não muda.
 **Para quem porta.** RPC que grava passa pela barreira sem mudança; RPC de
 leitura que grava algo (contador, recibo) é recusado durante o backup. Escrita
 no SQLite do ERP fora de `/erp-rpc` e do alarme precisa conferir
-`backupFence` antes. Tabela nova entra no backup sozinha (lista de
-`dump.ts`).
+`backupFence` antes; leitura ou escrita fora delas precisa conferir
+`restoreSwapping` (a troca deixa o banco pela metade). Tabela nova entra no
+backup sozinha (lista de `dump.ts`) e na ordem da troca pelo grafo das FKs;
+um ciclo novo de FKs sem coluna anulável fora de CHECK vai numa transação
+só (confira o tamanho dele).

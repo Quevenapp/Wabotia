@@ -8,8 +8,9 @@
 // pequenos. As rotas /erp-backup e /erp-restore usam o caminho em páginas
 // (engine/backup-pages.ts, formato 2), que lê, grava e restaura em partes,
 // com barreira de escrita e checkpoint durável, sem o teto de 16 MiB (a
-// restauração tem o teto da troca, ERP_RESTORE_SWAP_LIMIT_BYTES; o backup sai
-// em qualquer tamanho e declara se passa dele).
+// restauração troca em etapas, engine/backup-swap.ts, com as peças daqui, e
+// é limitada pelo disco do objeto; o backup sai em qualquer tamanho e declara
+// se passa do teto).
 import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import { ERP_TABLES } from "../schema/columns.generated.ts";
@@ -245,94 +246,158 @@ export interface RestoreTableSource {
   lines: () => Iterable<string>;
 }
 
+/** Revisões do controle da coleta antes da troca: as regras de depois avançam a partir delas. */
+export type RestoreControl = Record<string, unknown> | null;
+export interface RestoreTrigger { name: string; sql: string }
+
 /**
- * A troca do conteúdo, comum ao caminho na memória (restoreAll) e ao em
- * páginas (backup-pages.ts). Tem de rodar dentro de storage.transactionSync:
- * qualquer erro desfaz tudo (o banco fica como estava). As linhas chegam por
- * iterador, em lotes de até 100 parâmetros; nada exige o retrato inteiro na
- * memória. Devolve o número de linhas inseridas.
+ * Começo da troca: confere I/O de XML no ar, guarda o controle da coleta e
+ * os gatilhos e tira os gatilhos (os de imutabilidade recusariam a carga).
+ * Dentro de uma transação; os gatilhos voltam iguais no fim
+ * (recreateRestoreTriggers).
+ */
+export function beginRestoreSwap(sql: SqlStorage, now: number): { control: RestoreControl; triggers: RestoreTrigger[] } {
+  // Um DELETE/PUT de XML no ar pode terminar depois da troca e apagar um
+  // arquivo que o retrato volta a referenciar: não começar.
+  const busy = archiveIoLiveError(sql, now);
+  if (busy) throw busy;
+  const control = (sql.exec("SELECT revision,authorization_revision,credential_revision,updated_at FROM wb_bling_control WHERE id=1").toArray()[0] as Record<string, unknown> | undefined) ?? null;
+  const triggers = sql.exec("SELECT name, sql FROM sqlite_master WHERE type='trigger'").toArray() as unknown as RestoreTrigger[];
+  for (const g of triggers) sql.exec(`DROP TRIGGER ${q(g.name)}`);
+  return { control, triggers };
+}
+
+export function recreateRestoreTriggers(sql: SqlStorage, triggers: Iterable<RestoreTrigger>) {
+  for (const g of triggers) sql.exec(g.sql);
+}
+
+/**
+ * Grava as linhas de uma tabela do retrato. As linhas vão ao SQLite como um
+ * arranjo JSON (json_each): o parse é do SQLite, não do isolado. Os valores
+ * exportados são texto ou nulo (todo inteiro sai como texto exato), e o
+ * json_extract devolve o mesmo texto que o bind devolveria; a coluna STRICT
+ * converte como antes. Cada linha precisa ter exatamente uma posição por
+ * coluna. Com `nullColumns`, essas colunas entram nulas (a troca em etapas as
+ * preenche depois, com `mode: "fill"`, pela chave primária: são referências
+ * que fecham um ciclo entre tabelas).
+ */
+export class RestoreTableWriter {
+  readonly table: string;
+  readonly cols: string[];
+  rows = 0;
+  private readonly sql: SqlStorage;
+  private batch: string[] = [];
+  private batchChars = 0;
+  private readonly blobs: Set<string>;
+  private readonly fromJson: string;
+  private readonly single: string;
+  private readonly singleOrder: number[];
+  constructor(sql: SqlStorage, table: string, header: string, options: { nullColumns?: readonly string[]; mode?: "insert" | "fill" } = {}) {
+    this.sql = sql;
+    this.table = table;
+    const cols = JSON.parse(header) as string[];
+    if (!Array.isArray(cols) || !cols.length || cols.some(c => typeof c !== "string")) throw new Error(`Cabeçalho inválido no backup: ${table}`);
+    this.cols = cols;
+    const info = sql.exec(`PRAGMA table_info(${q(table)})`).toArray() as { name: string; type: string; pk: number }[];
+    this.blobs = new Set(info.filter(c => c.type === "BLOB").map(c => c.name));
+    const value = (c: string, i: number) => this.blobs.has(c) ? `unhex(json_extract(value,'$[${i}]'))` : `json_extract(value,'$[${i}]')`;
+    const where = `json_type(value)='array' AND json_array_length(value)=${cols.length}`;
+    const nulls = new Set(options.nullColumns ?? []);
+    if (options.mode === "fill") {
+      const keys = info.filter(c => c.pk > 0).sort((a, b) => a.pk - b.pk).map(c => c.name);
+      const fill = cols.filter(c => nulls.has(c));
+      if (!keys.length || !fill.length || keys.some(k => !cols.includes(k))) throw new Error(`Tabela sem chave para completar a troca: ${table}`);
+      const set = fill.map(c => `${q(c)}=${value(c, cols.indexOf(c))}`).join(",");
+      const match = keys.map(k => `${q(table)}.${q(k)}=${value(k, cols.indexOf(k))}`).join(" AND ");
+      this.fromJson = `UPDATE ${q(table)} SET ${set} FROM json_each(?) WHERE ${where} AND ${match}`;
+      this.single = `UPDATE ${q(table)} SET ${fill.map(c => `${q(c)}=${this.blobs.has(c) ? "unhex(?)" : "?"}`).join(",")} WHERE ${keys.map(k => `${q(k)}=${this.blobs.has(k) ? "unhex(?)" : "?"}`).join(" AND ")}`;
+      this.singleOrder = [...fill, ...keys].map(c => cols.indexOf(c));
+    } else {
+      const select = cols.map((c, i) => nulls.has(c) ? "NULL" : value(c, i)).join(",");
+      this.fromJson = `INSERT INTO ${q(table)} (${cols.map(q).join(",")}) SELECT ${select} FROM json_each(?) WHERE ${where} ORDER BY key`;
+      this.single = `INSERT INTO ${q(table)} (${cols.map(q).join(",")}) VALUES (${cols.map(c => nulls.has(c) ? "NULL" : this.blobs.has(c) ? "unhex(?)" : "?").join(",")})`;
+      this.singleOrder = cols.map((c, i) => nulls.has(c) ? -1 : i).filter(i => i >= 0);
+    }
+  }
+  push(line: string) {
+    if (line.length > RESTORE_BATCH_CHARS) {
+      // Linha enorme (perto do limite de 2 MB por linha): valores por bind, um a um.
+      this.flush();
+      const values = JSON.parse(line) as unknown[];
+      if (!Array.isArray(values) || values.length !== this.cols.length) throw new Error(`Linha do backup com colunas a mais ou a menos: ${this.table}`);
+      const changed = this.sql.exec(this.single, ...this.singleOrder.map(i => values[i])).rowsWritten;
+      if (changed < 1) throw new Error(`Linha do backup não confere com a tabela: ${this.table}`);
+      this.rows++;
+      return;
+    }
+    this.batch.push(line);
+    this.batchChars += line.length + 1;
+    if (this.batch.length >= RESTORE_BATCH_ROWS || this.batchChars >= RESTORE_BATCH_CHARS) this.flush();
+  }
+  flush() {
+    if (!this.batch.length) return;
+    this.sql.exec(this.fromJson, "[" + this.batch.join(",") + "]");
+    const changed = Number((this.sql.exec("SELECT changes() AS n").toArray()[0] as { n: unknown }).n);
+    if (changed !== this.batch.length) throw new Error(`Linha do backup com colunas a mais ou a menos: ${this.table}`);
+    this.rows += this.batch.length;
+    this.batch = []; this.batchChars = 0;
+  }
+}
+
+/**
+ * Regras de sempre depois de carregar o retrato: coleta desligada, credencial
+ * não volta, posses soltas e apagamentos pendentes aposentados. Dentro de uma
+ * transação, com os dados já trocados.
+ */
+export function applyRestoreRules(sql: SqlStorage, previousControl: RestoreControl, profile?: string) {
+  // Mesmo um backup fabricado com o hash atual não reativa uma autorização.
+  // As revisões avançam; resultados de I/O anteriores não podem ressuscitá-la.
+  sql.exec("DELETE FROM wb_bling_unit WHERE substr(kind,1,6) = 'oauth_'");
+  if (previousControl) sql.exec("INSERT OR IGNORE INTO wb_bling_control(id,updated_at) VALUES(1,?)", previousControl.updated_at);
+  sql.exec("UPDATE wb_bling_control SET collect_enabled=0,state='off',revision=max(revision,?)+1,authorization_revision=max(authorization_revision,?)+1,credential_revision=max(credential_revision,?)+1,approved_by=NULL,approved_at=NULL,approval_hash=NULL,app_configured=0,credential_status='missing',credential_expires_at=NULL,credential_scopes='[]',next_allowed_at=NULL",
+    Number(previousControl?.revision ?? 0), Number(previousControl?.authorization_revision ?? 0), Number(previousControl?.credential_revision ?? 0));
+  sql.exec("UPDATE wb_bling_unit SET owner=NULL,fence=NULL,lease_until=NULL,phase=CASE WHEN phase IN ('reserved','fetching') THEN 'waiting' ELSE phase END");
+  sql.exec("UPDATE origin_sync__resource_state SET lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL");
+  // Um apagamento em curso no retrato não pode terminar: o controle volta
+  // desligado e a geração dele não confere. Aposentá-lo; um novo apagamento
+  // exige nova prévia e confirmação. As exclusões R2 que ele já enfileirou
+  // passam à limpeza de órfãos desta área, que só apaga objeto que nenhum
+  // item restaurado referencia; de outra área, ficam só registradas.
+  const now = Date.now();
+  sql.exec(`UPDATE wb_bling_unit SET plan=json_set(plan,'$.orphan_work_id',json_extract(plan,'$.purge_work_id')),error_code=NULL,not_before=?,updated_at=?
+    WHERE kind='r2_delete' AND phase NOT IN ('committed','superseded') AND json_extract(plan,'$.purge_work_id') IS NOT NULL
+      AND json_extract(plan,'$.orphan_work_id') IS NULL AND json_extract(plan,'$.profile') IS ?`, now, now, profile ?? null);
+  sql.exec(`UPDATE wb_bling_unit SET phase='superseded',error_code='BLING_GENERATION_RETIRED',finished_at=?,updated_at=?
+    WHERE phase NOT IN ('committed','superseded') AND (kind='purge' OR (kind='r2_delete' AND json_extract(plan,'$.orphan_work_id') IS NULL))`, now, now);
+}
+
+/**
+ * A troca do conteúdo numa transação só, do caminho na memória (restoreAll).
+ * Tem de rodar dentro de storage.transactionSync: qualquer erro desfaz tudo
+ * (o banco fica como estava). As linhas chegam por iterador, em lotes de até
+ * 100 parâmetros. A restauração em páginas (backup-pages.ts) usa as mesmas
+ * peças em várias transações pequenas. Devolve o número de linhas inseridas.
  */
 export function applyRestoreInTransaction(storage: DurableObjectStorage, tables: Iterable<RestoreTableSource>, options: { profile?: string; now?: number } = {}): number {
   const sql = storage.sql;
   let rows = 0;
-  {
-    // Um DELETE/PUT de XML no ar pode terminar depois da troca e apagar um
-    // arquivo que o retrato volta a referenciar: não começar.
-    const busy = archiveIoLiveError(sql, options.now ?? Date.now());
-    if (busy) throw busy;
-    sql.exec("PRAGMA defer_foreign_keys = ON");
-    const previousControl = sql.exec("SELECT revision,authorization_revision,credential_revision,updated_at FROM wb_bling_control WHERE id=1").toArray()[0];
-    const triggers = sql
-      .exec("SELECT name, sql FROM sqlite_master WHERE type='trigger'")
-      .toArray() as { name: string; sql: string }[];
-    for (const g of triggers) sql.exec(`DROP TRIGGER ${q(g.name)}`);
-    // Tabelas que já têm linhas (semeadura) e não estão no backup ficam vazias.
-    for (const table of ALL_TABLES) sql.exec(`DELETE FROM ${q(table)}`);
-    for (const t of tables) {
-      let cols: string[] | null = null, blobs = new Set<string>(), fromJson = "";
-      // As linhas vão ao SQLite como um arranjo JSON (json_each): o parse é do
-      // SQLite, não do isolado. Os valores exportados são texto ou nulo (todo
-      // inteiro sai como texto exato), e o json_extract devolve o mesmo texto
-      // que o bind devolveria; a coluna STRICT converte como antes. Cada linha
-      // precisa ter exatamente uma posição por coluna.
-      let batch: string[] = [], batchChars = 0;
-      const flush = () => {
-        if (!batch.length || !cols) return;
-        sql.exec(fromJson, "[" + batch.join(",") + "]");
-        const inserted = Number((sql.exec("SELECT changes() AS n").toArray()[0] as { n: unknown }).n);
-        if (inserted !== batch.length) throw new Error(`Linha do backup com colunas a mais ou a menos: ${t.table}`);
-        rows += batch.length;
-        batch = []; batchChars = 0;
-      };
-      for (const line of t.lines()) {
-        if (!cols) {
-          cols = JSON.parse(line) as string[];
-          if (!Array.isArray(cols) || !cols.length || cols.some(c => typeof c !== "string")) throw new Error(`Cabeçalho inválido no backup: ${t.table}`);
-          blobs = new Set(columns(sql, t.table).filter((c) => c.blob).map((c) => c.name));
-          const header = cols;
-          const select = header.map((c, i) => blobs.has(c) ? `unhex(json_extract(value,'$[${i}]'))` : `json_extract(value,'$[${i}]')`).join(",");
-          fromJson = `INSERT INTO ${q(t.table)} (${header.map(q).join(",")}) SELECT ${select} FROM json_each(?) WHERE json_type(value)='array' AND json_array_length(value)=${header.length} ORDER BY key`;
-          continue;
-        }
-        if (line.length > RESTORE_BATCH_CHARS) {
-          // Linha enorme (perto do limite de 2 MB por linha): valores por bind, um a um.
-          flush();
-          const values = JSON.parse(line) as unknown[];
-          if (!Array.isArray(values) || values.length !== cols.length) throw new Error(`Linha do backup com colunas a mais ou a menos: ${t.table}`);
-          const header = cols;
-          sql.exec(`INSERT INTO ${q(t.table)} (${header.map(q).join(",")}) VALUES (${header.map(c => blobs.has(c) ? "unhex(?)" : "?").join(",")})`, ...values);
-          rows++;
-          continue;
-        }
-        batch.push(line);
-        batchChars += line.length + 1;
-        if (batch.length >= RESTORE_BATCH_ROWS || batchChars >= RESTORE_BATCH_CHARS) flush();
-      }
-      flush();
+  sql.exec("PRAGMA defer_foreign_keys = ON");
+  const { control, triggers } = beginRestoreSwap(sql, options.now ?? Date.now());
+  // Tabelas que já têm linhas (semeadura) e não estão no backup ficam vazias.
+  for (const table of ALL_TABLES) sql.exec(`DELETE FROM ${q(table)}`);
+  for (const t of tables) {
+    let writer: RestoreTableWriter | null = null;
+    for (const line of t.lines()) {
+      if (!writer) writer = new RestoreTableWriter(sql, t.table, line);
+      else writer.push(line);
     }
-    // Mesmo um backup fabricado com o hash atual não reativa uma autorização.
-    // As revisões avançam; resultados de I/O anteriores não podem ressuscitá-la.
-    sql.exec("DELETE FROM wb_bling_unit WHERE substr(kind,1,6) = 'oauth_'");
-    if (previousControl) sql.exec("INSERT OR IGNORE INTO wb_bling_control(id,updated_at) VALUES(1,?)", previousControl.updated_at);
-    sql.exec("UPDATE wb_bling_control SET collect_enabled=0,state='off',revision=max(revision,?)+1,authorization_revision=max(authorization_revision,?)+1,credential_revision=max(credential_revision,?)+1,approved_by=NULL,approved_at=NULL,approval_hash=NULL,app_configured=0,credential_status='missing',credential_expires_at=NULL,credential_scopes='[]',next_allowed_at=NULL",
-      Number(previousControl?.revision ?? 0), Number(previousControl?.authorization_revision ?? 0), Number(previousControl?.credential_revision ?? 0));
-    sql.exec("UPDATE wb_bling_unit SET owner=NULL,fence=NULL,lease_until=NULL,phase=CASE WHEN phase IN ('reserved','fetching') THEN 'waiting' ELSE phase END");
-    sql.exec("UPDATE origin_sync__resource_state SET lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL");
-    // Um apagamento em curso no retrato não pode terminar: o controle volta
-    // desligado e a geração dele não confere. Aposentá-lo; um novo apagamento
-    // exige nova prévia e confirmação. As exclusões R2 que ele já enfileirou
-    // passam à limpeza de órfãos desta área, que só apaga objeto que nenhum
-    // item restaurado referencia; de outra área, ficam só registradas.
-    const now = Date.now();
-    sql.exec(`UPDATE wb_bling_unit SET plan=json_set(plan,'$.orphan_work_id',json_extract(plan,'$.purge_work_id')),error_code=NULL,not_before=?,updated_at=?
-      WHERE kind='r2_delete' AND phase NOT IN ('committed','superseded') AND json_extract(plan,'$.purge_work_id') IS NOT NULL
-        AND json_extract(plan,'$.orphan_work_id') IS NULL AND json_extract(plan,'$.profile') IS ?`, now, now, options.profile ?? null);
-    sql.exec(`UPDATE wb_bling_unit SET phase='superseded',error_code='BLING_GENERATION_RETIRED',finished_at=?,updated_at=?
-      WHERE phase NOT IN ('committed','superseded') AND (kind='purge' OR (kind='r2_delete' AND json_extract(plan,'$.orphan_work_id') IS NULL))`, now, now);
-    for (const g of triggers) sql.exec(g.sql);
-    const broken = sql.exec("PRAGMA foreign_key_check").toArray();
-    if (broken.length) throw new Error("Backup com FK quebrada: " + JSON.stringify(broken[0]));
+    writer?.flush();
+    rows += writer?.rows ?? 0;
   }
+  applyRestoreRules(sql, control, options.profile);
+  recreateRestoreTriggers(sql, triggers);
+  const broken = sql.exec("PRAGMA foreign_key_check").toArray();
+  if (broken.length) throw new Error("Backup com FK quebrada: " + JSON.stringify(broken[0]));
   return rows;
 }
 

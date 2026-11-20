@@ -16,19 +16,27 @@
 //
 // Restauração: confere cada parte (tamanho, hash, linhas e o hash da tabela)
 // e a guarda na erp_meta em pedaços (estágio), em várias invocações; o banco
-// não muda. A troca é uma transação só (applyRestoreInTransaction): ou o
-// banco fica igual ao backup, ou fica como estava. As escritas ficam suspensas
-// do início ao fim. Backups do formato 1 (um arquivo por tabela) entram pelo
-// mesmo caminho, cada arquivo como uma parte.
+// não muda e as escritas ficam suspensas. Depois, a troca em etapas
+// (engine/backup-swap.ts): transações pequenas, retomáveis, com a área
+// inteira parada para o ERP; antes da primeira, a marca da recuperação no
+// tempo é gravada, e se a troca não terminar o objeto volta a ela. Ou o banco
+// fica igual ao backup, ou fica como estava. Backups do formato 1 (um arquivo
+// por tabela) entram pelo mesmo caminho, cada arquivo como uma parte.
 import { createHash } from "node:crypto";
 import { ERP_DDL_HASH, ERP_DDL_VERSION } from "../schema/ddl.ts";
-import { ALL_TABLES, DUMP_TABLES, ErpRestoreBusyError, archiveIoLiveError, archiveMemoryBusyError, applyRestoreInTransaction, q, tablePlan, type RestoreTableSource } from "./dump.ts";
+import { ALL_TABLES, DUMP_TABLES, ErpRestoreBusyError, archiveIoLiveError, archiveMemoryBusyError, beginRestoreSwap, q, tablePlan } from "./dump.ts";
 import { beginArchiveRestore, endArchiveRestore } from "../bling/xml.ts";
 import { Sha256 } from "./sha256-state.ts";
 import {
   BACKUP_BARRIER_LEASE_MS, BACKUP_BARRIER_MAX_MS, backupJobActive, backupJobStatus, readBackupJob, writeBackupJob,
   type BackupJob, type BackupJobError,
 } from "./backup-state.ts";
+import {
+  CARRY_KEY, ErpRestoreCheckError, ErpRestoreRestartError, RESTORE_SWAP_GROW_MAX_BYTES, RESTORE_SWAP_MAX_STALLS, RESTORE_SWAP_TXN_BYTES, STAGE_KEY, TRIGGER_KEY,
+  initialSwapCursor, isForeignKeyError, prefixEnd, restorePlan, saveTriggers, stageKey, stagePrefix, storageBookmarks, swapUnit,
+  type RestoreBookmarks, type SwapContext, type SwapGroup,
+} from "./backup-swap.ts";
+export { ErpRestoreRestartError, storageBookmarks, type RestoreBookmarks } from "./backup-swap.ts";
 
 /** Texto (NDJSON) por parte. A memória do backup é proporcional a isto, não ao banco. */
 export const BACKUP_PART_TARGET_BYTES = 1024 * 1024;
@@ -37,36 +45,49 @@ export const BACKUP_PAGE_ROWS = 256;
 /** Caracteres por pedaço do estágio da restauração (cabe no limite de 2 MB por linha do SQLite do objeto). */
 export const RESTORE_STAGE_CHUNK_CHARS = 256 * 1024;
 /**
- * Teto real da restauração lógica nesta versão, em bytes UTF-8 do NDJSON
- * (somados por parte). A troca é uma transação só, numa invocação, e o que a
- * limita na Cloudflare é a memória do objeto durante essa transação, não o
- * tempo de CPU: medido em 20/11/2026 com uma tabela de linhas de ~1,1 KB,
- * 124 MiB restauraram e 248 MiB falharam com SQLITE_NOMEM na troca
- * (docs/ERP-PORTE.md). 64 MiB é metade do maior que restaurou, porque um banco
- * real tem mais índices que essa massa. A medição local (Node, workerd) não
- * mostra esse limite. Acima disto a restauração recusa começar (antes da
- * barreira e de qualquer leitura de parte), com código próprio. O backup em
- * páginas não para neste teto: sai inteiro e declara no manifesto e no estado
- * se passa dele (logical_restore).
+ * Disco do objeto da área: o SQLite de um Durable Object vai até 10 GB na
+ * Cloudflare. A restauração em etapas não tem teto de memória; o que a limita
+ * é caber no disco os dados atuais mais o estágio.
  */
-export const ERP_RESTORE_SWAP_LIMIT_BYTES = 64 * 1024 * 1024;
+export const ERP_OBJECT_DISK_LIMIT_BYTES = 10_000_000_000;
+/** Folga do disco além do cálculo (índices, páginas livres, erp_meta). */
+export const ERP_RESTORE_DISK_MARGIN_BYTES = 64 * 1024 * 1024;
+/**
+ * Disco que a restauração precisa: o estágio (o texto do backup) ao lado dos
+ * dados atuais; os dados restaurados ocupam o lugar dos apagados e do estágio
+ * consumido, mas podem passar dele (cerca de 1,5 × o texto com índices).
+ */
+export const restoreDiskNeeded = (databaseBytes: number, textBytes: number) =>
+  Math.max(databaseBytes + textBytes, Math.ceil(textBytes * 1.5)) + ERP_RESTORE_DISK_MARGIN_BYTES;
+/**
+ * Maior backup (bytes UTF-8 do NDJSON, somados por parte) que a restauração
+ * traz de volta num objeto vazio: o que cabe no disco, já com a folga. A
+ * restauração confere, além disto, o disco com os dados atuais da área
+ * (restoreDiskNeeded). Antes (troca numa transação só) eram 64 MiB, pela
+ * memória do objeto. O backup não para neste teto: sai inteiro e declara no
+ * manifesto e no estado se passa dele (logical_restore). `swapLimitBytes`
+ * nas opções troca este valor (testes e o arnês de medição).
+ */
+export const ERP_RESTORE_SWAP_LIMIT_BYTES = Math.floor((ERP_OBJECT_DISK_LIMIT_BYTES - ERP_RESTORE_DISK_MARGIN_BYTES) / 1.5);
 /** Cobertura da restauração lógica desta versão, declarada pelo backup em páginas. */
 export interface LogicalRestoreCoverage { limit_bytes: number; exceeds_limit: boolean }
 export const logicalRestoreCoverage = (textBytes: number, limit = ERP_RESTORE_SWAP_LIMIT_BYTES): LogicalRestoreCoverage =>
   ({ limit_bytes: limit, exceeds_limit: textBytes > limit });
-/** Aviso do backup que passa do teto da restauração lógica desta versão. */
+/** Aviso do backup que passa do que a restauração lógica traz de volta. */
 export const logicalRestoreWarning = (textBytes: number, limit = ERP_RESTORE_SWAP_LIMIT_BYTES) =>
-  `O backup foi gravado inteiro (${textBytes} bytes de dados exportados), mas a restauração lógica desta versão cobre até ${limit} bytes. Para voltar a este ponto, use a recuperação no tempo do objeto da área. A restauração de backups maiores virá numa próxima versão; o formato deste backup não muda.`;
+  `O backup foi gravado inteiro (${textBytes} bytes de dados exportados), mas a restauração lógica cobre até ${limit} bytes, o que cabe no disco do objeto da área. Para voltar a este ponto, use a recuperação no tempo do objeto da área.`;
 const PART_KEY = "wb_backup_part:";
 const TABLE_KEY = "wb_backup_table:";
-const STAGE_KEY = "wb_restore_chunk:";
 const pad = (n: number, width: number) => String(n).padStart(width, "0");
 const partRowKey = (seq: number) => PART_KEY + pad(seq, 7);
 const tableRowKey = (index: number) => TABLE_KEY + pad(index, 5);
-const stagePrefix = (seq: number) => `${STAGE_KEY}${pad(seq, 7)}:`;
-const stageKey = (seq: number, chunk: number) => stagePrefix(seq) + pad(chunk, 6);
-/** Fim lexicográfico de um prefixo de chave (":" + 1 = ";"). */
-const prefixEnd = (prefix: string) => prefix.slice(0, -1) + String.fromCharCode(prefix.charCodeAt(prefix.length - 1) + 1);
+/**
+ * Registro, no R2, de uma troca que voltou à marca: a volta desfaz também o
+ * estado do trabalho no objeto, então o motivo fica fora dele. Ao acordar
+ * depois da volta, o trabalho lê este registro e termina como falho.
+ */
+export const RESTORE_ROLLBACK_DIR = "_restauracoes/";
+export const restoreRollbackKey = (job: Pick<BackupJob, "profile" | "id">) => `erp-backups/${job.profile}/${RESTORE_ROLLBACK_DIR}${job.id}.json`;
 
 /** Linhas da área que apontam para bytes no R2 (XML do acervo e anexos). */
 const ATTACHMENT_TABLES = [
@@ -138,6 +159,13 @@ export interface BackupRunOptions {
    * backup não para nele. Padrão ERP_RESTORE_SWAP_LIMIT_BYTES; nos testes, menor.
    */
   swapLimitBytes?: number;
+  /**
+   * Marca da recuperação no tempo para a troca. Padrão: a do próprio
+   * armazenamento (storageBookmarks); sem marca, a troca não começa.
+   */
+  bookmarks?: RestoreBookmarks | null;
+  /** Texto por transação da troca. Padrão RESTORE_SWAP_TXN_BYTES (8 MiB); nos testes, menor. */
+  swapTxnBytes?: number;
 }
 
 const sha256Text = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
@@ -210,7 +238,7 @@ export function startBackup(storage: DurableObjectStorage, profile: string, opti
 /** Linhas auxiliares de um trabalho anterior (entradas de partes, tabelas, estágio). */
 function clearJobRows(storage: DurableObjectStorage, limit?: number): number {
   let removed = 0;
-  for (const prefix of [PART_KEY, TABLE_KEY, STAGE_KEY]) {
+  for (const prefix of [PART_KEY, TABLE_KEY, STAGE_KEY, TRIGGER_KEY, CARRY_KEY]) {
     const where = "key >= ? AND key < ?";
     if (limit === undefined) {
       removed += storage.sql.exec(`DELETE FROM erp_meta WHERE ${where}`, prefix, prefixEnd(prefix)).rowsWritten;
@@ -293,7 +321,7 @@ async function fetchManifest(bucket: R2Bucket, prefix: string) {
  * que não há I/O de XML de fato no ar (archiveIoLiveError), grava o trabalho e liga a
  * barreira. O banco ainda não muda.
  */
-export async function startRestore(storage: DurableObjectStorage, bucket: R2Bucket, profile: string, prefix: string, options: { now?: () => number; swapLimitBytes?: number } = {}): Promise<BackupJob> {
+export async function startRestore(storage: DurableObjectStorage, bucket: R2Bucket, profile: string, prefix: string, options: { now?: () => number; swapLimitBytes?: number; diskLimitBytes?: number } = {}): Promise<BackupJob> {
   if (typeof prefix !== "string" || !/^erp-backups\/[^?#\\]+\/$/.test(prefix) || prefix.includes("/../") || prefix.includes("/./"))
     throw new ErpBackupJobError("erp_backup_invalid", "Informe o prefixo do backup.", 400);
   const current = readBackupJob(storage);
@@ -306,6 +334,14 @@ export async function startRestore(storage: DurableObjectStorage, bucket: R2Buck
   const limit = options.swapLimitBytes ?? ERP_RESTORE_SWAP_LIMIT_BYTES;
   if (textBytes > limit)
     throw new ErpBackupJobError("erp_restore_too_large", `O backup tem ${textBytes} bytes de dados exportados; esta versão restaura pelo caminho lógico até ${limit} bytes. Acima disso, use a recuperação no tempo do objeto da área. Nada foi alterado.`, 413);
+  // O estágio fica ao lado dos dados atuais até a troca: tem de caber no disco do objeto.
+  const disk = options.diskLimitBytes ?? ERP_OBJECT_DISK_LIMIT_BYTES;
+  const databaseBytes = Number(storage.sql.databaseSize ?? 0);
+  const needed = restoreDiskNeeded(databaseBytes, textBytes);
+  if (needed > disk) {
+    const gb = (bytes: number) => (bytes / 1e9).toLocaleString("pt-BR", { maximumFractionDigits: 2 }) + " GB";
+    throw new ErpBackupJobError("erp_restore_too_large", `A restauração não cabe no disco do ERP desta área: precisa de cerca de ${gb(needed)} (o banco atual tem ${gb(databaseBytes)} e o backup, ${gb(textBytes)} de dados exportados), e o limite é ${gb(disk)}. Nada foi alterado. Para voltar a este ponto, use a recuperação no tempo do objeto da área, ou fale com o suporte.`, 413);
+  }
   const now = (options.now ?? Date.now)();
   // Síncrono do teste ao registro: um XML que começasse entre os dois passaria.
   if (!beginArchiveRestore(profile)) throw archiveMemoryBusyError(profile);
@@ -460,7 +496,10 @@ function buildManifest(storage: DurableObjectStorage, job: BackupJob, restoreLim
 async function publishUnit(storage: DurableObjectStorage, bucket: R2Bucket, job: BackupJob, now: () => number, hooks: BackupHooks, restoreLimit: number) {
   const manifest = buildManifest(storage, job, restoreLimit);
   const coverage = manifest.logical_restore!;
-  await bucket.put(job.prefix + "manifest.json", JSON.stringify(manifest), { httpMetadata: { contentType: "application/json" } });
+  // Os totais vão também nos metadados: a lista de backups da tela lê só o cabeçalho do objeto.
+  await bucket.put(job.prefix + "manifest.json", JSON.stringify(manifest), { httpMetadata: { contentType: "application/json" },
+    customMetadata: { format: "2", created_at: manifest.created_at, rows: String(manifest.totals.rows), bytes: String(manifest.totals.bytes),
+      text_bytes: String(manifest.totals.text_bytes), tables: String(manifest.totals.tables), schema_hash: manifest.schema_hash } });
   await hooks.at?.("publish:after-put", job);
   const done = commit(storage, job, now(), next => {
     next.phase = "done"; next.finished_at = now();
@@ -547,41 +586,102 @@ async function stageUnit(storage: DurableObjectStorage, bucket: R2Bucket, job: B
   });
 }
 
-/** Linhas de uma tabela a partir do estágio: os pedaços em ordem, um de cada vez. */
-function* stagedLines(storage: DurableObjectStorage, seqs: number[]): Generator<string> {
-  for (const [position, seq] of seqs.entries()) {
-    const prefix = stagePrefix(seq), end = prefixEnd(prefix);
-    let last = "", carry = "", skipHeader = position > 0;
-    for (;;) {
-      const row = storage.sql.exec("SELECT key,value FROM erp_meta WHERE key > ? AND key < ? ORDER BY key LIMIT 1", last || prefix, end).toArray()[0] as { key: string; value: string } | undefined;
-      if (!row) break;
-      if (!last && row.key < prefix) break;
-      last = row.key;
-      const text = carry + row.value;
-      const pieces = text.split("\n");
-      carry = pieces.pop()!;
-      for (const line of pieces) {
-        if (skipHeader) { skipHeader = false; continue; }
-        yield line;
-      }
-    }
-    if (carry) throw new Error("Parte do estágio sem quebra de linha final.");
+/**
+ * Começo da troca. Se uma troca anterior deste trabalho voltou à marca (o
+ * registro no R2 diz), o banco já está como antes: o trabalho termina como
+ * falho. Senão: grava a marca da recuperação no tempo e, na primeira
+ * transação da troca, confere XML no ar, guarda o controle da coleta e os
+ * gatilhos e tira os gatilhos. Sem marca disponível a troca não começa.
+ */
+async function startSwap(storage: DurableObjectStorage, bucket: R2Bucket, job: BackupJob, plan: SwapGroup[], now: () => number, hooks: BackupHooks, bookmarks: RestoreBookmarks | null): Promise<BackupJob> {
+  await hooks.at?.("swap:before", job);
+  const marker = await bucket.get(restoreRollbackKey(job));
+  if (marker) {
+    const saved = await marker.json<{ error?: BackupJobError | null }>().catch(() => null);
+    const error = saved?.error ?? { code: "erp_restore_failed", message: "A restauração não terminou." };
+    return fail(storage, job, now(), { code: error.code, message: `${error.message} O ERP desta área voltou ao estado de antes da restauração.`.slice(0, 600) });
   }
+  // Ainda sem troca (banco intacto): sem progresso dentro do prazo, a barreira já caiu.
+  if (now() > job.barrier_until || now() > job.barrier_deadline)
+    return fail(storage, job, now(), { code: "erp_backup_expired", message: "O prazo da barreira de escrita acabou antes do fim; o trabalho foi descartado." });
+  if (!bookmarks)
+    return fail(storage, job, now(), { code: "erp_restore_no_rollback", message: "Este ambiente não oferece a recuperação no tempo do objeto, que a restauração usa para voltar atrás se algo der errado. A troca não começou e nada foi alterado." });
+  const bookmark = await bookmarks.current();
+  // XML em voo nesta instância: a troca não começa (o trabalho falha sem mudar o banco).
+  if (!beginArchiveRestore(job.profile)) return fail(storage, job, now(), { code: "erp_restore_archive_busy", message: archiveMemoryBusyError(job.profile).message });
+  try {
+    return commit(storage, job, now(), next => {
+      storage.sql.exec("PRAGMA defer_foreign_keys = ON");
+      const { control, triggers } = beginRestoreSwap(storage.sql, now());
+      saveTriggers(storage.sql, triggers);
+      const swap = initialSwapCursor(plan, bookmark, now(), control);
+      next.cursor.swap = swap;
+      next.barrier_deadline = Math.max(next.barrier_deadline, swap.deadline);
+    });
+  } catch (error) {
+    // A transação foi desfeita: o banco está como antes.
+    if (error instanceof ErpRestoreBusyError) return fail(storage, job, now(), { code: error.code, message: error.message });
+    throw error;
+  } finally { endArchiveRestore(job.profile); }
 }
 
-/** A troca: uma transação só. Falhou, o banco fica como estava. */
-function swapUnit(storage: DurableObjectStorage, view: ManifestView, job: BackupJob, now: () => number): BackupJob {
-  const seqsByTable = new Map<string, number[]>();
-  for (const part of view.parts) seqsByTable.set(part.table, [...(seqsByTable.get(part.table) ?? []), part.seq]);
-  const sources: RestoreTableSource[] = view.tables.map(t => ({ table: t.table, lines: () => stagedLines(storage, seqsByTable.get(t.table) ?? []) }));
-  return commit(storage, job, now(), next => {
-    const rows = applyRestoreInTransaction(storage, sources, { profile: job.profile, now: now() });
-    if (rows !== job.progress.rows_total) throw new Error("Contagem restaurada não confere com o manifesto.");
-    clearJobRows(storage);
-    next.phase = "done"; next.finished_at = now(); next.barrier_until = 0; next.barrier_released_at = now();
-    next.result = { tables: view.tables.length, rows };
-  });
+/**
+ * Uma transação pequena da troca. Falhou por uma referência da própria
+ * tabela que caiu fora da faixa, a mesma transação cresce até fechá-la; outro
+ * erro sobe e o trabalho volta à marca.
+ */
+function swapStep(storage: DurableObjectStorage, job: BackupJob, view: ManifestView, plan: SwapGroup[], now: () => number, txnBytes = RESTORE_SWAP_TXN_BYTES): { job: BackupJob; finished: boolean } {
+  const partsByTable = new Map<string, number[]>();
+  for (const part of view.parts) partsByTable.set(part.table, [...(partsByTable.get(part.table) ?? []), part.seq]);
+  const ctx: SwapContext = { plan, tables: view.tables, partsByTable, profile: job.profile, budget: txnBytes };
+  // XML em voo nesta instância (não deveria haver: a área está parada): não grava nada.
+  if (!beginArchiveRestore(job.profile)) throw archiveMemoryBusyError(job.profile);
+  try {
+    for (;;) {
+      let finished = false;
+      try {
+        const done = commit(storage, job, now(), next => {
+          finished = swapUnit(storage, next, ctx);
+          if (!finished) return;
+          if (next.cursor.swap!.rows_done !== job.progress.rows_total)
+            throw new ErpRestoreCheckError("A conferência final não bateu: a contagem restaurada difere do manifesto.");
+          const rows = next.cursor.swap!.rows_done;
+          clearJobRows(storage);
+          next.phase = "done"; next.finished_at = now(); next.barrier_until = 0; next.barrier_released_at = now();
+          next.result = { tables: view.tables.length, rows };
+        });
+        return { job: done, finished };
+      } catch (error) {
+        const step = job.cursor.swap?.step;
+        if (isForeignKeyError(error) && (step === "delete" || step === "insert") && ctx.budget < RESTORE_SWAP_GROW_MAX_BYTES) { ctx.budget *= 2; continue; }
+        throw error;
+      }
+    }
+  } finally { endArchiveRestore(job.profile); }
 }
+
+/**
+ * A troca não pode terminar: registra o motivo no R2 (a volta desfaz o
+ * estado do objeto), pede a volta à marca e reinicia o objeto. Ao acordar,
+ * o banco está como antes da troca e o trabalho termina como falho. Se a volta
+ * não se confirmar (o trabalho acorda ainda em "rollback"), pede de novo; a
+ * área continua parada, nunca atende meio restaurada.
+ */
+async function rollbackUnit(storage: DurableObjectStorage, bucket: R2Bucket, job: BackupJob, now: () => number, bookmarks: RestoreBookmarks | null, error: BackupJobError | null): Promise<never> {
+  const marked = commit(storage, job, now(), next => {
+    next.phase = "rollback";
+    if (error) next.error = error;
+    next.cursor.swap!.rollbacks++;
+  }, false);
+  await bucket.put(restoreRollbackKey(marked), JSON.stringify({ job: marked.id, prefix: marked.prefix, error: marked.error, at: now() }),
+    { httpMetadata: { contentType: "application/json" } });
+  if (!bookmarks) throw new ErpBackupJobError("erp_restore_no_rollback", "A restauração não terminou e este ambiente não oferece a recuperação no tempo do objeto. O ERP da área continua parado; fale com o suporte.", 503);
+  await bookmarks.restoreOnNextSession(marked.cursor.swap!.bookmark);
+  throw new ErpRestoreRestartError();
+}
+
+const swapErrorCode = (error: unknown) =>
+  error instanceof ErpRestoreCheckError || error instanceof ErpRestoreBusyError || error instanceof ErpBackupJobError ? error.code : "erp_restore_failed";
 
 /** Limpeza de um trabalho que falhou: partes órfãs no R2 (backup) e estágio (restauração), em lotes. */
 async function cleanupUnit(storage: DurableObjectStorage, bucket: R2Bucket, job: BackupJob, now: () => number, hooks: BackupHooks): Promise<BackupJob> {
@@ -624,27 +724,49 @@ export async function runBackupJob(storage: DurableObjectStorage, bucket: R2Buck
 async function drive(storage: DurableObjectStorage, bucket: R2Bucket, options: BackupRunOptions): Promise<BackupRunResult> {
   const now = options.now ?? Date.now, hooks = options.hooks ?? {};
   const started = now(), budget = options.budgetMs ?? 10_000, maxUnits = options.maxUnits ?? 400;
+  const bookmarks = options.bookmarks === undefined ? storageBookmarks(storage) : options.bookmarks;
   let job = readBackupJob(storage);
   if (!backupJobActive(job)) return { job, more: false };
-  // Contar a invocação não é progresso: não renova a barreira.
-  job = commit(storage, job, now(), next => { next.invocations++; }, false);
+  // Contar a invocação não é progresso: não renova a barreira. Na troca, uma
+  // invocação que começa no mesmo ponto da anterior conta como erro repetido.
+  const before = job.step;
+  job = commit(storage, job, now(), next => {
+    next.invocations++;
+    const swap = next.cursor.swap;
+    if (next.phase === "swap" && swap) {
+      swap.stalls = swap.stall_step === before ? swap.stalls + 1 : 0;
+      swap.stall_step = next.step;
+    }
+  }, false);
   let manifest: PagedManifest | undefined;
   // Restauração: o manifesto é lido uma vez por invocação e tem de ser o mesmo do início.
-  let view: ManifestView | null = null;
+  let view: ManifestView | null = null, plan: SwapGroup[] | null = null;
   const restoreManifest = async (current: BackupJob) => {
     if (view) return view;
     const fetched = await fetchManifest(bucket, current.prefix);
     if (fetched.sha !== current.cursor.manifest_sha) throw new ErpBackupJobError("erp_backup_invalid", "O manifesto do backup mudou durante a restauração.", 422);
     return view = fetched.view;
   };
+  const swapPlan = () => plan ??= restorePlan(storage.sql);
+  // Erro de uma transação da troca (dado, FK, conferência): volta à marca. Outro erro na troca (R2 fora) tenta de novo.
+  let swapError: unknown = null;
   for (let units = 0; backupJobActive(job) && units < maxUnits && now() - started < budget; units++) {
     const at = now();
-    if ((job.phase === "export" || job.phase === "stage" || job.phase === "swap") && (at > job.barrier_until || at > job.barrier_deadline)) {
+    // Troca começada: o banco pode estar incoerente; qualquer saída que não seja o fim volta à marca.
+    const swapping = job.phase === "swap" && !!job.cursor.swap;
+    if (job.phase === "rollback") await rollbackUnit(storage, bucket, job, now, bookmarks, null);
+    if (swapping) {
+      const swap = job.cursor.swap!;
+      const reason: BackupJobError | null = at > swap.deadline ? { code: "erp_restore_expired", message: "A troca da restauração passou do prazo." }
+        : swap.stalls >= RESTORE_SWAP_MAX_STALLS ? { code: "erp_restore_failed", message: "A troca da restauração parou no mesmo ponto em várias tentativas seguidas." }
+          : job.schema_hash !== ERP_DDL_HASH ? { code: "erp_backup_schema_changed", message: "O esquema do ERP mudou durante a restauração." } : null;
+      if (reason) await rollbackUnit(storage, bucket, job, now, bookmarks, reason);
+    } else if ((job.phase === "export" || job.phase === "stage") && (at > job.barrier_until || at > job.barrier_deadline)) {
       // Sem progresso dentro do prazo, a barreira já caiu: o retrato não vale mais.
       job = fail(storage, job, at, { code: "erp_backup_expired", message: "O prazo da barreira de escrita acabou antes do fim; o trabalho foi descartado." });
       continue;
     }
-    if (job.schema_hash !== ERP_DDL_HASH && job.phase !== "cleanup") {
+    if (!swapping && job.schema_hash !== ERP_DDL_HASH && job.phase !== "cleanup") {
       job = fail(storage, job, at, { code: "erp_backup_schema_changed", message: "O esquema do ERP mudou durante o trabalho." });
       continue;
     }
@@ -652,30 +774,27 @@ async function drive(storage: DurableObjectStorage, bucket: R2Bucket, options: B
       if (job.phase === "export") job = await exportUnit(storage, bucket, job, now, hooks);
       else if (job.phase === "publish") ({ job, manifest } = await publishUnit(storage, bucket, job, now, hooks, options.swapLimitBytes ?? ERP_RESTORE_SWAP_LIMIT_BYTES));
       else if (job.phase === "stage") job = await stageUnit(storage, bucket, job, await restoreManifest(job), now, hooks);
+      else if (job.phase === "swap" && !job.cursor.swap) job = await startSwap(storage, bucket, job, swapPlan(), now, hooks, bookmarks);
       else if (job.phase === "swap") {
         const parts = await restoreManifest(job);
-        await hooks.at?.("swap:before", job);
-        // XML em voo nesta instância: a troca não começa (o trabalho falha sem mudar o banco).
-        if (!beginArchiveRestore(job.profile)) { job = fail(storage, job, now(), { code: "erp_restore_archive_busy", message: archiveMemoryBusyError(job.profile).message }); continue; }
-        const profile = job.profile, before = job;
-        try { job = swapUnit(storage, parts, job, now); }
-        catch (error) {
-          // A transação foi desfeita: o banco está como antes. Erro de dado
-          // (FK, restrição, linha) não melhora com nova tentativa.
-          if (error instanceof ErpBackupJobError && error.code === "erp_backup_job_moved") throw error;
-          job = fail(storage, before, now(), { code: error instanceof ErpRestoreBusyError ? error.code : "erp_restore_failed",
-            message: error instanceof Error ? error.message.slice(0, 300) : "Falha na troca da restauração." });
-          continue;
-        } finally { endArchiveRestore(profile); }
-        await hooks.at?.("swap:after", job);
+        let step;
+        try { step = swapStep(storage, job, parts, swapPlan(), now, options.swapTxnBytes); }
+        catch (error) { swapError = error; throw error; }
+        job = step.job;
+        await hooks.at?.(step.finished ? "swap:after" : "swap:unit", job);
       } else if (job.phase === "cleanup") job = await cleanupUnit(storage, bucket, job, now, hooks);
     } catch (error) {
       if (error instanceof ErpBackupJobError && error.code === "erp_backup_job_moved") return { job: readBackupJob(storage), more: true };
-      // Erro de dado (parte, troca, FK): o trabalho falha e limpa. Erro de
-      // infraestrutura (R2 fora, queda): o estado durável fica e a próxima
-      // invocação retoma do checkpoint.
+      if (error instanceof ErpRestoreRestartError) throw error;
+      // Erro de dado (parte, FK): o trabalho falha e limpa; na troca, volta
+      // à marca. Erro de infraestrutura (R2 fora, queda): o estado durável
+      // fica e a próxima invocação retoma do checkpoint.
       const saved = readBackupJob(storage);
       if (!saved || saved.id !== job.id || !backupJobActive(saved)) throw error;
+      if (saved.phase === "swap" && saved.cursor.swap && (error === swapError || error instanceof ErpBackupJobError || error instanceof ErpRestoreBusyError)) {
+        const detail = error instanceof Error ? error.message : String(error);
+        await rollbackUnit(storage, bucket, saved, now, bookmarks, { code: swapErrorCode(error), message: `A troca da restauração falhou: ${detail}`.slice(0, 400) });
+      }
       if (error instanceof ErpBackupJobError || error instanceof ErpRestoreBusyError) {
         job = fail(storage, saved, now(), { code: error.code, message: error.message.slice(0, 300) });
         continue;

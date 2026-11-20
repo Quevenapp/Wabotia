@@ -50,6 +50,24 @@ import { installProfilePort } from "../customer/ports";
 import { createProfilePort } from "../customer/profile";
 installProfilePort(createProfilePort(), { default: true });
 
+// Backup do ERP: a mesma rota HTTP para a tela e para o bot (src/erp/api/backup-routes.ts,
+// servida antes das rotas genéricas); aqui só entra no catálogo de ações.
+import { ERP_BACKUP_OPERATIONS } from "../erp/engine/backup-operations.ts";
+for (const operation of ERP_BACKUP_OPERATIONS) {
+  if (operation.method !== "GET") {
+    registerWriteRoute({ method: operation.method, path: operation.path, op: operation.name });
+    continue;
+  }
+  registerReadRoute({ path: operation.path, handler: async (env, actor, profile) => {
+    const { erpBackupRoute } = await import("../erp/api/backup-routes.ts");
+    const url = new URL(`/api/v1/profiles/${encodeURIComponent(profile)}/${operation.path}`, "https://wabotia.internal");
+    const response = await erpBackupRoute(env, new Request(url), profile, actor);
+    const result = await response.json() as { error?: { code?: string; message?: string } };
+    if (!response.ok) throw new ApiError(response.status, result.error?.code ?? "erp_backup_failed", result.error?.message ?? "O ERP não respondeu sobre o backup. Tente de novo em instantes.");
+    return result;
+  } });
+}
+
 // NF-e comercial usa a mesma rota HTTP para a tela e para a proposta do bot.
 // O recibo durável pertence ao ERP; o Coordinator da área não chama o cofre.
 import { COM1_OPERATIONS } from "../erp/commercial-nfe/metadata.ts";

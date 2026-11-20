@@ -1212,6 +1212,15 @@ app.get("/api/public/erp-bling/:profile/callback", async (c) => {
   const { handleBlingCallback } = await import("./erp/bling/assembly.ts");
   return handleBlingCallback(c.env, c.req.param("profile"), c.req.raw);
 });
+// Backup do ERP (Gestão → Sistema → Backup do ERP e operações erp.backup.*):
+// administrador, módulo ERP ligado, segundo fator para fazer, restaurar e
+// apagar (src/erp/api/backup-routes.ts).
+const erpBackup = async (c: any) => {
+  const { erpBackupRoute } = await import("./erp/api/backup-routes");
+  return erpBackupRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
+};
+app.all("/api/v1/profiles/:profile/erp-backup", erpBackup);
+app.all("/api/v1/profiles/:profile/erp-backup/*", erpBackup);
 // Sondas do ERP para a instalação de teste (só com ERP_PROBES=1 no deploy).
 app.post("/api/v1/profiles/:profile/erp-probe/:name", async (c) => {
   const profile = c.req.param("profile");

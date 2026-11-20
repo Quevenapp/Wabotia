@@ -8,6 +8,7 @@ import { ERP_IMPORT_KINDS, erpRouteRequirement } from "../../erp/parts-requireme
 import { ERP_PART_NAMES, erpRequirement, type ErpModuleId } from "../../erp/parts.ts";
 import { BLING_ADOPTION_OPERATIONS } from "../../erp/bling/adoption-contracts.ts";
 import { erpCommercialOperations } from "./commercial-operations.ts";
+import { ERP_BACKUP_OPERATIONS } from "../../erp/engine/backup-operations.ts";
 
 type Params = { type: "object"; properties: Record<string, any>; required: string[] };
 /** Assunto da operação, na ordem da tela de concessões do bot. */
@@ -19,6 +20,7 @@ export const ERP_BOT_GROUPS: readonly { id: string; title: string }[] = [
   { id: "importacao", title: "Importação por planilha" },
   { id: "atividades", title: "Registro de atividades" },
   { id: "bling", title: "Receber dados do Bling" },
+  { id: "backup", title: "Backup do ERP" },
 ];
 export interface ErpBotOperation {
   id: string; method: string; path: string; summary: string; sensitive: boolean;
@@ -83,6 +85,9 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
       items: { type: "array", maxItems: 1000, items: { type: "object", required: ["row", "lines", "data"], properties: {
         row: { type: "integer", minimum: 2 }, lines: { type: "array", items: { type: "integer", minimum: 2 } }, data: { type: "object" } } } },
     } } },
+  // Backup e restauração do ERP: fazer, restaurar e apagar são sensíveis; progresso e lista são leitura comum.
+  ...ERP_BACKUP_OPERATIONS.map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
+    group: "backup", description: (op as { description?: string }).description ?? op.summary, params: { type: "object" as const, properties: {}, required: [] } })),
 ];
 
 /** Leituras sensíveis que o administrador pode deixar o bot executar sozinho. */

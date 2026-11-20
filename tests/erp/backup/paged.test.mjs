@@ -337,9 +337,9 @@ test("um trabalho por área: backup e restauração não se sobrepõem; o mesmo 
   assert.equal(manifestOf(bucket, first.prefix).format, 2);
 });
 
-test("teto real da restauração: medido na Cloudflare (64 MiB), acima do provisório, e recusado antes da barreira", async () => {
-  // Medição de 20/11/2026: 124 MiB restauraram, 248 MiB falharam com SQLITE_NOMEM; o teto é metade do maior que restaurou.
-  assert.equal(ERP_RESTORE_SWAP_LIMIT_BYTES, 64 * 1024 * 1024);
+test("teto real da restauração: o disco do objeto (a troca em etapas não tem teto de memória), acima do provisório, e recusado antes da barreira", async () => {
+  // Antes, 64 MiB pela memória da troca numa transação só (medição de 20/11/2026); agora, o que cabe no disco de 10 GB com o estágio.
+  assert.equal(ERP_RESTORE_SWAP_LIMIT_BYTES, Math.floor((10_000_000_000 - 64 * 1024 * 1024) / 1.5));
   assert.ok(ERP_RESTORE_SWAP_LIMIT_BYTES >= 4 * ERP_LOGICAL_BACKUP_LIMIT_BYTES);
   const clock = fakeClock(), source = freshDatabase(), bucket = memoryBucket();
   seedRaw(source.db, { rows: 500 });
@@ -377,7 +377,7 @@ test("backup acima do teto da restauração: conclui inteiro, declara exceeds_li
   assert.match(done.job.result.warning, /gravado inteiro/);
   assert.match(done.job.result.warning, new RegExp(`cobre até ${limit} bytes`));
   assert.match(done.job.result.warning, /recuperação no tempo/);
-  assert.match(done.job.result.warning, /próxima versão/);
+  assert.match(done.job.result.warning, /disco do objeto/);
   assert.deepEqual(backupJobStatus(readBackupJob(source.storage), clock.now()).job.result, done.job.result, "quem pede o estado vê o aviso");
   const target = freshDatabase();
   const before = snapshot(target.db, ALL_TABLES);
@@ -385,7 +385,7 @@ test("backup acima do teto da restauração: conclui inteiro, declara exceeds_li
   assert.equal(readBackupJob(target.storage), null, "nenhum trabalho");
   assert.equal(backupFence(target.storage, clock.now()), null, "nenhuma barreira");
   assert.deepEqual(snapshot(target.db, ALL_TABLES), before);
-  // Com o teto padrão (64 MiB) o mesmo backup restaura: o formato não muda com o aviso.
+  // Com o teto padrão o mesmo backup restaura: o formato não muda com o aviso.
   const restored = await restoreInto(target, bucket, done.job.prefix, clock);
   assert.equal(restored.job.phase, "done", JSON.stringify(restored.job.error));
   assert.deepEqual(snapshot(target.db, COMPARED), snapshot(source.db, COMPARED));
@@ -406,14 +406,16 @@ test("manifesto antigo, sem logical_restore, continua valendo para a restauraç�
 });
 
 test("operações novas: nomes estáveis, descrição, categoria sensível (bot propõe, pessoa confirma)", () => {
-  assert.deepEqual(ERP_BACKUP_OPERATIONS.map(o => o.name), ["erp.backup.start", "erp.backup.status", "erp.backup.restore"]);
+  assert.deepEqual(ERP_BACKUP_OPERATIONS.map(o => o.name), ["erp.backup.start", "erp.backup.status", "erp.backup.restore", "erp.backup.list", "erp.backup.delete"]);
   for (const operation of ERP_BACKUP_OPERATIONS) {
-    assert.equal(operation.sensitive, true);
-    assert.deepEqual(operation.bot, { default: "propose", configurable: true });
+    // Consultar o progresso e listar são leitura comum; o resto é sensível.
+    const reading = operation.method === "GET";
+    assert.equal(operation.sensitive, !reading);
+    assert.deepEqual(operation.bot, { default: reading ? "run" : "propose", configurable: true });
     assert.equal(operation.category, "erp_backup");
     assert.ok(operation.summary.length > 10 && operation.description.length > 40);
   }
-  assert.deepEqual(ERP_BACKUP_OPERATIONS.map(o => o.route), ["/erp-backup", "/erp-backup-status", "/erp-restore"]);
+  assert.deepEqual(ERP_BACKUP_OPERATIONS.map(o => o.route), ["/erp-backup", "/erp-backup-status", "/erp-restore", null, null]);
 });
 
 test("memória de pico abaixo de um limite fixo, independente do tamanho (heap de 48 MB, 4 e 48 MiB)", () => {
