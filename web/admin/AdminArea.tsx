@@ -44,6 +44,11 @@ const AreaTemplatesPage = lazyWithRecovery<object>(() =>
   import("./area-templates/AreaTemplatesPage").then((m) => ({ default: m.AreaTemplatesPage })),
 );
 
+// Backup do ERP: só ao abrir a página.
+const ErpBackupPage = lazyWithRecovery<object>(() =>
+  import("./ErpBackupPage").then((m) => ({ default: m.ErpBackupPage })),
+);
+
 const SETUP_FLAG = "wabotia:setup-active";
 const readFlag = () => {
   try {
@@ -141,6 +146,8 @@ function Page({ page }: { page: PageId }) {
       return <AreaTemplatesPage />;
     case "establishment":
       return <EstablishmentPage />;
+    case "erp-backup":
+      return <ErpBackupPage />;
     case "users":
       return <UsersPage />;
     case "applications":

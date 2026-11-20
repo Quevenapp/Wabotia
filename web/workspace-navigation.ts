@@ -8,6 +8,7 @@ import {
   CalendarRange,
   ClipboardList,
   CreditCard,
+  DatabaseBackup,
   Bot,
   CalendarClock,
   CalendarDays,
@@ -78,6 +79,7 @@ export const sections = [
   ["webhook-deliveries", "Eventos para sistemas", Zap],
   ["system", "Sistema e atualizações", Cloud],
   ["modules", "Módulos", Blocks],
+  ["erp-backup", "Backup do ERP", DatabaseBackup],
   ["mensalidades", "Mensalidades", PiggyBank],
   ["mensalidade-settings", "Planos e regras", PiggyBank],
   ["suporte", "Suporte pago", LifeBuoy],
@@ -167,7 +169,7 @@ export const workspaceGroups = [
     id: "system",
     label: "Sistema",
     icon: Cloud,
-    pages: ["establishment", "modules", "area-templates", "system"],
+    pages: ["establishment", "modules", "area-templates", "erp-backup", "system"],
   },
   { id: "people", label: "Pessoas e acessos", icon: Users, pages: ["users"] },
   { id: "setup", label: "Configuração guiada", icon: Zap, pages: ["setup"] },
@@ -190,6 +192,7 @@ const adminPages: ReadonlySet<string> = new Set([
   "webhook-deliveries",
   "system",
   "modules",
+  "erp-backup",
   "agenda-settings",
   "service-orders-settings",
   "payments",
@@ -227,6 +230,8 @@ export const pageModules: Partial<Record<string, string>> = {
   pedidos: "pedido",
   "pedidos-cardapio": "pedido",
   mesas: "mesas",
+  // Backup do ERP (Gestão → Sistema): some com o módulo ERP desligado na área.
+  "erp-backup": "erp",
   // ERP: a área abre com o papel erp:<papel> no acesso da pessoa (o
   // administrador vale erp:admin); a chave do módulo é conferida em web/erp/modules.ts.
   erp: "erp",
@@ -365,6 +370,7 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
   deliveries: "Confira o envio de cada mensagem ao canal.",
   "webhook-deliveries": "Acompanhe os eventos enviados aos seus sistemas.",
   system: "Verifique versões, instale atualizações e mantenha sua instalação.",
+  "erp-backup": "Faça backup do ERP desta área, veja os guardados e restaure um deles.",
   modules:
     "Ligue e desligue as funções desta área, como a fila presencial e os formulários.",
   forms:

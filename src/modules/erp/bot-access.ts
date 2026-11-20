@@ -5,6 +5,7 @@ import { ApiError, json, type Actor, type Env } from "../../types";
 import { COM1_OPERATIONS } from "../../erp/commercial-nfe/metadata.ts";
 import { BLING_OPERATIONS } from "../../erp/bling/schema.ts";
 import { erpCommercialOperations } from "./commercial-operations.ts";
+import { ERP_BACKUP_OPERATIONS } from "../../erp/engine/backup-operations.ts";
 
 /** `sensitive` vem da definição de cada operação: leitura sensível (arquivo de
  * cobrança, registro de atividades) segue o mesmo caminho de proposta da escrita. */
@@ -14,6 +15,7 @@ export const ERP_BOT_OPERATIONS: readonly { id: string; method: string; path: st
   })),
   ...erpCommercialOperations.map(op => ({ id: op.id, method: op.method, path: `erp${op.path}`, summary: op.summary, sensitive: op.sensitive })),
   ...COM1_OPERATIONS.map(op => ({ id: op.name, method: op.method, path: `erp-comercial-nfe/${op.path}`, summary: op.summary, sensitive: op.sensitive })),
+  ...ERP_BACKUP_OPERATIONS.map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive })),
   { id: "erp_preferences_import_jobs", method: "GET", path: "erp/v1/importacoes", summary: "Consultar importações por planilha", sensitive: false },
   { id: "erp_preferences_import_job", method: "GET", path: "erp/v1/importacoes/:id", summary: "Consultar resultado de uma importação", sensitive: false },
   { id: "erp_preferences_import_batch", method: "POST", path: "erp/v1/importacoes/:tipo/lote", summary: "Simular ou confirmar um lote de importação por planilha", sensitive: false },

@@ -29,7 +29,12 @@ export const BACKUP_BARRIER_LEASE_MS = 120_000;
 export const BACKUP_BARRIER_MAX_MS = 60 * 60_000;
 
 export type BackupJobKind = "backup" | "restore";
-export type BackupJobPhase = "export" | "publish" | "stage" | "swap" | "cleanup" | "done" | "failed";
+/**
+ * Restauração: "stage" (confere e guarda o texto; banco intacto), "swap" (a
+ * troca em etapas; a área fica parada para o ERP), "rollback" (a troca não
+ * terminou: o objeto volta à marca gravada antes dela e reinicia).
+ */
+export type BackupJobPhase = "export" | "publish" | "stage" | "swap" | "rollback" | "cleanup" | "done" | "failed";
 
 export interface BackupJobError { code: string; message: string }
 
@@ -47,6 +52,43 @@ export interface BackupJobCursor {
   part_seq: number;
   /** Restauração: SHA-256 do manifesto lido no início (não pode mudar no meio). */
   manifest_sha: string | null;
+  /** Restauração: a troca em etapas, depois de gravada a marca de volta. Ausente antes. */
+  swap?: RestoreSwapCursor | null;
+}
+
+export type RestoreSwapStep = "delete" | "insert" | "verify" | "check" | "finish";
+
+/** Onde a troca em etapas está; cada transação pequena grava o próximo ponto junto. */
+export interface RestoreSwapCursor {
+  /** Marca da recuperação no tempo gravada antes da primeira transação da troca. */
+  bookmark: string;
+  started_at: number;
+  /** Prazo da troca: passou, o objeto volta à marca. */
+  deadline: number;
+  step: RestoreSwapStep;
+  /** Grupo de tabelas (ordem das chaves estrangeiras) e tabela dentro dele. */
+  group: number;
+  table: number;
+  /** Inserção: 0 grava as linhas; 1 completa as referências que fecham um ciclo. */
+  pass: number;
+  /** Inserção: parte da tabela e pedaço do estágio; o resto de linha fica em erp_meta. */
+  part: number;
+  chunk: number;
+  header: string | null;
+  header_seen: boolean;
+  /** Conferência: último rowid lido, linhas e hash retomável da tabela. */
+  after_rowid: string | null;
+  rows: number;
+  sha: Sha256State | null;
+  /** Linhas inseridas até aqui (todas as tabelas). */
+  rows_done: number;
+  /** Controle da coleta antes da troca (as regras do fim avançam as revisões a partir dele). */
+  control: Record<string, unknown> | null;
+  /** Pedidos de volta à marca já feitos (se a volta não se confirmar, o objeto continua parado). */
+  rollbacks: number;
+  /** Erro que se repete: invocações seguidas que começaram no mesmo ponto sem confirmar nada. */
+  stall_step: number | null;
+  stalls: number;
 }
 
 export interface BackupJobProgress {
@@ -87,8 +129,25 @@ export interface BackupJob {
   error: BackupJobError | null;
 }
 
-const ACTIVE: ReadonlySet<BackupJobPhase> = new Set(["export", "publish", "stage", "swap", "cleanup"]);
+const ACTIVE: ReadonlySet<BackupJobPhase> = new Set(["export", "publish", "stage", "swap", "rollback", "cleanup"]);
 export const backupJobActive = (job: BackupJob | null): job is BackupJob => !!job && ACTIVE.has(job.phase);
+
+/**
+ * A troca da restauração está em curso (ou voltando à marca): o banco pode
+ * estar incoerente, e a área fica inteira parada para o ERP, leituras
+ * inclusive, sem depender do prazo da barreira. Só o fim da troca (concluída,
+ * ou de volta à marca) solta.
+ */
+export const restoreSwapping = (job: BackupJob | null): job is BackupJob =>
+  !!job && job.kind === "restore" && (job.phase === "swap" || job.phase === "rollback");
+export const ERP_RESTORE_SWAPPING_CODE = "erp_restore_swapping";
+export const ERP_RESTORE_SWAPPING_MESSAGE = "O ERP desta área está sendo restaurado. Volte em alguns minutos.";
+
+/** Recusa de qualquer pedido ao ERP da área durante a troca. */
+export function restoreSwappingResponse(): Response {
+  const code = ERP_RESTORE_SWAPPING_CODE, message = ERP_RESTORE_SWAPPING_MESSAGE;
+  return Response.json({ code, message, error: { code, message } }, { status: 503, headers: { "Retry-After": "60" } });
+}
 
 /** O trabalho gravado; null em instância sem erp_meta (nunca migrada) ou sem trabalho. */
 export function readBackupJob(storage: DurableObjectStorage): BackupJob | null {
@@ -170,10 +229,17 @@ export function fencedResponse(fence: BackupFence | ErpBackupFencedError): Respo
 export function backupJobStatus(job: BackupJob | null, now = Date.now()) {
   if (!job) return { job: null };
   const p = job.progress;
+  const swap = job.cursor.swap ?? null;
+  // Restauração: conferir e guardar as partes é a primeira metade; a troca, a segunda.
+  const staged = p.parts_total ? p.parts_done / p.parts_total : 0;
+  const swapped = !swap ? 0
+    : swap.step === "delete" ? 0.1
+      : swap.step === "insert" ? 0.1 + 0.6 * (p.rows_total ? Math.min(1, swap.rows_done / p.rows_total) : 1)
+        : swap.step === "verify" ? 0.75 : 0.9;
   const fraction = job.phase === "done" ? 1
     : job.kind === "backup"
       ? (p.rows_total ? p.rows_done / p.rows_total : p.tables_total ? p.tables_done / p.tables_total : 0)
-      : (p.parts_total ? p.parts_done / p.parts_total : 0);
+      : job.phase === "swap" ? 0.5 + swapped / 2 : staged / 2;
   const held = barrierHeld(job, now);
   const releasedAt = job.barrier_released_at ?? (held ? null : job.finished_at ?? job.updated_at);
   return {
@@ -185,6 +251,9 @@ export function backupJobStatus(job: BackupJob | null, now = Date.now()) {
       progress: { ...p },
       barrier: { active: held, until: held ? job.barrier_until : null, deadline: job.barrier_deadline,
         held_ms: releasedAt ? Math.max(0, releasedAt - job.started_at) : Math.max(0, now - job.started_at) },
+      /** A área está parada para o ERP (troca da restauração em curso). */
+      blocked: restoreSwapping(job),
+      swap: swap && { step: swap.step, started_at: swap.started_at, deadline: swap.deadline, rows_done: swap.rows_done },
       external_objects: job.external_objects,
       result: job.result,
       error: job.error,

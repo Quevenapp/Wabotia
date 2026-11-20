@@ -1,4 +1,5 @@
 import { COM1_MODULE_CONTRACT } from "./erp/commercial-nfe/metadata.ts";
+import { ERP_BACKUP_MODULE_CONTRACT } from "./erp/engine/backup-operations.ts";
 import { routerOperations, routerSchemas } from "./router-openapi";
 import { ticketStatuses } from "./protocols";
 import {
@@ -1937,6 +1938,7 @@ export function openapi(origin: string) {
     };
   }
   Object.assign(paths, COM1_MODULE_CONTRACT.openapi.paths);
+  Object.assign(paths, ERP_BACKUP_MODULE_CONTRACT.openapi.paths);
   return {
     openapi: "3.1.0",
     info: {

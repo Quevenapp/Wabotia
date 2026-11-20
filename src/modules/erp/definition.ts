@@ -1,4 +1,5 @@
 import { COM1_MODULE_CONTRACT } from "../../erp/commercial-nfe/metadata.ts";
+import { ERP_BACKUP_MODULE_CONTRACT } from "../../erp/engine/backup-operations.ts";
 import { ERP_MANAGEMENT_ITEMS } from "./panel-menu";
 import type { ModuleDefinition } from "../types";
 import { ERP_PART_DEPENDENCIES, ERP_PART_NAMES, type ErpModuleId } from "../../erp/parts.ts";
@@ -16,7 +17,10 @@ const definition = (id: ErpModuleId, description: string): ModuleDefinition => (
 export const erpModule: ModuleDefinition = {
   ...definition("erp","Clientes, fornecedores, vendedores, funcionários, contatos, dados da empresa e configurações comuns da área."),
   navigation: [{ id: "erp", label: "ERP", place: "rail", admin: false }],
-  routes: ["erp"],
+  // Backup do ERP (src/erp/engine/backup-operations.ts): rotas, operações e categoria sensível no catálogo dos bots.
+  routes: ["erp", ...ERP_BACKUP_MODULE_CONTRACT.routes],
+  operations: ERP_BACKUP_MODULE_CONTRACT.operations,
+  bot: ERP_BACKUP_MODULE_CONTRACT.definition.bot,
   grants: [
     {
       id: "admin",
