@@ -10,11 +10,13 @@ const financeiro = () => import('../../screens/financeiro');
 const cobranca = () => import('../../screens/cobranca');
 const fiscal = () => import('../../screens/fiscal');
 const preferencias = () => import('../../screens/preferencias');
+const receberBling = () => import('../../screens/receber-bling');
 const pick = <M extends Record<K, ComponentType<any>>, K extends string>(load: () => Promise<M>, name: K) => () => load().then(module => ({ default: module[name] as M[K] }));
 
 // Wabotia: primeira visita. O arquivo da tela do endereço começa a baixar quando o ERP monta (web/erp/mount.tsx), junto com o
 // /v1/me, e não só depois dele; o lazy() da rota reaproveita o mesmo import(). Endereço sem tela conhecida não baixa nada.
 const SCREEN_FILES: [RegExp, () => Promise<unknown>][] = [
+  [/^\/receber-bling$/, receberBling],
   [/^\/frente-caixa-empresa$/, pdv],
   [/^\/(cobranca-empresa|cobranca-operacional|retornos-operacionais)$/, cobranca],
   [/^\/(financeiro-empresa|relatorio-vencimentos)$/, financeiro],
@@ -78,3 +80,4 @@ export const FiscalEventList = lazy(pick(fiscal, 'FiscalEventList'));
 export const RealPdv = lazy(pick(pdv, 'RealPdv'));
 
 export const CompanyPreferences = lazy(pick(preferencias, 'CompanyPreferences'));
+export const ReceiveBling = lazy(pick(receberBling, 'ReceiveBling'));

@@ -349,6 +349,12 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     label: "Manutenção de efeitos",
     target: { kind: "ported", to: "/manutencao-efeitos" }, permission: { kind: "erp" },
   },
+  {
+    id: "erp.receive-bling", module: "erp", part: "sistema",
+    group: "sistema", groupLabel: "Sistema", groupOrder: 90, icon: "download", order: 450,
+    label: "Receber dados do Bling",
+    target: { kind: "ported", to: "/receber-bling" }, permission: { kind: "erp" },
+  },
 ];
 
 // Projeção de compatibilidade: conserva forma, rótulos, ordem, colunas e rodapés.
