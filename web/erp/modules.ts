@@ -1,6 +1,6 @@
 import type { ErpPart } from "../../src/modules/erp/panel-menu.ts";
 import { ERP_MODULE_IDS, erpRequirement, type ErpModuleId, type ErpRequirement } from "../../src/erp/parts.ts";
-import { erpDestinationRequirement, erpEntityRequirement, erpOperationRequirement, erpXmlRequirement, erpPreferenceRequirement, ERP_PREFERENCE_DESTINATIONS } from "../../src/erp/parts-requirements.ts";
+import { erpDestinationRequirement, erpEntityRequirement, erpImportRequirement, ERP_IMPORT_KINDS, erpOperationRequirement, erpXmlRequirement, erpPreferenceRequirement, ERP_PREFERENCE_DESTINATIONS } from "../../src/erp/parts-requirements.ts";
 export const ERP_MODULES = ERP_MODULE_IDS;
 export type ErpModule = ErpModuleId;
 export type ErpBlock = ErpModule;
@@ -22,11 +22,6 @@ const containers = new Set([
   "/preferencias/sistema/gerenciador-transicoes", "/preferencias/sistema/relatorios-customizados", "/preferencias/sistema/etiquetas-customizadas",
   "/preferencias/sistema/registro-atividades", "/preferencias/sistema/usuarios", "/preferencias/backup/exportacao",
 ]);
-const importEntities: Readonly<Record<string, string>> = {
-  produtos: "products", composicoes: "compositions", "campos-customizados": "custom_fields", lotes: "lots", contatos: "contacts",
-  "pedidos-compra": "purchase_orders", "movimentacoes-estoque": "stock_movements", "fornecedores-produtos": "product_suppliers",
-  "notas-fiscais": "nfe", "contas-receber": "receivables", "contas-pagar": "payables", vendas: "sales_orders",
-};
 export function requirementOf(target: string) {
   let url: URL;
   try { url = new URL(target, "https://erp.invalid"); } catch { return null; }
@@ -42,8 +37,8 @@ export function requirementOf(target: string) {
   }
   const imported = /^\/preferencias\/importacoes\/([^/]+)$/.exec(url.pathname);
   if (imported) {
-    const requirement = erpEntityRequirement(importEntities[imported[1]]);
-    return requirement ? { owner: requirement.all[0], requirement: imported[1] === "composicoes" ? erpOperationRequirement("composition") : requirement } : null;
+    const kind = ERP_IMPORT_KINDS[imported[1]], requirement = erpImportRequirement(kind);
+    return requirement ? { owner: erpEntityRequirement(kind)!.all[0], requirement } : null;
   }
   if (containers.has(url.pathname)) return erpDestinationRequirement("/preferencias");
   const resolved = erpDestinationRequirement(url);

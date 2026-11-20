@@ -700,6 +700,7 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
   };
   return {
     storageOrigin: services.storageOrigin,
+    importScope: apiUrl,
     async updates(action:UpdateAction,options:UpdateOptions={}){
       if(!['status','check','apply'].includes(action))throw new AccessError(400);
       const requireAdmin=()=>{if(stopped||signingOut||state.phase!=='ready'||state.membership?.role!=='admin')throw new AccessError(state.phase==='ready'?403:401);};

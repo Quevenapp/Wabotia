@@ -2,7 +2,7 @@ import {useEffect,useMemo,useRef,useState,useSyncExternalStore} from 'react';
 import {Link} from 'react-router-dom';
 import {AccessError,type AccessState,type NativeRequestOptions} from '../lib/real-access';
 import {SCREEN_TEMPLATES,readSpreadsheet,SheetReadError,autoMapping,batches,batchPath,reasonText,STATUS_TEXT,ACTION_TEXT,IMPORT_JOBS_SCREEN,importScreen,parseImportBatchResult,plural,
- IMPORT_FILE_ROWS,type ImportKind,type ImportItem,type ImportResult,type ImportJob} from '../lib/spreadsheet-import';
+ IMPORT_FILE_ROWS,spreadsheetImportPlan,type ImportKind,type ImportItem,type ImportResult,type ImportJob} from '../lib/spreadsheet-import';
 import {CSV_TYPE,XLSX_TYPE,downloadFile} from '../lib/spreadsheet-export';
 import type {ContactTypeItem} from '../lib/contact-list-model';
 import {useUnsavedChanges} from '../hooks/useUnsavedChanges';
@@ -10,7 +10,7 @@ import {Icon} from './Icon';
 import './spreadsheet-import.css';
 
 export interface ImportController{getSnapshot:()=>AccessState;subscribe:(fn:()=>void)=>()=>void;system:(path:string,options?:NativeRequestOptions)=>Promise<unknown>;
- catalog?:(path:string,options?:NativeRequestOptions)=>Promise<unknown>}
+ importScope?:string;catalog?:(path:string,options?:NativeRequestOptions)=>Promise<unknown>}
 type Step='file'|'mapping'|'checked'|'done';
 type Batch={id:string;items:ImportItem[];uncertain:boolean};
 const STEPS=['Procurar arquivo','Relacionar colunas','Validar','Conferir registros','Importar'];
@@ -18,7 +18,9 @@ const aborted=(e:unknown)=>e instanceof DOMException&&e.name==='AbortError';
 const admin=(s:AccessState)=>s.phase==='ready'&&s.membership?.role==='admin';
 // An answer that did not arrive (timeout, network, 5xx or "unconfirmed") may have been recorded: only the same command can tell.
 const uncertain=(e:unknown)=>!(e instanceof AccessError)||[0,408,500,502,503,504].includes(e.status);
-const refusal=(e:unknown)=>e instanceof AccessError&&e.status===403?'Somente administradores importam planilhas.'
+const refusal=(e:unknown)=>e instanceof AccessError&&e.code==='module_disabled'?'Esta importação depende de uma parte desligada. Ative as partes necessárias nas configurações da área.'
+ :e instanceof AccessError&&['erp_parts_stale','erp_parts_unavailable'].includes(e.code??'')?'Não foi possível conferir as partes do ERP. Atualize a página e tente novamente.'
+ :e instanceof AccessError&&e.status===403?'Somente administradores importam planilhas.'
  :e instanceof AccessError&&e.status===409?'Esta importação mudou ou já foi concluída. Valide a planilha de novo.':'O servidor recusou o lote; nada dele foi gravado. Confira a planilha e valide de novo.';
 
 /**
@@ -65,8 +67,9 @@ export default function SpreadsheetImport({controller,kind}:{controller:ImportCo
  const validate=async()=>{
   if(!parsed||!file||busy||!allowed)return;
   const gen=generation.current,current=new AbortController();request.current=current;setBusy(true);setError('');
-  const found=new Map<number,ImportResult>(),ready=parsed.items.filter(i=>!i.problems.length),list=batches(ready);
+  const found=new Map<number,ImportResult>(),ready=parsed.items.filter(i=>!i.problems.length);
   try{
+   const list=batches(ready);
    for(let i=0;i<list.length;i++){
     setProgress(`Validando: lote ${i+1} de ${list.length}`);
     const out=await send({command_id:null,job_id:null,file_name:file.name,total_rows:Math.max(1,ready.length),dry_run:true,items:payload(list[i]!)},current.signal,list[i]!,true);
@@ -74,7 +77,7 @@ export default function SpreadsheetImport({controller,kind}:{controller:ImportCo
     for(const r of out.items)found.set(r.row,r);
    }
    setResults(found);setStep('checked');
-  }catch(e){if(may(gen)&&!aborted(e))setError('Não foi possível validar a planilha agora. Tente de novo.');}
+  }catch(e){if(may(gen)&&!aborted(e))setError(e instanceof SheetReadError?e.message:e instanceof AccessError&&([403,409].includes(e.status)||e.code==='erp_parts_unavailable')?refusal(e):'Não foi possível validar a planilha agora. Tente de novo.');}
   finally{if(request.current===current){request.current=null;setBusy(false);setProgress('');}}
  };
  const run=async(list:Batch[])=>{
@@ -103,11 +106,16 @@ export default function SpreadsheetImport({controller,kind}:{controller:ImportCo
    setPending(null);remaining.current=[];setStep('done');
   }finally{if(request.current===current){request.current=null;setBusy(false);setProgress('');}}
  };
- const importValid=()=>{
+ const importValid=async()=>{
   if(!parsed||busy||step!=='checked'||!allowed||pending)return;
   const valid=parsed.items.filter(i=>results.get(i.row)?.status==='valid');if(!valid.length)return;
-  jobRef.current={id:crypto.randomUUID(),total:valid.length};
-  void run(batches(valid).map(items=>({id:crypto.randomUUID(),items,uncertain:false})));
+  const gen=generation.current;setBusy(true);setError('');
+  try{
+   const plan=await spreadsheetImportPlan(controller.importScope??'',actor.current!,kind,file!.name,parsed.items,valid);
+   if(!may(gen))return;
+   jobRef.current={id:plan.id,total:plan.total};await run(plan.batches);
+  }catch(e){if(may(gen))setError(e instanceof SheetReadError?e.message:'Não foi possível preparar a importação. Tente novamente.');}
+  finally{if(may(gen))setBusy(false);}
  };
  if(!allowed)return <section className="real-state-panel"><h1>{template.title}</h1><p>Importar planilhas é uma ferramenta do administrador da empresa.</p></section>;
  const items=parsed?.items??[],missing=parsed?.missing??[],header=file?.cells[0]??[];
@@ -147,7 +155,7 @@ export default function SpreadsheetImport({controller,kind}:{controller:ImportCo
   {pending?.uncertain&&<p><button type="button" className="primary-button" disabled={busy} onClick={()=>void run([pending,...remaining.current])}>Conferir resultado</button></p>}
   {file&&<div className="real-editor-actions">
    <button type="button" className="secondary-button" disabled={busy||missing.length>0||Boolean(pending)||!items.some(i=>!i.problems.length)} onClick={()=>void validate()}>Validar</button>
-   <button type="button" className="primary-button" disabled={busy||step!=='checked'||!valid||Boolean(pending)} onClick={importValid}>Importar {valid?plural(valid,template.noun):''}</button></div>}
+   <button type="button" className="primary-button" disabled={busy||step!=='checked'||!valid||Boolean(pending)} onClick={()=>void importValid()}>Importar {valid?plural(valid,template.noun):''}</button></div>}
   {step==='done'&&job&&<p className="real-success" role="status">Importação concluída: {plural(job.created,['incluído','incluídos'])}, {plural(job.updated,['atualizado','atualizados'])}, {plural(job.unchanged,['sem alteração','sem alteração'])} e {plural(job.invalid,['com erro','com erro'])}. <Link to={IMPORT_JOBS_SCREEN}>Consultar gestão de ações</Link></p>}
   {file&&items.length>0&&<>
    {step!=='mapping'&&<p className="real-help">{plural(items.length,template.noun)} · {plural(problems,['com problema','com problema'])}{step==='checked'?` · ${plural(valid,['válido','válidos'])}`:''}</p>}

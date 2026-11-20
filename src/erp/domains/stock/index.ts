@@ -14,6 +14,7 @@ import "./rpc/purchase-receipts.ts";
 import "./rpc/launch.ts";
 import "./rpc/counts.ts";
 import "./rpc/lots.ts";
+import "./rpc/erp_stock_lot_import.ts";
 import "./rpc/movement-lots.ts";
 export {};
 import "./rpc/transfers.ts";

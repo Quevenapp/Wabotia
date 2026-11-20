@@ -49,6 +49,7 @@ import {
 } from "../web/erp/app/lib/platform-model";
 import { erpStub } from "../src/erp/hub";
 import { emissorBadge, type EmissorView } from "../web/erp/emissor";
+import { batchPath, importScreen, parseImportBatchResult, type ImportKind } from "../web/erp/app/lib/spreadsheet-import";
 
 /** Tela do painel (caminho sem /app/erp) → primeira leitura que ela faz. */
 const SCREENS: [string, string][] = [
@@ -146,6 +147,7 @@ const SCREENS: [string, string][] = [
   ["/cobranca-operacional", "/v1/cobranca-operacional"],
   ["/retornos-operacionais", "/v1/retornos-operacionais"],
   ["/preferencias/backup/exportacao", "/v1/plataforma/exportacoes"],
+  ["/preferencias/sistema/gestao-acoes", "/v1/importacoes"],
   ["/empresa-configuracoes", "/v1/empresa"],
   [
     "/preferencias/sistema/registro-atividades",
@@ -577,6 +579,38 @@ describe("painel do ERP contra a rota real", () => {
       } finally {
         setMotorReal(false);
       }
+    },
+  );
+
+  it(
+    "as telas de planilha não fiscais validam contra o motor e permanecem disponíveis",
+    { timeout: 180_000 },
+    async () => {
+      const { f, send } = await setup(), token = await bearer(f.admin);
+      const order = { number: "SONDA", date: "2026-10-10", contact_name: "Não cadastrado", items: [{ description: "Item", quantity: "1" }] };
+      const title = { contact_name: "Não cadastrado", description: "Sonda", issued_on: "2026-10-10", due_on: "2026-11-10", amount: "1" };
+      const samples: [ImportKind, Record<string, unknown>][] = [
+        ["products", { code: "SONDA", name: "Produto da sonda" }], ["contacts", { name: "Contato da sonda" }],
+        ["product_suppliers", { code: "SONDA", supplier_name: "Não cadastrado" }],
+        ["compositions", { code: "SONDA", stock_type: "virtual", items: [{ code: "ITEM", quantity: "1" }] }],
+        ["custom_fields", { code: "SONDA", items: [{ field: "Campo", value: "Valor" }] }], ["lots", { code: "SONDA", lot: "L-1" }],
+        ["purchase_orders", order], ["sales_orders", order], ["stock_movements", { code: "SONDA", movement: "receipt", quantity: "1" }],
+        ["receivables", title], ["payables", title],
+      ];
+      setMotorReal(true);
+      try {
+        for (const [kind, data] of samples) {
+          const input = { command_id: null, job_id: null, file_name: "sonda.csv", total_rows: 1, dry_run: true, items: [{ row: 2, lines: [2], data }] };
+          const response = await send(new Request(`https://test/api/v1/profiles/${f.profile}/erp${batchPath(kind)}`, {
+            method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(input),
+          }));
+          const body = await response.json();
+          expect(response.status, `${kind}: ${JSON.stringify(body)}`).toBe(200);
+          expect(parseImportBatchResult(body, { ...input, kind }).items).toHaveLength(1);
+          expect(pendingInMotor(importScreen(kind)), kind).toBe(false);
+        }
+        expect(pendingInMotor(importScreen("nfe"))).toBe(true);
+      } finally { setMotorReal(false); }
     },
   );
 
