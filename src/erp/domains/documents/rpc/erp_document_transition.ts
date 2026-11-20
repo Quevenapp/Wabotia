@@ -10,6 +10,7 @@ import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { maintenanceAllows, withErpMaintenance } from "../../../engine/parts-gate.ts";
 import * as finance from "../../finance/public.ts";
+import { deferredCom1Effect, guardCom1Transition } from "../../fiscal/comnfe/effect-policy.ts";
 import { jsonbText } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { nextIdentity } from "../../../engine/sequence.ts";
@@ -93,6 +94,8 @@ function transitionAction(ctx: RpcContext, user: string, kind: string, id: strin
   if (action === "post_stock") {
     if (!ctx.parts.stock) return { action, outcome: "skipped", reason: "part_disabled" };
     if (one(db, `SELECT 1 x FROM "erp_stock__document_posting" WHERE document_id=? AND state='active' LIMIT 1`, id)) return { action, outcome: "skipped" };
+    const deferred = deferredCom1Effect(ctx, id, "stock");
+    if (deferred) return { action, ...deferred };
     const launch = stockLaunchDate(db, id);
     const preview = (erpDocumentStockPreview(ctx, { ...scope(), p_occurred_on: launch, p_reason: reason }) as Data).preview as Data;
     const ignored = Array.isArray(preview?.ignored) ? (preview.ignored as Data[]).map((i) => (i === null || typeof i !== "object" ? null : (i.id ?? null))) : [];
@@ -104,6 +107,8 @@ function transitionAction(ctx: RpcContext, user: string, kind: string, id: strin
   if (action === "post_finance") {
     if (!ctx.parts.finance) return { action, outcome: "skipped", reason: "part_disabled" };
     if (one(db, `SELECT 1 x FROM "erp_finance__document_posting" WHERE document_id=? AND state='active' LIMIT 1`, id)) return { action, outcome: "skipped" };
+    const deferred = deferredCom1Effect(ctx, id, "finance");
+    if (deferred) return { action, ...deferred };
     const d = one(db, 'SELECT * FROM "erp_documents__document" WHERE id=?', id)!;
     const category = documentFinanceCategory(db, d, null);
     if (category === null) raise("22023", "erp_document_transition_category_required");
@@ -157,6 +162,7 @@ export function erpDocumentTransition(ctx: RpcContext, a: RpcArgs) {
   if (!situationAdopted(db, kind)) {
     checkSituationChange(db, user, kind!, row.status as string, status);
     if (status === null || !(transitions()[kind!]?.[String(row.status)] ?? []).includes(status)) raise("22023", "erp_document_transition_invalid");
+    guardCom1Transition(ctx, id, status);
     if (transitionReasonRequired(kind!, row.status as string, status) && len(reason) < 3) raise("22023", "erp_document_reason_required");
     if (fieldText(JSON.parse(String(row.body)), "template") === "true" && status === "approved") raise("22023", "erp_document_template_not_approvable");
     const before = documentDto(ctx, id);
@@ -181,6 +187,7 @@ export function erpDocumentTransition(ctx: RpcContext, a: RpcArgs) {
   const custom = target.default ? null : status;
   if (toBase !== row.status && transitionReasonRequired(kind!, row.status as string, toBase) && len(reason) < 3) raise("22023", "erp_document_reason_required");
   const actions = rule.actions;
+  guardCom1Transition(ctx, id, toBase, actions);
   const fromSituation = situationJson(db, kind, row.status as string, current);
   const before = documentView(ctx, id);
   const effects: Data[] = [];

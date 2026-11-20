@@ -1,0 +1,167 @@
+import { ApiError, type Actor, type Env } from "../../types";
+import { canProfile, isEngineActor } from "../../security";
+import { erpIdentity } from "../../modules/erp/identity";
+import { erpPrivacy, erpPrivacyChanged } from "../../customer/erp-privacy";
+import { containsRestrictedContact, encodeIdentity, IDENTITY_HEADER, type IdentityPort } from "../engine/identity.ts";
+import { ErpError } from "../engine/errors.ts";
+import { erpFetch } from "../hub.ts";
+import { com1ExecutionActor, type Com1Authority } from "../domains/fiscal/comnfe/access.ts";
+import { commercialNfeHttp, type CommercialNfeHttpHandler } from "./slots.ts";
+
+export { COM1_MODULE_CONTRACT, COM1_OPERATIONS, COM1_RESPONSE_SCHEMAS } from "./metadata.ts";
+export type { CommercialNfeOperation } from "./metadata.ts";
+import { COM1_OPERATIONS, type CommercialNfeOperation } from "./metadata.ts";
+
+export interface CommercialNfeHttpContext {
+  env: Env;
+  request: Request;
+  profile: string;
+  actor: Actor;
+  identity: IdentityPort;
+  operation: CommercialNfeOperation;
+  params: { id?: string };
+  input: Record<string, unknown>;
+  authority: Com1Authority;
+  /** Provedor/HTTP/relógio são injetados pelo serviço, nunca pelo corpo público. */
+  fetch?: typeof fetch;
+}
+
+export interface CommercialNfeRouteDependencies {
+  handle?: CommercialNfeHttpHandler;
+  resolveIdentity?: typeof erpIdentity;
+  checkGate?: (env: Env, profile: string, identity: IdentityPort) => Promise<void>;
+  privacy?: typeof erpPrivacy;
+  /** Política previamente conferida por área/bot/pessoa; origem externa nunca é promovida. */
+  authority?: (actor: Actor, profile: string, operation: CommercialNfeOperation) => Promise<Com1Authority>;
+  fetch?: typeof fetch;
+}
+
+async function checkGate(env: Env, profile: string, identity: IdentityPort): Promise<void> {
+  const response = await erpFetch(env, profile, "/erp-rpc/erp_access_gate_v2", {
+    method: "POST", headers: { "Content-Type": "application/json", [IDENTITY_HEADER]: encodeIdentity(identity) },
+    body: JSON.stringify({ p_user_id: identity.actor?.user_id, p_session_id: identity.actor?.session_id }),
+  });
+  if (!response.ok) throw new ApiError(response.status === 409 ? 409 : 403, "fiscal_forbidden", "Seu acesso ao ERP não foi confirmado.");
+  const gate = await response.json() as { open?: boolean; mfa_required?: boolean; mfa_ok?: boolean };
+  if (gate.open !== true || (gate.mfa_required && gate.mfa_ok !== true)) throw new ApiError(403, "fiscal_forbidden", "Confira o horário de acesso e o segundo fator do ERP.");
+}
+
+const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+function invalid(field?: string): never { throw new ApiError(400, "fiscal_invalid_request", `Informe os dados válidos da operação${field ? `: ${field}` : ""}.`); }
+
+function validateInput(operation: CommercialNfeOperation, input: Record<string, unknown>): void {
+  for (const key of operation.required) if (!Object.hasOwn(input, key)) invalid(key);
+  for (const key of ["command_id", "document_id"])
+    if (input[key] !== undefined && (typeof input[key] !== "string" || !UUID.test(input[key] as string))) invalid(key);
+  for (const key of ["expected_version", "expected_document_version", "expected_emission_version", "body_revision"])
+    if (input[key] !== undefined && (!Number.isSafeInteger(input[key]) || Number(input[key]) < 1)) invalid(key);
+  if (input.body_hash !== undefined && (typeof input.body_hash !== "string" || !/^[0-9a-f]{64}$/.test(input.body_hash))) invalid("body_hash");
+  if (operation.name === "com1.list" && !["homologacao", "producao"].includes(String(input.environment))) invalid("environment");
+  if (input.environment !== undefined && !["homologacao", "producao"].includes(String(input.environment))) invalid("environment");
+  for (const key of ["stock_timing", "finance_timing"])
+    if (input[key] !== undefined && !["existing", "on_authorization"].includes(String(input[key]))) invalid(key);
+  for (const key of ["series_homologacao", "series_producao"])
+    if (input[key] != null && (!Number.isSafeInteger(input[key]) || Number(input[key]) < 0 || Number(input[key]) > 889)) invalid(key);
+  for (const key of ["acknowledge_tax_limits", "enable_production", "new_fiscal_version", "physical_return_confirmed"])
+    if (input[key] !== undefined && typeof input[key] !== "boolean") invalid(key);
+  if (operation.name === "com1.effects" && (!["stock", "finance"].includes(String(input.axis)) || !["apply", "apply_skipped", "reconcile", "reverse"].includes(String(input.intent)))) invalid("axis/intent");
+  if (input.justification !== undefined && (typeof input.justification !== "string" || [...input.justification.trim()].length < 15 || [...input.justification.trim()].length > 255)) invalid("justification");
+  if (input.choices !== undefined) {
+    if (!input.choices || typeof input.choices !== "object" || Array.isArray(input.choices)) invalid("choices");
+    const choices = input.choices as Record<string, unknown>;
+    if (Object.keys(choices).some(key => !["nature_id", "presence", "final_consumer", "series"].includes(key)) ||
+      typeof choices.nature_id !== "string" || !UUID.test(choices.nature_id) || typeof choices.presence !== "string" ||
+      typeof choices.final_consumer !== "boolean" || (choices.series != null && (!Number.isSafeInteger(choices.series) || Number(choices.series) < 0 || Number(choices.series) > 889))) invalid("choices");
+  }
+  for (const key of ["page", "per_page"])
+    if (input[key] !== undefined && (!/^\d+$/.test(String(input[key])) || !Number.isSafeInteger(Number(input[key])) || Number(input[key]) < 1 || (key === "per_page" && Number(input[key]) > 100))) invalid(key);
+  if (input.status !== undefined && !["bloqueada", "preparada", "enviando", "processando", "incerta", "rejeitada", "autorizada", "denegada", "cancelada", "arquivada"].includes(String(input.status))) invalid("status");
+}
+
+/** Entrada restrita compartilhada pela tela, aplicações e propostas confirmadas. */
+export async function commercialNfeRoute(env: Env, request: Request, profile: string, actor: Actor, dependencies: CommercialNfeRouteDependencies = {}): Promise<Response> {
+  try {
+    // Identidades externas têm o teto do cliente. Bots da equipe continuam
+    // pelas mesmas operações, com a identidade autenticada e a política acima.
+    if (isEngineActor(actor)) throw new ApiError(403, "fiscal_external_origin_forbidden", "A origem externa não alcança esta operação fiscal.");
+    if (actor.kind === "app" && !actor.scopes.includes("erp:write") &&
+      !(request.method === "GET" && actor.scopes.includes("erp:read")))
+      throw new ApiError(403, "insufficient_scope", "A aplicação precisa do escopo de ERP correspondente à operação.");
+    if (!canProfile(actor, profile)) throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
+    const url = new URL(request.url);
+    const prefix = `/api/v1/profiles/${encodeURIComponent(profile)}/erp-comercial-nfe/`;
+    if (!url.pathname.startsWith(prefix)) throw new ApiError(404, "not_found", "Operação não encontrada.");
+    const path = url.pathname.slice(prefix.length).replace(/\/+$/, "");
+    const operation = COM1_OPERATIONS.find(op => op.method === request.method.toUpperCase() && new RegExp(`^${op.path.replace(":id", "[^/]+")}$`).test(path));
+    if (!operation) throw new ApiError(404, "not_found", "Operação não encontrada.");
+    const id = operation.path.includes(":id") ? path.split("/")[1] : undefined;
+    if (id !== undefined && !UUID.test(id)) invalid("id");
+    const input: Record<string, unknown> = {};
+    if (operation.method === "GET") {
+      for (const [key, value] of url.searchParams) {
+        if (!(operation.query ?? []).includes(key) || Object.hasOwn(input, key)) invalid(key);
+        input[key] = value;
+      }
+    } else {
+      if (url.search) invalid("query");
+      const raw = await request.text();
+      if (raw.length > 32_768) invalid("body");
+      let body: unknown;
+      try { body = JSON.parse(raw); } catch { invalid("body"); }
+      if (!body || typeof body !== "object" || Array.isArray(body)) invalid("body");
+      for (const [key, value] of Object.entries(body)) {
+        if (!operation.body.includes(key)) invalid(key);
+        input[key] = value;
+      }
+    }
+    validateInput(operation, input);
+    const identity = await (dependencies.resolveIdentity ?? erpIdentity)(env, actor, profile, request.method);
+    const person = identity.actor;
+    if (!person) throw new ApiError(403, "fiscal_forbidden", "Seu acesso não permite esta operação fiscal.");
+    const authority: Com1Authority = dependencies.authority ? await dependencies.authority(actor, profile, operation) : {
+      origin: "application", proposed_by: actor.via?.bot_id ?? null,
+      confirmed_by: actor.via?.proposal_id ? person.user_id : null,
+      confirmation_id: actor.via?.proposal_id ?? null,
+    };
+    const action = operation.name === "com1.effects" && input.axis === "finance" ? "effect_finance" : operation.action;
+    identity.actor = com1ExecutionActor(person, action, authority);
+    const allowed = action === "configure" ? ["admin"] : action === "read" ? ["admin", "consulta", "fiscal"]
+      : action === "effect_stock" ? ["admin", "estoque"] : action === "effect_finance" ? ["admin", "financeiro"] : ["admin", "fiscal"];
+    if (!person.erp_role || !allowed.includes(person.erp_role)) throw new ApiError(403, "fiscal_forbidden", "Seu papel não permite esta operação.");
+    if (!identity.parts?.customers || !identity.parts.fiscal || (["prepare", "emit"].includes(action) && (!identity.parts.products || !identity.parts.sales)))
+      throw new ApiError(409, "module_disabled", "Esta operação depende de uma parte desligada.");
+    const privacy = await (dependencies.privacy ?? erpPrivacy)(env, profile);
+    identity.customer_privacy = privacy;
+    await (dependencies.checkGate ?? checkGate)(env, profile, identity);
+    const result = await (dependencies.handle ?? commercialNfeHttp())({ env, request, profile, actor, identity, operation, params: { id }, input, authority, fetch: dependencies.fetch });
+    const currentPrivacy = await (dependencies.privacy ?? erpPrivacy)(env, profile);
+    if (erpPrivacyChanged(privacy, currentPrivacy)) throw new ApiError(403, "erp_customer_restricted", "O acesso cadastral mudou. Atualize a consulta.");
+    if (result.headers.get("Content-Type")?.includes("application/json")) {
+      const data = await result.clone().json();
+      if (containsRestrictedContact(data, new Set(currentPrivacy.restricted_contact_ids))) throw new ApiError(403, "erp_customer_restricted", "O resultado contém cadastro restrito.");
+    }
+    const headers = new Headers(result.headers);
+    headers.set("Cache-Control", "private, no-store"); headers.set("X-Content-Type-Options", "nosniff");
+    // A ferramenta interna pede JSON. Após obter e validar o mesmo arquivo,
+    // devolve um vínculo autenticado à pessoa, sem bytes fiscais para a IA.
+    // A navegação/download continua exigindo sessão, papel e privacidade.
+    if (actor.via && request.headers.get("Accept")?.split(",").some(type => type.trim().split(";")[0] === "application/json") &&
+        result.status === 200 && ["com1.danfe", "com1.xml", "com1.cancel.xml"].includes(operation.name) &&
+        /^(?:application\/pdf|application\/xml)(?:;|$)/i.test(headers.get("Content-Type") ?? "")) {
+      const contentType = headers.get("Content-Type")!.split(";")[0];
+      const rawSize = headers.get("Content-Length"), size = rawSize !== null && /^\d+$/.test(rawSize) ? Number(rawSize) : null;
+      await result.body?.cancel();
+      return Response.json({ emission_id: id, artifact: operation.name === "com1.danfe" ? "danfe" : operation.name === "com1.xml" ? "xml" : "cancellation_xml",
+        content_type: contentType, size_bytes: size, download_url: url.pathname, authentication_required: true },
+        { headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
+    }
+    return new Response(result.body, { status: result.status, headers });
+  } catch (error) {
+    if (error instanceof ApiError) return Response.json({ code: error.code, message: error.message }, { status: error.status, headers: { "Cache-Control": "private, no-store" } });
+    if (error instanceof ErpError) return Response.json({ code: error.message, message: error.message === "com1_not_ready" ? "O fluxo comercial de NF-e ainda não está habilitado." : error.message },
+      { status: error.code === "42501" ? 403 : error.code === "22023" ? 400 : 409, headers: { "Cache-Control": "private, no-store" } });
+    throw error;
+  }
+}
+
+export const erpCommercialNfeRoute = commercialNfeRoute;

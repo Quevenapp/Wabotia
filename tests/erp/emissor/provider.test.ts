@@ -69,7 +69,7 @@ describe("emissão", () => {
     vault.plan.push("lose");
     const r = await provider.emit(ctx, "nfce", nfce(), key);
     expect(r).toMatchObject({ status: "authorized", replayed: true });
-    expect(vault.calls.map((c) => `${c.method} ${c.path}`)).toEqual(["GET /v1/cofre", "POST /v1/nfce", "GET /v1/nfce"]);
+    expect(vault.calls.map((c) => `${c.method} ${c.path}`)).toEqual(["GET /v1/cofre", "GET /v1/nfce", "POST /v1/nfce", "GET /v1/nfce"]);
     expect(notesFor(vault, key.document_id)).toBe(1);
   });
 
@@ -89,7 +89,7 @@ describe("emissão", () => {
     vault.plan.push("drop");
     const r = await provider.emit(ctx, "nfce", nfce(), key);
     expect(r).toMatchObject({ status: "authorized", replayed: false });
-    expect(vault.calls.map((c) => `${c.method} ${c.path}`)).toEqual(["GET /v1/cofre", "POST /v1/nfce", "GET /v1/nfce", "POST /v1/nfce"]);
+    expect(vault.calls.map((c) => `${c.method} ${c.path}`)).toEqual(["GET /v1/cofre", "GET /v1/nfce", "POST /v1/nfce", "GET /v1/nfce", "POST /v1/nfce"]);
     expect(notesFor(vault, key.document_id)).toBe(1);
   });
 
@@ -101,6 +101,7 @@ describe("emissão", () => {
     expect(r).toMatchObject({ status: "authorized", replayed: true });
     expect(vault.calls.map((c) => `${c.method} ${c.path.replace(/nfc_\w+/, "{id}")}`)).toEqual([
       "GET /v1/cofre",
+      "GET /v1/nfce",
       "POST /v1/nfce",
       "POST /v1/nfce/{id}/consultar",
     ]);
@@ -132,7 +133,7 @@ describe("emissão", () => {
     expect(r).toMatchObject({ status: "undetermined", reference: fiscalReference(key) });
     // Versão do cofre conferida uma vez; cada repetição foi precedida de consulta.
     const seq = vault.calls.map((c) => (c.path.endsWith("/consultar") ? "C" : c.method === "POST" ? "P" : "G"));
-    expect(seq.join("")).toBe("GPCPCPC");
+    expect(seq.join("")).toBe("GGPCPCPC");
     expect(vault.emissions.size).toBe(1);
     // Depois o governo responde: a mesma chave fecha a nota.
     vault.sefaz.set(fiscalReference(key), "authorized");
@@ -392,6 +393,31 @@ describe("erros do cofre → erros do ERP", () => {
 });
 
 describe("eventos e leituras", () => {
+  it("CC-e repetida confirmada mantém a sequência sem transformar cancelamento inconclusivo em sucesso", async () => {
+    const { ctx, vault } = await vaultArea();
+    const emitted = await provider.emit(ctx, "nfe", nfe(), doc());
+    let registered: Record<string, unknown> | null = null;
+    ctx.fetch = async (input, init) => {
+      const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+      if (init?.method === "POST" && url.pathname.endsWith("/carta-correcao")) {
+        if (registered) return Response.json({ ...registered, repetido: true });
+        const response = await vault.fetch(input, init);
+        registered = await response.clone().json() as Record<string, unknown>;
+        return response;
+      }
+      if (init?.method === "POST" && url.pathname.endsWith("/cancelar"))
+        return Response.json({ ...registered, situacao: "autorizada", repetido: true });
+      return vault.fetch(input, init);
+    };
+    const text = "Endereço de entrega: Rua das Acácias, 45";
+    expect(await provider.correct(ctx, emitted.provider_ref, text)).toMatchObject({ corrections: 1, event_repeated: false });
+    expect(await provider.correct(ctx, emitted.provider_ref, text)).toMatchObject({ corrections: 1, event_repeated: true });
+    expect(vault.calls.filter(call => call.method === "POST" && call.path.endsWith("/carta-correcao"))).toHaveLength(1);
+    await expect(provider.cancel(ctx, "nfe", emitted.provider_ref, { justification: "Pedido cancelado pelo cliente." }))
+      .rejects.toMatchObject({ code: "fiscal_no_conclusive_answer", details: { emission: { status: "authorized" } } });
+    expect(vault.emissions.get(emitted.provider_ref)?.situacao).toBe("autorizada");
+  });
+
   it("event_repeated traz o repetido do cofre no cancelamento e na carta", async () => {
     const { ctx } = await vaultArea();
     const r = await provider.emit(ctx, "nfe", nfe(), doc());
@@ -468,5 +494,212 @@ describe("emissor não configurado", () => {
   it("com o cofre configurado, o provedor registrado é a NFapi", async () => {
     const { ctx } = await vaultArea();
     expect((await fiscalProviderFor(ctx)).id).toBe("nfapi");
+  });
+});
+
+describe("retomada isolada e evidência fiscal", () => {
+  it("isola a mesma referência nos dois ambientes; assinatura antiga só aceita resultado não ambíguo", async () => {
+    const { ctx, vault } = await vaultArea({ series: [
+      { modelo: "nfe", ambiente: "homologacao", serie: 1, proximoNumero: 1 },
+      { modelo: "nfe", ambiente: "producao", serie: 1, proximoNumero: 1 },
+    ] });
+    const key = doc();
+    const homologation = await provider.emit(ctx, "nfe", { ...nfe(), ambiente: "homologacao" }, key);
+    expect(await provider.find(ctx, "nfe", key)).toMatchObject({ provider_ref: homologation.provider_ref });
+    const production = await provider.emit(ctx, "nfe", { ...nfe(), ambiente: "producao" }, key);
+    expect(production.provider_ref).not.toBe(homologation.provider_ref);
+    for (const result of [homologation, production]) {
+      expect(await provider.find(ctx, "nfe", key, result.environment)).toMatchObject({
+        provider_ref: result.provider_ref, reference: fiscalReference(key), environment: result.environment,
+      });
+      expect(vault.calls.at(-1)!.query).toContain(`ambiente=${result.environment}`);
+    }
+    await expect(provider.find(ctx, "nfe", key)).rejects.toMatchObject({ code: "fiscal_environment_required" });
+  });
+
+  it("busca com envelope inválido não libera revisão nem versão fiscal nova", async () => {
+    const { ctx, vault } = await vaultArea();
+    const key = doc();
+    const known = await provider.emit(ctx, "nfe", nfe(), key);
+    const posts = vault.calls.filter(call => call.method === "POST" && call.path === "/v1/nfe").length;
+    ctx.fetch = async (input, init) => {
+      const response = await vault.fetch(input, init);
+      const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+      return init?.method === "GET" && url.pathname === "/v1/nfe"
+        ? Response.json({})
+        : response;
+    };
+    await expect(provider.find(ctx, "nfe", key, "homologacao")).rejects.toMatchObject({
+      code: "fiscal_provider_unreachable",
+    });
+    for (const version of [1, 2]) {
+      await expect(provider.emit(ctx, "nfe", { ...nfe(), naturezaOperacao: "Venda corrigida" }, { ...key, version }))
+        .rejects.toMatchObject({ code: "fiscal_provider_unreachable" });
+      expect(vault.calls.filter(call => call.method === "POST" && call.path === "/v1/nfe")).toHaveLength(posts);
+    }
+    expect(vault.emissions.size).toBe(1);
+    expect(vault.emissions.get(known.provider_ref)?.situacao).toBe("autorizada");
+    expect(notesFor(vault, key.document_id)).toBe(1);
+  });
+
+  it("busca não aproveita modelo, ambiente, referência ou identificador inválido", async () => {
+    const { ctx, vault } = await vaultArea();
+    const key = doc();
+    await provider.emit(ctx, "nfe", nfe(), key);
+    for (const mutation of [
+      { modelo: "nfce" }, { ambiente: "producao" }, { referencia: "wb.outro.v1" }, { id: "" },
+    ]) {
+      ctx.fetch = async (input, init) => {
+        const response = await vault.fetch(input, init);
+        const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+        if (url.pathname === "/v1/nfe") {
+          // A listagem do contrato envolve as emissões em { nfe: [...] }.
+          const body = await response.json() as { nfe: Record<string, unknown>[] };
+          return Response.json({ ...body, nfe: body.nfe.map(item => ({ ...item, ...mutation })) }, { status: response.status });
+        }
+        return response;
+      };
+      await expect(provider.find(ctx, "nfe", key, "homologacao")).rejects.toMatchObject({
+        code: "fiscal_response_identity_mismatch", details: { emission: null, unverified_emission: mutation },
+      });
+    }
+  });
+
+  it("get e reconcile conferem o identificador e a identidade congelada", async () => {
+    const { ctx, vault } = await vaultArea();
+    const key = doc();
+    const result = await provider.emit(ctx, "nfe", nfe(), key);
+    const identity = { environment: "homologacao" as const, reference: fiscalReference(key) };
+    for (const method of ["get", "reconcile"] as const) {
+      for (const mutation of [{ id: "nfe_outro" }, { referencia: "outra" }, { ambiente: "producao" }, { modelo: "nfce" }]) {
+        ctx.fetch = async (input, init) => {
+          const response = await vault.fetch(input, init);
+          const body = await response.json() as Record<string, unknown>;
+          return Response.json({ ...body, ...mutation }, { status: response.status });
+        };
+        await expect(provider[method](ctx, "nfe", result.provider_ref, identity)).rejects.toMatchObject({
+          code: "fiscal_response_identity_mismatch", details: { emission: null, unverified_emission: mutation },
+        });
+      }
+    }
+  });
+
+  it("erro indefinido não libera corpo corrigido nem versão fiscal nova", async () => {
+    const { ctx, vault } = await vaultArea();
+    const key = doc();
+    vault.plan.push("error");
+    const error = await provider.emit(ctx, "nfe", nfe(), key).catch(error => error);
+    expect(error).toMatchObject({ details: { emission: { status: "error", reference: fiscalReference(key) } } });
+    const posts = () => vault.calls.filter(call => call.method === "POST" && call.path === "/v1/nfe").length;
+    expect(posts()).toBe(1);
+    await expect(provider.emit(ctx, "nfe", { ...nfe(), naturezaOperacao: "Venda corrigida" }, key)).rejects.toMatchObject({
+      code: "fiscal_emission_not_revisable", details: { emission: { status: "error" } },
+    });
+    await expect(provider.emit(ctx, "nfe", nfe(), { ...key, version: 2 })).rejects.toMatchObject({
+      code: "fiscal_previous_version_open", details: { emission: { status: "error" } },
+    });
+    expect(posts()).toBe(1);
+    expect(vault.emissions.size).toBe(1);
+  });
+
+  it("emissão incerta não reenvia um corpo corrigido antes da rejeição conclusiva", async () => {
+    const { ctx, vault } = await vaultArea();
+    const key = doc();
+    vault.sefaz.set(fiscalReference(key), "unknown");
+    vault.plan.push("inconclusive", "inconclusive", "inconclusive");
+    const first = await provider.emit(ctx, "nfe", nfe(), key);
+    const posts = vault.calls.filter(call => call.method === "POST" && call.path === "/v1/nfe").length;
+    const uncertain = await provider.emit(ctx, "nfe", { ...nfe(), naturezaOperacao: "Venda corrigida" }, key);
+    expect(uncertain).toMatchObject({ status: "undetermined", provider_ref: first.provider_ref });
+    expect(vault.calls.filter(call => call.method === "POST" && call.path === "/v1/nfe")).toHaveLength(posts);
+    vault.sefaz.set(fiscalReference(key), "absent");
+    const fixed = await provider.emit(ctx, "nfe", { ...nfe(), naturezaOperacao: "Venda corrigida" }, key);
+    expect(fixed).toMatchObject({ status: "authorized", provider_ref: first.provider_ref, reference: first.reference });
+    expect(vault.emissions.size).toBe(1);
+  });
+
+  it("preserva autorização recebida dentro de 500 mesmo sem listagem posterior", async () => {
+    const { ctx, vault } = await vaultArea();
+    const key = doc();
+    vault.plan.push("internal-evidence");
+    let writes = 0;
+    ctx.fetch = async (input, init) => {
+      if (init?.method === "POST") writes++;
+      else if (writes) throw new TypeError("Listagem indisponível após o aceite.");
+      return vault.fetch(input, init);
+    };
+    expect(await provider.emit(ctx, "nfe", nfe(), key)).toMatchObject({ status: "authorized", reference: fiscalReference(key) });
+    expect(writes).toBe(1);
+    expect(notesFor(vault, key.document_id)).toBe(1);
+  });
+
+  it("NFS-e indefinida retoma pela mesma referência e recusa conteúdo diferente", async () => {
+    const { ctx, vault } = await vaultArea();
+    const key = doc();
+    const body = example(requestExample("POST", "/v1/nfse"));
+    vault.sefaz.set(fiscalReference(key), "unknown");
+    vault.plan.push("inconclusive", "inconclusive", "inconclusive");
+    const first = await provider.emit(ctx, "nfse", body, key);
+    expect(first.status).toBe("undetermined");
+    await expect(provider.emit(ctx, "nfse", { ...body, servico: { ...body.servico, descricao: "Serviço corrigido" } }, key))
+      .rejects.toMatchObject({ code: "fiscal_reference_conflict" });
+    vault.sefaz.set(fiscalReference(key), "authorized");
+    expect(await provider.emit(ctx, "nfse", body, key)).toMatchObject({ status: "authorized", provider_ref: first.provider_ref });
+    expect(vault.emissions.size).toBe(1);
+    expect(vault.calls.some(call => call.path.endsWith("/consultar") || call.path.endsWith("/conferir"))).toBe(false);
+  });
+
+  it("evidência no erro com outro identificador não substitui a nota conhecida", async () => {
+    const { ctx, vault } = await vaultArea();
+    const key = doc();
+    const known = await provider.emit(ctx, "nfe", nfe(), key);
+    ctx.fetch = async (input, init) => {
+      const response = await vault.fetch(input, init);
+      if (init?.method === "POST") {
+        const emission = await response.json() as Record<string, unknown>;
+        return Response.json({ erro: { codigo: "erro_interno", mensagem: "Falha após aceite." }, nfe: { ...emission, id: "nfe_outro" } }, { status: 500 });
+      }
+      return response;
+    };
+    await expect(provider.emit(ctx, "nfe", nfe(), key)).rejects.toMatchObject({
+      code: "fiscal_response_identity_mismatch", details: { emission: null, unverified_emission: { id: "nfe_outro" } },
+    });
+    expect(vault.emissions.has(known.provider_ref)).toBe(true);
+    expect(notesFor(vault, key.document_id)).toBe(1);
+  });
+
+  it("resposta tardia não rebaixa autorização nem troca a chave confirmada", async () => {
+    const { ctx, vault } = await vaultArea();
+    const key = doc();
+    const known = await provider.emit(ctx, "nfe", nfe(), key);
+    for (const mutation of [{ situacao: "rejeitada" }, { chaveAcesso: "9".repeat(44) }]) {
+      ctx.fetch = async (input, init) => {
+        const response = await vault.fetch(input, init);
+        if (init?.method === "POST") {
+          const emission = await response.json() as Record<string, unknown>;
+          return Response.json({ ...emission, ...mutation }, { status: response.status });
+        }
+        return response;
+      };
+      const error = await provider.emit(ctx, "nfe", nfe(), key).catch(error => error);
+      expect(error).toBeInstanceOf(FiscalError);
+      expect(error.details.unverified_emission).toMatchObject(mutation);
+      if ("situacao" in mutation)
+        expect(error).toMatchObject({ code: "fiscal_response_state_conflict", details: { emission: { status: "authorized" } } });
+      else expect(error).toMatchObject({ code: "fiscal_response_identity_mismatch", details: { emission: null } });
+    }
+    expect(vault.emissions.get(known.provider_ref)?.chaveAcesso).toBe(known.access_key);
+    expect(notesFor(vault, key.document_id)).toBe(1);
+  });
+
+  it("cancelamento inconclusivo preserva evidência e nunca se torna cancelado", async () => {
+    const { ctx, vault } = await vaultArea();
+    const key = doc();
+    const emitted = await provider.emit(ctx, "nfe", nfe(), key);
+    vault.plan.push("inconclusive", "inconclusive");
+    await expect(provider.cancel(ctx, "nfe", emitted.provider_ref, { justification: "Pedido cancelado pelo cliente." }, {
+      environment: emitted.environment, reference: fiscalReference(key),
+    })).rejects.toMatchObject({ code: "fiscal_no_conclusive_answer", details: { emission: { status: "authorized" } } });
+    expect(vault.emissions.get(emitted.provider_ref)?.situacao).toBe("autorizada");
   });
 });

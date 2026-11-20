@@ -8,11 +8,18 @@ guarda o endereço do cofre e uma chave de API e chama a API.
 O ERP fala só com `FiscalProvider` (`provider.ts`). A NFapi é a única
 implementação (`nfapi-provider.ts`).
 
+O ciclo comercial de NF-e modelo 55 está ligado em
+`src/erp/commercial-nfe/` e `src/erp/domains/fiscal/comnfe/`: pedido salvo,
+preparação no servidor, emissão/retomada, DANFE/XML do cofre, efeitos únicos
+de estoque/financeiro e cancelamento mínimo. Consulte
+[operação e homologação](../../../docs/COMERCIAL-NFE.md). A prova automatizada
+usa cofre simulado; não constitui homologação SEFAZ nem ensaio de instalação.
+
 ## Arquivos
 
 | Arquivo | O quê |
 |---|---|
-| `contract/openapi.json` | Cópia versionada do contrato do cofre (OpenAPI 3.1). Hoje: **0.11.0**, de `Quevenapp/nfapi` `vault/docs/openapi.json` no canal estável (`cofre-estavel`), commit `8925551`. |
+| `contract/openapi.json` | Cópia versionada autorizada do contrato do cofre (OpenAPI 3.1), **0.12.0**. |
 | `contract/types.generated.ts` | Tipos gerados do contrato. Não edite. |
 | `contract/generate.ts` | Gerador de tipos, lista de operações e comparação de contratos. Funções puras. |
 | `contract/sync.mjs` | Copia um contrato novo e regera os tipos. |
@@ -20,12 +27,17 @@ implementação (`nfapi-provider.ts`).
 | `provider.ts` | `FiscalProvider`, `FiscalError`, registro e `fiscal_provider_not_configured`. |
 | `nfapi-provider.ts` | Provedor NFapi: referência, repetição, idempotência e mapa de erros. |
 | `config.ts` | Endereço e chave (segredo do núcleo), "Testar conexão" e alertas. |
-| `routes.ts` | Rotas `/erp-emissor` para o painel. Ainda não montadas: veja "Montagem". |
+| `routes.ts` | Rotas `/erp-emissor` de configuração e arquivos, montadas em `src/index.ts`. O ciclo comercial usa `/erp-comercial-nfe`. |
 | `index.ts` | O que o domínio Fiscal importa: `fiscalProviderFor(ctx)`. |
 
-Testes: `tests/erp/emissor/` (vitest). Rode `npx vitest run tests/erp/emissor`.
+Testes de transporte: `tests/erp/emissor/*.test.ts` e
+`tests/com1-*.test.ts` (Vitest, executor externo).
+Nesta máquina não se executam Vitest nem Wrangler. Os testes de motor são
+executáveis por `node --no-warnings --test 'tests/erp/**/*.test.mjs'`.
 O cofre simulado (`fake-vault.ts`) parte dos exemplos do contrato e confere
-cada pedido e cada resposta contra os schemas do contrato.
+cada pedido e cada resposta contra os schemas do contrato. Sua totalização
+de itens (`fake-vault-value.ts`) também tem prova Node: usa os valores
+declarados, inclusive após rejeição corrigida, sem simular regras tributárias.
 
 ## Atualizar o contrato
 
@@ -53,8 +65,9 @@ homologação.
 
 Em produção, o **Testar conexão** lê `GET /v1/openapi.json` do cofre instalado
 e compara com a cópia versionada:
-- versão de outra minor (antes da 1.0) gera o alerta `contract_incompatible`;
-- diferença de forma na mesma minor gera o alerta `contract_changed`.
+- major diferente ou versão ilegível gera `contract_incompatible`;
+- a mesma major é compatível, inclusive minor mais nova; diferenças de forma
+  geram `contract_changed`, e mínimos por recurso continuam exigidos.
 
 ## Cofre antigo: versão mínima por operação
 
@@ -78,6 +91,7 @@ Cada operação mais nova tem a versão mínima em `OPERATION_MIN_VERSION`
 | 0.8.0 | DANFE, DANFE NFC-e e logotipo |
 | 0.9.0 | NF-e recebidas, manifestação e distribuição |
 | 0.11.0 | Notas emitidas com filtros, relatório do período e exportação dos XML |
+| 0.12.0 | `POST /v1/nfse/{id}/conferir`: conferir cancelamento externo e arquivar seu evento; não é recuperação genérica de emissão incerta |
 
 Sem custo no caminho feliz: só quando uma dessas chamadas falha como falha
 uma rota inexistente (404, 405, 400 ou resposta fora do contrato) o cliente
@@ -91,8 +105,8 @@ No painel, o "Testar conexão" trata como compatível o cofre a partir de
 por recurso (`FEATURE_MIN_VERSION` em `config.ts`), com a versão instalada e
 a mínima: emissão na 0.8.0 (nível `error`), documentos impressos e
 contingência na 0.8.0, notas recebidas na 0.9.0. Abaixo de 0.8.0 aparece
-também `contract_incompatible`. Cofre de minor **mais nova** que a fixada continua
-`contract_incompatible`, até o Wabotia acompanhar.
+também `contract_incompatible`. Minor mais nova da mesma major é compatível;
+uma major diferente ou versão ilegível é recusada.
 
 ## Trava de evento fiscal em teste
 
@@ -329,14 +343,14 @@ Estado (`GET`, `PUT`, `DELETE`, `POST /test`):
   "provider": "nfapi",
   "url": "https://nfapi-cofre.sua-conta.workers.dev",
   "api_key_set": true,
-  "contract_version": "0.3.2",          // contrato com que o Wabotia foi escrito
+  "contract_version": "0.12.0",         // contrato versionado pelo Wabotia
   "updated": 1763300000000,
   "checked": {                          // null antes do primeiro teste
     "at": 1763300000000, "ok": true,
     "error": null,                      // {code, message, provider_code} quando ok=false
     "state": {
-      "provider": "nfapi", "version": "0.3.2",
-      "update": { "published": "0.3.3", "pending": true },
+      "provider": "nfapi", "version": "0.12.0",
+      "update": { "published": "0.12.0", "pending": false },
       "certificate": { "holder": "EMPRESA LTDA", "document": {"kind": "cnpj", "id": "…"},
                        "valid_until": "2027-03-01T03:00:00.000Z",
                        "days_left": 104 },  // recalculado a cada leitura
@@ -346,7 +360,7 @@ Estado (`GET`, `PUT`, `DELETE`, `POST /test`):
     },
     "series": [{ "kind": "nfce", "environment": "homologacao", "series": 1,
                  "next_number": 1, "description": null, "cnpj": "…" }],
-    "contract": { "pinned": "0.3.2", "vault": "0.3.2", "compatible": true, "differences": [] }
+    "contract": { "pinned": "0.12.0", "vault": "0.12.0", "compatible": true, "differences": [] }
   },
   "alerts": [ { "code": "vault_outdated", "level": "warning", "message": "…", "version": "0.3.3" } ]
 }
@@ -363,8 +377,8 @@ Os textos dos alertas já vêm prontos para mostrar.
 | `certificate_missing` | error | O cofre não tem A1. |
 | `certificate_expired` | error | O certificado venceu (`days_left` negativo). |
 | `certificate_expiring` | warning | "Certificado vence em N dias" (`days_left` ≤ 30). |
-| `contract_incompatible` | error | O contrato do cofre é de outra minor. |
-| `contract_changed` | info | O contrato do cofre tem diferenças na mesma minor. |
+| `contract_incompatible` | error | Major incompatível, versão ilegível ou cofre abaixo do mínimo suportado. |
+| `contract_changed` | info | O contrato do cofre tem diferenças de forma dentro da major compatível. |
 | `production_blocked` | info | O cofre só emite em homologação. |
 | `key_homologation_only` | info | A chave só opera em homologação. |
 | `vault_feature_outdated` | warning | "Cofre desatualizado para X": `feature` e a versão mínima em `version`. |
@@ -558,12 +572,22 @@ vault_outdated` com `min_version` e o alerta `vault_feature_outdated`
     devolve links novos (`fiscal_export_link_expired` no mapa de erros).
   - A exportação some em 24 h: `404 fiscal_export_not_found`.
 
-## O que falta para emitir de ponta a ponta
+## Ciclo comercial e o que continua fora
 
-- **Mapeamento da nota:** do documento do ERP (domínio Fiscal, ainda não
-  portado) para `PedidoNfe`, `PedidoNfce` e `PedidoNfse`. Isso inclui guardar
-  o corpo e a versão, e gravar número, série, chave, protocolo e XML.
-- **Montar as rotas** em `src/index.ts` e as telas (sessão M).
+- **NF-e comercial:** mapper servidor de `PedidoNfe`, revisões imutáveis,
+  referência fiscal estável, resultado do cofre, arquivos e efeitos estão
+  ligados. Consultas e retomadas passam ambiente, referência e identidade
+  persistidos ao provedor. O XML do cancelamento é guardado com SHA-256;
+  DANFE e XML da nota são obtidos do cofre pelo vínculo autorizado.
+- **Permissões:** as mesmas operações são usadas por pessoas e bots.
+  Escritas são sensíveis, com confirmação por pessoa habilitada como padrão.
+  Política única: `requireCom1SensitivePolicy`; catálogo e OpenAPI incluem
+  as doze operações. Origem externa não pode usá-las.
+- **Tributação:** IBS/CBS/IS são omitidos, sem zeros artificiais. Operações
+  que os exijam ou não tenham representação fiel são bloqueadas. Revisão
+  do contador continua necessária. Não existe autorização pelo navegador.
+- **Próximas fatias:** `PedidoNfce`, `PedidoNfse`, OS/serviços, importação de
+  recebidas, devolução, CC-e e relatórios do novo histórico exigem fluxos próprios.
 - **Flag de compatibilidade** se o cofre puder estar na mesma zona.
 - **Notas recebidas no ERP:** guardar as recebidas e confrontá-las com o
   pedido de compra é do domínio Fiscal (sessão G).
@@ -574,18 +598,12 @@ vault_outdated` com `min_version` e o alerta `vault_feature_outdated`
   o QR Code não foram lidos por leitor físico. A 0.9.0 foi testada com um
   Ambiente Nacional simulado, nunca contra o serviço real. Aqui, tudo contra
   o cofre simulado.
-- **Teste real a partir do Wabotia:** este cliente nunca falou com um cofre
-  real; os testes usam um cofre simulado. Do lado da NFapi, em 16/11, com um
-  script local sobre o código do cofre (não pela API de um cofre publicado),
-  na SEFAZ-SP em homologação:
-  - **NF-e:** autorizada (cStat 100), com carta de correção (135) e
-    cancelamento (135) registrados;
-  - **NFC-e:** rejeitada com 245, porque o emitente de teste não é
-    credenciado. Segue sem validação real, inclusive o QR Code versão 3;
-  - **Inutilização:** não testada.
-
-  Em homologação, a SEFAZ confere o CNPJ do destinatário na Receita
-  (rejeição 181), então um teste real precisa de CNPJ existente.
+- **Teste real a partir do Wabotia:** não executado nesta entrega. Os testes
+  usam cofre simulado e não provam comunicação entre Workers, certificado,
+  credenciamento, aceitação SEFAZ nem validade tributária. Relatos de ensaios
+  anteriores do cofre não homologam esta integração. O roteiro operacional
+  em `docs/COMERCIAL-NFE.md` deve ser executado numa área dedicada, somente
+  em homologação, sem habilitar produção durante o ensaio.
 - **Lacuna do contrato:** `500 erro_interno` e `503 cofre_nao_configurado`
   estão em `x-codigos`, mas as operações não declaram 500 nem 503. O cliente
   trata os dois mesmo assim.

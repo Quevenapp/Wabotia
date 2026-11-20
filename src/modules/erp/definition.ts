@@ -1,3 +1,4 @@
+import { COM1_MODULE_CONTRACT } from "../../erp/commercial-nfe/metadata.ts";
 import { ERP_MANAGEMENT_ITEMS } from "./panel-menu";
 import type { ModuleDefinition } from "../types";
 import { ERP_PART_DEPENDENCIES, type ErpModuleId } from "../../erp/parts.ts";
@@ -59,7 +60,9 @@ export const erpEstoqueModule = definition("erp-estoque", "Estoque", "Depósitos
 export const erpFinanceiroModule = definition("erp-financeiro", "Financeiro", "Contas a pagar e receber, baixas, caixa, conciliação e comissões.");
 export const erpFiscalModule: ModuleDefinition = {
   ...definition("erp-fiscal", "Fiscal", "Documentos fiscais, naturezas, numeração e configuração do emissor, conforme as funcionalidades disponíveis."),
-  routes: ["erp-emissor", "erp-fiscal-cofre"],
+  routes: ["erp-emissor", "erp-fiscal-cofre", ...COM1_MODULE_CONTRACT.routes],
+  operations: COM1_MODULE_CONTRACT.operations,
+  bot: COM1_MODULE_CONTRACT.definition.bot,
 };
 export const erpCobrancaModule = definition("erp-cobranca", "Cobrança bancária", "Boletos, remessas, retornos e liquidação bancária de títulos do Financeiro.");
 export const erpPdvModule = definition("erp-pdv", "Caixa / PDV", "Venda no balcão e devolução, integradas a vendas, estoque e caixa financeiro.");

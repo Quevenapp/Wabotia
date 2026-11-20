@@ -16,14 +16,16 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { after, before, test } from "node:test";
 import { pathToFileURL } from "node:url";
 import { dualFixture } from "./harness/dual-fixture.mjs";
 import { ERP_DDL_HASH, ERP_DDL_VERSION } from "../../src/erp/schema/ddl.ts";
-import { migrate } from "../../src/erp/schema/migrate.ts";
+import { migrate, recreateTriggers } from "../../src/erp/schema/migrate.ts";
+import { createEngineTables, ERP_ENGINE_TABLES } from "../../src/erp/schema/engine-tables.ts";
+import { dumpAll, restoreAll } from "../../src/erp/engine/dump.ts";
+import { com1Fixture } from "./comnfe/fixtures.mjs";
 
 const OLD = "4748b75"; // tronco implantado na instalação de teste (esquema v6)
 const OLD_FILES = ["migrate.ts", "ddl.ts", "ddl.generated.ts", "seed.generated.ts"];
@@ -39,7 +41,7 @@ function storage(db, fail = () => false) {
         st.setReadBigInts(true);
         if (/^\s*(SELECT|WITH|PRAGMA|VALUES)\b|\bRETURNING\b/i.test(sql)) {
           const rows = st.all(...params);
-          return { toArray: () => rows, rowsRead: rows.length, rowsWritten: 0 };
+          return { toArray: () => rows, raw: () => rows.map(row => Object.values(row)), rowsRead: rows.length, rowsWritten: 0 };
         }
         const r = st.run(...params);
         return { toArray: () => [], rowsRead: 0, rowsWritten: Number(r.changes) };
@@ -61,7 +63,7 @@ function storage(db, fail = () => false) {
 
 let f, dir, oldMigrate;
 before(async () => {
-  dir = mkdtempSync(join(tmpdir(), `erp-schema-${OLD}-`));
+  dir = mkdtempSync(join(process.cwd(), `.com1-schema-${OLD}-`));
   for (const name of OLD_FILES)
     writeFileSync(join(dir, name), execFileSync("git", ["show", `${OLD}:src/erp/schema/${name}`], { encoding: "utf8", maxBuffer: 1 << 26 }));
   oldMigrate = (await import(pathToFileURL(join(dir, "migrate.ts")).href)).migrate;
@@ -91,7 +93,10 @@ before(async () => {
 });
 after(async () => {
   await f?.close();
-  if (dir) rmSync(dir, { recursive: true, force: true });
+  if (dir) {
+    assert.ok(resolve(dir).startsWith(resolve(process.cwd()) + sep + `.com1-schema-${OLD}-`));
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 /** Objeto criado pelo migrate() de 4748b75 e com os dados do motor (as linhas que o v6 ainda não tem). */
@@ -163,7 +168,7 @@ test("objeto da v6 (4748b75) com dados sobe para a versão atual numa abertura: 
   for (const t of tablesOf(db).filter((t) => !(t in before))) assert.equal(db.prepare(`SELECT count(*) n FROM ${q(t)}`).get().n, 0, t);
   // v9: as 5 tabelas do cofre e os 2 gatilhos de imutabilidade do __received_change.
   const vault = ["erp_fiscal_vault__cursor", "erp_fiscal_vault__emission", "erp_fiscal_vault__event", "erp_fiscal_vault__received", "erp_fiscal_vault__received_change"];
-  assert.deepEqual(tablesOf(db).filter((t) => t.startsWith("erp_fiscal_vault__")), vault);
+  assert.deepEqual(tablesOf(db).filter((t) => t.startsWith("erp_fiscal_vault__")), [...vault, ...commercialTables].sort());
   assert.deepEqual(
     db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='erp_fiscal_vault__received_change' ORDER BY name").all().map((r) => r.name),
     ["erp_fiscal_vault__received_change_immutable_delete", "erp_fiscal_vault__received_change_immutable_update"],
@@ -188,4 +193,131 @@ test("interrupção no meio do passo 7→8: a subida inteira é desfeita e a abe
   assert.equal(migrate(storage(db)).status, "applied");
   assert.deepEqual(meta(db), { schema_version: String(ERP_DDL_VERSION), schema_hash: ERP_DDL_HASH });
   assert.deepEqual(content(db, Object.keys(before.content)), before.content);
+});
+
+const commercialTables = ERP_ENGINE_TABLES.filter(t => t.since === 10).map(t => t.table);
+const hash = "a".repeat(64);
+const now = 1_795_089_600_000_000;
+
+function versionNineObject() {
+  const db = oldObject();
+  const s = storage(db);
+  s.transactionSync(() => {
+    createEngineTables(s.sql, 7);
+    recreateTriggers(s.sql);
+    createEngineTables(s.sql, 9);
+    db.prepare("UPDATE erp_meta SET value='9' WHERE key='schema_version'").run();
+  });
+  return db;
+}
+
+function commercialRows(db) {
+  const document = db.prepare("SELECT id, version FROM erp_documents__document WHERE kind='sales_orders' LIMIT 1").get();
+  const emission = randomUUID(), command = randomUUID();
+  const person = f.users.admin;
+  storage(db).transactionSync(() => {
+    db.prepare("INSERT INTO erp_fiscal_vault__commercial_settings(updated_at,updated_by) VALUES(?,?)").run(now, person);
+    db.prepare(`INSERT INTO erp_fiscal_vault__order_emission(id,document_id,fiscal_version,environment,connection_fingerprint,reference,current_body_revision,status,created_at,created_by,updated_at)
+      VALUES(?,?,1,'homologacao',?,?,1,'preparada',?,?,?)`).run(emission, document.id, hash, `wb.${document.id}.v1`, now, person, now);
+    db.prepare(`INSERT INTO erp_fiscal_vault__order_revision(emission_id,body_revision,source_document_version,snapshot,tax_sources,commercial_hash,source_fingerprint,body,body_hash,calculation,blockers,prepared_by,prepared_at)
+      VALUES(?,1,?,'{}','{}',?,?,'{}',?,'{}','[]',?,?)`).run(emission, document.version, hash, hash, hash, person, now);
+    db.prepare(`INSERT INTO erp_fiscal_vault__order_command(id,action,person_id,session_id,args_hash,emission_id,body_revision,state,token,lease_until,request,created_at,updated_at)
+      VALUES(?,'emit',?,?,?,?,1,'claimed',?,?,'{}',?,?)`).run(command, person, randomUUID(), hash, emission, randomUUID(), now + 60_000_000, now, now);
+    db.prepare(`INSERT INTO erp_fiscal_vault__order_cancel(emission_id,justification,body,body_hash,command_id,created_at,updated_at)
+      VALUES(?,'Cancelamento solicitado pelo cliente','{}',?,?,?,?)`).run(emission, hash, command, now, now);
+    db.prepare(`INSERT INTO erp_fiscal_vault__order_effect(emission_id,axis,state,reason,updated_at) VALUES(?,'stock','pulado','part_disabled',?)`).run(emission, now);
+    db.prepare(`INSERT INTO erp_fiscal_vault__order_audit(id,person_id,command_id,emission_id,environment,action,created_at)
+      VALUES(?,?,?,?,'homologacao','claim',?)`).run(randomUUID(), person, command, emission, now);
+  });
+  return { emission, command, document, person };
+}
+
+test("v10 vazia é repetível; sete tabelas STRICT, restrições antigas preservadas", () => {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys=ON");
+  assert.equal(migrate(storage(db)).version, 10);
+  assert.equal(migrate(storage(db)).status, "current");
+  assert.equal(commercialTables.length, 7);
+  for (const table of commercialTables) {
+    const definition = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?").get(table).sql;
+    assert.match(definition, /\) STRICT$/);
+    assert.match(definition, /CONSTRAINT/);
+  }
+  for (const table of ["erp_fiscal_drafts__draft", "erp_fiscal_invoices__invoice"])
+    assert.match(db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?").get(table).sql, /environment[^\n]*'2'/);
+  db.close();
+});
+
+test("v9 populada sobe aditivamente, falha no 9→10 é atômica e repetição conserva todo dado", () => {
+  const db = versionNineObject();
+  const before = { content: content(db), schema: schema(db), meta: meta(db) };
+  assert.throws(() => migrate(storage(db, sql => sql.startsWith('CREATE TABLE "erp_fiscal_vault__order_cancel"'))), /interrompido/);
+  assert.deepEqual(meta(db), before.meta);
+  assert.deepEqual(schema(db), before.schema);
+  assert.deepEqual(content(db), before.content);
+  assert.equal(migrate(storage(db)).version, 10);
+  assert.deepEqual(content(db, Object.keys(before.content)), before.content);
+  const oldObjects = new Set(before.schema.objects);
+  for (const object of oldObjects) assert.ok(schema(db).objects.includes(object), object);
+  commercialRows(db);
+  const populated = content(db);
+  assert.equal(migrate(storage(db)).status, "current");
+  assert.deepEqual(content(db), populated);
+  assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+  db.close();
+});
+
+test("contratos comerciais impõem unicidade, referências válidas e histórico imutável", () => {
+  const db = versionNineObject();
+  migrate(storage(db));
+  const ids = commercialRows(db);
+  for (const table of commercialTables.filter(t => !t.endsWith("commercial_settings"))) {
+    const row = db.prepare(`SELECT * FROM ${q(table)} LIMIT 1`).get();
+    const columns = Object.keys(row);
+    assert.throws(() => db.prepare(`INSERT INTO ${q(table)}(${columns.map(q)}) VALUES(${columns.map(() => "?")})`).run(...Object.values(row)), /UNIQUE/);
+  }
+  assert.throws(() => db.prepare("UPDATE erp_fiscal_vault__order_emission SET reference='wb.outro.v1' WHERE id=?").run(ids.emission), /com1_emission_identity_immutable/);
+  for (const table of ["erp_fiscal_vault__order_revision", "erp_fiscal_vault__order_audit"]) {
+    assert.throws(() => db.exec(`UPDATE ${q(table)} SET ${table.endsWith("revision") ? "snapshot='{}'" : "action='alterada'"}`), /com1_history_immutable/);
+    assert.throws(() => db.exec(`DELETE FROM ${q(table)}`), /com1_history_immutable/);
+  }
+  assert.throws(() => db.exec("UPDATE erp_fiscal_vault__order_command SET request='{\"diferente\":true}'"), /com1_command_identity_immutable/);
+  assert.throws(() => db.exec("UPDATE erp_fiscal_vault__order_emission SET status='autorizada'"), /authorized_check/);
+  db.exec("UPDATE erp_fiscal_vault__order_emission SET status='enviando'");
+  assert.throws(() => db.exec("UPDATE erp_fiscal_vault__order_emission SET current_body_revision=2"), /com1_emission_body_frozen/);
+  assert.throws(() => db.exec(`UPDATE erp_fiscal_vault__order_emission SET connection_fingerprint='${"b".repeat(64)}'`), /com1_emission_identity_immutable/);
+  assert.throws(() => db.exec("UPDATE erp_fiscal_vault__order_cancel SET xml_status='disponivel',xml='<xml/>'"), /xml_check/);
+  db.close();
+});
+
+test("backup e restauração incluem as sete tabelas novas e restauram os gatilhos", () => {
+  const db = versionNineObject();
+  migrate(storage(db));
+  commercialRows(db);
+  const snapshot = dumpAll(storage(db));
+  for (const table of commercialTables) assert.ok(snapshot.manifest.tables.some(t => t.table === table), table);
+  const restored = new DatabaseSync(":memory:");
+  restored.exec("PRAGMA foreign_keys=ON");
+  migrate(storage(restored));
+  restoreAll(storage(restored), snapshot.manifest, new Map(snapshot.files.map(f => [f.table, f.body])));
+  assert.deepEqual(content(restored), content(db));
+  assert.deepEqual(schema(restored), schema(db));
+  assert.throws(() => restored.exec("DELETE FROM erp_fiscal_vault__order_revision"), /com1_history_immutable/);
+  assert.deepEqual(restored.prepare("PRAGMA foreign_key_check").all(), []);
+  db.close();
+  restored.close();
+});
+
+test("fixture comercial entrega fontes persistidas, papéis e relógio sem espera real", t => {
+  const fixture = com1Fixture(t, { parts: { stock: false, finance: false } });
+  assert.equal(fixture.order.kind, "sales_orders");
+  assert.equal(fixture.company.cnpj, "11222333000181");
+  assert.equal(fixture.nature.crt, "1");
+  assert.equal(fixture.identity.actor.erp_role, "admin");
+  assert.equal(fixture.parts.stock, false);
+  assert.equal(fixture.parts.finance, false);
+  assert.ok(fixture.lite.prepare("SELECT 1 FROM erp_documents__document WHERE id=?").get(fixture.order.id));
+  const time = fixture.clock.now();
+  fixture.clock.advance(60_000);
+  assert.equal(fixture.clock.now(), time + 60_000);
 });

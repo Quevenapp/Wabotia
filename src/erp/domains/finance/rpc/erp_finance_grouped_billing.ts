@@ -43,6 +43,7 @@ import {
 import { cashCategory, cashText } from "../cash.ts";
 import { invoiceContact, invoiceEffectActive, invoiceOrdersPosted, invoiceTotalCents } from "../invoices.ts";
 import { insertTitle, left, updateTitle } from "../titles.ts";
+import { requireCom1Posting } from "../../fiscal/comnfe/effect-policy.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DAY = 86400000;
@@ -143,6 +144,7 @@ function generate(ctx: RpcContext, data: unknown, user: string, command: string)
     for (const o of db.exec('SELECT document_id FROM "erp_fiscal_invoices__invoice_order" WHERE invoice_id=?', inv).rows) documentIds.add(String(o.document_id));
   if (documentIds.size + invoiceIds.length > 500) raise("22023", "erp_finance_invalid_items");
   for (const id of documentIds) linkedDocumentGuard(db, id);
+  for (const documentId of documentIds) requireCom1Posting(ctx, documentId, "finance");
   const created: unknown[] = [];
   for (const item of items as unknown[]) {
     const contact = uuidValue(field(item, "contact_id"))!;

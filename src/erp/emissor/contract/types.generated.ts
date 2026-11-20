@@ -1,9 +1,9 @@
 // GERADO por src/erp/emissor/contract/sync.mjs a partir de contract/openapi.json.
 // Não edite à mão: copie o contrato novo e rode o sync (README.md desta pasta).
-// Cofre NFapi 0.11.0 (OpenAPI 3.1.0).
+// Cofre NFapi 0.12.0 (OpenAPI 3.1.0).
 /* eslint-disable */
 
-export const CONTRACT_VERSION = "0.11.0";
+export const CONTRACT_VERSION = "0.12.0";
 
 export type Erro = {
   erro: {
@@ -2141,6 +2141,7 @@ export const CONTRACT_OPERATIONS = [
   "GET /v1/nfse/{id}/xml",
   "GET /v1/nfse/{id}/cancelamento/xml",
   "POST /v1/nfse/{id}/cancelar",
+  "POST /v1/nfse/{id}/conferir",
   "GET /v1/inutilizacoes",
   "POST /v1/inutilizacoes",
   "GET /v1/inutilizacoes/{id}",

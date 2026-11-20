@@ -8,7 +8,8 @@
 // - `key` identifica o documento do ERP (id e versão). A mesma chave nunca
 //   gera duas notas, em qualquer número de repetições.
 // - Uma versão nova do mesmo documento só é emitida quando as anteriores
-//   estão encerradas sem nota válida (rejeitada, erro, denegada ou cancelada).
+//   estão encerradas por cancelamento ou denegação. Rejeição conclusiva
+//   permite corrigir na mesma referência; erro não libera revisão.
 // - Erro sobe como FiscalError, com o código do ERP (`fiscal_*`), o código
 //   original do provedor, o campo recusado e as mensagens do governo.
 import { ApiError, type Env } from "../../types";
@@ -81,6 +82,14 @@ export interface FiscalKey {
   document_id: string;
   /** Versão do documento, a partir de 1. Sobe só para reemitir. */
   version: number;
+}
+
+/** Identidade congelada pelo serviço para consultar uma emissão existente. */
+export interface FiscalLookupIdentity {
+  environment: FiscalEnvironment;
+  reference?: string;
+  /** Chave já confirmada pelo cofre, quando o vínculo possui nota válida. */
+  access_key?: string;
 }
 
 export interface FiscalResult {
@@ -417,6 +426,8 @@ export interface FiscalContext {
   profile: string;
   /** Só testes e diagnóstico: fetch no lugar do global. */
   fetch?: typeof fetch;
+  /** Conexão pública congelada pelo serviço; a rotação da chave não a altera. */
+  connection_fingerprint?: string;
 }
 
 /**
@@ -444,21 +455,26 @@ export interface FiscalProvider {
     key: FiscalKey,
     options?: FiscalEmitOptions,
   ): Promise<FiscalResult>;
-  /** Emissão da chave no provedor, ou null se nunca chegou lá. */
-  find(ctx: FiscalContext, kind: FiscalKind, key: FiscalKey): Promise<FiscalResult | null>;
-  get(ctx: FiscalContext, kind: FiscalKind, ref: string): Promise<FiscalResult>;
+  /**
+   * Emissão da chave no ambiente explícito, ou null. O ambiente é opcional
+   * só para consumidores antigos; sem ele, resultados em dois ambientes
+   * geram conflito, nunca a escolha silenciosa de uma das notas.
+   */
+  find(ctx: FiscalContext, kind: FiscalKind, key: FiscalKey, environment?: FiscalEnvironment): Promise<FiscalResult | null>;
+  get(ctx: FiscalContext, kind: FiscalKind, ref: string, identity?: FiscalLookupIdentity): Promise<FiscalResult>;
   /**
    * Consulta o governo (NF-e/NFC-e): fecha uma emissão sem resposta
    * conclusiva e, na NFC-e em contingência, força uma tentativa de
    * transmissão (o emissor também transmite sozinho quando a SEFAZ volta).
    */
-  reconcile(ctx: FiscalContext, kind: FiscalKind, ref: string): Promise<FiscalResult>;
+  reconcile(ctx: FiscalContext, kind: FiscalKind, ref: string, identity?: FiscalLookupIdentity): Promise<FiscalResult>;
   xml(ctx: FiscalContext, kind: FiscalKind, ref: string): Promise<string>;
   cancel(
     ctx: FiscalContext,
     kind: FiscalKind,
     ref: string,
     input: { justification: string; reason?: "erro_emissao" | "servico_nao_prestado" | "outros" },
+    identity?: FiscalLookupIdentity,
   ): Promise<FiscalResult>;
   /** Carta de correção (só NF-e); o texto substitui as cartas anteriores. */
   correct(ctx: FiscalContext, ref: string, text: string): Promise<FiscalResult>;
@@ -547,6 +563,8 @@ export interface FiscalErrorDetails {
   messages?: FiscalMessage[];
   /** Emissão que o provedor devolveu junto, quando há. */
   emission?: FiscalResult | null;
+  /** Evidência cujo vínculo divergiu: persistir para conciliar, nunca aplicar como resultado. */
+  unverified_emission?: unknown;
   /** Pode ser repetido mais tarde com a mesma chave. */
   retryable?: boolean;
   /** vault_outdated: versão mínima do emissor para a operação. */
@@ -565,6 +583,7 @@ export class FiscalError extends ApiError {
       field: details.field ?? null,
       messages: details.messages ?? [],
       emission: details.emission ?? null,
+      unverified_emission: details.unverified_emission ?? null,
       retryable: details.retryable ?? false,
       min_version: details.min_version ?? null,
       retry_at: details.retry_at ?? null,

@@ -10,6 +10,7 @@ import { one, type Row, type SqlDriver } from "../../../engine/driver.ts";
 import { fromSqlite, raise } from "../../../engine/errors.ts";
 import { jsonbText, jsonType } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
+import { requireCom1Posting } from "../../fiscal/comnfe/effect-policy.ts";
 import { nextIdentity } from "../../../engine/sequence.ts";
 import { jsonTimestamp, todaySaoPaulo } from "../../../engine/time.ts";
 import * as documents from "../../documents/public.ts";
@@ -314,6 +315,7 @@ export function erpDocumentFinancePost(ctx: RpcContext, a: RpcArgs) {
   const data = { kind, document_id: documentId, version, preview_hash: hash, category_id: categoryArg, plan };
   const replay = documentCommandStart(db, user, command, "post", data);
   if (replay) return replay;
+  requireCom1Posting(ctx, documentId, "finance");
   const d = documentLock(db, user, kind, documentId, version);
   const category = documents.documentFinanceCategory(db, d, categoryArg);
   const preview = financePaymentPreview(db, d, documentPreviewData(db, d, category, plan));

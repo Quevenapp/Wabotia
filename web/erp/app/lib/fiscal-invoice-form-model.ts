@@ -3,6 +3,7 @@
 import { FiscalSpecError, ITEM_GROUPS, ITEM_SPEC, UFS } from '../../../../packages/erp-domain/src/fiscal-invoice-dto.mjs';
 import { DEFAULT_INVOICE_PREFERENCES, allocateCents, invoiceTotals, lineTotalCents, normalizeInvoiceInput, type InvoiceInput, type InvoicePreferences, type InvoiceRecord, type InvoiceTotals, type NatureRecord, type NatureSummary } from '../../../../packages/erp-domain/src/fiscal-invoice-contract.mjs';
 import * as T from '../../../../packages/fiscal-core/src/tax-tables.mjs';
+import { normalizeCnpj } from '../../../../packages/erp-domain/src/company.mjs';
 import type { OrderSource } from '../../../../packages/erp-domain/src/fiscal-invoice-order.mjs';
 import type { ScreenConfig } from './fiscal-invoice-list-model.ts';
 
@@ -373,6 +374,13 @@ export function paymentMethodOf(text: string | null | undefined): string {
 }
 const cut = (value: string | null | undefined, max: number) => { const text = (value ?? '').trim(); return text ? [...text].slice(0, max).join('') : ''; };
 const onlyDigits = (value: unknown) => String(value ?? '').replace(/\D/g, '');
+/** O CNPJ conserva A–Z e confere os dois dígitos (ASCII − 48); máscara não é documento. */
+const fiscalCnpj = (value: unknown): string => { try { return normalizeCnpj(value); } catch { return ''; } };
+const fiscalDocument = (value: unknown, preserveLegacyNumeric = false): string => {
+  const text = String(value ?? '').trim().replace(/[.\-/]/g, '');
+  // A cópia portável conserva cadastros numéricos antigos; a preparação comercial valida sempre o DV.
+  return /^\d{11}$/.test(text) || preserveLegacyNumeric && /^\d{14}$/.test(text) ? text : fiscalCnpj(value);
+};
 const trimZeros = (value: string) => value.includes('.') ? value.replace(/0+$/, '').replace(/\.$/, '') : value;
 /** Weight with up to ten decimals rounded half up to the three decimals of the note. */
 const weightOf = (value: string | null | undefined) => {
@@ -383,8 +391,8 @@ const weightOf = (value: string | null | undefined) => {
 const stateOf = (value: string | null | undefined) => { const uf = (value ?? '').trim().toUpperCase(); return (UFS as readonly string[]).includes(uf) || uf === 'EX' ? uf : ''; };
 const withValues = (values: Record<string, string>) => Object.fromEntries(Object.entries(values).filter(([, v]) => v !== '')) as Values;
 /** The contact of the pedido as the note recipient (current cadastro, Contribuinte and e-mail da NF-e of the contact profile). */
-export function orderRecipient(c: OrderSource['contact']): Values {
-  const document = onlyDigits(c.document), type = c.person_type ?? (document.length === 14 ? 'J' : document.length === 11 ? 'F' : '');
+export function orderRecipient(c: OrderSource['contact'], preserveLegacyNumeric = false): Values {
+  const document = fiscalDocument(c.document, preserveLegacyNumeric), type = c.person_type ?? (document.length === 14 ? 'J' : document.length === 11 ? 'F' : '');
   const ie = onlyDigits(c.ie), phone = onlyDigits(c.phone || c.mobile), postal = onlyDigits(c.postal_code), email = cut(c.nfe_email, 60) || cut(c.email, 60);
   // A foreign contact (Tipo E) goes with its foreign id (idEstrangeiro) when the cadastro document fits it.
   const foreign = type === 'E' && /^[A-Za-z0-9.:/-]{1,20}$/.test((c.document ?? '').trim()) ? (c.document ?? '').trim() : '';
@@ -398,8 +406,8 @@ const moneyDraft = (cents: bigint) => cents === 0n ? '' : `${cents / 100n}.${Str
 const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000);
 const addDays = (from: string, days: number) => { const date = new Date(`${from}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + days); return date.toISOString().slice(0, 10); };
 /** A contact of the cadastro as the transporta group of the note (Dados da transportadora). */
-export function carrierValues(c: { contact_id: string; name: string; document?: string | null; ie?: string | null; state?: string | null; city?: string | null; street?: string | null; number?: string | null; district?: string | null }): Values {
-  const document = onlyDigits(c.document), ie = onlyDigits(c.ie), state = stateOf(c.state);
+export function carrierValues(c: { contact_id: string; name: string; document?: string | null; ie?: string | null; state?: string | null; city?: string | null; street?: string | null; number?: string | null; district?: string | null }, preserveLegacyNumeric = false): Values {
+  const document = fiscalDocument(c.document, preserveLegacyNumeric), ie = onlyDigits(c.ie), state = stateOf(c.state);
   const address = [cut(c.street, 60), cut(c.number, 20), cut(c.district, 60)].filter(Boolean).join(', ');
   return withValues({ contact_id: c.contact_id, name: cut(c.name, 60), document: document.length === 11 || document.length === 14 ? document : '',
     ie: ie.length >= 2 && ie.length <= 14 ? ie : (c.ie ?? '').trim().toUpperCase() === 'ISENTO' ? 'ISENTO' : '', state: state && state !== 'EX' ? state : '', city: cut(c.city, 60), address: [...address].slice(0, 60).join('') });
@@ -410,8 +418,8 @@ export function carrierValues(c: { contact_id: string; name: string; document?: 
  * frete por conta, volumes, transportadora e código de rastreio, observações → informações complementares). The natureza is the
  * contact's one when it fits the regime of the note, otherwise the default by person type; "Cálculo automático" computes the taxes.
  */
-export function orderDraft(source: OrderSource, config: Pick<ScreenConfig, 'model' | 'direction'>, context: FormContext | null, today: string): InvoiceDraft {
-  const draft = newDraft(config, context, today), recipient = orderRecipient(source.contact);
+export function orderDraft(source: OrderSource, config: Pick<ScreenConfig, 'model' | 'direction'>, context: FormContext | null, today: string, preserveLegacyNumeric = false): InvoiceDraft {
+  const draft = newDraft(config, context, today), recipient = orderRecipient(source.contact, preserveLegacyNumeric);
   const code = defaultNatureCode(config.direction, config.model, String(recipient.person_type ?? '')).find(c => context?.defaults[c]);
   const nature = source.nature && source.nature.crt === draft.crt ? source.nature : code ? context!.defaults[code]! : null;
   const po = (source.document.customer_po_number ?? '').trim(), xped = config.direction === '1' && po && [...po].length <= 15 ? po : '';
@@ -443,7 +451,7 @@ export function orderDraft(source: OrderSource, config: Pick<ScreenConfig, 'mode
     if (/^\d{1,15}(\.0+)?$/.test(count) && BigInt(count.split('.')[0]!) > 0n) volumes.quantity = String(BigInt(count.split('.')[0]!));
     if (weightOf(t?.gross_weight)) volumes.gross_weight = weightOf(t?.gross_weight);
     // 202610200215: the Transportador of the cadastro fills the transporta group (CNPJ/CPF, IE, UF, município, endereço); without it the Origin label stays.
-    const carrier = mode !== 'manual' ? {} : source.carrier ? carrierValues(source.carrier) : cut(t?.carrier_label, 60) ? { name: cut(t?.carrier_label, 60) } : {};
+    const carrier = mode !== 'manual' ? {} : source.carrier ? carrierValues(source.carrier, preserveLegacyNumeric) : cut(t?.carrier_label, 60) ? { name: cut(t?.carrier_label, 60) } : {};
     transport = { ...transport, mode, freight_by: freightBy, tracking_code: t?.tracking_code && [...t.tracking_code.trim()].length <= 60 ? t.tracking_code.trim() : transport.tracking_code,
       carrier, vehicle: {}, volumes };
     // "Incluir transportadora como pessoa autorizada" (Preferências), like picking the carrier in the form.
@@ -543,7 +551,8 @@ export function parcelCard(i: OrderSource['installments'][number]): Values | nul
   const brand = d?.card_brand ?? m?.card_brand, integration = d?.integration_type ?? m?.card_integration, cnpj = d?.acquirer_cnpj ?? m?.card_cnpj;
   if (brand) card.brand = brand;
   if (integration) card.integration = integration;
-  if (cnpj && /^\d{14}$/.test(cnpj)) card.cnpj = cnpj;
+  const cardCnpj = fiscalCnpj(cnpj);
+  if (cardCnpj) card.cnpj = cardCnpj;
   if (d?.authorization_code) card.authorization = [...d.authorization_code].slice(0, 128).join('');
   if (d?.received_amount) card.received = d.received_amount;
   if (d?.fee_amount) card.fee = d.fee_amount;
@@ -555,9 +564,9 @@ export function parcelCard(i: OrderSource['installments'][number]): Values | nul
  * destinatário and transport of the first one, the discounts, freight and other expenses of all and every OS as origin (letter O).
  * The parcels are not copied (each OS has its own); "Gerar parcelas" builds them on the note total. Null when the OS do not group.
  */
-export function groupedOrderDraft(sources: readonly OrderSource[], config: Pick<ScreenConfig, 'model' | 'direction'>, context: FormContext | null, today: string): { draft: InvoiceDraft; problem: string | null } {
+export function groupedOrderDraft(sources: readonly OrderSource[], config: Pick<ScreenConfig, 'model' | 'direction'>, context: FormContext | null, today: string, preserveLegacyNumeric = false): { draft: InvoiceDraft; problem: string | null } {
   const first = sources[0]!;
-  const drafts = sources.map(source => orderDraft(source, config, context, today));
+  const drafts = sources.map(source => orderDraft(source, config, context, today, preserveLegacyNumeric));
   const problem = new Set(sources.map(s => s.contact.contact_id)).size > 1 ? 'As ordens de serviço agrupadas precisam ser do mesmo cliente.'
     : new Set(sources.map(s => s.document.kind)).size > 1 ? 'Agrupe documentos do mesmo tipo.'
       : drafts.reduce((sum, d) => sum + d.items.length, 0) > 990 ? 'A nota aceita até 990 itens.' : null;
@@ -632,7 +641,8 @@ export function withForma(installment: InstallmentDraft, value: string, methods:
   const card: Values = { ...(installment.card ?? {}) };
   if (method.card_brand) card.brand = method.card_brand;
   if (method.card_integration) card.integration = method.card_integration;
-  if (method.card_cnpj && /^\d{14}$/.test(method.card_cnpj)) card.cnpj = method.card_cnpj;
+  const cardCnpj = fiscalCnpj(method.card_cnpj);
+  if (cardCnpj) card.cnpj = cardCnpj;
   return { ...rest, payment_method_id: method.id, method: NOTE_TPAG.has(method.payment_type) ? method.payment_type : '99', card: Object.keys(card).length ? card : null };
 }
 /** Like picking the natureza by hand: its presence, consumidor final and série follow it (the NFC-e keeps presence 1 or 4). */

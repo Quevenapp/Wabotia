@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { invoiceLabelProducts, type PurchaseLabels } from '../lib/document-labels-model';
 import { ProductLabels } from './ProductLabels';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import CommercialNfe from '../../CommercialNfe';
+import { erpPorts } from '../../ports';
 import { AccessError, decimalMoney, type AccessController } from '../lib/real-access';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import { listPage as checkListPage, invoiceRecord, type InvoiceRecord } from '../../../../packages/erp-domain/src/fiscal-invoice-contract.mjs';
@@ -74,12 +76,95 @@ type Dialog = { type: 'delete'; rows: ListRow[] } | { type: 'inutilization' } | 
   // "Devolução de produto" (202610200220): quantities to return before the return note opens.
   | { type: 'return'; record: InvoiceRecord } | null;
 
-/** Notas fiscais de saída, NFC-e e notas de entrada (aba Notas de compra) no padrão Origin. */
+/** O percurso comercial e o acervo anterior nunca compartilham o formulário fiscal. */
+export function HostedFiscalInvoices(props: { controller: AccessController; screen: FiscalScreen; backup?: ReactNode }) {
+  return erpPorts()?.commercialNfe && props.screen !== 'entrada'
+    ? <CommercialFiscalInvoices {...props} /> : <RealFiscalInvoices {...props} />;
+}
+
+function CommercialFiscalInvoices({ controller, screen, backup }: { controller: AccessController; screen: FiscalScreen; backup?: ReactNode }) {
+  const location = useLocation(), params = new URLSearchParams(location.search);
+  const archive = params.get('acervo') === 'legado' || (params.has('nota') && params.get('nota') !== 'nova');
+  const unsupported = (params.get('pedido') ?? '').includes(',') || params.has('parcial');
+  return <>
+    <nav className="origin-list-tabs" aria-label="Históricos fiscais">
+      <Link to="/historico-fiscal?modelo=55" aria-current={screen === 'nfe' && !archive ? 'page' : undefined}>NF-e comercial</Link>
+      <Link to={`/historico-fiscal?${new URLSearchParams({ modelo: screen === 'nfce' ? '65' : '55', acervo: 'legado' })}`} aria-current={archive ? 'page' : undefined}>Acervo legado · somente consulta</Link>
+    </nav>
+    {screen === 'nfe' && !archive && !unsupported ? <CommercialNfe controller={controller} /> : <>
+      {(screen === 'nfce' || unsupported) && <p className="real-notice" role="status">Emissão parcial, agrupamento, NFC-e e notas de OS ainda não são atendidos. Prepare a NF-e integral de um pedido de venda.</p>}
+      <LegacyFiscalArchive key={screen} controller={controller} screen={screen} />
+    </>}
+  </>;
+}
+
+/** Leitor isolado: não monta formulários, XML, DANFE, numeração ou efeitos locais. */
+function LegacyFiscalArchive({ controller, screen }: { controller: AccessController; screen: FiscalScreen }) {
+  const location = useLocation(), config = SCREENS[screen];
+  const requested = new URLSearchParams(location.search).get('nota');
+  const selected = requested && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(requested) ? requested : null;
+  const [page, setPage] = useState<ListPage | null>(null), [pageNumber, setPageNumber] = useState(1);
+  const [record, setRecord] = useState<InvoiceRecord | null>(null), [recordRow, setRecordRow] = useState<ListRow | null>(null);
+  const [reading, setReading] = useState<string | null>(selected), [query, setQuery] = useState(''), [search, setSearch] = useState('');
+  const [error, setError] = useState(''), [loading, setLoading] = useState(false), [reload, setReload] = useState(0);
+  useEffect(() => { setReading(selected); setRecordRow(null); }, [selected]);
+  useEffect(() => {
+    const request = new AbortController(); setLoading(true); setError(''); setPage(null);
+    const filters = { ...emptyFilters(config), query: search };
+    void Promise.resolve().then(() => controller.fiscalInvoices(`${FISCAL_BASE}?${fiscalListQuery(config, filters, { page: pageNumber })}`, { signal: request.signal })).then(value => {
+      if (!request.signal.aborted) setPage(checkListPage(value, { origin: 'brufap', model: config.model, direction: config.direction, page: pageNumber, limit: FISCAL_PAGE_SIZE, order: 'date_desc' }));
+    }).catch(problem => { if (!request.signal.aborted) setError(failureText(problem)); }).finally(() => { if (!request.signal.aborted) setLoading(false); });
+    return () => request.abort();
+  }, [controller, screen, search, pageNumber, reload]);
+  useEffect(() => {
+    setRecord(null);
+    if (!reading) return;
+    const request = new AbortController(); setError('');
+    void controller.fiscalInvoices(`${FISCAL_BASE}/${encodeURIComponent(reading)}`, { signal: request.signal }).then(value => {
+      if (request.signal.aborted) return;
+      const next = invoiceRecord((value as { invoice: unknown }).invoice);
+      if (next.id !== reading || next.model !== config.model || next.direction !== config.direction) throw new Error('Resposta fiscal incompatível.');
+      setRecord(next);
+    }).catch(problem => { if (!request.signal.aborted) setError(failureText(problem)); });
+    return () => request.abort();
+  }, [controller, reading, screen, reload]);
+  return <section className="fiscal-invoices" aria-labelledby="legacy-fiscal-title">
+    <h1 id="legacy-fiscal-title">Acervo legado · {config.title}</h1>
+    <p className="real-notice">Consulta dos registros anteriores e XMLs já importados. Este acervo não contém as novas emissões comerciais do cofre e não participa de seus totais. Emissão, alteração, numeração e efeitos por nota legada estão fechados.</p>
+    {requested === 'nova' && <p className="real-alert" role="alert">A inclusão fiscal legada está encerrada. A emissão disponível é a NF-e integral de um pedido de venda.</p>}
+    <form onSubmit={event => { event.preventDefault(); setSearch(query.trim()); setPageNumber(1); }}>
+      <label htmlFor="legacy-fiscal-search">Pesquisar no acervo legado</label>{' '}
+      <input id="legacy-fiscal-search" value={query} maxLength={120} onChange={event => setQuery(event.target.value)} />{' '}
+      <button type="submit" className="secondary-button" disabled={loading}>Pesquisar</button>{' '}
+      <button type="button" className="text-button" disabled={loading} onClick={() => setReload(value => value + 1)}>Atualizar</button>
+    </form>
+    {error && <p className="real-alert" role="alert">{error}</p>}
+    {loading && <p role="status">Consultando o acervo…</p>}
+    {page && <><p>{page.total_count} registro(s). O ambiente está identificado em cada linha; os valores não são somados.</p>
+      <div className="table-scroll"><table className="data-table"><thead><tr><th>Nota</th><th>Ambiente</th><th>Cliente ou fornecedor</th><th>Situação registrada</th><th>Valor</th><th>Consulta</th></tr></thead><tbody>
+        {page.items.map(row => <tr key={row.id}><td>{invoiceNumber(row)}</td><td>{sourceLabel(row)}</td><td>{row.name ?? 'Não informado'}</td><td>{statusLabel(row, config.model)}</td><td>{row.total_known ? decimalMoney(row.total) : 'Não informado'}</td><td><button type="button" className="text-button" onClick={() => { setRecordRow(row); setReading(row.id); }}>Consultar registro</button></td></tr>)}
+      </tbody></table></div>
+      {!page.items.length && <p>Nenhum registro encontrado.</p>}
+      <div className="origin-pagination"><button type="button" disabled={loading || pageNumber <= 1} onClick={() => setPageNumber(value => value - 1)}>Anterior</button><span> Página {pageNumber} </span><button type="button" disabled={loading || !page.has_more} onClick={() => setPageNumber(value => value + 1)}>Próxima</button></div>
+    </>}
+    {record && record.id === reading && <section aria-label="Registro fiscal legado"><h2>Consulta da nota {record.number ?? 'sem número'} · série {record.series}</h2>
+      <p>{recordRow ? sourceLabel(recordRow) : record.environment === '2' ? 'Homologação · sem valor fiscal de produção' : 'Ambiente não informado no registro'}</p>
+      <dl><dt>Destinatário</dt><dd>{String(record.recipient.name ?? 'Não informado')}</dd><dt>Natureza</dt><dd>{record.nature_description}</dd><dt>Chave registrada</dt><dd>{record.access_key ?? 'Não informada'}</dd><dt>Protocolo registrado</dt><dd>{record.protocol ?? 'Não informado'}</dd></dl>
+      <table className="data-table"><thead><tr><th>Item</th><th>Quantidade</th><th>Valor unitário</th><th>Total</th></tr></thead><tbody>{record.items.map(item => <tr key={item.position}><td>{item.description}</td><td>{item.quantity}</td><td>{decimalMoney(item.unit_price)}</td><td>{decimalMoney(item.total)}</td></tr>)}</tbody></table>
+      <button type="button" className="text-button" onClick={() => { setRecord(null); setReading(null); }}>Fechar consulta</button>
+    </section>}
+  </section>;
+}
+
+/** Componente portado: usado por Compras e hospedeiros sem o percurso comercial. */
 export default function RealFiscalInvoices({ controller, screen, backup }: { controller: AccessController; screen: FiscalScreen; backup?: ReactNode }) {
   const config = SCREENS[screen];
   const location = useLocation(), navigate = useNavigate();
   const params = new URLSearchParams(location.search);
   const role = roleOf(controller), writable = ['admin', 'fiscal'].includes(role);
+  const entryOnly = Boolean(erpPorts()?.commercialNfe) && screen === 'entrada';
+  const closedExit = 'Notas de saída usam o acompanhamento comercial. Conversão de entrada para saída e devolução fiscal ainda não são atendidas.';
+  const exitAction = (id: string) => entryOnly && ['clone_invert', 'return', 'nfe_from_nfce'].includes(id);
   // Wabotia: Origin fora (motor 91213b8): a lista mostra sempre os registros do FAGOO; saíram o seletor "Notas do Origin" × "Registros do
   // FAGOO", o parâmetro ?origem= e a nota do Origin aberta em leitura.
   const opened = params.get('nota'), backupTab = Boolean(backup) && params.get('aba') === 'backup';
@@ -214,7 +299,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
   const readRecord = async (id: string, signal: AbortSignal) => {
     const value = await controller.fiscalInvoices(`${FISCAL_BASE}/${id}`, { signal }) as { invoice: unknown };
     const record = invoiceRecord(value?.invoice);
-    if (record.id !== id) throw new AccessError(502);
+    if (record.id !== id || entryOnly && record.direction !== '0') throw new AccessError(502);
     return record;
   };
   const withRecord = (row: ListRow, then: (record: InvoiceRecord) => void) => {
@@ -222,7 +307,10 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
     void readRecord(row.id, request.signal).then(record => { if (!request.signal.aborted && detail.current === request) then(record); })
       .catch(problem => { if (!request.signal.aborted && !aborted(problem)) setActionError(failureText(problem)); }).finally(() => { if (detail.current === request) detail.current = null; });
   };
-  const startForm = (value: FormOpening) => guard.confirmLeave(() => { setOpening(value); setParam({ nota: 'nova' }); });
+  const startForm = (value: FormOpening) => {
+    if (exitAction(value.kind)) { setActionError(closedExit); return; }
+    guard.confirmLeave(() => { setOpening(value); setParam({ nota: 'nova' }); });
+  };
   // "Incluir NFC-e" without an active A1 asks first, like Origin: "Sem a configuração do certificado não é possível emitir a NFC-e".
   const addNote = async () => {
     if (config.model !== '65') { startForm({ kind: 'new' }); return; }
@@ -237,6 +325,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
   const runAction = (row: ListRow, action: RowAction) => {
     setMenu(null);
     if (!action.enabled) return;
+    if (exitAction(action.id)) { setActionError(closedExit); return; }
     if (action.id === 'edit' || action.id === 'view') { open(row); return; }
     if (action.id === 'other') { setDialog({ type: 'other', row }); return; }
     if (action.id === 'xml') { void showXml(row, true); return; }
@@ -273,7 +362,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
     finally { if (detail.current === request) detail.current = null; }
   };
   const menuItems = (row: ListRow): RowMenuItem[] => rowActions(config, row, { writable, checkin: CHECKIN_READERS.includes(role), labels: role === 'admin', finance: financeState(row), stock: rowStock(row) }).map(action => ({ label: action.label, icon: action.icon, separatorBefore: action.separatorBefore,
-    disabled: !action.enabled, title: action.enabled ? undefined : action.reason, onClick: () => runAction(row, action) }));
+    disabled: !action.enabled || exitAction(action.id), title: exitAction(action.id) ? closedExit : action.enabled ? undefined : action.reason, onClick: () => runAction(row, action) }));
   // Wabotia: Origin fora (motor 91213b8): o XML de uma nota do FAGOO é o importado; o acervo sincronizado do Origin (xml_id) saiu.
   const hasXml = (row: ListRow) => isImported(row);
   const showXml = async (row: ListRow, download: boolean) => {
@@ -444,7 +533,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
     // Like the emitter: a same-actor role loss hides the form but keeps a pending command for when access returns.
     const denied = <section className="real-state-panel"><h1>Nota do ERP não liberada</h1><p>Somente administradores e o perfil fiscal abrem as notas de homologação do ERP. Uma confirmação pendente fica preservada até o acesso voltar.</p><button type="button" className="secondary-button" onClick={back}>Voltar à listagem</button></section>;
     if (!writable && !formHeld) return denied;
-    return <>{!writable && denied}<div hidden={!writable} inert={!writable} aria-hidden={!writable}><FiscalInvoiceForm key={`${opened}:${opening ? 'copy' : fromOrder ? `pedido:${fromOrder}` : fromGroup ? `grupo:${fromGroup.join(',')}` : 'plain'}`} controller={controller} config={config} id={opened === 'nova' ? null : opened}
+    return <>{!writable && denied}<div hidden={!writable} inert={!writable} aria-hidden={!writable}><FiscalInvoiceForm key={`${opened}:${opening ? 'copy' : fromOrder ? `pedido:${fromOrder}` : fromGroup ? `grupo:${fromGroup.join(',')}` : 'plain'}`} controller={controller} config={config} directionOnly={entryOnly ? '0' : undefined} id={opened === 'nova' ? null : opened}
       opening={opened === 'nova' ? opening ?? (fromOrder ? { kind: 'order', documentId: fromOrder } : fromGroup ? { kind: 'order', documentId: fromGroup[0]!, documentIds: fromGroup } : { kind: 'new' }) : null} today={today()} initialTab={section}
       onBack={back} onSaved={record => {
         setOpening(null);
@@ -635,7 +724,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
     {dialog?.type === 'certificate' && <Modal title="Certificado digital" onClose={() => setDialog(null)} actions={<><button type="button" className="primary-button" onClick={() => { setDialog(null); startForm({ kind: 'new' }); }}>Prosseguir</button>
       <button type="button" className="secondary-button" onClick={() => { setDialog(null); guard.confirmLeave(() => navigate('/certificado-a1')); }}>Configurar certificado digital</button></>}>
       <p>{dialog.text}</p><p className="real-help">As NFC-e do ERP ficam em homologação, sem valor fiscal; a emissão com o certificado ainda não está ligada nesta tela.</p></Modal>}
-    {dialog?.type === 'import' && <FiscalImportDialog controller={controller} model={config.model} onClose={changed => { setDialog(null); if (changed) { setReload(n => n + 1); setFinanceReload(n => n + 1); } }}
+    {dialog?.type === 'import' && <FiscalImportDialog controller={controller} model={config.model} entryOnly={entryOnly} onClose={changed => { setDialog(null); if (changed) { setReload(n => n + 1); setFinanceReload(n => n + 1); } }}
       onOpen={(noteId, direction, reconcile, noteModel) => { setDialog(null);
         // An imported note opens in the list where Origin shows it: entry notes in Notas de entrada, exit notes in Notas fiscais de saída
         // (an imported NFC-e in NFC-e); "Conciliar produtos" opens it on the Itens tab, where the reconciliation panel is.

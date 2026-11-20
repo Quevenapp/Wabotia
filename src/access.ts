@@ -296,7 +296,7 @@ const OPERATIONS: [RegExp, string | null][] = [
 export function requireOperationAccess(actor: Actor, op: string) {
   if (!restricted(actor)) return;
   const owner = moduleForOperation(op);
-  if (owner) return requireAccess(actor, owner.id);
+  if (owner) return requireAccess(actor, op.startsWith("com1.") ? "erp" : owner.id);
   const match = OPERATIONS.find(([pattern]) => pattern.test(op));
   if (match && match[1] === null) return;
   // Comando fora da lista: só quem tem tudo ("*").

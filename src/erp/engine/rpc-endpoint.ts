@@ -1,6 +1,6 @@
-import { ERP_PARTS_REFERENCE_HEADER, readErpPartsReference } from "../parts.ts";
+import { ERP_PARTS_REFERENCE_HEADER, readErpPartsReference, type ErpPartsReference } from "../parts.ts";
 import { applyErpPartsSnapshot, requireCurrentErpParts, ErpPartsControlError } from "../parts-control.ts";
-import { ERP_PARTS_DENIED_HEADER, ERP_MAINTENANCE_HEADER, ErpPartDisabled, requireRpcParts, readErpMaintenance, withErpMaintenance } from "./parts-gate.ts";
+import { ERP_PARTS_DENIED_HEADER, ERP_MAINTENANCE_HEADER, COM1_EVIDENCE_RPCS, ErpPartDisabled, requireRpcParts, readErpMaintenance, withErpMaintenance } from "./parts-gate.ts";
 // /erp-rpc/<nome> dentro do objeto erp:<área>: o lado de dentro da costura.
 // O corpo é o mesmo JSON que o PostgREST receberia ({p_user_id, …}); a
 // resposta é o JSON da função, ou {code, message} com 400 (como o PostgREST
@@ -15,6 +15,8 @@ import { SIGNATURES } from "./signatures.generated.ts";
 import { ENGINE_SIGNATURES } from "./signatures-engine.ts";
 import { MODULE_RPCS, verifyModuleTransport } from "./module-origin.ts";
 import { requestModuleState } from "./module-state.ts";
+import { COM1_AUTHORITY_HEADER, com1ActionForRpc, com1ExecutionActor, readCom1Authority, runWithCom1Authority, type Com1Authority } from "../domains/fiscal/comnfe/access.ts";
+import { COM1_CONNECTION_HEADER, readCommercialConnectionCheck, runWithCommercialConnection } from "../domains/fiscal/comnfe/settings.ts";
 
 /**
  * RPCs do agendador e da plataforma, sem checagem de quem chama (no Fagoo só
@@ -36,6 +38,11 @@ export const SYSTEM_RPCS: ReadonlySet<string> = new Set([
   "erp_platform_export_expired",
   "erp_platform_export_removed",
   "erp_wabotia_state",
+]);
+/** Operações fiscais internas; preserva o inventário legado do agendador. */
+export const COM1_INTERNAL_RPCS: ReadonlySet<string> = new Set([
+  "erp_com1_claim", "erp_com1_record", "erp_com1_cancel_claim",
+  "erp_com1_cancel_record", "erp_com1_cancel_xml_record",
 ]);
 import { Clock } from "./time.ts";
 
@@ -129,7 +136,7 @@ export async function handleRpc(
   // 0A000 visível, pelo callRpc).
   if (name !== CUSTOMER_BRIDGE_SCAN && !isPorted(name) && !(name in SIGNATURES) && !(name in ENGINE_SIGNATURES))
     return Response.json({ code: "PGRST202", message: `erp_rpc_unknown:${name}`, details: null, hint: null }, { status: 404 });
-  if ((SYSTEM_RPCS.has(name) || moduleRpc) && request.headers.get(SYSTEM_HEADER) !== "1")
+  if ((SYSTEM_RPCS.has(name) || moduleRpc || COM1_INTERNAL_RPCS.has(name)) && request.headers.get(SYSTEM_HEADER) !== "1")
     return Response.json({ code: "42501", message: "erp_rpc_system_only", details: null, hint: null }, { status: 403 });
   let args: unknown;
   try {
@@ -141,6 +148,34 @@ export async function handleRpc(
     return Response.json({ code: "22023", message: "erp_rpc_body_invalid" }, { status: 400 });
   const identity = decodeIdentity(request.headers.get(IDENTITY_HEADER));
   const a = args as Record<string, unknown>;
+  const connectionHeader = request.headers.get(COM1_CONNECTION_HEADER);
+  let commercialConnection: ReturnType<typeof readCommercialConnectionCheck>;
+  if (connectionHeader !== null) {
+    if (name !== "erp_com1_config_save" || request.headers.get(SYSTEM_HEADER) !== "1")
+      return Response.json({ code: "42501", message: "com1_connection_internal_only" }, { status: 403 });
+    try { commercialConnection = readCommercialConnectionCheck(JSON.parse(connectionHeader)); } catch { /* Recusa abaixo. */ }
+    if (commercialConnection === undefined)
+      return Response.json({ code: "22023", message: "com1_connection_invalid" }, { status: 400 });
+  }
+  const authorityHeader = request.headers.get(COM1_AUTHORITY_HEADER);
+  let com1Authority: Com1Authority | undefined;
+  if (authorityHeader !== null) {
+    if (!name.startsWith("erp_com1_") || request.headers.get(SYSTEM_HEADER) !== "1")
+      return Response.json({ code: "42501", message: "com1_authority_internal_only" }, { status: 403 });
+    try { com1Authority = readCom1Authority(JSON.parse(authorityHeader)) ?? undefined; } catch { /* Recusa abaixo. */ }
+    if (!com1Authority)
+      return Response.json({ code: "42501", message: "com1_authority_invalid" }, { status: 403 });
+    const actor = identity.actor, action = com1ActionForRpc(name, a.p_input);
+    if (actor && action) {
+      // SYSTEM_HEADER e o inventário acima limitam a normalização à fatia.
+      // O portão continua conferindo horário/MFA e o motor revalida o papel.
+      try { identity.actor = com1ExecutionActor(actor, action, com1Authority); }
+      catch (error) {
+        return Response.json({ code: "42501", message: error instanceof ErpError ? error.message : "fiscal_forbidden" }, { status: 403 });
+      }
+    }
+  }
+
   const restricted = new Set(identity.customer_privacy?.restricted_contact_ids ?? []);
   const privacyDenied = () => Response.json({ code: "42501", message: "erp_customer_restricted" }, { status: 403 });
   const references = name === CUSTOMER_BRIDGE_SCAN ? { ...a, p_after: null } : a;
@@ -169,6 +204,19 @@ export async function handleRpc(
     let moduleProof = moduleRpc ? await verifyModuleTransport(d1, profile, name, a, identity) : undefined;
     if (["parts", "partsControl", "maintenance", "bypass"].some(key => Object.hasOwn(a, key)))
       return Response.json({ code: "22023", message: "erp_rpc_body_invalid" }, { status: 400 });
+    if (COM1_EVIDENCE_RPCS.has(name)) {
+      // SYSTEM_HEADER já foi conferido. requireRpcParts e o registro exigem
+      // emissão, comando e token persistidos. Nenhuma identidade ou parte da
+      // chamada externa autoriza outro envio ou efeito neste commit estreito.
+      // Não reabrir o portão: a pessoa pode ter perdido acesso durante o I/O.
+      const result = callRpc(storageDriver(ctx.storage), name, a, clock, {
+        identity: { actor: null, people: null },
+        parts: { customers: false, products: false, sales: false, purchases: false,
+          stock: false, finance: false, fiscal: false, billing: false, pos: false },
+      });
+      if (containsRestrictedContact(result, restricted)) return privacyDenied();
+      return Response.json(result);
+    }
     const input = { ...identity.partsControl, parts: identity.parts };
     await applyErpPartsSnapshot(ctx.storage, profile, input);
     const snapshot = await requireCurrentErpParts(ctx.storage, profile, input);
@@ -180,7 +228,7 @@ export async function handleRpc(
     if (maintenanceHeader && (!maintenance || request.headers.get(SYSTEM_HEADER) !== "1" || bridge))
       return Response.json({ code: "42501", message: "erp_maintenance_scope_denied" }, { status: 403 });
     const referenceHeader = request.headers.get(ERP_PARTS_REFERENCE_HEADER);
-    let partsReference;
+    let partsReference: ErpPartsReference | undefined;
     if (referenceHeader) {
       try { partsReference = readErpPartsReference(JSON.parse(referenceHeader)) ?? undefined; } catch { /* Recusa abaixo. */ }
       if (!partsReference || request.headers.get(SYSTEM_HEADER) !== "1" || bridge)
@@ -224,7 +272,8 @@ export async function handleRpc(
     // Revalidar depois de qualquer I/O; o motor segue síncrono até o commit.
     if (moduleRpc) moduleProof = await verifyModuleTransport(d1, profile, name, a, identity);
     const currentParts = await requireCurrentErpParts(ctx.storage, profile, input);
-    const result = callRpc(storageDriver(ctx.storage, profile), name, args as Record<string, unknown>, clock, {
+    // invoke roda logo abaixo, sem espera no meio: a revalidação acima continua valendo.
+    const invoke = () => callRpc(storageDriver(ctx.storage, profile), name, args as Record<string, unknown>, clock, {
       ...storage,
       identity,
       moduleProof,
@@ -235,6 +284,8 @@ export async function handleRpc(
       modules: requestModuleState(request.headers, request.headers.get(SYSTEM_HEADER) === "1"),
       gate: request.headers.get(GATE_HEADER) === "1",
     });
+    const withConnection = () => runWithCommercialConnection(commercialConnection ?? null, invoke);
+    const result = com1Authority ? runWithCom1Authority(com1Authority, withConnection) : withConnection();
     // Recibos podem anteceder a restrição e não passam novamente pelo DTO.
     if (containsRestrictedContact(result, restricted)) return privacyDenied();
     // RPC que cria tarefa da plataforma (exportação pedida no painel): o
@@ -261,7 +312,7 @@ export async function handleRpc(
       if (error.code === "work_required" || moduleRpc && ["40001", "epoch_closed", "part_disabled"].includes(error.code)) status = 409;
       return Response.json(
         { code: error.code, message: moduleRpc && !/^[a-z][a-z0-9_]{0,79}$/.test(error.message) ? "module_request_invalid" : error.message, details: null, hint: null },
-        { status },
+        { status: name.startsWith("erp_com1_") && error.code === "42501" ? 403 : status },
       );
     }
     throw error;

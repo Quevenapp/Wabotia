@@ -9,6 +9,7 @@ import { ERP_MODULE_IDS } from "../../src/erp/parts.ts";
 import { createSessionPort, createChallengePort, createSimulatedChallengePort } from "./session-port";
 import { createPeoplePort } from "./people";
 import { createDemoEmissorPort, createEmissorPort } from "./emissor";
+import { createCommercialNfePort, type CommercialNfeAccess } from "./commercial-nfe";
 import { setErpBlocks, installErpTargetAccess } from "./blocks";
 import { setActionPendingNotice, setMotorReal } from "./motor";
 import { toast } from "../ui";
@@ -129,6 +130,36 @@ export function acquireErpHost(context: ErpHostContext) {
       const people = createPeoplePort(context.profile);
       const challenge = context.demo ? createSimulatedChallengePort() : createChallengePort();
       const emissor = simulation ? createDemoEmissorPort() : createEmissorPort(context.profile);
+      const commercialNfe = createCommercialNfePort(context.profile, {
+        scopeKey: key,
+        scope: () => AbortSignal.any([operational(), lifetime.signal]),
+        access: (): CommercialNfeAccess => {
+          const c = entry.valid && entry.owners.size ? current() : null;
+          const state = controller?.getSnapshot(), permissions = state?.permissions;
+          return {
+            ready: !!c && available() && state?.phase === "ready" && state.membership?.user_id === actor &&
+              state.membership.role === c.management.erpRole &&
+              permissions?.phase === "ready" && permissions.userId === actor && permissions.apiUrl === apiUrl &&
+              permissions.role === state.membership.role,
+            role: state?.membership?.role ?? null,
+            permissions: permissions?.phase === "ready" ? permissions.permissions : [],
+            demo: !!simulation,
+            parts: {
+              base: c?.management.modules.erp === true, products: c?.management.modules["erp-produtos"] === true,
+              sales: c?.management.modules["erp-vendas"] === true, fiscal: c?.management.modules["erp-fiscal"] === true,
+              stock: c?.management.modules["erp-estoque"] === true, finance: c?.management.modules["erp-financeiro"] === true,
+            },
+          };
+        },
+        fetch: async (input, init) => {
+          const response = await scoped(() => globalThis.fetch(input, init));
+          if (response.status === 401 && !init?.signal?.aborted) {
+            const onExpired = current().onExpired;
+            entry.invalidate(); onExpired();
+          }
+          return response;
+        },
+      });
       const simulate = simulation?.createSimulatedApi({ actor, readOnly: context.demo });
       const fetchPort = createFetchPort({ apiUrl, actor,
         simulate: simulate ? (path, init) => path === "/v1/sistema/permissoes" && init.method === "GET"
@@ -163,6 +194,7 @@ export function acquireErpHost(context: ErpHostContext) {
           remove: () => scoped(() => emissor.remove()),
           test: () => scoped(() => emissor.test()),
         },
+        commercialNfe,
       };
       const access = createAccessController(ports.auth, ports.apiUrl, ports.fetch, {});
       controller = access;
@@ -187,7 +219,21 @@ export function acquireErpHost(context: ErpHostContext) {
       });
       removePorts = installErpPorts(ports);
       removeAccess = installErpTargetAccess(to => runtime.allowed(to));
-      observe = access.subscribe(report);
+      const accessPolicy = () => {
+        const state = access.getSnapshot();
+        return JSON.stringify([state.phase, state.membership?.user_id, state.membership?.role, state.permissions]);
+      };
+      let observedAccess = accessPolicy();
+      observe = access.subscribe(() => {
+        const next = accessPolicy();
+        if (next !== observedAccess) {
+          observedAccess = next;
+          // Mesmo que a sessão volte ao estado anterior antes da resposta,
+          // chamadas da geração anterior continuam definitivamente canceladas.
+          revision.abort(); revision = new AbortController();
+        }
+        report();
+      });
       access.setSuspended(!available());
       stop = access.start();
       return runtime;

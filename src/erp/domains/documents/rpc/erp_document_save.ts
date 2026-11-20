@@ -16,6 +16,7 @@ import { nextIdentity } from "../../../engine/sequence.ts";
 import { erpEntityRequirement, erpRequirementMet } from "../../../parts-requirements.ts";
 import { dto as catalogDto } from "../../catalog/public.ts";
 import * as finance from "../../finance/public.ts";
+import { deferredCom1Effect, guardCom1CommercialSave, guardCom1Transition } from "../../fiscal/comnfe/effect-policy.ts";
 import { approvalSituations, autoProducts, documentDto, documentSituationJson, documentView, preference, uuidValue } from "../internal.ts";
 import { checkCustomFields, extensionKeys, hasCommercialData, normalize } from "../normalize.ts";
 import { guardEffect, requireVisible } from "../mirror.ts";
@@ -167,6 +168,8 @@ export function autoFinance(ctx: RpcContext, user: string, id: string, command: 
     !!one(db, 'SELECT 1 x FROM "erp_finance__grouped_billing_document" WHERE document_id=? AND active=1 LIMIT 1', id)
   )
     return null;
+  const deferred = deferredCom1Effect(ctx, id, "finance");
+  if (deferred) return { ...deferred };
   if (!one(db, `SELECT 1 x FROM "erp_access__membership" WHERE user_id=? AND active=1 AND role IN ('admin','financeiro')`, user)) return { outcome: "skipped", reason: "erp_finance_access_denied" };
   if (d.total !== null && BigInt(String(d.total)) <= 0n) return { outcome: "skipped", reason: "erp_document_finance_zero_total" };
   const body = JSON.parse(String(d.body));
@@ -312,6 +315,7 @@ export function erpDocumentSave(ctx: RpcContext, a: RpcArgs) {
     sourceBefore = documentDto(ctx, sourceId);
   }
   // check_tax_preference: sem regra.
+  if (id !== null) guardCom1CommercialSave(ctx, id, data, { refreshContact: refresh, numberChanged: number !== null });
   if (number !== null) {
     if (!numberEditable(db, kind!)) raise("22023", "erp_document_number_locked");
     // Origin: número já usado vira o próximo livre (novo) ou fica o atual (edição).
@@ -367,6 +371,7 @@ export function erpDocumentSave(ctx: RpcContext, a: RpcArgs) {
       )
         raise("22023", "erp_document_seller_discount_limit");
       const situationBefore = documentSituationJson(db, docId);
+      guardCom1Transition(ctx, docId, "draft");
       updateDocument(ctx, docId, { status: "draft", version: Number(saved.version) + 1, updated_by: user, updated_at: ctx.clock.next().toString() });
       db.exec('DELETE FROM "erp_documents__document_situation" WHERE document_id=?', docId);
       db.exec(

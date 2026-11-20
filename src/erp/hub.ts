@@ -12,7 +12,7 @@
 import type { Env } from "../types";
 import { applyErpPartsSnapshot, requireCurrentErpParts, ErpPartsControlError, currentErpParts, handleErpParts, ERP_PARTS_KEY } from "./parts-control.ts";
 import { ERP_PARTS_DENIED_HEADER, readErpPartsSnapshot } from "./parts.ts";
-import { decodeIdentity, IDENTITY_HEADER } from "./engine/identity.ts";
+import { decodeIdentity, IDENTITY_HEADER, SYSTEM_HEADER } from "./engine/identity.ts";
 
 /**
  * Motor e esquema por import dinâmico: o bundle os traz, mas só são avaliados
@@ -48,6 +48,13 @@ export function erpFetch(
     headers,
   });
 }
+
+// Somente persistência de evidência de uma operação já reivindicada. O motor
+// exige novamente emissão, comando e token; esta exceção não faz envio/efeito.
+const commercialEvidenceRpcs = new Set(["erp_com1_record", "erp_com1_cancel_record", "erp_com1_cancel_xml_record"]);
+export const isCommercialNfeEvidenceRequest = (path: string, request: Request): boolean =>
+  request.method === "POST" && request.headers.get(SYSTEM_HEADER) === "1" &&
+  commercialEvidenceRpcs.has(path.slice("/erp-rpc/".length)) && path.startsWith("/erp-rpc/");
 
 const fail = (status: number, code: string, message: string) =>
   Response.json({ error: { code, message } }, { status });
@@ -104,6 +111,7 @@ export class ErpHub {
     // Identidade e controle são leves: nenhuma importação do motor, SQL ou
     // migração pode preceder a recusa de uma fotografia ausente ou superada.
     const rpc = path.startsWith("/erp-rpc/");
+    const evidence = rpc && isCommercialNfeEvidenceRequest(path, request);
     const identity = rpc ? decodeIdentity(request.headers.get(IDENTITY_HEADER)) : null;
     const input = identity && { ...identity.partsControl, parts: identity.parts };
     const authorize = async (apply: boolean) => {
@@ -122,12 +130,12 @@ export class ErpHub {
           { status: error.status, headers: { [ERP_PARTS_DENIED_HEADER]: error.code } });
       }
     };
-    if (rpc) {
+    if (rpc && !evidence) {
       const denied = await authorize(true);
       if (denied) return denied;
     }
     const { ERP_SCHEMA_VERSION, migrate, backupToR2, dumpAll, handleRpc, readBackup, restoreAll } = await engine();
-    if (rpc) {
+    if (rpc && !evidence) {
       // O import cede a vez: expiração ou revisão nova também bloqueiam a migração.
       const denied = await authorize(false);
       if (denied) return denied;
