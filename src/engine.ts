@@ -1,5 +1,5 @@
 import { createPiiMask, maskPersonalEnabled, type PiiMask } from "./pii-mask";
-import { allowsModules, channelRules, channelWindow, assertChannelSend, conversationChannel } from "./channels";
+import { channelRules, channelWindow, assertChannelSend, conversationAllowsModules, conversationChannel } from "./channels";
 import { socialTransportPort } from "./channel-ports";
 import type { ChannelId, SocialDelivery, SocialEventScope, SocialSendAttachment } from "./channel-contracts";
 import type { ChannelAction, ChannelDeliveryPlan, ChannelDeliveryResult, ChannelOperationContext, ChannelOutboxRow, ServerChannelAction } from "./channel-c2-contracts";
@@ -202,6 +202,9 @@ function engineChannel(c: any): ChannelId | null {
     return conversationChannel(c, null);
   return c.connection_id && c.external_namespace === `channel:${c.connection_id}` ? "whatsapp" : null;
 }
+/** Módulos no motor: WhatsApp e as conversas anteriores aos canais novos
+ * (aplicação de integração, equipe, interna), como na 0.23.0. Sem leitura. */
+const engineModules = (c: any) => conversationAllowsModules(c, engineChannel(c));
 const channelContext = (c: any) => c.chat_type === "comment" ? "comment" : json(c.channel_context).context || "direct";
 const isSocial = (c: any) => ["instagram", "facebook"].includes(engineChannel(c) || "") && channelContext(c) === "direct";
 const extensionConversationKey = (c: any) => extensionKey(engineChannel(c), channelContext(c));
@@ -614,7 +617,7 @@ export async function processInbox(env: Env, profile: string) {
       return;
     // Resposta de Flow e carrinho do catálogo: tratados antes do menu e do
     // bot (src/structured-inbound.ts); o resumo em texto não abre o menu.
-    if (allowsModules(engineChannel(c)) && c.chat_type !== "group" && isStructured(data.content)) {
+    if (engineModules(c) && c.chat_type !== "group" && isStructured(data.content)) {
       await structuredInbound(
         env,
         c,
@@ -627,7 +630,7 @@ export async function processInbox(env: Env, profile: string) {
     // Localização enviada pelo cliente: só quando um módulo trata (destino
     // da Entrega); sem dono, segue o caminho de sempre.
     if (
-      allowsModules(engineChannel(c)) && c.chat_type !== "group" &&
+      engineModules(c) && c.chat_type !== "group" &&
       data.content?.type === "location" &&
       (await moduleLocation(env, c, row, data))
     )
@@ -745,7 +748,7 @@ export async function processInbox(env: Env, profile: string) {
     const replyId = data.content?.interactive_reply_id;
     // Fila de senhas: coupon link, SENHA/SAIR and the open queue question.
     // With the module off (Gestão → Módulos) none of it answers.
-    const queueOn = allowsModules(engineChannel(c)) && await moduleEnabled(env, profile, "queue");
+    const queueOn = engineModules(c) && await moduleEnabled(env, profile, "queue");
     const queueResult = queueOn
       ? await queueTurn(env, c, row, value, replyId)
       : { handled: false, menu: false };
@@ -761,7 +764,7 @@ export async function processInbox(env: Env, profile: string) {
             null,
             !!c.menu_manual,
             c.chat_type,
-            engineChannel(c),
+            engineModules(c),
           )
         ).length
       )
@@ -780,7 +783,7 @@ export async function processInbox(env: Env, profile: string) {
     // onConversationTurn): a próxima mensagem vai a eles antes da porta de
     // entrada, dos protocolos, do menu e do bot. Toques em botão só valem
     // vindos do próprio canal, como no menu.
-    if (allowsModules(engineChannel(c)) && c.chat_type !== "group") {
+    if (engineModules(c) && c.chat_type !== "group") {
       const turn = {
         text: value,
         replyId:
@@ -823,7 +826,7 @@ export async function processInbox(env: Env, profile: string) {
               null,
               false,
               c.chat_type,
-              engineChannel(c),
+              engineModules(c),
             )
           ).length
         )
@@ -938,7 +941,7 @@ export async function processInbox(env: Env, profile: string) {
                 null,
                 !!c.menu_manual,
                 c.chat_type,
-                engineChannel(c),
+                engineModules(c),
               )
             ).length
           )
@@ -975,7 +978,7 @@ export async function processInbox(env: Env, profile: string) {
         null,
         false,
         c.chat_type,
-        engineChannel(c),
+        engineModules(c),
       );
       if (menu.length) {
         await sendMenu(
@@ -1036,7 +1039,7 @@ export async function processInbox(env: Env, profile: string) {
         parent,
         !!c.menu_manual,
         c.chat_type,
-        engineChannel(c),
+        engineModules(c),
       );
       // If an administrator removed the branch while it was open, return to
       // the current root rather than handing the conversation to another owner.
@@ -1049,7 +1052,7 @@ export async function processInbox(env: Env, profile: string) {
           null,
           !!c.menu_manual,
           c.chat_type,
-          engineChannel(c),
+          engineModules(c),
         );
       }
       if (options.length)
@@ -1089,7 +1092,7 @@ export async function processInbox(env: Env, profile: string) {
           c.menu_parent || null,
           !!c.menu_manual,
           c.chat_type,
-          engineChannel(c),
+          engineModules(c),
         )
       : [];
     const trustedReply =
@@ -1197,13 +1200,13 @@ export async function processInbox(env: Env, profile: string) {
         );
         return;
       }
-      if (allowsModules(engineChannel(c)) && choice.type === "queue" && c.chat_type !== "group") {
+      if (engineModules(c) && choice.type === "queue" && c.chat_type !== "group") {
         await startQueue(env, c, choice.queue_id || null, row.id);
         return;
       }
       // Tipos de item declarados pelos módulos (src/modules/api.ts). Itens de
       // módulo desligado nem chegam aqui: settings() os esconde do menu.
-      const moduleMenu = allowsModules(engineChannel(c)) ? menuHandler(choice.type) : null;
+      const moduleMenu = engineModules(c) ? menuHandler(choice.type) : null;
       if (moduleMenu) {
         if (c.chat_type === "group")
           await enqueue(
@@ -1419,7 +1422,7 @@ export async function processInbox(env: Env, profile: string) {
           null,
           false,
           c.chat_type,
-          engineChannel(c),
+          engineModules(c),
         )
       ).length
     ) {
@@ -1835,7 +1838,7 @@ async function attendantInput(
         null,
         true,
         c.chat_type,
-        engineChannel(c),
+        engineModules(c),
       )
     ).map((m: any) => ({ id: m.id, label: m.label, type: m.type })),
     actions: (cfg.capabilities || []).filter((a: any) => a.enabled !== false),
@@ -1930,7 +1933,7 @@ async function aiRun(env: Env, run: Run, conn: any, pii: PiiMask): Promise<strin
   const customer =
     !team &&
     run.conversation_id &&
-    current && allowsModules(engineChannel(current)) &&
+    current && engineModules(current) &&
     ["attendant", "answer", "specialist"].includes(run.phase)
       ? await customerToolContext(env, run)
       : null;
@@ -2224,7 +2227,7 @@ export async function processRun(env: Env, run: Run) {
             null,
             true,
             c.chat_type,
-            engineChannel(c),
+            engineModules(c),
           ),
           pii,
         );

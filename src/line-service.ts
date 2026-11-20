@@ -15,7 +15,7 @@ import { settings, enqueue } from "./service";
 import { enqueueChannelPlan, enqueueSocialDeliveries } from "./channel-enqueue";
 import { sha } from "./security";
 import { departmentFor } from "./departments";
-import { allowsModules, assertChannelSend, channelRules, channelWindow } from "./channels";
+import { allowsModules, assertChannelSend, channelRules, channelWindow, conversationAllowsModules } from "./channels";
 import type { ChannelId } from "./channel-contracts";
 import { channelExtension, extensionKey, registeredChannelExtensions } from "./channel-extension-registry";
 import { loadChannelOperationContext, prepareChannelAction } from "./channel-extension-kernel";
@@ -234,16 +234,20 @@ async function availableMenuTree(
   includeManual = false,
   chatType = "direct",
   cfg?: any,
-  channel?: ChannelId | null,
+  // Canal da linha/conversa, ou a decisão de módulos já tomada pela conversa
+  // (conversationAllowsModules), que só filtra os itens de módulo.
+  channel?: ChannelId | null | boolean,
 ) {
   cfg ||= await settings(env, profile);
+  const modules = typeof channel === "boolean" ? channel
+    : allowsModules(channel === undefined && connection ? "whatsapp" : channel ?? null);
   const policy = await getNumberPolicy(env, connection),
     service = await serviceForLine(env, connection);
   if (!policy.menu || !policy.service || service.menu_mode === "off") return [];
   const result = [];
   for (const item of cfg.menus || []) {
     if (!menuAllowed(item, cfg.menus, connection, includeManual)) continue;
-    if (!allowsModules(channel === undefined && connection ? "whatsapp" : channel ?? null) &&
+    if (!modules &&
         !["human", "bot", "submenu", "protocols", "survey", "ticket", "link", "content", "app"].includes(item.type))
       continue;
     if (item.type === "human" && !policy.human) continue;
@@ -312,7 +316,7 @@ export async function availableMenus(
   parent: string | null = null,
   includeManual = false,
   chatType = "direct",
-  channel?: ChannelId | null,
+  channel?: ChannelId | null | boolean,
 ) {
   return (
     await availableMenuTree(env, profile, connection, includeManual, chatType, undefined, channel)
@@ -607,7 +611,7 @@ export async function sendMenu(
     menuId,
     manual,
     c.chat_type,
-    c.channel ?? undefined,
+    conversationAllowsModules(c, (c.channel ?? (c.connection_id ? "whatsapp" : null)) as ChannelId | null),
   );
   requireValue(
     items.length,

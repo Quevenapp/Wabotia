@@ -52,7 +52,7 @@ import { completeChannelDelivery, loadChannelDeliveryContext } from "./delivery"
 import { channelConnectionDriver, channelExtension, extensionKey, registeredChannelExtensions, registeredChannelMaintenance } from "./channel-extension-registry";
 import { channelAutomationBlock, configureChannelConnection, ingressOperationContext, performChannelAction, validateChannelWritePlan, verifyIngressTicket } from "./channel-extension-kernel";
 import type { ChannelOutboxRow, ChannelWritePlan, ExtensionConnection } from "./channel-c2-contracts";
-import { allowsModules, channelRules, channelWindow, conversationChannel, isChannelId } from "./channels";
+import { channelRules, channelWindow, conversationAllowsModules, conversationChannel, isChannelId } from "./channels";
 import { refreshChannelSummaryStatements, validateChannelConfiguration } from "./channel-accounts";
 import { enqueueChannelAutomation, enqueueSocialDeliveries } from "./channel-enqueue";
 import { socialExternalId, type SocialSendProvenance } from "./zernio-social";
@@ -3042,9 +3042,11 @@ export async function perform(
     // Ações registradas pelos módulos (src/modules/api.ts).
     const moduleAction =
       typeof action === "string" ? conversationAction(action) : undefined;
-    if (moduleAction && !allowsModules(conversationChannel(c,
-      c.connection_id ? await inboundConnection(env, c.connection_id) : null)))
-      throw new ApiError(422, "unsupported_content", "Os módulos estão disponíveis somente em conversas do WhatsApp.");
+    if (moduleAction) {
+      const origin = c.connection_id ? await inboundConnection(env, c.connection_id) : null;
+      if (!conversationAllowsModules(c, conversationChannel(c, origin), origin))
+        throw new ApiError(422, "unsupported_content", "Os módulos estão disponíveis somente em conversas do WhatsApp.");
+    }
     if (moduleAction) return moduleAction(env, actor, c, data, requestId);
     if (
       [
@@ -3280,7 +3282,8 @@ export async function perform(
             const sources = await searchKnowledge(env, profile, words);
             const cfg = await settings(env, profile);
             const menus = (
-              await availableMenus(env, profile, c.connection_id, null, true)
+              await availableMenus(env, profile, c.connection_id, null, true, undefined,
+                conversationAllowsModules(c, c.connection_id ? "whatsapp" : null))
             ).map((m: any) => ({ id: m.id, label: m.label, type: m.type }));
             await createRun(
               env,

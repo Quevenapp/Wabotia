@@ -286,6 +286,23 @@ export function allowsModules(channel: ChannelId | null): boolean {
   return channel === "whatsapp";
 }
 
+/** Módulos numa conversa. `channel` é o canal que o chamador já resolveu
+ * (conversationChannel ou equivalente). As conversas anteriores aos canais
+ * novos (aplicação de integração, equipe, interna e conexão de IA) não têm
+ * canal resolvido, mas tinham módulos na 0.23.0 e continuam tendo enquanto não
+ * gravarem canal novo. Canal novo ou inválido gravado nunca libera.
+ * Não consulta banco nem conexões. */
+export function conversationAllowsModules(conversation: {
+  channel?: ChannelId | string | null;
+  external_namespace?: string | null;
+  chat_type?: string | null;
+}, channel: ChannelId | null, connection: ChannelConnection | null = null): boolean {
+  if (allowsModules(channel)) return true;
+  const legacy = connection?.kind === "ai" || !!conversation.external_namespace?.startsWith("app:") ||
+    conversation.chat_type === "team" || conversation.chat_type === "internal";
+  return legacy && (conversation.channel == null || conversation.channel === "whatsapp");
+}
+
 /** Projeção das chaves legadas: não importa transporte, não lê D1 e não muda
  * a seleção de recursos de QR v1/v2 ou da conexão oficial existente. */
 function whatsappCapabilities(conn: ChannelConnection, context: ChannelContext) {
