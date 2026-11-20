@@ -337,6 +337,13 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
   if (!readErpPartsSnapshot({ ...identity.partsControl, parts: identity.parts }, profile))
     identity = { ...identity, ...await erpPartsEnvelope(env, profile) };
   if (!erpRequirementMet(identity.parts!, requirement)) throw new ApiError(409, "module_disabled", "Esta rotina depende de uma parte desligada.");
+  if (path === "/v1/receber-bling" || path.startsWith("/v1/receber-bling/")) {
+    // Apenas os nomes descritos na base; não repassa RPC, payload de coleta
+    // ou cabeçalhos de autoridade enviados pelo navegador.
+    const { forwardBlingOperation } = await import("../bling/assembly.ts");
+    return forwardBlingOperation(env, profile, actor, identity,
+      new Request(request.url, { method: request.method, headers: request.headers, body: bodyBytes }));
+  }
   const modules: ErpModuleState = { fiscal: identity.parts!.fiscal };
   if (path === "/v1/sistema/manutencao-efeitos") {
     const maintenanceRequest = new Request(request.url, { method: request.method, headers: request.headers, body: bodyBytes });

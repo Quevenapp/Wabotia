@@ -60,6 +60,8 @@ export function erpRouteRequirement(method: string, url: URL, body?: unknown): E
   const path = url.pathname.replace(/\/$/, ""), block = erpBlockOf(path);
   if (!block || block === "externo") return block;
   if (!erpRouteExists(method, path)) return null;
+  // Acervo histórico independe das partes operacionais e de seus filtros.
+  if (path === "/v1/receber-bling" || path.startsWith("/v1/receber-bling/")) return erpRequirement(B);
   const input = { ...Object.fromEntries(url.searchParams), ...record(body) };
   const ids: ErpModuleId[] = [block];
   const add = (r: ErpRequirement | null) => { if (r) ids.push(...r.all); return !!r; };
@@ -139,7 +141,7 @@ export function erpDestinationRequirement(value: URL | string): ErpDestinationRe
   const preference = Object.keys(ERP_PREFERENCE_DESTINATIONS).find(prefix => path === prefix || path.startsWith(prefix + "/"));
   if (preference) owner = ERP_PREFERENCE_PARTS[ERP_PREFERENCE_DESTINATIONS[preference]];
   else if (path.startsWith("/ajuda/")) owner = B;
-  else if (["/acesso", "/visao-geral", "/cadastros-empresa", "/preferencias", "/empresa-configuracoes", "/ajuda", "/importacoes", "/relatorios-customizados", "/etiquetas", "/transicoes", "/arquivos", "/manutencao-efeitos"].includes(path)) owner = B;
+  else if (["/acesso", "/visao-geral", "/cadastros-empresa", "/preferencias", "/empresa-configuracoes", "/ajuda", "/importacoes", "/relatorios-customizados", "/etiquetas", "/transicoes", "/arquivos", "/manutencao-efeitos", "/receber-bling"].includes(path)) owner = B;
   else if (path === "/cadastros-reais") owner = ERP_ENTITY_PARTS[q.get("cadastro") ?? ""];
   else if (path === "/documentos-empresa") owner = ERP_ENTITY_PARTS[q.get("tipo") ?? ""];
   else if (["/estoque-empresa", "/estoque-abertura", "/conferencia-estoque-empresa", "/relatorios-estoque", "/painel-produtos-empresa"].includes(path)) { owner = E; if (q.get("painel") === "sugestao" || q.get("relatorio") === "compras") extra.push(C); }

@@ -9,3 +9,4 @@ export { CONTINUE_AFTER_MS, runRound, nextWake, TASK_HANDLERS } from "./schedule
 export { FILE_PURPOSES, runFileTasks } from "./scheduler/files.ts";
 export { backupToR2, dumpAll, readBackup, restoreAll } from "./engine/dump.ts";
 export { ROUTINES } from "./scheduler/routines.ts";
+export { handleBlingOperation, runBlingWake, nextBlingWake } from "./bling/assembly.ts";

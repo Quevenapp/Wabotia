@@ -168,4 +168,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Fatia vender com NF-e: manter identidade fiscal e corpo persistidos, impedir repetição de nota e efeito e conservar evidência externa mesmo após falha local. Número, assinatura, transmissão, certificado e DANFE continuam no cofre.",
     replaced_by: "Versão 10 aditiva (9→10): commercial_settings, order_emission, order_revision, order_command, order_cancel, order_effect e order_audit em erp_fiscal_vault. Revisão e auditoria são imutáveis; pedido/versão, referência, comando e eixo têm unicidade. Corpo, resposta e XML são restritos, separados da auditoria resumida; nenhuma credencial é coluna do esquema. Emissões comerciais não são projetadas no acervo fiscal legado. Backup/restauração inclui ERP_ENGINE_TABLES; nenhuma migração D1 ou novo recurso.",
   },
+  {
+    id: "receber-bling",
+    oracle: "Coletor externo com posse, checkpoints, bruto, espelhos e sincronização operacional.",
+    reason: "Receber e preservar os dados no Coordinator da área, com precisão e histórico, sem produzir registros operacionais ou habilitar envio.",
+    replaced_by: "Versão 11 aditiva (10→11, também na subida desde 9): wb_bling_control, wb_bling_unit, wb_bling_receipt, wb_bling_extra_raw, wb_bling_record_version e wb_bling_audit. As 18 entidades conservam raw_record/batch_inbox e os CHECKs legados; source_version guarda versões anteriores. Credenciais ficam somente no cofre do núcleo. Backup exclui credenciais e OAuth e restaura a coleta desligada, sem posses ou aprovação de instalação. Montagem inicial indisponível; a sincronização operacional permanece desligada.",
+  },
 ];
