@@ -916,6 +916,12 @@ const operations: [string, string, string, string?, string?][] = [
   ["get", "/profiles/{profile}/bots", "Listar bots", "bots:read"],
   [
     "get",
+    "/profiles/{profile}/bots/erp-operations",
+    "Listar, por assunto, as operações do ERP que o administrador pode liberar a um bot (só administrador)",
+    "bots:read",
+  ],
+  [
+    "get",
     "/profiles/{profile}/conversations",
     "Listar conversas",
     "conversations:read",

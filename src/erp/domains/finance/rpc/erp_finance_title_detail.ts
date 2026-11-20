@@ -1,9 +1,10 @@
 // public.erp_finance_title_detail (a gaveta da conta) e public.erp_finance_get
 // (leitura de um registro pelo DTO do 010).
-import { one } from "../../../engine/driver.ts";
+import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
-import { bool, requireAccess, ts, uuidArg } from "../internal.ts";
+import { actorLabel } from "../../access/public.ts";
+import { BANK_WRITEOFF_ACTION, bool, requireAccess, ts, uuidArg } from "../internal.ts";
 import { dto, titleBilling, titleOrigin } from "../titles.ts";
 
 export function erpFinanceTitleDetail(ctx: RpcContext, a: RpcArgs) {
@@ -40,9 +41,13 @@ export function erpFinanceTitleDetail(ctx: RpcContext, a: RpcArgs) {
       break;
     }
   }
+  // Local (desvio "titulo-cobranca-bancaria"): a declaração de boleto baixado no banco que cancelou a
+  // conta, lida da auditoria já gravada por erp_finance_execute. Aditivo: a chave só vem quando existe.
+  const writeoff = bool(v.cancelled) ? bankWriteoff(db, id) : null;
   return {
     entity: "titles",
     record: v,
+    ...(writeoff ? { bank_writeoff: writeoff } : {}),
     origin: titleOrigin(db, id),
     account: acc ? { id: acc.id, name: acc.name, active: bool(acc.active) } : null,
     ...(ctx.parts.billing ? { billing: titleBilling(db, id) } : { unavailable_parts: ["billing"] }),
@@ -52,6 +57,14 @@ export function erpFinanceTitleDetail(ctx: RpcContext, a: RpcArgs) {
     history: one(db, 'SELECT history FROM "erp_finance__title" WHERE id=?', id)?.history ?? null,
     data_mode: "erp_native",
   };
+}
+
+function bankWriteoff(db: SqlDriver, id: string) {
+  const row = one(db, `SELECT after_data FROM "erp_finance__audit" WHERE action=? AND json_extract(after_data,'$.record.id')=? ORDER BY id DESC LIMIT 1`, BANK_WRITEOFF_ACTION, id);
+  const w = row ? JSON.parse(String(row.after_data))?.bank_writeoff : null;
+  if (!w || typeof w !== "object") return null;
+  const by = String(w.declared_by);
+  return { billing_title_id: w.billing_title_id, remittance_id: w.remittance_id, reason: w.reason, declared_by: by, declared_by_name: actorLabel(db, by), declared_at: w.declared_at };
 }
 
 export function erpFinanceGet(ctx: RpcContext, a: RpcArgs) {

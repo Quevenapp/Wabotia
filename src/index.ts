@@ -102,6 +102,7 @@ import {
   fullPersonalData,
   setFullPersonalData,
 } from "./bot-actions/actions";
+import { erpBotInventory } from "./modules/erp/bot-access";
 import { mountAccount, mountAccountPublic } from "./account-routes";
 import { loginMfaNext, loginSecondFactor, mfaGate } from "./mfa";
 import { buildInfo } from "./build-info.generated";
@@ -2255,6 +2256,15 @@ for (const op of [
 app.post("/api/v1/profiles/:profile/jev", async (c) =>
   mutate(c, "jev", c.req.param("profile"), await c.req.json()),
 );
+// Inventário das operações do ERP que o administrador libera a um bot, para a
+// tela do bot. Só administrador; mudar continua em bot.update (auditado).
+app.get("/api/v1/profiles/:profile/bots/erp-operations", async (c) => {
+  const p = c.req.param("profile")!,
+    actor = c.get("actor");
+  access(actor, p, "bots:read");
+  admin(actor);
+  return c.json(erpBotInventory(await moduleStates(c.env, p)));
+});
 const readLists: Record<string, [string, string]> = {
   bots: ["bots", "bots:read"],
   tickets: ["tickets", "tickets:read"],

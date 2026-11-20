@@ -41,6 +41,9 @@ import { bankShortName, bankTitle } from '../lib/finance-banks';
 import { financePermitted, titlePermission } from '../lib/real-finance-model';
 import { BATCH_PERMISSION, originNumber } from '../lib/finance-title-list';
 import { blockEnabled } from '../../blocks';
+import FinanceBankWriteoff from './FinanceBankWriteoff';
+import { BANK_WRITEOFF_LABEL, bankWriteoffAvailable, bankWriteoffBlocked, cancelRefusalText, opensBankWriteoff } from '../lib/finance-bank-writeoff';
+const BANK_WRITEOFF_DONE = 'Conta cancelada: o boleto foi declarado como baixado no banco. A declaração aparece na conta cancelada.';
 
 // Without the per-user list preferences port (or before the access is known) the list keeps the browser choice.
 const LIST_PREFERENCES_IDLE = { phase: 'loading' } as unknown as AccessState;
@@ -51,6 +54,8 @@ const noFinanceSnapshot=()=>null;
 
 const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 function message(error: unknown) {
+  // Wabotia: recusas de causa conhecida do cancelamento (boleto em remessa, versão, permissão, segundo fator, parte desligada).
+  const known = cancelRefusalText(error); if (known) return known;
   if (error instanceof AccessError) return error.status === 409 ? 'O registro mudou ou esta operação já foi usada com outros valores. Volte à listagem e reabra o registro antes de confirmar novamente.' : error.status === 400 ? 'A operação não foi aceita. Confira os valores, as datas e os cadastros selecionados.' : error.status === 403 ? 'Seu acesso a esta operação foi alterado.' : error.status === 404 ? 'O registro não foi encontrado. Atualize a listagem.' : 'Não foi possível confirmar o resultado. Tente novamente com os mesmos dados; a operação não será duplicada.';
   return error instanceof Error ? error.message : 'Não foi possível concluir a operação.';
 }
@@ -142,7 +147,7 @@ function FinanceEditor({ controller, mode, record, kind, payment, partial = fals
   const named = mode === 'account_save' || mode === 'category_save' ? record as FinanceAccount | FinanceCategory | null : null;
   const [values, setValues] = useState<Record<string, string>>({ name: named?.name || '', kind: named?.kind || (mode === 'account_save' ? 'bank' : 'both'), description: title?.description || '', source_reference: title?.source_reference || '', issued_on: title?.issued_on || todaySP(), due_on: title?.due_on || todaySP(), amount: title ? centsInput(title.amount_cents) : '', count: '1', posted_on: todaySP(), note: '', principal: title && !partial ? centsInput(title.balance_cents) : '', interest: '0,00', penalty: '0,00', discount: '0,00', fee: '0,00' });
   const [active, setActive] = useState(named?.active ?? true); const [contact, setContact] = useState<Reference | null>(null); const [category, setCategory] = useState<Reference | null>(title?.category_id ? { id: title.category_id, name: title.category_name || 'Categoria atual' } : null); const [account, setAccount] = useState<Reference | null>(null);
-  const [review, setReview] = useState<Review | null>(null); const [busy, setBusy] = useState(false); const [uncertain, setUncertain] = useState(false); const [error, setError] = useState(''); const [originalAccount, setOriginalAccount] = useState('');
+  const [review, setReview] = useState<Review | null>(null); const [writeoff, setWriteoff] = useState(false); const [busy, setBusy] = useState(false); const [uncertain, setUncertain] = useState(false); const [error, setError] = useState(''); const [originalAccount, setOriginalAccount] = useState('');
   const guard = useUnsavedForm({ values, active, contact: contact?.id || null, category: category?.id || null, account: account?.id || null }, busy || uncertain);
   const pending = useRef<AbortController | null>(null); const command = useRef<{ id: string; path: string; body: Record<string, unknown>; uncertain: boolean } | null>(null); const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => { heading.current?.focus(); return () => pending.current?.abort(); }, []);
@@ -202,6 +207,8 @@ function FinanceEditor({ controller, mode, record, kind, payment, partial = fals
     const request = new AbortController(); pending.current = request; setBusy(true); setError('');
     try { const result = await controller.finance(operation.path, { method: 'POST', body: { ...operation.body, command_id: operation.id }, signal: request.signal }); if (!request.signal.aborted) onSaved(review.settleAfter ? { settleId: savedTitleId(result, review.action, title?.kind || kind, title?.id) } : undefined); }
     catch (failure) { if (!request.signal.aborted && !aborted(failure)) {
+      // Wabotia: boleto numa remessa ao banco: a conta só cancela pela declaração de boleto baixado no banco.
+      if (!operation.uncertain && review.action === 'title_cancel' && title && opensBankWriteoff(failure)) { command.current = null; const off = bankWriteoffBlocked(blockEnabled); if (off) { setError(off); return; } setReview(null); setWriteoff(true); return; }
       const known = !operation.uncertain && failure instanceof AccessError && [400,403,404,409].includes(failure.status);
       if (!known) operation.uncertain = true;
       if (known) command.current = null; setUncertain(!known);
@@ -216,7 +223,7 @@ function FinanceEditor({ controller, mode, record, kind, payment, partial = fals
     {mode === 'reverse' && payment && <><dl className="finance-review real-field-wide"><div><dt>Baixa original</dt><dd>{financeDate(payment.posted_on)} · Principal {financeMoney(payment.principal_cents)}</dd></div><div><dt>Conta</dt><dd>{originalAccount}</dd></div><div><dt>Valor de caixa a estornar</dt><dd>{financeMoney(payment.net_cash_cents)}</dd></div></dl>{input('posted_on', 'Data do estorno *', { type: 'date', required: true, min: payment.posted_on, maxDate: todaySP() })}<p className="real-help real-field-wide">O estorno preserva a baixa original, desfaz seus valores na mesma conta e reabre o principal correspondente no título.</p></>}
     {mode === 'opening' && <>{input('amount', 'Saldo inicial em reais *', { required: true })}{input('posted_on', 'Data do saldo inicial *', { type: 'date', required: true, maxDate: todaySP() })}<p className="real-notice real-field-wide">Use sinal negativo para saldo devedor. Este lançamento só pode ocorrer uma vez e não pode ter data posterior a movimentos existentes na conta.</p></>}
     {['settle', 'reverse', 'opening', 'title_cancel'].includes(mode) && <Field label={mode === 'settle' ? 'Observação' : 'Justificativa *'} wide>{id => <textarea id={id} rows={3} maxLength={500} required={mode !== 'settle'} value={values.note} onChange={event => set('note', event.target.value)} />}</Field>}
-    </fieldset><div className={`real-editor-actions${originSave ? ' finance-drawer-actions' : ''}`}>{originSave && <button className="text-button" type="button" disabled={busy} onClick={() => guard.confirmLeave(onClose)}>Cancelar</button>}{drawer && (mode === 'title_create_group' || settleAfterAllowed) && <button className="secondary-button" type="button" disabled={busy || uncertain || awaitingOrigin || !settleAfterAllowed} title={settleAfterAllowed ? 'Salva a conta e abre a baixa em seguida' : 'Disponível para conta com parcela única'} onClick={event => prepare(event, true)}>Salvar e dar baixa</button>}<button className="primary-button" type="submit" disabled={busy || uncertain || awaitingOrigin}>{originSave ? 'Salvar' : 'Conferir operação'}</button>{!originSave && <button className="secondary-button" type="button" disabled={busy} onClick={() => guard.confirmLeave(onClose)}>Voltar sem salvar</button>}</div></form>{review && <Confirmation review={review} busy={busy} uncertain={uncertain} error={error} onBack={() => { if (uncertain) { guard.confirmLeave(onClose); return; } command.current = null; setReview(null); setError(''); }} onConfirm={() => void confirm()} />}</section>;
+    </fieldset><div className={`real-editor-actions${originSave ? ' finance-drawer-actions' : ''}`}>{originSave && <button className="text-button" type="button" disabled={busy} onClick={() => guard.confirmLeave(onClose)}>Cancelar</button>}{drawer && (mode === 'title_create_group' || settleAfterAllowed) && <button className="secondary-button" type="button" disabled={busy || uncertain || awaitingOrigin || !settleAfterAllowed} title={settleAfterAllowed ? 'Salva a conta e abre a baixa em seguida' : 'Disponível para conta com parcela única'} onClick={event => prepare(event, true)}>Salvar e dar baixa</button>}<button className="primary-button" type="submit" disabled={busy || uncertain || awaitingOrigin}>{originSave ? 'Salvar' : 'Conferir operação'}</button>{!originSave && <button className="secondary-button" type="button" disabled={busy} onClick={() => guard.confirmLeave(onClose)}>Voltar sem salvar</button>}</div></form>{review && <Confirmation review={review} busy={busy} uncertain={uncertain} error={error} onBack={() => { if (uncertain) { guard.confirmLeave(onClose); return; } command.current = null; setReview(null); setError(''); }} onConfirm={() => void confirm()} />}{writeoff && title && <FinanceBankWriteoff controller={controller} title={title} initialReason={values.note.trim()} notice="O cancelamento comum foi recusado." onClose={() => setWriteoff(false)} onDone={() => { setWriteoff(false); onSaved(); }} />}</section>;
 }
 
 function FinancialHistory({ controller, title, account, writable, onReverse }: { controller: AccessController; title?: FinanceTitle; account?: FinanceAccount; writable: boolean; onReverse: (payment: FinanceSettlement) => void }) {
@@ -329,6 +336,8 @@ export default function RealFinance({ controller, initialTab = 'receivable' }: {
   const [batch, setBatch] = useState<BatchState | null>(null), [batchRunning, setBatchRunning] = useState(false);
   const [settleSelection, setSettleSelection] = useState<{ scope: string; titles: FinanceTitle[] } | null>(null);
   const [share, setShare] = useState<WhatsappShare | null>(null);
+  // Wabotia: "Boleto já baixado no banco" (title_bank_writeoff) aberto pelo ⋮ da conta a receber em remessa.
+  const [writeoff, setWriteoff] = useState<{ scope: string; title: FinanceTitle } | null>(null);
   const [printJob, setPrintJob] = useState<{ scope: string; print: FinancePrint; prefs?: boolean } | null>(null), [printMenu, setPrintMenu] = useState(false), [printNotes, setPrintNotes] = useState(false);
   const [pending, setPending] = useState<{ scope: string; owner: string; action: TitleBatchAction; items: PendingItem[] } | null>(null);
   const owner = sessionTracked ? actor ?? '' : 'isolated';
@@ -547,6 +556,9 @@ export default function RealFinance({ controller, initialTab = 'receivable' }: {
     // Wabotia: boletos e remessas são do bloco Cobrança bancária (web/erp/blocks.ts); desligado, os itens somem.
     if (blockEnabled('erp-cobranca')) { const boleto = boletoMenu(title as FinanceTitleRow, Boolean(permissions?.write) && financePermitted(permissions, 'financas.remessas.ie')); if (boleto.length) { const at = items.findIndex(item => item.label === 'Clonar' || item.label === 'Excluir');
       items.splice(at < 0 ? items.length : at, 0, ...boleto); } }
+    // Wabotia: a conta em remessa ao banco só cancela declarando o boleto baixado no banco (Financeiro e Cobrança bancária ligados).
+    if (permissionScope.current === authScope && bankWriteoffAvailable(title as FinanceTitleRow, permissions, blockEnabled)) { const at = items.findIndex(item => item.label === 'Clonar' || item.label === 'Excluir');
+      items.splice(at < 0 ? items.length : at, 0, { label: BANK_WRITEOFF_LABEL, icon: 'ban', onClick: () => { setRowMenu(null); if (mayWrite()) setWriteoff({ scope: routeKey, title }); } }); }
     // Origin order: the print item comes after the baixas and Cancelar, before Clonar and Excluir.
     // A cancelled (or excluded) conta never gets a recibo; a conta a pagar gets the comprovante only after a baixa.
     if (!title.cancelled && !title.deleted_at && (title.kind === 'receivable' || title.settled_cents !== '0')) { const at = items.findIndex(item => item.label === 'Clonar' || item.label === 'Excluir');
@@ -667,6 +679,7 @@ export default function RealFinance({ controller, initialTab = 'receivable' }: {
     {titleDrawer && <FinanceTitleDrawer key={`${titleDrawer.mode}:${titleDrawer.title?.id ?? 'new'}:${titleDrawer.title?.version ?? titleDrawer.clone?.id ?? ''}`} controller={controller} kind={kind} mode={titleDrawer.mode} title={titleDrawer.title} clone={titleDrawer.clone} onClose={close} onSaved={drawerSaved}
       history={titleDrawer.title && <FinancialHistory key={titleDrawer.title.id} controller={controller} title={titleDrawer.title} writable={titleDrawer.mode === 'edit'} onReverse={payment => leaveGuard.confirmLeave(() => { if (!mayRead() || permissionScope.current !== authScope || !permissions?.write) return; setNotice(''); setView(previous => ({ ...previous, editor: { mode: 'reverse', payment } })); })} />} />}
     {share && share.scope === routeKey && <FinanceWhatsappShare share={share} onClose={() => setShare(null)} />}
+    {writeoff && writeoff.scope === routeKey && <FinanceBankWriteoff key={`${writeoff.title.id}:${writeoff.title.version}`} controller={controller} title={writeoff.title} onClose={() => setWriteoff(null)} onDone={() => { setWriteoff(null); setNotice(BANK_WRITEOFF_DONE); setReload(value => value + 1); }} />}
     {printVisible && entity === 'titles' && (!financePreferences.loaded || printVisible.print.mode === 'credit' && !printVisible.prefs) ? prefsWait : printVisible && entity === 'titles' && <FinancePrintPreview controller={controller} kind={kind} print={printVisible.print} receiptHeader={financePreferences.values[kind === 'receivable' ? 'financas.receber_cabecalho_recibo' : 'financas.pagar_cabecalho_recibo'] === true} onClose={() => setPrintJob(null)} />}
     {columnsOpen && entity === 'titles' && <ColumnsDialog kind={kind} chosen={chosenColumns} onCancel={() => setColumnsOpen(false)} onApply={next => { const value = { view: 'customizada' as const, columns: customColumns(kind, next) }; setColumnState({ key: columnKey, ...value }); storeColumns(kind, owner, value); if (listPreferencesOn) listPrefs.saveColumns(value.columns); setColumnsOpen(false); }} />}
     {batchVisible && batchVisible.step === 'params' && <FinanceBatchParams key={`${batchVisible.action}:${batchVisible.scope}`} controller={controller} action={batchVisible.action} kind={kind} count={batchVisible.titles.length} onCancel={() => setBatch(null)} onContinue={continueBatch} />}

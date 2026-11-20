@@ -882,3 +882,23 @@
   color: var(--text-2);
   font-size: 14px;
 }
+/* Tela do bot: operações do ERP liberadas, agrupadas por assunto. */
+.bot-erp {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--divider);
+}
+.bot-erp h3 {
+  margin: 12px 0 6px;
+  font-size: 14px;
+}
+.bot-erp-group + .bot-erp-group {
+  margin-top: 8px;
+}
+.bot-erp-row {
+  align-items: flex-start;
+  cursor: pointer;
+}
+.bot-erp-row > input {
+  margin-top: 3px;
+}

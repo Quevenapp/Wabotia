@@ -2,12 +2,14 @@
 // pessoa (docs/API.md "Ações pelo bot"). Nada é escrito à mão: sai do que os
 // módulos já declaram (rotas onRead e onRoute, e o OpenAPI de cada módulo) e
 // é filtrado pelo que a pessoa alcança. Módulo ajusta em `definition.bot`.
+// As rotas do ERP que são repasse sem registro saem do inventário de
+// concessões (src/modules/erp/bot-access.ts), só para o bot que as tem.
 import { openapi } from "../openapi";
 import { moduleRoutes } from "../modules/hooks";
 import { moduleForRoute, moduleStates } from "../modules/registry";
 import { requireOperationAccess, requireRouteAccess } from "../access";
 import { ApiError, type Actor, type Env } from "../types";
-import { ERP_BOT_OPERATIONS, erpBotGrantedOperations } from "../modules/erp/bot-access";
+import { ERP_BOT_OPERATIONS, ERP_BOT_SCHEMAS, erpBotGrants, erpBotModules, type ErpBotOperation } from "../modules/erp/bot-access";
 
 export interface CatalogOperation {
   /** Nome usado nas ferramentas: a op da escrita ("os.create") ou "consulta:<caminho>". */
@@ -133,27 +135,58 @@ export function fullCatalog(): CatalogOperation[] {
   return out;
 }
 
+/** Operação nominal do ERP que não sai das rotas dos módulos (repasse sem
+ * registro): entra só pela concessão do bot. Leitura sensível liberada como
+ * autônoma pelo administrador vai direto; as demais seguem a proposta. */
+export function erpCatalogOperation(op: ErpBotOperation, autonomous = false): CatalogOperation {
+  const kind = op.method === "GET" ? "read" : "write";
+  return {
+    name: op.id,
+    kind,
+    module: "erp",
+    method: op.method as CatalogOperation["method"],
+    path: op.path,
+    summary: op.summary,
+    description: op.description.slice(0, 600),
+    params: resolve(op.params, ERP_BOT_SCHEMAS),
+    sensitive: op.sensitive && !(kind === "read" && autonomous),
+    scope: kind === "read" ? "erp:read" : "erp:write",
+  };
+}
+
 /** Operações que a pessoa alcança agora na área: módulo ligado e acesso dela. */
 export async function catalogFor(env: Env, actor: Actor, profile: string) {
   const states = await moduleStates(env, profile);
-  const available = fullCatalog().filter((op) => {
+  const reachable = (op: CatalogOperation) => {
     if (!states[op.module]) return false;
     try {
       requireRouteAccess(actor, op.path.split("/")[0]);
-      if (op.kind === "write") requireOperationAccess(actor, op.name);
+      // O ERP confere o papel da pessoa na própria rota (erpIdentity).
+      if (op.kind === "write" && op.module !== "erp") requireOperationAccess(actor, op.name);
       return true;
     } catch (error) {
       if (error instanceof ApiError) return false;
       throw error;
     }
-  });
-  if (!actor.via || !available.some(op => op.path.startsWith("erp-comercial-nfe/"))) return available;
-  const granted = await erpBotGrantedOperations(env, actor, profile);
-  return available.filter(op => {
+  };
+  const catalog = fullCatalog();
+  const available = catalog.filter(reachable);
+  if (!actor.via) return available;
+  // Concessão nominal do administrador para este bot nesta área, relida agora.
+  const { operations: granted, autonomous } = await erpBotGrants(env, actor, profile);
+  const contract = (op: { method: string; path: string }) =>
+    ERP_BOT_OPERATIONS.find(entry => entry.method === op.method && entry.path === op.path);
+  const listed = available.filter(op => {
     if (!op.path.startsWith("erp-comercial-nfe/")) return true;
-    const contract = ERP_BOT_OPERATIONS.find(entry => entry.method === op.method && entry.path === op.path);
-    return !!contract && granted.includes(contract.id);
+    const entry = contract(op);
+    return !!entry && granted.includes(entry.id);
   });
+  const erp = ERP_BOT_OPERATIONS
+    .filter(op => granted.includes(op.id) && !catalog.some(entry => entry.method === op.method && entry.path === op.path) &&
+      erpBotModules(op).every(id => states[id]))
+    .map(op => erpCatalogOperation(op, autonomous.includes(op.id)))
+    .filter(reachable);
+  return [...listed, ...erp];
 }
 
 const fold = (value: string) =>

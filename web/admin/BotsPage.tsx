@@ -9,6 +9,7 @@ import { Badge, Button, CopyButton, Empty, Field, toast } from "../ui";
 import { BotLinesEditor } from "../ServicePanels";
 import { linkProps } from "../lib/routes";
 import { FormDialog } from "./shared";
+import { BotErpGrants, useErpOperations } from "./BotErpGrants";
 
 function CapabilityDialog({ onClose }: { onClose: () => void }) {
   const app = useApp();
@@ -67,6 +68,7 @@ export function BotsPage() {
   const save = (fn: () => Promise<any>) =>
     run(fn, { success: "Salvo com sucesso." }).then(() => app.refresh());
   const enabledBot = bots.find((bot) => bot.enabled);
+  const erpInventory = useErpOperations(app.isAdmin && bots.length > 0);
   return (
     <>
       <section className="card">
@@ -230,6 +232,12 @@ export function BotsPage() {
                     </>
                   )}
                 </p>
+                <BotErpGrants
+                  bot={bot}
+                  inventory={erpInventory}
+                  busy={busy}
+                  save={save}
+                />
               </>
             )}
             <div className="card-actions">
