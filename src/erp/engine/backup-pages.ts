@@ -22,7 +22,7 @@
 // mesmo caminho, cada arquivo como uma parte.
 import { createHash } from "node:crypto";
 import { ERP_DDL_HASH, ERP_DDL_VERSION } from "../schema/ddl.ts";
-import { ALL_TABLES, DUMP_TABLES, ErpRestoreBusyError, ARCHIVE_IO_UNRECONCILED, applyRestoreInTransaction, q, tablePlan, type RestoreTableSource } from "./dump.ts";
+import { ALL_TABLES, DUMP_TABLES, ErpRestoreBusyError, archiveIoLiveError, archiveMemoryBusyError, applyRestoreInTransaction, q, tablePlan, type RestoreTableSource } from "./dump.ts";
 import { beginArchiveRestore, endArchiveRestore } from "../bling/xml.ts";
 import { Sha256 } from "./sha256-state.ts";
 import {
@@ -42,7 +42,9 @@ export const RESTORE_STAGE_CHUNK_CHARS = 256 * 1024;
  * e ~19 s por GiB no workerd local; docs/ERP-PORTE.md). Com o limite de CPU
  * padrão do objeto (30 s), 1 GiB de dados exportados deixa ~1/3 de folga.
  * Acima disto a restauração recusa começar (antes da barreira e de qualquer
- * leitura de parte), com código próprio. O backup não tem este teto.
+ * leitura de parte), com código próprio. O backup confere o mesmo teto, na
+ * mesma unidade (bytes UTF-8 do NDJSON, somados por parte), antes de enviar
+ * cada parte: nunca publica um backup que a restauração recusaria.
  */
 export const ERP_RESTORE_SWAP_LIMIT_BYTES = 1024 * 1024 * 1024;
 const PART_KEY = "wb_backup_part:";
@@ -119,6 +121,8 @@ export interface BackupRunOptions {
   /** Teto de unidades desta invocação (protege quando o relógio não anda). */
   maxUnits?: number;
   hooks?: BackupHooks;
+  /** Teto do backup: o mesmo da restauração (ERP_RESTORE_SWAP_LIMIT_BYTES); nos testes, menor. */
+  swapLimitBytes?: number;
 }
 
 const sha256Text = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
@@ -271,7 +275,7 @@ async function fetchManifest(bucket: R2Bucket, prefix: string) {
 
 /**
  * Abre uma restauração: lê e valida o manifesto e, numa transação, confere
- * que não há I/O de XML em voo ou sem conferência, grava o trabalho e liga a
+ * que não há I/O de XML de fato no ar (archiveIoLiveError), grava o trabalho e liga a
  * barreira. O banco ainda não muda.
  */
 export async function startRestore(storage: DurableObjectStorage, bucket: R2Bucket, profile: string, prefix: string, options: { now?: () => number; swapLimitBytes?: number } = {}): Promise<BackupJob> {
@@ -289,12 +293,13 @@ export async function startRestore(storage: DurableObjectStorage, bucket: R2Buck
     throw new ErpBackupJobError("erp_restore_too_large", `O backup tem ${textBytes} bytes de dados exportados; a restauração lógica cobre até ${limit} bytes numa troca. Use a recuperação no tempo da plataforma.`, 413);
   const now = (options.now ?? Date.now)();
   // Síncrono do teste ao registro: um XML que começasse entre os dois passaria.
-  if (!beginArchiveRestore(profile)) throw new ErpRestoreBusyError();
+  if (!beginArchiveRestore(profile)) throw archiveMemoryBusyError(profile);
   try {
     return storage.transactionSync(() => {
       const again = readBackupJob(storage);
       if (backupJobActive(again)) throw new ErpBackupJobError("erp_backup_job_running", "Já há um trabalho de backup em andamento nesta área.");
-      if (storage.sql.exec(ARCHIVE_IO_UNRECONCILED).toArray().length) throw new ErpRestoreBusyError();
+      const busy = archiveIoLiveError(storage.sql, now);
+      if (busy) throw busy;
       clearJobRows(storage);
       const job: BackupJob = {
         id: crypto.randomUUID(), kind: "restore", phase: "stage", profile, prefix,
@@ -337,7 +342,7 @@ function fail(storage: DurableObjectStorage, job: BackupJob, now: number, error:
 }
 
 /** Uma parte do backup: lê páginas da tabela atual até ~1 MiB, comprime, envia e confirma. */
-async function exportUnit(storage: DurableObjectStorage, bucket: R2Bucket, job: BackupJob, now: () => number, hooks: BackupHooks): Promise<BackupJob> {
+async function exportUnit(storage: DurableObjectStorage, bucket: R2Bucket, job: BackupJob, now: () => number, hooks: BackupHooks, swapLimit: number): Promise<BackupJob> {
   const c = job.cursor;
   // Tabelas que terminam nesta unidade sem parte nova (vazias, ou no fim de
   // uma página cheia): fecham no mesmo commit da próxima parte.
@@ -392,6 +397,11 @@ async function exportUnit(storage: DurableObjectStorage, bucket: R2Bucket, job: 
     table, seq: c.part_seq, index: tablePart, key: `${table}.${pad(tablePart, 5)}.ndjson.gz`,
     rows: lines.length, bytes: 0, text_bytes: utf8Length(body), sha256: sha256Text(body),
   };
+  // O mesmo teto e a mesma soma que startRestore confere (bytes UTF-8 das
+  // partes): acima dele o trabalho falha antes de enviar a parte e limpa as
+  // já enviadas, sem publicar manifesto.
+  if (job.progress.text_bytes + part.text_bytes > swapLimit)
+    throw new ErpBackupJobError("erp_backup_too_large", `O backup passaria de ${swapLimit} bytes de dados exportados (UTF-8), o teto que a restauração lógica aceita numa troca. Nenhum backup foi publicado; use a recuperação no tempo da plataforma.`, 413);
   const gz = await gzipText(body);
   part.bytes = gz.byteLength;
   // Mesma chave na retomada: uma parte órfã de uma queda é sobrescrita, não duplicada.
@@ -549,7 +559,7 @@ function swapUnit(storage: DurableObjectStorage, view: ManifestView, job: Backup
   for (const part of view.parts) seqsByTable.set(part.table, [...(seqsByTable.get(part.table) ?? []), part.seq]);
   const sources: RestoreTableSource[] = view.tables.map(t => ({ table: t.table, lines: () => stagedLines(storage, seqsByTable.get(t.table) ?? []) }));
   return commit(storage, job, now(), next => {
-    const rows = applyRestoreInTransaction(storage, sources, { profile: job.profile });
+    const rows = applyRestoreInTransaction(storage, sources, { profile: job.profile, now: now() });
     if (rows !== job.progress.rows_total) throw new Error("Contagem restaurada não confere com o manifesto.");
     clearJobRows(storage);
     next.phase = "done"; next.finished_at = now(); next.barrier_until = 0; next.barrier_released_at = now();
@@ -623,14 +633,14 @@ async function drive(storage: DurableObjectStorage, bucket: R2Bucket, options: B
       continue;
     }
     try {
-      if (job.phase === "export") job = await exportUnit(storage, bucket, job, now, hooks);
+      if (job.phase === "export") job = await exportUnit(storage, bucket, job, now, hooks, options.swapLimitBytes ?? ERP_RESTORE_SWAP_LIMIT_BYTES);
       else if (job.phase === "publish") ({ job, manifest } = await publishUnit(storage, bucket, job, now, hooks));
       else if (job.phase === "stage") job = await stageUnit(storage, bucket, job, await restoreManifest(job), now, hooks);
       else if (job.phase === "swap") {
         const parts = await restoreManifest(job);
         await hooks.at?.("swap:before", job);
         // XML em voo nesta instância: a troca não começa (o trabalho falha sem mudar o banco).
-        if (!beginArchiveRestore(job.profile)) { job = fail(storage, job, now(), { code: "erp_restore_archive_busy", message: new ErpRestoreBusyError().message }); continue; }
+        if (!beginArchiveRestore(job.profile)) { job = fail(storage, job, now(), { code: "erp_restore_archive_busy", message: archiveMemoryBusyError(job.profile).message }); continue; }
         const profile = job.profile, before = job;
         try { job = swapUnit(storage, parts, job, now); }
         catch (error) {

@@ -464,7 +464,11 @@ apagamentos pendentes aposentados) e confere FKs. Qualquer erro desfaz tudo:
 o banco fica como estava e o estágio é limpo. Não usamos "restaurar ao lado e
 trocar" com tabelas paralelas porque isso dobraria o disco e exigiria renomear
 tabelas com FKs; o estágio guarda só o texto conferido. A restauração recusa
-começar com XML em voo ou sem conferência (`erp_restore_archive_busy`), com
+começar com I/O de XML de fato no ar (`erp_restore_archive_busy`: marca na
+memória da instância, ou exclusão no R2 ou passo de XML em busca com dono e
+posse viva, com 1 min de margem; a mensagem diz o que ocupa e manda esperar
+a coleta em curso terminar; unidade em espera com progresso ou erro gravado
+não trava), com
 outro trabalho ativo (`erp_backup_job_running`) ou com backup de outro
 esquema. Backups do formato 1 entram pelo mesmo caminho, um arquivo por parte.
 
@@ -482,8 +486,10 @@ No workerd local (teste `tests/erp-do-backup-pages.test.ts`, 22 MB de
 NDJSON): backup 0,6 s, restauração 0,8 s, troca 0,4 s (~19 s por GiB). O
 caminho antigo precisava de ~3,6 × o NDJSON + 12 MB de heap.
 
-**Tetos reais.** Backup: nenhum de tamanho; o prazo absoluto da barreira
-(60 min) corresponde a ~100 GiB no ritmo medido. Restauração: a troca roda
+**Tetos reais.** Backup: o mesmo da restauração, na mesma unidade (bytes
+UTF-8 do NDJSON, somados por parte); acima dele falha com
+`erp_backup_too_large` antes de enviar a parte e não publica manifesto, para
+nunca sair um backup que a restauração recusa. Restauração: a troca roda
 numa invocação, e o limite de CPU padrão do objeto é 30 s; por isso ela
 cobre até 1 GiB de dados exportados (1.073.741.824 bytes,
 `ERP_RESTORE_SWAP_LIMIT_BYTES`) e recusa acima disso

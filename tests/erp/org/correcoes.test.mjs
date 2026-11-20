@@ -14,7 +14,7 @@ import { createBlingVault } from "../../../src/erp/bling/vault.ts";
 import { normalizeErpParts } from "../../../src/erp/parts.ts";
 import { migrate } from "../../../src/erp/schema/migrate.ts";
 import { nodeDriver } from "../harness/node-driver.mjs";
-import { dumpAll, restoreAll, readBackup, backupToR2, measureDump, ErpBackupTooLargeError, ErpRestoreBusyError, ERP_LOGICAL_BACKUP_LIMIT_BYTES } from "../../../src/erp/engine/dump.ts";
+import { dumpAll, restoreAll, readBackup, backupToR2, measureDump, ErpBackupTooLargeError, ErpRestoreBusyError, ERP_LOGICAL_BACKUP_LIMIT_BYTES, archiveIoLiveError } from "../../../src/erp/engine/dump.ts";
 import { beginArchiveRestore, endArchiveRestore } from "../../../src/erp/bling/xml.ts";
 import { ARCHIVE_PURGE_DELETE_TRIGGERS } from "../../../src/erp/bling/purge.ts";
 import { FakeBling, FakeClock } from "./fake-bling.mjs";
@@ -152,14 +152,14 @@ test("achado 1: DELETE de XML em voo recusa a restauração, com motivo próprio
     const before = tableSnapshot(f.db);
     // O pedido de restauração chega com o DELETE em voo.
     assert.equal(beginArchiveRestore(profile), false, "barreira da instância recusa o início");
-    assert.throws(() => restoreAll(f.storage, backup.manifest, files(backup), { profile }), error => error instanceof ErpRestoreBusyError && error.code === "erp_restore_archive_busy");
+    assert.throws(() => restoreAll(f.storage, backup.manifest, files(backup), { profile, now: f.clock.now() }), error => error instanceof ErpRestoreBusyError && error.code === "erp_restore_archive_busy");
     assert.deepEqual(tableSnapshot(f.db), before, "nada foi trocado");
     // Passa do prazo da acordada: a chamada continua viva e a recusa também.
     await inflight;
     assert.equal(beginArchiveRestore(profile), false, "DELETE além do prazo ainda recusa");
     release(); await new Promise(resolve => setTimeout(resolve, 0));
-    // Terminou, mas sem conferência no banco: continua não reconciliado.
-    assert.throws(() => restoreAll(f.storage, backup.manifest, files(backup), { profile }), ErpRestoreBusyError);
+    // Terminou e ficou gravado (progresso, sem dono): nada mais no ar, a guarda do banco não trava.
+    assert.equal(archiveIoLiveError(f.storage.sql, f.clock.now()), null);
     assert.deepEqual(tableSnapshot(f.db).origin_fiscal__item, before.origin_fiscal__item);
     // A restauração começou (barreira tomada antes de ler o backup): nenhum
     // novo DELETE do apagamento nem I/O de XML inicia até ela terminar.

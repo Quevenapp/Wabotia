@@ -303,7 +303,7 @@ test("restauração recusada com XML em voo ou sem conferência; nada muda e nen
   assert.deepEqual(snapshot(target.db, ALL_TABLES), before);
   // Exclusão já enviada e ainda não conferida no banco (durável): também recusa.
   target.db.prepare(`INSERT INTO wb_bling_unit(id,attempt_id,command_id,request_hash,generation,authorization_revision,credential_revision,kind,profile,phase,owner,fence,lease_until,not_before,created_at,updated_at)
-    VALUES('u1','a1','c1',?,1,0,0,'r2_delete','area-destino','waiting','dono','f1',1,0,0,0)`).run("d".repeat(64));
+    VALUES('u1','a1','c1',?,1,0,0,'r2_delete','area-destino','waiting','dono','f1',?,0,0,0)`).run("d".repeat(64), clock.now() + 4_000);
   await assert.rejects(startRestore(target.storage, bucket, "area-destino", done.job.prefix, { now: clock.now }), ErpRestoreBusyError);
   assert.equal(readBackupJob(target.storage), null);
 });
