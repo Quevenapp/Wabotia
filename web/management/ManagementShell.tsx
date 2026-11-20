@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from "react";
-import { Menu, X } from "lucide-react";
+import { ChevronDown, Menu, X } from "lucide-react";
 import type { ManagementContext, ResolvedManagementItem } from "../../src/modules/panel-contract";
 import type { PortedTargetState } from "./host-contract";
 import { href, linkProps, navigate, parseRoute, useRoute } from "../lib/routes";
@@ -65,10 +65,31 @@ export function ManagementShell({ context, items, entry, chromeRef, children }: 
     if (entry && state === "redirecting" && landing)
       navigate(managementRoute(landing), { replace: true });
   }, [entry, state, landing]);
+  // Menu superior (telas largas): um grupo aberto por vez, como um menu de barra.
+  const [menuGroup, setMenuGroup] = useState<string | null>(null);
+  const [menuRight, setMenuRight] = useState(false);
+  const topnav = useRef<HTMLElement>(null);
   useEffect(() => {
     // navigate(true) pode ser somente delegação; fechar apenas após publicação.
-    if (current !== accepted.current) { accepted.current = current; setOpen(false); }
+    if (current !== accepted.current) { accepted.current = current; setOpen(false); setMenuGroup(null); }
   }, [current]);
+  useEffect(() => {
+    if (menuGroup === null) return;
+    const outside = (event: MouseEvent) => { if (!topnav.current?.contains(event.target as Node)) setMenuGroup(null); };
+    const keyboard = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      const button = topnav.current?.querySelector<HTMLElement>('[aria-expanded="true"]');
+      setMenuGroup(null); button?.focus();
+    };
+    document.addEventListener("mousedown", outside);
+    document.addEventListener("keydown", keyboard);
+    return () => { document.removeEventListener("mousedown", outside); document.removeEventListener("keydown", keyboard); };
+  }, [menuGroup]);
+  const showGroup = (group: string, element: HTMLElement, toggle: boolean) => {
+    // Grupo na metade direita da tela abre o painel alinhado à direita, para não sair da janela.
+    setMenuRight(element.getBoundingClientRect().left > window.innerWidth / 2);
+    setMenuGroup(previous => toggle && previous === group ? null : group);
+  };
   useEffect(() => {
     const query = window.matchMedia("(max-width: 759px)");
     const change = () => { setMobile(query.matches); if (!query.matches) setOpen(false); };
@@ -127,9 +148,15 @@ export function ManagementShell({ context, items, entry, chromeRef, children }: 
       if (normalizedManagementHref(current) === destinationKey(to) &&
         !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && event.button === 0)
         setOpen(false);
+      setMenuGroup(null);
       linkProps(managementRoute(to)).onClick(event);
     },
   });
+  // Até 8 itens por coluna, no máximo 3 colunas; o painel rola se passar disso.
+  const panelGrid = (count: number): React.CSSProperties => {
+    const columns = Math.min(3, Math.ceil(count / 8));
+    return { gridTemplateColumns: `repeat(${columns}, minmax(190px, max-content))`, gridTemplateRows: `repeat(${Math.ceil(count / columns)}, auto)` };
+  };
   return <div className="management-shell">
     <header className="management-header">
       <button ref={trigger} type="button" className="icon-button management-menu-toggle"
@@ -139,6 +166,31 @@ export function ManagementShell({ context, items, entry, chromeRef, children }: 
       <div className="management-tools" ref={chromeRef} />
     </header>
     {mobile && open && <div className="management-backdrop" onClick={() => setOpen(false)} />}
+    {!mobile && <nav ref={topnav} className="management-topnav" aria-label="Menu do ERP">
+      <a {...link("/app/erp")} className="management-topnav-link" aria-current={entry ? "page" : undefined}>Início</a>
+      {[...groups].map(([group, entries]) => {
+        const title = groupTitle(entries[0]), selected = entries.some(selectedItem);
+        if (entries.length === 1) return <a key={group} {...link(entries[0].href)} className="management-topnav-link"
+          aria-current={selected ? "page" : undefined}>{entries[0].resolvedLabel}</a>;
+        const expanded = menuGroup === group;
+        return <div key={group} className="management-topnav-group">
+          <button type="button" className={"management-topnav-link" + (selected ? " management-topnav-selected" : "")}
+            aria-haspopup="true" aria-expanded={expanded}
+            onClick={(event) => showGroup(group, event.currentTarget, true)}
+            onMouseEnter={(event) => { if (menuGroup !== null && menuGroup !== group) showGroup(group, event.currentTarget, false); }}>
+            {title}<ChevronDown size={14} aria-hidden="true" />
+          </button>
+          {expanded && <div className={"management-topnav-panel" + (menuRight ? " management-topnav-panel-right" : "")}>
+            <strong>{title}</strong>
+            <div className="management-topnav-items" style={panelGrid(entries.length)}>
+              {entries.map((item) => <a key={item.id} {...link(item.href)} aria-current={
+                selectedItem(item) ? "page" : undefined
+              }>{item.resolvedLabel}</a>)}
+            </div>
+          </div>}
+        </div>;
+      })}
+    </nav>}
     <aside id={drawerId} ref={drawer} className={"management-menu" + (open ? " management-menu-open" : "")}
       role={mobile && open ? "dialog" : undefined} aria-modal={mobile && open ? true : undefined}
       aria-label="Menu de gestão" tabIndex={-1} inert={mobile && !open}>

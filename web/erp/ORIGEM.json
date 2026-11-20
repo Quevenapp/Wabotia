@@ -27,6 +27,7 @@
   "fiscal-wave-f-ui.test.mjs"
  ],
  "local": {
+  "web/erp/app/components/DocumentSteps.tsx": "alterado: dentro do painel quem rola é a área do ERP, não a janela; o passo ativo segue o ancestral que rola de fato (captura no documento) e só marca o último passo quando a rolagem andou até o fim, em vez de abrir já no último",
   "web/erp/app/lib/fiscal-order-batch.ts": "alterado: com1-fecha conserva a projeção numérica do formulário portado no lote/parcial somente sem a porta comercial; validação estrita continua padrão do mapper e do helper",
   "web/erp/app/lib/fiscal-invoice-form-model.ts": "alterado: com1-fecha preserva CNPJ alfanumérico de destinatário, transportadora e credenciadora; orderRecipient, carrierValues, parcelCard e withForma reutilizam a validação de dígitos verificadores ASCII menos 48, sem remover letras; com1-fecha: compatibilidade numérica do cadastro é opção explícita de projeção legada; o padrão valida DV numérico/alfanumérico e nunca remove letras para aceitar CNPJ inválido",
   "web/erp/app/components/ReceiveBling.tsx": "novo: Receber dados do Bling na Base, com configuração, progresso por pista/chamadas, acervo histórico, XML, permissões e apagamento vinculado à prévia; retorno público recuperável e comando ausente explícito; XML tem seleção própria e progresso por seus manifestos, sem reutilizar contadores das pistas NF-e; concessão de operações centralizada nas opções ERP do bot, com política local de dados e sensibilidade; sem efeitos operacionais",

@@ -1,14 +1,15 @@
+/* Telas largas: cabeçalho, menu superior em barra (um grupo aberto por vez) e o conteúdo na largura toda.
+   Telas estreitas: o menu vira a gaveta lateral de sempre. */
 .management-shell {
   flex: 1;
   display: grid;
-  grid-template: auto minmax(0, 1fr) / 240px minmax(0, 1fr);
+  grid-template: auto auto minmax(0, 1fr) / minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   color: var(--text);
   background: var(--bg);
 }
 .management-header {
-  grid-column: 1 / -1;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -17,7 +18,58 @@
   border-bottom: 1px solid var(--divider);
 }
 .management-tools { flex: 1; min-width: 0; }
-.management-menu { overflow: auto; padding: 12px; border-right: 1px solid var(--divider); background: var(--surface); }
+.management-topnav {
+  position: relative;
+  z-index: 30;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--divider);
+  background: var(--surface);
+}
+.management-topnav-group { position: relative; }
+.management-topnav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+}
+.management-topnav-link:hover, .management-topnav-link[aria-expanded="true"] { background: var(--hover); }
+.management-topnav-link[aria-current="page"], .management-topnav-selected { background: var(--brand-soft); color: var(--brand-strong); }
+.management-topnav-link:focus-visible, .management-topnav-items a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.management-topnav-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 40;
+  max-width: min(760px, 92vw);
+  max-height: 70vh;
+  overflow: auto;
+  padding: 14px 12px 12px;
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-3);
+}
+.management-topnav-panel-right { left: auto; right: 0; }
+.management-topnav-panel > strong { display: block; margin: 0 10px 8px; font-size: 13px; color: var(--text-2); }
+.management-topnav-items { display: grid; grid-auto-flow: column; column-gap: 8px; }
+.management-topnav-items a { display: block; padding: 8px 10px; border-radius: 8px; color: var(--text); white-space: nowrap; text-decoration: none; }
+.management-topnav-items a:hover { background: var(--hover); }
+.management-topnav-items a[aria-current="page"] { background: var(--brand-soft); color: var(--brand-strong); font-weight: 600; }
+.management-menu { display: none; overflow: auto; padding: 12px; border-right: 1px solid var(--divider); background: var(--surface); }
 .management-menu h2 { margin: 20px 8px 6px; font-size: 12px; color: var(--text-2); }
 .management-menu a { display: block; padding: 9px 10px; color: var(--text); border-radius: 8px; text-decoration: none; }
 .management-menu a:hover { background: var(--hover); }
@@ -34,9 +86,9 @@
 .management-page { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
 .management-menu-toggle, .management-menu-close { display: none; }
 @media (max-width: 759px) {
-  .management-shell { grid-template-columns: minmax(0, 1fr); }
+  .management-shell { grid-template: auto minmax(0, 1fr) / minmax(0, 1fr); }
+  .management-topnav { display: none; }
   .management-menu-toggle, .management-menu-close { display: inline-flex; }
-  .management-menu { display: none; }
   .management-menu.management-menu-open { display: block; position: fixed; inset: 0 auto 0 0; width: min(320px, 88vw); z-index: 81; box-shadow: var(--shadow-3); }
   .management-backdrop { position: fixed; inset: 0; z-index: 80; background: var(--overlay); }
   .management-menu-close { margin-left: auto; }

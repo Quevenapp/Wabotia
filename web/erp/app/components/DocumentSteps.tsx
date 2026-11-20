@@ -3,6 +3,15 @@ import {isSaveShortcut,stepIndexForKey,type DocumentStep} from '../lib/document-
 
 const modalOpen=()=>Boolean(globalThis.document?.querySelector?.('dialog[open], [aria-modal="true"]'));
 const reducedMotion=()=>Boolean(globalThis.window?.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+// Wabotia: dentro do painel quem rola é a área do ERP, não a janela. Devolve o ancestral que rola de fato (null = a janela).
+const scrollerOf=(element:Element|null):HTMLElement|null=>{
+ const win=globalThis.window;if(!win?.getComputedStyle)return null;
+ for(let node=element?.parentElement??null;node;node=node.parentElement){
+  const overflow=win.getComputedStyle(node).overflowY;
+  if((overflow==='auto'||overflow==='scroll'||overflow==='overlay')&&node.scrollHeight>node.clientHeight+4)return node;
+ }
+ return null;
+};
 
 /**
  * Step navigation of the document editor: the sticky header measures itself (so anchors land below it), the current
@@ -31,7 +40,7 @@ export function useDocumentSteps(steps:readonly DocumentStep[],{canSave,focusFir
   setTimeout(()=>{
    const win=globalThis.window;if(!element.isConnected||!win)return;
    const delta=element.getBoundingClientRect().top-(parseFloat(win.getComputedStyle(element).scrollMarginTop)||0);
-   if(Math.abs(delta)>8)win.scrollBy({top:delta,behavior:'auto'});
+   if(Math.abs(delta)>8)(scrollerOf(element)??win).scrollBy({top:delta,behavior:'auto'});
   },reducedMotion()?60:520);
  };
  useEffect(()=>{
@@ -42,14 +51,19 @@ export function useDocumentSteps(steps:readonly DocumentStep[],{canSave,focusFir
   const spy=()=>{
    frame=0;const limit=header.getBoundingClientRect().bottom+40,list=live.current.visible;let current=list[0]?.id??'';
    for(const step of list){const element=doc.getElementById(step.id);if(element&&element.getBoundingClientRect().top<=limit)current=step.id;}
-   if(win.innerHeight+win.scrollY>=doc.documentElement.scrollHeight-4){const last=[...list].reverse().find(step=>doc.getElementById(step.id));if(last)current=last.id;}
+   // Fim da rolagem marca o último passo, mas só quando há rolagem e ela andou: tela que cabe inteira fica no primeiro.
+   const scroller=scrollerOf(header);
+   const atEnd=scroller?scroller.scrollTop>0&&scroller.scrollTop+scroller.clientHeight>=scroller.scrollHeight-4
+    :win.scrollY>0&&win.innerHeight+win.scrollY>=doc.documentElement.scrollHeight-4;
+   if(atEnd){const last=[...list].reverse().find(step=>doc.getElementById(step.id));if(last)current=last.id;}
    setActive(previous=>previous===current?previous:current);
   };
   const schedule=()=>{if(!frame)frame=win.requestAnimationFrame(spy);};
   measure();schedule();
   const observer=typeof ResizeObserver==='function'?new ResizeObserver(()=>{measure();schedule();}):null;observer?.observe(header);
-  win.addEventListener('scroll',schedule,{passive:true});win.addEventListener('resize',schedule);
-  return()=>{observer?.disconnect();win.removeEventListener('scroll',schedule);win.removeEventListener('resize',schedule);if(frame)win.cancelAnimationFrame(frame);};
+  // Na captura, o documento vê a rolagem da janela e a de qualquer área interna.
+  doc.addEventListener('scroll',schedule,{passive:true,capture:true});win.addEventListener('resize',schedule);
+  return()=>{observer?.disconnect();doc.removeEventListener('scroll',schedule,{capture:true});win.removeEventListener('resize',schedule);if(frame)win.cancelAnimationFrame(frame);};
  },[]);
  useEffect(()=>{
   const win=globalThis.window;if(!win?.addEventListener)return;
