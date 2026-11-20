@@ -130,7 +130,7 @@ export function WorkQuoteCommercial({ order, onChanged, editable }: {
     <h3>Orçamento e recebimento</h3>
     {quote ? <>
       <ul className="os-quote-summary">{quote.items.map((item, index) => <li key={item.id || index}>
-        {item.quantity} × {item.description}{item.code ? ` (${item.code})` : ""} · {money(item.unit_cents)}{item.discount_cents ? ` · desconto ${money(item.discount_cents)}` : ""}
+        {item.quantity} × {item.description}{item.code ? ` (${item.code})` : ""} · {item.covered ? "coberto pelo contrato" : money(item.unit_cents)}{item.discount_cents ? ` · desconto ${money(item.discount_cents)}` : ""}
         {item.kind && item.kind !== "free" ? ` · ${item.kind === "service" ? "serviço" : "peça"} do catálogo${data?.catalog_links[item.id || ""] ? "" : " (sem vínculo)"}` : ""}
       </li>)}</ul>
       <p>{discount ? <>Subtotal {money(quote.subtotal_cents)} · Descontos {money(discount)} · </> : null}<strong>Total {money(quote.total_cents)}</strong></p>

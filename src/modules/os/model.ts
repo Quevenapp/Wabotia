@@ -266,6 +266,11 @@ export function validateQuoteItems(value: unknown): QuoteItem[] {
     }
     if (raw.code !== undefined && raw.code !== null)
       requireValue(typeof raw.code === "string" && Array.from(raw.code).length <= 60 && !/[\u0000-\u001f]/.test(raw.code), `Orçamento: código do item ${index + 1} com até 60 caracteres.`);
+    // OS4: item coberto pelo contrato de manutenção entra com valor zero.
+    if (raw.covered !== undefined && raw.covered !== null && raw.covered !== false) {
+      requireValue(raw.covered === true, `Orçamento: marcação de cobertura do item ${index + 1} inválida.`);
+      requireValue(raw.unit_cents === 0 && !raw.discount_cents, `Orçamento: o item ${index + 1} coberto pelo contrato entra com valor zero.`);
+    }
     return { description, quantity, unit_cents: raw.unit_cents,
       ...(raw.id !== undefined ? { id: raw.id.toLowerCase() } : {}),
       ...(raw.kind !== undefined ? { kind: raw.kind } : {}),
@@ -273,6 +278,7 @@ export function validateQuoteItems(value: unknown): QuoteItem[] {
       ...(raw.product_id !== undefined ? { product_id: raw.product_id } : {}),
       ...(raw.discount_cents ? { discount_cents: raw.discount_cents } : {}),
       ...(typeof raw.code === "string" && raw.code.trim() ? { code: raw.code.trim() } : {}),
+      ...(raw.covered === true ? { covered: true } : {}),
     };
   });
 }

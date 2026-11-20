@@ -15,6 +15,7 @@ import {
 import { modulesApi, type ModuleContext } from "../api";
 import {
   addDays,
+  dueDates,
   mensalidadeSettings,
   parseDocument,
   phoneDigits,
@@ -31,7 +32,15 @@ import {
   payersByPhone,
   payerView,
 } from "./payers";
-import { installmentView, loadPlan, planView } from "./store";
+import {
+  createSubscription,
+  installmentView,
+  loadPlan,
+  loadSubscription,
+  planView,
+  setSubscriptionStatus,
+  subscriptionView,
+} from "./store";
 import { loadInstallment, paymentsReady } from "./installments";
 import { recordBillingConsent, resendCharge } from "./billing";
 import {
@@ -493,4 +502,116 @@ export async function chargeInstallment(
 /** Parcela no formato da API (para mostrar ao atendente). */
 export async function installmentById(env: Env, profile: string, id: string) {
   return installmentView(await loadInstallment(ctxOf(env, profile), id));
+}
+
+// ---------------------------------------------------------------------------
+// Contrato de manutenção da Ordem de Serviço (OS4). Só expõe o que a ordem
+// precisa: planos, a assinatura do contrato (criada pelo fluxo de sempre,
+// createSubscription), próximos vencimentos e atraso. Nenhum outro motor de
+// cobrança: as parcelas continuam sendo as da assinatura.
+
+/** Planos ativos para escolher no contrato. */
+export async function plansForContract(env: Env, profile: string) {
+  const rows = await all(
+    env,
+    "SELECT * FROM mensalidade_plans WHERE profile_id=? AND active=1 ORDER BY name LIMIT 200",
+    profile,
+  );
+  return rows.map(planView);
+}
+
+/** Plano pelo id (ativo ou não), no formato da API; null se não existe. */
+export async function planForContract(env: Env, profile: string, id: string) {
+  const row = await one(env, "SELECT * FROM mensalidade_plans WHERE id=? AND profile_id=?", id, profile);
+  return row ? planView(row) : null;
+}
+
+export interface ContractSubscriptionInput {
+  plan_id: string;
+  customer_name: string;
+  phone: string;
+  start_date?: string | null;
+  end_date?: string | null;
+  notes?: string;
+  conversation?: Conversation | null;
+  /** Repetir a chave devolve a mesma assinatura. */
+  sourceKey: string;
+  actor: string;
+}
+
+/** Cria a assinatura do contrato pelo fluxo da Mensalidade (valor e dia do plano). */
+export async function createSubscriptionForContract(env: Env, profile: string, input: ContractSubscriptionInput) {
+  const ctx = ctxOf(env, profile);
+  await ctx.requireEnabled();
+  const sub = await createSubscription(ctx, {
+    plan_id: input.plan_id, customer_name: input.customer_name, phone: input.phone,
+    start_date: input.start_date ?? undefined, end_date: input.end_date ?? undefined,
+    notes: input.notes, conversation: input.conversation ?? null, sourceKey: input.sourceKey,
+  }, input.actor);
+  return sub.id as string;
+}
+
+/** Pausa, retoma ou encerra a assinatura do contrato (regras da Mensalidade). */
+export async function setSubscriptionForContract(env: Env, profile: string, id: string, to: "active" | "paused" | "ended", actor: string) {
+  const ctx = ctxOf(env, profile);
+  const sub = await loadSubscription(ctx, id);
+  if (sub.status === to || sub.status === "ended") return;
+  await setSubscriptionStatus(ctx, sub, to, actor);
+}
+
+export interface ContractSubscriptionSummary {
+  id: string;
+  plan_id: string;
+  plan_name: string | null;
+  status: "active" | "paused" | "ended";
+  status_label: string;
+  charge_cents: number;
+  period_label: string;
+  due_day: number;
+  /** Próximos vencimentos (parcelas abertas e as próximas datas do plano). */
+  next_due: { due_date: string; amount_cents: number; status: string }[];
+  /** Parcela vencida além da carência da Mensalidade (grace_days). */
+  overdue: boolean;
+  /** Vencida, mas ainda dentro da carência. */
+  late_in_grace: boolean;
+  overdue_cents: number;
+  grace_days: number;
+}
+
+/**
+ * Situação da assinatura do contrato: próximos vencimentos e atraso pela
+ * mesma regra do "em atraso" da Mensalidade (parcela aberta ou vencida com
+ * vencimento antes de hoje menos a carência, ou primeira parcela não paga).
+ */
+export async function subscriptionForContract(env: Env, profile: string, id: string, at = now()): Promise<ContractSubscriptionSummary | null> {
+  const ctx = ctxOf(env, profile);
+  const sub = await one(env, `SELECT s.*,p.name AS plan_name FROM mensalidade_subscriptions s LEFT JOIN mensalidade_plans p ON p.id=s.plan_id
+    WHERE s.id=? AND s.profile_id=?`, id, profile);
+  if (!sub) return null;
+  const view = subscriptionView(sub);
+  const cfg = mensalidadeSettings(await ctx.settings());
+  const day = today(at), cutoff = addDays(day, -cfg.grace_days);
+  const pending = await all(env, `SELECT due_date,amount_cents,status,upfront FROM mensalidade_installments
+    WHERE subscription_id=? AND profile_id=? AND status IN ('open','overdue') ORDER BY due_date,id LIMIT 12`, id, profile);
+  const late = pending.filter((i) => i.due_date < day || i.upfront);
+  const overdue = sub.status === "active" && pending.some((i) => i.due_date < cutoff || i.upfront);
+  const next = pending.filter((i) => i.due_date >= day).map((i) => ({ due_date: i.due_date as string, amount_cents: Number(i.amount_cents), status: i.status as string }));
+  if (sub.status === "active" && next.length < 3) {
+    const issued = await all(env, "SELECT due_date FROM mensalidade_installments WHERE subscription_id=? AND profile_id=? AND due_date>=?", id, profile, day);
+    const known = new Set<string>([...pending.map((i) => i.due_date), ...issued.map((i) => i.due_date)]);
+    const from = sub.bill_from && sub.bill_from > day ? sub.bill_from : day;
+    for (const due of dueDates({ ...sub, bill_from: from }, addDays(day, 400), 24)) {
+      if (next.length >= 3) break;
+      if (known.has(due.due_date)) continue;
+      next.push({ due_date: due.due_date, amount_cents: view.charge_cents, status: "planned" });
+    }
+  }
+  return {
+    id: sub.id, plan_id: sub.plan_id, plan_name: sub.plan_name ?? null,
+    status: view.status, status_label: view.status_label, charge_cents: view.charge_cents,
+    period_label: view.period_label, due_day: sub.due_day,
+    next_due: next.slice(0, 3), overdue, late_in_grace: !overdue && late.length > 0,
+    overdue_cents: late.reduce((sum, i) => sum + Number(i.amount_cents ?? 0), 0),
+    grace_days: cfg.grace_days,
+  };
 }

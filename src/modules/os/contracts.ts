@@ -319,6 +319,8 @@ export interface QuoteItem {
   discount_cents?: number;
   /** OS3: código do catálogo, só para mostrar e imprimir; nunca prova vínculo. */
   code?: string | null;
+  /** OS4: item coberto pelo contrato de manutenção (sempre com valor zero). */
+  covered?: boolean;
 }
 /** OS3: condições combinadas no orçamento (pagador, forma e parcelas). */
 export interface QuoteTerms {
@@ -374,6 +376,8 @@ export interface Order extends WorkOrderAdditions {
   notes?: string;
   assignee?: string | null;
   due_at: number | null;
+  /** OS4: só na lista, horário efetivo da execução agendada (ou null). */
+  scheduled_at?: number | null;
   source: "agent" | "panel" | "customer" | "api";
   terms: { text: string; accepted_at: number } | null;
   quote: {
@@ -656,6 +660,10 @@ export interface OrderQuery {
   facets?: "1" | "0";
   /** Filtro aditivo da lista do painel; IDs separados por vírgula. */
   type_ids?: string;
+  /** OS4: "Agendado para" (ms Unix, inclusivos) e só as agendadas. */
+  scheduled_from?: string;
+  scheduled_to?: string;
+  scheduled?: "1";
 }
 export interface OrderDetailQuery {
   history?: "legacy" | "none";

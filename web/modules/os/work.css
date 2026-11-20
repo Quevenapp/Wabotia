@@ -126,3 +126,14 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* OS4: contrato de manutenção e execução agendada. */
+.os-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.25rem 0;
+}
+.os4-slots + .os4-slots {
+  margin-top: 0.5rem;
+}

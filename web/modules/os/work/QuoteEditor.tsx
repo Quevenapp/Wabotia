@@ -26,6 +26,8 @@ export interface QuoteLine {
   pick: string | null;
   /** Produto já vinculado (na tabela de vínculos do ERP). */
   linked: string | null;
+  /** OS4: coberto pelo contrato de manutenção (valor zero). */
+  covered?: boolean;
 }
 const blank = (): QuoteLine => ({ id: crypto.randomUUID(), kind: "free", unit: "UN", code: "", description: "", quantity: "1", price: "", discount: "", pick: null, linked: null });
 const decimal = (cents: number) => (cents / 100).toFixed(2).replace(".", ",");
@@ -76,8 +78,11 @@ export function QuoteEditor({
       discount: item.discount_cents ? decimal(item.discount_cents) : "",
       pick: null,
       linked: (item.id && links?.[item.id]?.erp_item_id) || item.product_id || null,
+      covered: item.covered === true,
     })) || [blank()],
   );
+  // OS4: ordem coberta por contrato: cada item pode entrar como coberto (valor zero).
+  const [coverable] = useState(() => !!order.quote?.items.some((item) => item.covered));
   const [note, setNote] = useState(order.quote?.note || ""),
     [days, setDays] = useState(order.quote?.valid_days == null ? "" : String(order.quote.valid_days)),
     [discount, setDiscount] = useState(order.quote?.discount_cents ? decimal(order.quote.discount_cents) : ""),
@@ -113,6 +118,7 @@ export function QuoteEditor({
             id: line.id, unit: line.unit, kind: line.kind, description: line.description, quantity, unit_cents,
             ...(discount_cents ? { discount_cents } : {}),
             ...(line.code ? { code: line.code } : {}),
+            ...(line.covered ? { covered: true } : {}),
           };
         });
         const total_discount = discount.trim() ? cents(discount) : 0;
@@ -156,9 +162,11 @@ export function QuoteEditor({
           <Field label="Descrição" required value={line.description} maxLength={200} onChange={(value) => change(index, { description: value })} />
           <div className="form-field-grid">
             <Field label="Quantidade" required value={line.quantity} onChange={(value) => change(index, { quantity: value })} />
-            <Field label="Preço unitário (R$)" required value={line.price} onChange={(value) => change(index, { price: value })} placeholder="0,00" />
-            <Field label="Desconto do item (R$)" value={line.discount} onChange={(value) => change(index, { discount: value })} placeholder="0,00" />
+            <Field label="Preço unitário (R$)" required value={line.price} disabled={line.covered} onChange={(value) => change(index, { price: value })} placeholder="0,00" />
+            <Field label="Desconto do item (R$)" value={line.discount} disabled={line.covered} onChange={(value) => change(index, { discount: value })} placeholder="0,00" />
           </div>
+          {(coverable || line.covered) && <label className="os-check"><input type="checkbox" checked={!!line.covered}
+            onChange={(event) => change(index, event.target.checked ? { covered: true, price: "0,00", discount: "" } : { covered: false })} /> Coberto pelo contrato (valor zero)</label>}
           <p className="muted">Total do item: {money(lineCents(line) - (cents(line.discount) ?? 0))}
             {line.kind !== "free" && !(line.pick ?? line.linked) && " · Sem vínculo: não baixa estoque"}</p>
           {line.kind !== "free" && (

@@ -1084,6 +1084,7 @@ function serviceOrderSchemas() {
       product_id: { type: ["string", "null"], description: "Somente confirma um vínculo já feito em PUT /integrations/os/catalog/quote_item/{ordem}/{linha}." },
       code: { type: ["string", "null"], maxLength: 60, description: "Código do catálogo, só para mostrar e imprimir." },
       discount_cents: { type: "integer", minimum: 0, description: "Desconto da linha em centavos, até o valor da linha." },
+      covered: { type: "boolean", description: "Coberto pelo contrato de manutenção: entra com unit_cents=0 e sem desconto." },
     },
   };
   const quoteTerms = {
@@ -1138,6 +1139,7 @@ function serviceOrderSchemas() {
         notes: { type: "string" },
         assignee: { type: ["string", "null"] },
         due_at: { type: ["integer", "null"] },
+        scheduled_at: { type: ["integer", "null"], description: "Só na lista: horário efetivo da execução agendada (o da Agenda, ou a data combinada); null sem agendamento. Filtros scheduled_from/scheduled_to." },
         source: { enum: ["agent", "panel", "customer", "api"] },
         terms: {
           type: ["object", "null"],
@@ -1340,6 +1342,7 @@ function serviceOrderSchemas() {
         payments: { $ref: "#/components/schemas/ServiceOrderPayments" },
       },
     },
+    ...maintenanceSchemas(),
     ServiceOrderQuoteSend: {
       type: "object",
       properties: {
@@ -3423,8 +3426,11 @@ function workMotorContract(): WorkOperation[] {
         "due_from",
         "due_to",
         "field_filter",
+        "scheduled_from",
+        "scheduled_to",
+        "scheduled",
       ],
-      "Ordena pelo número global decrescente; cursor continua texto. stage exige type_id. type_ids aceita até 21 IDs separados por vírgula para filtrar vários modelos sem alterar a paginação; omitir conserva a consulta legada. assignee aceita ID, me ou unassigned; due_from/due_to são limites inclusivos do prazo geral, em milissegundos Unix. Tipos personalizados incluem next_task, a próxima tarefa aberta autorizada, ou null. counts é esparso e sempre da área inteira, independente de filtros. facets=1 acrescenta types e, com type_id, stages; não substitui counts. Busca não pesquisa valores sensíveis. field_filter é JSON de OrderFieldFilter: exige um modelo e uma geração ready, examina no máximo 200 candidatos e devolve até 50 ordens, counts=null e counts_scope=not_computed. Igualdade ordena por número decrescente; intervalo por valor crescente, número/ID decrescente. Cursor preserva candidatos ainda não consumidos.",
+      "OS4: scheduled_from/scheduled_to filtram pelo horário efetivo da execução agendada (o da Agenda, ou a data combinada), em milissegundos Unix; scheduled=1 só as agendadas; cada ordem traz scheduled_at. Ordena pelo número global decrescente; cursor continua texto. stage exige type_id. type_ids aceita até 21 IDs separados por vírgula para filtrar vários modelos sem alterar a paginação; omitir conserva a consulta legada. assignee aceita ID, me ou unassigned; due_from/due_to são limites inclusivos do prazo geral, em milissegundos Unix. Tipos personalizados incluem next_task, a próxima tarefa aberta autorizada, ou null. counts é esparso e sempre da área inteira, independente de filtros. facets=1 acrescenta types e, com type_id, stages; não substitui counts. Busca não pesquisa valores sensíveis. field_filter é JSON de OrderFieldFilter: exige um modelo e uma geração ready, examina no máximo 200 candidatos e devolve até 50 ordens, counts=null e counts_scope=not_computed. Igualdade ordena por número decrescente; intervalo por valor crescente, número/ID decrescente. Cursor preserva candidatos ainda não consumidos.",
     ],
     [
       "get",
@@ -3559,6 +3565,41 @@ function workMotorContract(): WorkOperation[] {
       "Gera Pix ou link de pagamento pela Cobrança da área e envia na conversa da ordem; sem valor, cobra o saldo. O pagamento confirmado pelo provedor vira recebimento da ordem automaticamente. Pelo bot é sensível: a pessoa confirma a proposta.",
       "os.charge.create",
     ],
+    // OS4: contrato de manutenção, ordem coberta e execução agendada.
+    ["get", `${b}/contract-options`, "Contrato de manutenção: opções da tela", null, "MaintenanceContractOptions", "", [],
+      "Módulos ligados (Ordem de Serviço e Mensalidade), o que falta ligar, planos ativos da Mensalidade e modelos de ordem para a cobertura.", "os.contract.options"],
+    ["get", `${b}/contracts`, "Contrato de manutenção: listar", null, "MaintenanceContractList", "400 invalid_filter", ["situation", "contact_id", "object_id", "q", "cursor", "limit"],
+      "Contratos por número decrescente, com situação, cliente, objetos cobertos, plano, próximos vencimentos e atraso da assinatura da Mensalidade e uso do limite no período atual. situation aceita active, suspended e ended separados por vírgula. counts é da área inteira. Exige a Mensalidade ligada.", "os.contracts.list"],
+    ["get", `${b}/contracts/{contract_id}`, "Contrato de manutenção: consultar", null, "MaintenanceContract", "", [],
+      "Contrato com cobertura, uso no período, vigência, reajuste informado, visitas programadas, avisos e histórico (com notes:read).", "os.contracts.get"],
+    ["post", `${b}/contracts`, "Contrato de manutenção: criar", "MaintenanceContractInput", "MaintenanceContract", "422 customer_required;422 plan_required;422 phone_required;422 plan_inactive;422 object_not_owned;422 subscription_not_found", [],
+      "Liga um cliente (e os objetos do serviço dele) a um plano da Mensalidade e diz o que cobre: modelos incluídos, limite por período em visitas ou horas, regra do excedente, vigência, reajuste anual informado (só avisado na data) e condições para imprimir. Sem subscription_id, cria a assinatura pelo fluxo da Mensalidade (valor e dia do plano); a cobrança recorrente é a da assinatura. Pelo bot é sensível: a pessoa confirma a proposta.", "os.contract.create"],
+    ["patch", `${b}/contracts/{contract_id}`, "Contrato de manutenção: editar", "MaintenanceContractUpdate", "MaintenanceContract", "409 contract_ended;400 immutable_field", [],
+      "Altera cobertura, objetos, plano, vigência, reajuste, regra de atraso, condições e visitas programadas; o cliente não muda. version confere concorrência. Não altera a assinatura da Mensalidade. Pelo bot é sensível: a pessoa confirma a proposta.", "os.contract.update"],
+    ["post", `${b}/contracts/{contract_id}/situation`, "Contrato de manutenção: suspender, reativar ou encerrar", "MaintenanceContractSituationInput", "MaintenanceContract", "400 reason_required;409 invalid_transition", [],
+      "Suspender e encerrar exigem motivo (fica no histórico). subscription=follow (padrão) pausa, retoma ou encerra a assinatura da Mensalidade junto; keep não mexe na assinatura. Encerrado não volta. Pelo bot é sensível: a pessoa confirma a proposta.", "os.contract.status"],
+    ["get", `${b}/maintenance-due`, "Contrato de manutenção: manutenções a abrir", null, "MaintenanceDueList", "", [],
+      "Visitas programadas dos contratos vigentes que já entraram na antecedência configurada. O sistema só propõe: a pessoa confirma e a ordem é aberta; nada é aberto sozinho.", "os.maintenance.due"],
+    ["post", `${b}/contracts/{contract_id}/visits`, "Contrato de manutenção: abrir ou pular a visita proposta", "MaintenanceVisitInput", "MaintenanceVisitResult", "409 no_visit_due;409 object_required;409 type_not_found", [],
+      "Com action=open (padrão), abre a ordem de manutenção do modelo da visita para o cliente (e o objeto escolhido) e a marca como coberta; com action=skip, pula a data. due_on confere a visita mostrada. A próxima data segue a série. Pelo bot é sensível: a pessoa confirma a proposta.", "os.contract.visit"],
+    ["get", `${o}/contract`, "Ordem de serviço: contrato que cobre a ordem", null, "OrderContract", "", [],
+      "Contratos vigentes do cliente ou do objeto da ordem, com \"Coberto pelo contrato nº X: 1 de 2 visitas usadas neste mês\", se pode marcar e por quê não, e a cobertura já marcada. Sem a Mensalidade ligada, available=false e missing diz o que ligar.", "os.order.contract"],
+    ["post", `${o}/contract-coverage`, "Ordem de serviço: marcar como coberta pelo contrato", "ContractCoverageInput", "OrderContract", "409 contract_not_covering;409 contract_suspended;409 contract_overdue;409 already_covered;409 order_closed", [],
+      "Consome o limite do período. Com o orçamento editável, entra a linha \"coberta pelo contrato\" com valor zero (covered=true) e, passando do limite, a linha excedente com o preço do contrato, que segue o fluxo comercial normal. Assinatura em atraso: overdue_policy=block recusa com contract_overdue; warn marca e avisa. Cancelar a ordem devolve o limite. Pelo bot é sensível: a pessoa confirma a proposta.", "os.contract.cover"],
+    ["post", `${o}/contract-coverage/release`, "Ordem de serviço: desmarcar a cobertura do contrato", "ContractCoverageRelease", "OrderContract", "400 reason_required", [],
+      "Desmarca a ordem com motivo (fica no histórico do contrato) e devolve o limite do período. As linhas do orçamento ficam até a equipe editar. Pelo bot é sensível: a pessoa confirma a proposta.", "os.contract.release"],
+    ["get", `${b}/schedule-options`, "Ordem de serviço: opções para agendar", null, "OrderScheduleOptions", "", [],
+      "Se a Agenda está ligada, com os serviços e profissionais ativos. Sem a Agenda, a ordem aceita só a data e a hora combinadas.", "os.schedule.options"],
+    ["get", `${b}/schedule-slots`, "Ordem de serviço: horários livres da Agenda", null, "OrderScheduleSlots", "409 module_disabled", ["service_id", "professional_id", "from", "days", "order_id"],
+      "Horários livres do serviço (e profissional) por dia, a partir de from (AAAA-MM-DD, padrão hoje) por até 14 dias, pela regra da equipe (sem antecedência mínima, nunca no passado). order_id desconsidera o agendamento da própria ordem ao reagendar.", "os.schedule.slots"],
+    ["get", `${o}/schedule`, "Ordem de serviço: execução agendada", null, "OrderSchedule", "", [],
+      "Execução marcada da ordem. Pela Agenda, o horário e a situação são os do agendamento atual (o que mudar pela Agenda aparece aqui). Diz se a Agenda está ligada e se a ordem tem conversa do WhatsApp para a confirmação e o lembrete.", "os.schedule.get"],
+    ["put", `${o}/schedule`, "Ordem de serviço: agendar ou reagendar a execução", "OrderScheduleInput", "OrderSchedule", "409 module_disabled;409 slot_taken;409 slot_unavailable;409 order_closed", [],
+      "mode=agenda reserva pela Agenda (serviço, profissional e início), ou remarca o agendamento da ordem; a confirmação e o lembrete ao cliente são os da Agenda. mode=manual guarda a data e a hora combinadas, sem conflito de horário; a confirmação sai pela conversa da ordem e o lembrete 24 horas antes. Sem conversa do WhatsApp, nada é enviado e warnings diz.", "os.schedule.set"],
+    ["post", `${o}/schedule/cancel`, "Ordem de serviço: cancelar a execução agendada", "OrderScheduleCancel", "OrderSchedule", "409 module_disabled", [],
+      "Cancela o agendamento na Agenda (o cliente recebe o aviso de cancelamento da Agenda) ou a data combinada. Cancelar a ordem também cancela o agendamento.", "os.schedule.cancel"],
+    ["get", `${b}/my-schedule`, "Ordem de serviço: minhas execuções agendadas", null, "MyOrderSchedule", "403 forbidden", ["from", "to"],
+      "Para Meus prazos: execuções agendadas das ordens abertas em que a pessoa é responsável ou é o profissional da Agenda, entre from e to (milissegundos; padrão de ontem a 30 dias).", "os.my_schedule"],
     [
       "post",
       `${o}/stage-approval`,
@@ -4164,6 +4205,130 @@ function describeWorkMotorOperation(
       },
     };
   }
+}
+
+/** OS4: contrato de manutenção, ordem coberta e execução agendada. */
+function maintenanceSchemas() {
+  const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
+  const date = { type: "string", format: "date" };
+  const coverage = {
+    type: "object",
+    required: ["limit"],
+    properties: {
+      type_ids: { type: "array", maxItems: 21, items: { type: "string" }, description: "Modelos de ordem incluídos; vazio: todos." },
+      services: { type: "string", maxLength: 1000, description: "Serviços incluídos, em texto, para mostrar e imprimir." },
+      unit: { enum: ["visits", "hours"], default: "visits" },
+      limit: { type: "number", minimum: 0.01, description: "Limite por período: visitas (inteiro) ou horas (até duas casas). Na leitura, horas vêm em minutos." },
+      period: { enum: ["month", "quarter", "year"], default: "month" },
+      excess: { enum: ["quote", "approval"], default: "quote", description: "quote: o excedente entra no orçamento normal; approval: entra com preço e o cliente aprova antes da execução." },
+      excess_unit_cents: { type: ["integer", "null"], minimum: 0, description: "Preço de cada visita (ou hora) excedente; null: a equipe dá o preço no orçamento." },
+    },
+  };
+  const visits = {
+    type: ["object", "null"],
+    description: "Visitas programadas: a cada N dias (every_days) ou todo dia D (month_day). O sistema só propõe a próxima ordem lead_days antes.",
+    properties: {
+      kind: { enum: ["every_days", "month_day"] },
+      days: { type: "integer", minimum: 1, maximum: 365 },
+      day: { type: "integer", minimum: 1, maximum: 31 },
+      lead_days: { type: "integer", minimum: 0, maximum: 60, default: 7 },
+      type_id: { type: "string", description: "Modelo da ordem de manutenção." },
+      item: { type: "string", maxLength: 200 },
+      first_on: { ...date, description: "Primeira visita; padrão: o início (a cada N dias) ou o primeiro dia D a partir do início." },
+    },
+  };
+  const contractInput = {
+    type: "object",
+    properties: {
+      contact_id: { type: "string", description: "Cliente (contato do cadastro)." },
+      customer_name: { type: "string", maxLength: 120 },
+      object_ids: { type: "array", maxItems: 20, items: { type: "string" }, description: "Objetos do serviço do mesmo cliente cobertos pelo contrato." },
+      plan_id: { type: "string", description: "Plano da Mensalidade." },
+      subscription_id: { type: ["string", "null"], description: "Assinatura existente da Mensalidade; ausente, a criação abre uma pelo fluxo da Mensalidade." },
+      create_subscription: { type: "boolean", default: true, description: "false: cria o contrato sem assinatura (nada é cobrado)." },
+      coverage,
+      starts_on: date,
+      ends_on: { type: ["string", "null"], format: "date", description: "null: indeterminado." },
+      adjustment: { type: ["object", "null"], properties: { percent: { type: "number", minimum: 0, maximum: 100 }, on: date },
+        description: "Reajuste anual informado: só registrado e avisado na data; não reajusta sozinho. on padrão: um ano após o início." },
+      overdue_policy: { enum: ["warn", "block"], default: "warn", description: "Assinatura em atraso pela regra da Mensalidade (vencida além da carência): warn só avisa; block recusa marcar ordem coberta." },
+      terms: { type: "string", maxLength: 4000, description: "Condições em texto para imprimir." },
+      visits,
+    },
+  };
+  const usage = { type: "object", properties: { period_key: { type: "string" }, used: { type: "integer" }, limit: { type: "integer" }, remaining: { type: "integer" }, text: { type: "string", example: "1 de 2 visitas usadas neste mês" } } };
+  const contract = {
+    type: "object",
+    properties: {
+      id: { type: "string" }, number: { type: "integer" }, display_number: { type: "string" }, version: { type: "integer" },
+      status: { enum: ["active", "suspended", "ended"] }, status_label: { type: "string" }, in_force: { type: "boolean" },
+      customer: { type: "object", properties: { contact_id: { type: "string" }, name: { type: "string" }, phone: { type: ["string", "null"], description: "Só com contacts:read." } } },
+      objects: { type: "array", items: { type: "object", properties: { id: { type: "string" }, type_id: { type: "string" }, type_label: { type: "string" }, identifier: { type: "string" }, archived: { type: "boolean" } } } },
+      plan: { type: ["object", "null"], properties: { id: { type: "string" }, name: { type: "string" }, amount_cents: { type: ["integer", "null"] }, period_label: { type: "string" } } },
+      subscription: { type: ["object", "null"], description: "Assinatura da Mensalidade: situação, valor, próximos vencimentos e atraso (vencida além da carência).",
+        properties: { id: { type: "string" }, status: { enum: ["active", "paused", "ended"] }, status_label: { type: "string" }, charge_cents: { type: "integer" },
+          next_due: { type: "array", items: { type: "object", properties: { due_date: date, amount_cents: { type: "integer" }, status: { type: "string" } } } },
+          overdue: { type: "boolean" }, late_in_grace: { type: "boolean" }, overdue_cents: { type: "integer" }, grace_days: { type: "integer" } } },
+      coverage: { ...coverage, properties: { ...coverage.properties, type_labels: { type: "array", items: { type: "string" } }, text: { type: "string" }, excess_text: { type: "string" } } },
+      usage, starts_on: date, ends_on: { type: ["string", "null"], format: "date" },
+      adjustment: { type: ["object", "null"], properties: { percent: { type: "number" }, on: date, text: { type: "string" }, due: { type: "boolean" }, noticed_on: { type: ["string", "null"] } } },
+      overdue_policy: { enum: ["warn", "block"] }, terms: { type: "string" },
+      visits: { ...visits, properties: { ...visits.properties, text: { type: "string" }, next_on: { type: ["string", "null"], format: "date" }, due: { type: "boolean" } } },
+      status_reason: { type: "string" }, status_changed_at: { type: ["integer", "null"] },
+      warnings: { type: "array", items: { type: "string" } },
+      history: { type: "array", items: { type: "object", properties: { id: { type: "string" }, kind: { type: "string" }, actor: { type: "string" }, note: { type: "string" }, created: { type: "integer" } } } },
+      created: { type: "integer" }, updated: { type: "integer" },
+    },
+  };
+  const schedule = {
+    type: "object",
+    properties: {
+      order_id: { type: "string" },
+      agenda: { type: "object", properties: { enabled: { type: "boolean" }, message: { type: ["string", "null"] } } },
+      whatsapp: { type: "object", properties: { ready: { type: "boolean" }, reason: { type: ["string", "null"] } }, description: "Sem conversa do WhatsApp, a confirmação e o lembrete não são enviados." },
+      schedule: { type: ["object", "null"], properties: {
+        mode: { enum: ["agenda", "manual"] }, state: { enum: ["active", "cancelled"] }, starts: { type: "integer" }, ends: { type: ["integer", "null"] }, when_text: { type: "string" },
+        service: { type: ["object", "null"] }, professional: { type: ["object", "null"] },
+        appointment: { type: ["object", "null"], properties: { id: { type: "string" }, status: { enum: ["booked", "confirmed", "cancelled", "no_show"] }, status_label: { type: "string" } } },
+        note: { type: "string" }, changed_by_agenda: { type: "boolean" }, agenda_off: { type: "boolean" } } },
+      warnings: { type: "array", items: { type: "string" } },
+    },
+  };
+  return {
+    MaintenanceContractInput: { ...contractInput, required: ["contact_id", "plan_id", "coverage", "starts_on"] },
+    MaintenanceContractUpdate: { ...contractInput, properties: { ...contractInput.properties, version: { type: "integer", minimum: 1 } } },
+    MaintenanceContractSituationInput: { type: "object", required: ["status"], properties: {
+      status: { enum: ["active", "suspended", "ended"] }, reason: { type: "string", maxLength: 500, description: "Obrigatório para suspender e encerrar." },
+      subscription: { enum: ["follow", "keep"], default: "follow" }, version: { type: "integer", minimum: 1 } } },
+    MaintenanceContract: contract,
+    MaintenanceContractList: { type: "object", required: ["data", "next_cursor"], properties: { data: { type: "array", items: ref("MaintenanceContract") }, next_cursor: { type: ["string", "null"] }, counts: { type: "object", additionalProperties: { type: "integer" } } } },
+    MaintenanceContractOptions: { type: "object", properties: { modules: { type: "object", properties: { os: { type: "boolean" }, mensalidade: { type: "boolean" } } }, missing: { type: ["string", "null"] },
+      plans: { type: "array", items: { type: "object" } }, types: { type: "array", items: { type: "object", properties: { id: { type: "string" }, label: { type: "string" } } } } } },
+    MaintenanceDueList: { type: "object", properties: { available: { type: "boolean" }, missing: { type: ["string", "null"] }, data: { type: "array", items: { type: "object", properties: {
+      contract: ref("MaintenanceContract"), due_on: date, overdue: { type: "boolean" }, type_id: { type: "string" }, type_label: { type: "string" }, item: { type: "string" }, objects: { type: "array", items: { type: "object" } } } } } } },
+    MaintenanceVisitInput: { type: "object", required: ["due_on"], properties: { due_on: date, action: { enum: ["open", "skip"], default: "open" }, object_id: { type: "string" }, reason: { type: "string", maxLength: 300 } } },
+    MaintenanceVisitResult: { type: "object", properties: { order: { type: ["object", "null"], properties: { id: { type: "string" }, number: { type: "integer" }, type_id: { type: "string" } } }, contract: ref("MaintenanceContract"), warnings: { type: "array", items: { type: "string" } } } },
+    OrderContract: { type: "object", properties: {
+      available: { type: "boolean" }, missing: { type: ["string", "null"] },
+      contracts: { type: "array", items: { allOf: [ref("MaintenanceContract"), { type: "object", properties: { headline: { type: "string", example: "Coberto pelo contrato nº 3: 1 de 2 visitas usadas neste mês" }, can_cover: { type: "boolean" }, blocked_reason: { type: ["string", "null"] } } }] } },
+      coverage: { type: ["object", "null"], properties: { contract_id: { type: "string" }, contract_number: { type: ["integer", "null"] }, period_key: { type: "string" }, covered_units: { type: "integer" }, excess_units: { type: "integer" },
+        unit: { enum: ["visits", "hours"] }, covered_text: { type: "string" }, excess_text: { type: "string" }, excess_rule: { enum: ["quote", "approval"] }, counts: { type: "boolean", description: "false quando a ordem foi cancelada (o limite voltou)." } } },
+      warnings: { type: "array", items: { type: "string" } } } },
+    ContractCoverageInput: { type: "object", required: ["contract_id"], properties: { contract_id: { type: "string" }, hours: { type: "number", minimum: 0.01, description: "Contrato em horas: horas desta ordem (até duas casas)." }, version: { type: "integer", minimum: 1 } } },
+    ContractCoverageRelease: { type: "object", required: ["reason"], properties: { reason: { type: "string", minLength: 1, maxLength: 500 } } },
+    OrderScheduleOptions: { type: "object", properties: { agenda: { type: "object", properties: { enabled: { type: "boolean" }, message: { type: ["string", "null"] } } },
+      services: { type: "array", items: { type: "object", properties: { id: { type: "string" }, name: { type: "string" }, duration_minutes: { type: "integer" } } } },
+      professionals: { type: "array", items: { type: "object", properties: { id: { type: "string" }, name: { type: "string" }, service_ids: { type: "array", items: { type: "string" } } } } } } },
+    OrderScheduleSlots: { type: "object", properties: { service: { type: ["object", "null"] }, days: { type: "array", items: { type: "object", properties: { date, slots: { type: "array", items: { type: "object", properties: { starts: { type: "integer" }, ends: { type: "integer" }, professional_ids: { type: "array", items: { type: "string" } } } } } } } } } },
+    OrderSchedule: schedule,
+    OrderScheduleInput: { type: "object", required: ["mode", "starts"], properties: {
+      mode: { enum: ["agenda", "manual"] }, starts: { type: "integer", description: "Início (ms)." }, ends: { type: ["integer", "null"], description: "Só manual." },
+      service_id: { type: "string", description: "Agenda: serviço." }, professional_id: { type: ["string", "null"], description: "Agenda: profissional; vazio, qualquer um livre." }, note: { type: "string", maxLength: 300 } } },
+    OrderScheduleCancel: { type: "object", properties: { reason: { type: "string", maxLength: 300 } } },
+    MyOrderSchedule: { type: "object", properties: { data: { type: "array", items: { type: "object", properties: {
+      id: { type: "string" }, type_id: { type: "string" }, display_number: { type: "string" }, item: { type: "string" }, customer_name: { type: "string" },
+      status: { type: "string" }, status_label: { type: "string" }, scheduled_at: { type: "integer" }, when_text: { type: "string" }, mode: { enum: ["agenda", "manual"] }, overdue: { type: "boolean" } } } } } },
+  };
 }
 
 function workErrorMessage(code: string) {
