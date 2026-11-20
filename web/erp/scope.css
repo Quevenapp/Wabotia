@@ -1,7 +1,7 @@
 /*
  * GERADO por scripts/erp-scope-css.mjs: não edite à mão.
  * Desfaz dentro do ERP (.fagoo-root) as regras globais do painel: seletores de
- * elemento e as classes que os dois usam (active, brand, contact-history, contact-table, done, icon-button, modal, modal-backdrop, modal-body, modal-header, muted, selected, sr-only, table-scroll, transfer-heading, transfer-note).
+ * elemento e as classes que os dois usam (active, brand, catalog-editor-heading, contact-history, contact-table, done, fagoo-document-editor, fagoo-document-header, icon-button, modal, modal-backdrop, modal-body, modal-header, muted, real-editor-heading, selected, sr-only, table-scroll, transfer-heading, transfer-note).
  * A raiz volta ao tamanho de letra do navegador, que é a base do Fagoo.
  */
 .fagoo-root,
