@@ -1,13 +1,16 @@
 import type { AreaTemplate } from "../../modules/os/contracts";
+import { veiculoObjectType } from "./service-object-seeds";
 
 export const oficinaMecanicaTemplate: AreaTemplate = {
   schema_version: 1,
   id: "oficina_mecanica",
-  version: 2,
+  version: 3,
   name: "Oficina mecânica",
   description: "Avaliação de veículos, orçamento de peças e mão de obra, execução, conferência e retirada.",
+  object_types: [veiculoObjectType],
   work_types: [{
     schema_version: 1, kind: "custom", id: "at_veiculos", revision: 1, archived: false,
+    object_type_id: "veiculo",
     labels: {
       singular: "Serviço de oficina", plural: "Serviços de oficina",
       item: "Veículo", problem: "Solicitação ou defeito",
@@ -16,11 +19,7 @@ export const oficinaMecanicaTemplate: AreaTemplate = {
     number_prefix: "OFI-",
     terms: "Autorizo a avaliação do veículo descrito. Peças e mão de obra serão apresentadas no orçamento. A execução e qualquer alteração de escopo dependem da minha aprovação. A equipe registrará as condições do veículo no recebimento e na entrega.",
     fields: [
-      { id: "placa", label: "Placa", help: "Identifica o veículo no atendimento.", kind: "text", multiline: false, max_length: 10, required: false, client_visible: true, sensitive: false },
-      { id: "marca_modelo", label: "Marca e modelo", help: "", kind: "text", multiline: false, max_length: 240, required: false, client_visible: true, sensitive: false },
-      { id: "ano", label: "Ano", help: "", kind: "integer", min: 1900, max: 2100, required: false, client_visible: true, sensitive: false },
-      { id: "cor", label: "Cor", help: "", kind: "text", multiline: false, max_length: 80, required: false, client_visible: true, sensitive: false },
-      { id: "ultima_manutencao", label: "Última manutenção", help: "Data informada pelo cliente.", kind: "date", min: null, max: null, required: false, client_visible: true, sensitive: false },
+      { id: "ultima_manutencao", label: "Última manutenção informada pelo cliente", help: "Data informada pelo cliente para este atendimento; não é calculada pelo histórico.", kind: "date", min: null, max: null, required: false, client_visible: true, sensitive: false },
       { id: "quilometragem", label: "Quilometragem de entrada", help: "Quilômetros inteiros, sem valores negativos.", kind: "integer", min: 0, max: 2147483647, required: false, client_visible: true, sensitive: false },
       {
         id: "combustivel", label: "Nível de combustível", help: "Registrar o nível observado no recebimento.",
@@ -33,8 +32,18 @@ export const oficinaMecanicaTemplate: AreaTemplate = {
       },
       { id: "pecas_previstas", label: "Peças previstas", help: "Descrição do serviço. Quantidades e valores cobrados pertencem ao orçamento; não há baixa de estoque.", kind: "text", multiline: true, max_length: 2000, required: false, client_visible: true, sensitive: false },
       { id: "avarias_entrada", label: "Avarias na entrada", help: "Descreva as condições aparentes do veículo no recebimento, sem dados pessoais.", kind: "text", multiline: true, max_length: 2000, required: false, client_visible: true, sensitive: false },
+      { id: "servico_executado", label: "Serviço executado", help: "Descreva o serviço realizado antes de concluir o reparo.", kind: "text", multiline: true, max_length: 2000, required: false, client_visible: true, sensitive: false },
     ],
-    retired_field_ids: [],
+    retired_field_ids: ["placa", "marca_modelo", "ano", "cor"],
+    stage_field_rules: [
+      { field_id: "quilometragem", required_on_exit: ["recebido"] },
+      { field_id: "servico_executado", required_from_stage: "pronto" },
+    ],
+    list_fields: [
+      { ref: { scope: "object", field_id: "placa" }, column: true, filter: true },
+      { ref: { scope: "object", field_id: "marca_modelo" }, column: true, filter: true },
+      { ref: { scope: "order", field_id: "quilometragem" }, column: true, filter: true },
+    ],
     stages: [
       { id: "recebido", label: "Recebido", base_status: "received", message: "Recebemos a solicitação {identificador}. Nossa equipe fará a avaliação." },
       { id: "analise", label: "Em avaliação", base_status: "analyzing", message: "A solicitação {identificador} está em avaliação." },
@@ -95,14 +104,16 @@ export const oficinaMecanicaTemplate: AreaTemplate = {
   ],
   texts: {
     menu_greeting: "Olá! Como podemos ajudar com seu veículo?",
-    instructions: "Informe o veículo e a solicitação ou defeito. Você pode informar a placa para identificar o veículo. Não envie senhas ou códigos.",
+    instructions: "Selecione um veículo do seu cadastro ou informe outro pelo formulário. A placa é uma referência, não comprova propriedade nem autoriza acesso. Informe a solicitação ou defeito. Não envie senhas ou códigos.",
     protocol_confirmation: "Recebemos sua solicitação. A equipe da oficina fará a conferência.",
   },
   bot: {
-    instructions: "Você atende uma oficina mecânica. Ajude o cliente a abrir e acompanhar apenas os próprios serviços. Use somente etapas, previsões e valores das ferramentas autorizadas. Não invente diagnóstico, disponibilidade de peça, prazo ou garantia. Encaminhe decisões ao mecanismo de orçamento. Não aprove pelo cliente, não confirme pagamento por comprovante e não oriente reparos perigosos. Não leia campos sensíveis, notas internas, documentos restritos ou dados de terceiros. Desconto, retrabalho, dano, garantia e alteração de escopo exigem atendimento humano.",
-    allowed_operations: [], denied_operations: ["os.private", "os.document.upload"], suggested_roles: [],
+    instructions: "Você atende uma oficina mecânica. Use as operações e os dados autorizados pela configuração do administrador, inicialmente conservadora. No WhatsApp, resolva o titular da conversa e ajude a abrir e acompanhar somente os próprios veículos e serviços. Placa e telefone digitado não autorizam acesso. Para cadastrar outro veículo, use o formulário. Use somente etapas, previsões e valores das ferramentas autorizadas. Não invente diagnóstico, disponibilidade de peça, prazo ou garantia. Encaminhe decisões ao mecanismo de orçamento. Não aprove pelo cliente, não confirme pagamento por comprovante e não oriente reparos perigosos. Respeite a projeção de dados de cada canal. Desconto, retrabalho, dano, garantia e alteração de escopo exigem atendimento humano.",
+    allowed_operations: [], denied_operations: [], suggested_roles: [],
   },
   manual_steps: [
+    "Revisar a atualização do modelo antes de aplicar: placa, marca/modelo, ano e cor passam ao cadastro do veículo, com o novo tipo de combustível. Ordens existentes e seus dados não mudam. Placa sensível antiga não é copiada nem tornada pública; informe a placa expressamente no novo cadastro. Resolva personalizações na prévia.",
+    "Completar a quilometragem antes de sair de Recebido e o serviço executado antes de Reparo concluído. Combustível continua sendo o nível na entrada; última manutenção é a data informada pelo cliente em cada ordem. Cancelamento não exige esses campos.",
     "Revisar termos, taxas, orçamento de 7 dias e garantia operacional de 90 dias, calculada somente na entrega após reparo. Após recusa, confirmar a devolução e registrar a destinação antes de usar Devolvido sem reparo, que encerra sem iniciar garantia. Enquanto aguarda devolução, manter Recusado e acompanhar por tarefa manual, sem lembrete automático de retirada.",
     "Associar equipe aos setores, revisar permissões humanas para campos sensíveis e documentos restritos e configurar cobrança e notificações da linha. Revisar ferramentas do bot sem conceder papéis automaticamente.",
     "Criar tarefas manualmente: conferir placa, quilometragem e avarias no recebimento; diagnóstico, peças e mão de obra em 1 dia; peças aplicadas e testes em 2 dias; conferência de resultado e retirada no dia. O aviso geral de paralisação usa 3 dias para o tipo inteiro.",

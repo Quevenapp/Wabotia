@@ -2,14 +2,21 @@ import type { AdminExtension } from "../modules/api";
 import { ApiError } from "../types";
 import { applyAreaTemplate, exportAreaTemplate, previewAreaTemplate } from "./engine";
 import { validateAreaTemplate } from "./validation";
-import { areaTemplates } from "./catalog";
+import { areaTemplates as sharedAreaTemplates } from "./catalog";
+import { engenheirosTemplate } from "./models/engenheiros";
+import { festasEventosTemplate } from "./models/festas-eventos";
 
 export { applyAreaTemplate, exportAreaTemplate, previewAreaTemplate } from "./engine";
 export { validateAreaTemplate, validateAreaSetup } from "./validation";
 export type { AreaTemplate, AreaTemplateSelection } from "./validation";
 export type { AreaTemplatePreview, AreaTemplateApplyResult } from "../modules/os/contracts";
 
-export { areaTemplates } from "./catalog";
+// O catálogo compartilhado ainda fixa a versão anterior de Engenharia.
+// A composição do servidor usa o manifesto atualizado e inclui Eventos.
+export const areaTemplates: typeof sharedAreaTemplates = [
+  ...sharedAreaTemplates.map(template => template.id === engenheirosTemplate.id ? engenheirosTemplate : template),
+  festasEventosTemplate,
+];
 
 /** Somente I registra este descritor em runtime.ts. Importar não publica rotas. */
 // A fábrica evita ler uma constante ainda em inicialização no ciclo

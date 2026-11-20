@@ -1,4 +1,5 @@
 import type { AreaTemplate } from "../../modules/os/contracts";
+import { animalObjectType } from "./service-object-seeds";
 
 // Fonte: docs/areas/saude.md; conversão para as seções 3 e 7 do contrato.
 // IDs globais são locais no manifesto; o aplicador acrescenta o prefixo.
@@ -6,16 +7,22 @@ import type { AreaTemplate } from "../../modules/os/contracts";
 export const clinicaVeterinariaTemplate: AreaTemplate = {
   schema_version: 1,
   id: "clinica_veterinaria",
-  version: 1,
+  version: 2,
   name: "Clínica veterinária",
   description:
     "Organização administrativa de atendimentos veterinários, com internação e banho e tosa opcionais. Não inclui prontuário ou orientação clínica.",
+  object_types: [animalObjectType],
   work_types: [
     {
       schema_version: 1,
       kind: "custom",
       id: "atendimento",
       revision: 1,
+      object_type_id: "animal",
+      list_fields: [
+        { ref: { scope: "object", field_id: "nome" }, column: true, filter: true },
+        { ref: { scope: "object", field_id: "especie" }, column: true, filter: true },
+      ],
       archived: false,
       labels: {
         singular: "Atendimento",
@@ -234,6 +241,11 @@ export const clinicaVeterinariaTemplate: AreaTemplate = {
       kind: "custom",
       id: "internacao",
       revision: 1,
+      object_type_id: "animal",
+      list_fields: [
+        { ref: { scope: "object", field_id: "nome" }, column: true, filter: true },
+        { ref: { scope: "object", field_id: "especie" }, column: true, filter: true },
+      ],
       archived: true,
       labels: {
         singular: "Internação",
@@ -498,6 +510,11 @@ export const clinicaVeterinariaTemplate: AreaTemplate = {
       kind: "custom",
       id: "banho_tosa",
       revision: 1,
+      object_type_id: "animal",
+      list_fields: [
+        { ref: { scope: "object", field_id: "nome" }, column: true, filter: true },
+        { ref: { scope: "object", field_id: "especie" }, column: true, filter: true },
+      ],
       archived: true,
       labels: {
         singular: "Banho e tosa",
@@ -878,7 +895,7 @@ export const clinicaVeterinariaTemplate: AreaTemplate = {
   },
   bot: {
     instructions:
-      "Mantenha a IA generativa desligada nesta área. Não envie conversas, áudios, imagens ou documentos à IA, inclusive para transcrição, OCR, resumo, memória, busca ou classificação de conteúdo. As instruções a seguir só orientam uma futura operação com isolamento técnico validado. Você é o assistente administrativo da clínica veterinária. Ajude com horários, endereço, agendamento, propostas administrativas e retirada de banho e tosa. Antes de agir, use o animal escolhido entre os vínculos autorizados do tutor. Nunca suponha que animais com o mesmo nome são o mesmo cadastro. Não peça nem interprete sintomas, exames, receitas, vacinas anteriores ou medicamentos. Não indique tratamento, produto, dose, intervalo de vacina ou vermífugo, preparo ou conduta de emergência. Não leia prontuário, boletim de internação, evolução ou arquivo clínico. Aprovação de valores não autoriza procedimento clínico. Pedidos clínicos devem ser encaminhados à equipe. Não informe alta, prognóstico ou resultado de exame. Para urgências, use apenas: “Este canal não acompanha urgências. Procure atendimento veterinário de emergência.” Não forneça orientação clínica. Não registre dados clínicos em campos, notas, tarefas, pessoas, documentos, lançamentos ou cobranças do motor comum.",
+      "Você é o assistente administrativo da clínica veterinária. A IA começa desligada; o administrador pode configurar seu uso, os dados e as operações autorizadas. Siga essa configuração e as permissões da área. No WhatsApp, use a identidade autenticada da conversa e somente os próprios objetos e atendimentos do tutor; nome do animal, telefone ou identificação informados não comprovam propriedade. Ajude com horários, endereço, agendamento, propostas administrativas e retirada de banho e tosa. Antes de agir, use o animal escolhido entre os vínculos autorizados do tutor; para cadastrar outro, use o formulário autorizado. Nunca suponha que animais com o mesmo nome são o mesmo cadastro. Não peça nem interprete sintomas, exames, receitas, vacinas anteriores ou medicamentos. Não indique tratamento, produto, dose, intervalo de vacina ou vermífugo, preparo ou conduta de emergência. Este modelo contém apenas dados administrativos, sem prontuário; respeite a classificação dos dados e as permissões configuradas. O cliente só recebe informações liberadas para ele. Aprovação de valores não autoriza procedimento clínico. Pedidos clínicos devem ser encaminhados à equipe. Não informe alta, prognóstico ou resultado de exame. Para urgências, use apenas: “Este canal não acompanha urgências. Procure atendimento veterinário de emergência.” Não forneça orientação clínica. Não registre dados clínicos em campos, notas, tarefas, pessoas, documentos, lançamentos ou cobranças do motor comum.",
     allowed_operations: [],
     denied_operations: [
       "os.private",
@@ -903,15 +920,15 @@ export const clinicaVeterinariaTemplate: AreaTemplate = {
     "Cadastrar retornos e reforços apenas com indicação profissional.",
     "Validar guarda, representação, cópia protegida e descarte.",
     "Ativar Mensalidade somente com contrato e controle de sessões definidos.",
-    "Validar bloqueio de IA e de saída clínica pelo WhatsApp.",
+    "Revisar a configuração administrativa de IA, inicialmente desligada, e a projeção dos dados do próprio cliente no WhatsApp.",
     "Validar exigências do CFMV antes de liberar uso clínico.",
-    "Antes de publicar, desligar a IA generativa, transcrição, OCR, resumos, memória e indexação de conversas em todos os canais. Este modelo salva sugestões; não configura nem garante esse bloqueio técnico.",
+    "Antes de publicar, revisar as opções de IA, transcrição, OCR, resumos, memória e indexação segundo as permissões da área. As sugestões de operações do bot são conservadoras e podem ser revistas pelo administrador; o manifesto não ativa IA nem concede papéis.",
     "Revisar todos os textos da Agenda, inclusive os montados pelo sistema, para não expor serviço clínico, especialidade, motivo ou dados pessoais. Os menus Agendar e Meus horários encaminham à recepção até configurar os fluxos determinísticos.",
     "Configurar a Agenda: antecedência de 120 minutos, horizonte de 30 dias, grade de 10 minutos, lembrete de 24 horas e remarcação até 2 horas antes. Revisar durações, bloqueios e feriados antes de publicar.",
     "Cadastrar Consulta (30 minutos), Retorno e Preventivo (20 minutos), Procedimento (60 minutos, somente recepção) e, se oferecidos, Banho (60 minutos), Banho e tosa (90 minutos) e Tosa higiênica (30 minutos). Conferir capacidade antes de liberar reservas.",
-    "Criar o formulário administrativo do animal: nome, espécie, existência de cadastro, relação do contato e aceite de lembretes. Não coletar histórico clínico nem conceder vínculo automaticamente. O menu Cadastrar animal encaminha à recepção até configurar o formulário.",
+    "Cadastrar o Animal do contato tutor confirmado com nome administrativo, espécie e identificação opcional; os três modelos compartilham esse cadastro. O menu Cadastrar animal continua encaminhando à recepção. Aberturas com objeto usam o formulário do motor; não coletar prontuário nem conceder vínculo por nome, telefone ou identificação.",
     "Usar os campos fixos apenas para identificação e solicitação administrativas. Não registrar conteúdo clínico nem em observações, histórico, tarefas, pessoas, documentos, lançamentos ou descrições de cobrança.",
-    "Preencher campos sensíveis somente pelo painel privado com papel explícito os:sensitive para pessoas autorizadas, nunca pelo bot ou formulário comum. São opcionais neste contrato; conferir as pendências administrativamente antes de prosseguir.",
+    "Preservar os campos sensíveis e opcionais desta ordem. Preencher no fluxo privado autorizado pela política vigente, com papel explícito os:sensitive; não coletar esses valores no formulário comum. Conferir as pendências administrativamente antes de prosseguir.",
     "Criar tarefas administrativas manualmente por etapa: conferir identidade, contato autorizado, horário, valores, pendências e encerramento; em cancelamento, verificar cobrança e eventual estorno. O modelo não cria tarefas nem calcula prazos automaticamente.",
     "Vínculos de pacientes, responsáveis, tutores e pagadores não concedem acesso. Conferir identidade e destinatário a cada entrega. Documentos e lançamentos genéricos devem conter somente informações administrativas.",
     "O cancelamento após início encerra apenas o registro administrativo, por decisão humana, e nunca apaga atendimento, cuidado prestado ou registro clínico. Avisos de paralisação estão desligados: o contrato não permite prazo diferente por etapa.",
@@ -920,6 +937,6 @@ export const clinicaVeterinariaTemplate: AreaTemplate = {
     "Após ativar Banho e tosa, trocar os menus Banho e tosa e Retirada do banho por os_open e os_track com o ID compilado desse tipo. Até lá, ambos encaminham à recepção.",
     "A internação registra somente organização administrativa. Alta, revogação, transferência, óbito e passagem clínica de plantão dependem da futura extensão. O lembrete de retirada da internação fica desligado até existir guarda de liberação clínica.",
     "Em banho e tosa, só marcar retirada pendente após conferir presença física do animal; identificar quem retirou e contatar o tutor no mesmo expediente se houver atraso. Preferência estética não admite dados de saúde.",
-    "Cadastrar tutores e animais no ambiente próprio após validação. Não unir animais por nome ou telefone nem copiar espécie, raça, microchip, peso, alergias ou medicamentos para campos comuns.",
+    "Conferir o contato tutor antes de cadastrar o Animal e nunca unir cadastros por nome, telefone ou identificação. Nome administrativo, espécie e identificação pertencem ao objeto; modalidade, serviço, porte para orçamento e dados administrativos da internação continuam em cada ordem. Não acrescentar prontuário clínico. Na atualização do padrão, revisar a prévia; registros anteriores e personalizações não são convertidos.",
   ],
 };
