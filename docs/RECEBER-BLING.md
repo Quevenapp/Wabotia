@@ -12,12 +12,97 @@ Há três conceitos distintos:
 |---|---|
 | Bruto | Resposta recebida, identidade textual, precisão, referências e evidências preservadas. |
 | Espelho histórico | Apresentação consultiva do bruto e de suas versões: **Consulta histórica — não opera no ERP**. |
-| Adotado | Registro operacional criado, vinculado ou atualizado após revisão. Não existe nesta entrega. |
+| Adotado | Cadastro do ERP criado, ligado ou atualizado a partir do acervo, com revisão. Só cadastros nesta entrega (fatia B1, abaixo). |
 
 Coletar não cria cadastros, pedidos, títulos, baixas, saldos, notas ou efeitos.
 `erp_sync__settings.enabled` continua falso. Não há envio de alterações ao
-Bling. A adoção e a escrita contínua futura terão contratos e autorizações
+Bling. A adoção dos cadastros é um passo separado, pedido pela pessoa (seção
+"Adotar cadastros"); a escrita contínua futura terá contratos e autorizações
 próprios; uma passagem concluída não encerra a coleta nem constitui migração.
+
+## Adotar cadastros (fatia B1)
+
+Aba **Adotar cadastros** da mesma tela. Transforma o que foi coletado em
+cadastros do ERP, com revisão. Nada é escrito no Bling.
+
+**Entidades, na ordem do lote:** categorias de produtos, contatos (clientes,
+fornecedores e transportadoras), vendedores, produtos e serviços (com as
+variações que vierem em `variacoes`), depósitos, formas de pagamento,
+categorias financeiras e contas financeiras (`ledger_accounts`). Pedidos,
+propostas, notas, títulos, lançamentos, saldos de estoque e ordens de serviço
+ficam para as próximas fatias.
+
+**Três estados, por entidade:** *coletado* (no acervo, ainda não virou
+cadastro), *adotado* (virou cadastro do ERP e fica ligado ao id do Bling, com
+a versão e o hash coletados, em `wb_bling_adoption_link`) e *pendente de
+revisão* (`wb_bling_adoption_review`, com o motivo em palavras e as duas
+versões lado a lado). A pessoa decide cada pendência: **usar a do Bling**
+(cria um cadastro novo ou, em contatos, produtos, categorias, depósitos e
+categorias financeiras, atualiza o escolhido), **manter a do ERP e ligar** ou
+**ignorar**.
+
+**Sem duplicar.** Antes de criar, procura o que já existe: contato por
+CPF/CNPJ (sem pontuação); sem documento, e-mail ou nome iguais viram só
+sugestão para revisão, nunca ligam sozinhos. Produto por código (SKU) e depois
+GTIN. Os demais por nome normalizado (vendedor pelo contato já adotado;
+categoria financeira também pelo tipo). Achou um só e os dados batem (nome; no
+produto também preço e unidade): liga. Diverge, mais de um, ou o cadastro já
+está ligado a outro id do Bling: pendente. A chave (entidade, id no Bling) é
+única; repetir o lote não cria outro cadastro.
+
+**Mesmas regras das telas.** Criar e alterar usam as RPCs que as telas usam
+(`erp_catalog_contact_save`, `erp_catalog_product_save`,
+`erp_catalog_product_variation_add`, `erp_catalog_taxonomy_save`,
+`erp_catalog_seller_from_contact`, `erp_stock_warehouse_save`,
+`erp_catalog_payment_method_save`, `erp_finance_category_execute`,
+`erp_finance_account_execute`) por `invokeRpc`: papel, validações, partes e
+avisos são os mesmos. No lote, qualquer aviso (CPF/CNPJ inválido, código, GTIN
+ou documento repetido) deixa o registro pendente; ao escolher "usar a do
+Bling", a pessoa aceita o aviso, como na tela. Valores que o Bling não traz
+recebem o padrão da tela: forma de pagamento "aplicável a ambos" com destino
+em contas; conta financeira do tipo "outra", sem saldo inicial (o saldo fica
+para a fatia de financeiro). Categoria de produto só é preenchida no produto
+se a categoria já foi adotada.
+
+**Partes.** Categorias e produtos exigem **Produtos e serviços**; depósitos,
+**Estoque**; categorias financeiras e contas, **Financeiro**; os demais, a
+Base. Com a parte desligada, a entidade aparece com o aviso de qual módulo
+ligar e não pode ser marcada; se a parte cai durante o lote, ele pausa com o
+motivo.
+
+**Lote no alarme.** `erp_bling_adoption_start` grava o trabalho
+(`wb_bling_adoption_job`) e já roda a primeira unidade; depois, uma unidade de
+até 25 registros ou 1,5 s por acordada do alarme, só quando não há trabalho
+operacional da área, antes da coleta. Cada registro é uma transação: a falha
+de um vira pendência dele e o lote segue; perda de permissão ou parte
+desligada pausam o lote com o motivo. Pausar e retomar continuam do último id.
+
+**Desfazer.** "Desligar do Bling" remove só o vínculo; o cadastro do ERP fica
+e o registro passa aos ignorados (o lote não religa sozinho; a pessoa pode
+ligar de novo por ali). Não há exclusão em massa. Um vínculo de adoção também
+impede apagar o acervo daquela entidade (referência impeditiva da prévia).
+
+**Operações** (todas exigem administrador do ERP; caminhos sob
+`/api/v1/profiles/{área}/erp/v1/receber-bling`; contrato em
+`src/erp/bling/adoption-contracts.ts`):
+
+| Nome | Método e caminho | Sensível |
+|---|---|---|
+| `erp_bling_adoption_status` | GET `/adotar` | não |
+| `erp_bling_adoption_reviews` | GET `/adotar/pendencias` | sim (dados pessoais) |
+| `erp_bling_adoption_links` | GET `/adotar/vinculos` | sim |
+| `erp_bling_adoption_start` | POST `/adotar/iniciar` | sim |
+| `erp_bling_adoption_pause` | POST `/adotar/pausar` | sim |
+| `erp_bling_adoption_resolve` | POST `/adotar/pendencias/resolver` | sim |
+| `erp_bling_adoption_unlink` | POST `/adotar/desligar` | sim |
+
+Os comandos têm `command_id` com recibo (`wb_bling_adoption_command`):
+repetir devolve o mesmo resultado; outro pedido com o mesmo id é recusado.
+Bots usam os mesmos nomes pela concessão nominal em
+`src/modules/erp/bot-access.ts`; nas sensíveis o bot só propõe e a operação
+roda com a proposta confirmada pela própria pessoa (sem a liberação
+autônoma da política do Bling). Testes: `tests/erp/org/adocao.test.mjs` e
+`tests/erp/org/adocao-painel.test.mjs`.
 
 ## Antes de usar uma conta real
 
@@ -318,7 +403,7 @@ Nenhum desses testes substitui o roteiro do dono ou autoriza implantação.
 |---|---|
 | A1 — escopo | Montagem no `Coordinator`, Base independente, API de dados GET e comparação operacional antes/depois. |
 | A2 — semântica herdada | Recibos/CAS, revisitas, precisão, histórico e XML; aplicadores, vínculo operacional e envio permanecem fora. |
-| A3 — dados | Tabelas da versão 11, corrente único, arquivo anterior, hash do envelope, replay e geração aposentada. |
+| A3 — dados | Tabelas da versão 11 (e as quatro da adoção, versão 12), corrente único, arquivo anterior, hash do envelope, replay e geração aposentada. |
 | A4 — recursos | Catálogo versionado de 18 entidades, XML e extras não confirmados; evidência oficial continua pendente. |
 | A5 — alarme | Uma unidade/GET, orçamento e prioridade operacional, esperas persistidas e revalidação após I/O. |
 | A6 — autorização | Cofre cifrado/CAS, estado/cookie/sessão, mesma conta, refresh incerto e restauração suspensa. |

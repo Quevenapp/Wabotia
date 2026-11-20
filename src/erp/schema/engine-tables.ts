@@ -64,6 +64,11 @@ const blingImmutable = (table: string) => [
   `CREATE TRIGGER "${table}_immutable_delete" BEFORE DELETE ON "${table}" BEGIN SELECT RAISE(ABORT, 'BLING_ARCHIVE_REFERENCED'); END`,
 ];
 
+// Adoção revisada dos cadastros do acervo: só vínculo e revisão; o cadastro
+// continua nas tabelas do domínio, escrito pelas mesmas RPCs das telas.
+const adoption = (table: string, ddl: readonly string[]): EngineTable => ({ table, ddl, since: 12, owner: "bling-adota", structural: "adotar-bling" });
+const ADOPTION_ENTITIES = "'contacts','sellers','product_categories','products','warehouses','payment_methods','financial_categories','ledger_accounts'";
+
 export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   {
     // Classificação de IBS/CBS por natureza de operação: o padrão (escopo any)
@@ -752,6 +757,63 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
     `CREATE INDEX wb_bling_audit_command ON wb_bling_audit(command_id, created_at, id)`,
     `CREATE INDEX wb_bling_audit_generation ON wb_bling_audit(generation, created_at, id)`,
     ...blingImmutable("wb_bling_audit"),
+  ]),
+  // Versão 12: adoção dos cadastros coletados (vínculo, revisão, trabalho e recibos).
+  adoption("wb_bling_adoption_link", [
+    `CREATE TABLE "wb_bling_adoption_link" (
+  entity TEXT NOT NULL CHECK (entity IN (${ADOPTION_ENTITIES})),
+  source_id TEXT NOT NULL CHECK (${BLING_ID("source_id")}),
+  record_id TEXT NOT NULL CHECK (${BLING_ID("record_id")}),
+  source_version INTEGER NOT NULL CHECK (${BLING_COUNT("source_version", 1)}),
+  source_hash TEXT NOT NULL CHECK (${BLING_HASH("source_hash")}),
+  mode TEXT NOT NULL CHECK (mode IN ('created','linked','updated')),
+  adopted_by TEXT NOT NULL CHECK (${BLING_ID("adopted_by")}),
+  adopted_at INTEGER NOT NULL,
+  PRIMARY KEY (entity, source_id),
+  CONSTRAINT wb_bling_adoption_link_record_unique UNIQUE (entity, record_id)
+) STRICT`,
+  ]),
+  adoption("wb_bling_adoption_review", [
+    `CREATE TABLE "wb_bling_adoption_review" (
+  entity TEXT NOT NULL CHECK (entity IN (${ADOPTION_ENTITIES})),
+  source_id TEXT NOT NULL CHECK (${BLING_ID("source_id")}),
+  state TEXT NOT NULL CHECK (state IN ('pending','ignored')),
+  reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 60 AND reason NOT GLOB '*[^a-z_]*'),
+  detail TEXT CHECK (detail IS NULL OR length(detail) <= 200),
+  candidates TEXT NOT NULL DEFAULT '[]' CHECK (${BLING_JSON("candidates", "array", 8192)}),
+  source_version INTEGER NOT NULL CHECK (${BLING_COUNT("source_version", 1)}),
+  source_hash TEXT NOT NULL CHECK (${BLING_HASH("source_hash")}),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (entity, source_id)
+) STRICT`,
+    `CREATE INDEX wb_bling_adoption_review_state ON wb_bling_adoption_review(entity, state, source_id)`,
+  ]),
+  adoption("wb_bling_adoption_job", [
+    `CREATE TABLE "wb_bling_adoption_job" (
+  id INTEGER NOT NULL PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  state TEXT NOT NULL CHECK (state IN ('running','paused','done')),
+  entities TEXT NOT NULL CHECK (${BLING_JSON("entities", "array", 4096)}),
+  cursor TEXT NOT NULL DEFAULT '{}' CHECK (${BLING_JSON("cursor", "object", 16384)}),
+  counts TEXT NOT NULL DEFAULT '{}' CHECK (${BLING_JSON("counts", "object", 16384)}),
+  actor_id TEXT NOT NULL CHECK (${BLING_ID("actor_id")}),
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (${BLING_COUNT("revision", 1)}),
+  started_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  finished_at INTEGER,
+  CONSTRAINT wb_bling_adoption_job_finished_check CHECK ((state = 'done') = (finished_at IS NOT NULL))
+) STRICT`,
+  ]),
+  adoption("wb_bling_adoption_command", [
+    `CREATE TABLE "wb_bling_adoption_command" (
+  command_id TEXT NOT NULL PRIMARY KEY CHECK (${BLING_ID("command_id")}),
+  operation TEXT NOT NULL CHECK (${BLING_ID("operation")}),
+  actor_id TEXT NOT NULL CHECK (${BLING_ID("actor_id")}),
+  request_hash TEXT NOT NULL CHECK (${BLING_HASH("request_hash")}),
+  result TEXT NOT NULL CHECK (${BLING_JSON("result", "object")}),
+  created_at INTEGER NOT NULL
+) STRICT`,
+    ...blingImmutable("wb_bling_adoption_command"),
   ]),
 ];
 

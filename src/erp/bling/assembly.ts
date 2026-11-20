@@ -22,6 +22,19 @@ import { assertBlingIdentity, authorizeOperation } from "./permissions.ts";
 import { BLING_RESOURCES, BLING_XML_RESOURCE, BLING_RESOURCE_VERSION } from "./resources.ts";
 import { handlePublicBlingCallback } from "./routes.ts";
 import type { BlingOAuthProvider } from "./ports.ts";
+// Contrato leve; o motor da adoção (domínios do ERP) só entra por import dinâmico.
+import { adoptionAuthorizationSchema, BlingAdoptionError, getAdoptionOperation, matchAdoptionRoute, parseAdoptionInput, type BlingAdoptionAuthorization, type BlingAdoptionOperationName } from "./adoption-contracts.ts";
+import type { AdoptionDispatch } from "./adoption-api.ts";
+
+function adoptionFailure(error: unknown): Response {
+  const failure = error instanceof BlingAdoptionError ? error : new BlingAdoptionError("BLING_ADOPTION_UNAVAILABLE");
+  return Response.json({ error: failure.toJSON() }, { status: failure.status, headers: privateHeaders });
+}
+/** Há lote de adoção em andamento? Sem tabela (esquema antigo), não há. */
+function adoptionPending(storage: DurableObjectStorage): boolean {
+  try { return storage.sql.exec("SELECT 1 AS pending FROM wb_bling_adoption_job WHERE id=1 AND state='running'").toArray().length > 0; }
+  catch { return false; }
+}
 
 export const BLING_AUTHORIZATION_HEADER = "x-erp-bling-authorization";
 const privateHeaders = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
@@ -35,8 +48,10 @@ export interface BlingAssemblyDependencies {
 }
 export interface BlingDispatch {
   context: BlingContext;
-  name: BlingOperationName;
-  input: ReturnType<typeof parseBlingOperationInput>;
+  name: BlingOperationName | BlingAdoptionOperationName;
+  input: ReturnType<typeof parseBlingOperationInput> | unknown;
+  /** Adoção dos cadastros (fatia B1): despacho próprio, sem montar a coleta. */
+  adoption?: AdoptionDispatch;
 }
 class BoundaryError extends Error {
   status: number;
@@ -162,6 +177,7 @@ export async function createBlingAssembly(dependencies?: BlingAssemblyDependenci
 
 /** Falhas públicas são enumeradas; exceção, URL e corpo remotos nunca saem. */
 export function blingFailureResponse(error: unknown): Response {
+  if (error instanceof BlingAdoptionError) return adoptionFailure(error);
   if (error instanceof BoundaryError)
     return Response.json({ error: { code: error.code, message: error.status === 404 ? "Operação não encontrada." : "Entrada da operação inválida." } }, { status: error.status, headers: privateHeaders });
   const failure = error instanceof BlingError && BLING_ERROR_CODES.includes(error.code)
@@ -172,6 +188,7 @@ export function blingFailureResponse(error: unknown): Response {
 }
 
 /** Identidade antes do motor; concessões de leitura/bot só após ler política. */
+const isAdoptionName = (name: string): name is BlingAdoptionOperationName => getAdoptionOperation(name) !== null;
 function boundaryAuthorization(ctx: BlingContext, name: BlingOperationName) {
   assertBlingIdentity(ctx);
   if (BLING_OPERATIONS[name].permission !== "archive_read" && ctx.identity.actor?.erp_role !== "admin") throw new BlingError("BLING_ADMIN_REQUIRED");
@@ -180,7 +197,22 @@ function boundaryAuthorization(ctx: BlingContext, name: BlingOperationName) {
 /** Só o Worker monta a autoridade; nenhum cabeçalho do navegador é repassado. */
 export async function prepareBlingDispatch(profile: string, path: string, request: Request, identity: IdentityPort): Promise<BlingDispatch> {
   const match = /^\/erp-bling\/operations\/(erp_bling_[a-z_]+)$/.exec(path);
-  const operation = path === "/erp-bling/callback" ? getBlingOperation("erp_bling_oauth_callback") : match && getBlingOperation(match[1]);
+  const adoption = match && getAdoptionOperation(match[1]);
+  if (adoption) {
+    if (request.method !== "POST") throw new BoundaryError(405, "method_not_allowed");
+    const header = request.headers.get(BLING_AUTHORIZATION_HEADER);
+    let authorization: BlingAdoptionAuthorization | null = null;
+    try { if (header) { if (header.length > 16_384) throw new Error(); authorization = adoptionAuthorizationSchema.parse(JSON.parse(header)); } }
+    catch { throw new BlingAdoptionError("BLING_ADOPTION_SCOPE_REQUIRED"); }
+    let raw: unknown;
+    try { raw = await request.json(); } catch { throw new BlingAdoptionError("BLING_ADOPTION_INVALID"); }
+    // Identidade antes dos campos: a recusa não expõe entradas.
+    if (!identity.actor || identity.actor.erp_role !== "admin") throw new BlingAdoptionError("BLING_ADOPTION_ADMIN_REQUIRED");
+    const input = parseAdoptionInput(adoption.name, raw);
+    const context: BlingContext = { profile, identity, origin: "app", clock: { now: () => Date.now() } };
+    return { context, name: adoption.name, input, adoption: { name: adoption.name, identity, profile, input: raw, authorization } };
+  }
+  const operation = path ==="/erp-bling/callback" ? getBlingOperation("erp_bling_oauth_callback") : match && getBlingOperation(match[1]);
   if (!operation || operation.name === "erp_bling_oauth_callback" && path !== "/erp-bling/callback") throw new BoundaryError(404, "not_found");
   if (request.method !== "POST") throw new BoundaryError(405, "method_not_allowed");
   const header = request.headers.get(BLING_AUTHORIZATION_HEADER);
@@ -202,6 +234,12 @@ export async function prepareBlingDispatch(profile: string, path: string, reques
 }
 
 export async function handleBlingOperation(call: BlingDispatch, dependencies: BlingAssemblyDependencies, api?: BlingApiPort): Promise<Response> {
+  if (call.adoption) {
+    if (!dependencies.readSnapshot) return adoptionFailure(new BlingAdoptionError("BLING_ADOPTION_UNAVAILABLE"));
+    const { handleAdoptionOperation } = await import("./adoption-api.ts");
+    return handleAdoptionOperation(call.adoption, { storage: dependencies.storage, readSnapshot: dependencies.readSnapshot });
+  }
+  if (isAdoptionName(call.name)) return adoptionFailure(new BlingAdoptionError("BLING_ADOPTION_INVALID"));
   try {
     if (!(await dependencies.readParts())?.customers) throw new BlingError("BLING_DISABLED");
     boundaryAuthorization(call.context, call.name);
@@ -279,6 +317,8 @@ async function mountedWake(dependencies: BlingAssemblyDependencies, profile: str
 /** Consulta barata para adiar a coleta quando esta acordada já operou o ERP. */
 export async function nextBlingWake(profile: string, dependencies: BlingAssemblyDependencies, notBefore: number, clock = { now: () => Date.now() }, wake?: BlingWakePort): Promise<number | null> {
   if (!(await dependencies.readParts())?.customers) return null;
+  // Lote de adoção em andamento volta logo, mas depois do trabalho operacional.
+  if (adoptionPending(dependencies.storage)) return notBefore;
   if (!wake && !hasBlingWork(dependencies)) return null;
   wake ??= await mountedWake(dependencies, profile, 1000);
   const due = await wake.nextWake({ profile, clock, identity: { actor: null, people: null }, origin: "internal" });
@@ -294,6 +334,13 @@ export async function runBlingWake(profile: string, dependencies: BlingAssemblyD
   const started = options.clock.now();
   const deadline = Math.min(started + 4_000, options.nextOperationalAt === null ? Infinity : options.nextOperationalAt - 250);
   if (!(await dependencies.readParts())?.customers) return idle();
+  // Adoção dos cadastros: uma unidade pequena, sem I/O externo, por acordada
+  // elegível; a coleta segue na acordada seguinte.
+  if (options.eligible && !wake && dependencies.readSnapshot && adoptionPending(dependencies.storage) && deadline - options.clock.now() >= 1_000) {
+    const { runAdoptionWake } = await import("./adoption-api.ts");
+    const adopted = await runAdoptionWake(profile, { storage: dependencies.storage, readSnapshot: dependencies.readSnapshot, now: options.clock.now });
+    if (adopted.worked) return { worked: true, nextWake: options.clock.now() + 1_000, requests: 0 as const };
+  }
   const context: BlingContext = { profile, clock: options.clock, identity: { actor: null, people: null }, origin: "internal" };
   if (!wake && !hasBlingWork(dependencies)) return idle();
   if (deadline - options.clock.now() < 1000) return { ...idle(), nextWake: options.clock.now() + 1000 };
@@ -331,7 +378,10 @@ export async function forwardBlingOperation(env: Env, profile: string, actor: Ac
     const url = new URL(request.url);
     const prefix = `/api/v1/profiles/${encodeURIComponent(profile)}/erp`;
     if (!url.pathname.startsWith(prefix + "/")) throw new BoundaryError(404, "not_found");
-    const match = matchBlingOperation(request.method, url.pathname.slice(prefix.length));
+    const relative = url.pathname.slice(prefix.length);
+    if (relative === "/v1/receber-bling/adotar" || relative.startsWith("/v1/receber-bling/adotar/"))
+      return await forwardAdoption(env, profile, actor, identity, request, url, relative.slice("/v1/receber-bling".length));
+    const match = matchBlingOperation(request.method, relative);
     if (!match) throw new BoundaryError(404, "not_found");
     let raw: unknown;
     try { raw = request.method === "GET" ? { ...Object.fromEntries(url.searchParams), ...match.params } : await request.json(); }
@@ -377,4 +427,45 @@ export async function forwardBlingOperation(env: Env, profile: string, actor: Ac
       body: JSON.stringify(input),
     });
   } catch (error) { return blingFailureResponse(error); }
+}
+
+/** Adoção dos cadastros: mesmos nomes para tela e bot. O bot só chama a
+ * operação concedida nas opções ERP dele; as sensíveis exigem a proposta já
+ * confirmada pela própria pessoa (corpo integral conferido). */
+async function forwardAdoption(env: Env, profile: string, actor: Actor, identity: IdentityPort, request: Request, url: URL, relative: string): Promise<Response> {
+  const operation = matchAdoptionRoute(request.method, relative);
+  if (!operation) throw new BoundaryError(404, "not_found");
+  let raw: Record<string, unknown>;
+  try {
+    if (request.method === "GET") {
+      raw = {};
+      for (const key of url.searchParams.keys()) {
+        if (url.searchParams.getAll(key).length !== 1) throw new Error();
+        const value = url.searchParams.get(key)!;
+        raw[key] = key === "limit" && /^[1-9]\d?$/.test(value) ? Number(value) : value;
+      }
+    } else {
+      if (url.search) throw new Error();
+      raw = await request.json();
+    }
+  } catch { throw new BlingAdoptionError("BLING_ADOPTION_INVALID"); }
+  const app = actor.kind === "user" || actor.kind === "app" && !actor.id.startsWith("bot:") && !actor.scopes.includes("conversations:bound");
+  if (!app) throw new BlingAdoptionError("BLING_ADOPTION_SCOPE_REQUIRED");
+  if (identity.actor?.erp_role !== "admin") throw new BlingAdoptionError("BLING_ADOPTION_ADMIN_REQUIRED");
+  const input = parseAdoptionInput(operation.name, raw);
+  let authorization: BlingAdoptionAuthorization | null = null;
+  if (actor.kind === "user" && actor.via) {
+    const { erpBotOperationGranted, erpBotDelegation } = await import("../../modules/erp/bot-access.ts");
+    if (!identity.actor?.is_agent || !await erpBotOperationGranted(env, actor, profile, operation.name)) throw new BlingAdoptionError("BLING_ADOPTION_SCOPE_REQUIRED");
+    if (!await erpBotDelegation(env, actor, profile, request.method, url.pathname, operation.method === "GET" ? undefined : input))
+      throw new BlingAdoptionError("BLING_ADOPTION_SCOPE_REQUIRED");
+    authorization = { request_hash: await requestHash(input), bot: { id: actor.via.bot_id, operation: operation.name },
+      delegation: { run_id: actor.via.run_id, ...(actor.via.proposal_id ? { proposal_id: actor.via.proposal_id } : {}) }, confirmed: !!actor.via.proposal_id };
+  } else if (identity.actor?.is_agent) throw new BlingAdoptionError("BLING_ADOPTION_SCOPE_REQUIRED");
+  const { erpFetch } = await import("../hub.ts");
+  return erpFetch(env, profile, `/erp-bling/operations/${operation.name}`, {
+    method: "POST", headers: { "Content-Type": "application/json", [IDENTITY_HEADER]: encodeIdentity(identity),
+      ...(authorization ? { [BLING_AUTHORIZATION_HEADER]: JSON.stringify(authorization) } : {}) },
+    body: JSON.stringify(input),
+  });
 }
