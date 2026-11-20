@@ -249,15 +249,17 @@ describe("documentos: D1 e transporte R2", () => {
     await expect(
       downloadDocument(f.ctx, f.member, f.order.id, reserved.id),
     ).rejects.toMatchObject({ code: "document_not_ready" });
-    const transport = await upload(f, reserved.id, key);
+    // Marcador fora do alfabeto hexadecimal: "abc" podia aparecer num UUID
+    // aleatório mesmo sem o conteúdo do arquivo no comando.
+    const transport = await upload(f, reserved.id, key, "X&Z");
     expect(transport.result).toMatchObject({
       id: reserved.id,
       version: 1,
       byte_length: 3,
       sha256:
-        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+        "8e1ab031103ba6bf76f4e923772733feb1b8b67bbcd77d971d16778f657b4dfc",
     });
-    expect(JSON.stringify(transport.commands)).not.toContain("abc");
+    expect(JSON.stringify(transport.commands)).not.toContain("X&Z");
     expect(JSON.stringify(transport.commands)).not.toContain("bytes");
     expect((await loadDocument(f.ctx, f.order.id, reserved.id)).state).toBe(
       "pending",
@@ -302,7 +304,7 @@ describe("documentos: D1 e transporte R2", () => {
       reserved.id,
     );
     expect(new Headers(download.headers).get("Cache-Control")).toBe("no-store");
-    expect(await new Response(download.body).text()).toBe("abc");
+    expect(await new Response(download.body).text()).toBe("X&Z");
     const page = await listDocuments(f.ctx, f.member, f.order.id);
     expect(page.data[0].state).toBe("ready");
     for (const column of [

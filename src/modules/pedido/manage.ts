@@ -1,8 +1,10 @@
+import { manualReceipt, orderOwner, projectOrder, receiptReplay, singleReceiptStatements, commerceGuard } from "./integration";
 // Pedido pela equipe e pelas integrações: lista, quadro da cozinha, detalhe,
 // pedido de balcão, dados internos, baixa de pagamento na hora e a forma de
 // pagamento escolhida pela equipe. Escritas rodam como comandos (Coordinator,
 // Idempotency-Key) registrados em ./pedido.ts.
-import { all, exec, one } from "../../db";
+import { all, batch, exec, one } from "../../db";
+import { requireFinancialAal } from "../../mfa";
 import { ApiError, type Actor, json, now, requireValue } from "../../types";
 import type { ModuleContext } from "../api";
 import {
@@ -298,10 +300,15 @@ export async function updateOrder(ctx: ModuleContext, actor: Actor, data: any) {
  * hora (dinheiro, maquininha) ou por fora depois de uma cobrança vencida ou
  * não gerada. Cobrança online aberta só é confirmada pelo provedor.
  */
-export async function markPaid(ctx: ModuleContext, actor: Actor, data: any) {
+export async function markPaid(ctx: ModuleContext, actor: Actor, data: any, requestId = `paid:${data.id}`) {
+  requireFinancialAal(actor);
   ctx.access(actor, "conversations:write");
   const order = await loadOrder(ctx, data.id);
   refuseTabOrder(order);
+  requireValue(actor.kind === "user" && !actor.via, "O recebimento manual exige uma pessoa da equipe.");
+  const source = await orderOwner(ctx.env, ctx.profile, order);
+  const receipt = manualReceipt(source, requestId, order.total_cents, order.payment_method ?? "unknown", actor.id);
+  if (await receiptReplay(ctx.env, receipt)) return orderView(order);
   if (order.payment_status === "paid")
     throw new ApiError(
       409,
@@ -318,34 +325,13 @@ export async function markPaid(ctx: ModuleContext, actor: Actor, data: any) {
     throw new ApiError(409, "order_closed", "Pedido cancelado.");
   const note = clipText(data.note, 300, "Nota");
   const at = now();
-  const result = await exec(
-    ctx.env,
-    "UPDATE pedido_orders SET payment_status='paid',paid_at=?,paid_by=?,updated=? WHERE id=? AND profile_id=? AND updated=?",
-    at,
-    actor.id,
-    at,
-    order.id,
-    ctx.profile,
-    order.updated,
-  );
-  if (!result.meta.changes)
-    throw new ApiError(
-      409,
-      "pedido_conflict",
-      "O pedido mudou enquanto isso. Atualize e tente de novo.",
-    );
-  await exec(
-    ctx.env,
-    "INSERT INTO pedido_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) VALUES(?,?,?,'payment',?,?,?,?,?)",
-    crypto.randomUUID(),
-    ctx.profile,
-    order.id,
-    order.status,
-    order.status,
-    actor.id,
-    `Pagamento registrado pela equipe: ${money(order.total_cents)}${note ? ` (${note})` : ""}.`,
-    at,
-  );
+  const entering = order.status === "awaiting_payment";
+  const next = { ...order, status: entering ? "received" : order.status, confirmed_at: entering ? at : order.confirmed_at };
+  await batch(ctx.env, [
+    ["UPDATE pedido_orders SET payment_status='paid',paid_at=?,paid_by=?,status=?,confirmed_at=?,status_at=?,updated=? WHERE id=? AND profile_id=? AND updated=? AND payment_status=?", [at, actor.id, next.status, next.confirmed_at, entering ? at : order.status_at, at, order.id, ctx.profile, order.updated, order.payment_status]], commerceGuard,
+    ["INSERT INTO pedido_history(id,profile_id,order_id,kind,from_status,to_status,actor,note,created) VALUES(?,?,?,'payment',?,?,?,?,?)", [crypto.randomUUID(), ctx.profile, order.id, order.status, order.status, actor.id, `Pagamento registrado pela equipe: ${money(order.total_cents)}${note ? ` (${note})` : ""}.`, at]],
+    ...await singleReceiptStatements(ctx, await projectOrder(ctx, next, source), receipt),
+  ]);
   await ctx.publish(
     "pedido.paid",
     order.id,

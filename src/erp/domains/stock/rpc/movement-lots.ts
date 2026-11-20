@@ -14,6 +14,7 @@ import { erpEntityRequirement } from "../../../parts-requirements.ts";
 import { pgBtrim, pgCompareText, pgLower } from "../../../engine/text.ts";
 import { validDate } from "../../../engine/time.ts";
 import * as documents from "../../documents/public.ts";
+import { linkedDocumentGuard } from "../../documents/module-policy.ts";
 import { QTY, QTY_MAX, commandTaken, lotApply, requireAccess, sha256 } from "../internal.ts";
 import { invoiceAccess, invoiceFlag, invoiceReference } from "../invoice-read.ts";
 import { ledgerOrigin } from "../ledger.ts";
@@ -326,6 +327,7 @@ registerRpc("erp_stock_movement_lots_assign", (ctx: RpcContext, a: RpcArgs) => {
     w = warehouse.toLowerCase();
   const line = movementLotLine(db, movement, p, w);
   if (line === null) raise("P0002", "erp_stock_movement_not_found");
+  if (line.origin.via === "document_stock") linkedDocumentGuard(db, line.origin.document_id);
   lotOriginAccess(ctx, user, line.origin);
   if (line.lots_version !== expected) raise("40001", "erp_stock_lot_version_conflict");
   if (!line.assignable) raise("22023", "erp_stock_lot_assign_unavailable");

@@ -136,25 +136,26 @@ async function itemGroupIds(ctx: ModuleContext, itemIds?: string[]) {
 
 /** GET pedido/menu: o cardápio inteiro, na ordem de exibição. */
 export async function loadMenu(ctx: ModuleContext) {
-  const [categories, items, groups, images, links] = await Promise.all([
-    cachedAll(
-      ctx.env,
-      "SELECT * FROM pedido_categories WHERE profile_id=? ORDER BY position,created,id",
-      ctx.profile,
-    ),
-    cachedAll(
-      ctx.env,
-      "SELECT * FROM pedido_items WHERE profile_id=? ORDER BY position,created,id",
-      ctx.profile,
-    ),
-    cachedAll(
-      ctx.env,
-      "SELECT * FROM pedido_groups WHERE profile_id=? ORDER BY name COLLATE NOCASE,created,id",
-      ctx.profile,
-    ),
-    menuImages(ctx),
-    itemGroupIds(ctx),
-  ]);
+  // Uma fotografia do cardápio, com a mesma ordenação de cada coleção.
+  // Continua no cache da invocação, invalidado pelas escritas dessas tabelas.
+  const object = (fields: string) => `json_object(${fields.split(",").map(f => `'${f}',${f}`).join(",")})`;
+  const rows = await cachedAll(ctx.env, `
+    SELECT 'category' kind,${object("id,name,description,position,created,updated")} value
+      FROM (SELECT * FROM pedido_categories WHERE profile_id=? ORDER BY position,created,id)
+    UNION ALL SELECT 'item',${object("id,category_id,name,description,price_cents,photo_media_id,image_url,available,max_quantity,retailer_id,position,created,updated")}
+      FROM (SELECT * FROM pedido_items WHERE profile_id=? ORDER BY position,created,id)
+    UNION ALL SELECT 'group',${object("id,name,min,max,options,created,updated")}
+      FROM (SELECT * FROM pedido_groups WHERE profile_id=? ORDER BY name COLLATE NOCASE,created,id)
+    UNION ALL SELECT 'image',${object("media_id,caption,position,name,type")}
+      FROM (SELECT i.media_id,i.caption,i.position,m.name,m.type FROM pedido_menu_images i LEFT JOIN media m ON m.id=i.media_id AND m.profile_id=i.profile_id WHERE i.profile_id=? ORDER BY i.position,i.rowid)
+    UNION ALL SELECT 'link',${object("item_id,group_id")}
+      FROM (SELECT item_id,group_id FROM pedido_item_groups WHERE profile_id=? ORDER BY position,rowid)`,
+    ctx.profile, ctx.profile, ctx.profile, ctx.profile, ctx.profile);
+  const collection = (kind: string): any[] => rows.filter(r => r.kind === kind).map(r => JSON.parse(r.value));
+  const categories = collection("category"), items = collection("item"), groups = collection("group");
+  const images = collection("image").map(row => ({ ...row, name: row.name || "", type: row.type || "" }));
+  const links = new Map<string, string[]>();
+  for (const row of collection("link")) links.set(row.item_id, [...(links.get(row.item_id) ?? []), row.group_id]);
   return {
     categories: categories.map((category) => ({
       ...categoryView(category),

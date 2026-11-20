@@ -4,6 +4,7 @@
 // gravado e o recibo não é aberto.
 import { one } from "../../engine/driver.ts";
 import { raise } from "../../engine/errors.ts";
+import { targetOrigin } from "../../engine/module-origin.ts";
 import { jsonbText, jsonType } from "../../engine/json.ts";
 import { todaySaoPaulo } from "../../engine/time.ts";
 import type { RpcContext } from "../../engine/registry.ts";
@@ -29,6 +30,10 @@ const hasKey = (o: unknown, k: string) => jsonType(o) === "object" && Object.pro
 const bytes = (v: unknown) => new TextEncoder().encode(jsonbText(v)).length;
 /** substr(replace(gen_random_uuid()::text,'-',''),1,25) em maiúsculas. */
 const newControl = () => crypto.randomUUID().replace(/-/g, "").slice(0, 25).toUpperCase();
+
+export function guardModuleBilling(ctx: RpcContext, title: string) {
+  if (targetOrigin(ctx.db, "title", title)) raise("40001", "module_bank_collection_unavailable");
+}
 
 /** guard_origin_import_billing (BEFORE INSERT de erp_cnab.billing_title): título importado do Origin não vai para remessa. */
 export function guardOriginImportBilling(ctx: RpcContext, title: string) {
@@ -90,6 +95,10 @@ export function reserveForPurpose(ctx: RpcContext, i: ReserveInput) {
   )
     raise("22023", "erp_cnab_invalid_reservation");
   const list = titles as unknown[];
+  for (const row of list) {
+    const title = uuidValue(get(row, "title_id"));
+    if (title) guardModuleBilling(ctx, title);
+  }
   if (new Set(list.map((row) => uuidValue(get(row, "title_id")))).size !== list.length) raise("22023", "erp_cnab_duplicate_title");
   const p = profileRow(db, i.profile);
   if (!p) raise("P0002", "erp_cnab_not_found");

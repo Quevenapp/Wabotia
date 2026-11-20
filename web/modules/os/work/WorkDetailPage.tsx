@@ -21,6 +21,7 @@ import { WorkFormDialog } from "./WorkFormDialog";
 import { QuoteEditor } from "./QuoteEditor";
 import { PrivateFieldsDialog } from "./PrivateFieldsDialog";
 import { money } from "../shared";
+import { WorkCommercialPanel } from "./WorkCommercialPanel";
 import "../work.css";
 export const workTabs = [
   { id: "resumo", label: "Resumo" },
@@ -123,6 +124,7 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
           </a>
         )}
       </div>
+      <WorkCommercialPanel key={order.id} workId={order.id} />
       {order.stage_approval?.state === "pending" && (
         <Notice>
           Aprovação de etapa pendente até{" "}

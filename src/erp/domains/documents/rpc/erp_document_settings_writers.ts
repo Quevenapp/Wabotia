@@ -8,6 +8,7 @@
 // - erp_document_signature_save (assinatura da proposta);
 // - erp_document_copy_preview (o formulário da cópia, sem gravar).
 import { createHash } from "node:crypto";
+import { linkedDocumentGuard } from "../module-policy.ts";
 import { jsonbArg } from "../../../engine/args.ts";
 import { formatScaled, fromColumn } from "../../../engine/dec.ts";
 import { one, type SqlDriver } from "../../../engine/driver.ts";
@@ -18,7 +19,7 @@ import { nextIdentity } from "../../../engine/sequence.ts";
 import { pgLower } from "../../../engine/text.ts";
 import { saoPauloParts } from "../../../engine/time.ts";
 import { unitPriceNumeric, validNow } from "../../catalog/public.ts";
-import { documentDto, preference, situationAdopted, situationKeyValid, textValue } from "../internal.ts";
+import { documentDto, preference, projectDocument, situationAdopted, situationKeyValid, textValue } from "../internal.ts";
 import { guardEffect, requireVisible } from "../mirror.ts";
 import { hasCommercialData, richText } from "../normalize.ts";
 import { transitions } from "../preferences.ts";
@@ -315,6 +316,7 @@ export function erpDocumentNumberingSet(ctx: RpcContext, a: RpcArgs) {
 
 /** public.erp_document_occurrence_remove */
 export function erpDocumentOccurrenceRemove(ctx: RpcContext, a: RpcArgs) {
+  linkedDocumentGuard(ctx.db, a.p_document_id);
   const db = ctx.db;
   const user = a.p_user_id as string;
   const kind = (a.p_kind as string | null) ?? null;
@@ -487,9 +489,17 @@ export function erpDocumentCopyPreview(ctx: RpcContext, a: RpcArgs) {
     items = items.map((i) => ({ ...i, detailed_description: has(i, "detailed_description") ? i.detailed_description : null }));
     data = { ...data, commercial: arrowOrNull(body, "commercial"), items };
   } else if (has(body, "commercial")) data.commercial = body.commercial;
+  // A prévia é uma resposta pública. Metadados de disponibilidade ficam fora
+  // do corpo editável, que deve continuar aceito por erp_document_copy.
+  const { unavailable_parts, ...copyData } = projectDocument(ctx, withoutUnavailableLinks(ctx, data));
+  // Este formulário cria um documento novo: referências suspensas são
+  // explicitamente limpas, sem devolver os valores guardados na origem.
+  if (!ctx.parts.stock) copyData.warehouse_id = null;
+  if (!ctx.parts.finance) { copyData.category_id = null; copyData.payment_account_id = null; }
   return {
     source: { id: s!.id, kind: s!.kind, number: s!.number === null ? null : String(s!.number), version: s!.version },
-    data: withoutUnavailableLinks(ctx, data),
+    data: copyData,
+    ...(unavailable_parts ? { unavailable_parts } : {}),
     reset_fields: keepDate
       ? ["valid_until", "next_contact", "installments", "template", "equipment", "serial_number", "technician", "defect", "solution"]
       : ["date", "expected_date", "valid_until", "next_contact", "installments", "template", "equipment", "serial_number", "technician", "defect", "solution"],

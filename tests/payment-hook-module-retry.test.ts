@@ -72,9 +72,14 @@ describe("gancho de pagamento repetido refaz os passos do módulo (conferência 
         "SELECT status,payment_status FROM pedido_orders WHERE id=?",
         order.id,
       ),
-    ).toEqual({ status: "awaiting_payment", payment_status: "paid" });
+    ).toEqual({ status: "received", payment_status: "paid" }); // A7: entrada e saída comercial no mesmo lote.
+    const commercialBefore = await all(env, "SELECT command_id FROM module_erp_events WHERE profile_id=? AND module_id='pedido' AND source_id=? ORDER BY seq", f.profile, order.id);
+    const sourceBefore = await one(env, "SELECT state_json FROM module_erp_sources WHERE profile_id=? AND module_id='pedido' AND source_id=?", f.profile, order.id);
+    expect(JSON.parse(sourceBefore.state_json).snapshot.lifecycle.base_status).toBe("received");
     // Reenvio do webhook: o núcleo repete o gancho pendente.
     await webhook(account.id, payment.provider_ref);
+    expect(await all(env, "SELECT command_id FROM module_erp_events WHERE profile_id=? AND module_id='pedido' AND source_id=? ORDER BY seq", f.profile, order.id)).toEqual(commercialBefore);
+    expect(await one(env, "SELECT state_json FROM module_erp_sources WHERE profile_id=? AND module_id='pedido' AND source_id=?", f.profile, order.id)).toEqual(sourceBefore);
     expect(
       (await one(env, "SELECT status FROM pedido_orders WHERE id=?", order.id))
         .status,

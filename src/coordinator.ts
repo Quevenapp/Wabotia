@@ -1,3 +1,5 @@
+import { drainIntegrationOutbox } from "./integrations/consumer";
+import { logIntegrationError } from "./integrations/privacy";
 import { DurableObject } from "cloudflare:workers";
 import { type Env, type Actor, type Run, ApiError, now, json } from "./types";
 import {
@@ -53,6 +55,7 @@ import {
   retryPaymentHooks,
 } from "./payments";
 import "./modules/runtime";
+import { resolveStates } from "./modules/registry";
 import { credentialHook } from "./modules/hooks";
 import { claim as claimCredential } from "./module-credentials";
 import { SCHEDULE_INTERVAL_MS, runModuleSchedules } from "./modules/schedule";
@@ -281,6 +284,7 @@ export class Coordinator extends DurableObject<Env> {
         `${(body.actor as Actor).id}:${this.profile}:${body.operation}\n${body.key}`,
       );
       if (pending) await pending;
+      let integrationEnabled = false;
       const commandResult = await this.ctx.blockConcurrencyWhile(async () => {
         const actor: Actor = body.actor,
           scope = `${actor.id}:${this.profile}:${body.operation}`,
@@ -328,15 +332,31 @@ export class Coordinator extends DurableObject<Env> {
               "INSERT OR IGNORE INTO receipts(scope,key,fingerprint,created) VALUES(?,?,?,?)",
               [scope, body.key, fingerprint, now()],
             ],
-            ...warmReads.map((r) => [r.sql, r.args] as [string, any[]]),
+            // As quatro leituras compartilham a mesma fotografia; depois
+            // recebem suas chaves originais no cache da invocação.
+            [`SELECT p.*,
+              (SELECT json_group_object(module_id,enabled) FROM profile_modules WHERE profile_id=p.id) module_states,
+              (SELECT json_group_array(json_object('id',s.id,'app_id',s.app_id,'profile_id',s.profile_id,'url',s.url,
+                'events',s.events,'enabled',s.enabled,'created',s.created,'scopes',a.scopes))
+                FROM webhook_subscriptions s JOIN applications a ON a.id=s.app_id
+                WHERE s.profile_id=p.id AND s.enabled=1 AND a.disabled=0) webhook_subscriptions_json,
+              (SELECT value FROM instance_settings WHERE key='public_origin') public_origin
+              FROM profiles p WHERE p.id=?`, [this.profile]],
             ...prefetch,
           ],
           // Repetir é seguro: a reserva só grava uma vez (e o +1 do contador
           // por minuto do totem pode contar uma repetição a mais).
           { retry: true },
         );
-        warmReads.forEach((r, i) => seedRead(env, r, opening[i + 2].results));
-        seedPrefetch(env, prefetch, opening.slice(2 + warmReads.length));
+        const config: any = opening[2].results[0];
+        const { webhook_subscriptions_json, public_origin, ...profileConfig } = config ?? {};
+        const stateRows = Object.entries(json(profileConfig.module_states, {})).map(([module_id, enabled]) => ({ module_id, enabled }));
+        const warmRows = [stateRows, config ? [profileConfig] : [], json(webhook_subscriptions_json, []), public_origin == null ? [] : [{ value: public_origin }]];
+        warmReads.forEach((r, i) => seedRead(env, r, warmRows[i]));
+        // Só decide se vale acordar o consumidor. A autorização dos efeitos
+        // continua usando a leitura atual, sem cache, feita pelo consumidor.
+        integrationEnabled = !!resolveStates(Object.fromEntries(stateRows.map(r => [r.module_id, r.enabled]))).erp;
+        seedPrefetch(env, prefetch, opening.slice(3));
         const old: any = opening[0].results[0];
         // A emissão e a chamada da fila fecham o recibo no lote da própria
         // escrita (src/command-context.ts): a auditoria e a marca
@@ -599,7 +619,13 @@ export class Coordinator extends DurableObject<Env> {
           headers: { "Server-Timing": serverTiming(timing) },
         });
       });
-      if (commandResult instanceof Response) return commandResult;
+      if (commandResult instanceof Response) {
+        // Só comandos que podem produzir fatos comerciais ou mudar sua
+        // elegibilidade precisam acordar a saída. A manutenção retoma o resto.
+        if (/^module\.|^settings$/.test(body.operation) || integrationEnabled && /^(os|pedido|mesas|entrega|agenda|reserva|mensalidade|suporte|payments?)\./.test(body.operation))
+          this.ctx.waitUntil(drainIntegrationOutbox(this.env, this.profile).catch(logIntegrationError));
+        return commandResult;
+      }
       try {
         let authorization = "";
         // A política do registro ERP pode exigir RPC: também fora do bloqueio.
@@ -1060,6 +1086,7 @@ export class Coordinator extends DurableObject<Env> {
           // à versão antes do envio, src/modules/os/tasks/reminders.ts).
           await runModuleSchedules(
             withLocalModuleWake(env, this.profile, (options) => this.wakeModules(options)), this.profile, tick,
+            work => this.ctx.waitUntil(work),
           );
         } catch (error) {
           await this.ctx.storage.put("modules_pending", true);

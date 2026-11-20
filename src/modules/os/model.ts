@@ -2,6 +2,8 @@
 // orçamento e textos. Sem banco, para testar e para os apps lerem o contrato.
 import { requireValue } from "../../types";
 import { BRASILIA_OFFSET_MS } from "../../business-time";
+import type { QuoteItem } from "./contracts";
+export type { QuoteItem } from "./contracts";
 
 export const OS_STATUSES = [
   "received",
@@ -219,13 +221,6 @@ export function validateOsSettings(value: unknown): Partial<OsSettings> {
 // ---------------------------------------------------------------------------
 // Orçamento
 
-export interface QuoteItem {
-  description: string;
-  quantity: number;
-  /** Valor unitário em centavos. */
-  unit_cents: number;
-}
-
 export const QUOTE_ITEMS_LIMIT = 50;
 
 export function validateQuoteItems(value: unknown): QuoteItem[] {
@@ -235,6 +230,7 @@ export function validateQuoteItems(value: unknown): QuoteItem[] {
       value.length <= QUOTE_ITEMS_LIMIT,
     `Orçamento: informe de 1 a ${QUOTE_ITEMS_LIMIT} itens.`,
   );
+  const ids = new Set<string>();
   return (value as any[]).map((raw, index) => {
     requireValue(raw && typeof raw === "object", "Orçamento: item inválido.");
     const description =
@@ -245,8 +241,8 @@ export function validateQuoteItems(value: unknown): QuoteItem[] {
     );
     const quantity = raw.quantity === undefined ? 1 : raw.quantity;
     requireValue(
-      Number.isInteger(quantity) && quantity >= 1 && quantity <= 999,
-      `Orçamento: quantidade do item ${index + 1} de 1 a 999.`,
+      typeof quantity === "number" && quantity > 0 && quantity <= 999 && /^\d+(\.\d{1,6})?$/.test(String(quantity)),
+      `Orçamento: quantidade do item ${index + 1} maior que zero, até 999 e até seis casas decimais.`,
     );
     requireValue(
       Number.isInteger(raw.unit_cents) &&
@@ -254,12 +250,32 @@ export function validateQuoteItems(value: unknown): QuoteItem[] {
         raw.unit_cents <= 100_000_000,
       `Orçamento: valor do item ${index + 1} em centavos (inteiro, até R$ 1.000.000,00).`,
     );
-    return { description, quantity, unit_cents: raw.unit_cents };
+    const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+    if (raw.id !== undefined) {
+      requireValue(typeof raw.id === "string" && uuid.test(raw.id) && !ids.has(raw.id.toLowerCase()), "Orçamento: identificador de linha inválido ou repetido.");
+      ids.add(raw.id.toLowerCase());
+    }
+    if (raw.kind !== undefined) requireValue(["material", "service", "free"].includes(raw.kind), "Orçamento: classificação inválida.");
+    if (raw.unit !== undefined) requireValue(typeof raw.unit === "string" && /^[A-Za-z0-9²³%./_-]{1,12}$/.test(raw.unit), "Orçamento: unidade inválida.");
+    if (raw.product_id != null) requireValue(typeof raw.product_id === "string" && uuid.test(raw.product_id) && ["material", "service"].includes(raw.kind), "Orçamento: vínculo de produto inválido.");
+    return { description, quantity, unit_cents: raw.unit_cents,
+      ...(raw.id !== undefined ? { id: raw.id.toLowerCase() } : {}),
+      ...(raw.kind !== undefined ? { kind: raw.kind } : {}),
+      ...(raw.unit !== undefined ? { unit: raw.unit } : {}),
+      ...(raw.product_id !== undefined ? { product_id: raw.product_id } : {}),
+    };
   });
 }
 
-export const quoteTotal = (items: QuoteItem[]) =>
-  items.reduce((sum, item) => sum + item.quantity * item.unit_cents, 0);
+export const quoteTotal = (items: QuoteItem[]) => {
+  const total = items.reduce((sum, item) => {
+    const [whole, fraction = ""] = String(item.quantity).split(".");
+    const scale = 10n ** BigInt(fraction.length);
+    return sum + (BigInt(whole + fraction) * BigInt(item.unit_cents) + scale / 2n) / scale;
+  }, 0n);
+  requireValue(total <= BigInt(Number.MAX_SAFE_INTEGER), "Orçamento: total fora do limite.");
+  return Number(total);
+};
 
 /** "R$ 1.234,56" */
 export function money(cents: number) {

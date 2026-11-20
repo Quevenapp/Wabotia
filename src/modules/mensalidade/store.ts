@@ -32,6 +32,7 @@ import {
 } from "./model";
 import { ensurePayer, loadPayer } from "./payers";
 import { formatDocument } from "../../establishment";
+import { commitMensalidade as batch, mensalidadeCasGuard, mensalidadeHistory, mensalidadeStatements, planServiceStatements, planServiceView } from "./integration";
 
 export const notFound = (what = "Assinatura") =>
   new ApiError(404, "not_found", `${what} não encontrada.`);
@@ -179,14 +180,14 @@ function planFields(data: any, partial: boolean) {
   return out;
 }
 
-export async function createPlan(ctx: ModuleContext, data: any, actor: string) {
+export async function createPlan(ctx: ModuleContext, data: any, actor: string, person?: Actor) {
   const fields = planFields(data, false);
   const id = uid(),
     at = now();
-  await exec(
-    ctx.env,
+  const link = await planServiceStatements(ctx, id, data, person);
+  await batch(ctx.env, [[
     "INSERT INTO mensalidade_plans(id,profile_id,name,amount_cents,period,due_day,active,sellable,description,created_by,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-    id,
+    [id,
     ctx.profile,
     fields.name,
     fields.amount_cents,
@@ -197,26 +198,26 @@ export async function createPlan(ctx: ModuleContext, data: any, actor: string) {
     fields.description ?? "",
     actor,
     at,
-    at,
-  );
-  return planView(await loadPlan(ctx, id));
+    at],
+  ], ...link]);
+  return { ...planView(await loadPlan(ctx, id)), ...await planServiceView(ctx, id) };
 }
 
 /** Mudar o plano não muda assinaturas existentes (valor e período copiados). */
-export async function updatePlan(ctx: ModuleContext, id: unknown, data: any) {
+export async function updatePlan(ctx: ModuleContext, id: unknown, data: any, person?: Actor) {
   const plan = await loadPlan(ctx, id);
   const fields = planFields(data, true);
   const keys = Object.keys(fields);
-  if (keys.length)
-    await exec(
-      ctx.env,
+  const statements = await planServiceStatements(ctx, plan.id, data, person);
+  if (keys.length) statements.unshift([
       `UPDATE mensalidade_plans SET ${keys.map((k) => k + "=?").join(",")},updated=? WHERE id=? AND profile_id=?`,
-      ...keys.map((k) => fields[k]),
+      [...keys.map((k) => fields[k]),
       now(),
       plan.id,
-      ctx.profile,
-    );
-  return planView(await loadPlan(ctx, plan.id));
+      ctx.profile],
+    ]);
+  if (statements.length) await batch(ctx.env, statements);
+  return { ...planView(await loadPlan(ctx, plan.id)), ...await planServiceView(ctx, plan.id) };
 }
 
 /** Exclui um plano sem assinaturas; com assinaturas, desative-o. */
@@ -756,42 +757,24 @@ export async function setSubscriptionStatus(
     sets.bill_from = day > sub.bill_from ? day : sub.bill_from;
   }
   const keys = Object.keys(sets);
-  const result = await exec(
-    ctx.env,
-    `UPDATE mensalidade_subscriptions SET ${keys.map((k) => k + "=?").join(",")} WHERE id=? AND profile_id=? AND status=?`,
-    ...keys.map((k) => sets[k]),
-    sub.id,
-    ctx.profile,
-    sub.status,
-  );
-  if (!result.meta.changes)
-    throw new ApiError(
-      409,
-      "subscription_conflict",
-      "A assinatura mudou enquanto isso. Atualize e tente de novo.",
-    );
-  let cancelled = 0;
-  if (to !== "active") {
-    const rows = await all(
-      ctx.env,
-      "UPDATE mensalidade_installments SET status='cancelled',cancelled_at=?,updated=? WHERE subscription_id=? AND profile_id=? AND status='open' AND due_date>=? RETURNING id,payment_id,payment_status",
-      at,
-      at,
-      sub.id,
-      ctx.profile,
-      day,
-    );
-    cancelled = rows.length;
-    for (const row of rows) await cancelOpenCharge(ctx, row);
+  const rows = to === "active" ? [] : await all(ctx.env,
+    "SELECT * FROM mensalidade_installments WHERE subscription_id=? AND profile_id=? AND status='open' AND due_date>=? ORDER BY id", sub.id, ctx.profile, day);
+  const statements: import("../../integrations/contracts").Statement[] = [
+    [`UPDATE mensalidade_subscriptions SET ${keys.map((k) => k + "=?").join(",")} WHERE id=? AND profile_id=? AND status=? AND bill_from=? AND end_date IS ?`, [...keys.map((k) => sets[k]), sub.id, ctx.profile, sub.status, sub.bill_from, sub.end_date]], mensalidadeCasGuard,
+  ];
+  if (to !== "active") statements.push([
+    "SELECT CASE WHEN (SELECT count(*) FROM mensalidade_installments WHERE subscription_id=? AND profile_id=? AND status='open' AND due_date>=?)=? THEN 1 ELSE json('mensalidade_installment_conflict') END", [sub.id, ctx.profile, day, rows.length],
+  ]);
+  for (const inst of rows) {
+    const commercial = await mensalidadeStatements(ctx, { kind: "installment", record: { ...inst, status: "cancelled" }, operation: "cancel", at, actor, reason: to === "paused" ? "subscription_paused" : "subscription_ended" });
+    statements.push(["UPDATE mensalidade_installments SET status='cancelled',cancelled_at=?,updated=? WHERE id=? AND profile_id=? AND status='open' AND amount_cents=?", [at, at, inst.id, ctx.profile, inst.amount_cents]], mensalidadeCasGuard, ...commercial.statements);
   }
-  await ctx.publish("mensalidade.subscription_changed", sub.id, {
-    subscription_id: sub.id,
-    change: to === "active" ? "resumed" : to,
-    from: sub.status,
-    status: to,
-    cancelled_installments: cancelled,
-    actor,
-  });
+  const history = { subscription_id: sub.id, change: to === "active" ? "resumed" : to, from: sub.status, status: to, cancelled_installments: rows.length, actor };
+  const historyKey = `${sub.id}:${to}:${at}`;
+  statements.push(mensalidadeHistory(ctx, "mensalidade.subscription_changed", sub.id, history, historyKey));
+  await batch(ctx.env, statements);
+  for (const row of rows) await cancelOpenCharge(ctx, row);
+  await ctx.publish("mensalidade.subscription_changed", sub.id, history, { key: historyKey });
   return loadSubscription(ctx, sub.id);
 }
 

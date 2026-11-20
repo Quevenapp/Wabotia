@@ -58,6 +58,13 @@ export interface FunctionDeviation {
 }
 
 export type Deviation = SeedDeviation | FunctionDeviation;
+/** Informativo: nunca aplicado ao oráculo, gerados ou esquema. */
+export const MODULE_ORIGIN_DEVIATIONS = Object.freeze([{
+  id: "f3-module-origin", policy: "wabotia-module-origin-v1", decided: "2026-11-19",
+  scope: "Somente pedidos D1 imutáveis conferidos e alvos com âncoras ERP; sem papel ampliado.",
+  behavior: "Execução comercial enumerada, efeitos conjuntos, recibos permanentes, documento vinculado protegido e exceção operacional de retorno à execução.",
+  oracle: "Inalterado fora do escopo F3; não é FunctionDeviation.",
+}]);
 export const isFunctionDeviation = (d: Deviation): d is FunctionDeviation => d.kind === "function";
 const seedOnly = (list: readonly Deviation[]) => list.filter((d): d is SeedDeviation => !isFunctionDeviation(d));
 

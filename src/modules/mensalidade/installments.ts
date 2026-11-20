@@ -20,6 +20,7 @@ import {
 } from "./model";
 import { cancelOpenCharge, installmentView, notFound } from "./store";
 import { announcePaid } from "./listeners";
+import { commitMensalidade as batch, manualMensalidadeReceipt, mensalidadeCasGuard, mensalidadeHistory, mensalidadeStatements } from "./integration";
 
 /** Parcelas nascem até este número de dias antes do vencimento. */
 export const GENERATE_AHEAD_DAYS = 31;
@@ -43,7 +44,7 @@ export async function generateInstallments(
     ctx.env,
     // Contratada pelo WhatsApp e com a primeira parcela ainda sem pagar: não
     // gera as seguintes (nem avisos) até o pagamento.
-    `SELECT * FROM mensalidade_subscriptions s WHERE profile_id=? AND status='active' AND (checked_until IS NULL OR checked_until<?)${subscriptionId ? " AND id=?" : ""} AND NOT EXISTS(SELECT 1 FROM mensalidade_installments u WHERE u.subscription_id=s.id AND u.upfront=1 AND u.status IN ('open','overdue')) ORDER BY id LIMIT ?`,
+    `SELECT * FROM mensalidade_subscriptions s WHERE profile_id=? AND status='active' AND (checked_until IS NULL OR checked_until<?)${subscriptionId ? " AND id=?" : ""} AND NOT EXISTS(SELECT 1 FROM mensalidade_installments u WHERE u.subscription_id=s.id AND u.upfront=1 AND u.status IN ('open','overdue')) AND NOT EXISTS(SELECT 1 FROM mensalidade_contracts c WHERE s.source_key='contrato:'||c.id AND c.status<>'paid') ORDER BY id LIMIT ?`,
     ctx.profile,
     horizon,
     ...(subscriptionId ? [subscriptionId] : []),
@@ -62,23 +63,27 @@ export async function generateInstallments(
       horizon,
     ).filter((d) => !sub.checked_until || d.due_date > sub.checked_until);
     for (const due of dues) {
+      if (await one(ctx.env, "SELECT id FROM mensalidade_installments WHERE subscription_id=? AND period_key=?", sub.id, due.period_key)) continue;
       const id = uid();
       const late = due.due_date < day;
-      const result = await exec(
-        ctx.env,
-        "INSERT INTO mensalidade_installments(id,profile_id,subscription_id,period_key,due_date,amount_cents,status,retroactive,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(subscription_id,period_key) DO NOTHING",
-        id,
-        ctx.profile,
-        sub.id,
-        due.period_key,
-        due.due_date,
-        sub.amount_cents - sub.discount_cents,
-        late ? "overdue" : "open",
-        late ? 1 : 0,
-        at,
-        at,
-      );
-      if (!result.meta.changes) continue;
+      const record = { id, profile_id: ctx.profile, subscription_id: sub.id, ...due,
+        amount_cents: sub.amount_cents - sub.discount_cents, contracted_discount_cents: sub.discount_cents,
+        status: late ? "overdue" : "open", retroactive: late ? 1 : 0, created: at };
+      const commercial = await mensalidadeStatements(ctx, { kind: "installment", record, subscription: sub, operation: "recognize", newObligation: true, at, actor: sub.created_by });
+      try {
+        await batch(ctx.env, [
+          ["SELECT CASE WHEN EXISTS(SELECT 1 FROM mensalidade_subscriptions WHERE id=? AND profile_id=? AND status='active' AND amount_cents=? AND discount_cents=? AND due_day=? AND period=? AND bill_from=? AND end_date IS ? AND checked_until IS ?) THEN 1 ELSE json('mensalidade_subscription_conflict') END", [sub.id, ctx.profile, sub.amount_cents, sub.discount_cents, sub.due_day, sub.period, sub.bill_from, sub.end_date, sub.checked_until]],
+          ["INSERT INTO mensalidade_installments(id,profile_id,subscription_id,period_key,due_date,amount_cents,status,retroactive,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(subscription_id,period_key) DO NOTHING", [id, ctx.profile, sub.id, due.period_key, due.due_date, record.amount_cents, record.status, record.retroactive, at, at]],
+          mensalidadeCasGuard,
+          mensalidadeHistory(ctx, "mensalidade.installment_created", id, { installment_id: id, subscription_id: sub.id, period_key: due.period_key, due_date: due.due_date, amount_cents: record.amount_cents, status: record.status, retroactive: late }, id),
+          ...commercial.statements,
+        ]);
+      } catch (error) {
+        const winner = await one(ctx.env, "SELECT id FROM mensalidade_installments WHERE subscription_id=? AND period_key=?", sub.id, due.period_key);
+        if (!winner) throw error;
+        if (winner.id !== id) continue;
+        // Resposta perdida depois do commit: o evento já está no mesmo lote.
+      }
       created++;
       await ctx.publish(
         "mensalidade.installment_created",
@@ -333,7 +338,8 @@ export async function payManually(
   ctx: ModuleContext,
   inst: any,
   actor: string,
-  data: { note?: unknown; paid_at?: unknown },
+  data: { note?: unknown; paid_at?: unknown; method?: unknown },
+  requestId?: string,
 ) {
   const note = text(data.note, 300, "a observação");
   let paidAt = now();
@@ -357,22 +363,23 @@ export async function payManually(
     );
   }
   const at = now();
-  const result = await exec(
-    ctx.env,
-    "UPDATE mensalidade_installments SET status='paid',paid_at=?,paid_via='manual',paid_by=?,paid_note=?,updated=? WHERE id=? AND profile_id=? AND status IN ('open','overdue')",
-    paidAt,
-    actor,
-    note,
-    at,
-    inst.id,
-    ctx.profile,
-  );
-  if (!result.meta.changes)
+  requireValue(data.method === undefined || ["cash", "pix", "card", "other", "unknown"].includes(String(data.method)), "Forma de pagamento inválida.");
+  const evidence = await manualMensalidadeReceipt(ctx, inst, actor, requestId ?? `installment:${inst.id}:manual`, paidAt,
+    (data.method ?? "unknown") as "cash" | "pix" | "card" | "other" | "unknown", data.paid_at !== undefined && data.paid_at !== null && data.paid_at !== "", note);
+  if (evidence.replayed) return loadInstallment(ctx, inst.id);
+  if (!["open", "overdue"].includes(inst.status))
     throw new ApiError(
       409,
       "installment_not_payable",
       `A parcela de ${inst.period_key} está "${INSTALLMENT_LABELS[inst.status as InstallmentStatus]}" e não pode receber baixa.`,
     );
+  const commercial = await mensalidadeStatements(ctx, { kind: "installment", record: { ...inst, status: "paid" }, operation: "receive", at: paidAt, actor, receipt: evidence.receipt });
+  await batch(ctx.env, [
+    ["UPDATE mensalidade_installments SET status='paid',paid_at=?,paid_via='manual',paid_by=?,paid_note=?,updated=? WHERE id=? AND profile_id=? AND status=? AND amount_cents=? AND paid_at IS ?", [paidAt, actor, note, at, inst.id, ctx.profile, inst.status, inst.amount_cents, inst.paid_at ?? null]],
+    mensalidadeCasGuard,
+    mensalidadeHistory(ctx, "mensalidade.paid", inst.id, { installment_id: inst.id, subscription_id: inst.subscription_id, period_key: inst.period_key, amount_cents: inst.amount_cents, via: "manual", by: actor, paid_at: paidAt, payment_id: inst.payment_id }, `${inst.id}:manual:${paidAt}`),
+    ...evidence.statements, ...commercial.statements,
+  ]);
   // O Pix ou link que ainda estava aberto deixa de valer.
   await cancelOpenCharge(ctx, inst);
   const fresh = await loadInstallment(ctx, inst.id);
@@ -387,7 +394,6 @@ export async function payManually(
       via: "manual",
       by: actor,
       paid_at: paidAt,
-      note,
       payment_id: inst.payment_id,
     },
     { key: `${inst.id}:manual:${paidAt}` },
@@ -405,22 +411,20 @@ export async function waive(
 ) {
   const note = text(data.note, 300, "o motivo");
   const at = now();
-  const result = await exec(
-    ctx.env,
-    "UPDATE mensalidade_installments SET status='waived',waived_at=?,waived_by=?,paid_note=?,updated=? WHERE id=? AND profile_id=? AND status IN ('open','overdue','cancelled')",
-    at,
-    actor,
-    note,
-    at,
-    inst.id,
-    ctx.profile,
-  );
-  if (!result.meta.changes)
+  if (inst.status === "waived") return loadInstallment(ctx, inst.id);
+  if (!["open", "overdue", "cancelled"].includes(inst.status))
     throw new ApiError(
       409,
       "installment_not_payable",
       `A parcela de ${inst.period_key} está "${INSTALLMENT_LABELS[inst.status as InstallmentStatus]}" e não pode ser isentada.`,
     );
+  const commercial = await mensalidadeStatements(ctx, { kind: "installment", record: { ...inst, status: "waived" }, operation: "cancel", at, actor, reason: "installment_waived" });
+  await batch(ctx.env, [
+    ["UPDATE mensalidade_installments SET status='waived',waived_at=?,waived_by=?,paid_note=?,updated=? WHERE id=? AND profile_id=? AND status=? AND amount_cents=?", [at, actor, note, at, inst.id, ctx.profile, inst.status, inst.amount_cents]],
+    mensalidadeCasGuard,
+    mensalidadeHistory(ctx, "mensalidade.waived", inst.id, { installment_id: inst.id, subscription_id: inst.subscription_id, period_key: inst.period_key, amount_cents: inst.amount_cents, by: actor }, `${inst.id}:waived:${at}`),
+    ...commercial.statements,
+  ]);
   await cancelOpenCharge(ctx, inst);
   await ctx.publish(
     "mensalidade.waived",
@@ -431,7 +435,6 @@ export async function waive(
       period_key: inst.period_key,
       amount_cents: inst.amount_cents,
       by: actor,
-      note,
     },
     { key: `${inst.id}:waived:${at}` },
   );

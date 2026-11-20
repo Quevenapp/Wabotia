@@ -5,6 +5,8 @@
 // nunca com números do modelo, e só quem hoje pode isentar (administrador,
 // regra do `waive`) decide. "Já paguei" e comprovante não mudam nada.
 import { exec, one } from "../../db";
+import { requireFinancialAal } from "../../mfa";
+import { commitMensalidade, mensalidadeCasGuard, mensalidadeStatements } from "./integration";
 import { ApiError, type Actor, type Conversation, now } from "../../types";
 import { moduleError, type ApprovalDecision, type ModuleContext } from "../api";
 import { openInstallments } from "./chat";
@@ -226,6 +228,7 @@ export async function validateRequest(
       "Somente administradores dispensam ou dão desconto em mensalidade.",
     );
   const inst = await loadInstallment(ctx, approval.ref_id);
+  requireFinancialAal(decision.actor);
   // Gancho repetido depois de aplicar: segue para avisar o cliente.
   if (approval.kind === "dispensa" && inst.status === "waived") return;
   if (approval.kind === "desconto" && inst.discount_ref === approval.id) return;
@@ -264,6 +267,7 @@ async function applyDiscount(
   actor: Actor,
   cents: number,
 ) {
+  requireFinancialAal(actor);
   let inst = await loadInstallment(ctx, approval.ref_id);
   if (inst.discount_ref === approval.id) return inst;
   // Cobrança aberta com o valor antigo: cancelada antes de baixar o valor.
@@ -277,18 +281,13 @@ async function applyDiscount(
       "A cobrança aberta desta mensalidade não pôde ser cancelada (pode ter sido paga agora). Tente de novo em instantes.",
     );
   const at = now();
-  const result = await exec(
-    ctx.env,
-    "UPDATE mensalidade_installments SET amount_cents=amount_cents-?,discount_cents=discount_cents+?,discount_ref=?,updated=? WHERE id=? AND profile_id=? AND status IN ('open','overdue') AND amount_cents>? AND coalesce(discount_ref,'')<>?",
-    cents,
-    cents,
-    approval.id,
-    at,
-    inst.id,
-    ctx.profile,
-    cents,
-    approval.id,
-  );
+  const commercial = await mensalidadeStatements(ctx, { kind: "installment", record: { ...inst, amount_cents: inst.amount_cents - cents },
+    operation: null, correction: true, at, actor: actor.id, reason: "commercial_correction_required" });
+  const [result] = await commitMensalidade(ctx.env, [
+    ["UPDATE mensalidade_installments SET amount_cents=amount_cents-?,discount_cents=discount_cents+?,discount_ref=?,updated=? WHERE id=? AND profile_id=? AND status IN ('open','overdue') AND amount_cents=? AND amount_cents>? AND coalesce(discount_ref,'')<>?",
+      [cents, cents, approval.id, at, inst.id, ctx.profile, inst.amount_cents, cents, approval.id]],
+    mensalidadeCasGuard, ...commercial.statements,
+  ]);
   if (!result.meta.changes)
     throw moduleError(
       409,
@@ -327,6 +326,7 @@ export async function requestDecided(
       { key: `aprovacao:${approval.id}:${suffix}`, ...BILLING },
     );
   if (decision.status === "approved" && decision.actor) {
+    requireFinancialAal(decision.actor);
     if (approval.kind === "dispensa") {
       await applyWaiver(ctx, approval, decision.actor);
       await say(

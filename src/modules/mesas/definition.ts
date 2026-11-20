@@ -8,6 +8,8 @@ import type { ModuleDefinition } from "../types";
 
 export const mesasModule: ModuleDefinition = {
   id: "mesas",
+  erp_role: "vendas",
+  integration: { route: "sale", uses: ["customers", "products", "stock", "finance"], operations: ["prepare", "execute", "lifecycle", "receive", "cancel", "reverse"], privacy: "commercial" },
   name: "Mesas",
   version: "1.0.0",
   description:

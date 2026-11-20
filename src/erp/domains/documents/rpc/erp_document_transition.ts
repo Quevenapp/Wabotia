@@ -4,6 +4,8 @@
 // (estornar e lançar estoque, pela sessão N; estornar e lançar contas, pelo Financeiro) e a ocorrência.
 // erp_document_mirror.require_visible: documents/mirror.ts (o documento espelhado do Origin).
 import { createHash } from "node:crypto";
+import { linkedDocumentGuard } from "../module-policy.ts";
+import { originScope } from "../../../engine/module-origin.ts";
 import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { maintenanceAllows, withErpMaintenance } from "../../../engine/parts-gate.ts";
@@ -54,6 +56,7 @@ export function checkSituationChange(db: SqlDriver, user: string, kind: string, 
 
 /** erp_documents.transition_action(usuário, kind, documento, comando, ação, rótulo) */
 function transitionAction(ctx: RpcContext, user: string, kind: string, id: string, command: string, action: string, label: string): Data {
+  linkedDocumentGuard(ctx.db, id);
   const db = ctx.db;
   const day = todaySaoPaulo();
   const reason = [...`${action.startsWith("reverse_") ? "Estorno pela mudança de situação para " : "Lançamento pela mudança de situação para "}${label}`].slice(0, 500).join("");
@@ -123,6 +126,8 @@ function audit(ctx: RpcContext, a: { actor: string; command: string; document: s
 }
 
 export function erpDocumentTransition(ctx: RpcContext, a: RpcArgs) {
+  // O executor usa sua transição enumerada, sem ações configuradas.
+  linkedDocumentGuard(ctx.db, a.p_id);
   const db = ctx.db;
   const user = a.p_user_id as string;
   const kind = (a.p_kind as string | null) ?? null;

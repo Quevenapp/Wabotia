@@ -1,3 +1,5 @@
+import { activationStatements } from "../integrations/activation";
+import { INTEGRATION_MENU_EXCLUSIONS } from "../integrations/registry";
 // Registro dos módulos embutidos e estado ligado/desligado por área de
 // atendimento (tabela profile_modules, migração 0020). Contrato:
 // docs/MODULOS.md. Este arquivo só depende do banco: service.ts, index.ts e o
@@ -222,7 +224,10 @@ export function moduleView(m: ModuleDefinition, enabled: boolean) {
     builtin: m.builtin,
     enabled,
     navigation: m.navigation,
-    management: m.management ?? [],
+    management: (m.management ?? []).map(item => ({ ...item,
+      ...(INTEGRATION_MENU_EXCLUSIONS[item.id] ? { hidden_when_modules_enabled: INTEGRATION_MENU_EXCLUSIONS[item.id] } : {}),
+    })),
+    integration: m.integration ?? null,
     customer_profile: m.customer_profile ?? customerProfileDeclarations[m.id] ?? null,
     menu_item_types: m.menu_item_types,
     events: m.events,
@@ -304,6 +309,8 @@ export async function moduleCommand(
   }
   const changes = [definition.id, ...cascade].map(id => ({ id, enabled: id === definition.id ? data.enabled : false }));
   const updated = now();
+  // A marca da versão nova vem antes das mudanças (fase 2); as épocas de
+  // ativação da integração vão no mesmo lote (fase 3).
   const statements: [string, any[]][] = [
     ["INSERT OR IGNORE INTO profile_erp_parts_managed(profile_id) VALUES(?)", [profile]],
   ];
@@ -311,6 +318,7 @@ export async function moduleCommand(
     "INSERT INTO profile_modules(profile_id,module_id,enabled,updated,updated_by) VALUES(?,?,?,?,?) ON CONFLICT(profile_id,module_id) DO UPDATE SET enabled=excluded.enabled,updated=excluded.updated,updated_by=excluded.updated_by",
     [profile, id, enabled ? 1 : 0, updated, actor.id],
   ]);
+  statements.push(...activationStatements(profile, changes.map(change => ({ module_id: change.id, enabled: change.enabled })), updated) as [string, any[]][]);
   await batch(env, statements);
   // Os gatilhos registram toda mudança de chave ERP; uma revisão pendente
   // também cobre a entrega que falhou numa alteração anterior.

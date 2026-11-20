@@ -1,3 +1,6 @@
+import { integrationCommand, integrationOperation, integrationResourceRoute, registerIntegrationRoutes } from "./integrations/routes";
+import { drainIntegrationOutbox } from "./integrations/consumer";
+import { logIntegrationError } from "./integrations/privacy";
 import { resumeCustomerMaintenance } from "./customer/ports";
 import { ensinoNoStore } from "./modules/ensino/http";
 import { mountInternalApi, takeInternalActor } from "./internal-api";
@@ -1101,6 +1104,7 @@ app.use("/api/v1/profiles/*", async (c, next) => {
   if (contribution) requireAccess(c.get("actor"), decodeURIComponent(contribution[1]));
   else if (segment === "c2") { /* Política do descritor, resolvida a cada invocação. */ }
   else if (customerResourceRoute(c.req.method, c.req.path.split("/").slice(5).join("/"))) { /* O handler autoriza a pessoa e o recurso. */ }
+  else if (integrationResourceRoute(c.req.method, c.req.path.split("/").slice(5).join("/"))) { /* F3 confere pessoa, origem e destino; não concede acesso geral ao módulo. */ }
   else if (segment) requireRouteAccess(c.get("actor"), ["contact-conflicts", "contact-identities", "contact-jobs"].includes(segment) ? "contacts" : segment);
   await next();
 });
@@ -1531,6 +1535,13 @@ async function mutate(c: any, op: string, profile: string, data: any) {
   );
   if (profile !== "_admin" && !canProfile(c.get("actor"), profile))
     throw new ApiError(404, "not_found", "Perfil não encontrado.");
+  // Operações comuns têm CAS/recibo próprios. O eventual RPC humano fica fora
+  // do bloqueio do Coordinator que atende as conversas da área.
+  if (integrationOperation(op)) {
+    const result = await integrationCommand(c.env, c.get("actor"), profile, op, data, key);
+    c.executionCtx.waitUntil(drainIntegrationOutbox(c.env, profile).catch(logIntegrationError));
+    return Response.json(result, { status: ["integration.retry", "integration.replace", "integration.post"].includes(op) ? 202 : 200, headers: { "Cache-Control": "no-store" } });
+  }
   const response = await c.env.COORDINATOR.get(c.env.COORDINATOR.idFromName(profile)).fetch(
     "https://coordinator/command",
     {
@@ -1554,6 +1565,7 @@ async function mutate(c: any, op: string, profile: string, data: any) {
   }
   return response;
 }
+registerIntegrationRoutes(app, mutate);
 app.get("/api/v1/system", async (c) => {
   admin(c.get("actor"));
   return c.json({

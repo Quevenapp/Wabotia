@@ -1,3 +1,5 @@
+import { CatalogRecordLinks } from '../integrations/CatalogLinkPicker';
+import { IntegrationStatus } from '../integrations/IntegrationStatus';
 // Mensalidades (módulo "mensalidade", docs/MENSALIDADE.md): resumo do mês,
 // parcelas por mês com filtro de estado, assinaturas e inadimplentes. Ações:
 // reenviar cobrança, dar baixa, isentar, pausar, retomar e encerrar. Todas as
@@ -1138,6 +1140,8 @@ export function MensalidadesPage() {
   );
   return (
     <>
+      <IntegrationStatus module="mensalidade" compact />
+      <CatalogRecordLinks module="mensalidade" kind="plan" records={planRows} />
       <div className="toolbar">
         <div className="mensalidade-month" aria-label="Mês">
           <IconButton

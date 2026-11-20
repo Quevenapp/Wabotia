@@ -1,3 +1,9 @@
+import { hash } from "../../integrations/keys";
+import { aliasStatements, compactReceiptWrites } from "../../integrations/outbox";
+import { requireReceiptPerson, tablePaymentPlan, tableReceipt, tableReceiptData, serviceComponents, touchTableOrigin } from "./integration";
+import { commerceGuard, CommercePlan, commercialId, reverseReceiptStatements } from "../pedido/public";
+import { registerReceiptReverser, type CommercialReceipt } from "../../integrations/receipts";
+import { modulesApi } from "../api";
 // Mesas: a conta da mesa. Abrir, lançar pedidos para a cozinha (pedidos do
 // Pedido, pelo public.ts dele), transferir, juntar, pedir a conta, reabrir,
 // pagamentos parciais, fechar e cancelar. Escritas rodam como comandos
@@ -110,14 +116,6 @@ export function paymentView(row: any) {
   };
 }
 
-const tabPayments = (ctx: ModuleContext, tabId: string) =>
-  all(
-    ctx.env,
-    "SELECT * FROM mesas_payments WHERE tab_id=? AND profile_id=? ORDER BY created,rowid LIMIT 200",
-    tabId,
-    ctx.profile,
-  );
-
 const paidOf = (payments: any[]) =>
   payments
     .filter((p) => p.status === "ok")
@@ -205,14 +203,33 @@ export function tabView(
 export type TabView = ReturnType<typeof tabView>;
 
 /** Conta com os totais atuais (pedidos do Pedido e pagamentos). */
-export async function tabState(ctx: ModuleContext, tab: any) {
-  const [orders, payments] = await Promise.all([
-    pedido.tabOrders(ctx.env, ctx.profile, tab.id),
-    tabPayments(ctx, tab.id),
-  ]);
+function stateRead(ctx: ModuleContext, id: string, withTab: boolean): [string, any[]] {
+  const [orders, args] = pedido.tabOrdersSnapshotSql(ctx.profile, id);
+  return [`SELECT ${withTab ? "t.*," : ""} (${orders}) orders_json,
+    (SELECT json_group_array(json_object('id',id,'profile_id',profile_id,'tab_id',tab_id,'method',method,
+      'amount_cents',amount_cents,'tendered_cents',tendered_cents,'change_cents',change_cents,'note',note,
+      'status',status,'created_by',created_by,'created',created,'voided_by',voided_by,'voided_at',voided_at,'void_reason',void_reason))
+      FROM (SELECT * FROM mesas_payments WHERE tab_id=? AND profile_id=? ORDER BY created,rowid LIMIT 200)) payments_json
+    ${withTab ? "FROM mesas_tabs t WHERE t.id=? AND t.profile_id=?" : ""}`,
+    [...args, id, ctx.profile, ...(withTab ? [id, ctx.profile] : [])]];
+}
+function stateOf(tab: any, row: any) {
+  const orders = (JSON.parse(row.orders_json) as any[]).map(order => pedido.orderView(order));
+  const payments = JSON.parse(row.payments_json) as any[];
   const { subtotal, counts } = countOrders(orders);
-  const view = tabView(tab, { subtotal, paid: paidOf(payments), counts });
-  return { tab: view, orders, payments };
+  return { tab: tabView(tab, { subtotal, paid: paidOf(payments), counts }), orders, payments };
+}
+export async function tabState(ctx: ModuleContext, tab: any) {
+  const [sql, args] = stateRead(ctx, tab.id, false);
+  return stateOf(tab, await one(ctx.env, sql, ...args));
+}
+async function currentTabState(ctx: ModuleContext, id: string, command?: { scope: string; key: string }) {
+  const [sql, args] = stateRead(ctx, id, true);
+  const row = await one(ctx.env, command
+    ? sql.replace("SELECT t.*,", "SELECT t.*,(SELECT fingerprint FROM receipts WHERE scope=? AND key=?) close_fingerprint,") : sql,
+    ...(command ? [command.scope, command.key] : []), ...args);
+  if (!row) throw notFound();
+  return { ...stateOf(row, row), record: row };
 }
 
 /** Pagamentos já feitos nas contas abertas, numa consulta. */
@@ -412,6 +429,12 @@ export async function listTabs(
   };
 }
 
+/** Guarda do UPDATE anterior dentro da escrita do histórico. */
+function guardedHistory(...args: Parameters<typeof history>): [string, any[]] {
+  const [sql, values] = history(...args);
+  return [sql.replace("VALUES(?", "VALUES(CASE WHEN changes()=1 THEN ? ELSE json('integration_version_conflict') END"), values];
+}
+
 // ---------------------------------------------------------------------------
 // Escritas
 
@@ -543,9 +566,9 @@ export async function sendOrder(
   requestId: string,
 ) {
   await requireWaiter(ctx, actor);
-  const tab = await liveTab(ctx, data.id);
+  const tab = await loadTab(ctx, data.id);
   const note = text(data.note, 300, "a observação do pedido");
-  const { order, created } = await pedido.createTableOrder(
+  const { order } = await pedido.createTableOrder(
     ctx.env,
     ctx.profile,
     {
@@ -556,43 +579,24 @@ export async function sendOrder(
       customer_name: tab.customer_name || undefined,
       sourceKey: `mesas:${tab.id}:${requestId}`,
       actor: actor.id,
+      commit: async (createdOrder, commerce) => {
+        if (!isLive(tab.status)) throw closedTab(tab);
+        const at = now();
+        if (commerce && tab.service) {
+          const state = await tabState(ctx, tab);
+          // Materializa o saldo anterior sem reconhecer passado; o acréscimo
+          // do novo pedido recebe sua própria revisão e data de aceite.
+          const before = billTotals(state.tab.bill.subtotal_cents, true, tab.service_permille, 0).service_cents;
+          const desired = billTotals(state.tab.bill.subtotal_cents + createdOrder.total_cents, true, tab.service_permille, 0).service_cents;
+          await serviceComponents(ctx, tab, desired, commerce, before);
+        }
+        return [guardedUpdate(ctx, tab, { updated: at, ...(tab.status === "closing" ? { status: "open", bill_requested_at: null } : {}) }),
+          guardedHistory(ctx, tab.id, "order", actor.id, `Pedido nº ${createdOrder.number} para a cozinha: ${createdOrder.item_count} ${createdOrder.item_count === 1 ? "item" : "itens"}, ${pedido.money(createdOrder.total_cents)}.`, at),
+          ...(tab.status === "closing" ? [history(ctx, tab.id, "reopened", actor.id, "Conta reaberta: novo pedido.", at)] : [])];
+      },
     },
   );
-  if (created) {
-    const at = now();
-    const statements = [
-      history(
-        ctx,
-        tab.id,
-        "order",
-        actor.id,
-        `Pedido nº ${order.number} para a cozinha: ${order.item_count} ${order.item_count === 1 ? "item" : "itens"}, ${pedido.money(order.total_cents)}.`,
-        at,
-      ),
-    ];
-    // Pediu mais depois de pedir a conta: a mesa volta a "ocupada".
-    if (tab.status === "closing")
-      statements.unshift(
-        guardedUpdate(ctx, tab, {
-          status: "open",
-          bill_requested_at: null,
-          updated: at,
-        }),
-        history(
-          ctx,
-          tab.id,
-          "reopened",
-          actor.id,
-          "Conta reaberta: novo pedido.",
-          at,
-        ),
-      );
-    else
-      statements.unshift([
-        "UPDATE mesas_tabs SET updated=? WHERE id=? AND profile_id=?",
-        [at, tab.id, ctx.profile],
-      ]);
-    await batch(ctx.env, statements);
+  {
     await publish(
       ctx,
       "mesas.order_sent",
@@ -607,7 +611,7 @@ export async function sendOrder(
       `order:${order.id}`,
     );
   }
-  const state = await tabState(ctx, await loadTab(ctx, tab.id));
+  const state = await currentTabState(ctx, tab.id);
   return {
     tab: state.tab,
     order: pedido.orderForActor(ctx, actor, order),
@@ -666,8 +670,15 @@ export async function updateTab(ctx: ModuleContext, actor: Actor, data: any) {
   if (!changed.length) return (await tabState(ctx, tab)).tab;
   const at = now();
   const patch = Object.fromEntries(changed.map((k) => [k, sets[k]]));
+  const commerce = new CommercePlan(ctx, actor.id, at);
+  if (changed.includes("service")) {
+    const state = await tabState(ctx, tab);
+    const desired = billTotals(state.tab.bill.subtotal_cents, !!sets.service, tab.service_permille, state.tab.bill.paid_cents).service_cents;
+    await serviceComponents(ctx, tab, desired, commerce, 0);
+  }
   const [update] = await batch(ctx.env, [
-    guardedUpdate(ctx, tab, { ...patch, updated: at }),
+    guardedUpdate(ctx, tab, { ...patch, updated: at }), commerceGuard,
+    ...commerce.statements(),
     history(
       ctx,
       tab.id,
@@ -716,7 +727,7 @@ export async function requestBill(ctx: ModuleContext, actor: Actor, data: any) {
       `bill:${tab.id}:${at}`,
     );
   }
-  return (await tabState(ctx, await loadTab(ctx, tab.id))).tab;
+  return (await currentTabState(ctx, tab.id)).tab;
 }
 
 /** POST mesas/tabs/:id/reopen: volta a "aberta" depois de pedir a conta. */
@@ -742,7 +753,7 @@ export async function reopenTab(ctx: ModuleContext, actor: Actor, data: any) {
       `reopened:${tab.id}:${at}`,
     );
   }
-  return (await tabState(ctx, await loadTab(ctx, tab.id))).tab;
+  return (await currentTabState(ctx, tab.id)).tab;
 }
 
 /**
@@ -753,7 +764,7 @@ export async function transferTab(ctx: ModuleContext, actor: Actor, data: any) {
   await requireWaiter(ctx, actor);
   const tab = await liveTab(ctx, data.id);
   const target = await loadTable(ctx, data.table_id);
-  requireValue(target.id !== tab.table_id, "A conta já está nesta mesa.");
+  if (target.id === tab.table_id) return (await tabState(ctx, tab)).tab;
   const busy = await one(
     ctx.env,
     `SELECT id FROM mesas_tabs WHERE table_id=? AND profile_id=? AND ${LIVE_SQL}`,
@@ -767,12 +778,17 @@ export async function transferTab(ctx: ModuleContext, actor: Actor, data: any) {
       `${target.name} está ocupada. Para somar as contas, use juntar mesas.`,
     );
   const at = now();
+  const commerce = new CommercePlan(ctx, actor.id, at);
+  await touchTableOrigin(ctx, tab, commerce);
   const [update] = await batch(ctx.env, [
     guardedUpdate(ctx, tab, {
       table_id: target.id,
       table_name: target.name,
       updated: at,
     }),
+    commerceGuard,
+    ...pedido.moveTabOrderStatements(ctx.profile, tab.id, tab.id, target.name),
+    ...commerce.statements(),
     history(
       ctx,
       tab.id,
@@ -784,7 +800,7 @@ export async function transferTab(ctx: ModuleContext, actor: Actor, data: any) {
   ]);
   if (!update.meta.changes) throw conflict();
   // Quadro da cozinha e comanda com o nome da mesa nova.
-  await pedido.moveTabOrders(ctx.env, ctx.profile, tab.id, tab.id, target.name);
+
   await publish(
     ctx,
     "mesas.tab_transferred",
@@ -792,7 +808,7 @@ export async function transferTab(ctx: ModuleContext, actor: Actor, data: any) {
     { from_table_id: tab.table_id, from_table_name: tab.table_name },
     `transfer:${tab.id}:${at}`,
   );
-  return (await tabState(ctx, await loadTab(ctx, tab.id))).tab;
+  return (await currentTabState(ctx, tab.id)).tab;
 }
 
 /**
@@ -825,17 +841,13 @@ export async function mergeTab(ctx: ModuleContext, actor: Actor, data: any) {
     "Informe tab_id (ou table_id) da conta a juntar.",
   );
   requireValue(sourceId !== target.id, "Escolha outra mesa para juntar.");
-  const source = await liveTab(ctx, sourceId);
-  // Pedidos primeiro: se o resto falhar, a outra conta continua aberta e
-  // nada some (os pedidos já estão na conta que fica).
-  await pedido.moveTabOrders(
-    ctx.env,
-    ctx.profile,
-    source.id,
-    target.id,
-    target.table_name,
-  );
+  const source = await loadTab(ctx, sourceId);
+  if (source.status === "merged" && source.merged_into === target.id) return (await tabState(ctx, target)).tab;
+  if (!isLive(source.status)) throw closedTab(source);
   const at = now();
+  const commerce = new CommercePlan(ctx, actor.id, at);
+  await touchTableOrigin(ctx, source, commerce);
+  await touchTableOrigin(ctx, target, commerce);
   const [closeSource] = await batch(ctx.env, [
     guardedUpdate(ctx, source, {
       status: "merged",
@@ -844,6 +856,9 @@ export async function mergeTab(ctx: ModuleContext, actor: Actor, data: any) {
       closed_at: at,
       updated: at,
     }),
+    commerceGuard,
+    ...pedido.moveTabOrderStatements(ctx.profile, source.id, target.id, target.table_name),
+    ...commerce.statements(),
     [
       "UPDATE mesas_payments SET tab_id=? WHERE tab_id=? AND profile_id=?",
       [target.id, source.id, ctx.profile],
@@ -854,6 +869,7 @@ export async function mergeTab(ctx: ModuleContext, actor: Actor, data: any) {
       bill_requested_at: null,
       updated: at,
     }),
+    commerceGuard,
     history(
       ctx,
       source.id,
@@ -946,8 +962,8 @@ function insertPayment(
   p: NewPayment,
   actor: string,
   at: number,
+  id: string = uid(),
 ): [string, any[]][] {
-  const id = uid();
   return [
     [
       "INSERT INTO mesas_payments(id,profile_id,tab_id,method,amount_cents,tendered_cents,change_cents,note,status,created_by,created) VALUES(?,?,?,?,?,?,?,?,'ok',?,?)",
@@ -981,21 +997,25 @@ function insertPayment(
  * que falta (409 amount_exceeds_due); em dinheiro, `tendered_cents` calcula o
  * troco.
  */
-export async function addPayment(ctx: ModuleContext, actor: Actor, data: any) {
+export async function addPayment(ctx: ModuleContext, actor: Actor, data: any, requestId: string = uid()) {
   await requireWaiter(ctx, actor);
-  const tab = await liveTab(ctx, data.id);
+  const tab = await loadTab(ctx, data.id);
+  const receiptResult = await tableReceipt(ctx, tab.id, data, requestId, actor);
+  const paymentId = commercialId(ctx.profile, "mesas-payment", requestId);
+  if (receiptResult.repeated) {
+    const old = await one(ctx.env, "SELECT * FROM mesas_payments WHERE id=? AND profile_id=?", paymentId, ctx.profile);
+    return { payment: paymentView(old), tab: (await tabState(ctx, tab)).tab };
+  }
+  if (!isLive(tab.status)) throw closedTab(tab);
   const before = await tabState(ctx, tab);
   if (!before.tab.bill.due_cents)
     throw new ApiError(409, "nothing_due", "Não há valor a pagar nesta conta.");
   const payment = parsePayment(data, before.tab.bill.due_cents);
   const at = now();
-  const statements = insertPayment(ctx, tab.id, payment, actor.id, at);
-  statements.push([
-    "UPDATE mesas_tabs SET updated=? WHERE id=? AND profile_id=?",
-    [at, tab.id, ctx.profile],
-  ]);
-  await batch(ctx.env, statements);
-  const paymentId = statements[0][1][0] as string;
+  const commerce = await tablePaymentPlan(ctx, tab, before.tab.bill.service_cents, [receiptResult.receipt], actor.id);
+  commerce.append(...paymentAlias(ctx.profile, receiptResult.receipt, paymentId));
+  await batch(ctx.env, [guardedUpdate(ctx, tab, { updated: at }), commerceGuard,
+    ...insertPayment(ctx, tab.id, payment, actor.id, at, paymentId), ...commerce.statements()]);
   await publish(
     ctx,
     "mesas.payment_added",
@@ -1008,7 +1028,7 @@ export async function addPayment(ctx: ModuleContext, actor: Actor, data: any) {
     },
     `payment:${paymentId}`,
   );
-  const after = await tabState(ctx, await loadTab(ctx, tab.id));
+  const after = await currentTabState(ctx, tab.id);
   return {
     payment: paymentView(after.payments.find((p) => p.id === paymentId) || {}),
     tab: after.tab,
@@ -1018,6 +1038,7 @@ export async function addPayment(ctx: ModuleContext, actor: Actor, data: any) {
 /** POST mesas/payments/:id/void {reason}: desfaz um pagamento lançado errado. */
 export async function voidPayment(ctx: ModuleContext, actor: Actor, data: any) {
   await requireWaiter(ctx, actor);
+  requireReceiptPerson(actor);
   const row = await one(
     ctx.env,
     "SELECT * FROM mesas_payments WHERE id=? AND profile_id=?",
@@ -1025,16 +1046,20 @@ export async function voidPayment(ctx: ModuleContext, actor: Actor, data: any) {
     ctx.profile,
   );
   if (!row) throw new ApiError(404, "not_found", "Pagamento não encontrado.");
-  const tab = await liveTab(ctx, row.tab_id);
+  const tab = await loadTab(ctx, row.tab_id);
   if (row.status === "void")
     return { payment: paymentView(row), tab: (await tabState(ctx, tab)).tab };
+  if (!isLive(tab.status)) throw closedTab(tab);
   const reason = text(data.reason, 200, "o motivo", true);
   const at = now();
+  const original = await one<CommercialReceipt>(ctx.env, "SELECT * FROM module_commercial_receipts WHERE profile_id=? AND receipt_key=(SELECT record_id FROM module_erp_aliases WHERE profile_id=? AND module_id='mesas' AND record_kind='payment' AND component=?)", ctx.profile, ctx.profile, `payment:${row.id}`);
+  const reversal = original ? await reverseReceiptStatements(ctx, original, actor.id, "manual_void", at) : [];
   const [update] = await batch(ctx.env, [
     [
       "UPDATE mesas_payments SET status='void',voided_by=?,voided_at=?,void_reason=? WHERE id=? AND profile_id=? AND status='ok'",
       [actor.id, at, reason, row.id, ctx.profile],
-    ],
+    ], commerceGuard,
+    ...reversal,
     history(
       ctx,
       tab.id,
@@ -1062,7 +1087,7 @@ export async function voidPayment(ctx: ModuleContext, actor: Actor, data: any) {
     },
     `void:${row.id}`,
   );
-  const after = await tabState(ctx, await loadTab(ctx, tab.id));
+  const after = await currentTabState(ctx, tab.id);
   return {
     payment: paymentView(after.payments.find((p) => p.id === row.id)),
     tab: after.tab,
@@ -1075,10 +1100,18 @@ export async function voidPayment(ctx: ModuleContext, actor: Actor, data: any) {
  * conta. Só fecha pago (409 tab_unpaid com o que falta, sem gravar nada); a
  * mesa fica livre e os pedidos da cozinha ficam pagos.
  */
-export async function closeTab(ctx: ModuleContext, actor: Actor, data: any) {
+export async function closeTab(ctx: ModuleContext, actor: Actor, data: any, requestId: string = uid()) {
   await requireWaiter(ctx, actor);
-  const tab = await liveTab(ctx, data.id);
-  const state = await tabState(ctx, tab);
+  if (Array.isArray(data.payments) && data.payments.length) requireReceiptPerson(actor);
+  const closeScope = `f3-mesas-close:${ctx.profile}:${actor.id}`;
+  const closeFingerprint = hash(data);
+  const state = await currentTabState(ctx, data.id, { scope: closeScope, key: requestId });
+  const tab = state.record;
+  if (tab.close_fingerprint) {
+    if (tab.close_fingerprint !== closeFingerprint) throw new ApiError(409, "idempotency_conflict", "Esta chave já identifica outro fechamento.");
+    return { ...state.tab, payments: state.payments.map(paymentView) };
+  }
+  if (!isLive(tab.status)) throw closedTab(tab);
   const list = data.payments ?? [];
   requireValue(
     Array.isArray(list) && list.length <= 10,
@@ -1101,7 +1134,17 @@ export async function closeTab(ctx: ModuleContext, actor: Actor, data: any) {
   const paid =
     bill.paid_cents + fresh.reduce((sum, p) => sum + p.amount_cents, 0);
   const at = now();
-  const [update] = await batch(ctx.env, [
+  const receipts: CommercialReceipt[] = [];
+  for (const [i, p] of fresh.entries()) receipts.push(tableReceiptData(ctx, tab.id, p, `${requestId}:${i}`, actor));
+  const commerce = await tablePaymentPlan(ctx, tab, bill.service_cents, receipts, actor.id, state.orders);
+  for (const [i, receipt] of receipts.entries()) commerce.append(...paymentAlias(ctx.profile, receipt, commercialId(ctx.profile, "mesas-payment", `${requestId}:${i}`)));
+  const payments = fresh.map((p, i) => insertPayment(ctx, tab.id, p, actor.id, at, commercialId(ctx.profile, "mesas-payment", `${requestId}:${i}`)));
+  const closingHistory = guardedHistory(ctx, tab.id, "closed", actor.id, `Conta fechada: ${pedido.money(bill.total_cents)}.`, at);
+  // Históricos de cada recebimento e do fechamento permanecem distintos.
+  // O primeiro ID valida o CAS; todos gravam no mesmo statement (até 10 pagamentos).
+  closingHistory[0] += payments.map(() => ",(?,?,?,?,?,?,?)").join("");
+  closingHistory[1].push(...payments.flatMap(rows => rows[1][1]));
+  const [update] = await batch(ctx.env, compactReceiptWrites([
     guardedUpdate(ctx, tab, {
       status: "closed",
       subtotal_cents: bill.subtotal_cents,
@@ -1112,19 +1155,15 @@ export async function closeTab(ctx: ModuleContext, actor: Actor, data: any) {
       closed_at: at,
       updated: at,
     }),
-    ...fresh.flatMap((p) => insertPayment(ctx, tab.id, p, actor.id, at)),
-    history(
-      ctx,
-      tab.id,
-      "closed",
-      actor.id,
-      `Conta fechada: ${pedido.money(bill.total_cents)}.`,
-      at,
-    ),
-  ]);
+    closingHistory,
+    ...payments.map(rows => rows[0]),
+    ...commerce.statements(),
+    ...pedido.settleTabOrderStatements(ctx.profile, tab.id, actor.id, at),
+    ["INSERT INTO receipts(scope,key,fingerprint,response,status,created) VALUES(?,?,?,?,200,?)", [closeScope, requestId, closeFingerprint, JSON.stringify({ id: tab.id }), at]],
+  ]));
   if (!update.meta.changes) throw conflict();
-  await pedido.settleTabOrders(ctx.env, ctx.profile, tab.id, actor.id);
-  const closed = await tabState(ctx, await loadTab(ctx, tab.id));
+
+  const closed = await currentTabState(ctx, tab.id);
   const byMethod: Record<string, number> = {};
   for (const p of closed.payments.filter((x) => x.status === "ok"))
     byMethod[p.method] = (byMethod[p.method] || 0) + p.amount_cents;
@@ -1169,6 +1208,8 @@ export async function cancelTab(ctx: ModuleContext, actor: Actor, data: any) {
   const reason =
     text(data.reason, 200, "o motivo") || "Conta aberta por engano.";
   const at = now();
+  const commercial = new CommercePlan(ctx, actor.id, at);
+  await serviceComponents(ctx, tab, 0, commercial);
   const [update] = await batch(ctx.env, [
     guardedUpdate(ctx, tab, {
       status: "cancelled",
@@ -1181,10 +1222,12 @@ export async function cancelTab(ctx: ModuleContext, actor: Actor, data: any) {
       closed_at: at,
       updated: at,
     }),
+    commerceGuard,
     history(ctx, tab.id, "cancelled", actor.id, reason, at),
+    ...commercial.statements(),
   ]);
   if (!update.meta.changes) throw conflict();
-  await pedido.settleTabOrders(ctx.env, ctx.profile, tab.id, actor.id);
+
   await publish(
     ctx,
     "mesas.tab_cancelled",
@@ -1192,7 +1235,17 @@ export async function cancelTab(ctx: ModuleContext, actor: Actor, data: any) {
     { reason, actor: actor.id },
     `cancelled:${tab.id}`,
   );
-  return (await tabState(ctx, await loadTab(ctx, tab.id))).tab;
+  return (await currentTabState(ctx, tab.id)).tab;
 }
 
 export { LIVE_STATUSES };
+
+// Alias do recibo ao pagamento local, preservado ao juntar contas.
+function paymentAlias(profile: string, receipt: CommercialReceipt, paymentId: string) {
+  return aliasStatements(pedido.saleSource(profile, "mesas", receipt.source_id, `payment:${paymentId}`), "payment", receipt.receipt_key);
+}
+registerReceiptReverser("mesas", async (env, actor, original) => {
+  const alias = await one(env, "SELECT component FROM module_erp_aliases WHERE profile_id=? AND module_id='mesas' AND record_kind='payment' AND record_id=?", original.profile_id, original.receipt_key);
+  if (!alias) throw new ApiError(404, "not_found", "Pagamento não encontrado.");
+  return voidPayment(modulesApi(env, original.profile_id, "mesas"), actor, { id: alias.component.slice("payment:".length), reason: "Anulação manual confirmada." });
+});

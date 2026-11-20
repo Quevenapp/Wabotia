@@ -6,6 +6,7 @@
 // segunda chamada não muda nada). O lock consultivo por comando não tem
 // equivalente no objeto (uma transação por vez).
 import { createHash } from "node:crypto";
+import { linkedDocumentGuard } from "../module-policy.ts";
 import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { jsonbText } from "../../../engine/json.ts";
@@ -21,6 +22,7 @@ const RECORDED = ERP_TABLES.erp_documents__service_journal_entry.columns.recorde
 
 /** erp_documents.service_journal_context(p_user_id, p_document_id, p_write): a OS visível e se o usuário pode escrever. */
 export function serviceJournalContext(db: SqlDriver, user: string | null, document: string | null, write = false) {
+  if (write) linkedDocumentGuard(db, document);
   mirrorRequireVisible(db, user, document, write);
   requireAccess(db, user, "service_orders", write);
   const d = document === null ? null : one(db, `SELECT id, version, contact_id, authority FROM "erp_documents__document" WHERE id=? AND kind='service_orders'`, document);

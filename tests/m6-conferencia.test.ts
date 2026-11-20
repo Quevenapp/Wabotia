@@ -172,6 +172,10 @@ describe("conferência M6: resíduos", () => {
     );
     expect(fullDetail.web_steps[0].answers).toEqual(answers);
     // Eventos da Reserva com nota interna: só com notes:read.
+    // F3 não copia notas em eventos novos. Preserve a prova de filtragem
+    // com um evento legado, que continua existindo em instalação migrada.
+    await exec(env, "INSERT INTO events(profile_id,kind,resource_id,payload,created) VALUES(?,'reserva.created',?,?,?)",
+      p, b.id, JSON.stringify({ module_id: "reserva", conversation_id: c.id, notes: "hóspede caloteiro" }), now());
     const noNotes = (await application(s.f, [...READ, "contacts:read"])).token;
     const events = await json(await api(noNotes, `/profiles/${p}/events`));
     expect(JSON.stringify(events)).not.toContain("caloteiro");

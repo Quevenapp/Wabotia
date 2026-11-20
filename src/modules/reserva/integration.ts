@@ -1,0 +1,111 @@
+import { one } from "../../db";
+import { ApiError, type Actor } from "../../types";
+import type { ModuleContext } from "../api";
+import type { Payment } from "../../payments";
+import { optionalCommercialPaymentEvidence, commercialReceiptFromEvidence, pendingPaymentStatements, resolvedPaymentStatements } from "../../payments-commercial-evidence";
+import type { Statement } from "../../integrations/contracts";
+import type { IntegrationProducer } from "../../integrations/ports";
+import { registerIntegrationProducer, registerReceiptReverser } from "../../integrations/ports";
+import { integrationCasGuard } from "../../integrations/outbox";
+import { IntegrationError } from "../../integrations/privacy";
+import { type CommercialReceipt } from "../../integrations/receipts";
+import {
+  authorizeBooking, bookingGuard, commercialAtomic, commercialRow, commercialSource, commercialState,
+  receiptBalance, receiptPlan, reverseBookingReceipt, sourceProjection, titlePlan,
+} from "../agenda/integration";
+
+export const reservaProducer: IntegrationProducer = {
+  module: "reserva",
+  authorizeSource: (ctx, actor, source, write) => authorizeBooking(ctx, actor, source, write, "reserva"),
+  project: (ctx, source) => sourceProjection(ctx, source, "reserva"),
+};
+async function reverseReserva(env: ModuleContext["env"], actor: Actor, original: CommercialReceipt, input: { reason_code: string; command: string }) {
+  const { modulesApi } = await import("../api");
+  return reverseBookingReceipt(modulesApi(env, original.profile_id, "reserva"), actor, original, input);
+}
+export function installReservaIntegration() {
+  registerIntegrationProducer(reservaProducer);
+  registerReceiptReverser("reserva", reverseReserva);
+}
+
+/** Reserva aceita reconhece o contrato inteiro; sinal não é outra venda. */
+export async function insertCommercialBooking(ctx: ModuleContext, row: any, sql: string, ...bindings: unknown[]) {
+  const plan = await titlePlan(ctx, "reserva", row, { recognize: true, actor: row.created_by });
+  const results = await commercialAtomic(ctx, [[sql, bindings], integrationCasGuard, ...plan.statements]).catch(error => {
+    if (error instanceof IntegrationError && error.code === "version_conflict")
+      throw new ApiError(409, "unit_unavailable", "Esta unidade acabou de ser ocupada. Escolha outro período.");
+    throw error;
+  });
+  return results[0];
+}
+
+export async function mutateCommercialBooking(ctx: ModuleContext, before: any, after: any, native: Statement, options: { cancel?: boolean; actor: string | null; reason?: string }) {
+  const state = await commercialState(ctx, commercialSource(ctx, "reserva", before.id));
+  const facts = options.cancel && state.snapshot?.lifecycle.authorized_at != null
+    ? [{ operation: "cancel" as const, reason_code: options.reason ?? "booking_cancelled" }] : [];
+  const plan = await titlePlan(ctx, "reserva", after, { actor: options.actor, facts });
+  const results = await commercialAtomic(ctx, [bookingGuard(ctx, "reserva", before), native, integrationCasGuard, ...plan.statements]);
+  return results[1];
+}
+export const reservaNative = (ctx: ModuleContext, before: any, after: any, options: { cancel?: boolean; actor: string | null; reason?: string }, sql: string, ...bindings: unknown[]) =>
+  mutateCommercialBooking(ctx, before, after, [sql, bindings], options);
+
+/** Um contrato reconhecido não muda de preço/cliente por remarcação. */
+export async function guardBookingCommercialChange(ctx: ModuleContext, before: any, next: { price_cents: number; unit_id: string; customer_name: string; customer_phone: string }) {
+  const state = await commercialState(ctx, commercialSource(ctx, "reserva", before.id));
+  const frozen = state.seq > 0 || !!await one(ctx.env, "SELECT 1 FROM module_commercial_receipts WHERE profile_id=? AND owner_module='reserva' AND source_id=? LIMIT 1", ctx.profile, before.id);
+  if (frozen && state.snapshot?.lifecycle.authorized_at != null &&
+    (next.price_cents !== before.price_cents || next.unit_id !== before.unit_id || next.customer_name !== before.customer_name || next.customer_phone !== before.customer_phone))
+    throw new IntegrationError("commercial_correction_required", 409);
+}
+
+/** Evidência local confirmada pelo núcleo. O DTO público sozinho não autoriza recebimento. */
+export async function depositReceipt(ctx: ModuleContext, payment: Payment): Promise<CommercialReceipt | null> {
+  if (!payment.ref_id || !["paid", "refunded"].includes(payment.status)) throw new IntegrationError("invalid_request", 422);
+  const fact = await optionalCommercialPaymentEvidence(ctx.env, ctx.profile, "reserva", payment.id, payment.ref_id,
+    payment.status as "paid" | "refunded", payment.evidence);
+  if (!fact) return null;
+  if (fact.amount_cents !== payment.amount_cents) throw new IntegrationError("invalid_request", 422);
+  return commercialReceiptFromEvidence(fact);
+}
+
+/** Mutação do sinal e recibo/alocação/saída pertencem ao mesmo lote D1. */
+export async function commitDepositReceipt(ctx: ModuleContext, before: any, after: any, receipt: CommercialReceipt | null, native: Statement, options: { cancel?: boolean; allowAllocation?: boolean; payment?: Payment; late?: boolean } = {}) {
+  const source = commercialSource(ctx, "reserva", before.id);
+  const state = await commercialState(ctx, source);
+  const snapshot = state.snapshot ?? (await titlePlan(ctx, "reserva", after, { actor: null })).snapshot;
+  const late = options.late || !!await one(ctx.env,
+    "SELECT 1 FROM module_erp_events WHERE profile_id=? AND module_id='reserva' AND source_id=? AND json_extract(payload_json,'$.reason_code')='obligation_reactivation_required'", ctx.profile, before.id);
+  if (!receipt || late) {
+    const pending = await pendingPaymentStatements(ctx.env, snapshot, options.payment!.id,
+      options.payment!.status as "paid" | "refunded", late ? "obligation_reactivation_required" : "payment_evidence_required");
+    await commercialAtomic(ctx, [bookingGuard(ctx, "reserva", before), native, integrationCasGuard,
+      ...pending, ...(receipt ? (await import("../../integrations/receipts")).commercialReceiptStatements(receipt) : [])]);
+    return true;
+  }
+  const balance = await receiptBalance(ctx, source);
+  const limit = options.allowAllocation === false ? 0 : Math.max(0, before.deposit_cents - balance.allocated_cents);
+  const plan = await receiptPlan(ctx, "reserva", after, receipt, { limit, cancel: options.cancel, reason: receipt.kind === "reverse" ? "provider_refund" : "deposit_payment" });
+  if (!plan) return false;
+  await commercialAtomic(ctx, [bookingGuard(ctx, "reserva", before), native, integrationCasGuard, ...plan.statements,
+    ...(options.payment ? resolvedPaymentStatements(snapshot, options.payment.id, options.payment.status) : [])]);
+  return true;
+}
+
+/** Cobrança antiga/substituída é dinheiro pendente, sem segunda obrigação. */
+export async function recordReplacedDeposit(ctx: ModuleContext, row: any, payment: Payment) {
+  const receipt = await depositReceipt(ctx, payment);
+  if (!receipt) {
+    const state = await commercialState(ctx, commercialSource(ctx, "reserva", row.id));
+    const snapshot = state.snapshot ?? (await titlePlan(ctx, "reserva", row, { actor: null })).snapshot;
+    await commercialAtomic(ctx, await pendingPaymentStatements(ctx.env, snapshot, payment.id, payment.status as "paid" | "refunded"));
+    return;
+  }
+  if (receipt.kind === "reverse" && !await one(ctx.env, "SELECT 1 FROM module_commercial_receipts WHERE profile_id=? AND receipt_key=?", ctx.profile, receipt.reverses_key))
+    await recordReplacedDeposit(ctx, row, { ...payment, status: "paid" });
+  const plan = await receiptPlan(ctx, "reserva", row, receipt, { limit: 0, reason: "replaced_payment" });
+  await commercialAtomic(ctx, [...(plan ? [bookingGuard(ctx, "reserva", row), ...plan.statements] : []),
+    ...resolvedPaymentStatements({ source: commercialSource(ctx, "reserva", row.id) }, payment.id, payment.status)]);
+}
+
+export const rawBooking = (ctx: ModuleContext, id: string) => commercialRow(ctx, "reserva", id);

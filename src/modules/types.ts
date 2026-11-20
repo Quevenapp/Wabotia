@@ -4,6 +4,7 @@
 
 import type { ManagementItem } from "./panel-contract";
 import type { ContactProfileDeclaration } from "../customer/profile-contracts";
+import type { ModuleIntegrationDeclaration } from "../integrations/contracts";
 
 /** Lugar do painel que o módulo ocupa. */
 export interface ModuleNavItem {
@@ -48,6 +49,7 @@ export interface ModuleSettingKey {
 }
 
 export interface ModuleDefinition {
+  integration?: ModuleIntegrationDeclaration;
   /** Identificador estável, minúsculo: "queue", "forms", "agenda". */
   id: string;
   name: string;

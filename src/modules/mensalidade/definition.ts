@@ -6,6 +6,7 @@ import { NATIVE_MANAGEMENT_ITEMS } from "../panel-navigation";
 import type { ModuleDefinition } from "../types";
 
 export const mensalidadeModule: ModuleDefinition = {
+  integration: { route: "title", uses: ["customers", "products", "finance"], operations: ["recognize", "receive", "cancel", "reverse"], privacy: "adult_payer_only" },
   id: "mensalidade",
   name: "Mensalidade",
   version: "1.0.0",

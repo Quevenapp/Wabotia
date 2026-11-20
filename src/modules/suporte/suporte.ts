@@ -1,7 +1,11 @@
 import { registerCustomerProvider } from "../../customer/ports";
 import { suporteCustomerProvider } from "./customer-provider";
+import { registerIntegrationProducer } from "../../integrations/registry";
+import { sanitizedError } from "../../integrations/privacy";
+import { supportIntegrationProducer, supportIntegrationStatuses } from "./integration";
 
 registerCustomerProvider("suporte", suporteCustomerProvider);
+registerIntegrationProducer(supportIntegrationProducer);
 
 // Suporte pago (módulo "suporte"): ganchos e rotas. Conversa no WhatsApp em
 // ./flow.ts; banco em ./store.ts; passagem para humano em ./handoff.ts.
@@ -125,11 +129,13 @@ onInstallmentRefunded("suporte", async (env, profile, inst) => {
 onConversationTurn("suporte", (ctx, c, turn) => handleTurn(ctx, c, turn));
 
 // Compras avulsas: só o pagamento confirmado pelo provedor libera.
-onPaymentUpdated("suporte", (ctx, payment) =>
-  purchasePaymentUpdated(ctx, payment),
-);
+onPaymentUpdated("suporte", async (ctx, payment) => {
+  try { await purchasePaymentUpdated(ctx, payment); }
+  catch (error) { throw sanitizedError(error); }
+});
 
-// Mensalidade paga (plano contratado ou parcela em atraso): libera quem esperava.
+// Mensalidade é dona exclusiva do contrato/parcela, título e baixa. Este gancho
+// apenas libera o atendimento; não passa pelo produtor comercial do Suporte.
 onInstallmentPaid("suporte", installmentPaid);
 
 export const GROUP_REPLY =
@@ -312,10 +318,13 @@ onRead("suporte", "suporte/pending", async (ctx, actor) => {
 
 onRead("suporte", "suporte/purchases", async (ctx, actor, { query }) => {
   ctx.access(actor, "conversations:read");
-  return listPurchases(ctx, ctx.safeQuery(actor, query));
+  const result = await listPurchases(ctx, ctx.safeQuery(actor, query));
+  const statuses = await supportIntegrationStatuses(ctx, result.data.map(row => row.id));
+  return { ...result, data: result.data.map(row => ({ ...row, integration: statuses[row.id] })) };
 });
 
-// Ofertas como o cliente vê: pacotes avulsos e planos mensais.
+// Ofertas como o cliente vê: pacotes avulsos e planos mensais. Planos seguem
+// chargeContract da interface pública da Mensalidade, inclusive a primeira parcela.
 onRead("suporte", "suporte/offers", async (ctx, actor) => {
   ctx.access(actor, "conversations:read");
   const cfg = suporteSettings(await ctx.settings());

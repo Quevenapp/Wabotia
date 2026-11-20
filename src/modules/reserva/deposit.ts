@@ -8,10 +8,11 @@ import { ApiError, type Conversation, now as clock } from "../../types";
 import type { Payment } from "../../payments";
 import type { ModuleContext } from "../api";
 import { fill, money, type ReservaConfig } from "./config";
-import { ACTIVE_SQL } from "./availability";
+import { commitDepositReceipt, depositReceipt, rawBooking, recordReplacedDeposit, reservaNative } from "./integration";
+import { commercialSource, receiptBalance } from "../agenda/integration";
+import { IntegrationError, sanitizedError } from "../../integrations/privacy";
 import {
   announceCancel,
-  cancelBooking,
   describe,
   getBooking,
   notifyCustomer,
@@ -72,42 +73,44 @@ export async function requestDeposit(
 }> {
   if (booking.status !== "pending_payment" || booking.deposit_cents <= 0)
     return { booking, payment: null, error: null };
+  // Recebimentos locais não exigem Cobrança/ERP e reduzem o sinal a pedir.
+  const balance = await receiptBalance(ctx, commercialSource(ctx, "reserva", booking.id));
+  const outstanding = Math.max(0, booking.deposit_cents - balance.allocated_cents);
+  if (!outstanding) return { booking, payment: null, error: null };
   const at = options.at ?? clock();
   const minutes = Math.max(
     30,
     Math.round(((booking.payment_due_at ?? at) - at) / 60000),
   );
   try {
+    const currentCharge = booking.payment_id ? await one(ctx.env, "SELECT amount_cents,status FROM payments WHERE profile_id=? AND id=?", ctx.profile, booking.payment_id) : null;
+    if (currentCharge?.status === "created" && currentCharge.amount_cents !== outstanding)
+      throw new IntegrationError("charge_adjustment_required", 409);
     const payment = await ctx.charge(c, {
       method: config.deposit_method,
-      amount_cents: booking.deposit_cents,
-      description:
-        `Sinal da reserva #${booking.number} - ${booking.unit_name}`.slice(
-          0,
-          120,
-        ),
+      amount_cents: outstanding,
+      description: "Sinal de serviço contratado",
       ref: booking.id,
       sourceKey: `deposit:${booking.id}`,
       expiresMinutes: Math.min(minutes, 30 * 24 * 60),
       actor: options.actor,
       notification: options.notification,
     });
-    await exec(
-      ctx.env,
+    const raw = await rawBooking(ctx, booking.id);
+    if (!raw.payment_status || raw.payment_status === "created") await reservaNative(
+      ctx, raw, raw, { actor: options.actor ?? null },
       "UPDATE reserva_bookings SET payment_id=?,payment_status=?,payment_error=NULL,updated=? WHERE id=? AND profile_id=?",
-      payment.id,
-      payment.status,
-      clock(),
-      booking.id,
-      ctx.profile,
+      payment.id, payment.status, clock(), booking.id, ctx.profile,
     );
     return { booking: await getBooking(ctx, booking.id), payment, error: null };
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
+    const safe = ["payments_disabled", "payments_not_configured", "module_disabled"].includes(error.code)
+      ? new ApiError(error.status, error.code, "A cobrança do sinal está indisponível. Confira a configuração de Cobrança.") : sanitizedError(error);
     await exec(
       ctx.env,
       "UPDATE reserva_bookings SET payment_error=?,updated=? WHERE id=? AND profile_id=?",
-      error.code,
+      safe.code,
       clock(),
       booking.id,
       ctx.profile,
@@ -117,10 +120,11 @@ export async function requestDeposit(
         component: "reserva-deposit",
         profile: ctx.profile,
         booking: booking.id,
-        error: error.code,
+        error: safe.code,
       }),
     );
-    return { booking: await getBooking(ctx, booking.id), payment: null, error };
+    // A mensagem bruta do provedor não sai para o cliente.
+    return { booking: await getBooking(ctx, booking.id), payment: null, error: safe };
   }
 }
 
@@ -146,8 +150,19 @@ export async function expireBooking(
   },
 ) {
   const at = options.at ?? clock();
-  const done = await exec(
-    ctx.env,
+  const before = await rawBooking(ctx, id);
+  if (before.status === "pending_payment" && before.deposit_cents > 0 &&
+    (await receiptBalance(ctx, commercialSource(ctx, "reserva", id))).allocated_cents >= before.deposit_cents) {
+    // Sinal recebido à mão sustenta a reserva, mesmo antes da confirmação
+    // operacional. Vencer uma cobrança antiga não desfaz esse recebimento.
+    if (options.paymentStatus) await reservaNative(ctx, before, before, { actor: "system" },
+      "UPDATE reserva_bookings SET payment_status=?,updated=? WHERE profile_id=? AND id=?", options.paymentStatus, at, ctx.profile, id);
+    return null;
+  }
+  if (before.status !== "pending_payment") {
+    if (!options.repeat || before.status !== "expired" || before.cancelled_by !== "system") return null;
+  } else await reservaNative(
+    ctx, before, { ...before, status: "expired" }, { actor: "system", cancel: true, reason: "booking_expired" },
     "UPDATE reserva_bookings SET status='expired',payment_status=coalesce(?,payment_status),cancelled_at=?,cancelled_by='system',cancel_reason=?,updated=? WHERE id=? AND profile_id=? AND status='pending_payment'",
     options.paymentStatus ?? null,
     at,
@@ -158,12 +173,6 @@ export async function expireBooking(
     id,
     ctx.profile,
   );
-  if (!done.meta?.changes) {
-    if (!options.repeat) return null;
-    const already = await getBooking(ctx, id);
-    if (already.status !== "expired" || already.cancelled_by !== "system")
-      return null;
-  }
   const b = await getBooking(ctx, id);
   await publish(
     ctx,
@@ -190,7 +199,11 @@ export async function expireDue(
 ) {
   const rows = await all(
     ctx.env,
-    "SELECT id FROM reserva_bookings WHERE profile_id=? AND status='pending_payment' AND payment_due_at<=? ORDER BY payment_due_at LIMIT 50",
+    `SELECT b.id FROM reserva_bookings b WHERE b.profile_id=? AND b.status='pending_payment' AND b.payment_due_at<=?
+      AND coalesce((SELECT sum(CASE WHEN r.kind='receive' THEN a.amount_cents ELSE -a.amount_cents END)
+        FROM module_erp_allocations a JOIN module_commercial_receipts r ON r.profile_id=a.profile_id AND r.receipt_key=a.receipt_key
+        WHERE a.profile_id=b.profile_id AND a.module_id='reserva' AND a.source_id=b.id AND a.component='main'),0)<b.deposit_cents
+      ORDER BY b.payment_due_at LIMIT 50`,
     ctx.profile,
     now,
   );
@@ -221,28 +234,14 @@ export async function paymentUpdated(
     ctx.profile,
   );
   if (!row) return;
-  // Reserva sem cobrança gravada (falha entre criar a cobrança e gravá-la):
-  // esta é a atual, como no Pedido (segunda conferência, N2-3).
-  if (!row.payment_id) {
-    await exec(
-      ctx.env,
-      "UPDATE reserva_bookings SET payment_id=? WHERE id=? AND profile_id=? AND payment_id IS NULL",
-      payment.id,
-      row.id,
-      ctx.profile,
-    );
-    row.payment_id = (
-      await one(
-        ctx.env,
-        "SELECT payment_id FROM reserva_bookings WHERE id=? AND profile_id=?",
-        row.id,
-        ctx.profile,
-      )
-    )?.payment_id;
-  }
+  // A cobrança faltante é vinculada no mesmo lote do recebimento.
+  const sameRemote = row.payment_id && row.payment_id !== payment.id && await one(ctx.env, `SELECT 1 FROM payments p1 JOIN payments p2
+    ON p2.profile_id=p1.profile_id AND p2.provider=p1.provider AND p2.account_id=p1.account_id AND p2.provider_payment_id=p1.provider_payment_id
+    WHERE p1.profile_id=? AND p1.id=? AND p2.id=? AND p1.provider_payment_id IS NOT NULL`, ctx.profile, row.payment_id, payment.id);
   // Só a cobrança atual do sinal mexe na reserva. Uma substituída e paga
   // depois (conferência N-11) vira pendência: dinheiro a mais para estornar.
-  if (row.payment_id !== payment.id) {
+  if (row.payment_id && row.payment_id !== payment.id && !sameRemote) {
+    if (payment.status === "paid" || payment.status === "refunded") await recordReplacedDeposit(ctx, row, payment);
     if (payment.status === "paid") {
       const b = await getBooking(ctx, row.id);
       await publish(
@@ -268,16 +267,10 @@ export async function paymentUpdated(
   }
   const at = clock();
   if (payment.status === "paid")
-    return depositPaid(ctx, config, row.id, at, previous);
+    return depositPaid(ctx, config, row.id, at, previous, payment);
   if (payment.status === "expired" || payment.status === "cancelled") {
-    await exec(
-      ctx.env,
-      "UPDATE reserva_bookings SET payment_status=?,updated=? WHERE id=? AND profile_id=?",
-      payment.status,
-      at,
-      row.id,
-      ctx.profile,
-    );
+    if (row.status !== "pending_payment") await reservaNative(ctx, row, row, { actor: "system" },
+      "UPDATE reserva_bookings SET payment_status=?,updated=? WHERE id=? AND profile_id=?", payment.status, at, row.id, ctx.profile);
     await expireBooking(ctx, config, row.id, {
       reason:
         payment.status === "expired" ? "payment_expired" : "payment_cancelled",
@@ -288,16 +281,20 @@ export async function paymentUpdated(
     return;
   }
   if (payment.status === "refunded") {
-    const marked = await exec(
-      ctx.env,
-      "UPDATE reserva_bookings SET payment_status='refunded',updated=? WHERE id=? AND profile_id=? AND coalesce(payment_status,'')<>'refunded'",
-      at,
-      row.id,
-      ctx.profile,
-    );
-    // Repetição do gancho (conferência A3): já marcado, refaz os passos
-    // seguintes (cancelamento, evento e nota com chave).
-    if (!marked.meta?.changes && row.payment_status !== "refunded") return;
+    const receipt = await depositReceipt(ctx, payment);
+    // Legado ou queda anterior ao primeiro gancho: preserva a evidência do
+    // recebimento original sem fabricar dívida/baixa para poder estorná-lo.
+    if (receipt && !await one(ctx.env, "SELECT 1 FROM module_commercial_receipts WHERE profile_id=? AND receipt_key=?", ctx.profile, receipt.reverses_key))
+      await recordReplacedDeposit(ctx, row, { ...payment, status: "paid" });
+    const notStarted = ["pending_payment", "confirmed"].includes(row.status) && row.checkin_status !== "completed" && row.arrival_at > at;
+    await commitDepositReceipt(ctx, row, { ...row, status: notStarted ? "cancelled" : row.status }, receipt, [
+      `UPDATE reserva_bookings SET payment_id=coalesce(payment_id,?),payment_status='refunded',updated=?,
+       status=CASE WHEN ? THEN 'cancelled' ELSE status END,
+       cancelled_at=CASE WHEN ? THEN ? ELSE cancelled_at END,
+       cancelled_by=CASE WHEN ? THEN 'system' ELSE cancelled_by END,
+       cancel_reason=CASE WHEN ? THEN ? ELSE cancel_reason END WHERE profile_id=? AND id=?`,
+      [payment.id, at, notStarted ? 1 : 0, notStarted ? 1 : 0, at, notStarted ? 1 : 0, notStarted ? 1 : 0, REFUND_REASON, ctx.profile, row.id],
+    ], { cancel: notStarted, payment });
     // Estorno ou contestação do sinal (revisão M8): reserva que ainda não
     // começou é cancelada e a unidade volta a ficar livre; com o hóspede já
     // na casa (ou o check-in feito), vira pendência para a equipe.
@@ -311,18 +308,6 @@ export async function paymentUpdated(
     )
       return announceCancel(ctx, config, b, "system", REFUND_REASON);
     if (["cancelled", "expired"].includes(b.status)) return;
-    const notStarted =
-      ["pending_payment", "confirmed"].includes(b.status) &&
-      b.checkin_status !== "completed" &&
-      b.arrival_at > at;
-    if (notStarted) {
-      await cancelBooking(ctx, config, {
-        id: b.id,
-        actor: "system",
-        reason: REFUND_REASON,
-      });
-      return;
-    }
     await publish(
       ctx,
       "reserva.changed",
@@ -350,35 +335,29 @@ async function depositPaid(
   id: string,
   at: number,
   previous: string,
+  payment: Payment,
 ) {
-  // Aguardando: confirma.
-  const confirmed = await exec(
-    ctx.env,
-    "UPDATE reserva_bookings SET status='confirmed',payment_status='paid',paid_at=?,confirmed_at=?,confirmed_by='payment',updated=? WHERE id=? AND profile_id=? AND status='pending_payment'",
-    at,
-    at,
-    at,
-    id,
-    ctx.profile,
-  );
-  // Pago depois de liberada por prazo: volta se a unidade ainda está livre.
-  const revived = confirmed.meta?.changes
-    ? confirmed
-    : await exec(
-        ctx.env,
-        `UPDATE reserva_bookings SET status='confirmed',payment_status='paid',paid_at=?,confirmed_at=?,confirmed_by='payment',cancelled_at=NULL,cancelled_by=NULL,cancel_reason='',updated=?
-         WHERE id=? AND profile_id=? AND status='expired'
-           AND NOT EXISTS (SELECT 1 FROM reserva_bookings o WHERE o.profile_id=reserva_bookings.profile_id AND o.unit_id=reserva_bookings.unit_id AND o.id<>reserva_bookings.id AND o.status IN ${ACTIVE_SQL} AND o.starts<reserva_bookings.ends AND o.ends>reserva_bookings.starts)
-           AND NOT EXISTS (SELECT 1 FROM reserva_blocks k WHERE k.profile_id=reserva_bookings.profile_id AND (k.unit_id IS NULL OR k.unit_id=reserva_bookings.unit_id) AND k.starts<reserva_bookings.ends AND k.ends>reserva_bookings.starts)
-           AND ends>?`,
-        at,
-        at,
-        at,
-        id,
-        ctx.profile,
-        at,
-      );
-  if (revived.meta?.changes) {
+  const row = await rawBooking(ctx, id), receipt = await depositReceipt(ctx, payment);
+  if (row.payment_status === "refunded") return;
+  const balance = await receiptBalance(ctx, commercialSource(ctx, "reserva", id));
+  const free = `NOT EXISTS (SELECT 1 FROM reserva_bookings o WHERE o.profile_id=reserva_bookings.profile_id AND o.unit_id=reserva_bookings.unit_id AND o.id<>reserva_bookings.id AND o.status IN ('pending_payment','confirmed') AND o.starts<reserva_bookings.ends AND o.ends>reserva_bookings.starts)
+    AND NOT EXISTS (SELECT 1 FROM reserva_blocks k WHERE k.profile_id=reserva_bookings.profile_id AND (k.unit_id IS NULL OR k.unit_id=reserva_bookings.unit_id) AND k.starts<reserva_bookings.ends AND k.ends>reserva_bookings.starts)`;
+  // A disponibilidade decide a operação local. A obrigação cancelada permanece
+  // bloqueada na integração até a equipe financeira recompô-la.
+  const canRevive = row.status === "expired" && !!await one(ctx.env,
+    `SELECT 1 FROM reserva_bookings WHERE profile_id=? AND id=? AND (${free})`, ctx.profile, id);
+  const signalPaid = balance.allocated_cents + (receipt?.amount_cents ?? payment.amount_cents) >= row.deposit_cents;
+  const confirm = signalPaid && (row.status === "pending_payment" || canRevive);
+  const changed = await commitDepositReceipt(ctx, row, { ...row, status: confirm ? "confirmed" : row.status }, receipt, [
+    `UPDATE reserva_bookings SET payment_id=coalesce(payment_id,?),payment_status='paid',paid_at=coalesce(paid_at,?),updated=?,
+      status=CASE WHEN ? THEN 'confirmed' ELSE status END,
+      confirmed_at=CASE WHEN ? THEN ? ELSE confirmed_at END,confirmed_by=CASE WHEN ? THEN 'payment' ELSE confirmed_by END,
+      cancelled_at=CASE WHEN ? THEN NULL ELSE cancelled_at END,cancelled_by=CASE WHEN ? THEN NULL ELSE cancelled_by END,
+      cancel_reason=CASE WHEN ? THEN '' ELSE cancel_reason END
+      WHERE profile_id=? AND id=? AND (?=0 OR (${free}))`,
+    [payment.id, at, at, confirm ? 1 : 0, confirm ? 1 : 0, at, confirm ? 1 : 0, confirm ? 1 : 0, confirm ? 1 : 0, confirm ? 1 : 0, ctx.profile, id, canRevive ? 1 : 0],
+  ], { allowAllocation: !["cancelled", "expired"].includes(row.status), payment, late: ["cancelled", "expired"].includes(row.status) });
+  if (changed && confirm) {
     const b = await getBooking(ctx, id);
     await publish(
       ctx,
@@ -387,7 +366,7 @@ async function depositPaid(
       "system",
       {
         by: "payment",
-        ...(confirmed.meta?.changes ? {} : { late: true, previous }),
+        ...(canRevive ? { late: true, previous } : {}),
       },
       `confirmed:${b.id}`,
     );
@@ -400,14 +379,6 @@ async function depositPaid(
     return;
   }
   // Já confirmada pela equipe, cancelada, ou liberada e ocupada por outro.
-  await exec(
-    ctx.env,
-    "UPDATE reserva_bookings SET payment_status='paid',paid_at=?,updated=? WHERE id=? AND profile_id=?",
-    at,
-    at,
-    id,
-    ctx.profile,
-  );
   const b = await getBooking(ctx, id);
   // Repetição do gancho (conferência A3): já confirmada pelo pagamento numa
   // tentativa que falhou depois; refaz evento e aviso, os dois com chave.
@@ -428,7 +399,7 @@ async function depositPaid(
     );
     return;
   }
-  if (b.status === "confirmed" || b.status === "completed") return;
+  if (b.status === "confirmed" || b.status === "completed" || b.status === "pending_payment") return;
   await publish(ctx, "reserva.payment_late", b, "system", {
     reason: b.status === "cancelled" ? "cancelled" : "unit_taken",
     needs_refund: true,

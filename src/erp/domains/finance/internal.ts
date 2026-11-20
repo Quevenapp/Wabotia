@@ -9,6 +9,8 @@
 // - [[:cntrl:]] pega C0, DEL e C1 (CNTRL);
 // - btrim() sem segundo argumento tira só espaços.
 import { createHash } from "node:crypto";
+import { originAccess, driverContext, systemScope, targetOrigin, originScope, execution, requireOriginOperation, originAnchor } from "../../engine/module-origin.ts";
+import { canonical } from "../../../integrations/keys.ts";
 import { formatScaled, fromColumn } from "../../engine/dec.ts";
 import { one, type Row, type SqlDriver } from "../../engine/driver.ts";
 import { ERP_TABLES } from "../../schema/columns.generated.ts";
@@ -112,6 +114,7 @@ export const hasKey = (data: unknown, key: string) =>
 /** erp_finance.require_access: papel ativo admin/financeiro/consulta (consulta só lê). */
 export function requireAccess(db: SqlDriver, actor: string, write: boolean): string {
   const role = activeRole(db, actor);
+  if (originAccess(db, actor, ["title_create", "title_settle", "title_cancel", "settlement_reverse"]) && systemScope(driverContext(db)!)) return role!;
   if (!role || !["admin", "financeiro", "consulta"].includes(role) || (write && role === "consulta"))
     raise("42501", "erp_finance_access_denied");
   return role;
@@ -651,6 +654,7 @@ export function reclassifyMovements(ctx: RpcContext, where: string, params: unkn
   const db = ctx.db;
   const rows = db.exec(`SELECT id, settlement_id, entry_id, transfer_id FROM "erp_finance__movement" WHERE ${where}`, ...params).rows;
   for (const r of rows) {
+    if (r.settlement_id) linkedTitleGuard(db, one(db, "SELECT title_id FROM erp_finance__settlement WHERE id=?", r.settlement_id)?.title_id);
     if (r.settlement_id && cnabPlanForSettlement(db, String(r.settlement_id))?.command_id != null)
       raise("42501", "erp_finance_cnab_cash_immutable");
     if (r.entry_id && flag(ctx, "erp_finance.reclassify") !== "on") raise("55000", "erp_finance_entry_immutable");
@@ -820,6 +824,11 @@ export const categoryDefaultKind = (key: string) =>
 // ---------------------------------------------------------------------------
 // Conta a pagar/receber (erp_finance.title): gatilhos de UPDATE
 
+/** Escritores genéricos precisam voltar ao fluxo da origem, inclusive na baixa. */
+export function linkedTitleGuard(db: SqlDriver, id: unknown) {
+  if (typeof id === "string" && targetOrigin(db, "title", id)) raise("42501", "module_title_read_only");
+}
+
 /**
  * Guardas de UPDATE em title (protect_*, title_history_guard,
  * title_long_history) e o zz_origin_sync. `set` traz só as colunas que mudam.
@@ -827,6 +836,22 @@ export const categoryDefaultKind = (key: string) =>
  */
 export function titleUpdateGuards(ctx: RpcContext, old: Row, set: Record<string, unknown>) {
   const db = ctx.db;
+  const anchor = targetOrigin(db, "title", String(old.id));
+  if (anchor) {
+    const scope = originScope(ctx);
+    if (!scope) raise("42501", "module_title_read_only");
+    if (canonical(anchor.source) !== canonical(execution(ctx).request.source) ||
+        !["title_cancel", "title_settle", "settlement_reverse"].includes(scope!.operation)) raise("42501", "module_origin_denied");
+    const target = scope!.target_ids.has(String(old.id)) ? String(old.id) : originAnchor(db, anchor.source, "document")?.target.id;
+    if (!target) raise("42501", "module_origin_denied");
+    requireOriginOperation(ctx, scope!.operation, target!);
+    const allowed = scope!.operation === "title_cancel" ? ["cancelled", "version", "updated_at"] : ["settled_cents", "version", "updated_at"];
+    if (Object.keys(set).some(k => !allowed.includes(k)) || Number(set.version) !== Number(old.version) + 1 ||
+        scope!.operation === "title_cancel" && !bool(set.cancelled) ||
+        scope!.operation === "title_settle" && Number(set.settled_cents) <= Number(old.settled_cents) ||
+        scope!.operation === "settlement_reverse" && (Number(set.settled_cents) < 0 || Number(set.settled_cents) >= Number(old.settled_cents)))
+      raise("42501", "module_origin_denied");
+  }
   const next = { ...old, ...set };
   const changed = (cols: string[]) => cols.some((c) => c in set && set[c] !== old[c]);
   const lifecycle = () =>
@@ -875,6 +900,10 @@ export function captureFinance(ctx: RpcContext, entity: "title" | "settlement", 
  */
 export function reclassifyBorderos(ctx: RpcContext, ids: string[], target: string | null) {
   const list = JSON.stringify(ids);
+  for (const row of ctx.db.exec(`SELECT s.title_id FROM erp_finance__bordero_item i
+    JOIN erp_finance__bordero b ON b.id=i.bordero_id JOIN erp_finance__settlement s ON s.id=i.settlement_id
+    WHERE i.category_id IN (SELECT value FROM json_each(?)) OR b.category_id IN (SELECT value FROM json_each(?))`, list, list).rows)
+    linkedTitleGuard(ctx.db, row.title_id);
   const count = (table: string) =>
     Number(
       one(ctx.db, `SELECT count(*) n FROM "${table}" WHERE category_id IN (SELECT value FROM json_each(?))`, list)!.n,

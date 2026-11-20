@@ -1,9 +1,12 @@
+import type { CommercePlan } from "./integration";
+import { hash } from "../../integrations/keys";
 // Interface pública do Pedido para módulos que dependem dele (Mesas, Entrega).
 // Contrato estável (docs/MODULOS.md, "Dependência entre módulos"): o módulo
 // dependente declara `requires: ["pedido"]` e usa só o que está aqui, nunca
 // as tabelas pedido_. Todas as funções agem como o módulo "pedido" (eventos
 // pedido.*, quadro da cozinha, histórico), mesmo chamadas de outro módulo.
-import { all, batch } from "../../db";
+import type { Statement } from "../../integrations/contracts";
+import { all, batch, one } from "../../db";
 import { ApiError, type Env, now } from "../../types";
 import { modulesApi, type ModuleContext } from "../api";
 import { validateCartOrder, validateCatalog } from "../../web-cart";
@@ -20,6 +23,7 @@ import {
 export { dateTimeOf, money } from "./model";
 export { center, pair, wrap, TICKET_COLUMNS } from "./ticket";
 export type { OrderLine, OrderView };
+export { orderView };
 
 const ctxOf = (env: Env, profile: string) => modulesApi(env, profile, "pedido");
 
@@ -40,6 +44,7 @@ export interface TableOrderInput {
   /** Repetir a mesma chave devolve o pedido já criado. */
   sourceKey: string;
   actor: string;
+  commit?: (row: any, commerce: CommercePlan | null) => Promise<Statement[]>;
 }
 
 /**
@@ -57,6 +62,15 @@ export async function createTableOrder(
 ): Promise<{ order: OrderView; created: boolean }> {
   const ctx = ctxOf(env, profile);
   await ctx.requireEnabled();
+  const scope = `f3-table-order:${profile}`;
+  const fingerprint = hash([input.tab_id, input.items, input.note ?? "", input.customer_name ?? "", input.actor]);
+  const previous = await one(env, "SELECT fingerprint,response FROM receipts WHERE scope=? AND key=?", scope, input.sourceKey);
+  if (previous) {
+    if (previous.fingerprint !== fingerprint) throw new ApiError(409, "idempotency_conflict", "Esta chave já identifica outro pedido.");
+    const row = await one(env, "SELECT * FROM pedido_orders WHERE id=? AND profile_id=?", JSON.parse(previous.response).id, profile);
+    if (!row) throw new ApiError(404, "not_found", "Pedido não encontrado.");
+    return { order: orderView(row), created: false };
+  }
   const categories = cartCategories(await loadMenu(ctx));
   if (!categories)
     throw new ApiError(
@@ -106,8 +120,19 @@ export async function createTableOrder(
     note: o.note,
     actor: input.actor,
     tab: { id: input.tab_id, label: input.table_label },
+    commit: async (row, commerce) => [
+      ...(input.commit ? await input.commit(row, commerce) : []),
+      ["INSERT INTO receipts(scope,key,fingerprint,response,status,created) VALUES(?,?,?,?,200,?)", [scope, input.sourceKey, fingerprint, JSON.stringify({ id: row.id }), Date.now()]],
+    ],
   });
   return { order: orderView(order), created };
+}
+
+/** Subconsulta da fotografia de pedidos para um lote de leitura do módulo
+ * dependente. O Pedido conserva a propriedade do SQL e do DTO. */
+export function tabOrdersSnapshotSql(profile: string, tabId: string): Statement {
+  return [`SELECT json_group_array(json_object('status',status,'address',address,'payment_method',payment_method,'id',id,'number',number,'fulfillment',fulfillment,'status_at',status_at,'customer_name',customer_name,'phone',phone,'contact_id',contact_id,'conversation_id',conversation_id,'source',source,'web_step_id',web_step_id,'table_label',table_label,'tab_id',tab_id,'lines',lines,'item_count',item_count,'subtotal_cents',subtotal_cents,'delivery_fee_cents',delivery_fee_cents,'discount_cents',discount_cents,'total_cents',total_cents,'note',note,'notes',notes,'eta_minutes',eta_minutes,'confirmed_at',confirmed_at,'payment_status',payment_status,'payment_id',payment_id,'payment_due_at',payment_due_at,'paid_at',paid_at,'paid_by',paid_by,'payment_error',payment_error,'change_for_cents',change_for_cents,'needs_refund',needs_refund,'cancel_reason',cancel_reason,'cancelled_by',cancelled_by,'preparing_at',preparing_at,'ready_at',ready_at,'dispatched_at',dispatched_at,'delivered_at',delivered_at,'cancelled_at',cancelled_at,'created_by',created_by,'created',created,'updated',updated))
+    FROM (SELECT * FROM pedido_orders WHERE profile_id=? AND tab_id=? ORDER BY number LIMIT 500)`, [profile, tabId]];
 }
 
 /** Pedidos de uma conta de mesa (inclusive cancelados), do mais antigo. */
@@ -175,12 +200,7 @@ export async function moveTabOrders(
   to: string,
   label: string,
 ) {
-  await batch(env, [
-    [
-      "UPDATE pedido_orders SET tab_id=?,table_label=?,customer_name=CASE WHEN customer_name=table_label THEN ? ELSE customer_name END,updated=? WHERE profile_id=? AND tab_id=? AND payment_status='tab'",
-      [to, label, label, now(), profile, from],
-    ],
-  ]);
+  await batch(env, moveTabOrderStatements(profile, from, to, label));
 }
 
 /**
@@ -194,17 +214,7 @@ export async function settleTabOrders(
   tabId: string,
   actor: string,
 ) {
-  const at = now();
-  await batch(env, [
-    [
-      "UPDATE pedido_orders SET payment_status='paid',paid_at=?,paid_by=?,updated=? WHERE profile_id=? AND tab_id=? AND payment_status='tab' AND status<>'cancelled'",
-      [at, actor, at, profile, tabId],
-    ],
-    [
-      "UPDATE pedido_orders SET payment_status='cancelled',updated=? WHERE profile_id=? AND tab_id=? AND payment_status='tab'",
-      [at, profile, tabId],
-    ],
-  ]);
+  await batch(env, settleTabOrderStatements(profile, tabId, actor));
 }
 
 /** Visão do pedido para o ator (telefone e notas internas como no Pedido). */
@@ -226,3 +236,24 @@ export {
   type StatusChange,
   type StatusNotice,
 } from "./listeners";
+
+/** Instruções para união/transferência atômica com a conta; aliases não mudam. */
+export function moveTabOrderStatements(profile: string, from: string, to: string, label: string): Statement[] {
+  return [["UPDATE pedido_orders SET tab_id=?,table_label=?,customer_name=CASE WHEN customer_name=table_label THEN ? ELSE customer_name END,updated=? WHERE profile_id=? AND tab_id=? AND payment_status='tab'", [to, label, label, Date.now(), profile, from]]];
+}
+export { orderOwner, projectOrder, savedSale, saleSource, saleSnapshot, CommercePlan, commercialId, commerceGuard, manualReceipt, receiptReplay, allocateSale, netAllocated, reverseReceiptStatements, singleReceiptStatements } from "./integration";
+export type { CommercialSnapshot, SourceRef, Statement, CommercialReceipt } from "./integration";
+
+export function settleTabOrderStatements(profile: string, tabId: string, actor: string, at = Date.now()): Statement[] {
+  return [[`UPDATE pedido_orders SET payment_status=CASE WHEN status='cancelled' THEN 'cancelled' ELSE 'paid' END,
+    paid_at=CASE WHEN status='cancelled' THEN paid_at ELSE ? END,
+    paid_by=CASE WHEN status='cancelled' THEN paid_by ELSE ? END,updated=?
+    WHERE profile_id=? AND tab_id=? AND payment_status='tab'`, [at, actor, at, profile, tabId]]];
+}
+
+export async function orderSourceForId(env: Env, profile: string, id: string) {
+  const row = await one(env, "SELECT id,tab_id FROM pedido_orders WHERE profile_id=? AND id=?", profile, id);
+  if (!row) throw new ApiError(404, "not_found", "Pedido não encontrado.");
+  const { orderOwner } = await import("./integration");
+  return orderOwner(env, profile, row);
+}

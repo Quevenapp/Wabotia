@@ -7,6 +7,7 @@
 import { all, exec, one } from "../../db";
 import { confirmRoutineCustomer, routineCustomer, routineCustomerScope, routineCustomerAllows } from "../agenda/customer-provider";
 import { normalizeCustomerPhone } from "../../customer/phone";
+import { guardBookingCommercialChange, insertCommercialBooking, rawBooking, reservaNative } from "./integration";
 import {
   ApiError,
   type Actor,
@@ -336,10 +337,12 @@ export async function publish(
     b.id,
     {
       // Respostas ficam somente na Reserva, inclusive nos eventos de alteração.
-      booking: { ...b, checkin_answers: null },
+      booking: { ...b, checkin_answers: null, checkin_step_id: null, customer_name: "", customer_phone: "",
+        contact_id: null, notes: "", unit_name: "Serviço contratado", cancel_reason: b.cancelled_at ? "Cancelamento solicitado" : "" },
       conversation_id: b.conversation_id,
       actor,
       ...extra,
+      ...(typeof extra.reason === "string" && !/^[a-z][a-z0-9_]{0,79}$/.test(extra.reason) ? { reason: "booking_cancelled" } : {}),
     },
     key ? { key } : undefined,
   );
@@ -486,8 +489,11 @@ export async function createBooking(
   const due = deposit > 0 ? at + config.deposit_deadline_minutes * 60000 : null;
   const id = input.id || uid();
   await confirmRoutineCustomer(ctx, c, contact?.ref || null, "reserva", id);
-  const inserted = await exec(
-    ctx.env,
+  const inserted = await insertCommercialBooking(
+    ctx, { id, unit_id: unit.id, status, price_cents: period.price_cents, deposit_cents: deposit,
+      arrival_at: period.arrival_at, payment_due_at: due, contact_id: contact?.ref.contactId ?? null,
+      conversation_id: c?.id ?? null, customer_name: customer.name, customer_phone: customer.phone,
+      created: at, created_by: input.actor },
     `INSERT INTO reserva_bookings(id,profile_id,number,unit_id,unit_name,mode,starts,ends,arrival_at,departure_at,guests,status,conversation_id,contact_id,customer_name,customer_phone,notes,source,price_cents,deposit_cents,payment_due_at,confirmed_at,confirmed_by,created_by,created,updated)
      SELECT ?,?,(SELECT coalesce(max(number),0)+1 FROM reserva_bookings WHERE profile_id=?),?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
      WHERE NOT EXISTS (SELECT 1 FROM reserva_bookings WHERE profile_id=? AND unit_id=? AND status IN ${ACTIVE_SQL} AND starts<? AND ends>?)
@@ -631,8 +637,12 @@ export async function changeBooking(
     null,
     null,
   );
-  const updated = await exec(
-    ctx.env,
+  const raw = await rawBooking(ctx, before.id);
+  const afterCommercial = { ...raw, unit_id: unit.id, price_cents: moved ? period.price_cents : before.price_cents,
+    customer_name: customer.name, customer_phone: customer.phone, arrival_at: period.arrival_at };
+  await guardBookingCommercialChange(ctx, raw, afterCommercial);
+  const updated = await reservaNative(
+    ctx, raw, afterCommercial, { actor: input.actor },
     `UPDATE reserva_bookings SET unit_id=?,unit_name=?,mode=?,starts=?,ends=?,arrival_at=?,departure_at=?,guests=?,price_cents=?,customer_name=?,customer_phone=?,notes=?,
        reminded_at=CASE WHEN ? THEN NULL ELSE reminded_at END,
        checkout_sent_at=CASE WHEN ? THEN NULL ELSE checkout_sent_at END,
@@ -699,12 +709,22 @@ export async function cancelBooking(
   config: ReservaConfig,
   input: { id: string; actor: string; reason?: unknown; notify?: boolean },
 ) {
-  const before = await activeBooking(ctx, input.id);
   const reason = String(input.reason ?? "").trim();
   requireValue(Array.from(reason).length <= 300, "Motivo até 300 caracteres.");
+  const current = await getBooking(ctx, input.id);
+  if (current.status === "cancelled") {
+    if (current.cancel_reason !== reason) throw new ApiError(409, "booking_closed", "Esta reserva já foi cancelada com outro motivo.");
+    if (current.payment_id && current.payment_status === "created") {
+      try { await ctx.cancelCharge(current.payment_id); } catch (error) { if (!(error instanceof ApiError)) throw error; }
+    }
+    await announceCancel(ctx, config, current, current.cancelled_by ?? input.actor, reason, input.notify);
+    return current;
+  }
+  const before = await activeBooking(ctx, input.id);
   const at = clock();
-  const done = await exec(
-    ctx.env,
+  const raw = await rawBooking(ctx, before.id);
+  const done = await reservaNative(
+    ctx, raw, { ...raw, status: "cancelled" }, { actor: input.actor, cancel: true },
     `UPDATE reserva_bookings SET status='cancelled',cancelled_at=?,cancelled_by=?,cancel_reason=?,updated=? WHERE id=? AND profile_id=? AND status IN ${ACTIVE_SQL}`,
     at,
     input.actor,
@@ -771,8 +791,9 @@ export async function confirmBooking(
   const before = await activeBooking(ctx, input.id);
   if (before.status === "confirmed") return before;
   const at = clock();
-  const done = await exec(
-    ctx.env,
+  const raw = await rawBooking(ctx, before.id);
+  const done = await reservaNative(
+    ctx, raw, { ...raw, status: "confirmed" }, { actor: input.actor },
     "UPDATE reserva_bookings SET status='confirmed',confirmed_at=?,confirmed_by=?,updated=? WHERE id=? AND profile_id=? AND status='pending_payment' AND starts=? AND unit_id=?",
     at,
     input.actor,

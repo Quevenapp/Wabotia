@@ -167,7 +167,7 @@ export class ErpHub {
       return Response.json(await probe(this.ctx, path.slice("/erp-probe/".length), body));
     }
     if (path.startsWith("/erp-rpc/"))
-      return handleRpc(this.ctx, profile, path.slice("/erp-rpc/".length), request, this.env.MEDIA);
+      return handleRpc(this.ctx, profile, path.slice("/erp-rpc/".length), request, this.env.MEDIA, this.env.DB);
     return fail(404, "not_found", "Rota do ERP desconhecida.");
   }
 

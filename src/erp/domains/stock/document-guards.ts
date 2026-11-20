@@ -12,6 +12,8 @@ import { raise } from "../../engine/errors.ts";
 import { jsonbText } from "../../engine/json.ts";
 import { rowJson } from "../../engine/row-json.ts";
 import { guardEffect as mirrorGuardEffect } from "../documents/mirror.ts";
+import { operationalChangeAllowed } from "../documents/module-policy.ts";
+import type { RpcContext } from "../../engine/registry.ts";
 
 export type Row = Record<string, unknown>;
 type Op = "INSERT" | "UPDATE" | "DELETE";
@@ -100,7 +102,8 @@ const reserved = (db: SqlDriver, ids: unknown[]) =>
   ids.some((d) => d !== undefined && d !== null && !!one(db, `SELECT 1 x FROM "erp_stock__reservation" WHERE document_id=? AND state='active'`, d));
 
 /** erp_stock.guard_posted_document (BEFORE UPDATE/DELETE de document) */
-export function guardPostedDocument(db: SqlDriver, op: "UPDATE" | "DELETE", o: Row, n: Row | null) {
+export function guardPostedDocument(db: SqlDriver, op: "UPDATE" | "DELETE", o: Row, n: Row | null, ctx?: RpcContext) {
+  if (op === "UPDATE" && n && operationalChangeAllowed(ctx, o, n)) return;
   if (posted(db, [o.id]) && (op === "DELETE" || !effectDocumentAllowed(o, n!))) raise("40001", "erp_document_active_stock");
 }
 /** erp_stock.guard_reserved_document (BEFORE UPDATE/DELETE de document) */

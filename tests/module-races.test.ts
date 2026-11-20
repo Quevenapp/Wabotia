@@ -19,8 +19,9 @@ import { future as reservaDay, reservaSetup } from "./reserva-fixture";
 function racing(match: string, before: () => Promise<unknown>): Env {
   const db: any = env.DB;
   let fired = false;
-  const wrap = (stmt: any, sql: string): any =>
-    new Proxy(stmt, {
+  const statements = new WeakMap<object, { raw: any; sql: string }>();
+  const wrap = (stmt: any, sql: string): any => {
+    const proxy = new Proxy(stmt, {
       get(target, prop) {
         if (prop === "bind")
           return (...args: any[]) => wrap(target.bind(...args), sql);
@@ -36,10 +37,20 @@ function racing(match: string, before: () => Promise<unknown>): Env {
         return typeof value === "function" ? value.bind(target) : value;
       },
     });
+    statements.set(proxy, { raw: stmt, sql });
+    return proxy;
+  };
   const DB = new Proxy(db, {
     get(target, prop) {
       if (prop === "prepare")
         return (sql: string) => wrap(target.prepare(sql), sql);
+      if (prop === "batch") return async (items: any[]) => {
+        if (!fired && items.some(item => statements.get(item)?.sql.includes(match))) {
+          fired = true;
+          await before();
+        }
+        return target.batch(items.map(item => statements.get(item)?.raw ?? item));
+      };
       const value = target[prop];
       return typeof value === "function" ? value.bind(target) : value;
     },

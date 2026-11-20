@@ -2,11 +2,17 @@ import { registerCustomerProvider } from "../../customer/ports";
 import { mensalidadeCustomerProvider } from "./customer-provider";
 
 registerCustomerProvider("mensalidade", mensalidadeCustomerProvider);
+import { registerIntegrationProducer, registerReceiptReverser } from "../../integrations/ports";
+import { mensalidadeProducer, reconcileMensalidadeContracts, reverseMensalidadeReceipt } from "./integration";
+
+registerIntegrationProducer(mensalidadeProducer);
+registerReceiptReverser("mensalidade", reverseMensalidadeReceipt);
 
 // Mensalidade (módulo "mensalidade"): ganchos e rotas. Cadastros em
 // ./store.ts; regras puras em ./model.ts. Carregado por
 // src/modules/runtime.ts. Uso: docs/MENSALIDADE.md.
 import { type Actor, now, requireValue } from "../../types";
+import { moduleEnabled } from "../registry";
 import {
   filteredHandlers,
   moduleError,
@@ -139,6 +145,10 @@ function teamConsent(actor: Actor, data: any) {
 
 // Parcelas, vencidas e avisos (gancho periódico do núcleo).
 onSchedule("mensalidade", async (ctx, tick) => {
+  // Contratos cancelados continuam persistidos enquanto a Base está desligada.
+  // A próxima rodada com Base ligada retoma a conciliação, sem varrer a ponte
+  // em cada alarme de uma área que só usa a Mensalidade local.
+  if (await moduleEnabled(ctx.env, ctx.profile, "erp")) await reconcileMensalidadeContracts(ctx);
   await runDue(ctx, tick.now);
 });
 
@@ -182,11 +192,11 @@ onRoute("mensalidade", {
 onCommand(
   "mensalidade",
   "mensalidade.installment.pay",
-  async (ctx, actor, data) => {
+  async (ctx, actor, data, { requestId }) => {
     ctx.access(actor, "conversations:write");
     manager(actor);
     const inst = await loadInstallment(ctx, data.id);
-    const paid = await payManually(ctx, inst, actor.id, data);
+    const paid = await payManually(ctx, inst, actor.id, data, requestId);
     // Comprovante ao cliente, a menos que notify=false.
     if (data.notify !== false) await sendReceipt(ctx, paid.id);
     return installmentView(paid);
@@ -603,7 +613,7 @@ onCommand(
   async (ctx, actor, data) => {
     ctx.access(actor, "conversations:write");
     manager(actor);
-    return createPlan(ctx, data, actor.id);
+    return createPlan(ctx, data, actor.id, actor);
   },
 );
 
@@ -618,7 +628,7 @@ onCommand(
   async (ctx, actor, data) => {
     ctx.access(actor, "conversations:write");
     manager(actor);
-    return updatePlan(ctx, data.id, data);
+    return updatePlan(ctx, data.id, data, actor);
   },
 );
 

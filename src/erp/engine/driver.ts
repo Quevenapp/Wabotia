@@ -19,13 +19,16 @@ export interface SqlResult {
 }
 
 export interface SqlDriver {
+  /** Área da instância, fornecida pelo transporte; nunca por argumentos de RPC. */
+  readonly originProfile?: string;
   exec(sql: string, ...params: unknown[]): SqlResult;
   transaction<T>(fn: () => T): T;
 }
 
 /** Driver do objeto: ctx.storage.sql e transactionSync. */
-export function storageDriver(storage: DurableObjectStorage): SqlDriver {
+export function storageDriver(storage: DurableObjectStorage, originProfile?: string): SqlDriver {
   return {
+    originProfile,
     exec(sql, ...params) {
       const cursor = storage.sql.exec(sql, ...params);
       const rows = cursor.toArray() as Row[];

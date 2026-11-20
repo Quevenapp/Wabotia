@@ -1,3 +1,6 @@
+import { AppointmentCommercialActions } from '../integrations/ReceiptForm';
+import { CatalogRecordLinks } from '../integrations/CatalogLinkPicker';
+import { IntegrationStatus } from '../integrations/IntegrationStatus';
 // Agenda do dia e da semana, por profissional (módulo "agenda",
 // docs/AGENDA.md): criar, remarcar, confirmar, cancelar e marcar ausência.
 import React, { useMemo, useState } from "react";
@@ -108,7 +111,7 @@ function AppointmentCard({
             {started && (
               <IconButton
                 size="sm"
-                label="Marcar ausência"
+                label="Marcar ausência (mantém a cobrança)"
                 disabled={busy}
                 onClick={onNoShow}
               >
@@ -133,6 +136,7 @@ function AppointmentCard({
 
 export function AgendaPage() {
   const app = useApp();
+  const [commercial, setCommercial] = useState<Row | null>(null);
   const write = useIntents(app.api);
   const { busy, run } = useAction();
   const base = app.root + "/agenda";
@@ -171,8 +175,7 @@ export function AgendaPage() {
       { success },
     );
   const card = (a: Row, showProfessional: boolean) => (
-    <AppointmentCard
-      key={a.id}
+    <React.Fragment key={a.id}><AppointmentCard
       a={a}
       showProfessional={showProfessional}
       busy={busy}
@@ -188,7 +191,7 @@ export function AgendaPage() {
       onNoShow={() =>
         act(`${base}/appointments/${a.id}/no-show`, {}, "Ausência registrada.")
       }
-    />
+    /><Button secondary onClick={() => setCommercial(a)}>Integração deste atendimento</Button></React.Fragment>
   );
   const step = view === "day" ? 1 : 7;
   const counts = rows.filter(active).length;
@@ -209,6 +212,12 @@ export function AgendaPage() {
     );
   return (
     <>
+      <IntegrationStatus module="agenda" compact />
+      {data && <CatalogRecordLinks module="agenda" kind="service" records={data.services} />}
+      {commercial && <section className="card"><IntegrationStatus module="agenda" sourceId={commercial.integration?.source_id || commercial.id} />
+        <AppointmentCommercialActions id={commercial.id} version={commercial.commercial?.revision ?? commercial.version ?? null} priceCents={commercial.commercial?.price_cents ?? commercial.price_cents ?? null} onSaved={() => { setCommercial(null); void list.reload(); }} />
+        <Button secondary onClick={() => setCommercial(null)}>Fechar integração</Button>
+      </section>}
       <div className="toolbar agenda-toolbar">
         <div className="agenda-nav">
           <IconButton

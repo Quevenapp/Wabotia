@@ -174,6 +174,41 @@ export function entregaSchemas() {
         note: { type: "string", maxLength: 500 },
       },
     },
+    EntregaCommercialInput: {
+      type: "object",
+      required: ["version", "price_cents"],
+      properties: {
+        version: { type: "integer", minimum: 0 },
+        price_cents: { type: ["integer", "null"], minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+        authorize: { type: "boolean", description: "Autoriza expressamente o preço positivo e congela o comercial." },
+      },
+    },
+    EntregaCommercialResult: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        commercial: {
+          type: "object",
+          properties: {
+            version: { type: "integer" },
+            price_cents: nullable("integer"),
+            authorized_at: nullable("integer", "Instante da autorização em milissegundos."),
+          },
+        },
+      },
+    },
+    EntregaReceiptInput: {
+      type: "object",
+      required: ["amount_cents", "method"],
+      properties: {
+        amount_cents: { type: "integer", minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
+        method: { type: "string", enum: ["cash", "pix", "card", "other"] },
+      },
+    },
+    EntregaReceiptResult: {
+      type: "object",
+      properties: { receipt_key: { type: "string" }, amount_cents: { type: "integer" } },
+    },
     EntregaAssign: {
       type: "object",
       required: ["courier_id"],
@@ -355,6 +390,8 @@ export const entregaOperations: [string, string, string, string?, string?][] = [
     read,
   ],
   ["post", `${base}/deliveries`, "Entrega: criar entrega", write, "EntregaCreate"],
+  ["patch", `${base}/deliveries/{id}/commercial`, "Entrega: definir e autorizar preço", write, "EntregaCommercialInput"],
+  ["post", `${base}/deliveries/{id}/receipts`, "Entrega: confirmar recebimento manual", write, "EntregaReceiptInput"],
   [
     "post",
     `${base}/deliveries/{id}/assign`,
@@ -436,6 +473,14 @@ export function describeEntregaOperation(
   const schema = (value: any) =>
     (success.content["application/json"].schema = value);
   if (path === base) return schema(ref("EntregaOverview"));
+  if (path.endsWith("/commercial")) {
+    entry.description += " Somente pessoa da equipe, sem credencial delegada. Entrega avulsa: version comercial obrigatória; authorize=true exige preço positivo. Entrega de Pedido delega à origem e recusa com delegated_origin. Após autorização, commercial_frozen. O lançamento ERP ocorre pela saída assíncrona.";
+    return schema(ref("EntregaCommercialResult"));
+  }
+  if (path.endsWith("/receipts")) {
+    entry.description += " Somente pessoa da equipe, sem credencial delegada. Entrega avulsa com preço autorizado; valor positivo limitado ao saldo. Repetir a mesma Idempotency-Key conserva o recebimento. Entrega de Pedido recusa com delegated_origin.";
+    return schema(ref("EntregaReceiptResult"));
+  }
   if (path.endsWith("/qr")) {
     entry.description +=
       " A equipe gera o QR da entrega para um entregador sem login: o app lê em Escanear pedido e troca em POST /api/credentials/claim (uso único) por uma credencial só desta entrega, revogada ao concluir ou cancelar. Um QR novo revoga o anterior e a credencial ativa. `access` mostra quem leu.";

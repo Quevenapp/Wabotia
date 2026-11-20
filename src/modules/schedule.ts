@@ -1,3 +1,5 @@
+import { drainIntegrationOutbox } from "../integrations/consumer";
+import { logIntegrationError } from "../integrations/privacy";
 // Rodada periódica dos módulos (docs/MODULOS.md, onSchedule). Chamada pelo
 // alarme do Coordinator de cada área; o cron de 5 minutos do Worker acorda
 // todas as áreas, então cada módulo ligado roda ao menos a cada 5 minutos.
@@ -24,7 +26,13 @@ export async function runModuleSchedules(
   env: Env,
   profile: string,
   now: number,
+  background?: (work: Promise<void>) => void,
 ): Promise<ScheduleOutcome[]> {
+  env = withReadCache(env);
+  const states = await moduleStates(env, profile);
+  // Só quem possui waitUntil agenda o consumidor; a rodada não o aguarda.
+  // Reutiliza a leitura acima e mantém custo zero de fila com Base desligada.
+  if (states.erp && background) background(drainIntegrationOutbox(env, profile).catch(logIntegrationError));
   // Pedidos de aprovação vencidos (src/approvals.ts): o módulo decide ou o
   // cliente é avisado e vai para a equipe. Uma consulta por rodada. As
   // propostas do bot vencem na leitura e na confirmação, sem rodada.
@@ -41,8 +49,6 @@ export async function runModuleSchedules(
   }
   const registered = scheduledModules();
   if (!registered.length) return [];
-  env = withReadCache(env);
-  const states = await moduleStates(env, profile);
   const outcomes: ScheduleOutcome[] = [];
   for (const [module, handler] of registered) {
     if (!states[module]) continue;

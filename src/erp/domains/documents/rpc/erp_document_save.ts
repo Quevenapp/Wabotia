@@ -4,12 +4,14 @@
 // erp_document_mirror.require_visible: documents/mirror.ts (o documento espelhado do Origin).
 // O auto_finance (lançamento automático das contas pelas Preferências) usa a ponte do B5.
 import { createHash } from "node:crypto";
+import { originScope, targetOrigin } from "../../../engine/module-origin.ts";
+import { linkedDocumentGuard } from "../module-policy.ts";
 import { decText, toScaled } from "../../../engine/dec.ts";
 import { jsonbArg } from "../../../engine/args.ts";
 import { one } from "../../../engine/driver.ts";
 import { fromSqlite, raise } from "../../../engine/errors.ts";
 import { jsonbText, jsonType } from "../../../engine/json.ts";
-import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
+import { registerRpc, requireRpcParts, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { nextIdentity } from "../../../engine/sequence.ts";
 import { erpEntityRequirement, erpRequirementMet } from "../../../parts-requirements.ts";
 import { dto as catalogDto } from "../../catalog/public.ts";
@@ -133,6 +135,7 @@ function audit(ctx: RpcContext, a: { actor: string; command: string; document: s
 
 /** erp_documents.auto_finance(usuário, documento, comando): o lançamento automático das contas. */
 export function autoFinance(ctx: RpcContext, user: string, id: string, command: string): Data | null {
+  if (originScope(ctx) || targetOrigin(ctx.db, "document", id)) return null;
   const db = ctx.db;
   const d = one(db, 'SELECT * FROM "erp_documents__document" WHERE id=?', id);
   if (!d) return null;
@@ -202,10 +205,13 @@ export function transitionCommand(command: string, action: string) {
 }
 
 export function erpDocumentSave(ctx: RpcContext, a: RpcArgs) {
+  if (originScope(ctx)) requireRpcParts(ctx, "erp_document_save", a);
   const db = ctx.db;
   const user = a.p_user_id as string;
   const kind = (a.p_kind as string | null) ?? null;
   const id = (a.p_id as string | null) ?? null;
+  if (ctx.workEnabled && kind === "service_orders" && id === null && !originScope(ctx)) raise("work_required", "Crie o trabalho para gerar sua parte comercial.");
+  linkedDocumentGuard(db, id, ctx);
   const expected = (a.p_expected_version as number | null) ?? null;
   const command = (a.p_command_id as string | null) ?? null;
   const body0 = a.p_body === undefined ? null : jsonbArg(a.p_body);
@@ -260,7 +266,7 @@ export function erpDocumentSave(ctx: RpcContext, a: RpcArgs) {
   const contact = fieldText(data, "contact_id"),
     warehouse = fieldText(data, "warehouse_id"),
     seller = fieldText(data, "seller_id");
-  data = { ...data, items: autoProducts(ctx, user, kind, command, data.items) };
+  data = { ...data, items: originScope(ctx) ? data.items : autoProducts(ctx, user, kind, command, data.items) };
   checkPreferenceRules(db, kind!, data, ctx.parts);
   // 239: as regras do vendedor com a aprovação do desconto.
   const approval = sellerRules(db, user, kind!, data);
@@ -272,7 +278,7 @@ export function erpDocumentSave(ctx: RpcContext, a: RpcArgs) {
     // 238: documento de contato que o usuário não vê não existe para ele.
     if (!contactUsable(db, user, row.contact_id as string | null)) raise("P0002", "erp_document_not_found");
     if (row.version !== expected || row.version === 2147483647) raise("40001", "erp_document_version_conflict");
-    if (!editable(row.status)) raise("40001", "erp_document_state_locked");
+    if (!editable(row.status) && !originScope(ctx)) raise("40001", "erp_document_state_locked");
     // 269: proposta com versão mais nova fica só leitura.
     if (kind === "sales_proposals" && proposalSuperseded(db, id)) raise("40001", "erp_document_version_locked");
     before = documentDto(ctx, id);
@@ -286,7 +292,7 @@ export function erpDocumentSave(ctx: RpcContext, a: RpcArgs) {
   if (kind === "service_orders") checkCustomFields(db, kind, data.custom_fields, id !== null ? rowBody : undefined);
   checkPaymentLinks(db, kind!, data, rowBody, ctx.parts);
   // 239: a Forma que a OS ainda não tem pede "Alterar forma de pagamento".
-  if (kind === "service_orders") {
+  if (kind === "service_orders" && !originScope(ctx)) {
     const old = new Set(elements(rowBody?.installments ?? null).map((o) => fieldText(o, "payment_method_id")));
     if (elements(data.installments ?? null).some((p) => fieldText(p, "payment_method_id") !== null && !old.has(fieldText(p, "payment_method_id"))))
       requireOsPermission(db, user, kind, "forma_pagamento");

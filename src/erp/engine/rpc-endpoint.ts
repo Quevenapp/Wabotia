@@ -13,6 +13,7 @@ import { ErpGateDenied, callRpc, inTransaction, isPorted, rpcObjectKeys, rpcWake
 import { CUSTOMER_BRIDGE_FIELDS, CUSTOMER_BRIDGE_SCAN, CUSTOMER_BRIDGE_USER_ID, GATE_DENIED_HEADER, GATE_HEADER, IDENTITY_HEADER, SYSTEM_HEADER, decodeIdentity, containsRestrictedContact, customerPrivacyUnsupported } from "./identity.ts";
 import { SIGNATURES } from "./signatures.generated.ts";
 import { ENGINE_SIGNATURES } from "./signatures-engine.ts";
+import { MODULE_RPCS, verifyModuleTransport } from "./module-origin.ts";
 import { requestModuleState } from "./module-state.ts";
 
 /**
@@ -120,13 +121,15 @@ export async function handleRpc(
   name: string,
   request: Request,
   media?: R2Bucket,
+  d1?: D1Database,
 ): Promise<Response> {
+  const moduleRpc = MODULE_RPCS.includes(name as any);
   // Nome fora do registro e fora do oráculo: erro claro, como o PGRST202 do
   // PostgREST (função que o oráculo tem e o motor ainda não portou continua
   // 0A000 visível, pelo callRpc).
   if (name !== CUSTOMER_BRIDGE_SCAN && !isPorted(name) && !(name in SIGNATURES) && !(name in ENGINE_SIGNATURES))
     return Response.json({ code: "PGRST202", message: `erp_rpc_unknown:${name}`, details: null, hint: null }, { status: 404 });
-  if (SYSTEM_RPCS.has(name) && request.headers.get(SYSTEM_HEADER) !== "1")
+  if ((SYSTEM_RPCS.has(name) || moduleRpc) && request.headers.get(SYSTEM_HEADER) !== "1")
     return Response.json({ code: "42501", message: "erp_rpc_system_only", details: null, hint: null }, { status: 403 });
   let args: unknown;
   try {
@@ -161,6 +164,9 @@ export async function handleRpc(
   if (name === CUSTOMER_BRIDGE_SCAN && !bridge) return denied();
   const clock = engineClock(ctx);
   try {
+    if (moduleRpc && request.headers.get(GATE_HEADER) !== "1")
+      return Response.json({ code: "42501", message: "module_origin_denied" }, { status: 403 });
+    let moduleProof = moduleRpc ? await verifyModuleTransport(d1, profile, name, a, identity) : undefined;
     if (["parts", "partsControl", "maintenance", "bypass"].some(key => Object.hasOwn(a, key)))
       return Response.json({ code: "22023", message: "erp_rpc_body_invalid" }, { status: 400 });
     const input = { ...identity.partsControl, parts: identity.parts };
@@ -181,7 +187,7 @@ export async function handleRpc(
         return Response.json({ code: "22023", message: "erp_parts_reference_invalid" }, { status: 400 });
     }
     const preflightName = name === CUSTOMER_BRIDGE_SCAN ? "erp_catalog_contact_page" : name;
-    inTransaction(storageDriver(ctx.storage), context => {
+    if (!moduleRpc) inTransaction(storageDriver(ctx.storage), context => {
       const prepared = prepareArgs(preflightName, name === CUSTOMER_BRIDGE_SCAN ? { p_user_id: a.p_user_id } : a);
       const check = () => requireRpcParts(context, preflightName, prepared);
       if (maintenance) withErpMaintenance(context, maintenance, check); else check();
@@ -213,10 +219,17 @@ export async function handleRpc(
       });
       return Response.json({ items, nextCursor: rows.length > Number(limit) ? String(items.at(-1)!.id) : null });
     }
-    const result = callRpc(storageDriver(ctx.storage), name, args as Record<string, unknown>, clock, {
+    const workEnabled = d1 && !moduleRpc && (a.p_kind === "service_orders" || name.includes("convert_to_service"))
+      ? (await d1.prepare("SELECT enabled FROM profile_modules WHERE profile_id=? AND module_id='os'").bind(profile).first<{ enabled: number }>())?.enabled === 1 : false;
+    // Revalidar depois de qualquer I/O; o motor segue síncrono até o commit.
+    if (moduleRpc) moduleProof = await verifyModuleTransport(d1, profile, name, a, identity);
+    const currentParts = await requireCurrentErpParts(ctx.storage, profile, input);
+    const result = callRpc(storageDriver(ctx.storage, profile), name, args as Record<string, unknown>, clock, {
       ...storage,
       identity,
-      parts: snapshot.parts,
+      moduleProof,
+      workEnabled,
+      parts: currentParts.parts,
       partsReference,
       maintenance: maintenance ?? undefined,
       modules: requestModuleState(request.headers, request.headers.get(SYSTEM_HEADER) === "1"),
@@ -240,11 +253,17 @@ export async function handleRpc(
         { code: error.code, message: error.message, details: null, hint: null },
         { status: 403, headers: { [GATE_DENIED_HEADER]: error.reason } },
       );
-    if (error instanceof ErpError)
+    if (error instanceof ErpError) {
+      // Os RPCs humanos mantêm HTTP 400: upstream() traduz o código SQL.
+      // Só a integração usa diretamente 403/409 para autorização e repetição.
+      let status = error.code === "erp_route_removed" ? 404 : error.code === "0A000" ? 501 : 400;
+      if (moduleRpc && error.code === "42501") status = 403;
+      if (error.code === "work_required" || moduleRpc && ["40001", "epoch_closed", "part_disabled"].includes(error.code)) status = 409;
       return Response.json(
-        { code: error.code, message: error.message, details: null, hint: null },
-        { status: error.code === "erp_route_removed" ? 404 : error.code === "0A000" ? 501 : 400 },
+        { code: error.code, message: moduleRpc && !/^[a-z][a-z0-9_]{0,79}$/.test(error.message) ? "module_request_invalid" : error.message, details: null, hint: null },
+        { status },
       );
+    }
     throw error;
   }
 }

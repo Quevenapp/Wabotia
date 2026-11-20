@@ -1,3 +1,6 @@
+import { CatalogRecordLinks } from '../integrations/CatalogLinkPicker';
+import { ReceiptForm } from '../integrations/ReceiptForm';
+import { IntegrationStatus } from '../integrations/IntegrationStatus';
 // Reservas (módulo "reserva", docs/RESERVA.md): ocupação por unidade e dia,
 // lista com filtro de estado, detalhe com pagamento e check-in, e as ações da
 // equipe (criar, alterar, confirmar, cobrar o sinal, enviar check-in,
@@ -185,6 +188,7 @@ function Detail({
                   ? `, prazo ${moment(b.payment_due_at)}`
                   : ""}
                 {b.paid_at ? `, pago ${moment(b.paid_at)}` : ""}
+                {b.payment_status === "paid" && ["cancelled", "expired"].includes(b.status) && <p role="alert">Pagamento pendente de devolução. A reserva permanece encerrada; confira a devolução no provedor.</p>}
               </dd>
             </>
           )}
@@ -301,6 +305,9 @@ export function ReservaPage() {
     );
   return (
     <>
+      <IntegrationStatus module="reserva" compact />
+      <CatalogRecordLinks module="reserva" kind="unit" records={data?.units || []} />
+      {open && <><IntegrationStatus key={open.id} module="reserva" sourceId={open.integration?.source_id || open.id} /><ReceiptForm module="reserva" sourceId={open.id} onSaved={() => void reload()} /></>}
       {data &&
         data.config.deposit_type !== "none" &&
         !data.deposit.available && (

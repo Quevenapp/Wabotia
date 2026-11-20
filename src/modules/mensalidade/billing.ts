@@ -26,6 +26,7 @@ import { announcePaid, notifyInstallmentRefunded } from "./listeners";
 import { contractPaymentUpdated } from "./contracts";
 import { cancelOpenCharge } from "./store";
 import { sendPayMessage } from "./pay-message";
+import { commitMensalidade as batch, mensalidadeCasGuard, mensalidadeHistory, mensalidadePaymentEvidence, mensalidadeStatements, recoverMensalidadePayment, refundStatus, mensalidadeCurrentlyRefunded, requireMensalidadeChargeReconciled } from "./integration";
 
 const BATCH = 50;
 /** Erros da cobrança que significam "não dá para cobrar por aqui agora". */
@@ -217,6 +218,7 @@ export async function ensureCharge(
   at: number,
   method: "pix" | "link" = cfg.method,
 ): Promise<ChargeResult> {
+  await requireMensalidadeChargeReconciled(ctx, inst);
   if (
     inst.payment_id &&
     inst.payment_status === "created" &&
@@ -261,20 +263,12 @@ export async function ensureCharge(
       message: error.message,
     };
   }
-  await exec(
-    ctx.env,
-    "UPDATE mensalidade_installments SET payment_id=?,payment_method=?,payment_status=?,payment_expires_at=?,pix_code=?,pay_url=?,charge_seq=?,charged_at=?,notice_error=NULL,updated=? WHERE id=?",
-    payment.id,
-    payment.method,
-    payment.status,
-    payment.expires_at,
-    payment.pix_code,
-    payment.url,
-    seq,
-    at,
-    at,
-    inst.id,
-  );
+  const commercial = await mensalidadeStatements(ctx, { kind: "installment", record: inst, operation: null, at });
+  await batch(ctx.env, [
+    ["UPDATE mensalidade_installments SET payment_id=?,payment_method=?,payment_status=?,payment_expires_at=?,pix_code=?,pay_url=?,charge_seq=?,charged_at=?,notice_error=NULL,updated=? WHERE id=? AND profile_id=? AND status=? AND charge_seq=? AND amount_cents=? AND payment_id IS ?",
+      [payment.id, payment.method, payment.status, payment.expires_at, payment.pix_code, payment.url, seq, at, at, inst.id, ctx.profile, inst.status, inst.charge_seq, inst.amount_cents, inst.payment_id ?? null]],
+    mensalidadeCasGuard, ...commercial.statements,
+  ]);
   await ctx.publish(
     "mensalidade.charged",
     inst.id,
@@ -639,24 +633,28 @@ export async function paymentUpdated(
   }
   const at = now();
   if (payment.status === "paid") {
-    const result = await exec(
-      ctx.env,
-      "UPDATE mensalidade_installments SET status='paid',paid_at=?,paid_via=?,paid_by='provider',payment_id=?,payment_status='paid',updated=? WHERE id=? AND status IN ('open','overdue','cancelled','waived')",
-      payment.paid_at || at,
-      payment.method,
-      payment.id,
-      at,
-      inst.id,
-    );
+    const changed = ["open", "overdue", "cancelled", "waived"].includes(inst.status);
+    if (changed) {
+      const evidence = await mensalidadePaymentEvidence(ctx, payment);
+      const commercial = await mensalidadeStatements(ctx, { kind: "installment", record: { ...inst, status: "paid" }, operation: "receive", at: evidence.receipt?.occurred_ms ?? payment.paid_at ?? at, ...evidence });
+      await batch(ctx.env, [
+        ["UPDATE mensalidade_installments SET status='paid',paid_at=?,paid_via=?,paid_by='provider',payment_id=?,payment_status='paid',updated=? WHERE id=? AND profile_id=? AND status=? AND amount_cents=? AND paid_at IS ?", [payment.paid_at || at, payment.method, payment.id, at, inst.id, ctx.profile, inst.status, inst.amount_cents, inst.paid_at ?? null]],
+        mensalidadeCasGuard,
+        mensalidadeHistory(ctx, "mensalidade.paid", inst.id, { installment_id: inst.id, subscription_id: inst.subscription_id, period_key: inst.period_key, amount_cents: inst.amount_cents, via: payment.method, by: "provider", payment_id: payment.id, paid_at: payment.paid_at || at, previous_status: inst.status }, `${inst.id}:paid:${payment.id}`),
+        ...commercial.statements,
+      ]);
+    }
     // O núcleo repete o gancho até concluir: a mesma confirmação de novo
     // refaz os passos seguintes (todos com chave), sem virar "em dobro".
     const retry =
-      !result.meta.changes &&
+      !changed &&
       inst.status === "paid" &&
       inst.paid_by === "provider" &&
       inst.payment_status === "paid" &&
       inst.payment_id === payment.id;
-    if (!result.meta.changes && !retry) {
+    if (retry) await recoverMensalidadePayment(ctx, "installment", inst, payment);
+    if (await mensalidadeCurrentlyRefunded(ctx, payment)) return;
+    if (!changed && !retry) {
       // Já paga (baixa manual ou outra cobrança): dinheiro em dobro.
       await ctx.publish(
         "mensalidade.paid",
@@ -703,22 +701,31 @@ export async function paymentUpdated(
     return;
   }
   if (payment.status === "refunded") {
-    const result = await exec(
-      ctx.env,
-      "UPDATE mensalidade_installments SET status=CASE WHEN due_date<? THEN 'overdue' ELSE 'open' END,paid_at=NULL,paid_via=NULL,paid_by=NULL,payment_status='refunded',updated=? WHERE id=? AND status='paid' AND payment_id=? AND paid_by='provider'",
-      today(at),
-      at,
-      inst.id,
-      payment.id,
-    );
+    const changed = inst.status === "paid" && inst.payment_id === payment.id && inst.paid_by === "provider";
+    if (changed) {
+      const evidence = await mensalidadePaymentEvidence(ctx, payment);
+      const status = refundStatus(inst, at);
+      const commercial = await mensalidadeStatements(ctx, { kind: "installment", record: { ...inst, status }, operation: "reverse", at: evidence.receipt?.occurred_ms ?? at, reason: "payment_refunded", ...evidence });
+      await batch(ctx.env, [
+        ["UPDATE mensalidade_installments SET status=?,paid_at=NULL,paid_via=NULL,paid_by=NULL,payment_status='refunded',updated=? WHERE id=? AND profile_id=? AND status='paid' AND payment_id=? AND paid_by='provider' AND paid_at IS ?", [status, at, inst.id, ctx.profile, payment.id, inst.paid_at]],
+        mensalidadeCasGuard,
+        mensalidadeHistory(ctx, "mensalidade.refunded", inst.id, { installment_id: inst.id, subscription_id: inst.subscription_id, payment_id: payment.id, amount_cents: payment.amount_cents }, `${inst.id}:refunded:${payment.id}`),
+        ...commercial.statements,
+      ]);
+    }
     // Repetição do mesmo estorno (o núcleo repete até concluir): refaz os
     // avisos, que têm chave.
     const retry =
-      !result.meta.changes &&
+      !changed &&
       inst.status !== "paid" &&
       inst.payment_status === "refunded" &&
       inst.payment_id === payment.id;
-    if (result.meta.changes || retry) {
+    if (retry) await recoverMensalidadePayment(ctx, "installment", inst, payment);
+    if (changed || retry) {
+      // A revogação precede notificações que podem falhar.
+      await notifyInstallmentRefunded(ctx.env, ctx.profile, {
+        id: inst.id, subscription_id: inst.subscription_id, payment_id: payment.id, amount_cents: payment.amount_cents,
+      }, { rethrow: true });
       await ctx.publish(
         "mensalidade.refunded",
         inst.id,
@@ -729,18 +736,6 @@ export async function paymentUpdated(
           amount_cents: payment.amount_cents,
         },
         { key: `${inst.id}:refunded:${payment.id}` },
-      );
-      // Quem foi liberado por esta parcela (Suporte pago) perde a liberação.
-      await notifyInstallmentRefunded(
-        ctx.env,
-        ctx.profile,
-        {
-          id: inst.id,
-          subscription_id: inst.subscription_id,
-          payment_id: payment.id,
-          amount_cents: payment.amount_cents,
-        },
-        { rethrow: true },
       );
     }
     return;
