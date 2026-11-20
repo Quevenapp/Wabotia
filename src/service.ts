@@ -35,6 +35,7 @@ import {
 } from "./security";
 import { event, audit, eventStatement, fanOut } from "./events";
 import { appErpRoleInput } from "./modules/erp/identity";
+import { erpBotOperationsInput } from "./modules/erp/bot-access";
 import { boundAllows, visibleConversation } from "./visibility";
 import { probe, telegramRemoved } from "./integrations";
 import { aiConfig, aiKey } from "./ai-provider";
@@ -2922,6 +2923,11 @@ export async function perform(
       profile,
     );
     requireValue(bot, "Bot não encontrado.");
+    if (data.erp_operations !== undefined) {
+      data.erp_operations = erpBotOperationsInput(data.erp_operations);
+      requireValue(!data.erp_operations.length || data.erp_data_acknowledged === true,
+        "Confirme que os dados das operações liberadas poderão ser enviados ao provedor de IA; o papel da pessoa e a confirmação de escrita continuam obrigatórios.");
+    }
     if (data.mask_personal !== undefined)
       requireValue(typeof data.mask_personal === "boolean", "Máscara de dados pessoais inválida.");
     for (const option of ["pdf_raw_fallback", "image_to_team"])
@@ -2976,7 +2982,7 @@ export async function perform(
         [JSON.stringify({ [bot.remote_profile]: data.name }), bot.connection_id],
       ]);
     const personalOptions = Object.fromEntries(
-      ["mask_personal", "pdf_raw_fallback", "image_to_team"]
+      ["mask_personal", "pdf_raw_fallback", "image_to_team", "erp_operations"]
         .filter((key) => data[key] !== undefined)
         .map((key) => [key, data[key]]),
     );

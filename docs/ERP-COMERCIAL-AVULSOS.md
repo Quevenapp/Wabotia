@@ -142,13 +142,22 @@ com documentos, itens e metas existentes, o número varia.
   previsão exigem na rota as mesmas partes adicionais da tela.
 - `src/modules/erp/panel-menu.ts`, `web/erp/motor.ts`: entradas liberadas por
   parte e papel. A política já existente em `web/management/ported-policy.ts`
-  foi conferida por teste e não precisou mudar.
-- `web/erp/app/components/RealActivity.tsx`: única alteração na cópia do painel,
-  mínima, com justificativa consolidada em `web/erp/ORIGEM.json`.
-- `src/modules/erp/identity.ts`: bot representando uma pessoa preserva a
-  identidade humana; a marca de agente autônomo fica nas aplicações/sistemas.
-  Papel, MFA, horário e confirmação continuam sendo conferidos; `via` e o
-  recibo da proposta permanecem no núcleo para auditoria.
+  foi conferida por teste e não precisou mudar. Na junção, cobrança e retornos
+  operacionais também aparecem no menu de compatibilidade em Financeiro;
+  registro de atividades e consulta de exclusões aparecem em Sistema.
+  Esses quatro destinos continuam fora do contrato persistido de favoritos,
+  que aceita os 42 destinos anteriores. O painel respeita essa distinção;
+  ampliar os favoritos exige uma mudança própria no contrato do servidor.
+- `web/erp/app/components/RealActivity.tsx`: botão de detalhe na cópia do painel.
+  Na junção, `home-request.ts` e `home-model.ts` também distinguem os destinos
+  do menu dos aceitos como favoritos. As exceções estão justificadas em
+  `web/erp/ORIGEM.json`.
+- `src/modules/erp/identity.ts`: na junção candidata, a pessoa via bot volta
+  a ser agente por padrão. A remoção incondicional dessa marca na frente de
+  telas reabertas (`bb279122`) quebrava o padrão provado por `erp-bot-via`.
+  A exceção agora exige concessão nominal, bot/área/conversa interna válidos
+  e, para escrever, proposta em confirmação pela sessão da pessoa. Papel,
+  MFA, horário, `via` e recibo da proposta são preservados.
 - `src/modules/erp/{commercial-operations,cnab-operations,openapi}.ts` e
   `src/modules/openapi.ts`: nomes estáveis, entradas, efeitos, respostas e
   sensibilidade documentados em português no OpenAPI das mesmas rotas.
@@ -214,7 +223,20 @@ não lê `x-bot-sensitive`, inclusive para leituras sensíveis). Essa ligação 
 conservar a liberação administrativa por bot/área, máscaras configuráveis e o
 teto de cliente da origem externa. Nenhuma operação foi declarada proibida
 definitivamente para bots. Os testes de proposta não simulam inscrição no
-catálogo e não provam uma configuração por operação que ainda não existe ali.
+catálogo. Na junção, `bot.update`/`PATCH /profiles/{profile}/bots/{id}` recebe
+`erp_operations` (ids dos contratos; `[]` revoga), com
+`erp_data_acknowledged=true` ao liberar. Só administrador configura; o comando
+é auditado pelo fluxo existente. A concessão fica nas opções do bot da área,
+nasce vazia e avisa sobre o envio de dados ao provedor de IA. Não amplia o
+papel da pessoa. Leituras usam a operação liberada; escritas passam pela
+proposta e confirmação existentes. Ainda não há editor dessas concessões no
+painel nem liberação autônoma persistida nesta junção.
+
+`tests/erp-commercial-bot.test.ts` configura a concessão antes dos casos
+positivos e acrescenta recusas sem configuração, por operação/área/papel,
+revogação, falsa confirmação e bot desligado; a importação configurada usa a
+mesma rota real. Os testes isolados anteriores conferiam o vínculo à conversa
+e a confirmação, mas não o padrão legado nem uma concessão persistida.
 Os 45 contratos não pretendem cobrir toda rota histórica: o subfluxo anterior
 de crédito líquido Itaú, `/v1/retornos-itau109`, não foi criado nesta tarefa e
 fica fora desse inventário (`web/erp/app/components/ItauNetCredit.tsx:47`).

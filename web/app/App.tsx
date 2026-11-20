@@ -1,7 +1,7 @@
 // Entrada do painel em /app: sessão, área de atendimento e as áreas da casca.
 import React, { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { api, onApiState, type Row } from "../lib/api";
-import { demoApi, demoMe, demoProfile } from "../lib/demo";
+import { demoApi, demoMe, demoProfile } from "../lib/demo-entry";
 import { cancelBlockedNavigation, navigate, onBlocked, useRoute, type Route } from "../lib/routes";
 import { applyTheme } from "../lib/theme";
 import { Button, Confirm, Empty, Spinner, ToastHost } from "../ui";

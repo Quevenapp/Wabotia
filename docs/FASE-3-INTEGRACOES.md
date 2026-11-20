@@ -84,6 +84,17 @@ Esses são os caminhos implementados; a tabela de evidências distingue o que j�
 foi executado daquilo que aguarda aceite. Cancelamento operacional não confirma
 devolução de dinheiro. Baixa e estorno exigem evidência persistida e alocação.
 
+Na junção com a NF-e, a política `on_authorization` adia estoque e títulos dos
+pedidos de venda de módulo, mesmo com seu lançamento automático habilitado.
+A projeção e o recibo continuam gravados, com efeitos `skipped` e motivo
+`awaiting_fiscal_authorization`; não há nova postagem no replay nem após mera
+troca da política. A intenção manual existente continua disponível quando a
+política permite. Pedido vinculado a módulo não recebe preparo/acompanhamento
+de NF-e nesta junção, inclusive pelo RPC; emitir para essa origem e retomar
+seus efeitos fiscais permanece decisão pendente. Uma emissão já enviada não
+pode ter seus efeitos estornados por um cancelamento do módulo, mesmo com a
+parte Fiscal desligada.
+
 Eventos e pedidos são imutáveis. `command_id` é derivado da área, módulo,
 origem e sequência; os componentes compartilham a sequência da origem.
 `event_key` identifica o fato comercial. Repetir corpo/ator/chave conserva o

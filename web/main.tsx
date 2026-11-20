@@ -16,7 +16,7 @@ import { WebInstall } from "./site/WebInstall";
 import { Privacy } from "./site/Privacy";
 import { QueueDisplay } from "./queue/QueueDisplay";
 import { lazyWithRecovery } from "./management/pages";
-import { installC2Web } from "./c2/register";
+import { channelCatalogVisible } from "./channel-extensions";
 
 const ResponsiblePage = lazyWithRecovery<object>(() =>
   import("./modules/ensino/ResponsiblePage").then((m) => ({ default: m.ResponsiblePage })),
@@ -47,5 +47,6 @@ export function SiteEntry({ pathname = location.pathname }: { pathname?: string 
   );
 }
 
-installC2Web();
+// Conserva a entrada explícita antes de a navegação retirar a consulta da URL.
+channelCatalogVisible({});
 createRoot(document.getElementById("root")!).render(<SiteEntry />);

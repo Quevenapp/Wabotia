@@ -43,8 +43,9 @@ describe("ERP: tabelas do cofre (notas recebidas e emissão)", () => {
       const triggers = () =>
         sql.exec("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='erp_fiscal_vault__received_change' ORDER BY name").toArray().map((r: any) => r.name);
       const fresh = { tables: tables(), triggers: triggers() };
-      // Como um objeto criado na versão 8: sem as tabelas do cofre (filhas antes das mães).
-      for (const t of [...VAULT].reverse()) sql.exec(`DROP TABLE "${t}"`);
+      // Como um objeto criado na versão 8: sem as tabelas do cofre nem as
+      // comerciais da versão 10 (filhas antes das mães).
+      for (const t of ERP_ENGINE_TABLES.filter((t) => t.since > 8).reverse()) sql.exec(`DROP TABLE "${t.table}"`);
       sql.exec("UPDATE erp_meta SET value='8' WHERE key='schema_version'");
       const dropped = { tables: tables(), triggers: triggers() };
       const step = migrate(state.storage);

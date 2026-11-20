@@ -1167,6 +1167,7 @@ app.all("/api/v1/profiles/:profile/erp/*", async (c) => {
     c.get("actor"),
     profile,
     c.req.method,
+    c.req.path,
   );
   return erpApi(c.env, c.req.raw, profile, c.get("actor"), identity);
 });
@@ -2355,6 +2356,7 @@ for (const [path, [table, scope]] of Object.entries(readLists))
           row.mask_personal = cfg.bot_options?.[row.remote_profile]?.mask_personal !== false;
           row.pdf_raw_fallback = cfg.bot_options?.[row.remote_profile]?.pdf_raw_fallback === true;
           row.image_to_team = cfg.bot_options?.[row.remote_profile]?.image_to_team === true;
+          row.erp_operations = cfg.bot_options?.[row.remote_profile]?.erp_operations ?? [];
           row.provider = cfg.provider;
           row.model = cfg.model;
           // O provedor recusou as ferramentas numa execução (até salvar a

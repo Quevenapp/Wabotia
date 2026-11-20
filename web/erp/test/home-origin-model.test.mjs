@@ -2,14 +2,22 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {homePeriodRoute,homeCustomRoute,homeSummaryPath,homePeriodSearch,homePeriodMatches,homePeriodText,homeSalesLines,homeNetCents,homeChart,homeBarPath,homeAxisMoney,homeBucketLabel,
  homeShortcutsResult,homeShortcutOptions,homeSessionAccess,HOME_PERIOD_OPTIONS,HOME_SALES_LINES} from '../app/lib/home-model.ts';
-import {captureHomeRequest,homeShortcutPaths} from '../app/lib/home-request.ts';
-import {resolveMenu} from '../app/lib/origin-menu.ts';
+import {captureHomeRequest,homeShortcutBase,homeShortcutPaths} from '../app/lib/home-request.ts';
+import {ORIGIN_MENU,resolveMenu} from '../app/lib/origin-menu.ts';
 import {HOME_SHORTCUTS} from './upstream/workers/erp-api/src/home.mjs';
+import {HOME_SHORTCUTS as WORKER_SHORTCUTS,homeShortcutsOperation} from '../../../src/erp/fagoo/workers/erp-api/src/home.mjs';
 import {STATES} from '../../../packages/erp-domain/src/index.mjs';
 
 const RESOURCES={admin:['contacts','products','sales_orders','purchase_orders','sales_proposals','receivables','payables','nfe','nfce'],consulta:['contacts','products','sales_orders','purchase_orders','sales_proposals','receivables','payables','nfe','nfce'],
  vendas:['contacts','products','sales_orders','sales_proposals'],financeiro:['contacts','receivables','payables'],estoque:['contacts','products','purchase_orders'],fiscal:['contacts','products','sales_orders','purchase_orders','nfe','nfce']};
 const period=(points,extra={})=>({key:'30d',from:'2026-09-20',to:'2026-10-19',day_count:30,grain:'day',points,sales:{count:0,statuses:[]},receivable:null,payable:null,invoices:null,...extra});
+// As telas reabertas entram na gestão; o contrato de favoritos do motor continua o anterior.
+const MANAGEMENT_ONLY_SHORTCUTS={
+ '/cobranca-operacional':['admin','consulta','financeiro'],
+ '/retornos-operacionais':['admin','consulta','financeiro'],
+ '/preferencias/sistema/registro-atividades':['admin'],
+ '/preferencias/sistema/consulta-exclusoes':['admin'],
+};
 
 test('period selector uses Origin labels, keeps Hoje as the clean default and builds strict API paths',()=>{
  assert.deepEqual(HOME_PERIOD_OPTIONS.map(option=>option.label),['Hoje','7D','30D','3M','6M','12M','Customizado']);
@@ -59,10 +67,12 @@ test('chart model keeps one axis with exact tick values, grouped bars per bucket
 
 test('shortcut catalog labels come from the Origin menu and follow the same permissions as resolveMenu("real")',()=>{
  const paths=homeShortcutPaths();assert.deepEqual(paths,Object.keys(HOME_SHORTCUTS));assert.equal(paths.includes('/acesso'),false);
+ assert.deepEqual(WORKER_SHORTCUTS,HOME_SHORTCUTS);
  for(const role of Object.keys(RESOURCES)){
   const available=paths.filter(path=>HOME_SHORTCUTS[path].includes(role));
   const menu=new Set(resolveMenu('real',{role,resources:RESOURCES[role]}).flatMap(group=>[...group.columns.flatMap(column=>column.items),...(group.footer?[group.footer]:[])]).map(item=>item.to).filter(to=>to&&to!=='/acesso'));
-  assert.deepEqual(available.slice().sort(),[...menu].sort(),role);
+  const managementOnly=Object.keys(MANAGEMENT_ONLY_SHORTCUTS).filter(path=>MANAGEMENT_ONLY_SHORTCUTS[path].includes(role));
+  assert.deepEqual([...available,...managementOnly].sort(),[...menu].sort(),role);
   assert.deepEqual(homeShortcutOptions(paths,{role,resources:RESOURCES[role]}).map(option=>option.to),available,role);
  }
  const admin=homeShortcutOptions(paths,{role:'admin',resources:RESOURCES.admin});
@@ -73,6 +83,19 @@ test('shortcut catalog labels come from the Origin menu and follow the same perm
  assert.equal(admin.find(option=>option.to==='/historico-fiscal?modelo=55').label,'Notas fiscais');assert.equal(admin.find(option=>option.to==='/financeiro-empresa?area=relatorios').label,'Ver relatórios financeiros');
  assert.deepEqual(homeShortcutOptions(['/estoque-empresa'],null).map(option=>option.label),['Lançamentos de estoque']);
  assert.deepEqual(homeShortcutOptions(paths,{role:'vendas',resources:[]}).some(option=>option.to==='/cadastros-reais?cadastro=products'),false);
+});
+
+test('the four reopened management destinations keep their permissions without advertising unsupported saved favorites',async()=>{
+ const items=ORIGIN_MENU.flatMap(group=>[...group.columns.flatMap(column=>column.items),...(group.footer?[group.footer]:[])]);
+ assert.deepEqual(Object.fromEntries(items.filter(item=>item.homeShortcut===false).map(item=>[item.real.to,item.real.roles])),MANAGEMENT_ONLY_SHORTCUTS);
+ const paths=Object.keys(MANAGEMENT_ONLY_SHORTCUTS);
+ assert.deepEqual(homeShortcutOptions(paths,{role:'admin',resources:RESOURCES.admin}),[]);
+ for(const path of paths){
+  assert.equal(homeShortcutBase(path),null,path);
+  const body={command_id:'b0000000-0000-4000-8000-000000000002',expected_version:0,shortcuts:[path]};
+  assert.throws(()=>captureHomeRequest('/v1/inicio/atalhos',{method:'POST',body}),/HOME_INVALID_REQUEST/,path);
+  await assert.rejects(()=>homeShortcutsOperation(new Request('https://erp.invalid/v1/inicio/atalhos',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}),new URLSearchParams()),error=>error.status===400,path);
+ }
 });
 
 test('shortcut responses are validated before use, including the exact saved list and version',()=>{

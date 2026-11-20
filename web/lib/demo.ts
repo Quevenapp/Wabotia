@@ -4,6 +4,8 @@
 import type { Api, Row } from "./api";
 import { demoChannelRequest } from "./demo-channels";
 import type { BaseStatus, Order, OrderHistory, OrderList, Page, PrivateFields, WorkTypeCatalog, WorkTypeView } from "../modules/os/work-contracts";
+import { demoMe, demoProfile } from "./demo-entry";
+export { demoMe, demoProfile } from "./demo-entry";
 import * as erpDefinitions from "../../src/modules/erp/definition";
 import { oficinaMecanicaTemplate } from "../../src/area-templates/models/oficina-mecanica";
 import { agendaDemo, agendaDemoModule } from "../modules/agenda/demo";
@@ -25,12 +27,6 @@ const t = (ago: number) => Date.now() - ago;
 const workshopType = {
   ...structuredClone(oficinaMecanicaTemplate.work_types[0]),
   id: "area_oficina_mecanica__at_veiculos",
-};
-
-export const demoMe = { id: "demo-user", name: "Administrador", role: "admin" };
-export const demoProfile = {
-  id: "demo",
-  name: "Atendimento Queven",
 };
 
 const settings: Row = {

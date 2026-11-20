@@ -68,7 +68,7 @@ export const C2_UI_EXTENSIONS: readonly ChannelUiExtension[] = [
   { key: "googlebusiness/review", connectionFields: ImportedConnectionFields },
 ];
 
-/** Chamado pelo bootstrap de c2-integra antes de renderizar; importar não instala. */
+/** Chamado sob demanda antes de expor o status da área; importar não instala. */
 export function installC2Web(): void {
   for (const extension of C2_UI_EXTENSIONS) registerChannelUi(extension);
   registerReviewsPage(GoogleReviewsPage);

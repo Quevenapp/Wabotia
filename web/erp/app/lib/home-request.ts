@@ -10,12 +10,12 @@ export const HOME_PATH = '/v1/inicio';
 export const HOME_SHORTCUTS_PATH = '/v1/inicio/atalhos';
 const UUID = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 
-/** Every real screen of the Origin menu (items and footers), in menu order, except the home itself. */
+/** Destinos do menu aceitos pelo contrato persistido de favoritos, sem o próprio Início. */
 export function homeShortcutPaths(): string[] {
   const paths: string[] = [];
   for (const group of ORIGIN_MENU) for (const item of [...group.columns.flatMap(column => column.items), ...(group.footer ? [group.footer] : [])]) {
     const to = item.real?.to;
-    if (to && to !== '/acesso' && !paths.includes(to)) paths.push(to);
+    if (to && to !== '/acesso' && item.homeShortcut !== false && !paths.includes(to)) paths.push(to);
   }
   return paths;
 }

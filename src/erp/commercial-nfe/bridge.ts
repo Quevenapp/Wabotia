@@ -71,7 +71,7 @@ const PUBLIC_MESSAGES: Record<string, string> = {
 /** A cópia sem símbolos não herda o cache da autenticação anterior ao I/O. */
 async function currentIdentity(context: CommercialNfeHttpContext): Promise<IdentityPort> {
   const env = Object.fromEntries(Object.entries(context.env)) as Env;
-  return erpIdentity(env, context.actor, context.profile, context.request.method);
+  return erpIdentity(env, context.actor, context.profile, context.request.method, new URL(context.request.url).pathname);
 }
 
 function executionIdentity(context: CommercialNfeHttpContext, identity: IdentityPort, name: string, input: unknown): IdentityPort {

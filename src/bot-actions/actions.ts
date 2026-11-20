@@ -32,6 +32,7 @@ import {
 import { requireFinancialAal } from "../mfa";
 import { moduleById } from "../modules/registry";
 import { describeFields, describeWith } from "./describe";
+import { ERP_BOT_OPERATIONS, erpBotOperationGranted } from "../modules/erp/bot-access";
 
 /** Teto de chamadas de ferramenta por turno do bot. */
 export const MAX_TOOL_CALLS = 6;
@@ -418,6 +419,11 @@ export async function createProposal(
   params: Record<string, any>,
   summary: unknown,
 ) {
+  if (op.path.startsWith("erp/") || op.path.startsWith("erp-comercial-nfe/")) {
+    const contract = ERP_BOT_OPERATIONS.find(entry => entry.method === op.method && entry.path === op.path);
+    if (!contract || !await erpBotOperationGranted(ctx.env, ctx.actor, ctx.profile, contract.id))
+      throw new ApiError(403, "erp_bot_grant_required", "Esta operação do ERP não foi liberada para este bot na área.");
+  }
   requireValue(
     params && typeof params === "object" && !Array.isArray(params),
     "Parâmetros inválidos.",

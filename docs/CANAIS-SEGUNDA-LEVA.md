@@ -8,6 +8,8 @@ O estado das verificações, os limites de aceite e a origem das evidências est
 
 Abra `/app?canais=2` para acessar o catálogo da segunda leva. Essa entrada apenas mostra as opções: não ativa conexões. O catálogo também aparece quando a área projeta recursos da segunda leva. Sem esse uso, os encaixes novos não acrescentam controles às telas antigas. DMs do Instagram/Facebook continuam separadas dos comentários. Google sozinho não transforma a lista de conversas em multicanal.
 
+O painel carrega o registro e as telas da segunda leva sob demanda, após essa entrada explícita ou quando o status da área informa seu uso. O registro termina antes de a área mostrar esses dados. Os cenários de demonstração também ficam fora do pacote inicial e só são carregados ao usar a demonstração.
+
 Telegram e e-mail são conexões próprias. Google e TikTok são importados pela integração Zernio; comentários exigem ativação explícita na conexão Instagram/Facebook. Configurações exigem administração da área. Tokens e segredos não retornam à tela: aparece somente **configurado**.
 
 ## Comportamento por canal

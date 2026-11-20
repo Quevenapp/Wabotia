@@ -9,6 +9,7 @@ import { moduleCancellationBlocked, moduleDocumentBody, moduleStatus, nextCompon
 import { updateDocument } from "../rows.ts";
 import { erpDocumentSave } from "./erp_document_save.ts";
 import { cancelModuleTitles, createModuleTitles, postModuleDocument, requireManualDestinations, reverseModuleSettlements, settleModuleTitles } from "../../finance/module-posting.ts";
+import { deferredCom1Effect, guardCom1Transition } from "../../fiscal/comnfe/effect-policy.ts";
 
 const table = { document: "erp_documents__document", title: "erp_finance__title", stock_posting: "erp_stock__document_posting" } as const;
 function links(ctx: RpcContext, components: Record<string, ComponentState>): IntegrationResult["links"] {
@@ -98,6 +99,7 @@ export function erpModuleApply(ctx: RpcContext) {
     const mayReverse = (part: "stock" | "finance") => !(part === "stock" && b.stock_reversal) &&
       (execution(ctx).evidence.mode === "system" || b.requested[part]);
     if (document) {
+      guardCom1Transition(ctx, document, "cancelled", ["reverse_finance", "reverse_stock"]);
       for (const part of ["finance", "stock"] as const) {
         const posting = one(ctx.db, `SELECT id FROM erp_${part}__document_posting WHERE document_id=? AND state='active'`, document);
         if (!posting) continue;
@@ -121,6 +123,7 @@ export function erpModuleApply(ctx: RpcContext) {
     withOriginOperation(ctx, "document_transition", [document], [], inner => {
       const row = one(inner.db, "SELECT * FROM erp_documents__document WHERE id=?", document)!;
       if (row.status !== status) {
+        guardCom1Transition(inner, document!, status);
         const command = internalCommand(r.command_id, "transition"), version = Number(row.version) + 1;
         updateDocument(inner, document!, { status, version, updated_by: r.actor_id, updated_at: inner.clock.next().toString() });
         const transition = { document_id: document, before: row.status, status, version };
@@ -136,11 +139,15 @@ export function erpModuleApply(ctx: RpcContext) {
     execution(ctx).evidence.mode === "human" && ["execute", "lifecycle"].includes(b.operation) && state.first_execution_at !== null;
   if (document && firstExecution) {
     if (destinations.stock && !state.stock_posted) {
-      state.stock_posted = postModuleDocument(ctx, b, state, document, "stock");
+      const deferred = deferredCom1Effect(ctx, document, "stock");
+      if (deferred) out.reason_code = deferred.reason;
+      else state.stock_posted = postModuleDocument(ctx, b, state, document, "stock");
       out.effects.stock = state.stock_posted ? "posted" : "skipped";
     } else if (b.requested.stock && !state.stock_posted) out.effects.stock = "skipped";
     if (destinations.finance && !state.finance_posted) {
-      postModuleDocument(ctx, b, state, document, "finance"); state.finance_posted = true; out.effects.finance = "posted";
+      const deferred = deferredCom1Effect(ctx, document, "finance");
+      if (deferred) { out.effects.finance = "skipped"; out.reason_code = deferred.reason; }
+      else { postModuleDocument(ctx, b, state, document, "finance"); state.finance_posted = true; out.effects.finance = "posted"; }
     } else if (b.requested.finance && !state.finance_posted) out.effects.finance = "skipped";
   }
   if (b.route === "title" && b.operation === "recognize" && !state.finance_posted) {
@@ -155,7 +162,7 @@ export function erpModuleApply(ctx: RpcContext) {
   if (b.operation === "reverse" && (execution(ctx).evidence.mode === "system" || destinations.finance) && reverseModuleSettlements(ctx, b, state)) out.effects.finance = "reversed";
   if (b.operation === "execute") state.executed = true;
   out.links = links(ctx, components);
-  if (Object.values(out.effects).includes("skipped")) out.reason_code =
+  if (Object.values(out.effects).includes("skipped") && !out.reason_code) out.reason_code =
     out.effects.stock === "skipped" && (!ctx.parts.stock || !execution(ctx).open.stock) ||
     out.effects.finance === "skipped" && (!ctx.parts.finance || !execution(ctx).open.finance) ? "part_disabled" : "unlinked_item";
   return writeModuleReceipt(ctx, out, components);

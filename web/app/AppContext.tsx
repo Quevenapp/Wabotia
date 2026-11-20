@@ -15,6 +15,7 @@ import { readStore, readText, writeStore, writeText } from "../lib/storage";
 import { notify, setTitleCount } from "../lib/notifications";
 import { conversationName } from "../lib/format";
 import { channelNotificationTitle, conversationChannel, isMultichannel } from "../channels";
+import { loadChannelUi } from "../channel-ui-loader";
 import { currentRoute, navigate, navigationGuarded } from "../lib/routes";
 import { toast, toastError } from "../ui";
 import { accessAllows } from "../workspace-navigation";
@@ -194,7 +195,12 @@ export function AppProvider({
     const current = scope.current.capture();
     const sequence = ++refreshSequence.current;
     const [nextStatus, nextBots, nextTeam, nextPresence] = await Promise.all([
-      api(root + "/status"),
+      api(root + "/status").then(async (value) => {
+        // Os descritores precisam estar prontos antes de mostrar a área:
+        // envio e formulários usam o mesmo registro síncrono da apresentação.
+        await loadChannelUi(value);
+        return value;
+      }),
       api(root + "/bots"),
       accessAllows("team", me.role, me.access)
         ? api(root + "/team").catch(() => ({ data: [] }))

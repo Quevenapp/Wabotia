@@ -47,12 +47,13 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
       return out;
     });
     console.log("ERP_SCHEMA " + JSON.stringify(result));
-    // 999 = 982 do gerado (com os 9 gatilhos do override sqlTriggers, versão 8)
+    // 1029 = 982 do gerado (com os 9 gatilhos do override sqlTriggers, versão 8)
     // + 2 tabelas só do motor da versão 7 + 15 da versão 9 (as 5 tabelas do
-    // cofre, 8 índices e 2 gatilhos); 437 tabelas.
-    expect(result.first).toMatchObject({ status: "applied", version: ERP_DDL_VERSION, statements: 999, seedRows: 7586 });
+    // cofre, 8 índices e 2 gatilhos) + 30 da versão 10 (as 7 tabelas comerciais,
+    // 8 índices e 15 gatilhos); 444 tabelas.
+    expect(result.first).toMatchObject({ status: "applied", version: ERP_DDL_VERSION, statements: 1029, seedRows: 7586 });
     expect(result.again).toMatchObject({ status: "current" });
-    expect(result.tables).toBe(437);
+    expect(result.tables).toBe(444);
     expect(result.triggers).toBeGreaterThan(148);
     expect(result.municipalities).toBe(5571);
   });

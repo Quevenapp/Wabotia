@@ -7,6 +7,8 @@ import { ERP_MANAGEMENT_ITEMS } from "../../src/modules/erp/panel-menu.ts";
 import { portedTargetState } from "../../web/management/ported-policy.ts";
 import { setErpBlocks, targetEnabled } from "../../web/erp/blocks.ts";
 import { setMotorReal } from "../../web/erp/motor.ts";
+import { resolveMenu } from "../../web/erp/app/lib/origin-menu.ts";
+import { workspaceMenu } from "../../web/erp/app/lib/fagoo-menu.ts";
 
 const screens = [
   ["/meu-negocio", "erp-vendas", "sales", "/v1/meu-negocio/mensal"],
@@ -29,6 +31,33 @@ test("as cinco telas têm menu e ficam subordinadas à sua parte", () => {
     const requirement = erpRouteRequirement("GET", new URL(route, "https://erp.invalid"));
     assert.ok(erpRequirementMet(normalizeErpParts(), requirement), route);
     assert.equal(erpRequirementMet(normalizeErpParts({ [part]: false }), requirement), false, route);
+  }
+});
+
+test("a projeção do menu entrega as telas reabertas ao grupo certo sem ampliar os papéis", () => {
+  const modules = Object.fromEntries(ERP_MODULE_IDS.map(id => [id, true]));
+  const destinations = [
+    ["/cobranca-operacional", "Financeiro", ["admin", "consulta", "financeiro"]],
+    ["/retornos-operacionais", "Financeiro", ["admin", "consulta", "financeiro"]],
+    ["/preferencias/sistema/registro-atividades", "Sistema", ["admin"]],
+    ["/preferencias/sistema/consulta-exclusoes", "Sistema", ["admin"]],
+  ];
+  setErpBlocks(modules);
+  setMotorReal(true);
+  try {
+    for (const role of ["admin", "consulta", "financeiro", "vendas", "estoque", "fiscal"]) {
+      const groups = workspaceMenu(resolveMenu("real", { role, resources: ["contacts", "products"] }));
+      for (const [to, group, roles] of destinations) {
+        const actual = groups.find(entry => entry.columns.some(column => column.items.some(item => item.to === to)));
+        assert.equal(actual?.name, roles.includes(role) ? group : undefined, `${role}: ${to}`);
+      }
+    }
+    setErpBlocks({ ...modules, "erp-cobranca": false });
+    const disabled = workspaceMenu(resolveMenu("real", { role: "admin", resources: ["contacts", "products"] }));
+    assert.equal(disabled.some(group => group.columns.some(column => column.items.some(item => destinations.slice(0, 2).some(([to]) => item.to === to)))), false);
+  } finally {
+    setMotorReal(false);
+    setErpBlocks(null);
   }
 });
 

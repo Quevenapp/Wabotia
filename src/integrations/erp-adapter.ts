@@ -132,7 +132,7 @@ async function moduleRpc(env: Env, request: PreparedErpRequest, rpc: ModuleRpc, 
       // comando, um recibo concluído que sumiu (ou efeito remoto sem fato D1)
       // não é detectado: a retomada exige o par de backups e revisão humana.
       if (["module_sequence_conflict", "module_command_conflict"].includes(body?.message)) throw new IntegrationError("integration_divergent", 409);
-      if (typeof body?.message === "string" && ["historical_origin_unlinked", "module_cancellation_pending", "module_cancellation_blocked", "module_receipt_excess", "module_commercial_frozen", "module_transition_invalid", "module_title_settled", "module_settlement_missing", "module_finance_blocked", "erp_document_finance_reverse_blocked", "erp_stock_reverse_blocked", "erp_finance_active_payments", "erp_finance_billed_locked"].includes(body.message))
+      if (typeof body?.message === "string" && ["historical_origin_unlinked", "module_cancellation_pending", "module_cancellation_blocked", "module_receipt_excess", "module_commercial_frozen", "module_transition_invalid", "module_title_settled", "module_settlement_missing", "module_finance_blocked", "erp_document_finance_reverse_blocked", "erp_stock_reverse_blocked", "erp_finance_active_payments", "erp_finance_billed_locked", "fiscal_order_transition_locked", "fiscal_order_compensation_required"].includes(body.message))
         throw new IntegrationError(body.message, 422);
       const codes: Record<string, string> = { PGRST202: "integration_not_implemented", "40001": "version_conflict", "42501": "forbidden" };
       const known = ["part_disabled", "epoch_closed", "waiting_manual", "historical_origin_unlinked", "default_inactive", "erp_parts_unavailable"];

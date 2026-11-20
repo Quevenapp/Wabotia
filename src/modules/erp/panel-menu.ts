@@ -1,11 +1,11 @@
 // Catálogo puro: não importar preferências, telas, registro de módulos ou motor ERP.
 import type { ManagementItem, PanelErpRole } from "../panel-contract.ts";
 
-export type MenuGroupName = 'Meu Negócio' | 'Cadastros' | 'Vendas' | 'Estoque' | 'Financeiro';
+export type MenuGroupName = 'Meu Negócio' | 'Cadastros' | 'Vendas' | 'Estoque' | 'Financeiro' | 'Sistema';
 export type CompanyRole = PanelErpRole;
 
 export interface RealTarget { to: string; roles?: readonly CompanyRole[]; resource?: string }
-export interface MenuItemDefinition { label: string; real?: RealTarget }
+export interface MenuItemDefinition { label: string; real?: RealTarget; /** Destino ainda fora do contrato persistido de favoritos. */ homeShortcut?: false }
 export interface MenuColumnDefinition { title: string; items: readonly MenuItemDefinition[] }
 export interface MenuGroupDefinition { name: MenuGroupName; columns: readonly MenuColumnDefinition[]; footer?: MenuItemDefinition }
 
@@ -30,6 +30,7 @@ export const ERP_MENU_GROUPS = {
   financeiro: { group: "financeiro", groupLabel: "Financeiro", groupOrder: 60, icon: "building-columns" },
   fiscal: { group: "fiscal", groupLabel: "Fiscal", groupOrder: 70, icon: "file-invoice" },
   pessoas: { group: "pessoas", groupLabel: "Pessoas", groupOrder: 80, icon: "users" },
+  sistema: { group: "sistema", groupLabel: "Sistema", groupOrder: 90, icon: "rotate-left" },
 } as const;
 
 /** Proprietários por parte; exceções do contrato identificadas por ID. */
@@ -310,6 +311,20 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
   },
   {
+    id: "erp.operational-billing", module: "erp-cobranca", part: "cobranca",
+    ...ERP_MENU_GROUPS.financeiro, order: 381,
+    label: "Cobrança operacional",
+    target: { kind: "ported", to: "/cobranca-operacional" },
+    permission: { kind: "erp", roles: ["admin", "consulta", "financeiro"] },
+  },
+  {
+    id: "erp.operational-returns", module: "erp-cobranca", part: "cobranca",
+    ...ERP_MENU_GROUPS.financeiro, order: 382,
+    label: "Retornos operacionais",
+    target: { kind: "ported", to: "/retornos-operacionais" },
+    permission: { kind: "erp", roles: ["admin", "consulta", "financeiro"] },
+  },
+  {
     id: "erp.financial-statement", module: "erp-financeiro", part: "financeiro",
     ...ERP_MENU_GROUPS.financeiro, order: 390,
     label: "Ficha Financeira",
@@ -346,34 +361,20 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
   },
   {
     id: "erp.effect-maintenance", module: "erp", part: "sistema",
-    group: "sistema", groupLabel: "Sistema", groupOrder: 90, icon: "rotate-left", order: 440,
+    ...ERP_MENU_GROUPS.sistema, order: 440,
     label: "Manutenção de efeitos",
     target: { kind: "ported", to: "/manutencao-efeitos" }, permission: { kind: "erp" },
   },
   {
-    id: "erp.operational-billing", module: "erp-cobranca", part: "cobranca",
-    ...ERP_MENU_GROUPS.financeiro, order: 381,
-    label: "Cobrança operacional",
-    target: { kind: "ported", to: "/cobranca-operacional" },
-    permission: { kind: "erp", roles: ["admin", "consulta", "financeiro"] },
-  },
-  {
-    id: "erp.operational-returns", module: "erp-cobranca", part: "cobranca",
-    ...ERP_MENU_GROUPS.financeiro, order: 382,
-    label: "Retornos operacionais",
-    target: { kind: "ported", to: "/retornos-operacionais" },
-    permission: { kind: "erp", roles: ["admin", "consulta", "financeiro"] },
-  },
-  {
     id: "erp.activity", module: "erp", part: "sistema",
-    group: "sistema", groupLabel: "Sistema", groupOrder: 90, icon: "list", order: 450,
+    ...ERP_MENU_GROUPS.sistema, icon: "list", order: 450,
     label: "Registro de atividades",
     target: { kind: "ported", to: "/preferencias/sistema/registro-atividades" },
     permission: { kind: "erp", roles: ["admin"] },
   },
   {
     id: "erp.deletions", module: "erp", part: "sistema",
-    group: "sistema", groupLabel: "Sistema", groupOrder: 90, icon: "list", order: 460,
+    ...ERP_MENU_GROUPS.sistema, icon: "list", order: 460,
     label: "Consulta de exclusões",
     target: { kind: "ported", to: "/preferencias/sistema/consulta-exclusoes" },
     permission: { kind: "erp", roles: ["admin"] },
@@ -455,11 +456,19 @@ export const ORIGIN_MENU: readonly MenuGroupDefinition[] = [
       legacyItems["erp.payables"],
       legacyItems["erp.receivables"],
       legacyItems["erp.bank-remittances"],
+      { ...legacyItems["erp.operational-billing"], homeShortcut: false },
+      { ...legacyItems["erp.operational-returns"], homeShortcut: false },
       legacyItems["erp.financial-statement"],
       legacyItems["erp.commissions"],
       legacyItems["erp.cash-control"],
       legacyItems["erp.grouped-billing"],
     ] },
   ], footer: legacyItems["erp.financial-reports"] },
+  { name: 'Sistema', columns: [
+    { title: 'Auditoria', items: [
+      { ...legacyItems["erp.activity"], homeShortcut: false },
+      { ...legacyItems["erp.deletions"], homeShortcut: false },
+    ] },
+  ] },
 ];
 

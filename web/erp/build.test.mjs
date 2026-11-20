@@ -101,6 +101,18 @@ test("o pacote inicial do painel cabe no orçamento", () => {
   );
 });
 
+test("canais opcionais e cenários de demonstração ficam fora do pacote inicial", () => {
+  const optional = /\/web\/(c2\/|lib\/demo(?:-channels)?\.ts$)|\/src\/erp\/commercial-nfe\/metadata\.ts$/;
+  const offenders = initialChunks().flatMap((chunk) =>
+    chunk.moduleIds.filter((id) => optional.test(norm(id)))
+      .map((id) => `${chunk.fileName}: ${norm(id).replace(norm(root), "")}`),
+  );
+  assert.deepEqual(offenders, []);
+  for (const file of ["/web/c2/register.ts", "/web/c2/demo.ts", "/web/lib/demo.ts"])
+    assert.ok(chunks().some((chunk) => chunk.moduleIds.some((id) => norm(id).endsWith(file))),
+      `${file} continua disponível sob demanda`);
+});
+
 test("o ERP fica em 30 a 50 arquivos JS, e a demonstração num chunk só dela", () => {
   const erp = chunks().filter((chunk) => chunk.moduleIds.some(isErp));
   const demo = chunks().filter((chunk) => chunk.moduleIds.some(isDemo));

@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { freshLite, nodeDriver } from "../harness/node-driver.mjs";
 import "../../../src/erp/domains/index.ts";
-import { callRpc } from "../../../src/erp/engine/registry.ts";
+import { callRpc, inTransaction } from "../../../src/erp/engine/registry.ts";
 import { canonical, commandId, eventKey, hash, F3_NAMESPACES, uuid5 } from "../../../src/integrations/keys.ts";
 import { commercialHash } from "../../../src/erp/domains/documents/module-policy.ts";
 import { verifyModuleTransport, moduleSystemUser, targetOrigin } from "../../../src/erp/engine/module-origin.ts";
@@ -14,6 +14,9 @@ import { handleRpc } from "../../../src/erp/engine/rpc-endpoint.ts";
 import { GATE_HEADER, IDENTITY_HEADER, SYSTEM_HEADER, encodeIdentity } from "../../../src/erp/engine/identity.ts";
 import { normalizeErpParts } from "../../../src/erp/parts.ts";
 import { applyErpPartsSnapshot } from "../../../src/erp/parts-control.ts";
+import { installCommercialNfePreparation } from "../../../src/erp/domains/fiscal/comnfe/prepare.ts";
+import { claimStoredCancellation, claimStoredOperation, com1Hash, com1Reference, recordCancellationEvidence, recordExternalEvidence, savePreparation } from "../../../src/erp/domains/fiscal/comnfe/store.ts";
+import { Com1Clock } from "../comnfe/fixtures.mjs";
 
 const ADMIN = "11111111-1111-4111-8111-111111111111";
 const human = { user_id: ADMIN, erp_role: "admin", name: "Pessoa", email: null, is_agent: false, verified_factor: true, session_id: "22222222-2222-4222-8222-222222222222", aal: "aal2" };
@@ -154,6 +157,138 @@ test("faturamento agrupado recusa IDs de documentos de módulo aninhados", async
     category_id: f.category.id, items: [{ contact_id: f.contact.id, document_ids: [id], invoice_ids: [], days: [0], total_cents: "1000", condition: "À vista" }],
   } }), /module_document_read_only/);
   assert.equal(f.count("erp_finance__title"), 0); assert.equal(f.count("erp_finance__grouped_billing"), 0);
+});
+
+const fiscalTiming = (f, timing) => f.rpc("erp_com1_config_save", { p_input: {
+  command_id: randomUUID(), expected_version: f.rpc("erp_com1_config_get").version,
+  environment: "homologacao", stock_timing: timing, finance_timing: timing,
+} });
+
+test("junção: automatismo do módulo e autorização fiscal preservam o pedido sem lançar nem repetir efeitos", async t => {
+  const f = fixture(t, "pedido");
+  assert.deepEqual(f.policy.auto_post, { stock: true, finance: true });
+  fiscalTiming(f, "on_authorization");
+  const input = f.enqueue(), result = await f.run(input), id = result.links.find(l => l.kind === "document").id;
+  assert.equal(result.outcome, "applied");
+  assert.deepEqual(result.effects, { stock: "skipped", finance: "skipped" });
+  assert.equal(result.reason_code, "awaiting_fiscal_authorization");
+  assert.equal(f.lite.prepare("SELECT status FROM erp_documents__document WHERE id=?").get(id).status, "in_progress");
+  assert.equal(f.count("erp_stock__document_posting"), 0);
+  assert.equal(f.count("erp_finance__document_posting"), 0);
+  assert.equal(f.count("erp_finance__title"), 0);
+  assert.deepEqual(await f.run(input), { ...result, replayed: true });
+  // Alterar a política não dispara efeitos históricos: só a intenção manual
+  // existente pode aplicá-los, e seu replay conserva a mesma origem.
+  fiscalTiming(f, "existing");
+  await f.run(f.enqueue({ operation: "lifecycle", lifecycle: { base_status: "preparing" } }));
+  assert.equal(f.count("erp_finance__title"), 0);
+  const manual = f.enqueue({ operation: "lifecycle", human }), posted = await f.run(manual);
+  assert.deepEqual(posted.effects, { stock: "posted", finance: "posted" });
+  fiscalTiming(f, "on_authorization");
+  assert.deepEqual(await f.run(manual), { ...posted, replayed: true });
+  await f.run(f.enqueue({ operation: "lifecycle", lifecycle: { base_status: "ready" } }));
+  assert.equal(f.count("erp_stock__document_posting"), 1);
+  assert.equal(f.count("erp_finance__document_posting"), 1);
+  assert.equal(f.count("erp_finance__title"), 1);
+  assert.equal(f.lite.prepare("SELECT state FROM erp_stock__document_posting").get().state, "active");
+  assert.equal(f.lite.prepare("SELECT cancelled FROM erp_finance__title").get().cancelled, 0);
+});
+
+test("junção: preparo por RPC também conserva somente leitura do pedido de módulo", async t => {
+  const f = fixture(t, "pedido");
+  t.after(installCommercialNfePreparation());
+  const result = await f.run(f.enqueue({ requested: { document: true, stock: false, finance: false } }));
+  const document = result.links.find(l => l.kind === "document");
+  assert.throws(() => f.rpc("erp_com1_prepare", { p_input: { command_id: randomUUID(), document_id: document.id,
+    expected_document_version: document.version, choices: { nature_id: "", presence: "presencial", final_consumer: true },
+  } }), /module_document_read_only/);
+  assert.equal(f.count("erp_fiscal_vault__order_emission"), 0);
+  assert.equal(f.count("erp_fiscal_vault__order_command"), 0);
+});
+
+test("junção: as duas guardas de faturamento agrupado valem no mesmo motor", async t => {
+  const f = fixture(t, "pedido");
+  fiscalTiming(f, "on_authorization");
+  const module = await f.run(f.enqueue()), id = module.links.find(l => l.kind === "document").id;
+  const native = f.rpc("erp_document_save", { p_kind: "sales_orders", p_id: null, p_expected_version: 0, p_command_id: randomUUID(),
+    p_body: { date: "2026-11-18", contact_id: f.contact.id, items: [{ product_id: f.product.id, description: "Material", quantity: "1", unit: "UN", unit_price: "10" }] },
+  }).document;
+  f.rpc("erp_document_transition", { p_kind: "sales_orders", p_id: native.id, p_expected_version: native.version,
+    p_command_id: randomUUID(), p_status: "verified", p_reason: "Conferência" });
+  const grouped = document => ({ p_command_id: randomUUID(), p_action: "grouped_billing_generate", p_data: {
+    category_id: f.category.id, items: [{ contact_id: f.contact.id, document_ids: [document], invoice_ids: [], days: [0], total_cents: "1000", condition: "À vista" }],
+  } });
+  assert.throws(() => f.rpc("erp_finance_grouped_billing_execute", grouped(id)), /module_document_read_only/);
+  assert.throws(() => f.rpc("erp_finance_grouped_billing_execute", grouped(native.id)), /awaiting_fiscal_authorization/);
+  assert.equal(f.count("erp_finance__grouped_billing"), 0);
+  assert.equal(f.count("erp_finance__title"), 0);
+  fiscalTiming(f, "existing");
+  assert.throws(() => f.rpc("erp_finance_grouped_billing_execute", grouped(id)), /module_document_read_only/);
+  f.rpc("erp_finance_grouped_billing_execute", grouped(native.id));
+  assert.equal(f.count("erp_finance__grouped_billing"), 1);
+  assert.equal(f.count("erp_finance__title"), 1);
+});
+
+test("junção: módulo e NF-e não duplicam nem estornam os efeitos um do outro", async t => {
+  const f = fixture(t, "pedido"), result = await f.run(f.enqueue());
+  fiscalTiming(f, "on_authorization");
+  const id = result.links.find(l => l.kind === "document").id, document = f.lite.prepare("SELECT * FROM erp_documents__document WHERE id=?").get(id);
+  const clock = new Com1Clock(at), command = randomUUID(), connection = com1Hash("cofre local");
+  const transaction = run => inTransaction(f.db, run, clock, { identity: { actor: human, people: [human] } });
+  // Estado anterior/importado: o preparo público agora recusa essa origem.
+  // A defesa de manutenção também precisa proteger uma emissão já persistida.
+  const claimed = transaction(ctx => {
+    const emission = savePreparation(ctx, { command_id: command, args: { document_id: id }, document_id: id,
+      expected_document_version: document.version, environment: "homologacao", connection_fingerprint: connection,
+      snapshot: { document: { ...document, body: JSON.parse(document.body) },
+        items: f.lite.prepare("SELECT data FROM erp_documents__item WHERE document_id=? ORDER BY position").all(id).map(row => JSON.parse(row.data)),
+        company: {}, recipient: {}, products: [], nature: {}, payments: [], transport: {}, sources: [] },
+      tax_sources: {}, commercial_hash: com1Hash(document.body), source_fingerprint: com1Hash(document.body),
+      body: { ambiente: "homologacao", referencia: com1Reference(id, 1) }, calculation: { total_cents: "1000" }, blockers: [],
+    }).emission;
+    return claimStoredOperation(ctx, { emission_id: emission.id, command_id: randomUUID(), action: "emit", expected_version: emission.version,
+      body_revision: emission.current_body_revision, body_hash: emission.revision.body_hash,
+      source_fingerprint: emission.revision.source_fingerprint, connection_fingerprint: connection });
+  });
+  const before = f.lite.prepare("SELECT quantity FROM erp_stock__balance").get().quantity;
+  const cancel = f.enqueue({ operation: "cancel", reason: "source_cancelled", lifecycle: { base_status: "cancelled" } });
+  for (const fiscal of [true, false]) await assert.rejects(f.run(cancel, { fiscal }), /fiscal_order_transition_locked/);
+  assert.equal(f.lite.prepare("SELECT quantity FROM erp_stock__balance").get().quantity, before);
+  assert.equal(f.lite.prepare("SELECT state FROM erp_stock__document_posting").get().state, "active");
+  assert.equal(f.lite.prepare("SELECT state FROM erp_finance__document_posting").get().state, "active");
+  assert.equal(f.lite.prepare("SELECT cancelled FROM erp_finance__title").get().cancelled, 0);
+  assert.equal(f.lite.prepare("SELECT status FROM erp_fiscal_vault__order_emission").get().status, "enviando");
+  const fiscalResult = { kind: "nfe", status: "authorized", provider_ref: "nfe_f3", reference: claimed.emission.reference,
+    environment: "homologacao", series: "1", number: 1, access_key: "35261111222333000181550010000000011000000010",
+    protocol: "135260000000001", nfse_number: null, issued_at: "2026-11-18T15:00:00Z", authorized_at: "2026-11-18T15:00:01Z",
+    total: 10, qr_code: null, consult_url: null, corrections: 0, messages: [], xml_available: true, replayed: false,
+    event_repeated: null, contingency: null };
+  transaction(ctx => recordExternalEvidence(ctx, { emission_id: claimed.emission.id, command_id: claimed.command.id,
+    claim_token: claimed.command.token, connection_fingerprint: connection, result: fiscalResult }));
+  const currentVersion = () => f.lite.prepare("SELECT version FROM erp_fiscal_vault__order_emission WHERE id=?").get(claimed.emission.id).version;
+  for (const axis of ["stock", "finance"]) {
+    const input = { emission_id: claimed.emission.id, command_id: randomUUID(), expected_version: currentVersion(), axis, intent: "apply" };
+    const effect = f.rpc("erp_com1_effect_apply", { p_input: input });
+    assert.equal(effect.state, "reconhecido", JSON.stringify(effect));
+    assert.equal(effect.ids.posting_id, f.lite.prepare(`SELECT id FROM erp_${axis}__document_posting`).get().id);
+    assert.deepEqual(f.rpc("erp_com1_effect_apply", { p_input: input }), effect);
+  }
+  const cancellation = transaction(ctx => claimStoredCancellation(ctx, { emission_id: claimed.emission.id, command_id: randomUUID(),
+    expected_version: currentVersion(), justification: "Cancelamento do ensaio da junção.", connection_fingerprint: connection }));
+  transaction(ctx => recordCancellationEvidence(ctx, { emission_id: claimed.emission.id, command_id: cancellation.command.id,
+    claim_token: cancellation.command.token, connection_fingerprint: connection, state: "registrado",
+    result: { ...fiscalResult, status: "cancelled" }, event_protocol: "135260000000099", event_at: String(clock.next()) }));
+  for (const axis of ["stock", "finance"]) {
+    const reversed = f.rpc("erp_com1_effect_reverse", { p_input: { emission_id: claimed.emission.id, command_id: randomUUID(),
+      expected_version: currentVersion(), axis, intent: "reverse", physical_return_confirmed: true } });
+    assert.equal(reversed.compensation_state, "compensacao_pendente");
+    assert.equal(reversed.compensation_result.reason, "module_document_read_only");
+    assert.equal(f.lite.prepare(`SELECT state FROM erp_${axis}__document_posting`).get().state, "active");
+    assert.equal(f.count(`erp_${axis}__document_posting`), 1);
+  }
+  assert.equal(f.count("erp_finance__title"), 1);
+  assert.equal(f.lite.prepare("SELECT quantity FROM erp_stock__balance").get().quantity, before);
+  await assert.rejects(f.run(cancel), /fiscal_order_compensation_required/);
 });
 
 test("manutenção resolve contato vinculado e recusa substituição", async t => {

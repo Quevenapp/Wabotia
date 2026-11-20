@@ -115,7 +115,7 @@ export async function commercialNfeRoute(env: Env, request: Request, profile: st
       }
     }
     validateInput(operation, input);
-    const identity = await (dependencies.resolveIdentity ?? erpIdentity)(env, actor, profile, request.method);
+    const identity = await (dependencies.resolveIdentity ?? erpIdentity)(env, actor, profile, request.method, url.pathname);
     const person = identity.actor;
     if (!person) throw new ApiError(403, "fiscal_forbidden", "Seu acesso não permite esta operação fiscal.");
     const authority: Com1Authority = dependencies.authority ? await dependencies.authority(actor, profile, operation) : {

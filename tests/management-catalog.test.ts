@@ -12,6 +12,7 @@ import { resourcesForRole } from "../src/erp/role-resources";
 import { pageModules, sections } from "../web/workspace-navigation";
 import { ORIGIN_MENU as legacyMenu } from "../web/erp/app/lib/origin-menu";
 import { workspaceMenu } from "../web/erp/app/lib/fagoo-menu";
+import { portedTarget } from "../web/management/ported-policy";
 import { api, bearer, fixture } from "./service-center-fixture";
 
 const native: readonly ManagementItem[] = Object.values(NATIVE_MANAGEMENT_ITEMS).flat();
@@ -66,7 +67,8 @@ describe("catálogo da casa de gestão", () => {
   it("preserva todos os destinos portados, inclusive consultas, rodapés e restrições", () => {
     expect(legacyMenu).toBe(ORIGIN_MENU);
     const linked = originItems.filter((item) => item.real);
-    expect(linked).toHaveLength(43);
+    expect(linked).toHaveLength(47);
+    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(48);
     expect(ERP_MANAGEMENT_ITEMS).toHaveLength(linked.length + 1);
     expect(ERP_MANAGEMENT_ITEMS.find(item => item.id === "erp.effect-maintenance")).toMatchObject({
       module: "erp", part: "sistema", groupLabel: "Sistema", order: 440,
@@ -75,6 +77,17 @@ describe("catálogo da casa de gestão", () => {
     const legacyTarget = (item: typeof ERP_MANAGEMENT_ITEMS[number]) => item.id === "erp.overview" ? "/acesso" : item.target.to;
     expect(ERP_MANAGEMENT_ITEMS.find(item => item.id === "erp.overview")?.target.to).toBe("/visao-geral");
     expect(portedLegacy.map(legacyTarget)).toEqual(linked.map((item) => item.real!.to));
+    const reopened = ERP_MANAGEMENT_ITEMS.filter(item => [
+      "erp.operational-billing", "erp.operational-returns", "erp.activity", "erp.deletions",
+    ].includes(item.id));
+    expect(reopened.map(item => [item.id, item.target.to, item.groupLabel, item.part, item.permission.roles])).toEqual([
+      ["erp.operational-billing", "/cobranca-operacional", "Financeiro", "cobranca", ["admin", "consulta", "financeiro"]],
+      ["erp.operational-returns", "/retornos-operacionais", "Financeiro", "cobranca", ["admin", "consulta", "financeiro"]],
+      ["erp.activity", "/preferencias/sistema/registro-atividades", "Sistema", "sistema", ["admin"]],
+      ["erp.deletions", "/preferencias/sistema/consulta-exclusoes", "Sistema", "sistema", ["admin"]],
+    ]);
+    for (const item of reopened)
+      expect(portedTarget(item.target.to)).toMatchObject({ part: item.part, roles: item.permission.roles });
     for (const item of portedLegacy) {
       const old = linked.find((entry) => entry.real!.to === legacyTarget(item))!;
       expect(item.module).toBe(ERP_PART_OWNERS[item.part]);
@@ -104,7 +117,7 @@ describe("catálogo da casa de gestão", () => {
     }));
     const menu = workspaceMenu(resolved);
     expect(menu.map((group) => group.name)).toEqual([
-      "Resultados", "Comercial", "Compras", "Catálogo", "Estoque", "Financeiro", "Fiscal", "Pessoas",
+      "Resultados", "Comercial", "Compras", "Catálogo", "Estoque", "Financeiro", "Fiscal", "Pessoas", "Sistema",
     ]);
     for (const item of portedLegacy) {
       const group = menu.find((group) => group.columns.some((column) => column.items.some((entry) => entry.to === (item.id === "erp.overview" ? "/acesso" : item.target.to))));

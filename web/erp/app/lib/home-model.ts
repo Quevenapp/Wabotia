@@ -174,7 +174,7 @@ export function homeShortcutOptions(available:readonly string[],access?:CompanyA
   const options:HomeShortcutOption[]=[];
   for(const group of ORIGIN_MENU)for(const item of [...group.columns.flatMap(column=>column.items),...(group.footer?[group.footer]:[])]){
     const to=item.real?.to;
-    if(!to||!targetEnabled(to)||to==='/acesso'||options.some(option=>option.to===to)||!available.includes(to)||(menu&&!menu.has(to)))continue;
+    if(!to||!targetEnabled(to)||to==='/acesso'||item.homeShortcut===false||options.some(option=>option.to===to)||!available.includes(to)||(menu&&!menu.has(to)))continue;
     options.push({to,label:HOME_SHORTCUT_LABELS[to]??item.label,group:group.name});
   }
   return options;

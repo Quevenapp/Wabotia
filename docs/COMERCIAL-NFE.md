@@ -48,6 +48,16 @@ A política sensível única é `requireCom1SensitivePolicy`, em `src/erp/domain
 
 As doze operações estão descritas em `commercial-nfe/metadata.ts`, integradas ao módulo Fiscal, OpenAPI e catálogo de ações. Escritas são sensíveis. Por padrão o bot propõe e uma pessoa com o papel confirma; a execução usa a pessoa confirmadora, e auditoria conserva proponente e confirmador. O ponto de política aceita uma concessão autônoma já verificada, sem bloqueio estrutural por ser bot. Concessão não substitui pessoa ∩ bot, horário/MFA, partes, permissões ou privacidade. Origem externa (WhatsApp/cliente) não alcança estas operações. Dados pessoais para IA permanecem mascarados por padrão. Nas consultas de arquivos, a ferramenta do bot recebe metadados e um vínculo autenticado para a pessoa, depois da mesma busca/validação; bytes fiscais não são incluídos na resposta JSON da IA.
 
+Na junção candidata, o caminho real exige concessão nominal em `bot.update`:
+`erp_operations` contém os nomes `com1.*` liberados para o bot daquela área,
+com aviso `erp_data_acknowledged=true` ao configurar. Nasce vazio. Catálogo,
+rota e ponte conferem a concessão atual e a conversa interna; escrita exige
+proposta realmente em confirmação pela sessão humana. Só informar
+`proposal_id` não autoriza. A ponte revalida a concessão após I/O antes de
+novos comandos; arquivar evidência já reivindicada continua usando sua
+capacidade durável. O ponto de concessão autônoma permanece injetável;
+configuração persistida de autonomia e editor no painel ficam fora desta junção.
+
 Preparação/primeiro envio exigem Base, Produtos, Vendas e Fiscal. Histórico, arquivos, retomada e cancelamento exigem Base/Fiscal, sem depender de Vendas, PDV, Compras ou Cobrança. A persistência interna de evidência previamente reivindicada continua permitida mesmo após revogação ou desligamento de Base/Fiscal; exige capacidade durável, não autoriza outro envio nem efeitos.
 
 Com Fiscal desligada, a venda sem nota continua pelos caminhos comerciais existentes. Desligar Fiscal não libera edição destrutiva de nota enviada/aberta. Estoque/Financeiro desligados não bloqueiam a nota: cada efeito fica `pulado/part_disabled`, e religar não aplica nada automaticamente. **Aplicar efeito pulado** exige nova intenção explícita.
@@ -80,6 +90,8 @@ As alterações comerciais ficam nos pontos abaixo:
 |---|---|
 | `documents/rpc/erp_document_save.ts` | Guarda de conteúdo protegido e `deferredCom1Effect` no automatismo financeiro. |
 | `documents/rpc/erp_document_transition.ts` | Guarda de transição/cancelamento e adiamento dos dois automatismos. |
+| `documents/rpc/erp_module_apply.ts` | A projeção do módulo permanece gravada; os efeitos aguardam autorização fiscal, e cancelamento/transição respeitam emissão já enviada. |
+| `fiscal/comnfe/source.ts` | O preparo e a recaptura recusam pedido vinculado a módulo, preservando a mesma leitura exclusiva da lista. |
 | `documents/rpc/erp_document_small_writers.ts` | Protege observações usadas na nota e o vínculo fiscal na lixeira; observações internas operacionais continuam permitidas. |
 | `stock/rpc/document-stock.ts` | `requireCom1Posting` antes de nova saída. |
 | `stock/rpc/document-stock-read.ts` | A mesma guarda no caminho com depósito. |
@@ -87,6 +99,8 @@ As alterações comerciais ficam nos pontos abaixo:
 | `finance/rpc/erp_finance_grouped_billing.ts` | Guarda de cada pedido incluído no agrupamento. |
 
 Os caminhos são relativos a `src/erp/domains/`. Os helpers ficam em `fiscal/comnfe/effect-policy.ts`: `deferredCom1Effect`, `requireCom1Posting`, `guardCom1CommercialSave`, `guardCom1Transition`. Ao juntar a fase 3, preserve essas guardas e a ordem replay → política → nova postagem; preserve também as exceções específicas no manifesto `web/erp/ORIGEM.json`. Não estenda automaticamente a política modelo 55 a OS/NFS-e. Serviços exigem mapper, vínculo, tributos, estados e políticas próprios. `POST /v1/nfse/{id}/conferir`, disponível no cliente 0.12.0, confere cancelamento externo de NFS-e; não é recuperação genérica de emissão.
+
+Na junção candidata, pedidos de venda originados em módulos continuam somente para consulta no ERP e não oferecem **Preparar/Acompanhar NF-e**; o RPC também recusa o preparo. Se a automação do módulo e `on_authorization` estiverem ligadas, o pedido é projetado sem estoque/títulos, com motivo `awaiting_fiscal_authorization`, preservando o recibo e seu replay. Alterar a política não lança histórico automaticamente; o lançamento manual existente exige nova intenção e suas permissões. A emissão fiscal desses pedidos e a retomada dos efeitos depois dela são uma lacuna de produto a decidir. As duas guardas de faturamento agrupado permanecem juntas: origem de módulo e momento fiscal.
 
 ## Evidência automatizada e limites de verificação
 

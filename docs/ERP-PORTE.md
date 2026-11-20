@@ -90,13 +90,15 @@ Contrato das operações para a futura entrada no catálogo dos bots (mesmo serv
 Os campos canônicos por família, modelos e mensagens públicas continuam centralizados em
 `packages/erp-domain/src/spreadsheet-import.mjs`; o adaptador HTTP existente continua validando
 o mesmo contrato. Nenhum importador separado de contatos, CSV financeiro ou lista de preços foi alterado.
-Ainda falta publicar as rotas ERP no OpenAPI/registro de módulos consumido por
-`src/bot-actions/catalog.ts`, conectar autorização por bot/área e a confirmação sensível ao
-envelope de identidade. Hoje o portão existente trata a pessoa via bot como agente e recusa
-admin/financeiro; esta tarefa não introduz esse bloqueio nem o contorna. A integração deverá
-oferecer liberação configurável pelo administrador, preservar pessoa ∩ bot e impedir que a
-origem externa alcance estas operações administrativas. O teste positivo de bot configurado
-depende dessa integração; não é coberto por um teste que finja uma identidade humana.
+Ainda falta publicar as rotas de importação no OpenAPI/registro de módulos consumido por
+`src/bot-actions/catalog.ts`. Na junção candidata, `bot.update` aceita os três nomes HTTP
+acima em `erp_operations`, por bot e área, com aviso `erp_data_acknowledged=true`.
+Sem concessão, a pessoa via bot conserva a marca de agente e a recusa de admin/financeiro.
+Com concessão, o envelope confere a conversa interna e a operação; a escrita exige proposta
+em confirmação pela sessão humana. Partes, papel e MFA continuam valendo e origem externa
+não recebe esse contexto. `tests/erp-commercial-bot.test.ts` prova a importação configurada
+pela rota real; `tests/erp-planilha-importacao.test.ts` conserva a recusa sem concessão.
+O editor de concessões no painel e a descoberta destas operações pelo catálogo seguem pendentes.
 
 Base: `feat/erp-motor`. Provas e números: `docs/ERP-FASE0.md`. Mapa de fechos:
 `docs/erp-closure-map.json`. Dono de cada RPC e das funções compartilhadas:
