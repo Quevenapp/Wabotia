@@ -1,6 +1,6 @@
 # ERP — contrato integrado da fase 2
 
-A área possui nove chaves. `erp` significa **Cadastro de clientes**; o botão
+A área possui nove chaves. `erp` significa **Cadastros**; o botão
 de navegação permanece **ERP**. Todas começam desligadas. A migração aditiva
 `0133_erp_parts.sql` replica o estado existente de `erp` nas cinco novas
 partes, sem sobrescrever escolhas, reiniciar revisões ou alterar o SQLite do
@@ -14,13 +14,13 @@ seleção explícita, inclusive ao reativar a Base ou reaplicar a migração.
 
 | Chave | Nome | Dependências diretas |
 |---|---|---|
-| `erp` | Cadastro de clientes | — |
-| `erp-produtos` | Produtos e serviços | Cadastro de clientes |
+| `erp` | Cadastros | — |
+| `erp-produtos` | Produtos e serviços | Cadastros |
 | `erp-vendas` | Vendas | Produtos e serviços |
 | `erp-compras` | Compras | Produtos e serviços |
 | `erp-estoque` | Estoque | Produtos e serviços |
-| `erp-financeiro` | Financeiro | Cadastro de clientes |
-| `erp-fiscal` | Fiscal | Cadastro de clientes |
+| `erp-financeiro` | Financeiro | Cadastros |
+| `erp-fiscal` | Fiscal | Cadastros |
 | `erp-cobranca` | Cobrança bancária | Financeiro |
 | `erp-pdv` | Caixa / PDV | Vendas, Financeiro, Estoque |
 

@@ -1278,10 +1278,10 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
     ]
   },
   "manual_steps": [
-    "Revisar na prévia Cadastro de clientes, Produtos e serviços, Vendas, Estoque, Financeiro, Fiscal e Ordens de serviço. O modelo apenas configura módulos; não concede papéis nem segundo fator de autenticação.",
+    "Revisar na prévia Cadastros, Produtos e serviços, Vendas, Estoque, Financeiro, Fiscal e Ordens de serviço. O modelo apenas configura módulos; não concede papéis nem segundo fator de autenticação.",
     "A ponte operacional de Ordens de serviço (os) para estoque, financeiro e fiscal ainda não está entregue por este modelo. Conferir e registrar manualmente peças consumidas, títulos e documentos fiscais, evitando duplicidade. As ordens de serviço comerciais antigas continuam em Vendas; seus registros não são migrados para os.",
     "Configurar empresa, certificado, emissor, numeração e tributos conforme as funcionalidades fiscais disponíveis. A emissão automática de notas a partir de os ainda não está entregue; ligar Fiscal não habilita capacidades ausentes nem substitui a conferência antes de emitir.",
-    "PDV e Cobrança bancária permanecem desligados na proposta padrão. Para ligá-los, escolher explicitamente em Módulos ou revisar um manifesto: PDV exige Cadastro de clientes, Produtos e serviços, Vendas, Estoque e Financeiro; Cobrança exige Cadastro de clientes e Financeiro. Conferir toda a seleção antes de aplicar.",
+    "PDV e Cobrança bancária permanecem desligados na proposta padrão. Para ligá-los, escolher explicitamente em Módulos ou revisar um manifesto: PDV exige Cadastros, Produtos e serviços, Vendas, Estoque e Financeiro; Cobrança exige Cadastros e Financeiro. Conferir toda a seleção antes de aplicar.",
     "Agenda, Formulários, Pagamentos, Mensalidades, Reservas e Compras são escolhas independentes. Uma opção com valor false propõe desligamento apenas se selecionada; para ativá-la, usar Módulos ou um manifesto revisado. Opções não selecionadas e escolhas locais de reaplicações são preservadas.",
     "Escolher os tipos adicionais que serão publicados.",
     "Selecionar ou cadastrar equipamento ou veículo do contato confirmado. Placa, série e identificação administrativa não comprovam propriedade. Eletrônicos e eletrodomésticos usam tipos distintos; a série ou IMEI continua sensível e opcional. Modelos sem objeto e a Ordem de serviço embutida mantêm o fluxo atual.",

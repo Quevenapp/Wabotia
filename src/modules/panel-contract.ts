@@ -10,6 +10,8 @@ export interface ManagementItem {
   module: string;
   /** Requisitos adicionais à parte proprietária, sem conceder papel. */
   requires?: readonly import("../erp/parts.ts").ErpModuleId[];
+  /** Só a visibilidade no menu: pelo menos uma destas partes ligada. Não concede nem tira a rota. */
+  shownWithAny?: readonly import("../erp/parts.ts").ErpModuleId[];
   group: string;
   groupLabel: string;
   groupOrder: number;

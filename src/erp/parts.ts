@@ -36,6 +36,32 @@ export const ERP_PART_DEPENDENCIES: Readonly<Record<ErpModuleId, readonly ErpMod
   "erp-estoque": ["erp-produtos"], "erp-financeiro": ["erp"], "erp-fiscal": ["erp"],
   "erp-cobranca": ["erp-financeiro"], "erp-pdv": ["erp-vendas", "erp-financeiro", "erp-estoque"],
 });
+/** Nome de exibição de cada parte (tela Módulos, painel e mensagens). O identificador não muda. */
+export const ERP_PART_NAMES: Readonly<Record<ErpModuleId, string>> = Object.freeze({
+  erp: "Cadastros", "erp-produtos": "Produtos e serviços", "erp-vendas": "Vendas", "erp-compras": "Compras",
+  "erp-estoque": "Estoque", "erp-financeiro": "Financeiro", "erp-fiscal": "Fiscal",
+  "erp-cobranca": "Cobrança bancária", "erp-pdv": "Caixa / PDV",
+});
+const spokenList = (items: readonly string[]) =>
+  items.length > 1 ? `${items.slice(0, -1).join(", ")} e ${items.at(-1)}` : items.join("");
+/**
+ * Frase de uma tela cuja parte está desligada: a parte dona e, quando ela
+ * depende de outras também desligadas, a cadeia. Sem parte faltando, null.
+ */
+export function erpPartOffMessage(owner: ErpModuleId, requirement: ErpRequirement, modules: Readonly<Record<string, boolean>>): string | null {
+  const order = (ids: readonly ErpModuleId[]) => ERP_MODULE_IDS.filter(id => ids.includes(id));
+  const names = (ids: readonly ErpModuleId[]) => spokenList(ids.map(id => ERP_PART_NAMES[id]));
+  const off = order(requirement.all.filter(id => modules[id] !== true));
+  if (!off.length) return null;
+  if (modules[owner] === true)
+    return `Esta tela também precisa de ${names(off)}, que ${off.length > 1 ? "estão desligados" : "está desligado"}. Ligue em Gestão → Módulos.`;
+  const chain = order(erpRequirement(owner).all.filter(id => id !== owner && modules[id] !== true));
+  const extra = off.filter(id => id !== owner && !chain.includes(id));
+  const lines = [`Esta tela faz parte de ${ERP_PART_NAMES[owner]}, que está desligado. Ligue em Gestão → Módulos.`];
+  if (chain.length) lines.push(`${ERP_PART_NAMES[owner]} depende de ${names(chain)}: ligue ${chain.length > 1 ? "todos" : "os dois"}.`);
+  if (extra.length) lines.push(`Esta tela também precisa de ${names(extra)}.`);
+  return lines.join(" ");
+}
 /** Compatibilidade do motor direto. Produção valida o mapa completo antes. */
 export function normalizeErpParts(input?: Partial<ErpParts>): Readonly<ErpParts> {
   return Object.freeze(Object.fromEntries(ERP_PART_KEYS.map(key => [key, input?.[key] !== false])) as unknown as ErpParts);

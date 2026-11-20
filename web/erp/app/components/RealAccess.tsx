@@ -5,7 +5,8 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { erpPorts } from '../../ports';
 import type { ErpHostView } from '../../host-runtime';
 import { portedPermissionState } from '../../../management/ported-policy';
-import { blockOf, ERP_BLOCK_LABELS, hiddenInWabotia, targetEnabled } from '../../blocks';
+import { blockOf, currentErpModules, ERP_BLOCK_LABELS, hiddenInWabotia, targetEnabled } from '../../blocks';
+import { partOffMessage } from '../../modules';
 import { MOTOR_READY, pendingInMotor } from '../../motor';
 import { createAccessController, decimalMoney, RESOURCE_LABELS, ROLE_LABELS, type AccessController, type AccessState, type Entity, type ListQuery, type Summary } from '../lib/real-access';
 import './real-access.css';
@@ -45,7 +46,9 @@ function BlockOff({ target }: { target: string }) {
   if (pendingInMotor(target)) return <section className="real-state-panel" aria-labelledby="erp-pending-title"><h1 id="erp-pending-title">Em implantação</h1><p>Esta parte do ERP ainda está sendo instalada no Wabotia e aparece aqui assim que ficar pronta. Nada foi perdido: os dados continuam no mesmo lugar.</p><p>Já funcionam:</p><ul>{MOTOR_READY.filter(item => targetEnabled(item.to)).map(item => <li key={item.to}><Link to={item.to}>{item.label}</Link></li>)}</ul></section>;
   if (hiddenInWabotia(target)) return <section className="real-state-panel"><h1>Página indisponível</h1><p>Esta página não faz parte do ERP no Wabotia. As atualizações e as conexões ficam no painel, em Gestão.</p><Link to="/acesso">Voltar ao início</Link></section>;
   const ports = erpPorts(), label = ERP_BLOCK_LABELS[blockOf(target) ?? "erp"];
-  return <section className="real-state-panel"><h1>Recurso desligado</h1><p>{label} está desligado nesta área de atendimento. {ports?.admin ? 'Ligue-o em Gestão › Módulos para usar esta tela.' : 'Peça ao administrador para ligá-lo em Gestão › Módulos.'}</p>
+  // Wabotia: diz qual módulo falta e de quem ele depende (nomes de src/erp/parts.ts).
+  const detail = partOffMessage(target, currentErpModules());
+  return <section className="real-state-panel"><h1>Recurso desligado</h1><p>{detail ? `${detail}${ports?.admin ? '' : ' Peça ao administrador.'}` : `${label} está desligado nesta área de atendimento. ${ports?.admin ? 'Ligue-o em Gestão › Módulos para usar esta tela.' : 'Peça ao administrador para ligá-lo em Gestão › Módulos.'}`}</p>
     {ports?.admin && ports.openModules && <button type="button" className="primary-button" onClick={ports.openModules}>Abrir Módulos</button>} <Link to="/acesso">Voltar ao início</Link></section>;
 }
 

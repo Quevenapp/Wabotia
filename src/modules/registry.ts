@@ -281,6 +281,10 @@ export async function moduleCommand(
   );
   const { states } = await readErpPartsState(env, profile);
   const name = (id: string) => moduleById(id)?.name || id;
+  const names = (ids: string[]) => {
+    const all = ids.map(name);
+    return all.length > 1 ? `${all.slice(0, -1).join(", ")} e ${all.at(-1)}` : all.join("");
+  };
   // Dependências (requires): não liga sem os requeridos; ao desligar um
   // requerido, avisa quem depende dele e só desliga junto com cascade.
   let cascade: string[] = [];
@@ -290,7 +294,7 @@ export async function moduleCommand(
       throw new ApiError(
         409,
         "module_requires",
-        `${definition.name} depende de ${missing.map(name).join(", ")}. Ligue ${missing.length > 1 ? "esses módulos" : "esse módulo"} antes.`,
+        `${definition.name} depende de ${names(missing)}. Ligue ${missing.length > 1 ? "esses módulos" : "esse módulo"} antes.`,
       );
   } else {
     cascade = enabledDependents(definition.id, states);
@@ -298,7 +302,7 @@ export async function moduleCommand(
       throw new ApiError(
         409,
         "module_required",
-        `${cascade.map(name).join(", ")} ${cascade.length > 1 ? "dependem" : "depende"} de ${definition.name} e ${cascade.length > 1 ? "serão desligados" : "será desligado"} junto. Confirme a lista de dependentes.`,
+        `${names(cascade)} ${cascade.length > 1 ? "dependem" : "depende"} de ${definition.name} e ${cascade.length > 1 ? "serão desligados" : "será desligado"} junto. Os dados ${cascade.length > 1 ? "deles" : "dele"} continuam guardados. Confirme a lista de dependentes.`,
       );
     if (data.cascade === true && data.confirmed_dependents !== undefined && (
       !Array.isArray(data.confirmed_dependents) ||

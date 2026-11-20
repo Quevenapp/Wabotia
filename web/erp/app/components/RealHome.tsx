@@ -20,7 +20,7 @@ import {HomeProfileCard} from './CompanyChrome';
 import {HomeExpiring} from './HomeExpiring';
 import {Icon} from './Icon';
 import './real-home.css';
-import { blockEnabled, entityEnabled, targetEnabled } from '../../blocks';
+import { blockEnabled, entityEnabled, targetEnabled, ERP_BLOCK_LABELS } from '../../blocks';
 
 const count=(value:number)=>value.toLocaleString('pt-BR');
 const ORDER=['sales_orders','sales_proposals','purchase_orders','service_orders'];
@@ -86,7 +86,8 @@ function HomeView({controller,access,partsGeneration}:{controller:HomeController
       setSummary({generation:partsGeneration,value:result});setLoading(false);
     }).catch(failure=>{
       if(request.signal.aborted||partsGeneration!==summaryGeneration())return;
-      setLoading(false);setError(failure instanceof AccessError&&failure.status===403?'Seu acesso ao painel precisa ser verificado.':'Não foi possível carregar o resumo. Tente novamente.');
+      // Wabotia: recusa por parte desligada não é falha; os blocos daquela parte simplesmente não aparecem.
+      setLoading(false);setError(failure instanceof AccessError&&failure.status===409&&failure.code==='module_disabled'?'':failure instanceof AccessError&&failure.status===403?'Seu acesso ao painel precisa ser verificado.':'Não foi possível carregar o resumo. Tente novamente.');
     });return()=>request.abort();
   },[controller,reload,routeKey,partsGeneration]);
   // Back/forward changes the period from outside the selector: an open "Customizado" choice no longer applies.
@@ -113,6 +114,8 @@ function HomeView({controller,access,partsGeneration}:{controller:HomeController
     <div className="home-main">
 
       <p className="home-alert"><Icon name="circle-info" size={16}/><span>{nativeIndicatorCoverageText(summary) ?? 'Este resumo considera os registros da sua empresa no ERP. Os indicadores serão preenchidos conforme os cadastros e movimentações forem registrados.'}</span></p>
+      {/* Wabotia: só a base ligada: um estado vazio amigável no lugar dos indicadores das partes desligadas. */}
+      {!(['erp-produtos','erp-vendas','erp-compras','erp-estoque','erp-financeiro','erp-fiscal'] as const).some(blockEnabled)&&<p className="home-alert" role="note"><Icon name="circle-info" size={16}/><span>Com só {ERP_BLOCK_LABELS.erp} ligado, este painel mostra os atalhos e os cadastros. Os indicadores de vendas, estoque, financeiro e notas aparecem aqui quando esses módulos forem ligados em Gestão → Módulos.</span></p>}
       <HomeExpiring controller={controller as Parameters<typeof HomeExpiring>[0]['controller']} role={role}/>
 
       <section className="home-daily" aria-labelledby="home-daily-title">

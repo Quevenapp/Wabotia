@@ -142,6 +142,21 @@ function TargetGate({ runtime }: { runtime: ErpHostRuntime }) {
   return location.pathname === "/manutencao-efeitos" ? <Suspense fallback={<TargetNotice state="loading" />}><RealAccess /></Suspense> : <App />;
 }
 
+/**
+ * Roteador da área já conferida. Trocar de tela não reconfere o acesso: o
+ * controlador continua com a sessão, as permissões e os pedidos em andamento,
+ * e o servidor continua autorizando cada pedido. A reconferência fica com a
+ * primeira entrada, 401/403, troca de papel, pessoa ou partes e os avisos de
+ * subscribePermissions.
+ */
+export function createHostRouter(runtime: ErpHostRuntime, initial: string, bind?: BindManagementRouter) {
+  const router = createMemoryRouter([{ path: "*", element: <UnsavedChangesProvider><GuardBridge /><TargetGate runtime={runtime} /></UnsavedChangesProvider> }],
+    { basename: ERP_BASENAME, initialEntries: [internalErpTarget(initial)] });
+  let bridge: ManagementRouterBridge;
+  try { bridge = connectErpRouter(router, bind); } catch (error) { router.dispose(); throw error; }
+  return { router, bridge, dispose() { bridge.dispose(); router.dispose(); } };
+}
+
 function HostTree({ runtime, props }: { runtime: ErpHostRuntime; props: ErpMountProps }) {
   const [router, setRouter] = useState<MemoryRouter | null>(null);
   // Atualizações do portal/callbacks não recriam o roteador nem descartam edições.
@@ -150,19 +165,9 @@ function HostTree({ runtime, props }: { runtime: ErpHostRuntime; props: ErpMount
     bindLinks: (element: HTMLElement | null) => keepLinksInside(element, router),
   }), [runtime, props.chromeTarget, router, props.management, props.suspended]);
   useEffect(() => {
-    const initial = internalErpTarget(location.pathname + location.search + location.hash);
-    const next = createMemoryRouter([{ path: "*", element: <UnsavedChangesProvider><GuardBridge /><TargetGate runtime={runtime} /></UnsavedChangesProvider> }],
-      { basename: ERP_BASENAME, initialEntries: [initial] });
-    let bridge: ManagementRouterBridge;
-    try { bridge = connectErpRouter(next); } catch (error) { next.dispose(); throw error; }
-    let previous = localUrl(next.state.location);
-    // Instala antes de RouterProvider: a nova página já nasce sob a verificação.
-    const stop = next.subscribe(state => {
-      const target = localUrl(state.location);
-      if (target !== previous) { previous = target; runtime.controller.retry(); }
-    });
-    setRouter(next);
-    return () => { stop(); bridge.dispose(); next.dispose(); setRouter(null); };
+    const host = createHostRouter(runtime, location.pathname + location.search + location.hash);
+    setRouter(host.router);
+    return () => { host.dispose(); setRouter(null); };
   }, [runtime]);
   useEffect(() => {
     if (props.suspended) return;

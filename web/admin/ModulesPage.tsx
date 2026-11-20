@@ -25,6 +25,33 @@ const icons: Record<string, typeof Puzzle> = {
 const names = (all: Row[], ids: string[]) =>
   all.filter((m) => ids.includes(m.id)).map((m) => m.name);
 
+/** "A", "A e B", "A, B e C". */
+const spoken = (items: string[]) =>
+  items.length > 1 ? `${items.slice(0, -1).join(", ")} e ${items.at(-1)}` : items.join("");
+
+/** Desligados de que `module` depende, direta ou indiretamente, na ordem da lista. */
+function missingOf(all: Row[], module: Row) {
+  const found = new Set<string>();
+  const visit = (id: string) => {
+    const required = all.find((m) => m.id === id);
+    for (const r of (required?.requires || []) as string[]) {
+      if (found.has(r)) continue;
+      if (!all.find((m) => m.id === r)?.enabled) found.add(r);
+      visit(r);
+    }
+  };
+  visit(module.id);
+  return all.filter((m) => found.has(m.id)).map((m) => m.id);
+}
+
+/** Aviso que fica na tela depois de desligar em cascata. */
+export function cascadeNotice(all: Row[], module: Row, alsoDisabled: string[]) {
+  const off = names(all, alsoDisabled);
+  if (!off.length) return null;
+  const many = off.length > 1;
+  return `${spoken(off)} ${many ? "foram desligados" : "foi desligado"} junto, porque ${many ? "dependem" : "depende"} de ${module.name}. Os dados ${many ? "deles" : "dele"} continuam guardados.`;
+}
+
 /** Ligados que dependem de `id`, direta ou indiretamente (como o servidor). */
 function dependentsOf(all: Row[], id: string) {
   const found = new Set<string>();
@@ -55,9 +82,8 @@ function ModuleCard({
   onToggle: (next: boolean) => void;
 }) {
   const requires: string[] = module.requires || [];
-  const missing = requires.filter(
-    (id) => !all.find((m) => m.id === id)?.enabled,
-  );
+  // Inclui a cadeia: Caixa / PDV sem Produtos e serviços pede os dois.
+  const missing = missingOf(all, module);
   const app = useApp();
   const Icon = icons[module.id] || Puzzle;
   const places = (module.navigation || []).map((item: Row) => item.label);
@@ -89,7 +115,7 @@ function ModuleCard({
       </div>
       {!module.enabled && missing.length > 0 && (
         <p className="muted">
-          Ligue antes {names(all, missing).join(" e ")}: este módulo depende
+          Ligue antes {spoken(names(all, missing))}: este módulo depende
           {missing.length > 1 ? " deles" : " dele"}.
         </p>
       )}
@@ -136,6 +162,8 @@ export function ModulesPage() {
   const list = useResource(app.root + "/modules");
   const { busyKey, run } = useAction();
   const [confirm, setConfirm] = useState<{ module: Row; dependents: Row[]; changed?: boolean } | null>(null);
+  // Fica na tela depois de desligar em cascata: o que saiu junto e de quem dependia.
+  const [cascaded, setCascaded] = useState<string | null>(null);
   const modules: Row[] = list.data?.data || [];
   const confirmation = (all: Row[], module: Row, changed = false) => {
     const ids = dependentsOf(all, module.id);
@@ -144,7 +172,9 @@ export function ModulesPage() {
   const change = async (module: Row, enabled: boolean, confirmed: Row[] = []) => {
     // Desligar um módulo do qual outros dependem desliga os dependentes
     // junto (cascade), depois da confirmação que os lista.
-    await run(
+    setCascaded(null);
+    const known = modules;
+    const result = await run(
       async () => {
         try {
           return await app.api(app.root + "/modules/" + module.id, "PUT", {
@@ -169,6 +199,9 @@ export function ModulesPage() {
           : `${module.name} desligado.`,
       },
     );
+    // A lista vem do servidor (also_disabled), não da confirmação.
+    const also = (result as { also_disabled?: unknown } | undefined)?.also_disabled;
+    if (!enabled && Array.isArray(also) && also.length) setCascaded(cascadeNotice(known, module, also as string[]));
     await Promise.all([list.reload(), app.refresh().catch(() => {})]);
   };
   return (
@@ -182,6 +215,11 @@ export function ModulesPage() {
           religar.
         </p>
       </section>
+      {cascaded && (
+        <Notice tone="warn" onClose={() => setCascaded(null)}>
+          {cascaded}
+        </Notice>
+      )}
       {list.error && (
         <Notice tone="error" onRetry={() => void list.reload()}>
           {list.error}

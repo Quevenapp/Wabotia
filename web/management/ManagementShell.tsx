@@ -12,10 +12,12 @@ export function managementRoute(to: string) {
   return parseRoute(url.pathname, url.search, url.hash);
 }
 
-export function ManagementState({ state, admin, retained = false }: {
+export function ManagementState({ state, admin, retained = false, detail }: {
   state: PortedTargetState | "empty" | "redirecting";
   admin: boolean;
   retained?: boolean;
+  /** Tela do ERP com parte desligada: qual módulo falta e de quem depende. */
+  detail?: string | null;
 }) {
   if (state === "loading" || state === "redirecting")
     return <div className="loading"><Spinner label="Abrindo a gestão…" /></div>;
@@ -25,7 +27,7 @@ export function ManagementState({ state, admin, retained = false }: {
       : "Peça ao administrador em Gestão → Módulos"],
     disabled: ["Módulo desligado", retained
       ? "A tela está indisponível. Seu rascunho foi preservado nesta aba; novas consultas e ações estão bloqueadas até o módulo ser ligado novamente."
-      : "Este módulo está desligado nesta área de atendimento."],
+      : detail ? detail + (admin ? "" : " Peça ao administrador.") : "Este módulo está desligado nesta área de atendimento."],
     denied: ["Você não tem acesso aos módulos de gestão desta área", "Peça ao administrador para revisar suas permissões."],
     unavailable: ["Recurso indisponível", "Este destino ainda não está disponível nesta instalação."],
     "not-found": ["Página não encontrada", "Escolha um destino no menu de gestão."],

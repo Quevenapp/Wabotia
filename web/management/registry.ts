@@ -94,6 +94,7 @@ export function resolveManagement(
       ? c.modules[item.module] === true &&
         canOpenPage(item.target.page, c.role, c.modules, c.access && [...c.access])
       : requirementsEnabled(erpRequirement(...(item.requires ?? [])), c.modules) && c.modules[item.module] === true &&
+        (!item.shownWithAny || item.shownWithAny.some(id => c.modules[id] === true)) &&
         portedTargetState(item.target.to, c, simulated, permissions) === "allowed"))
     .flatMap((item) => {
       const destination = managementItemHref(item);

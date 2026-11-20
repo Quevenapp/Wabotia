@@ -130,6 +130,8 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
   },
   {
     id: "erp.payment-methods", module: "erp", part: "cadastro",
+    // A rota continua da Base; no menu só aparece com quem usa as formas de pagamento.
+    shownWithAny: ["erp-vendas", "erp-financeiro", "erp-pdv"],
     ...ERP_MENU_GROUPS.financeiro, order: 140,
     label: "Formas de pagamento",
     target: { kind: "ported", to: "/formas-pagamento-empresa" },
@@ -361,6 +363,8 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
   },
   {
     id: "erp.effect-maintenance", module: "erp", part: "sistema",
+    // Só há efeitos a desfazer com Estoque ou Financeiro ligado.
+    shownWithAny: ["erp-estoque", "erp-financeiro"],
     ...ERP_MENU_GROUPS.sistema, order: 440,
     label: "Manutenção de efeitos",
     target: { kind: "ported", to: "/manutencao-efeitos" }, permission: { kind: "erp" },

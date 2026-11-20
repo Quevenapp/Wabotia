@@ -7,17 +7,11 @@ export { blockOf } from "./modules.ts";
 
 export type ErpBlock = import("./modules.ts").ErpModule;
 export { requirementOf } from "./modules.ts";
-import { ERP_PART_MODULES, erpRequirement, type ErpRequirement } from "../../src/erp/parts.ts";
+import { ERP_PART_MODULES, ERP_PART_NAMES, erpRequirement, type ErpRequirement } from "../../src/erp/parts.ts";
 import { erpFieldRequirement, erpEntityRequirement, erpOperationRequirement, type ErpOperation } from "../../src/erp/parts-requirements.ts";
 
-export const ERP_BLOCK_LABELS: Record<ErpBlock, string> = {
-  erp: "Cadastro de clientes",
-  "erp-produtos": "Produtos e serviços", "erp-vendas": "Vendas", "erp-compras": "Compras",
-  "erp-estoque": "Estoque", "erp-financeiro": "Financeiro",
-  "erp-fiscal": "Fiscal",
-  "erp-cobranca": "Cobrança bancária",
-  "erp-pdv": "Caixa / PDV",
-};
+// Os nomes são os de src/erp/parts.ts (mesma fonte da tela Módulos).
+export const ERP_BLOCK_LABELS: Readonly<Record<ErpBlock, string>> = ERP_PART_NAMES;
 
 /**
  * Telas do Fagoo que o Wabotia já faz pelo núcleo e que ficam escondidas:

@@ -18,6 +18,7 @@ import type { FullCustomerHost } from "../contact-profile/host-port";
 import { installIntegrationHost, integrationRouteState, portableWorkBlocked, visibleIntegrationItems } from "../modules/integrations/visibility";
 import { IntegrationsPage } from "../modules/integrations/IntegrationStatus";
 import { setMotorWorkEnabled } from "./motor";
+import { partOffMessage } from "./modules";
 
 /** Testável por injeção: estado leve não inicia import nem prefetch. */
 export function loadAuthorizedPorted<T>(state: PortedTargetState, load: () => Promise<T>, prefetch: () => void): Promise<T> | null {
@@ -268,7 +269,8 @@ export function ErpArea() {
   return <ManagementShell context={context} items={menu} entry={entry && !failedStatus} chromeRef={setChromeTarget}>
     {failedStatus && <Empty title="Não foi possível abrir a gestão" description={app.statusError}
       action={<Button onClick={() => void app.refresh().catch(() => {})}>Tentar novamente</Button>} />}
-    {workRequired ? <Empty title="Crie um trabalho para esta operação" description="A ordem de serviço comercial acompanha o trabalho da área." action={<a href="/app/erp/modulos/trabalhos">Abrir trabalhos</a>} /> : !entry && state !== "allowed" && <ManagementState state={state} admin={app.isAdmin} retained={!!retained} />}
+    {workRequired ? <Empty title="Crie um trabalho para esta operação" description="A ordem de serviço comercial acompanha o trabalho da área." action={<a href="/app/erp/modulos/trabalhos">Abrir trabalhos</a>} /> : !entry && state !== "allowed" && <ManagementState state={state} admin={app.isAdmin} retained={!!retained}
+      detail={state === "disabled" && ported ? partOffMessage(ported, context.modules) : null} />}
     {!entry && (state === "allowed" || retained) && <ManagementRequestBoundary key={identity} enabled={state === "allowed"}>
       {integrations ? <IntegrationsPage key={selection + identity} search={route.search} /> : ported ? <div className="management-page erp-area"><PortedContent target={ported} props={mountProps} /></div> : <Activity mode={state === "allowed" ? "visible" : "hidden"}>
         <div className={"management-page" + (ported ? " erp-area" : "")}>

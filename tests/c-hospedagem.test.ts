@@ -121,11 +121,15 @@ describe("A1/R1 — identidade e suspensão", () => {
     expect(same.props.value.router).toBe(router); expect(editor.render(Editor).draft).toBe("Alterado"); expect(env.guard?.()).toBe(true);
     expect(fetcher).toHaveBeenCalledTimes(reads);
     const checks = () => fetcher.mock.calls.filter(([path]) => String(path).endsWith("/v1/me")).length;
+    const fineChecks = () => fetcher.mock.calls.filter(([path]) => String(path).endsWith("/v1/sistema/permissoes")).length;
     for (const event of ["focus", "erp:permissions-changed"]) {
-      const count = checks(); window.dispatchEvent(new Event(event)); await vi.waitFor(() => expect(checks()).toBeGreaterThan(count));
+      const count = checks(), fine = fineChecks(); window.dispatchEvent(new Event(event)); await vi.waitFor(() => expect(checks()).toBeGreaterThan(count));
+      // A permissão anterior continua "ready" durante a reconferência; espera a resposta nova.
+      await vi.waitFor(() => expect(fineChecks()).toBeGreaterThan(fine)); await tick();
       await vi.waitFor(() => expect(runtime.controller.getSnapshot().permissions?.phase).toBe("ready"));
     }
-    const count = checks(); await router.navigate("/acesso#retomada"); await vi.waitFor(() => expect(checks()).toBeGreaterThan(count));
+    // Navegar dentro do ERP não reconfere o acesso (sem /v1/me por clique).
+    const count = checks(); await router.navigate("/acesso#retomada"); await tick(); expect(checks()).toBe(count);
     expect(editor.render(Editor).draft).toBe("Alterado");
     props = { ...props, suspended: true, management: context({ erp: false, agenda: false }) };
     const hidden: any = mounting.render(() => ErpMount(props)); mounting.commit();
@@ -248,7 +252,8 @@ describe("A4 — mesma autorização efetiva", () => {
     for (const [index, allowed] of [true, false, true].entries()) {
       if (index > 0) {
         fetcher.mockImplementationOnce(async () => Response.json(member())).mockImplementationOnce(async () => Response.json(permissions(allowed ? [permission] : [])));
-        runtime.controller.retry(); await vi.waitFor(() => expect(runtime.controller.getSnapshot().permissions?.phase).toBe("ready"));
+        // A última permissão conferida vale até a resposta nova chegar.
+        runtime.controller.retry(); await vi.waitFor(() => expect(runtime.controller.getSnapshot().permissions?.permissions).toEqual(allowed ? [permission] : []));
       }
       const state = runtime.controller.getSnapshot(); expect(menuAllows(state.permissions!)).toBe(allowed); expect(runtime.allowed(stock)).toBe(allowed); expect(targetEnabled(stock)).toBe(allowed);
       expect(portedTargetState(stock, context(), false, state.permissions)).toBe(allowed ? "allowed" : "denied");
@@ -301,7 +306,8 @@ describe("A4 — mesma autorização efetiva", () => {
       throw new Error("Leitura inesperada: " + path);
     });
     runtime.controller.retry(); await vi.waitFor(() => expect(oldSignal).toBeDefined());
-    expect(runtime.controller.getSnapshot().permissions?.phase).toBe("checking");
+    // Reconferência do mesmo ator: vale a última permissão conferida até a resposta nova.
+    expect(runtime.controller.getSnapshot().permissions).toMatchObject({ phase: "ready", permissions: [] });
     const oldCheck = runtime.controller.verifyPermissions();
     const next = await own(acquireErpHost(host({ profile: "area-b" }))).ready; await ready(next); await next.controller.verifyPermissions();
     expect(oldSignal!.aborted).toBe(true);

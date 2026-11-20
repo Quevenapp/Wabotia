@@ -1,5 +1,5 @@
 import type { ErpPart } from "../../src/modules/erp/panel-menu.ts";
-import { ERP_MODULE_IDS, erpRequirement, type ErpModuleId, type ErpRequirement } from "../../src/erp/parts.ts";
+import { ERP_MODULE_IDS, erpPartOffMessage, erpRequirement, type ErpModuleId, type ErpRequirement } from "../../src/erp/parts.ts";
 import { erpDestinationRequirement, erpEntityRequirement, erpImportRequirement, ERP_IMPORT_KINDS, erpOperationRequirement, erpXmlRequirement, erpPreferenceRequirement, ERP_PREFERENCE_DESTINATIONS } from "../../src/erp/parts-requirements.ts";
 export const ERP_MODULES = ERP_MODULE_IDS;
 export type ErpModule = ErpModuleId;
@@ -50,6 +50,11 @@ export function requirementOf(target: string) {
   return extras ? { ...resolved, requirement: erpRequirement(...resolved.requirement.all, ...extras.all) } : resolved;
 }
 export const blockOf = (target: string): ErpBlock | null => requirementOf(target)?.owner ?? null;
+/** Tela aberta pelo endereço com a parte desligada: qual módulo falta e de quem ele depende. */
+export function partOffMessage(target: string, modules: Readonly<Record<string, boolean>>): string | null {
+  const resolved = requirementOf(target);
+  return resolved ? erpPartOffMessage(resolved.owner, resolved.requirement, modules) : null;
+}
 export function erpPartEnabled(part: ErpPart, modules: Readonly<Record<string, boolean>>, to: string): boolean {
   const resolved = requirementOf(to);
   // Resultados é apenas o nome legado de um grupo; nunca uma chave.

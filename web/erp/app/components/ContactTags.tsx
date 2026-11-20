@@ -7,7 +7,8 @@ import { planBatch, type BatchResult, type BatchStep } from '../lib/origin-batch
 import { BatchDialog } from './BatchDialog';
 import { TagsDrawer } from './TagsDrawer';
 import { Icon } from './Icon';
-import { aborted, errorText, knownFailure } from './catalog-shared';
+import { aborted, errorText, knownFailure, partDisabled } from './catalog-shared';
+import { entityEnabled } from '../../blocks';
 import './product-registry.css';
 
 // Tags de Contatos (produtos lane, migração 153) na listagem e no formulário de Clientes e fornecedores: filtro Tags (Todos |
@@ -17,7 +18,8 @@ import './product-registry.css';
 export type ContactTag = { id: string; name: string; group_id: string | null; group_name: string | null };
 export type ContactTagSet = { contact_id: string; version: number; tag_ids: string[]; tags: ContactTag[] };
 export type PriceListOption = { id: string; name: string };
-export interface ContactTagOptions { tags: TaxonomyItem[]; groups: TaxonomyItem[]; loaded: boolean; failed: boolean; lists: PriceListOption[] | null; listsState: 'loading' | 'ready' | 'forbidden' | 'failed' }
+/** Wabotia: 'off' = listas de preços são de Produtos e serviços, desligado nesta área; o filtro some, sem aviso de erro. */
+export interface ContactTagOptions { tags: TaxonomyItem[]; groups: TaxonomyItem[]; loaded: boolean; failed: boolean; lists: PriceListOption[] | null; listsState: 'loading' | 'ready' | 'forbidden' | 'failed' | 'off' }
 const BASE = '/v1/cadastros/contatos';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Controller = Pick<AccessController, 'catalog' | 'getSnapshot'>;
@@ -39,13 +41,14 @@ export function useContactTagOptions(controller: Controller, enabled: boolean, p
     void Promise.all((['tags', 'tag_groups'] as const).map(kind => Promise.resolve().then(() => controller.catalog(`/v1/cadastros/taxonomias/${TAXONOMY_SLUG[kind]}`, { signal: request.signal })).then(value => ofTagType(taxonomyItems(value, kind), 'contacts'))))
       .then(([tags, groups]) => { if (!request.signal.aborted) setState(current => ({ ...current, tags, groups, loaded: true, failed: false })); })
       .catch(failure => { if (!request.signal.aborted && !aborted(failure)) setState(current => ({ ...current, loaded: true, failed: true })); });
-    if (!priceLists) setState(current => ({ ...current, lists: null, listsState: 'forbidden' }));
+    if (!entityEnabled('price_lists')) setState(current => ({ ...current, lists: null, listsState: 'off' }));
+    else if (!priceLists) setState(current => ({ ...current, lists: null, listsState: 'forbidden' }));
     else void Promise.resolve().then(() => controller.catalog('/v1/cadastros/listas-precos', { signal: request.signal })).then(value => {
       const items = (value as { items?: { id?: unknown; name?: unknown }[] }).items;
       if (request.signal.aborted) return;
       if (!Array.isArray(items) || items.some(item => typeof item?.id !== 'string' || typeof item.name !== 'string')) throw new AccessError(502);
       setState(current => ({ ...current, lists: items.map(item => ({ id: item.id as string, name: item.name as string })), listsState: 'ready' }));
-    }).catch(failure => { if (!request.signal.aborted && !aborted(failure)) setState(current => ({ ...current, lists: null, listsState: failure instanceof AccessError && failure.status === 403 ? 'forbidden' : 'failed' })); });
+    }).catch(failure => { if (!request.signal.aborted && !aborted(failure)) setState(current => ({ ...current, lists: null, listsState: partDisabled(failure) ? 'off' : failure instanceof AccessError && failure.status === 403 ? 'forbidden' : 'failed' })); });
     return () => request.abort();
   }, [controller, enabled, priceLists]);
   return state;
@@ -64,11 +67,11 @@ export function ContactTagFilters({ options, tag, priceList, onTag, onPriceList 
         {[...options.groups].sort(byName).map(group => { const items = options.tags.filter(item => item.parent_id === group.id).sort(byName);
           return items.length ? <optgroup key={group.id} label={group.name}>{items.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</optgroup> : null; })}
         {tag && tag !== 'none' && !options.tags.some(item => item.id === tag) && <option value={tag}>Tag selecionada</option>}</select></div>
-    <div className="form-field"><label htmlFor="contact-price-list-filter">Lista de preço</label>
+    {options.listsState !== 'off' && <div className="form-field"><label htmlFor="contact-price-list-filter">Lista de preço</label>
       <select id="contact-price-list-filter" value={priceList} disabled={!options.lists} title={listTitle} onChange={event => onPriceList(event.target.value)}><option value="">Todas</option>
         {(options.lists ?? []).map(list => <option key={list.id} value={list.id}>{list.name}</option>)}
         {priceList && !(options.lists ?? []).some(list => list.id === priceList) && <option value={priceList}>Lista selecionada</option>}</select>
-      {options.listsState === 'ready' && <small className="real-help">Contatos vinculados à lista (categoria Contato) ou da UF da lista (categoria Região).</small>}</div>
+      {options.listsState === 'ready' && <small className="real-help">Contatos vinculados à lista (categoria Contato) ou da UF da lista (categoria Região).</small>}</div>}
   </>;
 }
 export function contactTagChips(filters: { tag: string; price_list_id: string }, options: ContactTagOptions, remove: (change: { tag?: string; price_list_id?: string }) => () => void) {

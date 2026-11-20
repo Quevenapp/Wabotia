@@ -181,6 +181,8 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
     update({membership:null,records:null,listPending:false,phase:status===401?'signed_out':'pending',message:status===401?'Sua sessão expirou. Entre novamente.'
       :code==='ERP_ACCESS_OUTSIDE_SCHEDULE'?'Você não pode acessar o ERP neste horário. Os horários de acesso são definidos pelo administrador em Preferências › Sistema › Permissões no ERP.':null,permissionMessage:null});
   };
+  const lastChecked = (actor: string, role: string) => state.permissions?.phase === 'ready' && state.permissions.userId === actor &&
+    state.permissions.role === role && state.permissions.apiUrl === apiUrl;
   const checkPermissions = (afterMembership = false) => {
     if (fineRequest) return finePromise;
     if (!fineEnabled || suspended || stopped || signingOut || !token || state.phase !== 'ready' || !state.membership) return null;
@@ -190,7 +192,8 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
     const active = () => !suspended && !stopped && !controller.signal.aborted && current === generation && credential === credentialEpoch &&
       bearer === token && me.user_id === sessionActor && state.phase === 'ready' && state.membership?.role === me.role;
     const base = {userId:me.user_id,role:me.role,resources:me.resources,apiUrl,permissions:null};
-    update({permissions:{...base,phase:'checking',message:'Verificando suas permissões individuais…'}});
+    // Wabotia: na reconferência do mesmo ator e papel, a última permissão conferida vale até a resposta nova chegar.
+    if (!lastChecked(me.user_id, me.role)) update({permissions:{...base,phase:'checking',message:'Verificando suas permissões individuais…'}});
     finePromise = (async () => {
       try {
         const value = parseMyPermissions(await request('/v1/sistema/permissoes', bearer, controller));
@@ -218,7 +221,7 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
     if(actor!==sessionActor){denyAccess(401);return null;}
     permissionRecheck=controller;
     fineRequest?.abort(); fineRequest=null; finePromise=null;
-    if(fineEnabled)update({permissions:{userId:actor,role:state.membership.role,apiUrl,permissions:null,phase:'checking',message:'Verificando suas permissões individuais…'}});
+    if(fineEnabled&&!lastChecked(actor,state.membership.role))update({permissions:{userId:actor,role:state.membership.role,apiUrl,permissions:null,phase:'checking',message:'Verificando suas permissões individuais…'}});
     const active=()=>!stopped&&!signingOut&&!controller.signal.aborted&&current===generation&&credential===credentialEpoch&&bearer===token&&actor===sessionActor&&state.phase==='ready'&&state.membership?.user_id===actor;
     update({permissionMessage:'Conferindo suas permissões. A tentativa em andamento permanece nesta tela.'});
     permissionPromise=(async()=>{

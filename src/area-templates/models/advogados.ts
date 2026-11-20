@@ -1070,10 +1070,10 @@ export const advogadosTemplate: AreaTemplate = {
     suggested_roles: [],
   },
   manual_steps: [
-    "Revisar na prévia Cadastro de clientes, Financeiro, Fiscal, Ordens de serviço e Jurídico. Jurídico exige os; os processos permanecem como tipos de trabalho. O modelo não concede papéis nem segundo fator de autenticação.",
+    "Revisar na prévia Cadastros, Financeiro, Fiscal, Ordens de serviço e Jurídico. Jurídico exige os; os processos permanecem como tipos de trabalho. O modelo não concede papéis nem segundo fator de autenticação.",
     "A ponte operacional dos trabalhos jurídicos em os para estoque, financeiro e fiscal ainda não está entregue por este modelo. Registrar e conferir manualmente honorários, despesas, títulos e documentos fiscais, evitando duplicidade. As ordens de serviço comerciais antigas continuam em Vendas e não são migradas para os.",
     "Configurar empresa, certificado, emissor, numeração e tributos conforme as funcionalidades fiscais disponíveis. A emissão automática de notas a partir dos processos e trabalhos em os ainda não está entregue; ligar Fiscal não garante emissão para qualquer município ou capacidade fiscal ausente.",
-    "PDV e Cobrança bancária são opções explícitas, desligadas na proposta padrão. Para ativar PDV em Módulos ou num manifesto revisado, incluir Cadastro de clientes, Produtos e serviços, Vendas, Estoque e Financeiro; para Cobrança, incluir Cadastro de clientes e Financeiro. Rever a prévia completa antes de aplicar.",
+    "PDV e Cobrança bancária são opções explícitas, desligadas na proposta padrão. Para ativar PDV em Módulos ou num manifesto revisado, incluir Cadastros, Produtos e serviços, Vendas, Estoque e Financeiro; para Cobrança, incluir Cadastros e Financeiro. Rever a prévia completa antes de aplicar.",
     "Agenda, Mensalidades, Formulários, Pagamentos, Reservas e outras partes ERP são independentes. Configurar os passos dessas extensões somente se forem ativadas. Selecionar uma opção false propõe desligá-la; ativá-la exige Módulos ou manifesto revisado. Escolhas não selecionadas e alterações locais nas reaplicações são preservadas.",
     "Profissional sozinho: atribuir os trabalhos ao próprio advogado e preencher os três setores, que podem ter a mesma pessoa. Não adotar registro de horas nesta variação; os demais lançamentos continuam disponíveis. O motor não impõe essa restrição por categoria.",
     "Informar nome profissional, identificação da OAB, horários e contatos oficiais. Revisar publicidade, textos e apresentação profissional.",

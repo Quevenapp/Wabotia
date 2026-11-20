@@ -221,13 +221,21 @@ export function acquireErpHost(context: ErpHostContext) {
       removeAccess = installErpTargetAccess(to => runtime.allowed(to));
       const accessPolicy = () => {
         const state = access.getSnapshot();
-        return JSON.stringify([state.phase, state.membership?.user_id, state.membership?.role, state.permissions]);
+        return JSON.stringify([state.phase, state.membership?.user_id, state.membership?.role]);
       };
-      let observedAccess = accessPolicy();
+      // Permissão fina já conferida; a conferência em si (nada → verificando → pronta)
+      // do mesmo ator não cancela as leituras da tela, só uma resposta que muda o conjunto.
+      const finePolicy = () => {
+        const fine = access.getSnapshot().permissions;
+        return fine?.phase === "ready" ? JSON.stringify([fine.userId, fine.role, fine.apiUrl, fine.permissions]) : null;
+      };
+      let observedAccess = accessPolicy(), observedFine = finePolicy();
       observe = access.subscribe(() => {
-        const next = accessPolicy();
-        if (next !== observedAccess) {
-          observedAccess = next;
+        const next = accessPolicy(), fine = finePolicy();
+        const changed = next !== observedAccess || fine !== null && observedFine !== null && fine !== observedFine;
+        if (next !== observedAccess || fine !== null) observedFine = fine;
+        observedAccess = next;
+        if (changed) {
           // Mesmo que a sessão volte ao estado anterior antes da resposta,
           // chamadas da geração anterior continuam definitivamente canceladas.
           revision.abort(); revision = new AbortController();
