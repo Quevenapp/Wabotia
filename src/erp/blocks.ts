@@ -24,7 +24,14 @@ export { erpRouteRequirement } from "./parts-requirements.ts";
 export const ERP_ROUTE_ALIASES: Readonly<Record<string, string>> = {
   "/v1/estoque/checkin": "/v1/estoque/checkin/notas",
   "/v1/frente-caixa/contexto": "/v1/frente-caixa",
+  "/v1/cobranca-operacional": "/v1/cobranca-operacional/remittances",
+  "/v1/cobranca-operacional-v2": "/v1/cobranca-operacional-v2/remittances",
+  "/v1/retornos-operacionais": "/v1/retornos-operacionais/files",
 };
+
+/** Aliases de consulta não herdam o POST da coleção de destino. */
+export const erpRoutePath = (method: string, path: string): string =>
+  ["GET", "HEAD"].includes(method.toUpperCase()) ? ERP_ROUTE_ALIASES[path] ?? path : path;
 
 /** Rotas existentes, não apenas famílias. Inventário expandido é testado em blocks.test.mjs. */
 export const ERP_ROUTE_PATTERNS: readonly [string, string][] = [
@@ -695,6 +702,6 @@ const routeMatchers = ERP_ROUTE_PATTERNS.map(([methods, pattern]) => ({
   path: new RegExp("^" + pattern.replaceAll(".", "\\.").replace(/:[a-zA-Z_][a-zA-Z0-9_]*/g, "[^/]+") + "/?$"),
 }));
 export function erpRouteExists(method: string, path: string): boolean {
-  path = ERP_ROUTE_ALIASES[path] ?? path;
+  path = erpRoutePath(method, path);
   return routeMatchers.some(r => r.methods.includes(method.toUpperCase() === "HEAD" ? "GET" : method.toUpperCase()) && r.path.test(path));
 }

@@ -53,6 +53,7 @@ import { emissorBadge, type EmissorView } from "../web/erp/emissor";
 /** Tela do painel (caminho sem /app/erp) → primeira leitura que ela faz. */
 const SCREENS: [string, string][] = [
   ["/acesso", "/v1/inicio"],
+  ["/meu-negocio", "/v1/meu-negocio/mensal?de=2026-11-01&ate=2026-11-19&situacoes=fulfilled"],
   ["/painel-produtos-empresa", "/v1/estoque/painel/estoque"],
   ["/vendedores-empresa", "/v1/cadastros/vendedores"],
   ["/funcionarios-empresa", "/v1/cadastros/funcionarios"],
@@ -151,6 +152,10 @@ const SCREENS: [string, string][] = [
     "/v1/registro-atividades?de=2026-11-01&ate=2026-11-16",
   ],
   ["/preferencias/sistema/gerenciador-arquivos", "/v1/gerenciador-arquivos"],
+  [
+    "/preferencias/sistema/consulta-exclusoes",
+    "/v1/registro-atividades?de=2026-11-01&ate=2026-11-16&operacao=exclusao",
+  ],
   ["/preferencias/empresa/geral", "/v1/preferencias/empresa-geral"],
   ["/preferencias/sistema/interface", "/v1/preferencias/sistema-interface"],
   ["/preferencias/cadastros/produtos", "/v1/preferencias/cadastros-produtos"],
@@ -168,6 +173,19 @@ const SCREENS: [string, string][] = [
  * responde 2xx ou está em MOTOR_PENDING_READS (web/erp/motor.ts).
  */
 const OPEN_READS: [string, string][] = [
+  ["Meu negócio", "/v1/preferencias/meu-negocio"],
+  ["Meu negócio", "/v1/sistema/permissoes"],
+  ["Meu negócio", "/v1/meu-negocio/mensal?de=2026-11-01&ate=2026-11-19&situacoes=fulfilled"],
+  ["Meu negócio (metas)", "/v1/meu-negocio/metas"],
+  ["Registro de atividades", "/v1/registro-atividades?de=2026-11-01&ate=2026-11-19"],
+  ["Consulta de exclusões", "/v1/registro-atividades?de=2026-11-01&ate=2026-11-19&operacao=exclusao"],
+  ["Cobrança operacional", "/v1/cobranca-operacional-v2/profiles"],
+  ["Cobrança operacional", "/v1/cobranca-operacional-v2/remittances?limit=25"],
+  ["Cobrança operacional (legado)", "/v1/cobranca-operacional/profiles"],
+  ["Cobrança operacional (legado)", "/v1/cobranca-operacional/remittances?limit=25"],
+  ["Retornos operacionais", "/v1/cnab"],
+  ["Retornos operacionais", "/v1/cobranca-operacional/profiles"],
+  ["Retornos operacionais", "/v1/retornos-operacionais/files?limit=25"],
   ["barra", "/v1/sistema/perfil"],
   ["barra", "/v1/sistema/armazenamento"],
   ["barra", "/v1/sistema/notificacoes?aba=nao_lidas"],

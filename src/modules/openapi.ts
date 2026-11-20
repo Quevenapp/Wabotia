@@ -1,4 +1,5 @@
 import { ensinoOperations, ensinoSchemas, describeEnsinoOperation } from "./ensino/openapi";
+import { erpOperations, describeErpOperation } from "./erp/openapi";
 // Trecho do OpenAPI dos módulos embutidos (docs/MODULOS.md).
 import {
   describeReservaOperation,
@@ -741,6 +742,7 @@ export const moduleOperations: [string, string, string, string?, string?][] = [
   ],
   ...workMotorOperations(),
   ...reservaOperations,
+  ...erpOperations,
   ...pedidoOperations,
   ...mesasOperations,
   ...entregaOperations,
@@ -900,6 +902,7 @@ export function describeModuleOperation(
   success: any,
 ) {
   if (!moduleOperations.some(([m, p]) => p === path && m === method)) return;
+  if (path.startsWith("/profiles/{profile}/erp/")) return describeErpOperation(path, method, entry, success);
   if (path.startsWith("/profiles/{profile}/ensino/")) return describeEnsinoOperation(path, method, entry, success);
   entry.tags = ["Módulos"];
   if (path.startsWith("/profiles/{profile}/reserva"))

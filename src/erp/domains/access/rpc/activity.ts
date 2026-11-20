@@ -10,7 +10,7 @@ import { jsonbText } from "../../../engine/json.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { jsonTimestamp } from "../../../engine/time.ts";
 import { activityRequireAdmin, actorLabel, clean, period } from "../public.ts";
-import { ENTRIES_SQL } from "../activity.ts";
+import { ENTRIES_SQL, entriesBindings, activityEntrySql } from "../activity.ts";
 import { pgLower } from "../../../engine/text.ts";
 
 const s = (v: unknown) => (v === undefined ? null : (v as string | null));
@@ -43,12 +43,11 @@ registerRpc("erp_activity_list", (ctx: RpcContext, a: RpcArgs) => {
   const q = query === null ? null : pgLower(btrim(query)) || null;
   const rows = db
     .exec(
-      `SELECT * FROM (${ENTRIES_SQL}) WHERE (?3 IS NULL OR module=?3) AND (?4 IS NULL OR operation=?4) AND (?5 IS NULL OR actor=?5)`,
-      range.from.toString(),
-      range.to.toString(),
-      module,
-      operation,
-      actor,
+      `SELECT * FROM (${ENTRIES_SQL}) WHERE (? IS NULL OR module=?) AND (? IS NULL OR operation=?) AND (? IS NULL OR actor=?)`,
+      ...entriesBindings(range.from.toString(), range.to.toString()),
+      module, module,
+      operation, operation,
+      actor, actor,
     )
     .rows.filter(r => activityVisible(ctx, r)).map((r) => {
       // Ramo "users": o rótulo do usuário-alvo vem de erp_activity.actor_label.
@@ -129,7 +128,7 @@ registerRpc("erp_activity_detail", (ctx: RpcContext, a: RpcArgs) => {
   if (source === null || !SOURCES.includes(source) || entry === null || !/^[0-9a-f-]{1,40}$/.test(entry)) raise("22023", "erp_activity_input_invalid");
   let entryRow: Record<string, unknown> | undefined;
   if (Object.values(ctx.parts).some(on => !on)) {
-    entryRow = one(db, `SELECT * FROM (${ENTRIES_SQL}) WHERE source=?3 AND entry_id=?4`, "-9223372036854775808", "9223372036854775807", source, entry);
+    entryRow = one(db, activityEntrySql(source)!, entry) ?? undefined;
     if (entryRow && !activityVisible(ctx, entryRow)) throw new ErpPartDisabled();
   }
   if (NO_DETAIL.includes(source))

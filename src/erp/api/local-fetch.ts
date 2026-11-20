@@ -1,7 +1,7 @@
 import { erpPartsEnvelope } from "../../modules/erp/parts-state";
 import { erpRequirementMet, readErpPartsSnapshot } from "../parts.ts";
 import { erpRouteRequirement } from "../parts-requirements.ts";
-import { ERP_ROUTE_ALIASES } from "../blocks.ts";
+import { erpRoutePath } from "../blocks.ts";
 import { ERP_PARTS_DENIED_HEADER, ERP_PARTS_REFERENCE_HEADER, readErpPartsReference, type ErpPartsReference } from "../parts.ts";
 import { ERP_MAINTENANCE_HEADER } from "../parts-requirements.ts";
 import { partsMaintenance } from "./parts-maintenance.ts";
@@ -305,7 +305,7 @@ export async function erpApi(env: Env, request: Request, profile: string, actor:
   const url = new URL(request.url);
   const prefix = `/api/v1/profiles/${encodeURIComponent(profile)}/erp`;
   const originalPath = url.pathname.startsWith(prefix) ? url.pathname.slice(prefix.length) || "/" : "/";
-  const path = ERP_ROUTE_ALIASES[originalPath] ?? originalPath;
+  const path = erpRoutePath(request.method, originalPath);
   // Portão dos blocos (src/erp/blocks.ts): opcional desligado → 409 antes do
   // objeto; o que saiu da instalação principal (Origin, MCP, autoatualização
   // do Fagoo) → 404. O módulo `erp` em si já passou pelo portão comum.

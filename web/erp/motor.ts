@@ -12,8 +12,6 @@ type Pending = { path: string; under?: boolean; query?: [string, string[]] };
 
 /** Telas sem motor ainda, por domínio. */
 export const MOTOR_PENDING: readonly Pending[] = [
-  // Meu Negócio: os painéis de vendas (o Início, /v1/inicio, já responde).
-  { path: "/meu-negocio" },
   // Fiscal: notas, eventos, rascunhos, numeração e o certificado (as
   // naturezas de operação, as preferências de NF-e e NFC-e e o histórico
   // fiscal, pela leitura das notas do F2a, já respondem).
@@ -25,18 +23,16 @@ export const MOTOR_PENDING: readonly Pending[] = [
   { path: "/emissor-fiscal" },
   { path: "/preferencias/certificado", under: true },
   { path: "/preferencias/importacoes/notas-fiscais" },
-  // Cobrança operacional e retornos operacionais (a cobrança bancária, as
-  // remessas e os retornos do financeiro já respondem).
-  { path: "/cobranca-operacional" },
-  { path: "/retornos-operacionais" },
-  // Sistema: registro de atividades e consulta de exclusões (mesmo RPC).
-  { path: "/preferencias/sistema/registro-atividades" },
-  { path: "/preferencias/sistema/consulta-exclusoes" },
 ];
 
 /** Telas que já funcionam contra o motor, para a tela de "em implantação". */
 const ALL_MOTOR_READY: readonly { label: string; to: string }[] = [
   { label: "Início", to: "/acesso" },
+  { label: "Meu negócio", to: "/meu-negocio" },
+  { label: "Cobrança operacional", to: "/cobranca-operacional" },
+  { label: "Retornos operacionais", to: "/retornos-operacionais" },
+  { label: "Registro de atividades", to: "/preferencias/sistema/registro-atividades" },
+  { label: "Consulta de exclusões", to: "/preferencias/sistema/consulta-exclusoes" },
   { label: "Produtos", to: "/cadastros-reais?cadastro=products" },
   { label: "Clientes e fornecedores", to: "/cadastros-reais?cadastro=contacts" },
   { label: "Importar contatos", to: "/importar-contatos" },
