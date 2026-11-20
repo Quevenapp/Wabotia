@@ -9,6 +9,7 @@ import { ERP_PART_NAMES, erpRequirement, type ErpModuleId } from "../../erp/part
 import { BLING_ADOPTION_OPERATIONS, BLING_ADOPTION_PARAMS } from "../../erp/bling/adoption-contracts.ts";
 import { erpCommercialOperations } from "./commercial-operations.ts";
 import { ERP_BACKUP_OPERATIONS } from "../../erp/engine/backup-operations.ts";
+import { ERP_CONVERSA_OPERATIONS, ERP_CONVERSA_ROUTE, erpConversaParams } from "../../erp/conversa/contract.ts";
 
 type Params = { type: "object"; properties: Record<string, any>; required: string[] };
 /** Assunto da operação, na ordem da tela de concessões do bot. */
@@ -21,6 +22,7 @@ export const ERP_BOT_GROUPS: readonly { id: string; title: string }[] = [
   { id: "atividades", title: "Registro de atividades" },
   { id: "bling", title: "Receber dados do Bling" },
   { id: "backup", title: "Backup do ERP" },
+  { id: "conversa", title: "Enviar documentos pelo WhatsApp" },
 ];
 export interface ErpBotOperation {
   id: string; method: string; path: string; summary: string; sensitive: boolean;
@@ -88,6 +90,9 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
   // Backup e restauração do ERP: fazer, restaurar e apagar são sensíveis; progresso e lista são leitura comum.
   ...ERP_BACKUP_OPERATIONS.map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
     group: "backup", description: (op as { description?: string }).description ?? op.summary, params: { type: "object" as const, properties: {}, required: [] } })),
+  // Documento do ERP ao próprio cliente pelo WhatsApp: enviar é sensível (o bot propõe, a pessoa confirma).
+  ...ERP_CONVERSA_OPERATIONS.map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
+    group: "conversa", description: op.description, params: erpConversaParams(op) })),
 ];
 
 /** Leituras sensíveis que o administrador pode deixar o bot executar sozinho. */
@@ -96,6 +101,8 @@ export const ERP_BOT_SENSITIVE_READS: readonly string[] = ERP_BOT_OPERATIONS.fil
 /** Partes do ERP que a rota exige antes do objeto (o motor revalida). */
 export function erpBotModules(op: Pick<ErpBotOperation, "method" | "path">): readonly ErpModuleId[] {
   if (op.path.startsWith("erp-comercial-nfe/")) return erpRequirement("erp-fiscal").all;
+  // A parte de cada documento é conferida na rota (proposta e pedido: Vendas; nota: Fiscal; conta: Financeiro).
+  if (op.path === ERP_CONVERSA_ROUTE || op.path.startsWith(`${ERP_CONVERSA_ROUTE}/`)) return erpRequirement("erp").all;
   const requirement = erpRouteRequirement(op.method, new URL(`https://erp.invalid/${op.path.slice("erp/".length).replace(/:[A-Za-z_][A-Za-z0-9_]*/g, "x")}`));
   return requirement && requirement !== "externo" ? requirement.all : erpRequirement("erp").all;
 }

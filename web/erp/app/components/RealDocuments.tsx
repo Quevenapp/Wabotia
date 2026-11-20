@@ -28,6 +28,7 @@ import {missingRequired,requiredMessage} from '../lib/document-required';
 import DocumentInstallmentPlanner from './DocumentInstallmentPlanner';
 import {applyMonthlyDocumentPlan,type DocumentMonthlyPlan} from '../lib/document-installment-plan';
 import DocumentPrintPreview from './DocumentPrintPreview';
+import { WhatsappSendButton } from './WhatsappSend';
 import DocumentFinance from './DocumentFinance';
 import FinanceContactOpenTitles from './FinanceContactOpenTitles';
 import {documentFinanceTitlePath,financeLinkActor} from '../lib/document-finance-link';
@@ -717,6 +718,9 @@ function DocumentEditorBody({controller,kind,record,writable,onClose,onSaved,onC
     {history&&<DocumentHistory controller={controller} kind={kind} contactId={values.contact_id||null} request={history} onClose={()=>setHistory(null)}/>}
     {quickContact&&<DocumentQuickContact controller={controller} kind={kind} initial={quickContact} onCreated={quickContactCreated} onClose={wasUncertain=>closeQuickContact(wasUncertain?'O resultado do cadastro rápido não foi confirmado. Pesquise o contato pelo nome ou CPF/CNPJ antes de cadastrá-lo de novo.':'')} onState={state=>{if(quickOpen.current)setQuickState(state);}}/>}
     <div className="document-preview-actions"><button type="button" className="secondary-button" disabled={!record||busy||uncertain||dirty||childDraft||Boolean(conversionReview)} onClick={()=>{if(mayAct(true)){setPrintTechnician(false);setPrintOpen(true);}}}>Visualizar impressão</button>{kind==='service_orders'&&<button type="button" className="secondary-button" disabled={!record||busy||uncertain||dirty||childDraft||Boolean(conversionReview)} title="Impressão da OS para o técnico, com as opções de Preferências › Serviços (ocultar valores e dados do cliente)." onClick={()=>{if(mayAct(true)){setPrintTechnician(true);setPrintOpen(true);}}}>Imprimir para técnico</button>}<p>{!record?'Salve o documento para visualizar a impressão.':dirty?'Salve as alterações para visualizar a versão atual.':'Documento comercial sem validade fiscal. A prévia usa a versão salva.'}</p></div>
+    {/* ERP pela conversa: a proposta e o pedido salvos vão ao cliente pela linha de WhatsApp da área, com o registro dos envios. */}
+    {record&&(kind==='sales_proposals'||kind==='sales_orders')&&<WhatsappSendButton type={kind==='sales_proposals'?'proposta':'pedido'} id={record.id}
+      reason={dirty?'Salve as alterações antes de enviar: vai a versão salva.':record.status==='draft'||record.status==='cancelled'?`${kind==='sales_proposals'?'Proposta':'Pedido'} ${record.status==='draft'?'em digitação':'cancelado'} não vai ao cliente.`:null}/>}
     {/* 202610200288 Origin: "Imprimir campos customizados na ordem de serviço?" before the print of an OS with campos customizados. */}
     {printOpen&&record&&(kind==='service_orders'&&hasCustomValues(record.custom_fields)&&printAsk===null&&customFields!=='error'?(Array.isArray(customFields)&&customWanted?<CustomFieldsPrintQuestion onCancel={()=>setPrintOpen(false)} onPrint={include=>setPrintAsk({include})}/>:null)
       :<DocumentPrintPreview record={record} controller={controller} options={{...(printTechnician?{...printOptions,technician:true}:printOptions),...(printAsk?.include&&Array.isArray(customFields)?{customFields}:{})}} onClose={()=>{setPrintOpen(false);setPrintAsk(null);}}/>)}

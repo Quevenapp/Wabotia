@@ -533,6 +533,12 @@ app.get("/api/w/:code", async (c) => {
         }),
         410,
       );
+    // Arquivos do próprio passo (documento do ERP): o caminho leva o código desta página.
+    if (Array.isArray(view.links))
+      view.links = view.links.map((link: { label: string; href: string }) => ({
+        ...link,
+        href: String(link.href).replace("{code}", c.req.param("code")),
+      }));
     return webStepHtml(c, trackPage(view, brand, whatsapp));
   }
   if (current.status === "completed")
@@ -590,6 +596,30 @@ app.get("/api/w/:code/img/:media", async (c) => {
   headers.set("Cache-Control", "private, max-age=3600");
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Robots-Tag", "noindex");
+  return new Response(response.body, { status: response.status, headers });
+});
+// Arquivo do documento do ERP enviado pela conversa (src/erp/conversa): só
+// os do próprio passo, enquanto o link valer e a parte do ERP estiver ligada.
+app.get("/api/w/:code/arquivo/:index", async (c) => {
+  await webStepRate(c);
+  const row = await webStepByCode(c.env, c.req.param("code"));
+  const index = /^\d{1,2}$/.test(c.req.param("index")) ? Number(c.req.param("index")) : -1;
+  const { erpConversaPublicFile } = await import("./erp/conversa/command");
+  const media =
+    row && row.module_id === "erp" && (await webStepAvailable(c.env, row))
+      ? await erpConversaPublicFile(c.env, row, index)
+      : null;
+  if (!media) throw new ApiError(404, "not_found", "Arquivo não encontrado.");
+  await touchWebStep(c.env, row);
+  const response = await mediaResponse(c.env, media, c.req.raw);
+  const headers = new Headers(response.headers);
+  headers.set("Cache-Control", "private, no-store");
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("X-Robots-Tag", "noindex");
+  headers.set(
+    "Content-Disposition",
+    `attachment; filename="${String(media.name).replace(/[^A-Za-z0-9._-]/g, "_")}"`,
+  );
   return new Response(response.body, { status: response.status, headers });
 });
 app.post("/api/w/:code", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
@@ -1221,6 +1251,15 @@ const erpBackup = async (c: any) => {
 };
 app.all("/api/v1/profiles/:profile/erp-backup", erpBackup);
 app.all("/api/v1/profiles/:profile/erp-backup/*", erpBackup);
+// Documentos do ERP pelo WhatsApp da área (proposta, pedido, nota e
+// cobrança): pessoa com o documento visível no ERP e acesso às conversas;
+// o envio roda no Coordinator (src/erp/conversa/routes.ts).
+const erpConversa = async (c: any) => {
+  const { erpConversaRoute } = await import("./erp/conversa/routes");
+  return erpConversaRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
+};
+app.all("/api/v1/profiles/:profile/erp-conversa", erpConversa);
+app.all("/api/v1/profiles/:profile/erp-conversa/*", erpConversa);
 // Sondas do ERP para a instalação de teste (só com ERP_PROBES=1 no deploy).
 app.post("/api/v1/profiles/:profile/erp-probe/:name", async (c) => {
   const profile = c.req.param("profile");
