@@ -311,7 +311,9 @@ test('contatos lane SQL (124-128): ACL, contact form, situation, types, preferen
     await fails(assert,save(data),'22023');
    const command=randomUUID(),created=await save({...EMPLOYEE,pis:'120.50218.74-7'},{command});
    assert.deepEqual(Object.keys(created.item).sort(),['id','version']);
-   assert.equal(JSON.stringify(await f.scalar('select result v from erp_catalog.command where command_id=$1',[command])).includes('529'),false,'no CPF in the stored command');
+   // UUIDs podem conter "529" por acaso. Confere o recibo inteiro: nenhum campo pessoal é permitido.
+   const stored=await f.scalar('select result v from erp_catalog.command where command_id=$1',[command]);
+   assert.deepEqual(stored,{entity:'employees',data_mode:'erp_native',replayed:false,item:{id:created.item.id,version:1}},'only id and version in the stored command; no personal data');
    const item=(await rpc('erp_catalog_employee_get',{p_user_id:f.users.admin,p_id:created.item.id})).item;
    assert.deepEqual([item.cpf,item.pis,item.salary,item.situation],['52998224725','12050218747','3500.50','ativo']);
    await fails(assert,save({...EMPLOYEE,name:'Outra'}),'23505');
