@@ -42,6 +42,8 @@ import {
   statusTones,
 } from "./shared";
 import "./os.css";
+import type { Order } from "./work-contracts";
+import { DecisionDialog, ReasonDialog, WorkQuoteCommercial, needsReason, reasonTitle } from "./work/WorkQuoteCommercial";
 
 const StatusPill = ({ status }: { status: string }) => (
   <Pill tone={statusTones[status] || "muted"}>
@@ -195,156 +197,6 @@ export function OrderForm({
   );
 }
 
-type QuoteLine = { description: string; quantity: string; price: string };
-
-function QuoteEditor({
-  order,
-  onClose,
-  onSaved,
-}: {
-  order: Row;
-  onClose: () => void;
-  onSaved: (order: Row) => void;
-}) {
-  const app = useApp();
-  const write = useOsWrite();
-  const defaultDays = app.settings.service_orders?.quote_valid_days || 7;
-  const [lines, setLines] = useState<QuoteLine[]>(() =>
-    order.quote?.items?.length
-      ? order.quote.items.map((item: Row) => ({
-          description: item.description,
-          quantity: String(item.quantity),
-          price: (item.unit_cents / 100).toFixed(2).replace(".", ","),
-        }))
-      : [{ description: "", quantity: "1", price: "" }],
-  );
-  const [validDays, setValidDays] = useState(
-    String(order.quote?.valid_days || ""),
-  );
-  const [note, setNote] = useState(order.quote?.note || "");
-  const total = lines.reduce(
-    (sum, line) =>
-      sum + (Number(line.quantity) || 0) * (cents(line.price) ?? 0),
-    0,
-  );
-  const setLine = (index: number, key: keyof QuoteLine) => (value: string) =>
-    setLines(
-      lines.map((line, i) => (i === index ? { ...line, [key]: value } : line)),
-    );
-  return (
-    <FormDialog
-      title={`Orçamento da ordem nº ${order.number}`}
-      subtitle={
-        order.status === "quoted"
-          ? "Este orçamento já foi enviado. Ao salvar, a ordem volta para Em análise até você enviar de novo."
-          : "Salve e depois envie ao cliente pelo WhatsApp."
-      }
-      size="lg"
-      onClose={onClose}
-      onSubmit={async () => {
-        const items = lines.map((line, index) => {
-          const unit = cents(line.price);
-          if (unit === null)
-            throw new Error(
-              `Valor do item ${index + 1} inválido. Use, por exemplo, 150,00.`,
-            );
-          return {
-            description: line.description,
-            quantity: Number(line.quantity) || 1,
-            unit_cents: unit,
-          };
-        });
-        const saved = await write(`/${order.id}/quote`, "PUT", {
-          items,
-          valid_days: validDays ? Number(validDays) : null,
-          note,
-        });
-        toast("Orçamento salvo.");
-        onSaved(saved);
-      }}
-    >
-      {lines.map((line, index) => (
-        <fieldset className="form-field-editor" key={index}>
-          <legend>Item {index + 1}</legend>
-          <Field
-            label="Descrição"
-            value={line.description}
-            onChange={setLine(index, "description")}
-            maxLength={200}
-            required
-          />
-          <div className="form-field-grid">
-            <Field
-              label="Quantidade"
-              type="number"
-              min={1}
-              max={999}
-              value={line.quantity}
-              onChange={setLine(index, "quantity")}
-              required
-            />
-            <Field
-              label="Valor unitário (R$)"
-              value={line.price}
-              onChange={setLine(index, "price")}
-              placeholder="0,00"
-              required
-            />
-          </div>
-          {lines.length > 1 && (
-            <div className="form-field-actions">
-              <span className="spacer" />
-              <button
-                type="button"
-                className="icon-button sm"
-                aria-label={`Remover item ${index + 1}`}
-                onClick={() => setLines(lines.filter((_, i) => i !== index))}
-              >
-                <Trash2 size={16} />
-              </button>
-            </div>
-          )}
-        </fieldset>
-      ))}
-      {lines.length < 50 && (
-        <Button
-          secondary
-          icon={<Plus size={16} />}
-          onClick={() =>
-            setLines([...lines, { description: "", quantity: "1", price: "" }])
-          }
-        >
-          Adicionar item
-        </Button>
-      )}
-      <p>
-        <strong>Total: {money(total)}</strong>
-      </p>
-      <div className="form-field-grid">
-        <Field
-          label="Validade (dias)"
-          type="number"
-          min={1}
-          max={90}
-          value={validDays}
-          onChange={setValidDays}
-          placeholder={String(defaultDays)}
-          help={`Em branco, usa o padrão de ${defaultDays} dias. Conta a partir do envio.`}
-        />
-      </div>
-      <Field
-        label="Observação ao cliente (opcional)"
-        type="textarea"
-        rows={2}
-        value={note}
-        onChange={setNote}
-        maxLength={600}
-        placeholder="Ex.: peça original, prazo de 3 dias úteis após a aprovação."
-      />
-    </FormDialog>
-  );
-}
-
 export function OrderDetail({
   id,
   onClose,
@@ -358,7 +210,9 @@ export function OrderDetail({
   const write = useOsWrite();
   const { busy, run } = useAction();
   const resource = useResource(`${app.root}/service-orders/${id}`);
-  const [editing, setEditing] = useState<"data" | "quote" | null>(null);
+  const [editing, setEditing] = useState<"data" | null>(null);
+  const [reasonFor, setReasonFor] = useState<string | null>(null);
+  const [decisionFor, setDecisionFor] = useState<"approve" | "decline" | null>(null);
   const order: Row | null = resource.data;
   const after = async (promise: Promise<any>, success: string) =>
     run(
@@ -417,10 +271,13 @@ export function OrderDetail({
                 variant={status === "cancelled" ? "danger" : "secondary"}
                 disabled={busy}
                 onClick={() =>
-                  void after(
-                    write(`/${order.id}/status`, "POST", { status }),
-                    `Ordem: ${statusLabels[status]}.`,
-                  )
+                  // OS3: cancelar e voltar etapa pedem motivo antes de enviar.
+                  needsReason(order.status, status)
+                    ? setReasonFor(status)
+                    : void after(
+                        write(`/${order.id}/status`, "POST", { status }),
+                        `Ordem: ${statusLabels[status]}.`,
+                      )
                 }
               >
                 {moveLabels[status] || statusLabels[status]}
@@ -483,52 +340,21 @@ export function OrderDetail({
               </Pill>
             )}
           </div>
-          {quote ? (
-            <>
-              <Table
-                rows={quote.items.map((item: Row, index: number) => ({
-                  ...item,
-                  id: String(index),
-                }))}
-                columns={[
-                  ["description", "Descrição"],
-                  ["quantity", "Qtd."],
-                  ["unit_cents", "Unitário", (row) => money(row.unit_cents)],
-                  [
-                    "total",
-                    "Total",
-                    (row) => money(row.unit_cents * row.quantity),
-                  ],
-                ]}
-              />
-              <p>
-                <strong>Total: {money(quote.total_cents)}</strong>
-                {quote.note ? ` · ${quote.note}` : ""}
-              </p>
-              {order.decision && (
-                <p className="muted">
-                  {order.decision.decision === "approved"
-                    ? "Aprovado"
-                    : "Recusado"}{" "}
-                  por {name(order.decision.by)} em {date(order.decision.at)}
-                </p>
-              )}
-            </>
-          ) : (
-            <p className="muted">Nenhum orçamento ainda.</p>
+          {quote?.note ? <p className="muted">{quote.note}</p> : null}
+          {order.decision && (
+            <p className="muted">
+              Registrado por {name(order.decision.by)} em {date(order.decision.at)}
+            </p>
           )}
+          <WorkQuoteCommercial
+            order={order as Order}
+            editable={["received", "analyzing", "quoted", "declined"].includes(order.status)}
+            onChanged={() => {
+              void resource.reload();
+              onChanged();
+            }}
+          />
           <div className="card-actions">
-            {["received", "analyzing", "quoted", "declined"].includes(
-              order.status,
-            ) && (
-              <Button
-                secondary
-                icon={<Pencil size={16} />}
-                onClick={() => setEditing("quote")}
-              >
-                {quote ? "Editar orçamento" : "Montar orçamento"}
-              </Button>
-            )}
             {quote && order.next_statuses.includes("quoted") && (
               <Button
                 icon={<Send size={16} />}
@@ -555,14 +381,7 @@ export function OrderDetail({
                   secondary
                   icon={<ThumbsUp size={16} />}
                   disabled={busy || quote?.expired}
-                  onClick={() =>
-                    void after(
-                      write(`/${order.id}/decision`, "POST", {
-                        decision: "approve",
-                      }),
-                      "Aprovação registrada.",
-                    )
-                  }
+                  onClick={() => setDecisionFor("approve")}
                 >
                   Cliente aprovou
                 </Button>
@@ -570,14 +389,7 @@ export function OrderDetail({
                   secondary
                   icon={<ThumbsDown size={16} />}
                   disabled={busy || quote?.expired}
-                  onClick={() =>
-                    void after(
-                      write(`/${order.id}/decision`, "POST", {
-                        decision: "decline",
-                      }),
-                      "Recusa registrada.",
-                    )
-                  }
+                  onClick={() => setDecisionFor("decline")}
                 >
                   Cliente recusou
                 </Button>
@@ -621,14 +433,31 @@ export function OrderDetail({
           }}
         />
       )}
-      {editing === "quote" && (
-        <QuoteEditor
-          order={order}
-          onClose={() => setEditing(null)}
-          onSaved={() => {
-            setEditing(null);
-            void resource.reload();
-            onChanged();
+      {reasonFor && (
+        <ReasonDialog
+          title={reasonTitle(order.status, reasonFor)}
+          danger={reasonFor === "cancelled"}
+          submitLabel={reasonFor === "cancelled" ? "Cancelar a ordem" : moveLabels[reasonFor] || statusLabels[reasonFor]}
+          onClose={() => setReasonFor(null)}
+          onSubmit={async (note) => {
+            const status = reasonFor;
+            setReasonFor(null);
+            await after(write(`/${order.id}/status`, "POST", { status, note }), `Ordem: ${statusLabels[status]}.`);
+          }}
+        />
+      )}
+      {decisionFor && (
+        <DecisionDialog
+          order={order as Order}
+          decision={decisionFor}
+          onClose={() => setDecisionFor(null)}
+          onSubmit={async ({ note, detail }) => {
+            const decision = decisionFor;
+            setDecisionFor(null);
+            await after(
+              write(`/${order.id}/decision`, "POST", { decision, quote_version: order.quote?.version, ...(note ? { note } : {}), detail }),
+              decision === "approve" ? "Aprovação registrada." : "Recusa registrada.",
+            );
           }}
         />
       )}

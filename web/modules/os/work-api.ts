@@ -131,6 +131,26 @@ export function createWorkApi(api: Api, root: string) {
       send<C.Order>(order(id) + "/quote/send", "POST", body),
     decision: (id: string, body: C.DecisionRequest) =>
       send<C.Order>(order(id) + "/decision", "POST", body),
+    // OS3: comercial da ordem.
+    reopenQuote: (id: string, body: C.QuoteReopenRequest) =>
+      send<C.Order>(order(id) + "/quote/reopen", "POST", body),
+    payments: (id: string) => get<C.OrderPayments>(order(id) + "/payments"),
+    receipt: (id: string, body: C.ReceiptRequest) =>
+      send<C.OrderPayments>(order(id) + "/receipts", "POST", body),
+    charge: (id: string, body: C.ChargeRequestInput) =>
+      send<{ charge: C.OrderCharge; payments: C.OrderPayments }>(order(id) + "/charges", "POST", body),
+    /** Vínculo de catálogo da linha, pela rota da fase 3 (mesmo lote da ordem). */
+    linkCatalog: (id: string, line: string, value: { erp_item_id: string | null; version: number }) =>
+      send<{ erp_item_id: string | null; version: number }>(
+        `${root}/integrations/os/catalog/quote_item/${encodeURIComponent(id)}/${encodeURIComponent(line)}`,
+        value.erp_item_id ? "PUT" : "DELETE",
+        { version: value.version, ...(value.erp_item_id ? { erp_item_id: value.erp_item_id } : {}) },
+      ),
+    establishment: () => get<{ name?: string; document?: string; address?: string; phone?: string; footer?: string }>(root + "/establishment"),
+    contacts: (q: string) => get<{ data: { id: string; name?: string; phone?: string; namespace?: string; identity_state?: string; merged_into?: string | null }[] }>(
+      root + "/contacts", { q, identity: "all", namespace: "team", limit: 20 }),
+    paymentMethods: () => get<{ items: { id: string; name?: string; description?: string; active?: boolean }[] }>(
+      root + "/erp/v1/financeiro/formas-pagamento", { kind: "receivable" }),
     privateFields: (id: string) =>
       get<C.PrivateFields>(order(id) + "/private-fields"),
     updatePrivateFields: (id: string, body: C.PrivateFieldsRequest) =>

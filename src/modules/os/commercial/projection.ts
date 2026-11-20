@@ -7,9 +7,10 @@ import { commercialCustomerRef, ensureCommercialPolicy, readIntegrationActivatio
 import { canonical, hash, uuid5 } from "../../../integrations/keys";
 import { validateSnapshot } from "../../../integrations/privacy";
 import { authorizedOrder } from "../public";
-import type { BaseStatus, QuoteItem } from "../contracts";
-import { quoteTotal } from "../model";
+import type { BaseStatus, QuoteItem, QuoteTerms } from "../contracts";
+import { itemsDiscount, quoteTotal } from "../model";
 import { snapshotType } from "../work-types";
+import { getWorkObjectContext } from "../os2-ports";
 
 const LINE_NAMESPACE = "844ce56a-4066-5640-8c46-a03586ff75cb";
 export const workSource = (profile: string, id: string): SourceRef => ({ profile, module: "os", source_id: id, component: "main" });
@@ -23,6 +24,8 @@ export interface WorkCommercial {
   customer_ref?: string | null;
   adult_payer_confirmed?: boolean;
   installments?: Installment[];
+  /** OS3: "quote" quando as parcelas vieram das condições do orçamento. */
+  installments_source?: "quote" | null;
   technical?: CommercialSnapshot["technical"];
   authorization?: { kind: "approved_quote" | "fixed_price"; quote_version: number; at: number; actor_id: string | null; channel: string; content_hash: string } | null;
   first_execution_at?: number | null;
@@ -41,12 +44,20 @@ export function stableQuoteItems(row: any, input: readonly QuoteItem[] = json(ro
     return { ...i, id: i.id ?? uuid5(LINE_NAMESPACE, canonical([row.profile_id, row.id, key, n])) };
   });
   const used = new Set<string>();
-  return input.map(i => {
-    const matching = previous.find(p => !used.has(p.id) && signature(p) === signature(i));
+  // OS3: cliente que não conhece id/kind/unit (tela clássica antiga, apps)
+  // reencontra a linha pelo texto e valores e herda a classificação: o
+  // vínculo de catálogo, preso ao id da linha, não se perde na edição.
+  const loose = (i: QuoteItem) => canonical([i.description, i.quantity, i.unit_cents]);
+  const legacy = (i: QuoteItem) => i.id === undefined && i.kind === undefined && i.unit === undefined;
+  const matches = input.map(i => previous.find(p => signature(p) === signature(i)) ? null : legacy(i) ? loose(i) : null);
+  return input.map((i, index) => {
+    const matching = previous.find(p => !used.has(p.id) && signature(p) === signature(i))
+      ?? (matches[index] ? previous.find(p => !used.has(p.id) && loose(p) === matches[index] && !input.some(x => x.id === p.id)) : undefined);
     const id = i.id ?? matching?.id ?? crypto.randomUUID();
     if (used.has(id)) throw new ApiError(400, "invalid_request", "Identificador de item repetido.");
     used.add(id);
-    return { ...i, id, unit: i.unit ?? "UN", kind: i.kind ?? "free" };
+    const before = previous.find(p => p.id === id);
+    return { ...i, id, unit: i.unit ?? before?.unit ?? "UN", kind: i.kind ?? before?.kind ?? "free" };
   });
 }
 export const commercialFingerprint = (row: any) => hash({
@@ -60,13 +71,44 @@ export const saoPauloDate = (at: number) => {
   return ["year", "month", "day"].map(key => parts.find(p => p.type === key)!.value).join("-");
 };
 
-/** Sem classificação de privacidade no contrato de tipos, só o embutido
- * exporta texto comercial. Personalizados ficam na lista permitida estrita. */
+/** Áreas sensíveis por natureza (saúde, ensino, jurídico): comercial reservado. */
+// "advoca" cobre escritorio_advocacia, que a regra anterior (só "advog") deixava de fora.
+export const RESERVED_AREAS = /clinica_medica|escolas|professores|advog|advoca/;
+/** Modelo aplicado de um modelo de área: area_<modelo>__<id local>. */
+export const areaOfType = (typeId: string | null | undefined) => /^area_([a-z0-9_]+?)__/.exec(typeId ?? "")?.[1] ?? null;
+/**
+ * OS3: o dado da ordem não é segredo por padrão. O documento comercial leva
+ * os itens do orçamento como a pessoa escreveu; campos marcados sensíveis
+ * no modelo nunca entram na projeção comercial. Ficam reservados (só
+ * "Serviço contratado" e pagador adulto confirmado) os modelos das áreas
+ * sensíveis por natureza e toda a área que aplicou um desses modelos.
+ */
 export async function workPrivacy(ctx: ModuleContext, row: any): Promise<CommercialSnapshot["privacy"]> {
-  if (commercialOf(row).privacy === "adult_payer_only" || snapshotType(row) || (row.type_id && row.type_id !== "service_order")) return "adult_payer_only";
+  // type_id é o mesmo id da definição fixada na ordem (conferido em snapshotType).
+  const area = areaOfType(row.type_id);
+  if (area && RESERVED_AREAS.test(area)) return "adult_payer_only";
   const settings = await ctx.settings();
-  const sensitiveArea = (settings.os_area_setup ?? []).some((s: any) => /clinica_medica|escolas|professores|advog/.test(s.template_id));
+  const sensitiveArea = (settings.os_area_setup ?? []).some((s: any) => RESERVED_AREAS.test(s.template_id));
   return sensitiveArea ? "adult_payer_only" : "commercial";
+}
+/**
+ * Equipamento do documento: com objeto do serviço, a cópia desta ordem só
+ * com campos que o cliente pode ver (nunca os sensíveis); sem objeto, o item.
+ */
+function equipmentText(row: any): string | null {
+  let text = "";
+  if (row.object_id) {
+    try { text = getWorkObjectContext(row, { kind: "customer" })?.equipment_text ?? ""; }
+    catch { text = ""; }
+  }
+  return Array.from(String(text || row.item || "")).slice(0, 200).join("") || null;
+}
+/** Título do documento comercial: número da ordem no vocabulário do modelo. */
+export function commercialTitle(row: any) {
+  const type = snapshotType(row);
+  if (!type) return `Ordem de serviço ${row.number ?? ""}`.trim();
+  const display = `${type.number_prefix ? type.number_prefix + "-" : ""}${row.type_number ?? row.number ?? ""}`;
+  return Array.from(`${type.labels.singular} ${display}`.trim()).slice(0, 200).join("");
 }
 export async function readWorkIntegration(ctx: ModuleContext, row: any) {
   const stored = await one(ctx.env, `SELECT s.*,(SELECT json_group_array(json_object('seq',seq,'payload_json',payload_json,
@@ -118,31 +160,38 @@ export async function projectWork(ctx: ModuleContext, row: any, revision: number
   }
   // Identificado incompleto nunca vira Consumidor. A preparação fica pendente.
   if (!sensitive && !customer_ref) customer_ref = `unresolved:${row.id}`;
-  const total = quoteTotal(items);
+  // OS3: descontos da linha e do total viram o desconto do documento; cada
+  // linha conserva o preço de lista e o ERP confere bruto - desconto = total.
+  const orderDiscount = Number(row.quote_discount_cents ?? 0) || 0;
+  const total = items.length ? quoteTotal(items, orderDiscount) : 0;
   if (items.length && total !== row.quote_total_cents) throw new ApiError(422, "total_mismatch", "Os valores comerciais não conferem.");
   const first = local.first_execution_at ?? null;
+  const terms = json(row.quote_terms_json, null) as QuoteTerms | null;
   const snapshot: CommercialSnapshot = {
     schema: 1, source: workSource(ctx.profile, row.id), source_revision: revision,
-    privacy, contact_id, customer_ref, description: sensitive ? "Serviço contratado" : `Ordem de serviço ${row.number ?? ""}`.trim(),
+    privacy, contact_id, customer_ref, description: sensitive ? "Serviço contratado" : commercialTitle(row),
     issued_on: saoPauloDate(row.created),
     items: items.map(i => ({ id: i.id!, description: sensitive ? "Serviço contratado" : i.description,
       quantity: String(i.quantity), unit_cents: i.unit_cents, unit: sensitive ? "UN" : i.unit!,
       kind: options.products ? i.kind! : "free", product_id: options.products && i.kind !== "free"
         ? options.catalogChange && options.catalogChange.component === i.id ? options.catalogChange.product_id : links.find(l => l.component === i.id)?.erp_item_id ?? null : null })),
-    total_cents: total, freight_cents: 0, discount_cents: 0,
+    total_cents: total, freight_cents: 0, discount_cents: items.length ? itemsDiscount(items) + orderDiscount : 0,
     installments: local.installments?.length ? local.installments.map(i => ({ ...i,
       key: sensitive ? uuid5(LINE_NAMESPACE, canonical([row.id, "installment", i.key])) : i.key,
-    })) : total > 0 ? [{ key: "main", due_on: saoPauloDate(first ?? row.created), amount_cents: total, payment_method_id: policy.payment_method_id }] : [],
+    })) : total > 0 ? [{ key: "main", due_on: saoPauloDate(first ?? row.created), amount_cents: total, payment_method_id: terms?.payment_method_id ?? policy.payment_method_id }] : [],
     policy_version: policy.version,
     lifecycle: { base_status: row.status, stage_id: row.stage ?? row.status, quote_version: row.quote_items ? row.quote_version ?? 0 : null,
       authorization: local.authorization?.kind ?? null, authorized_at: local.authorization?.at ?? null,
       first_execution_at: first, delivered_at: row.delivered_at ?? null, warranty_until: row.warranty_until ?? null },
-    technical: sensitive ? null : local.technical ?? { equipment: row.item?.slice(0, 200) || null, serial_number: null, technician: null, defect: null, solution: null },
+    technical: sensitive ? null : local.technical ?? { equipment: equipmentText(row), serial_number: null, technician: null, defect: null, solution: null },
   };
   if (integration.frozen && integration.snapshot) {
     const saved = integration.snapshot;
+    // Depois de efeitos, nada do conteúdo comercial muda, nem a reserva:
+    // título, desconto e classificação vêm da fotografia já enviada.
     Object.assign(snapshot, { contact_id: saved.contact_id, customer_ref: saved.customer_ref, items: saved.items,
-      total_cents: saved.total_cents, installments: saved.installments, policy_version: saved.policy_version, technical: saved.technical });
+      total_cents: saved.total_cents, installments: saved.installments, policy_version: saved.policy_version, technical: saved.technical,
+      description: saved.description, privacy: saved.privacy, discount_cents: saved.discount_cents ?? 0 });
   }
   validateSnapshot(snapshot);
   return snapshot;

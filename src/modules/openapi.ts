@@ -1078,6 +1078,31 @@ function serviceOrderSchemas() {
         maximum: 100000000,
         description: "Valor unitário em centavos.",
       },
+      id: { type: "string", format: "uuid", description: "Identificador da linha. Reenvie o mesmo id ao editar: o vínculo de catálogo fica preso à linha." },
+      kind: { enum: ["material", "service", "free"], description: "Peça (material), serviço do catálogo ou item avulso (free)." },
+      unit: { type: "string", maxLength: 12 },
+      product_id: { type: ["string", "null"], description: "Somente confirma um vínculo já feito em PUT /integrations/os/catalog/quote_item/{ordem}/{linha}." },
+      code: { type: ["string", "null"], maxLength: 60, description: "Código do catálogo, só para mostrar e imprimir." },
+      discount_cents: { type: "integer", minimum: 0, description: "Desconto da linha em centavos, até o valor da linha." },
+    },
+  };
+  const quoteTerms = {
+    type: ["object", "null"],
+    description: "Condições: pagador (contato do cadastro; null = cliente da ordem), forma de pagamento e parcelas. Sem Financeiro ligado, installments é ignorado e fica só o total combinado.",
+    properties: {
+      payer_contact_id: { type: ["string", "null"] },
+      payer_name: { type: "string", maxLength: 120 },
+      method: { enum: ["cash", "pix", "card", "boleto", "transfer", "other", null] },
+      payment_method_id: { type: ["string", "null"], format: "uuid", description: "Forma de pagamento do ERP (Financeiro)." },
+      method_label: { type: "string", maxLength: 80 },
+      installments: {
+        type: ["object", "null"],
+        properties: {
+          count: { type: "integer", minimum: 1, maximum: 24 },
+          first_due_on: { type: "string", format: "date" },
+          interval_days: { type: "integer", minimum: 1, maximum: 365, default: 30 },
+        },
+      },
     },
   };
   return {
@@ -1137,6 +1162,12 @@ function serviceOrderSchemas() {
                 "Sobe a cada envio; respostas a versões antigas não valem.",
             },
             expired: { type: "boolean" },
+            subtotal_cents: { type: "integer", description: "Soma bruta das linhas." },
+            items_discount_cents: { type: "integer", description: "Soma dos descontos das linhas." },
+            discount_cents: { type: "integer", description: "Desconto no total. total_cents = subtotal - descontos." },
+            terms: quoteTerms,
+            installments: { type: "array", items: { type: "object", properties: { number: { type: "integer" }, due_on: { type: "string", format: "date" }, amount_cents: { type: "integer" } } } },
+            locked: { type: "boolean", description: "Aprovado ou em andamento: mudar exige reabrir (com motivo) antes de iniciar o serviço." },
           },
         },
         decision: {
@@ -1248,6 +1279,65 @@ function serviceOrderSchemas() {
           description: "Em branco usa a validade padrão da área.",
         },
         note: { type: "string", maxLength: 600 },
+        discount_cents: { type: "integer", minimum: 0, description: "Desconto no total, em centavos. Ausente preserva o anterior." },
+        terms: quoteTerms,
+        adult_payer_confirmed: { type: "boolean", description: "Pessoa da equipe confirma o pagador adulto (modelos de áreas reservadas)." },
+      },
+    },
+    ServiceOrderQuoteReopen: {
+      type: "object",
+      required: ["version", "reason"],
+      properties: {
+        version: { type: "integer", minimum: 1 },
+        reason: { type: "string", minLength: 1, maxLength: 500, description: "Motivo; fica no histórico da ordem." },
+      },
+    },
+    ServiceOrderReceiptInput: {
+      type: "object",
+      required: ["amount_cents", "method"],
+      properties: {
+        amount_cents: { type: "integer", minimum: 1 },
+        method: { enum: ["cash", "pix", "card", "other", "unknown"] },
+        occurred_at: { type: "integer", description: "Instante do recebimento (ms); não pode estar no futuro. Padrão: agora." },
+        note: { type: "string", maxLength: 200 },
+      },
+    },
+    ServiceOrderChargeInput: {
+      type: "object",
+      required: ["method"],
+      properties: {
+        method: { enum: ["pix", "link"] },
+        amount_cents: { type: "integer", minimum: 1, description: "Padrão: o saldo da ordem." },
+      },
+    },
+    ServiceOrderPayments: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        version: { type: "integer" },
+        total_cents: { type: "integer" },
+        received_cents: { type: "integer" },
+        balance_cents: { type: "integer" },
+        receipts: { type: "array", items: { type: "object", properties: {
+          receipt_key: { type: "string" }, kind: { enum: ["receive", "reverse"] }, evidence: { enum: ["provider", "manual"] },
+          amount_cents: { type: "integer" }, method: { type: "string" }, occurred_ms: { type: "integer" }, actor_id: { type: ["string", "null"] },
+        } } },
+        charges: { type: "array", items: { type: "object", properties: {
+          id: { type: "string" }, method: { type: "string" }, status: { type: "string" }, amount_cents: { type: "integer" },
+          url: { type: ["string", "null"] }, pix_code: { type: ["string", "null"] }, expires_at: { type: ["integer", "null"] }, created: { type: "integer" },
+        } } },
+        provider: { type: "object", properties: { ready: { type: "boolean" }, message: { type: "string" }, methods: { type: "array", items: { type: "string" } } } },
+        finance: { type: "object", properties: { enabled: { type: "boolean" }, obligation: { type: "boolean" } } },
+        parts: { type: "object", properties: { products: { type: "boolean" }, finance: { type: "boolean" } } },
+        catalog_links: { type: "object", additionalProperties: { type: "object", properties: { erp_item_id: { type: "string" }, version: { type: "integer" } } } },
+        privacy: { enum: ["commercial", "reserved"] },
+      },
+    },
+    ServiceOrderChargeResult: {
+      type: "object",
+      properties: {
+        charge: { type: "object" },
+        payments: { $ref: "#/components/schemas/ServiceOrderPayments" },
       },
     },
     ServiceOrderQuoteSend: {
@@ -1267,6 +1357,16 @@ function serviceOrderSchemas() {
       properties: {
         decision: { enum: ["approve", "decline"] },
         note: { type: "string", maxLength: 500 },
+        detail: {
+          type: "object",
+          description: "Registro à mão: quem respondeu, quando (ms, não futuro) e por onde.",
+          required: ["by_name"],
+          properties: {
+            by_name: { type: "string", minLength: 1, maxLength: 120 },
+            at: { type: "integer" },
+            channel: { enum: ["whatsapp", "phone", "counter", "email", "other"] },
+          },
+        },
       },
     },
   };
@@ -3414,7 +3514,7 @@ function workMotorContract(): WorkOperation[] {
       "ServiceOrder",
       "409 feature_disabled;409 invalid_transition",
       [],
-      "Embutido: somente received, analyzing, quoted e declined. Alterar orçamento enviado volta a analyzing. Tipo personalizado usa a política de orçamento da definição fixada. Alterar orçamento cancela aprovação de etapa pendente.",
+      "Embutido: somente received, analyzing, quoted e declined. Alterar orçamento enviado volta a analyzing. Tipo personalizado usa a política de orçamento da definição fixada. Alterar orçamento cancela aprovação de etapa pendente. Orçamento aprovado está travado: 409 quote_locked (reabra com motivo). Itens do catálogo mantêm o vínculo pelo id da linha; desconto por linha (discount_cents) e no total; terms com pagador, forma e parcelas (sem Financeiro ligado, só o total combinado). Pelo bot é sensível: a pessoa confirma a proposta.",
     ],
     [
       "post",
@@ -3434,7 +3534,30 @@ function workMotorContract(): WorkOperation[] {
       "ServiceOrder",
       "409 quote_expired;409 quote_not_pending;409 feature_disabled",
       [],
-      "Entrada approve/decline; saída decision.decision continua approved/declined. Usa a política de orçamento e preserva o protocolo legado; não decide aprovação de etapa.",
+      "Entrada approve/decline; saída decision.decision continua approved/declined. Usa a política de orçamento e preserva o protocolo legado; não decide aprovação de etapa. detail registra à mão quem respondeu, quando e por onde (telefone, balcão). Pelo bot é sensível: a pessoa confirma a proposta.",
+    ],
+    [
+      "post", `${o}/quote/reopen`, "Ordem de serviço: reabrir orçamento aprovado", "ServiceOrderQuoteReopen", "ServiceOrder",
+      "409 quote_not_approved;409 quote_reopen_blocked;409 version_conflict;400 invalid_request", [],
+      "Volta o orçamento aprovado (antes de iniciar o serviço) para Em análise, com o motivo no histórico; a aprovação deixa de valer e o orçamento precisa ser enviado e aprovado de novo. Com documento de venda já criado no ERP, recusa com quote_reopen_blocked. Pelo bot é sensível: a pessoa confirma a proposta.",
+      "os.quote.reopen",
+    ],
+    [
+      "get", `${o}/payments`, "Ordem de serviço: cobrança e recebimentos", null, "ServiceOrderPayments", "", [],
+      "Total combinado, recebido, saldo, recebimentos (à mão e pelo provedor), cobranças Pix/link da ordem, se a Cobrança da área está pronta, partes do ERP em uso e vínculos de catálogo das linhas do orçamento.",
+      "os.payments.get",
+    ],
+    [
+      "post", `${o}/receipts`, "Ordem de serviço: registrar recebimento", "ServiceOrderReceiptInput", "ServiceOrderPayments",
+      "409 quote_not_approved;400 invalid_request;403 forbidden;403 mfa_required", [],
+      "Registra o recebimento à mão (forma e data), depois do orçamento aprovado. Chega ao Financeiro do ERP pela fila da fase 3 da própria ordem: com a conta a receber já criada, no mesmo lote; antes dela, segue junto da primeira execução. Excedente fica registrado fora das parcelas. Pelo bot é sensível: a pessoa confirma a proposta.",
+      "os.receipt.create",
+    ],
+    [
+      "post", `${o}/charges`, "Ordem de serviço: gerar cobrança Pix ou link", "ServiceOrderChargeInput", "ServiceOrderChargeResult",
+      "409 quote_not_approved;409 payments_disabled;409 payments_not_configured;409 payment_method_unavailable;409 no_conversation;409 nothing_to_charge", [],
+      "Gera Pix ou link de pagamento pela Cobrança da área e envia na conversa da ordem; sem valor, cobra o saldo. O pagamento confirmado pelo provedor vira recebimento da ordem automaticamente. Pelo bot é sensível: a pessoa confirma a proposta.",
+      "os.charge.create",
     ],
     [
       "post",

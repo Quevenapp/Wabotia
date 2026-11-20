@@ -95,19 +95,79 @@ fica no histórico com quem fez e quando.
 
 ## Orçamento
 
-No detalhe da ordem: **Montar orçamento** (itens, quantidade, valor, validade
-e uma observação) e **Enviar orçamento**. O cliente recebe os itens, o total
-e a validade e responde **Aprovar** ou **Recusar**; a ordem muda sozinha e
-guarda quem respondeu e quando. Se o cliente responder por telefone ou no
-balcão, use *Cliente aprovou* ou *Cliente recusou*.
+Vale para a ordem clássica e para todos os modelos. No detalhe da ordem, o
+bloco **Orçamento e recebimento** tem **Montar orçamento** (ou *Editar*):
+
+- **Peças e serviços do catálogo do ERP**: *Buscar no catálogo* por nome ou
+  código traz o preço da lista; ajuste quantidade e preço se quiser. O item
+  guarda o vínculo com o produto (peça com vínculo baixa estoque na execução).
+  Editar a ordem pela tela clássica ou pela nova mantém o vínculo.
+- **Itens avulsos**: *Adicionar item avulso* com descrição e valor. Sem a parte
+  **Produtos e serviços** do ERP ligada, só há itens avulsos, sem erro.
+- **Desconto** em cada item e no total; o resumo mostra subtotal, descontos e
+  total.
+- **Condições de pagamento**: pagador (o cliente da ordem ou outro contato do
+  cadastro), forma de pagamento (as formas do Financeiro do ERP, ou Pix,
+  dinheiro, cartão, boleto, transferência) e parcelas (quantidade, primeira
+  data e intervalo), com o resumo do que será cobrado. Sem o **Financeiro**
+  ligado, a ordem guarda só o total combinado, sem parcelas.
+- Validade em dias e uma observação ao cliente.
+
+Depois, **Enviar orçamento**. O cliente recebe pelo WhatsApp um link **Ver
+orçamento** (itens, descontos, total, condições e validade, com *Aprovo* ou
+*Recuso* e o motivo da recusa) e, logo depois, a lista **Aprovar**/**Recusar**
+de sempre. A ordem muda sozinha e guarda quem respondeu, quando e o motivo.
+Se o cliente responder por telefone ou no balcão, use *Cliente aprovou* ou
+*Cliente recusou* (*Registrar aprovação/recusa do orçamento* nos modelos):
+a tela pede **quem respondeu, quando e por onde** (e o motivo da recusa).
 
 - Orçamento **vencido** não pode ser aprovado: envie de novo.
 - Mudar um orçamento já enviado volta a ordem para *Em análise* até o novo
   envio; respostas ao orçamento anterior deixam de valer.
+- **Orçamento aprovado fica travado.** Para mudar, **Reabrir orçamento** e
+  informe o motivo (fica no histórico); a aprovação deixa de valer e o
+  orçamento é enviado e aprovado de novo. Só antes de iniciar o serviço. Se o
+  orçamento aprovado já gerou o documento de venda no ERP, o ERP não o volta
+  para análise: cancele a ordem com motivo e abra outra.
 - Na linha oficial o orçamento chega como lista com **Aprovar** e **Recusar**;
   na linha QR, com "1. Aprovar / 2. Recusar". O cliente também pode escrever
   `APROVAR 12` ou `RECUSAR 12` (número da ordem). Com um menu aberto depois
-  do orçamento, "1" e "2" são opções do menu.
+  do orçamento, "1" e "2" são opções do menu. Fora da janela de 24 horas da
+  linha oficial o link não sai; a lista segue pelo modelo de notificação.
+
+## Cobrança e recebimento
+
+Com o orçamento aprovado (ou o preço fixo autorizado), o mesmo bloco mostra
+total, recebido e saldo:
+
+- **Gerar Pix** ou **Gerar link de pagamento**: pela Cobrança da área
+  (Gestão → Cobrança), enviado na conversa da ordem. O pagamento confirmado
+  pelo provedor vira recebimento da ordem sozinho; o estorno do provedor, o
+  estorno do recebimento.
+- **Registrar recebimento**: sem provedor (dinheiro, cartão na maquininha,
+  Pix direto), informe valor, forma e data. O que passar do combinado fica
+  registrado fora das parcelas.
+
+O recebimento chega ao **Financeiro do ERP** pela fila da fase 3 da própria
+ordem (não há outro lançamento): com a conta a receber já criada (primeira
+execução com Financeiro), no mesmo instante; registrado antes dela, segue
+junto da execução. Com o Financeiro desligado, fica só na ordem.
+
+## Cancelar e voltar etapa
+
+**Cancelar ordem**, voltar de *Pronta* para *Em execução* (retrabalho) e voltar
+para *Em análise* pedem o **motivo** antes de enviar. O motivo fica no
+histórico e vai ao ERP quando a ordem já tem parte comercial.
+
+## Imprimir
+
+No bloco **Orçamento e recebimento**: **Imprimir orçamento (A4)**, **Imprimir
+ordem (A4)** e **Cupom 80 mm**. A página abre pronta para imprimir ou salvar
+em PDF pelo navegador, com os dados da empresa (Gestão → Estabelecimento),
+cliente, objeto do serviço, itens, descontos e totais, condições, garantia do
+modelo, recebido e saldo (na ordem) e campo de assinatura. Campos sensíveis do
+modelo nunca saem; nas áreas reservadas (saúde, ensino, jurídico) os itens
+saem como "Serviço contratado". Permita janelas pop-up no endereço do painel.
 
 ## Acompanhamento e avisos
 
@@ -149,9 +209,43 @@ não impede o trabalho local nem autoriza lançamento retroativo ao religar.
 fechar o comando anterior. Uma falha no ERP permanece pendência, sem mudar o
 estado operacional silenciosamente.
 
+**Dado da ordem não é segredo por padrão.** O documento comercial e a
+impressão levam os itens do orçamento como a pessoa escreveu, o título da
+ordem no vocabulário do modelo (por exemplo "Ordem de serviço OF-12") e, como
+equipamento, o objeto do serviço só com campos que o cliente pode ver. Campos
+marcados como sensíveis no modelo nunca entram. Continuam **reservados**
+(documento "Serviço contratado", sem dados técnicos, pagador adulto
+confirmado por uma pessoa) os modelos de área de saúde, ensino e jurídico
+(clínica médica, escolas, professores, advogados e escritório de advocacia) e
+toda a área que aplicou um deles. Documentos já lançados não mudam.
+
+**ERP → Ordens de serviço (antiga).** Com o módulo Ordem de Serviço ligado, a
+tela antiga do ERP fica só para leitura. Documento que veio de uma ordem diz
+isso e tem o link **Abrir a ordem de serviço**, que abre a ordem
+correspondente (`/app/erp/modulos/trabalhos?origem=<id>`).
+
 O aceite integrado ainda depende da verificação externa. Consulte
 [FASE-3-INTEGRACOES.md](FASE-3-INTEGRACOES.md) para a ordem de liberação,
 permissões, configuração, recuperação e campos ainda não exportados ao ERP.
+
+**Rotas do comercial (OS3).** Todas no OpenAPI do módulo, com nome estável:
+
+| Operação | Rota | Bot |
+| --- | --- | --- |
+| `os.quote.save` | `PUT …/service-orders/{id}/quote` (itens com `id`, `kind`, `discount_cents`; `discount_cents` e `terms` no corpo) | proposta |
+| `os.decide` | `POST …/{id}/decision` (`detail`: `by_name`, `at`, `channel`) | proposta |
+| `os.quote.reopen` | `POST …/{id}/quote/reopen` (`version`, `reason`) | proposta |
+| `os.receipt.create` | `POST …/{id}/receipts` (`amount_cents`, `method`, `occurred_at`) | proposta |
+| `os.charge.create` | `POST …/{id}/charges` (`method`: `pix` ou `link`) | proposta |
+| `os.payments.get` | `GET …/{id}/payments` | leitura |
+
+"Proposta": o bot propõe e a pessoa confirma; o servidor só aceita a escrita
+comercial da pessoa (ou da proposta que ela confirmou). O vínculo de catálogo
+de uma linha é gravado em `PUT /integrations/os/catalog/quote_item/{ordem}/{linha}`
+depois de a linha existir. Erros novos: `quote_locked`, `quote_not_approved`,
+`quote_reopen_blocked`, `nothing_to_charge`, `payment_method_unavailable`.
+A migração `0152_os_quote_commercial.sql` acrescenta `quote_discount_cents`,
+`quote_terms_json` e `decision_detail_json` a `os_orders`.
 
 **Contagem por estado.** `GET /profiles/{perfil}/service-orders` traz, além
 de `data` e `next_cursor`, o mapa `counts`: número de ordens da área em cada

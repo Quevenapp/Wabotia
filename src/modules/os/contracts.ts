@@ -315,7 +315,33 @@ export interface QuoteItem {
   kind?: "material" | "service" | "free";
   /** Associação explícita já existente na tabela auxiliar de catálogo. */
   product_id?: string | null;
+  /** OS3: desconto da linha em centavos (até o valor bruto da linha). */
+  discount_cents?: number;
+  /** OS3: código do catálogo, só para mostrar e imprimir; nunca prova vínculo. */
+  code?: string | null;
 }
+/** OS3: condições combinadas no orçamento (pagador, forma e parcelas). */
+export interface QuoteTerms {
+  /** Contato do cadastro que paga; null usa o cliente da ordem. */
+  payer_contact_id: string | null;
+  payer_name: string;
+  /** Forma escolhida: lista do ERP (payment_method_id) ou uma das genéricas. */
+  method: "cash" | "pix" | "card" | "boleto" | "transfer" | "other" | null;
+  payment_method_id: string | null;
+  method_label: string;
+  /** Sem Financeiro ligado o servidor guarda só o total, sem parcelas. */
+  installments: { count: number; first_due_on: string; interval_days: number } | null;
+}
+/** OS3: aprovação ou recusa registrada pela equipe, com quem e quando. */
+export interface DecisionDetail {
+  /** Nome de quem respondeu (cliente, responsável) como a pessoa informou. */
+  by_name: string;
+  /** Instante informado da resposta, em milissegundos. */
+  at: number;
+  channel: "whatsapp" | "phone" | "counter" | "email" | "other";
+  reason: string;
+}
+export interface QuoteInstallmentView { number: number; due_on: string; amount_cents: number }
 export interface OrderHistory {
   id: string;
   kind: string;
@@ -359,12 +385,22 @@ export interface Order extends WorkOrderAdditions {
     sent_at: number | null;
     version: number;
     expired: boolean;
+    /** OS3: soma bruta das linhas, descontos das linhas e desconto no total. */
+    subtotal_cents?: number;
+    items_discount_cents?: number;
+    discount_cents?: number;
+    terms?: QuoteTerms | null;
+    /** OS3: parcelas calculadas das condições (vazio sem parcelas). */
+    installments?: QuoteInstallmentView[];
+    /** OS3: aprovado e ainda não reaberto; mudar exige reabrir com motivo. */
+    locked?: boolean;
   } | null;
   decision: {
     decision: "approved" | "declined";
     at: number;
     by: string;
     via: string;
+    detail?: DecisionDetail | null;
   } | null;
   ready_at: number | null;
   delivered_at: number | null;
@@ -428,6 +464,12 @@ export interface QuoteRequest {
   items: QuoteItem[];
   note?: string;
   valid_days?: number;
+  /** OS3: desconto no total, em centavos. */
+  discount_cents?: number;
+  /** OS3: condições; ausente preserva as anteriores, null apaga. */
+  terms?: Partial<QuoteTerms> | null;
+  /** OS3: pessoa confirma que o pagador é adulto (modelos reservados). */
+  adult_payer_confirmed?: boolean;
 }
 export interface QuoteSendRequest {
   notify?: boolean;
@@ -436,6 +478,35 @@ export interface DecisionRequest {
   decision: "approve" | "decline";
   note?: string;
   quote_version?: number;
+  /** OS3: quem respondeu, quando e por onde (registro à mão pela equipe). */
+  detail?: { by_name: string; at?: number; channel?: DecisionDetail["channel"] };
+}
+/** OS3: reabrir o orçamento aprovado (com motivo, fica no histórico). */
+export interface QuoteReopenRequest { version: number; reason: string }
+export type ReceiptMethod = "cash" | "pix" | "card" | "other" | "unknown";
+export interface ReceiptRequest { amount_cents: number; method: ReceiptMethod; occurred_at?: number; note?: string }
+export interface ChargeRequestInput { method: "pix" | "link"; amount_cents?: number }
+export interface OrderReceipt {
+  receipt_key: string; kind: "receive" | "reverse"; evidence: "provider" | "manual";
+  amount_cents: number; method: ReceiptMethod; occurred_ms: number; actor_id: string | null;
+}
+export interface OrderCharge {
+  id: string; method: string; status: string; amount_cents: number; url: string | null;
+  pix_code: string | null; expires_at: number | null; created: number;
+}
+export interface OrderPayments {
+  id: string; version: number; total_cents: number; received_cents: number; balance_cents: number;
+  receipts: OrderReceipt[]; charges: OrderCharge[];
+  /** Cobrança pela área: pronta, motivo e meios (Pix, link). */
+  provider: { ready: boolean; message: string; methods: string[] };
+  /** ERP: Financeiro ligado e conta a receber criada para esta ordem. */
+  finance: { enabled: boolean; obligation: boolean };
+  /** Partes do ERP em uso pela ordem (Produtos e serviços, Financeiro). */
+  parts: { products: boolean; finance: boolean };
+  /** Vínculo de catálogo de cada linha do orçamento (id da linha → produto). */
+  catalog_links: Record<string, { erp_item_id: string; version: number }>;
+  /** reserved: modelo de área sensível; documento e impressão genéricos. */
+  privacy: "commercial" | "reserved";
 }
 export interface StageApprovalRequest extends VersionRequest {
   transition_id: string;

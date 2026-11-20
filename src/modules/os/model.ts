@@ -2,7 +2,7 @@
 // orçamento e textos. Sem banco, para testar e para os apps lerem o contrato.
 import { requireValue } from "../../types";
 import { BRASILIA_OFFSET_MS } from "../../business-time";
-import type { QuoteItem } from "./contracts";
+import type { QuoteItem, QuoteTerms } from "./contracts";
 export type { QuoteItem } from "./contracts";
 
 export const OS_STATUSES = [
@@ -258,24 +258,135 @@ export function validateQuoteItems(value: unknown): QuoteItem[] {
     if (raw.kind !== undefined) requireValue(["material", "service", "free"].includes(raw.kind), "Orçamento: classificação inválida.");
     if (raw.unit !== undefined) requireValue(typeof raw.unit === "string" && /^[A-Za-z0-9²³%./_-]{1,12}$/.test(raw.unit), "Orçamento: unidade inválida.");
     if (raw.product_id != null) requireValue(typeof raw.product_id === "string" && uuid.test(raw.product_id) && ["material", "service"].includes(raw.kind), "Orçamento: vínculo de produto inválido.");
+    if (raw.discount_cents != null && raw.discount_cents !== 0) {
+      requireValue(Number.isInteger(raw.discount_cents) && raw.discount_cents > 0,
+        `Orçamento: desconto do item ${index + 1} em centavos (inteiro, maior ou igual a zero).`);
+      requireValue(raw.discount_cents <= lineGross({ quantity, unit_cents: raw.unit_cents }),
+        `Orçamento: o desconto do item ${index + 1} passa do valor do item.`);
+    }
+    if (raw.code !== undefined && raw.code !== null)
+      requireValue(typeof raw.code === "string" && Array.from(raw.code).length <= 60 && !/[\u0000-\u001f]/.test(raw.code), `Orçamento: código do item ${index + 1} com até 60 caracteres.`);
     return { description, quantity, unit_cents: raw.unit_cents,
       ...(raw.id !== undefined ? { id: raw.id.toLowerCase() } : {}),
       ...(raw.kind !== undefined ? { kind: raw.kind } : {}),
       ...(raw.unit !== undefined ? { unit: raw.unit } : {}),
       ...(raw.product_id !== undefined ? { product_id: raw.product_id } : {}),
+      ...(raw.discount_cents ? { discount_cents: raw.discount_cents } : {}),
+      ...(typeof raw.code === "string" && raw.code.trim() ? { code: raw.code.trim() } : {}),
     };
   });
 }
 
-export const quoteTotal = (items: QuoteItem[]) => {
-  const total = items.reduce((sum, item) => {
-    const [whole, fraction = ""] = String(item.quantity).split(".");
-    const scale = 10n ** BigInt(fraction.length);
-    return sum + (BigInt(whole + fraction) * BigInt(item.unit_cents) + scale / 2n) / scale;
-  }, 0n);
+/** Valor bruto da linha: quantidade decimal × unitário, arredondado por linha. */
+export function lineGross(item: Pick<QuoteItem, "quantity" | "unit_cents">) {
+  const [whole, fraction = ""] = String(item.quantity).split(".");
+  const scale = 10n ** BigInt(fraction.length);
+  return Number((BigInt(whole + fraction) * BigInt(item.unit_cents) + scale / 2n) / scale);
+}
+/** Soma bruta das linhas, sem nenhum desconto (é o que o ERP chama de itens). */
+export function quoteSubtotal(items: QuoteItem[]) {
+  const total = items.reduce((sum, item) => sum + BigInt(lineGross(item)), 0n);
   requireValue(total <= BigInt(Number.MAX_SAFE_INTEGER), "Orçamento: total fora do limite.");
   return Number(total);
+}
+export const itemsDiscount = (items: QuoteItem[]) => items.reduce((sum, item) => sum + (item.discount_cents ?? 0), 0);
+/**
+ * Total líquido do orçamento: soma das linhas, menos os descontos das linhas
+ * e o desconto no total. Sem descontos é exatamente o total de antes.
+ */
+export const quoteTotal = (items: QuoteItem[], discount = 0) => {
+  const total = quoteSubtotal(items) - itemsDiscount(items) - discount;
+  requireValue(total >= 0, "Orçamento: o desconto passa do valor dos itens.");
+  return total;
 };
+
+// ---------------------------------------------------------------------------
+// Condições de pagamento (OS3)
+
+export const PAYMENT_METHODS = ["cash", "pix", "card", "boleto", "transfer", "other"] as const;
+export const PAYMENT_METHOD_LABELS: Record<(typeof PAYMENT_METHODS)[number], string> = {
+  cash: "Dinheiro", pix: "Pix", card: "Cartão", boleto: "Boleto", transfer: "Transferência", other: "Outra forma",
+};
+const civilDate = (value: unknown) =>
+  typeof value === "string" && /^\d{4}-\d\d-\d\d$/.test(value) && new Date(value + "T00:00:00Z").toISOString().slice(0, 10) === value;
+
+/**
+ * Valida as condições do orçamento. `finance` indica a parte Financeiro do
+ * ERP ligada: sem ela não há parcelas (só o total combinado).
+ */
+export function validateQuoteTerms(value: unknown, finance: boolean): QuoteTerms | null {
+  if (value === null || value === undefined) return null;
+  requireValue(typeof value === "object" && !Array.isArray(value), "Condições de pagamento inválidas.");
+  const raw = value as Record<string, any>;
+  for (const key of Object.keys(raw))
+    requireValue(["payer_contact_id", "payer_name", "method", "payment_method_id", "method_label", "installments"].includes(key),
+      `Condições de pagamento: campo desconhecido ${key}.`);
+  const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+  const payer = raw.payer_contact_id ?? null;
+  requireValue(payer === null || (typeof payer === "string" && payer.length > 0 && payer.length <= 80 && !/[\u0000-\u001f]/.test(payer)), "Pagador inválido.");
+  const payerName = typeof raw.payer_name === "string" ? raw.payer_name.trim() : "";
+  requireValue(Array.from(payerName).length <= 120, "Nome do pagador: até 120 caracteres.");
+  const method = raw.method ?? null;
+  requireValue(method === null || (PAYMENT_METHODS as readonly string[]).includes(method), "Forma de pagamento inválida.");
+  const methodId = raw.payment_method_id ?? null;
+  requireValue(methodId === null || (typeof methodId === "string" && uuid.test(methodId)), "Forma de pagamento do ERP inválida.");
+  const label = typeof raw.method_label === "string" ? raw.method_label.trim() : "";
+  requireValue(Array.from(label).length <= 80, "Nome da forma de pagamento: até 80 caracteres.");
+  let installments: QuoteTerms["installments"] = null;
+  if (finance && raw.installments != null) {
+    const i = raw.installments;
+    requireValue(i && typeof i === "object" && !Array.isArray(i), "Parcelas inválidas.");
+    requireValue(Number.isInteger(i.count) && i.count >= 1 && i.count <= 24, "Parcelas: de 1 a 24.");
+    requireValue(civilDate(i.first_due_on), "Parcelas: informe a data da primeira parcela.");
+    const interval = i.interval_days ?? 30;
+    requireValue(Number.isInteger(interval) && interval >= 1 && interval <= 365, "Parcelas: intervalo de 1 a 365 dias.");
+    installments = { count: i.count, first_due_on: i.first_due_on, interval_days: interval };
+  }
+  return {
+    payer_contact_id: payer, payer_name: payerName,
+    method, payment_method_id: methodId,
+    method_label: label || (method ? PAYMENT_METHOD_LABELS[method as keyof typeof PAYMENT_METHOD_LABELS] : ""),
+    installments,
+  };
+}
+
+/** Datas civis: a primeira mais `interval_days` a cada parcela. */
+export function addDays(date: string, days: number) {
+  const at = new Date(date + "T12:00:00Z");
+  at.setUTCDate(at.getUTCDate() + days);
+  return at.toISOString().slice(0, 10);
+}
+/**
+ * Divide o total em parcelas iguais em centavos; a diferença do
+ * arredondamento fica na primeira. Sem parcelas ou total zero: lista vazia.
+ */
+export function quoteInstallments(terms: QuoteTerms | null | undefined, total: number) {
+  const plan = terms?.installments;
+  if (!plan || total <= 0) return [] as { number: number; due_on: string; amount_cents: number }[];
+  const count = Math.min(plan.count, total);
+  const base = Math.floor(total / count), first = total - base * (count - 1);
+  return Array.from({ length: count }, (_, index) => ({
+    number: index + 1,
+    due_on: addDays(plan.first_due_on, index * plan.interval_days),
+    amount_cents: index === 0 ? first : base,
+  }));
+}
+
+/** "3x de R$ 100,00 a cada 30 dias, a partir de 10/12/2026 · Pix" */
+export function termsSummary(terms: QuoteTerms | null | undefined, total: number) {
+  const parts: string[] = [];
+  const plan = quoteInstallments(terms, total);
+  if (plan.length > 1) {
+    const [y, m, d] = plan[0].due_on.split("-");
+    parts.push(`${plan.length} parcelas (${plan.map(p => money(p.amount_cents)).join(" + ")}), a primeira em ${d}/${m}/${y}, a cada ${terms!.installments!.interval_days} dias`);
+  } else if (plan.length === 1) {
+    const [y, m, d] = plan[0].due_on.split("-");
+    parts.push(`À vista, vencimento em ${d}/${m}/${y}`);
+  }
+  if (terms?.method_label) parts.push(terms.method_label);
+  if (terms?.payer_name) parts.push(`Pagador: ${terms.payer_name}`);
+  return parts.join(" · ");
+}
 
 /** "R$ 1.234,56" */
 export function money(cents: number) {

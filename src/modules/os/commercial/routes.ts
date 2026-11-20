@@ -13,7 +13,9 @@ import { replayWorkWrite, workWriteReceipt } from "./mutations";
 import type { Statement } from "../../../integrations/contracts";
 
 export function requireCommercialWriter(actor: Actor) {
-  if (actor.via || actor.module || actor.credential || actor.id.startsWith("bot:")) throw new ApiError(403, "forbidden", "Dados comerciais exigem autoria explícita da equipe ou de uma aplicação autorizada.");
+  // OS3: proposta do bot confirmada pela pessoa roda como ela (via.proposal_id).
+  const confirmed = actor.kind === "user" && !!actor.via?.proposal_id;
+  if ((actor.via && !confirmed) || actor.module || actor.credential || actor.id.startsWith("bot:")) throw new ApiError(403, "forbidden", "Dados comerciais exigem autoria explícita da equipe ou de uma aplicação autorizada. Pelo bot, a pessoa precisa confirmar a proposta.");
 }
 /** O vínculo, o recibo, a revisão da OS e sua projeção são um único lote. */
 export async function commitWorkCatalogLink(ctx: ModuleContext, actor: Actor, id: string, component: string, product_id: string | null, statements: Statement[]) {

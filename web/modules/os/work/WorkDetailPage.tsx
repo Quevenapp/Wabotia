@@ -22,10 +22,10 @@ import { WorkDocumentsTab } from "../documents/WorkDocumentsTab";
 import { WorkEntriesTab } from "../entries/WorkEntriesTab";
 import { WorkHistoryTab } from "../history/WorkHistoryTab";
 import { WorkFormDialog, useWorkOperationAction, useWorkOperationDialog } from "./WorkFormDialog";
-import { QuoteEditor } from "./QuoteEditor";
 import { PrivateFieldsDialog } from "./PrivateFieldsDialog";
 import { money } from "../shared";
 import { WorkCommercialPanel } from "./WorkCommercialPanel";
+import { DecisionDialog, ReasonDialog, WorkQuoteCommercial, needsReason, reasonTitle } from "./WorkQuoteCommercial";
 import "../work.css";
 export const workTabs = [
   { id: "resumo", label: "Resumo" },
@@ -94,9 +94,11 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
     api.type(order.type_id),
   );
   const [editing, setEditing] = useState(false),
-    [quote, setQuote] = useState(false),
     [privateOpen, setPrivateOpen] = useState(false),
     [legacyLink, setLegacyLink] = useState(false);
+  // OS3: cancelar e voltar etapa pedem motivo; resposta registrada com quem e quando.
+  const [reasonFor, setReasonFor] = useState<Order["next_stages"][number]>(),
+    [decisionFor, setDecisionFor] = useState<"approve" | "decline">();
   const [requirements, setRequirements] = useState<{ order: Order; requirements: OrderRequirements; pending: PendingWorkAction }>();
   // Uma definição atual diferente nunca reinterpreta campos/etapas de uma ordem antiga.
   const features = order.features;
@@ -106,10 +108,11 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
   const tab = tabs.find((tab) => tab.id === route.tab)?.id || "resumo";
   const changed = () => {
     setEditing(false);
-    setQuote(false);
     setPrivateOpen(false);
     setLegacyLink(false);
     setRequirements(undefined);
+    setReasonFor(undefined);
+    setDecisionFor(undefined);
     reload();
   };
   const execute = (pending: PendingWorkAction) => action.run(async () => {
@@ -157,8 +160,11 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
           <Button
             key={transition.transition_id}
             disabled={action.busy}
+            variant={transition.base_status === "cancelled" ? "danger" : undefined}
             onClick={() =>
-              void execute({ transitionId: transition.transition_id, run: current => api.stage(current.id, stageIntent(current, transition), transition.kind === "customer_approval") })
+              transition.kind !== "customer_approval" && needsReason(order.status, transition.base_status)
+                ? setReasonFor(transition)
+                : void execute({ transitionId: transition.transition_id, run: current => api.stage(current.id, stageIntent(current, transition), transition.kind === "customer_approval") })
             }
           >
             {transition.kind === "customer_approval"
@@ -316,14 +322,9 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
               <section>
                 <h3>Orçamento</h3>
                 <p>{money(order.quote?.total_cents)}</p>
+                <WorkQuoteCommercial order={order} onChanged={changed}
+                  editable={!!features?.quote?.source_stages.includes(order.stage) && order.status !== "approved"} />
                 <div className="card-actions">
-                  {features?.quote?.source_stages.includes(
-                    order.stage,
-                  ) && (
-                    <Button secondary onClick={() => setQuote(true)}>
-                      Editar orçamento
-                    </Button>
-                  )}
                   {order.quote && order.next_statuses.includes("quoted") && (
                     <Button
                       secondary
@@ -340,12 +341,7 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
                       <Button
                         secondary
                         disabled={action.busy}
-                        onClick={() =>
-                          void execute({ transitionId: order.next_stages.find(next => next.stage === features?.quote?.approved_stage)?.transition_id, run: current => api.decision(current.id, {
-                              decision: "approve",
-                              quote_version: current.quote?.version,
-                            }) })
-                        }
+                        onClick={() => setDecisionFor("approve")}
                       >
                         Registrar aprovação do orçamento
                       </Button>
@@ -355,12 +351,7 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
                       <Button
                         secondary
                         disabled={action.busy}
-                        onClick={() =>
-                          void execute({ transitionId: order.next_stages.find(next => next.stage === features?.quote?.declined_stage)?.transition_id, run: current => api.decision(current.id, {
-                              decision: "decline",
-                              quote_version: current.quote?.version,
-                            }) })
-                        }
+                        onClick={() => setDecisionFor("decline")}
                       >
                         Registrar recusa do orçamento
                       </Button>
@@ -401,11 +392,31 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
           onSaved={changed}
         />
       )}
-      {quote && (
-        <QuoteEditor
+      {reasonFor && (
+        <ReasonDialog
+          title={`${reasonTitle(order.status, reasonFor.base_status)}: ${reasonFor.stage_label}`}
+          danger={reasonFor.base_status === "cancelled"}
+          submitLabel={reasonFor.base_status === "cancelled" ? "Cancelar a ordem" : "Voltar etapa"}
+          onClose={() => setReasonFor(undefined)}
+          onSubmit={async (note) => {
+            const transition = reasonFor;
+            setReasonFor(undefined);
+            await execute({ transitionId: transition.transition_id, run: current => api.stage(current.id, { ...stageIntent(current, transition), note }) });
+          }}
+        />
+      )}
+      {decisionFor && (
+        <DecisionDialog
           order={order}
-          onClose={() => setQuote(false)}
-          onSaved={changed}
+          decision={decisionFor}
+          onClose={() => setDecisionFor(undefined)}
+          onSubmit={async ({ note, detail }) => {
+            const stage = decisionFor === "approve" ? features?.quote?.approved_stage : features?.quote?.declined_stage;
+            setDecisionFor(undefined);
+            await execute({ transitionId: order.next_stages.find(next => next.stage === stage)?.transition_id, run: current => api.decision(current.id, {
+              decision: decisionFor, quote_version: current.quote?.version, ...(note ? { note } : {}), detail,
+            }) });
+          }}
         />
       )}
     </div>

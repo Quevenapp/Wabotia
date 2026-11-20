@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useIntegrationApi, integrationError } from "./api";
-import { integrationAccess, sourceHref, useIntegrationHost } from "./visibility";
+import { integrationAccess, operationalHref, sourceHref, useIntegrationHost } from "./visibility";
 import type { DocumentOrigin } from "./contracts";
 
 export function LegacyServiceOrders() {
@@ -31,5 +31,8 @@ export function useDocumentOrigins(ids: readonly string[]) {
     protectedIds: host ? ids.filter(id => knownLinked.has(JSON.stringify([host.root, id]))) : [], error: current?.error ?? "" };
 }
 export function DocumentOriginNotice({ origin }: { origin: DocumentOrigin }) {
-  return <p>Documento vinculado · somente leitura. {origin.source && <a href={sourceHref(origin.source)}>{origin.source.module === "os" ? "Abrir trabalho" : origin.source.module === "mesas" ? "Abrir conta" : origin.source.module === "pedido" ? "Abrir pedido" : "Abrir origem"}</a>}</p>;
+  // OS3: a ordem de serviço do ERP vinda do módulo Ordem de Serviço só pode
+  // ser lida aqui; o link abre a ordem nova correspondente.
+  if (origin.source?.module === "os") return <p role="note"><strong>Somente leitura.</strong> Esta ordem de serviço vem do módulo Ordem de Serviço: itens, valores, situação e recebimentos mudam na própria ordem. <a href={operationalHref(origin.source)}>Abrir a ordem de serviço</a></p>;
+  return <p>Documento vinculado · somente leitura. {origin.source && <a href={sourceHref(origin.source)}>{origin.source.module === "mesas" ? "Abrir conta" : origin.source.module === "pedido" ? "Abrir pedido" : "Abrir origem"}</a>}</p>;
 }

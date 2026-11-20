@@ -38,7 +38,10 @@ async function fixture(enabled = true, custom = false) {
   const f = await f3Fixture();
   if (!enabled) await setParts(f.profile, { erp: false });
   const type = customWorkType();
-  const settings = { service_orders: { warranty_days: 0 }, os_work_types: custom ? [type] : [] };
+  // OS3: personalizado deixou de ser reservado por padrão; os casos de
+  // privacidade continuam valendo para a área sensível (Saúde aplicada).
+  const settings = { service_orders: { warranty_days: 0 }, os_work_types: custom ? [type] : [],
+    ...(custom ? { os_area_setup: [{ template_id: "clinica_medica", bot: { instructions: "", allowed_operations: [], denied_operations: [], suggested_roles: [] }, manual_steps: [] }] } : {}) };
   await exec(f.env, "UPDATE profiles SET settings=? WHERE id=?", JSON.stringify(settings), f.profile);
   const ctx = {
     env: f.env, profile: f.profile, settings: async () => settings,
