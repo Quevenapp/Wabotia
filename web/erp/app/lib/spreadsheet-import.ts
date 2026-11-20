@@ -3,7 +3,7 @@
 // every cell is normalized to the canonical value the Worker accepts, and only the rows are sent, in batches.
 // Another lane adopts the framework by adding its template to packages/erp-domain/src/spreadsheet-import.mjs and its row
 // handler to erp_preferences.import_item; the screen (SpreadsheetImport) and Consultar gestão de ações work unchanged.
-import {IMPORT_BASE,IMPORT_TEMPLATES,IMPORT_SLUGS,IMPORT_BATCH_ITEMS,IMPORT_BATCH_LINES,IMPORT_FILE_ROWS,IMPORT_FILE_BYTES,templateRows,templateHeader,foldHeader,importKindOf,isGroupedKind,
+import {IMPORT_BASE,IMPORT_BODY_BYTES,IMPORT_TEMPLATES,IMPORT_SLUGS,IMPORT_BATCH_ITEMS,IMPORT_BATCH_LINES,IMPORT_FILE_ROWS,IMPORT_FILE_BYTES,templateRows,templateHeader,foldHeader,importKindOf,isGroupedKind,
  parseImportBatchResult,captureJobsQuery,parseJobs,captureJobQuery,parseJob,
  type ImportKind,type ImportItem,type ImportResult,type ImportJob,type ImportJobsPage,type ImportJobPage,type ImportJobsQuery,type ImportJobQuery,type ImportBatchResult,type TemplateRows} from '../../../../packages/erp-domain/src/spreadsheet-import.mjs';
 import {parseXls,XlsError} from './xls-reader.ts';
@@ -149,11 +149,38 @@ export function autoMapping(template:ScreenTemplate,header:readonly string[]){
  return out;
 }
 
-// ---- Batches: at most IMPORT_BATCH_ITEMS items and IMPORT_BATCH_LINES lines each ----
+// O espaço depois dos separadores reproduz o tamanho do jsonb no servidor; as
+// chaves ordenadas também deixam a identidade independente da ordem do objeto.
+const canonical=(value:unknown):string=>Array.isArray(value)?`[${value.map(canonical).join(', ')}]`
+ :value!==null&&typeof value==='object'?`{${Object.keys(value).sort().map(key=>`${JSON.stringify(key)}: ${canonical((value as Record<string,unknown>)[key])}`).join(', ')}}`
+ :JSON.stringify(value)??'null';
+const wireItem=(item:{lines:number[]})=>{
+ const row=item as {row?:number;lines:number[];data?:unknown};return{row:row.row,lines:row.lines,...(row.data===undefined?{}:{data:row.data})};
+};
+// Margem para nome UTF-8, IDs e envelope HTTP (o teto do SQL vale só para items).
+export const IMPORT_BATCH_PAYLOAD_BYTES=IMPORT_BODY_BYTES-2048;
+export const importBatchBytes=(items:readonly {lines:number[]}[])=>new TextEncoder().encode(canonical(items.map(wireItem))).byteLength;
+// ---- Batches: limites de itens, linhas e bytes, sem cortar um pedido/composição ----
 export function batches<T extends {lines:number[]}>(items:readonly T[]):T[][]{
  const out:T[][]=[];let current:T[]=[],lines=0;
- for(const item of items){if(current.length&&(current.length>=IMPORT_BATCH_ITEMS||lines+item.lines.length>IMPORT_BATCH_LINES)){out.push(current);current=[];lines=0;}current.push(item);lines+=item.lines.length;}
+ for(const item of items){
+  if(importBatchBytes([item])>IMPORT_BATCH_PAYLOAD_BYTES)throw new SheetReadError('Um registro da planilha passa do limite de 256 KB. Reduza os textos ou os itens desse registro.');
+  if(current.length&&(current.length>=IMPORT_BATCH_ITEMS||lines+item.lines.length>IMPORT_BATCH_LINES||importBatchBytes([...current,item])>IMPORT_BATCH_PAYLOAD_BYTES)){out.push(current);current=[];lines=0;}
+  current.push(item);lines+=item.lines.length;
+ }
  if(current.length)out.push(current);return out;
+}
+const importId=async(value:unknown)=>{
+ const bytes=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(canonical(value)))).slice(0,16);
+ bytes[6]=(bytes[6]!&15)|80;bytes[8]=(bytes[8]!&63)|128;
+ const hex=Array.from(bytes,byte=>byte.toString(16).padStart(2,'0')).join('');
+ return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+};
+/** Mesmo conteúdo, área, pessoa e família retomam o mesmo job, inclusive depois de recarregar. */
+export async function spreadsheetImportPlan(scope:string,user:string,kind:ImportKind,file:string,all:readonly ImportItem[],valid:readonly ImportItem[]){
+ const id=await importId(['erp-sheet-v1',scope,user,kind,file,all.map(wireItem)]);
+ const list=batches(valid);
+ return{id,total:valid.length,batches:await Promise.all(list.map(async items=>({id:await importId([id,items.map(wireItem)]),items,uncertain:false})))};
 }
 export const batchPath=(kind:ImportKind)=>`${IMPORT_BASE}/${IMPORT_SLUGS[kind]}/lote`;
 export const jobsPath=(q:ImportJobsQuery)=>`${IMPORT_BASE}?${new URLSearchParams({...(q.status?{situacao:q.status}:{}),limit:String(q.limit),offset:String(q.offset)})}`;

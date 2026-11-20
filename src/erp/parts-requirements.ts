@@ -10,6 +10,16 @@ export const ERP_ENTITY_PARTS = groups([
   [E, "warehouses lotes lots estoque stock_movements"], [F, "receivables payables contas_receber contas_pagar"], [N, "nfe nfce nota_fiscal invoices notas_saida notas_entrada"],
 ]);
 export const erpEntityRequirement = (entity: unknown): ErpRequirement | null => typeof entity === "string" && Object.hasOwn(ERP_ENTITY_PARTS, entity) ? erpRequirement(ERP_ENTITY_PARTS[entity]) : null;
+/** A planilha exige as partes dos cadastros/efeitos que grava, inclusive em simulação. */
+export const ERP_IMPORT_KINDS: Readonly<Record<string, string>> = Object.freeze({
+  produtos: "products", contatos: "contacts", "pedidos-compra": "purchase_orders", "movimentacoes-estoque": "stock_movements",
+  "contas-receber": "receivables", "contas-pagar": "payables", vendas: "sales_orders", "notas-fiscais": "nfe",
+  composicoes: "compositions", "campos-customizados": "custom_fields", "fornecedores-produtos": "product_suppliers", lotes: "lots",
+});
+export function erpImportRequirement(kind: unknown): ErpRequirement | null {
+  if (typeof kind !== "string" || !Object.values(ERP_IMPORT_KINDS).includes(kind)) return null;
+  return kind === "lots" || kind === "compositions" ? erpRequirement(P, E) : erpEntityRequirement(kind);
+}
 export const ERP_PREFERENCE_PARTS = groups([
   [B, "empresa-geral empresa-armazenamento sistema-interface cadastros-contatos central-notificacoes"],
   [P, "cadastros-produtos"], [S, "vendas-vendas vendas-propostas servicos-os meu-negocio"], [C, "suprimentos-compras"],
@@ -71,6 +81,8 @@ export function erpRouteRequirement(method: string, url: URL, body?: unknown): E
   if (cad && !add(erpEntityRequirement(cad[1])) && !["tags", "grupos-tags", "tipos-contato"].includes(cad[1])) return null;
   const pref = /^\/v1\/preferencias\/([^/]+)/.exec(path);
   if (pref && ERP_PREFERENCE_PARTS[pref[1]]) add(erpPreferenceRequirement(pref[1]));
+  const imported = /^\/v1\/importacoes\/([^/]+)\/lote$/.exec(path);
+  if (imported && !add(erpImportRequirement(ERP_IMPORT_KINDS[imported[1]]))) return null;
   for (const key of ["entity", "tipo", "document_type"]) if (input[key] !== undefined && /\/(documentos|duplicacao-documentos|records|anexos|importacoes)/.test(path)) {
     if (!add(erpEntityRequirement(input[key]))) return null;
   }

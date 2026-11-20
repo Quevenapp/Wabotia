@@ -1,5 +1,103 @@
 # Porte do ERP (Fagoo) por domínio — regras para quem porta
 
+## Importações comerciais por planilha (19/11/2026)
+
+Portados `erp_preferences_import_batch` (`domains/preferences/rpc/erp_preferences_import_batch.ts`),
+seus auxiliares (`domains/preferences/import-items.ts`) e `erp_stock_lot_import`
+(`domains/stock/rpc/erp_stock_lot_import.ts`), pelas definições finais 228/265/277/283/300.
+As tabelas já pertenciam ao DDL: não houve mudança de esquema, migração D1 ou recurso Cloudflare.
+As leituras `erp_preferences_import_jobs` e `erp_preferences_import_job` já existiam e agora
+usam o mesmo requisito de partes da escrita.
+O CHECK vetorial `import_row_check`, ausente do SQL traduzido, é cumprido pelo RPC e registrado
+em `scripts/erp/overrides/preferences.mjs`, com prova diferencial em `spreadsheet-shape.test.mjs`.
+
+| Família (`p_kind`) | Efeito da confirmação | Partes |
+| --- | --- | --- |
+| `products` | Inclui ou atualiza pelo código; preço/peso podem recalcular composições quando essa preferência está ligada. Não lança estoque nem títulos. | Produtos |
+| `product_suppliers` | Inclui/atualiza vínculo e campos preenchidos do fornecedor; o custo do fornecedor padrão pode recalcular composições conforme preferência. Não lança estoque nem títulos. | Produtos |
+| `compositions` | Torna o produto uma composição e substitui sua estrutura; aplica as preferências de custo/preço/peso. Não movimenta estoque nem financeiro. | Produtos e Estoque |
+| `custom_fields` | Atualiza valores dos campos existentes do produto, por nome e tipo. Não cria definições, estoque ou títulos. | Produtos |
+| `lots` | Inclui lote ou atualiza datas/observação preenchidas; vazio preserva e conteúdo igual fica sem alteração. Não movimenta estoque. | Produtos e Estoque |
+| `purchase_orders` | Cria pedido de compra nativo com numeração do ERP; o número da planilha é referência. Não recebe mercadoria nem gera título. | Compras |
+| `sales_orders` | Cria pedido de venda nativo com numeração do ERP; o número da planilha é referência. Não baixa estoque nem gera título. | Vendas |
+| `contacts` | Inclui ou atualiza pelo documento; usa a operação de cadastro existente. | Clientes |
+| `stock_movements` | Registra entrada, saída ou diferença de balanço no depósito, com as políticas de estoque; saldo já igual fica sem alteração. Não gera título. | Produtos e Estoque |
+| `receivables` | Cria conta a receber aberta com uma parcela, sem recebimento/liquidação ou movimento de caixa. | Financeiro |
+| `payables` | Cria conta a pagar aberta com uma parcela, sem pagamento/liquidação ou movimento de caixa. | Financeiro |
+| `nfe` | Fora deste porte; a importação fiscal continua explicitamente não portada e sua tela continua pendente. | Fiscal |
+
+As operações de domínio preservam suas permissões, versões, políticas e auditoria. O arquivo
+guarda autor, contadores e resultados por linha em `import_job`/`import_row`, e cada lote guarda
+seu recibo em `import_command`. Uma linha inválida desfaz apenas sua subtransação; erro de
+autorização/parte ou de identidade/total do trabalho desfaz o lote inteiro. A prévia desfaz as
+gravações de cada linha, incluindo auditoria e recibos; sequências de numeração continuam
+consumidas, como `nextval` no PostgreSQL original.
+
+Limites do contrato: arquivo de até 20 MiB e 10.000 linhas de dados no painel; servidor recebe
+1–50 itens por chamada e até 262.144 bytes de JSONB em `p_rows`. Cada item agrupa 1–250 linhas;
+o painel também limita a soma a 500 linhas por chamada e reserva espaço para o envelope HTTP.
+Uma composição admite até 100 componentes pela operação de estoque existente. Os lotes são
+transações separadas e retomáveis, como no original; cada linha usa comando MD5 derivado do
+comando do lote e da posição. Repetir o comando devolve o recibo; retomar o mesmo trabalho não
+reexecuta suas linhas. O painel deriva os IDs do conteúdo canônico, área, pessoa, família e nome
+do arquivo, conservando-os também depois de recarregar a tela. Clientes da API devem conservar
+`job_id` e `command_id`: enviar novos IDs define outra importação. A consulta de comandos do
+estoque foi fracionada em grupos de cinco termos de `UNION ALL` sem mudar o resultado.
+
+Ensaio local no SQLite, com relógio fixo: 10.000 produtos novos em 200 lotes passaram em 58,9 s, com 491.605
+instruções SQL, no máximo 12 parâmetros por instrução. No diferencial das famílias, o maior
+SQL teve 45 parâmetros e a maior composição SQL teve cinco termos. Esses números são do
+harness local, não uma medição do Worker/Coordinator, cuja execução fica para a verificação
+externa desta máquina.
+
+Consultas medidas no SQLite para um lote de três linhas (duas válidas e uma inválida);
+`instruções (leituras)` inclui validações de domínio, auditoria e portão de partes. O custo
+varia com campos, itens agrupados, preferências e vínculos existentes. Cada lote faz uma
+chamada HTTP e uma chamada ao Coordinator na prévia, e novamente na confirmação; portanto
+10.000 produtos usam 200 chamadas em cada etapa. Repetir um comando confirmado usa quatro
+consultas de leitura, sem repetir as escritas de domínio.
+
+| Família | Prévia | Confirmação |
+| --- | ---: | ---: |
+| Produtos | 102 (92) | 115 (99) |
+| Contatos | 93 (63) | 106 (70) |
+| Fornecedores de produto | 163 (151) | 176 (158) |
+| Composições | 240 (226) | 251 (231) |
+| Campos customizados | 159 (149) | 172 (156) |
+| Lotes | 64 (60) | 77 (67) |
+| Compras | 124 (109) | 139 (118) |
+| Vendas | 132 (117) | 151 (130) |
+| Movimentações de estoque | 62 (52) | 75 (59) |
+| Contas a receber | 45 (39) | 58 (46) |
+| Contas a pagar | 41 (35) | 54 (42) |
+
+Provas em `tests/erp/preferences/spreadsheet-import.test.mjs` (11 famílias, erros, repetição,
+limites, papéis, partes e efeitos), `spreadsheet-import-scale.test.mjs` (10.000 produtos),
+`spreadsheet-shape.test.mjs` (NULL/formatos e casts) e `spreadsheet-panel.test.mjs`
+(modelos CSV/XLSX, fracionamento e reenvio). A rota real e a sonda do painel estão cobertas em
+`tests/erp-planilha-importacao.test.ts` e `tests/erp-painel-rotas.test.ts`; sua execução Vitest
+fica para o script externo, conforme a restrição desta máquina.
+
+Contrato das operações para a futura entrada no catálogo dos bots (mesmo servidor da pessoa):
+
+| Nome estável | Entrada / saída | Efeitos e categoria |
+| --- | --- | --- |
+| `erp_preferences_import_batch` | `POST /v1/importacoes/{tipo}/lote`: `command_id`, `job_id`, `file_name`, `total_rows`, `dry_run`, `items:[{row,lines,data}]`; retorna `scope`, `kind`, `dry_run`, `replayed`, `job`, `items:[{row,status,action,reason,field,record_id,reference}]`. O Worker acrescenta `p_user_id` e resolve `p_kind`. | Simula (`dry_run=true`) ou confirma os efeitos da tabela acima. Exige administrador. Confirmação é categoria sensível, com proposta e confirmação humana por padrão. |
+| `erp_preferences_import_jobs` | `GET /v1/importacoes?situacao&limit&offset`: retorna trabalhos, total e paginação. | Consulta própria; administrador vê todos, filtrados pelas partes ligadas. |
+| `erp_preferences_import_job` | `GET /v1/importacoes/{job_id}?erros&limit&offset`: retorna trabalho e resultados por linha. | Consulta própria ou de administrador, com as partes da família ligadas. |
+| `erp_stock_lot_import` | RPC de uma linha: usuário, comando, produto, código do lote, fabricação/validade/observação opcionais; retorna `outcome`, `lot`, `replayed`. A planilha o chama dentro da mesma transação. | Somente cadastro do lote; escrita sensível por padrão, com as permissões de Estoque. |
+
+Os campos canônicos por família, modelos e mensagens públicas continuam centralizados em
+`packages/erp-domain/src/spreadsheet-import.mjs`; o adaptador HTTP existente continua validando
+o mesmo contrato. Nenhum importador separado de contatos, CSV financeiro ou lista de preços foi alterado.
+Ainda falta publicar as rotas ERP no OpenAPI/registro de módulos consumido por
+`src/bot-actions/catalog.ts`, conectar autorização por bot/área e a confirmação sensível ao
+envelope de identidade. Hoje o portão existente trata a pessoa via bot como agente e recusa
+admin/financeiro; esta tarefa não introduz esse bloqueio nem o contorna. A integração deverá
+oferecer liberação configurável pelo administrador, preservar pessoa ∩ bot e impedir que a
+origem externa alcance estas operações administrativas. O teste positivo de bot configurado
+depende dessa integração; não é coberto por um teste que finja uma identidade humana.
+
 Base: `feat/erp-motor`. Provas e números: `docs/ERP-FASE0.md`. Mapa de fechos:
 `docs/erp-closure-map.json`. Dono de cada RPC e das funções compartilhadas:
 `src/erp/domains/ownership.generated.json`.

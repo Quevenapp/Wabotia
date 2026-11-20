@@ -15,6 +15,11 @@ export const discardTables = {};
  * de lá. Chaves: checks "schema.tabela.restrição"; triggers "schema__tabela.gatilho".
  */
 export const covered = {
-  "checks": {},
+  "checks": {
+    "erp_preferences.import_row.import_row_check": {
+      where: "src/erp/domains/preferences/rpc/erp_preferences_import_batch.ts rowValid e erpPreferencesImportBatch (cardinalidade e primeira linha)",
+      test: "tests/erp/preferences/spreadsheet-shape.test.mjs"
+    }
+  },
   "triggers": {}
 };

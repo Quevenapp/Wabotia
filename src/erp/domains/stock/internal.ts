@@ -331,6 +331,12 @@ const COMMAND_TABLES = [
   "erp_stock__composition_command", "erp_stock__lot_command", "erp_stock__invoice_command", "erp_stock__item_component_command",
   "erp_stock__unit_conversion_command",
 ];
-export const commandTaken = (db: SqlDriver, id: string) =>
-  !!one(db, COMMAND_TABLES.map((t) => `SELECT 1 x FROM "${t}" WHERE id=?`).join(" UNION ALL ") + " LIMIT 1", ...COMMAND_TABLES.map(() => id));
+export function commandTaken(db: SqlDriver, id: string): boolean {
+  // O SQLite do Coordinator aceita até cinco termos por consulta composta.
+  for (let i = 0; i < COMMAND_TABLES.length; i += 5) {
+    const tables = COMMAND_TABLES.slice(i, i + 5);
+    if (one(db, tables.map((t) => `SELECT 1 x FROM "${t}" WHERE id=?`).join(" UNION ALL ") + " LIMIT 1", ...tables.map(() => id))) return true;
+  }
+  return false;
+}
 export { MAX as QTY_MAX };

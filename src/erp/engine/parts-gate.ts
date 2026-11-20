@@ -4,7 +4,7 @@ import type { RpcArgs, RpcContext } from "./registry.ts";
 import { one, type SqlDriver, type Row } from "./driver.ts";
 import { ErpError } from "./errors.ts";
 import { ERP_PART_KEYS, erpRequirement, erpRequirementMet, type ErpModuleId, type ErpRequirement } from "../parts.ts";
-import { erpEntityRequirement, erpPreferenceRequirement, erpReportRequirement, erpNotificationRequirement, erpFieldRequirement, erpListRequirement, erpTaskRequirement } from "../parts-requirements.ts";
+import { erpEntityRequirement, erpImportRequirement, erpPreferenceRequirement, erpReportRequirement, erpNotificationRequirement, erpFieldRequirement, erpListRequirement, erpTaskRequirement } from "../parts-requirements.ts";
 
 export const ERP_PARTS_DENIED_HEADER = "x-erp-parts-denied";
 export class ErpPartDisabled extends ErpError {
@@ -98,7 +98,7 @@ const RPC_GROUPS = {
     erp_stock_checkin_notes erp_stock_checkin_post_preview erp_stock_checkin_restart erp_stock_checkin_save erp_stock_invoice_flags
     erp_stock_invoice_get erp_stock_invoice_post erp_stock_invoice_preview erp_stock_invoice_reverse erp_stock_invoice_reverse_preview
     erp_stock_invoice_unit_save erp_stock_invoice_units erp_stock_report_entry_notes`,
-  import: `erp_preferences_import_job erp_preferences_import_jobs`,
+  import: `erp_preferences_import_batch erp_preferences_import_job erp_preferences_import_jobs`,
   label: `erp_preferences_label_invoice_products erp_preferences_label_records erp_preferences_label_save`,
   list: `erp_list_preferences_command erp_list_preferences_get erp_list_preferences_save`,
   pos: `erp_pos_cash_summary erp_pos_context erp_pos_favorites erp_pos_order erp_pos_return_execute
@@ -124,7 +124,7 @@ const RPC_GROUPS = {
     erp_stock_composition_launch erp_stock_composition_launches erp_stock_count_balance erp_stock_count_delete erp_stock_count_get
     erp_stock_count_read erp_stock_count_restart erp_stock_count_warehouse erp_stock_dashboard_idle erp_stock_dashboard_preference_get
     erp_stock_dashboard_preference_set erp_stock_dashboard_stock erp_stock_item_components erp_stock_item_components_save erp_stock_launch
-    erp_stock_launch_context erp_stock_ledger erp_stock_lot_get erp_stock_lot_launch erp_stock_lot_save
+    erp_stock_launch_context erp_stock_ledger erp_stock_lot_get erp_stock_lot_import erp_stock_lot_launch erp_stock_lot_save
     erp_stock_lot_status erp_stock_lots erp_stock_movement_amend erp_stock_movement_lots erp_stock_movement_lots_assign
     erp_stock_movements erp_stock_opening_apply erp_stock_opening_batch erp_stock_opening_command erp_stock_opening_page
     erp_stock_opening_warehouses erp_stock_policy_command erp_stock_policy_get erp_stock_policy_set erp_stock_position_warehouses
@@ -240,8 +240,14 @@ export function rpcPartsRequirement(ctx: RpcContext, name: string, a: RpcArgs): 
   if (rule === "import") {
     const saved = rowAt(ctx.db, "erp_preferences__import_job", a.p_job_id ?? a.p_id);
     const kind = saved?.kind ?? a.p_kind;
-    if (kind) { add(typeRequirement(kind)); if (kind === "compositions") ids.push("erp-estoque"); }
-    else ids.push("erp"); // Diretório misto: o consumidor filtra cada linha.
+    const batch = name === "erp_preferences_import_batch";
+    const supplied = erpImportRequirement(a.p_kind), stored = erpImportRequirement(kind);
+    if (batch && supplied) add(supplied);
+    if (stored) add(stored);
+    // Família inválida do batch é validada pelo próprio RPC, depois do papel,
+    // preservando a recusa original. Diretório misto filtra cada linha depois.
+    else if (batch || !kind) ids.push("erp");
+    else add(stored);
   }
   if (rule === "list") {
     const saved = name.endsWith("_command") ? rowAt(ctx.db, "erp_list_preferences__command", a.p_command_id) : null;

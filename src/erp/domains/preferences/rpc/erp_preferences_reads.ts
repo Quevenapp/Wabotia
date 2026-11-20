@@ -1,4 +1,4 @@
-import { erpEntityRequirement, ERP_ENTITY_PARTS, erpOperationRequirement } from "../../../parts-requirements.ts";
+import { erpEntityRequirement, ERP_IMPORT_KINDS, erpImportRequirement } from "../../../parts-requirements.ts";
 import { requireErpParts } from "../../../engine/parts-gate.ts";
 import { queryAvailable } from "../business-rules.ts";
 // Leituras avulsas do domínio 11: public.erp_preferences_import_job e
@@ -26,7 +26,7 @@ function importAdmin(db: SqlDriver, user: string | null): boolean {
 }
 
 /** erp_preferences.import_job_dto */
-function importJobDto(db: SqlDriver, id: string) {
+export function importJobDto(db: SqlDriver, id: string) {
   const j = one(
     db,
     `SELECT id, kind, file_name, total_rows, rows_done, created, updated, unchanged, invalid, status, actor,
@@ -65,7 +65,7 @@ export function erpPreferencesImportJob(ctx: RpcContext, a: RpcArgs) {
   if (!one(db, 'SELECT 1 x FROM "erp_preferences__import_job" WHERE id=? AND (? OR actor=?)', job, admin ? 1 : 0, user))
     raise("P0002", "erp_preferences_import_job_not_found");
   const savedJob = importJobDto(db, job!);
-  requireErpParts(ctx, savedJob.kind === "compositions" ? erpOperationRequirement("composition") : erpEntityRequirement(savedJob.kind));
+  requireErpParts(ctx, erpImportRequirement(savedJob.kind));
   const where = `job_id=? ${errors ? "AND status='invalid'" : ""}`;
   const total = Number(one(db, `SELECT count(*) n FROM "erp_preferences__import_row" WHERE ${where}`, job)!.n);
   const items = db
@@ -101,7 +101,7 @@ export function erpPreferencesImportJobs(ctx: RpcContext, a: RpcArgs) {
     offset > 100000
   )
     raise("22023", "erp_preferences_import_invalid");
-  const allowedKinds = Object.keys(ERP_ENTITY_PARTS).filter(kind => queryAvailable(ctx.parts, kind === "compositions" ? erpOperationRequirement("composition") : erpEntityRequirement(kind)));
+  const allowedKinds = Object.values(ERP_IMPORT_KINDS).filter(kind => queryAvailable(ctx.parts, erpImportRequirement(kind)));
   const split = Object.values(ctx.parts).some(value => !value);
   const where = "(? OR actor=?) AND (? IS NULL OR status=?)" + (split ? ` AND kind IN (${allowedKinds.map(() => "?").join(",")})` : "");
   const args = [admin ? 1 : 0, user, status, status, ...(split ? allowedKinds : [])];
