@@ -308,9 +308,22 @@ function projectDetailBody(value){
   if(history===null&&record.long_history===true)upstreamInvalid();
   return {entity:'titles',record,history,origin:projectOrigin(value.origin,record),account:account===null?null:{id:account.id,name:account.name,active:account.active},
     billing:billing===null?null:{our_number:billing.our_number,document_number:billing.document_number,remittance_id:billing.remittance_id,remittance_sequence:billing.remittance_sequence,remittance_state:billing.remittance_state,file_generated:billing.file_generated},
-    imported:value.imported,settled_before:value.settled_before,original:original===null?null:{contact_name:original.contact_name,due_on:original.due_on,amount_cents:original.amount_cents,description:original.description,created_at:original.created_at},data_mode:'erp_native'};
+    imported:value.imported,settled_before:value.settled_before,original:original===null?null:{contact_name:original.contact_name,due_on:original.due_on,amount_cents:original.amount_cents,description:original.description,created_at:original.created_at},
+    ...(value.bank_writeoff!==undefined&&record.cancelled===true?{bank_writeoff:projectBankWriteoff(value.bank_writeoff)}:value.bank_writeoff!==undefined?upstreamInvalid():{}),data_mode:'erp_native'};
 }
 export function projectFinanceRecord(entity,value){return projectRecord(entity,value);}
+// Local (junção): o motivo conhecido da recusa do cancelamento e da declaração de boleto baixado no banco vai como `field`
+// (a mensagem do SQL nunca sai); o painel abre a declaração com billed_locked e explica os outros sem "Não foi possível concluir".
+const CANCEL_REFUSALS={erp_finance_billed_locked:'billed_locked',erp_finance_bank_writeoff_not_applicable:'bank_writeoff_not_applicable',erp_finance_version_conflict:'version_conflict',
+  erp_finance_permission_denied:'permission_denied',erp_finance_access_denied:'access_denied',erp_finance_cancelled_title:'cancelled_title',erp_finance_deleted_title:'deleted_title',
+  erp_finance_active_payments:'active_payments',erp_finance_reason_required:'reason_required',erp_finance_invalid_text:'reason_required',erp_finance_command_conflict:'command_conflict'};
+export function financeRefusal(route,message){return route?.kind==='execute'&&['title_cancel','title_bank_writeoff'].includes(route.action)&&typeof message==='string'&&Object.hasOwn(CANCEL_REFUSALS,message)?CANCEL_REFUSALS[message]:null;}
+// Local (junção): a declaração de boleto baixado no banco da conta cancelada (erp_finance_title_detail), só quando existe.
+function projectBankWriteoff(w){
+  if(!object(w)||!UUID.test(w.billing_title_id||'')||!UUID.test(w.remittance_id||'')||typeof w.reason!=='string'||w.reason.length<1||w.reason.length>500||!UUID.test(w.declared_by||'')
+    ||(w.declared_by_name!==null&&(typeof w.declared_by_name!=='string'||w.declared_by_name.length>200))||typeof w.declared_at!=='string'||!Number.isFinite(Date.parse(w.declared_at)))upstreamInvalid();
+  return {billing_title_id:w.billing_title_id,remittance_id:w.remittance_id,reason:w.reason,declared_by:w.declared_by,declared_by_name:w.declared_by_name,declared_at:w.declared_at};
+}
 const RATE=/^\d{1,3}(?:\.\d{1,4})?$/;
 function projectPaymentMethods(route,value){
   if(value.entity!=='payment_methods'||value.kind!==route.args.p_kind||!Array.isArray(value.items)||value.items.length>200)upstreamInvalid();

@@ -21,7 +21,7 @@ import { withProductStockMirror, ProductStockMirrorError } from './product-stock
 import { sellerAccessGates } from './contacts.mjs';
 import { parseHistoryRoute, executeHistoryRoute, HistoryError } from './history.mjs';
 import { documentsRoute, documentsMethods, documentsOperation, documentsResponse, documentsFailure, DocumentsError } from './documents.mjs';
-import { financeMethods, parseFinanceRoute, executeFinanceRoute, FinanceError } from './finance.mjs';
+import { financeMethods, parseFinanceRoute, executeFinanceRoute, financeRefusal, FinanceError } from './finance.mjs';
 import { financeTransfersRoute, financeTransfersMethods, parseFinanceTransfersRoute, executeFinanceTransfersRoute, FinanceTransfersError, FINANCE_TRANSFERS_RESPONSE_BYTES } from './finance-transfers.mjs';
 import { stockRoute, stockMethods, stockOperation, stockResponse, StockError } from './stock.mjs';
 import { projectStockMirror } from './stock-mirror.mjs';
@@ -212,7 +212,7 @@ export function createHandler({ fetchImpl = globalThis.fetch, timeoutMs = 8000, 
             ...(kind === 'attachments' ? { '54000': [409, 'ERP_ATTACHMENT_QUOTA'], '55000': [503, 'ERP_ATTACHMENT_STORAGE_UNAVAILABLE'] } : {}) };
           if (problem && Object.hasOwn(errors, problem.code)) { const [status, code] = errors[problem.code], failure = new ApiError(status, code);
             // Contatos (wave C): the SQL message stays on the error only to pick an allow-listed code (catalogFailure); it is never sent.
-            if ((kind === 'catalog' || kind === 'documents' || kind === 'pos' || kind === 'platform' || kind === 'fiscalDraft') && typeof problem.message === 'string') failure.upstreamMessage = problem.message.slice(0, 120);
+            if ((kind === 'catalog' || kind === 'documents' || kind === 'pos' || kind === 'platform' || kind === 'fiscalDraft' || kind === 'finance') && typeof problem.message === 'string') failure.upstreamMessage = problem.message.slice(0, 120);
             throw failure; }
         }
         if(boundedDeadline!==undefined){void response.body?.cancel().catch(()=>{});check();}
@@ -953,12 +953,15 @@ export function createHandler({ fetchImpl = globalThis.fetch, timeoutMs = 8000, 
       }
       if (finance) {
         const route = await parseFinanceRoute(request);
-        return respond(200, await executeFinanceRoute(route, {
-          userId: user.id,
-          rpc: (name, args) => upstream(`${settings.baseUrl}/rest/v1/rpc/${name}`, {
-            method: 'POST', headers: { apikey: settings.key, Authorization: `Bearer ${settings.key}`, 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(args),
-          }, 'finance'),
-        }));
+        try {
+          return respond(200, await executeFinanceRoute(route, {
+            userId: user.id,
+            rpc: (name, args) => upstream(`${settings.baseUrl}/rest/v1/rpc/${name}`, {
+              method: 'POST', headers: { apikey: settings.key, Authorization: `Bearer ${settings.key}`, 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(args),
+            }, 'finance'),
+          }));
+        // Local (junção): só o motivo conhecido do cancelamento vai como field; a mensagem do SQL nunca sai.
+        } catch (error) { if (error instanceof ApiError && typeof error.upstreamMessage === 'string') { const reason = financeRefusal(route, error.upstreamMessage); delete error.upstreamMessage; if (reason) error.field = reason; } throw error; }
       }
       if (history) {
         const controller = new AbortController();

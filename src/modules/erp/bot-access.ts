@@ -3,24 +3,100 @@
 import { one } from "../../db";
 import { ApiError, json, type Actor, type Env } from "../../types";
 import { COM1_OPERATIONS } from "../../erp/commercial-nfe/metadata.ts";
-import { BLING_OPERATIONS } from "../../erp/bling/schema.ts";
+import { BLING_MODULE_CONTRACT, BLING_OPERATIONS } from "../../erp/bling/schema.ts";
+import { ERP_IMPORT_KINDS, erpRouteRequirement } from "../../erp/parts-requirements.ts";
+import { ERP_PART_NAMES, erpRequirement, type ErpModuleId } from "../../erp/parts.ts";
 import { erpCommercialOperations } from "./commercial-operations.ts";
 
+type Params = { type: "object"; properties: Record<string, any>; required: string[] };
+/** Assunto da operação, na ordem da tela de concessões do bot. */
+export const ERP_BOT_GROUPS: readonly { id: string; title: string }[] = [
+  { id: "negocio", title: "Meu negócio" },
+  { id: "financeiro", title: "Financeiro" },
+  { id: "cobranca", title: "Cobrança no banco (remessa e retorno)" },
+  { id: "nfe", title: "Nota fiscal (NF-e)" },
+  { id: "importacao", title: "Importação por planilha" },
+  { id: "atividades", title: "Registro de atividades" },
+  { id: "bling", title: "Receber dados do Bling" },
+];
+export interface ErpBotOperation {
+  id: string; method: string; path: string; summary: string; sensitive: boolean;
+  /** Assunto (ERP_BOT_GROUPS) e explicação em português para a tela e o bot. */
+  group: string; description: string;
+  /** Parâmetros (caminho, consulta e corpo) num objeto; $ref em ERP_BOT_SCHEMAS. */
+  params: Params;
+}
+/** Esquemas citados pelos parâmetros do Receber dados do Bling. */
+export const ERP_BOT_SCHEMAS: Record<string, any> = BLING_MODULE_CONTRACT.openapi.components.schemas as Record<string, any>;
+// Tira das descrições as frases que só citam o contrato interno.
+const plain = (text: string) => text.split(/(?<=\.)\s+/).filter(sentence => !/^Contrato\b|\.mjs\b/.test(sentence)).join(" ").trim();
+function blingParams(name: string): Params {
+  const params: Params = { type: "object", properties: {}, required: [] };
+  for (const item of Object.values<any>(BLING_MODULE_CONTRACT.openapi.paths)) for (const entry of Object.values<any>(item)) {
+    if (entry.operationId !== name) continue;
+    for (const p of entry.parameters ?? []) {
+      if (p.name === "profile") continue;
+      params.properties[p.name] = p.schema;
+      if (p.required) params.required.push(p.name);
+    }
+    const ref = entry.requestBody?.content?.["application/json"]?.schema?.$ref;
+    const body = ref ? ERP_BOT_SCHEMAS[String(ref).split("/").pop()!] : undefined;
+    Object.assign(params.properties, body?.properties ?? {});
+    params.required.push(...(body?.required ?? []).filter((key: string) => !params.required.includes(key)));
+  }
+  return params;
+}
+const commercialGroup = (id: string) => id.startsWith("erp.business.") ? "negocio" : id.startsWith("erp.activity.") ? "atividades"
+  : id.startsWith("erp_cnab_") ? "cobranca" : "financeiro";
+const uuid = { type: "string", format: "uuid" };
+
 /** `sensitive` vem da definição de cada operação: leitura sensível (arquivo de
- * cobrança, registro de atividades) segue o mesmo caminho de proposta da escrita. */
-export const ERP_BOT_OPERATIONS: readonly { id: string; method: string; path: string; summary: string; sensitive: boolean }[] = [
+ * cobrança, registro de atividades) segue o mesmo caminho de proposta da escrita.
+ * É o inventário único das concessões: a tela do bot e o catálogo saem daqui. */
+export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
   ...Object.values(BLING_OPERATIONS).filter(op => op.name !== "erp_bling_oauth_callback").map(op => ({
     id: op.name, method: op.method, path: `erp/v1/receber-bling${op.path === "/" ? "" : op.path}`, summary: op.summary, sensitive: op.sensitive,
+    group: "bling", description: op.description, params: blingParams(op.name),
   })),
-  ...erpCommercialOperations.map(op => ({ id: op.id, method: op.method, path: `erp${op.path}`, summary: op.summary, sensitive: op.sensitive })),
-  ...COM1_OPERATIONS.map(op => ({ id: op.name, method: op.method, path: `erp-comercial-nfe/${op.path}`, summary: op.summary, sensitive: op.sensitive })),
-  { id: "erp_preferences_import_jobs", method: "GET", path: "erp/v1/importacoes", summary: "Consultar importações por planilha", sensitive: false },
-  { id: "erp_preferences_import_job", method: "GET", path: "erp/v1/importacoes/:id", summary: "Consultar resultado de uma importação", sensitive: false },
-  { id: "erp_preferences_import_batch", method: "POST", path: "erp/v1/importacoes/:tipo/lote", summary: "Simular ou confirmar um lote de importação por planilha", sensitive: false },
+  ...erpCommercialOperations.map(op => ({ id: op.id, method: op.method, path: `erp${op.path}`, summary: op.summary, sensitive: op.sensitive,
+    group: commercialGroup(op.id), description: plain(op.description), params: op.params })),
+  ...COM1_OPERATIONS.map(op => ({ id: op.name, method: op.method, path: `erp-comercial-nfe/${op.path}`, summary: op.summary, sensitive: op.sensitive,
+    group: "nfe", description: `${op.summary}.${op.sensitive ? " Mexe na nota fiscal: a pessoa com o papel fiscal confirma." : " Só consulta, sem mudar a nota."}`,
+    params: { type: "object" as const, properties: {}, required: [] } })),
+  { id: "erp_preferences_import_jobs", method: "GET", path: "erp/v1/importacoes", summary: "Consultar importações por planilha", sensitive: false, group: "importacao",
+    description: "Lista as importações por planilha da área, com situação e contagem de linhas criadas, alteradas e recusadas. Só consulta.",
+    params: { type: "object", properties: {}, required: [] } },
+  { id: "erp_preferences_import_job", method: "GET", path: "erp/v1/importacoes/:id", summary: "Consultar resultado de uma importação", sensitive: false, group: "importacao",
+    description: "Mostra o resultado de uma importação por planilha, linha a linha, com o motivo das recusas. Só consulta.",
+    params: { type: "object", properties: { id: uuid }, required: ["id"] } },
+  { id: "erp_preferences_import_batch", method: "POST", path: "erp/v1/importacoes/:tipo/lote", summary: "Simular ou confirmar um lote de importação por planilha", sensitive: false, group: "importacao",
+    description: "Grava (ou só simula, com dry_run) um lote de até mil linhas de planilha no cadastro escolhido. Administrador do ERP; exige a parte do ERP do cadastro ligada. A pessoa confirma antes de gravar.",
+    params: { type: "object", required: ["tipo", "command_id", "job_id", "file_name", "total_rows", "dry_run", "items"], properties: {
+      tipo: { type: "string", enum: Object.keys(ERP_IMPORT_KINDS) }, command_id: uuid, job_id: uuid,
+      file_name: { type: "string", minLength: 1, maxLength: 200 }, total_rows: { type: "integer", minimum: 1, maximum: 10000 }, dry_run: { type: "boolean" },
+      items: { type: "array", maxItems: 1000, items: { type: "object", required: ["row", "lines", "data"], properties: {
+        row: { type: "integer", minimum: 2 }, lines: { type: "array", items: { type: "integer", minimum: 2 } }, data: { type: "object" } } } },
+    } } },
 ];
 
 /** Leituras sensíveis que o administrador pode deixar o bot executar sozinho. */
 export const ERP_BOT_SENSITIVE_READS: readonly string[] = ERP_BOT_OPERATIONS.filter(op => op.sensitive && op.method === "GET").map(op => op.id);
+
+/** Partes do ERP que a rota exige antes do objeto (o motor revalida). */
+export function erpBotModules(op: Pick<ErpBotOperation, "method" | "path">): readonly ErpModuleId[] {
+  if (op.path.startsWith("erp-comercial-nfe/")) return erpRequirement("erp-fiscal").all;
+  const requirement = erpRouteRequirement(op.method, new URL(`https://erp.invalid/${op.path.slice("erp/".length).replace(/:[A-Za-z_][A-Za-z0-9_]*/g, "x")}`));
+  return requirement && requirement !== "externo" ? requirement.all : erpRequirement("erp").all;
+}
+
+/** Inventário para a tela de concessões do bot (só administrador), por assunto. */
+export function erpBotInventory(states: Readonly<Record<string, boolean>>) {
+  return { groups: ERP_BOT_GROUPS.map(group => ({ ...group, operations: ERP_BOT_OPERATIONS.filter(op => op.group === group.id).map(op => ({
+    id: op.id, title: op.summary, description: op.description, kind: op.method === "GET" ? "read" as const : "write" as const,
+    sensitive: op.sensitive, autonomous: ERP_BOT_SENSITIVE_READS.includes(op.id),
+    modules: erpBotModules(op).map(id => ({ id, title: ERP_PART_NAMES[id], enabled: !!states[id] })),
+  })) })) };
+}
 
 export function erpBotOperationsInput(value: unknown): string[] {
   if (!Array.isArray(value) || value.length > ERP_BOT_OPERATIONS.length ||
@@ -43,6 +119,9 @@ export function erpBotAutonomousInput(value: unknown): string[] {
 export async function erpBotGrantedOperations(env: Env, actor: Actor, profile: string): Promise<readonly string[]> {
   return (await erpBotOptions(env, actor, profile)).operations;
 }
+
+/** Concessões e leituras autônomas deste bot na área, relidas do banco. */
+export const erpBotGrants = (env: Env, actor: Actor, profile: string) => erpBotOptions(env, actor, profile);
 
 const names = (value: unknown) => Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [];
 async function erpBotOptions(env: Env, actor: Actor, profile: string): Promise<{ operations: readonly string[]; autonomous: readonly string[] }> {

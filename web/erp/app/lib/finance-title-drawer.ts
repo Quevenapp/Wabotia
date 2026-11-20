@@ -1,6 +1,7 @@
 // Gaveta "Conta a receber" / "Conta a pagar" no padrão Origin (SQL 108): abas, validação, montagem dos comandos
 // title_create / title_edit e o Resumo (juros mensal pró-rata e multa) em centavos exatos com BigInt.
 import { centsInput, moneyInput, validFinanceDate, type FinanceKind, type FinanceTitle, type FinanceTitleOrigin } from './real-finance-model.ts';
+import { titleBankWriteoff, type BankWriteoff } from './finance-bank-writeoff.ts';
 
 export type DrawerTab = 'cabecalho' | 'pagamento' | 'ocorrencia' | 'anexos';
 export const DRAWER_TABS: readonly { id: DrawerTab; label: string }[] = [{ id: 'cabecalho', label: 'Cabeçalho' }, { id: 'pagamento', label: 'Pagamento' }, { id: 'ocorrencia', label: 'Ocorrência' }, { id: 'anexos', label: 'Anexos' }];
@@ -33,7 +34,8 @@ export const PERCENT_INFO = 'Este campo é preenchido automaticamente caso haja 
 export interface TitleBilling { our_number: string | null; document_number: string; remittance_id: string; remittance_sequence: number; remittance_state: 'reserved' | 'ready'; file_generated: boolean }
 export interface TitleOriginal { contact_name: string; due_on: string; amount_cents: string; description: string; created_at: string }
 /** `history`: the whole Histórico when it passes the 240 characters of `record.description` (SQL 210), else null. */
-export interface TitleDetail { record: FinanceTitle; origin: FinanceTitleOrigin | null; account: { id: string; name: string; active: boolean } | null; billing: TitleBilling | null; imported: boolean; settled_before: boolean; original: TitleOriginal | null; history: string | null }
+/** Wabotia: `bank_writeoff`, the "boleto baixado no banco" declaration that cancelled the conta (null when there is none). */
+export interface TitleDetail { record: FinanceTitle; origin: FinanceTitleOrigin | null; account: { id: string; name: string; active: boolean } | null; billing: TitleBilling | null; imported: boolean; settled_before: boolean; original: TitleOriginal | null; history: string | null; bank_writeoff?: BankWriteoff | null }
 /** The Histórico the gaveta edits: the long text once the detail is read, otherwise the description. */
 export const titleHistory = (title: FinanceTitle, detail: TitleDetail | null) => detail?.history ?? title.description;
 /** Prazo de recebimento of a forma (Cadastros > Formas de pagamento): vencimento = emissão + dias, on the next business day when asked. */
@@ -61,7 +63,9 @@ export function titleDetail(value: unknown, id: string, kind: FinanceKind): Titl
   // SQL 210: the whole Histórico starts with the description every other reader keeps (older answers have none).
   const history = value.history === undefined ? null : value.history;
   if (history !== null && (typeof history !== 'string' || history.length > DESCRIPTION_LIMIT || !history.startsWith(record.description))) invalidDetail();
-  return { history: history as string | null, record: { ...record, origin: origin as FinanceTitleOrigin | null }, origin: origin as FinanceTitleOrigin | null, account: account as TitleDetail['account'], billing: billing as TitleBilling | null, imported: value.imported, settled_before: value.settled_before, original: original as TitleOriginal | null };
+  const writeoff = titleBankWriteoff(value);
+  if (writeoff && record.cancelled !== true) invalidDetail();
+  return { history: history as string | null, record: { ...record, origin: origin as FinanceTitleOrigin | null }, origin: origin as FinanceTitleOrigin | null, account: account as TitleDetail['account'], billing: billing as TitleBilling | null, imported: value.imported, settled_before: value.settled_before, original: original as TitleOriginal | null, ...(writeoff ? { bank_writeoff: writeoff } : {}) };
 }
 
 /** "1,00" → 100 (centésimos de %); empty is zero. Up to 100,00%. */

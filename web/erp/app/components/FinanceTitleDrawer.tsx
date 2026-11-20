@@ -5,6 +5,7 @@ import { AccessError, type AccessController } from '../lib/real-access';
 import { financeDate, financeMoney, moneyInput, todaySP, type FinanceKind, type FinanceTitle } from '../lib/real-finance-model';
 import { BANK_NUMBER_LIMIT, DESCRIPTION_LIMIT, DRAWER_TABS, descriptionLimit, settlementDue, titleHistory, DrawerError, END_ON_INFO, OCCURRENCES, PERCENT_INFO, RECURRENCE_UNAVAILABLE, WEEKDAYS, createsRecurrence, percentText, drawerCreateData, drawerEditData, drawerInitial, drawerLocks, drawerPlan, isRecurring, loadReferenceOptions, nextWeekday, recurrenceChanges, recurrenceCreateData, titleCharges, titleDetail, weekdayOf, type DrawerTab, type DrawerValues, type ReferenceOption, type TitleDetail } from '../lib/finance-title-drawer';
 import { recurrencePath, recurrenceRead } from '../lib/finance-recurrence-model';
+import { BankWriteoffNotice } from './FinanceBankWriteoff';
 import { originNumber, originPath, originText, savedTitleId, titleSituation } from '../lib/finance-title-list';
 import { quickContactAllowed, quickContactInitial, type QuickContactValues } from '../lib/document-editor-pickers';
 import { badgeClass } from '../lib/origin-list';
@@ -247,6 +248,7 @@ export default function FinanceTitleDrawer({ controller, kind, mode, title, clon
       {waiting && !detailError && <p className="real-help" role="status">Conferindo a conta financeira, o boleto e a origem desta conta…</p>}
       {detailError && <p className="real-alert" role="alert">{detailError} <button type="button" className="text-button" onClick={() => setDetailRetry(value => value + 1)}>Conferir novamente</button></p>}
       {title?.deleted_at ? <p className="real-notice">Esta conta foi excluída e fica disponível somente para consulta.</p> : title?.cancelled ? <p className="real-notice">Esta conta está cancelada e fica disponível somente para consulta.</p> : null}
+      {loaded?.bank_writeoff && <BankWriteoffNotice writeoff={loaded.bank_writeoff} />}
       {loaded?.imported && <p className="real-notice"><strong>Importado do Origin.</strong> O valor original, o contato, a emissão e a referência da origem são preservados.</p>}
       {title?.document_linked && <p className="real-help">Esta conta foi gerada por um documento da empresa. O contato, a emissão, o valor e o nº documento ficam com o documento.</p>}
       {title?.grouped_billing_id && <p className="real-help">Esta conta foi gerada por um faturamento agrupado. O cliente, a emissão e o valor ficam com o faturamento; para desfazer, exclua o faturamento em Listar Faturamentos Gerados.</p>}
