@@ -1,11 +1,12 @@
 import type { AreaTemplate } from "../validation";
+import { equipamentoEletronicoObjectType, eletrodomesticoObjectType, veiculoObjectType } from "./service-object-seeds";
 
 // Adaptado do primeiro bloco JSON de docs/areas/servicos.md ao contrato da seção 7.
 // O embutido é apenas referenciado; as limitações do rascunho ficam nos passos manuais.
 export const assistenciaTecnicaTemplate: AreaTemplate = {
   "schema_version": 1,
   "id": "assistencia_tecnica",
-  "version": 3,
+  "version": 4,
   "name": "Assistência técnica",
   "description": "Assistência técnica com a Ordem de serviço embutida e tipos opcionais para eletrônicos, eletrodomésticos, veículos e peças de roupa.",
   "work_types": [
@@ -27,59 +28,6 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
       "terms": "Autorizo a avaliação do equipamento descrito. O reparo depende da minha aprovação do orçamento. Alterações de preço ou escopo exigem nova aprovação. Não devo enviar senhas ou códigos pelo WhatsApp. A equipe combinará comigo qualquer acesso necessário ao equipamento.",
       "fields": [
         {
-          "id": "categoria",
-          "label": "Categoria",
-          "help": "",
-          "required": true,
-          "client_visible": true,
-          "sensitive": false,
-          "kind": "choice",
-          "options": [
-            {
-              "id": "celular",
-              "label": "celular"
-            },
-            {
-              "id": "tablet",
-              "label": "tablet"
-            },
-            {
-              "id": "computador",
-              "label": "computador"
-            },
-            {
-              "id": "notebook",
-              "label": "notebook"
-            },
-            {
-              "id": "periferico",
-              "label": "periférico"
-            }
-          ]
-        },
-        {
-          "id": "marca_modelo",
-          "label": "Marca e modelo",
-          "help": "",
-          "required": false,
-          "client_visible": true,
-          "sensitive": false,
-          "kind": "text",
-          "multiline": false,
-          "max_length": 240
-        },
-        {
-          "id": "numero_serie",
-          "label": "Número de série ou IMEI",
-          "help": "",
-          "required": false,
-          "client_visible": false,
-          "sensitive": true,
-          "kind": "text",
-          "multiline": false,
-          "max_length": 240
-        },
-        {
           "id": "acessorios",
           "label": "Acessórios recebidos",
           "help": "",
@@ -100,9 +48,24 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
           "kind": "text",
           "multiline": true,
           "max_length": 2000
+        },
+        {
+          "id": "servico_executado",
+          "label": "Serviço executado",
+          "help": "Descreva o serviço realizado e a conferência antes de concluir o reparo.",
+          "required": false,
+          "client_visible": true,
+          "sensitive": false,
+          "kind": "text",
+          "multiline": true,
+          "max_length": 2000
         }
       ],
-      "retired_field_ids": [],
+      "retired_field_ids": [
+        "categoria",
+        "marca_modelo",
+        "numero_serie"
+      ],
       "stages": [
         {
           "id": "recebido",
@@ -290,7 +253,31 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
         "pickup_reminder_days": 3,
         "stale_days": 7
       },
-      "pickup_reminder_text": "Lembrete: o atendimento nº {numero} aguarda retirada. Fale com a equipe para combinar."
+      "pickup_reminder_text": "Lembrete: o atendimento nº {numero} aguarda retirada. Fale com a equipe para combinar.",
+      "object_type_id": "equipamento_eletronico",
+      "stage_field_rules": [
+        {
+          "field_id": "servico_executado",
+          "required_from_stage": "pronto"
+        }
+      ],
+      "list_fields": [
+        {
+          "ref": {
+            "scope": "object",
+            "field_id": "identificacao"
+          },
+          "column": true,
+          "filter": true
+        },
+        {
+          "ref": {
+            "scope": "object",
+            "field_id": "marca_modelo"
+          },
+          "column": true
+        }
+      ]
     },
     {
       "schema_version": 1,
@@ -329,17 +316,6 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
           ]
         },
         {
-          "id": "marca_modelo",
-          "label": "Marca e modelo",
-          "help": "",
-          "required": false,
-          "client_visible": true,
-          "sensitive": false,
-          "kind": "text",
-          "multiline": false,
-          "max_length": 240
-        },
-        {
           "id": "endereco",
           "label": "Endereço da visita",
           "help": "",
@@ -351,33 +327,6 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
           "max_length": 2000
         },
         {
-          "id": "tensao",
-          "label": "Tensão informada",
-          "help": "",
-          "required": false,
-          "client_visible": true,
-          "sensitive": false,
-          "kind": "choice",
-          "options": [
-            {
-              "id": "opcao_1",
-              "label": "127 V"
-            },
-            {
-              "id": "opcao_2",
-              "label": "220 V"
-            },
-            {
-              "id": "bivolt",
-              "label": "bivolt"
-            },
-            {
-              "id": "nao_sei",
-              "label": "não sei"
-            }
-          ]
-        },
-        {
           "id": "acesso",
           "label": "Orientação de acesso",
           "help": "",
@@ -387,9 +336,23 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
           "kind": "text",
           "multiline": true,
           "max_length": 2000
+        },
+        {
+          "id": "servico_executado",
+          "label": "Serviço executado",
+          "help": "Descreva o serviço realizado e a conferência antes de concluir o reparo.",
+          "required": false,
+          "client_visible": true,
+          "sensitive": false,
+          "kind": "text",
+          "multiline": true,
+          "max_length": 2000
         }
       ],
-      "retired_field_ids": [],
+      "retired_field_ids": [
+        "marca_modelo",
+        "tensao"
+      ],
       "stages": [
         {
           "id": "recebido",
@@ -577,7 +540,31 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
         "pickup_reminder_days": 0,
         "stale_days": 7
       },
-      "pickup_reminder_text": ""
+      "pickup_reminder_text": "",
+      "object_type_id": "eletrodomestico",
+      "stage_field_rules": [
+        {
+          "field_id": "servico_executado",
+          "required_from_stage": "pronto"
+        }
+      ],
+      "list_fields": [
+        {
+          "ref": {
+            "scope": "object",
+            "field_id": "identificacao"
+          },
+          "column": true,
+          "filter": true
+        },
+        {
+          "ref": {
+            "scope": "object",
+            "field_id": "marca_modelo"
+          },
+          "column": true
+        }
+      ]
     },
     {
       "schema_version": 1,
@@ -597,52 +584,8 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
       "terms": "Autorizo a avaliação do veículo descrito. Peças e mão de obra serão apresentadas no orçamento. A execução e qualquer alteração de escopo dependem da minha aprovação. A equipe registrará as condições do veículo no recebimento e na entrega.",
       "fields": [
         {
-          "id": "placa",
-          "label": "Placa",
-          "help": "",
-          "required": false,
-          "client_visible": true,
-          "sensitive": false,
-          "kind": "text",
-          "multiline": false,
-          "max_length": 10
-        },
-        {
-          "id": "marca_modelo",
-          "label": "Marca e modelo",
-          "help": "",
-          "required": false,
-          "client_visible": true,
-          "sensitive": false,
-          "kind": "text",
-          "multiline": false,
-          "max_length": 240
-        },
-        {
-          "id": "ano",
-          "label": "Ano",
-          "help": "",
-          "required": false,
-          "client_visible": true,
-          "sensitive": false,
-          "kind": "integer",
-          "min": 1900,
-          "max": 2100
-        },
-        {
-          "id": "cor",
-          "label": "Cor",
-          "help": "",
-          "required": false,
-          "client_visible": true,
-          "sensitive": false,
-          "kind": "text",
-          "multiline": false,
-          "max_length": 80
-        },
-        {
           "id": "ultima_manutencao",
-          "label": "Última manutenção",
+          "label": "Última manutenção informada pelo cliente",
           "help": "Data informada pelo cliente.",
           "required": false,
           "client_visible": true,
@@ -664,8 +607,8 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
         },
         {
           "id": "combustivel",
-          "label": "Nível de combustível",
-          "help": "",
+          "label": "Nível de combustível na entrada",
+          "help": "Nível observado no recebimento; o tipo de combustível pertence ao cadastro do veículo.",
           "required": false,
           "client_visible": true,
           "sensitive": false,
@@ -718,9 +661,25 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
           "kind": "text",
           "multiline": true,
           "max_length": 2000
+        },
+        {
+          "id": "servico_executado",
+          "label": "Serviço executado",
+          "help": "Descreva o serviço realizado e a conferência antes de concluir o reparo.",
+          "required": false,
+          "client_visible": true,
+          "sensitive": false,
+          "kind": "text",
+          "multiline": true,
+          "max_length": 2000
         }
       ],
-      "retired_field_ids": [],
+      "retired_field_ids": [
+        "placa",
+        "marca_modelo",
+        "ano",
+        "cor"
+      ],
       "stages": [
         {
           "id": "recebido",
@@ -908,7 +867,44 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
         "pickup_reminder_days": 3,
         "stale_days": 7
       },
-      "pickup_reminder_text": "Lembrete: o atendimento nº {numero} aguarda retirada. Fale com a equipe para combinar."
+      "pickup_reminder_text": "Lembrete: o atendimento nº {numero} aguarda retirada. Fale com a equipe para combinar.",
+      "object_type_id": "veiculo",
+      "stage_field_rules": [
+        {
+          "field_id": "quilometragem",
+          "required_on_exit": [
+            "recebido"
+          ]
+        },
+        {
+          "field_id": "servico_executado",
+          "required_from_stage": "pronto"
+        }
+      ],
+      "list_fields": [
+        {
+          "ref": {
+            "scope": "object",
+            "field_id": "placa"
+          },
+          "column": true,
+          "filter": true
+        },
+        {
+          "ref": {
+            "scope": "object",
+            "field_id": "marca_modelo"
+          },
+          "column": true
+        },
+        {
+          "ref": {
+            "scope": "order",
+            "field_id": "quilometragem"
+          },
+          "column": true
+        }
+      ]
     },
     {
       "schema_version": 1,
@@ -1274,7 +1270,7 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
   ],
   "texts": {},
   "bot": {
-    "instructions": "Você atende uma assistência técnica. Use frases curtas e claras. Ajude o cliente a abrir e acompanhar somente os atendimentos vinculados ao telefone desta conversa. Informe apenas etapas, previsões e valores obtidos pelas ferramentas autorizadas. Não invente diagnóstico, preço, prazo ou disponibilidade de peça. Encaminhe a aprovação ou recusa ao mecanismo próprio do orçamento; não trate uma conversa vaga como aprovação. Para visitas, consulte a Agenda e peça confirmação do cliente. Desconto, mudança de escopo, prioridade e garantia precisam de avaliação da equipe. Não peça senhas, PIN, código de desbloqueio, token ou dados bancários. Não leia campos sensíveis, notas internas, arquivos não liberados ou dados de outro cliente. Não confirme pagamento por fotografia de comprovante. Quando faltar informação ou houver reclamação sobre dano, interrompa a orientação técnica e encaminhe à equipe.",
+    "instructions": "Você atende uma assistência técnica. Use frases curtas e claras. Siga as operações e os dados autorizados pelo administrador, com configuração inicial conservadora. Pelo WhatsApp, use a identidade autenticada da conversa para abrir e acompanhar somente os atendimentos e objetos do próprio cliente; telefone, placa ou série informados não provam propriedade. Para novo objeto, use o formulário autorizado. Informe apenas etapas, previsões e valores obtidos pelas ferramentas autorizadas. Não invente diagnóstico, preço, prazo ou disponibilidade de peça. Encaminhe a aprovação ou recusa ao mecanismo próprio do orçamento; não trate uma conversa vaga como aprovação. Para visitas, use apenas a Agenda configurada e peça confirmação do cliente. Desconto, mudança de escopo, prioridade e garantia precisam de avaliação da equipe. Não peça senhas, PIN, código de desbloqueio, token ou dados bancários. Respeite a classificação dos campos e as permissões de documentos; a conversa do cliente só recebe informações liberadas para ele. Não confirme pagamento por fotografia de comprovante. Quando faltar informação ou houver reclamação sobre dano, encaminhe à equipe.",
     "allowed_operations": [],
     "denied_operations": [],
     "suggested_roles": [
@@ -1288,6 +1284,10 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
     "PDV e Cobrança bancária permanecem desligados na proposta padrão. Para ligá-los, escolher explicitamente em Módulos ou revisar um manifesto: PDV exige Cadastro de clientes, Produtos e serviços, Vendas, Estoque e Financeiro; Cobrança exige Cadastro de clientes e Financeiro. Conferir toda a seleção antes de aplicar.",
     "Agenda, Formulários, Pagamentos, Mensalidades, Reservas e Compras são escolhas independentes. Uma opção com valor false propõe desligamento apenas se selecionada; para ativá-la, usar Módulos ou um manifesto revisado. Opções não selecionadas e escolhas locais de reaplicações são preservadas.",
     "Escolher os tipos adicionais que serão publicados.",
+    "Selecionar ou cadastrar equipamento ou veículo do contato confirmado. Placa, série e identificação administrativa não comprovam propriedade. Eletrônicos e eletrodomésticos usam tipos distintos; a série ou IMEI continua sensível e opcional. Modelos sem objeto e a Ordem de serviço embutida mantêm o fluxo atual.",
+    "Na atualização do padrão, revisar a prévia de campos movidos, requisitos e conflitos. Os campos retirados da ordem são aposentados; nenhuma ordem, placa privada ou valor anterior é convertido ou copiado. Cadastre expressamente os dados do novo objeto e preserve personalizações até resolver conflitos.",
+    "Oficina: completar a quilometragem antes de sair de Recebido. Combustível na entrada e última manutenção informada pelo cliente continuam nesta ordem. Nos três modelos de reparo, registrar o serviço executado antes de Reparo concluído; cancelamento e devolução sem reparo permanecem possíveis sem esse preenchimento.",
+    "Revisar no administrador as operações e os dados disponíveis aos bots e à IA, inicialmente com configuração conservadora; o manifesto não ativa IA nem concede acesso. Clientes e WhatsApp recebem apenas os próprios dados autorizados.",
     "Revisar termos, taxas, validade do orçamento e garantia. Nos tipos de reparo, a garantia de 90 dias começa somente em Entregue após reparo. Após recusa, confirmar devolução ou encerramento no local e registrar motivo e destinação em lançamento antes de usar Devolvido sem reparo, que encerra sem iniciar garantia. Classificar dados pessoais como sensíveis.",
     "Enquanto aguarda devolução sem reparo, manter Recusado e acompanhar por tarefa manual, sem lembrete automático de retirada. Reservar Reparo concluído e Entregue após reparo ao serviço executado. Uma nova execução após recusa exige reavaliação e aprovação do orçamento.",
     "Associar pessoas aos setores e conferir acessos.",
@@ -1310,5 +1310,6 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
     "Agenda e formulário de avaliação são opcionais: configure-os manualmente, incluindo profissionais, horários, serviços e perguntas.",
     "Visita domiciliar: confirmar endereço em canal protegido e vincular o agendamento manualmente antes da visita. Lavanderia: confirmar preço e data combinados antes da execução.",
     "Classifique documentos individualmente: fotos de entrada/saída, relatórios e termos só podem ser enviados se públicos e não sensíveis; diagnósticos internos permanecem restritos."
-  ]
+  ],
+  "object_types": [equipamentoEletronicoObjectType, eletrodomesticoObjectType, veiculoObjectType]
 };
