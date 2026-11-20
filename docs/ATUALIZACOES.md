@@ -208,6 +208,61 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
   - O esforço ganha **Máximo**.
   - Não testado contra a API real.
 
+## Atualização 0.24.0: novos canais, módulos lançando no ERP, Ordem de Serviço por modelo e venda com NF-e
+
+Exige a 0.21.1 ou posterior (pacote assinado). Faça backup, use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia** e acompanhe até o fim; depois clique em **Reabrir painel atualizado**. Ela aplica 11 migrações aditivas (`0135`, `0140` a `0147`, `0150` e `0151`) e não cria recurso novo na Cloudflare: nenhum banco, fila, bucket ou classe de Durable Object. O banco do ERP de cada área também se atualiza sozinho, só com tabelas novas. Se o painel ficar na mesma etapa por mais de 15 minutos, siga a [saída de emergência](ATUALIZACOES-FORMATO.md#saída-de-emergência-trabalho-preso-em-atualizando).
+
+**Quem só usa WhatsApp não vê diferença.** O atendimento pelo WhatsApp continua igual, com os mesmos menus, modelos, janela e módulos; as conversas abertas por aplicações de integração também. A única novidade nessas áreas é a ação **Enviar conversa por e-mail**, para quem tem a permissão.
+
+**Instagram e Facebook.** As mensagens diretas das contas empresariais entram na mesma caixa de entrada, com o selo do canal no canto da foto. A conta é importada em **Conexões → Integração Zernio → Buscar contas na Zernio**, com as credenciais da integração Zernio que você já usa. Conversas antigas não são importadas. Nas primeiras 24 horas depois da última mensagem do cliente, vale tudo: texto, mídia e automação. Até 7 dias, só texto escrito por uma pessoa da equipe. Depois disso, o envio fica bloqueado. Menus usam até 3 botões ou 13 respostas rápidas; o que não couber vira texto numerado. Agenda, Pedido, cobrança e os demais módulos continuam só no WhatsApp.
+
+**Um cliente, vários canais.** A ficha do contato mostra os canais da pessoa. Na web, **Juntar com outro contato** une duas fichas com prévia e confirmação, e dá para desfazer enquanto nada mudou depois. O sistema nunca junta sozinho por nome ou foto.
+
+**Enviar conversa por e-mail.** Manda a conversa para o seu e-mail, para o do contato ou, se o administrador permitir, para um endereço digitado. Antes do envio aparece uma prévia. Notas internas nunca vão junto, e documentos sensíveis aparecem só pelo nome. O envio usa o e-mail configurado em **Gestão → Sistema → E-mail**. Administradores começam autorizados; bots não exportam conversas.
+
+**Comentários, Telegram, avaliações do Google, TikTok e e-mail.** Estes canais aparecem no catálogo de conexões abrindo o painel em `/app?canais=2`; abrir o catálogo não liga nada.
+- **Comentários do Instagram e do Facebook:** cada publicação e autor vira uma conversa. A pessoa da equipe responde em público ou no privado. A resposta privada sai uma vez só, até 7 dias depois do comentário. O bot nunca responde em público. É preciso ligar os comentários na conexão.
+- **Telegram:** funciona com o seu próprio bot, só em conversa privada. O token fica guardado cifrado e aparece apenas como "configurado".
+- **Avaliações do Google:** ficam na área **Avaliações**, na web, sem abrir conversa. Uma pessoa autorizada responde; a IA só sugere o texto. Avaliações anteriores à ativação não são trazidas.
+- **TikTok:** mensagens diretas iniciadas pelo cliente, com resposta em texto ou uma imagem. A resposta precisa sair em até 48 horas, com no máximo 10 envios a cada 48 horas.
+- **E-mail como canal:** o recebimento depende de uma regra de Email Routing que o dono cria à mão na Cloudflare. O guia está em [E-mail como canal](CANAIS-EMAIL-RECEBIMENTO.md). Nesta versão o canal ainda não pode ser ativado: o envio, inclusive o e-mail do teste de recebimento, espera a confirmação do formato do provedor.
+
+**Módulos lançando no financeiro e no estoque do ERP (desligado de fábrica).** Ordem de Serviço, Pedido, Mesas, Entrega, Mensalidade, Agenda, Reserva e Suporte avulso passam a gerar a parte comercial no ERP: documento, contas a receber, recebimentos e baixa de estoque. **O lançamento automático vem desligado.** Enquanto o administrador não ligar, cada venda, parcela ou recebimento fica como pendência de lançamento manual. Para ligar, abra **ERP → Integrações** (no grupo Comercial) → **Padrões comerciais da área**, marque **Lançar financeiro automaticamente** e/ou **Lançar estoque automaticamente**, escolha a categoria de receita, a forma de pagamento, a conta de baixa e o depósito, que precisam já existir, e clique em **Salvar padrões**. A escolha vale só daqui para a frente: o que aconteceu antes não é lançado. Cada destino precisa da parte correspondente do ERP (Financeiro ou Estoque) ligada.
+- **Ordem de serviço:** lança na primeira execução, com orçamento aprovado ou preço fixo autorizado. Entregar a ordem não significa pagamento.
+- **Agenda:** cobra só quando você pede ou ao concluir um atendimento com preço.
+- **Reserva:** separa sinal e saldo.
+- **Mensalidade:** lança cada parcela.
+- **Mesas:** fechar a conta não cria uma segunda venda.
+
+O atendimento não espera o ERP. Uma falha vira pendência visível, com **Tentar novamente**. Bots não fazem esses lançamentos.
+
+**Ordem de Serviço por modelo.** A Ordem de Serviço tem uma entrada só, pelo botão **ERP**, e uma lista só, com a ordem clássica e os modelos próprios juntos. A lista filtra por **Modelo**, situação, responsável e prazo, e tem **Meus prazos** no topo. "Tipo de trabalho" passa a se chamar **Modelo**. **Configurar** ganha as abas **Modelos**, **WhatsApp** e **Prazos e garantia**. Um modelo pode começar do zero ou de um exemplo, sem aplicar a área inteira.
+- **Objeto do serviço:** o veículo, equipamento, imóvel, animal ou evento é cadastrado uma vez e fica ligado ao cliente. Cada ordem guarda uma cópia do que era verdade naquela visita: a quilometragem de 60.000 km continua 60.000 km. O objeto tem tela própria, com o histórico de ordens e o último atendimento, e aparece na ficha do contato. No link do WhatsApp, o cliente escolhe "Qual veículo?" entre os dele.
+- **Campos obrigatórios por etapa:** um campo pode ser exigido ao entrar numa etapa ou ao sair dela. Na oficina, por exemplo, a quilometragem é pedida ao sair de Recebido.
+- **Colunas e filtros:** até quatro campos próprios podem virar coluna e filtro da lista. Campo sensível nunca vira.
+- **Festas e eventos:** modelo novo, que usa o evento (data, tema e local) como objeto.
+
+Ordens antigas não mudam. Os aplicativos continuam funcionando como antes. Uma mudança de etapa que deixe faltar um campo exigido é recusada com uma mensagem clara.
+
+**Comercial do ERP.** Cinco telas que estavam em implantação voltam ao menu:
+- **Meu negócio**, com painéis de venda e metas;
+- **Cobrança operacional** e **Retornos operacionais**, para gerar o arquivo de remessa de boletos que você mesmo envia ao banco e conferir o retorno; importar o retorno não baixa nada sozinho;
+- **Registro de atividades** e **Consulta de exclusões**, em Sistema.
+
+Em **Preferências → Importações** dá para importar por planilha produtos, fornecedores de produto, composições, campos customizados, lotes, contatos, pedidos de compra e de venda, movimentações de estoque e contas a receber e a pagar. Há prévia antes de confirmar, até 10.000 linhas por arquivo. Pedidos importados não baixam estoque nem geram contas, e as contas entram abertas, sem baixa. Notas fiscais por planilha ainda não.
+
+**Venda com NF-e pela NFapi.** Num pedido de venda salvo do ERP, use **Preparar NF-e**, confira e **Emitir NF-e**. Depois dá para consultar ou retomar a emissão, abrir o DANFE e o XML e cancelar com justificativa. O certificado e a senha ficam no cofre da NFapi e nunca passam pelo Wabotia. No ERP você informa só o endereço e a chave do cofre, em Preferências, e a chave fica guardada cifrada. Tudo começa em homologação. Produção só depois de **Habilitar produção**, com confirmação do administrador. Vale para venda nacional de mercadorias (modelo 55). Ficam de fora NFC-e, NFS-e, devolução, carta de correção e inutilização. IBS/CBS/IS não são calculados, e a operação que os exija é bloqueada. Pedidos vindos dos módulos ainda não emitem nota por aqui. Revise a configuração com o seu contador antes da primeira nota: veja [Venda com NF-e](COMERCIAL-NFE.md).
+
+**Receber dados do Bling.** Em **ERP → Sistema → Receber dados do Bling**, desligado de fábrica. O Wabotia lê a sua conta do Bling e guarda um acervo de consulta histórica. Não cria cadastros, pedidos, contas nem saldos no ERP e não grava nada no Bling. Você usa um aplicativo próprio no Bling, e as credenciais ficam cifradas. Antes da primeira coleta real, siga o [roteiro da primeira coleta](RECEBER-BLING-PRIMEIRA-COLETA.md): cada recurso só é coletado depois de conferido na documentação oficial do Bling.
+
+**Backup do ERP em partes (base, ainda sem botão).** O backup do banco do ERP de cada área foi refeito em partes e sai inteiro em qualquer tamanho. Enquanto ele lê o banco, as alterações do ERP daquela área ficam suspensas e as consultas continuam. Medido na Cloudflare, isso leva cerca de 5 minutos por GiB. A restauração confere tudo antes e troca o banco de uma vez: ou ele fica igual ao backup, ou como estava. Nesta versão ela cobre até 64 MiB de dados exportados; acima disso a medição na Cloudflare mostrou que a troca não cabe na memória. A restauração de bancos maiores fica para a próxima versão. XML e anexos ficam no armazenamento de arquivos, fora desse backup. O backup e a restauração do ERP ainda não têm botão no painel nem rota para quem administra: a recuperação continua sendo a recuperação no tempo da Cloudflare (até 30 dias).
+
+**Bots no ERP.** O administrador pode liberar, por bot e por área, operações do ERP com nome próprio: Meu negócio, registro de atividades, cobrança por arquivo, importação por planilha, NF-e e Receber dados do Bling. O bot só as usa na conversa interna com a pessoa da equipe, nunca com cliente. A lista começa vazia e, ao liberar, aparece o aviso de que dados irão ao provedor de IA. Para gravar algo ou fazer uma leitura sensível, o bot propõe e a pessoa confirma, com segundo fator quando a política pede. A opção de deixar o bot fazer sozinho uma leitura sensível também começa vazia. O bot nunca ganha mais poder que a pessoa. Por enquanto essas liberações só são feitas pela API de bots; a tela vem depois.
+
+**Cobrança bancária.** Uma conta a receber que está numa remessa de teste cancela normalmente. Numa remessa real, ela só cancela quando alguém declara que o boleto já foi baixado no banco. A declaração guarda o motivo, quem fez e quando, e exige o papel financeiro e o segundo fator da política financeira. Por enquanto essa declaração só é feita pela API; a tela do Financeiro ainda não a oferece.
+
+Esta versão foi verificada por testes automáticos, por revisão de código e por um ensaio numa instalação de teste, não por uso em atendimento real. Nada foi testado contra os serviços reais: Zernio, Meta, Telegram, Google, TikTok, envio e recebimento de e-mail, o cofre da NFapi (só contra um cofre simulado, sem homologação na SEFAZ), o Bling e o banco. Os formatos desses provedores ainda estão a conferir com conta real. Nascem desligados o lançamento automático dos módulos no ERP, o recebimento do Bling, a Fiscal e a NF-e em produção, as operações do ERP liberadas a bots e a leitura sensível autônoma. O canal de e-mail ainda não pode ser ativado. A restauração do ERP cobre até 64 MiB de dados exportados e não tem entrada no painel. Ainda faltam telas para: a declaração de boleto baixado, as liberações de operações do ERP por bot, a leitura autônoma do bot e o backup e a restauração do ERP.
+
 ## Atualização 0.23.0: gestão numa casa só, cadastro único e ERP em partes
 
 Exige a 0.21.1 ou posterior (pacote assinado). Faça backup, use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia** e acompanhe até o fim; depois clique em **Reabrir painel atualizado**. Ela aplica 5 migrações aditivas (`0130`, `0131`, `0132` e as duas `0133`) e não cria recurso novo na Cloudflare. Se o painel ficar na mesma etapa por mais de 15 minutos, siga a [saída de emergência](ATUALIZACOES-FORMATO.md#saída-de-emergência-trabalho-preso-em-atualizando).
