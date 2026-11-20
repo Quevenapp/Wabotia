@@ -144,6 +144,24 @@ recebem esses dados. A escrita privada devolve nomes dos campos alterados,
 sem valores. Busca, mensagens, eventos e histórico novos não expõem valores
 sensíveis; os campos comuns respeitam também os escopos de contato e notas.
 
+### Parte comercial dos modelos (OS3)
+
+O orçamento, as condições, a cobrança e o recebimento funcionam igual em todo
+modelo com `features.quote` (veja [ORDEM-DE-SERVICO.md](ORDEM-DE-SERVICO.md#orçamento)).
+O documento comercial no ERP leva os itens do orçamento como escritos e o
+objeto do serviço só com campos visíveis ao cliente; `sensitive: true` nunca
+sai da ordem. Modelos aplicados de áreas sensíveis por natureza
+(`area_clinica_medica__…`, `area_escolas__…`, `area_professores__…`,
+`area_advogados__…`, `area_escritorio_advocacia__…`) e qualquer modelo de uma
+área que aplicou um deles continuam reservados: "Serviço contratado", sem
+dados técnicos e com pagador adulto confirmado por uma pessoa. A cópia de um
+exemplo feita em *Começar de um exemplo* recebe ID novo e não é reconhecida
+como área sensível: marque os campos sensíveis no próprio modelo.
+
+Voltar etapa (Pronta → Em execução; Orçamento enviado, Aprovada ou Recusada
+→ Em análise) e cancelar pedem motivo na tela antes de enviar (`note` em
+`/stage`), como o servidor exige quando há parte comercial.
+
 ## Objeto do serviço
 
 O objeto do serviço é aquilo em que o serviço é feito: veículo, equipamento,
@@ -585,7 +603,10 @@ mesmos comandos de abertura e transição; escrever direto em `os_orders`,
 
 ## Encaixes para as próximas partes
 
-- **Comercial (parte 3).** `getWorkObjectContext(row, audience)` é função pura
+- **Comercial (parte 3, entregue).** O projetor comercial usa
+  `getWorkObjectContext(row, { kind: "customer" })` para o equipamento do
+  documento. O texto abaixo descreve o contrato da função.
+- **Comercial (contrato).** `getWorkObjectContext(row, audience)` é função pura
   sobre a cópia autorizada da ordem, sem consultar o cadastro atual. Devolve ID,
   tipo, versão, data e origem da cópia, identificador, campos permitidos e
   `equipment_text`, texto curto para o campo de equipamento do ERP. A audiência

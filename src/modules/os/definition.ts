@@ -94,6 +94,7 @@ export const osModule: ModuleDefinition = {
     "os.object.archived",
     "os.object.private_fields_changed",
     "os.object.linked",
+    "os.receipt_recorded",
   ],
   settings: [
     { key: "os_work_types", description: "Tipos personalizados de trabalho." },
@@ -123,7 +124,8 @@ export const osModule: ModuleDefinition = {
       description: "Permite acesso humano explícito aos dados sensíveis do motor.",
     },
   ],
-  bot: { deny: ["os.private", "service-orders/:id/private-fields", "os.document.upload", "service-orders/:id/private-tasks", "service-orders/:id/private-documents", "os.person.", "os.entry.", "service-orders/objects/:object_id/private-fields", "os.objects.private."] },
+  // OS3: dinheiro e aprovação só por proposta que a pessoa confirma.
+  bot: { sensitive: ["os.quote.save", "os.quote.reopen", "os.decide", "os.receipt.create", "os.charge.create", "os.commercial.update"], deny: ["os.private", "service-orders/:id/private-fields", "os.document.upload", "service-orders/:id/private-tasks", "service-orders/:id/private-documents", "os.person.", "os.entry.", "service-orders/objects/:object_id/private-fields", "os.objects.private."] },
 };
 
 // REGISTRO RESERVADO F0/I — acrescentar eventos, grants e bot.deny das filhas.

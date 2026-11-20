@@ -29,12 +29,17 @@ import {
   phoneDigits,
   quoteTotal,
   validateQuoteItems,
+  itemsDiscount,
+  quoteInstallments,
+  quoteSubtotal,
+  termsSummary,
+  validateQuoteTerms,
   type OsStatus,
   type QuoteItem,
   type TextKey,
 } from "./model";
 
-import type { ExtraValues, Order, WorkTypeSnapshot } from "./contracts";
+import type { DecisionDetail, ExtraValues, Order, QuoteTerms, WorkTypeSnapshot } from "./contracts";
 import { effectiveStage, legacyCustomStatuses, makeSnapshot, snapshotType, workOrderAdditions } from "./work-types";
 import { resolveWorkType, workCustomerScope, workCustomerAllows } from "./public";
 import { resolveCustomer } from "../../customer/ports";
@@ -45,7 +50,8 @@ import { atomic, casGuard, checkVersion, commitOrderMutation, mutationHistory, v
 import { customerProjection, mayReadSensitive } from "./privacy";
 import { customStatus, customMove, customQuotePolicy, cancelApproval } from "./stages";
 import { prepareWorkMutation, replayWorkWrite, workWriteReceipt } from "./commercial/mutations";
-import { commercialOf, readWorkIntegration, stableQuoteItems } from "./commercial/projection";
+import { commercialOf, readWorkIntegration, stableQuoteItems, type WorkCommercial } from "./commercial/projection";
+import { readIntegrationActivation } from "../../integrations/ports";
 import { hash as commercialHash } from "../../integrations/keys";
 import { prepareObjectOpening, reauthorizeObjectOpening, prepareOrderRulesMutation, planOrderFieldIndex, queryOrdersByField, publicObjectLabel, projectObjectSnapshot, projectObjectForActor, projectObjectPage } from "./os2-ports";
 import type { WorkOrderRow } from "./public";
@@ -143,6 +149,7 @@ export function orderView(row: any, history?: any[]) {
           sent_at: row.quote_sent_at,
           version: row.quote_version,
           expired: !!row.quote_valid_until && row.quote_valid_until <= now(),
+          ...quoteCommercialView(row, items),
         }
       : null,
     decision: row.decision
@@ -151,6 +158,7 @@ export function orderView(row: any, history?: any[]) {
           at: row.decided_at,
           by: row.decided_by,
           via: row.decided_via,
+          ...(row.decision_detail_json ? { detail: json(row.decision_detail_json, null) } : {}),
         }
       : null,
     ready_at: row.ready_at,
@@ -173,6 +181,25 @@ export function orderView(row: any, history?: any[]) {
           })),
         }
       : {}),
+  };
+}
+
+/** OS3: descontos, condições e parcelas do orçamento, como o painel mostra. */
+export function quoteCommercialView(row: any, items: QuoteItem[]) {
+  const terms = json(row.quote_terms_json, null) as QuoteTerms | null;
+  const total = Number(row.quote_total_cents ?? 0);
+  const local = commercialOf(row);
+  const installments = local.installments_source === "quote" && local.installments?.length
+    ? local.installments.map((i, index) => ({ number: index + 1, due_on: i.due_on, amount_cents: i.amount_cents }))
+    : quoteInstallments(terms, total);
+  return {
+    subtotal_cents: quoteSubtotal(items),
+    items_discount_cents: itemsDiscount(items),
+    discount_cents: Number(row.quote_discount_cents ?? 0),
+    terms,
+    installments,
+    // Aprovado: travado até reabrir. Depois do início do serviço, só por cancelamento.
+    locked: !QUOTABLE.includes(row.status),
   };
 }
 
@@ -896,12 +923,14 @@ export async function saveQuote(
   data: any,
   actor: string,
   mutationKey?: string,
-  options: { notify?: boolean } = {},
+  options: { notify?: boolean; human?: boolean } = {},
 ) {
   const intent = ["quote", data];
   const replay = await replayWorkWrite(ctx, order, mutationKey, intent);
   if (replay) return replay;
   checkVersion(order, data.version, false);
+  if (order.status === "approved")
+    throw new ApiError(409, "quote_locked", "O orçamento foi aprovado e está travado. Para mudar, use Reabrir orçamento e informe o motivo.");
   const policy = customQuotePolicy(order);
   if (policy && effectiveStage(order) !== policy.sent_stage && !policy.source_stages.includes(effectiveStage(order))) throw new ApiError(409, "invalid_transition", "Etapa não permite orçamento.");
   if (!QUOTABLE.includes(order.status))
@@ -921,12 +950,17 @@ export async function saveQuote(
       "Validade do orçamento de 1 a 90 dias.",
     );
   const note = text(data.note, 600, "a observação do orçamento");
-  const total = quoteTotal(items);
+  // OS3: desconto no total e condições. Ausentes preservam o que havia.
+  const discount = data.discount_cents === undefined ? Number(order.quote_discount_cents ?? 0) : data.discount_cents ?? 0;
+  requireValue(Number.isSafeInteger(discount) && discount >= 0, "Desconto do orçamento em centavos (inteiro, maior ou igual a zero).");
+  const total = quoteTotal(items, discount);
   const sets: Record<string, any> = {
     quote_items: JSON.stringify(items),
     quote_total_cents: total,
     quote_valid_days: validDays,
     quote_note: note,
+    ...(discount !== Number(order.quote_discount_cents ?? 0) ? { quote_discount_cents: discount } : {}),
+    ...await quoteTermsSets(ctx, order, data, total, options.human === true),
   };
   const memo = `Orçamento salvo: ${money(total)}`;
   // Orçamento já enviado e alterado: volta para análise até o novo envio,
@@ -976,19 +1010,67 @@ export async function saveQuote(
   return loadOrder(ctx, order.id);
 }
 
+/**
+ * OS3: condições do orçamento. O pagador vira o cliente comercial da ordem
+ * (customer_ref) e, com Financeiro ligado, as parcelas combinadas viram as
+ * parcelas da conta a receber. Sem Financeiro: só pagador, forma e total.
+ */
+async function quoteTermsSets(ctx: ModuleContext, order: any, data: any, total: number, human: boolean): Promise<Record<string, unknown>> {
+  const previous = json(order.quote_terms_json, null) as QuoteTerms | null;
+  const local = commercialOf(order);
+  if (data.terms === undefined && !previous && data.adult_payer_confirmed === undefined && local.installments_source !== "quote") return {};
+  const state = await readIntegrationActivation(ctx.env, ctx.profile, "os");
+  const finance = !!(state.snapshot.parts.customers && state.snapshot.parts.finance);
+  const terms = data.terms === undefined ? previous : validateQuoteTerms(data.terms, finance);
+  const patch: Partial<WorkCommercial> = {};
+  if (terms?.payer_contact_id) {
+    const payer = await one(ctx.env, "SELECT id,name FROM contacts WHERE profile_id=? AND id=? AND namespace='team' AND identity_state='active' AND trim(name)<>''", ctx.profile, terms.payer_contact_id);
+    if (!payer) throw new ApiError(422, "customer_required", "Escolha o pagador no cadastro de contatos (com nome preenchido).");
+    terms.payer_name ||= payer.name;
+    if (local.customer_ref !== payer.id) Object.assign(patch, { customer_ref: payer.id, adult_payer_confirmed: false });
+  } else if (previous?.payer_contact_id && local.customer_ref === previous.payer_contact_id)
+    Object.assign(patch, { customer_ref: null, adult_payer_confirmed: false });
+  if (data.adult_payer_confirmed !== undefined) {
+    requireValue(typeof data.adult_payer_confirmed === "boolean", "Confirmação do pagador inválida.");
+    if (data.adult_payer_confirmed && !human) throw new ApiError(422, "adult_payer_required", "Uma pessoa da equipe deve confirmar o responsável financeiro adulto.");
+    const ref = patch.customer_ref !== undefined ? patch.customer_ref : local.customer_ref ?? order.contact_id ?? null;
+    if (data.adult_payer_confirmed && !ref) throw new ApiError(422, "adult_payer_required", "Escolha o pagador no cadastro de contatos antes de confirmar.");
+    Object.assign(patch, { customer_ref: ref, adult_payer_confirmed: data.adult_payer_confirmed });
+  }
+  const plan = finance ? quoteInstallments(terms, total) : [];
+  if (plan.length) Object.assign(patch, {
+    installments: plan.map(p => ({ key: `quote-${p.number}`, due_on: p.due_on, amount_cents: p.amount_cents, payment_method_id: terms!.payment_method_id })),
+    installments_source: "quote",
+  });
+  else if (local.installments?.length && (local.installments_source === "quote" || total !== order.quote_total_cents))
+    Object.assign(patch, { installments: [], installments_source: null });
+  const { authorization: _kept, ...current } = local;
+  const termsJson = terms ? JSON.stringify(terms) : null;
+  return {
+    ...(termsJson !== (order.quote_terms_json ?? null) ? { quote_terms_json: termsJson } : {}),
+    ...(Object.keys(patch).length ? { commercial_json: JSON.stringify({ ...current, ...patch }) } : {}),
+  };
+}
+
 /** Linhas do orçamento, sem a instrução de resposta. */
 export function quoteSummary(order: any) {
   const items: QuoteItem[] = json(order.quote_items, []);
   const lines = items.map((item) =>
-    item.quantity !== 1
-      ? `• ${item.quantity} x ${item.description}: ${money(quoteTotal([item]))} (${money(item.unit_cents)} cada)`
-      : `• ${item.description}: ${money(item.unit_cents)}`,
+    (item.quantity !== 1
+      ? `• ${item.quantity} x ${item.description}: ${money(quoteSubtotal([item]))} (${money(item.unit_cents)} cada)`
+      : `• ${item.description}: ${money(item.unit_cents)}`) +
+    (item.discount_cents ? ` (desconto de ${money(item.discount_cents)})` : ""),
   );
+  const discount = itemsDiscount(items) + Number(order.quote_discount_cents ?? 0);
+  const terms = json(order.quote_terms_json, null) as QuoteTerms | null;
+  const conditions = termsSummary(terms ? { ...terms, payer_name: "" } : null, order.quote_total_cents);
   return [
     `${snapshotType(order)?.labels.item ?? "Item"}: ${order.item}`,
     "",
     ...lines,
+    ...(discount ? [`Subtotal: ${money(quoteSubtotal(items))}`, `Descontos: ${money(discount)}`] : []),
     `Total: ${money(order.quote_total_cents)}`,
+    ...(conditions ? [`Pagamento: ${conditions}`] : []),
     `Válido até ${day(order.quote_valid_until)}.`,
     ...(order.quote_note ? ["", order.quote_note] : []),
   ].join("\n");
@@ -1088,12 +1170,98 @@ export async function sendQuote(
     actor,
   }, { key: `quoted:${order.id}:${next.row_version}` });
   const recipient = c ? await conversationOf(ctx, next) : null;
-  if (recipient)
+  if (recipient) {
+    // OS3: o link com o orçamento completo vai antes da lista Aprovar/Recusar.
+    await sendQuoteLink(ctx, recipient, next, actor);
     await ctx.sendInteractive(recipient, quoteSpec(next), {
       key: `quote:${order.id}:${next.quote_version}`,
       notification: true,
     });
+  }
   return next;
+}
+
+/** Página do passo web: itens, descontos, total, condições e a resposta. */
+export function quotePageSpec(order: any) {
+  const title = snapshotType(order)
+    ? `Orçamento de ${snapshotType(order)!.labels.singular} ${workOrderAdditions(order).display_number}`
+    : `Orçamento da ordem de serviço nº ${order.number}`;
+  return {
+    title: Array.from(title).slice(0, 120).join(""),
+    // Limite da página (web-steps): 1500 caracteres; o resto segue na lista.
+    intro: clipText(quoteSummary(order), 1500),
+    fields: [
+      { id: "decision", type: "choice" as const, label: "Sua resposta", required: true, options: [QUOTE_LINK_APPROVE, QUOTE_LINK_DECLINE] },
+      { id: "reason", type: "text" as const, label: "Se recusar, conte o motivo (opcional)", required: false, multiline: true, max_length: 500 },
+      { id: "name", type: "text" as const, label: "Seu nome", required: false, max_length: 120 },
+    ],
+    submit_label: "Enviar resposta",
+    done_text: "Resposta registrada. A confirmação chega na conversa do WhatsApp.",
+    return_message: "module" as const,
+    ticket: "none" as const,
+  };
+}
+const clipText = (value: string, max: number) => {
+  const chars = Array.from(value);
+  return chars.length <= max ? value : chars.slice(0, max - 1).join("") + "…";
+};
+export const QUOTE_LINK_APPROVE = "Aprovo o orçamento";
+export const QUOTE_LINK_DECLINE = "Recuso o orçamento";
+/** Envia o link do orçamento; falha (janela fechada, endereço desconhecido) não impede a lista. */
+export async function sendQuoteLink(ctx: ModuleContext, c: Conversation, order: any, actor: string) {
+  if (typeof ctx.openWebStep !== "function" || c.chat_type === "group" || !order.quote_valid_until) return;
+  const minutes = Math.floor((order.quote_valid_until - now()) / 60_000);
+  try {
+    await ctx.openWebStep(c, {
+      kind: "quote", ref: `${order.id}:${order.quote_version}`, trigger: "module", actor,
+      sourceKey: `quote:${order.id}:${order.quote_version}`, ttlMinutes: Math.max(5, Math.min(7 * 24 * 60, minutes)),
+      text: "Veja o orçamento completo, com descontos e condições de pagamento, e responda pelo link:",
+      button: "Ver orçamento", spec: quotePageSpec(order),
+    });
+  } catch (error) {
+    console.warn(JSON.stringify({ component: "os-quote-link", code: (error as ApiError)?.code ?? "error" }));
+  }
+}
+/** Ordem e versão do orçamento ligados ao passo web "quote". */
+async function quoteLinkOrder(ctx: ModuleContext, step: { conversation_id: string; ref_id?: string | null }) {
+  const match = /^([^:]+):(\d+)$/.exec(step.ref_id ?? "");
+  if (!match) return null;
+  const c = await ctx.conversation(step.conversation_id);
+  const scope = await workCustomerScope(ctx, c);
+  const order = await one(ctx.env, `SELECT * FROM os_orders WHERE id=? AND profile_id=? AND ${scope.sql}`, match[1], ctx.profile, ...scope.params);
+  return order ? { c, order, version: Number(match[2]) } : null;
+}
+/** Validação da página: orçamento ainda aguardando esta resposta. */
+export async function validateQuoteLink(ctx: ModuleContext, step: any) {
+  const found = await quoteLinkOrder(ctx, step);
+  if (!found) return "Não encontramos este orçamento.";
+  if (found.order.status !== "quoted" || found.order.quote_version !== found.version)
+    return "Este orçamento não aguarda mais resposta. Confira a mensagem mais recente na conversa.";
+  if (!found.order.quote_valid_until || found.order.quote_valid_until <= now())
+    return `Este orçamento venceu em ${day(found.order.quote_valid_until)}. Peça um novo orçamento à equipe.`;
+}
+/** Conclusão da página: registra a resposta como o botão da lista, com o motivo. */
+export async function completeQuoteLink(ctx: ModuleContext, step: any, answers: Record<string, unknown>) {
+  const found = await quoteLinkOrder(ctx, step);
+  if (!found) return "Não encontramos este orçamento.";
+  const decision = answers.decision === QUOTE_LINK_APPROVE ? "approve" : answers.decision === QUOTE_LINK_DECLINE ? "decline" : null;
+  if (!decision) return "Resposta não reconhecida. Responda de novo pela conversa.";
+  const reason = Array.from(String(answers.reason ?? "").trim()).slice(0, 500).join("");
+  const name = Array.from(String(answers.name ?? "").trim()).slice(0, 120).join("");
+  const mutationKey = `quote-link:${step.id}`;
+  const previous = await mutationHistory(ctx, mutationKey);
+  if (previous) { await resumeOrderEffects(ctx, previous, found.order); return; }
+  try {
+    await decide(ctx, found.order, decision, `customer:${found.c.id}`, "whatsapp", decision === "decline" ? reason : "", {
+      mutationKey, quote_version: found.version,
+      detail: { by_name: name || found.order.customer_name || "Cliente", at: now(), channel: "whatsapp", reason: decision === "decline" ? reason : "" },
+    });
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    if (error.code === "quote_expired") return `O orçamento da ordem nº ${found.order.number} venceu em ${day(found.order.quote_valid_until)}. Peça um novo orçamento à equipe.`;
+    if (["quote_not_pending", "quote_version_conflict"].includes(error.code)) return `A ordem nº ${found.order.number} não tem este orçamento aguardando resposta.`;
+    throw error;
+  }
 }
 
 /**
@@ -1107,9 +1275,9 @@ export async function decide(
   by: string,
   via: "whatsapp" | "panel" | "api",
   note: unknown = "",
-  options: { mutationKey?: string; notify?: boolean; quote_version?: number } = {},
+  options: { mutationKey?: string; notify?: boolean; quote_version?: number; detail?: unknown } = {},
 ) {
-  const intent = ["decide", decision, via, note, options.quote_version ?? null];
+  const intent = ["decide", decision, via, note, options.quote_version ?? null, ...(options.detail !== undefined ? [options.detail] : [])];
   const replay = await replayWorkWrite(ctx, order, options.mutationKey, intent);
   if (replay) {
     const history = await mutationHistory(ctx, options.mutationKey);
@@ -1137,13 +1305,15 @@ export async function decide(
     );
   const to: OsStatus = decision === "approve" ? "approved" : "declined";
   const at = now();
+  const detail = decisionDetail(options.detail, memo, order, at);
   const next = await moveOrder(
     ctx,
     order,
     to,
     by,
-    memo || (via === "whatsapp" ? "Resposta do cliente pelo WhatsApp" : ""),
-    { decision: to, decided_at: at, decided_by: by, decided_via: via },
+    (memo || (via === "whatsapp" ? "Resposta do cliente pelo WhatsApp" : "")) +
+      (detail && via !== "whatsapp" ? ` · ${detail.by_name}, ${CHANNEL_LABELS[detail.channel]}, em ${day(detail.at)}` : ""),
+    { decision: to, decided_at: at, decided_by: by, decided_via: via, ...(detail ? { decision_detail_json: JSON.stringify(detail) } : {}) },
     "status",
     { ...options, writeIntent: intent },
   );
@@ -1162,6 +1332,49 @@ export async function decide(
     { key: `decision:${order.id}:${next.row_version}` },
   );
   return next;
+}
+
+const CHANNEL_LABELS: Record<DecisionDetail["channel"], string> = {
+  whatsapp: "pelo WhatsApp", phone: "por telefone", counter: "no balcão", email: "por e-mail", other: "por outro meio",
+};
+/** OS3: quem respondeu, quando (informado, não futuro nem antes do envio) e por onde. */
+function decisionDetail(value: unknown, reason: string, order: any, at: number): DecisionDetail | null {
+  if (value === undefined || value === null) return null;
+  requireValue(typeof value === "object" && !Array.isArray(value), "Informe quem respondeu ao orçamento.");
+  const raw = value as Record<string, any>;
+  const name = typeof raw.by_name === "string" ? raw.by_name.trim() : "";
+  requireValue(name && Array.from(name).length <= 120, "Informe o nome de quem respondeu (até 120 caracteres).");
+  const when = raw.at === undefined || raw.at === null ? at : raw.at;
+  requireValue(Number.isSafeInteger(when) && when <= at + 5 * 60_000, "A data da resposta não pode estar no futuro.");
+  requireValue(!order.quote_sent_at || when >= order.quote_sent_at - 60_000, "A data da resposta é anterior ao envio do orçamento.");
+  const channel = raw.channel ?? "other";
+  requireValue(Object.hasOwn(CHANNEL_LABELS, channel), "Meio da resposta: whatsapp, phone, counter, email ou other.");
+  const why = typeof raw.reason === "string" ? Array.from(raw.reason.trim()).slice(0, 500).join("") : reason;
+  return { by_name: name, at: Math.min(when, at), channel, reason: why };
+}
+
+/**
+ * OS3: reabrir o orçamento aprovado (antes de iniciar o serviço). Volta para
+ * "Em análise" com o motivo no histórico; a aprovação deixa de valer. Com
+ * documento de venda já criado no ERP, recusa: o ERP não volta um documento
+ * aprovado para análise.
+ */
+export async function reopenQuote(ctx: ModuleContext, order: any, data: any, actor: string, mutationKey?: string) {
+  const intent = ["reopen_quote", data];
+  const replay = await replayWorkWrite(ctx, order, mutationKey, intent);
+  if (replay) return replay;
+  checkVersion(order, data?.version);
+  const reason = text(data?.reason, 500, "o motivo para reabrir o orçamento", true);
+  if (order.status !== "approved")
+    throw new ApiError(409, "quote_not_approved", "Só um orçamento aprovado, antes de iniciar o serviço, pode ser reaberto.");
+  const integration = await readWorkIntegration(ctx, order);
+  const document = integration.linked || integration.events.some(e => JSON.parse(e.payload_json).eligible?.document);
+  if (document)
+    throw new ApiError(409, "quote_reopen_blocked", "Este orçamento aprovado já gerou o documento de venda no ERP, que não volta para análise. Para mudar o combinado, cancele esta ordem (com motivo) e abra uma nova.");
+  const { authorization: _old, ...commercial } = commercialOf(order);
+  const extra = { decision: null, decided_at: null, decided_by: null, decided_via: null, decision_detail_json: null,
+    commercial_json: JSON.stringify({ ...commercial, authorization: null }) };
+  return moveOrder(ctx, order, "analyzing", actor, `Orçamento reaberto: ${reason}`, extra, "quote", { mutationKey, writeIntent: intent, notify: false });
 }
 
 // ---------------------------------------------------------------------------

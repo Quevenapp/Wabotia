@@ -225,6 +225,9 @@ export function WorkPage() {
   const app = useApp(), route = useRoute(), api = useWorkApi();
   const catalog = useWorkResource(app.root + "/work-catalog/", () => api.types(true), app.status.settings_revision || "");
   if (route.id && route.typeId !== "service_order") return <WorkDetailPage key={app.profile + route.id} workId={route.id} />;
+  // OS3: o documento do ERP leva à ordem nova correspondente (?origem=<id da ordem>).
+  const origin = !route.id ? new URLSearchParams(route.search || "").get("origem") : null;
+  if (origin) return <WorkDetailPage key={app.profile + origin} workId={origin} />;
   if (!catalog.data) return <ResourceState resource={catalog} />;
   if (!Array.isArray(catalog.data.data)) return <Notice>Catálogo de modelos indisponível. <Button secondary onClick={catalog.reload}>Tentar novamente</Button></Notice>;
   return <WorkList key={app.root + (route.typeId || "") + JSON.stringify(route.filters)} catalog={catalog.data} />;

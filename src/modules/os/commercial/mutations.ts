@@ -6,9 +6,10 @@ import { aliasStatements, commandId, ensureCommercialPolicy, eventKey, integrati
 import { canonical, hash } from "../../../integrations/keys";
 import { commercialFingerprint, commercialOf, projectWork, readWorkIntegration, saoPauloDate, stableQuoteItems, workPrivacy, workSource, type WorkCatalogChange } from "./projection";
 import { mutationHistory, publishMutation } from "../mutations";
+import { receiptCatchUp } from "./receipts";
 
-const relevant = new Set(["status", "stage", "quote_items", "quote_total_cents", "quote_version", "quote_valid_until", "quote_valid_days", "decision", "stage_approval_json", "commercial_json", "customer_name", "phone", "contact_id", "conversation_id", "item", "problem", "assignee", "due_at", "delivered_at", "warranty_until"]);
-const protectedFields = ["quote_items", "quote_total_cents", "quote_valid_days", "customer_name", "phone", "contact_id", "conversation_id", "item", "problem", "assignee", "due_at"];
+const relevant = new Set(["status", "stage", "quote_items", "quote_total_cents", "quote_version", "quote_valid_until", "quote_valid_days", "decision", "stage_approval_json", "commercial_json", "customer_name", "phone", "contact_id", "conversation_id", "item", "problem", "assignee", "due_at", "delivered_at", "warranty_until", "quote_discount_cents", "quote_terms_json"]);
+const protectedFields = ["quote_items", "quote_total_cents", "quote_valid_days", "customer_name", "phone", "contact_id", "conversation_id", "item", "problem", "assignee", "due_at", "quote_discount_cents", "quote_terms_json"];
 const conflict = () => new ApiError(409, "idempotency_conflict", "Esta chave já identifica outro comando.");
 export async function replayWorkWrite(ctx: ModuleContext, row: any, key: string | undefined, intent: unknown) {
   if (!key) return null;
@@ -84,7 +85,8 @@ export async function prepareWorkMutation(ctx: ModuleContext, row: any, input: R
     if (hasContent && !local.authorization) throw new ApiError(422, "commercial_authorization_required", "Aprove a versão atual do orçamento ou autorize expressamente o preço fixo.");
     local.first_execution_at = occurred; // Inclusive sem ERP e em trabalho sem preço.
     local.historical_execution = false;
-    if (local.installments?.length && local.installments[0].due_on !== saoPauloDate(at))
+    // OS3: parcelas combinadas no orçamento aprovado têm datas próprias.
+    if (local.installments?.length && local.installments_source !== "quote" && local.installments[0].due_on !== saoPauloDate(at))
       throw new ApiError(422, "installment_trigger_date", "A primeira parcela deve vencer na data de início da execução.");
   }
   let operation: IntegrationOperation = opening || sets.quote_items !== undefined || sets.commercial_json !== undefined || ["customer_name", "phone", "item", "problem", "due_at"].some(k => k in sets) ? "prepare" : "lifecycle";
@@ -111,6 +113,10 @@ export async function prepareWorkMutation(ctx: ModuleContext, row: any, input: R
     epochs: state.epochs, eligible, snapshot, receipt_key: null, reverses_receipt_key: null,
     reason_code: operation === "cancel" ? "work_cancelled" : regressing ? "work_regression" : null,
     actor_id: /^[0-9a-f-]{36}$/i.test(actor) ? actor : null };
+  // OS3: recebimentos registrados antes da conta a receber acompanham a
+  // primeira execução lançada no Financeiro, na mesma fila e no mesmo lote.
+  const followers = operation === "execute" && eligible.finance
+    ? await receiptCatchUp(ctx, next, integration, state.epochs, seq, snapshot) : [];
   const statements: Statement[] = [
     // Nenhuma confirmação concorrente pode passar entre a comparação e o lote.
     [`SELECT CASE WHEN COALESCE((SELECT applied_seq FROM module_erp_sources WHERE profile_id=? AND module_id='os' AND source_id=?),0)=?
@@ -122,7 +128,7 @@ export async function prepareWorkMutation(ctx: ModuleContext, row: any, input: R
         AND l.record_kind='quote_item' AND l.record_id=? AND l.component=json_extract(i.value,'$.id')
       WHERE json_extract(i.value,'$.kind')<>'free' AND l.erp_item_id IS NOT json_extract(i.value,'$.product_id')
     ) THEN 1 ELSE json('os_version_conflict') END`, [canonical(snapshot.items.map(({ id, kind, product_id }) => ({ id, kind, product_id }))), ctx.profile, row.id]]] as Statement[] : []),
-    ...integrationStatements({ source, expected_revision: revision - 1, events: [event], next_state: { snapshot } }),
+    ...integrationStatements({ source, expected_revision: revision - 1, events: [event, ...followers], next_state: { snapshot } }),
     ...aliasStatements(source, "work", row.id),
   ];
   return { sets, statements, note: sensitive && note ? (operation === "cancel" ? "Cancelamento operacional" : "Atualização operacional") : note };

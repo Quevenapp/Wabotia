@@ -13,6 +13,7 @@ import {
   onConversationTurn,
   onMcpTool,
   onMenuChoice,
+  onPaymentUpdated,
   onRead,
   onRoute,
   onSchedule,
@@ -41,7 +42,11 @@ import {
   sendQuote,
   trackText,
   updateOrder,
+  reopenQuote,
+  validateQuoteLink,
+  completeQuoteLink,
 } from "./store";
+import { createOrderCharge, orderPaymentUpdated, paymentsView, recordManualReceipt } from "./commercial/receipts";
 
 import { validateWorkTypes, validateVocabulary, validateWorkTypeChanges, validateServiceObjectTypes, validateOs2AiAccess } from "./validation";
 import { customOpenForm, openingAnswers } from "./forms";
@@ -226,6 +231,7 @@ onWebStepBeforeComplete("os", (ctx, step, answers, options) =>
 );
 
 onWebStepValidate("os", async (ctx, step, answers) => {
+  if (step.kind === "quote") return validateQuoteLink(ctx, step);
   if (isObjectOpeningWebStep(step)) return;
   if (step.kind !== "open" || !step.ref_id) return;
   try { await openingAnswers(ctx, step, answers); }
@@ -234,6 +240,8 @@ onWebStepValidate("os", async (ctx, step, answers) => {
 
 // Cliente concluiu o link de abertura: a ordem nasce com os termos aceitos.
 onWebStepCompleted("os", async (ctx, step, answers) => {
+  // OS3: resposta ao orçamento pelo link (aprovar ou recusar com motivo).
+  if (step.kind === "quote") return completeQuoteLink(ctx, step, answers);
   if (step.kind !== "open") return;
   if (isObjectOpeningWebStep(step)) return resumeObjectWebStepCompletion(ctx, step);
   const c = await ctx.conversation(step.conversation_id);
@@ -367,8 +375,31 @@ onCommand("os", "os.quote.save", async (ctx, actor, data, { requestId }) => {
   const replay = await replayOrderMutation(ctx, actor, data.id, key, data.notify !== false && await ctx.mayNotify(actor, order.conversation_id));
   if (replay) return orderViewForActor(ctx, actor, replay.row);
   return orderViewForActor(ctx, actor,
-    await saveQuote(ctx, order, data, actor.id, key, { notify: await ctx.mayNotify(actor, order.conversation_id) }));
+    await saveQuote(ctx, order, data, actor.id, key, { notify: await ctx.mayNotify(actor, order.conversation_id),
+      human: actor.kind === "user" && !actor.id.startsWith("bot:") }));
 });
+
+// OS3: reabrir o orçamento aprovado, com motivo no histórico.
+onRoute("os", { method: "POST", path: "service-orders/:id/quote/reopen", op: "os.quote.reopen" });
+onCommand("os", "os.quote.reopen", async (ctx, actor, data, { requestId }) => {
+  requireCommercialWriter(actor);
+  ctx.access(actor, "conversations:write");
+  const { row: order } = await authorizedOrder(ctx, actor, data.id, { write: true });
+  const key = motorMutationKey(actor, "os.quote.reopen", requestId);
+  const replay = await replayOrderMutation(ctx, actor, data.id, key, false);
+  if (replay) return orderViewForActor(ctx, actor, replay.row);
+  return orderViewForActor(ctx, actor, await reopenQuote(ctx, order, data, actor.id, key));
+});
+
+// OS3: cobrança e recebimento (docs/ORDEM-DE-SERVICO.md, "Cobrança e recebimento").
+onRead("os", "service-orders/:id/payments", (ctx, actor, { params }) => paymentsView(ctx, actor, params.id));
+onRoute("os", { method: "POST", path: "service-orders/:id/receipts", op: "os.receipt.create" });
+onCommand("os", "os.receipt.create", (ctx, actor, data, { requestId }) =>
+  recordManualReceipt(ctx, actor, data.id, data, requestId));
+onRoute("os", { method: "POST", path: "service-orders/:id/charges", op: "os.charge.create" });
+onCommand("os", "os.charge.create", (ctx, actor, data, { requestId }) =>
+  createOrderCharge(ctx, actor, data.id, data, requestId));
+onPaymentUpdated("os", (ctx, payment) => orderPaymentUpdated(ctx, payment));
 
 onRoute("os", {
   method: "POST",
@@ -407,7 +438,8 @@ onCommand("os", "os.decide", async (ctx, actor, data, { requestId }) => {
       actor.id,
       actor.kind === "user" ? "panel" : "api",
       data.note,
-      { mutationKey: key, notify: await ctx.mayNotify(actor, order.conversation_id), quote_version: data.quote_version },
+      { mutationKey: key, notify: await ctx.mayNotify(actor, order.conversation_id), quote_version: data.quote_version,
+        ...(data.detail !== undefined ? { detail: data.detail } : {}) },
     ));
 });
 
