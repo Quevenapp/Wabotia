@@ -11,6 +11,11 @@ ele só roda o Origin. As tarefas da plataforma (`erp_platform_schedule`, com as
 notificações de hora em hora e a limpeza diária das exportações) **nunca
 disparavam**. No Wabotia elas passam a rodar no alarme do próprio objeto.
 
+Desde a fatia [Receber dados do Bling](RECEBER-BLING.md), o mesmo alarme
+também pode executar coleta interna para acervo. O envio e os aplicadores
+operacionais legados continuam desligados. Adoção e escrita futura de volta
+não são tarefas deste executor.
+
 ## Peças
 
 | Peça | Onde | O que faz |
@@ -21,6 +26,29 @@ disparavam**. No Wabotia elas passam a rodar no alarme do próprio objeto.
 | Alarme | `src/erp/hub.ts`, `alarm()` | Valida o KV `erp_parts` antes de importar/migrar o motor; fornece partes explícitas a cada unidade e revalida após cada `await`. |
 | Estado/wake | `src/erp/hub.ts`, `/erp-parts` e `/erp-wake` | Persistência de fotografia completa revisionada e reconciliação do alarme; wake só antecipa uma autorização válida. |
 | Cron | `scheduler/cron.ts`, `wakeErpAreas(env, scheduledTime)` | Renova a autorização em toda passagem de cinco minutos e entrega desligamentos pendentes. |
+
+## Coleta do Bling subordinada ao trabalho operacional
+
+`runBlingWake` é um executor assíncrono separado de `TASK_HANDLERS` e do
+`TaskHandler` síncrono. A ordem operacional e de arquivos existente continua
+primeiro. Se a rodada executou trabalho operacional, deixou `report.more`
+ou há arquivo vencido, a coleta fica para outra acordada.
+
+Uma acordada elegível permite uma unidade e no máximo um GET de dados,
+até 4 s incluindo armazenamento, com HTTP de até 3 s. O deadline termina
+250 ms antes do próximo vencimento operacional; menos de 1 s disponível
+adia a coleta. XML separa gravação, verificação e manifesto em etapas
+duráveis, e apagamento usa lotes SQL/R2 retomáveis. O alarme final é o
+mínimo entre operação, arquivos e coleta; a coleta nunca posterga uma
+tarefa operacional.
+
+Não há `sleep` nem repetição interna: quota, intervalo mínimo, `Retry-After`
+e backoff viram `not_before` persistido. Partes, aprovação, conta, geração,
+revisão de credencial e posse são conferidas antes/depois do I/O. Base
+desligada suspende a função; partes comerciais desligadas não impedem a
+consulta histórica. Religar parte não adota dados. O guia da função
+descreve os limites e o [roteiro do dono](RECEBER-BLING-PRIMEIRA-COLETA.md)
+separa aceite simulado de conferência oficial e coleta real.
 
 ## Entrega de estado e `/erp-wake` (fase 2)
 
@@ -42,7 +70,10 @@ ida ao objeto. Seu ACK administrativo é reconciliado por comando/modelo/cron,
 sem uma segunda ida ao D1 por leitura de metadados.
 
 `erp_sync.status=applied` confirma a entrega daquela revisão; não significa
-que alguma tarefa executou. O objeto nunca lê D1. A transação síncrona já
+que alguma tarefa executou. A reconciliação de partes no objeto usa a
+fotografia recebida, sem consultar D1. A função de coleta consulta configuração,
+sessão e cofre do núcleo no D1 fora da transação SQLite; alarme sem trabalho
+de coleta/limpeza não acessa essas dependências. A transação síncrona já
 iniciada termina com sua fotografia; não existe transação D1 + SQLite.
 
 **Acordar no pedido.** RPC registrado com `registerRpc(…, { wake: true })`

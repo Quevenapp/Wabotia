@@ -17,7 +17,7 @@ import {
 // Fotografia aditiva do contrato A4. O JSON da fase anterior fica preservado.
 const v1=(...paths)=>paths.map(path=>`/v1/${path}`);
 const pinned={fonte:'contrato A4 da fase 2',prefixos:{
-  erp: v1("me", "cadastros", "empresa", "anexos-empresa", "anexos-cadastros/contatos", "anexos-cadastros/funcionarios", "usuarios", "seguranca", "registro-atividades", "gerenciador-arquivos", "inicio", "plataforma", "sistema", "preferencias", "preferencias-listas", "importacoes", "documentos", "duplicacao-documentos", "records"),
+  erp: v1("me", "cadastros", "empresa", "anexos-empresa", "anexos-cadastros/contatos", "anexos-cadastros/funcionarios", "usuarios", "seguranca", "registro-atividades", "gerenciador-arquivos", "inicio", "plataforma", "sistema", "preferencias", "preferencias-listas", "importacoes", "documentos", "duplicacao-documentos", "records", "receber-bling"),
   "erp-produtos": v1("cadastros/products", "cadastros/listas-precos", "cadastros/campos-customizados", "cadastros/taxonomias/categorias-produtos", "cadastros/taxonomias/grupos-produtos", "anexos-cadastros/produtos", "records/products", "preferencias/cadastros-produtos", "importacoes/produtos", "importacoes/campos-customizados", "importacoes/fornecedores-produtos", "importacoes/composicoes"),
   "erp-vendas": v1("documentos/sales_orders", "documentos/sales_proposals", "documentos/service_orders", "documentos/sacola-vendas", "duplicacao-documentos/sales_orders", "duplicacao-documentos/sales_proposals", "duplicacao-documentos/service_orders", "ordens-servico", "records/sales_orders", "records/sales_proposals", "meu-negocio", "sistema/top-produtos", "preferencias/vendas-vendas", "preferencias/vendas-propostas", "preferencias/servicos-os", "preferencias/meu-negocio", "importacoes/vendas"),
   "erp-compras": v1("documentos/purchase_orders", "duplicacao-documentos/purchase_orders", "records/purchase_orders", "recebimentos-compras", "preferencias/suprimentos-compras", "importacoes/pedidos-compra"),
@@ -72,6 +72,7 @@ const SCREENS = [
   // Caixa / PDV
   ["/frente-caixa-empresa", "/v1/frente-caixa"],
   // Núcleo
+  ["/receber-bling", "/v1/receber-bling"],
   ["/financeiro-empresa?area=borderos", "/v1/financeiro/borderos"],
   ["/financeiro-empresa", "/v1/financeiro/titulos"],
   ["/documentos-empresa?tipo=sales_orders", "/v1/documentos/sales_orders"],

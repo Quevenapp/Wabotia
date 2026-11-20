@@ -1206,6 +1206,11 @@ app.all("/api/v1/profiles/:profile/erp-fiscal-cofre/*", async (c: any) => {
 app.get("/api/public/erp-storage/*", (c) =>
   erpSignedDownload(c.env, c.req.raw),
 );
+// Retorno OAuth exclusivo; sessão, área e estado são revalidados no Coordinator.
+app.get("/api/public/erp-bling/:profile/callback", async (c) => {
+  const { handleBlingCallback } = await import("./erp/bling/assembly.ts");
+  return handleBlingCallback(c.env, c.req.param("profile"), c.req.raw);
+});
 // Sondas do ERP para a instalação de teste (só com ERP_PROBES=1 no deploy).
 app.post("/api/v1/profiles/:profile/erp-probe/:name", async (c) => {
   const profile = c.req.param("profile");

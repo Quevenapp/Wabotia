@@ -379,6 +379,12 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     target: { kind: "ported", to: "/preferencias/sistema/consulta-exclusoes" },
     permission: { kind: "erp", roles: ["admin"] },
   },
+  {
+    id: "erp.receive-bling", module: "erp", part: "sistema",
+    ...ERP_MENU_GROUPS.sistema, icon: "download", order: 470,
+    label: "Receber dados do Bling",
+    target: { kind: "ported", to: "/receber-bling" }, permission: { kind: "erp" },
+  },
 ];
 
 // Projeção de compatibilidade: conserva forma, rótulos, ordem, colunas e rodapés.

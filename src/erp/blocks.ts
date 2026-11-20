@@ -2,7 +2,7 @@ import type { ErpModuleId } from "./parts.ts";
 export type ErpBlock = ErpModuleId | "externo";
 const v1 = (...paths: string[]) => paths.map(p => `/v1/${p}`);
 export const ERP_BLOCK_PREFIXES = {
-  erp: v1("me", "cadastros", "empresa", "anexos-empresa", "anexos-cadastros/contatos", "anexos-cadastros/funcionarios", "usuarios", "seguranca", "registro-atividades", "gerenciador-arquivos", "inicio", "plataforma", "sistema", "preferencias", "preferencias-listas", "importacoes", "documentos", "duplicacao-documentos", "records"),
+  erp: v1("me", "cadastros", "empresa", "anexos-empresa", "anexos-cadastros/contatos", "anexos-cadastros/funcionarios", "usuarios", "seguranca", "registro-atividades", "gerenciador-arquivos", "inicio", "plataforma", "sistema", "preferencias", "preferencias-listas", "importacoes", "documentos", "duplicacao-documentos", "records", "receber-bling"),
   "erp-produtos": v1("cadastros/products", "cadastros/listas-precos", "cadastros/campos-customizados", "cadastros/taxonomias/categorias-produtos", "cadastros/taxonomias/grupos-produtos", "anexos-cadastros/produtos", "records/products", "preferencias/cadastros-produtos", "importacoes/produtos", "importacoes/campos-customizados", "importacoes/fornecedores-produtos", "importacoes/composicoes"),
   "erp-vendas": v1("documentos/sales_orders", "documentos/sales_proposals", "documentos/service_orders", "documentos/sacola-vendas", "duplicacao-documentos/sales_orders", "duplicacao-documentos/sales_proposals", "duplicacao-documentos/service_orders", "ordens-servico", "records/sales_orders", "records/sales_proposals", "meu-negocio", "sistema/top-produtos", "preferencias/vendas-vendas", "preferencias/vendas-propostas", "preferencias/servicos-os", "preferencias/meu-negocio", "importacoes/vendas"),
   "erp-compras": v1("documentos/purchase_orders", "duplicacao-documentos/purchase_orders", "records/purchase_orders", "recebimentos-compras", "preferencias/suprimentos-compras", "importacoes/pedidos-compra"),
@@ -35,6 +35,14 @@ export const erpRoutePath = (method: string, path: string): string =>
 
 /** Rotas existentes, não apenas famílias. Inventário expandido é testado em blocks.test.mjs. */
 export const ERP_ROUTE_PATTERNS: readonly [string, string][] = [
+  ["GET", "/v1/receber-bling"],
+  ["GET", "/v1/receber-bling/(recursos|acervo|xml)"],
+  ["GET", "/v1/receber-bling/acervo/:entity/:id"],
+  ["GET", "/v1/receber-bling/acervo/:entity/:id/versoes"],
+  ["GET", "/v1/receber-bling/xml/:objectId"],
+  ["GET", "/v1/receber-bling/comandos/:id"],
+  ["POST", "/v1/receber-bling/(configuracao|aplicativo|ligar|desligar|autorizar|desconectar|coletar|apagar)"],
+  ["POST", "/v1/receber-bling/apagar/previa"],
   ["GET", "/v1/cadastros"],
   ["GET", "/v1/cadastros/(contacts|warehouses)"],
   ["GET", "/v1/cadastros/products"],
