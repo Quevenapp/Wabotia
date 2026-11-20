@@ -5,33 +5,66 @@ import { Button, Field, Notice } from "../../../ui";
 import { linkProps, navigate, useRoute } from "../../../lib/routes";
 import { ResourceState, useWorkApi, useWorkResource } from "../work-hooks";
 import { workError } from "../work-api";
-import type { AreaTemplate, CustomWorkType } from "../work-contracts";
-import { FieldsEditor } from "./FieldsEditor";
+import type { AreaTemplate, CustomWorkType, Os2AiAccess, ServiceObjectType } from "../work-contracts";
+import { ObjectTypesEditor } from "../object-types/ObjectTypesEditor";
+import { StandardObjectUpgrade } from "../object-types/StandardObjectUpgrade";
 import { StagesEditor } from "./StagesEditor";
 import { ResourcesEditor } from "./ResourcesEditor";
 import {
   downloadJson,
   messagePreview,
   newWorkType,
-  parseTypeImport,
+  parseConfigurationImport,
+  exportConfiguration,
+  prepareConfigurationSave,
+  prepareObjectTypeSave,
+  validateConfigurationDraft,
   prepareTypeSave,
   validateTypeDraft,
   labelIdentifier,
 } from "./type-draft";
 import { addMissingTemplateFields, addPublicPlateField, missingTemplateFields, publicPlateField, templateSource } from "./template-models";
 import "../work.css";
+import "../object-types/object-types.css";
 interface TypeSettings {
-  settings: { os_work_types?: CustomWorkType[] };
+  settings: { os_work_types?: CustomWorkType[]; os_object_types?: ServiceObjectType[]; os2_ai_access?: Os2AiAccess };
   settings_revision: string;
+}
+export function FieldIndexConfiguration({ type, dirty }: { type: CustomWorkType; dirty: boolean }) {
+  const app = useApp(), api = useWorkApi(), action = useAction();
+  const resource = useWorkResource(
+    app.root + "/field-index-configuration/" + type.id,
+    () => api.fieldIndex(type.id),
+  );
+  const state = resource.data;
+  return <section className="os2-config" aria-label="Construção dos filtros">
+    <h3>Construção do índice</h3>
+    <p>A lista comum continua disponível. Cada comando processa até cinco ordens; retome até concluir.</p>
+    <ResourceState resource={resource} />
+    {(resource.error as { code?: string } | undefined)?.code === "not_found" && <Button secondary busy={action.busy} disabled={dirty || action.busy}
+      onClick={() => void action.run(async () => { await api.rebuildFieldIndex(type.id, {}); resource.reload(); })}>Iniciar construção</Button>}
+    {state && <>
+      <p role="status">{state.status === "ready" ? "Filtros prontos" : "Em construção: filtros indisponíveis"} · Progresso: {state.cursor_number} / {state.ceiling_number}.</p>
+      <p>Versões excluídas por incompatibilidade ou privacidade: {state.excluded_count}.</p>
+      <Button secondary busy={action.busy} disabled={dirty || action.busy || state.status === "ready"}
+        onClick={() => void action.run(async () => {
+          await api.rebuildFieldIndex(type.id, { generation: state.generation, cursor_number: state.cursor_number });
+          resource.reload();
+        })}>Iniciar ou retomar construção</Button>
+    </>}
+    {dirty && <Notice>Salve as alterações antes de construir o índice da configuração publicada.</Notice>}
+  </section>;
 }
 function Editor({
   initial,
   seed,
+  seedObjects,
   settings,
   reload,
 }: {
   initial?: CustomWorkType;
   seed?: CustomWorkType;
+  seedObjects?: ServiceObjectType[];
   settings: TypeSettings;
   reload: () => void;
 }) {
@@ -45,13 +78,23 @@ function Editor({
     [error, setError] = useState(""),
     [conflict, setConflict] = useState(false),
     [json, setJson] = useState("");
+  const [objectDrafts, setObjectDrafts] = useState<ServiceObjectType[]>(() => [...(settings.settings.os_object_types || []), ...(seedObjects || [])]);
+  const [relatedDrafts, setRelatedDrafts] = useState<CustomWorkType[]>([]);
+  const [savedObjects, setSavedObjects] = useState(settings.settings.os_object_types || []);
+  const [aiAccess, setAiAccess] = useState<Os2AiAccess>(() => settings.settings.os2_ai_access ?? { enabled: false, internal: false, sensitive: false });
   const [base, setBase] = useState(settings),
     [previous, setPrevious] = useState(initial),
     [saved, setSaved] = useState(initial || newWorkType());
-  const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
+  const aiChanged = JSON.stringify(aiAccess) !== JSON.stringify(base.settings.os2_ai_access ?? { enabled: false, internal: false, sensitive: false });
+  const dirty = JSON.stringify(draft) !== JSON.stringify(saved) || JSON.stringify(objectDrafts) !== JSON.stringify(savedObjects) || relatedDrafts.length > 0 || aiChanged;
   useUnsavedGuard(dirty);
   const next = prepareTypeSave(draft, previous);
-  const errors = validateTypeDraft(next, previous);
+  const otherTypes = (base.settings.os_work_types || []).map((type) => relatedDrafts.find((entry) => entry.id === type.id) ?? type);
+  const allTypes = previous
+    ? otherTypes.map((type) => type.id === previous.id ? draft : type)
+    : [...otherTypes, draft];
+  const configuredObjects = objectDrafts.length || base.settings.os_object_types !== undefined ? objectDrafts : undefined;
+  const errors = validateConfigurationDraft(allTypes, configuredObjects, base.settings);
   const labelNames = {
     singular: "Nome singular",
     plural: "Nome plural",
@@ -100,17 +143,12 @@ function Editor({
           setError("");
           void action.run(async () => {
             try {
-              const all = base.settings.os_work_types || [];
-              if (!previous && all.some((type) => type.id === next.id))
-                throw new Error("Já existe um modelo com este identificador.");
-              await api.saveTypes(
-                previous
-                  ? all.map((type) => (type.id === previous.id ? next : type))
-                  : [...all, next],
-                base.settings_revision,
-              );
+              const payload = prepareConfigurationSave(allTypes, configuredObjects, base.settings, base.settings_revision);
+              if (aiChanged) await app.api(app.root + "/settings", "PUT", { ...payload, os2_ai_access: aiAccess });
+              else await api.saveTypes(payload.os_work_types, payload.settings_revision, payload.os_object_types);
               setSaved(next);
               setDraft(next);
+              setSavedObjects(payload.os_object_types || []);
               await app.refresh();
               navigate({ area: "admin", page: "work-types" }, { force: true });
               reload();
@@ -177,12 +215,19 @@ function Editor({
           </>
         )}
         {tab === "campos" && (
-          <FieldsEditor
-            fields={draft.fields}
-            locked={previous?.fields.map((field) => field.id)}
-            retired={draft.retired_field_ids}
-            onChange={(fields) => setDraft({ ...draft, fields })}
-          />
+          <>
+            <ObjectTypesEditor type={draft} objectTypes={objectDrafts} workTypes={allTypes}
+              previousObjectTypes={base.settings.os_object_types} previousType={previous}
+              onChange={(type, objects, affectedTypes) => {
+                setDraft(type); setObjectDrafts(objects);
+                if (affectedTypes) setRelatedDrafts((current) => [
+                  ...current.filter((entry) => !affectedTypes.some((affected) => affected.id === entry.id)), ...affectedTypes,
+                ]);
+              }} />
+            {relatedDrafts.length > 0 && <Notice>Modelos com referências revisadas nesta operação: {relatedDrafts.map((type) => type.labels.singular).join(", ")}. Todos serão salvos junto com o tipo de objeto.</Notice>}
+            {previous?.list_fields?.some((rule) => rule.filter) && <FieldIndexConfiguration key={app.root + previous.id + base.settings_revision} type={previous} dirty={dirty} />}
+            {!previous?.list_fields?.some((rule) => rule.filter) && draft.list_fields?.some((rule) => rule.filter) && <Notice>Salve o modelo para iniciar e acompanhar a construção dos filtros.</Notice>}
+          </>
         )}
         {tab === "etapas" && (
           <StagesEditor
@@ -192,21 +237,22 @@ function Editor({
           />
         )}
         {tab === "recursos" && (
-          <ResourcesEditor type={draft} onChange={setDraft} />
+          <ResourcesEditor type={draft} onChange={setDraft}
+            aiAccess={objectDrafts.length ? aiAccess : undefined} onAiAccessChange={objectDrafts.length ? setAiAccess : undefined} />
         )}
         {tab === "mensagens" && (
           <>
             <Notice>
               Marcadores:{" "}
               {
-                "{numero}, {item}, {estado}, {tipo}, {etapa}, {numero_tipo}, {identificador}"
+                "{numero}, {item}, {estado}, {tipo}, {etapa}, {numero_tipo}, {identificador}, {objeto}"
               }
               . Campos públicos:{" "}
               {draft.fields
                 .filter((field) => field.client_visible && !field.sensitive)
                 .map((field) => `{campo_${field.id}}`)
                 .join(", ") || "nenhum"}
-              . Mensagem vazia não envia aviso.
+              . Mensagem vazia não envia aviso. {"{objeto}"} usa a identificação pública capturada na ordem; sem objeto, fica vazio.
             </Notice>
             {draft.stages.map((stage, index) => (
               <div key={stage.id || index}>
@@ -226,7 +272,7 @@ function Editor({
                 />
                 <small>
                   Prévia fictícia:{" "}
-                  {messagePreview(stage.message, draft) || "Sem mensagem"}
+                  {messagePreview(stage.message, draft, objectDrafts.find((object) => object.id === draft.object_type_id)) || "Sem mensagem"}
                 </small>
               </div>
             ))}
@@ -245,7 +291,7 @@ function Editor({
           <>
             <Button
               secondary
-              onClick={() => downloadJson(next, `${draft.id || "tipo"}.json`)}
+              onClick={() => downloadJson(exportConfiguration(next, objectDrafts), `${draft.id || "tipo"}.json`)}
             >
               Exportar modelo JSON
             </Button>
@@ -260,12 +306,21 @@ function Editor({
               secondary
               onClick={() => {
                 try {
-                  const imported = parseTypeImport(json);
+                  const bundle = parseConfigurationImport(json);
+                  const imported = bundle.work_type;
                   if (initial && imported.id !== initial.id)
                     throw new Error(
                       "Não é possível trocar o identificador de um modelo salvo.",
                     );
+                  const objects = [...objectDrafts];
+                  for (const object of bundle.object_types || []) {
+                    const existing = objects.find((entry) => entry.id === object.id);
+                    if (existing && prepareObjectTypeSave(object, existing).revision !== existing.revision)
+                      throw new Error(`O tipo de objeto ${object.labels.singular} já existe com outra definição. Revise os campos compartilhados antes de importar.`);
+                    if (!existing) objects.push({ ...object, revision: 1 });
+                  }
                   setDraft(imported);
+                  setObjectDrafts(objects);
                   setError("");
                 } catch (error) {
                   setError(workError(error));
@@ -295,6 +350,36 @@ function Editor({
                 const latest: TypeSettings = await app.api(
                   app.root + "/status",
                 );
+                if (!aiChanged) setAiAccess(latest.settings.os2_ai_access ?? { enabled: false, internal: false, sensitive: false });
+                // Reaplica apenas a revisão das referências, preservando demais
+                // personalizações que chegaram enquanto o formulário estava aberto.
+                setRelatedDrafts((drafts) => drafts.map((local) => {
+                  const remote = latest.settings.os_work_types?.find((entry) => entry.id === local.id);
+                  const before = base.settings.os_work_types?.find((entry) => entry.id === local.id);
+                  if (!remote || !before) return local;
+                  const removed = (before.list_fields || []).filter((rule) => !(local.list_fields || []).some((entry) =>
+                    entry.ref.scope === rule.ref.scope && entry.ref.field_id === rule.ref.field_id));
+                  const list = (remote.list_fields || []).filter((rule) => !removed.some((entry) =>
+                    entry.ref.scope === rule.ref.scope && entry.ref.field_id === rule.ref.field_id)).map((rule) => {
+                    const old = before.list_fields?.find((entry) => entry.ref.scope === rule.ref.scope && entry.ref.field_id === rule.ref.field_id);
+                    const edited = local.list_fields?.find((entry) => entry.ref.scope === rule.ref.scope && entry.ref.field_id === rule.ref.field_id);
+                    if (old?.filter && edited && !edited.filter) { const next = { ...rule }; delete next.filter; return next; }
+                    return rule;
+                  }).filter((rule) => rule.column || rule.filter);
+                  const result = { ...remote };
+                  if (list.length) result.list_fields = list; else delete result.list_fields;
+                  return result;
+                }));
+                // Mantém apenas alterações locais; incorpora os tipos que outra pessoa editou.
+                const editedObjects = objectDrafts.filter((object) => JSON.stringify(object) !==
+                  JSON.stringify(base.settings.os_object_types?.find((old) => old.id === object.id)));
+                const mergedObjects = [...(latest.settings.os_object_types || [])];
+                for (const object of editedObjects) {
+                  const index = mergedObjects.findIndex((entry) => entry.id === object.id);
+                  if (index < 0) mergedObjects.push(object); else mergedObjects[index] = object;
+                }
+                setObjectDrafts(mergedObjects);
+                setSavedObjects(latest.settings.os_object_types || []);
                 setBase(latest);
                 setPrevious(
                   latest.settings.os_work_types?.find(
@@ -303,7 +388,7 @@ function Editor({
                 );
                 setConflict(false);
                 setError(
-                  "Configuração atual carregada. Seu rascunho foi preservado; revise antes de substituir este modelo.",
+                  "Configuração atual carregada. Seu rascunho e os campos compartilhados editados foram preservados; revise os modelos afetados antes de substituir.",
                 );
               })
             }
@@ -322,7 +407,7 @@ function Editor({
     </div>
   );
 }
-export function TemplateExamples({ templates, onChoose }: { templates: AreaTemplate[]; onChoose: (type: CustomWorkType) => void }) {
+export function TemplateExamples({ templates, onChoose }: { templates: AreaTemplate[]; onChoose: (type: CustomWorkType, objectTypes?: ServiceObjectType[]) => void }) {
   const [search, setSearch] = useState("");
   const normalize = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const groups = templates.map((template) => ({ ...template, work_types: template.work_types.filter((type) =>
@@ -336,7 +421,7 @@ export function TemplateExamples({ templates, onChoose }: { templates: AreaTempl
       <h4>{template.name}</h4>
       <p>{template.description}</p>
       {template.work_types.map((type) => <div key={type.id}>
-        <Button secondary onClick={() => onChoose(type)}>{type.labels.plural}</Button>
+        <Button secondary onClick={() => onChoose(type, template.object_types)}>{type.labels.plural}</Button>
         <p>{type.labels.item} · {type.fields.slice(0, 4).map((field) => field.label).join(", ") || type.labels.problem}</p>
       </div>)}
     </section>)}
@@ -349,10 +434,23 @@ export function WorkTypesPage() {
     api = useWorkApi(),
     action = useAction();
   const [seed, setSeed] = useState<CustomWorkType>(),
+    [seedObjects, setSeedObjects] = useState<ServiceObjectType[]>(),
+    [seedScope, setSeedScope] = useState(app.root),
     [creating, setCreating] = useState(false),
     [examples, setExamples] = useState(false);
-  const duplicate = (type: CustomWorkType) => {
-    setSeed({ ...structuredClone(type), id: labelIdentifier(type.labels.singular, types.map((type) => type.id), 64), revision: 1, archived: false });
+  const duplicate = (type: CustomWorkType, exampleObjects?: ServiceObjectType[]) => {
+    const copy = { ...structuredClone(type), id: labelIdentifier(type.labels.singular, types.map((type) => type.id), 64), revision: 1, archived: false };
+    let objects: ServiceObjectType[] | undefined;
+    if (type.object_type_id && exampleObjects) {
+      const source = exampleObjects.find((entry) => entry.id === type.object_type_id);
+      if (!source) throw new Error("O exemplo não contém a definição do objeto. Recarregue o catálogo.");
+      const object = { ...structuredClone(source), id: labelIdentifier(source.labels.singular, resource.data?.settings.os_object_types?.map((entry) => entry.id), 64), revision: 1, archived: false };
+      copy.object_type_id = object.id;
+      objects = [object];
+    }
+    setSeed(copy);
+    setSeedObjects(objects);
+    setSeedScope(app.root);
     navigate({ area: "admin", page: "work-types", typeId: "novo" });
   };
   // A configuração integral é administrativa; catálogo filtrado nunca substitui os tipos salvos.
@@ -372,9 +470,10 @@ export function WorkTypesPage() {
       return <Notice>Modelo não encontrado.</Notice>;
     return (
       <Editor
-        key={route.typeId}
+        key={app.root + ":" + route.typeId}
         initial={initial}
-        seed={seed}
+        seed={route.typeId === "novo" && seedScope === app.root ? seed : undefined}
+        seedObjects={route.typeId === "novo" && seedScope === app.root ? seedObjects : undefined}
         settings={resource.data}
         reload={resource.reload}
       />
@@ -387,7 +486,7 @@ export function WorkTypesPage() {
       {Boolean(templates.error) && <ResourceState resource={templates} />}
       <Button onClick={() => setCreating(!creating)}>Criar modelo</Button>
       {creating && <section className="os-work-record">
-        <a className="button" {...linkProps({ area: "admin", page: "work-types", typeId: "novo" })} onClickCapture={() => setSeed(undefined)}>Começar do zero</a>
+        <a className="button" {...linkProps({ area: "admin", page: "work-types", typeId: "novo" })} onClickCapture={() => { setSeed(undefined); setSeedObjects(undefined); }}>Começar do zero</a>
         <Button secondary onClick={() => setExamples(true)}>Começar de um exemplo</Button>
         {examples && <><ResourceState resource={templates} />{templates.data && <TemplateExamples templates={templates.data} onChoose={duplicate} />}</>}
       </section>}
@@ -414,6 +513,9 @@ export function WorkTypesPage() {
       </section>
       {types.map((type) => {
         const source = templateSource(type, templates.data || []);
+        const sourceObject = source?.template.object_types?.find((object) => object.id === source.type.object_type_id);
+        const proposedObject = sourceObject && source ? { ...sourceObject, id: `area_${source.template.id}__${sourceObject.id}`, revision: 1 } : undefined;
+        const existingObject = resource.data!.settings.os_object_types?.find((object) => object.id === proposedObject?.id);
         const missing = source ? missingTemplateFields(type, source.type) : [];
         const plate = source?.type.fields.some((field) => field.id === "placa" && field.client_visible && !field.sensitive)
           && type.fields.some((field) => field.id === "placa" && field.sensitive);
@@ -435,7 +537,25 @@ export function WorkTypesPage() {
           {source && <p>Modelo de área: {source.template.name}</p>}
           {!source && types.filter((other) => other.labels.plural === type.labels.plural).length > 1 && <p>Modelo personalizado</p>}
           <small>Revisão {type.revision}</small>
-          {(missing.length > 0 || plate) && <Notice>
+          {proposedObject && source && <details className="os2-config">
+            <summary>O modelo padrão mudou: revisar objeto e campos</summary>
+            <Button secondary disabled={action.busy} onClick={resource.reload}>Recarregar configuração para revisar novamente</Button>
+            {existingObject && <p>Tipo compartilhado com: {types.filter((entry) => entry.object_type_id === existingObject.id).map((entry) => entry.labels.singular).join(", ") || "nenhum modelo ainda"}.</p>}
+            <StandardObjectUpgrade key={resource.data!.settings_revision + type.id}
+              current={type} standard={{ ...source.type, id: type.id, object_type_id: proposedObject.id }}
+              objectType={proposedObject} existingObjectType={existingObject} busy={action.busy}
+              availableObjectTypes={resource.data!.settings.os_object_types || []} workTypes={types}
+              onApply={(plan) => void action.run(async () => {
+                const objects = [...(resource.data!.settings.os_object_types || [])];
+                if (!objects.some((object) => object.id === plan.object_type.id)) objects.push(plan.object_type);
+                const payload = prepareConfigurationSave(types.map((entry) => entry.id === type.id ? plan.work_type : entry), objects,
+                  resource.data!.settings, resource.data!.settings_revision);
+                await api.saveTypes(payload.os_work_types, payload.settings_revision, payload.os_object_types);
+                await app.refresh();
+                resource.reload();
+              }, { success: "Padrão atualizado para as próximas ordens." })} />
+          </details>}
+          {!proposedObject && (missing.length > 0 || plate) && <Notice>
             {missing.length > 0 && <p>O modelo padrão ganhou campos: {missing.map((field) => field.label).join(", ")}. <Button secondary disabled={action.busy} onClick={() => void saveUpdate(() => addMissingTemplateFields(type, source!.type))}>Adicionar</Button></p>}
             <p>As alterações valem para as próximas ordens. As ordens abertas guardam a definição com que nasceram.</p>
             {plate && <p>A Placa existente continua sensível: essa classificação não pode ser removida. Um novo campo Placa visível ao cliente começa vazio, sem copiar dados do campo sensível. {publicPlateField(type) ? <Button secondary disabled={action.busy} onClick={() => void saveUpdate(() => addPublicPlateField(type))}>Criar nova Placa visível</Button> : "O novo campo visível não está disponível neste modelo; revise os campos em Editar modelo."}</p>}
@@ -454,7 +574,7 @@ export function WorkTypesPage() {
           </Button>
           <Button
             secondary
-            onClick={() => downloadJson(type, type.id + ".json")}
+            onClick={() => downloadJson(exportConfiguration(type, resource.data!.settings.os_object_types || []), type.id + ".json")}
           >
             Exportar JSON
           </Button>
