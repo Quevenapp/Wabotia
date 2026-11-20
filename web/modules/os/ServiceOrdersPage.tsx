@@ -62,7 +62,7 @@ function people(team: Row[]) {
     .map((member) => ({ id: member.id, name: member.name }));
 }
 
-function OrderForm({
+export function OrderForm({
   initial,
   onClose,
   onSaved,
@@ -345,7 +345,7 @@ function QuoteEditor({
   );
 }
 
-function OrderDetail({
+export function OrderDetail({
   id,
   onClose,
   onChanged,

@@ -3,7 +3,7 @@ import type { AreaTemplate } from "../../modules/os/contracts";
 export const oficinaMecanicaTemplate: AreaTemplate = {
   schema_version: 1,
   id: "oficina_mecanica",
-  version: 1,
+  version: 2,
   name: "Oficina mecânica",
   description: "Avaliação de veículos, orçamento de peças e mão de obra, execução, conferência e retirada.",
   work_types: [{
@@ -16,7 +16,11 @@ export const oficinaMecanicaTemplate: AreaTemplate = {
     number_prefix: "OFI-",
     terms: "Autorizo a avaliação do veículo descrito. Peças e mão de obra serão apresentadas no orçamento. A execução e qualquer alteração de escopo dependem da minha aprovação. A equipe registrará as condições do veículo no recebimento e na entrega.",
     fields: [
-      { id: "placa", label: "Placa", help: "Registro restrito pela equipe no painel autorizado. Não incluir no campo Veículo nem em mensagens.", kind: "text", multiline: false, max_length: 20, required: false, client_visible: false, sensitive: true },
+      { id: "placa", label: "Placa", help: "Identifica o veículo no atendimento.", kind: "text", multiline: false, max_length: 10, required: false, client_visible: true, sensitive: false },
+      { id: "marca_modelo", label: "Marca e modelo", help: "", kind: "text", multiline: false, max_length: 240, required: false, client_visible: true, sensitive: false },
+      { id: "ano", label: "Ano", help: "", kind: "integer", min: 1900, max: 2100, required: false, client_visible: true, sensitive: false },
+      { id: "cor", label: "Cor", help: "", kind: "text", multiline: false, max_length: 80, required: false, client_visible: true, sensitive: false },
+      { id: "ultima_manutencao", label: "Última manutenção", help: "Data informada pelo cliente.", kind: "date", min: null, max: null, required: false, client_visible: true, sensitive: false },
       { id: "quilometragem", label: "Quilometragem de entrada", help: "Quilômetros inteiros, sem valores negativos.", kind: "integer", min: 0, max: 2147483647, required: false, client_visible: true, sensitive: false },
       {
         id: "combustivel", label: "Nível de combustível", help: "Registrar o nível observado no recebimento.",
@@ -91,16 +95,16 @@ export const oficinaMecanicaTemplate: AreaTemplate = {
   ],
   texts: {
     menu_greeting: "Olá! Como podemos ajudar com seu veículo?",
-    instructions: "Informe o veículo e a solicitação ou defeito. A placa será registrada pela equipe em campo restrito. Não envie senhas ou códigos.",
+    instructions: "Informe o veículo e a solicitação ou defeito. Você pode informar a placa para identificar o veículo. Não envie senhas ou códigos.",
     protocol_confirmation: "Recebemos sua solicitação. A equipe da oficina fará a conferência.",
   },
   bot: {
-    instructions: "Você atende uma oficina mecânica. Ajude o cliente a abrir e acompanhar apenas os próprios serviços. Use somente etapas, previsões e valores das ferramentas autorizadas. Não invente diagnóstico, disponibilidade de peça, prazo ou garantia. Encaminhe decisões ao mecanismo de orçamento. Não aprove pelo cliente, não confirme pagamento por comprovante e não oriente reparos perigosos. Não leia placa, notas internas, documentos restritos ou dados de terceiros. Desconto, retrabalho, dano, garantia e alteração de escopo exigem atendimento humano.",
+    instructions: "Você atende uma oficina mecânica. Ajude o cliente a abrir e acompanhar apenas os próprios serviços. Use somente etapas, previsões e valores das ferramentas autorizadas. Não invente diagnóstico, disponibilidade de peça, prazo ou garantia. Encaminhe decisões ao mecanismo de orçamento. Não aprove pelo cliente, não confirme pagamento por comprovante e não oriente reparos perigosos. Não leia campos sensíveis, notas internas, documentos restritos ou dados de terceiros. Desconto, retrabalho, dano, garantia e alteração de escopo exigem atendimento humano.",
     allowed_operations: [], denied_operations: ["os.private", "os.document.upload"], suggested_roles: [],
   },
   manual_steps: [
     "Revisar termos, taxas, orçamento de 7 dias e garantia operacional de 90 dias, calculada somente na entrega após reparo. Após recusa, confirmar a devolução e registrar a destinação antes de usar Devolvido sem reparo, que encerra sem iniciar garantia. Enquanto aguarda devolução, manter Recusado e acompanhar por tarefa manual, sem lembrete automático de retirada.",
-    "Associar equipe aos setores, revisar permissões humanas para placa e documentos restritos e configurar cobrança e notificações da linha. Revisar ferramentas do bot sem conceder papéis automaticamente.",
+    "Associar equipe aos setores, revisar permissões humanas para campos sensíveis e documentos restritos e configurar cobrança e notificações da linha. Revisar ferramentas do bot sem conceder papéis automaticamente.",
     "Criar tarefas manualmente: conferir placa, quilometragem e avarias no recebimento; diagnóstico, peças e mão de obra em 1 dia; peças aplicadas e testes em 2 dias; conferência de resultado e retirada no dia. O aviso geral de paralisação usa 3 dias para o tipo inteiro.",
     "Registrar proprietário, condutor e pessoa autorizada a retirar; conferir identidade na entrega. Vínculo de pessoa não concede acesso ao trabalho.",
     "Registrar vistoria de entrada, relatório de serviço e termo de entrega; classificar diagnóstico interno como restrito. Revisar fotos para evitar placas e dados pessoais antes de liberar cada arquivo.",

@@ -45,7 +45,7 @@ describe("catálogo da casa de gestão", () => {
 
   it("cobre as páginas operacionais, com rótulos e permissões do módulo dono", () => {
     expect(native.map((item) => item.target.kind === "native" && item.target.page).sort()).toEqual([
-      "work", "my-deadlines", "work-types", "service-orders-settings",
+      "work", "work-types",
       "agenda", "agenda-settings", "mensalidades", "mensalidade-settings",
       "pedidos", "pedidos-cardapio", "mesas", "reserva", "reserva-settings",
       "suporte", "suporte-settings", "condominio", "juridico", "saude", "ensino",

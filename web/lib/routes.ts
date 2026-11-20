@@ -114,6 +114,10 @@ const decode = (value?: string) => {
 const filterKeys = [
   "q",
   "stage",
+  "status",
+  "assignee",
+  "tab",
+  "editor",
   "open",
   "type_id",
   "period",
@@ -122,7 +126,7 @@ const filterKeys = [
   "due_to",
 ];
 const isWorkPage = (page?: PageId) =>
-  page === "work" || page === "work-types" || page === "my-deadlines";
+  page === "work" || page === "work-types" || page === "my-deadlines" || page === "service-orders-settings";
 const localUrl = (url: URL) => url.pathname + url.search + url.hash;
 
 /** Objetos antigos continuam válidos, inclusive os produzidos pelas páginas de trabalhos. */

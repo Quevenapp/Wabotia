@@ -5,7 +5,7 @@ import type { AreaTemplate } from "../validation";
 export const assistenciaTecnicaTemplate: AreaTemplate = {
   "schema_version": 1,
   "id": "assistencia_tecnica",
-  "version": 2,
+  "version": 3,
   "name": "Assistência técnica",
   "description": "Assistência técnica com a Ordem de serviço embutida e tipos opcionais para eletrônicos, eletrodomésticos, veículos e peças de roupa.",
   "work_types": [
@@ -601,11 +601,55 @@ export const assistenciaTecnicaTemplate: AreaTemplate = {
           "label": "Placa",
           "help": "",
           "required": false,
-          "client_visible": false,
-          "sensitive": true,
+          "client_visible": true,
+          "sensitive": false,
+          "kind": "text",
+          "multiline": false,
+          "max_length": 10
+        },
+        {
+          "id": "marca_modelo",
+          "label": "Marca e modelo",
+          "help": "",
+          "required": false,
+          "client_visible": true,
+          "sensitive": false,
           "kind": "text",
           "multiline": false,
           "max_length": 240
+        },
+        {
+          "id": "ano",
+          "label": "Ano",
+          "help": "",
+          "required": false,
+          "client_visible": true,
+          "sensitive": false,
+          "kind": "integer",
+          "min": 1900,
+          "max": 2100
+        },
+        {
+          "id": "cor",
+          "label": "Cor",
+          "help": "",
+          "required": false,
+          "client_visible": true,
+          "sensitive": false,
+          "kind": "text",
+          "multiline": false,
+          "max_length": 80
+        },
+        {
+          "id": "ultima_manutencao",
+          "label": "Última manutenção",
+          "help": "Data informada pelo cliente.",
+          "required": false,
+          "client_visible": true,
+          "sensitive": false,
+          "kind": "date",
+          "min": null,
+          "max": null
         },
         {
           "id": "quilometragem",

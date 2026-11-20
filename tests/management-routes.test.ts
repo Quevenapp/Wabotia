@@ -119,6 +119,19 @@ function ported(accept = true) {
 }
 
 describe("endereços canônicos da casa", () => {
+  it("preserva modelo, situação, responsável e abas nas rotas antigas e atuais", () => {
+    for (const root of ["/app/gestao/", "/app/erp/modulos/"]) {
+      const list = parse(root + "trabalhos/service_order?status=delivered&assignee=me&due_from=100&due_to=200");
+      expect(list).toMatchObject({ area: "erp", page: "work", typeId: "service_order", filters: {
+        status: "delivered", assignee: "me", due_from: "100", due_to: "200",
+      } });
+      expect(parse(routes.href(list))).toEqual(list);
+      for (const slug of ["tipos-de-trabalho", "ordem-de-servico"])
+        expect(parse(root + slug + "?tab=prazos").filters?.tab).toBe("prazos");
+      expect(parse(root + "tipos-de-trabalho/oficina?editor=recursos")).toMatchObject({ typeId: "oficina", filters: { editor: "recursos" } });
+    }
+  });
+
   it.each(aliases)(
     "%s conserva consulta, fragmento e detalhes",
     (old, canonical, page) => {

@@ -136,17 +136,18 @@ describe("revisão do painel: regressões", () => {
     let tree = render(list, () => selected.type(selected.props));
     expect(elements(tree).find((node) => node.type === "a" && elementsText(node) === "Meus prazos")?.props.href)
       .toBe("/app/erp/modulos/meus-prazos?demo=1&pair=teste");
-    button(tree, "Criar:").props.onClick();
+    button(tree, "Nova ordem").props.onClick();
     const revised = { ...type, revision: 2, labels: { ...type.labels, item: "Novo rótulo" } };
-    selected = { ...selected, props: { ...selected.props, type: revised } };
+    selected = { ...selected, props: { ...selected.props, catalog: { data: [revised] } } };
     tree = render(list, () => selected.type(selected.props));
     expect(component(tree, WorkFormDialog).props.type).toBe(type);
     const stages = field(tree, "Etapa").props;
-    expect(stages.options.map((option: any) => option.id)).toEqual(expect.arrayContaining(["stage:open", "stage:all", "filter:open", "filter:all"]));
-    stages.onChange("stage:open");
-    expect(runtime.navigate).toHaveBeenLastCalledWith(expect.objectContaining({ filters: { stage: "open", open: "0" } }));
-    stages.onChange("stage:all");
-    expect(runtime.navigate).toHaveBeenLastCalledWith(expect.objectContaining({ filters: { stage: "all", open: "0" } }));
+    expect(stages.options.map((option: any) => option.id)).toEqual(expect.arrayContaining(["open", "all"]));
+    expect(field(tree, "Situação").props.options.map((option: any) => option.id)).toEqual(["open", "delivered", "cancelled", "all"]);
+    stages.onChange("open");
+    expect(runtime.navigate).toHaveBeenLastCalledWith(expect.objectContaining({ filters: { stage: "open", status: "", open: "0" } }));
+    stages.onChange("all");
+    expect(runtime.navigate).toHaveBeenLastCalledWith(expect.objectContaining({ filters: { stage: "all", status: "", open: "0" } }));
   });
 
   it("restringe a seleção embutida, mas conserva a consulta legada sem filtro implícito", async () => {
@@ -156,10 +157,10 @@ describe("revisão do painel: regressões", () => {
     const page = instance();
     render(page, WorkPage);
     await tick();
-    const legacy = component(render(page, WorkPage), ServiceOrdersPage);
-    expect(legacy.props.typeId).toBe("service_order");
-    render(instance(), () => ServiceOrdersPage(legacy.props));
-    expect(runtime.list).toHaveBeenLastCalledWith("v1/profiles/a/service-orders?type_id=service_order&open=1");
+    const selected: any = render(page, WorkPage);
+    const tree = render(instance(), () => selected.type(selected.props));
+    expect(field(tree, "Modelo").props.value).toBe("service_order");
+    expect(runtime.app.api).toHaveBeenLastCalledWith("v1/profiles/a/service-orders?type_id=service_order&open=1&limit=50");
     render(instance(), () => ServiceOrdersPage());
     expect(runtime.list).toHaveBeenLastCalledWith("v1/profiles/a/service-orders?open=1");
   });

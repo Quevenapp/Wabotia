@@ -83,6 +83,28 @@ function graph(type: CustomWorkType) {
 }
 
 describe("modelos de serviços: catálogo declarativo", () => {
+  for (const template of [assistenciaTecnicaTemplate, oficinaMecanicaTemplate]) {
+    it(`${template.id}: oficina identifica o veículo com campos públicos e limites`, () => {
+      const type = template.work_types.find((type) => type.id === "at_veiculos")!;
+      expect(validateWorkType(type)).toEqual(type);
+      expect(type.fields.map((field) => field.id)).toEqual([
+        "placa", "marca_modelo", "ano", "cor", "ultima_manutencao",
+        "quilometragem", "combustivel", "pecas_previstas", "avarias_entrada",
+      ]);
+      expect(type.fields.find((field) => field.id === "placa"))
+        .toMatchObject({ kind: "text", required: false, sensitive: false, client_visible: true, max_length: 10 });
+      expect(type.fields.find((field) => field.id === "ano")).toMatchObject({ kind: "integer", min: 1900, max: 2100 });
+      expect(type.fields.find((field) => field.id === "ultima_manutencao"))
+        .toMatchObject({ kind: "date", help: "Data informada pelo cliente." });
+      const extra = { placa: "ABC1D23", marca_modelo: "Marca Modelo", ano: 2020, cor: "Prata", ultima_manutencao: "2026-05-12" };
+      expect(validateExtra(type.fields, extra, { mode: "customer" })).toEqual(extra);
+      for (const invalid of [{ placa: "A".repeat(11) }, { ano: 1899 }, { ano: 2101 }, { ano: 2020.5 }, { ultima_manutencao: "2026-02-30" }])
+        expect(() => validateExtra(type.fields, invalid, { mode: "customer" })).toThrow();
+      expect(type.fields.length).toBeLessThanOrEqual(24);
+      expect(size({ ...type, id: `area_${template.id}__${type.id}` })).toBeLessThanOrEqual(12 * 1024);
+    });
+  }
+
   it("valida também os quatro tipos da Assistência técnica pelo contrato do motor", () => {
     expect(assistenciaTecnicaTemplate.work_types).toHaveLength(4);
     for (const type of assistenciaTecnicaTemplate.work_types) {
@@ -146,7 +168,7 @@ describe("modelos de serviços: catálogo declarativo", () => {
     describe(template.name, () => {
       it("respeita o manifesto, os limites de tamanho e as referências de menu", () => {
         expect(template.schema_version).toBe(1);
-        expect(template.version).toBe(1);
+        expect(template.version).toBe(template.id === "oficina_mecanica" ? 2 : 1);
         expect(template.modules.os).toBe(true);
         expect(size(template)).toBeLessThanOrEqual(128 * 1024);
         expect(template.work_types.length).toBeGreaterThan(0);

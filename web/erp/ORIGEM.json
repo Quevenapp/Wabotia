@@ -28,6 +28,7 @@
  ],
  "local": {
   "web/erp/test/f2-corr-painel.test.mjs": "novo: regressões da visão geral ao suspender partes, atualização dos atalhos de Cobrança/PDV sem repetir fontes inalteradas, confirmação de cascata, seleção Fiscal e contratos da demonstração de Trabalhos",
+  "web/erp/test/os-unified-list.test.mjs": "novo: lista unificada de ordens de serviço, filtros por modelo, escolha de formulário, detalhes existentes, paginação SQL, privacidade e contagem de leituras D1",
   "web/erp/app/components/ContactSalesHistory.tsx": "alterado: fase 2 filtra o histórico do contato pelas origens ligadas antes de consultar",
   "web/erp/app/components/DocumentHistory.tsx": "alterado: fase 2 distingue histórico indisponível de ausência de efeitos",
   "web/erp/app/components/DocumentPaymentDetails.tsx": "alterado: fase 2 preserva os campos financeiros suspensos e impede novas alterações",

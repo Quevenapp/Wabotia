@@ -21,13 +21,9 @@ vi.mock("../web/modules/os/tasks/MyDeadlinesPage", () => {
   runtime.imported.push("my-deadlines");
   return { MyDeadlinesPage: () => "my-deadlines" };
 });
-vi.mock("../web/modules/os/types/WorkTypesPage", () => {
+vi.mock("../web/modules/os/WorkSettingsPage", () => {
   runtime.imported.push("work-types");
-  return { WorkTypesPage: () => "work-types" };
-});
-vi.mock("../web/modules/os/ServiceOrdersSettingsPage", () => {
-  runtime.imported.push("service-orders-settings");
-  return { ServiceOrdersSettingsPage: () => "service-orders-settings" };
+  return { WorkSettingsPage: () => "work-types" };
 });
 vi.mock("../web/modules/agenda/AgendaPage", () => {
   runtime.imported.push("agenda");
@@ -155,7 +151,7 @@ describe("páginas nativas sob demanda", () => {
       const element = ManagementPage({ page });
       if (
         allowed.includes(page as (typeof allowed)[number]) ||
-        page === "service-orders"
+        ["service-orders", "service-orders-settings", "my-deadlines"].includes(page)
       )
         expect(element.props).not.toHaveProperty("title");
       else
@@ -179,6 +175,13 @@ describe("páginas nativas sob demanda", () => {
     expect(ManagementPage({ page: "work" }).type).toBe(
       ManagementPage({ page: "service-orders" }).type,
     );
+    expect(ManagementPage({ page: "work-types" }).type).toBe(
+      ManagementPage({ page: "service-orders-settings" }).type,
+    );
+    expect(await markup(React.createElement(ManagementPage, { page: "service-orders-settings" }))).toContain("work-types");
+    expect(runtime.imported).toEqual(loaded);
+    expect(await markup(React.createElement(ManagementPage, { page: "my-deadlines" }))).toContain("my-deadlines");
+    expect(runtime.imported).toEqual([...loaded, "my-deadlines"]);
   });
 
   it("mostra fallback enquanto o arquivo não chega", async () => {

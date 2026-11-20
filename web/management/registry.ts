@@ -124,7 +124,10 @@ export function managementEntryState(c: ManagementContext, items: readonly Resol
 }
 
 export function nativeTargetState(page: string, c: ManagementContext): PortedTargetState {
-  const item = MANAGEMENT_ITEMS.find((item) => item.target.kind === "native" && item.target.page === page);
+  // Os destinos internos continuam autorizados mesmo sem atalhos no menu lateral.
+  const menuPage = page === "my-deadlines" || page === "service-orders" ? "work"
+    : page === "service-orders-settings" ? "work-types" : page;
+  const item = MANAGEMENT_ITEMS.find((item) => item.target.kind === "native" && item.target.page === menuPage);
   if (!item) return "not-found";
   if (!c.statusLoaded) return "loading";
   // Uma revogação não pode manter dados de um módulo também desligado.

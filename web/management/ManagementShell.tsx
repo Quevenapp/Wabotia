@@ -112,6 +112,13 @@ export function ManagementShell({ context, items, entry, chromeRef, children }: 
   const groupTitle = (item: ResolvedManagementItem) => item.module === "os"
     ? context.vocabulary?.collection_label || item.groupLabel : item.groupLabel;
   const destinationKey = (to: string) => normalizedManagementHref(href(managementRoute(to)));
+  const selectedItem = (item: ResolvedManagementItem) => {
+    if (item.module === "os" && item.target.kind === "native") {
+      if (item.target.page === "work" && ["work", "service-orders", "my-deadlines"].includes(route.page || "")) return true;
+      if (item.target.page === "work-types" && ["work-types", "service-orders-settings"].includes(route.page || "")) return true;
+    }
+    return normalizedManagementHref(current) === destinationKey(item.href);
+  };
   const link = (to: string) => ({
     ...linkProps(managementRoute(to)),
     onClick: (event: React.MouseEvent<HTMLAnchorElement>) => {
@@ -139,9 +146,10 @@ export function ManagementShell({ context, items, entry, chromeRef, children }: 
         <a {...linkProps({ area: mobile ? "more" : "conversations" })}>Áreas do painel</a>
         <a {...link("/app/erp")} aria-current={entry ? "page" : undefined}>Início da gestão</a>
         {[...groups].map(([group, entries]) => <section key={group}>
-          <h2>{groupTitle(entries[0])}</h2>
+          {!(entries[0].module === "os" && entries.some(item => item.resolvedLabel === groupTitle(entries[0]))) &&
+            <h2>{groupTitle(entries[0])}</h2>}
           {entries.map((item) => <a key={item.id} {...link(item.href)} aria-current={
-            normalizedManagementHref(current) === destinationKey(item.href) ? "page" : undefined
+            selectedItem(item) ? "page" : undefined
           }>{item.resolvedLabel}</a>)}
         </section>)}
       </nav>

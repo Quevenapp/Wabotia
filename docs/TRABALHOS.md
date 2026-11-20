@@ -2,21 +2,45 @@
 
 O motor de trabalhos generaliza o módulo **Ordem de Serviço (`os`)**. Uma
 área pode organizar processos, projetos ou serviços com tipos próprios, mantendo
-as ordens de serviço existentes. Não é a ordem de serviço do ERP.
+as ordens de serviço existentes e acessando a operação pelo botão ERP.
 
-Este guia descreve o contrato da integração em curso, não uma confirmação de
-que todas as telas e rotas já estejam instaladas. As referências normativas são
+Na interface, um tipo de trabalho é chamado **modelo de ordem de serviço**.
+Os nomes internos (`work type`, `os_work_types` e `type_id`) permanecem iguais.
+As referências normativas do motor são
 [CONTRATO-MOTOR.md](areas/CONTRATO-MOTOR.md) e
 [F0-ENTREGA.md](areas/F0-ENTREGA.md). A API e os esquemas estão em
 [API.md](API.md#motor-de-trabalhos) e `/api/openapi.json`.
 
 ## Começar pela área
 
-Ligue **Gestão → Módulos → Ordem de Serviço**. Se usar apenas o tipo embutido,
-a coleção continua **Ordens de serviço** e as regras de
-[ORDEM-DE-SERVICO.md](ORDEM-DE-SERVICO.md) continuam valendo. Com tipos
-personalizados, o nome padrão é **Trabalhos**. `os_vocabulary` permite escolher
-`collection_label`, `customer_singular` e `customer_plural`.
+Ligue **Gestão → Módulos → Ordem de Serviço**. No botão **ERP**, o módulo tem
+duas entradas: **Ordens de serviço** e **Configurar** (administradores).
+`os_vocabulary.collection_label` pode substituir o nome da coleção; sem ele,
+o padrão continua **Ordens de serviço**, inclusive com modelos personalizados.
+O menu lateral não repete esse nome como título do grupo.
+`customer_singular` e `customer_plural` definem o vocabulário do cliente.
+
+A lista em `/app/erp/modulos/trabalhos` reúne todos os modelos ativos,
+incluindo a ordem clássica (`service_order`). O filtro **Modelo** começa em
+**Todos os modelos**. Busca, situação, responsável e intervalo de prazo ficam
+na URL; ao escolher um modelo, também é possível filtrar pelas etapas dele.
+O endereço `/trabalhos/<tipo>` pré-seleciona o modelo. **Nova ordem** abre o
+formulário quando há um só modelo ativo; com vários, pede o modelo primeiro.
+**Meus prazos** fica no topo da lista e conserva sua página própria. A clássica
+mantém o detalhe em diálogo; os personalizados mantêm a página de detalhe.
+
+**Configurar** reúne as abas **Modelos**, **WhatsApp** e **Prazos e garantia**.
+Em Modelos, **Criar modelo** oferece **Começar do zero** ou **Começar de um
+exemplo**, com busca e exemplos agrupados pelo modelo de área. Escolher um
+exemplo abre um rascunho para revisão, sem aplicar módulos, menus ou o modelo
+de área inteiro. IDs são gerados pelos rótulos e ficam em **Avançado**.
+WhatsApp reúne Abrir/Acompanhar de todos os modelos e as mensagens da clássica.
+Prazos e garantia reúne a configuração clássica e atalhos para **Recursos**
+dos personalizados.
+
+Os endereços anteriores `/tipos-de-trabalho`, `/ordem-de-servico`,
+`/meus-prazos` e `/app/gestao/...` continuam funcionando. A demonstração
+`/app?demo=1` inclui a lista, as abas e ordens clássicas e de oficina.
 
 Um tipo define nomes singular/plural, rótulos de Item e Problema, termos,
 prefixo de numeração, campos, etapas, transições, mensagens e recursos ligados.
@@ -24,11 +48,12 @@ Os valores de `item` e `problem` continuam sendo textos obrigatórios, mesmo
 quando apresentados como Projeto e Objetivo. Não guarde conteúdo sensível
 nesses dois campos.
 
-## Criar, revisar e arquivar tipos
+## Criar, revisar e arquivar modelos
 
 Os tipos personalizados ficam em `os_work_types` nas configurações da área.
 O tipo embutido `service_order` é virtual: não o inclua nessa lista e continue
-configurando seus termos, mensagens e prazos em `service_orders`.
+configurando seus termos, mensagens e prazos em `service_orders`, pelas abas
+WhatsApp e Prazos e garantia de Configurar.
 
 1. Leia o catálogo em `GET /profiles/{profile}/service-orders/types` e guarde
    `settings_revision`. A revisão também aparece em `/status`.
@@ -245,6 +270,25 @@ O tipo embutido conserva seus padrões, textos e interpretação de mensagens.
 
 ## Modelos de área
 
+Assistência técnica (Veículos) e Oficina mecânica oferecem **Placa** opcional,
+visível ao cliente, não sensível e limitada a 10 caracteres; **Marca e modelo**,
+**Ano** (inteiro de 1900 a 2100), **Cor** e **Última manutenção** (data informada
+pelo cliente), além de Quilometragem, Combustível, Peças previstas e Avarias
+na entrada. A definição continua dentro de 24 campos e 12 KiB.
+
+Modelos já aplicados preservam suas edições. Na aba Modelos, a faixa
+**O modelo padrão ganhou campos** oferece **Adicionar** somente os IDs que
+ainda faltam, sem alterar campos existentes nem reutilizar IDs aposentados.
+Isso vale apenas para ordens abertas depois da alteração; as abertas
+conservam a definição anterior. A placa antiga sensível mantém sua classificação
+e seus valores. É possível criar um novo campo vazio **Placa** visível ao cliente,
+com outro ID, sem copiar dados do campo privado. Os limites do modelo e as
+regras de validação continuam valendo.
+
+O nome do modelo de área de origem distingue modelos com nomes iguais.
+A prévia de aplicação avisa quando já há um modelo equivalente; não remove,
+combina ou redireciona os modelos existentes.
+
 A aplicação de modelo é administrativa e funciona mesmo com `os` desligado.
 Um modelo é JSON declarativo; configura tipos, módulos, vocabulário, setores,
 categorias, menus, textos e sugestões de bot. Não executa código.
@@ -282,6 +326,15 @@ outra área, ordem, coleção ou filtro. O limite de cada coleção conta arquiv
 
 A lista principal mantém `counts` global e esparso nos nove estados, mesmo
 com filtros. Use `facets=1` para contagens por tipo e, com `type_id`, por etapa.
+O filtro aditivo `type_ids` aceita até 21 IDs separados por vírgulas e permite
+listar os modelos ativos antes da paginação, usando o índice existente.
+A tela unificada não pede facetas: `listOrders` faz **2 leituras D1** (contagem
+global e página) ou **3** quando há ordens cujo modelo habilita tarefas na página
+(uma leitura em lote das próximas tarefas autorizadas, mesmo se não houver
+tarefas cadastradas). Essa contagem é medida no teste da consulta SQL e não
+inclui autenticação nem a chamada separada ao catálogo de modelos. O custo
+independe da quantidade de modelos na página. Não há nova leitura por mensagem
+do WhatsApp.
 `open=1` seleciona abertas; omitir `open` ou usar `open=0` inclui todas.
 `stage` exige `type_id` e sempre significa um ID literal, inclusive `open` ou
 `all`; esses nomes não são filtros especiais nesse parâmetro. No detalhe,

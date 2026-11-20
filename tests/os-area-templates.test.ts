@@ -11,7 +11,9 @@ import {
   previewAreaTemplate, validateAreaSetup, validateAreaTemplate,
 } from "../src/area-templates";
 import type { AreaTemplate, AreaTemplateSelection } from "../src/area-templates";
+import type { CustomWorkType } from "../src/modules/os/contracts";
 import { assistenciaTecnicaTemplate } from "../src/area-templates/models/assistencia-tecnica";
+import { oficinaMecanicaTemplate } from "../src/area-templates/models/oficina-mecanica";
 import { bearer, fixture } from "./service-center-fixture";
 import { motorWorkType, MOTOR_SENTINEL } from "./os-motor-fixture";
 
@@ -245,6 +247,48 @@ describe("modelos de área: prévia e confirmação", () => {
 });
 
 describe("modelos de área: preservação e reaplicação", () => {
+  const vehicleSelection = () => selection({
+    work_type_ids: ["at_veiculos"], module_ids: ["os"], menus: false,
+    departments: false, ticket_categories: false, vocabulary: false, texts: false, bot_suggestions: false,
+  });
+
+  it("avisa oficina equivalente antes de aplicar e conserva os dois modelos separados", async () => {
+    const f = await fixture();
+    await apply(f, { manifest: assistenciaTecnicaTemplate, selection: vehicleSelection() });
+    const original = (await cfg(f)).os_work_types[0];
+    const input = { manifest: oficinaMecanicaTemplate, selection: vehicleSelection() };
+    const preview = await previewAreaTemplate(env, f.admin, f.profile, input);
+    expect(preview.can_apply).toBe(true);
+    expect(preview.conflicts).toEqual([]);
+    expect(preview.changes).toContainEqual(expect.objectContaining({
+      path: "os_work_types.area_oficina_mecanica__at_veiculos", action: "add",
+      reason: expect.stringContaining("Já existe um modelo equivalente"),
+    }));
+    await apply(f, input);
+    const types = (await cfg(f)).os_work_types;
+    expect(types).toHaveLength(2);
+    expect(types.find((type: CustomWorkType) => type.id === original.id)).toEqual(original);
+    expect(types.map((type: CustomWorkType) => type.id)).toEqual([
+      "area_assistencia_tecnica__at_veiculos", "area_oficina_mecanica__at_veiculos",
+    ]);
+  });
+
+  it("reaplicar oficina atualizada não acrescenta campos nem desclassifica a placa existente", async () => {
+    const f = await fixture();
+    const previous = structuredClone(assistenciaTecnicaTemplate);
+    previous.version = 2;
+    const vehicle = previous.work_types.find((type) => type.id === "at_veiculos")!;
+    vehicle.fields = vehicle.fields.filter((field) => !["marca_modelo", "ano", "cor", "ultima_manutencao"].includes(field.id));
+    const plate = vehicle.fields.find((field) => field.id === "placa")!;
+    plate.client_visible = false;
+    plate.sensitive = true;
+    await apply(f, { manifest: previous, selection: vehicleSelection() });
+    const original = (await cfg(f)).os_work_types;
+    await apply(f, { manifest: assistenciaTecnicaTemplate, selection: vehicleSelection() });
+    expect((await cfg(f)).os_work_types).toEqual(original);
+    expect((await application(f, "assistencia_tecnica"))!.template_version).toBe(3);
+  });
+
   it("segunda aplicação idêntica não grava nem publica eventos", async () => {
     const f = await fixture(); await apply(f);
     const before = await snapshot(f);

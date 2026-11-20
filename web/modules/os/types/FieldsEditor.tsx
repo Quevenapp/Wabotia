@@ -1,15 +1,17 @@
 import React from "react";
 import { Button, Field } from "../../../ui";
 import type { WorkField } from "../work-contracts";
-import { newField, type WorkFieldDraft } from "./type-draft";
+import { labelIdentifier, newField, type WorkFieldDraft } from "./type-draft";
 export function FieldsEditor({
   fields,
   onChange,
   locked = [],
+  retired = [],
 }: {
   fields: WorkFieldDraft[];
   onChange: (fields: WorkField[]) => void;
   locked?: string[];
+  retired?: string[];
 }) {
   const update = (index: number, field: WorkFieldDraft) =>
     onChange(fields.map((old, i) => (i === index ? field : old)));
@@ -18,7 +20,9 @@ export function FieldsEditor({
       {fields.map((field, index) => (
         <fieldset key={index}>
           <legend>Campo {index + 1}</legend>
-          <Field
+          <details>
+            <summary>Avançado</summary>
+            <Field
             label="Identificador"
             value={field.id}
             disabled={locked.includes(field.id)}
@@ -26,10 +30,15 @@ export function FieldsEditor({
             maxLength={32}
             required
           />
+          </details>
           <Field
             label="Rótulo"
             value={field.label}
-            onChange={(label) => update(index, { ...field, label })}
+            onChange={(label) => update(index, { ...field, label,
+              id: !locked.includes(field.id) && (!field.id || field.id === labelIdentifier(field.label, [...retired, ...locked, ...fields.filter((_, i) => i !== index).map((item) => item.id)]))
+                ? labelIdentifier(label, [...retired, ...locked, ...fields.filter((_, i) => i !== index).map((item) => item.id)])
+                : field.id,
+            })}
             maxLength={80}
             required
           />

@@ -193,14 +193,6 @@ export function ErpArea() {
     (app.demo || accessReport.permissions.userId === String(app.me.id)) ? accessReport.permissions : null;
   const items = [...resolveManagement(visibleIntegrationItems(MANAGEMENT_ITEMS, context), context, erpSimulated(app.demo), permissions)];
   if (integrationRouteState(context) === "allowed") items.push({ id: "erp.integrations", module: "erp", group: "comercial", groupLabel: "Comercial", groupOrder: 20, order: 225, label: "Integrações", resolvedLabel: "Integrações", icon: "link", target: { kind: "ported", to: "/integracoes" }, permission: { kind: "erp" }, href: "/app/erp/integracoes" });
-  const workItem = items.find((item) => item.id === "os.work");
-  if (workItem) {
-    for (const type of work.types) items.push({
-      ...workItem, id: "os.type." + type.id, primary: false, order: 15,
-      label: type.labels.plural, labelKey: undefined, resolvedLabel: type.labels.plural,
-      href: href({ area: "erp", page: "work", typeId: type.id }),
-    });
-  }
   items.sort(managementItemOrder);
   const destinations = new Set<string>();
   const menu = items.filter((item) => {

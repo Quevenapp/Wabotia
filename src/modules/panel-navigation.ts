@@ -6,31 +6,17 @@ export const NATIVE_MANAGEMENT_ITEMS = {
   os: [
     {
       id: "os.work", module: "os",
-      group: "os", groupLabel: "Trabalhos", groupOrder: 100,
-      label: "Trabalhos", labelKey: "workCollection", icon: "Wrench", order: 10, primary: true,
+      group: "os", groupLabel: "Ordens de serviço", groupOrder: 100,
+      label: "Ordens de serviço", labelKey: "workCollection", icon: "Wrench", order: 10, primary: true,
       target: { kind: "native", page: "work" },
       permission: { kind: "page", page: "work" },
     },
     {
-      id: "os.deadlines", module: "os",
-      group: "os", groupLabel: "Trabalhos", groupOrder: 100,
-      label: "Meus prazos", icon: "CalendarClock", order: 20,
-      target: { kind: "native", page: "my-deadlines" },
-      permission: { kind: "page", page: "my-deadlines" },
-    },
-    {
       id: "os.types", module: "os",
-      group: "os", groupLabel: "Trabalhos", groupOrder: 100,
-      label: "Tipos de trabalho", icon: "Wrench", order: 30,
+      group: "os", groupLabel: "Ordens de serviço", groupOrder: 100,
+      label: "Configurar", icon: "Settings", order: 20,
       target: { kind: "native", page: "work-types" },
       permission: { kind: "page", page: "work-types" },
-    },
-    {
-      id: "os.settings", module: "os",
-      group: "os", groupLabel: "Trabalhos", groupOrder: 100,
-      label: "Ordem de serviço", icon: "Wrench", order: 40,
-      target: { kind: "native", page: "service-orders-settings" },
-      permission: { kind: "page", page: "service-orders-settings" },
     },
   ],
   agenda: [
