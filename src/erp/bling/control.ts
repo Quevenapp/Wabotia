@@ -43,6 +43,10 @@ const number = (value: unknown, fallback = 0): number => {
   return n;
 };
 const revision = (value: unknown): string => String(number(value));
+/** Marca privada: a recusa veio do CAS de revisão, antes de qualquer reserva. */
+const STALE_REVISION = Symbol("bling-stale-revision");
+const staleRevision = (): BlingError => Object.defineProperty(new BlingError("BLING_REVISION_CONFLICT"), STALE_REVISION, { value: true });
+export const isStaleRevisionRefusal = (error: unknown): boolean => !!error && typeof error === "object" && (error as Record<symbol, unknown>)[STALE_REVISION] === true;
 const iso = (value: unknown): string => new Date(number(value)).toISOString();
 const bump = (value: unknown): string => {
   const next = number(value) + 1;
@@ -243,9 +247,26 @@ export function createBlingControl(dependencies: BlingControlDependencies) {
       if (pending.phase === "committed") throw new BlingError("BLING_RESPONSE_INVALID");
       return null; // A reserva durável é revalidada pela porta dona antes do I/O.
     }
-    if (input.expected_revision !== config.revision) throw new BlingError("BLING_REVISION_CONFLICT");
+    if (input.expected_revision !== config.revision) throw staleRevision();
     if (row(ctx).state === "purging") throw new BlingError("BLING_GENERATION_RETIRED");
     return null;
+  }
+
+  /** Recusa autenticada por revisão antiga, antes de reserva ou efeito: grava
+   * um recibo terminal em transação própria (fora da que a exceção desfaz).
+   * O mesmo comando repetido depois continua recusado pelo recibo. */
+  function rejectStale(ctx: BlingContext, name: BlingOperationName, raw: BlingCommand, requestHash: Sha256): BlingReceipt | null {
+    context(ctx, true);
+    if (!sha256Schema.safeParse(requestHash).success) return null;
+    return db.transaction(() => {
+      if (one(db, "SELECT 1 AS found FROM wb_bling_receipt WHERE command_id=?", raw.command_id) || one(db, "SELECT 1 AS found FROM wb_bling_unit WHERE command_id=?", raw.command_id)) return null;
+      const config = configuration(ctx);
+      if (raw.expected_revision === config.revision) return null;
+      db.exec(`INSERT INTO wb_bling_receipt(command_id,operation,request_hash,generation,state,result,references_json,error_code,created_at)
+        VALUES(?,?,?,?,'rejected',?,?,'BLING_REVISION_CONFLICT',?)`, raw.command_id, name, requestHash, config.generation, JSON.stringify({ counts: {} }),
+      JSON.stringify({ expected_revision: raw.expected_revision, current_revision: config.revision }), ctx.clock.now());
+      return receipt(ctx, raw.command_id);
+    });
   }
 
   function audit(ctx: BlingContext, operation: BlingOperationName, detail: BlingControlAudit = {}): void {
@@ -315,6 +336,19 @@ export function createBlingControl(dependencies: BlingControlDependencies) {
       // A aprovação fica ligada à configuração revisada. Mudá-la suspende a
       // coleta até nova aprovação explícita, sem apagar nem desconectar.
       invalidate(ctx);
+      // Datas novas: página e janelas salvas pertencem à seleção anterior.
+      // Reinicia só esses cursores das pistas com filtro temporal; o acervo,
+      // os marcos de passagem e as demais pistas ficam como estão.
+      for (const selection of input.selections) {
+        const previous = before.selections.find(item => item.key === selection.key);
+        if ((previous?.from ?? null) === (selection.from ?? null) && (previous?.to ?? null) === (selection.to ?? null)) continue;
+        for (const lane of resourceVariants(selection.key, resources)) {
+          if (!lane.dateFilter || lane.dateFilter.kind === "U") continue;
+          db.exec(`UPDATE origin_sync__resource_state SET checkpoint=json_remove(checkpoint,'$.page','$.recent','$.history'),
+            checkpoint_version=checkpoint_version+1,updated_at=? WHERE resource=? AND (json_type(checkpoint,'$.page') IS NOT NULL
+            OR json_type(checkpoint,'$.recent') IS NOT NULL OR json_type(checkpoint,'$.history') IS NOT NULL)`, ctx.clock.now(), lane.key);
+        }
+      }
       db.exec(`UPDATE wb_bling_control SET revision=?,authorization_revision=?,selection=?,permissions=?,daily_call_limit=?,
         collect_enabled=0,state='off',approved_by=NULL,approved_at=NULL,approval_hash=NULL,updated_at=? WHERE id=1 AND revision=?`,
       bump(before.revision), bump(before.authorization_revision), selections, permissions, input.daily_call_limit, ctx.clock.now(), before.revision);
@@ -444,7 +478,7 @@ export function createBlingControl(dependencies: BlingControlDependencies) {
     return { phase: phase.data, receipt: null };
   }
 
-  return { read, configuration, receipt, checkCommand, commandGet, configure, enable, disable, expected, nextAllowed, audit, finish, beginDisconnect, finishDisconnect };
+  return { read, configuration, receipt, checkCommand, rejectStale, commandGet, configure, enable, disable, expected, nextAllowed, audit, finish, beginDisconnect, finishDisconnect };
 }
 
 export type BlingControl = ReturnType<typeof createBlingControl>;

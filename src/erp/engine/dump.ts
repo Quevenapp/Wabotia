@@ -20,6 +20,41 @@ import { ERP_DDL_HASH, ERP_DDL_VERSION } from "../schema/ddl.ts";
 const q = (id: string) => `"${id.replace(/"/g, '""')}"`;
 const sha = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
 
+/**
+ * Teto do backup lógico, em bytes de NDJSON (o texto exportado, antes do
+ * gzip). O retrato inteiro é materializado no isolado de 128 MB: as linhas da
+ * maior tabela, todos os corpos NDJSON e o gzip de um arquivo coexistem. Acima
+ * disto o backup e a restauração falham cedo, antes de materializar ou de
+ * publicar manifesto; a cópia do banco passa a ser a da plataforma
+ * (recuperação no tempo do Durable Object). docs/RECEBER-BLING.md.
+ * Medição (Node, heap mínimo em que backup + restauração completam): cerca de
+ * 3,6 × o NDJSON + 12 MB; 17 MB → 72 MB, 25 MB → 96 MB, 34 MB → 128 MB.
+ * 16 MiB deixa por volta de metade do isolado para o restante do Worker.
+ */
+export const ERP_LOGICAL_BACKUP_LIMIT_BYTES = 16 * 1024 * 1024;
+export class ErpBackupTooLargeError extends Error {
+  readonly code = "erp_backup_too_large";
+  readonly limit: number;
+  constructor(limit = ERP_LOGICAL_BACKUP_LIMIT_BYTES) {
+    super(`O acervo passa de ${limit} bytes de dados exportados: o backup lógico não cobre este tamanho. Use a recuperação no tempo da plataforma.`);
+    this.name = "ErpBackupTooLargeError";
+    this.limit = limit;
+  }
+}
+/** Exclusão ou gravação externa de XML em voo ou ainda não reconciliada. */
+export class ErpRestoreBusyError extends Error {
+  readonly code = "erp_restore_archive_busy";
+  constructor() {
+    super("Há exclusão ou gravação de XML do acervo em andamento ou sem conferência. A restauração não começou; tente de novo depois que terminar.");
+    this.name = "ErpRestoreBusyError";
+  }
+}
+/** Durável: o que sobrevive a uma queda do isolado. O que está só na memória
+ * (chamada viva além do prazo da acordada) é conferido pela instância. */
+const ARCHIVE_IO_UNRECONCILED = `SELECT 1 AS busy FROM wb_bling_unit WHERE phase NOT IN ('committed','superseded') AND (
+  (kind='r2_delete' AND (owner IS NOT NULL OR error_code IS NOT NULL OR json_extract(progress,'$.deleted') IS NOT NULL))
+  OR (substr(kind,1,4)='xml_' AND (phase='fetching' OR json_type(progress,'$.xml') IS NOT NULL))) LIMIT 1`;
+
 export interface DumpManifest {
   format: 1;
   schema_version: number;
@@ -54,9 +89,47 @@ function backupExpression(table: string, column: string): string {
   return q(column);
 }
 
-/** Retrato de todas as tabelas não secretas do ERP (só as que têm linhas). */
-export function dumpAll(storage: DurableObjectStorage) {
+/** Expressões exportadas de uma tabela: as mesmas na medição e no retrato. */
+function tablePlan(sql: SqlStorage, table: string) {
+  const cols = columns(sql, table);
+  const values = cols.map(c => {
+    const expression = backupExpression(table, c.name);
+    return c.integer ? `CAST(${expression} AS TEXT)` : c.blob ? `hex(${expression})` : expression;
+  });
+  // OAuth usa unidades próprias; nem os hashes de estado e navegador vão ao retrato.
+  const filter = table === "wb_bling_unit" ? " WHERE substr(kind,1,6) <> 'oauth_'" : "";
+  return { cols, values, filter };
+}
+
+/**
+ * Tamanho do NDJSON do retrato, somado pelo SQLite tabela a tabela, sem trazer
+ * linhas ao isolado. Conta o texto de cada valor (nulo como "null"), aspas,
+ * separadores e o escape de aspas e barras; não conta escape de caracteres de
+ * controle. Para no primeiro total acima do teto.
+ */
+export function measureDump(storage: DurableObjectStorage, limit = ERP_LOGICAL_BACKUP_LIMIT_BYTES): number {
   const sql = storage.sql;
+  let total = 0;
+  for (const table of DUMP_TABLES) {
+    const { cols, values, filter } = tablePlan(sql, table);
+    const sizes = values.map(value => {
+      const text = `CAST(${value} AS TEXT)`;
+      return `coalesce(2*length(${text})-length(replace(replace(${text},'"',''),'\\','')),4)`;
+    }).join("+");
+    const row = sql.exec(`SELECT coalesce(sum(${sizes}),0) AS chars,count(*) AS n FROM ${q(table)}${filter}`).toArray()[0] as { chars: unknown; n: unknown };
+    const n = Number(row.n);
+    if (!n) continue;
+    total += Number(row.chars) + n * (3 + cols.length * 3) + JSON.stringify(cols.map(c => c.name)).length + 1;
+    if (total > limit) throw new ErpBackupTooLargeError(limit);
+  }
+  return total;
+}
+
+/** Retrato de todas as tabelas não secretas do ERP (só as que têm linhas). */
+export function dumpAll(storage: DurableObjectStorage, limit = ERP_LOGICAL_BACKUP_LIMIT_BYTES) {
+  const sql = storage.sql;
+  // Mede antes de materializar: acima do teto, falha sem estourar a memória.
+  measureDump(storage, limit);
   const files: { table: string; body: string }[] = [];
   const manifest: DumpManifest = {
     format: 1,
@@ -66,14 +139,8 @@ export function dumpAll(storage: DurableObjectStorage) {
     tables: [],
   };
   for (const table of DUMP_TABLES) {
-    const cols = columns(sql, table);
-    const select = cols.map(c => {
-      const expression = backupExpression(table, c.name);
-      const value = c.integer ? `CAST(${expression} AS TEXT)` : c.blob ? `hex(${expression})` : expression;
-      return `${value} AS ${q(c.name)}`;
-    }).join(",");
-    // OAuth usa unidades próprias; nem os hashes de estado e navegador vão ao retrato.
-    const filter = table === "wb_bling_unit" ? " WHERE substr(kind,1,6) <> 'oauth_'" : "";
+    const { cols, values, filter } = tablePlan(sql, table);
+    const select = values.map((value, index) => `${value} AS ${q(cols[index].name)}`).join(",");
     const rows: unknown[][] = Array.from(sql.exec(`SELECT ${select} FROM ${q(table)}${filter} ORDER BY rowid`).raw());
     if (!rows.length) continue;
     const body = [JSON.stringify(cols.map((c) => c.name)), ...rows.map((r) => JSON.stringify(r))].join("\n") + "\n";
@@ -93,6 +160,7 @@ export function restoreAll(
   storage: DurableObjectStorage,
   manifest: DumpManifest,
   files: Map<string, string>,
+  options: { profile?: string } = {},
 ) {
   if (manifest.schema_hash !== ERP_DDL_HASH)
     throw new Error(`Backup de outro esquema (${manifest.schema_hash}); este é ${ERP_DDL_HASH}.`);
@@ -105,6 +173,9 @@ export function restoreAll(
   const sql = storage.sql;
   let rows = 0;
   storage.transactionSync(() => {
+    // Um DELETE/PUT de XML enviado e não conferido pode terminar depois da troca
+    // e apagar um arquivo que o retrato volta a referenciar: não começar.
+    if (sql.exec(ARCHIVE_IO_UNRECONCILED).toArray().length) throw new ErpRestoreBusyError();
     sql.exec("PRAGMA defer_foreign_keys = ON");
     const previousControl = sql.exec("SELECT revision,authorization_revision,credential_revision,updated_at FROM wb_bling_control WHERE id=1").toArray()[0];
     const triggers = sql
@@ -135,6 +206,17 @@ export function restoreAll(
       Number(previousControl?.revision ?? 0), Number(previousControl?.authorization_revision ?? 0), Number(previousControl?.credential_revision ?? 0));
     sql.exec("UPDATE wb_bling_unit SET owner=NULL,fence=NULL,lease_until=NULL,phase=CASE WHEN phase IN ('reserved','fetching') THEN 'waiting' ELSE phase END");
     sql.exec("UPDATE origin_sync__resource_state SET lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL");
+    // Um apagamento em curso no retrato não pode terminar: o controle volta
+    // desligado e a geração dele não confere. Aposentá-lo; um novo apagamento
+    // exige nova prévia e confirmação. As exclusões R2 que ele já enfileirou
+    // passam à limpeza de órfãos desta área, que só apaga objeto que nenhum
+    // item restaurado referencia; de outra área, ficam só registradas.
+    const now = Date.now();
+    sql.exec(`UPDATE wb_bling_unit SET plan=json_set(plan,'$.orphan_work_id',json_extract(plan,'$.purge_work_id')),error_code=NULL,not_before=?,updated_at=?
+      WHERE kind='r2_delete' AND phase NOT IN ('committed','superseded') AND json_extract(plan,'$.purge_work_id') IS NOT NULL
+        AND json_extract(plan,'$.orphan_work_id') IS NULL AND json_extract(plan,'$.profile') IS ?`, now, now, options.profile ?? null);
+    sql.exec(`UPDATE wb_bling_unit SET phase='superseded',error_code='BLING_GENERATION_RETIRED',finished_at=?,updated_at=?
+      WHERE phase NOT IN ('committed','superseded') AND (kind='purge' OR (kind='r2_delete' AND json_extract(plan,'$.orphan_work_id') IS NULL))`, now, now);
     for (const g of triggers) sql.exec(g.sql);
     const broken = sql.exec("PRAGMA foreign_key_check").toArray();
     if (broken.length) throw new Error("Backup com FK quebrada: " + JSON.stringify(broken[0]));
@@ -144,8 +226,6 @@ export function restoreAll(
 
 const gzip = async (text: string) =>
   new Response(new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer();
-const gunzip = async (bytes: ArrayBuffer) =>
-  new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
 
 /** Grava o retrato no R2: erp-backups/<área>/<instante>/ (manifesto por último). */
 export async function backupToR2(bucket: R2Bucket, profile: string, dump: ReturnType<typeof dumpAll>) {
@@ -162,15 +242,39 @@ export async function backupToR2(bucket: R2Bucket, profile: string, dump: Return
   return { prefix, bytes };
 }
 
-export async function readBackup(bucket: R2Bucket, prefix: string) {
+/** Descompacta em fluxo, contando os bytes: para assim que o teto é ultrapassado. */
+async function gunzipWithin(bytes: ArrayBuffer, budget: { left: number; limit: number }) {
+  const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip")).getReader();
+  const decoder = new TextDecoder();
+  const parts: string[] = [];
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      budget.left -= value.byteLength;
+      if (budget.left < 0) throw new ErpBackupTooLargeError(budget.limit);
+      parts.push(decoder.decode(value, { stream: true }));
+    }
+  } finally { try { await reader.cancel(); } catch { /* Leitor já encerrado. */ } }
+  parts.push(decoder.decode());
+  return parts.join("");
+}
+
+export async function readBackup(bucket: R2Bucket, prefix: string, limit = ERP_LOGICAL_BACKUP_LIMIT_BYTES) {
   const manifestObject = await bucket.get(prefix + "manifest.json");
   if (!manifestObject) throw new Error("Backup sem manifesto.");
   const manifest = (await manifestObject.json()) as DumpManifest;
   const files = new Map<string, string>();
+  // O tamanho é medido antes de materializar: o compactado pelo R2, antes de
+  // ler o corpo; o descompactado, enquanto sai do fluxo.
+  const budget = { left: limit, limit };
+  let compressed = 0;
   for (const t of manifest.tables) {
     const object = await bucket.get(prefix + t.table + ".ndjson.gz");
     if (!object) throw new Error(`Backup sem a tabela ${t.table}.`);
-    files.set(t.table, await gunzip(await object.arrayBuffer()));
+    compressed += Number(object.size ?? 0);
+    if (compressed > limit) { try { await object.body?.cancel(); } catch { /* Sem leitura. */ } throw new ErpBackupTooLargeError(limit); }
+    files.set(t.table, await gunzipWithin(await object.arrayBuffer(), budget));
   }
   return { manifest, files };
 }

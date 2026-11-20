@@ -4,7 +4,7 @@ import { BLING_ENTITIES, BlingError, type BlingContext, type BlingEntity, type B
 import { authorizeBlingOperation, parseBlingOperationInput } from "./schema.ts";
 import type { ArchivePort } from "./ports.ts";
 import { one, type Row, type SqlDriver } from "../engine/driver.ts";
-import { hasPendingXmlObjectDelete, hasPendingXmlWrite, waitArchiveIo } from "./xml.ts";
+import { assertNoArchiveRestore, hasPendingXmlObjectDelete, hasPendingXmlWrite, markXmlObjectDelete, waitArchiveIo } from "./xml.ts";
 
 export interface ArchivePurgeDependencies {
   db: SqlDriver;
@@ -318,6 +318,8 @@ export function createArchivePurge(deps: ArchivePurgeDependencies): ArchivePurge
           db.transaction(() => { assertJob(ctx, workId); db.exec("UPDATE wb_bling_unit SET phase='superseded',finished_at=?,updated_at=? WHERE id=?", ctx.clock.now(), ctx.clock.now(), deletion.id); });
           return { done: false, receipt: null };
         }
+        // Restauração em curso: nenhum DELETE começa (sem await até o envio).
+        assertNoArchiveRestore(ctx, ctx.profile);
         const fence = deps.randomId();
         db.transaction(() => {
           budget();
@@ -331,7 +333,9 @@ export function createArchivePurge(deps: ArchivePurgeDependencies): ArchivePurge
         try {
           budget();
           pendingR2Deletions.add(pendingKey);
-          const io=Promise.resolve().then(()=>progress.deleted!==true?deps.media.delete(plan.key):deps.media.get(plan.key)).finally(()=>pendingR2Deletions.delete(pendingKey));
+          // Marca compartilhada: a restauração não começa com este DELETE vivo.
+          markXmlObjectDelete(ctx.profile, plan.key, true);
+          const io=Promise.resolve().then(()=>progress.deleted!==true?deps.media.delete(plan.key):deps.media.get(plan.key)).finally(()=>{pendingR2Deletions.delete(pendingKey);markXmlObjectDelete(ctx.profile, plan.key, false);});
           const result=await waitArchiveIo(ctx,deadline,io);
           if(progress.deleted===true&&result!==null)throw new BlingError("BLING_RETRY_WAIT");
           await deps.requireBase(ctx);

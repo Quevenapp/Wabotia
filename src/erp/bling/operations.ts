@@ -5,7 +5,7 @@ import {
   type BlingRecordMetadata, type JsonObject, type ResourceDescriptor,
 } from "./contracts.ts";
 import type { BlingApiPort, BlingDependencies } from "./ports.ts";
-import { createBlingControl } from "./control.ts";
+import { createBlingControl, isStaleRevisionRefusal } from "./control.ts";
 import { authorizeOperation, protectOperationOutput, sanitizeBlingError } from "./permissions.ts";
 import { BLING_OPERATIONS, getBlingOperation, parseBlingOperationInput, resourceDescriptorSchema } from "./schema.ts";
 import { readErpPartsSnapshot } from "../parts.ts";
@@ -79,6 +79,7 @@ export function createBlingApi(deps: BlingDependencies, options: BlingApiOptions
   async function execute<K extends BlingOperationName>(original: BlingContext, name: K, raw: BlingOperationMap[K]["input"]): Promise<BlingOperationMap[K]["output"]> {
     let authorized: BlingContext | undefined;
     let auditedCommand: string | undefined;
+    let refusedCommand: { command: BlingCommand; hash: string } | null = null;
     try {
       if (!getBlingOperation(name) || name === "erp_bling_oauth_callback") throw new BlingError("BLING_SCOPE_REQUIRED");
       if (original.profile !== options.profile) throw new BlingError("BLING_SCOPE_REQUIRED");
@@ -103,6 +104,7 @@ export function createBlingApi(deps: BlingDependencies, options: BlingApiOptions
       }
       const command = "command_id" in input ? input as BlingCommand : null;
       auditedCommand = command?.command_id;
+      if (command) refusedCommand = { command, hash };
       let replay: BlingReceipt | null = null;
       if (command) replay = control.checkCommand(ctx, name, command, hash);
       const audit = (references: JsonObject = {}) => control.audit(ctx, name, { command_id: command?.command_id, before_revision: before.revision, references });
@@ -265,6 +267,10 @@ export function createBlingApi(deps: BlingDependencies, options: BlingApiOptions
       if (authorized) {
         // A tentativa recusada é auditável sem copiar exceção, entrada ou dado.
         try { control.audit(authorized, name, { command_id: auditedCommand, code: failure.code }); } catch { /* Falha original prevalece. */ }
+        // Revisão antiga recusada antes de reserva: recibo terminal consultável.
+        if (refusedCommand && isStaleRevisionRefusal(error)) {
+          try { control.rejectStale(authorized, name, refusedCommand.command, refusedCommand.hash); } catch { /* Falha original prevalece. */ }
+        }
       }
       throw failure;
     }

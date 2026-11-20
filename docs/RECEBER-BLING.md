@@ -216,6 +216,34 @@ exclui credenciais e estados OAuth transitórios. Restauração mantém a coleta
 desligada, invalida posses e requer nova validação de conta/credencial. O
 backup lógico do SQLite não substitui a preservação dos objetos XML em R2.
 
+**Até onde o backup lógico cobre.** O retrato ainda é montado inteiro na
+memória do isolado (128 MB). Por isso o backup e a restauração medem o
+tamanho antes de materializar: o backup soma, no próprio SQLite, o texto que
+seria exportado (NDJSON, antes do gzip); a restauração confere o tamanho
+compactado de cada arquivo e conta os bytes enquanto descompacta. Acima de
+**16 MiB de dados exportados** (16.777.216 bytes) os dois falham cedo, com o
+código `erp_backup_too_large`, sem gravar arquivo nem manifesto e sem trocar
+o banco. Como referência, o acervo do Bling ocupa no banco um pouco mais que
+o seu texto; um banco de cerca de 16 MB já pode passar do limite. Acima disso
+a cópia do banco é a da plataforma: a recuperação no tempo do Durable Object
+da área (até 30 dias). Exportar e restaurar em páginas, em fluxo, é uma tarefa
+própria, posterior.
+
+O teto veio de uma medição em Node do heap mínimo em que backup e restauração
+completam: cerca de 3,6 vezes o NDJSON mais 12 MB (17 MB → 72 MB; 25 MB →
+96 MB; 34 MB → 128 MB). Com 16 MiB, metade do isolado fica para o restante do
+Worker.
+
+**Restauração e arquivos XML.** A restauração recusa começar, com o código
+`erp_restore_archive_busy`, enquanto houver exclusão ou gravação de XML em
+voo nesta instância (inclusive a que passou do prazo da acordada) ou ainda
+não conferida no banco. Depois de começar, nenhuma gravação, leitura de
+conferência ou exclusão de XML, nem passo do apagamento, inicia até ela
+terminar. Um apagamento em curso dentro do backup restaurado é aposentado: a
+coleta fica desligada e um novo apagamento exige nova prévia e confirmação;
+as exclusões R2 que ele já tinha enfileirado passam à limpeza de órfãos da
+área, que só apaga objeto que nenhum item restaurado referencia.
+
 ## Parar, desconectar, revogar e apagar
 
 - **Desligar:** impede novas chamadas e invalida commits em curso; conserva
