@@ -67,8 +67,8 @@ describe("catálogo da casa de gestão", () => {
   it("preserva todos os destinos portados, inclusive consultas, rodapés e restrições", () => {
     expect(legacyMenu).toBe(ORIGIN_MENU);
     const linked = originItems.filter((item) => item.real);
-    expect(linked).toHaveLength(47);
-    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(48);
+    expect(linked).toHaveLength(48);
+    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(49);
     expect(ERP_MANAGEMENT_ITEMS).toHaveLength(linked.length + 1);
     expect(ERP_MANAGEMENT_ITEMS.find(item => item.id === "erp.effect-maintenance")).toMatchObject({
       module: "erp", part: "sistema", groupLabel: "Sistema", order: 440,
@@ -88,6 +88,14 @@ describe("catálogo da casa de gestão", () => {
     ]);
     for (const item of reopened)
       expect(portedTarget(item.target.to)).toMatchObject({ part: item.part, roles: item.permission.roles });
+    // A tela admite todos os papéis ERP; a política persistida do Bling decide
+    // quem pode consultar o acervo (padrão: administrador).
+    expect(ERP_MANAGEMENT_ITEMS.find(item => item.id === "erp.receive-bling")).toMatchObject({
+      module: "erp", part: "sistema", groupLabel: "Sistema", order: 470,
+      label: "Receber dados do Bling", target: { kind: "ported", to: "/receber-bling" },
+      permission: { kind: "erp" },
+    });
+    expect(portedTarget("/receber-bling")).toEqual({ part: "sistema", kind: "erp" });
     for (const item of portedLegacy) {
       const old = linked.find((entry) => entry.real!.to === legacyTarget(item))!;
       expect(item.module).toBe(ERP_PART_OWNERS[item.part]);

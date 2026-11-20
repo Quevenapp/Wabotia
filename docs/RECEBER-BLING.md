@@ -186,7 +186,13 @@ acervo, XML, recibos ou credenciais desta área.
 As operações estão definidas uma única vez em
 `src/erp/bling/schema.ts`, com nomes estáveis, entradas, saídas, efeitos,
 resumos em português, classificação sensível e OpenAPI. Bots usam essas
-mesmas operações, dentro da interseção pessoa ∩ bot. Ações sensíveis exigem
+mesmas operações, dentro da interseção pessoa ∩ bot. A concessão nominal por
+operação é única: `src/modules/erp/bot-access.ts`, nas opções ERP do bot e da
+área. A lista `operations` da política antiga do Bling é mantida apenas para
+compatibilidade dos dados; não concede nem restringe operações. A política
+do Bling continua definindo entidades, dados enviados à IA e a liberação da
+categoria sensível. Sem política adicional, a concessão ERP permite somente
+metadados e conteúdo mascarado. Ações sensíveis exigem
 confirmação humana por padrão, com liberação configurável pelo administrador.
 Dados pessoais começam mascarados, e dados sensíveis/IA desligados. Habilitar
 o envio ao provedor de IA exige aviso explícito e auditoria. Não existe

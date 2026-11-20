@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { one, type Row, type SqlDriver } from "../engine/driver.ts";
 import {
-  BLING_BUDGET, BLING_LEGACY_ENTITIES, BlingError,
+  BLING_BUDGET, BLING_ENTITIES, BLING_LEGACY_ENTITIES, BlingError,
   type BlingCheckpoint, type BlingContext, type BlingEntity, type BlingExpectedState,
   type BlingFailure, type BlingLease, type BlingOperationMap, type BlingRawRecord,
   type BlingReceipt, type BlingUnit, type JsonObject, type RecordIdentity,
@@ -582,9 +582,10 @@ export class SqliteCollectionStore implements CollectionStore {
     return this.db.transaction(() => {
       const control = this.control(ctx); if (!control?.collect_enabled) return fail("BLING_DISABLED");
       if (ctx.identity.actor?.is_agent) {
-        const policy = json<{ bots?: { bot_id: string; operations: string[]; entities: string[] }[] }>(control.permissions, {});
+        const policy = json<{ bots?: { bot_id: string; entities: string[]; allow_sensitive?: boolean }[] }>(control.permissions, {});
         const bot = policy.bots?.find(entry => entry.bot_id === ctx.authorization?.bot?.id);
-        if (!bot?.operations.includes("erp_bling_collect_request") || input.resource_keys.some(key => !bot.entities.includes(key === BLING_XML_RESOURCE.key ? BLING_XML_RESOURCE.entity : getBlingResource(key).entity))) fail("BLING_SCOPE_REQUIRED");
+        if (ctx.authorization?.bot?.allow_sensitive && !bot?.allow_sensitive) fail("BLING_SCOPE_REQUIRED");
+        if (input.resource_keys.some(key => !(bot?.entities ?? [...BLING_ENTITIES]).includes(key === BLING_XML_RESOURCE.key ? BLING_XML_RESOURCE.entity : getBlingResource(key).entity))) fail("BLING_SCOPE_REQUIRED");
       }
       const requestHash = ctx.authorization?.request_hash ?? hash(JSON.stringify(input));
       const previous = this.receipt(ctx, { command_id: input.command_id, request_hash: requestHash, generation: String(control.generation) });

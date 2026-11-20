@@ -11,12 +11,13 @@ import {STATES} from '../../../packages/erp-domain/src/index.mjs';
 const RESOURCES={admin:['contacts','products','sales_orders','purchase_orders','sales_proposals','receivables','payables','nfe','nfce'],consulta:['contacts','products','sales_orders','purchase_orders','sales_proposals','receivables','payables','nfe','nfce'],
  vendas:['contacts','products','sales_orders','sales_proposals'],financeiro:['contacts','receivables','payables'],estoque:['contacts','products','purchase_orders'],fiscal:['contacts','products','sales_orders','purchase_orders','nfe','nfce']};
 const period=(points,extra={})=>({key:'30d',from:'2026-09-20',to:'2026-10-19',day_count:30,grain:'day',points,sales:{count:0,statuses:[]},receivable:null,payable:null,invoices:null,...extra});
-// As telas reabertas entram na gestão; o contrato de favoritos do motor continua o anterior.
+// As telas reabertas e o Bling entram na gestão; o contrato de favoritos do motor continua o anterior.
 const MANAGEMENT_ONLY_SHORTCUTS={
  '/cobranca-operacional':['admin','consulta','financeiro'],
  '/retornos-operacionais':['admin','consulta','financeiro'],
  '/preferencias/sistema/registro-atividades':['admin'],
  '/preferencias/sistema/consulta-exclusoes':['admin'],
+ '/receber-bling':Object.keys(RESOURCES),
 };
 
 test('period selector uses Origin labels, keeps Hoje as the clean default and builds strict API paths',()=>{
@@ -85,9 +86,9 @@ test('shortcut catalog labels come from the Origin menu and follow the same perm
  assert.deepEqual(homeShortcutOptions(paths,{role:'vendas',resources:[]}).some(option=>option.to==='/cadastros-reais?cadastro=products'),false);
 });
 
-test('the four reopened management destinations keep their permissions without advertising unsupported saved favorites',async()=>{
+test('the reopened management destinations and Bling keep their permissions without advertising unsupported saved favorites',async()=>{
  const items=ORIGIN_MENU.flatMap(group=>[...group.columns.flatMap(column=>column.items),...(group.footer?[group.footer]:[])]);
- assert.deepEqual(Object.fromEntries(items.filter(item=>item.homeShortcut===false).map(item=>[item.real.to,item.real.roles])),MANAGEMENT_ONLY_SHORTCUTS);
+ assert.deepEqual(Object.fromEntries(items.filter(item=>item.homeShortcut===false).map(item=>[item.real.to,item.real.roles??Object.keys(RESOURCES)])),MANAGEMENT_ONLY_SHORTCUTS);
  const paths=Object.keys(MANAGEMENT_ONLY_SHORTCUTS);
  assert.deepEqual(homeShortcutOptions(paths,{role:'admin',resources:RESOURCES.admin}),[]);
  for(const path of paths){

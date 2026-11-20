@@ -401,8 +401,33 @@ test("projeção sensível inválida não deixa documento, auditoria ou recibo c
   assert.equal(f.count("erp_documents__command"), 0);
 });
 
-test("backup e restauração preservam âncoras, recibos e replay", async t => {
+test("backup conjunto de F3, NF-e e Bling preserva âncoras, recibos e replay com coleta desligada", async t => {
   const f = fixture(t), input = f.enqueue(), result = await f.run(input);
+  const document = f.rpc("erp_document_save", { p_kind: "sales_orders", p_id: null, p_expected_version: 0, p_command_id: randomUUID(),
+    p_body: { date: "2026-11-18", contact_id: f.contact.id, items: [{ product_id: f.product.id, description: "Venda do backup",
+      unit: "UN", quantity: "1", unit_price: "10", discount_percent: "0" }], installments: [] } }).document;
+  const emission = randomUUID(), command = randomUUID(), digest = "a".repeat(64), micros = at * 1000;
+  // Dados comerciais no mesmo banco do documento e dos efeitos que a F3 criou.
+  f.db.transaction(() => {
+    f.lite.prepare("INSERT INTO erp_fiscal_vault__commercial_settings(updated_at,updated_by) VALUES(?,?)").run(micros, ADMIN);
+    f.lite.prepare(`INSERT INTO erp_fiscal_vault__order_emission(id,document_id,fiscal_version,environment,connection_fingerprint,reference,current_body_revision,status,created_at,created_by,updated_at)
+      VALUES(?,?,1,'homologacao',?,?,1,'preparada',?,?,?)`).run(emission, document.id, digest, `wb.${document.id}.v1`, micros, ADMIN, micros);
+    f.lite.prepare(`INSERT INTO erp_fiscal_vault__order_revision(emission_id,body_revision,source_document_version,snapshot,tax_sources,commercial_hash,source_fingerprint,body,body_hash,calculation,blockers,prepared_by,prepared_at)
+      VALUES(?,1,?,'{}','{}',?,?,'{}',?,'{}','[]',?,?)`).run(emission, document.version, digest, digest, digest, ADMIN, micros);
+    f.lite.prepare(`INSERT INTO erp_fiscal_vault__order_command(id,action,person_id,args_hash,emission_id,body_revision,state,request,created_at,updated_at)
+      VALUES(?,'resume',?,?,?,1,'pending','{}',?,?)`).run(command, ADMIN, digest, emission, micros, micros);
+    f.lite.prepare(`INSERT INTO erp_fiscal_vault__order_cancel(emission_id,justification,body,body_hash,command_id,created_at,updated_at)
+      VALUES(?,'Cancelamento solicitado pelo cliente','{}',?,?,?,?)`).run(emission, digest, command, micros, micros);
+    f.lite.prepare(`INSERT INTO erp_fiscal_vault__order_effect(emission_id,axis,state,reason,updated_at)
+      VALUES(?,'stock','pendente','waiting_authorization',?)`).run(emission, micros);
+    f.lite.prepare(`INSERT INTO erp_fiscal_vault__order_audit(id,person_id,command_id,emission_id,environment,action,created_at)
+      VALUES(?,?,?,?,'homologacao','resume',?)`).run(randomUUID(), ADMIN, command, emission, micros);
+    f.lite.prepare(`INSERT INTO wb_bling_control(collect_enabled,state,approved_by,approved_at,approval_hash,app_configured,credential_status,updated_at)
+      VALUES(1,'running',?,?,?,1,'ready',?)`).run(ADMIN, at, digest, at);
+    f.lite.prepare("INSERT INTO origin_sync__resource_state(resource,updated_at) VALUES('contracts',?)").run(at);
+    f.lite.prepare(`INSERT INTO wb_bling_extra_raw(entity,source_id,generation,last_resource,payload,version_hash,first_seen_at,last_seen_at,changed_at)
+      VALUES('contracts','historical-contract',1,'contracts','{"total":"123.4500"}',?,?,?,?)`).run(digest, at, at, at);
+  });
   const storage = { sql: { exec(sql, ...params) {
     const stmt = f.lite.prepare(sql);
     const rows = /^\s*(SELECT|WITH|PRAGMA)/i.test(sql) ? stmt.all(...params) : (stmt.run(...params), []);
@@ -411,9 +436,16 @@ test("backup e restauração preservam âncoras, recibos e replay", async t => {
   const dump = dumpAll(storage);
   const file = dump.files.find(f => f.table === "erp_documents__command");
   assert.ok(file.body.includes("wabotia-module-origin-v1"));
+  for (const suffix of ["commercial_settings", "order_emission", "order_revision", "order_command", "order_cancel", "order_effect", "order_audit"])
+    assert.ok(dump.files.some(file => file.table === `erp_fiscal_vault__${suffix}`), suffix);
   restoreAll(storage, dump.manifest, new Map(dump.files.map(f => [f.table, f.body])));
+  assert.deepEqual(dumpAll(storage).files.filter(file => file.table !== "wb_bling_control"), dump.files.filter(file => file.table !== "wb_bling_control"));
+  assert.deepEqual({ ...f.lite.prepare("SELECT collect_enabled,state,credential_status,approved_by FROM wb_bling_control").get() },
+    { collect_enabled: 0, state: "off", credential_status: "missing", approved_by: null });
   assert.deepEqual(await f.run(input), { ...result, replayed: true });
   assert.ok(originAnchor(f.db, f.source, "document"));
+  assert.throws(() => f.lite.exec("DELETE FROM erp_fiscal_vault__order_revision"), /com1_history_immutable/);
+  assert.deepEqual(f.lite.prepare("PRAGMA foreign_key_check").all(), []);
 });
 
 test("lançamento e cancelamento humanos ficam restritos ao destino solicitado", async t => {

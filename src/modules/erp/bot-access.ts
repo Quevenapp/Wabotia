@@ -3,9 +3,13 @@
 import { one } from "../../db";
 import { ApiError, json, type Actor, type Env } from "../../types";
 import { COM1_OPERATIONS } from "../../erp/commercial-nfe/metadata.ts";
+import { BLING_OPERATIONS } from "../../erp/bling/schema.ts";
 import { erpCommercialOperations } from "./commercial-operations.ts";
 
 export const ERP_BOT_OPERATIONS = [
+  ...Object.values(BLING_OPERATIONS).filter(op => op.name !== "erp_bling_oauth_callback").map(op => ({
+    id: op.name, method: op.method, path: `erp/v1/receber-bling${op.path === "/" ? "" : op.path}`, summary: op.summary,
+  })),
   ...erpCommercialOperations.map(op => ({ id: op.id, method: op.method, path: `erp${op.path}`, summary: op.summary })),
   ...COM1_OPERATIONS.map(op => ({ id: op.name, method: op.method, path: `erp-comercial-nfe/${op.path}`, summary: op.summary })),
   { id: "erp_preferences_import_jobs", method: "GET", path: "erp/v1/importacoes", summary: "Consultar importações por planilha" },
@@ -42,13 +46,20 @@ export async function erpBotOperationGranted(env: Env, actor: Actor, profile: st
 
 /** Somente a rota nominal liberada; escrita usa a proposta já reclamada pela
  * confirmação humana. Um id de proposta solto não é prova de confirmação. */
-export async function erpBotDelegation(env: Env, actor: Actor, profile: string, method: string, path?: string): Promise<boolean> {
+export function erpBotOperation(profile: string, method: string, path?: string) {
+  const prefix = `/api/v1/profiles/${encodeURIComponent(profile)}/`;
+  if (!path?.startsWith(prefix)) return undefined;
+  const route = path.slice(prefix.length), verb = method.toUpperCase();
+  return ERP_BOT_OPERATIONS.find(op => op.method === (verb === "HEAD" ? "GET" : verb) &&
+    new RegExp(`^${op.path.replace(/:[A-Za-z_][A-Za-z0-9_]*/g, "[^/]+")}/?$`).test(route));
+}
+
+export async function erpBotDelegation(env: Env, actor: Actor, profile: string, method: string, path?: string, body?: unknown): Promise<boolean> {
   if (!actor.via || !path) return false;
   const prefix = `/api/v1/profiles/${encodeURIComponent(profile)}/`;
   if (!path.startsWith(prefix)) return false;
   const route = path.slice(prefix.length), verb = method.toUpperCase();
-  const operation = ERP_BOT_OPERATIONS.find(op => op.method === (verb === "HEAD" ? "GET" : verb) &&
-    new RegExp(`^${op.path.replace(/:[a-z_]+/g, "[^/]+")}$`).test(route));
+  const operation = erpBotOperation(profile, verb, path);
   if (!operation || !await erpBotOperationGranted(env, actor, profile, operation.id)) return false;
   if (verb === "GET" || verb === "HEAD") return true;
   if (!actor.sessionId || !actor.via.proposal_id) return false;
@@ -57,5 +68,11 @@ export async function erpBotDelegation(env: Env, actor: Actor, profile: string, 
     actor.via.proposal_id, profile, actor.id, actor.via.bot_id, actor.via.run_id, verb);
   if (!proposal) return false;
   const params = json(proposal.params);
-  return proposal.path.replace(/:(\w+)/g, (_: string, key: string) => encodeURIComponent(String(params[key] ?? ""))) === route;
+  const keys = new Set<string>();
+  const resolved = proposal.path.replace(/:(\w+)/g, (_: string, key: string) => { keys.add(key); return encodeURIComponent(String(params[key] ?? "")); });
+  if (resolved !== route.replace(/\/$/, "")) return false;
+  if (body === undefined) return true;
+  const canonical = (value: any): string => JSON.stringify(value, (_key, item) => item && typeof item === "object" && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
+  return canonical(body) === canonical(Object.fromEntries(Object.entries(params).filter(([key]) => !keys.has(key))));
 }

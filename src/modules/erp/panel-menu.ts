@@ -475,6 +475,9 @@ export const ORIGIN_MENU: readonly MenuGroupDefinition[] = [
       { ...legacyItems["erp.activity"], homeShortcut: false },
       { ...legacyItems["erp.deletions"], homeShortcut: false },
     ] },
+    { title: 'Integrações', items: [
+      { ...legacyItems["erp.receive-bling"], homeShortcut: false },
+    ] },
   ] },
 ];
 

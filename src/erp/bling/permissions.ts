@@ -22,7 +22,8 @@ export function sanitizeBlingError(error: unknown): BlingError {
 
 export function assertBlingIdentity(ctx: BlingContext): void {
   const actor = ctx.identity.actor;
-  if (ctx.origin !== "app" || !actor?.erp_role || !actor.session_id ||
+  const team = actor?.is_agent && ctx.authorization?.delegation && ctx.authorization.bot;
+  if (ctx.origin !== "app" || !actor?.erp_role || !actor.session_id && !team ||
       !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(ctx.profile) ||
       ctx.identity.partsControl?.profile !== ctx.profile) throw new BlingError("BLING_ADMIN_REQUIRED");
   const snapshot = readErpPartsSnapshot({ ...ctx.identity.partsControl, parts: ctx.identity.parts }, ctx.profile, ctx.clock.now());
@@ -31,7 +32,8 @@ export function assertBlingIdentity(ctx: BlingContext): void {
 }
 
 /** Retorna a interseção efetiva; passe esse contexto também às portas privadas.
- * read_granted recebido do núcleo não substitui a concessão persistida da área.
+ * Operações vêm da concessão nominal ERP; a política local restringe dados e
+ * a liberação administrativa da categoria sensível.
  */
 export function authorizeOperation<K extends BlingOperationName>(
   ctx: BlingContext, name: K, input: BlingOperationMap[K]["input"],
@@ -53,11 +55,13 @@ export function authorizeOperation<K extends BlingOperationName>(
   if (actor.is_agent) {
     const envelope = authorization.bot;
     const policies = policy.data.bots.filter(bot => bot.bot_id === envelope?.id);
-    if (!envelope || policies.length !== 1) throw new BlingError("BLING_SCOPE_REQUIRED");
-    const saved = policies[0];
+    if (!envelope || policies.length > 1) throw new BlingError("BLING_SCOPE_REQUIRED");
+    // A concessão ERP basta para ler metadados e conteúdo mascarado. Enviar
+    // dados pessoais/sensíveis à IA ainda exige a política explícita da área.
+    const saved = policies[0] ?? { entities: [...BLING_ENTITIES], data_scopes: ["public", "raw"], allow_sensitive: false, mask_personal: true };
     const bot = {
       id: envelope.id,
-      allowed_operations: envelope.allowed_operations.filter(operation => saved.operations.includes(operation)),
+      allowed_operations: envelope.allowed_operations,
       allowed_entities: envelope.allowed_entities.filter(entity => saved.entities.includes(entity)),
       data_scopes: envelope.data_scopes.filter(scope => saved.data_scopes.includes(scope)),
       allow_sensitive: envelope.allow_sensitive && saved.allow_sensitive,

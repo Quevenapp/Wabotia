@@ -58,6 +58,8 @@ export interface BlingClock { now(): number }
 export interface BlingAuthorizationContext {
   /** Contexto comprovado pelo núcleo; nunca recebido como argumento público. */
   read_granted?: boolean;
+  /** Prova privada da chamada da equipe; revalidada no núcleo a cada await. */
+  delegation?: { run_id: string; proposal_id?: string; method: "GET" | "POST"; path: string };
   request_hash?: Sha256;
   bot?: { id: string; allowed_operations: BlingOperationName[]; allowed_entities: BlingEntity[]; data_scopes: BlingDataScope[]; allow_sensitive: boolean };
   confirmation?: { operation: BlingOperationName; command_id: string; request_hash: Sha256; confirmed_by: string; expires_at: number };
@@ -72,6 +74,7 @@ export interface BlingCommand { command_id: string; expected_revision: Revision 
 export interface BlingSelection { key: string; selected: boolean; from: string | null; to: string | null }
 export interface BlingAccessPolicy {
   reader_user_ids: string[];
+  /** operations é legado de leitura; a concessão nominal vem de bot-access. */
   bots: { bot_id: string; operations: BlingOperationName[]; entities: BlingEntity[]; data_scopes: BlingDataScope[]; allow_sensitive: boolean; mask_personal: boolean }[];
   customer_delivery: { enabled: boolean; entities: BlingEntity[]; require_verified_identity: true };
 }

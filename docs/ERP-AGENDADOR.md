@@ -42,6 +42,13 @@ duráveis, e apagamento usa lotes SQL/R2 retomáveis. O alarme final é o
 mínimo entre operação, arquivos e coleta; a coleta nunca posterga uma
 tarefa operacional.
 
+A fila de integração da fase 3 roda no alarme do `Coordinator` da área,
+por `runModuleSchedules`/`drainIntegrationOutbox`; não pertence à instância
+`erp:<área>`. A NF-e comercial retoma pelo comando explícito `com1.resume`,
+com identidade e política sensível, sem rotina fiscal automática neste agendador.
+Esses caminhos podem acessar o motor durante o I/O da coleta, que não mantém
+uma transação SQLite aberta nem bloqueia a concorrência do objeto.
+
 Não há `sleep` nem repetição interna: quota, intervalo mínimo, `Retry-After`
 e backoff viram `not_before` persistido. Partes, aprovação, conta, geração,
 revisão de credencial e posse são conferidas antes/depois do I/O. Base
@@ -246,6 +253,13 @@ Teste que depende da hora em que a suíte roda é defeito do teste.
 
 - **Node** (`tests/erp/scheduler/dispatch.test.mjs`): `runRound` recebe `now`,
   `elapsed` e `yieldTurn`, e o `Date.now` é trocado pelo relógio do teste.
+- **Junção Bling/F3/NF-e** (`tests/erp/scheduler/bling-coexistence.test.mjs`):
+  os dois `Coordinator` reais acordam no mesmo instante simulado, com fila
+  F3, emissão interrompida e coleta ligada. Enquanto a montagem do Bling
+  aguarda D1, a fila conclui e o serviço fiscal consulta a mesma referência
+  por uma porta de cofre falsa. As notificações já foram executadas, a coleta
+  permanece adiada e a limpeza conserva seu prazo. Outro caso exige zero
+  acesso a D1, R2 ou HTTP no alarme ERP ocioso com coleta ausente/desligada.
 - **Workerd** (`tests/erp-do-scheduler.test.ts`):
   - `at(ms)` fixa o `Date` com `vi.useFakeTimers({ toFake: ["Date"] })`. O
     objeto roda no mesmo isolado, então o relógio vale para o alarme, as

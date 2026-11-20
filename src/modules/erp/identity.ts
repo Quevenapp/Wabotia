@@ -1,6 +1,6 @@
 import { ERP_PARTS_STATE_SQL, erpPartsStateOf, erpPartsEnvelope, readErpPartsState } from "./parts-state";
 import { readErpPartsSnapshot } from "../../erp/parts.ts";
-import { erpBotDelegation } from "./bot-access.ts";
+import { erpBotDelegation, erpBotOperation, erpBotOperationGranted } from "./bot-access.ts";
 import { INTEGRATION_MODULES } from "../../erp/engine/module-origin.ts";
 // Lado do núcleo da porta de identidade do ERP (src/erp/engine/identity.ts):
 // o Worker monta o envelope com o que o Wabotia sabe da pessoa e da área, e o
@@ -281,6 +281,12 @@ export async function erpIdentity(
   const state = await identityPartsState(env, profile);
   const people = await erpPeople(env, profile, state.states);
   const self = people.find((p) => p.user_id === actor.id);
+  const bling = !!path?.includes("/erp/v1/receber-bling");
+  if (actor.via && bling) {
+    const operation = erpBotOperation(profile, method, path);
+    if (!operation || !await erpBotOperationGranted(env, actor, profile, operation.id))
+      throw new ApiError(403, "erp_bot_grant_required", "Libere esta operação para o bot na área.");
+  }
   const delegated = await erpBotDelegation(env, actor, profile, method, path);
   // A normalização fiscal também depende da concessão. Sem ela a rota de
   // NF-e não pode retirar novamente a marca conservadora do envelope.
@@ -297,7 +303,7 @@ export async function erpIdentity(
       aal: actor.aal === 2 ? "aal2" : "aal1",
       // Sem concessão nominal vale o portão legado. A exceção conserva os
       // dados reais da pessoa e, para escrever, exige confirmação conferida.
-      is_agent: !!actor.via && !delegated,
+      is_agent: !!actor.via && (bling || !delegated),
     },
     people,
     ...await erpPartsEnvelope(env, profile, state.snapshot),

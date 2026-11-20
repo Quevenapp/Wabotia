@@ -4,17 +4,18 @@ import { readFileSync } from "node:fs";
 import { erpBlockOf, erpRouteExists } from "../../src/erp/blocks.ts";
 import { erpRouteRequirement } from "../../src/erp/parts-requirements.ts";
 import { erpRequirement } from "../../src/erp/parts.ts";
+import { BLING_OPERATIONS } from "../../src/erp/bling/schema.ts";
 const { routes, discriminators } = JSON.parse(readFileSync("tests/erp/fixtures/route-blocks.json", "utf8"));
 function expand(path) {
   path = path.replaceAll(":list_id", "(cadastros.contatos|cadastros.produtos|documentos.sales_orders|documentos.sales_proposals|documentos.service_orders|documentos.purchase_orders|financeiro.contas_receber|financeiro.contas_pagar|fiscal.nfe|fiscal.nfce|fiscal.entrada)");
   path = path.replaceAll(":kind", "(sales_orders|sales_proposals|purchase_orders|service_orders)").replaceAll(":tipo", "(categorias-produtos|grupos-produtos|tags|grupos-tags)");
   const match = /\(([^()]+)\)/.exec(path);
   if (match) return match[1].split("|").flatMap(value => expand(path.slice(0, match.index) + value + path.slice(match.index + match[0].length)));
-  return [path.replace(/:[a-z_]+/g, "11111111-1111-4111-8111-111111111111")];
+  return [path.replaceAll(":objectId", "11111111-1111-4111-8111-111111111111").replace(/:[a-z_]+/g, "11111111-1111-4111-8111-111111111111")];
 }
 
-test("764 entradas preservadas; todas as alternativas, métodos, discriminadores e RPCs", () => {
-  assert.equal(routes.length, 764);
+test("764 entradas preservadas e 17 operações Bling; todas as alternativas, métodos, discriminadores e RPCs", () => {
+  assert.equal(routes.length, 781);
   let total = 0;
   for (const route of routes) {
     assert.ok(Array.isArray(route.rpcs));
@@ -30,7 +31,18 @@ test("764 entradas preservadas; todas as alternativas, métodos, discriminadores
       else assert.deepEqual([...r?.all ?? []].sort(), [...erpRequirement(c.owner, ...c.additional).all].sort(), label);
     }
   }
-  assert.equal(total, 983);
+  assert.equal(total, 1000);
+});
+
+test("fotografia do Bling cobre cada operação autenticada do contrato, sem incluir o retorno OAuth público", () => {
+  const bling = routes.filter(route => route.path.startsWith('/v1/receber-bling'));
+  const operations = Object.values(BLING_OPERATIONS).filter(operation => operation.permission !== 'oauth_callback');
+  assert.equal(bling.length, 17);
+  assert.deepEqual(bling.map(route => [route.method, route.path, route.rpcs]),
+    operations.map(operation => [operation.method, `/v1/receber-bling${operation.path === '/' ? '' : operation.path}`, [operation.name]]));
+  assert.equal(erpRouteExists('GET', '/api/public/erp-bling/area/callback'), false);
+  assert.equal(erpRouteExists('DELETE', '/v1/receber-bling/acervo'), false);
+  assert.equal(erpRouteExists('POST', '/v1/receber-bling/nao-existe'), false);
 });
 
 test("prefixo respeita segmentos, e não transforma caminho inexistente em operação", () => {

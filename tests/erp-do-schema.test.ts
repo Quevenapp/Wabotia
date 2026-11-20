@@ -25,7 +25,7 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
         again,
         // performance.now() só avança com E/S no workerd: medida de referência.
         ms: Math.round(t1 - t0),
-        tables: count("SELECT count(*) n FROM sqlite_master WHERE type='table' AND name LIKE '%\\_\\_%' ESCAPE '\\'"),
+        tables: count("SELECT count(*) n FROM sqlite_master WHERE type='table' AND (name LIKE '%\\_\\_%' ESCAPE '\\' OR name GLOB 'wb_bling_*')"),
         indexes: count("SELECT count(*) n FROM sqlite_master WHERE type='index'"),
         triggers: count("SELECT count(*) n FROM sqlite_master WHERE type='trigger'"),
         municipalities: count('SELECT count(*) n FROM "erp_reference__municipality"'),
@@ -47,13 +47,14 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
       return out;
     });
     console.log("ERP_SCHEMA " + JSON.stringify(result));
-    // 1029 = 982 do gerado (com os 9 gatilhos do override sqlTriggers, versão 8)
+    // 1057 = 982 do gerado (com os 9 gatilhos do override sqlTriggers, versão 8)
     // + 2 tabelas só do motor da versão 7 + 15 da versão 9 (as 5 tabelas do
     // cofre, 8 índices e 2 gatilhos) + 30 da versão 10 (as 7 tabelas comerciais,
-    // 8 índices e 15 gatilhos); 444 tabelas.
-    expect(result.first).toMatchObject({ status: "applied", version: ERP_DDL_VERSION, statements: 1029, seedRows: 7586 });
+    // 8 índices e 15 gatilhos) + 28 da versão 11 (as 6 tabelas do Bling,
+    // 12 índices e 10 gatilhos); 450 tabelas, incluindo wb_bling_*.
+    expect(result.first).toMatchObject({ status: "applied", version: ERP_DDL_VERSION, statements: 1057, seedRows: 7586 });
     expect(result.again).toMatchObject({ status: "current" });
-    expect(result.tables).toBe(444);
+    expect(result.tables).toBe(450);
     expect(result.triggers).toBeGreaterThan(148);
     expect(result.municipalities).toBe(5571);
   });
@@ -68,7 +69,7 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
       // Como uma instância criada na versão 5: colunas normalizadas da semeadura NULL.
       sql.exec('UPDATE "erp_catalog__contact_type" SET label__fold = NULL');
       // A versão 5 ainda não tinha as tabelas só do motor (o passo 6→7 as cria).
-      for (const t of ERP_ENGINE_TABLES) sql.exec(`DROP TABLE "${t.table}"`);
+      for (const t of [...ERP_ENGINE_TABLES].reverse()) sql.exec(`DROP TABLE "${t.table}"`);
       sql.exec("UPDATE erp_meta SET value='5' WHERE key='schema_version'");
       const step = migrate(state.storage);
       return { filled, step, after: folds(), again: migrate(state.storage) };
@@ -117,7 +118,7 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
     const out = await runInDurableObject(stub, (_i: any, state: DurableObjectState) => {
       const sql = state.storage.sql;
       migrate(state.storage);
-      for (const t of ERP_ENGINE_TABLES) sql.exec(`DROP TABLE "${t.table}"`);
+      for (const t of [...ERP_ENGINE_TABLES].reverse()) sql.exec(`DROP TABLE "${t.table}"`);
       sql.exec("UPDATE erp_meta SET value='6' WHERE key='schema_version'");
       const t0 = performance.now();
       const step = migrate(state.storage);

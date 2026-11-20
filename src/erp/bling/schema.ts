@@ -52,6 +52,7 @@ export const accessPolicySchema = z.object({
   customer_delivery: z.object({ enabled: z.boolean(), entities: z.array(entity).max(BLING_ENTITIES.length), require_verified_identity: z.literal(true) }).strict(),
 }).strict();
 export const BlingAuthorizationContextSchema: z.ZodType<BlingAuthorizationContext> = z.object({
+  delegation: z.object({ run_id: id, proposal_id: id.optional(), method: z.enum(["GET", "POST"]), path: z.string().min(1).max(2048) }).strict().optional(),
   read_granted: z.boolean().optional(), request_hash: sha.optional(),
   bot: z.object({ id, allowed_operations: z.array(z.enum(BLING_OPERATION_NAMES)).max(18), allowed_entities: z.array(entity).max(BLING_ENTITIES.length), data_scopes: z.array(scopes).max(5), allow_sensitive: z.boolean() }).strict().optional(),
   confirmation: z.object({ operation: z.enum(BLING_OPERATION_NAMES), command_id: id, request_hash: sha, confirmed_by: id, expires_at: count }).strict().optional(),
@@ -225,7 +226,7 @@ export function authorizeBlingOperation<K extends BlingOperationName>(ctx: Bling
   const contextAuthorization = BlingAuthorizationContextSchema.safeParse(ctx.authorization ?? {});
   if (!contextAuthorization.success) throw new BlingError("BLING_SCOPE_REQUIRED");
   const authorization = contextAuthorization.data;
-  if (definition.permission === "admin" && (actor.erp_role !== "admin" || !actor.session_id)) throw new BlingError("BLING_ADMIN_REQUIRED");
+  if (definition.permission === "admin" && (actor.erp_role !== "admin" || !actor.session_id && !(actor.is_agent && authorization.delegation && authorization.bot?.allow_sensitive))) throw new BlingError("BLING_ADMIN_REQUIRED");
   if (definition.permission === "archive_read" && actor.erp_role !== "admin" && !authorization?.read_granted) throw new BlingError("BLING_SCOPE_REQUIRED");
   if (!actor.is_agent) return;
   const body = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};

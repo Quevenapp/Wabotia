@@ -93,7 +93,7 @@ export function createBlingControl(dependencies: BlingControlDependencies) {
     const snapshot = readErpPartsSnapshot({ ...ctx.identity.partsControl, parts: ctx.identity.parts }, ctx.profile, ctx.clock.now());
     if (ctx.profile !== dependencies.profile) throw new BlingError("BLING_SCOPE_REQUIRED");
     if (!snapshot || !snapshot.parts.customers) throw new BlingError("BLING_DISABLED", { status: 409 });
-    if (administrative && (ctx.origin !== "app" || ctx.identity.actor?.erp_role !== "admin" || !ctx.identity.actor.session_id))
+    if (administrative && (ctx.origin !== "app" || ctx.identity.actor?.erp_role !== "admin" || !ctx.identity.actor.session_id && !(ctx.identity.actor.is_agent && ctx.authorization?.delegation && ctx.authorization.bot?.allow_sensitive)))
       throw new BlingError("BLING_ADMIN_REQUIRED");
   }
 

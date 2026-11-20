@@ -84,8 +84,8 @@ describe("operações e permissões do recebimento do Bling", () => {
       const ctx = context(), config = configuration(), input = inputFor(name);
       expect(BLING_OPERATIONS[name].input.safeParse(input).success).toBe(true);
       expect(() => authorizeOperation(ctx, name, input, config, requestHash)).not.toThrow();
-      const disabled = configuration(); disabled.access.bots = [];
-      expect(() => authorizeOperation(ctx, name, input, disabled, requestHash)).toThrow();
+      const disabled = context(); disabled.authorization!.bot!.allowed_operations = [];
+      expect(() => authorizeOperation(disabled, name, input, config, requestHash)).toThrow();
       const withoutEnvelope = context(); delete withoutEnvelope.authorization!.bot;
       expect(() => authorizeOperation(withoutEnvelope, name, input, config, requestHash)).toThrow();
       expect(() => authorizeOperation({ ...ctx, origin: "external" }, name, input, config, requestHash)).toThrow();

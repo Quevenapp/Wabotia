@@ -93,12 +93,23 @@ describe("base Receber dados do Bling", () => {
 
   it("prévia encaminha confirmação pelo hash; sem confirmação a política no servidor recusa", async () => {
     vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(fixedNow);
-    const actor: any = { id: person, kind: "user", role: "admin", scopes: [], via: { bot_id: "bot-equipe", proposal_id: "proposta-confirmada" } };
+    const actor: any = { id: person, kind: "user", role: "admin", scopes: [], sessionId: session, via: { bot_id: "bot-equipe", run_id: "run-equipe", proposal_id: "proposta-confirmada" } };
     const persisted = { access: { reader_user_ids: [], bots: [{ bot_id: "bot-equipe", operations: ["erp_bling_purge_preview"],
       entities: [...BLING_ENTITIES], data_scopes: ["public", "personal", "sensitive", "raw", "xml"], allow_sensitive: false, mask_personal: true }],
       customer_delivery: { enabled: false, entities: [], require_verified_identity: true } } } as BlingPublicConfiguration;
-    let forwarded = 0;
-    const env: any = { COORDINATOR: { idFromName: (name: string) => name, get: () => ({ fetch: async (url: string, init: RequestInit) => {
+    let forwarded = 0, granted = true, claimed = true;
+    const preview = { scope: { all: true, entities: [] }, generation: "1" };
+    const env: any = { DB: { prepare(sql: string) { return { bind(...args: unknown[]) { return { async first() {
+      if (sql.includes("SELECT b.remote_profile")) {
+        expect(args.slice(0, 4)).toEqual(["bot-equipe", area, "run-equipe", person]);
+        return { remote_profile: "default", config: JSON.stringify({ bot_options: { default: { erp_operations: granted ? ["erp_bling_purge_preview"] : [] } } }) };
+      }
+      if (sql.includes("SELECT path,params FROM bot_proposals")) {
+        expect(args).toEqual(["proposta-confirmada", area, person, "bot-equipe", "run-equipe", "POST"]);
+        return claimed ? { path: "erp/v1/receber-bling/apagar/previa", params: JSON.stringify(preview) } : null;
+      }
+      throw new Error("Consulta inesperada.");
+    } }; } }; } }, COORDINATOR: { idFromName: (name: string) => name, get: () => ({ fetch: async (url: string, init: RequestInit) => {
       forwarded++;
       const request = new Request(url, init);
       const call = await prepareBlingDispatch(area, new URL(url).pathname, request, decodeIdentity(request.headers.get(IDENTITY_HEADER)));
@@ -120,6 +131,13 @@ describe("base Receber dados do Bling", () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({ error: { code: "BLING_DISABLED" } });
     expect(forwarded).toBe(1);
+    claimed = false;
+    expect((await forwardBlingOperation(env, area, actor, identity(true, true), req())).status).toBe(403);
+    expect(forwarded).toBe(1);
+    claimed = true; granted = false;
+    expect((await forwardBlingOperation(env, area, actor, identity(true, true), req())).status).toBe(403);
+    expect(forwarded).toBe(1);
+    granted = true;
     delete actor.via.proposal_id;
     expect((await forwardBlingOperation(env, area, actor, identity(true, true), req())).status).toBe(403);
     expect(forwarded).toBe(2);

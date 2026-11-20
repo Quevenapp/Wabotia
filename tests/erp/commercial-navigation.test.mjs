@@ -16,9 +16,10 @@ const screens = [
   ["/preferencias/sistema/consulta-exclusoes", "erp", "customers", "/v1/registro-atividades"],
   ["/cobranca-operacional", "erp-cobranca", "billing", "/v1/cobranca-operacional"],
   ["/retornos-operacionais", "erp-cobranca", "billing", "/v1/retornos-operacionais"],
+  ["/receber-bling", "erp", "customers", "/v1/receber-bling"],
 ];
 
-test("as cinco telas têm menu e ficam subordinadas à sua parte", () => {
+test("as telas reabertas e o Bling têm menu e ficam subordinadas à sua parte", () => {
   const modules = Object.fromEntries(ERP_MODULE_IDS.map(id => [id, true]));
   for (const [screen, owner, part, route] of screens) {
     const item = ERP_MANAGEMENT_ITEMS.find(item => item.target.to.split("?")[0] === screen);
@@ -41,6 +42,7 @@ test("a projeção do menu entrega as telas reabertas ao grupo certo sem ampliar
     ["/retornos-operacionais", "Financeiro", ["admin", "consulta", "financeiro"]],
     ["/preferencias/sistema/registro-atividades", "Sistema", ["admin"]],
     ["/preferencias/sistema/consulta-exclusoes", "Sistema", ["admin"]],
+    ["/receber-bling", "Sistema", ["admin", "consulta", "financeiro", "vendas", "estoque", "fiscal"]],
   ];
   setErpBlocks(modules);
   setMotorReal(true);

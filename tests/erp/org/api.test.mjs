@@ -172,7 +172,7 @@ test("sem privilégio, área ou origem corretos não há efeito; identidade no c
   } finally { f.close(); }
 });
 
-test("leitura concedida funciona desligada; IA padrão recusa, configuração libera e máscara protege conteúdo", async () => {
+test("leitura concedida funciona desligada; concessão ERP lê mascarado e política de IA libera conteúdo", async () => {
   const access = allAccess(); access.reader_user_ids = [actorId];
   const f = fixture({ access });
   try {
@@ -186,7 +186,9 @@ test("leitura concedida funciona desligada; IA padrão recusa, configuração li
     assert.equal(masked.raw.payload_text, "{}"); assert.ok(!JSON.stringify(masked).includes("Nome pessoal"));
     await rejectsCode(f.api.execute(bot, "erp_bling_xml_get", { object_id: "xml-1" }), "BLING_SCOPE_REQUIRED");
     f.db.prepare("UPDATE wb_bling_control SET permissions=?").run(JSON.stringify(emptyAccess()));
-    await rejectsCode(f.api.execute(bot, "erp_bling_records_list", { entity: "products" }), "BLING_SCOPE_REQUIRED");
+    assert.equal((await f.api.execute(bot, "erp_bling_records_list", { entity: "products" })).items.length, 1);
+    assert.equal((await f.api.execute(bot, "erp_bling_record_get", { entity: "products", id: "1" })).raw.payload_text, "{}");
+    await rejectsCode(f.api.execute({ ...bot, authorization: undefined }, "erp_bling_records_list", { entity: "products" }), "BLING_SCOPE_REQUIRED");
     await rejectsCode(f.api.execute(lower, "erp_bling_records_list", { entity: "products" }), "BLING_SCOPE_REQUIRED"); f.verify();
   } finally { f.close(); }
 });
@@ -297,7 +299,7 @@ for (const revoked of ["pessoa", "bot", "sessão"]) {
         if (revoked === "sessão") active = false;
         else {
           if (revoked === "pessoa") access.reader_user_ids = [];
-          else access.bots[0].operations = [];
+          else access.bots[0].data_scopes = [];
           f.db.prepare("UPDATE wb_bling_control SET permissions=?").run(JSON.stringify(access));
         }
         return result;

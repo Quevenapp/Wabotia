@@ -120,17 +120,29 @@ async function installationOrigin(env: Env): Promise<string> {
 /** Revalidação privada por id público da sessão; nenhum bearer entra no ERP. */
 async function currentSession(env: Env, ctx: BlingContext): Promise<IdentityPort> {
   const person = ctx.identity.actor;
-  if (!person?.session_id) throw new BlingError("BLING_ADMIN_REQUIRED");
-  const [{ actorForUser, canProfile }, { erpIdentity }, { sessionAal, requireSchedule }] = await Promise.all([
-    import("../../security"), import("../../modules/erp/identity"), import("../../mfa")]);
-  const row = await env.DB.prepare("SELECT s.kind,s.aal,s.mfa_at,u.role,u.schedule FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.user_id=? AND s.expires>? AND u.disabled=0")
-    .bind(person.session_id, person.user_id, ctx.clock.now()).first<{ kind: string; aal: number; mfa_at: number; role: string; schedule: unknown }>();
+  const delegation = ctx.authorization?.delegation;
+  const team = person?.is_agent && delegation && ctx.authorization?.bot;
+  if (!person || !person.session_id && !team) throw new BlingError("BLING_ADMIN_REQUIRED");
+  const [{ actorForUser, canProfile }, { erpIdentity }, { sessionAal, requireSchedule }, { erpBotDelegation }] = await Promise.all([
+    import("../../security"), import("../../modules/erp/identity"), import("../../mfa"), import("../../modules/erp/bot-access.ts")]);
+  const row = person.session_id
+    ? await env.DB.prepare("SELECT s.kind,s.aal,s.mfa_at,u.role,u.schedule FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.user_id=? AND s.expires>? AND u.disabled=0")
+      .bind(person.session_id, person.user_id, ctx.clock.now()).first<{ kind: string; aal: number; mfa_at: number; role: string; schedule: unknown }>()
+    : await env.DB.prepare("SELECT role,schedule FROM users WHERE id=? AND disabled=0").bind(person.user_id)
+      .first<{ kind: string; aal: number; mfa_at: number; role: string; schedule: unknown }>();
   const actor = row && await actorForUser(env, person.user_id);
   if (!row || !actor || !canProfile(actor, ctx.profile)) throw new BlingError("BLING_ADMIN_REQUIRED");
   requireSchedule(row);
-  actor.sessionId = person.session_id; actor.aal = sessionAal(row.kind, row.aal, row.mfa_at, ctx.clock.now());
-  if (person.is_agent && ctx.authorization?.bot) actor.via = { bot_id: ctx.authorization.bot.id, kind: "bot", run_id: "bling-session", masked: true };
-  return erpIdentity(env, actor, ctx.profile, "POST");
+  if (person.session_id) {
+    actor.sessionId = person.session_id; actor.aal = sessionAal(row.kind, row.aal, row.mfa_at, ctx.clock.now());
+  }
+  if (person.is_agent) {
+    if (!delegation || !ctx.authorization?.bot) throw new BlingError("BLING_SCOPE_REQUIRED");
+    actor.via = { bot_id: ctx.authorization.bot.id, kind: "bot", run_id: delegation.run_id, proposal_id: delegation.proposal_id, masked: true };
+    if (delegation.proposal_id && !await erpBotDelegation(env, actor, ctx.profile, delegation.method, delegation.path))
+      throw new BlingError("BLING_SCOPE_REQUIRED");
+  }
+  return erpIdentity(env, actor, ctx.profile, delegation?.method ?? "POST", delegation?.path);
 }
 /** Produção usa apenas D1/R2 já existentes e o SQLite da mesma área. */
 export async function createBlingAssembly(dependencies?: BlingAssemblyDependencies): Promise<BlingAssembly> {
@@ -335,23 +347,24 @@ export async function forwardBlingOperation(env: Env, profile: string, actor: Ac
       }
     }
     const context: BlingContext = { profile, identity, origin: actor.kind === "user" || actor.kind === "app" && !actor.id.startsWith("bot:") && !actor.scopes.includes("conversations:bound") ? "app" : "external", clock: { now: () => Date.now() } };
-    // actor.via é produzido pelo núcleo após aplicar pessoa ∩ bot. O envelope
-    // permite somente esta operação; a instância cruza cada campo com a política
-    // persistida da área antes de consultar qualquer dado ou efetuar comando.
-    if (actor.kind === "user" && actor.via) context.authorization = { bot: {
-      id: actor.via.bot_id, allowed_operations: [match.operation.name], allowed_entities: [...BLING_ENTITIES],
-      data_scopes: ["public", "personal", "sensitive", "raw", "xml"], allow_sensitive: !actor.via.proposal_id,
-    } };
-    // A confirmação foi validada pelo núcleo e é limitada ao comando exato.
-    // Leituras de dados por IA ainda exigem concessões persistentes próprias.
-    if (actor.kind === "user" && actor.via?.proposal_id && match.operation.permission === "admin" && raw && typeof raw === "object" &&
-        ("command_id" in raw || match.operation.name === "erp_bling_purge_preview")) {
+    // A fonte da concessão é a mesma do ERP. A marca de proposta só vale
+    // depois de conferir pessoa/bot/área, execução reclamada e corpo integral.
+    if (actor.kind === "user" && actor.via) {
+      const { erpBotOperationGranted, erpBotDelegation } = await import("../../modules/erp/bot-access.ts");
+      if (!identity.actor?.is_agent || !await erpBotOperationGranted(env, actor, profile, match.operation.name))
+        throw new BlingError("BLING_SCOPE_REQUIRED");
       raw = parseBlingOperationInput(match.operation.name, raw);
       const hash = await requestHash(raw);
+      const confirmed = !!actor.via.proposal_id && await erpBotDelegation(env, actor, profile, request.method, url.pathname, raw);
+      if (actor.via.proposal_id && !confirmed) throw new BlingError("BLING_SCOPE_REQUIRED");
       context.authorization = { request_hash: hash,
-        bot: { id: actor.via.bot_id, allowed_operations: [match.operation.name], allowed_entities: [...BLING_ENTITIES], data_scopes: ["public", "personal", "sensitive", "raw", "xml"], allow_sensitive: false },
-        confirmation: { operation: match.operation.name, command_id: match.operation.name === "erp_bling_purge_preview" ? hash : String((raw as { command_id: string }).command_id),
-          request_hash: hash, confirmed_by: actor.id, expires_at: context.clock.now() + 60_000 } };
+        delegation: { run_id: actor.via.run_id, proposal_id: actor.via.proposal_id, method: match.operation.method, path: url.pathname },
+        bot: { id: actor.via.bot_id, allowed_operations: [match.operation.name], allowed_entities: [...BLING_ENTITIES],
+          data_scopes: ["public", "personal", "sensitive", "raw", "xml"], allow_sensitive: !confirmed },
+        ...(confirmed ? { confirmation: { operation: match.operation.name,
+          command_id: match.operation.name === "erp_bling_purge_preview" ? hash : String((raw as { command_id: string }).command_id),
+          request_hash: hash, confirmed_by: actor.id, expires_at: context.clock.now() + 60_000 } } : {}),
+      };
     }
     boundaryAuthorization(context, match.operation.name);
     const input = parseBlingOperationInput(match.operation.name, raw);

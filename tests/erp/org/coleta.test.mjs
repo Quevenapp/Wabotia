@@ -480,7 +480,8 @@ test("pedido administrativo aplica pessoa ∩ bot e teto da origem externa", () 
     const enabled = { ...bot, authorization: { bot: { id: "bot", allowed_operations: ["erp_bling_collect_request"], allowed_entities: ["contacts"], data_scopes: [], allow_sensitive: true } } };
     assert.throws(() => f.store.requestCollection({ ...enabled, origin: "external" }, input), error => error.code === "BLING_ADMIN_REQUIRED");
     assert.throws(() => f.store.requestCollection(enabled, input), error => error.code === "BLING_SCOPE_REQUIRED");
-    f.db.prepare("UPDATE wb_bling_control SET permissions=?").run(JSON.stringify({ bots: [{ bot_id: "bot", operations: ["erp_bling_collect_request"], entities: ["contacts"] }] }));
+    f.db.prepare("UPDATE wb_bling_control SET permissions=?").run(JSON.stringify({ bots: [{ bot_id: "bot", operations: [], entities: ["contacts"], allow_sensitive: true }] }));
+    assert.throws(() => f.store.requestCollection({ ...enabled, authorization: { bot: { ...enabled.authorization.bot, allowed_operations: [] } } }, input), error => error.code === "BLING_SCOPE_REQUIRED");
     const result = f.store.requestCollection(enabled, input);
     assert.equal(result.receipt.state, "committed");
     assert.deepEqual(f.store.requestCollection(enabled, input), result);
@@ -492,7 +493,7 @@ test("pedido manual separa passagens de entidade do trabalho XML e mantém repla
   const f = storeFixture();
   try {
     f.db.prepare("UPDATE wb_bling_control SET selection=?,permissions=?").run(JSON.stringify([{ key: "contacts", selected: true }, { key: "fiscal_xml", selected: true }]),
-      JSON.stringify({ bots: [{ bot_id: "bot", operations: ["erp_bling_collect_request"], entities: ["nfe"] }] }));
+      JSON.stringify({ bots: [{ bot_id: "bot", operations: [], entities: ["nfe"], allow_sensitive: true }] }));
     const app = { ...f.ctx, origin: "app", identity: { ...f.ctx.identity, actor } };
     const input = { command_id: "manual-with-xml", expected_revision: "1", resource_keys: ["contacts", "fiscal_xml"] };
     const result = f.store.requestCollection(app, input);

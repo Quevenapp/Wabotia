@@ -54,7 +54,7 @@ const built = await build({ stdin: { resolveDir: root, contents: `
   export {markPaid} from './src/modules/pedido/manage.ts';
   export {addPayment,voidPayment,closeTab} from './src/modules/mesas/tabs.ts';
 
-` }, bundle: true, write: false, format: "esm", platform: "node", logLevel: "silent", plugins: [{ name: "offline-runtime", setup(b) {
+` }, bundle: true, write: false, format: "esm", platform: "node", mainFields: ["module", "main"], logLevel: "silent", plugins: [{ name: "offline-runtime", setup(b) {
   b.onResolve({ filter: /^cloudflare:workers$/ }, () => ({ path: "runtime", namespace: "offline" }));
   b.onLoad({ filter: /.*/, namespace: "offline" }, () => ({ contents: "export class DurableObject { constructor(ctx,env){this.ctx=ctx;this.env=env;} }" }));
 } }] });

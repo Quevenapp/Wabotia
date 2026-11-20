@@ -232,10 +232,13 @@ function commercialRows(db) {
   return { emission, command, document, person };
 }
 
-test("v10 vazia é repetível; sete tabelas STRICT, restrições antigas preservadas", () => {
+test("v11 vazia tem 1057 instruções e 450 tabelas; repetição e restrições comerciais preservadas", () => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys=ON");
-  assert.equal(migrate(storage(db)).version, ERP_DDL_VERSION);
+  const first = migrate(storage(db));
+  assert.equal(first.version, ERP_DDL_VERSION);
+  assert.equal(first.statements, 1057);
+  assert.equal(tablesOf(db).length, 450);
   assert.equal(migrate(storage(db)).status, "current");
   assert.equal(commercialTables.length, 7);
   for (const table of commercialTables) {
@@ -357,10 +360,10 @@ for (const from of [9, 10]) test(`v${from} sobe à v11 sem tocar conteúdo prév
   db.close();
 });
 
-test("backup exclui credencial e estado OAuth; restauração suspende coleta, invalida aprovação e posses", () => {
-  const db = new DatabaseSync(":memory:");
-  db.exec("PRAGMA foreign_keys=ON");
+for (const from of [9, 10]) test(`backup após v${from}→11 conserva NF-e e dados operacionais; restauração suspende coleta, credenciais e posses`, () => {
+  const db = from === 9 ? versionNineObject() : versionTenObject();
   migrate(storage(db));
+  if (from === 9) commercialRows(db);
   const instant = 1_795_089_600_000;
   const credential = randomUUID(); // Só material sintético gerado em memória, nunca gravado em arquivo.
   // A migração já semeia a conta legada única; a credencial usa essa mesma FK.
@@ -382,6 +385,7 @@ test("backup exclui credencial e estado OAuth; restauração suspende coleta, in
   db.prepare(`INSERT INTO wb_bling_extra_raw(entity,source_id,generation,last_resource,payload,version_hash,first_seen_at,last_seen_at,changed_at)
     VALUES('contracts','900719925474099312345',2,'contracts','{"total":"123.4500"}',?,?,?,?)`).run(hash, instant, instant, instant);
   const snapshot = dumpAll(storage(db));
+  for (const table of commercialTables) assert.ok(snapshot.manifest.tables.some(t => t.table === table), table);
   const text = JSON.stringify(snapshot);
   for (const excluded of [credential, oauthHash, browserHash, "old-fence", "origin_sync__credentials", "origin_sync__oauth_state"])
     assert.equal(text.includes(excluded), false, "backup não pode conter material privado nem posses reutilizáveis");
@@ -414,6 +418,10 @@ test("backup exclui credencial e estado OAuth; restauração suspende coleta, in
   for (const table of ["origin_sync__credentials", "origin_sync__oauth_state"])
     assert.equal(restored.prepare(`SELECT count(*) n FROM ${q(table)}`).get().n, 0);
   assert.deepEqual(content(restored, ["wb_bling_extra_raw"]), content(db, ["wb_bling_extra_raw"]));
+  const operationalTables = tablesOf(db).filter(table => table.startsWith("erp_"));
+  assert.deepEqual(content(restored, operationalTables), content(db, operationalTables));
+  assert.deepEqual(schema(restored), schema(db));
+  assert.throws(() => restored.exec("DELETE FROM erp_fiscal_vault__order_revision"), /com1_history_immutable/);
   // Restaurar de novo nunca faz a revisão regredir ao valor do backup.
   restored.exec("UPDATE wb_bling_control SET revision=20,authorization_revision=20,credential_revision=20");
   restoreAll(storage(restored), snapshot.manifest, new Map(snapshot.files.map(f => [f.table, f.body])));

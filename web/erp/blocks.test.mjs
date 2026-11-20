@@ -8,6 +8,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { blockOf, hiddenInWabotia } from "./blocks.ts";
 import { panelRequestAllowed } from "./fetch-port.ts";
 import { ERP_MODULE_IDS } from "../../src/erp/parts.ts";
+import { BLING_OPERATIONS } from "../../src/erp/bling/schema.ts";
 import { erpChunk } from "./chunks.ts";
 import {
   PREFERENCE_PAGES,
@@ -84,6 +85,19 @@ const SCREENS = [
 test("cada tela fica no bloco da rota que ela chama", () => {
   for (const [screen, api] of SCREENS)
     assert.equal(blockOf(screen), motorBlockOf(api), `${screen} → ${api}`);
+});
+
+test("todas as operações do Bling dependem só da Base, inclusive quando as partes operacionais estão desligadas", async () => {
+  const baseOnly = Object.fromEntries(ERP_MODULE_IDS.map(id => [id, id === "erp"]));
+  const operations = Object.values(BLING_OPERATIONS).filter(operation => operation.permission !== "oauth_callback");
+  assert.equal(operations.length, 17);
+  assert.equal(blockOf("/receber-bling"), "erp");
+  for (const operation of operations) {
+    const path = `/v1/receber-bling${operation.path === "/" ? "" : operation.path}`.replace(/:[a-zA-Z_]+/g, "id");
+    assert.equal(motorBlockOf(path), "erp", operation.name);
+    assert.equal(await panelRequestAllowed(path, operation.method, undefined, baseOnly), true, operation.name);
+    assert.equal(await panelRequestAllowed(path, operation.method, undefined, { ...baseOnly, erp: false }), false, operation.name);
+  }
 });
 
 test("cada página de preferências fica no bloco da rota /v1/preferencias dela", () => {
