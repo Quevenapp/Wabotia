@@ -2,7 +2,7 @@
 // contrato (src/erp/emissor/contract/openapi.json) muda e o resto não
 // acompanha: tipos gerados, operações do cliente, situações e respostas.
 // Para atualizar: node src/erp/emissor/contract/sync.mjs <openapi.json novo>.
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import contract from "../../../src/erp/emissor/contract/openapi.json";
 import typesSource from "../../../src/erp/emissor/contract/types.generated.ts?raw";
 import {
@@ -17,8 +17,9 @@ import {
   CONTRACT_ERROR_CODES,
   CONTRACT_OPERATIONS,
   CONTRACT_VERSION,
+  type EmissaoNfse,
 } from "../../../src/erp/emissor/contract/types.generated.ts";
-import { BROWSER_ONLY_OPERATIONS, CLIENT_OPERATIONS, OPERATION_MIN_VERSION, olderThan } from "../../../src/erp/emissor/nfapi.ts";
+import { BROWSER_ONLY_OPERATIONS, CLIENT_OPERATIONS, OPERATION_MIN_VERSION, olderThan, type NfapiClient, type NfapiResponse } from "../../../src/erp/emissor/nfapi.ts";
 import { ERROR_MAP, KNOWN_SITUACOES } from "../../../src/erp/emissor/nfapi-provider.ts";
 import { requestExample, requestSchema, validate } from "./schema";
 
@@ -27,7 +28,7 @@ const clone = () => structuredClone(spec) as OpenApi;
 
 /** Contrato conhecido por este cliente. Mudou? Revise o cliente e atualize. */
 const EXPECTED = {
-  version: "0.11.0",
+  version: "0.12.0",
   operations: {
     "POST /v1/nfe": ["200", "201", "400", "401", "403", "409", "422", "500", "502", "503"],
     "GET /v1/nfe": ["200", "401", "500", "503"],
@@ -72,6 +73,7 @@ const EXPECTED = {
     "GET /v1/nfse/{id}/xml": ["200", "401", "404", "500", "503"],
     "GET /v1/nfse/{id}/cancelamento/xml": ["200", "401", "404", "500", "503"],
     "POST /v1/nfse/{id}/cancelar": ["200", "400", "401", "403", "404", "409", "422", "500", "502", "503"],
+    "POST /v1/nfse/{id}/conferir": ["200", "401", "403", "404", "409", "500", "502", "503"],
     "POST /v1/inutilizacoes": ["200", "201", "400", "401", "403", "409", "422", "500", "502", "503"],
     "GET /v1/inutilizacoes": ["200", "400", "401", "500", "503"],
     "GET /v1/inutilizacoes/{id}": ["200", "401", "404", "500", "503"],
@@ -153,7 +155,25 @@ describe("contrato do cofre NFapi", () => {
 
   it("operações e respostas são as conhecidas pelo cliente", () => {
     const ops = Object.fromEntries(operationsOf(spec).map((op) => [op.key, op.responses]));
+    expect(Object.keys(ops)).toHaveLength(53);
     expect(ops).toEqual(EXPECTED.operations);
+  });
+
+  it("conferir NFS-e não recebe cancelamento novo e informa alteração na emissão", () => {
+    const operation = spec.paths["/v1/nfse/{id}/conferir"].post;
+    expect(operation.requestBody).toBeUndefined();
+    expect(operation.parameters).toEqual([{
+      name: "id", in: "path", required: true, schema: { type: "string" }, description: "Id da emissão no cofre.",
+    }]);
+    expect(operation.responses["200"].content["application/json"].schema).toEqual({
+      allOf: [
+        { $ref: "#/components/schemas/EmissaoNfse" },
+        { type: "object", properties: { alterada: { type: "boolean" } } },
+      ],
+    });
+    expect(OPERATION_MIN_VERSION["POST /v1/nfse/{id}/conferir"]).toBe("0.12.0");
+    expectTypeOf<Awaited<ReturnType<NfapiClient["conferir"]>>>()
+      .toEqualTypeOf<NfapiResponse<EmissaoNfse & { alterada?: boolean }>>();
   });
 
   it("o cliente cobre todas as operações do contrato, e só elas", () => {
@@ -292,12 +312,17 @@ describe("comparação de contratos", () => {
     expect(contractDiff(spec, other)).toEqual(["schema alterado: Cofre", "schema alterado: EmissaoNfe"]);
   });
 
-  it("versões compatíveis antes da 1.0 só na mesma minor", () => {
+  it("mesma major aceita minor mais nova; mínimos pertencem a cada recurso", () => {
     expect(compatibleVersion("0.3.1", "0.3.7")).toBe(true);
     expect(compatibleVersion("0.3.1", "0.3.0")).toBe(true);
-    expect(compatibleVersion("0.3.1", "0.4.0")).toBe(false);
+    expect(compatibleVersion("0.3.1", "0.4.0")).toBe(true);
+    expect(compatibleVersion("0.12.0", "0.13.0")).toBe(true);
+    expect(compatibleVersion("0.12.0", "0.8.0")).toBe(true);
+    expect(compatibleVersion("0.12.0", "1.0.0")).toBe(false);
     expect(compatibleVersion("1.2.0", "1.3.0")).toBe(true);
     expect(compatibleVersion("1.2.0", "2.0.0")).toBe(false);
     expect(compatibleVersion("0.3.1", "lixo")).toBe(false);
+    for (const invalid of ["0.12", "0.12.0lixo", "0.12.0.1", "v0.12.0", " 0.12.0", "0.12.0 ", "00.12.0"])
+      expect(compatibleVersion("0.12.0", invalid), invalid).toBe(false);
   });
 });

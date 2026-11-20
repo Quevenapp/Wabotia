@@ -246,12 +246,16 @@ export function contractDiff(pinned: OpenApi, other: OpenApi): string[] {
   return out;
 }
 
-/** "0.3.0" e "0.3.7" são compatíveis; "0.4.0" não (antes da 1.0, a minor quebra). */
+/** Versão completa do contrato; texto parcial ou sufixo ilegível não serve de evidência. */
+export function parseContractVersion(version: string): number[] | null {
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.exec(version);
+  if (!match) return null;
+  const parts = match.slice(1, 4).map(Number);
+  return parts.every(Number.isSafeInteger) ? parts : null;
+}
+
+/** Mesma major é compatível, inclusive antes da 1.0; mínimos são conferidos por recurso. */
 export function compatibleVersion(pinned: string, other: string) {
-  const parse = (v: string) => /^(\d+)\.(\d+)\.(\d+)/.exec(v)?.slice(1).map(Number) ?? null;
-  const p = parse(pinned),
-    o = parse(other);
-  if (!p || !o) return false;
-  if (p[0] === 0) return o[0] === 0 && o[1] === p[1];
-  return o[0] === p[0] && o[1] >= p[1];
+  const p = parseContractVersion(pinned), o = parseContractVersion(other);
+  return !!p && !!o && p[0] === o[0];
 }

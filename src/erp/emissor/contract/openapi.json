@@ -2,7 +2,7 @@
 	"openapi": "3.1.0",
 	"info": {
 		"title": "Cofre NFapi",
-		"version": "0.11.0",
+		"version": "0.12.0",
 		"description": "API de emissão de notas fiscais do cofre NFapi, que roda na conta Cloudflare do emitente. Todas as chamadas levam uma chave de API criada na tela /setup do cofre. O cofre não calcula imposto: o sistema que chama informa bases, alíquotas e valores; o cofre numera, monta o XML, soma os totais, assina, transmite e arquiva. Erros vêm sempre como `{ \"erro\": { \"codigo\", \"mensagem\" } }`.",
 		"license": {
 			"name": "MIT"
@@ -4482,6 +4482,120 @@
 					},
 					"422": {
 						"description": "Recusado pelo governo ou barrado pelo cofre antes de transmitir. Com rejeição, o corpo traz a emissão e as mensagens (cStat e xMotivo).",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"500": {
+						"description": "Falha inesperada do cofre (erro_interno). Pode ser repetido; com referência, a repetição é segura.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"502": {
+						"description": "Sem resposta conclusiva do governo. Repita o pedido com a mesma referência: o cofre consulta antes de reenviar.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"503": {
+						"description": "O cofre não está pronto para atender (cofre_nao_configurado): a instalação não foi concluída.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		"/v1/nfse/{id}/conferir": {
+			"post": {
+				"tags": [
+					"NFS-e"
+				],
+				"summary": "Confere na SEFIN se a NFS-e foi cancelada por fora do cofre",
+				"description": "Para a nota cancelada no portal nacional, por outro sistema ou pelo município. O cofre consulta os eventos de cancelamento da nota na SEFIN Nacional; achando um, arquiva o evento e a emissão passa a `cancelada`. Nada é registrado no governo. `alterada` diz se a situação mudou nesta chamada.",
+				"parameters": [
+					{
+						"name": "id",
+						"in": "path",
+						"required": true,
+						"schema": {
+							"type": "string"
+						},
+						"description": "Id da emissão no cofre."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "A emissão, com a situação conferida.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"allOf": [
+										{
+											"$ref": "#/components/schemas/EmissaoNfse"
+										},
+										{
+											"type": "object",
+											"properties": {
+												"alterada": {
+													"type": "boolean"
+												}
+											}
+										}
+									]
+								}
+							}
+						}
+					},
+					"401": {
+						"description": "Chave de API ausente, inválida ou revogada.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"403": {
+						"description": "A chave só opera em homologação.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"404": {
+						"description": "Emissão inexistente.",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/Erro"
+								}
+							}
+						}
+					},
+					"409": {
+						"description": "Conflito: referência em andamento, referência reenviada com outro conteúdo, certificado ausente ou nota em situação que não permite a operação.",
 						"content": {
 							"application/json": {
 								"schema": {
