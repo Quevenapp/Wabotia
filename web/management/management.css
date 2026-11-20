@@ -76,6 +76,10 @@
 .management-menu a[aria-current="page"] { background: var(--brand-soft); color: var(--brand-strong); font-weight: 600; }
 .management-menu a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .management-content { display: flex; flex-direction: column; overflow: auto; min-width: 0; min-height: 0; }
+/* O cabeçalho do documento e o do cadastro de produto não flutuam sobre a tela: ficam no lugar e rolam com ela. */
+:root .management-content .fagoo-document-header,
+:root .management-content .real-editor-heading.catalog-editor-heading { position: static !important; background: var(--surface) !important; backdrop-filter: none !important; }
+:root .management-content .fagoo-document-editor :is(#document-identification, #document-line-items, #document-payment, #document-delivery, #document-notes, #document-operations) { scroll-margin-top: 12px !important; }
 .management-state { margin: auto; padding: 24px; width: 100%; }
 .management-home { padding: 24px; }
 .management-home > p { color: var(--text-2); }

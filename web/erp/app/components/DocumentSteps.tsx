@@ -49,10 +49,11 @@ export function useDocumentSteps(steps:readonly DocumentStep[],{canSave,focusFir
   const section=header.parentElement;let frame=0;
   const measure=()=>section?.style.setProperty('--document-header-height',`${Math.ceil(header.getBoundingClientRect().height)}px`);
   const spy=()=>{
-   frame=0;const limit=header.getBoundingClientRect().bottom+40,list=live.current.visible;let current=list[0]?.id??'';
+   // Wabotia: o cabeçalho pode não estar fixo (rola com a tela): a referência é ele ou o topo da área que rola, o que estiver mais abaixo.
+   const scroller=scrollerOf(header);
+   frame=0;const limit=Math.max(header.getBoundingClientRect().bottom,scroller?.getBoundingClientRect().top??0)+40,list=live.current.visible;let current=list[0]?.id??'';
    for(const step of list){const element=doc.getElementById(step.id);if(element&&element.getBoundingClientRect().top<=limit)current=step.id;}
    // Fim da rolagem marca o último passo, mas só quando há rolagem e ela andou: tela que cabe inteira fica no primeiro.
-   const scroller=scrollerOf(header);
    const atEnd=scroller?scroller.scrollTop>0&&scroller.scrollTop+scroller.clientHeight>=scroller.scrollHeight-4
     :win.scrollY>0&&win.innerHeight+win.scrollY>=doc.documentElement.scrollHeight-4;
    if(atEnd){const last=[...list].reverse().find(step=>doc.getElementById(step.id));if(last)current=last.id;}
