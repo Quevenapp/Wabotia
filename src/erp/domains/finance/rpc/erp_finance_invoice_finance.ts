@@ -19,6 +19,7 @@ import {
   insertAudit,
   jsonArg,
   keys,
+  LIVE_BILLING_SQL,
   requireAccess,
   setFlag,
   txt,
@@ -288,7 +289,8 @@ function reverse(ctx: RpcContext, a: RpcArgs) {
   if (p.state !== "active" || p.version !== expected(field(data, "expected_version"))) raise("40001", "erp_finance_invoice_version_conflict");
   if (
     one(db, 'SELECT 1 x FROM "erp_finance__title" t JOIN "erp_finance__invoice_title" l ON l.title_id=t.id WHERE l.posting_id=? AND t.settled_cents<>0 LIMIT 1', p.id) ||
-    one(db, 'SELECT 1 x FROM "erp_cnab__billing_title" b JOIN "erp_finance__invoice_title" l ON l.title_id=b.title_id WHERE l.posting_id=? LIMIT 1', p.id)
+    // Desvio "titulo-cobranca-bancaria": só a cobrança viva trava (sem homologação nem boleto declarado baixado).
+    one(db, `SELECT 1 x FROM "erp_cnab__billing_title" b JOIN "erp_finance__invoice_title" l ON l.title_id=b.title_id WHERE l.posting_id=? AND ${LIVE_BILLING_SQL} LIMIT 1`, p.id)
   )
     raise("40001", "erp_finance_invoice_reverse_blocked");
   const note = txt(data, "reason", 1000, true)!;

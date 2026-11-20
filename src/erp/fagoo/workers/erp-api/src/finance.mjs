@@ -32,6 +32,8 @@ const ACTIONS = {
   title_create: ['kind','contact_id','category_id','account_id','description','source_reference','bank_number','issued_on','competence_on','interest_month_bp','penalty_bp','total_cents','installments','payment_method_id','seller_id'],
   title_edit: ['id','expected_version','contact_id','category_id','account_id','description','source_reference','bank_number','issued_on','competence_on','due_on','amount_cents','interest_month_bp','penalty_bp','payment_method_id','seller_id'],
   title_delete: ['id','expected_version','note'],
+  // Local (junção): cancelar a conta declarando o boleto baixado no banco; motivo obrigatório.
+  title_bank_writeoff: ['id','expected_version','reason'],
 };
 const TITLE_DRAWER_ACTIONS=['title_create','title_edit','title_delete'];
 // SQL 210: the gaveta keeps the whole Histórico (2.000); every other reader keeps its first 240 characters (description).
@@ -59,7 +61,7 @@ function validateData(action, data) {
       if (!Array.isArray(value) || value.length < 1 || value.length > 120) invalid();
       value.forEach(part => { exact(part,['amount_cents','due_on']); if (typeof part.amount_cents !== 'string' || !/^\d{1,15}$/.test(part.amount_cents)) invalid(); date(part.due_on); });
     } else {
-      const max = key === 'note' ? 500 : key === 'description' ? (TITLE_DRAWER_ACTIONS.includes(action) ? HISTORY_LIMIT : 240) : key === 'kind' ? 20 : key === 'bank_number' ? 60 : 200;
+      const max = key === 'note' || key === 'reason' ? 500 : key === 'description' ? (TITLE_DRAWER_ACTIONS.includes(action) ? HISTORY_LIMIT : 240) : key === 'kind' ? 20 : key === 'bank_number' ? 60 : 200;
       if (value !== null && (typeof value !== 'string' || value.length > max || /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value))) invalid();
     }
   }
@@ -70,6 +72,7 @@ function validateData(action, data) {
     settle:['id','expected_version','account_id','posted_on','principal_cents'],
     reverse:['id','expected_version','settlement_id','posted_on','note'], opening:['id','expected_version','amount_cents','posted_on','note'],
     title_create:['kind','contact_id','description','issued_on','competence_on','total_cents','installments'], title_edit:['id','expected_version'], title_delete:['id','expected_version'],
+    title_bank_writeoff:['id','expected_version','reason'],
   }[action];
   // The drawer never clears contato, emissão, competência, vencimento, valor, histórico or percentuais.
   if (action === 'title_edit' && ['contact_id','issued_on','competence_on','due_on','amount_cents','description','interest_month_bp','penalty_bp'].some(key => data[key] === null)) invalid();
@@ -387,6 +390,8 @@ export async function executeFinanceRoute(route,{userId,rpc}){
   if(value.settlement!==undefined)output.settlement=projectRecord('settlements',value.settlement);
   if(value.account!==undefined)output.account=projectRecord('accounts',value.account);
   if(value.note!==undefined){if(value.note!==null&&(typeof value.note!=='string'||value.note.length>500))upstreamInvalid();output.note=value.note;}
+  if(route.action==='title_bank_writeoff'){const w=value.bank_writeoff;if(!object(w)||!UUID.test(w.billing_title_id||'')||!UUID.test(w.remittance_id||''))upstreamInvalid();
+    output.bank_writeoff={billing_title_id:w.billing_title_id,remittance_id:w.remittance_id,reason:w.reason,declared_by:w.declared_by,declared_at:w.declared_at,bank_instruction_generated:false};}
   return output;
 }
 

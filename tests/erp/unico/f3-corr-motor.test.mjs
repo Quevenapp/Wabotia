@@ -361,7 +361,7 @@ test("boleto bloqueia cancelamento automático desligado e conserva estoque e re
   const f = fixture(t), result = await f.run(f.enqueue());
   const profile = randomUUID(), remittance = randomUUID(), title = result.links.find(l => l.kind === "title").id;
   f.lite.prepare("INSERT INTO erp_cnab__profile(id,account_id,identity,settings,account_scope,next_sequence,created_at,updated_at) VALUES(?,?,'{}','{}','test',1,0,0)").run(profile, f.account.id);
-  f.lite.prepare("INSERT INTO erp_cnab__remittance(id,profile_id,sequence,generated_on,snapshot,actor,created_at) VALUES(?,?,1,'2026-11-18','{}',?,0)").run(remittance, profile, ADMIN);
+  f.lite.prepare("INSERT INTO erp_cnab__remittance(id,profile_id,sequence,generated_on,snapshot,actor,created_at,purpose) VALUES(?,?,1,'2026-11-18','{}',?,0,'operational')").run(remittance, profile, ADMIN);
   f.lite.prepare("INSERT INTO erp_cnab__billing_title(id,title_id,profile_id,remittance_id,control,document_number,snapshot) VALUES(?,?,?,?,'control','document','{}')").run(randomUUID(), title, profile, remittance);
   const commands = f.count("erp_documents__command");
   await assert.rejects(f.run(f.enqueue({ operation: "cancel", lifecycle: { base_status: "cancelled" }, reason: "source_cancelled",

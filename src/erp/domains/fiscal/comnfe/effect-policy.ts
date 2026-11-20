@@ -56,16 +56,62 @@ export function withCom1Compensation<T>(ctx: RpcContext, documentId: string, run
   try { return run(); } finally { compensation.delete(ctx); }
 }
 
+/** Compensação da nota que ainda responde pelo lançamento ativo do pedido:
+ * emissão cancelada cujo efeito no eixo aponta para um lançamento ativo
+ * (próprio ou de nota legada) e não foi revertido nem transferido para outra
+ * versão. Compensação concluída ou transferida não trava nada. Faturamento
+ * agrupado não entra: a compensação da nota manda revisá-lo manualmente. */
+function openCompensation(ctx: RpcContext, documentId: string, axis: EffectAxis): boolean {
+  const active = new Set(ctx.db.exec(`SELECT id FROM erp_${axis}__document_posting WHERE document_id=? AND state='active'
+    UNION SELECT p.id FROM erp_${axis}__invoice_posting p JOIN erp_fiscal_invoices__invoice_order o ON o.invoice_id=p.invoice_id
+      WHERE o.document_id=? AND p.state='active'`, documentId, documentId).rows.map(row => String(row.id)));
+  if (!active.size) return false;
+  return ctx.db.exec(`SELECT json_extract(f.ids,'$.posting_id') AS posting_id,f.compensation_state,
+      json_extract(f.compensation_result,'$.reason') AS reason FROM erp_fiscal_vault__order_effect f
+    JOIN erp_fiscal_vault__order_emission e ON e.id=f.emission_id
+    WHERE e.document_id=? AND e.status='cancelada' AND f.axis=? AND f.fingerprint IS NOT NULL
+      AND COALESCE(f.compensation_state,'')<>'revertido'
+      AND COALESCE(json_extract(f.compensation_result,'$.state'),'')<>'transferido'`, documentId, axis).rows
+    .some(row => active.has(String(row.posting_id)) &&
+      !(axis === "finance" && row.compensation_state === "compensacao_pendente" && FINANCE_MANUAL_REVIEW.has(String(row.reason))));
+}
+/** Títulos podem ser editados depois do lançamento (vencimento, conta): a
+ * compensação financeira então manda conferir na área, e o estorno direto é
+ * a saída, que não pode ficar travada. O estoque não muda depois de lançado e
+ * continua exigindo a compensação com retorno físico. */
+const FINANCE_MANUAL_REVIEW = new Set(["com1_effect_reconciliation_required", "com1_effect_finance_content_mismatch",
+  "com1_effect_multiple_origins", "com1_effect_legacy_grouped"]);
+
+/** Desligar a parte Fiscal não desfaz a nota nem dispensa a compensação, mas
+ * a compensação só roda com a Fiscal ligada: a recusa diz o que fazer. */
+export const FISCAL_PART_REQUIRED = "fiscal_compensation_requires_fiscal_part";
+export const FISCAL_PART_REQUIRED_MESSAGE = "Ligue a parte Fiscal para compensar a nota cancelada deste pedido (ou concluir a emissão em andamento). Desligar a Fiscal não desfaz a nota.";
+
+export const COM1_REVERSE_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
+  fiscal_order_effect_locked: "A NF-e deste pedido está vigente ou em andamento: cancele a nota e use a compensação dela.",
+  fiscal_order_compensation_required: "A NF-e cancelada deste pedido ainda responde por este lançamento: conclua a compensação da nota.",
+  [FISCAL_PART_REQUIRED]: FISCAL_PART_REQUIRED_MESSAGE,
+});
+
+/** Motivo da recusa do estorno direto (null quando permitido). A inspeção de
+ * manutenção usa o mesmo motivo para não oferecer estorno que vai falhar. */
+export function com1DirectReverseBlocker(ctx: RpcContext, documentId: unknown, axis: EffectAxis): string | null {
+  if (typeof documentId !== "string" || compensation.get(ctx) === documentId) return null;
+  const code = protectedEmission(ctx, documentId) ? "fiscal_order_effect_locked"
+    : openCompensation(ctx, documentId, axis) ? "fiscal_order_compensation_required" : null;
+  return code && !ctx.parts.fiscal ? FISCAL_PART_REQUIRED : code;
+}
+
 /** Estorno ou cancelamento direto de um efeito do pedido (estoque, títulos,
  * nota legada vinculada). Com emissão vigente, o caminho é a compensação da
- * nota depois do cancelamento fiscal; depois dele, o estoque continua exigindo
- * a confirmação de retorno físico daquele comando. Não depende de partes.
+ * nota depois do cancelamento fiscal; depois dele, enquanto a compensação de
+ * uma emissão cancelada responder pelo lançamento ativo, só ela o estorna
+ * (o estoque com a confirmação de retorno físico). Não depende de partes:
+ * com a Fiscal desligada a recusa pede para religá-la.
  * Chamar após o replay e antes de alterar dados. */
 export function guardCom1DirectReverse(ctx: RpcContext, documentId: unknown, axis: EffectAxis): void {
-  if (typeof documentId !== "string" || compensation.get(ctx) === documentId) return;
-  if (protectedEmission(ctx, documentId)) raise("40001", "fiscal_order_effect_locked");
-  if (axis === "stock" && one(ctx.db, `SELECT 1 FROM erp_fiscal_vault__order_emission WHERE document_id=? AND status='cancelada' LIMIT 1`, documentId))
-    raise("40001", "fiscal_order_compensation_required");
+  const code = com1DirectReverseBlocker(ctx, documentId, axis);
+  if (code) raise("40001", code);
 }
 /** Mesma guarda para a nota legada: alcança os pedidos vinculados a ela. */
 export function guardCom1InvoiceReverse(ctx: RpcContext, invoiceId: unknown, axis: EffectAxis): void {
@@ -82,7 +128,12 @@ export function guardCom1TitleCancel(ctx: RpcContext, titleId: string): void {
     UNION SELECT g.document_id FROM erp_finance__grouped_billing_title t JOIN erp_finance__grouped_billing_document g ON g.billing_id=t.billing_id AND g.active=1 WHERE t.title_id=?
     UNION SELECT o.document_id FROM erp_finance__grouped_billing_title t JOIN erp_finance__grouped_billing_invoice g ON g.billing_id=t.billing_id AND g.active=1
       JOIN erp_fiscal_invoices__invoice_order o ON o.invoice_id=g.invoice_id WHERE t.title_id=?`, titleId, titleId, titleId, titleId).rows;
-  for (const row of rows) guardCom1DirectReverse(ctx, row.document_id, "finance");
+  // Título a título só a nota vigente trava: depois do cancelamento fiscal é
+  // por aqui a revisão manual que a compensação pede (faturamento agrupado,
+  // boleto baixado no banco).
+  for (const row of rows)
+    if (typeof row.document_id === "string" && compensation.get(ctx) !== row.document_id && protectedEmission(ctx, row.document_id))
+      raise("40001", ctx.parts.fiscal ? "fiscal_order_effect_locked" : FISCAL_PART_REQUIRED);
 }
 
 /** Observações públicas compõem informacoesComplementares no PedidoNfe.
@@ -147,13 +198,9 @@ export function guardCom1Transition(ctx: RpcContext, documentId: string, toStatu
     if (toStatus === "cancelled" || toStatus === "draft" || reverses.length) raise("40001", "fiscal_order_transition_locked");
     return;
   }
-  if (!reverses.length) return;
-  const cancelled = one(ctx.db, `SELECT id FROM erp_fiscal_vault__order_emission
-    WHERE document_id=? AND status='cancelada' ORDER BY fiscal_version DESC LIMIT 1`, documentId);
-  if (!cancelled) return;
-  for (const action of reverses) {
-    const axis = action === "reverse_stock" ? "stock" : "finance";
-    const active = one(ctx.db, `SELECT 1 FROM erp_${axis}__document_posting WHERE document_id=? AND state='active' LIMIT 1`, documentId);
-    if (active) raise("40001", "fiscal_order_compensation_required");
-  }
+  // Mesmo critério do estorno direto: só trava a compensação aberta que
+  // responde pelo lançamento ativo.
+  for (const action of reverses)
+    if (openCompensation(ctx, documentId, action === "reverse_stock" ? "stock" : "finance"))
+      raise("40001", ctx.parts.fiscal ? "fiscal_order_compensation_required" : FISCAL_PART_REQUIRED);
 }

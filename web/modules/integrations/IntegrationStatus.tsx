@@ -14,6 +14,7 @@ export function integrationReason(reason: string | null | undefined) {
     awaiting_fiscal_authorization: "O pedido foi registrado sem lançar estoque ou contas porque uma versão anterior aplicava aos módulos a política de autorização fiscal. Essa política vale só para pedidos de venda do próprio ERP: uma pessoa autorizada pode concluir pelo lançamento manual.",
     fiscal_order_transition_locked: "Há uma emissão fiscal enviada para este pedido. Confira a emissão antes de cancelar a origem.",
     fiscal_order_compensation_required: "O cancelamento fiscal exige conferência dos efeitos antes de cancelar a origem.",
+    fiscal_compensation_requires_fiscal_part: "Ligue a parte Fiscal para compensar a nota cancelada deste pedido (ou concluir a emissão em andamento). Desligar a Fiscal não desfaz a nota.",
     historical_origin_unlinked: "A obrigação não tem vínculo no ERP. A equipe financeira deve conferir a origem, sem criar dívida retroativa.",
     obligation_reactivation_required: "Recebimento depois do cancelamento: recompor a obrigação. A equipe financeira deve conferir a obrigação e conciliar o recebimento; a operação local foi concluída.",
     payment_evidence_required: "A operação local foi concluída. Consulte novamente a confirmação do provedor para conciliar o recebimento no ERP.",

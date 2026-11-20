@@ -316,7 +316,7 @@ export function permissionKey(action: string, after: unknown): string | null {
   if (["title_create", "title_create_group", "title_edit", "title_update", "records_import"].includes(action) || like("recurrence_"))
     return sideKey(".ie");
   if (action === "title_delete") return sideKey(".ex");
-  if (action === "title_cancel") return sideKey(".cancelar");
+  if (action === "title_cancel" || action === BANK_WRITEOFF_ACTION) return sideKey(".cancelar");
   if (["settle", "settle_batch", "reverse"].includes(action) || like("bordero")) return sideKey(".baixar");
   if (["account_delete", "entry_delete", "transfer_delete"].includes(action)) return "financas.caixas_bancos.ex";
   if (like("account_") || ["opening", "entry_save", "entry_restore", "balance_adjust", "line_categorize"].includes(action))
@@ -830,6 +830,17 @@ export function linkedTitleGuard(db: SqlDriver, id: unknown) {
   if (typeof id === "string" && targetOrigin(db, "title", id)) raise("42501", "module_title_read_only");
 }
 
+/** Ação da declaração de boleto baixado no banco (erp_finance_execute) e
+ * marca do vínculo encerrado em erp_cnab.audit (record_id = billing_title). */
+export const BANK_WRITEOFF_ACTION = "title_bank_writeoff";
+/** Vínculo de cobrança que ainda trava a conta (desvio "titulo-cobranca-bancaria"):
+ * remessa operacional sem declaração de baixa no banco. Remessa de
+ * homologação é teste e não cobra ninguém. `b` é o alias de erp_cnab.billing_title. */
+export const LIVE_BILLING_SQL = `EXISTS(SELECT 1 FROM "erp_cnab__remittance" r WHERE r.id=b.remittance_id AND r.purpose='operational')
+  AND NOT EXISTS(SELECT 1 FROM "erp_cnab__audit" a WHERE a.action='${BANK_WRITEOFF_ACTION}' AND a.record_id=b.id)`;
+export const liveBankCollection = (db: SqlDriver, titleId: unknown): boolean =>
+  !!one(db, `SELECT 1 x FROM "erp_cnab__billing_title" b WHERE b.title_id=? AND ${LIVE_BILLING_SQL} LIMIT 1`, titleId);
+
 /**
  * Guardas de UPDATE em title (protect_*, title_history_guard,
  * title_long_history) e o zz_origin_sync. `set` traz só as colunas que mudam.
@@ -861,8 +872,9 @@ export function titleUpdateGuards(ctx: RpcContext, old: Row, set: Record<string,
   // Desvio deliberado "titulo-cobranca-bancaria" (schema/deviations.ts): ponto
   // único de todo escritor que cancela uma conta. Com vínculo de cobrança
   // bancária a dívida continua no banco; o Fagoo só confere settled_cents.
+  // A saída é declarar o boleto baixado no banco (title_bank_writeoff).
   if (!bool(old.cancelled) && bool(next.cancelled)) {
-    if (one(db, 'SELECT 1 x FROM "erp_cnab__billing_title" WHERE title_id=? LIMIT 1', old.id)) raise("40001", "erp_finance_billed_locked");
+    if (liveBankCollection(db, old.id)) raise("40001", "erp_finance_billed_locked");
     // Título de pedido com NF-e comercial vigente: só a compensação da nota.
     guardCom1TitleCancel(ctx, String(old.id));
   }

@@ -107,13 +107,13 @@ function titleCancel(f, title = row(f, "SELECT * FROM erp_finance__title")) {
   return () => f.rpc("erp_finance_execute", { p_command_id: randomUUID(), p_action: "title_cancel",
     p_data: { id: title.id, expected_version: title.version, note: "Cancelamento direto da conta" } });
 }
-function bankCollection(f, titleId) {
+function bankCollection(f, titleId, purpose = "operational") {
   const remittance = randomUUID(), at = String(f.clock.next()), n = (f.billed = (f.billed ?? 0) + 1);
   if (!f.cnabProfile) {
     f.cnabProfile = randomUUID();
     f.db.exec("INSERT INTO erp_cnab__profile(id,account_id,identity,settings,account_scope,next_sequence,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)", f.cnabProfile, f.account.id, "{}", "{}", "revisao", 10, at, at);
   }
-  f.db.exec("INSERT INTO erp_cnab__remittance(id,profile_id,sequence,generated_on,state,snapshot,actor,created_at) VALUES(?,?,?,?,?,?,?,?)", remittance, f.cnabProfile, n, COM1_DATE, "ready", "{}", COM1_PEOPLE.admin.user_id, at);
+  f.db.exec("INSERT INTO erp_cnab__remittance(id,profile_id,sequence,generated_on,state,snapshot,actor,created_at,purpose) VALUES(?,?,?,?,?,?,?,?,?)", remittance, f.cnabProfile, n, COM1_DATE, "ready", "{}", COM1_PEOPLE.admin.user_id, at, purpose);
   f.db.exec("INSERT INTO erp_cnab__billing_title(id,title_id,profile_id,remittance_id,control,document_number,our_number,snapshot) VALUES(?,?,?,?,?,?,?,?)", randomUUID(), titleId, f.cnabProfile, remittance, `controle-${n}`, `DOC-${n}`, `12345${n}`, "{}");
 }
 
@@ -185,9 +185,9 @@ test("achado 2: com NF-e autorizada, estornos e cancelamentos diretos recusam e 
   assert.throws(directStockReverse(f, { role: "estoque" }), error("fiscal_order_effect_locked"));
   assert.throws(directFinanceReverse(f), error("fiscal_order_effect_locked"));
   assert.throws(titleCancel(f), error("fiscal_order_effect_locked"));
-  // Fiscal desligada não desfaz a nota enviada.
-  assert.throws(directStockReverse(f, { parts: { fiscal: false } }), error("fiscal_order_effect_locked"));
-  assert.throws(directFinanceReverse(f, { parts: { fiscal: false } }), error("fiscal_order_effect_locked"));
+  // Fiscal desligada não desfaz a nota enviada: a recusa pede para religá-la.
+  assert.throws(directStockReverse(f, { parts: { fiscal: false } }), error("fiscal_compensation_requires_fiscal_part"));
+  assert.throws(directFinanceReverse(f, { parts: { fiscal: false } }), error("fiscal_compensation_requires_fiscal_part"));
   assert.equal(row(f, "SELECT state FROM erp_stock__document_posting").state, "active");
   assert.equal(row(f, "SELECT state FROM erp_finance__document_posting").state, "active");
   assert.equal(row(f, "SELECT cancelled FROM erp_finance__title").cancelled, 0);
@@ -201,8 +201,8 @@ test("achado 2: depois do cancelamento fiscal o estoque direto exige a compensa�
   assert.throws(directStockReverse(f), error("fiscal_order_compensation_required"));
   assert.throws(() => directStockReverse(f)(), error("fiscal_order_compensation_required"));
   assert.equal(balance(f), 98000000);
-  // Financeiro sem recebimento nem cobrança: o estorno direto é permitido e a nota reconhece a prova.
-  assert.equal(directFinanceReverse(f)().posting.state, "reversed");
+  // Financeiro: mesmo critério do estoque (segunda revisão, B2); a compensação estorna.
+  assert.throws(() => directFinanceReverse(f)(), error("fiscal_order_compensation_required"));
   assert.equal(reverse(f, c, "finance").compensation_state, "revertido");
   // O caminho da nota continua funcionando, com a confirmação física.
   assert.equal(reverse(f, c, "stock").compensation_state, "compensacao_pendente");

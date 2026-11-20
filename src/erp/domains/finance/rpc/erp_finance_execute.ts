@@ -30,11 +30,18 @@ import {
   uuidArg,
   uuidValue,
   isReserved,
+  BANK_WRITEOFF_ACTION,
+  LIVE_BILLING_SQL,
 } from "../internal.ts";
+import { jsonTimestamp } from "../../../engine/time.ts";
 import { insertSettlement, postSettlementMovements } from "../settlements.ts";
 import { activeContact, dto, insertTitle, projectResultLink } from "../titles.ts";
 
-const ACTIONS = ["account_save", "category_save", "title_create_group", "title_update", "title_cancel", "settle", "reverse", "opening"];
+// title_bank_writeoff é local (desvio "titulo-cobranca-bancaria"): cancelar
+// a conta declarando que o boleto da remessa operacional foi baixado no banco.
+// Literal (= BANK_WRITEOFF_ACTION): o ciclo de importação do Financeiro pode
+// avaliar este módulo antes de internal.ts.
+const ACTIONS = ["account_save", "category_save", "title_create_group", "title_update", "title_cancel", "settle", "reverse", "opening", "title_bank_writeoff"];
 const ZERO = "0";
 
 export function erpFinanceExecute(ctx: RpcContext, a: RpcArgs) {
@@ -139,6 +146,34 @@ export function erpFinanceExecute(ctx: RpcContext, a: RpcArgs) {
     }
     if (total !== amount) raise("22023", "erp_finance_installment_total_mismatch");
     result = { entity: "titles", group_id: group, items };
+  } else if (action === BANK_WRITEOFF_ACTION) {
+    // Sem instrução de baixa por arquivo: a pessoa declara que já baixou o
+    // boleto no banco. Exige a permissão de cancelar conta (auditoria) e passa
+    // pelo portão de ato financeiro (MFA da política; agente fora do escopo).
+    keys(data, ["id", "expected_version", "reason"]);
+    const id = uuidValue(field(data, "id"))!;
+    const version = expected(field(data, "expected_version"));
+    const reason = txt(data, "reason", 500, true)!;
+    if ([...reason.trim()].length < 3) raise("22023", "erp_finance_reason_required");
+    const title = one(db, 'SELECT * FROM "erp_finance__title" WHERE id=?', id);
+    if (!title) raise("P0002", "erp_finance_not_found");
+    if (title.version !== version) raise("40001", "erp_finance_version_conflict");
+    if (title.deleted_at !== null) raise("40001", "erp_finance_deleted_title");
+    if (bool(title.cancelled)) raise("40001", "erp_finance_cancelled_title");
+    if (Number(title.settled_cents) !== 0) raise("40001", "erp_finance_active_payments");
+    const billing = one(db, `SELECT b.id, b.remittance_id, b.our_number, b.document_number FROM "erp_cnab__billing_title" b WHERE b.title_id=? AND ${LIVE_BILLING_SQL}`, id);
+    // Sem boleto operacional vivo o caminho é o cancelamento comum.
+    if (!billing) raise("40001", "erp_finance_bank_writeoff_not_applicable");
+    before = dto(db, "titles", id);
+    const at = ctx.clock.next();
+    // Encerra o vínculo antes de cancelar: a guarda única de cancelamento
+    // (e a da NF-e vigente) continuam valendo para esta escrita.
+    db.exec('INSERT INTO "erp_cnab__audit"(actor, command_id, action, record_id, created_at) VALUES(?,?,?,?,?)', user, command, BANK_WRITEOFF_ACTION, billing!.id, at.toString());
+    updateTitle(ctx, id, { cancelled: true, version: Number(title.version) + 1, updated_at: ctx.clock.next().toString() });
+    result = { entity: "titles", record: dto(db, "titles", id), note: reason, bank_writeoff: {
+      billing_title_id: billing!.id, remittance_id: billing!.remittance_id, our_number: billing!.our_number, document_number: billing!.document_number,
+      reason, declared_by: user, declared_at: jsonTimestamp(at), bank_instruction_generated: false,
+    } };
   } else if (["title_update", "title_cancel", "settle", "reverse"].includes(action)) {
     keys(
       data,

@@ -3,6 +3,7 @@ export { ERP_MAINTENANCE_HEADER, ERP_MAINTENANCE_ACTIONS, maintenanceReadRpc, re
 import type { RpcArgs, RpcContext } from "./registry.ts";
 import { one, type SqlDriver, type Row } from "./driver.ts";
 import { ErpError } from "./errors.ts";
+import { COM1_REVERSE_MESSAGES, com1DirectReverseBlocker } from "../domains/fiscal/comnfe/effect-policy.ts";
 import { ERP_PART_KEYS, erpRequirement, erpRequirementMet, type ErpModuleId, type ErpRequirement } from "../parts.ts";
 import { erpEntityRequirement, erpImportRequirement, erpPreferenceRequirement, erpReportRequirement, erpNotificationRequirement, erpFieldRequirement, erpListRequirement, erpTaskRequirement } from "../parts-requirements.ts";
 
@@ -499,12 +500,24 @@ export function inspectErpEffects(ctx: RpcContext): unknown {
   const active = (key: string) => links[key]?.some(value => (value as Row).state === "active");
   const mayReverseStock = stock && ["admin", "estoque"].includes(role ?? "") && maintenancePermission(ctx.db, user, "suprimentos.controle_estoque.insercao");
   const mayReverseFinance = finance && ["admin", "financeiro"].includes(role ?? "");
-  if (s.document && mayReverseStock && active("stock")) operations.push("document_stock_reverse_preview", "document_stock_reverse");
-  if (s.document && mayReverseFinance && active("finance")) operations.push("document_finance_reverse_preview", "document_finance_reverse");
+  // Pedido protegido pela NF-e: não oferecer o estorno que a guarda recusa;
+  // o bloqueador traz o mesmo código e o que fazer (inclusive religar a Fiscal).
+  const fiscal: { kind: string; count: number; axis: string; code: string; message: string }[] = [];
+  const fiscalFree = (axis: "stock" | "finance") => {
+    const documents = s.document ? [s.document] : s.invoice
+      ? ctx.db.exec("SELECT document_id FROM erp_fiscal_invoices__invoice_order WHERE invoice_id=?", s.invoice).rows.map(row => String(row.document_id)) : [];
+    for (const document of documents) {
+      const code = com1DirectReverseBlocker(ctx, document, axis);
+      if (code) { fiscal.push({ kind: "fiscal_compensation", axis, count: 1, code, message: COM1_REVERSE_MESSAGES[code] }); return false; }
+    }
+    return true;
+  };
+  if (s.document && mayReverseStock && active("stock") && fiscalFree("stock")) operations.push("document_stock_reverse_preview", "document_stock_reverse");
+  if (s.document && mayReverseFinance && active("finance") && fiscalFree("finance")) operations.push("document_finance_reverse_preview", "document_finance_reverse");
   if (mayReverseStock && active("reservations")) operations.push("reservation_release_preview", "reservation_release");
   if (mayReverseStock && links.receipts?.some(value => !one(ctx.db, "SELECT 1 FROM erp_purchase_receipts__reversal WHERE receipt_id=?", (value as Row).id))) operations.push("purchase_receipt_reverse_preview", "purchase_receipt_reverse");
-  if (s.invoice && mayReverseStock && active("stock")) operations.push("invoice_stock_reverse_preview", "invoice_stock_reverse");
-  if (s.invoice && mayReverseFinance && active("finance")) operations.push("invoice_finance_reverse");
+  if (s.invoice && mayReverseStock && active("stock") && fiscalFree("stock")) operations.push("invoice_stock_reverse_preview", "invoice_stock_reverse");
+  if (s.invoice && mayReverseFinance && active("finance") && fiscalFree("finance")) operations.push("invoice_finance_reverse");
   if (mayReverseFinance && links.settlements?.some(value => (value as Row).kind === "payment" && !one(ctx.db, "SELECT 1 FROM erp_finance__settlement WHERE reverses_id=?", (value as Row).id))) operations.push("settlement_reverse");
   if (s.sale && rowAt(ctx.db, "erp_pos__sale", s.sale)?.state !== "cancelled" && ["admin", "vendas"].includes(role ?? "")) operations.push("pos_sale_cancel");
   if (s.request.origin.type === "grouped_billing") operations.push("grouped_billing_delete");
@@ -523,7 +536,7 @@ export function inspectErpEffects(ctx: RpcContext): unknown {
   const blockers = Object.entries(links).flatMap(([kind, values]) => {
     const current = values.filter(value => blocks(kind, value));
     return current.length ? [{ kind, count: current.length }] : [];
-  });
+  }).concat(fiscal);
   const originTable = s.sale ? "erp_pos__sale" : s.document ? "erp_documents__document" :
     s.invoice ? "erp_fiscal_invoices__invoice" : s.title ? "erp_finance__title" :
       s.request.origin.type === "grouped_billing" ? "erp_finance__grouped_billing" : null;

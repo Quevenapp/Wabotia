@@ -51,7 +51,7 @@ export function moduleFinancePreviewGuard(ctx: RpcContext, preview: Data) {
 export function moduleFinancialGuard(ctx: RpcContext, action: string | null, data: any) {
   const scope = originScope(ctx);
   if (!scope) {
-    if (["title_edit", "title_update", "title_delete", "title_cancel", "settle", "reverse"].includes(action ?? "")) linkedTitleGuard(ctx.db, data?.id);
+    if (["title_edit", "title_update", "title_delete", "title_cancel", "title_bank_writeoff", "settle", "reverse"].includes(action ?? "")) linkedTitleGuard(ctx.db, data?.id);
     return;
   }
   const operations = { title_create: "title_create", settle: "title_settle", title_cancel: "title_cancel", reverse: "settlement_reverse" } as const;
