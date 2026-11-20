@@ -1,0 +1,32 @@
+.fagoo-root .commercial-nfe { max-width: 1180px; margin: 0 auto; padding: 1.25rem; color: inherit; }
+.fagoo-root .commercial-nfe h1 { margin-bottom: .35rem; }
+.fagoo-root .commercial-nfe h2 { font-size: 1.2rem; }
+.fagoo-root .commercial-nfe h3 { font-size: 1.08rem; }
+.fagoo-root .commercial-nfe p { line-height: 1.55; }
+.fagoo-root .commercial-nfe nav, .fagoo-root .commercial-nfe-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin: 1rem 0; }
+.fagoo-root .commercial-nfe a { color: var(--link, #2454a6); text-underline-offset: .18em; }
+.fagoo-root .commercial-nfe button { font: inherit; padding: .55rem .85rem; border: 1px solid var(--border-strong, #8291a6); border-radius: .35rem; background: var(--surface-alt, #f7f9fc); color: var(--text, #18293d); cursor: pointer; }
+.fagoo-root .commercial-nfe button:disabled { cursor: default; opacity: .55; }
+.fagoo-root .commercial-nfe button:focus-visible, .fagoo-root .commercial-nfe a:focus-visible, .fagoo-root .commercial-nfe input:focus-visible, .fagoo-root .commercial-nfe select:focus-visible, .fagoo-root .commercial-nfe textarea:focus-visible { outline: 3px solid #4279ce; outline-offset: 3px; }
+.fagoo-root .commercial-nfe-card, .fagoo-root .commercial-nfe-review { border: 1px solid var(--border, #cdd6e2); border-radius: .55rem; padding: 1rem; margin: 1rem 0; background: var(--surface, #fff); }
+.fagoo-root .commercial-nfe-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.fagoo-root .commercial-nfe-environment { font-weight: 700; border-left: 5px solid #967014; background: #fff6d9; padding: .7rem 1rem; color: #59430b; }
+.fagoo-root .commercial-nfe-environment.production { border-color: #256847; background: #e8f4ed; color: #174b32; }
+.fagoo-root .commercial-nfe-warning, .fagoo-root .commercial-nfe-blockers { border: 1px solid #be902c; border-radius: .4rem; padding: 1rem; background: #fff8e7; color: #59420c; }
+.fagoo-root .commercial-nfe-blockers { border-color: #bf5e5e; background: #fff2f2; color: #702929; }
+.fagoo-root .commercial-nfe-blockers li + li { margin-top: 1rem; }
+.fagoo-root .commercial-nfe label { display: block; margin: .75rem 0 .35rem; line-height: 1.5; }
+.fagoo-root .commercial-nfe select, .fagoo-root .commercial-nfe textarea { display: block; width: 100%; max-width: 44rem; padding: .6rem; border: 1px solid var(--border-strong, #aeb9c8); border-radius: .3rem; background: var(--surface, #fff); color: var(--text, #18293d); font: inherit; }
+.fagoo-root .commercial-nfe input[type="checkbox"] { margin-right: .4rem; }
+.fagoo-root .commercial-nfe textarea { min-height: 6rem; }
+.fagoo-root .commercial-nfe fieldset { border: 0; padding: 0; }
+.fagoo-root .commercial-nfe details { border-top: 1px solid var(--border, #dbe1e9); padding: .8rem 0; }
+.fagoo-root .commercial-nfe summary { cursor: pointer; font-weight: 600; }
+.fagoo-root .commercial-nfe-values { overflow-wrap: anywhere; padding-left: 1.2rem; }
+.fagoo-root dl.commercial-nfe-values { padding-left: 0; }
+.fagoo-root .commercial-nfe-values > div { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(0, 3fr); gap: .75rem; padding: .35rem 0; border-bottom: 1px solid var(--border, #edf0f5); }
+.fagoo-root .commercial-nfe dt { font-weight: 600; }
+.fagoo-root .commercial-nfe dd { margin: .25rem 0 .6rem; overflow-wrap: anywhere; }
+.fagoo-root .commercial-nfe-code { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.fagoo-root .commercial-nfe-scope { color: var(--muted, #526174); font-size: .9rem; margin-top: 1.5rem; }
+@media (max-width: 720px) { .fagoo-root .commercial-nfe { padding: .75rem; } .fagoo-root .commercial-nfe-grid { grid-template-columns: 1fr; } .fagoo-root .commercial-nfe-values > div { grid-template-columns: 1fr; gap: 0; } }
