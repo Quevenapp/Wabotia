@@ -1,5 +1,5 @@
 import {
-  BLING_ADOPTION_ERROR_CODES, BLING_ADOPTION_OPERATIONS, adoptionErrorMessage, adoptionOutputs, parseAdoptionInput,
+  BLING_ADOPTION_ERROR_CODES, adoptionErrorMessage, adoptionOutputs, getAdoptionOperation, parseAdoptionInput,
   type BlingAdoptionErrorCode, type BlingAdoptionOperationMap, type BlingAdoptionOperationName,
 } from '../../../../src/erp/bling/adoption-contracts.ts';
 import { erpPorts } from '../../ports.ts';
@@ -22,7 +22,7 @@ export function createAdoptBlingClient(options: { apiUrl: string; fetch: typeof 
   if (!/^\/api\/v1\/profiles\/[A-Za-z0-9_%.-]+\/erp$/.test(base)) throw new AdoptBlingFailure('invalid', 'Endereço da área inválido. Recarregue a página.');
   return {
     async execute(name, input, signal) {
-      const definition = BLING_ADOPTION_OPERATIONS[name];
+      const definition = getAdoptionOperation(name);
       if (!definition) throw new AdoptBlingFailure('invalid', adoptionErrorMessage('BLING_ADOPTION_INVALID'));
       const selected = parseAdoptionInput(name, input) as Record<string, unknown>;
       const query = new URLSearchParams();

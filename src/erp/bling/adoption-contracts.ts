@@ -8,6 +8,10 @@ import { BLING_HISTORY_SCOPES, type BlingHistoryScope } from "./adoption-situati
 import {
   BLING_CUTOVER_OPERATIONS, BLING_CUTOVER_OPERATION_NAMES, BLING_CUTOVER_PARAMS, cutoverInputs, cutoverOutputs, type BlingCutoverOperationMap,
 } from "./cutover-contracts.ts";
+import {
+  BLING_TWO_WAY_ADMIN_OPERATIONS, BLING_TWO_WAY_ADMIN_OPERATION_NAMES, BLING_TWO_WAY_OPERATIONS, BLING_TWO_WAY_OPERATION_NAMES, BLING_TWO_WAY_PARAMS,
+  twoWayInputs, twoWayOutputs, type BlingTwoWayOperationMap,
+} from "./two-way-contracts.ts";
 
 /** Cadastros (B1). Ordem de execução: dependências primeiro (categorias antes
  * de produtos, contatos antes de vendedores). */
@@ -238,6 +242,8 @@ export const BLING_ADOPTION_OPERATION_NAMES = [
   "erp_bling_adoption_adopt_one", "erp_bling_adoption_history", "erp_bling_adoption_history_get",
   // Fatia C (corte): mesmo registro, mesmo despacho, mesmas regras.
   ...BLING_CUTOVER_OPERATION_NAMES,
+  // Mão dupla: as quatro dos bots e as duas só do administrador.
+  ...BLING_TWO_WAY_OPERATION_NAMES, ...BLING_TWO_WAY_ADMIN_OPERATION_NAMES,
 ] as const;
 export type BlingAdoptionOperationName = typeof BLING_ADOPTION_OPERATION_NAMES[number];
 
@@ -259,6 +265,7 @@ export const adoptionInputs = {
     .refine(v => !v.from || !v.to || v.from <= v.to, "A data inicial vem antes da final."),
   erp_bling_adoption_history_get: z.object({ entity: b2Entity, source_id: sourceId }).strict(),
   ...cutoverInputs,
+  ...twoWayInputs,
 } as const;
 export const adoptionOutputs = {
   erp_bling_adoption_status: adoptionStatusSchema,
@@ -273,8 +280,9 @@ export const adoptionOutputs = {
   erp_bling_adoption_history: z.object({ items: z.array(adoptionHistoryItemSchema).max(50), next_cursor: historyCursor.nullable() }).strict(),
   erp_bling_adoption_history_get: adoptionHistoryDocumentSchema,
   ...cutoverOutputs,
+  ...twoWayOutputs,
 } as const;
-export interface BlingAdoptionOperationMap extends BlingCutoverOperationMap {
+export interface BlingAdoptionOperationMap extends BlingCutoverOperationMap, BlingTwoWayOperationMap {
   erp_bling_adoption_status: { input: z.infer<typeof adoptionInputs.erp_bling_adoption_status>; output: z.infer<typeof adoptionOutputs.erp_bling_adoption_status> };
   erp_bling_adoption_reviews: { input: z.infer<typeof adoptionInputs.erp_bling_adoption_reviews>; output: z.infer<typeof adoptionOutputs.erp_bling_adoption_reviews> };
   erp_bling_adoption_links: { input: z.infer<typeof adoptionInputs.erp_bling_adoption_links>; output: z.infer<typeof adoptionOutputs.erp_bling_adoption_links> };
@@ -294,7 +302,12 @@ const op = (name: BlingAdoptionOperationName, method: "GET" | "POST", path: stri
   Object.freeze({ name, method, path, summary, description, sensitive });
 /** Nomes estáveis para tela e bots. Todas exigem administrador do ERP; as
  * sensíveis seguem proposta e confirmação da pessoa quando vêm de um bot. */
-export const BLING_ADOPTION_OPERATIONS: Readonly<Record<BlingAdoptionOperationName, BlingAdoptionOperationDescriptor>> = Object.freeze({
+/** Operações só do administrador, pela tela: ficam fora do inventário dos bots. */
+export type BlingAdoptionAdminOperationName = typeof BLING_TWO_WAY_ADMIN_OPERATION_NAMES[number];
+export type BlingAdoptionBotOperationName = Exclude<BlingAdoptionOperationName, BlingAdoptionAdminOperationName>;
+export const BLING_ADOPTION_ADMIN_OPERATIONS: Readonly<Record<BlingAdoptionAdminOperationName, BlingAdoptionOperationDescriptor>> = BLING_TWO_WAY_ADMIN_OPERATIONS;
+export const isAdoptionAdminOnly = (name: string): name is BlingAdoptionAdminOperationName => Object.hasOwn(BLING_ADOPTION_ADMIN_OPERATIONS, name);
+export const BLING_ADOPTION_OPERATIONS: Readonly<Record<BlingAdoptionBotOperationName, BlingAdoptionOperationDescriptor>> = Object.freeze({
   erp_bling_adoption_status: op("erp_bling_adoption_status", "GET", "/adotar", "Consultar a adoção de cadastros do Bling",
     "Mostra, por entidade (cadastros, propostas, pedidos e contas), quantos registros foram coletados, adotados, estão pendentes de revisão, ignorados ou ficaram no histórico por já estarem encerrados no Bling, o progresso do lote e qual módulo ligar quando uma parte está desligada.", false),
   erp_bling_adoption_reviews: op("erp_bling_adoption_reviews", "GET", "/adotar/pendencias", "Listar pendências de revisão da adoção",
@@ -316,6 +329,7 @@ export const BLING_ADOPTION_OPERATIONS: Readonly<Record<BlingAdoptionOperationNa
   erp_bling_adoption_history_get: op("erp_bling_adoption_history_get", "GET", "/adotar/historico/documento", "Abrir um documento do histórico do Bling",
     "Mostra um documento ou conta encerrado no Bling como veio: cabeçalho, itens, parcelas e o registro recebido. Só consulta: não pode ser faturado, cancelado nem editado.", true),
   ...BLING_CUTOVER_OPERATIONS,
+  ...BLING_TWO_WAY_OPERATIONS,
 });
 const id40 = { type: "string", pattern: "^[1-9][0-9]{0,39}$", description: "Id do registro no Bling." };
 const entityParam = { type: "string", enum: [...BLING_ADOPTION_ENTITIES], description: "Entidade do Bling." };
@@ -339,9 +353,12 @@ export const BLING_ADOPTION_PARAMS: Readonly<Record<BlingAdoptionOperationName, 
     from: { type: "string", format: "date" }, to: { type: "string", format: "date" }, cursor: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 50 } }, ["entity"]),
   erp_bling_adoption_history_get: params({ entity: b2Param, source_id: id40 }, ["entity", "source_id"]),
   ...BLING_CUTOVER_PARAMS,
+  ...BLING_TWO_WAY_PARAMS,
 });
+/** Todas as operações do despacho (as dos bots e as só do administrador). */
 export function getAdoptionOperation(name: string): BlingAdoptionOperationDescriptor | null {
-  return Object.hasOwn(BLING_ADOPTION_OPERATIONS, name) ? BLING_ADOPTION_OPERATIONS[name as BlingAdoptionOperationName] : null;
+  if (Object.hasOwn(BLING_ADOPTION_OPERATIONS, name)) return BLING_ADOPTION_OPERATIONS[name as BlingAdoptionBotOperationName];
+  return isAdoptionAdminOnly(name) ? BLING_ADOPTION_ADMIN_OPERATIONS[name] : null;
 }
 export function isAdoptionOperation(name: string): name is BlingAdoptionOperationName { return getAdoptionOperation(name) !== null; }
 export function parseAdoptionInput<K extends BlingAdoptionOperationName>(name: K, input: unknown): BlingAdoptionOperationMap[K]["input"] {
@@ -352,7 +369,7 @@ export function parseAdoptionInput<K extends BlingAdoptionOperationName>(name: K
 /** Casa método e caminho relativos a /v1/receber-bling. */
 export function matchAdoptionRoute(method: string, relative: string): BlingAdoptionOperationDescriptor | null {
   const path = relative.replace(/\/$/, "") || "/";
-  return Object.values(BLING_ADOPTION_OPERATIONS).find(item => item.method === method && item.path === path) ?? null;
+  return [...Object.values(BLING_ADOPTION_OPERATIONS), ...Object.values(BLING_ADOPTION_ADMIN_OPERATIONS)].find(item => item.method === method && item.path === path) ?? null;
 }
 
 /** Envelope privado da chamada de um bot (Worker → objeto). Nunca vem do navegador. */

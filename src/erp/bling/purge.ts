@@ -76,6 +76,8 @@ function references(db: SqlDriver, entities: string): number {
   let count = 0;
   for (const table of entityTables) count += Number(one(db, `SELECT count(*) AS n FROM ${quote(table)} WHERE ${affected}`, entities)?.n ?? 0);
   count += Number(one(db, `SELECT count(*) AS n FROM erp_sync__outbox WHERE ${affected} AND (review_required=1 OR state IN ('pending','sending','failed'))`, entities)?.n ?? 0);
+  // Mão dupla (versão 19): envio ao Bling ainda não confirmado depende do acervo.
+  count += Number(one(db, `SELECT count(*) AS n FROM wb_bling_twoway_outbox WHERE ${affected} AND state IN ('pending','sending','uncertain','held')`, entities)?.n ?? 0);
   const kinds = JSON.parse(entities) as string[];
   if (kinds.includes("products") || kinds.includes("stock_balances") || kinds.includes("warehouses")) {
     count += Number(one(db, "SELECT count(*) AS n FROM erp_stock__opening_receipt")?.n ?? 0);

@@ -19,6 +19,8 @@ export interface BlingWakeDependencies {
   timer?: BlingClientTimer;
   /** XML e apagamento usam o mesmo orçamento; nunca uma segunda unidade. */
   archiveWake?: BlingWakePort;
+  /** Mão dupla: intervalo configurado entre as passagens pelo que mudou (ms); null, o padrão. */
+  pace?(): number | null;
 }
 type Candidate = { key: string; entity: string; last_served_at: number; not_before: number; resource: ResourceDescriptor; selection: BlingSelection; checkpoint: BlingCheckpoint; pending?: BlingUnit };
 const bytes = (text: string) => new TextEncoder().encode(text);
@@ -234,6 +236,10 @@ export function createBlingWake(deps: BlingWakeDependencies): BlingWakePort {
     unit.progress = { coverage_complete: false, ...(unit.kind === "stock" ? { partition: Number(unit.plan.stock_partition) } : {}) };
     if (unit.page && unit.kind !== "list") unit.page = { ...unit.page, subcursor: Math.min(unit.page.ids.length, unit.page.subcursor + 1) };
     if (ctx.clock.now() >= deadline) throw new BlingError("BLING_RETRY_WAIT", { retry_at: ctx.clock.now() + 1000 });
+    // Passagem concluída nesta unidade: a próxima segue o ritmo da mão dupla, se configurado.
+    const pace = deps.pace?.() ?? null;
+    if (pace !== null && typeof cursor.not_before === "number" && cursor.not_before > ctx.clock.now() && cursor.not_before !== unit.checkpoint.cursor.not_before)
+      cursor.not_before = ctx.clock.now() + pace;
     store.commitBatch(ctx, { unit, expected: unit.expected, fence: unit.lease!.fence, request_hash: unit.request_hash, records, next_checkpoint: afterUnit(unit, cursor, ctx.clock.now()), source_expectations: expected, counts });
   }
   return {

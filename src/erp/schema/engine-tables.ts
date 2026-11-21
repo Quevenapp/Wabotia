@@ -109,6 +109,119 @@ const CUTOVER_TABLES: readonly EngineTable[] = [
   ]),
 ];
 
+// Mão dupla com o Bling (versão 19): interruptores por entidade e sentido
+// (todos desligados), a linha de base de cada registro sincronizado, a fila de
+// saída retomável no alarme, as pendências e conflitos e o registro de quem
+// ligou ou desligou. Só tabelas novas; nota fiscal e ordem de serviço ficam de
+// fora pelo CHECK de entidade.
+const twoWay = (table: string, ddl: readonly string[]): EngineTable => ({ table, ddl, since: 19, owner: "bling-volta", structural: "mao-dupla-bling" });
+const TWO_WAY_ENTITIES = "'contacts','products','sales_proposals','sales_orders','purchase_orders','receivables','payables','stock_balances'";
+const TWO_WAY_TABLES: readonly EngineTable[] = [
+  twoWay("wb_bling_twoway", [
+    `CREATE TABLE "wb_bling_twoway" (
+  id INTEGER NOT NULL PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  pace_minutes INTEGER NOT NULL DEFAULT 15 CHECK (pace_minutes BETWEEN 5 AND 1440),
+  scan TEXT NOT NULL DEFAULT '{}' CHECK (${BLING_JSON("scan", "object", 16384)}),
+  last_in TEXT NOT NULL DEFAULT '{}' CHECK (${BLING_JSON("last_in", "object", 8192)}),
+  last_out TEXT NOT NULL DEFAULT '{}' CHECK (${BLING_JSON("last_out", "object", 8192)}),
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (${BLING_COUNT("revision", 1)}),
+  updated_by TEXT CHECK (updated_by IS NULL OR ${BLING_ID("updated_by")}),
+  updated_at INTEGER NOT NULL
+) STRICT`,
+  ]),
+  twoWay("wb_bling_twoway_setting", [
+    `CREATE TABLE "wb_bling_twoway_setting" (
+  entity TEXT NOT NULL CHECK (entity IN (${TWO_WAY_ENTITIES})),
+  direction TEXT NOT NULL CHECK (direction IN ('inbound','outbound')),
+  enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0,1)),
+  enabled_since INTEGER,
+  watermark TEXT NOT NULL DEFAULT '{}' CHECK (${BLING_JSON("watermark", "object", 4096)}),
+  updated_by TEXT NOT NULL CHECK (${BLING_ID("updated_by")}),
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (entity, direction),
+  CONSTRAINT wb_bling_twoway_setting_since_check CHECK (enabled = 0 OR enabled_since IS NOT NULL)
+) STRICT`,
+  ]),
+  twoWay("wb_bling_twoway_state", [
+    `CREATE TABLE "wb_bling_twoway_state" (
+  entity TEXT NOT NULL CHECK (entity IN (${TWO_WAY_ENTITIES})),
+  record_id TEXT NOT NULL CHECK (${BLING_ID("record_id")}),
+  source_id TEXT CHECK (source_id IS NULL OR ${BLING_ID("source_id")}),
+  erp_hash TEXT CHECK (erp_hash IS NULL OR ${BLING_HASH("erp_hash")}),
+  bling_version INTEGER NOT NULL DEFAULT 0 CHECK (${BLING_COUNT("bling_version")}),
+  bling_hash TEXT CHECK (bling_hash IS NULL OR ${BLING_HASH("bling_hash")}),
+  echo_after INTEGER,
+  synced_at INTEGER NOT NULL,
+  PRIMARY KEY (entity, record_id)
+) STRICT`,
+    `CREATE INDEX wb_bling_twoway_state_source ON wb_bling_twoway_state(entity, source_id)`,
+  ]),
+  twoWay("wb_bling_twoway_outbox", [
+    `CREATE TABLE "wb_bling_twoway_outbox" (
+  id TEXT NOT NULL PRIMARY KEY CHECK (${BLING_ID("id")}),
+  entity TEXT NOT NULL CHECK (entity IN (${TWO_WAY_ENTITIES})),
+  record_id TEXT NOT NULL CHECK (${BLING_ID("record_id")}),
+  op TEXT NOT NULL CHECK (op IN ('create','update','settle','stock')),
+  priority INTEGER NOT NULL CHECK (priority BETWEEN 1 AND 9),
+  state TEXT NOT NULL CHECK (state IN ('pending','sending','uncertain','held','done','failed','superseded')),
+  request TEXT NOT NULL CHECK (${BLING_JSON("request", "object", 262144)}),
+  verify TEXT NOT NULL DEFAULT '{}' CHECK (${BLING_JSON("verify", "object", 65536)}),
+  erp_hash TEXT CHECK (erp_hash IS NULL OR ${BLING_HASH("erp_hash")}),
+  label TEXT NOT NULL CHECK (length(label) BETWEEN 1 AND 200),
+  attempts INTEGER NOT NULL DEFAULT 0 CHECK (${BLING_COUNT("attempts")}),
+  checks INTEGER NOT NULL DEFAULT 0 CHECK (${BLING_COUNT("checks")}),
+  not_before INTEGER NOT NULL,
+  remote_id TEXT CHECK (remote_id IS NULL OR ${BLING_ID("remote_id")}),
+  error_code TEXT CHECK (error_code IS NULL OR (length(error_code) BETWEEN 1 AND 60 AND error_code NOT GLOB '*[^a-z_]*')),
+  error_text TEXT CHECK (error_text IS NULL OR length(error_text) <= 600),
+  created_at INTEGER NOT NULL,
+  sent_at INTEGER,
+  updated_at INTEGER NOT NULL,
+  finished_at INTEGER,
+  CONSTRAINT wb_bling_twoway_outbox_finished_check CHECK ((state IN ('done','superseded')) = (finished_at IS NOT NULL))
+) STRICT`,
+    `CREATE INDEX wb_bling_twoway_outbox_due ON wb_bling_twoway_outbox(state, not_before, priority, created_at)`,
+    `CREATE INDEX wb_bling_twoway_outbox_record ON wb_bling_twoway_outbox(entity, record_id, state)`,
+  ]),
+  twoWay("wb_bling_twoway_issue", [
+    `CREATE TABLE "wb_bling_twoway_issue" (
+  key TEXT NOT NULL PRIMARY KEY CHECK (${BLING_ID("key")}),
+  kind TEXT NOT NULL CHECK (kind IN ('conflict','failed','uncertain','blocked')),
+  entity TEXT NOT NULL CHECK (entity IN (${TWO_WAY_ENTITIES})),
+  record_id TEXT CHECK (record_id IS NULL OR ${BLING_ID("record_id")}),
+  source_id TEXT CHECK (source_id IS NULL OR ${BLING_ID("source_id")}),
+  outbox_id TEXT CHECK (outbox_id IS NULL OR ${BLING_ID("outbox_id")}),
+  state TEXT NOT NULL CHECK (state IN ('open','resolved')),
+  label TEXT NOT NULL CHECK (length(label) BETWEEN 1 AND 200),
+  reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 600),
+  erp TEXT CHECK (erp IS NULL OR ${BLING_JSON("erp", "object", 16384)}),
+  bling TEXT CHECK (bling IS NULL OR ${BLING_JSON("bling", "object", 16384)}),
+  data TEXT NOT NULL DEFAULT '{}' CHECK (${BLING_JSON("data", "object", 16384)}),
+  resolution TEXT CHECK (resolution IS NULL OR length(resolution) BETWEEN 1 AND 40),
+  resolved_by TEXT CHECK (resolved_by IS NULL OR ${BLING_ID("resolved_by")}),
+  resolved_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  CONSTRAINT wb_bling_twoway_issue_resolved_check CHECK ((state = 'resolved') = (resolved_at IS NOT NULL AND resolution IS NOT NULL))
+) STRICT`,
+    `CREATE INDEX wb_bling_twoway_issue_open ON wb_bling_twoway_issue(state, kind, created_at)`,
+  ]),
+  twoWay("wb_bling_twoway_audit", [
+    `CREATE TABLE "wb_bling_twoway_audit" (
+  id TEXT NOT NULL PRIMARY KEY CHECK (${BLING_ID("id")}),
+  actor_id TEXT NOT NULL CHECK (${BLING_ID("actor_id")}),
+  action TEXT NOT NULL CHECK (action IN ('switch','pace')),
+  entity TEXT CHECK (entity IS NULL OR entity IN (${TWO_WAY_ENTITIES})),
+  direction TEXT CHECK (direction IS NULL OR direction IN ('inbound','outbound')),
+  enabled INTEGER CHECK (enabled IS NULL OR enabled IN (0,1)),
+  detail TEXT NOT NULL CHECK (length(detail) BETWEEN 1 AND 600),
+  created_at INTEGER NOT NULL
+) STRICT`,
+    `CREATE INDEX wb_bling_twoway_audit_time ON wb_bling_twoway_audit(created_at, id)`,
+    ...blingImmutable("wb_bling_twoway_audit"),
+  ]),
+];
+
 const BASE_ENGINE_TABLES: readonly EngineTable[] = [
   {
     // Classificação de IBS/CBS por natureza de operação: o padrão (escopo any)
@@ -1009,6 +1122,8 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
     ],
     since: 16, owner: "os5-fiscal", structural: "nota-servico-os",
   },
+  // Versão 19: mão dupla com o Bling (as versões 17 e 18 são de outras frentes).
+  ...TWO_WAY_TABLES,
 ];
 
 export const ERP_ENGINE_DDL: readonly string[] = ERP_ENGINE_TABLES.flatMap((t) => t.ddl);

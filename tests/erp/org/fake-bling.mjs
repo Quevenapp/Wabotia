@@ -1,5 +1,9 @@
 // Simulador em memória: nunca abre socket nem delega ao fetch global.
-// A API de dados aceita exclusivamente GET. OAuth usa fake-oauth.mjs.
+// Por padrão a API de dados aceita exclusivamente GET. Com { writes: true }
+// (mão dupla) aceita também POST e PUT nos caminhos de escrita, guarda cada
+// escrita aplicada e deixa simular resposta incerta: queue({ method, path,
+// apply, throw | status }) grava (ou não) e depois derruba a conexão ou
+// devolve erro. OAuth usa fake-oauth.mjs.
 import assert from "node:assert/strict";
 
 const copy = value => structuredClone(value);
@@ -39,15 +43,28 @@ export class FakeBling {
   #calls = [];
   #mutationAttempts = 0;
   #clock;
-  constructor({ clock = new FakeClock(), baseUrl = "https://bling.invalid/Api/v3" } = {}) {
+  #writable = false;
+  #writes = [];
+  #stock = new Map();
+  #nextId = 900001;
+  constructor({ clock = new FakeClock(), baseUrl = "https://bling.invalid/Api/v3", writes = false } = {}) {
     this.#clock = clock;
     this.baseUrl = baseUrl.replace(/\/$/, "");
+    this.#writable = writes === true;
   }
   get calls() { return copy(this.#calls); }
   get requests() { return this.calls; }
   get callCount() { return this.#calls.length; }
-  get mutations() { return 0; }
+  /** Escritas efetivamente aplicadas (sempre 0 sem { writes: true }). */
+  get mutations() { return this.#writes.length; }
   get mutationAttempts() { return this.#mutationAttempts; }
+  /** Cópia das escritas aplicadas: método, caminho e corpo. */
+  get writes() { return copy(this.#writes); }
+  /** Lê um registro como está no simulador (depois das escritas). */
+  record(path, id) { const resource = this.#resources.get(path); return resource?.details.has(id) ? copy(resource.details.get(id)) : null; }
+  /** Saldo físico simulado de um produto num depósito. */
+  setStock(product, deposit, quantity) { this.#stock.set(`${product}:${deposit}`, quantity); return this; }
+  stock(product, deposit) { return this.#stock.get(`${product}:${deposit}`) ?? null; }
   resource(path, rows, { pageSize = 10, detail = true } = {}) {
     assert.ok(path.startsWith("/") && !path.includes("?"));
     assert.ok(Number.isInteger(pageSize) && pageSize > 0);
@@ -83,11 +100,83 @@ export class FakeBling {
     assert.ok(resource, "recurso não registrado no simulador");
     return resource;
   }
+  /** Aplica uma escrita da mão dupla no estado simulado. */
+  #write(method, path, body) {
+    const root = path.match(/^(\/(?:contatos|produtos|propostas-comerciais|pedidos\/vendas|pedidos\/compras|contas\/receber|contas\/pagar))(?:\/(\d+))?(\/baixar)?$/);
+    if (method === "POST" && path === "/estoques") {
+      const product = String(body?.produto?.id), deposit = String(body?.deposito?.id);
+      if (body?.operacao !== "B") return { status: 400, data: { error: { type: "VALIDATION_ERROR", description: "Operação de estoque não simulada." } } };
+      this.#stock.set(`${product}:${deposit}`, Number(body.quantidade));
+      return { status: 201, data: { data: { id: String(this.#nextId++) } } };
+    }
+    if (!root) return { status: 404, data: { error: { type: "RESOURCE_NOT_FOUND" } } };
+    const [, collection, id, settle] = root;
+    if (!this.#resources.has(collection)) this.resource(collection, []);
+    const resource = this.#resources.get(collection);
+    if (body?.nome === "RECUSAR") return { status: 400, data: { error: { type: "VALIDATION_ERROR", description: "Não foi possível salvar o contato", fields: [{ msg: "O nome informado não é aceito." }] } } };
+    if (method === "POST" && settle) {
+      const current = resource.details.get(id);
+      if (!current) return { status: 404, data: { error: { type: "RESOURCE_NOT_FOUND" } } };
+      const saldo = Math.round((Number(current.saldo ?? current.valor) - Number(body.valorRecebido)) * 100) / 100;
+      this.#replace(resource, { ...current, saldo, situacao: saldo <= 0 ? 2 : 3 });
+      return { status: 200, data: { data: { id: String(this.#nextId++) } } };
+    }
+    if (method === "POST" && !id) {
+      const created = { ...copy(body), id: String(this.#nextId++) };
+      this.#replace(resource, created);
+      return { status: 201, data: { data: { id: created.id } } };
+    }
+    if (method === "PUT" && id) {
+      if (!resource.details.has(id)) return { status: 404, data: { error: { type: "RESOURCE_NOT_FOUND" } } };
+      this.#replace(resource, { ...copy(body), id });
+      return { status: 204, data: null };
+    }
+    return { status: 405, data: { error: { type: "METHOD_NOT_ALLOWED" } } };
+  }
+  #replace(resource, record) {
+    resource.details.set(record.id, copy(record));
+    const index = resource.rows.findIndex(row => row.id === record.id);
+    if (index >= 0) resource.rows[index] = copy(record); else resource.rows.push(copy(record));
+  }
+  /** Filtros de lista usados na conferência de uma criação incerta (só com { writes: true }). */
+  #filtered(rows, params) {
+    const digits = value => String(value ?? "").replace(/\D/g, "");
+    return rows.filter(row => {
+      if (params.has("numeroDocumento") && digits(row.numeroDocumento) !== digits(params.get("numeroDocumento"))) return false;
+      if (params.has("codigos[]") && !params.getAll("codigos[]").includes(String(row.codigo))) return false;
+      if (params.has("numero") && String(row.numero) !== params.get("numero")) return false;
+      if (params.has("idContato") && String(row.contato?.id) !== params.get("idContato")) return false;
+      if (params.has("dataInicial") && params.get("tipoFiltroData") === "V" && String(row.vencimento) < params.get("dataInicial")) return false;
+      if (params.has("dataFinal") && params.get("tipoFiltroData") === "V" && String(row.vencimento) > params.get("dataFinal")) return false;
+      return true;
+    });
+  }
   fetch = async (input, init = {}) => {
     const request = new Request(input, init);
     if (request.method !== "GET") {
       this.#mutationAttempts++;
-      throw new Error("FAKE_BLING_GET_ONLY");
+      if (!this.#writable) throw new Error("FAKE_BLING_GET_ONLY");
+      assert.ok(["POST", "PUT"].includes(request.method), "método de escrita fora do simulador");
+      const url = new URL(request.url), base = new URL(this.baseUrl);
+      assert.equal(url.origin, base.origin, "host fora do simulador");
+      const path = url.pathname.slice(base.pathname.replace(/\/$/, "").length);
+      assert.ok(!/\/(nfe|nfce|ordens-servico)/.test(path), "nota fiscal e ordem de serviço nunca são escritas");
+      assert.ok(/^Bearer \S+$/.test(request.headers.get("authorization") ?? ""), "escrita sem autorização");
+      const body = await request.json();
+      const call = Object.freeze({ method: request.method, path, query: {}, at: this.#clock.now() });
+      this.#calls.push(call);
+      this.#hook?.(copy(call), this);
+      const replyIndex = this.#replies.findIndex(reply => reply.method === request.method && (!reply.path || reply.path === path));
+      const reply = replyIndex >= 0 ? this.#replies.splice(replyIndex, 1)[0] : null;
+      let result = null;
+      if (!reply || reply.apply) {
+        result = this.#write(request.method, path, body);
+        if (result.status < 300) this.#writes.push({ method: request.method, path, body: copy(body) });
+      }
+      if (reply?.advance) this.#clock.advance(reply.advance);
+      if (reply?.throw) throw new Error(reply.throw === true ? "FAKE_BLING_CONNECTION_LOST" : reply.throw);
+      if (reply?.status) return jsonResponse(reply.data ?? { error: { type: "simulated" } }, reply.status, reply.headers ?? {});
+      return result.data === null ? new Response(null, { status: result.status }) : jsonResponse(result.data, result.status);
     }
     const url = new URL(request.url), base = new URL(this.baseUrl);
     assert.equal(url.origin, base.origin, "host fora do simulador");
@@ -100,7 +189,7 @@ export class FakeBling {
     const call = Object.freeze({ method: "GET", path, query: Object.fromEntries(url.searchParams), at: this.#clock.now() });
     this.#calls.push(call);
     this.#hook?.(copy(call), this);
-    const replyIndex = this.#replies.findIndex(reply => !reply.path || reply.path === path);
+    const replyIndex = this.#replies.findIndex(reply => (!reply.method || reply.method === "GET") && (!reply.path || reply.path === path));
     if (replyIndex >= 0) {
       const reply = this.#replies.splice(replyIndex, 1)[0];
       if (reply.advance) this.#clock.advance(reply.advance);
@@ -111,13 +200,18 @@ export class FakeBling {
       if (reply.body !== undefined) return new Response(reply.body, { status: reply.status ?? 200, headers });
       return jsonResponse(reply.data ?? { error: { type: "simulated" } }, reply.status ?? 200, headers);
     }
+    if (this.#writable && path === "/estoques/saldos") {
+      const ids = url.searchParams.getAll("idsProdutos[]");
+      return jsonResponse({ data: ids.map(id => ({ produto: { id: Number(id) }, depositos: [...this.#stock].filter(([key]) => key.startsWith(id + ":")).map(([key, saldo]) => ({ id: Number(key.split(":")[1]), saldoFisico: saldo })) })) });
+    }
     const source = this.#resources.get(path);
     if (source) {
       const page = Number(url.searchParams.get("pagina") ?? 1);
       const limit = Number(url.searchParams.get("limite") ?? source.pageSize);
       if (!Number.isSafeInteger(page) || page < 1 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100)
         return jsonResponse({ error: { type: "invalid_page" } }, 400);
-      return jsonResponse({ data: copy(source.pages.get(page) ?? source.rows.slice((page - 1) * limit, page * limit)) });
+      const rows = this.#writable ? this.#filtered(source.rows, url.searchParams) : source.rows;
+      return jsonResponse({ data: copy(source.pages.get(page) ?? rows.slice((page - 1) * limit, page * limit)) });
     }
     const slash = path.lastIndexOf("/"), parent = path.slice(0, slash), id = decodeURIComponent(path.slice(slash + 1));
     const resource = this.#resources.get(parent);

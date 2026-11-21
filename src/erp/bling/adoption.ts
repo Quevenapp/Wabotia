@@ -410,6 +410,12 @@ function adoptRecord(ctx: RpcContext, step: Step): Outcome {
   return "adopted";
 }
 
+/** Mão dupla (versão 19): registro novo do Bling depois do corte, pelas mesmas
+ * regras do lote (liga, cria ou deixa pendente). */
+export function adoptCollected(ctx: RpcContext, entity: BlingAdoptionEntity, raw: AdoptionRaw, actor: string, now: number): Outcome {
+  return isAdoptionB2(entity) ? adoptB2Record(ctx, { entity, raw, actor, now }).outcome : adoptRecord(ctx, { entity, raw, actor, now });
+}
+
 // ---------------------------------------------------------------------------
 // Erros do domínio em palavras
 

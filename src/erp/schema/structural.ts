@@ -204,4 +204,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Ordem de serviço, parte 5: a ordem com orçamento aprovado emite a NFS-e do Sistema Nacional (serviços) e a NF-e modelo 55 (peças) pelo cofre da NFapi, pela mesma máquina da NF-e comercial, sem lançar estoque nem financeiro de novo (os efeitos são os da fase 3).",
     replaced_by: "Versão 16 aditiva (15→16): service_emission, service_revision, service_command, service_cancel, service_effect e service_audit em erp_fiscal_vault, com o DDL da versão 10 e os limites da NFS-e (série de até 5 dígitos, número da DPS de até 15, chave nacional de até 50 caracteres e o número da NFS-e na coluna protocol), e service_settings (código de tributação, NBS, ISS e município de prestação, com exceções por serviço). Inscrição municipal, série da DPS e regime especial ficam no cofre.",
   },
+  {
+    id: "mao-dupla-bling",
+    oracle: "Mão dupla do coletor externo (erp_sync: settings, link, outbox, inbox, issue, run, stock_pair), com gatilhos nas tabelas do ERP que enfileiravam toda alteração e um executor externo que reivindicava a fila.",
+    reason: "Mão dupla com o Bling depois do corte: a coleta incremental aplica no ERP, pelas mesmas funções da adoção, o que mudou no Bling, e o que muda no ERP volta ao Bling por uma fila retomável no alarme do Coordinator, sem gatilho nas tabelas do domínio. Interruptor por entidade e sentido, todos desligados; resposta incerta nunca é repetida sem conferir no Bling; conflito dos dois lados vira pendência; nunca nota fiscal nem ordem de serviço.",
+    replaced_by: "Versão 19 aditiva (18→19): wb_bling_twoway (ritmo e últimas rodadas), wb_bling_twoway_setting (interruptor por entidade e sentido), wb_bling_twoway_state (linha de base de cada registro: impressão do ERP e versão do Bling na última sincronização), wb_bling_twoway_outbox (fila de saída com id estável, conferência por GET), wb_bling_twoway_issue (pendências e conflitos com os dois lados) e wb_bling_twoway_audit (quem ligou ou desligou, imutável). A mudança no ERP é achada pela impressão do que seria enviado, sem gatilho.",
+  },
 ];

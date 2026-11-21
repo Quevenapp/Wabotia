@@ -6,7 +6,7 @@ import type { IdentityPort } from "../engine/identity.ts";
 import { storageDriver } from "../engine/driver.ts";
 import { readErpPartsSnapshot, type ErpPartsSnapshot } from "../parts.ts";
 import {
-  BLING_ADOPTION_OPERATIONS, BlingAdoptionError, adoptionOutputs, parseAdoptionInput,
+  BlingAdoptionError, adoptionOutputs, getAdoptionOperation, isAdoptionAdminOnly, parseAdoptionInput,
   type BlingAdoptionAuthorization, type BlingAdoptionOperationName,
 } from "./adoption-contracts.ts";
 import {
@@ -19,6 +19,7 @@ import {
   type CutoverMedia,
 } from "./cutover.ts";
 import { packageDownload, packageList, packageRunning, packageStart, runPackageUnit, type PackageMedia } from "./cutover-package.ts";
+import { runTwoWayLocalUnit, twoWayIssues, twoWayPace, twoWayQueue, twoWayResolve, twoWayStatus, twoWaySwitch } from "./two-way.ts";
 
 const privateHeaders = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
 export const adoptionRequestHash = (value: unknown) => createHash("sha256").update(JSON.stringify(value), "utf8").digest("hex");
@@ -41,6 +42,8 @@ export interface AdoptionDispatch {
 export function authorizeAdoption(call: AdoptionDispatch): void {
   const actor = call.identity.actor;
   if (!actor || actor.erp_role !== "admin") throw new BlingAdoptionError("BLING_ADOPTION_ADMIN_REQUIRED");
+  // Ligar ou desligar a mão dupla e o ritmo: só a pessoa, nunca um bot.
+  if (isAdoptionAdminOnly(call.name) && actor.is_agent) throw new BlingAdoptionError("BLING_ADOPTION_SCOPE_REQUIRED");
   if (!actor.is_agent) {
     if (!actor.session_id || call.authorization) throw new BlingAdoptionError("BLING_ADOPTION_ADMIN_REQUIRED");
     return;
@@ -48,7 +51,7 @@ export function authorizeAdoption(call: AdoptionDispatch): void {
   const authorization = call.authorization;
   if (!authorization || authorization.bot.operation !== call.name || authorization.request_hash !== adoptionRequestHash(call.input))
     throw new BlingAdoptionError("BLING_ADOPTION_SCOPE_REQUIRED");
-  if (BLING_ADOPTION_OPERATIONS[call.name].sensitive && (!authorization.confirmed || !authorization.delegation.proposal_id))
+  if (getAdoptionOperation(call.name)!.sensitive && (!authorization.confirmed || !authorization.delegation.proposal_id))
     throw new BlingAdoptionError("BLING_ADOPTION_SCOPE_REQUIRED");
 }
 
@@ -124,6 +127,13 @@ export async function handleAdoptionOperation(call: AdoptionDispatch, dependenci
       case "erp_bling_cutover_conclude": result = cutoverConclude(context, input as never); break;
       case "erp_bling_cutover_conflicts": result = cutoverConflicts(context, input as never); break;
       case "erp_bling_cutover_conflict_resolve": result = cutoverConflictResolve(context, input as never); break;
+      // Mão dupla (versão 19).
+      case "erp_bling_twoway_status": result = twoWayStatus(context); break;
+      case "erp_bling_twoway_queue": result = twoWayQueue(context, input as never); break;
+      case "erp_bling_twoway_issues": result = twoWayIssues(context, input as never); break;
+      case "erp_bling_twoway_resolve": result = twoWayResolve(context, input as never); break;
+      case "erp_bling_twoway_switch": result = twoWaySwitch(context, input as never); break;
+      case "erp_bling_twoway_pace": result = twoWayPace(context, input as never); break;
     }
     const output = adoptionOutputs[call.name].safeParse(result);
     if (!output.success) throw new BlingAdoptionError("BLING_ADOPTION_UNAVAILABLE");
@@ -143,4 +153,14 @@ export async function runAdoptionWake(profile: string, dependencies: AdoptionDep
   if (!packageRunning(db) || !snapshot.parts.fiscal) return { worked: false, nextWake: null };
   const unit = await runPackageUnit({ db, profile, media: dependencies.media ?? null, now });
   return { worked: unit.worked, nextWake: unit.more ? now() + 1_000 : null };
+}
+
+/** Mão dupla, parte local (sem I/O): aplica no ERP o que a coleta trouxe e
+ * varre o que mudou no ERP para a fila de saída. Uma unidade por acordada. */
+export async function runTwoWayWake(profile: string, dependencies: AdoptionDependencies): Promise<{ worked: boolean; nextWake: number | null }> {
+  const now = dependencies.now ?? (() => Date.now());
+  const snapshot = readErpPartsSnapshot(await dependencies.readSnapshot(), profile, now());
+  if (!snapshot?.parts.customers) return { worked: false, nextWake: null };
+  const result = runTwoWayLocalUnit({ db: storageDriver(dependencies.storage), profile, now, parts: snapshot.parts });
+  return { worked: result.worked, nextWake: result.more ? now() + 1_000 : null };
 }
