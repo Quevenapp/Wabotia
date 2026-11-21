@@ -184,6 +184,8 @@ export function erpDestinationRequirement(value: URL | string): ErpDestinationRe
   else if (path === "/expedicao") owner = "erp-expedicao";
   // Cadastros › Lojas: cadastro da Base; cada seção do relatório por loja confere a parte dela.
   else if (path === "/lojas") owner = B;
+  // Financeiro › Conciliação bancária e Conciliação de cartões (o PDV e Vendas só mudam a origem mostrada da venda).
+  else if (path === "/conciliacao-bancaria" || path === "/conciliacao-cartoes") owner = F;
   else if (path === "/meu-negocio") { owner = S; if (q.get("painel")?.includes("margem")) extra.push(C, E); if (/previsao|cobertura/.test(q.get("painel") ?? "")) extra.push(E); }
   else if (/^\/(tipos-contatos-empresa|vendedores-empresa|formas-pagamento-empresa|funcionarios-empresa|importar-contatos|numeracao-contatos|tipos-contato|numeros-contato|importacao-contatos|vendedores|funcionarios|formas-pagamento|tags|grupos-tags)$/.test(path)) owner = B;
   else if (/^\/(categorias-produtos|grupos-produtos|exportacao-produtos|listas-precos|campos-customizados)$/.test(path)) owner = P;

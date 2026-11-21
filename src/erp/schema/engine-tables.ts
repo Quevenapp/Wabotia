@@ -2016,6 +2016,192 @@ const IMPORT_TABLES: readonly EngineTable[] = [
     since: 28, owner: "planilha-fiscal", structural: "importacao-fiscal",
   },
 ];
+// Versão 30 (a 29 é de outra frente): conciliação do extrato bancário (OFX ou
+// planilha) e das vendas de cartão com a adquirente. As linhas do extrato
+// continuam em erp_finance__bank_statement_line (importação, vínculos, baixa e
+// lançamento pelas RPCs do Financeiro); aqui ficam o que o Financeiro não tem:
+// modelos de planilha por banco ou adquirente, regras da pessoa, a origem e o
+// motivo de ignorar da linha, o saldo do banco por dia, as taxas contratadas
+// do cartão e as linhas do extrato da adquirente com o casamento.
+const RC_LAYOUT = "erp_reconciliation__layout", RC_RULE = "erp_reconciliation__rule", RC_BANK_LINE = "erp_reconciliation__bank_line";
+const RC_BALANCE = "erp_reconciliation__bank_balance", RC_RATE = "erp_reconciliation__card_rate", RC_IMPORT = "erp_reconciliation__card_import";
+const RC_CARD_LINE = "erp_reconciliation__card_line", RC_COMMAND = "erp_reconciliation__command", RC_AUDIT = "erp_reconciliation__audit";
+const reconciliation = (table: string, ddl: readonly string[]): EngineTable => ({ table, ddl, since: 30, owner: "conciliacao", structural: "conciliacao" });
+const RC_UUID = (c: string) => `(length(${c}) = 36 AND ${c} = lower(${c}))`;
+const RC_DAY = (c: string) => `(${c} GLOB '${DIGITS(4)}-[0-1][0-9]-[0-3][0-9]' AND ${c} BETWEEN '1900-01-01' AND '2100-12-31')`;
+const RC_NAME = (c: string, max: number) => `(length(${c}) BETWEEN 1 AND ${max} AND ${c} = trim(${c}))`;
+const RC_CENTS = (c: string) => `(abs(${c}) <= 999999999999999)`;
+const RC_ACQUIRER = (c: string) => `(${c} GLOB '[a-z0-9]*' AND length(${c}) BETWEEN 2 AND 30)`;
+const RC_BRANDS = `'visa','mastercard','elo','amex','hipercard','diners','cabal','outros'`;
+const RECONCILIATION_TABLES: readonly EngineTable[] = [
+  reconciliation(RC_LAYOUT, [
+    `CREATE TABLE "${RC_LAYOUT}" (
+  "id" TEXT NOT NULL PRIMARY KEY CHECK (${RC_UUID("id")}),
+  "kind" TEXT NOT NULL CHECK (kind IN ('bank','card')),
+  "name" TEXT NOT NULL CHECK (${RC_NAME("name", 80)}),
+  "acquirer" TEXT CHECK (acquirer IS NULL OR ${RC_ACQUIRER("acquirer")}),
+  "account_id" TEXT,
+  "mapping" TEXT NOT NULL CHECK (${JSON_OF("mapping", "object")} AND length(CAST(mapping AS BLOB)) <= 8192),
+  "active" INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+  "version" INTEGER NOT NULL DEFAULT 1 CHECK (version BETWEEN 1 AND 2147483647),
+  "created_at" INTEGER NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  "updated_by" TEXT NOT NULL,
+  CONSTRAINT "${RC_LAYOUT}_acquirer_check" CHECK ((kind = 'card') = (acquirer IS NOT NULL)),
+  CONSTRAINT "${RC_LAYOUT}_account_fkey" FOREIGN KEY (account_id) REFERENCES "erp_finance__account" (id)
+) STRICT`,
+    `CREATE UNIQUE INDEX "${RC_LAYOUT}_name_key" ON "${RC_LAYOUT}" (kind, lower(name)) WHERE active = 1`,
+  ]),
+  reconciliation(RC_RULE, [
+    `CREATE TABLE "${RC_RULE}" (
+  "id" TEXT NOT NULL PRIMARY KEY CHECK (${RC_UUID("id")}),
+  "name" TEXT NOT NULL CHECK (${RC_NAME("name", 80)}),
+  "pattern" TEXT NOT NULL CHECK (${RC_NAME("pattern", 120)}),
+  "direction" TEXT NOT NULL CHECK (direction IN ('in','out','any')),
+  "account_id" TEXT,
+  "category_id" TEXT NOT NULL,
+  "contact_id" TEXT,
+  "note" TEXT CHECK (note IS NULL OR length(note) BETWEEN 1 AND 500),
+  "active" INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+  "version" INTEGER NOT NULL DEFAULT 1 CHECK (version BETWEEN 1 AND 2147483647),
+  "created_at" INTEGER NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  "updated_by" TEXT NOT NULL,
+  CONSTRAINT "${RC_RULE}_account_fkey" FOREIGN KEY (account_id) REFERENCES "erp_finance__account" (id),
+  CONSTRAINT "${RC_RULE}_category_fkey" FOREIGN KEY (category_id) REFERENCES "erp_finance__category" (id),
+  CONSTRAINT "${RC_RULE}_contact_fkey" FOREIGN KEY (contact_id) REFERENCES "erp_catalog__record" (id)
+) STRICT`,
+  ]),
+  reconciliation(RC_BANK_LINE, [
+    `CREATE TABLE "${RC_BANK_LINE}" (
+  "line_id" TEXT NOT NULL PRIMARY KEY,
+  "source" TEXT NOT NULL CHECK (source IN ('ofx','csv')),
+  "layout_id" TEXT,
+  "ignored_reason" TEXT CHECK (ignored_reason IS NULL OR length(ignored_reason) BETWEEN 3 AND 500),
+  "ignored_by" TEXT,
+  "ignored_at" INTEGER,
+  "updated_at" INTEGER NOT NULL,
+  CONSTRAINT "${RC_BANK_LINE}_ignored_check" CHECK ((ignored_reason IS NULL) = (ignored_at IS NULL) AND (ignored_at IS NULL) = (ignored_by IS NULL)),
+  CONSTRAINT "${RC_BANK_LINE}_line_fkey" FOREIGN KEY (line_id) REFERENCES "erp_finance__bank_statement_line" (id),
+  CONSTRAINT "${RC_BANK_LINE}_layout_fkey" FOREIGN KEY (layout_id) REFERENCES "${RC_LAYOUT}" (id)
+) STRICT`,
+  ]),
+  reconciliation(RC_BALANCE, [
+    `CREATE TABLE "${RC_BALANCE}" (
+  "account_id" TEXT NOT NULL,
+  "day" TEXT NOT NULL CHECK (${RC_DAY("day")}),
+  "balance_cents" INTEGER NOT NULL CHECK (${RC_CENTS("balance_cents")}),
+  "statement_id" TEXT NOT NULL,
+  "created_at" INTEGER NOT NULL,
+  PRIMARY KEY (account_id, day),
+  CONSTRAINT "${RC_BALANCE}_account_fkey" FOREIGN KEY (account_id) REFERENCES "erp_finance__account" (id),
+  CONSTRAINT "${RC_BALANCE}_statement_fkey" FOREIGN KEY (statement_id) REFERENCES "erp_finance__bank_statement" (id)
+) STRICT`,
+  ]),
+  reconciliation(RC_RATE, [
+    `CREATE TABLE "${RC_RATE}" (
+  "id" TEXT NOT NULL PRIMARY KEY CHECK (${RC_UUID("id")}),
+  "acquirer" TEXT NOT NULL CHECK (${RC_ACQUIRER("acquirer")}),
+  "brand" TEXT NOT NULL CHECK (brand IN (${RC_BRANDS})),
+  "product" TEXT NOT NULL CHECK (product IN ('debit','credit')),
+  "installments_from" INTEGER NOT NULL CHECK (installments_from BETWEEN 1 AND 99),
+  "installments_to" INTEGER NOT NULL CHECK (installments_to BETWEEN 1 AND 99),
+  "rate_bp" INTEGER NOT NULL CHECK (rate_bp BETWEEN 0 AND 10000),
+  "fixed_cents" INTEGER NOT NULL DEFAULT 0 CHECK (fixed_cents BETWEEN 0 AND 100000),
+  "settle_days" INTEGER NOT NULL CHECK (settle_days BETWEEN 0 AND 400),
+  "active" INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+  "version" INTEGER NOT NULL DEFAULT 1 CHECK (version BETWEEN 1 AND 2147483647),
+  "created_at" INTEGER NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  "updated_by" TEXT NOT NULL,
+  CONSTRAINT "${RC_RATE}_range_check" CHECK (installments_from <= installments_to)
+) STRICT`,
+  ]),
+  reconciliation(RC_IMPORT, [
+    `CREATE TABLE "${RC_IMPORT}" (
+  "id" TEXT NOT NULL PRIMARY KEY CHECK (${RC_UUID("id")}),
+  "acquirer" TEXT NOT NULL CHECK (${RC_ACQUIRER("acquirer")}),
+  "kind" TEXT NOT NULL CHECK (kind IN ('sales','receivables')),
+  "file_name" TEXT NOT NULL CHECK (${RC_NAME("file_name", 200)}),
+  "file_hash" TEXT NOT NULL CHECK (${HEX64("file_hash")}),
+  "layout_id" TEXT,
+  "lines" INTEGER NOT NULL CHECK (lines BETWEEN 0 AND 20000),
+  "new_lines" INTEGER NOT NULL CHECK (new_lines BETWEEN 0 AND 20000),
+  "actor" TEXT NOT NULL,
+  "command_id" TEXT NOT NULL,
+  "created_at" INTEGER NOT NULL,
+  CONSTRAINT "${RC_IMPORT}_layout_fkey" FOREIGN KEY (layout_id) REFERENCES "${RC_LAYOUT}" (id)
+) STRICT`,
+    `CREATE UNIQUE INDEX "${RC_IMPORT}_file_key" ON "${RC_IMPORT}" (acquirer, kind, file_hash)`,
+  ]),
+  reconciliation(RC_CARD_LINE, [
+    `CREATE TABLE "${RC_CARD_LINE}" (
+  "id" TEXT NOT NULL PRIMARY KEY CHECK (${RC_UUID("id")}),
+  "import_id" TEXT NOT NULL,
+  "kind" TEXT NOT NULL CHECK (kind IN ('sale','receivable')),
+  "acquirer" TEXT NOT NULL CHECK (${RC_ACQUIRER("acquirer")}),
+  "dedup_key" TEXT NOT NULL CHECK (${HEX64("dedup_key")}),
+  "sold_on" TEXT CHECK (sold_on IS NULL OR ${RC_DAY("sold_on")}),
+  "expected_on" TEXT CHECK (expected_on IS NULL OR ${RC_DAY("expected_on")}),
+  "brand" TEXT NOT NULL CHECK (brand IN (${RC_BRANDS})),
+  "product" TEXT NOT NULL CHECK (product IN ('debit','credit')),
+  "installment" INTEGER NOT NULL CHECK (installment BETWEEN 1 AND 99),
+  "installments" INTEGER NOT NULL CHECK (installments BETWEEN 1 AND 99),
+  "gross_cents" INTEGER NOT NULL CHECK (gross_cents BETWEEN 1 AND 999999999999999),
+  "fee_cents" INTEGER NOT NULL CHECK (fee_cents BETWEEN 0 AND 999999999999999),
+  "net_cents" INTEGER NOT NULL CHECK (net_cents BETWEEN 0 AND 999999999999999),
+  "nsu" TEXT CHECK (nsu IS NULL OR ${RC_NAME("nsu", 40)}),
+  "authorization" TEXT CHECK ("authorization" IS NULL OR ${RC_NAME('"authorization"', 40)}),
+  "description" TEXT CHECK (description IS NULL OR length(description) <= 200),
+  "state" TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending','matched','received','ignored')),
+  "title_id" TEXT,
+  "group_id" TEXT,
+  "confidence" INTEGER CHECK (confidence IS NULL OR confidence BETWEEN 0 AND 100),
+  "settlement_id" TEXT,
+  "account_id" TEXT,
+  "received_on" TEXT CHECK (received_on IS NULL OR ${RC_DAY("received_on")}),
+  "ignored_reason" TEXT CHECK (ignored_reason IS NULL OR length(ignored_reason) BETWEEN 3 AND 500),
+  "version" INTEGER NOT NULL DEFAULT 1 CHECK (version BETWEEN 1 AND 2147483647),
+  "created_at" INTEGER NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  "updated_by" TEXT NOT NULL,
+  CONSTRAINT "${RC_CARD_LINE}_installment_check" CHECK (installment <= installments),
+  CONSTRAINT "${RC_CARD_LINE}_net_check" CHECK (net_cents + fee_cents = gross_cents),
+  CONSTRAINT "${RC_CARD_LINE}_state_check" CHECK ((state = 'received') = (settlement_id IS NOT NULL) AND (state = 'ignored') = (ignored_reason IS NOT NULL)
+    AND (state NOT IN ('matched','received') OR title_id IS NOT NULL OR group_id IS NOT NULL)),
+  CONSTRAINT "${RC_CARD_LINE}_import_fkey" FOREIGN KEY (import_id) REFERENCES "${RC_IMPORT}" (id),
+  CONSTRAINT "${RC_CARD_LINE}_title_fkey" FOREIGN KEY (title_id) REFERENCES "erp_finance__title" (id),
+  CONSTRAINT "${RC_CARD_LINE}_settlement_fkey" FOREIGN KEY (settlement_id) REFERENCES "erp_finance__settlement" (id),
+  CONSTRAINT "${RC_CARD_LINE}_account_fkey" FOREIGN KEY (account_id) REFERENCES "erp_finance__account" (id)
+) STRICT`,
+    `CREATE UNIQUE INDEX "${RC_CARD_LINE}_dedup_key" ON "${RC_CARD_LINE}" (acquirer, kind, dedup_key)`,
+    `CREATE INDEX "${RC_CARD_LINE}_queue_idx" ON "${RC_CARD_LINE}" (state, kind, coalesce(expected_on, sold_on))`,
+    `CREATE INDEX "${RC_CARD_LINE}_title_idx" ON "${RC_CARD_LINE}" (title_id) WHERE title_id IS NOT NULL`,
+  ]),
+  reconciliation(RC_COMMAND, [
+    `CREATE TABLE "${RC_COMMAND}" (
+  "command_id" TEXT NOT NULL PRIMARY KEY,
+  "actor" TEXT NOT NULL,
+  "request_hash" TEXT NOT NULL CHECK (${HEX64("request_hash")}),
+  "result" TEXT NOT NULL CHECK (${JSON_OF("result", "object")}),
+  "created_at" INTEGER NOT NULL
+) STRICT`,
+  ]),
+  reconciliation(RC_AUDIT, [
+    `CREATE TABLE "${RC_AUDIT}" (
+  "id" INTEGER PRIMARY KEY,
+  "command_id" TEXT NOT NULL,
+  "actor" TEXT NOT NULL,
+  "action" TEXT NOT NULL CHECK (length(action) BETWEEN 1 AND 40),
+  "target" TEXT NOT NULL,
+  "before_data" TEXT CHECK (before_data IS NULL OR json_valid(before_data)),
+  "after_data" TEXT CHECK (after_data IS NULL OR json_valid(after_data)),
+  "created_at" INTEGER NOT NULL
+) STRICT`,
+    `CREATE INDEX "${RC_AUDIT}_target_idx" ON "${RC_AUDIT}" (target, created_at)`,
+  ]),
+];
+
 export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...BASE_ENGINE_TABLES,
   ...counterTables,
@@ -2091,6 +2277,8 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...STORE_TABLES,
   // Versão 28: o tipo das importações fiscal e de saldos iniciais (26 e 27 são de outras frentes).
   ...IMPORT_TABLES,
+  // Versão 30: conciliação bancária e de cartões (a 29 é de outra frente).
+  ...RECONCILIATION_TABLES,
 ];
 
 export const ERP_ENGINE_DDL: readonly string[] = ERP_ENGINE_TABLES.flatMap((t) => t.ddl);

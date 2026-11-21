@@ -54,11 +54,17 @@
 //     de saldos iniciais (import_job_kind em erp_preferences; 27→28, somente
 //     adição). 26 e 27 são de outras frentes: aqui os passos 25→26 e 26→27
 //     só criam as tabelas do motor dessas versões (nenhuma nesta frente).
+// 30: nove tabelas da conciliação bancária e de cartões (erp_reconciliation:
+//     modelos de planilha, regras, origem e motivo da linha do extrato, saldo
+//     do banco por dia, taxas do cartão, importações e linhas da adquirente,
+//     recibos e auditoria; 29→30, somente adição). A 29 é de outra frente:
+//     aqui o passo 28→29 só cria as tabelas do motor dessa versão (nenhuma
+//     nesta frente).
 import { createHash } from "node:crypto";
 import { ERP_DDL_GENERATED, ERP_DDL_HASH as GENERATED_HASH } from "./ddl.generated.ts";
 import { ERP_ENGINE_DDL } from "./engine-tables.ts";
 
-export const ERP_DDL_VERSION = 28;
+export const ERP_DDL_VERSION = 30;
 export const ERP_DDL: readonly string[] = [...ERP_DDL_GENERATED, ...ERP_ENGINE_DDL];
 /** Hash do esquema: o do gerado; com tabelas do motor, o do gerado mais o DDL delas. */
 export const ERP_DDL_HASH: string = ERP_ENGINE_DDL.length

@@ -398,6 +398,21 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     target: { kind: "ported", to: "/financeiro-empresa?area=ficha" },
     permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
   },
+  // Conciliação: extrato do banco (OFX ou planilha) e vendas de cartão com a adquirente (src/erp/conciliacao).
+  {
+    id: "erp.bank-reconciliation", module: "erp-financeiro", part: "financeiro",
+    ...ERP_MENU_GROUPS.financeiro, order: 391,
+    label: "Conciliação bancária",
+    target: { kind: "ported", to: "/conciliacao-bancaria" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
+  },
+  {
+    id: "erp.card-reconciliation", module: "erp-financeiro", part: "financeiro",
+    ...ERP_MENU_GROUPS.financeiro, order: 392,
+    label: "Conciliação de cartões",
+    target: { kind: "ported", to: "/conciliacao-cartoes" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
+  },
   {
     id: "erp.commissions", module: "erp-financeiro", part: "financeiro",
     ...ERP_MENU_GROUPS.financeiro, order: 400,
@@ -559,6 +574,8 @@ export const ORIGIN_MENU: readonly MenuGroupDefinition[] = [
       { ...legacyItems["erp.operational-billing"], homeShortcut: false },
       { ...legacyItems["erp.operational-returns"], homeShortcut: false },
       legacyItems["erp.financial-statement"],
+      { ...legacyItems["erp.bank-reconciliation"], homeShortcut: false },
+      { ...legacyItems["erp.card-reconciliation"], homeShortcut: false },
       legacyItems["erp.commissions"],
       legacyItems["erp.cash-control"],
       legacyItems["erp.grouped-billing"],

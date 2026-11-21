@@ -38,6 +38,11 @@ const RPC_GROUPS = {
     erp_shipping_labels erp_shipping_manifest erp_shipping_delivery_prepare erp_shipping_delivery_record erp_shipping_return_create`,
   // Lojas e filiais: cadastro da Base; cada seção da lista e do relatório por loja confere a parte dela dentro do RPC.
   stores: `erp_store_overview erp_store_save erp_store_person_set erp_store_select erp_store_assign erp_store_operations erp_store_report`,
+  // Conciliação bancária e de cartões: Financeiro; o PDV e Vendas só mudam a origem mostrada da venda.
+  reconciliation: `erp_reconciliation_overview erp_reconciliation_preview erp_reconciliation_bank_import erp_reconciliation_bank_lines
+    erp_reconciliation_bank_candidates erp_reconciliation_bank_action erp_reconciliation_rule_save erp_reconciliation_layout_save
+    erp_reconciliation_card_import erp_reconciliation_card_lines erp_reconciliation_card_candidates erp_reconciliation_card_action
+    erp_reconciliation_card_receive erp_reconciliation_card_rate_save`,
   // Compra pela nota recebida: Compras; Estoque, Financeiro e Fiscal são conferidos por efeito dentro do RPC.
   inbound: `erp_inbound_list erp_inbound_get erp_inbound_register erp_inbound_fetch_claim erp_inbound_fetch_record erp_inbound_review
     erp_inbound_supplier_create erp_inbound_enter erp_inbound_reverse erp_inbound_settings_get erp_inbound_settings_save
@@ -210,6 +215,7 @@ const fixed: Partial<Record<ErpRpcRule, ErpModuleId[]>> = {
   inbound: ["erp-compras"],
   shipping: ["erp-expedicao"],
   stores: ["erp"],
+  reconciliation: ["erp-financeiro"],
   base: ["erp"], products: ["erp-produtos"], product_purchase: ["erp-produtos", "erp-compras"],
   stock: ["erp-estoque"], sales: ["erp-vendas"], finance: ["erp-financeiro"], billing: ["erp-cobranca"],
   fiscal: ["erp-fiscal"], pos: ["erp-pdv"], purchase_stock: ["erp-compras", "erp-estoque"],
