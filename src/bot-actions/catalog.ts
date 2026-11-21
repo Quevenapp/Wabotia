@@ -10,6 +10,7 @@ import { moduleForRoute, moduleStates } from "../modules/registry";
 import { requireOperationAccess, requireRouteAccess } from "../access";
 import { ApiError, type Actor, type Env } from "../types";
 import { ERP_BOT_OPERATIONS, ERP_BOT_SCHEMAS, erpBotGrants, erpBotModules, type ErpBotOperation } from "../modules/erp/bot-access";
+import { AREA_BOT_MODULES, areaGrantsFor, areaKind, type AreaBotModule, type AreaBotOperation } from "./area";
 
 export interface CatalogOperation {
   /** Nome usado nas ferramentas: a op da escrita ("os.create") ou "consulta:<caminho>". */
@@ -26,6 +27,10 @@ export interface CatalogOperation {
   sensitive: boolean;
   /** Escopo exigido de uma aplicação (documentação; a pessoa não usa). */
   scope: string;
+  /** Operação de módulo de área (Saúde, Ensino, Jurídico, Condomínio) liberada ao bot. */
+  area?: true;
+  /** Escrita de módulo de área que o administrador liberou sem confirmação. */
+  direct?: boolean;
 }
 
 const PREFIX = "/profiles/{profile}/";
@@ -33,9 +38,11 @@ const toRoute = (path: string) =>
   path.slice(PREFIX.length).replace(/\{(\w+)\}/g, ":$1");
 
 let built: CatalogOperation[] | null = null;
+let specs: Map<string, CatalogOperation["params"]> | null = null;
 /** Testes que mudam `definition.bot` refazem o catálogo. */
 export const resetCatalogCache = () => {
   built = null;
+  specs = null;
 };
 
 /** Resolve $ref do OpenAPI (até 3 níveis) e tira o que só pesa no contexto. */
@@ -67,6 +74,7 @@ export function fullCatalog(): CatalogOperation[] {
   const components = spec.components?.schemas || {};
   const routes = moduleRoutes();
   const out: CatalogOperation[] = [];
+  const params = new Map<string, CatalogOperation["params"]>();
   for (const [path, item] of Object.entries<any>(spec.paths || {})) {
     if (!path.startsWith(PREFIX)) continue;
     const route = toRoute(path);
@@ -115,6 +123,8 @@ export function fullCatalog(): CatalogOperation[] {
           (scope === "billing:write" ||
             (bot.sensitive || []).some((p) => name.startsWith(p)))) ||
         (kind === "read" && erpSensitiveRead(route));
+      // Também das rotas fora do catálogo comum: os módulos de área usam.
+      params.set(`${upper} ${route}`, { type: "object", properties, required });
       if ((bot.deny || []).some((p) => name.startsWith(p) || route.startsWith(p)))
         continue;
       out.push({
@@ -132,6 +142,7 @@ export function fullCatalog(): CatalogOperation[] {
     }
   }
   built = out;
+  specs = params;
   return out;
 }
 
@@ -186,7 +197,45 @@ export async function catalogFor(env: Env, actor: Actor, profile: string) {
       erpBotModules(op).every(id => states[id]))
     .map(op => erpCatalogOperation(op, autonomous.includes(op.id)))
     .filter(reachable);
-  return [...listed, ...erp];
+  // Módulos de área: só o que o administrador ligou para este bot, com o
+  // módulo ligado na área e o acesso da pessoa (src/bot-actions/area.ts).
+  const area = await areaGrantsFor(env, actor, profile);
+  const fromArea = AREA_BOT_MODULES.flatMap(module => states[module.module]
+    ? module.operations.filter(op => area.operations.has(op.id)).map(op => areaCatalogOperation(module, op, area.direct.has(op.id)))
+    : []).filter(reachable);
+  return [...listed, ...erp, ...fromArea];
+}
+
+/** Parâmetros de uma rota de módulo no OpenAPI (inclusive as fora do catálogo comum). */
+function specParams(method: string, route: string) {
+  if (!specs) fullCatalog();
+  return specs?.get(`${method} ${route}`);
+}
+
+/** Operação de módulo de área como o bot a vê. Escrita é sensível (proposta
+ * e segundo fator), salvo a execução direta liberada pelo administrador. */
+export function areaCatalogOperation(module: AreaBotModule, op: AreaBotOperation, direct = false): CatalogOperation {
+  const kind = areaKind(op);
+  const fromSpec = specParams(op.method, op.path);
+  const pathParams = [...op.path.matchAll(/:(\w+)/g)].map(match => match[1]);
+  const properties: Record<string, any> = { ...(fromSpec?.properties ?? {}) };
+  for (const key of pathParams) properties[key] ??= { type: "string" };
+  for (const key of op.fields ?? []) properties[key] ??= {};
+  const required = [...new Set([...pathParams, ...(fromSpec?.required ?? [])])];
+  return {
+    name: op.id,
+    kind,
+    module: module.module,
+    method: op.method,
+    path: op.path,
+    summary: `${module.title}: ${op.title}`,
+    description: op.description.slice(0, 600),
+    params: { type: "object", properties, required },
+    sensitive: kind === "write" && !direct,
+    scope: kind === "read" ? "conversations:read" : "conversations:write",
+    area: true,
+    direct: kind === "write" && direct,
+  };
 }
 
 const fold = (value: string) =>
@@ -233,6 +282,7 @@ export function operationView(op: CatalogOperation) {
     resumo: op.summary,
     ...(op.sensitive ? { exige_segundo_fator: true } : {}),
     ...(op.kind === "read" && op.sensitive ? { exige_proposta: true } : {}),
+    ...(op.direct ? { execucao_direta: true } : {}),
     parametros: params.length <= 2500 ? op.params : compactParams(op),
   };
 }

@@ -46,6 +46,8 @@ export const condominioModule: ModuleDefinition = {
   scopes: [],
   settings: [],
   events: [],
-  // Prefixos: nem propostas nem ferramentas podem receber cadastros ou votos.
+  // Fora do catálogo comum e das ferramentas de cliente. Cada operação vem de
+  // bot-grants.ts e só chega ao bot que o administrador liberou, com aviso
+  // (src/bot-actions/area.ts); voto do morador continua só pelo QR dele.
   bot: { deny: ["condominio/", "condominio."], sensitive: ["condominio."] },
 };

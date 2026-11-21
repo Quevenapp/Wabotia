@@ -36,6 +36,7 @@ import {
 import { event, audit, eventStatement, fanOut } from "./events";
 import { appErpRoleInput } from "./modules/erp/identity";
 import { erpBotAutonomousInput, erpBotOperationsInput } from "./modules/erp/bot-access";
+import { setAreaBotGrant } from "./bot-actions/area";
 import { boundAllows, visibleConversation } from "./visibility";
 import { probe, telegramRemoved } from "./integrations";
 import { aiConfig, aiKey } from "./ai-provider";
@@ -2916,6 +2917,8 @@ export async function perform(
       data.status === "active" && extension.enabled?.(row)).map(extension => extension.key);
     return { id: row.id, status: data.status, ...(extensions.length ? { channel_extensions: extensions } : {}) };
   }
+  // Módulos de área para o bot: só o administrador, pela tela, com o aviso.
+  if (op === "bot.area_grant") return setAreaBotGrant(env, actor, profile, data);
   if (op === "bot.update") {
     admin(actor);
     const bot = await one(

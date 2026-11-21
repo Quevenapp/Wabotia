@@ -924,6 +924,18 @@ const operations: [string, string, string, string?, string?][] = [
   ],
   [
     "get",
+    "/profiles/{profile}/bots/{id}/area-grants",
+    "Módulos de área (Saúde, Ensino, Jurídico, Condomínio) do bot: operações, avisos, o que está ligado e o registro (só administrador)",
+    "bots:read",
+  ],
+  [
+    "put",
+    "/profiles/{profile}/bots/{id}/area-grants",
+    "Ligar ou desligar para o bot uma operação de módulo de área, a execução direta de uma escrita ou os campos sensíveis do módulo. Ligar exige confirmed=true (e direct_confirmed=true para execução direta); fica registrado. Só administrador, pessoa em sessão.",
+    "bots:write",
+  ],
+  [
+    "get",
     "/profiles/{profile}/conversations",
     "Listar conversas",
     "conversations:read",

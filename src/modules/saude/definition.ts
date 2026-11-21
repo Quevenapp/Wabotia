@@ -22,5 +22,7 @@ export const saudeModule: ModuleDefinition = {
     { id: "clinical_write", label: "Escrita clínica", description: "Cadastrar e escrever prontuários. Exige leitura clínica; só o autor assina sua evolução." },
     { id: "responsible", label: "Responsável técnico", description: "Consultar auditoria e configurar guarda. Não concede leitura clínica." },
   ],
+  // Fora do catálogo comum; cada operação vem de bot-grants.ts e só chega ao
+  // bot que o administrador liberou, com aviso (src/bot-actions/area.ts).
   bot: { deny: ["saude", "saude."], sensitive: ["saude", "saude."] },
 };

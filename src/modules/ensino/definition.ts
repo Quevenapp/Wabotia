@@ -15,5 +15,7 @@ export const ensinoModule: ModuleDefinition = {
     { id: "professor", label: "Professor", description: "Consulta e registra frequência e notas somente nas próprias turmas." },
   ],
   // sensitive exige confirmação forte, mas NÃO substitui deny ou a barreira nos handlers.
+  // deny tira do catálogo comum; cada operação vem de bot-grants.ts e só chega
+  // ao bot que o administrador liberou, com aviso (src/bot-actions/area.ts).
   bot: { deny: ["ensino/", "ensino."], sensitive: ["ensino."] },
 };
