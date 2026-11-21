@@ -100,8 +100,20 @@ export class FakeBling {
     assert.ok(resource, "recurso não registrado no simulador");
     return resource;
   }
+  /** Conta real (versão 32): dados básicos da empresa em /empresas/me/dados-basicos. */
+  company(record) { this.#company = copy(record); return this; }
+  #company = null;
   /** Aplica uma escrita da mão dupla no estado simulado. */
   #write(method, path, body) {
+    // Volta ao Bling (versão 32): situação do pedido de venda, sem corpo.
+    const situation = path.match(/^\/pedidos\/vendas\/(\d+)\/situacoes\/(\d+)$/);
+    if (method === "PATCH" && situation) {
+      const resource = this.#resources.get("/pedidos/vendas");
+      const current = resource?.details.get(situation[1]);
+      if (!current) return { status: 404, data: { error: { type: "RESOURCE_NOT_FOUND" } } };
+      this.#replace(resource, { ...current, situacao: { id: Number(situation[2]), valor: 0 } });
+      return { status: 204, data: null };
+    }
     const root = path.match(/^(\/(?:contatos|produtos|propostas-comerciais|pedidos\/vendas|pedidos\/compras|contas\/receber|contas\/pagar|listas-precos|campos-customizados))(?:\/(\d+))?(\/baixar)?$/);
     if (method === "POST" && path === "/estoques") {
       const product = String(body?.produto?.id), deposit = String(body?.deposito?.id);
@@ -156,14 +168,16 @@ export class FakeBling {
     if (request.method !== "GET") {
       this.#mutationAttempts++;
       if (!this.#writable) throw new Error("FAKE_BLING_GET_ONLY");
-      assert.ok(["POST", "PUT"].includes(request.method), "método de escrita fora do simulador");
+      assert.ok(["POST", "PUT", "PATCH"].includes(request.method), "método de escrita fora do simulador");
       const url = new URL(request.url), base = new URL(this.baseUrl);
       assert.equal(url.origin, base.origin, "host fora do simulador");
       const path = url.pathname.slice(base.pathname.replace(/\/$/, "").length);
       assert.ok(!/\/(nfe|nfce|ordens-servico)/.test(path), "nota fiscal e ordem de serviço nunca são escritas");
       assert.ok(!/\/(nfse|contratos|naturezas-operacoes)/.test(path), "NFS-e, contratos e naturezas nunca voltam ao Bling");
       assert.ok(/^Bearer \S+$/.test(request.headers.get("authorization") ?? ""), "escrita sem autorização");
-      const body = await request.json();
+      // PATCH da situação vai sem corpo; o resto da escrita é sempre JSON.
+      const raw = await request.text();
+      const body = raw ? JSON.parse(raw) : request.method === "PATCH" ? {} : JSON.parse(raw);
       const call = Object.freeze({ method: request.method, path, query: {}, at: this.#clock.now() });
       this.#calls.push(call);
       this.#hook?.(copy(call), this);
@@ -201,6 +215,7 @@ export class FakeBling {
       if (reply.body !== undefined) return new Response(reply.body, { status: reply.status ?? 200, headers });
       return jsonResponse(reply.data ?? { error: { type: "simulated" } }, reply.status ?? 200, headers);
     }
+    if (this.#company && path === "/empresas/me/dados-basicos") return jsonResponse({ data: copy(this.#company) });
     if (this.#writable && path === "/estoques/saldos") {
       const ids = url.searchParams.getAll("idsProdutos[]");
       return jsonResponse({ data: ids.map(id => ({ produto: { id: Number(id) }, depositos: [...this.#stock].filter(([key]) => key.startsWith(id + ":")).map(([key, saldo]) => ({ id: Number(key.split(":")[1]), saldoFisico: saldo })) })) });

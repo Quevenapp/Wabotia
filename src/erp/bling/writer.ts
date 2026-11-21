@@ -8,7 +8,7 @@
  * chama confere por GET antes de tentar de novo. */
 import { BLING_BUDGET, type BlingContext } from "./contracts.ts";
 
-export type BlingWriteMethod = "POST" | "PUT";
+export type BlingWriteMethod = "POST" | "PUT" | "PATCH";
 export interface BlingWriteRequest { method: BlingWriteMethod; path: string; body: Record<string, unknown>; deadline: number }
 export interface BlingReadRequest { path: string; query?: Record<string, string | string[]>; deadline: number }
 export type BlingWriteResult =
@@ -36,6 +36,8 @@ const WRITE_PATHS: Record<BlingWriteMethod, RegExp[]> = {
   POST: [new RegExp(`^/${ROOT}$`), new RegExp(`^/contas/(receber|pagar)/${ID}/baixar$`), /^\/estoques$/],
   // Fatia D: só a atualização de lista de preços e de campo customizado já ligados.
   PUT: [new RegExp(`^/${ROOT}/${ID}$`), new RegExp(`^/(listas-precos|campos-customizados)/${ID}$`)],
+  // Volta ao Bling (versão 32): só a situação do pedido de venda, sem corpo.
+  PATCH: [new RegExp(`^/pedidos/vendas/${ID}/situacoes/${ID}$`)],
 };
 const READ_PATHS = [new RegExp(`^/${ROOT}(/${ID})?$`), /^\/estoques\/saldos$/];
 export const isWritablePath = (method: BlingWriteMethod, path: string) => WRITE_PATHS[method]?.some(re => re.test(path)) ?? false;
@@ -131,9 +133,10 @@ export function createBlingWriter(options: BlingWriterOptions): BlingWritePort {
   return {
     async send(ctx, request) {
       if (!isWritablePath(request.method, request.path)) return { kind: "rejected", status: 0, message: "Este tipo de registro não pode ser gravado no Bling por aqui." };
-      let payload: string;
-      try { payload = JSON.stringify(request.body); } catch { return { kind: "rejected", status: 0, message: "Os dados para o Bling não puderam ser montados." }; }
-      if (payload.length > 1_000_000) return { kind: "rejected", status: 0, message: "O registro é grande demais para enviar ao Bling de uma vez." };
+      let payload: string | null;
+      try { payload = request.method === "PATCH" && !Object.keys(request.body ?? {}).length ? null : JSON.stringify(request.body); }
+      catch { return { kind: "rejected", status: 0, message: "Os dados para o Bling não puderam ser montados." }; }
+      if (payload !== null && payload.length > 1_000_000) return { kind: "rejected", status: 0, message: "O registro é grande demais para enviar ao Bling de uma vez." };
       const result = await call(ctx, request.method, address(request.path), payload, request.deadline);
       if ("error" in result) {
         // Sem token não houve envio. Tempo esgotado ou queda: pode ter entrado.

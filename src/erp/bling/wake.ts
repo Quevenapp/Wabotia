@@ -19,8 +19,11 @@ export interface BlingWakeDependencies {
   timer?: BlingClientTimer;
   /** XML e apagamento usam o mesmo orçamento; nunca uma segunda unidade. */
   archiveWake?: BlingWakePort;
-  /** Mão dupla: intervalo configurado entre as passagens pelo que mudou (ms); null, o padrão. */
-  pace?(): number | null;
+  /** Mão dupla: intervalo configurado entre as passagens pelo que mudou (ms); null, o padrão.
+   * Com o aviso do Bling ligado, a entidade avisada passa à consulta de reserva (mais espaçada). */
+  pace?(entity?: string): number | null;
+  /** Aviso do Bling (webhook): entidade → horário do último aviso ainda não coletado. */
+  hints?(): ReadonlyMap<string, number>;
 }
 type Candidate = { key: string; entity: string; last_served_at: number; not_before: number; resource: ResourceDescriptor; selection: BlingSelection; checkpoint: BlingCheckpoint; pending?: BlingUnit };
 const bytes = (text: string) => new TextEncoder().encode(text);
@@ -28,6 +31,11 @@ const iso = (ctx: BlingContext) => new Date(ctx.clock.now()).toISOString();
 const fail = () => new BlingError("BLING_RESPONSE_INVALID");
 const expectation = (record: BlingRawRecord | null, identity: BlingRawRecord["identity"]) => ({ identity, version: record?.version ?? null, semantic_hash: record?.semantic_hash ?? null });
 const object = (value: unknown): Record<string, any> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
+/** Conta real: o token do Bling vence em horas. Renova antes de vencer (margem
+ * de 10 minutos), pela mesma porta exclusiva, sem esperar uma recusa 401. */
+export const BLING_RENEW_MARGIN_MS = 600_000;
+const needsRenewal = (control: Record<string, unknown>, now: number) => control.credential_status === "expired" ||
+  control.credential_status === "ready" && control.credential_expires_at != null && Number(control.credential_expires_at) - BLING_RENEW_MARGIN_MS <= now;
 const stateExpected = (control: Record<string, unknown>, partsRevision: string): BlingExpectedState => ({ generation: String(control.generation), authorization_revision: String(control.authorization_revision), credential_revision: String(control.credential_revision), configuration_revision: String(control.revision), account_id: String(control.account_id), parts_revision: partsRevision });
 function selections(control: Record<string, unknown>): BlingSelection[] {
   try {
@@ -66,6 +74,8 @@ export function createBlingWake(deps: BlingWakeDependencies): BlingWakePort {
     const outstanding = store.pending(ctx).filter(unit => Object.entries(current).every(([key, value]) => unit.expected[key as keyof BlingExpectedState] === value));
     const result: Candidate[] = [], seen = new Set<string>();
     const selected = selections(control);
+    let hints: ReadonlyMap<string, number> = new Map();
+    try { hints = deps.hints?.() ?? hints; } catch { /* sem aviso, vale a consulta periódica */ }
     for (const selection of selected) {
       const resource = getBlingResource(selection.key, catalog);
       try { assertResourceConfirmed(resource); } catch { continue; }
@@ -76,7 +86,10 @@ export function createBlingWake(deps: BlingWakeDependencies): BlingWakePort {
         const cp = store.checkpoint(lane.key), pending = outstanding.find(unit => unit.resource_key === lane.key);
         const scopeBlocked = outstanding.some(unit => unit.entity === lane.entity && unit.phase === "blocked");
         if (scopeBlocked || pending?.phase === "blocked") continue;
-        const due = pending ? Math.max(pending.not_before, pending.lease?.expires_at ?? 0) : Number(cp.cursor.not_before ?? 0);
+        let due = pending ? Math.max(pending.not_before, pending.lease?.expires_at ?? 0) : Number(cp.cursor.not_before ?? 0);
+        // Aviso do Bling depois da última passagem desta pista: coleta já, sem esperar o ritmo.
+        const hinted = hints.get(lane.entity);
+        if (hinted !== undefined && !pending && Number(cp.cursor.last_served_at ?? 0) < hinted) due = Math.min(due, hinted);
         result.push({ key: lane.key, entity: lane.entity, resource: lane, selection, checkpoint: cp, pending,
           last_served_at: Number(cp.cursor.last_served_at ?? 0), not_before: due });
       }
@@ -245,7 +258,7 @@ export function createBlingWake(deps: BlingWakeDependencies): BlingWakePort {
     if (unit.page && unit.kind !== "list") unit.page = { ...unit.page, subcursor: Math.min(unit.page.ids.length, unit.page.subcursor + 1) };
     if (ctx.clock.now() >= deadline) throw new BlingError("BLING_RETRY_WAIT", { retry_at: ctx.clock.now() + 1000 });
     // Passagem concluída nesta unidade: a próxima segue o ritmo da mão dupla, se configurado.
-    const pace = deps.pace?.() ?? null;
+    const pace = deps.pace?.(unit.entity ?? undefined) ?? null;
     if (pace !== null && typeof cursor.not_before === "number" && cursor.not_before > ctx.clock.now() && cursor.not_before !== unit.checkpoint.cursor.not_before)
       cursor.not_before = ctx.clock.now() + pace;
     store.commitBatch(ctx, { unit, expected: unit.expected, fence: unit.lease!.fence, request_hash: unit.request_hash, records, next_checkpoint: afterUnit(unit, cursor, ctx.clock.now()), source_expectations: expected, counts });
@@ -288,11 +301,11 @@ export function createBlingWake(deps: BlingWakeDependencies): BlingWakePort {
       let unit: BlingUnit | null = null, requests: 0 | 1 = 0;
       try {
         unit = chosen.pending ?? await bounded(ctx, deadline, () => makeUnit(ctx!, chosen, stateExpected(control, ctx!.identity.partsControl!.revision)));
-        if (control.credential_status === "expired") unit.progress.needs_renewal = true;
+        if (needsRenewal(control, now)) unit.progress.needs_renewal = true;
         const reserved = store.reserve(ctx, { unit, owner, lease_until: deadline + 1000 });
         if (reserved.receipt) return { worked: true, requests: 0, nextWake: now + 700 };
         unit = reserved.unit;
-        if (control.credential_status === "expired") unit.progress.needs_renewal = true;
+        if (needsRenewal(control, now)) unit.progress.needs_renewal = true;
         if (unit.progress.needs_renewal) {
           // A porta de autorização toma sua posse exclusiva/CAS. A intenção é
           // durável e esta acordada não inicia GET nem uma segunda renovação.
@@ -550,7 +563,7 @@ export function createBlingArchiveWake(deps: BlingArchiveWakeDependencies): Blin
       checkBudget();
       const reserved = store.reserve(ctx, { unit, owner, lease_until: deadline + 1000 }); unit = reserved.unit;
       if (reserved.receipt) return { worked: true, requests: 0, nextWake: ctx.clock.now() + 700 };
-      if (c.credential_status === "expired" || unit.progress.needs_renewal) {
+      if (needsRenewal(c, ctx.clock.now()) || unit.progress.needs_renewal) {
         await waitArchiveIo(ctx,deadline,deps.authorization.renew(ctx, { expected: unit.expected, lease: unit.lease! })); checkBudget();
         db.exec("UPDATE wb_bling_unit SET phase='superseded',finished_at=?,updated_at=? WHERE id=? AND phase NOT IN ('committed','superseded')", ctx.clock.now(), ctx.clock.now(), unit.work_id);
         release(ctx, unit, ctx.clock.now() + 700);

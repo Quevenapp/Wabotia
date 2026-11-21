@@ -41,6 +41,7 @@ import {
   type Snapshot,
 } from "./two-way-map.ts";
 import type { BlingWritePort } from "./writer.ts";
+import { resolveReturnIssue, returnsQueueRows, returnsStatus } from "./returns.ts";
 
 type Map_<K extends keyof BlingAdoptionOperationMap> = BlingAdoptionOperationMap[K];
 const iso = (v: unknown) => v === null || v === undefined ? null : new Date(Number(v)).toISOString();
@@ -612,7 +613,7 @@ function requireTables(db: SqlDriver) {
 }
 const auditLabel = (direction: BlingTwoWayDirection) => direction === "inbound" ? "Receber do Bling" : "Escrever no Bling";
 
-export function twoWayStatus(call: Pick<AdoptionCall, "db" | "parts">): BlingTwoWayStatus {
+export function twoWayStatus(call: Pick<AdoptionCall, "db" | "parts"> & { profile?: string }): BlingTwoWayStatus {
   const db = call.db;
   requireTables(db);
   const cut = cutoverOf(db), available = archiveAvailable(db), list = settings(db), m = main(db);
@@ -638,6 +639,8 @@ export function twoWayStatus(call: Pick<AdoptionCall, "db" | "parts">): BlingTwo
       .map(r => ({ at: iso(r.created_at)!, by: clip(String(r.name ?? r.actor_id), 200)!, entity: (r.entity ?? null) as BlingTwoWayEntity | null, direction: (r.direction ?? null) as BlingTwoWayDirection | null,
         enabled: r.enabled == null ? null : Number(r.enabled) === 1, detail: String(r.detail) })),
     texts: { ...BLING_TWO_WAY_TEXTS },
+    // Volta ao Bling (versão 32): nota, situação e rastreio, e o webhook.
+    ...(() => { const returns = returnsStatus(db, call.profile ?? "", call.parts); return returns ? { returns } : {}; })(),
   };
 }
 const cursorOf = (value?: string) => { if (!value) return null; const i = value.indexOf("."); return { at: Number(value.slice(0, i)), id: value.slice(i + 1) }; };
@@ -646,7 +649,10 @@ export function twoWayQueue(call: Pick<AdoptionCall, "db">, input: Map_<"erp_bli
   const limit = input.limit ?? 20, c = cursorOf(input.cursor), scope = input.state ?? "open";
   const states = scope === "open" ? ["pending", "sending", "uncertain", "held", "failed"] : scope === "done" ? ["done", "superseded"] : Object.keys(BLING_TWO_WAY_STATES);
   const rows = call.db.exec(`SELECT * FROM wb_bling_twoway_outbox WHERE state IN (SELECT value FROM json_each(?)) AND (? IS NULL OR updated_at<? OR (updated_at=? AND id<?))
-    ORDER BY updated_at DESC, id DESC LIMIT ?`, JSON.stringify(states), c?.at ?? null, c?.at ?? null, c?.at ?? null, c?.id ?? null, limit + 1).rows;
+    ORDER BY updated_at DESC, id DESC LIMIT ?`, JSON.stringify(states), c?.at ?? null, c?.at ?? null, c?.at ?? null, c?.id ?? null, limit + 1).rows
+    // Volta ao Bling (versão 32): a nota, a situação e o rastreio entram na mesma fila, como pedidos de venda.
+    .concat(returnsQueueRows(call.db, states.filter(s => s !== "held"), c, limit + 1).map(r => ({ ...r, entity: "sales_orders", op: r.kind, remote_id: null })))
+    .sort((a, b) => Number(b.updated_at) - Number(a.updated_at) || (String(b.id) < String(a.id) ? -1 : String(b.id) > String(a.id) ? 1 : 0));
   const items: BlingTwoWayQueueItem[] = rows.slice(0, limit).map(r => ({
     id: String(r.id), entity: r.entity as BlingTwoWayEntity, label: String(r.label), op: r.op as BlingTwoWayOp, op_text: BLING_TWO_WAY_OPS[r.op as BlingTwoWayOp],
     state: r.state as BlingTwoWayState, state_text: BLING_TWO_WAY_STATES[r.state as BlingTwoWayState], attempts: Number(r.attempts), checks: Number(r.checks),
@@ -685,6 +691,8 @@ export function twoWayResolve(call: AdoptionCall, input: Map_<"erp_bling_twoway_
     requireTables(db);
     const r = one(db, "SELECT * FROM wb_bling_twoway_issue WHERE key=? AND state='open'", input.key);
     if (!r) throw new BlingAdoptionError("BLING_ADOPTION_NOT_FOUND", "Esta pendência já foi decidida ou não existe mais. Atualize a tela.");
+    // Volta ao Bling (nota, situação e rastreio): fila própria, mesmas ações.
+    if (String(r.key).startsWith("ret:")) return resolveReturnIssue(db, r, input.action, actor, now);
     const kind = r.kind as BlingTwoWayIssueKind, entity = r.entity as BlingTwoWayEntity, record = r.record_id == null ? null : String(r.record_id);
     const source = r.source_id == null ? null : String(r.source_id), key = String(r.key);
     if (!twoWayPartsOn(entity, call.parts)) throw new BlingAdoptionError("BLING_ADOPTION_PART_DISABLED", twoWayPartOffMessage(entity, call.parts)!);

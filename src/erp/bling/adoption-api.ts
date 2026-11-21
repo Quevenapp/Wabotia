@@ -22,6 +22,7 @@ import { packageDownload, packageList, packageRunning, packageStart, runPackageU
 import { runTwoWayLocalUnit, twoWayIssues, twoWayPace, twoWayQueue, twoWayResolve, twoWayStatus, twoWaySwitch } from "./two-way.ts";
 import { extrasAdopt, extrasContractDraftFor, extrasContractLink, extrasContracts, extrasInvoices, extrasPreview, extrasResolve, extrasReviews, extrasStatus, extrasUnlink } from "./extras.ts";
 import { extrasOutbox, extrasOutboxResolve, extrasSwitch, runExtrasTwoWayLocal } from "./extras-two-way.ts";
+import { returnsSwitch, runReturnsLocalUnit } from "./returns.ts";
 
 const privateHeaders = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
 export const adoptionRequestHash = (value: unknown) => createHash("sha256").update(JSON.stringify(value), "utf8").digest("hex");
@@ -136,6 +137,8 @@ export async function handleAdoptionOperation(call: AdoptionDispatch, dependenci
       case "erp_bling_twoway_resolve": result = twoWayResolve(context, input as never); break;
       case "erp_bling_twoway_switch": result = twoWaySwitch(context, input as never); break;
       case "erp_bling_twoway_pace": result = twoWayPace(context, input as never); break;
+      // Volta ao Bling e aviso do Bling (versão 32): só do administrador.
+      case "erp_bling_twoway_return_switch": result = returnsSwitch(context, input as never); break;
       // Fatia D: outros dados do Bling (versão 24).
       case "erp_bling_extras_status": result = extrasStatus(context); break;
       case "erp_bling_extras_preview": result = extrasPreview(context, input as never); break;
@@ -185,5 +188,8 @@ export async function runTwoWayWake(profile: string, dependencies: AdoptionDepen
   if (result.worked) return { worked: true, nextWake: result.more ? now() + 1_000 : null };
   // Fatia D: listas de preços e campos customizados, com interruptores próprios.
   const extras = runExtrasTwoWayLocal({ db, profile, now, parts: snapshot.parts });
-  return { worked: extras.worked, nextWake: extras.more ? now() + 1_000 : null };
+  if (extras.worked) return { worked: true, nextWake: extras.more ? now() + 1_000 : null };
+  // Volta ao Bling (versão 32): nota, situação e rastreio dos pedidos que vieram do Bling.
+  const returns = runReturnsLocalUnit({ db, now, parts: snapshot.parts });
+  return { worked: returns.worked, nextWake: returns.more ? now() + 1_000 : null };
 }

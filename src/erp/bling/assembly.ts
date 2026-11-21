@@ -20,7 +20,10 @@ import { createArchive } from "./archive.ts";
 import { createBlingApi } from "./operations.ts";
 import { createBlingControl } from "./control.ts";
 import { assertBlingIdentity, authorizeOperation } from "./permissions.ts";
-import { BLING_RESOURCES, BLING_XML_RESOURCE, BLING_RESOURCE_VERSION } from "./resources.ts";
+import { BLING_CONFIRMED_RESOURCES, BLING_RESOURCES, BLING_XML_RESOURCE, BLING_RESOURCE_VERSION } from "./resources.ts";
+import { createBlingAccountProof, isBlingGrantedScope } from "./account.ts";
+import { returnsLocalDue, returnsOutboxDue } from "./returns-store.ts";
+import { consumeBlingWebhookEvents, webhookEnabled, webhookHints, webhookPace } from "./webhook.ts";
 import { handlePublicBlingCallback } from "./routes.ts";
 import type { BlingOAuthProvider } from "./ports.ts";
 // Contrato leve; o motor da adoção (domínios do ERP) só entra por import dinâmico.
@@ -46,8 +49,15 @@ function twoWayScanAt(storage: DurableObjectStorage): number | null {
   try {
     const row = storage.sql.exec(`SELECT coalesce((SELECT CAST(json_extract(scan,'$.next_at') AS INTEGER) FROM wb_bling_twoway WHERE id=1), 0) AS next_at
       WHERE EXISTS(SELECT 1 FROM wb_bling_twoway_setting WHERE enabled=1) AND EXISTS(SELECT 1 FROM wb_bling_cutover WHERE id=1)`).toArray()[0] as { next_at?: number } | undefined;
-    return earliest(row ? Number(row.next_at ?? 0) : null, extrasScanAt(storage));
-  } catch { return extrasScanAt(storage); }
+    return earliest(row ? Number(row.next_at ?? 0) : null, extrasScanAt(storage), returnsScanAt(storage));
+  } catch { return earliest(extrasScanAt(storage), returnsScanAt(storage)); }
+}
+/** Volta ao Bling (versão 32): varredura dos pedidos que vieram do Bling e a fila própria. Sem tabela, null. */
+function returnsScanAt(storage: DurableObjectStorage): number | null {
+  try { return returnsLocalDue(storageDriver(storage)); } catch { return null; }
+}
+function returnsOutboxAt(storage: DurableObjectStorage): number | null {
+  try { return returnsOutboxDue(storageDriver(storage)); } catch { return null; }
 }
 /** Fatia D (versão 24): varredura das listas de preços e dos campos, com interruptores próprios. */
 function extrasScanAt(storage: DurableObjectStorage): number | null {
@@ -68,8 +78,8 @@ function twoWayOutboxAt(storage: DurableObjectStorage): number | null {
   try {
     const row = storage.sql.exec(`SELECT min(o.not_before) AS due FROM wb_bling_twoway_outbox o WHERE o.state IN ('sending','uncertain')
       OR (o.state='pending' AND EXISTS(SELECT 1 FROM wb_bling_twoway_setting s WHERE s.entity=o.entity AND s.direction='outbound' AND s.enabled=1))`).toArray()[0] as { due?: number | null } | undefined;
-    return earliest(row?.due == null ? null : Number(row.due), extrasOutboxAt(storage));
-  } catch { return extrasOutboxAt(storage); }
+    return earliest(row?.due == null ? null : Number(row.due), extrasOutboxAt(storage), returnsOutboxAt(storage));
+  } catch { return earliest(extrasOutboxAt(storage), returnsOutboxAt(storage)); }
 }
 /** Ritmo da coleta contínua configurado na mão dupla (ms). Sem linha ou sem tabela, null (padrão de 15 min). */
 function twoWayPace(db: SqlDriver): number | null {
@@ -124,6 +134,8 @@ export interface MountedBlingOptions {
   publicOrigin: string;
   authorizationEndpoint: string;
   readScopes: readonly string[];
+  /** Conta real: escopos opacos devolvidos pelo token (account.ts). */
+  acceptScope?: (scope: string) => boolean;
   fetch: (input: string, init: RequestInit) => Promise<Response>;
   media: BlingXmlMedia & { delete(key: string): Promise<unknown> };
   resources?: readonly ResourceDescriptor[];
@@ -150,7 +162,7 @@ export function createMountedBlingAssembly(options: MountedBlingOptions): BlingA
   }
   const authorization = createBlingAuthorization({ store: new BlingAuthStore(db, profile), vault: options.vault,
     provider: options.provider, accountProof: options.accountProof, publicOrigin: options.publicOrigin,
-    authorizationEndpoint: options.authorizationEndpoint, readScopes: options.readScopes, session: options.session, revalidate });
+    authorizationEndpoint: options.authorizationEndpoint, readScopes: options.readScopes, acceptScope: options.acceptScope, session: options.session, revalidate });
   const control = createBlingControl({ db, profile, databaseSize: options.databaseSize, randomId });
   const xml = createXmlArchive({ db, profile, media: options.media, hash, randomId, revalidate,
     requireRead(ctx, operation, input) {
@@ -165,7 +177,8 @@ export function createMountedBlingAssembly(options: MountedBlingOptions): BlingA
   const deps = { db, profile, collection, data, authorization, archive, readParts: options.readParts, revalidate,
     randomId, hash, resources, databaseSize: options.databaseSize };
   const archiveWake = createBlingArchiveWake({ ...deps, xml, purge, media: options.media });
-  const wake = createBlingWake({ ...deps, archiveWake, pace: () => twoWayPace(db) });
+  // Aviso do Bling (webhook): a entidade avisada é coletada já; a consulta periódica dela fica de reserva.
+  const wake = createBlingWake({ ...deps, archiveWake, pace: entity => webhookPace(db, entity, twoWayPace(db)), hints: () => webhookHints(db) });
   const api = createBlingApi(deps, { profile, resources, resource_version: BLING_RESOURCE_VERSION,
     callback_url: options.publicOrigin ? blingCallbackUrl(options.publicOrigin, profile) : undefined,
     session: options.session, beforeApplicationSave: authorization.recoverRestoredApplication });
@@ -184,7 +197,11 @@ export function createMountedBlingAssembly(options: MountedBlingOptions): BlingA
     // Fatia D: listas de preços e campos, uma chamada por acordada, no mesmo orçamento.
     const { runExtrasOutboundUnit } = await import("./extras-two-way.ts");
     const extras = await runExtrasOutboundUnit({ db, profile, now: ctx.clock.now, parts: ctx.identity.parts!, writer, ctx, deadline });
-    return extras.worked ? extras : sent;
+    if (extras.worked || extras.requests) return extras;
+    // Volta ao Bling (versão 32): nota, situação e rastreio, uma chamada por acordada.
+    const { runReturnsOutboundUnit } = await import("./returns.ts");
+    const returns = await runReturnsOutboundUnit({ db, now: ctx.clock.now, parts: ctx.identity.parts!, writer, ctx, deadline });
+    return returns.worked ? returns : { ...sent, nextWake: earliest(sent.nextWake, extras.nextWake, returns.nextWake) };
   }
   return { authorization, collection, archive, data, wake, api, twoWay };
 }
@@ -225,14 +242,19 @@ export async function createBlingAssembly(dependencies?: BlingAssemblyDependenci
   if (!dependencies?.profile || !dependencies.readSnapshot) throw new BlingError("BLING_DISABLED", { status: 503 });
   const { env, storage, profile } = dependencies;
   const publicOrigin = await installationOrigin(env);
+  // Conta real (account.ts): no Bling os escopos são marcados no cadastro do
+  // aplicativo, não no endereço de autorização; o token devolve os concedidos
+  // como identificadores opacos, aceitos e gravados para consulta.
   const readScopes: string[] = [];
-  // Identidade e escopos oficiais ainda não foram conferidos. Não há endpoint
-  // presumido de empresa, nem seleção capaz de contornar esta pendência.
-  const accountProof: BlingAccountProof = { evidence: null, async identify() { throw new BlingError("BLING_RESOURCE_UNCONFIRMED"); } };
+  // Prova de conta: GET /empresas/me/dados-basicos com o token recém-trocado;
+  // o id da empresa vira o vínculo gravado e precisa se repetir nas renovações.
+  const accountProof: BlingAccountProof = createBlingAccountProof({ fetch: (input, init) => fetch(input, init) });
   return createMountedBlingAssembly({ profile, db: storageDriver(storage), databaseSize: () => storage.sql.databaseSize,
     readParts: dependencies.readSnapshot, session: ctx => currentSession(env, ctx), vault: createBlingVault(env),
-    provider: createBlingOAuthProvider({ tokenEndpoint: "https://www.bling.com.br/Api/v3/oauth/token", fetch, clock: { now: () => Date.now() }, readScopes }),
-    publicOrigin, authorizationEndpoint: "https://www.bling.com.br/Api/v3/oauth/authorize", readScopes, accountProof,
+    provider: createBlingOAuthProvider({ tokenEndpoint: "https://www.bling.com.br/Api/v3/oauth/token", fetch, clock: { now: () => Date.now() }, readScopes, acceptScope: isBlingGrantedScope }),
+    publicOrigin, authorizationEndpoint: "https://www.bling.com.br/Api/v3/oauth/authorize", readScopes, acceptScope: isBlingGrantedScope, accountProof,
+    // Recursos com referência pública da API v3 passam a oficial confirmado; os outros ficam fora, com o motivo na tela.
+    resources: [...BLING_CONFIRMED_RESOURCES, BLING_XML_RESOURCE],
     fetch: (input, init) => fetch(input, init), media: env.MEDIA });
 }
 
@@ -408,6 +430,14 @@ export async function runBlingWake(profile: string, dependencies: BlingAssemblyD
   const started = options.clock.now();
   const deadline = Math.min(started + 4_000, options.nextOperationalAt === null ? Infinity : options.nextOperationalAt - 250);
   if (!(await dependencies.readParts())?.customers) return idle();
+  // Aviso do Bling (webhook, versão 32): lê os avisos guardados pelo Worker e marca as entidades a coletar já.
+  // Desligado (o padrão), nada externo é lido: só o SQLite da área.
+  if (!wake && dependencies.readSnapshot) {
+    try {
+      const local = storageDriver(dependencies.storage);
+      if (webhookEnabled(local) && dependencies.env?.DB) await consumeBlingWebhookEvents(dependencies.env.DB as never, local, profile, options.clock.now());
+    } catch { /* o aviso fica no D1; a consulta periódica continua de reserva */ }
+  }
   // Adoção dos cadastros: uma unidade pequena, sem I/O externo, por acordada
   // elegível; a coleta segue na acordada seguinte.
   if (options.eligible && !wake && dependencies.readSnapshot && adoptionPending(dependencies.storage) && deadline - options.clock.now() >= 1_000) {

@@ -138,3 +138,53 @@ export const BLING_XML_RESOURCE: ResourceDescriptor = {
   key: "fiscal_xml", entity: "nfe", path: "/nfe/documento/{chave}", pagination: { strategy: "source", page_size: 1, limit_parameter: false, short_page_ends: false }, detail: null,
   dateFilter: { kind: "U", from: null, to: null, time_zone: "America/Sao_Paulo", overlap_minutes: 15 }, variants: [], deletedEvidence: "none", identityRule: { kind: "global", parent_entity: null }, parser: "xml", scopeRequirements: [], confirmation: "original_conferido", officialEvidence: null, defaultSelected: false,
 };
+
+/** Conta real: referência pública da API v3 para cada recurso da coleta.
+ *
+ * Os caminhos, filtros e paginação de cada pista vêm de origin-sync/resources.mjs,
+ * conferidos contra o OpenAPI oficial da API v3 (developer.bling.com.br) na
+ * coleta original. Aqui cada entidade ganha a referência da documentação e
+ * passa a "oficial_confirmado"; quem não tem referência pública continua fora,
+ * com o motivo dito na tela (BLING_UNCONFIRMED_REASONS). Limites conferidos:
+ * 3 requisições por segundo e 120 mil por dia por conta (o intervalo local de
+ * 700 ms e o teto local de 20 mil por dia ficam abaixo). Escopos: no Bling as
+ * permissões são marcadas no cadastro do aplicativo, e a falta delas volta como
+ * 403 (pendência "falta permissão"), nunca como dado parcial. */
+export const BLING_DOCS_BASE = "https://developer.bling.com.br/referencia";
+export const BLING_OFFICIAL_CHECKED_AT = "2026-11-21T12:00:00.000Z";
+const docTag: Partial<Record<BlingEntity, string>> = {
+  contacts: "Contatos", products: "Produtos", sales_orders: "Pedidos - Vendas", sales_proposals: "Propostas Comerciais",
+  purchase_orders: "Pedidos - Compras", receivables: "Contas a Receber", payables: "Contas a Pagar", nfe: "Notas Fiscais Eletrônicas",
+  nfce: "Notas Fiscais de Consumidor Eletrônicas", payment_methods: "Formas de Pagamentos", sellers: "Vendedores", warehouses: "Depósitos",
+  product_categories: "Categorias - Produtos", financial_categories: "Categorias - Receitas e Despesas", ledger_accounts: "Contas Contábeis",
+  cash_entries: "Caixas e Bancos", stock_balances: "Estoques",
+};
+/** Endereço da documentação pública de um caminho GET da API v3. */
+export function blingDocsUrl(tag: string, path: string): string {
+  return `${BLING_DOCS_BASE}#/${encodeURIComponent(tag)}/get_${path.replace(/^\//, "").replace(/[/-]/g, "_")}`;
+}
+/** Por que um recurso continua fora da coleta numa conta real. */
+export const BLING_UNCONFIRMED_REASONS: Readonly<Record<string, string>> = Object.freeze({
+  service_orders: "Ordens de serviço: a rota usada pelo sistema de origem (/ordens/servico) não aparece na documentação pública da API v3. Continua fora até haver referência oficial.",
+  fiscal_xml: "XML das notas: a rota de documento por chave (/nfe/documento/{chave}) não tem referência pública na API v3. O XML continua fora; a nota em si (número, chave, situação) entra pela coleta de NF-e e NFC-e.",
+  ...Object.fromEntries(BLING_EXTRA_ENTITIES.map(entity => [entity, isBlingExtraCollected(entity)
+    ? `Caminho proposto ${BLING_EXTRA_PROPOSED_ACCESS[entity].path}: ${BLING_EXTRA_PROPOSED_ACCESS[entity].doubt} Liga quando você conferir numa coleta real (aba Outros dados).`
+    : "Sem destino no ERP e sem referência conferida nesta versão: fica fora da coleta."])),
+});
+function officialEvidence(entity: BlingEntity, path: string): ResourceDescriptor["officialEvidence"] {
+  const tag = docTag[entity];
+  return tag ? { url: blingDocsUrl(tag, path), checked_at: BLING_OFFICIAL_CHECKED_AT, scopes_checked: true, identity_checked: true, limits_checked: true } : null;
+}
+/** Catálogo da conta real: o mesmo de BLING_RESOURCES, com a referência oficial
+ * onde ela existe. O catálogo base continua sem referência (os testes e o
+ * simulador escolhem o seu); a montagem de produção usa este. */
+export const BLING_CONFIRMED_RESOURCES: readonly ResourceDescriptor[] = Object.freeze(BLING_RESOURCES.map(resource => {
+  if (resource.confirmation !== "original_conferido" || !resource.path || BLING_UNCONFIRMED_REASONS[resource.key]) return resource;
+  const evidence = officialEvidence(resource.entity, resource.path);
+  return evidence ? Object.freeze({ ...resource, confirmation: "oficial_confirmado" as const, officialEvidence: evidence }) : resource;
+}));
+/** Linhas "chave: motivo" para a tela, só dos recursos que ficaram fora. */
+export function blingUnconfirmedLimitations(catalog: readonly ResourceDescriptor[]): string[] {
+  return catalog.filter(resource => resource.confirmation !== "oficial_confirmado" && BLING_UNCONFIRMED_REASONS[resource.key])
+    .map(resource => `${resource.key}: ${BLING_UNCONFIRMED_REASONS[resource.key]}`.slice(0, 1000));
+}

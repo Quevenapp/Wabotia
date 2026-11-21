@@ -9,6 +9,7 @@ import { createBlingControl, isStaleRevisionRefusal } from "./control.ts";
 import { authorizeOperation, protectOperationOutput, sanitizeBlingError } from "./permissions.ts";
 import { BLING_OPERATIONS, getBlingOperation, parseBlingOperationInput, resourceDescriptorSchema } from "./schema.ts";
 import { readErpPartsSnapshot } from "../parts.ts";
+import { blingUnconfirmedLimitations } from "./resources.ts";
 import type { IdentityPort } from "../engine/identity.ts";
 
 export interface BlingApiOptions {
@@ -121,7 +122,9 @@ export function createBlingApi(deps: BlingDependencies, options: BlingApiOptions
         }
         case "erp_bling_resources":
           result = { version: options.resource_version, resources, selections: before.selections,
-            limitations: ["A confirmação local não certifica a API oficial atual.", "URLs de imagens e anexos são referências; seus bytes não estão arquivados.", "Uma passagem concluída não comprova cobertura integral da conta."] };
+            limitations: ["A confirmação local não certifica a API oficial atual.", "URLs de imagens e anexos são referências; seus bytes não estão arquivados.", "Uma passagem concluída não comprova cobertura integral da conta.",
+              // Conta real: cada recurso que ficou fora, com o motivo ("chave: motivo").
+              ...blingUnconfirmedLimitations(resources)].slice(0, 100) };
           break;
         case "erp_bling_configure": result = control.configure(ctx, input as BlingOperationMap["erp_bling_configure"]["input"], hash, resources); break;
         case "erp_bling_enable": result = control.enable(ctx, input as BlingOperationMap["erp_bling_enable"]["input"], hash, resources); break;

@@ -306,7 +306,8 @@ for (const version of [9, 10]) test(`migração aditiva v${version}→11 preserv
     // A subida segue até a versão atual (12 acrescenta as 4 tabelas da adoção; 13, as 3 de documentos e contas; 19, as 6 da mão dupla).
     // 27: lojas e filiais (a 26 é de outra frente).
     // 31: contratos de serviço (29 e 30 são de outras frentes).
-    assert.equal(migrate(storage).version, 31);
+    // 32: Bling numa conta real (volta ao Bling e aviso do Bling).
+    assert.equal(migrate(storage).version, 32);
     assert.deepEqual(tableSnapshot(db, oldTables.filter(table => table !== "erp_meta")), Object.fromEntries(Object.entries(before).filter(([table]) => table !== "erp_meta")));
     const upgradedSchema = sqliteSchema(db);
     for (const object of oldSchema) assert.ok(upgradedSchema.some(after => JSON.stringify(after) === JSON.stringify(object)), object.name);
@@ -314,8 +315,8 @@ for (const version of [9, 10]) test(`migração aditiva v${version}→11 preserv
     const upgraded = tableSnapshot(db);
     assert.equal(migrate(storage).status, "current");
     assert.deepEqual(tableSnapshot(db), upgraded);
-    // 6 da coleta (versão 11) + 2 do corte (15) + 6 da mão dupla (19).
-    assert.equal(db.prepare("SELECT count(*) n FROM sqlite_master WHERE type='table' AND name LIKE 'wb_bling_%' AND name NOT LIKE 'wb_bling_adoption_%'").get().n, 14);
+    // 6 da coleta (versão 11) + 2 do corte (15) + 6 da mão dupla (19) + 3 da conta real (32).
+    assert.equal(db.prepare("SELECT count(*) n FROM sqlite_master WHERE type='table' AND name LIKE 'wb_bling_%' AND name NOT LIKE 'wb_bling_adoption_%'").get().n, 17);
     assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
   } finally { db.close(); }
 });

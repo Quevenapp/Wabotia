@@ -378,7 +378,10 @@ HTTP) e `two-way-contracts.ts`; tela em `web/erp/app/components/TwoWayBling.tsx`
 CHECK das tabelas também as recusa) e o cliente de escrita não tem caminho para
 elas. Também não vão ao Bling: exclusões, cancelamentos, estorno de baixa (a API
 do Bling não tem) e mudança de situação de documentos; viram pendência "faça
-também no Bling".
+também no Bling". A exceção são os pedidos de venda que vieram do Bling: a
+nota (chave, número e série, escritos no pedido), a situação e o rastreio têm
+interruptores próprios, na seção "Volta ao Bling" abaixo. A NF-e em si
+continua nunca sendo criada nem emitida no Bling.
 
 **1. Coleta contínua (Receber do Bling).** A coleta já segue pela pista
 "recente" com o filtro de data de alteração ou de emissão que cada recurso
@@ -488,6 +491,101 @@ dos escopos de **escrita** dos tipos ligados; sem eles a recusa aparece como
 pendência ("sem permissão para gravar"). A situação de pedidos e propostas
 não é enviada nesta entrega; forma de pagamento, categoria e portador só vão
 quando estão ligados ao Bling pela adoção.
+
+## Volta ao Bling: nota, situação e rastreio; aviso do Bling (versão 32)
+
+Para quem vende no marketplace pelo Bling: o pedido nasce no Bling, é atendido
+aqui, e o marketplace precisa da nota e do rastreio. Na aba **Mão dupla**,
+seção **Volta ao Bling**, três interruptores próprios, todos **desligados**,
+só do administrador (ligar pede o aviso confirmado e fica no registro de quem
+ligou; `erp_bling_twoway_return_switch`, fora do inventário dos bots). Só
+valem depois do corte e só para pedidos de venda ligados a um pedido do Bling
+(vínculo da adoção ou criado pela mão dupla). Código em
+`src/erp/bling/returns.ts`.
+
+| Interruptor | O que vai ao Bling | Como | Depende de |
+|---|---|---|---|
+| Nota de volta | Chave de acesso, número e série da NF-e autorizada aqui (cofre fiscal do pedido, só leitura) | Lê o pedido (`GET /pedidos/vendas/{id}`) e grava o mesmo pedido com a linha "NF-e emitida no ERP: nº …, série …, chave …" acrescentada às observações internas (`PUT /pedidos/vendas/{id}`) | Vendas, Produtos e Fiscal |
+| Situação e rastreio de volta | A etapa do pedido aqui vira a situação escolhida para ela; o código de rastreio da Expedição | Situação: `PATCH /pedidos/vendas/{id}/situacoes/{idSituacao}`, sem corpo. Rastreio: lê o pedido e grava com o código no primeiro volume sem rastreio (`transporte.volumes[].codigoRastreamento`) e uma linha nas observações internas | Vendas e Produtos |
+| Aviso do Bling (webhook) | Nada vai ao Bling: o aviso do Bling adianta a coleta | Ver abaixo | Base |
+
+**Limite da nota.** A API v3 não tem caminho para receber uma NF-e emitida fora
+do Bling (o `POST /nfe` cria uma nota para o próprio Bling emitir). Por isso a
+nota vai **escrita no pedido**, não como nota do Bling; marketplace que só lê a
+nota emitida pelo Bling pode precisar dela informada à mão lá. O XML não vai.
+A tela diz esse limite ao lado do interruptor.
+
+**Etapas e situações.** A etapa do pedido sai do que já existe aqui, só leitura:
+cancelado (documento cancelado) > entregue (Expedição com entrega registrada) >
+enviado (Expedição enviada) > faturado (NF-e autorizada) > separado (Expedição
+separada ou embalada). No Bling cada situação tem um número (Preferências →
+Situações; as padrão são 6 Em aberto, 9 Atendido, 12 Cancelado, 15 Em
+andamento). O dono escolhe o número para cada etapa; etapa sem número não muda
+a situação no Bling (o rastreio vai mesmo assim). A tela avisa que, em algumas
+contas, Atendido ou Cancelado lançam ou estornam estoque e contas lá.
+
+**Fila.** Os envios usam as regras da fila de saída da mão dupla, numa tabela
+própria (`wb_bling_return_outbox`) que aparece na mesma Fila de saída como
+pedido de venda ("Nota no pedido do Bling", "Situação no Bling", "Rastreio no
+Bling"):
+
+- **Id estável**: tipo, pedido e impressão do que vai. A mesma nota, etapa ou
+  rastreio nunca entra duas vezes; mudou (outra etapa, outro código), o pendente
+  anterior é substituído.
+- **Só o que acontece depois de ligar**: nota autorizada, mudança de etapa ou
+  rastreio gravado depois do interruptor ligado.
+- **Uma chamada por acordada**, no mesmo limite de chamadas da conta.
+- **Conferência antes de reenviar**: nota e rastreio sempre leem o pedido no
+  Bling antes de gravar e não gravam o que já está lá; resposta incerta (tempo
+  esgotado, queda, erro do servidor) vira "Conferindo no Bling" e o próximo
+  passo é um `GET`; entrou, fica gravado; não entrou, volta a ler e gravar.
+- **Pendência com motivo**: recusa do Bling (com o motivo dito por ele), falta
+  de permissão (403) ou pedido excluído lá viram pendência em Pendências e
+  conflitos (chave `ret:`), com Tentar de novo ou Deixar como está; incerto
+  sem resposta depois de várias conferências pede "Entrou no Bling" ou "Não
+  entrou: enviar de novo".
+- **Janela curta**: entre a leitura e a gravação de nota e rastreio passa uma
+  acordada (cerca de um segundo); uma edição feita no Bling exatamente nesse
+  intervalo seria sobrescrita pelo pedido lido.
+
+**Aviso do Bling (webhook).** O Bling avisa quando um pedido de venda
+(`order.*`), produto (`product.*`), estoque (`stock.*`), NF-e (`invoice.*`) ou
+NFC-e (`consumer_invoice.*`) muda. O endereço a cadastrar no aplicativo do
+Bling, em Webhooks, aparece na tela:
+`https://<endereço-público>/api/public/erp-bling/<área>/webhook`. Funcionamento
+(`src/erp/bling/webhook.ts`):
+
+1. O Worker confere a assinatura `X-Bling-Signature-256: sha256=<HMAC-SHA256
+   do corpo com o segredo do aplicativo da área>` (segredo lido do cofre). Sem
+   assinatura certa, 401 e nada é guardado.
+2. Guarda só o essencial no D1 (`erp_bling_webhook_event`, migração 0280: área,
+   id do evento, entidade, ação, id do registro, empresa, horário); o mesmo
+   aviso repetido não duplica. Recurso que a coleta não usa é aceito e
+   ignorado. Depois acorda o objeto da área.
+3. Na acordada, com o interruptor ligado, o objeto confere a empresa do aviso
+   contra a empresa vinculada pela prova de conta (aviso de outra empresa é
+   ignorado) e marca a entidade como avisada (`wb_bling_webhook_hint`).
+4. A coleta daquela entidade roda já, em vez de esperar o ritmo. Nenhum dado
+   do aviso entra direto no ERP: o que mudou vem pela coleta, com as mesmas
+   conferências.
+5. **Reserva**: a consulta periódica continua. Para a entidade que já recebeu
+   aviso, o intervalo entre as passagens vira de pelo menos 2 horas
+   (`BLING_WEBHOOK_RESERVE_MS`); para as outras, o ritmo de sempre.
+
+**Permissões.** A seção lista o que marcar no aplicativo do Bling conforme os
+interruptores: leitura dos recursos escolhidos e "Empresa (dados básicos)";
+escrita de pedidos de venda quando a nota ou a situação e rastreio estão
+ligados; escrita do que estiver com "Escrever no Bling" ligado.
+
+**Bots.** A consulta da mão dupla (`erp_bling_twoway_status`, leitura) traz a
+volta ao Bling em `returns`; a fila e as pendências também a mostram. Ligar,
+desligar e escolher as situações são só do administrador, pela tela.
+
+**Esquema.** Versão 32, só adição: `wb_bling_return_setting` (interruptores e
+o mapa de situações), `wb_bling_return_outbox` (a fila da volta) e
+`wb_bling_webhook_hint` (entidades avisadas). As pendências usam
+`wb_bling_twoway_issue`. Apagar o acervo de pedidos de venda espera a fila da
+volta (envio ainda não confirmado conta como referência).
 
 ## Outros dados do Bling (fatia D, versão 24)
 
@@ -662,20 +760,53 @@ confirma a documentação atual do Bling, seus limites, o aplicativo do dono,
 os escopos contratados, a identidade da empresa ou a disponibilidade de XML.
 Nenhum teste exige credencial ou conta real.
 
-Os recursos originais estão marcados `original_conferido`: isso comprova a
-implementação local herdada, não a vigência oficial. A coleta real só aceita
-recursos `oficial_confirmado` com evidência da conferência. O catálogo é
-versionado em `src/erp/bling/resources.ts`; o painel não aceita endpoints
-arbitrários nem promove a confirmação por um simples clique. Recursos extras
-sem caminho ou identidade confirmados permanecem bloqueados.
+A coleta real só aceita recursos `oficial_confirmado` com evidência da
+conferência. O catálogo base (`BLING_RESOURCES`, dos testes e do simulador)
+marca os recursos originais como `original_conferido`; a montagem de produção
+usa o **catálogo oficial** `BLING_CONFIRMED_RESOURCES` (versão 32), em que os
+17 recursos descritos pela documentação pública da API v3 passam a
+`oficial_confirmado`, cada um com o endereço da referência
+(`https://developer.bling.com.br/referencia#/<grupo>/get_<caminho>`), a data
+da conferência e os limites conferidos (3 chamadas por segundo e 120 mil por
+dia por conta; o intervalo local de 700 ms e o teto local de 20 mil por dia
+ficam abaixo). Ficam fora, com o motivo dito na tela de Configuração
+(`BLING_UNCONFIRMED_REASONS`, que vai em `limitations` como "chave: motivo"):
 
-Antes da liberação real, registrar URL e data das referências oficiais para
-endpoints, paginação, filtros, variantes excluídas, escopos de leitura,
-limites e identificação da conta. Conferir separadamente OAuth, expiração,
-rotação do refresh token, retorno e procedimento de revogação. Não inferir um
-endpoint de identificação ou revogação a partir do seu nome. A montagem deve
-receber uma prova oficial de identidade antes de liberar a autorização real.
-Essa pendência não pode ser resolvida usando dados do simulador.
+| Recurso | Por que ficou fora |
+|---|---|
+| Ordens de serviço (`service_orders`) | A rota do sistema de origem (`/ordens/servico`) não aparece na documentação pública. |
+| XML das notas (`fiscal_xml`) | `/nfe/documento/{chave}` não tem referência pública; número, chave e situação da nota entram pela coleta de NF-e e NFC-e. |
+| Outros dados da fatia D | Acesso só proposto; liga quando o dono confere numa coleta real (seção "Outros dados do Bling"). |
+| Demais entidades extras | Sem destino no ERP e sem referência conferida. |
+
+O painel não aceita endpoints arbitrários nem promove a confirmação por um
+simples clique.
+
+**Prova de conta** (`src/erp/bling/account.ts`). Depois da troca do código
+OAuth, um `GET /empresas/me/dados-basicos` (API v3, só leitura) com o token
+recém-recebido devolve o id e o nome da empresa. O id é o vínculo gravado no
+controle; toda autorização ou renovação seguinte precisa devolver a mesma
+empresa (`BLING_ACCOUNT_MISMATCH`). A chamada é única, com prazo, sem
+redirecionamento; o token nunca vai a log, erro ou banco.
+
+**Escopos.** No Bling as permissões são marcadas no cadastro do aplicativo,
+não no endereço de autorização (que não leva `scope`). O token devolve os
+escopos concedidos como identificadores opacos; a montagem aceita esse formato
+(`isBlingGrantedScope`) e grava a lista para consulta. A aba Mão dupla → Volta
+ao Bling mostra o que marcar no aplicativo conforme os interruptores ligados
+(`blingScopeChecklist`): leitura para o que vai receber, mais "Empresa (dados
+básicos)" para a prova de conta; escrita só para o que volta ao Bling. Falta
+de permissão volta como 403 e vira recusa "falta permissão".
+
+**Renovação.** O token do Bling dura poucas horas. A coleta renova sozinha dez
+minutos antes de vencer (`BLING_RENEW_MARGIN_MS` em `wake.ts`), pela mesma
+reserva exclusiva com comparação de revisão; recusa 401 também leva à
+renovação. Sem a coleta ligada, a escrita de volta espera a próxima renovação
+e diz "A conta do Bling precisa ser autorizada de novo" se não houver.
+
+O aceite automatizado continua usando só dados e OAuth simulados: ele não
+prova a documentação vigente nem o aplicativo do dono. A primeira coleta real
+é do dono, pelo roteiro abaixo.
 
 O procedimento exclusivo do dono está em
 [Primeira coleta](RECEBER-BLING-PRIMEIRA-COLETA.md).
@@ -692,9 +823,10 @@ O procedimento exclusivo do dono está em
    da instalação: `https://<endereço-público>/api/public/erp-bling/<área>/callback`.
    Registra esse mesmo HTTPS no aplicativo. Não usar URL de desenvolvimento,
    `Host` recebido de terceiros ou redirecionamento improvisado.
-4. Confere os nomes oficiais dos escopos de leitura exigidos pelos recursos
-   selecionados. A lista local ainda sem escopos confirmados não prova que o
-   aplicativo tenha acesso. Não solicitar escopos de escrita para esta fatia.
+4. Marca no aplicativo do Bling as permissões de leitura dos recursos
+   selecionados e "Empresa (dados básicos)". Escrita só quando for ligar a mão
+   dupla ou a volta ao Bling (a lista está na aba Mão dupla); depois de mudar
+   as permissões, autoriza de novo.
 5. Define seleção, período, quota e permissões; revisa a lista de conferência
    de dez itens; aciona **Ligar recebimento** e depois **Autorizar conta**.
 6. Conclui a autorização no mesmo navegador e sessão administrativa. O

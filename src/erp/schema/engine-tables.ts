@@ -2487,6 +2487,61 @@ const CONTRACT_TABLES: readonly EngineTable[] = [
 ) STRICT`,
   ]),
 ];
+
+// Bling numa conta real (versão 32): a volta ao Bling do que o pedido que veio
+// de lá viveu aqui (nota, situação e rastreio), com interruptores próprios,
+// desligados, e o aviso do webhook do Bling que adianta a coleta. Só tabelas
+// novas; as pendências usam wb_bling_twoway_issue (entidade sales_orders).
+const blingReal = (table: string, ddl: readonly string[]): EngineTable => ({ table, ddl, since: 32, owner: "bling-real", structural: "bling-conta-real" });
+const BLING_REAL_TABLES: readonly EngineTable[] = [
+  blingReal("wb_bling_return_setting", [
+    `CREATE TABLE "wb_bling_return_setting" (
+  kind TEXT NOT NULL PRIMARY KEY CHECK (kind IN ('invoice','status','webhook')),
+  enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0,1)),
+  enabled_since INTEGER,
+  options TEXT NOT NULL DEFAULT '{}' CHECK (${BLING_JSON("options", "object", 4096)}),
+  scan TEXT NOT NULL DEFAULT '{}' CHECK (${BLING_JSON("scan", "object", 4096)}),
+  updated_by TEXT NOT NULL CHECK (${BLING_ID("updated_by")}),
+  updated_at INTEGER NOT NULL,
+  CONSTRAINT wb_bling_return_setting_since_check CHECK (enabled = 0 OR enabled_since IS NOT NULL)
+) STRICT`,
+  ]),
+  blingReal("wb_bling_return_outbox", [
+    `CREATE TABLE "wb_bling_return_outbox" (
+  id TEXT NOT NULL PRIMARY KEY CHECK (${BLING_ID("id")}),
+  kind TEXT NOT NULL CHECK (kind IN ('invoice','status','tracking')),
+  record_id TEXT NOT NULL CHECK (${BLING_ID("record_id")}),
+  source_id TEXT NOT NULL CHECK (${BLING_ID("source_id")}),
+  fingerprint TEXT NOT NULL CHECK (${BLING_HASH("fingerprint")}),
+  state TEXT NOT NULL CHECK (state IN ('pending','sending','uncertain','done','failed','superseded')),
+  step TEXT NOT NULL DEFAULT 'read' CHECK (step IN ('read','write')),
+  payload TEXT NOT NULL CHECK (${BLING_JSON("payload", "object", 8192)}),
+  prepared TEXT CHECK (prepared IS NULL OR ${BLING_JSON("prepared", "object", 262144)}),
+  label TEXT NOT NULL CHECK (length(label) BETWEEN 1 AND 200),
+  attempts INTEGER NOT NULL DEFAULT 0 CHECK (${BLING_COUNT("attempts")}),
+  checks INTEGER NOT NULL DEFAULT 0 CHECK (${BLING_COUNT("checks")}),
+  not_before INTEGER NOT NULL,
+  error_code TEXT CHECK (error_code IS NULL OR (length(error_code) BETWEEN 1 AND 60 AND error_code NOT GLOB '*[^a-z_]*')),
+  error_text TEXT CHECK (error_text IS NULL OR length(error_text) <= 600),
+  created_at INTEGER NOT NULL,
+  sent_at INTEGER,
+  updated_at INTEGER NOT NULL,
+  finished_at INTEGER,
+  CONSTRAINT wb_bling_return_outbox_finished_check CHECK ((state IN ('done','superseded')) = (finished_at IS NOT NULL))
+) STRICT`,
+    `CREATE INDEX wb_bling_return_outbox_due ON wb_bling_return_outbox(state, not_before, created_at)`,
+    `CREATE INDEX wb_bling_return_outbox_record ON wb_bling_return_outbox(kind, record_id, state)`,
+  ]),
+  blingReal("wb_bling_webhook_hint", [
+    `CREATE TABLE "wb_bling_webhook_hint" (
+  entity TEXT NOT NULL PRIMARY KEY CHECK (entity IN ('sales_orders','products','stock_balances','nfe','nfce','contacts')),
+  pending_since INTEGER,
+  events INTEGER NOT NULL DEFAULT 0 CHECK (${BLING_COUNT("events")}),
+  last_event_at INTEGER,
+  updated_at INTEGER NOT NULL
+) STRICT`,
+  ]),
+];
 export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...BASE_ENGINE_TABLES,
   ...counterTables,
@@ -2568,6 +2623,8 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...RECONCILIATION_TABLES,
   // Versão 31: contratos de serviço (parte Contratos; 29 e 30 são de outras frentes).
   ...CONTRACT_TABLES,
+  // Versão 32: Bling numa conta real (nota, situação e rastreio de volta; webhook).
+  ...BLING_REAL_TABLES,
 ];
 
 export const ERP_ENGINE_DDL: readonly string[] = ERP_ENGINE_TABLES.flatMap((t) => t.ddl);

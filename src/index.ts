@@ -1277,6 +1277,12 @@ app.get("/api/public/erp-bling/:profile/callback", async (c) => {
   const { handleBlingCallback } = await import("./erp/bling/assembly.ts");
   return handleBlingCallback(c.env, c.req.param("profile"), c.req.raw);
 });
+// Aviso do Bling (webhook): sem sessão; vale só com a assinatura do aplicativo
+// da área (src/erp/bling/webhook.ts). Guarda o essencial e acorda a área.
+app.post("/api/public/erp-bling/:profile/webhook", async (c) => {
+  const { handleBlingWebhook } = await import("./erp/bling/webhook.ts");
+  return handleBlingWebhook(c.env, c.req.param("profile"), c.req.raw);
+});
 // Backup do ERP (Gestão → Sistema → Backup do ERP e operações erp.backup.*):
 // administrador, módulo ERP ligado, segundo fator para fazer, restaurar e
 // apagar (src/erp/api/backup-routes.ts).
