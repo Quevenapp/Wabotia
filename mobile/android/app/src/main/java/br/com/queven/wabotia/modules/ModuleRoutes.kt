@@ -16,6 +16,7 @@ import br.com.queven.wabotia.core.ModuleIds
 import br.com.queven.wabotia.modules.agenda.AgendaScreen
 import br.com.queven.wabotia.modules.agenda.AppointmentScreen
 import br.com.queven.wabotia.modules.agenda.BookingScreen
+import br.com.queven.wabotia.modules.erp.erpScreens
 import br.com.queven.wabotia.modules.mensalidade.InstallmentScreen
 import br.com.queven.wabotia.modules.mensalidade.MensalidadeScreen
 import br.com.queven.wabotia.modules.mensalidade.MensalidadeViewModel
@@ -112,6 +113,8 @@ private fun optional(name: String) = navArgument(name) { type = NavType.StringTy
 
 /** As telas dos módulos no grafo de navegação do app logado. */
 fun NavGraphBuilder.moduleScreens(container: AppContainer, nav: NavHostController, openConversation: (String) -> Unit, openPrinter: () -> Unit) {
+    // Gestão (ERP): clientes, produtos e estoque, pedido rápido e contas (modules/erp).
+    erpScreens(container, nav)
     // Ordem de serviço por modelo. Servidor sem modelos, catálogo só com o modelo simples e ordem do modelo simples
     // caem nas telas antigas dentro das próprias telas novas (WorkOrdersEntry, WorkOrderScreen, NewWorkOrderScreen).
     composable(ModuleRoutes.SERVICE_ORDERS) {

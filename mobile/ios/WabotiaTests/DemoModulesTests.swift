@@ -15,7 +15,8 @@ final class DemoModulesTests: XCTestCase {
 
     func testCapabilitiesListBothModules() async {
         let ids = await ModulesProbe(baseURL: base, profileId: DemoMode.profileId, token: { "wabu_demo" }, session: QueueHTTP.makeSession()).check()
-        XCTAssertEqual(ids, ["queue", "agenda", "os", "reserva", "mensalidade", "pedido", "suporte", "forms", "payments"])
+        XCTAssertEqual(ids, ["queue", "agenda", "os", "reserva", "mensalidade", "pedido", "suporte", "forms", "payments",
+                             "erp", "erp-produtos", "erp-vendas", "erp-estoque", "erp-financeiro"])
     }
 
     func testReservaDemo() async throws {

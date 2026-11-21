@@ -138,6 +138,8 @@ final class DemoServer {
     /// Pedido (lanchonete) e Suporte pago (passagem para humano), em `DemoPedidoSuporte.swift`.
     private(set) lazy var pedido = DemoPedido(t0: start)
     private(set) lazy var suporte = DemoSuporte(t0: start)
+    /// Gestão (ERP): mercearia fictícia com clientes, produtos, estoque, pedidos e contas, em `DemoErp.swift`.
+    private(set) lazy var erp = DemoErp()
     /// Formulários (passo web) e cobranças por conversa: `web_steps` e `payments` do detalhe.
     private var webSteps: [String: [Row]] = [:]
     private var payments: [String: [Row]] = [:]
@@ -710,6 +712,8 @@ final class DemoServer {
         if let reply = mensalidade.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
         if let reply = pedido.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
         if let reply = suporte.route(method: method, parts: parts, body: body, key: key, now: now, emit: emitter) { return reply }
+        // Gestão (ERP): a erp-api (`erp/v1/…`) e o envio do pedido pelo WhatsApp (`erp-conversa/…`).
+        if let reply = erp.route(method: method, parts: parts, body: body, query: query) { return reply }
         if get, m("api/v1/profiles/*/forms") != nil { return ok(["data": forms]) }
 
         // Descoberta e conta

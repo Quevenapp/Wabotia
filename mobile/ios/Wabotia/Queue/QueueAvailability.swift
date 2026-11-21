@@ -15,6 +15,8 @@ enum ModuleId {
     static let suporte = "suporte"
     static let forms = "forms"
     static let payments = "payments"
+    /// ERP (Gestão): a parte Cadastros; as outras partes são `erp-produtos`, `erp-vendas`… (src/erp/parts.ts).
+    static let erp = "erp"
 }
 
 /// Lê os módulos ligados na resposta da rota de capacidades (docs/MODULOS.md, seção 6):
@@ -45,6 +47,16 @@ enum ModuleCapabilities {
         guard var set = found else { return nil }
         if !set.isDisjoint(with: queueIds) { set.insert(ModuleId.queue) }
         return set
+    }
+
+    /// Os papéis da pessoa nos módulos ligados (`profiles[].grants` da área, como `erp:vendas` e `os:technician`).
+    /// Servidor antigo ou aplicação: vazio.
+    static func grants(_ json: Any, profileId: String? = nil) -> Set<String> {
+        guard let root = json as? [String: Any] else { return [] }
+        let profiles = root["profiles"] as? [[String: Any]] ?? []
+        let area = profiles.first { ($0["id"] as? String) == profileId } ?? (profiles.count == 1 ? profiles.first : nil)
+        let list = (area?["grants"] ?? root["grants"]) as? [Any] ?? []
+        return Set(list.compactMap { $0 as? String })
     }
 
     private static func ids(_ modules: Any) -> Set<String>? {
@@ -83,21 +95,28 @@ struct ModulesProbe {
     let token: () -> String?
     var session: URLSession = QueueHTTP.shared
 
-    func check() async -> Set<String>? {
+    func check() async -> Set<String>? { await snapshot()?.modules }
+
+    /// Módulos ligados e papéis da pessoa na área; `nil` sem resposta.
+    struct Snapshot: Equatable { var modules: Set<String>; var grants: Set<String> }
+
+    func snapshot() async -> Snapshot? {
         let base = QueueHTTP.normalize(baseURL)
         let p = profileId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? profileId
         for path in ["/api/v1/profiles/\(p)/capabilities", "/api/v1/capabilities?profile_id=\(p)"] {
             switch await get(base + path) {
             case .ok(let json):
-                if let ids = ModuleCapabilities.enabledIds(json, profileId: profileId) { return ids }
+                if let ids = ModuleCapabilities.enabledIds(json, profileId: profileId) {
+                    return Snapshot(modules: ids, grants: ModuleCapabilities.grants(json, profileId: profileId))
+                }
             case .failed(let status):
                 if status == 0 { return nil }
                 // 404/405 (servidor antigo), 401/403: tenta o próximo sinal.
             }
         }
         switch await get(base + "/api/v1/profiles/\(p)/queue") {
-        case .ok: return [ModuleId.queue]
-        case .failed(let status): return status == 0 || status >= 500 || status == 429 ? nil : []
+        case .ok: return Snapshot(modules: [ModuleId.queue], grants: [])
+        case .failed(let status): return status == 0 || status >= 500 || status == 429 ? nil : Snapshot(modules: [], grants: [])
         }
     }
 
@@ -145,6 +164,8 @@ final class ModuleFeature: ObservableObject {
     }()
 
     @Published private(set) var modules: [String: Set<String>] = [:]
+    /// Papéis da pessoa nos módulos ligados, por área (`erp:vendas`, `os:technician`…).
+    @Published private(set) var grants: [String: Set<String>] = [:]
     private var checkedAt: [String: Date] = [:]
     private var subscription: AnyCancellable?
 
@@ -158,14 +179,24 @@ final class ModuleFeature: ObservableObject {
         if !force, let last = checkedAt[profile], Date().timeIntervalSince(last) < 60 { return }
         checkedAt[profile] = Date()
         let session = container.session
-        let result = await ModulesProbe(baseURL: server.absoluteString, profileId: profile, token: { session.token }).check()
-        apply(result, profile: profile)
+        let result = await ModulesProbe(baseURL: server.absoluteString, profileId: profile, token: { session.token }).snapshot()
+        apply(result?.modules, profile: profile)
+        if let result { grants[profile] = result.grants }
     }
 
     /// `nil` (sem rede): fica o que já se sabia, e a próxima consulta tenta de novo.
     func apply(_ result: Set<String>?, profile: String) {
         guard let result else { checkedAt[profile] = nil; return }
         modules[profile] = result
+    }
+
+    /// Papéis lidos à parte (testes e demonstração).
+    func applyGrants(_ result: Set<String>, profile: String) { grants[profile] = result }
+
+    /// O acesso da pessoa à Gestão (ERP) nesta área, ou `nil` quando ela não aparece.
+    func erpAccess(_ profileId: String?, isAdmin: Bool) -> ErpAccess? {
+        guard let profileId else { return nil }
+        return ErpAccess.of(modules: modules[profileId] ?? [], grants: grants[profileId] ?? [], isAdmin: isAdmin)
     }
 
     /// Um 409 `module_disabled` numa rota do módulo esconde a tela até a próxima consulta.
@@ -176,6 +207,7 @@ final class ModuleFeature: ObservableObject {
 
     func clear() {
         modules = [:]
+        grants = [:]
         checkedAt = [:]
     }
 }

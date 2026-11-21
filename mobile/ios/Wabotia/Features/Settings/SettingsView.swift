@@ -146,6 +146,11 @@ struct SettingsView: View {
                 navRow("Mensalidades", "creditcard.fill", Theme.bot) { push(.mensalidade) }
                     .accessibilityIdentifier("settings.mensalidade")
             }
+            // Gestão (ERP): só com o ERP ligado na área e um papel erp:* da pessoa; cada item respeita a parte dele.
+            if moduleFeature.erpAccess(container.profileId, isAdmin: vm.isAdmin) != nil {
+                navRow("Gestão", "building.2.fill", Theme.brand) { push(.erp) }
+                    .accessibilityIdentifier("settings.erp")
+            }
             navRow("Linhas de atendimento", "phone.connection", Theme.ok, divider: vm.isAdmin) { push(.lines) }
             if vm.isAdmin {
                 navRow("Menus e submenus", "list.bullet.indent", Theme.brand) { push(.menus) }

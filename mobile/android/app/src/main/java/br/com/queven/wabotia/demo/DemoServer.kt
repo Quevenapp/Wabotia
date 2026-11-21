@@ -133,6 +133,11 @@ internal object DemoServer {
     private var cobranca: DemoCobranca? = null
     private var actionReplays = DemoReplays()
 
+    /** A Gestão (ERP) da demonstração: recriada a cada entrada. */
+    private var erp: DemoErp? = null
+
+    private fun erpOf(s: DemoState): DemoErp = erp ?: DemoErp(s.t0).also { erp = it }
+
     private fun cobrancaOf(s: DemoState): DemoCobranca = cobranca ?: DemoCobranca(s.t0).also { cobranca = it }
 
     private fun customerOf(s: DemoState, conversationId: String): Pair<String, String?>? =
@@ -150,6 +155,12 @@ internal object DemoServer {
             j("id" to "suporte", "name" to "Suporte pago", "version" to "1.0.0"),
             j("id" to "forms", "name" to "Formulários", "version" to "1.0.0"),
             j("id" to "payments", "name" to "Cobrança", "version" to "1.0.0"),
+            // Gestão (ERP): as partes usadas pelos aplicativos ([DemoErp]); a pessoa da demonstração é administradora.
+            j("id" to "erp", "name" to "Cadastros", "version" to "1.0.0"),
+            j("id" to "erp-produtos", "name" to "Produtos e serviços", "version" to "1.0.0"),
+            j("id" to "erp-vendas", "name" to "Vendas", "version" to "1.0.0"),
+            j("id" to "erp-estoque", "name" to "Estoque", "version" to "1.0.0"),
+            j("id" to "erp-financeiro", "name" to "Financeiro", "version" to "1.0.0"),
         )
         return ok(
             j(
@@ -157,7 +168,7 @@ internal object DemoServer {
                 "server" to j("service" to "wabotia", "version" to "demonstração", "commit" to ""),
                 "features" to listOf("modules", "establishment"),
                 "profiles" to listOf(
-                    j("id" to Ids.PROFILE, "name" to DemoMode.PROFILE_NAME, "enabled" to true, "modules" to modules),
+                    j("id" to Ids.PROFILE, "name" to DemoMode.PROFILE_NAME, "enabled" to true, "modules" to modules, "grants" to listOf("erp:admin")),
                     j("id" to Ids.CHANNEL_PROFILE, "name" to "Canais · Empresa Exemplo", "enabled" to true, "modules" to emptyList<String>()),
                 ),
                 "modules" to modules,
@@ -185,6 +196,7 @@ internal object DemoServer {
         pedido = null
         suporte = null
         cobranca = null
+        erp = null
         actionReplays = DemoReplays()
         // Um evento inicial faz a primeira consulta (cursor 0) avançar o cursor; sem ele os primeiros eventos reais seriam pulados.
         fresh.emit("demo.started", null, j("profile" to Ids.PROFILE), fresh.t0)
@@ -302,7 +314,7 @@ internal object DemoServer {
     private fun profile(s: DemoState, method: String, r: List<String>, request: Request, now: Long): Reply {
         val url = request.url
         // A área sintética de canais não compartilha as instâncias dos módulos da área WhatsApp.
-        if (s.multichannel && r[0] in setOf("queue", "service-orders", "agenda", "mensalidade", "forms", "suporte", "pedido", "reserva")) return notFound()
+        if (s.multichannel && r[0] in setOf("queue", "service-orders", "agenda", "mensalidade", "forms", "suporte", "pedido", "reserva", "erp", "erp-conversa")) return notFound()
         return when (r[0]) {
             "status" -> ok(status(s))
             "presence" -> if (method == "PUT") {
@@ -399,6 +411,8 @@ internal object DemoServer {
             "suporte" -> suporteOf(s).handle(method, r.drop(1), bodyJson(request), request.header("Idempotency-Key"), now, s.emitter(now))
             "pedido" -> pedidoOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
             "reserva" -> reservaOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
+            // Gestão (ERP): a erp-api (`erp/v1/…`) e o envio do pedido pelo WhatsApp (`erp-conversa/…`).
+            "erp", "erp-conversa" -> erpOf(s).handle(method, r, bodyJson(request), url::queryParameter)
             // Dados do estabelecimento (cabeçalho dos comprovantes) e pessoas da área (responsável de uma ordem).
             "establishment" -> ok(demoEstablishment())
             "people" -> ok(j("data" to s.users.map { (id, name) -> j("id" to id, "name" to name, "role" to if (id == Ids.ME) "admin" else "operator") }.sortedBy { it.str("name") }))

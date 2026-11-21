@@ -253,6 +253,12 @@ extension DemoMode {
         case "pedido-order": launch.tab = "settings"; launch.route = .pedidoOrder(id: "pd_44")
         case "pedido-delivery": launch.tab = "settings"; launch.route = .pedidoOrder(id: "pd_42")
         case "pedido-choosing": launch.tab = "settings"; launch.route = .pedidoOrder(id: "pd_46")
+        // Gestão (ERP) da demonstração: a entrada, os clientes, os produtos, o pedido rápido e as contas.
+        case "erp": launch.tab = "settings"; launch.route = .erp
+        case "erp-customers": launch.tab = "settings"; launch.route = .erpCustomers
+        case "erp-products": launch.tab = "settings"; launch.route = .erpProducts
+        case "erp-order": launch.tab = "settings"; launch.route = .erpOrder
+        case "erp-bills": launch.tab = "settings"; launch.route = .erpBills
         // Passagem para humano pelo Suporte pago: a conversa com a faixa e os dados da conversa com as ações.
         // Formulário e Cobrança na conversa da Mariana: as folhas e o cartão dos dados (WABOTIA_DEMO_ANCHOR=items).
         case "charge", "forms": launch.route = .conversation(id: "c_rich"); launch.sheet = screen

@@ -54,7 +54,7 @@ targets:
         UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UIBackgroundModes: [remote-notification]
         NSMicrophoneUsageDescription: "O microfone é usado para gravar mensagens de voz."
-        NSCameraUsageDescription: "A câmera é usada para enviar fotos e vídeos ao cliente."
+        NSCameraUsageDescription: "A câmera é usada para enviar fotos e vídeos ao cliente, fotografar o checklist da ordem de serviço e ler o código de barras dos produtos."
         NSPhotoLibraryUsageDescription: "A galeria é usada para escolher fotos e vídeos para enviar ao cliente."
         NSPhotoLibraryAddUsageDescription: "A galeria é usada para salvar fotos e vídeos recebidos quando você escolhe salvar."
         NSLocationWhenInUseUsageDescription: "A localização é usada apenas quando você escolhe compartilhá-la com o cliente."
