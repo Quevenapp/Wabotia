@@ -27,10 +27,10 @@ type CommandName = { [K in keyof BlingOperationMap]: BlingOperationMap[K]['input
 const receiptFailure = (receipt: BlingReceipt | null | undefined) => receipt?.state === 'rejected' ? new BlingError(receipt.error?.code ?? 'BLING_RESPONSE_INVALID') : receipt?.state === 'superseded' ? new BlingError('BLING_GENERATION_RETIRED') : null;
 
 /** Apenas operações públicas do acervo; nenhum comando operacional é exposto aqui. */
-export function ReceiveBling({ controller, administrator, client: injected, adoptionClient }: { controller: AccessController; administrator: boolean; client?: ReceiveBlingClient; adoptionClient?: AdoptBlingClient }) {
+export function ReceiveBling({ controller, administrator, client: injected, adoptionClient, initialTab }: { controller: AccessController; administrator: boolean; client?: ReceiveBlingClient; adoptionClient?: AdoptBlingClient; /** Preferências › Integrações › Mão dupla do Bling abre direto na aba (?aba=mao-dupla). */ initialTab?: 'mao-dupla' }) {
   const client = useMemo(() => injected ?? createPanelBlingClient(controller), [injected, controller]);
   const commands = useMemo(() => new BlingCommandSession(client), [client]);
-  const [tab, setTab] = useState(0), [status, setStatus] = useState<BlingStatus | null>(null), [resources, setResources] = useState<Resources | null>(null);
+  const [tab, setTab] = useState(initialTab === 'mao-dupla' ? TABS.indexOf('Mão dupla') : 0), [status, setStatus] = useState<BlingStatus | null>(null), [resources, setResources] = useState<Resources | null>(null);
   const [error, setError] = useState(''), [notice, setNotice] = useState(''), [busy, setBusy] = useState(false), [loading, setLoading] = useState(true);
   const alive = useRef(true), lock = useRef(false), life = useRef(new AbortController());
   const [selections, setSelections] = useState<BlingSelection[]>([]), [limit, setLimit] = useState(20000), [access, setAccess] = useState<BlingAccessPolicy | null>(null), [dirty, setDirty] = useState(false);

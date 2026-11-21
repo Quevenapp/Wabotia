@@ -10,6 +10,7 @@ import type { AccessState } from '../lib/real-access';
 import { ROLE_LABELS } from '../lib/real-access';
 import { activeGroupFor, matchesLocation, resolveMenu, resolvePreferences } from '../lib/origin-menu';
 import { workspaceMenu } from '../lib/fagoo-menu';
+import { integrationRouteState, useIntegrationHost } from '../../../modules/integrations/visibility';
 import { useTheme } from '../hooks/useTheme';
 import OriginTopBar from './OriginTopBar';
 import { NotificationsPanel, useCompanyChrome, useStoredThemeAtLogin } from './CompanyChrome';
@@ -36,10 +37,14 @@ export default function CompanyNavigation({ host, state, onLogout, controller, e
   const authenticated = ['checking', 'pending', 'ready', 'error'].includes(state.phase);
   const originIntegration = ready && originIntegrationEnabled(state.membership);
   const originHistory = ready && originHistoryAvailable(state.membership);
-  const access = ready && role ? { role, resources, capabilities: state.membership?.capabilities } : {};
-  const allows = (to: string) => ready && (host ? host.runtime.allowed(to, state) : targetEnabled(to) && portedPermissionAllowed(to, role, resources));
+  // Preferências › Integrações: a tela Integrações é do painel; a busca só a oferece quando ele a libera.
+  const integrationHost = useIntegrationHost();
+  const integrations = !!integrationHost && integrationRouteState(integrationHost.context) === 'allowed';
+  const access = ready && role ? { role, resources, capabilities: state.membership?.capabilities, integrations } : {};
+  // Integrações não é rota do ERP (quem a abre é o painel): vale a liberação do próprio painel.
+  const allows = (to: string) => to === '/integracoes' ? ready && integrations : ready && (host ? host.runtime.allowed(to, state) : targetEnabled(to) && portedPermissionAllowed(to, role, resources));
   const groups = useMemo(() => resolveMenu('real', access).map(group => ({ ...group, columns: group.columns.map(column => ({ ...column, items: column.items.filter(item => item.to && allows(item.to)) })).filter(column => column.items.length), footer: group.footer?.to && allows(group.footer.to) ? group.footer : undefined })).filter(group => group.columns.length), [state, host, ready, role, resources.join(','), originIntegration, originHistory]);
-  const preferences = useMemo(() => resolvePreferences(access), [ready, role, originIntegration, originHistory]);
+  const preferences = useMemo(() => resolvePreferences(access), [ready, role, originIntegration, originHistory, integrations]);
   const preferenceLinks = preferences.flatMap(category => category.entries.filter(entry => allows(entry.to)).map(entry => ({ label: entry.label, to: entry.to })));
   const preparationPage = originHistory && ready && role === 'admin' && ['/preparacao-virada/depositos', '/preparacao-virada/depositos/estoque'].includes(location.pathname);
   const stockPage = preparationPage && location.pathname.endsWith('/estoque');

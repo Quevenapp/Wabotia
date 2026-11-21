@@ -17,7 +17,8 @@ const FISCAL_READ: readonly CompanyRole[] = ['admin', 'consulta', 'fiscal'];
 // A page or screen Brufap does not have yet stays listed and disabled with the reason; Brufap's own tools sit in the extra
 // group "Ferramentas do Brufap" of their category, so no previous entry became unreachable. Each settings page has its
 // schema in packages/erp-domain/src/preferences (roles of the page = roles of the module it configures).
-export interface PreferenceEntry { label: string; to?: string; roles?: readonly CompanyRole[]; description?: string; disabledReason?: string }
+// "host": tela do painel fora do roteador do ERP (Integrações); aparece só quando o painel diz que ela abre (CompanyAccess.integrations).
+export interface PreferenceEntry { label: string; to?: string; roles?: readonly CompanyRole[]; description?: string; disabledReason?: string; host?: 'integrations' }
 export interface PreferenceSection { title: string; entries: readonly PreferenceEntry[] }
 export interface PreferenceCategory { id: string; label: string; icon: string; notice?: { title: string; text: string }; sections: readonly PreferenceSection[] }
 
@@ -102,6 +103,14 @@ export const COMPANY_PREFERENCES: readonly PreferenceCategory[] = [
     { title: 'Configurações de serviços', entries: [page('servicos-os')] },
   ] },
   // Wabotia: a categoria Integrações (telas do Origin) saiu; a migração do Bling é um componente à parte (PLANO-FAGOO.md, item 17).
+  // Pedido do dono (21/11): o grupo "Mais" saiu do menu superior; as telas de integração do Wabotia moram neste cartão.
+  { id: 'integracoes', label: 'Integrações', icon: 'link', sections: [
+    { title: 'Integrações', entries: [
+      { label: 'Integrações', to: '/integracoes', host: 'integrations', description: 'Pedidos, mesas, agenda e os outros módulos da área ligados ao ERP: o que entra no financeiro e no estoque.' },
+      { label: 'Receber dados do Bling', to: '/receber-bling', description: 'Trazer do Bling os cadastros, pedidos, contas e notas, conferir e passar a operar aqui.' },
+      { label: 'Mão dupla do Bling', to: '/receber-bling?aba=mao-dupla', description: 'Depois de passar a operar aqui: manter o ERP e o Bling iguais, com um interruptor por tipo de registro.' },
+    ] },
+  ] },
   { id: 'contabilidade', label: 'Contabilidade', icon: 'calculator', sections: [
     { title: 'Configurações de contabilidade', entries: [page('contabilidade-contador')] },
   ] },
@@ -134,7 +143,8 @@ export const COMPANY_PREFERENCES: readonly PreferenceCategory[] = [
   ] },
 ];
 
-export interface CompanyAccess { role?: string; resources?: readonly string[]; capabilities?: { originIntegration?: boolean; originHistory?: boolean } }
+// integrations: o painel liberou a tela Integrações (integrationRouteState === 'allowed'); sem painel, ela não aparece.
+export interface CompanyAccess { role?: string; resources?: readonly string[]; capabilities?: { originIntegration?: boolean; originHistory?: boolean }; integrations?: boolean }
 
 export function realTargetAllowed(target: RealTarget | undefined, access: CompanyAccess): target is RealTarget {
   if (!target || !access.role) return false;
@@ -169,7 +179,7 @@ export type LinkedPreferenceEntry = PreferenceEntry & { to: string };
 export function resolvePreferences(access: CompanyAccess): ResolvedPreferenceCategory[] {
   if (!access.role) return [];
   const mine = (entry: PreferenceEntry) => (!entry.to || !isOriginIntegrationRoute(entry.to) || originHistoryAvailable(access)) && (!entry.roles || entry.roles.includes(access.role as CompanyRole))
-    && (!entry.to || targetEnabled(entry.to));
+    && (!entry.to || (entry.host === 'integrations' ? access.integrations === true : targetEnabled(entry.to)));
   return COMPANY_PREFERENCES.map(category => {
     const sections = category.sections.map(section => ({ title: section.title, entries: section.entries.filter(mine) })).filter(section => section.entries.length > 0);
     return { id: category.id, label: category.label, icon: category.icon, ...(category.notice ? { notice: category.notice } : {}), sections, entries: sections.flatMap(section => section.entries.filter((entry): entry is LinkedPreferenceEntry => Boolean(entry.to))) };

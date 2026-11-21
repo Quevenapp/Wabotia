@@ -64,9 +64,9 @@ test('preferences expose FAGOO-only pages by role, with the configured integrati
   for (const to of ['/dados-origin', '/importar-cadastros', '/importar-orcamentos', '/conferir-compras-origin', '/conferir-vendas-origin', '/preparacao-virada', '/integracao-origin', '/historico-vendas-origin', '/xmls-sincronizados', '/cobrancas-legadas-itau']) assert.ok(!admin.includes(to), to);
   const sales = resolvePreferences({ role: 'vendas', capabilities: { originHistory: true } });
   // A role sees a category only when it can read one of its pages or tools.
-  assert.deepEqual(sales.map(category => category.id), ['empresa', 'sistema', 'cadastros', 'suprimentos', 'vendas', 'servicos']);
+  assert.deepEqual(sales.map(category => category.id), ['empresa', 'sistema', 'cadastros', 'suprimentos', 'vendas', 'servicos', 'integracoes']);
   assert.equal(sales.some(category => category.entries.some(entry => ['/preferencias/notas-fiscais/nfe', '/preferencias/financas/contas-receber', '/estoque-abertura'].includes(entry.to))), false);
-  assert.deepEqual(COMPANY_PREFERENCES.map(category => category.label), ['Empresa', 'Sistema', 'Cadastros', 'Suprimentos', 'Vendas', 'Notas Fiscais', 'Certificado Digital', 'Finanças', 'Serviços', 'Contabilidade', 'Importações de Dados', 'Backup e Exportação de Dados']);
+  assert.deepEqual(COMPANY_PREFERENCES.map(category => category.label), ['Empresa', 'Sistema', 'Cadastros', 'Suprimentos', 'Vendas', 'Notas Fiscais', 'Certificado Digital', 'Finanças', 'Serviços', 'Integrações', 'Contabilidade', 'Importações de Dados', 'Backup e Exportação de Dados']);
   assert.equal(COMPANY_PREFERENCES.every(category => category.sections.length > 0 && category.sections.every(section => section.entries.length > 0)), true);
   assert.equal(COMPANY_PREFERENCES.flatMap(category => category.sections.flatMap(section => section.entries)).every(entry => entry.to || entry.disabledReason), true);
 });
