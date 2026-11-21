@@ -28,3 +28,5 @@ import "./rpc/compositions.ts";
 import "./rpc/item-components.ts";
 import "./rpc/purchases.ts";
 import "./rpc/mirror.ts";
+// Relatórios do ERP: estoque por depósito, giro e lotes vencendo.
+import "./rpc/erp_stock_charts.ts";

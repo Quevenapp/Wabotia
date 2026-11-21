@@ -24,7 +24,7 @@ const SCREEN_FILES: [RegExp, () => Promise<unknown>][] = [
   [/^\/(estoque-empresa|estoque-abertura|conferencia-estoque-empresa|relatorios-estoque|painel-produtos-empresa)$/, estoque],
   [/^\/documentos-empresa$/, documentos],
   [/^\/(cadastros-reais|categorias-produtos|grupos-produtos|tags|grupos-tags|exportacao-produtos|listas-precos|campos-customizados|tipos-contatos-empresa|vendedores-empresa|formas-pagamento-empresa|funcionarios-empresa|importar-contatos|numeracao-contatos)$/, cadastros],
-  [/^\/(|acesso|empresa-configuracoes|preferencias(\/.*)?)$/, preferencias],
+  [/^\/(|acesso|empresa-configuracoes|relatorios-graficos|preferencias(\/.*)?)$/, preferencias],
 ];
 export function preloadScreen(pathname: string, search = '') {
   const load = pathname === '/cadastros-reais' && new URLSearchParams(search).get('cadastro') === 'warehouses' ? estoque : SCREEN_FILES.find(([path]) => path.test(pathname))?.[1];
@@ -47,6 +47,8 @@ export const FinanceScreens = lazy(pick(financeiro, 'FinanceScreens'));
 export const RealCnab = lazy(pick(cobranca, 'RealCnab'));
 export const CompanySettings = lazy(pick(preferencias, 'CompanySettings'));
 export const RealHome = lazy(pick(preferencias, 'RealHome'));
+// Relatórios do ERP: relatórios em gráfico (cada um com a parte dele ligada).
+export const ReportCharts = lazy(pick(preferencias, 'ReportCharts'));
 export const RealFiscalDrafts = lazy(pick(fiscal, 'RealFiscalDrafts'));
 export const DueDateReport = lazy(pick(financeiro, 'DueDateReport'));
 

@@ -63,6 +63,8 @@ export const ENGINE_SIGNATURES: Record<string, ArgSpec[]> = {
   erp_com1_return_record: [["p_user_id", "u"], ["p_input", "j"]],
   erp_com1_return_effects: [["p_user_id", "u"], ["p_input", "j"]],
   erp_com1_return_get: [["p_user_id", "u"], ["p_input", "j"]],
+  // Linha do tempo da ficha do cliente (src/customer/timeline.ts): uma fonte por consulta, com corte e limite.
+  erp_catalog_contact_timeline: [["p_user_id", "u"], ["p_contact_id", "u"], ["p_source", "t"], ["p_before", "b"], ["p_key", "t", null], ["p_limit", "i", 20]],
   // Campos próprios de contato: src/erp/domains/catalog/contact-fields.ts (structural.ts, campos-contato).
   erp_catalog_contact_fields: [["p_user_id", "u"], ["p_audience", "t", "panel"]],
   erp_catalog_contact_field_save: [["p_user_id", "u"], ["p_id", "u", null], ["p_expected_version", "i", 0], ["p_command_id", "u"], ["p_data", "j"]],
@@ -75,6 +77,21 @@ export const ENGINE_SIGNATURES: Record<string, ArgSpec[]> = {
     ["p_situation", "t", "latest"], ["p_type", "t", null], ["p_person_type", "t", null], ["p_state", "t", null], ["p_city", "t", null], ["p_phone", "t", null],
     ["p_email", "t", null], ["p_seller_id", "u", null], ["p_period", "t", null], ["p_from", "d", null], ["p_to", "d", null], ["p_sale_statuses", "T", null],
     ["p_tag", "t", null], ["p_price_list_id", "u", null], ["p_fields", "j", null]],
+  // Relatórios do ERP (structural.ts, relatorios-dre-equipe): DRE e Custos
+  // (finance/rpc/erp_finance_dre.ts), gráficos (finance/rpc/erp_finance_charts.ts,
+  // stock/rpc/erp_stock_charts.ts, preferences/rpc/erp_report_sales_chart.ts),
+  // lotes vencendo (stock/rpc/erp_stock_charts.ts) e pagamento da equipe
+  // (finance/rpc/erp_finance_team.ts).
+  erp_finance_dre: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_finance_dre_cost_set: [["p_user_id", "u"], ["p_command_id", "u"], ["p_category_id", "u"], ["p_cost", "o"]],
+  erp_finance_chart: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_finance_team_people: [["p_user_id", "u"]],
+  erp_finance_team_report: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_finance_team_commission: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_finance_team_pay: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
+  erp_stock_chart: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_stock_lots_expiring: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_report_sales_chart: [["p_user_id", "u"], ["p_args", "j"]],
   // src/erp/domains/fiscal/reform.ts (sessão G; structural.ts, reforma-classificacao)
   erp_fiscal_reform_nature_class_get: [
     ["p_user_id", "u"],

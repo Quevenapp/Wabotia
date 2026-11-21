@@ -156,7 +156,7 @@ export function erpDestinationRequirement(value: URL | string): ErpDestinationRe
   if (preference) owner = ERP_PREFERENCE_PARTS[ERP_PREFERENCE_DESTINATIONS[preference]];
   else if (["/preferencias/sistema/registro-atividades", "/preferencias/sistema/consulta-exclusoes"].includes(path)) owner = B;
   else if (path.startsWith("/ajuda/")) owner = B;
-  else if (["/acesso", "/visao-geral", "/cadastros-empresa", "/preferencias", "/empresa-configuracoes", "/ajuda", "/importacoes", "/relatorios-customizados", "/etiquetas", "/transicoes", "/arquivos", "/manutencao-efeitos", "/receber-bling"].includes(path)) owner = B;
+  else if (["/acesso", "/visao-geral", "/cadastros-empresa", "/preferencias", "/empresa-configuracoes", "/ajuda", "/importacoes", "/relatorios-customizados", "/relatorios-graficos", "/etiquetas", "/transicoes", "/arquivos", "/manutencao-efeitos", "/receber-bling"].includes(path)) owner = B;
   else if (path === "/cadastros-reais") owner = ERP_ENTITY_PARTS[q.get("cadastro") ?? ""];
   else if (path === "/documentos-empresa") owner = ERP_ENTITY_PARTS[q.get("tipo") ?? ""];
   else if (["/estoque-empresa", "/estoque-abertura", "/conferencia-estoque-empresa", "/relatorios-estoque", "/painel-produtos-empresa"].includes(path)) { owner = E; if (q.get("painel") === "sugestao" || q.get("relatorio") === "compras") extra.push(C); }

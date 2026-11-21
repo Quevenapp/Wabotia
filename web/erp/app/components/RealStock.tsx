@@ -25,6 +25,8 @@ import { Modal } from './Modal';
 import { Icon } from './Icon';
 import { parseStockPolicy } from '../../../../packages/erp-domain/src/stock-opening-dto.mjs';
 import './stock.css';
+// Relatórios do ERP: lotes que vencem logo e os já vencidos, com filtro por depósito.
+import StockLotsExpiring from './StockLotsExpiring';
 
 const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -216,6 +218,7 @@ export default function RealStock({ controller, onPrepareWarehouses }: { control
     {role === 'admin' && onPrepareWarehouses && <p><button type="button" className="text-button" onClick={prepareWarehouses}>Preparar depósitos importados</button></p>}
     <header className="real-heading"><div className="stock-title"><h1>Estoque</h1><span className="origin-title-divider" aria-hidden="true" /><fieldset className="stock-inline-fieldset" disabled={editing}><legend className="real-sr-only">Depósito dos lançamentos</legend><OriginSelector label="Depósito" value={warehouseLabel} options={[ALL_WAREHOUSES, ...options.keys()]} onChange={chooseWarehouse} /></fieldset></div><span className="real-mode">{writable ? 'Edição autorizada' : 'Somente consulta'}</span></header>
     <p className="real-notice">Movimentos desta área atualizam o estoque do ERP e podem ser corrigidos por estorno, preservando o histórico.{negativeAllowed !== null && <> Estoque negativo: <strong>{negativeAllowed ? 'permitido' : 'não permitido'}</strong> pela política da empresa.</>}</p>
+    <details className="stock-lots-expiring" open={typeof location !== 'undefined' && location.hash === '#lotes-vencendo'}><summary>Lotes vencendo e vencidos</summary><StockLotsExpiring role={role} /></details>
     {notice && <p className="real-success" role="status">{notice}</p>}{(error || productError) && <p className="real-alert" role="alert">{productError || error}</p>}
     <fieldset className="stock-ledger-controls" disabled={editing}><legend className="real-sr-only">Produto e filtros dos lançamentos</legend>
       <div className="origin-toolbar stock-ledger-toolbar"><button type="button" className={`origin-filter-toggle${filterOpen ? ' is-open' : ''}`} title="Abrir filtro" aria-label={filterOpen ? 'Minimizar filtros' : 'Abrir filtro'} aria-expanded={filterOpen} onClick={() => { setDraft(previous => ({ ...previous, direction: filters.direction, origin: filters.origin })); setFilterOpen(value => !value); }}><Icon name="filter" size={13} /></button>

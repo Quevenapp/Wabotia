@@ -228,4 +228,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Cadastros: campos próprios de contato (texto, número, data, lista e sim/não), por tipo de contato, com obrigatório, coluna e filtro da lista, exportação e importação, e o campo sensível que só vai para listagens, ficha do atendimento, IA e bots quando o administrador libera.",
     replaced_by: "Versão 20 aditiva (19→20): contact_field (definição, opções da lista, tipos de contato, sensível e liberação com quem e quando), contact_field_value (valor por contato e campo) e contact_field_audit (registro imutável das alterações, inclusive liberar e recolher campo sensível) em erp_catalog. RPCs só do motor erp_catalog_contact_field_* (domains/catalog/contact-fields.ts), na parte Cadastros; a rota do Wabotia /api/v1/profiles/:profile/erp-contato-campos (src/erp/contact-fields) atende o painel, a ficha do atendimento e os bots.",
   },
+  {
+    id: "relatorios-dre-equipe",
+    oracle: "O Financeiro classifica as categorias do primeiro nível em grupos de DRE sem Custos e não tem pagamento de funcionário: o funcionário do cadastro não é contato e não recebe conta a pagar.",
+    reason: "Relatórios do ERP: DRE gerencial com Custos separados das despesas, e o pagamento da equipe (salário, comissão, adiantamento e vale) como conta a pagar com a pessoa ligada, o período e, na comissão de vendedor, a base e o percentual conferidos.",
+    replaced_by: "Versão 21 aditiva (20→21): erp_finance__dre_cost (a categoria de despesa do primeiro nível que o DRE mostra em Custos; o dre_group continua o do oráculo, Despesas Operacionais) e erp_finance__team_payment (a conta a pagar, funcionário ou vendedor, tipo, período, base e percentual). A conta a pagar é a do Financeiro (erp_finance__title), no contato do vendedor ou no contato com o CPF do funcionário.",
+  },
 ];
