@@ -168,8 +168,9 @@ export class ErpHub {
     const bling = path.startsWith("/erp-bling/");
     // Para o contador (src/erp/contador/do.ts): a pessoa vem com identidade; o
     // envio automático e o link do contador (/sistema/) conferem só a parte.
-    const contador = path.startsWith("/erp-contador/");
-    const contadorSystem = path.startsWith("/erp-contador/sistema/");
+    // Obrigações em arquivo (src/erp/sped/do.ts) seguem o mesmo desenho.
+    const contador = path.startsWith("/erp-contador/") || path.startsWith("/erp-sped/");
+    const contadorSystem = path.startsWith("/erp-contador/sistema/") || path.startsWith("/erp-sped/sistema/");
     const identity = rpc || bling || (contador && !contadorSystem) ? decodeIdentity(request.headers.get(IDENTITY_HEADER)) : null;
     // Só a evidência fiscal já reivindicada (NF-e) dispensa a fotografia de partes; o Bling sempre confere.
     const gated = (rpc && !evidence) || bling || (contador && !contadorSystem);
@@ -201,7 +202,7 @@ export class ErpHub {
       try { blingCall = await prepareBlingDispatch(profile, path, request, identity!); }
       catch (error) { return blingFailureResponse(error); }
     }
-    const { ERP_SCHEMA_VERSION, migrate, handleRpc, handleBlingOperation, handleContadorRequest, ErpRestoreBusyError,
+    const { ERP_SCHEMA_VERSION, migrate, handleRpc, handleBlingOperation, handleContadorRequest, handleSpedRequest, ErpRestoreBusyError,
       startBackup, startRestore, runBackupJob, ErpBackupJobError } = await engine();
     if (gated) {
       // O import cede a vez: expiração ou revisão nova também bloqueiam a migração.
@@ -225,8 +226,9 @@ export class ErpHub {
     if (fence && path.startsWith("/erp-probe/")) return fencedResponse(fence);
     if (contador) {
       // Pedir um pacote grava: espera o backup em páginas, como a coleta.
-      if (fence && /\/pedir$/.test(path)) return fencedResponse(fence);
-      const response = await handleContadorRequest(profile, path, request, identity, { env: this.env, storage: this.ctx.storage,
+      if (fence && /\/(pedir|configuracao\.salvar)$/.test(path)) return fencedResponse(fence);
+      const handler = path.startsWith("/erp-sped/") ? handleSpedRequest : handleContadorRequest;
+      const response = await handler(profile, path, request, identity, { env: this.env, storage: this.ctx.storage,
         readSnapshot: () => currentErpParts(this.ctx.storage, profile) });
       if (response.ok && /\/pedir$/.test(path)) await this.schedule(profile, Date.now() + 1_000);
       if (contadorSystem) return response;
@@ -426,7 +428,7 @@ export class ErpHub {
     };
     let parts = await readParts();
     if (!parts) { await this.schedule(profile, null); return; }
-    const { CONTINUE_AFTER_MS, FILE_PURPOSES, ROUTINES, TASK_HANDLERS, nextWake, engineClock, migrate, runFileTasks, runRound, storageDriver, runBlingWake, nextBlingWake, runContadorWake, nextContadorWake } = await engine();
+    const { CONTINUE_AFTER_MS, FILE_PURPOSES, ROUTINES, TASK_HANDLERS, nextWake, engineClock, migrate, runFileTasks, runRound, storageDriver, runBlingWake, nextBlingWake, runContadorWake, nextContadorWake, runSpedWake, nextSpedWake } = await engine();
     parts = await readParts();
     if (!parts) { await this.schedule(profile, null); return; }
     if (migrate(storage).status === "newer") return;
@@ -473,6 +475,18 @@ export class ErpHub {
     parts = await readParts();
     if (!parts) { await this.schedule(profile, null); return; }
     if (contadorNext !== null) next = next === null ? contadorNext : Math.min(next, contadorNext);
+    // Obrigações em arquivo (src/erp/sped/do.ts): uma unidade por acordada sem
+    // trabalho operacional nem parte do pacote do contador nesta acordada.
+    let spedNext: number | null;
+    try {
+      const spedDependencies = { env: this.env, storage, readSnapshot: () => currentErpParts(storage, profile) };
+      spedNext = !report.more && !report.fileDue && !report.routines.length && !report.tasks.length && (contadorNext === null || contadorNext > Date.now() + 1_000)
+        ? (await runSpedWake(profile, spedDependencies)).nextWake
+        : nextSpedWake(storage, Date.now() + CONTINUE_AFTER_MS);
+    } catch { spedNext = Date.now() + 60_000; }
+    parts = await readParts();
+    if (!parts) { await this.schedule(profile, null); return; }
+    if (spedNext !== null) next = next === null ? spedNext : Math.min(next, spedNext);
     storage.sql.exec(
       "INSERT INTO erp_meta(key,value) VALUES('last_alarm',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
       String(Date.now()),

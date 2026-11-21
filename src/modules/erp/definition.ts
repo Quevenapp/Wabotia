@@ -4,6 +4,7 @@ import { ERP_CONVERSA_MODULE_CONTRACT } from "../../erp/conversa/contract.ts";
 import { ERP_CONTACT_FIELDS_MODULE_CONTRACT } from "../../erp/contact-fields/contract.ts";
 import { ERP_RELATORIOS_MODULE_CONTRACT } from "../../erp/relatorios/contract.ts";
 import { ERP_CONTADOR_MODULE_CONTRACT } from "../../erp/contador/contract.ts";
+import { ERP_SPED_MODULE_CONTRACT } from "../../erp/sped/contract.ts";
 import { ERP_PRODUCAO_MODULE_CONTRACT } from "../../erp/production/contract.ts";
 import { ERP_EXPEDICAO_MODULE_CONTRACT } from "../../erp/expedicao/contract.ts";
 import { ERP_REFORMA_MODULE_CONTRACT } from "../../erp/reforma/contract.ts";
@@ -85,11 +86,13 @@ export const erpFiscalModule: ModuleDefinition = {
   ...definition("erp-fiscal", "Documentos fiscais, naturezas, numeração e configuração do emissor, conforme as funcionalidades disponíveis."),
   // Para o contador (src/erp/contador/contract.ts): as operações nfe.contador.* já são do prefixo nfe.
   // Reforma tributária (src/erp/reforma/contract.ts): só pela tela, fora do inventário dos bots.
-  routes: ["erp-emissor", "erp-fiscal-cofre", ...COM1_MODULE_CONTRACT.routes, ...ERP_CONTADOR_MODULE_CONTRACT.routes, ...ERP_REFORMA_MODULE_CONTRACT.routes],
+  // Obrigações em arquivo (src/erp/sped/contract.ts): as operações nfe.sped.* também são do prefixo nfe.
+  routes: ["erp-emissor", "erp-fiscal-cofre", ...COM1_MODULE_CONTRACT.routes, ...ERP_CONTADOR_MODULE_CONTRACT.routes, ...ERP_REFORMA_MODULE_CONTRACT.routes,
+    ...ERP_SPED_MODULE_CONTRACT.routes],
   operations: COM1_MODULE_CONTRACT.operations,
   bot: {
-    sensitive: [...COM1_MODULE_CONTRACT.definition.bot.sensitive, ...ERP_CONTADOR_MODULE_CONTRACT.definition.bot.sensitive],
-    hints: { ...COM1_MODULE_CONTRACT.definition.bot.hints, ...ERP_CONTADOR_MODULE_CONTRACT.definition.bot.hints },
+    sensitive: [...COM1_MODULE_CONTRACT.definition.bot.sensitive, ...ERP_CONTADOR_MODULE_CONTRACT.definition.bot.sensitive, ...ERP_SPED_MODULE_CONTRACT.definition.bot.sensitive],
+    hints: { ...COM1_MODULE_CONTRACT.definition.bot.hints, ...ERP_CONTADOR_MODULE_CONTRACT.definition.bot.hints, ...ERP_SPED_MODULE_CONTRACT.definition.bot.hints },
   },
 };
 // Boleto registrado pela API do banco (src/erp/boleto-api/contract.ts): rota, operações e categoria sensível no catálogo dos bots.

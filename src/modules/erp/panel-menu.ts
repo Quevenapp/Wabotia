@@ -208,6 +208,14 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     permission: { kind: "erp", roles: ["admin","consulta","fiscal"] },
   },
   {
+    // Obrigações em arquivo (src/erp/sped): SPED Fiscal, EFD-Contribuições e SINTEGRA do mês, com a conferência antes de gerar.
+    id: "erp.sped", module: "erp-fiscal", part: "fiscal",
+    ...ERP_MENU_GROUPS.fiscal, order: 196,
+    label: "SPED e SINTEGRA",
+    target: { kind: "ported", to: "/sped-fiscal" },
+    permission: { kind: "erp", roles: ["admin","consulta","fiscal"] },
+  },
+  {
     // Reforma tributária (src/erp/reforma): alíquotas por ano, Simples, classificações e o relatório de IBS, CBS e IS.
     id: "erp.tax-reform", module: "erp-fiscal", part: "fiscal",
     ...ERP_MENU_GROUPS.fiscal, order: 197,

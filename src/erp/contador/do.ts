@@ -53,11 +53,13 @@ function sourceOf(env: Env | null, profile: string): PackageDependencies["source
 
 async function packageDependencies(profile: string, deps: ContadorDoDependencies, db: SqlDriver): Promise<PackageDependencies> {
   const { verifiedXmlOf } = await import("../bling/xml.ts");
+  const media = deps.media !== undefined ? deps.media : (deps.env?.MEDIA ?? null);
   return {
-    db, profile, now: deps.now ?? (() => Date.now()),
-    media: deps.media !== undefined ? deps.media : (deps.env?.MEDIA ?? null),
+    db, profile, now: deps.now ?? (() => Date.now()), media,
     source: deps.source !== undefined ? deps.source : sourceOf(deps.env, profile),
     blingXml: (database, area, entity, sourceId) => { try { return verifiedXmlOf(database, area, entity, sourceId); } catch { return null; } },
+    // SPED e SINTEGRA prontos do período entram no pacote (src/erp/sped/job.ts).
+    extras: async (environment, from, to) => (await import("../sped/job.ts")).spedPackageExtras(db, profile, media, environment, from, to),
   };
 }
 

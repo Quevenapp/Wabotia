@@ -77,6 +77,9 @@ import "../erp/contador/command.ts";
 // Frete da Expedição: o rastreio dos pedidos expedidos na rodada do alarme
 // (src/erp/frete/schedule.ts), com o aviso ao cliente quando a área liga.
 import "../erp/frete/schedule.ts";
+// Obrigações em arquivo (SPED e SINTEGRA): o envio ao contador que espera o
+// pacote do período ficar pronto (src/erp/sped/command.ts).
+import "../erp/sped/command.ts";
 
 // NF-e comercial usa a mesma rota HTTP para a tela e para a proposta do bot.
 // O recibo durável pertence ao ERP; o Coordinator da área não chama o cofre.
