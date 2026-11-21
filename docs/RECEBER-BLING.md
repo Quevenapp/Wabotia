@@ -29,8 +29,9 @@ cadastros do ERP, com revisão. Nada é escrito no Bling.
 fornecedores e transportadoras), vendedores, produtos e serviços (com as
 variações que vierem em `variacoes`), depósitos, formas de pagamento,
 categorias financeiras e contas financeiras (`ledger_accounts`). Propostas,
-pedidos e contas entram na fatia B2 (abaixo); notas, lançamentos de caixa,
-saldos de estoque e ordens de serviço ficam para as próximas fatias.
+pedidos e contas entram na fatia B2 (abaixo); notas, lançamentos de caixa e
+saldos de estoque são usados no corte (fatia C, abaixo); ordens de serviço
+ficam para uma próxima fatia.
 
 **Três estados, por entidade:** *coletado* (no acervo, ainda não virou
 cadastro), *adotado* (virou cadastro do ERP e fica ligado ao id do Bling, com
@@ -198,6 +199,156 @@ parâmetros no inventário):
 Testes: `tests/erp/org/adocao-b2.test.mjs`,
 `tests/erp/org/adocao-situacoes.test.mjs` e
 `tests/erp/org/adocao-b2-painel.test.mjs`.
+
+## Passar a operar aqui: o corte (fatia C)
+
+Aba **Passar a operar aqui** da mesma tela. A pessoa escolhe a **data de
+corte**: a partir dela o ERP passa a valer. O que estava em aberto no Bling
+nesse dia vira documento, conta, saldo ou estoque do ERP; o que já estava
+encerrado fica no histórico. A conta do Bling continua viva e nada é escrito
+nela. Mesmo mecanismo da B1 e da B2 (vínculo por entidade e id no Bling,
+pendências, recibo de comando, RPCs das telas); código em
+`src/erp/bling/cutover.ts`, `cutover-package.ts` e `cutover-contracts.ts`.
+
+**1. Data de corte.** A tela mostra o que falta adotar (aguardando, pendentes e
+ignorados por entidade) e uma conferência antes de confirmar: acervo
+disponível, data escolhida e não futura, lote de adoção parado, o que ainda
+aguarda a adoção e as pendências de revisão (as duas últimas só avisam; o que
+ficar sem decisão aparece na conferência final). Confirmar exige
+administrador e o aceite na tela. **Nada desta fatia roda sem a data
+confirmada** (`BLING_ADOPTION_CONFLICT`, "Confirme primeiro a data de
+corte..."). Enquanto nenhuma etapa gravou nada no ERP, outra data pode ser
+confirmada; depois, não muda mais.
+
+**2. Contas parciais, pagas e canceladas** (parte Financeiro). As contas que a
+B2 deixou no histórico com baixa parcial (situação 3 e 6, ou 1 com saldo menor
+que o valor) viram título do ERP pelo **saldo que falta**, por
+`erp_finance_title_execute` (`title_create`), com vencimento, contato,
+categoria e forma de pagamento adotados; a descrição anota o valor original,
+o que já foi pago no Bling e o id de origem. As baixas antigas não são
+recriadas. A conta sai do histórico e fica ligada (vínculo da B2); repetir não
+duplica. Falta de cadastro ou saldo que não fecha vira pendência da conta, com
+o motivo, e a etapa segue. As **pagas, canceladas, devolvidas e outras
+encerradas** continuam no histórico e entram num resumo por mês (vencimento)
+e por categoria, conferido com os mesmos totais contados direto do acervo
+("bate" ou "não bate", com o porquê).
+
+**3. Saldos de abertura** (parte Financeiro). Para cada conta financeira
+adotada, o saldo na data de corte é calculado dos lançamentos de caixa
+coletados (`cash_entries`: conta em `contaFinanceira`, `portador` ou `conta`;
+sinal em `debitoCredito`/`tipo`; excluídos ficam de fora). Lançamento sem
+valor ou sem entrada/saída deixa o cálculo em branco e pede o valor. A pessoa
+**confirma ou corrige** e grava: entra **um** lançamento de caixa
+(`erp_finance_cash_execute`, `entry_save`) com a diferença entre o saldo
+confirmado e o saldo do ERP naquela data, nota "Saldo de abertura vindo do
+Bling". Se a conta foi adotada depois da data de corte, o lançamento fica no
+dia do saldo inicial da conta no ERP (o ERP não aceita movimento antes dele) e
+a tela mostra a data usada. Gravar de novo com o mesmo valor não duplica; com
+outro valor é recusado ("use Ajustar saldo no Financeiro"). Se a coleta mudou
+o cálculo depois da conferência, recusa e pede para conferir de novo.
+
+**4. Estoque de abertura** (partes Produtos e serviços e Estoque). A prévia
+mostra, por depósito, o saldo físico observado no Bling (`stock_balances`;
+saldo ausente não vira zero), os produtos sem cadastro adotado, serviços,
+variações e composições (não entram), saldos negativos (só entram se as
+Preferências de Estoque aceitam negativo), diferenças com o saldo que o ERP
+já tem e o estoque valorizado pelo custo do produto no acervo (`precoCusto`)
+quando houver. Gravar lança **um** ajuste por depósito na data de corte
+(`erp_stock_post`, tipo ajuste, "Estoque de abertura vindo do Bling"), levando
+o saldo do ERP ao do Bling; o ERP aceita até 100 produtos por lançamento, então
+depósitos maiores saem em lançamentos de 100 (a tela continua sozinha). A
+prévia tem um hash: mudou (nova coleta, cadastro adotado), recusa e pede
+para conferir. Repetir não lança de novo. **Não recria movimentos antigos,
+lotes nem reservas** (a tela diz isso). O lançamento coletivo do ERP não
+guarda custo: o custo médio usado fica no registro do corte e na conferência
+(estoque valorizado dos dois lados).
+
+**5. Notas emitidas no Bling** (parte Fiscal). Nova tela **Fiscal → Notas
+emitidas no Bling** (`/notas-bling`, administrador): NF-e e NFC-e do acervo
+por período (emissão), número, chave de acesso ou destinatário; abrir mostra o
+resumo e o XML guardado (conferido pelo hash no R2) com botão de baixar. Só
+consulta: nunca vira emissão pelo cofre, não cancela nem corrige, e a tela diz
+isso. Sem XML coletado, a tela diz para pedir a coleta de XML.
+
+**6. Pacote do contador** (parte Fiscal). Por mês (até o mês da data de
+corte), um ZIP sem compressão com os XML do mês e o índice
+`indice-notas-AAAA-MM.csv` (planilha com ponto e vírgula: modelo, chave,
+número, série, data, valor, situação e se o XML está no pacote). É montado no
+alarme, depois da adoção: até 25 notas ou 4 MiB por acordada, cada parte
+gravada no R2 (`erp/<área>/bling/contador/<mês>/<execução>/parte-NNNNN`) e
+registrada; no fim grava o índice e o diretório do ZIP (`.../final`). O
+download (`erp_bling_cutover_package_download`, administrador) junta as
+partes na ordem sem montar o arquivo na memória. Pedir de novo refaz o pacote
+e manda as partes antigas para a limpeza.
+
+**7. Conferência final.** Por entidade: quantos no Bling, adotados, no
+histórico, pendentes, ignorados e aguardando. Em dinheiro, Bling × ERP: a
+receber e a pagar (em aberto pelo valor e parciais pelo saldo × contas
+adotadas), saldos das contas financeiras e estoque valorizado. Cada diferença
+vira um grupo explicado, com até 20 itens: pendências e o que aguarda a
+adoção por entidade, parciais não adotadas, contas sem saldo gravado,
+depósitos sem estoque gravado e produtos que ficaram de fora, mudanças no
+Bling sem decisão e diferenças em dinheiro. Ignorados na adoção contam como
+decididos. A pessoa justifica um grupo (ou item) com texto; fica registrado
+com quem e quando. **Concluir** só passa sem diferença sem justificativa e
+guarda a fotografia da conferência. Depois de concluído, as etapas que gravam
+no ERP param ("ajustes daqui para a frente direto nas telas do ERP"); pacote
+do contador e conflitos continuam.
+
+**8. Depois do corte.** A coleta continua. Registro já adotado que mudou no
+Bling (versão do acervo maior que a do vínculo) aparece em **Mudanças no Bling
+depois do corte**, com as duas versões; o lote nunca sobrescreve. A pessoa
+escolhe **manter o ERP** (marca a versão como vista) ou, nos cadastros que
+aceitam atualização (contatos, produtos, categorias, depósitos e categorias
+financeiras), **usar a versão nova do Bling** pela RPC da tela. Documentos e
+contas só se mantêm (ajuste no ERP).
+
+**Partes.** Data, conflitos e conferência exigem a Base; contas e saldos, o
+Financeiro; estoque, Produtos e serviços e Estoque; notas e pacote, o Fiscal.
+Desligada, a etapa mostra qual módulo ligar e a operação recusa com
+`BLING_ADOPTION_PART_DISABLED`; a tela Fiscal some do menu com a parte.
+
+**Esquema versão 15** (14→15, só tabelas novas): `wb_bling_cutover` (a data,
+quem confirmou, a conclusão e a fotografia da conferência) e
+`wb_bling_cutover_item` (o que cada etapa gravou: parcial, saldo, estoque por
+depósito, pacote e partes, justificativa, conflito decidido).
+
+**Operações** (todas exigem administrador; mesmas regras de recibo e de bots
+da B1; sensíveis, menos a consulta do andamento):
+
+| Nome | Método e caminho |
+|---|---|
+| `erp_bling_cutover_status` | GET `/corte` (não sensível) |
+| `erp_bling_cutover_confirm` | POST `/corte/confirmar` |
+| `erp_bling_cutover_accounts_summary` | GET `/corte/contas/resumo` |
+| `erp_bling_cutover_partials` | GET `/corte/contas/parciais` |
+| `erp_bling_cutover_partials_adopt` | POST `/corte/contas/parciais/adotar` |
+| `erp_bling_cutover_balances` | GET `/corte/saldos` |
+| `erp_bling_cutover_balance_post` | POST `/corte/saldos/gravar` |
+| `erp_bling_cutover_stock` | GET `/corte/estoque` |
+| `erp_bling_cutover_stock_post` | POST `/corte/estoque/gravar` |
+| `erp_bling_cutover_invoices` | GET `/corte/notas` |
+| `erp_bling_cutover_invoice_get` | GET `/corte/notas/nota` |
+| `erp_bling_cutover_packages` | GET `/corte/contador` |
+| `erp_bling_cutover_package_start` | POST `/corte/contador/gerar` |
+| `erp_bling_cutover_package_download` | GET `/corte/contador/arquivo` (arquivo ZIP) |
+| `erp_bling_cutover_report` | GET `/corte/conferencia` |
+| `erp_bling_cutover_justify` | POST `/corte/conferencia/justificar` |
+| `erp_bling_cutover_conclude` | POST `/corte/concluir` |
+| `erp_bling_cutover_conflicts` | GET `/corte/conflitos` |
+| `erp_bling_cutover_conflict_resolve` | POST `/corte/conflitos/resolver` |
+
+As etapas que gravam muitos registros (parciais, estoque) trabalham em
+pedaços pequenos por pedido (até 40 contas ou 1,5 s; até 100 produtos) e a
+tela repete até terminar; cada registro é uma transação e repetir não
+duplica. Testes: `tests/erp/org/corte.test.mjs` e
+`tests/erp/org/corte-painel.test.mjs`.
+
+**Limites conhecidos.** A lista de notas e o resumo das contas leem o acervo
+direto (sem índice próprio): com centenas de milhares de registros a consulta
+fica mais lenta. Os campos de lançamentos de caixa e de custo do produto foram
+lidos pelo formato conhecido do sistema original e precisam ser conferidos
+com uma conta real.
 
 ## Antes de usar uma conta real
 

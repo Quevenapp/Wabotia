@@ -5,6 +5,9 @@
 import { z } from "zod";
 import { ERP_PART_MODULES, ERP_PART_NAMES, erpRequirement, erpRequirementMet, type ErpModuleId, type ErpPartKey, type ErpParts } from "../parts.ts";
 import { BLING_HISTORY_SCOPES, type BlingHistoryScope } from "./adoption-situations.ts";
+import {
+  BLING_CUTOVER_OPERATIONS, BLING_CUTOVER_OPERATION_NAMES, BLING_CUTOVER_PARAMS, cutoverInputs, cutoverOutputs, type BlingCutoverOperationMap,
+} from "./cutover-contracts.ts";
 
 /** Cadastros (B1). Ordem de execução: dependências primeiro (categorias antes
  * de produtos, contatos antes de vendedores). */
@@ -233,6 +236,8 @@ export const BLING_ADOPTION_OPERATION_NAMES = [
   "erp_bling_adoption_status", "erp_bling_adoption_reviews", "erp_bling_adoption_links",
   "erp_bling_adoption_start", "erp_bling_adoption_pause", "erp_bling_adoption_resolve", "erp_bling_adoption_unlink",
   "erp_bling_adoption_adopt_one", "erp_bling_adoption_history", "erp_bling_adoption_history_get",
+  // Fatia C (corte): mesmo registro, mesmo despacho, mesmas regras.
+  ...BLING_CUTOVER_OPERATION_NAMES,
 ] as const;
 export type BlingAdoptionOperationName = typeof BLING_ADOPTION_OPERATION_NAMES[number];
 
@@ -253,6 +258,7 @@ export const adoptionInputs = {
     cursor: historyCursor.optional(), limit: z.number().int().min(1).max(50).optional() }).strict()
     .refine(v => !v.from || !v.to || v.from <= v.to, "A data inicial vem antes da final."),
   erp_bling_adoption_history_get: z.object({ entity: b2Entity, source_id: sourceId }).strict(),
+  ...cutoverInputs,
 } as const;
 export const adoptionOutputs = {
   erp_bling_adoption_status: adoptionStatusSchema,
@@ -266,8 +272,9 @@ export const adoptionOutputs = {
     message: z.string().max(400), receipt }).strict(),
   erp_bling_adoption_history: z.object({ items: z.array(adoptionHistoryItemSchema).max(50), next_cursor: historyCursor.nullable() }).strict(),
   erp_bling_adoption_history_get: adoptionHistoryDocumentSchema,
+  ...cutoverOutputs,
 } as const;
-export interface BlingAdoptionOperationMap {
+export interface BlingAdoptionOperationMap extends BlingCutoverOperationMap {
   erp_bling_adoption_status: { input: z.infer<typeof adoptionInputs.erp_bling_adoption_status>; output: z.infer<typeof adoptionOutputs.erp_bling_adoption_status> };
   erp_bling_adoption_reviews: { input: z.infer<typeof adoptionInputs.erp_bling_adoption_reviews>; output: z.infer<typeof adoptionOutputs.erp_bling_adoption_reviews> };
   erp_bling_adoption_links: { input: z.infer<typeof adoptionInputs.erp_bling_adoption_links>; output: z.infer<typeof adoptionOutputs.erp_bling_adoption_links> };
@@ -308,6 +315,7 @@ export const BLING_ADOPTION_OPERATIONS: Readonly<Record<BlingAdoptionOperationNa
     "Lista propostas, pedidos e contas já encerrados no Bling (atendidos, cancelados, faturados, pagos), só para consulta, com busca por número, contato e período. Contém nomes de clientes e fornecedores.", true),
   erp_bling_adoption_history_get: op("erp_bling_adoption_history_get", "GET", "/adotar/historico/documento", "Abrir um documento do histórico do Bling",
     "Mostra um documento ou conta encerrado no Bling como veio: cabeçalho, itens, parcelas e o registro recebido. Só consulta: não pode ser faturado, cancelado nem editado.", true),
+  ...BLING_CUTOVER_OPERATIONS,
 });
 const id40 = { type: "string", pattern: "^[1-9][0-9]{0,39}$", description: "Id do registro no Bling." };
 const entityParam = { type: "string", enum: [...BLING_ADOPTION_ENTITIES], description: "Entidade do Bling." };
@@ -330,6 +338,7 @@ export const BLING_ADOPTION_PARAMS: Readonly<Record<BlingAdoptionOperationName, 
   erp_bling_adoption_history: params({ entity: b2Param, q: { type: "string", maxLength: 80, description: "Número ou nome do contato." },
     from: { type: "string", format: "date" }, to: { type: "string", format: "date" }, cursor: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 50 } }, ["entity"]),
   erp_bling_adoption_history_get: params({ entity: b2Param, source_id: id40 }, ["entity", "source_id"]),
+  ...BLING_CUTOVER_PARAMS,
 });
 export function getAdoptionOperation(name: string): BlingAdoptionOperationDescriptor | null {
   return Object.hasOwn(BLING_ADOPTION_OPERATIONS, name) ? BLING_ADOPTION_OPERATIONS[name as BlingAdoptionOperationName] : null;

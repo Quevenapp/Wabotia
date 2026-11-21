@@ -13,6 +13,12 @@ import {
   adoptionAdoptOne, adoptionHistory, adoptionHistoryGet, adoptionLinks, adoptionPause, adoptionResolve, adoptionReviews, adoptionStart, adoptionStatus, adoptionUnlink,
   runAdoptionUnit, type AdoptionCall,
 } from "./adoption.ts";
+import {
+  cutoverAccountsSummary, cutoverBalancePost, cutoverBalances, cutoverConclude, cutoverConfirm, cutoverConflictResolve, cutoverConflicts, cutoverInvoiceGet,
+  cutoverInvoices, cutoverJustify, cutoverPartials, cutoverPartialsAdopt, cutoverReport, cutoverStatus, cutoverStock, cutoverStockPost, publicCutover,
+  type CutoverMedia,
+} from "./cutover.ts";
+import { packageDownload, packageList, packageRunning, packageStart, runPackageUnit, type PackageMedia } from "./cutover-package.ts";
 
 const privateHeaders = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
 export const adoptionRequestHash = (value: unknown) => createHash("sha256").update(JSON.stringify(value), "utf8").digest("hex");
@@ -50,6 +56,15 @@ export interface AdoptionDependencies {
   storage: DurableObjectStorage;
   readSnapshot(): Promise<ErpPartsSnapshot | null>;
   now?(): number;
+  /** Armazenamento de arquivos (R2) da área: XML das notas e pacote do contador. */
+  media?: (PackageMedia & CutoverMedia) | null;
+}
+/** Pacote do contador: exige a parte Fiscal e a data de corte confirmada. */
+function fiscalCutover(context: AdoptionCall): string {
+  if (!context.parts.fiscal) throw new BlingAdoptionError("BLING_ADOPTION_PART_DISABLED", "Para gerar o pacote do contador, ligue o módulo Fiscal em Gestão → Módulos.");
+  const cutover = publicCutover(context.db);
+  if (!cutover.cutover_on) throw new BlingAdoptionError("BLING_ADOPTION_CONFLICT", "Confirme primeiro a data de corte em Receber dados do Bling → Passar a operar aqui. Sem ela nenhuma etapa do corte roda.");
+  return cutover.cutover_on;
 }
 export async function handleAdoptionOperation(call: AdoptionDispatch, dependencies: AdoptionDependencies): Promise<Response> {
   try {
@@ -78,6 +93,37 @@ export async function handleAdoptionOperation(call: AdoptionDispatch, dependenci
       case "erp_bling_adoption_adopt_one": result = adoptionAdoptOne(context, input as never); break;
       case "erp_bling_adoption_history": result = adoptionHistory(context, input as never); break;
       case "erp_bling_adoption_history_get": result = adoptionHistoryGet(context, input as never); break;
+      // Fatia C: o corte.
+      case "erp_bling_cutover_status": result = cutoverStatus(context, input as never); break;
+      case "erp_bling_cutover_confirm": result = cutoverConfirm(context, input as never); break;
+      case "erp_bling_cutover_accounts_summary": result = cutoverAccountsSummary(context); break;
+      case "erp_bling_cutover_partials": result = cutoverPartials(context, input as never); break;
+      case "erp_bling_cutover_partials_adopt": result = cutoverPartialsAdopt(context, input as never); break;
+      case "erp_bling_cutover_balances": result = cutoverBalances(context); break;
+      case "erp_bling_cutover_balance_post": result = cutoverBalancePost(context, input as never); break;
+      case "erp_bling_cutover_stock": result = cutoverStock(context, input as never); break;
+      case "erp_bling_cutover_stock_post": result = cutoverStockPost(context, input as never); break;
+      case "erp_bling_cutover_invoices": result = cutoverInvoices(context, input as never); break;
+      case "erp_bling_cutover_invoice_get": result = await cutoverInvoiceGet(context, input as never, dependencies.media ?? null); break;
+      case "erp_bling_cutover_packages": fiscalCutover(context); result = packageList(context); break;
+      case "erp_bling_cutover_package_start": {
+        result = packageStart(context, input as never, fiscalCutover(context));
+        // Primeira parte já na resposta, como o lote da adoção.
+        await runPackageUnit({ db: context.db, profile: call.profile, media: dependencies.media ?? null, now });
+        const month = (input as { month: string }).month;
+        const fresh = packageList(context).items.find(item => item.month === month);
+        if (fresh) result = { ...(result as object), package: fresh };
+        break;
+      }
+      case "erp_bling_cutover_package_download": {
+        fiscalCutover(context);
+        return await packageDownload(context.db, call.profile, dependencies.media ?? null, (input as { month: string }).month);
+      }
+      case "erp_bling_cutover_report": result = cutoverReport(context); break;
+      case "erp_bling_cutover_justify": result = cutoverJustify(context, input as never); break;
+      case "erp_bling_cutover_conclude": result = cutoverConclude(context, input as never); break;
+      case "erp_bling_cutover_conflicts": result = cutoverConflicts(context, input as never); break;
+      case "erp_bling_cutover_conflict_resolve": result = cutoverConflictResolve(context, input as never); break;
     }
     const output = adoptionOutputs[call.name].safeParse(result);
     if (!output.success) throw new BlingAdoptionError("BLING_ADOPTION_UNAVAILABLE");
@@ -90,6 +136,11 @@ export async function runAdoptionWake(profile: string, dependencies: AdoptionDep
   const now = dependencies.now ?? (() => Date.now());
   const snapshot = readErpPartsSnapshot(await dependencies.readSnapshot(), profile, now());
   if (!snapshot?.parts.customers) return { worked: false, nextWake: null };
-  const result = runAdoptionUnit({ db: storageDriver(dependencies.storage), profile, now, parts: snapshot.parts });
-  return { worked: result.worked, nextWake: result.more ? now() + 1_000 : null };
+  const db = storageDriver(dependencies.storage);
+  const result = runAdoptionUnit({ db, profile, now, parts: snapshot.parts });
+  if (result.worked) return { worked: true, nextWake: result.more || packageRunning(db) ? now() + 1_000 : null };
+  // Pacote do contador: uma parte pequena por acordada, depois da adoção.
+  if (!packageRunning(db) || !snapshot.parts.fiscal) return { worked: false, nextWake: null };
+  const unit = await runPackageUnit({ db, profile, media: dependencies.media ?? null, now });
+  return { worked: unit.worked, nextWake: unit.more ? now() + 1_000 : null };
 }

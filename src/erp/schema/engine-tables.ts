@@ -73,6 +73,41 @@ const ADOPTION_ENTITIES = "'contacts','sellers','product_categories','products',
 // CHECK de entidade da versão 12 não se reescreve (migração só aditiva).
 const adoptionB2 = (table: string, ddl: readonly string[]): EngineTable => ({ table, ddl, since: 13, owner: "bling-adota2", structural: "adotar-bling-b2" });
 const ADOPTION_B2_ENTITIES = "'sales_proposals','sales_orders','purchase_orders','receivables','payables'";
+// Fatia C (corte): a data a partir da qual o ERP passa a valer e o registro de
+// cada etapa (parciais, saldos, estoque de abertura, pacote do contador,
+// justificativas e conflitos), para refazer sem duplicar. Só tabelas novas.
+const cutover = (table: string, ddl: readonly string[]): EngineTable => ({ table, ddl, since: 15, owner: "bling-corte", structural: "corte-bling" });
+const CUTOVER_TABLES: readonly EngineTable[] = [
+  cutover("wb_bling_cutover", [
+    `CREATE TABLE "wb_bling_cutover" (
+  id INTEGER NOT NULL PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  state TEXT NOT NULL CHECK (state IN ('confirmed','concluded')),
+  cutover_on TEXT NOT NULL CHECK (length(cutover_on) = 10 AND cutover_on GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+  confirmed_by TEXT NOT NULL CHECK (${BLING_ID("confirmed_by")}),
+  confirmed_at INTEGER NOT NULL,
+  concluded_by TEXT CHECK (concluded_by IS NULL OR ${BLING_ID("concluded_by")}),
+  concluded_at INTEGER,
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (${BLING_COUNT("revision", 1)}),
+  snapshot TEXT NOT NULL DEFAULT '{}' CHECK (${BLING_JSON("snapshot", "object", 262144)}),
+  updated_at INTEGER NOT NULL,
+  CONSTRAINT wb_bling_cutover_concluded_check CHECK ((state = 'concluded') = (concluded_at IS NOT NULL AND concluded_by IS NOT NULL))
+) STRICT`,
+  ]),
+  cutover("wb_bling_cutover_item", [
+    `CREATE TABLE "wb_bling_cutover_item" (
+  kind TEXT NOT NULL CHECK (kind IN ('partial','balance','stock','package','package_part','justification','conflict')),
+  key TEXT NOT NULL CHECK (length(key) BETWEEN 1 AND 200 AND key = trim(key)),
+  state TEXT NOT NULL CHECK (length(state) BETWEEN 1 AND 30 AND state NOT GLOB '*[^a-z_]*'),
+  data TEXT NOT NULL DEFAULT '{}' CHECK (${BLING_JSON("data", "object", 65536)}),
+  record_id TEXT CHECK (record_id IS NULL OR ${BLING_ID("record_id")}),
+  actor_id TEXT NOT NULL CHECK (${BLING_ID("actor_id")}),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (kind, key)
+) STRICT`,
+    `CREATE INDEX wb_bling_cutover_item_state ON wb_bling_cutover_item(kind, state, key)`,
+  ]),
+];
 
 const BASE_ENGINE_TABLES: readonly EngineTable[] = [
   {
@@ -908,6 +943,8 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
     ],
     since: 14, owner: "nfce-balcao", structural: "cupom-nfce",
   },
+  // Versão 15: o corte do Bling (data confirmada e o que cada etapa gravou).
+  ...CUTOVER_TABLES,
 ];
 
 export const ERP_ENGINE_DDL: readonly string[] = ERP_ENGINE_TABLES.flatMap((t) => t.ddl);

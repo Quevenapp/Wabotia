@@ -8,3 +8,4 @@ export { default as SefazConnection } from "../app/components/SefazConnection";
 export { HostedFiscalInvoices as RealFiscalInvoices } from "../app/components/RealFiscalInvoices";
 export { default as RealOperationNatures } from "../app/components/RealOperationNatures";
 export { default as FiscalEventList } from "../app/components/FiscalEventList";
+export { BlingInvoices } from "../app/components/BlingInvoices";

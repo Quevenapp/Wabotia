@@ -27,7 +27,7 @@ export const BLING_HISTORY_SCOPES: Readonly<Record<BlingHistoryScope, string>> =
   fulfilled: "Já encerrado no Bling (atendido, concluído, aprovado ou faturado)",
   cancelled: "Cancelado no Bling",
   paid: "Já pago ou recebido no Bling",
-  partial: "Com baixa parcial no Bling: o acerto do financeiro vem na próxima etapa",
+  partial: "Com baixa parcial no Bling: entra no ERP pelo saldo em Passar a operar aqui",
   returned: "Devolvido no Bling",
   deleted: "Excluído no Bling",
   other: "Em outra situação encerrada no Bling",

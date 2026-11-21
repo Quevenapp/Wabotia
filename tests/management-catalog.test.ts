@@ -67,8 +67,8 @@ describe("catálogo da casa de gestão", () => {
   it("preserva todos os destinos portados, inclusive consultas, rodapés e restrições", () => {
     expect(legacyMenu).toBe(ORIGIN_MENU);
     const linked = originItems.filter((item) => item.real);
-    expect(linked).toHaveLength(48);
-    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(49);
+    expect(linked).toHaveLength(49);
+    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(50);
     expect(ERP_MANAGEMENT_ITEMS).toHaveLength(linked.length + 1);
     expect(ERP_MANAGEMENT_ITEMS.find(item => item.id === "erp.effect-maintenance")).toMatchObject({
       module: "erp", part: "sistema", groupLabel: "Sistema", order: 440,

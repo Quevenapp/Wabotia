@@ -12,7 +12,7 @@ test('access catalog groups the available resources and operations', () => {
     'Ferramentas: Categorias de produtos, Listas de preços',
   ]);
   assert.deepEqual(labels(byName.Vendas), [
-    'Gestão: Pedidos de venda, Notas fiscais de saída, NFC-e, Frente de caixa, Propostas comerciais',
+    'Gestão: Pedidos de venda, Notas fiscais de saída, NFC-e, Notas emitidas no Bling, Frente de caixa, Propostas comerciais',
     'Serviços: Ordens de serviço, Relatórios de serviço',
     'Logística: Checkout de pedidos',
   ]);

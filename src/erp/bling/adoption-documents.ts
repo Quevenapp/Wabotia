@@ -42,7 +42,7 @@ function decimal(v: unknown): string | null | false {
   return /^-?\d+(\.\d+)?e[+-]?\d+$/i.test(t) && Number.isFinite(n) && Math.abs(n) < 1e15 ? String(n) : false;
 }
 /** Centavos exatos (até duas casas); null ausente, false inválido. */
-function centsOf(v: unknown): bigint | null | false {
+export function centsOf(v: unknown): bigint | null | false {
   const d = decimal(v);
   if (d === null || d === false) return d;
   const [whole, fraction = ""] = d.replace("-", "").split(".");
@@ -50,15 +50,15 @@ function centsOf(v: unknown): bigint | null | false {
   const cents = BigInt(whole) * 100n + BigInt((fraction + "00").slice(0, 2));
   return d.startsWith("-") ? -cents : cents;
 }
-const money = (cents: bigint | null) => cents === null ? null : `R$ ${formatScaled(cents, 2).replace(".", ",")}`;
-function dateOf(v: unknown): string | null {
+export const money = (cents: bigint | null) => cents === null ? null : `R$ ${formatScaled(cents, 2).replace(".", ",")}`;
+export function dateOf(v: unknown): string | null {
   const t = text(v)?.slice(0, 10) ?? null;
   if (!t || !/^\d{4}-\d{2}-\d{2}$/.test(t) || t.startsWith("0000")) return null;
   const d = new Date(t + "T12:00:00Z");
   return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === t ? t : null;
 }
 /** Texto de várias linhas (observações), sem caracteres de controle. */
-function multiline(v: unknown, max: number): string | null {
+export function multiline(v: unknown, max: number): string | null {
   if (typeof v !== "string") return null;
   const t = v.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trim();
   return t ? clip(t, max) : null;
@@ -114,7 +114,7 @@ const historyVersion = (db: SqlDriver, entity: string, source: string) => {
 // ---------------------------------------------------------------------------
 // Do Bling para os dados das RPCs
 
-interface B2Mapped {
+export interface B2Mapped {
   missing: BlingAdoptionMissing[];
   blocked: { reason: BlingAdoptionReason; detail: string } | null;
   /** p_body do erp_document_save ou p_data do title_create. */
@@ -228,7 +228,7 @@ function mapDocument(db: SqlDriver, entity: BlingDocumentEntity, raw: AdoptionRa
   return { missing, blocked, data: body, contact_id: contact, number };
 }
 
-function mapAccount(db: SqlDriver, entity: "receivables" | "payables", raw: AdoptionRaw): B2Mapped {
+export function mapAccount(db: SqlDriver, entity: "receivables" | "payables", raw: AdoptionRaw): B2Mapped {
   const p = raw.payload, missing: BlingAdoptionMissing[] = [];
   let blocked: B2Mapped["blocked"] = null;
   const bad = (detail: string) => { blocked ??= { reason: "invalid_data", detail }; };
@@ -295,7 +295,7 @@ function duplicates(db: SqlDriver, entity: BlingAdoptionB2Entity, m: B2Mapped): 
   return rows.map(r => String(r.id)).filter(id => !linkedTo(db, entity, id)).slice(0, 5);
 }
 /** Adotar não pode ter efeito: estoque, contas, reserva ou baixa. */
-function effectsOf(db: SqlDriver, entity: BlingAdoptionB2Entity, id: string): string | null {
+export function effectsOf(db: SqlDriver, entity: BlingAdoptionB2Entity, id: string): string | null {
   const any = (sql: string) => db.exec(sql, id).rows.length > 0;
   if (isAdoptionAccount(entity))
     return any(`SELECT 1 AS x FROM erp_finance__settlement WHERE title_id=? LIMIT 1`) || any(`SELECT 1 AS x FROM erp_finance__title WHERE id=? AND settled_cents<>0`) ? "a conta foi criada com baixa" : null;
