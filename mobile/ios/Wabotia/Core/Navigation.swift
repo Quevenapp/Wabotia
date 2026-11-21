@@ -159,9 +159,10 @@ struct RouteDestination: View {
             case .agenda: AgendaView()
             case .appointment(let id): AppointmentDetailView(id: id)
             case .newAppointment(let conversation, let customer): BookingView(purpose: .new(conversationId: conversation, customer: customer))
-            case .serviceOrders: ServiceOrdersView()
-            case .serviceOrder(let id): ServiceOrderDetailView(id: id)
-            case .newServiceOrder(let conversation, let customer): NewServiceOrderView(conversationId: conversation, customer: customer)
+            // Ordem de serviço por modelo; servidor sem modelos e ordens do modelo simples caem nas telas antigas.
+            case .serviceOrders: WorkOrdersView()
+            case .serviceOrder(let id): WorkOrderDetailView(id: id)
+            case .newServiceOrder(let conversation, let customer): NewWorkOrderView(conversationId: conversation, customer: customer)
             case .reserva: ReservaView()
             case .booking(let id): BookingDetailView(id: id)
             case let .bookingForm(conversation, customer, unit, date): BookingFormView(purpose: .new(conversationId: conversation, customer: customer, unitId: unit, date: date))

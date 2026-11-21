@@ -16,7 +16,8 @@ final class DemoURLProtocol: URLProtocol {
                 self.client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
                 return
             }
-            let result = DemoServer.shared.handle(method: request.httpMethod ?? "GET", url: url, body: body, key: request.value(forHTTPHeaderField: "Idempotency-Key"))
+            let result = DemoServer.shared.handle(method: request.httpMethod ?? "GET", url: url, body: body, key: request.value(forHTTPHeaderField: "Idempotency-Key"),
+                                                  headers: request.allHTTPHeaderFields ?? [:])
             let response = HTTPURLResponse(url: url, statusCode: result.status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": result.type, "Content-Length": String(result.data.count)])!
             self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             self.client?.urlProtocol(self, didLoad: result.data)
@@ -128,7 +129,9 @@ final class DemoServer {
     private(set) lazy var fila = DemoQueue(t0: start)
     /// Agenda (barbearia) e Ordem de Serviço (assistência técnica), em `DemoModules.swift`.
     private(set) lazy var agenda = DemoAgenda(t0: start)
-    private(set) lazy var ordens = DemoServiceOrders(t0: start)
+    private(set) lazy var ordens = DemoServiceOrders(t0: start, work: DemoWorkOrders(t0: start, profileId: "demo") { [unowned self] id in
+        self.contacts.values.first { $0["id"] as? String == id }.map { (name: $0["name"] as? String ?? "Cliente", phone: $0["phone"] as? String) }
+    })
     /// Reserva (pousada) e Mensalidade (escola de idiomas), em `DemoModulesExtra.swift`.
     private(set) lazy var reserva = DemoReserva(t0: start)
     private(set) lazy var mensalidade = DemoMensalidade(t0: start)
@@ -658,7 +661,7 @@ final class DemoServer {
 
     // MARK: - Rotas
 
-    func handle(method: String, url: URL, body data: Data, key: String? = nil) -> Reply {
+    func handle(method: String, url: URL, body data: Data, key: String? = nil, headers: [String: String] = [:]) -> Reply {
         runScheduled()
         let parts = url.path.split(separator: "/").map(String.init)
         var query: [String: String] = [:]
@@ -686,6 +689,22 @@ final class DemoServer {
         if let reply = DemoArea.route(method: method, parts: parts) { return reply }
         let emitter: DemoEmit = { [unowned self] kind, payload in self.emit(kind, payload) }
         if let reply = agenda.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
+        // Ordem de serviço por modelo: bytes da foto do checklist (corpo binário) e a busca no cadastro de clientes.
+        if put, parts.count == 9, parts[4] == "service-orders", parts[8] == "content" {
+            let version = headers.first { $0.key.caseInsensitiveCompare("Upload-Version") == .orderedSame }?.value
+            return ordens.work?.upload(Array(parts.dropFirst(5)), data: data, uploadVersion: version, key: key) ?? fail(404, "not_found", "Recurso não encontrado.")
+        }
+        if get, m("api/v1/profiles/*/contacts") != nil {
+            let q = (query["q"] ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+            let digits = q.filter(\.isNumber)
+            let found = contacts.values.filter { c in
+                q.count >= 2 && (((c["name"] as? String)?.lowercased().contains(q) ?? false) || (digits.count >= 4 && ((c["phone"] as? String)?.contains(digits) ?? false)))
+            }
+            .sorted { ($0["name"] as? String ?? "") < ($1["name"] as? String ?? "") }
+            .prefix(30)
+            .map { c -> Row in var row = c; row["namespace"] = "team"; row["identity_state"] = "active"; return row }
+            return ok(["data": Array(found), "next_cursor": NSNull()])
+        }
         if let reply = ordens.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
         if let reply = reserva.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
         if let reply = mensalidade.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }

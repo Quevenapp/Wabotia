@@ -325,8 +325,11 @@ final class DemoServiceOrders {
     private let replays = DemoReplays()
     private var seq = 0
     private var approveAt: Int64
+    /// As ordens por modelo (`DemoWorkOrders`); sem elas, a demonstração é a de um servidor sem modelos.
+    let work: DemoWorkOrders?
 
-    init(t0: Int64) {
+    init(t0: Int64, work: DemoWorkOrders? = nil) {
+        self.work = work
         approveAt = t0 + 60_000
         let day: Int64 = 86_400_000
         func add(_ number: Int, _ status: String, _ customer: String, _ phone: String, _ conversation: String?, _ item: String, _ problem: String, ago: Int64, notes: String = "") -> O {
@@ -379,6 +382,30 @@ final class DemoServiceOrders {
         guard parts.count >= 5, parts[4] == "service-orders" else { return nil }
         tick(now, emit)
         let r = Array(parts.dropFirst(5))
+        if let work {
+            // Lista com modelo (`type_id`/`type_ids`): as ordens simples entram quando o filtro inclui `service_order`
+            // e não há etapa escolhida.
+            if method == "GET", r.isEmpty, query["type_id"] != nil || query["type_ids"] != nil {
+                let typeId = query["type_id"]
+                let wantsLegacy = query["stage"] == nil
+                    && (typeId == DemoWorkOrders.builtinId || (typeId == nil && (query["type_ids"] ?? "").split(separator: ",").contains { $0 == DemoWorkOrders.builtinId }))
+                var rows: [(created: Int64, row: Row)] = wantsLegacy ? filtered(query).map { o in
+                    var row = view(o, now, withHistory: false)
+                    row["type_id"] = DemoWorkOrders.builtinId
+                    row["type_label"] = "Ordem de serviço"
+                    return (o.created, row)
+                } : []
+                rows += work.list(query)
+                rows.sort { $0.created > $1.created }
+                return demoOk(["data": rows.map(\.row), "next_cursor": NSNull(), "counts": Row()])
+            }
+            if let first = r.first, work.handles(first) {
+                return work.route(method: method, r: r, body: body, query: query, key: key, now: now, emit: emit, builtin: Self.builtinType)
+            }
+            if method == "POST", r.isEmpty, work.ownsType(body["type_id"] as? String) {
+                return work.route(method: method, r: r, body: body, query: query, key: key, now: now, emit: emit, builtin: Self.builtinType)
+            }
+        }
         if method == "GET" {
             if r.isEmpty { return list(query, now) }
             if r.count == 1 {
@@ -388,6 +415,27 @@ final class DemoServiceOrders {
             return demoFail(404, "not_found", "Recurso não encontrado.")
         }
         return replays.run(key: key, path: r, body: body) { write(method, r, body, now, emit) }
+    }
+
+    /// O modelo embutido no catálogo (`kind: "builtin"`): a ordem simples, com estados fixos.
+    static let builtinType: Row = [
+        "schema_version": 1, "kind": "builtin", "id": DemoWorkOrders.builtinId, "revision": 1, "archived": false,
+        "labels": ["singular": "Ordem de serviço", "plural": "Ordens de serviço", "item": "Item", "problem": "Problema", "customer_singular": "Cliente", "customer_plural": "Clientes"] as Row,
+        "fields": [Row](), "stages": [Row](), "transitions": [Row](), "initial_stage": "received",
+    ]
+
+    /// As ordens simples com os filtros de situação, conversa e busca (sem paginação).
+    private func filtered(_ query: [String: String]) -> [O] {
+        let statuses = Set((query["status"] ?? "").split(separator: ",").map(String.init))
+        let q = (query["q"] ?? "").trimmingCharacters(in: .whitespaces).lowercased()
+        let digits = q.filter(\.isNumber)
+        return orders.filter { o in
+            if !statuses.isEmpty { return statuses.contains(o.status) }
+            if query["open"] == "1" { return o.status != "delivered" && o.status != "cancelled" }
+            return true
+        }.filter { o in
+            q.isEmpty || [o.item, o.customerName, o.problem].contains { $0.lowercased().contains(q) } || (!digits.isEmpty && (String(o.number) == digits || (digits.count >= 4 && o.phone.contains(digits))))
+        }
     }
 
     private func list(_ query: [String: String], _ now: Int64) -> DemoServer.Reply {

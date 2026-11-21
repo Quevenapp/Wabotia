@@ -282,7 +282,12 @@ internal class DemoAgenda(t0: Long, private val customerOf: DemoCustomer) {
  * esperando resposta, uma pronta para retirada), as transições do contrato (`next_statuses`, `409 invalid_transition`),
  * orçamento com validade, resposta do cliente, entrega com garantia e o histórico de cada ordem.
  */
-internal class DemoServiceOrders(private val t0: Long, private val customerOf: DemoCustomer) {
+internal class DemoServiceOrders(
+    private val t0: Long,
+    private val customerOf: DemoCustomer,
+    /** As ordens por modelo ([DemoWorkOrders]); sem elas, a demonstração é a de um servidor sem modelos. */
+    val work: DemoWorkOrders? = null,
+) {
     private class Order(
         val id: String,
         val number: Int,
@@ -364,6 +369,17 @@ internal class DemoServiceOrders(private val t0: Long, private val customerOf: D
 
     private fun expired(o: Order, now: Long) = o.sentAt?.let { now > it + o.quoteDays * 86_400_000L } ?: false
 
+    /** O modelo embutido no catálogo (`kind: "builtin"`): a ordem simples, com estados fixos. */
+    private fun builtinType(): JsonObject = j(
+        "schema_version" to 1, "kind" to "builtin", "id" to BUILTIN_TYPE_ID, "revision" to 1, "archived" to false,
+        "labels" to j("singular" to "Ordem de serviço", "plural" to "Ordens de serviço", "item" to "Item", "problem" to "Problema", "customer_singular" to "Cliente", "customer_plural" to "Clientes"),
+        "fields" to emptyList<Any>(), "stages" to emptyList<Any>(), "transitions" to emptyList<Any>(), "initial_stage" to "received",
+    )
+
+    private companion object {
+        const val BUILTIN_TYPE_ID = "service_order"
+    }
+
     private fun row(o: Order, now: Long, withHistory: Boolean): JsonObject {
         val total = o.quoteItems.sumOf { (it.long("quantity")) * it.long("unit_cents") }
         val quote = if (o.quoteItems.isEmpty()) null else j(
@@ -382,17 +398,37 @@ internal class DemoServiceOrders(private val t0: Long, private val customerOf: D
         return j(*fields.toTypedArray())
     }
 
+    private fun legacyList(query: (String) -> String?): List<Order> {
+        val statuses = query("status")?.split(",")?.filter { it.isNotBlank() }?.toSet().orEmpty()
+        val q = query("q")?.trim()?.lowercase().orEmpty()
+        return orders.filter { o ->
+            (statuses.isEmpty() || o.status in statuses) &&
+                (query("open") != "1" || o.status !in setOf("delivered", "cancelled")) &&
+                (query("conversation_id").isNullOrEmpty() || o.conversationId == query("conversation_id")) &&
+                (q.isEmpty() || listOf(o.item, o.customerName, o.problem, o.number.toString()).any { it.lowercase().contains(q) } || (q.length >= 4 && o.phone.contains(q.filter(Char::isDigit).ifEmpty { "-" })))
+        }.sortedByDescending { it.number }
+    }
+
     fun handle(method: String, r: List<String>, body: JsonObject, query: (String) -> String?, key: String?, now: Long, emit: DemoEmit): Reply {
+        val work = work
+        if (work != null) {
+            // Lista com modelo (`type_id`/`type_ids`, como o app pede quando o servidor tem modelos): as ordens simples
+            // entram quando o filtro inclui `service_order` e não há etapa escolhida.
+            if (method == "GET" && r.isEmpty() && (query("type_id") != null || query("type_ids") != null)) {
+                val typeId = query("type_id")
+                val wantsLegacy = query("stage") == null && (typeId == BUILTIN_TYPE_ID || (typeId == null && query("type_ids")?.split(",")?.contains(BUILTIN_TYPE_ID) == true))
+                val legacy = if (wantsLegacy) legacyList(query).map { o ->
+                    o.created to JsonObject(row(o, now, false) + mapOf("type_id" to JsonPrimitive(BUILTIN_TYPE_ID), "type_label" to JsonPrimitive("Ordem de serviço")))
+                } else emptyList()
+                val list = (legacy + work.list(query, now)).sortedByDescending { it.first }.map { it.second }
+                return demoOk(j("data" to list, "next_cursor" to null, "counts" to j()))
+            }
+            if (r.isNotEmpty() && work.handles(r)) return work.handle(method, r, body, query, key, now, emit, builtinType())
+            if (method == "POST" && r.isEmpty() && work.ownsType(body.str("type_id"))) return work.handle(method, r, body, query, key, now, emit, builtinType())
+        }
         if (method == "GET") {
             if (r.isEmpty()) {
-                val statuses = query("status")?.split(",")?.filter { it.isNotBlank() }?.toSet().orEmpty()
-                val q = query("q")?.trim()?.lowercase().orEmpty()
-                val list = orders.filter { o ->
-                    (statuses.isEmpty() || o.status in statuses) &&
-                        (query("open") != "1" || o.status !in setOf("delivered", "cancelled")) &&
-                        (query("conversation_id").isNullOrEmpty() || o.conversationId == query("conversation_id")) &&
-                        (q.isEmpty() || listOf(o.item, o.customerName, o.problem, o.number.toString()).any { it.lowercase().contains(q) } || (q.length >= 4 && o.phone.contains(q.filter(Char::isDigit).ifEmpty { "-" })))
-                }.sortedByDescending { it.number }
+                val list = legacyList(query)
                 val counts = orders.groupingBy { it.status }.eachCount()
                 return demoOk(j("data" to list.map { row(it, now, false) }, "next_cursor" to null, "counts" to j(*counts.map { it.key to it.value }.toTypedArray())))
             }

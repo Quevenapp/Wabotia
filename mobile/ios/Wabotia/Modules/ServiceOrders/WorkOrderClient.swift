@@ -27,19 +27,19 @@ struct WorkOrderDraft: Equatable {
     var conversationId: String?
 
     /// Com objeto: `contact_id` + `object`. Sem objeto: nome e telefone do contato (sem `contact_id`). Da conversa:
-    /// `conversation_id` e nunca o telefone.
+    /// `conversation_id` e nunca nome nem telefone (o servidor usa o cliente da conversa), como no Android.
+    /// `extra` só vai quando há valor.
     var body: [String: Any?] {
-        var out: [String: Any?] = ["type_id": typeId, "item": item, "problem": problem, "extra": WorkFields.json(extra)]
+        var out: [String: Any?] = ["type_id": typeId, "item": item, "problem": problem]
+        if !extra.isEmpty { out["extra"] = WorkFields.json(extra) }
         if let notes, !notes.isEmpty { out["notes"] = notes }
         if let conversationId { out["conversation_id"] = conversationId }
         if let object {
             out["contact_id"] = contactId
             out["object"] = object.json
         } else if conversationId == nil {
-            out["customer_name"] = customerName
-            out["phone"] = phone
-        } else if let customerName, !customerName.isEmpty {
-            out["customer_name"] = customerName
+            if let customerName, !customerName.isEmpty { out["customer_name"] = customerName }
+            if let phone, !phone.isEmpty { out["phone"] = phone }
         }
         return out
     }

@@ -107,7 +107,11 @@ internal object DemoServer {
     private var serviceOrders: DemoServiceOrders? = null
 
     private fun serviceOrdersOf(s: DemoState): DemoServiceOrders =
-        serviceOrders ?: DemoServiceOrders(s.t0) { id -> customerOf(s, id) }.also { serviceOrders = it }
+        serviceOrders ?: DemoServiceOrders(
+            s.t0,
+            { id -> customerOf(s, id) },
+            DemoWorkOrders(s.t0, s.profileId, { id -> customerOf(s, id) }, { id -> s.contacts[id]?.let { (it.str("name") ?: "Cliente") to it.str("phone") } }),
+        ).also { serviceOrders = it }
 
     private var reserva: DemoReserva? = null
 
@@ -322,7 +326,15 @@ internal object DemoServer {
                 s.emit("conversation.updated", r[1], j("conversation_id" to r[1]), now)
                 ok(c.json())
             } else notFound()
-            "contacts" -> r.getOrNull(1)?.let { id -> s.contacts[id]?.let { contact ->
+            // Busca no cadastro (abrir ordem de serviço com objeto): nome ou telefone, só contatos da equipe.
+            "contacts" -> if (r.size == 1 && method == "GET") {
+                val q = url.queryParameter("q")?.trim()?.lowercase().orEmpty()
+                val digits = q.filter(Char::isDigit)
+                val found = s.contacts.values.filter { c ->
+                    q.length >= 2 && ((c.str("name")?.lowercase()?.contains(q) == true) || (digits.length >= 4 && c.str("phone")?.contains(digits) == true))
+                }.sortedBy { it.str("name") }.take(30).map { JsonObject(it + mapOf("namespace" to JsonPrimitive("team"), "identity_state" to JsonPrimitive("active"))) }
+                ok(j("data" to found, "next_cursor" to null))
+            } else r.getOrNull(1)?.let { id -> s.contacts[id]?.let { contact ->
                 if (r.getOrNull(2) == "profile") ok(contactProfile(s, id, contact)) else ok(contact)
             } } ?: notFound("Contato não encontrado.")
             "media" -> media(s, method, r.drop(1), request)
@@ -376,7 +388,10 @@ internal object DemoServer {
             "internal-chats" -> internalChats(s, method, r.drop(1), request, now)
             "queue" -> queueOf(s).handle(method, r.drop(1), bodyJson(request), request.header("Idempotency-Key"), now)
             "capabilities" -> capabilities()
-            "service-orders" -> serviceOrdersOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
+            // Bytes da foto do checklist (`PUT …/documents/{doc}/content`): corpo binário, não JSON.
+            "service-orders" -> if (method == "PUT" && r.lastOrNull() == "content") {
+                serviceOrdersOf(s).work?.upload(r.drop(1), bodyBytes(request), request.header("Upload-Version"), request.header("Idempotency-Key")) ?: notFound()
+            } else serviceOrdersOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
             "agenda" -> agendaOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
             "mensalidade" -> mensalidadeOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
             // Formulários ativos da área ("Enviar formulário").
