@@ -78,6 +78,10 @@ function references(db: SqlDriver, entities: string): number {
   count += Number(one(db, `SELECT count(*) AS n FROM erp_sync__outbox WHERE ${affected} AND (review_required=1 OR state IN ('pending','sending','failed'))`, entities)?.n ?? 0);
   // Mão dupla (versão 19): envio ao Bling ainda não confirmado depende do acervo.
   count += Number(one(db, `SELECT count(*) AS n FROM wb_bling_twoway_outbox WHERE ${affected} AND state IN ('pending','sending','uncertain','held')`, entities)?.n ?? 0);
+  // Fatia D (versão 24): vínculo de adoção e envio pendente das listas e campos.
+  // Valores de campo vêm do bruto de produtos e contatos; os demais, do próprio recurso.
+  count += Number(one(db, `SELECT count(*) AS n FROM wb_bling_adoption_extra_link WHERE (CASE entity WHEN 'custom_field_values' THEN 'custom_fields' ELSE entity END) IN (SELECT value FROM json_each(?))`, entities)?.n ?? 0);
+  count += Number(one(db, `SELECT count(*) AS n FROM wb_bling_adoption_extra_outbox WHERE (CASE WHEN entity LIKE 'custom_fields_%' THEN 'custom_fields' ELSE entity END) IN (SELECT value FROM json_each(?)) AND state IN ('pending','sending','uncertain')`, entities)?.n ?? 0);
   const kinds = JSON.parse(entities) as string[];
   if (kinds.includes("products") || kinds.includes("stock_balances") || kinds.includes("warehouses")) {
     count += Number(one(db, "SELECT count(*) AS n FROM erp_stock__opening_receipt")?.n ?? 0);

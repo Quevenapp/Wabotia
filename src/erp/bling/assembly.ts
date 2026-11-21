@@ -26,6 +26,7 @@ import type { BlingOAuthProvider } from "./ports.ts";
 // Contrato leve; o motor da adoção (domínios do ERP) só entra por import dinâmico.
 import { adoptionAuthorizationSchema, BlingAdoptionError, getAdoptionOperation, matchAdoptionRoute, parseAdoptionInput, type BlingAdoptionAuthorization, type BlingAdoptionOperationName } from "./adoption-contracts.ts";
 import type { AdoptionDispatch } from "./adoption-api.ts";
+import { BLING_EXTRAS_WORKER_OPERATIONS } from "./extras-contracts.ts";
 
 function adoptionFailure(error: unknown): Response {
   const failure = error instanceof BlingAdoptionError ? error : new BlingAdoptionError("BLING_ADOPTION_UNAVAILABLE");
@@ -45,7 +46,21 @@ function twoWayScanAt(storage: DurableObjectStorage): number | null {
   try {
     const row = storage.sql.exec(`SELECT coalesce((SELECT CAST(json_extract(scan,'$.next_at') AS INTEGER) FROM wb_bling_twoway WHERE id=1), 0) AS next_at
       WHERE EXISTS(SELECT 1 FROM wb_bling_twoway_setting WHERE enabled=1) AND EXISTS(SELECT 1 FROM wb_bling_cutover WHERE id=1)`).toArray()[0] as { next_at?: number } | undefined;
-    return row ? Number(row.next_at ?? 0) : null;
+    return earliest(row ? Number(row.next_at ?? 0) : null, extrasScanAt(storage));
+  } catch { return extrasScanAt(storage); }
+}
+/** Fatia D (versão 24): varredura das listas de preços e dos campos, com interruptores próprios. */
+function extrasScanAt(storage: DurableObjectStorage): number | null {
+  try {
+    const row = storage.sql.exec("SELECT min(next_scan_at) AS due FROM wb_bling_adoption_extra_twoway WHERE enabled=1 AND EXISTS(SELECT 1 FROM wb_bling_cutover WHERE id=1)").toArray()[0] as { due?: number | null } | undefined;
+    return row?.due == null ? null : Number(row.due);
+  } catch { return null; }
+}
+function extrasOutboxAt(storage: DurableObjectStorage): number | null {
+  try {
+    const row = storage.sql.exec(`SELECT min(o.not_before) AS due FROM wb_bling_adoption_extra_outbox o WHERE o.state='sending'
+      OR (o.state='pending' AND EXISTS(SELECT 1 FROM wb_bling_adoption_extra_twoway s WHERE s.entity=o.entity AND s.direction='outbound' AND s.enabled=1))`).toArray()[0] as { due?: number | null } | undefined;
+    return row?.due == null ? null : Number(row.due);
   } catch { return null; }
 }
 /** Mão dupla: próximo envio ou conferência da fila de saída. Desligado, pendente não conta. */
@@ -53,8 +68,8 @@ function twoWayOutboxAt(storage: DurableObjectStorage): number | null {
   try {
     const row = storage.sql.exec(`SELECT min(o.not_before) AS due FROM wb_bling_twoway_outbox o WHERE o.state IN ('sending','uncertain')
       OR (o.state='pending' AND EXISTS(SELECT 1 FROM wb_bling_twoway_setting s WHERE s.entity=o.entity AND s.direction='outbound' AND s.enabled=1))`).toArray()[0] as { due?: number | null } | undefined;
-    return row?.due == null ? null : Number(row.due);
-  } catch { return null; }
+    return earliest(row?.due == null ? null : Number(row.due), extrasOutboxAt(storage));
+  } catch { return extrasOutboxAt(storage); }
 }
 /** Ritmo da coleta contínua configurado na mão dupla (ms). Sem linha ou sem tabela, null (padrão de 15 min). */
 function twoWayPace(db: SqlDriver): number | null {
@@ -164,7 +179,12 @@ export function createMountedBlingAssembly(options: MountedBlingOptions): BlingA
   async function twoWay(ctx: BlingContext, deadline: number) {
     await requireBase(ctx);
     const { runTwoWayOutboundUnit } = await import("./two-way.ts");
-    return runTwoWayOutboundUnit({ db, profile, now: ctx.clock.now, parts: ctx.identity.parts!, writer, ctx, deadline });
+    const sent = await runTwoWayOutboundUnit({ db, profile, now: ctx.clock.now, parts: ctx.identity.parts!, writer, ctx, deadline });
+    if (sent.worked || sent.requests) return sent;
+    // Fatia D: listas de preços e campos, uma chamada por acordada, no mesmo orçamento.
+    const { runExtrasOutboundUnit } = await import("./extras-two-way.ts");
+    const extras = await runExtrasOutboundUnit({ db, profile, now: ctx.clock.now, parts: ctx.identity.parts!, writer, ctx, deadline });
+    return extras.worked ? extras : sent;
   }
   return { authorization, collection, archive, data, wake, api, twoWay };
 }
@@ -454,7 +474,8 @@ export async function forwardBlingOperation(env: Env, profile: string, actor: Ac
     // Adoção (B1 e B2), o corte (fatia C) e a mão dupla: mesmo despacho, mesmas regras.
     if (relative === "/v1/receber-bling/adotar" || relative.startsWith("/v1/receber-bling/adotar/")
       || relative === "/v1/receber-bling/corte" || relative.startsWith("/v1/receber-bling/corte/")
-      || relative === "/v1/receber-bling/mao-dupla" || relative.startsWith("/v1/receber-bling/mao-dupla/"))
+      || relative === "/v1/receber-bling/mao-dupla" || relative.startsWith("/v1/receber-bling/mao-dupla/")
+      || relative === "/v1/receber-bling/outros" || relative.startsWith("/v1/receber-bling/outros/"))
       return await forwardAdoption(env, profile, actor, identity, request, url, relative.slice("/v1/receber-bling".length));
     const match = matchBlingOperation(request.method, relative);
     if (!match) throw new BoundaryError(404, "not_found");
@@ -538,9 +559,16 @@ async function forwardAdoption(env: Env, profile: string, actor: Actor, identity
       delegation: { run_id: actor.via.run_id, ...(actor.via.proposal_id ? { proposal_id: actor.via.proposal_id } : {}) }, confirmed: !!actor.via.proposal_id };
   } else if (identity.actor?.is_agent) throw new BlingAdoptionError("BLING_ADOPTION_SCOPE_REQUIRED");
   const { erpFetch } = await import("../hub.ts");
-  return erpFetch(env, profile, `/erp-bling/operations/${operation.name}`, {
+  const send = (name: string, body: unknown, auth: BlingAdoptionAuthorization | null) => erpFetch(env, profile, `/erp-bling/operations/${name}`, {
     method: "POST", headers: { "Content-Type": "application/json", [IDENTITY_HEADER]: encodeIdentity(identity),
-      ...(authorization ? { [BLING_AUTHORIZATION_HEADER]: JSON.stringify(authorization) } : {}) },
-    body: JSON.stringify(input),
+      ...(auth ? { [BLING_AUTHORIZATION_HEADER]: JSON.stringify(auth) } : {}) },
+    body: JSON.stringify(body),
   });
+  // Fatia D: o contrato de manutenção é do módulo Ordem de Serviço (banco do núcleo).
+  if (BLING_EXTRAS_WORKER_OPERATIONS.has(operation.name)) {
+    const { handleExtrasWorker } = await import("./extras-worker.ts");
+    return handleExtrasWorker(env, profile, actor, operation.name, input as Record<string, unknown>,
+      (name, body) => send(name, body, name === operation.name ? authorization : null));
+  }
+  return send(operation.name, input, authorization);
 }

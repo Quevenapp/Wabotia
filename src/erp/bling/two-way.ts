@@ -471,7 +471,7 @@ export function twoWayOutboxDue(db: SqlDriver): number | null {
   } catch { return null; }
 }
 /** Mesma reserva do coletor: credencial pronta, intervalo mínimo e teto diário. */
-function takeCall(db: SqlDriver, now: number): { ok: true } | { ok: false; retry_at: number; reason: string } {
+export function takeCall(db: SqlDriver, now: number): { ok: true } | { ok: false; retry_at: number; reason: string } {
   return db.transaction(() => {
     const c = one(db, "SELECT credential_status, next_allowed_at, calls_day, calls_today, daily_call_limit, min_interval_ms, state FROM wb_bling_control WHERE id=1");
     if (!c || c.state === "purging") return { ok: false as const, retry_at: now + 3_600_000, reason: "O acervo do Bling não está disponível." };

@@ -222,6 +222,97 @@ const TWO_WAY_TABLES: readonly EngineTable[] = [
   ]),
 ];
 
+// Fatia D do Bling (versão 24): o que o coletor passou a ler (listas de preços,
+// naturezas, campos customizados e seus valores, contratos, NFS-e, lotes e
+// fornecedores de produto) adotado com revisão. Só tabelas novas, com o nome
+// das da adoção (os CHECKs de entidade das versões 12, 13 e 19 não se
+// reescrevem). A mão dupla das listas e dos campos tem interruptores, registro
+// e fila próprios; naturezas, NFS-e e contratos nunca voltam ao Bling.
+const adoptionExtra = (table: string, ddl: readonly string[]): EngineTable => ({ table, ddl, since: 24, owner: "bling-d", structural: "adotar-bling-d" });
+const EXTRA_ENTITIES = "'price_lists','operation_natures','custom_fields','custom_field_values','contracts','service_invoices','product_lots','product_suppliers'";
+const EXTRA_TWO_WAY = "'price_lists','custom_fields_products','custom_fields_contacts'";
+const EXTRA_TABLES: readonly EngineTable[] = [
+  adoptionExtra("wb_bling_adoption_extra_link", [
+    `CREATE TABLE "wb_bling_adoption_extra_link" (
+  entity TEXT NOT NULL CHECK (entity IN (${EXTRA_ENTITIES})),
+  source_id TEXT NOT NULL CHECK (${BLING_ID("source_id")}),
+  record_id TEXT NOT NULL CHECK (${BLING_ID("record_id")}),
+  source_version INTEGER NOT NULL CHECK (${BLING_COUNT("source_version", 1)}),
+  source_hash TEXT NOT NULL CHECK (${BLING_HASH("source_hash")}),
+  mode TEXT NOT NULL CHECK (mode IN ('created','linked','updated','archived')),
+  erp_hash TEXT CHECK (erp_hash IS NULL OR ${BLING_HASH("erp_hash")}),
+  data TEXT NOT NULL DEFAULT '{}' CHECK (${BLING_JSON("data", "object", 16384)}),
+  adopted_by TEXT NOT NULL CHECK (${BLING_ID("adopted_by")}),
+  adopted_at INTEGER NOT NULL,
+  PRIMARY KEY (entity, source_id)
+) STRICT`,
+    `CREATE INDEX wb_bling_adoption_extra_link_record ON wb_bling_adoption_extra_link(entity, record_id)`,
+  ]),
+  adoptionExtra("wb_bling_adoption_extra_review", [
+    `CREATE TABLE "wb_bling_adoption_extra_review" (
+  entity TEXT NOT NULL CHECK (entity IN (${EXTRA_ENTITIES})),
+  source_id TEXT NOT NULL CHECK (${BLING_ID("source_id")}),
+  state TEXT NOT NULL CHECK (state IN ('pending','ignored')),
+  reason TEXT NOT NULL CHECK (length(reason) BETWEEN 1 AND 40),
+  detail TEXT CHECK (detail IS NULL OR length(detail) <= 600),
+  candidates TEXT NOT NULL DEFAULT '[]' CHECK (${BLING_JSON("candidates", "array", 4096)}),
+  source_version INTEGER NOT NULL CHECK (${BLING_COUNT("source_version", 1)}),
+  source_hash TEXT NOT NULL CHECK (${BLING_HASH("source_hash")}),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (entity, source_id)
+) STRICT`,
+    `CREATE INDEX wb_bling_adoption_extra_review_state ON wb_bling_adoption_extra_review(entity, state, source_id)`,
+  ]),
+  adoptionExtra("wb_bling_adoption_extra_twoway", [
+    `CREATE TABLE "wb_bling_adoption_extra_twoway" (
+  entity TEXT NOT NULL CHECK (entity IN (${EXTRA_TWO_WAY})),
+  direction TEXT NOT NULL CHECK (direction IN ('inbound','outbound')),
+  enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0,1)),
+  enabled_since INTEGER,
+  next_scan_at INTEGER NOT NULL DEFAULT 0,
+  updated_by TEXT NOT NULL CHECK (${BLING_ID("updated_by")}),
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (entity, direction),
+  CONSTRAINT wb_bling_adoption_extra_twoway_since_check CHECK (enabled = 0 OR enabled_since IS NOT NULL)
+) STRICT`,
+  ]),
+  adoptionExtra("wb_bling_adoption_extra_outbox", [
+    `CREATE TABLE "wb_bling_adoption_extra_outbox" (
+  id TEXT NOT NULL PRIMARY KEY CHECK (${BLING_ID("id")}),
+  entity TEXT NOT NULL CHECK (entity IN (${EXTRA_TWO_WAY})),
+  record_id TEXT NOT NULL CHECK (${BLING_ID("record_id")}),
+  source_id TEXT NOT NULL CHECK (${BLING_ID("source_id")}),
+  path TEXT NOT NULL CHECK (length(path) BETWEEN 2 AND 200),
+  body TEXT NOT NULL CHECK (${BLING_JSON("body", "object", 262144)}),
+  erp_hash TEXT NOT NULL CHECK (${BLING_HASH("erp_hash")}),
+  state TEXT NOT NULL CHECK (state IN ('pending','sending','uncertain','done','failed','superseded')),
+  attempts INTEGER NOT NULL DEFAULT 0 CHECK (${BLING_COUNT("attempts")}),
+  not_before INTEGER NOT NULL,
+  error_text TEXT CHECK (error_text IS NULL OR length(error_text) <= 600),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  finished_at INTEGER,
+  CONSTRAINT wb_bling_adoption_extra_outbox_finished_check CHECK ((state IN ('done','superseded')) = (finished_at IS NOT NULL))
+) STRICT`,
+    `CREATE INDEX wb_bling_adoption_extra_outbox_due ON wb_bling_adoption_extra_outbox(state, not_before, created_at)`,
+    `CREATE INDEX wb_bling_adoption_extra_outbox_record ON wb_bling_adoption_extra_outbox(entity, record_id, state)`,
+  ]),
+  adoptionExtra("wb_bling_adoption_extra_audit", [
+    `CREATE TABLE "wb_bling_adoption_extra_audit" (
+  id TEXT NOT NULL PRIMARY KEY CHECK (${BLING_ID("id")}),
+  actor_id TEXT NOT NULL CHECK (${BLING_ID("actor_id")}),
+  entity TEXT NOT NULL CHECK (entity IN (${EXTRA_TWO_WAY})),
+  direction TEXT NOT NULL CHECK (direction IN ('inbound','outbound')),
+  enabled INTEGER NOT NULL CHECK (enabled IN (0,1)),
+  detail TEXT NOT NULL CHECK (length(detail) BETWEEN 1 AND 600),
+  created_at INTEGER NOT NULL
+) STRICT`,
+    `CREATE INDEX wb_bling_adoption_extra_audit_time ON wb_bling_adoption_extra_audit(created_at, id)`,
+    ...blingImmutable("wb_bling_adoption_extra_audit"),
+  ]),
+];
+
 const BASE_ENGINE_TABLES: readonly EngineTable[] = [
   {
     // Classificação de IBS/CBS por natureza de operação: o padrão (escopo any)
@@ -1685,6 +1776,8 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...CONTADOR_TABLES,
   // Versão 23: a ordem de produção (parte Produção; a 22 é de outra frente).
   ...PRODUCTION_TABLES,
+  // Versão 24: fatia D do Bling (as versões 22 e 23 são de outras frentes).
+  ...EXTRA_TABLES,
 ];
 
 export const ERP_ENGINE_DDL: readonly string[] = ERP_ENGINE_TABLES.flatMap((t) => t.ddl);

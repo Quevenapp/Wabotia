@@ -10,11 +10,14 @@ import { AdoptBling } from './AdoptBling';
 import { HistoryBling } from './HistoryBling';
 import { CutoverBling } from './CutoverBling';
 import { TwoWayBling } from './TwoWayBling';
+import { ExtrasBling } from './ExtrasBling';
 import type { AdoptBlingClient } from './adopt-bling-client';
 import type { BlingAdoptionB2Entity } from '../../../../src/erp/bling/adoption-contracts';
 
-const TABS = ['Configuração', 'Progresso e cobertura', 'Acervo', 'Histórico fiscal', 'Adotar cadastros', 'Histórico do Bling', 'Passar a operar aqui', 'Mão dupla'] as const;
+const TABS = ['Configuração', 'Progresso e cobertura', 'Acervo', 'Histórico fiscal', 'Adotar cadastros', 'Histórico do Bling', 'Passar a operar aqui', 'Mão dupla', 'Outros dados'] as const;
 const HISTORICAL = 'Consulta histórica — não opera no ERP';
+/** Fatia D: recursos com destino no ERP, ainda não confirmados (aba Outros dados). */
+const EXTRAS_COLLECTED: ReadonlySet<string> = new Set(['price_lists', 'operation_natures', 'custom_fields', 'contracts', 'service_invoices', 'product_lots', 'product_suppliers']);
 const time = (value: string | number | null) => value === null || !Number.isFinite(new Date(value).getTime()) ? 'Desconhecido' : new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }).format(new Date(value));
 const bytes = (value: number) => `${new Intl.NumberFormat('pt-BR').format(value)} bytes`;
 const pretty = (value: unknown) => JSON.stringify(value, null, 2);
@@ -149,7 +152,7 @@ export function ReceiveBling({ controller, administrator, client: injected, adop
         <section className="rb-card"><h2>Recursos, período e limite</h2><p>Horário de São Paulo. As passagens continuam após a coleta inicial, com sobreposição de quinze minutos. Um período escolhido não certifica cobertura completa.</p>
           <fieldset disabled={configBlocked}><legend>Seleção para receber</legend>{resources?.resources.map(resource => { const selection = selections.find(s => s.key === resource.key); return <div className="rb-resource" key={resource.key}>
             <label><input id={`bling-resource-${resource.key}`} type="checkbox" checked={selection?.selected ?? false} disabled={!resourceSelectable(resource)} onChange={e => editSelection(resource, { selected: e.target.checked })} />{resourceLabel(resource)} · {resource.key}</label>
-            <p>{resource.confirmation === 'oficial_confirmado' ? 'Referência oficial confirmada' : resource.confirmation === 'original_conferido' ? 'Implementação local conferida; referência oficial a conferir. Seleção desabilitada.' : 'Recurso não confirmado; acesso e identidade a conferir. Seleção desabilitada.'}</p>
+            <p>{resource.confirmation === 'oficial_confirmado' ? 'Referência oficial confirmada' : resource.confirmation === 'original_conferido' ? 'Implementação local conferida; referência oficial a conferir. Seleção desabilitada.' : EXTRAS_COLLECTED.has(resource.entity) ? 'Não confirmado: desligado até o dono conferir caminho, campos e permissões numa coleta real. O que fazer com estes dados fica na aba Outros dados.' : 'Recurso não confirmado; acesso e identidade a conferir. Seleção desabilitada.'}</p>
             {resource.key === 'fiscal_xml' && <p>Seleção própria para arquivar XML das fontes fiscais recebidas. Selecione também NF-e/NFC-e ou use fontes já existentes no acervo.</p>}
             <p>{dateMeaning(resource)} Escopos de leitura: {resource.scopeRequirements.join(', ') || 'A conferir'}.</p>
             {resource.officialEvidence && <p>Referência: <a href={resource.officialEvidence.url} target="_blank" rel="noreferrer">Consultar documentação oficial conferida</a> · {time(resource.officialEvidence.checked_at)}</p>}
@@ -210,6 +213,7 @@ export function ReceiveBling({ controller, administrator, client: injected, adop
       {tab === 5 && <HistoryBling controller={controller} administrator={administrator} client={adoptionClient} entity={historyEntity} />}
       {tab === 6 && <CutoverBling controller={controller} administrator={administrator} client={adoptionClient} onAdopt={() => switchTab(4)} />}
       {tab === 7 && <TwoWayBling controller={controller} administrator={administrator} client={adoptionClient} onCutover={() => switchTab(6)} />}
+      {tab === 8 && <ExtrasBling controller={controller} administrator={administrator} client={adoptionClient} onCutover={() => switchTab(6)} onAdopt={() => switchTab(4)} />}
     </section>
   </section>;
 }

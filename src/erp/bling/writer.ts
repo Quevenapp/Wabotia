@@ -34,7 +34,8 @@ const ROOT = "(contatos|produtos|propostas-comerciais|pedidos/vendas|pedidos/com
 /** Caminhos que aceitam escrita, por método. Nada além disto sai daqui. */
 const WRITE_PATHS: Record<BlingWriteMethod, RegExp[]> = {
   POST: [new RegExp(`^/${ROOT}$`), new RegExp(`^/contas/(receber|pagar)/${ID}/baixar$`), /^\/estoques$/],
-  PUT: [new RegExp(`^/${ROOT}/${ID}$`)],
+  // Fatia D: só a atualização de lista de preços e de campo customizado já ligados.
+  PUT: [new RegExp(`^/${ROOT}/${ID}$`), new RegExp(`^/(listas-precos|campos-customizados)/${ID}$`)],
 };
 const READ_PATHS = [new RegExp(`^/${ROOT}(/${ID})?$`), /^\/estoques\/saldos$/];
 export const isWritablePath = (method: BlingWriteMethod, path: string) => WRITE_PATHS[method]?.some(re => re.test(path)) ?? false;

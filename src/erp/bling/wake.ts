@@ -195,6 +195,14 @@ export function createBlingWake(deps: BlingWakeDependencies): BlingWakePort {
       response = response && { ...response, items: found ? [found] : [] };
       cursor = finishPageItem(unit.checkpoint, resource, ctx.clock.now());
       counts.unavailable = found ? 0 : 1;
+    } else if (unit.kind === "list" && !resource.detail) {
+      // Recurso sem detalhe por id (fatia D): a própria página é o registro.
+      const state = unit.plan.window as unknown as WindowState, ids = response!.items.map(item => item.id);
+      if (new Set(ids).size !== ids.length) throw fail();
+      // A página não traz expectativas no plano: cada fonte é conferida contra o corrente agora.
+      expected = ids.map(id => { const key = identity(ctx, unit, id); return expectation(store.readCurrent(ctx, key), key); }) as unknown as BlingCommitInput["source_expectations"];
+      cursor = advanceWindow(state, ids.length, ctx.clock.now(), resource.pagination?.strategy === "source_page");
+      counts.discovered = ids.length;
     } else if (unit.kind === "list") {
       const state = unit.plan.window as unknown as WindowState, ids = response!.items.map(item => item.id);
       const page = pageSlice(state, ids, semanticHash(JSON.stringify(ids), []), resource.pagination?.strategy === "source_page");
@@ -202,7 +210,7 @@ export function createBlingWake(deps: BlingWakeDependencies): BlingWakePort {
       cursor = page.ids.length ? { ...state.cp, page: page as unknown as JsonObject } : advanceWindow(state, ids.length, ctx.clock.now(), resource.pagination?.strategy === "source_page");
       counts.discovered = page.ids.length;
     } else if (!maintenance) cursor = finishPageItem(unit.checkpoint, resource, ctx.clock.now());
-    if (response && (unit.kind !== "list" || unit.plan.fallback_id)) {
+    if (response && (unit.kind !== "list" || unit.plan.fallback_id || !resource.detail)) {
       if (unit.source_id && (response.items.length !== 1 || response.items[0].id !== unit.source_id) && !unit.plan.fallback_id) throw fail();
       for (const item of response.items) {
         const key = identity(ctx, unit, item.id), old = store.readCurrent(ctx, key);

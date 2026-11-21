@@ -489,6 +489,172 @@ pendência ("sem permissão para gravar"). A situação de pedidos e propostas
 não é enviada nesta entrega; forma de pagamento, categoria e portador só vão
 quando estão ligados ao Bling pela adoção.
 
+## Outros dados do Bling (fatia D, versão 24)
+
+Aba **Outros dados** da mesma tela. Traz o que o coletor não lia e que agora
+tem destino no Wabotia: listas de preços, naturezas de operação, campos
+customizados (definições e valores), fornecedores e lotes de produto,
+contratos e notas de serviço (NFS-e). Código em `src/erp/bling/extras.ts`
+(adoção), `extras-two-way.ts` (mão dupla), `extras-worker.ts` (contrato, no
+Worker) e `extras-contracts.ts`; tela em
+`web/erp/app/components/ExtrasBling.tsx`. Situações (e módulos e transições)
+continuam fora: não há destino no ERP nem lista sem o id do módulo.
+
+**1. Coleta, pelo mesmo coletor.** Cada recurso é uma seleção da
+Configuração (o interruptor), desligada por padrão. No catálogo
+(`resources.ts`) os sete continuam `nao_confirmado` e sem caminho; ao lado fica
+o **acesso proposto**, lido da documentação pública da API v3 e ainda não
+conferido numa conta real (`BLING_EXTRA_PROPOSED_ACCESS`, com a dúvida de
+cada um, também mostrada na aba). O recurso só vira coletável quando o dono
+registra a evidência completa da conferência (`confirmBlingExtraResource`);
+sem ela nenhuma chamada sai. Coletado, segue as regras de sempre: uma unidade
+e um GET por acordada, retomável, limite diário e intervalo mínimo, recibos,
+acervo bruto em `wb_bling_extra_raw` (versão 11) com versões. O cliente de
+dados confere o caminho contra o proposto do catálogo, nunca contra o que
+chega. Naturezas de operação usam a lista inteira, sem GET de detalhe
+(`detail: null`, modo novo do coletor: a página é o registro, conferida contra
+o corrente no commit).
+
+| Recurso | Caminho proposto | Destino |
+|---|---|---|
+| Listas de preços | `/listas-precos`, `/listas-precos/{id}` | listas de preços do ERP (lista personalizada, preço por produto) |
+| Naturezas de operação | `/naturezas-operacoes` (só lista) | naturezas do Fiscal, ativas, sem trocar a padrão |
+| Campos customizados | `/campos-customizados`, `/campos-customizados/{id}` | campos próprios de produto ou de contato (versão 20) |
+| Valores dos campos | `camposCustomizados` dentro de produtos e contatos já coletados | valores no produto e no contato adotados |
+| Fornecedores de produto | `/produtos/fornecedores`, `/produtos/fornecedores/{id}` | fornecedor do produto (o mesmo vínculo da compra pela nota) |
+| Lotes de produto | `/produtos/lotes`, `/produtos/lotes/{id}` | lotes do estoque, com saldo e validade na data de corte |
+| Contratos | `/contratos`, `/contratos/{id}` | contrato de manutenção da Ordem de Serviço |
+| NFS-e | `/nfse`, `/nfse/{id}` | só consulta |
+
+**2. Adoção com revisão.** Mesmo mecanismo da B1: **prévia** (o que vai
+acontecer com cada registro — criar, ligar ao que já existe ou ficar
+pendente com o motivo —, com o Bling e o ERP lado a lado, sem gravar nada),
+**três estados** (coletado, adotado em `wb_bling_adoption_extra_link`,
+pendente em `wb_bling_adoption_extra_review`), **sem duplicar** (a chave
+entidade + id no Bling é única; procura por nome normalizado, por produto e
+fornecedor, por produto e código do lote) e só pelas funções de domínio, por
+`invokeRpc`: `erp_pricing_list_save` e `erp_pricing_list_items`,
+`erp_fiscal_nature_execute` (só `create`; `set_default` nunca é chamada),
+`erp_catalog_custom_field_save` e `erp_catalog_product_save`
+(`custom_values`), `erp_catalog_contact_field_save` e
+`erp_catalog_contact_field_values_save` (versão 20), `erp_catalog_product_save`
+(`suppliers`, a lista inteira conservada), `erp_stock_lot_launch` (tipo
+`balance`) e `erp_stock_lot_import`. "Adotar os conferidos nesta prévia" leva
+só os ids que a pessoa viu; "Adotar o próximo pedaço" leva até 25 ou 1,5 s;
+cada registro é uma transação e a falha de um vira pendência dele. Repetir o
+mesmo pedido devolve o mesmo resultado (recibo em `wb_bling_adoption_command`).
+
+**Formato não conferido não é adivinhado.** O mapeador lê só os campos do
+formato público; o que faltar vira pendência "formato não conferido" com o
+que faltou: lista sem `produtos`/`itens` com `produto.id` e `preco`; campo sem
+módulo (produto ou contato), com tipo desconhecido ou lista sem opções;
+natureza sem tipo (entrada/saída) ou sem regime (CRT); fornecedor ou lote sem
+produto; valor sem `idCampoCustomizado`. Dependência que falta (produto,
+contato, depósito ou campo ainda não adotado) também vira pendência, com o
+id do Bling. Decisões que a tarefa não dizia: campo de contato vale para os
+quatro tipos de contato (o Bling não separa); tipos inteiro/decimal viram
+número e texto longo vira texto no contato; lista de preços entra como
+**personalizada** (a única com preço por produto) e sem período.
+
+**Lotes.** Exigem a data de corte confirmada, o produto adotado com
+controle de lotes ligado e, com saldo, o depósito adotado. Entram com o saldo
+do Bling (lançamento de balanço do lote) e a validade. Se o estoque de
+abertura daquele depósito já foi gravado no corte, o lote entra **sem saldo**
+(senão somaria de novo) e a tela avisa.
+
+**Fornecedores.** O cadastro do produto só guarda fornecedores com Compras
+e Estoque ligados; por isso a entidade pede Produtos e serviços, Compras e
+Estoque.
+
+**3. Contratos.** A aba lista os contratos como vieram (cliente, vigência,
+valor, periodicidade, situação) e o que falta conferir. "Conferir e preparar"
+abre o rascunho com os planos da Mensalidade e os clientes do atendimento
+com o mesmo telefone ou nome; a pessoa escolhe o plano (o valor e a
+periodicidade da cobrança são os do plano), o cliente, as visitas por
+período e o período. Criar roda **no Worker**
+(`erp_bling_extras_contract_create`): confere de novo a versão do contrato,
+os módulos **Ordem de Serviço** e **Mensalidade** (desligados, diz qual
+ligar), e chama o comando do próprio módulo, `os.contract.create`, no
+Coordinator da área (como o ERP pela conversa faz), sem mudar as regras
+dele, com `create_subscription: false`: **a cobrança recorrente nasce
+desligada** e a pessoa liga na tela do contrato. As condições do contrato
+anotam "Vindo do Bling: contrato nº X (id Y)" e o valor do Bling. O vínculo
+volta ao ERP (`erp_bling_extras_contract_link`, também usado para ligar a um
+contrato de manutenção que já existe). Sem o módulo, o contrato fica no
+acervo com o aviso. Criar e ligar são só do administrador, pela tela.
+
+**4. NFS-e.** Só consulta, como as NF-e antigas: lista por número, tomador e
+período, lida direto do acervo, com o aviso de que não vira emissão, não
+cancela nem corrige. Pede a parte Fiscal.
+
+**5. Mão dupla das listas e dos campos.** Interruptores próprios
+(`wb_bling_adoption_extra_twoway`) para listas de preços, campos de produto e
+campos de contato, um por sentido, **todos desligados**; ligar exige
+administrador, o corte confirmado, a parte ligada e o aviso confirmado, e
+fica registrado (`wb_bling_adoption_extra_audit`, imutável). **Receber do
+Bling**: o que a coleta trouxe depois de ligar entra pelas mesmas funções da
+adoção (atualiza o ligado, adota o novo); se o ERP também mudou desde a
+última sincronização (impressão diferente), vira pendência "conflito" e a
+pessoa escolhe. **Escrever no Bling**: na primeira varredura o ERP de agora é
+o ponto de partida; depois, o que mudar no ERP num registro ligado vai para
+a fila (`wb_bling_adoption_extra_outbox`) como `PUT` no registro do Bling,
+partindo do último detalhe lido; uma chamada por acordada, com a mesma
+reserva da coleta (intervalo mínimo e teto diário); resposta incerta **nunca
+é repetida sozinha** (a pessoa diz se entrou ou manda de novo); recusa vira
+"recusado" com o motivo. Só atualiza o que veio do Bling; não cria lista nem
+campo novo no Bling. Valores de campo não são escritos de volta nesta
+entrega. **Naturezas, NFS-e e contratos nunca voltam ao Bling** (o simulador
+recusa qualquer escrita nesses caminhos).
+
+**6. Bots** (grupo `bling`, pela concessão nominal): consultar
+(`erp_bling_extras_status`) é leitura; a prévia, as pendências, os contratos,
+as NFS-e e a fila trazem nomes e são sensíveis; adotar, resolver, desligar e
+resolver envio são sensíveis (o bot propõe e a pessoa confirma). Criar o
+contrato de manutenção, ligar a um contrato e os interruptores da mão dupla
+ficam fora do inventário (só a pessoa, pela tela).
+
+| Nome | Método e caminho (sob `/receber-bling`) |
+|---|---|
+| `erp_bling_extras_status` | GET `/outros` (não sensível) |
+| `erp_bling_extras_preview` | GET `/outros/previa` |
+| `erp_bling_extras_reviews` | GET `/outros/pendencias` |
+| `erp_bling_extras_adopt` | POST `/outros/adotar` |
+| `erp_bling_extras_resolve` | POST `/outros/pendencias/resolver` |
+| `erp_bling_extras_unlink` | POST `/outros/desligar` |
+| `erp_bling_extras_invoices` | GET `/outros/nfse` |
+| `erp_bling_extras_contracts` | GET `/outros/contratos` |
+| `erp_bling_extras_contract_options` | GET `/outros/contratos/opcoes` (Worker) |
+| `erp_bling_extras_outbox` | GET `/outros/mao-dupla/fila` |
+| `erp_bling_extras_outbox_resolve` | POST `/outros/mao-dupla/fila/resolver` |
+| `erp_bling_extras_contract_create` | POST `/outros/contratos/criar` (Worker, só a pessoa) |
+| `erp_bling_extras_contract_link` | POST `/outros/contratos/vincular` (só a pessoa) |
+| `erp_bling_extras_switch` | POST `/outros/mao-dupla/interruptor` (só a pessoa) |
+
+**Partes.** Listas de preços pedem Produtos e serviços; naturezas e NFS-e,
+Fiscal; lotes, Produtos e serviços e Estoque; fornecedores, Produtos e
+serviços, Compras e Estoque; campos e valores, a Base (campo de produto
+também Produtos e serviços, conferido por registro). Desligada, a entidade
+mostra qual módulo ligar e a operação recusa com
+`BLING_ADOPTION_PART_DISABLED`.
+
+**Esquema versão 24** (23→24, só tabelas novas; 22 e 23 são de outras
+frentes): `wb_bling_adoption_extra_link`, `wb_bling_adoption_extra_review`,
+`wb_bling_adoption_extra_twoway`, `wb_bling_adoption_extra_outbox` e
+`wb_bling_adoption_extra_audit`. Vínculo e envio pendente impedem apagar o
+acervo da entidade. Nenhuma migração de D1.
+
+**Testes:** `tests/erp/org/fatia-d.test.mjs`, contra o Bling simulado
+ampliado (`blingExtrasSample` e os caminhos propostos em `fake-bling.mjs`;
+escrita em `/listas-precos` e `/campos-customizados`; qualquer escrita em
+NFS-e, contratos ou naturezas falha o teste).
+
+**Antes de ligar com uma conta real.** Conferir, para cada recurso, o
+caminho, a paginação, se há detalhe por id, os nomes dos campos usados pelos
+mapeadores (listados acima e nas dúvidas da aba), os escopos de leitura e,
+para a mão dupla, o corpo e o código de resposta do `PUT`. Até lá os
+recursos ficam `nao_confirmado`, e o que vier diferente vira pendência, nunca
+cadastro adivinhado.
+
 ## Antes de usar uma conta real
 
 O aceite automatizado usa exclusivamente dados e OAuth simulados. Ele não

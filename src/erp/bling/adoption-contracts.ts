@@ -12,6 +12,10 @@ import {
   BLING_TWO_WAY_ADMIN_OPERATIONS, BLING_TWO_WAY_ADMIN_OPERATION_NAMES, BLING_TWO_WAY_OPERATIONS, BLING_TWO_WAY_OPERATION_NAMES, BLING_TWO_WAY_PARAMS,
   twoWayInputs, twoWayOutputs, type BlingTwoWayOperationMap,
 } from "./two-way-contracts.ts";
+import {
+  BLING_EXTRAS_ADMIN_OPERATIONS, BLING_EXTRAS_ADMIN_OPERATION_NAMES, BLING_EXTRAS_OPERATIONS, BLING_EXTRAS_OPERATION_NAMES, BLING_EXTRAS_PARAMS,
+  extrasInputs, extrasOutputs, type BlingExtrasOperationMap,
+} from "./extras-contracts.ts";
 
 /** Cadastros (B1). Ordem de execução: dependências primeiro (categorias antes
  * de produtos, contatos antes de vendedores). */
@@ -244,6 +248,8 @@ export const BLING_ADOPTION_OPERATION_NAMES = [
   ...BLING_CUTOVER_OPERATION_NAMES,
   // Mão dupla: as quatro dos bots e as duas só do administrador.
   ...BLING_TWO_WAY_OPERATION_NAMES, ...BLING_TWO_WAY_ADMIN_OPERATION_NAMES,
+  // Fatia D (outros dados do Bling): as dos bots e as só do administrador.
+  ...BLING_EXTRAS_OPERATION_NAMES, ...BLING_EXTRAS_ADMIN_OPERATION_NAMES,
 ] as const;
 export type BlingAdoptionOperationName = typeof BLING_ADOPTION_OPERATION_NAMES[number];
 
@@ -266,6 +272,7 @@ export const adoptionInputs = {
   erp_bling_adoption_history_get: z.object({ entity: b2Entity, source_id: sourceId }).strict(),
   ...cutoverInputs,
   ...twoWayInputs,
+  ...extrasInputs,
 } as const;
 export const adoptionOutputs = {
   erp_bling_adoption_status: adoptionStatusSchema,
@@ -281,8 +288,9 @@ export const adoptionOutputs = {
   erp_bling_adoption_history_get: adoptionHistoryDocumentSchema,
   ...cutoverOutputs,
   ...twoWayOutputs,
+  ...extrasOutputs,
 } as const;
-export interface BlingAdoptionOperationMap extends BlingCutoverOperationMap, BlingTwoWayOperationMap {
+export interface BlingAdoptionOperationMap extends BlingCutoverOperationMap, BlingTwoWayOperationMap, BlingExtrasOperationMap {
   erp_bling_adoption_status: { input: z.infer<typeof adoptionInputs.erp_bling_adoption_status>; output: z.infer<typeof adoptionOutputs.erp_bling_adoption_status> };
   erp_bling_adoption_reviews: { input: z.infer<typeof adoptionInputs.erp_bling_adoption_reviews>; output: z.infer<typeof adoptionOutputs.erp_bling_adoption_reviews> };
   erp_bling_adoption_links: { input: z.infer<typeof adoptionInputs.erp_bling_adoption_links>; output: z.infer<typeof adoptionOutputs.erp_bling_adoption_links> };
@@ -303,9 +311,9 @@ const op = (name: BlingAdoptionOperationName, method: "GET" | "POST", path: stri
 /** Nomes estáveis para tela e bots. Todas exigem administrador do ERP; as
  * sensíveis seguem proposta e confirmação da pessoa quando vêm de um bot. */
 /** Operações só do administrador, pela tela: ficam fora do inventário dos bots. */
-export type BlingAdoptionAdminOperationName = typeof BLING_TWO_WAY_ADMIN_OPERATION_NAMES[number];
+export type BlingAdoptionAdminOperationName = typeof BLING_TWO_WAY_ADMIN_OPERATION_NAMES[number] | typeof BLING_EXTRAS_ADMIN_OPERATION_NAMES[number];
 export type BlingAdoptionBotOperationName = Exclude<BlingAdoptionOperationName, BlingAdoptionAdminOperationName>;
-export const BLING_ADOPTION_ADMIN_OPERATIONS: Readonly<Record<BlingAdoptionAdminOperationName, BlingAdoptionOperationDescriptor>> = BLING_TWO_WAY_ADMIN_OPERATIONS;
+export const BLING_ADOPTION_ADMIN_OPERATIONS: Readonly<Record<BlingAdoptionAdminOperationName, BlingAdoptionOperationDescriptor>> = Object.freeze({ ...BLING_TWO_WAY_ADMIN_OPERATIONS, ...BLING_EXTRAS_ADMIN_OPERATIONS });
 export const isAdoptionAdminOnly = (name: string): name is BlingAdoptionAdminOperationName => Object.hasOwn(BLING_ADOPTION_ADMIN_OPERATIONS, name);
 export const BLING_ADOPTION_OPERATIONS: Readonly<Record<BlingAdoptionBotOperationName, BlingAdoptionOperationDescriptor>> = Object.freeze({
   erp_bling_adoption_status: op("erp_bling_adoption_status", "GET", "/adotar", "Consultar a adoção de cadastros do Bling",
@@ -330,6 +338,7 @@ export const BLING_ADOPTION_OPERATIONS: Readonly<Record<BlingAdoptionBotOperatio
     "Mostra um documento ou conta encerrado no Bling como veio: cabeçalho, itens, parcelas e o registro recebido. Só consulta: não pode ser faturado, cancelado nem editado.", true),
   ...BLING_CUTOVER_OPERATIONS,
   ...BLING_TWO_WAY_OPERATIONS,
+  ...BLING_EXTRAS_OPERATIONS,
 });
 const id40 = { type: "string", pattern: "^[1-9][0-9]{0,39}$", description: "Id do registro no Bling." };
 const entityParam = { type: "string", enum: [...BLING_ADOPTION_ENTITIES], description: "Entidade do Bling." };
@@ -354,6 +363,7 @@ export const BLING_ADOPTION_PARAMS: Readonly<Record<BlingAdoptionOperationName, 
   erp_bling_adoption_history_get: params({ entity: b2Param, source_id: id40 }, ["entity", "source_id"]),
   ...BLING_CUTOVER_PARAMS,
   ...BLING_TWO_WAY_PARAMS,
+  ...BLING_EXTRAS_PARAMS,
 });
 /** Todas as operações do despacho (as dos bots e as só do administrador). */
 export function getAdoptionOperation(name: string): BlingAdoptionOperationDescriptor | null {
