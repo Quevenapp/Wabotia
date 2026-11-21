@@ -50,8 +50,10 @@ export function ownerSummary(template: SummaryTemplate, changes: readonly Templa
   if (categories) create.push(count(categories, "categoria de protocolo", "categorias de protocolo"));
   if (menus) create.push(count(menus, "opção no menu do WhatsApp", "opções no menu do WhatsApp"));
   for (const change of changes) if (change.action === "add" && change.path.startsWith("examples.")) {
-    if (change.path === "examples.agenda") create.push("o horário de funcionamento e serviços de exemplo na Agenda");
-    if (change.path === "examples.mensalidade") create.push("um plano de exemplo na Mensalidade");
+    if (change.path === "examples.agenda") create.push("o horário de funcionamento, o profissional \"Atendimento\" e serviços de exemplo na Agenda");
+    if (change.path === "examples.mensalidade") create.push("planos de exemplo na Mensalidade (desativados até você revisar)");
+    if (change.path === "examples.financeiro") create.push("formas de pagamento e o financeiro básico de exemplo no ERP, se ainda não houver");
+    if (change.path === "examples.catalogo") create.push("produtos e serviços de exemplo no ERP, se o catálogo estiver vazio");
   }
   const texts = changes.filter((change) => change.action === "set" && !change.path.startsWith("modules.") && !change.path.startsWith("examples."));
   if (texts.length) create.push("as mensagens de boas-vindas e o vocabulário do ramo (onde ainda estavam em branco)");

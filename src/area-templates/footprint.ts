@@ -11,7 +11,7 @@ import type { SettingsPlan } from "../service";
 import type { TemplateChange } from "../modules/os/contracts";
 import type { AreaTemplate } from "./validation";
 import { identifier, invalid, moduleOfMenuType, object } from "./validation";
-import { EXAMPLE_NOTE, templateExamples } from "./examples";
+import { EXAMPLE_NOTE, templateExamples, type ErpExamples } from "./examples";
 import { segmentById, segmentOfTemplate } from "./segments";
 
 type Settings = Record<string, any>;
@@ -19,10 +19,11 @@ type Statement = [string, any[]];
 export interface FootprintItem { key: string; id: string; hash: string; label: string; archived_by_undo?: boolean }
 const ARCHIVED = new Set(["os_work_types", "os_object_types"]);
 export interface FootprintScalar { path: string; hash: string }
-/** erp_*: financeiro de exemplo no ERP (erp-examples.ts), conferido e apagado pelas rotas do ERP. */
-export type ExampleKind = "agenda_service" | "agenda_professional" | "mensalidade_plan" | "erp_payment_method" | "erp_finance_category" | "erp_finance_account";
+/** erp_*: financeiro e catálogo de exemplo no ERP (erp-examples.ts), conferidos e apagados pelas rotas do ERP. */
+export type ExampleKind = "agenda_service" | "agenda_professional" | "mensalidade_plan" | "erp_payment_method" | "erp_finance_category" | "erp_finance_account" | "erp_product";
 const erpKind = (kind: string) => kind.startsWith("erp_");
-const exampleGroup = (kind: string) => erpKind(kind) ? "examples.financeiro" : kind === "mensalidade_plan" ? "examples.mensalidade" : "examples.agenda";
+const exampleGroup = (kind: string) => kind === "erp_product" ? "examples.catalogo" : erpKind(kind) ? "examples.financeiro" : kind === "mensalidade_plan" ? "examples.mensalidade" : "examples.agenda";
+/** updated: `updated` da linha (Agenda e Mensalidade) ou a versão no ERP. */
 export interface FootprintExample { kind: ExampleKind; id: string; label: string; updated: number }
 export interface Footprint {
   template_id: string;
@@ -112,8 +113,8 @@ export async function planExamples(env: Env, profile: string, manifest: AreaTemp
         changes.push({ path, action: "keep", reason: "A Agenda já tem serviços ou profissionais cadastrados; nada de exemplo será criado." });
       else {
         const agenda = examples.agenda;
-        changes.push({ path, action: "add", reason: `Horário de funcionamento e ${agenda.services.length} serviço(s) de exemplo na Agenda.` });
-        builders.push((_actor, at) => {
+        changes.push({ path, action: "add", reason: `Horário de funcionamento (seg. a sex. 8h às 18h, sáb. 8h às 12h, editável), o profissional "${agenda.professional}" ligado a você e ${agenda.services.length} serviço(s) de exemplo na Agenda.` });
+        builders.push((actor, at) => {
           const professional = uid();
           const services = agenda.services.map((service) => ({ ...service, id: uid() }));
           return {
@@ -122,7 +123,9 @@ export async function planExamples(env: Env, profile: string, manifest: AreaTemp
                 "INSERT INTO agenda_services(id,profile_id,name,description,duration_minutes,price_cents,active,position,archived,created,updated) VALUES(?,?,?,?,?,?,1,?,0,?,?)",
                 [service.id, profile, service.name, EXAMPLE_NOTE, service.duration_minutes, service.price_cents, position, at, at],
               ]),
-              ["INSERT INTO agenda_professionals(id,profile_id,name,user_id,active,position,archived,created,updated) VALUES(?,?,?,NULL,1,0,0,?,?)", [professional, profile, agenda.professional, at, at]],
+              // Ligado ao administrador que aplica o modelo (uma chave de aplicativo não é pessoa da equipe).
+              ["INSERT INTO agenda_professionals(id,profile_id,name,user_id,active,position,archived,created,updated) VALUES(?,?,?,?,1,0,0,?,?)",
+                [professional, profile, agenda.professional, actor.kind === "user" ? actor.id : null, at, at]],
               ...services.map((service): Statement => ["INSERT INTO agenda_professional_services(profile_id,professional_id,service_id) VALUES(?,?,?)", [profile, professional, service.id]]),
               ...agenda.hours.map((hour): Statement => ["INSERT INTO agenda_hours(profile_id,professional_id,weekday,start_minute,end_minute) VALUES(?,?,?,?,?)", [profile, professional, hour.weekday, hour.start_minute, hour.end_minute]]),
             ],
@@ -138,28 +141,30 @@ export async function planExamples(env: Env, profile: string, manifest: AreaTemp
   }
   if (examples.mensalidade && modules.mensalidade) {
     const path = "examples.mensalidade";
-    if (seenPaths.has(path)) changes.push({ path, action: "skip", reason: "O plano de exemplo da Mensalidade já foi tratado antes; não será recriado." });
+    if (seenPaths.has(path)) changes.push({ path, action: "skip", reason: "Os planos de exemplo da Mensalidade já foram tratados antes; não serão recriados." });
     else {
       const count = await one(env, "SELECT COUNT(*) n FROM mensalidade_plans WHERE profile_id=?", profile);
       if (Number(count?.n)) changes.push({ path, action: "keep", reason: "A Mensalidade já tem planos cadastrados; nenhum plano de exemplo será criado." });
       else {
-        const plan = examples.mensalidade;
-        changes.push({ path, action: "add", reason: `Plano de exemplo "${plan.name}" na Mensalidade.` });
+        const plans = examples.mensalidade.plans;
+        changes.push({ path, action: "add", reason: `${plans.length === 1 ? "Plano" : "Planos"} de exemplo na Mensalidade, desativados até você revisar: ${plans.map((plan) => `"${plan.name}"`).join(", ")}.` });
         builders.push((actor, at) => {
-          const id = uid();
+          const created = plans.map((plan) => ({ ...plan, id: uid() }));
           return {
-            statements: [["INSERT INTO mensalidade_plans(id,profile_id,name,amount_cents,period,due_day,active,created_by,created,updated,description) VALUES(?,?,?,?,'monthly',?,1,?,?,?,?)",
-              [id, profile, plan.name, plan.amount_cents, plan.due_day, actor.id, at, at, EXAMPLE_NOTE]]],
-            examples: [{ kind: "mensalidade_plan", id, label: `Plano "${plan.name}" na Mensalidade`, updated: at }],
+            // Desativados (active=0): ninguém assina um plano de exemplo antes de a pessoa revisar valor e vencimento.
+            statements: created.map((plan): Statement => ["INSERT INTO mensalidade_plans(id,profile_id,name,amount_cents,period,due_day,active,created_by,created,updated,description) VALUES(?,?,?,?,?,?,0,?,?,?,?)",
+              [plan.id, profile, plan.name, plan.amount_cents, plan.period, plan.due_day, actor.id, at, at, EXAMPLE_NOTE]]),
+            examples: created.map((plan): FootprintExample => ({ kind: "mensalidade_plan", id: plan.id, label: `Plano "${plan.name}" na Mensalidade`, updated: at })),
           };
         });
       }
     }
     seen.push(path);
   }
-  // Financeiro básico no ERP: a aplicação só registra o que falta montar; o
-  // alarme da área monta quando o ERP estiver de pé, cada tipo só se não houver
-  // nenhum (erp-examples.ts). A conferência "já existe" é do ERP, na montagem.
+  // Financeiro básico e catálogo no ERP: a aplicação só registra o que falta
+  // montar; o alarme da área monta quando o ERP estiver de pé, cada tipo só se
+  // não houver nenhum (erp-examples.ts). A conferência "já existe" é do ERP, na montagem.
+  const erp: ErpExamples = {};
   if (examples.financeiro && modules.erp && FINANCE_PARTS.some((id) => modules[id])) {
     const path = "examples.financeiro";
     if (seenPaths.has(path)) changes.push({ path, action: "skip", reason: "O financeiro de exemplo do ERP já foi tratado antes; não será recriado." });
@@ -169,13 +174,28 @@ export async function planExamples(env: Env, profile: string, manifest: AreaTemp
       changes.push({ path, action: "add", reason: finance.account
         ? "Formas de pagamento básicas, categorias financeiras e a conta Caixa de exemplo no ERP (só os tipos que ainda não têm cadastro; montados assim que o ERP estiver de pé)."
         : "Formas de pagamento básicas de exemplo no ERP (só se ainda não houver nenhuma; montadas assim que o ERP estiver de pé)." });
-      builders.push((actor, at) => ({
-        statements: [["INSERT INTO area_template_erp_examples(profile_id,template_id,state,actor,examples_json,attempts,next_at,note,created,updated) VALUES(?,?,'pendente',?,?,0,NULL,NULL,?,?) ON CONFLICT(profile_id,template_id) DO UPDATE SET state='pendente',actor=excluded.actor,examples_json=excluded.examples_json,attempts=0,next_at=NULL,note=NULL,updated=excluded.updated",
-          [profile, manifest.id, actor.id, JSON.stringify(finance), at, at]]],
-        examples: [],
-      }));
+      Object.assign(erp, finance);
     }
     seen.push(path);
+  }
+  if (examples.catalogo && modules.erp && modules["erp-produtos"]) {
+    const path = "examples.catalogo";
+    if (seenPaths.has(path)) changes.push({ path, action: "skip", reason: "O catálogo de exemplo do ERP já foi tratado antes; não será recriado." });
+    else {
+      changes.push({ path, action: "add", reason: `${examples.catalogo.items.length} produtos e serviços de exemplo em Produtos e serviços do ERP (só se o catálogo ainda estiver vazio; montados assim que o ERP estiver de pé).` });
+      erp.products = examples.catalogo.items;
+    }
+    seen.push(path);
+  }
+  if (Object.keys(erp).length) {
+    // Uma linha por modelo: o que ainda espera o ERP de uma aplicação anterior não se perde.
+    const waiting = await one(env, "SELECT examples_json FROM area_template_erp_examples WHERE profile_id=? AND template_id=? AND state='pendente'", profile, manifest.id);
+    const pending: ErpExamples = { ...(waiting ? json(waiting.examples_json, {}) : {}), ...erp };
+    builders.push((actor, at) => ({
+      statements: [["INSERT INTO area_template_erp_examples(profile_id,template_id,state,actor,examples_json,attempts,next_at,note,created,updated) VALUES(?,?,'pendente',?,?,0,NULL,NULL,?,?) ON CONFLICT(profile_id,template_id) DO UPDATE SET state='pendente',actor=excluded.actor,examples_json=excluded.examples_json,attempts=0,next_at=NULL,note=NULL,updated=excluded.updated",
+        [profile, manifest.id, actor.id, JSON.stringify(pending), at, at]]],
+      examples: [],
+    }));
   }
   return {
     changes, seen,
@@ -370,11 +390,13 @@ async function computeUndo(env: Env, profile: string, footprint: Footprint, cata
   for (const example of footprint.examples) {
     const group = exampleGroup(example.kind);
     if (erpKind(example.kind)) {
-      // Financeiro de exemplo no ERP: conferido como o administrador; apagado depois, pelo ERP (que recusa o que tem uso).
+      // Financeiro e catálogo de exemplo no ERP: conferidos como o administrador; apagados depois, pelo ERP (que recusa o que tem uso).
       const { erpExampleState } = await import("./erp-examples");
       const state = actor ? await erpExampleState(env, actor, profile, example) : "unknown";
-      if (state === "changed" || state === "unknown") {
-        report.kept.push({ label: example.label, reason: state === "changed" ? "ficou porque foi editado no ERP." : "ficou porque o ERP não respondeu agora; desfaça de novo mais tarde para tirar." });
+      if (state === "changed" || state === "used" || state === "unknown") {
+        report.kept.push({ label: example.label, reason: state === "changed" ? "ficou porque foi editado no ERP."
+          : state === "used" ? "ficou porque já tem estoque ou movimento no ERP."
+          : "ficou porque o ERP não respondeu agora; desfaça de novo mais tarde para tirar." });
         remaining.examples.push(example); kinds.set(group, false);
         continue;
       }
@@ -392,6 +414,9 @@ async function computeUndo(env: Env, profile: string, footprint: Footprint, cata
     if (!kinds.has(group)) kinds.set(group, true);
   }
   for (const [group, all] of kinds) if (all) forgetPaths.add(group);
+  // Exemplos do ERP sem nada criado (ainda esperando o ERP, que o desfazer cancela, ou o ERP já tinha
+  // cadastros): aplicar de novo volta a registrar; a montagem confere de novo o que já existe.
+  for (const group of ["examples.financeiro", "examples.catalogo"]) if (!kinds.has(group)) forgetPaths.add(group);
   return { report, settings, modules, removedMenus, remaining, statements, forgetIds, forgetPaths, erpDeletes };
 }
 async function undoState(env: Env, actor: Actor, profile: string, input: unknown, catalog: readonly AreaTemplate[], apply: boolean) {
