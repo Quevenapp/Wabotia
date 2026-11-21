@@ -11,7 +11,7 @@ export interface MenuGroupDefinition { name: MenuGroupName; columns: readonly Me
 
 export type ErpPart =
   | "cadastro" | "catalogo" | "vendas" | "compras" | "estoque"
-  | "financeiro" | "fiscal" | "cobranca" | "pdv" | "servicos"
+  | "financeiro" | "fiscal" | "cobranca" | "pdv" | "servicos" | "expedicao"
   | "resultados" | "sistema" | "producao";
 
 export interface ErpManagementItem extends ManagementItem {
@@ -235,6 +235,14 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     label: "Checkout de pedidos",
     target: { kind: "ported", to: "/documentos-empresa?tipo=sales_orders&acao=checkout" },
     permission: { kind: "erp", roles: ["admin","vendas"] },
+  },
+  // Expedição (parte erp-expedicao, com Vendas e Estoque): separação, volumes, etiquetas, romaneio e devolução física.
+  {
+    id: "erp.shipping", module: "erp-expedicao", part: "expedicao", primary: true,
+    ...ERP_MENU_GROUPS.comercial, order: 245,
+    label: "Expedição",
+    target: { kind: "ported", to: "/expedicao" },
+    permission: { kind: "erp", roles: ["admin","consulta","vendas","estoque","financeiro","fiscal"] },
   },
   {
     id: "erp.sales-reports", module: "erp-vendas", part: "vendas",
@@ -503,6 +511,7 @@ export const ORIGIN_MENU: readonly MenuGroupDefinition[] = [
     // Logística: only Checkout de pedidos is in scope (objetos de postagem, logística reversa and Origin Envios are out).
     { title: 'Logística', items: [
       legacyItems["erp.order-checkout"],
+      { ...legacyItems["erp.shipping"], homeShortcut: false },
     ] },
   ], footer: legacyItems["erp.sales-reports"] },
   { name: 'Estoque', columns: [

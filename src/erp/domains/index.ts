@@ -15,3 +15,4 @@ import "./preferences/index.ts";
 import "./sync/index.ts";
 import "./inbound/index.ts";
 import "./production/index.ts";
+import "./shipping/index.ts";

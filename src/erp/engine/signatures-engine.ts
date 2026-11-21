@@ -106,6 +106,26 @@ export const ENGINE_SIGNATURES: Record<string, ArgSpec[]> = {
   erp_stock_chart: [["p_user_id", "u"], ["p_args", "j"]],
   erp_stock_lots_expiring: [["p_user_id", "u"], ["p_args", "j"]],
   erp_report_sales_chart: [["p_user_id", "u"], ["p_args", "j"]],
+  // Expedição (structural.ts, expedicao; src/erp/domains/shipping/rpc.ts):
+  // consultas com p_args; gravações com p_command_id (a separação marcada e o
+  // registro da entrega usam a versão da lista e o pedido).
+  erp_shipping_overview: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_shipping_packages: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_shipping_package_save: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
+  erp_shipping_pick_get: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_shipping_pick_create: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
+  erp_shipping_pick_mark: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_shipping_pick_finish: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
+  erp_shipping_pick_cancel: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
+  erp_shipping_pending_resolve: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
+  erp_shipping_order_get: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_shipping_pack: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
+  erp_shipping_ship: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
+  erp_shipping_labels: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_shipping_manifest: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_shipping_delivery_prepare: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_shipping_delivery_record: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_shipping_return_create: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
   // src/erp/domains/fiscal/reform.ts (sessão G; structural.ts, reforma-classificacao)
   erp_fiscal_reform_nature_class_get: [
     ["p_user_id", "u"],

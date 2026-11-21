@@ -1711,6 +1711,164 @@ const PRODUCTION_TABLES: readonly EngineTable[] = [
     since: 23, owner: "producao", structural: "ordem-producao",
   },
 ];
+/** Versão 25: Expedição (src/erp/domains/shipping/). A situação do pedido na
+ * expedição (a separar, em separação, separado, embalado, expedido) fica aqui,
+ * sem tocar na situação comercial do pedido; a lista de separação junta os
+ * itens de vários pedidos; a diferença de quantidade vira pendência (e uma
+ * ocorrência no pedido); os volumes guardam embalagem, medidas e pesos; a
+ * devolução física registra o que voltou e o movimento de entrada no estoque.
+ * Medidas em milímetros e pesos em gramas (INTEGER); quantidades na escala 6
+ * dos itens do pedido. */
+const S_PACKAGE = "erp_shipping__package", S_ORDER = "erp_shipping__order", S_LIST = "erp_shipping__pick_list", S_LINE = "erp_shipping__pick_line";
+const S_PENDING = "erp_shipping__pending", S_VOLUME = "erp_shipping__volume", S_RETURN = "erp_shipping__return", S_COMMAND = "erp_shipping__command";
+const S_MM = (c: string) => `"${c}" INTEGER CHECK ("${c}" IS NULL OR "${c}" BETWEEN 1 AND 100000)`;
+const S_GRAMS = (c: string) => `"${c}" INTEGER CHECK ("${c}" IS NULL OR "${c}" BETWEEN 0 AND 100000000)`;
+const S_QTY = (c: string) => `"${c}" INTEGER NOT NULL DEFAULT 0 CHECK ("${c}" BETWEEN 0 AND 999999999999000000)`;
+const shipping = (table: string, ddl: readonly string[]): EngineTable => ({ table, ddl, since: 25, owner: "logistica", structural: "expedicao" });
+const SHIPPING_TABLES: readonly EngineTable[] = [
+  shipping(S_PACKAGE, [
+    `CREATE TABLE "${S_PACKAGE}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "name" TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 80),
+  ${S_MM("length_mm")},
+  ${S_MM("width_mm")},
+  ${S_MM("height_mm")},
+  ${S_GRAMS("empty_weight_g")},
+  "active" INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+  "version" INTEGER NOT NULL DEFAULT 1 CHECK (version BETWEEN 1 AND 2147483647),
+  "created_by" TEXT NOT NULL,
+  "updated_by" TEXT NOT NULL,
+  "created_at" INTEGER NOT NULL,
+  "updated_at" INTEGER NOT NULL
+) STRICT`,
+  ]),
+  shipping(S_LIST, [
+    `CREATE TABLE "${S_LIST}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "number" INTEGER NOT NULL UNIQUE CHECK (number BETWEEN 1 AND 2147483647),
+  "status" TEXT NOT NULL CHECK (status IN ('open','done','cancelled')),
+  "filters" TEXT NOT NULL DEFAULT '{}' CHECK (${JSON_OF("filters", "object")} AND length(CAST(filters AS BLOB)) <= 4096),
+  "version" INTEGER NOT NULL DEFAULT 1 CHECK (version BETWEEN 1 AND 2147483647),
+  "created_by" TEXT NOT NULL,
+  "created_at" INTEGER NOT NULL,
+  "finished_by" TEXT,
+  "finished_at" INTEGER,
+  CONSTRAINT "${S_LIST}_finished_check" CHECK ((status = 'open') = (finished_at IS NULL))
+) STRICT`,
+  ]),
+  shipping(S_ORDER, [
+    `CREATE TABLE "${S_ORDER}" (
+  "document_id" TEXT NOT NULL PRIMARY KEY,
+  "status" TEXT NOT NULL CHECK (status IN ('to_pick','picking','picked','packed','shipped')),
+  "pick_list_id" TEXT,
+  "version" INTEGER NOT NULL DEFAULT 1 CHECK (version BETWEEN 1 AND 2147483647),
+  "tracking_code" TEXT CHECK (tracking_code IS NULL OR length(tracking_code) BETWEEN 1 AND 200),
+  "transport_at" INTEGER,
+  "shipped_by" TEXT,
+  "shipped_at" INTEGER,
+  "delivery_id" TEXT CHECK (delivery_id IS NULL OR length(delivery_id) BETWEEN 1 AND 100),
+  "delivery_at" INTEGER,
+  "updated_by" TEXT NOT NULL,
+  "created_at" INTEGER NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  CONSTRAINT "${S_ORDER}_shipped_check" CHECK ((status = 'shipped') = (shipped_at IS NOT NULL)),
+  CONSTRAINT "${S_ORDER}_document_fkey" FOREIGN KEY (document_id) REFERENCES "erp_documents__document" (id),
+  CONSTRAINT "${S_ORDER}_list_fkey" FOREIGN KEY (pick_list_id) REFERENCES "${S_LIST}" (id)
+) STRICT`,
+  ]),
+  shipping(S_LINE, [
+    `CREATE TABLE "${S_LINE}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "pick_list_id" TEXT NOT NULL,
+  "document_id" TEXT NOT NULL,
+  "line_key" TEXT NOT NULL CHECK (length(line_key) BETWEEN 1 AND 100),
+  "position" INTEGER NOT NULL CHECK (position BETWEEN 1 AND 250),
+  "product_id" TEXT,
+  "warehouse_id" TEXT,
+  "location" TEXT CHECK (location IS NULL OR length(location) <= 100),
+  "description" TEXT NOT NULL CHECK (length(description) BETWEEN 1 AND 200),
+  "code" TEXT CHECK (code IS NULL OR length(code) <= 100),
+  "gtin" TEXT CHECK (gtin IS NULL OR length(gtin) <= 14),
+  "unit" TEXT CHECK (unit IS NULL OR length(unit) <= 16),
+  ${S_QTY("quantity")},
+  ${S_QTY("picked")},
+  "updated_by" TEXT,
+  "updated_at" INTEGER,
+  CONSTRAINT "${S_LINE}_line_key" UNIQUE (pick_list_id, document_id, line_key),
+  CONSTRAINT "${S_LINE}_list_fkey" FOREIGN KEY (pick_list_id) REFERENCES "${S_LIST}" (id),
+  CONSTRAINT "${S_LINE}_document_fkey" FOREIGN KEY (document_id) REFERENCES "erp_documents__document" (id)
+) STRICT`,
+    `CREATE INDEX "${S_LINE}_document_idx" ON "${S_LINE}" (document_id)`,
+  ]),
+  shipping(S_PENDING, [
+    `CREATE TABLE "${S_PENDING}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "document_id" TEXT NOT NULL,
+  "pick_list_id" TEXT NOT NULL,
+  "line_key" TEXT NOT NULL CHECK (length(line_key) BETWEEN 1 AND 100),
+  "product_id" TEXT,
+  "description" TEXT NOT NULL CHECK (length(description) BETWEEN 1 AND 200),
+  ${S_QTY("quantity")},
+  ${S_QTY("picked")},
+  "status" TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','resolved')),
+  "note" TEXT CHECK (note IS NULL OR length(note) <= 500),
+  "created_by" TEXT NOT NULL,
+  "created_at" INTEGER NOT NULL,
+  "resolved_by" TEXT,
+  "resolved_at" INTEGER,
+  CONSTRAINT "${S_PENDING}_missing_check" CHECK (picked < quantity),
+  CONSTRAINT "${S_PENDING}_resolved_check" CHECK ((status = 'resolved') = (resolved_at IS NOT NULL)),
+  CONSTRAINT "${S_PENDING}_line_key" UNIQUE (pick_list_id, document_id, line_key),
+  CONSTRAINT "${S_PENDING}_document_fkey" FOREIGN KEY (document_id) REFERENCES "erp_documents__document" (id),
+  CONSTRAINT "${S_PENDING}_list_fkey" FOREIGN KEY (pick_list_id) REFERENCES "${S_LIST}" (id)
+) STRICT`,
+    `CREATE INDEX "${S_PENDING}_document_idx" ON "${S_PENDING}" (document_id, status)`,
+  ]),
+  shipping(S_VOLUME, [
+    `CREATE TABLE "${S_VOLUME}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "document_id" TEXT NOT NULL,
+  "number" INTEGER NOT NULL CHECK (number BETWEEN 1 AND 999),
+  "package_id" TEXT,
+  ${S_MM("length_mm")},
+  ${S_MM("width_mm")},
+  ${S_MM("height_mm")},
+  ${S_GRAMS("net_weight_g")},
+  ${S_GRAMS("gross_weight_g")},
+  "items" TEXT NOT NULL DEFAULT '[]' CHECK (${JSON_OF("items", "array")} AND length(CAST(items AS BLOB)) <= 65536),
+  "created_by" TEXT NOT NULL,
+  "created_at" INTEGER NOT NULL,
+  CONSTRAINT "${S_VOLUME}_number_key" UNIQUE (document_id, number),
+  CONSTRAINT "${S_VOLUME}_document_fkey" FOREIGN KEY (document_id) REFERENCES "erp_documents__document" (id),
+  CONSTRAINT "${S_VOLUME}_package_fkey" FOREIGN KEY (package_id) REFERENCES "${S_PACKAGE}" (id)
+) STRICT`,
+  ]),
+  shipping(S_RETURN, [
+    `CREATE TABLE "${S_RETURN}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "number" INTEGER NOT NULL UNIQUE CHECK (number BETWEEN 1 AND 2147483647),
+  "document_id" TEXT NOT NULL,
+  "reason" TEXT NOT NULL CHECK (length(reason) BETWEEN 3 AND 500),
+  "warehouse_id" TEXT,
+  "items" TEXT NOT NULL CHECK (${JSON_OF("items", "array")} AND json_array_length(items) BETWEEN 1 AND 250 AND length(CAST(items AS BLOB)) <= 65536),
+  "movement_id" TEXT,
+  "command_id" TEXT NOT NULL UNIQUE,
+  "created_by" TEXT NOT NULL,
+  "created_at" INTEGER NOT NULL,
+  CONSTRAINT "${S_RETURN}_document_fkey" FOREIGN KEY (document_id) REFERENCES "erp_documents__document" (id)
+) STRICT`,
+    `CREATE INDEX "${S_RETURN}_document_idx" ON "${S_RETURN}" (document_id, created_at)`,
+  ]),
+  shipping(S_COMMAND, [
+    `CREATE TABLE "${S_COMMAND}" (
+  "command_id" TEXT NOT NULL PRIMARY KEY,
+  "actor" TEXT NOT NULL,
+  "request_hash" TEXT NOT NULL CHECK (${HEX64("request_hash")}),
+  "result" TEXT NOT NULL CHECK (${JSON_OF("result", "object")}),
+  "created_at" INTEGER NOT NULL
+) STRICT`,
+  ]),
+];
 export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...BASE_ENGINE_TABLES,
   ...counterTables,
@@ -1778,6 +1936,8 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...PRODUCTION_TABLES,
   // Versão 24: fatia D do Bling (as versões 22 e 23 são de outras frentes).
   ...EXTRA_TABLES,
+  // Versão 25: Expedição (as versões 22 a 24 são de outras frentes).
+  ...SHIPPING_TABLES,
 ];
 
 export const ERP_ENGINE_DDL: readonly string[] = ERP_ENGINE_TABLES.flatMap((t) => t.ddl);

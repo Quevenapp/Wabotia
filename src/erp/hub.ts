@@ -42,7 +42,7 @@ const ERP_CRON_INSTANCE_NAME = "erp-cron";
 const ERP_CRON_CONTINUE_DELAY_MS = 1_000;
 export const ERP_PROFILE_HEADER = "x-erp-profile";
 /** Compatibilidade de imports antigos; o wake não recebe autorização por blocos. */
-export const ERP_OPTIONAL_BLOCKS = ["erp-fiscal", "erp-cobranca", "erp-pdv"] as const;
+export const ERP_OPTIONAL_BLOCKS = ["erp-fiscal", "erp-cobranca", "erp-pdv", "erp-expedicao"] as const;
 
 /** Stub da instância ERP da área (localização preferida: América do Sul). */
 export function erpStub(env: Env, profile: string) {

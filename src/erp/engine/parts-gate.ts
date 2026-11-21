@@ -32,6 +32,10 @@ const RPC_GROUPS = {
     erp_com1_return_prepare erp_com1_return_claim erp_com1_return_record erp_com1_return_get`,
   com1_effect: `erp_com1_effect_apply erp_com1_effect_reverse erp_com1_nfce_sale_cancel erp_com1_return_effects`,
   com1_evidence: `erp_com1_record erp_com1_cancel_record erp_com1_cancel_xml_record`,
+  // Expedição: a parte dela (com Vendas e Estoque, de que depende); Fiscal só muda o que o RPC lê e grava no transporte do pedido.
+  shipping: `erp_shipping_overview erp_shipping_packages erp_shipping_package_save erp_shipping_pick_get erp_shipping_pick_create erp_shipping_pick_mark
+    erp_shipping_pick_finish erp_shipping_pick_cancel erp_shipping_pending_resolve erp_shipping_order_get erp_shipping_pack erp_shipping_ship
+    erp_shipping_labels erp_shipping_manifest erp_shipping_delivery_prepare erp_shipping_delivery_record erp_shipping_return_create`,
   // Compra pela nota recebida: Compras; Estoque, Financeiro e Fiscal são conferidos por efeito dentro do RPC.
   inbound: `erp_inbound_list erp_inbound_get erp_inbound_register erp_inbound_fetch_claim erp_inbound_fetch_record erp_inbound_review
     erp_inbound_supplier_create erp_inbound_enter erp_inbound_reverse erp_inbound_settings_get erp_inbound_settings_save
@@ -201,6 +205,7 @@ const fixed: Partial<Record<ErpRpcRule, ErpModuleId[]>> = {
   com1_prepare: ["erp-fiscal", "erp-vendas"], com1_read: ["erp-fiscal"],
   com1_effect: ["erp-fiscal"],
   inbound: ["erp-compras"],
+  shipping: ["erp-expedicao"],
   base: ["erp"], products: ["erp-produtos"], product_purchase: ["erp-produtos", "erp-compras"],
   stock: ["erp-estoque"], sales: ["erp-vendas"], finance: ["erp-financeiro"], billing: ["erp-cobranca"],
   fiscal: ["erp-fiscal"], pos: ["erp-pdv"], purchase_stock: ["erp-compras", "erp-estoque"],

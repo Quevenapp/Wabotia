@@ -18,6 +18,7 @@ import { ERP_CONTACT_FIELD_OPERATIONS, ERP_CONTACT_FIELDS_ROUTE } from "../../er
 import { ERP_RELATORIOS_ROUTE, ERP_REPORT_OPERATIONS, erpReportParams } from "../../erp/relatorios/contract.ts";
 import { ERP_CONTADOR_OPERATIONS, ERP_CONTADOR_ROUTE, erpContadorParams } from "../../erp/contador/contract.ts";
 import { ERP_PRODUCAO_ROUTE, ERP_PRODUCTION_OPERATIONS, erpProductionParams } from "../../erp/production/contract.ts";
+import { ERP_EXPEDICAO_PART, ERP_EXPEDICAO_ROUTE, ERP_SHIPPING_OPERATIONS, erpShippingParams } from "../../erp/expedicao/contract.ts";
 
 type Params = { type: "object"; properties: Record<string, any>; required: string[] };
 /** Assunto da operação, na ordem da tela de concessões do bot. */
@@ -32,6 +33,7 @@ export const ERP_BOT_GROUPS: readonly { id: string; title: string }[] = [
   { id: "backup", title: "Backup do ERP" },
   { id: "conversa", title: "Enviar documentos pelo WhatsApp" },
   { id: "producao", title: "Produção (ordens de produção)" },
+  { id: "expedicao", title: "Expedição" },
 ];
 export interface ErpBotOperation {
   id: string; method: string; path: string; summary: string; sensitive: boolean;
@@ -135,6 +137,9 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
   // Produção: consultar ordens e sugestões é leitura; criar, concluir e estornar são sensíveis (o bot propõe, a pessoa confirma).
   ...ERP_PRODUCTION_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
     group: "producao", description: op.description, params: erpProductionParams(op) })),
+  // Expedição: consultar é leitura comum; gerar separação, marcar expedido e registrar devolução são sensíveis.
+  ...ERP_SHIPPING_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
+    group: "expedicao", description: op.description, params: erpShippingParams(op) })),
 ];
 
 /** Leituras sensíveis que o administrador pode deixar o bot executar sozinho. */
@@ -155,6 +160,8 @@ export function erpBotModules(op: Pick<ErpBotOperation, "method" | "path">): rea
   if (report) return erpRequirement(...report.parts).all;
   const production = op.path.startsWith(`${ERP_PRODUCAO_ROUTE}/`) ? ERP_PRODUCTION_OPERATIONS.find(item => item.method === op.method && item.path === op.path) : undefined;
   if (production) return erpRequirement(...production.parts).all;
+  // Expedição: a parte dela, com Vendas e Estoque.
+  if (op.path === ERP_EXPEDICAO_ROUTE || op.path.startsWith(`${ERP_EXPEDICAO_ROUTE}/`)) return erpRequirement(ERP_EXPEDICAO_PART).all;
   const requirement = erpRouteRequirement(op.method, new URL(`https://erp.invalid/${op.path.slice("erp/".length).replace(/:[A-Za-z_][A-Za-z0-9_]*/g, "x")}`));
   return requirement && requirement !== "externo" ? requirement.all : erpRequirement("erp").all;
 }

@@ -1,7 +1,9 @@
 /** Contrato puro, compartilhado por Worker, motor, agendador e painel. */
 export type ErpModuleId =
   | "erp" | "erp-produtos" | "erp-vendas" | "erp-compras"
-  | "erp-estoque" | "erp-financeiro" | "erp-fiscal" | "erp-cobranca" | "erp-pdv" | "erp-producao";
+  | "erp-estoque" | "erp-financeiro" | "erp-fiscal" | "erp-cobranca" | "erp-pdv" | "erp-producao"
+  // Expedição: separação, volumes, etiquetas e devolução física (src/erp/expedicao/).
+  | "erp-expedicao";
 export interface ErpParts {
   customers: boolean;
   products: boolean;
@@ -14,6 +16,7 @@ export interface ErpParts {
   pos: boolean;
   /** Produção (ordem de produção): depende de Estoque e de Produtos; desligada por padrão. */
   production: boolean;
+  shipping: boolean;
 }
 export type ErpPartKey = keyof ErpParts;
 export interface ErpPartsSnapshot {
@@ -31,20 +34,26 @@ export const ERP_PART_MODULES: Readonly<Record<ErpPartKey, ErpModuleId>> = Objec
   customers: "erp", products: "erp-produtos", sales: "erp-vendas", purchases: "erp-compras",
   stock: "erp-estoque", finance: "erp-financeiro", fiscal: "erp-fiscal", billing: "erp-cobranca", pos: "erp-pdv",
   production: "erp-producao",
+  shipping: "erp-expedicao",
 });
 export const ERP_PART_KEYS = Object.freeze(Object.keys(ERP_PART_MODULES) as ErpPartKey[]);
+/** Partes que mudam os DTOs de documentos e do início (unavailable_parts): a Expedição não muda nenhum deles. */
+export const ERP_DTO_PART_KEYS = Object.freeze(ERP_PART_KEYS.filter(key => key !== "shipping"));
 export const ERP_MODULE_IDS = Object.freeze(Object.values(ERP_PART_MODULES));
 export const ERP_PART_DEPENDENCIES: Readonly<Record<ErpModuleId, readonly ErpModuleId[]>> = Object.freeze({
   erp: [], "erp-produtos": ["erp"], "erp-vendas": ["erp-produtos"], "erp-compras": ["erp-produtos"],
   "erp-estoque": ["erp-produtos"], "erp-financeiro": ["erp"], "erp-fiscal": ["erp"],
   "erp-cobranca": ["erp-financeiro"], "erp-pdv": ["erp-vendas", "erp-financeiro", "erp-estoque"],
   "erp-producao": ["erp-estoque", "erp-produtos"],
+  // Expedição separa e embala pedidos de venda (Vendas) e devolve ao estoque o que volta (Estoque).
+  "erp-expedicao": ["erp-vendas", "erp-estoque"],
 });
 /** Nome de exibição de cada parte (tela Módulos, painel e mensagens). O identificador não muda. */
 export const ERP_PART_NAMES: Readonly<Record<ErpModuleId, string>> = Object.freeze({
   erp: "Cadastros", "erp-produtos": "Produtos e serviços", "erp-vendas": "Vendas", "erp-compras": "Compras",
   "erp-estoque": "Estoque", "erp-financeiro": "Financeiro", "erp-fiscal": "Fiscal",
   "erp-cobranca": "Cobrança bancária", "erp-pdv": "Caixa / PDV", "erp-producao": "Produção",
+  "erp-expedicao": "Expedição",
 });
 const spokenList = (items: readonly string[]) =>
   items.length > 1 ? `${items.slice(0, -1).join(", ")} e ${items.at(-1)}` : items.join("");
@@ -101,7 +110,8 @@ export function readErpPartsSnapshot(value: unknown, profile?: string, now = Dat
   return Object.freeze({ profile: s.profile, revision: s.revision, ...(timed ? { issued_at: s.issued_at } : {}),
     expires_at: s.expires_at, parts: normalizeErpParts(s.parts) });
 }
-export const sameErpParts = (a: Readonly<ErpParts>, b: Readonly<ErpParts>) => ERP_PART_KEYS.every(key => a[key] === b[key]);
+// Parte ausente na entrega salva (de antes da Expedição) conta como desligada.
+export const sameErpParts = (a: Readonly<ErpParts>, b: Readonly<ErpParts>) => ERP_PART_KEYS.every(key => (a[key] ?? false) === (b[key] ?? false));
 
 export const ERP_PARTS_DENIED_HEADER = "x-erp-parts-denied";
 

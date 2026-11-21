@@ -169,6 +169,8 @@ export function erpDestinationRequirement(value: URL | string): ErpDestinationRe
   else if (path === "/frente-caixa-empresa") owner = V;
   // Estoque › Ordens de produção (parte Produção; Vendas e Compras são conferidos por ação na rota).
   else if (path === "/producao") owner = R;
+  // Expedição: separação, volumes, etiquetas, romaneio e devolução física (com Vendas e Estoque).
+  else if (path === "/expedicao") owner = "erp-expedicao";
   else if (path === "/meu-negocio") { owner = S; if (q.get("painel")?.includes("margem")) extra.push(C, E); if (/previsao|cobertura/.test(q.get("painel") ?? "")) extra.push(E); }
   else if (/^\/(tipos-contatos-empresa|vendedores-empresa|formas-pagamento-empresa|funcionarios-empresa|importar-contatos|numeracao-contatos|tipos-contato|numeros-contato|importacao-contatos|vendedores|funcionarios|formas-pagamento|tags|grupos-tags)$/.test(path)) owner = B;
   else if (/^\/(categorias-produtos|grupos-produtos|exportacao-produtos|listas-precos|campos-customizados)$/.test(path)) owner = P;

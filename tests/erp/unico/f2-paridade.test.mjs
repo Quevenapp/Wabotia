@@ -62,7 +62,8 @@ test("ausência e nove partes ligadas produzem os mesmos DTOs, erros e tabelas",
       })) };
     } finally { lite.close(); }
   };
-  assert.equal(ERP_PART_KEYS.length, 10);
+  // + Produção (production) e Expedição (shipping): onze partes.
+  assert.equal(ERP_PART_KEYS.length, 11);
   assert.deepEqual(run(true), run(false));
 });
 

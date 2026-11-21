@@ -1,0 +1,41 @@
+.fagoo-root .expedicao { max-width: 1240px; margin: 0 auto; padding: 1.25rem; color: inherit; }
+.fagoo-root .expedicao h1 { margin-bottom: .35rem; }
+.fagoo-root .expedicao h2 { font-size: 1.15rem; margin: 0 0 .6rem; }
+.fagoo-root .expedicao p { line-height: 1.55; }
+.fagoo-root .expedicao a { color: var(--link, #2454a6); text-underline-offset: .18em; }
+.fagoo-root .expedicao-tabs, .fagoo-root .expedicao-toolbar, .fagoo-root .expedicao-actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .6rem; margin: 1rem 0; }
+.fagoo-root .expedicao button { font: inherit; padding: .55rem .85rem; border: 1px solid var(--border-strong, #8291a6); border-radius: .35rem; background: var(--surface-alt, #f7f9fc); color: var(--text, #18293d); cursor: pointer; }
+.fagoo-root .expedicao button.expedicao-primary { background: #23508f; border-color: #23508f; color: #fff; }
+.fagoo-root .expedicao button[aria-pressed="true"] { background: #dbe7f8; border-color: #23508f; font-weight: 600; }
+.fagoo-root .expedicao button:disabled { cursor: default; opacity: .55; }
+.fagoo-root .expedicao button:focus-visible, .fagoo-root .expedicao a:focus-visible, .fagoo-root .expedicao input:focus-visible, .fagoo-root .expedicao select:focus-visible { outline: 3px solid #4279ce; outline-offset: 3px; }
+.fagoo-root .expedicao label { display: block; margin: 0 0 .3rem; line-height: 1.5; }
+.fagoo-root .expedicao select, .fagoo-root .expedicao input:not([type="checkbox"]) { display: block; max-width: 100%; padding: .5rem; border: 1px solid var(--border-strong, #aeb9c8); border-radius: .3rem; background: var(--surface, #fff); color: var(--text, #18293d); font: inherit; }
+.fagoo-root .expedicao-card { border: 1px solid var(--border, #cdd6e2); border-radius: .55rem; padding: 1rem; margin: 1rem 0; background: var(--surface, #fff); }
+.fagoo-root .expedicao-table { width: 100%; border-collapse: collapse; margin: .5rem 0; font-variant-numeric: tabular-nums; }
+.fagoo-root .expedicao-table th, .fagoo-root .expedicao-table td { text-align: left; vertical-align: top; padding: .5rem; border-bottom: 1px solid var(--border, #e3e8ef); }
+.fagoo-root .expedicao-table small { display: block; color: var(--text-muted, #5a6878); margin-top: .2rem; }
+.fagoo-root .expedicao-table input { width: 6.5rem; }
+.fagoo-root .expedicao-status { display: inline-block; padding: .1rem .5rem; border-radius: 1rem; background: #eef2f7; font-size: .9em; white-space: nowrap; }
+.fagoo-root .expedicao-status.shipped { background: #e8f4ed; color: #174b32; }
+.fagoo-root .expedicao-status.packed { background: #e7eefb; color: #1d3f75; }
+.fagoo-root .expedicao-warning { border: 1px solid #be902c; border-radius: .4rem; padding: .7rem 1rem; background: #fff8e7; color: #59420c; }
+.fagoo-root .expedicao-error { border: 1px solid #bf5e5e; border-radius: .4rem; padding: .7rem 1rem; background: #fff2f2; color: #702929; }
+.fagoo-root .expedicao-notice { border-left: 5px solid #256847; background: #e8f4ed; color: #174b32; padding: .6rem 1rem; }
+.fagoo-root .expedicao-hint { color: var(--text-muted, #5a6878); }
+/* Separação no celular: um cartão por item, com botões grandes. */
+.fagoo-root .expedicao-pick { display: grid; gap: .6rem; margin: 1rem 0; }
+.fagoo-root .expedicao-pick article { display: grid; grid-template-columns: 1fr auto; gap: .4rem .8rem; align-items: center; border: 1px solid var(--border, #cdd6e2); border-radius: .55rem; padding: .8rem; background: var(--surface, #fff); }
+.fagoo-root .expedicao-pick article.done { background: #eef8f1; border-color: #8cc5a3; }
+.fagoo-root .expedicao-pick .where { font-size: 1.25rem; font-weight: 700; }
+.fagoo-root .expedicao-pick .qty { font-size: 1.2rem; font-variant-numeric: tabular-nums; text-align: right; }
+.fagoo-root .expedicao-pick .controls { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.fagoo-root .expedicao-pick .controls button { min-width: 3rem; min-height: 2.75rem; }
+.fagoo-root .expedicao-pick .controls input { width: 6rem; min-height: 2.75rem; }
+.fagoo-root .expedicao-volume { border: 1px dashed var(--border-strong, #aeb9c8); border-radius: .5rem; padding: .8rem; margin: .6rem 0; }
+.fagoo-root .expedicao-volume .expedicao-toolbar { margin: .4rem 0; }
+.fagoo-root .expedicao-volume input { width: 6.5rem; }
+@media (max-width: 640px) {
+  .fagoo-root .expedicao { padding: .75rem; }
+  .fagoo-root .expedicao-orders th:nth-child(n+6), .fagoo-root .expedicao-orders td:nth-child(n+6) { display: none; }
+}

@@ -5,6 +5,7 @@ import { ERP_CONTACT_FIELDS_MODULE_CONTRACT } from "../../erp/contact-fields/con
 import { ERP_RELATORIOS_MODULE_CONTRACT } from "../../erp/relatorios/contract.ts";
 import { ERP_CONTADOR_MODULE_CONTRACT } from "../../erp/contador/contract.ts";
 import { ERP_PRODUCAO_MODULE_CONTRACT } from "../../erp/production/contract.ts";
+import { ERP_EXPEDICAO_MODULE_CONTRACT } from "../../erp/expedicao/contract.ts";
 import { ERP_MANAGEMENT_ITEMS } from "./panel-menu";
 import type { ModuleDefinition } from "../types";
 import { ERP_PART_DEPENDENCIES, ERP_PART_NAMES, type ErpModuleId } from "../../erp/parts.ts";
@@ -96,4 +97,11 @@ export const erpProducaoModule: ModuleDefinition = {
   routes: [...ERP_PRODUCAO_MODULE_CONTRACT.routes],
   operations: [...ERP_PRODUCAO_MODULE_CONTRACT.operations],
   bot: ERP_PRODUCAO_MODULE_CONTRACT.definition.bot,
+};
+// Expedição (src/erp/expedicao/contract.ts): separação, volumes, etiquetas, romaneio, entrega local e devolução física.
+export const erpExpedicaoModule: ModuleDefinition = {
+  ...definition("erp-expedicao", "Separação de vários pedidos de venda, embalagens e volumes, etiquetas, romaneio, entrega local e devolução física. Precisa de Vendas e Estoque ligados."),
+  routes: [...ERP_EXPEDICAO_MODULE_CONTRACT.routes],
+  operations: [...ERP_EXPEDICAO_MODULE_CONTRACT.operations],
+  bot: ERP_EXPEDICAO_MODULE_CONTRACT.definition.bot,
 };
