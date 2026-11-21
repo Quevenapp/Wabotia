@@ -15,6 +15,7 @@ import { erpPartOffMessage, erpRequirement } from "../parts.ts";
 import { ERP_CONVERSA_PARTS, type ErpConversaDocType } from "./contract.ts";
 import { erpPath, formatPhone, LINK_TTL_MINUTES, withLink, type SendMode } from "./rules.ts";
 import { assertCanWrite, decisionFor, lineConversation, sendView, whatsappLine, type SendRow } from "./service.ts";
+import { attachChargesToConversation } from "./charges.ts";
 
 const STEP_KIND = "documento";
 
@@ -65,6 +66,8 @@ async function deliverSend(env: Env, actor: Actor, profile: string, row: SendRow
     if (!link) throw new ApiError(409, "erp_conversa_changed", "O link deste envio já foi criado. Abra o envio de novo.");
     await enqueue(env, c, actor.id, "notification", { text: withLink(row.text, link), consent_purpose: purpose }, dedupe);
   } else await step(false);
+  // Cobrança da conta (Pix ou link da Cobrança): passa a ser desta conversa (nota e "Pagamento recebido").
+  if (row.doc_type === "conta") await attachChargesToConversation(env, profile, row.doc_id, c.id);
   const at = now();
   await exec(env, "UPDATE erp_whatsapp_sends SET status=?,conversation_id=?,web_step_id=?,updated=? WHERE id=? AND status='preparado'",
     row.mode === "link_copiado" ? "link" : "enviado", c.id, stepId, at, row.id);

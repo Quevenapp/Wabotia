@@ -31,6 +31,8 @@ export interface LoadedDocument {
   page: { title: string; status_label: string; headline: string | null; lines: string[] };
   /** Caminho do documento no painel do ERP (para quem tem permissão). */
   erp_path: string;
+  /** Conta a receber: como o cliente paga (a escolhida e as possíveis) e o que falta na Cobrança. */
+  payment?: { escolha: ReceivablePayment; opcoes: readonly ReceivablePayment[]; avisos: readonly string[] };
   ttl_minutes: number;
 }
 
@@ -64,13 +66,20 @@ function refusal(status: number, body: unknown, what: string): ApiError {
 const person = (actor: Actor): Actor => ({ ...actor, via: undefined });
 
 async function erpGet(env: Env, profile: string, actor: Actor, path: string, what: string): Promise<any> {
+  return erpCall(env, profile, actor, "GET", path, undefined, what);
+}
+
+/** Uma rota do painel do ERP, como a pessoa (o ERP confere papel, carteira e partes). */
+export async function erpCall(env: Env, profile: string, actor: Actor, method: "GET" | "POST", path: string, body: unknown, what: string): Promise<any> {
   const url = `https://wabotia.internal/api/v1/profiles/${encodeURIComponent(profile)}/erp${path}`;
   const who = person(actor);
-  const identity = await erpIdentity(env, who, profile, "GET", new URL(url).pathname);
-  const response = await erpApi(env, new Request(url), profile, who, identity);
-  const body = await response.json().catch(() => null);
-  if (!response.ok) throw refusal(response.status, body, what);
-  return body;
+  const identity = await erpIdentity(env, who, profile, method, new URL(url).pathname);
+  const request = method === "GET" ? new Request(url)
+    : new Request(url, { method, headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(body ?? {}) });
+  const response = await erpApi(env, request, profile, who, identity);
+  const result = await response.json().catch(() => null);
+  if (!response.ok) throw refusal(response.status, result, what);
+  return result;
 }
 
 async function nfe(env: Env, profile: string, actor: Actor, path: string, accept = "application/json"): Promise<Response> {
@@ -101,7 +110,41 @@ async function company(env: Env, profile: string, actor: Actor): Promise<Printab
 
 const safeName = (value: string) => value.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 80) || "documento";
 
-async function salesDocument(env: Env, profile: string, actor: Actor, type: "proposta" | "pedido", id: string): Promise<LoadedDocument> {
+/** Logotipo da empresa (Dados da empresa › Sua marca), conferido por tamanho e SHA-256; sem ele, null. */
+async function companyLogo(env: Env, profile: string, actor: Actor) {
+  try {
+    const page = object(await erpGet(env, profile, actor, "/v1/anexos-empresa/logo", "o logotipo"));
+    const logo = object(page.logo);
+    if (typeof logo.id !== "string" || !UUID.test(logo.id) || logo.status !== "ready" || !Number.isInteger(logo.size_bytes) || logo.size_bytes > 2 * 1024 * 1024) return null;
+    const url = `https://wabotia.internal/api/v1/profiles/${encodeURIComponent(profile)}/erp/v1/anexos-empresa/logo/${logo.id}/download`;
+    const who = person(actor);
+    const response = await erpApi(env, new Request(url), profile, who, await erpIdentity(env, who, profile, "GET", new URL(url).pathname));
+    if (!response.ok || !/^image\/(png|jpeg)/.test(response.headers.get("content-type") ?? "")) { await response.body?.cancel(); return null; }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(value => value.toString(16).padStart(2, "0")).join("");
+    if (bytes.byteLength !== logo.size_bytes || hash !== logo.sha256) return null;
+    const { pdfImage } = await import("./pdf-image.ts");
+    return pdfImage(bytes);
+  } catch {
+    // Sem logotipo (ou sem papel para lê-lo): o cabeçalho sai só com o nome.
+    return null;
+  }
+}
+
+/** O PDF igual à impressão da tela (mesmo modelo); documento que o modelo recusa: a via simples. */
+async function salesPdf(env: Env, profile: string, actor: Actor, doc: Record<string, any>, printable: PrintableDocument, status: string | null): Promise<Uint8Array> {
+  try {
+    const [{ documentPrintModel }, { printModelPdf }] = await Promise.all([import("../../../web/erp/app/lib/document-print-model.ts"), import("./print-pdf.ts")]);
+    let company = null;
+    try { company = object(await erpGet(env, profile, actor, "/v1/empresa/identidade", "os dados da empresa")).record ?? null; } catch { company = null; }
+    const model = documentPrintModel(doc as any, company as any);
+    return printModelPdf(model, { status, logo: await companyLogo(env, profile, actor) });
+  } catch {
+    return documentPdf(printable);
+  }
+}
+
+async function salesDocument(env: Env, profile: string, actor: Actor, type: "proposta" | "pedido", id: string, light = false): Promise<LoadedDocument> {
   const kind = type === "proposta" ? "sales_proposals" : "sales_orders";
   const what = type === "proposta" ? "esta proposta" : "este pedido";
   const body = await erpGet(env, profile, actor, `/v1/documentos/${kind}/${id}`, what);
@@ -131,7 +174,8 @@ async function salesDocument(env: Env, profile: string, actor: Actor, type: "pro
   };
   const total = decimalCents(printable.totals.total);
   const title = `${name} nº ${number}`;
-  const pdf = documentPdf(printable);
+  // Na prévia, só o nome do arquivo; o PDF (igual ao da tela) nasce no envio.
+  const pdf = light ? documentPdf(printable) : await salesPdf(env, profile, actor, doc, printable, statusLabel);
   const validUntil = type === "proposta" ? printable.valid_until : null;
   return {
     type, id, title, contact_id: typeof doc.contact_id === "string" ? doc.contact_id : null, customer_name: printable.customer.name,
@@ -202,7 +246,55 @@ async function invoice(env: Env, profile: string, actor: Actor, id: string, xml:
   };
 }
 
-async function receivable(env: Env, profile: string, actor: Actor, id: string, pdv: boolean): Promise<LoadedDocument> {
+export type ReceivablePayment = "pix" | "link" | "boleto" | "sem";
+const PLACEHOLDER = { pix: "(o código Pix copia e cola é gerado no envio)", link: "(o link de pagamento é gerado no envio)" };
+
+/** Endereço numa linha: "Rua X, 10 - Bairro - Cidade/UF - CEP 00000-000". */
+const addressLine = (record: Record<string, any>) => [
+  [text(record.address ?? record.street), text(record.number ?? record.address_number)].filter(Boolean).join(", "),
+  text(record.neighborhood ?? record.district),
+  text(record.city) && text(record.state) ? `${record.city}/${record.state}` : text(record.city),
+  text(record.postal_code ?? record.zip ?? record.cep) ? `CEP ${record.postal_code ?? record.zip ?? record.cep}` : null,
+].filter(Boolean).join(" - ") || null;
+
+/** Boleto da conta, se ela tem cobrança no banco: o PDF, ou o que falta (sem gerar). */
+async function receivableBoleto(env: Env, profile: string, actor: Actor, id: string, title: Record<string, any>, billing: Record<string, any>,
+  contact: Record<string, any>, light: boolean): Promise<{ file: OutgoingFile | null; missing: string[]; line: string | null }> {
+  const { boletoMissing, boletoPdf, formatDigitable } = await import("./boleto.ts");
+  if (typeof billing.remittance_id !== "string" || billing.file_generated !== true)
+    return { file: null, missing: ["a remessa da cobrança no banco gerada (Cobrança no banco)"], line: null };
+  let preview: Record<string, any> = {};
+  try {
+    const items = await erpGet(env, profile, actor, `/v1/boletos-itau/remittances/${billing.remittance_id}/items`, "a remessa do boleto");
+    const item = (Array.isArray(items?.items) ? items.items : []).find((row: any) => row?.finance_title_id === id);
+    if (!item) return { file: null, missing: ["esta conta na remessa do banco"], line: null };
+    preview = object(await erpGet(env, profile, actor, `/v1/boletos-itau/${item.billing_title_id}/preview`, "o boleto desta conta"));
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "erp_customer_restricted") throw error;
+    return { file: null, missing: ["os dados do boleto no ERP (só boletos Itaú, carteira 109, com remessa gerada)"], line: null };
+  }
+  // Remessa de teste (homologação) não vira boleto para pagar.
+  if (preview.source_purpose !== "operational") return { file: null, missing: ["a remessa operacional aprovada (a desta conta é de teste)"], line: null };
+  const binding = object(preview.binding);
+  let company: Record<string, any> = {};
+  try { company = object(object(object(await erpGet(env, profile, actor, "/v1/empresa/identidade", "os dados da empresa")).record).data); } catch { /* falta abaixo */ }
+  const data = {
+    bank: typeof binding.bank === "string" ? binding.bank : "341", barcode: String(binding.barcode ?? ""), digitable_line: String(binding.digitableLine ?? ""),
+    amount_cents: typeof binding.amountCents === "string" ? binding.amountCents : String(title.balance_cents ?? ""), due_on: String(binding.dueOn ?? title.due_on ?? ""),
+    our_number: String(binding.ourNumberWithDigit ?? billing.our_number ?? ""), document_number: text(binding.documentNumber ?? billing.document_number, 20),
+    issued_on: text(title.issued_on, 10),
+    beneficiary: { name: text(company.legal_name) ?? text(company.trade_name), document: text(company.cnpj) ? `CNPJ ${company.cnpj}` : null, address: addressLine(company) },
+    payer: { name: text(contact.name, 200) ?? text(title.contact_name, 200), document: text(contact.document ?? contact.cpf_cnpj, 30), address: addressLine(contact) },
+    instructions: ["Não receber após 60 dias do vencimento.", "Em caso de dúvida, fale com o beneficiário pelo WhatsApp."],
+  };
+  const missing = boletoMissing(data);
+  if (missing.length) return { file: null, missing, line: null };
+  const line = formatDigitable(data.digitable_line.replace(/\D/g, ""));
+  return { file: { name: `${safeName(`Boleto-${data.document_number ?? data.our_number}`)}.pdf`, type: "application/pdf", bytes: light ? new Uint8Array(0) : boletoPdf(data) }, missing: [], line };
+}
+
+async function receivable(env: Env, profile: string, actor: Actor, id: string, pdv: boolean,
+  options: { light: boolean; payment: ReceivablePayment | null }): Promise<LoadedDocument> {
   const body = await erpGet(env, profile, actor, `/v1/financeiro/titles/${id}/detalhe`, "esta conta a receber");
   const title = object(body.record);
   if (title.kind !== "receivable") throw new ApiError(404, "not_found", "Não achamos esta conta a receber no ERP.");
@@ -215,9 +307,35 @@ async function receivable(env: Env, profile: string, actor: Actor, id: string, p
     try { const read = await erpGet(env, profile, actor, `/v1/cadastros/contacts/${contactId}`, "o cadastro do cliente"); contact = object(read.record ?? read.data ?? read); }
     catch (error) { if (error instanceof ApiError && error.code === "erp_customer_restricted") throw error; }
   }
-  // Pix copia e cola: a chave Pix da área (Frente de caixa), com o valor em aberto.
-  let pix: string | null = null;
-  if (pdv && balance && balance !== "0") {
+  // Cobrança da área (Pix ou link que confirmam sozinhos, ./charges.ts): a
+  // escolhida, ou o Pix quando a Cobrança está pronta. Na prévia, nada é
+  // criado no provedor; o código e o link nascem no envio.
+  const { paymentsMissing } = await import("../../payments");
+  const missingCharge = balance && balance !== "0" ? await paymentsMissing(env, profile) : { code: "no_balance", message: "Esta conta não tem saldo em aberto." };
+  const billing = object(body.billing);
+  const hasBoleto = typeof billing.remittance_id === "string";
+  const choice: ReceivablePayment = options.payment ?? (hasBoleto ? "boleto" : missingCharge ? "sem" : "pix");
+  const notes: string[] = [];
+  const files: OutgoingFile[] = [];
+  let pix: string | null = null, link: string | null = null, boletoLine: string | null = null;
+  if (choice === "pix" || choice === "link") {
+    if (missingCharge) throw new ApiError(409, missingCharge.code, missingCharge.message);
+    if (options.light) choice === "pix" ? pix = PLACEHOLDER.pix : link = PLACEHOLDER.link;
+    else {
+      const { generateCharge } = await import("./charges.ts");
+      const { cobranca } = await generateCharge(env, actor, profile, id, choice);
+      pix = choice === "pix" ? cobranca.pix_copia_e_cola : null;
+      link = cobranca.link;
+      if (!pix && !link) throw new ApiError(409, "erp_charge_closed", "A cobrança desta conta já foi paga ou encerrada. Abra a conta no Financeiro para conferir.");
+    }
+  } else if (choice === "boleto") {
+    const boleto = await receivableBoleto(env, profile, actor, id, title, billing, contact, options.light);
+    if (!boleto.file) throw new ApiError(422, "erp_boleto_incomplete", `O boleto desta conta não foi gerado: falta ${boleto.missing.join(", ")}. Complete os dados ou envie por Pix ou link.`);
+    files.push(boleto.file);
+    boletoLine = boleto.line;
+  } else if (missingCharge && missingCharge.code !== "no_balance") notes.push(`Pix e link que confirmam sozinhos: ${missingCharge.message}`);
+  // Sem a Cobrança: a chave Pix da área (Frente de caixa), com o valor em aberto (sem confirmação automática).
+  if (choice === "sem" && pdv && balance && balance !== "0") {
     try {
       const context = object(await erpGet(env, profile, actor, "/v1/frente-caixa", "a chave Pix"));
       const key = object(context.pix);
@@ -232,10 +350,13 @@ async function receivable(env: Env, profile: string, actor: Actor, id: string, p
   const label = `Cobrança: ${description}`;
   return {
     type: "conta", id, title: label, contact_id: contactId, customer_name: name, phones: phonesOf(contact), purpose: "billing",
-    facts: { type: "conta", label: description, customer: name, total_cents: balance, due_on: text(title.due_on, 10), description, pix, attachments: 0 },
-    files: [],
+    facts: { type: "conta", label: description, customer: name, total_cents: balance, due_on: text(title.due_on, 10), description, pix, payment_link: link,
+      boleto_line: boletoLine, attachments: files.length },
+    files,
+    payment: { escolha: choice, opcoes: [...(missingCharge ? [] : ["pix", "link"] as const), ...(hasBoleto ? ["boleto"] as const : []), "sem"], avisos: notes },
     page: { title: label, status_label: title.overdue === true ? "Vencida" : "Em aberto", headline: money(balance) ? `Valor: ${money(balance)}` : null,
-      lines: [day(title.due_on) ? `Vencimento: ${day(title.due_on)}` : "", pix ? "Pague com o Pix copia e cola enviado na conversa." : ""].filter(Boolean) },
+      lines: [day(title.due_on) ? `Vencimento: ${day(title.due_on)}` : "", pix ? "Pague com o Pix copia e cola enviado na conversa." : "",
+        link && !options.light ? `Link de pagamento: ${link}` : "", boletoLine ? `Linha digitável: ${boletoLine}` : ""].filter(Boolean) },
     erp_path: erpPath("conta", id),
     ttl_minutes: 7 * 24 * 60,
   };
@@ -244,10 +365,10 @@ async function receivable(env: Env, profile: string, actor: Actor, id: string, p
 /** Lê o documento como a pessoa; parte desligada e permissão já recusam aqui.
  * `light`: sem buscar no cofre os arquivos da nota (prévia e histórico); o tamanho fica 0. */
 export async function loadDocument(env: Env, profile: string, actor: Actor, type: ErpConversaDocType, id: string,
-  options: { xml?: boolean; parts: Readonly<Record<string, boolean>>; light?: boolean }): Promise<LoadedDocument> {
+  options: { xml?: boolean; parts: Readonly<Record<string, boolean>>; light?: boolean; payment?: ReceivablePayment | null }): Promise<LoadedDocument> {
   if (!UUID.test(id)) throw new ApiError(400, "invalid_request", "Identificador do documento inválido.");
   const normalized = id.toLowerCase();
-  if (type === "proposta" || type === "pedido") return salesDocument(env, profile, actor, type, normalized);
+  if (type === "proposta" || type === "pedido") return salesDocument(env, profile, actor, type, normalized, options.light === true);
   if (type === "nota") return invoice(env, profile, actor, normalized, options.xml === true, options.light === true);
-  return receivable(env, profile, actor, normalized, options.parts["erp-pdv"] === true);
+  return receivable(env, profile, actor, normalized, options.parts["erp-pdv"] === true, { light: options.light === true, payment: options.payment ?? null });
 }

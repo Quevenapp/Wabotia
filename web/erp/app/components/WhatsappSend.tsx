@@ -1,8 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Modal } from './Modal';
 import {
-  MODE_LABELS, NO_LINE, WINDOW_LABELS, WhatsappSendError, newKey, prepareWhatsapp, sendWhatsapp, sizeLabel, useWhatsappLines, whatsappButtonState, whatsappHistory,
-  type WhatsappDocType, type WhatsappPreparation, type WhatsappSendRecord,
+  MODE_LABELS, NO_LINE, PAYMENT_LABELS, WINDOW_LABELS, WhatsappSendError, newKey, prepareWhatsapp, sendWhatsapp, sizeLabel, useWhatsappLines, whatsappButtonState, whatsappHistory,
+  type WhatsappDocType, type WhatsappPayment, type WhatsappPreparation, type WhatsappSendRecord,
 } from '../lib/whatsapp-send';
 import './whatsapp-send.css';
 
@@ -18,7 +18,8 @@ export function WhatsappSendDialog({ type, id, onClose, onSent }: { type: Whatsa
   const [prep, setPrep] = useState<WhatsappPreparation | null>(null), [error, setError] = useState(''), [loading, setLoading] = useState(true);
   const [phone, setPhone] = useState<string | null>(null), [typed, setTyped] = useState(''), [checkedTyped, setCheckedTyped] = useState(''), [line, setLine] = useState<string | null>(null), [xml, setXml] = useState(false);
   const [busy, setBusy] = useState<'' | 'enviar' | 'copiar_link'>(''), [done, setDone] = useState<WhatsappSendRecord | null>(null), [link, setLink] = useState<string | null>(null), [copied, setCopied] = useState(false);
-  const key = useRef(newKey()), phoneName = useId(), typedId = useId(), lineId = useId(), xmlId = useId();
+  const [payment, setPayment] = useState<WhatsappPayment | null>(null);
+  const key = useRef(newKey()), phoneName = useId(), typedId = useId(), lineId = useId(), xmlId = useId(), paymentId = useId();
   const target = phone === OTHER ? checkedTyped : phone;
 
   useEffect(() => {
@@ -26,7 +27,7 @@ export function WhatsappSendDialog({ type, id, onClose, onSent }: { type: Whatsa
     if (prep && phone === OTHER && !checkedTyped) return;
     const request = new AbortController();
     setLoading(true); setError('');
-    prepareWhatsapp(type, id, { telefone: target || null, linha: line, xml }, request.signal).then(value => {
+    prepareWhatsapp(type, id, { telefone: target || null, linha: line, xml, pagamento: payment }, request.signal).then(value => {
       setPrep(value); setLoading(false);
       if (phone === null) setPhone(value.telefones[0]?.digitos ?? OTHER);
       if (line === null && value.destino) setLine(value.destino.linha);
@@ -34,14 +35,15 @@ export function WhatsappSendDialog({ type, id, onClose, onSent }: { type: Whatsa
       key.current = newKey();
     }, reason => { if (!request.signal.aborted) { setError(message(reason) || 'Não deu para preparar o envio.'); setLoading(false); } });
     return () => request.abort();
-  }, [type, id, target, line, xml]);
+  }, [type, id, target, line, xml, payment]);
 
   const run = async (acao: 'enviar' | 'copiar_link') => {
     const destination = prep?.destino;
     if (!destination || busy) return;
     setBusy(acao); setError('');
     try {
-      const result = await sendWhatsapp(type, id, { telefone: destination.digitos, linha: destination.linha, ...(prep?.previa.xml_opcional ? { xml } : {}), acao }, key.current);
+      const chosen = prep?.previa.pagamento?.escolha;
+      const result = await sendWhatsapp(type, id, { telefone: destination.digitos, linha: destination.linha, ...(prep?.previa.xml_opcional ? { xml } : {}), ...(chosen ? { pagamento: chosen } : {}), acao }, key.current);
       setDone(result.envio); setLink(result.url); onSent?.(result.envio);
     } catch (reason) { setError(message(reason) || 'O envio não saiu.'); if (reason instanceof WhatsappSendError && reason.code !== 'erp_conversa_network') key.current = newKey(); }
     finally { setBusy(''); }
@@ -81,6 +83,11 @@ export function WhatsappSendDialog({ type, id, onClose, onSent }: { type: Whatsa
             <select id={lineId} value={line ?? ''} disabled={Boolean(busy)} onChange={event => setLine(event.target.value)}>
               {prep.linhas.map(item => <option key={item.id} value={item.id}>{item.nome}{item.numero ? ` · ${item.numero}` : ''}{item.tipo === 'qr' ? ' (QR)' : ''}</option>)}
             </select></label> : <p className="real-alert" role="alert">{prep.conectar ?? NO_LINE}.</p>}
+          {prep.previa.pagamento && <label htmlFor={paymentId}>Como o cliente paga
+            <select id={paymentId} value={prep.previa.pagamento.escolha} disabled={Boolean(busy)} onChange={event => setPayment(event.target.value as WhatsappPayment)}>
+              {prep.previa.pagamento.opcoes.map(option => <option key={option} value={option}>{PAYMENT_LABELS[option]}</option>)}
+            </select></label>}
+          {prep.previa.pagamento?.avisos.map(text => <p key={text} className="real-help">{text}</p>)}
           {prep.previa.xml_opcional && <label htmlFor={xmlId} className="whatsapp-send-check"><input id={xmlId} type="checkbox" checked={xml} disabled={Boolean(busy)} onChange={event => setXml(event.target.checked)} /> Enviar também o XML da nota</label>}
           <section className="whatsapp-send-preview" aria-label="Prévia">
             <h3>Prévia</h3>

@@ -129,7 +129,7 @@ const RPC_GROUPS = {
     erp_purchase_receipts_reverse_preview erp_stock_purchase_receive erp_stock_purchase_receive_preview erp_stock_purchase_reverse_all erp_stock_purchase_suggestion
     erp_stock_report_purchase_orders`,
   report: `erp_preferences_report_run erp_preferences_report_save`,
-  sales: `erp_home_business_panel erp_home_top_products`,
+  sales: `erp_home_business_panel erp_home_top_products erp_catalog_contact_timeline`,
   sales_stock: `erp_stock_product_reservations erp_stock_reservation_apply erp_stock_reservation_command erp_stock_reservation_get erp_stock_reservation_preview`,
   situation: `erp_preferences_situation_save erp_preferences_situations erp_preferences_transition_save erp_preferences_transitions_delete`,
   stock: `erp_stock_mirror_product_summary erp_stock_availability erp_stock_balances erp_stock_composition_components erp_stock_composition_export erp_stock_composition_get

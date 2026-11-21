@@ -17,7 +17,9 @@ import { moduleStates, requireModule } from "../../modules/registry";
 import { erpBotDelegation } from "../../modules/erp/bot-access";
 import { erpPartOffMessage, erpRequirement } from "../parts.ts";
 import { ERP_CONVERSA_DOC_TYPES, ERP_CONVERSA_PARTS, erpConversaOperationFor, type ErpConversaDocType } from "./contract.ts";
-import { loadDocument, type LoadedDocument } from "./documents.ts";
+import { erpCall, loadDocument, type LoadedDocument, type ReceivablePayment } from "./documents.ts";
+import { chargeContext, chargeSettings, confirmSuggestion, generateCharge, requireFinance, saveChargeSettings } from "./charges.ts";
+import { paymentsMissing } from "../../payments";
 import { formatPhone, messageText } from "./rules.ts";
 import {
   assertBotRecipient, assertCanWrite, decisionFor, lineConversation, lineView, phoneInput, recordPhones, restrictedContact,
@@ -25,6 +27,31 @@ import {
 } from "./service.ts";
 
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function uuidParam(value: string | undefined): string {
+  if (!value || !UUID.test(value)) throw new ApiError(400, "invalid_request", "Identificador da conta inválido.");
+  return value.toLowerCase();
+}
+
+/** A preferência e, para o administrador escolher, as contas financeiras e formas de pagamento do ERP. */
+async function settingsView(env: Env, profile: string, actor: Actor) {
+  const settings = await chargeSettings(env, profile);
+  const list = async (path: string, what: string) => {
+    try {
+      const body = await erpCall(env, profile, actor, "GET", path, undefined, what);
+      const items = Array.isArray(body?.items) ? body.items : Array.isArray(body?.data) ? body.data : Array.isArray(body) ? body : [];
+      return items.filter((item: any) => typeof item?.id === "string").map((item: any) => ({ id: item.id, nome: String(item.name ?? item.description ?? item.id), ativa: item.active !== false }));
+    } catch { return []; }
+  };
+  const missing = await paymentsMissing(env, profile);
+  return {
+    baixar_sozinho: settings.auto_settle, conta_financeira: settings.account_id, forma_pagamento: settings.payment_method_id,
+    ligada_em: settings.enabled_at, pode_mudar: actor.role === "admin" && !actor.via,
+    cobranca_pronta: !missing, falta: missing?.message ?? null,
+    contas: await list("/v1/financeiro/accounts", "as contas financeiras"),
+    formas: await list("/v1/financeiro/formas-pagamento?kind=receivable", "as formas de pagamento"),
+  };
+}
 
 function docType(value: string | undefined): ErpConversaDocType {
   if (!ERP_CONVERSA_DOC_TYPES.includes(value as ErpConversaDocType))
@@ -41,9 +68,16 @@ async function requirePart(env: Env, profile: string, type: ErpConversaDocType) 
   return states;
 }
 
-async function documentFor(env: Env, profile: string, actor: Actor, type: ErpConversaDocType, id: string, xml = false, light = false) {
+const PAYMENTS = ["pix", "link", "boleto", "sem"] as const;
+function paymentChoice(value: unknown): ReceivablePayment | null {
+  if (value === undefined || value === null || value === "") return null;
+  if (!PAYMENTS.includes(value as ReceivablePayment)) throw new ApiError(400, "invalid_request", "pagamento: use pix, link, boleto ou sem.");
+  return value as ReceivablePayment;
+}
+
+async function documentFor(env: Env, profile: string, actor: Actor, type: ErpConversaDocType, id: string, xml = false, light = false, payment: ReceivablePayment | null = null) {
   const states = await requirePart(env, profile, type);
-  const doc = await loadDocument(env, profile, actor, type, id, { xml, parts: states, light });
+  const doc = await loadDocument(env, profile, actor, type, id, { xml, parts: states, light, payment });
   if (await restrictedContact(env, profile, doc.contact_id))
     throw new ApiError(403, "erp_customer_restricted", "O cadastro deste cliente está restrito pela privacidade de cadastro; o documento não pode sair por aqui.");
   return { doc, phones: await recordPhones(env, profile, doc.contact_id, doc.phones) };
@@ -54,7 +88,7 @@ const files = (doc: LoadedDocument) => doc.files.map(file => ({ nome: file.name,
 const sizes = (doc: LoadedDocument) => doc.files.map(file => ({ size: file.bytes.byteLength || 1 }));
 
 async function prepare(env: Env, profile: string, actor: Actor, type: ErpConversaDocType, id: string, query: URLSearchParams) {
-  const { doc, phones } = await documentFor(env, profile, actor, type, id, query.get("xml") === "1", true);
+  const { doc, phones } = await documentFor(env, profile, actor, type, id, query.get("xml") === "1", true, paymentChoice(query.get("pagamento")));
   const lines = await whatsappLines(env, profile);
   const typed = query.get("telefone");
   const phone = typed ? phoneInput(typed) : phones[0] ?? null;
@@ -75,7 +109,7 @@ async function prepare(env: Env, profile: string, actor: Actor, type: ErpConvers
     linhas: lines.map(lineView),
     conectar: lines.length ? null : "Conecte uma linha de WhatsApp em Conexões",
     destino: destination,
-    previa: { texto: messageText(doc.facts), anexos: files(doc), xml_opcional: type === "nota" },
+    previa: { texto: messageText(doc.facts), anexos: files(doc), xml_opcional: type === "nota", pagamento: doc.payment ?? null },
     envios: await sendHistory(env, profile, type, doc.id),
   };
 }
@@ -104,7 +138,7 @@ async function send(env: Env, request: Request, profile: string, actor: Actor, t
   const previous = await one<SendRow>(env, "SELECT * FROM erp_whatsapp_sends WHERE id=? AND profile_id=?", sendId, profile);
   if (previous && previous.status !== "preparado") return { envio: await sendView(env, previous), url: null, repetido: true };
 
-  const { doc, phones } = await documentFor(env, profile, actor, type, id, body.xml === true);
+  const { doc, phones } = await documentFor(env, profile, actor, type, id, body.xml === true, false, paymentChoice(body.pagamento));
   const phone = phoneInput(body.telefone);
   const inRecord = phones.some(item => samePhone(item, phone));
   const line = await whatsappLine(env, profile, body.linha);
@@ -150,19 +184,35 @@ export async function erpConversaRoute(env: Env, request: Request, profile: stri
   if (actor.kind !== "user")
     throw new ApiError(403, "user_required", "Documentos do ERP vão pelo WhatsApp por uma pessoa da área (ou pelo bot, com a confirmação dela).");
   await requireModule(env, profile, "erp");
-  if (!allows(actor, "conversations"))
-    throw new ApiError(403, "forbidden", "Seu acesso não inclui as conversas. Peça ao administrador em Pessoas e acessos para enviar documentos pelo WhatsApp.");
   const { operation, params } = match;
+  if (operation.conversations !== false && !allows(actor, "conversations"))
+    throw new ApiError(403, "forbidden", "Seu acesso não inclui as conversas. Peça ao administrador em Pessoas e acessos para enviar documentos pelo WhatsApp.");
   const body = operation.method === "GET" ? undefined : await request.json<Record<string, unknown>>().catch(() => {
     throw new ApiError(400, "invalid_request", "Corpo do pedido inválido.");
   });
-  if (body !== undefined && (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => !operation.body.includes(key))))
-    throw new ApiError(400, "invalid_request", `Informe só: ${operation.body.join(", ")}.`);
+  const accepted = [...operation.body, ...(operation.optional ?? [])];
+  if (body !== undefined && (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => !accepted.includes(key))))
+    throw new ApiError(400, "invalid_request", `Informe só: ${accepted.join(", ")}.`);
   // Pelo bot: a operação concedida a ele e, no envio, a proposta que a pessoa confirmou.
   if (actor.via && !await erpBotDelegation(env, actor, profile, request.method, url.pathname, body))
     throw new ApiError(403, "erp_bot_grant_required", "Esta operação de envio pelo WhatsApp não foi liberada para este bot, ou falta a confirmação da pessoa.");
 
   switch (operation.name) {
+    case "erp.financeiro.cobranca.preferencias":
+      await requireFinance(env, profile);
+      return json(await settingsView(env, profile, actor));
+    case "erp.financeiro.cobranca.preferencias.salvar":
+      await requireFinance(env, profile);
+      await saveChargeSettings(env, actor, profile, body!);
+      return json(await settingsView(env, profile, actor));
+    case "erp.financeiro.cobranca.ver":
+      return json(await chargeContext(env, actor, profile, uuidParam(params.id)));
+    case "erp.financeiro.cobranca.gerar":
+      if (!allows(actor, "payments"))
+        throw new ApiError(403, "forbidden", "Seu acesso não inclui a Cobrança. Peça ao administrador em Pessoas e acessos para gerar Pix ou link de pagamento.");
+      return json(await generateCharge(env, actor, profile, uuidParam(params.id), body!.forma));
+    case "erp.financeiro.cobranca.confirmar_baixa":
+      return json(await confirmSuggestion(env, actor, profile, uuidParam(params.id), String(params.cobranca), body!));
     case "erp.conversa.linhas": {
       const lines = await whatsappLines(env, profile);
       return json({ linhas: lines.map(lineView), conectar: lines.length ? null : "Conecte uma linha de WhatsApp em Conexões" });

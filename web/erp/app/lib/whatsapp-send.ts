@@ -20,7 +20,9 @@ export interface WhatsappPreparation {
   conectar: string | null;
   destino: null | { telefone: string; digitos: string; fora_do_cadastro: boolean; linha: string; conversa: { id: string } | null; janela: 'aberta' | 'fechada' | 'sem_janela';
     modo: WhatsappMode; motivo: string | null; modelo: string | null; pode_copiar_link: boolean; conversa_nova: boolean };
-  previa: { texto: string; anexos: { nome: string; tipo: string; tamanho: number | null }[]; xml_opcional: boolean };
+  previa: { texto: string; anexos: { nome: string; tipo: string; tamanho: number | null }[]; xml_opcional: boolean;
+    /** Conta a receber: como o cliente paga (a escolhida, as possíveis e o que falta na Cobrança). */
+    pagamento?: { escolha: WhatsappPayment; opcoes: WhatsappPayment[]; avisos: string[] } | null };
   envios: WhatsappSendRecord[];
 }
 export interface WhatsappSendResult { envio: WhatsappSendRecord; url: string | null }
@@ -39,6 +41,8 @@ export function whatsappBase(): string | null {
 /** A parte do ERP do documento está ligada (sem ela, o botão não aparece). */
 export const whatsappPartEnabled = (type: WhatsappDocType) => blockEnabled(PARTS[type]);
 
+/** Chamada a /erp-conversa (também a cobrança da conta a receber, lib/title-charge.ts). */
+export const conversaCall = <T,>(path: string, init: RequestInit = {}) => call<T>(path, init);
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const base = whatsappBase();
   if (!base) throw new WhatsappSendError('O envio pelo WhatsApp só funciona no painel da área (não na demonstração).', 'erp_conversa_unavailable');
@@ -92,14 +96,17 @@ export function whatsappButtonState(type: WhatsappDocType, lines: LinesState, re
 }
 
 const path = (type: WhatsappDocType, id: string) => `/${type}/${encodeURIComponent(id)}`;
-export function prepareWhatsapp(type: WhatsappDocType, id: string, choice: { telefone?: string | null; linha?: string | null; xml?: boolean }, signal?: AbortSignal) {
+export type WhatsappPayment = 'pix' | 'link' | 'boleto' | 'sem';
+export const PAYMENT_LABELS: Record<WhatsappPayment, string> = { pix: 'Pix copia e cola (confirma sozinho)', link: 'Link de pagamento (confirma sozinho)', boleto: 'Boleto em PDF', sem: 'Só o aviso, sem forma de pagar' };
+export function prepareWhatsapp(type: WhatsappDocType, id: string, choice: { telefone?: string | null; linha?: string | null; xml?: boolean; pagamento?: WhatsappPayment | null }, signal?: AbortSignal) {
   const query = new URLSearchParams();
+  if (choice.pagamento) query.set('pagamento', choice.pagamento);
   if (choice.telefone) query.set('telefone', choice.telefone);
   if (choice.linha) query.set('linha', choice.linha);
   if (choice.xml) query.set('xml', '1');
   return call<WhatsappPreparation>(`${path(type, id)}${query.size ? `?${query}` : ''}`, { signal });
 }
-export function sendWhatsapp(type: WhatsappDocType, id: string, body: { telefone: string; linha: string; xml?: boolean; acao?: 'enviar' | 'copiar_link' }, key: string) {
+export function sendWhatsapp(type: WhatsappDocType, id: string, body: { telefone: string; linha: string; xml?: boolean; acao?: 'enviar' | 'copiar_link'; pagamento?: WhatsappPayment }, key: string) {
   return call<WhatsappSendResult>(`${path(type, id)}/enviar`, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key } });
 }
 export const whatsappHistory = (type: WhatsappDocType, id: string, signal?: AbortSignal) => call<{ envios: WhatsappSendRecord[] }>(`${path(type, id)}/envios`, { signal });

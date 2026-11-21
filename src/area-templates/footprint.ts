@@ -19,7 +19,10 @@ type Statement = [string, any[]];
 export interface FootprintItem { key: string; id: string; hash: string; label: string; archived_by_undo?: boolean }
 const ARCHIVED = new Set(["os_work_types", "os_object_types"]);
 export interface FootprintScalar { path: string; hash: string }
-export type ExampleKind = "agenda_service" | "agenda_professional" | "mensalidade_plan";
+/** erp_*: financeiro de exemplo no ERP (erp-examples.ts), conferido e apagado pelas rotas do ERP. */
+export type ExampleKind = "agenda_service" | "agenda_professional" | "mensalidade_plan" | "erp_payment_method" | "erp_finance_category" | "erp_finance_account";
+const erpKind = (kind: string) => kind.startsWith("erp_");
+const exampleGroup = (kind: string) => erpKind(kind) ? "examples.financeiro" : kind === "mensalidade_plan" ? "examples.mensalidade" : "examples.agenda";
 export interface FootprintExample { kind: ExampleKind; id: string; label: string; updated: number }
 export interface Footprint {
   template_id: string;
@@ -41,6 +44,7 @@ export interface UndoReport {
 }
 export interface UndoPreview extends UndoReport { preview_hash: string; can_undo: boolean }
 
+const FINANCE_PARTS = ["erp-financeiro", "erp-vendas", "erp-pdv"];
 const COLLECTIONS = ["os_work_types", "os_object_types", "departments", "ticket_categories", "menus", "os_area_setup"] as const;
 const FOOTPRINT_SQL = "SELECT * FROM area_template_footprints WHERE profile_id=? AND template_id=?";
 const savedList = (cfg: Settings, key: string): any[] => Array.isArray(cfg[key]) ? cfg[key] : [];
@@ -153,6 +157,26 @@ export async function planExamples(env: Env, profile: string, manifest: AreaTemp
     }
     seen.push(path);
   }
+  // Financeiro básico no ERP: a aplicação só registra o que falta montar; o
+  // alarme da área monta quando o ERP estiver de pé, cada tipo só se não houver
+  // nenhum (erp-examples.ts). A conferência "já existe" é do ERP, na montagem.
+  if (examples.financeiro && modules.erp && FINANCE_PARTS.some((id) => modules[id])) {
+    const path = "examples.financeiro";
+    if (seenPaths.has(path)) changes.push({ path, action: "skip", reason: "O financeiro de exemplo do ERP já foi tratado antes; não será recriado." });
+    else {
+      const finance = { ...examples.financeiro };
+      if (!modules["erp-financeiro"]) { finance.categories = []; finance.account = null; }
+      changes.push({ path, action: "add", reason: finance.account
+        ? "Formas de pagamento básicas, categorias financeiras e a conta Caixa de exemplo no ERP (só os tipos que ainda não têm cadastro; montados assim que o ERP estiver de pé)."
+        : "Formas de pagamento básicas de exemplo no ERP (só se ainda não houver nenhuma; montadas assim que o ERP estiver de pé)." });
+      builders.push((actor, at) => ({
+        statements: [["INSERT INTO area_template_erp_examples(profile_id,template_id,state,actor,examples_json,attempts,next_at,note,created,updated) VALUES(?,?,'pendente',?,?,0,NULL,NULL,?,?) ON CONFLICT(profile_id,template_id) DO UPDATE SET state='pendente',actor=excluded.actor,examples_json=excluded.examples_json,attempts=0,next_at=NULL,note=NULL,updated=excluded.updated",
+          [profile, manifest.id, actor.id, JSON.stringify(finance), at, at]]],
+        examples: [],
+      }));
+    }
+    seen.push(path);
+  }
   return {
     changes, seen,
     build: (actor) => {
@@ -228,7 +252,8 @@ async function usage(env: Env, profile: string, key: string, id: string): Promis
   return null;
 }
 async function exampleState(env: Env, profile: string, example: FootprintExample): Promise<"gone" | "changed" | "used" | "free"> {
-  const table = { agenda_service: "agenda_services", agenda_professional: "agenda_professionals", mensalidade_plan: "mensalidade_plans" }[example.kind];
+  const table = ({ agenda_service: "agenda_services", agenda_professional: "agenda_professionals", mensalidade_plan: "mensalidade_plans" } as Record<string, string>)[example.kind];
+  if (!table) return "changed";
   const row = await one(env, `SELECT updated FROM ${table} WHERE id=? AND profile_id=?`, example.id, profile);
   if (!row) return "gone";
   if (Number(row.updated) !== example.updated) return "changed";
@@ -249,8 +274,10 @@ interface UndoComputation {
   report: UndoReport; settings: Settings; modules: Record<string, boolean>; removedMenus: Set<string>;
   remaining: Pick<Footprint, "modules" | "items" | "scalars" | "examples">; statements: Statement[];
   forgetIds: Set<string>; forgetPaths: Set<string>;
+  /** Exemplos do ERP sem alteração: apagados pelo ERP no desfazer (o que tiver uso fica). */
+  erpDeletes: FootprintExample[];
 }
-async function computeUndo(env: Env, profile: string, footprint: Footprint, catalog: readonly AreaTemplate[], cfg: Settings, current: Record<string, boolean>): Promise<UndoComputation> {
+async function computeUndo(env: Env, profile: string, footprint: Footprint, catalog: readonly AreaTemplate[], cfg: Settings, current: Record<string, boolean>, actor?: Actor): Promise<UndoComputation> {
   const manifest = catalog.find((entry) => entry.id === footprint.template_id);
   const report: UndoReport = { template_id: footprint.template_id, template_name: manifest?.name ?? footprint.template_id, modules_off: [], removed: [], kept: [] };
   const remaining: UndoComputation["remaining"] = { modules: [], items: [], scalars: [], examples: [] };
@@ -339,9 +366,23 @@ async function computeUndo(env: Env, profile: string, footprint: Footprint, cata
   // Exemplos: saem os que ninguém editou nem usou.
   const statements: Statement[] = [];
   const kinds = new Map<string, boolean>();
+  const erpDeletes: FootprintExample[] = [];
   for (const example of footprint.examples) {
+    const group = exampleGroup(example.kind);
+    if (erpKind(example.kind)) {
+      // Financeiro de exemplo no ERP: conferido como o administrador; apagado depois, pelo ERP (que recusa o que tem uso).
+      const { erpExampleState } = await import("./erp-examples");
+      const state = actor ? await erpExampleState(env, actor, profile, example) : "unknown";
+      if (state === "changed" || state === "unknown") {
+        report.kept.push({ label: example.label, reason: state === "changed" ? "ficou porque foi editado no ERP." : "ficou porque o ERP não respondeu agora; desfaça de novo mais tarde para tirar." });
+        remaining.examples.push(example); kinds.set(group, false);
+        continue;
+      }
+      if (state === "free") { erpDeletes.push(example); report.removed.push(example.label); }
+      if (!kinds.has(group)) kinds.set(group, true);
+      continue;
+    }
     const state = await exampleState(env, profile, example);
-    const group = example.kind === "mensalidade_plan" ? "examples.mensalidade" : "examples.agenda";
     if (state === "changed" || state === "used") {
       report.kept.push({ label: example.label, reason: state === "changed" ? "ficou porque foi editado." : example.kind === "mensalidade_plan" ? "ficou porque já tem assinantes." : "ficou porque já tem agendamentos." });
       remaining.examples.push(example); kinds.set(group, false);
@@ -351,7 +392,7 @@ async function computeUndo(env: Env, profile: string, footprint: Footprint, cata
     if (!kinds.has(group)) kinds.set(group, true);
   }
   for (const [group, all] of kinds) if (all) forgetPaths.add(group);
-  return { report, settings, modules, removedMenus, remaining, statements, forgetIds, forgetPaths };
+  return { report, settings, modules, removedMenus, remaining, statements, forgetIds, forgetPaths, erpDeletes };
 }
 async function undoState(env: Env, actor: Actor, profile: string, input: unknown, catalog: readonly AreaTemplate[], apply: boolean) {
   admin(actor);
@@ -366,7 +407,7 @@ async function undoState(env: Env, actor: Actor, profile: string, input: unknown
     throw new ApiError(404, "template_not_applied", "Este modelo não está aplicado nesta área (ou já foi desfeito). Não há nada para desfazer.");
   const cfg = json(row.settings) as Settings;
   const current = configuredModuleStates(json(row.module_states));
-  const computed = await computeUndo(env, profile, footprint, catalog, cfg, current);
+  const computed = await computeUndo(env, profile, footprint, catalog, cfg, current, actor);
   const baseRevision = await sha(canonical(cfg));
   const preview_hash = await sha(canonical({ profile, footprint, report: computed.report, base: baseRevision, modules: json(row.module_states) }));
   return { env, row, footprint, computed, baseRevision, preview_hash, current };
@@ -397,6 +438,17 @@ export async function undoAreaTemplate(env: Env, actor: Actor, profile: string, 
     plan.settings = { ...plan.settings, menus: plan.settings.menus.filter((menu: any) => !computed.removedMenus.has(menu.id)) };
     plan.settings_revision = await sha(canonical(plan.settings));
   }
+  // Financeiro de exemplo no ERP: o ERP apaga o que está como foi criado e recusa o que já tem uso.
+  if (computed.erpDeletes.length) {
+    const { deleteErpExample } = await import("./erp-examples");
+    for (const example of computed.erpDeletes) {
+      if (await deleteErpExample(state.env, actor, profile, example)) continue;
+      computed.report.removed = computed.report.removed.filter((label) => label !== example.label);
+      computed.report.kept.push({ label: example.label, reason: "ficou porque já foi usado no ERP (tem conta, lançamento ou venda com ele)." });
+      computed.remaining.examples.push(example);
+      computed.forgetPaths.delete(exampleGroup(example.kind));
+    }
+  }
   const application = await one(state.env, "SELECT seen_ids_json,seen_paths_json FROM os_area_template_applications WHERE profile_id=? AND template_id=?", profile, footprint.template_id);
   const at = now();
   const statements: Statement[] = [...computed.statements, [
@@ -405,6 +457,9 @@ export async function undoAreaTemplate(env: Env, actor: Actor, profile: string, 
       JSON.stringify(computed.report), actor.id, at, profile, footprint.template_id],
   ], [
     "UPDATE profile_segment_choice SET status='undone',updated=?,updated_by=? WHERE profile_id=? AND template_id=?", [at, actor.id, profile, footprint.template_id],
+  ], [
+    // O financeiro de exemplo que ainda não foi montado não é mais montado.
+    "UPDATE area_template_erp_examples SET state='cancelado',updated=? WHERE profile_id=? AND template_id=? AND state='pendente'", [at, profile, footprint.template_id],
   ]];
   // O que saiu deixa de contar como "já tratado": aplicar de novo recria.
   if (application) statements.push(["UPDATE os_area_template_applications SET seen_ids_json=?,seen_paths_json=? WHERE profile_id=? AND template_id=?", [

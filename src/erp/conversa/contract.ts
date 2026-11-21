@@ -30,7 +30,49 @@ export interface ErpConversaOperation {
   body: readonly string[];
   required: readonly string[];
   query: readonly string[];
+  /** Assunto no inventário de concessões dos bots (padrão: conversa). */
+  group?: "conversa" | "financeiro";
+  /** false: só pela tela (preferência do administrador), fora do inventário dos bots. */
+  bot?: boolean;
+  /** Pede acesso às conversas (o envio); a cobrança da conta não. */
+  conversations?: boolean;
+  /** Campos aceitos a mais (no corpo ou na consulta), só pela tela: conta a receber, como o cliente paga. */
+  optional?: readonly string[];
 }
+
+/** Cobrança de conta a receber (src/erp/conversa/charges.ts), no mesmo segmento de rota; casadas antes das rotas com :tipo. */
+export const ERP_CHARGE_OPERATIONS: readonly ErpConversaOperation[] = Object.freeze([
+  {
+    name: "erp.financeiro.cobranca.preferencias", method: "GET", path: `${ERP_CONVERSA_ROUTE}/financeiro/preferencias`, sensitive: false,
+    summary: "Ver a preferência de baixa das contas pagas por Pix ou link",
+    description: "Mostra se o Financeiro baixa sozinho as contas a receber pagas por Pix ou link da Cobrança, a conta financeira e a forma de pagamento das baixas. Só consulta.",
+    body: [], required: [], query: [], group: "financeiro", bot: false, conversations: false,
+  },
+  {
+    name: "erp.financeiro.cobranca.preferencias.salvar", method: "POST", path: `${ERP_CONVERSA_ROUTE}/financeiro/preferencias`, sensitive: true,
+    summary: "Mudar a preferência de baixa das contas pagas por Pix ou link",
+    description: "Liga ou desliga \"Baixar sozinho as contas pagas por Pix ou link\" e escolhe a conta financeira e a forma de pagamento das baixas. Só o administrador; ligar pede a confirmação do aviso e fica registrado.",
+    body: ["baixar_sozinho", "conta_financeira", "forma_pagamento", "confirmo"], required: [], query: [], group: "financeiro", bot: false, conversations: false,
+  },
+  {
+    name: "erp.financeiro.cobranca.ver", method: "GET", path: `${ERP_CONVERSA_ROUTE}/conta/:id/cobranca`, sensitive: false,
+    summary: "Ver as cobranças por Pix ou link de uma conta a receber",
+    description: "Mostra as cobranças por Pix ou link geradas para a conta a receber, a situação de cada uma (aguardando, paga, baixada, sugestão de baixa ou pendência) e o que falta configurar na Cobrança. Só consulta.",
+    body: [], required: [], query: [], group: "financeiro", conversations: false,
+  },
+  {
+    name: "erp.financeiro.cobranca.gerar", method: "POST", path: `${ERP_CONVERSA_ROUTE}/conta/:id/cobranca`, sensitive: true,
+    summary: "Gerar cobrança por Pix ou link de uma conta a receber",
+    description: "Cria, pela Cobrança configurada na área, um Pix (copia e cola e QR) ou um link de pagamento com o saldo da conta a receber em aberto. Quando o provedor confirma o pagamento, a conta é baixada sozinha (se o administrador ligou a opção) ou vira sugestão de baixa. Gerar de novo com a conta igual devolve a mesma cobrança. O bot propõe e a pessoa confirma.",
+    body: ["forma"], required: ["forma"], query: [], group: "financeiro", conversations: false,
+  },
+  {
+    name: "erp.financeiro.cobranca.confirmar_baixa", method: "POST", path: `${ERP_CONVERSA_ROUTE}/conta/:id/cobranca/:cobranca/baixar`, sensitive: true,
+    summary: "Confirmar a sugestão de baixa de uma conta paga por Pix ou link",
+    description: "Baixa a conta a receber pelo pagamento que o provedor confirmou, na conta financeira escolhida, com o comprovante do provedor na observação. Exige o papel de baixar contas a receber no ERP. Se a conta foi baixada ou mudada à mão depois da cobrança, não baixa e avisa. O bot propõe e a pessoa confirma.",
+    body: ["conta_financeira", "forma_pagamento"], required: [], query: [], group: "financeiro", conversations: false,
+  },
+]);
 
 export const ERP_CONVERSA_OPERATIONS: readonly ErpConversaOperation[] = Object.freeze([
   {
@@ -43,7 +85,7 @@ export const ERP_CONVERSA_OPERATIONS: readonly ErpConversaOperation[] = Object.f
     name: "erp.conversa.preparar", method: "GET", path: `${ERP_CONVERSA_ROUTE}/:tipo/:id`, sensitive: false,
     summary: "Preparar o envio de um documento do ERP pelo WhatsApp",
     description: "Mostra o cliente do documento e os telefones do cadastro dele, as linhas da área, a prévia da mensagem e do anexo e como o envio sai pela regra do WhatsApp (arquivo, link ou modelo aprovado; fora da janela de 24 horas sem modelo, só copiar o link). Tipos: proposta, pedido, nota e conta. Só consulta, sem enviar nada.",
-    body: [], required: [], query: ["telefone", "linha", "xml"],
+    body: [], required: [], query: ["telefone", "linha", "xml"], optional: ["pagamento"],
   },
   {
     name: "erp.conversa.envios", method: "GET", path: `${ERP_CONVERSA_ROUTE}/:tipo/:id/envios`, sensitive: false,
@@ -55,7 +97,7 @@ export const ERP_CONVERSA_OPERATIONS: readonly ErpConversaOperation[] = Object.f
     name: "erp.conversa.enviar", method: "POST", path: `${ERP_CONVERSA_ROUTE}/:tipo/:id/enviar`, sensitive: true,
     summary: "Enviar um documento do ERP ao cliente pelo WhatsApp",
     description: "Envia ao cliente, pela linha de WhatsApp escolhida, a proposta, o pedido, a nota fiscal autorizada (DANFE e, se pedido, o XML) ou a cobrança da conta a receber em aberto. Respeita a janela de 24 horas: dentro dela vai a mensagem com o arquivo; fora dela, só pelo modelo aprovado da área, com link seguro. Com acao=copiar_link não envia nada e devolve o link público de leitura para a pessoa copiar. Exige poder ver o documento no ERP e atender naquela linha. Pelo bot, o cliente só recebe documento que é dele, no telefone do cadastro e na conversa com identidade conferida; o bot propõe e a pessoa confirma.",
-    body: ["telefone", "linha", "xml", "acao"], required: ["telefone", "linha"], query: [],
+    body: ["telefone", "linha", "xml", "acao"], required: ["telefone", "linha"], query: [], optional: ["pagamento"],
   },
 ]);
 
@@ -66,6 +108,13 @@ const propertySchemas: Record<string, Record<string, unknown>> = {
   linha: { type: "string", minLength: 1, maxLength: 100, description: "Linha de WhatsApp da área (id da conexão)." },
   xml: { type: "boolean", description: "Nota fiscal: anexar também o XML." },
   acao: { type: "string", enum: ["enviar", "copiar_link"], default: "enviar", description: "copiar_link não envia: devolve o link de leitura para copiar." },
+  forma: { type: "string", enum: ["pix", "link"], description: "pix (copia e cola e QR) ou link de pagamento." },
+  pagamento: { type: "string", enum: ["pix", "link", "boleto", "sem"], description: "Conta a receber: como o cliente paga (Pix ou link da Cobrança, que confirmam sozinhos; boleto em PDF, se a conta tem boleto; sem: só o aviso)." },
+  cobranca: { type: "string", minLength: 1, maxLength: 64, description: "Cobrança da conta (id devolvido ao gerar)." },
+  conta_financeira: { type: ["string", "null"], format: "uuid", description: "Conta financeira do ERP onde o pagamento entra." },
+  forma_pagamento: { type: ["string", "null"], format: "uuid", description: "Forma de pagamento do ERP registrada na baixa." },
+  baixar_sozinho: { type: "boolean", description: "Baixar sozinho as contas pagas por Pix ou link (nasce desligado)." },
+  confirmo: { type: "boolean", description: "Confirma o aviso ao ligar a baixa automática." },
 };
 
 /** Parâmetros (caminho, consulta e corpo) num objeto, para o catálogo do bot. */
@@ -81,7 +130,7 @@ export const erpConversaOperation = (name: string) => ERP_CONVERSA_OPERATIONS.fi
 export function erpConversaOperationFor(method: string, path: string): { operation: ErpConversaOperation; params: Record<string, string> } | null {
   const verb = method.toUpperCase() === "HEAD" ? "GET" : method.toUpperCase();
   const parts = path.replace(/\/$/, "").split("/");
-  for (const operation of ERP_CONVERSA_OPERATIONS) {
+  for (const operation of [...ERP_CHARGE_OPERATIONS, ...ERP_CONVERSA_OPERATIONS]) {
     if (operation.method !== verb) continue;
     const pattern = operation.path.split("/");
     if (pattern.length !== parts.length) continue;
@@ -101,7 +150,7 @@ export const ERP_CONVERSA_MODULE_CONTRACT = {
     `/profiles/{profile}/${path.replace(/:([a-z_]+)/g, "{$1}")}`,
     Object.fromEntries(ERP_CONVERSA_OPERATIONS.filter(op => op.path === path).map(op => [op.method.toLowerCase(), {
       operationId: op.name, summary: op.summary,
-      description: `${op.description} Permissão: erp e conversas. ${op.sensitive ? "Categoria sensível; por padrão o bot propõe e a pessoa confirma." : "Leitura comum."}`,
+      description: `${op.description} Permissão: ${op.conversations === false ? "erp e o Financeiro do ERP" : "erp e conversas"}. ${op.sensitive ? "Categoria sensível; por padrão o bot propõe e a pessoa confirma." : "Leitura comum."}`,
       parameters: [{ name: "profile", in: "path", required: true, schema: { type: "string" } },
         ...(path.match(/:[a-z_]+/g) ?? []).map(key => ({ name: key.slice(1), in: "path", required: true, schema: propertySchemas[key.slice(1)] })),
         ...op.query.map(name => ({ name, in: "query", required: false, schema: name === "xml" ? { type: "string", enum: ["1", "0"] } : propertySchemas[name] }))],
