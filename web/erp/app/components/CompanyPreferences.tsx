@@ -10,7 +10,9 @@ import WabotiaPairing from './WabotiaPairing';
 import type {UpdatePort} from '../lib/system-updates';
 import PreferenceSettingsPage from './PreferenceSettingsPage';
 import {ChargeAutoSettlePreference} from './TitleCharge';
-import {BoletoBankSwitches} from './BoletoApiSettings';
+import {lazy,Suspense} from 'react';
+// Boleto por API (Cobrança bancária): sob demanda, fora do núcleo do ERP.
+const BoletoBankSwitches=lazy(()=>import('./BoletoApiSettings').then(m=>({default:m.BoletoBankSwitches})));
 // Wabotia: Usuários vira Permissões no ERP; pessoas e papel vêm do núcleo (decisão de 16/11).
 import ErpPermissions from '../../ErpPermissions';
 import RealActivity from './RealActivity';
@@ -53,7 +55,7 @@ export default function CompanyPreferences({controller,state}:{controller:Prefer
   const settings=<PreferenceSettingsPage key={`${state.membership!.user_id}:${route.page.id}`} controller={controller} page={route.page} section={route.section} categoryLabel={back.label} categoryTo={back.to}/>;
   // Wabotia (comercial): a baixa automática das contas pagas por Pix ou link da Cobrança, na página Contas a receber.
   // Wabotia (boleto-api): os interruptores dos bancos de boleto por API, na mesma página.
-  return route.page.id==='financas-receber'?<>{settings}<ChargeAutoSettlePreference/><BoletoBankSwitches/></>:settings;}
+  return route.page.id==='financas-receber'?<>{settings}<ChargeAutoSettlePreference/><Suspense fallback={null}><BoletoBankSwitches/></Suspense></>:settings;}
  if(route.kind==='screen')return <><nav className="preferences-breadcrumb preferences-screen-trail" aria-label="Localização"><Link to="/acesso">Home</Link> › <Link to="/preferencias">Preferências</Link> › <Link to="/preferencias/sistema">Sistema</Link> › <span aria-current="page">{SYSTEM_SCREENS[route.screen]}</span></nav>
   {route.screen==='usuarios'?<ErpPermissions key={state.membership!.user_id} controller={controller}/>:route.screen==='gerenciador-arquivos'?<RealFiles key={state.membership!.user_id} controller={controller}/>
    :route.screen==='gerenciador-transicoes'?<RealSituations key={state.membership!.user_id} controller={controller}/>

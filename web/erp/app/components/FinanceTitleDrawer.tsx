@@ -1,6 +1,6 @@
 import { billingAddressText, contactBilling, contactBillingPath } from '../lib/contact-billing-model';
 import { Link } from 'react-router-dom';
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { AccessError, type AccessController } from '../lib/real-access';
 import { financeDate, financeMoney, moneyInput, todaySP, type FinanceKind, type FinanceTitle } from '../lib/real-finance-model';
 import { BANK_NUMBER_LIMIT, DESCRIPTION_LIMIT, DRAWER_TABS, descriptionLimit, settlementDue, titleHistory, DrawerError, END_ON_INFO, OCCURRENCES, PERCENT_INFO, RECURRENCE_UNAVAILABLE, WEEKDAYS, createsRecurrence, percentText, drawerCreateData, drawerEditData, drawerInitial, drawerLocks, drawerPlan, isRecurring, loadReferenceOptions, nextWeekday, recurrenceChanges, recurrenceCreateData, titleCharges, titleDetail, weekdayOf, type DrawerTab, type DrawerValues, type ReferenceOption, type TitleDetail } from '../lib/finance-title-drawer';
@@ -18,7 +18,8 @@ import DocumentQuickContact from './DocumentQuickContact';
 import { Modal } from './Modal';
 import { WhatsappSendButton } from './WhatsappSend';
 import { TitleChargePanel } from './TitleCharge';
-import { TitleBoletoPanel } from './TitleBoletoApi';
+// Boleto por API (Cobrança bancária): sob demanda, fora do núcleo do ERP.
+const TitleBoletoPanel = lazy(() => import('./TitleBoletoApi').then(m => ({ default: m.TitleBoletoPanel })));
 import { Icon } from './Icon';
 import './finance-title-drawer.css';
 
@@ -334,7 +335,7 @@ export default function FinanceTitleDrawer({ controller, kind, mode, title, clon
           {title && title.kind === 'receivable' && mode !== 'create' && !title.cancelled && !title.deleted_at && (title.status === 'open' || title.status === 'partial') && <WhatsappSendButton type="conta" id={title.id} />}
           {/* Cobrança por Pix ou link da conta a receber (confirma sozinha; baixa automática ou sugestão de baixa). */}
           {title && title.kind === 'receivable' && mode !== 'create' && !title.deleted_at && <TitleChargePanel titleId={title.id} open={!title.cancelled && (title.status === 'open' || title.status === 'partial')} />}
-          {title && title.kind === 'receivable' && mode !== 'create' && !title.deleted_at && <TitleBoletoPanel titleId={title.id} open={!title.cancelled && (title.status === 'open' || title.status === 'partial')} />}
+          {title && title.kind === 'receivable' && mode !== 'create' && !title.deleted_at && <Suspense fallback={null}><TitleBoletoPanel titleId={title.id} open={!title.cancelled && (title.status === 'open' || title.status === 'partial')} /></Suspense>}
         </section>
         {history}
         {error && <p className="real-alert" role="alert">{error}</p>}
