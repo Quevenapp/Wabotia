@@ -141,7 +141,34 @@ xcodebuild -scheme Wabotia -destination "generic/platform=iOS" -derivedDataPath 
 
 Coloque o `GoogleService-Info.plist` em `mobile/ios/Wabotia/Resources/`. O `project.yml` usa assinatura automática com a equipe configurada em `DEVELOPMENT_TEAM`. Ative no App ID as capacidades **Push Notifications** e **Background Modes → Remote notifications**.
 
-## 5. Limites conhecidos
+## 5. Ordem de serviço nos aplicativos
+
+Os dois aplicativos trazem a ordem de serviço por modelo, com as mesmas telas e as mesmas regras do painel. A entrada **Ordens de serviço** só aparece quando o módulo Ordem de Serviço está ligado na área e a conta da pessoa tem acesso (`GET /api/v1/capabilities`). Se um administrador desliga o módulo, qualquer rota responde `409 module_disabled`: a entrada some na hora e a tela diz que o módulo precisa ser ligado em **Gestão → Módulos**.
+
+- **Lista:** filtros de modelo, busca (número, cliente ou item), situação (abertas, concluídas, canceladas, todas) e etapa. O filtro de etapa só aparece com um modelo escolhido. As ordens do modelo simples (`service_order`) abrem a ficha antiga, de estados fixos, que continua igual.
+- **Abrir ordem:** escolher o modelo, buscar o cliente no cadastro, escolher o objeto do serviço (veículo, equipamento, imóvel, animal, evento) entre os do cliente ou cadastrar um novo, preencher os campos próprios do modelo (texto, número, Sim/Não, data e escolha), o item e a descrição. Um campo é obrigatório na abertura quando o modelo o marca como obrigatório ou quando a regra de etapa o exige desde a etapa inicial. Campos restritos (`sensitive`) não aparecem nem são enviados. Pelo atalho da conversa, a ordem já sai ligada à conversa do cliente.
+- **Ficha:** avançar e voltar de etapa. Voltar e cancelar pedem um motivo, que fica no histórico. A ficha mostra o checklist de cada etapa: só a etapa atual é marcável, e o item que pede foto abre a câmera e envia a foto para os documentos da ordem antes de marcar. Também mostra os campos da ordem (com aviso dos que a próxima etapa vai pedir), o objeto, o histórico e o orçamento, só para leitura (itens, total e situação da aprovação). Quando a ordem está ligada a uma conversa e o servidor oferece o envio do orçamento (`next_statuses` contém `quoted`), aparece **Enviar ao cliente pelo WhatsApp**. Montar o orçamento, registrar a resposta do cliente, cobrança, notas e as demais abas ficam no painel.
+- **Sem conexão:** a última lista e as fichas abertas ficam guardadas no aparelho (por área, apagadas ao sair da conta) e aparecem para leitura com o aviso da hora da cópia. Mudanças feitas sem conexão não ficam numa fila: a tela avisa que precisa de conexão e a pessoa tenta de novo quando a internet voltar.
+- **Demonstração:** além das ordens simples, há dois modelos fictícios: uma oficina mecânica, com veículo como objeto, checklist com foto e campo pedido na etapa "Pronto", e uma assistência de celulares. As ordens ficam em memória, como as conversas.
+
+Rotas usadas (todas em `/api/v1/profiles/{p}/`, escritas com `Idempotency-Key`):
+
+| Rota | Uso |
+| --- | --- |
+| `GET service-orders/types`, `GET service-orders/types/{id}` | Modelos (etapas, campos, regras por etapa, checklist). `404` indica servidor antigo: o aplicativo usa só a lista simples. |
+| `GET service-orders?type_id=&type_ids=&stage=&status=&open=&q=&cursor=` | Lista. |
+| `GET service-orders/{id}?history=none`, `GET service-orders/{id}/history` | Ficha e histórico. |
+| `GET contacts?q=&identity=all&namespace=team` | Busca do cliente no cadastro. |
+| `GET service-orders/object-types`, `GET service-orders/objects?contact_id=&type_id=` | Objeto do serviço do cliente. |
+| `POST service-orders` | Abrir a ordem (`type_id`, `extra`, `object` com `mode` `existing` ou `new`). |
+| `PATCH service-orders/{id}` | Campos da ordem (`version`, `extra`). |
+| `POST service-orders/{id}/stage`, `POST service-orders/{id}/stage-approval` | Mudar de etapa (`transition_id`, `version`, `note`). |
+| `GET service-orders/{id}/requirements?transition_id=` | Campos que faltam quando a etapa recusa com `missing_fields`. |
+| `POST service-orders/{id}/documents`, `PUT {upload_url}`, `POST service-orders/{id}/documents/{doc}/complete` | Foto do checklist (JPEG até 10 MB; o `upload_url` só é seguido no mesmo servidor). |
+| `POST service-orders/{id}/checklist` | Marcar ou desmarcar item (`photo_document_id` quando o item pede foto). |
+| `POST service-orders/{id}/quote/send` | Enviar o orçamento pelo WhatsApp (`notify: true`). |
+
+## 6. Limites conhecidos
 
 - Não há ligações ao vivo: o servidor não as oferece pela Zernio e os aplicativos mostram só o histórico. Para receber ligações do WhatsApp, use o encaminhamento da própria Zernio.
 - O push do iOS usa Firebase Cloud Messaging por meio do APNs.

@@ -75,6 +75,44 @@ class ProfileApi(
             execute(http, request) { WabotiaJson.decodeFromString(serializer, it.ifBlank { "{}" }) }
         }
 
+    /** O endereço do servidor (`https://…`, sem barra no fim), para conferir links devolvidos por ele. */
+    val serverRoot: String = normalizeBaseUrl(baseUrl)
+
+    /** Bytes crus de uma rota da área (ex.: o conteúdo de um documento), com o token. */
+    suspend fun download(path: String): ByteArray = withContext(Dispatchers.IO) {
+        val request = Request.Builder().url(url(path, emptyMap()))
+            .header("User-Agent", "Wabotia-Android/${BuildConfig.VERSION_NAME}")
+            .apply { token()?.takeIf { it.isNotBlank() }?.let { header("Authorization", "Bearer $it") } }
+            .get().build()
+        val response = try {
+            http.newCall(request).execute()
+        } catch (e: java.io.IOException) {
+            throw QueueException(0, QueueException.NETWORK, "Sem conexão com o Wabotia.")
+        }
+        response.use {
+            if (!it.isSuccessful) {
+                val error = runCatching { (WabotiaJson.parseToJsonElement(it.body?.string().orEmpty()) as? JsonObject)?.get("error") as? JsonObject }.getOrNull()
+                val code = (error?.get("code") as? JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: "http_${it.code}"
+                val message = (error?.get("message") as? JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: "O Wabotia recusou (${it.code})."
+                throw QueueException(it.code, code, message)
+            }
+            it.body?.bytes() ?: ByteArray(0)
+        }
+    }
+
+    /**
+     * `PUT` de bytes num endereço completo do mesmo servidor (o `upload_url` de um documento, já conferido por quem
+     * chama), com o token e os cabeçalhos dados.
+     */
+    suspend fun <T> putBytes(absoluteUrl: String, bytes: ByteArray, contentType: String, headers: Map<String, String>, serializer: KSerializer<T>): T =
+        withContext(Dispatchers.IO) {
+            val request = request(absoluteUrl)
+                .apply { headers.forEach { (k, v) -> header(k, v) } }
+                .put(bytes.toRequestBody(contentType.toMediaType()))
+                .build()
+            execute(http, request) { WabotiaJson.decodeFromString(serializer, it.ifBlank { "{}" }) }
+        }
+
     /** Dados do estabelecimento da área (cabeçalho e rodapé dos comprovantes). */
     suspend fun establishment(): Establishment = get("establishment", Establishment.serializer())
 
