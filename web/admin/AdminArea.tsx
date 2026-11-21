@@ -51,6 +51,11 @@ const SegmentReminder = React.lazy(() =>
   import("./area-templates/SegmentPicker").then((m) => ({ default: m.SegmentReminder })),
 );
 
+// Empresas (várias áreas com ERP): só ao abrir a página.
+const CompaniesPage = lazyWithRecovery<object>(() =>
+  import("./CompaniesPage").then((m) => ({ default: m.CompaniesPage })),
+);
+
 // Backup do ERP: só ao abrir a página.
 const ErpBackupPage = lazyWithRecovery<object>(() =>
   import("./ErpBackupPage").then((m) => ({ default: m.ErpBackupPage })),
@@ -155,6 +160,8 @@ function Page({ page }: { page: PageId }) {
       return <EstablishmentPage />;
     case "erp-backup":
       return <ErpBackupPage />;
+    case "companies":
+      return <CompaniesPage />;
     case "users":
       return <UsersPage />;
     case "applications":

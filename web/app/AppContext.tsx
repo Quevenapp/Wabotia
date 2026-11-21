@@ -16,7 +16,7 @@ import { notify, setTitleCount } from "../lib/notifications";
 import { conversationName } from "../lib/format";
 import { channelNotificationTitle, conversationChannel, isMultichannel } from "../channels";
 import { loadChannelUi } from "../channel-ui-loader";
-import { currentRoute, navigate, navigationGuarded } from "../lib/routes";
+import { currentRoute, navigate, navigationGuarded, type Route } from "../lib/routes";
 import { toast, toastError } from "../ui";
 import { accessAllows } from "../workspace-navigation";
 import { createManagementGeneration, createManagementRequestScope } from "../management/registry";
@@ -40,7 +40,15 @@ export type AppState = {
   profileName: string;
   /** Prefixo das rotas da área: "v1/profiles/{id}". */
   root: string;
-  chooseProfile: (id: string) => void;
+  /** Troca de área; `target`: a tela para abrir na outra (padrão: a mesma área). */
+  chooseProfile: (id: string, target?: Route) => void;
+  /**
+   * Empresas (áreas com ERP) em que a pessoa tem papel no ERP, com nome
+   * fantasia e CNPJ (GET /profiles/:area/erp-empresas). Vazia sem ERP ou sem papel.
+   */
+  companies: Row[];
+  /** Relê as empresas (depois de adicionar uma). */
+  reloadCompanies: () => Promise<void>;
   /** Resposta de GET /status: settings, enabled, conversations, connections. */
   status: Row;
   settings: Row;
@@ -694,7 +702,7 @@ export function AppProvider({
     [requests, root, me.id, refresh, demoBlocked, identityKey],
   );
   const chooseProfile = useCallback(
-    (id: string) => {
+    (id: string, target?: Route) => {
       if (id === profile) return;
       if (navigationGuarded()) {
         toast(
@@ -706,7 +714,7 @@ export function AppProvider({
       // A conversa ou o protocolo aberto pertence à área anterior.
       const route = currentRoute();
       navigate(
-        route.area === "admin" ? route : { area: route.area, sub: route.sub },
+        target ?? (route.area === "admin" ? route : { area: route.area, sub: route.sub }),
         { replace: true, force: true },
       );
       scope.current.invalidate();
@@ -714,6 +722,25 @@ export function AppProvider({
     },
     [profile],
   );
+  // --- empresas (várias áreas com ERP) ---------------------------------
+  // A lista é a mesma em qualquer área: lida uma vez por sessão, de uma área
+  // com o ERP ligado (a rota pede o ERP), e de novo depois de adicionar empresa.
+  const [companies, setCompanies] = useState<Row[]>([]);
+  const companiesLoaded = useRef(false);
+  const erpOn = statusLoaded && status.modules?.erp === true;
+  const reloadCompanies = useCallback(async () => {
+    if (demo || !profile) return;
+    try {
+      const result = await api(root + "/erp-empresas");
+      companiesLoaded.current = true;
+      setCompanies(Array.isArray(result?.empresas) ? result.empresas : []);
+    } catch {
+      /* sem papel no ERP ou ERP fora do ar: o seletor não aparece */
+    }
+  }, [api, root, demo, profile]);
+  useEffect(() => {
+    if (erpOn && !companiesLoaded.current) void reloadCompanies();
+  }, [erpOn, reloadCompanies]);
   const logout = useCallback(async () => {
     try {
       if (!demo) await api("v1/logout", "POST", {});
@@ -732,6 +759,8 @@ export function AppProvider({
       profiles.find((item) => item.id === profile)?.name || "Atendimento",
     root,
     chooseProfile,
+    companies,
+    reloadCompanies,
     status,
     settings: status.settings || {},
     modules: status.modules,

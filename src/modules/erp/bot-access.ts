@@ -25,6 +25,7 @@ import { ERP_LOJAS_PART, ERP_LOJAS_ROUTE, ERP_STORE_OPERATIONS, erpStoreParams }
 import { ERP_BOLETO_OPERATIONS, ERP_BOLETO_PART, ERP_BOLETO_ROUTE, erpBoletoParams } from "../../erp/boleto-api/contract.ts";
 import { ERP_CONCILIACAO_PART, ERP_CONCILIACAO_ROUTE, ERP_RECONCILIATION_OPERATIONS, erpReconciliationParams } from "../../erp/conciliacao/contract.ts";
 import { ERP_CONTRACT_OPERATIONS, ERP_CONTRATOS_PART, ERP_CONTRATOS_ROUTE, erpContractParams } from "../../erp/contratos/contract.ts";
+import { ERP_COMPANY_OPERATIONS, ERP_EMPRESAS_PART, ERP_EMPRESAS_ROUTE, erpCompanyParams } from "../../erp/multiempresa/contract.ts";
 
 type Params = { type: "object"; properties: Record<string, any>; required: string[] };
 /** Assunto da operação, na ordem da tela de concessões do bot. */
@@ -44,6 +45,7 @@ export const ERP_BOT_GROUPS: readonly { id: string; title: string }[] = [
   { id: "lojas", title: "Lojas e filiais" },
   { id: "conciliacao", title: "Conciliação bancária e de cartões" },
   { id: "contratos", title: "Contratos de serviço" },
+  { id: "multiempresa", title: "Várias empresas (CNPJs)" },
 ];
 export interface ErpBotOperation {
   id: string; method: string; path: string; summary: string; sensitive: boolean;
@@ -170,6 +172,9 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
   // ativar, suspender, reajustar e encerrar são sensíveis (o bot propõe, a pessoa confirma).
   ...ERP_CONTRACT_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
     group: "contratos", description: op.description, params: erpContractParams(op) })),
+  // Várias empresas: ver as empresas e o consolidado é leitura comum; a prévia da cópia (nomes de clientes) e copiar cadastros são sensíveis.
+  ...ERP_COMPANY_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
+    group: "multiempresa", description: op.description, params: erpCompanyParams(op) })),
 ];
 
 /** Leituras sensíveis que o administrador pode deixar o bot executar sozinho. */
@@ -201,6 +206,8 @@ export function erpBotModules(op: Pick<ErpBotOperation, "method" | "path">): rea
   if (op.path.startsWith(`${ERP_CONCILIACAO_ROUTE}/`)) return erpRequirement(ERP_CONCILIACAO_PART).all;
   // Contratos de serviço: a parte Contratos, com o Financeiro.
   if (op.path === ERP_CONTRATOS_ROUTE || op.path.startsWith(`${ERP_CONTRATOS_ROUTE}/`)) return erpRequirement(ERP_CONTRATOS_PART).all;
+  // Várias empresas: a Base do ERP (a cópia confere a parte de cada cadastro nas duas empresas).
+  if (op.path === ERP_EMPRESAS_ROUTE || op.path.startsWith(`${ERP_EMPRESAS_ROUTE}/`)) return erpRequirement(ERP_EMPRESAS_PART).all;
   const requirement = erpRouteRequirement(op.method, new URL(`https://erp.invalid/${op.path.slice("erp/".length).replace(/:[A-Za-z_][A-Za-z0-9_]*/g, "x")}`));
   return requirement && requirement !== "externo" ? requirement.all : erpRequirement("erp").all;
 }
