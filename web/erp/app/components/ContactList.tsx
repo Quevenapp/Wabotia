@@ -30,6 +30,8 @@ import type { CatalogEditorProps } from './CatalogEditor';
 import { ContactEditor as ProfileEditor } from './ContactEditor';
 import type { CatalogList } from './CatalogList';
 import { LIST_TITLE, aborted, errorText, knownFailure } from './catalog-shared';
+import { ContactFieldFilterInputs, fieldCellText, useContactFieldColumnValues, useContactFieldDefinitions, type FieldFilterDraft } from './ContactFieldListTools';
+import { activeFieldFilters, contactFieldsCall, fieldFilterChip, listColumnFields, type ContactFieldFilter } from '../lib/contact-fields';
 import './contacts.css';
 
 // Listagem de Clientes e fornecedores no padrão do Origin (lane contatos). It owns its filters, page, selection and batch
@@ -58,7 +60,10 @@ export function ContactCatalog({ list, Editor }: { list: CatalogList; Editor: Co
   const [period, setPeriod] = useState<ContactListPeriod>(EMPTY_LIST_PERIOD);
   // Origin CL-24/CL-26/CL-27: the order follows the situation (Últimos incluídos by inclusion, the others by name), never the headers.
   const sort = filters.situation === 'latest' ? 'created_desc' as const : 'name_asc' as const;
-  const filterKey = JSON.stringify([type, filters, query, period]);
+  // Wabotia: campos próprios de contato como coluna e filtro (Preferências › Cadastros).
+  const fieldDefs = useContactFieldDefinitions(Boolean(permissions?.read.includes('contacts')));
+  const [fieldDraft, setFieldDraft] = useState<FieldFilterDraft>({}), [fieldFilters, setFieldFilters] = useState<ContactFieldFilter[]>([]);
+  const filterKey = JSON.stringify([type, filters, query, period, fieldFilters]);
   const [pageState, setPageState] = useState({ key: filterKey, number: 1 });
   if (pageState.key !== filterKey) setPageState({ key: filterKey, number: 1 });
   const pageNumber = pageState.key === filterKey ? pageState.number : 1;
@@ -97,7 +102,9 @@ export function ContactCatalog({ list, Editor }: { list: CatalogList; Editor: Co
     if (!permissions?.read.includes('contacts')) { if (permissions) setLoading(false); return; }
     const request = new AbortController(); setLoading(true); setError(''); setPage(null);
     const params = contactPageQuery({ page: pageNumber, sort, query, type, filters, period });
-    void controller.catalog(`${CONTACTS_BASE}?${params}`, { signal: request.signal }).then(value => {
+    // Com filtro de campo próprio, a mesma lista vem pela rota dos campos próprios (mesmos filtros, página e carteira).
+    if (fieldFilters.length) params.set('campos', JSON.stringify(fieldFilters));
+    void (fieldFilters.length ? contactFieldsCall(`/lista?${params}`, { signal: request.signal }) : controller.catalog(`${CONTACTS_BASE}?${params}`, { signal: request.signal })).then(value => {
       if (request.signal.aborted) return;
       const result = value as ContactPage;
       if (result.entity !== 'contacts' || result.page !== pageNumber || !Array.isArray(result.items) || !Number.isSafeInteger(result.total)) throw new AccessError(502);
@@ -108,6 +115,7 @@ export function ContactCatalog({ list, Editor }: { list: CatalogList; Editor: Co
   }, [controller, permissions, filterKey, pageNumber, reload]);
 
   const ids = page?.items.map(item => item.id) ?? [];
+  const fieldColumns = listColumnFields(fieldDefs), fieldValues = useContactFieldColumnValues(ids, fieldDefs, listKey);
   const selectedItems = page?.items.filter(item => selected.has(item.id)) ?? [];
   const allSelected = ids.length > 0 && ids.every(id => selected.has(id)), someSelected = ids.some(id => selected.has(id));
   const toggleRow = (id: string, shift: boolean) => { const result = selectRange(ids, selected, selection.key === listKey ? selection.anchor : null, id, shift); setSelection({ key: listKey, ids: result.selected, anchor: result.anchor }); };
@@ -118,11 +126,13 @@ export function ContactCatalog({ list, Editor }: { list: CatalogList; Editor: Co
     if (param) params.set('contato', param); else params.delete('contato');
     navigate(`${location.pathname}?${params}`);
   });
-  const apply = (event: FormEvent) => { event.preventDefault(); changeList(() => { setQuery(queryDraft.trim()); setFilters(appliedListFilters(draft)); setNotice(''); }); };
+  const apply = (event: FormEvent) => { event.preventDefault(); changeList(() => { setQuery(queryDraft.trim()); setFilters(appliedListFilters(draft)); setFieldFilters(activeFieldFilters(fieldDefs, fieldDraft)); setNotice(''); }); };
+  const removeFieldFilter = (id: string) => () => changeList(() => { setFieldFilters(previous => previous.filter(item => item.field_id !== id)); setFieldDraft(previous => { const { [id]: _gone, ...rest } = previous; return rest; }); });
   const removeFilter = (change: Partial<ContactListFilters>) => () => changeList(() => { setFilters(previous => ({ ...previous, ...change })); setDraft(previous => ({ ...previous, ...change })); });
   // "Limpar" (Origin CL-27): Situação Todos, alphabetical order, no chip: "Nenhum filtro aplicado", excluded rows included.
   const clear = () => changeList(() => {
     const cleared = { ...EMPTY_LIST_FILTERS, situation: 'all' as const }; setFilters(cleared); setDraft(cleared); setQuery(''); setQueryDraft(''); setPeriod(EMPTY_LIST_PERIOD);
+    setFieldFilters([]); setFieldDraft({});
     if (type) setType('');
   });
   // A navegação conserva o ID ERP; ProfileEditor obtém o ID D1 pela porta de associação.
@@ -214,6 +224,7 @@ export function ContactCatalog({ list, Editor }: { list: CatalogList; Editor: Co
     ...(period.from || period.to ? [{ label: periodChip(period), onRemove: () => changeList(() => setPeriod(EMPTY_LIST_PERIOD)) }] : []),
     ...(period.field === 'no_purchases' && (period.from || period.to) && filters.sale_statuses.length ? [{ label: `Situações de vendas: ${SALE_STATUS_OPTIONS.filter(o => filters.sale_statuses.includes(o.value)).map(o => o.label).join(', ')}`, onRemove: removeFilter({ sale_statuses: [] }) }] : []),
     ...contactTagChips(filters, tagOptions, removeFilter),
+    ...fieldFilters.flatMap(filter => { const field = fieldDefs.find(item => item.id === filter.field_id); return field ? [{ label: fieldFilterChip(field, filter), onRemove: removeFieldFilter(field.id) }] : []; }),
     ...(selectedItems.length ? [{ label: `Selecionados: ${selectedItems.length} ${selectedItems.length === 1 ? 'cadastro' : 'cadastros'}`, onRemove: clearSelection }] : []),
   ];
   const listState = { sort, query, type, filters, period };
@@ -247,6 +258,7 @@ export function ContactCatalog({ list, Editor }: { list: CatalogList; Editor: Co
         <div className="form-field"><label htmlFor="contact-city-filter">Município</label><input id="contact-city-filter" maxLength={100} value={draft.city} onChange={event => setDraft(previous => ({ ...previous, city: event.target.value }))} /></div>
         <ContactTagFilters options={tagOptions} tag={draft.tag} priceList={draft.price_list_id} onTag={tag => setDraft(previous => ({ ...previous, tag }))} onPriceList={price_list_id => setDraft(previous => ({ ...previous, price_list_id }))} />
         {period.field === 'no_purchases' && <fieldset className="contact-sale-statuses"><legend>Situações de vendas consideradas no período</legend>{SALE_STATUS_OPTIONS.map(option => <label key={option.value}><input type="checkbox" id={`contact-sale-${option.value}`} checked={draft.sale_statuses.includes(option.value)} onChange={event => setDraft(previous => ({ ...previous, sale_statuses: event.target.checked ? [...previous.sale_statuses, option.value] : previous.sale_statuses.filter(value => value !== option.value) }))} />{option.label}</label>)}<small className="real-help">Sem nenhuma marcada, todas as situações contam.</small></fieldset>}
+        <ContactFieldFilterInputs fields={fieldDefs} draft={fieldDraft} onChange={setFieldDraft} />
         <button type="submit" className="primary-button" disabled={loading || !permissions?.read.length}>Filtrar</button>
       </>} actions={<>
         <button type="button" className="action-button" disabled={!page?.total} title={page?.total ? undefined : 'Nenhum contato para exportar'} onClick={() => setExporting(true)}><Icon name="file-export" size={14} />Exportar para a planilha</button>
@@ -276,10 +288,12 @@ export function ContactCatalog({ list, Editor }: { list: CatalogList; Editor: Co
         {page && <><div className="table-scroll" tabIndex={0} role="region" aria-label="Cadastros da empresa"><table className="data-table real-table origin-table catalog-table contact-table"><thead><tr>
           {writable && <th scope="col" className="checkbox-cell"><span className="real-sr-only">Seleção</span></th>}
           {columns.map(column => <th scope="col" key={column} className={column === 'code' || column === 'document' ? 'contact-col-optional' : undefined}>{COLUMN_LABELS[column]}</th>)}
+          {fieldColumns.map(field => <th scope="col" key={`field-${field.id}`}>{field.name}</th>)}
           <th scope="col">Marcadores</th><th scope="col" className="row-actions"><span className="real-sr-only">Ações</span></th></tr></thead>
           <tbody>{page.items.map(item => <tr key={item.id} className={`${selected.has(item.id) ? 'selected ' : ''}${item.situation === 'E' ? 'is-excluded' : ''}`.trim() || undefined} onClick={event => openRow(item, event)} onAuxClick={event => { if (event.button === 1 && !fromControl(event.target)) openRow(item, event); }}>
             {writable && <td className="checkbox-cell" onClick={event => event.stopPropagation()}><input type="checkbox" aria-label={`Selecionar ${item.name}`} checked={selected.has(item.id)} onClick={event => toggleRow(item.id, event.shiftKey)} onChange={() => undefined} /></td>}
             {columns.map(column => cell(item, column))}
+            {fieldColumns.map(field => <td key={`field-${field.id}`}>{fieldValues.failed ? '?' : fieldCellText(field, fieldValues.values.get(item.id))}</td>)}
             <td className="contact-markers"><ContactMarkers set={markers.sets.get(item.id)} failed={markers.failed} /></td>
             <td className="row-actions" onClick={event => event.stopPropagation()}><RowMenu label={item.name} items={rowItems(item)} open={rowMenu === item.id} onToggle={() => setRowMenu(rowMenu === item.id ? null : item.id)} /></td>
           </tr>)}</tbody></table></div>
@@ -295,7 +309,7 @@ export function ContactCatalog({ list, Editor }: { list: CatalogList; Editor: Co
         : batch.target === 'E' ? <p>Os cadastros excluídos saem das listagens e dos seletores de documentos, mas o histórico é preservado e eles podem ser restaurados.</p> : undefined} />}
     {comments && <ContactComments controller={controller} contact={comments} onClose={() => setComments(null)} />}
     {tagBatch && <ContactTagsBatch controller={controller} items={tagBatch} options={tagOptions} writable={writable} onClose={results => { setTagBatch(null); if (results) { setNotice(`Incluir tags para selecionados: ${batchSummaryText(summarizeBatch(results))}.`); clearSelection(); setReload(value => value + 1); } }} />}
-    {exporting && <ContactExportDialog controller={controller} state={listState} types={types?.items ?? []} total={page?.total ?? 0} onClose={() => setExporting(false)} />}
+    {exporting && <ContactExportDialog controller={controller} state={listState} types={types?.items ?? []} total={page?.total ?? 0} fieldFilters={fieldFilters} onClose={() => setExporting(false)} />}
     {printing && <ContactListPrint controller={controller} request={printing} types={types?.items ?? []} onClose={() => setPrinting(null)} />}
     {labelsFor && <ContactLabelsPrint controller={controller} ids={labelsFor} onClose={() => setLabelsFor(null)} />}
     {columnsOpen && <ListColumnsPanel columns={CUSTOM_COLUMNS.map(id => ({ id, label: COLUMN_LABELS[id]! }))} selected={columns} fixed={FIXED_COLUMN} busy={prefs.pending === 'saving'} error={prefs.error}

@@ -27,6 +27,7 @@ import ContactBilling from './ContactBilling';
 import type { CatalogEditorProps } from './CatalogEditor';
 import { aborted, errorText } from './catalog-shared';
 import ContactFiles, { ContactPhoto } from './ContactFiles';
+import { ContactCustomFields } from './ContactCustomFields';
 import './contacts.css';
 import { blockEnabled, fieldEnabled, availablePayload } from '../../blocks';
 
@@ -257,7 +258,9 @@ function ContactForm({ controller, record, writable, onClose, onSaved, embeddedP
             : <p className="real-help">Salve o cadastro para anexar arquivos.</p>)}</section>
       </fieldset></div>
     </form>
-    {drawer && <ContactQuickDrawer controller={controller} types={typesList} canCreateTypes={Boolean(contactTypes?.can_create)} required={required} onTypeCreated={type => setContactTypes(current => current ? { ...current, items: [...current.items, type] } : current)}
+    {/* Wabotia: campos próprios de contato (Preferências › Cadastros), salvos à parte; na ficha do atendimento, só leitura. */}
+    <ContactCustomFields contactId={record?.id ?? null} embedded={Boolean(embeddedProfile)} writable={Boolean(writable) && !excluded} />
+    {drawer &&<ContactQuickDrawer controller={controller} types={typesList} canCreateTypes={Boolean(contactTypes?.can_create)} required={required} onTypeCreated={type => setContactTypes(current => current ? { ...current, items: [...current.items, type] } : current)}
       onClose={() => setDrawer(false)} onCreated={created => { setDrawer(false); setPersons(previous => [...previous, { id: created.id, name: created.name, code: typeof created.code === 'string' ? created.code : null, situation: created.situation }]); }} />}
     <p className="real-help">Esta tela não altera estoque, contas ou documentos fiscais.</p>
   </section>;

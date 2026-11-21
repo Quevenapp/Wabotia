@@ -14,6 +14,7 @@ import { erpCommercialOperations } from "./commercial-operations.ts";
 import { ERP_BACKUP_OPERATIONS } from "../../erp/engine/backup-operations.ts";
 import { ERP_CHARGE_OPERATIONS, ERP_CONVERSA_OPERATIONS, ERP_CONVERSA_ROUTE, erpConversaParams } from "../../erp/conversa/contract.ts";
 import { RECEBIDAS_OPERATIONS, RECEBIDAS_ROUTE } from "../../erp/recebidas/operations.ts";
+import { ERP_CONTACT_FIELD_OPERATIONS, ERP_CONTACT_FIELDS_ROUTE } from "../../erp/contact-fields/contract.ts";
 
 type Params = { type: "object"; properties: Record<string, any>; required: string[] };
 /** Assunto da operação, na ordem da tela de concessões do bot. */
@@ -117,6 +118,10 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
       ...(op.path.includes(":id") ? { id: uuid } : {}),
       ...Object.fromEntries([...op.body, ...op.query].map(key => [key, key === "command_id" ? uuid : key === "escolhas" ? { type: "object" } : key.startsWith("autorizacao") || key === "reenviar" ? { type: "boolean" } : { type: "string" }])),
     }, required: [...(op.path.includes(":id") ? ["id"] : []), ...op.body.filter(key => key === "command_id" || key === "xml" || key === "tipo" || key === "motivo")] } })),
+  // Campos próprios de contato (Cadastros): ler é consulta comum; gravar, o bot propõe e a pessoa confirma.
+  // Campo sensível nunca chega ao bot sem a liberação do administrador naquele campo.
+  ...ERP_CONTACT_FIELD_OPERATIONS.map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
+    group: "negocio", description: op.description, params: { type: "object" as const, properties: { ...op.params.properties }, required: [...op.params.required] } })),
 ];
 
 /** Leituras sensíveis que o administrador pode deixar o bot executar sozinho. */
@@ -130,6 +135,8 @@ export function erpBotModules(op: Pick<ErpBotOperation, "method" | "path">): rea
   // A parte de cada documento é conferida na rota (proposta e pedido: Vendas; nota: Fiscal; conta: Financeiro).
   if (op.path.startsWith(`${ERP_CONVERSA_ROUTE}/conta/:id/cobranca`)) return erpRequirement("erp-financeiro").all;
   if (op.path === ERP_CONVERSA_ROUTE || op.path.startsWith(`${ERP_CONVERSA_ROUTE}/`)) return erpRequirement("erp").all;
+  // Campos próprios de contato: só a parte Cadastros.
+  if (op.path === ERP_CONTACT_FIELDS_ROUTE || op.path.startsWith(`${ERP_CONTACT_FIELDS_ROUTE}/`)) return erpRequirement("erp").all;
   const requirement = erpRouteRequirement(op.method, new URL(`https://erp.invalid/${op.path.slice("erp/".length).replace(/:[A-Za-z_][A-Za-z0-9_]*/g, "x")}`));
   return requirement && requirement !== "externo" ? requirement.all : erpRequirement("erp").all;
 }

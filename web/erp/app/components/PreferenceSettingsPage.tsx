@@ -7,6 +7,7 @@ import {applyStoredTheme} from '../hooks/useTheme';
 import {Icon} from './Icon';
 import FiscalNumberingSummary from './FiscalNumberingSummary';
 import NotificationRecipients from './NotificationRecipients';
+import ContactCustomFieldsAdmin from './ContactCustomFieldsAdmin';
 import {preferencesPagePath,preferencesCommandPath} from '../lib/preferences-request';
 import {parseStockPolicy} from '../../../../packages/erp-domain/src/stock-opening-dto.mjs';
 import {preferenceFieldEnabled,parsePreferencesPage,parsePreferencesResult,draftOf,draftState,visible,sectionEntries,choiceOptions,integerOptions,invalidText,readError,saveFailure,saveNotice,moment,fieldId,
@@ -174,6 +175,8 @@ export default function PreferenceSettingsPage({controller,page,section,category
       :<button type="button" className="text-button" disabled={busy||pending!=='none'} onClick={()=>state.dirty?setDiscard(true):setReload(n=>n+1)}>Recarregar</button>)}
      {notice&&!state.dirty&&<span className="preference-saved" aria-hidden="true">{notice}</span>}
      {state.dirty&&!busy&&pending==='none'&&<span className="real-help">{state.changes.length} alteração(ões) não salva(s){state.invalid.length?`, ${state.invalid.length} com valor a corrigir`:''}.</span>}</footer>
+    {/* Wabotia: campos próprios de contato, na página de clientes e fornecedores (Preferências › Cadastros). */}
+    {page.id==='cadastros-contatos'&&!embedded&&<ContactCustomFieldsAdmin/>}
    </section>
   </div>}
  </Root>;

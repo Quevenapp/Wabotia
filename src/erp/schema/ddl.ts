@@ -30,11 +30,13 @@
 // 19: seis tabelas da mão dupla com o Bling (interruptores, linha de base,
 //     fila de saída, pendências e conflitos, registro dos interruptores;
 //     18→19, somente adição).
+// 20: três tabelas dos campos próprios de contato (definição, valor por contato
+//     e registro das alterações; 19→20, somente adição).
 import { createHash } from "node:crypto";
 import { ERP_DDL_GENERATED, ERP_DDL_HASH as GENERATED_HASH } from "./ddl.generated.ts";
 import { ERP_ENGINE_DDL } from "./engine-tables.ts";
 
-export const ERP_DDL_VERSION = 19;
+export const ERP_DDL_VERSION = 20;
 export const ERP_DDL: readonly string[] = [...ERP_DDL_GENERATED, ...ERP_ENGINE_DDL];
 /** Hash do esquema: o do gerado; com tabelas do motor, o do gerado mais o DDL delas. */
 export const ERP_DDL_HASH: string = ERP_ENGINE_DDL.length

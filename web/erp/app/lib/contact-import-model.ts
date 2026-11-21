@@ -1,12 +1,14 @@
 import { SHEET_COLUMNS, type ContactTypeItem } from './contact-list-model.ts';
 import { CONTACT_FORM_FIELDS, CRT_OPTIONS, MARITAL_OPTIONS, OPERATOR_OPTIONS, PUBLIC_AGENCY_OPTIONS, TAXPAYER_OPTIONS, isoDateValid } from './contact-form-model.ts';
 import { textCell, toCsv, toXlsx } from './spreadsheet-export.ts';
+import { fieldColumns, rowFieldValues, type ContactField } from './contact-fields.ts';
 
 // Importar contatos (Origin IC-01 e IC-02): planilha .XLSX, .XLS (xls-reader.ts) ou .CSV com o cabeçalho do modelo (o mesmo de "Exportar para
 // a planilha"), até 10.000 contatos. Tudo é lido no navegador; o servidor valida e importa em lotes de 50 linhas.
 export const IMPORT_LIMIT = 10000;
 export const IMPORT_BATCH = 50;
-export type ImportRow = { row: number; data: Record<string, unknown>; problems: string[]; ignored: string[] };
+// Wabotia: `custom` são os campos próprios de contato da linha (coluna com o nome do campo), gravados depois que o contato é criado.
+export type ImportRow = { row: number; data: Record<string, unknown>; problems: string[]; ignored: string[]; custom?: Record<string, string> };
 const fold = (value: string) => value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
 // ---- Leitura: CSV (; ou ,) em UTF-8 ou Windows-1252, e XLSX (OOXML, primeira planilha) ----
@@ -98,8 +100,11 @@ export function mapHeader(header: readonly string[]) {
   header.forEach((label, index) => { const key = known.get(fold(label)); if (key && !columns.has(key)) columns.set(key, index); else if (label.trim()) unknown.push(label.trim()); });
   return { columns, unknown };
 }
-export function importRows(cells: readonly string[][], types: readonly ContactTypeItem[]): { rows: ImportRow[]; unknown: string[]; missingName: boolean } {
-  const [header = [], ...lines] = cells, { columns, unknown } = mapHeader(header);
+export function importRows(cells: readonly string[][], types: readonly ContactTypeItem[], fields: readonly ContactField[] = []): { rows: ImportRow[]; unknown: string[]; missingName: boolean } {
+  const [header = [], ...lines] = cells, { columns, unknown: outside } = mapHeader(header);
+  // Colunas com o nome de um campo próprio de contato não são "fora do modelo".
+  const custom = fieldColumns(header, fields), customLabels = new Set([...custom.values()].map(index => (header[index] ?? '').trim()));
+  const unknown = outside.filter(label => !customLabels.has(label));
   const typeBySlugOrLabel = new Map(types.flatMap(type => [[fold(type.label), type.slug], [type.slug, type.slug]]));
   const rows = lines.map((line, index) => {
     const data: Record<string, unknown> = {}, problems: string[] = [], ignored: string[] = [];
@@ -126,11 +131,18 @@ export function importRows(cells: readonly string[][], types: readonly ContactTy
     }
     if (data.credit_limit && !data.credit_limit_mode) data.credit_limit_mode = 'value';
     if (!data.name) problems.push('Nome: obrigatório');
+    if (custom.size) {
+      const own = rowFieldValues(line, custom, fields);
+      problems.push(...own.problems);
+      if (Object.keys(own.values).length) return { row: index + 2, data, problems, ignored, custom: own.values };
+    }
     return { row: index + 2, data, problems, ignored };
   });
   return { rows, unknown, missingName: !columns.has('name') };
 }
 export const API_FIELD_LABEL: Record<string, string> = Object.fromEntries(SHEET_COLUMNS.map(([label, key]) => [key, label]));
 /** Planilha modelo: só o cabeçalho, em CSV ou XLSX. */
-export const modelCsv = () => toCsv([SHEET_COLUMNS.map(([label]) => textCell(label))]);
-export const modelXlsx = () => toXlsx('Contatos', [SHEET_COLUMNS.map(([label]) => textCell(label))]);
+// Wabotia: com campos próprios de contato ativos, uma coluna a mais com o nome de cada um.
+const modelHeader = (fields: readonly ContactField[]) => [...SHEET_COLUMNS.map(([label]) => textCell(label)), ...fields.filter(field => field.active).map(field => textCell(field.name))];
+export const modelCsv = (fields: readonly ContactField[] = []) => toCsv([modelHeader(fields)]);
+export const modelXlsx = (fields: readonly ContactField[] = []) => toXlsx('Contatos', [modelHeader(fields)]);

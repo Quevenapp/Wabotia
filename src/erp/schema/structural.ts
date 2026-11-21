@@ -222,4 +222,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Mão dupla com o Bling depois do corte: a coleta incremental aplica no ERP, pelas mesmas funções da adoção, o que mudou no Bling, e o que muda no ERP volta ao Bling por uma fila retomável no alarme do Coordinator, sem gatilho nas tabelas do domínio. Interruptor por entidade e sentido, todos desligados; resposta incerta nunca é repetida sem conferir no Bling; conflito dos dois lados vira pendência; nunca nota fiscal nem ordem de serviço.",
     replaced_by: "Versão 19 aditiva (18→19): wb_bling_twoway (ritmo e últimas rodadas), wb_bling_twoway_setting (interruptor por entidade e sentido), wb_bling_twoway_state (linha de base de cada registro: impressão do ERP e versão do Bling na última sincronização), wb_bling_twoway_outbox (fila de saída com id estável, conferência por GET), wb_bling_twoway_issue (pendências e conflitos com os dois lados) e wb_bling_twoway_audit (quem ligou ou desligou, imutável). A mudança no ERP é achada pela impressão do que seria enviado, sem gatilho.",
   },
+  {
+    id: "campos-contato",
+    oracle: "Campos customizados só de produtos (erp_catalog.custom_field com CHECK module='products'); o contato não tem onde guardar campos próprios.",
+    reason: "Cadastros: campos próprios de contato (texto, número, data, lista e sim/não), por tipo de contato, com obrigatório, coluna e filtro da lista, exportação e importação, e o campo sensível que só vai para listagens, ficha do atendimento, IA e bots quando o administrador libera.",
+    replaced_by: "Versão 20 aditiva (19→20): contact_field (definição, opções da lista, tipos de contato, sensível e liberação com quem e quando), contact_field_value (valor por contato e campo) e contact_field_audit (registro imutável das alterações, inclusive liberar e recolher campo sensível) em erp_catalog. RPCs só do motor erp_catalog_contact_field_* (domains/catalog/contact-fields.ts), na parte Cadastros; a rota do Wabotia /api/v1/profiles/:profile/erp-contato-campos (src/erp/contact-fields) atende o painel, a ficha do atendimento e os bots.",
+  },
 ];

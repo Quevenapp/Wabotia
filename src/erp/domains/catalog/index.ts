@@ -64,6 +64,15 @@ import "./rpc/erp_catalog_contact_history.ts";
 // Wabotia: linha do tempo da ficha (vendas paginadas e notas fiscais do contato).
 import "./rpc/erp_catalog_contact_timeline.ts";
 import "./rpc/erp_catalog_contact_labels.ts";
+// Wabotia: campos próprios de contato (esquema do ERP versão 20, contact-fields.ts).
+import "./rpc/erp_catalog_contact_fields.ts";
+import "./rpc/erp_catalog_contact_field_save.ts";
+import "./rpc/erp_catalog_contact_field_delete.ts";
+import "./rpc/erp_catalog_contact_field_values.ts";
+import "./rpc/erp_catalog_contact_field_values_save.ts";
+import "./rpc/erp_catalog_contact_field_bulk.ts";
+import "./rpc/erp_catalog_contact_field_bulk_save.ts";
+import "./rpc/erp_catalog_contact_field_page.ts";
 // Auxiliares (sessão B): campos customizados, etiquetas, vendedores.
 import "./rpc/erp_catalog_custom_fields.ts";
 import "./rpc/erp_catalog_custom_fields_screen.ts";

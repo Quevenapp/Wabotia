@@ -1297,6 +1297,76 @@ const EVENT_TABLES: readonly EngineTable[] = [
     `CREATE TRIGGER "${C_RETURN}_immutable_delete" BEFORE DELETE ON "${C_RETURN}" BEGIN SELECT RAISE(ABORT, '40001:com1_history_immutable'); END`,
   ]),
 ];
+/** Versão 20: campos próprios de contato (definição, valor por contato e o
+ * registro das alterações, inclusive quando o administrador libera um campo
+ * sensível). Tabelas novas porque o CHECK module='products' de
+ * erp_catalog.custom_field não se reescreve (migração só aditiva). */
+const CF_FIELD = "erp_catalog__contact_field", CF_VALUE = "erp_catalog__contact_field_value", CF_AUDIT = "erp_catalog__contact_field_audit";
+// Padrão GLOB curto: o SQLite do objeto recusa padrão longo ("pattern too complex").
+const CF_UUID = (c: string) => `(length(${c}) = 36 AND ${c} NOT GLOB '*[^0-9a-f-]*' AND substr(${c},9,1) = '-' AND substr(${c},14,1) = '-' AND substr(${c},19,1) = '-' AND substr(${c},24,1) = '-')`;
+const CF_BOOL = (c: string) => `"${c}" INTEGER NOT NULL DEFAULT 0 CHECK ("${c}" IN (0,1))`;
+const contactField = (table: string, ddl: readonly string[]): EngineTable => ({ table, ddl, since: 20, owner: "contato-campos", structural: "campos-contato" });
+const CONTACT_FIELD_TABLES: readonly EngineTable[] = [
+  contactField(CF_FIELD, [
+    `CREATE TABLE "${CF_FIELD}" (
+  "id" TEXT NOT NULL PRIMARY KEY CHECK (${CF_UUID("id")}),
+  "name" TEXT NOT NULL,
+  "name_key" TEXT NOT NULL,
+  "field_type" TEXT NOT NULL,
+  ${CF_BOOL("required")},
+  "roles" TEXT NOT NULL CHECK (${JSON_OF("roles", "array")} AND json_array_length(roles) BETWEEN 1 AND 4),
+  "options" TEXT NOT NULL DEFAULT '[]' CHECK (${JSON_OF("options", "array")} AND json_array_length(options) <= 50 AND length(CAST(options AS BLOB)) <= 16384),
+  ${CF_BOOL("sensitive")},
+  ${CF_BOOL("exposed")},
+  "exposed_at" INTEGER,
+  "exposed_by" TEXT,
+  ${CF_BOOL("list_column")},
+  ${CF_BOOL("list_filter")},
+  "position" INTEGER NOT NULL CHECK (position BETWEEN 1 AND 100000),
+  "active" INTEGER NOT NULL DEFAULT 1 CHECK ("active" IN (0,1)),
+  "version" INTEGER NOT NULL DEFAULT 1 CHECK (version BETWEEN 1 AND 2147483647),
+  "created_by" TEXT NOT NULL,
+  "updated_by" TEXT NOT NULL,
+  "created_at" INTEGER NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  CONSTRAINT "${CF_FIELD}_name_check" CHECK (length(name) BETWEEN 1 AND 60 AND name = trim(name)),
+  CONSTRAINT "${CF_FIELD}_name_key_key" UNIQUE ("name_key"),
+  CONSTRAINT "${CF_FIELD}_field_type_check" CHECK (field_type IN ('text', 'number', 'date', 'list', 'boolean')),
+  CONSTRAINT "${CF_FIELD}_options_check" CHECK ((field_type = 'list') = (json_array_length(options) >= 1)),
+  CONSTRAINT "${CF_FIELD}_exposed_check" CHECK ((exposed = 0 OR sensitive = 1) AND ((exposed = 1) = (exposed_at IS NOT NULL AND exposed_by IS NOT NULL)))
+) STRICT`,
+  ]),
+  contactField(CF_VALUE, [
+    `CREATE TABLE "${CF_VALUE}" (
+  "contact_id" TEXT NOT NULL,
+  "field_id" TEXT NOT NULL,
+  "value" TEXT NOT NULL,
+  "updated_by" TEXT NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  PRIMARY KEY ("contact_id", "field_id"),
+  CONSTRAINT "${CF_VALUE}_value_check" CHECK (length(value) BETWEEN 1 AND 255),
+  CONSTRAINT "${CF_VALUE}_contact_id_fkey" FOREIGN KEY ("contact_id") REFERENCES "erp_catalog__contact" ("record_id"),
+  CONSTRAINT "${CF_VALUE}_field_id_fkey" FOREIGN KEY ("field_id") REFERENCES "${CF_FIELD}" ("id")
+) STRICT`,
+    `CREATE INDEX "${CF_VALUE}_field_value" ON "${CF_VALUE}"("field_id", "value")`,
+  ]),
+  contactField(CF_AUDIT, [
+    `CREATE TABLE "${CF_AUDIT}" (
+  "id" INTEGER PRIMARY KEY,
+  "field_id" TEXT,
+  "contact_id" TEXT,
+  "actor" TEXT NOT NULL,
+  "command_id" TEXT,
+  "action" TEXT NOT NULL CHECK (action IN ('create', 'update', 'delete', 'expose', 'unexpose', 'values')),
+  "before_data" TEXT CHECK (before_data IS NULL OR (json_valid(before_data) AND length(CAST(before_data AS BLOB)) <= 65536)),
+  "after_data" TEXT CHECK (after_data IS NULL OR (json_valid(after_data) AND length(CAST(after_data AS BLOB)) <= 65536)),
+  "created_at" INTEGER NOT NULL
+) STRICT`,
+    `CREATE INDEX "${CF_AUDIT}_field" ON "${CF_AUDIT}"("field_id", "id")`,
+    `CREATE TRIGGER "${CF_AUDIT}_immutable_update" BEFORE UPDATE ON "${CF_AUDIT}" BEGIN SELECT RAISE(ABORT, '55000:erp_contact_field_audit_immutable'); END`,
+    `CREATE TRIGGER "${CF_AUDIT}_immutable_delete" BEFORE DELETE ON "${CF_AUDIT}" BEGIN SELECT RAISE(ABORT, '55000:erp_contact_field_audit_immutable'); END`,
+  ]),
+];
 export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...BASE_ENGINE_TABLES,
   ...counterTables,
@@ -1354,6 +1424,8 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...EVENT_TABLES,
   // Versão 19: mão dupla com o Bling (as versões 17 e 18 são de outras frentes).
   ...TWO_WAY_TABLES,
+  // Versão 20: campos próprios de contato (Cadastros).
+  ...CONTACT_FIELD_TABLES,
 ];
 
 export const ERP_ENGINE_DDL: readonly string[] = ERP_ENGINE_TABLES.flatMap((t) => t.ddl);
