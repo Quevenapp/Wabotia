@@ -23,8 +23,10 @@ import { ConnectionsPage } from "./ConnectionsPage";
 import { ConnectionDialog } from "./ConnectionDialog";
 import { KnowledgePage } from "./KnowledgePage";
 import { SettingsPage } from "./SettingsPage";
-import { UsersPage } from "./UsersPage";
-import { ApplicationsPage } from "./ApplicationsPage";
+// Pessoas e acessos e Sistemas conectados carregam sob demanda: o modelo de permissões por módulo
+// (src/security-modules.ts) fica fora do pacote inicial do painel.
+const UsersPage = lazyWithRecovery<object>(() => import("./UsersPage").then((m) => ({ default: m.UsersPage })));
+const ApplicationsPage = lazyWithRecovery<object>(() => import("./ApplicationsPage").then((m) => ({ default: m.ApplicationsPage })));
 import { TemplatesPage } from "./TemplatesPage";
 import { QueueSettingsPage } from "../queue/QueueSettingsPage";
 import { ModulesPage } from "./ModulesPage";
