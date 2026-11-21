@@ -22,11 +22,15 @@
 //     cada etapa; 14→15, somente adição).
 // 16: sete tabelas da nota de serviço da ordem (service_*: as irmãs da NFS-e
 //     e o cadastro fiscal do serviço; 15→16, somente adição).
+// 17 a 19: reservadas a outras frentes (na junção, os passos delas entram no
+//     lugar dos passos vazios de migrate.ts).
+// 20: três tabelas dos campos próprios de contato (definição, valor por contato
+//     e registro das alterações; 19→20, somente adição).
 import { createHash } from "node:crypto";
 import { ERP_DDL_GENERATED, ERP_DDL_HASH as GENERATED_HASH } from "./ddl.generated.ts";
 import { ERP_ENGINE_DDL } from "./engine-tables.ts";
 
-export const ERP_DDL_VERSION = 16;
+export const ERP_DDL_VERSION = 20;
 export const ERP_DDL: readonly string[] = [...ERP_DDL_GENERATED, ...ERP_ENGINE_DDL];
 /** Hash do esquema: o do gerado; com tabelas do motor, o do gerado mais o DDL delas. */
 export const ERP_DDL_HASH: string = ERP_ENGINE_DDL.length

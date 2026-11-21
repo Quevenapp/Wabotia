@@ -99,6 +99,13 @@ const STEPS: Record<number, (sql: Sql) => number> = {
   13: (sql) => createEngineTables(sql, 14),
   14: (sql) => createEngineTables(sql, 15),
   15: (sql) => createEngineTables(sql, 16),
+  // 17, 18 e 19 são de outras frentes: na junção, o passo delas entra no lugar
+  // destes (createEngineTables só cria o que nasce naquela versão).
+  16: (sql) => createEngineTables(sql, 17),
+  17: (sql) => createEngineTables(sql, 18),
+  18: (sql) => createEngineTables(sql, 19),
+  // Campos próprios de contato (engine-tables.ts, since: 20).
+  19: (sql) => createEngineTables(sql, 20),
 };
 
 /** Garante erp_meta e aplica o DDL e a semeadura quando a versão gravada é menor. */

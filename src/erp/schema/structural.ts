@@ -204,4 +204,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Ordem de serviço, parte 5: a ordem com orçamento aprovado emite a NFS-e do Sistema Nacional (serviços) e a NF-e modelo 55 (peças) pelo cofre da NFapi, pela mesma máquina da NF-e comercial, sem lançar estoque nem financeiro de novo (os efeitos são os da fase 3).",
     replaced_by: "Versão 16 aditiva (15→16): service_emission, service_revision, service_command, service_cancel, service_effect e service_audit em erp_fiscal_vault, com o DDL da versão 10 e os limites da NFS-e (série de até 5 dígitos, número da DPS de até 15, chave nacional de até 50 caracteres e o número da NFS-e na coluna protocol), e service_settings (código de tributação, NBS, ISS e município de prestação, com exceções por serviço). Inscrição municipal, série da DPS e regime especial ficam no cofre.",
   },
+  {
+    id: "campos-contato",
+    oracle: "Campos customizados só de produtos (erp_catalog.custom_field com CHECK module='products'); o contato não tem onde guardar campos próprios.",
+    reason: "Cadastros: campos próprios de contato (texto, número, data, lista e sim/não), por tipo de contato, com obrigatório, coluna e filtro da lista, exportação e importação, e o campo sensível que só vai para listagens, ficha do atendimento, IA e bots quando o administrador libera.",
+    replaced_by: "Versão 20 aditiva (19→20): contact_field (definição, opções da lista, tipos de contato, sensível e liberação com quem e quando), contact_field_value (valor por contato e campo) e contact_field_audit (registro imutável das alterações, inclusive liberar e recolher campo sensível) em erp_catalog. RPCs só do motor erp_catalog_contact_field_* (domains/catalog/contact-fields.ts), na parte Cadastros; a rota do Wabotia /api/v1/profiles/:profile/erp-contato-campos (src/erp/contact-fields) atende o painel, a ficha do atendimento e os bots.",
+  },
 ];

@@ -1260,6 +1260,14 @@ const erpConversa = async (c: any) => {
 };
 app.all("/api/v1/profiles/:profile/erp-conversa", erpConversa);
 app.all("/api/v1/profiles/:profile/erp-conversa/*", erpConversa);
+// Campos próprios de contato do ERP (Preferências › Cadastros, cadastro, lista,
+// ficha do atendimento e bots): src/erp/contact-fields/routes.ts.
+const erpContactFields = async (c: any) => {
+  const { erpContactFieldsRoute } = await import("./erp/contact-fields/routes");
+  return erpContactFieldsRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
+};
+app.all("/api/v1/profiles/:profile/erp-contato-campos", erpContactFields);
+app.all("/api/v1/profiles/:profile/erp-contato-campos/*", erpContactFields);
 // Sondas do ERP para a instalação de teste (só com ERP_PROBES=1 no deploy).
 app.post("/api/v1/profiles/:profile/erp-probe/:name", async (c) => {
   const profile = c.req.param("profile");

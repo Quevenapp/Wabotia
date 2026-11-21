@@ -9,13 +9,15 @@ import { useUnsavedForm } from '../hooks/useUnsavedChanges';
 import { Icon } from './Icon';
 import { aborted, errorText } from './catalog-shared';
 import { contactRefusalText } from './contact-errors';
+import { ContactFieldsError, contactFieldsAvailable, contactFieldsCall, type ContactField, type ContactFieldList } from '../lib/contact-fields';
 import './contacts.css';
 
 // Importar contatos (Origin IC-01 e IC-02): "Selecione o arquivo de contatos", "Limite de 10.000 contatos por planilha.",
 // Procurar arquivo > Validar > conferir registros > Importar. O servidor valida cada linha com as regras do formulário e
 // importa em lotes de 50, um comando por lote; um resultado incerto oferece "Conferir resultado" com o mesmo comando.
-type Result = { row: number; status: 'valid' | 'invalid' | 'created'; code?: string; field?: string };
-type Batch = { id: string; rows: ImportRow[]; uncertain: boolean };
+type Result = { row: number; status: 'valid' | 'invalid' | 'created'; code?: string; field?: string; record_id?: string };
+// Wabotia: `fields` é o comando dos campos próprios do lote (o mesmo em "Conferir resultado"), gravados depois que o contato é criado.
+type Batch = { id: string; fields: string; rows: ImportRow[]; uncertain: boolean };
 const reason = (result: Result) => result.code === 'required' ? `Obrigatório pelas Preferências: ${API_FIELD_LABEL[result.field ?? ''] ?? result.field}` : result.code === 'duplicate_document' ? 'CPF/CNPJ duplicado não permitido'
   : result.code === 'not_visible' ? 'Fora da carteira do seu vendedor' : result.field ? `Confira ${API_FIELD_LABEL[result.field] ?? result.field}` : 'Linha recusada';
 
@@ -23,22 +25,25 @@ export default function RealImportContacts({ controller }: { controller: AccessC
   const [file, setFile] = useState<string>(''), [rows, setRows] = useState<ImportRow[] | null>(null), [unknown, setUnknown] = useState<string[]>([]), [error, setError] = useState('');
   const [results, setResults] = useState<Map<number, Result>>(new Map()), [step, setStep] = useState<'file' | 'validated' | 'imported'>('file'), [busy, setBusy] = useState(false), [progress, setProgress] = useState('');
   const [pending, setPending] = useState<Batch | null>(null), [types, setTypes] = useState<ContactTypes | null>(null);
+  const [fields, setFields] = useState<ContactField[]>([]), [fieldProblems, setFieldProblems] = useState<Map<number, string>>(new Map());
   const request = useRef<AbortController | null>(null), actor = useRef(controller.getSnapshot().membership?.user_id), remaining = useRef<Batch[]>([]);
   const guard = useUnsavedForm(step === 'validated' ? file : '', busy || Boolean(pending?.uncertain));
   useEffect(() => {
     const current = new AbortController();
     void controller.catalog('/v1/cadastros/tipos-contato', { signal: current.signal }).then(value => { if (!current.signal.aborted) setTypes(value as ContactTypes); }).catch(() => undefined);
+    // Campos próprios de contato: coluna com o nome do campo (Preferências › Cadastros).
+    if (contactFieldsAvailable()) void contactFieldsCall<ContactFieldList>('?para=cadastro', { signal: current.signal }).then(value => { if (!current.signal.aborted && Array.isArray(value.items)) setFields(value.items); }).catch(() => undefined);
     return () => { current.abort(); request.current?.abort(); };
   }, [controller]);
   const same = () => controller.getSnapshot().membership?.user_id === actor.current;
   const read = async (selected: File) => {
-    setError(''); setRows(null); setResults(new Map()); setStep('file'); setFile(selected.name);
+    setError(''); setRows(null); setResults(new Map()); setFieldProblems(new Map()); setStep('file'); setFile(selected.name);
     const name = selected.name.toLowerCase();
     if (!/\.(xlsx|xls|csv)$/.test(name)) { setError('Selecione uma planilha .XLSX, .XLS ou .CSV conforme o modelo.'); return; }
     if (selected.size > 20 * 1024 * 1024) { setError('A planilha passa de 20 MB. Divida o arquivo e tente de novo.'); return; }
     try {
       const bytes = new Uint8Array(await selected.arrayBuffer()), cells = name.endsWith('.csv') ? parseCsv(decodeText(bytes)) : name.endsWith('.xls') ? parseXls(bytes, decodeText) : await parseXlsx(bytes);
-      const parsed = importRows(cells, types?.items ?? []);
+      const parsed = importRows(cells, types?.items ?? [], fields);
       if (parsed.missingName) { setError('A planilha não tem a coluna "Nome" do modelo. Baixe a planilha modelo e confira o cabeçalho.'); return; }
       if (!parsed.rows.length) { setError('A planilha não tem contatos.'); return; }
       if (parsed.rows.length > IMPORT_LIMIT) { setError('Limite de 10.000 contatos por planilha.'); return; }
@@ -83,14 +88,38 @@ export default function RealImportContacts({ controller }: { controller: AccessC
         }
         if (!same()) return;
         setResults(previous => { const next = new Map(previous); for (const item of items) next.set(item.row, item); return next; });
+        await saveFields(batch, items, current.signal);
+        if (current.signal.aborted || !same()) return;
       }
       setPending(null); remaining.current = []; setStep('imported');
     } finally { if (request.current === current) { request.current = null; setBusy(false); setProgress(''); } }
   };
+  // Campos próprios dos contatos criados no lote; o contato fica criado mesmo se um valor for recusado (a linha mostra o motivo).
+  const saveFields = async (batch: Batch, items: Result[], signal: AbortSignal) => {
+    const itens = items.filter(item => item.status === 'created' && item.record_id).flatMap(item => {
+      const custom = batch.rows.find(row => row.row === item.row)?.custom;
+      return custom && Object.keys(custom).length ? [{ row: item.row, contato: item.record_id!, valores: custom }] : [];
+    });
+    if (!itens.length) return;
+    const problems = new Map<number, string>();
+    try {
+      const result = await contactFieldsCall<{ items: { contact_id: string; saved: boolean; errors?: { message?: string }[] }[] }>('/importar',
+        { method: 'POST', body: { command_id: batch.fields, itens: itens.map(({ contato, valores }) => ({ contato, valores })) }, signal });
+      for (const item of result.items) if (!item.saved) {
+        const row = itens.find(entry => entry.contato === item.contact_id)?.row;
+        if (row !== undefined) problems.set(row, item.errors?.[0]?.message ?? 'Campo próprio recusado.');
+      }
+    } catch (failure) {
+      if (signal.aborted || aborted(failure)) return;
+      const message = failure instanceof ContactFieldsError ? failure.message : 'Não deu para gravar os campos próprios.';
+      for (const entry of itens) problems.set(entry.row, `Campos próprios não gravados: ${message} Preencha no cadastro do contato.`);
+    }
+    if (problems.size) setFieldProblems(previous => new Map([...previous, ...problems]));
+  };
   const importValid = () => {
     if (!rows || busy || step !== 'validated') return;
     const valid = rows.filter(row => results.get(row.row)?.status === 'valid'), batches: Batch[] = [];
-    for (let index = 0; index < valid.length; index += IMPORT_BATCH) batches.push({ id: crypto.randomUUID(), rows: valid.slice(index, index + IMPORT_BATCH), uncertain: false });
+    for (let index = 0; index < valid.length; index += IMPORT_BATCH) batches.push({ id: crypto.randomUUID(), fields: crypto.randomUUID(), rows: valid.slice(index, index + IMPORT_BATCH), uncertain: false });
     void send(batches);
   };
   const shown = rows ?? [], invalid = shown.filter(row => row.problems.length || results.get(row.row)?.status === 'invalid'), validCount = shown.filter(row => results.get(row.row)?.status === 'valid').length;
@@ -105,7 +134,8 @@ export default function RealImportContacts({ controller }: { controller: AccessC
         {unknown.length > 0 && <p className="real-help">Colunas ignoradas (fora do modelo): {unknown.join(', ')}.</p>}</section>
       <aside className="contact-section"><h2>Instruções</h2>
         <p>Use uma planilha .XLSX, .XLS ou .CSV com as colunas da tabela modelo (as mesmas de “Exportar para a planilha” da listagem). Procure o arquivo, valide, confira os registros e importe.</p>
-        <p><button type="button" className="text-button" onClick={() => downloadFile('modelo-contatos.xlsx', modelXlsx() as BlobPart, XLSX_TYPE)}>Baixar planilha modelo (.XLSX)</button> · <button type="button" className="text-button" onClick={() => downloadFile('modelo-contatos.csv', modelCsv(), CSV_TYPE)}>(.CSV)</button></p>
+        <p><button type="button" className="text-button" onClick={() => downloadFile('modelo-contatos.xlsx', modelXlsx(fields) as BlobPart, XLSX_TYPE)}>Baixar planilha modelo (.XLSX)</button> · <button type="button" className="text-button" onClick={() => downloadFile('modelo-contatos.csv', modelCsv(fields), CSV_TYPE)}>(.CSV)</button></p>
+        {fields.some(field => field.active) && <p className="real-help">Campos próprios de contato: uma coluna com o nome do campo ({fields.filter(field => field.active).map(field => field.name).join(', ')}). Lista pelo nome da opção, Sim ou Não, data DD/MM/AAAA. Valor que não confere deixa a linha de fora.</p>}
         <p className="real-help">Vendedor, Categoria e Natureza de Operação são exportados para consulta e não são importados: vincule-os depois pela listagem ou pelo formulário.</p>
         <p className="real-help">Os contatos importados são cadastrados no ERP conforme a prévia conferida.</p>
         <p className="real-help">Ajuda: <Link to="/cadastros-reais?cadastro=contacts">Clientes e fornecedores</Link> mostra os contatos importados.</p></aside>
@@ -121,7 +151,7 @@ export default function RealImportContacts({ controller }: { controller: AccessC
       <div className="table-scroll"><table className="data-table real-table contact-import-table"><thead><tr><th scope="col">Linha</th><th scope="col">Nome</th><th scope="col">CPF/CNPJ</th><th scope="col">Situação</th></tr></thead>
         <tbody>{shown.slice(0, 500).map(row => { const result = results.get(row.row), bad = row.problems.length > 0 || result?.status === 'invalid';
           return <tr key={row.row} className={bad ? 'is-invalid' : undefined}><td>{row.row}</td><td>{String(row.data.name ?? '—')}</td><td>{String(row.data.document ?? '—')}</td>
-            <td>{row.problems.length ? row.problems.join('; ') : result ? result.status === 'created' ? 'Importado' : result.status === 'valid' ? `Válido${row.ignored.length ? ` (ignorado: ${row.ignored.join(', ')})` : ''}` : reason(result) : 'Aguardando validação'}</td></tr>; })}</tbody></table></div>
+            <td>{row.problems.length ? row.problems.join('; ') : result ? result.status === 'created' ? (fieldProblems.has(row.row) ? `Importado; ${fieldProblems.get(row.row)}` : 'Importado') :result.status === 'valid' ? `Válido${row.ignored.length ? ` (ignorado: ${row.ignored.join(', ')})` : ''}` : reason(result) : 'Aguardando validação'}</td></tr>; })}</tbody></table></div>
       {shown.length > 500 && <p className="real-help">Mostrando as 500 primeiras linhas de {shown.length}. {invalid.length} com problema no total.</p>}
     </>}
   </section>;

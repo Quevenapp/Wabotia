@@ -36,6 +36,18 @@ export const ENGINE_SIGNATURES: Record<string, ArgSpec[]> = {
   erp_com1_os_prepare: [["p_user_id", "u"], ["p_input", "j"]],
   erp_com1_nfse_config_get: [["p_user_id", "u"]],
   erp_com1_nfse_config_save: [["p_user_id", "u"], ["p_input", "j"]],
+  // Campos próprios de contato: src/erp/domains/catalog/contact-fields.ts (structural.ts, campos-contato).
+  erp_catalog_contact_fields: [["p_user_id", "u"], ["p_audience", "t", "panel"]],
+  erp_catalog_contact_field_save: [["p_user_id", "u"], ["p_id", "u", null], ["p_expected_version", "i", 0], ["p_command_id", "u"], ["p_data", "j"]],
+  erp_catalog_contact_field_delete: [["p_user_id", "u"], ["p_id", "u"], ["p_expected_version", "i"], ["p_command_id", "u"]],
+  erp_catalog_contact_field_values: [["p_user_id", "u"], ["p_contact_id", "u"], ["p_audience", "t", "panel"]],
+  erp_catalog_contact_field_values_save: [["p_user_id", "u"], ["p_contact_id", "u"], ["p_command_id", "u"], ["p_values", "j"], ["p_audience", "t", "panel"]],
+  erp_catalog_contact_field_bulk: [["p_user_id", "u"], ["p_ids", "U"], ["p_audience", "t", "list"]],
+  erp_catalog_contact_field_bulk_save: [["p_user_id", "u"], ["p_command_id", "u"], ["p_items", "j"], ["p_audience", "t", "panel"]],
+  erp_catalog_contact_field_page: [["p_user_id", "u"], ["p_page", "i", 1], ["p_size", "i", 100], ["p_sort", "t", "created_desc"], ["p_query", "t", null],
+    ["p_situation", "t", "latest"], ["p_type", "t", null], ["p_person_type", "t", null], ["p_state", "t", null], ["p_city", "t", null], ["p_phone", "t", null],
+    ["p_email", "t", null], ["p_seller_id", "u", null], ["p_period", "t", null], ["p_from", "d", null], ["p_to", "d", null], ["p_sale_statuses", "T", null],
+    ["p_tag", "t", null], ["p_price_list_id", "u", null], ["p_fields", "j", null]],
   // src/erp/domains/fiscal/reform.ts (sessão G; structural.ts, reforma-classificacao)
   erp_fiscal_reform_nature_class_get: [
     ["p_user_id", "u"],
