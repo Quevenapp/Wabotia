@@ -1,0 +1,14 @@
+/* Boleto pela API do banco: na conta a receber (TitleBoletoApi.tsx), na conta financeira e nas Preferências (BoletoApiSettings.tsx). */
+.boleto-api, .boleto-api-account, .boleto-api-preference { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.boleto-api h3, .boleto-api-account h3 { margin: 0; font-size: 1rem; }
+.boleto-api p, .boleto-api-account p, .boleto-api-preference p { margin: 0; }
+.boleto-api-detail, .boleto-api-form { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid #e4e7ec; padding-top: 8px; }
+.boleto-api-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.boleto-api-copy { display: flex; gap: 8px; }
+.boleto-api-copy input { flex: 1; min-width: 0; font-family: monospace; }
+.boleto-api-label { font-size: 0.85rem; color: #475467; }
+.boleto-api-account label, .boleto-api-form label { display: flex; flex-direction: column; gap: 4px; }
+.boleto-api-account textarea { font-family: monospace; font-size: 0.8rem; }
+.boleto-api-preference { max-width: 720px; padding: 0 24px 24px; }
+.boleto-api-banks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.boleto-api-banks li { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid #e4e7ec; padding-top: 8px; }

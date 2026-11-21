@@ -6,6 +6,7 @@
 // 2 de 5 (ITF, 44 dígitos) desenhado em barras.
 // Sem banco e sem rede: os testes do Node importam este arquivo.
 import { PdfPage, pdfDocument, wrapText } from "../../../web/erp/app/lib/pdf-writer.ts";
+import { qrMatrix } from "../../../web/erp/app/lib/barcodes.ts";
 import { day, money } from "./rules.ts";
 
 export interface BoletoData {
@@ -22,9 +23,18 @@ export interface BoletoData {
   beneficiary: { name: string | null; document: string | null; address: string | null };
   payer: { name: string | null; document: string | null; address: string | null };
   instructions: readonly string[];
+  // Boleto registrado pela API do banco (src/erp/boleto-api), qualquer banco:
+  /** "Agência / Código do beneficiário" como o banco informa; sem ele, o do Itaú carteira 109 pelo campo livre. */
+  agency_code?: string | null;
+  /** Carteira; sem ela, a do Itaú pelo campo livre. */
+  wallet?: string | null;
+  /** Pix copia e cola do boleto híbrido: QR Code ao lado do código de barras. */
+  pix_code?: string | null;
+  /** Registrado na homologação do banco: marca "sem valor" no PDF. */
+  sandbox?: boolean;
 }
 
-const BANKS: Record<string, string> = { "341": "Itaú", "001": "Banco do Brasil", "237": "Bradesco", "033": "Santander", "104": "Caixa", "077": "Inter" };
+const BANKS: Record<string, string> = { "341": "Itaú", "001": "Banco do Brasil", "237": "Bradesco", "033": "Santander", "104": "Caixa", "077": "Inter", "756": "Sicoob" };
 
 /** Dígito do código de barras (módulo 11, posição 5). */
 export function barcodeDigit(code43: string): number {
@@ -105,7 +115,9 @@ export function boletoPdf(data: BoletoData): Uint8Array {
   const value = money(data.amount_cents) ?? "", due = day(data.due_on) ?? data.due_on;
   // Agência e código do beneficiário (Itaú, carteira 109): no campo livre do código de barras.
   const free = data.barcode.slice(19);
-  const agency = bank === "341" ? `${free.slice(12, 16)} / ${free.slice(16, 21)}-${free[21]}` : "";
+  const agency = data.agency_code ?? (bank === "341" ? `${free.slice(12, 16)} / ${free.slice(16, 21)}-${free[21]}` : "");
+  const wallet = data.wallet ?? (bank === "341" ? free.slice(0, 3) : "");
+  if (data.sandbox) page.rotated(45, 200, "HOMOLOGAÇÃO - SEM VALOR", 35, { size: 34 });
   const header = (y: number, title: string) => {
     page.text(M, y, bankName, { size: 12, font: "bold" });
     page.line(M + 38, y - 5, M + 38, y + 1, { width: 0.4 });
@@ -152,7 +164,7 @@ export function boletoPdf(data: BoletoData): Uint8Array {
   cell(page, M + 145, y, 45, 9, "Nosso número", data.our_number, { align: "right" });
   y += 9;
   cell(page, M, y, 30, 9, "Uso do banco", "");
-  cell(page, M + 30, y, 20, 9, "Carteira", bank === "341" ? free.slice(0, 3) : "");
+  cell(page, M + 30, y, 20, 9, "Carteira", wallet);
   cell(page, M + 50, y, 20, 9, "Espécie", "R$");
   cell(page, M + 70, y, 45, 9, "Quantidade", "");
   cell(page, M + 115, y, 30, 9, "Valor", "");
@@ -172,6 +184,18 @@ export function boletoPdf(data: BoletoData): Uint8Array {
   y += 19;
   barcodeBars(page, M + 5, y, data.barcode);
   page.text(M + W, y + 2, "Autenticação mecânica · Ficha de compensação", { size: 6, gray: 0.4, align: "right" });
+  // Boleto híbrido: o QR Code do Pix ao lado do código de barras e o copia e cola embaixo.
+  const qr = data.pix_code ? qrMatrix(data.pix_code) : null;
+  if (data.pix_code) {
+    const size = 26, x = M + W - size, top = y + 4;
+    if (qr) {
+      const cell = size / qr.length;
+      qr.forEach((row, r) => row.forEach((dark, c) => { if (dark) page.rect(x + c * cell, top + r * cell, cell, cell, { fill: true, width: 0 }); }));
+      page.text(x + size / 2, top + size + 3, "Pague também com Pix", { size: 6, align: "center" });
+    }
+    page.text(M, y + 20, "Pix copia e cola:", { size: 6, gray: 0.35 });
+    wrapText(data.pix_code, qr ? 150 : W, 6, "mono").slice(0, 4).forEach((part, index) => page.text(M, y + 23 + index * 3, part, { size: 6, font: "mono" }));
+  }
   return pdfDocument([page], { title: `Boleto ${data.document_number ?? data.our_number}`, producer: "Wabotia" });
 }
 

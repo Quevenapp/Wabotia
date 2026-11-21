@@ -6,6 +6,7 @@ import { centsInput, financeMoney, moneyInput, postingDate, todaySP } from '../l
 import { ACCOUNT_TYPE_CARDS, financialAccount, isBankType, needsInstitution, type AccountType, type FinancialAccount } from '../lib/finance-registry-model';
 import { institutionLabel, searchInstitutions } from '../lib/bank-institutions';
 import { Icon } from './Icon';
+import { BoletoApiAccountSettings } from './BoletoApiSettings';
 
 type Finance = (path: string, options?: { method?: 'GET' | 'POST'; body?: unknown; signal?: AbortSignal }) => Promise<unknown>;
 type Values = { account_type: Exclude<AccountType, 'integration'>; institution_code: string; institution_name: string; name: string; agency: string; account_number: string; account_digit: string; start_on: string; opening: string; default_movements: boolean; default_boleto: boolean };
@@ -112,6 +113,8 @@ export default function FinanceAccountEditor({ finance, account, writable, mayWr
         {bank && <section ref={element => { sections.current.boleto = element; }} data-step="boleto" className="finance-account-section"><h2>Emissão de Boleto</h2>
           {account?.cnab ? <p>Cobrança bancária configurada: banco {account.cnab.bank ?? '—'}, agência {account.cnab.agency ?? '—'}, conta {account.cnab.account ?? '—'}{account.cnab.account_digit ? `-${account.cnab.account_digit}` : ''}. Carteira, instruções, juros, multa e remessas ficam na <Link to="/cobranca-empresa">cobrança bancária</Link>.</p>
             : <p className="real-help">Esta conta ainda não emite boletos. A carteira, as instruções e a homologação são configuradas na <Link to="/cobranca-empresa">cobrança bancária</Link>; o envio ao banco continua desligado.</p>}
+          {/* Wabotia (boleto-api): remessa CNAB ou API do banco, e as credenciais no cofre. */}
+          {account && <BoletoApiAccountSettings accountId={account.id} />}
         </section>}
       </fieldset>
       <div className="real-editor-actions finance-drawer-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => guard.confirmLeave(onBack)}>Voltar</button>{writable && !integration && <button type="submit" className="primary-button" disabled={busy}>{busy ? 'Salvando…' : uncertain ? 'Conferir resultado' : account ? 'Atualizar Conta' : 'Adicionar Conta'}</button>}</div>
