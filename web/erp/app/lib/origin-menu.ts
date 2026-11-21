@@ -72,6 +72,7 @@ export const COMPANY_PREFERENCES: readonly PreferenceCategory[] = [
       { label: 'Consulta de inutilizações de NF-es', to: '/inutilizacoes-nfe', roles: ['admin', 'fiscal'] },
       { label: 'Consulta de correções de NF-es', to: '/cartas-correcao', roles: ['admin', 'fiscal'] },
       { label: 'Naturezas de operação', to: '/naturezas-operacao', roles: FISCAL_READ, description: 'Naturezas com regras de ICMS, IPI, PIS, COFINS e II, padrões e configurações globais de impostos.' },
+      { label: 'Contador e envio dos arquivos fiscais', to: '/contador-fiscal?aba=contador', roles: FISCAL_READ, description: 'Nome, e-mail e WhatsApp do contador, envio automático do pacote do mês e anexo do Simples de cada natureza.' },
     ] },
     { title: TOOLS, entries: [
       { label: 'Emissor de NF-e · rascunhos', to: '/emissor-fiscal?modelo=55', roles: ['admin', 'fiscal'] },

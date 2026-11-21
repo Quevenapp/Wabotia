@@ -192,6 +192,14 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     permission: { kind: "erp", roles: ["admin"] },
   },
   {
+    // Para o contador (src/erp/contador): pacote do período, relatórios fiscais e envio ao contador.
+    id: "erp.accountant", module: "erp-fiscal", part: "fiscal",
+    ...ERP_MENU_GROUPS.fiscal, order: 196,
+    label: "Para o contador",
+    target: { kind: "ported", to: "/contador-fiscal" },
+    permission: { kind: "erp", roles: ["admin","consulta","fiscal"] },
+  },
+  {
     id: "erp.pos", module: "erp-pdv", part: "pdv",
     primary: true,
     ...ERP_MENU_GROUPS.comercial, order: 200,
@@ -475,6 +483,7 @@ export const ORIGIN_MENU: readonly MenuGroupDefinition[] = [
       legacyItems["erp.outgoing-invoices"],
       legacyItems["erp.consumer-invoices"],
       legacyItems["erp.bling-invoices"],
+      legacyItems["erp.accountant"],
       legacyItems["erp.pos"],
       legacyItems["erp.sales-proposals"],
     ] },

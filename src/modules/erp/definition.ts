@@ -3,6 +3,7 @@ import { ERP_BACKUP_MODULE_CONTRACT } from "../../erp/engine/backup-operations.t
 import { ERP_CONVERSA_MODULE_CONTRACT } from "../../erp/conversa/contract.ts";
 import { ERP_CONTACT_FIELDS_MODULE_CONTRACT } from "../../erp/contact-fields/contract.ts";
 import { ERP_RELATORIOS_MODULE_CONTRACT } from "../../erp/relatorios/contract.ts";
+import { ERP_CONTADOR_MODULE_CONTRACT } from "../../erp/contador/contract.ts";
 import { ERP_MANAGEMENT_ITEMS } from "./panel-menu";
 import type { ModuleDefinition } from "../types";
 import { ERP_PART_DEPENDENCIES, ERP_PART_NAMES, type ErpModuleId } from "../../erp/parts.ts";
@@ -78,9 +79,13 @@ export const erpEstoqueModule = definition("erp-estoque", "Depósitos, saldos, m
 export const erpFinanceiroModule = definition("erp-financeiro", "Contas a pagar e receber, baixas, caixa, conciliação e comissões.");
 export const erpFiscalModule: ModuleDefinition = {
   ...definition("erp-fiscal", "Documentos fiscais, naturezas, numeração e configuração do emissor, conforme as funcionalidades disponíveis."),
-  routes: ["erp-emissor", "erp-fiscal-cofre", ...COM1_MODULE_CONTRACT.routes],
+  // Para o contador (src/erp/contador/contract.ts): as operações nfe.contador.* já são do prefixo nfe.
+  routes: ["erp-emissor", "erp-fiscal-cofre", ...COM1_MODULE_CONTRACT.routes, ...ERP_CONTADOR_MODULE_CONTRACT.routes],
   operations: COM1_MODULE_CONTRACT.operations,
-  bot: COM1_MODULE_CONTRACT.definition.bot,
+  bot: {
+    sensitive: [...COM1_MODULE_CONTRACT.definition.bot.sensitive, ...ERP_CONTADOR_MODULE_CONTRACT.definition.bot.sensitive],
+    hints: { ...COM1_MODULE_CONTRACT.definition.bot.hints, ...ERP_CONTADOR_MODULE_CONTRACT.definition.bot.hints },
+  },
 };
 export const erpCobrancaModule = definition("erp-cobranca", "Boletos, remessas, retornos e liquidação bancária de títulos do Financeiro.");
 export const erpPdvModule = definition("erp-pdv", "Venda no balcão e devolução, integradas a vendas, estoque e caixa financeiro.");

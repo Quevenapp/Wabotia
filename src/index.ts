@@ -1232,6 +1232,22 @@ app.all("/api/v1/profiles/:profile/erp-fiscal-cofre/*", async (c: any) => {
   const { erpFiscalVaultRoute } = await import("./erp/fiscal-cofre/routes");
   return erpFiscalVaultRoute(c.env, c.req.raw, profile, c.get("actor"));
 });
+// Para o contador (Fiscal; src/erp/contador/): pacote do período, relatórios
+// fiscais, cadastro do contador e envio do link de 7 dias.
+app.all("/api/v1/profiles/:profile/erp-contador/*", async (c: any) => {
+  const profile = c.req.param("profile");
+  if (!canProfile(c.get("actor"), profile))
+    throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
+  const { erpContadorRoute } = await import("./erp/contador/routes");
+  return erpContadorRoute(c.get("pre") ?? c.env, c.req.raw, profile, c.get("actor"));
+});
+// O link enviado ao contador: sem sessão, o código (256 bits, só na mensagem)
+// vale 7 dias para o ZIP daquele pacote, com a parte Fiscal ligada.
+app.get("/api/public/contador/:token", async (c) => {
+  await rate(c.env, "contador-public:" + (await sha(c.req.header("CF-Connecting-IP") || "local")), 60);
+  const { contadorPublicDownload } = await import("./erp/contador/service");
+  return contadorPublicDownload(c.env, c.req.param("token"));
+});
 // Compra pela nota recebida (Compras; src/erp/recebidas/): notas do cofre ou
 // importadas pelo XML, conferência, entrada, estorno e manifestação.
 app.all("/api/v1/profiles/:profile/erp-recebidas/*", async (c: any) => {

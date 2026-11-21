@@ -1420,6 +1420,65 @@ const REPORT_TABLES: readonly EngineTable[] = [
     since: 21, owner: "erp-relatorios", structural: "relatorios-dre-equipe",
   },
 ];
+/** Versão 22: o pacote do contador (src/erp/contador/package.ts). Um pacote por
+ * ambiente e período (o id vem deles), montado aos poucos no alarme; cada
+ * parte registra os arquivos que gravou no R2 e as linhas da planilha. */
+const C_CONTADOR_PACKAGE = "erp_contador__package";
+const C_CONTADOR_PART = "erp_contador__part";
+const contador = (table: string, ddl: readonly string[]): EngineTable => ({ table, ddl, since: 22, owner: "contador-xml", structural: "contador-pacote" });
+const CONTADOR_TABLES: readonly EngineTable[] = [
+  contador(C_CONTADOR_PACKAGE, [
+    `CREATE TABLE "${C_CONTADOR_PACKAGE}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "environment" TEXT NOT NULL,
+  "period_from" TEXT NOT NULL,
+  "period_to" TEXT NOT NULL,
+  "state" TEXT NOT NULL,
+  "run" TEXT NOT NULL,
+  "phase" TEXT NOT NULL,
+  "cursor" TEXT NOT NULL DEFAULT '{}' CHECK (${JSON_OF("cursor", "object")}),
+  "counts" TEXT NOT NULL DEFAULT '{}' CHECK (${JSON_OF("counts", "object")}),
+  ${ARRAY("warnings")},
+  "zip_offset" INTEGER NOT NULL DEFAULT 0,
+  "parts" INTEGER NOT NULL DEFAULT 0,
+  "entries" INTEGER NOT NULL DEFAULT 0,
+  "bytes" INTEGER NOT NULL DEFAULT 0,
+  "filename" TEXT,
+  "error" TEXT,
+  "attempts" INTEGER NOT NULL DEFAULT 0,
+  "retry_at" INTEGER NOT NULL DEFAULT 0,
+  ${ARRAY("stale")},
+  "requested_by" TEXT,
+  "created_at" INTEGER NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  "finished_at" INTEGER,
+  CONSTRAINT "${C_CONTADOR_PACKAGE}_id_check" CHECK (length(id) = 16 AND id NOT GLOB '*[^0-9a-f]*'),
+  CONSTRAINT "${C_CONTADOR_PACKAGE}_environment_check" CHECK (environment IN ('producao', 'homologacao')),
+  CONSTRAINT "${C_CONTADOR_PACKAGE}_period_check" CHECK (period_from GLOB '${DIGITS(4)}-${DIGITS(2)}-${DIGITS(2)}' AND period_to GLOB '${DIGITS(4)}-${DIGITS(2)}-${DIGITS(2)}' AND period_from <= period_to),
+  CONSTRAINT "${C_CONTADOR_PACKAGE}_state_check" CHECK (state IN ('running', 'done', 'failed')),
+  CONSTRAINT "${C_CONTADOR_PACKAGE}_phase_check" CHECK (phase IN ('emitidas', 'inutilizacoes', 'recebidas', 'bling', 'fechamento')),
+  CONSTRAINT "${C_CONTADOR_PACKAGE}_sizes_check" CHECK (zip_offset >= 0 AND parts >= 0 AND entries BETWEEN 0 AND 65535 AND bytes >= 0 AND attempts >= 0),
+  CONSTRAINT "${C_CONTADOR_PACKAGE}_text_check" CHECK ((error IS NULL OR length(error) <= 500) AND (filename IS NULL OR length(filename) <= 120) AND length(CAST(stale AS BLOB)) <= 131072)
+) STRICT`,
+    `CREATE INDEX "${C_CONTADOR_PACKAGE}_running" ON "${C_CONTADOR_PACKAGE}" (state, retry_at)`,
+  ]),
+  contador(C_CONTADOR_PART, [
+    `CREATE TABLE "${C_CONTADOR_PART}" (
+  "package_id" TEXT NOT NULL,
+  "run" TEXT NOT NULL,
+  "seq" INTEGER NOT NULL,
+  "object_key" TEXT,
+  "size" INTEGER NOT NULL,
+  ${ARRAY("entries")},
+  ${ARRAY("rows")},
+  "created_at" INTEGER NOT NULL,
+  CONSTRAINT "${C_CONTADOR_PART}_pkey" PRIMARY KEY (package_id, run, seq),
+  CONSTRAINT "${C_CONTADOR_PART}_seq_check" CHECK (seq >= 1 AND size >= 0 AND (object_key IS NULL OR length(object_key) <= 300)),
+  CONSTRAINT "${C_CONTADOR_PART}_package_fkey" FOREIGN KEY (package_id) REFERENCES "${C_CONTADOR_PACKAGE}" (id)
+) STRICT`,
+  ]),
+];
+
 export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...BASE_ENGINE_TABLES,
   ...counterTables,
@@ -1481,6 +1540,8 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...CONTACT_FIELD_TABLES,
   // Versão 21: o DRE gerencial e o pagamento da equipe (src/erp/domains/finance/rpc/erp_finance_dre.ts e erp_finance_team.ts).
   ...REPORT_TABLES,
+  // Versão 22: o pacote do contador (src/erp/contador/package.ts).
+  ...CONTADOR_TABLES,
 ];
 
 export const ERP_ENGINE_DDL: readonly string[] = ERP_ENGINE_TABLES.flatMap((t) => t.ddl);
