@@ -15,8 +15,14 @@ enum ModuleId {
     static let suporte = "suporte"
     static let forms = "forms"
     static let payments = "payments"
-    /// ERP (Gestão): a parte Cadastros; as outras partes são `erp-produtos`, `erp-vendas`… (src/erp/parts.ts).
+    /// ERP: a parte Cadastros; as outras partes são `erp-produtos`, `erp-vendas`… (src/erp/parts.ts). Só no navegador.
     static let erp = "erp"
+    /// Parte Financeiro do ERP: o controle de caixa que o Caixa simples do app usa.
+    static let erpFinance = "erp-financeiro"
+    /// Mesas e comandas (garçom).
+    static let mesas = "mesas"
+    /// Entregas e entregadores.
+    static let entrega = "entrega"
 }
 
 /// Lê os módulos ligados na resposta da rota de capacidades (docs/MODULOS.md, seção 6):
@@ -214,11 +220,11 @@ final class ModuleFeature: ObservableObject {
     /// Papéis lidos à parte (testes e demonstração).
     func applyGrants(_ result: Set<String>, profile: String) { grants[profile] = result }
 
-    /// O acesso da pessoa à Gestão (ERP) nesta área, ou `nil` quando ela não aparece. `isAdmin` é o papel do login; o
-    /// papel atual do servidor, quando veio nas capacidades, vale mais.
-    func erpAccess(_ profileId: String?, isAdmin: Bool) -> ErpAccess? {
-        guard let profileId else { return nil }
-        return ErpAccess.of(modules: modules[profileId] ?? [], grants: grants[profileId] ?? [], isAdmin: self.isAdmin(profileId, sessionIsAdmin: isAdmin))
+    /// O Caixa simples aparece nesta área? `isAdmin` é o papel do login; o papel atual do servidor, quando veio nas
+    /// capacidades, vale mais.
+    func cashAllowed(_ profileId: String?, isAdmin: Bool) -> Bool {
+        guard let profileId else { return false }
+        return ServiceHub.cashAllowed(modules: modules[profileId] ?? [], grants: grants[profileId] ?? [], isAdmin: self.isAdmin(profileId, sessionIsAdmin: isAdmin))
     }
 
     /// Um 409 `module_disabled` numa rota do módulo esconde a tela até a próxima consulta.

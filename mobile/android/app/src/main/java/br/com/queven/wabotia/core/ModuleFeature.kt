@@ -20,8 +20,14 @@ object ModuleIds {
     const val FORMS = "forms"
     /** Cobrança: Pix e link de pagamento pelo provedor, enviados pela conversa. */
     const val PAYMENTS = "payments"
-    /** ERP (Gestão): a parte Cadastros; as outras partes são `erp-produtos`, `erp-vendas`… (src/erp/parts.ts). */
+    /** ERP: a parte Cadastros; as outras partes são `erp-produtos`, `erp-vendas`… (src/erp/parts.ts). Só no navegador. */
     const val ERP = "erp"
+    /** Parte Financeiro do ERP: o controle de caixa que o Caixa simples do app usa. */
+    const val ERP_FINANCE = "erp-financeiro"
+    /** Mesas e comandas (garçom). */
+    const val MESAS = "mesas"
+    /** Entregas e entregadores. */
+    const val ENTREGA = "entrega"
 }
 
 /**

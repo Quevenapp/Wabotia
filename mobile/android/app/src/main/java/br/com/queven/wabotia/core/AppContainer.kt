@@ -147,8 +147,8 @@ class AppContainer(context: Context) {
         conversationCache.wipe()
         // Cópias das ordens de serviço para ver sem conexão (lista, fichas e modelos).
         br.com.queven.wabotia.modules.os.WorkOrderCache.wipe(appContext)
-        // Cópias da Gestão (clientes, produtos, saldos e contas já vistos).
-        br.com.queven.wabotia.modules.erp.ErpCache.wipe(appContext)
+        // Cópias da antiga Gestão do app (o ERP saiu do app): quem atualizou ainda pode ter a pasta.
+        runCatching { java.io.File(appContext.noBackupFilesDir, "erp-cache").deleteRecursively() }
         Notifications.cancelAll(appContext)
         scope.launch(Dispatchers.IO) {
             runCatching { AuthenticatedMedia.clear() }

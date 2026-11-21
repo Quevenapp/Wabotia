@@ -34,15 +34,16 @@ enum Route: Hashable {
     /// Pedido (módulo `pedido`): quadro da cozinha, lista e cardápio.
     case pedido
     case pedidoOrder(id: String)
-    /// Gestão (ERP): só com o ERP ligado na área e um papel `erp:*` (`Modules/Erp`).
-    case erp
-    case erpCustomers
-    case erpCustomer(id: String)
-    case erpNewCustomer
-    case erpProducts
-    case erpProduct(id: String)
-    case erpOrder
-    case erpBills
+    /// O básico do atendimento (aba Atendimento): caixa simples, clientes, mesas, entregas, equipamentos e o assistente
+    /// (a conversa interna com o bot, onde se consulta o ERP). O ERP em si fica no navegador.
+    case caixa
+    case clientes
+    /// `nil`: cliente novo.
+    case cliente(id: String?)
+    case mesas
+    case entrega
+    case equipamentos
+    case assistente
 }
 
 /// Uma única pilha de navegação para o app inteiro: as abas ficam na raiz e toda tela empilhada cobre a
@@ -201,14 +202,13 @@ struct RouteDestination: View {
             case .subscription(let id): SubscriptionDetailView(id: id)
             case .pedido: PedidoView()
             case .pedidoOrder(let id): PedidoOrderView(id: id)
-            case .erp: ErpHomeView()
-            case .erpCustomers: ErpCustomersView()
-            case .erpCustomer(let id): ErpCustomerView(id: id)
-            case .erpNewCustomer: ErpNewCustomerView()
-            case .erpProducts: ErpProductsView()
-            case .erpProduct(let id): ErpProductView(id: id)
-            case .erpOrder: ErpQuickOrderView()
-            case .erpBills: ErpBillsView()
+            case .caixa: CaixaView()
+            case .clientes: ClientesView()
+            case .cliente(let id): ClienteFormView(id: id)
+            case .mesas: MesasView()
+            case .entrega: EntregaView()
+            case .equipamentos: EquipmentView()
+            case .assistente: AssistantView()
             }
         }
         .id(route)

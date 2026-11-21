@@ -26,6 +26,12 @@ interface WabotiaApi {
     @DELETE("api/v1/devices/{id}") suspend fun deleteDevice(@Path("id") id: String): Ok
     @POST("api/v1/devices/{id}/test") suspend fun testDevice(@Path("id") id: String, @Header("Idempotency-Key") key: String): JsonObject
 
+    // --- pareamento de painéis e totens (administrador; Equipamentos) ---
+    @GET("api/v1/pairings") suspend fun pairings(): JsonObject
+    @POST("api/v1/pairings/lookup") suspend fun pairingLookup(@Body body: JsonObject): JsonObject
+    @POST("api/v1/pairings/{id}/approve") suspend fun pairingApprove(@Path("id") id: String, @Body body: JsonObject): JsonObject
+    @DELETE("api/v1/pairings/{id}") suspend fun pairingRevoke(@Path("id") id: String): JsonObject
+
     // --- perfil ---
     @GET("api/v1/profiles/{p}/status") suspend fun profileStatus(@Path("p") p: String): ProfileStatus
     @GET("api/v1/profiles/{p}/presence") suspend fun presence(@Path("p") p: String): List<PresenceEntry>

@@ -7,19 +7,21 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ConfirmationNumber
+import androidx.compose.material.icons.filled.DeliveryDining
 import androidx.compose.material.icons.filled.Hotel
-import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.PointOfSale
+import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.RestaurantMenu
-import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.SupportAgent
+import androidx.compose.material.icons.filled.TableRestaurant
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -30,11 +32,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import br.com.queven.wabotia.core.AdminRole
 import br.com.queven.wabotia.core.AppContainer
-import br.com.queven.wabotia.modules.erp.rememberErpAccess
-import br.com.queven.wabotia.modules.erp.rememberIsAdmin
+import br.com.queven.wabotia.core.Links
 import br.com.queven.wabotia.ui.components.ConnectionStrip
 import br.com.queven.wabotia.ui.components.RowDivider
 import br.com.queven.wabotia.ui.components.SectionLabel
@@ -44,20 +47,27 @@ import br.com.queven.wabotia.ui.components.WbCard
 import br.com.queven.wabotia.ui.theme.Wb
 
 /**
- * Aba Atendimento (DESIGN.md, seção 10): os módulos ligados na área (guichê, agenda, ordens de serviço, reservas,
- * mensalidades, pedidos), a Gestão do ERP e as linhas e menus. O que entra vem de [ServiceHub]; os Ajustes ficam na
- * engrenagem do topo.
+ * Aba Atendimento (DESIGN.md, seção 10): os módulos básicos ligados na área (fila, agenda, mensalidades, reservas,
+ * mesas, entregas, pedidos, ordens de serviço), o caixa, os clientes e os equipamentos, o assistente (consulta do ERP
+ * pelo bot) e as linhas e menus. O que entra vem de [ServiceHub]; o avançado abre no navegador.
  */
 @Composable
 fun ServiceScreen(container: AppContainer, modifier: Modifier = Modifier, openRoute: (String) -> Unit) {
     val c = Wb.colors
+    val context = LocalContext.current
     val enabledModules by container.modules.enabled.collectAsState()
-    val modules = enabledModules[container.session.profileId].orEmpty()
-    val erp = rememberErpAccess(container)
-    val isAdmin = rememberIsAdmin(container)
+    val grants by container.modules.grants.collectAsState()
+    val roles by container.modules.roles.collectAsState()
+    val profile = container.session.profileId
+    val modules = enabledModules[profile].orEmpty()
+    // Administrador pelo papel atual do servidor (capacidades), não só pelo gravado no login.
+    val isAdmin = AdminRole.isAdmin(roles[profile], container.session.user?.role)
     // Toda vez que a aba abre: módulos e papel podem ter mudado no painel.
-    LaunchedEffect(container.session.profileId) { container.modules.refresh(force = true) }
-    val sections = ServiceHub.sections(ServiceHub.entries(modules, erp, isAdmin))
+    LaunchedEffect(profile) { container.modules.refresh(force = true) }
+    val server = container.session.serverUrl
+    // Sem servidor (demonstração) não há painel para abrir: a entrada do navegador some.
+    val entries = ServiceHub.entries(modules, grants[profile].orEmpty(), isAdmin).filter { !it.opensBrowser || WebPanel.url(server, it.webPath!!) != null }
+    val sections = ServiceHub.sections(entries)
 
     Scaffold(
         modifier = modifier,
@@ -71,51 +81,40 @@ fun ServiceScreen(container: AppContainer, modifier: Modifier = Modifier, openRo
         },
     ) { padding ->
         LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
-            if (sections.none { it.first != ServiceSection.LINES }) item("no-modules") {
+            if (sections.none { it.first == ServiceSection.MODULES }) item("no-modules") {
                 Text(
-                    "Nenhum módulo de atendimento está ligado nesta área. Um administrador liga agenda, ordens de serviço, " +
-                        "pedidos, Gestão e os outros em Módulos, no painel do Wabotia.",
+                    "Nenhum módulo de atendimento está ligado nesta área. Um administrador liga fila de senhas, agenda, " +
+                        "mensalidades e os outros em Gestão → Módulos, no painel.",
                     style = MaterialTheme.typography.bodySmall,
                     color = c.textSecondary,
                     modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp),
                 )
             }
-            sections.forEach { (section, entries) ->
-                item("label-${section.name}") {
-                    SectionLabel(
-                        if (section == ServiceSection.MANAGEMENT && erp != null) "${section.label} · seu papel: ${erp.role.label}" else section.label,
-                    )
-                }
+            sections.forEach { (section, list) ->
+                item("label-${section.name}") { SectionLabel(section.label) }
                 item("card-${section.name}") {
                     WbCard(Modifier.padding(horizontal = 16.dp)) {
-                        entries.forEachIndexed { index, entry ->
+                        list.forEachIndexed { index, entry ->
                             if (index > 0) RowDivider()
                             val (icon, tint) = look(entry.id)
+                            val web = entry.webPath?.let { WebPanel.url(server, it) }
                             SettingsRow(
                                 icon,
                                 entry.title,
                                 subtitle = entry.subtitle,
                                 tint = tint,
-                                onClick = { openRoute(entry.route) },
+                                onClick = { if (web != null) Links.open(context, web) else openRoute(entry.route) },
                                 modifier = Modifier.testTag("service.${entry.id}"),
                             )
                         }
                     }
-                }
-                if (section == ServiceSection.MANAGEMENT) item("management-note") {
-                    Text(
-                        "Notas fiscais, compras, relatórios e configurações da Gestão ficam no painel, no navegador.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = c.textSecondary,
-                        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp),
-                    )
                 }
             }
         }
     }
 }
 
-/** Ícone e cor de cada entrada (os mesmos que tinham em Ajustes e na Gestão). */
+/** Ícone e cor de cada entrada. */
 @Composable
 private fun look(id: String): Pair<ImageVector, Color> {
     val c = Wb.colors
@@ -126,10 +125,13 @@ private fun look(id: String): Pair<ImageVector, Color> {
         "reserva" -> Icons.Filled.Hotel to c.brand
         "mensalidade" -> Icons.Filled.Payments to c.ok
         "pedido" -> Icons.Filled.RestaurantMenu to c.ticket
-        "erp.customers" -> Icons.Filled.People to c.brand
-        "erp.products" -> Icons.Filled.Inventory2 to c.brand
-        "erp.order" -> Icons.Filled.ShoppingCart to c.brand
-        "erp.bills" -> Icons.Filled.AccountBalanceWallet to c.brand
+        "mesas" -> Icons.Filled.TableRestaurant to c.ticket
+        "entrega" -> Icons.Filled.DeliveryDining to c.brand
+        "caixa" -> Icons.Filled.PointOfSale to c.ok
+        "clientes" -> Icons.Filled.People to c.brand
+        "equipamentos" -> Icons.Filled.Print to c.textSecondary
+        "assistente" -> Icons.Filled.SmartToy to c.bot
+        "web" -> Icons.Filled.OpenInBrowser to c.textSecondary
         "menus" -> Icons.Filled.AccountTree to c.ticket
         "bot-lines" -> Icons.Filled.SmartToy to c.bot
         else -> Icons.Filled.SupportAgent to c.brand
