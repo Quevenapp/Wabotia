@@ -11,14 +11,14 @@ export const OPENING_GROUP_LABELS:Readonly<Record<StockOpeningGroup,string>>={po
 export const OPENING_STATUS_LABELS:Readonly<Record<StockOpeningStatus,string>>={positive:'A adotar',zero:'A registrar (zero)',negative:'A adotar (negativo)',negative_blocked:'Ignorado',
  no_native_product:'Sem produto nativo',no_observation:'Sem observação',invalid:'Inválido',adopted:'Adotado',adopted_zero:'Adotado (zero)',adopted_reversed:'Adoção estornada',native_movements:'Com lançamentos nativos'};
 export const OPENING_REASON_LABELS:Readonly<Record<StockOpeningReason,string>>={
- NATIVE_PRODUCT_MISSING:'O produto do Origin ainda não foi importado para o ERP.',ALREADY_ADOPTED:'O saldo de abertura deste produto neste depósito já foi adotado.',
- NATIVE_MOVEMENTS:'Já existem lançamentos no ERP para este produto neste depósito; o saldo não é sobrescrito.',OBSERVATION_MISSING:'O Origin ainda não informou o estoque deste produto.',
- WAREHOUSE_LIST_MISSING:'A observação do Origin não traz a lista de depósitos.',WAREHOUSE_ABSENT:'O depósito escolhido não aparece no estoque informado pelo Origin. Ausência não vira zero.',
- SOURCE_INVALID:'A observação do Origin precisa de conferência.',WAREHOUSE_LIST_INVALID:'A lista de depósitos informada pelo Origin é inválida ou repetida.',
- PHYSICAL_ABSENT:'O saldo físico não foi informado pelo Origin.',PHYSICAL_NULL:'O Origin informou saldo físico vazio.',PHYSICAL_INVALID:'O saldo físico do Origin não é um número válido.',
- PHYSICAL_PRECISION:'O saldo físico do Origin tem mais de 6 casas decimais.',PHYSICAL_RANGE:'O saldo físico do Origin excede o limite do estoque.',
+ NATIVE_PRODUCT_MISSING:'O produto de origem ainda não foi importado para o ERP.',ALREADY_ADOPTED:'O saldo de abertura deste produto neste depósito já foi adotado.',
+ NATIVE_MOVEMENTS:'Já existem lançamentos no ERP para este produto neste depósito; o saldo não é sobrescrito.',OBSERVATION_MISSING:'A importação ainda não trouxe o estoque deste produto.',
+ WAREHOUSE_LIST_MISSING:'O estoque importado não traz a lista de depósitos.',WAREHOUSE_ABSENT:'O depósito escolhido não aparece no estoque importado. Ausência não vira zero.',
+ SOURCE_INVALID:'O estoque importado precisa de conferência.',WAREHOUSE_LIST_INVALID:'A lista de depósitos importada é inválida ou repetida.',
+ PHYSICAL_ABSENT:'O saldo físico não veio na importação.',PHYSICAL_NULL:'A importação trouxe saldo físico vazio.',PHYSICAL_INVALID:'O saldo físico importado não é um número válido.',
+ PHYSICAL_PRECISION:'O saldo físico importado tem mais de 6 casas decimais.',PHYSICAL_RANGE:'O saldo físico importado excede o limite do estoque.',
  PRODUCT_UNAVAILABLE:'O cadastro no ERP está inativo, é serviço, composição ou não tem unidade.',NEGATIVE_NOT_ALLOWED:'Estoque negativo não permitido',
- SOURCE_CHANGED:'O estoque do Origin mudou depois da prévia. Confira o próximo lote.',PRODUCT_CHANGED:'O vínculo do produto mudou depois da prévia.',
+ SOURCE_CHANGED:'O estoque importado mudou depois da prévia. Confira o próximo lote.',PRODUCT_CHANGED:'O vínculo do produto mudou depois da prévia.',
  UNIT_CHANGED:'A unidade do cadastro no ERP mudou depois da prévia. Confira o próximo lote.'};
 export const POLICY_CONFIRMATION={
  enable:'Entendo que, com a política ligada, saídas, vendas, transferências e estornos poderão deixar o saldo abaixo de zero. Reservas continuam exigindo saldo disponível e nunca são consumidas por outra saída.',
@@ -28,7 +28,7 @@ export const openingToday=()=>stockDate();
 export const openingNegative=(value:string|null|undefined)=>typeof value==='string'&&value.startsWith('-');
 export const openingQuantity=(value:string|null|undefined)=>value===null||value===undefined?'—':quantityText(value);
 export const openingStatusTone=(status:StockOpeningStatus)=>['positive','zero','negative'].includes(status)?'info':status==='native_movements'||status==='negative_blocked'?'warning':['adopted','adopted_zero'].includes(status)?'success':status==='adopted_reversed'?'neutral':'danger';
-export const openingProductLabel=(row:Pick<StockOpeningRow,'product'|'source'|'product_source_id'>)=>row.product?.name??row.source.name??`Produto ${row.product_source_id} no Origin`;
+export const openingProductLabel=(row:Pick<StockOpeningRow,'product'|'source'|'product_source_id'>)=>row.product?.name??row.source.name??`Produto ${row.product_source_id} no sistema de origem`;
 export const openingCode=(row:Pick<StockOpeningRow,'product'|'source'>)=>row.product?.code??row.source.code??'—';
 export const openingPolicyLabel=(policy:StockPolicy)=>policy.allow_negative?'Permitido':'Não permitido';
 export function openingDateProblem(day:string,today=openingToday()){
@@ -45,12 +45,12 @@ const rowLabel=(row:StockOpeningRow)=>`${openingCode(row)} · ${openingProductLa
 /** Preview lines of a pinned batch, in the BatchDialog vocabulary. */
 export function openingBatchPreview(batch:StockOpeningBatch):BatchResult[]{
  return batch.items.map(row=>({id:row.product_source_id,label:rowLabel(row),outcome:'ok' as const,
-  message:`Origin ${openingQuantity(row.target)} · atual ${row.current.quantity===null?'sem lançamentos':openingQuantity(row.current.quantity)} · ajuste ${openingQuantity(row.adjustment)} ${row.product?.unit??''}`.trim()}));
+  message:`Importado ${openingQuantity(row.target)} · atual ${row.current.quantity===null?'sem lançamentos':openingQuantity(row.current.quantity)} · ajuste ${openingQuantity(row.adjustment)} ${row.product?.unit??''}`.trim()}));
 }
 /** Per-item results of an adoption command; labels come from the batch the administrator confirmed when available. */
 export function openingResults(result:StockOpeningResult,batch?:StockOpeningBatch|null):BatchResult[]{
  const rows=new Map((batch?.items??[]).map(row=>[row.product_source_id,row]));
- return result.receipt.items.map(item=>{const row=rows.get(item.product_source_id);const label=row?rowLabel(row):`Produto ${item.product_source_id} no Origin`;const unit=row?.product?.unit??'';
+ return result.receipt.items.map(item=>{const row=rows.get(item.product_source_id);const label=row?rowLabel(row):`Produto ${item.product_source_id} no sistema de origem`;const unit=row?.product?.unit??'';
   return item.outcome==='skipped'?{id:item.product_source_id,label,outcome:'skipped' as const,message:OPENING_REASON_LABELS[item.reason!]}
    :{id:item.product_source_id,label,outcome:'ok' as const,message:item.outcome==='adopted_zero'?'Saldo zero registrado, sem movimento de estoque.':`Saldo ajustado para ${openingQuantity(item.target)} ${unit}`.trim()};});
 }

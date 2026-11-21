@@ -73,7 +73,7 @@ test('108/172 drawer includes a Parcelada conta (a recurrence, each parcela with
     view.find(node => node.type === 'input' && node.props.role === 'switch').props.onChange({ target: { checked: true } }); await view.flush();
     // 14/02/2026 is a Saturday and 16-17/02/2026 is Carnaval; 31/03/2026 is a Tuesday; 30/04/2026 (no 31st) is a Thursday.
     assert.match(view.text(), /1\/318\/02\/2026R\$ 100,002\/331\/03\/2026R\$ 100,003\/330\/04\/2026R\$ 100,00/);
-    assert.match(view.text(), /Cada parcela tem o valor informado, como no Origin/);
+    assert.match(view.text(), /Cada parcela tem o valor informado\./);
     await view.change(field(view, 'Ocorrência').props.id, 'parcelada');
     await view.click('Pagamento'); await view.change(field(view, 'Juros mensal (%)').props.id, '1,555'); await view.click('Ocorrência'); await view.submit();
     assert.equal(buttons(view, 'Pagamento')[0].props['aria-selected'], true, 'a validation error opens the tab of the field'); assert.match(view.text(), /Informe o percentual/);

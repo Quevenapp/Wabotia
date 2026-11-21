@@ -106,8 +106,8 @@ test('086 Importar depósitos do Origin stays on the Depósitos screen for admin
  let role='admin',next,opened=0;const s=server({role:'admin'});const controller={...s.controller,getSnapshot:()=>({phase:'ready',membership:{user_id:actor,role}})};
  const view=await mountComponent('StockWarehouses.tsx',{controller,onPrepareWarehouses:()=>opened++},{location:'/cadastros-reais?cadastro=warehouses',ports:{useUnsavedChangesGuard:()=>({confirmLeave:run=>{next=run;}})}});
  try{
-  await view.click('Importar depósitos do Origin');assert.equal(opened,0);role='consulta';next();assert.equal(opened,0,'a lost role never navigates');
-  role='admin';await view.click('Importar depósitos do Origin');next();assert.equal(opened,1);
+  await view.click('Importar depósitos do sistema de origem');assert.equal(opened,0);role='consulta';next();assert.equal(opened,0,'a lost role never navigates');
+  role='admin';await view.click('Importar depósitos do sistema de origem');next();assert.equal(opened,1);
  }finally{view.unmount();}
- const reader=await mount(server({role:'estoque'}));try{assert.equal(reader.nodes().some(node=>node.type==='button'&&textOf(node)==='Importar depósitos do Origin'),false);}finally{reader.unmount();}
+ const reader=await mount(server({role:'estoque'}));try{assert.equal(reader.nodes().some(node=>node.type==='button'&&textOf(node)==='Importar depósitos do sistema de origem'),false);}finally{reader.unmount();}
 });

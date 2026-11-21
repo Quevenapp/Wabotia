@@ -129,7 +129,7 @@ test('094 Origin labels, chips, origin, ⋮ actions and "Salvar e dar baixa" tar
   assert.ok(labels(row(1)).includes('Excluir'));
   const removal = planTitleBatch('delete', [row(1), row(2, { imported: true }), row(3, { remittance: { id: id(70), sequence: 1, state: 'ready', our_number: '1' } }), row(4, { document_linked: true })], {});
   assert.deepEqual(removal.eligible.map(item => item.id), [id(1)]);
-  assert.deepEqual(removal.skipped.map(item => item.message), ['Conta importada do Origin. Exclua a conta no Origin.', 'Conta incluída em remessa de cobrança.', 'Conta gerada por um documento. Desfaça o lançamento no documento de origem.']);
+  assert.deepEqual(removal.skipped.map(item => item.message), ['Conta importada. Exclua a conta no sistema de origem.', 'Conta incluída em remessa de cobrança.', 'Conta gerada por um documento. Desfaça o lançamento no documento de origem.']);
   assert.equal(savedTitleId({ items: [{ id: id(7), kind: 'receivable', installments: 1 }] }, 'title_create', 'receivable'), id(7));
   assert.equal(savedTitleId({ record: { id: id(9) } }, 'title_edit', 'receivable', id(9)), id(9));
   assert.equal(titleAllows(title(1), 'settle'), true); assert.equal(titleAllows(title(1, { balance_cents: '0' }), 'settle'), false);

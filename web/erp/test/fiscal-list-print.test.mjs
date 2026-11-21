@@ -10,7 +10,7 @@ const mount = rows => mountComponent('FiscalInvoicePrint.tsx', { title: 'Notas f
 test('fiscal list print preserves Origin origin, source ID and observation time independently of the document date', async () => {
   const view = await mount([row()]);
   try {
-    for (const text of ['Número / origem', 'Nota do Origin · produção', 'ID Origin 9001', '22/10/2026, 12:30', '21/10/2026', 'horário de São Paulo']) assert.ok(view.text().includes(text), text);
+    for (const text of ['Número / origem', 'Nota importada · produção', 'ID de origem 9001', '22/10/2026, 12:30', '21/10/2026', 'horário de São Paulo']) assert.ok(view.text().includes(text), text);
     assert.equal(view.nodes().find(node => node.type === 'time').props.dateTime, '2026-10-22T15:30:00Z');
   } finally { view.unmount(); }
 });
@@ -22,6 +22,6 @@ test('fiscal list print marks native homologation and imported production separa
     assert.match(view.text(), /Nota do ERP · homologação · sem valor fiscal/);
     assert.match(view.text(), /XML importado · produção/);
     assert.equal(view.nodes().some(node => node.type === 'time'), false);
-    assert.equal(view.text().includes('ID Origin native'), false);
+    assert.equal(view.text().includes('ID de origem native'), false);
   } finally { view.unmount(); }
 });

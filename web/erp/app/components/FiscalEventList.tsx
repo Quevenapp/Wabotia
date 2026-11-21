@@ -51,7 +51,7 @@ export default function FiscalEventList({ controller, kind }: { controller: Acce
   const chips = [...(applied ? [{ label: `Pesquisa: ${applied}`, onRemove: () => { setApplied(''); setQuery(''); } }] : []), ...(from || to ? [{ label: 'Período: Período customizado', onRemove: () => { setFrom(''); setTo(''); } }] : [])];
   return <section className="fiscal-events">
     <OriginListHeader title={TITLES[kind]} />
-    <p className="real-notice">Pedidos registrados no ERP em homologação. A transmissão à SEFAZ ainda não está disponível; por isso não há número de protocolo. As inutilizações e correções feitas no Origin continuam consultáveis no Origin.</p>
+    <p className="real-notice">Pedidos registrados no ERP em homologação. A transmissão à SEFAZ ainda não está disponível; por isso não há número de protocolo. As inutilizações e correções feitas no sistema de origem continuam consultáveis lá.</p>
     <form className="native-list-toolbar" onSubmit={event => { event.preventDefault(); setApplied(query.trim()); setPage(1); }}>
       <div className="form-field"><label htmlFor="events-search" className="sr-only">Pesquisar</label><input id="events-search" type="search" maxLength={120} placeholder="Pesquisar" value={query} onChange={event => setQuery(event.target.value)} /></div>
       <button type="submit" className="secondary-button" aria-label="Pesquisar"><Icon name="search" size={16} /></button>

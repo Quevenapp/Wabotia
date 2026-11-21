@@ -281,7 +281,7 @@ async function runExport(task, lease, { rpc, exportStorage, attachments }) {
   }
   const summary = { datasets: datasets.length, rows, files, files_skipped: skipped.length };
   const manifest = { formato: 'brufap-exportacao-v1', empresa: 'dados desta instalação do Brufap', gerado_em: new Date().toISOString(), dados_ate: plan.as_of,
-    escopo: 'Tabelas da empresa (cadastros, documentos, finanças, estoque, notas, empresa, preferências, frente de caixa, preços, anexos, atividades, cobrança e cópia espelhada do Origin) e os arquivos anexados.',
+    escopo: 'Tabelas da empresa (cadastros, documentos, finanças, estoque, notas, empresa, preferências, frente de caixa, preços, anexos, atividades, cobrança e cópia sincronizada do sistema de origem) e os arquivos anexados.',
     fora_do_pacote: plan.excluded, conjuntos: datasets, arquivos_omitidos: skipped.slice(0, 200), resumo: summary };
   await zip.add('manifesto.json', encoder.encode(JSON.stringify(manifest, null, 2)));
   const bytes = zip.finish();

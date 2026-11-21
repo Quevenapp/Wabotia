@@ -107,6 +107,6 @@ test('stock panels preserve and show native-only coverage when Origin documents 
   s.controller.stock=async(...args)=>({...await read(...args),origin:'brufap',mirror_excluded_count:17,coverage:{partial:true,reason:'native_effects_only'}});
   const view=await mount(s,search);
   if(search.includes('sugestao'))await view.submit();
-  try { assert.match(view.text(),/Indicadores operacionais do ERP; 17 documentos Origin não entram neste cálculo/); } finally { view.unmount(); }
+  try { assert.match(view.text(),/Indicadores operacionais do ERP; 17 documentos importados não entram neste cálculo/); } finally { view.unmount(); }
  }
 });

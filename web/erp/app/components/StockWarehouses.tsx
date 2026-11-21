@@ -87,7 +87,7 @@ export default function StockWarehouses({ controller, onPrepareWarehouses }: { c
   return <section className="stock-warehouses">
     <nav className="stock-crumbs" aria-label="Caminho"><Link to="/preferencias">Preferências</Link><Icon name="chevron-right" size={9} /><span>Suprimentos</span><Icon name="chevron-right" size={9} /><span aria-current="page">Depósitos</span></nav>
     <OriginListHeader title="Depósitos" />
-    {role === 'admin' && onPrepareWarehouses && <p><button type="button" className="text-button" onClick={prepareWarehouses}>Importar depósitos do Origin</button></p>}
+    {role === 'admin' && onPrepareWarehouses && <p><button type="button" className="text-button" onClick={prepareWarehouses}>Importar depósitos do sistema de origem</button></p>}
     {notice && <p className="real-success" role="status">{notice}</p>}{(error || standard.error) && <p className="real-alert" role="alert">{error || standard.error}{standard.uncertain && pendingDefault.current && data && <button type="button" className="text-button" disabled={standard.busy} onClick={() => { const item = data.items.find(row => row.id === pendingDefault.current); if (item) makeDefault(item); }}>Conferir resultado</button>}</p>}
     <div className="stock-warehouses-layout"><div className="stock-warehouses-main">
       <fieldset className="stock-ledger-controls" disabled={busy}><legend className="real-sr-only">Filtros dos depósitos</legend>

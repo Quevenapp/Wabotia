@@ -126,7 +126,7 @@ export function documentValidation(kind:DocumentKind,input:DocumentInput):string
     // 202610200287: before the generic QUANTITY message (DOCUMENT_ITEM_LOTS_QUANTITY also contains QUANTITY).
     if(code.includes('LOTS_QUANTITY'))return 'A soma das quantidades dos lotes precisa ser igual à quantidade do item (Informar lotes).';
     if(code.includes('DECIMAL')||code.includes('PERCENT')||code.includes('QUANTITY'))return 'Confira quantidades, preços e descontos. Use vírgula ou ponto decimal, sem separador de milhar, e valores não negativos.';
-    if(code.includes('COMMERCIAL')||code.includes('REFERENCE'))return 'Confira as informações comerciais, os IDs Origin e a precisão dos dados de transporte.';
+    if(code.includes('COMMERCIAL')||code.includes('REFERENCE'))return 'Confira as informações comerciais, os IDs de origem e a precisão dos dados de transporte.';
     if(code.includes('DELIVERY_ADDRESS'))return 'Confira o endereço de entrega: informe endereço e cidade, CEP com oito dígitos e uma UF válida.';
     if(code.includes('TIME'))return 'Confira as horas de início e término (hh:mm).';
     if(code.includes('WARRANTY'))return 'Confira a garantia: informe um número inteiro.';

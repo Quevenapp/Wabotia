@@ -351,7 +351,7 @@ test('item icons: "Atualizar produto a partir da nota" patches only the chosen f
     await modalPress(view, 'Fechar');
     iconOf(view, 'Histórico do produto do item 1').props.onClick(); await wait(view);
     assert.ok(srv.calls.some(c => c.path === `/v1/notas-fiscais/historico-item?contact_id=${CONTACT}&product_id=${PRODUCT}&direction=1`));
-    assert.equal(components(view, 'Modal').at(-1).props.title, 'Histórico do produto para o cliente'); assert.match(view.text(), /000801/); assert.match(view.text(), /Nota do Origin/);
+    assert.equal(components(view, 'Modal').at(-1).props.title, 'Histórico do produto para o cliente'); assert.match(view.text(), /000801/); assert.match(view.text(), /Nota importada/);
   } finally { view.unmount(); }
 });
 
@@ -534,7 +534,7 @@ test('Parcelas › Forma: the formas of the cadastro set the tPag and the card o
     assert.equal(view.input('fiscal-installment-method').props.value, `pm:${CARD}`); assert.equal(view.input('fiscal-installment-brand').props.value, '01'); assert.equal(view.input('fiscal-installment-cnpj').props.value, '11222333000181');
     await view.change('fiscal-installment-method', `pm:${PIX}`); await modalPress(view, 'Salvar');
     await tab(view, 'Documento referenciado'); await view.change('fiscal-ref-key', key); await press(view, 'Incluir mais'); await wait(view);
-    assert.match(view.text(), /NF-e nº 000901 de 01\/10\/2026 · Cliente da chave · R\$ 55,50 \(nota do Origin\)/);
+    assert.match(view.text(), /NF-e nº 000901 de 01\/10\/2026 · Cliente da chave · R\$ 55,50 \(nota importada\)/);
     await press(view, 'Salvar'); await wait(view);
     const parcel = srv.posts()[0].body.invoice.payment.installments[0];
     assert.equal(parcel.payment_method_id, PIX); assert.equal(parcel.method, '99', 'a tPag the NF-e table does not have becomes 99 - Outros');

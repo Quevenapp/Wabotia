@@ -6,6 +6,7 @@ import { FagooBrand } from './FagooBrand';
 import { focusModule, workspaceMenu } from '../lib/fagoo-menu';
 import { matchesLocation } from '../lib/origin-menu';
 import { goToShortcuts, matchesSearch, shortcutIntent, workspaceActions, type WorkspaceAction } from '../lib/workspace-actions';
+import { erpDestinationPlacement } from '../../../management/menu-groups.ts';
 import './origin-top-bar.css';
 
 export type TopBarLink = { label: string; to: string; icon?: string };
@@ -42,6 +43,12 @@ export const WORKSPACE_SHORTCUTS: readonly { group: string; items: readonly { ke
     { keys: ['↓'], action: 'Da busca para a lista de resultados' },
   ] },
 ];
+
+/** Casa única: o caminho mostrado na busca segue o menu superior (grupo › coluna). */
+function menuPath(to: string) {
+  const place = erpDestinationPlacement(to);
+  return place ? (place.group === place.column ? place.group : `${place.group} › ${place.column}`) : null;
+}
 
 function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]!.toUpperCase()).join('') || 'F';
@@ -97,7 +104,7 @@ export default function OriginTopBar({ groups, activeGroup, homeTo, preferencesT
   const actionResult = (action: WorkspaceAction): Result => ({ key: `action:${action.id}`, label: action.label, detail: action.description, to: action.to, icon: action.icon, keys: action.keys });
   const results: Result[] = query.trim()
     ? [...actions.filter(action => matchesSearch(action.label, query)).map(actionResult),
-      ...destinations.filter(item => matchesSearch(item.label, query)).map(item => ({ key: `screen:${item.to}:${item.label}`, label: item.label, detail: navigation.find(group => group.columns.some(column => column.items.some(entry => entry.to === item.to)))?.name ?? 'Configurações', to: item.to, icon: 'arrow-right' }))].slice(0, 8)
+      ...destinations.filter(item => matchesSearch(item.label, query)).map(item => ({ key: `screen:${item.to}:${item.label}`, label: item.label, detail: (embedded ? menuPath(item.to) : null) ?? navigation.find(group => group.columns.some(column => column.items.some(entry => entry.to === item.to)))?.name ?? 'Configurações', to: item.to, icon: 'arrow-right' }))].slice(0, 8)
     : actions.map(actionResult);
   const go = (to: string) => { if (allows && !allows(to)) return; close(); setQuery(''); setActive(0); searchInput.current?.blur(); navigate(to); };
   const submitSearch = (event: FormEvent) => { event.preventDefault(); const target = results[Math.min(active, results.length - 1)]; if (query.trim() && target) go(target.to); else if (!query.trim() && target && popover === 'search') go(target.to); };

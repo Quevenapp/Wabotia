@@ -10,7 +10,7 @@ const STOCK_ON_EMISSION='Guardado. Hoje o estoque das notas do ERP (NF-e de saí
 const FINANCE_ON_EMISSION='Guardado. Hoje as contas das notas do ERP (a receber nas NF-e de saída e NFC-e, a pagar nas NF-e de entrada) são lançadas e estornadas pelo ⋮ Lançar contas / Estornar contas da listagem (migração 247), e a NF de entrada nova também pela "Automação lançamento de contas pagar ao criar NF de Entrada". Como as notas do ERP ainda não são transmitidas, elas não são emitidas nem canceladas e nada é lançado nesses momentos.';
 // Fields the notes of Brufap already follow (migration 202610200140 and the note form); the note says where.
 const wired=note=>({status:'applied',note});
-const danfe=wired('Aplicada no DANFE impresso pelo ERP a partir do XML autorizado (notas do Origin com XML coletado e notas importadas): 0 usa a paginação automática pelas linhas impressas.');
+const danfe=wired('Aplicada no DANFE impresso pelo ERP a partir do XML autorizado (notas sincronizadas com XML coletado e notas importadas): 0 usa a paginação automática pelas linhas impressas.');
 const update=wired('Aplicada em "Importar XML NF-e" das notas de entrada (migração 217): o produto ligado ao item recebe o valor do XML que mudou, pela gravação do cadastro de produtos (com versão e auditoria), para quem cadastra produtos. Atualizar o cadastro pela nota de entrada pode gerar erros: um produto que o cadastro recusa fica como estava e a importação diz quantos foram.');
 const NEW_NOTES='Aplicada nas notas novas do ERP (testes de homologação e notas registradas).';
 const AUTO='Aplicada no cálculo automático das notas do ERP.';

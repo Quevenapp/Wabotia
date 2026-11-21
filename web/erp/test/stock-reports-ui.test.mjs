@@ -112,9 +112,9 @@ test('purchase report preserves mirror exclusion coverage in display, print and 
  const create=URL.createObjectURL,element=globalThis.document.createElement;let downloaded;
  URL.createObjectURL=blob=>{downloaded=blob;return create(blob);};globalThis.document.createElement=()=>({click(){}});
  try{
-  await view.submit(0);assert.match(view.text(),/Relatório de registros do ERP; 17 documentos Origin não entram neste cálculo/);
-  await view.click('Imprimir');assert.match(textOf(component(view,'StockPrintPreview').props.children),/17 documentos Origin não entram neste cálculo/);
-  await view.click('CSV');assert.ok(downloaded);assert.match(await downloaded.text(),/17 documentos Origin não entram neste cálculo/);
-  await view.click('XLSX');assert.ok(downloaded);assert.match(await downloaded.text(),/17 documentos Origin não entram neste cálculo/);
+  await view.submit(0);assert.match(view.text(),/Relatório de registros do ERP; 17 documentos importados não entram neste cálculo/);
+  await view.click('Imprimir');assert.match(textOf(component(view,'StockPrintPreview').props.children),/17 documentos importados não entram neste cálculo/);
+  await view.click('CSV');assert.ok(downloaded);assert.match(await downloaded.text(),/17 documentos importados não entram neste cálculo/);
+  await view.click('XLSX');assert.ok(downloaded);assert.match(await downloaded.text(),/17 documentos importados não entram neste cálculo/);
  }finally{view.unmount();URL.createObjectURL=create;globalThis.document.createElement=element;}
 });

@@ -3,7 +3,7 @@ import type {CnabFile,CnabPage,CnabProfile} from './real-cnab-model.ts';
 export const CNAB_V2_BASE='/v1/cobranca-operacional-v2';
 export const CNAB_ENCODINGS=['itau109-no-charges-v1','itau109-origin-observed-v1'] as const;
 export type CnabEncoding=typeof CNAB_ENCODINGS[number];
-export const ENCODING_LABELS:Record<CnabEncoding,string>={'itau109-no-charges-v1':'Sem juros e multa','itau109-origin-observed-v1':'Juros e multa · padrão histórico Origin'};
+export const ENCODING_LABELS:Record<CnabEncoding,string>={'itau109-no-charges-v1':'Sem juros e multa','itau109-origin-observed-v1':'Juros e multa · padrão histórico importado'};
 export const CNAB_V2_FLAGS={...OPERATIONAL_FLAGS,contract:'itau109-operational-v2'} as const;
 export interface V2Policy{policy_hash:string;compatibility_confirmed:boolean;permanent_instructions_acknowledged:boolean}
 export interface V2Approval extends OperationalApproval{allowed_encoding_profiles:CnabEncoding[];encoding_policy:V2Policy|null}

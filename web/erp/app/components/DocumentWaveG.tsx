@@ -17,7 +17,7 @@ export function DocumentNotesNotice({ kind, effects, onOpen }: { kind: DocumentK
     <ul>{effects.finance && <li>{link('Lançamento de Contas', 'document-finance-anchor')}</li>}{effects.stock && <li>{link('Lançamento de Estoque', 'document-stock-anchor')}</li>}
       {effects.reservation && <li>Reserva de estoque</li>}
       {/* 016: effects done in the Origin (no FAGOO posting to open). */}
-      {effects.originFinance && <li>Lançamento de Contas (no Origin)</li>}{effects.originInvoice && <li>Nota Fiscal gerada (no Origin)</li>}</ul>
+      {effects.originFinance && <li>Lançamento de Contas (no sistema de origem)</li>}{effects.originInvoice && <li>Nota Fiscal gerada (no sistema de origem)</li>}</ul>
     <p className="real-help">Somente Observações e Observações internas podem ser alteradas e salvas.</p>
   </div>;
 }

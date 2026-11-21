@@ -61,6 +61,6 @@ test('the fresh top bar omits sync and connector help even when the controller h
 test('fresh release notes show the FAGOO release and preserve the optional historical note',async()=>{
  for(const enabled of [false,true]){
   const view=await mountComponent('HelpCenter.tsx',{originIntegration:enabled},{location:'/ajuda/novidades',expandChildren:['ReleaseNotesList']});
-  try{assert.match(view.text(),/ERP com instalação própria e início sem dados/);assert.equal(view.text().includes('Sincronização de mão dupla com o Origin;'),enabled);}finally{view.unmount();}
+  try{assert.match(view.text(),/ERP com instalação própria e início sem dados/);assert.equal(view.text().includes('Sincronização de mão dupla com o sistema de origem;'),enabled);}finally{view.unmount();}
  }
 });

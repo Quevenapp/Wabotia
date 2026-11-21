@@ -546,7 +546,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
 
   const backupTabs = backup && <nav className="origin-list-tabs fiscal-entry-tabs" role="tablist" aria-label="Origem das notas fiscais">
     <button type="button" role="tab" aria-selected={!backupTab} onClick={() => guard.confirmLeave(() => setParam({ aba: null }))}>Notas fiscais</button>
-    <button type="button" role="tab" aria-selected={backupTab} onClick={() => guard.confirmLeave(() => setParam({ aba: 'backup', nota: null }))}>Arquivo do backup do Origin</button></nav>;
+    <button type="button" role="tab" aria-selected={backupTab} onClick={() => guard.confirmLeave(() => setParam({ aba: 'backup', nota: null }))}>Arquivo do backup importado</button></nav>;
   if (backupTab) return <section className="fiscal-invoices">{backupTabs}{backup}</section>;
   const total = page?.total_count ?? 0;
   const chips = filterChips(config, filters).map(chip => ({ label: chip.label, onRemove: () => apply(chip.key === 'query' ? { ...filters, query: '' } : chip.key === 'status' ? { ...filters, status: '' } : chip.key === 'product' ? { ...filters, product: null }

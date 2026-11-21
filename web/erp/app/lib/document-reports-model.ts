@@ -61,6 +61,8 @@ export function toggleChoice(current: Choice | null, all: string[], id: string, 
 export const choiceAll = (checked: boolean): Choice | null => checked ? null : { ids: [], none: false };
 export const choiceHas = (choice: Choice | null, id: string, none = false) => choice === null || (none ? choice.none : choice.ids.includes(id));
 export const GROUP_LABELS: Record<Exclude<SalesGroup, 'district'>, string> = { contact: 'Cliente', product: 'Produto', seller: 'Vendedor' };
+/** Wabotia: o motor devolve "Vendedor Origin <id>" (texto conferido contra o oráculo); a tela mostra "Vendedor importado <id>". */
+export const reportGroupLabel = (label: string) => label.replace(/^Vendedor Origin /, 'Vendedor importado ');
 export const SUBGROUP_LABELS: Record<SalesReportParams['subgroup'], string> = { contact: 'Cliente', none: 'Nenhum', product: 'Produto', seller: 'Vendedor' };
 export const ORDER_LABELS: Record<SalesReportParams['order'], string> = { name: 'Nome/Descrição', amount: 'Valor', items: 'Quantidade Itens', sales: 'Quantidade Vendas' };
 /** First and last day of the month of `day` (Origin "Do mês" with the arrows). */
@@ -180,7 +182,7 @@ export const reportKindOf = (kind: DocumentKind) => kind === 'sales_orders' || k
 export interface NativeReportCoverage { origin?: 'brufap'; mirror_excluded_count?: number; coverage?: { partial: boolean; reason: 'native_effects_only' } }
 export function nativeReportCoverageText(report: NativeReportCoverage | null): string | null {
   return report?.origin === 'brufap' && (report.mirror_excluded_count ?? 0) > 0
-    ? `Relatório de registros do ERP; ${report.mirror_excluded_count!.toLocaleString('pt-BR')} documentos Origin não entram neste cálculo. Consulte-os nas listas com origem Origin.` : null;
+    ? `Relatório de registros do ERP; ${report.mirror_excluded_count!.toLocaleString('pt-BR')} documentos importados não entram neste cálculo. Consulte-os nas listas, filtrando pela origem.` : null;
 }
 export const nativeIndicatorCoverageText = (report: NativeReportCoverage | null) => nativeReportCoverageText(report)?.replace('Relatório de registros do ERP', 'Indicadores operacionais do ERP') ?? null;
 export function readNativeReportCoverage(value: Record<string, unknown>): NativeReportCoverage {

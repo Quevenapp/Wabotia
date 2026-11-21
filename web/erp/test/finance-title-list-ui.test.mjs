@@ -346,7 +346,7 @@ test('108 Excluir selecionados and ⋮ Excluir confirm, skip what the server ref
     assert.equal(child(view, 'FinanceBatchParams'), undefined, 'Excluir has no parameters step');
     let dialog = child(view, 'BatchDialog'); assert.equal(dialog.props.title, 'Excluir selecionados');
     assert.match(text(dialog.props.description), /Deseja mesmo excluir as contas selecionadas\?/);
-    assert.deepEqual(dialog.props.plan.eligible.map(item => item.id), [id(1), id(3)]); assert.deepEqual(dialog.props.plan.skipped.map(item => [item.id, item.message]), [[id(2), 'Possui baixa registrada. Estorne a baixa antes de excluir.'], [id(4), 'Conta importada do Origin. Exclua a conta no Origin.']]);
+    assert.deepEqual(dialog.props.plan.eligible.map(item => item.id), [id(1), id(3)]); assert.deepEqual(dialog.props.plan.skipped.map(item => [item.id, item.message]), [[id(2), 'Possui baixa registrada. Estorne a baixa antes de excluir.'], [id(4), 'Conta importada. Exclua a conta no sistema de origem.']]);
     const results = await runBatch(dialog.props.plan, dialog.props.run);
     assert.deepEqual(results.map(result => result.outcome).sort(), ['ok', 'ok', 'skipped', 'skipped']);
     assert.deepEqual(source.posts().map(call => [call.path, call.body.data]), [['/v1/financeiro/actions/title_delete', { id: id(1), expected_version: 1 }], ['/v1/financeiro/actions/title_delete', { id: id(3), expected_version: 7 }]]);

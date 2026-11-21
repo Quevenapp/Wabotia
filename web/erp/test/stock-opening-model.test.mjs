@@ -27,9 +27,9 @@ test('100 model: cut date, signed quantities, policy confirmation and per-item r
  assert.match(POLICY_CONFIRMATION.enable,/Reservas continuam/);assert.match(POLICY_CONFIRMATION.disable,/não são alterados/);
  const f=createStockOpeningFixture(),raw=await f.controller.stockOpening(stockOpeningActionPath(OPENING_QA_SOURCE,'lote'),{method:'POST',body:{occurred_on:'2026-10-18',limit:100}});
  const batch=parseStockOpeningBatch(raw,{warehouseSourceId:OPENING_QA_SOURCE,occurredOn:'2026-10-18',limit:100});
- assert.deepEqual(openingBatchPreview(batch).map(r=>r.label),['SINT-9101 · Produto sintético 9101','SINT-9102 · Produto sintético 9102']);assert.match(openingBatchPreview(batch)[0].message,/Origin 10,5 · atual sem lançamentos · ajuste 10,5 UN/);
+ assert.deepEqual(openingBatchPreview(batch).map(r=>r.label),['SINT-9101 · Produto sintético 9101','SINT-9102 · Produto sintético 9102']);assert.match(openingBatchPreview(batch)[0].message,/Importado 10,5 · atual sem lançamentos · ajuste 10,5 UN/);
  const intent=stockOpeningIntent(batch,COMMAND),done=parseStockOpeningResult(await f.controller.stockOpening(stockOpeningActionPath(OPENING_QA_SOURCE,'adotar'),{method:'POST',body:intent}),{commandId:COMMAND,warehouseSourceId:OPENING_QA_SOURCE,input:intent});
  assert.deepEqual(openingResults(done,batch).map(r=>[r.outcome,r.message]),[['ok','Saldo ajustado para 10,5 UN'],['ok','Saldo zero registrado, sem movimento de estoque.']]);
  const skipped={...done,receipt:{...done.receipt,items:[{...done.receipt.items[0],outcome:'skipped',reason:'SOURCE_CHANGED',adjustment:null,movement_id:null,receipt_id:null}]}};
- assert.deepEqual(openingResults(skipped,null).map(r=>[r.label,r.outcome]),[['Produto 9101 no Origin','skipped']]);
+ assert.deepEqual(openingResults(skipped,null).map(r=>[r.label,r.outcome]),[['Produto 9101 no sistema de origem','skipped']]);
 });

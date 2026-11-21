@@ -106,7 +106,7 @@ test('Condição de pagamento + Gerar parcelas fills the planned installments; D
   const s = setup(), view = await mount(s, 'sales_orders', record());
   try {
     await view.change('doc-condition', 'dez dias'); await view.click('Gerar parcelas');
-    assert.match(view.text(), /Informe a condição como no Origin/);
+    assert.match(view.text(), /Informe a condição assim/);
     await view.change('doc-condition', '30 60'); await view.click('Gerar parcelas');
     assert.deepEqual([0, 1].map(index => [view.input(`doc-installment-days-${index}`).props.value, view.input(`doc-installment-date-${index}`).props.value, view.input(`doc-installment-amount-${index}`).props.value]), [['30', '2026-11-15', '11,55'], ['60', '2026-12-15', '11,55']]);
     await view.change('doc-installment-days-1', '45');

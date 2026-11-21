@@ -52,7 +52,7 @@ function StockProducts({ controller }: { controller: Controller }) {
   const run = async (format: 'xlsx' | 'csv' | 'pdf') => { if (exporting) return; setExporting(format); setError('');
     try { const { rows, cost } = await everything(); if (format === 'pdf') setPrinting({ rows, cost }); else exportRows(format, 'estoque-de-produtos', [[textCell('Código'), textCell('Descrição'), textCell('Estoque'), ...(cost ? [textCell('Custo')] : []), textCell('Valor')], ...rows.map(row => [textCell(row.code), textCell(row.name), numberCell(row.quantity), ...(cost ? [numberCell(rowCost(row))] : []), numberCell(row.value)])]); }
     catch (problem) { setError(readError(problem)); } finally { setExporting(''); } };
-  const costTitle = data ? `Custo do fornecedor padrão × quantidade, como no Origin. Sem custo do fornecedor padrão, o custo médio × quantidade; o custo médio usa o ${data.costBasis === 'custo_lancamento' ? 'custo do lançamento' : 'preço de compra'} das entradas (Preferências › Suprimentos › Estoque)` : '';
+  const costTitle = data ? `Custo do fornecedor padrão × quantidade. Sem custo do fornecedor padrão, o custo médio × quantidade; o custo médio usa o ${data.costBasis === 'custo_lancamento' ? 'custo do lançamento' : 'preço de compra'} das entradas (Preferências › Suprimentos › Estoque)` : '';
   const uncosted = data ? totalUncosted(data.totals) : null, supplierCosted = data?.totals.supplier_costed ?? 0;
   return <section className="stock-dash-panel" aria-labelledby="stock-dash-stock-title"><h1 id="stock-dash-stock-title">Estoque de Produtos</h1>
     {nativeIndicatorCoverageText(data) && <p className="real-notice" role="note">{nativeIndicatorCoverageText(data)}</p>}
@@ -99,7 +99,7 @@ function IdleProducts({ controller }: { controller: Controller }) {
     {data && <><div className="table-scroll" tabIndex={0} role="region" aria-label="Sem Movimentação"><table className="data-table real-table"><thead><tr><th>Código</th><th>Descrição</th><th className="numeric">Estoque</th><th>Última Venda</th></tr></thead>
       <tbody>{data.items.map(row => <tr key={row.product_id}><td>{row.code ?? ''}</td><td>{row.name}</td><td className="numeric">{quantityText(row.quantity)}</td><td>{row.last_sale ? brDate(row.last_sale) : <span className="status-badge status-danger is-bold">Sem Venda</span>}</td></tr>)}</tbody></table></div>
       {!data.items.length && <p className="empty-state">{NO_RESULT}</p>}{data.total > 0 && <OriginPagination page={page} pages={Math.max(1, Math.ceil(data.total / 100))} size={100} total={data.total} onPage={setPage} />}
-      <p className="real-help">Produtos com estoque nos depósitos considerados cuja última venda registrada no ERP é anterior a {brDate(since)}. Durante a convivência, as vendas feitas no Origin não entram nesta conta.</p></>}
+      <p className="real-help">Produtos com estoque nos depósitos considerados cuja última venda registrada no ERP é anterior a {brDate(since)}. Durante a convivência, as vendas feitas no sistema de origem não entram nesta conta.</p></>}
   </section>;
 }
 
@@ -158,7 +158,7 @@ function PurchaseSuggestion({ controller }: { controller: Controller }) {
         <tfoot><tr>{ordersWritable && <th />}<th colSpan={2}>TOTAL</th><th className="numeric">{quantityText(totals.sold)}</th><th className="numeric">{quantityText(totals.stock)}</th><th className="numeric">{quantityText(totals.ordered)}</th><th className="numeric">{quantityText(totals.suggestion)}</th><th className="numeric">{moneyText(totals.value)}</th></tr></tfoot></table></div>
         : <p className="empty-state">{NO_RESULT}</p>}
       {data.total > data.items.length && <p className="real-help">Mostrando os {data.items.length} produtos com maior sugestão de {data.total}.</p>}
-      <p className="real-help">Sugestão = arredondar para baixo(peças vendidas ÷ dias do período × cobertura − estoque atual − quantidade a receber dos pedidos de compra), com mínimo 0.{reserve ? ' Com Reserva = Sim, o estoque atual já desconta o reservado.' : ''} Vendas e compras são as registradas no ERP; durante a convivência, as vendas do Origin não entram. {priceNote}</p></>}
+      <p className="real-help">Sugestão = arredondar para baixo(peças vendidas ÷ dias do período × cobertura − estoque atual − quantidade a receber dos pedidos de compra), com mínimo 0.{reserve ? ' Com Reserva = Sim, o estoque atual já desconta o reservado.' : ''} Vendas e compras são as registradas no ERP; durante a convivência, as vendas do sistema de origem não entram. {priceNote}</p></>}
     {ordering && filters && <PurchaseOrderPanel controller={controller} rows={ordering} supplier={proposedSupplier(ordering, filters.supplier)} warehouses={warehouses} warehouse={filters.warehouse || warehouses.find(item => item.is_default && item.active)?.id || ''}
       onClose={() => setOrdering(null)} onCreated={value => { setOrdering(null); setSelected(new Set()); setCreated(value); }} />}
     {settings && preference && <SuggestionSettings controller={controller} preference={preference} onClose={() => setSettings(false)} onSaved={value => { setSettings(false); setPreference(value); setDraft(previous => ({ ...previous, sales: value.sales_statuses })); setReload(n => n + 1); }} />}

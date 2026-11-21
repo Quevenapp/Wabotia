@@ -21,7 +21,7 @@ export interface SupplierFilter {id:string;name:string}
 export type StockTypeFilter=''|'fisico'|'virtual';
 export const STOCK_TYPE_OPTIONS:{value:StockTypeFilter;label:string}[]=[{value:'',label:'Todos'},{value:'fisico',label:'Físico'},{value:'virtual',label:'Virtual'}];
 /** Origin hint of the panel; Brufap reads the ledger when the panel is opened. */
-export const STOCK_DASHBOARD_HINT='Os dados de Estoque, Custo e Valor podem levar até 15 minutos para ser atualizados no Origin. No ERP, eles são calculados na hora da consulta.';
+export const STOCK_DASHBOARD_HINT='Os dados de Estoque, Custo e Valor podem levar até 15 minutos para ser atualizados no sistema de origem. No ERP, eles são calculados na hora da consulta.';
 export interface StockDashboardFilters {query:string;searchBy:'code'|'description'|'gtin';warehouse:string;brand:string;supplier?:SupplierFilter|null;stockType?:StockTypeFilter}
 export function stockDashboardPath(filters:StockDashboardFilters,page:number):string {
   const params=new URLSearchParams();

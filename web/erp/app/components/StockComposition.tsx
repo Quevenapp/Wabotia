@@ -45,7 +45,7 @@ export function compositionLaunch(view: CompositionView | null, loading: boolean
 export function StockCompositionBox({ view, error, launches, writable, onReverse }: { view: CompositionView | null; error: boolean; launches: Launch[] | null; writable: boolean; onReverse: (launch: Launch) => void }) {
   if (error) return <p className="real-alert" role="alert">Não foi possível consultar a estrutura desta composição.</p>;
   if (!view) return <p role="status">Consultando a estrutura…</p>;
-  if (!view.composition) return <p className="real-help">Composição sem estrutura: informe os componentes na aba Estrutura do cadastro do produto. As composições espelhadas do Origin chegam sem a estrutura.</p>;
+  if (!view.composition) return <p className="real-help">Composição sem estrutura: informe os componentes na aba Estrutura do cadastro do produto. As composições sincronizadas chegam sem a estrutura.</p>;
   const virtual = view.composition.stock_type === 'virtual';
   return <section className="stock-composition" aria-labelledby="stock-composition-title">
     <h3 id="stock-composition-title">Estrutura da composição</h3>
