@@ -342,8 +342,14 @@ export async function processCharges(env: Env, profile: string) {
 registerSchedule(ERP_CHARGE_MODULE, async (env: Env, profile: string) => {
   try { await processCharges(env, profile); }
   finally {
-    const { mountPendingErpExamples } = await import("../../area-templates/erp-examples");
-    await mountPendingErpExamples(env, profile);
+    try {
+      // Boleto pela API do banco: consulta periódica e baixas automáticas (src/erp/boleto-api).
+      const { processBoletos } = await import("../boleto-api/service.ts");
+      await processBoletos(env, profile);
+    } finally {
+      const { mountPendingErpExamples } = await import("../../area-templates/erp-examples");
+      await mountPendingErpExamples(env, profile);
+    }
   }
 });
 

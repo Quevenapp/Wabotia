@@ -7,6 +7,7 @@ import { ERP_CONTADOR_MODULE_CONTRACT } from "../../erp/contador/contract.ts";
 import { ERP_PRODUCAO_MODULE_CONTRACT } from "../../erp/production/contract.ts";
 import { ERP_EXPEDICAO_MODULE_CONTRACT } from "../../erp/expedicao/contract.ts";
 import { ERP_REFORMA_MODULE_CONTRACT } from "../../erp/reforma/contract.ts";
+import { ERP_BOLETO_MODULE_CONTRACT } from "../../erp/boleto-api/contract.ts";
 import { ERP_MANAGEMENT_ITEMS } from "./panel-menu";
 import type { ModuleDefinition } from "../types";
 import { ERP_PART_DEPENDENCIES, ERP_PART_NAMES, type ErpModuleId } from "../../erp/parts.ts";
@@ -91,7 +92,13 @@ export const erpFiscalModule: ModuleDefinition = {
     hints: { ...COM1_MODULE_CONTRACT.definition.bot.hints, ...ERP_CONTADOR_MODULE_CONTRACT.definition.bot.hints },
   },
 };
-export const erpCobrancaModule = definition("erp-cobranca", "Boletos, remessas, retornos e liquidação bancária de títulos do Financeiro.");
+// Boleto registrado pela API do banco (src/erp/boleto-api/contract.ts): rota, operações e categoria sensível no catálogo dos bots.
+export const erpCobrancaModule: ModuleDefinition = {
+  ...definition("erp-cobranca", "Boletos, remessas, retornos e liquidação bancária de títulos do Financeiro."),
+  routes: [...ERP_BOLETO_MODULE_CONTRACT.routes],
+  operations: [...ERP_BOLETO_MODULE_CONTRACT.operations],
+  bot: ERP_BOLETO_MODULE_CONTRACT.definition.bot,
+};
 export const erpPdvModule = definition("erp-pdv", "Venda no balcão e devolução, integradas a vendas, estoque e caixa financeiro.");
 // Produção (src/erp/production/contract.ts): ordem de produção com a composição do produto.
 export const erpProducaoModule: ModuleDefinition = {

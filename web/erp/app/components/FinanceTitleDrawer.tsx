@@ -18,6 +18,7 @@ import DocumentQuickContact from './DocumentQuickContact';
 import { Modal } from './Modal';
 import { WhatsappSendButton } from './WhatsappSend';
 import { TitleChargePanel } from './TitleCharge';
+import { TitleBoletoPanel } from './TitleBoletoApi';
 import { Icon } from './Icon';
 import './finance-title-drawer.css';
 
@@ -333,6 +334,7 @@ export default function FinanceTitleDrawer({ controller, kind, mode, title, clon
           {title && title.kind === 'receivable' && mode !== 'create' && !title.cancelled && !title.deleted_at && (title.status === 'open' || title.status === 'partial') && <WhatsappSendButton type="conta" id={title.id} />}
           {/* Cobrança por Pix ou link da conta a receber (confirma sozinha; baixa automática ou sugestão de baixa). */}
           {title && title.kind === 'receivable' && mode !== 'create' && !title.deleted_at && <TitleChargePanel titleId={title.id} open={!title.cancelled && (title.status === 'open' || title.status === 'partial')} />}
+          {title && title.kind === 'receivable' && mode !== 'create' && !title.deleted_at && <TitleBoletoPanel titleId={title.id} open={!title.cancelled && (title.status === 'open' || title.status === 'partial')} />}
         </section>
         {history}
         {error && <p className="real-alert" role="alert">{error}</p>}

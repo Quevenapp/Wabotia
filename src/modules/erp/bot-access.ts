@@ -21,6 +21,7 @@ import { ERP_PRODUCAO_ROUTE, ERP_PRODUCTION_OPERATIONS, erpProductionParams } fr
 import { ERP_EXPEDICAO_PART, ERP_EXPEDICAO_ROUTE, ERP_SHIPPING_OPERATIONS, erpShippingParams } from "../../erp/expedicao/contract.ts";
 import { ERP_FREIGHT_OPERATIONS, erpFreightParams } from "../../erp/frete/contract.ts";
 import { ERP_LOJAS_PART, ERP_LOJAS_ROUTE, ERP_STORE_OPERATIONS, erpStoreParams } from "../../erp/lojas/contract.ts";
+import { ERP_BOLETO_OPERATIONS, ERP_BOLETO_PART, ERP_BOLETO_ROUTE, erpBoletoParams } from "../../erp/boleto-api/contract.ts";
 
 type Params = { type: "object"; properties: Record<string, any>; required: string[] };
 /** Assunto da operação, na ordem da tela de concessões do bot. */
@@ -150,6 +151,10 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
   // Lojas: ver as lojas e comparar as lojas é leitura comum; a lista de operações de uma loja é leitura sensível.
   ...ERP_STORE_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
     group: "lojas", description: op.description, params: erpStoreParams(op) })),
+  // Boleto pela API do banco (assunto Cobrança no banco): consultar o boleto e a situação no banco são leitura;
+  // registrar, alterar o vencimento, baixar e confirmar a baixa são sensíveis. PDF, interruptores e conta financeira, só pela tela.
+  ...ERP_BOLETO_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
+    group: "cobranca", description: op.description, params: erpBoletoParams(op) })),
 ];
 
 /** Leituras sensíveis que o administrador pode deixar o bot executar sozinho. */
@@ -174,6 +179,8 @@ export function erpBotModules(op: Pick<ErpBotOperation, "method" | "path">): rea
   if (op.path === ERP_EXPEDICAO_ROUTE || op.path.startsWith(`${ERP_EXPEDICAO_ROUTE}/`)) return erpRequirement(ERP_EXPEDICAO_PART).all;
   // Lojas: cadastro da Base (cada seção do relatório confere a parte dela no motor).
   if (op.path === ERP_LOJAS_ROUTE || op.path.startsWith(`${ERP_LOJAS_ROUTE}/`)) return erpRequirement(ERP_LOJAS_PART).all;
+  // Boleto pela API do banco: a Cobrança bancária (com o Financeiro).
+  if (op.path.startsWith(`${ERP_BOLETO_ROUTE}/`)) return erpRequirement(ERP_BOLETO_PART).all;
   const requirement = erpRouteRequirement(op.method, new URL(`https://erp.invalid/${op.path.slice("erp/".length).replace(/:[A-Za-z_][A-Za-z0-9_]*/g, "x")}`));
   return requirement && requirement !== "externo" ? requirement.all : erpRequirement("erp").all;
 }

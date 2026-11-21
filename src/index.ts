@@ -1286,6 +1286,13 @@ const erpConversa = async (c: any) => {
 };
 app.all("/api/v1/profiles/:profile/erp-conversa", erpConversa);
 app.all("/api/v1/profiles/:profile/erp-conversa/*", erpConversa);
+// Boleto registrado pela API do banco (Cobrança bancária: Banco Inter, Sicoob,
+// Banco do Brasil e Itaú): src/erp/boleto-api/routes.ts.
+const erpBoleto = async (c: any) => {
+  const { erpBoletoRoute } = await import("./erp/boleto-api/routes");
+  return erpBoletoRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
+};
+app.all("/api/v1/profiles/:profile/erp-boleto/*", erpBoleto);
 // Campos próprios de contato do ERP (Preferências › Cadastros, cadastro, lista,
 // ficha do atendimento e bots): src/erp/contact-fields/routes.ts.
 const erpContactFields = async (c: any) => {
@@ -3306,6 +3313,13 @@ app.post("/webhooks/payments/:provider/:account", async (c) => {
   // Falha ao consultar o provedor: o erro faz o provedor reenviar depois.
   if (!response.ok) return response;
   return c.json({ received: true, ...(await response.json<any>()) });
+});
+// Aviso de pagamento do banco para o boleto pela API (docs/BOLETO-API.md): o
+// código do endereço identifica a conta financeira e o pagamento só vale
+// depois da consulta ao banco (src/erp/boleto-api/service.ts).
+app.post("/webhooks/boleto/:token", async (c) => {
+  const { erpBoletoWebhookRoute } = await import("./erp/boleto-api/routes");
+  return erpBoletoWebhookRoute(c.env, c.req.raw, c.req.param("token"), c.req.header("CF-Connecting-IP") || "local");
 });
 // Telegram was removed. A bot still pointing here gets a final answer.
 app.post("/webhooks/telegram/:id", () => {

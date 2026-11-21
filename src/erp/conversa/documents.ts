@@ -313,7 +313,10 @@ async function receivable(env: Env, profile: string, actor: Actor, id: string, p
   const { paymentsMissing } = await import("../../payments");
   const missingCharge = balance && balance !== "0" ? await paymentsMissing(env, profile) : { code: "no_balance", message: "Esta conta não tem saldo em aberto." };
   const billing = object(body.billing);
-  const hasBoleto = typeof billing.remittance_id === "string";
+  // Boleto registrado pela API do banco (src/erp/boleto-api), qualquer banco; sem ele, o da remessa CNAB.
+  const { conversaBoleto } = await import("../boleto-api/service.ts");
+  const apiBoleto = await conversaBoleto(env, actor, profile, id, options.light);
+  const hasBoleto = typeof billing.remittance_id === "string" || apiBoleto !== null;
   const choice: ReceivablePayment = options.payment ?? (hasBoleto ? "boleto" : missingCharge ? "sem" : "pix");
   const notes: string[] = [];
   const files: OutgoingFile[] = [];
@@ -329,7 +332,8 @@ async function receivable(env: Env, profile: string, actor: Actor, id: string, p
       if (!pix && !link) throw new ApiError(409, "erp_charge_closed", "A cobrança desta conta já foi paga ou encerrada. Abra a conta no Financeiro para conferir.");
     }
   } else if (choice === "boleto") {
-    const boleto = await receivableBoleto(env, profile, actor, id, title, billing, contact, options.light);
+    const boleto = apiBoleto ?? await receivableBoleto(env, profile, actor, id, title, billing, contact, options.light);
+    if (apiBoleto?.pix) pix = apiBoleto.pix;
     if (!boleto.file) throw new ApiError(422, "erp_boleto_incomplete", `O boleto desta conta não foi gerado: falta ${boleto.missing.join(", ")}. Complete os dados ou envie por Pix ou link.`);
     files.push(boleto.file);
     boletoLine = boleto.line;
