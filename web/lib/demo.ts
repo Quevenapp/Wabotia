@@ -482,7 +482,7 @@ const demoModules: Row[] = [
   ...Object.values(erpDefinitions).map(({ id, name, description, requires, navigation, version }) => ({
     id, name, description, requires, navigation, version,
     builtin: true, default_enabled: false, menu_item_types: [],
-    enabled: !["erp-fiscal", "erp-cobranca"].includes(id),
+    enabled: !["erp-fiscal", "erp-cobranca", "erp-expedicao"].includes(id),
   })),
   {
     id: "queue",

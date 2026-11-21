@@ -11,6 +11,7 @@ import { createPeoplePort } from "./people";
 import { createDemoEmissorPort, createEmissorPort } from "./emissor";
 import { createCommercialNfePort, type CommercialNfeAccess } from "./commercial-nfe";
 import { createRecebidasPort } from "./recebidas";
+import { createExpedicaoPort } from "./expedicao-api";
 import { setErpBlocks, installErpTargetAccess } from "./blocks";
 import { setActionPendingNotice, setMotorReal } from "./motor";
 import { toast } from "../ui";
@@ -185,6 +186,29 @@ export function acquireErpHost(context: ErpHostContext) {
           return response;
         },
       });
+      // Vendas › Expedição: mesma área, sessão e partes do painel (e o módulo Entrega da área); a demonstração não grava.
+      const expedicao = createExpedicaoPort(context.profile, {
+        access: () => {
+          const c = entry.valid && entry.owners.size ? current() : null;
+          const state = controller?.getSnapshot();
+          const modules: Readonly<Record<string, boolean>> = c?.management.modules ?? {};
+          return {
+            ready: !!c && available() && state?.phase === "ready" && state.membership?.user_id === actor,
+            role: state?.membership?.role ?? null,
+            demo: !!simulation,
+            parts: { shipping: modules["erp-expedicao"] === true, sales: modules["erp-vendas"] === true, stock: modules["erp-estoque"] === true,
+              fiscal: modules["erp-fiscal"] === true, delivery: modules.entrega === true },
+          };
+        },
+        fetch: async (input, init) => {
+          const response = await scoped(() => globalThis.fetch(input, init));
+          if (response.status === 401 && !init?.signal?.aborted) {
+            const onExpired = current().onExpired;
+            entry.invalidate(); onExpired();
+          }
+          return response;
+        },
+      });
       const simulate = simulation?.createSimulatedApi({ actor, readOnly: context.demo });
       const fetchPort = createFetchPort({ apiUrl, actor,
         simulate: simulate ? (path, init) => path === "/v1/sistema/permissoes" && init.method === "GET"
@@ -221,6 +245,7 @@ export function acquireErpHost(context: ErpHostContext) {
         },
         commercialNfe,
         recebidas,
+        expedicao,
       };
       const access = createAccessController(ports.auth, ports.apiUrl, ports.fetch, {});
       controller = access;

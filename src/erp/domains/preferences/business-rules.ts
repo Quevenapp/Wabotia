@@ -7,7 +7,7 @@ import { jsonbText } from "../../engine/json.ts";
 import { toScaled } from "../../engine/dec.ts";
 import { allowed as documentsAllowed, mirrorReportCoverage } from "../documents/public.ts";
 import { compareText } from "./order.ts";
-import { ERP_PART_KEYS, erpRequirement, erpRequirementMet, type ErpParts, type ErpRequirement } from "../../parts.ts";
+import { ERP_DTO_PART_KEYS, erpRequirement, erpRequirementMet, type ErpParts, type ErpRequirement } from "../../parts.ts";
 
 /** Leituras mistas consultam o resolvedor comum antes de abrir uma fonte. */
 export const queryAvailable = (parts: Readonly<ErpParts>, requirement: ErpRequirement | null) =>
@@ -15,7 +15,7 @@ export const queryAvailable = (parts: Readonly<ErpParts>, requirement: ErpRequir
 
 /** O DTO antigo continua idêntico quando todas as partes estão ligadas. */
 export function unavailableParts(parts: Readonly<ErpParts>) {
-  const unavailable_parts = ERP_PART_KEYS.filter(key => !parts[key]);
+  const unavailable_parts = ERP_DTO_PART_KEYS.filter(key => !parts[key]);
   return unavailable_parts.length ? { unavailable_parts } : {};
 }
 

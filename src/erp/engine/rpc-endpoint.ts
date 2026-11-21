@@ -192,7 +192,7 @@ export async function handleRpc(
       const result = fencedWrite(ctx.storage, backupFence(ctx.storage), () => callRpc(storageDriver(ctx.storage), name, a, clock, {
         identity: { actor: null, people: null },
         parts: { customers: false, products: false, sales: false, purchases: false,
-          stock: false, finance: false, fiscal: false, billing: false, pos: false },
+          stock: false, finance: false, fiscal: false, billing: false, pos: false, shipping: false },
       }));
       if (containsRestrictedContact(result, restricted)) return privacyDenied();
       return Response.json(result);

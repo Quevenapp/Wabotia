@@ -10,6 +10,7 @@ export function erpModuleOn(modules: Readonly<Record<string, boolean>> | undefin
 export const ERP_PART_OWNERS: Readonly<Partial<Record<ErpPart, ErpModule>>> = {
   cadastro: "erp", sistema: "erp", catalogo: "erp-produtos", vendas: "erp-vendas", servicos: "erp-vendas",
   compras: "erp-compras", estoque: "erp-estoque", financeiro: "erp-financeiro", fiscal: "erp-fiscal", cobranca: "erp-cobranca", pdv: "erp-pdv",
+  expedicao: "erp-expedicao",
 };
 export const requirementsEnabled = (requirement: ErpRequirement | null, modules: Readonly<Record<string, boolean>>) =>
   !!requirement && requirement.all.every(id => modules[id] === true);

@@ -234,4 +234,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Relatórios do ERP: DRE gerencial com Custos separados das despesas, e o pagamento da equipe (salário, comissão, adiantamento e vale) como conta a pagar com a pessoa ligada, o período e, na comissão de vendedor, a base e o percentual conferidos.",
     replaced_by: "Versão 21 aditiva (20→21): erp_finance__dre_cost (a categoria de despesa do primeiro nível que o DRE mostra em Custos; o dre_group continua o do oráculo, Despesas Operacionais) e erp_finance__team_payment (a conta a pagar, funcionário ou vendedor, tipo, período, base e percentual). A conta a pagar é a do Financeiro (erp_finance__title), no contato do vendedor ou no contato com o CPF do funcionário.",
   },
+  {
+    id: "expedicao",
+    oracle: "O pedido de venda tem conferência (checkout) por pedido e transportadora, mas não tem separação de vários pedidos juntos, embalagens, volumes com peso e medidas, etiqueta de volume, romaneio assinado nem devolução física fora da nota fiscal.",
+    reason: "Expedição (parte erp-expedicao, depende de Vendas e Estoque): lista de separação consolidada por produto e endereço, situação do pedido na expedição (a separar, em separação, separado, embalado, expedido), pendência quando falta quantidade, embalagens e volumes que alimentam o transporte do pedido, etiquetas e romaneio, entrega local pelo módulo Entrega e devolução física com entrada no estoque.",
+    replaced_by: "Versão 25 aditiva (24→25): erp_shipping__package, __order, __pick_list, __pick_line, __pending, __volume, __return e __command. A situação comercial do pedido não muda; a pendência também entra como ocorrência do pedido; o transporte do pedido (volumes e peso bruto) é gravado pelo salvamento do próprio pedido; a entrada no estoque é a do Estoque (erp_stock.post, recebimento); a devolução fiscal continua a da NF-e (só o atalho).",
+  },
 ];

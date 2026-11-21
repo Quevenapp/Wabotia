@@ -2,7 +2,7 @@
 // erp_documents.auto_products, a parte de erp_document_save que chama o
 // catálogo (outro domínio) com o comando do documento.
 import { one, type SqlDriver } from "../../engine/driver.ts";
-import { ERP_PART_KEYS, type ErpPartKey } from "../../parts.ts";
+import { ERP_DTO_PART_KEYS, type ErpPartKey } from "../../parts.ts";
 import { intIn } from "../../engine/args.ts";
 import { pgBtrim, pgHasCntrl, pgLeft, pgLength } from "../../engine/text.ts";
 import { jsonTimestamp, validDate } from "../../engine/time.ts";
@@ -161,7 +161,7 @@ export function documentSituationJson(db: SqlDriver, id: string) {
 }
 
 /** Metadados somente quando alguma capacidade está suspensa. */
-export function unavailableParts(ctx: Pick<RpcContext, "parts">, keys: readonly ErpPartKey[] = ERP_PART_KEYS) {
+export function unavailableParts(ctx: Pick<RpcContext, "parts">, keys: readonly ErpPartKey[] = ERP_DTO_PART_KEYS) {
   const unavailable = keys.filter(key => !ctx.parts[key]);
   return unavailable.length ? { unavailable_parts: unavailable } : {};
 }

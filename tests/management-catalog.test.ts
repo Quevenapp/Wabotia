@@ -68,8 +68,9 @@ describe("catálogo da casa de gestão", () => {
     expect(legacyMenu).toBe(ORIGIN_MENU);
     const linked = originItems.filter((item) => item.real);
     // + 3 dos relatórios do ERP: DRE gerencial, Pagamento da equipe e Relatórios em gráfico.
-    expect(linked).toHaveLength(52);
-    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(53);
+    // + 1 da Expedição (Comercial › Logística).
+    expect(linked).toHaveLength(53);
+    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(54);
     expect(ERP_MANAGEMENT_ITEMS).toHaveLength(linked.length + 1);
     expect(ERP_MANAGEMENT_ITEMS.find(item => item.id === "erp.effect-maintenance")).toMatchObject({
       module: "erp", part: "sistema", groupLabel: "Sistema", order: 440,
@@ -108,7 +109,7 @@ describe("catálogo da casa de gestão", () => {
       });
       expect([
         "cadastro", "catalogo", "vendas", "compras", "estoque", "financeiro",
-        "fiscal", "cobranca", "pdv", "servicos", "resultados", "sistema",
+        "fiscal", "cobranca", "pdv", "servicos", "resultados", "sistema", "expedicao",
       ]).toContain(item.part);
     }
     // O único rodapé sem destino continua no menu de compatibilidade.

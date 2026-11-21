@@ -20,7 +20,8 @@ const enable = (profile: string, id: string, value = 1) => exec(env,
 describe("fase 2: contrato, entrega e portões", () => {
   it("nove módulos embutidos, padrões fechados e seis papéis somente na Base", () => {
     const defs = modules.filter(m => ERP_MODULE_IDS.includes(m.id as any));
-    expect(defs).toHaveLength(9);
+    // + Expedição (erp-expedicao), também desligada por padrão.
+    expect(defs).toHaveLength(10);
     expect(defs.every(m => m.builtin && !m.default_enabled)).toBe(true);
     expect(defs.find(m => m.id === "erp")?.grants).toHaveLength(6);
     expect(defs.filter(m => m.id !== "erp").every(m => !m.grants?.length)).toBe(true);

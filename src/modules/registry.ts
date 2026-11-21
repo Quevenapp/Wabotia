@@ -32,6 +32,7 @@ import {
   erpFiscalModule,
   erpModule,
   erpPdvModule,
+  erpExpedicaoModule,
 } from "./erp/definition";
 
 export type { ModuleDefinition } from "./types";
@@ -59,6 +60,7 @@ export const modules: readonly ModuleDefinition[] = [
   erpFiscalModule,
   erpCobrancaModule,
   erpPdvModule,
+  erpExpedicaoModule,
 ];
 
 export const moduleById = (id: unknown) =>

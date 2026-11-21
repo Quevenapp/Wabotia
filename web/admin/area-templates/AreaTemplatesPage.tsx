@@ -43,6 +43,7 @@ const MODULE_NAMES: Record<string, string> = {
   "erp-estoque": "Estoque",
   "erp-financeiro": "Financeiro",
   "erp-pdv": "Caixa / PDV",
+  "erp-expedicao": "Expedição",
   juridico: "Jurídico",
   condominio: "Condomínio",
   saude: "Saúde (prontuário)",
