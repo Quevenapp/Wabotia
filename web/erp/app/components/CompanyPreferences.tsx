@@ -11,6 +11,7 @@ import type {UpdatePort} from '../lib/system-updates';
 import PreferenceSettingsPage from './PreferenceSettingsPage';
 import {ChargeAutoSettlePreference} from './TitleCharge';
 import {lazy,Suspense} from 'react';
+import {integrationRouteState,useIntegrationHost} from '../../../modules/integrations/visibility';
 // Boleto por API (Cobrança bancária): sob demanda, fora do núcleo do ERP.
 const BoletoBankSwitches=lazy(()=>import('./BoletoApiSettings').then(m=>({default:m.BoletoBankSwitches})));
 // Maquininha integrada ao caixa (Caixa / PDV): sob demanda, fora do núcleo do ERP.
@@ -45,11 +46,13 @@ import type {NativeRequestOptions} from '../lib/real-access';
  */
 export default function CompanyPreferences({controller,state}:{controller:PreferencesController&UsersController&SystemLogController&BusinessController&{catalog?:(path:string,options?:NativeRequestOptions)=>Promise<unknown>};state:AccessState}){
  const {pathname,search}=useLocation();
+ // Cartão Integrações: a tela Integrações é do painel e só aparece quando ele a libera (módulos e papel).
+ const integrationHost=useIntegrationHost(),integrations=!!integrationHost&&integrationRouteState(integrationHost.context)==='allowed';
  if(!targetEnabled(pathname+search))return <section className="real-state-panel"><h1>Rotina indisponível</h1><p>Esta preferência depende de uma parte desligada ou de um acesso não concedido.</p></section>;
  if(pathname==='/preferencias/sistema/wabotia')return <WabotiaPairing controller={controller as unknown as Parameters<typeof WabotiaPairing>[0]['controller']} state={state}/>;
  if(pathname==='/preferencias/sistema/atualizacoes')return <SystemUpdates controller={controller as unknown as Partial<UpdatePort>} state={state}/>;
  if(pathname==='/meu-negocio')return <BusinessDashboards key={state.membership!.user_id} controller={controller}/>;
- const categories=resolvePreferences({role:state.membership!.role,resources:state.membership!.resources,capabilities:state.membership!.capabilities}),route=parsePreferencesPath(pathname);
+ const categories=resolvePreferences({role:state.membership!.role,resources:state.membership!.resources,capabilities:state.membership!.capabilities,integrations}),route=parsePreferencesPath(pathname);
  if(route.kind==='hub'&&(!route.category||categories.some(c=>c.id===route.category)))return <PreferencesPage key={state.membership!.user_id} homeTo="/acesso" categories={categories} initialCategory={route.category} categoryHref={id=>`/preferencias/${id}`}/>;
  if(route.kind==='page'){const category=COMPANY_PREFERENCES.find(c=>c.id===route.page.category);
   // A page outside the hub (Meu Negócio > Ajustes, migration 150) returns to its own screen.

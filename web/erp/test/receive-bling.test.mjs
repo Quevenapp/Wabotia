@@ -289,3 +289,14 @@ test('achado 6: outra falha HTTP sem recibo terminal conserva a pendência',{tim
   assert.equal(view.button('Desconectar conta').disabled,true);
  }finally{view.unmount();}
 });
+
+test('Preferências › Integrações › Mão dupla do Bling abre direto na aba Mão dupla',async()=>{
+ const server=service(),adoption={calls:[],async execute(name){adoption.calls.push(name);throw new Error('simulado: sem rede');}};
+ const view=await mountComponent('ReceiveBling.tsx',{client:server.client,controller,administrator:true,adoptionClient:adoption,initialTab:'mao-dupla'},{componentName:'ReceiveBling',expandChildren:true});
+ try{
+  assert.equal(view.button('Mão dupla').props['aria-selected'],true);
+  assert.equal(view.button('Configuração').props['aria-selected'],false);
+ }finally{view.unmount();}
+ const plain=await mount(server);
+ try{assert.equal(plain.button('Configuração').props['aria-selected'],true);}finally{plain.unmount();}
+});

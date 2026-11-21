@@ -160,6 +160,8 @@ export function portedTarget(to: string): PortedTarget | null {
     if (pieces.length === 1) {
       const category = pieces[0];
       if (category === "importacoes") return rule("sistema", admin);
+      // Cartão Integrações (antigo grupo "Mais" do menu): Integrações e Receber dados do Bling, da Base.
+      if (category === "integracoes") return rule("sistema");
       const entries = Object.entries(preferences).filter(([key]) => key.startsWith(category + "/"));
       if (!entries.length || category === "meu-negocio") return null;
       const roles = entries.some(([, [entry]]) => !entry.roles) ? undefined : [...new Set(entries.flatMap(([, [entry]]) => entry.roles!))];

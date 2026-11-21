@@ -20,7 +20,7 @@ export const requirementsEnabled = (requirement: ErpRequirement | null, modules:
 // Aliases de apresentação ausentes do resolvedor comum. Os requisitos continuam vindo dele.
 const containers = new Set([
   "/preferencias/empresa", "/preferencias/sistema", "/preferencias/cadastros", "/preferencias/suprimentos", "/preferencias/vendas",
-  "/preferencias/notas-fiscais", "/preferencias/certificado", "/preferencias/financas", "/preferencias/servicos", "/preferencias/contabilidade", "/preferencias/importacoes",
+  "/preferencias/notas-fiscais", "/preferencias/certificado", "/preferencias/financas", "/preferencias/servicos", "/preferencias/contabilidade", "/preferencias/importacoes", "/preferencias/integracoes",
   "/preferencias/sistema/gestao-acoes", "/preferencias/sistema/consulta-exclusoes", "/preferencias/sistema/gerenciador-arquivos",
   "/preferencias/sistema/gerenciador-transicoes", "/preferencias/sistema/relatorios-customizados", "/preferencias/sistema/etiquetas-customizadas",
   "/preferencias/sistema/registro-atividades", "/preferencias/sistema/usuarios", "/preferencias/backup/exportacao",
