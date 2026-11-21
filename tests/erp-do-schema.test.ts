@@ -53,10 +53,11 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
     // 8 índices e 15 gatilhos) + 28 da versão 11 (as 6 tabelas do Bling,
     // 12 índices e 10 gatilhos) + 7 da versão 12 (as 4 tabelas da adoção do
     // Bling, 1 índice e 2 gatilhos) + 5 da versão 13 (as 3 tabelas de
-    // documentos, contas e histórico do Bling e 2 índices) + 30 da versão 14 (as 7 tabelas do balcão com NFC-e); 464 tabelas.
-    expect(result.first).toMatchObject({ status: "applied", version: ERP_DDL_VERSION, statements: 1099, seedRows: 7586 });
+    // documentos, contas e histórico do Bling e 2 índices) + 30 da versão 14 (as 7 tabelas do balcão com NFC-e)
+    // + 30 da versão 15 (as 7 tabelas da nota de serviço da ordem); 471 tabelas.
+    expect(result.first).toMatchObject({ status: "applied", version: ERP_DDL_VERSION, statements: 1129, seedRows: 7586 });
     expect(result.again).toMatchObject({ status: "current" });
-    expect(result.tables).toBe(464);
+    expect(result.tables).toBe(471);
     expect(result.triggers).toBeGreaterThan(148);
     expect(result.municipalities).toBe(5571);
   });

@@ -18,14 +18,17 @@ import { commercialNfeReadSlots } from "./reads.ts";
 import { createCommercialNfeLifecycle } from "./lifecycle.ts";
 import { recapturePreparationFingerprint } from "./source.ts";
 import { applyEffects, reverseEffects } from "./effects.ts";
-import { withCom1Model, withEmissionModel } from "./model.ts";
+import { com1Model, withCom1Model, withEmissionModel } from "./model.ts";
 import "./nfce.ts";
+import { recaptureServiceFingerprint } from "./os-notes.ts";
 
 // Encaixe único do motor. Cada chamada continua dentro de sua própria
 // transação local; o serviço HTTP faz todo I/O externo entre essas chamadas.
 installCommercialNfeSlots({
   ...commercialNfePreparationSlots, ...commercialNfeReadSlots,
-  ...createCommercialNfeLifecycle({ sourceFingerprint: recapturePreparationFingerprint }),
+  // A NFS-e da ordem relê as próprias fontes (os-notes.ts); NF-e e NFC-e, as do pedido.
+  ...createCommercialNfeLifecycle({ sourceFingerprint: (ctx, revision) => com1Model() === "nfse"
+    ? recaptureServiceFingerprint(ctx, revision) : recapturePreparationFingerprint(ctx, revision) }),
   applyEffects, reverseEffects,
 });
 
@@ -81,11 +84,11 @@ registerRpc("erp_com1_get", (ctx, a) => {
 });
 registerRpc("erp_com1_list", (ctx, a) => {
   const requested = (a.p_input as { model?: unknown } | null)?.model;
-  return withCom1Model(requested === "nfce" ? "nfce" : "nfe", () => {
+  return withCom1Model(requested === "nfce" || requested === "nfse" ? requested : "nfe", () => {
     requireCom1Access(ctx, "read", expectedPerson(a));
     const raw = input<ListInput & { model?: string }>(a, ["environment", "document_id", "status", "page", "per_page", "model"], ["environment"]);
     if (raw.environment !== "homologacao" && raw.environment !== "producao") return invalid();
-    if (raw.model !== undefined && raw.model !== "nfe" && raw.model !== "nfce") return invalid();
+    if (raw.model !== undefined && raw.model !== "nfe" && raw.model !== "nfce" && raw.model !== "nfse") return invalid();
     const { model: _model, ...value } = raw;
     return commercialNfeSlots().list(ctx, value);
   });
@@ -109,7 +112,9 @@ registerRpc("erp_com1_record", (ctx, a) => {
   });
 });
 registerRpc("erp_com1_cancel_claim", (ctx, a) => {
-  const value = input<CancelClaimInput>(a, ["emission_id", "command_id", "expected_version", "justification", "connection_fingerprint"]);
+  // reason: motivo do cancelamento da NFS-e (o store recusa nas outras famílias).
+  const value = input<CancelClaimInput>(a, ["emission_id", "command_id", "expected_version", "justification", "connection_fingerprint", "reason"],
+    ["emission_id", "command_id", "expected_version", "justification", "connection_fingerprint"]);
   return withEmissionModel(ctx.db, value.emission_id, () => {
     requireCom1Access(ctx, "cancel", expectedPerson(a));
     return commercialNfeSlots().cancelClaim(ctx, value);

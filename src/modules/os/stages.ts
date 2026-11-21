@@ -7,6 +7,7 @@ import { builtinWorkType, effectiveStage, snapshotType } from "./work-types";
 import { changeStatus, customMessage, notify, conversationOf } from "./store";
 import { replayWorkWrite, workWriteReceipt } from "./commercial/mutations";
 import { prepareOrderRulesMutation } from "./os2-ports";
+import { requireInvoiceToDeliver } from "./fiscal/notes";
 
 function stageNote(value: unknown): string {
   if (value === undefined || value === null) return "";
@@ -40,6 +41,9 @@ export async function customMove(ctx: ModuleContext, row: any, to: OsStatus, act
   const dest = options.stage ?? (kind === "quote" && to === "analyzing" ? policy?.edited_stage : to === "quoted" ? policy?.sent_stage : to === "approved" ? policy?.approved_stage : to === "declined" ? policy?.declined_stage : undefined);
   const stage = type.stages.find(s => s.id === dest && s.base_status === to);
   if (!stage) throw stageError("stage_required");
+  // OS5: a ordem nunca espera a nota, salvo no modelo que marca "exigir nota para entregar".
+  if (to === "delivered" && row.status !== to && type.features.require_invoice_to_deliver === true)
+    await requireInvoiceToDeliver(ctx.env, ctx.profile, row.id);
   const at = now();
   const sets: Record<string, unknown> = { ...extra, status: to, stage: stage.id, stage_approval_json: extra.stage_approval_json ?? cancelApproval(row) };
   if (to !== row.status) {

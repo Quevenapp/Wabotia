@@ -113,8 +113,11 @@ export function validateWorkType(raw: unknown): CustomWorkType {
     return { ...t, id: id(t.id, "transitions.id"), label: text(t.label, 80, "transitions.label"), ...(t.kind === "customer_approval" ? { valid_hours: integer(t.valid_hours, 1, 720, "transitions.valid_hours"), request_text: message(t.request_text, fields, "transitions.request_text") } : {}) };
   });
   unique(transitions.map(t => t.id), "transitions");
-  const features = { ...object(r.features, ["customer_open", "tasks", "people", "documents", "entries", "quote", "warranty_days", "pickup_reminder_days", "stale_days"], "features") };
+  const features = { ...object(r.features, ["customer_open", "tasks", "people", "documents", "entries", "quote", "warranty_days", "pickup_reminder_days", "stale_days", "require_invoice_to_deliver"], "features") };
   for (const key of ["customer_open", "tasks", "people", "documents", "entries"]) features[key] = bool(features[key], `features.${key}`);
+  // OS5: opcional; só gravado quando marcado (modelos antigos ficam iguais).
+  if (features.require_invoice_to_deliver === undefined || features.require_invoice_to_deliver === false) delete features.require_invoice_to_deliver;
+  else features.require_invoice_to_deliver = bool(features.require_invoice_to_deliver, "features.require_invoice_to_deliver");
   integer(features.warranty_days, 0, 3650, "features.warranty_days");
   integer(features.pickup_reminder_days, 0, 365, "features.pickup_reminder_days");
   integer(features.stale_days, 0, 365, "features.stale_days");

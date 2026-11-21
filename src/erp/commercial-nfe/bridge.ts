@@ -34,7 +34,13 @@ export interface CommercialNfeRpcMap {
   erp_com1_nfce_prepare: { input: NfcePrepareInput; output: PreparationResult };
   erp_com1_nfce_sales: { input: NfceSalesInput; output: NfceSalesPage };
   erp_com1_nfce_sale_cancel: { input: { emission_id: string; command_id: string; reason: string; physical_return_confirmed?: boolean }; output: { id: string; state: string; version: number } };
+  // Notas da ordem de serviço: NFS-e e NF-e das peças (domains/fiscal/comnfe/os-notes.ts).
+  erp_com1_os_notes: { input: { order_id: string }; output: OsNotesView };
+  erp_com1_os_prepare: { input: { order_id: string; kind: OsNoteKind; command_id: string; expected_emission_version?: number; new_fiscal_version?: boolean }; output: PreparationResult };
+  erp_com1_nfse_config_get: { input: undefined; output: NfseSettingsView };
+  erp_com1_nfse_config_save: { input: Record<string, unknown>; output: NfseSettingsView };
 }
+import type { NfseSettingsView, OsNoteKind, OsNotesView } from "../domains/fiscal/comnfe/os-notes.ts";
 export interface NfceConfigView { version: number; nature_id: string | null; resolved_nature_id: string | null; natures: { id: string; description: string }[]; updated_at: string | null; updated_by: string | null }
 export interface NfcePrepareInput { sale_id: string; command_id: string; consumer_document?: string | null; series?: number | null; series_count?: number; expected_emission_version?: number }
 export interface NfceSalesInput { environment: "homologacao" | "producao"; sale_id?: string; cash_session_id?: string; from?: string; to?: string; pending_only?: boolean; page?: number; per_page?: number }
@@ -63,6 +69,7 @@ const RPC_NAMES = new Set<keyof CommercialNfeRpcMap>([
   "erp_com1_claim", "erp_com1_record", "erp_com1_cancel_claim", "erp_com1_cancel_record",
   "erp_com1_cancel_xml_record", "erp_com1_effect_apply", "erp_com1_effect_reverse",
   "erp_com1_nfce_config_get", "erp_com1_nfce_config_save", "erp_com1_nfce_prepare", "erp_com1_nfce_sales", "erp_com1_nfce_sale_cancel",
+  "erp_com1_os_notes", "erp_com1_os_prepare", "erp_com1_nfse_config_get", "erp_com1_nfse_config_save",
 ]);
 const EVIDENCE_NAMES = new Set<keyof CommercialNfeRpcMap>([
   "erp_com1_record", "erp_com1_cancel_record", "erp_com1_cancel_xml_record",
@@ -134,7 +141,7 @@ export function createCommercialNfeBridge(context: CommercialNfeHttpContext, dep
       const policy: ErpPrivacy = evidence ? { restricted_contact_ids: [] } : await privacy(context.env, context.profile);
       const args = {
         ...(evidence ? {} : { p_user_id: identity.actor?.user_id }),
-        ...(name === "erp_com1_config_get" || name === "erp_com1_nfce_config_get" ? {} : { p_input: input }),
+        ...(name === "erp_com1_config_get" || name === "erp_com1_nfce_config_get" || name === "erp_com1_nfse_config_get" ? {} : { p_input: input }),
       };
       if (!evidence && (!identity.actor || erpPrivacyDenies(policy, name, args))) throw privacyDenied();
       const envelope = encodeIdentity({ ...identity, customer_privacy: policy });

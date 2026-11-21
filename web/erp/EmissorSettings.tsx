@@ -5,6 +5,7 @@
 // ERP. Gravar, testar e remover: o administrador do Wabotia, pelo portão do
 // ERP (horário e segundo fator).
 import { NfceSettingsPanel } from "./NfceBalcao";
+import { NfseSettingsPanel } from "./NfseSettings";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { erpPorts } from "./ports";
@@ -437,6 +438,7 @@ function CommercialNfeSettings({ port, connection, confirmIdentity }: {
     <p className="real-alert">Homologação: NF-e e DANFE sem valor fiscal de produção. O ensaio pode movimentar estoque, títulos e recebimentos comerciais reais nesta área, conforme as políticas. Use área dedicada e dados de teste.</p>
     <CommercialNfeChecklist />
     <NfceSettingsPanel />
+    <NfseSettingsPanel />
     <p><Link to="/empresa-configuracoes">Conferir Dados da empresa</Link> · <Link to="/naturezas-operacao">Revisar naturezas de operação</Link></p>
     {!port && <p role="status">A configuração comercial de NF-e ainda não está disponível neste hospedeiro.</p>}
     {port && !settings && !error && <p role="status">Carregando configuração comercial…</p>}

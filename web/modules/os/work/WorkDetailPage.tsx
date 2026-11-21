@@ -25,6 +25,7 @@ import { WorkFormDialog, useWorkOperationAction, useWorkOperationDialog } from "
 import { PrivateFieldsDialog } from "./PrivateFieldsDialog";
 import { money } from "../shared";
 import { WorkCommercialPanel } from "./WorkCommercialPanel";
+import { WorkInvoicesPanel } from "../fiscal/WorkInvoicesPanel";
 import { DecisionDialog, ReasonDialog, WorkQuoteCommercial, needsReason, reasonTitle } from "./WorkQuoteCommercial";
 import { OrderContractPanel, OrderSchedulePanel } from "../maintenance/OrderPanels";
 import "../work.css";
@@ -186,6 +187,7 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
         )}
       </div>
       <WorkCommercialPanel key={order.id} workId={order.id} />
+      <WorkInvoicesPanel key={`notas-${order.id}`} workId={order.id} />
       {order.stage_approval?.state === "pending" && (
         <Notice>
           Aprovação de etapa pendente até{" "}

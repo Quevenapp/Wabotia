@@ -889,6 +889,41 @@ const counterTables: readonly EngineTable[] = BASE_ENGINE_TABLES
     since: 14, owner: "nfce-balcao", structural: "cupom-nfce",
   }));
 const C_COUNTER_SETTINGS = `${COUNTER_PREFIX}settings`;
+
+// Nota de serviço (NFS-e do Sistema Nacional) a partir da ordem de serviço:
+// a mesma máquina, em tabelas irmãs. A NFS-e não tem chave de 44 dígitos do
+// modelo 55, série numérica até 999 nem protocolo: a série vai até 5 dígitos,
+// o número da DPS até 15, a chave nacional tem até 50 caracteres e o número da
+// NFS-e (numeroNfse) ocupa a coluna protocol. Só o CHECK de número, chave e
+// autorização muda; o resto nasce do DDL da versão 10 com o nome trocado.
+const SERVICE_PREFIX = "erp_fiscal_vault__service_";
+const C_SERVICE_EMISSION = `${SERVICE_PREFIX}emission`;
+function replaceConstraint(statement: string, name: string, check: string): string {
+  const pattern = new RegExp(`^  CONSTRAINT "${name}" CHECK \\(.*\\),$`, "m");
+  if (!pattern.test(statement)) throw new Error(`Restrição ${name} não encontrada no DDL da versão 10.`);
+  return statement.replace(pattern, `  CONSTRAINT "${name}" CHECK (${check}),`);
+}
+const serviceEmission = (statement: string): string => {
+  if (!statement.startsWith(`CREATE TABLE "${C_SERVICE_EMISSION}"`)) return statement;
+  let ddl = replaceConstraint(statement, `${C_SERVICE_EMISSION}_number_check`,
+    "(series IS NULL OR series BETWEEN 0 AND 99999) AND (number IS NULL OR number BETWEEN 1 AND 999999999999999)");
+  ddl = replaceConstraint(ddl, `${C_SERVICE_EMISSION}_access_key_check`,
+    "access_key IS NULL OR (length(access_key) BETWEEN 44 AND 50 AND access_key NOT GLOB '*[^0-9A-Z]*')");
+  return replaceConstraint(ddl, `${C_SERVICE_EMISSION}_authorized_check`,
+    "status NOT IN ('autorizada','cancelada') OR (environment_confirmed = 1 AND provider_id IS NOT NULL AND length(provider_id) > 0 AND protocol IS NOT NULL AND length(protocol) > 0 AND series IS NOT NULL AND number IS NOT NULL AND authorized_at IS NOT NULL)");
+};
+const serviceTables: readonly EngineTable[] = BASE_ENGINE_TABLES
+  .filter((t) => t.structural === "comercial-nfe" && t.table !== C_SETTINGS)
+  .map((t) => ({
+    table: t.table.replace("erp_fiscal_vault__order_", SERVICE_PREFIX),
+    ddl: t.ddl.map((statement) => serviceEmission(statement.replaceAll("erp_fiscal_vault__order_", SERVICE_PREFIX))),
+    since: 15, owner: "os5-fiscal", structural: "nota-servico-os",
+  }));
+/** Cadastro fiscal do serviço (código de tributação nacional e municipal, NBS,
+ * alíquota e retenção do ISS, apuração do Simples e município de prestação),
+ * com o padrão e as exceções por serviço do catálogo. O que é do emitente
+ * (inscrição municipal, série da DPS, regime especial, certificado) fica no cofre. */
+const C_SERVICE_SETTINGS = `${SERVICE_PREFIX}settings`;
 export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...BASE_ENGINE_TABLES,
   ...counterTables,
@@ -907,6 +942,34 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
 ) STRICT`,
     ],
     since: 14, owner: "nfce-balcao", structural: "cupom-nfce",
+  },
+  ...serviceTables,
+  {
+    table: C_SERVICE_SETTINGS,
+    ddl: [
+      `CREATE TABLE "${C_SERVICE_SETTINGS}" (
+  "id" INTEGER NOT NULL PRIMARY KEY DEFAULT 1,
+  "version" INTEGER NOT NULL DEFAULT 1,
+  "national_code" TEXT,
+  "municipal_code" TEXT,
+  "nbs" TEXT,
+  "iss_rate" TEXT,
+  "iss_withheld" INTEGER NOT NULL DEFAULT 0,
+  "simples_apportionment" INTEGER,
+  "municipality_code" TEXT,
+  "parts_nature_id" TEXT,
+  "items" TEXT NOT NULL DEFAULT '{}' CHECK (${JSON_OF("items", "object")}),
+  "updated_at" INTEGER NOT NULL,
+  "updated_by" TEXT NOT NULL,
+  CONSTRAINT "${C_SERVICE_SETTINGS}_singleton_check" CHECK (id = 1),
+  CONSTRAINT "${C_SERVICE_SETTINGS}_version_check" CHECK (version BETWEEN 1 AND 2147483647),
+  CONSTRAINT "${C_SERVICE_SETTINGS}_codes_check" CHECK ((national_code IS NULL OR national_code GLOB '${DIGITS(6)}') AND (municipal_code IS NULL OR municipal_code GLOB '${DIGITS(3)}') AND (nbs IS NULL OR nbs GLOB '${DIGITS(9)}') AND (municipality_code IS NULL OR municipality_code GLOB '${DIGITS(7)}')),
+  CONSTRAINT "${C_SERVICE_SETTINGS}_iss_check" CHECK ((iss_rate IS NULL OR (iss_rate GLOB '[0-9].[0-9][0-9]')) AND iss_withheld IN (0,1) AND (simples_apportionment IS NULL OR simples_apportionment IN (1,2,3))),
+  CONSTRAINT "${C_SERVICE_SETTINGS}_items_size_check" CHECK (length(CAST(items AS BLOB)) <= 262144),
+  CONSTRAINT "${C_SERVICE_SETTINGS}_nature_fkey" FOREIGN KEY (parts_nature_id) REFERENCES "erp_fiscal_invoices__nature" (id)
+) STRICT`,
+    ],
+    since: 15, owner: "os5-fiscal", structural: "nota-servico-os",
   },
 ];
 

@@ -191,6 +191,8 @@ export interface WorkFeatures {
   warranty_days: number;
   pickup_reminder_days: number;
   stale_days: number;
+  /** OS5: só entrega com nota fiscal autorizada (de serviço ou de peças). Ausente: a ordem nunca espera a nota. */
+  require_invoice_to_deliver?: boolean;
 }
 export interface WorkLabels {
   singular: string;

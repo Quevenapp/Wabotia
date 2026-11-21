@@ -7,6 +7,7 @@ import type {
 import { parseCancellationXml } from "../../../commercial-nfe/artifacts.ts";
 import { requireCom1Access } from "./access.ts";
 import { com1Model } from "./model.ts";
+import { COM1_MODULE_EFFECTS, com1ModuleDocument } from "./effect-policy.ts";
 import { requireCommercialEmissionVisible, requireCommercialReadParts } from "./reads.ts";
 import { readCommercialSettings } from "./settings.ts";
 import {
@@ -32,21 +33,26 @@ const positive = (v: unknown): boolean => Number.isSafeInteger(v) && Number(v) >
 export function normalizeCommercialResult(value: unknown): FiscalResult | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const r = value as Record<string, unknown>;
+  // NFS-e: série de até 5 dígitos, número da DPS de até 15, chave nacional de
+  // até 50 caracteres e o número da NFS-e no lugar do protocolo (model.ts).
+  const service = com1Model() === "nfse";
+  const protocol = service ? r.nfse_number : r.protocol;
   if (r.kind !== com1Model() || !["authorized", "rejected", "denied", "processing", "error", "undetermined", "cancelled", ...(com1Model() === "nfce" ? ["contingency"] : [])].includes(String(r.status)) ||
       typeof r.provider_ref !== "string" || !/^[A-Za-z0-9_-]{1,200}$/.test(r.provider_ref) ||
       typeof r.reference !== "string" || !r.reference || !["homologacao", "producao"].includes(String(r.environment)) ||
-      typeof r.series !== "string" || !/^\d{0,3}$/.test(r.series) || !Number.isInteger(r.number) || Number(r.number) < 0 || Number(r.number) > 999999999 ||
+      typeof r.series !== "string" || !(service ? /^\d{0,5}$/ : /^\d{0,3}$/).test(r.series) || !Number.isSafeInteger(r.number) || Number(r.number) < 0 ||
+      Number(r.number) > (service ? 999999999999999 : 999999999) ||
       !Array.isArray(r.messages) || r.messages.length > 1000 || r.messages.some(message => !message || typeof message !== "object" ||
         typeof message.code !== "string" || typeof message.description !== "string" || message.code.length > 200 || message.description.length > 10000) ||
-      (r.access_key != null && (typeof r.access_key !== "string" || !/^[0-9A-Z]{44}$/.test(r.access_key))) ||
-      (r.protocol != null && (typeof r.protocol !== "string" || r.protocol.length > 100 || /[\u0000-\u001f\u007f]/.test(r.protocol))) ||
+      (r.access_key != null && (typeof r.access_key !== "string" || !(service ? /^[0-9A-Z]{44,50}$/ : /^[0-9A-Z]{44}$/).test(r.access_key))) ||
+      (protocol != null && (typeof protocol !== "string" || protocol.length > 100 || /[\u0000-\u001f\u007f]/.test(protocol))) ||
       ["issued_at", "authorized_at"].some(field => r[field] != null && (typeof r[field] !== "string" || !Number.isFinite(Date.parse(String(r[field]))))) ||
       (r.total != null && (typeof r.total !== "number" || !Number.isFinite(r.total) || r.total < 0 || !Number.isSafeInteger(Math.round(r.total * 100))))) return null;
   return {
     kind: com1Model(), status: r.status as FiscalResult["status"], provider_ref: r.provider_ref,
     reference: r.reference, environment: r.environment as FiscalResult["environment"], series: r.series, number: Number(r.number),
-    access_key: r.access_key as string | null ?? null, protocol: r.protocol as string | null ?? null,
-    nfse_number: null, issued_at: r.issued_at as string | null ?? null, authorized_at: r.authorized_at as string | null ?? null,
+    access_key: r.access_key as string | null ?? null, protocol: protocol as string | null ?? null,
+    nfse_number: service ? protocol as string | null ?? null : null, issued_at: r.issued_at as string | null ?? null, authorized_at: r.authorized_at as string | null ?? null,
     total: r.total as number | null ?? null, qr_code: null, consult_url: null,
     corrections: Number.isSafeInteger(r.corrections) ? Number(r.corrections) : 0,
     messages: r.messages.map(m => ({ code: m.code, description: m.description })), xml_available: r.xml_available === true,
@@ -109,16 +115,18 @@ function initializeEffectPendencies(ctx: RpcContext, input: RecordInput | Cancel
   if (!["autorizada", "cancelada"].includes(view.status)) return view;
   const command = requireClaimedCommand(ctx, input);
   const parts = command.result?.effect_parts as JsonObject | undefined;
+  // Nota da ordem de serviço: os efeitos são os da fase 3. Nada fica
+  // pendente nem pede compensação quando a nota é cancelada.
+  const module = com1ModuleDocument(ctx, view.document_id);
   for (const axis of ["stock", "finance"] as const) {
     const disabled = parts?.[axis] === false, at = String(ctx.clock.next());
+    const state = module || disabled ? "pulado" : "pendente";
+    const reason = module ? COM1_MODULE_EFFECTS : disabled ? "part_disabled" : "awaiting_local_effect";
     const inserted = ctx.db.exec(`INSERT INTO ${T.effect} (emission_id,axis,state,reason,responsible_role,ids,updated_at)
       VALUES (?,?,?,?,?,'{}',?) ON CONFLICT(emission_id,axis) DO NOTHING`, view.id, axis,
-      disabled ? "pulado" : "pendente", disabled ? "part_disabled" : "awaiting_local_effect",
-      axis === "stock" ? "estoque" : "financeiro", at);
-    if (inserted.rowsWritten) appendCom1Audit(ctx, { command, emission: view, action: "effect_pending", after: {
-      axis, state: disabled ? "pulado" : "pendente", reason: disabled ? "part_disabled" : "awaiting_local_effect",
-    } });
-    if (view.status === "cancelada") {
+      state, reason, axis === "stock" ? "estoque" : "financeiro", at);
+    if (inserted.rowsWritten) appendCom1Audit(ctx, { command, emission: view, action: "effect_pending", after: { axis, state, reason } });
+    if (view.status === "cancelada" && !module) {
       const updated = ctx.db.exec(`UPDATE ${T.effect} SET compensation_state='compensacao_pendente',
       compensation_result=?,updated_at=? WHERE emission_id=? AND axis=? AND compensation_state IS NULL
       AND (compensation_result IS NULL OR json_extract(compensation_result,'$.state') IS NOT 'transferido')`,
@@ -155,7 +163,10 @@ export function createCommercialNfeLifecycle(options: CommercialNfeLifecycleOpti
         return { emission: view, revision: view.revision, command: receipt, disposition: completed ? "replay" : "busy" };
       }
       if (input.action === "emit") {
-        if (!ctx.parts.sales || !ctx.parts.products || (com1Model() === "nfce" && !ctx.parts.pos)) raise("55000", "module_disabled");
+        // A nota de serviço da ordem exige só Base e Fiscal; a NF-e (também a
+        // das peças da ordem) exige Vendas e Produtos; o cupom, o Caixa / PDV.
+        if (com1Model() !== "nfse" && (!ctx.parts.sales || !ctx.parts.products)) raise("55000", "module_disabled");
+        if (com1Model() === "nfce" && !ctx.parts.pos) raise("55000", "module_disabled");
         if (view.status !== "preparada" || !view.revision.body || view.revision.blockers.length) raise("55000", "com1_preparation_blocked");
         firstSendConfiguration(ctx, view);
         if (!options.sourceFingerprint) raise("0A000", "com1_not_ready");
@@ -179,7 +190,9 @@ export function createCommercialNfeLifecycle(options: CommercialNfeLifecycleOpti
       const safe = safeInput(input), result = safe.result;
       const body = getStoredRevision(ctx, view.id, command.body_revision ?? undefined).body;
       // A nota cancelada direto no cofre também traz a identidade da autorização.
-      if ((result?.status === "authorized" || result?.status === "cancelled") && result.access_key &&
+      // A NFS-e não tem emitente no corpo nem série numérica até 889: a
+      // identidade dela é conferida pela referência, ambiente e vínculo.
+      if (com1Model() !== "nfse" && (result?.status === "authorized" || result?.status === "cancelled") && result.access_key &&
           ((body?.emitente?.cnpj && result.access_key.slice(6, 20) !== body.emitente.cnpj) ||
            Number(result.series) > 889 || (body?.serie != null && Number(result.series) !== body.serie))) {
         safe.evidence = { ...safe.evidence, inconsistent_result: safeEvidence(result) };

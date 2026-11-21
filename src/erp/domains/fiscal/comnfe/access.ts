@@ -89,9 +89,10 @@ export function com1ExecutionActor(actor: ErpActor, action: Com1Action, authorit
  * política. Evidências usam a capacidade durável e não normalizam identidade. */
 export function com1ActionForRpc(name: string, value?: unknown): Com1Action | null {
   const input = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-  if (["erp_com1_config_get", "erp_com1_get", "erp_com1_list", "erp_com1_nfce_config_get", "erp_com1_nfce_sales"].includes(name)) return "read";
-  if (name === "erp_com1_config_save" || name === "erp_com1_nfce_config_save") return "configure";
-  if (name === "erp_com1_prepare" || name === "erp_com1_nfce_prepare") return "prepare";
+  if (["erp_com1_config_get", "erp_com1_get", "erp_com1_list", "erp_com1_nfce_config_get", "erp_com1_nfce_sales",
+    "erp_com1_nfse_config_get", "erp_com1_os_notes"].includes(name)) return "read";
+  if (name === "erp_com1_config_save" || name === "erp_com1_nfce_config_save" || name === "erp_com1_nfse_config_save") return "configure";
+  if (name === "erp_com1_prepare" || name === "erp_com1_nfce_prepare" || name === "erp_com1_os_prepare") return "prepare";
   if (name === "erp_com1_nfce_sale_cancel") return "cancel";
   if (name === "erp_com1_claim") return input.action === "emit" || input.action === "resume" ? input.action : null;
   if (name === "erp_com1_cancel_claim") return "cancel";

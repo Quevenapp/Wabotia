@@ -19,6 +19,7 @@ import { taxSettingsInput } from "../rpc/erp_fiscal_tax_settings.ts";
 import { com1Hash } from "./store.ts";
 import { readCommercialSettings } from "./settings.ts";
 import { linkedDocumentGuard } from "../../documents/module-policy.ts";
+import { targetOrigin } from "../../../engine/module-origin.ts";
 
 export interface PreparationSources {
   snapshot: CommercialSnapshot;
@@ -59,16 +60,76 @@ const PAYMENT_FIELDS = ["id", "description", "payment_type", "card_brand", "card
 const TECHNICAL_DOCUMENT_FIELDS = ["version", "updated_at", "updated_by", "created_at", "created_by", "effect_flags", "unavailable_parts",
   "internal_notes", "warehouse_id", "category_id", "payment_account_id"];
 
+/** Escopo da captura. `os_parts`: as peças do documento comercial que a fase 3
+ * gerou para a ordem de serviço (service_orders), para a NF-e modelo 55 das
+ * peças. O documento continua somente para consulta: a captura não o altera. */
+export type PreparationScope = "order" | "os_parts";
+
+const cents = (value: unknown): bigint => {
+  const match = /^(-?)(\d+)(?:\.(\d{1,2}))?$/.exec(String(value ?? "0"));
+  if (!match) return 0n;
+  const result = BigInt(match[2]) * 100n + BigInt((match[3] ?? "").padEnd(2, "0") || "0");
+  return match[1] ? -result : result;
+};
+const money = (value: bigint): string => `${value < 0n ? "-" : ""}${(value < 0n ? -value : value) / 100n}.${String((value < 0n ? -value : value) % 100n).padStart(2, "0")}`;
+/** Maior resto: a soma das partes é sempre o total; empate vai ao primeiro. */
+export function allocateShares(total: bigint, weights: readonly bigint[]): bigint[] {
+  const sum = weights.reduce((a, b) => a + b, 0n);
+  if (sum <= 0n || total === 0n) return weights.map(() => 0n);
+  const base = weights.map(w => total * w / sum);
+  let rest = total - base.reduce((a, b) => a + b, 0n);
+  const order = weights.map((w, i) => ({ i, r: (total * w) % sum })).sort((a, b) => a.r === b.r ? a.i - b.i : a.r > b.r ? -1 : 1);
+  for (const { i } of order) { if (rest <= 0n) break; base[i] += 1n; rest -= 1n; }
+  return base;
+}
+/** Peças da ordem: item do grupo "part" do documento da fase 3. Os demais
+ * (serviços, itens avulsos) são da nota de serviço. */
+export const osPartItem = (item: JsonObject): boolean => item.group === "part";
+
+/** Recorta o documento da ordem às peças: itens, totais (o desconto do total
+ * da ordem é repartido pelo valor líquido de cada linha), total gravado e uma
+ * parcela única com o valor das peças, a forma e o vencimento da primeira
+ * parcela da ordem. Sem forma de pagamento cadastrada, "Outros". */
+function osPartsDocument(document: JsonObject, items: JsonObject[]): { document: JsonObject; items: JsonObject[] } {
+  const totals = object(document.totals);
+  const all = items.map(item => ({ item, net: cents(item.gross) - cents(item.discount) }));
+  const share = allocateShares(cents(totals.discount), all.map(entry => entry.net < 0n ? 0n : entry.net));
+  const parts = all.map((entry, index) => ({ ...entry, share: share[index] })).filter(entry => osPartItem(entry.item));
+  const gross = parts.reduce((sum, entry) => sum + cents(entry.item.gross), 0n);
+  const lineDiscount = parts.reduce((sum, entry) => sum + cents(entry.item.discount), 0n);
+  const headerDiscount = parts.reduce((sum, entry) => sum + entry.share, 0n);
+  const total = gross - lineDiscount - headerDiscount;
+  const first = object(Array.isArray(document.installments) ? document.installments[0] : null);
+  const due = text(first.due_date) ?? text(document.date);
+  const installment: JsonObject = { position: 1, id: "pecas", due_date: due, amount: money(total), payment_method_id: text(first.payment_method_id),
+    payment_indicator: due && text(document.date) && due > String(document.date) ? "1" : "0",
+    ...(text(first.payment_method_id) ? {} : { method: "Pagamento da ordem de serviço", details: { payment_type: "99" } }) };
+  // O documento da fase 3 não leva o código do item: vale o do produto (ou o
+  // identificador do produto no ERP, que também é código interno da empresa).
+  const code = (item: JsonObject) => text(item.code) ?? text(object(item.product_snapshot).code) ?? text(item.product_id);
+  return {
+    items: parts.map(entry => ({ ...entry.item, code: code(entry.item) })),
+    document: { ...document, freight: "0.00", other_expenses: "0.00", discount_mode: "amount", discount_value: money(headerDiscount),
+      installments: [installment], stored_total: money(total),
+      totals: { ...totals, items: parts.map(entry => ({ gross: entry.item.gross, discount: entry.item.discount, total: entry.item.total })),
+        gross: money(gross), line_discount: money(lineDiscount), subtotal: money(gross - lineDiscount), discount: money(headerDiscount),
+        freight: "0.00", other_expenses: "0.00", total: money(total) } },
+  };
+}
+
 /** Sem números fiscais nem impostos confiados ao navegador. `choices` é a única
  * contribuição fiscal de entrada; o chamador valida seu formato e autorização.
  */
-export function capturePreparationSources(ctx: RpcContext, input: PrepareInput): PreparationSources {
+export function capturePreparationSources(ctx: RpcContext, input: PrepareInput, scope: PreparationScope = "order"): PreparationSources {
   const db = ctx.db;
   const row = one(db, 'SELECT *,CAST(total AS TEXT) stored_total FROM "erp_documents__document" WHERE id=?', input.document_id);
   if (!row) raise("P0002", "fiscal_order_unavailable");
   // A junção mantém pedidos de módulo somente para consulta, inclusive por
-  // URL/RPC direto. A política fiscal dessa origem ainda precisa ser definida.
-  linkedDocumentGuard(db, input.document_id);
+  // URL/RPC direto. A nota das peças da ordem lê o documento da fase 3 sem
+  // alterá-lo; qualquer outro documento de módulo continua recusado.
+  if (scope === "os_parts") {
+    if (row.kind !== "service_orders" || targetOrigin(db, "document", input.document_id)?.source.module !== "os") raise("42501", "module_document_read_only");
+  } else linkedDocumentGuard(db, input.document_id);
   const blockers: FiscalBlocker[] = [];
   const sources: CommercialSnapshot["sources"] = [];
   const recordSource = (entity: string, id: string, version: unknown, fields: string[]) => {
@@ -82,19 +143,27 @@ export function capturePreparationSources(ctx: RpcContext, input: PrepareInput):
     contactRequireVisible(db, user, id);
   };
   visible(contactId);
-  const body = parse(row.body);
-  const items = db.exec('SELECT id,position,product_id,data,product_snapshot FROM "erp_documents__item" WHERE document_id=? ORDER BY position,id', input.document_id).rows.map(item => {
+  let body = parse(row.body);
+  let items = db.exec('SELECT id,position,product_id,data,product_snapshot FROM "erp_documents__item" WHERE document_id=? ORDER BY position,id', input.document_id).rows.map(item => {
     const data = parse(item.data), savedProduct = parse(item.product_snapshot);
     return json({ ...data, id: item.id, position: item.position, product_id: item.product_id,
       code: Object.hasOwn(data, "code") ? data.code : savedProduct.code ?? null, product_snapshot: savedProduct });
   });
-  const document = json({ ...body, id: row.id, kind: row.kind, number: row.number == null ? null : String(row.number),
+  let document = json({ ...body, id: row.id, kind: row.kind, number: row.number == null ? null : String(row.number),
     status: row.status, version: Number(row.version), authority: row.authority, origin: row.origin,
     contact_id: contactId, contact_snapshot: parse(row.contact_snapshot),
     stored_total: row.stored_total == null ? null : formatScaled(fromColumn(row.stored_total), 2) });
+  if (scope === "os_parts") {
+    const parts = osPartsDocument(document, items);
+    document = parts.document; items = parts.items;
+    // A peça sai do balcão da oficina: sem transporte salvo, "sem ocorrência de transporte" (9).
+    const commercial = object(body.commercial);
+    body = { ...body, installments: document.installments, totals: document.totals,
+      commercial: { ...commercial, transport: { freight_mode: "9", ...object(commercial.transport) } } };
+  }
   recordSource("document", input.document_id, Number(row.version), Object.keys(document));
   for (const item of items) recordSource("document_item", String(item.id), Number(row.version), Object.keys(item));
-  const unavailable = row.kind !== "sales_orders" || row.authority !== "brufap" || row.deleted_at != null || row.status === "cancelled" || items.length === 0;
+  const unavailable = row.kind !== (scope === "os_parts" ? "service_orders" : "sales_orders") || row.authority !== "brufap" || row.deleted_at != null || row.status === "cancelled" || items.length === 0;
   const legacyInvoice = one(db, `SELECT o.invoice_id FROM "erp_fiscal_invoices__invoice_order" o
     JOIN "erp_fiscal_invoices__invoice" n ON n.id=o.invoice_id
     WHERE o.document_id=? AND n.deleted_at IS NULL AND n.direction='1' AND n.status NOT IN (3,10) LIMIT 1`, input.document_id);
@@ -173,7 +242,8 @@ export function capturePreparationSources(ctx: RpcContext, input: PrepareInput):
   const taxSources: JsonObject = { settings, difal_by_state: difalByState, preferences, product_groups: groups, reform_by_product: reform,
     reform_nature: natureClasses(db, input.choices.nature_id).map(entry => json(entry)), choices: json(choices),
     municipality_dataset: municipalityDataset ? json(municipalityDataset) : null,
-    versions: { tax_settings: (taxRow?.version ?? 0) as JsonValue, nature: nature.version ?? null, preferences: preferenceVersions } };
+    versions: { tax_settings: (taxRow?.version ?? 0) as JsonValue, nature: nature.version ?? null, preferences: preferenceVersions },
+    ...(scope === "os_parts" ? { scope: "os_parts" } : {}) };
   const snapshot: CommercialSnapshot = { document, items, company, recipient, products, nature, payments, transport, sources };
   const commercial = { document: omit(document, TECHNICAL_DOCUMENT_FIELDS), items: items.map(item => omit(item, ["lots"])) };
   const commercialHash = com1Hash(commercial);
@@ -205,5 +275,6 @@ export function recapturePreparationFingerprint(ctx: RpcContext, revision: Immut
   if (!text(choices.nature_id) || typeof choices.presence !== "string" || typeof choices.final_consumer !== "boolean")
     raise("22023", "fiscal_source_changed");
   return capturePreparationSources(ctx, { document_id: String(revision.snapshot.document.id),
-    expected_document_version: revision.source_document_version, command_id: "00000000-0000-0000-0000-000000000000", choices }).source_fingerprint;
+    expected_document_version: revision.source_document_version, command_id: "00000000-0000-0000-0000-000000000000", choices },
+    revision.tax_sources.scope === "os_parts" ? "os_parts" : "order").source_fingerprint;
 }

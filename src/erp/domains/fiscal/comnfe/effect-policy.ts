@@ -3,8 +3,12 @@
  *
  * Encaixes para a fase 3: deferredCom1Effect nos automatismos, requireCom1Posting
  * após replay e antes de lançar, guardCom1CommercialSave antes da gravação e
- * guardCom1Transition antes de compensar/mudar situação. A política desta fatia
- * se aplica apenas a sales_orders; OS/NFS-e exigem política e vínculo próprios.
+ * guardCom1Transition antes de compensar/mudar situação. O adiamento "só na
+ * autorização" se aplica apenas a sales_orders do próprio ERP. As notas da
+ * ordem de serviço (NFS-e e NF-e das peças, documento service_orders vindo da
+ * fase 3) nunca lançam efeitos (effects.ts): com nota vigente, os estornos
+ * diretos do documento recusam como os do pedido; cancelar a nota não desfaz
+ * a ordem nem os lançamentos dela.
  */
 import { one } from "../../../engine/driver.ts";
 import { targetOrigin } from "../../../engine/module-origin.ts";
@@ -39,14 +43,24 @@ export function deferredCom1Effect(ctx: RpcContext, documentId: string | null, a
   return authorized ? null : { outcome: "deferred", reason: "awaiting_fiscal_authorization" };
 }
 
+/** Motivo gravado nos efeitos das notas de documento vindo de módulo (ordem
+ * de serviço): estoque e financeiro são os da fase 3, nunca da nota. */
+export const COM1_MODULE_EFFECTS = "module_origin_effects";
+/** O documento veio de um módulo (fase 3): a nota não lança nem estorna. */
+export const com1ModuleDocument = (ctx: RpcContext, documentId: string): boolean => !!targetOrigin(ctx.db, "document", documentId);
+
 /** Somente caminhos de postagem; replay permanece anterior à guarda. */
 export function requireCom1Posting(ctx: RpcContext, documentId: string | null, axis: EffectAxis): void {
   if (deferredCom1Effect(ctx, documentId, axis)) raise("40001", "awaiting_fiscal_authorization");
 }
 
 const ORDER_EMISSION = "erp_fiscal_vault__order_emission", COUNTER_EMISSION = "erp_fiscal_vault__counter_emission";
-/** Emissão vigente do pedido em qualquer modelo (NF-e ou NFC-e do balcão). */
-const protectedEmission = (ctx: RpcContext, documentId: string) => [ORDER_EMISSION, COUNTER_EMISSION].map(table => one(ctx.db, `SELECT id,status FROM ${table}
+/** Nota de serviço (NFS-e) da ordem: trava os estornos diretos como as outras. */
+const SERVICE_EMISSION = "erp_fiscal_vault__service_emission";
+/** Famílias de tabelas da máquina (NF-e, NFC-e do balcão, NFS-e da ordem). */
+const FAMILIES = ["order", "counter", "service"] as const;
+/** Emissão vigente do pedido em qualquer modelo (NF-e, NFC-e do balcão ou NFS-e da ordem). */
+const protectedEmission = (ctx: RpcContext, documentId: string) => [ORDER_EMISSION, COUNTER_EMISSION, SERVICE_EMISSION].map(table => one(ctx.db, `SELECT id,status FROM ${table}
   WHERE document_id=? AND status IN ('enviando','processando','incerta','autorizada') ORDER BY fiscal_version DESC LIMIT 1`, documentId)).find(row => row) ?? null;
 
 /** O pedido tem nota vigente ou em andamento (NF-e ou NFC-e): o cancelamento
@@ -73,7 +87,7 @@ function openCompensation(ctx: RpcContext, documentId: string, axis: EffectAxis)
     UNION SELECT p.id FROM erp_${axis}__invoice_posting p JOIN erp_fiscal_invoices__invoice_order o ON o.invoice_id=p.invoice_id
       WHERE o.document_id=? AND p.state='active'`, documentId, documentId).rows.map(row => String(row.id)));
   if (!active.size) return false;
-  return ["order", "counter"].flatMap(family => ctx.db.exec(`SELECT json_extract(f.ids,'$.posting_id') AS posting_id,f.compensation_state,
+  return FAMILIES.flatMap(family => ctx.db.exec(`SELECT json_extract(f.ids,'$.posting_id') AS posting_id,f.compensation_state,
       json_extract(f.compensation_result,'$.reason') AS reason FROM erp_fiscal_vault__${family}_effect f
     JOIN erp_fiscal_vault__${family}_emission e ON e.id=f.emission_id
     WHERE e.document_id=? AND e.status='cancelada' AND f.axis=? AND f.fingerprint IS NOT NULL
@@ -152,7 +166,7 @@ export function guardCom1NotesSave(ctx: RpcContext, documentId: string, currentN
 /** A lixeira não pode ocultar um pedido com emissão enviada ou histórica,
  * inclusive quando Estoque/Financeiro foram pulados. Não depende de partes. */
 export function com1TrashBlocker(ctx: RpcContext, documentId: string): "invoice_linked" | null {
-  return ["order", "counter"].some(family => one(ctx.db, `SELECT 1 FROM erp_fiscal_vault__${family}_emission e WHERE e.document_id=? AND
+  return FAMILIES.some(family => one(ctx.db, `SELECT 1 FROM erp_fiscal_vault__${family}_emission e WHERE e.document_id=? AND
     (e.status NOT IN ('bloqueada','preparada','arquivada') OR e.provider_id IS NOT NULL OR EXISTS (
       SELECT 1 FROM erp_fiscal_vault__${family}_command c WHERE c.emission_id=e.id
       AND c.action IN ('emit','resume') AND c.token IS NOT NULL)) LIMIT 1`, documentId)) ? "invoice_linked" : null;

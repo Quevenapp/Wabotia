@@ -13,6 +13,9 @@ export type { CommercialNfeOperation } from "./metadata.ts";
 import { COM1_OPERATIONS, type CommercialNfeOperation } from "./metadata.ts";
 import { NFCE_OPERATIONS, NFCE_ROLES } from "./nfce-metadata.ts";
 export { NFCE_OPERATIONS } from "./nfce-metadata.ts";
+import { OS_NOTE_KINDS, OS_NOTE_OPERATIONS } from "./os-notes-metadata.ts";
+export { OS_NOTE_OPERATIONS } from "./os-notes-metadata.ts";
+import { NFSE_CANCEL_REASONS } from "./contracts.ts";
 
 export interface CommercialNfeHttpContext {
   env: Env;
@@ -86,6 +89,20 @@ function validateInput(operation: CommercialNfeOperation, input: Record<string, 
     if (input.pending_only !== undefined && !["true", "false"].includes(String(input.pending_only))) invalid("pending_only");
     if (input.via !== undefined && !["consumidor", "estabelecimento"].includes(String(input.via))) invalid("via");
   }
+  if (operation.name.startsWith("osnota.") && operation.name !== "osnota.list") {
+    if (!(OS_NOTE_KINDS as readonly string[]).includes(String(input.kind))) invalid("kind");
+    if (input.reason !== undefined && (input.kind !== "nfse" || !(NFSE_CANCEL_REASONS as readonly string[]).includes(String(input.reason)))) invalid("reason");
+  }
+  if (operation.name === "nfse.config.save") {
+    const code = (key: string, digits: number) => input[key] != null && input[key] !== "" && (typeof input[key] !== "string" || !new RegExp(`^\\d{${digits}}$`).test(input[key] as string));
+    if (code("national_code", 6)) invalid("national_code");
+    if (code("municipal_code", 3)) invalid("municipal_code");
+    if (code("nbs", 9)) invalid("nbs");
+    if (code("municipality_code", 7)) invalid("municipality_code");
+    if (input.iss_withheld !== undefined && typeof input.iss_withheld !== "boolean") invalid("iss_withheld");
+    if (input.parts_nature_id != null && (typeof input.parts_nature_id !== "string" || !UUID.test(input.parts_nature_id))) invalid("parts_nature_id");
+    if (input.items !== undefined && (!input.items || typeof input.items !== "object" || Array.isArray(input.items))) invalid("items");
+  }
   if (input.status !== undefined && !["bloqueada", "preparada", "enviando", "processando", "incerta", "rejeitada", "autorizada", "denegada", "cancelada", "arquivada"].includes(String(input.status))) invalid("status");
 }
 
@@ -103,7 +120,7 @@ export async function commercialNfeRoute(env: Env, request: Request, profile: st
     const prefix = `/api/v1/profiles/${encodeURIComponent(profile)}/erp-comercial-nfe/`;
     if (!url.pathname.startsWith(prefix)) throw new ApiError(404, "not_found", "Operação não encontrada.");
     const path = url.pathname.slice(prefix.length).replace(/\/+$/, "");
-    const operation = [...COM1_OPERATIONS, ...NFCE_OPERATIONS].find(op => op.method === request.method.toUpperCase() && new RegExp(`^${op.path.replace(":id", "[^/]+")}$`).test(path));
+    const operation = [...COM1_OPERATIONS, ...NFCE_OPERATIONS, ...OS_NOTE_OPERATIONS].find(op => op.method === request.method.toUpperCase() && new RegExp(`^${op.path.replace(":id", "[^/]+")}$`).test(path));
     if (!operation) throw new ApiError(404, "not_found", "Operação não encontrada.");
     const id = operation.path.includes(":id") ? path.split("/")[operation.path.split("/").indexOf(":id")] : undefined;
     if (id !== undefined && !UUID.test(id)) invalid("id");
@@ -140,7 +157,13 @@ export async function commercialNfeRoute(env: Env, request: Request, profile: st
     const allowed = counter ? NFCE_ROLES[action] ?? ["admin"] : action === "configure" ? ["admin"] : action === "read" ? ["admin", "consulta", "fiscal"]
       : action === "effect_stock" ? ["admin", "estoque"] : action === "effect_finance" ? ["admin", "financeiro"] : ["admin", "fiscal"];
     if (!person.erp_role || !allowed.includes(person.erp_role)) throw new ApiError(403, "fiscal_forbidden", "Seu papel não permite esta operação.");
-    if (!identity.parts?.customers || !identity.parts.fiscal || (["prepare", "emit"].includes(action) && (!identity.parts.products || !identity.parts.sales)))
+    // Notas da ordem: tudo exige Fiscal; a nota de peças também Vendas e Produtos (o motor confere e explica).
+    const orderNotes = operation.name.startsWith("osnota.") || operation.name.startsWith("nfse.");
+    if (orderNotes && (!identity.parts?.customers || !identity.parts.fiscal || (input.kind === "nfe" && action === "emit" && (!identity.parts.products || !identity.parts.sales))))
+      throw new ApiError(409, "module_disabled", input.kind === "nfe" && identity.parts?.fiscal
+        ? "A nota de peças depende das partes Vendas e Produtos ligadas. Peça ao administrador para ligá-las em Gestão → Módulos."
+        : "As notas da ordem dependem da parte Fiscal ligada. Peça ao administrador para ligá-la em Gestão → Módulos.");
+    if (!identity.parts?.customers || !identity.parts.fiscal || (!orderNotes && ["prepare", "emit"].includes(action) && (!identity.parts.products || !identity.parts.sales)))
       throw new ApiError(409, "module_disabled", counter ? "O cupom fiscal depende das partes Caixa / PDV e Fiscal ligadas. Peça ao administrador para ligá-las em Gestão → Módulos." : "Esta operação depende de uma parte desligada.");
     if (counter && !identity.parts.pos)
       throw new ApiError(409, "module_disabled", "O cupom fiscal depende das partes Caixa / PDV e Fiscal ligadas. Peça ao administrador para ligá-las em Gestão → Módulos.");
@@ -160,12 +183,13 @@ export async function commercialNfeRoute(env: Env, request: Request, profile: st
     // devolve um vínculo autenticado à pessoa, sem bytes fiscais para a IA.
     // A navegação/download continua exigindo sessão, papel e privacidade.
     if (actor.via && request.headers.get("Accept")?.split(",").some(type => type.trim().split(";")[0] === "application/json") &&
-        result.status === 200 && ["com1.danfe", "com1.xml", "com1.cancel.xml", "nfce.coupon"].includes(operation.name) &&
+        result.status === 200 && ["com1.danfe", "com1.xml", "com1.cancel.xml", "nfce.coupon", "osnota.xml", "osnota.pdf", "osnota.cancel.xml"].includes(operation.name) &&
         /^(?:application\/pdf|application\/xml)(?:;|$)/i.test(headers.get("Content-Type") ?? "")) {
       const contentType = headers.get("Content-Type")!.split(";")[0];
       const rawSize = headers.get("Content-Length"), size = rawSize !== null && /^\d+$/.test(rawSize) ? Number(rawSize) : null;
       await result.body?.cancel();
-      return Response.json({ emission_id: id, artifact: operation.name === "com1.danfe" ? "danfe" : operation.name === "nfce.coupon" ? "danfce" : operation.name === "com1.xml" ? "xml" : "cancellation_xml",
+      return Response.json({ emission_id: id, artifact: ["com1.danfe", "osnota.pdf"].includes(operation.name) ? "danfe" : operation.name === "nfce.coupon" ? "danfce"
+        : ["com1.xml", "osnota.xml"].includes(operation.name) ? "xml" : "cancellation_xml",
         content_type: contentType, size_bytes: size, download_url: url.pathname, authentication_required: true },
         { headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
     }

@@ -8,6 +8,7 @@ import { one, type Row } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import type { RpcContext } from "../../../engine/registry.ts";
 import { com1Authority } from "./access.ts";
+import { targetOrigin } from "../../../engine/module-origin.ts";
 import { COM1_MODEL_CODE, com1Model, com1Tables, type Com1Tables } from "./model.ts";
 import type {
   ClaimInput, ClaimResult, CommandAction, CommandReceipt, CommandState, CommercialSnapshot,
@@ -15,6 +16,7 @@ import type {
   ImmutableRevision, JsonObject, ListInput, PedidoNfe, RecordInput, StoredEmission,
   CancelClaimInput, CancelClaimResult, CancelRecordInput, CancellationXmlInput, CancellationView,
 } from "../../../commercial-nfe/contracts.ts";
+import { NFSE_CANCEL_REASONS } from "../../../commercial-nfe/contracts.ts";
 
 /** Tabelas do modelo em curso (model.ts): as da NF-e fora de um escopo NFC-e. */
 export const COM1_TABLES: Com1Tables = Object.freeze({
@@ -52,7 +54,7 @@ const instantColumns = (columns: string[]): string => columns.map(c => `CAST(${c
 const emissionSelect = () => `SELECT *,${instantColumns(["issued_at", "authorized_at", "total", "created_at", "updated_at"])} FROM ${T.emission}`;
 const commandSelect = () => `SELECT *,${instantColumns(["lease_until", "created_at", "updated_at"])} FROM ${T.command}`;
 const emissionRow = (row: Row): StoredEmission => ({ ...row, environment_confirmed: row.environment_confirmed === 1, messages: parse(row.messages),
-  ...(com1Model() === "nfce" ? { model: "nfce" } : {}) }) as StoredEmission;
+  ...(com1Model() !== "nfe" ? { model: com1Model() } : {}) }) as StoredEmission;
 const commandRow = (row: Row): CommandReceipt => ({ ...row, request: parse(row.request), result: parse(row.result), error: parse(row.error) }) as CommandReceipt;
 export function getStoredEmission(ctx: RpcContext, id: string): StoredEmission {
   const row = one(ctx.db, `${emissionSelect()} WHERE id=?`, id);
@@ -210,7 +212,11 @@ export function savePreparation(ctx: RpcContext, input: PreparationWrite): { emi
     const replay = replayCommand(ctx, { ...input, action: "prepare" });
     if (replay?.emission_id) return { emission: getEmissionView(ctx, replay.emission_id), replayed: true };
     const document = one(ctx.db, "SELECT version,kind FROM erp_documents__document WHERE id=?", input.document_id);
-    if (!document || document.kind !== "sales_orders") raise("55000", "fiscal_order_unavailable");
+    // Pedido de venda do ERP ou o documento da ordem de serviço gerado pela
+    // fase 3 (notas da ordem, os-notes.ts), que continua só para consulta.
+    if (!document || (document.kind !== "sales_orders" &&
+        !(document.kind === "service_orders" && targetOrigin(ctx.db, "document", input.document_id)?.source.module === "os")))
+      raise("55000", "fiscal_order_unavailable");
     if (document.version !== input.expected_document_version) raise("40001", "fiscal_source_changed");
     let emission = findOrderEmission(ctx, input.document_id);
     if (emission && emission.environment !== input.environment) raise("40001", "fiscal_environment_conflict");
@@ -295,9 +301,16 @@ export function recordExternalEvidence(ctx: RpcContext, input: RecordInput): Emi
     const identityMatches = !!result && input.connection_fingerprint === emission.connection_fingerprint && result.kind === com1Model() && result.environment === emission.environment && result.reference === emission.reference &&
       (!emission.provider_id || emission.provider_id === result.provider_ref) && (!emission.access_key || !result.access_key || emission.access_key === result.access_key);
     let next = emission.status, reason: string | null = null;
-    const series = result && /^\d{1,3}$/.test(result.series) ? Number(result.series) : null;
-    const complete = !!result && !!result.provider_ref.trim() && !!result.access_key && /^[0-9A-Z]{44}$/.test(result.access_key) && !!result.protocol?.trim() && series !== null && Number.isInteger(result.number) && result.number > 0 && result.number <= 999999999 && !!micros(result.authorized_at) &&
-      result.access_key.slice(20, 22) === COM1_MODEL_CODE[com1Model()] && Number(result.access_key.slice(22, 25)) === series && Number(result.access_key.slice(25, 34)) === result.number;
+    const service = com1Model() === "nfse";
+    const series = result && (service ? /^\d{1,5}$/ : /^\d{1,3}$/).test(result.series) ? Number(result.series) : null;
+    // NFS-e: o contrato não traz protocolo nem data da autorização; o número
+    // da NFS-e (normalizado em protocol) prova a autorização e a data é a do
+    // registro. A chave nacional, quando vier, é conferida só pelo formato.
+    const authorizedAt = result ? micros(result.authorized_at) ?? (service ? String(ctx.clock.next()) : null) : null;
+    const complete = !!result && !!result.provider_ref.trim() && !!result.protocol?.trim() && series !== null && Number.isSafeInteger(result.number) && result.number > 0 && !!authorizedAt && (service
+      ? result.number <= 999999999999999 && (!result.access_key || /^[0-9A-Z]{44,50}$/.test(result.access_key))
+      : result.number <= 999999999 && !!result.access_key && /^[0-9A-Z]{44}$/.test(result.access_key) &&
+        result.access_key.slice(20, 22) === COM1_MODEL_CODE[com1Model()] && Number(result.access_key.slice(22, 25)) === series && Number(result.access_key.slice(25, 34)) === result.number);
     if (!["autorizada", "cancelada", "denegada"].includes(emission.status)) {
       if (!identityMatches) { next = "incerta"; reason = result ? "com1_evidence_identity_mismatch" : input.error?.code ?? "fiscal_no_conclusive_answer"; }
       else if (command.body_revision !== emission.current_body_revision) { next = "incerta"; reason = "com1_late_revision_evidence"; }
@@ -322,7 +335,7 @@ export function recordExternalEvidence(ctx: RpcContext, input: RecordInput): Emi
         next, usable ? 1 : Number(emission.environment_confirmed), usable?.provider_ref || emission.provider_id, usable?.status ?? emission.provider_status,
         com1Json(usable?.messages ?? emission.messages), usable && complete ? series : emission.series, usable && complete ? usable.number : emission.number,
         usable && complete ? usable.access_key : emission.access_key, usable && complete ? usable.protocol : emission.protocol,
-        usable ? micros(usable.issued_at) : emission.issued_at, usable && complete ? micros(usable.authorized_at) : emission.authorized_at,
+        usable ? micros(usable.issued_at) : emission.issued_at, usable && complete ? authorizedAt : emission.authorized_at,
         usable?.total != null && Number.isFinite(usable.total) && usable.total >= 0 ? String(Math.round(usable.total * 100)) : emission.total, String(ctx.clock.next()), emission.id);
       if (next === "cancelada") recordExternalCancellation(ctx, command, getStoredEmission(ctx, emission.id), result!.messages);
     }
@@ -360,7 +373,8 @@ export function saveEffect(ctx: RpcContext, effect: EffectView, options: { apply
     if (old?.compensation_state === "revertido" && (effect.compensation_state !== "revertido" || com1Hash(old.compensation_result) !== com1Hash(effect.compensation_result)))
       raise("40001", "com1_effect_compensation_immutable");
     if (["aplicado", "reconhecido"].includes(effect.state) && (!effect.fingerprint || !Object.keys(effect.ids).length)) raise("22023", "com1_effect_ids_required");
-    if (!ctx.parts[effect.axis] && !alreadyApplied && (effect.state !== "pulado" || effect.reason !== "part_disabled")) raise("55000", "com1_effect_part_disabled");
+    // A nota da ordem de serviço nunca lança (module_origin_effects, effects.ts).
+    if (!ctx.parts[effect.axis] && !alreadyApplied && (effect.state !== "pulado" || !["part_disabled", "module_origin_effects"].includes(String(effect.reason)))) raise("55000", "com1_effect_part_disabled");
     const commandId = effect.compensation_command_id ?? effect.command_id;
     const command = commandId ? getCommand(ctx, commandId) : null;
     if (command && command.emission_id !== effect.emission_id) raise("40001", "fiscal_command_conflict");
@@ -424,7 +438,11 @@ export function claimStoredCancellation(ctx: RpcContext, input: CancelClaimInput
       if (!stored) raise("55000", "com1_cancellation_missing");
       return { emission, cancellation: cancellationView(stored), command: commandRow(active), disposition: "busy" };
     }
-    const body = resuming ? String(stored!.body) : com1Json({ justificativa: input.justification });
+    // NFS-e: o contrato do cofre pede também o motivo (erro de emissão,
+    // serviço não prestado ou outros); a NF-e e a NFC-e só a justificativa.
+    if (input.reason !== undefined && (com1Model() !== "nfse" || !NFSE_CANCEL_REASONS.includes(input.reason))) raise("22023", "com1_input_invalid");
+    const body = resuming ? String(stored!.body) : com1Json(com1Model() === "nfse"
+      ? { justificativa: input.justification, motivo: input.reason ?? "outros" } : { justificativa: input.justification });
     const bodyHash = com1Sha256(body);
     const request: JsonObject = { kind: com1Model(), environment: emission.environment, reference: emission.reference,
       connection_fingerprint: emission.connection_fingerprint, provider_id: emission.provider_id, access_key: emission.access_key,

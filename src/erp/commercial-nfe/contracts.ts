@@ -140,8 +140,10 @@ export interface StoredEmission {
   authorized_at: Timestamp | null;
   /** Centavos exatos como texto. */
   total: string | null;
-  /** Só no cupom do balcão (NFC-e, modelo 65); ausente na NF-e do pedido. */
-  model?: "nfce";
+  /** "nfce" no cupom do balcão (modelo 65), "nfse" na nota de serviço da
+   * ordem; ausente na NF-e (modelo 55). Na NFS-e, `protocol` guarda o número
+   * da NFS-e, `number` o da DPS e `series` a série da DPS. */
+  model?: "nfce" | "nfse";
   created_at: Timestamp;
   created_by: string;
   updated_at: Timestamp;
@@ -247,10 +249,14 @@ export interface RecordInput extends EvidenceCapability {
   evidence?: JsonObject;
   error?: { code: string; message: string };
 }
+export type NfseCancelReason = "erro_emissao" | "servico_nao_prestado" | "outros";
+export const NFSE_CANCEL_REASONS: readonly NfseCancelReason[] = ["erro_emissao", "servico_nao_prestado", "outros"];
 export interface CancelClaimInput extends ReadInput {
   command_id: string;
   expected_version: number;
   justification: string;
+  /** Só a NFS-e: motivo do cancelamento pedido pelo contrato do cofre. */
+  reason?: NfseCancelReason;
   connection_fingerprint: Sha256;
 }
 export interface CancelClaimResult { emission: StoredEmission; cancellation: CancellationView; command: CommandReceipt; disposition: "send" | "resume" | "replay" | "busy" }

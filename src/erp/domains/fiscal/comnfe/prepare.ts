@@ -37,7 +37,8 @@ function validate(input: PrepareInput): void {
       (!Number.isSafeInteger(choices.series) || choices.series < 0 || choices.series > 889)) raise("22023", "fiscal_series_invalid");
 }
 
-function configuration(settings: CommercialSettings, choices: PrepareInput["choices"], issuerCnpj: unknown) {
+/** Bloqueios de conexão, ambiente, produção e série (também a NF-e das peças da ordem). */
+export function configuration(settings: CommercialSettings, choices: PrepareInput["choices"], issuerCnpj: unknown) {
   const blockers: FiscalBlocker[] = [];
   const block = (code: string, field: string, message: string) => blockers.push({ code, field, message, correction: { screen: "fiscal_settings", field } });
   const connection = settings.connection_public;

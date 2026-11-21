@@ -169,6 +169,64 @@ modelo, recebido e saldo (na ordem) e campo de assinatura. Campos sensíveis do
 modelo nunca saem; nas áreas reservadas (saúde, ensino, jurídico) os itens
 saem como "Serviço contratado". Permita janelas pop-up no endereço do painel.
 
+## Notas fiscais
+
+Com o ERP e a parte **Fiscal** ligados e o cofre de notas configurado (ERP →
+Fiscal → Configuração do emissor), o detalhe da ordem (clássica e modelos)
+ganha o bloco **Notas fiscais**. Com o Fiscal desligado nada muda e a ordem
+não fala de nota.
+
+- **Nota de serviço (NFS-e)**: os serviços do orçamento (inclusive os itens
+  avulsos) viram uma NFS-e do Sistema Nacional. Tomador é o pagador da ordem;
+  a discriminação lista cada serviço como foi escrito (campos sensíveis do
+  modelo nunca entram; nas áreas reservadas sai "Serviço contratado"). Código
+  de tributação, alíquota e retenção do ISS vêm de **ERP → Fiscal →
+  Configuração do emissor → Nota de serviço**; inscrição municipal, série da
+  DPS e regime especial ficam no cofre. Prefeitura com provedor próprio ainda
+  não é atendida (a tela diz quando o cofre não emite NFS-e).
+- **Nota de peças (NF-e)**: as peças do orçamento ligadas a produtos do
+  catálogo viram uma NF-e modelo 55, com o valor das peças. Exige também as
+  partes Vendas e Produtos. Peça sem produto bloqueia com o nome dela.
+- **Quando pode emitir**: orçamento aprovado (ou preço fixo autorizado) e a
+  ordem aprovada, em execução, pronta ou entregue. Cada nota mostra o que falta
+  quando ainda não dá (falta aprovar, falta o código do serviço, cofre não
+  configurado, regime fora do Simples sem alíquota...).
+- **Depois de emitir**: situação, número (na NFS-e, o número da nota e o da
+  DPS), chave, **Baixar XML** e, na nota de peças, **Baixar PDF** (o cofre não
+  gera PDF da NFS-e: consulte no Portal Nacional pela chave). Resultado que
+  não chegou mostra **Consultar e retomar**: a mesma nota é conferida, nunca
+  enviada de novo às cegas.
+- **Cancelar nota**: justificativa de 15 a 255 caracteres (na NFS-e também o
+  motivo). A prefeitura ou a SEFAZ decidem. Cancelar a nota **não desfaz a
+  ordem**: o estoque e o financeiro lançados pela ordem continuam lançados.
+  Depois do cancelamento, **Emitir de novo** gera a nova versão da nota.
+- **Estoque e financeiro** continuam sendo os da parte comercial (fase 3): a
+  nota não lança nada de novo. Com nota vigente, o ERP recusa estornar
+  diretamente os lançamentos da ordem; cancele a nota antes de cancelar a
+  ordem ou de reabrir o orçamento.
+- **A ordem nunca espera a nota** para mudar de etapa. Nos modelos, em
+  Configurar → Modelos → Recursos, **Exigir nota fiscal autorizada para
+  entregar** (só aparece com o Fiscal ligado) faz a entrega pedir uma nota
+  autorizada (de serviço ou de peças). A situação da nota é anotada quando o
+  bloco consulta, emite ou cancela; se a entrega recusar com a nota já
+  autorizada, abra o bloco para atualizar e tente de novo. A marca vale para
+  as ordens abertas depois dela (as ordens guardam o modelo da abertura).
+- **Homologação** por padrão; produção só pelo **Habilitar produção** da
+  configuração do emissor.
+
+**Rotas e bots (OS5).** Na rota do ERP `…/erp-comercial-nfe/os/{ordem}/notas`
+(nomes estáveis, grupo `nfe` do inventário dos bots; escrita sensível, a pessoa
+com o papel fiscal confirma): `osnota.list` (GET), `osnota.emit`
+(`…/emitir`, `kind`: `nfse` ou `nfe`), `osnota.consult` (`…/consultar`),
+`osnota.cancel` (`…/cancelar`, `justification` e, na NFS-e, `reason`),
+`osnota.xml`, `osnota.pdf` e `osnota.cancel.xml` (GET com `kind`); e
+`nfse.config.get`/`nfse.config.save` (`…/nfse/config`). Erros novos:
+`os_note_not_allowed`, `os_document_missing`, `fiscal_nfse_not_supported`,
+`fiscal_nfse_pdf_unavailable` e, na entrega, `invoice_required`. A migração
+`0156_os_fiscal_notes.sql` só cria a tabela da situação anotada; o esquema do
+ERP ganhou a versão 15 (só aditiva). Detalhes da máquina em
+[COMERCIAL-NFE.md](COMERCIAL-NFE.md#ordem-de-serviço-nota-de-serviço-nfs-e-e-nota-de-peças-nf-e).
+
 ## Contrato de manutenção
 
 Para quem atende o mesmo cliente todo mês (assistência técnica, decorador,

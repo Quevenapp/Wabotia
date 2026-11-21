@@ -45,6 +45,7 @@ import "./os.css";
 import type { Order } from "./work-contracts";
 import { DecisionDialog, ReasonDialog, WorkQuoteCommercial, needsReason, reasonTitle } from "./work/WorkQuoteCommercial";
 import { OrderContractPanel, OrderSchedulePanel } from "./maintenance/OrderPanels";
+import { WorkInvoicesPanel } from "./fiscal/WorkInvoicesPanel";
 
 const StatusPill = ({ status }: { status: string }) => (
   <Pill tone={statusTones[status] || "muted"}>
@@ -358,6 +359,7 @@ export function OrderDetail({
               onChanged();
             }}
           />
+          <WorkInvoicesPanel key={`notas-${order.id}`} workId={order.id} />
           <div className="card-actions">
             {quote && order.next_statuses.includes("quoted") && (
               <Button

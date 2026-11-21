@@ -192,4 +192,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Fatia balcão com NFC-e: a venda do caixa pede o cupom ao cofre da NFapi pela mesma máquina da NF-e comercial (revisão imutável, reivindicação durável, retomada por consulta, cancelamento, efeitos e auditoria), sem a venda esperar a nota.",
     replaced_by: "Versão 14 aditiva (13→14): counter_emission, counter_revision, counter_command, counter_cancel, counter_effect e counter_audit em erp_fiscal_vault, com o DDL da versão 10 e a chave de acesso do modelo 65, e counter_settings (natureza do cupom). A conexão, o ambiente e a habilitação de produção são os de commercial_settings. Série, CSC e contingência ficam no cofre.",
   },
+  {
+    id: "nota-servico-os",
+    oracle: "A ordem de serviço do ERP não emite NFS-e; a nota de serviço é feita fora do sistema.",
+    reason: "Ordem de serviço, parte 5: a ordem com orçamento aprovado emite a NFS-e do Sistema Nacional (serviços) e a NF-e modelo 55 (peças) pelo cofre da NFapi, pela mesma máquina da NF-e comercial, sem lançar estoque nem financeiro de novo (os efeitos são os da fase 3).",
+    replaced_by: "Versão 15 aditiva (14→15): service_emission, service_revision, service_command, service_cancel, service_effect e service_audit em erp_fiscal_vault, com o DDL da versão 10 e os limites da NFS-e (série de até 5 dígitos, número da DPS de até 15, chave nacional de até 50 caracteres e o número da NFS-e na coluna protocol), e service_settings (código de tributação, NBS, ISS e município de prestação, com exceções por serviço). Inscrição municipal, série da DPS e regime especial ficam no cofre.",
+  },
 ];

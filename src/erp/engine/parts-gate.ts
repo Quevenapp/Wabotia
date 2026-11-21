@@ -25,7 +25,8 @@ const RPC_GROUPS = {
   com1_prepare: `erp_com1_prepare erp_com1_nfce_prepare`,
   com1_claim: `erp_com1_claim`,
   com1_read: `erp_com1_config_get erp_com1_config_save erp_com1_get erp_com1_list erp_com1_cancel_claim
-    erp_com1_nfce_config_get erp_com1_nfce_config_save erp_com1_nfce_sales`,
+    erp_com1_nfce_config_get erp_com1_nfce_config_save erp_com1_nfce_sales
+    erp_com1_nfse_config_get erp_com1_nfse_config_save erp_com1_os_notes erp_com1_os_prepare`,
   com1_effect: `erp_com1_effect_apply erp_com1_effect_reverse erp_com1_nfce_sale_cancel`,
   com1_evidence: `erp_com1_record erp_com1_cancel_record erp_com1_cancel_xml_record`,
   base: `erp_access_storage erp_access_gate_v2 erp_access_me erp_access_permissions_me erp_access_profile_me erp_access_security_policy_get
@@ -200,7 +201,10 @@ export function rpcPartsRequirement(ctx: RpcContext, name: string, a: RpcArgs): 
     const input = obj(a.p_input);
     if (input.action !== "emit" && input.action !== "resume") throw new ErpError("22023", "com1_action_invalid");
     ids.push("erp-fiscal");
-    if (input.action === "emit") ids.push("erp-vendas");
+    // A nota de serviço da ordem (NFS-e, tabelas service_*) exige só a Fiscal;
+    // a NF-e (também a das peças da ordem) exige Vendas. O preparo das notas da
+    // ordem (erp_com1_os_prepare) confere Vendas e Produtos na NF-e das peças.
+    if (input.action === "emit" && !one(ctx.db, "SELECT 1 FROM erp_fiscal_vault__service_emission WHERE id=?", input.emission_id)) ids.push("erp-vendas");
   }
   if (rule === "document" || rule === "document_stock" || rule === "document_finance") {
     add(documentRequirement(ctx, name, a));
@@ -357,8 +361,10 @@ export function requireRpcParts(ctx: RpcContext, name: string, args: RpcArgs): v
     // Sem importar domínios aqui: seus registros criariam ciclo com registry.
     // Repete a capacidade do store, inclusive para evidência tardia após lease.
     // O cupom do balcão (NFC-e) usa a mesma máquina em tabelas irmãs (counter_*).
+    // A nota de serviço da ordem (NFS-e), nas irmãs service_*.
     const command = one(ctx.db, "SELECT emission_id,action,token FROM erp_fiscal_vault__order_command WHERE id=?", input.command_id)
-      ?? one(ctx.db, "SELECT emission_id,action,token FROM erp_fiscal_vault__counter_command WHERE id=?", input.command_id);
+      ?? one(ctx.db, "SELECT emission_id,action,token FROM erp_fiscal_vault__counter_command WHERE id=?", input.command_id)
+      ?? one(ctx.db, "SELECT emission_id,action,token FROM erp_fiscal_vault__service_command WHERE id=?", input.command_id);
     const actions = name === "erp_com1_record" ? ["emit", "resume"] : ["cancel"];
     if (!command || !command.token || command.token !== input.claim_token || command.emission_id !== input.emission_id || !actions.includes(String(command.action)))
       throw new ErpError("42501", "com1_claim_required");
