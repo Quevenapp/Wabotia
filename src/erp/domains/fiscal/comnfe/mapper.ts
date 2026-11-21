@@ -6,6 +6,7 @@ import { cnpj, cpfValid } from "../../company/internal.ts";
 import { lineTotalCents } from "../../../fagoo/packages/erp-domain/src/fiscal-invoice-contract.mjs";
 import type { PreparationSources } from "./source.ts";
 import type { TaxPreparationResult } from "./taxes.ts";
+import { specialGroupBlockMessage, specialGroupNotices } from "./special-groups.ts";
 
 type Obj = Record<string, unknown>;
 const object = (v: unknown): Obj => v !== null && typeof v === "object" && !Array.isArray(v) ? v as Obj : {};
@@ -136,8 +137,11 @@ export function mapPreparation(sources: PreparationSources, taxes: TaxPreparatio
   if (typeof choices.final_consumer !== "boolean") unsupported("consumidorFinal", "condição de consumidor final não definida");
   const destination = company.state === recipient.state ? "interna" : "interestadual";
   if (present(d.operation_destination) && text(d.operation_destination) !== (destination === "interna" ? "1" : "2")) unsupported("destinoOperacao", "destino divergente das UFs cadastradas");
-  for (const key of ["references", "notasReferenciadas", "exportacao", "intermediador", "import_declaration", "export", "intermediary", "delivery_address"]) {
-    if (present(d[key]) && (!Array.isArray(d[key]) || (d[key] as unknown[]).length > 0)) unsupported(key, key === "delivery_address" ? "endereço de entrega diferente do destinatário" : key);
+  for (const key of ["references", "notasReferenciadas", "exportacao", "intermediador", "import_declaration", "export", "intermediary", "delivery_address", "pickup_address"]) {
+    if (!present(d[key]) || Array.isArray(d[key]) && (d[key] as unknown[]).length === 0) continue;
+    // Retirada e entrega (special-groups.ts): o cofre não recebe; a mensagem diz o que fazer.
+    if (key === "delivery_address" || key === "pickup_address") add("fiscal_operation_unsupported", key, specialGroupBlockMessage(key === "delivery_address" ? "delivery" : "pickup"), "sales_orders", orderId);
+    else unsupported(key, key);
   }
   const otherItems = object(d.other_items);
   if (Object.keys(otherItems).length && (cents(otherItems.total) !== 0n || present(otherItems.content))) unsupported("other_items", "outros itens sem produto fiscal");
@@ -346,8 +350,10 @@ export function mapPreparation(sources: PreparationSources, taxes: TaxPreparatio
   const discount = taxes.allocations.discount.reduce((sum, value) => sum + BigInt(value), 0n);
   if (commercialTotal !== null && commercialTotal + discount > 999999999999999n) add("fiscal_payment_incomplete", "cobranca.fatura.valorOriginal", "O valor original da fatura ultrapassa o limite fiscal.", "sales_orders", orderId);
   if (commercialTotal !== null && validText(text(d.number), 1, 60)) body.cobranca = { fatura: { numero: text(d.number), valorOriginal: moneyNumber(commercialTotal + discount), desconto: moneyNumber(discount), valorLiquido: moneyNumber(commercialTotal) }, duplicatas: duplicates };
+  // Dados do cadastro que o cofre não recebe e cuja falta não deixa a nota errada: avisos na revisão.
+  const notices = specialGroupNotices({ preferences: object(sources.tax_sources.preferences) as JsonObject, recipient: recipient as JsonObject });
   const calculation = { ...taxes.calculation, commercial_total_cents: commercialTotal?.toString() ?? null, installment_total_cents: parcelSum.toString(),
-    fiscal_total_cents: total?.toString() ?? null, payments, transport: outTransport } as JsonObject;
+    fiscal_total_cents: total?.toString() ?? null, payments, transport: outTransport, ...(notices.length ? { special_notices: notices } : {}) } as unknown as JsonObject;
   const sorted = [...new Map(blockers.map(b => [`${b.field}\u0000${b.code}\u0000${b.item_id ?? ""}`, b])).values()].sort((a, b) => a.field < b.field ? -1 : a.field > b.field ? 1 : a.code < b.code ? -1 : a.code > b.code ? 1 : 0);
   return { body: sorted.length ? null : body as PedidoNfe, calculation, blockers: sorted, total_cents: taxes.total_cents, draft: body };
 }

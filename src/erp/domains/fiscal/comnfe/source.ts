@@ -181,6 +181,11 @@ export function capturePreparationSources(ctx: RpcContext, input: PrepareInput, 
   recordSource("company_extra", "1", extraRow?.version, Object.keys(extra));
   const recipient = json(contactId ? contactSnapshot(db, contactId) ?? {} : {});
   if (contactId) {
+    // Inscrição Suframa: o cofre não a recebe (special-groups.ts); entra só quando
+    // existe, para a revisão avisar e o benefício da Zona Franca bloquear.
+    // Sem inscrição, a fonte (e o fingerprint) fica como antes.
+    const suframa = one(db, 'SELECT suframa FROM "erp_catalog__contact_profile" WHERE record_id=?', contactId)?.suframa;
+    if (typeof suframa === "string" && suframa.trim() && Object.keys(recipient).length) recipient.suframa = suframa;
     const contactRow = one(db, 'SELECT version FROM "erp_catalog__record" WHERE id=?', contactId);
     recordSource("contact", contactId, contactRow?.version, Object.keys(recipient));
     const municipality = resolvePreparationMunicipality(db, recipient.city, recipient.state);

@@ -74,6 +74,20 @@ function ReformNfeBlock({ calculation }: { calculation: unknown }) {
     <p>{reform.informative ? "Em 2026 IBS e CBS são informativos: não mudam o total a pagar da nota." : "O total da nota não soma IBS, CBS e IS nesta versão: confira com o contador."}</p>
   </section>;
 }
+/**
+ * Dados do cadastro que o cofre ainda não recebe e cuja falta não deixa a nota
+ * errada (calculation.special_notices, src/erp/domains/fiscal/comnfe/special-groups.ts):
+ * pessoas autorizadas a baixar o XML e inscrição Suframa do cliente.
+ */
+function SpecialNoticesBlock({ calculation }: { calculation: unknown }) {
+  const raw = calculation && typeof calculation === "object" ? (calculation as Record<string, unknown>).special_notices : null;
+  const notices = Array.isArray(raw) ? raw.filter((notice): notice is { code: string; message: string } => Boolean(notice) && typeof notice === "object" && typeof (notice as { message?: unknown }).message === "string") : [];
+  if (!notices.length) return null;
+  return <section className="commercial-nfe-card" aria-label="Dados que não vão nesta nota">
+    <h2>Dados que não vão nesta nota</h2>
+    {notices.map(notice => <p key={notice.code} className="commercial-nfe-warning">{notice.message}</p>)}
+  </section>;
+}
 type ReformNfeView = {
   year: number; sent: boolean; message: string | null; informative: boolean; rates?: { selective?: boolean };
   totals: { base: string; cbs: string; ibs_uf: string; ibs_mun: string; ibs: string; selective: string };
@@ -262,6 +276,7 @@ function CommercialWorkspace({ port, controller, documentId, emissionId }: { por
     {!uncertain && intents.current.has("prepare") && <p className="commercial-nfe-warning">Confira o resultado da preparação pendente antes de alterar as escolhas. <button type="button" disabled={Boolean(busy)} onClick={() => prepare(true)}>Repetir a mesma preparação</button></p>}
     <Blockers blockers={blockers} documentId={selectedOrder} />
     {view && <ReformNfeBlock calculation={view.revision.calculation} />}
+    {view && <SpecialNoticesBlock calculation={view.revision.calculation} />}
     {view ? <>
       <section className="commercial-nfe-card" aria-label="Situação fiscal"><h2>{stateLabels[view.status]}</h2><p><Link to={orderLink(view.document_id)}>Abrir pedido de venda</Link> · Versão fiscal {view.fiscal_version} · Revisão {view.current_body_revision}</p><p>Referência: <span className="commercial-nfe-code">{view.reference}</span></p>
         {view.environment !== config?.environment && <p>Esta emissão permanece em {environmentLabel(view.environment)}. A configuração atual da área não altera sua origem.</p>}

@@ -9,6 +9,7 @@ import { allocateCents, invoiceTotals, lineTotalCents } from "../../../fagoo/pac
 import { centsOf, moneyOf, checkValue } from "../../../fagoo/packages/erp-domain/src/fiscal-invoice-dto.mjs";
 import { add, compareNum, mul, neg, num, round, shift, text as decimalText } from "../../catalog/pricing/money.ts";
 import { calculateReform, reformBaseFromItem, reformYearOf, type ReformCompanySettings, type ReformItemResult, type ReformSelectiveInput } from "../reform-calc.ts";
+import { ICMS_MONOPHASE_CST, SUFRAMA_DESONERATION_REASON, specialGroupBlockMessage, specialGroupOfKey } from "./special-groups.ts";
 
 type Obj = Record<string, unknown>;
 const obj = (value: unknown): Obj => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Obj : {};
@@ -24,7 +25,7 @@ const OWN = ["00", "10", "20", "51", "70", "90", "900"];
 const ST = ["10", "30", "70", "201", "202", "203"];
 const CREDIT = ["101", "201"];
 const RETAINED = ["60", "500"];
-const MONOPHASE = ["02", "15", "53", "61"];
+const MONOPHASE: readonly string[] = ICMS_MONOPHASE_CST;
 const RATED = ["01", "02", "49", "98", "99"];
 const PIS_CST = /^(0[1-9]|49|5[0-6]|6[0-7]|7[0-5]|98|99)$/;
 const CST = ["00", "10", "20", "30", "40", "41", "50", "51", "60", "70", "90"];
@@ -137,10 +138,19 @@ export function calculatePreparationTaxes(sources: PreparationTaxSources): TaxPr
       // A classificação do cadastro é tratada acima (e calculada abaixo); grupos digitados no item continuam recusados.
       if (key === "reform_class" && source === product) continue;
       if (/^(ibs_?cbs|ibsCbs|ibs|cbs|is|impostoSeletivo|reform_required|reform_class)$/.test(key) && meaningful(value)) reform(`items.${index}.${key}`, index);
-      if (["ii", "import", "importacao", "export", "exportacao", "fuel", "medicine", "weapon", "vehicle", "retentions", "issqn"].includes(key) && meaningful(value)) unsupported(`items.${index}.${key}`, key, index);
+      if (["ii", "import", "importacao", "export", "exportacao", "fuel", "medicine", "weapon", "vehicle", "retentions", "issqn", "rastro"].includes(key) && meaningful(value)) {
+        // Casos especiais (special-groups.ts): a mensagem diz o grupo que o cofre não recebe e o que fazer.
+        const special = specialGroupOfKey(key);
+        if (special) block("fiscal_operation_unsupported", `items.${index}.${key}`, specialGroupBlockMessage(special, `Item ${index + 1}`), index, source === product ? "products" : "sales_orders");
+        else unsupported(`items.${index}.${key}`, key, index);
+      }
     }
-    for (const key of ["ipi_fixed_value", "pis_fixed_value", "cofins_fixed_value", "ipi_framework_class", "ipi_seal_code", "ipi_tipi_exception", "anp_code", "anp_description", "glp_percent", "glgnn_percent", "glgni_percent", "starting_value", "fci_number"])
-      if (nonzero(product[key])) unsupported(`items.${index}.product.${key}`, key, index);
+    for (const key of ["ipi_fixed_value", "pis_fixed_value", "cofins_fixed_value", "ipi_framework_class", "ipi_seal_code", "ipi_tipi_exception", "anp_code", "anp_description", "glp_percent", "glgnn_percent", "glgni_percent", "starting_value", "fci_number"]) {
+      if (!nonzero(product[key])) continue;
+      const special = specialGroupOfKey(key);
+      if (special) block("fiscal_operation_unsupported", `items.${index}.product.${key}`, specialGroupBlockMessage(special, `Produto ${string(product.name ?? saved.description) || index + 1}`), index, "products");
+      else unsupported(`items.${index}.product.${key}`, key, index);
+    }
     const selected: Obj = {};
     for (const tax of ["icms", "ipi", "pis", "cofins", "ii"]) {
       const rule = matchRule(rules, tax, { state: destination, productId: saved.product_id, ncm: product.ncm, groupId: productGroups[string(saved.product_id)] ?? product.group_id ?? null }) as Obj | null;
@@ -152,7 +162,7 @@ export function calculatePreparationTaxes(sources: PreparationTaxSources): TaxPr
     if (!present(ir.cfop)) block("fiscal_cfop_missing", `items.${index}.cfop`, `A natureza ${nature.description ?? "selecionada"} está sem CFOP para o produto ${saved.description ?? index + 1} e este destino.`, index);
     else if (!new RegExp(`^${interstate ? "6" : "5"}[0-9]{3}$`).test(String(ir.cfop))) unsupported(`items.${index}.cfop`, `CFOP ${ir.cfop} incompatível com saída nacional e destino`, index);
     const simple = ["1", "4"].includes(string(company.crt));
-    if (MONOPHASE.includes(situation)) unsupported(`items.${index}.icms.situation`, "ICMS monofásico", index);
+    if (MONOPHASE.includes(situation)) block("fiscal_operation_unsupported", `items.${index}.icms.situation`, specialGroupBlockMessage("icms_monophase", `Item ${index + 1}`), index);
     else if (!(simple ? CSOSN : CST).includes(situation)) missing(simple ? "CSOSN compatível com CRT" : "CST compatível com CRT", "icms", index);
     required(ir, ["situation"], "icms", index);
     if (OWN.includes(situation)) required(ir, ["bc_mode", "base_rate", "rate"], "icms", index);
@@ -186,6 +196,8 @@ export function calculatePreparationTaxes(sources: PreparationTaxSources): TaxPr
     for (const key of ["st_pis_rate", "st_cofins_rate", "presumed_credit_code", "presumed_rate", "rbc_benefit_code", "reduction_reason", "fcp_deferral_rate", "st_fcp_value", "st_deson_value", "st_deson_reason"])
       if (nonzero(ir[key])) unsupported(`items.${index}.icms.${key}`, key, index);
     if (present(ir.deson_reason)) { required(ir, ["rate", "deson_deduct"], "icms", index); }
+    // Desoneração "Suframa" exige a inscrição Suframa do cliente (dest/ISUF), que o cofre não recebe.
+    if (string(ir.deson_reason) === SUFRAMA_DESONERATION_REASON) block("fiscal_operation_unsupported", `items.${index}.icms.deson_reason`, specialGroupBlockMessage("suframa", `Item ${index + 1}`), index);
     if (selected.ii && obj(obj(selected.ii).data).situation !== "N") unsupported(`items.${index}.ii`, "imposto de importação", index);
     for (const tax of ["icms", "ipi", "pis", "cofins"]) {
       const rule = obj(selected[tax]), data = obj(rule.data);
