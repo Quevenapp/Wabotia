@@ -25,6 +25,7 @@ import { ERP_LOJAS_PART, ERP_LOJAS_ROUTE, ERP_STORE_OPERATIONS, erpStoreParams }
 import { ERP_BOLETO_OPERATIONS, ERP_BOLETO_PART, ERP_BOLETO_ROUTE, erpBoletoParams } from "../../erp/boleto-api/contract.ts";
 import { ERP_CONCILIACAO_PART, ERP_CONCILIACAO_ROUTE, ERP_RECONCILIATION_OPERATIONS, erpReconciliationParams } from "../../erp/conciliacao/contract.ts";
 import { ERP_CONTRACT_OPERATIONS, ERP_CONTRATOS_PART, ERP_CONTRATOS_ROUTE, erpContractParams } from "../../erp/contratos/contract.ts";
+import { ERP_TERMINAL_OPERATIONS, ERP_TERMINAL_PART, ERP_TERMINAL_ROUTE, erpTerminalParams } from "../../erp/terminal/contract.ts";
 
 type Params = { type: "object"; properties: Record<string, any>; required: string[] };
 /** Assunto da operação, na ordem da tela de concessões do bot. */
@@ -170,6 +171,10 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
   // ativar, suspender, reajustar e encerrar são sensíveis (o bot propõe, a pessoa confirma).
   ...ERP_CONTRACT_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
     group: "contratos", description: op.description, params: erpContractParams(op) })),
+  // Maquininha integrada ao caixa (assunto Conciliação de cartões): só consultar os pagamentos da maquininha.
+  // Enviar a cobrança ao terminal, cancelar, reenviar e configurar ficam fora (exigem pessoa no caixa).
+  ...ERP_TERMINAL_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
+    group: "conciliacao", description: op.description, params: erpTerminalParams(op) })),
 ];
 
 /** Leituras sensíveis que o administrador pode deixar o bot executar sozinho. */
@@ -197,6 +202,8 @@ export function erpBotModules(op: Pick<ErpBotOperation, "method" | "path">): rea
   if (op.path === ERP_LOJAS_ROUTE || op.path.startsWith(`${ERP_LOJAS_ROUTE}/`)) return erpRequirement(ERP_LOJAS_PART).all;
   // Boleto pela API do banco: a Cobrança bancária (com o Financeiro).
   if (op.path.startsWith(`${ERP_BOLETO_ROUTE}/`)) return erpRequirement(ERP_BOLETO_PART).all;
+  // Maquininha integrada ao caixa: o Caixa / PDV (com Vendas, Financeiro e Estoque).
+  if (op.path.startsWith(`${ERP_TERMINAL_ROUTE}/`)) return erpRequirement(ERP_TERMINAL_PART).all;
   // Conciliação: a parte Financeiro.
   if (op.path.startsWith(`${ERP_CONCILIACAO_ROUTE}/`)) return erpRequirement(ERP_CONCILIACAO_PART).all;
   // Contratos de serviço: a parte Contratos, com o Financeiro.

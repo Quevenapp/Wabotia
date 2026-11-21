@@ -11,6 +11,7 @@ import { ERP_REFORMA_MODULE_CONTRACT } from "../../erp/reforma/contract.ts";
 import { ERP_BOLETO_MODULE_CONTRACT } from "../../erp/boleto-api/contract.ts";
 import { ERP_CONCILIACAO_MODULE_CONTRACT } from "../../erp/conciliacao/contract.ts";
 import { ERP_CONTRATOS_MODULE_CONTRACT } from "../../erp/contratos/contract.ts";
+import { ERP_TERMINAL_MODULE_CONTRACT } from "../../erp/terminal/contract.ts";
 import { ERP_MANAGEMENT_ITEMS } from "./panel-menu";
 import type { ModuleDefinition } from "../types";
 import { ERP_PART_DEPENDENCIES, ERP_PART_NAMES, type ErpModuleId } from "../../erp/parts.ts";
@@ -110,7 +111,13 @@ export const erpCobrancaModule: ModuleDefinition = {
   operations: [...ERP_BOLETO_MODULE_CONTRACT.operations],
   bot: ERP_BOLETO_MODULE_CONTRACT.definition.bot,
 };
-export const erpPdvModule = definition("erp-pdv", "Venda no balcão e devolução, integradas a vendas, estoque e caixa financeiro.");
+// Maquininha integrada ao caixa (src/erp/terminal/contract.ts): rota, operações e categoria sensível no catálogo dos bots.
+export const erpPdvModule: ModuleDefinition = {
+  ...definition("erp-pdv", "Venda no balcão e devolução, integradas a vendas, estoque e caixa financeiro."),
+  routes: [...ERP_TERMINAL_MODULE_CONTRACT.routes],
+  operations: [...ERP_TERMINAL_MODULE_CONTRACT.operations],
+  bot: ERP_TERMINAL_MODULE_CONTRACT.definition.bot,
+};
 // Produção (src/erp/production/contract.ts): ordem de produção com a composição do produto.
 export const erpProducaoModule: ModuleDefinition = {
   ...definition("erp-producao", "Ordem de produção: transforma insumos em produto acabado pela composição do produto, com custo, lote e estorno, e sugere o que fabricar pelos pedidos de venda. Precisa de Estoque e de Produtos ligados."),

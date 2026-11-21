@@ -34,6 +34,8 @@ import { fitDecimal, loadDecimalPlaces, type DecimalPlaces } from '../../decimal
 import { emissorBadge, useEmissorView } from '../../emissor';
 import { erpPorts } from '../../ports';
 import { NfcePendingList, NfceSaleCoupon, NfceShiftSummary, nfceCanEmit, nfceDocumentProblem, useNfcePort } from '../../NfceBalcao';
+import { TerminalChargeDialog, terminalForStore, useTerminalConfig } from '../../MaquininhaCaixa';
+import { terminalRows, terminalSaleFinished, type TerminalPayment } from '../../maquininha-api';
 import './pdv.css';
 import './real-pdv.css';
 
@@ -48,7 +50,9 @@ interface ProductForm { record: (CatalogRecord & { gtin?: unknown }) | null; qua
 type Dialog = { kind: 'store' } | { kind: 'move'; move: 'withdrawal' | 'supply' } | { kind: 'close' } | { kind: 'settings' } | { kind: 'table'; mode: 'new' | 'transfer' } | { kind: 'cancel'; sale: PdvSale }
   | { kind: 'return'; sale: PdvSale } | { kind: 'shortcuts' } | { kind: 'gtin' } | { kind: 'pix'; payload: string; amount: string | null; confirm: boolean } | { kind: 'contact'; initial: QuickContactValues } | { kind: 'contact_search'; query: string }
   // Pesquisa avançada (Alt+A) of the product.
-  | { kind: 'product_search' };
+  | { kind: 'product_search' }
+  // Wabotia (maquininha): cartão na maquininha integrada do caixa, com a venda já salva.
+  | { kind: 'terminal'; sale: PdvSale; card: 'debito' | 'credito'; amount: bigint; terminal: string };
 const noSubscription = () => () => {}, noSnapshot = () => null;
 const STORE_KEY = 'brufap.pdv.loja';
 const readStore = () => { try { return globalThis.localStorage?.getItem(STORE_KEY) ?? null; } catch { return null; } };
@@ -120,6 +124,8 @@ export default function RealPdv({ controller }: { controller: AccessController }
   const salesSearch = useRef<HTMLInputElement>(null);
   // Wabotia: cupom fiscal do balcão. CPF/CNPJ opcional do fechamento, venda cujo cupom está sendo pedido e situação por venda.
   const nfce = useNfcePort(), nfceEmitter = nfceCanEmit(nfce);
+  // Wabotia: maquininha integrada ao caixa (web/erp/MaquininhaCaixa.tsx); desligada ou fora do painel da área, null.
+  const terminal = useTerminalConfig(scope);
   const [consumerDoc, setConsumerDoc] = useState(''), [coupon, setCoupon] = useState<{ saleId: string; document: string | null } | null>(null);
   const [couponOf, setCouponOf] = useState<Record<string, string>>({});
   const mac = isMac(globalThis.navigator?.platform || '');
@@ -342,14 +348,54 @@ export default function RealPdv({ controller }: { controller: AccessController }
     if ((operation === 'gerar_nfce' || operation === 'nfe_simplificada') && context?.effects.fiscal && !(nfce && operation === 'gerar_nfce')) { try { globalThis.window?.open(fiscalHref(record, operation === 'gerar_nfce' ? '65' : '55'), '_blank', 'noopener'); } catch { /* The link stays in the pedido panel. */ } }
   };
   const fiscalHref = (record: PdvSaleSummary, model: '55' | '65') => `/historico-fiscal?${new URLSearchParams({ modelo: model, origem: 'brufap', nota: 'nova', pedido: record.document_id })}`;
+  // Wabotia (maquininha): a venda salva para a cobrança continua na tela (com os ids dos itens gravados) até o pagamento ser aprovado.
+  const terminalPaid = useRef<TerminalPayment | null>(null);
+  const keepSaved = (record: PdvSale) => { const items = [...record.items].sort((a, b) => a.position - b.position);
+    setDraft(previous => ({ ...previous, saleId: record.id, version: record.version, number: record.number, record, savedItems: Object.fromEntries(items.map(item => [item.id, item.quantity])),
+      cart: previous.cart.map((item, index) => ({ ...item, id: items[index]?.id ?? item.id })) })); };
+  const openTerminal = (record: PdvSale) => {
+    keepSaved(record);
+    const device = terminalForStore(terminal, record.account_id), rows = terminal ? terminalRows(record.payments, terminal) : null;
+    if (!device || !rows?.kind || rows.kind === 'ambos') { say(`Venda nº ${record.number} salva em aberto.`); return; }
+    setDialog({ kind: 'terminal', sale: record, card: rows.kind, amount: rows.kind === 'debito' ? rows.debit : rows.credit, terminal: device.terminal_nome ?? device.terminal ?? '' });
+  };
+  // "Finalizar" que voltou com a venda em aberto foi o salvar da cobrança na maquininha (também ao conferir um resultado incerto).
+  const finished = (value: unknown, finishing: boolean) => {
+    if (!mayRead()) return; const record = pdvSale(value);
+    if (finishing && record.state === 'open') { openTerminal(record); return; }
+    if (finishing && terminalPaid.current?.venda === record.id) { const paid = terminalPaid.current; terminalPaid.current = null; setDialog(null); void terminalSaleFinished(paid.id).catch(() => undefined); }
+    afterSale(record, finishing);
+  };
+  const finishWithTerminal = (payment: TerminalPayment) => {
+    if (!context || draft.saleId !== payment.venda) { setDialog(null); fail('A venda na tela não é a do pagamento aprovado. Abra a venda de novo e finalize.'); return; }
+    const rows = terminal ? terminalRows(draft.payments, terminal) : null;
+    if ((payment.tipo === 'debito' ? rows?.debit : rows?.credit) !== BigInt(payment.valor_centavos)) {
+      setDialog(null); fail(`O pagamento aprovado na maquininha (${money(payment.valor_centavos)}) não bate com as parcelas de cartão da venda. Ajuste as parcelas de ${payment.tipo === 'debito' ? 'débito' : 'crédito'} para esse valor e finalize.`); return;
+    }
+    terminalPaid.current = payment;
+    void sale.run(() => { const data = saleData(true); return { id: newKey(), path: '/v1/frente-caixa/actions/sale_finish',
+      data: { ...data, payments: data.payments.map(row => row.payment_method_id === payment.forma ? { ...row, note: payment.observacao } : row) } }; }, value => finished(value, true));
+  };
   const submit = (requested: 'finish' | 'save') => {
     if (!context) return;
     const mode = requested === 'finish' && (context.settings.default_operation === 'pre_venda' || !context.permissions.finish || !context.permissions.payments) ? 'save' : requested;
+    // Wabotia (maquininha): parcelas na forma de débito ou de crédito da maquininha do caixa vão para ela; a venda é salva antes e só
+    // é finalizada com o pagamento aprovado. Caixa sem maquininha (ou integração desligada) segue como antes.
+    const device = mode === 'finish' && !sale.uncertain ? terminalForStore(terminal, store?.store.id) : null;
+    if (device && terminal) {
+      const rows = terminalRows(draft.payments, terminal);
+      if (rows.kind === 'ambos') { fail('Na maquininha vai uma cobrança por venda: deixe as parcelas de cartão só no débito ou só no crédito.'); return; }
+      if (rows.kind) {
+        try { saleData(true); } catch (failure) { fail((failure as Error).message); return; }
+        void sale.run(() => ({ id: newKey(), path: '/v1/frente-caixa/actions/sale_save', data: saleData(false) }), value => finished(value, true));
+        return;
+      }
+    }
     if (mode === 'finish' && !sale.uncertain && context.pix && context.settings.default_method === 'pix_qrcode_impresso' && !pixConfirmed) {
       const cents = pixCents(draft.payments, methods);
       if (cents > 0n) { try { setDialog({ kind: 'pix', payload: pixPayload({ keyType: context.pix.key_type, key: context.pix.key, merchantName: context.pix.merchant_name, merchantCity: context.pix.merchant_city, amountCents: cents.toString(), reference: 'PDV' }), amount: cents.toString(), confirm: true }); return; } catch { /* Without a valid key the sale goes on. */ } }
     }
-    void sale.run(() => ({ id: newKey(), path: `/v1/frente-caixa/actions/${mode === 'finish' ? 'sale_finish' : 'sale_save'}`, data: saleData(mode === 'finish') }), value => { if (mayRead()) afterSale(pdvSale(value), mode === 'finish'); });
+    void sale.run(() => ({ id: newKey(), path: `/v1/frente-caixa/actions/${mode === 'finish' ? 'sale_finish' : 'sale_save'}`, data: saleData(mode === 'finish') }), value => finished(value, mode === 'finish'));
   };
   const loadSale = (record: PdvSale) => guard.confirmLeave(() => {
     freshTabs(); setDraft({ ...emptyDraft(context, record.kind, record.table_number), saleId: record.id, version: record.version, number: record.number, record,
@@ -609,7 +655,10 @@ export default function RealPdv({ controller }: { controller: AccessController }
       say(pdvReturnMessage(result, money)); }} />}
     {dialog?.kind === 'shortcuts' && <PdvShortcutsDialog shortcuts={shortcuts.filter(item => item.action !== 'trocar-loja' || context.stores.length > 1).filter(item => item.action !== 'mesa' || context.settings.tables)} mac={mac} onClose={() => setDialog(null)} />}
     {dialog?.kind === 'gtin' && <PdvGtinDialog onRemove={removeByCode} onClose={() => setDialog(null)} />}
-    {dialog?.kind === 'pix' && <PdvPixDialog payload={dialog.payload} amount={dialog.amount} confirm={dialog.confirm} onClose={() => setDialog(null)} onPrint={() => setPrint({ kind: 'pix', payload: dialog.payload, amount_cents: dialog.amount, label: dialog.amount ? 'Pix' : 'QR code fixo' })}
+    {dialog?.kind === 'terminal' && terminal && <TerminalChargeDialog saleId={dialog.sale.id} saleNumber={dialog.sale.number} store={dialog.sale.account_id ?? ''} terminalName={dialog.terminal}
+      kind={dialog.card} amountCents={dialog.amount} maxInstallments={terminal.parcelas_max} finishing={sale.busy} onApproved={finishWithTerminal}
+      onClose={notice => { setDialog(null); if (notice) say(notice); }} />}
+    {dialog?.kind === 'pix' &&<PdvPixDialog payload={dialog.payload} amount={dialog.amount} confirm={dialog.confirm} onClose={() => setDialog(null)} onPrint={() => setPrint({ kind: 'pix', payload: dialog.payload, amount_cents: dialog.amount, label: dialog.amount ? 'Pix' : 'QR code fixo' })}
       onConfirm={() => { setDialog(null); setPixConfirmed(true); void sale.run(() => ({ id: newKey(), path: '/v1/frente-caixa/actions/sale_finish', data: saleData(true) }), value => { if (mayRead()) afterSale(pdvSale(value), true); }); }} />}
     {dialog?.kind === 'contact' && <DocumentQuickContact controller={controller} kind="sales_orders" initial={dialog.initial} onClose={() => setDialog(null)} onCreated={record => { setDraft(previous => ({ ...previous, contact: contactOf(record) })); setDialog(null); }} />}
     {dialog?.kind === 'product_search' && <ProductAdvancedSearch controller={controller} initialQuery="" onClose={() => setDialog(null)} onSelect={record => { setDialog(null); void selectProduct(record); }} />}

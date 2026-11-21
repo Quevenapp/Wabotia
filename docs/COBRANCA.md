@@ -65,6 +65,10 @@ mostra só "guardado". Para trocar, cole o novo valor e salve.
   Itaú) segue a mesma regra de baixa (a mesma opção, desligada por padrão):
   veja `docs/BOLETO-API.md`.
 
+- **Cartão na maquininha do caixa** (Mercado Pago Point) usa, se o
+  administrador escolher, a mesma conta do Mercado Pago desta Cobrança: veja
+  `docs/MAQUININHA.md`.
+
 O código Pix copia e cola chega numa mensagem só dele, separada do botão,
 para o cliente copiar sem sair do WhatsApp. Com a janela de 24 horas fechada
 na linha oficial (cobrança de módulo com `notification: true`), tudo vai numa
