@@ -1,0 +1,12 @@
+/* Cobrança por Pix ou link da conta a receber e a preferência de baixa automática (TitleCharge.tsx). */
+.title-charge, .title-charge-preference { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.title-charge h3 { margin: 0; font-size: 1rem; }
+.title-charge ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.title-charge-item { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid #e4e7ec; padding-top: 8px; }
+.title-charge-item p { margin: 0; }
+.title-charge-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.title-charge-qr { width: 160px; height: 160px; image-rendering: pixelated; }
+.title-charge-preference { max-width: 720px; padding: 0 24px 24px; }
+.title-charge-preference label { display: flex; flex-direction: column; gap: 4px; }
+.title-charge .whatsapp-send-link { display: flex; gap: 8px; }
+.title-charge .whatsapp-send-link input { flex: 1; min-width: 0; }

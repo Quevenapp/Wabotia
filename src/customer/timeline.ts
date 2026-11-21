@@ -1,6 +1,6 @@
 // Linha do tempo única da ficha: histórico de atendimento (conversas,
 // protocolos, fila, formulários, check-in) mais ordens de serviço, agenda,
-// pedidos, mensalidades, cobranças e vendas do ERP, em ordem de data.
+// pedidos, mensalidades, cobranças, vendas e notas fiscais do ERP, em ordem de data.
 // Cada fonte: uma consulta, corte (data, chave) aplicado ANTES do LIMIT e
 // a mesma barreira de módulo/permissão do cartão separado correspondente.
 // A falha de uma fonte vira aviso; as demais continuam.
@@ -208,7 +208,46 @@ function paymentReader(env: Env, profile: string, contactId: string, skipMensali
   };
 }
 
-function erpReader(env: Env, actor: Actor, profile: string, contactId: string): Reader {
+/** Uma fonte do ERP por consulta (erp_catalog_contact_timeline), já com o corte (data, chave) e o limite+1. */
+async function erpTimelineRows(env: Env, actor: Actor, profile: string, erpContactId: string, source: "sales" | "invoices", cursor: Cursor, limit: number) {
+  const { customerRpc } = await import("./erp-bridge");
+  const { freshCustomerEnv } = await import("./sync");
+  const { erpIdentity } = await import("../modules/erp/identity");
+  const identity = await erpIdentity(freshCustomerEnv(env), actor, profile);
+  const result: any = await customerRpc(env, profile, actor, identity, "erp_catalog_contact_timeline",
+    { p_contact_id: erpContactId, p_source: source, p_before: cursor.before, p_key: cursor.key, p_limit: limit });
+  // Sem o tipo de documento ou sem o papel fiscal: a fonte some (como no cartão).
+  if (result?.visible === false) throw new ApiError(403, "forbidden", "Seu acesso não permite consultar esta lista.");
+  if (!Array.isArray(result?.items)) throw new ApiError(503, "dependency_unavailable", "Resposta ERP inválida.");
+  return result.items as Record<string, any>[];
+}
+
+const decimal = (value: unknown) => typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value) ? value : null;
+const invoiceLabels: Record<string, string> = { autorizada: "Autorizada", cancelada: "Cancelada" };
+
+/** Vendas do ERP, paginadas pela data (sem o teto de dez do cartão Vendas). */
+function erpSalesReader(env: Env, actor: Actor, profile: string, erpContactId: string): Reader {
+  return async (cursor, limit) => {
+    const rows = await erpTimelineRows(env, actor, profile, erpContactId, "sales", cursor, limit);
+    return { items: rows.map(row => ({ source: "erp" as const, event: "sale", key: String(row.key), occurredAt: Number(row.at), dateOnly: true,
+      title: row.number != null ? `Venda nº ${row.number}` : "Venda", amount: decimal(row.total),
+      status: typeof row.status === "string" ? row.status : null, statusLabel: label("erp", row.status),
+      target: { module: "erp", resource: "sales_orders", id: String(row.id) } })).filter(item => Number.isSafeInteger(item.occurredAt) && after(item, cursor)) };
+  };
+}
+
+/** Notas fiscais emitidas pelo cofre (NF-e e NFC-e) dos documentos do contato: autorizadas e canceladas. */
+function erpInvoiceReader(env: Env, actor: Actor, profile: string, erpContactId: string): Reader {
+  return async (cursor, limit) => {
+    const rows = await erpTimelineRows(env, actor, profile, erpContactId, "invoices", cursor, limit);
+    return { items: rows.map(row => ({ source: "erp" as const, event: "invoice", key: String(row.key), occurredAt: Number(row.at),
+      title: `${row.model === "65" ? "Cupom fiscal (NFC-e)" : "Nota fiscal"}${row.number != null ? ` nº ${row.number}` : ""}${row.environment === "homologacao" ? " (homologação, sem valor fiscal)" : ""}`,
+      amount: decimal(row.total), status: typeof row.status === "string" ? row.status : null, statusLabel: invoiceLabels[row.status] ?? null,
+      target: { module: "erp", resource: row.model === "65" ? "nfce" : "invoices", id: String(row.id) } })).filter(item => Number.isSafeInteger(item.occurredAt) && after(item, cursor)) };
+  };
+}
+
+function erpReader(env: Env, actor: Actor, profile: string, contactId: string, erpContactId: string | null = null): Reader {
   return async (cursor, limit) => {
     const provider = customerProvider("erp");
     if (!provider?.list) throw new ApiError(503, "dependency_unavailable", "ERP indisponível.");
@@ -230,6 +269,20 @@ function erpReader(env: Env, actor: Actor, profile: string, contactId: string): 
         status: typeof row.cells.status === "string" ? row.cells.status : null, statusLabel: label("erp", row.cells.status),
         target: { module: "erp", resource: "sales_orders", id: row.target.id } };
       if (after(item, cursor)) items.push(item);
+    }
+    // O cartão entrega só as dez últimas: passou disso (ou a página já está
+    // além delas), as anteriores vêm da consulta paginada, a partir da mais
+    // antiga que o cartão trouxe.
+    if (erpContactId && page.items.length >= 10 && items.length < limit + 1) {
+      const oldest = page.items.reduce<number>((min, row) => {
+        const date = row.cells.occurredAt;
+        const at = typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date) ? Date.parse(`${date}T12:00:00Z`) : NaN;
+        return Number.isSafeInteger(at) ? Math.min(min, at) : min;
+      }, cursor.before);
+      const from: Cursor = oldest < cursor.before ? { before: oldest + 1, key: null } : cursor;
+      const known = new Set(items.map(item => item.key));
+      for (const item of (await erpSalesReader(env, actor, profile, erpContactId)(from, limit)).items)
+        if (!known.has(item.key) && after(item, cursor)) items.push(item);
     }
     return { items: items.sort(newest).slice(0, limit + 1) };
   };
@@ -256,7 +309,12 @@ async function readers(env: Env, actor: Actor, profile: string, contact: { id: s
   // ERP: mesma barreira do cartão Vendas (cadastro completo, papel com contatos e pedidos de venda).
   if (contact.erp_contact_id && allows(actor, "erp") && resourcesForRole(erpRoleOf(actor)).includes("contacts") &&
       await isFullCustomerEnabled(env, profile) && await contributionReadable(env, actor, profile, "erp", "sales"))
-    list.push(["erp", erpReader(env, actor, profile, contact.id)]);
+    list.push(["erp", erpReader(env, actor, profile, contact.id, contact.erp_contact_id)]);
+  // Notas fiscais do cofre: Fiscal ligado e acesso ao Fiscal do ERP, além da barreira das vendas
+  // (o ERP ainda confere o papel fiscal de leitura e a carteira do contato).
+  if (contact.erp_contact_id && allows(actor, "erp") && allows(actor, "erp:fiscal") && resourcesForRole(erpRoleOf(actor)).includes("contacts") &&
+      await moduleEnabled(env, profile, "erp-fiscal") && await isFullCustomerEnabled(env, profile) && await contributionReadable(env, actor, profile, "erp", "sales"))
+    list.push(["erp", erpInvoiceReader(env, actor, profile, contact.erp_contact_id)]);
   return list;
 }
 

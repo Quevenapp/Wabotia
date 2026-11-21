@@ -17,6 +17,7 @@ import { CatalogPicker } from './DocumentCatalogPicker';
 import DocumentQuickContact from './DocumentQuickContact';
 import { Modal } from './Modal';
 import { WhatsappSendButton } from './WhatsappSend';
+import { TitleChargePanel } from './TitleCharge';
 import { Icon } from './Icon';
 import './finance-title-drawer.css';
 
@@ -330,6 +331,8 @@ export default function FinanceTitleDrawer({ controller, kind, mode, title, clon
           {title && <button type="button" className="text-button" onClick={() => setOriginalOpen(true)}>Histórico original da conta</button>}
           {/* ERP pela conversa: a cobrança da conta a receber em aberto pela linha de WhatsApp da área, com o registro dos envios. */}
           {title && title.kind === 'receivable' && mode !== 'create' && !title.cancelled && !title.deleted_at && (title.status === 'open' || title.status === 'partial') && <WhatsappSendButton type="conta" id={title.id} />}
+          {/* Cobrança por Pix ou link da conta a receber (confirma sozinha; baixa automática ou sugestão de baixa). */}
+          {title && title.kind === 'receivable' && mode !== 'create' && !title.deleted_at && <TitleChargePanel titleId={title.id} open={!title.cancelled && (title.status === 'open' || title.status === 'partial')} />}
         </section>
         {history}
         {error && <p className="real-alert" role="alert">{error}</p>}

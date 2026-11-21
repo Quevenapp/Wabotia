@@ -16,7 +16,17 @@ export interface TemplateExamples {
     services: AgendaServiceExample[];
   };
   mensalidade?: { name: string; amount_cents: number; due_day: number };
+  /** Financeiro básico no ERP (Financeiro, Vendas ou Caixa / PDV ligados): montado por erp-examples.ts. */
+  financeiro?: FinanceExamples;
 }
+export interface FinanceExamples {
+  /** Tipos da forma de pagamento (códigos da NF-e): 01 dinheiro, 17 Pix, 04 débito, 03 crédito, 15 boleto. */
+  payment_methods: Array<{ description: string; payment_type: "01" | "03" | "04" | "15" | "17" }>;
+  /** Só com o Financeiro ligado (categorias e contas são dele). */
+  categories: Array<{ name: string; kind: "receivable" | "payable"; dre_group: string | null }>;
+  account: { name: string } | null;
+}
+const FINANCE_PARTS = ["erp-financeiro", "erp-vendas", "erp-pdv"];
 
 const WEEK = (start: number, end: number, saturday?: [number, number]) => [
   ...[1, 2, 3, 4, 5].map((weekday) => ({ weekday, start_minute: start * 60, end_minute: end * 60 })),
@@ -59,6 +69,25 @@ export function templateExamples(template: { id: string; modules: Partial<Record
     const plan = PLANS[template.id] ?? { name: "Plano mensal", amount_cents: 10000 };
     result.mensalidade = { name: `${plan.name} ${EXAMPLE_MARK}`, amount_cents: plan.amount_cents, due_day: 10 };
   }
+  if (FINANCE_PARTS.some((id) => template.modules[id] === true)) {
+    // Vendas sem o Financeiro: só as formas de pagamento (as categorias e a conta são do Financeiro).
+    const finance = template.modules["erp-financeiro"] === true || template.modules["erp-pdv"] === true;
+    result.financeiro = {
+      payment_methods: [
+        { description: "Dinheiro", payment_type: "01" }, { description: "Pix", payment_type: "17" },
+        { description: "Cartão de débito", payment_type: "04" }, { description: "Cartão de crédito", payment_type: "03" },
+        { description: "Boleto", payment_type: "15" },
+      ],
+      categories: finance ? [
+        { name: `Receita de vendas ${EXAMPLE_MARK}`, kind: "receivable", dre_group: "gross_revenue" },
+        { name: `Receita de serviços ${EXAMPLE_MARK}`, kind: "receivable", dre_group: "gross_revenue" },
+        { name: `Compras ${EXAMPLE_MARK}`, kind: "payable", dre_group: "operating_expenses" },
+        { name: `Despesas fixas ${EXAMPLE_MARK}`, kind: "payable", dre_group: "operating_expenses" },
+        { name: `Impostos ${EXAMPLE_MARK}`, kind: "payable", dre_group: "revenue_deductions" },
+      ] : [],
+      account: finance ? { name: "Caixa" } : null,
+    };
+  }
   return result;
 }
 
@@ -71,5 +100,8 @@ export function examplePhrases(examples: TemplateExamples): string[] {
     phrases.push(`o horário de funcionamento (seg. a sex. 8h às 18h, sáb. 8h às 12h) e ${n} ${n === 1 ? "serviço" : "serviços"} de exemplo na Agenda`);
   }
   if (examples.mensalidade) phrases.push(`um plano de exemplo na Mensalidade (${examples.mensalidade.name.replace(` ${EXAMPLE_MARK}`, "")}, ${money(examples.mensalidade.amount_cents)} por mês)`);
+  if (examples.financeiro) phrases.push(examples.financeiro.account
+    ? "as formas de pagamento básicas (dinheiro, Pix, cartões e boleto), categorias financeiras de exemplo e a conta Caixa no ERP, se ainda não houver"
+    : "as formas de pagamento básicas (dinheiro, Pix, cartões e boleto) no ERP, se ainda não houver");
   return phrases;
 }

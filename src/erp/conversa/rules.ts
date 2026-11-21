@@ -137,6 +137,8 @@ export interface MessageFacts {
   description?: string | null;
   pix?: string | null;
   payment_link?: string | null;
+  /** Linha digitável do boleto em PDF anexado. */
+  boleto_line?: string | null;
   attachments: number;
 }
 
@@ -149,7 +151,8 @@ export function messageText(facts: MessageFacts): string {
     lines.push(`${hello} Segue a cobrança${facts.description ? ` de ${facts.description}` : ""}${value ? `, no valor de ${value}` : ""}${day(facts.due_on) ? `, com vencimento em ${day(facts.due_on)}` : ""}.`);
     if (facts.payment_link) lines.push("", `Para pagar: ${facts.payment_link}`);
     if (facts.pix) lines.push("", "Pix copia e cola:", facts.pix);
-    if (!facts.pix && !facts.payment_link) lines.push("", "Se tiver dúvida sobre como pagar, responda esta mensagem.");
+    if (facts.boleto_line) lines.push("", "O boleto vai em PDF nesta mensagem. Linha digitável:", facts.boleto_line);
+    if (!facts.pix && !facts.payment_link && !facts.boleto_line) lines.push("", "Se tiver dúvida sobre como pagar, responda esta mensagem.");
     return lines.join("\n");
   }
   const what = facts.type === "nota" ? `a ${facts.label}` : `${facts.type === "proposta" ? "a sua" : "o seu"} ${facts.label}`;

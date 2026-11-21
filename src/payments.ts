@@ -547,6 +547,84 @@ export async function createPayment(env: Env, input: ChargeInput) {
   return { payment: paymentView(row)!, created: true };
 }
 
+/**
+ * Cobrança sem conversa (conta a receber do ERP, src/erp/conversa/charges.ts):
+ * cria o Pix ou o link no provedor e não envia nada ao cliente. A confirmação
+ * é a mesma de sempre (webhook assinado, consulta na API, gancho do módulo).
+ * Sem conversa, conversation_id fica vazio até o envio pela conversa ligá-la; a
+ * nota interna e o "Pagamento recebido" só saem depois de ligada a uma.
+ */
+export async function createDetachedPayment(env: Env, input: {
+  profile: string; method: PaymentMethod; amount_cents: number; description: string;
+  module: string; ref: string; actor: string; sourceKey: string; expiresMinutes?: number; payerEmail?: string | null;
+}) {
+  await requirePayments(env, input.profile);
+  let sourceKey = input.sourceKey;
+  let old = await one(env, "SELECT * FROM payments WHERE source_key=?", sourceKey);
+  // Mesma chave: a aberta e válida ou a paga voltam; vencida ou cancelada vira nova.
+  for (let step = 0; old?.provider_ref && step < 20; step++) {
+    if ((old.status === "created" && old.expires_at > now()) || old.status === "paid" || old.status === "refunded")
+      return { payment: { ...paymentView(old)!, pix_qr: old.pix_qr ?? null }, created: false };
+    sourceKey = `${input.sourceKey}#${old.id}`;
+    old = await one(env, "SELECT * FROM payments WHERE source_key=?", sourceKey);
+  }
+  if (old && old.profile_id !== input.profile) throw new ApiError(409, "payment_conflict", "Esta cobrança pertence a outra área.");
+  requireValue(["pix", "link"].includes(input.method), "Escolha Pix ou link.");
+  requireValue(Number.isInteger(input.amount_cents) && input.amount_cents >= 1 && input.amount_cents <= 100_000_00,
+    "A Cobrança aceita valores entre R$ 0,01 e R$ 100.000,00.");
+  const description = Array.from(String(input.description || "").trim()).slice(0, 120).join("");
+  requireValue(description, "Informe a descrição da cobrança.");
+  const account = await accountRow(env, input.profile);
+  if (!account?.enabled)
+    throw new ApiError(409, "payments_not_configured", "Nenhuma conta de pagamento ativa. Configure o Mercado Pago em Gestão → Cobrança.");
+  const provider = providers[account.provider];
+  if (!provider.methods.includes(input.method))
+    throw new ApiError(409, "payment_method_unavailable", "Esta forma de cobrança não existe no provedor configurado em Gestão → Cobrança.");
+  const origin = await publicOrigin(env);
+  if (!origin)
+    throw new ApiError(409, "origin_unknown", "O endereço público desta instalação ainda não é conhecido. Abra o painel pelo endereço usado pelos clientes e tente de novo.");
+  const ttl = Math.min(PAYMENT_TTL.max, Math.max(PAYMENT_TTL.min, Math.round(input.expiresMinutes || PAYMENT_TTL.default)));
+  let row = old;
+  if (!row) {
+    const at = now(), id = uid();
+    await exec(env,
+      "INSERT INTO payments(id,profile_id,conversation_id,account_id,provider,method,module_id,ref_id,description,amount_cents,currency,status,trigger,actor,source_key,expires_at,receipt,created,updated) VALUES(?,?,'',?,?,?,?,?,?,?,'BRL','created','module',?,?,?,1,?,?)",
+      id, input.profile, account.id, account.provider, input.method, input.module, input.ref, description, input.amount_cents,
+      input.actor, sourceKey, at + ttl * 60000, at, at);
+    row = await one(env, "SELECT * FROM payments WHERE id=?", id);
+  }
+  const creds = await accountCredentials(env, account.id);
+  const request = {
+    id: row.id, amount_cents: row.amount_cents, currency: row.currency, description,
+    payer_email: email(input.payerEmail) ? input.payerEmail! : account.payer_email,
+    expires_at: row.expires_at, notification_url: origin + webhookPath(account.provider, account.id),
+  };
+  const created = input.method === "pix" ? await provider.createPix(creds, request) : await provider.createLink(creds, request);
+  await exec(env, "UPDATE payments SET provider_ref=?,provider_status=?,pix_code=?,pix_qr=?,url=?,updated=? WHERE id=?",
+    created.provider_ref, created.provider_status, created.pix_code || null, created.pix_qr || null, created.url || null, now(), row.id);
+  row = await one(env, "SELECT * FROM payments WHERE id=?", row.id);
+  await event(env, input.profile, "payment.created", row.id, paymentEvent(row));
+  return { payment: { ...paymentView(row)!, pix_qr: row.pix_qr ?? null }, created: true };
+}
+
+/** Dados da cobrança para o módulo que a abriu (inclui o QR do Pix). */
+export async function modulePayment(env: Env, profile: string, module: string, id: string) {
+  const row = await one(env, "SELECT * FROM payments WHERE id=? AND profile_id=? AND module_id=?", id, profile, module);
+  return row ? { ...paymentView(row)!, pix_qr: row.pix_qr ?? null } : null;
+}
+
+/** O que falta para a Cobrança confirmar pagamentos sozinha (null: nada). */
+export async function paymentsMissing(env: Env, profile: string): Promise<{ code: string; message: string } | null> {
+  const ready = await paymentsReady(env, profile);
+  if (!ready.ready) return { code: ready.reason!, message: ready.message! };
+  const account = await accountRow(env, profile);
+  const keys = await accountCredentials(env, account.id);
+  if (!keys.access_token) return { code: "payments_not_configured", message: "Falta o Access Token do Mercado Pago em Gestão → Cobrança." };
+  if (!keys.webhook_secret)
+    return { code: "payments_webhook_missing", message: "Falta a assinatura secreta do webhook em Gestão → Cobrança: sem ela, nenhum pagamento é confirmado." };
+  return null;
+}
+
 const paymentEvent = (row: any, extra: Record<string, unknown> = {}) => ({
   id: row.id,
   conversation_id: row.conversation_id,

@@ -48,6 +48,19 @@ mostra só "guardado". Para trocar, cole o novo valor e salve.
   com `ctx.cancelCharge(id)` e, com `receipt: false`, manda o próprio
   comprovante em vez do "Pagamento recebido" do núcleo.
 
+- **Pela conta a receber do ERP:** na conta em aberto, **Cobrança por Pix ou
+  link → Gerar cobrança Pix / Gerar link de pagamento** cria a cobrança com o
+  saldo da conta, sem conversa (`src/erp/conversa/charges.ts`, módulo `erp`).
+  O envio da conta pelo WhatsApp usa a mesma cobrança e passa a ligá-la à
+  conversa. Confirmado o pagamento, a conta é baixada sozinha se o
+  administrador ligou **Preferências → Finanças → Contas a receber → Baixar
+  sozinho as contas pagas por Pix ou link** (nasce desligada; a baixa sai em
+  nome de quem ligou, na conta financeira escolhida, com o número do
+  pagamento no provedor na observação); desligada, vira sugestão de baixa
+  que a pessoa confirma com um clique. Conta baixada ou mudada à mão depois
+  da cobrança vira pendência; estorno no provedor depois da baixa estorna a
+  baixa e reabre a conta. Tudo fica em `erp_title_charge_audit`.
+
 O código Pix copia e cola chega numa mensagem só dele, separada do botão,
 para o cliente copiar sem sair do WhatsApp. Com a janela de 24 horas fechada
 na linha oficial (cobrança de módulo com `notification: true`), tudo vai numa
