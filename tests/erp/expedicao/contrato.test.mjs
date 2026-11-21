@@ -75,7 +75,7 @@ test("esquema 25: oito tabelas só da Expedição, com a decisão em structural.
   assert.deepEqual(mine.map((t) => t.table), ["erp_shipping__package", "erp_shipping__pick_list", "erp_shipping__order", "erp_shipping__pick_line",
     "erp_shipping__pending", "erp_shipping__volume", "erp_shipping__return", "erp_shipping__command"]);
   assert.ok(mine.every((t) => t.structural === "expedicao" && ERP_STRUCTURAL.some((s) => s.id === t.structural)));
-  assert.equal(ERP_ENGINE_TABLES.filter((t) => t.since >= 22 && t.since <= 24).length, 0, "22 a 24 ficam para as outras frentes");
+  assert.ok(ERP_ENGINE_TABLES.filter((t) => t.since !== 25).every((t) => t.structural !== "expedicao"), "as outras versões são das outras frentes");
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys=ON");
   assert.equal(migrate(storage(db)).version, ERP_DDL_VERSION);
