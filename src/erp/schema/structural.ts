@@ -234,4 +234,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Relatórios do ERP: DRE gerencial com Custos separados das despesas, e o pagamento da equipe (salário, comissão, adiantamento e vale) como conta a pagar com a pessoa ligada, o período e, na comissão de vendedor, a base e o percentual conferidos.",
     replaced_by: "Versão 21 aditiva (20→21): erp_finance__dre_cost (a categoria de despesa do primeiro nível que o DRE mostra em Custos; o dre_group continua o do oráculo, Despesas Operacionais) e erp_finance__team_payment (a conta a pagar, funcionário ou vendedor, tipo, período, base e percentual). A conta a pagar é a do Financeiro (erp_finance__title), no contato do vendedor ou no contato com o CPF do funcionário.",
   },
+  {
+    id: "contador-pacote",
+    oracle: "O espaço do contador monta no navegador um ZIP com os XML importados da competência (até mil notas por tipo, sem cartas de correção, inutilizações nem PDFs) e nada fica gravado.",
+    reason: "Para o contador: o pacote do período com os XML das notas emitidas pelo emissor do Wabotia (NF-e, NFC-e e NFS-e, com cancelamentos, cartas de correção e inutilizações), das recebidas com entrada e do acervo do Bling, os PDFs que o emissor oferece e a planilha de índice, montado aos poucos no alarme do objeto da área, com as partes no R2, para baixar pela tela ou pelo link enviado ao contador.",
+    replaced_by: "Versão 22 aditiva (21→22): erp_contador__package (um pacote por ambiente e período, com etapa, cursor, contagens, avisos e o deslocamento do ZIP) e erp_contador__part (cada parte gravada no R2, com os arquivos e as linhas da planilha). O cadastro do contador, os envios e os links ficam no D1 (migração 0195).",
+  },
 ];

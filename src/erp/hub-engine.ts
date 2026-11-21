@@ -12,3 +12,4 @@ export { startBackup, startRestore, runBackupJob, ErpBackupJobError } from "./en
 export { beginArchiveRestore, endArchiveRestore } from "./bling/xml.ts";
 export { ROUTINES } from "./scheduler/routines.ts";
 export { handleBlingOperation, runBlingWake, nextBlingWake } from "./bling/assembly.ts";
+export { handleContadorRequest, runContadorWake, nextContadorWake } from "./contador/do.ts";

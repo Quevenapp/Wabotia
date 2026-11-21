@@ -16,6 +16,7 @@ import { ERP_CHARGE_OPERATIONS, ERP_CONVERSA_OPERATIONS, ERP_CONVERSA_ROUTE, erp
 import { RECEBIDAS_OPERATIONS, RECEBIDAS_ROUTE } from "../../erp/recebidas/operations.ts";
 import { ERP_CONTACT_FIELD_OPERATIONS, ERP_CONTACT_FIELDS_ROUTE } from "../../erp/contact-fields/contract.ts";
 import { ERP_RELATORIOS_ROUTE, ERP_REPORT_OPERATIONS, erpReportParams } from "../../erp/relatorios/contract.ts";
+import { ERP_CONTADOR_OPERATIONS, ERP_CONTADOR_ROUTE, erpContadorParams } from "../../erp/contador/contract.ts";
 
 type Params = { type: "object"; properties: Record<string, any>; required: string[] };
 /** Assunto da operação, na ordem da tela de concessões do bot. */
@@ -126,6 +127,9 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
   // Relatórios do ERP: DRE, gráficos e lotes vencendo são leitura comum; lançar pagamento da equipe é sensível.
   ...ERP_REPORT_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
     group: op.group, description: op.description, params: erpReportParams(op) })),
+  // Para o contador (assunto NF-e): montar o pacote e consultar são operações comuns; enviar ao contador é sensível.
+  ...ERP_CONTADOR_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
+    group: op.group, description: op.description, params: erpContadorParams(op) })),
 ];
 
 /** Leituras sensíveis que o administrador pode deixar o bot executar sozinho. */
@@ -135,6 +139,7 @@ export const ERP_BOT_SENSITIVE_READS: readonly string[] = ERP_BOT_OPERATIONS.fil
 export function erpBotModules(op: Pick<ErpBotOperation, "method" | "path">): readonly ErpModuleId[] {
   if (op.path.startsWith("erp-comercial-nfe/nfce/")) return erpRequirement("erp-fiscal", "erp-pdv").all;
   if (op.path.startsWith("erp-comercial-nfe/")) return erpRequirement("erp-fiscal").all;
+  if (op.path.startsWith(`${ERP_CONTADOR_ROUTE}/`)) return erpRequirement("erp-fiscal").all;
   if (op.path.startsWith(`${RECEBIDAS_ROUTE}/`)) return RECEBIDAS_OPERATIONS.find(item => `${RECEBIDAS_ROUTE}/${item.path}` === op.path && item.method === op.method)?.parts ?? erpRequirement("erp-compras").all;
   // A parte de cada documento é conferida na rota (proposta e pedido: Vendas; nota: Fiscal; conta: Financeiro).
   if (op.path.startsWith(`${ERP_CONVERSA_ROUTE}/conta/:id/cobranca`)) return erpRequirement("erp-financeiro").all;

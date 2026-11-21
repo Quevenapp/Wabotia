@@ -166,9 +166,13 @@ export class ErpHub {
     const rpc = path.startsWith("/erp-rpc/");
     const evidence = rpc && isCommercialNfeEvidenceRequest(path, request);
     const bling = path.startsWith("/erp-bling/");
-    const identity = rpc || bling ? decodeIdentity(request.headers.get(IDENTITY_HEADER)) : null;
+    // Para o contador (src/erp/contador/do.ts): a pessoa vem com identidade; o
+    // envio automático e o link do contador (/sistema/) conferem só a parte.
+    const contador = path.startsWith("/erp-contador/");
+    const contadorSystem = path.startsWith("/erp-contador/sistema/");
+    const identity = rpc || bling || (contador && !contadorSystem) ? decodeIdentity(request.headers.get(IDENTITY_HEADER)) : null;
     // Só a evidência fiscal já reivindicada (NF-e) dispensa a fotografia de partes; o Bling sempre confere.
-    const gated = (rpc && !evidence) || bling;
+    const gated = (rpc && !evidence) || bling || (contador && !contadorSystem);
     const input = identity && { ...identity.partsControl, parts: identity.parts };
     const authorize = async (apply: boolean) => {
       try {
@@ -197,7 +201,7 @@ export class ErpHub {
       try { blingCall = await prepareBlingDispatch(profile, path, request, identity!); }
       catch (error) { return blingFailureResponse(error); }
     }
-    const { ERP_SCHEMA_VERSION, migrate, handleRpc, handleBlingOperation, ErpRestoreBusyError,
+    const { ERP_SCHEMA_VERSION, migrate, handleRpc, handleBlingOperation, handleContadorRequest, ErpRestoreBusyError,
       startBackup, startRestore, runBackupJob, ErpBackupJobError } = await engine();
     if (gated) {
       // O import cede a vez: expiração ou revisão nova também bloqueiam a migração.
@@ -206,7 +210,7 @@ export class ErpHub {
     }
     // Troca da restauração em curso: o banco pode estar pela metade, e a área
     // fica inteira parada para o ERP (leituras e escritas), sem migração.
-    if ((rpc || bling || path.startsWith("/erp-probe/")) && restoreSwapping(readBackupJob(this.ctx.storage))) {
+    if ((rpc || bling || contador || path.startsWith("/erp-probe/")) && restoreSwapping(readBackupJob(this.ctx.storage))) {
       await this.continueBackup();
       return restoreSwappingResponse();
     }
@@ -219,6 +223,16 @@ export class ErpHub {
     if (fence && blingCall && (getBlingOperation(blingCall.name)?.method !== "GET" || blingCall.name === "erp_bling_oauth_callback"))
       return fencedResponse(fence);
     if (fence && path.startsWith("/erp-probe/")) return fencedResponse(fence);
+    if (contador) {
+      // Pedir um pacote grava: espera o backup em páginas, como a coleta.
+      if (fence && /\/pedir$/.test(path)) return fencedResponse(fence);
+      const response = await handleContadorRequest(profile, path, request, identity, { env: this.env, storage: this.ctx.storage,
+        readSnapshot: () => currentErpParts(this.ctx.storage, profile) });
+      if (response.ok && /\/pedir$/.test(path)) await this.schedule(profile, Date.now() + 1_000);
+      if (contadorSystem) return response;
+      const denied = await authorize(false);
+      return denied ?? response;
+    }
     if (blingCall) {
       const response = await handleBlingOperation(blingCall, { env: this.env, storage: this.ctx.storage,
         readParts: async () => (await currentErpParts(this.ctx.storage, profile))?.parts ?? null,
@@ -412,7 +426,7 @@ export class ErpHub {
     };
     let parts = await readParts();
     if (!parts) { await this.schedule(profile, null); return; }
-    const { CONTINUE_AFTER_MS, FILE_PURPOSES, ROUTINES, TASK_HANDLERS, nextWake, engineClock, migrate, runFileTasks, runRound, storageDriver, runBlingWake, nextBlingWake } = await engine();
+    const { CONTINUE_AFTER_MS, FILE_PURPOSES, ROUTINES, TASK_HANDLERS, nextWake, engineClock, migrate, runFileTasks, runRound, storageDriver, runBlingWake, nextBlingWake, runContadorWake, nextContadorWake } = await engine();
     parts = await readParts();
     if (!parts) { await this.schedule(profile, null); return; }
     if (migrate(storage).status === "newer") return;
@@ -447,6 +461,18 @@ export class ErpHub {
     parts = await readParts();
     if (!parts) { await this.schedule(profile, null); return; }
     if (blingNext !== null) next = next === null ? blingNext : Math.min(next, blingNext);
+    // Pacote do contador (src/erp/contador/do.ts): uma parte por acordada sem
+    // trabalho operacional; falha de cofre ou R2 não adia o resto da área.
+    let contadorNext: number | null;
+    try {
+      const contadorDependencies = { env: this.env, storage, readSnapshot: () => currentErpParts(storage, profile) };
+      contadorNext = !report.more && !report.fileDue && !report.routines.length && !report.tasks.length
+        ? (await runContadorWake(profile, contadorDependencies)).nextWake
+        : nextContadorWake(storage, Date.now() + CONTINUE_AFTER_MS);
+    } catch { contadorNext = Date.now() + 60_000; }
+    parts = await readParts();
+    if (!parts) { await this.schedule(profile, null); return; }
+    if (contadorNext !== null) next = next === null ? contadorNext : Math.min(next, contadorNext);
     storage.sql.exec(
       "INSERT INTO erp_meta(key,value) VALUES('last_alarm',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
       String(Date.now()),
