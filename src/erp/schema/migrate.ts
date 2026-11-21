@@ -114,8 +114,6 @@ const STEPS: Record<number, (sql: Sql) => number> = {
   28: (sql) => createEngineTables(sql, 29),
   29: (sql) => createEngineTables(sql, 30),
   30: (sql) => createEngineTables(sql, 31),
-  31: (sql) => createEngineTables(sql, 32),
-  30: (sql) => createEngineTables(sql, 31),
   // 32: Bling numa conta real (src/erp/bling/returns.ts e webhook.ts).
   31: (sql) => createEngineTables(sql, 32),
 };
