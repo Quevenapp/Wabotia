@@ -69,6 +69,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -85,6 +87,8 @@ import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.Links
 import br.com.queven.wabotia.core.ModuleIds
 import br.com.queven.wabotia.modules.ModuleRoutes
+import br.com.queven.wabotia.modules.erp.ErpRoutes
+import br.com.queven.wabotia.modules.erp.rememberErpAccess
 import br.com.queven.wabotia.core.SessionRefresher
 import br.com.queven.wabotia.core.model.Profile
 import br.com.queven.wabotia.core.push.PushRegistrar
@@ -141,6 +145,7 @@ fun SettingsScreen(
     val enabledModules by container.modules.enabled.collectAsState()
     val modules = enabledModules[container.session.profileId].orEmpty()
     val queueAvailable = ModuleIds.QUEUE in modules
+    val erpAccess = rememberErpAccess(container)
     LaunchedEffect(container.session.profileId) { container.modules.refresh() }
 
     // Cada vez que a aba volta a ficar visível: permissão do sistema pode ter mudado; dados são recarregados.
@@ -208,6 +213,11 @@ fun SettingsScreen(
                     }
                     if (ModuleIds.PEDIDO in modules) {
                         SettingsRow(Icons.Filled.RestaurantMenu, "Pedidos", subtitle = "Quadro da cozinha, comanda, pausa da loja e esgotados", tint = c.ticket, onClick = { openRoute(ModuleRoutes.PEDIDO) })
+                        RowDivider()
+                    }
+                    // Gestão (ERP): só com o ERP ligado na área e um papel erp:* da pessoa; cada item respeita a parte dele.
+                    if (erpAccess != null) {
+                        SettingsRow(Icons.Filled.Storefront, "Gestão", subtitle = "Clientes, produtos e estoque, pedido rápido e contas", tint = c.brand, onClick = { openRoute(ErpRoutes.HOME) }, modifier = Modifier.testTag("settings.erp"))
                         RowDivider()
                     }
                     SettingsRow(Icons.Filled.SupportAgent, "Linhas de atendimento", subtitle = "Quem atende cada número e quando os menus aparecem", onClick = openLines)

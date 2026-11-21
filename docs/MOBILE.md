@@ -13,6 +13,7 @@ O que os aplicativos oferecem:
 - **Bots:** conversar com os bots habilitados no perfil (execuções da Equipe Bot) e acompanhar resultados e anexos.
 - **Notificações push:** novas mensagens, atendimentos na fila, transferências, protocolos abertos, protocolos vencendo ou atrasados.
 - **Disponibilidade:** marcar presença e ausência.
+- **Gestão (ERP):** clientes, produtos e estoque (com código de barras pela câmera), pedido rápido e contas a receber e a pagar, conforme as partes ligadas e o papel da pessoa no ERP (seção 6).
 
 Este guia descreve a parte do servidor (autenticação móvel, dispositivos e push), o gateway de notificações e como compilar os aplicativos. A homologação em aparelhos reais com número WhatsApp real continua sendo a etapa final com o proprietário.
 
@@ -170,7 +171,45 @@ Rotas usadas (todas em `/api/v1/profiles/{p}/`, escritas com `Idempotency-Key`):
 | `POST service-orders/{id}/checklist` | Marcar ou desmarcar item (`photo_document_id` quando o item pede foto). |
 | `POST service-orders/{id}/quote/send` | Enviar o orçamento pelo WhatsApp (`notify: true`). |
 
-## 6. Limites conhecidos
+## 6. Gestão (ERP) nos aplicativos
+
+Os dois aplicativos trazem uma parte do ERP para o celular, com as mesmas telas e regras nas duas plataformas. A entrada **Gestão** fica em **Ajustes → Atendimento** e só aparece quando o ERP (parte Cadastros, módulo `erp`) está ligado na área **e** a pessoa tem um papel do ERP: `erp:<papel>` em **Pessoas e acessos** (vem em `profiles[].grants` de `GET /api/v1/profiles/{p}/capabilities`) ou é administradora do Wabotia, que vale `erp:admin`. Cada item respeita a parte do ERP dele (`src/erp/parts.ts`) e some quando ela está desligada; se a parte for desligada com a tela aberta, a rota responde `409 module_disabled`, a entrada some e a tela diz qual módulo ligar em **Gestão → Módulos**.
+
+| Item | Parte(s) | Papéis que veem | Escrita no aplicativo |
+| --- | --- | --- | --- |
+| Clientes | Cadastros (`erp`) | todos | cadastro rápido: todos menos Consulta |
+| Produtos e estoque | Produtos e serviços (`erp-produtos`); saldo com Estoque (`erp-estoque`) | Administração, Consulta, Vendas, Estoque, Fiscal | ajuste de estoque: Administração e Estoque |
+| Pedido rápido | Vendas e Produtos | Administração e Vendas | salvar o pedido de venda |
+| Contas | Financeiro (`erp-financeiro`) | Administração, Consulta e Financeiro | baixa: Administração e Financeiro |
+
+O papel só decide o que aparece; quem decide é o servidor. Uma recusa (papel, horário de acesso, segundo fator, limite de crédito, desconto acima do limite, registro mudado por outra pessoa) aparece em palavras, dizendo o que fazer.
+
+- **Clientes:** busca por nome, CPF/CNPJ, telefone ou código; ficha com dados, contato, endereço, últimos pedidos de venda (com Vendas ligada) e contas a receber em aberto (com Financeiro ligado e papel que lê contas); **Ligar** abre o discador e **WhatsApp** abre a conversa no WhatsApp do aparelho com o celular do cadastro (ou o telefone). **Novo cliente** cadastra nome, pessoa física ou empresa, CPF/CNPJ, celular e e-mail (situação Ativo, não contribuinte, tipo Cliente, como o contato rápido do painel); o resto se completa no painel.
+- **Produtos e estoque:** busca por nome, código ou GTIN (o mesmo campo do painel) e pelo **código de barras pela câmera** (Android: foto da câmera do sistema lida pelo zxing que o app já usava; iOS: leitor do AVFoundation). Achando exatamente um produto, a ficha abre direto. A ficha mostra preço, unidade, códigos, marca, a primeira foto do cadastro e o saldo por depósito (com o reservado). Quem tem o papel de estoque toca em **+** no depósito para lançar **Entrada** ou **Saída** com quantidade e motivo (mínimo 3 letras); o lançamento leva a versão do saldo, e se outra pessoa mexeu antes o servidor recusa, o saldo é relido e a tela avisa.
+- **Pedido rápido:** cliente (busca no cadastro), itens (busca ou código de barras; o mesmo produto lido de novo soma 1), quantidade com vírgula (até 6 casas), desconto em R$ ou % e forma de pagamento (`GET documentos/sales_orders/pagamento`). O total é calculado como o servidor (item a item em centavos, meio para cima) e vai numa parcela única com vencimento hoje e a forma escolhida; sem forma cadastrada, o pedido sai sem parcela. Produto sem preço não entra. Salvo o pedido, se o servidor oferece o envio (`GET erp-conversa/pedido/{id}` com linha, telefone e modo diferente de `bloqueado`), aparece **Enviar ao cliente pelo WhatsApp**; senão, a tela mostra o motivo que o servidor deu.
+- **Contas:** **A receber** e **A pagar**, **Vencem hoje** (`option=open` com o período de hoje) e **Vencidas** (`option=overdue`), com total do filtro. **Dar baixa** (papel financeiro) baixa o saldo inteiro com a data de hoje na conta financeira escolhida; juros, multa, desconto e baixa parcial ficam no painel.
+- **Sem conexão:** cada leitura já vista (listas, fichas, saldos, contas) fica guardada no aparelho por área, apagada ao sair da conta (Android: `noBackupFiles/erp-cache`; iOS: `cache.erp.<área>.*` na pasta privada). Sem internet a tela mostra a cópia com o aviso da hora e esconde os botões de mudança; nenhuma escrita é enfileirada. Toda escrita leva `command_id` (o ERP devolve a mesma resposta para o mesmo comando) e `Idempotency-Key`; depois de uma queda, tocar de novo repete com a mesma chave.
+- **Demonstração:** a área de exemplo liga as partes Cadastros, Produtos, Vendas, Estoque e Financeiro com a pessoa administradora. É uma mercearia fictícia: seis clientes (telefones com DDD 20, e-mails `.example`), oito produtos com códigos de barras da faixa `20…` (de uso interno, como `2000000000015` para o café), dois depósitos (um saldo negativo e um reservado para conferir as cores), pedidos antigos e contas a receber e a pagar vencendo hoje e vencidas. O pedido salvo vira conta a receber de hoje, a baixa tira a conta da lista e o envio pelo WhatsApp responde como enviado. Tudo em memória, como o resto da demonstração. No iOS, `WABOTIA_DEMO=erp` (ou `erp-customers`, `erp-products`, `erp-order`, `erp-bills`) abre direto a tela no build de depuração.
+
+Rotas usadas (todas em `/api/v1/profiles/{p}/`; as da erp-api são as mesmas do painel):
+
+| Rota | Uso |
+| --- | --- |
+| `GET erp/v1/cadastros/contatos?page=&size=&q=&sort=` | Busca de clientes. |
+| `GET erp/v1/cadastros/contatos/{id}`, `GET …/{id}/historico` | Ficha e últimos pedidos de venda. |
+| `POST erp/v1/cadastros/contatos` | Cadastro rápido (`command_id`, `data`). |
+| `GET erp/v1/cadastros/products?limit=&active=true&q=`, `GET erp/v1/cadastros/products/{id}` | Busca (nome, código, GTIN) e ficha. |
+| `GET erp/v1/anexos-cadastros/produtos/{id}`, `GET …/{id}/{imagem}/download` | Foto do produto. |
+| `GET erp/v1/estoque/saldos?product_id=` | Saldo por depósito (com a versão de cada posição). |
+| `POST erp/v1/estoque/movimentos` | Ajuste: `kind` `receipt` ou `issue`, `occurred_on`, `reason`, `items` com `expected_version`. |
+| `GET erp/v1/documentos/sales_orders/pagamento`, `POST erp/v1/documentos/sales_orders` | Formas de pagamento e o pedido de venda. |
+| `GET erp-conversa/pedido/{id}`, `POST erp-conversa/pedido/{id}/enviar` | Envio do pedido pelo WhatsApp (`telefone`, `linha`). |
+| `GET erp/v1/financeiro/titles?page=1&kind=&option=&from=&to=&q=`, `GET erp/v1/financeiro/accounts` | Contas do dia e vencidas; contas financeiras da baixa. |
+| `POST erp/v1/financeiro/actions/settle` | Baixa (`id`, `expected_version`, `account_id`, `posted_on`, `principal_cents`). |
+
+Nenhuma rota ou campo novo foi criado no servidor para isso.
+
+## 7. Limites conhecidos
 
 - Não há ligações ao vivo: o servidor não as oferece pela Zernio e os aplicativos mostram só o histórico. Para receber ligações do WhatsApp, use o encaminhamento da própria Zernio.
 - O push do iOS usa Firebase Cloud Messaging por meio do APNs.

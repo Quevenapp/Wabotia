@@ -32,6 +32,15 @@ enum Route: Hashable {
     /// Pedido (módulo `pedido`): quadro da cozinha, lista e cardápio.
     case pedido
     case pedidoOrder(id: String)
+    /// Gestão (ERP): só com o ERP ligado na área e um papel `erp:*` (`Modules/Erp`).
+    case erp
+    case erpCustomers
+    case erpCustomer(id: String)
+    case erpNewCustomer
+    case erpProducts
+    case erpProduct(id: String)
+    case erpOrder
+    case erpBills
 }
 
 /// Uma única pilha de navegação para o app inteiro: as abas ficam na raiz e toda tela empilhada cobre a
@@ -171,6 +180,14 @@ struct RouteDestination: View {
             case .subscription(let id): SubscriptionDetailView(id: id)
             case .pedido: PedidoView()
             case .pedidoOrder(let id): PedidoOrderView(id: id)
+            case .erp: ErpHomeView()
+            case .erpCustomers: ErpCustomersView()
+            case .erpCustomer(let id): ErpCustomerView(id: id)
+            case .erpNewCustomer: ErpNewCustomerView()
+            case .erpProducts: ErpProductsView()
+            case .erpProduct(let id): ErpProductView(id: id)
+            case .erpOrder: ErpQuickOrderView()
+            case .erpBills: ErpBillsView()
             }
         }
         .id(route)

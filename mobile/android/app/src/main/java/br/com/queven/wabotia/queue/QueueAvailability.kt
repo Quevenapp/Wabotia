@@ -65,6 +65,19 @@ object ModuleCapabilities {
         return ids.map { if (it in QUEUE_IDS) "queue" else it }.toSet()
     }
 
+    /**
+     * Os papéis da pessoa nos módulos ligados (`profiles[].grants` da área, como `erp:vendas` e `os:technician`). Servidor
+     * antigo ou aplicação: vazio.
+     */
+    fun grants(json: JsonElement, profileId: String? = null): Set<String> {
+        val root = json as? JsonObject ?: return emptySet()
+        val profiles = root["profiles"] as? JsonArray
+        val profile = profiles?.firstOrNull { ((it as? JsonObject)?.get("id") as? JsonPrimitive)?.contentOrNull == profileId } as? JsonObject
+            ?: profiles?.singleOrNull() as? JsonObject
+        val list = (profile?.get("grants") ?: root["grants"]) as? JsonArray ?: return emptySet()
+        return list.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.contentOrNull }.toSet()
+    }
+
     private fun JsonObject.enabledFlag(): Boolean {
         val flag = (this["enabled"] ?: this["active"]) as? JsonPrimitive ?: return true
         return flag.booleanOrNull ?: (flag.contentOrNull?.toLongOrNull()?.let { it != 0L } ?: true)
@@ -95,19 +108,26 @@ class QueueAvailabilityProbe(
      * Os módulos ligados nesta área; `null` sem resposta (rede, 5xx: quem chama mantém o que sabia). Servidor sem rota de
      * capacidades: só a fila pode aparecer, se `GET /queue` responder.
      */
-    suspend fun modules(): Set<String>? = withContext(Dispatchers.IO) {
+    suspend fun modules(): Set<String>? = snapshot()?.modules
+
+    /** Módulos ligados e papéis da pessoa na área ([ModuleCapabilities.grants]); `null` sem resposta. */
+    data class Snapshot(val modules: Set<String>, val grants: Set<String>)
+
+    suspend fun snapshot(): Snapshot? = withContext(Dispatchers.IO) {
         for (path in listOf("/api/v1/profiles/$profileId/capabilities", "/api/v1/capabilities?profile_id=$profileId")) {
             when (val answer = get(path)) {
-                is Answer.Ok -> ModuleCapabilities.enabledModules(answer.json, profileId)?.let { return@withContext it }
+                is Answer.Ok -> ModuleCapabilities.enabledModules(answer.json, profileId)?.let {
+                    return@withContext Snapshot(it, ModuleCapabilities.grants(answer.json, profileId))
+                }
                 is Answer.Failed -> if (answer.status == 0) return@withContext null
                 // 401 da pessoa: a sessão caiu; a tela que chamou cuida disso na próxima chamada da API.
             }
         }
         when (val answer = get("/api/v1/profiles/$profileId/queue")) {
-            is Answer.Ok -> setOf("queue")
+            is Answer.Ok -> Snapshot(setOf("queue"), emptySet())
             is Answer.Failed -> when {
                 answer.status == 0 || answer.status >= 500 || answer.status == 429 -> null
-                else -> emptySet()
+                else -> Snapshot(emptySet(), emptySet())
             }
         }
     }

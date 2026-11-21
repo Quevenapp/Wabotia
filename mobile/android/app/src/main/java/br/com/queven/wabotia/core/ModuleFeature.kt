@@ -20,6 +20,8 @@ object ModuleIds {
     const val FORMS = "forms"
     /** Cobrança: Pix e link de pagamento pelo provedor, enviados pela conversa. */
     const val PAYMENTS = "payments"
+    /** ERP (Gestão): a parte Cadastros; as outras partes são `erp-produtos`, `erp-vendas`… (src/erp/parts.ts). */
+    const val ERP = "erp"
 }
 
 /**
@@ -32,6 +34,10 @@ class ModuleFeature(private val container: AppContainer) {
     val enabled: StateFlow<Map<String, Set<String>>> = _enabled.asStateFlow()
     private val checkedAt = mutableMapOf<String, Long>()
 
+    /** Papéis da pessoa nos módulos ligados, por área (`erp:vendas`, `os:technician`…). */
+    private val _grants = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
+    val grants: StateFlow<Map<String, Set<String>>> = _grants.asStateFlow()
+
     fun has(module: String, profileId: String? = container.session.profileId): Boolean =
         profileId != null && _enabled.value[profileId]?.contains(module) == true
 
@@ -41,9 +47,14 @@ class ModuleFeature(private val container: AppContainer) {
         val now = System.currentTimeMillis()
         if (!force && now - (checkedAt[profile] ?: 0L) < 60_000) return
         checkedAt[profile] = now
-        val found = QueueAvailabilityProbe(server, profile, { container.session.token }).modules()
+        val found = QueueAvailabilityProbe(server, profile, { container.session.token }).snapshot()
         // Sem rede: fica o que já se sabia, e a próxima consulta tenta de novo.
-        if (found == null) checkedAt.remove(profile) else _enabled.update { it + (profile to found) }
+        if (found == null) {
+            checkedAt.remove(profile)
+        } else {
+            _enabled.update { it + (profile to found.modules) }
+            _grants.update { it + (profile to found.grants) }
+        }
     }
 
     /** `409 module_disabled`: o administrador desligou o módulo; a entrada some até a próxima consulta dizer outra coisa. */
@@ -60,5 +71,6 @@ class ModuleFeature(private val container: AppContainer) {
     fun clear() {
         checkedAt.clear()
         _enabled.value = emptyMap()
+        _grants.value = emptyMap()
     }
 }
